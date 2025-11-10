@@ -16,3 +16,8 @@ devenv.local.nix
 
 # pre-commit
 .pre-commit-config.yaml
+
+# Private network configuration (contains MAC addresses, device info)
+# Plain text version - kept locally only
+**/static-leases.nix
+# Encrypted version stored in secrets/ directory with agenix

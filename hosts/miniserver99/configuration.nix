@@ -1,0 +1,140 @@
+# miniserver99 server for Markus
+# Primary Purpose: DNS and DHCP server running AdGuard Home
+{
+  pkgs,
+  lib,
+  ...
+}:
+
+{
+  imports = [
+    ./hardware-configuration.nix
+    ../../modules/hokage
+    ./disk-config.zfs.nix
+  ];
+
+  # ZFS configuration
+  services.zfs.autoScrub.enable = true;
+
+  # AdGuard Home - DNS and DHCP server with ad-blocking
+  # Web interface: http://192.168.1.99:3000
+  services.adguardhome = {
+    enable = true;
+    host = "0.0.0.0";
+    port = 3000;
+    mutableSettings = false; # Use declarative configuration
+    settings =
+      let
+        # Note: static-leases.nix is gitignored (contains sensitive data)
+        # For deployment, ensure it exists locally before running nixos-anywhere
+        staticLeases = import ./static-leases.nix;
+        
+        # IMPORTANT: Set to false initially to avoid conflicting with miniserver24 DHCP!
+        # After miniserver24 DHCP is disabled, change to true and rebuild:
+        #   sudo nixos-rebuild switch --flake .#miniserver99
+        enableDhcp = false;  # Change to true after miniserver24 DHCP is disabled
+      in
+      {
+        dns = {
+          bind_hosts = [ "0.0.0.0" ];
+          port = 53;
+          # Use Cloudflare DNS as upstream
+          bootstrap_dns = [ "1.1.1.1" "1.0.0.1" ];
+          upstream_dns = [ "1.1.1.1" "1.0.0.1" ];
+          # Enable DNS cache
+          cache_size = 4194304; # 4MB
+          cache_ttl_min = 0;
+          cache_ttl_max = 0;
+          cache_optimistic = true;
+        };
+
+        dhcp = {
+          enabled = enableDhcp;
+          interface_name = "enp3s0f0";
+          gateway_ip = "192.168.1.1";
+          subnet_mask = "255.255.255.0";
+          range_start = "192.168.1.201";
+          range_end = "192.168.1.254";
+          lease_duration = 86400; # 24 hours
+          # Important: Set DNS server to this machine
+          dhcpv4 = {
+            gateway_ip = "192.168.1.1";
+            subnet_mask = "255.255.255.0";
+            range_start = "192.168.1.201";
+            range_end = "192.168.1.254";
+          };
+          # Import all 115 static DHCP leases from PiHole
+          static_leases = staticLeases.static_leases;
+        };
+      
+      # Filtering settings
+      filtering = {
+        protection_enabled = true;
+        filtering_enabled = true;
+      };
+      
+      # Query log settings
+      querylog = {
+        enabled = true;
+        interval = "2160h"; # 90 days
+        size_memory = 1000;
+      };
+      
+      # Statistics
+      statistics = {
+        enabled = true;
+        interval = "2160h"; # 90 days
+      };
+    };
+  };
+
+  # Networking configuration
+  networking = {
+    # Use localhost for DNS since AdGuard Home runs locally
+    nameservers = [ "127.0.0.1" ];
+    search = [ "lan" ];
+    defaultGateway = "192.168.1.1";
+    interfaces.enp3s0f0 = {
+      ipv4.addresses = [
+        {
+          address = "192.168.1.99";
+          prefixLength = 24;
+        }
+      ];
+    };
+    # Firewall configuration for DNS/DHCP server
+    firewall = {
+      enable = true;
+      allowedTCPPorts = [
+        53 # DNS
+        3000 # AdGuard Home web interface
+        80 # HTTP (for future use)
+        443 # HTTPS (for future use)
+      ];
+      allowedUDPPorts = [
+        53 # DNS
+        67 # DHCP
+      ];
+    };
+  };
+
+  # Enable Fwupd for firmware updates
+  # https://nixos.wiki/wiki/Fwupd
+  services.fwupd.enable = true;
+
+  # Additional system packages for DNS/DHCP server
+  environment.systemPackages = with pkgs; [
+    # Network diagnostic tools
+    dig
+    tcpdump
+    nmap
+  ];
+
+  hokage = {
+    hostName = "miniserver99";
+    zfs.hostId = "dabfdb02";
+    audio.enable = false;
+    serverMba.enable = true;
+  };
+}
+
