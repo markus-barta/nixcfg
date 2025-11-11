@@ -3,6 +3,7 @@
 {
   pkgs,
   lib,
+  inputs,
   ...
 }:
 
@@ -16,65 +17,22 @@
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
 
-  # Static DHCP Leases Injection 
-  # Injects static leases into AdGuard Home's YAML config after it's generated
-  # Pattern follows mqtt-volume-control service on miniserver24
-  systemd.services.adguardhome = let
-    staticLeases = import ./static-leases.nix;
-    leasesYaml = builtins.concatStringsSep "\n" (
-      builtins.map (
-        lease: "      - mac: \"${lease.mac}\"\n        ip: ${lease.ip}\n        hostname: ${lease.hostname}"
-      ) staticLeases.static_leases
-    );
-  in {
-    preStart = lib.mkAfter ''
-      CONFIG_FILE="/var/lib/AdGuardHome/AdGuardHome.yaml"
-      
-      # Logging function
-      log() {
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | ${pkgs.systemd}/bin/systemd-cat -t adguardhome-static-leases -p info
-      }
-      
-      log "Starting static DHCP leases injection"
-      
-      # Wait for config file to exist
-      if [ ! -f "$CONFIG_FILE" ]; then
-        log "AdGuard Home config file not found, skipping"
-        exit 0
-      fi
-      
-      # Remove any existing static_leases section for idempotency
-      if ${pkgs.gnugrep}/bin/grep -q "static_leases:" "$CONFIG_FILE"; then
-        log "Removing existing static_leases section"
-        ${pkgs.gnused}/bin/sed -i '/^    static_leases:/,/^    [a-z]/{ /^    static_leases:/d; /^      -/d; }' "$CONFIG_FILE"
-      fi
-      
-      # Generate and inject static leases YAML after dhcpv4 section
-      log "Injecting ${builtins.toString (builtins.length staticLeases.static_leases)} static DHCP leases"
-      
-      # Create temp file with leases
-      TEMP_LEASES=$(${pkgs.coreutils}/bin/mktemp)
-      cat > "$TEMP_LEASES" << 'LEASES_EOF'
-    static_leases:
-${leasesYaml}
-LEASES_EOF
-      
-      # Inject leases after dhcpv4 section
-      ${pkgs.gnused}/bin/sed -i '/^  dhcpv4:/r '"$TEMP_LEASES" "$CONFIG_FILE"
-      ${pkgs.coreutils}/bin/rm "$TEMP_LEASES"
-      
-      log "Successfully injected static DHCP leases"
-    '';
-  };
-
   # AdGuard Home - DNS and DHCP server with ad-blocking
   # Web interface: http://192.168.1.99:3000
-  services.adguardhome = {
-    enable = true;
-    host = "0.0.0.0";
-    port = 3000;
-    mutableSettings = false; # Use declarative configuration
-    settings = {
+  services.adguardhome =
+    let
+      staticLeases =
+        if inputs ? miniserver99-static-leases then
+          import inputs.miniserver99-static-leases
+        else
+          { static_leases = [ ]; };
+    in
+    {
+      enable = true;
+      host = "0.0.0.0";
+      port = 3000;
+      mutableSettings = false; # Use declarative configuration
+      settings = {
         dns = {
           bind_hosts = [ "0.0.0.0" ];
           port = 53;
@@ -107,36 +65,37 @@ LEASES_EOF
           range_start = "192.168.1.201";
           range_end = "192.168.1.254";
           lease_duration = 86400; # 24 hours
+          # Static DHCP leases declared in ./static-leases.nix (gitignored)
+          static_leases = staticLeases.static_leases or [ ];
+
           # Important: Set DNS server to this machine
           dhcpv4 = {
             gateway_ip = "192.168.1.5";
             subnet_mask = "255.255.255.0";
             range_start = "192.168.1.201";
             range_end = "192.168.1.254";
-            # Note: Static DHCP leases are injected via systemd service
-            # See: systemd.services.adguardhome-inject-static-leases
           };
         };
-      
-      # Filtering settings
-      filtering = {
-        protection_enabled = true;
-        filtering_enabled = true;
+        
+        # Filtering settings
+        filtering = {
+          protection_enabled = true;
+          filtering_enabled = true;
+        };
+        
+        # Query log settings
+        querylog = {
+          enabled = true;
+          interval = "2160h"; # 90 days
+          size_memory = 1000;
+        };
+        
+        # Statistics
+        statistics = {
+          enabled = true;
+          interval = "2160h"; # 90 days
+        };
       };
-      
-      # Query log settings
-      querylog = {
-        enabled = true;
-        interval = "2160h"; # 90 days
-        size_memory = 1000;
-      };
-      
-      # Statistics
-      statistics = {
-        enabled = true;
-        interval = "2160h"; # 90 days
-      };
-    };
   };
 
   # Networking configuration
