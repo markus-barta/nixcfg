@@ -47,6 +47,8 @@
     ];
     search = [ "lan" ];
     defaultGateway = "192.168.1.5";
+    networkmanager.dns = "none";
+    resolvconf.useLocalResolver = false;
     hosts = {
       "192.168.1.32" = [
         "kr-sonnen-batteriespeicher"
