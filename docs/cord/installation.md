@@ -2,14 +2,18 @@
 
 ## Overview
 
-This guide walks through installing NixOS on an old Mac mini using **Ventoy** and **nixos-anywhere** for remote deployment.
+This guide walks through installing NixOS on an old Mac mini using **Ventoy** (optional) and **nixos-anywhere** for remote deployment.
 
 ## Prerequisites
 
-- ✅ **Ventoy USB Stick**: Already prepared with NixOS minimal ISO
-  - Image: `nixos-minimal-25.05.804936.a676066377a2-x86_64-linux.iso`
-  - Ventoy allows booting multiple ISO images from a single USB stick
-  - No need to rewrite the USB for different images!
+- ✅ **Boot Media**: Choose one of the following:
+  - **Option A (Recommended)**: Ventoy USB Stick with NixOS minimal ISO
+    - Image: `nixos-minimal-25.05.804936.a676066377a2-x86_64-linux.iso`
+    - Ventoy allows booting multiple ISO images from a single USB stick
+    - No need to rewrite the USB for different images!
+  - **Option B (Current)**: USB Stick with NixOS minimal ISO installed directly
+    - Image: `nixos-minimal-25.05.804936.a676066377a2-x86_64-linux.iso`
+    - Use `dd` or similar tool to write ISO directly to USB
 - ✅ **Target Machine**: Mac mini (miniserver99)
 - ✅ **Source Machine**: 
   - **Recommended**: miniserver24 (192.168.1.101) - Can build overnight, already NixOS
@@ -28,7 +32,9 @@ This guide walks through installing NixOS on an old Mac mini using **Ventoy** an
 
 **Instructions in this guide work from both miniserver24 and your Mac.** Just adjust paths accordingly.
 
-## What is Ventoy?
+## Boot Media Options
+
+### Option A: Ventoy (Recommended)
 
 [Ventoy](https://www.ventoy.net/) is a bootable USB solution that allows you to:
 
@@ -44,6 +50,17 @@ This guide walks through installing NixOS on an old Mac mini using **Ventoy** an
 └── nixos-minimal-25.05.804936.a676066377a2-x86_64-linux.iso (1.5GB)
 ```
 
+### Option B: Direct ISO Installation (Current)
+
+For simpler setups, you can write the NixOS minimal ISO directly to a USB stick:
+
+```bash
+# On macOS/Linux
+sudo dd if=nixos-minimal-25.05.804936.a676066377a2-x86_64-linux.iso of=/dev/sdX bs=4M
+
+# Replace /dev/sdX with your USB device (be careful!)
+```
+
 ## What is nixos-anywhere?
 
 [nixos-anywhere](https://github.com/nix-community/nixos-anywhere) is a tool that:
@@ -55,8 +72,9 @@ This guide walks through installing NixOS on an old Mac mini using **Ventoy** an
 
 ## Installation Steps
 
-### 1. Boot the Mac mini from Ventoy USB
+### 1. Boot the Mac mini from USB
 
+**For Ventoy (Option A):**
 1. **Insert the Ventoy USB stick** into the Mac mini
 2. **Power on** the Mac mini while holding the **⌥ Option (Alt)** key
 3. **Select the Ventoy USB** from the boot menu (usually labeled "EFI Boot")
@@ -65,6 +83,12 @@ This guide walks through installing NixOS on an old Mac mini using **Ventoy** an
    nixos-minimal-25.05.804936.a676066377a2-x86_64-linux.iso
    ```
 5. Wait for NixOS minimal environment to boot (headless - no GUI)
+
+**For Direct ISO (Option B):**
+1. **Insert the USB stick** with NixOS minimal ISO into the Mac mini
+2. **Power on** the Mac mini while holding the **⌥ Option (Alt)** key
+3. **Select the USB stick** from the boot menu (usually labeled "EFI Boot")
+4. The ISO will boot directly into the NixOS minimal environment (headless - no GUI)
 
 ### 2. Configure the NixOS Minimal Environment
 
@@ -85,14 +109,14 @@ ip addr show
 
 # Verify network connectivity
 ping 1.1.1.1
+```
 
-# Enable SSH with password authentication (for initial access)
+SSH is already enabled in this ISO with password authentication and root login permitted by default. After setting the root password, you can connect immediately over SSH.
+
+Note: If your ISO differs and SSH is not running, start it with:
+
+```bash
 sudo systemctl start sshd
-sudo nano /etc/ssh/sshd_config
-# Add these lines:
-#   PasswordAuthentication yes
-#   PermitRootLogin yes
-sudo systemctl restart sshd
 ```
 
 ### 3. Prepare Source Machine (miniserver24 or Mac)
@@ -328,6 +352,7 @@ sudo nixos-rebuild switch --flake .#miniserver99
 - Try holding ⌥ Option key longer during startup
 - Check UEFI/BIOS settings (if accessible) to enable USB boot
 - Try different USB port
+- **For direct ISO**: Verify the ISO was written correctly (compare checksums)
 
 ### SSH Connection Refused
 
@@ -384,7 +409,7 @@ nix run github:nix-community/nixos-anywhere -- \
 If UEFI gets corrupted or reset:
 
 ```bash
-# Boot from Ventoy USB again
+# Boot from Ventoy USB (Option A) or USB with direct ISO (Option B) again
 # Mount the installed system
 sudo su -
 mount /dev/mapper/YOUR_ZFS_POOL /mnt
@@ -454,7 +479,7 @@ http://192.168.1.99:3000  # AdGuard Home
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| **Boot USB** | Ventoy 🚀 | Multi-ISO bootable USB (no flashing needed) |
+| **Boot USB** | Ventoy (optional) 🚀 | Multi-ISO bootable USB (no flashing needed) |
 | **ISO Image** | NixOS Minimal 25.05 | Lightweight installer environment |
 | **Deployment** | nixos-anywhere | Remote installation over SSH |
 | **Disk Management** | disko | Declarative disk partitioning |
