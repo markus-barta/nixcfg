@@ -21,3 +21,6 @@ devenv.local.nix
 # Plain text version - kept locally only
 **/static-leases.nix
 # Encrypted version stored in secrets/ directory with agenix
+
+# Deployment status and TODO files
+miniserver99-deployment-status.md

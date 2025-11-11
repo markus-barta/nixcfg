@@ -16,6 +16,63 @@
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
 
+  # Static DHCP Leases Injection Service
+  # This service injects static DHCP leases into AdGuard Home's configuration
+  # before the service starts, maintaining a fully declarative setup.
+  # 
+  # Pattern follows mqtt-volume-control service on miniserver24
+  systemd.services.adguardhome-inject-static-leases =
+    let
+      staticLeases = import ./static-leases.nix;
+      leasesYaml = builtins.concatStringsSep "\n" (
+        builtins.map (
+          lease: "      - mac: \"${lease.mac}\"\n        ip: ${lease.ip}\n        hostname: ${lease.hostname}"
+        ) staticLeases.static_leases
+      );
+    in
+    {
+      description = "Inject static DHCP leases into AdGuard Home configuration";
+      before = [ "adguardhome.service" ];
+      wantedBy = [ "multi-user.target" ];
+
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "inject-static-leases" ''
+          CONFIG_FILE="/var/lib/AdGuardHome/AdGuardHome.yaml"
+          
+          # Logging function
+          log() {
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | ${pkgs.systemd}/bin/systemd-cat -t adguardhome-static-leases -p info
+          }
+          
+          log "Starting static DHCP leases injection"
+          
+          # Wait for config file to exist (created by adguardhome preStart)
+          if [ ! -f "$CONFIG_FILE" ]; then
+            log "AdGuard Home config file not found at $CONFIG_FILE, skipping"
+            exit 0
+          fi
+          
+          # Remove any existing static_leases section to ensure idempotency
+          if ${pkgs.gnugrep}/bin/grep -q "static_leases:" "$CONFIG_FILE"; then
+            log "Removing existing static_leases section"
+            ${pkgs.gnused}/bin/sed -i '/^    static_leases:/,/^    [a-z]/{ /^    static_leases:/d; /^      -/d; }' "$CONFIG_FILE"
+          fi
+          
+          # Generate static leases YAML
+          LEASES_YAML="    static_leases:
+${leasesYaml}"
+          
+          # Inject static leases after dhcpv4 section
+          log "Injecting ${builtins.toString (builtins.length staticLeases.static_leases)} static DHCP leases"
+          echo "$LEASES_YAML" | ${pkgs.gnused}/bin/sed -i '/^  dhcpv4:/r /dev/stdin' "$CONFIG_FILE"
+          
+          log "Successfully injected static DHCP leases into AdGuard Home configuration"
+        '';
+      };
+    };
+
   # AdGuard Home - DNS and DHCP server with ad-blocking
   # Web interface: http://192.168.1.99:3000
   services.adguardhome = {
@@ -23,18 +80,7 @@
     host = "0.0.0.0";
     port = 3000;
     mutableSettings = false; # Use declarative configuration
-    settings =
-      let
-        # Note: static-leases.nix is gitignored (contains sensitive data)
-        # For deployment, ensure it exists locally before running nixos-anywhere
-        staticLeases = import ./static-leases.nix;
-        
-        # IMPORTANT: Set to false initially to avoid conflicting with miniserver24 DHCP!
-        # After miniserver24 DHCP is disabled, change to true and rebuild:
-        #   sudo nixos-rebuild switch --flake .#miniserver99
-        enableDhcp = false;  # Change to true after miniserver24 DHCP is disabled
-      in
-      {
+    settings = {
         dns = {
           bind_hosts = [ "0.0.0.0" ];
           port = 53;
@@ -57,7 +103,10 @@
         ];
 
         dhcp = {
-          enabled = enableDhcp;
+          # IMPORTANT: Set to false initially to avoid conflicting with miniserver24 DHCP!
+          # After miniserver24 DHCP is disabled, change to true and rebuild:
+          #   sudo nixos-rebuild switch --flake .#miniserver99
+          enabled = false; # Change to true after miniserver24 DHCP is disabled
           interface_name = "enp2s0f0";
           gateway_ip = "192.168.1.5";
           subnet_mask = "255.255.255.0";
@@ -70,8 +119,8 @@
             subnet_mask = "255.255.255.0";
             range_start = "192.168.1.201";
             range_end = "192.168.1.254";
-            # Import all 115 static DHCP leases from PiHole
-            static_leases = staticLeases.static_leases;
+            # Note: Static DHCP leases are injected via systemd service
+            # See: systemd.services.adguardhome-inject-static-leases
           };
         };
       
