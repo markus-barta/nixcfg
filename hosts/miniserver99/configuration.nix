@@ -50,11 +50,11 @@
           cache_optimistic = true;
         };
 
-        # Admin user with empty password (bcrypt hash of empty string)
+        # Admin user with password 'admin' (bcrypt hash)
         users = [
           {
             name = "admin";
-            password = "$2y$05$0nvYh06pGR2w/HOOYrw2bus0XiRsvjtwGXTTZr/3F.nGMrfyjYE/q";
+            password = "REMOVED";
           }
         ];
 
