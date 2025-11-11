@@ -41,8 +41,10 @@
 
   # Networking configuration
   networking = {
-    # nameservers = ["1.1.1.1"]; # We utilize an external DNS server to ensure web access at boot time, prior to the Pi-hole becoming operational.
-    nameservers = [ "localhost" ]; # Many services (docker container) depend on internal hostnames, so we need to use local DNS
+    nameservers = [
+      "192.168.1.99" # miniserver99 / AdGuard Home
+      "1.1.1.1"      # Cloudflare fallback
+    ];
     search = [ "lan" ];
     defaultGateway = "192.168.1.5";
     hosts = {
