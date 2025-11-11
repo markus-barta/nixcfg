@@ -50,11 +50,10 @@
           cache_optimistic = true;
         };
 
-        # Admin user with empty password (no authentication required)
+        # Admin user without password (no authentication required)
         users = [
           {
             name = "admin";
-            password = "";
           }
         ];
 
