@@ -55,10 +55,8 @@
         ];
 
         dhcp = {
-          # IMPORTANT: Set to false initially to avoid conflicting with miniserver24 DHCP!
-          # After miniserver24 DHCP is disabled, change to true and rebuild:
-          #   sudo nixos-rebuild switch --flake .#miniserver99
-          enabled = false; # Change to true after miniserver24 DHCP is disabled
+          # IMPORTANT: Ensure miniserver24 DHCP is disabled before enabling this.
+          enabled = true;
           interface_name = "enp2s0f0";
           gateway_ip = "192.168.1.5";
           subnet_mask = "255.255.255.0";
