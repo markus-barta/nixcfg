@@ -16,62 +16,49 @@
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
 
-  # Static DHCP Leases Injection Service
-  # This service injects static DHCP leases into AdGuard Home's configuration
-  # before the service starts, maintaining a fully declarative setup.
-  # 
+  # Static DHCP Leases Injection 
+  # Injects static leases into AdGuard Home's YAML config after it's generated
   # Pattern follows mqtt-volume-control service on miniserver24
-  systemd.services.adguardhome-inject-static-leases =
-    let
-      staticLeases = import ./static-leases.nix;
-      leasesYaml = builtins.concatStringsSep "\n" (
-        builtins.map (
-          lease: "      - mac: \"${lease.mac}\"\n        ip: ${lease.ip}\n        hostname: ${lease.hostname}"
-        ) staticLeases.static_leases
-      );
-    in
-    {
-      description = "Inject static DHCP leases into AdGuard Home configuration";
-      before = [ "adguardhome.service" ];
-      wantedBy = [ "multi-user.target" ];
-
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = pkgs.writeShellScript "inject-static-leases" ''
-          CONFIG_FILE="/var/lib/AdGuardHome/AdGuardHome.yaml"
-          
-          # Logging function
-          log() {
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | ${pkgs.systemd}/bin/systemd-cat -t adguardhome-static-leases -p info
-          }
-          
-          log "Starting static DHCP leases injection"
-          
-          # Wait for config file to exist (created by adguardhome preStart)
-          if [ ! -f "$CONFIG_FILE" ]; then
-            log "AdGuard Home config file not found at $CONFIG_FILE, skipping"
-            exit 0
-          fi
-          
-          # Remove any existing static_leases section to ensure idempotency
-          if ${pkgs.gnugrep}/bin/grep -q "static_leases:" "$CONFIG_FILE"; then
-            log "Removing existing static_leases section"
-            ${pkgs.gnused}/bin/sed -i '/^    static_leases:/,/^    [a-z]/{ /^    static_leases:/d; /^      -/d; }' "$CONFIG_FILE"
-          fi
-          
-          # Generate static leases YAML
-          LEASES_YAML="    static_leases:
+  systemd.services.adguardhome = let
+    staticLeases = import ./static-leases.nix;
+    leasesYaml = builtins.concatStringsSep "\n" (
+      builtins.map (
+        lease: "      - mac: \"${lease.mac}\"\n        ip: ${lease.ip}\n        hostname: ${lease.hostname}"
+      ) staticLeases.static_leases
+    );
+  in {
+    preStart = lib.mkAfter ''
+      CONFIG_FILE="/var/lib/AdGuardHome/AdGuardHome.yaml"
+      
+      # Logging function
+      log() {
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | ${pkgs.systemd}/bin/systemd-cat -t adguardhome-static-leases -p info
+      }
+      
+      log "Starting static DHCP leases injection"
+      
+      # Wait for config file to exist
+      if [ ! -f "$CONFIG_FILE" ]; then
+        log "AdGuard Home config file not found, skipping"
+        exit 0
+      fi
+      
+      # Remove any existing static_leases section for idempotency
+      if ${pkgs.gnugrep}/bin/grep -q "static_leases:" "$CONFIG_FILE"; then
+        log "Removing existing static_leases section"
+        ${pkgs.gnused}/bin/sed -i '/^    static_leases:/,/^    [a-z]/{ /^    static_leases:/d; /^      -/d; }' "$CONFIG_FILE"
+      fi
+      
+      # Generate and inject static leases YAML after dhcpv4 section
+      LEASES_YAML="    static_leases:
 ${leasesYaml}"
-          
-          # Inject static leases after dhcpv4 section
-          log "Injecting ${builtins.toString (builtins.length staticLeases.static_leases)} static DHCP leases"
-          echo "$LEASES_YAML" | ${pkgs.gnused}/bin/sed -i '/^  dhcpv4:/r /dev/stdin' "$CONFIG_FILE"
-          
-          log "Successfully injected static DHCP leases into AdGuard Home configuration"
-        '';
-      };
-    };
+      
+      log "Injecting ${builtins.toString (builtins.length staticLeases.static_leases)} static DHCP leases"
+      echo "$LEASES_YAML" | ${pkgs.gnused}/bin/sed -i '/^  dhcpv4:/r /dev/stdin' "$CONFIG_FILE"
+      
+      log "Successfully injected static DHCP leases"
+    '';
+  };
 
   # AdGuard Home - DNS and DHCP server with ad-blocking
   # Web interface: http://192.168.1.99:3000
