@@ -50,7 +50,7 @@
 
         dhcp = {
           enabled = enableDhcp;
-          interface_name = "enp3s0f0";
+          interface_name = "enp2s0f0";
           gateway_ip = "192.168.1.1";
           subnet_mask = "255.255.255.0";
           range_start = "192.168.1.201";
@@ -94,7 +94,7 @@
     nameservers = [ "127.0.0.1" ];
     search = [ "lan" ];
     defaultGateway = "192.168.1.1";
-    interfaces.enp3s0f0 = {
+    interfaces.enp2s0f0 = {
       ipv4.addresses = [
         {
           address = "192.168.1.99";

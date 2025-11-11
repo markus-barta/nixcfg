@@ -100,7 +100,7 @@ sudo passwd
 
 # Check the network interface name
 ip link show
-# Expected: enp3s0f0 or similar (update configuration.nix if different)
+# Expected: enp2s0f0 or similar (update configuration.nix if different)
 
 # Get the IP address assigned by DHCP
 ip addr show
@@ -220,7 +220,7 @@ journalctl -u adguardhome -f
 zpool status
 
 # Verify network configuration
-ip addr show enp3s0f0
+ip addr show enp2s0f0
 # Should show: 192.168.1.99/24
 
 # Test DNS
@@ -370,7 +370,7 @@ ip addr show
 
 ### Wrong Network Interface Name
 
-If the network interface is not `enp3s0f0`:
+If the network interface is not `enp2s0f0`:
 
 1. Boot into NixOS minimal again
 2. Check actual interface name: `ip link show`

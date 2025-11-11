@@ -103,7 +103,7 @@ Alternative: Traditional installation on target machine after minimal NixOS:
 sudo nixos-generate-config --root /mnt
 
 # 2. Copy hardware-configuration.nix to this directory
-# 3. Verify network interface name (currently enp3s0f0)
+# 3. Verify network interface name (currently enp2s0f0)
 # 4. Deploy
 sudo nixos-rebuild switch --flake .#miniserver99
 ```
@@ -196,7 +196,7 @@ cat /var/lib/AdGuardHome/leases.db
 
 ### Network Interface
 
-The configuration uses `enp3s0f0` as the network interface. Verify this matches your hardware:
+The configuration uses `enp2s0f0` as the network interface. Verify this matches your hardware:
 
 ```bash
 ip link show
@@ -235,7 +235,7 @@ docker ps
 sudo nft list ruleset
 
 # Monitor network traffic
-sudo tcpdump -i enp3s0f0 port 53
+sudo tcpdump -i enp2s0f0 port 53
 
 # Check DNS resolution
 dig @localhost example.com
