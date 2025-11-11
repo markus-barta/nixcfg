@@ -29,7 +29,7 @@
         # For deployment, ensure it exists locally before running nixos-anywhere
         # Temporarily disabled for initial deployment - will enable after
         # staticLeases = import ./static-leases.nix;
-        staticLeases = [];
+        staticLeases = { static_leases = []; };
         
         # IMPORTANT: Set to false initially to avoid conflicting with miniserver24 DHCP!
         # After miniserver24 DHCP is disabled, change to true and rebuild:
