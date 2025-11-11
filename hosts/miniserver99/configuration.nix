@@ -22,7 +22,7 @@
     enable = true;
     host = "0.0.0.0";
     port = 3000;
-    mutableSettings = false; # Use declarative configuration
+    mutableSettings = true; # Temporarily enable for initial setup
     settings =
       let
         # Note: static-leases.nix is gitignored (contains sensitive data)
