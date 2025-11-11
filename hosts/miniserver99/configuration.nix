@@ -131,10 +131,12 @@ EOF
         def static_entries: $static | map(.mac |= normalize_mac(.));
         def without_static($list):
           ($list // [])
-          | map(select(
+          | map(
               (.mac | ascii_downcase) as $m
-              | (static_entries | map(.mac) | index($m)) | not
-            ));
+              | (.static // false) as $is_static
+              | (static_entries | map(.mac) | index($m)) as $idx
+              | select($idx == null and ($is_static | not))
+            );
         def build_static:
           static_entries | map(. + {static: true, expires: ""});
         {version: (.version // 1), leases: without_static(.leases) + build_static}
