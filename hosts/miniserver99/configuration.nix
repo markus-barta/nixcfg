@@ -27,9 +27,7 @@
       let
         # Note: static-leases.nix is gitignored (contains sensitive data)
         # For deployment, ensure it exists locally before running nixos-anywhere
-        # Temporarily disabled for initial deployment - will enable after
-        # staticLeases = import ./static-leases.nix;
-        staticLeases = { static_leases = []; };
+        staticLeases = import ./static-leases.nix;
         
         # IMPORTANT: Set to false initially to avoid conflicting with miniserver24 DHCP!
         # After miniserver24 DHCP is disabled, change to true and rebuild:
@@ -50,17 +48,25 @@
           cache_optimistic = true;
         };
 
+        # Admin user with empty password (no authentication required)
+        users = [
+          {
+            name = "admin";
+            password = "";
+          }
+        ];
+
         dhcp = {
           enabled = enableDhcp;
           interface_name = "enp2s0f0";
-          gateway_ip = "192.168.1.1";
+          gateway_ip = "192.168.1.5";
           subnet_mask = "255.255.255.0";
           range_start = "192.168.1.201";
           range_end = "192.168.1.254";
           lease_duration = 86400; # 24 hours
           # Important: Set DNS server to this machine
           dhcpv4 = {
-            gateway_ip = "192.168.1.1";
+            gateway_ip = "192.168.1.5";
             subnet_mask = "255.255.255.0";
             range_start = "192.168.1.201";
             range_end = "192.168.1.254";
@@ -95,7 +101,7 @@
     # Use localhost for DNS since AdGuard Home runs locally
     nameservers = [ "127.0.0.1" ];
     search = [ "lan" ];
-    defaultGateway = "192.168.1.1";
+    defaultGateway = "192.168.1.5";
     interfaces.enp2s0f0 = {
       ipv4.addresses = [
         {
