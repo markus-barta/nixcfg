@@ -50,11 +50,18 @@
       fi
       
       # Generate and inject static leases YAML after dhcpv4 section
-      LEASES_YAML="    static_leases:
-${leasesYaml}"
-      
       log "Injecting ${builtins.toString (builtins.length staticLeases.static_leases)} static DHCP leases"
-      echo "$LEASES_YAML" | ${pkgs.gnused}/bin/sed -i '/^  dhcpv4:/r /dev/stdin' "$CONFIG_FILE"
+      
+      # Create temp file with leases
+      TEMP_LEASES=$(${pkgs.coreutils}/bin/mktemp)
+      cat > "$TEMP_LEASES" << 'LEASES_EOF'
+    static_leases:
+${leasesYaml}
+LEASES_EOF
+      
+      # Inject leases after dhcpv4 section
+      ${pkgs.gnused}/bin/sed -i '/^  dhcpv4:/r '"$TEMP_LEASES" "$CONFIG_FILE"
+      ${pkgs.coreutils}/bin/rm "$TEMP_LEASES"
       
       log "Successfully injected static DHCP leases"
     '';
