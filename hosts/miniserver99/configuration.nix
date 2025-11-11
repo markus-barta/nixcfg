@@ -22,7 +22,7 @@
     enable = true;
     host = "0.0.0.0";
     port = 3000;
-    mutableSettings = true; # Temporarily enable for initial setup
+    mutableSettings = false; # Use declarative configuration
     settings =
       let
         # Note: static-leases.nix is gitignored (contains sensitive data)
@@ -49,13 +49,6 @@
           cache_ttl_max = 0;
           cache_optimistic = true;
         };
-
-        # Admin user without password (no authentication required)
-        users = [
-          {
-            name = "admin";
-          }
-        ];
 
         dhcp = {
           enabled = enableDhcp;
