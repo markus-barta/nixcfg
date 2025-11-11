@@ -7,6 +7,37 @@
   ...
 }:
 
+let
+  staticLeases =
+    if inputs ? miniserver99-static-leases then
+      import inputs.miniserver99-static-leases
+    else
+      { static_leases = [ ]; };
+  staticLeasesTransformed =
+    map (
+      lease:
+        {
+          mac = lib.toUpper lease.mac;
+          ip = lease.ip;
+          hostname = lease.hostname;
+          lease_time = 0;
+          comment = if lease ? comment then lease.comment else "";
+        }
+        // (if lease ? client_id then { client_id = lease.client_id; } else { })
+    ) staticLeases.static_leases;
+  staticLeasesJson =
+    builtins.toJSON (
+      map (
+        lease:
+          {
+            mac = lease.mac;
+            ip = lease.ip;
+            hostname = lease.hostname;
+          }
+          // (if lease ? client_id then { client_id = lease.client_id; } else { })
+      ) staticLeasesTransformed
+    );
+in
 {
   imports = [
     ./hardware-configuration.nix
@@ -20,37 +51,6 @@
   # AdGuard Home - DNS and DHCP server with ad-blocking
   # Web interface: http://192.168.1.99:3000
   services.adguardhome =
-    let
-      staticLeases =
-        if inputs ? miniserver99-static-leases then
-          import inputs.miniserver99-static-leases
-        else
-          { static_leases = [ ]; };
-      staticLeasesTransformed =
-        map (
-          lease:
-            {
-              mac = lib.toUpper lease.mac;
-              ip = lease.ip;
-              hostname = lease.hostname;
-              lease_time = 0;
-              comment = if lease ? comment then lease.comment else "";
-            }
-            // (if lease ? client_id then { client_id = lease.client_id; } else { })
-        ) staticLeases.static_leases;
-      staticLeasesJson =
-        builtins.toJSON (
-          map (
-            lease:
-              {
-                mac = lease.mac;
-                ip = lease.ip;
-                hostname = lease.hostname;
-              }
-              // (if lease ? client_id then { client_id = lease.client_id; } else { })
-          ) staticLeasesTransformed
-        );
-    in
     {
       enable = true;
       host = "0.0.0.0";
@@ -113,40 +113,41 @@
           interval = "2160h"; # 90 days
         };
       };
-      preStart = lib.mkAfter ''
-        leases_dir="/var/lib/private/AdGuardHome/data"
-        leases_file="$leases_dir/leases.json"
-        tmp="$(mktemp)"
-        static_tmp="$(mktemp)"
-        install -d "$leases_dir"
-        cat <<'EOF' > "$static_tmp"
+  };
+
+  systemd.services.adguardhome.preStart = lib.mkAfter ''
+    leases_dir="/var/lib/private/AdGuardHome/data"
+    leases_file="$leases_dir/leases.json"
+    tmp="$(mktemp)"
+    static_tmp="$(mktemp)"
+    install -d "$leases_dir"
+    cat <<'EOF' > "$static_tmp"
 ${staticLeasesJson}
 EOF
 
-        if [ -f "$leases_file" ]; then
-          ${pkgs.jq}/bin/jq --argjson static "$(cat "$static_tmp")" '
-            def normalize_mac($mac): ($mac | ascii_downcase);
-            def static_entries: $static | map(.mac |= normalize_mac(.));
-            def without_static($list):
-              ($list // [])
-              | map(select(
-                  (.mac | ascii_downcase) as $m
-                  | (static_entries | map(.mac) | index($m)) | not
-                ));
-            def build_static:
-              static_entries | map(. + {static: true, expires: ""});
-            {version: (.version // 1), leases: without_static(.leases) + build_static}
-          ' "$leases_file" > "$tmp"
-        else
-          ${pkgs.jq}/bin/jq -n --argjson static "$(cat "$static_tmp")" '
-            {version: 1, leases: ($static | map(. + {static: true, expires: ""}))}
-          ' > "$tmp"
-        fi
+    if [ -f "$leases_file" ]; then
+      ${pkgs.jq}/bin/jq --argjson static "$(cat "$static_tmp")" '
+        def normalize_mac($mac): ($mac | ascii_downcase);
+        def static_entries: $static | map(.mac |= normalize_mac(.));
+        def without_static($list):
+          ($list // [])
+          | map(select(
+              (.mac | ascii_downcase) as $m
+              | (static_entries | map(.mac) | index($m)) | not
+            ));
+        def build_static:
+          static_entries | map(. + {static: true, expires: ""});
+        {version: (.version // 1), leases: without_static(.leases) + build_static}
+      ' "$leases_file" > "$tmp"
+    else
+      ${pkgs.jq}/bin/jq -n --argjson static "$(cat "$static_tmp")" '
+        {version: 1, leases: ($static | map(. + {static: true, expires: ""}))}
+      ' > "$tmp"
+    fi
 
-        mv "$tmp" "$leases_file"
-        rm -f "$static_tmp"
-      '';
-  };
+    mv "$tmp" "$leases_file"
+    rm -f "$static_tmp"
+  '';
 
   # Networking configuration
   networking = {
