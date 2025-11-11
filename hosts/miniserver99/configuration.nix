@@ -58,20 +58,15 @@
           # IMPORTANT: Ensure miniserver24 DHCP is disabled before enabling this.
           enabled = true;
           interface_name = "enp2s0f0";
-          gateway_ip = "192.168.1.5";
-          subnet_mask = "255.255.255.0";
-          range_start = "192.168.1.201";
-          range_end = "192.168.1.254";
-          lease_duration = 86400; # 24 hours
-          # Static DHCP leases declared in ./static-leases.nix (gitignored)
-          static_leases = staticLeases.static_leases or [ ];
-
-          # Important: Set DNS server to this machine
           dhcpv4 = {
             gateway_ip = "192.168.1.5";
             subnet_mask = "255.255.255.0";
             range_start = "192.168.1.201";
             range_end = "192.168.1.254";
+            lease_duration = 86400; # 24 hours
+            icmp_timeout_msec = 1000;
+            # Static DHCP leases declared in ./static-leases.nix (gitignored)
+            static_leases = staticLeases.static_leases or [ ];
           };
         };
         
