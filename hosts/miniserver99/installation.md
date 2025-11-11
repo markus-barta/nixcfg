@@ -19,6 +19,7 @@ This guide walks through installing NixOS on an old Mac mini using **Ventoy** (o
   - **Recommended**: miniserver24 (192.168.1.101) - Can build overnight, already NixOS
   - **Alternative**: Your Mac with this repository cloned at `~/Code/nixcfg`
 - ✅ **Network**: All machines on the same network (192.168.1.x)
+- ✅ **Static Lease Data**: `hosts/miniserver99/static-leases.nix` available locally (gitignored – keep it private)
 
 ## Why Install from miniserver24?
 
@@ -134,6 +135,9 @@ cd ~/Code/nixcfg
 # Ensure static-leases.nix exists
 ls -la hosts/miniserver99/static-leases.nix
 
+# (Optional) copy the latest leases file from your secure backup if needed
+# cp /path/to/backups/static-leases.nix hosts/miniserver99/static-leases.nix
+
 # Verify miniserver99 configuration
 nix flake show | grep miniserver99
 ```
@@ -165,6 +169,8 @@ nixos-rebuild build --flake .#miniserver99
 # Replace 192.168.1.150 with the actual IP from step 2
 nix run github:nix-community/nixos-anywhere -- \
   --flake .#miniserver99 \
+  --override-input miniserver99-static-leases \
+  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix \
   root@192.168.1.150
 
 # You'll be prompted for the root password you set in step 2
@@ -177,6 +183,8 @@ nix run github:nix-community/nixos-anywhere -- \
 tmux new -s miniserver99-install
 nix run github:nix-community/nixos-anywhere -- \
   --flake .#miniserver99 \
+  --override-input miniserver99-static-leases \
+  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix \
   root@192.168.1.150
 
 # Detach with Ctrl+B, then D
@@ -223,107 +231,68 @@ zpool status
 ip addr show enp2s0f0
 # Should show: 192.168.1.99/24
 
+# Sync declarative static leases (required after every deployment)
+sudo nixos-rebuild switch \
+  --flake .#miniserver99 \
+  --override-input miniserver99-static-leases \
+  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
+
 # Test DNS
 dig @localhost google.com
 
-# Check DHCP status (should be DISABLED initially)
+# Check DHCP status (should be enabled)
 systemctl status adguardhome | grep -i dhcp
 
 # Access AdGuard Home web interface from your browser:
 # http://192.168.1.99:3000
 ```
 
-⚠️ **IMPORTANT:** DHCP is **DISABLED by default** to prevent conflicts with miniserver24!
+⚠️ **IMPORTANT:** DHCP on miniserver99 is active once the rebuild completes. Double-check that miniserver24/Pi-hole DHCP is fully disabled before connecting clients.
 
-### 7. Enable DHCP Server (After Disabling miniserver24)
+### 7. DHCP Cutover Checklist
 
-**⚠️ CRITICAL: Do NOT enable DHCP on miniserver99 until miniserver24 DHCP is stopped!**
-
-**Step-by-Step DHCP Cutover:**
-
-1. **Test DNS first** (DHCP still on miniserver24):
+1. **Test DNS while miniserver24 DHCP still runs:**
 
    ```bash
-   # From any client, test miniserver99 DNS
    dig @192.168.1.99 google.com
-   
-   # Should return results
    ```
 
-2. **Disable PiHole DHCP on miniserver24:**
+2. **Disable Pi-hole DHCP on miniserver24:**
 
    ```bash
-   # SSH to miniserver24
    ssh mba@192.168.1.101
-   
-   # Stop PiHole DHCP (via Docker)
-   sudo docker exec pihole pihole-FTL dhcp-discover
-   
-   # Or disable via web interface:
-   # http://192.168.1.101/admin → Settings → DHCP → Disable
+   sudo docker exec pihole pihole-FTL dhcp-discover  # or disable in the web UI
    ```
 
-3. **Enable DHCP on miniserver99:**
+3. **Rebuild miniserver99 (safe to re-run) so the declarative leases are applied and the service restarts cleanly:**
 
    ```bash
-   # On miniserver24 (where repo is cloned) or your Mac
-   cd ~/Code/nixcfg
-   
-   # Edit configuration
-   nano hosts/miniserver99/configuration.nix
-   
-   # Change line ~31 from:
-   #   enableDhcp = false;
-   # To:
-   #   enableDhcp = true;
-   
-   # Commit and push
-   git add hosts/miniserver99/configuration.nix
-   git commit -m "Enable DHCP on miniserver99"
-   git push
-   ```
-
-4. **Deploy the change:**
-
-   ```bash
-   # SSH to miniserver99
    ssh mba@192.168.1.99
-   
-   # Pull changes
    cd ~/Code/nixcfg
    git pull
-   
-   # Apply configuration
-   sudo nixos-rebuild switch --flake .#miniserver99
-   
-   # Verify DHCP is now enabled
-   systemctl status adguardhome | grep -i dhcp
-   # Should show "DHCP: enabled"
-   
-   # Check logs
-   journalctl -u adguardhome -f
+   sudo nixos-rebuild switch \
+     --flake .#miniserver99 \
+     --override-input miniserver99-static-leases \
+     path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
    ```
 
-5. **Test DHCP:**
+4. **Renew leases on a test client and confirm the assignment:**
 
    ```bash
-   # Renew lease on a test client
-   # Linux:
-   sudo dhclient -r enp0s3 && sudo dhclient enp0s3
-   
-   # macOS:
+   # Linux
+   sudo dhclient -r && sudo dhclient
+
+   # macOS
    sudo ipconfig set en0 DHCP
-   
-   # Windows (as Administrator):
+
+   # Windows (Admin PowerShell)
    ipconfig /release
    ipconfig /renew
-   
-   # Verify new lease from AdGuard Home
-   # Check web interface: http://192.168.1.99:3000
-   # Settings → DHCP settings → Leases
    ```
 
-6. **Monitor for 24 hours** before decommissioning miniserver24 PiHole
+5. **Verify in AdGuard Home → Settings → DHCP settings:** all declarative static leases are listed and new dynamic leases appear with `static = false`.
+
+6. **Monitor for 24 hours** before decommissioning miniserver24 completely.
 
 ### 8. Post-Installation Configuration
 
@@ -342,7 +311,10 @@ sudo nixos-generate-config --show-hardware-config > /tmp/hardware-config.nix
 ssh mba@192.168.1.99
 cd ~/Code/nixcfg
 git pull
-sudo nixos-rebuild switch --flake .#miniserver99
+sudo nixos-rebuild switch \
+  --flake .#miniserver99 \
+  --override-input miniserver99-static-leases \
+  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
 ```
 
 ## Troubleshooting

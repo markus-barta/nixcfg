@@ -189,7 +189,8 @@ miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
 **Key Features:**
 
 - **AdGuard Home**: Native NixOS service for DNS filtering and DHCP
-- **Static DHCP Leases**: Declaratively configured in `static-leases.nix`
+- **Static DHCP Leases**: Declaratively configured in the gitignored file `hosts/miniserver99/static-leases.nix`; rebuilds must include `--override-input miniserver99-static-leases path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix`
+- **Lease Sync**: A systemd `preStart` hook merges declarative leases into `/var/lib/private/AdGuardHome/data/leases.json`, removing any UI-created static entries
 - **Secrets Management**: Uses `agenix` with private-only access (Markus's SSH key)
 - **Minimal Surface**: No desktop environment, audio, or media services
 

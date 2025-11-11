@@ -7,7 +7,7 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service.
 ## Network Configuration
 
 - **IP Address**: `192.168.1.99/24`
-- **Gateway**: `192.168.1.1`
+- **Gateway**: `192.168.1.5`
 - **DNS**: Uses localhost (127.0.0.1) - AdGuard Home provides DNS
 - **DHCP Range**: `192.168.1.201` - `192.168.1.254`
 - **Web Interface**: <http://192.168.1.99:3000>
@@ -71,15 +71,21 @@ This system provides the following services via the `serverMba` module and `serv
 
 ## Deployment Steps
 
-### Important: DHCP Configuration
+### Important: DHCP & Static Lease Management
 
-⚠️ **DHCP is DISABLED by default** in `configuration.nix` to prevent conflicts with miniserver24!
+- ✅ DHCP is **enabled** by default. Ensure **all other DHCP servers** (e.g. miniserver24/Pi-hole) are stopped before rebuilding or booting this host.
+- ✅ Static leases live in the gitignored file `hosts/miniserver99/static-leases.nix`.  
+  Include them on every rebuild by overriding the flake input:
 
-**To enable DHCP after miniserver24 is disabled:**
+  ```bash
+  sudo nixos-rebuild switch \
+    --flake .#miniserver99 \
+    --override-input miniserver99-static-leases \
+    path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
+  ```
 
-1. Edit `configuration.nix` line ~31: Change `enableDhcp = false;` to `enableDhcp = true;`
-2. Rebuild: `sudo nixos-rebuild switch --flake .#miniserver99`
-3. See detailed DHCP cutover instructions in `docs/cord/installation.md`
+- The build injects all declarative leases into `/var/lib/private/AdGuardHome/data/leases.json`; any leases created via the UI are removed on the next rebuild.
+- Detailed installation and cutover steps live in [`hosts/miniserver99/installation.md`](./installation.md).
 
 ### 1. Initial Installation
 
@@ -90,7 +96,7 @@ This system provides the following services via the `serverMba` module and `serv
 ssh mba@192.168.1.101
 cd ~/Code/nixcfg
 
-# Deploy with nixos-anywhere (see docs/cord/installation.md for details)
+# Deploy with nixos-anywhere (see ./installation.md for details)
 nix run github:nix-community/nixos-anywhere -- \
   --flake .#miniserver99 \
   root@<MAC_MINI_IP>
@@ -146,23 +152,11 @@ sudo systemctl restart adguardhome
 
 #### DHCP Configuration
 
-⚠️ **CRITICAL: DHCP is DISABLED by default!**
-
-**Before enabling DHCP on miniserver99:**
-
-1. **Stop DHCP on miniserver24 PiHole first!**
-2. Edit `configuration.nix`: Change `enableDhcp = false;` to `enableDhcp = true;`
-3. Rebuild: `sudo nixos-rebuild switch --flake .#miniserver99`
-4. See detailed cutover instructions in `docs/cord/installation.md`
-
-**DHCP Settings:**
-
-1. DHCP range: 192.168.1.201-254 (configurable in configuration.nix)
-2. Static DHCP leases are **already configured declaratively**
-   - 115 static leases from miniserver24 PiHole
-   - Defined in `static-leases.nix` and imported in `configuration.nix`
-   - No manual web interface configuration needed!
-   - Verify in web interface: Settings → DHCP settings → Static leases
+- DHCP range: 192.168.1.201-254 (configurable in `configuration.nix`)
+- Static DHCP leases are **fully declarative** and synced automatically from `static-leases.nix`
+  - No manual configuration in the UI required
+  - Verify in the web interface: Settings → DHCP settings → Static leases
+  - Any changes made via the UI are discarded on the next rebuild
 
 #### Testing
 
