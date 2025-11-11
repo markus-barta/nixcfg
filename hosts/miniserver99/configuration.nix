@@ -27,7 +27,9 @@
       let
         # Note: static-leases.nix is gitignored (contains sensitive data)
         # For deployment, ensure it exists locally before running nixos-anywhere
-        staticLeases = import ./static-leases.nix;
+        # Temporarily disabled to fix gateway - will re-enable after rebuild
+        # staticLeases = import ./static-leases.nix;
+        staticLeases = { static_leases = []; };
         
         # IMPORTANT: Set to false initially to avoid conflicting with miniserver24 DHCP!
         # After miniserver24 DHCP is disabled, change to true and rebuild:
