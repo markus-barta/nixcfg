@@ -70,9 +70,9 @@
             subnet_mask = "255.255.255.0";
             range_start = "192.168.1.201";
             range_end = "192.168.1.254";
+            # Import all 115 static DHCP leases from PiHole
+            static_leases = staticLeases.static_leases;
           };
-          # Import all 115 static DHCP leases from PiHole
-          static_leases = staticLeases.static_leases;
         };
       
       # Filtering settings
