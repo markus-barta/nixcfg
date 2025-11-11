@@ -26,6 +26,18 @@
           import inputs.miniserver99-static-leases
         else
           { static_leases = [ ]; };
+      staticLeasesTransformed =
+        map (
+          lease:
+            {
+              mac = lease.mac;
+              ip = lease.ip;
+              hostname = lease.hostname;
+              lease_time = 0;
+              comment = if lease ? comment then lease.comment else "";
+            }
+            // (if lease ? client_id then { client_id = lease.client_id; } else { })
+        ) staticLeases.static_leases;
     in
     {
       enable = true;
@@ -66,7 +78,7 @@
             lease_duration = 86400; # 24 hours
             icmp_timeout_msec = 1000;
             # Static DHCP leases declared in ./static-leases.nix (gitignored)
-            static_leases = staticLeases.static_leases or [ ];
+            static_leases = staticLeasesTransformed;
           };
         };
         
