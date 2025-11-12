@@ -174,9 +174,7 @@ just --list
 ```
 
 **Documentation:**
-- [Justfile Commands Reference](../../docs/justfile-commands.md) - Complete command documentation
-- [Encryption Test Guide](../../docs/encryption-test-guide.md) - Step-by-step testing instructions
-- [Pre-Flight Checklist](../../docs/pre-flight-checklist.md) - Verify setup before testing
+- [Repository README](../../docs/README.md) - Complete NixOS configuration guide and justfile commands
 
 ### Modifying AdGuard Home Settings
 
@@ -275,8 +273,6 @@ git push
 - Automatically adds plaintext to `.gitignore` (atomic update)
 - Stages encrypted file for commit
 
-See [Encryption Test Guide](../../docs/encryption-test-guide.md) for detailed testing instructions.
-
 **Restore from Git:**
 
 ```bash
@@ -284,13 +280,38 @@ See [Encryption Test Guide](../../docs/encryption-test-guide.md) for detailed te
 just decrypt-file secrets/static-leases-miniserver99.age
 ```
 
-### Security Model
+### Security Model - Dual-Key Encryption (Option C)
 
-- **Plaintext file**: Gitignored, kept locally only
-- **Encrypted backup**: Stored in Git as `.age` file
-- **Encryption key**: miniserver99 SSH host key (public key used for encryption)
-- **Decryption key**: miniserver99 SSH host key (private key on server only)
-- **Access**: Only you and miniserver99 can decrypt
+**Implementation Date:** November 12, 2025
+
+The encryption system uses a dual-key approach following the same pattern as the friend's `general` keys setup:
+
+- **Encryption Keys**: Uses BOTH your Mac's SSH public key (from `secrets.nix`) AND miniserver99's host public key
+- **Decryption**: Either key can independently decrypt the file
+- **Cross-Machine**: Encrypt from Mac OR miniserver99, decrypt on either machine
+- **User Key Storage**: Your public key is stored in `secrets.nix` under `markus = [...]`
+- **Fallback Logic**: Uses local SSH key if available, otherwise reads from `secrets.nix`
+
+**End-to-End Validation (Completed):**
+
+✅ **Test 1 (Server → Mac):**
+- Modified file on miniserver99 (`test-entry`)
+- Encrypted on miniserver99 using key from `secrets.nix`
+- Decrypted on Mac using local user key
+- File integrity: 100% preserved
+
+✅ **Test 2 (Mac → Server):**
+- Modified file on Mac (`test-entry-validated`)
+- Encrypted on Mac using local user key
+- Decrypted on miniserver99 using host key
+- File integrity: 100% preserved
+
+**Security Features:**
+- ✅ Passphrase check (warns if SSH key unprotected)
+- ✅ Git history check (warns if plaintext was committed)
+- ✅ Encryption validation (tests decryption immediately)
+- ✅ Atomic .gitignore updates (no race conditions)
+- ✅ Automatic backups (timestamped before overwrite)
 
 ### Backup Locations
 

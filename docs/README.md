@@ -201,3 +201,249 @@ miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
 - Web Interface: <http://192.168.1.99:3000>
 
 See `hosts/miniserver99/README.md` for detailed deployment and migration instructions.
+
+---
+
+## Justfile Commands Reference
+
+The repository uses `just` (a command runner) to simplify common tasks. All commands work across macOS and NixOS.
+
+### Quick Start
+
+```bash
+# View all available commands
+just --list
+
+# View commands in a specific group
+just --list | grep agenix
+just --list | grep build
+```
+
+### Installation
+
+```bash
+# NixOS (available in system by default if configured)
+nix-shell -p just
+
+# macOS
+brew install just
+```
+
+---
+
+### Encryption & Secrets (agenix group)
+
+#### encrypt-file - Encrypt sensitive files
+
+Encrypts any file in the `hosts/HOSTNAME/` directory structure using dual-key encryption (your SSH key + host key).
+
+**Usage:**
+```bash
+just encrypt-file hosts/HOSTNAME/filename
+```
+
+**Examples:**
+```bash
+# Encrypt static DHCP leases
+just encrypt-file hosts/miniserver99/static-leases.nix
+
+# Encrypt API keys
+just encrypt-file hosts/home01/api-keys.env
+
+# Encrypt database credentials
+just encrypt-file hosts/netcup01/db-config.conf
+```
+
+**Features:**
+- Auto-detects hostname from path
+- Uses local SSH key on Mac, reads from `secrets.nix` on servers
+- Dual-key encryption (user + host keys)
+- Validates encryption immediately
+- Atomically updates `.gitignore`
+- Stages files for commit
+
+**Security Checks:**
+- Warns if SSH key has no passphrase
+- Warns if file exists in Git history
+- Validates decryption works
+- Creates timestamped backups
+
+#### decrypt-file - Decrypt encrypted files
+
+Decrypts an `.age` file back to plaintext.
+
+**Usage:**
+```bash
+just decrypt-file ENCRYPTED_FILE [OUTPUT_FILE]
+```
+
+**Examples:**
+```bash
+# Auto-detect output location
+just decrypt-file secrets/static-leases-miniserver99.age
+
+# Specify output location explicitly
+just decrypt-file secrets/api-keys-home01.age hosts/home01/api-keys.env
+```
+
+**Features:**
+- Tries user key first (Mac), falls back to host key (servers)
+- Auto-detects output path from filename pattern
+- Creates backups before overwriting
+- Works on both macOS and NixOS
+
+---
+
+### Build & Deploy (build group)
+
+#### switch - Build and deploy
+
+```bash
+just switch
+```
+
+Builds and activates the NixOS configuration for the current host.
+
+#### upgrade - Update and rebuild
+
+```bash
+just upgrade
+```
+
+Updates flake inputs and switches to new configuration.
+
+#### build - Build current host
+
+```bash
+just build
+```
+
+Builds without activating (useful for testing).
+
+#### check - Validate configuration
+
+```bash
+just check
+```
+
+Checks if configuration can be built successfully.
+
+#### check-all - Validate all hosts
+
+```bash
+just check-all
+```
+
+Checks if all hosts defined in `flake.nix` can be built.
+
+---
+
+### Maintenance (maintenance group)
+
+#### cleanup - Free up disk space
+
+```bash
+just cleanup
+```
+
+Performs system cleanup:
+- Clears journal logs older than 3 days
+- Prunes Docker system
+- Empties trash
+- Runs nix garbage collection
+- Optimizes nix store
+
+#### list-generations - Show system generations
+
+```bash
+just list-generations
+```
+
+Lists all system generations (rollback points).
+
+#### rollback - Rollback to previous generation
+
+```bash
+just rollback
+```
+
+Rolls back to the previous NixOS generation.
+
+---
+
+### Common Workflows
+
+#### Daily Development
+
+```bash
+# Make changes to configuration
+nano hosts/miniserver99/configuration.nix
+
+# Test the build
+just check
+
+# Apply changes
+just switch
+```
+
+#### Updating Static Leases
+
+```bash
+# Edit leases
+nano hosts/miniserver99/static-leases.nix
+
+# Deploy to server
+just switch
+
+# Backup encrypted version to Git
+just encrypt-file hosts/miniserver99/static-leases.nix
+git commit -m "backup: update static leases"
+git push
+```
+
+#### After Cloning Repo
+
+```bash
+# Decrypt your sensitive files
+just decrypt-file secrets/static-leases-miniserver99.age
+
+# Build and deploy
+just switch
+```
+
+#### System Updates
+
+```bash
+# Update flake inputs and rebuild
+just upgrade
+
+# If issues occur, rollback
+just rollback
+```
+
+---
+
+### Additional Commands
+
+For a complete list of available commands, run:
+```bash
+just --list
+```
+
+Common groups include:
+- **agenix**: Encryption and secrets management
+- **build**: Build and deploy operations
+- **maintenance**: System cleanup and rollback
+- **log**: Log viewing and monitoring
+- **docs**: Documentation generation
+
+---
+
+## Related Documentation
+
+- **NixOS Manual**: https://nixos.org/manual/nixos/stable/
+- **Just Manual**: https://just.systems/man/en/
+- **agenix**: https://github.com/ryantm/agenix
+- **rage**: https://github.com/str4d/rage
+- **Disko (ZFS)**: https://github.com/nix-community/disko
+- **nixos-anywhere**: https://github.com/nix-community/nixos-anywhere
