@@ -1,11 +1,11 @@
 # miniserver99 Deployment Status
 
-**Date:** November 11, 2025  
+**Date:** November 12, 2025
 **Status:** ✅ Deployed and Running
 
 ## Summary
 
-Successfully deployed NixOS on miniserver99 (Mac mini) using `nixos-anywhere` from miniserver24. The system is running with AdGuard Home configured, including the DHCP server and a fully declarative static-lease sync. The login issue has been resolved with a proper password configuration (username: `admin`, password: `admin`). Configuration has been deployed successfully from `~/Code/nixcfg` using the static-lease override.
+Successfully deployed NixOS on miniserver99 (Mac mini) using `nixos-anywhere` from miniserver24. The system is running with AdGuard Home configured as the declarative DNS and DHCP server, replacing Pi-hole. Includes static DHCP leases, DNS rewrites, and host mappings. All configuration is declarative and deployed via NixOS flakes.
 
 ## Completed Tasks ✅
 
@@ -48,6 +48,11 @@ Successfully deployed NixOS on miniserver99 (Mac mini) using `nixos-anywhere` fr
    - `systemd.services.adguardhome.preStart` now syncs the declarative list into `/var/lib/private/AdGuardHome/data/leases.json` (UI-created static leases are removed on rebuild)
    - Verified `/control/dhcp/status` shows 100+ static leases after rebuild
 
+8. **DNS Host Mappings and CNAME Rewrites**
+   - Added static host mappings for infrastructure devices (Netgear, Fritz!Box, miniserver24, Pixoo displays) via `networking.hosts`
+   - Implemented CNAME rewrites for Pi-hole aliases (`csb0` → `cs0.barta.cm`, `csb1` → `cs1.barta.cm`) using AdGuard's `dnsrewrite` user rules
+   - Verified DNS queries return correct LAN IPs and public CNAME resolutions
+
 ## Current Issues 🔴
 
 ### 1. AdGuard Home Login Issue - ✅ RESOLVED AND DEPLOYED
@@ -60,20 +65,9 @@ Successfully deployed NixOS on miniserver99 (Mac mini) using `nixos-anywhere` fr
 - The issue was "field required" error, not authentication failure
 
 **Solution (Declarative):**
-- Set proper admin credentials: username `admin`, password `admin`
-- Generated bcrypt hash: `REMOVED`
+- Set proper admin credentials (username `admin`)
 - Updated configuration declaratively (no mutable settings)
 - **Deployed successfully** from `~/Code/nixcfg`
-
-**Deployed Configuration:**
-```nix
-users = [
-  {
-    name = "admin";
-    password = "REMOVED";
-  }
-];
-```
 
 **Verification:**
 - Service status: ✅ `active (running)`
@@ -81,7 +75,7 @@ users = [
 - Web interface: http://192.168.1.99:3000 (ready to test login)
 
 ### 2. Static DHCP Leases - ✅ Declarative Override & Sync
-**Status:** ✅ Complete  
+**Status:** ✅ Complete
 **Description:** Static leases are sourced from the local override and synced into AdGuard Home automatically
 
 **Implementation:**
@@ -97,8 +91,31 @@ users = [
 
 **Reminder:** Keep `hosts/miniserver99/static-leases.nix` gitignored; update it locally before running the override command. Rebuilds must include the override flag to import the private data.
 
-### 3. miniserver24 Gateway Route
-**Status:** Temporary Fix Applied  
+### 3. DNS Loopback Response
+**Status:** Open - Evaluate Impact
+**Description:** `dig miniserver99 @192.168.1.99` returns both `127.0.0.2` (loopback) and `192.168.1.99` (LAN IP)
+
+**Analysis:**
+- Loopback comes from systemd's `nss-myhostname` on miniserver99 itself, where `/etc/hosts` includes `127.0.0.2 miniserver99`
+- AdGuard imports `/etc/hosts`, so queries to AdGuard include the loopback entry
+- This is harmless for most use cases, as clients prioritize the LAN IP, but may cause confusion in diagnostics
+
+**Options:**
+- Accept as-is (standard systemd behavior)
+- Suppress loopback in `/etc/hosts` (requires custom systemd overrides)
+- Decide based on whether remote clients see only the LAN IP (they do)
+
+### 4. Additional Pi-hole Records
+**Status:** Open - Review Needed
+**Description:** Check if other CNAMEs or DNS rules from Pi-hole need migration
+
+**Actions:**
+- Audit Pi-hole config for additional records
+- Port any missing ones to AdGuard's `dnsrewrite` or host mappings
+- Ensure no functionality is lost during transition
+
+### 5. miniserver24 Gateway Route
+**Status:** Temporary Fix Applied
 **Description:** miniserver24 gateway route was fixed manually but needs permanent fix
 
 **Current State:**
@@ -163,7 +180,7 @@ sudo cat /var/lib/AdGuardHome/AdGuardHome.yaml | grep -A 3 '^users:'
 ## Next Steps (Priority Order)
 
 1. **🟢 TEST:** Spot-check AdGuard Home
-   - Confirm login works with `admin` / `admin`
+   - Confirm login works (web interface accessible)
    - Browse to Settings → DHCP to verify static leases are listed
    - Ensure dynamic clients receive expected leases
 
@@ -171,7 +188,15 @@ sudo cat /var/lib/AdGuardHome/AdGuardHome.yaml | grep -A 3 '^users:'
    - Watch `/var/lib/private/AdGuardHome/data/leases.json` and the UI for 24 hours
    - Gather feedback before decommissioning miniserver24’s Pi-hole completely
 
-3. **🟢 LOW:** Fix miniserver24 gateway permanently
+3. **🟡 MEDIUM:** Evaluate DNS loopback response
+   - Decide if the dual response (127.0.0.2 + 192.168.1.99) for `miniserver99` is acceptable
+   - If not, explore systemd configuration to suppress loopback
+
+4. **🟡 MEDIUM:** Audit additional Pi-hole records
+   - Review Pi-hole configuration for other CNAMEs or custom DNS rules
+   - Migrate any missing ones to AdGuard
+
+5. **🟢 LOW:** Fix miniserver24 gateway permanently
    - Update miniserver24 `configuration.nix` with correct gateway
    - Rebuild miniserver24
 

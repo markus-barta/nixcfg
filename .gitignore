@@ -23,4 +23,3 @@ devenv.local.nix
 # Encrypted version stored in secrets/ directory with agenix
 
 # Deployment status and TODO files
-miniserver99-deployment-status.md
