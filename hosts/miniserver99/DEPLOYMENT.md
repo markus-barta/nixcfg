@@ -72,7 +72,7 @@ Successfully deployed NixOS on miniserver99 (Mac mini) using `nixos-anywhere` fr
 **Verification:**
 - Service status: ✅ `active (running)`
 - Configuration file: ✅ Password hash confirmed
-- Web interface: http://192.168.1.99:3000 (ready to test login)
+- Web interface: <http://192.168.1.99:3000> (ready to test login)
 
 ### 2. Static DHCP Leases - ✅ Declarative Override & Sync
 **Status:** ✅ Complete
