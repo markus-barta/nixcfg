@@ -68,6 +68,10 @@ in
           cache_ttl_min = 0;
           cache_ttl_max = 0;
           cache_optimistic = true;
+          rewrites = [
+            { domain = "csb0"; answer = "cs0.barta.cm"; type = "CNAME"; }
+            { domain = "csb1"; answer = "cs1.barta.cm"; type = "CNAME"; }
+          ];
         };
 
         # Admin user with password 'admin' (bcrypt hash)
@@ -157,6 +161,17 @@ EOF
     nameservers = [ "127.0.0.1" ];
     search = [ "lan" ];
     defaultGateway = "192.168.1.5";
+    hosts = {
+      "192.168.1.3" = [ "vr-netgear-gs724" "vr-netgear-gs724.lan" ];
+      "192.168.1.5" = [ "vr-fritz-box" "vr-fritz-box.lan" ];
+      "192.168.1.32" = [ "kr-sonnen-batteriespeicher" "kr-sonnen-batteriespeicher.lan" ];
+      "192.168.1.99" = [ "miniserver99" "miniserver99.lan" ];
+      "192.168.1.100" = [ "mosquitto" "mosquitto.lan" ];
+      "192.168.1.101" = [ "miniserver24" "miniserver24.lan" ];
+      "192.168.1.102" = [ "vr-opus-gateway" "vr-opus-gateway.lan" ];
+      "192.168.1.159" = [ "wz-pixoo-64-00" "wz-pixoo-64-00.lan" ];
+      "192.168.1.189" = [ "wz-pixoo-64-01" "wz-pixoo-64-01.lan" ];
+    };
     interfaces.enp2s0f0 = {
       ipv4.addresses = [
         {
