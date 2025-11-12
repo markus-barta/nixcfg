@@ -141,27 +141,32 @@ dig @localhost google.com
 cd ~/Code/nixcfg
 git pull
 
-# Use justfile command (recommended)
+# RECOMMENDED: Use miniserver99-specific command (includes static leases override)
+just switch99
+
+# Alternative: Generic switch (WARNING: will lose static leases!)
 just switch
 
-# Or use native nixos-rebuild (with static leases override)
+# Alternative: Native nixos-rebuild with manual override
 sudo nixos-rebuild switch \
   --flake .#miniserver99 \
   --override-input miniserver99-static-leases \
   path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
 ```
 
+**⚠️ IMPORTANT:** Always use `just switch99` on miniserver99 to preserve static DHCP leases. The regular `just switch` command will use the empty sample file and clear all leases.
+
 ### Useful Justfile Commands
 
 ```bash
+# Switch configuration (miniserver99-specific, includes static leases)
+just switch99
+
 # Encrypt static leases for backup
 just encrypt-file hosts/miniserver99/static-leases.nix
 
 # Decrypt static leases from backup
 just decrypt-file secrets/static-leases-miniserver99.age
-
-# Switch configuration
-just switch
 
 # Update flake inputs and rebuild
 just upgrade
@@ -204,11 +209,14 @@ services.adguardhome.settings.dns = {
 Apply changes:
 
 ```bash
-# Recommended
-just switch
+# Recommended (includes static leases override)
+just switch99
 
-# Alternative: native command
-sudo nixos-rebuild switch --flake .#miniserver99
+# Alternative: native command (requires manual override)
+sudo nixos-rebuild switch \
+  --flake .#miniserver99 \
+  --override-input miniserver99-static-leases \
+  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
 ```
 
 ---
@@ -244,10 +252,10 @@ nano hosts/miniserver99/static-leases.nix
 **Deploy changes:**
 
 ```bash
-# Recommended
-just switch
+# Recommended (includes static leases override)
+just switch99
 
-# Alternative: native command with override
+# Alternative: native command with manual override
 sudo nixos-rebuild switch \
   --flake .#miniserver99 \
   --override-input miniserver99-static-leases \
