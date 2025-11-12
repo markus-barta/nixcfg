@@ -70,12 +70,14 @@ in
           cache_optimistic = true;
         };
 
-        rewrites = [
-          { domain = "csb0"; answer = "cs0.barta.cm"; type = 5; }
-          { domain = "csb1"; answer = "cs1.barta.cm"; type = 5; }
-        ];
+        rewrites = [ ];
 
         # Admin user with password 'admin' (bcrypt hash)
+        user_rules = [
+          "||csb0^$dnsrewrite=NOERROR;CNAME;cs0.barta.cm"
+          "||csb1^$dnsrewrite=NOERROR;CNAME;cs1.barta.cm"
+        ];
+
         users = [
           {
             name = "admin";
