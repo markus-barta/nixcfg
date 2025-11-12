@@ -71,8 +71,8 @@ in
         };
 
         rewrites = [
-          { domain = "csb0"; answer = "cs0.barta.cm"; type = "CNAME"; }
-          { domain = "csb1"; answer = "cs1.barta.cm"; type = "CNAME"; }
+          { domain = "csb0"; answer = "cs0.barta.cm"; type = 5; }
+          { domain = "csb1"; answer = "cs1.barta.cm"; type = 5; }
         ];
 
         # Admin user with password 'admin' (bcrypt hash)
