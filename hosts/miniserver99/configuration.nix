@@ -209,6 +209,9 @@ EOF
     dig
     tcpdump
     nmap
+    # Secret management tools
+    rage # Modern age encryption tool (for agenix)
+    inputs.agenix.packages.${pkgs.system}.default # agenix CLI
   ];
 
   hokage = {
