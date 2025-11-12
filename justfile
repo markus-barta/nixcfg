@@ -268,31 +268,52 @@ encrypt-file source-file:
     
     echo "🔒 Encrypting {{ source-file }} for host: $HOST"
     
-    # Find user's SSH public key
+    # Find user's SSH public key (try local first, then secrets.nix)
     USER_KEY=""
     USER_KEY_PATH=""
+    USER_KEY_SOURCE=""
+    
+    # Try local SSH keys first (for passphrase check)
     if [ -f ~/.ssh/id_rsa.pub ]; then
         USER_KEY=$(cat ~/.ssh/id_rsa.pub)
         USER_KEY_PATH=~/.ssh/id_rsa
+        USER_KEY_SOURCE="local"
     elif [ -f ~/.ssh/id_ed25519.pub ]; then
         USER_KEY=$(cat ~/.ssh/id_ed25519.pub)
         USER_KEY_PATH=~/.ssh/id_ed25519
+        USER_KEY_SOURCE="local"
     elif [ -f ~/.ssh/id_ecdsa.pub ]; then
         USER_KEY=$(cat ~/.ssh/id_ecdsa.pub)
         USER_KEY_PATH=~/.ssh/id_ecdsa
-    else
-        echo "❌ Error: No SSH public key found in ~/.ssh/"
-        echo ""
-        echo "Please generate one with:"
-        echo "  ssh-keygen -t ed25519 -C 'your@email.com'"
-        exit 1
+        USER_KEY_SOURCE="local"
     fi
     
-    # Check if SSH key has a passphrase (security reminder)
-    if ssh-keygen -y -P "" -f "$USER_KEY_PATH" >/dev/null 2>&1; then
-        echo "⚠️  Security Note: Your SSH key has no passphrase"
-        echo "   Consider adding one with: ssh-keygen -p -f $USER_KEY_PATH"
-        echo ""
+    # Fallback: Extract user key from secrets.nix (for servers without local user keys)
+    if [ -z "$USER_KEY" ]; then
+        USER_KEY=$(grep -A 1 "markus =" secrets/secrets.nix | grep "ssh-" | head -1 | sed 's/^[[:space:]]*"\(.*\)"[[:space:]]*$/\1/')
+        if [ -n "$USER_KEY" ]; then
+            USER_KEY_SOURCE="secrets.nix"
+            echo "🔑 Using user key from secrets.nix (no local SSH key found)"
+        else
+            echo "❌ Error: No user SSH public key found"
+            echo ""
+            echo "Tried:"
+            echo "  - Local keys: ~/.ssh/id_{rsa,ed25519,ecdsa}.pub"
+            echo "  - Config: secrets.nix (markus entry)"
+            echo ""
+            echo "Please add your public key to secrets.nix or generate one locally:"
+            echo "  ssh-keygen -t ed25519 -C 'your@email.com'"
+            exit 1
+        fi
+    fi
+    
+    # Check if local SSH key has a passphrase (only for local keys)
+    if [ "$USER_KEY_SOURCE" = "local" ]; then
+        if ssh-keygen -y -P "" -f "$USER_KEY_PATH" >/dev/null 2>&1; then
+            echo "⚠️  Security Note: Your SSH key has no passphrase"
+            echo "   Consider adding one with: ssh-keygen -p -f $USER_KEY_PATH"
+            echo ""
+        fi
     fi
     
     # Extract host's SSH public key from secrets.nix
@@ -335,16 +356,20 @@ encrypt-file source-file:
       -o "$OUTPUT" \
       "{{ source-file }}"
     
-    # Validate encrypted output
-    echo "🔍 Validating encryption..."
-    if ! rage --decrypt -i "$USER_KEY_PATH" "$OUTPUT" >/dev/null 2>&1; then
-        echo "❌ Error: Encryption validation failed!"
-        echo "   The encrypted file cannot be decrypted with your SSH key."
-        echo "   This might indicate an issue with the encryption."
-        rm -f "$OUTPUT"
-        exit 1
+    # Validate encrypted output (only if we have local private key)
+    if [ "$USER_KEY_SOURCE" = "local" ]; then
+        echo "🔍 Validating encryption..."
+        if ! rage --decrypt -i "$USER_KEY_PATH" "$OUTPUT" >/dev/null 2>&1; then
+            echo "❌ Error: Encryption validation failed!"
+            echo "   The encrypted file cannot be decrypted with your SSH key."
+            echo "   This might indicate an issue with the encryption."
+            rm -f "$OUTPUT"
+            exit 1
+        fi
+        echo "✅ Encryption validated successfully"
+    else
+        echo "ℹ️  Skipping validation (no local private key available)"
     fi
-    echo "✅ Encryption validated successfully"
     
     # Add to .gitignore if not already there (atomic operation)
     if ! git check-ignore -q "{{ source-file }}"; then
