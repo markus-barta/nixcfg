@@ -69,6 +69,10 @@ in
           cache_ttl_max = 0;
           cache_optimistic = true;
           rewrites = [
+            { domain = "miniserver99"; answer = "192.168.1.99"; type = "A"; }
+            { domain = "miniserver99.lan"; answer = "192.168.1.99"; type = "A"; }
+            { domain = "miniserver24"; answer = "192.168.1.101"; type = "A"; }
+            { domain = "miniserver24.lan"; answer = "192.168.1.101"; type = "A"; }
             { domain = "csb0"; answer = "cs0.barta.cm"; type = "CNAME"; }
             { domain = "csb1"; answer = "cs1.barta.cm"; type = "CNAME"; }
           ];
