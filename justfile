@@ -433,35 +433,73 @@ decrypt-file encrypted-file output-file='':
     # Create directory if needed
     mkdir -p "$(dirname "$OUTPUT")"
     
-    # Find SSH private key for decryption
-    SSH_KEY=""
+    # Find available decryption keys
+    USER_KEY=""
+    HOST_KEY=""
+    
+    # Check for user SSH keys (works on Mac and servers)
     if [ -f ~/.ssh/id_rsa ]; then
-        SSH_KEY=~/.ssh/id_rsa
+        USER_KEY=~/.ssh/id_rsa
     elif [ -f ~/.ssh/id_ed25519 ]; then
-        SSH_KEY=~/.ssh/id_ed25519
+        USER_KEY=~/.ssh/id_ed25519
     elif [ -f ~/.ssh/id_ecdsa ]; then
-        SSH_KEY=~/.ssh/id_ecdsa
+        USER_KEY=~/.ssh/id_ecdsa
     fi
     
-    # Try decryption with rage first, fallback to age
+    # Check for host keys (NixOS servers only)
+    if [ -f /etc/ssh/ssh_host_rsa_key ]; then
+        HOST_KEY=/etc/ssh/ssh_host_rsa_key
+    elif [ -f /etc/ssh/ssh_host_ed25519_key ]; then
+        HOST_KEY=/etc/ssh/ssh_host_ed25519_key
+    fi
+    
+    # Determine which tool to use
+    DECRYPT_CMD=""
     if command -v rage &> /dev/null; then
-        if [ -n "$SSH_KEY" ]; then
-            rage --decrypt -i "$SSH_KEY" "{{ encrypted-file }}" > "$OUTPUT"
-        else
-            rage --decrypt "{{ encrypted-file }}" > "$OUTPUT"
-        fi
+        DECRYPT_CMD="rage"
     elif command -v age &> /dev/null; then
-        if [ -n "$SSH_KEY" ]; then
-            age --decrypt -i "$SSH_KEY" "{{ encrypted-file }}" > "$OUTPUT"
-        else
-            age --decrypt "{{ encrypted-file }}" > "$OUTPUT"
-        fi
+        DECRYPT_CMD="age"
     else
         echo "❌ Error: Neither 'rage' nor 'age' found"
         echo ""
         echo "Install with:"
         echo "  nix-shell -p rage"
         echo "  # or on macOS: brew install rage"
+        exit 1
+    fi
+    
+    # Try decryption with available keys
+    DECRYPTED=false
+    
+    # Try user key first (if available)
+    if [ -n "$USER_KEY" ]; then
+        echo "🔓 Trying user SSH key: $USER_KEY"
+        if $DECRYPT_CMD --decrypt -i "$USER_KEY" "{{ encrypted-file }}" > "$OUTPUT" 2>/dev/null; then
+            DECRYPTED=true
+            echo "✅ Decrypted with user key"
+        fi
+    fi
+    
+    # If user key failed, try host key (if available)
+    if [ "$DECRYPTED" = false ] && [ -n "$HOST_KEY" ]; then
+        echo "🔓 Trying host SSH key: $HOST_KEY"
+        if sudo $DECRYPT_CMD --decrypt -i "$HOST_KEY" "{{ encrypted-file }}" > "$OUTPUT" 2>/dev/null; then
+            DECRYPTED=true
+            echo "✅ Decrypted with host key"
+        fi
+    fi
+    
+    # Check if decryption succeeded
+    if [ "$DECRYPTED" = false ]; then
+        echo "❌ Error: Failed to decrypt file"
+        echo ""
+        echo "This file was encrypted with specific keys."
+        echo "Available keys:"
+        [ -n "$USER_KEY" ] && echo "  - User key: $USER_KEY"
+        [ -n "$HOST_KEY" ] && echo "  - Host key: $HOST_KEY"
+        echo ""
+        echo "Make sure you have access to one of the keys used during encryption."
+        rm -f "$OUTPUT"
         exit 1
     fi
     
