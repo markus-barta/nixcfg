@@ -2,11 +2,11 @@
 
 [GitHub](https://github.com/pbek/nixcfg)
 
-My personal NixOS config of my machines.
+My personal NixOS configuration for my machines.
 
 **Not meant to be used by others**, but feel free to take inspiration from it.
 
-## Screenhots
+## Screenshots
 
 #### Shell
 
@@ -26,30 +26,30 @@ HOSTNAME=yourhostname bash <(curl -s https://raw.githubusercontent.com/pbek/nixc
 nix-shell -p git --run "sudo nixos-rebuild switch --flake .#yourhostname -L"
 ```
 
-Afterward here are some useful commands:
+Afterward, here are some useful commands:
 
 ```bash
 # Build and switch to new configuration
 make switch
 
-# edit configuration.nix
+# Edit configuration.nix
 kate . &
 
-# check for Nvidia card
+# Check for Nvidia card
 nix-shell -p pciutils --run 'lspci | grep VGA'
 
-# look at network load and other stats?
+# Look at network load and other stats
 nix-shell -p btop --run btop
 
-# login at another computer and start the restic mount and restore
+# Login at another computer and start the restic mount and restore
 
-# take over tmux session at local system to watch restore
+# Take over tmux session at local system to watch restore
 tmux new-session -A -s main
 
-# after backup restore reboot computer
+# After backup restore reboot computer
 sudo reboot
 
-# run backup script
+# Run backup script
 ```
 
 In the end commit changes to https://github.com/pbek/nixcfg.
@@ -60,9 +60,9 @@ In the end commit changes to https://github.com/pbek/nixcfg.
 
 This needs to be done if hosts were added.
 
-- run `ssh-keyscan localhost` on new host
-- add those keys to `./secrets/secret.nix`
-- run `cd ./secrets && agenix -i ~/.ssh/agenix --rekey` to rekey all keys
+- Run `ssh-keyscan localhost` on new host
+- Add those keys to `./secrets/secrets.nix`
+- Run `cd ./secrets && agenix -i ~/.ssh/agenix --rekey` to rekey all keys
 
 ### Add secret
 
@@ -73,7 +73,7 @@ cd ./secrets && agenix -i ~/.ssh/agenix -e secret-file.age
 ## Commands
 
 ```bash
-# update just one flake (we need to set the github token so the API limit is not reached)
+# Update just one flake (we need to set the github token so the API limit is not reached)
 NIX_CONFIG="access-tokens = github.com=`cat ~/.secrets/github-token`" nix flake lock --update-input catppuccin
 ```
 
@@ -82,23 +82,23 @@ NIX_CONFIG="access-tokens = github.com=`cat ~/.secrets/github-token`" nix flake 
 If the UEFI "BIOS" gets corrupted and was reset, no NixOS EFI boot device will be found.
 You can fix this with the following steps:
 
-- boot [Ventoy](https://www.ventoy.net/) USB stick in **UEFI mode**
-- start NixOS image
-- load encrypted root partition with `gparted`
+- Boot [Ventoy](https://www.ventoy.net/) USB stick in **UEFI mode**
+- Start NixOS image
+- Load encrypted root partition with `gparted`
 
 ```bash
-# as root
+# As root
 sudo su -
 
-# mount encrypted root partition and boot partition
+# Mount encrypted root partition and boot partition
 mount /dev/mapper/sda2_crypt /mnt
 mount /dev/sda1 /mnt/boot
 
-# install current flake including bootloader
+# Install current flake including bootloader
 cd /mnt/home/omega/Code/nixcfg
 nixos-install --flake .#pluto
 
-# reboot machine, "Linux Bootloader" should now be available in the UEFI boot menu
+# Reboot machine, "Linux Bootloader" should now be available in the UEFI boot menu
 reboot
 ```
 
@@ -153,7 +153,7 @@ passwd
 # Clone nixcfg repository via https (read-only)
 # If you are overriding https urls with ssh, you need to remove ~/.config/git/config first
 cd ~ && git clone https://github.com/pbek/nixcfg.git && cd nixcfg
-# or via ssh (read-write)
+# Or via ssh (read-write)
 cd ~ && git clone git@github.com:pbek/nixcfg.git && cd nixcfg
 
 # Update channels, so command-not-found will work
