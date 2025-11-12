@@ -127,6 +127,17 @@ switch args='':
       just _notify "switch finished on {{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
     fi
 
+# Build and switch miniserver99 with static-leases override
+[group('build')]
+switch99:
+    #!/usr/bin/env bash
+    echo "❄️ Running switch for miniserver99 with static-leases override..."
+    sudo nixos-rebuild switch \
+      --flake .#miniserver99 \
+      --override-input miniserver99-static-leases \
+      path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
+    echo "✅ miniserver99 rebuilt with static leases"
+
 # Build the current host with nix-rebuild
 [group('build')]
 nix-build:
