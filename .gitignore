@@ -5,7 +5,8 @@
 /hardware-configuration.nix
 /*.qcow2
 result
-.shared
+.shared/*
+!.shared/common.just
 
 # Devenv
 .devenv*

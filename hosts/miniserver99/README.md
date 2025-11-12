@@ -2,15 +2,24 @@
 
 ## Purpose
 
-Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service.
+Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, replacing the Pi-hole setup from miniserver24.
 
-## Network Configuration
+## Quick Reference
 
 - **IP Address**: `192.168.1.99/24`
-- **Gateway**: `192.168.1.5`
-- **DNS**: Uses localhost (127.0.0.1) - AdGuard Home provides DNS
+- **Gateway**: `192.168.1.5` (Fritz!Box)
+- **DNS**: Uses localhost (127.0.0.1) - AdGuard Home
 - **DHCP Range**: `192.168.1.201` - `192.168.1.254`
-- **Web Interface**: <http://192.168.1.99:3000>
+- **Web Interface**: http://192.168.1.99:3000
+- **SSH**: `ssh mba@192.168.1.99`
+
+## System Details
+
+- **Hardware**: Mac mini (Intel)
+- **ZFS hostId**: `dabfdb02`
+- **User**: `mba` (Markus Barta)
+- **Role**: `server-home` (via `serverMba.enable`)
+- **Network Interface**: `enp2s0f0`
 
 ## Firewall Ports
 
@@ -18,580 +27,489 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service.
 - **UDP 53**: DNS queries
 - **UDP 67**: DHCP server
 - **TCP 3000**: AdGuard Home web interface
+- **TCP 22**: SSH
 - **TCP 80/443**: Reserved for future use
-- **TCP 22**: SSH (enabled by `server-home` role)
 
-## System Details
+---
 
-- **ZFS hostId**: `dabfdb02`
-- **User**: `mba` (Markus Barta)
-- **Role**: `server-home` (via `serverMba.enable`)
+## Installation
 
-## Enabled Services
+### Prerequisites
 
-This system provides the following services via the `serverMba` module and `server-home` role:
+- ✅ **Boot Media**: USB stick with NixOS minimal ISO (nixos-minimal-25.05 or later)
+- ✅ **Source Machine**: miniserver24 (192.168.1.101) or your Mac
+- ✅ **Network**: All machines on same network (192.168.1.x)
+- ✅ **Static Lease Data**: `hosts/miniserver99/static-leases.nix` available locally
 
-### Core Services
+### Step 1: Boot from USB
 
-- **AdGuard Home**: DNS filtering, ad-blocking, and DHCP server
-  - Declarative configuration via NixOS module
-  - Systemd service management
-  - Web interface on port 3000
-- **SSH**: Key-based authentication with authorized keys
-- **Docker**: Container runtime available for additional services
-- **ZFS**: Automatic scrubbing and snapshot management via Sanoid
-- **Fail2ban**: Intrusion prevention system
-- **Firewall**: iptables/nftables-based packet filtering
+1. Insert USB stick into Mac mini
+2. Power on while holding **⌥ Option (Alt)** key
+3. Select USB stick from boot menu
+4. Wait for NixOS minimal environment to boot
 
-### AdGuard Home Features
-
-#### DNS Management
-
-- Ad-blocking and tracker blocking
-- Custom DNS filtering rules
-- DNS-over-HTTPS (DoH) and DNS-over-TLS (DoT) support
-- Configurable upstream DNS servers
-- DNS query logging and statistics
-- Custom DNS rewrites
-
-#### DHCP Management
-
-- DHCP server with configurable IP ranges
-- Static DHCP lease assignment
-- Custom DHCP options
-- Integration with DNS resolution
-
-#### Administration
-
-- Web-based administration interface
-- Query log with search and filtering
-- Real-time statistics dashboard
-- Configurable filter lists and custom rules
-- Client identification and per-client settings
-
-## Deployment Steps
-
-### Important: DHCP & Static Lease Management
-
-- ✅ DHCP is **enabled** by default. Ensure **all other DHCP servers** (e.g. miniserver24/Pi-hole) are stopped before rebuilding or booting this host.
-- ✅ Static leases live in the gitignored file `hosts/miniserver99/static-leases.nix`.  
-  Include them on every rebuild by overriding the flake input:
-
-  ```bash
-  sudo nixos-rebuild switch \
-    --flake .#miniserver99 \
-    --override-input miniserver99-static-leases \
-    path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
-  ```
-
-- The build injects all declarative leases into `/var/lib/private/AdGuardHome/data/leases.json`; any leases created via the UI are removed on the next rebuild.
-- Detailed installation and cutover steps live in [`hosts/miniserver99/installation.md`](./installation.md).
-
-### 1. Initial Installation
-
-**Recommended: Install from miniserver24** (can run overnight, native NixOS builds)
+### Step 2: Configure Minimal Environment
 
 ```bash
-# On miniserver24
-ssh mba@192.168.1.101
-cd ~/Code/nixcfg
+# Set root password (needed for SSH)
+sudo passwd
 
-# Deploy with nixos-anywhere (see ./installation.md for details)
-nix run github:nix-community/nixos-anywhere -- \
-  --flake .#miniserver99 \
-  root@<MAC_MINI_IP>
+# Check network interface
+ip link show
+# Expected: enp2s0f0
+
+# Get IP address assigned by DHCP
+ip addr show
+# Note this IP for nixos-anywhere
+
+# Verify connectivity
+ping 1.1.1.1
 ```
 
-Alternative: Traditional installation on target machine after minimal NixOS:
+### Step 3: Deploy with nixos-anywhere
+
+**From miniserver24 (RECOMMENDED):**
 
 ```bash
-# 1. Generate hardware configuration
-sudo nixos-generate-config --root /mnt
+# SSH into miniserver24
+ssh mba@192.168.1.101
 
-# 2. Copy hardware-configuration.nix to this directory
-# 3. Verify network interface name (currently enp2s0f0)
-# 4. Deploy
+# Navigate to repository
+cd ~/Code/nixcfg
+
+# Ensure static-leases.nix exists
+ls -la hosts/miniserver99/static-leases.nix
+
+# Deploy (replace 192.168.1.150 with actual IP from step 2)
+nix run github:nix-community/nixos-anywhere -- \
+  --flake .#miniserver99 \
+  --override-input miniserver99-static-leases \
+  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix \
+  root@192.168.1.150
+```
+
+**From your Mac:**
+
+```bash
+cd ~/Code/nixcfg
+
+# Deploy
+nix run github:nix-community/nixos-anywhere -- \
+  --flake .#miniserver99 \
+  --override-input miniserver99-static-leases \
+  path:/Users/markus/Code/nixcfg/hosts/miniserver99/static-leases.nix \
+  root@192.168.1.150
+```
+
+### Step 4: First Boot
+
+1. Remove USB stick
+2. Machine reboots into NixOS at `192.168.1.99`
+3. Wait ~30 seconds for boot
+
+### Step 5: Verify Installation
+
+```bash
+# SSH into new system
+ssh mba@192.168.1.99
+
+# Check AdGuard Home status
+systemctl status adguardhome
+journalctl -u adguardhome -f
+
+# Check ZFS pool
+zpool status
+
+# Verify network configuration
+ip addr show enp2s0f0
+
+# Test DNS
+dig @localhost google.com
+
+# Access web interface
+# http://192.168.1.99:3000
+```
+
+---
+
+## Configuration Management
+
+### Deploying Changes
+
+```bash
+# On miniserver99
+cd ~/Code/nixcfg
+git pull
+
+# Use justfile command (recommended)
+just switch
+
+# Or use native nixos-rebuild (with static leases override)
+sudo nixos-rebuild switch \
+  --flake .#miniserver99 \
+  --override-input miniserver99-static-leases \
+  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
+```
+
+### Useful Justfile Commands
+
+```bash
+# Encrypt static leases for backup
+just encrypt-file hosts/miniserver99/static-leases.nix
+
+# Decrypt static leases from backup
+just decrypt-file secrets/static-leases-miniserver99.age
+
+# Switch configuration
+just switch
+
+# Update flake inputs and rebuild
+just upgrade
+
+# Clean up old generations
+just cleanup
+
+# View all available commands
+just --list
+```
+
+**Documentation:**
+- [Justfile Commands Reference](../../docs/justfile-commands.md) - Complete command documentation
+- [Encryption Test Guide](../../docs/encryption-test-guide.md) - Step-by-step testing instructions
+- [Pre-Flight Checklist](../../docs/pre-flight-checklist.md) - Verify setup before testing
+
+### Modifying AdGuard Home Settings
+
+All settings are declarative in `configuration.nix`. Examples:
+
+```nix
+# Change DHCP range
+services.adguardhome.settings.dhcp = {
+  range_start = "192.168.1.201";
+  range_end = "192.168.1.254";
+  lease_duration = 86400; # 24 hours
+};
+
+# Change upstream DNS
+services.adguardhome.settings.dns = {
+  bootstrap_dns = [ "9.9.9.9" "149.112.112.112" ]; # Quad9
+  upstream_dns = [ "9.9.9.9" "149.112.112.112" ];
+};
+
+# Adjust DNS cache
+services.adguardhome.settings.dns = {
+  cache_size = 8388608; # 8MB
+  cache_optimistic = true;
+};
+```
+
+Apply changes:
+
+```bash
+# Recommended
+just switch
+
+# Alternative: native command
 sudo nixos-rebuild switch --flake .#miniserver99
 ```
 
-### 2. AdGuard Home Initial Setup
+---
 
-After deployment, AdGuard Home starts automatically as a systemd service.
+## Static DHCP Leases
 
-#### Service Management
+### Overview
 
-```bash
-# Check service status
-systemctl status adguardhome
+All 115+ static DHCP leases are configured declaratively in `static-leases.nix`. The file is:
+- ✅ **Gitignored**: Contains MAC addresses and network topology
+- ✅ **Encrypted**: Backed up in Git as `secrets/static-leases-miniserver99.age`
+- ✅ **Declarative**: Synced automatically during deployment
 
-# View real-time logs
-journalctl -u adguardhome -f
+### File Structure
 
-# Restart service if needed
-sudo systemctl restart adguardhome
+```nix
+{
+  static_leases = [
+    { mac = "AA:BB:CC:DD:EE:FF"; ip = "192.168.1.100"; hostname = "device-name"; }
+    # ... more leases
+  ];
+}
 ```
 
-#### Initial Web Interface Setup
+### Managing Static Leases
 
-1. Navigate to <http://192.168.1.99:3000>
-2. Complete the setup wizard to create an administrator account
-3. Configure basic settings (timezone, language, etc.)
-
-### 3. Post-Deployment Configuration
-
-#### DNS Configuration
-
-1. Access the web interface at <http://192.168.1.99:3000>
-2. Navigate to **Filters → DNS blocklists**
-3. Add recommended filter lists:
-   - AdGuard DNS filter
-   - AdAway Default Blocklist
-   - Steven Black's Unified Hosts
-   - HaGeZi's Pro Blocklist
-4. Enable **Safe Browsing** and **Parental Control** if desired
-
-#### DHCP Configuration
-
-- DHCP range: 192.168.1.201-254 (configurable in `configuration.nix`)
-- Static DHCP leases are **fully declarative** and synced automatically from `static-leases.nix`
-  - No manual configuration in the UI required
-  - Verify in the web interface: Settings → DHCP settings → Static leases
-  - Any changes made via the UI are discarded on the next rebuild
-
-#### Testing
+**Edit leases:**
 
 ```bash
-# Test DNS resolution from this server
-dig @localhost google.com
-
-# Test DNS resolution from network client
-dig @192.168.1.99 google.com
-
-# Check DHCP leases
-cat /var/lib/AdGuardHome/leases.db
+nano hosts/miniserver99/static-leases.nix
 ```
 
-### 4. Network Infrastructure Integration
-
-#### Router Configuration
-
-1. Configure router to advertise 192.168.1.99 as primary DNS server
-2. Disable router's built-in DNS caching if applicable
-3. Alternatively, let AdGuard Home's DHCP server handle DNS advertisement
-
-#### Client Testing
-
-1. Renew DHCP lease on a test client: `dhclient -r && dhclient`
-2. Verify DNS server: `cat /etc/resolv.conf` (should show 192.168.1.99)
-3. Test ad-blocking: Visit a site with known ads
-4. Check query logs in AdGuard Home web interface
-
-## Important Notes
-
-### Network Interface
-
-The configuration uses `enp2s0f0` as the network interface. Verify this matches your hardware:
+**Deploy changes:**
 
 ```bash
-ip link show
+# Recommended
+just switch
+
+# Alternative: native command with override
+sudo nixos-rebuild switch \
+  --flake .#miniserver99 \
+  --override-input miniserver99-static-leases \
+  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
 ```
 
-If different, update the interface name in `configuration.nix`.
-
-### Hardware Configuration
-
-The `hardware-configuration.nix` is a template copied from miniserver24. You **must** regenerate it on the actual hardware using:
+**Backup to Git (encrypted):**
 
 ```bash
-sudo nixos-generate-config
+# Encrypt and stage
+just encrypt-file hosts/miniserver99/static-leases.nix
+
+# Commit
+git commit -m "backup: update static leases"
+git push
 ```
 
-### ZFS Pool
+**What happens during encryption:**
+- Uses **both your SSH key and miniserver99's host key**
+- Either you (on your Mac) or miniserver99 can decrypt
+- **Security checks**: Warns if SSH key has no passphrase or file exists in Git history
+- **Validation**: Tests that encrypted file can be decrypted
+- Automatically adds plaintext to `.gitignore` (atomic update)
+- Stages encrypted file for commit
 
-The disk configuration expects `/dev/sda` as the primary disk. Adjust in `disk-config.zfs.nix` if needed.
+See [Encryption Test Guide](../../docs/encryption-test-guide.md) for detailed testing instructions.
 
-### System DNS Configuration
+**Restore from Git:**
 
-The system is configured to use localhost (127.0.0.1) for DNS, which points to AdGuard Home. This is already configured in `configuration.nix`.
+```bash
+# After cloning repo on new machine
+just decrypt-file secrets/static-leases-miniserver99.age
+```
+
+### Security Model
+
+- **Plaintext file**: Gitignored, kept locally only
+- **Encrypted backup**: Stored in Git as `.age` file
+- **Encryption key**: miniserver99 SSH host key (public key used for encryption)
+- **Decryption key**: miniserver99 SSH host key (private key on server only)
+- **Access**: Only you and miniserver99 can decrypt
+
+### Backup Locations
+
+1. **Time Machine** on your Mac
+2. **ZFS snapshots** on miniserver99 (automatic)
+3. **Encrypted in Git** via `secrets/static-leases-miniserver99.age`
+4. **1Password** (optional: store backup copy)
+
+---
+
+## SSH Keys
+
+### Your SSH Keys
+
+**Personal (Use for NixOS):**
+- `~/.ssh/id_rsa` + `.pub`
+- RSA, created June 2019
+- ✅ Configured in `secrets/secrets.nix` for private-only access
+
+**Company (BYTEPOETS):**
+- `~/.ssh/id_ed25519_bytepoets` + `.pub`
+- ED25519, for work only
+
+**Backup:** Store private key `~/.ssh/id_rsa` in 1Password as secure note
+
+### SSH Host Keys (miniserver99)
+
+Automatically generated by NixOS during installation:
+- `/etc/ssh/ssh_host_rsa_key` (private)
+- `/etc/ssh/ssh_host_rsa_key.pub` (public)
+
+Public key extracted for agenix:
+```bash
+ssh-keyscan 192.168.1.99
+```
+
+---
+
+## AdGuard Home Features
+
+### DNS Management
+- Ad-blocking and tracker blocking
+- Custom DNS filtering rules
+- DNS-over-HTTPS (DoH) and DNS-over-TLS (DoT) support
+- Configurable upstream DNS servers (currently Cloudflare: 1.1.1.1, 1.0.0.1)
+- DNS query logging and statistics
+- Custom DNS rewrites
+
+### DHCP Management
+- DHCP server with range 192.168.1.201-254
+- 115+ static DHCP lease assignments (declarative)
+- Custom DHCP options
+- Integration with DNS resolution
+
+### Administration
+- Web interface: http://192.168.1.99:3000
+- Username: `admin`
+- Password: Set declaratively in configuration
+- Query log with search and filtering
+- Real-time statistics dashboard
+
+---
+
+## Enabled Services
+
+### Core Services
+- **AdGuard Home**: DNS/DHCP with ad-blocking
+- **SSH**: Key-based authentication
+- **Docker**: Container runtime (if needed)
+- **ZFS**: Automatic scrubbing and snapshots
+- **Fail2ban**: Intrusion prevention (ignores 192.168.1.0/16)
+- **Firewall**: iptables/nftables packet filtering
+
+---
 
 ## Useful Commands
 
+### Service Management
+
 ```bash
-# Check ZFS pool status
+# AdGuard Home
+systemctl status adguardhome
+journalctl -u adguardhome -f
+sudo systemctl restart adguardhome
+
+# Check config
+sudo cat /var/lib/AdGuardHome/AdGuardHome.yaml
+```
+
+### Network Diagnostics
+
+```bash
+# Check ZFS pool
 zpool status
-
-# View Docker containers
-lazydocker
-# or
-docker ps
-
-# Check firewall status
-sudo nft list ruleset
 
 # Monitor network traffic
 sudo tcpdump -i enp2s0f0 port 53
 
 # Check DNS resolution
 dig @localhost example.com
+dig @192.168.1.99 example.com
 
-# Check AdGuard Home status
-systemctl status adguardhome
+# Check DHCP leases
+cat /var/lib/private/AdGuardHome/data/leases.json
+```
 
-# View AdGuard Home config
-cat /var/lib/AdGuardHome/AdGuardHome.yaml
+### System Maintenance
 
-# Restart AdGuard Home
-sudo systemctl restart adguardhome
-
+```bash
 # View system logs
 journalctl -f
+journalctl -b -e  # Current boot
+journalctl -b-1   # Previous boot
+
+# Check firewall
+sudo nft list ruleset
+
+# Check gateway route
+ip route show
 ```
 
-## System Architecture
+---
 
-This is a minimal, purpose-built configuration focused exclusively on DNS and DHCP services:
+## Migration from miniserver24 (Pi-hole)
 
-### Included Services
+### What Actually Happened (Successful Cutover)
 
-- AdGuard Home (DNS/DHCP)
-- SSH remote access
-- ZFS filesystem with automatic snapshots
-- Firewall with restricted port access
-- Fail2ban intrusion prevention
-- Firmware update support (fwupd)
+The migration was straightforward with minimal downtime:
 
-### Excluded Components
+1. **Preparation:**
+   - Deployed miniserver99 at 192.168.1.99
+   - Configured AdGuard Home with all static leases
+   - Added equivalent blocklists from Pi-hole
+   - Verified configuration
 
-- No graphical environment (headless server)
-- No audio subsystem
-- No desktop applications
-- No IoT/home automation services
-- No media services
+2. **Cutover (Evening, Low Traffic):**
+   - Stopped Pi-hole container on miniserver24
+   - miniserver99 took over DNS/DHCP immediately
+   - **Minimal downtime**: ~2-3 minutes while services switched
+   - No manual DHCP renewal needed (24-hour lease time meant clients renewed automatically)
 
-### Design Principles
+3. **Post-Cutover:**
+   - Monitored AdGuard Home query logs for first 24 hours
+   - No client issues encountered
+   - All devices received correct IPs via static leases
 
-- Minimal attack surface
-- Declarative configuration
-- Automatic backup and recovery via ZFS
-- Low resource utilization
-- High availability and reliability
+### Why Parallel Testing Wasn't Feasible
 
-## Configuration Management
+Both Pi-hole (miniserver24) and AdGuard Home (miniserver99) were configured for **192.168.1.99**, so running them simultaneously would cause IP conflicts. The solution was a quick cutover instead.
 
-### Modifying AdGuard Home Settings
+### Rollback Plan (If Needed)
 
-AdGuard Home is configured declaratively in `configuration.nix`. All settings are version-controlled and reproducible.
-
-#### Example: Adjust DHCP Range
-
-```nix
-services.adguardhome.settings.dhcp = {
-  range_start = "192.168.1.201";
-  range_end = "192.168.1.254";
-  lease_duration = 86400; # 24 hours in seconds
-};
-```
-
-#### Example: Change Upstream DNS Providers
-
-```nix
-services.adguardhome.settings.dns = {
-  bootstrap_dns = [ "9.9.9.9" "149.112.112.112" ]; # Quad9
-  upstream_dns = [ "9.9.9.9" "149.112.112.112" ];
-};
-```
-
-#### Example: Adjust DNS Cache Settings
-
-```nix
-services.adguardhome.settings.dns = {
-  cache_size = 8388608; # 8MB cache
-  cache_optimistic = true;
-};
-```
-
-#### Applying Configuration Changes
-
+**Quick Rollback:**
 ```bash
-# Test the configuration
-sudo nixos-rebuild test --flake .#miniserver99
-
-# Apply permanently
-sudo nixos-rebuild switch --flake .#miniserver99
-
-# Rollback if issues occur
-sudo nixos-rebuild rollback
-```
-
-## Maintenance
-
-### Updates
-
-```bash
-# Update flake inputs
-nix flake update
-
-# Rebuild system
-sudo nixos-rebuild switch --flake .#miniserver99
-```
-
-### ZFS Snapshots
-
-Sanoid automatically creates snapshots of:
-
-- Home directories
-- Docker volumes
-- Nix store
-
-View snapshots: `zfs list -t snapshot`
-
-### Backup AdGuard Home Configuration
-
-```bash
-# AdGuard Home data is stored in /var/lib/AdGuardHome
-# It's automatically included in ZFS snapshots
-
-# Manual backup
-sudo tar -czf adguardhome-backup-$(date +%Y%m%d).tar.gz \
-  /var/lib/AdGuardHome/
-
-# Export settings via web UI:
-# Settings → General Settings → Export settings
-```
-
-## Migration from miniserver24 (PiHole)
-
-This section describes migrating DNS/DHCP services from **miniserver24** (running PiHole in Docker) to **miniserver99** (running AdGuard Home natively).
-
-### Pre-Migration Checklist
-
-1. **Document miniserver24 configuration:**
-   - Current PiHole IP: `192.168.1.101`
-   - Export PiHole settings from web interface (Settings → Teleporter)
-   - Document custom DNS records and CNAME entries
-   - Note static DHCP leases
-   - Export filter lists and custom blocklists
-   - Document any custom dnsmasq configurations
-
-2. **Prepare miniserver99:**
-   - Deploy miniserver99 at `192.168.1.99`
-   - Complete AdGuard Home initial setup
-   - Configure equivalent blocklists in AdGuard Home
-   - Add custom DNS rewrites for internal hosts
-   - Test DNS resolution and DHCP functionality
-   - Verify connectivity from multiple network segments
-
-### Migration Procedure
-
-#### Phase 1: Parallel Testing (Recommended)
-
-1. **Keep miniserver24 running** with PiHole operational
-2. Deploy miniserver99 with AdGuard Home at `192.168.1.99`
-3. Manually configure 2-3 test clients to use `192.168.1.99` for DNS:
-
-   ```bash
-   # On test clients
-   sudo nano /etc/resolv.conf
-   # Change nameserver to 192.168.1.99
-   ```
-
-4. Monitor both systems for 24-48 hours:
-   - Check AdGuard Home query logs at <http://192.168.1.99:3000>
-   - Compare with PiHole logs on miniserver24
-   - Verify ad-blocking is working on test clients
-5. Test DHCP by temporarily connecting new devices to verify lease assignment
-
-#### Phase 2: DNS Cutover
-
-1. During a low-traffic period:
-   - Update router DNS settings to point to `192.168.1.99`
-   - Keep miniserver24 PiHole as secondary DNS (optional): `192.168.1.101`
-   - Monitor AdGuard Home query logs for increased traffic
-2. Test from various clients:
-
-   ```bash
-   # Verify DNS is resolving through miniserver99
-   nslookup google.com
-   dig @192.168.1.99 example.com
-   ```
-
-3. Monitor for DNS issues for 24 hours before proceeding
-
-#### Phase 3: DHCP Cutover
-
-1. During a planned maintenance window (evening/weekend):
-   - Stop PiHole DHCP on miniserver24:
-
-     ```bash
-     # On miniserver24
-     sudo docker exec pihole pihole-FTL dhcp-discover
-     # Then disable DHCP in PiHole web interface
-     ```
-
-   - Enable DHCP on miniserver99 (already configured)
-   - Update router to disable its DHCP server
-2. Force DHCP renewal on critical devices:
-
-   ```bash
-   # On Linux clients
-   sudo dhclient -r && sudo dhclient
-   # On Windows: ipconfig /release && ipconfig /renew
-   # On macOS: sudo ipconfig set en0 DHCP
-   ```
-
-3. Verify DHCP leases in AdGuard Home web interface
-
-#### Phase 4: Stabilization
-
-1. Monitor miniserver99 for 72 hours
-2. Keep miniserver24 running but idle as fallback
-3. Address any client-specific issues:
-   - Check for devices not receiving DHCP leases
-   - Verify static leases are working
-   - Ensure all internal DNS names resolve
-4. Once stable for 1 week, stop PiHole on miniserver24:
-
-   ```bash
-   # On miniserver24
-   sudo docker stop pihole
-   ```
-
-5. After 2 weeks of stable operation, decommission miniserver24 or repurpose it
-
-### Rollback Plan
-
-If issues occur during migration, miniserver24 can be quickly restored as the primary DNS/DHCP server:
-
-#### Quick Rollback (DNS issues)
-
-```bash
-# Update router to point back to miniserver24 PiHole
-# Router DNS: 192.168.1.101
-
-# Or on affected clients, manually set DNS
-sudo nano /etc/resolv.conf
-# nameserver 192.168.1.101
-```
-
-#### Full Rollback (DHCP issues)
-
-```bash
-# On miniserver99: stop AdGuard Home
+# Stop AdGuard Home on miniserver99
+ssh mba@192.168.1.99
 sudo systemctl stop adguardhome
 
-# On miniserver24: restart PiHole DHCP
-sudo docker restart pihole
-# Then re-enable DHCP in PiHole web interface
-
-# Force clients to renew DHCP leases
-# dhclient -r && dhclient (on Linux clients)
-
-# After resolving issues, restart AdGuard Home
-sudo systemctl start adguardhome
+# Restart Pi-hole container on miniserver24
+ssh mba@192.168.1.101
+sudo docker start pihole
 ```
 
-### Common Migration Considerations
+With 24-hour DHCP leases, clients automatically pick up the restored service without manual intervention.
 
-#### Static DHCP Leases from PiHole
+---
 
-All 115 static DHCP leases from miniserver24 are **configured declaratively** in `static-leases.nix`.
+## Current Deployment Status
 
-**Declarative Configuration:**
+**Date:** November 12, 2025  
+**Status:** ✅ Deployed and Running
 
-The leases are imported directly into `configuration.nix`:
+### Completed
+- ✅ Initial deployment via nixos-anywhere
+- ✅ Network configuration (interface: enp2s0f0, gateway: 192.168.1.5)
+- ✅ AdGuard Home configured and running
+- ✅ DHCP enabled with 115+ static leases
+- ✅ DNS rewrites for internal hosts
+- ✅ Repository cloned to ~/Code/nixcfg on miniserver99
+- ✅ Admin credentials configured
 
-```nix
-dhcp = {
-  enabled = true;
-  # ... other settings ...
-  static_leases = staticLeases.static_leases;
-};
-```
+### Notes
+- All configuration is declarative (`mutableSettings = false`)
+- Static leases file is gitignored (contains sensitive network data)
+- Gateway IP 192.168.1.5 verified from actual network
+- Network interface enp2s0f0 verified from hardware
 
-**Benefits:**
+---
 
-- ✅ **Version controlled**: All leases tracked in Git
-- ✅ **Reproducible**: Deployed automatically with `nixos-rebuild`
-- ✅ **No manual entry**: All 115 leases configured instantly
-- ✅ **Atomic updates**: Changes deployed with configuration updates
+## Architecture
 
-**Modifying Leases:**
+### Design Principles
+- **Minimal attack surface**: Headless server, no GUI
+- **Declarative configuration**: All settings in version control
+- **Automatic backup**: ZFS snapshots + encrypted Git backups
+- **Low resource utilization**: Optimized for Mac mini
+- **High availability**: Quick rollback with NixOS generations
 
-To add, remove, or modify static leases, edit `static-leases.nix`:
+### Included
+- AdGuard Home (DNS/DHCP)
+- SSH remote access
+- ZFS with automatic snapshots
+- Firewall with restricted ports
+- Fail2ban intrusion prevention
+- Firmware updates (fwupd)
 
-```nix
-{ mac = "AA:BB:CC:DD:EE:FF"; ip = "192.168.1.250"; hostname = "new-device"; }
-```
+### Excluded
+- No graphical environment
+- No audio subsystem
+- No desktop applications
+- No IoT/home automation
+- No media services
 
-Then apply with:
+---
 
-```bash
-sudo nixos-rebuild switch --flake .#miniserver99
-```
+## Additional Resources
 
-**Source File:**
-
-All static leases are defined in `static-leases.nix` in this directory.
-
-**Security Note:** The `static-leases.nix` file is excluded from Git (via `.gitignore`) as it contains:
-
-- MAC addresses of all network devices
-- Internal network topology
-- Device inventory and room layout information
-
-**Encryption with agenix:** For secure version control, encrypt the file:
-
-```bash
-# Encrypt the file (uses your SSH key from secrets/secrets.nix)
-cd /Users/markus/Code/nixcfg
-agenix -e secrets/static-leases-miniserver99.age
-
-# Decrypt when needed
-agenix -d secrets/static-leases-miniserver99.age > hosts/miniserver99/static-leases.nix
-```
-
-**Private-Only Access:** Only your personal SSH key (`~/.ssh/id_rsa`) can decrypt this file - not even Patrizio can access it.
-
-**Backup:** The file is backed up via:
-
-- Time Machine on your Mac
-- ZFS snapshots on miniserver99 after deployment
-- Encrypted `.age` file in Git (once encrypted)
-- Optional: Private key stored in 1Password
-
-See `SSH-KEYS.md` in this directory for key management details.
-
-#### Custom DNS Records
-
-1. Export PiHole custom DNS entries:
-   - Local DNS Records from PiHole web interface
-   - Or check `/etc/pihole/custom.list` on miniserver24
-2. Add to AdGuard Home:
-   - Settings → DNS rewrites → Add DNS rewrite
-   - Format: `hostname` → `IP address`
-
-#### PiHole Blocklists
-
-PiHole and AdGuard Home use similar blocklist formats:
-
-1. Note which blocklists are enabled in PiHole (Settings → Blocklists)
-2. Add equivalent lists in AdGuard Home (Filters → DNS blocklists)
-3. Common lists available in both:
-   - Steven Black's Unified Hosts
-   - AdGuard DNS filter
-   - EasyList
-   - Many others can be added by URL
-
-#### Internal Hosts (miniserver24 specific)
-
-The following hosts are defined on miniserver24 and should be added as DNS rewrites in AdGuard Home:
-
-```nix
-# From miniserver24 configuration.nix:
-"192.168.1.32" = "kr-sonnen-batteriespeicher.lan"
-"192.168.1.102" = "vr-opus-gateway.lan"
-"192.168.1.159" = "wz-pixoo-64-00.lan"
-"192.168.1.189" = "wz-pixoo-64-01.lan"
-```
-
-Add these in AdGuard Home web interface under Settings → DNS rewrites.
+- **AdGuard Home Documentation**: https://github.com/AdguardTeam/AdGuardHome/wiki
+- **NixOS Manual**: https://nixos.org/manual/nixos/stable/
+- **Disko (ZFS setup)**: https://github.com/nix-community/disko
+- **nixos-anywhere**: https://github.com/nix-community/nixos-anywhere
+- **agenix (secrets)**: https://github.com/ryantm/agenix

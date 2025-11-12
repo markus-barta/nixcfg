@@ -247,6 +247,227 @@ rekey:
 keyscan:
     ssh-keyscan localhost
 
+# Encrypt any file in hosts/HOSTNAME/ directory structure
+[group('agenix')]
+encrypt-file source-file:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Extract hostname from hosts/HOSTNAME/ path
+    if [[ "{{ source-file }}" =~ ^hosts/([^/]+)/ ]]; then
+        HOST="${BASH_REMATCH[1]}"
+    else
+        echo "❌ Error: File must be in hosts/HOSTNAME/ directory structure"
+        echo ""
+        echo "Expected format: hosts/HOSTNAME/filename"
+        echo "Example: hosts/miniserver99/static-leases.nix"
+        echo ""
+        echo "Your file: {{ source-file }}"
+        exit 1
+    fi
+    
+    echo "🔒 Encrypting {{ source-file }} for host: $HOST"
+    
+    # Find user's SSH public key
+    USER_KEY=""
+    USER_KEY_PATH=""
+    if [ -f ~/.ssh/id_rsa.pub ]; then
+        USER_KEY=$(cat ~/.ssh/id_rsa.pub)
+        USER_KEY_PATH=~/.ssh/id_rsa
+    elif [ -f ~/.ssh/id_ed25519.pub ]; then
+        USER_KEY=$(cat ~/.ssh/id_ed25519.pub)
+        USER_KEY_PATH=~/.ssh/id_ed25519
+    elif [ -f ~/.ssh/id_ecdsa.pub ]; then
+        USER_KEY=$(cat ~/.ssh/id_ecdsa.pub)
+        USER_KEY_PATH=~/.ssh/id_ecdsa
+    else
+        echo "❌ Error: No SSH public key found in ~/.ssh/"
+        echo ""
+        echo "Please generate one with:"
+        echo "  ssh-keygen -t ed25519 -C 'your@email.com'"
+        exit 1
+    fi
+    
+    # Check if SSH key has a passphrase (security reminder)
+    if ssh-keygen -y -P "" -f "$USER_KEY_PATH" >/dev/null 2>&1; then
+        echo "⚠️  Security Note: Your SSH key has no passphrase"
+        echo "   Consider adding one with: ssh-keygen -p -f $USER_KEY_PATH"
+        echo ""
+    fi
+    
+    # Extract host's SSH public key from secrets.nix
+    HOST_KEY=$(grep -A 1 "$HOST =" secrets/secrets.nix | grep "ssh-" | head -1 | sed 's/^[[:space:]]*"\(.*\)"[[:space:]]*$/\1/')
+    if [ -z "$HOST_KEY" ]; then
+        echo "❌ Error: Could not find $HOST in secrets/secrets.nix"
+        exit 1
+    fi
+    
+    # Check if rage is available
+    if ! command -v rage &> /dev/null; then
+        echo "❌ Error: 'rage' not found"
+        echo ""
+        echo "Install with:"
+        echo "  nix-shell -p rage"
+        echo "  # or on macOS: brew install rage"
+        exit 1
+    fi
+    
+    # Generate output filename
+    BASENAME=$(basename "{{ source-file }}")
+    BASENAME_NO_EXT="${BASENAME%.*}"
+    OUTPUT="secrets/${BASENAME_NO_EXT}-${HOST}.age"
+    
+    # Check if file was ever in Git history (security warning)
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        if git log --all --full-history --oneline -- "{{ source-file }}" 2>/dev/null | grep -q ".*"; then
+            echo "⚠️  WARNING: This file exists in Git history!"
+            echo "   Consider using: git filter-repo --path {{ source-file }} --invert-paths"
+            echo "   Or: BFG Repo-Cleaner to remove it from history"
+            echo ""
+        fi
+    fi
+    
+    # Encrypt with both keys (user + host)
+    echo "🔐 Using your SSH key + $HOST host key for encryption"
+    rage --encrypt \
+      --recipient "$USER_KEY" \
+      --recipient "$HOST_KEY" \
+      -o "$OUTPUT" \
+      "{{ source-file }}"
+    
+    # Validate encrypted output
+    echo "🔍 Validating encryption..."
+    if ! rage --decrypt -i "$USER_KEY_PATH" "$OUTPUT" >/dev/null 2>&1; then
+        echo "❌ Error: Encryption validation failed!"
+        echo "   The encrypted file cannot be decrypted with your SSH key."
+        echo "   This might indicate an issue with the encryption."
+        rm -f "$OUTPUT"
+        exit 1
+    fi
+    echo "✅ Encryption validated successfully"
+    
+    # Add to .gitignore if not already there (atomic operation)
+    if ! git check-ignore -q "{{ source-file }}"; then
+        TEMP_IGNORE=$(mktemp)
+        cat .gitignore > "$TEMP_IGNORE"
+        echo "" >> "$TEMP_IGNORE"
+        echo "# Encrypted as $(basename $OUTPUT) - added by just encrypt-file" >> "$TEMP_IGNORE"
+        echo "{{ source-file }}" >> "$TEMP_IGNORE"
+        mv "$TEMP_IGNORE" .gitignore
+        git add .gitignore
+        echo "📝 Added {{ source-file }} to .gitignore"
+    else
+        echo "ℹ️  Already in .gitignore"
+    fi
+    
+    # Stage the encrypted file
+    git add "$OUTPUT"
+    echo "✅ Encrypted to $OUTPUT"
+    echo "✅ Staged $OUTPUT and .gitignore"
+    echo ""
+    echo "📝 Ready to commit. Run:"
+    echo "  git commit -m 'backup: update $(basename $OUTPUT)'"
+
+# Decrypt an encrypted .age file
+[group('agenix')]
+decrypt-file encrypted-file output-file='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Validate input file exists
+    if [ ! -f "{{ encrypted-file }}" ]; then
+        echo "❌ Error: File not found: {{ encrypted-file }}"
+        exit 1
+    fi
+    
+    echo "🔓 Decrypting {{ encrypted-file }}..."
+    
+    # Determine output file
+    if [ -n "{{ output-file }}" ]; then
+        OUTPUT="{{ output-file }}"
+    else
+        # Try to auto-detect from filename pattern: NAME-HOST.age -> hosts/HOST/NAME.nix
+        BASENAME=$(basename "{{ encrypted-file }}" .age)
+        if [[ "$BASENAME" =~ ^(.+)-([^-]+)$ ]]; then
+            NAME="${BASH_REMATCH[1]}"
+            HOST="${BASH_REMATCH[2]}"
+            
+            # Check if host directory exists
+            if [ -d "hosts/$HOST" ]; then
+                # Try common extensions
+                for EXT in nix conf env txt; do
+                    CANDIDATE="hosts/$HOST/$NAME.$EXT"
+                    # Use first matching extension, or default to .nix if none exist
+                    if [ -f "$CANDIDATE" ]; then
+                        OUTPUT="$CANDIDATE"
+                        break
+                    fi
+                done
+                
+                # If no file found, default to .nix extension
+                if [ -z "${OUTPUT:-}" ]; then
+                    OUTPUT="hosts/$HOST/$NAME.nix"
+                fi
+            fi
+        fi
+        
+        if [ -z "${OUTPUT:-}" ]; then
+            echo "❌ Error: Could not auto-detect output file"
+            echo ""
+            echo "Detected pattern: $NAME-$HOST.age"
+            echo "Expected directory: hosts/$HOST/"
+            echo ""
+            echo "Please specify output file:"
+            echo "  just decrypt-file {{ encrypted-file }} hosts/HOSTNAME/filename"
+            exit 1
+        fi
+    fi
+    
+    # Create backup if file exists
+    if [ -f "$OUTPUT" ]; then
+        BACKUP="${OUTPUT}.backup.$(date +%s)"
+        cp "$OUTPUT" "$BACKUP"
+        echo "📦 Backed up existing file to $BACKUP"
+    fi
+    
+    # Create directory if needed
+    mkdir -p "$(dirname "$OUTPUT")"
+    
+    # Find SSH private key for decryption
+    SSH_KEY=""
+    if [ -f ~/.ssh/id_rsa ]; then
+        SSH_KEY=~/.ssh/id_rsa
+    elif [ -f ~/.ssh/id_ed25519 ]; then
+        SSH_KEY=~/.ssh/id_ed25519
+    elif [ -f ~/.ssh/id_ecdsa ]; then
+        SSH_KEY=~/.ssh/id_ecdsa
+    fi
+    
+    # Try decryption with rage first, fallback to age
+    if command -v rage &> /dev/null; then
+        if [ -n "$SSH_KEY" ]; then
+            rage --decrypt -i "$SSH_KEY" "{{ encrypted-file }}" > "$OUTPUT"
+        else
+            rage --decrypt "{{ encrypted-file }}" > "$OUTPUT"
+        fi
+    elif command -v age &> /dev/null; then
+        if [ -n "$SSH_KEY" ]; then
+            age --decrypt -i "$SSH_KEY" "{{ encrypted-file }}" > "$OUTPUT"
+        else
+            age --decrypt "{{ encrypted-file }}" > "$OUTPUT"
+        fi
+    else
+        echo "❌ Error: Neither 'rage' nor 'age' found"
+        echo ""
+        echo "Install with:"
+        echo "  nix-shell -p rage"
+        echo "  # or on macOS: brew install rage"
+        exit 1
+    fi
+    
+    echo "✅ Decrypted to $OUTPUT"
+
+
 # Build an iso image
 [group('build')]
 build-iso:
