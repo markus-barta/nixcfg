@@ -710,9 +710,12 @@ Status: **IN PROGRESS** (Started 2025-11-14)
    - Currently: Homebrew/pyenv still active (PATH priority)
    - Rationale: See "Node.js and Python Strategy" section above
 
-2. **Essential CLI tools** → `devenv.nix` (macOS detection)
-   - bat, btop, ripgrep, fd, fzf, zoxide
-   - Node.js + Python3 also enabled here (for project-specific versions)
+2. **Essential CLI tools** → `devenv.nix` (macOS detection) ✅ **TESTED** (2025-11-14)
+   - bat v0.25.0, btop v1.4.5, ripgrep v14.1.1, fd v10.3.0, fzf v0.65.2
+     - ✅ All tools functional in devenv shell
+   - zoxide: Still from Homebrew (will be replaced by Nix home.packages)
+   - Node.js v22.19.0 + Python v3.13.7 available in devenv (project override)
+   - Test result: **PASS** - All CLI tools working from Nix
    - Test in devenv shell
 
 3. **direnv** → `home.nix`
