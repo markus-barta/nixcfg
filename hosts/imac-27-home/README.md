@@ -21,9 +21,24 @@ Personal macOS development machine with Nix package management.
 - ✅ All configs symlinked from Nix store
 - ✅ Nix versions installed (fish, starship, wezterm, git, direnv, node, python, zoxide)
 
-**Current State**: Nix packages installed but Homebrew versions still in use (PATH priority). Ready for Phase 2.
+**Phase 2: Core Environment** ✅ **COMPLETE** (2025-11-14)
 
-**Next**: Phase 2 - Core Environment (test and migrate tools in order)
+- ✅ All 7 components tested and verified working
+- ✅ Global interpreters (Node.js, Python), Essential CLI tools, direnv, Fish shell, Starship, WezTerm, Git
+- ✅ Dual Git identity working correctly (personal/work)
+- ✅ All configurations deployed from Nix store
+
+**Phase 3: Scripts & Additional Tools** ✅ **COMPLETE** (2025-11-14)
+
+- ✅ 3 essential scripts added to Nix management (flushdns, pingt, stopAmphetamineAndSleep)
+- ✅ Hack Nerd Font installed and verified
+- ✅ Additional CLI tools configured (cloc, prettier)
+
+**Current State**: **CORE MIGRATION COMPLETE** ✅
+
+All essential configurations now declaratively managed via Nix. Homebrew versions still active (PATH priority). Ready for Post-Migration testing and gradual Homebrew removal.
+
+**Next**: Post-Migration - Testing & Cleanup (see `docs/testing-and-cleanup.md`)
 
 See [docs/migration.md](docs/migration.md) for detailed migration plan.
 

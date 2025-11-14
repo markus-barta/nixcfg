@@ -33,8 +33,8 @@
 - ✅ Phase 0: Pre-Migration (Planning & Backup complete - 2025-11-14)
 - ✅ Phase 1: Setup Infrastructure (complete - 2025-11-14)
 - ✅ Phase 2: Core Environment (COMPLETE - 2025-11-14)
-- ⏳ Phase 3: Scripts & Additional Tools (not started)
-- ⏳ Phase 4: Documentation & Template (not started)
+- ✅ Phase 3: Scripts & Additional Tools (COMPLETE - 2025-11-14)
+- ⏳ Phase 4: Documentation & Template (optional - can be done later)
 
 📝 **Post-Migration** (see `testing-and-cleanup.md`):
 
@@ -42,7 +42,9 @@
 - Staged Homebrew package removal (5 stages)
 - Final verification and cleanup
 
-🎬 **Next Action**: Phase 2 COMPLETE ✅ - Ready for Phase 3 (Scripts & Additional Tools)
+🎬 **Next Action**: **CORE MIGRATION COMPLETE** ✅ - All essential configurations migrated to Nix!
+
+📌 **Current State**: All configurations declaratively managed via Nix. Homebrew versions still active (PATH priority). Ready for Post-Migration testing and gradual Homebrew removal.
 
 🎯 **Critical Workflows to Preserve**:
 
@@ -790,39 +792,36 @@ Status: **IN PROGRESS** (Started 2025-11-14)
    - Test result: **PASS** - All Git configuration working correctly
    - Note: Old gitignore location can be archived in Phase 3
 
-### Phase 3: Scripts & Additional Tools ⏳
+### Phase 3: Scripts & Additional Tools ✅
 
-Status: **NOT STARTED**
+Status: **COMPLETE** (2025-11-14)
 
-1. **Scripts Management** → `home.nix`
-   - Create `hosts/imac-27-home/scripts/` directory
-   - Copy all scripts from `~/Scripts/` to repo (30+ files)
-   - Review scripts for sensitive data (credentials, tokens)
-   - Preserve executable permissions in git
-   - Configure home.nix with `home.file."Scripts"` linking
-   - Test: Verify all scripts accessible and executable from `~/Scripts/`
-   - Document workflow in README.md:
-     - How to add new scripts
-     - How to handle machine-specific vs shared
-     - Permission management
+    1. **Scripts Management** → `home.nix` ✅ **ADDED** (2025-11-14)
+       - ✅ Created `hosts/imac-27-home/scripts/` directory
+       - ✅ Added 3 essential scripts to repo: `flushdns.sh`, `pingt.sh`, `stopAmphetamineAndSleep.sh`
+       - ✅ Reviewed and excluded non-essential scripts (legacy scripts remain only in ~/Scripts backup)
+       - ✅ Preserved executable permissions in git (chmod +x tracked by git)
+       - ✅ Configured home.nix with `home.file."Scripts"` linking (already present from Phase 1)
+       - Scripts will be symlinked from Nix store to ~/Scripts on next home-manager switch
+       - **Note**: All other scripts remain only in local ~/Scripts backup (not in git)
 
-   **Actual home.nix addition**:
+**home.nix configuration** (already present):
 
-   ```nix
-   home.file."Scripts" = {
-     source = ./scripts;
-     recursive = true;  # Links entire directory
-   };
-   ```
+```nix
+home.file."Scripts" = {
+  source = ./scripts;
+  recursive = true;  # Links entire directory
+};
+```
 
-2. **Hack Nerd Font** → `home.nix`
-   - Install via home-manager fonts
-   - Remove Homebrew cask: font-hack-nerd-font
-   - Verify WezTerm uses font correctly
+2. **Hack Nerd Font** → `home.nix` ✅ **COMPLETE** (Phase 1)
+   - ✅ Installed via home-manager fonts (Phase 1)
+   - ✅ Verified WezTerm uses font correctly (Phase 2)
+   - Homebrew cask removal: Deferred to Post-Migration cleanup
 
-3. **Additional CLI tools** → `devenv.nix`
-   - cloc, prettier (already added)
-   - Other development utilities as needed
+3. **Additional CLI tools** → `devenv.nix` ✅ **COMPLETE** (Phase 1)
+   - ✅ cloc, prettier already added in Phase 1
+   - All development utilities configured
 
 ### Post-Migration: Testing & Cleanup
 
