@@ -28,6 +28,13 @@
       set -gx ZOXIDE_CMD z
     '';
 
+    # Login shell initialization - prepend Nix paths to PATH
+    loginShellInit = ''
+      # Ensure Nix paths are prioritized
+      fish_add_path --prepend --move ~/.nix-profile/bin
+      fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
+    '';
+
     interactiveShellInit = ''
       # Custom greeting
       function fish_greeting
