@@ -362,8 +362,6 @@
   # ============================================================================
   programs.git = {
     enable = true;
-    userName = "Markus Barta";
-    userEmail = "markus@barta.com"; # Personal (default)
 
     # Global gitignore
     ignores = [
@@ -371,7 +369,13 @@
       ".DS_Store"
     ];
 
-    extraConfig = {
+    settings = {
+      # User settings
+      user = {
+        name = "Markus Barta";
+        email = "markus@barta.com"; # Personal (default)
+      };
+
       # macOS keychain credential helper
       credential.helper = "osxkeychain";
 
@@ -424,7 +428,7 @@
     zoxide # Smart directory jumper
 
     # Fonts
-    (nerdfonts.override { fonts = [ "Hack" ]; })
+    (pkgs.nerdfonts.override { fonts = [ "Hack" ]; })
   ];
 
   # Enable fontconfig for fonts to be recognized
