@@ -2,160 +2,92 @@
 
 [GitHub](https://github.com/pbek/nixcfg)
 
-My personal NixOS configuration for my machines.
+Personal NixOS configuration repository managing 40+ systems with declarative infrastructure, custom packages, and automated deployment workflows.
 
-**Not meant to be used by others**, but feel free to take inspiration from it.
+> **Note**: This repository was originally created by Patrizio Bekerle (pbek). For the original detailed setup instructions and historical content, see [pbek.md](pbek.md).
+
+## Features
+
+- **Modular Architecture**: Custom `hokage` module system for role-based configuration
+- **Multi-Platform**: Desktop, laptop, and server configurations
+- **Secrets Management**: Declarative encryption with `agenix`
+- **Custom Packages**: In-house software (QOwnNotes, NixBit, Ghostty, etc.)
+- **ZFS Storage**: Declarative disk management with `disko`
+- **Automated Workflows**: Streamlined deployment with `just` commands
 
 ## Screenshots
 
-### Shell
+### Shell Environment
 
 ![Shell](./screenshots/shell.png)
 
-## Setup
+## Quick Start
 
-Pick your hostname, you might find some inspiration [here (Planets/Nasa)](https://spaceplace.nasa.gov/review/switch-a-roo/planet_sizes.en.jpg).
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/pbek/nixcfg.git
+   cd nixcfg
+   ```
 
-Set your hostname and run the [install script](./install.sh):
+2. **Add your host configuration** to `flake.nix` and create `hosts/yourhostname/configuration.nix`
 
-```bash
-# Start with a fresh NixOS installation in ~/Code/nixcfg
-HOSTNAME=yourhostname bash <(curl -s https://raw.githubusercontent.com/pbek/nixcfg/main/install.sh)
+3. **Test your configuration:**
+   ```bash
+   just check
+   ```
 
-# Initially build and switch to new configuration for host "yourhostname" after you adapted flake.nix and your configuration.nix
-nix-shell -p git --run "sudo nixos-rebuild switch --flake .#yourhostname -L"
-```
+4. **Deploy:**
+   ```bash
+   just switch
+   ```
 
-Afterward, here are some useful commands:
+For detailed setup instructions, see [docs/README.md](docs/README.md).
 
-```bash
-# Build and switch to new configuration
-make switch
+## Secrets Management
 
-# Edit configuration.nix
-kate . &
+This repository uses [agenix](https://github.com/ryantm/agenix) for declarative secret encryption.
 
-# Check for Nvidia card
-nix-shell -p pciutils --run 'lspci | grep VGA'
-
-# Look at network load and other stats
-nix-shell -p btop --run btop
-
-# Login at another computer and start the restic mount and restore
-
-# Take over tmux session at local system to watch restore
-tmux new-session -A -s main
-
-# After backup restore reboot computer
-sudo reboot
-
-# Run backup script
-```
-
-In the end commit changes to [https://github.com/pbek/nixcfg](https://github.com/pbek/nixcfg).
-
-## Secrets
-
-### Rekey after adding new host
-
-This needs to be done if hosts were added.
-
-- Run `ssh-keyscan localhost` on new host
-- Add those keys to `./secrets/secrets.nix`
-- Run `cd ./secrets && agenix -i ~/.ssh/agenix --rekey` to rekey all keys
-
-### Add secret
+### Basic Workflow
 
 ```bash
-cd ./secrets && agenix -i ~/.ssh/agenix -e secret-file.age
+# Encrypt a sensitive file
+just encrypt-file hosts/HOSTNAME/filename
+
+# Decrypt an encrypted file
+just decrypt-file secrets/filename.age
+
+# Rekey secrets after adding new hosts
+just rekey
 ```
 
-## Commands
+See [docs/overview.md](docs/overview.md) for detailed encryption documentation.
+
+## Installation Methods
+
+### Remote Deployment (Recommended)
+
+Deploy to new machines using [nixos-anywhere](https://github.com/nix-community/nixos-anywhere):
 
 ```bash
-# Update just one flake (we need to set the github token so the API limit is not reached)
-NIX_CONFIG="access-tokens = github.com=`cat ~/.secrets/github-token`" nix flake lock --update-input catppuccin
+# Test in VM first
+nix run github:nix-community/nixos-anywhere -- --flake .#hostname --vm-test
+
+# Deploy to physical machine
+nix run github:nix-community/nixos-anywhere -- --flake .#hostname root@target-ip
 ```
 
-## Fix bootloader
+### Manual Installation
 
-If the UEFI "BIOS" gets corrupted and was reset, no NixOS EFI boot device will be found.
-You can fix this with the following steps:
-
-- Boot [Ventoy](https://www.ventoy.net/) USB stick in **UEFI mode**
-- Start NixOS image
-- Load encrypted root partition with `gparted`
+For manual setup with ZFS and encryption:
 
 ```bash
-# As root
-sudo su -
+# Boot NixOS minimal ISO
+# Partition and format disks
+sudo nix --experimental-features nix-command --extra-experimental-features flakes \
+  run github:nix-community/disko -- --mode disko ./hosts/hostname/disk-config.zfs.nix
 
-# Mount encrypted root partition and boot partition
-mount /dev/mapper/sda2_crypt /mnt
-mount /dev/sda1 /mnt/boot
-
-# Install current flake including bootloader
-cd /mnt/home/omega/Code/nixcfg
-nixos-install --flake .#pluto
-
-# Reboot machine, "Linux Bootloader" should now be available in the UEFI boot menu
-reboot
+# Install system
+sudo nixos-install --flake .#hostname
 ```
 
-## Server setup with nixos-anywhere
-
-```bash
-# Test configuration build process in vm
-nix run github:nix-community/nixos-anywhere -- --flake .#netcup02 --vm-test
-
-# Build and test configuration in vm with ssh
-make build-vm-netcup02
-make boot-vm-server-console
-make ssh-vm-server
-
-# Deploy configuration to server "server-host"
-nix run github:nix-community/nixos-anywhere -- --flake .#netcup02 root@server-host
-```
-
-## Desktop setup with nixos-anywhere
-
-- [https://github.com/nix-community/nixos-anywhere](https://github.com/nix-community/nixos-anywhere)
-
-```bash
-# First boot into minimal nixos and set root password
-# Then create a /tmp/secret.key with the disk-password locally (at least 8 characters for ZFS)
-# On non-nixos systems "PasswordAuthentication yes" and "PermitRootLogin yes"
-# need to be set in /etc/ssh/sshd_config to allow password root login
-# Then use nixos-anywhere remotely
-nix run github:nix-community/nixos-anywhere -- --disk-encryption-keys /tmp/secret.key /tmp/secret.key --flake .#ally2 root@192.168.1.48
-```
-
-## Manual setup with disko
-
-- [https://github.com/nix-community/disko](https://github.com/nix-community/disko)
-
-```bash
-# Boot some nixos minimal image (for a ZFS setup you need to have ZFS support enabled)
-# If there is disk encryption, then create a /tmp/secret.key with the disk-password (at least 8 characters)
-# Make sure you have nixcfg checked out and are in the nixcfg directory
-export HOST=ally2
-sudo nix --experimental-features nix-command --extra-experimental-features flakes run github:nix-community/disko -- --mode disko ./hosts/${HOST}/disk-config.zfs.nix
-sudo nix --experimental-features nix-command --extra-experimental-features flakes run github:nix-community/disko -- --flake .#${HOST} --write-efi-entries
-sudo nixos-install --flake .#${HOST}
-```
-
-## Todo after system installation
-
-```bash
-# Set password
-passwd
-
-# Clone nixcfg repository via https (read-only)
-# If you are overriding https urls with ssh, you need to remove ~/.config/git/config first
-cd ~ && git clone https://github.com/pbek/nixcfg.git && cd nixcfg
-# Or via ssh (read-write)
-cd ~ && git clone git@github.com:pbek/nixcfg.git && cd nixcfg
-
-# Update channels, so command-not-found will work
-sudo nix-channel --update
-```
+See [hosts/miniserver99/README.md](hosts/miniserver99/README.md) for a complete deployment example.
