@@ -24,6 +24,26 @@ After completing the main migration (Phases 0-3), you'll have:
 
 ---
 
+## ⚠️ PREREQUISITE: Manual Setup Required
+
+**Status**: Nix packages installed ✅ | Awaiting manual shell setup
+
+Before proceeding with testing, you must **manually run the setup script** to switch to Nix as your default shell. This requires sudo access and must be done in your actual terminal.
+
+**See**: `SWITCH-TO-NIX-NOW.md` in the host directory for detailed instructions.
+
+**Quick summary:**
+
+```bash
+cd ~/Code/nixcfg/hosts/imac-27-home
+./setup/setup-macos.sh  # Requires sudo password
+exec fish               # Or restart terminal
+```
+
+After completing this setup and verifying the switch (check with `echo $SHELL`), proceed with the testing phases below.
+
+---
+
 ## Phase 4: Testing & Validation
 
 **Timeline**: Flexible - hours to days, based on your confidence level
