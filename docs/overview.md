@@ -5,6 +5,7 @@ This document explains how the different NixOS configurations in this repository
 ## Repository Summary
 
 This is a personal NixOS configuration repository that manages:
+
 - **40+ hosts** (desktops, laptops, servers, gaming devices)
 - **Modular architecture** with the custom `hokage` module system
 - **Declarative secrets** management with agenix
@@ -161,16 +162,16 @@ When you run `nixos-rebuild switch --flake .#miniserver24`:
 
 ## 6. Key Configuration Layers
 
-| Layer | Purpose | Example |
-|-------|---------|---------|
-| **flake.nix** | System declaration & inputs | Defines all hosts, overlays, stable/unstable pkgs |
-| **hosts/\<hostname\>/** | Host-specific config | Network, services, hardware |
-| **modules/hokage/** | Abstraction layer | Role-based feature switches |
-| **modules/common.nix** | Base system config | Users, shells, core packages |
-| **overlays/** | Package customizations | Custom or modified packages |
-| **pkgs/** | Custom packages | In-house software (qownnotes, nixbit, etc.) |
-| **lib/** | Helper functions | Utility functions (listNixFiles, etc.) |
-| **tests/** | NixOS tests | Integration tests for packages |
+| Layer                   | Purpose                     | Example                                           |
+| ----------------------- | --------------------------- | ------------------------------------------------- |
+| **flake.nix**           | System declaration & inputs | Defines all hosts, overlays, stable/unstable pkgs |
+| **hosts/\<hostname\>/** | Host-specific config        | Network, services, hardware                       |
+| **modules/hokage/**     | Abstraction layer           | Role-based feature switches                       |
+| **modules/common.nix**  | Base system config          | Users, shells, core packages                      |
+| **overlays/**           | Package customizations      | Custom or modified packages                       |
+| **pkgs/**               | Custom packages             | In-house software (qownnotes, nixbit, etc.)       |
+| **lib/**                | Helper functions            | Utility functions (listNixFiles, etc.)            |
+| **tests/**              | NixOS tests                 | Integration tests for packages                    |
 
 ## Example: Adding a New Server
 
@@ -203,11 +204,13 @@ This modular approach ensures consistency across systems while allowing host-spe
 ### Desktop Hosts (`mkDesktopHost`)
 
 Desktop configurations include additional modules:
+
 - **plasma-manager**: KDE Plasma configuration via Home Manager
 - **espanso-fix**: Text expander with capabilities fix
 - Full desktop environment support
 
 Common desktop hosts:
+
 - **gaia**: Office Work PC
 - **venus**: Livingroom PC
 - **rhea**: Asus Vivobook Laptop
@@ -228,6 +231,7 @@ miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
 ```
 
 **Key Features:**
+
 - AdGuard Home for DNS filtering and DHCP
 - Declarative static DHCP leases with automatic UI sync
 - Minimal server with agenix secrets management
@@ -292,6 +296,7 @@ The repository uses **agenix** for declarative secret management with dual-key e
 **Commands must be run from the repository root directory** - they will show clear error messages if run elsewhere.
 
 **Key Concepts:**
+
 - Files in `hosts/HOSTNAME/` are automatically encrypted to `secrets/filename-HOST.age`
 - Encryption requires both user and host SSH keys for security
 - Encrypted files are gitignored; plaintext files are never committed
@@ -308,6 +313,7 @@ just rekey
 ```
 
 **Security Features:**
+
 - Validates encryption/decryption works immediately
 - Warns about weak SSH keys (no passphrase)
 - Creates backups before overwriting files
@@ -347,23 +353,27 @@ just hokage-options-md-save
 ## Best Practices
 
 ### Configuration Management
+
 - Always test before deploying: `just check` before `just switch`
 - Use VM testing for major changes: `just build-vm` and `just boot-vm`
 - Keep secrets encrypted: `just encrypt-file` for sensitive data
 - Validate all hosts periodically: `just check-all`
 
 ### Git Workflow
+
 - Never commit secrets - use `just encrypt-file` to create `.age` files
 - Commit frequently - NixOS configurations are declarative and rollback-friendly
 - Use descriptive commit messages for encrypted file backups
 
 ### System Administration
+
 - Keep rollback options: `just rollback` allows instant reversion
 - Monitor disk space: `just cleanup` frees up space
 - Update regularly: `just upgrade` keeps systems current
 - Check logs after updates: `just logs-current-boot` helps diagnose issues
 
 ### Adding New Hosts
+
 1. Pick hostname and add to `flake.nix` nixosConfigurations
 2. Create `hosts/HOSTNAME/configuration.nix`
 3. Generate hardware config with `nixos-generate-config`

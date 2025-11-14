@@ -24,6 +24,7 @@ Personal NixOS configuration repository managing 40+ systems with declarative in
 ## Quick Start
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/pbek/nixcfg.git
    cd nixcfg
@@ -32,6 +33,7 @@ Personal NixOS configuration repository managing 40+ systems with declarative in
 2. **Add your host configuration** to `flake.nix` and create `hosts/yourhostname/configuration.nix`
 
 3. **Test your configuration:**
+
    ```bash
    just check
    ```

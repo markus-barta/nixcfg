@@ -5,15 +5,18 @@ This directory contains comprehensive documentation for the nixcfg repository.
 ## Documentation Index
 
 ### Getting Started
+
 - **[README.md](../README.md)** - Main repository overview and quick start guide
 - **[overview.md](overview.md)** - Complete architecture overview and workflow documentation
 - **[pbek.md](../pbek.md)** - Original historical content and setup instructions
 
 ### Host-Specific Documentation
+
 - **[hosts/miniserver24/README.md](../hosts/miniserver24/README.md)** - Home automation server
 - **[hosts/miniserver99/README.md](../hosts/miniserver99/README.md)** - DNS/DHCP server
 
 ### Key Concepts
+
 - **Modular Architecture**: Custom `hokage` module system for role-based configuration
 - **Secrets Management**: Declarative encryption with `agenix`
 - **ZFS Storage**: Declarative disk management with `disko`
