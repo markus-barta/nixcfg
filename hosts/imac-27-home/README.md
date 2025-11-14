@@ -34,11 +34,20 @@ Personal macOS development machine with Nix package management.
 - ✅ Hack Nerd Font installed and verified
 - ✅ Additional CLI tools configured (cloc, prettier)
 
-**Current State**: **CORE MIGRATION COMPLETE** ✅
+**Switch to Nix** ✅ **COMPLETE** (2025-11-14)
 
-All essential configurations now declaratively managed via Nix. Homebrew versions still active (PATH priority). Ready for Post-Migration testing and gradual Homebrew removal.
+- ✅ Ran `setup-macos.sh` - Set Nix fish as default login shell
+- ✅ Fixed PATH priority - Nix paths now take precedence over Homebrew
+  - Added `loginShellInit` to Fish configuration
+  - Added `initExtra` to Zsh configuration
+- ✅ Verified switch: `$SHELL`, `which fish/node/python3` all point to Nix
+- ✅ System now running entirely on Nix versions
 
-**Next**: Post-Migration - Testing & Cleanup (see `docs/testing-and-cleanup.md`)
+**Current State**: **ACTIVELY USING NIX** ✅
+
+All tools now running from Nix. Homebrew packages remain installed as backup but are no longer in use.
+
+**Next**: Continue daily usage testing, then proceed with staged Homebrew removal (see `docs/testing-and-cleanup.md`)
 
 See [docs/migration.md](docs/migration.md) for detailed migration plan.
 

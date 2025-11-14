@@ -24,23 +24,58 @@ After completing the main migration (Phases 0-3), you'll have:
 
 ---
 
-## ⚠️ PREREQUISITE: Manual Setup Required
+## ✅ Switch to Nix Complete (2025-11-14)
 
-**Status**: Nix packages installed ✅ | Awaiting manual shell setup
+**Status**: Successfully switched to Nix as primary tool source
 
-Before proceeding with testing, you must **manually run the setup script** to switch to Nix as your default shell. This requires sudo access and must be done in your actual terminal.
+### What Was Done
 
-**See**: `SWITCH-TO-NIX-NOW.md` in the host directory for detailed instructions.
+1. **Ran `setup-macos.sh`** - Added Nix fish to `/etc/shells` and set as default shell
+2. **Fixed PATH Priority Issue** - Initial switch didn't prioritize Nix paths
+   - **Root cause**: PATH was inherited from parent environment, Homebrew paths came first
+   - **Solution**: Added `loginShellInit` to Fish configuration in `home.nix`
+   - **Bonus**: Also configured Zsh for consistency across shells
+3. **Verified Switch** - All commands now resolve to Nix versions:
+   ```bash
+   echo $SHELL      # /Users/markus/.nix-profile/bin/fish
+   which fish       # /Users/markus/.nix-profile/bin/fish
+   which node       # /Users/markus/.nix-profile/bin/node
+   which python3    # /Users/markus/.nix-profile/bin/python3
+   ```
 
-**Quick summary:**
+### Key Configuration Changes
 
-```bash
-cd ~/Code/nixcfg/hosts/imac-27-home
-./setup/setup-macos.sh  # Requires sudo password
-exec fish               # Or restart terminal
+**Fish Shell (`home.nix`):**
+
+```nix
+loginShellInit = ''
+  # Ensure Nix paths are prioritized
+  fish_add_path --prepend --move ~/.nix-profile/bin
+  fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
+'';
 ```
 
-After completing this setup and verifying the switch (check with `echo $SHELL`), proceed with the testing phases below.
+**Zsh Shell (`home.nix`):**
+
+```nix
+programs.zsh = {
+  enable = true;
+  initExtra = ''
+    export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+  '';
+};
+```
+
+### Verification Checklist
+
+- ✅ Default shell is Nix fish
+- ✅ PATH prioritizes Nix over Homebrew
+- ✅ Node.js from Nix (v22.20.0)
+- ✅ Python from Nix (v3.13.0)
+- ✅ Fish from Nix (v4.1.2)
+- ✅ Zsh also configured for consistency
+
+You're now ready to proceed with daily usage testing below.
 
 ---
 
