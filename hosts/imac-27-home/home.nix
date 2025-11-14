@@ -435,8 +435,13 @@
     nodejs # Latest Node.js - for IDEs, scripts, terminal
     python3 # Latest Python 3 - for IDEs, scripts, terminal
 
-    # CLI tools (moved from Homebrew - these are in devenv, but keeping here for global access)
+    # CLI tools (moved from Homebrew - now globally available)
     zoxide # Smart directory jumper
+    bat # Better cat with syntax highlighting
+    btop # Better top/htop
+    ripgrep # Fast grep (rg)
+    fd # Fast find
+    fzf # Fuzzy finder
 
     # Fonts
     (pkgs.nerd-fonts.hack)
