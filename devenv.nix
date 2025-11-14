@@ -22,6 +22,7 @@ in
     [
       git
       gum
+      prettier
     ]
     ++ [
       unstablePkgs.nh
