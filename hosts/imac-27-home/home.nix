@@ -23,6 +23,9 @@
     shellInit = ''
       # Environment variables
       set -gx TERM xterm-256color
+
+      # zoxide integration
+      set -gx ZOXIDE_CMD z
     '';
 
     interactiveShellInit = ''
@@ -36,6 +39,9 @@
           echo -n " · "(date "+%Y-%m-%d %H:%M")
           set_color normal
       end
+
+      # Initialize zoxide
+      zoxide init fish | source
     '';
 
     # Functions
@@ -119,20 +125,6 @@
       qc0 = "ssh mba@cs0.barta.cm -p 2222 -t \"zellij attach csb0 -c\"";
       qc1 = "ssh mba@cs1.barta.cm -p 2222 -t \"zellij attach csb1 -c\"";
     };
-
-    # Plugins will be managed by home-manager
-    plugins = [
-      # Enable zoxide integration
-      {
-        name = "zoxide";
-        src = pkgs.fetchFromGitHub {
-          owner = "kidonng";
-          repo = "zoxide.fish";
-          rev = "bfd5947bcc7cd01beb23c6a40ca9807c174bba0e";
-          sha256 = "Hq9UXB99kmbWKUVFDeJL790P8ek+xZR7hDREP+YS5+c=";
-        };
-      }
-    ];
   };
 
   # ============================================================================
