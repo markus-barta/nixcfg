@@ -718,10 +718,12 @@ Status: **IN PROGRESS** (Started 2025-11-14)
    - Test result: **PASS** - All CLI tools working from Nix
    - Test in devenv shell
 
-3. **direnv** → `home.nix`
-   - Enable programs.direnv with nix-direnv
-   - Automatic fish integration (no manual hook needed)
-   - Test with .envrc files if any
+3. **direnv** → `home.nix` ✅ **TESTED** (2025-11-14)
+   - ✅ Installed via home-manager (v2.37.1)
+   - ✅ nix-direnv integration enabled
+   - ✅ Automatic Fish shell integration configured
+   - ⚠️ Full testing requires interactive Fish shell
+   - Test result: **PARTIAL PASS** - Configuration correct, works when active
 
 4. **Fish shell** → `home.nix`
    - Install fish via home-manager
