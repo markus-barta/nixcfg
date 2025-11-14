@@ -139,121 +139,124 @@
   # ============================================================================
   programs.starship = {
     enable = true;
+    enableFishIntegration = true;
+    # Settings disabled - using home.file to preserve Unicode
+    /*
+      settings = {
+        # Global settings
+        command_timeout = 2000;
 
-    settings = {
-      # Global settings
-      command_timeout = 2000;
+        # Prompt layout
+        format = "$username$hostname $directory$git_branch$git_commit$git_status\${custom.gitcount} $python$nodejs$rust$golang $docker_context $kubernetes\n$character";
+        right_format = "$time";
 
-      # Prompt layout
-      format = "$username$hostname $directory$git_branch$git_commit$git_status\${custom.gitcount} $python$nodejs$rust$golang $docker_context $kubernetes\n$character";
-      right_format = "$time";
+        # Prompt character
+        character = {
+          success_symbol = "[➜](bold cyan) ";
+          error_symbol = "[✗](bold red) ";
+        };
 
-      # Prompt character
-      character = {
-        success_symbol = "[➜](bold cyan) ";
-        error_symbol = "[✗](bold red) ";
+        # User + Host
+        username = {
+          style_user = "bold green";
+          show_always = true;
+          format = "[$user]($style)";
+        };
+
+        hostname = {
+          ssh_only = false;
+          style = "bold yellow";
+          format = "@[$hostname]($style)";
+        };
+
+        # Directory
+        directory = {
+          style = "bold blue";
+          truncation_length = 0; # full path always
+          truncate_to_repo = false; # don't cut at repo root
+          format = "[$path]($style) ";
+        };
+
+        # Git
+        git_branch = {
+          symbol = " ";
+          style = "bold purple";
+        };
+
+        git_commit = {
+          commit_hash_length = 7;
+          style = "bold white";
+          only_detached = false;
+          tag_disabled = true;
+          format = "[($hash)]($style)";
+        };
+
+        git_status = {
+          style = "bold red";
+          conflicted = "⚡";
+          ahead = "⇡";
+          behind = "⇣";
+          diverged = "⇕";
+          untracked = "?";
+          stashed = "📦";
+          modified = "!";
+          staged = "+";
+          renamed = "»";
+          deleted = "✘";
+        };
+
+        # Custom gitcount module (commit count)
+        custom.gitcount = {
+          command = "git rev-list --count HEAD";
+          when = "git rev-parse --is-inside-work-tree >/dev/null 2>&1";
+          format = "[#$output](dimmed green)";
+        };
+
+        # Languages
+        nodejs = {
+          symbol = " ";
+          style = "green";
+          detect_files = [ "package.json" ];
+        };
+
+        python = {
+          symbol = "🐍 ";
+          style = "yellow";
+        };
+
+        rust = {
+          symbol = "🦀 ";
+          style = "red";
+        };
+
+        golang = {
+          symbol = " ";
+          style = "cyan";
+        };
+
+        # Docker
+        docker_context = {
+          symbol = "🐳 ";
+          style = "blue";
+          only_with_files = true;
+        };
+
+        # Kubernetes
+        kubernetes = {
+          symbol = "⎈ ";
+          style = "cyan bold";
+          disabled = false;
+        };
+
+        # Time (right prompt)
+        time = {
+          disabled = false;
+          format = "[$time]($style)";
+          time_format = "%H:%M";
+          style = "bold white";
+        };
       };
-
-      # User + Host
-      username = {
-        style_user = "bold green";
-        show_always = true;
-        format = "[$user]($style)";
-      };
-
-      hostname = {
-        ssh_only = false;
-        style = "bold yellow";
-        format = "@[$hostname]($style)";
-      };
-
-      # Directory
-      directory = {
-        style = "bold blue";
-        truncation_length = 0; # full path always
-        truncate_to_repo = false; # don't cut at repo root
-        format = "[$path]($style) ";
-      };
-
-      # Git
-      git_branch = {
-        symbol = " ";
-        style = "bold purple";
-      };
-
-      git_commit = {
-        commit_hash_length = 7;
-        style = "bold white";
-        only_detached = false;
-        tag_disabled = true;
-        format = "[($hash)]($style)";
-      };
-
-      git_status = {
-        style = "bold red";
-        conflicted = "⚡";
-        ahead = "⇡";
-        behind = "⇣";
-        diverged = "⇕";
-        untracked = "?";
-        stashed = "📦";
-        modified = "!";
-        staged = "+";
-        renamed = "»";
-        deleted = "✘";
-      };
-
-      # Custom gitcount module (commit count)
-      custom.gitcount = {
-        command = "git rev-list --count HEAD";
-        when = "git rev-parse --is-inside-work-tree >/dev/null 2>&1";
-        format = "[#$output](dimmed green)";
-      };
-
-      # Languages
-      nodejs = {
-        symbol = " ";
-        style = "green";
-        detect_files = [ "package.json" ];
-      };
-
-      python = {
-        symbol = "🐍 ";
-        style = "yellow";
-      };
-
-      rust = {
-        symbol = "🦀 ";
-        style = "red";
-      };
-
-      golang = {
-        symbol = " ";
-        style = "cyan";
-      };
-
-      # Docker
-      docker_context = {
-        symbol = "🐳 ";
-        style = "blue";
-        only_with_files = true;
-      };
-
-      # Kubernetes
-      kubernetes = {
-        symbol = "⎈ ";
-        style = "cyan bold";
-        disabled = false;
-      };
-
-      # Time (right prompt)
-      time = {
-        disabled = false;
-        format = "[$time]($style)";
-        time_format = "%H:%M";
-        style = "bold white";
-      };
-    };
+    */
   };
 
   # ============================================================================
@@ -271,11 +274,7 @@
       ------------------------------------------------------------
       config.font_size = 12
       config.line_height = 1.1
-      config.font = wezterm.font_with_fallback({
-          "Hack Nerd Font Mono",
-          "Hack Nerd Font",
-          "Apple Color Emoji",
-      })
+      config.font = wezterm.font("Hack Nerd Font Mono")
 
       ------------------------------------------------------------
       -- ## Colors & Cursor
@@ -310,7 +309,7 @@
       config.audible_bell = "Disabled"
 
       -- macOS Alt keys
-      config.send_composed_key_when_left_alt_is_pressed = false
+      config.send_composed_key_when_left_alt_is_pressed = true
       config.send_composed_key_when_right_alt_is_pressed = true
 
       ------------------------------------------------------------
@@ -445,6 +444,13 @@
 
   # Enable fontconfig for fonts to be recognized
   fonts.fontconfig.enable = true;
+
+  # ============================================================================
+  # Starship Config File (preserves Nerd Font Unicode)
+  # ============================================================================
+  home.file.".config/starship.toml" = {
+    source = ./config/starship.toml;
+  };
 
   # ============================================================================
   # Scripts Management

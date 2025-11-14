@@ -1,0 +1,107 @@
+# ~/.config/starship.toml
+# Custom Starship prompt for Markus
+# User@host | full path | Git info (branch, short-hash, status, commit count) | runtimes | contexts
+# Time is shown on the right; prompt character on a new line.
+
+# ---- Global ----
+command_timeout = 2000  # ms for all modules
+
+# ---- Prompt Layout ----
+format = """
+$username$hostname $directory$git_branch$git_commit$git_status${custom.gitcount} $python$nodejs$rust$golang $docker_context $kubernetes
+$character
+"""
+
+# Right prompt = time
+right_format = "$time"
+
+# ---- Prompt Character ----
+[character]
+success_symbol = "[➜](bold cyan) "
+error_symbol = "[✗](bold red) "
+
+# ---- User + Host ----
+[username]
+style_user = "bold green"
+show_always = true
+format = "[$user]($style)"
+
+[hostname]
+ssh_only = false
+style = "bold yellow"
+format = "@[$hostname]($style)"
+
+# ---- Directory ----
+[directory]
+style = "bold blue"
+truncation_length = 0        # full path always
+truncate_to_repo = false     # don’t cut at repo root
+format = "[$path]($style) "
+
+# ---- Git ----
+[git_branch]
+symbol = " "
+style = "bold purple"
+
+[git_commit]
+commit_hash_length = 7
+style = "bold white"
+only_detached = false
+tag_disabled = true
+format = "[($hash)]($style)"  # e.g. (89c8a05)
+
+[git_status]
+style = "bold red"
+conflicted = "⚡"
+ahead = "⇡"
+behind = "⇣"
+diverged = "⇕"
+untracked = "?"
+stashed = "📦"
+modified = "!"
+staged = "+"
+renamed = "»"
+deleted = "✘"
+
+# Commit count via custom module (total commits in repo)
+[custom.gitcount]
+command = "git rev-list --count HEAD"
+when = "git rev-parse --is-inside-work-tree >/dev/null 2>&1"
+format = "[#$output](dimmed green)"
+
+# ---- Languages ----
+[nodejs]
+symbol = " "
+style = "green"
+detect_files = ["package.json"]
+
+[python]
+symbol = "🐍 "
+style = "yellow"
+
+[rust]
+symbol = "🦀 "
+style = "red"
+
+[golang]
+symbol = " "
+style = "cyan"
+
+# ---- Docker ----
+[docker_context]
+symbol = "🐳 "
+style = "blue"
+only_with_files = true
+
+# ---- Kubernetes ----
+[kubernetes]
+symbol = "⎈ "
+style = "cyan bold"
+disabled = false
+
+# ---- Time (right prompt) ----
+[time]
+disabled = false
+format = "[$time]($style)"
+time_format = "%H:%M"
+style = "bold white"
