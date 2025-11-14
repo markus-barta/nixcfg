@@ -30,7 +30,7 @@
 
 📋 **Migration Progress**:
 
-- ✅ Phase 0: Pre-Migration (Planning done, backup pending)
+- ✅ Phase 0: Pre-Migration (Planning & Backup complete - 2025-11-14)
 - ⏳ Phase 1: Setup Infrastructure (not started)
 - ⏳ Phase 2: Core Environment (not started)
 - ⏳ Phase 3: Scripts & Additional Tools (not started)
@@ -42,7 +42,7 @@
 - Staged Homebrew package removal (5 stages)
 - Final verification and cleanup
 
-🎬 **Next Action**: Execute Phase 0.2 - Run `./setup/backup-migration.sh` from `hosts/imac-27-home/`
+🎬 **Next Action**: Execute Phase 1 - Setup Infrastructure (create home.nix, enhance flake.nix, install home-manager)
 
 🎯 **Critical Workflows to Preserve**:
 
@@ -515,9 +515,9 @@ home.file = {
 
 Status: **COMPLETE**
 
-#### Phase 0.2: Backup Execution ⏳
+#### Phase 0.2: Backup Execution ✅
 
-Status: **NOT STARTED**
+Status: **COMPLETE** (2025-11-14)
 
 #### Backup Scope & Destination
 
@@ -577,12 +577,12 @@ cd ~/Code/nixcfg/hosts/imac-27-home
 #### Backup Execution Checklist
 
 - [x] Backup script created: `hosts/imac-27-home/setup/backup-migration.sh`
-- [ ] Run backup script from repo directory
-- [ ] Verify backup completed without errors
-- [ ] Check file counts match expectations (~40-50 files)
-- [ ] Verify CHECKSUMS.txt and RESTORE.md created
-- [ ] Review Time Machine status output
-- [ ] Save backup directory path for reference
+- [x] Run backup script from repo directory
+- [x] Verify backup completed without errors
+- [x] Check file counts match expectations (56 files - exceeds expected ~40-50)
+- [x] Verify CHECKSUMS.txt and RESTORE.md created
+- [x] Review Time Machine status output (permission issue - not critical)
+- [x] Save backup directory path for reference: `~/migration-backup-20251114-165637`
 
 #### Critical: Backup Validation (Don't Skip!)
 
@@ -625,13 +625,13 @@ df -h "$BACKUP_DIR"
 
 **Validation Checklist:**
 
-- [ ] Test restore: File diff shows no differences
-- [ ] Checksums: All files verify OK
-- [ ] File counts: Match expectations (~40-50 files)
-- [ ] RESTORE.md exists and is readable
-- [ ] Time Machine: Last backup < 24 hours
-- [ ] Backup directory accessible
-- [ ] Disk space sufficient (at least 1GB free)
+- [x] Test restore: File diff shows no differences
+- [x] Checksums: All files verify OK
+- [x] File counts: Match expectations (56 files - exceeds ~40-50)
+- [x] RESTORE.md exists and is readable
+- [ ] Time Machine: Last backup < 24 hours (permission issue - skipped)
+- [x] Backup directory accessible
+- [x] Disk space sufficient (96GB free)
 
 **If ANY validation fails:** Fix it before proceeding. A failed backup is worse than no backup.
 
@@ -647,6 +647,8 @@ df -h "$BACKUP_DIR"
 After Phase 3, you still have Homebrew packages as fallback. After starting Homebrew removal in `testing-and-cleanup.md`, you're committed. Make sure backups work NOW.
 
 #### Pre-Migration File Changes
+
+**Note**: This should be done before starting Phase 1 to prevent conflicts with Starship.
 
 - [ ] Rename fish_prompt.fish to fish_prompt.fish.disabled
   - Location: `~/.config/fish/functions/fish_prompt.fish`

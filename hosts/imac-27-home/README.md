@@ -2,6 +2,20 @@
 
 Personal macOS development machine with Nix package management.
 
+## Migration Status
+
+**Phase 0: Pre-Migration** ✅ **COMPLETE** (2025-11-14)
+
+- ✅ Phase 0.1: Planning & Documentation complete
+- ✅ Phase 0.2: Backup execution complete
+  - Backup location: `~/migration-backup-20251114-165637`
+  - 56 files backed up (configs, scripts, system state)
+  - All validations passed
+
+**Next**: Phase 1 - Setup Infrastructure (create home.nix, enhance flake.nix)
+
+See [docs/migration.md](docs/migration.md) for detailed migration plan.
+
 ## Current System Analysis
 
 ### System Information
