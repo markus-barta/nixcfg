@@ -131,6 +131,24 @@
         lib-utils = import ./lib/utils.nix { inherit (nixpkgs) lib; };
       };
 
+      # ========================================================================
+      # macOS Home Manager Configurations
+      # ========================================================================
+      homeConfigurations."markus@imac-27-home" = home-manager.lib.homeManagerConfiguration {
+        pkgs = import nixpkgs {
+          system = "x86_64-darwin";
+          config.allowUnfree = true;
+          overlays = allOverlays;
+        };
+        modules = [ ./hosts/imac-27-home/home.nix ];
+        extraSpecialArgs = self.commonArgs // {
+          inherit inputs;
+        };
+      };
+
+      # ========================================================================
+      # NixOS Configurations
+      # ========================================================================
       nixosConfigurations = {
         # Office Work PC
         gaia = mkDesktopHost "gaia" [ ];
