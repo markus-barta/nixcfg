@@ -2,6 +2,18 @@
 
 This document explains how the different NixOS configurations in this repository work together, using `miniserver24` as an example.
 
+## Repository Summary
+
+This is a personal NixOS configuration repository that manages:
+- **40+ hosts** (desktops, laptops, servers, gaming devices)
+- **Modular architecture** with the custom `hokage` module system
+- **Declarative secrets** management with agenix
+- **Custom packages** (qownnotes, nixbit, ghostty, etc.)
+- **Automated workflows** using `just` command runner
+- **ZFS storage** with disko for disk management
+
+The repository owner also maintains some packages included here.
+
 ## Architecture Flow
 
 ```text
@@ -27,10 +39,12 @@ flake.nix
 
 The `flake.nix` file is the main entry point that:
 
-- Defines inputs (nixpkgs, home-manager, agenix, disko, etc.)
+- Defines inputs (nixpkgs, home-manager, agenix, disko, plasma-manager, nixos-hardware, etc.)
 - Creates overlays from the `overlays/` directory
 - Provides helper functions `mkServerHost` and `mkDesktopHost`
 - Declares all system configurations in `nixosConfigurations`
+- Exposes utility functions via `lib-utils` (from `lib/utils.nix`)
+- Provides both stable (nixos-25.05) and unstable (nixos-unstable) package sets
 
 ### Example: miniserver24 Definition
 
@@ -41,9 +55,13 @@ miniserver24 = mkServerHost "miniserver24" [ disko.nixosModules.disko ];
 This creates a server configuration by:
 
 1. Using `mkServerHost` with hostname "miniserver24"
-2. Including common server modules (home-manager, overlays, agenix)
+2. Including common server modules:
+   - home-manager (NixOS module)
+   - nixpkgs overlays (stable and unstable package sets)
+   - agenix (secrets management)
 3. Loading `hosts/miniserver24/configuration.nix`
 4. Adding the disko module for ZFS disk management
+5. Passing special arguments (inputs, lib-utils) to all modules
 
 ## 2. Host Configuration: hosts/miniserver24/configuration.nix
 
@@ -101,7 +119,7 @@ hokage = {
   hostName = "miniserver24";
   userLogin = "mba";
   role = "server-home";
-  useInternalInfrastructure = true;
+  useInternalInfrastructure = false;
   serverMba.enable = true;
 };
 ```
@@ -110,14 +128,15 @@ These options control which features are enabled across the system.
 
 ## 4. Common Configuration: modules/common.nix
 
-This file provides base configuration for **all** systems:
+This file provides base configuration for **all** systems (automatically imported by `modules/hokage/default.nix`):
 
-- Shell setup (fish, bash)
-- Essential CLI tools (git, htop, ripgrep, etc.)
-- User account creation
-- Locale and timezone settings
+- Shell setup (fish with modern aliases, bash)
+- Essential CLI tools (eza, bat, ripgrep, fd, git, htop, helix, etc.)
+- User account creation and locale settings
 - Nix flakes and experimental features
 - Home Manager integration
+- Security hardening (sudo-rs, restic)
+- Package management (nh with automatic cleanup)
 
 ## 5. How Everything Connects
 
@@ -144,12 +163,14 @@ When you run `nixos-rebuild switch --flake .#miniserver24`:
 
 | Layer | Purpose | Example |
 |-------|---------|---------|
-| **flake.nix** | System declaration & inputs | Defines all hosts, overlays |
+| **flake.nix** | System declaration & inputs | Defines all hosts, overlays, stable/unstable pkgs |
 | **hosts/\<hostname\>/** | Host-specific config | Network, services, hardware |
 | **modules/hokage/** | Abstraction layer | Role-based feature switches |
 | **modules/common.nix** | Base system config | Users, shells, core packages |
 | **overlays/** | Package customizations | Custom or modified packages |
-| **pkgs/** | Custom packages | In-house software |
+| **pkgs/** | Custom packages | In-house software (qownnotes, nixbit, etc.) |
+| **lib/** | Helper functions | Utility functions (listNixFiles, etc.) |
+| **tests/** | NixOS tests | Integration tests for packages |
 
 ## Example: Adding a New Server
 
@@ -177,6 +198,26 @@ newserver = mkServerHost "newserver" [ disko.nixosModules.disko ];
 
 This modular approach ensures consistency across systems while allowing host-specific customization.
 
+## Desktop vs Server Configurations
+
+### Desktop Hosts (`mkDesktopHost`)
+
+Desktop configurations include additional modules:
+- **plasma-manager**: KDE Plasma configuration via Home Manager
+- **espanso-fix**: Text expander with capabilities fix
+- Full desktop environment support
+
+Common desktop hosts:
+- **gaia**: Office Work PC
+- **venus**: Livingroom PC
+- **rhea**: Asus Vivobook Laptop
+- **hyperion**: Acer Aspire 5 Laptop
+- **ally2**: Asus ROG Ally (using NixOS)
+
+Desktop systems typically use `hokage.role = "desktop"` with gaming, development, and graphics acceleration support.
+
+Server configurations are minimal and headless, using `hokage.role = "server-home"` or `"server-remote"` for network services and monitoring.
+
 ## Example: miniserver99 (DNS/DHCP Server)
 
 The repository includes `miniserver99`, a specialized DNS/DHCP server:
@@ -187,263 +228,160 @@ miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
 ```
 
 **Key Features:**
+- AdGuard Home for DNS filtering and DHCP
+- Declarative static DHCP leases with automatic UI sync
+- Minimal server with agenix secrets management
 
-- **AdGuard Home**: Native NixOS service for DNS filtering and DHCP
-- **Static DHCP Leases**: Declaratively configured in the gitignored file `hosts/miniserver99/static-leases.nix`; rebuilds must include `--override-input miniserver99-static-leases path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix`
-- **Lease Sync**: A systemd `preStart` hook merges declarative leases into `/var/lib/private/AdGuardHome/data/leases.json`, removing any UI-created static entries
-- **Secrets Management**: Uses `agenix` with private-only access (Markus's SSH key)
-- **Minimal Surface**: No desktop environment, audio, or media services
+**Network:** IP `192.168.1.99/24`, DHCP range `192.168.1.201-254`
 
-**Network:**
-
-- IP: `192.168.1.99/24`
-- DHCP Range: `192.168.1.201` - `192.168.1.254`
-- Web Interface: <http://192.168.1.99:3000>
-
-See `hosts/miniserver99/README.md` for detailed deployment and migration instructions.
+See `hosts/miniserver99/README.md` for deployment details.
 
 ---
 
-## Justfile Commands Reference
+## Custom Packages and Overlays
 
-The repository uses `just` (a command runner) to simplify common tasks. All commands work across macOS and NixOS.
+### Custom Packages (`pkgs/`)
 
-### Quick Start
+The repository includes custom Nix packages (qownnotes, nixbit, ghostty, zen-browser, television, lact, etc.) not available in nixpkgs or with custom modifications.
 
-```bash
-# View all available commands
-just --list
+### Overlays (`overlays/`)
 
-# View commands in a specific group
-just --list | grep agenix
-just --list | grep build
-```
+Overlays modify or replace packages from nixpkgs, providing both stable and unstable package sets via `pkgs.stable.<package>` and `pkgs.unstable.<package>`.
 
-### Installation
+### Package Management
 
 ```bash
-# NixOS (available in system by default if configured)
-nix-shell -p just
+# Update package releases
+just qownnotes-update-release
+just nixbit-update-release
 
-# macOS
-brew install just
+# Run tests and generate docs
+just test-qownnotes
+just hokage-options-md-save
 ```
 
 ---
 
-### Encryption & Secrets (agenix group)
+## Essential Commands
 
-#### encrypt-file - Encrypt sensitive files
+The repository uses `just` (a command runner) to simplify common tasks. Run `just --list` for all commands.
 
-Encrypts any file in the `hosts/HOSTNAME/` directory structure using dual-key encryption (your SSH key + host key).
-
-**Usage:**
-```bash
-just encrypt-file hosts/HOSTNAME/filename
-```
-
-**Examples:**
-```bash
-# Encrypt static DHCP leases
-just encrypt-file hosts/miniserver99/static-leases.nix
-
-# Encrypt API keys
-just encrypt-file hosts/home01/api-keys.env
-
-# Encrypt database credentials
-just encrypt-file hosts/netcup01/db-config.conf
-```
-
-**Features:**
-- Auto-detects hostname from path
-- Uses local SSH key on Mac, reads from `secrets.nix` on servers
-- Dual-key encryption (user + host keys)
-- Validates encryption immediately
-- Atomically updates `.gitignore`
-- Stages files for commit
-
-**Security Checks:**
-- Warns if SSH key has no passphrase
-- Warns if file exists in Git history
-- Validates decryption works
-- Creates timestamped backups
-
-#### decrypt-file - Decrypt encrypted files
-
-Decrypts an `.age` file back to plaintext.
-
-**Usage:**
-```bash
-just decrypt-file ENCRYPTED_FILE [OUTPUT_FILE]
-```
-
-**Examples:**
-```bash
-# Auto-detect output location
-just decrypt-file secrets/static-leases-miniserver99.age
-
-# Specify output location explicitly
-just decrypt-file secrets/api-keys-home01.age hosts/home01/api-keys.env
-```
-
-**Features:**
-- Tries user key first (Mac), falls back to host key (servers)
-- Auto-detects output path from filename pattern
-- Creates backups before overwriting
-- Works on both macOS and NixOS
-
----
-
-### Build & Deploy (build group)
-
-#### switch - Build and deploy
+### Core Workflows
 
 ```bash
-just switch
-```
-
-Builds and activates the NixOS configuration for the current host.
-
-#### upgrade - Update and rebuild
-
-```bash
-just upgrade
-```
-
-Updates flake inputs and switches to new configuration.
-
-#### build - Build current host
-
-```bash
-just build
-```
-
-Builds without activating (useful for testing).
-
-#### check - Validate configuration
-
-```bash
+# Test configuration
 just check
-```
-
-Checks if configuration can be built successfully.
-
-#### check-all - Validate all hosts
-
-```bash
-just check-all
-```
-
-Checks if all hosts defined in `flake.nix` can be built.
-
----
-
-### Maintenance (maintenance group)
-
-#### cleanup - Free up disk space
-
-```bash
-just cleanup
-```
-
-Performs system cleanup:
-- Clears journal logs older than 3 days
-- Prunes Docker system
-- Empties trash
-- Runs nix garbage collection
-- Optimizes nix store
-
-#### list-generations - Show system generations
-
-```bash
-just list-generations
-```
-
-Lists all system generations (rollback points).
-
-#### rollback - Rollback to previous generation
-
-```bash
-just rollback
-```
-
-Rolls back to the previous NixOS generation.
-
----
-
-### Common Workflows
-
-#### Daily Development
-
-```bash
-# Make changes to configuration
-nano hosts/miniserver99/configuration.nix
-
-# Test the build
-just check
-
-# Apply changes
-just switch
-```
-
-#### Updating Static Leases
-
-```bash
-# Edit leases
-nano hosts/miniserver99/static-leases.nix
-
-# Deploy to server
-just switch
-
-# Backup encrypted version to Git
-just encrypt-file hosts/miniserver99/static-leases.nix
-git commit -m "backup: update static leases"
-git push
-```
-
-#### After Cloning Repo
-
-```bash
-# Decrypt your sensitive files
-just decrypt-file secrets/static-leases-miniserver99.age
 
 # Build and deploy
 just switch
-```
 
-#### System Updates
-
-```bash
 # Update flake inputs and rebuild
 just upgrade
 
-# If issues occur, rollback
+# Rollback if issues occur
 just rollback
+
+# Free up disk space
+just cleanup
+```
+
+### Secrets Management
+
+The repository uses **agenix** for declarative secret management with dual-key encryption (your SSH key + host key).
+
+**Commands must be run from the repository root directory** - they will show clear error messages if run elsewhere.
+
+**Key Concepts:**
+- Files in `hosts/HOSTNAME/` are automatically encrypted to `secrets/filename-HOST.age`
+- Encryption requires both user and host SSH keys for security
+- Encrypted files are gitignored; plaintext files are never committed
+
+```bash
+# Encrypt sensitive files (creates .age file + updates .gitignore)
+just encrypt-file hosts/HOSTNAME/filename
+
+# Decrypt encrypted files (tries user key first, falls back to host key)
+just decrypt-file secrets/filename.age
+
+# Rekey secrets after adding new hosts
+just rekey
+```
+
+**Security Features:**
+- Validates encryption/decryption works immediately
+- Warns about weak SSH keys (no passphrase)
+- Creates backups before overwriting files
+- Stages encrypted files for commit automatically
+
+### Remote Builds & Testing
+
+```bash
+# Build on remote servers
+just build-on-home01
+just build-on-caliban
+
+# VM testing
+just build-vm HOST
+just boot-vm
+```
+
+See `just --list` for complete command reference.
+
+## Advanced Features
+
+### Development Environments
+
+The repository uses `devenv` for reproducible development environments. Development environments are defined in `devenv.nix` and `files/shells/`.
+
+### Hokage Module Introspection
+
+```bash
+# Explore hokage options
+just hokage-options
+just hokage-options-interactive
+just hokage-options-md-save
 ```
 
 ---
 
-### Additional Commands
+## Best Practices
 
-For a complete list of available commands, run:
-```bash
-just --list
-```
+### Configuration Management
+- Always test before deploying: `just check` before `just switch`
+- Use VM testing for major changes: `just build-vm` and `just boot-vm`
+- Keep secrets encrypted: `just encrypt-file` for sensitive data
+- Validate all hosts periodically: `just check-all`
 
-Common groups include:
-- **agenix**: Encryption and secrets management
-- **build**: Build and deploy operations
-- **maintenance**: System cleanup and rollback
-- **log**: Log viewing and monitoring
-- **docs**: Documentation generation
+### Git Workflow
+- Never commit secrets - use `just encrypt-file` to create `.age` files
+- Commit frequently - NixOS configurations are declarative and rollback-friendly
+- Use descriptive commit messages for encrypted file backups
+
+### System Administration
+- Keep rollback options: `just rollback` allows instant reversion
+- Monitor disk space: `just cleanup` frees up space
+- Update regularly: `just upgrade` keeps systems current
+- Check logs after updates: `just logs-current-boot` helps diagnose issues
+
+### Adding New Hosts
+1. Pick hostname and add to `flake.nix` nixosConfigurations
+2. Create `hosts/HOSTNAME/configuration.nix`
+3. Generate hardware config with `nixos-generate-config`
+4. Configure ZFS if needed with `just zfs-generate-host-id`
+5. Add SSH key to `secrets/secrets.nix` and run `just rekey`
+6. Test with `just check-host HOSTNAME`
+7. Deploy with `nixos-anywhere` or manual installation
 
 ---
 
 ## Related Documentation
 
-- **NixOS Manual**: https://nixos.org/manual/nixos/stable/
-- **Just Manual**: https://just.systems/man/en/
-- **agenix**: https://github.com/ryantm/agenix
-- **rage**: https://github.com/str4d/rage
-- **Disko (ZFS)**: https://github.com/nix-community/disko
-- **nixos-anywhere**: https://github.com/nix-community/nixos-anywhere
+- **NixOS Manual**: [https://nixos.org/manual/nixos/stable/](https://nixos.org/manual/nixos/stable/)
+- **Just Manual**: [https://just.systems/man/en/](https://just.systems/man/en/)
+- **agenix**: [https://github.com/ryantm/agenix](https://github.com/ryantm/agenix)
+- **rage**: [https://github.com/str4d/rage](https://github.com/str4d/rage)
+- **Disko (ZFS)**: [https://github.com/nix-community/disko](https://github.com/nix-community/disko)
+- **nixos-anywhere**: [https://github.com/nix-community/nixos-anywhere](https://github.com/nix-community/nixos-anywhere)
+- **Home Manager**: [https://github.com/nix-community/home-manager](https://github.com/nix-community/home-manager)
+- **plasma-manager**: [https://github.com/nix-community/plasma-manager](https://github.com/nix-community/plasma-manager)
+- **nh (yet-another-nix-helper)**: [https://github.com/viperML/nh](https://github.com/viperML/nh)

@@ -10,7 +10,7 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, 
 - **Gateway**: `192.168.1.5` (Fritz!Box)
 - **DNS**: Uses localhost (127.0.0.1) - AdGuard Home
 - **DHCP Range**: `192.168.1.201` - `192.168.1.254`
-- **Web Interface**: http://192.168.1.99:3000
+- **Web Interface**: [http://192.168.1.99:3000](http://192.168.1.99:3000)
 - **SSH**: `ssh mba@192.168.1.99`
 
 ## System Details
@@ -127,7 +127,7 @@ ip addr show enp2s0f0
 dig @localhost google.com
 
 # Access web interface
-# http://192.168.1.99:3000
+# [http://192.168.1.99:3000](http://192.168.1.99:3000)
 ```
 
 ---
@@ -375,7 +375,7 @@ ssh-keyscan 192.168.1.99
 - Integration with DNS resolution
 
 ### Administration
-- Web interface: http://192.168.1.99:3000
+- Web interface: [http://192.168.1.99:3000](http://192.168.1.99:3000)
 - Username: `admin`
 - Password: Set declaratively in configuration
 - Query log with search and filtering
@@ -537,8 +537,8 @@ With 24-hour DHCP leases, clients automatically pick up the restored service wit
 
 ## Additional Resources
 
-- **AdGuard Home Documentation**: https://github.com/AdguardTeam/AdGuardHome/wiki
-- **NixOS Manual**: https://nixos.org/manual/nixos/stable/
-- **Disko (ZFS setup)**: https://github.com/nix-community/disko
-- **nixos-anywhere**: https://github.com/nix-community/nixos-anywhere
-- **agenix (secrets)**: https://github.com/ryantm/agenix
+- **AdGuard Home Documentation**: [https://github.com/AdguardTeam/AdGuardHome/wiki](https://github.com/AdguardTeam/AdGuardHome/wiki)
+- **NixOS Manual**: [https://nixos.org/manual/nixos/stable/](https://nixos.org/manual/nixos/stable/)
+- **Disko (ZFS setup)**: [https://github.com/nix-community/disko](https://github.com/nix-community/disko)
+- **nixos-anywhere**: [https://github.com/nix-community/nixos-anywhere](https://github.com/nix-community/nixos-anywhere)
+- **agenix (secrets)**: [https://github.com/ryantm/agenix](https://github.com/ryantm/agenix)

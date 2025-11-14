@@ -263,7 +263,37 @@ keyscan:
 encrypt-file source-file:
     #!/usr/bin/env bash
     set -euo pipefail
-    
+
+    # Check if we're in a git repository
+    if ! git rev-parse --git-dir > /dev/null 2>&1; then
+        echo "❌ Error: Not in a git repository"
+        echo ""
+        echo "Run this command from the repository root directory."
+        exit 1
+    fi
+
+    # Check for required repository structure
+    if [[ ! -d "secrets" ]]; then
+        echo "❌ Error: secrets/ directory not found"
+        echo ""
+        echo "Run this command from the repository root directory."
+        exit 1
+    fi
+
+    if [[ ! -f "secrets/secrets.nix" ]]; then
+        echo "❌ Error: secrets/secrets.nix not found"
+        echo ""
+        echo "Run this command from the repository root directory."
+        exit 1
+    fi
+
+    if [[ ! -f ".gitignore" ]]; then
+        echo "❌ Error: .gitignore not found"
+        echo ""
+        echo "Run this command from the repository root directory."
+        exit 1
+    fi
+
     # Extract hostname from hosts/HOSTNAME/ path
     if [[ "{{ source-file }}" =~ ^hosts/([^/]+)/ ]]; then
         HOST="${BASH_REMATCH[1]}"
@@ -409,7 +439,23 @@ encrypt-file source-file:
 decrypt-file encrypted-file output-file='':
     #!/usr/bin/env bash
     set -euo pipefail
-    
+
+    # Check if we're in a git repository
+    if ! git rev-parse --git-dir > /dev/null 2>&1; then
+        echo "❌ Error: Not in a git repository"
+        echo ""
+        echo "Run this command from the repository root directory."
+        exit 1
+    fi
+
+    # Check for required repository structure
+    if [[ ! -d "hosts" ]]; then
+        echo "❌ Error: hosts/ directory not found"
+        echo ""
+        echo "Run this command from the repository root directory."
+        exit 1
+    fi
+
     # Validate input file exists
     if [ ! -f "{{ encrypted-file }}" ]; then
         echo "❌ Error: File not found: {{ encrypted-file }}"

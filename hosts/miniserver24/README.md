@@ -10,9 +10,9 @@ Home automation hub running HomeAssistant, Node-RED, Scrypted, and related servi
 - **Gateway**: `192.168.1.5` (Fritz!Box)
 - **DNS**: `192.168.1.99` (miniserver99/AdGuard Home) + `1.1.1.1` (fallback)
 - **Web Interfaces**:
-  - Node-RED: http://192.168.1.101:1880
-  - Zigbee2MQTT: http://192.168.1.101:8888
-  - Apprise: http://192.168.1.101:8001
+  - Node-RED: [http://192.168.1.101:1880](http://192.168.1.101:1880)
+  - Zigbee2MQTT: [http://192.168.1.101:8888](http://192.168.1.101:8888)
+  - Apprise: [http://192.168.1.101:8001](http://192.168.1.101:8001)
 - **SSH**: `ssh mba@192.168.1.101`
 
 ## System Details

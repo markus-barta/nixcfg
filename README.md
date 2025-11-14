@@ -8,13 +8,13 @@ My personal NixOS configuration for my machines.
 
 ## Screenshots
 
-#### Shell
+### Shell
 
 ![Shell](./screenshots/shell.png)
 
 ## Setup
 
-Pick your hostname, you might find some inspiration [here](https://spaceplace.nasa.gov/review/switch-a-roo/planet_sizes.en.jpg).
+Pick your hostname, you might find some inspiration [here (Planets/Nasa)](https://spaceplace.nasa.gov/review/switch-a-roo/planet_sizes.en.jpg).
 
 Set your hostname and run the [install script](./install.sh):
 
@@ -52,7 +52,7 @@ sudo reboot
 # Run backup script
 ```
 
-In the end commit changes to https://github.com/pbek/nixcfg.
+In the end commit changes to [https://github.com/pbek/nixcfg](https://github.com/pbek/nixcfg).
 
 ## Secrets
 
@@ -119,7 +119,7 @@ nix run github:nix-community/nixos-anywhere -- --flake .#netcup02 root@server-ho
 
 ## Desktop setup with nixos-anywhere
 
-- <https://github.com/nix-community/nixos-anywhere>
+- [https://github.com/nix-community/nixos-anywhere](https://github.com/nix-community/nixos-anywhere)
 
 ```bash
 # First boot into minimal nixos and set root password
@@ -132,7 +132,7 @@ nix run github:nix-community/nixos-anywhere -- --disk-encryption-keys /tmp/secre
 
 ## Manual setup with disko
 
-- <https://github.com/nix-community/disko>
+- [https://github.com/nix-community/disko](https://github.com/nix-community/disko)
 
 ```bash
 # Boot some nixos minimal image (for a ZFS setup you need to have ZFS support enabled)

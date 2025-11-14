@@ -198,7 +198,7 @@ miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
 
 - IP: `192.168.1.99/24`
 - DHCP Range: `192.168.1.201` - `192.168.1.254`
-- Web Interface: <http://192.168.1.99:3000>
+- Web Interface: [http://192.168.1.99:3000](http://192.168.1.99:3000)
 
 See `hosts/miniserver99/README.md` for detailed deployment and migration instructions.
 
@@ -441,9 +441,9 @@ Common groups include:
 
 ## Related Documentation
 
-- **NixOS Manual**: https://nixos.org/manual/nixos/stable/
-- **Just Manual**: https://just.systems/man/en/
-- **agenix**: https://github.com/ryantm/agenix
-- **rage**: https://github.com/str4d/rage
-- **Disko (ZFS)**: https://github.com/nix-community/disko
-- **nixos-anywhere**: https://github.com/nix-community/nixos-anywhere
+- **NixOS Manual**: [https://nixos.org/manual/nixos/stable/](https://nixos.org/manual/nixos/stable/)
+- **Just Manual**: [https://just.systems/man/en/](https://just.systems/man/en/)
+- **agenix**: [https://github.com/ryantm/agenix](https://github.com/ryantm/agenix)
+- **rage**: [https://github.com/str4d/rage](https://github.com/str4d/rage)
+- **Disko (ZFS)**: [https://github.com/nix-community/disko](https://github.com/nix-community/disko)
+- **nixos-anywhere**: [https://github.com/nix-community/nixos-anywhere](https://github.com/nix-community/nixos-anywhere)
