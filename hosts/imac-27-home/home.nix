@@ -406,12 +406,26 @@
   };
 
   # ============================================================================
+  # Zsh Configuration (System Shell)
+  # ============================================================================
+  programs.zsh = {
+    enable = true;
+
+    # Prepend Nix paths to PATH (same as Fish loginShellInit)
+    initExtra = ''
+      # Ensure Nix paths are prioritized
+      export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+    '';
+  };
+
+  # ============================================================================
   # Direnv Configuration
   # ============================================================================
   programs.direnv = {
     enable = true;
     nix-direnv.enable = true; # Better Nix integration
     # Fish integration is automatic
+    # Zsh integration is automatic
   };
 
   # ============================================================================
