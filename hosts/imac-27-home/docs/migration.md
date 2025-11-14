@@ -696,13 +696,18 @@ Status: **COMPLETE** (2025-11-14)
 
 ### Phase 2: Core Environment (Priority 1) ⏳
 
-Status: **NOT STARTED**
+Status: **IN PROGRESS** (Started 2025-11-14)
+
 **Order of Implementation**:
 
-1. **Global interpreters** → `home.nix`
-   - Node.js (latest stable - global baseline for IDEs/scripts/terminal)
-   - Python3 (latest stable - global baseline for IDEs/scripts/terminal)
-   - Test: `node --version` and `python3 --version` work everywhere
+1. **Global interpreters** → `home.nix` ✅ **TESTED** (2025-11-14)
+   - Node.js: Nix v22.20.0 (LTS) vs Homebrew v25.2.0
+     - ✅ Basic execution, NPM functional, code execution, scripts work
+   - Python3: Nix v3.13.8 vs pyenv v3.10.3
+     - ✅ Basic execution, stdlib modules, code execution, scripts work
+     - ⚠️ No pip (by design - use Nix for packages)
+   - Test result: **PASS** - Both interpreters fully functional
+   - Currently: Homebrew/pyenv still active (PATH priority)
    - Rationale: See "Node.js and Python Strategy" section above
 
 2. **Essential CLI tools** → `devenv.nix` (macOS detection)
