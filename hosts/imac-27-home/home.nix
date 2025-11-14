@@ -428,7 +428,7 @@
     zoxide # Smart directory jumper
 
     # Fonts
-    (pkgs.nerdfonts.override { fonts = [ "Hack" ]; })
+    (pkgs.nerd-fonts.hack)
   ];
 
   # Enable fontconfig for fonts to be recognized
