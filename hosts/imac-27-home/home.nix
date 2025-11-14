@@ -98,7 +98,6 @@
 
       # pingt wrapper
       pingt = {
-        wrapsExternalCommand = "/Users/markus/Scripts/pingt.sh";
         description = "Timestamped ping (calls ~/Scripts/pingt.sh)";
         body = ''
           /Users/markus/Scripts/pingt.sh $argv
