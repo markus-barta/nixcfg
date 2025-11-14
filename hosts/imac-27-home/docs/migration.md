@@ -32,7 +32,7 @@
 
 - ✅ Phase 0: Pre-Migration (Planning & Backup complete - 2025-11-14)
 - ✅ Phase 1: Setup Infrastructure (complete - 2025-11-14)
-- ⏳ Phase 2: Core Environment (not started)
+- ✅ Phase 2: Core Environment (COMPLETE - 2025-11-14)
 - ⏳ Phase 3: Scripts & Additional Tools (not started)
 - ⏳ Phase 4: Documentation & Template (not started)
 
@@ -42,7 +42,7 @@
 - Staged Homebrew package removal (5 stages)
 - Final verification and cleanup
 
-🎬 **Next Action**: Phase 2, Step 7 - Test Git dual identity and configuration
+🎬 **Next Action**: Phase 2 COMPLETE ✅ - Ready for Phase 3 (Scripts & Additional Tools)
 
 🎯 **Critical Workflows to Preserve**:
 
@@ -775,11 +775,20 @@ Status: **IN PROGRESS** (Started 2025-11-14)
    - Currently: Homebrew's wezterm still active (PATH priority)
    - Note: Old `~/.wezterm.lua` file can be archived during Phase 3 cleanup
 
-7. **Git** → `home.nix`
-   - Enable programs.git
-   - Configure dual identity (personal default, work for ~/Code/BYTEPOETS/)
-   - Migrate gitignore patterns
-   - Test git operations and identity switching
+7. **Git** → `home.nix` ✅ **TESTED** (2025-11-14)
+   - ✅ Installed via home-manager (Git v2.51.1 from Homebrew still active)
+   - ✅ Dual identity configuration working perfectly:
+     - Personal repos (default): Markus Barta / markus@barta.com
+     - BYTEPOETS repos: mba / markus.barta@bytepoets.com
+     - Directory-based switching via `gitdir:~/Code/BYTEPOETS/` condition
+   - ✅ Global gitignore patterns configured (\*~, .DS_Store)
+     - File location: ~/.gitignore_global (old location still active)
+     - Nix config: ~/.config/git/ignore (created but not yet active)
+   - ✅ Credential helper: osxkeychain (macOS keychain integration)
+   - ✅ Sourcetree diff/merge tools configured (opendiff)
+   - ✅ Commit template: ~/.stCommitMsg (file exists)
+   - Test result: **PASS** - All Git configuration working correctly
+   - Note: Old gitignore location can be archived in Phase 3
 
 ### Phase 3: Scripts & Additional Tools ⏳
 
