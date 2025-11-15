@@ -4,6 +4,7 @@
   pkgs,
   lib,
   config,
+  inputs,
   ...
 }:
 
@@ -233,7 +234,7 @@
     nmap
     # Secret management tools
     rage # Modern age encryption tool (for agenix)
-    pkgs.agenix # agenix CLI
+    inputs.agenix.packages.${pkgs.system}.default # agenix CLI
   ];
 
   # Agenix secrets configuration
