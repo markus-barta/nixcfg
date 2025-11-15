@@ -37,30 +37,23 @@ Or make WezTerm your default terminal (it's already configured in your home.nix)
 - ✅ GPU-accelerated
 - ✅ More features (splits, tabs, etc.)
 
-## Solution 3: Script to Set Terminal.app Font (Automated)
+## Solution 3: Script to Set Terminal.app Font (Semi-Automated)
 
-Create a one-time setup script:
+**Note**: Due to Terminal.app using NSKeyedArchiver binary format for font data, full automation is not reliable. The script will attempt to configure it, but manual setup is recommended.
 
 ```bash
-#!/usr/bin/env bash
-# Set Terminal.app to use Hack Nerd Font
-
-# This requires Terminal.app to be closed
-osascript -e 'quit app "Terminal"'
-
-# Wait a moment
-sleep 1
-
-# Set the font for the Basic profile
-defaults write com.apple.Terminal "Default Window Settings" "Basic"
-defaults write com.apple.Terminal "Startup Window Settings" "Basic"
-
-# Note: Font settings are complex in Terminal.app's plist format
-# Manual configuration through the GUI is more reliable
-
-echo "Please open Terminal.app and manually set the font to 'Hack Nerd Font Mono'"
-echo "Go to: Terminal > Preferences > Profiles > Text > Change Font"
+# Run the setup script
+~/Code/nixcfg/hosts/imac-27-home/setup/setup-terminal-app-font.sh
 ```
+
+This script will:
+
+- ✅ Verify Hack Nerd Font is installed
+- ✅ Backup current Terminal.app preferences
+- ⚠️ Attempt to set font (may not work due to plist format)
+- 📝 Provide manual instructions if needed
+
+**Why this is not fully declarative**: Terminal.app stores font information in a proprietary NSKeyedArchiver binary format in its plist file. Unlike text-based configs, this can't be reliably generated programmatically. This is a macOS limitation, not a Nix limitation.
 
 ## Verification
 
@@ -72,6 +65,24 @@ printf 'Nerd Font icons: \uE0A0 \uE718 \uE73C \uF07B \uF00C\n'
 
 You should see: Git branch , Node.js , Python , Folder , Check
 
+## Can This Be Done Declaratively?
+
+**Short answer**: No, not fully.
+
+**Why**:
+
+- Terminal.app stores settings in `~/Library/Preferences/com.apple.Terminal.plist`
+- Font data is stored in **NSKeyedArchiver binary format** (not human-readable)
+- This format can't be reliably generated programmatically
+- Apple doesn't provide CLI tools to manipulate this data
+
+**Contrast with WezTerm**:
+
+- WezTerm uses **Lua config files** (declarative, text-based)
+- Can be fully managed by Nix via `home.nix`
+- Works identically across all machines
+- No manual setup required
+
 ## Recommendation
 
-**Use WezTerm** - it's already fully configured via your Nix setup and will work consistently across all machines where you deploy your config. Terminal.app requires manual setup on each machine.
+**Use WezTerm** (already configured) - it's the only fully declarative solution. Terminal.app will always require one-time manual setup per machine due to macOS limitations.
