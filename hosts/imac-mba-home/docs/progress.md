@@ -1,4 +1,4 @@
-# Migration Progress & History - imac-27-home
+# Migration Progress & History - imac-mba-home
 
 **Last Updated**: 2025-11-15  
 **Status**: 🎉 **MIGRATION 100% COMPLETE** 🎉
@@ -113,8 +113,8 @@ $ which fish git node python3 starship wezterm
 
 **Created**:
 
-- `hosts/imac-27-home/home.nix` - Comprehensive user configuration
-- Enhanced `flake.nix` with `homeConfigurations."markus@imac-27-home"`
+- `hosts/imac-mba-home/home.nix` - Comprehensive user configuration
+- Enhanced `flake.nix` with `homeConfigurations."markus@imac-mba-home"`
 - Enhanced `devenv.nix` with macOS platform detection
 
 **Configured in home.nix**:
@@ -198,7 +198,7 @@ Tested each component step-by-step to verify Nix versions work correctly.
 
 **Scripts Management** ✅
 
-- Created `hosts/imac-27-home/scripts/` directory
+- Created `hosts/imac-mba-home/scripts/` directory
 - Added 3 essential scripts to repo:
   - `flushdns.sh` - DNS cache flush utility
   - `pingt.sh` - Timestamped ping (pure bash, no perl)
@@ -523,7 +523,7 @@ home.file.".config/karabiner/karabiner.json".source = ./config/karabiner.json;
 ## File Structure
 
 ```
-hosts/imac-27-home/
+hosts/imac-mba-home/
 ├── config/
 │   ├── starship.toml
 │   └── karabiner.json
@@ -589,8 +589,8 @@ xargs brew install < brew-formulae.txt
 ### Future Machines
 
 1. Clone repo: `git clone <repo-url> ~/Code/nixcfg`
-2. Apply config: `home-manager switch --flake .#markus@imac-27-home`
-3. Run setup: `./hosts/imac-27-home/scripts/setup/setup-macos.sh`
+2. Apply config: `home-manager switch --flake .#markus@imac-mba-home`
+3. Run setup: `./hosts/imac-mba-home/scripts/setup/setup-macos.sh`
 4. Install Karabiner: `brew install --cask karabiner-elements`
 5. Done! (~1 hour vs 1 day manual setup)
 

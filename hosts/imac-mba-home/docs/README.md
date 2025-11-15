@@ -2,7 +2,7 @@
 
 ## Overview
 
-This directory contains all documentation for the `imac-27-home` host configuration.
+This directory contains all documentation for the `imac-mba-home` host configuration.
 
 ```
 docs/

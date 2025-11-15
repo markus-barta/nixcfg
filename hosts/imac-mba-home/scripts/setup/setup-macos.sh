@@ -1,6 +1,6 @@
 #!/bin/bash
 # One-time macOS system setup after home-manager activation
-# Run this AFTER: home-manager switch --flake .#markus@imac-27-home
+# Run this AFTER: home-manager switch --flake .#markus@imac-mba-home
 #
 # Purpose: Configures system-level settings that home-manager cannot manage
 # - Adds Nix fish to /etc/shells (requires sudo)

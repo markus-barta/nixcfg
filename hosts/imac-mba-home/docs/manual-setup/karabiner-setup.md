@@ -50,14 +50,14 @@ brew install --cask karabiner-elements
 
 ```bash
 # 1. Edit the config file
-vim ~/Code/nixcfg/hosts/imac-27-home/config/karabiner.json
+vim ~/Code/nixcfg/hosts/imac-mba-home/config/karabiner.json
 
 # 2. Commit to git
-git add hosts/imac-27-home/config/karabiner.json
+git add hosts/imac-mba-home/config/karabiner.json
 git commit -m "Update Karabiner mappings"
 
 # 3. Apply to system
-home-manager switch --flake ".#markus@imac-27-home"
+home-manager switch --flake ".#markus@imac-mba-home"
 ```
 
 ### Method 2: Use Karabiner GUI (Not Recommended)

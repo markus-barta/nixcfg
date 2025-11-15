@@ -1,7 +1,8 @@
 # TODO: Homebrew Cleanup - Stage 4+
 
 **Last Updated**: 2025-11-15  
-**Current State**: 167 formulae, 10 casks remaining after Stage 1-3 cleanup
+**Host**: `imac-mba-home`  
+**Current State**: 127 formulae, 10 casks remaining after cleanup
 
 ---
 
@@ -390,7 +391,7 @@ This document provides a **package-by-package analysis** of all remaining Homebr
 
   ```bash
   cd ~/Code/nixcfg
-  home-manager switch --flake ".#markus@imac-27-home"
+  home-manager switch --flake ".#markus@imac-mba-home"
   ```
 
 - [ ] Verify all commands work from Nix:

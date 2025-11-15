@@ -1,4 +1,4 @@
-# imac-27-home - macOS Development Machine
+# imac-mba-home - macOS Development Machine
 
 Personal macOS development machine with Nix package management.
 
@@ -64,14 +64,14 @@ git clone https://github.com/markus-barta/nixcfg ~/Code/nixcfg
 cd ~/Code/nixcfg
 
 # Apply home-manager configuration
-home-manager switch --flake ".#markus@imac-27-home"
+home-manager switch --flake ".#markus@imac-mba-home"
 ```
 
 ### 2. Run One-Time System Setup
 
 ```bash
 # Set Nix fish as default login shell (requires sudo)
-./hosts/imac-27-home/scripts/setup/setup-macos.sh
+./hosts/imac-mba-home/scripts/setup/setup-macos.sh
 
 # Restart terminal
 ```
@@ -102,7 +102,7 @@ See [docs/manual-setup/terminal-app-fonts.md](docs/manual-setup/terminal-app-fon
 ## Directory Structure
 
 ```
-hosts/imac-27-home/
+hosts/imac-mba-home/
 ├── config/                      # Configuration files
 │   ├── starship.toml            # Starship prompt config
 │   └── karabiner.json           # Keyboard remapping config
@@ -193,13 +193,13 @@ Essential user scripts version-controlled and symlinked to `~/Scripts/`:
 cd ~/Code/nixcfg
 
 # Edit configuration
-vim hosts/imac-27-home/home.nix
+vim hosts/imac-mba-home/home.nix
 
 # Apply changes
-home-manager switch --flake ".#markus@imac-27-home"
+home-manager switch --flake ".#markus@imac-mba-home"
 
 # Commit to git
-git add hosts/imac-27-home/home.nix
+git add hosts/imac-mba-home/home.nix
 git commit -m "Update configuration"
 git push
 ```
@@ -208,29 +208,29 @@ git push
 
 ```bash
 # Create script in host-user directory
-vim hosts/imac-27-home/scripts/host-user/new-script.sh
-chmod +x hosts/imac-27-home/scripts/host-user/new-script.sh
+vim hosts/imac-mba-home/scripts/host-user/new-script.sh
+chmod +x hosts/imac-mba-home/scripts/host-user/new-script.sh
 
 # Commit to git
-git add hosts/imac-27-home/scripts/host-user/new-script.sh
+git add hosts/imac-mba-home/scripts/host-user/new-script.sh
 git commit -m "Add new-script"
 
 # Apply changes (script automatically symlinked to ~/Scripts/)
-home-manager switch --flake ".#markus@imac-27-home"
+home-manager switch --flake ".#markus@imac-mba-home"
 ```
 
 ### Update Karabiner Mappings
 
 ```bash
 # Edit configuration
-vim hosts/imac-27-home/config/karabiner.json
+vim hosts/imac-mba-home/config/karabiner.json
 
 # Commit changes
-git add hosts/imac-27-home/config/karabiner.json
+git add hosts/imac-mba-home/config/karabiner.json
 git commit -m "Update keyboard mappings"
 
 # Apply changes
-home-manager switch --flake ".#markus@imac-27-home"
+home-manager switch --flake ".#markus@imac-mba-home"
 
 # Reload Karabiner-Elements (if needed)
 killall karabiner_console_user_server

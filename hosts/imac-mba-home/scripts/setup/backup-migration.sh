@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-migration backup script for imac-27-home
+# Pre-migration backup script for imac-mba-home
 # Creates timestamped backup of all configuration files and system state
 # Run this BEFORE starting Phase 1 of the migration
 

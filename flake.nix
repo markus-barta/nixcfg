@@ -134,13 +134,13 @@
       # ========================================================================
       # macOS Home Manager Configurations
       # ========================================================================
-      homeConfigurations."markus@imac-27-home" = home-manager.lib.homeManagerConfiguration {
+      homeConfigurations."markus@imac-mba-home" = home-manager.lib.homeManagerConfiguration {
         pkgs = import nixpkgs {
           system = "x86_64-darwin";
           config.allowUnfree = true;
           overlays = allOverlays;
         };
-        modules = [ ./hosts/imac-27-home/home.nix ];
+        modules = [ ./hosts/imac-mba-home/home.nix ];
         extraSpecialArgs = self.commonArgs // {
           inherit inputs;
         };
