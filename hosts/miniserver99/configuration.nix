@@ -104,10 +104,11 @@
     leases_dir="/var/lib/private/AdGuardHome/data"
     leases_file="$leases_dir/leases.json"
     install -d "$leases_dir"
-
+    
     # Read static leases from agenix-decrypted JSON file
-    static_leases_file="${config.age.secrets.static-leases-miniserver99.path}"
-
+    # Agenix automatically decrypts to /run/agenix/<secret-name>
+    static_leases_file="/run/agenix/static-leases-miniserver99"
+    
     # Validate that the agenix secret file exists
     if [ ! -f "$static_leases_file" ]; then
       echo "ERROR: Static leases file not found at $static_leases_file"
