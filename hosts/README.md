@@ -19,7 +19,11 @@ This directory contains configuration for all managed hosts (NixOS and macOS sys
 
 **Servers - Local** (Shared Infrastructure):
 
-- `msww87` - General purpose server (NixOS)
+- `msww87` - MiniServer WW87 (NixOS)
+  - Location: Father's house (remote location)
+  - Purpose: Home automation server (similar to miniserver24 + miniserver99 combined)
+  - Status: Running, planned for updates based on miniserver24/99 improvements
+  - Setup: Based on friend's suggestions, to be modernized
 - `miniserver24` - Server with restic backups to Hetzner (NixOS)
 - `miniserver99` - DNS/DHCP Server with AdGuard Home (NixOS)
   - Network infrastructure
