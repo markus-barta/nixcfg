@@ -32,4 +32,9 @@ cloudflare-*.json
 *.tfstate
 *.tfstate.backup
 
+# Secrets inventory (temporary working document)
+# Contains references to secrets during migration
+docs/secrets-inventory.md
+
 # Deployment status and TODO files
+hosts/miniserver99/real-static-leases.nix

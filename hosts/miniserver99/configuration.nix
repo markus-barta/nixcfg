@@ -3,39 +3,10 @@
 {
   pkgs,
   lib,
-  inputs,
+  config,
   ...
 }:
 
-let
-  staticLeases =
-    if inputs ? miniserver99-static-leases then
-      import inputs.miniserver99-static-leases
-    else
-      { static_leases = [ ]; };
-  staticLeasesTransformed = map (
-    lease:
-    {
-      mac = lib.toUpper lease.mac;
-      ip = lease.ip;
-      hostname = lease.hostname;
-      lease_time = 0;
-      comment = if lease ? comment then lease.comment else "";
-    }
-    // (if lease ? client_id then { client_id = lease.client_id; } else { })
-  ) staticLeases.static_leases;
-  staticLeasesJson = builtins.toJSON (
-    map (
-      lease:
-      {
-        mac = lease.mac;
-        ip = lease.ip;
-        hostname = lease.hostname;
-      }
-      // (if lease ? client_id then { client_id = lease.client_id; } else { })
-    ) staticLeasesTransformed
-  );
-in
 {
   imports = [
     ./hardware-configuration.nix
@@ -99,8 +70,9 @@ in
           range_end = "192.168.1.254";
           lease_duration = 86400; # 24 hours
           icmp_timeout_msec = 1000;
-          # Static DHCP leases declared in ./static-leases.nix (gitignored)
-          static_leases = staticLeasesTransformed;
+          # Static DHCP leases are managed via agenix and loaded at runtime
+          # See preStart script below for implementation
+          static_leases = [ ];
         };
       };
 
@@ -125,40 +97,60 @@ in
     };
   };
 
+  # Static DHCP Leases Management
+  # Leases are stored encrypted in git and decrypted at system activation
   systemd.services.adguardhome.preStart = lib.mkAfter ''
-        leases_dir="/var/lib/private/AdGuardHome/data"
-        leases_file="$leases_dir/leases.json"
-        tmp="$(mktemp)"
-        static_tmp="$(mktemp)"
-        install -d "$leases_dir"
-        cat <<'EOF' > "$static_tmp"
-    ${staticLeasesJson}
-    EOF
+    leases_dir="/var/lib/private/AdGuardHome/data"
+    leases_file="$leases_dir/leases.json"
+    install -d "$leases_dir"
 
-        if [ -f "$leases_file" ]; then
-          ${pkgs.jq}/bin/jq --argjson static "$(cat "$static_tmp")" '
-            def normalize_mac($mac): ($mac | ascii_downcase);
-            def static_entries: $static | map(.mac |= normalize_mac(.));
-            def without_static($list):
-              ($list // [])
-              | map(
-                  (.mac | ascii_downcase) as $m
-                  | (.static // false) as $is_static
-                  | (static_entries | map(.mac) | index($m)) as $idx
-                  | select($idx == null and ($is_static | not))
-                );
-            def build_static:
-              static_entries | map(. + {static: true, expires: ""});
-            {version: (.version // 1), leases: without_static(.leases) + build_static}
-          ' "$leases_file" > "$tmp"
-        else
-          ${pkgs.jq}/bin/jq -n --argjson static "$(cat "$static_tmp")" '
-            {version: 1, leases: ($static | map(. + {static: true, expires: ""}))}
-          ' > "$tmp"
-        fi
+    # Read static leases from agenix-decrypted JSON file
+    static_leases_file="${config.age.secrets.static-leases-miniserver99.path}"
 
-        mv "$tmp" "$leases_file"
-        rm -f "$static_tmp"
+    # Validate that the agenix secret file exists
+    if [ ! -f "$static_leases_file" ]; then
+      echo "ERROR: Static leases file not found at $static_leases_file"
+      echo "This should have been decrypted by agenix during activation."
+      exit 1
+    fi
+
+    # Validate JSON format
+    if ! ${pkgs.jq}/bin/jq empty "$static_leases_file" 2>/dev/null; then
+      echo "ERROR: Invalid JSON in static leases file: $static_leases_file"
+      echo "Use 'agenix -e secrets/static-leases-miniserver99.age' to fix the format."
+      exit 1
+    fi
+
+    # Merge static leases with existing dynamic leases
+    tmp="$(mktemp)"
+
+    if [ -f "$leases_file" ]; then
+      # Merge: keep dynamic leases, replace/add static leases
+      ${pkgs.jq}/bin/jq --argjson static "$(cat "$static_leases_file")" '
+        def normalize_mac($mac): ($mac | ascii_downcase);
+        def static_entries: $static | map(.mac |= normalize_mac(.));
+        def without_static($list):
+          ($list // [])
+          | map(
+              (.mac | ascii_downcase) as $m
+              | (.static // false) as $is_static
+              | (static_entries | map(.mac) | index($m)) as $idx
+              | select($idx == null and ($is_static | not))
+            );
+        def build_static:
+          static_entries | map(. + {static: true, expires: ""});
+        {version: (.version // 1), leases: without_static(.leases) + build_static}
+      ' "$leases_file" > "$tmp"
+    else
+      # First run: create leases file with static entries only
+      ${pkgs.jq}/bin/jq --argjson static "$(cat "$static_leases_file")" '
+        {version: 1, leases: ($static | map(. + {static: true, expires: ""}))}
+      ' <<< '{}' > "$tmp"
+    fi
+
+    # Atomic update
+    mv "$tmp" "$leases_file"
+    echo "✓ Loaded $(${pkgs.jq}/bin/jq '[.leases[] | select(.static == true)] | length' "$leases_file") static DHCP leases"
   '';
 
   # Networking configuration
@@ -241,8 +233,20 @@ in
     nmap
     # Secret management tools
     rage # Modern age encryption tool (for agenix)
-    inputs.agenix.packages.${pkgs.system}.default # agenix CLI
+    pkgs.agenix # agenix CLI
   ];
+
+  # Agenix secrets configuration
+  # Static DHCP leases: encrypted JSON array in git, decrypted at activation
+  # Format: [{"mac": "AA:BB:CC:DD:EE:FF", "ip": "192.168.1.100", "hostname": "device-name"}]
+  # Edit with: agenix -e secrets/static-leases-miniserver99.age
+  age.secrets.static-leases-miniserver99 = {
+    file = ../../secrets/static-leases-miniserver99.age;
+    path = "/run/agenix/static-leases-miniserver99.json";
+    mode = "444"; # World-readable (not sensitive data, just DHCP assignments)
+    owner = "root";
+    group = "root";
+  };
 
   hokage = {
     hostName = "miniserver99";

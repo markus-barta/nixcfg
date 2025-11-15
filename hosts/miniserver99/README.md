@@ -140,33 +140,17 @@ dig @localhost google.com
 # On miniserver99
 cd ~/Code/nixcfg
 git pull
-
-# RECOMMENDED: Use miniserver99-specific command (includes static leases override)
-just switch99
-
-# Alternative: Generic switch (WARNING: will lose static leases!)
 just switch
-
-# Alternative: Native nixos-rebuild with manual override
-sudo nixos-rebuild switch \
-  --flake .#miniserver99 \
-  --override-input miniserver99-static-leases \
-  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
 ```
-
-**⚠️ IMPORTANT:** Always use `just switch99` on miniserver99 to preserve static DHCP leases. The regular `just switch` command will use the empty sample file and clear all leases.
 
 ### Useful Justfile Commands
 
 ```bash
-# Switch configuration (miniserver99-specific, includes static leases)
-just switch99
+# Switch configuration
+just switch
 
-# Encrypt static leases for backup
-just encrypt-file hosts/miniserver99/static-leases.nix
-
-# Decrypt static leases from backup
-just decrypt-file secrets/static-leases-miniserver99.age
+# Edit static leases (using agenix)
+just edit-secret secrets/static-leases-miniserver99.age
 
 # Update flake inputs and rebuild
 just upgrade
@@ -210,14 +194,8 @@ services.adguardhome.settings.dns = {
 Apply changes:
 
 ```bash
-# Recommended (includes static leases override)
-just switch99
-
-# Alternative: native command (requires manual override)
-sudo nixos-rebuild switch \
-  --flake .#miniserver99 \
-  --override-input miniserver99-static-leases \
-  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
+# Standard rebuild
+just switch
 ```
 
 ---
@@ -226,113 +204,202 @@ sudo nixos-rebuild switch \
 
 ### Overview
 
-All 115+ static DHCP leases are configured declaratively in `static-leases.nix`. The file is:
+All 115+ static DHCP leases are managed using **agenix** (encrypted secrets). The encrypted file `secrets/static-leases-miniserver99.age` contains a **JSON array** that is:
 
-- ✅ **Gitignored**: Contains MAC addresses and network topology
-- ✅ **Encrypted**: Backed up in Git as `secrets/static-leases-miniserver99.age`
-- ✅ **Declarative**: Synced automatically during deployment
+- ✅ **Single Source of Truth**: The `.age` file in git is the canonical source
+- ✅ **Encrypted**: Uses dual-key encryption (your SSH key + miniserver99 host key)
+- ✅ **Automatic Decryption**: Agenix decrypts to `/run/agenix/static-leases-miniserver99.json` at system activation
+- ✅ **Runtime Loading**: preStart script reads JSON and merges into AdGuard's leases database
+- ✅ **Build-time Independent**: No import at Nix evaluation time - works correctly!
 
-### File Structure
+### How It Works - Complete Flow
 
-```nix
-{
-  static_leases = [
-    { mac = "AA:BB:CC:DD:EE:FF"; ip = "192.168.1.100"; hostname = "device-name"; }
-    # ... more leases
-  ];
-}
 ```
+1. Edit (Your Mac)
+   └─> agenix -e secrets/static-leases-miniserver99.age
+       └─> Opens editor with JSON
+       └─> Save → re-encrypts → commit to git
+
+2. Deploy (miniserver99)
+   └─> just switch
+       └─> NixOS builds configuration (no static leases needed yet!)
+       └─> System activation
+           └─> Agenix decrypts all secrets
+               └─> Writes /run/agenix/static-leases-miniserver99.json
+
+3. Service Start (miniserver99)
+   └─> AdGuard Home starts
+       └─> preStart script executes
+           ├─> Reads /run/agenix/static-leases-miniserver99.json
+           ├─> Validates JSON format
+           ├─> Merges with existing dynamic leases
+           └─> Writes /var/lib/private/AdGuardHome/data/leases.json
+       └─> AdGuard Home starts with complete lease database
+```
+
+### JSON Format
+
+The `.age` file contains a simple JSON array:
+
+```json
+[
+  {
+    "mac": "AA:BB:CC:DD:EE:FF",
+    "ip": "192.168.1.100",
+    "hostname": "device-name"
+  },
+  {
+    "mac": "11:22:33:44:55:66",
+    "ip": "192.168.1.101",
+    "hostname": "another-device"
+  }
+]
+```
+
+**Field Requirements:**
+
+- `mac`: MAC address (any case, normalized to lowercase automatically)
+- `ip`: IPv4 address
+- `hostname`: Device hostname
+- Optional: `client_id` for devices using DHCP client IDs
 
 ### Managing Static Leases
 
 **Edit leases:**
 
 ```bash
-nano hosts/miniserver99/static-leases.nix
+# Edit the encrypted JSON file
+agenix -e secrets/static-leases-miniserver99.age
+
+# Your editor opens with the decrypted JSON
+# Make changes, save, exit → automatically re-encrypted
+```
+
+**Validate JSON locally:**
+
+```bash
+# Before deploying, you can validate
+agenix -d secrets/static-leases-miniserver99.age | jq empty
+# No output = valid JSON
 ```
 
 **Deploy changes:**
 
 ```bash
-# Recommended (includes static leases override)
-just switch99
+# Rebuild system
+just switch
 
-# Alternative: native command with manual override
-sudo nixos-rebuild switch \
-  --flake .#miniserver99 \
-  --override-input miniserver99-static-leases \
-  path:/home/mba/Code/nixcfg/hosts/miniserver99/static-leases.nix
+# The preStart script will:
+# 1. Read the agenix-decrypted JSON
+# 2. Validate format
+# 3. Merge with dynamic leases
+# 4. Report: "✓ Loaded X static DHCP leases"
 ```
 
-**Backup to Git (encrypted):**
+**Check deployed leases:**
 
 ```bash
-# Encrypt and stage
-just encrypt-file hosts/miniserver99/static-leases.nix
-
-# Commit
-git commit -m "backup: update static leases"
-git push
+# On miniserver99
+sudo jq '.leases[] | select(.static == true)' \
+  /var/lib/private/AdGuardHome/data/leases.json
 ```
 
-**What happens during encryption:**
+### Security Model - Dual-Key Encryption
 
-- Uses **both your SSH key and miniserver99's host key**
-- Either you (on your Mac) or miniserver99 can decrypt
-- **Security checks**: Warns if SSH key has no passphrase or file exists in Git history
-- **Validation**: Tests that encrypted file can be decrypted
-- Automatically adds plaintext to `.gitignore` (atomic update)
-- Stages encrypted file for commit
+**Implementation Date:** November 15, 2025
 
-**Restore from Git:**
+Static leases are encrypted with **two keys** in `secrets/secrets.nix`:
 
-```bash
-# After cloning repo on new machine
-just decrypt-file secrets/static-leases-miniserver99.age
+```nix
+"static-leases-miniserver99.age".publicKeys = markus ++ miniserver99;
 ```
 
-### Security Model - Dual-Key Encryption (Option C)
+**What this means:**
 
-**Implementation Date:** November 12, 2025
+1. **Your personal key** (`markus`) - Edit from Mac or any machine with your SSH key
+2. **miniserver99 host key** - System can decrypt at activation (no manual intervention)
 
-The encryption system uses a dual-key approach following the same pattern as the friend's `general` keys setup:
+**Key locations:**
 
-- **Encryption Keys**: Uses BOTH your Mac's SSH public key (from `secrets.nix`) AND miniserver99's host public key
-- **Decryption**: Either key can independently decrypt the file
-- **Cross-Machine**: Encrypt from Mac OR miniserver99, decrypt on either machine
-- **User Key Storage**: Your public key is stored in `secrets.nix` under `markus = [...]`
-- **Fallback Logic**: Uses local SSH key if available, otherwise reads from `secrets.nix`
+- Personal key: `~/.ssh/id_rsa` (or `id_ed25519`, `id_ecdsa`)
+- Host key: `/etc/ssh/ssh_host_ed25519_key` (on miniserver99)
 
-**End-to-End Validation (Completed):**
+**Benefits:**
 
-✅ **Test 1 (Server → Mac):**
-
-- Modified file on miniserver99 (`test-entry`)
-- Encrypted on miniserver99 using key from `secrets.nix`
-- Decrypted on Mac using local user key
-- File integrity: 100% preserved
-
-✅ **Test 2 (Mac → Server):**
-
-- Modified file on Mac (`test-entry-validated`)
-- Encrypted on Mac using local user key
-- Decrypted on miniserver99 using host key
-- File integrity: 100% preserved
-
-**Security Features:**
-
-- ✅ Passphrase check (warns if SSH key unprotected)
-- ✅ Git history check (warns if plaintext was committed)
-- ✅ Encryption validation (tests decryption immediately)
-- ✅ Atomic .gitignore updates (no race conditions)
-- ✅ Automatic backups (timestamped before overwrite)
+- ✅ Edit secrets from your Mac without being on the server
+- ✅ Server can decrypt automatically during `nixos-rebuild`
+- ✅ No plaintext files ever stored in git
+- ✅ Lost personal key? Server can still decrypt with its host key
 
 ### Backup Locations
 
-1. **Time Machine** on your Mac
-2. **ZFS snapshots** on miniserver99 (automatic)
-3. **Encrypted in Git** via `secrets/static-leases-miniserver99.age`
-4. **1Password** (optional: store backup copy)
+The static leases are backed up in multiple locations:
+
+1. **Git Repository** - `secrets/static-leases-miniserver99.age` (encrypted, primary backup)
+2. **Time Machine** on your Mac (includes git repo)
+3. **ZFS snapshots** on miniserver99 (decrypted file in `/run/agenix/`)
+4. **Optional**: 1Password (store a backup copy of the `.age` file)
+
+### Error Handling & Troubleshooting
+
+**Service fails to start:**
+
+```bash
+# Check the preStart script output
+sudo journalctl -u adguardhome -n 50
+
+# Common errors:
+# "ERROR: Static leases file not found" → agenix didn't decrypt (check age.secrets config)
+# "ERROR: Invalid JSON" → Fix with: agenix -e secrets/static-leases-miniserver99.age
+```
+
+**Validate before deploying:**
+
+```bash
+# Test JSON format locally
+agenix -d secrets/static-leases-miniserver99.age | jq empty
+
+# Count entries
+agenix -d secrets/static-leases-miniserver99.age | jq 'length'
+```
+
+**Rollback if needed:**
+
+```bash
+# Revert to previous configuration
+sudo nixos-rebuild switch --rollback
+
+# Or restore from git history
+git log secrets/static-leases-miniserver99.age
+git show COMMIT:secrets/static-leases-miniserver99.age > /tmp/restored.age
+```
+
+### Migration from Nix to JSON Format
+
+**If you have an existing Nix-format `.age` file, convert it:**
+
+```bash
+# 1. Read the current Nix file
+cat hosts/miniserver99/static-leases.nix
+
+# 2. Convert to JSON using nix-instantiate
+nix-instantiate --eval --strict --json -E '
+  let data = import ./hosts/miniserver99/static-leases.nix;
+  in data.static_leases
+' | jq '.' > /tmp/static-leases.json
+
+# 3. Encrypt the JSON with agenix
+agenix -e secrets/static-leases-miniserver99.age
+# (paste the JSON content, save, exit)
+
+# 4. Verify
+agenix -d secrets/static-leases-miniserver99.age | jq empty
+
+# 5. Deploy
+git add secrets/static-leases-miniserver99.age
+git commit -m "chore: migrate static leases to JSON format"
+just switch
+```
 
 ---
 
@@ -464,14 +531,12 @@ ip route show
 The migration was straightforward with minimal downtime:
 
 1. **Preparation:**
-
    - Deployed miniserver99 at 192.168.1.99
    - Configured AdGuard Home with all static leases
    - Added equivalent blocklists from Pi-hole
    - Verified configuration
 
 2. **Cutover (Evening, Low Traffic):**
-
    - Stopped Pi-hole container on miniserver24
    - miniserver99 took over DNS/DHCP immediately
    - **Minimal downtime**: ~2-3 minutes while services switched

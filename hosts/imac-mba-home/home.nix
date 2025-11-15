@@ -1,4 +1,9 @@
-{ pkgs, lib, ... }:
+{
+  pkgs,
+  lib,
+  inputs,
+  ...
+}:
 
 {
   # Home Manager needs a bit of information about you and the paths it should manage
@@ -23,6 +28,7 @@
     shellInit = ''
       # Environment variables
       set -gx TERM xterm-256color
+      set -gx EDITOR nano
 
       # zoxide integration
       set -gx ZOXIDE_CMD z
@@ -431,6 +437,9 @@
   # Global Packages
   # ============================================================================
   home.packages = with pkgs; [
+    # System Tools
+    inputs.agenix.packages.x86_64-darwin.default
+
     # Interpreters (global baseline - always available)
     nodejs # Latest Node.js - for IDEs, scripts, terminal
     python3 # Latest Python 3 - for IDEs, scripts, terminal
@@ -648,6 +657,7 @@
 
   # Session variables
   home.sessionVariables = {
-    # Additional environment variables can go here
+    # Set default editor for CLI tools (agenix, git, etc.)
+    EDITOR = "nano";
   };
 }
