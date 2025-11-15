@@ -435,7 +435,40 @@
     nodejs # Latest Node.js - for IDEs, scripts, terminal
     python3 # Latest Python 3 - for IDEs, scripts, terminal
 
-    # CLI tools (moved from Homebrew - now globally available)
+    # CLI Development Tools (Stage 4 migration)
+    gh # GitHub CLI
+    jq # JSON processor
+    just # Command runner
+    lazygit # Git TUI
+
+    # File Management & Utilities (Stage 4)
+    tree # Directory tree viewer
+    pv # Pipe viewer (progress for pipes)
+    tealdeer # tldr - simplified man pages
+    fswatch # File system watcher
+    mc # midnight-commander - file manager
+
+    # Terminal Multiplexer (Stage 4)
+    zellij # Modern terminal multiplexer
+
+    # Networking Tools (Stage 4)
+    netcat # Network utility
+    inetutils # Includes telnet
+    websocat # WebSocket client
+
+    # Text Processing (Stage 4)
+    lynx # Text-based web browser
+    html2text # HTML to text converter
+
+    # Backup & Archive (Stage 4)
+    restic # Backup program
+    rage # Age encryption (Rust implementation)
+
+    # macOS Built-in Overrides (Stage 4)
+    rsync # Modern rsync (macOS has 2006 version!)
+    wget # File downloader (not in macOS)
+
+    # CLI tools (migrated from Homebrew earlier)
     zoxide # Smart directory jumper
     bat # Better cat with syntax highlighting
     btop # Better top/htop
