@@ -243,7 +243,8 @@
   # Edit with: agenix -e secrets/static-leases-miniserver99.age
   age.secrets.static-leases-miniserver99 = {
     file = ../../secrets/static-leases-miniserver99.age;
-    path = "/run/agenix/static-leases-miniserver99.json";
+    # Agenix creates /run/agenix/static-leases-miniserver99 automatically
+    # The 'path' attribute is optional and defaults to /run/agenix/<secret-name>
     mode = "444"; # World-readable (not sensitive data, just DHCP assignments)
     owner = "root";
     group = "root";
