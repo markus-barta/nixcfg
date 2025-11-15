@@ -577,6 +577,20 @@
   '';
 
   # ============================================================================
+  # Karabiner-Elements Configuration (Declarative!)
+  # ============================================================================
+  # Note: Karabiner-Elements app itself stays in Homebrew (system driver)
+  # But the configuration is fully declarative via home-manager
+  #
+  # Key mappings:
+  # - Caps Lock → Hyper (Cmd+Ctrl+Opt+Shift) - for powerful global shortcuts
+  # - Function keys work as regular F1-F12 in terminals (no media keys)
+  # - E → backtick in Pixelmator Pro (disabled by default)
+  #
+  # See: docs/karabiner-elements.md for details
+  home.file.".config/karabiner/karabiner.json".source = ./config/karabiner.json;
+
+  # ============================================================================
   # Starship Config File (in separate file to preserve Nerd Font Unicode)
   # ============================================================================
   home.file.".config/starship.toml" = {
