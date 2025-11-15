@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
 {
   # Home Manager needs a bit of information about you and the paths it should manage
@@ -461,7 +461,7 @@
   # Install Hack Nerd Font for macOS (symlink to ~/Library/Fonts/)
   # macOS Font Book and Terminal.app only see fonts in ~/Library/Fonts/
   # WezTerm uses fontconfig and can see Nix fonts directly
-  home.activation.installMacOSFonts = ''
+  home.activation.installMacOSFonts = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     echo "Installing Hack Nerd Font for macOS..."
     mkdir -p "$HOME/Library/Fonts"
 
@@ -474,12 +474,12 @@
         if [ -f "$font" ]; then
           font_name=$(basename "$font")
           target="$HOME/Library/Fonts/$font_name"
-          
+
           # Remove old symlink if it exists
           if [ -L "$target" ]; then
             rm "$target"
           fi
-          
+
           # Create new symlink
           if [ ! -e "$target" ]; then
             ln -sf "$font" "$target"
@@ -491,6 +491,49 @@
     else
       echo "⚠️  Font path not found: $FONT_PATH"
     fi
+  '';
+
+  # ============================================================================
+  # macOS GUI Applications - Elegant Solution
+  # ============================================================================
+  # home-manager automatically links GUI apps to ~/Applications/Home Manager Apps/
+  # This activation script additionally links important apps to ~/Applications/
+  # for easier access (Finder, Dock) while maintaining declarative management.
+  #
+  # See: docs/macos-gui-apps.md for detailed explanation
+  home.activation.linkMacOSApps = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    echo "Linking macOS GUI applications..."
+
+    # Ensure main Applications directory exists
+    mkdir -p "$HOME/Applications"
+
+    # Apps to link to main Applications folder (from Home Manager Apps)
+    # Add more apps here as you enable them in home.nix
+    apps=(
+      "WezTerm.app"
+    )
+
+    for app in "''${apps[@]}"; do
+      source="$HOME/Applications/Home Manager Apps/$app"
+      target="$HOME/Applications/$app"
+
+      if [ -e "$source" ]; then
+        # Remove old symlink or Homebrew version
+        if [ -L "$target" ] || [ -e "$target" ]; then
+          echo "  Removing old $app..."
+          rm -rf "$target"
+        fi
+
+        # Create new symlink
+        echo "  Linking $app"
+        ln -sf "$source" "$target"
+      fi
+    done
+
+    echo "✅ macOS GUI applications linked"
+    echo "   - Apps available in: ~/Applications/"
+    echo "   - Also searchable in Spotlight (⌘+Space)"
+    echo "   - Dock icons: Remove broken icons, then re-add from Spotlight"
   '';
 
   # ============================================================================
