@@ -170,6 +170,7 @@ echo ""
 echo "Backup location: $BACKUP_DIR"
 echo ""
 echo "Contents:"
+# shellcheck disable=SC2012 # Using ls for human-readable output
 ls -lh "$BACKUP_DIR" | tail -n +2 | awk '{printf "  %-20s %s\n", $9, $5}'
 echo ""
 echo "Backup size: $(du -sh "$BACKUP_DIR" | awk '{print $1}')"

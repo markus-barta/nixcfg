@@ -601,7 +601,7 @@
   # Scripts Management
   # ============================================================================
   home.file."Scripts" = {
-    source = ./scripts;
+    source = ./scripts/host-user;
     recursive = true; # Links all files in directory
     # Preserves executable permissions from git
   };
