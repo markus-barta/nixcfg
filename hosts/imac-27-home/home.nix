@@ -442,6 +442,13 @@
     ripgrep # Fast grep (rg)
     fd # Fast find
     fzf # Fuzzy finder
+    prettier # Code formatter (was Homebrew dependency)
+
+    # Utilities
+    esptool # ESP32/ESP8266 flashing tool
+    nmap # Network scanner
+
+    # Note: evernote-backup not in nixpkgs, keeping in Homebrew for now
 
     # Fonts
     (pkgs.nerd-fonts.hack)
