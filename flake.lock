@@ -138,19 +138,6 @@
         "type": "github"
       }
     },
-    "miniserver99-static-leases": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1,
-        "narHash": "sha256-fg7W1LfFG44vA7bLlrO0AzIVaWtN46JmhZuIxOuFGkM=",
-        "path": "./samples/static-leases-empty.nix",
-        "type": "path"
-      },
-      "original": {
-        "path": "./samples/static-leases-empty.nix",
-        "type": "path"
-      }
-    },
     "nixos-hardware": {
       "locked": {
         "lastModified": 1762463231,
@@ -245,7 +232,6 @@
         "disko": "disko",
         "espanso-fix": "espanso-fix",
         "home-manager": "home-manager_2",
-        "miniserver99-static-leases": "miniserver99-static-leases",
         "nixos-hardware": "nixos-hardware",
         "nixpkgs": "nixpkgs",
         "nixpkgs-stable": "nixpkgs-stable",

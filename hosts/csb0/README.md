@@ -41,9 +41,9 @@ Based on 1Password entries and DNS records, this server runs:
 - **Traefik**: Reverse proxy
   - Domain: traefik.barta.cm
   - Purpose: Service routing and SSL termination
-- **NodeRED**: Smart home platform
+- **Node-RED**: Low-code development platform for automation and orchestration
   - Domain: home.barta.cm
-  - Purpose: Home automation coordination
+  - Purpose: Integrates smart home devices and other systems; event-driven automation for IoT, web services, and custom workflows
 - **WhoAmI**: Test/debug service
   - Domain: whoami0.barta.cm
   - Purpose: Service testing
