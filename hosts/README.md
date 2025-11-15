@@ -17,13 +17,30 @@ This directory contains configuration for all managed hosts (NixOS and macOS sys
   - High-performance gaming machine
   - Suffix allows for potential second gaming PC
 
-**Servers** (Shared Infrastructure):
+**Servers - Local** (Shared Infrastructure):
 
 - `msww87` - General purpose server (NixOS)
-- `miniserver24` - Server (NixOS)
+- `miniserver24` - Server with restic backups to Hetzner (NixOS)
 - `miniserver99` - DNS/DHCP Server with AdGuard Home (NixOS)
   - Network infrastructure
   - Serves entire household/network
+
+**Servers - Cloud** (Netcup VPS):
+
+- `csb0` - Cloud Server Barta 0 (NixOS) ⚠️ _Not yet in repo_
+  - Netcup VPS
+  - Backups to Hetzner storage
+- `csb1` - Cloud Server Barta 1 (NixOS) ⚠️ _Not yet in repo_
+  - Hostname: cs1.barta.cm
+  - IP: 152.53.64.166
+  - Netcup VPS 1000 G11 (Vienna)
+  - Backups to Hetzner storage
+  - Connect via: qc1
+
+**Backup Infrastructure**:
+
+- Hetzner Storage Box - Restic backup target
+  - Used by: miniserver24, csb0, csb1
 
 ### Other Household
 
@@ -129,8 +146,10 @@ Examples: dp01, tu-laptop-01, office-desktop
 
 **NixOS Servers**:
 
-- `msww87`, `miniserver24`, `miniserver99`
-- `home01`, `moobox01`, `netcup01`, `netcup02`, `astra`
+- Local: `msww87`, `miniserver24`, `miniserver99`
+- Cloud (MBA): `csb0`, `csb1` ⚠️ _Not yet in repo_
+- Cloud (Pbek): `netcup01`, `netcup02`
+- Other: `home01`, `moobox01`, `astra`
 
 ---
 
@@ -156,7 +175,53 @@ Special cases:
 
 ---
 
+## Pending Additions
+
+### Cloud Servers (MBA)
+
+The following cloud servers need to be added to the repository:
+
+**csb0** - Cloud Server Barta 0
+
+- Status: ⚠️ Configuration not yet in repo
+- Location: Netcup VPS
+- Backups: Hetzner storage (restic)
+- Setup: Originally configured via nixos-anywhere
+- TODO: Extract configuration and add to repo
+
+**csb1** - Cloud Server Barta 1
+
+- Status: ⚠️ Configuration not yet in repo
+- Location: Netcup VPS 1000 G11 (Vienna)
+- Hostname: cs1.barta.cm
+- IP: 152.53.64.166
+- FQDN: v2202407214994279426.bestsrv.de
+- Connect via: qc1 abbreviation
+- Backups: Hetzner storage (restic)
+- Setup: Originally configured via nixos-anywhere
+- TODO: Extract configuration and add to repo
+
+**Tasks for Cloud Server Integration**:
+
+1. Extract current NixOS configuration from live servers
+2. Add `csb0` and `csb1` directories to `hosts/`
+3. Migrate credentials from 1Password to encrypted secrets
+4. Document backup configuration (Hetzner restic)
+5. Add to `flake.nix` with proper host definitions
+6. Test deployment workflow with nixos-anywhere
+
+**Secrets Migration Strategy**:
+
+- Current: Various credentials in 1Password (inconsistent)
+- Target: Encrypted secrets in git via age/rage
+- Keep minimal info in 1Password: Only root recovery passwords
+- Move operational secrets (SSH keys, API tokens, etc.) to secrets management
+- Document in `docs/reference/secrets-management.md`
+
+---
+
 ## Related Documentation
 
 - [Main Repository README](../README.md) - Repository overview and setup
+- [Secrets Management Architecture](imac-mba-home/docs/reference/secrets-management.md) - Encryption and secrets strategy
 - Individual host READMEs - Host-specific configuration and documentation
