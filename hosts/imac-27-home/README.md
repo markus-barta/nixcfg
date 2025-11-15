@@ -28,8 +28,8 @@ Personal macOS development machine with Nix package management.
 
 - ✅ Nix fish as default login shell
 - ✅ PATH properly prioritizes Nix over Homebrew
-- ✅ All Homebrew duplicates removed (git, wezterm, font-hack-nerd-font)
-- ✅ Cleaned Homebrew cache (~110MB freed)
+- ✅ Homebrew cleanup complete (127 formulae, 10 casks remaining)
+- ✅ ~700MB freed from Homebrew (~460MB net)
 
 **Current Setup**:
 
@@ -142,8 +142,8 @@ hosts/imac-27-home/
 
 ### Package Managers
 
-- **Nix**: Primary (~20 core packages)
-- **Homebrew**: Secondary (~193 remaining packages, mostly experiments/GUI apps)
+- **Nix**: Primary (~45 declarative packages)
+- **Homebrew**: Secondary (127 formulae + 10 casks - GUI apps, multimedia, system integration)
 
 ### Languages & Runtimes
 

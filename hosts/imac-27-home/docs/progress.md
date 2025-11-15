@@ -32,13 +32,11 @@
 
 **Homebrew Cleanup**:
 
-- ✅ Stage 1 complete: Removed 10 packages (~62MB freed)
-- ✅ Stage 2 complete: Removed unwanted GUI apps (qownnotes, mactex-no-gui - already removed)
-- ✅ Stage 3 complete: Removed git (using Nix v2.51.0)
-- ✅ Core dependencies migrated to Nix (prettier, esptool, nmap)
-- ✅ Auto-removed unused dependencies and cleaned cache (45MB freed)
-- ✅ **ALL MIGRATED PACKAGES REMOVED FROM HOMEBREW**
-- ✅ **Total freed: ~110MB**
+- ✅ Migrated 25 CLI tools to Nix (gh, jq, just, lazygit, tree, pv, tealdeer, fswatch, mc, zellij, netcat, telnet, websocat, lynx, html2text, restic, rage, rsync, wget, and core tools)
+- ✅ Removed 42 total packages (21 migrated + 13 unused/old + 8 auto-dependencies)
+- ✅ Freed ~700MB from Homebrew (~460MB net after Nix additions)
+- ✅ **Final state: 127 formulae (down from 167), 10 casks**
+- ✅ All remaining packages kept for valid reasons (GUI apps, system integration, complex multimedia with dependencies)
 
 **Special Configurations**:
 
@@ -70,8 +68,8 @@ $ which fish git node python3 starship wezterm
 
 **Migration Complete** ✅:
 
-- ✅ All core tools migrated to Nix
-- ✅ All Homebrew duplicates removed
+- ✅ All core tools migrated to Nix (~45 packages)
+- ✅ Homebrew cleanup complete (127 formulae, 10 casks)
 - ✅ Git dual identity verified and working
 - ✅ System running 100% on Nix for daily workflows
 
@@ -79,22 +77,22 @@ $ which fish git node python3 starship wezterm
 
 - Continue daily usage and testing
 - Template preparation for `imac-27-work`
-- Remaining Homebrew packages: 167 formulae, 10 casks (experiments/GUI apps - keep as-is)
+- Secrets management exploration (see `docs/todo-secrets-management.md`)
 
 ---
 
 ## Migration Journey
 
-### Phase 0: Pre-Migration Safety ✅
+### Pre-Migration Safety ✅ (2025-11-14)
 
-**Phase 0.1: Planning & Documentation** ✅ (2025-11-14)
+**Planning & Documentation** ✅
 
 - Comprehensive migration plan created
 - Architecture decisions documented
 - Risk assessment completed
 - Backup strategy defined
 
-**Phase 0.2: Backup Execution** ✅ (2025-11-14)
+**Backup Execution** ✅
 
 - Created backup script: `setup/backup-migration.sh`
 - Executed full backup to `~/migration-backup-20251114-165637/`
@@ -111,7 +109,7 @@ $ which fish git node python3 starship wezterm
 
 ---
 
-### Phase 1: Setup Infrastructure ✅ (2025-11-14)
+### Infrastructure Setup ✅ (2025-11-14)
 
 **Created**:
 
@@ -143,28 +141,28 @@ $ which fish git node python3 starship wezterm
 
 ---
 
-### Phase 2: Core Environment Testing ✅ (2025-11-14)
+### Core Environment Testing ✅ (2025-11-14)
 
 Tested each component step-by-step to verify Nix versions work correctly.
 
-**2.1 Global Interpreters** ✅
+**Global Interpreters** ✅
 
 - Node.js: Nix v22.20.0 (LTS) - All tests passed (execution, NPM, scripts)
 - Python: Nix v3.13.8 - All tests passed (execution, stdlib, scripts)
 - ⚠️ No pip (by design - use Nix for packages)
 
-**2.2 Essential CLI Tools** ✅
+**Essential CLI Tools** ✅
 
 - bat, btop, ripgrep, fd, fzf - All functional in devenv shell
 - devenv's macOS platform detection working correctly
 
-**2.3 direnv** ✅
+**direnv** ✅
 
 - Installed via home-manager (v2.37.1)
 - nix-direnv integration enabled
 - Automatic Fish shell integration configured
 
-**2.4 Fish Shell** ✅
+**Fish Shell** ✅
 
 - Fish v4.1.2 from Nix
 - All configuration files symlinked
@@ -172,21 +170,21 @@ Tested each component step-by-step to verify Nix versions work correctly.
 - Aliases: mc, lg
 - Abbreviations: flushdns, qc0, qc1, qc24, qc99
 
-**2.5 Starship** ✅
+**Starship** ✅
 
 - Starship v1.23.0
 - Custom gitcount module verified working
 - Language indicators (nodejs, python, rust, golang) configured
 - Docker and Kubernetes contexts enabled
 
-**2.6 WezTerm** ✅
+**WezTerm** ✅
 
 - WezTerm v0-unstable-2025-10-14 (newer than Homebrew)
 - Config symlinked to `~/.config/wezterm/wezterm.lua`
 - Hack Nerd Font installed and recognized
 - All settings verified (font, colors, keybindings)
 
-**2.7 Git Dual Identity** ✅
+**Git Dual Identity** ✅
 
 - Git v2.51.1
 - Personal identity: Markus Barta / markus@barta.com (default)
@@ -196,9 +194,9 @@ Tested each component step-by-step to verify Nix versions work correctly.
 
 ---
 
-### Phase 3: Scripts & Additional Tools ✅ (2025-11-14)
+### Scripts & Additional Tools ✅ (2025-11-14)
 
-**3.1 Scripts Management** ✅
+**Scripts Management** ✅
 
 - Created `hosts/imac-27-home/scripts/` directory
 - Added 3 essential scripts to repo:
@@ -208,15 +206,15 @@ Tested each component step-by-step to verify Nix versions work correctly.
 - All other scripts remain only in local `~/Scripts/` backup (not in git)
 - Configured `home.file."Scripts"` to link scripts to `~/Scripts/`
 
-**3.2 Hack Nerd Font** ✅
+**Hack Nerd Font** ✅
 
-- Already installed in Phase 1
-- Verified WezTerm uses font correctly in Phase 2
+- Already installed in Infrastructure Setup
+- Verified WezTerm uses font correctly in Core Environment Testing
 - Later: Added symlinks to `~/Library/Fonts/` for Terminal.app
 
-**3.3 Additional CLI Tools** ✅
+**Additional CLI Tools** ✅
 
-- cloc, prettier already added in Phase 1
+- cloc, prettier already added in Infrastructure Setup
 - All development utilities configured
 
 ---
@@ -300,52 +298,79 @@ home.file.".config/starship.toml".source = ./config/starship.toml;
 
 ---
 
-## Homebrew Cleanup
+## Homebrew Cleanup ✅ (2025-11-15)
 
-### Stage 1: Core Tools ✅ (2025-11-14)
+### Final State
 
-**Removed 10 packages** (~62MB freed):
+**Before Cleanup**: 167 formulae, 10 casks  
+**After Cleanup**: 127 formulae, 10 casks  
+**Total Removed**: 42 packages (~700MB)
 
-- fish, bat, btop, ripgrep, fd, zoxide, direnv, starship
+### What Was Migrated to Nix (25 packages)
 
-**Auto-removed dependencies**:
+**CLI Development Tools**:
 
-- libgit2, bash
+- `gh`, `jq`, `just`, `lazygit`
 
-### Stage 2: Unwanted GUI Apps ✅ (2025-11-15)
+**File Management & Utilities**:
 
-**Removed**:
+- `tree`, `pv`, `tealdeer`, `fswatch`, `mc` (midnight-commander)
 
-- qownnotes (cask) - Note-taking app (no longer needed)
-- mactex-no-gui (cask) - LaTeX distribution (no longer needed)
+**Terminal Multiplexer**:
 
-### Stage 3: Git ✅ (2025-11-15)
+- `zellij` (removed `tmux`)
 
-**Removed 8 packages** (~62MB freed):
+**Networking Tools**:
 
-- fish, bat, btop, ripgrep, fd, zoxide, direnv, starship
+- `netcat`, `inetutils` (telnet), `websocat`, `lynx`, `html2text`
 
-**Auto-removed dependencies**:
+**Backup & Archive**:
 
-- libgit2, bash
+- `restic`, `rage` (removed `age`)
 
-**Blocked by dependencies**:
+**macOS Built-in Overrides**:
 
-- `node` → Required by `prettier`
-- `python@3.13` → Required by `esptool`, `evernote-backup`, `nmap`
+- `rsync`, `wget`
 
-**Migration to Nix**:
+**Core Tools** (migrated earlier):
 
-- ✅ Added missing packages to `home.nix`: bat, btop, ripgrep, fd, fzf
-- ✅ Migrated `prettier`, `esptool`, `nmap` to Nix
-- ⚠️ `evernote-backup` not in nixpkgs (kept in Homebrew)
-- ✅ Force-removed `node` and `python@3.13` with `--ignore-dependencies`
-- ✅ Cleaned Homebrew cache with `brew cleanup --prune=all`
+- `fish`, `node`, `python`, `bat`, `btop`, `ripgrep`, `fd`, `fzf`, `zoxide`, `direnv`, `starship`, `git`, `prettier`, `esptool`, `nmap`, `nano`
 
-**Verification** ✅:
+### What Was Removed as Unused (17 packages)
+
+- `go-jira`, `magic-wormhole`, `wakeonlan`, `tuist`, `topgrade`
+- `lua`, `luarocks`, `tmux`, `pipx`, `defbro`
+- `evcc` (test only), `openjdk` (kept `temurin`), `age` (using `rage`)
+- `qownnotes`, `mactex-no-gui` (GUI apps no longer needed)
+
+### Auto-Removed Dependencies (8 packages)
+
+- `ncurses`, `utf8proc`, `xxhash`, `diffutils`, `libssh2`, `oniguruma`, `popt`, `s-lang`
+
+### What Remains in Homebrew (137 total)
+
+**GUI Applications (10 casks)**:
+
+- `cursor`, `zed`, `hammerspoon`, `karabiner-elements`, `temurin`, `asset-catalog-tinkerer`, `syntax-highlight`, `knockknock`, `osxfuse`, `rar`
+
+**System Integration (4 formulae)**:
+
+- `mosquitto` (MQTT), `ext4fuse` (Linux FS), `defaultbrowser`, `f3`
+
+**Complex Multimedia (4 formulae)**:
+
+- `ffmpeg`, `imagemagick`, `ghostscript`, `tesseract`
+
+**Auto-Dependencies (~115 formulae)**:
+
+- All `lib*` packages (codecs, image libraries, system libraries)
+
+**Rationale**: GUI apps better in Homebrew for macOS integration; complex multimedia avoids Nix dependency hell; auto-dependencies will clean up if parent packages removed.
+
+### Verification ✅
 
 ```bash
-$ which bat btop rg fd fzf prettier esptool nmap
+$ which gh jq tree mc zellij restic rage rsync wget
 # All point to ~/.nix-profile/bin/
 ```
 
