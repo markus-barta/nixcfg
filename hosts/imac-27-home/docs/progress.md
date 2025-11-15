@@ -1,11 +1,13 @@
 # Migration Progress & History - imac-27-home
 
 **Last Updated**: 2025-11-15  
-**Status**: ✅ **CORE MIGRATION COMPLETE** - All essential configurations migrated to Nix!
+**Status**: 🎉 **MIGRATION 100% COMPLETE** 🎉
 
 ---
 
 ## Current State (2025-11-15)
+
+### 🎉 **MIGRATION 100% COMPLETE** 🎉
 
 ### ✅ Completed
 
@@ -31,8 +33,12 @@
 **Homebrew Cleanup**:
 
 - ✅ Stage 1 complete: Removed 10 packages (~62MB freed)
+- ✅ Stage 2 complete: Removed unwanted GUI apps (qownnotes, mactex-no-gui - already removed)
+- ✅ Stage 3 complete: Removed git (using Nix v2.51.0)
 - ✅ Core dependencies migrated to Nix (prettier, esptool, nmap)
-- ✅ Homebrew cache cleaned
+- ✅ Auto-removed unused dependencies and cleaned cache (45MB freed)
+- ✅ **ALL MIGRATED PACKAGES REMOVED FROM HOMEBREW**
+- ✅ **Total freed: ~110MB**
 
 **Special Configurations**:
 
@@ -45,11 +51,13 @@
 **Shell & Tools** (All from Nix):
 
 ```bash
-$ echo $SHELL && which fish node python3
-/Users/markus/.nix-profile/bin/fish
-/Users/markus/.nix-profile/bin/fish
+$ which fish git node python3 starship wezterm
+/Users/markus/.nix-profile/bin/fish (v4.1.2)
+/Users/markus/.nix-profile/bin/git (v2.51.0)
 /Users/markus/.nix-profile/bin/node (v22.20.0)
 /Users/markus/.nix-profile/bin/python3 (v3.13.8)
+/Users/markus/.nix-profile/bin/starship
+/Users/markus/.nix-profile/bin/wezterm
 ```
 
 **Configuration Management**:
@@ -60,11 +68,18 @@ $ echo $SHELL && which fish node python3
 
 ### ⏭️ Next Steps
 
-**Optional**:
+**Migration Complete** ✅:
 
-- Stage 2+ Homebrew cleanup (see `docs/progress.md` → "Homebrew Cleanup" section)
+- ✅ All core tools migrated to Nix
+- ✅ All Homebrew duplicates removed
+- ✅ Git dual identity verified and working
+- ✅ System running 100% on Nix for daily workflows
+
+**Optional Future Work**:
+
 - Continue daily usage and testing
 - Template preparation for `imac-27-work`
+- Remaining Homebrew packages: 167 formulae, 10 casks (experiments/GUI apps - keep as-is)
 
 ---
 
@@ -288,6 +303,23 @@ home.file.".config/starship.toml".source = ./config/starship.toml;
 ## Homebrew Cleanup
 
 ### Stage 1: Core Tools ✅ (2025-11-14)
+
+**Removed 10 packages** (~62MB freed):
+
+- fish, bat, btop, ripgrep, fd, zoxide, direnv, starship
+
+**Auto-removed dependencies**:
+
+- libgit2, bash
+
+### Stage 2: Unwanted GUI Apps ✅ (2025-11-15)
+
+**Removed**:
+
+- qownnotes (cask) - Note-taking app (no longer needed)
+- mactex-no-gui (cask) - LaTeX distribution (no longer needed)
+
+### Stage 3: Git ✅ (2025-11-15)
 
 **Removed 8 packages** (~62MB freed):
 

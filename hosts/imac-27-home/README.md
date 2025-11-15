@@ -13,7 +13,7 @@ Personal macOS development machine with Nix package management.
 
 ## Current State (2025-11-15)
 
-### ✅ **PRODUCTION READY**
+### 🎉 **MIGRATION 100% COMPLETE** 🎉
 
 **Core Migration Complete**:
 
@@ -28,19 +28,27 @@ Personal macOS development machine with Nix package management.
 
 - ✅ Nix fish as default login shell
 - ✅ PATH properly prioritizes Nix over Homebrew
-- ✅ Stage 1 Homebrew cleanup complete (10 packages removed)
+- ✅ All Homebrew duplicates removed (git, wezterm, font-hack-nerd-font)
+- ✅ Cleaned Homebrew cache (~110MB freed)
 
 **Current Setup**:
 
 ```bash
-$ echo $SHELL && which fish node python3
-/Users/markus/.nix-profile/bin/fish
+$ which fish git node python3 starship wezterm
 /Users/markus/.nix-profile/bin/fish (v4.1.2)
+/Users/markus/.nix-profile/bin/git (v2.51.0) ✅
 /Users/markus/.nix-profile/bin/node (v22.20.0)
 /Users/markus/.nix-profile/bin/python3 (v3.13.8)
+/Users/markus/.nix-profile/bin/starship
+/Users/markus/.nix-profile/bin/wezterm
 ```
 
-**Next**: Continue daily usage, Stage 2+ cleanup when ready
+**Git Dual Identity Verified** ✅:
+
+- Personal repos: `markus@barta.com`
+- BYTEPOETS repos: `markus.barta@bytepoets.com`
+
+**Next**: Daily usage, template for `imac-27-work`
 
 ---
 
