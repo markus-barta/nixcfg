@@ -458,6 +458,41 @@
   # Enable fontconfig for fonts to be recognized
   fonts.fontconfig.enable = true;
 
+  # Install Hack Nerd Font for macOS (symlink to ~/Library/Fonts/)
+  # macOS Font Book and Terminal.app only see fonts in ~/Library/Fonts/
+  # WezTerm uses fontconfig and can see Nix fonts directly
+  home.activation.installMacOSFonts = ''
+    echo "Installing Hack Nerd Font for macOS..."
+    mkdir -p "$HOME/Library/Fonts"
+
+    # Find all Hack Nerd Font files in the Nix store
+    FONT_PATH="${pkgs.nerd-fonts.hack}/share/fonts/truetype/NerdFonts"
+
+    if [ -d "$FONT_PATH" ]; then
+      # Symlink all font files to ~/Library/Fonts/
+      for font in "$FONT_PATH"/*.ttf; do
+        if [ -f "$font" ]; then
+          font_name=$(basename "$font")
+          target="$HOME/Library/Fonts/$font_name"
+          
+          # Remove old symlink if it exists
+          if [ -L "$target" ]; then
+            rm "$target"
+          fi
+          
+          # Create new symlink
+          if [ ! -e "$target" ]; then
+            ln -sf "$font" "$target"
+            echo "  Linked: $font_name"
+          fi
+        fi
+      done
+      echo "✅ Hack Nerd Font installed for macOS"
+    else
+      echo "⚠️  Font path not found: $FONT_PATH"
+    fi
+  '';
+
   # ============================================================================
   # Nano Configuration
   # ============================================================================
