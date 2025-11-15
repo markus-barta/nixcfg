@@ -477,9 +477,6 @@
     # Line numbers
     set linenumbers
 
-    # Smooth scrolling
-    set smooth
-
     # Use mouse
     set mouse
 
@@ -494,9 +491,6 @@
     # Show cursor position
     set constantshow
 
-    # Suspend with ^Z
-    set suspend
-
     # Auto-detect file type
     set matchbrackets "(<[{)>]}"
 
@@ -505,7 +499,7 @@
   '';
 
   # ============================================================================
-  # Starship Config File (preserves Nerd Font Unicode)
+  # Starship Config File (in separate file to preserve Nerd Font Unicode)
   # ============================================================================
   home.file.".config/starship.toml" = {
     source = ./config/starship.toml;
