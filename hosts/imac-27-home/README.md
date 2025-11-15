@@ -58,6 +58,16 @@ Personal macOS development machine with Nix package management.
 - ✅ Fonts work in both WezTerm (via fontconfig) and Terminal.app (via ~/Library/Fonts/)
 - ✅ Font daemon restarted to refresh font cache
 
+**Karabiner-Elements** ✅ **CONFIGURATION DECLARATIVE** (2025-11-15)
+
+- ✅ Configuration fully managed via Nix (config/karabiner.json)
+- ✅ Version-controlled in git
+- ✅ Key mappings: Caps Lock → Hyper, F1-F12 in terminals
+- ⚠️ **App installation**: Manual via Homebrew (see setup/karabiner-setup.md)
+  ```bash
+  brew install --cask karabiner-elements
+  ```
+
 **Current State**: **ACTIVELY USING NIX** ✅
 
 All core tools running from Nix. Stage 1 Homebrew cleanup complete. System stable.
