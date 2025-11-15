@@ -443,6 +443,7 @@
     fd # Fast find
     fzf # Fuzzy finder
     prettier # Code formatter (was Homebrew dependency)
+    nano # Modern nano with syntax highlighting (macOS has ancient version)
 
     # Utilities
     esptool # ESP32/ESP8266 flashing tool
@@ -456,6 +457,52 @@
 
   # Enable fontconfig for fonts to be recognized
   fonts.fontconfig.enable = true;
+
+  # ============================================================================
+  # Nano Configuration
+  # ============================================================================
+  home.file.".nanorc".text = ''
+    # Modern nano configuration with syntax highlighting
+
+    # Enable syntax highlighting from Nix package
+    include ${pkgs.nano}/share/nano/*.nanorc
+
+    # Auto-indent
+    set autoindent
+
+    # Convert tabs to spaces
+    set tabstospaces
+    set tabsize 2
+
+    # Line numbers
+    set linenumbers
+
+    # Smooth scrolling
+    set smooth
+
+    # Use mouse
+    set mouse
+
+    # Better search
+    set casesensitive
+    set regexp
+
+    # Backup files
+    set backup
+    set backupdir "~/.nano/backups"
+
+    # Show cursor position
+    set constantshow
+
+    # Suspend with ^Z
+    set suspend
+
+    # Auto-detect file type
+    set matchbrackets "(<[{)>]}"
+
+    # Syntax highlighting for common files
+    # (Nix includes: nix, yaml, markdown, python, shell, json, xml, etc.)
+  '';
 
   # ============================================================================
   # Starship Config File (preserves Nerd Font Unicode)
