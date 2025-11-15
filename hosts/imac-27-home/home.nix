@@ -466,7 +466,7 @@
     mkdir -p "$HOME/Library/Fonts"
 
     # Find all Hack Nerd Font files in the Nix store
-    FONT_PATH="${pkgs.nerd-fonts.hack}/share/fonts/truetype/NerdFonts"
+    FONT_PATH="${pkgs.nerd-fonts.hack}/share/fonts/truetype/NerdFonts/Hack"
 
     if [ -d "$FONT_PATH" ]; then
       # Symlink all font files to ~/Library/Fonts/
