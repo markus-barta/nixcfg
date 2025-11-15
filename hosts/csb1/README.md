@@ -27,19 +27,29 @@ Cloud server hosting monitoring, documentation, and database services. Originall
 
 ### Services
 
-Based on 1Password entries, this server runs:
+Based on 1Password entries and DNS records, this server runs:
 
-- **Grafana**: Multiple instances for different purposes
-  - caroline grafana csb1 (user: caroline)
-  - otto grafana csb1 (user: otto)
-  - gerhard grafana csb1 (user: gerhard)
-  - markus grafana csb1 (user: markus)
-  - mailina grafana csb1 (user: mailina)
+- **Grafana**: Single instance with multiple users
+  - Domain: grafana.barta.cm
+  - Users: caroline, otto, gerhard, markus, mailina
+  - Purpose: Monitoring and visualization dashboards
 - **InfluxDB3**: Time series database
+  - Domain: influxdb.barta.cm
   - User: `admin`
+  - Purpose: Time series data storage (fed by MQTT from csb0)
 - **Hedgedoc**: Collaborative markdown editor
   - Domain: hdoc.barta.cm
   - User: `hedgedoc`
+  - Purpose: Shared documentation
+- **Docmost**: Documentation platform
+  - Domain: docmost.barta.cm (Proxied via Cloudflare)
+  - Purpose: Knowledge base/wiki
+- **Paperless-ngx** (likely): Document management
+  - Domain: paperless.barta.cm (Proxied via Cloudflare)
+  - Purpose: Document archival and OCR
+- **WhoAmI**: Test/debug service
+  - Domain: whoami1.barta.cm
+  - Purpose: Service testing
 
 ---
 

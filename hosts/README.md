@@ -48,7 +48,7 @@ This directory contains configuration for all managed hosts (NixOS and macOS sys
 
 ### Other Household
 
-- `imac-mai` - Mai's iMac (macOS)
+- `imac-mai` - Mailina's iMac, managed by mba (macOS)
 
 ### Pbek Hosts (Repository Owner/Friend)
 

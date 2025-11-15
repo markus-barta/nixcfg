@@ -23,4 +23,13 @@ devenv.local.nix
 **/static-leases.nix
 # Encrypted version stored in secrets/ directory with agenix
 
+# DNS management (manual Cloudflare export backups)
+# Keep declarative Terraform/OpenTofu configs in git
+# But exclude exported zone files and sensitive API keys
+dns-backup-*.json
+cloudflare-*.json
+.terraform/
+*.tfstate
+*.tfstate.backup
+
 # Deployment status and TODO files

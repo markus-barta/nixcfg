@@ -23,7 +23,7 @@ Cloud server for various services and automation. Originally configured via nixo
 
 ### Services
 
-Based on 1Password entries, this server runs:
+Based on 1Password entries and DNS records, this server runs:
 
 - **node-RED**: Automation and workflow engine
   - User: `admin`
@@ -32,8 +32,21 @@ Based on 1Password entries, this server runs:
   - Bot URL: t.me/csb0bot
   - Purpose: Notifications, remote control
 - **Mosquitto MQTT**: Message broker
+  - Domain: mosquitto.barta.cm
   - User: `smarthome`
   - Purpose: IoT device communication
+- **Bitwarden**: Password manager instance
+  - Domain: bitwarden.barta.cm
+  - Purpose: Self-hosted password management
+- **Traefik**: Reverse proxy
+  - Domain: traefik.barta.cm
+  - Purpose: Service routing and SSL termination
+- **NodeRED**: Smart home platform
+  - Domain: home.barta.cm
+  - Purpose: Home automation coordination
+- **WhoAmI**: Test/debug service
+  - Domain: whoami0.barta.cm
+  - Purpose: Service testing
 
 ---
 
