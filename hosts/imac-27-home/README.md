@@ -43,11 +43,26 @@ Personal macOS development machine with Nix package management.
 - ✅ Verified switch: `$SHELL`, `which fish/node/python3` all point to Nix
 - ✅ System now running entirely on Nix versions
 
+**Homebrew Cleanup - Stage 1** ✅ **COMPLETE** (2025-11-15)
+
+- ✅ Removed Stage 1 packages: fish, bat, btop, ripgrep, fd, zoxide, direnv, starship
+- ✅ Added missing global packages to Nix: bat, btop, ripgrep, fd, fzf
+- ✅ Migrated remaining dependencies: prettier, esptool, nmap
+- ✅ Removed node, python@3.13 from Homebrew (using Nix versions)
+- ✅ Cleaned Homebrew cache (freed disk space)
+
+**Terminal.app Fonts** ✅ **COMPLETE** (2025-11-15)
+
+- ✅ Configured `home.activation.installMacOSFonts` to symlink Nerd Fonts to ~/Library/Fonts/
+- ✅ All 12 Hack Nerd Font variants now available in macOS Font Book
+- ✅ Fonts work in both WezTerm (via fontconfig) and Terminal.app (via ~/Library/Fonts/)
+- ✅ Font daemon restarted to refresh font cache
+
 **Current State**: **ACTIVELY USING NIX** ✅
 
-All tools now running from Nix. Homebrew packages remain installed as backup but are no longer in use.
+All core tools running from Nix. Stage 1 Homebrew cleanup complete. System stable.
 
-**Next**: Continue daily usage testing, then proceed with staged Homebrew removal (see `docs/testing-and-cleanup.md`)
+**Next**: Continue daily usage, proceed with Stage 2+ cleanup when ready (see `docs/testing-and-cleanup.md`)
 
 See [docs/migration.md](docs/migration.md) for detailed migration plan.
 
@@ -57,7 +72,7 @@ See [docs/migration.md](docs/migration.md) for detailed migration plan.
 
 - **OS**: macOS 15.7.2 (24G325)
 - **Architecture**: x86_64 (Intel)
-- **Shell**: Fish 4.1.2 (from Homebrew: /usr/local/bin/fish)
+- **Shell**: Fish 4.1.2 (from Nix: ~/.nix-profile/bin/fish) ✅
 - **Default Browser**: Helium (net.imput.helium)
 
 ### Package Managers
@@ -136,8 +151,8 @@ See [docs/migration.md](docs/migration.md) for detailed migration plan.
 
 #### Languages & Runtimes
 
-- **Node.js**: v25.2.0 (Homebrew)
-- **Python**: 3.10.3 (system/Homebrew)
+- **Node.js**: v22.20.0 (Nix) ✅
+- **Python**: v3.13.8 (Nix) ✅
 - **Java**: Temurin (Homebrew cask)
 - **Other languages**: LaTeX (MacTeX, Homebrew)
 

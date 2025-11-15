@@ -37,23 +37,23 @@ Or make WezTerm your default terminal (it's already configured in your home.nix)
 - ✅ GPU-accelerated
 - ✅ More features (splits, tabs, etc.)
 
-## Solution 3: Script to Set Terminal.app Font (Semi-Automated)
+## How Fonts Are Installed
 
-**Note**: Due to Terminal.app using NSKeyedArchiver binary format for font data, full automation is not reliable. The script will attempt to configure it, but manual setup is recommended.
+Hack Nerd Fonts are automatically installed to macOS via home-manager activation script:
 
-```bash
-# Run the setup script
-~/Code/nixcfg/hosts/imac-27-home/setup/setup-terminal-app-font.sh
+```nix
+# In home.nix - automatically runs on home-manager switch
+home.activation.installMacOSFonts = ''
+  # Symlinks all Hack Nerd Font variants to ~/Library/Fonts/
+  # Makes fonts available in Font Book and Terminal.app
+'';
 ```
 
-This script will:
+After running `home-manager switch`, the fonts are available system-wide. You may need to restart the font daemon:
 
-- ✅ Verify Hack Nerd Font is installed
-- ✅ Backup current Terminal.app preferences
-- ⚠️ Attempt to set font (may not work due to plist format)
-- 📝 Provide manual instructions if needed
-
-**Why this is not fully declarative**: Terminal.app stores font information in a proprietary NSKeyedArchiver binary format in its plist file. Unlike text-based configs, this can't be reliably generated programmatically. This is a macOS limitation, not a Nix limitation.
+```bash
+killall fontd
+```
 
 ## Verification
 
