@@ -67,15 +67,14 @@ This document provides a **package-by-package analysis** of all remaining Homebr
 
 ### Terminal Multiplexers (Pick ONE)
 
-- [ ] **`tmux`** - Terminal multiplexer
-  - Used for: ?
-  - Nix package: `pkgs.tmux`
-  - Action: **Decide**: Keep tmux OR zellij, not both
+- [x] **`tmux`** - Terminal multiplexer
+  - Used for: nothing any more
+  - Action: ❌ **REMOVE**
 
-- [ ] **`zellij`** - Modern terminal multiplexer
-  - Used for: ?
+- [x] **`zellij`** - Modern terminal multiplexer
+  - Used for: all interaction with hosts
   - Nix package: `pkgs.zellij`
-  - Action: **Decide**: Keep tmux OR zellij, not both
+  - Action: ✅ **MIGRATE TO NIX**
 
 ### Networking Tools
 
@@ -116,20 +115,20 @@ This document provides a **package-by-package analysis** of all remaining Homebr
 - [ ] **`rage`** - Age encryption (Rust implementation)
   - Used for: File encryption (secrets management)
   - Nix package: `pkgs.rage`
-  - Note: **`age`** already installed via Homebrew, pick one
+  - Note: **`age`** already installed via Homebrew
   - Action: Migrate to Nix, remove Homebrew version
 
 ### Development Languages (if needed globally)
 
 - [ ] **`lua`** - Lua language
-  - Used for: Hammerspoon config?, WezTerm config?
+  - Used for: nothing
   - Nix package: `pkgs.lua`
-  - Action: Evaluate if needed (Hammerspoon bundles its own Lua)
+  - Action: Remove!
 
 - [ ] **`luarocks`** - Lua package manager
   - Used for: Lua packages
   - Nix package: `pkgs.luarocks`
-  - Action: Evaluate if needed
+  - Action: Remove
 
 ---
 
@@ -158,7 +157,7 @@ This document provides a **package-by-package analysis** of all remaining Homebr
   - macOS version: Outdated
   - Nix package: `pkgs.ncurses`
   - Note: May be auto-dependency for other tools
-  - Action: Keep in Homebrew as dependency, or migrate if explicitly needed
+  - Action: Keep in Homebrew as dependency
 
 **Note**: Unlike `nano` (already migrated), these should be evaluated case-by-case. Only migrate if you specifically need the newer versions.
 
@@ -172,43 +171,43 @@ This document provides a **package-by-package analysis** of all remaining Homebr
 
 - [ ] **`go-jira`** - Jira CLI
   - Question: Do you actively use Jira from CLI?
-  - Action: Remove if not used regularly
+  - Action: Remove
 
 - [ ] **`magic-wormhole`** - Secure file transfer
   - Question: When was this last used?
-  - Action: Remove if not used, easy to reinstall when needed
+  - Action: Remove
 
 - [ ] **`wakeonlan`** - Wake-on-LAN utility
   - Question: Do you use Wake-on-LAN?
-  - Action: Remove if not used
+  - Action: Remove
 
 - [ ] **`tuist@4.104.6`** - Xcode project generation
   - Question: iOS/macOS development tool - still relevant?
-  - Action: Remove if not doing iOS dev
+  - Action: Remove
 
 - [ ] **`topgrade`** - Update all tools
   - Question: Still useful with Nix/Homebrew split?
-  - Action: May conflict with Nix updates, consider removing
+  - Action: Remove
 
 - [ ] **`f3`** - Flash drive testing tool
   - Question: When was this last used?
-  - Action: Remove if not actively testing drives
+  - Action: keep, is occasionally used
 
 ### Duplicate Tools
 
 - [ ] **`defaultbrowser`** vs **`defbro`**
   - Both set default browser
-  - Action: Keep one, remove the other (recommend `defaultbrowser`)
+  - Action: Keep `defaultbrowser`
 
 ### Python Tools (Potential Leftover Dependencies)
 
 - [ ] **`pipx`** - Python app installer
   - Question: Still used after Python migration to Nix?
-  - Action: Review installed pipx apps, migrate to Nix if possible
+  - Action: remove
 
 - [ ] **`certifi`** - Python SSL certificates
   - Likely a dependency for removed Python packages
-  - Action: Check if still needed: `brew uses certifi`
+  - Action: keep
 
 - [ ] **`python-*`** packages (charset-normalizer, cryptography, idna, requests, urllib3)
   - Question: Dependencies for removed Python tools?
@@ -241,13 +240,13 @@ This document provides a **package-by-package analysis** of all remaining Homebr
 
 ### System Integration Tools - Keep
 
-- ✅ **`evcc`** - Electric vehicle charging control
-  - Reason: System-level service, hardware integration
-  - Note: Likely runs as launchd service
+- ❌ **`evcc`** - Electric vehicle charging control
+  - Was: Test only, no longer needed
+  - Action: Remove
 
 - ✅ **`mosquitto`** - MQTT broker
   - Reason: System-level service for IoT/home automation
-  - Note: Likely runs as launchd service
+  - Note: used as a client for development sometimes
 
 - ✅ **`ext4fuse`** - Linux filesystem support
   - Reason: macOS kernel extension
@@ -275,16 +274,16 @@ This document provides a **package-by-package analysis** of all remaining Homebr
 ### Java - Keep
 
 - ✅ **`openjdk`** - Java Development Kit (Homebrew formula)
+  - Action: remove
 - ✅ **`temurin`** - Java runtime (cask)
   - Reason: System-level Java installation
-  - Note: Might be duplicate, check which is needed
-  - Action: Keep one, remove the other?
+  - Action: Keep
 
 ### Terminal Tools (Personal Preference)
 
 - ✅ **`midnight-commander`** - File manager
   - Reason: Personal workflow tool
-  - Action: Keep unless want in Nix
+  - Action: ✅ **MIGRATE TO NIX**
 
 ---
 
@@ -360,21 +359,21 @@ This document provides a **package-by-package analysis** of all remaining Homebr
   lazygit     # Git TUI (already in devenv, add globally)
 
   # File Management & Utilities
-  tree        # Directory tree viewer
+  tree        # Directory tree
   pv          # Pipe viewer
   tealdeer    # tldr (simplified man pages)
-  fswatch     # File system watcher
+  fswatch     # File watcher
+  mc          # midnight-commander (file manager)
 
-  # Terminal Multiplexer (PICK ONE)
-  # tmux      # OR
-  # zellij    # Pick one!
+  # Terminal Multiplexer
+  zellij      # Modern terminal multiplexer
 
-  # Networking Tools (if used)
+  # Networking Tools
   netcat      # Network utility
   inetutils   # Includes telnet
   websocat    # WebSocket client
 
-  # Text Processing (if used)
+  # Text Processing
   lynx        # Text browser
   html2text   # HTML converter
 
@@ -385,7 +384,6 @@ This document provides a **package-by-package analysis** of all remaining Homebr
   # macOS Built-in Overrides
   rsync       # Modern rsync
   wget        # File downloader
-  # diffutils # Only if needed
   ```
 
 - [ ] Apply changes:
@@ -406,16 +404,14 @@ This document provides a **package-by-package analysis** of all remaining Homebr
 - [ ] Remove migrated packages:
 
   ```bash
-  brew uninstall gh jq just lazygit tree pv tldr fswatch \
+  # Remove migrated packages
+  brew uninstall gh jq just lazygit tree pv tldr fswatch mc \
     netcat telnet websocat lynx html2text restic rage age \
-    rsync wget
+    rsync wget zellij
 
-  # Remove chosen multiplexer
-  brew uninstall tmux  # OR zellij
-
-  # Remove unused/duplicate
-  brew uninstall go-jira magic-wormhole wakeonlan tuist topgrade f3 \
-    defbro  # Keep defaultbrowser
+  # Remove unused/old packages
+  brew uninstall go-jira magic-wormhole wakeonlan tuist topgrade \
+    lua luarocks evcc openjdk tmux defbro pipx
   ```
 
 - [ ] Clean up Python dependencies:
