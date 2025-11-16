@@ -3,7 +3,6 @@
 {
   pkgs,
   lib,
-  config,
   inputs,
   ...
 }:
@@ -71,6 +70,12 @@
           range_end = "192.168.1.254";
           lease_duration = 86400; # 24 hours
           icmp_timeout_msec = 1000;
+
+          # Add DHCP Option 15 (domain name)
+          options = [
+            "15 text lan"
+          ];
+
           # Static DHCP leases are managed via agenix and loaded at runtime
           # See preStart script below for implementation
           static_leases = [ ];
@@ -104,11 +109,11 @@
     leases_dir="/var/lib/private/AdGuardHome/data"
     leases_file="$leases_dir/leases.json"
     install -d "$leases_dir"
-    
+
     # Read static leases from agenix-decrypted JSON file
     # Agenix automatically decrypts to /run/agenix/<secret-name>
     static_leases_file="/run/agenix/static-leases-miniserver99"
-    
+
     # Validate that the agenix secret file exists
     if [ ! -f "$static_leases_file" ]; then
       echo "ERROR: Static leases file not found at $static_leases_file"
@@ -155,45 +160,59 @@
     echo "✓ Loaded $(${pkgs.jq}/bin/jq '[.leases[] | select(.static == true)] | length' "$leases_file") static DHCP leases"
   '';
 
-  # Networking configuration
+  # Networking configuration - Triple redundancy for core infrastructure
+  # 1. /etc/hosts: Immediate resolution without network/DNS dependency
+  # 2. Search domain (.lan): Client-side domain appending
+  # 3. DNS server (AdGuard Home): Full DNS resolution with blocking/filtering
+  # Critical devices get guaranteed resolution even if DNS server fails
   networking = {
     # Use localhost for DNS since AdGuard Home runs locally
     nameservers = [ "127.0.0.1" ];
     search = [ "lan" ];
     defaultGateway = "192.168.1.5";
+
+    # Critical infrastructure hosts - guaranteed resolution via /etc/hosts
+    # Provides fallback when DNS server (AdGuard Home) is unavailable
+    # Both short names and FQDNs for maximum compatibility
     hosts = {
+      # Network switch - core infrastructure, must be reachable for network management
       "192.168.1.3" = [
         "vr-netgear-gs724"
         "vr-netgear-gs724.lan"
       ];
+      # Router/gateway - internet access, must work even during DNS outages
       "192.168.1.5" = [
         "vr-fritz-box"
         "vr-fritz-box.lan"
       ];
+      # Solar battery storage - power monitoring, critical for energy management
       "192.168.1.32" = [
         "kr-sonnen-batteriespeicher"
         "kr-sonnen-batteriespeicher.lan"
       ];
+      # This DNS/DHCP server itself - self-resolution for services and management
       "192.168.1.99" = [
         "miniserver99"
         "miniserver99.lan"
       ];
-      "192.168.1.100" = [
-        "mosquitto"
-        "mosquitto.lan"
-      ];
+      # Home automation server + MQTT broker - runs Node-RED, Home Assistant, cameras, notifications + MQTT for IoT devices
       "192.168.1.101" = [
         "miniserver24"
         "miniserver24.lan"
+        "mosquitto"
+        "mosquitto.lan"
       ];
+      # Smart home controller - for controlling lights, roller-blinds, ... and expose them to HomeKit as bridge
       "192.168.1.102" = [
         "vr-opus-gateway"
         "vr-opus-gateway.lan"
       ];
+      # Smart home status display 1 - shows system health and status information
       "192.168.1.159" = [
         "wz-pixoo-64-00"
         "wz-pixoo-64-00.lan"
       ];
+      # Smart home status display 2 - shows system health and status information
       "192.168.1.189" = [
         "wz-pixoo-64-01"
         "wz-pixoo-64-01.lan"
