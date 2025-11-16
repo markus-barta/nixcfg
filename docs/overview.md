@@ -1,6 +1,8 @@
 # NixOS Configuration Overview
 
-This document explains how the different NixOS configurations in this repository work together, using `miniserver24` as an example.
+> **New to this repository?** Start with [how-it-works.md](how-it-works.md) for a bird's eye view of the system architecture and key concepts.
+
+This document provides technical details on how NixOS configurations work together, using `miniserver24` as an example. It covers the build process, module system, and workflows for developers familiar with Nix.
 
 ## Repository Summary
 
@@ -13,7 +15,7 @@ This is a personal NixOS configuration repository that manages:
 - **Automated workflows** using `just` command runner
 - **ZFS storage** with disko for disk management
 
-The repository owner also maintains some packages included here.
+> **Future**: The `hokage` module system will be refactored into a standalone module that can be imported as a submodule. When this happens, personal infrastructure (MBA home automation servers) will use a new `uzumaki` namespace 🌀 (named after the Uzumaki clan from Naruto, masters of sealing techniques—fitting for secrets management and home automation).
 
 ## Architecture Flow
 
@@ -386,6 +388,7 @@ just hokage-options-md-save
 
 ## Related Documentation
 
+- **[How It Works](how-it-works.md)** - Bird's eye view for understanding the system (start here!)
 - **NixOS Manual**: [https://nixos.org/manual/nixos/stable/](https://nixos.org/manual/nixos/stable/)
 - **Just Manual**: [https://just.systems/man/en/](https://just.systems/man/en/)
 - **agenix**: [https://github.com/ryantm/agenix](https://github.com/ryantm/agenix)
