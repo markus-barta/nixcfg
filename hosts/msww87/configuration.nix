@@ -228,8 +228,131 @@ in
     ];
   };
 
-  # Additional system packages (when at parents' home with AdGuard)
-  environment.systemPackages = lib.optionals enableAdGuard (
+  # Helper script to enable ww87 location (for moving to parents' home)
+  environment.systemPackages = [
+    (pkgs.writeScriptBin "enable-ww87" ''
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      # ============================================================================
+      # enable-ww87 - Switch msww87 to Parents' Home Configuration
+      # ============================================================================
+      # This script switches the server to "ww87" location configuration:
+      # - Changes gateway from 192.168.1.5 → 192.168.1.1
+      # - Enables AdGuard Home (DNS + DHCP server)
+      # - Changes search domain from "lan" → "local"
+      # - Switches DNS from miniserver99 → local AdGuard
+      #
+      # DHCP is DISABLED by default for safety. To enable DHCP:
+      # 1. Edit ~/nixcfg/hosts/msww87/configuration.nix
+      # 2. Find: dhcp.enabled = false
+      # 3. Change to: dhcp.enabled = true
+      # 4. Run: nixos-rebuild switch --flake ~/nixcfg#msww87
+      # ============================================================================
+
+      NIXCFG_DIR="$HOME/nixcfg"
+      CONFIG_FILE="$NIXCFG_DIR/hosts/msww87/configuration.nix"
+
+      echo "🏠 Enabling ww87 (Parents' Home) Configuration..."
+      echo
+
+      # Check if we're already at ww87
+      if grep -q 'location = "ww87"' "$CONFIG_FILE"; then
+        echo "✅ Already configured for ww87 location!"
+        echo
+        echo "Current configuration:"
+        echo "  - Location: ww87 (Parents' home)"
+        echo "  - Gateway: 192.168.1.1"
+        echo "  - DNS: 127.0.0.1 (local AdGuard Home)"
+        echo "  - Search: local"
+        echo
+        systemctl is-active adguardhome >/dev/null 2>&1 && echo "  - AdGuard Home: ✅ Running" || echo "  - AdGuard Home: ⚠️  Not running"
+        echo
+        echo "To enable DHCP, edit:"
+        echo "  $CONFIG_FILE"
+        echo "  (Change 'dhcp.enabled = false' to 'true')"
+        exit 0
+      fi
+
+      # Check current location
+      if ! grep -q 'location = "jhw22"' "$CONFIG_FILE"; then
+        echo "❌ Error: Unexpected location setting in configuration"
+        echo "Expected: location = \"jhw22\""
+        echo "Please check: $CONFIG_FILE"
+        exit 1
+      fi
+
+      cd "$NIXCFG_DIR"
+
+      # Show current git status
+      echo "📊 Current git status:"
+      git status --short
+      echo
+
+      # Change location setting
+      echo "🔧 Changing location from jhw22 → ww87..."
+      sed -i 's/location = "jhw22"/location = "ww87"/' "$CONFIG_FILE"
+
+      # Verify the change
+      if ! grep -q 'location = "ww87"' "$CONFIG_FILE"; then
+        echo "❌ Error: Failed to update location setting"
+        exit 1
+      fi
+      echo "✅ Location updated in configuration"
+      echo
+
+      # Show the change
+      echo "📝 Configuration change:"
+      git diff hosts/msww87/configuration.nix | grep -A2 -B2 "location ="
+      echo
+
+      # Commit and push
+      echo "💾 Committing change..."
+      git add hosts/msww87/configuration.nix
+      git commit -m "feat(msww87): enable ww87 location (parents' home)"
+      echo
+
+      echo "📤 Pushing to remote..."
+      git push
+      echo
+
+      # Apply the configuration
+      echo "🚀 Applying new configuration..."
+      echo "This will:"
+      echo "  - Enable AdGuard Home (DNS on port 53, Web UI on port 3000)"
+      echo "  - Switch gateway to 192.168.1.1"
+      echo "  - Use local DNS (127.0.0.1)"
+      echo "  - Change search domain to 'local'"
+      echo
+      read -p "Press Enter to continue or Ctrl+C to cancel..."
+      echo
+
+      nixos-rebuild switch --flake .#msww87
+
+      echo
+      echo "✅ Successfully enabled ww87 configuration!"
+      echo
+      echo "📡 AdGuard Home Status:"
+      systemctl status adguardhome --no-pager | head -5
+      echo
+      echo "🌐 Network Configuration:"
+      ip addr show enp2s0f0 | grep "inet "
+      ip route show default
+      echo
+      echo "🔗 AdGuard Home Web Interface:"
+      echo "   http://192.168.1.100:3000"
+      echo "   User: admin / Pass: admin"
+      echo
+      echo "⚠️  DHCP is DISABLED by default for safety!"
+      echo "To enable DHCP server:"
+      echo "  1. Edit: $CONFIG_FILE"
+      echo "  2. Change: dhcp.enabled = false → true"
+      echo "  3. Run: nixos-rebuild switch --flake ~/nixcfg#msww87"
+      echo
+      echo "✨ Done! The server is now configured for parents' home."
+    '')
+  ]
+  ++ lib.optionals enableAdGuard (
     with pkgs;
     [
       # Network diagnostic tools
