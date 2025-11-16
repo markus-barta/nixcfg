@@ -14,6 +14,7 @@ docs/
 └── reference/                   # Technical documentation
     ├── karabiner-elements.md    # Karabiner technical details
     ├── macos-gui-apps.md        # GUI app management solution
+    ├── macos-network-tools.md   # Network tools bug fix
     └── hardware-info.md         # System specifications
 ```
 

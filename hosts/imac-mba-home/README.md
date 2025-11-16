@@ -116,6 +116,7 @@ hosts/imac-mba-home/
 │   └── reference/               # Technical documentation
 │       ├── karabiner-elements.md
 │       ├── macos-gui-apps.md
+│       ├── macos-network-tools.md
 │       └── hardware-info.md
 │
 ├── scripts/
@@ -254,6 +255,20 @@ Restart terminal or reload shell:
 ```bash
 exec fish
 ```
+
+### Ping Shows Crazy Negative Times
+
+If you see astronomically large negative ping times like `-1084818903855532605440.000 ms`, you're using the wrong ping binary.
+
+**Solution**: We alias `ping` to use macOS native `/sbin/ping` to avoid the Linux ping bug.
+
+Verify:
+
+```bash
+which ping  # Should show: ping: aliased to /sbin/ping
+```
+
+See [docs/reference/macos-network-tools.md](docs/reference/macos-network-tools.md) for details.
 
 ### Nerd Font Icons Missing
 

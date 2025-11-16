@@ -128,6 +128,12 @@
     shellAliases = {
       mc = "env LANG=en_US.UTF-8 mc";
       lg = "lazygit";
+      # Force macOS native ping (inetutils ping has bugs on Darwin)
+      # See: docs/reference/macos-network-tools.md
+      ping = "/sbin/ping";
+      # Other macOS network tools for reference
+      traceroute = "/usr/sbin/traceroute";
+      netstat = "/usr/sbin/netstat";
     };
 
     # Abbreviations
@@ -462,7 +468,9 @@
 
     # Networking Tools (Stage 4)
     netcat # Network utility
-    inetutils # Includes telnet
+    # inetutils excluded on macOS - Linux ping has timestamp overflow bug on Darwin
+    # Use macOS native /sbin/ping instead (aliased below)
+    # For telnet, use: brew install telnet or nc (netcat) as alternative
     websocat # WebSocket client
 
     # Text Processing (Stage 4)
