@@ -9,5 +9,6 @@ readonly COLOR_RESET='\033[0m'
 readonly SEPARATOR='·' # Middle dot, alternatives: • │ ▪ ▸ →
 
 ping "$@" | while IFS= read -r line; do
-  printf "${COLOR_GRAY}%(%H:%M:%S)T ${SEPARATOR}${COLOR_RESET} %s\n" -1 "$line"
+  timestamp=$(date '+%H:%M:%S')
+  printf "${COLOR_GRAY}%s ${SEPARATOR}${COLOR_RESET} %s\n" "$timestamp" "$line"
 done
