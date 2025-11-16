@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-✅ **192.168.1.100 is AVAILABLE for assignment to mba-msww87**
+✅ **192.168.1.100 is AVAILABLE for assignment to msww87**
 
 The investigation revealed that while .100 has historical usage in legacy Pi-hole configurations, it is **not currently in active use** by any machine or service.
 
@@ -20,7 +20,7 @@ The investigation revealed that while .100 has historical usage in legacy Pi-hol
 
 - ✅ miniserver99 (192.168.1.99) - DNS/DHCP server
 - ✅ miniserver24 (192.168.1.101) - Home automation hub
-- ✅ mba-msww87 (192.168.1.223) - Target machine for .100 assignment
+- ✅ msww87 (192.168.1.223) - Target machine for .100 assignment
 - ✅ imac-mba-home (macOS) - Your development machine
 - ✅ mba-gaming-pc - Gaming rig
 - ✅ caliban (work PC) - Only commented-out reference
@@ -131,7 +131,7 @@ These are **documentation/example code**, not active configurations.
 
 ### Discovery
 
-The MAC address of mba-msww87 is `40:6c:8f:18:dd:24`.
+The MAC address of msww87 is `40:6c:8f:18:dd:24`.
 
 This **exact MAC** appears in Pi-hole migration backup:
 
@@ -144,9 +144,9 @@ dhcp-host=40:6C:8F:18:DD:24,192.168.1.100,miniserver
 
 **Scenario 1: Same Physical Machine**
 
-- mba-msww87 **IS** the old "miniserver"
+- msww87 **IS** the old "miniserver"
 - It was previously at .100
-- Got renamed/repurposed to "mba-msww87"
+- Got renamed/repurposed to "msww87"
 - Moved to parents' home
 
 **Scenario 2: MAC Address Reuse** (less likely)
@@ -163,13 +163,13 @@ Evidence supporting this:
 3. Same purpose (home automation server)
 4. Historical .100 assignment
 
-**Conclusion**: mba-msww87 is probably the original "miniserver" that held .100, making this assignment a **return to its original IP**.
+**Conclusion**: msww87 is probably the original "miniserver" that held .100, making this assignment a **return to its original IP**.
 
 ---
 
 ## Recommendation
 
-✅ **APPROVED: Assign 192.168.1.100 to mba-msww87**
+✅ **APPROVED: Assign 192.168.1.100 to msww87**
 
 ### Rationale
 
@@ -183,14 +183,14 @@ Evidence supporting this:
 
 ## Implementation Plan
 
-See: [`docs/temporary/mba-msww87-setup-steps.md`](./mba-msww87-setup-steps.md)
+See: [`docs/temporary/msww87-setup-steps.md`](./msww87-setup-steps.md)
 
 **Summary:**
 
-1. Update `hosts/mba-msww87/configuration.nix` with static IP config
+1. Update `hosts/msww87/configuration.nix` with static IP config
 2. Add static DHCP lease in `secrets/static-leases-miniserver99.age`
 3. Deploy to miniserver99 (DNS/DHCP server)
-4. Deploy to mba-msww87 (apply static IP)
+4. Deploy to msww87 (apply static IP)
 5. Verify connectivity and DNS resolution
 
 **Technical Details:**
@@ -225,7 +225,7 @@ ping 192.168.1.100
 
 # Connect via SSH
 ssh mba@192.168.1.100
-ssh mba@mba-msww87.lan
+ssh mba@msww87.lan
 
 # Verify static lease
 ssh mba@192.168.1.99
@@ -233,7 +233,7 @@ sudo jq '.leases[] | select(.ip == "192.168.1.100")' \
   /var/lib/private/AdGuardHome/data/leases.json
 
 # Verify DNS resolution
-dig mba-msww87.lan
+dig msww87.lan
 dig -x 192.168.1.100  # Reverse DNS
 ```
 
@@ -257,7 +257,7 @@ dig -x 192.168.1.100  # Reverse DNS
 If issues arise:
 
 ```bash
-# Revert to DHCP on mba-msww87
+# Revert to DHCP on msww87
 ssh mba@192.168.1.100  # or .223 if still accessible
 cd ~/Code/nixcfg
 git revert HEAD
@@ -267,7 +267,7 @@ just switch
 ssh mba@192.168.1.99
 cd ~/Code/nixcfg
 agenix -e secrets/static-leases-miniserver99.age
-# Remove the mba-msww87 entry
+# Remove the msww87 entry
 just switch
 ```
 
@@ -279,11 +279,11 @@ just switch
    - `docs/temporary/ip-100-investigation-summary.md`
 
 2. **Detailed Server Notes**
-   - `docs/temporary/mba-msww87-server-notes.md`
+   - `docs/temporary/msww87-server-notes.md`
    - Full system analysis and configuration details
 
 3. **Setup Guide**
-   - `docs/temporary/mba-msww87-setup-steps.md`
+   - `docs/temporary/msww87-setup-steps.md`
    - Step-by-step implementation instructions
 
 ---
@@ -295,8 +295,8 @@ The IP address **192.168.1.100** is:
 - ✅ Not in active use by any machine or service
 - ✅ Not assigned in AdGuard Home (current DNS/DHCP)
 - ✅ Only present in inactive Pi-hole configs (legacy)
-- ✅ Historically associated with mba-msww87's MAC address
-- ✅ **SAFE to assign to mba-msww87**
+- ✅ Historically associated with msww87's MAC address
+- ✅ **SAFE to assign to msww87**
 
 **Next Action**: Proceed with static IP configuration as documented in setup guide.
 
@@ -316,7 +316,7 @@ ssh mba@192.168.1.99 "sudo jq '.leases[] | select(.ip == \"192.168.1.100\")' \
 ssh mba@192.168.1.101 "grep -r '192.168.1.100' ~/docker"
 
 # Network scan
-nmap -sn 192.168.1.0/24 | grep -A 2 "mba-msww87"
+nmap -sn 192.168.1.0/24 | grep -A 2 "msww87"
 
 # Interface verification
 ssh mba@192.168.1.223 "ip addr show && ip link show"

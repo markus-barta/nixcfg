@@ -2,18 +2,18 @@
 
 **Date**: November 16, 2025  
 **User**: `gb` (Gerhard)  
-**Machine**: mba-msww87  
+**Machine**: msww87  
 **Status**: ✅ Configured, pending deployment
 
 ---
 
 ## What Was Done
 
-Added Gerhard's SSH public key to the `gb` user account on mba-msww87.
+Added Gerhard's SSH public key to the `gb` user account on msww87.
 
 ### Configuration Changes
 
-**File**: `hosts/mba-msww87/configuration.nix`
+**File**: `hosts/msww87/configuration.nix`
 
 ```nix
 users.users.gb = {
@@ -29,10 +29,10 @@ users.users.gb = {
 
 ## How to Deploy
 
-### Option 1: Deploy from mba-msww87 directly
+### Option 1: Deploy from msww87 directly
 
 ```bash
-# SSH into mba-msww87
+# SSH into msww87
 ssh mba@192.168.1.223
 
 # If nixcfg not cloned yet:
@@ -53,7 +53,7 @@ just switch
 
 ```bash
 cd ~/Code/nixcfg
-nixos-rebuild switch --flake .#mba-msww87 --target-host mba@192.168.1.223 --use-remote-sudo
+nixos-rebuild switch --flake .#msww87 --target-host mba@192.168.1.223 --use-remote-sudo
 ```
 
 ---
@@ -68,7 +68,7 @@ ssh gb@192.168.1.223
 
 # After static IP configuration (when .100 is active):
 ssh gb@192.168.1.100
-ssh gb@mba-msww87.lan
+ssh gb@msww87.lan
 ```
 
 **Expected behavior**: Direct login without password prompt.
@@ -158,7 +158,7 @@ ssh -v gb@192.168.1.223 2>&1 | grep "Offering public key"
 # Remove old host key (if machine was reinstalled)
 ssh-keygen -R 192.168.1.223
 # or
-ssh-keygen -R mba-msww87.lan
+ssh-keygen -R msww87.lan
 
 # Try connecting again
 ssh gb@192.168.1.223
@@ -168,7 +168,7 @@ ssh gb@192.168.1.223
 
 ## Next Steps
 
-- [ ] Deploy configuration to mba-msww87
+- [ ] Deploy configuration to msww87
 - [ ] Test SSH access from Gerhard's Mac
 - [ ] Consider configuring static IP (separate task)
 - [ ] Decide if `gb` needs sudo privileges
@@ -177,6 +177,6 @@ ssh gb@192.168.1.223
 
 ## Related Documentation
 
-- [mba-msww87 Server Notes](./mba-msww87-server-notes.md) - Full system documentation
-- [mba-msww87 Setup Steps](./mba-msww87-setup-steps.md) - Static IP configuration guide
+- [msww87 Server Notes](./msww87-server-notes.md) - Full system documentation
+- [msww87 Setup Steps](./msww87-setup-steps.md) - Static IP configuration guide
 - [NixOS SSH Configuration](https://nixos.wiki/wiki/SSH_public_key_authentication) - Official docs

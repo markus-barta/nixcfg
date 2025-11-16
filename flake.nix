@@ -210,8 +210,8 @@
         miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
         # MBA Gaming PC
         mba-gaming-pc = mkDesktopHost "mba-gaming-pc" [ disko.nixosModules.disko ];
-        # MBA Miniserver ww87
-        mba-msww87 = mkServerHost "mba-msww87" [ disko.nixosModules.disko ];
+        # Miniserver WW87 (Parents' home automation server)
+        msww87 = mkServerHost "msww87" [ disko.nixosModules.disko ];
       };
 
       checks.x86_64-linux = {

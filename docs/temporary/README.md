@@ -17,15 +17,15 @@ These files may be moved to proper documentation locations, archived, or deleted
 - **dns-barta-cm.md** - DNS record inventory and Terraform migration plan
 - **secrets-migration-plan.md** - Step-by-step secrets migration guide
 
-### mba-msww87 Server Setup (November 16, 2025)
+### msww87 Server Setup (November 16, 2025)
 
-**Context**: Configuring mba-msww87 Mac mini at parents' home
+**Context**: Configuring msww87 Mac mini at parents' home
 
 - **ip-100-investigation-summary.md** - IP address investigation (✅ 192.168.1.100 approved)
-- **mba-msww87-server-notes.md** - Detailed system analysis and hardware specifications
-- **mba-msww87-setup-steps.md** - Step-by-step static IP configuration guide
-- **ssh-key-gerhard-added.md** - Gerhard's SSH key configuration (✅ added, pending deployment)
-- **mba-msww87-repo-switch-guide.md** - 🔄 Safe migration from pbek/nixcfg to markus-barta/nixcfg
+- **msww87-server-notes.md** - Detailed system analysis and hardware specifications
+- **msww87-setup-steps.md** - Step-by-step static IP configuration guide
+- **msww87-ssh-key-gerhard.md** - Gerhard's SSH key configuration (✅ added, deployed)
+- **msww87-repo-switch-guide.md** - 🔄 Safe migration from pbek/nixcfg to markus-barta/nixcfg
 
 **Key Findings**:
 

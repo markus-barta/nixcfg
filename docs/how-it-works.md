@@ -16,7 +16,7 @@ This configuration manages your entire computing environment:
 
 - **miniserver99** (192.168.1.99) - DNS/DHCP server running AdGuard Home
 - **miniserver24** (192.168.1.101) - Home automation hub with Node-RED, MQTT, HomeKit, and UPS monitoring
-- **mba-msww87** - Home automation server at parents' home
+- **msww87** - Home automation server at parents' home
 
 **Cloud Servers:**
 
@@ -344,4 +344,4 @@ hokage.audio.enable = true;
 hokage.zfs.enable = true;
 ```
 
-Different machines can pick and choose which hokage features they need, making configuration DRY (Don't Repeat Yourself). This modular approach means you configure common features once and reuse them across all your machines—whether it's miniserver99 at home, csb0 in the cloud, or mba-msww87 at your parents' place. Change it once, deploy everywhere! 🍥
+Different machines can pick and choose which hokage features they need, making configuration DRY (Don't Repeat Yourself). This modular approach means you configure common features once and reuse them across all your machines—whether it's miniserver99 at home, csb0 in the cloud, or msww87 at your parents' place. Change it once, deploy everywhere! 🍥

@@ -1,4 +1,4 @@
-# mba-msww87 Server - System Analysis & Setup Notes
+# msww87 Server - System Analysis & Setup Notes
 
 **Date**: November 16, 2025  
 **Current Status**: 🟡 Running with DHCP, needs static IP configuration
@@ -7,7 +7,7 @@
 
 ## Quick Reference
 
-- **Hostname**: `mba-msww87`
+- **Hostname**: `msww87`
 - **Location**: Parents' home (next to Markus)
 - **Current IP**: `192.168.1.223` (DHCP - dynamic)
 - **Planned IP**: `192.168.1.100` (static - **AVAILABLE**)
@@ -83,7 +83,7 @@ Status: UP, RUNNING
 
 The hardware-configuration.nix references `enp3s0f0` in comments, but the actual interface is `enp2s0f0` (verified via `ip addr`).
 
-**Configuration to add** to `hosts/mba-msww87/configuration.nix`:
+**Configuration to add** to `hosts/msww87/configuration.nix`:
 
 ```nix
 networking = {
@@ -164,7 +164,7 @@ networking = {
 - **gb** - Secondary user (Gerhard)
   - SSH access configured ✅ (Nov 16, 2025)
   - Public key: `ssh-rsa ...Gerhard@imac-gb.local`
-  - Can connect via: `ssh gb@mba-msww87.lan`
+  - Can connect via: `ssh gb@msww87.lan`
 
 ---
 
@@ -211,7 +211,7 @@ cd nixcfg
 - MQTT broker (mosquitto) actually runs on miniserver24 at 192.168.1.101
 - No physical device or service actively using .100
 
-**Conclusion:** Safe to assign 192.168.1.100 to mba-msww87
+**Conclusion:** Safe to assign 192.168.1.100 to msww87
 
 ---
 
@@ -239,22 +239,22 @@ cd nixcfg
    - **PRIORITY**: Must be done before other changes
    - Current: `https://github.com/pbek/nixcfg.git` (friend's repo, 235 commits behind)
    - Target: `https://github.com/markus-barta/nixcfg.git` (your fork, current)
-   - Guide: [`docs/temporary/mba-msww87-repo-switch-guide.md`](./mba-msww87-repo-switch-guide.md)
+   - Guide: [`docs/temporary/msww87-repo-switch-guide.md`](./msww87-repo-switch-guide.md)
    - Includes: Safe migration plan with rollback options
 
 2. **[ ] Configure Static IP**
-   - Update `hosts/mba-msww87/configuration.nix` with static IP config
+   - Update `hosts/msww87/configuration.nix` with static IP config
    - Fix interface name from `enp3s0f0` to `enp2s0f0`
    - Deploy via `nixos-rebuild switch`
 
 3. **[ ] Add Static DHCP Lease on miniserver99**
    - Get MAC address: `ssh mba@192.168.1.223 "ip link show enp2s0f0 | grep link/ether"`
    - Add to `secrets/static-leases-miniserver99.age`
-   - Format: `{"mac": "XX:XX:XX:XX:XX:XX", "ip": "192.168.1.100", "hostname": "mba-msww87"}`
+   - Format: `{"mac": "XX:XX:XX:XX:XX:XX", "ip": "192.168.1.100", "hostname": "msww87"}`
    - Note: Done via repo switch (step 1)
 
 4. **[ ] Update Documentation**
-   - Add mba-msww87 to `docs/how-it-works.md`
+   - Add msww87 to `docs/how-it-works.md`
    - Update network diagram with .100 assignment
 
 ### Configuration Improvements
@@ -262,7 +262,7 @@ cd nixcfg
 5. **[✅] Add Gerhard's SSH Public Key** (Nov 16, 2025)
    - ✅ Public key added from ~/Downloads/id_rsa.pub
    - ✅ Configured in `users.users.gb.openssh.authorizedKeys.keys`
-   - 📋 Needs deployment: `just switch` on mba-msww87
+   - 📋 Needs deployment: `just switch` on msww87
 
 6. **[ ] Configure Services**
    - Decide which home automation services to run
@@ -290,7 +290,7 @@ ssh mba@192.168.1.223
 
 ```bash
 ssh mba@192.168.1.100
-ssh mba@mba-msww87.lan  # via DNS
+ssh mba@msww87.lan  # via DNS
 ```
 
 ### Managing the System

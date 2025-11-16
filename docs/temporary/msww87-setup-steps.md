@@ -1,6 +1,6 @@
-# mba-msww87 - Quick Setup Guide
+# msww87 - Quick Setup Guide
 
-**Goal**: Configure static IP 192.168.1.100 for mba-msww87 Mac mini
+**Goal**: Configure static IP 192.168.1.100 for msww87 Mac mini
 
 **MAC Address**: `40:6c:8f:18:dd:24`  
 **Current IP**: 192.168.1.223 (DHCP)  
@@ -10,7 +10,7 @@
 
 ## Step 1: Update NixOS Configuration
 
-Edit: `hosts/mba-msww87/configuration.nix`
+Edit: `hosts/msww87/configuration.nix`
 
 Replace the current `networking = { ... }` section with:
 
@@ -53,7 +53,7 @@ networking = {
 
 ## Step 2: Fix hardware-configuration.nix (Optional)
 
-The comment in `hosts/mba-msww87/hardware-configuration.nix` line 36 mentions:
+The comment in `hosts/msww87/hardware-configuration.nix` line 36 mentions:
 
 ```nix
 # networking.interfaces.enp3s0f0.useDHCP = lib.mkDefault true;
@@ -81,7 +81,7 @@ Add this entry to the JSON array:
 {
   "mac": "40:6c:8f:18:dd:24",
   "ip": "192.168.1.100",
-  "hostname": "mba-msww87"
+  "hostname": "msww87"
 }
 ```
 
@@ -95,9 +95,9 @@ Add this entry to the JSON array:
 
 ```bash
 # Commit the configuration changes
-git add hosts/mba-msww87/configuration.nix
+git add hosts/msww87/configuration.nix
 git add secrets/static-leases-miniserver99.age
-git commit -m "feat: configure static IP 192.168.1.100 for mba-msww87"
+git commit -m "feat: configure static IP 192.168.1.100 for msww87"
 
 # Deploy to miniserver99 (for static lease)
 ssh mba@192.168.1.99
@@ -105,7 +105,7 @@ cd ~/Code/nixcfg
 git pull
 just switch
 
-# Deploy to mba-msww87 (for static IP)
+# Deploy to msww87 (for static IP)
 ssh mba@192.168.1.223
 # If nixcfg is not cloned yet:
 mkdir -p ~/Code
@@ -138,8 +138,8 @@ ssh mba@192.168.1.100
 ip addr show enp2s0f0
 
 # Verify DNS resolution
-dig mba-msww87.lan
-ping mba-msww87.lan
+dig msww87.lan
+ping msww87.lan
 
 # On miniserver99, verify static lease
 ssh mba@192.168.1.99
@@ -153,7 +153,7 @@ Expected output:
 {
   "mac": "40:6c:8f:18:dd:24",
   "ip": "192.168.1.100",
-  "hostname": "mba-msww87",
+  "hostname": "msww87",
   "static": true,
   "expires": ""
 }
@@ -172,7 +172,7 @@ After deploying the configuration:
 ssh gb@192.168.1.223  # current IP
 # or
 ssh gb@192.168.1.100  # after static IP
-ssh gb@mba-msww87.lan
+ssh gb@msww87.lan
 ```
 
 Expected: Direct login without password prompt.
@@ -222,9 +222,9 @@ just switch  # This will reload static leases
 ## Quick Commands Reference
 
 ```bash
-# Connect to mba-msww87 (after setup)
+# Connect to msww87 (after setup)
 ssh mba@192.168.1.100
-ssh mba@mba-msww87.lan
+ssh mba@msww87.lan
 
 # Update system
 cd ~/Code/nixcfg
@@ -251,7 +251,7 @@ systemctl status docker
 
 The MAC address `40:6c:8f:18:dd:24` appears in the old Pi-hole configuration at miniserver24 as "miniserver" at 192.168.1.100. This suggests:
 
-- **Possibility 1**: mba-msww87 IS the old "miniserver" that was previously at .100
+- **Possibility 1**: msww87 IS the old "miniserver" that was previously at .100
 - **Possibility 2**: The machine was renamed/repurposed
 
 Either way, this machine has a historical claim to the .100 IP address, which makes the assignment even more appropriate!
@@ -270,7 +270,7 @@ For a home automation server, a static IP is essential because:
 
 ## Related Files
 
-- Configuration: `hosts/mba-msww87/configuration.nix`
-- Hardware: `hosts/mba-msww87/hardware-configuration.nix`
+- Configuration: `hosts/msww87/configuration.nix`
+- Hardware: `hosts/msww87/hardware-configuration.nix`
 - Static leases: `secrets/static-leases-miniserver99.age`
-- Full notes: `docs/temporary/mba-msww87-server-notes.md`
+- Full notes: `docs/temporary/msww87-server-notes.md`

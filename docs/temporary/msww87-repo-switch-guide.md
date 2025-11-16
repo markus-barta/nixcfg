@@ -1,14 +1,14 @@
 # Repository Migration - Switch from pbek to markus-barta
 
 **Date**: November 16, 2025  
-**Machine**: mba-msww87 (192.168.1.223)  
+**Machine**: msww87 (192.168.1.223)  
 **Goal**: Switch from friend's repo to your own fork without breaking anything
 
 ---
 
 ## Current Situation
 
-### On mba-msww87 (server)
+### On msww87 (server)
 
 ```
 Repository: https://github.com/pbek/nixcfg.git (friend's repo)
@@ -30,7 +30,7 @@ Location: ~/Code/nixcfg
 
 ### Phase 1: Prepare (Keep Old Repo as Backup)
 
-**SSH into mba-msww87:**
+**SSH into msww87:**
 
 ```bash
 ssh mba@192.168.1.223
@@ -102,7 +102,7 @@ git status
 
 ```bash
 # Dry-run build test (doesn't activate anything)
-nixos-rebuild dry-build --flake .#mba-msww87
+nixos-rebuild dry-build --flake .#msww87
 
 # If successful, you'll see:
 # "these 123 derivations will be built"
@@ -120,7 +120,7 @@ nixos-rebuild dry-build --flake .#mba-msww87
 
 ```bash
 # Check that Gerhard's key is in the config
-grep -A 2 "users.users.gb" hosts/mba-msww87/configuration.nix
+grep -A 2 "users.users.gb" hosts/msww87/configuration.nix
 
 # Should show the SSH key we just added
 ```
@@ -133,7 +133,7 @@ grep -A 2 "users.users.gb" hosts/mba-msww87/configuration.nix
 
 ```bash
 # Deploy the configuration from your fork
-sudo nixos-rebuild switch --flake .#mba-msww87
+sudo nixos-rebuild switch --flake .#msww87
 
 # This will:
 # - Build the new configuration
@@ -161,7 +161,7 @@ systemctl status
 
 # Verify SSH access still works (you're already connected)
 hostname
-# Should show: mba-msww87
+# Should show: msww87
 
 # Check which configuration is active
 readlink -f /run/current-system/configuration.nix
@@ -212,7 +212,7 @@ cd ~/nixcfg
 git checkout -B main upstream/main
 
 # Deploy the old config
-sudo nixos-rebuild switch --flake .#mba-msww87
+sudo nixos-rebuild switch --flake .#msww87
 ```
 
 ---
@@ -254,15 +254,15 @@ git remote -v
 
 ## Best Practices Going Forward
 
-### On mba-msww87 (and all your servers)
+### On msww87 (and all your servers)
 
 **Workflow:**
 
 1. Make changes on your Mac in `~/Code/nixcfg`
-2. Test locally: `nixos-rebuild build --flake .#mba-msww87`
+2. Test locally: `nixos-rebuild build --flake .#msww87`
 3. Commit and push to your fork: `git push origin main`
 4. SSH to server: `ssh mba@192.168.1.223`
-5. Pull and deploy: `cd ~/nixcfg && git pull && sudo nixos-rebuild switch --flake .#mba-msww87`
+5. Pull and deploy: `cd ~/nixcfg && git pull && sudo nixos-rebuild switch --flake .#msww87`
 
 **Why this works:**
 
@@ -294,10 +294,10 @@ git fetch origin
 git checkout -B main origin/main
 
 # Test build (dry-run)
-nixos-rebuild dry-build --flake .#mba-msww87
+nixos-rebuild dry-build --flake .#msww87
 
 # If successful, deploy
-sudo nixos-rebuild switch --flake .#mba-msww87
+sudo nixos-rebuild switch --flake .#msww87
 
 # Verify
 git remote -v
@@ -339,7 +339,7 @@ git config --global credential.helper store
 nix flake update
 
 # Try build again
-nixos-rebuild dry-build --flake .#mba-msww87
+nixos-rebuild dry-build --flake .#msww87
 ```
 
 ### Issue: Configuration file not found
@@ -350,7 +350,7 @@ nixos-rebuild dry-build --flake .#mba-msww87
 
 ```bash
 # Verify the host config exists
-ls -la hosts/mba-msww87/
+ls -la hosts/msww87/
 
 # Check flake outputs
 nix flake show
@@ -394,9 +394,9 @@ Once the migration is complete:
 
 ## Related Documentation
 
-- [mba-msww87 Server Notes](./mba-msww87-server-notes.md)
+- [msww87 Server Notes](./msww87-server-notes.md)
 - [SSH Key Configuration](./ssh-key-gerhard-added.md)
-- [Static IP Setup](./mba-msww87-setup-steps.md)
+- [Static IP Setup](./msww87-setup-steps.md)
 
 ---
 
