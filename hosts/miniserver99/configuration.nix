@@ -72,6 +72,8 @@
           icmp_timeout_msec = 1000;
 
           # Add DHCP Option 15 (domain name)
+          # Format: "option_code type value"
+          # See: https://github.com/AdguardTeam/AdGuardHome/wiki/DHCP
           options = [
             "15 text lan"
           ];

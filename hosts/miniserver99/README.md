@@ -444,8 +444,38 @@ ssh-keyscan 192.168.1.99
 
 - DHCP server with range 192.168.1.201-254
 - 107 static DHCP lease assignments (declarative, encrypted with agenix)
-- Custom DHCP options
+- Custom DHCP options fully supported (✅ verified working with AdGuard Home v0.107.65)
 - Integration with DNS resolution
+
+### Search Domain Configuration (✅ Working)
+
+**Status:** DHCP Option 15 (domain name/search domain) is configured declaratively and **successfully transmitted** by AdGuard Home v0.107.65.
+
+**Configuration:**
+
+```nix
+services.adguardhome.settings.dhcp.dhcpv4.options = [
+  "15 text lan"
+];
+```
+
+**Result:** All DHCP clients automatically receive the `.lan` search domain and can access local hosts by short hostname (e.g., `http://vr-shelly-pro-4-heizung1` works without the `.lan` suffix).
+
+**Verification:** You can confirm Option 15 is being transmitted by capturing DHCP traffic:
+
+```bash
+# On the server
+ssh mba@192.168.1.99 "sudo tcpdump -i enp2s0f0 -vvv -n 'udp port 67 or udp port 68' -c 4"
+
+# Then renew DHCP lease on a client
+# Look for: Domain-Name (15), length 3: "lan"
+```
+
+**Tested and confirmed working on:**
+
+- macOS (shows "lan" as default search domain in System Settings)
+- Apple Airport devices (verified in packet captures)
+- Other DHCP clients (option transmitted to all)
 
 ### Administration
 
