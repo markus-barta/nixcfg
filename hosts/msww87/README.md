@@ -279,7 +279,7 @@ The MAC address `40:6c:8f:18:dd:24` has a static lease configured in miniserver9
 **Always enabled:**
 
 - TCP: 22 (SSH), 80 (HTTP), 443 (HTTPS), 8883 (MQTT)
-- UDP: 443 (HTTPS)
+- UDP: 9 (Wake-on-LAN), 443 (HTTPS)
 
 **When at ww87 (parents' home):**
 
@@ -383,6 +383,42 @@ ssh mba@msww87.lan
 
 # As Gerhard
 ssh gb@192.168.1.100
+```
+
+### Wake-on-LAN (Remote Power On)
+
+The server supports Wake-on-LAN for remote power management.
+
+**From your Mac:**
+
+```bash
+# Wake up msww87
+wakeonlan -i 192.168.1.100 40:6c:8f:18:dd:24
+
+# Or use broadcast address
+wakeonlan -i 192.168.1.255 40:6c:8f:18:dd:24
+```
+
+**From miniserver24 or miniserver99:**
+
+```bash
+wol 40:6c:8f:18:dd:24
+```
+
+**Requirements:**
+
+- ✅ Server must be plugged into power (soft shutdown state)
+- ✅ Ethernet cable must be connected
+- ✅ Network switch/router must be powered on
+- ⚠️ Won't work if server is unplugged or hard power switch is off
+
+**Verification:**
+
+```bash
+# On msww87, check WoL status
+sudo ethtool enp2s0f0 | grep Wake
+
+# Should show: Wake-on: g (magic packet mode enabled)
 ```
 
 ### Updating the System

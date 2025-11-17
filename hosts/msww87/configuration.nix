@@ -65,6 +65,12 @@ in
           prefixLength = 24;
         }
       ];
+
+      # Enable Wake-on-LAN for remote power management
+      wakeOnLan = {
+        enable = true;
+        policy = [ "magic" ]; # Respond to magic packets
+      };
     };
 
     # Firewall configuration
@@ -80,6 +86,7 @@ in
         3000 # AdGuard Home web interface
       ];
       allowedUDPPorts = [
+        9 # Wake-on-LAN magic packets
         443 # HTTPS
       ]
       ++ lib.optionals enableAdGuard [
