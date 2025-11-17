@@ -279,12 +279,14 @@ The MAC address `40:6c:8f:18:dd:24` has a static lease configured in miniserver9
 **Always enabled:**
 
 - TCP: 22 (SSH), 80 (HTTP), 443 (HTTPS), 8883 (MQTT)
-- UDP: 9 (Wake-on-LAN), 443 (HTTPS)
+- UDP: 443 (HTTPS)
 
 **When at ww87 (parents' home):**
 
 - TCP: 53 (DNS), 3000 (AdGuard Home web UI)
 - UDP: 53 (DNS), 67 (DHCP)
+
+**Note:** Wake-on-LAN doesn't require firewall rules - magic packets are received by the NIC hardware when the system is powered off, before the OS/firewall runs.
 
 ---
 

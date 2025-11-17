@@ -86,7 +86,6 @@ in
         3000 # AdGuard Home web interface
       ];
       allowedUDPPorts = [
-        9 # Wake-on-LAN magic packets
         443 # HTTPS
       ]
       ++ lib.optionals enableAdGuard [
