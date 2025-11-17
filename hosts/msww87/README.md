@@ -96,10 +96,16 @@ The `enable-ww87` command is a one-step solution for switching the server from t
 
 ### Usage
 
-```bash
-# SSH into the server
-ssh mba@192.168.1.100
+**Prerequisites for deployment to parents' home:**
 
+- ✅ Server physically at parents' home
+- ✅ Connected to parents' network
+- ✅ Physical/console access required (remote SSH won't work with wrong gateway)
+
+**At the physical server console:**
+
+```bash
+# Log in as mba at the console
 # Run the deployment script
 enable-ww87
 ```
@@ -114,6 +120,12 @@ The script will:
 6. ✅ Show status and next steps
 
 **Important**: Configuration is applied BEFORE committing/pushing to ensure the network gateway is correct for Git operations.
+
+**After deployment**, remote access works:
+
+```bash
+ssh mba@192.168.1.100
+```
 
 ### What It Does NOT Do
 
@@ -155,16 +167,21 @@ ss -ulnp | grep :67
 
 ### Reverting to jhw22
 
-To switch back to Markus' home configuration:
+To switch back to Markus' home configuration (requires physical access at Markus' home):
 
 ```bash
+# At physical console
 cd ~/nixcfg
 nano hosts/msww87/configuration.nix
 # Change: location = "ww87" → location = "jhw22"
+
+# Apply first (network reconfigures)
+nixos-rebuild switch --flake .#msww87
+
+# Then commit/push
 git add hosts/msww87/configuration.nix
 git commit -m "feat(msww87): revert to jhw22 location"
 git push
-nixos-rebuild switch --flake .#msww87
 ```
 
 ---

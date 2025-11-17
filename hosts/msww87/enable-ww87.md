@@ -36,14 +36,31 @@ The `enable-ww87` script is a one-command solution for switching the msww87 serv
 
 ### Initial Deployment to Parents' Home
 
-```bash
-# SSH into the server (while at Markus' home)
-ssh mba@192.168.1.100
+**Prerequisites:**
 
-# Run the script
+1. ✅ Server is physically located at parents' home
+2. ✅ Server is connected to parents' network (ethernet cable plugged in)
+3. ✅ You have physical/console access to the server
+
+**Why physical access?** The server is currently configured for Markus' home network (gateway 192.168.1.5). At parents' home, this gateway doesn't exist, so remote SSH won't work until after running the script.
+
+**Steps:**
+
+```bash
+# 1. At the physical server console, log in as mba
+# 2. Run the deployment script
 enable-ww87
 
-# Follow prompts, then press Enter to apply configuration
+# 3. Follow prompts, then press Enter to apply configuration
+# 4. Network will reconfigure (gateway 192.168.1.5 → 192.168.1.1)
+# 5. AdGuard Home will start
+# 6. Changes will be committed and pushed to Git
+```
+
+**After successful deployment**, you can access remotely:
+
+```bash
+ssh mba@192.168.1.100
 ```
 
 ### After Running
@@ -93,17 +110,24 @@ ss -ulnp | grep :67
 
 ## Reverting to jhw22 (If Needed)
 
-To switch back to Markus' home configuration:
+To switch back to Markus' home configuration (requires physical access at Markus' home for the same gateway mismatch reason):
 
 ```bash
+# At physical console at Markus' home
 cd ~/nixcfg
 nano hosts/msww87/configuration.nix
 # Change: location = "ww87" → location = "jhw22"
+
+# Apply first (network reconfigures)
+nixos-rebuild switch --flake .#msww87
+
+# Then commit/push (after network is working)
 git add hosts/msww87/configuration.nix
 git commit -m "feat(msww87): revert to jhw22 location"
 git push
-nixos-rebuild switch --flake .#msww87
 ```
+
+**Note**: Same logic applies - apply config first to fix gateway, then commit/push.
 
 ## Troubleshooting
 
