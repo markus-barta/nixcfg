@@ -67,6 +67,13 @@ in
       ];
     };
 
+    # Tell NetworkManager to not manage this interface (it's statically configured)
+    networkmanager.unmanaged = [ "enp2s0f0" ];
+
+    # Explicitly disable DHCP on this interface
+    useDHCP = false;
+    interfaces.enp2s0f0.useDHCP = false;
+
     # Firewall configuration
     firewall = {
       enable = true;
