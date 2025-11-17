@@ -91,7 +91,10 @@ in
       };
 
       # use "git diff --no-ext-diff" for creating patches!
-      programs.difftastic.enable = true;
+      programs.difftastic = {
+        enable = true;
+        git.enable = true;
+      };
 
       # Helper for merge conflicts for git
       # https://mergiraf.org/

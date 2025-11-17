@@ -20,6 +20,7 @@ user := `whoami`
 
 alias s := switch
 alias ss := switch-simple
+alias hs := home-switch
 alias u := upgrade
 alias c := cleanup
 alias b := build
@@ -125,6 +126,20 @@ switch args='':
     runtime=$((end_time - start_time))
     if [ $runtime -gt 10 ]; then
       just _notify "switch finished on {{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
+    fi
+
+# Build and switch home-manager configuration (for macOS/standalone home-manager)
+[group('build')]
+home-switch args='':
+    #!/usr/bin/env bash
+    echo "🏠 Running home-manager switch for {{ user }}@{{ hostname }}..."
+    start_time=$(date +%s)
+    home-manager switch --flake ".#{{ user }}@{{ hostname }}" {{ args }}
+    end_time=$(date +%s)
+    exit_code=$?
+    runtime=$((end_time - start_time))
+    if [ $runtime -gt 10 ]; then
+      just _notify "home-manager switch finished for {{ user }}@{{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
     fi
 
 # Build the current host with nix-rebuild

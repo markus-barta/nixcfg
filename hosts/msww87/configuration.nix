@@ -65,12 +65,6 @@ in
           prefixLength = 24;
         }
       ];
-
-      # Enable Wake-on-LAN for remote power management
-      wakeOnLan = {
-        enable = true;
-        policy = [ "magic" ]; # Respond to magic packets
-      };
     };
 
     # Firewall configuration
@@ -236,9 +230,6 @@ in
 
   # Helper script to enable ww87 location (for moving to parents' home)
   environment.systemPackages = [
-    # Network tools (always available)
-    pkgs.ethtool # Check/configure network interface settings (including WoL status)
-
     (pkgs.writeScriptBin "enable-ww87" ''
       #!/usr/bin/env bash
       set -euo pipefail

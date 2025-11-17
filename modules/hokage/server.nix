@@ -56,14 +56,22 @@ in
     home-manager.users = lib.genAttrs hokage.usersWithRoot (_userName: {
       programs.git = {
         enable = true;
-        # use "git diff --no-ext-diff" for creating patches!
-        difftastic.enable = true;
-        userName = lib.mkDefault userNameLong;
-        userEmail = lib.mkDefault userEmail;
+        settings = {
+          user = {
+            name = lib.mkDefault userNameLong;
+            email = lib.mkDefault userEmail;
+          };
+        };
         ignores = [
           ".idea"
           ".direnv"
         ];
+      };
+
+      # use "git diff --no-ext-diff" for creating patches!
+      programs.difftastic = {
+        enable = true;
+        git.enable = true;
       };
     });
 
