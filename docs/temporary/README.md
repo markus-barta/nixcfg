@@ -30,13 +30,13 @@ These files may be moved to proper documentation locations, archived, or deleted
 - Location: `jhw22` (testing at Markus' home)
 - Ready for parents' home: Run `enable-ww87` on the server
 
-**Documentation Archived**:
+**Documentation Location**:
 
-- All setup notes consolidated into `hosts/msww87/README.md`
-- Archived step-by-step guides in `archived/` subdirectory
-- enable-ww87 script documentation: `msww87-enable-ww87-script.md`
+- Main documentation: `hosts/msww87/README.md`
+- Deployment script guide: `hosts/msww87/enable-ww87.md`
+- Archived setup guides: `archived/` subdirectory
 
-**See**: `hosts/msww87/README.md` for complete documentation
+**All active documentation moved to host directory**
 
 ## Temporary vs Permanent Documentation
 

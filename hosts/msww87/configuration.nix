@@ -306,7 +306,26 @@ in
       git diff hosts/msww87/configuration.nix | grep -A2 -B2 "location ="
       echo
 
-      # Commit and push
+      # Apply the configuration FIRST (before committing/pushing)
+      echo "🚀 Applying new configuration..."
+      echo "This will:"
+      echo "  - Enable AdGuard Home (DNS on port 53, Web UI on port 3000)"
+      echo "  - Switch gateway to 192.168.1.1"
+      echo "  - Use local DNS (127.0.0.1)"
+      echo "  - Change search domain to 'local'"
+      echo
+      echo "⚠️  Network will be reconfigured. You may lose SSH connection briefly."
+      echo
+      read -p "Press Enter to continue or Ctrl+C to cancel..."
+      echo
+
+      nixos-rebuild switch --flake .#msww87
+
+      echo
+      echo "✅ Configuration applied successfully!"
+      echo
+
+      # Commit and push AFTER network is reconfigured
       echo "💾 Committing change..."
       git add hosts/msww87/configuration.nix
       git commit -m "feat(msww87): enable ww87 location (parents' home)"
@@ -315,19 +334,6 @@ in
       echo "📤 Pushing to remote..."
       git push
       echo
-
-      # Apply the configuration
-      echo "🚀 Applying new configuration..."
-      echo "This will:"
-      echo "  - Enable AdGuard Home (DNS on port 53, Web UI on port 3000)"
-      echo "  - Switch gateway to 192.168.1.1"
-      echo "  - Use local DNS (127.0.0.1)"
-      echo "  - Change search domain to 'local'"
-      echo
-      read -p "Press Enter to continue or Ctrl+C to cancel..."
-      echo
-
-      nixos-rebuild switch --flake .#msww87
 
       echo
       echo "✅ Successfully enabled ww87 configuration!"

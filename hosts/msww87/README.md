@@ -92,6 +92,8 @@ Based on this variable, the configuration automatically adjusts:
 
 The `enable-ww87` command is a one-step solution for switching the server from testing (jhw22) to production (ww87) configuration.
 
+**See**: [enable-ww87.md](./enable-ww87.md) for complete documentation.
+
 ### Usage
 
 ```bash
@@ -105,11 +107,13 @@ enable-ww87
 The script will:
 
 1. ✅ Change location from "jhw22" → "ww87"
-2. ✅ Commit and push changes to Git
-3. ✅ Apply configuration via `nixos-rebuild switch`
+2. ✅ Apply configuration via `nixos-rebuild switch` (network reconfigures)
+3. ✅ Commit and push changes to Git (after network is working)
 4. ✅ Enable AdGuard Home (DNS + web UI)
 5. ✅ Update network settings automatically
 6. ✅ Show status and next steps
+
+**Important**: Configuration is applied BEFORE committing/pushing to ensure the network gateway is correct for Git operations.
 
 ### What It Does NOT Do
 

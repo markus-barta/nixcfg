@@ -16,14 +16,16 @@ The `enable-ww87` script is a one-command solution for switching the msww87 serv
 
 1. ✅ Checks current location setting
 2. ✅ Changes location from "jhw22" → "ww87" in configuration.nix
-3. ✅ Commits and pushes the change to Git
-4. ✅ Applies the new configuration via `nixos-rebuild switch`
+3. ✅ Applies the new configuration via `nixos-rebuild switch` (network reconfigures)
+4. ✅ Commits and pushes the change to Git (after network is working)
 5. ✅ Enables AdGuard Home (DNS server + web interface)
 6. ✅ Updates network settings:
    - Gateway: 192.168.1.5 → 192.168.1.1
    - DNS: miniserver99 → local AdGuard (127.0.0.1)
    - Search domain: lan → local
 7. ✅ Opens firewall ports for DNS (53) and AdGuard UI (3000)
+
+**Important**: The script applies the configuration BEFORE committing/pushing to Git. This ensures the network gateway is reconfigured before attempting to push to GitHub.
 
 ### What It Does NOT Do (By Design)
 
@@ -133,9 +135,9 @@ journalctl -u adguardhome -n 50
 
 ## Related Documentation
 
-- [msww87 README](../../hosts/msww87/README.md) - Complete server documentation
-- [msww87 Configuration](../../hosts/msww87/configuration.nix) - NixOS configuration file
-- [Archived Setup Guides](./archived/) - Historical setup documentation
+- [msww87 README](./README.md) - Complete server documentation
+- [msww87 Configuration](./configuration.nix) - NixOS configuration file
+- [Archived Setup Guides](../../docs/temporary/archived/) - Historical setup documentation
 
 ---
 
