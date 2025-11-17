@@ -19,28 +19,24 @@ These files may be moved to proper documentation locations, archived, or deleted
 
 ### msww87 Server Setup (November 16, 2025)
 
-**Context**: Configuring msww87 Mac mini at parents' home with location-based config
+**Status**: ✅ **COMPLETED** - All configuration files moved to `hosts/msww87/README.md`
 
-- **ip-100-investigation-summary.md** - IP address investigation (✅ 192.168.1.100 approved)
-- **msww87-server-notes.md** - Detailed system analysis and hardware specifications
-- **msww87-setup-steps.md** - Step-by-step static IP configuration guide
-- **msww87-ssh-key-gerhard.md** - Gerhard's SSH key configuration (✅ added, deployed)
-- **msww87-repo-switch-guide.md** - Safe migration from pbek/nixcfg to markus-barta/nixcfg (✅ completed)
-- **msww87-enable-ww87-script.md** - One-command deployment script for parents' home (✅ ready)
+**Context**: Mac mini 2011 configured as parents' home automation server with location-based configuration.
 
-**Current Status** (✅ Deployed):
+**Deployed Configuration**:
 
 - Hostname: `msww87` (renamed from mba-msww87)
 - Static IP: `192.168.1.100`
 - Location: `jhw22` (testing at Markus' home)
 - Ready for parents' home: Run `enable-ww87` on the server
 
-**Key Findings**:
+**Documentation Archived**:
 
-- MAC `40:6c:8f:18:dd:24` matches old "miniserver" - this machine previously held .100
-- Gerhard's SSH public key configured for `gb` user account
-- Interface is `enp2s0f0` (not `enp3s0f0` as noted in hardware-config comments)
-- Location-based configuration switches network settings and enables AdGuard Home
+- All setup notes consolidated into `hosts/msww87/README.md`
+- Archived step-by-step guides in `archived/` subdirectory
+- enable-ww87 script documentation: `msww87-enable-ww87-script.md`
+
+**See**: `hosts/msww87/README.md` for complete documentation
 
 ## Temporary vs Permanent Documentation
 

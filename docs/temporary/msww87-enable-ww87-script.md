@@ -133,9 +133,9 @@ journalctl -u adguardhome -n 50
 
 ## Related Documentation
 
-- [msww87 Server Notes](./msww87-server-notes.md)
-- [msww87 Setup Steps](./msww87-setup-steps.md)
-- [IP 192.168.1.100 Investigation](./ip-100-investigation-summary.md)
+- [msww87 README](../../hosts/msww87/README.md) - Complete server documentation
+- [msww87 Configuration](../../hosts/msww87/configuration.nix) - NixOS configuration file
+- [Archived Setup Guides](./archived/) - Historical setup documentation
 
 ---
 
