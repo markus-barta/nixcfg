@@ -42,9 +42,7 @@ hosts/miniserver99/real-static-leases.nix
 # Security-sensitive investigation and documentation
 docs/investigation-private/
 docs/migration-2025-11/
-docs/temporary/PICK-UP-HERE.md
-docs/temporary/dns-barta-cm.md
-docs/temporary/secrets-migration-plan.md
+docs/private/
 *-private/
 *.sensitive.*
 
