@@ -1,0 +1,55 @@
+---
+description: Prevent creation of new markdown files unless explicitly requested
+globs: **/*.md
+alwaysApply: true
+---
+
+# Markdown File Creation Policy
+
+## ⛔ CRITICAL RULE: Do NOT Create New Markdown Files
+
+**NEVER** create new `.md` files unless the user **EXPLICITLY** requests it with phrases like:
+- "Create a new markdown file called X"
+- "Make a new README for Y"
+- "Add a new doc file for Z"
+
+If you think a new file might be useful, **ASK FIRST** instead of creating it.
+
+## ✅ What You CAN Do (No Permission Needed)
+
+- Edit any existing `.md` files
+- Update, reorganize, or improve existing documentation
+- Migrate content between existing files
+- Add sections to existing documentation
+- Consolidate multiple files into fewer files
+- Delete unnecessary files
+
+## 🎯 Default Behavior
+
+When the user says "document this" or "add documentation for X":
+
+1. **First**: Check if existing documentation can be updated
+2. **Then**: Update the most relevant existing file (e.g., RUNBOOK.md, README.md)
+3. **Never**: Create a new file unless explicitly told to
+
+## 📂 Philosophy: Less is More
+
+- Prefer consolidating information into existing files
+- Aim for fewer, well-organized files over many small files
+- When in doubt: edit existing files, don't create new ones
+
+## Examples
+
+### ✅ GOOD Responses:
+- User: "Document the backup system"
+- AI: "I'll add this to the existing RUNBOOK.md under the Backup System section"
+
+### ❌ BAD Responses:
+- User: "Document the backup system"
+- AI: *Creates new file: BACKUP-DOCUMENTATION.md*
+
+## If Unsure
+
+When you're tempted to create a new file, ask:
+- "Should I add this to RUNBOOK.md or would you prefer a new file?"
+- "Where would you like me to document this?"

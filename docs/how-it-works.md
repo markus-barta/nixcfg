@@ -21,7 +21,7 @@ This configuration manages your entire computing environment:
 **Cloud Servers:**
 
 - **csb0** (cs0.barta.cm) - Automation server with Node-RED, Mosquitto MQTT, Bitwarden, Traefik
-- **csb1** (cs1.barta.cm) - Monitoring & docs with Grafana, InfluxDB, Hedgedoc, Docmost, Paperless
+- **csb1** (cs1.barta.cm) - Monitoring & docs with Grafana, InfluxDB, Docmost, Paperless
 
 **Workstations:**
 
@@ -50,8 +50,8 @@ Each subdirectory represents one physical computer or VM.
 
 - `hosts/miniserver99/` - DNS & DHCP server (AdGuard Home)
 - `hosts/miniserver24/` - Smart home hub (Node-RED, MQTT, HomeKit, VLC kiosk, UPS)
-- `hosts/csb0/` - Cloud automation server (⚠️ needs config extraction)
-- `hosts/csb1/` - Cloud monitoring & docs (⚠️ needs config extraction)
+- `hosts/csb0/` - Cloud automation server (mixins → hokage migration planned after csb1)
+- `hosts/csb1/` - Cloud monitoring & docs (mixins → hokage migration scheduled Nov 22, 2025)
 - `hosts/imac-mba-home/` - macOS development machine
 - `hosts/mba-gaming-pc/` - Gaming desktop
 
