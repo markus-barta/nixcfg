@@ -40,8 +40,7 @@ docs/secrets-inventory.md
 hosts/miniserver99/real-static-leases.nix
 
 # Security-sensitive investigation and documentation
-docs/investigation/
-docs/migration-2025-11/
+# Everything under docs/private/ is gitignored (investigations, migrations, sensitive docs)
 docs/private/
 *-private/
 *.sensitive.*
