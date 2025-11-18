@@ -40,7 +40,7 @@ docs/secrets-inventory.md
 hosts/miniserver99/real-static-leases.nix
 
 # Security-sensitive investigation and documentation
-docs/investigation-private/
+docs/investigation/
 docs/migration-2025-11/
 docs/private/
 *-private/
