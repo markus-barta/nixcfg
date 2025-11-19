@@ -242,7 +242,7 @@ in
       set -euo pipefail
 
       # ============================================================================
-      # enable-ww87 - Switch msww87 to Parents' Home Configuration
+      # enable-ww87 - Switch hsb8 to Parents' Home Configuration
       # ============================================================================
       # This script switches the server to "ww87" location configuration:
       # - Changes gateway from 192.168.1.5 → 192.168.1.1
@@ -251,14 +251,14 @@ in
       # - Switches DNS from miniserver99 → local AdGuard
       #
       # DHCP is DISABLED by default for safety. To enable DHCP:
-      # 1. Edit ~/nixcfg/hosts/msww87/configuration.nix
+      # 1. Edit ~/nixcfg/hosts/hsb8/configuration.nix
       # 2. Find: dhcp.enabled = false
       # 3. Change to: dhcp.enabled = true
-      # 4. Run: nixos-rebuild switch --flake ~/nixcfg#msww87
+      # 4. Run: nixos-rebuild switch --flake ~/nixcfg#hsb8
       # ============================================================================
 
       NIXCFG_DIR="$HOME/nixcfg"
-      CONFIG_FILE="$NIXCFG_DIR/hosts/msww87/configuration.nix"
+      CONFIG_FILE="$NIXCFG_DIR/hosts/hsb8/configuration.nix"
 
       echo "🏠 Enabling ww87 (Parents' Home) Configuration..."
       echo
@@ -310,7 +310,7 @@ in
 
       # Show the change
       echo "📝 Configuration change:"
-      git diff hosts/msww87/configuration.nix | grep -A2 -B2 "location ="
+      git diff hosts/hsb8/configuration.nix | grep -A2 -B2 "location ="
       echo
 
       # Apply the configuration FIRST (before committing/pushing)
@@ -326,7 +326,7 @@ in
       read -p "Press Enter to continue or Ctrl+C to cancel..."
       echo
 
-      nixos-rebuild switch --flake .#msww87
+      nixos-rebuild switch --flake .#hsb8
 
       echo
       echo "✅ Configuration applied successfully!"
@@ -334,8 +334,8 @@ in
 
       # Commit and push AFTER network is reconfigured
       echo "💾 Committing change..."
-      git add hosts/msww87/configuration.nix
-      git commit -m "feat(msww87): enable ww87 location (parents' home)"
+      git add hosts/hsb8/configuration.nix
+      git commit -m "feat(hsb8): enable ww87 location (parents' home)"
       echo
 
       echo "📤 Pushing to remote..."
@@ -360,7 +360,7 @@ in
       echo "To enable DHCP server:"
       echo "  1. Edit: $CONFIG_FILE"
       echo "  2. Change: dhcp.enabled = false → true"
-      echo "  3. Run: nixos-rebuild switch --flake ~/nixcfg#msww87"
+      echo "  3. Run: nixos-rebuild switch --flake ~/nixcfg#hsb8"
       echo
       echo "✨ Done! The server is now configured for parents' home."
     '')
