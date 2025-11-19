@@ -20,8 +20,8 @@ This configuration manages your entire computing environment:
 
 **Cloud Servers:**
 
-- **csb0** (cs0.barta.cm) - Automation server with Node-RED, Mosquitto MQTT, Bitwarden, Traefik
-- **csb1** (cs1.barta.cm) - Monitoring & docs with Grafana, InfluxDB, Docmost, Paperless
+- **csb0** (cs0.barta.cm) - Smart home automation hub with Node-RED, Mosquitto MQTT, Telegram bot (garage door control), Traefik (Bitwarden test-only, being decommissioned)
+- **csb1** (cs1.barta.cm) - Monitoring & docs with Grafana, InfluxDB (fed by csb0 MQTT), Docmost, Paperless
 
 **Workstations:**
 
@@ -50,8 +50,8 @@ Each subdirectory represents one physical computer or VM.
 
 - `hosts/miniserver99/` - DNS & DHCP server (AdGuard Home)
 - `hosts/miniserver24/` - Smart home hub (Node-RED, MQTT, HomeKit, VLC kiosk, UPS)
-- `hosts/csb0/` - Cloud automation server (mixins → hokage migration planned after csb1)
-- `hosts/csb1/` - Cloud monitoring & docs (mixins → hokage migration scheduled Nov 22, 2025)
+- `hosts/csb0/` - Cloud automation server (NixOS with old mixins structure, needs hokage migration)
+- `hosts/csb1/` - Cloud monitoring & docs (Ubuntu 24.04, NixOS + hokage migration scheduled Nov 22, 2025)
 - `hosts/imac-mba-home/` - macOS development machine
 - `hosts/mba-gaming-pc/` - Gaming desktop
 
@@ -196,7 +196,11 @@ Manages CLI tools, shell config, fonts, WezTerm terminal—all declaratively!
 
 ### csb0 & csb1 - Cloud Servers
 
-Currently deployed manually, but configurations will be extracted and managed here too. Goal: one `nixos-rebuild` command updates your entire cloud infrastructure.
+**csb0**: Already running NixOS (255 days uptime) with the OLD `modules/mixins` structure. Needs migration to new hokage structure after csb1 migration succeeds.
+
+**csb1**: Running Ubuntu 24.04 with Docker services. Scheduled for NixOS + hokage migration on November 22, 2025.
+
+**Critical dependency**: csb1's InfluxDB receives IoT data from csb0's MQTT broker. Both servers share the same Hetzner backup repository, with csb0 managing cleanup for both.
 
 ## Key Concepts
 
@@ -253,7 +257,7 @@ Your Fish shell has handy abbreviations:
 **For Your Setup Specifically:**
 
 - **Home Lab**: miniserver99 (DNS) and miniserver24 (automation) share common configuration but have unique services
-- **Cloud Infrastructure**: csb0 and csb1 will be fully declarative—no more manual server tweaking
+- **Cloud Infrastructure**: csb0 (NixOS with old mixins) and csb1 (Ubuntu, migrating soon) being unified under hokage structure
 - **Development Machine**: Your macOS iMac uses the same Fish config, Git setup, and tools as your NixOS machines
 - **One Source of Truth**: All network infrastructure in one Git repo
 - **Disaster Recovery**: Lost a miniserver? Reinstall NixOS, point it to this repo, done.

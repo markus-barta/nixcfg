@@ -1,6 +1,6 @@
 ---
 description: Prevent creation of new markdown files unless explicitly requested
-globs: **/*.md
+globs: "**/*"
 alwaysApply: true
 ---
 

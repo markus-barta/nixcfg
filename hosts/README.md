@@ -4,156 +4,174 @@ This directory contains configuration for all managed hosts (NixOS and macOS sys
 
 ---
 
+## 🏗️ Infrastructure Overview
+
+### Unified Naming Scheme (2025)
+
+**Pattern**: Consistent 3-4 letter codes with numbers for scalability
+
+```
+SERVERS:
+  csb0, csb1              ← Cloud Server Barta (Hetzner VPS)
+  hsb0, hsb1, hsb8        ← Home Server Barta (local infrastructure)
+
+WORKSTATIONS:
+  imac0                   ← iMac (Markus, home)
+  imac1                   ← iMac (Mai, home)
+  mbp0                    ← MacBook Pro (Markus, personal - future)
+
+GAMING:
+  pcg0                    ← PC Gaming (Markus, NixOS)
+  stm0, stm1              ← Steam Machines (family - future)
+```
+
+### Active Hosts
+
+#### Cloud Servers (Remote VPS)
+
+| Host   | Old Name | Location | Role            | IP/FQDN      | Status                  |
+| ------ | -------- | -------- | --------------- | ------------ | ----------------------- |
+| `csb0` | csb0     | Hetzner  | Smart Home Hub  | cs0.barta.cm | ✅ Active (257d uptime) |
+| `csb1` | csb1     | Hetzner  | Monitoring/Docs | cs1.barta.cm | ✅ Active               |
+
+#### Home Servers (Local Infrastructure)
+
+| Host   | Old Name     | Location | Role       | IP            | Status                 |
+| ------ | ------------ | -------- | ---------- | ------------- | ---------------------- |
+| `hsb0` | miniserver99 | Home     | DNS/DHCP   | 192.168.1.99  | 🔄 Migration pending   |
+| `hsb1` | miniserver24 | Home     | Automation | 192.168.1.101 | 🔄 Migration pending   |
+| `hsb8` | msww87       | Parents  | DNS/DHCP   | 192.168.1.100 | 🚀 **Migrating first** |
+
+#### Workstations (Personal Machines)
+
+| Host    | Old Name (Config) | Old Name (Network) | Owner  | IP            | Status                |
+| ------- | ----------------- | ------------------ | ------ | ------------- | --------------------- |
+| `imac0` | imac-mba-home     | wz-imac-home-mba   | Markus | 192.168.1.150 | 🔄 Migration pending  |
+| `imac1` | -                 | wz-imac-mpe        | Mai    | 192.168.1.152 | ⏳ Future (DHCP only) |
+| `mbp0`  | -                 | -                  | Markus | -             | ⏳ Future             |
+
+#### Gaming Systems
+
+| Host   | Old Name      | Owner  | IP            | Status               |
+| ------ | ------------- | ------ | ------------- | -------------------- |
+| `pcg0` | mba-gaming-pc | Markus | 192.168.1.154 | 🔄 Migration pending |
+| `stm0` | -             | Family | -             | ⏳ Future            |
+| `stm1` | -             | Family | -             | ⏳ Future            |
+
+---
+
+## 📋 Migration Status
+
+### Migration Strategy
+
+**Guinea Pig Approach**: Start with lowest-risk systems, learn, then migrate critical infrastructure
+
+| Priority | Host    | Risk Level  | Reason                               | Status           |
+| -------- | ------- | ----------- | ------------------------------------ | ---------------- |
+| 1        | `hsb8`  | 🟢 Very Low | Fresh install, not in production     | 🚀 In Progress   |
+| 2        | `hsb1`  | 🟡 Medium   | Home automation, but less critical   | ⏳ Next          |
+| 3        | `hsb0`  | 🔴 High     | DNS/DHCP, 200+ days uptime, critical | ⏳ After hsb1    |
+| 4        | `imac0` | 🟢 Low      | Workstation, DHCP+config rename      | ⏳ After servers |
+| 5        | `pcg0`  | 🟢 Low      | Gaming PC, non-critical              | ⏳ After imac0   |
+
+### Why This Order?
+
+1. **hsb8** - Test naming + hokage pattern on fresh, non-critical system
+2. **hsb1** - Apply lessons to production, but less critical than DNS
+3. **hsb0** - Most critical (DNS/DHCP), migrate last with full confidence
+4. **Workstations** - After infrastructure stable
+
+---
+
 ## Ownership & Organization
 
 ### MBA Hosts (Markus Barta)
 
-**Personal Machines**:
+**Cloud Servers**:
 
-- `imac-mba-home` - Home iMac 27" (macOS, home-manager)
-  - Main development machine
-  - Suffix indicates there are multiple iMacs in household
-- `gaming-pc-mba` - Gaming PC (NixOS)
-  - High-performance gaming machine
-  - Suffix allows for potential second gaming PC
+- csb0, csb1 - Production cloud infrastructure (Netcup VPS)
 
-**Servers - Local** (Shared Infrastructure):
+**Home Servers**:
 
-- `msww87` - MiniServer WW87 (NixOS)
-  - Location: Father's house (remote location)
-  - Purpose: Home automation server (similar to miniserver24 + miniserver99 combined)
-  - Status: Running, planned for updates based on miniserver24/99 improvements
-  - Setup: Based on friend's suggestions, to be modernized
-- `miniserver24` - Server with restic backups to Hetzner (NixOS)
-- `miniserver99` - DNS/DHCP Server with AdGuard Home (NixOS)
-  - Network infrastructure
-  - Serves entire household/network
+- hsb0, hsb1, hsb8 - Local infrastructure (DNS, DHCP, automation)
 
-**Servers - Cloud** (Netcup VPS):
+**Workstations**:
 
-- `csb0` - Cloud Server Barta 0 (NixOS) ⚠️ _Not yet in repo_
-  - Netcup VPS
-  - Backups to Hetzner storage
-- `csb1` - Cloud Server Barta 1 (NixOS) ⚠️ _Not yet in repo_
-  - Hostname: cs1.barta.cm
-  - IP: 152.53.64.166
-  - Netcup VPS 1000 G11 (Vienna)
-  - Backups to Hetzner storage
-  - Connect via: qc1
+- imac0, imac1, mbp0 - Personal development machines
 
-**Backup Infrastructure**:
+**Gaming**:
 
-- Hetzner Storage Box - Restic backup target
-  - Used by: miniserver24, csb0, csb1
-
-### Other Household
-
-- `imac-mai` - Mailina's iMac, managed by mba (macOS)
-
-### Pbek Hosts (Repository Owner/Friend)
-
-**Work Machines (TU)**:
-
-- `dp01` through `dp09` - Various work PCs and laptops
-- `caliban` - TU Work PC
-- `sinope` - TU HP EliteBook Laptop 840 G5
-- `eris` - TU HP EliteBook Laptop 820 G4
-
-**Personal Machines**:
-
-- `gaia` - Office Work PC
-- `venus` - Livingroom PC
-- `rhea` - Asus Vivobook Laptop
-- `hyperion` - Acer Aspire 5 Laptop
-- `jupiter` - Asus Laptop
-- `neptun` - MacBook
-- `pluto` - PC Garage
-- `mercury` - Desktop
-- `ally` - Asus ROG Ally (Windows)
-- `ally2` - Asus ROG Ally (NixOS)
-
-**Servers**:
-
-- `home01` - Home Server
-- `moobox01` - Server for Alex
-- `netcup01` - Netcup Server
-- `netcup02` - Netcup Server
-- `astra` - TUG VM
-
-**Templates**:
-
-- `vm-desktop` - Desktop VM template
-- `vm-server` - Server VM template
+- pcg0, stm0, stm1 - Gaming systems
 
 ---
 
-## Naming Conventions
+## Naming Conventions (2025 Scheme)
 
-### Principle: Minimalism with Purpose
+### Principle: Consistent, Scalable, Three-Letter Codes
 
-**Device Type First**: `{device-type}-{identifier}`
+**Pattern**: `{type-code}{number}`
 
-- Examples: `imac-*`, `gaming-pc-*`, `miniserver*`
+### Server Naming
 
-**User/Owner Suffix**: Only when disambiguation is needed
+**Cloud Servers**: `csb{n}` - Cloud Server Barta
 
-- ✅ `imac-mba-home` - There are multiple iMacs (imac-mai)
-- ✅ `gaming-pc-mba` - Potential for multiple gaming PCs
-- ❌ `mba-server-*` - Servers are shared infrastructure, no owner prefix needed
+- Examples: `csb0`, `csb1`, `csb2`
+- Location: Remote VPS (Hetzner, Netcup, etc.)
 
-**Servers**: Clean names without owner prefixes
+**Home Servers**: `hsb{n}` - Home Server Barta
 
-- Servers serve infrastructure, not tied to single user
-- Examples: `miniserver99`, `msww87`, `home01`
+- Examples: `hsb0`, `hsb1`, `hsb8`
+- Location: Local infrastructure
+- Number gaps allowed for logical grouping (hsb8 = parents' location)
 
-### For New Hosts
+### Workstation Naming
 
-**Personal Machines** (when multiples exist or expected):
+**Pattern**: `{device}{n}` - Descriptive device type + number
 
-```
-{device-type}-{user}-{location/purpose}
-Examples: imac-mba-home, imac-mba-work, laptop-mba-travel
-```
+- `imac{n}` - iMac desktops (imac0, imac1)
+- `mbp{n}` - MacBook Pro (mbp0)
+- `mba{n}` - MacBook Air (mba0) - not to confuse with "mba" user!
 
-**Servers** (shared infrastructure):
+### Gaming Naming
 
-```
-{purpose}{number} or {codename}
-Examples: miniserver100, homeserver02, apollo
-```
+- `pcg{n}` - PC Gaming (pcg0)
+- `stm{n}` - Steam Machines (stm0, stm1)
 
-**Work Machines** (organizational context):
+### Why This Scheme?
 
-```
-{location/org}{number} or {codename}
-Examples: dp01, tu-laptop-01, office-desktop
-```
+✅ **Immediate clarity**: `imac0` > `imac-mba-home` (shorter, clearer)  
+✅ **Scalable**: Easy to add imac2, hsb3, etc.  
+✅ **Consistent pattern**: Servers use 3-letter codes, workstations use descriptive names  
+✅ **No conflicts**: Clear separation between device types  
+✅ **Future-proof**: Room for expansion (hsb2-7, imac2-9, etc.)
 
 ---
 
 ## Quick Reference
 
-### By Type
+### MBA Infrastructure (Markus Barta)
 
-**macOS (home-manager)**:
+**Servers**:
 
-- `imac-mba-home`
-- `imac-mai`
-- `neptun`
+```
+csb0, csb1    Cloud (Hetzner VPS, production smart home + monitoring)
+hsb0          Home (DNS/DHCP, 192.168.1.99) [was: miniserver99]
+hsb1          Home (Automation, 192.168.1.101) [was: miniserver24]
+hsb8          Parents (DNS/DHCP, 192.168.1.100) [was: msww87]
+```
 
-**NixOS Desktop**:
+**Workstations**:
 
-- `gaming-pc-mba`
-- `gaia`, `venus`, `rhea`, `hyperion`, `mercury`, `pluto`, `jupiter`
-- `ally2`, `caliban`, `sinope`, `eris`
-- `dp01-dp09`
+```
+imac0         iMac 27" (Markus, home) [was: imac-mba-home]
+imac1         iMac (Mai, home) [was: wz-imac-mpe]
+pcg0          Gaming PC (Markus) [was: mba-gaming-pc]
+```
 
-**NixOS Servers**:
+### Pbek Hosts (Repository Owner/Friend)
 
-- Local: `msww87`, `miniserver24`, `miniserver99`
-- Cloud (MBA): `csb0`, `csb1` ⚠️ _Not yet in repo_
-- Cloud (Pbek): `netcup01`, `netcup02`
-- Other: `home01`, `moobox01`, `astra`
+These hosts remain in the repository for reference and shared infrastructure learning.  
+See archived hosts for full list of Pbek's machines
 
 ---
 
@@ -163,64 +181,73 @@ Each host directory typically contains:
 
 ```
 {hostname}/
-├── configuration.nix      # NixOS config (for NixOS hosts)
-├── home.nix              # home-manager config (for macOS hosts)
-├── hardware-configuration.nix  # Hardware-specific settings
-├── disk-config.zfs.nix   # ZFS disk configuration (if using disko)
-├── README.md             # Host-specific documentation
-└── ...                   # Additional host-specific files
+├── configuration.nix         # NixOS config (for NixOS hosts)
+├── home.nix                  # home-manager config (for macOS hosts)
+├── hardware-configuration.nix # Hardware-specific settings
+├── disk-config.zfs.nix       # ZFS disk configuration (if using disko)
+├── README.md                 # Host-specific documentation
+├── MIGRATION-PLAN.md         # Migration documentation (during transitions)
+└── ...                       # Additional host-specific files
 ```
 
 Special cases:
 
-- macOS hosts (like `imac-mba-home`) use home-manager only (no `configuration.nix`)
+- macOS hosts (like `imac0`) use home-manager only (no `configuration.nix`)
 - VM templates contain `vm.nix` configuration
-- Some hosts have additional scripts, static configs, or documentation
+- Migration hosts include `MIGRATION-PLAN.md` for tracking progress
+- Server hosts may have secrets/ subdirectory for encrypted configs
 
 ---
 
-## Pending Additions
+## 🔄 Active Migrations
 
-### Cloud Servers (MBA)
+### Current: Unified Naming Scheme Migration (2025)
 
-The following cloud servers need to be added to the repository:
+**Goal**: Standardize all host names to consistent, scalable pattern
 
-**csb0** - Cloud Server Barta 0
+**Status**: 🚀 In Progress
 
-- Status: ⚠️ Configuration not yet in repo
-- Location: Netcup VPS
-- Backups: Hetzner storage (restic)
-- Setup: Originally configured via nixos-anywhere
-- TODO: Extract configuration and add to repo
+| Phase          | Hosts                     | Status         | Started | Completed |
+| -------------- | ------------------------- | -------------- | ------- | --------- |
+| 1. Guinea Pig  | hsb8 (was msww87)         | 🚀 In Progress | Nov 19  | -         |
+| 2. Home Server | hsb1 (was miniserver24)   | ⏳ Pending     | -       | -         |
+| 3. DNS/DHCP    | hsb0 (was miniserver99)   | ⏳ Pending     | -       | -         |
+| 4. Workstation | imac0 (was imac-mba-home) | ⏳ Pending     | -       | -         |
+| 5. Gaming      | pcg0 (was mba-gaming-pc)  | ⏳ Pending     | -       | -         |
 
-**csb1** - Cloud Server Barta 1
+**Migration Includes**:
 
-- Status: ⚠️ Configuration not yet in repo
-- Location: Netcup VPS 1000 G11 (Vienna)
-- Hostname: cs1.barta.cm
-- IP: 152.53.64.166
-- FQDN: v2202407214994279426.bestsrv.de
-- Connect via: qc1 abbreviation
-- Backups: Hetzner storage (restic)
-- Setup: Originally configured via nixos-anywhere
-- TODO: Extract configuration and add to repo
+- Hostname changes
+- Folder renames in repository
+- DHCP static lease updates
+- macOS LocalHostName updates (workstations)
+- Hokage external consumer pattern (servers)
+- Documentation updates
 
-**Tasks for Cloud Server Integration**:
+**See**: Individual `MIGRATION-PLAN.md` files in each host directory for detailed plans
 
-1. Extract current NixOS configuration from live servers
-2. Add `csb0` and `csb1` directories to `hosts/`
-3. Migrate credentials from 1Password to encrypted secrets
-4. Document backup configuration (Hetzner restic)
-5. Add to `flake.nix` with proper host definitions
-6. Test deployment workflow with nixos-anywhere
+---
 
-**Secrets Migration Strategy**:
+## 📦 Cloud Server Management
 
-- Current: Various credentials in 1Password (inconsistent)
-- Target: Encrypted secrets in git via age/rage
-- Keep minimal info in 1Password: Only root recovery passwords
-- Move operational secrets (SSH keys, API tokens, etc.) to secrets management
-- Document in `docs/reference/secrets-management.md`
+### csb0, csb1 Status
+
+**Current State**: Running production workloads, configurations exist on servers
+
+**Integration Strategy**:
+
+1. Document current configurations (in secrets/ subdirectories)
+2. Migrate to hokage external consumer pattern
+3. No folder addition to main repo (keep as external consumers)
+4. Maintain runbooks and migration plans in host secrets/
+
+**Why Not in Main Repo**:
+
+- Already running stable production workloads
+- Use external hokage consumer pattern from `github:pbek/nixcfg`
+- Configuration managed via private documentation
+- Secrets managed via agenix
+- Connection via SSH shortcuts (qc0, qc1)
 
 ---
 
