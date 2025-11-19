@@ -49,3 +49,6 @@ docs/private/
 hosts/*/secrets/
 # But allow encrypted versions to be committed
 !hosts/*/secrets/*.age
+
+# Patrizio's archived hosts (reference only)
+hosts/archived/
