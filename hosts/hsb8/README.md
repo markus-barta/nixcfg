@@ -1,4 +1,4 @@
-# msww87 - Parents' Home Automation Server
+# hsb8 - Parents' Home Automation Server
 
 **Mac mini 2011** (Intel i5-2415M) running NixOS for home automation at parents' home.
 
@@ -8,14 +8,14 @@
 
 | Item                  | Value                                                                      |
 | --------------------- | -------------------------------------------------------------------------- |
-| **Hostname**          | `msww87`                                                                   |
+| **Hostname**          | `hsb8`                                                                     |
 | **Model**             | Mac mini 2011 (Intel i5-2415M @ 2.30GHz)                                   |
 | **RAM**               | 8 GB                                                                       |
 | **Storage**           | 112 GB SSD with ZFS                                                        |
 | **Static IP**         | `192.168.1.100`                                                            |
 | **MAC Address**       | `40:6c:8f:18:dd:24`                                                        |
 | **Network Interface** | `enp2s0f0`                                                                 |
-| **SSH Access**        | `ssh mba@192.168.1.100` or `ssh mba@msww87.lan`                            |
+| **SSH Access**        | `ssh mba@192.168.1.100` or `ssh mba@hsb8.lan`                              |
 | **Location**          | Currently at jhw22 (Markus' home), deployment target: ww87 (parents' home) |
 | **Users**             | `mba` (admin), `gb` (Gerhard)                                              |
 | **ZFS Host ID**       | `cdbc4e20`                                                                 |
@@ -53,7 +53,7 @@
 
 ## Location-Based Configuration
 
-The msww87 server uses a **location-based configuration** that adapts network settings and services based on physical location.
+The hsb8 server uses a **location-based configuration** that adapts network settings and services based on physical location.
 
 ### Available Locations
 
@@ -64,7 +64,7 @@ The msww87 server uses a **location-based configuration** that adapts network se
 
 ### How It Works
 
-The location is set in `hosts/msww87/configuration.nix`:
+The location is set in `hosts/hsb8/configuration.nix`:
 
 ```nix
 location = "jhw22"; # <-- CHANGE THIS WHEN MOVING MACHINE
@@ -145,7 +145,7 @@ When ready to enable the DHCP server at parents' home:
 
 ```bash
 # Edit configuration
-nano ~/nixcfg/hosts/msww87/configuration.nix
+nano ~/nixcfg/hosts/hsb8/configuration.nix
 
 # Find line (around line 113):
 #   enabled = false;  # TODO: Enable when ready
@@ -155,10 +155,10 @@ nano ~/nixcfg/hosts/msww87/configuration.nix
 
 # Commit and deploy
 cd ~/nixcfg
-git add hosts/msww87/configuration.nix
-git commit -m "feat(msww87): enable DHCP server"
+git add hosts/hsb8/configuration.nix
+git commit -m "feat(hsb8): enable DHCP server"
 git push
-nixos-rebuild switch --flake .#msww87
+nixos-rebuild switch --flake .#hsb8
 
 # Verify
 systemctl status adguardhome
@@ -172,15 +172,15 @@ To switch back to Markus' home configuration (requires physical access at Markus
 ```bash
 # At physical console
 cd ~/nixcfg
-nano hosts/msww87/configuration.nix
+nano hosts/hsb8/configuration.nix
 # Change: location = "ww87" → location = "jhw22"
 
 # Apply first (network reconfigures)
-nixos-rebuild switch --flake .#msww87
+nixos-rebuild switch --flake .#hsb8
 
 # Then commit/push
-git add hosts/msww87/configuration.nix
-git commit -m "feat(msww87): revert to jhw22 location"
+git add hosts/hsb8/configuration.nix
+git commit -m "feat(hsb8): revert to jhw22 location"
 git push
 ```
 
@@ -270,7 +270,7 @@ The MAC address `40:6c:8f:18:dd:24` has a static lease configured in miniserver9
 {
   "mac": "40:6c:8f:18:dd:24",
   "ip": "192.168.1.100",
-  "hostname": "msww87"
+  "hostname": "hsb8"
 }
 ```
 
@@ -381,7 +381,7 @@ For home automation at parents' home:
 ssh mba@192.168.1.100
 
 # Via hostname (after DNS resolves)
-ssh mba@msww87.lan
+ssh mba@hsb8.lan
 
 # As Gerhard
 ssh gb@192.168.1.100
@@ -399,7 +399,7 @@ cd ~/nixcfg
 git pull
 
 # Rebuild system
-nixos-rebuild switch --flake .#msww87
+nixos-rebuild switch --flake .#hsb8
 
 # Or use the just command
 just switch
@@ -447,7 +447,7 @@ nixos-rebuild switch --rollback
 sudo nft list ruleset
 
 # Test DNS resolution
-dig msww87.lan
+dig hsb8.lan
 dig -x 192.168.1.100
 
 # Monitor network traffic
@@ -480,7 +480,7 @@ The IP address `192.168.1.100` was thoroughly investigated before assignment to 
 - Makes this assignment a **return to its original IP address**
 
 **Investigation Date**: November 16, 2025  
-**Result**: Safe to assign 192.168.1.100 to msww87
+**Result**: Safe to assign 192.168.1.100 to hsb8
 
 ### Repository Migration
 
@@ -535,7 +535,7 @@ All changes under your control
 
 ```bash
 ssh gb@192.168.1.100
-ssh gb@msww87.lan
+ssh gb@hsb8.lan
 ```
 
 ### System History
@@ -563,14 +563,14 @@ ssh mba@192.168.1.100 "ip addr show enp2s0f0"
 # If not, check configuration and rebuild
 cd ~/nixcfg
 git pull
-nixos-rebuild switch --flake .#msww87
+nixos-rebuild switch --flake .#hsb8
 ```
 
 #### DNS not resolving hostname
 
 ```bash
 # Test DNS resolution
-dig msww87.lan
+dig hsb8.lan
 
 # Check if AdGuard Home is running (at jhw22)
 ssh mba@192.168.1.99 "systemctl status adguardhome"
@@ -615,7 +615,7 @@ ssh -v mba@192.168.1.100
 ```bash
 # Remove old host key (from client machine)
 ssh-keygen -R 192.168.1.100
-ssh-keygen -R msww87.lan
+ssh-keygen -R hsb8.lan
 
 # Try connecting again
 ssh mba@192.168.1.100
@@ -662,7 +662,7 @@ sudo nft list ruleset | grep 3000
 
 ```bash
 # Verify DHCP is enabled in config
-grep -A 5 "dhcp = {" ~/nixcfg/hosts/msww87/configuration.nix
+grep -A 5 "dhcp = {" ~/nixcfg/hosts/hsb8/configuration.nix
 
 # Check if DHCP port is open
 ss -ulnp | grep 67
@@ -725,7 +725,7 @@ zpool status zroot
 nix flake update
 
 # Try building again
-nixos-rebuild build --flake .#msww87
+nixos-rebuild build --flake .#hsb8
 
 # If still failing, check for syntax errors
 nix flake check
@@ -736,7 +736,7 @@ nix flake check
 ```bash
 # Rebuild system to add script
 cd ~/nixcfg
-nixos-rebuild switch --flake .#msww87
+nixos-rebuild switch --flake .#hsb8
 
 # Verify script is available
 which enable-ww87
@@ -748,7 +748,7 @@ If you encounter issues not covered here:
 
 1. **Check system logs**: `journalctl -xe`
 2. **Check service status**: `systemctl status <service>`
-3. **Test configuration build**: `nixos-rebuild dry-build --flake .#msww87`
+3. **Test configuration build**: `nixos-rebuild dry-build --flake .#hsb8`
 4. **Review recent changes**: `git log -10 --oneline`
 5. **Rollback if needed**: `nixos-rebuild switch --rollback`
 

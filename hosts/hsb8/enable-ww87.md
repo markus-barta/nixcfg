@@ -1,13 +1,13 @@
-# msww87: enable-ww87 Script
+# hsb8: enable-ww87 Script
 
 ## Overview
 
-The `enable-ww87` script is a one-command solution for switching the msww87 server from testing configuration (jhw22) to production configuration at parents' home (ww87).
+The `enable-ww87` script is a one-command solution for switching the hsb8 server from testing configuration (jhw22) to production configuration at parents' home (ww87).
 
 ## Location
 
-- **Command**: `enable-ww87` (available in PATH on msww87)
-- **Source**: `hosts/msww87/configuration.nix` (systemPackages)
+- **Command**: `enable-ww87` (available in PATH on hsb8)
+- **Source**: `hosts/hsb8/configuration.nix` (systemPackages)
 - **Runs from**: `~/nixcfg` directory
 
 ## What It Does
@@ -78,7 +78,7 @@ DHCP is intentionally disabled by default to prevent accidental network disrupti
 
 ```bash
 # Edit the configuration
-nano ~/nixcfg/hosts/msww87/configuration.nix
+nano ~/nixcfg/hosts/hsb8/configuration.nix
 
 # Find this line (around line 113):
 #   enabled = false;  # TODO: Enable when ready
@@ -90,10 +90,10 @@ nano ~/nixcfg/hosts/msww87/configuration.nix
 
 # Commit and deploy
 cd ~/nixcfg
-git add hosts/msww87/configuration.nix
-git commit -m "feat(msww87): enable DHCP server"
+git add hosts/hsb8/configuration.nix
+git commit -m "feat(hsb8): enable DHCP server"
 git push
-nixos-rebuild switch --flake .#msww87
+nixos-rebuild switch --flake .#hsb8
 
 # Verify DHCP is running
 systemctl status adguardhome
@@ -115,15 +115,15 @@ To switch back to Markus' home configuration (requires physical access at Markus
 ```bash
 # At physical console at Markus' home
 cd ~/nixcfg
-nano hosts/msww87/configuration.nix
+nano hosts/hsb8/configuration.nix
 # Change: location = "ww87" → location = "jhw22"
 
 # Apply first (network reconfigures)
-nixos-rebuild switch --flake .#msww87
+nixos-rebuild switch --flake .#hsb8
 
 # Then commit/push (after network is working)
-git add hosts/msww87/configuration.nix
-git commit -m "feat(msww87): revert to jhw22 location"
+git add hosts/hsb8/configuration.nix
+git commit -m "feat(hsb8): revert to jhw22 location"
 git push
 ```
 
@@ -137,7 +137,7 @@ If `enable-ww87` command is not found, rebuild the system first:
 
 ```bash
 cd ~/nixcfg
-nixos-rebuild switch --flake .#msww87
+nixos-rebuild switch --flake .#hsb8
 ```
 
 ### Git Push Fails
@@ -159,11 +159,11 @@ journalctl -u adguardhome -n 50
 
 ## Related Documentation
 
-- [msww87 README](./README.md) - Complete server documentation
-- [msww87 Configuration](./configuration.nix) - NixOS configuration file
+- [hsb8 README](./README.md) - Complete server documentation
+- [hsb8 Configuration](./configuration.nix) - NixOS configuration file
 - [Archived Setup Guides](../../docs/temporary/archived/) - Historical setup documentation
 
 ---
 
 _Created: 2025-11-16_
-_Script location: `hosts/msww87/configuration.nix`_
+_Script location: `hosts/hsb8/configuration.nix`_

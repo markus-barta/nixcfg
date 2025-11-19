@@ -1,4 +1,4 @@
-# msww87 server - Parents' home automation server
+# hsb8 server - Parents' home automation server
 {
   pkgs,
   lib,
@@ -383,7 +383,7 @@ in
   services.fwupd.enable = true;
 
   hokage = {
-    hostName = "msww87";
+    hostName = "hsb8";
     users = [
       "mba"
       "gb"
