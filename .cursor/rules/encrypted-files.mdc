@@ -1,0 +1,87 @@
+# Encrypted Files Protection Policy
+
+## 🔐 CRITICAL RULE: Never Touch Encrypted Files Without Permission
+
+**NEVER** read, edit, or manipulate encrypted files (`.age`, `.gpg`, etc.) unless the user **EXPLICITLY** requests it.
+
+### ⛔ Absolutely Forbidden
+
+**Encrypted File Operations**:
+
+- Reading encrypted files directly
+- Editing encrypted files
+- Writing to encrypted files
+- Moving/renaming encrypted files
+- Copying encrypted files
+- Any operation that modifies encrypted content
+
+### ❌ File Types to NEVER Touch
+
+- `*.age` - agenix encrypted files
+- `*.gpg` - GPG encrypted files
+- `*.enc` - Generic encrypted files
+- Any file in `secrets/` directory ending in encryption extensions
+
+### ✅ What IS Allowed (With Explicit Permission ONLY)
+
+**ONLY if user explicitly says**:
+
+- "Decrypt and show me the contents of X.age"
+- "Edit the encrypted file X.age"
+- "Update the static leases in the .age file"
+
+### 🔍 How to Handle Encrypted Files
+
+**When user wants to modify encrypted content**:
+
+1. **ASK**: "I'll need to decrypt the file. Should I proceed?"
+2. **GUIDE**: Provide commands for the user to run themselves
+3. **VERIFY**: Check file size before/after (encrypted files are typically large)
+4. **NEVER**: Assume permission to touch encrypted files
+
+### 📏 Verification
+
+**Encrypted files have specific characteristics**:
+
+- Larger file size (typically 5KB+, often 10KB+)
+- Binary/scrambled content
+- Cannot be edited with standard text editors
+- Must use `agenix -e` or similar tools
+
+**If file size is suspiciously small (<2KB)**: File is likely corrupted!
+
+### 🚨 If You Corrupt an Encrypted File
+
+1. **STOP**: Immediately alert the user
+2. **RESTORE**: Guide user to restore from git history
+3. **APOLOGIZE**: This is a critical error
+4. **LEARN**: Update this rule if needed
+
+## 🎯 Default Response to Encrypted File Requests
+
+When user mentions encrypted files, respond:
+
+> "This is an encrypted file. Would you like me to:
+>
+> 1. Guide you through decrypting and editing it yourself
+> 2. Provide the commands you need to run
+>
+> I won't modify encrypted files directly to avoid corruption."
+
+## 📋 Safe Alternatives
+
+**Instead of editing encrypted files**:
+
+- Provide `agenix -e secrets/filename.age` command
+- Guide user through the process
+- Verify changes after user makes them
+- Check file sizes to ensure integrity
+
+## ⚠️ Remember
+
+> **Encrypted files are sensitive and fragile!**
+>
+> - They contain secrets (passwords, keys, tokens)
+> - Corruption means data loss
+> - Always err on the side of asking permission
+> - When in doubt: ASK THE USER!
