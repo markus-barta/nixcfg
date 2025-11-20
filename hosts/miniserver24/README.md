@@ -6,22 +6,23 @@ Home automation hub running HomeAssistant, Node-RED, Scrypted, and related servi
 
 ## Quick Reference
 
-- **IP Address**: `192.168.1.101/24`
-- **Gateway**: `192.168.1.5` (Fritz!Box)
-- **DNS**: `192.168.1.99` (miniserver99/AdGuard Home) + `1.1.1.1` (fallback)
-- **Web Interfaces**:
-  - Node-RED: [http://192.168.1.101:1880](http://192.168.1.101:1880)
-  - Zigbee2MQTT: [http://192.168.1.101:8888](http://192.168.1.101:8888)
-  - Apprise: [http://192.168.1.101:8001](http://192.168.1.101:8001)
-- **SSH**: `ssh mba@192.168.1.101`
-
-## System Details
-
-- **Hardware**: Mac mini (Intel)
-- **ZFS hostId**: `dabfdb01`
-- **User**: `mba` (Markus Barta)
-- **Role**: `server-home` (via `serverMba.enable`)
-- **Network Interface**: `enp3s0f0`
+| Item                  | Value                                                                                                                                                                                                      |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hostname**          | `miniserver24`                                                                                                                                                                                             |
+| **Model**             | Mac mini 2014 (Late 2014)                                                                                                                                                                                  |
+| **CPU**               | Intel Core i7-4578U @ 3.00GHz (2C/4T)                                                                                                                                                                      |
+| **RAM**               | 16 GB (15 GiB usable)                                                                                                                                                                                      |
+| **Storage**           | 512 GB Apple SSD (465.9 GB usable)                                                                                                                                                                         |
+| **Filesystem**        | ZFS (zroot pool, 12% used)                                                                                                                                                                                 |
+| **Static IP**         | `192.168.1.101/24`                                                                                                                                                                                         |
+| **Gateway**           | `192.168.1.5` (Fritz!Box)                                                                                                                                                                                  |
+| **DNS**               | `192.168.1.99` (miniserver99) + `1.1.1.1` (fallback)                                                                                                                                                       |
+| **Web Interfaces**    | Node-RED: [http://192.168.1.101:1880](http://192.168.1.101:1880)<br>Zigbee2MQTT: [http://192.168.1.101:8888](http://192.168.1.101:8888)<br>Apprise: [http://192.168.1.101:8001](http://192.168.1.101:8001) |
+| **SSH Access**        | `ssh mba@192.168.1.101` or `ssh mba@miniserver24.lan`                                                                                                                                                      |
+| **Network Interface** | `enp3s0f0`                                                                                                                                                                                                 |
+| **ZFS Host ID**       | `dabfdb01`                                                                                                                                                                                                 |
+| **User**              | `mba` (Markus Barta)                                                                                                                                                                                       |
+| **Role**              | `server-home` (via `serverMba.enable`)                                                                                                                                                                     |
 
 ## Network Configuration
 
@@ -47,6 +48,82 @@ Custom DNS entries for devices without proper DHCP hostnames:
 
 - Ports would be: 80, 443, 1880, 1883, 5223, 5353, 9000, 51827, 554
 - fail2ban also disabled
+
+---
+
+## Hardware Specifications
+
+### System Details
+
+- **Model**: Mac mini Late 2014 (Intel-based)
+- **CPU**: Intel Core i7-4578U @ 3.00GHz
+  - 2 cores, 4 threads (2 threads per core)
+  - Haswell architecture (4th generation)
+  - **Higher performance** than miniserver99/hsb8 (i7 vs i5)
+- **RAM**: 16 GB DDR3 (15 GiB usable)
+  - **Double the RAM** of miniserver99/hsb8
+- **Storage**: Apple SSD SM0512G
+  - **Type**: SSD (Solid State Drive)
+  - **Capacity**: 512 GB (465.9 GB usable)
+  - **Interface**: PCIe (faster than SATA)
+  - **Status**: Non-rotating (ROTA=0), confirmed SSD
+  - **Largest capacity** of all three servers
+- **Network**: Gigabit Ethernet (enp3s0f0)
+- **Bluetooth**: Enabled
+- **USB**: FLIRC IR-USB receiver, APC UPS connected
+
+### Software
+
+- **OS**: NixOS 25.11 (Xantusia)
+- **Kernel**: Linux 6.17.8
+- **Architecture**: x86_64 GNU/Linux
+- **ZFS Host ID**: `dabfdb01`
+- **Uptime**: Long-running (home automation requires stability)
+
+### Disk Layout
+
+```
+NAME     SIZE   TYPE  MOUNTPOINT        ROTA  MODEL
+sda      465.9G disk                    0     APPLE SSD SM0512G
+├─sda1   1M     part  (BIOS boot)       0
+├─sda2   500M   part  /boot             0
+└─sda3   465.4G part  (ZFS zroot)       0
+zram0    7.8G   disk  [SWAP]            0
+```
+
+### ZFS Configuration
+
+```
+Pool: zroot
+Size: 464 GB total
+Allocated: 59.9 GB (12% used)
+Free: 404 GB available
+State: ONLINE (healthy)
+Health: No known data errors
+Disk: wwn-0x5002538900000000-part3 (465.4 GB)
+Fragmentation: 55% (higher due to active use)
+Dedup: 1.00x (disabled)
+Compression: Enabled (lz4)
+
+Filesystems:
+- zroot/root  → /      (system root)
+- zroot/nix   → /nix   (Nix store)
+- zroot/home  → /home  (user data)
+```
+
+### Performance Comparison
+
+| Feature         | miniserver24            | miniserver99           | hsb8                   |
+| --------------- | ----------------------- | ---------------------- | ---------------------- |
+| **CPU**         | i7-4578U @ 3.00GHz      | i5-2415M @ 2.30GHz     | i5-2415M @ 2.30GHz     |
+| **Generation**  | 4th gen (Haswell)       | 2nd gen (Sandy Bridge) | 2nd gen (Sandy Bridge) |
+| **RAM**         | 16 GB (2x others)       | 8 GB                   | 8 GB                   |
+| **Storage**     | 512 GB Apple SSD (PCIe) | 250 GB Samsung (SATA)  | 120 GB Kingston (SATA) |
+| **Performance** | ⭐⭐⭐ Best             | ⭐⭐ Good              | ⭐⭐ Good              |
+
+**miniserver24 is the most powerful server** in the home infrastructure, making it ideal for home automation, Docker containers, and demanding services.
+
+---
 
 ## Docker Containers
 
