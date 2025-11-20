@@ -6,20 +6,24 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, 
 
 ## Quick Reference
 
-- **IP Address**: `192.168.1.99/24`
-- **Gateway**: `192.168.1.5` (Fritz!Box)
-- **DNS**: Uses localhost (127.0.0.1) - AdGuard Home
-- **DHCP Range**: `192.168.1.201` - `192.168.1.254`
-- **Web Interface**: [http://192.168.1.99:3000](http://192.168.1.99:3000)
-- **SSH**: `ssh mba@192.168.1.99`
-
-## System Details
-
-- **Hardware**: Mac mini (Intel)
-- **ZFS hostId**: `dabfdb02`
-- **User**: `mba` (Markus Barta)
-- **Role**: `server-home` (via `serverMba.enable`)
-- **Network Interface**: `enp2s0f0`
+| Item                  | Value                                                |
+| --------------------- | ---------------------------------------------------- |
+| **Hostname**          | `miniserver99`                                       |
+| **Model**             | Mac mini 2011                                        |
+| **CPU**               | Intel Core i5-2415M @ 2.30GHz (2C/4T)                |
+| **RAM**               | 8 GB (7.7 GiB usable)                                |
+| **Storage**           | 250 GB Samsung SSD 840 Series (232.9 GB)             |
+| **Filesystem**        | ZFS (zroot pool, 3% used)                            |
+| **Static IP**         | `192.168.1.99/24`                                    |
+| **Gateway**           | `192.168.1.5` (Fritz!Box)                            |
+| **DNS**               | `127.0.0.1` (local AdGuard Home)                     |
+| **DHCP Range**        | `192.168.1.201` - `192.168.1.254`                    |
+| **Web Interface**     | [http://192.168.1.99:3000](http://192.168.1.99:3000) |
+| **SSH Access**        | `ssh mba@192.168.1.99` or `ssh mba@miniserver99.lan` |
+| **Network Interface** | `enp2s0f0`                                           |
+| **ZFS Host ID**       | `dabfdb02`                                           |
+| **User**              | `mba` (Markus Barta)                                 |
+| **Role**              | `server-home` (via `serverMba.enable`)               |
 
 ## Firewall Ports
 
@@ -29,6 +33,63 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, 
 - **TCP 3000**: AdGuard Home web interface
 - **TCP 22**: SSH
 - **TCP 80/443**: Reserved for future use
+
+---
+
+## Hardware Specifications
+
+### System Details
+
+- **Model**: Mac mini 2011 (Intel-based)
+- **CPU**: Intel Core i5-2415M @ 2.30GHz
+  - 2 cores, 4 threads (2 threads per core)
+  - Sandy Bridge architecture (2nd generation)
+- **RAM**: 8 GB DDR3 (7.7 GiB usable)
+- **Storage**: Samsung SSD 840 Series
+  - **Type**: SSD (Solid State Drive)
+  - **Capacity**: 250 GB (232.9 GB usable)
+  - **Interface**: SATA
+  - **Status**: Non-rotating (ROTA=0), confirmed SSD
+- **Network**: Gigabit Ethernet (enp2s0f0)
+
+### Software
+
+- **OS**: NixOS 25.11 (Xantusia)
+- **Kernel**: Linux 6.17.8
+- **Architecture**: x86_64 GNU/Linux
+- **ZFS Host ID**: `dabfdb02`
+- **Uptime**: 7+ days (highly stable)
+
+### Disk Layout
+
+```
+NAME     SIZE   TYPE  MOUNTPOINT        ROTA  MODEL
+sda      232.9G disk                    0     Samsung SSD 840 Series
+├─sda1   1M     part  (BIOS boot)       0
+├─sda2   500M   part  /boot             0
+└─sda3   232.4G part  (ZFS zroot)       0
+zram0    3.8G   disk  [SWAP]            0
+```
+
+### ZFS Configuration
+
+```
+Pool: zroot
+Size: 232 GB total
+Allocated: 8.89 GB (3% used)
+Free: 223 GB available
+State: ONLINE (healthy)
+Health: No known data errors
+Disk: disk-disk1-zfs (232.4 GB)
+Fragmentation: 5%
+Dedup: 1.00x (disabled)
+Compression: Enabled (lz4)
+
+Filesystems:
+- zroot/root  → /      (system root)
+- zroot/nix   → /nix   (Nix store)
+- zroot/home  → /home  (user data)
+```
 
 ---
 
