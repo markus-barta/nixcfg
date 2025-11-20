@@ -9,9 +9,11 @@
 | Item                  | Value                                                                      |
 | --------------------- | -------------------------------------------------------------------------- |
 | **Hostname**          | `hsb8`                                                                     |
-| **Model**             | Mac mini 2011 (Intel i5-2415M @ 2.30GHz)                                   |
-| **RAM**               | 8 GB                                                                       |
-| **Storage**           | 112 GB SSD with ZFS                                                        |
+| **Model**             | Mac mini 2011                                                              |
+| **CPU**               | Intel Core i5-2415M @ 2.30GHz (2 cores, 4 threads)                         |
+| **RAM**               | 8 GB (7.7 GiB usable)                                                      |
+| **Storage**           | 120 GB Kingston SV300S37A SSD (111.8 GB usable)                            |
+| **Filesystem**        | ZFS (zroot pool, 7% used, compression enabled)                             |
 | **Static IP**         | `192.168.1.100`                                                            |
 | **MAC Address**       | `40:6c:8f:18:dd:24`                                                        |
 | **Network Interface** | `enp2s0f0`                                                                 |
@@ -192,17 +194,21 @@ git push
 
 - **Model**: Mac mini 2011 (Intel-based)
 - **CPU**: Intel Core i5-2415M @ 2.30GHz
-  - 2 cores, 4 threads
-  - Sandy Bridge architecture
-- **RAM**: 7.7 GB usable (8 GB installed)
-- **Storage**: 111.8 GB SSD
+  - 2 cores, 4 threads (2 threads per core)
+  - Sandy Bridge architecture (2nd generation)
+- **RAM**: 8 GB DDR3 (7.7 GiB usable)
+- **Storage**: Kingston SV300S37A120G
+  - **Type**: SSD (Solid State Drive)
+  - **Capacity**: 120 GB (111.8 GB usable)
+  - **Interface**: SATA
+  - **Status**: Non-rotating (ROTA=0), confirmed SSD
 - **Network**: Gigabit Ethernet (enp2s0f0)
 - **Wireless**: Broadcom adapter (driver available, currently unused)
 
 ### Software
 
 - **OS**: NixOS 25.11 (Xantusia)
-- **Kernel**: Linux 6.15.10
+- **Kernel**: Linux 6.17.8
 - **Architecture**: x86_64 GNU/Linux
 - **ZFS Host ID**: `cdbc4e20`
 - **Machine ID**: `94f5aa5a70c24ddf99c7903586a66606`
@@ -210,28 +216,32 @@ git push
 ### Disk Layout
 
 ```
-NAME     SIZE   TYPE  MOUNTPOINT
-sda      111.8G disk
-├─sda1   1M     part  (BIOS boot)
-├─sda2   500M   part  /boot
-└─sda3   111.3G part  (ZFS)
-zram0    3.8G   disk  [SWAP]
+NAME     SIZE   TYPE  MOUNTPOINT        ROTA  MODEL
+sda      111.8G disk                    0     KINGSTON SV300S37A120G
+├─sda1   1M     part  (BIOS boot)       0
+├─sda2   500M   part  /boot             0
+└─sda3   111.3G part  (ZFS zroot)       0
+zram0    3.8G   disk  [SWAP]            0
 ```
 
 ### ZFS Configuration
 
 ```
 Pool: zroot
+Size: 111 GB total
+Allocated: 8.23 GB (7% used)
+Free: 103 GB available
 State: ONLINE (healthy)
-Disk: disk-disk1-zfs
+Health: No known data errors
+Disk: disk-disk1-zfs (111.3 GB)
+Fragmentation: 1%
+Dedup: 1.00x (disabled)
+Compression: Enabled (lz4)
 
 Filesystems:
-- zroot/root  → /     (896 KB used)
-- zroot/nix   → /nix  (2.5 GB used)
-- zroot/home  → /home (4.0 MB used)
-- zroot       → /zroot (128 KB used)
-
-Available: 106 GB free
+- zroot/root  → /      (system root)
+- zroot/nix   → /nix   (Nix store)
+- zroot/home  → /home  (user data)
 ```
 
 ---
