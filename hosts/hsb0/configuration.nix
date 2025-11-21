@@ -273,7 +273,7 @@
   };
 
   hokage = {
-    hostName = "miniserver99";
+    hostName = "hsb0";
     zfs.hostId = "dabfdb02";
     audio.enable = false;
     serverMba.enable = true;
