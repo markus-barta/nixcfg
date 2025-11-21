@@ -4,7 +4,7 @@
 **Created**: November 19, 2025  
 **Last Updated**: November 21, 2025  
 **Current Status**: ✅ Renamed & Running, ❌ Hokage Migration NOT Done  
-**Priority**: Medium (working fine, but should align with csb0/csb1 pattern)
+**Priority**: Medium (working fine, but should follow external hokage consumer pattern)
 
 ---
 
@@ -233,9 +233,11 @@ https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/server/configu
 
 1. **Upstream Updates**: Get hokage improvements from Patrizio automatically
 2. **No Fork Maintenance**: Don't need to merge upstream changes manually
-3. **Standardized**: Same pattern as csb0/csb1 (already using external)
+3. **Standardized**: Follow proven external consumer pattern (see Patrizio's examples)
 4. **Cleaner Separation**: Your customizations separate from base module
 5. **Future-Proof**: Easy to add customizations via Uzumaki namespace (future)
+
+**Note**: csb0 and csb1 are NOT managed by this flake - they exist as separate servers with their own configurations and need their own hokage migration (documented in their respective folders).
 
 ---
 
@@ -266,10 +268,10 @@ During the initial hsb8 rename (Nov 19, 2025), the migration was simplified to:
 **Why Do It Now?**
 
 1. hsb8 is stable and working
-2. csb0 and csb1 already use external hokage (proven pattern)
+2. External hokage consumer pattern is proven (see Patrizio's examples)
 3. hsb8 rename is complete (safe time to do this)
-4. Aligns with infrastructure standard
-5. Makes future hsb0/hsb1 migrations easier
+4. Follows upstream hokage development practices
+5. Makes future hsb0/hsb1 migrations easier (they can follow same pattern)
 
 **Risk Level**: 🟡 **MEDIUM**
 
