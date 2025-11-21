@@ -114,7 +114,7 @@
 
     # Read static leases from agenix-decrypted JSON file
     # Agenix automatically decrypts to /run/agenix/<secret-name>
-    static_leases_file="/run/agenix/static-leases-miniserver99"
+    static_leases_file="/run/agenix/static-leases-hsb0"
 
     # Validate that the agenix secret file exists
     if [ ! -f "$static_leases_file" ]; then
@@ -263,8 +263,8 @@
   # Static DHCP leases: encrypted JSON array in git, decrypted at activation
   # Format: [{"mac": "AA:BB:CC:DD:EE:FF", "ip": "192.168.1.100", "hostname": "device-name"}]
   # Edit with: agenix -e secrets/static-leases-miniserver99.age
-  age.secrets.static-leases-miniserver99 = {
-    file = ../../secrets/static-leases-miniserver99.age;
+  age.secrets.static-leases-hsb0 = {
+    file = ../../secrets/static-leases-hsb0.age;
     # Agenix creates /run/agenix/static-leases-miniserver99 automatically
     # The 'path' attribute is optional and defaults to /run/agenix/<secret-name>
     mode = "444"; # World-readable (not sensitive data, just DHCP assignments)
