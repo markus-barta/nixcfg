@@ -26,11 +26,12 @@
 
 ## Current Status
 
-✅ **Deployed and Running** (November 16, 2025)
+✅ **Deployed and Running** (November 21, 2025)
 
 - **Location**: `jhw22` (testing at Markus' home)
 - **Static IP**: `192.168.1.100` configured
 - **Repository**: Successfully switched from pbek/nixcfg to markus-barta/nixcfg
+- **Configuration**: Using **external hokage consumer pattern** from `github:pbek/nixcfg`
 - **SSH Keys**: Gerhard's public key configured for `gb` user
 - **AdGuard Home**: Ready to activate at parents' home (currently disabled)
 - **DHCP Server**: Disabled by default for safety
@@ -548,6 +549,34 @@ ssh gb@192.168.1.100
 ssh gb@hsb8.lan
 ```
 
+### Hostname Migration & External Hokage Consumer
+
+**Date**: November 19-21, 2025
+
+**Migration**: `msww87` → `hsb8` (new unified naming scheme)
+
+**Phase 1 - Hostname Rename** (Nov 19-20, 2025):
+
+1. ✅ Hostname changed from `msww87` to `hsb8`
+2. ✅ Folder renamed: `hosts/msww87/` → `hosts/hsb8/`
+3. ✅ DHCP static lease updated on miniserver99
+4. ✅ DNS resolution working: `hsb8.lan`
+5. ✅ All documentation updated
+6. ✅ Zero downtime deployment
+
+**Phase 2 - External Hokage Consumer** (Nov 21, 2025):
+
+1. ✅ Added `nixcfg.url = "github:pbek/nixcfg"` input
+2. ✅ Removed local `../../modules/hokage` import
+3. ✅ Updated flake.nix to use `inputs.nixcfg.nixosModules.hokage`
+4. ✅ Test build passed on miniserver24
+5. ✅ Deployed successfully
+6. ✅ System verification complete
+
+**Result**: hsb8 now uses external hokage module from upstream (github:pbek/nixcfg), following best practices and making it easier to receive hokage updates.
+
+**See**: `MIGRATION-PLAN.md` and `BACKLOG.md` for detailed documentation
+
 ### System History
 
 - **Initial Installation**: August 23, 2025
@@ -788,6 +817,30 @@ If you encounter issues not covered here:
 
 ## Changelog
 
+### 2025-11-21: External Hokage Consumer Migration
+
+- ✅ Added `nixcfg.url = "github:pbek/nixcfg"` flake input
+- ✅ Removed local `../../modules/hokage` import from configuration
+- ✅ Updated flake.nix to use `inputs.nixcfg.nixosModules.hokage`
+- ✅ Test build validated on miniserver24 (16GB RAM, native NixOS)
+- ✅ Deployed successfully with zero downtime
+- ✅ All services running normally
+- ✅ System verification complete
+
+**Result**: Now using external hokage module from upstream (github:pbek/nixcfg)
+
+### 2025-11-19: Hostname Migration (msww87 → hsb8)
+
+- ✅ Adopted new unified naming scheme: `hsb8` (Home Server Barta 8)
+- ✅ Renamed folder: `hosts/msww87/` → `hosts/hsb8/`
+- ✅ Updated hostname in configuration.nix
+- ✅ Updated DHCP static lease on miniserver99
+- ✅ Updated all documentation and references
+- ✅ DNS resolution working: `hsb8.lan`
+- ✅ Zero downtime deployment
+
+**Result**: Successfully renamed with improved naming consistency
+
 ### 2025-11-16: Initial Setup and Configuration
 
 - ✅ Discovered machine running at 192.168.1.223 (DHCP)
@@ -804,12 +857,16 @@ If you encounter issues not covered here:
 - ✅ Verified SSH access for both users
 - ✅ Confirmed network connectivity at jhw22
 
+**Result**: Fully configured and ready for deployment
+
+---
+
 **Current Status**: Ready for deployment to parents' home (ww87)
 
 **Next Step**: Run `enable-ww87` when machine is physically moved to parents' home
 
 ---
 
-**Last Updated**: November 16, 2025  
+**Last Updated**: November 21, 2025  
 **Maintainer**: Markus Barta  
 **Repository**: https://github.com/markus-barta/nixcfg
