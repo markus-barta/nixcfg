@@ -20,6 +20,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.home-manager.follows = "home-manager";
     };
+    nixcfg.url = "github:pbek/nixcfg";
     espanso-fix.url = "github:pitkling/nixpkgs/espanso-fix-capabilities-export";
   };
 
