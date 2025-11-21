@@ -194,8 +194,8 @@
       ];
       # This DNS/DHCP server itself - self-resolution for services and management
       "192.168.1.99" = [
-        "miniserver99"
-        "miniserver99.lan"
+        "hsb0"
+        "hsb0.lan"
       ];
       # Home automation server + MQTT broker - runs Node-RED, Home Assistant, cameras, notifications + MQTT for IoT devices
       "192.168.1.101" = [
