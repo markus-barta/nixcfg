@@ -1,11 +1,12 @@
 # msww87 → hsb8 Migration Plan
 
 **Server**: msww87 → hsb8 (Home Server Barta 8)  
-**Migration Type**: ~~Hostname + Hokage Consumer Pattern + Folder Rename~~ **SIMPLIFIED: Hostname + Folder Rename Only**  
-**Migration Date**: November 19-21, 2025 ✅ **COMPLETED**  
+**Migration Type**: **COMPLETE: Hostname + Folder Rename + External Hokage Consumer**  
+**Migration Date**: November 19-21, 2025 ✅ **FULLY COMPLETED**  
 **Location**: Currently at jhw22 (testing), target deployment: ww87 (parents' home)  
-**Actual Duration**: ~2 hours  
-**Last Updated**: November 21, 2025
+**Total Duration**: ~2.5 hours (Phase 1: 2 hours, Phase 2: 30 minutes)  
+**Downtime**: Phase 1: ~15 minutes, Phase 2: Zero  
+**Last Updated**: November 21, 2025 (merged with HOKAGE-MIGRATION-2025-11-21.md)
 
 ---
 
@@ -51,9 +52,94 @@
 $ ssh mba@hsb8.lan 'hostname'
 > hsb8  ✓
 
-$ ssh mba@hsb8.lan 'nix-store -q --references /run/current-system | grep -E "(hokage|nixcfg|pbek)"'
-> No hokage external reference found  ← Still using LOCAL hokage
+$ ssh mba@hsb8.lan 'nixos-version'
+> 25.11.20251117.89c2b23 (Xantusia)  ✓
+
+$ ssh mba@hsb8.lan 'systemctl is-system-running'
+> running  ✓
+
+# External hokage verified
+$ grep "inputs.nixcfg.nixosModules.hokage" flake.nix
+> inputs.nixcfg.nixosModules.hokage  ✓
+
+$ grep -c "modules/hokage" hosts/hsb8/configuration.nix
+> 0  ✓ (no local hokage import)
 ```
+
+---
+
+## 📊 PHASE 2: EXTERNAL HOKAGE MIGRATION REPORT
+
+> **Full Report**: See `HOKAGE-MIGRATION-2025-11-21.md` for complete details
+
+**Migration Date**: November 21, 2025  
+**Duration**: ~30 minutes  
+**Downtime**: Zero seconds  
+**Status**: ✅ **COMPLETED SUCCESSFULLY**
+
+### Execution Summary
+
+**Phase 2-1: Add External Hokage Input** (2 min, commit `e886391`)
+
+- Added `nixcfg.url = "github:pbek/nixcfg"` to flake.nix inputs
+- Locked to commit f51079c (2025-11-21)
+
+**Phase 2-2: Remove Local Hokage Import** (1 min, commit `6159036`)
+
+- Removed `../../modules/hokage` from configuration.nix imports
+- Left only hardware-configuration.nix and disk-config.zfs.nix
+
+**Phase 2-3: Update flake.nix Definition** (2 min, commits `9113c8d`, `92fc68e`)
+
+- Replaced `mkServerHost "hsb8"` with explicit `nixpkgs.lib.nixosSystem`
+- Added `inputs.nixcfg.nixosModules.hokage` to modules
+- Fixed lib-utils reference (use local from `self.commonArgs`)
+
+**Phase 2-4: Test Build on miniserver24** (5 min)
+
+- Native Linux build caught issues before deployment
+- Build completed successfully with no errors
+
+**Phase 2-5: Deploy to hsb8** (5-10 min)
+
+- Zero downtime deployment
+- No service restarts required
+- All services continued running
+
+**Phase 2-6: Verify External Hokage Active** (3 min)
+
+- 10+ verification checks all passed
+- Hostname: hsb8 ✓
+- Services: All active ✓
+- Configuration: External hokage confirmed ✓
+
+### Benefits Achieved
+
+**Immediate**:
+
+1. Upstream Updates: Can receive hokage improvements from Patrizio automatically
+2. Standardized Pattern: Following proven external consumer pattern
+3. Maintainability: Easier to track hokage versions via flake.lock
+4. Clean Separation: Local customizations separate from base hokage
+5. Future-Proof: Ready for hokage updates and improvements
+
+**Strategic**:
+
+1. Process Proven: Established migration process for miniserver99, miniserver24
+2. Risk Mitigation: Tested external hokage on non-critical server first
+3. Documentation: Created comprehensive templates for future migrations
+4. Confidence: Demonstrated zero-downtime migration is achievable
+5. Infrastructure Maturity: Moving toward upstream dependency management best practices
+
+### Git Commit History (Phase 2)
+
+1. **e886391** - `feat(hsb8): add nixcfg input for external hokage consumer pattern`
+2. **6159036** - `refactor(hsb8): remove local hokage import (will use external)`
+3. **9113c8d** - `refactor(hsb8): migrate to external hokage consumer pattern`
+4. **92fc68e** - `fix(hsb8): use local lib-utils instead of non-existent nixcfg.lib-utils`
+5. **70a2faf** - `docs(hsb8): update BACKLOG.md - external hokage migration COMPLETE ✅`
+6. **12fec07** - `docs(hsb8): update MIGRATION-PLAN.md - Phase 2 hokage migration complete`
+7. **c1b0061** - `docs(hsb8): comprehensive README update with hokage migration details`
 
 ---
 
@@ -1424,27 +1510,112 @@ ssh mba@192.168.1.100 'cd ~/nixcfg && git remote -v'
 
 ## 💡 Lessons Learned
 
-Document here after migration:
+> **See also**: `HOKAGE-MIGRATION-2025-11-21.md` for complete Phase 2 external hokage migration report
 
-### What Went Well
+### What Went Well ✅
 
-- [To be filled post-migration]
+**Phase 1 (Rename Migration - Nov 19-20, 2025)**:
 
-### What Could Be Improved
+- Clean hostname transition with zero issues
+- Git repository structure changes were straightforward
+- DHCP/DNS updates applied smoothly
+- All 14 verification checks passed on first try
 
-- [To be filled post-migration]
+**Phase 2 (External Hokage Migration - Nov 21, 2025)**:
 
-### Unexpected Issues
+1. **Test Build Strategy**: Building on miniserver24 (native NixOS, 16GB RAM) caught potential issues before deployment - this was crucial
+2. **Zero Downtime**: NixOS generation switch was fast (~30 seconds) with no service interruptions
+3. **lib-utils Discovery**: Found that external nixcfg doesn't export lib-utils; using local one from `self.commonArgs` worked perfectly
+4. **Documentation**: Comprehensive 1,700-line migration plan made execution smooth and stress-free
+5. **Low Risk System**: hsb8 being a test server (not production) made this the perfect "guinea pig" migration
+6. **Separate Commits**: Each phase as separate commit enabled easy tracking and potential rollback
 
-- [To be filled post-migration]
+### Challenges Overcome 💡
 
-### Time Taken
+**Phase 2 (External Hokage)**:
 
-- [To be filled post-migration]
+1. **lib-utils Not Exported**:
+   - **Issue**: Initially tried `lib-utils = inputs.nixcfg.lib-utils` which doesn't exist
+   - **Solution**: Removed that line, as `self.commonArgs` already provides lib-utils
+   - **Fix Commit**: `92fc68e`
+   - **Lesson**: Check what external flakes actually export before assuming
 
-### Apply to Future Migrations (hsb0, hsb1, imac0, pcg0)
+2. **Build Server Selection**:
+   - **Initial thought**: Use miniserver99 (DNS/DHCP server)
+   - **Better choice**: miniserver24 (16GB RAM vs 8GB, not network-critical)
+   - **Result**: Right decision, build was fast and safe
+   - **Lesson**: Test builds on non-critical servers with adequate resources
 
-- [To be filled post-migration]
+### Technical Insights 🔧
+
+1. **External Hokage Pattern**: Works exactly as documented in Patrizio's examples
+2. **mkServerHost vs nixosSystem**: Had to replace helper function with explicit nixosSystem for external module
+3. **flake.lock Locking**: Automatically locked external nixcfg to specific commit (f51079c), preventing unexpected updates
+4. **Zero Service Restarts**: NixOS generation switch didn't require any service restarts (all continued running)
+
+### Time Taken ⏱️
+
+**Phase 1 (Rename Migration)**: ~2 hours total
+
+- Planning: Already done in advance
+- Execution: 1.5 hours
+- Verification: 30 minutes
+
+**Phase 2 (External Hokage Migration)**: ~30 minutes total
+
+- Add external input: 2 minutes (commit e886391)
+- Remove local import: 1 minute (commit 6159036)
+- Update flake.nix: 2 minutes (commits 9113c8d, 92fc68e)
+- Test build: 5 minutes (miniserver24)
+- Deploy: 5-10 minutes (zero downtime)
+- Verification: 3 minutes
+
+**Total**: ~2.5 hours for both phases
+
+### Migration Statistics 📊
+
+|| Metric | Phase 1 (Rename) | Phase 2 (Hokage) |
+|| ---------------------- | ---------------- | ---------------- |
+|| **Duration** | ~2 hours | ~30 minutes |
+|| **Downtime** | ~15 minutes | 0 seconds |
+|| **Services Restarted** | Multiple | 0 |
+|| **Errors Encountered** | 0 | 1 (lib-utils) |
+|| **Rollbacks Required** | 0 | 0 |
+|| **Commits Made** | ~5-7 | 4 |
+|| **Verification Checks** | 14 | 10+ |
+
+### Apply to Future Migrations (hsb0, hsb1, imac0, pcg0) 📝
+
+**Critical Success Factors**:
+
+1. **Test Server First**: Using hsb8 (non-critical) before miniserver99 (network-critical) was the right approach
+2. **Test Builds on Native Platform**: miniserver24 as test build server eliminated macOS cross-platform issues
+3. **Separate Phases**: Splitting rename and hokage migrations allowed focused debugging
+4. **Pre-Planning Value**: 1,700-line migration plan made execution trivial and stress-free
+5. **Separate Documentation**: Having both MIGRATION-PLAN.md (process) and BACKLOG.md (tracking) kept things organized
+
+**For miniserver99 (hsb0) Migration**:
+
+- Risk: 🔴 HIGH (DNS/DHCP for entire network)
+- Recommendation: Execute during low-network-usage window (late evening/weekend morning)
+- Test build on miniserver24 first (proven strategy)
+- Have rollback plan ready (generation rollback in <1 minute)
+- Monitor network services closely during migration
+- Consider migration window: 11pm-1am (lowest network usage)
+
+**For miniserver24 (hsb1) Migration**:
+
+- Risk: 🟡 MEDIUM (home automation)
+- Can use exact same process as hsb8
+- Less urgent than miniserver99
+- Coordinate with home automation usage (avoid during peak hours)
+
+**For Workstation Migrations (imac0, pcg0)**:
+
+- Risk: 🟢 LOW (desktop systems)
+- Can be done during normal work hours
+- More complex configs but less network-critical
+- Test desktop-specific modules carefully (Plasma, gaming, etc.)
 
 ---
 
