@@ -166,7 +166,7 @@ Rename `miniserver99` to `hsb0` as part of the unified naming scheme for all man
 
 #### 2. Network Impact Assessment
 
-- [x] Affected devices: **All network devices** (~10-15 devices)
+- [x] Affected devices: **All network devices** (~50-100 devices)
 - [x] Affected users: **All household members**
 - [x] Affected services: DNS resolution, DHCP assignments, static leases
 - [x] DNS fallback: Devices may have Cloudflare (1.1.1.1) as secondary
@@ -445,64 +445,161 @@ git commit -m "refactor(miniserver99): update /etc/hosts references hsb0 (step 4
 
 ---
 
-### Phase 5: Rename and Update Secret Files
+### Phase 5: Rename and Update Secret Files (CRITICAL PHASE)
 
 **Status**: ⏸️ Not Started  
-**Duration**: 5 minutes  
+**Duration**: 10 minutes  
 **Risk**: 🟡 **MEDIUM** - Involves encrypted secrets (but tested before deployment)
 
-**Files**:
+**Files to Update**:
 
-1. `secrets/static-leases-miniserver99.age` → `secrets/static-leases-hsb0.age`
-2. `secrets/secrets.nix` - Update secret definition
-3. `hosts/hsb0/configuration.nix` - Update secret reference
+1. `secrets/secrets.nix` - Add `hsb0` SSH keys + update secret recipient binding
+2. `secrets/static-leases-miniserver99.age` → `secrets/static-leases-hsb0.age` (rename + re-encrypt)
+3. `hosts/hsb0/configuration.nix` - Update secret reference (2 places)
 
-**⚠️ CRITICAL**: Secret files contain all DHCP leases. Must be handled carefully!
+**⚠️ CRITICAL**: This phase has **TWO CRITICAL STEPS**:
+
+1. **Update agenix recipient keys** - Without this, hsb0 won't be able to decrypt the secret!
+2. **Re-encrypt with new recipient set** - Use `agenix -e` to update encryption
 
 **Actions**:
 
 ```bash
 cd ~/Code/nixcfg
 
-# 1. Rename the encrypted secret file
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 1: Add hsb0 SSH Keys to secrets.nix
+# ═════════════════════════════════════════════════════════════════════════════
+
+nano secrets/secrets.nix
+
+# Add hsb0 entry AFTER miniserver99 (line 54-56):
+# The SSH keys are the same (same physical machine, SSH host keys preserved)
+#
+# Add these lines after line 56:
+#
+#   hsb0 = [
+#     "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC2WZLgDFx1FGa7Veoy+KIpN3cHywnBsXo+ytLBpYnzT9uaxb+YI94k2zi+c67YJnN5gpX/EpGn3vXpCyJHZZHg4hJWjjj2kbXZv7op1MSusGCAP7HbR4a+dasF9mAZLOwzbnpLRwFUg+/Fjb0iAb3ri1sISEzAhkUkKuxJogNl7kqytFWexPkPb8J5Qvf+V6KnACB67G/T3bBf8u3R4IDp7EKOaCQwz8aWeuBrNNJevecPtfBuq3Uj/FipMMCHuHi4X95Q7V2OOUDuWxqcGz/iLUswoW+z1qE5Vv47W9J+QledsHCJhMzjsTZCknRorZyqzrzeicIqHpQvUvQKznWQwI50Op2AbYRPd3gwUmnCCUy5b5FWdmVWyzdSqfOiqYU1AKvY75bl1L6wQVOH/3RRHOfRNA3u6o9DnUhK/kSDv34Vl0kzm6fbqJX+uh6LRdMfioWmbeqTq62SZFt/a0xogMTQdjQS5M6yoZmbIVmC3L0k+IPrt+UVmlwm0gu0zbeTtzjLlyHe2X4AttoMr6OcMoLvst3SmJebS6CJcwT1Aca5MRqTcfzJZ/Fuy68ByaGIW9zPG1xp+/P4BvT53/OnUYbjaoln7yiOySHozafrAQ28p5goE+ITCmwJGxZxfceskvkir67kdxAT8GQoWR5i/Sarpal0FoVY7prV+OFm+w=="
+#   ];
+#
+# Note: Same keys as miniserver99 (line 54-56) - it's the same physical machine!
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 2: Rename the encrypted secret file
+# ═════════════════════════════════════════════════════════════════════════════
+
 git mv secrets/static-leases-miniserver99.age secrets/static-leases-hsb0.age
 echo "✓ Renamed secret file"
 
-# 2. Update secrets.nix
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 3: Update secret binding in secrets.nix
+# ═════════════════════════════════════════════════════════════════════════════
+
 nano secrets/secrets.nix
-# Find: "static-leases-miniserver99.age" = ...
-# Replace with: "static-leases-hsb0.age" = ...
 
-# 3. Update configuration.nix secret reference
-nano hosts/hsb0/configuration.nix
-# Find: age.secrets.static-leases-miniserver99 = {
-#       file = ../../secrets/static-leases-miniserver99.age;
+# Find line 106-108:
+#   # agenix -e static-leases-miniserver99.age
+#   # Dual-key: Markus (personal key) + miniserver99 (host key)
+#   "static-leases-miniserver99.age".publicKeys = markus ++ miniserver99;
+#
 # Replace with:
-#       age.secrets.static-leases-hsb0 = {
-#       file = ../../secrets/static-leases-hsb0.age;
+#   # agenix -e secrets/static-leases-hsb0.age
+#   # Dual-key: Markus (personal key) + hsb0 (host key)
+#   "static-leases-hsb0.age".publicKeys = markus ++ hsb0;
 
-# Also update the preStart script reference:
-# Find: static_leases_file="/run/agenix/static-leases-miniserver99"
-# Replace: static_leases_file="/run/agenix/static-leases-hsb0"
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 4: Re-encrypt secret with new recipient set (CRITICAL!)
+# ═════════════════════════════════════════════════════════════════════════════
 
-# Verify changes
+# This step updates the encryption to use hsb0's SSH keys
+# Without this, hsb0 won't be able to decrypt the secret after deployment!
+
+agenix -e secrets/static-leases-hsb0.age
+
+# This will:
+# 1. Decrypt the file using miniserver99's old keys
+# 2. Open it in your editor (DO NOT CHANGE THE CONTENT - just save and exit)
+# 3. Re-encrypt with the new recipient set (markus + hsb0)
+#
+# IMPORTANT: Just save and exit! Don't modify the DHCP lease data.
+
+echo "✓ Re-encrypted secret with new recipient keys"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 5: Update configuration.nix secret reference (2 places)
+# ═════════════════════════════════════════════════════════════════════════════
+
+nano hosts/hsb0/configuration.nix
+
+# Find (line ~266):
+#   age.secrets.static-leases-miniserver99 = {
+#     file = ../../secrets/static-leases-miniserver99.age;
+#
+# Replace with:
+#   age.secrets.static-leases-hsb0 = {
+#     file = ../../secrets/static-leases-hsb0.age;
+
+# Also find (line ~117):
+#   static_leases_file="/run/agenix/static-leases-miniserver99"
+#
+# Replace with:
+#   static_leases_file="/run/agenix/static-leases-hsb0"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 6: Verify all changes
+# ═════════════════════════════════════════════════════════════════════════════
+
+echo "=== Verification ==="
+
+# Check secret file renamed
 ls -la secrets/ | grep static-leases-hsb0.age  # Should exist
 ls -la secrets/ | grep static-leases-miniserver99.age  # Should NOT exist
-grep "static-leases-hsb0" secrets/secrets.nix
-grep "static-leases-hsb0" hosts/hsb0/configuration.nix
 
-# Commit
+# Check secrets.nix updated (3 checks)
+grep "hsb0 = \[" secrets/secrets.nix  # Should find hsb0 SSH key entry
+grep "static-leases-hsb0.age" secrets/secrets.nix  # Should find new binding
+grep -c "miniserver99" secrets/secrets.nix  # Should be 1 (only the key definition)
+
+# Check configuration.nix updated (2 places)
+grep "static-leases-hsb0" hosts/hsb0/configuration.nix  # Should find 2 occurrences
+
+# Check file size (should be similar to before, ~10-15KB)
+ls -lh secrets/static-leases-hsb0.age
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 7: Commit
+# ═════════════════════════════════════════════════════════════════════════════
+
 git add secrets/secrets.nix secrets/static-leases-hsb0.age hosts/hsb0/configuration.nix
-git commit -m "refactor(miniserver99): rename secret files miniserver99 → hsb0 (step 5/6)"
+git commit -m "refactor(miniserver99): rename secret + update agenix recipients miniserver99 → hsb0 (step 5/6)
+
+- Added hsb0 SSH key entry in secrets.nix (same keys as miniserver99)
+- Renamed secret: static-leases-miniserver99.age → static-leases-hsb0.age
+- Updated secret binding: markus ++ miniserver99 → markus ++ hsb0
+- Re-encrypted secret with new recipient set (agenix -e)
+- Updated configuration.nix secret references (2 places)
+
+CRITICAL: Secret is now encrypted for hsb0, allowing decryption after hostname change.
+"
+
+echo "✓ Phase 5 complete - secret files renamed and re-encrypted"
 ```
 
-**Verification**:
+**Verification Checklist**:
 
-- [ ] Secret file renamed: `secrets/static-leases-hsb0.age`
-- [ ] `secrets.nix` updated with new filename
-- [ ] `configuration.nix` secret reference updated (2 places)
-- [ ] No `miniserver99` references in secret config
+- [ ] `hsb0` SSH key entry added in `secrets/secrets.nix` (after line 56)
+- [ ] Secret file renamed: `secrets/static-leases-hsb0.age` exists
+- [ ] Old secret file gone: `secrets/static-leases-miniserver99.age` does NOT exist
+- [ ] Secret binding updated: `"static-leases-hsb0.age".publicKeys = markus ++ hsb0`
+- [ ] Secret re-encrypted: file size ~10-15KB (similar to before)
+- [ ] `configuration.nix` updated: `age.secrets.static-leases-hsb0`
+- [ ] `configuration.nix` updated: `static_leases_file="/run/agenix/static-leases-hsb0"`
+- [ ] No `static-leases-miniserver99` in `hosts/hsb0/configuration.nix`
 - [ ] Git commit successful
+
+**Critical Understanding**:
+
+🔒 **Why re-encrypt?** agenix encrypts secrets using SSH public keys. After the hostname change, the server will identify as `hsb0`, so it needs the secret to be encrypted for `hsb0`'s SSH keys. Without re-encrypting, hsb0 cannot decrypt the secret and DHCP will fail to start!
 
 **Rollback**: `git reset --hard HEAD~1`
 
@@ -511,7 +608,7 @@ git commit -m "refactor(miniserver99): rename secret files miniserver99 → hsb0
 ### Phase 6: Global Search and Cleanup
 
 **Status**: ⏸️ Not Started  
-**Duration**: 3 minutes  
+**Duration**: 5 minutes  
 **Risk**: 🟢 **LOW** (verification and documentation)
 
 **Actions**:
@@ -519,34 +616,122 @@ git commit -m "refactor(miniserver99): rename secret files miniserver99 → hsb0
 ```bash
 cd ~/Code/nixcfg
 
-# Search for any remaining miniserver99 references
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 1: Search for miniserver99 references
+# ═════════════════════════════════════════════════════════════════════════════
+
 echo "=== Searching for remaining 'miniserver99' references ==="
 rg -n miniserver99 --type nix --type md
 
-# Expected results (should be minimal or zero):
+# Expected results (should be minimal):
+# - secrets/secrets.nix (line 54-56): miniserver99 SSH key definition - OK to keep
 # - This migration plan (MIGRATION-PLAN-HOSTNAME.md) - OK, historical reference
+# - MIGRATION-PLAN-HOKAGE.md - May need update
 # - hosts/README.md - May need update
-# - Other documentation - May need update
 
-# If found in configs/flake, fix them now!
-# If found in docs, update them
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 2: Search for static-leases-miniserver99 references
+# ═════════════════════════════════════════════════════════════════════════════
 
-# Update hosts/README.md if needed
-nano hosts/README.md
-# Update any miniserver99 references to hsb0
+echo "=== Searching for 'static-leases-miniserver99' references ==="
+rg -n static-leases-miniserver99 --type nix --type md
 
-# Commit any doc updates
-git add hosts/README.md
-git commit -m "docs(miniserver99): update README references miniserver99 → hsb0 (step 6/6)"
+# Expected results (should be ZERO in active configs):
+# - This migration plan (MIGRATION-PLAN-HOSTNAME.md) - OK, historical reference
+# - MIGRATION-PLAN-HOKAGE.md - Update if found
+# - Any README files - Update if found
+
+# ⚠️ CRITICAL: If found in any active config files, fix them now!
+# This ensures operators don't use obsolete filenames in agenix commands
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 3: Update documentation files
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Update hosts/README.md if miniserver99 found
+if rg -q "miniserver99" hosts/README.md; then
+  nano hosts/README.md
+  # Update miniserver99 → hsb0 references
+fi
+
+# Update MIGRATION-PLAN-HOKAGE.md if static-leases-miniserver99 found
+if rg -q "static-leases-miniserver99" hosts/miniserver99/MIGRATION-PLAN-HOKAGE.md; then
+  nano hosts/miniserver99/MIGRATION-PLAN-HOKAGE.md
+  # Update static-leases-miniserver99 → static-leases-hsb0 references
+  # Update any agenix -e commands to use new filename
+fi
+
+# Update hosts/hsb0/README.md if it exists and has miniserver99
+if [ -f hosts/hsb0/README.md ] && rg -q "miniserver99" hosts/hsb0/README.md; then
+  nano hosts/hsb0/README.md
+  # Update miniserver99 → hsb0 references
+  # Update secret file references if any
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 4: Verify critical files are clean
+# ═════════════════════════════════════════════════════════════════════════════
+
+echo "=== Critical Configuration Verification ==="
+
+# These MUST NOT contain miniserver99 (except secrets.nix SSH key definition):
+echo "Checking flake.nix..."
+grep -c "miniserver99 = mkServerHost" flake.nix && echo "❌ FOUND in flake.nix!" || echo "✓ Clean"
+
+echo "Checking hosts/hsb0/configuration.nix..."
+grep -c 'hostName = "miniserver99"' hosts/hsb0/configuration.nix && echo "❌ FOUND in configuration.nix!" || echo "✓ Clean"
+
+echo "Checking secrets/secrets.nix..."
+# Should find exactly 1 match (the SSH key definition line 54-56)
+# Should find 0 matches for the secret binding
+grep -c '"static-leases-miniserver99.age"' secrets/secrets.nix && echo "❌ FOUND secret binding!" || echo "✓ Clean"
+
+echo "Checking hosts/hsb0/configuration.nix for old secret references..."
+grep -c 'static-leases-miniserver99' hosts/hsb0/configuration.nix && echo "❌ FOUND old secret!" || echo "✓ Clean"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# STEP 5: Commit documentation updates
+# ═════════════════════════════════════════════════════════════════════════════
+
+git add -A  # Add all updated documentation
+git commit -m "docs(miniserver99): update documentation references miniserver99 → hsb0 (step 6/6)
+
+- Updated hosts/README.md (if applicable)
+- Updated MIGRATION-PLAN-HOKAGE.md secret references
+- Updated any remaining documentation
+- Verified no miniserver99 in active configs
+
+All documentation now uses hsb0 and static-leases-hsb0.age.
+"
+
+echo "✓ Phase 6 complete - all references updated"
 ```
 
-**Verification**:
+**Verification Checklist**:
 
-- [ ] No `miniserver99` in flake.nix (except comments)
-- [ ] No `miniserver99` in hosts/hsb0/configuration.nix (except comments)
-- [ ] No `miniserver99` in secrets/secrets.nix
-- [ ] Documentation updated
+- [ ] No `miniserver99 = mkServerHost` in flake.nix
+- [ ] No `hostName = "miniserver99"` in hosts/hsb0/configuration.nix
+- [ ] No `"static-leases-miniserver99.age"` binding in secrets/secrets.nix
+- [ ] No `static-leases-miniserver99` in hosts/hsb0/configuration.nix
+- [ ] miniserver99 SSH key entry can remain in secrets/secrets.nix (line 54-56) ✅
+- [ ] Documentation updated: README.md
+- [ ] Documentation updated: MIGRATION-PLAN-HOKAGE.md (if needed)
 - [ ] All commits successful
+
+**Acceptable Remaining References**:
+
+✅ **OK to keep**:
+
+- `miniserver99 = [ ... ]` in secrets/secrets.nix (SSH key definition) - kept for record
+- Historical references in this migration plan (MIGRATION-PLAN-HOSTNAME.md)
+- Git commit messages
+
+❌ **Must be gone**:
+
+- Any `miniserver99` in flake.nix server definitions
+- Any `miniserver99` in active configuration files
+- Any `static-leases-miniserver99` in configs or agenix instructions
+- Any operator-facing documentation that references old filenames
 
 **Rollback**: `git reset --hard HEAD~1`
 
