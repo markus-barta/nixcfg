@@ -6,23 +6,25 @@ Home automation hub running HomeAssistant, Node-RED, Scrypted, and related servi
 
 ## Quick Reference
 
-| Item                  | Value                                                                                                                                                                                                      |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Hostname**          | `miniserver24`                                                                                                                                                                                             |
-| **Model**             | Mac mini 2014 (Late 2014)                                                                                                                                                                                  |
-| **CPU**               | Intel Core i7-4578U @ 3.00GHz (2C/4T)                                                                                                                                                                      |
-| **RAM**               | 16 GB (15 GiB usable)                                                                                                                                                                                      |
-| **Storage**           | 512 GB Apple SSD (465.9 GB usable)                                                                                                                                                                         |
-| **Filesystem**        | ZFS (zroot pool, 12% used)                                                                                                                                                                                 |
-| **Static IP**         | `192.168.1.101/24`                                                                                                                                                                                         |
-| **Gateway**           | `192.168.1.5` (Fritz!Box)                                                                                                                                                                                  |
-| **DNS**               | `192.168.1.99` (miniserver99) + `1.1.1.1` (fallback)                                                                                                                                                       |
-| **Web Interfaces**    | Node-RED: [http://192.168.1.101:1880](http://192.168.1.101:1880)<br>Zigbee2MQTT: [http://192.168.1.101:8888](http://192.168.1.101:8888)<br>Apprise: [http://192.168.1.101:8001](http://192.168.1.101:8001) |
-| **SSH Access**        | `ssh mba@192.168.1.101` or `ssh mba@miniserver24.lan`                                                                                                                                                      |
-| **Network Interface** | `enp3s0f0`                                                                                                                                                                                                 |
-| **ZFS Host ID**       | `dabfdb01`                                                                                                                                                                                                 |
-| **User**              | `mba` (Markus Barta)                                                                                                                                                                                       |
-| **Role**              | `server-home` (via `serverMba.enable`)                                                                                                                                                                     |
+| Item                            | Value                                                  |
+| ------------------------------- | ------------------------------------------------------ |
+| **Hostname**                    | `miniserver24`                                         |
+| **Model**                       | Mac mini 2014 (Late 2014)                              |
+| **CPU**                         | Intel Core i7-4578U @ 3.00GHz (2C/4T)                  |
+| **RAM**                         | 16 GB (15 GiB usable)                                  |
+| **Storage**                     | 512 GB Apple SSD (465.9 GB usable)                     |
+| **Filesystem**                  | ZFS (zroot pool, 12% used)                             |
+| **Static IP**                   | `192.168.1.101/24`                                     |
+| **Gateway**                     | `192.168.1.5` (Fritz!Box)                              |
+| **DNS**                         | `192.168.1.99` (miniserver99) + `1.1.1.1` (fallback)   |
+| **Web Interface - Node-RED**    | [http://192.168.1.101:1880](http://192.168.1.101:1880) |
+| **Web Interface - Zigbee2MQTT** | [http://192.168.1.101:8888](http://192.168.1.101:8888) |
+| **Web Interface - Apprise**     | [http://192.168.1.101:8001](http://192.168.1.101:8001) |
+| **SSH Access**                  | `ssh mba@192.168.1.101` or `ssh mba@miniserver24.lan`  |
+| **Network Interface**           | `enp3s0f0`                                             |
+| **ZFS Host ID**                 | `dabfdb01`                                             |
+| **User**                        | `mba` (Markus Barta)                                   |
+| **Role**                        | `server-home` (via `serverMba.enable`)                 |
 
 ## Network Configuration
 
