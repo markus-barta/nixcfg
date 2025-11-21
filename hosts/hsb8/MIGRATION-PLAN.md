@@ -9,13 +9,13 @@
 
 ---
 
-## ✅ MIGRATION STATUS: PHASE 1 COMPLETE
+## ✅ MIGRATION STATUS: ALL PHASES COMPLETE
 
-> **📋 NEXT STEP**: To complete the hokage external consumer migration, follow the step-by-step plan in `hosts/hsb8/BACKLOG.md`. This document records the completed Phase 1 (rename) for reference.
+> **🎉 SUCCESS**: Both Phase 1 (rename) and Phase 2 (external hokage consumer) are now complete! See `hosts/hsb8/BACKLOG.md` for detailed execution summary.
 
 ### What Was Completed (Nov 19-21, 2025)
 
-✅ **Phase 1: Rename Migration** - **COMPLETE**
+✅ **Phase 1: Rename Migration** - **COMPLETE** (Nov 19-20, 2025)
 
 1. ✅ **Hostname**: `msww87` → `hsb8` (new naming scheme)
 2. ✅ **Folder**: `hosts/msww87/` → `hosts/hsb8/` (repo structure)
@@ -25,20 +25,22 @@
 6. ✅ **System Verification**: All 14 checks passed
 7. ✅ **Git Repository**: Committed and pushed to main
 
-❌ **Phase 2: Hokage External Consumer** - **DEFERRED**
+✅ **Phase 2: Hokage External Consumer** - **COMPLETE** (Nov 21, 2025)
 
-- ❌ External hokage consumer migration NOT completed
-- ❌ Still using LOCAL hokage module (`../../modules/hokage`)
-- ❌ No `nixcfg.url` input in flake.nix
-- ℹ️ **See**: `hosts/hsb8/BACKLOG.md` for complete 6-phase migration guide
+1. ✅ Added `nixcfg.url = "github:pbek/nixcfg"` input (commit e886391)
+2. ✅ Removed local hokage import from configuration.nix (commit 6159036)
+3. ✅ Updated flake.nix to use `inputs.nixcfg.nixosModules.hokage` (commit 9113c8d, 92fc68e)
+4. ✅ Test build passed on miniserver24
+5. ✅ Deployed to hsb8 (zero downtime)
+6. ✅ System verification: All services running
 
-### Current State (as of Nov 21, 2025)
+### Current State (as of Nov 21, 2025 - After Full Migration)
 
 **What's Running**:
 
 - ✅ Hostname: `hsb8`
 - ✅ Folder: `hosts/hsb8/`
-- ❌ Hokage: **LOCAL module** (not external consumer)
+- ✅ Hokage: **EXTERNAL** from `github:pbek/nixcfg` (commit f51079c)
 - ✅ Location: `jhw22` (test configuration)
 - ✅ Services: All working
 - ✅ Network: DNS resolution working
