@@ -92,4 +92,4 @@ sudo nix --experimental-features nix-command --extra-experimental-features flake
 sudo nixos-install --flake .#hostname
 ```
 
-See [hosts/miniserver99/README.md](hosts/miniserver99/README.md) for a complete deployment example.
+See [hosts/hsb0/README.md](hosts/hsb0/README.md) for a complete deployment example.

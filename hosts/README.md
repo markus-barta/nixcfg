@@ -38,7 +38,7 @@ GAMING:
 
 | Host   | Old Name     | Location | Role       | IP            | Status                 |
 | ------ | ------------ | -------- | ---------- | ------------- | ---------------------- |
-| `hsb0` | miniserver99 | Home     | DNS/DHCP   | 192.168.1.99  | 🔄 Migration pending   |
+| `hsb0` | miniserver99 | Home     | DNS/DHCP   | 192.168.1.99  | 🚀 **Migrating now**   |
 | `hsb1` | miniserver24 | Home     | Automation | 192.168.1.101 | 🔄 Migration pending   |
 | `hsb8` | msww87       | Parents  | DNS/DHCP   | 192.168.1.100 | 🚀 **Migrating first** |
 
@@ -211,7 +211,7 @@ Special cases:
 | -------------- | ------------------------- | -------------- | ------- | --------- |
 | 1. Guinea Pig  | hsb8 (was msww87)         | 🚀 In Progress | Nov 19  | -         |
 | 2. Home Server | hsb1 (was miniserver24)   | ⏳ Pending     | -       | -         |
-| 3. DNS/DHCP    | hsb0 (was miniserver99)   | ⏳ Pending     | -       | -         |
+| 3. DNS/DHCP    | hsb0 (was miniserver99)   | 🚀 In Progress | Nov 21  | -         |
 | 4. Workstation | imac0 (was imac-mba-home) | ⏳ Pending     | -       | -         |
 | 5. Gaming      | pcg0 (was mba-gaming-pc)  | ⏳ Pending     | -       | -         |
 

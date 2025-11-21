@@ -1,4 +1,4 @@
-# miniserver99 server for Markus
+# hsb0 server for Markus
 # Primary Purpose: DNS and DHCP server running AdGuard Home
 {
   pkgs,
@@ -114,7 +114,7 @@
 
     # Read static leases from agenix-decrypted JSON file
     # Agenix automatically decrypts to /run/agenix/<secret-name>
-    static_leases_file="/run/agenix/static-leases-miniserver99"
+    static_leases_file="/run/agenix/static-leases-hsb0"
 
     # Validate that the agenix secret file exists
     if [ ! -f "$static_leases_file" ]; then
@@ -126,7 +126,7 @@
     # Validate JSON format
     if ! ${pkgs.jq}/bin/jq empty "$static_leases_file" 2>/dev/null; then
       echo "ERROR: Invalid JSON in static leases file: $static_leases_file"
-      echo "Use 'agenix -e secrets/static-leases-miniserver99.age' to fix the format."
+      echo "Use 'agenix -e secrets/static-leases-hsb0.age' to fix the format."
       exit 1
     fi
 
@@ -194,8 +194,8 @@
       ];
       # This DNS/DHCP server itself - self-resolution for services and management
       "192.168.1.99" = [
-        "miniserver99"
-        "miniserver99.lan"
+        "hsb0"
+        "hsb0.lan"
       ];
       # Home automation server + MQTT broker - runs Node-RED, Home Assistant, cameras, notifications + MQTT for IoT devices
       "192.168.1.101" = [
@@ -262,10 +262,10 @@
   # Agenix secrets configuration
   # Static DHCP leases: encrypted JSON array in git, decrypted at activation
   # Format: [{"mac": "AA:BB:CC:DD:EE:FF", "ip": "192.168.1.100", "hostname": "device-name"}]
-  # Edit with: agenix -e secrets/static-leases-miniserver99.age
-  age.secrets.static-leases-miniserver99 = {
-    file = ../../secrets/static-leases-miniserver99.age;
-    # Agenix creates /run/agenix/static-leases-miniserver99 automatically
+  # Edit with: agenix -e secrets/static-leases-hsb0.age
+  age.secrets.static-leases-hsb0 = {
+    file = ../../secrets/static-leases-hsb0.age;
+    # Agenix creates /run/agenix/static-leases-hsb0 automatically
     # The 'path' attribute is optional and defaults to /run/agenix/<secret-name>
     mode = "444"; # World-readable (not sensitive data, just DHCP assignments)
     owner = "root";
@@ -273,7 +273,7 @@
   };
 
   hokage = {
-    hostName = "miniserver99";
+    hostName = "hsb0";
     zfs.hostId = "dabfdb02";
     audio.enable = false;
     serverMba.enable = true;

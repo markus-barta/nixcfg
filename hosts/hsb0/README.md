@@ -1,4 +1,4 @@
-# miniserver99 - DNS/DHCP Server
+# hsb0 - DNS/DHCP Server
 
 ## Purpose
 
@@ -8,7 +8,7 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, 
 
 | Item                  | Value                                                |
 | --------------------- | ---------------------------------------------------- |
-| **Hostname**          | `miniserver99`                                       |
+| **Hostname**          | `hsb0`                                               |
 | **Model**             | Mac mini 2011                                        |
 | **CPU**               | Intel Core i5-2415M @ 2.30GHz (2C/4T)                |
 | **RAM**               | 8 GB (7.7 GiB usable)                                |
@@ -19,7 +19,7 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, 
 | **DNS**               | `127.0.0.1` (local AdGuard Home)                     |
 | **DHCP Range**        | `192.168.1.201` - `192.168.1.254`                    |
 | **Web Interface**     | [http://192.168.1.99:3000](http://192.168.1.99:3000) |
-| **SSH Access**        | `ssh mba@192.168.1.99` or `ssh mba@miniserver99.lan` |
+| **SSH Access**        | `ssh mba@192.168.1.99` or `ssh mba@hsb0.lan`         |
 | **Network Interface** | `enp2s0f0`                                           |
 | **ZFS Host ID**       | `dabfdb02`                                           |
 | **User**              | `mba` (Markus Barta)                                 |
@@ -100,7 +100,7 @@ Filesystems:
 - ✅ **Boot Media**: USB stick with NixOS minimal ISO (nixos-minimal-25.05 or later)
 - ✅ **Source Machine**: miniserver24 (192.168.1.101) or your Mac
 - ✅ **Network**: All machines on same network (192.168.1.x)
-- ✅ **Static Lease Data**: Encrypted in `secrets/static-leases-miniserver99.age` (managed by agenix)
+- ✅ **Static Lease Data**: Encrypted in `secrets/static-leases-hsb0.age` (managed by agenix)
 
 ### Step 1: Boot from USB
 
@@ -140,7 +140,7 @@ cd ~/Code/nixcfg
 
 # Deploy (replace 192.168.1.150 with actual IP from step 2)
 nix run github:nix-community/nixos-anywhere -- \
-  --flake .#miniserver99 \
+  --flake .#hsb0 \
   root@192.168.1.150
 ```
 
@@ -151,7 +151,7 @@ cd ~/Code/nixcfg
 
 # Deploy
 nix run github:nix-community/nixos-anywhere -- \
-  --flake .#miniserver99 \
+  --flake .#hsb0 \
   root@192.168.1.150
 ```
 
@@ -191,7 +191,7 @@ dig @localhost google.com
 ### Deploying Changes
 
 ```bash
-# On miniserver99
+# On hsb0
 cd ~/Code/nixcfg
 git pull
 just switch
@@ -204,7 +204,7 @@ just switch
 just switch
 
 # Edit static leases (using agenix)
-just edit-secret secrets/static-leases-miniserver99.age
+just edit-secret secrets/static-leases-hsb0.age
 
 # Update flake inputs and rebuild
 just upgrade
@@ -258,11 +258,11 @@ just switch
 
 ### Overview
 
-All 107 static DHCP leases are managed using **agenix** (encrypted secrets). The encrypted file `secrets/static-leases-miniserver99.age` contains a **JSON array** that is:
+All 107 static DHCP leases are managed using **agenix** (encrypted secrets). The encrypted file `secrets/static-leases-hsb0.age` contains a **JSON array** that is:
 
 - ✅ **Single Source of Truth**: The `.age` file in git is the canonical source
-- ✅ **Encrypted**: Uses dual-key encryption (your SSH key + miniserver99 host key)
-- ✅ **Automatic Decryption**: Agenix decrypts to `/run/agenix/static-leases-miniserver99` at system activation
+- ✅ **Encrypted**: Uses dual-key encryption (your SSH key + hsb0 host key)
+- ✅ **Automatic Decryption**: Agenix decrypts to `/run/agenix/static-leases-hsb0` at system activation
 - ✅ **Runtime Loading**: preStart script reads JSON and merges into AdGuard's leases database
 - ✅ **Build-time Independent**: No import at Nix evaluation time - works correctly!
 
@@ -270,21 +270,21 @@ All 107 static DHCP leases are managed using **agenix** (encrypted secrets). The
 
 ```
 1. Edit (Your Mac)
-   └─> agenix -e secrets/static-leases-miniserver99.age
+   └─> agenix -e secrets/static-leases-hsb0.age
        └─> Opens editor with JSON
        └─> Save → re-encrypts → commit to git
 
-2. Deploy (miniserver99)
+2. Deploy (hsb0)
    └─> just switch
        └─> NixOS builds configuration (no static leases needed yet!)
        └─> System activation
            └─> Agenix decrypts all secrets
-               └─> Writes /run/agenix/static-leases-miniserver99
+               └─> Writes /run/agenix/static-leases-hsb0
 
-      3. Service Start (miniserver99)
+      3. Service Start (hsb0)
          └─> AdGuard Home starts
              └─> preStart script executes
-                 ├─> Reads /run/agenix/static-leases-miniserver99
+                 ├─> Reads /run/agenix/static-leases-hsb0
                  ├─> Validates JSON format
                  ├─> Merges with existing dynamic leases
                  └─> Writes /var/lib/private/AdGuardHome/data/leases.json
@@ -323,7 +323,7 @@ The `.age` file contains a simple JSON array:
 
 ```bash
 # Edit the encrypted JSON file
-agenix -e secrets/static-leases-miniserver99.age
+agenix -e secrets/static-leases-hsb0.age
 
 # Your editor opens with the decrypted JSON
 # Make changes, save, exit → automatically re-encrypted
@@ -333,7 +333,7 @@ agenix -e secrets/static-leases-miniserver99.age
 
 ```bash
 # Before deploying, you can validate
-agenix -d secrets/static-leases-miniserver99.age | jq empty
+agenix -d secrets/static-leases-hsb0.age | jq empty
 # No output = valid JSON
 ```
 
@@ -353,7 +353,7 @@ just switch
 **Check deployed leases:**
 
 ```bash
-# On miniserver99
+# On hsb0
 sudo jq '.leases[] | select(.static == true)' \
   /var/lib/private/AdGuardHome/data/leases.json
 ```
@@ -365,18 +365,18 @@ sudo jq '.leases[] | select(.static == true)' \
 Static leases are encrypted with **two keys** in `secrets/secrets.nix`:
 
 ```nix
-"static-leases-miniserver99.age".publicKeys = markus ++ miniserver99;
+"static-leases-hsb0.age".publicKeys = markus ++ hsb0;
 ```
 
 **What this means:**
 
 1. **Your personal key** (`markus`) - Edit from Mac or any machine with your SSH key
-2. **miniserver99 host key** - System can decrypt at activation (no manual intervention)
+2. **hsb0 host key** - System can decrypt at activation (no manual intervention)
 
 **Key locations:**
 
 - Personal key: `~/.ssh/id_rsa` (or `id_ed25519`, `id_ecdsa`)
-- Host key: `/etc/ssh/ssh_host_ed25519_key` (on miniserver99)
+- Host key: `/etc/ssh/ssh_host_ed25519_key` (on hsb0)
 
 **Benefits:**
 
@@ -389,10 +389,10 @@ Static leases are encrypted with **two keys** in `secrets/secrets.nix`:
 
 The static leases are backed up in multiple locations:
 
-1. **Git Repository** - `secrets/static-leases-miniserver99.age` (encrypted, primary backup)
+1. **Git Repository** - `secrets/static-leases-hsb0.age` (encrypted, primary backup)
 2. **GitHub** - Pushed to remote repository
 3. **Time Machine** on your Mac (includes git repo)
-4. **ZFS snapshots** on miniserver99 (decrypted file in `/run/agenix/`)
+4. **ZFS snapshots** on hsb0 (decrypted file in `/run/agenix/`)
 5. **Optional**: 1Password (store a backup copy of the `.age` file)
 
 ### Error Handling & Troubleshooting
@@ -405,17 +405,17 @@ sudo journalctl -u adguardhome -n 50
 
 # Common errors:
 # "ERROR: Static leases file not found" → agenix didn't decrypt (check age.secrets config)
-# "ERROR: Invalid JSON" → Fix with: agenix -e secrets/static-leases-miniserver99.age
+# "ERROR: Invalid JSON" → Fix with: agenix -e secrets/static-leases-hsb0.age
 ```
 
 **Validate before deploying:**
 
 ```bash
 # Test JSON format locally
-agenix -d secrets/static-leases-miniserver99.age | jq empty
+agenix -d secrets/static-leases-hsb0.age | jq empty
 
 # Count entries
-agenix -d secrets/static-leases-miniserver99.age | jq 'length'
+agenix -d secrets/static-leases-hsb0.age | jq 'length'
 ```
 
 **Rollback if needed:**
@@ -425,8 +425,8 @@ agenix -d secrets/static-leases-miniserver99.age | jq 'length'
 sudo nixos-rebuild switch --rollback
 
 # Or restore from git history
-git log secrets/static-leases-miniserver99.age
-git show COMMIT:secrets/static-leases-miniserver99.age > /tmp/restored.age
+git log secrets/static-leases-hsb0.age
+git show COMMIT:secrets/static-leases-hsb0.age > /tmp/restored.age
 ```
 
 ### Migration from Nix to JSON Format
@@ -435,23 +435,23 @@ git show COMMIT:secrets/static-leases-miniserver99.age > /tmp/restored.age
 
 ```bash
 # 1. Read the current Nix file
-cat hosts/miniserver99/static-leases.nix
+cat hosts/hsb0/static-leases.nix
 
 # 2. Convert to JSON using nix-instantiate
 nix-instantiate --eval --strict --json -E '
-  let data = import ./hosts/miniserver99/static-leases.nix;
+  let data = import ./hosts/hsb0/static-leases.nix;
   in data.static_leases
 ' | jq '.' > /tmp/static-leases.json
 
 # 3. Encrypt the JSON with agenix
-agenix -e secrets/static-leases-miniserver99.age
+agenix -e secrets/static-leases-hsb0.age
 # (paste the JSON content, save, exit)
 
 # 4. Verify
-agenix -d secrets/static-leases-miniserver99.age | jq empty
+agenix -d secrets/static-leases-hsb0.age | jq empty
 
 # 5. Deploy
-git add secrets/static-leases-miniserver99.age
+git add secrets/static-leases-hsb0.age
 git commit -m "chore: migrate static leases to JSON format"
 just switch
 ```
@@ -475,7 +475,7 @@ just switch
 
 **Backup:** Store private key `~/.ssh/id_rsa` in 1Password as secure note
 
-### SSH Host Keys (miniserver99)
+### SSH Host Keys (hsb0)
 
 Automatically generated by NixOS during installation:
 
@@ -616,14 +616,14 @@ ip route show
 The migration was straightforward with minimal downtime:
 
 1. **Preparation:**
-   - Deployed miniserver99 at 192.168.1.99
+   - Deployed hsb0 at 192.168.1.99
    - Configured AdGuard Home with all static leases
    - Added equivalent blocklists from Pi-hole
    - Verified configuration
 
 2. **Cutover (Evening, Low Traffic):**
    - Stopped Pi-hole container on miniserver24
-   - miniserver99 took over DNS/DHCP immediately
+   - hsb0 took over DNS/DHCP immediately
    - **Minimal downtime**: ~2-3 minutes while services switched
    - No manual DHCP renewal needed (24-hour lease time meant clients renewed automatically)
 
@@ -634,14 +634,14 @@ The migration was straightforward with minimal downtime:
 
 ### Why Parallel Testing Wasn't Feasible
 
-Both Pi-hole (miniserver24) and AdGuard Home (miniserver99) were configured for **192.168.1.99**, so running them simultaneously would cause IP conflicts. The solution was a quick cutover instead.
+Both Pi-hole (miniserver24) and AdGuard Home (hsb0) were configured for **192.168.1.99**, so running them simultaneously would cause IP conflicts. The solution was a quick cutover instead.
 
 ### Rollback Plan (If Needed)
 
 **Quick Rollback:**
 
 ```bash
-# Stop AdGuard Home on miniserver99
+# Stop AdGuard Home on hsb0
 ssh mba@192.168.1.99
 sudo systemctl stop adguardhome
 
@@ -666,7 +666,7 @@ With 24-hour DHCP leases, clients automatically pick up the restored service wit
 - ✅ AdGuard Home configured and running
 - ✅ DHCP enabled with 107 static leases (encrypted with agenix)
 - ✅ DNS rewrites for internal hosts
-- ✅ Repository cloned to ~/Code/nixcfg on miniserver99
+- ✅ Repository cloned to ~/Code/nixcfg on hsb0
 - ✅ Admin credentials configured
 
 ### Notes

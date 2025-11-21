@@ -207,8 +207,8 @@
         dp09 = mkDesktopHost "dp09" [ disko.nixosModules.disko ];
         # MBA Miniserver24
         miniserver24 = mkServerHost "miniserver24" [ disko.nixosModules.disko ];
-        # MBA Miniserver99
-        miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
+        # DNS/DHCP Server (AdGuard Home) - Home Server Barta 0
+        hsb0 = mkServerHost "hsb0" [ disko.nixosModules.disko ];
         # MBA Gaming PC
         mba-gaming-pc = mkDesktopHost "mba-gaming-pc" [ disko.nixosModules.disko ];
         # Home Server Barta 8 (Parents' home automation server)
