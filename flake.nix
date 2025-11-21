@@ -212,7 +212,19 @@
         # MBA Gaming PC
         mba-gaming-pc = mkDesktopHost "mba-gaming-pc" [ disko.nixosModules.disko ];
         # Home Server Barta 8 (Parents' home automation server)
-        hsb8 = mkServerHost "hsb8" [ disko.nixosModules.disko ];
+        # Using external hokage consumer pattern
+        hsb8 = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = commonServerModules ++ [
+            inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./hosts/hsb8/configuration.nix
+            disko.nixosModules.disko
+          ];
+          specialArgs = self.commonArgs // {
+            inherit inputs;
+            lib-utils = inputs.nixcfg.lib-utils; # Required by external hokage
+          };
+        };
       };
 
       checks.x86_64-linux = {
