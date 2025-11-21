@@ -538,14 +538,29 @@ nano configuration.nix
 echo "✓ Added hokage consumer flags"
 
 # ============================================================================
-# STEP 10: Test Build Locally (CRITICAL - Must Pass)
+# STEP 10: Test Build on miniserver99 (CRITICAL - Must Pass)
 # ============================================================================
+# NOTE: We build on miniserver99 (not your Mac) because:
+# - Native Linux build (no macOS cross-platform issues)
+# - Catches any Linux-specific problems immediately
+# - Faster than cross-compilation from macOS
+# - miniserver99 is stable and already running NixOS
+
+# First, push your changes so miniserver99 can pull them
 cd ~/Code/nixcfg
+git push
+
+# SSH to miniserver99 and test the build there
+ssh mba@miniserver99
+
+# On miniserver99:
+cd ~/Code/nixcfg
+git pull
 
 echo "Testing flake..."
 nix flake check
 
-echo "Testing build..."
+echo "Testing hsb8 build..."
 nixos-rebuild build --flake .#hsb8 --show-trace
 
 # If build fails:
@@ -554,7 +569,10 @@ nixos-rebuild build --flake .#hsb8 --show-trace
 # - Check configuration.nix removed ../../modules/hokage import
 # - Ensure no syntax errors in nix files
 
-echo "✓ Build successful!"
+echo "✓ Build successful on miniserver99!"
+
+# Exit back to your Mac
+exit
 
 # ============================================================================
 # STEP 11: Commit and Push Changes
