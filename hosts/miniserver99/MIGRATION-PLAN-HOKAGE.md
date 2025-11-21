@@ -1,17 +1,35 @@
-# miniserver99 → External Hokage Consumer Migration Plan
+# hsb0 → External Hokage Consumer Migration Plan
 
-**Server**: miniserver99 (DNS/DHCP Infrastructure Server)  
+**Server**: hsb0 (formerly miniserver99) - DNS/DHCP Infrastructure Server  
 **Migration Type**: External Hokage Consumer Pattern  
 **Risk Level**: 🔴 **HIGH** - Critical network infrastructure (DNS/DHCP for entire network)  
-**Status**: 📋 **PLANNING** - No changes made yet  
+**Status**: ⏸️ **BLOCKED** - Waiting for hostname migration to complete first  
 **Created**: November 21, 2025  
 **Last Updated**: November 21, 2025
 
 ---
 
+## ⚠️ PREREQUISITE: HOSTNAME MIGRATION MUST COMPLETE FIRST
+
+**CRITICAL**: This hokage migration plan assumes the server has **already been renamed** from `miniserver99` to `hsb0`.
+
+📋 **See**: [MIGRATION-PLAN-HOSTNAME.md](./MIGRATION-PLAN-HOSTNAME.md) - Must complete first!
+
+**Why Separate?**
+
+1. ✅ **Isolate risks**: Hostname change is MORE disruptive than hokage migration for DNS/DHCP
+2. ✅ **Test thoroughly**: Can verify hostname change for 24-48 hours before hokage migration
+3. ✅ **Easier rollback**: If hostname breaks, rollback without hokage complications
+4. ✅ **Clear documentation**: Two separate migration reports
+5. ✅ **Follow proven pattern**: hsb8 did hostname first (msww87 → hsb8), then hokage external consumer
+
+**Recommended Wait Time**: 24-48 hours after hostname migration completes successfully
+
+---
+
 ## 🎯 MIGRATION OBJECTIVE
 
-Migrate miniserver99 from **local hokage module** (`../../modules/hokage`) to **external hokage consumer pattern** using `inputs.nixcfg.nixosModules.hokage` from `github:pbek/nixcfg`.
+Migrate hsb0 (formerly miniserver99) from **local hokage module** (`../../modules/hokage`) to **external hokage consumer pattern** using `inputs.nixcfg.nixosModules.hokage` from `github:pbek/nixcfg`.
 
 **Key Constraint**: **ZERO DOWNTIME** - This server provides DNS/DHCP for the entire network!
 
@@ -21,15 +39,16 @@ Migrate miniserver99 from **local hokage module** (`../../modules/hokage`) to **
 
 ### Server Information
 
-| Attribute         | Value                                    |
-| ----------------- | ---------------------------------------- |
-| **Hostname**      | `miniserver99`                           |
-| **Role**          | DNS/DHCP server (AdGuard Home)           |
-| **Criticality**   | 🔴 **CRITICAL** - Network infrastructure |
-| **IP Address**    | `192.168.1.99` (static)                  |
-| **Uptime**        | 8+ days                                  |
-| **NixOS Version** | 25.11.20251117.89c2b23 (Xantusia)        |
-| **Services**      | AdGuard Home, SSH, NetworkManager        |
+| Attribute         | Value                                                |
+| ----------------- | ---------------------------------------------------- |
+| **Hostname**      | `hsb0` (formerly `miniserver99`)                     |
+| **Role**          | DNS/DHCP server (AdGuard Home)                       |
+| **Criticality**   | 🔴 **CRITICAL** - Network infrastructure             |
+| **IP Address**    | `192.168.1.99` (static)                              |
+| **Uptime**        | 8+ days (at time of planning)                        |
+| **NixOS Version** | 25.11.20251117.89c2b23 (Xantusia)                    |
+| **Services**      | AdGuard Home, SSH, NetworkManager                    |
+| **Note**          | Hostname migration complete (miniserver99 → hsb0) ✅ |
 
 ### Critical Services
 
@@ -45,9 +64,9 @@ Migrate miniserver99 from **local hokage module** (`../../modules/hokage`) to **
    - Manages static leases for all infrastructure
    - **Downtime Impact**: New devices can't get IP addresses
 
-### Current Configuration
+### Current Configuration (After Hostname Migration)
 
-**File**: `hosts/miniserver99/configuration.nix`
+**File**: `hosts/hsb0/configuration.nix`
 
 ```nix
 imports = [
@@ -60,7 +79,7 @@ imports = [
 **File**: `flake.nix` (line ~211)
 
 ```nix
-miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
+hsb0 = mkServerHost "hsb0" [ disko.nixosModules.disko ];
 # ↑ Uses mkServerHost which imports LOCAL hokage
 ```
 
@@ -68,8 +87,8 @@ miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
 
 ### Dependencies
 
-- **Other Servers**: hsb8, miniserver24, mba-gaming-pc rely on miniserver99 for DNS/DHCP
-- **Workstations**: All home network devices use miniserver99 as DNS server
+- **Other Servers**: hsb8, miniserver24, mba-gaming-pc rely on hsb0 for DNS/DHCP
+- **Workstations**: All home network devices use hsb0 as DNS server
 - **Static Leases**: Manages IP assignments for infrastructure servers
 
 ---
@@ -78,38 +97,40 @@ miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
 
 ### Similarities
 
-| Aspect                 | hsb8                     | miniserver99             |
-| ---------------------- | ------------------------ | ------------------------ |
-| **Current State**      | Local hokage module      | Local hokage module      |
-| **Target State**       | External hokage consumer | External hokage consumer |
-| **flake.nix Pattern**  | Uses `mkServerHost`      | Uses `mkServerHost`      |
-| **NixOS Version**      | 25.11                    | 25.11                    |
-| **Hardware**           | Mac mini 2011            | Mac mini 2011            |
-| **Storage**            | ZFS                      | ZFS                      |
-| **Hokage Config**      | Uses defaults            | Uses defaults            |
-| **Migration Steps**    | 6 phases                 | 6 phases (same)          |
-| **Test Build Server**  | miniserver24             | miniserver24             |
-| **Zero Downtime Goal** | ✅ Achieved              | 🎯 Required              |
+| Aspect                 | hsb8                      | hsb0 (formerly miniserver99)    |
+| ---------------------- | ------------------------- | ------------------------------- |
+| **Current State**      | Local hokage module       | Local hokage module             |
+| **Target State**       | External hokage consumer  | External hokage consumer        |
+| **flake.nix Pattern**  | Uses `mkServerHost`       | Uses `mkServerHost`             |
+| **NixOS Version**      | 25.11                     | 25.11                           |
+| **Hardware**           | Mac mini 2011             | Mac mini 2011                   |
+| **Storage**            | ZFS                       | ZFS                             |
+| **Hokage Config**      | Uses defaults             | Uses defaults                   |
+| **Migration Steps**    | 6 phases                  | 6 phases (same)                 |
+| **Test Build Server**  | miniserver24              | miniserver24                    |
+| **Zero Downtime Goal** | ✅ Achieved               | 🎯 Required                     |
+| **Hostname Migrated**  | ✅ Complete (msww87→hsb8) | ✅ Complete (miniserver99→hsb0) |
 
 ### Critical Differences
 
-| Aspect                | hsb8                         | miniserver99                                                                |
-| --------------------- | ---------------------------- | --------------------------------------------------------------------------- |
-| **Risk Level**        | 🟡 **MEDIUM** (test server)  | 🔴 **HIGH** (critical DNS/DHCP)                                             |
-| **Service Type**      | Home automation (future)     | **DNS/DHCP** (network infrastructure)                                       |
-| **Downtime Impact**   | Low (not in production)      | **CRITICAL** (entire network loses DNS)                                     |
-| **Rollback Urgency**  | Can wait hours               | **Must be instant** (<1 min)                                                |
-| **Testing Strategy**  | Deploy, then verify          | **Extensive pre-deployment testing required**                               |
-| **Location**          | Currently at jhw22 (testing) | **Production at jhw22** (serves entire network)                             |
-| **Physical Access**   | Easy (at your home)          | Easy (at your home) ✅                                                      |
-| **Backup DNS**        | Can use Cloudflare (1.1.1.1) | **Network devices need reconfiguration** if it fails                        |
-| **Deployment Window** | Anytime                      | **Evening/weekend preferred** (when network usage is lower)                 |
-| **Verification Time** | 5 minutes acceptable         | **Must verify within 30 seconds** (DNS failures noticed immediately)        |
-| **Users Affected**    | None (pre-production)        | **All household members** (Markus, Mailina, guests)                         |
-| **Service Count**     | Minimal (SSH, basic tools)   | **Critical services** (DNS, DHCP, SSH)                                      |
-| **Complexity**        | Simple server config         | **Complex**: AdGuard Home with DHCP, static leases, DNS rewrites            |
-| **Configuration**     | ~400 lines, location-based   | **~280 lines**, AdGuard-centric                                             |
-| **Lessons Learned**   | N/A (first migration)        | **Can apply hsb8 experience** (lib-utils fix, testing on miniserver24, etc) |
+| Aspect                 | hsb8                         | hsb0 (formerly miniserver99)                                                |
+| ---------------------- | ---------------------------- | --------------------------------------------------------------------------- |
+| **Risk Level**         | 🟡 **MEDIUM** (test server)  | 🔴 **HIGH** (critical DNS/DHCP)                                             |
+| **Service Type**       | Home automation (future)     | **DNS/DHCP** (network infrastructure)                                       |
+| **Downtime Impact**    | Low (not in production)      | **CRITICAL** (entire network loses DNS)                                     |
+| **Rollback Urgency**   | Can wait hours               | **Must be instant** (<1 min)                                                |
+| **Testing Strategy**   | Deploy, then verify          | **Extensive pre-deployment testing required**                               |
+| **Location**           | Currently at jhw22 (testing) | **Production at jhw22** (serves entire network)                             |
+| **Physical Access**    | Easy (at your home)          | Easy (at your home) ✅                                                      |
+| **Backup DNS**         | Can use Cloudflare (1.1.1.1) | **Network devices need reconfiguration** if it fails                        |
+| **Deployment Window**  | Anytime                      | **Evening/weekend preferred** (when network usage is lower)                 |
+| **Verification Time**  | 5 minutes acceptable         | **Must verify within 30 seconds** (DNS failures noticed immediately)        |
+| **Users Affected**     | None (pre-production)        | **All household members** (Markus, Mailina, guests)                         |
+| **Service Count**      | Minimal (SSH, basic tools)   | **Critical services** (DNS, DHCP, SSH)                                      |
+| **Complexity**         | Simple server config         | **Complex**: AdGuard Home with DHCP, static leases, DNS rewrites            |
+| **Configuration**      | ~400 lines, location-based   | **~280 lines**, AdGuard-centric                                             |
+| **Hostname Migration** | Done before hokage ✅        | **Done before hokage ✅** (miniserver99 → hsb0)                             |
+| **Lessons Learned**    | N/A (first hokage migration) | **Can apply hsb8 experience** (lib-utils fix, testing on miniserver24, etc) |
 
 ### What We Learned from hsb8
 
@@ -218,7 +239,7 @@ grep "nixcfg.url" flake.nix
 **Duration**: 1 minute  
 **Risk**: 🟢 **LOW** (local change only, not deployed yet)
 
-**File**: `hosts/miniserver99/configuration.nix`
+**File**: `hosts/hsb0/configuration.nix`
 
 **Current** (line 11-15):
 
@@ -243,17 +264,17 @@ imports = [
 
 ```bash
 cd ~/Code/nixcfg
-nano hosts/miniserver99/configuration.nix
+nano hosts/hsb0/configuration.nix
 
 # Remove line 13: ../../modules/hokage
 
 # Verify:
-grep -n "modules/hokage" hosts/miniserver99/configuration.nix
+grep -n "modules/hokage" hosts/hsb0/configuration.nix
 # Should return nothing
 
 # Commit:
-git add hosts/miniserver99/configuration.nix
-git commit -m "refactor(miniserver99): remove local hokage import (will use external)"
+git add hosts/hsb0/configuration.nix
+git commit -m "refactor(hsb0): remove local hokage import (will use external)"
 ```
 
 **Verification**:
@@ -266,7 +287,7 @@ git commit -m "refactor(miniserver99): remove local hokage import (will use exte
 
 ---
 
-### Phase 3: Update flake.nix miniserver99 Definition
+### Phase 3: Update flake.nix hsb0 Definition
 
 **Status**: ⏸️ Not Started  
 **Duration**: 2 minutes  
@@ -277,19 +298,19 @@ git commit -m "refactor(miniserver99): remove local hokage import (will use exte
 **Current**:
 
 ```nix
-miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
+hsb0 = mkServerHost "hsb0" [ disko.nixosModules.disko ];
 ```
 
 **Target**:
 
 ```nix
-# DNS/DHCP Server (AdGuard Home)
+# DNS/DHCP Server (AdGuard Home) - Home Server Barta 0
 # Using external hokage consumer pattern
-miniserver99 = nixpkgs.lib.nixosSystem {
+hsb0 = nixpkgs.lib.nixosSystem {
   inherit system;
   modules = commonServerModules ++ [
     inputs.nixcfg.nixosModules.hokage  # External hokage module
-    ./hosts/miniserver99/configuration.nix
+    ./hosts/hsb0/configuration.nix
     disko.nixosModules.disko
   ];
   specialArgs = self.commonArgs // {
@@ -305,15 +326,15 @@ miniserver99 = nixpkgs.lib.nixosSystem {
 cd ~/Code/nixcfg
 nano flake.nix
 
-# Find miniserver99 definition (line ~211)
+# Find hsb0 definition (line ~211)
 # Replace mkServerHost with nixosSystem definition
 
 # Verify:
-grep -A 10 "miniserver99 = " flake.nix
+grep -A 10 "hsb0 = " flake.nix
 
 # Commit:
 git add flake.nix
-git commit -m "refactor(miniserver99): migrate to external hokage consumer pattern"
+git commit -m "refactor(hsb0): migrate to external hokage consumer pattern"
 ```
 
 **Verification**:
@@ -382,13 +403,13 @@ exit
 
 - [ ] Build completes without errors
 - [ ] No warnings about missing attributes
-- [ ] Result path created: `/nix/store/...-nixos-system-miniserver99-...`
+- [ ] Result path created: `/nix/store/...-nixos-system-hsb0-...`
 
-**Rollback**: N/A (no changes to miniserver99)
+**Rollback**: N/A (no changes to hsb0)
 
 ---
 
-### Phase 5: Deploy to miniserver99 (CRITICAL PHASE)
+### Phase 5: Deploy to hsb0 (CRITICAL PHASE)
 
 **Status**: ⏸️ Not Started  
 **Duration**: 5-10 minutes  
@@ -397,18 +418,18 @@ exit
 **⚠️ CRITICAL SAFETY MEASURES**:
 
 1. **Inform household members** (brief DNS interruption possible)
-2. **Have physical access** to miniserver99 ready
+2. **Have physical access** to hsb0 ready
 3. **Keep terminal open** for instant rollback if needed
 4. **Monitor network connectivity** from another device
 
 **Pre-Deployment Checks**:
 
 ```bash
-# On miniserver99 (via SSH):
-ssh mba@192.168.1.99
+# On hsb0 (via SSH):
+ssh mba@192.168.1.99  # Or: ssh mba@hsb0.lan
 
 # 1. Verify current state
-hostname  # Should be: miniserver99
+hostname  # Should be: hsb0 (after hostname migration)
 systemctl is-active adguardhome  # Should be: active
 nixos-version  # Note current version
 
@@ -418,27 +439,27 @@ git status  # Should be clean
 git pull    # Get latest changes
 
 # 3. Verify changes
-grep -c "modules/hokage" hosts/miniserver99/configuration.nix
+grep -c "modules/hokage" hosts/hsb0/configuration.nix
 # Should be: 0
 
 grep "inputs.nixcfg.nixosModules.hokage" flake.nix
 # Should find the line
 
 # 4. Pre-deployment test (dry-build)
-nixos-rebuild dry-build --flake .#miniserver99
+nixos-rebuild dry-build --flake .#hsb0
 # Should succeed
 ```
 
 **Deployment Execution**:
 
 ```bash
-# Still on miniserver99:
+# Still on hsb0:
 
 echo "=== DEPLOYING EXTERNAL HOKAGE CONSUMER PATTERN ==="
 echo "Starting at: $(date)"
 
 # Deploy!
-sudo nixos-rebuild switch --flake .#miniserver99
+sudo nixos-rebuild switch --flake .#hsb0
 
 # This will:
 # - Build new configuration
@@ -531,8 +552,8 @@ sudo reboot
 **Actions**:
 
 ```bash
-# On miniserver99:
-ssh mba@192.168.1.99
+# On hsb0:
+ssh mba@192.168.1.99  # Or: ssh mba@hsb0.lan
 
 echo "=== Configuration Verification ==="
 
@@ -540,7 +561,7 @@ echo "=== Configuration Verification ==="
 cd ~/Code/nixcfg
 
 echo "Local hokage import (should be 0):"
-grep -c "modules/hokage" hosts/miniserver99/configuration.nix || echo "0 ✓"
+grep -c "modules/hokage" hosts/hsb0/configuration.nix || echo "0 ✓"
 
 echo "External hokage in flake.nix (should find it):"
 grep "inputs.nixcfg.nixosModules.hokage" flake.nix
@@ -610,18 +631,18 @@ open http://192.168.1.99:3000
 
 **Files to Update**:
 
-1. **`hosts/miniserver99/MIGRATION-PLAN-HOKAGE.md`** (this file)
+1. **`hosts/hsb0/MIGRATION-PLAN-HOKAGE.md`** (this file)
    - Mark status as ✅ COMPLETE
    - Add completion date
    - Note any issues encountered
 
-2. **`hosts/miniserver99/README.md`**
+2. **`hosts/hsb0/README.md`**
    - Update "Current Status" section
    - Add external hokage note
    - Update changelog
 
 3. **`hosts/README.md`** (if needed)
-   - Note miniserver99 migration complete
+   - Note hsb0 hokage migration complete
 
 **Actions**:
 
@@ -631,8 +652,8 @@ cd ~/Code/nixcfg
 # Update documentation
 # (Detailed edits based on actual migration results)
 
-git add hosts/miniserver99/*.md hosts/README.md
-git commit -m "docs(miniserver99): external hokage migration complete ✅"
+git add hosts/hsb0/*.md hosts/README.md
+git commit -m "docs(hsb0): external hokage migration complete ✅"
 git push
 ```
 
@@ -660,7 +681,7 @@ git push
 3. Retry build
 4. If persistent, investigate external hokage compatibility
 
-**No Rollback Needed** (no changes to miniserver99)
+**No Rollback Needed** (no changes to hsb0)
 
 ### Scenario 2: Deployment Succeeds, AdGuard Home Stops
 
@@ -927,16 +948,16 @@ Run this checklist **immediately before** starting Phase 5 (deployment):
 - [ ] Latest changes pulled on Mac: `git pull`
 - [ ] Latest changes pulled on miniserver99: `ssh mba@192.168.1.99 'cd ~/Code/nixcfg && git pull'`
 - [ ] Test build passed on miniserver24: Phase 4 complete ✅
-- [ ] miniserver99 responding: `ping 192.168.1.99` works
-- [ ] SSH access confirmed: `ssh mba@192.168.1.99 'echo OK'`
-- [ ] AdGuard Home currently active: `ssh mba@192.168.1.99 'systemctl is-active adguardhome'`
+- [ ] hsb0 responding: `ping 192.168.1.99` works
+- [ ] SSH access confirmed: `ssh mba@hsb0.lan 'echo OK'` (or via IP: `ssh mba@192.168.1.99 'echo OK'`)
+- [ ] AdGuard Home currently active: `ssh mba@hsb0.lan 'systemctl is-active adguardhome'`
 
 ### Safety Net
 
 - [ ] Terminal ready for instant rollback command
 - [ ] Second device ready to test network connectivity
 - [ ] Monitor/keyboard for miniserver99 nearby (physical access)
-- [ ] NixOS generations verified: `sudo nixos-rebuild list-generations` (on miniserver99)
+- [ ] NixOS generations verified: `sudo nixos-rebuild list-generations` (on hsb0)
 - [ ] Current generation noted (for rollback reference)
 
 ### Mental Preparation
@@ -977,23 +998,25 @@ _Add any new insights or improvements for future migrations_
 
 ### Next Steps
 
-- [ ] Document in README.md
+- [ ] Document in hsb0/README.md
 - [ ] Update main hosts/README.md
+- [ ] Archive this migration plan (similar to hsb8)
 - [ ] Consider migrating miniserver24 next
-- [ ] Share experience in MIGRATION-PLAN.md
+- [ ] Share experience/lessons learned
 
 ---
 
 ## 🔗 RELATED DOCUMENTATION
 
-- [hsb8 Migration Plan](../hsb8/MIGRATION-PLAN.md) - Previous migration (reference)
-- [hsb8 Backlog](../hsb8/BACKLOG.md) - Lessons learned
-- [miniserver99 README](./README.md) - Server documentation
+- [hsb8 Hokage Migration Report](../hsb8/archive/HOKAGE-MIGRATION-2025-11-21.md) - Completed migration (reference)
+- [hsb8 Backlog](../hsb8/BACKLOG.md) - Lessons learned from hsb8
+- **[hsb0 Hostname Migration Plan](./MIGRATION-PLAN-HOSTNAME.md)** - **PREREQUISITE** (must complete first!)
+- [hsb0 README](./README.md) - Server documentation
 - [Hokage Options](../../docs/hokage-options.md) - Module reference
 
 ---
 
-**Status**: 📋 **READY FOR EXECUTION**  
-**Next Action**: Review plan with user, get approval to proceed  
+**Status**: ⏸️ **BLOCKED** - Waiting for hostname migration (miniserver99 → hsb0) to complete  
+**Next Action**: Complete hostname migration first, wait 24-48 hours for stability, then proceed with this hokage migration  
 **Created**: November 21, 2025  
 **Author**: AI Assistant (with Markus Barta)
