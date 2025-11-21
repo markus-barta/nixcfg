@@ -11,6 +11,8 @@
 
 ## ✅ MIGRATION STATUS: PHASE 1 COMPLETE
 
+> **📋 NEXT STEP**: To complete the hokage external consumer migration, follow the step-by-step plan in `hosts/hsb8/BACKLOG.md`. This document records the completed Phase 1 (rename) for reference.
+
 ### What Was Completed (Nov 19-21, 2025)
 
 ✅ **Phase 1: Rename Migration** - **COMPLETE**
@@ -28,7 +30,7 @@
 - ❌ External hokage consumer migration NOT completed
 - ❌ Still using LOCAL hokage module (`../../modules/hokage`)
 - ❌ No `nixcfg.url` input in flake.nix
-- ℹ️ **See**: `hosts/hsb8/BACKLOG.md` for complete migration plan
+- ℹ️ **See**: `hosts/hsb8/BACKLOG.md` for complete 6-phase migration guide
 
 ### Current State (as of Nov 21, 2025)
 
@@ -72,24 +74,24 @@ This was planned as a **triple migration**:
 
 ### Current State
 
-- **Hostname**: `msww87` (Mini-Server WW87)
+- **Hostname**: `hsb8` (renamed from `msww87`)
 - **Model**: Mac mini 2011 (Intel i5-2415M)
-- **OS**: NixOS 24.11
+- **OS**: NixOS 25.11
 - **Status**: Running at jhw22 (test location), not yet deployed to ww87
 - **Structure**: Uses local hokage modules (not external consumer yet)
 - **Location**: Testing configuration - `location = "jhw22"`
 - **Static IP**: 192.168.1.100
 - **Services**: Basic server infrastructure, AdGuard Home (disabled)
 
-### Target State
+### Target State (For Hokage Migration - See BACKLOG.md)
 
-- **Hostname**: `hsb8` (Home Server Barta 8 - nod to WW87 without exposing address)
-- **Folder**: `hosts/hsb8/`
-- **Structure**: External hokage consumer from `github:pbek/nixcfg`
-- **Configuration**: Uzumaki namespace for machine-specific config
-- **Services**: Same services, declaratively managed
-- **Location**: Still at jhw22 for testing, can be deployed to ww87 later
-- **Benefits**: Consistent with csb0/csb1 pattern, aligned with new naming scheme
+- **Hostname**: `hsb8` ✅ (Home Server Barta 8 - nod to WW87 without exposing address)
+- **Folder**: `hosts/hsb8/` ✅
+- **Structure**: External hokage consumer from `github:pbek/nixcfg` ⏳ (Pending - see BACKLOG.md)
+- **Configuration**: Uzumaki namespace for machine-specific config (Future)
+- **Services**: Same services, declaratively managed ✅
+- **Location**: Still at jhw22 for testing, can be deployed to ww87 later ✅
+- **Benefits**: Follow proven external consumer pattern (see Patrizio's examples)
 
 ### Why hsb8 First? (Guinea Pig Strategy)
 
@@ -316,7 +318,7 @@ GAMING:
 1. **Upstream Updates**: Get hokage improvements from Patrizio automatically
 2. **Cleaner Separation**: Your customizations in Uzumaki namespace (future)
 3. **No Fork Maintenance**: Don't need to merge upstream changes
-4. **Standardized**: Same pattern as csb0/csb1 and all external consumers
+4. **Standardized**: Follows proven external consumer pattern (see Patrizio's examples)
 5. **Future-Proof**: Easy to add customizations without touching hokage
 
 ### Critical hsb8 Considerations
@@ -449,9 +451,11 @@ nano flake.nix
 # ADD THIS AFTER line 22 (after plasma-manager):
 #     nixcfg.url = "github:pbek/nixcfg";
 
-# 6b. Change msww87 → hsb8 AND add hokage external consumer
-# Find line 214: msww87 = mkServerHost "msww87" [ disko.nixosModules.disko ];
-# REPLACE WITH:
+# 6b. Replace hsb8 mkServerHost with explicit nixosSystem for external hokage
+# Find line ~214 in flake.nix containing:
+#     hsb8 = mkServerHost "hsb8" [ disko.nixosModules.disko ];
+#
+# REPLACE that entire line with this explicit nixosSystem definition:
 #     hsb8 = nixpkgs.lib.nixosSystem {
 #       inherit system;
 #       modules =
@@ -484,6 +488,19 @@ agenix -e secrets/static-leases-miniserver99.age
 # Save and exit
 
 echo "✓ Updated DHCP static lease"
+
+# ============================================================================
+# STEP 7b: Check for Leftover msww87 Asset Names
+# ============================================================================
+# IMPORTANT: Before running the final "no msww87 references remain" check,
+# rename any lingering files/paths like:
+#   - secrets/static-leases-msww87.age → static-leases-hsb8.age (if exists)
+#   - /run/agenix/static-leases-msww87 → static-leases-hsb8 in configs
+#   - Any documentation paths in configuration.nix (e.g., AdGuard preStart)
+# This ensures the final search in Step 9 catches genuine code references.
+
+# Search for asset files with old name
+find . -name "*msww87*" -type f 2>/dev/null | grep -v ".git" || echo "✓ No msww87 asset files"
 
 # ============================================================================
 # STEP 8: Update hosts/README.md (ALREADY DONE - VERIFY)
