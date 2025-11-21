@@ -3,38 +3,28 @@
 **Server**: hsb8 (formerly msww87)  
 **Created**: November 19, 2025  
 **Last Updated**: November 21, 2025  
-**Current Status**: ✅ Renamed & Running, ✅ **External Hokage Consumer ACTIVE**  
-**Priority**: ~~Medium~~ **COMPLETED** - Now using external hokage from github:pbek/nixcfg
+**Current Status**: ✅ Production Ready
 
 ---
 
-## ✅ COMPLETED: External Hokage Consumer Pattern Migration
+## 📋 ACTIVE BACKLOG
 
-**Status**: ✅ **MIGRATION COMPLETE** - Now using EXTERNAL hokage from github:pbek/nixcfg
+### 🟢 LOW PRIORITY: Refactor mkServerHost Helper (Optional)
 
-**Migration Completed**: November 21, 2025
+**Status**: 💡 **CONSIDERATION** - Not urgent
 
-**Summary**:
+**Context**:
 
-hsb8 successfully migrated from local `../../modules/hokage` to external hokage consumer pattern using `inputs.nixcfg.nixosModules.hokage` from github:pbek/nixcfg.
+hsb8 currently uses an ad-hoc `nixosSystem` definition instead of the `mkServerHost` helper function due to external hokage consumer pattern requirements.
 
-**What's Actually Running NOW** (as of Nov 21, 2025 - Post-Migration):
-
-```nix
-# hosts/hsb8/configuration.nix - CURRENT STATE ✅
-imports = [
-  ./hardware-configuration.nix
-  # ../../modules/hokage  ← REMOVED! No longer using local import
-  ./disk-config.zfs.nix
-];
-```
+**Current Implementation**:
 
 ```nix
-# flake.nix - CURRENT STATE ✅
+# flake.nix - hsb8 uses explicit nixosSystem
 hsb8 = nixpkgs.lib.nixosSystem {
   inherit system;
   modules = commonServerModules ++ [
-    inputs.nixcfg.nixosModules.hokage  # ✅ External hokage from pbek/nixcfg
+    inputs.nixcfg.nixosModules.hokage  # External hokage
     ./hosts/hsb8/configuration.nix
     disko.nixosModules.disko
   ];
@@ -44,191 +34,118 @@ hsb8 = nixpkgs.lib.nixosSystem {
 };
 ```
 
-```bash
-# Verified on live server (Nov 21, 2025 - After deployment):
-$ ssh mba@hsb8.lan 'hostname && nixos-version'
-> hsb8
-> 25.11.20251117.89c2b23 (Xantusia)
-
-$ ssh mba@hsb8.lan 'systemctl is-system-running'
-> running  # ✅ System healthy with external hokage
-```
-
-**What Was the Target** (Achieved):
+**Other Servers Still Use**:
 
 ```nix
-# flake.nix - SHOULD ADD THIS INPUT
-inputs = {
-  # ... existing inputs ...
-  nixcfg.url = "github:pbek/nixcfg";  # ← MISSING!
-};
+# flake.nix - miniserver24, miniserver99, mba-gaming-pc
+miniserver24 = mkServerHost "miniserver24" [ disko.nixosModules.disko ];
+miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
 ```
+
+**Options**:
+
+1. **Option A**: Keep ad-hoc `nixosSystem` as standard for external hokage consumers
+   - **Pros**: Explicit, clear what's happening, no abstraction complexity
+   - **Cons**: More verbose, duplicates some boilerplate
+
+2. **Option B**: Extend `mkServerHost` to support external hokage pattern
+   - **Pros**: DRY principle, consistent with other servers
+   - **Cons**: Adds complexity to helper function, may be over-engineering
+
+3. **Option C**: Create new helper `mkExternalHokageHost`
+   - **Pros**: Explicit distinction between local and external patterns
+   - **Cons**: More helpers to maintain
+
+**Recommendation**: **Option A** (keep current ad-hoc pattern)
+
+**Rationale**:
+
+- Current solution is clean and works well
+- Explicit `nixosSystem` makes external hokage consumer pattern clear
+- Adding abstraction may not provide significant value
+- When more servers migrate to external hokage, revisit
+
+**Trigger**: When 3+ servers use external hokage consumer pattern
+
+**Estimated Effort**: 2-3 hours (if pursued)
+
+**Priority**: 🟢 **LOW** - Current solution is maintainable
+
+---
+
+## 🔍 FUTURE CONSIDERATIONS
+
+### Deployment to Parents' Home (ww87)
+
+**Status**: ⏸️ **ON HOLD** - Test location working well
+
+**Context**:
+
+hsb8 is currently running at jhw22 (Markus' home) in test mode. Eventually, it should be deployed to ww87 (parents' home) for production use.
+
+**Current Configuration**:
 
 ```nix
-# hosts/hsb8/configuration.nix - TARGET STATE
-imports = [
-  ./hardware-configuration.nix
-  # ../../modules/hokage  ← REMOVE local import
-  ./disk-config.zfs.nix
-];
-# External hokage imported via flake.nix specialArgs
+# hosts/hsb8/configuration.nix
+location = "jhw22";  # Test mode
 ```
+
+**Target Configuration**:
 
 ```nix
-# flake.nix - TARGET STATE
-hsb8 = nixpkgs.lib.nixosSystem {
-  inherit system;
-  modules =
-    commonServerModules
-    ++ [
-      inputs.nixcfg.nixosModules.hokage  # ← External hokage
-      ./hosts/hsb8/configuration.nix
-      disko.nixosModules.disko
-    ];
-  specialArgs = self.commonArgs // {
-    inherit inputs;
-    lib-utils = inputs.nixcfg.lib-utils;  # ← Required by external hokage
-  };
-};
+# hosts/hsb8/configuration.nix
+location = "ww87";  # Production at parents' home
 ```
 
----
+**Requirements Before Deployment**:
 
-## 📋 Migration Execution Summary
+1. Test all services at jhw22 for extended period (30+ days)
+2. Verify enable-ww87 script works correctly
+3. Coordinate with parents for deployment window
+4. Physical transport of hardware to ww87
+5. Update location configuration and deploy
 
-**Completed**: November 21, 2025
+**Script Available**: `enable-ww87` (one-command deployment tool)
 
-### ✅ Phase 1: Add External Hokage Input
+**Estimated Time**: 2-3 hours (including transport and setup)
 
-- Added `nixcfg.url = "github:pbek/nixcfg"` to flake.nix
-- Locked to commit f51079c (2025-11-21)
-- Commit: `e886391`
-
-### ✅ Phase 2: Update hsb8 Configuration
-
-- Removed `../../modules/hokage` import from configuration.nix
-- Commit: `6159036`
-
-### ✅ Phase 3: Update flake.nix hsb8 Definition
-
-- Replaced `mkServerHost` with ad-hoc `nixosSystem`
-- Added `inputs.nixcfg.nixosModules.hokage`
-- Uses local `lib-utils` from `self.commonArgs`
-- Commit: `9113c8d`
-- Fix commit: `92fc68e` (corrected lib-utils reference)
-
-### ✅ Phase 4: Test Build on miniserver24
-
-- Built successfully on miniserver24 (i7, 16GB RAM, 9.1GB free)
-- All checks passed
-
-### ✅ Phase 5: Deploy to hsb8
-
-- Deployed via SSH to hsb8
-- System activated successfully
-- Zero downtime
-
-### ✅ Phase 6: Verify External Hokage Active
-
-- Configuration verified: No local hokage import
-- flake.nix verified: Using `inputs.nixcfg.nixosModules.hokage`
-- System health: All services running
-- Tools verified: fish, zellij available
+**Priority**: 🟡 **MEDIUM** - When ready for production at parents' home
 
 ---
 
-## 🟢 FUTURE CONSIDERATION: Refactor mkServerHost Helper (Optional)
+## 📊 COMPLETED ITEMS
 
-**Context**: hsb8 now uses ad-hoc `nixosSystem` definition instead of `mkServerHost`.
+### ✅ External Hokage Consumer Migration
 
-**Option**: When migrating 2nd/3rd hosts (hsb0/hsb1/miniserver24/miniserver99) to external hokage, consider refactoring `mkServerHost` to support both patterns, or keep the ad-hoc pattern as standard for external hokage consumers.
+**Completed**: November 21, 2025  
+**Report**: [archive/HOKAGE-MIGRATION-2025-11-21.md](./archive/HOKAGE-MIGRATION-2025-11-21.md)
 
-**Current State**: Not urgent - ad-hoc definition works well and is explicit
+Successfully migrated from local hokage module to external hokage consumer pattern from `github:pbek/nixcfg`. Zero downtime, all services operational.
 
-**Trigger**: When migrating 2nd host to external hokage (hsb0, hsb1, or miniservers)
+### ✅ Hostname Migration (msww87 → hsb8)
 
-**Priority**: 🟢 **LOW** - Current solution is clean and maintainable
+**Completed**: November 19-20, 2025  
+**Report**: See MIGRATION-PLAN.md (lines 1-100)
 
----
-
-## 📊 Reference: External Hokage Consumer Examples
-
-From Patrizio's nixcfg repository:
-
-**Example flake.nix**:  
-https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/flake.nix
-
-**Example server configuration.nix**:  
-https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/server/configuration.nix
-
-**Key Points from Examples**:
-
-1. **flake.nix input**: `nixcfg.url = "github:pbek/nixcfg";`
-2. **Import hokage**: `inputs.nixcfg.nixosModules.hokage`
-3. **Pass lib-utils**: `lib-utils = inputs.nixcfg.lib-utils;` in specialArgs
-4. **Remove local import**: Delete `../../modules/hokage` from configuration.nix
-5. **Lock the input**: Use `nix flake lock` to pin version
+Successfully renamed from `msww87` to `hsb8` following new unified naming scheme. Updated folder structure, DHCP leases, DNS resolution, and all documentation.
 
 ---
 
-## ✅ Benefits of External Hokage Consumer
+## 📝 NOTES
 
-1. **Upstream Updates**: Get hokage improvements from Patrizio automatically
-2. **No Fork Maintenance**: Don't need to merge upstream changes manually
-3. **Standardized**: Follow proven external consumer pattern (see Patrizio's examples)
-4. **Cleaner Separation**: Your customizations separate from base module
-5. **Future-Proof**: Easy to add customizations via Uzumaki namespace (future)
+**Repository References**:
 
-**Note**: csb0 and csb1 are NOT managed by this flake - they exist as separate servers with their own configurations and need their own hokage migration (documented in their respective folders).
+- Main README: [../README.md](../README.md)
+- Configuration: [configuration.nix](./configuration.nix)
+- Deployment Script: [enable-ww87.md](./enable-ww87.md)
 
----
+**Related Servers**:
 
-## 🎯 Success Criteria - ALL COMPLETED ✅
-
-- [x] `nixcfg.url` input added to flake.nix ✅
-- [x] `flake.lock` has locked nixcfg version (f51079c) ✅
-- [x] Local `../../modules/hokage` import removed from hsb8/configuration.nix ✅
-- [x] External hokage imported via flake.nix (`inputs.nixcfg.nixosModules.hokage`) ✅
-- [x] `lib-utils` available via specialArgs (from `self.commonArgs`) ✅
-- [x] Test build passes on miniserver24 ✅
-- [x] Deployment successful (zero downtime) ✅
-- [x] System verification: Configuration files confirmed using external hokage ✅
-- [x] System still works (hostname: hsb8, all services running) ✅
-- [x] Documentation updated (this file + MIGRATION-PLAN.md) ✅
+- miniserver99 (hsb0): DNS/DHCP server
+- miniserver24 (hsb1): Home automation
+- To be migrated to external hokage pattern (use hsb8 as reference)
 
 ---
 
-## 📝 Notes
-
-**Why Was This Initially Deferred?**
-
-During the initial hsb8 rename (Nov 19, 2025), the migration was simplified to:
-
-- ✅ Rename only: msww87 → hsb8 (folder + hostname)
-- ⏸️ Hokage migration: Deferred to reduce risk
-
-**Why Was It Done?**
-
-1. hsb8 was stable and working after rename
-2. External hokage consumer pattern is proven (see Patrizio's examples)
-3. hsb8 rename was complete (safe time to proceed)
-4. Follows upstream hokage development practices
-5. Makes future hsb0/hsb1 migrations easier (they can follow same pattern)
-
-**Risk Assessment**: 🟡 **MEDIUM** (Actual: ✅ **ZERO ISSUES**)
-
-- hsb8 is not production-critical (parents don't rely on it yet)
-- Easy rollback available (NixOS generations)
-- Physical access available (at your home)
-- Could test thoroughly before deploying to parents (ww87 location)
-
-**Migration Execution Time**: ~30 minutes (November 21, 2025, late afternoon)
-
-**Result**: ✅ **SUCCESSFUL** - Zero downtime, all services operational
-
----
-
-**Created**: November 19, 2025  
-**Migration Completed**: November 21, 2025  
-**Status**: ✅ **COMPLETE** - hsb8 now using external hokage from github:pbek/nixcfg  
-**Owner**: Markus Barta
+**Last Updated**: November 21, 2025  
+**Maintained By**: Markus Barta
