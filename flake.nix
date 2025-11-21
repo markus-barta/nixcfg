@@ -222,7 +222,7 @@
           ];
           specialArgs = self.commonArgs // {
             inherit inputs;
-            lib-utils = inputs.nixcfg.lib-utils; # Required by external hokage
+            # lib-utils already provided by self.commonArgs
           };
         };
       };
