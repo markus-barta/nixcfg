@@ -155,17 +155,28 @@ git add flake.nix
 git commit -m "refactor(hsb8): migrate to external hokage consumer pattern"
 ```
 
-### Phase 4: Test Build Locally
+### Phase 4: Test Build on miniserver99
 
 ```bash
+# NOTE: Build on miniserver99 (not Mac) to avoid cross-platform issues
 cd ~/Code/nixcfg
+
+# Push changes first
+git push
+
+# SSH to miniserver99 and test there (native NixOS build)
+ssh mba@miniserver99
+
+# On miniserver99:
+cd ~/Code/nixcfg
+git pull
 
 # Test the build
 nix flake check
 nixos-rebuild build --flake .#hsb8 --show-trace
 
-# If successful, push
-git push
+# If successful, exit back to Mac
+exit
 ```
 
 ### Phase 5: Deploy to hsb8
