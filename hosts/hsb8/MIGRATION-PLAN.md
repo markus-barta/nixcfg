@@ -1,23 +1,74 @@
 # msww87 → hsb8 Migration Plan
 
 **Server**: msww87 → hsb8 (Home Server Barta 8)  
-**Migration Type**: Hostname + Hokage Consumer Pattern + Folder Rename  
-**Migration Date**: TBD (Guinea pig for naming scheme migration)  
+**Migration Type**: ~~Hostname + Hokage Consumer Pattern + Folder Rename~~ **SIMPLIFIED: Hostname + Folder Rename Only**  
+**Migration Date**: November 19-21, 2025 ✅ **COMPLETED**  
 **Location**: Currently at jhw22 (testing), target deployment: ww87 (parents' home)  
-**Expected Duration**: 2-3 hours (includes testing)  
-**Last Updated**: November 19, 2025
+**Actual Duration**: ~2 hours  
+**Last Updated**: November 21, 2025
 
 ---
 
-## 🎯 Migration Overview
+## ✅ MIGRATION STATUS: PHASE 1 COMPLETE
 
-### What's Changing
+### What Was Completed (Nov 19-21, 2025)
 
-This is a **triple migration**:
+✅ **Phase 1: Rename Migration** - **COMPLETE**
 
-1. **Hostname**: `msww87` → `hsb8` (new naming scheme)
-2. **Folder**: `hosts/msww87/` → `hosts/hsb8/` (repo structure)
-3. **Hokage Pattern**: Local modules → External hokage consumer (like csb0/csb1)
+1. ✅ **Hostname**: `msww87` → `hsb8` (new naming scheme)
+2. ✅ **Folder**: `hosts/msww87/` → `hosts/hsb8/` (repo structure)
+3. ✅ **DHCP Static Lease**: Updated on miniserver99
+4. ✅ **DNS Resolution**: `hsb8.lan` working
+5. ✅ **Documentation**: All references updated
+6. ✅ **System Verification**: All 14 checks passed
+7. ✅ **Git Repository**: Committed and pushed to main
+
+❌ **Phase 2: Hokage External Consumer** - **DEFERRED**
+
+- ❌ External hokage consumer migration NOT completed
+- ❌ Still using LOCAL hokage module (`../../modules/hokage`)
+- ❌ No `nixcfg.url` input in flake.nix
+- ℹ️ **See**: `hosts/hsb8/BACKLOG.md` for complete migration plan
+
+### Current State (as of Nov 21, 2025)
+
+**What's Running**:
+
+- ✅ Hostname: `hsb8`
+- ✅ Folder: `hosts/hsb8/`
+- ❌ Hokage: **LOCAL module** (not external consumer)
+- ✅ Location: `jhw22` (test configuration)
+- ✅ Services: All working
+- ✅ Network: DNS resolution working
+
+**Verified on Live Server**:
+
+```bash
+$ ssh mba@hsb8.lan 'hostname'
+> hsb8  ✓
+
+$ ssh mba@hsb8.lan 'nix-store -q --references /run/current-system | grep -E "(hokage|nixcfg|pbek)"'
+> No hokage external reference found  ← Still using LOCAL hokage
+```
+
+---
+
+## 🎯 Migration Overview (Original Plan - Simplified During Execution)
+
+### What Was PLANNED (Original)
+
+This was planned as a **triple migration**:
+
+1. **Hostname**: `msww87` → `hsb8` (new naming scheme) ✅ **DONE**
+2. **Folder**: `hosts/msww87/` → `hosts/hsb8/` (repo structure) ✅ **DONE**
+3. **Hokage Pattern**: Local modules → External hokage consumer ❌ **DEFERRED**
+
+### What Was EXECUTED (Actual)
+
+**Simplified to rename-only migration** to reduce risk:
+
+1. ✅ **Hostname + Folder Rename**: Completed successfully
+2. ❌ **Hokage Migration**: Deferred to `BACKLOG.md`
 
 ### Current State
 
