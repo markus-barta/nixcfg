@@ -139,10 +139,10 @@
     # Abbreviations
     shellAbbrs = {
       flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
-      qc99 = "ssh mba@miniserver99 -t \"zellij attach ms99 -c\"";
-      qc24 = "ssh mba@miniserver24 -t \"zellij attach ms24 -c\"";
-      qc0 = "ssh mba@cs0.barta.cm -p 2222 -t \"zellij attach csb0 -c\"";
-      qc1 = "ssh mba@cs1.barta.cm -p 2222 -t \"zellij attach csb1 -c\"";
+      hsb0 = "ssh mba@192.168.1.99 -t \"zellij attach hsb0 -c\"";
+      hsb1 = "ssh mba@192.168.1.101 -t \"zellij attach hsb1 -c\"";
+      csb0 = "ssh mba@cs0.barta.cm -p 2222 -t \"zellij attach csb0 -c\"";
+      csb1 = "ssh mba@cs1.barta.cm -p 2222 -t \"zellij attach csb1 -c\"";
     };
   };
 
