@@ -155,19 +155,20 @@ git add flake.nix
 git commit -m "refactor(hsb8): migrate to external hokage consumer pattern"
 ```
 
-### Phase 4: Test Build on miniserver99
+### Phase 4: Test Build on miniserver24
 
 ```bash
-# NOTE: Build on miniserver99 (not Mac) to avoid cross-platform issues
+# NOTE: Build on miniserver24 (not Mac) to avoid cross-platform issues
+# miniserver24 chosen for: i7 CPU, 16GB RAM, 9.1GB free (vs 4.3GB on miniserver99)
 cd ~/Code/nixcfg
 
 # Push changes first
 git push
 
-# SSH to miniserver99 and test there (native NixOS build)
-ssh mba@miniserver99
+# SSH to miniserver24 and test there (native NixOS build)
+ssh mba@miniserver24.lan
 
-# On miniserver99:
+# On miniserver24:
 cd ~/Code/nixcfg
 git pull
 

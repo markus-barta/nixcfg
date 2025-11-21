@@ -538,22 +538,23 @@ nano configuration.nix
 echo "✓ Added hokage consumer flags"
 
 # ============================================================================
-# STEP 10: Test Build on miniserver99 (CRITICAL - Must Pass)
+# STEP 10: Test Build on miniserver24 (CRITICAL - Must Pass)
 # ============================================================================
-# NOTE: We build on miniserver99 (not your Mac) because:
+# NOTE: We build on miniserver24 (not your Mac) because:
 # - Native Linux build (no macOS cross-platform issues)
 # - Catches any Linux-specific problems immediately
 # - Faster than cross-compilation from macOS
-# - miniserver99 is stable and already running NixOS
+# - miniserver24 has the most resources: i7 CPU, 16GB RAM, 9GB free
+# - Live load check (Nov 21, 2025): 9.1GB free RAM vs 4.3GB on miniserver99
 
-# First, push your changes so miniserver99 can pull them
+# First, push your changes so miniserver24 can pull them
 cd ~/Code/nixcfg
 git push
 
-# SSH to miniserver99 and test the build there
-ssh mba@miniserver99
+# SSH to miniserver24 and test the build there
+ssh mba@miniserver24.lan
 
-# On miniserver99:
+# On miniserver24:
 cd ~/Code/nixcfg
 git pull
 
@@ -569,7 +570,7 @@ nixos-rebuild build --flake .#hsb8 --show-trace
 # - Check configuration.nix removed ../../modules/hokage import
 # - Ensure no syntax errors in nix files
 
-echo "✓ Build successful on miniserver99!"
+echo "✓ Build successful on miniserver24!"
 
 # Exit back to your Mac
 exit
