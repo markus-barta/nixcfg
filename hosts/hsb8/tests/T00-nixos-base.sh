@@ -39,7 +39,7 @@ fi
 
 # Test 3: Generations exist
 echo -n "Test 3: System generations... "
-GEN_COUNT=$(ssh "$SSH_USER@$HOST" 'sudo nixos-rebuild list-generations | wc -l' 2>/dev/null)
+GEN_COUNT=$(ssh "$SSH_USER@$HOST" 'ls -1 /nix/var/nix/profiles/ | grep -c "system-.*-link"' 2>/dev/null || echo "0")
 if [ "$GEN_COUNT" -gt 0 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($GEN_COUNT generations)"
 else

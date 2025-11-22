@@ -46,23 +46,23 @@ done
 
 ## Test List
 
-| Test ID | Feature                  | Location | Manual Last Run     | Auto Last Run       | Notes                                               |
-| ------- | ------------------------ | -------- | ------------------- | ------------------- | --------------------------------------------------- |
-| T00     | NixOS Base System        | both     | ✅ 2025-11-22 10:00 | ⚠️ 2025-11-22 11:15 | Auto: Generation test needs review                  |
-| T01     | DNS Server               | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: AdGuard disabled at jhw22              |
-| T02     | Ad Blocking              | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: config verified                        |
-| T03     | DNS Cache                | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: config verified                        |
-| T04     | DHCP Server              | ww87     | ⏳ Not yet run      | N/A                 | Not yet implemented (dhcp.enabled = false)          |
-| T05     | Static DHCP Leases       | ww87     | ⏳ Not yet run      | N/A                 | Depends on T04                                      |
-| T06     | Web Management Interface | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: port 3000 configured                   |
-| T07     | DNS Query Logging        | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: 90-day retention configured            |
-| T08     | Custom DNS Rewrites      | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: feature available                      |
-| T09     | SSH Remote Access        | both     | ✅ 2025-11-22 10:00 | ✅ 2025-11-22 11:15 | All tests passed! SSH working after lib.mkForce fix |
-| T10     | Multi-User Access        | both     | ✅ 2025-11-22 10:00 | ⚠️ 2025-11-22 11:15 | mba working, gb SSH needs configuration             |
-| T11     | ZFS Storage              | both     | ✅ 2025-11-22 10:00 | ✅ 2025-11-22 11:15 | Pool healthy, 7% used, compression working          |
-| T12     | ZFS Snapshots            | both     | ✅ 2025-11-22 10:00 | ⚠️ 2025-11-22 11:15 | List works, create needs sudo permissions           |
-| T13     | Location-Based Config    | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: location=jhw22 verified                     |
-| T14     | One-Command Deployment   | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: enable-ww87 script exists                   |
+| Test ID | Feature                  | Location | Manual Last Run     | Auto Last Run       | Notes                                                          |
+| ------- | ------------------------ | -------- | ------------------- | ------------------- | -------------------------------------------------------------- |
+| T00     | NixOS Base System        | both     | ✅ 2025-11-22 10:00 | ✅ 2025-11-22 11:30 | All 5 tests passed: version, config, generations, status, GRUB |
+| T01     | DNS Server               | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: AdGuard disabled at jhw22                         |
+| T02     | Ad Blocking              | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: config verified                                   |
+| T03     | DNS Cache                | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: config verified                                   |
+| T04     | DHCP Server              | ww87     | ⏳ Not yet run      | N/A                 | Not yet implemented (dhcp.enabled = false)                     |
+| T05     | Static DHCP Leases       | ww87     | ⏳ Not yet run      | N/A                 | Depends on T04                                                 |
+| T06     | Web Management Interface | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: port 3000 configured                              |
+| T07     | DNS Query Logging        | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: 90-day retention configured                       |
+| T08     | Custom DNS Rewrites      | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: feature available                                 |
+| T09     | SSH Remote Access        | both     | ✅ 2025-11-22 10:00 | ✅ 2025-11-22 11:15 | All tests passed! SSH working after lib.mkForce fix            |
+| T10     | Multi-User Access        | both     | ✅ 2025-11-22 10:00 | ⚠️ 2025-11-22 11:15 | mba working, gb SSH needs configuration                        |
+| T11     | ZFS Storage              | both     | ✅ 2025-11-22 10:00 | ✅ 2025-11-22 11:15 | Pool healthy, 7% used, compression working                     |
+| T12     | ZFS Snapshots            | both     | ✅ 2025-11-22 10:00 | ⚠️ 2025-11-22 11:15 | List works, create needs sudo permissions                      |
+| T13     | Location-Based Config    | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: location=jhw22 verified                                |
+| T14     | One-Command Deployment   | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: enable-ww87 script exists                              |
 
 **Location Legend:**
 
