@@ -151,7 +151,20 @@
         miniserver24 = mkServerHost "miniserver24" [ disko.nixosModules.disko ];
 
         # DNS/DHCP Server (AdGuard Home) - Home Server Barta 0
-        hsb0 = mkServerHost "hsb0" [ disko.nixosModules.disko ];
+        # DNS/DHCP Server (AdGuard Home) - Home Server Barta 0
+        # Using external hokage consumer pattern
+        hsb0 = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = commonServerModules ++ [
+            inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./hosts/hsb0/configuration.nix
+            disko.nixosModules.disko
+          ];
+          specialArgs = self.commonArgs // {
+            inherit inputs;
+            # lib-utils already provided by self.commonArgs
+          };
+        };
 
         # MBA Gaming PC
         mba-gaming-pc = mkDesktopHost "mba-gaming-pc" [ disko.nixosModules.disko ];
