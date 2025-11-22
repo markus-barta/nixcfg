@@ -28,27 +28,28 @@
 
 Server capabilities and services (target configuration for ww87):
 
-| ID  | Technical                 | User-Friendly Description                                 | Status | Test |
-| --- | ------------------------- | --------------------------------------------------------- | ------ | ---- |
-| F00 | NixOS Base System         | Declarative configuration, reliable updates, reproducible | ✅     | T00  |
-| F01 | DNS Server (AdGuard Home) | Provides fast and reliable domain name resolution         | ✅     | T01  |
-| F02 | Ad Blocking               | Blocks ads and trackers across all devices on the network | ✅     | T02  |
-| F03 | DNS Cache                 | Speeds up internet by caching DNS responses               | ✅     | T03  |
-| F04 | DHCP Server               | Automatically assigns IP addresses to devices             | ⏳     | T04  |
-| F05 | Static DHCP Leases        | Ensures devices always get the same IP address            | ⏳     | T05  |
-| F06 | Web Management Interface  | Easy configuration through AdGuard Home web UI            | ✅     | T06  |
-| F07 | DNS Query Logging         | See what domains are being accessed (privacy-focused)     | ✅     | T07  |
-| F08 | Custom DNS Rewrites       | Redirect specific domains to custom addresses             | ✅     | T08  |
-| F09 | SSH Remote Access         | Secure remote server management from anywhere             | ✅     | T09  |
-| F10 | Multi-User Access         | Multiple users (Markus, Gerhard) can access the server    | ✅     | T10  |
-| F11 | ZFS Storage               | Reliable storage with data integrity checking             | ✅     | T11  |
-| F12 | ZFS Snapshots             | Automatic backups protect against data loss               | ✅     | T12  |
-| F13 | Location-Based Config     | Automatically adapts to home or parents' location         | ✅     | T13  |
-| F14 | One-Command Deployment    | Switch locations with a single command (`enable-ww87`)    | ✅     | T14  |
+| ID  | Technical                 | User-Friendly Description                                 | Test |
+| --- | ------------------------- | --------------------------------------------------------- | ---- |
+| F00 | NixOS Base System         | Declarative configuration, reliable updates, reproducible | T00  |
+| F01 | DNS Server (AdGuard Home) | Provides fast and reliable domain name resolution         | T01  |
+| F02 | Ad Blocking               | Blocks ads and trackers across all devices on the network | T02  |
+| F03 | DNS Cache                 | Speeds up internet by caching DNS responses               | T03  |
+| F04 | DHCP Server               | Automatically assigns IP addresses to devices             | T04  |
+| F05 | Static DHCP Leases        | Ensures devices always get the same IP address            | T05  |
+| F06 | Web Management Interface  | Easy configuration through AdGuard Home web UI            | T06  |
+| F07 | DNS Query Logging         | See what domains are being accessed (privacy-focused)     | T07  |
+| F08 | Custom DNS Rewrites       | Redirect specific domains to custom addresses             | T08  |
+| F09 | SSH Remote Access         | Secure remote server management from anywhere             | T09  |
+| F10 | Multi-User Access         | Multiple users (Markus, Gerhard) can access the server    | T10  |
+| F11 | ZFS Storage               | Reliable storage with data integrity checking             | T11  |
+| F12 | ZFS Snapshots             | Automatic backups protect against data loss               | T12  |
+| F13 | Location-Based Config     | Automatically adapts to home or parents' location         | T13  |
+| F14 | One-Command Deployment    | Switch locations with a single command (`enable-ww87`)    | T14  |
+| F15 | Docker & Home Assistant   | Home automation platform running in Docker for gb user    | T15  |
 
-**Legend**: ✅ Implemented | ⏳ Planned/In Progress | ❌ Not Working
+**Test Documentation**: See [tests/](./tests/) directory for detailed test procedures and automated scripts. Each feature has a corresponding test ID (Txx) that validates functionality.
 
-**Test Documentation**: See [tests/](./tests/) directory for detailed test procedures and automated scripts.
+**Note**: F15 (Home Assistant) will run under gb user account and requires manual setup of Docker Compose configuration.
 
 ---
 

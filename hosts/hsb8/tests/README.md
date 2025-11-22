@@ -63,6 +63,7 @@ done
 | T12     | ZFS Snapshots            | both     | ✅ 2025-11-22 12:15 | ✅ 2025-11-22 12:15 | All 4 tests passed: list, create, verify, destroy              |
 | T13     | Location-Based Config    | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: location=jhw22 verified                                |
 | T14     | One-Command Deployment   | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: enable-ww87 script exists                              |
+| T15     | Docker & Home Assistant  | both     | ⏳ Not yet run      | N/A                 | Docker infrastructure, Home Assistant for gb user              |
 
 **Location Legend:**
 

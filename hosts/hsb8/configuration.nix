@@ -403,6 +403,44 @@ in
   # Passwordless sudo for wheel group (required for remote deployment)
   security.sudo-rs.wheelNeedsPassword = false;
 
+  # ============================================================================
+  # DOCKER CONFIGURATION
+  # ============================================================================
+  # Docker for running Home Assistant and related services (gb user)
+  # Based on miniserver24 setup: ~/docker/docker-compose.yml
+  # ============================================================================
+
+  virtualisation.docker = {
+    enable = true;
+    enableOnBoot = true;
+    autoPrune = {
+      enable = true;
+      dates = "weekly";
+    };
+  };
+
+  # Add gb user to docker group for container management
+  users.users.gb.extraGroups = [ "docker" ];
+
+  # Docker containers will run under gb user account
+  # Configuration expected at: /home/gb/docker/docker-compose.yml
+  # Key services planned:
+  # - Home Assistant (ghcr.io/home-assistant/home-assistant:stable)
+  # - Zigbee2MQTT (koenkk/zigbee2mqtt:latest)
+  # - Mosquitto MQTT broker (eclipse-mosquitto:latest)
+  # - Matter Server (ghcr.io/home-assistant-libs/python-matter-server:stable)
+  # - Watchtower for automatic updates
+  #
+  # Note: Docker Compose setup must be configured manually by gb user
+  # Reference: miniserver24:/home/mba/docker/
+
+  # ============================================================================
+  # HOKAGE MODULE CONFIGURATION
+  # ============================================================================
+  # Using external hokage consumer pattern from github:pbek/nixcfg
+  # This provides server-home role with explicit configuration
+  # ============================================================================
+
   hokage = {
     hostName = "hsb8";
     userLogin = "mba"; # Primary user for hokage
