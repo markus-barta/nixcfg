@@ -32,6 +32,14 @@ git pull
 
 ### 4. Apply the Configuration
 
+**Simple (recommended)**:
+
+```bash
+just s
+```
+
+**Or full command**:
+
 ```bash
 sudo nixos-rebuild switch --flake .#hsb8
 ```
