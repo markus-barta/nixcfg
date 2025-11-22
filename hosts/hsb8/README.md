@@ -59,13 +59,14 @@ Server capabilities and services (target configuration for ww87):
 
 ## Current Status
 
-✅ **Deployed and Running** (November 21, 2025)
+✅ **Deployed and Running** (November 22, 2025)
 
 - **Location**: `jhw22` (testing at Markus' home)
 - **Static IP**: `192.168.1.100` configured
 - **Repository**: Successfully switched from pbek/nixcfg to markus-barta/nixcfg
 - **Configuration**: Using **external hokage consumer pattern** from `github:pbek/nixcfg`
 - **SSH Keys**: Explicitly configured (mba + gb only, NO external access)
+- **Secret Management**: Agenix configured with encrypted DHCP static leases (27 devices)
 - **AdGuard Home**: Ready to activate at parents' home (currently disabled)
 - **DHCP Server**: Disabled by default for safety
 
@@ -83,9 +84,10 @@ Server capabilities and services (target configuration for ww87):
 4. [Network Configuration](#network-configuration)
 5. [User Accounts](#user-accounts)
 6. [Services](#services)
-7. [System Management](#system-management)
-8. [Historical Context](#historical-context)
-9. [Troubleshooting](#troubleshooting)
+7. [Secret Management with Agenix](#secret-management-with-agenix)
+8. [System Management](#system-management)
+9. [Historical Context](#historical-context)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1023,6 +1025,21 @@ If you encounter issues not covered here:
 ---
 
 ## Changelog
+
+### 2025-11-22: Agenix Secret Management Added
+
+- ✅ **Agenix Integration** (F19): Encrypted secret management for DHCP static leases
+  - Created `secrets/static-leases-hsb8.age` with 27 static DHCP leases
+  - Dual-key encryption (Markus SSH key + hsb8 host key)
+  - Based on Pi-hole backup data from parents' network
+- ✅ **Documentation**: Comprehensive "Secret Management with Agenix" section added
+  - JSON format, editing workflow, deployment process
+  - Backup locations, troubleshooting guide
+- ✅ **Test Suite** (T19): Manual and automated tests for secret management
+  - Tests agenix CLI, rage encryption tool, secret configuration
+  - Validates JSON format and host key setup
+
+**Impact**: Static leases ready for deployment. When DHCP is enabled at ww87, all 27 devices (Orbi routers, Shelly switches, family devices, IoT) will automatically receive their static IP assignments.
 
 ### 2025-11-22: Missing Configuration Features Added
 
