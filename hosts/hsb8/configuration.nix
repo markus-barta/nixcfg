@@ -400,6 +400,9 @@ in
   # https://nixos.wiki/wiki/Fwupd
   services.fwupd.enable = true;
 
+  # Passwordless sudo for wheel group (required for remote deployment)
+  security.sudo-rs.wheelNeedsPassword = false;
+
   hokage = {
     hostName = "hsb8";
     userLogin = "mba"; # Primary user for hokage
