@@ -15,22 +15,6 @@
 # - Update: Watchtower handles this automatically (Saturdays 05:00)
 
 services:
-  homeassistant:
-    container_name: homeassistant
-    image: "ghcr.io/home-assistant/home-assistant:stable"
-    volumes:
-      - ./mounts/homeassistant:/config
-      - /etc/localtime:/etc/localtime:ro
-      - /run/dbus:/run/dbus:ro
-    restart: unless-stopped
-    privileged: true
-    network_mode: host
-    environment:
-      - TZ=Europe/Vienna
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=weekly"
-
   mosquitto:
     image: eclipse-mosquitto:latest
     container_name: mosquitto
@@ -63,6 +47,22 @@ services:
       - "com.centurylinklabs.watchtower.scope=weekly"
     # devices:
     #   - /dev/ttyUSB0:/dev/ttyUSB0  # Uncomment and adjust for Zigbee adapter
+
+  homeassistant:
+    container_name: homeassistant
+    image: "ghcr.io/home-assistant/home-assistant:stable"
+    volumes:
+      - ./mounts/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus:/run/dbus:ro
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    environment:
+      - TZ=Europe/Vienna
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
 
   matter-server:
     image: ghcr.io/home-assistant-libs/python-matter-server:stable

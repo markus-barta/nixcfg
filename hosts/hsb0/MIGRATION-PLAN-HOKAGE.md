@@ -3,9 +3,9 @@
 **Server**: hsb0 (formerly miniserver99) - DNS/DHCP Infrastructure Server  
 **Migration Type**: External Hokage Consumer Pattern  
 **Risk Level**: 🔴 **HIGH** - Critical network infrastructure (DNS/DHCP for entire network)  
-**Status**: ✅ **READY** - Hostname migration complete, ready to proceed  
+**Status**: ✅ **READY** - Hostname migration complete, ready to proceed (UPDATED with hsb8 lessons)  
 **Created**: November 21, 2025  
-**Last Updated**: November 22, 2025
+**Last Updated**: November 22, 2025 (Enhanced with critical lessons from hsb8 SSH lockout incident)
 
 ---
 
@@ -486,12 +486,22 @@ git commit -m "refactor(hsb0): remove local hokage import (will use external)"
 ### Phase 2.5: Update Hokage Configuration (Switch from Mixin to Explicit Options)
 
 **Status**: ⏸️ Not Started  
-**Duration**: 3 minutes  
-**Risk**: 🟢 **LOW** (local change only, not deployed yet)
+**Duration**: 5 minutes  
+**Risk**: 🔴 **HIGH** - SSH key security CRITICAL (see hsb8 lockout incident below)
+
+**🚨 CRITICAL LESSON FROM hsb8 MIGRATION (Nov 22, 2025)**:
+
+During hsb8 migration, switching from `serverMba.enable = true` mixin to explicit hokage options caused **complete SSH lockout** after reboot. The hokage `server-home.nix` module auto-injects Patrizio's SSH keys (omega@yubikey, omega@rsa, omega@tuvb, omega@semaphore) into ALL users. The mixin was providing the `mba` user's SSH key, which was lost during the switch, leaving only external omega keys.
+
+**Impact**: Complete SSH lockout requiring physical console access to recover.
+
+**Fix Required**: Use `lib.mkForce` to **explicitly override** SSH keys for ALL users BEFORE deployment.
+
+**Security Policy**: Only `mba` (Markus) SSH key on hsb0. NO external keys (omega/yubikey) allowed.
 
 **Rationale**:
 
-The local hokage module uses **mixin pattern** (`serverMba.enable = true`), but external hokage module requires **explicit role-based configuration**.
+The local hokage module uses **mixin pattern** (`serverMba.enable = true`), but external hokage module requires **explicit role-based configuration** AND **explicit SSH key management**.
 
 **File**: `hosts/hsb0/configuration.nix` (lines 275-280)
 
@@ -506,7 +516,7 @@ hokage = {
 };
 ```
 
-**Target** (explicit external hokage pattern - based on official examples):
+**Target** (explicit external hokage pattern + SSH security - based on official examples + hsb8 lessons):
 
 ```nix
 hokage = {
@@ -521,6 +531,33 @@ hokage = {
   audio.enable = false;              # KEEP: No audio on server
   programs.git.enableUrlRewriting = false;  # ADD: No internal git rewrites
 };
+
+# ============================================================================
+# 🚨 SSH KEY SECURITY - CRITICAL FIX FROM hsb8 INCIDENT
+# ============================================================================
+# The hokage server-home module auto-injects external SSH keys (omega@*).
+# We use lib.mkForce to REPLACE (not append) with our own keys only.
+#
+# Security Policy:
+# - hsb0: Only mba (Markus) key
+# - NO external access (omega/Yubikey) on personal/family servers
+# ============================================================================
+
+users.users.mba = {
+  openssh.authorizedKeys.keys = lib.mkForce [
+    # Markus' SSH key ONLY
+    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # mba@markus
+  ];
+};
+
+# ============================================================================
+# 🚨 PASSWORDLESS SUDO - Also lost when removing serverMba mixin
+# ============================================================================
+# The serverMba mixin provided passwordless sudo, which is also lost.
+# Re-enable it explicitly to prevent sudo failures.
+# ============================================================================
+
+security.sudo-rs.wheelNeedsPassword = false;
 ```
 
 **Actions**:
@@ -529,17 +566,35 @@ hokage = {
 cd ~/Code/nixcfg
 nano hosts/hsb0/configuration.nix
 
-# Navigate to hokage section (around line 275)
+# Step 1: Navigate to hokage section (around line 275)
 # Replace serverMba.enable with explicit options
+
+# Step 2: 🚨 CRITICAL - Add SSH key override AFTER hokage section
+# Add the users.users.mba section with lib.mkForce
+# This prevents external omega keys from being injected!
+
+# Step 3: 🚨 CRITICAL - Add passwordless sudo
+# Add security.sudo-rs.wheelNeedsPassword = false
+# This was also provided by serverMba mixin and is now lost
 
 # Verify changes:
 grep -A 12 "hokage = {" hosts/hsb0/configuration.nix
+grep -A 5 "users.users.mba" hosts/hsb0/configuration.nix
+grep "wheelNeedsPassword" hosts/hsb0/configuration.nix
 
-# Should show all explicit options, no serverMba.enable
+# Should show:
+# - All explicit hokage options, no serverMba.enable
+# - users.users.mba with lib.mkForce and ONLY mba@markus key
+# - security.sudo-rs.wheelNeedsPassword = false
 
 # Commit:
 git add hosts/hsb0/configuration.nix
-git commit -m "refactor(hsb0): use explicit hokage options (prepare for external module)"
+git commit -m "refactor(hsb0): explicit hokage + SSH/sudo security fixes
+
+- Replace serverMba.enable with explicit hokage options
+- Add lib.mkForce SSH key override (prevent omega key injection)
+- Add passwordless sudo (lost when removing serverMba mixin)
+- Applies lessons from hsb8 SSH lockout incident (Nov 22, 2025)"
 ```
 
 **Verification**:
@@ -554,7 +609,13 @@ git commit -m "refactor(hsb0): use explicit hokage options (prepare for external
 - [ ] `zfs.hostId` still present
 - [ ] `audio.enable = false` still present
 - [ ] `programs.git.enableUrlRewriting = false` added
+- [ ] 🚨 **CRITICAL**: `users.users.mba` section added with `lib.mkForce`
+- [ ] 🚨 **CRITICAL**: Only `mba@markus` SSH key present in the override
+- [ ] 🚨 **CRITICAL**: No `omega@*` keys in the configuration
+- [ ] 🚨 **CRITICAL**: `security.sudo-rs.wheelNeedsPassword = false` added
 - [ ] Git commit successful
+
+**Why This Matters**: Without the `lib.mkForce` SSH key override, hsb0 will be **locked out after deployment**, requiring physical console access to recover. This happened on hsb8 and must not be repeated! The passwordless sudo is also critical for smooth operation.
 
 **Rollback**: `git revert HEAD`
 
@@ -858,6 +919,16 @@ which fish
 which zellij
 which git
 
+# 5. 🚨 CRITICAL: Verify SSH key security (lesson from hsb8)
+echo "=== SSH Key Security ==="
+echo "Checking authorized SSH keys for mba user:"
+cat ~/.ssh/authorized_keys
+
+echo ""
+echo "⚠️ SECURITY CHECK: Should show ONLY mba@markus key"
+echo "⚠️ If you see omega@yubikey, omega@rsa, or omega@* keys: LOCKOUT RISK!"
+echo "⚠️ If only mba@markus key present: ✅ SECURE"
+
 echo "✅ All verifications complete!"
 ```
 
@@ -890,7 +961,11 @@ open <http://192.168.1.99:3000>
 - [ ] DHCP working (existing leases, new assignments)
 - [ ] AdGuard Home UI accessible
 - [ ] Hokage tools available (fish, zellij, git)
+- [ ] 🚨 **CRITICAL**: SSH keys verified - ONLY `mba@markus` key present
+- [ ] 🚨 **CRITICAL**: NO `omega@*` keys in authorized_keys
 - [ ] No errors in `journalctl -xe`
+
+**🚨 If omega keys are found**: You have a security issue! External keys were injected. This indicates the `lib.mkForce` override in Phase 2.5 was not applied correctly. DO NOT PROCEED - fix the configuration immediately!
 
 **Rollback**: N/A (verification only)
 
@@ -1465,3 +1540,93 @@ See completed migration: `hosts/hsb8/archive/MIGRATION-PLAN [DONE].md`
 - Clear rollback plan
 
 **Apply these lessons to all future migrations!**
+
+---
+
+## 🚨 CRITICAL LESSONS FROM hsb8 MIGRATION (November 22, 2025)
+
+### Incident: Complete SSH Lockout After Deployment
+
+**What Happened**:
+
+On November 22, 2025, hsb8 suffered a complete SSH lockout after switching from local hokage module to external hokage consumer pattern. Physical console access was required to recover the system.
+
+**Root Cause**:
+
+1. The local hokage `serverMba.enable = true` mixin was providing the `mba` user's SSH key
+2. When switching to explicit hokage options, the mixin was removed
+3. The external hokage `server-home.nix` module auto-injected Patrizio's SSH keys (omega@yubikey, omega@rsa, omega@tuvb, omega@semaphore) into ALL users
+4. Result: Only external omega keys were present, no `mba` key → complete lockout
+
+**Impact**:
+
+- Complete loss of SSH access to hsb8
+- Required physical console access (HDMI + keyboard)
+- System had to be recovered manually via physical console
+- Approximately 2 hours of troubleshooting and recovery
+
+**The Fix (Applied to hsb8, MUST apply to hsb0)**:
+
+```nix
+# In configuration.nix, AFTER hokage configuration:
+users.users.mba = {
+  openssh.authorizedKeys.keys = lib.mkForce [
+    "ssh-rsa AAAAB3..." # mba@markus ONLY
+  ];
+};
+```
+
+**Why `lib.mkForce` is Critical**:
+
+- Without `lib.mkForce`: NixOS **merges** SSH keys (hokage keys + your keys)
+- With `lib.mkForce`: NixOS **replaces** SSH keys (only your keys, no hokage keys)
+- The hokage module's omega keys are deeply nested in the module system
+- Only `lib.mkForce` can override them completely
+
+**Secondary Issue: Passwordless Sudo**:
+
+The `serverMba.enable` mixin also provided passwordless sudo (`security.sudo-rs.wheelNeedsPassword = false`). This was also lost during migration, causing sudo commands to fail after SSH was restored. Solution: explicitly add this to `configuration.nix`.
+
+**Security Policy Established**:
+
+- ✅ **hsb0**: Only `mba` (Markus) SSH key
+- ✅ **hsb8**: Only `mba` (Markus) + `gb` (Gerhard/father) SSH keys
+- ❌ **NO external keys** (omega@yubikey, omega@rsa, etc.) on personal/family servers
+- 🔒 **ALL hokage external consumer configurations** MUST use `lib.mkForce` for SSH keys
+
+**Testing Added**:
+
+After the hsb8 incident, comprehensive SSH security testing was added:
+
+- Test T09: SSH Access & Security (11 automated tests)
+  - SSH key verification (only authorized keys present)
+  - No external omega keys
+  - Passwordless sudo enabled
+  - SSH hardening (password auth disabled, root login disabled)
+
+**Documentation Created**:
+
+1. `hosts/hsb0/SSH-KEY-SECURITY-NOTE.md` - Warning for hsb0 migration
+2. `hosts/hsb8/archive/MIGRATION-PLAN [DONE].md` - Updated with lockout addendum
+3. Enhanced T09 test suite with security validation
+
+**Lessons for hsb0 Migration**:
+
+1. ✅ **Phase 2.5 is CRITICAL**: Must include `lib.mkForce` SSH key override
+2. ✅ **Verify BEFORE deployment**: Check configuration has SSH override
+3. ✅ **Verify AFTER deployment**: Check authorized_keys file (Phase 6)
+4. ✅ **Physical access ready**: Have HDMI + keyboard ready just in case
+5. ✅ **Passwordless sudo**: Add `security.sudo-rs.wheelNeedsPassword = false`
+6. ✅ **Test thoroughly**: Don't skip Phase 4 (test build on miniserver24)
+
+**Why This Matters for hsb0**:
+
+hsb0 is a **CRITICAL DNS/DHCP server**. Unlike hsb8 (a test server), losing access to hsb0 would:
+
+- Break DNS for the entire network (all devices)
+- Require emergency physical access during potential family time
+- Risk extended network downtime if recovery is complex
+
+**Prevention is CRITICAL**: The `lib.mkForce` SSH override in Phase 2.5 is **non-negotiable** for hsb0.
+
+---
