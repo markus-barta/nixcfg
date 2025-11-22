@@ -60,7 +60,7 @@ done
 | T09     | SSH Remote Access        | both     | ✅ 2025-11-22 12:00 | ✅ 2025-11-22 12:00 | All 11 tests passed: SSH + security (keys, sudo, password)     |
 | T10     | Multi-User Access        | both     | ✅ 2025-11-22 12:15 | ✅ 2025-11-22 12:15 | All 5 tests passed: mba + gb keys configured, sudo working     |
 | T11     | ZFS Storage              | both     | ✅ 2025-11-22 10:00 | ✅ 2025-11-22 11:15 | Pool healthy, 7% used, compression working                     |
-| T12     | ZFS Snapshots            | both     | ✅ 2025-11-22 10:00 | ⚠️ 2025-11-22 11:15 | List works, create needs sudo permissions                      |
+| T12     | ZFS Snapshots            | both     | ✅ 2025-11-22 12:15 | ✅ 2025-11-22 12:15 | All 4 tests passed: list, create, verify, destroy              |
 | T13     | Location-Based Config    | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: location=jhw22 verified                                |
 | T14     | One-Command Deployment   | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: enable-ww87 script exists                              |
 
