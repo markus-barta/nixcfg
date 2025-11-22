@@ -24,6 +24,37 @@
 
 ---
 
+## Features
+
+Server capabilities and services (target configuration for ww87):
+
+| ID  | Technical                 | User-Friendly Description                                 | Status | Test |
+| --- | ------------------------- | --------------------------------------------------------- | ------ | ---- |
+| F01 | DNS Server (AdGuard Home) | Provides fast and reliable domain name resolution         | ✅     | T01  |
+| F02 | Ad Blocking               | Blocks ads and trackers across all devices on the network | ✅     | T02  |
+| F03 | DNS Cache                 | Speeds up internet by caching DNS responses               | ✅     | T03  |
+| F04 | DHCP Server               | Automatically assigns IP addresses to devices             | ⏳     | T04  |
+| F05 | Static DHCP Leases        | Ensures devices always get the same IP address            | ⏳     | T05  |
+| F06 | SSH Remote Access         | Secure remote server management from anywhere             | ✅     | T06  |
+| F07 | Multi-User Access         | Multiple users (Markus, Gerhard) can access the server    | ✅     | T07  |
+| F08 | ZFS Storage               | Reliable storage with data integrity checking             | ✅     | T08  |
+| F09 | Automatic Updates         | System updates managed declaratively via NixOS            | ✅     | T09  |
+| F10 | Firmware Updates          | Hardware firmware kept up to date automatically           | ✅     | T10  |
+| F11 | Network Monitoring        | Track network status and connectivity                     | ✅     | T11  |
+| F12 | Web Management Interface  | Easy configuration through AdGuard Home web UI            | ✅     | T12  |
+| F13 | DNS Query Logging         | See what domains are being accessed (privacy-focused)     | ✅     | T13  |
+| F14 | Custom DNS Rewrites       | Redirect specific domains to custom addresses             | ✅     | T14  |
+| F15 | Location-Based Config     | Automatically adapts to home or parents' location         | ✅     | T15  |
+| F16 | One-Command Deployment    | Switch locations with a single command (`enable-ww87`)    | ✅     | T16  |
+| F17 | Automatic Backup (ZFS)    | ZFS snapshots protect against data loss                   | ✅     | T17  |
+| F18 | Secure Boot               | GRUB bootloader on multiple platforms (EFI + BIOS)        | ✅     | T18  |
+
+**Legend**: ✅ Implemented | ⏳ Planned/In Progress | ❌ Not Working
+
+**Test Documentation**: See [tests/](./tests/) directory for detailed test procedures and automated scripts.
+
+---
+
 ## Current Status
 
 ✅ **Deployed and Running** (November 21, 2025)
