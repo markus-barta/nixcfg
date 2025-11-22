@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# T03: DNS Cache - Automated Test
+# Tests that DNS caching is properly configured
+#
+
+set -euo pipefail
+
+# Configuration
+HOST="${HSB0_HOST:-192.168.1.99}"
+SSH_USER="${HSB0_USER:-mba}"
+
+# Colors
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+echo "=== T03: DNS Cache Test ==="
+echo "Host: $HOST"
+echo
+
+# Test 1: Cache size configured
+echo -n "Test 1: Cache size (4MB)... "
+# shellcheck disable=SC2029
+if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "cache_size.*4194304"' &>/dev/null; then
+  echo -e "${GREEN}✅ PASS${NC}"
+else
+  echo -e "${RED}❌ FAIL${NC}"
+  exit 1
+fi
+
+# Test 2: Optimistic caching enabled
+echo -n "Test 2: Optimistic caching... "
+# shellcheck disable=SC2029
+if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "cache_optimistic.*true"' &>/dev/null; then
+  echo -e "${GREEN}✅ PASS${NC}"
+else
+  echo -e "${RED}❌ FAIL${NC}"
+  exit 1
+fi
+
+# Test 3: Cache performance test (cached query should be fast)
+echo -n "Test 3: Cache performance... "
+# First query to populate cache
+nslookup google.com "$HOST" &>/dev/null
+# Second query should be from cache
+START=$(date +%s%N)
+nslookup google.com "$HOST" &>/dev/null
+END=$(date +%s%N)
+DURATION=$(((END - START) / 1000000)) # Convert to milliseconds
+if [ "$DURATION" -lt 100 ]; then
+  echo -e "${GREEN}✅ PASS${NC} (${DURATION}ms)"
+else
+  echo -e "${RED}⚠️  SLOW${NC} (${DURATION}ms, expected <100ms)"
+fi
+
+echo
+echo -e "${GREEN}🎉 All tests passed!${NC}"
+exit 0

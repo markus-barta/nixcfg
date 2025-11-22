@@ -25,6 +25,27 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, 
 | **User**              | `mba` (Markus Barta)                                 |
 | **Role**              | `server-home` (via `serverMba.enable`)               |
 
+## Features
+
+hsb0 provides comprehensive DNS/DHCP infrastructure for the entire network:
+
+| ID  | Technical                             | User-Friendly                                          | Test |
+| --- | ------------------------------------- | ------------------------------------------------------ | ---- |
+| F00 | NixOS Base System                     | Stable system foundation with generation management    | T00  |
+| F01 | AdGuard Home DNS Server               | Fast DNS resolution with Cloudflare upstream           | T01  |
+| F02 | AdGuard Home Ad Blocking              | Block ads and trackers across all network devices      | T02  |
+| F03 | DNS Cache (4MB)                       | Faster DNS lookups with optimistic caching             | T03  |
+| F04 | DHCP Server (192.168.1.201-254)       | Automatic IP assignment for new devices                | T04  |
+| F05 | Static DHCP Leases (agenix-encrypted) | Fixed IPs for infrastructure (servers, printers, etc.) | T05  |
+| F06 | DNS Rewrites (csb0 → cs0.barta.cm)    | Short names for cloud servers                          | T06  |
+| F07 | Web Management Interface (port 3000)  | Admin UI for DNS/DHCP management                       | T07  |
+| F08 | DNS Query Logging (90 days)           | Track DNS queries for troubleshooting                  | T08  |
+| F09 | SSH Remote Access + Security          | Secure SSH with key-only auth, passwordless sudo       | T09  |
+| F10 | ZFS Storage (zroot pool)              | Reliable storage with compression & snapshots          | T10  |
+| F11 | ZFS Snapshots                         | Point-in-time backups for disaster recovery            | T11  |
+
+**Test Documentation**: All features have detailed test procedures in `hosts/hsb0/tests/` with both manual instructions and automated scripts.
+
 ## Firewall Ports
 
 - **TCP 53**: DNS queries
@@ -62,7 +83,7 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, 
 
 ### Disk Layout
 
-```
+```text
 NAME     SIZE   TYPE  MOUNTPOINT        ROTA  MODEL
 sda      232.9G disk                    0     Samsung SSD 840 Series
 ├─sda1   1M     part  (BIOS boot)       0
@@ -73,7 +94,7 @@ zram0    3.8G   disk  [SWAP]            0
 
 ### ZFS Configuration
 
-```
+```text
 Pool: zroot
 Size: 232 GB total
 Allocated: 8.89 GB (3% used)
@@ -268,7 +289,7 @@ All 107 static DHCP leases are managed using **agenix** (encrypted secrets). The
 
 ### How It Works - Complete Flow
 
-```
+```text
 1. Edit (Your Mac)
    └─> agenix -e secrets/static-leases-hsb0.age
        └─> Opens editor with JSON
@@ -704,6 +725,39 @@ With 24-hour DHCP leases, clients automatically pick up the restored service wit
 - No desktop applications
 - No IoT/home automation
 - No media services
+
+---
+
+## Changelog
+
+### 2025-11-22: Test Suite Created
+
+- **Added comprehensive test suite** (12 features, 24 test files)
+  - T00-T11: Manual test procedures (`.md` files)
+  - T00-T11: Automated test scripts (`.sh` files)
+  - Test overview with tracking table (`tests/README.md`)
+- **Created Features table** in README for quick reference
+- **Test coverage**:
+  - System foundation (NixOS, ZFS)
+  - DNS/DHCP services (AdGuard Home)
+  - Ad blocking, caching, query logging
+  - Static DHCP leases (agenix-encrypted)
+  - DNS rewrites (csb0/csb1)
+  - Web management interface
+  - SSH access and security
+  - ZFS storage and snapshots
+
+### 2025-11-21: Hostname Migration Completed
+
+- Renamed from `miniserver99` to `hsb0`
+- Updated all documentation and configuration references
+- System running stable with new hostname
+
+### 2025-11-XX: Initial DNS/DHCP Deployment
+
+- Replaced Pi-hole on miniserver24
+- Deployed AdGuard Home as native NixOS service
+- Cutover completed successfully
 
 ---
 
