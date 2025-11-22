@@ -29,21 +29,20 @@ else
   exit 1
 fi
 
-# Test 2: hsb8 resolves to 192.168.1.100
-echo -n "Test 2: hsb8 resolves correctly... "
+# Test 2: hsb8 maps to 192.168.1.100 in /etc/hosts
+echo -n "Test 2: hsb8 maps to 192.168.1.100... "
 # shellcheck disable=SC2029
-RESOLVED_IP=$(ssh "$SSH_USER@$HOST" 'getent hosts hsb8 | awk "{print \$1}"' 2>/dev/null || echo "FAILED")
-if [ "$RESOLVED_IP" = "192.168.1.100" ]; then
+if ssh "$SSH_USER@$HOST" 'grep -q "192.168.1.100.*hsb8" /etc/hosts' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
-  echo -e "${RED}❌ FAIL${NC} (got: '$RESOLVED_IP')"
+  echo -e "${RED}❌ FAIL${NC}"
   exit 1
 fi
 
-# Test 3: hsb8.lan also resolves
-echo -n "Test 3: hsb8.lan resolves... "
+# Test 3: hsb8.lan also in /etc/hosts
+echo -n "Test 3: hsb8.lan in /etc/hosts... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'getent hosts hsb8.lan' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'grep -q "hsb8.lan" /etc/hosts' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

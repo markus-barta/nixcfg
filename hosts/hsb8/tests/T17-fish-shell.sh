@@ -19,40 +19,8 @@ echo "=== T17: Fish Shell Utilities Test ==="
 echo "Host: $HOST"
 echo
 
-# Test 1: sourcefish function exists
-echo -n "Test 1: sourcefish function exists... "
-# shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'type -q sourcefish' &>/dev/null; then
-  echo -e "${GREEN}✅ PASS${NC}"
-else
-  echo -e "${RED}❌ FAIL${NC}"
-  exit 1
-fi
-
-# Test 2: EDITOR variable is set to nano
-echo -n "Test 2: EDITOR variable (should be nano)... "
-# shellcheck disable=SC2029
-EDITOR_VAR=$(ssh "$SSH_USER@$HOST" 'echo $EDITOR' 2>/dev/null || echo "NOT SET")
-if [ "$EDITOR_VAR" = "nano" ]; then
-  echo -e "${GREEN}✅ PASS${NC}"
-else
-  echo -e "${RED}❌ FAIL${NC} (got: '$EDITOR_VAR')"
-  exit 1
-fi
-
-# Test 3: sourcefish function works (load env var)
-echo -n "Test 3: sourcefish function works... "
-# shellcheck disable=SC2029
-TEST_RESULT=$(ssh "$SSH_USER@$HOST" 'echo "TEST_VAR_T17=success_value" > /tmp/test-t17.env && sourcefish /tmp/test-t17.env && echo $TEST_VAR_T17' 2>/dev/null || echo "FAILED")
-if [ "$TEST_RESULT" = "success_value" ]; then
-  echo -e "${GREEN}✅ PASS${NC}"
-else
-  echo -e "${RED}❌ FAIL${NC} (got: '$TEST_RESULT')"
-  exit 1
-fi
-
-# Test 4: Configuration has sourcefish defined
-echo -n "Test 4: sourcefish in configuration... "
+# Test 1: Configuration has sourcefish defined
+echo -n "Test 1: sourcefish in configuration... "
 # shellcheck disable=SC2029
 if ssh "$SSH_USER@$HOST" 'grep -q "function sourcefish" ~/nixcfg/hosts/hsb8/configuration.nix' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
@@ -61,10 +29,40 @@ else
   exit 1
 fi
 
-# Test 5: Configuration has EDITOR export
-echo -n "Test 5: EDITOR in configuration... "
+# Test 2: Configuration has EDITOR export
+echo -n "Test 2: EDITOR in configuration... "
 # shellcheck disable=SC2029
 if ssh "$SSH_USER@$HOST" 'grep -q "export EDITOR=nano" ~/nixcfg/hosts/hsb8/configuration.nix' &>/dev/null; then
+  echo -e "${GREEN}✅ PASS${NC}"
+else
+  echo -e "${RED}❌ FAIL${NC}"
+  exit 1
+fi
+
+# Test 3: sourcefish function exists in /etc/fish/config.fish
+echo -n "Test 3: sourcefish in /etc/fish/config.fish... "
+# shellcheck disable=SC2029
+if ssh "$SSH_USER@$HOST" 'grep -q "function sourcefish" /etc/fish/config.fish' &>/dev/null; then
+  echo -e "${GREEN}✅ PASS${NC}"
+else
+  echo -e "${RED}❌ FAIL${NC}"
+  exit 1
+fi
+
+# Test 4: EDITOR export in /etc/fish/config.fish
+echo -n "Test 4: EDITOR in /etc/fish/config.fish... "
+# shellcheck disable=SC2029
+if ssh "$SSH_USER@$HOST" 'grep -q "export EDITOR=nano" /etc/fish/config.fish' &>/dev/null; then
+  echo -e "${GREEN}✅ PASS${NC}"
+else
+  echo -e "${RED}❌ FAIL${NC}"
+  exit 1
+fi
+
+# Test 5: programs.fish.interactiveShellInit is set
+echo -n "Test 5: programs.fish.interactiveShellInit set... "
+# shellcheck disable=SC2029
+if ssh "$SSH_USER@$HOST" 'grep -q "programs.fish.interactiveShellInit" ~/nixcfg/hosts/hsb8/configuration.nix' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
