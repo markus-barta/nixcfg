@@ -60,9 +60,11 @@ Server capabilities and services (target configuration for ww87):
 - **Static IP**: `192.168.1.100` configured
 - **Repository**: Successfully switched from pbek/nixcfg to markus-barta/nixcfg
 - **Configuration**: Using **external hokage consumer pattern** from `github:pbek/nixcfg`
-- **SSH Keys**: Gerhard's public key configured for `gb` user
+- **SSH Keys**: Explicitly configured (mba + gb only, NO external access)
 - **AdGuard Home**: Ready to activate at parents' home (currently disabled)
 - **DHCP Server**: Disabled by default for safety
+
+⚠️ **CRITICAL**: After reboot on Nov 22, SSH lockout occurred. Fix applied using `lib.mkForce` to override hokage's default SSH keys. Physical access required to deploy fix.
 
 **Ready for deployment**: Run `enable-ww87` when machine is moved to parents' home.
 
@@ -331,12 +333,26 @@ The MAC address `40:6c:8f:18:dd:24` has a static lease configured in miniserver9
 
 ## User Accounts
 
+### SSH Key Security Policy
+
+⚠️ **Important**: This server uses `lib.mkForce` to explicitly override hokage's default SSH keys.
+
+**Security Principle**: Personal/family servers should ONLY have authorized family member keys. The external hokage module (from `github:pbek/nixcfg`) automatically injects external developer keys (omega@yubikey, omega@rsa, etc.) which we explicitly block for security.
+
+**hsb8 Access Policy**:
+
+- ✅ `mba` (Markus) - Personal SSH key
+- ✅ `gb` (Gerhard/father) - Personal SSH key
+- ❌ NO external developer access
+- ❌ NO omega/Yubikey keys
+
 ### Primary User: mba
 
 - **UID**: 1000
 - **Role**: Primary administrator
 - **Home**: `/home/mba`
-- **SSH Access**: Configured with public key
+- **SSH Access**: Explicitly configured with `lib.mkForce` (overrides hokage defaults)
+- **SSH Key**: `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H...` (mba@markus)
 - **Sudo**: Passwordless (member of `wheel` group)
 - **Groups**: wheel, docker, networkmanager
 
@@ -344,10 +360,10 @@ The MAC address `40:6c:8f:18:dd:24` has a static lease configured in miniserver9
 
 - **Role**: Secondary user for Gerhard (Markus' father)
 - **Home**: `/home/gb`
-- **SSH Access**: Configured with public key
+- **SSH Access**: Explicitly configured with `lib.mkForce` (overrides hokage defaults)
 - **SSH Key Source**: `Gerhard@imac-gb.local`
 - **SSH Key**:
-  ```
+  ```text
   ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAwgtI71qYnLJnq0PPs/PWR0O+0zvEQfT7QYaHbrPUdILnK5jqZTj6o02kyfce6JLk+xyYhI596T6DD9But943cKFY/cYG037EjlECq+LXdS7bRsb8wYdc8vjcyF21Ol6gSJdT3noAzkZnqnucnvd7D1lae2ZVw7km6GQvz5XQGS/LQ38JpPZ2JYb0ufT3Z1vgigq9GqhCU6C7NdUslJJJ1Lj4JfPqQTbS1ihZqMe3SQ+ctfmHNYniUkd5Potu7wLMG1OJDL13BXu/M5IihgerZ3QuPb2VPQkb37oxKfquMKveYL9bt4fmK+7+CRHJnzFB45HfG5PiTKsyjuPR5A1N3U5Os+9Wrav9YrqDHWjCaFI1EIY4HRM/kRufD+0ncvvXpsp4foS9DAhK5g3OObRlKgPEc4hkD7hC2KBXUt7Kyg6SLL89gD42qSXLxZlxaTD65UaqB28PuOt7+LtKEPhm1jfH65cKu5vGqUp3145hSJuHB4FuA0ieplfxO78psVM= Gerhard@imac-gb.local
   ```
 - **Configured**: November 16, 2025
@@ -844,6 +860,26 @@ If you encounter issues not covered here:
 ---
 
 ## Changelog
+
+### 2025-11-22: SSH Key Security Fix (CRITICAL)
+
+- 🚨 **Issue**: Server lockout after reboot - mba user couldn't SSH in
+- 🔍 **Root Cause**: Hokage `server-home.nix` auto-injects external keys (omega@\*), mba key was missing
+- ✅ **Fix**: Added `lib.mkForce` to explicitly override hokage's SSH keys
+- ✅ **Security**: Only family keys allowed (mba + gb), NO external access
+- ⚠️ **Status**: Fix committed, requires physical access to deploy
+
+**Configuration**:
+
+```nix
+users.users.mba = {
+  openssh.authorizedKeys.keys = lib.mkForce [
+    "ssh-rsa AAAAB3..." # mba@markus ONLY
+  ];
+};
+```
+
+**Lesson**: External hokage modules may inject unwanted config. Always audit and override security-critical settings with `lib.mkForce`.
 
 ### 2025-11-22: Hokage Configuration Correction
 
