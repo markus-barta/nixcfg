@@ -57,7 +57,7 @@ done
 | T06     | Web Management Interface | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: port 3000 configured                              |
 | T07     | DNS Query Logging        | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: 90-day retention configured                       |
 | T08     | Custom DNS Rewrites      | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: feature available                                 |
-| T09     | SSH Remote Access        | both     | ✅ 2025-11-22 10:00 | ✅ 2025-11-22 11:15 | All tests passed! SSH working after lib.mkForce fix            |
+| T09     | SSH Remote Access        | both     | ✅ 2025-11-22 12:00 | ✅ 2025-11-22 12:00 | All 11 tests passed: SSH + security (keys, sudo, password)     |
 | T10     | Multi-User Access        | both     | ✅ 2025-11-22 10:00 | ⚠️ 2025-11-22 11:15 | mba working, gb SSH needs configuration                        |
 | T11     | ZFS Storage              | both     | ✅ 2025-11-22 10:00 | ✅ 2025-11-22 11:15 | Pool healthy, 7% used, compression working                     |
 | T12     | ZFS Snapshots            | both     | ✅ 2025-11-22 10:00 | ⚠️ 2025-11-22 11:15 | List works, create needs sudo permissions                      |

@@ -3,6 +3,7 @@
 ## Configuration Options Comparison
 
 ### Option 1: Current Plan (Recommended)
+
 ```nix
 users.users.mba = {
   # Has password: yes (strong one)
@@ -14,16 +15,17 @@ security.sudo-rs.wheelNeedsPassword = false;
 
 **Attack Scenarios**:
 
-| Attack Vector | Can they login? | Can they sudo? | Risk Level |
-|---------------|----------------|----------------|------------|
-| SSH from internet | ❌ No (needs key) | N/A | ✅ None |
-| Container breakout | ⚠️ If weak password | ✅ Yes (passwordless) | ⚠️ Medium |
-| Physical access | ⚠️ If weak password | ✅ Yes (passwordless) | ⚠️ Medium |
-| SSH with stolen key | ✅ Yes | ✅ Yes | 🚨 High |
+| Attack Vector       | Can they login?     | Can they sudo?        | Risk Level |
+| ------------------- | ------------------- | --------------------- | ---------- |
+| SSH from internet   | ❌ No (needs key)   | N/A                   | ✅ None    |
+| Container breakout  | ⚠️ If weak password | ✅ Yes (passwordless) | ⚠️ Medium  |
+| Physical access     | ⚠️ If weak password | ✅ Yes (passwordless) | ⚠️ Medium  |
+| SSH with stolen key | ✅ Yes              | ✅ Yes                | 🚨 High    |
 
 **Key Point**: If attacker gets IN (password or key), they can sudo freely.
 
 ### Option 2: Password for Sudo Too
+
 ```nix
 users.users.mba = {
   # Has password: yes (strong one)
@@ -35,16 +37,17 @@ security.sudo-rs.wheelNeedsPassword = true;  # <- The difference
 
 **Attack Scenarios**:
 
-| Attack Vector | Can they login? | Can they sudo? | Risk Level |
-|---------------|----------------|----------------|------------|
-| SSH from internet | ❌ No (needs key) | N/A | ✅ None |
-| Container breakout | ⚠️ If weak password | ❌ No (needs password again!) | ✅ Low |
-| Physical access | ⚠️ If weak password | ⚠️ If weak password | ⚠️ Medium |
-| SSH with stolen key | ✅ Yes | ❌ No (needs password) | ⚠️ Medium |
+| Attack Vector       | Can they login?     | Can they sudo?                | Risk Level |
+| ------------------- | ------------------- | ----------------------------- | ---------- |
+| SSH from internet   | ❌ No (needs key)   | N/A                           | ✅ None    |
+| Container breakout  | ⚠️ If weak password | ❌ No (needs password again!) | ✅ Low     |
+| Physical access     | ⚠️ If weak password | ⚠️ If weak password           | ⚠️ Medium  |
+| SSH with stolen key | ✅ Yes              | ❌ No (needs password)        | ⚠️ Medium  |
 
 **Key Point**: Two-factor defense - must know password AND get in.
 
 ### Option 3: No User Password (Current Concern)
+
 ```nix
 users.users.mba = {
   hashedPassword = "!";  # Disabled!
@@ -56,12 +59,12 @@ security.sudo-rs.wheelNeedsPassword = false;
 
 **Attack Scenarios**:
 
-| Attack Vector | Can they login? | Can they sudo? | Risk Level |
-|---------------|----------------|----------------|------------|
-| SSH from internet | ❌ No (needs key) | N/A | ✅ None |
-| Container breakout | ❌ No password exists | ✅ Yes (if already in) | ⚠️ Medium |
-| Physical access | ❌ Can't login | N/A | ✅ None |
-| SSH with stolen key | ✅ Yes | ✅ Yes | 🚨 High |
+| Attack Vector       | Can they login?       | Can they sudo?         | Risk Level |
+| ------------------- | --------------------- | ---------------------- | ---------- |
+| SSH from internet   | ❌ No (needs key)     | N/A                    | ✅ None    |
+| Container breakout  | ❌ No password exists | ✅ Yes (if already in) | ⚠️ Medium  |
+| Physical access     | ❌ Can't login        | N/A                    | ✅ None    |
+| SSH with stolen key | ✅ Yes                | ✅ Yes                 | 🚨 High    |
 
 **Key Point**: Very secure from password attacks, but NO recovery if SSH breaks!
 
@@ -91,13 +94,13 @@ sudo whoami
 
 ```bash
 # Inside compromised container with root
-whoami  
+whoami
 # Output: root (but containerized root, limited)
 
 # Can they break out to host?
 # Depends on:
 # - Docker security settings
-# - Kernel vulnerabilities  
+# - Kernel vulnerabilities
 # - Container capabilities
 # - AppArmor/SELinux policies
 ```
@@ -131,6 +134,7 @@ whoami
 ### For hsb8 (Home Server)
 
 **Best Practice**:
+
 ```nix
 # Strong user password (emergency access)
 users.users.mba = {
@@ -147,6 +151,7 @@ security.sudo-rs.wheelNeedsPassword = true;
 ### For Remote Servers (csb0, csb1)
 
 **Best Practice**:
+
 ```nix
 # No user password (SSH only)
 users.users.mba = {
@@ -162,6 +167,7 @@ security.sudo-rs.wheelNeedsPassword = false;
 ## Your Specific Case
 
 **hsb8 Profile**:
+
 - Home server (physical access possible)
 - Will run Docker containers
 - Network-facing services (AdGuard DNS/DHCP)
@@ -169,7 +175,8 @@ security.sudo-rs.wheelNeedsPassword = false;
 
 **My Recommendation**:
 
-1. **Set a STRONG password**: 
+1. **Set a STRONG password**:
+
    ```bash
    ssh mba@192.168.1.100
    sudo passwd mba
@@ -178,11 +185,12 @@ security.sudo-rs.wheelNeedsPassword = false;
    ```
 
 2. **Keep sudo password requirement** (more secure):
+
    ```nix
    security.sudo-rs.wheelNeedsPassword = true;
    ```
 
-3. **Accept the inconvenience**: 
+3. **Accept the inconvenience**:
    - Remote deployments need password
    - More secure against container breakout
    - Better for a server with Docker
@@ -190,14 +198,16 @@ security.sudo-rs.wheelNeedsPassword = false;
 ### Alternative: Risk-Based Decision
 
 **Low-risk scenario** (current):
+
 - Keep passwordless sudo (our current plan)
 - Strong password on user account
 - Accept: If someone breaks container + guesses password, they have root
 - Probability: Very low on home network
 
 **High-risk scenario** (if running untrusted containers):
+
 - Require sudo password
-- Strong password on user account  
+- Strong password on user account
 - Defense-in-depth: Even with container breakout + password guess, can't sudo
 - Probability: Protected against most attacks
 
@@ -212,11 +222,10 @@ security.sudo-rs.wheelNeedsPassword = false;
 **The question for you**: How convenient vs. how paranoid?
 
 For a home server running Docker, I'd say:
+
 - ✅ Strong password (generate one)
 - ✅ Passwordless sudo (convenience)
 - ✅ Good container security practices
 - ✅ Minimal attack surface
 
 **But if you're concerned**: Keep `wheelNeedsPassword = true` and accept the inconvenience of entering password for sudo.
-
-
