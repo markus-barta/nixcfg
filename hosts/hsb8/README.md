@@ -46,6 +46,9 @@ Server capabilities and services (target configuration for ww87):
 | F13 | Location-Based Config     | Automatically adapts to home or parents' location         | T13  |
 | F14 | One-Command Deployment    | Switch locations with a single command (`enable-ww87`)    | T14  |
 | F15 | Docker & Home Assistant   | Home automation platform running in Docker for gb user    | T15  |
+| F16 | User Identity Config      | Correct git authorship and user information               | T16  |
+| F17 | Fish Shell Utilities      | sourcefish function and EDITOR=nano for convenience       | T17  |
+| F18 | Local /etc/hosts          | Privacy-focused hostname resolution without DNS           | T18  |
 
 **Test Documentation**: See [tests/](./tests/) directory for detailed test procedures and automated scripts. Each feature has a corresponding test ID (Txx) that validates functionality.
 
@@ -861,6 +864,28 @@ If you encounter issues not covered here:
 ---
 
 ## Changelog
+
+### 2025-11-22: Missing Configuration Features Added
+
+- ✅ **User Identity**: Added `userNameLong`, `userNameShort`, `userEmail` to hokage config
+  - Prevents git commits from being attributed to "Patrizio Bekerle"
+  - Ensures correct authorship: "Markus Barta <markus@barta.com>"
+- ✅ **Fish Shell Utilities**: Added `programs.fish.interactiveShellInit` block
+  - Restored `sourcefish` function for loading .env files
+  - Set `EDITOR=nano` for consistent editing experience
+- ✅ **Local /etc/hosts**: Added `networking.hosts` configuration
+  - Privacy-focused hostnames (cryptic/encoded device names)
+  - Fallback DNS resolution when AdGuard Home unavailable
+  - Self-resolution for hsb8 and hsb8.lan
+- ✅ **Test Suite**: Created T16-T18 tests with manual and automated procedures
+- 📋 **Reason**: These features were provided by `serverMba.enable` mixin in local hokage
+- 🎯 **Impact**: Brings hsb8 to feature parity with hsb0 and other servers
+
+**Features Added**:
+
+- F16: User Identity Config (git authorship)
+- F17: Fish Shell Utilities (sourcefish, EDITOR)
+- F18: Local /etc/hosts (privacy-focused hostnames)
 
 ### 2025-11-22: SSH Key Security Fix (CRITICAL)
 

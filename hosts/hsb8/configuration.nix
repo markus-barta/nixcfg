@@ -444,6 +444,9 @@ in
   hokage = {
     hostName = "hsb8";
     userLogin = "mba"; # Primary user for hokage
+    userNameLong = "Markus Barta"; # Full name (prevents "Patrizio Bekerle" default)
+    userNameShort = "Markus"; # Short name
+    userEmail = "markus@barta.com"; # Email (used by git config)
     role = "server-home"; # Explicit role (replaces serverMba mixin)
     useInternalInfrastructure = false; # Not using pbek's infrastructure
     useSecrets = false; # Not using agenix secrets yet (DHCP disabled)
@@ -458,5 +461,46 @@ in
       "mba"
       "gb"
     ];
+  };
+
+  # ============================================================================
+  # Fish Shell Configuration - Utility functions lost when migrating from serverMba mixin
+  # ============================================================================
+  programs.fish.interactiveShellInit = ''
+    function sourcefish --description 'Load env vars from a .env file into current Fish session'
+      set file "$argv[1]"
+      if test -z "$file"
+        echo "Usage: sourcefish PATH_TO_ENV_FILE"
+        return 1
+      end
+      if test -f "$file"
+        for line in (cat "$file" | grep -v '^[[:space:]]*#' | grep .)
+          set key (echo $line | cut -d= -f1)
+          set val (echo $line | cut -d= -f2-)
+          set -gx $key "$val"
+        end
+      else
+        echo "File not found: $file"
+        return 1
+      end
+    end
+    export EDITOR=nano
+  '';
+
+  # ============================================================================
+  # Local /etc/hosts - Privacy-focused hostnames for critical infrastructure
+  # ============================================================================
+  # Provides fallback DNS resolution when AdGuard Home is unavailable
+  # Uses encoded/cryptic hostnames to avoid revealing device details in git
+  # ============================================================================
+  networking.hosts = {
+    # Self-reference - hsb8 itself
+    "192.168.1.100" = [
+      "hsb8"
+      "hsb8.lan"
+    ];
+    # Critical infrastructure - add more as needed
+    # Example format (uncomment and adapt):
+    # "192.168.1.99" = [ "hsb0" "hsb0.lan" ];  # DNS/DHCP server
   };
 }

@@ -522,6 +522,9 @@ hokage = {
 hokage = {
   hostName = "hsb0";
   userLogin = "mba";                 # ADD: Explicit user (required)
+  userNameLong = "Markus Barta";     # ADD: Explicit name (prevents "Patrizio Bekerle" default)
+  userNameShort = "Markus";          # ADD: Explicit short name
+  userEmail = "markus@barta.com";    # ADD: Explicit email
   role = "server-home";              # ADD: Explicit role (replaces serverMba mixin)
   useInternalInfrastructure = false; # ADD: Not using pbek's infrastructure
   useSecrets = true;                 # ADD: Using agenix for DHCP leases
@@ -531,6 +534,30 @@ hokage = {
   audio.enable = false;              # KEEP: No audio on server
   programs.git.enableUrlRewriting = false;  # ADD: No internal git rewrites
 };
+
+# ============================================================================
+# 🚨 FISH SHELL CONFIGURATION - Lost when removing serverMba mixin
+# ============================================================================
+programs.fish.interactiveShellInit = ''
+  function sourcefish --description 'Load env vars from a .env file into current Fish session'
+    set file "$argv[1]"
+    if test -z "$file"
+      echo "Usage: sourcefish PATH_TO_ENV_FILE"
+      return 1
+    end
+    if test -f "$file"
+      for line in (cat "$file" | grep -v '^[[:space:]]*#' | grep .)
+        set key (echo $line | cut -d= -f1)
+        set val (echo $line | cut -d= -f2-)
+        set -gx $key "$val"
+      end
+    else
+      echo "File not found: $file"
+      return 1
+    end
+  end
+  export EDITOR=nano
+'';
 
 # ============================================================================
 # 🚨 SSH KEY SECURITY - CRITICAL FIX FROM hsb8 INCIDENT
@@ -568,6 +595,8 @@ nano hosts/hsb0/configuration.nix
 
 # Step 1: Navigate to hokage section (around line 275)
 # Replace serverMba.enable with explicit options
+# ⚠️ IMPORTANT: Include userNameLong, userEmail, etc. to avoid defaults
+# ⚠️ IMPORTANT: Add programs.fish.interactiveShellInit block (sourcefish)
 
 # Step 2: 🚨 CRITICAL - Add SSH key override AFTER hokage section
 # Add the users.users.mba section with lib.mkForce
@@ -578,14 +607,16 @@ nano hosts/hsb0/configuration.nix
 # This was also provided by serverMba mixin and is now lost
 
 # Verify changes:
-grep -A 12 "hokage = {" hosts/hsb0/configuration.nix
+grep -A 18 "hokage = {" hosts/hsb0/configuration.nix
 grep -A 5 "users.users.mba" hosts/hsb0/configuration.nix
 grep "wheelNeedsPassword" hosts/hsb0/configuration.nix
+grep "sourcefish" hosts/hsb0/configuration.nix
 
 # Should show:
 # - All explicit hokage options, no serverMba.enable
 # - users.users.mba with lib.mkForce and ONLY mba@markus key
 # - security.sudo-rs.wheelNeedsPassword = false
+# - programs.fish.interactiveShellInit with sourcefish defined
 
 # Commit:
 git add hosts/hsb0/configuration.nix
@@ -594,6 +625,7 @@ git commit -m "refactor(hsb0): explicit hokage + SSH/sudo security fixes
 - Replace serverMba.enable with explicit hokage options
 - Add lib.mkForce SSH key override (prevent omega key injection)
 - Add passwordless sudo (lost when removing serverMba mixin)
+- Restore fish shell config (sourcefish, EDITOR)
 - Applies lessons from hsb8 SSH lockout incident (Nov 22, 2025)"
 ```
 
@@ -601,6 +633,7 @@ git commit -m "refactor(hsb0): explicit hokage + SSH/sudo security fixes
 
 - [ ] No `serverMba.enable` present
 - [ ] `userLogin = "mba"` added
+- [ ] `userNameLong`, `userNameShort`, `userEmail` added correctly
 - [ ] `role = "server-home"` added
 - [ ] `useInternalInfrastructure = false` added
 - [ ] `useSecrets = true` added
@@ -609,6 +642,7 @@ git commit -m "refactor(hsb0): explicit hokage + SSH/sudo security fixes
 - [ ] `zfs.hostId` still present
 - [ ] `audio.enable = false` still present
 - [ ] `programs.git.enableUrlRewriting = false` added
+- [ ] `programs.fish.interactiveShellInit` added (restores `sourcefish`)
 - [ ] 🚨 **CRITICAL**: `users.users.mba` section added with `lib.mkForce`
 - [ ] 🚨 **CRITICAL**: Only `mba@markus` SSH key present in the override
 - [ ] 🚨 **CRITICAL**: No `omega@*` keys in the configuration
@@ -919,7 +953,16 @@ which fish
 which zellij
 which git
 
-# 5. 🚨 CRITICAL: Verify SSH key security (lesson from hsb8)
+# 5. Verify environment
+echo "=== Environment Verification ==="
+echo "Checking Git user config (should be Markus Barta):"
+git config --get user.name || echo "NOT SET"
+git config --get user.email || echo "NOT SET"
+
+echo "Checking Fish functions (should find sourcefish):"
+type sourcefish || echo "sourcefish NOT FOUND"
+
+# 6. 🚨 CRITICAL: Verify SSH key security (lesson from hsb8)
 echo "=== SSH Key Security ==="
 echo "Checking authorized SSH keys for mba user:"
 cat ~/.ssh/authorized_keys
@@ -961,6 +1004,8 @@ open <http://192.168.1.99:3000>
 - [ ] DHCP working (existing leases, new assignments)
 - [ ] AdGuard Home UI accessible
 - [ ] Hokage tools available (fish, zellij, git)
+- [ ] Git user config correct (Markus Barta)
+- [ ] Fish `sourcefish` function available
 - [ ] 🚨 **CRITICAL**: SSH keys verified - ONLY `mba@markus` key present
 - [ ] 🚨 **CRITICAL**: NO `omega@*` keys in authorized_keys
 - [ ] No errors in `journalctl -xe`
