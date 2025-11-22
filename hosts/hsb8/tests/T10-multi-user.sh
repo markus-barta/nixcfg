@@ -32,12 +32,18 @@ else
   exit 1
 fi
 
-# Test 2: GB user SSH access
-echo -n "Test 2: $USER2 user SSH access... "
-if ssh -o ConnectTimeout=5 -o BatchMode=yes "$USER2@$HOST" 'exit 0' &>/dev/null; then
-  echo -e "${GREEN}✅ PASS${NC}"
+# Test 2: GB user SSH access configuration
+echo -n "Test 2: $USER2 user SSH key configured... "
+GB_KEY=$(ssh "$USER1@$HOST" "sudo cat /etc/ssh/authorized_keys.d/$USER2 2>/dev/null" || echo "")
+if [[ -n "$GB_KEY" ]] && echo "$GB_KEY" | grep -q "^ssh-"; then
+  # Verify it's the correct key (gb@gerhard)
+  if echo "$GB_KEY" | grep -q "AAAAB3NzaC1yc2EAAAADAQABAAABgQDAwgtI"; then
+    echo -e "${GREEN}✅ PASS${NC} (gb@gerhard key configured)"
+  else
+    echo -e "${YELLOW}⚠️  WARN${NC} (unexpected key found)"
+  fi
 else
-  echo -e "${YELLOW}⚠️  WARN${NC} (GB user SSH may not be configured)"
+  echo -e "${YELLOW}⚠️  WARN${NC} (GB user SSH key not configured)"
   GB_SKIP=true
 fi
 
@@ -68,7 +74,7 @@ fi
 
 echo
 if [ "${GB_SKIP:-false}" = "true" ]; then
-  echo -e "${YELLOW}⚠️  Some tests skipped (GB user access issues)${NC}"
+  echo -e "${YELLOW}⚠️  Some tests skipped (GB user key not configured)${NC}"
 else
   echo -e "${GREEN}🎉 All tests passed!${NC}"
 fi

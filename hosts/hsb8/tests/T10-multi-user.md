@@ -26,16 +26,19 @@ ssh mba@192.168.1.100 'whoami && id'
 - Returns `mba`
 - Shows groups: wheel, networkmanager
 
-### Step 2: Test GB User Access
+### Step 2: Verify GB User SSH Key
 
 ```bash
-ssh gb@192.168.1.100 'whoami && id'
+ssh mba@192.168.1.100 'sudo cat /etc/ssh/authorized_keys.d/gb'
 ```
 
 **Expected**:
 
-- Returns `gb`
-- Shows user information
+- gb@gerhard SSH key is present
+- Exactly 1 key configured
+- No external keys (omega/yubikey)
+
+Note: To actually test gb user SSH login, you would need gb's private key. This test verifies the key is properly configured.
 
 ### Step 3: Verify Both Users in System
 
