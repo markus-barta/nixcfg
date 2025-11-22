@@ -89,102 +89,67 @@ ssh mba@192.168.1.100 'docker compose version'
 
 ### Home Assistant Docker Compose Setup
 
-Based on miniserver24 configuration, create `/home/gb/docker/docker-compose.yml`:
+A ready-to-use Docker Compose configuration is available at:
 
-```yaml
-# name: hsb8-homeassistant
-services:
-  homeassistant:
-    container_name: homeassistant
-    image: "ghcr.io/home-assistant/home-assistant:stable"
-    volumes:
-      - ./mounts/homeassistant:/config
-      - /etc/localtime:/etc/localtime:ro
-      - /run/dbus:/run/dbus:ro
-    restart: unless-stopped
-    privileged: true
-    network_mode: host
-    environment:
-      - TZ=Europe/Vienna
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=weekly"
+**[`../examples/docker-compose.yml`](../examples/docker-compose.yml)**
 
-  mosquitto:
-    image: eclipse-mosquitto:latest
-    container_name: mosquitto
-    restart: unless-stopped
-    ports:
-      - "1883:1883"
-      - "9001:9001"
-    volumes:
-      - ./mounts/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
-      - ./mounts/mosquitto/data:/mosquitto/data
-      - ./mounts/mosquitto/log:/mosquitto/log
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=weekly"
+This configuration includes:
 
-  zigbee2mqtt:
-    container_name: zigbee2mqtt
-    depends_on:
-      - mosquitto
-    image: koenkk/zigbee2mqtt:latest
-    volumes:
-      - ./mounts/zigbee2mqtt:/app/data
-    restart: unless-stopped
-    ports:
-      - "8888:8888"
-    environment:
-      - TZ=Europe/Vienna
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=weekly"
+- Home Assistant (stable)
+- Mosquitto MQTT broker
+- Zigbee2MQTT
+- Matter Server
+- Watchtower (automatic weekly updates)
 
-  matter-server:
-    image: ghcr.io/home-assistant-libs/python-matter-server:stable
-    container_name: matter-server
-    restart: unless-stopped
-    network_mode: host
-    security_opt:
-      - apparmor:unconfined
-    volumes:
-      - ./mounts/matter-server:/data
-      - /run/dbus:/run/dbus:ro
-    environment:
-      - TZ=Europe/Vienna
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=weekly"
+Based on the proven miniserver24 setup.
 
-  watchtower-weekly:
-    image: containrrr/watchtower:latest
-    container_name: watchtower-weekly
-    restart: unless-stopped
-    command: --schedule "0 0 5 * * 6" --label-enable --scope weekly
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-    environment:
-      - "WATCHTOWER_CLEANUP=true"
-      - "WATCHTOWER_DEBUG=true"
-```
-
-### Starting Services
+### Installation Steps
 
 ```bash
-# As gb user
+# 1. Create directory structure
+mkdir -p ~/docker/mounts/{homeassistant,mosquitto/config,mosquitto/data,mosquitto/log,zigbee2mqtt,matter-server}
+
+# 2. Copy the example configuration
+cp /path/to/nixcfg/hosts/hsb8/examples/docker-compose.yml ~/docker/
+
+# 3. Create Mosquitto configuration
+cat > ~/docker/mounts/mosquitto/config/mosquitto.conf << 'EOF'
+listener 1883
+allow_anonymous true
+persistence true
+persistence_location /mosquitto/data/
+log_dest file /mosquitto/log/mosquitto.log
+EOF
+
+# 4. Start services
 cd ~/docker
 docker compose up -d
+
+# 5. Check status
+docker compose ps
+docker compose logs -f homeassistant
 ```
 
-### Accessing Home Assistant
+### Accessing Services
 
 Once deployed at ww87:
 
-- **URL**: `http://192.168.1.100:8123`
-- **Initial Setup**: Follow Home Assistant onboarding wizard
-- **MQTT Broker**: `192.168.1.100:1883` (mosquitto)
-- **Zigbee2MQTT UI**: `http://192.168.1.100:8888`
+- **Home Assistant**: <http://192.168.1.100:8123>
+- **Zigbee2MQTT UI**: <http://192.168.1.100:8888>
+- **MQTT Broker**: `192.168.1.100:1883`
+
+### USB Device Pass-through (For Zigbee/Z-Wave)
+
+If you have a Zigbee or Z-Wave USB adapter:
+
+```bash
+# Find your device
+lsusb
+
+# Edit docker-compose.yml and uncomment the devices section:
+# devices:
+#   - /dev/ttyUSB0:/dev/ttyUSB0
+```
 
 ## Success Criteria
 
@@ -222,20 +187,21 @@ sudo journalctl -u docker -n 50
 
 ### USB Device Access (Zigbee/Matter)
 
-At ww87, USB devices for Zigbee and Matter may need to be passed through:
+At ww87, USB devices for Zigbee and Matter may need to be passed through.
+
+See the commented `devices:` section in [`../examples/docker-compose.yml`](../examples/docker-compose.yml) for configuration details.
 
 ```bash
-# List USB devices
+# List USB devices to find your adapter
 lsusb
 
-# Add device to docker-compose.yml
-devices:
-  - /dev/ttyUSB0:/dev/ttyUSB0  # Zigbee adapter
+# Typically appears as /dev/ttyUSB0 or /dev/ttyACM0
 ```
 
 ## Notes
 
-- **Manual Setup Required**: Docker Compose configuration must be created by gb user
+- **Example Configuration**: [`../examples/docker-compose.yml`](../examples/docker-compose.yml)
+- **Manual Setup Required**: Docker Compose configuration must be copied and configured by gb user
 - **Reference Implementation**: miniserver24:/home/mba/docker/ (similar setup)
 - **Network Mode**: Home Assistant uses `host` mode for mDNS discovery
 - **Automatic Updates**: Watchtower updates containers weekly on Saturdays at 05:00

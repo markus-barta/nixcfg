@@ -1,0 +1,94 @@
+# name: hsb8-homeassistant
+# Home Assistant Docker Compose configuration for hsb8
+# Based on miniserver24 proven setup
+#
+# Installation:
+# 1. Copy this file to /home/gb/docker/docker-compose.yml
+# 2. Create mount directories: mkdir -p mounts/{homeassistant,mosquitto,zigbee2mqtt,matter-server}
+# 3. Configure Mosquitto: Create mounts/mosquitto/config/mosquitto.conf
+# 4. Start services: docker compose up -d
+#
+# Management:
+# - View logs: docker compose logs -f
+# - Restart service: docker compose restart <service>
+# - Stop all: docker compose down
+# - Update: Watchtower handles this automatically (Saturdays 05:00)
+
+services:
+  homeassistant:
+    container_name: homeassistant
+    image: "ghcr.io/home-assistant/home-assistant:stable"
+    volumes:
+      - ./mounts/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus:/run/dbus:ro
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    environment:
+      - TZ=Europe/Vienna
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mounts/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mounts/mosquitto/data:/mosquitto/data
+      - ./mounts/mosquitto/log:/mosquitto/log
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
+  zigbee2mqtt:
+    container_name: zigbee2mqtt
+    depends_on:
+      - mosquitto
+    image: koenkk/zigbee2mqtt:latest
+    volumes:
+      - ./mounts/zigbee2mqtt:/app/data
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      - TZ=Europe/Vienna
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0  # Uncomment and adjust for Zigbee adapter
+
+  matter-server:
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable
+    container_name: matter-server
+    restart: unless-stopped
+    network_mode: host
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - ./mounts/matter-server:/data
+      - /run/dbus:/run/dbus:ro
+    environment:
+      - TZ=Europe/Vienna
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
+  watchtower-weekly:
+    image: containrrr/watchtower:latest
+    container_name: watchtower-weekly
+    restart: unless-stopped
+    command: --schedule "0 0 5 * * 6" --label-enable --scope weekly
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    environment:
+      - "WATCHTOWER_CLEANUP=true"
+      - "WATCHTOWER_DEBUG=true"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
