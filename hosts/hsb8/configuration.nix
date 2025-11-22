@@ -383,11 +383,20 @@ in
 
   hokage = {
     hostName = "hsb8";
+    userLogin = "mba"; # Primary user for hokage
+    role = "server-home"; # Explicit role (replaces serverMba mixin)
+    useInternalInfrastructure = false; # Not using pbek's infrastructure
+    useSecrets = false; # Not using agenix secrets yet (DHCP disabled)
+    useSharedKey = false; # Not using shared SSH keys
+    zfs.enable = true; # Enable ZFS support
+    zfs.hostId = "cdbc4e20"; # ZFS host ID (required)
+    audio.enable = false; # No audio on server
+    programs.git.enableUrlRewriting = false; # No internal git rewrites
+
+    # Multi-user configuration (both mba and gb)
     users = [
       "mba"
       "gb"
     ];
-    zfs.hostId = "cdbc4e20";
-    serverMba.enable = true;
   };
 }
