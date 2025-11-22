@@ -21,6 +21,7 @@
       inputs.home-manager.follows = "home-manager";
     };
     nixcfg.url = "github:pbek/nixcfg";
+    # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
     espanso-fix.url = "github:pitkling/nixpkgs/espanso-fix-capabilities-export";
   };
 
@@ -32,7 +33,6 @@
       nixpkgs-stable,
       agenix,
       disko,
-      nixos-hardware,
       plasma-manager,
       espanso-fix,
       ...
@@ -147,70 +147,15 @@
       # NixOS Configurations
       # ========================================================================
       nixosConfigurations = {
-        # Office Work PC
-        gaia = mkDesktopHost "gaia" [ ];
-        # Livingroom PC
-        venus = mkDesktopHost "venus" [ disko.nixosModules.disko ];
-        # Asus Vivobook Laptop
-        rhea = mkDesktopHost "rhea" [ ];
-        # Acer Aspire 5 Laptop
-        hyperion = mkDesktopHost "hyperion" [ disko.nixosModules.disko ];
-        # Asus ROG Ally (using NixOS)
-        ally2 = mkDesktopHost "ally2" [
-          nixos-hardware.nixosModules.asus-ally-rc71l
-          disko.nixosModules.disko
-        ];
-        # TUG VM
-        astra = mkDesktopHost "astra" [ disko.nixosModules.disko ];
-        mercury = mkDesktopHost "mercury" [ disko.nixosModules.disko ];
-        # TU Work PC
-        caliban = mkDesktopHost "caliban" [
-          disko.nixosModules.disko
-        ];
-        # TU HP EliteBook Laptop 840 G5
-        sinope = mkDesktopHost "sinope" [ ];
-        # Netcup Server netcup01
-        netcup01 = mkServerHost "netcup01" [ disko.nixosModules.disko ];
-        # Netcup Server netcup02
-        netcup02 = mkServerHost "netcup02" [ disko.nixosModules.disko ];
-        # Home Server home01
-        home01 = mkServerHost "home01" [ disko.nixosModules.disko ];
-        # Server moobox01 for Alex
-        moobox01 = mkServerHost "moobox01" [ disko.nixosModules.disko ];
-        # Asus Laptop
-        jupiter = mkDesktopHost "jupiter" [ ];
-        # Asus ROG Ally (usually using Windows)
-        ally = mkDesktopHost "ally" [ nixos-hardware.nixosModules.asus-ally-rc71l ];
-        # PC Garage
-        pluto = mkDesktopHost "pluto" [ ];
-        # macBook
-        neptun = mkDesktopHost "neptun" [ ];
-        # TU HP EliteBook Laptop 820 G4
-        eris = mkDesktopHost "eris" [ ];
-        # TU "Guest" HP EliteBook Laptop 840 G5
-        dp01 = mkDesktopHost "dp01" [ ];
-        # TU ThinkBook Manuel
-        dp02 = mkDesktopHost "dp02" [ ];
-        # TU ThinkBook Andrea
-        dp03 = mkDesktopHost "dp03" [ disko.nixosModules.disko ];
-        # TU Thinkstation Andrea
-        dp04 = mkDesktopHost "dp04" [ disko.nixosModules.disko ];
-        # TU Thinkbook Tobias
-        dp05 = mkDesktopHost "dp05" [ disko.nixosModules.disko ];
-        # TU ThinkBook Shiva
-        dp06 = mkDesktopHost "dp06" [ disko.nixosModules.disko ];
-        # TU Laptop Arslan - Lenovo Yoga Pro 9i
-        dp07 = mkDesktopHost "dp07" [ disko.nixosModules.disko ];
-        # TU Gaming Station - ThinkCentre M720q
-        dp08 = mkDesktopHost "dp08" [ disko.nixosModules.disko ];
-        # TU Laptop Ruxandra - Lenovo ThinkBook
-        dp09 = mkDesktopHost "dp09" [ disko.nixosModules.disko ];
-        # MBA Miniserver24
+        # MBA Miniserver24 - Build/Test Server
         miniserver24 = mkServerHost "miniserver24" [ disko.nixosModules.disko ];
+
         # DNS/DHCP Server (AdGuard Home) - Home Server Barta 0
         hsb0 = mkServerHost "hsb0" [ disko.nixosModules.disko ];
+
         # MBA Gaming PC
         mba-gaming-pc = mkDesktopHost "mba-gaming-pc" [ disko.nixosModules.disko ];
+
         # Home Server Barta 8 (Parents' home automation server)
         # Using external hokage consumer pattern
         hsb8 = nixpkgs.lib.nixosSystem {
