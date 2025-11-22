@@ -273,8 +273,68 @@
 
   hokage = {
     hostName = "hsb0";
+    userLogin = "mba";
+    userNameLong = "Markus Barta";
+    userNameShort = "Markus";
+    userEmail = "markus@barta.com";
+    role = "server-home";
+    useInternalInfrastructure = false;
+    useSecrets = true;
+    useSharedKey = false;
+    zfs.enable = true;
     zfs.hostId = "dabfdb02";
     audio.enable = false;
-    serverMba.enable = true;
+    programs.git.enableUrlRewriting = false;
   };
+
+  # ============================================================================
+  # 🚨 FISH SHELL CONFIGURATION - Lost when removing serverMba mixin
+  # ============================================================================
+  programs.fish.interactiveShellInit = ''
+    function sourcefish --description 'Load env vars from a .env file into current Fish session'
+      set file "$argv[1]"
+      if test -z "$file"
+        echo "Usage: sourcefish PATH_TO_ENV_FILE"
+        return 1
+      end
+      if test -f "$file"
+        for line in (cat "$file" | grep -v '^[[:space:]]*#' | grep .)
+          set key (echo $line | cut -d= -f1)
+          set val (echo $line | cut -d= -f2-)
+          set -gx $key "$val"
+        end
+      else
+        echo "File not found: $file"
+        return 1
+      end
+    end
+    export EDITOR=nano
+  '';
+
+  # ============================================================================
+  # 🚨 SSH KEY SECURITY - CRITICAL FIX FROM hsb8 INCIDENT
+  # ============================================================================
+  # The hokage server-home module auto-injects external SSH keys (omega@*).
+  # We use lib.mkForce to REPLACE (not append) with our own keys only.
+  #
+  # Security Policy:
+  # - hsb0: Only mba (Markus) key
+  # - NO external access (omega/Yubikey) on personal/family servers
+  # ============================================================================
+
+  users.users.mba = {
+    openssh.authorizedKeys.keys = lib.mkForce [
+      # Markus' SSH key ONLY
+      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # mba@markus
+    ];
+  };
+
+  # ============================================================================
+  # 🚨 PASSWORDLESS SUDO - Also lost when removing serverMba mixin
+  # ============================================================================
+  # The serverMba mixin provided passwordless sudo, which is also lost.
+  # Re-enable it explicitly to prevent sudo failures.
+  # ============================================================================
+
+  security.sudo-rs.wheelNeedsPassword = false;
 }
