@@ -46,7 +46,7 @@ done
 
 ## Test List
 
-| Test ID | Feature                  | Location | Manual Last Run     | Auto Last Run       | Notes                                                          |
+| Test ID | Feature                  | Location | 👇🏻 Manual Last Run  | 🤖 Auto Last Run    | Notes                                                          |
 | ------- | ------------------------ | -------- | ------------------- | ------------------- | -------------------------------------------------------------- |
 | T00     | NixOS Base System        | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 5 tests passed: version, config, generations, status, GRUB |
 | T01     | DNS Server               | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: AdGuard disabled at jhw22                         |
@@ -67,6 +67,7 @@ done
 | T16     | User Identity Config     | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 5 tests passed: git config, user identity correct          |
 | T17     | Fish Shell Utilities     | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 5 tests passed: sourcefish, EDITOR in config files         |
 | T18     | Local /etc/hosts         | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 5 tests passed: /etc/hosts entries, ping working           |
+| T19     | Agenix Secret Management | both     | ⏳ Not yet run      | ⏳ Not yet run      | Encrypted DHCP leases, agenix CLI, secret decryption           |
 
 **Location Legend:**
 

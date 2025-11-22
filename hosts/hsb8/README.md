@@ -49,6 +49,7 @@ Server capabilities and services (target configuration for ww87):
 | F16 | User Identity Config      | Correct git authorship and user information               | T16  |
 | F17 | Fish Shell Utilities      | sourcefish function and EDITOR=nano for convenience       | T17  |
 | F18 | Local /etc/hosts          | Privacy-focused hostname resolution without DNS           | T18  |
+| F19 | Agenix Secret Management  | Encrypted secrets (DHCP leases) managed securely          | T19  |
 
 **Test Documentation**: See [tests/](./tests/) directory for detailed test procedures and automated scripts. Each feature has a corresponding test ID (Txx) that validates functionality.
 
@@ -515,6 +516,164 @@ sudo tcpdump -i enp2s0f0
 # Check DHCP leases (when AdGuard DHCP enabled)
 sudo cat /var/lib/private/AdGuardHome/data/leases.json
 ```
+
+---
+
+## Secret Management with Agenix
+
+hsb8 uses **agenix** for encrypted secret management. This allows sensitive data (like DHCP static leases) to be stored securely in git while still being declaratively managed.
+
+### Overview
+
+- **Tool**: [agenix](https://github.com/ryantm/agenix) - Age-encrypted secrets for NixOS
+- **Encryption**: Dual-key (Markus' SSH key + hsb8 host key)
+- **Storage**: `secrets/static-leases-hsb8.age` in git repository
+- **Runtime**: Decrypts to `/run/agenix/static-leases-hsb8` during system activation
+
+### Secrets Configuration
+
+**File**: `secrets/secrets.nix`
+
+```nix
+hsb8 = [
+  "ssh-rsa AAAAB3Nz... (hsb8 host key)"
+];
+
+"static-leases-hsb8.age".publicKeys = markus ++ hsb8;
+```
+
+**What this means:**
+
+1. **Markus' key** - Can edit secrets from Mac or any machine with SSH key
+2. **hsb8 host key** - Allows hsb8 to decrypt at runtime
+3. **Dual encryption** - Both keys required together for maximum security
+
+### Managed Secrets
+
+| Secret File              | Purpose                    | Format | Count |
+| ------------------------ | -------------------------- | ------ | ----- |
+| `static-leases-hsb8.age` | DHCP static lease database | JSON   | ~27   |
+
+### Static DHCP Leases
+
+The static leases are based on the Pi-hole backup from parents' network and include:
+
+- **Network Infrastructure**: Orbi routers (3 nodes)
+- **Family Devices**: Gerhard's iMac, iPad
+- **Smart Home**: 15+ Shelly switches, ESP32 controllers
+- **IoT Devices**: Cameras, displays, sensors
+
+**JSON Format:**
+
+```json
+[
+  {"mac": "78:d2:94:ac:3a:76", "ip": "192.168.1.2", "hostname": "orbi-rbr"},
+  {"mac": "98:9e:63:2e:f1:be", "ip": "192.168.1.168", "hostname": "imac-gb"},
+  ...
+]
+```
+
+### Editing Secrets
+
+```bash
+# Edit the encrypted static leases file
+cd ~/Code/nixcfg
+agenix -e secrets/static-leases-hsb8.age
+
+# Your editor opens with decrypted JSON
+# Make changes, save, exit → automatically re-encrypted
+```
+
+### Validating Secrets
+
+```bash
+# Validate JSON format locally
+agenix -d secrets/static-leases-hsb8.age | jq empty
+# No output = valid JSON
+
+# Count entries
+agenix -d secrets/static-leases-hsb8.age | jq 'length'
+```
+
+### Deploying Secret Changes
+
+```bash
+# After editing and saving the .age file
+git add secrets/static-leases-hsb8.age
+git commit -m "feat(hsb8): update static DHCP leases"
+git push
+
+# On hsb8: Pull and rebuild
+cd ~/nixcfg
+git pull
+just switch
+```
+
+### How It Works
+
+```text
+1. Edit (Your Mac)
+   └─> agenix -e secrets/static-leases-hsb8.age
+       └─> Opens editor with decrypted JSON
+       └─> Save → re-encrypts → commit to git
+
+2. Deploy (hsb8)
+   └─> just switch
+       └─> NixOS builds configuration
+       └─> System activation
+           └─> Agenix decrypts all secrets
+               └─> Writes /run/agenix/static-leases-hsb8
+
+3. Service Start (hsb8)
+   └─> AdGuard Home starts
+       └─> preStart script executes
+           ├─> Reads /run/agenix/static-leases-hsb8
+           ├─> Validates JSON format
+           ├─> Merges with existing dynamic leases
+           └─> Writes /var/lib/private/AdGuardHome/data/leases.json
+       └─> AdGuard Home starts with complete lease database
+```
+
+### Backup Locations
+
+Static leases are backed up in multiple locations:
+
+1. **Git Repository** - `secrets/static-leases-hsb8.age` (encrypted, primary backup)
+2. **GitHub** - Pushed to remote repository
+3. **Time Machine** on your Mac (includes git repo)
+4. **ZFS snapshots** on hsb8 (decrypted file in `/run/agenix/`)
+
+### Troubleshooting
+
+**Secret not decrypted:**
+
+```bash
+# Check agenix service
+sudo journalctl -u agenix -n 50
+
+# Verify host key matches
+cat /etc/ssh/ssh_host_rsa_key.pub
+# Should match the key in secrets/secrets.nix
+
+# Check if useSecrets is enabled
+grep "useSecrets" ~/nixcfg/hosts/hsb8/configuration.nix
+```
+
+**Invalid JSON:**
+
+```bash
+# Edit and fix
+agenix -e secrets/static-leases-hsb8.age
+
+# Validate before deploying
+agenix -d secrets/static-leases-hsb8.age | jq empty
+```
+
+**Permission denied:**
+
+1. Verify your SSH key is in `secrets/secrets.nix` (markus key)
+2. Verify hsb8 host key is in `secrets/secrets.nix`
+3. Check file permissions: `ls -la secrets/static-leases-hsb8.age`
 
 ---
 
