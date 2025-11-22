@@ -2,31 +2,9 @@
 
 [GitHub](https://github.com/pbek/nixcfg)
 
-Personal NixOS configuration repository managing multiple systems with declarative infrastructure, custom packages, and automated deployment workflows.
+Personal NixOS configuration repository with declarative infrastructure, custom packages, and automated deployment workflows.
 
 > **Note**: This repository was originally created by Patrizio Bekerle (pbek). For the original detailed setup instructions and historical content, see [pbek.md](pbek.md).
-
-## System Inventory
-
-### Production Servers
-
-| Hostname     | Former Name  | Role             | Location     | Hokage Pattern | Status |
-| ------------ | ------------ | ---------------- | ------------ | -------------- | ------ |
-| hsb0         | miniserver99 | DNS/DHCP/AdGuard | Markus' home | Local module   | ✅     |
-| hsb8         | msww87       | Home automation  | Parents'     | External       | ✅     |
-| miniserver24 | -            | Home automation  | Markus' home | Local module   | ✅     |
-
-### Desktop Systems
-
-| Hostname      | Type        | Location     | Status |
-| ------------- | ----------- | ------------ | ------ |
-| mba-gaming-pc | Gaming PC   | Markus' home | ✅     |
-| miniserver25  | MacBook Air | Portable     | ✅     |
-
-**Hokage Pattern Legend**:
-
-- **Local module**: Uses hokage from this repository's `modules/` directory
-- **External**: Consumes hokage from `github:pbek/nixcfg` (recommended for new systems)
 
 ## Features
 
