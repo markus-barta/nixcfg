@@ -46,23 +46,37 @@ done
 
 ## Test List
 
-| Test ID | Feature                  | Type            | Status |
-| ------- | ------------------------ | --------------- | ------ |
-| T00     | NixOS Base System        | Manual + Script | ✅     |
-| T01     | DNS Server               | Manual + Script | ✅     |
-| T02     | Ad Blocking              | Manual + Script | ⏳     |
-| T03     | DNS Cache                | Manual + Script | ⏳     |
-| T04     | DHCP Server              | Manual          | ⏳     |
-| T05     | Static DHCP Leases       | Manual          | ⏳     |
-| T06     | Web Management Interface | Manual          | ⏳     |
-| T07     | DNS Query Logging        | Manual          | ⏳     |
-| T08     | Custom DNS Rewrites      | Manual          | ⏳     |
-| T09     | SSH Remote Access        | Manual + Script | ✅     |
-| T10     | Multi-User Access        | Manual + Script | ⏳     |
-| T11     | ZFS Storage              | Manual + Script | ✅     |
-| T12     | ZFS Snapshots            | Manual + Script | ⏳     |
-| T13     | Location-Based Config    | Manual + Script | ⏳     |
-| T14     | One-Command Deployment   | Manual + Script | ⏳     |
+| Test ID | Feature                  | Location | Last Run   | Manual | Auto | Notes                                                 |
+| ------- | ------------------------ | -------- | ---------- | ------ | ---- | ----------------------------------------------------- |
+| T00     | NixOS Base System        | both     | 2025-11-22 | ✅     | ❌   | Manual: config verified, Auto: SSH issue              |
+| T01     | DNS Server               | ww87     | 2025-11-22 | 🔍     | N/A  | Theoretical: AdGuard disabled at jhw22                |
+| T02     | Ad Blocking              | ww87     | 2025-11-22 | 🔍     | N/A  | Theoretical: config verified                          |
+| T03     | DNS Cache                | ww87     | 2025-11-22 | 🔍     | N/A  | Theoretical: config verified                          |
+| T04     | DHCP Server              | ww87     | 2025-11-22 | ⏳     | N/A  | Not yet implemented (dhcp.enabled = false)            |
+| T05     | Static DHCP Leases       | ww87     | 2025-11-22 | ⏳     | N/A  | Depends on T04                                        |
+| T06     | Web Management Interface | ww87     | 2025-11-22 | 🔍     | N/A  | Theoretical: port 3000 configured                     |
+| T07     | DNS Query Logging        | ww87     | 2025-11-22 | 🔍     | N/A  | Theoretical: 90-day retention configured              |
+| T08     | Custom DNS Rewrites      | ww87     | 2025-11-22 | 🔍     | N/A  | Theoretical: feature available                        |
+| T09     | SSH Remote Access        | both     | 2025-11-22 | ✅     | ❌   | Manual: deployed correctly, Auto: SSH key needed      |
+| T10     | Multi-User Access        | both     | 2025-11-22 | ✅     | ❌   | Manual: both users configured, Auto: SSH key needed   |
+| T11     | ZFS Storage              | both     | 2025-11-22 | ✅     | ❌   | Manual: zpool healthy (7% used), Auto: SSH key needed |
+| T12     | ZFS Snapshots            | both     | 2025-11-22 | ✅     | ⏳   | Manual: snapshot capability verified, Auto: pending   |
+| T13     | Location-Based Config    | both     | 2025-11-22 | ✅     | N/A  | Manual: location=jhw22 verified                       |
+| T14     | One-Command Deployment   | both     | 2025-11-22 | ✅     | N/A  | Manual: enable-ww87 script exists                     |
+
+**Location Legend:**
+
+- `both`: Can be tested at jhw22 (current) or ww87 (target)
+- `ww87`: Requires deployment to parents' home (AdGuard Home features)
+- `jhw22`: Only testable at current location
+
+**Status Legend:**
+
+- ✅ **Pass**: Test executed and passed
+- ❌ **Fail**: Test executed and failed
+- ⏳ **Pending**: Not yet run
+- 🔍 **Theoretical**: Analytical check (cannot physically test)
+- N/A: Test type not applicable
 
 ## Notes
 
