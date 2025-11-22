@@ -141,6 +141,59 @@ $ grep -c "modules/hokage" hosts/hsb8/configuration.nix
 6. **12fec07** - `docs(hsb8): update MIGRATION-PLAN.md - Phase 2 hokage migration complete`
 7. **c1b0061** - `docs(hsb8): comprehensive README update with hokage migration details`
 
+### 🔒 CRITICAL ADDENDUM: SSH Lockout & Security Fix (Nov 22, 2025)
+
+**Issue Discovered**: After system reboot on November 22, SSH access was lost despite successful Phase 2 deployment.
+
+**Root Cause**: The hokage `server-home.nix` module auto-injects Patrizio's SSH keys (omega@yubikey, omega@rsa, omega@tuvb, omega@semaphore) into ALL users defined in `hokage.users`. When switching from the mixin pattern (`serverMba.enable = true`) to explicit hokage options, the mixin's SSH key configuration was lost, leaving only the external omega keys.
+
+**Impact**: Complete SSH lockout requiring physical console access to recover.
+
+**Fix Applied** (Nov 22, 2025):
+
+1. **Added explicit SSH key configuration** using `lib.mkForce` to override hokage's defaults:
+
+```nix
+# Override hokage's SSH key injection
+users.users.mba = {
+  openssh.authorizedKeys.keys = lib.mkForce [
+    "ssh-rsa AAAAB3..." # mba@markus ONLY
+  ];
+};
+
+users.users.gb = {
+  openssh.authorizedKeys.keys = lib.mkForce [
+    "ssh-rsa AAAAB3..." # gb@gerhard ONLY
+  ];
+};
+```
+
+2. **Re-enabled passwordless sudo** (lost when removing serverMba mixin):
+
+```nix
+security.sudo-rs.wheelNeedsPassword = false;
+```
+
+**Security Policy Established**:
+
+- Only mba (Markus) and gb (Gerhard) SSH keys on family servers
+- NO external keys (omega/yubikey) allowed
+- `lib.mkForce` REQUIRED for all hokage external consumer configurations
+
+**Verification**: Created comprehensive T09 SSH security test (11 tests) validating:
+
+- SSH access, sudo configuration, password security
+- Only authorized keys present (no omega/yubikey)
+- SSH hardening (password auth disabled, root login disabled)
+
+**Documentation Created**:
+
+- `/hosts/hsb0/SSH-KEY-SECURITY-NOTE.md` - Warning for future migrations
+- `/hosts/hsb8/archive/POST-HOKAGE-MIGRATION-SSH-FIX.md` - Detailed fix report
+- Enhanced T09 test with security validation
+
+**Lesson**: When using external hokage consumer pattern, ALWAYS explicitly configure SSH keys with `lib.mkForce` to prevent external key injection.
+
 ---
 
 ## 🎯 Migration Overview (Original Plan - Simplified During Execution)
