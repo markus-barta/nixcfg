@@ -2,9 +2,31 @@
 
 [GitHub](https://github.com/pbek/nixcfg)
 
-Personal NixOS configuration repository managing 40+ systems with declarative infrastructure, custom packages, and automated deployment workflows.
+Personal NixOS configuration repository managing multiple systems with declarative infrastructure, custom packages, and automated deployment workflows.
 
 > **Note**: This repository was originally created by Patrizio Bekerle (pbek). For the original detailed setup instructions and historical content, see [pbek.md](pbek.md).
+
+## System Inventory
+
+### Production Servers
+
+| Hostname     | Former Name  | Role             | Location     | Hokage Pattern | Status |
+| ------------ | ------------ | ---------------- | ------------ | -------------- | ------ |
+| hsb0         | miniserver99 | DNS/DHCP/AdGuard | Markus' home | Local module   | ✅     |
+| hsb8         | msww87       | Home automation  | Parents'     | External       | ✅     |
+| miniserver24 | -            | Home automation  | Markus' home | Local module   | ✅     |
+
+### Desktop Systems
+
+| Hostname      | Type        | Location     | Status |
+| ------------- | ----------- | ------------ | ------ |
+| mba-gaming-pc | Gaming PC   | Markus' home | ✅     |
+| miniserver25  | MacBook Air | Portable     | ✅     |
+
+**Hokage Pattern Legend**:
+
+- **Local module**: Uses hokage from this repository's `modules/` directory
+- **External**: Consumes hokage from `github:pbek/nixcfg` (recommended for new systems)
 
 ## Features
 
@@ -14,6 +36,7 @@ Personal NixOS configuration repository managing 40+ systems with declarative in
 - **Custom Packages**: In-house software (QOwnNotes, NixBit, Ghostty, etc.)
 - **ZFS Storage**: Declarative disk management with `disko`
 - **Automated Workflows**: Streamlined deployment with `just` commands
+- **External Hokage Consumer**: Pattern for consuming hokage module from upstream
 
 ## Screenshots
 
@@ -64,6 +87,28 @@ just rekey
 
 See [docs/overview.md](docs/overview.md) for detailed encryption documentation.
 
+## Example Configurations
+
+### Server with External Hokage Consumer
+
+See [hosts/hsb8/README.md](hosts/hsb8/README.md) - Complete example of:
+
+- External hokage module consumption from `github:pbek/nixcfg`
+- Location-based configuration (multi-site deployment)
+- AdGuard Home DNS/DHCP server
+- ZFS storage management
+- Comprehensive test suite (manual + automated)
+- SSH key security with `lib.mkForce` overrides
+
+### Server with Local Hokage Module
+
+See [hosts/hsb0/README.md](hosts/hsb0/README.md) - Migration example:
+
+- Local hokage module usage
+- DNS/DHCP with AdGuard Home
+- Static DHCP lease management with agenix
+- Hostname migration documentation
+
 ## Installation Methods
 
 ### Remote Deployment (Recommended)
@@ -92,4 +137,65 @@ sudo nix --experimental-features nix-command --extra-experimental-features flake
 sudo nixos-install --flake .#hostname
 ```
 
-See [hosts/hsb0/README.md](hosts/hsb0/README.md) for a complete deployment example.
+## Hokage Module Patterns
+
+This repository supports two patterns for using the hokage module system:
+
+### Local Hokage Module (Legacy)
+
+Used by: `hsb0`, `miniserver24`
+
+```nix
+# flake.nix
+miniserver24 = mkServerHost "miniserver24" [ disko.nixosModules.disko ];
+```
+
+Configuration inherits hokage from local `modules/` directory.
+
+### External Hokage Consumer (Recommended)
+
+Used by: `hsb8`
+
+```nix
+# flake.nix
+hsb8 = nixpkgs.lib.nixosSystem {
+  inherit system;
+  modules = commonServerModules ++ [
+    inputs.nixcfg.nixosModules.hokage  # Consume from upstream
+    ./hosts/hsb8/configuration.nix
+    disko.nixosModules.disko
+  ];
+  specialArgs = self.commonArgs // { inherit inputs; };
+};
+```
+
+```nix
+# hosts/hsb8/configuration.nix
+hokage = {
+  hostName = "hsb8";
+  userLogin = "mba";
+  role = "server-home";
+  useInternalInfrastructure = false;
+  zfs.enable = true;
+  users = [ "mba" "gb" ];
+};
+
+# Override hokage's SSH key injection
+users.users.mba = {
+  openssh.authorizedKeys.keys = lib.mkForce [
+    "ssh-rsa AAAAB3..." # Your key only
+  ];
+};
+```
+
+**Benefits**:
+
+- Always up-to-date with upstream hokage
+- Explicit configuration (no hidden mixins)
+- Better for servers not using pbek's internal infrastructure
+
+See [hosts/hsb8/README.md](hosts/hsb8/README.md) for complete implementation.
+
+---
+
+See [hosts/hsb0/README.md](hosts/hsb0/README.md) for additional deployment examples.

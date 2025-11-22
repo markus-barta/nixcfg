@@ -44,11 +44,11 @@ fi
 
 # Test 3: Check for errors
 echo -n "Test 3: ZFS errors check... "
-ERRORS=$(ssh "$SSH_USER@$HOST" "zpool status $POOL_NAME | grep -i 'errors:' | awk '{print \$NF}'")
-if [ "$ERRORS" = "No" ] || [ "$ERRORS" = "0" ]; then
+ERRORS=$(ssh "$SSH_USER@$HOST" "zpool status $POOL_NAME | grep 'errors:' | awk '{print \$2, \$3, \$4}'")
+if echo "$ERRORS" | grep -q "No known data"; then
   echo -e "${GREEN}✅ PASS${NC} (No errors)"
 else
-  echo -e "${YELLOW}⚠️  WARN${NC} (Errors detected: $ERRORS)"
+  echo -e "${YELLOW}⚠️  WARN${NC} (Errors: $ERRORS)"
 fi
 
 # Test 4: Check compression
