@@ -1367,36 +1367,59 @@ Run this checklist **immediately before** starting Phase 5 (deployment):
 
 ## 📝 POST-MIGRATION NOTES
 
-**To be filled after migration completes**:
-
 ### Execution Date
 
-- **Started**: \***\*\_\_\_\*\***
-- **Completed**: \***\*\_\_\_\*\***
-- **Duration**: \***\*\_\_\_\*\***
+- **Started**: November 22, 2025 16:44 CET
+- **Completed**: November 22, 2025 16:45 CET
+- **Duration**: ~1 minute (deployment only, ~45 minutes total with all phases)
 
 ### Issues Encountered
 
-- [ ] None
-- [ ] Minor issues (describe):
-- [ ] Major issues (describe):
+- [x] None - Migration was flawless!
+- Minor git issue on server (.shared folder conflict) - quickly resolved
 
 ### Rollback Required?
 
-- [ ] No - Migration successful
-- [ ] Yes - Rolled back (reason):
+- [x] No - Migration successful on first attempt
+
+### Verification Results
+
+✅ **All Critical Services Working**:
+
+- AdGuard Home: Active and running
+- DNS resolution: Working (local and remote)
+- DNS rewrites: Working (csb0 → cs0.barta.cm)
+- DHCP: Active
+- Internet connectivity: Verified
+- System health: Running
+- SSH access: Working
+- SSH security: ✅ **SECURE** - Only mba@markus key present (no omega keys!)
+- Passwordless sudo: ✅ Working
+- External hokage: ✅ Confirmed active
 
 ### Lessons Learned
 
-(Add any new insights or improvements for future migrations)
+1. ✅ **Git conflicts on server**: `.shared` folder needed cleanup before pull
+2. ✅ **SSH key security worked perfectly**: `lib.mkForce` prevented omega key injection
+3. ✅ **Zero downtime achieved**: DNS/DHCP never stopped during switch
+4. ✅ **Test build on miniserver24**: Caught no issues (good practice)
+5. ✅ **Fish functions**: Require user to log out/in to reload (home-manager service doesn't exist on servers)
+
+### Success Factors
+
+1. Comprehensive migration plan based on hsb8 experience
+2. Critical SSH security fixes applied proactively
+3. Test build on miniserver24 before deployment
+4. Clean git commits per phase for easy rollback
+5. Following proven pattern from hsb8 migration
 
 ### Next Steps
 
-- [ ] Document in hsb0/README.md
-- [ ] Update main hosts/README.md
-- [ ] Archive this migration plan (similar to hsb8)
-- [ ] Consider migrating miniserver24 next
-- [ ] Share experience/lessons learned
+- [x] Document in hsb0/README.md
+- [x] Update main hosts/README.md
+- [x] Archive this migration plan
+- [ ] Consider migrating miniserver24 (hsb1) next
+- [x] hsb8 and hsb0 now both using external hokage successfully!
 
 ---
 
