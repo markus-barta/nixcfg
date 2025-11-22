@@ -90,7 +90,7 @@ hosts/hsb0/
 
 ```
 hosts/hsb8/
-├── README.md                                    # Server documentation (949 lines)
+├── README.md                                    # Server documentation (1150 lines)
 ├── configuration.nix                            # NixOS config with hokage options
 ├── hardware-configuration.nix                   # Hardware specs
 ├── disk-config.zfs.nix                          # ZFS disk layout
@@ -123,7 +123,7 @@ hosts/hsb8/
     └── VALIDATION-REPORT-2025-11-22.md          # Final validation report
 ```
 
-**Key Features**: Location-based config (jhw22/ww87), AdGuard Home, ZFS, external hokage consumer, SSH security with `lib.mkForce`, comprehensive test suite (15 features)
+**Key Features**: Location-based config (jhw22/ww87), AdGuard Home, ZFS, external hokage consumer, SSH security with `lib.mkForce`, agenix secret management, comprehensive test suite (19 features)
 
 **Reference Implementation**: hsb8 serves as the blueprint for external hokage consumer pattern
 
@@ -258,8 +258,8 @@ Used by: `hsb8` ⭐
 
 ### "I want to see a complete server example"
 
-→ [hosts/hsb8/README.md](./hosts/hsb8/README.md) - Most comprehensive documentation (949 lines)  
-→ [hosts/hsb8/tests/](./hosts/hsb8/tests/) - Test suite with 15 features
+→ [hosts/hsb8/README.md](./hosts/hsb8/README.md) - Most comprehensive documentation (1150 lines)  
+→ [hosts/hsb8/tests/](./hosts/hsb8/tests/) - Test suite with 19 features
 
 ### "I want to understand secrets management"
 
