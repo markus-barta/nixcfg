@@ -3,19 +3,26 @@
 **Server**: hsb0 (formerly miniserver99) - DNS/DHCP Infrastructure Server  
 **Migration Type**: External Hokage Consumer Pattern  
 **Risk Level**: 🔴 **HIGH** - Critical network infrastructure (DNS/DHCP for entire network)  
-**Status**: ⏸️ **BLOCKED** - Waiting for hostname migration to complete first  
+**Status**: ✅ **READY** - Hostname migration complete, ready to proceed  
 **Created**: November 21, 2025  
-**Last Updated**: November 21, 2025
+**Last Updated**: November 22, 2025
 
 ---
 
-## ⚠️ PREREQUISITE: HOSTNAME MIGRATION MUST COMPLETE FIRST
+## ✅ PREREQUISITE COMPLETE: Hostname Migration Done
 
-**CRITICAL**: This hokage migration plan assumes the server has **already been renamed** from `miniserver99` to `hsb0`.
+**GOOD NEWS**: The server has been **successfully renamed** from `miniserver99` to `hsb0`.
 
-📋 **See**: [MIGRATION-PLAN-HOSTNAME.md](./MIGRATION-PLAN-HOSTNAME.md) - Must complete first!
+**Verification** (November 22, 2025):
 
-**Why Separate?**
+- ✅ Server responds as `hsb0` via SSH
+- ✅ Running NixOS 25.11.20251117.89c2b23 (Xantusia)
+- ✅ AdGuard Home service is active
+- ✅ All critical services operational
+
+📋 **See**: [MIGRATION-PLAN-HOSTNAME [DONE].md](./archive/MIGRATION-PLAN-HOSTNAME%20%5BDONE%5D.md) - Completed migration
+
+**Why Hostname Was Migrated First?**
 
 1. ✅ **Isolate risks**: Hostname change is MORE disruptive than hokage migration for DNS/DHCP
 2. ✅ **Test thoroughly**: Can verify hostname change for 24-48 hours before hokage migration
@@ -23,7 +30,7 @@
 4. ✅ **Clear documentation**: Two separate migration reports
 5. ✅ **Follow proven pattern**: hsb8 did hostname first (msww87 → hsb8), then hokage external consumer
 
-**Recommended Wait Time**: 24-48 hours after hostname migration completes successfully
+**Status**: ✅ Hostname migration completed successfully, server stable
 
 ---
 
@@ -54,7 +61,7 @@ Migrate hsb0 (formerly miniserver99) from **local hokage module** (`../../module
 
 1. **AdGuard Home** (DNS Server)
    - Port: 53 (TCP/UDP)
-   - Web UI: http://192.168.1.99:3000
+   - Web UI: <http://192.168.1.99:3000>
    - Provides DNS for entire network
    - **Downtime Impact**: All network devices lose DNS resolution
 
@@ -143,6 +150,195 @@ hsb0 = mkServerHost "hsb0" [ disko.nixosModules.disko ];
 
 ---
 
+## 📚 OFFICIAL HOKAGE CONSUMER REFERENCE
+
+**Source**: Patrizio's canonical examples at `github:pbek/nixcfg/examples/hokage-consumer`
+
+### Reference Links
+
+- **Example Flake**: [hokage-consumer/flake.nix](https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/flake.nix)
+- **Server Config**: [hokage-consumer/server/configuration.nix](https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/server/configuration.nix)
+- **Desktop Config**: [hokage-consumer/desktop/configuration.nix](https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/desktop/configuration.nix)
+- **README**: [hokage-consumer/README.md](https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/README.md)
+- **Quick Start**: [hokage-consumer/QUICK_START.md](https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/QUICK_START.md)
+- **Documentation**: [HOKAGE_MODULE_EXPORT.md](https://github.com/pbek/nixcfg/blob/main/examples/HOKAGE_MODULE_EXPORT.md)
+
+### Critical Requirements from Official Examples
+
+#### 1. Required Flake Inputs
+
+The hokage module **requires** these dependencies (from official example):
+
+```nix
+inputs = {
+  nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+  nixcfg.url = "github:pbek/nixcfg";
+  agenix.url = "github:ryantm/agenix";              # ← REQUIRED by hokage
+  home-manager.url = "github:nix-community/home-manager";  # ← REQUIRED by hokage
+  plasma-manager.url = "github:nix-community/plasma-manager";  # ← Desktop only
+
+  # Follow nixpkgs to avoid version conflicts
+  nixcfg.inputs.nixpkgs.follows = "nixpkgs";
+  agenix.inputs.nixpkgs.follows = "nixpkgs";
+  home-manager.inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+**Status in Your Flake**: ✅ All inputs already present!
+
+#### 2. Required Module Imports
+
+The hokage consumer **must** import these modules (from official example):
+
+```nix
+modules = [
+  nixcfg.nixosModules.hokage        # ← External hokage module
+  agenix.nixosModules.age           # ← CRITICAL: Required by hokage!
+  home-manager.nixosModules.home-manager  # ← CRITICAL: Required by hokage!
+
+  # For desktop only (not needed for hsb0):
+  # { home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ]; }
+
+  ./configuration.nix
+  disko.nixosModules.disko
+];
+```
+
+**Status in Your Plan**: ⚠️ **MISSING** `agenix` and `home-manager` module imports!
+
+#### 3. Required specialArgs
+
+From official example:
+
+```nix
+specialArgs = {
+  inherit inputs;
+  lib-utils = nixcfg.commonArgs.lib-utils;  # ← Correct approach!
+};
+```
+
+**Status in Your Plan**: ✅ Already correct!
+
+#### 4. Hokage Configuration Options
+
+From official server example:
+
+```nix
+hokage = {
+  hostName = "example-server";
+  userLogin = "john";                      # ← Should be explicit!
+  userNameLong = "John Doe";               # ← Optional
+  userNameShort = "John";                  # ← Optional
+  userEmail = "john@example.com";          # ← Optional
+  useInternalInfrastructure = false;       # ← Should set explicitly!
+  useSecrets = false;                      # ← Should set (true for hsb0)
+  useSharedKey = false;                    # ← Should set explicitly!
+  programs.git.enableUrlRewriting = false; # ← Optional
+  zfs.enable = false;                      # ← Should be true for hsb0
+  role = "server-remote"; # Options: "desktop", "server-home", "server-remote", "ally"
+};
+```
+
+**Current hsb0 Config** (uses mixin pattern):
+
+```nix
+hokage = {
+  hostName = "hsb0";
+  zfs.hostId = "dabfdb02";
+  audio.enable = false;
+  serverMba.enable = true;  # ← Mixin pattern (local hokage)
+};
+```
+
+**Target hsb0 Config** (external hokage pattern):
+
+```nix
+hokage = {
+  hostName = "hsb0";
+  userLogin = "mba";                 # ← ADD: Explicit user
+  role = "server-home";              # ← ADD: Explicit role (instead of serverMba mixin)
+  useInternalInfrastructure = false; # ← ADD: Not using pbek's infrastructure
+  useSecrets = true;                 # ← ADD: Using agenix for DHCP leases
+  useSharedKey = false;              # ← ADD: Not using shared SSH keys
+  zfs.enable = true;                 # ← ADD: Enable ZFS support
+  zfs.hostId = "dabfdb02";           # ← KEEP: ZFS host ID
+  audio.enable = false;              # ← KEEP: No audio on server
+  programs.git.enableUrlRewriting = false;  # ← ADD: No internal git rewrites
+};
+```
+
+### Key Differences: Local vs External Hokage
+
+| Aspect            | Local Hokage (Current)  | External Hokage (Target)              |
+| ----------------- | ----------------------- | ------------------------------------- |
+| **Import Source** | `../../modules/hokage`  | `inputs.nixcfg.nixosModules.hokage`   |
+| **Mixins**        | Uses `serverMba.enable` | Use explicit `role = "server-home"`   |
+| **Dependencies**  | Bundled                 | Must import `agenix` + `home-manager` |
+| **Configuration** | Implicit via mixins     | Explicit options                      |
+| **lib-utils**     | Auto-available          | Must pass via `specialArgs`           |
+
+### Comparison to hsb8 Implementation
+
+**hsb8 flake.nix** (already migrated):
+
+```nix
+hsb8 = nixpkgs.lib.nixosSystem {
+  inherit system;
+  modules = commonServerModules ++ [
+    inputs.nixcfg.nixosModules.hokage  # External hokage module
+    ./hosts/hsb8/configuration.nix
+    disko.nixosModules.disko
+  ];
+  specialArgs = self.commonArgs // {
+    inherit inputs;
+    # lib-utils already provided by self.commonArgs
+  };
+};
+```
+
+**hsb8 configuration.nix** (already migrated):
+
+```nix
+hokage = {
+  hostName = "hsb8";
+  location = "jhw22";  # Test mode (will be ww87 in production)
+  userLogin = "mba";
+  role = "server-home";
+  useInternalInfrastructure = false;
+  useSecrets = false;  # Not using secrets yet
+  useSharedKey = false;
+  zfs.enable = true;
+  zfs.hostId = "0ee2ca55";
+  audio.enable = false;
+  programs.adguardhome.enable = false;  # Disabled for now
+};
+```
+
+**Observation**: hsb8 successfully works **without** explicit `agenix` and `home-manager` module imports!
+
+**Why?**: `commonServerModules` likely already includes them!
+
+### ✅ Verification Complete: Dependencies Already Included
+
+Checked `commonServerModules` in flake.nix (lines 71-79):
+
+```nix
+commonServerModules = [
+  home-manager.nixosModules.home-manager  # ✅ Already included!
+  { }
+  (_: {
+    nixpkgs.overlays = allOverlays;
+  })
+  agenix.nixosModules.age  # ✅ Already included!
+];
+```
+
+**GOOD NEWS**: ✅ Both `agenix` and `home-manager` are **already included** via `commonServerModules`!
+
+This means **hsb0 migration will work exactly like hsb8** - no additional module imports needed!
+
+---
+
 ## 📋 MIGRATION PLAN
 
 ### Pre-Migration Checklist
@@ -194,7 +390,7 @@ Essential checks (must pass before declaring success):
 
 - [ ] DNS resolution works: `nslookup google.com 192.168.1.99`
 - [ ] DHCP server active: `systemctl is-active adguardhome`
-- [ ] AdGuard Home web UI accessible: http://192.168.1.99:3000
+- [ ] AdGuard Home web UI accessible: <http://192.168.1.99:3000>
 - [ ] Static leases intact: Check known devices
 - [ ] DNS rewrites working: `nslookup csb0` returns `cs0.barta.cm`
 - [ ] External DNS works: `ping google.com` from another device
@@ -281,6 +477,83 @@ git commit -m "refactor(hsb0): remove local hokage import (will use external)"
 
 - [ ] No `../../modules/hokage` import in configuration.nix
 - [ ] File still has `./hardware-configuration.nix` and `./disk-config.zfs.nix`
+- [ ] Git commit successful
+
+**Rollback**: `git revert HEAD`
+
+---
+
+### Phase 2.5: Update Hokage Configuration (Switch from Mixin to Explicit Options)
+
+**Status**: ⏸️ Not Started  
+**Duration**: 3 minutes  
+**Risk**: 🟢 **LOW** (local change only, not deployed yet)
+
+**Rationale**:
+
+The local hokage module uses **mixin pattern** (`serverMba.enable = true`), but external hokage module requires **explicit role-based configuration**.
+
+**File**: `hosts/hsb0/configuration.nix` (lines 275-280)
+
+**Current** (mixin pattern):
+
+```nix
+hokage = {
+  hostName = "hsb0";
+  zfs.hostId = "dabfdb02";
+  audio.enable = false;
+  serverMba.enable = true;  # ← MIXIN (local hokage)
+};
+```
+
+**Target** (explicit external hokage pattern - based on official examples):
+
+```nix
+hokage = {
+  hostName = "hsb0";
+  userLogin = "mba";                 # ADD: Explicit user (required)
+  role = "server-home";              # ADD: Explicit role (replaces serverMba mixin)
+  useInternalInfrastructure = false; # ADD: Not using pbek's infrastructure
+  useSecrets = true;                 # ADD: Using agenix for DHCP leases
+  useSharedKey = false;              # ADD: Not using shared SSH keys
+  zfs.enable = true;                 # ADD: Enable ZFS support
+  zfs.hostId = "dabfdb02";           # KEEP: ZFS host ID (required)
+  audio.enable = false;              # KEEP: No audio on server
+  programs.git.enableUrlRewriting = false;  # ADD: No internal git rewrites
+};
+```
+
+**Actions**:
+
+```bash
+cd ~/Code/nixcfg
+nano hosts/hsb0/configuration.nix
+
+# Navigate to hokage section (around line 275)
+# Replace serverMba.enable with explicit options
+
+# Verify changes:
+grep -A 12 "hokage = {" hosts/hsb0/configuration.nix
+
+# Should show all explicit options, no serverMba.enable
+
+# Commit:
+git add hosts/hsb0/configuration.nix
+git commit -m "refactor(hsb0): use explicit hokage options (prepare for external module)"
+```
+
+**Verification**:
+
+- [ ] No `serverMba.enable` present
+- [ ] `userLogin = "mba"` added
+- [ ] `role = "server-home"` added
+- [ ] `useInternalInfrastructure = false` added
+- [ ] `useSecrets = true` added
+- [ ] `useSharedKey = false` added
+- [ ] `zfs.enable = true` added
+- [ ] `zfs.hostId` still present
+- [ ] `audio.enable = false` still present
+- [ ] `programs.git.enableUrlRewriting = false` added
 - [ ] Git commit successful
 
 **Rollback**: `git revert HEAD`
@@ -518,7 +791,7 @@ ssh mba@miniserver99.lan 'echo "SSH OK"'
 - [ ] DNS resolution: working from network (192.168.1.99)
 - [ ] DNS rewrites: csb0 → cs0.barta.cm working
 - [ ] DHCP: systemctl status shows DHCP active
-- [ ] Web UI: http://192.168.1.99:3000 accessible
+- [ ] Web UI: <http://192.168.1.99:3000> accessible
 - [ ] SSH: Access working
 - [ ] System: `systemctl is-system-running` returns "running"
 - [ ] Internet: Other devices can access internet
@@ -602,7 +875,7 @@ nslookup csb0 192.168.1.99               # DNS rewrite
 # - Verify DNS is set to 192.168.1.99
 
 # Test AdGuard Home UI:
-open http://192.168.1.99:3000
+open <http://192.168.1.99:3000>
 # Login with admin credentials
 # Check dashboard shows active queries
 # Verify DHCP leases tab shows devices
@@ -834,7 +1107,7 @@ All criteria must be met to declare migration successful:
 - [ ] DNS rewrites working (csb0 → cs0.barta.cm)
 - [ ] DHCP server active
 - [ ] Static leases intact (known devices have correct IPs)
-- [ ] Web UI accessible (http://192.168.1.99:3000)
+- [ ] Web UI accessible (<http://192.168.1.99:3000>)
 - [ ] SSH access working
 - [ ] System status: running
 
@@ -994,7 +1267,7 @@ Run this checklist **immediately before** starting Phase 5 (deployment):
 
 ### Lessons Learned
 
-_Add any new insights or improvements for future migrations_
+(Add any new insights or improvements for future migrations)
 
 ### Next Steps
 
@@ -1016,7 +1289,179 @@ _Add any new insights or improvements for future migrations_
 
 ---
 
-**Status**: ⏸️ **BLOCKED** - Waiting for hostname migration (miniserver99 → hsb0) to complete  
-**Next Action**: Complete hostname migration first, wait 24-48 hours for stability, then proceed with this hokage migration  
+**Status**: ✅ **READY TO EXECUTE** - All prerequisites met, hostname migration complete  
+**Next Action**: Execute Phase 1-7 when ready (recommended: weekend afternoon or weekday evening)  
 **Created**: November 21, 2025  
+**Last Updated**: November 22, 2025 (Added official hokage-consumer examples and boilerplate)  
 **Author**: AI Assistant (with Markus Barta)
+
+---
+
+## 📑 APPENDIX: BOILERPLATE FOR OTHER SERVERS
+
+**Purpose**: This section provides reusable templates for migrating other servers to external hokage consumer pattern.
+
+### Template: flake.nix Entry
+
+Based on hsb8 and official examples:
+
+```nix
+# <DESCRIPTION> - <SERVER_NAME>
+# Using external hokage consumer pattern
+<hostname> = nixpkgs.lib.nixosSystem {
+  inherit system;
+  modules = commonServerModules ++ [
+    inputs.nixcfg.nixosModules.hokage  # External hokage module
+    ./hosts/<hostname>/configuration.nix
+    disko.nixosModules.disko  # If using disko
+  ];
+  specialArgs = self.commonArgs // {
+    inherit inputs;
+    # lib-utils already provided by self.commonArgs
+  };
+};
+```
+
+**Example for miniserver24 (hsb1)**:
+
+```nix
+# Home Automation Server + MQTT - Home Server Barta 1
+# Using external hokage consumer pattern
+hsb1 = nixpkgs.lib.nixosSystem {
+  inherit system;
+  modules = commonServerModules ++ [
+    inputs.nixcfg.nixosModules.hokage
+    ./hosts/hsb1/configuration.nix
+    disko.nixosModules.disko
+  ];
+  specialArgs = self.commonArgs // {
+    inherit inputs;
+  };
+};
+```
+
+### Template: configuration.nix Hokage Section
+
+For **servers** (based on official hokage-consumer/server/configuration.nix):
+
+```nix
+hokage = {
+  hostName = "<hostname>";
+  userLogin = "mba";                 # Or appropriate user
+  role = "server-home";              # For home servers
+  # role = "server-remote";          # For remote/cloud servers (csb0, csb1)
+  useInternalInfrastructure = false; # Set true only for pbek's infrastructure
+  useSecrets = true;                 # If using agenix secrets
+  useSharedKey = false;              # If using shared SSH keys
+  zfs.enable = true;                 # If using ZFS
+  zfs.hostId = "<hostid>";           # Required for ZFS
+  audio.enable = false;              # Typically false for servers
+  programs.git.enableUrlRewriting = false;  # Set true only for pbek's infrastructure
+};
+```
+
+For **desktops** (based on official hokage-consumer/desktop/configuration.nix):
+
+```nix
+hokage = {
+  hostName = "<hostname>";
+  userLogin = "mba";
+  role = "desktop";                  # For desktops/laptops
+  useInternalInfrastructure = false;
+  useSecrets = false;
+  useSharedKey = false;
+  programs.espanso.enable = false;   # Enable if needed
+  programs.git.enableUrlRewriting = false;
+  waylandSupport = true;             # true for Wayland, false for X11
+  useGraphicalSystem = true;         # Enable graphical environment
+};
+```
+
+### Migration Checklist Template
+
+Use this for migrating other servers:
+
+- [ ] **Phase 1**: Verify `nixcfg.url` input exists in flake.nix
+- [ ] **Phase 2**: Remove `../../modules/hokage` from configuration.nix imports
+- [ ] **Phase 2.5**: Update hokage section (remove mixin, add explicit options)
+- [ ] **Phase 3**: Update flake.nix entry (replace `mkServerHost` with `nixosSystem`)
+- [ ] **Phase 4**: Test build on miniserver24 or another test machine
+- [ ] **Phase 5**: Deploy to target server
+- [ ] **Phase 6**: Verify external hokage is active
+- [ ] **Phase 7**: Update documentation
+
+### Common Configurations by Server Type
+
+#### Home Servers (hsb\*)
+
+```nix
+role = "server-home";
+useInternalInfrastructure = false;
+useSecrets = true;  # Most use agenix
+```
+
+#### Cloud Servers (csb*, netcup*)
+
+```nix
+role = "server-remote";
+useInternalInfrastructure = false;
+useSecrets = true;
+```
+
+#### Workstations (imac*, pcg*)
+
+```nix
+role = "desktop";
+useInternalInfrastructure = false;
+useGraphicalSystem = true;
+```
+
+### Required Dependencies (Already in Your Flake)
+
+✅ All required inputs are already present:
+
+```nix
+inputs = {
+  nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+  nixcfg.url = "github:pbek/nixcfg";
+  agenix.url = "github:ryantm/agenix";
+  home-manager.url = "github:nix-community/home-manager";
+  plasma-manager.url = "github:nix-community/plasma-manager";
+  # ... follows declarations ...
+};
+```
+
+✅ All required modules are in `commonServerModules`:
+
+```nix
+commonServerModules = [
+  home-manager.nixosModules.home-manager
+  agenix.nixosModules.age
+];
+```
+
+### Next Servers to Migrate
+
+**Priority Order** (based on risk and dependencies):
+
+1. ✅ **hsb8** (msww87) - **COMPLETE** - Nov 21, 2025
+2. 🎯 **hsb0** (miniserver99) - **IN PROGRESS** - This migration
+3. 🔜 **hsb1** (miniserver24) - Home automation + MQTT (medium risk)
+4. 🔜 **csb0** - Cloud server (high uptime, but external, medium risk)
+5. 🔜 **csb1** - Cloud server (high uptime, but external, medium risk)
+6. 🔜 **mba-gaming-pc** (pcg0) - Gaming PC (low risk, can rebuild)
+7. 🔜 **Other workstations** - Low risk
+
+### Reference Implementation: hsb8
+
+See completed migration: `hosts/hsb8/archive/MIGRATION-PLAN [DONE].md`
+
+**What worked well on hsb8**:
+
+- Zero downtime deployment
+- Test build on miniserver24 before deployment
+- Separate commits per phase
+- Immediate documentation updates
+- Clear rollback plan
+
+**Apply these lessons to all future migrations!**
