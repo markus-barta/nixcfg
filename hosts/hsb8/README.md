@@ -817,6 +817,18 @@ If you encounter issues not covered here:
 
 ## Changelog
 
+### 2025-11-22: Hokage Configuration Correction
+
+- ✅ Fixed hokage configuration to use proper external consumer pattern
+- ✅ Removed: `serverMba.enable = true` (local mixin)
+- ✅ Added: Explicit options (role, userLogin, useInternalInfrastructure, etc.)
+- ✅ Now compliant with official hokage-consumer examples
+- ✅ Deployed successfully with zero downtime
+
+**Reason**: Original Nov 21 migration used external hokage in flake.nix but still relied on local mixin in configuration.nix
+
+**Result**: hsb8 now properly uses external hokage module with explicit configuration
+
 ### 2025-11-21: External Hokage Consumer Migration
 
 - ✅ Added `nixcfg.url = "github:pbek/nixcfg"` flake input
