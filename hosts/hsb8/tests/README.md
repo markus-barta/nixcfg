@@ -48,24 +48,21 @@ done
 
 | Test ID | Feature                  | Type            | Status |
 | ------- | ------------------------ | --------------- | ------ |
+| T00     | NixOS Base System        | Manual + Script | ✅     |
 | T01     | DNS Server               | Manual + Script | ✅     |
-| T02     | Ad Blocking              | Manual + Script | ✅     |
-| T03     | DNS Cache                | Manual + Script | ✅     |
+| T02     | Ad Blocking              | Manual + Script | ⏳     |
+| T03     | DNS Cache                | Manual + Script | ⏳     |
 | T04     | DHCP Server              | Manual          | ⏳     |
 | T05     | Static DHCP Leases       | Manual          | ⏳     |
-| T06     | SSH Remote Access        | Manual + Script | ✅     |
-| T07     | Multi-User Access        | Manual + Script | ✅     |
-| T08     | ZFS Storage              | Manual + Script | ✅     |
-| T09     | Automatic Updates        | Manual          | ✅     |
-| T10     | Firmware Updates         | Manual + Script | ✅     |
-| T11     | Network Monitoring       | Manual + Script | ✅     |
-| T12     | Web Management Interface | Manual          | ✅     |
-| T13     | DNS Query Logging        | Manual          | ✅     |
-| T14     | Custom DNS Rewrites      | Manual          | ✅     |
-| T15     | Location-Based Config    | Manual + Script | ✅     |
-| T16     | One-Command Deployment   | Manual + Script | ✅     |
-| T17     | Automatic Backup (ZFS)   | Manual + Script | ✅     |
-| T18     | Secure Boot              | Manual + Script | ✅     |
+| T06     | Web Management Interface | Manual          | ⏳     |
+| T07     | DNS Query Logging        | Manual          | ⏳     |
+| T08     | Custom DNS Rewrites      | Manual          | ⏳     |
+| T09     | SSH Remote Access        | Manual + Script | ✅     |
+| T10     | Multi-User Access        | Manual + Script | ⏳     |
+| T11     | ZFS Storage              | Manual + Script | ✅     |
+| T12     | ZFS Snapshots            | Manual + Script | ⏳     |
+| T13     | Location-Based Config    | Manual + Script | ⏳     |
+| T14     | One-Command Deployment   | Manual + Script | ⏳     |
 
 ## Notes
 
