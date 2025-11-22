@@ -21,31 +21,11 @@ jobs:
     strategy:
       matrix:
         host:
-          - gaia
-          - venus
-          - rhea
-          - hyperion
-          - ally2
-          - astra
-          - caliban
-          - mercury
-          - sinope
-          - netcup01
-          - netcup02
-          - home01
-          - moobox01
-          - jupiter
-          - ally
-          - pluto
+          # Active hosts only (archived hosts removed)
+          - miniserver24
+          - hsb0
+          - hsb8
           - mba-gaming-pc
-          - dp01
-          - dp02
-          - dp03
-          - dp04
-          - dp05
-          - dp06
-          - dp07
-          - dp08
     steps:
       - uses: actions/checkout@v4
 

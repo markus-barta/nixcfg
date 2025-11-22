@@ -1,4 +1,3 @@
 {
   static_leases = [ ];
 }
-

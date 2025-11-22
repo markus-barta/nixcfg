@@ -43,7 +43,7 @@
   networking = {
     nameservers = [
       "192.168.1.99" # miniserver99 / AdGuard Home
-      "1.1.1.1"      # Cloudflare fallback
+      "1.1.1.1" # Cloudflare fallback
     ];
     search = [ "lan" ];
     defaultGateway = "192.168.1.5";
