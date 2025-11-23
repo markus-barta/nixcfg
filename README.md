@@ -50,16 +50,49 @@ For detailed setup instructions, see [docs/README.md](docs/README.md).
 
 This repository uses [agenix](https://github.com/ryantm/agenix) for declarative secret encryption.
 
+### How It Works
+
+The repository uses a **wrapper pattern** for secret paths:
+
+```nix
+# secrets.nix (root) - Wrapper that enables both path formats
+let
+  rules = import ./secrets/secrets.nix;  # Actual secret definitions
+  prefixed = builtins.listToAttrs (
+    map (name: {
+      name = "secrets/${name}";           # Creates prefixed version
+      value = builtins.getAttr name rules;
+    }) (builtins.attrNames rules)
+  );
+in
+rules // prefixed  # Merge both unprefixed and prefixed paths
+```
+
+This allows both path formats to work:
+
+- Unprefixed: `"static-leases-hsb0.age"`
+- Prefixed: `"secrets/static-leases-hsb0.age"` ✅ (recommended)
+
+**Configuration**: `.agenix.toml` points to the root wrapper:
+
+```toml
+[default]
+secrets = "secrets.nix"  # Root wrapper, not secrets/secrets.nix
+```
+
 ### Basic Workflow
 
 ```bash
-# Encrypt a sensitive file
+# Edit an encrypted secret
+agenix -e secrets/static-leases-hsb0.age
+
+# Encrypt a new file
 just encrypt-file hosts/HOSTNAME/filename
 
-# Decrypt an encrypted file
+# Decrypt for inspection
 just decrypt-file secrets/filename.age
 
-# Rekey secrets after adding new hosts
+# Rekey all secrets after adding new hosts
 just rekey
 ```
 
