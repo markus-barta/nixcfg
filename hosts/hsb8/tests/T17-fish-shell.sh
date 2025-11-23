@@ -29,10 +29,10 @@ else
   exit 1
 fi
 
-# Test 2: Configuration has EDITOR export
+# Test 2: Configuration has EDITOR setting
 echo -n "Test 2: EDITOR in configuration... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'grep -q "export EDITOR=nano" ~/nixcfg/hosts/hsb8/configuration.nix' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'grep -q "set -gx EDITOR nano" ~/nixcfg/hosts/hsb8/configuration.nix' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -49,10 +49,10 @@ else
   exit 1
 fi
 
-# Test 4: EDITOR export in /etc/fish/config.fish
+# Test 4: EDITOR set in /etc/fish/config.fish
 echo -n "Test 4: EDITOR in /etc/fish/config.fish... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'grep -q "export EDITOR=nano" /etc/fish/config.fish' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'grep -q "set -gx EDITOR nano" /etc/fish/config.fish' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

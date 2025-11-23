@@ -189,7 +189,7 @@ in
   #   install -d "$leases_dir"
   #
   #   # Read static leases from agenix-decrypted JSON file
-  #   static_leases_file="/run/agenix/static-leases-msww87"
+  #   static_leases_file="/run/agenix/static-leases-hsb8"
   #
   #   if [ ! -f "$static_leases_file" ]; then
   #     echo "ERROR: Static leases file not found at $static_leases_file"

@@ -48,26 +48,26 @@ done
 
 | Test ID | Feature                  | Location | 👇🏻 Manual Last Run  | 🤖 Auto Last Run    | Notes                                                          |
 | ------- | ------------------------ | -------- | ------------------- | ------------------- | -------------------------------------------------------------- |
-| T00     | NixOS Base System        | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 5 tests passed: version, config, generations, status, GRUB |
+| T00     | NixOS Base System        | both     | ✅ 2025-11-23 14:00 | ✅ 2025-11-23 14:00 | All 5 tests passed: version, config, generations, status, GRUB |
 | T01     | DNS Server               | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: AdGuard disabled at jhw22                         |
 | T02     | Ad Blocking              | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: config verified                                   |
 | T03     | DNS Cache                | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: config verified                                   |
 | T04     | DHCP Server              | ww87     | ⏳ Not yet run      | N/A                 | Not yet implemented (dhcp.enabled = false)                     |
 | T05     | Static DHCP Leases       | ww87     | ⏳ Not yet run      | N/A                 | Depends on T04                                                 |
 | T06     | Web Management Interface | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: port 3000 configured                              |
-| T07     | DNS Query Logging        | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: 90-day retention configured                       |
+| T07     | DNS Query Logging        | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: config verified                                   |
 | T08     | Custom DNS Rewrites      | ww87     | 🔍 2025-11-22 10:00 | N/A                 | Theoretical: feature available                                 |
-| T09     | SSH Remote Access        | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 11 tests passed: SSH + security (keys, sudo, password)     |
-| T10     | Multi-User Access        | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 5 tests passed: mba + gb keys configured, sudo working     |
-| T11     | ZFS Storage              | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 6 tests passed: pool healthy, 7% used, compression working |
-| T12     | ZFS Snapshots            | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 4 tests passed: list, create, verify, destroy              |
+| T09     | SSH Remote Access        | both     | ✅ 2025-11-23 14:00 | ✅ 2025-11-23 14:00 | All 11 tests passed: SSH + security (keys, sudo, password)     |
+| T10     | Multi-User Access        | both     | ✅ 2025-11-23 14:00 | ✅ 2025-11-23 14:00 | All 5 tests passed: mba + gb keys configured, sudo working     |
+| T11     | ZFS Storage              | both     | ✅ 2025-11-23 14:00 | ✅ 2025-11-23 14:00 | All 6 tests passed: pool healthy, 7% used, compression working |
+| T12     | ZFS Snapshots            | both     | ✅ 2025-11-23 14:00 | ✅ 2025-11-23 14:00 | All 4 tests passed: list, create, verify, destroy              |
 | T13     | Location-Based Config    | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: location=jhw22 verified                                |
 | T14     | One-Command Deployment   | both     | ✅ 2025-11-22 10:00 | N/A                 | Manual: enable-ww87 script exists                              |
 | T15     | Docker & Home Assistant  | both     | ⏳ Not yet run      | N/A                 | Docker infrastructure, Home Assistant for gb user              |
-| T16     | User Identity Config     | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 5 tests passed: git config, user identity correct          |
-| T17     | Fish Shell Utilities     | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 5 tests passed: sourcefish, EDITOR in config files         |
-| T18     | Local /etc/hosts         | both     | ✅ 2025-11-22 15:15 | ✅ 2025-11-22 15:15 | All 5 tests passed: /etc/hosts entries, ping working           |
-| T19     | Agenix Secret Management | both     | ⏳ Not yet run      | ⏳ Not yet run      | Encrypted DHCP leases, agenix CLI, secret decryption           |
+| T16     | User Identity Config     | both     | ✅ 2025-11-23 14:00 | ✅ 2025-11-23 14:00 | All 5 tests passed: git config, user identity correct          |
+| T17     | Fish Shell Utilities     | both     | ✅ 2025-11-23 14:00 | ✅ 2025-11-23 14:00 | All 5 tests passed: sourcefish, EDITOR=nano fixed              |
+| T18     | Local /etc/hosts         | both     | ✅ 2025-11-23 14:00 | ✅ 2025-11-23 14:00 | All 5 tests passed: /etc/hosts entries, ping working           |
+| T19     | Agenix Secret Management | ww87     | 🔍 2025-11-23 14:00 | 🔍 2025-11-23 14:00 | Only available at ww87 (agenix CLI installed with AdGuard)     |
 
 **Location Legend:**
 
