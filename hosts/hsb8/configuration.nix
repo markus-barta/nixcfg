@@ -182,7 +182,7 @@ in
 
   # Static DHCP Leases Management
   # Leases are stored encrypted in git and decrypted at system activation
-  systemd.services.adguardhome.preStart = lib.mkIf (enableAdGuard && config.services.adguardhome.settings.dhcp.enabled) (lib.mkAfter ''
+  systemd.services.adguardhome.preStart = lib.mkIf enableAdGuard (lib.mkAfter ''
     leases_dir="/var/lib/private/AdGuardHome/data"
     leases_file="$leases_dir/leases.json"
     install -d "$leases_dir"
