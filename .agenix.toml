@@ -1,6 +1,8 @@
 # agenix configuration
 # https://github.com/ryantm/agenix#reference
 
+# Point to root secrets.nix which wraps secrets/secrets.nix
+# This creates both prefixed (secrets/*) and unprefixed secret paths
 [default]
-secrets = "secrets/secrets.nix"
+secrets = "secrets.nix"
 
