@@ -113,19 +113,32 @@ nix-switch:
 switch-simple:
     nh os switch -H {{ hostname }} .
 
-# Build and switch to the new configuration for the current host (with notification, use "--max-jobs 1" to restict downloads)
+# Build and switch to the new configuration for the current host (platform-aware)
 [group('build')]
 switch args='':
     #!/usr/bin/env bash
-    echo "❄️ Running switch for {{ hostname }}..."
-    sudo true
-    start_time=$(date +%s)
-    nh os switch -H {{ hostname }} . -- {{ args }}
-    end_time=$(date +%s)
-    exit_code=$?
-    runtime=$((end_time - start_time))
-    if [ $runtime -gt 10 ]; then
-      just _notify "switch finished on {{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
+    # Detect platform and route to appropriate command
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "🏠 Detected macOS - running home-manager switch for {{ user }}@{{ hostname }}..."
+        start_time=$(date +%s)
+        home-manager switch --flake ".#{{ user }}@{{ hostname }}" {{ args }}
+        end_time=$(date +%s)
+        exit_code=$?
+        runtime=$((end_time - start_time))
+        if [ $runtime -gt 10 ]; then
+          just _notify "home-manager switch finished for {{ user }}@{{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
+        fi
+    else
+        echo "❄️ Detected NixOS - running nixos-rebuild switch for {{ hostname }}..."
+        sudo true
+        start_time=$(date +%s)
+        nh os switch -H {{ hostname }} . -- {{ args }}
+        end_time=$(date +%s)
+        exit_code=$?
+        runtime=$((end_time - start_time))
+        if [ $runtime -gt 10 ]; then
+          just _notify "switch finished on {{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
+        fi
     fi
 
 # Build and switch home-manager configuration (for macOS/standalone home-manager)
