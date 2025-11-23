@@ -49,18 +49,18 @@ done
 
 | Test ID | Feature                      | 👇🏻 Manual Last Run  | 🤖 Auto Last Run    | Notes                                              |
 | ------- | ---------------------------- | ------------------- | ------------------- | -------------------------------------------------- |
-| T00     | NixOS Base System            | ⏳ Not yet run      | ✅ 2025-11-23 16:30 | Foundation: version, config, generations, status   |
+| T00     | NixOS Base System            | ✅ 2025-11-23 16:45 | ✅ 2025-11-23 16:30 | 5/5 tests passed, 37 generations, Xantusia 25.11   |
 | T01     | DNS Server                   | ✅ 2025-11-23 16:35 | ✅ 2025-11-23 16:35 | 5/5 tests passed, upstream DNS: 1.1.1.1, 1.0.0.1   |
 | T02     | Ad Blocking                  | ✅ 2025-11-23 16:36 | ✅ 2025-11-23 16:36 | 3/3 tests passed - protection & filtering enabled  |
 | T03     | DNS Cache                    | ✅ 2025-11-23 16:37 | ✅ 2025-11-23 16:37 | 3/3 tests passed - 4MB cache, optimistic, 9ms perf |
 | T04     | DHCP Server                  | ✅ 2025-11-23 16:38 | ✅ 2025-11-23 16:38 | 5/5 tests passed - DHCP enabled, .201-.254, 24h    |
-| T05     | Static DHCP Leases           | ⏳ Not yet run      | ✅ 2025-11-23 16:30 | 4/4 tests passed - 107 static leases via agenix    |
+| T05     | Static DHCP Leases           | ✅ 2025-11-23 16:45 | ✅ 2025-11-23 16:30 | 4/4 tests passed - 107 static leases via agenix    |
 | T06     | DNS Rewrites                 | ✅ 2025-11-23 16:39 | ✅ 2025-11-23 16:39 | 3/3 tests passed - csb0/csb1 → cs0/cs1.barta.cm    |
 | T07     | Web Management Interface     | ✅ 2025-11-23 16:41 | ✅ 2025-11-23 16:41 | 3/3 tests passed - web UI accessible, port 3000    |
 | T08     | DNS Query Logging            | ✅ 2025-11-23 16:40 | ✅ 2025-11-23 16:40 | 3/3 tests passed - 90 day retention, logging on    |
 | T09     | SSH Remote Access + Security | ✅ 2025-11-23 16:42 | ✅ 2025-11-23 16:42 | 8/8 tests passed - SSH keys, hardened config       |
 | T10     | ZFS Storage                  | ✅ 2025-11-23 16:43 | ✅ 2025-11-23 16:43 | 5/5 tests passed - ONLINE, 4% used, zstd compress  |
-| T11     | ZFS Snapshots                | ⏳ Not yet run      | ✅ 2025-11-23 16:30 | 4/4 tests passed - list, create, verify, destroy   |
+| T11     | ZFS Snapshots                | ✅ 2025-11-23 16:45 | ✅ 2025-11-23 16:30 | 4/4 tests passed - list, create, verify, destroy   |
 
 ## Notes
 
