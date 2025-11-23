@@ -1,31 +1,40 @@
-# imac-mba-home Test Suite
+# imac0 Test Suite
 
-Comprehensive test procedures for validating imac-mba-home configuration.
+Comprehensive test procedures for validating imac0 configuration.
 
-## Test Overview
+## Quick Stats
 
-| ID  | Feature             | Manual Test | Automated Test | Status |
-| --- | ------------------- | ----------- | -------------- | ------ |
-| T00 | Nix Base System     | ✅          | ✅             | ⏳     |
-| T01 | Fish Shell          | ✅          | ✅             | ⏳     |
-| T02 | Starship Prompt     | ✅          | ✅             | ⏳     |
-| T03 | WezTerm Terminal    | ✅          | ✅             | ⏳     |
-| T04 | Git Dual Identity   | ✅          | ✅             | ⏳     |
-| T05 | Node.js             | ✅          | ✅             | ⏳     |
-| T06 | Python              | ✅          | ✅             | ⏳     |
-| T07 | direnv + nix-direnv | ✅          | ✅             | ⏳     |
-| T08 | Nerd Fonts          | ✅          | ✅             | ⏳     |
-| T09 | CLI Tools           | ✅          | ✅             | ⏳     |
-| T10 | Karabiner-Elements  | ✅          | ⏳             | ⏳     |
-| T11 | GUI Apps            | ✅          | ✅             | ⏳     |
-| T12 | Custom Scripts      | ✅          | ✅             | ⏳     |
-| T13 | Homebrew Validation | ✅          | ✅             | ⏳     |
+- **Total Tests**: 14
+- **Fully Implemented**: 2
+- **Pending Implementation**: 12
 
-**Legend:**
+## Test List
 
-- ✅ = Available
-- ⏳ = Pending creation
-- ❌ = Not applicable
+| Test ID | Feature             | 👇🏻 Manual Last Run | 🤖 Auto Last Run    | Notes                                        |
+| ------- | ------------------- | ------------------ | ------------------- | -------------------------------------------- |
+| T00     | Nix Base System     | ⏳ Not yet run     | ⚠️ 2025-11-23 16:47 | 3/4 tests - currentSystem check fails        |
+| T01     | Fish Shell          | ⏳ Not yet run     | ✅ 2025-11-23 16:47 | 5/5 tests passed - custom functions working  |
+| T02     | Starship Prompt     | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T03     | WezTerm Terminal    | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T04     | Git Dual Identity   | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T05     | Node.js             | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T06     | Python              | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T07     | direnv + nix-direnv | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T08     | Nerd Fonts          | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T09     | CLI Tools           | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T10     | Karabiner-Elements  | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T11     | GUI Apps            | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T12     | Custom Scripts      | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| T13     | Homebrew Validation | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+
+## Notes
+
+- T00 has a minor issue with `builtins.currentSystem` check
+- T01 is fully functional and passing all tests
+- T02-T13 are placeholder tests that need implementation
+- Manual test runs will be updated as tests are executed
+
+## Usage
 
 ## Usage
 
