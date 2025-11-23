@@ -136,7 +136,7 @@ in
       ];
 
       dhcp = {
-        enabled = false; # TODO: Enable when ready to be DHCP server
+        enabled = true; # DHCP server enabled for ww87
         interface_name = "enp2s0f0";
         dhcpv4 = {
           gateway_ip = "192.168.1.1";
