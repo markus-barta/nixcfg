@@ -13,7 +13,7 @@ set shell := ["bash", "-c"]
 
 # Variables
 
-hostname := `hostname`
+hostname := `hostname -s`
 user := `whoami`
 
 # Aliases
