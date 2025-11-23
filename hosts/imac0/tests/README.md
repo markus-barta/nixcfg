@@ -4,34 +4,35 @@ Comprehensive test procedures for validating imac0 configuration.
 
 ## Quick Stats
 
-- **Total Tests**: 14
-- **Fully Implemented**: 2
-- **Pending Implementation**: 12
+- **Total Tests**: 12 (was 14, removed 2 cosmetic tests + 1 keyboard)
+- **Fully Implemented & Passing**: 8
+- **Pending Enhancement**: 3
+- **Not Yet Created**: 1
 
 ## Test List
 
-| Test ID | Feature             | 👇🏻 Manual Last Run | 🤖 Auto Last Run    | Notes                                        |
-| ------- | ------------------- | ------------------ | ------------------- | -------------------------------------------- |
-| T00     | Nix Base System     | ⏳ Not yet run     | ⚠️ 2025-11-23 16:47 | 3/4 tests - currentSystem check fails        |
-| T01     | Fish Shell          | ⏳ Not yet run     | ✅ 2025-11-23 16:47 | 5/5 tests passed - custom functions working  |
-| T02     | Starship Prompt     | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T03     | WezTerm Terminal    | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T04     | Git Dual Identity   | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T05     | Node.js             | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T06     | Python              | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T07     | direnv + nix-direnv | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T08     | Nerd Fonts          | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T09     | CLI Tools           | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T10     | Karabiner-Elements  | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T11     | GUI Apps            | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T12     | Custom Scripts      | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
-| T13     | Homebrew Validation | ⏳ Not yet run     | ⏳ Not implemented  | Test structure created, needs implementation |
+| Test ID | Feature             | 👇🏻 Manual Last Run | 🤖 Auto Last Run    | Notes                                          |
+| ------- | ------------------- | ------------------ | ------------------- | ---------------------------------------------- |
+| T00     | Nix Base System     | ⏳ Not yet run     | ⚠️ 2025-11-23 16:47 | 3/4 tests - currentSystem check fails          |
+| T01     | Fish Shell          | ⏳ Not yet run     | ✅ 2025-11-23 16:47 | 5/5 tests passed - custom functions working    |
+| T02     | Git Dual Identity   | ⏳ Not yet run     | ✅ 2025-11-23 17:15 | 5/5 tests passed - personal/work switching     |
+| T03     | Node.js             | ⏳ Not yet run     | ✅ 2025-11-23 17:15 | 3/3 tests passed - v22.21.1 from Nix           |
+| T04     | Python              | ⏳ Not yet run     | ✅ 2025-11-23 17:15 | 3/3 tests passed - v3.13.9 from Nix            |
+| T05     | direnv + nix-direnv | ⏳ Not yet run     | ✅ 2025-11-23 17:15 | 3/3 tests passed - Fish integration working    |
+| T06     | CLI Tools           | ⏳ Not yet run     | ✅ 2025-11-23 17:15 | 8/8 tools - bat, rg, fd, fzf, btop, zoxide, jq |
+| T07     | Custom Scripts      | ⏳ Not yet run     | ✅ 2025-11-23 17:15 | 3/3 scripts - flushdns, pingt, stopAmphetamine |
+| T08     | Nerd Fonts          | ⏳ Not yet run     | ⏳ Enhancement      | Check in WezTerm, Terminal, Font Book          |
+| T09     | GUI Applications    | ⏳ Not yet run     | ⏳ Enhancement      | Verify in Dock and properly launched           |
+| T10     | Homebrew Isolation  | ⏳ Not yet run     | ⏳ Enhancement      | No conflicts with Nix, PATH validation         |
+| T11     | macOS Preferences   | ⏳ Not yet run     | ⏳ Not created      | NEW: Dock, Finder, system defaults             |
 
 ## Notes
 
+- **Removed Tests**: Starship Prompt, WezTerm Terminal, Karabiner (cosmetic/hard to test)
 - T00 has a minor issue with `builtins.currentSystem` check
-- T01 is fully functional and passing all tests
-- T02-T13 are placeholder tests that need implementation
+- T02-T07 are fully functional and passing all tests
+- T08-T10 need enhancement with more comprehensive checks
+- T11 is a new test for macOS system preferences (optional)
 - Manual test runs will be updated as tests are executed
 
 ## Usage
