@@ -455,6 +455,7 @@ in
     zfs.hostId = "cdbc4e20"; # ZFS host ID (required)
     audio.enable = false; # No audio on server
     programs.git.enableUrlRewriting = false; # No internal git rewrites
+    programs.atuin.enable = false; # Disable atuin - causes fish shell to hang
 
     # Multi-user configuration (both mba and gb)
     users = [

@@ -285,6 +285,7 @@
     zfs.hostId = "dabfdb02";
     audio.enable = false;
     programs.git.enableUrlRewriting = false;
+    programs.atuin.enable = false; # Disable atuin - causes fish shell to hang
   };
 
   # ============================================================================
