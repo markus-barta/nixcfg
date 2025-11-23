@@ -177,54 +177,69 @@ See archived hosts for full list of Pbek's machines
 
 ## Directory Structure
 
-Each host directory typically contains:
+**Standard layout** (every host follows this pattern):
 
 ```
 {hostname}/
-├── configuration.nix         # NixOS config (for NixOS hosts)
-├── home.nix                  # home-manager config (for macOS hosts)
-├── hardware-configuration.nix # Hardware-specific settings
-├── disk-config.zfs.nix       # ZFS disk configuration (if using disko)
-├── README.md                 # Host-specific documentation
-├── MIGRATION-PLAN.md         # Migration documentation (during transitions)
-└── ...                       # Additional host-specific files
+├── README.md                  # Main documentation (always in root)
+├── configuration.nix          # NixOS config (NixOS hosts only)
+├── home.nix                   # home-manager config (macOS hosts only)
+├── hardware-configuration.nix # Hardware settings
+├── disk-config.zfs.nix        # Disk/ZFS layout
+│
+├── docs/                      # All non-README documentation
+│   ├── 📋 BACKLOG.md          # Current work tracking (emoji for sorting)
+│   ├── enable-ww87.md         # Feature-specific guides
+│   └── ...                    # Other docs
+│
+├── archive/                   # Completed migrations (DONE files only)
+│   └── MIGRATION-xxx [DONE].md
+│
+├── tests/                     # Test suite
+│   ├── README.md              # Test overview + tracking table
+│   ├── T00-feature.md         # Manual test procedures
+│   ├── T00-feature.sh         # Automated test scripts
+│   └── ...                    # One pair per feature
+│
+├── examples/                  # Config examples & references
+│   ├── docker-compose.yml
+│   └── ...
+│
+├── config/                    # Host-specific configs (optional)
+├── scripts/                   # Host-specific scripts (optional)
+└── secrets/                   # Encrypted secrets (csb0/csb1 only)
 ```
 
-Special cases:
+**Key principles:**
 
-- macOS hosts (like `imac0`) use home-manager only (no `configuration.nix`)
-- VM templates contain `vm.nix` configuration
-- Migration hosts include `MIGRATION-PLAN.md` for tracking progress
-- Server hosts may have secrets/ subdirectory for encrypted configs
+- `README.md` always in root (main entry point)
+- `docs/` for all other documentation (BACKLOG, guides, notes)
+- `archive/` for completed work only (migration histories with [DONE] marker)
+- `tests/` with paired manual (.md) + automated (.sh) files
+- `examples/` for reference configs and templates
+- `📋 BACKLOG.md` uses emoji prefix to stand out and sort first
 
 ---
 
 ## 🔄 Active Migrations
 
-### Current: Unified Naming Scheme Migration (2025)
+### Current: Unified Naming + External Hokage (2025)
 
-**Goal**: Standardize all host names to consistent, scalable pattern
+**Goal**: Standardize names + migrate to external hokage consumer pattern
 
 **Status**: 🚀 In Progress
 
-| Phase          | Hosts                     | Status         | Started | Completed |
-| -------------- | ------------------------- | -------------- | ------- | --------- |
-| 1. Guinea Pig  | hsb8 (was msww87)         | 🚀 In Progress | Nov 19  | -         |
-| 2. Home Server | hsb1 (was miniserver24)   | ⏳ Pending     | -       | -         |
-| 3. DNS/DHCP    | hsb0 (was miniserver99)   | 🚀 In Progress | Nov 21  | -         |
-| 4. Workstation | imac0 (was imac-mba-home) | ⏳ Pending     | -       | -         |
-| 5. Gaming      | pcg0 (was mba-gaming-pc)  | ⏳ Pending     | -       | -         |
+| Phase | Hosts                     | Status         | Started | Completed |
+| ----- | ------------------------- | -------------- | ------- | --------- |
+| 1     | hsb8 (was msww87)         | ✅ Done        | Nov 19  | Nov 22    |
+| 2     | hsb1 (was miniserver24)   | ⏳ Pending     | -       | -         |
+| 3     | hsb0 (was miniserver99)   | 🚀 In Progress | Nov 21  | -         |
+| 4     | imac0 (was imac-mba-home) | ⏳ Pending     | -       | -         |
+| 5     | pcg0 (was mba-gaming-pc)  | ⏳ Pending     | -       | -         |
 
-**Migration Includes**:
+**Includes**: Hostname rename, folder restructure, DHCP updates, external hokage pattern
 
-- Hostname changes
-- Folder renames in repository
-- DHCP static lease updates
-- macOS LocalHostName updates (workstations)
-- Hokage external consumer pattern (servers)
-- Documentation updates
-
-**See**: Individual `MIGRATION-PLAN.md` files in each host directory for detailed plans
+**See**: `{hostname}/archive/MIGRATION-xxx [DONE].md` for completed migrations
 
 ---
 
@@ -253,6 +268,5 @@ Special cases:
 
 ## Related Documentation
 
-- [Main Repository README](../README.md) - Repository overview and setup
-- [Secrets Management Architecture](imac-mba-home/docs/reference/secrets-management.md) - Encryption and secrets strategy
-- Individual host READMEs - Host-specific configuration and documentation
+- [Main Repository README](../README.md) - Repository overview
+- Individual host READMEs - Host-specific documentation
