@@ -1,0 +1,6 @@
+# agenix configuration
+# https://github.com/ryantm/agenix#reference
+
+# Tell agenix where to find the secrets.nix file
+secretsPath = "secrets/secrets.nix"
+
