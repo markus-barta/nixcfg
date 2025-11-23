@@ -5,6 +5,11 @@
   ...
 }:
 
+let
+  # Import shared fish configuration
+  sharedFishConfig = import ../../modules/shared/fish-config.nix;
+in
+
 {
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "markus";
@@ -124,10 +129,10 @@
       };
     };
 
-    # Aliases
-    shellAliases = {
+    # Aliases - merge shared config with macOS-specific aliases
+    shellAliases = sharedFishConfig.fishAliases // {
+      # macOS specific aliases
       mc = "env LANG=en_US.UTF-8 mc";
-      lg = "lazygit";
       # Force macOS native ping (inetutils ping has bugs on Darwin)
       # See: docs/reference/macos-network-tools.md
       ping = "/sbin/ping";
@@ -136,11 +141,12 @@
       netstat = "/usr/sbin/netstat";
     };
 
-    # Abbreviations
-    shellAbbrs = {
+    # Abbreviations - merge shared config with macOS-specific abbreviations
+    shellAbbrs = sharedFishConfig.fishAbbrs // {
       flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
       hsb0 = "ssh mba@192.168.1.99 -t \"zellij attach hsb0 -c\"";
       hsb1 = "ssh mba@192.168.1.101 -t \"zellij attach hsb1 -c\"";
+      hsb8 = "ssh mba@192.168.1.100 -t \"zellij attach hsb8 -c\"";
       csb0 = "ssh mba@cs0.barta.cm -p 2222 -t \"zellij attach csb0 -c\"";
       csb1 = "ssh mba@cs1.barta.cm -p 2222 -t \"zellij attach csb1 -c\"";
     };

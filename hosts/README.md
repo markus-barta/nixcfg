@@ -4,6 +4,106 @@ This directory contains configuration for all managed hosts (NixOS and macOS sys
 
 ---
 
+## 🏗️ Configuration Architecture
+
+### Summary
+
+This repository uses a modular architecture where **NixOS servers** import the full hokage module system (with common.nix for shared configurations), while **macOS hosts** use standalone Home Manager with selective imports. Shared fish shell configurations (aliases, abbreviations) are now centralized in `modules/shared/fish-config.nix` to avoid duplication across platforms.
+
+### How It Works
+
+**NixOS hosts** (hsb0, hsb8, csb0, csb1, etc.) follow a layered approach: the flake defines the system, which loads the host's `configuration.nix`, imports the hokage module from an external repository (`github:pbek/nixcfg`), which then loads `common.nix` for system-wide settings. Both `common.nix` and macOS configurations share fish shell settings via `modules/shared/fish-config.nix`.
+
+**macOS hosts** (imac0) use a simpler path: the flake loads Home Manager with `home.nix`, which directly imports shared configurations like `fish-config.nix` without the full hokage/common.nix stack since many NixOS-specific options don't apply to Darwin.
+
+### Configuration Flow Chart
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                              FLAKE.NIX                                  │
+│                    (Entry point for all systems)                        │
+└────────────┬────────────────────────────────────────┬───────────────────┘
+             │                                        │
+             │                                        │
+    ┌────────▼────────┐                    ┌──────────▼─────────┐
+    │  NIXOS HOSTS    │                    │   MACOS HOSTS      │
+    │  (hsb0, hsb8,   │                    │   (imac0)          │
+    │   csb0, csb1)   │                    │                    │
+    └────────┬────────┘                    └──────────┬─────────┘
+             │                                        │
+             │                                        │
+    ┌────────▼────────────────┐           ┌───────────▼──────────────┐
+    │ hosts/*/                │           │ hosts/imac0/             │
+    │ configuration.nix       │           │ home.nix                 │
+    │                         │           │ (Home Manager only)      │
+    │ - Hardware config       │           │                          │
+    │ - Disk config (ZFS)     │           │ - Fish shell config      │
+    │ - Networking            │           │ - Starship prompt        │
+    │ - Host-specific options │           │ - macOS-specific tools   │
+    └────────┬────────────────┘           └─────────┬────────────────┘
+             │                                      │
+             │ imports                              │ imports
+             │                                      │
+    ┌────────▼──────────────────┐                   │
+    │ EXTERNAL HOKAGE MODULE    │                   │
+    │ github:pbek/nixcfg        │                   │
+    │                           │                   │
+    │ modules/hokage/           │                   │
+    │ - default.nix (core)      │                   │
+    │ - programs/ (atuin, etc)  │                   │
+    │ - languages/ (nodejs, go) │                   │
+    │ - desktop.nix             │                   │
+    │ - server-home.nix         │                   │
+    └────────┬──────────────────┘                   │
+             │                                      │
+             │ imports                              │
+             │                                      │
+    ┌────────▼──────────────┐                       │
+    │ modules/common.nix    │                       │
+    │                       │                       │
+    │ - System packages     │                       │
+    │ - User accounts       │                       │
+    │ - Locale/timezone     │                       │
+    │ - Base shell config   │                       │
+    │ - Home Manager setup  │                       │
+    └────────┬──────────────┘                       │
+             │                                      │
+             │ imports                              │ imports
+             │                                      │
+    ┌────────▼──────────────────────────────────────▼───────────┐
+    │          modules/shared/fish-config.nix                   │
+    │                                                           │
+    │  - fishAliases (gitpl, gitc, ll, j, etc)                  │
+    │  - fishAbbrs (tmux→zellij, vim→hx, nano→micro)            │
+    │                                                           │
+    │  Shared by ALL systems (NixOS + macOS)                    │
+    └───────────────────────────────────────────────────────────┘
+```
+
+### Key Differences: NixOS vs macOS
+
+| Aspect                | NixOS Hosts                       | macOS Hosts                       |
+| --------------------- | --------------------------------- | --------------------------------- |
+| **Entry File**        | `configuration.nix`               | `home.nix`                        |
+| **System Type**       | Full NixOS system                 | Home Manager only                 |
+| **Hokage Module**     | ✅ Full import (external)         | ❌ Not imported                   |
+| **common.nix**        | ✅ Auto-imported via hokage       | ❌ Not imported (NixOS-specific)  |
+| **fish-config.nix**   | ✅ Via common.nix                 | ✅ Direct import                  |
+| **Platform Specific** | ZFS, systemd, networking          | macOS tools, Homebrew integration |
+| **Shared Config**     | Aliases, abbreviations, functions | Same via fish-config.nix          |
+
+### Why This Architecture?
+
+**DRY Principle**: Fish shell configuration defined once in `modules/shared/fish-config.nix`, used everywhere
+
+**Platform Separation**: NixOS-specific settings (systemd, ZFS) stay in `common.nix`, don't clutter macOS config
+
+**External Hokage**: Using `github:pbek/nixcfg` as upstream allows MBA servers to benefit from Pbek's updates while maintaining local overrides (like disabling atuin)
+
+**Selective Imports**: macOS only imports what it needs (fish config, starship) without the full NixOS stack
+
+---
+
 ## 🏗️ Infrastructure Overview
 
 ### Unified Naming Scheme (2025)

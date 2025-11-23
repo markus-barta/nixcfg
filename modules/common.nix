@@ -15,6 +15,9 @@ let
   inherit (lib)
     mkDefault
     ;
+
+  # Import shared fish configuration
+  sharedFishConfig = import ./shared/fish-config.nix;
 in
 {
   # Set some fish config
@@ -25,46 +28,8 @@ in
         # Fix: Help messages to be shown in English, instead of German
         set -e LANGUAGE
       '';
-      shellAliases = {
-        gitc = "git commit";
-        gitps = "git push";
-        gitplr = "git pull --rec";
-        gitpl = "git pull && git submodule update --init";
-        gitsub = "git submodule update --init";
-        gitpls = "git pull";
-        gita = "git add -A";
-        gitst = "git status";
-        gitd = "git diff";
-        gitds = "git diff --staged";
-        gitl = "git log";
-        vim = "nvim";
-        ll = "eza -hal --icons --group-directories-first";
-        fish-reload = "exec fish";
-        lg = "lazygit";
-        duai = "dua interactive";
-        j = "just";
-      };
-      shellAbbrs = {
-        killall = "pkill";
-        less = "bat";
-        #      cat = "bat";
-        #      man = "tldr";
-        man = "batman";
-        du = "dua";
-        ncdu = "dua interactive";
-        df = "duf";
-        tree = "erd";
-        tmux = "zellij";
-        dig = "dog";
-        diff = "difft";
-        # ping = "pingu";
-        ping = "gping";
-        tar = "ouch";
-        ps = "procs";
-        whois = "rdap";
-        vim = "hx";
-        nano = "micro";
-      };
+      shellAliases = sharedFishConfig.fishAliases;
+      shellAbbrs = sharedFishConfig.fishAbbrs;
     };
 
     bash.shellAliases = config.programs.fish.shellAliases;
