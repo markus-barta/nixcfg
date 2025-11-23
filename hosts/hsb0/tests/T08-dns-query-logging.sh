@@ -19,30 +19,30 @@ echo "=== T08: DNS Query Logging Test ==="
 echo "Host: $HOST"
 echo
 
-# Test 1: Query logging enabled
+# Test 1: Query logging enabled (check actual AdGuard config)
 echo -n "Test 1: Query logging enabled... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -A 2 "querylog:" | grep -q "enabled.*true"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -A10 "^querylog:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "enabled: true"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
   exit 1
 fi
 
-# Test 2: 90-day retention configured
+# Test 2: 90-day retention configured (check actual AdGuard config)
 echo -n "Test 2: 90-day retention (2160h)... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "interval.*2160h"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -A10 "^querylog:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "interval: 2160h"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
   exit 1
 fi
 
-# Test 3: Memory size configured
+# Test 3: Memory size configured (check actual AdGuard config)
 echo -n "Test 3: Memory size (1000)... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "size_memory.*1000"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -A10 "^querylog:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "size_memory: 1000"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

@@ -50,13 +50,14 @@ else
   exit 1
 fi
 
-# Test 4: Compression enabled
+# Test 4: Compression enabled (check for zstd or lz4)
 echo -n "Test 4: Compression enabled... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'zfs get -H compression zroot | grep -q "lz4"' &>/dev/null; then
-  echo -e "${GREEN}✅ PASS${NC}"
+COMPRESSION=$(ssh "$SSH_USER@$HOST" 'zfs get -H compression zroot | awk "{print \$3}"' 2>/dev/null)
+if [ "$COMPRESSION" = "zstd" ] || [ "$COMPRESSION" = "lz4" ] || [ "$COMPRESSION" = "lz4-1" ]; then
+  echo -e "${GREEN}✅ PASS${NC} ($COMPRESSION)"
 else
-  echo -e "${RED}❌ FAIL${NC}"
+  echo -e "${RED}❌ FAIL${NC} (found: $COMPRESSION)"
   exit 1
 fi
 

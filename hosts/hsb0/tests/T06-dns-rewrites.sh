@@ -19,11 +19,11 @@ echo "=== T06: DNS Rewrites Test ==="
 echo "Host: $HOST"
 echo
 
-# Test 1: Rewrite rules configured
+# Test 1: Rewrite rules configured (check actual AdGuard config user_rules)
 echo -n "Test 1: Rewrite rules configured... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "csb0"' &&
-  ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "csb1"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -A5 "user_rules:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "csb0"' &&
+  ssh "$SSH_USER@$HOST" 'sudo grep -A5 "user_rules:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "csb1"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

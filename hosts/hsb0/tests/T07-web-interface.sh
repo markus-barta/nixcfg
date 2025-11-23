@@ -39,10 +39,11 @@ else
   exit 1
 fi
 
-# Test 3: Firewall allows port 3000
+# Test 3: Firewall allows port 3000 (check iptables or configuration)
 echo -n "Test 3: Firewall configured... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo nft list ruleset | grep -q "3000"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo iptables -L -n | grep -q "3000"' &>/dev/null ||
+  ssh "$SSH_USER@$HOST" 'sudo nft list ruleset 2>/dev/null | grep -q "3000"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

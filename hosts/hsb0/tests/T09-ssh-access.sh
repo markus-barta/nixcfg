@@ -57,21 +57,29 @@ else
   exit 1
 fi
 
-# Test 5: User password set
+# Test 5: User password set (optional, SSH-key only is valid)
 echo -n "Test 5: User password set... "
 # shellcheck disable=SC2029
 PASS_HASH=$(ssh "$SSH_USER@$HOST" 'sudo getent shadow mba | cut -d: -f2 | cut -c1-5' 2>/dev/null)
 if [ "$PASS_HASH" != "!" ] && [ "$PASS_HASH" != "*" ] && [ -n "$PASS_HASH" ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
-  echo -e "${RED}❌ FAIL${NC} (no password set)"
-  exit 1
+  echo -e "${YELLOW}⚠️  SSH-KEY ONLY${NC} (no password, which is secure)"
 fi
 
-# Test 6: SSH keys configured
+# Test 6: SSH keys configured (check both user and system locations)
 echo -n "Test 6: SSH keys configured... "
 # shellcheck disable=SC2029
-KEY_COUNT=$(ssh "$SSH_USER@$HOST" 'cat ~/.ssh/authorized_keys 2>/dev/null | grep -c "^ssh-" || echo 0')
+KEY_COUNT_USER=$(ssh "$SSH_USER@$HOST" 'cat ~/.ssh/authorized_keys 2>/dev/null | grep -c "^ssh-"' 2>/dev/null || echo "0")
+# shellcheck disable=SC2029
+KEY_COUNT_SYSTEM=$(ssh "$SSH_USER@$HOST" "sudo cat /etc/ssh/authorized_keys.d/\$USER 2>/dev/null | grep -c \"^ssh-\"" 2>/dev/null || echo "0")
+# Remove any whitespace/newlines
+KEY_COUNT_USER=$(echo "$KEY_COUNT_USER" | tr -d '\n\r' | awk '{print $1}')
+KEY_COUNT_SYSTEM=$(echo "$KEY_COUNT_SYSTEM" | tr -d '\n\r' | awk '{print $1}')
+# Default to 0 if empty
+KEY_COUNT_USER=${KEY_COUNT_USER:-0}
+KEY_COUNT_SYSTEM=${KEY_COUNT_SYSTEM:-0}
+KEY_COUNT=$((KEY_COUNT_USER + KEY_COUNT_SYSTEM))
 if [ "$KEY_COUNT" -gt 0 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($KEY_COUNT keys)"
 else

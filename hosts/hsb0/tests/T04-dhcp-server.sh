@@ -19,31 +19,31 @@ echo "=== T04: DHCP Server Test ==="
 echo "Host: $HOST"
 echo
 
-# Test 1: DHCP enabled
+# Test 1: DHCP enabled (check actual AdGuard config)
 echo -n "Test 1: DHCP enabled... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -A 2 "dhcp:" | grep -q "enabled.*true"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -A2 "^dhcp:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "enabled: true"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
   exit 1
 fi
 
-# Test 2: IP range configured
+# Test 2: IP range configured (check actual AdGuard config)
 echo -n "Test 2: IP range (201-254)... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "range_start.*192.168.1.201"' &&
-  ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "range_end.*192.168.1.254"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -q "range_start: 192.168.1.201" /var/lib/private/AdGuardHome/AdGuardHome.yaml' &&
+  ssh "$SSH_USER@$HOST" 'sudo grep -q "range_end: 192.168.1.254" /var/lib/private/AdGuardHome/AdGuardHome.yaml' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
   exit 1
 fi
 
-# Test 3: Lease duration (24 hours)
+# Test 3: Lease duration (24 hours = 86400 seconds)
 echo -n "Test 3: Lease duration (24h)... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "lease_duration.*86400"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep "lease_duration:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "86400"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -60,10 +60,10 @@ else
   exit 1
 fi
 
-# Test 5: Gateway configuration
+# Test 5: Gateway configuration (check actual AdGuard config)
 echo -n "Test 5: Gateway (192.168.1.5)... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "gateway_ip.*192.168.1.5"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -q "gateway_ip: 192.168.1.5" /var/lib/private/AdGuardHome/AdGuardHome.yaml' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
