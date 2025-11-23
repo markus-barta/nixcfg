@@ -132,7 +132,9 @@ Configuration inherits hokage from local `modules/` directory.
 
 ### External Hokage Consumer (Recommended)
 
-Used by: `hsb8`
+For consuming the hokage module from upstream, see [examples/hokage-consumer](https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/README.md) documentation.
+
+**Example**: `hsb8` configuration
 
 ```nix
 # flake.nix
