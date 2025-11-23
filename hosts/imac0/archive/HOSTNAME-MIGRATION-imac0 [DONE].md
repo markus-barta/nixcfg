@@ -64,8 +64,8 @@ Edit encrypted DHCP static leases and change:
 
 **Files to update:**
 
-- `hosts/hsb0/secrets/static-leases-hsb0.age` (if exists)
-- `hosts/hsb8/secrets/static-leases-hsb8.age`
+- `secrets/static-leases-hsb0.age`
+- `secrets/static-leases-hsb8.age`
 
 **Steps:**
 
@@ -74,19 +74,15 @@ Edit encrypted DHCP static leases and change:
 cd ~/Code/nixcfg
 
 # Edit hsb8's DHCP leases
-cd hosts/hsb8
-agenix -e ./secrets/static-leases-hsb8.age
+agenix -e secrets/static-leases-hsb8.age
 # Change wz-imac-home-mba → imac0, save and exit
-cd ../..
 
-# Edit hsb0's DHCP leases (if exists)
-cd hosts/hsb0
-agenix -e ./secrets/static-leases-hsb0.age
+# Edit hsb0's DHCP leases
+agenix -e secrets/static-leases-hsb0.age
 # Change wz-imac-home-mba → imac0, save and exit
-cd ../..
 
 # Commit and push
-git add hosts/hsb*/secrets/static-leases-*.age
+git add secrets/static-leases-*.age
 git commit -m "secrets: update DHCP lease name imac-mba-home → imac0"
 git push
 
