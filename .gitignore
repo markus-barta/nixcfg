@@ -53,3 +53,6 @@ hosts/*/secrets/
 
 # Patrizio's archived hosts (reference only)
 hosts/archive/
+
+# Network topology with MAC addresses (keep local only)
+hosts/hsb8/examples/network-reference-pihole-backup.md
