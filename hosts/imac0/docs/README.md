@@ -1,4 +1,4 @@
-# imac-mba-home - Development Workstation
+# imac0 - Development Workstation
 
 **iMac 27" 2019** (Intel i9) running macOS with Nix/home-manager for declarative configuration management.
 
@@ -6,22 +6,22 @@
 
 ## Quick Reference
 
-| Item                | Value                                |
-| ------------------- | ------------------------------------ |
-| **Hostname**        | `imac-mba-home`                      |
-| **Model**           | iMac 27" 2019 (iMac19,1)             |
-| **CPU**             | Intel Core i9 8-core @ 3.6GHz        |
-| **RAM**             | 16 GB                                |
-| **Display**         | Retina 5K (5120 x 2880)              |
-| **Graphics**        | Radeon Pro Vega 48 (8 GB VRAM)       |
-| **Storage**         | 1 TB Apple SSD (APFS)                |
-| **OS**              | macOS Sequoia 15.7.2                 |
-| **Architecture**    | x86_64-darwin (Intel)                |
-| **User**            | `markus` (Markus Barta)              |
-| **Management**      | home-manager (NOT nix-darwin)        |
-| **Shell**           | Fish v4.1.2 (Nix)                    |
-| **Terminal**        | WezTerm (Nix)                        |
-| **Config Location** | `~/Code/nixcfg/hosts/imac-mba-home/` |
+| Item                | Value                          |
+| ------------------- | ------------------------------ |
+| **Hostname**        | `imac0`                        |
+| **Model**           | iMac 27" 2019 (iMac19,1)       |
+| **CPU**             | Intel Core i9 8-core @ 3.6GHz  |
+| **RAM**             | 16 GB                          |
+| **Display**         | Retina 5K (5120 x 2880)        |
+| **Graphics**        | Radeon Pro Vega 48 (8 GB VRAM) |
+| **Storage**         | 1 TB Apple SSD (APFS)          |
+| **OS**              | macOS Sequoia 15.7.2           |
+| **Architecture**    | x86_64-darwin (Intel)          |
+| **User**            | `markus` (Markus Barta)        |
+| **Management**      | home-manager (NOT nix-darwin)  |
+| **Shell**           | Fish v4.1.2 (Nix)              |
+| **Terminal**        | WezTerm (Nix)                  |
+| **Config Location** | `~/Code/nixcfg/hosts/imac0/`   |
 
 ---
 
@@ -82,7 +82,7 @@
 cd ~/Code/nixcfg
 
 # Apply home-manager configuration
-home-manager switch --flake .#markus@imac-mba-home
+home-manager switch --flake .#markus@imac0
 
 # Or use the shortcut (if in devenv shell)
 just home-switch
@@ -105,13 +105,13 @@ home-manager switch --switch-generation 42
 
 ```bash
 # Main configuration file
-vim ~/Code/nixcfg/hosts/imac-mba-home/home.nix
+vim ~/Code/nixcfg/hosts/imac0/home.nix
 
 # Starship prompt config
-vim ~/Code/nixcfg/hosts/imac-mba-home/config/starship.toml
+vim ~/Code/nixcfg/hosts/imac0/config/starship.toml
 
 # Karabiner keyboard config
-vim ~/Code/nixcfg/hosts/imac-mba-home/config/karabiner.json
+vim ~/Code/nixcfg/hosts/imac0/config/karabiner.json
 ```
 
 ---
@@ -381,7 +381,7 @@ home.file.".config/karabiner/karabiner.json".source = ./config/karabiner.json;
 vim ~/Code/nixcfg/hosts/imac-mba-home/config/karabiner.json
 
 # Apply changes
-home-manager switch --flake .#markus@imac-mba-home
+home-manager switch --flake .#markus@imac0
 ```
 
 ### Installation
@@ -438,7 +438,7 @@ Stop Amphetamine and put Mac to sleep
 
 **Location**: `~/Scripts/` (symlinked by home-manager)
 
-**Source**: `hosts/imac-mba-home/scripts/host-user/`
+**Source**: `hosts/imac0/scripts/host-user/`
 
 **Deployment**:
 
@@ -462,7 +462,7 @@ cd ~/Code/nixcfg
 git pull
 
 # Apply configuration
-home-manager switch --flake .#markus@imac-mba-home
+home-manager switch --flake .#markus@imac0
 
 # Verify
 which fish node python3
@@ -477,7 +477,7 @@ cd ~/Code/nixcfg
 nix flake update
 
 # Rebuild with new versions
-home-manager switch --flake .#markus@imac-mba-home
+home-manager switch --flake .#markus@imac0
 
 # Update Homebrew packages
 brew upgrade
@@ -541,7 +541,7 @@ ls ~/Library/Fonts/ | grep Hack
 killall fontd
 
 # Reapply home-manager
-home-manager switch --flake .#markus@imac-mba-home
+home-manager switch --flake .#markus@imac0
 ```
 
 ### Git Identity Not Switching
@@ -594,7 +594,7 @@ rm -rf ~/.cache/nix
 nix flake check
 
 # Try dry-run first
-home-manager switch --flake .#markus@imac-mba-home --dry-run
+home-manager switch --flake .#markus@imac0 --dry-run
 ```
 
 ### macOS Network Tools (ping) Issues
@@ -684,6 +684,11 @@ ping -c 3 8.8.8.8
 
 ## Changelog
 
+### 2025-11-23: Hostname Migration
+
+- ✅ Renamed `imac-mba-home` → `imac0` (unified naming scheme)
+- ✅ Updated flake.nix, documentation, paths
+
 ### 2025-11-23: Documentation & Testing
 
 - ✅ Created comprehensive test suite (29 files: README + 14 test pairs)
@@ -703,7 +708,7 @@ ping -c 3 8.8.8.8
 
 **Current Status**: ✅ Production-ready workstation
 
-**Next Step**: Hostname migration to `imac0`
+**Next Step**: Update macOS hostname + DHCP lease
 
 ---
 
