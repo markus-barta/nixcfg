@@ -12,7 +12,7 @@ let
   # Set location before deploying:
   # - "jhw22" = Markus' home (192.168.1.5 gateway, uses miniserver99 DNS)
   # - "ww87"  = Parents' home (192.168.1.1 gateway, runs local AdGuard DNS)
-  location = "jhw22"; # <-- CHANGE THIS WHEN MOVING MACHINE
+  location = "ww87"; # Deployed to parents' home
 
   # Location-specific network settings
   gatewayIP =
