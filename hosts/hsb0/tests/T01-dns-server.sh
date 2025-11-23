@@ -56,10 +56,10 @@ else
   exit 1
 fi
 
-# Test 5: Upstream DNS configured
+# Test 5: Upstream DNS configured (check actual AdGuard config)
 echo -n "Test 5: Upstream DNS config... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "1.1.1.1"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo cat /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "1.1.1.1"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

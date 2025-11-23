@@ -19,20 +19,20 @@ echo "=== T02: Ad Blocking Test ==="
 echo "Host: $HOST"
 echo
 
-# Test 1: Protection enabled
+# Test 1: Protection enabled (check actual AdGuard config)
 echo -n "Test 1: Protection enabled... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "protection_enabled.*true"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -q "protection_enabled: true" /var/lib/private/AdGuardHome/AdGuardHome.yaml' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
   exit 1
 fi
 
-# Test 2: Filtering enabled
+# Test 2: Filtering enabled (check actual AdGuard config)
 echo -n "Test 2: Filtering enabled... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "filtering_enabled.*true"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -q "filtering_enabled: true" /var/lib/private/AdGuardHome/AdGuardHome.yaml' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

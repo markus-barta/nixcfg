@@ -19,20 +19,20 @@ echo "=== T03: DNS Cache Test ==="
 echo "Host: $HOST"
 echo
 
-# Test 1: Cache size configured
+# Test 1: Cache size configured (check actual AdGuard config)
 echo -n "Test 1: Cache size (4MB)... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "cache_size.*4194304"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -q "cache_size: 4194304" /var/lib/private/AdGuardHome/AdGuardHome.yaml' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
   exit 1
 fi
 
-# Test 2: Optimistic caching enabled
+# Test 2: Optimistic caching enabled (check actual AdGuard config)
 echo -n "Test 2: Optimistic caching... "
 # shellcheck disable=SC2029
-if ssh "$SSH_USER@$HOST" 'sudo systemctl cat adguardhome | grep -q "cache_optimistic.*true"' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'sudo grep -q "cache_optimistic: true" /var/lib/private/AdGuardHome/AdGuardHome.yaml' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

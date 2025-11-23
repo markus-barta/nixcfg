@@ -47,20 +47,20 @@ done
 
 ## Test List
 
-| Test ID | Feature                      | 👇🏻 Manual Last Run | 🤖 Auto Last Run | Notes                                                |
-| ------- | ---------------------------- | ------------------ | ---------------- | ---------------------------------------------------- |
-| T00     | NixOS Base System            | ⏳ Not yet run     | ⏳ Not yet run   | Foundation: version, config, generations, status     |
-| T01     | DNS Server                   | ⏳ Not yet run     | ⏳ Not yet run   | AdGuard Home DNS resolution with Cloudflare upstream |
-| T02     | Ad Blocking                  | ⏳ Not yet run     | ⏳ Not yet run   | Filtering enabled, protection working                |
-| T03     | DNS Cache                    | ⏳ Not yet run     | ⏳ Not yet run   | 4MB cache, optimistic caching                        |
-| T04     | DHCP Server                  | ⏳ Not yet run     | ⏳ Not yet run   | IP assignment 192.168.1.201-254, 24h lease           |
-| T05     | Static DHCP Leases           | ⏳ Not yet run     | ⏳ Not yet run   | agenix-encrypted, merged with dynamic leases         |
-| T06     | DNS Rewrites                 | ⏳ Not yet run     | ⏳ Not yet run   | csb0 → cs0.barta.cm, csb1 → cs1.barta.cm             |
-| T07     | Web Management Interface     | ⏳ Not yet run     | ⏳ Not yet run   | <http://192.168.1.99:3000>, admin access             |
-| T08     | DNS Query Logging            | ⏳ Not yet run     | ⏳ Not yet run   | 90-day retention, query history                      |
-| T09     | SSH Remote Access + Security | ⏳ Not yet run     | ⏳ Not yet run   | SSH keys, passwordless sudo, security hardening      |
-| T10     | ZFS Storage                  | ⏳ Not yet run     | ⏳ Not yet run   | Pool health, compression, fragmentation              |
-| T11     | ZFS Snapshots                | ⏳ Not yet run     | ⏳ Not yet run   | List, create, verify, destroy snapshots              |
+| Test ID | Feature                      | 👇🏻 Manual Last Run | 🤖 Auto Last Run    | Notes                                              |
+| ------- | ---------------------------- | ------------------ | ------------------- | -------------------------------------------------- |
+| T00     | NixOS Base System            | ⏳ Not yet run     | ✅ 2025-11-23 16:30 | Foundation: version, config, generations, status   |
+| T01     | DNS Server                   | ⏳ Not yet run     | ✅ 2025-11-23 16:35 | 5/5 tests passed, upstream DNS: 1.1.1.1, 1.0.0.1   |
+| T02     | Ad Blocking                  | ⏳ Not yet run     | ✅ 2025-11-23 16:36 | 3/3 tests passed - protection & filtering enabled  |
+| T03     | DNS Cache                    | ⏳ Not yet run     | ✅ 2025-11-23 16:37 | 3/3 tests passed - 4MB cache, optimistic, 9ms perf |
+| T04     | DHCP Server                  | ⏳ Not yet run     | ❌ 2025-11-23 16:30 | DHCP not enabled - expected/by design?             |
+| T05     | Static DHCP Leases           | ⏳ Not yet run     | ✅ 2025-11-23 16:30 | 4/4 tests passed - 107 static leases via agenix    |
+| T06     | DNS Rewrites                 | ⏳ Not yet run     | ❌ 2025-11-23 16:30 | No rewrite rules configured - needs investigation  |
+| T07     | Web Management Interface     | ⏳ Not yet run     | ⚠️ 2025-11-23 16:30 | 2/3 tests passed - firewall check failed           |
+| T08     | DNS Query Logging            | ⏳ Not yet run     | ❌ 2025-11-23 16:30 | Query logging not enabled - needs investigation    |
+| T09     | SSH Remote Access + Security | ⏳ Not yet run     | ⚠️ 2025-11-23 16:30 | 4/5 tests passed - user password not set           |
+| T10     | ZFS Storage                  | ⏳ Not yet run     | ⚠️ 2025-11-23 16:30 | 3/4 tests passed - compression check failed        |
+| T11     | ZFS Snapshots                | ⏳ Not yet run     | ✅ 2025-11-23 16:30 | 4/4 tests passed - list, create, verify, destroy   |
 
 ## Notes
 

@@ -289,7 +289,7 @@
   };
 
   # ============================================================================
-  # 🚨 FISH SHELL CONFIGURATION - Lost when removing serverMba mixin
+  # 🚨 FISH SHELL CONFIGURATION - migrated from "serverMba mixin"
   # ============================================================================
   programs.fish.interactiveShellInit = ''
     function sourcefish --description 'Load env vars from a .env file into current Fish session'
@@ -313,14 +313,10 @@
   '';
 
   # ============================================================================
-  # 🚨 SSH KEY SECURITY - CRITICAL FIX FROM hsb8 INCIDENT
+  # 🚨 SSH KEY SECURITY
   # ============================================================================
   # The hokage server-home module auto-injects external SSH keys (omega@*).
   # We use lib.mkForce to REPLACE (not append) with our own keys only.
-  #
-  # Security Policy:
-  # - hsb0: Only mba (Markus) key
-  # - NO external access (omega/Yubikey) on personal/family servers
   # ============================================================================
 
   users.users.mba = {
