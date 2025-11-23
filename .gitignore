@@ -8,6 +8,9 @@ result
 .shared/*
 !.shared/common.just
 
+# macOS
+.DS_Store
+
 # Devenv
 .devenv*
 devenv.local.nix
