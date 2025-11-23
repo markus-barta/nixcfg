@@ -73,18 +73,24 @@ Edit encrypted DHCP static leases and change:
 # On local machine (with age key access)
 cd ~/Code/nixcfg
 
-# Edit encrypted file
-agenix -e hosts/hsb8/secrets/static-leases-hsb8.age
+# Edit hsb8's DHCP leases
+cd hosts/hsb8
+agenix -e ./secrets/static-leases-hsb8.age
+# Change wz-imac-home-mba → imac0, save and exit
+cd ../..
 
-# Change wz-imac-home-mba → imac0
-# Save and exit
+# Edit hsb0's DHCP leases (if exists)
+cd hosts/hsb0
+agenix -e ./secrets/static-leases-hsb0.age
+# Change wz-imac-home-mba → imac0, save and exit
+cd ../..
 
 # Commit and push
-git add hosts/hsb8/secrets/static-leases-hsb8.age
-git commit -m "secrets(hsb8): update DHCP lease name imac-mba-home → imac0"
+git add hosts/hsb*/secrets/static-leases-*.age
+git commit -m "secrets: update DHCP lease name imac-mba-home → imac0"
 git push
 
-# On hsb8 server
+# On each server (hsb8, hsb0)
 cd ~/nixcfg
 git pull
 sudo nixos-rebuild switch
