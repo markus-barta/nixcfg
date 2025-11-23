@@ -60,6 +60,9 @@ let
   markus = [
     "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt"
   ];
+  gb = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINmt2Fio1JUABm/dq0XMI4J4juZl3DC0AQBGOXuEnUfD gb@hsb8"
+  ];
   general = [
     "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCXfDasTCd/8qBgVWvhjzbE4XwwTASITR4ucuGlUiKeEQMFh/mfzuobKJlZ9cwppl1C9J9W3HmMrYBmYkEcD2kFqd3KhPZXwwFRg5JXWb46AviNGPul0NrF4IQcmdf6TwTLF3COsMEsL2B5pUjI/axEiQr9JlW6NhGVpi/WEymUgj1FOA4lg3gZ+IcCXCzR7u2b5EqM+ITFn/u1fyYK0lzJcLzaIZbUzicsZnUrFZkDL23GEfMfK6yBLrL0mFa0TzgB5Viu5wUy69RqGOjJqIJXODQ3/v2ciDCkng6LCf2Bw58tdxX6gXMU8/qQ8HJV2zJq0Hccr8wVchbnsSe316DF03RaoT9dIvu1VcguaIpmQGWEKJSM6oo+3AuBVczH1bBpYMxjd4VAah2twTrvrFcDZfQ/THHRT8mYgS7itX2PCQJ0fLW30s+dPLMRzzTgIe6lQBHrRwUbAZIDxrmE8z7lgHz75AlownyyMq5KFtMqB2KrmiKU1Nur5giDwLvXjAMkYiYXyZMhXkPxbHo7vpqQ8AMxL+4qGSWB36hyMShjTnDVe+rFh1KcjTEtZAFjacqDclsa9QRYAoIh4TJTjpJ06OgwfRFeN6VU4Mx0Kaw8Lv2BsUDHdSUoXtNjYHQIRu769bzKOi8hbyxULe9kmv7HIah9cjEAvDD3mPXGu1pgtw=="
     "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC3ySO2ND+Za5z67zWrqMONDXLKBDgOKGuGRXJ2fNKfeN84lPkok/YTNifzvKAFWLB8tvzdQITUV2AaTWt7F33iJpfmJBG1OO2tgsr9SLUpwgthWMrA4FwsFI5/jhw4gQAa5i6R7nkKxOjaXe7BoS82OyIpIhXXpm5TDzMwWelJUBPhYxcDvoZD2BU0SVW3/uFBYIlHsQ5nNyoNtkDf6iJGRF6MlreAI2gyJMcnOm/DxhJ8l1D7BFZ1rPncDCOCn8YnFykp/R58VJBX2dosFaZQr7/17+exDivB4kPlpmWQS74Xej16QsHaqxocS/s0Vj5uQdI8Hk4fLum4yFf5Rxk7"
@@ -111,6 +114,6 @@ in
   "static-leases-hsb0.age".publicKeys = markus ++ hsb0;
 
   # agenix -e secrets/static-leases-hsb8.age
-  # Dual-key: Markus (personal key) + hsb8 (host key)
-  "static-leases-hsb8.age".publicKeys = markus ++ hsb8;
+  # Triple-key: Markus (personal key) + gb (user on hsb8) + hsb8 (host key)
+  "static-leases-hsb8.age".publicKeys = markus ++ gb ++ hsb8;
 }
