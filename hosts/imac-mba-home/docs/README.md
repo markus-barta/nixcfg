@@ -50,13 +50,11 @@
 
 ✅ **Migration Complete** (November 15, 2025)
 
-- **Management**: home-manager (user-level only, no nix-darwin)
-- **Shell**: Nix Fish as default login shell
-- **PATH**: Correctly prioritizes Nix over Homebrew
-- **Packages**: 45+ packages migrated to Nix
-- **Homebrew**: Reduced to 127 formulae (GUI apps + complex multimedia)
+- **Management**: home-manager only (not nix-darwin)
+- **Packages**: 45+ packages from Nix (was Homebrew)
+- **Homebrew**: Reduced from 167 → 127 formulae (~700MB freed)
 - **Configuration**: 100% declarative via `home.nix`
-- **Status**: Production-ready, daily driver
+- **Status**: Production-ready daily driver
 
 ---
 
@@ -686,32 +684,26 @@ ping -c 3 8.8.8.8
 
 ## Changelog
 
-### 2025-11-23: Documentation Consolidation
+### 2025-11-23: Documentation & Testing
 
-- ✅ Created comprehensive migration archive document
-- ✅ Updated README to match server pattern (hsb8/hsb0)
+- ✅ Created comprehensive test suite (29 files: README + 14 test pairs)
 - ✅ Consolidated 7 reference docs into single archive
-- ✅ Improved navigation and structure
+- ✅ Renumbered features (added F00: Nix Base System)
 
 ### 2025-11-15: Migration Complete
 
-- ✅ All 45+ packages migrated to Nix
-- ✅ Homebrew reduced to 127 formulae
-- ✅ System 100% functional
-- ✅ Ready for production use
+- ✅ 45+ packages migrated to Nix, Homebrew reduced to 127 formulae
+- ✅ System 100% functional, production-ready
 
 ### 2025-11-14: Initial Migration
 
-- ✅ Infrastructure setup
-- ✅ Core environment testing
-- ✅ PATH configuration fix
-- ✅ Special configurations (fonts, GUI apps, Karabiner)
+- ✅ Infrastructure setup, core environment testing, PATH configuration
 
 ---
 
-**Current Status**: ✅ Production-ready workstation, fully declarative core, daily driver
+**Current Status**: ✅ Production-ready workstation
 
-**Next Step**: Use as template for `imac-27-work` migration
+**Next Step**: Hostname migration to `imac0`
 
 ---
 
