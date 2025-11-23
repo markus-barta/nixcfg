@@ -59,20 +59,30 @@ Server capabilities and services (target configuration for ww87):
 
 ## Current Status
 
-✅ **Deployed and Running** (November 22, 2025)
+🚚 **Physically Moved to Parents' Home** (November 23, 2025)
 
-- **Location**: `jhw22` (testing at Markus' home)
+- **Physical Location**: `ww87` (parents' home) - ✅ **Moved by Gerhard**
+- **Configuration Status**: Still set to `jhw22` - ⚠️ **Awaiting deployment switch**
 - **Static IP**: `192.168.1.100` configured
 - **Repository**: Successfully switched from pbek/nixcfg to markus-barta/nixcfg
 - **Configuration**: Using **external hokage consumer pattern** from `github:pbek/nixcfg`
 - **SSH Keys**: Explicitly configured (mba + gb only, NO external access)
 - **Secret Management**: Agenix configured with encrypted DHCP static leases (27 devices)
-- **AdGuard Home**: Ready to activate at parents' home (currently disabled)
+- **AdGuard Home**: Ready to activate (currently disabled at jhw22 config)
 - **DHCP Server**: Disabled by default for safety
 
-⚠️ **CRITICAL**: After reboot on Nov 22, SSH lockout occurred. Fix applied using `lib.mkForce` to override hokage's default SSH keys. Physical access required to deploy fix.
+⚠️ **NEXT STEP**: Configuration switch required (console access needed):
 
-**Ready for deployment**: Run `enable-ww87` when machine is moved to parents' home.
+```bash
+# At parents' home with console/monitor:
+cd ~/nixcfg
+git pull
+nano hosts/hsb8/configuration.nix  # Change location = "jhw22" → "ww87"
+nixos-rebuild switch --flake .#hsb8
+# OR run: enable-ww87
+```
+
+**Note**: Network gateway mismatch (expects 192.168.1.5, parents have 192.168.1.1) means SSH won't work until configuration is switched. Console access required for first boot.
 
 ---
 
