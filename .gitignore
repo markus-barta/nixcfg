@@ -52,4 +52,4 @@ hosts/*/secrets/
 !hosts/*/secrets/*.age
 
 # Patrizio's archived hosts (reference only)
-hosts/archived/
+hosts/archive/

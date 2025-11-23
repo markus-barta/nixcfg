@@ -132,7 +132,7 @@ Based on this variable, the configuration automatically adjusts:
 
 The `enable-ww87` command is a one-step solution for switching the server from testing (jhw22) to production (ww87) configuration.
 
-**See**: [enable-ww87.md](./enable-ww87.md) for complete documentation.
+**See**: [docs/enable-ww87.md](./docs/enable-ww87.md) for complete documentation.
 
 ### Usage
 
@@ -784,7 +784,7 @@ ssh gb@hsb8.lan
 
 **Result**: hsb8 now uses external hokage module from upstream (github:pbek/nixcfg), following best practices and making it easier to receive hokage updates.
 
-**See**: `MIGRATION-PLAN.md` and `BACKLOG.md` for detailed documentation
+**See**: `docs/MIGRATION-PLAN.md` and `docs/📋 BACKLOG.md` for detailed documentation
 
 ### System History
 

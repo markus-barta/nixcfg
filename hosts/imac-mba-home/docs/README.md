@@ -29,6 +29,7 @@
 
 | ID  | Component            | Description                                       | Status |
 | --- | -------------------- | ------------------------------------------------- | ------ |
+| F00 | Nix Base System      | Flakes, home-manager, platform detection          | ✅     |
 | F01 | Fish Shell           | Modern interactive shell with custom functions    | ✅     |
 | F02 | Starship Prompt      | Cross-shell prompt with git & language indicators | ✅     |
 | F03 | WezTerm Terminal     | GPU-accelerated terminal with Nerd Fonts          | ✅     |
@@ -42,7 +43,6 @@
 | F11 | macOS GUI Apps (Nix) | WezTerm managed via home-manager                  | ✅     |
 | F12 | Custom Scripts       | flushdns, pingt, stopAmphetamineAndSleep          | ✅     |
 | F13 | Homebrew Cleanup     | Reduced from 167 → 127 formulae (~700MB freed)    | ✅     |
-| F14 | Platform Detection   | Single devenv.nix for macOS/Linux projects        | ✅     |
 
 ---
 
@@ -652,7 +652,7 @@ ping -c 3 8.8.8.8
 
 ### Complete Documentation
 
-**See**: `docs/archive/MIGRATION-2025-11 [DONE].md` for comprehensive migration history, including:
+**See**: `../archive/MIGRATION-2025-11 [DONE].md` for comprehensive migration history, including:
 
 - Detailed timeline and milestones
 - Technical challenges and solutions
@@ -667,7 +667,7 @@ ping -c 3 8.8.8.8
 
 ### In This Host
 
-- **[Migration History](./archive/MIGRATION-2025-11%20[DONE].md)** - Complete migration documentation
+- **[Migration History](../archive/MIGRATION-2025-11%20[DONE].md)** - Complete migration documentation
 - **[Manual Setup](./manual-setup/)** - One-time setup guides (Karabiner, fonts)
 
 ### In Repository
