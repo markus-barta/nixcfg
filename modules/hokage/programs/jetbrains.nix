@@ -27,9 +27,7 @@ let
         })
         {
           inherit (config.nixpkgs) config;
-          localSystem = {
-            system = "x86_64-linux";
-          };
+          localSystem = pkgs.stdenv.hostPlatform;
         }
       ).jetbrains
     else

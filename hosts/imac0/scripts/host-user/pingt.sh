@@ -9,6 +9,9 @@ readonly COLOR_RED='\033[38;5;167m'    # Dark red for errors
 readonly COLOR_RESET='\033[0m'
 readonly SEPARATOR='·' # Middle dot, alternatives: • │ ▪ ▸ →
 
+# Force disable mouse reporting (SGR 1006, etc.) to prevent garbage input if terminal was left in dirty state
+printf '\033[?1000l\033[?1002l\033[?1006l\033[?1015l'
+
 ping "$@" 2>&1 | while IFS= read -r line; do
   timestamp=$(date '+%H:%M:%S')
 

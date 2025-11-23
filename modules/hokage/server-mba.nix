@@ -51,7 +51,7 @@ in
             return 1
           end
         end
-        export EDITOR=nano
+        set -gx EDITOR nano
       '';
     };
 
