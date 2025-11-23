@@ -234,7 +234,7 @@ See archived hosts for full list of Pbek's machines
 | 1     | hsb8 (was msww87)         | ✅ Done        | Nov 19  | Nov 22    |
 | 2     | hsb1 (was miniserver24)   | ⏳ Pending     | -       | -         |
 | 3     | hsb0 (was miniserver99)   | 🚀 In Progress | Nov 21  | -         |
-| 4     | imac0 (was imac-mba-home) | ⏳ Pending     | -       | -         |
+| 4     | imac0 (was imac-mba-home) | ✅ Repo Done   | Nov 23  | Nov 23    |
 | 5     | pcg0 (was mba-gaming-pc)  | ⏳ Pending     | -       | -         |
 
 **Includes**: Hostname rename, folder restructure, DHCP updates, external hokage pattern
