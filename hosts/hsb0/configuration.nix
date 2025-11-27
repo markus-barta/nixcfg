@@ -289,30 +289,6 @@
   };
 
   # ============================================================================
-  # 🚨 FISH SHELL CONFIGURATION - migrated from "serverMba mixin"
-  # ============================================================================
-  programs.fish.interactiveShellInit = ''
-    function sourcefish --description 'Load env vars from a .env file into current Fish session'
-      set file "$argv[1]"
-      if test -z "$file"
-        echo "Usage: sourcefish PATH_TO_ENV_FILE"
-        return 1
-      end
-      if test -f "$file"
-        for line in (cat "$file" | grep -v '^[[:space:]]*#' | grep .)
-          set key (echo $line | cut -d= -f1)
-          set val (echo $line | cut -d= -f2-)
-          set -gx $key "$val"
-        end
-      else
-        echo "File not found: $file"
-        return 1
-      end
-    end
-    set -gx EDITOR nano
-  '';
-
-  # ============================================================================
   # 🚨 SSH KEY SECURITY
   # ============================================================================
   # The hokage server-home module auto-injects external SSH keys (omega@*).

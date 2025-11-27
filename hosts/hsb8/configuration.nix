@@ -182,58 +182,60 @@ in
 
   # Static DHCP Leases Management
   # Leases are stored encrypted in git and decrypted at system activation
-  systemd.services.adguardhome.preStart = lib.mkIf enableAdGuard (lib.mkAfter ''
-    leases_dir="/var/lib/private/AdGuardHome/data"
-    leases_file="$leases_dir/leases.json"
-    install -d "$leases_dir"
+  systemd.services.adguardhome.preStart = lib.mkIf enableAdGuard (
+    lib.mkAfter ''
+      leases_dir="/var/lib/private/AdGuardHome/data"
+      leases_file="$leases_dir/leases.json"
+      install -d "$leases_dir"
 
-    # Read static leases from agenix-decrypted JSON file
-    # Agenix automatically decrypts to /run/agenix/<secret-name>
-    static_leases_file="/run/agenix/static-leases-hsb8"
+      # Read static leases from agenix-decrypted JSON file
+      # Agenix automatically decrypts to /run/agenix/<secret-name>
+      static_leases_file="/run/agenix/static-leases-hsb8"
 
-    # Validate that the agenix secret file exists
-    if [ ! -f "$static_leases_file" ]; then
-      echo "ERROR: Static leases file not found at $static_leases_file"
-      echo "This should have been decrypted by agenix during activation."
-      exit 1
-    fi
+      # Validate that the agenix secret file exists
+      if [ ! -f "$static_leases_file" ]; then
+        echo "ERROR: Static leases file not found at $static_leases_file"
+        echo "This should have been decrypted by agenix during activation."
+        exit 1
+      fi
 
-    # Validate JSON format
-    if ! ${pkgs.jq}/bin/jq empty "$static_leases_file" 2>/dev/null; then
-      echo "ERROR: Invalid JSON in static leases file: $static_leases_file"
-      echo "Use 'agenix -e secrets/static-leases-hsb8.age' to fix the format."
-      exit 1
-    fi
+      # Validate JSON format
+      if ! ${pkgs.jq}/bin/jq empty "$static_leases_file" 2>/dev/null; then
+        echo "ERROR: Invalid JSON in static leases file: $static_leases_file"
+        echo "Use 'agenix -e secrets/static-leases-hsb8.age' to fix the format."
+        exit 1
+      fi
 
-    # Merge static leases with existing dynamic leases
-    tmp="$(mktemp)"
+      # Merge static leases with existing dynamic leases
+      tmp="$(mktemp)"
 
-    if [ -f "$leases_file" ]; then
-      # Merge: keep dynamic leases, replace/add static leases
-      ${pkgs.jq}/bin/jq --argjson static "$(cat "$static_leases_file")" '
-        def normalize_mac($mac): ($mac | ascii_downcase);
-        def static_entries: $static | map(.mac |= normalize_mac(.));
-        def without_static($list):
-          ($list // [])
-          | map(
-              (.mac | ascii_downcase) as $m
-              | (.static // false) as $is_static
-              | (static_entries | map(.mac) | index($m)) as $idx
-              | select($idx == null and ($is_static | not))
-            );
-        def build_static:
-          static_entries | map(. + {static: true, expires: ""});
-        {version: (.version // 1), leases: without_static(.leases) + build_static}
-      ' "$leases_file" > "$tmp"
-    else
-      ${pkgs.jq}/bin/jq --argjson static "$(cat "$static_leases_file")" '
-        {version: 1, leases: ($static | map(. + {static: true, expires: ""}))}
-      ' <<< '{}' > "$tmp"
-    fi
+      if [ -f "$leases_file" ]; then
+        # Merge: keep dynamic leases, replace/add static leases
+        ${pkgs.jq}/bin/jq --argjson static "$(cat "$static_leases_file")" '
+          def normalize_mac($mac): ($mac | ascii_downcase);
+          def static_entries: $static | map(.mac |= normalize_mac(.));
+          def without_static($list):
+            ($list // [])
+            | map(
+                (.mac | ascii_downcase) as $m
+                | (.static // false) as $is_static
+                | (static_entries | map(.mac) | index($m)) as $idx
+                | select($idx == null and ($is_static | not))
+              );
+          def build_static:
+            static_entries | map(. + {static: true, expires: ""});
+          {version: (.version // 1), leases: without_static(.leases) + build_static}
+        ' "$leases_file" > "$tmp"
+      else
+        ${pkgs.jq}/bin/jq --argjson static "$(cat "$static_leases_file")" '
+          {version: 1, leases: ($static | map(. + {static: true, expires: ""}))}
+        ' <<< '{}' > "$tmp"
+      fi
 
-    mv "$tmp" "$leases_file"
-    echo "✓ Loaded $(${pkgs.jq}/bin/jq '[.leases[] | select(.static == true)] | length' "$leases_file") static DHCP leases"
-  '');
+      mv "$tmp" "$leases_file"
+      echo "✓ Loaded $(${pkgs.jq}/bin/jq '[.leases[] | select(.static == true)] | length' "$leases_file") static DHCP leases"
+    ''
+  );
 
   # ============================================================================
   # SSH KEY CONFIGURATION - Override hokage defaults
@@ -487,30 +489,6 @@ in
     owner = "root";
     group = "root";
   };
-
-  # ============================================================================
-  # Fish Shell Configuration - Utility functions lost when migrating from serverMba mixin
-  # ============================================================================
-  programs.fish.interactiveShellInit = ''
-    function sourcefish --description 'Load env vars from a .env file into current Fish session'
-      set file "$argv[1]"
-      if test -z "$file"
-        echo "Usage: sourcefish PATH_TO_ENV_FILE"
-        return 1
-      end
-      if test -f "$file"
-        for line in (cat "$file" | grep -v '^[[:space:]]*#' | grep .)
-          set key (echo $line | cut -d= -f1)
-          set val (echo $line | cut -d= -f2-)
-          set -gx $key "$val"
-        end
-      else
-        echo "File not found: $file"
-        return 1
-      end
-    end
-    set -gx EDITOR nano
-  '';
 
   # ============================================================================
   # Local /etc/hosts - Privacy-focused hostnames for critical infrastructure

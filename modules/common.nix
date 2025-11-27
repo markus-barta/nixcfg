@@ -20,6 +20,9 @@ let
   sharedFishConfig = import ./shared/fish-config.nix;
 in
 {
+  # Disable hokage's starship (we configure our own with shared TOML file)
+  hokage.programs.starship.enable = false;
+
   # Set some fish config
   programs = {
     fish = {
@@ -30,6 +33,7 @@ in
       '';
       shellAliases = sharedFishConfig.fishAliases;
       shellAbbrs = sharedFishConfig.fishAbbrs;
+      interactiveShellInit = sharedFishConfig.fishInteractiveShellInit;
     };
 
     bash.shellAliases = config.programs.fish.shellAliases;
@@ -244,8 +248,18 @@ in
     # The home.stateVersion option does not have a default and must be set
     home.stateVersion = "24.11";
 
+    # Shared starship config (using direct file to preserve Nerd Font Unicode)
+    home.file.".config/starship.toml".source = ./shared/starship.toml;
+
     # Enable fish and bash in home-manager to use enableFishIntegration and enableBashIntegration
     programs = {
+      # Starship prompt (config from shared file above, not via settings to preserve Unicode)
+      starship = {
+        enable = true;
+        enableFishIntegration = true;
+        enableBashIntegration = true;
+        # settings intentionally empty - using home.file above instead
+      };
       # Enable https://direnv.net/
       direnv = {
         enable = true;
