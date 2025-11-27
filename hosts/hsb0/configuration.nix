@@ -11,8 +11,10 @@
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
-    ../../modules/common.nix # Shared config (starship, fish, etc.)
   ];
+
+  # Use our Tokyo Night starship instead of hokage's catppuccin
+  hokage.programs.starship.enable = false;
 
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
@@ -287,6 +289,26 @@
     audio.enable = false;
     programs.git.enableUrlRewriting = false;
     programs.atuin.enable = false; # Disable atuin - causes fish shell to hang
+  };
+
+  # ============================================================================
+  # Starship - Use shared Tokyo Night config
+  # ============================================================================
+  home-manager.users.mba = {
+    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
+    programs.starship = {
+      enable = true;
+      enableFishIntegration = true;
+      enableBashIntegration = true;
+    };
+  };
+  home-manager.users.root = {
+    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
+    programs.starship = {
+      enable = true;
+      enableFishIntegration = true;
+      enableBashIntegration = true;
+    };
   };
 
   # ============================================================================

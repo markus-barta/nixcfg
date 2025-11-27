@@ -40,8 +40,10 @@ in
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
-    ../../modules/common.nix # Shared config (starship, fish, etc.)
   ];
+
+  # Use our Tokyo Night starship instead of hokage's catppuccin
+  hokage.programs.starship.enable = false;
 
   # Validate location setting
   assertions = [
@@ -472,6 +474,34 @@ in
       "mba"
       "gb"
     ];
+  };
+
+  # ============================================================================
+  # Starship - Use shared Tokyo Night config
+  # ============================================================================
+  home-manager.users.mba = {
+    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
+    programs.starship = {
+      enable = true;
+      enableFishIntegration = true;
+      enableBashIntegration = true;
+    };
+  };
+  home-manager.users.gb = {
+    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
+    programs.starship = {
+      enable = true;
+      enableFishIntegration = true;
+      enableBashIntegration = true;
+    };
+  };
+  home-manager.users.root = {
+    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
+    programs.starship = {
+      enable = true;
+      enableFishIntegration = true;
+      enableBashIntegration = true;
+    };
   };
 
   # ============================================================================
