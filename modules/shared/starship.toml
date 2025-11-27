@@ -5,7 +5,10 @@ format = """
 $os\
 [](bg:#769ff0 fg:#a3aed2)\
 $directory\
-[](fg:#769ff0 bg:#394260)\
+[](fg:#769ff0 bg:#5a7fb8)\
+$username\
+$hostname\
+[](fg:#5a7fb8 bg:#394260)\
 $git_branch\
 $git_status\
 ${custom.gitcount}\
@@ -24,6 +27,19 @@ $time\
 $nix_shell\
 [](fg:#13161f)\
 \n$character"""
+
+# Username
+[username]
+show_always = true
+style_user = "fg:#e3e5e5 bg:#5a7fb8"
+style_root = "fg:#ff5555 bg:#5a7fb8"
+format = '[ $user]($style)'
+
+# Hostname
+[hostname]
+ssh_only = false
+style = "fg:#e3e5e5 bg:#5a7fb8"
+format = '[@$hostname ]($style)'
 
 [fill]
 symbol = " "
