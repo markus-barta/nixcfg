@@ -104,6 +104,129 @@ This repository uses a modular architecture where **NixOS servers** import the f
 
 ---
 
+## 🍎 macOS Setup Guide
+
+### Prerequisites
+
+A fresh or existing macOS machine (Intel or Apple Silicon).
+
+### Step 1: Install Nix
+
+```bash
+# Install Nix (multi-user, recommended)
+sh <(curl -L https://nixos.org/nix/install)
+
+# Restart your terminal, then verify
+nix --version
+```
+
+### Step 2: Enable Flakes
+
+```bash
+# Create Nix config directory
+mkdir -p ~/.config/nix
+
+# Enable flakes and nix-command
+echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+```
+
+### Step 3: Clone This Repository
+
+```bash
+# Clone to standard location
+git clone https://github.com/markus-barta/nixcfg ~/Code/nixcfg
+cd ~/Code/nixcfg
+```
+
+### Step 4: Apply Home Manager Configuration
+
+```bash
+# First-time installation (bootstraps home-manager)
+nix run home-manager -- switch --flake ".#markus@<hostname>"
+
+# Example for work iMac:
+nix run home-manager -- switch --flake ".#markus@imac-mba-work"
+
+# Example for home iMac:
+nix run home-manager -- switch --flake ".#markus@imac0"
+```
+
+### Step 5: Set Fish as Default Shell
+
+```bash
+# Add Nix fish to allowed shells (requires sudo)
+echo ~/.nix-profile/bin/fish | sudo tee -a /etc/shells
+
+# Set as your default login shell
+chsh -s ~/.nix-profile/bin/fish
+
+# Restart terminal or run:
+exec fish
+```
+
+### Step 6: Install Karabiner-Elements (Optional)
+
+```bash
+# Install via Homebrew
+brew install --cask karabiner-elements
+
+# Grant permissions:
+# System Preferences → Security & Privacy → Privacy → Input Monitoring
+# Enable "karabiner_grabber" and "Karabiner-Elements"
+```
+
+The Karabiner configuration is already managed by home-manager!
+
+### Updating Configuration
+
+After initial setup, use the simpler command:
+
+```bash
+cd ~/Code/nixcfg
+
+# Pull latest changes
+git pull
+
+# Apply updates
+home-manager switch --flake ".#markus@<hostname>"
+```
+
+### Available macOS Hosts
+
+| Host            | Description                    | Command                                              |
+| --------------- | ------------------------------ | ---------------------------------------------------- |
+| `imac0`         | Home iMac (personal default)   | `home-manager switch --flake ".#markus@imac0"`       |
+| `imac-mba-work` | Work iMac (BYTEPOETS default)  | `home-manager switch --flake ".#markus@imac-mba-work"` |
+
+### Troubleshooting
+
+**"command not found: home-manager"** after first install:
+```bash
+# Use nix run for first-time setup
+nix run home-manager -- switch --flake ".#markus@<hostname>"
+```
+
+**PATH issues after switch**:
+```bash
+# Restart shell
+exec fish
+
+# Or verify PATH
+echo $PATH | tr ':' '\n' | head -5
+# Should show ~/.nix-profile/bin first
+```
+
+**Fonts not showing in Terminal.app**:
+```bash
+# Refresh font cache
+killall fontd
+
+# Fonts are symlinked to ~/Library/Fonts/
+ls ~/Library/Fonts/ | grep -i hack
+```
+
+---
+
 ## 🏗️ Infrastructure Overview
 
 ### Unified Naming Scheme (2025)
@@ -144,11 +267,12 @@ GAMING:
 
 #### Workstations (Personal Machines)
 
-| Host    | Old Name (Config) | Old Name (Network) | Owner  | IP            | Status                |
-| ------- | ----------------- | ------------------ | ------ | ------------- | --------------------- |
-| `imac0` | imac-mba-home     | wz-imac-home-mba   | Markus | 192.168.1.150 | ✅ **Migrated**       |
-| `imac1` | -                 | wz-imac-mpe        | Mai    | 192.168.1.152 | ⏳ Future (DHCP only) |
-| `mbp0`  | -                 | -                  | Markus | -             | ⏳ Future             |
+| Host            | Old Name (Config) | Old Name (Network) | Owner  | IP            | Status                |
+| --------------- | ----------------- | ------------------ | ------ | ------------- | --------------------- |
+| `imac0`         | imac-mba-home     | wz-imac-home-mba   | Markus | 192.168.1.150 | ✅ **Migrated**       |
+| `imac1`         | -                 | wz-imac-mpe        | Mai    | 192.168.1.152 | ⏳ Future (DHCP only) |
+| `imac-mba-work` | -                 | imac-mba-work      | Markus | -             | ✅ **NEW** (Work)     |
+| `mbp0`          | -                 | -                  | Markus | -             | ⏳ Future             |
 
 #### Gaming Systems
 
@@ -197,7 +321,7 @@ GAMING:
 
 **Workstations**:
 
-- imac0, imac1, mbp0 - Personal development machines
+- imac0, imac1, imac-mba-work, mbp0 - Personal development machines
 
 **Gaming**:
 
@@ -265,6 +389,7 @@ hsb8          Parents (DNS/DHCP, 192.168.1.100) [was: msww87]
 ```text
 imac0         iMac 27" (Markus, home) [was: imac-mba-home]
 imac1         iMac (Mai, home) [was: wz-imac-mpe]
+imac-mba-work iMac (Markus, work/BYTEPOETS)
 pcg0          Gaming PC (Markus) [was: mba-gaming-pc]
 ```
 

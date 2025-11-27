@@ -142,6 +142,22 @@
           inherit inputs;
         };
       };
+      # Short alias so `home-manager switch --flake .#imac0` also works
+      homeConfigurations."imac0" = self.homeConfigurations."markus@imac0";
+
+      homeConfigurations."markus@imac-mba-work" = home-manager.lib.homeManagerConfiguration {
+        pkgs = import nixpkgs {
+          system = "x86_64-darwin";
+          config.allowUnfree = true;
+          overlays = allOverlays;
+        };
+        modules = [ ./hosts/imac-mba-work/home.nix ];
+        extraSpecialArgs = self.commonArgs // {
+          inherit inputs;
+        };
+      };
+      # Short alias so `home-manager switch --flake .#imac-mba-work` works (what you just tried)
+      homeConfigurations."imac-mba-work" = self.homeConfigurations."markus@imac-mba-work";
 
       # ========================================================================
       # NixOS Configurations

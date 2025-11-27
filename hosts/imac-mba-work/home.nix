@@ -45,7 +45,7 @@ in
   };
 
   # ============================================================================
-  # Git Configuration with Dual Identity
+  # Git Configuration - Work Identity (BYTEPOETS default)
   # ============================================================================
   programs.git = {
     enable = true;
@@ -57,10 +57,10 @@ in
     ];
 
     settings = {
-      # User settings
+      # User settings - Work identity as default for work machine
       user = {
-        name = "Markus Barta";
-        email = "markus@barta.com"; # Personal (default)
+        name = "mba";
+        email = "markus.barta@bytepoets.com";
       };
 
       # macOS keychain credential helper
@@ -80,14 +80,23 @@ in
       commit.template = "/Users/markus/.stCommitMsg";
     };
 
-    # Dual identity: automatic work identity for BYTEPOETS projects
+    # Dual identity: personal identity for personal projects
     includes = [
       {
-        condition = "gitdir:~/Code/BYTEPOETS/";
+        condition = "gitdir:~/Code/personal/";
         contents = {
           user = {
-            name = "mba";
-            email = "markus.barta@bytepoets.com";
+            name = "Markus Barta";
+            email = "markus@barta.com";
+          };
+        };
+      }
+      {
+        condition = "gitdir:~/Code/nixcfg/";
+        contents = {
+          user = {
+            name = "Markus Barta";
+            email = "markus@barta.com";
           };
         };
       }
@@ -116,14 +125,11 @@ in
   };
 
   # ============================================================================
-  # Global Packages (common + host-specific)
+  # Global Packages (common only - no host-specific additions)
   # ============================================================================
   home.packages = macosCommon.commonPackages ++ (with pkgs; [
     # System Tools
     inputs.agenix.packages.x86_64-darwin.default
-
-    # Home-specific tools
-    esptool # ESP32/ESP8266 flashing tool
   ]);
 
   # Enable fontconfig for fonts to be recognized
