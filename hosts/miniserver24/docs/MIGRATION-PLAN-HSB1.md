@@ -546,7 +546,41 @@ security.sudo-rs.wheelNeedsPassword = false;
 > `modules/shared/fish-config.nix` and automatically included via `common.nix`.
 > No manual configuration needed for hsb1 - it will inherit these automatically.
 
-#### 2.6 Update MQTT Topic Reference
+#### 2.6 🎨 Starship Prompt (Tokyo Night Theme)
+
+> **IMPORTANT**: The external hokage uses catppuccin starship by default.
+> We disable it and use our shared Tokyo Night config instead.
+
+Add **AFTER** the hokage block (near the SSH key section):
+
+```nix
+# ============================================================================
+# 🎨 STARSHIP PROMPT - Use shared Tokyo Night config
+# ============================================================================
+# Disable external hokage's catppuccin starship, use our Tokyo Night theme.
+# This preserves Nerd Font Unicode icons by using direct file copy.
+# ============================================================================
+hokage.programs.starship.enable = false;
+
+home-manager.users.mba = {
+  home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
+  programs.starship = {
+    enable = true;
+    enableFishIntegration = true;
+    enableBashIntegration = true;
+  };
+};
+home-manager.users.root = {
+  home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
+  programs.starship = {
+    enable = true;
+    enableFishIntegration = true;
+    enableBashIntegration = true;
+  };
+};
+```
+
+#### 2.7 Update MQTT Topic Reference
 
 Find in configuration.nix (mqtt-volume-control service):
 
@@ -555,7 +589,7 @@ Find in configuration.nix (mqtt-volume-control service):
 +  -t 'home/hsb1/kiosk-vlc-volume'
 ```
 
-#### 2.7 Verify Build
+#### 2.8 Verify Build
 
 ```bash
 cd ~/Code/nixcfg
@@ -563,7 +597,7 @@ nixos-rebuild build --flake .#hsb1 --show-trace
 # MUST succeed before committing
 ```
 
-#### 2.8 Commit
+#### 2.9 Commit
 
 ```bash
 git add hosts/hsb1/configuration.nix
@@ -574,6 +608,7 @@ git commit -m "refactor(hsb1): migrate to external hokage + security fixes
 - Add lib.mkForce SSH key override (prevent omega key injection)
 - Add passwordless sudo (lost with mixin removal)
 - Fish shell config now inherited from common.nix (sourcefish, EDITOR)
+- Starship: disable hokage catppuccin, use shared Tokyo Night
 - Update MQTT topic: home/miniserver24 → home/hsb1
 
 Applies lessons from hsb8 SSH lockout incident (2025-11-22)."
@@ -588,6 +623,8 @@ Applies lessons from hsb8 SSH lockout incident (2025-11-22)."
 - [ ] `lib.mkForce` SSH key block present (with ONLY mba@markus)
 - [ ] `security.sudo-rs.wheelNeedsPassword = false` present
 - [ ] Fish shell config inherited from `common.nix` (no manual config needed)
+- [ ] `hokage.programs.starship.enable = false` present
+- [ ] `home-manager.users.*.programs.starship` configured with shared TOML
 - [ ] MQTT topic updated to `home/hsb1/...`
 - [ ] `nixos-rebuild build --flake .#hsb1` succeeds
 
