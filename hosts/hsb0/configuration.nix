@@ -201,8 +201,6 @@
       "192.168.1.101" = [
         "hsb1"
         "hsb1.lan"
-        "miniserver24" # Legacy alias - remove after 2025-12-28
-        "miniserver24.lan" # Legacy alias - remove after 2025-12-28
         "mosquitto"
         "mosquitto.lan"
       ];

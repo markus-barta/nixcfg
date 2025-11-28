@@ -283,15 +283,13 @@ ssh mba@192.168.1.101
 
 ---
 
-## Post-Migration TODO
+## Post-Migration Cleanup (Done 2025-11-28)
 
-After confirming stable reboot:
-
-- [ ] Remove temporary `PasswordAuthentication yes` after 2025-12-15
-- [ ] Remove legacy `miniserver24` DNS alias after 2025-12-28
-- [ ] Update documentation to reflect hsb1 name
-- [ ] Fix atuin daemon error (low priority)
-- [ ] Consider adding zoxide `--cmd` conflict fix
+- [x] Remove temporary `PasswordAuthentication yes` ✅
+- [x] Remove legacy `miniserver24` DNS alias from hsb0 ✅
+- [x] Update mba-gaming-pc SSH key comment ✅
+- [x] Zoxide works fine (no error) ✅
+- [x] Atuin already disabled in common.nix ✅
 
 ---
 

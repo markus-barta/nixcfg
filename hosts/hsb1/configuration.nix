@@ -346,12 +346,6 @@
   };
 
   # ============================================================================
-  # 🔒 TEMPORARY: Enable SSH password auth as safety fallback during migration
-  # TODO: Remove after confirming stable operation (2025-12-15)
-  # ============================================================================
-  services.openssh.settings.PasswordAuthentication = lib.mkForce true;
-
-  # ============================================================================
   # 🚨 PASSWORDLESS SUDO - Lost when removing serverMba mixin
   # ============================================================================
   security.sudo-rs.wheelNeedsPassword = false;
