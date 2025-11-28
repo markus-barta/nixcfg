@@ -217,3 +217,23 @@ This boots the working `miniserver24` configuration.
 2. **Have physical keyboard with correct layout** - Recovery is painful without it
 3. **External hokage has different defaults** - May need more explicit configuration
 4. **Keep rollback generation noted** - Generation 116 is the safe fallback
+5. **Always set explicit hashedPassword** - Don't rely on initialHashedPassword for external hokage
+
+---
+
+## 📋 BACKLOG (Fix Later)
+
+### Atuin Daemon Error
+
+**Symptom**: Error on shell startup:
+
+```
+Error: failed to connect to local atuin daemon at /home/mba/.local/share/atuin/atuin.sock
+Caused by: No such file or directory (os error 2)
+```
+
+**Cause**: Atuin is disabled in common.nix (`hokage.programs.atuin.enable = false`) but fish integration may still try to connect.
+
+**Priority**: Low - cosmetic error, doesn't affect functionality
+
+**Fix**: TBD - either fully remove atuin integration or ensure daemon starts
