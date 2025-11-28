@@ -336,6 +336,10 @@
   # Security Policy: hsb1 allows ONLY mba (Markus) SSH key.
   # ============================================================================
   users.users.mba = {
+    # Prevent PAM lockout: Use actual password hash instead of empty initialHashedPassword
+    # This overrides common.nix's initialHashedPassword = "" which causes PAM auth failures
+    # Password can be changed with `passwd mba` - then update this hash
+    hashedPassword = "$y$j9T$bi9LmgTpnV.EleK4RduzQ/$eLkQ9o8n/Ix7YneRJBUNSdK6tCxAwwSYR.wL08wu1H/";
     openssh.authorizedKeys.keys = lib.mkForce [
       "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # mba@markus
     ];

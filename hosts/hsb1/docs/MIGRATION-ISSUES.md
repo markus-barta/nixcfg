@@ -111,19 +111,34 @@ fatal: Access denied for user mba by PAM account configuration [preauth]
 
 ---
 
-## Suspected Root Causes
+## Root Cause Found ✅
 
-### Primary Suspect: PAM Configuration
+### The Problem: Empty Password Hash
 
-The external hokage module may configure PAM differently than the local hokage module. The `initialHashedPassword = ""` in common.nix may conflict.
+The `common.nix` module sets `initialHashedPassword = ""` for all users via `hokage.users`.
 
-### Secondary Suspect: User Shell Configuration
+When hsb1 activated for the first time with external hokage:
 
-The fish shell or home-manager configuration may not be initializing correctly after the migration.
+1. NixOS created the mba user with **empty password**
+2. PAM rejected SSH login because account has no valid password
+3. Error: `Access denied for user mba by PAM account configuration [preauth]`
 
-### Tertiary Suspect: Display Manager Autologin
+### The Fix
 
-The LightDM autologin for kiosk user may have different requirements in external hokage pattern.
+Add explicit `hashedPassword` to mba user in `hosts/hsb1/configuration.nix`:
+
+```nix
+users.users.mba = {
+  hashedPassword = "$y$j9T$bi9LmgTpnV.EleK4RduzQ/$eLkQ9o8n/Ix7YneRJBUNSdK6tCxAwwSYR.wL08wu1H/";
+  openssh.authorizedKeys.keys = lib.mkForce [ ... ];
+};
+```
+
+This overrides `initialHashedPassword = ""` from common.nix.
+
+### Why hsb0 Worked
+
+hsb0 had an existing password set before migrating to external hokage. The `initialHashedPassword` only applies on **user creation**, not updates. Since hsb0's mba user already existed with a password, it wasn't affected.
 
 ---
 
