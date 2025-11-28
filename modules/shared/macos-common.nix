@@ -148,7 +148,7 @@ in
     ------------------------------------------------------------
     config.font_size = 12
     config.line_height = 1.1
-    
+
     -- Primary font with proper fallback chain
     config.font = wezterm.font_with_fallback({
         { family = "Hack Nerd Font Mono", weight = "Regular" },
@@ -156,7 +156,7 @@ in
         "Apple Color Emoji",
         "Menlo",
     })
-    
+
     -- Ensure symbols and icons render properly
     config.harfbuzz_features = { "calt=1", "clig=1", "liga=1" }
     config.freetype_load_flags = "NO_HINTING"
@@ -256,6 +256,7 @@ in
     python3 # Latest Python 3 - for IDEs, scripts, terminal
 
     # CLI Development Tools
+    cloc # Count lines of code
     gh # GitHub CLI
     jq # JSON processor
     just # Command runner
@@ -267,6 +268,7 @@ in
     tealdeer # tldr - simplified man pages
     fswatch # File system watcher
     mc # midnight-commander - file manager
+    procps # Linux utilities (watch, ps, etc.)
 
     # Terminal Multiplexer
     zellij # Modern terminal multiplexer
@@ -346,42 +348,44 @@ in
   # ============================================================================
   # Font Installation Activation Script
   # ============================================================================
-  fontActivation = pkgs: lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    echo "Installing Hack Nerd Font for macOS..."
-    mkdir -p "$HOME/Library/Fonts"
+  fontActivation =
+    pkgs:
+    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      echo "Installing Hack Nerd Font for macOS..."
+      mkdir -p "$HOME/Library/Fonts"
 
-    # Find all Hack Nerd Font files in the Nix store
-    FONT_PATH="${pkgs.nerd-fonts.hack}/share/fonts/truetype/NerdFonts/Hack"
+      # Find all Hack Nerd Font files in the Nix store
+      FONT_PATH="${pkgs.nerd-fonts.hack}/share/fonts/truetype/NerdFonts/Hack"
 
-    if [ -d "$FONT_PATH" ]; then
-      # COPY font files to ~/Library/Fonts/ (not symlink - macOS needs real files)
-      for font in "$FONT_PATH"/*.ttf; do
-        if [ -f "$font" ]; then
-          font_name=$(basename "$font")
-          target="$HOME/Library/Fonts/$font_name"
+      if [ -d "$FONT_PATH" ]; then
+        # COPY font files to ~/Library/Fonts/ (not symlink - macOS needs real files)
+        for font in "$FONT_PATH"/*.ttf; do
+          if [ -f "$font" ]; then
+            font_name=$(basename "$font")
+            target="$HOME/Library/Fonts/$font_name"
 
-          # Remove old file/symlink if it exists
-          if [ -e "$target" ] || [ -L "$target" ]; then
-            rm -f "$target"
+            # Remove old file/symlink if it exists
+            if [ -e "$target" ] || [ -L "$target" ]; then
+              rm -f "$target"
+            fi
+
+            # Copy the font file (macOS Font Book doesn't always follow symlinks)
+            cp "$font" "$target"
+            echo "  Copied: $font_name"
           fi
-
-          # Copy the font file (macOS Font Book doesn't always follow symlinks)
-          cp "$font" "$target"
-          echo "  Copied: $font_name"
+        done
+        
+        # Clear font cache
+        if command -v atsutil >/dev/null 2>&1; then
+          atsutil databases -remove >/dev/null 2>&1 || true
         fi
-      done
-      
-      # Clear font cache
-      if command -v atsutil >/dev/null 2>&1; then
-        atsutil databases -remove >/dev/null 2>&1 || true
+        
+        echo "✅ Hack Nerd Font installed for macOS"
+        echo "   ⚠️  You may need to restart apps or log out/in for fonts to appear"
+      else
+        echo "⚠️  Font path not found: $FONT_PATH"
       fi
-      
-      echo "✅ Hack Nerd Font installed for macOS"
-      echo "   ⚠️  You may need to restart apps or log out/in for fonts to appear"
-    else
-      echo "⚠️  Font path not found: $FONT_PATH"
-    fi
-  '';
+    '';
 
   # ============================================================================
   # macOS App Linking Activation Script
@@ -417,4 +421,3 @@ in
     echo "✅ macOS GUI applications linked"
   '';
 }
-
