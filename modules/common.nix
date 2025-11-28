@@ -225,12 +225,13 @@ in
 
   # Add Restic Security Wrapper
   # https://wiki.nixos.org/wiki/Restic
+  # Use lib.mkForce to prevent capability duplication from external hokage
   security.wrappers.restic = {
     source = "${pkgs.restic.out}/bin/restic";
     owner = userLogin;
     group = "users";
     permissions = "u=rwx,g=,o=";
-    capabilities = "cap_dac_read_search=+ep";
+    capabilities = lib.mkForce "cap_dac_read_search=+ep";
   };
 
   # Enable memory-safe implementation of the sudo command
