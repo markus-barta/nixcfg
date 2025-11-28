@@ -1,8 +1,9 @@
 # Smart Home Architecture & Best Practices
 
-**Server**: miniserver24 (→ hsb1 after migration)  
+**Server**: hsb1 (Home Server Barta 1)  
 **Location**: jhw22 (Home)  
-**Last Updated**: November 28, 2025
+**Last Updated**: November 28, 2025  
+**Migration**: Completed 2025-11-28 (was miniserver24)
 
 ---
 
@@ -386,6 +387,128 @@ homekit:
 
 ---
 
+## 🔊 VLC Kiosk Audio Control (Babycam)
+
+### Architecture (slightly insane but works™)
+
+```
+┌─────────────────┐     ┌──────────────┐     ┌─────────────────────────┐
+│  Aqara Button   │────▶│   Node-RED   │────▶│   MQTT Topic            │
+│  (double-press) │     │   (flow)     │     │   home/hsb1/kiosk-vlc-  │
+└─────────────────┘     └──────────────┘     │   volume                │
+                                             └───────────┬─────────────┘
+                                                         │
+                        ┌────────────────────────────────▼─────────────────┐
+                        │  mqtt-volume-control.service (systemd)           │
+                        │  - Subscribes to MQTT topic                      │
+                        │  - Validates volume (0-512)                      │
+                        │  - Sends telnet command to VLC                   │
+                        └────────────────────────────────┬─────────────────┘
+                                                         │
+                        ┌────────────────────────────────▼─────────────────┐
+                        │  VLC (kiosk user, fullscreen)                    │
+                        │  - Telnet interface on localhost:4212            │
+                        │  - Password from /etc/secrets/tapoC210-00.env    │
+                        │  - Shows RTSP camera stream                      │
+                        └──────────────────────────────────────────────────┘
+```
+
+### Components
+
+| Component           | Location                                  | Purpose                                |
+| ------------------- | ----------------------------------------- | -------------------------------------- |
+| **Aqara Button**    | Physical device                           | Triggers volume toggle on double-press |
+| **Node-RED Flow**   | `~/docker/mounts/nodered/data/flows.json` | Listens for button, publishes MQTT     |
+| **MQTT Topic**      | `home/hsb1/kiosk-vlc-volume`              | Message bus for volume commands        |
+| **systemd service** | `mqtt-volume-control.service`             | Bridge between MQTT and VLC telnet     |
+| **VLC Telnet**      | `localhost:4212`                          | Accepts `volume N` commands            |
+| **VLC Display**     | X11 kiosk session                         | Shows camera on attached monitor       |
+
+### MQTT Message Format
+
+```bash
+# Mute (volume 0)
+mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "0"
+
+# Full volume (512)
+mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "512"
+
+# 50% volume (256)
+mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "256"
+```
+
+### Files Involved
+
+| File                           | Purpose                                            |
+| ------------------------------ | -------------------------------------------------- |
+| `/etc/secrets/mqtt.env`        | MQTT credentials (MQTT_HOST, MQTT_USER, MQTT_PASS) |
+| `/etc/secrets/tapoC210-00.env` | VLC telnet password                                |
+| `configuration.nix`            | systemd service definition                         |
+| `flows.json`                   | Node-RED automation                                |
+
+### Troubleshooting
+
+```bash
+# Check service status
+systemctl status mqtt-volume-control
+
+# View service logs
+journalctl -t mqtt-volume-control -f
+
+# Test MQTT manually
+mosquitto_pub -h hsb1 -t "home/hsb1/kiosk-vlc-volume" -m "256"
+
+# Test VLC telnet directly
+echo -e "PASSWORD\nvolume 256\nquit" | nc localhost 4212
+```
+
+### ✅ Migration Complete (2025-11-28)
+
+Hostname changed `miniserver24` → `hsb1`:
+
+- **systemd service**: Listens on `home/hsb1/kiosk-vlc-volume` ✅
+- **Node-RED flows**: Updated to `home/hsb1/kiosk-vlc-volume` ✅
+- **DNS alias**: `miniserver24` still resolves (legacy, remove after 2025-12-28)
+
+---
+
+## 🔄 System Updates & Restarts
+
+### After NixOS Rebuild
+
+The kiosk display (babycam) may go blank after `nixos-rebuild switch`:
+
+```bash
+# Restart display manager to restore kiosk
+sudo systemctl restart display-manager.service
+
+# Verify VLC is running
+pgrep -a vlc
+```
+
+### Known Non-Critical Warnings
+
+These warnings appear after rebuild but are harmless:
+
+| Warning                            | Cause                     | Impact                    |
+| ---------------------------------- | ------------------------- | ------------------------- |
+| `suid-sgid-wrappers.service`       | Restic capability setting | None (restic still works) |
+| `systemd-zram-setup@zram0.service` | ZRAM swap restart         | None (16GB RAM is plenty) |
+
+### Shell Differences (fish vs bash)
+
+The default shell is **fish**. When sourcing `.env` files:
+
+```bash
+# ❌ Won't work in fish
+source /etc/secrets/mqtt.env
+
+# ✅ Use bash instead
+bash -c 'source /etc/secrets/mqtt.env && echo $MQTT_HOST'
+```
+
+---
+
 ## 🔄 Common Workflows
 
 ### Add Presence Sensor to HomeKit
@@ -423,5 +546,5 @@ homekit:
 ---
 
 **Maintainer**: Markus Barta  
-**Server**: miniserver24 (→ hsb1)  
-**133+ Zigbee Devices** | **11 Docker Containers** | **HomeKit Bridge**
+**Server**: hsb1 (192.168.1.101)  
+**133+ Zigbee Devices** | **11 Docker Containers** | **HomeKit Bridge** | **Babycam Kiosk**
