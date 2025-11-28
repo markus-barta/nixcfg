@@ -333,7 +333,7 @@
   # (omega@yubikey, omega@rsa, etc). We use lib.mkForce to REPLACE these
   # with ONLY authorized keys.
   #
-  # Security Policy: hsb1 allows ONLY mba (Markus) SSH key.
+  # Security Policy: hsb1 allows mba (Markus) SSH keys.
   # ============================================================================
   users.users.mba = {
     # Prevent PAM lockout: Use actual password hash instead of empty initialHashedPassword
@@ -341,9 +341,16 @@
     # Password can be changed with `passwd mba` - then update this hash
     hashedPassword = "$y$j9T$bi9LmgTpnV.EleK4RduzQ/$eLkQ9o8n/Ix7YneRJBUNSdK6tCxAwwSYR.wL08wu1H/";
     openssh.authorizedKeys.keys = lib.mkForce [
-      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # mba@markus
+      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # mba@markus (imac0)
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGzO+EWuGkod47PvcI+ncJ11LTOMdlI4huXE4EWEaVoT" # mba@semaphore (backup)
     ];
   };
+
+  # ============================================================================
+  # 🔒 TEMPORARY: Enable SSH password auth as safety fallback during migration
+  # TODO: Remove after confirming stable operation (2025-12-15)
+  # ============================================================================
+  services.openssh.settings.PasswordAuthentication = lib.mkForce true;
 
   # ============================================================================
   # 🚨 PASSWORDLESS SUDO - Lost when removing serverMba mixin
