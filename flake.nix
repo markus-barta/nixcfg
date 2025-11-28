@@ -101,20 +101,6 @@
             inherit inputs;
           };
         };
-      mkServerHost =
-        hostName: extraModules:
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          modules =
-            commonServerModules
-            ++ [
-              ./hosts/${hostName}/configuration.nix
-            ]
-            ++ extraModules;
-          specialArgs = self.commonArgs // {
-            inherit inputs;
-          };
-        };
       pkgs = import nixpkgs {
         inherit system;
         config.allowUnfree = true;
@@ -164,8 +150,20 @@
       # NixOS Configurations
       # ========================================================================
       nixosConfigurations = {
-        # MBA Miniserver24 - Build/Test Server
-        miniserver24 = mkServerHost "miniserver24" [ disko.nixosModules.disko ];
+        # Home Automation Server - Home Server Barta 1 (formerly miniserver24)
+        # Using external hokage consumer pattern
+        hsb1 = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = commonServerModules ++ [
+            inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./hosts/hsb1/configuration.nix
+            disko.nixosModules.disko
+          ];
+          specialArgs = self.commonArgs // {
+            inherit inputs;
+            # lib-utils already provided by self.commonArgs
+          };
+        };
 
         # DNS/DHCP Server (AdGuard Home) - Home Server Barta 0
         # DNS/DHCP Server (AdGuard Home) - Home Server Barta 0

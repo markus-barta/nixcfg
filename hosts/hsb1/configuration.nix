@@ -1,4 +1,4 @@
-# miniserver24 server for Markus
+# hsb1 - Home Server Barta 1 (formerly miniserver24)
 {
   pkgs,
   lib,
@@ -8,7 +8,6 @@
 {
   imports = [
     ./hardware-configuration.nix
-    ../../modules/hokage
     ./disk-config.zfs.nix
   ];
 
@@ -197,7 +196,7 @@
 
   # MQTT-based VLC Volume Control Service for NixOS
   #
-  # This service listens for MQTT messages on the topic 'home/miniserver24/kiosk-vlc-volume'
+  # This service listens for MQTT messages on the topic 'home/hsb1/kiosk-vlc-volume'
   # and uses the received value to control VLC's volume via telnet.
   #
   # Features:
@@ -214,7 +213,7 @@
   #
   # Usage:
   # 1. Ensure VLC is running with telnet interface enabled
-  # 2. Publish a message to 'home/miniserver24/kiosk-vlc-volume' with a value between 0 and 512
+  # 2. Publish a message to 'home/hsb1/kiosk-vlc-volume' with a value between 0 and 512
   # 3. The service will set VLC's volume accordingly and log the action
   #
   # Logging:
@@ -268,8 +267,8 @@
         log "Attempting to connect to MQTT broker at $MQTT_HOST"
 
         # Main loop: Subscribe to MQTT topic and process incoming messages
-        ${pkgs.mosquitto}/bin/mosquitto_sub -v -h "$MQTT_HOST" -u "$MQTT_USER" -P "$MQTT_PASS" -t 'home/miniserver24/kiosk-vlc-volume' 2>&1 | while read -r topic volume; do
-          if [[ $topic == "home/miniserver24/kiosk-vlc-volume" ]]; then
+        ${pkgs.mosquitto}/bin/mosquitto_sub -v -h "$MQTT_HOST" -u "$MQTT_USER" -P "$MQTT_PASS" -t 'home/hsb1/kiosk-vlc-volume' 2>&1 | while read -r topic volume; do
+          if [[ $topic == "home/hsb1/kiosk-vlc-volume" ]]; then
             log "Received message with topic: $topic"
             log "Received message with volume $volume"
 
@@ -311,9 +310,39 @@
   };
 
   hokage = {
-    hostName = "miniserver24";
+    hostName = "hsb1";
+    userLogin = "mba";
+    userNameLong = "Markus Barta";
+    userNameShort = "Markus";
+    userEmail = "markus@barta.com";
+    role = "server-home";
+    useInternalInfrastructure = false;
+    useSecrets = true;
+    useSharedKey = false;
+    zfs.enable = true;
     zfs.hostId = "dabfdb01";
-    audio.enable = true;
-    serverMba.enable = true;
+    audio.enable = true; # Required for VLC kiosk
+    programs.git.enableUrlRewriting = false;
+    # NOTE: starship & atuin are configured via common.nix (DRY pattern)
   };
+
+  # ============================================================================
+  # 🚨 SSH KEY SECURITY - CRITICAL FIX FROM hsb8 INCIDENT (2025-11-22)
+  # ============================================================================
+  # The external hokage server-home module auto-injects external SSH keys
+  # (omega@yubikey, omega@rsa, etc). We use lib.mkForce to REPLACE these
+  # with ONLY authorized keys.
+  #
+  # Security Policy: hsb1 allows ONLY mba (Markus) SSH key.
+  # ============================================================================
+  users.users.mba = {
+    openssh.authorizedKeys.keys = lib.mkForce [
+      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # mba@markus
+    ];
+  };
+
+  # ============================================================================
+  # 🚨 PASSWORDLESS SUDO - Lost when removing serverMba mixin
+  # ============================================================================
+  security.sudo-rs.wheelNeedsPassword = false;
 }

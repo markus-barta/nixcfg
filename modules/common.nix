@@ -34,9 +34,9 @@ in
         # Fix: Help messages to be shown in English, instead of German
         set -e LANGUAGE
       '';
-      shellAliases = sharedFishConfig.fishAliases;
-      shellAbbrs = sharedFishConfig.fishAbbrs;
-      interactiveShellInit = sharedFishConfig.fishInteractiveShellInit;
+      shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
+      shellAbbrs = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs;
+      interactiveShellInit = mkDefault sharedFishConfig.fishInteractiveShellInit;
     };
 
     bash.shellAliases = config.programs.fish.shellAliases;
@@ -61,20 +61,23 @@ in
 
   # Define a user account. Don't forget to set a password with "passwd".
   users.users = lib.genAttrs hokage.users (_userName: {
-    isNormalUser = true;
+    isNormalUser = mkDefault true;
     description = mkDefault userNameLong;
-    extraGroups = [
+    extraGroups = mkDefault [
       "networkmanager"
       "wheel"
       "docker"
       "dialout"
       "input"
     ];
-    shell = pkgs.fish;
-    packages = with pkgs; [
-    ];
+    shell = mkDefault pkgs.fish;
+    packages = mkDefault (
+      with pkgs;
+      [
+      ]
+    );
     # Set empty password initially. Don't forget to set a password with "passwd".
-    initialHashedPassword = "";
+    initialHashedPassword = mkDefault "";
   });
 
   # Set your time zone.
@@ -141,7 +144,7 @@ in
     nixPath = [ "nixpkgs=/run/current-system/nixpkgs" ];
 
     # Try out the latest nix version
-    package = pkgs.nixVersions.latest;
+    package = mkDefault pkgs.nixVersions.latest;
   };
 
   # List packages installed in system profile. To search, run:
