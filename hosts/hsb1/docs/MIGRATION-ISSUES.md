@@ -1,33 +1,85 @@
 # Migration Issues: miniserver24 → hsb1
 
 **Date**: November 28, 2025  
-**Status**: 🔴 ROLLBACK REQUIRED  
-**Rolled back to**: Generation 116 (miniserver24)
+**Status**: 🟡 ROOT CAUSE FOUND - READY FOR REBOOT TEST  
+**Current Generation**: 121 (hsb1 with fixes)  
+**Safe Fallback**: Generation 116 (miniserver24)
 
 ---
 
 ## Summary
 
-Migration from `miniserver24` to `hsb1` failed after reboot. System boots but authentication is broken.
+Migration from `miniserver24` to `hsb1` initially failed after reboot due to a **restic security wrapper bug** that caused PAM authentication to fail. Root cause has been identified and fixed.
 
 ---
 
-## Issues Encountered
+## 🔴 ROOT CAUSE IDENTIFIED
 
-### 1. SSH Connection Immediately Closes
+### The Actual Problem: Restic Wrapper Capability Duplication
 
-**Symptom**: SSH key accepted, then connection closes immediately
+Both `modules/common.nix` AND external hokage defined `security.wrappers.restic` with `capabilities = "cap_dac_read_search=+ep"`.
+
+This resulted in the capability string being duplicated:
 
 ```
-debug1: Server accepts key: /Users/markus/.ssh/id_rsa
-Connection closed by 192.168.1.101 port 22
+cap_setpcap,cap_dac_read_search=+ep,cap_dac_read_search=+ep
 ```
 
-**Cause**: Unknown - possibly PAM or user shell issue
+The `setcap` command rejected this invalid capability string, causing **ALL suid wrappers to fail**.
+
+### Chain of Failure
+
+```
+1. suid-sgid-wrappers.service FAILS at boot
+   ↓
+2. /run/wrappers/bin/unix_chkpwd NOT CREATED
+   ↓
+3. PAM tries to verify password via unix_chkpwd
+   ↓
+4. PAM error: "helper binary execve failed: No such file or directory"
+   ↓
+5. SSH denied: "Access denied for user mba by PAM account configuration [preauth]"
+```
+
+### Evidence from Journal
+
+```
+Nov 28 17:42:43 hsb1 sshd-session[3577]: pam_unix(sshd:account): helper binary execve failed: No such file or directory
+Nov 28 17:42:43 hsb1 sshd-session[3575]: fatal: Access denied for user mba by PAM account configuration [preauth]
+```
+
+### The Fix Applied
+
+In `modules/common.nix`, use `lib.mkForce` to prevent capability duplication:
+
+```nix
+security.wrappers.restic = {
+  source = "${pkgs.restic.out}/bin/restic";
+  owner = userLogin;
+  group = "users";
+  permissions = "u=rwx,g=,o=";
+  capabilities = lib.mkForce "cap_dac_read_search=+ep";  # mkForce prevents duplication
+};
+```
 
 ---
 
-### 2. PAM Authentication Failure
+## Issues Encountered (Chronological)
+
+### Issue 1: SSH Login Fails After First Reboot
+
+**Symptom**: After first `nixos-rebuild switch --flake .#hsb1` and reboot:
+
+- SSH connection closes immediately after key acceptance
+- OpenBox login screen appears instead of kiosk autologin
+
+**Initial Misdiagnosis**: Thought it was `initialHashedPassword = ""` conflict
+
+**Actual Cause**: suid-sgid-wrappers.service failure (see root cause above)
+
+---
+
+### Issue 2: PAM Authentication Failure
 
 **Symptom**:
 
@@ -35,189 +87,198 @@ Connection closed by 192.168.1.101 port 22
 fatal: Access denied for user mba by PAM account configuration [preauth]
 ```
 
-**Observed in**:
-
-- SSH login attempts
-- `su - mba` command
-
-**Root cause**: Possibly related to `initialHashedPassword = ""` in common.nix conflicting with password set via `passwd`
+**Actual Cause**: `unix_chkpwd` binary missing due to wrapper service failure
 
 ---
 
-### 3. Kiosk Autologin Not Working
+### Issue 3: Kiosk Autologin Not Working
 
-**Symptom**: After reboot, system shows OpenBox/LightDM login screen instead of auto-logging in kiosk user and starting VLC
+**Symptom**: OpenBox/LightDM login screen instead of VLC fullscreen
 
-**Expected**: Kiosk user auto-login → OpenBox → VLC fullscreen babycam
+**Cause**: Display manager starts before user sessions are fully configured
 
----
-
-### 4. TTY Switching Disabled
-
-**Symptom**: `Ctrl+Alt+F2` (F3, F4, etc.) does not switch to text console
-
-**Cause**: Possibly OpenBox or X11 configuration grabbing all inputs
+**Fix**: Restart `display-manager.service` after switch, or reboot (now fixed)
 
 ---
 
-### 5. Rescue Mode Limitations
+### Issue 4: Babycam Audio Not Working (After First Fix Attempt)
 
-**Symptom**: In `systemd.unit=rescue.target` mode:
+**Symptom**: Aqara button triggers notification but VLC stays muted
 
+**Cause**: Node-RED still publishing to old MQTT topic `home/miniserver24/kiosk-vlc-volume`
+
+**Fix**: Updated `flows.json` to use `home/hsb1/kiosk-vlc-volume`
+
+---
+
+### Issue 5: TTY Switching Disabled
+
+**Symptom**: `Ctrl+Alt+F2` doesn't switch to text console
+
+**Cause**: OpenBox or X11 grabbing keyboard
+
+**Workaround**: Use GRUB rescue mode or SSH
+
+---
+
+### Issue 6: Rescue Mode Limitations
+
+**Symptom**: In rescue mode:
+
+- `mount` command not found (needed full path `/nix/var/nix/profiles/system/sw/bin/mount`)
 - `su - mba` fails with PAM error
-- Some services not available
-- Had to manually start NetworkManager, sshd
+- NetworkManager and sshd not running
+
+**Workaround**: Manually start services:
+
+```bash
+/nix/var/nix/profiles/system/sw/bin/systemctl start NetworkManager
+/nix/var/nix/profiles/system/sw/bin/systemctl start sshd
+```
 
 ---
 
-## What Worked Before Rollback
+## What We Tried (Debug Journey)
 
-- ✅ Hostname changed to `hsb1`
-- ✅ Docker services running (all 11 containers)
-- ✅ Babycam video working (after display-manager restart)
-- ✅ Audio control working (after Node-RED topic fix)
-- ✅ DNS resolution (hsb1 and miniserver24 both resolve)
+| Attempt                              | Result                       |
+| ------------------------------------ | ---------------------------- |
+| Compare PAM configs (gen 116 vs 118) | Identical - not the cause    |
+| Compare sshd configs                 | Only store paths differ      |
+| Compare users-groups.json            | hashedPassword correctly set |
+| Compare authorized_keys              | Key present in both          |
+| Add hashedPassword to configuration  | Didn't fix boot issue        |
+| Switch without reboot                | Works fine                   |
+| Restart sshd after switch            | Works fine                   |
+| Check boot journal (-b -1)           | Found unix_chkpwd error!     |
+| Check suid-sgid-wrappers.service     | FAILED with capability error |
+| Compare wrapper script               | Found duplicated capability  |
 
 ---
 
 ## Configuration Changes Made
 
-### 1. flake.nix
+### 1. modules/common.nix
 
-- Replaced `mkServerHost "miniserver24"` with external hokage pattern for hsb1
-- Removed unused `mkServerHost` helper
+- Added `lib.mkForce` to restic wrapper capabilities to prevent duplication
+
+```nix
+capabilities = lib.mkForce "cap_dac_read_search=+ep";
+```
 
 ### 2. hosts/hsb1/configuration.nix
 
-- Removed local hokage import
-- Added external hokage block with `role = "server-home"`
-- Added SSH key security with `lib.mkForce`
-- Added `security.sudo-rs.wheelNeedsPassword = false`
+- Added explicit `hashedPassword` for mba user (extra safety)
+- Added `lib.mkForce` on SSH authorized keys
+- **Temporarily enabled** `PasswordAuthentication yes` for SSH (safety fallback)
 - Updated MQTT topic to `home/hsb1/kiosk-vlc-volume`
 
-### 3. modules/common.nix
-
-- Added `mkDefault` wrappers for external hokage compatibility
-- Removed duplicate nixpkgs symlink (provided by external hokage)
-
-### 4. hosts/hsb0/configuration.nix
+### 3. hosts/hsb0/configuration.nix
 
 - Added `hsb1` and `hsb1.lan` DNS entries
-- Kept `miniserver24` as legacy alias
+- Kept `miniserver24` as legacy alias (remove after 2025-12-28)
 
-### 5. Node-RED flows.json (on server)
+### 4. Node-RED flows.json (on server)
 
 - Updated MQTT topic from `home/miniserver24/kiosk-vlc-volume` to `home/hsb1/kiosk-vlc-volume`
 
 ---
 
-## Root Cause Found ✅
+## Current Safety Measures
 
-### The Problem: Empty Password Hash
+| Protection         | Status             | Purpose                  |
+| ------------------ | ------------------ | ------------------------ |
+| SSH password auth  | ✅ Enabled         | Fallback if key fails    |
+| hashedPassword set | ✅ Configured      | Prevents empty password  |
+| unix_chkpwd        | ✅ Now created     | PAM can verify passwords |
+| Single SSH key     | ✅ Only user's key | No external hokage keys  |
 
-The `common.nix` module sets `initialHashedPassword = ""` for all users via `hokage.users`.
+---
 
-When hsb1 activated for the first time with external hokage:
+## Verification Commands
 
-1. NixOS created the mba user with **empty password**
-2. PAM rejected SSH login because account has no valid password
-3. Error: `Access denied for user mba by PAM account configuration [preauth]`
+```bash
+# Check wrapper service succeeded
+systemctl status suid-sgid-wrappers.service
 
-### The Fix
+# Verify unix_chkpwd exists
+ls -la /run/wrappers/bin/unix_chkpwd
 
-Add explicit `hashedPassword` to mba user in `hosts/hsb1/configuration.nix`:
+# Check restic capabilities (should NOT be duplicated)
+getcap /run/wrappers/bin/restic
+# Expected: cap_dac_read_search,cap_setpcap=ep
 
-```nix
-users.users.mba = {
-  hashedPassword = "$y$j9T$bi9LmgTpnV.EleK4RduzQ/$eLkQ9o8n/Ix7YneRJBUNSdK6tCxAwwSYR.wL08wu1H/";
-  openssh.authorizedKeys.keys = lib.mkForce [ ... ];
-};
+# Check SSH password auth enabled
+grep PasswordAuthentication /etc/ssh/sshd_config
+
+# Check authorized key
+cat /etc/ssh/authorized_keys.d/mba | ssh-keygen -lf -
 ```
 
-This overrides `initialHashedPassword = ""` from common.nix.
-
-### Why hsb0 Worked
-
-hsb0 had an existing password set before migrating to external hokage. The `initialHashedPassword` only applies on **user creation**, not updates. Since hsb0's mba user already existed with a password, it wasn't affected.
-
 ---
 
-## Recovery Steps Taken
+## Recovery Instructions
 
-1. Rebooted → Got OpenBox login screen (no autologin)
-2. Tried Ctrl+Alt+F2-F6 → No response
-3. Booted with `init=/bin/sh` → Limited shell, mount not found
-4. Booted with `systemd.unit=rescue.target` → Got root shell
-5. Set passwords with `passwd mba` and `passwd root`
-6. Started NetworkManager and sshd manually
-7. SSH still fails with PAM error
-8. **Decision: Roll back to generation 116**
-
----
-
-## Next Steps (After Rollback)
-
-1. [ ] Boot generation 116 (working miniserver24)
-2. [ ] SSH in and verify everything works
-3. [ ] Investigate PAM configuration differences between local and external hokage
-4. [ ] Check `initialHashedPassword` handling
-5. [ ] Check display manager autologin configuration
-6. [ ] Test hsb1 config in a VM before deploying to production
-7. [ ] Consider keeping miniserver24 name if migration too risky
-
----
-
-## Rollback Instructions
+### If Reboot Fails Again
 
 At GRUB menu:
 
 1. Press any key to stop auto-boot
 2. Select **"NixOS - All configurations"**
-3. Select **generation 116** (Nov 13, 2025)
+3. Select **generation 116** (miniserver24, Nov 13)
 4. Boot
 
-This boots the working `miniserver24` configuration.
+Then SSH in and investigate:
+
+```bash
+ssh mba@192.168.1.101
+sudo journalctl -b -1 | grep -E "(suid|wrapper|pam|sshd)" | head -50
+```
+
+### If SSH Key Fails
+
+Use password authentication:
+
+```bash
+ssh mba@192.168.1.101
+# Enter password when prompted
+```
 
 ---
 
-## Investigation Results (Post-Rollback)
+## Generation History
 
-### PAM Config Comparison
-
-- PAM sshd configs are **identical** between gen 116 and 117
-- nsswitch.conf is **identical** between generations
-- sshd_config only differs in nix store paths (openssh version)
-
-### What's NOT the Cause
-
-- ❌ PAM configuration differences
-- ❌ nsswitch.conf
-- ❌ sshd_config
-
-### Still Unknown
-
-- The actual error was `Access denied for user mba by PAM account configuration [preauth]`
-- This occurs AFTER key authentication succeeds
-- Might be related to systemd service startup order
-- Might be related to nscd not starting before sshd
-- passwd/shadow files are generated at activation time, can't compare directly
-
-## Files to Review
-
-- External hokage's `common.nix` - Check user/PAM configuration
-- `security.pam` NixOS options - May need explicit configuration
-- `services.nscd` - Ensure it starts before sshd
-- `systemd.services.sshd.after` - Check dependencies
+| Gen | Date         | Config                  | Status                     |
+| --- | ------------ | ----------------------- | -------------------------- |
+| 116 | Nov 13       | miniserver24            | ✅ Safe fallback           |
+| 117 | Nov 28 16:13 | hsb1 (broken)           | ❌ Wrapper failure         |
+| 118 | Nov 28 17:38 | hsb1 + password fix     | ❌ Still had wrapper issue |
+| 119 | Nov 28 18:07 | hsb1 + mkForce fix      | ✅ Wrapper works           |
+| 120 | Nov 28 18:10 | hsb1 + safety fallbacks | ✅ Tested switch           |
+| 121 | Nov 28 18:12 | hsb1 (current)          | 🔄 Ready for reboot test   |
 
 ---
 
 ## Lessons Learned
 
-1. **Test in VM first** - Don't migrate production smart home server without VM testing
-2. **Have physical keyboard with correct layout** - Recovery is painful without it
-3. **External hokage has different defaults** - May need more explicit configuration
-4. **Keep rollback generation noted** - Generation 116 is the safe fallback
-5. **Always set explicit hashedPassword** - Don't rely on initialHashedPassword for external hokage
+1. **Check boot journals**: `journalctl -b -1` shows errors from failed boot
+2. **suid-sgid-wrappers is critical**: If it fails, PAM breaks completely
+3. **External hokage conflicts**: May define same options, use `lib.mkForce`
+4. **Switch ≠ Boot**: `nixos-rebuild switch` keeps old processes running
+5. **Test boot explicitly**: Services work after switch but may fail on boot
+6. **Keep password auth as safety**: Temporarily enable during migrations
+7. **Don't add keys you don't own**: The semaphore/yubikey keys are from external hokage (pbek), not user's keys
+
+---
+
+## Post-Migration TODO
+
+After confirming stable reboot:
+
+- [ ] Remove temporary `PasswordAuthentication yes` after 2025-12-15
+- [ ] Remove legacy `miniserver24` DNS alias after 2025-12-28
+- [ ] Update documentation to reflect hsb1 name
+- [ ] Fix atuin daemon error (low priority)
+- [ ] Consider adding zoxide `--cmd` conflict fix
 
 ---
 
@@ -232,8 +293,20 @@ Error: failed to connect to local atuin daemon at /home/mba/.local/share/atuin/a
 Caused by: No such file or directory (os error 2)
 ```
 
-**Cause**: Atuin is disabled in common.nix (`hokage.programs.atuin.enable = false`) but fish integration may still try to connect.
+**Cause**: Atuin disabled in common.nix but fish integration still tries to connect
 
-**Priority**: Low - cosmetic error, doesn't affect functionality
+**Priority**: Low - cosmetic error
 
-**Fix**: TBD - either fully remove atuin integration or ensure daemon starts
+---
+
+### Zoxide Double --cmd Error
+
+**Symptom**: On SSH login:
+
+```
+error: the argument '--cmd <CMD>' cannot be used multiple times
+```
+
+**Cause**: Both common.nix and external hokage configure zoxide with `--cmd cd`
+
+**Priority**: Low - cosmetic error, doesn't prevent login
