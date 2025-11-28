@@ -1,15 +1,28 @@
 # Migration Issues: miniserver24 → hsb1
 
 **Date**: November 28, 2025  
-**Status**: 🟡 ROOT CAUSE FOUND - READY FOR REBOOT TEST  
-**Current Generation**: 121 (hsb1 with fixes)  
-**Safe Fallback**: Generation 116 (miniserver24)
+**Status**: ✅ MIGRATION SUCCESSFUL  
+**Final Generation**: 121 (hsb1)  
+**Reboot Verified**: 2025-11-28 18:18 CET
+
+---
+
+## ✅ Migration Complete
+
+**All systems operational after reboot:**
+
+- ✅ SSH login works (key + password fallback)
+- ✅ Hostname: `hsb1`
+- ✅ All 11 Docker containers running
+- ✅ Babycam/VLC kiosk autologin working
+- ✅ suid-sgid-wrappers successful
+- ✅ PAM helper (unix_chkpwd) exists
 
 ---
 
 ## Summary
 
-Migration from `miniserver24` to `hsb1` initially failed after reboot due to a **restic security wrapper bug** that caused PAM authentication to fail. Root cause has been identified and fixed.
+Migration from `miniserver24` to `hsb1` initially failed after reboot due to a **restic security wrapper bug** that caused PAM authentication to fail. Root cause was identified and fixed after ~2 hours of debugging.
 
 ---
 
@@ -247,14 +260,14 @@ ssh mba@192.168.1.101
 
 ## Generation History
 
-| Gen | Date         | Config                  | Status                     |
-| --- | ------------ | ----------------------- | -------------------------- |
-| 116 | Nov 13       | miniserver24            | ✅ Safe fallback           |
-| 117 | Nov 28 16:13 | hsb1 (broken)           | ❌ Wrapper failure         |
-| 118 | Nov 28 17:38 | hsb1 + password fix     | ❌ Still had wrapper issue |
-| 119 | Nov 28 18:07 | hsb1 + mkForce fix      | ✅ Wrapper works           |
-| 120 | Nov 28 18:10 | hsb1 + safety fallbacks | ✅ Tested switch           |
-| 121 | Nov 28 18:12 | hsb1 (current)          | 🔄 Ready for reboot test   |
+| Gen | Date         | Config                  | Status                       |
+| --- | ------------ | ----------------------- | ---------------------------- |
+| 116 | Nov 13       | miniserver24            | Previous working config      |
+| 117 | Nov 28 16:13 | hsb1 (broken)           | ❌ Wrapper failure           |
+| 118 | Nov 28 17:38 | hsb1 + password fix     | ❌ Still had wrapper issue   |
+| 119 | Nov 28 18:07 | hsb1 + mkForce fix      | ✅ Wrapper works             |
+| 120 | Nov 28 18:10 | hsb1 + safety fallbacks | ✅ Tested switch             |
+| 121 | Nov 28 18:12 | hsb1 (final)            | ✅ REBOOT VERIFIED 18:18 CET |
 
 ---
 
