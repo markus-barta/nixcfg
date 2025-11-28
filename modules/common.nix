@@ -237,11 +237,8 @@ in
   security.sudo-rs.enable = true;
 
   system = {
-    # Create a symlink to the latest nixpkgs of the flake
+    # NOTE: nixpkgs symlink is created by external hokage's common.nix
     # See: https://discourse.nixos.org/t/do-flakes-also-set-the-system-channel/19798/18
-    systemBuilderCommands = ''
-      ln -sv ${pkgs.path} $out/nixpkgs
-    '';
 
     # Careful with this, see https://wiki.nixos.org/wiki/FAQ/When_do_I_update_stateVersion
     # Also see https://mynixos.com/nixpkgs/option/system.stateVersion
