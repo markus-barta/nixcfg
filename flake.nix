@@ -70,6 +70,7 @@
       allOverlays = validOverlays ++ [ overlays-nixpkgs ];
       commonServerModules = [
         home-manager.nixosModules.home-manager
+        ./modules/common.nix # Shared config for ALL servers (fish, starship, packages, etc.)
         { }
         (_: {
           nixpkgs.overlays = allOverlays;

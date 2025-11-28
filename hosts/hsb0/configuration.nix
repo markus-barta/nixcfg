@@ -13,8 +13,7 @@
     ./disk-config.zfs.nix
   ];
 
-  # Use our Tokyo Night starship instead of hokage's catppuccin
-  hokage.programs.starship.enable = false;
+  # NOTE: starship and atuin are configured in common.nix (via commonServerModules)
 
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
@@ -288,28 +287,10 @@
     zfs.hostId = "dabfdb02";
     audio.enable = false;
     programs.git.enableUrlRewriting = false;
-    programs.atuin.enable = false; # Disable atuin - causes fish shell to hang
+    # NOTE: atuin disabled in common.nix (via commonServerModules)
   };
 
-  # ============================================================================
-  # Starship - Use shared Tokyo Night config
-  # ============================================================================
-  home-manager.users.mba = {
-    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
-    programs.starship = {
-      enable = true;
-      enableFishIntegration = true;
-      enableBashIntegration = true;
-    };
-  };
-  home-manager.users.root = {
-    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
-    programs.starship = {
-      enable = true;
-      enableFishIntegration = true;
-      enableBashIntegration = true;
-    };
-  };
+  # NOTE: Starship configured in common.nix (via commonServerModules)
 
   # ============================================================================
   # 🚨 SSH KEY SECURITY

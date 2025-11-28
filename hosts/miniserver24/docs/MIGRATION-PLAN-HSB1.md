@@ -193,6 +193,13 @@ The following files, services, and configurations embed the hostname `miniserver
 | ------------------------- | -------------- | -------------------------- |
 | hsb0 AdGuard static lease | `miniserver24` | ✅ Add `hsb1` + keep alias |
 
+#### Docker Runtime Data (Part B - Phase 10)
+
+| Location                                  | Reference       | Action Required              |
+| ----------------------------------------- | --------------- | ---------------------------- |
+| `~/docker/mounts/nodered/data/flows.json` | MQTT topics     | 🔍 Audit after migration     |
+| Node-RED archive flows                    | Historical refs | ℹ️ Can ignore (archive only) |
+
 #### External Documentation (Part A - Phase 9)
 
 | File                | Reference                  | Action Required |
@@ -505,6 +512,7 @@ hokage = {
   zfs.hostId = "dabfdb01";
   audio.enable = true;  # Required for VLC kiosk
   programs.git.enableUrlRewriting = false;
+  # NOTE: starship & atuin are configured via common.nix (DRY pattern)
 };
 ```
 
@@ -540,45 +548,17 @@ users.users.mba = {
 security.sudo-rs.wheelNeedsPassword = false;
 ```
 
-#### 2.5 ✅ Fish Shell Configuration (ALREADY DONE)
+#### 2.5 ✅ Fish Shell & Starship Configuration (DRY - Handled by common.nix)
 
-> **COMPLETED**: `sourcefish` function and `EDITOR=nano` are now centralized in
-> `modules/shared/fish-config.nix` and automatically included via `common.nix`.
-> No manual configuration needed for hsb1 - it will inherit these automatically.
-
-#### 2.6 🎨 Starship Prompt (Tokyo Night Theme)
-
-> **IMPORTANT**: The external hokage uses catppuccin starship by default.
-> We disable it and use our shared Tokyo Night config instead.
-
-Add **AFTER** the hokage block (near the SSH key section):
-
-```nix
-# ============================================================================
-# 🎨 STARSHIP PROMPT - Use shared Tokyo Night config
-# ============================================================================
-# Disable external hokage's catppuccin starship, use our Tokyo Night theme.
-# This preserves Nerd Font Unicode icons by using direct file copy.
-# ============================================================================
-hokage.programs.starship.enable = false;
-
-home-manager.users.mba = {
-  home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
-  programs.starship = {
-    enable = true;
-    enableFishIntegration = true;
-    enableBashIntegration = true;
-  };
-};
-home-manager.users.root = {
-  home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
-  programs.starship = {
-    enable = true;
-    enableFishIntegration = true;
-    enableBashIntegration = true;
-  };
-};
-```
+> **✅ AUTOMATIC**: Fish shell and Starship are now configured via `common.nix`
+> which is included in `commonServerModules` in `flake.nix`.
+>
+> - `modules/shared/fish-config.nix` - sourcefish, EDITOR, aliases, abbreviations
+> - `modules/shared/starship.toml` - Tokyo Night theme with Nerd Font icons
+> - `hokage.programs.starship.enable = false` - Uses our config instead of catppuccin
+> - `hokage.programs.atuin.enable = false` - Prevents fish shell hang
+>
+> **NO MANUAL CONFIGURATION NEEDED** - hsb1 inherits all of this automatically!
 
 #### 2.7 Update MQTT Topic Reference
 
@@ -622,9 +602,7 @@ Applies lessons from hsb8 SSH lockout incident (2025-11-22)."
 - [ ] `role = "server-home"` added
 - [ ] `lib.mkForce` SSH key block present (with ONLY mba@markus)
 - [ ] `security.sudo-rs.wheelNeedsPassword = false` present
-- [ ] Fish shell config inherited from `common.nix` (no manual config needed)
-- [ ] `hokage.programs.starship.enable = false` present
-- [ ] `home-manager.users.*.programs.starship` configured with shared TOML
+- [ ] ✅ Fish shell & Starship inherited from `common.nix` (DRY - no per-host config!)
 - [ ] MQTT topic updated to `home/hsb1/...`
 - [ ] `nixos-rebuild build --flake .#hsb1` succeeds
 
@@ -1363,16 +1341,23 @@ ln -s ~/Code/nixcfg/hosts/hsb1/docker ~/docker
 - Zero downtime with NixOS switch
 - `lib.mkForce` SSH fix worked perfectly
 
+### DRY Improvements (November 28, 2025)
+
+- **common.nix added to commonServerModules** in flake.nix
+- ALL servers now get fish, starship, atuin config automatically
+- No per-host duplication of starship/atuin settings
+- Removed duplicate configs from hsb0/hsb8
+
 ### Applied to hsb1
 
-| Lesson                 | Application                                        |
-| ---------------------- | -------------------------------------------------- |
-| SSH lockout prevention | Phase 2.3: `lib.mkForce` (NON-NEGOTIABLE)          |
-| Passwordless sudo      | Phase 2.4: Explicit config                         |
-| Fish functions         | ✅ Centralized in `modules/shared/fish-config.nix` |
-| Test build first       | Phase 3: Build before deploy                       |
-| Atomic commits         | Phase 1: Folder + flake together                   |
-| File management        | Phase 10: Symlinks as signposts                    |
+| Lesson                 | Application                                                    |
+| ---------------------- | -------------------------------------------------------------- |
+| SSH lockout prevention | Phase 2.3: `lib.mkForce` (NON-NEGOTIABLE)                      |
+| Passwordless sudo      | Phase 2.4: Explicit config                                     |
+| **DRY Pattern**        | ✅ Fish, Starship, Atuin via `common.nix` (no per-host config) |
+| Test build first       | Phase 3: Build before deploy                                   |
+| Atomic commits         | Phase 1: Folder + flake together                               |
+| File management        | Phase 10: Symlinks as signposts                                |
 
 ---
 

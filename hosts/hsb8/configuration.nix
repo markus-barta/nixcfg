@@ -42,8 +42,7 @@ in
     ./disk-config.zfs.nix
   ];
 
-  # Use our Tokyo Night starship instead of hokage's catppuccin
-  hokage.programs.starship.enable = false;
+  # NOTE: starship and atuin are configured in common.nix (via commonServerModules)
 
   # Validate location setting
   assertions = [
@@ -467,7 +466,7 @@ in
     zfs.hostId = "cdbc4e20"; # ZFS host ID (required)
     audio.enable = false; # No audio on server
     programs.git.enableUrlRewriting = false; # No internal git rewrites
-    programs.atuin.enable = false; # Disable atuin - causes fish shell to hang
+    # NOTE: atuin disabled in common.nix (via commonServerModules)
 
     # Multi-user configuration (both mba and gb)
     users = [
@@ -476,33 +475,7 @@ in
     ];
   };
 
-  # ============================================================================
-  # Starship - Use shared Tokyo Night config
-  # ============================================================================
-  home-manager.users.mba = {
-    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
-    programs.starship = {
-      enable = true;
-      enableFishIntegration = true;
-      enableBashIntegration = true;
-    };
-  };
-  home-manager.users.gb = {
-    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
-    programs.starship = {
-      enable = true;
-      enableFishIntegration = true;
-      enableBashIntegration = true;
-    };
-  };
-  home-manager.users.root = {
-    home.file.".config/starship.toml".source = ../../modules/shared/starship.toml;
-    programs.starship = {
-      enable = true;
-      enableFishIntegration = true;
-      enableBashIntegration = true;
-    };
-  };
+  # NOTE: Starship configured in common.nix (via commonServerModules)
 
   # ============================================================================
   # AGENIX SECRETS CONFIGURATION

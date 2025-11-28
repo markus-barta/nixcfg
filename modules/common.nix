@@ -23,6 +23,9 @@ in
   # Disable hokage's starship (we configure our own with shared TOML file)
   hokage.programs.starship.enable = false;
 
+  # Disable atuin - causes fish shell to hang on some systems
+  hokage.programs.atuin.enable = false;
+
   # Set some fish config
   programs = {
     fish = {
@@ -244,6 +247,9 @@ in
 
   # https://rycee.gitlab.io/home-manager/options.html
   # https://nix-community.github.io/home-manager/options.html#opt-home.file
+  # Backup existing files instead of failing when they would be clobbered
+  home-manager.backupFileExtension = "hm-backup";
+
   home-manager.users = lib.genAttrs hokage.usersWithRoot (_userName: {
     # The home.stateVersion option does not have a default and must be set
     home.stateVersion = "24.11";
