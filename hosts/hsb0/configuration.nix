@@ -61,7 +61,6 @@
       ];
 
       dhcp = {
-        # IMPORTANT: Ensure miniserver24 DHCP is disabled before enabling this.
         enabled = true;
         interface_name = "enp2s0f0";
         dhcpv4 = {
@@ -200,8 +199,10 @@
       ];
       # Home automation server + MQTT broker - runs Node-RED, Home Assistant, cameras, notifications + MQTT for IoT devices
       "192.168.1.101" = [
-        "miniserver24"
-        "miniserver24.lan"
+        "hsb1"
+        "hsb1.lan"
+        "miniserver24" # Legacy alias - remove after 2025-12-28
+        "miniserver24.lan" # Legacy alias - remove after 2025-12-28
         "mosquitto"
         "mosquitto.lan"
       ];
