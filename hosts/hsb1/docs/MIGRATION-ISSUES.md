@@ -165,12 +165,34 @@ This boots the working `miniserver24` configuration.
 
 ---
 
+## Investigation Results (Post-Rollback)
+
+### PAM Config Comparison
+
+- PAM sshd configs are **identical** between gen 116 and 117
+- nsswitch.conf is **identical** between generations
+- sshd_config only differs in nix store paths (openssh version)
+
+### What's NOT the Cause
+
+- ❌ PAM configuration differences
+- ❌ nsswitch.conf
+- ❌ sshd_config
+
+### Still Unknown
+
+- The actual error was `Access denied for user mba by PAM account configuration [preauth]`
+- This occurs AFTER key authentication succeeds
+- Might be related to systemd service startup order
+- Might be related to nscd not starting before sshd
+- passwd/shadow files are generated at activation time, can't compare directly
+
 ## Files to Review
 
-- `/nix/store/.../etc/pam.d/sshd` - Compare between generations
-- `/nix/store/.../etc/pam.d/login` - Compare between generations
-- External hokage's `common.nix` - Check PAM/user configuration
+- External hokage's `common.nix` - Check user/PAM configuration
 - `security.pam` NixOS options - May need explicit configuration
+- `services.nscd` - Ensure it starts before sshd
+- `systemd.services.sshd.after` - Check dependencies
 
 ---
 
