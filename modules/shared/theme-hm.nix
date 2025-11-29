@@ -256,5 +256,12 @@ in
       # Also set LS_COLORS for basic ls compatibility (subset)
       LS_COLORS = "di=1;38;5;110:ln=38;5;116:ex=38;5;114:or=38;5;167";
     };
+
+    # Fish-specific: set EZA_COLORS directly (fish doesn't source bash profiles)
+    programs.fish.interactiveShellInit = lib.mkIf config.theme.eza.enable ''
+      # Eza colors (polished universal theme from theme-hm.nix)
+      set -gx EZA_COLORS "${themePalettes.ezaColors}"
+      set -gx LS_COLORS "di=1;38;5;110:ln=38;5;116:ex=38;5;114:or=38;5;167"
+    '';
   };
 }
