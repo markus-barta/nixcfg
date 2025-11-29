@@ -252,20 +252,25 @@ in
   home-manager.backupFileExtension = "hm-backup";
 
   home-manager.users = lib.genAttrs hokage.usersWithRoot (_userName: {
+    imports = [
+      # Themed starship, zellij, and eza (auto-detects hostname from $HOST)
+      ./shared/theme-hm.nix
+    ];
+
     # The home.stateVersion option does not have a default and must be set
     home.stateVersion = "24.11";
 
-    # Shared starship config (using direct file to preserve Nerd Font Unicode)
-    home.file.".config/starship.toml".source = ./shared/starship.toml;
+    # Starship config now managed by theme-hm.nix (per-host colors)
+    # Old static config removed: home.file.".config/starship.toml".source = ./shared/starship.toml;
 
     # Enable fish and bash in home-manager to use enableFishIntegration and enableBashIntegration
     programs = {
-      # Starship prompt (config from shared file above, not via settings to preserve Unicode)
+      # Starship prompt (config file from theme-hm.nix with per-host colors)
       starship = {
         enable = true;
         enableFishIntegration = true;
         enableBashIntegration = true;
-        # settings intentionally empty - using home.file above instead
+        # settings intentionally empty - using theme-hm.nix home.file instead
       };
       # Enable https://direnv.net/
       direnv = {
@@ -282,7 +287,7 @@ in
         enableFishIntegration = true;
       };
 
-      # Tiling terminal multiplexer
+      # Tiling terminal multiplexer (config file from theme-hm.nix with per-host theme)
       zellij = {
         enable = true;
         # Shell integrations are disabled, because they would open zellij as soon as the shells start

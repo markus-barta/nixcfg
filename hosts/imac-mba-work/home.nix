@@ -11,6 +11,10 @@ let
 in
 
 {
+  imports = [
+    # Themed starship, zellij, and eza (auto-detects hostname)
+    ../../modules/shared/theme-hm.nix
+  ];
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "markus";
   home.homeDirectory = "/Users/markus";
@@ -127,10 +131,12 @@ in
   # ============================================================================
   # Global Packages (common only - no host-specific additions)
   # ============================================================================
-  home.packages = macosCommon.commonPackages ++ (with pkgs; [
-    # System Tools
-    inputs.agenix.packages.x86_64-darwin.default
-  ]);
+  home.packages =
+    macosCommon.commonPackages
+    ++ (with pkgs; [
+      # System Tools
+      inputs.agenix.packages.x86_64-darwin.default
+    ]);
 
   # Enable fontconfig for fonts to be recognized
   fonts.fontconfig.enable = true;
@@ -152,11 +158,10 @@ in
   home.file.".config/karabiner/karabiner.json".source = ./config/karabiner.json;
 
   # ============================================================================
-  # Starship Config File (shared across all macOS hosts)
+  # Starship Config - NOW MANAGED BY theme-hm.nix (auto-detected hostname)
   # ============================================================================
-  home.file.".config/starship.toml" = {
-    source = ../../modules/shared/starship.toml;
-  };
+  # Theme: darkGray (workstation-work category)
+  # See: modules/shared/theme-palettes.nix for color definitions
 
   # ============================================================================
   # Scripts Management
