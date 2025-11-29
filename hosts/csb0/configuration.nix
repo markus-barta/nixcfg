@@ -11,6 +11,7 @@
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
+    ../../modules/uzumaki/mba-server.nix # Fish sourcefish, zellij, EDITOR
   ];
 
   # ============================================================================
@@ -146,43 +147,10 @@
   security.sudo-rs.wheelNeedsPassword = false;
 
   # ============================================================================
-  # FISH SHELL CONFIGURATION
+  # ZELLIJ THEME - Host-Specific
   # ============================================================================
-  # From old server-mba.nix - sourcefish function for loading .env files
-  programs.fish.interactiveShellInit = ''
-    function sourcefish --description 'Load env vars from a .env file into current Fish session'
-      set file "$argv[1]"
-      if test -z "$file"
-        echo "Usage: sourcefish PATH_TO_ENV_FILE"
-        return 1
-      end
-      if test -f "$file"
-        for line in (cat "$file" | grep -v '^[[:space:]]*#' | grep .)
-          set key (echo $line | cut -d= -f1)
-          set val (echo $line | cut -d= -f2-)
-          set -gx $key "$val"
-        end
-      else
-        echo "File not found: $file"
-        return 1
-      end
-    end
-    set -gx EDITOR nano
-  '';
-
-  # ============================================================================
-  # ADDITIONAL PACKAGES
-  # ============================================================================
-  environment.systemPackages = with pkgs; [
-    # Zellij - terminal multiplexer (from old zellij.nix mixin)
-    # Custom themes in ~/.config/zellij/config.kdl (managed by home-manager below)
-    zellij
-  ];
-
-  # ============================================================================
-  # ZELLIJ CONFIGURATION
-  # ============================================================================
-  # From old modules/mixins/zellij.nix - custom keybindings and csb0 theme
+  # Zellij package + fish sourcefish come from modules/uzumaki/mba-server.nix
+  # Only the csb0-specific theme is defined here
   home-manager.users.mba = {
     home.file.".config/zellij/config.kdl".text = ''
       // Zellij keybindings configuration

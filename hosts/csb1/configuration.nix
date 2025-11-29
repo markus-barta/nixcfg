@@ -10,6 +10,7 @@
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
+    ../../modules/uzumaki/mba-server.nix # Fish sourcefish, zellij, EDITOR
   ];
 
   # ============================================================================
@@ -129,9 +130,51 @@
   security.sudo-rs.wheelNeedsPassword = false;
 
   # ============================================================================
-  # ADDITIONAL PACKAGES
+  # ZELLIJ THEME - Host-Specific
   # ============================================================================
-  environment.systemPackages = with pkgs; [
-    # Add system packages here as needed
-  ];
+  # Zellij package + fish sourcefish come from modules/uzumaki/mba-server.nix
+  # Only the csb1-specific theme is defined here
+  home-manager.users.mba = {
+    home.file.".config/zellij/config.kdl".text = ''
+      // Zellij keybindings configuration
+      keybinds {
+          unbind "Ctrl o"
+          normal {
+              bind "Ctrl a" { MoveTab "Left"; }
+              bind "Ctrl e" { SwitchToMode "Session"; }
+          }
+          session {
+              bind "Ctrl e" { SwitchToMode "Normal"; }
+          }
+          tab {
+              bind "c" {
+                  NewTab {
+                      cwd "~"
+                  }
+                  SwitchToMode "normal";
+              }
+          }
+      }
+
+      // csb1 theme (pink/magenta)
+      themes {
+          csb1 {
+              bg "#c45fc0"
+              fg "#cb54e3"
+              red "#f5f5f5"
+              green "#cb54e3"
+              blue "#0000ff"
+              yellow "#ffff00"
+              magenta "#ff00ff"
+              orange "#ed94ff"
+              cyan "#00ffff"
+              black "#00000f"
+              white "#ffffff"
+          }
+      }
+
+      session_serialization true
+      theme "csb1"
+    '';
+  };
 }
