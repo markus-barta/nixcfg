@@ -32,7 +32,7 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 
 ### DRY Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              DRY Architecture                               │
 │                                                                             │
@@ -123,7 +123,7 @@ with sysop-focused modifications.
 
 ### Design Philosophy
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │  HIGH VISIBILITY (stand out immediately):                       │
 │    • Executables    - Bold green         - "Can I run this?"    │

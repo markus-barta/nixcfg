@@ -199,7 +199,7 @@
 #
 #    CLOUD (Internet-facing)          HOME (Local network)
 #    ┌─────────────────────┐          ┌─────────────────────┐
-#    │  csb0    ⬜ White   │          │  hsb0    🟨 Yellow  │
+#    │  csb0    🧊 IceBlue │          │  hsb0    🟨 Yellow  │
 #    │  csb1    🔵 Blue    │          │  hsb1    🟢 Green   │
 #    └─────────────────────┘          │  hsb8    🟠 Orange  │
 #                                     └─────────────────────┘
@@ -225,39 +225,39 @@
     # CLOUD SERVERS: White → Blue spectrum
     # --------------------------------------------------------------------------
 
-    white = {
-      name = "White";
+    iceBlue = {
+      name = "Ice Blue";
       category = "cloud";
-      description = "Clean, stable production (csb0)";
+      description = "Subtle icy blue tint (csb0)";
 
-      # Powerline gradient (light → dark)
+      # Powerline gradient (light → dark) - subtle blue tint, not as saturated as csb1
       gradient = {
-        lightest = "#d8dce8"; # OS icon bg - soft silver
-        primary = "#b8c0d8"; # Directory bg - light silver-blue
-        secondary = "#9098b0"; # User/host bg
-        midDark = "#485068"; # Git section bg
-        dark = "#2a3040"; # Languages bg
-        darker = "#1e2430"; # Time bg
-        darkest = "#14181f"; # Nix shell bg
+        lightest = "#c8d8e8"; # OS icon bg - pale ice blue
+        primary = "#98b8d8"; # Directory bg - soft sky blue
+        secondary = "#6890b8"; # User/host bg - steel blue
+        midDark = "#3a5068"; # Git section bg - dark slate blue
+        dark = "#243040"; # Languages bg - deep blue-gray
+        darker = "#1a2530"; # Time bg - darker blue-gray
+        darkest = "#12181e"; # Nix shell bg - near black with blue
       };
 
       # Text colors
       text = {
-        onLightest = "#1a1a2a"; # Dark text on lightest bg
+        onLightest = "#182838"; # Dark blue-ish text on lightest bg
         onMedium = "#000000"; # Black for path (high contrast)
-        accent = "#c8d0e8"; # Accent fg on dark bg
-        muted = "#707888"; # Git count, subtle info
-        mutedLight = "#a0a8b8"; # Time text
+        accent = "#a8c8e8"; # Accent fg on dark bg - pale blue
+        muted = "#506070"; # Git count, subtle info
+        mutedLight = "#8098b0"; # Time text - muted sky blue
       };
 
       # Zellij theme colors
       zellij = {
-        bg = "#b8c0d8";
-        fg = "#9098b0";
-        frame = "#b8c0d8";
-        black = "#14181f";
-        white = "#ffffff";
-        highlight = "#e8eaf0";
+        bg = "#98b8d8";
+        fg = "#6890b8";
+        frame = "#98b8d8";
+        black = "#12181e";
+        white = "#f0f6fc";
+        highlight = "#c8d8e8";
       };
     };
 
@@ -703,7 +703,7 @@
 
   hostPalette = {
     # Cloud servers
-    csb0 = "white";
+    csb0 = "iceBlue";
     csb1 = "blue";
 
     # Home servers

@@ -146,51 +146,13 @@
   security.sudo-rs.wheelNeedsPassword = false;
 
   # ============================================================================
-  # ZELLIJ THEME - Host-Specific
+  # THEMING - Managed via theme-hm.nix
   # ============================================================================
-  # Zellij package + fish sourcefish come from modules/uzumaki/mba-server.nix
-  # Only the csb0-specific theme is defined here
-  home-manager.users.mba = {
-    home.file.".config/zellij/config.kdl".text = ''
-      // Zellij keybindings configuration
-      keybinds {
-          unbind "Ctrl o"
-          normal {
-              bind "Ctrl a" { MoveTab "Left"; }
-              bind "Ctrl e" { SwitchToMode "Session"; }
-          }
-          session {
-              bind "Ctrl e" { SwitchToMode "Normal"; }
-          }
-          tab {
-              bind "c" {
-                  NewTab {
-                      cwd "~"
-                  }
-                  SwitchToMode "normal";
-              }
-          }
-      }
-
-      // csb0 theme (purple/blue)
-      themes {
-          csb0 {
-              bg "#9999ff"
-              fg "#6666af"
-              red "#f0f0f0"
-              green "#9999ff"
-              blue "#00d9e3"
-              yellow "#aae600"
-              magenta "#aa00ff"
-              orange "#006611"
-              cyan "#00e5e5"
-              black "#00000f"
-              white "#ffffff"
-          }
-      }
-
-      session_serialization true
-      theme "csb0"
-    '';
-  };
+  # Starship, Zellij, and Eza colors are auto-applied by:
+  #   modules/common.nix → modules/shared/theme-hm.nix
+  #
+  # Theme: Ice Blue (soft sky blue for cloud server identity)
+  # See: modules/shared/theme-palettes.nix for color definitions
+  #
+  # Note: Zellij package + fish functions come from modules/uzumaki/server.nix
 }
