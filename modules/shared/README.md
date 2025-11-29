@@ -4,15 +4,109 @@ This directory contains configuration files shared across all systems (NixOS ser
 
 ## Files
 
-| File               | Purpose                                                  | Used By                        |
-| ------------------ | -------------------------------------------------------- | ------------------------------ |
-| `fish-config.nix`  | Fish shell aliases, abbreviations, `sourcefish` function | `common.nix`, `imac0/home.nix` |
-| `macos-common.nix` | macOS-specific: WezTerm, fonts, packages                 | `imac0`, `imac-mba-work`       |
-| `starship.toml`    | Tokyo Night prompt theme                                 | All systems                    |
+| File                     | Purpose                                                  | Used By                        |
+| ------------------------ | -------------------------------------------------------- | ------------------------------ |
+| `fish-config.nix`        | Fish shell aliases, abbreviations, `sourcefish` function | `common.nix`, `imac0/home.nix` |
+| `macos-common.nix`       | macOS-specific: WezTerm, fonts, packages                 | `imac0`, `imac-mba-work`       |
+| `starship.toml`          | Tokyo Night prompt theme (legacy)                        | Systems not using theme-hm.nix |
+| `theme-palettes.nix`     | Color palette definitions per host                       | `theme-hm.nix`                 |
+| `theme-hm.nix`           | Home Manager theme module (auto-applies palettes)        | `imac0`, etc.                  |
+| `starship-template.toml` | Template with Unicode glyphs + color placeholders        | `theme-hm.nix`                 |
 
 ---
 
-## starship.toml
+## theme-hm.nix & starship-template.toml
+
+### How the Template System Works
+
+The theme module uses a **template-based approach** to preserve Unicode/Nerd Font characters:
+
+1. `starship-template.toml` contains the full starship config with:
+   - All Unicode/Nerd Font glyphs intact (✦, ❯, ✗, , , etc.)
+   - Color placeholders like `__PRIMARY__`, `__LIGHTEST__`, `__TEXT_ACCENT__`
+
+2. `theme-hm.nix` reads the template and uses `builtins.replaceStrings` to substitute
+   ONLY the ASCII color placeholders with actual hex values from the palette.
+
+3. This preserves all Unicode because we never write them in Nix strings.
+
+### DRY Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              DRY Architecture                               │
+│                                                                             │
+│    hosts/imac0/home.nix                                                     │
+│         │                                                                   │
+│         │ imports                                                           │
+│         ▼                                                                   │
+│    modules/shared/theme-hm.nix ──────► theme.hostname = "imac0"             │
+│         │                                       │                           │
+│         │ reads                                 │ lookup                    │
+│         ▼                                       ▼                           │
+│    ┌────────────────────────┐          hostPalette.imac0 = "lightGray"      │
+│    │ starship-template.toml │                   │                           │
+│    │ (Unicode glyphs +      │                   │                           │
+│    │  color placeholders)   │                   │                           │
+│    └────────────────────────┘                   │                           │
+│         │                                       │                           │
+│         │ builtins.replaceStrings               │                           │
+│         ▼                                       ▼                           │
+│    modules/shared/theme-palettes.nix ──► palettes.lightGray = { ... }       │
+│                                                 │                           │
+│                                                 │                           │
+│                                                 ▼                           │
+│    ┌─────────────────────────────────────────────────────────────────────┐  │
+│    │                    Auto-Generated Configs                           │  │
+│    │                                                                     │  │
+│    │  ~/.config/starship.toml    (powerline, status, Unicode preserved)  │  │
+│    │  ~/.config/zellij/config.kdl (theme, keybindings)                   │  │
+│    │  EZA_COLORS, LS_COLORS      (environment variables)                 │  │
+│    └─────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Points:**
+
+- Unicode characters are preserved because they live in `starship-template.toml`
+- Only ASCII color placeholders (`__PRIMARY__`, `__LIGHTEST__`, etc.) are substituted
+- One palette definition in `theme-palettes.nix` → three auto-generated configs
+- Add a new host: just add one line to `hostPalette` mapping
+
+### ⚠️ CRITICAL: Editing starship-template.toml
+
+**The same rules as starship.toml apply here!**
+
+- ✅ Use Python for Unicode character edits
+- ✅ Use sed for simple ASCII value changes
+- ❌ DO NOT use heredocs or echo
+- ❌ DO NOT manually type Nerd Font icons
+
+### Color Placeholders in Template
+
+| Placeholder            | Source in theme-palettes.nix |
+| ---------------------- | ---------------------------- |
+| `__LIGHTEST__`         | `palette.gradient.lightest`  |
+| `__PRIMARY__`          | `palette.gradient.primary`   |
+| `__SECONDARY__`        | `palette.gradient.secondary` |
+| `__MIDDARK__`          | `palette.gradient.midDark`   |
+| `__DARK__`             | `palette.gradient.dark`      |
+| `__DARKER__`           | `palette.gradient.darker`    |
+| `__DARKEST__`          | `palette.gradient.darkest`   |
+| `__TEXT_ON_LIGHTEST__` | `palette.text.onLightest`    |
+| `__TEXT_ON_MEDIUM__`   | `palette.text.onMedium`      |
+| `__TEXT_ACCENT__`      | `palette.text.accent`        |
+| `__TEXT_MUTED__`       | `palette.text.muted`         |
+| `__TEXT_MUTED_LIGHT__` | `palette.text.mutedLight`    |
+| `__ROOT_BG__`          | `statusColors.root.bg`       |
+| `__ROOT_FG__`          | `statusColors.root.fg`       |
+| `__ERROR_BG__`         | `statusColors.error.bg`      |
+| `__ERROR_FG__`         | `statusColors.error.fg`      |
+| `__SUDO_FG__`          | `statusColors.sudo.fg`       |
+
+---
+
+## starship.toml (Legacy)
 
 ### ⚠️ CRITICAL: Editing Rules
 
