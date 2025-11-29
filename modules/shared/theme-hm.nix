@@ -250,18 +250,21 @@ in
       text = mkZellijConfig palette hostname;
     };
 
-    # EZA colors via session variable (universal polished theme)
-    home.sessionVariables = lib.mkIf config.theme.eza.enable {
-      EZA_COLORS = themePalettes.ezaColors;
-      # Also set LS_COLORS for basic ls compatibility (subset)
-      LS_COLORS = "di=1;38;5;110:ln=38;5;116:ex=38;5;114:or=38;5;167";
+    # Eza theme file (Tokyo Night based, sysop-focused)
+    # Using theme file instead of EZA_COLORS for better maintainability
+    home.file.".config/eza/theme.yml" = lib.mkIf config.theme.eza.enable {
+      source = ./eza-themes/sysop.yml;
     };
 
-    # Fish-specific: set EZA_COLORS directly (fish doesn't source bash profiles)
+    # LS_COLORS for basic ls compatibility (subset of our theme)
+    home.sessionVariables = lib.mkIf config.theme.eza.enable {
+      LS_COLORS = "di=1;34:ln=36:ex=1;32:or=31";
+    };
+
+    # Fish-specific: set LS_COLORS directly (fish doesn't source bash profiles)
     programs.fish.interactiveShellInit = lib.mkIf config.theme.eza.enable ''
-      # Eza colors (polished universal theme from theme-hm.nix)
-      set -gx EZA_COLORS "${themePalettes.ezaColors}"
-      set -gx LS_COLORS "di=1;38;5;110:ln=38;5;116:ex=38;5;114:or=38;5;167"
+      # LS_COLORS for basic ls compatibility
+      set -gx LS_COLORS "di=1;34:ln=36:ex=1;32:or=31"
     '';
   };
 }

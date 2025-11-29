@@ -761,182 +761,20 @@
   };
 
   # ============================================================================
-  # EZA COLORS - Sysop-Focused Universal Theme
+  # EZA THEME
   # ============================================================================
   #
-  # ┌─────────────────────────────────────────────────────────────────────────┐
-  # │                         DESIGN PHILOSOPHY                               │
-  # ├─────────────────────────────────────────────────────────────────────────┤
-  # │  Optimized for sysops/developers who need to quickly identify:         │
-  # │                                                                         │
-  # │  HIGH VISIBILITY (stand out):                                           │
-  # │    • Executables - "Can I run this?" - Bold bright green                │
-  # │    • Directories - Navigation targets - Bold soft blue                  │
-  # │    • Setuid/Setgid - Security concern! - Red/orange backgrounds         │
-  # │    • Broken symlinks - Fix this! - Warning red                          │
-  # │                                                                         │
-  # │  MEDIUM VISIBILITY (noticeable):                                        │
-  # │    • Symlinks - Distinct but not distracting - Soft cyan                │
-  # │    • Large files (GB/TB) - Disk space awareness - Brighter sizes        │
-  # │    • Git modified - What changed? - Yellow/amber                        │
-  # │                                                                         │
-  # │  LOW VISIBILITY (background info):                                      │
-  # │    • Permissions - Readable but muted - Subtle grays                    │
-  # │    • Timestamps - Reference info - Muted                                │
-  # │    • User/group - Usually unimportant - Very muted                      │
-  # │    • Small files - Not a concern - Barely visible sizes                 │
-  # │                                                                         │
-  # │  NOTE: Eza has built-in file extension colors (flake.nix = yellow)      │
-  # │        which are separate from EZA_COLORS and cannot be disabled.       │
-  # └─────────────────────────────────────────────────────────────────────────┘
+  # Eza colors are now defined in a YAML theme file for better maintainability:
+  #   modules/shared/eza-themes/sysop.yml
   #
-  # Color Format: ANSI 256-color (38;5;N) for compatibility
-  #   - 38;5;N = foreground color N
-  #   - 48;5;N = background color N
-  #   - 1; = bold, 4; = underline
+  # Based on Tokyo Night theme with sysop-focused modifications:
+  # https://github.com/eza-community/eza-themes/blob/main/themes/tokyonight.yml
   #
-  # Reference: https://github.com/eza-community/eza/blob/main/man/eza_colors.5.md
+  # The theme file is installed to ~/.config/eza/theme.yml by theme-hm.nix
   #
-  ezaColors = builtins.concatStringsSep ":" [
-    # ══════════════════════════════════════════════════════════════════════════
-    # FILE TYPES - Primary visual hierarchy
-    # ══════════════════════════════════════════════════════════════════════════
-
-    # Directories: Bold soft blue - navigation targets, important
-    "di=1;38;5;110"
-
-    # Executables: BOLD BRIGHT GREEN - "Can I run this?" - MUST stand out!
-    "ex=1;38;5;78"
-
-    # Symlinks: Soft cyan - distinct but subtle
-    "ln=38;5;116"
-
-    # Broken symlinks: Warning red - problems need attention
-    "or=38;5;167"
-
-    # Regular files: Default terminal color (no override)
-    # "fi=0"
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # SPECIAL FILES - Subtle distinction
-    # ══════════════════════════════════════════════════════════════════════════
-
-    # Sockets: Muted purple
-    "so=38;5;139"
-
-    # Pipes (FIFO): Muted yellow
-    "pi=38;5;179"
-
-    # Block devices: Muted orange
-    "bd=38;5;173"
-
-    # Character devices: Similar to block
-    "cd=38;5;173"
-
-    # Setuid: Warning (red bg) - security relevant
-    "su=38;5;231;48;5;167"
-
-    # Setgid: Warning (orange bg)
-    "sg=38;5;231;48;5;172"
-
-    # Sticky: Muted
-    "st=38;5;231;48;5;68"
-
-    # Other-writable: Security concern
-    "ow=38;5;110;48;5;236"
-
-    # Sticky + other-writable
-    "tw=38;5;110;48;5;238"
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # PERMISSIONS - Very muted, readable but not distracting
-    # ══════════════════════════════════════════════════════════════════════════
-
-    # User permissions (rwx)
-    "ur=38;5;249" # read
-    "uw=38;5;249" # write
-    "ux=38;5;249" # execute
-    "ue=38;5;249" # special execute
-
-    # Group permissions
-    "gr=38;5;243"
-    "gw=38;5;243"
-    "gx=38;5;243"
-
-    # Other permissions
-    "tr=38;5;238"
-    "tw=38;5;238"
-    "tx=38;5;238"
-
-    # No permission dash
-    "xx=38;5;236"
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # SIZE - Subtle gradient from small to large
-    # ══════════════════════════════════════════════════════════════════════════
-
-    "sn=38;5;243" # Size number: muted
-    "sb=38;5;243" # Size unit: same as number
-
-    # Size scale (bytes to TB) - subtle gradient
-    "nb=38;5;239" # Bytes: very muted
-    "nk=38;5;243" # KB: slightly visible
-    "nm=38;5;247" # MB: noticeable
-    "ng=38;5;251" # GB: prominent
-    "nt=38;5;255" # TB: very prominent
-
-    # Unit scale matches number scale
-    "ub=38;5;239"
-    "uk=38;5;243"
-    "um=38;5;247"
-    "ug=38;5;251"
-    "ut=38;5;255"
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # DATE/TIME - Muted, uses age gradient
-    # ══════════════════════════════════════════════════════════════════════════
-
-    "da=38;5;243" # Date: muted gray
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # USER/GROUP - Very subtle
-    # ══════════════════════════════════════════════════════════════════════════
-
-    "uu=38;5;249" # User (you): slightly visible
-    "un=38;5;243" # User (other): muted
-    "gu=38;5;243" # Group (yours): muted
-    "gn=38;5;238" # Group (other): very muted
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # GIT STATUS - Matches starship philosophy
-    # ══════════════════════════════════════════════════════════════════════════
-
-    "ga=38;5;114" # Added: green (like git)
-    "gm=38;5;179" # Modified: yellow/amber
-    "gd=38;5;167" # Deleted: red
-    "gv=38;5;139" # Renamed: purple
-    "gt=38;5;110" # Type change: blue
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # HEADER - Column headers in --header mode
-    # ══════════════════════════════════════════════════════════════════════════
-
-    "hd=4;38;5;249" # Underlined, muted
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # ICONS - Match file type colors
-    # ══════════════════════════════════════════════════════════════════════════
-
-    "ic=38;5;249" # Icon: subtle
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # PUNCTUATION - Very subtle
-    # ══════════════════════════════════════════════════════════════════════════
-
-    "xx=38;5;236" # Punctuation: nearly invisible
-  ];
 
   # ============================================================================
+  # FEATURE SUMMARY  # ============================================================================
   # FEATURE SUMMARY
   # ============================================================================
   #

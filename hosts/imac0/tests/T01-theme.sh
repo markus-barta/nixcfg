@@ -151,56 +151,28 @@ check_file_contains "$HOME/.config/zellij/config.kdl" 'unbind "Ctrl o"' "Ctrl+o 
 check_file_contains "$HOME/.config/zellij/config.kdl" 'bind "Ctrl a"' "Ctrl+a keybinding configured"
 
 # ────────────────────────────────────────────────────────────────────────────────
-# T01.7 - Eza Colors File (backup check)
+# T01.7 - Eza Theme File
 # ────────────────────────────────────────────────────────────────────────────────
 
-print_test "T01.7 - Eza Colors in Session Vars File"
+print_test "T01.7 - Eza Theme File"
 
-# Check session variables file exists (for bash compatibility)
-HM_SESSION_VARS="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
-if [[ -f "$HM_SESSION_VARS" ]]; then
-  check_file_contains "$HM_SESSION_VARS" "EZA_COLORS" "EZA_COLORS defined in hm-session-vars.sh"
-  check_file_contains "$HM_SESSION_VARS" "LS_COLORS" "LS_COLORS defined in hm-session-vars.sh"
-else
-  fail "Session vars file not found: $HM_SESSION_VARS"
-fi
+EZA_THEME_FILE="$HOME/.config/eza/theme.yml"
+check_file_exists "$EZA_THEME_FILE"
+check_file_contains "$EZA_THEME_FILE" "Tokyo Night" "Theme based on Tokyo Night"
+check_file_contains "$EZA_THEME_FILE" "sysop" "Sysop-focused modifications"
+check_file_contains "$EZA_THEME_FILE" "executable:.*bold: true" "Executables are bold"
 
 # ────────────────────────────────────────────────────────────────────────────────
-# T01.8 - Eza Colors (Fish Environment - CRITICAL)
+# T01.8 - Eza Theme Content (Sysop-focused features)
 # ────────────────────────────────────────────────────────────────────────────────
 
-print_test "T01.8 - Eza Colors in Fish Shell"
+print_test "T01.8 - Eza Theme Sysop Features"
 
-# Check that EZA_COLORS is actually set in fish (not just in a file)
-# This is CRITICAL - the file may exist but fish may not source it!
-
-check_fish_var() {
-  local var_name="$1"
-  local expected_pattern="$2"
-  local description="$3"
-
-  # Run fish INTERACTIVELY (-i) to get the actual variable value
-  # (interactiveShellInit only runs in interactive mode)
-  local value
-  value=$(fish -i -c "echo \$$var_name" 2>/dev/null)
-
-  if [[ -n "$value" ]] && echo "$value" | grep -q "$expected_pattern"; then
-    pass "$description"
-    return 0
-  elif [[ -z "$value" ]]; then
-    fail "$description (variable not set in fish!)"
-    return 1
-  else
-    fail "$description (pattern '$expected_pattern' not in value)"
-    return 1
-  fi
-}
-
-check_fish_var "EZA_COLORS" "di=1;38;5;110" "EZA_COLORS set in fish with soft blue directories"
-check_fish_var "EZA_COLORS" "ex=1;38;5;78" "EZA_COLORS has BOLD bright green executables"
-check_fish_var "EZA_COLORS" "ln=38;5;116" "EZA_COLORS has soft cyan symlinks"
-check_fish_var "EZA_COLORS" "or=38;5;167" "EZA_COLORS has warning red for broken links"
-check_fish_var "LS_COLORS" "di=1;38;5;110" "LS_COLORS set in fish for compatibility"
+check_file_contains "$EZA_THEME_FILE" 'directory:.*bold: true' "Directories are bold"
+check_file_contains "$EZA_THEME_FILE" 'user_execute_file:.*bold: true' "User execute permission is bold"
+check_file_contains "$EZA_THEME_FILE" 'broken_symlink:.*bold: true' "Broken symlinks are bold"
+check_file_contains "$EZA_THEME_FILE" 'number_giga:.*bold: true' "Large files (GB) are bold"
+check_file_contains "$EZA_THEME_FILE" 'special_user_file:.*bold: true' "Setuid files are bold"
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T01.9 - Unicode/Nerd Font Icons (CRITICAL - prevents corruption)

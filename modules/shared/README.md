@@ -107,68 +107,64 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 
 ---
 
-## Eza Colors (Universal Sysop Theme)
+## Eza Theme (Tokyo Night + Sysop)
 
-The `ezaColors` in `theme-palettes.nix` provides a sysop-focused color scheme for `eza`.
+Eza uses a **theme file** at `~/.config/eza/theme.yml` instead of the `EZA_COLORS` variable.
+
+### Base Theme
+
+Based on [Tokyo Night from eza-themes](https://github.com/eza-community/eza-themes/blob/main/themes/tokyonight.yml)
+with sysop-focused modifications.
+
+### Source File
+
+`modules/shared/eza-themes/sysop.yml`
 
 ### Design Philosophy
-
-Optimized for sysops/developers who need to quickly identify:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  HIGH VISIBILITY (stand out immediately):                       │
-│    • Executables    - Bold bright green  - "Can I run this?"    │
-│    • Directories    - Bold soft blue     - Navigation targets   │
-│    • Setuid/Setgid  - Red/orange bg      - Security concern!    │
-│    • Broken links   - Warning red        - Fix this!            │
+│    • Executables    - Bold green         - "Can I run this?"    │
+│    • Directories    - Bold blue          - Navigation targets   │
+│    • Setuid/Setgid  - Bold warning       - Security concern!    │
+│    • Broken links   - Bold red           - Fix this!            │
+│    • Large files    - Bold (GB+)         - Disk space awareness │
 │                                                                 │
 │  MEDIUM VISIBILITY (noticeable when looking):                   │
-│    • Symlinks       - Soft cyan          - Distinct but subtle  │
-│    • Large files    - Brighter sizes     - Disk space awareness │
+│    • Symlinks       - Cyan               - Distinct but subtle  │
 │    • Git modified   - Yellow/amber       - What changed?        │
+│    • Compressed     - Orange             - Archives noticeable  │
 │                                                                 │
 │  LOW VISIBILITY (background info, not distracting):             │
-│    • Permissions    - Subtle grays       - Readable but muted   │
-│    • Timestamps     - Muted              - Reference info       │
-│    • User/group     - Very muted         - Usually unimportant  │
-│    • Small files    - Barely visible     - Not a concern        │
+│    • Permissions    - Subtle colors      - Readable but muted   │
+│    • Timestamps     - Very muted         - Reference info       │
+│    • User/group     - Muted              - Usually unimportant  │
+│    • Small files    - Muted sizes        - Not a concern        │
+│    • Temp/compiled  - Dim                - Build artifacts      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Color Reference
+### Key Modifications from Tokyo Night
 
-| Category     | Style                 | ANSI Code           | Rationale                    |
-| ------------ | --------------------- | ------------------- | ---------------------------- |
-| Directories  | Bold soft blue        | `1;38;5;110`        | Navigation, prominent        |
-| Executables  | **Bold bright green** | `1;38;5;78`         | Critical for sysops!         |
-| Symlinks     | Soft cyan             | `38;5;116`          | Distinct but not distracting |
-| Broken links | Warning red           | `38;5;167`          | Errors need attention        |
-| Setuid       | White on red          | `38;5;231;48;5;167` | Security alert!              |
-| Setgid       | White on orange       | `38;5;231;48;5;172` | Security alert!              |
-| Permissions  | Gradient gray         | `38;5;249→236`      | rwx visible, --- fades       |
-| Size (GB+)   | Bright                | `38;5;251-255`      | Large files stand out        |
-| Size (KB-)   | Muted                 | `38;5;239-243`      | Small files fade             |
-| Git added    | Green                 | `38;5;114`          | Good - new content           |
-| Git modified | Yellow                | `38;5;179`          | Attention - changes          |
-| Git deleted  | Red                   | `38;5;167`          | Warning - removed            |
-
-### File Extension Colors (Note)
-
-Eza has a **built-in database** of file extensions that adds its own colors:
-
-- `flake.nix` → Yellow underlined (important config)
-- `*.lock` → Dim (generated file)
-- `*.md` → Cyan (documentation)
-
-These are **separate from EZA_COLORS** and cannot be fully overridden.
+| Item              | Tokyo Night | Sysop Override  | Reason                   |
+| ----------------- | ----------- | --------------- | ------------------------ |
+| Executables       | Green       | **Bold** green  | Critical for sysops      |
+| Directories       | Blue        | **Bold** blue   | Navigation targets       |
+| User execute perm | Green       | **Bold** green  | "x" bit must stand out   |
+| GB+ file sizes    | Orange      | **Bold** orange | Disk space awareness     |
+| Broken symlinks   | Pink        | **Bold** pink   | Errors need attention    |
+| Setuid files      | Pink        | **Bold** pink   | Security concern         |
+| Git modified      | Purple      | Yellow/amber    | Match git conventions    |
+| Dates             | Orange      | Muted gray      | Less important           |
+| Byte sizes        | Gray        | Very muted      | Small files don't matter |
 
 ### Testing
 
 ```bash
-ll                    # Should show polished colors
-ll -la /usr/bin       # Check executable highlighting
-echo $EZA_COLORS      # Verify config loaded in fish
+ll                          # Should show Tokyo Night colors
+ll -la /usr/bin             # Check bold executables
+cat ~/.config/eza/theme.yml # View theme file
 ```
 
 ---
