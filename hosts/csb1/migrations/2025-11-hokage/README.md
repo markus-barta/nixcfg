@@ -10,6 +10,7 @@ Run in order:
 
 | #   | Script                   | Purpose                                    |
 | --- | ------------------------ | ------------------------------------------ |
+| 00  | `00-build-test.sh`       | Build new config WITHOUT applying          |
 | 01  | `01-pre-snapshot.sh`     | Capture system state before migration      |
 | 02  | `02-post-verify.sh`      | Compare post-migration state with snapshot |
 | 03  | `03-rollback.sh`         | Verify rollback capability                 |
@@ -23,7 +24,17 @@ Run in order:
 ### Before Migration
 
 ```bash
+./00-build-test.sh      # Verify build succeeds (no changes applied)
 ./01-pre-snapshot.sh    # Creates snapshot in snapshots/
+```
+
+### Apply Migration
+
+```bash
+# On csb1:
+cd ~/Code/nixcfg
+git pull
+sudo nixos-rebuild switch --flake .#csb1
 ```
 
 ### After Migration
