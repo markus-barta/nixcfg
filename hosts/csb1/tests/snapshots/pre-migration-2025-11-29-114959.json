@@ -1,0 +1,107 @@
+{
+  "timestamp": "2025-11-29-114959",
+  "host": "cs1.barta.cm",
+  "system": {
+    "nixos_version": "24.11.20240926.1925c60 (Vicuna)",
+    "kernel": "6.6.52",
+    "uptime": "unknown",
+    "generation_count": 4,
+    "current_generation": "4"
+  },
+  "containers": [
+    {
+      "name": "csb1-docker-proxy-traefik-1",
+      "image": "tecnativa/docker-socket-proxy",
+      "status": "Up 7 months"
+    },
+    {
+      "name": "csb1-docmost-1",
+      "image": "docmost/docmost",
+      "status": "latest:Up 5 months"
+    },
+    {
+      "name": "csb1-docmost-db-1",
+      "image": "postgres",
+      "status": "16-alpine:Up 5 months"
+    },
+    {
+      "name": "csb1-docmost-redis-1",
+      "image": "redis",
+      "status": "7-alpine:Up 5 months"
+    },
+    {
+      "name": "csb1-grafana-1",
+      "image": "grafana/grafana-oss",
+      "status": "latest:Up 7 months"
+    },
+    {
+      "name": "csb1-influxdb-1",
+      "image": "quay.io/influxdb/influxdb3-core",
+      "status": "latest:Up 6 months"
+    },
+    {
+      "name": "csb1-paperless-1",
+      "image": "ghcr.io/paperless-ngx/paperless-ngx",
+      "status": "latest:Up 5 months (healthy)"
+    },
+    {
+      "name": "csb1-paperless-db-1",
+      "image": "postgres",
+      "status": "16-alpine:Up 5 months"
+    },
+    {
+      "name": "csb1-paperless-gotenberg-1",
+      "image": "gotenberg/gotenberg",
+      "status": "8:Up 5 months"
+    },
+    {
+      "name": "csb1-paperless-redis-1",
+      "image": "redis",
+      "status": "7-alpine:Up 5 months"
+    },
+    {
+      "name": "csb1-paperless-tika-1",
+      "image": "ghcr.io/paperless-ngx/tika",
+      "status": "latest:Up 5 months"
+    },
+    {
+      "name": "csb1-restic-cron-hetzner-1",
+      "image": "csb1-restic-cron-hetzner",
+      "status": "Up 7 months"
+    },
+    { "name": "csb1-smtp-1", "image": "namshi/smtp", "status": "Up 7 months" },
+    { "name": "csb1-traefik-1", "image": "traefik", "status": "Up 5 months" },
+    {
+      "name": "csb1-whoami-1",
+      "image": "containous/whoami",
+      "status": "Up 5 months"
+    }
+  ],
+  "volumes": [
+    "1cf522f0142f460ff3229e28e4ec9c38c4dd0486737e4a272b5e23b2adcb2b04",
+    "csb1_docmost_data",
+    "csb1_docmost_db_data",
+    "csb1_docmost_redis_data",
+    "csb1_grafana_data",
+    "csb1_hedgedoc-app-uploads",
+    "csb1_hedgedoc-db-data",
+    "csb1_influxdb_data",
+    "csb1_paperless_consume",
+    "csb1_paperless_data",
+    "csb1_paperless_db_data",
+    "csb1_paperless_media",
+    "csb1_paperless_redis_data"
+  ],
+  "services": {
+    "grafana": { "url": "https://grafana.barta.cm", "http_code": "302" },
+    "docmost": { "url": "https://docmost.barta.cm", "http_code": "200" },
+    "paperless": { "url": "https://paperless.barta.cm", "http_code": "302" }
+  },
+  "zfs": {
+    "pool_info": "zroot	252G	7.04G	245G	2%	ONLINE",
+    "compress_ratio": "2.59x"
+  },
+  "security": {
+    "ssh_key_count": 0
+  }
+}

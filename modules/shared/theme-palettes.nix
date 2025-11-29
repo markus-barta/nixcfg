@@ -93,7 +93,7 @@
 #    │ Text Color      │ Used On            │ Purpose                          │
 #    ├─────────────────┼────────────────────┼──────────────────────────────────┤
 #    │ text.onLightest │ lightest bg        │ Dark text (icon, high contrast)  │
-#    │ text.onMedium   │ primary/secondary  │ Pure white #fff (path, max vis)  │
+#    │ text.onMedium   │ primary/secondary  │ Black #000 (path, high contrast) │
 #    │ text.accent     │ dark backgrounds   │ Bright accent (git branch, lang) │
 #    │ text.muted      │ midDark bg         │ Subtle/dim (git commit count)    │
 #    │ text.mutedLight │ darker bg          │ Softer accent (time display)     │
@@ -244,7 +244,7 @@
       # Text colors
       text = {
         onLightest = "#1a1a2a"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#c8d0e8"; # Accent fg on dark bg
         muted = "#707888"; # Git count, subtle info
         mutedLight = "#a0a8b8"; # Time text
@@ -280,7 +280,7 @@
       # Text colors
       text = {
         onLightest = "#090c0c"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#769ff0"; # Accent fg on dark bg
         muted = "#1a1a2e"; # Git count (intentionally stark/subtle)
         mutedLight = "#a0a9cb"; # Time text
@@ -320,7 +320,7 @@
       # Text colors
       text = {
         onLightest = "#2a2810"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#e8d878"; # Accent fg on dark bg
         muted = "#3a3518"; # Git count, subtle
         mutedLight = "#b8b088"; # Time text
@@ -356,7 +356,7 @@
       # Text colors
       text = {
         onLightest = "#0c2010"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#88e898"; # Accent fg on dark bg
         muted = "#1a2818"; # Git count, subtle
         mutedLight = "#88a890"; # Time text
@@ -392,7 +392,7 @@
       # Text colors
       text = {
         onLightest = "#2a1808"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#f0a868"; # Accent fg on dark bg
         muted = "#3a2810"; # Git count, subtle
         mutedLight = "#c0a080"; # Time text
@@ -432,7 +432,7 @@
       # Text colors
       text = {
         onLightest = "#1a0c28"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#b888e8"; # Accent fg on dark bg
         muted = "#2a1840"; # Git count, subtle
         mutedLight = "#a088b8"; # Time text
@@ -468,7 +468,7 @@
       # Text colors
       text = {
         onLightest = "#2a0c18"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#f090b8"; # Accent fg on dark bg
         muted = "#401028"; # Git count, subtle
         mutedLight = "#b888a0"; # Time text
@@ -508,7 +508,7 @@
       # Text colors
       text = {
         onLightest = "#181a1c"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         onSecondary = "#d8dce0"; # Slightly muted for user@host
         accent = "#c0c8d0"; # Accent fg on dark bg
         muted = "#707478"; # Git count - lighter for readability on dark
@@ -545,7 +545,7 @@
       # Text colors
       text = {
         onLightest = "#101214"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#a0a8b0"; # Accent fg on dark bg
         muted = "#282c30"; # Git count, subtle
         mutedLight = "#707478"; # Time text
@@ -581,7 +581,7 @@
       # Text colors
       text = {
         onLightest = "#14161a"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#b0b8c0"; # Accent fg on dark bg
         muted = "#303438"; # Git count, subtle
         mutedLight = "#808488"; # Time text
@@ -617,7 +617,7 @@
       # Text colors
       text = {
         onLightest = "#181614"; # Dark text on lightest bg
-        onMedium = "#ffffff"; # Pure white for path (high contrast)
+        onMedium = "#000000"; # Black for path (high contrast)
         accent = "#c0b8b0"; # Accent fg on dark bg
         muted = "#383430"; # Git count, subtle
         mutedLight = "#908880"; # Time text
