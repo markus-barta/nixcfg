@@ -67,7 +67,7 @@ $nix_shell\
 command = "echo '⚠'"
 when = "test $USER = root"
 style = "bold fg:__ROOT_FG__ bg:__ROOT_BG__"
-format = "[$output ]($style)"
+format = "[ $output ]($style)"
 
 # ════════════════════════════════════════════════════════════════════════════════
 # OS ICON
