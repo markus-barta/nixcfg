@@ -553,62 +553,6 @@ in
   # See: modules/shared/theme-palettes.nix for color definitions
 
   # ============================================================================
-  # Root User Shell Setup
-  # ============================================================================
-  # Helper script to sync starship + fish config to root
-  # Run: sync-root-shell
-  home.file."Scripts/sync-root-shell" = {
-    executable = true;
-    text = ''
-      #!/bin/bash
-      echo "🔧 Syncing shell config to root user..."
-
-      # Create root's config directories
-      sudo mkdir -p /var/root/.config/fish
-
-      # Copy starship config
-      sudo cp -f "$HOME/.config/starship.toml" /var/root/.config/starship.toml
-      echo "✅ Copied starship.toml to /var/root/.config/"
-
-      # Create fish config for root with starship init
-      FISH_PATH="$HOME/.nix-profile/bin/fish"
-      STARSHIP_PATH="$HOME/.nix-profile/bin/starship"
-
-      sudo tee /var/root/.config/fish/config.fish > /dev/null << FISHEOF
-      # Root fish config - synced from $USER's home-manager
-      # Starship prompt initialization
-      if test -x "$STARSHIP_PATH"
-          "$STARSHIP_PATH" init fish | source
-      end
-
-      # Basic settings
-      set -g fish_greeting ""
-      FISHEOF
-      echo "✅ Created /var/root/.config/fish/config.fish with starship init"
-
-      # Check root's current shell
-      ROOT_SHELL=$(dscl . -read /Users/root UserShell | awk '{print $2}')
-
-      if [ "$ROOT_SHELL" = "$FISH_PATH" ]; then
-        echo "✅ Root shell is already fish"
-      else
-        echo ""
-        echo "⚠️  Root's current shell: $ROOT_SHELL"
-        echo ""
-        read -p "Change root's shell to fish now? [y/N] " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-          sudo chsh -s "$FISH_PATH" root
-          echo "✅ Root shell changed to fish"
-        fi
-      fi
-
-      echo ""
-      echo "🎉 Done! Test with: sudo su -"
-    '';
-  };
-
-  # ============================================================================
   # Scripts Management
   # ============================================================================
   home.file."Scripts" = {
