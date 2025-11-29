@@ -26,33 +26,33 @@ format = """
 ${custom.root_alert}\
 [░▒▓](__LIGHTEST__)\
 $os\
-[](bg:__PRIMARY__ fg:__LIGHTEST__)\
+[](bg:__PRIMARY__ fg:__LIGHTEST__)\
 $directory\
-[](fg:__PRIMARY__ bg:__SECONDARY__)\
+[](fg:__PRIMARY__ bg:__SECONDARY__)\
 $username\
 $hostname\
-[](fg:__SECONDARY__ bg:__MIDDARK__)\
+[](fg:__SECONDARY__ bg:__MIDDARK__)\
 $jobs\
 $git_branch\
 $git_status\
 ${custom.gitcount}\
-[](fg:__MIDDARK__ bg:__DARK__)\
+[](fg:__MIDDARK__ bg:__DARK__)\
 $nodejs\
 $python\
 $rust\
 $golang\
 $php\
 $docker_context\
-[](fg:__DARK__)\
+[](fg:__DARK__)\
 $fill\
 $status\
 $cmd_duration\
-[](fg:__DARKER__)\
+[](fg:__DARKER__)\
 $time\
-[](fg:__DARKER__ bg:__DARKEST__)\
+[](fg:__DARKER__ bg:__DARKEST__)\
 $sudo\
 $nix_shell\
-[](fg:__DARKEST__)\
+[](fg:__DARKEST__)\
 \n$character"""
 
 # ════════════════════════════════════════════════════════════════════════════════
