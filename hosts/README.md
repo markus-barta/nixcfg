@@ -8,13 +8,17 @@ This directory contains configuration for all managed hosts (NixOS and macOS sys
 
 ### Summary
 
-This repository uses a modular architecture where **NixOS servers** import the full hokage module system (with common.nix for shared configurations), while **macOS hosts** use standalone Home Manager with selective imports. Shared fish shell configurations (aliases, abbreviations) are now centralized in `modules/shared/fish-config.nix` to avoid duplication across platforms.
+This repository uses a modular architecture where **NixOS servers** import the full hokage module system (with common.nix for shared configurations), while **macOS hosts** use standalone Home Manager with selective imports. All hosts share:
+
+- **Fish shell** configuration via `modules/shared/fish-config.nix`
+- **Per-host theming** via `modules/shared/theme-hm.nix` (Starship, Zellij, Eza)
+- **Color palettes** defined in `modules/shared/theme-palettes.nix`
 
 ### How It Works
 
-**NixOS hosts** (hsb0, hsb8, csb0, csb1, etc.) follow a layered approach: the flake defines the system, which loads the host's `configuration.nix`, imports the hokage module from an external repository (`github:pbek/nixcfg`), which then loads `common.nix` for system-wide settings. Both `common.nix` and macOS configurations share fish shell settings via `modules/shared/fish-config.nix`.
+**NixOS hosts** (hsb0, hsb1, hsb8, etc.) follow a layered approach: the flake defines the system, which loads the host's `configuration.nix`, imports the hokage module from an external repository (`github:pbek/nixcfg`), which then loads `common.nix` for system-wide settings. `common.nix` imports `theme-hm.nix` which auto-applies host-specific colors.
 
-**macOS hosts** (imac0) use a simpler path: the flake loads Home Manager with `home.nix`, which directly imports shared configurations like `fish-config.nix` without the full hokage/common.nix stack since many NixOS-specific options don't apply to Darwin.
+**macOS hosts** (imac0, imac-mba-work) use a simpler path: the flake loads Home Manager with `home.nix`, which directly imports `theme-hm.nix` for theming and `fish-config.nix` for shell settings.
 
 ### Configuration Flow Chart
 
@@ -24,22 +28,20 @@ This repository uses a modular architecture where **NixOS servers** import the f
 │                    (Entry point for all systems)                        │
 └────────────┬────────────────────────────────────────┬───────────────────┘
              │                                        │
-             │                                        │
     ┌────────▼────────┐                    ┌──────────▼─────────┐
     │  NIXOS HOSTS    │                    │   MACOS HOSTS      │
-    │  (hsb0, hsb8,   │                    │   (imac0)          │
-    │   csb0, csb1)   │                    │                    │
+    │  (hsb0, hsb1,   │                    │   (imac0,          │
+    │   hsb8)         │                    │    imac-mba-work)  │
     └────────┬────────┘                    └──────────┬─────────┘
              │                                        │
-             │                                        │
     ┌────────▼────────────────┐           ┌───────────▼──────────────┐
-    │ hosts/*/                │           │ hosts/imac0/             │
+    │ hosts/*/                │           │ hosts/*/                 │
     │ configuration.nix       │           │ home.nix                 │
     │                         │           │ (Home Manager only)      │
     │ - Hardware config       │           │                          │
-    │ - Disk config (ZFS)     │           │ - Fish shell config      │
-    │ - Networking            │           │ - Starship prompt        │
-    │ - Host-specific options │           │ - macOS-specific tools   │
+    │ - Disk config (ZFS)     │           │ - macOS-specific tools   │
+    │ - Networking            │           │ - WezTerm, Karabiner     │
+    │ - Host-specific options │           │ - GUI app linking        │
     └────────┬────────────────┘           └─────────┬────────────────┘
              │                                      │
              │ imports                              │ imports
@@ -50,35 +52,73 @@ This repository uses a modular architecture where **NixOS servers** import the f
     │                           │                   │
     │ modules/hokage/           │                   │
     │ - default.nix (core)      │                   │
-    │ - programs/ (atuin, etc)  │                   │
-    │ - languages/ (nodejs, go) │                   │
-    │ - desktop.nix             │                   │
+    │ - programs/ (git, etc)    │                   │
+    │ - languages/              │                   │
     │ - server-home.nix         │                   │
     └────────┬──────────────────┘                   │
              │                                      │
              │ imports                              │
              │                                      │
-    ┌────────▼──────────────┐                       │
-    │ modules/common.nix    │                       │
-    │                       │                       │
-    │ - System packages     │                       │
-    │ - User accounts       │                       │
-    │ - Locale/timezone     │                       │
-    │ - Base shell config   │                       │
-    │ - Home Manager setup  │                       │
-    └────────┬──────────────┘                       │
+    ┌────────▼───────────────────┐                  │
+    │ modules/common.nix         │                  │
+    │                            │                  │
+    │ - System packages          │                  │
+    │ - User accounts            │                  │
+    │ - Home Manager per-user    │                  │
+    │ - theme.hostname = $host   │←─ passes hostname for theming
+    └────────┬───────────────────┘                  │
              │                                      │
              │ imports                              │ imports
              │                                      │
     ┌────────▼──────────────────────────────────────▼───────────┐
-    │          modules/shared/fish-config.nix                   │
+    │                   SHARED MODULES                          │
     │                                                           │
-    │  - fishAliases (gitpl, gitc, ll, j, etc)                  │
-    │  - fishAbbrs (tmux→zellij, vim→hx, nano→micro)            │
-    │                                                           │
-    │  Shared by ALL systems (NixOS + macOS)                    │
-    └───────────────────────────────────────────────────────────┘
+    │  modules/shared/theme-hm.nix ◄─────────────────────────┐  │
+    │    │                                                   │  │
+    │    │ reads hostname, looks up palette                  │  │
+    │    ▼                                                   │  │
+    │  modules/shared/theme-palettes.nix                     │  │
+    │    │                                                   │  │
+    │    │ generates configs                                 │  │
+    │    ▼                                                   │  │
+    │  ┌──────────────────────────────────────────────────┐  │  │
+    │  │ ~/.config/starship.toml  (per-host colors)       │  │  │
+    │  │ ~/.config/zellij/config.kdl (per-host theme)     │  │  │
+    │  │ ~/.config/eza/theme.yml (sysop-focused colors)   │  │  │
+    │  └──────────────────────────────────────────────────┘  │  │
+    │                                                        │  │
+    │  modules/shared/fish-config.nix                        │  │
+    │    - fishAliases (gitpl, gitc, ll, j, etc)             │  │
+    │    - fishAbbrs (tmux→zellij, vim→hx)                   │  │
+    └────────────────────────────────────────────────────────┘  │
 ```
+
+### Per-Host Color Scheme
+
+Each host automatically gets a unique color palette via `theme-hm.nix`:
+
+```text
+┌─────────────────────┐          ┌─────────────────────┐
+│   CLOUD SERVERS     │          │    HOME SERVERS     │
+│                     │          │                     │
+│  csb0    ⬜ White   │          │  hsb0    🟨 Yellow  │  ← DNS/DHCP warning!
+│  csb1    🔵 Blue    │          │  hsb1    🟢 Green   │  ← Automation
+└─────────────────────┘          │  hsb8    🟠 Orange  │  ← Parents' home
+                                 └─────────────────────┘
+┌─────────────────────┐          ┌─────────────────────┐
+│    WORKSTATIONS     │          │      GAMING         │
+│                     │          │                     │
+│  imac0       ⬜ lightGray │    │  pcg0    💜 Purple  │
+│  imac-mba-work  ⬛ darkGray│   │  stm*    💗 Pink    │
+└─────────────────────┘          └─────────────────────┘
+```
+
+**Features applied per-host:**
+
+- **Starship prompt**: Powerline gradient in host color, root alert, sudo indicator
+- **Zellij**: Theme matching Starship colors
+- **Eza**: Tokyo Night + sysop-focused (bold executables, directories)
+- **Directory path**: Pure white `#ffffff` for maximum visibility
 
 ### Key Differences: NixOS vs macOS
 
@@ -88,19 +128,28 @@ This repository uses a modular architecture where **NixOS servers** import the f
 | **System Type**       | Full NixOS system                 | Home Manager only                 |
 | **Hokage Module**     | ✅ Full import (external)         | ❌ Not imported                   |
 | **common.nix**        | ✅ Auto-imported via hokage       | ❌ Not imported (NixOS-specific)  |
+| **theme-hm.nix**      | ✅ Via common.nix                 | ✅ Direct import                  |
 | **fish-config.nix**   | ✅ Via common.nix                 | ✅ Direct import                  |
-| **Platform Specific** | ZFS, systemd, networking          | macOS tools, Homebrew integration |
-| **Shared Config**     | Aliases, abbreviations, functions | Same via fish-config.nix          |
+| **Platform Specific** | ZFS, systemd, networking          | WezTerm, Karabiner, GUI app links |
+| **Theming**           | Auto (hostname from NixOS config) | Auto (hostname from `$HOST`)      |
 
 ### Why This Architecture?
 
-**DRY Principle**: Fish shell configuration defined once in `modules/shared/fish-config.nix`, used everywhere
+**DRY Principle**: Configuration defined once, used everywhere:
+
+- Fish shell settings in `modules/shared/fish-config.nix`
+- Color palettes in `modules/shared/theme-palettes.nix`
+- Theme generation in `modules/shared/theme-hm.nix`
+
+**Per-Host Theming**: Each host gets unique colors automatically:
+
+- Add host to `hostPalette` map → done
+- Starship, Zellij, Eza all themed consistently
+- Visual identification: "Yellow prompt? You're on hsb0 (DNS/DHCP)!"
 
 **Platform Separation**: NixOS-specific settings (systemd, ZFS) stay in `common.nix`, don't clutter macOS config
 
-**External Hokage**: Using `github:pbek/nixcfg` as upstream allows MBA servers to benefit from Pbek's updates while maintaining local overrides (like disabling atuin)
-
-**Selective Imports**: macOS only imports what it needs (fish config, starship) without the full NixOS stack
+**External Hokage**: Using `github:pbek/nixcfg` as upstream allows MBA servers to benefit from Pbek's updates while maintaining local overrides
 
 ---
 
@@ -193,20 +242,22 @@ home-manager switch --flake ".#markus@<hostname>"
 
 ### Available macOS Hosts
 
-| Host            | Description                    | Command                                              |
-| --------------- | ------------------------------ | ---------------------------------------------------- |
-| `imac0`         | Home iMac (personal default)   | `home-manager switch --flake ".#markus@imac0"`       |
-| `imac-mba-work` | Work iMac (BYTEPOETS default)  | `home-manager switch --flake ".#markus@imac-mba-work"` |
+| Host            | Description                   | Command                                                |
+| --------------- | ----------------------------- | ------------------------------------------------------ |
+| `imac0`         | Home iMac (personal default)  | `home-manager switch --flake ".#markus@imac0"`         |
+| `imac-mba-work` | Work iMac (BYTEPOETS default) | `home-manager switch --flake ".#markus@imac-mba-work"` |
 
 ### Troubleshooting
 
 **"command not found: home-manager"** after first install:
+
 ```bash
 # Use nix run for first-time setup
 nix run home-manager -- switch --flake ".#markus@<hostname>"
 ```
 
 **PATH issues after switch**:
+
 ```bash
 # Restart shell
 exec fish
@@ -217,6 +268,7 @@ echo $PATH | tr ':' '\n' | head -5
 ```
 
 **Fonts not showing in Terminal.app**:
+
 ```bash
 # Refresh font cache
 killall fontd
@@ -252,35 +304,35 @@ GAMING:
 
 #### Cloud Servers (Remote VPS)
 
-| Host   | Old Name | Location | Role            | IP/FQDN      | Status                  |
-| ------ | -------- | -------- | --------------- | ------------ | ----------------------- |
-| `csb0` | csb0     | Hetzner  | Smart Home Hub  | cs0.barta.cm | ✅ Active (257d uptime) |
-| `csb1` | csb1     | Hetzner  | Monitoring/Docs | cs1.barta.cm | ✅ Active               |
+| Host   | Old Name | Location | Role            | IP/FQDN      | Theme | Status                  |
+| ------ | -------- | -------- | --------------- | ------------ | ----- | ----------------------- |
+| `csb0` | csb0     | Hetzner  | Smart Home Hub  | cs0.barta.cm | ⬜    | ✅ Active (257d uptime) |
+| `csb1` | csb1     | Hetzner  | Monitoring/Docs | cs1.barta.cm | 🔵    | ✅ Active               |
 
 #### Home Servers (Local Infrastructure)
 
-| Host   | Old Name     | Location | Role       | IP            | Status             |
-| ------ | ------------ | -------- | ---------- | ------------- | ------------------ |
-| `hsb0` | miniserver99 | Home     | DNS/DHCP   | 192.168.1.99  | ✅ **Migrated**    |
-| `hsb1` | miniserver24 | Home     | Automation | 192.168.1.101 | 🔄 Migration ready |
-| `hsb8` | msww87       | Parents  | DNS/DHCP   | 192.168.1.100 | 🚚 **At Location** |
+| Host   | Old Name     | Location | Role       | IP            | Theme | Status          |
+| ------ | ------------ | -------- | ---------- | ------------- | ----- | --------------- |
+| `hsb0` | miniserver99 | Home     | DNS/DHCP   | 192.168.1.99  | 🟨    | ✅ **Migrated** |
+| `hsb1` | miniserver24 | Home     | Automation | 192.168.1.101 | 🟢    | ✅ **Migrated** |
+| `hsb8` | msww87       | Parents  | DNS/DHCP   | 192.168.1.100 | 🟠    | 🚚 At Location  |
 
 #### Workstations (Personal Machines)
 
-| Host            | Old Name (Config) | Old Name (Network) | Owner  | IP            | Status                |
-| --------------- | ----------------- | ------------------ | ------ | ------------- | --------------------- |
-| `imac0`         | imac-mba-home     | wz-imac-home-mba   | Markus | 192.168.1.150 | ✅ **Migrated**       |
-| `imac1`         | -                 | wz-imac-mpe        | Mai    | 192.168.1.152 | ⏳ Future (DHCP only) |
-| `imac-mba-work` | -                 | imac-mba-work      | Markus | -             | ✅ **NEW** (Work)     |
-| `mbp0`          | -                 | -                  | Markus | -             | ⏳ Future             |
+| Host            | Old Name (Config) | Owner  | IP            | Theme | Status          |
+| --------------- | ----------------- | ------ | ------------- | ----- | --------------- |
+| `imac0`         | imac-mba-home     | Markus | 192.168.1.150 | ⬜    | ✅ **Migrated** |
+| `imac1`         | -                 | Mai    | 192.168.1.152 | -     | ⏳ Future       |
+| `imac-mba-work` | -                 | Markus | -             | ⬛    | ✅ **Themed**   |
+| `mbp0`          | -                 | Markus | -             | -     | ⏳ Future       |
 
 #### Gaming Systems
 
-| Host   | Old Name      | Owner  | IP            | Status               |
-| ------ | ------------- | ------ | ------------- | -------------------- |
-| `pcg0` | mba-gaming-pc | Markus | 192.168.1.154 | 🔄 Migration pending |
-| `stm0` | -             | Family | -             | ⏳ Future            |
-| `stm1` | -             | Family | -             | ⏳ Future            |
+| Host   | Old Name      | Owner  | IP            | Theme | Status               |
+| ------ | ------------- | ------ | ------------- | ----- | -------------------- |
+| `pcg0` | mba-gaming-pc | Markus | 192.168.1.154 | 💜    | 🔄 Migration pending |
+| `stm0` | -             | Family | -             | 💗    | ⏳ Future            |
+| `stm1` | -             | Family | -             | 💗    | ⏳ Future            |
 
 ---
 
@@ -448,21 +500,24 @@ See archived hosts for full list of Pbek's machines
 
 ## 🔄 Active Migrations
 
-### Current: Unified Naming + External Hokage (2025)
+### Current: Unified Naming + External Hokage + Per-Host Theming (2025)
 
-**Goal**: Standardize names + migrate to external hokage consumer pattern
+**Goal**: Standardize names + migrate to external hokage consumer pattern + apply per-host color themes
 
-**Status**: ✅ Nearly Complete (3/5 done)
+**Status**: ✅ Theming Complete for All Active Hosts
 
-| Phase | Hosts                     | Status     | Started | Completed |
-| ----- | ------------------------- | ---------- | ------- | --------- |
-| 1     | hsb8 (was msww87)         | 🚚 At ww87 | Nov 19  | Nov 23    |
-| 2     | hsb1 (was miniserver24)   | ⏳ Pending | -       | -         |
-| 3     | hsb0 (was miniserver99)   | ✅ Done    | Nov 21  | Nov 23    |
-| 4     | imac0 (was imac-mba-home) | ✅ Done    | Nov 23  | Nov 23    |
-| 5     | pcg0 (was mba-gaming-pc)  | ⏳ Pending | -       | -         |
+| Phase | Hosts                     | Status     | Naming | Theming |
+| ----- | ------------------------- | ---------- | ------ | ------- |
+| 1     | hsb8 (was msww87)         | 🚚 At ww87 | ✅     | ✅      |
+| 2     | hsb1 (was miniserver24)   | ✅ Done    | ✅     | ✅      |
+| 3     | hsb0 (was miniserver99)   | ✅ Done    | ✅     | ✅      |
+| 4     | imac0 (was imac-mba-home) | ✅ Done    | ✅     | ✅      |
+| 5     | imac-mba-work             | ✅ Done    | N/A    | ✅      |
+| 6     | pcg0 (was mba-gaming-pc)  | ⏳ Pending | -      | -       |
 
-**Includes**: Hostname rename, folder restructure, DHCP updates, external hokage pattern
+**Includes**: Hostname rename, folder restructure, DHCP updates, external hokage pattern, per-host theming
+
+**Theming**: All hosts now use `modules/shared/theme-hm.nix` for consistent Starship/Zellij/Eza colors
 
 **See**: `{hostname}/archive/MIGRATION-xxx [DONE].md` for completed migrations
 
