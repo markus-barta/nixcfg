@@ -1,0 +1,26 @@
+{
+  "timestamp": "2025-11-29-141713",
+  "host": "cs0.barta.cm",
+  "system": {
+    "nixos_version": "24.11.20240926.1925c60 (Vicuna)",
+    "kernel": "6.6.52",
+    "uptime": "unknown",
+    "generation": "22"
+  },
+  "docker": {
+    "container_count": 8,
+    "volume_count": 2,
+    "containers": "csb0-traefik-1,csb0-bitwarden-1,csb0-mosquitto-1,csb0-nodered-1,csb0-restic-cron-hetzner-1,csb0-bitwarden-db-1,csb0-smtp-1,csb0-docker-proxy-traefik-1"
+  },
+  "services": {
+    "nodered_http": "200"
+  },
+  "zfs": {
+    "health": "all pools are healthy",
+    "usage": "17%"
+  },
+  "ssh": {
+    "key_count": 00,
+    "omega_keys": 00
+  }
+}

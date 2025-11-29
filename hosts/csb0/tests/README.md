@@ -2,31 +2,53 @@
 
 Repeatable health checks for csb0. These tests can be run **anytime** and should always pass on a healthy system.
 
-## Current Status
+## Tests
 
-No automated tests yet. csb0 uses similar infrastructure to csb1.
-
-## Planned Tests
-
-| Test | Description     | Priority |
-| ---- | --------------- | -------- |
-| T00  | NixOS Base      | High     |
-| T01  | Docker Services | High     |
-| T05  | Backup System   | Medium   |
-| T06  | SSH Access      | High     |
-| T07  | ZFS Storage     | Medium   |
+| Test | Description     | What It Checks                 |
+| ---- | --------------- | ------------------------------ |
+| T00  | NixOS Base      | Version, generations, systemd  |
+| T01  | Docker Services | Containers running, healthy    |
+| T02  | Node-RED        | Automation hub accessible      |
+| T03  | MQTT/Mosquitto  | Broker running (csb1 depends!) |
+| T04  | Traefik         | Reverse proxy, SSL certs       |
+| T05  | Backup System   | Restic (manages BOTH servers!) |
+| T06  | SSH Access      | Key auth, sudo, hardening      |
+| T07  | ZFS Storage     | Pool health, compression       |
 
 ## Usage
 
-Tests can be adapted from csb1:
-
 ```bash
-# Copy and modify from csb1
-cp ../csb1/tests/T00-nixos-base.sh ./
-# Edit to change HOST, PORT variables for csb0
+# Run all tests
+for f in T*.sh; do ./$f; done
+
+# Run specific test
+./T00-nixos-base.sh
+
+# Quick health check
+./T00-nixos-base.sh && ./T01-docker-services.sh
 ```
+
+## Test Format
+
+Each test has:
+
+- `TXX-name.sh` - Automated test script
+
+## Exit Codes
+
+- `0` - All checks passed
+- `1` - One or more checks failed
+
+## ⚠️ Critical Services
+
+| Service  | Why Critical               |
+| -------- | -------------------------- |
+| MQTT     | csb1 depends on this!      |
+| Node-RED | Smart home automation      |
+| Backup   | Manages BOTH csb0 AND csb1 |
 
 ## Related
 
 - `../scripts/` - Operational utilities (API, restart safety)
-- `../secrets/RUNBOOK.md` - Emergency procedures
+- `../migrations/` - One-time migration scripts
+- `../docs/` - Documentation

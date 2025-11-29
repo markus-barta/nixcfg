@@ -214,6 +214,22 @@
             # lib-utils already provided by self.commonArgs
           };
         };
+
+        # Cloud Server Barta 0 (Netcup VPS - Node-RED, MQTT, Smart Home Hub)
+        # Hokage Migration: Planned 2025-11
+        # Using external hokage consumer pattern
+        csb0 = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = commonServerModules ++ [
+            inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./hosts/csb0/configuration.nix
+            disko.nixosModules.disko
+          ];
+          specialArgs = self.commonArgs // {
+            inherit inputs;
+            # lib-utils already provided by self.commonArgs
+          };
+        };
       };
 
       checks.x86_64-linux = {

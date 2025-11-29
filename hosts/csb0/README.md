@@ -1,134 +1,187 @@
 # csb0 - Cloud Server Barta 0
 
-**Status**: ⚠️ Configuration extraction in progress  
-**Type**: Cloud Server (Netcup VPS)  
-**OS**: NixOS  
+**Status**: 🟡 Migration to Hokage planned
+**Type**: Cloud Server (Netcup VPS 1000 G11)
+**OS**: NixOS 24.11 (Vicuna)
+**Uptime**: 267+ days
 **Primary Domain**: cs0.barta.cm
 
 ---
 
-## Overview
+## Quick Reference
 
-Cloud server for various services and automation. Originally configured via nixos-anywhere.
-
----
-
-## Server Information
-
-### Network
-
-- **Primary Domain**: cs0.barta.cm
-- **Provider**: Netcup VPS
-- **Location**: TBD
-
-### Services
-
-Based on 1Password entries and DNS records, this server runs:
-
-- **node-RED**: Automation and workflow engine
-  - User: `admin`
-  - Purpose: IoT automation, integrations
-- **Telegram Bot**: csb0bot
-  - Bot URL: t.me/csb0bot
-  - Purpose: Notifications, remote control
-- **Mosquitto MQTT**: Message broker
-  - Domain: mosquitto.barta.cm
-  - User: `smarthome`
-  - Purpose: IoT device communication
-- **Bitwarden**: Password manager instance
-  - Domain: bitwarden.barta.cm
-  - Purpose: Self-hosted password management
-- **Traefik**: Reverse proxy
-  - Domain: traefik.barta.cm
-  - Purpose: Service routing and SSL termination
-- **Node-RED**: Low-code development platform for automation and orchestration
-  - Domain: home.barta.cm
-  - Purpose: Integrates smart home devices and other systems; event-driven automation for IoT, web services, and custom workflows
-- **WhoAmI**: Test/debug service
-  - Domain: whoami0.barta.cm
-  - Purpose: Service testing
+| Item          | Value                                   |
+| ------------- | --------------------------------------- |
+| **Hostname**  | csb0                                    |
+| **Domain**    | cs0.barta.cm                            |
+| **IP (v4)**   | 85.235.65.226                           |
+| **SSH**       | `ssh -p 2222 mba@cs0.barta.cm` or `qc0` |
+| **Provider**  | Netcup VPS 1000 G11                     |
+| **Location**  | Vienna (VIE)                            |
+| **Server ID** | 607878                                  |
 
 ---
 
-## Backup Configuration
+## ⚠️ Critical Services
 
-- **Backup Target**: Hetzner Storage Box
-- **Method**: restic
-- **Schedule**: TBD
-
----
-
-## Access
-
-### SSH Access
-
-- Connect via: Standard SSH with your personal key
-- Users: `mba` (local user), `root` (admin)
-
-### Service Access
-
-See encrypted secrets once secrets management is implemented.
+| Service      | Domain           | Impact if Down                    |
+| ------------ | ---------------- | --------------------------------- |
+| **Node-RED** | home.barta.cm    | 🔴 Smart home automation stops    |
+| **MQTT**     | -                | 🔴 IoT devices disconnect + csb1! |
+| **Telegram** | -                | 🔴 Garage door control BROKEN     |
+| **Backup**   | -                | 🔴 BOTH servers lose backups      |
+| Traefik      | traefik.barta.cm | SSL/routing                       |
+| Cypress      | -                | Solar scraping                    |
 
 ---
 
-## Current Status & TODOs
-
-### ⚠️ Configuration Extraction Needed
-
-1. Extract current NixOS configuration from live server:
-
-   ```bash
-   ssh root@cs0.barta.cm "nixos-generate-config --show-hardware-config" > hardware-configuration.nix
-   # Copy /etc/nixos/configuration.nix
-   ```
-
-2. Document current services and their configurations
-
-3. Extract service credentials to secrets management:
-   - node-RED admin credentials
-   - Telegram bot token (csb0bot)
-   - Mosquitto MQTT credentials
-   - Hetzner storage credentials
-
-4. Create declarative configuration based on extracted data
-
-5. Test deployment with nixos-anywhere
-
----
-
-## Related Services
-
-- **Grafana** (csb1): Monitoring and visualization
-- **Hedgedoc** (csb1): Collaborative markdown editor at hdoc.barta.cm
-- **InfluxDB** (csb1): Time series database
-
----
-
-## Migration Notes
-
-### From 1Password to Secrets Management
-
-Currently, credentials are scattered across multiple 1Password entries:
-
-- "node-RED csb0"
-- "Telegram bot csb0"
-- "mosquitto - mqtt"
-
-Target: Consolidate into encrypted secrets structure:
+## Folder Structure
 
 ```
-~/Secrets/personal/encrypted/servers/csb0/
-├── node-red-admin.env.age
-├── telegram-bot-token.env.age
-├── mqtt-credentials.env.age
-└── hetzner-backup.env.age
+hosts/csb0/
+├── configuration.nix       # Main NixOS configuration (Hokage)
+├── hardware-configuration.nix
+├── disk-config.zfs.nix
+├── README.md              # This file
+│
+├── docs/                  # 📚 Documentation
+│   ├── MIGRATION-PLAN-HOKAGE.md
+│   └── SSH-KEY-SECURITY-NOTE.md
+│
+├── tests/                 # ✅ Repeatable health checks (T00-T07)
+│   ├── T00-nixos-base.sh
+│   ├── T01-docker-services.sh
+│   ├── T02-nodered.sh
+│   ├── T03-mqtt.sh
+│   ├── T04-traefik.sh
+│   ├── T05-backup-system.sh
+│   ├── T06-ssh-access.sh
+│   └── T07-zfs-storage.sh
+│
+├── scripts/               # 🔧 Operational utilities
+│   ├── netcup-api.sh      # API connectivity test
+│   └── restart-safety.sh  # Pre-restart checklist
+│
+├── migrations/            # 📦 One-time migration scripts
+│   └── 2025-11-hokage/    # Planned migration
+│
+└── secrets/               # 🔒 Sensitive data (gitignored)
+    ├── RUNBOOK.md         # Emergency procedures
+    └── netcup-api-refresh-token.txt
 ```
-
-Keep in 1Password: Only emergency root recovery password.
 
 ---
 
-## References
+## Services (Docker)
 
-- [Secrets Management Architecture](../imac-mba-home/docs/reference/secrets-management.md)
-- [nixos-anywhere](https://github.com/nix-community/nixos-anywhere)
+| Service      | Domain           | Purpose                    |
+| ------------ | ---------------- | -------------------------- |
+| Node-RED     | home.barta.cm    | Smart home automation      |
+| Mosquitto    | -                | MQTT broker (IoT + csb1)   |
+| Telegram Bot | -                | Garage door, notifications |
+| Traefik      | traefik.barta.cm | Reverse proxy & SSL        |
+| Cypress      | -                | Solar data scraping        |
+| Restic       | -                | Backup (BOTH servers!)     |
+
+All services run via Docker Compose with Traefik handling SSL.
+
+---
+
+## Common Operations
+
+### Health Check
+
+```bash
+cd hosts/csb0/tests
+for f in T*.sh; do ./$f; done
+```
+
+### Pre-Restart Safety
+
+```bash
+cd hosts/csb0/scripts
+./restart-safety.sh
+```
+
+### Rollback
+
+```bash
+# Via SSH
+sudo nixos-rebuild switch --rollback
+
+# Via VNC (if SSH broken)
+# 1. Netcup SCP → VNC Console
+# 2. GRUB menu → Select previous generation
+```
+
+---
+
+## Migration Status
+
+**Goal**: Migrate from local mixins to external Hokage modules
+
+**Status**: 🟡 Planned (after csb1 success ✅)
+
+See `migrations/2025-11-hokage/README.md` for details.
+
+---
+
+## Backup (CRITICAL)
+
+| Target          | Method | Content                |
+| --------------- | ------ | ---------------------- |
+| Hetzner Storage | restic | Docker volumes, config |
+
+⚠️ **This server manages backups for BOTH csb0 AND csb1!**
+
+See `secrets/RUNBOOK.md` for credentials and restore procedures.
+
+---
+
+## Network
+
+### SSH (Hardened)
+
+- Port: **2222** (not 22)
+- Password auth: Disabled (after migration)
+- Root login: Disabled
+- Key auth only
+
+### Firewall
+
+| Port | Service         | Access     |
+| ---- | --------------- | ---------- |
+| 2222 | SSH             | Open       |
+| 80   | HTTP (redirect) | Open       |
+| 443  | HTTPS (Traefik) | Open       |
+| 22   | SSH (standard)  | **Closed** |
+
+---
+
+## Related
+
+- **csb1**: Grafana, InfluxDB (receives MQTT from csb0)
+- **hsb1**: Monitors csb0/csb1 via Netcup API (daily at 19:00)
+
+---
+
+## Emergency
+
+See `secrets/RUNBOOK.md` for:
+
+- VNC console access
+- Netcup API commands
+- Recovery procedures
+- Backup restore
+- All credentials
+
+---
+
+## SSH Fingerprints
+
+```
+# Run on server to get fingerprints:
+ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+ssh-keygen -lf /etc/ssh/ssh_host_rsa_key.pub
+ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key.pub
+```
