@@ -365,8 +365,9 @@ in
     fswatch # File system watcher
     mc # midnight-commander - file manager
 
-    # Terminal Multiplexer (Stage 4)
+    # Terminal Tools (Stage 4)
     zellij # Modern terminal multiplexer
+    eza # Modern ls replacement (themed via theme-hm.nix)
 
     # Networking Tools (Stage 4)
     netcat # Network utility
