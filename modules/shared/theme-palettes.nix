@@ -93,7 +93,7 @@
 #    │ Text Color      │ Used On            │ Purpose                          │
 #    ├─────────────────┼────────────────────┼──────────────────────────────────┤
 #    │ text.onLightest │ lightest bg        │ Dark text (icon, high contrast)  │
-#    │ text.onMedium   │ primary/secondary  │ Light text (path, user, host)    │
+#    │ text.onMedium   │ primary/secondary  │ Pure white #fff (path, max vis)  │
 #    │ text.accent     │ dark backgrounds   │ Bright accent (git branch, lang) │
 #    │ text.muted      │ midDark bg         │ Subtle/dim (git commit count)    │
 #    │ text.mutedLight │ darker bg          │ Softer accent (time display)     │

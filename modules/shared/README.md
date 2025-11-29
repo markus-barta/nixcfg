@@ -61,7 +61,7 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 │    │                                                                     │  │
 │    │  ~/.config/starship.toml    (powerline, status, Unicode preserved)  │  │
 │    │  ~/.config/zellij/config.kdl (theme, keybindings)                   │  │
-│    │  EZA_COLORS, LS_COLORS      (universal polished theme)              │  │
+│    │  ~/.config/eza/theme.yml    (sysop-focused colors)                  │  │
 │    └─────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -73,6 +73,7 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 - One palette definition in `theme-palettes.nix` → three auto-generated configs
 - Add a new host: just add one line to `hostPalette` mapping
 - Eza colors are universal (same polished theme for all hosts)
+- **Directory path text is pure white (`#ffffff`)** across all palettes for maximum contrast
 
 ### ⚠️ CRITICAL: Editing starship-template.toml
 
