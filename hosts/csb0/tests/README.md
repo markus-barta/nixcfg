@@ -1,68 +1,32 @@
-# csb0 Test Suite
+# csb0 Tests
 
-This directory contains test procedures and automated scripts to verify csb0 server functionality.
+Repeatable health checks for csb0. These tests can be run **anytime** and should always pass on a healthy system.
 
-## Quick Start
+## Current Status
 
-```bash
-# Run all tests
-cd hosts/csb0
-for test in tests/T*.sh; do
-  echo "Running $test..."
-  bash "$test" || echo "❌ Failed: $test"
-done
-```
+No automated tests yet. csb0 uses similar infrastructure to csb1.
 
-## Test Status
+## Planned Tests
 
-| Test ID | Feature        | 🤖 Auto | Result | Notes                      |
-| ------- | -------------- | ------- | ------ | -------------------------- |
-| T15     | Netcup API     | ⏳      | ⏳     | Server status via REST API |
-| T16     | Restart Safety | ⏳      | ⏳     | Pre-restart safety checks  |
+| Test | Description     | Priority |
+| ---- | --------------- | -------- |
+| T00  | NixOS Base      | High     |
+| T01  | Docker Services | High     |
+| T05  | Backup System   | Medium   |
+| T06  | SSH Access      | High     |
+| T07  | ZFS Storage     | Medium   |
 
-## Environment Variables
+## Usage
+
+Tests can be adapted from csb1:
 
 ```bash
-export CSB0_HOST="cs0.barta.cm"
-export CSB0_USER="mba"
-export CSB0_SSH_PORT="2222"
+# Copy and modify from csb1
+cp ../csb1/tests/T00-nixos-base.sh ./
+# Edit to change HOST, PORT variables for csb0
 ```
 
-## API Token Setup
+## Related
 
-The same Netcup API token works for both csb0 and csb1:
-
-```bash
-# Copy from csb1
-cp hosts/csb1/secrets/netcup-api-refresh-token.txt hosts/csb0/secrets/
-```
-
-## Server Info
-
-| Item      | Value                        |
-| --------- | ---------------------------- |
-| Nickname  | csb0                         |
-| Server ID | 607878                       |
-| Name      | v2202401214994252795         |
-| IP        | 85.235.65.226                |
-| SSH       | ssh -p 2222 mba@cs0.barta.cm |
-
-## API Commands
-
-```bash
-# Get token
-TOKEN=$(curl -s 'https://servercontrolpanel.de/realms/scp/protocol/openid-connect/token' \
-  -d 'client_id=scp' -d "refresh_token=$(cat secrets/netcup-api-refresh-token.txt)" \
-  -d 'grant_type=refresh_token' | jq -r '.access_token')
-
-# Check status
-curl -s 'https://servercontrolpanel.de/scp-core/api/v1/servers/607878' \
-  -H "Authorization: Bearer $TOKEN" | jq '.serverLiveInfo.state'
-
-# Restart (graceful)
-curl -X POST 'https://servercontrolpanel.de/scp-core/api/v1/servers/607878/acpi-shutdown' \
-  -H "Authorization: Bearer $TOKEN"
-# Wait 60-90 seconds
-curl -X POST 'https://servercontrolpanel.de/scp-core/api/v1/servers/607878/start' \
-  -H "Authorization: Bearer $TOKEN"
-```
+- `../scripts/` - Operational utilities (API, restart safety)
+- `../secrets/RUNBOOK.md` - Emergency procedures
