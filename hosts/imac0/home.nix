@@ -553,6 +553,46 @@ in
   # See: modules/shared/theme-palettes.nix for color definitions
 
   # ============================================================================
+  # Root User Shell Setup
+  # ============================================================================
+  # Helper script to sync starship config to root and optionally set root's shell
+  # Run: sync-root-shell
+  home.file."Scripts/sync-root-shell" = {
+    executable = true;
+    text = ''
+      #!/bin/bash
+      echo "🔧 Syncing shell config to root user..."
+
+      # Create root's config directory
+      sudo mkdir -p /var/root/.config
+
+      # Copy starship config
+      sudo cp -f "$HOME/.config/starship.toml" /var/root/.config/starship.toml
+      echo "✅ Copied starship.toml to /var/root/.config/"
+
+      # Check root's current shell
+      ROOT_SHELL=$(dscl . -read /Users/root UserShell | awk '{print $2}')
+      FISH_PATH="$HOME/.nix-profile/bin/fish"
+
+      if [ "$ROOT_SHELL" = "$FISH_PATH" ]; then
+        echo "✅ Root shell is already fish"
+      else
+        echo ""
+        echo "⚠️  Root's current shell: $ROOT_SHELL"
+        echo "   To change root's shell to fish, run:"
+        echo "   sudo chsh -s $FISH_PATH root"
+        echo ""
+        read -p "Change root's shell to fish now? [y/N] " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+          sudo chsh -s "$FISH_PATH" root
+          echo "✅ Root shell changed to fish"
+        fi
+      fi
+    '';
+  };
+
+  # ============================================================================
   # Scripts Management
   # ============================================================================
   home.file."Scripts" = {

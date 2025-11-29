@@ -74,6 +74,7 @@ let
         # Text colors
         "__TEXT_ON_LIGHTEST__"
         "__TEXT_ON_MEDIUM__"
+        "__TEXT_ON_SECONDARY__"
         "__TEXT_ACCENT__"
         "__TEXT_MUTED__"
         "__TEXT_MUTED_LIGHT__"
@@ -104,6 +105,7 @@ let
         # Text colors
         t.onLightest
         t.onMedium
+        (t.onSecondary or t.onMedium)
         t.accent
         t.muted
         t.mutedLight

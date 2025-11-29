@@ -508,9 +508,10 @@
       # Text colors
       text = {
         onLightest = "#181a1c"; # Dark text on lightest bg
-        onMedium = "#f0f2f4"; # Light text on medium bg
+        onMedium = "#ffffff"; # Bright white for path (high contrast)
+        onSecondary = "#d8dce0"; # Slightly muted for user@host
         accent = "#c0c8d0"; # Accent fg on dark bg
-        muted = "#383c40"; # Git count, subtle
+        muted = "#707478"; # Git count - lighter for readability on dark
         mutedLight = "#909498"; # Time text
       };
 
