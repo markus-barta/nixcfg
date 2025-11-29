@@ -761,18 +761,39 @@
   };
 
   # ============================================================================
-  # EZA COLORS - Universal Polished Theme
+  # EZA COLORS - Sysop-Focused Universal Theme
   # ============================================================================
   #
-  # Design Philosophy:
-  #   - Muted, cohesive palette (no "pixel vomit")
-  #   - Gradual color distinctions for subtle differentiation
-  #   - Important info visible, but not overwhelming
-  #   - Errors/warnings use consistent status colors
+  # ┌─────────────────────────────────────────────────────────────────────────┐
+  # │                         DESIGN PHILOSOPHY                               │
+  # ├─────────────────────────────────────────────────────────────────────────┤
+  # │  Optimized for sysops/developers who need to quickly identify:         │
+  # │                                                                         │
+  # │  HIGH VISIBILITY (stand out):                                           │
+  # │    • Executables - "Can I run this?" - Bold bright green                │
+  # │    • Directories - Navigation targets - Bold soft blue                  │
+  # │    • Setuid/Setgid - Security concern! - Red/orange backgrounds         │
+  # │    • Broken symlinks - Fix this! - Warning red                          │
+  # │                                                                         │
+  # │  MEDIUM VISIBILITY (noticeable):                                        │
+  # │    • Symlinks - Distinct but not distracting - Soft cyan                │
+  # │    • Large files (GB/TB) - Disk space awareness - Brighter sizes        │
+  # │    • Git modified - What changed? - Yellow/amber                        │
+  # │                                                                         │
+  # │  LOW VISIBILITY (background info):                                      │
+  # │    • Permissions - Readable but muted - Subtle grays                    │
+  # │    • Timestamps - Reference info - Muted                                │
+  # │    • User/group - Usually unimportant - Very muted                      │
+  # │    • Small files - Not a concern - Barely visible sizes                 │
+  # │                                                                         │
+  # │  NOTE: Eza has built-in file extension colors (flake.nix = yellow)      │
+  # │        which are separate from EZA_COLORS and cannot be disabled.       │
+  # └─────────────────────────────────────────────────────────────────────────┘
   #
   # Color Format: ANSI 256-color (38;5;N) for compatibility
   #   - 38;5;N = foreground color N
-  #   - 1; = bold
+  #   - 48;5;N = background color N
+  #   - 1; = bold, 4; = underline
   #
   # Reference: https://github.com/eza-community/eza/blob/main/man/eza_colors.5.md
   #
@@ -781,11 +802,11 @@
     # FILE TYPES - Primary visual hierarchy
     # ══════════════════════════════════════════════════════════════════════════
 
-    # Directories: Soft blue, slightly bold - navigational, important
+    # Directories: Bold soft blue - navigation targets, important
     "di=1;38;5;110"
 
-    # Executables: Muted green - actionable but not screaming
-    "ex=38;5;114"
+    # Executables: BOLD BRIGHT GREEN - "Can I run this?" - MUST stand out!
+    "ex=1;38;5;78"
 
     # Symlinks: Soft cyan - distinct but subtle
     "ln=38;5;116"

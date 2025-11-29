@@ -197,7 +197,7 @@ check_fish_var() {
 }
 
 check_fish_var "EZA_COLORS" "di=1;38;5;110" "EZA_COLORS set in fish with soft blue directories"
-check_fish_var "EZA_COLORS" "ex=38;5;114" "EZA_COLORS has muted green executables"
+check_fish_var "EZA_COLORS" "ex=1;38;5;78" "EZA_COLORS has BOLD bright green executables"
 check_fish_var "EZA_COLORS" "ln=38;5;116" "EZA_COLORS has soft cyan symlinks"
 check_fish_var "EZA_COLORS" "or=38;5;167" "EZA_COLORS has warning red for broken links"
 check_fish_var "LS_COLORS" "di=1;38;5;110" "LS_COLORS set in fish for compatibility"
