@@ -11,6 +11,16 @@ let
 in
 
 {
+  # ============================================================================
+  # Module Imports
+  # ============================================================================
+  imports = [
+    # Per-host theming (starship, zellij, eza) - auto-detects hostname
+    ../../modules/shared/theme-hm.nix
+  ];
+
+  # Theme configuration - set hostname for palette lookup
+  theme.hostname = "imac0";
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "markus";
   home.homeDirectory = "/Users/markus";
@@ -648,12 +658,12 @@ in
   home.file.".config/karabiner/karabiner.json".source = ./config/karabiner.json;
 
   # ============================================================================
-  # Starship Config File (shared across all systems)
-  # Using direct file to preserve Nerd Font Unicode characters
+  # Starship, Zellij, Eza Theming
   # ============================================================================
-  home.file.".config/starship.toml" = {
-    source = ../../modules/shared/starship.toml;
-  };
+  # Handled by theme-hm.nix module (imported above)
+  # Theme: lightGray (Workstation - Home)
+  # Features: Powerline gradient, root alert, error badge, sudo, duration, jobs
+  # See: modules/shared/theme-palettes.nix for color definitions
 
   # ============================================================================
   # Scripts Management

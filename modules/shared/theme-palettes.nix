@@ -37,6 +37,13 @@
 #    More "dangerous" servers (production, critical infra) get more distinct
 #    colors so you don't accidentally run destructive commands on them.
 #
+# 4. STATUS AWARENESS
+#    Beyond host identity, the prompt communicates system state:
+#    - Root user? Bright red warning segment appears
+#    - Command failed? Error badge and red prompt character
+#    - Sudo cached? Lock icon shows elevated privileges available
+#    - Long command? Duration displayed
+#
 # ════════════════════════════════════════════════════════════════════════════════
 # POWERLINE GRADIENT STRUCTURE
 # ════════════════════════════════════════════════════════════════════════════════
@@ -44,19 +51,23 @@
 # The starship prompt uses a "powerline" style with angled segment separators.
 # Segments flow left-to-right from LIGHT to DARK backgrounds:
 #
-#    ┌─────────────────────────────────────────────────────────────────────────┐
-#    │  Left side (info you always need)              Right side (contextual)  │
-#    │                                                                         │
-#    │  ░▒▓ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░▒▓      │
-#    │                                                                         │
-#    │  ┌──────┬───────────┬───────────┬─────────┬───────────┬──────┬───────┐  │
-#    │  │  OS  │ Directory │ User@Host │   Git   │ Languages │ Time │  Nix  │  │
-#    │  └──────┴───────────┴───────────┴─────────┴───────────┴──────┴───────┘  │
-#    │                                                                         │
-#    │  lightest  PRIMARY   secondary   midDark     dark      darker  darkest  │
-#    │     ◄─────────────────────────────────────────────────────────────►     │
-#    │                    Background gradient: light → dark                    │
-#    └─────────────────────────────────────────────────────────────────────────┘
+#    ┌───────────────────────────────────────────────────────────────────────────────┐
+#    │  Left side (context & identity)                   Right side (state & info)   │
+#    │                                                                               │
+#    │  [Alert] ░▒▓ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░▒▓       │
+#    │     ↑                                                                         │
+#    │  (root only)                                                                  │
+#    │                                                                               │
+#    │  ┌───────┬────┬─────────┬───────────┬─────┬──────┬────────┬──────┬────┬─────┐ │
+#    │  │ Alert │ OS │Directory│ User@Host │Jobs │ Git  │Language│Status│Time│ Nix │ │
+#    │  └───────┴────┴─────────┴───────────┴─────┴──────┴────────┴──────┴────┴─────┘ │
+#    │      ↑                                 ↑                     ↑                │
+#    │   (root)                           (bg jobs)            (on error)            │
+#    │                                                                               │
+#    │          lightest PRIMARY  secondary      midDark  dark        darker darkest │
+#    │             ◄─────────────────────────────────────────────────────────────►   │
+#    │                         Background gradient: light → dark                     │
+#    └───────────────────────────────────────────────────────────────────────────────┘
 #
 # Each palette defines 7 gradient stops:
 #
@@ -99,6 +110,71 @@
 #
 # The git commit count (#1234) is intentionally "stark" compared to the branch
 # name - it's useful info but shouldn't compete for attention with the branch.
+#
+# ════════════════════════════════════════════════════════════════════════════════
+# STATUS INDICATORS
+# ════════════════════════════════════════════════════════════════════════════════
+#
+# Beyond the gradient, additional indicators communicate system state.
+# These use UNIVERSAL colors (same across all palettes) for consistency:
+#
+#    ┌─────────────────┬────────────────────┬──────────────────────────────────┐
+#    │ Indicator       │ When Shown         │ Purpose                          │
+#    ├─────────────────┼────────────────────┼──────────────────────────────────┤
+#    │ Root Alert      │ Logged in as root  │ DANGER - you have full power     │
+#    │ Error Badge     │ Last cmd failed    │ Exit code visible, needs action  │
+#    │ Sudo Cached     │ sudo credentials   │ Elevated privileges available    │
+#    │ Command Duration│ cmd > 2 seconds    │ How long the last command took   │
+#    │ Background Jobs │ Suspended procs    │ Reminder of background work      │
+#    └─────────────────┴────────────────────┴──────────────────────────────────┘
+#
+# ROOT ALERT (leftmost, before gradient):
+#    Appears ONLY when logged in as root. Creates a visual "gate" you must
+#    pass through, impossible to miss. Uses bright red background.
+#
+#    ┌─────────────────────────────────────────────────────────────────────────┐
+#    │  NORMAL USER:                                                           │
+#    │  ░▒▓  ~/Code/nixcfg  mba@hsb0  main  node  14:32  nix                   │
+#    │  ❯ _                                                                    │
+#    │                                                                         │
+#    │  ROOT USER:                                                             │
+#    │  ⚠ ░▒▓  /etc/nixos  root@hsb0  main  14:32  nix                        │
+#    │  # _                                                                    │
+#    │  ↑                      ↑                                               │
+#    │  Red alert segment      Red username                                    │
+#    └─────────────────────────────────────────────────────────────────────────┘
+#
+# ERROR BADGE (right side, before time):
+#    Only appears when last command exited with non-zero status.
+#    Shows exit code for debugging. Uses consistent red.
+#
+#    ┌─────────────────────────────────────────────────────────────────────────┐
+#    │  SUCCESS (exit 0):     ...  node  14:32  nix   (nothing)                │
+#    │  FAILURE (exit 127):   ...  node  ✘ 127  14:32  nix                     │
+#    └─────────────────────────────────────────────────────────────────────────┘
+#
+# SUDO CACHED (right side, after time):
+#    Shows lock icon when sudo credentials are cached (you can run sudo
+#    without password). Uses warm amber - "caution" not "danger".
+#
+# COMMAND DURATION (right side, before status):
+#    Shows how long the last command took. Only appears when duration
+#    exceeds threshold (default: 2 seconds). Essential for build monitoring.
+#
+#    ┌─────────────────────────────────────────────────────────────────────────┐
+#    │  SHORT COMMAND:   ...  node  14:32  nix   (hidden)                      │
+#    │  LONG COMMAND:    ...  node  ⏱ 3m 42s  14:32  nix                       │
+#    └─────────────────────────────────────────────────────────────────────────┘
+#
+# BACKGROUND JOBS (after user@host):
+#    Shows count of suspended/background processes. Prevents "oops I forgot
+#    I had vim open" situations before logout.
+#
+# CHARACTER (prompt on new line):
+#    Immediate feedback for last command result:
+#    - Success: ❯ in palette accent color
+#    - Error: ✗ in red (matches error badge)
+#    - Root: # in red
 #
 # ════════════════════════════════════════════════════════════════════════════════
 # ZELLIJ THEME MAPPING
@@ -560,6 +636,63 @@
   };
 
   # ============================================================================
+  # UNIVERSAL STATUS COLORS
+  # ============================================================================
+  #
+  # These colors are CONSISTENT across all palettes. Danger should always look
+  # like danger, regardless of which host you're on. This ensures:
+  #   - Root warning is always recognizable
+  #   - Errors always stand out the same way
+  #   - Sudo indicator is always the same amber
+  #
+  # These colors are NOT part of the host's accent palette - they're overlays
+  # that communicate state independent of host identity.
+  #
+
+  statusColors = {
+    # Root alert - bright red, impossible to miss
+    # Used for: Alert segment when logged in as root
+    root = {
+      bg = "#e04040"; # Bright red background
+      fg = "#ffffff"; # White text/icon
+    };
+
+    # Error/failure - slightly softer red than root
+    # Used for: Exit status badge, error character
+    error = {
+      bg = "#c04040"; # Medium red background
+      fg = "#f0f0f0"; # Off-white text
+    };
+
+    # Sudo cached - warm amber (caution, not danger)
+    # Used for: Lock icon when sudo credentials cached
+    sudo = {
+      fg = "#f0a868"; # Amber/orange (no bg, uses time segment bg)
+    };
+
+    # Command duration - informational, not alerting
+    # Used for: Duration display when command > threshold
+    duration = {
+      fg = "#a0a8b8"; # Muted light (same as time text)
+    };
+
+    # Background jobs - subtle reminder
+    # Used for: Job count indicator
+    jobs = {
+      fg = "#a0a8b8"; # Muted light
+    };
+
+    # Success character - uses palette accent
+    # (defined per-palette via text.accent)
+
+    # Root character
+    rootChar = {
+      fg = "#e04040"; # Same as root alert
+      symbol = "#"; # Traditional root prompt
+    };
+  };
+
+  # ============================================================================
   # HOST → PALETTE MAPPING
   # ============================================================================
   #
@@ -595,6 +728,38 @@
   defaultPalette = "blue";
 
   # ============================================================================
+  # PORTABLE HOST CONFIGURATION
+  # ============================================================================
+  #
+  # Some hosts are portable (laptops, Steam Deck) and benefit from battery
+  # indicator in the prompt. This list identifies which hosts should show
+  # battery status.
+  #
+
+  portableHosts = [
+    "mbp0" # MacBook Pro
+    "stm0" # Steam Deck / Steam Machine
+    "stm1" # Steam Deck / Steam Machine
+    # Note: pcg0 (gaming PC) is not portable, even though it's in gaming category
+  ];
+
+  # Battery indicator colors (universal, like status colors)
+  batteryColors = {
+    high = {
+      # > 50%
+      fg = "#68c878"; # Green
+    };
+    medium = {
+      # 20-50%
+      fg = "#d4c060"; # Yellow/amber
+    };
+    low = {
+      # < 20%
+      fg = "#e04040"; # Red (same as root alert)
+    };
+  };
+
+  # ============================================================================
   # EZA COLORS HELPER
   # ============================================================================
   #
@@ -608,4 +773,27 @@
   mkEzaColors = palette: ''
     di=${palette.gradient.primary}:ln=35:so=32:pi=33:ex=31:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=30;43
   '';
+
+  # ============================================================================
+  # FEATURE SUMMARY
+  # ============================================================================
+  #
+  # ALWAYS SHOWN:
+  #   - OS icon (NixOS/macOS/Linux)
+  #   - Directory path (full)
+  #   - Username@hostname
+  #   - Git branch + status + commit count (in git repos)
+  #   - Language versions (when detected)
+  #   - Time
+  #   - Nix shell indicator (in nix shells)
+  #   - Character prompt (❯ or # for root)
+  #
+  # CONDITIONALLY SHOWN:
+  #   - Root alert ⚠ (only when logged in as root)
+  #   - Error badge ✘ (only when last command failed)
+  #   - Sudo indicator  (only when sudo credentials cached)
+  #   - Command duration ⏱ (only when > 2 seconds)
+  #   - Background jobs (only when jobs exist)
+  #   - Battery 🔋 (only on portable hosts, only on battery)
+  #
 }
