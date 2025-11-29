@@ -1,0 +1,611 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║                                THEME PALETTES                                ║
+# ║                            Per-Host Accent Colors                            ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
+#
+# This file defines color palettes for per-host theming across the infrastructure.
+# Each host gets a distinct accent color that flows through:
+#   - Starship prompt (powerline segments)
+#   - Zellij terminal multiplexer (frame/UI colors)
+#   - Eza file listings (directory colors)
+#
+# The goal: Instantly recognize which server you're on by color alone.
+#
+# ════════════════════════════════════════════════════════════════════════════════
+# DESIGN PHILOSOPHY
+# ════════════════════════════════════════════════════════════════════════════════
+#
+# 1. SEMANTIC COLOR ASSIGNMENT
+#    Colors are chosen based on host category for intuitive recognition:
+#
+#    ┌─────────────────┬────────────────────┬─────────────────────────────────┐
+#    │ Category        │ Color Range        │ Rationale                       │
+#    ├─────────────────┼────────────────────┼─────────────────────────────────┤
+#    │ Cloud Servers   │ White → Blue       │ "Cloud" = sky colors, clean     │
+#    │ Home Servers    │ Yellow → Green     │ "Home" = warm, organic, alive   │
+#    │ Gaming Systems  │ Purple → Pink      │ "Fun" = vibrant, playful        │
+#    │ Workstations    │ Gray spectrum      │ "Work" = neutral, professional  │
+#    └─────────────────┴────────────────────┴─────────────────────────────────┘
+#
+# 2. INSTANT RECOGNITION
+#    When SSH'd into multiple servers, the colored prompt immediately tells you:
+#    - Yellow prompt? You're on hsb0 (DNS/DHCP - be careful!)
+#    - Green prompt? You're on hsb1 (home automation)
+#    - Purple prompt? You're on your gaming PC (safe to experiment)
+#
+# 3. SAFETY THROUGH COLOR
+#    More "dangerous" servers (production, critical infra) get more distinct
+#    colors so you don't accidentally run destructive commands on them.
+#
+# ════════════════════════════════════════════════════════════════════════════════
+# POWERLINE GRADIENT STRUCTURE
+# ════════════════════════════════════════════════════════════════════════════════
+#
+# The starship prompt uses a "powerline" style with angled segment separators.
+# Segments flow left-to-right from LIGHT to DARK backgrounds:
+#
+#    ┌─────────────────────────────────────────────────────────────────────────┐
+#    │  Left side (info you always need)              Right side (contextual)  │
+#    │                                                                         │
+#    │  ░▒▓ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░▒▓      │
+#    │                                                                         │
+#    │  ┌──────┬───────────┬───────────┬─────────┬───────────┬──────┬───────┐  │
+#    │  │  OS  │ Directory │ User@Host │   Git   │ Languages │ Time │  Nix  │  │
+#    │  └──────┴───────────┴───────────┴─────────┴───────────┴──────┴───────┘  │
+#    │                                                                         │
+#    │  lightest  PRIMARY   secondary   midDark     dark      darker  darkest  │
+#    │     ◄─────────────────────────────────────────────────────────────►     │
+#    │                    Background gradient: light → dark                    │
+#    └─────────────────────────────────────────────────────────────────────────┘
+#
+# Each palette defines 7 gradient stops:
+#
+#    gradient.lightest  │ OS icon background (leftmost, brightest)
+#    gradient.primary   │ Directory path - THE MAIN ACCENT COLOR
+#    gradient.secondary │ Username@hostname
+#    gradient.midDark   │ Git branch, status, commit count
+#    gradient.dark      │ Language versions (nodejs, python, etc.)
+#    gradient.darker    │ Time display
+#    gradient.darkest   │ Nix shell indicator (rightmost, near-black)
+#
+# The PRIMARY color is the most visible and defines the palette's identity.
+# All other colors are calculated to maintain the same hue while shifting
+# lightness to create the gradient effect.
+#
+# ════════════════════════════════════════════════════════════════════════════════
+# TEXT COLOR STRATEGY
+# ════════════════════════════════════════════════════════════════════════════════
+#
+# Text colors are carefully chosen for readability at each gradient position:
+#
+#    ┌─────────────────┬────────────────────┬──────────────────────────────────┐
+#    │ Text Color      │ Used On            │ Purpose                          │
+#    ├─────────────────┼────────────────────┼──────────────────────────────────┤
+#    │ text.onLightest │ lightest bg        │ Dark text (icon, high contrast)  │
+#    │ text.onMedium   │ primary/secondary  │ Light text (path, user, host)    │
+#    │ text.accent     │ dark backgrounds   │ Bright accent (git branch, lang) │
+#    │ text.muted      │ midDark bg         │ Subtle/dim (git commit count)    │
+#    │ text.mutedLight │ darker bg          │ Softer accent (time display)     │
+#    └─────────────────┴────────────────────┴──────────────────────────────────┘
+#
+# CONTRAST HIERARCHY:
+#
+#    Most Important    ───────────────────────────────────────►  Least Important
+#    ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+#    │  Directory   │  │  Git Branch  │  │  Git Count   │  │     Time     │
+#    │  onMedium    │  │    accent    │  │    muted     │  │  mutedLight  │
+#    │  (bright)    │  │  (visible)   │  │  (subtle)    │  │  (subdued)   │
+#    └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
+#
+# The git commit count (#1234) is intentionally "stark" compared to the branch
+# name - it's useful info but shouldn't compete for attention with the branch.
+#
+# ════════════════════════════════════════════════════════════════════════════════
+# ZELLIJ THEME MAPPING
+# ════════════════════════════════════════════════════════════════════════════════
+#
+# Zellij uses a different color model (terminal 16-color style). Each palette
+# provides colors for the zellij UI elements:
+#
+#    zellij.bg        │ Text selection background
+#    zellij.fg        │ Footer button background
+#    zellij.frame     │ Tab/pane frame color
+#    zellij.black     │ Header/footer background (usually near-black)
+#    zellij.white     │ Primary text color
+#    zellij.highlight │ Highlighted/active elements
+#
+# The PRIMARY accent color is used for zellij.bg and zellij.frame to maintain
+# visual consistency with the starship prompt.
+#
+# ════════════════════════════════════════════════════════════════════════════════
+# HOST ASSIGNMENT VISUAL
+# ════════════════════════════════════════════════════════════════════════════════
+#
+#    CLOUD (Internet-facing)          HOME (Local network)
+#    ┌─────────────────────┐          ┌─────────────────────┐
+#    │  csb0    ⬜ White   │          │  hsb0    🟨 Yellow  │
+#    │  csb1    🔵 Blue    │          │  hsb1    🟢 Green   │
+#    └─────────────────────┘          │  hsb8    🟠 Orange  │
+#                                     └─────────────────────┘
+#
+#    GAMING                           WORKSTATIONS
+#    ┌─────────────────────┐          ┌─────────────────────┐
+#    │  pcg0    🟣 Purple  │          │  imac0   ⚪ L-Gray  │
+#    │  stm0    🩷 Pink    │          │  imac1   🔘 M-Gray  │
+#    │  stm1    🩷 Pink    │          │  work    ⚫ D-Gray  │
+#    └─────────────────────┘          │  mbp0    🩶 W-Gray  │
+#                                     └─────────────────────┘
+#
+# ════════════════════════════════════════════════════════════════════════════════
+
+{
+  # ============================================================================
+  # PALETTE DEFINITIONS
+  # ============================================================================
+
+  palettes = {
+
+    # --------------------------------------------------------------------------
+    # CLOUD SERVERS: White → Blue spectrum
+    # --------------------------------------------------------------------------
+
+    white = {
+      name = "White";
+      category = "cloud";
+      description = "Clean, stable production (csb0)";
+
+      # Powerline gradient (light → dark)
+      gradient = {
+        lightest = "#d8dce8"; # OS icon bg - soft silver
+        primary = "#b8c0d8"; # Directory bg - light silver-blue
+        secondary = "#9098b0"; # User/host bg
+        midDark = "#485068"; # Git section bg
+        dark = "#2a3040"; # Languages bg
+        darker = "#1e2430"; # Time bg
+        darkest = "#14181f"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#1a1a2a"; # Dark text on lightest bg
+        onMedium = "#e8eaf0"; # Light text on medium bg
+        accent = "#c8d0e8"; # Accent fg on dark bg
+        muted = "#707888"; # Git count, subtle info
+        mutedLight = "#a0a8b8"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#b8c0d8";
+        fg = "#9098b0";
+        frame = "#b8c0d8";
+        black = "#14181f";
+        white = "#ffffff";
+        highlight = "#e8eaf0";
+      };
+    };
+
+    blue = {
+      name = "Blue";
+      category = "cloud";
+      description = "Monitoring, analytics (csb1)";
+
+      # Powerline gradient (light → dark) - current Tokyo Night inspired
+      gradient = {
+        lightest = "#a3aed2"; # OS icon bg
+        primary = "#769ff0"; # Directory bg - bright blue
+        secondary = "#5a7fb8"; # User/host bg
+        midDark = "#394260"; # Git section bg
+        dark = "#212736"; # Languages bg
+        darker = "#1d2230"; # Time bg
+        darkest = "#13161f"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#090c0c"; # Dark text on lightest bg
+        onMedium = "#e3e5e5"; # Light text on medium bg
+        accent = "#769ff0"; # Accent fg on dark bg
+        muted = "#1a1a2e"; # Git count (intentionally stark/subtle)
+        mutedLight = "#a0a9cb"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#769ff0";
+        fg = "#5a7fb8";
+        frame = "#769ff0";
+        black = "#13161f";
+        white = "#ffffff";
+        highlight = "#a3aed2";
+      };
+    };
+
+    # --------------------------------------------------------------------------
+    # HOME SERVERS: Yellow → Green → Orange spectrum
+    # --------------------------------------------------------------------------
+
+    yellow = {
+      name = "Yellow";
+      category = "home";
+      description = "Core infrastructure, DNS/DHCP (hsb0)";
+
+      # Powerline gradient (light → dark)
+      gradient = {
+        lightest = "#e8e0a8"; # OS icon bg - soft cream
+        primary = "#d4c060"; # Directory bg - golden yellow
+        secondary = "#a89840"; # User/host bg - darker gold
+        midDark = "#504820"; # Git section bg - olive
+        dark = "#303018"; # Languages bg
+        darker = "#242010"; # Time bg
+        darkest = "#18160c"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#2a2810"; # Dark text on lightest bg
+        onMedium = "#f0ece0"; # Light cream text on medium bg
+        accent = "#e8d878"; # Accent fg on dark bg
+        muted = "#3a3518"; # Git count, subtle
+        mutedLight = "#b8b088"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#d4c060";
+        fg = "#a89840";
+        frame = "#d4c060";
+        black = "#18160c";
+        white = "#f8f4e8";
+        highlight = "#e8e0a8";
+      };
+    };
+
+    green = {
+      name = "Green";
+      category = "home";
+      description = "Home automation, dynamic (hsb1)";
+
+      # Powerline gradient (light → dark)
+      gradient = {
+        lightest = "#b8e0c0"; # OS icon bg - soft mint
+        primary = "#68c878"; # Directory bg - fresh green
+        secondary = "#48a058"; # User/host bg
+        midDark = "#284830"; # Git section bg
+        dark = "#1a3020"; # Languages bg
+        darker = "#142818"; # Time bg
+        darkest = "#0c1810"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#0c2010"; # Dark text on lightest bg
+        onMedium = "#e0f0e4"; # Light text on medium bg
+        accent = "#88e898"; # Accent fg on dark bg
+        muted = "#1a2818"; # Git count, subtle
+        mutedLight = "#88a890"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#68c878";
+        fg = "#48a058";
+        frame = "#68c878";
+        black = "#0c1810";
+        white = "#f0f8f2";
+        highlight = "#b8e0c0";
+      };
+    };
+
+    orange = {
+      name = "Orange";
+      category = "home";
+      description = "Remote home server, parents (hsb8)";
+
+      # Powerline gradient (light → dark)
+      gradient = {
+        lightest = "#f0d0a8"; # OS icon bg - peach
+        primary = "#e09050"; # Directory bg - warm orange
+        secondary = "#b87040"; # User/host bg
+        midDark = "#583820"; # Git section bg
+        dark = "#382410"; # Languages bg
+        darker = "#2a1c0c"; # Time bg
+        darkest = "#1a1208"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#2a1808"; # Dark text on lightest bg
+        onMedium = "#f8f0e8"; # Light text on medium bg
+        accent = "#f0a868"; # Accent fg on dark bg
+        muted = "#3a2810"; # Git count, subtle
+        mutedLight = "#c0a080"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#e09050";
+        fg = "#b87040";
+        frame = "#e09050";
+        black = "#1a1208";
+        white = "#fff8f0";
+        highlight = "#f0d0a8";
+      };
+    };
+
+    # --------------------------------------------------------------------------
+    # GAMING: Purple → Pink spectrum
+    # --------------------------------------------------------------------------
+
+    purple = {
+      name = "Purple";
+      category = "gaming";
+      description = "Gaming PC (pcg0)";
+
+      # Powerline gradient (light → dark)
+      gradient = {
+        lightest = "#d0b8e8"; # OS icon bg - lavender
+        primary = "#9868d0"; # Directory bg - vibrant purple
+        secondary = "#7850a8"; # User/host bg
+        midDark = "#402860"; # Git section bg
+        dark = "#281840"; # Languages bg
+        darker = "#1e1230"; # Time bg
+        darkest = "#140c20"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#1a0c28"; # Dark text on lightest bg
+        onMedium = "#f0e8f8"; # Light text on medium bg
+        accent = "#b888e8"; # Accent fg on dark bg
+        muted = "#2a1840"; # Git count, subtle
+        mutedLight = "#a088b8"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#9868d0";
+        fg = "#7850a8";
+        frame = "#9868d0";
+        black = "#140c20";
+        white = "#f8f0ff";
+        highlight = "#d0b8e8";
+      };
+    };
+
+    pink = {
+      name = "Pink";
+      category = "gaming";
+      description = "Steam machines (stm0, stm1)";
+
+      # Powerline gradient (light → dark)
+      gradient = {
+        lightest = "#f0c0d8"; # OS icon bg - soft pink
+        primary = "#e070a0"; # Directory bg - hot pink
+        secondary = "#b85080"; # User/host bg
+        midDark = "#602848"; # Git section bg
+        dark = "#401830"; # Languages bg
+        darker = "#301028"; # Time bg
+        darkest = "#200c1c"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#2a0c18"; # Dark text on lightest bg
+        onMedium = "#f8e8f0"; # Light text on medium bg
+        accent = "#f090b8"; # Accent fg on dark bg
+        muted = "#401028"; # Git count, subtle
+        mutedLight = "#b888a0"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#e070a0";
+        fg = "#b85080";
+        frame = "#e070a0";
+        black = "#200c1c";
+        white = "#fff0f8";
+        highlight = "#f0c0d8";
+      };
+    };
+
+    # --------------------------------------------------------------------------
+    # WORKSTATIONS: Gray spectrum (bright → dark)
+    # --------------------------------------------------------------------------
+
+    lightGray = {
+      name = "Light Gray";
+      category = "workstation";
+      description = "Home workstation (imac0)";
+
+      # Powerline gradient (light → dark)
+      gradient = {
+        lightest = "#e0e2e8"; # OS icon bg - bright silver
+        primary = "#a8aeb8"; # Directory bg - light gray
+        secondary = "#888e98"; # User/host bg
+        midDark = "#484e58"; # Git section bg
+        dark = "#303438"; # Languages bg
+        darker = "#242628"; # Time bg
+        darkest = "#181a1c"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#181a1c"; # Dark text on lightest bg
+        onMedium = "#f0f2f4"; # Light text on medium bg
+        accent = "#c0c8d0"; # Accent fg on dark bg
+        muted = "#383c40"; # Git count, subtle
+        mutedLight = "#909498"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#a8aeb8";
+        fg = "#888e98";
+        frame = "#a8aeb8";
+        black = "#181a1c";
+        white = "#f8f9fa";
+        highlight = "#e0e2e8";
+      };
+    };
+
+    darkGray = {
+      name = "Dark Gray";
+      category = "workstation";
+      description = "Work workstation (imac-mba-work)";
+
+      # Powerline gradient (light → dark) - starts darker
+      gradient = {
+        lightest = "#909498"; # OS icon bg - medium gray
+        primary = "#686c70"; # Directory bg - dark gray
+        secondary = "#505458"; # User/host bg
+        midDark = "#383c40"; # Git section bg
+        dark = "#282c30"; # Languages bg
+        darker = "#1c2024"; # Time bg
+        darkest = "#101214"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#101214"; # Dark text on lightest bg
+        onMedium = "#e8eaec"; # Light text on medium bg
+        accent = "#a0a8b0"; # Accent fg on dark bg
+        muted = "#282c30"; # Git count, subtle
+        mutedLight = "#707478"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#686c70";
+        fg = "#505458";
+        frame = "#686c70";
+        black = "#101214";
+        white = "#f0f2f4";
+        highlight = "#909498";
+      };
+    };
+
+    mediumGray = {
+      name = "Medium Gray";
+      category = "workstation";
+      description = "Secondary workstation (imac1)";
+
+      # Powerline gradient (light → dark) - between light and dark
+      gradient = {
+        lightest = "#c8ccd0"; # OS icon bg
+        primary = "#909498"; # Directory bg
+        secondary = "#707478"; # User/host bg
+        midDark = "#404448"; # Git section bg
+        dark = "#2c3034"; # Languages bg
+        darker = "#202428"; # Time bg
+        darkest = "#14161a"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#14161a"; # Dark text on lightest bg
+        onMedium = "#ececf0"; # Light text on medium bg
+        accent = "#b0b8c0"; # Accent fg on dark bg
+        muted = "#303438"; # Git count, subtle
+        mutedLight = "#808488"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#909498";
+        fg = "#707478";
+        frame = "#909498";
+        black = "#14161a";
+        white = "#f4f6f8";
+        highlight = "#c8ccd0";
+      };
+    };
+
+    warmGray = {
+      name = "Warm Gray";
+      category = "workstation";
+      description = "Mobile workstation (mbp0)";
+
+      # Powerline gradient (light → dark) - warm/brownish tint
+      gradient = {
+        lightest = "#d8d4d0"; # OS icon bg - warm silver
+        primary = "#a8a098"; # Directory bg - taupe
+        secondary = "#888078"; # User/host bg
+        midDark = "#484440"; # Git section bg
+        dark = "#302c28"; # Languages bg
+        darker = "#242220"; # Time bg
+        darkest = "#181614"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#181614"; # Dark text on lightest bg
+        onMedium = "#f4f0ec"; # Light text on medium bg
+        accent = "#c0b8b0"; # Accent fg on dark bg
+        muted = "#383430"; # Git count, subtle
+        mutedLight = "#908880"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#a8a098";
+        fg = "#888078";
+        frame = "#a8a098";
+        black = "#181614";
+        white = "#f8f6f4";
+        highlight = "#d8d4d0";
+      };
+    };
+
+  };
+
+  # ============================================================================
+  # HOST → PALETTE MAPPING
+  # ============================================================================
+  #
+  # Maps hostname to palette name. Unknown hosts default to "blue" (the original
+  # Tokyo Night theme). Aliases are provided for hosts in transition.
+  #
+
+  hostPalette = {
+    # Cloud servers
+    csb0 = "white";
+    csb1 = "blue";
+
+    # Home servers
+    hsb0 = "yellow";
+    hsb1 = "green";
+    hsb8 = "orange";
+
+    # Gaming
+    pcg0 = "purple";
+    "mba-gaming-pc" = "purple"; # alias for transition
+
+    stm0 = "pink";
+    stm1 = "pink";
+
+    # Workstations
+    imac0 = "lightGray";
+    "imac-mba-work" = "darkGray";
+    imac1 = "mediumGray";
+    mbp0 = "warmGray";
+  };
+
+  # Default palette for unknown hosts
+  defaultPalette = "blue";
+
+  # ============================================================================
+  # EZA COLORS HELPER
+  # ============================================================================
+  #
+  # EZA_COLORS format: https://github.com/eza-community/eza/blob/main/man/eza_colors.5.md
+  #
+  # This function generates an EZA_COLORS string that uses the palette's primary
+  # color for directories, making `ls` output match the overall theme.
+  #
+  # Usage in Nix: environment.variables.EZA_COLORS = mkEzaColors palette;
+  #
+  mkEzaColors = palette: ''
+    di=${palette.gradient.primary}:ln=35:so=32:pi=33:ex=31:bd=34;46:cd=34;43:su=30;41:sg=30;46:tw=30;42:ow=30;43
+  '';
+}
