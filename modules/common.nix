@@ -296,7 +296,8 @@ in
         enable = true;
         enableFishIntegration = true;
         enableBashIntegration = true;
-        options = [ "--cmd cd" ];
+        # Use mkForce to prevent duplication with external hokage
+        options = lib.mkForce [ "--cmd cd" ];
       };
 
       # Post-modern editor (like vim)
