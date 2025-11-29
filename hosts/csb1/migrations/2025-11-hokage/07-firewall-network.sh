@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T14: Firewall & Network Test
 # Verifies firewall rules and network configuration
@@ -107,7 +107,7 @@ fi
 
 # Test 7: Firewall enabled on server
 echo -n "Test 7: NixOS firewall enabled... "
-FW_STATUS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'sudo iptables -L INPUT -n 2>/dev/null | grep -c "DROP\|REJECT" || echo 0' 2>/dev/null | tr -d '\n\r')
+FW_STATUS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo iptables -L INPUT -n 2>/dev/null | grep -c "DROP\|REJECT" || echo 0' 2>/dev/null | tr -d '\n\r')
 if [ "${FW_STATUS:-0}" -gt 0 ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
@@ -147,7 +147,7 @@ fi
 # Show listening ports from server
 echo
 echo "Listening ports on server:"
-$TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'sudo ss -tlnp 2>/dev/null | grep LISTEN | head -15' 2>/dev/null || echo "  (failed to list)"
+$TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo ss -tlnp 2>/dev/null | grep LISTEN | head -15' 2>/dev/null || echo "  (failed to list)"
 
 echo
 echo "========================================"

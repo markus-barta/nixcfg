@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T05: Backup System - Automated Test
 # Tests that restic backup system is running
@@ -38,7 +38,7 @@ echo
 
 # Test 1: Container running
 echo -n "Test 1: Restic container running... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps | grep -q restic' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps | grep -q restic' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -47,7 +47,7 @@ fi
 
 # Test 2: Container stable
 echo -n "Test 2: Container stable... "
-RESTARTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" "docker inspect csb1-restic-cron-hetzner-1 --format='{{.RestartCount}}'" 2>/dev/null || echo "999")
+RESTARTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" "docker inspect csb1-restic-cron-hetzner-1 --format='{{.RestartCount}}'" 2>/dev/null || echo "999")
 if [ "$RESTARTS" -lt 5 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($RESTARTS restarts)"
 else
@@ -56,7 +56,7 @@ fi
 
 # Test 3: Recent backup in logs
 echo -n "Test 3: Recent backup activity... "
-RECENT_BACKUP=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker logs csb1-restic-cron-hetzner-1 2>&1 | grep -c "backup"' 2>/dev/null || echo "0")
+RECENT_BACKUP=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker logs csb1-restic-cron-hetzner-1 2>&1 | grep -c "backup"' 2>/dev/null || echo "0")
 if [ "$RECENT_BACKUP" -gt 0 ]; then
   echo -e "${GREEN}✅ PASS${NC} (backup activity found)"
 else
@@ -65,7 +65,7 @@ fi
 
 # Test 4: No critical errors
 echo -n "Test 4: No critical errors... "
-ERROR_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker logs csb1-restic-cron-hetzner-1 2>&1 | grep -ci "fatal\|critical" | head -1' 2>/dev/null || echo "0")
+ERROR_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker logs csb1-restic-cron-hetzner-1 2>&1 | grep -ci "fatal\|critical" | head -1' 2>/dev/null || echo "0")
 if [ "$ERROR_COUNT" -eq 0 ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC2012,SC2016
+# shellcheck disable=SC2034,SC2086,SC2012,SC2016
 #
 # T09: Post-Migration Verification
 # Compares current state against pre-migration snapshot
@@ -61,7 +61,7 @@ WARNINGS=0
 
 # Test 1: SSH connectivity
 echo -n "Test 1: SSH connectivity... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'echo "ok"' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'echo "ok"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ CRITICAL FAIL${NC}"
@@ -72,7 +72,7 @@ fi
 
 # Test 2: NixOS version
 echo -n "Test 2: NixOS version... "
-CURRENT_VERSION=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'nixos-version' 2>/dev/null || echo "unknown")
+CURRENT_VERSION=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'nixos-version' 2>/dev/null || echo "unknown")
 OLD_VERSION=$(grep -oP '"nixos_version": "\K[^"]+' "$SNAPSHOT_FILE" 2>/dev/null || echo "unknown")
 if [ "$CURRENT_VERSION" != "unknown" ]; then
   if [ "$CURRENT_VERSION" == "$OLD_VERSION" ]; then
@@ -88,7 +88,7 @@ fi
 
 # Test 3: Generation increased
 echo -n "Test 3: New generation deployed... "
-CURRENT_GEN=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'readlink /nix/var/nix/profiles/system | grep -oP "system-\K[0-9]+"' 2>/dev/null || echo "0")
+CURRENT_GEN=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'readlink /nix/var/nix/profiles/system | grep -oP "system-\K[0-9]+"' 2>/dev/null || echo "0")
 OLD_GEN=$(grep -oP '"current_generation": "\K[^"]+' "$SNAPSHOT_FILE" 2>/dev/null || echo "0")
 if [ "$CURRENT_GEN" -gt "$OLD_GEN" ] 2>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC} (gen $OLD_GEN → $CURRENT_GEN)"
@@ -99,7 +99,7 @@ fi
 
 # Test 4: Container count
 echo -n "Test 4: Container count... "
-CURRENT_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps -q | wc -l' 2>/dev/null | tr -d ' ')
+CURRENT_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps -q | wc -l' 2>/dev/null | tr -d ' ')
 OLD_COUNT=$(grep -c '"name":' "$SNAPSHOT_FILE" 2>/dev/null || echo "0")
 if [ "$CURRENT_COUNT" -ge "$OLD_COUNT" ]; then
   echo -e "${GREEN}✅ PASS${NC} ($CURRENT_COUNT containers, was $OLD_COUNT)"
@@ -110,7 +110,7 @@ fi
 
 # Test 5: No unhealthy containers
 echo -n "Test 5: No unhealthy containers... "
-UNHEALTHY=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps --filter "health=unhealthy" -q | wc -l' 2>/dev/null | tr -d ' ')
+UNHEALTHY=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps --filter "health=unhealthy" -q | wc -l' 2>/dev/null | tr -d ' ')
 if [ "$UNHEALTHY" -eq 0 ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
@@ -139,7 +139,7 @@ fi
 
 # Test 8: No omega keys (CRITICAL SECURITY)
 echo -n "Test 8: No omega keys (security)... "
-OMEGA_KEYS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'cat ~/.ssh/authorized_keys 2>/dev/null | grep -c "omega" || echo 0' 2>/dev/null | tr -d '\n\r')
+OMEGA_KEYS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'cat ~/.ssh/authorized_keys 2>/dev/null | grep -c "omega" || echo 0' 2>/dev/null | tr -d '\n\r')
 if [ "${OMEGA_KEYS:-0}" -eq 0 ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
@@ -151,7 +151,7 @@ fi
 
 # Test 9: Passwordless sudo
 echo -n "Test 9: Passwordless sudo... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'sudo -n whoami' 2>/dev/null | grep -q "root"; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo -n whoami' 2>/dev/null | grep -q "root"; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -160,7 +160,7 @@ fi
 
 # Test 10: ZFS healthy
 echo -n "Test 10: ZFS pool healthy... "
-ZFS_HEALTH=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'sudo zpool status 2>/dev/null | grep -c "ONLINE" || echo 0' 2>/dev/null)
+ZFS_HEALTH=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo zpool status 2>/dev/null | grep -c "ONLINE" || echo 0' 2>/dev/null)
 if [ "${ZFS_HEALTH:-0}" -gt 0 ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else

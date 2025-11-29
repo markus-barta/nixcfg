@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC2016
+# shellcheck disable=SC2034,SC2086,SC2016
 #
 # T13: Service Recovery Test (Safe Mode)
 # Verifies restart policies without actually restarting
@@ -43,7 +43,7 @@ WARNINGS=0
 
 # Test 1: Docker service enabled
 echo -n "Test 1: Docker systemd service enabled... "
-DOCKER_ENABLED=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'systemctl is-enabled docker 2>/dev/null' 2>/dev/null || echo "unknown")
+DOCKER_ENABLED=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'systemctl is-enabled docker 2>/dev/null' 2>/dev/null || echo "unknown")
 if [ "$DOCKER_ENABLED" = "enabled" ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
@@ -53,7 +53,7 @@ fi
 
 # Test 2: Docker service running
 echo -n "Test 2: Docker service running... "
-DOCKER_ACTIVE=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'systemctl is-active docker 2>/dev/null' 2>/dev/null || echo "unknown")
+DOCKER_ACTIVE=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'systemctl is-active docker 2>/dev/null' 2>/dev/null || echo "unknown")
 if [ "$DOCKER_ACTIVE" = "active" ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
@@ -63,7 +63,7 @@ fi
 
 # Test 3: Container restart policies
 echo -n "Test 3: Container restart policies... "
-POLICIES=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker inspect --format "{{.HostConfig.RestartPolicy.Name}}" $(docker ps -q) 2>/dev/null' 2>/dev/null || echo "")
+POLICIES=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker inspect --format "{{.HostConfig.RestartPolicy.Name}}" $(docker ps -q) 2>/dev/null' 2>/dev/null || echo "")
 NO_POLICY=$(echo "$POLICIES" | grep -c "^no$" || echo "0")
 TOTAL_CONTAINERS=$(echo "$POLICIES" | grep -c "." || echo "0")
 if [ "${NO_POLICY:-0}" -eq 0 ]; then
@@ -75,7 +75,7 @@ fi
 
 # Test 4: SSH service enabled
 echo -n "Test 4: SSH service enabled... "
-SSH_ENABLED=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'systemctl is-enabled sshd 2>/dev/null' 2>/dev/null || echo "unknown")
+SSH_ENABLED=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'systemctl is-enabled sshd 2>/dev/null' 2>/dev/null || echo "unknown")
 if [ "$SSH_ENABLED" = "enabled" ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
@@ -85,7 +85,7 @@ fi
 
 # Test 5: ZFS services enabled
 echo -n "Test 5: ZFS import service... "
-ZFS_IMPORT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'systemctl is-enabled zfs-import-cache.service 2>/dev/null || systemctl is-enabled zfs-import.target 2>/dev/null' 2>/dev/null || echo "unknown")
+ZFS_IMPORT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'systemctl is-enabled zfs-import-cache.service 2>/dev/null || systemctl is-enabled zfs-import.target 2>/dev/null' 2>/dev/null || echo "unknown")
 if [[ "$ZFS_IMPORT" == *"enabled"* ]] || [[ "$ZFS_IMPORT" == *"static"* ]]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
@@ -95,7 +95,7 @@ fi
 
 # Test 6: No containers in restart loop
 echo -n "Test 6: No restart loops... "
-RESTART_COUNTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker inspect --format "{{.RestartCount}}" $(docker ps -q) 2>/dev/null' 2>/dev/null || echo "")
+RESTART_COUNTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker inspect --format "{{.RestartCount}}" $(docker ps -q) 2>/dev/null' 2>/dev/null || echo "")
 HIGH_RESTARTS=$(echo "$RESTART_COUNTS" | awk '$1 > 10' | wc -l | tr -d ' ')
 if [ "${HIGH_RESTARTS:-0}" -eq 0 ]; then
   echo -e "${GREEN}✅ PASS${NC}"
@@ -106,7 +106,7 @@ fi
 
 # Test 7: System uptime (long uptime = stable)
 echo -n "Test 7: System stability... "
-UPTIME_DAYS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'awk "{print int(\$1/86400)}" /proc/uptime' 2>/dev/null || echo "0")
+UPTIME_DAYS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'awk "{print int(\$1/86400)}" /proc/uptime' 2>/dev/null || echo "0")
 if [ "${UPTIME_DAYS:-0}" -gt 7 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($UPTIME_DAYS days uptime - stable)"
 elif [ "${UPTIME_DAYS:-0}" -gt 0 ]; then
@@ -119,7 +119,7 @@ fi
 
 # Test 8: Multi-user target enabled
 echo -n "Test 8: Multi-user target... "
-MULTI_USER=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'systemctl get-default 2>/dev/null' 2>/dev/null || echo "unknown")
+MULTI_USER=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'systemctl get-default 2>/dev/null' 2>/dev/null || echo "unknown")
 if [[ "$MULTI_USER" == *"multi-user"* ]] || [[ "$MULTI_USER" == *"graphical"* ]]; then
   echo -e "${GREEN}✅ PASS${NC} ($MULTI_USER)"
 else
@@ -130,7 +130,7 @@ fi
 # List container restart policies
 echo
 echo "Container restart policies:"
-$TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker inspect --format "  {{.Name}}: {{.HostConfig.RestartPolicy.Name}}" $(docker ps -q) 2>/dev/null | head -10' 2>/dev/null || echo "  (failed to list)"
+$TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker inspect --format "  {{.Name}}: {{.HostConfig.RestartPolicy.Name}}" $(docker ps -q) 2>/dev/null | head -10' 2>/dev/null || echo "  (failed to list)"
 
 echo
 echo "========================================"

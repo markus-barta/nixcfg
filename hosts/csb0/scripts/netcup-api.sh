@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T15: Netcup API Status Test for csb0
 # Verifies server status via Netcup SCP REST API

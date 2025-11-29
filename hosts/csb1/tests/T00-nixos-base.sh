@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T00: NixOS Base System - Automated Test
 # Tests that NixOS is properly installed and functioning on csb1
@@ -37,7 +37,7 @@ echo
 
 # Test 1: NixOS version
 echo -n "Test 1: NixOS version... "
-if VERSION=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'nixos-version' 2>/dev/null); then
+if VERSION=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'nixos-version' 2>/dev/null); then
   echo -e "${GREEN}✅ PASS${NC} ($VERSION)"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -46,7 +46,7 @@ fi
 
 # Test 2: Configuration directory exists
 echo -n "Test 2: Configuration directory... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'test -d ~/nixcfg/hosts/csb1' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'test -d ~/nixcfg/hosts/csb1' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -55,7 +55,7 @@ fi
 
 # Test 3: Generations exist
 echo -n "Test 3: System generations... "
-GEN_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'ls -1 /nix/var/nix/profiles/ | grep -c "system-.*-link"' 2>/dev/null || echo "0")
+GEN_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'ls -1 /nix/var/nix/profiles/ | grep -c "system-.*-link"' 2>/dev/null || echo "0")
 if [ "$GEN_COUNT" -gt 0 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($GEN_COUNT generations)"
 else
@@ -65,7 +65,7 @@ fi
 
 # Test 4: System running
 echo -n "Test 4: System status... "
-STATUS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'systemctl is-system-running' 2>/dev/null || echo "unknown")
+STATUS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'systemctl is-system-running' 2>/dev/null || echo "unknown")
 if [ "$STATUS" = "running" ] || [ "$STATUS" = "degraded" ]; then
   echo -e "${GREEN}✅ PASS${NC} ($STATUS)"
 else
@@ -75,7 +75,7 @@ fi
 
 # Test 5: Docker installed
 echo -n "Test 5: Docker installed... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'which docker' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'which docker' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

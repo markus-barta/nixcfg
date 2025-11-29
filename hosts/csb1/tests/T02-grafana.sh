@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T02: Grafana - Automated Test
 # Tests that Grafana monitoring is running and accessible
@@ -41,7 +41,7 @@ echo
 
 # Test 1: Container running
 echo -n "Test 1: Grafana container running... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps | grep -q grafana' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps | grep -q grafana' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -50,7 +50,7 @@ fi
 
 # Test 2: Container healthy (no restart loops)
 echo -n "Test 2: Container stable... "
-RESTARTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" "docker inspect csb1-grafana-1 --format='{{.RestartCount}}'" 2>/dev/null || echo "999")
+RESTARTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" "docker inspect csb1-grafana-1 --format='{{.RestartCount}}'" 2>/dev/null || echo "999")
 if [ "$RESTARTS" -lt 5 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($RESTARTS restarts)"
 else
@@ -59,7 +59,7 @@ fi
 
 # Test 3: Internal port accessible (via Docker network)
 echo -n "Test 3: Container health (via docker)... "
-HEALTH=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" "docker exec csb1-grafana-1 wget -q -O - http://localhost:3000/api/health 2>/dev/null" 2>/dev/null || echo "{}")
+HEALTH=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" "docker exec csb1-grafana-1 wget -q -O - http://localhost:3000/api/health 2>/dev/null" 2>/dev/null || echo "{}")
 if echo "$HEALTH" | grep -q "database"; then
   echo -e "${GREEN}✅ PASS${NC}"
 else

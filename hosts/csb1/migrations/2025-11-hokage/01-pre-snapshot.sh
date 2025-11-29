@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034,SC2129,SC2016
+# shellcheck disable=SC2034,SC2086,SC2129,SC2016
 #
 # T08: Pre-Migration Snapshot
 # Captures current system state for before/after comparison
@@ -54,11 +54,11 @@ echo "  \"host\": \"$HOST\"," >>"$SNAPSHOT_FILE"
 
 # Collect system info
 echo -n "Collecting system info... "
-NIXOS_VERSION=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'nixos-version' 2>/dev/null || echo "unknown")
-KERNEL=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'uname -r' 2>/dev/null || echo "unknown")
-UPTIME=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'uptime -p' 2>/dev/null || echo "unknown")
-GEN_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'ls -1 /nix/var/nix/profiles/ | grep -c "system-.*-link"' 2>/dev/null || echo "0")
-CURRENT_GEN=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'readlink /nix/var/nix/profiles/system | grep -oP "system-\K[0-9]+"' 2>/dev/null || echo "unknown")
+NIXOS_VERSION=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'nixos-version' 2>/dev/null || echo "unknown")
+KERNEL=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'uname -r' 2>/dev/null || echo "unknown")
+UPTIME=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'uptime -p' 2>/dev/null || echo "unknown")
+GEN_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'ls -1 /nix/var/nix/profiles/ | grep -c "system-.*-link"' 2>/dev/null || echo "0")
+CURRENT_GEN=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'readlink /nix/var/nix/profiles/system | grep -oP "system-\K[0-9]+"' 2>/dev/null || echo "unknown")
 echo -e "${GREEN}✅${NC}"
 
 echo "  \"system\": {" >>"$SNAPSHOT_FILE"
@@ -71,7 +71,7 @@ echo "  }," >>"$SNAPSHOT_FILE"
 
 # Collect Docker containers
 echo -n "Collecting Docker containers... "
-CONTAINERS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps --format "{{.Names}}:{{.Image}}:{{.Status}}" | sort' 2>/dev/null || echo "")
+CONTAINERS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps --format "{{.Names}}:{{.Image}}:{{.Status}}" | sort' 2>/dev/null || echo "")
 CONTAINER_COUNT=$(echo "$CONTAINERS" | grep -c ":" || echo "0")
 echo -e "${GREEN}✅${NC} ($CONTAINER_COUNT containers)"
 
@@ -95,7 +95,7 @@ echo "  ]," >>"$SNAPSHOT_FILE"
 
 # Collect Docker volumes
 echo -n "Collecting Docker volumes... "
-VOLUMES=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker volume ls -q | sort' 2>/dev/null || echo "")
+VOLUMES=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker volume ls -q | sort' 2>/dev/null || echo "")
 VOLUME_COUNT=$(echo "$VOLUMES" | grep -c "." || echo "0")
 echo -e "${GREEN}✅${NC} ($VOLUME_COUNT volumes)"
 
@@ -136,8 +136,8 @@ echo -e "${GREEN}✅${NC}"
 
 # Collect ZFS info
 echo -n "Collecting ZFS info... "
-ZFS_POOL=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'sudo zpool list -H -o name,size,alloc,free,cap,health 2>/dev/null | head -1' 2>/dev/null || echo "unknown")
-ZFS_COMPRESS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'sudo zfs get -H compressratio 2>/dev/null | head -1 | awk "{print \$3}"' 2>/dev/null || echo "unknown")
+ZFS_POOL=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo zpool list -H -o name,size,alloc,free,cap,health 2>/dev/null | head -1' 2>/dev/null || echo "unknown")
+ZFS_COMPRESS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo zfs get -H compressratio 2>/dev/null | head -1 | awk "{print \$3}"' 2>/dev/null || echo "unknown")
 echo -e "${GREEN}✅${NC}"
 
 echo "  \"zfs\": {" >>"$SNAPSHOT_FILE"
@@ -147,7 +147,7 @@ echo "  }," >>"$SNAPSHOT_FILE"
 
 # Collect SSH key count
 echo -n "Collecting SSH key info... "
-SSH_KEY_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'cat ~/.ssh/authorized_keys 2>/dev/null | grep -c "^ssh-" || echo 0' 2>/dev/null || echo "0")
+SSH_KEY_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'cat ~/.ssh/authorized_keys 2>/dev/null | grep -c "^ssh-" || echo 0' 2>/dev/null || echo "0")
 echo -e "${GREEN}✅${NC} ($SSH_KEY_COUNT keys)"
 
 echo "  \"security\": {" >>"$SNAPSHOT_FILE"

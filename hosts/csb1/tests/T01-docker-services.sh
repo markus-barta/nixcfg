@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T01: Docker Services - Automated Test
 # Tests that Docker is running and containers are healthy
@@ -39,7 +39,7 @@ echo
 
 # Test 1: Docker service running
 echo -n "Test 1: Docker service status... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'systemctl is-active docker' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'systemctl is-active docker' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -48,7 +48,7 @@ fi
 
 # Test 2: Docker version
 echo -n "Test 2: Docker version... "
-DOCKER_VERSION=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker --version' 2>/dev/null || echo "unknown")
+DOCKER_VERSION=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker --version' 2>/dev/null || echo "unknown")
 if [[ "$DOCKER_VERSION" == Docker* ]]; then
   echo -e "${GREEN}✅ PASS${NC} ($DOCKER_VERSION)"
 else
@@ -58,7 +58,7 @@ fi
 
 # Test 3: Container count
 echo -n "Test 3: Running containers... "
-CONTAINER_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps -q | wc -l' 2>/dev/null | tr -d ' ')
+CONTAINER_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps -q | wc -l' 2>/dev/null | tr -d ' ')
 if [ "$CONTAINER_COUNT" -ge "$MIN_CONTAINERS" ]; then
   echo -e "${GREEN}✅ PASS${NC} ($CONTAINER_COUNT containers)"
 else
@@ -67,7 +67,7 @@ fi
 
 # Test 4: No unhealthy containers
 echo -n "Test 4: No unhealthy containers... "
-UNHEALTHY=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps --filter "health=unhealthy" -q | wc -l' 2>/dev/null | tr -d ' ')
+UNHEALTHY=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps --filter "health=unhealthy" -q | wc -l' 2>/dev/null | tr -d ' ')
 if [ "$UNHEALTHY" -eq 0 ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
@@ -77,7 +77,7 @@ fi
 
 # Test 5: No restarting containers
 echo -n "Test 5: No restarting containers... "
-RESTARTING=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps --filter "status=restarting" -q | wc -l' 2>/dev/null | tr -d ' ')
+RESTARTING=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps --filter "status=restarting" -q | wc -l' 2>/dev/null | tr -d ' ')
 if [ "$RESTARTING" -eq 0 ]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
@@ -87,7 +87,7 @@ fi
 
 # Test 6: Docker networks exist
 echo -n "Test 6: Docker networks... "
-NETWORK_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker network ls -q | wc -l' 2>/dev/null | tr -d ' ')
+NETWORK_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker network ls -q | wc -l' 2>/dev/null | tr -d ' ')
 if [ "$NETWORK_COUNT" -gt 0 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($NETWORK_COUNT networks)"
 else
@@ -97,7 +97,7 @@ fi
 
 # Test 7: Docker volumes exist
 echo -n "Test 7: Docker volumes... "
-VOLUME_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker volume ls -q | wc -l' 2>/dev/null | tr -d ' ')
+VOLUME_COUNT=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker volume ls -q | wc -l' 2>/dev/null | tr -d ' ')
 if [ "$VOLUME_COUNT" -gt 0 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($VOLUME_COUNT volumes)"
 else

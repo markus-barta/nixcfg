@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T16: Pre-Restart Safety Check for csb0
 # Verifies everything is ready before a graceful restart
@@ -41,7 +41,7 @@ WARNINGS=0
 
 # Check 1: SSH Access
 echo -n "Check 1: SSH access... "
-if ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'echo ok' &>/dev/null; then
+if ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'echo ok' &>/dev/null; then
   echo -e "${GREEN}✅ OK${NC}"
 else
   echo -e "${RED}❌ BLOCKED${NC}"
@@ -50,7 +50,7 @@ fi
 
 # Check 2: NixOS Generations
 echo -n "Check 2: Rollback generations... "
-GEN_COUNT=$(ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'ls -1 /nix/var/nix/profiles/ | grep -c "system-.*-link"' 2>/dev/null || echo "0")
+GEN_COUNT=$(ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'ls -1 /nix/var/nix/profiles/ | grep -c "system-.*-link"' 2>/dev/null || echo "0")
 if [ "$GEN_COUNT" -ge 2 ]; then
   echo -e "${GREEN}✅ OK${NC} ($GEN_COUNT generations)"
 else
@@ -60,7 +60,7 @@ fi
 
 # Check 3: All containers healthy
 echo -n "Check 3: Container health... "
-UNHEALTHY=$(ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps --filter "health=unhealthy" -q | wc -l' 2>/dev/null | tr -d ' ')
+UNHEALTHY=$(ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps --filter "health=unhealthy" -q | wc -l' 2>/dev/null | tr -d ' ')
 if [ "${UNHEALTHY:-0}" -eq 0 ]; then
   echo -e "${GREEN}✅ OK${NC}"
 else
@@ -70,7 +70,7 @@ fi
 
 # Check 4: No restart loops
 echo -n "Check 4: No restart loops... "
-HIGH_RESTARTS=$(ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker inspect --format "{{.RestartCount}}" $(docker ps -q) 2>/dev/null | awk "\$1 > 10" | wc -l' 2>/dev/null | tr -d ' ')
+HIGH_RESTARTS=$(ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker inspect --format "{{.RestartCount}}" $(docker ps -q) 2>/dev/null | awk "\$1 > 10" | wc -l' 2>/dev/null | tr -d ' ')
 if [ "${HIGH_RESTARTS:-0}" -eq 0 ]; then
   echo -e "${GREEN}✅ OK${NC}"
 else
@@ -80,7 +80,7 @@ fi
 
 # Check 5: ZFS healthy
 echo -n "Check 5: ZFS pool... "
-ZFS_STATE=$(ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'sudo zpool status -x 2>/dev/null | head -1' 2>/dev/null || echo "unknown")
+ZFS_STATE=$(ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo zpool status -x 2>/dev/null | head -1' 2>/dev/null || echo "unknown")
 if [[ "$ZFS_STATE" == *"healthy"* ]] || [[ "$ZFS_STATE" == *"ONLINE"* ]]; then
   echo -e "${GREEN}✅ OK${NC}"
 else
@@ -90,7 +90,7 @@ fi
 
 # Check 6: Disk space
 echo -n "Check 6: Disk space... "
-DISK_USED=$(ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'df / | tail -1 | awk "{print \$5}" | tr -d "%"' 2>/dev/null || echo "100")
+DISK_USED=$(ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'df / | tail -1 | awk "{print \$5}" | tr -d "%"' 2>/dev/null || echo "100")
 if [ "${DISK_USED:-100}" -lt 80 ]; then
   echo -e "${GREEN}✅ OK${NC} (${DISK_USED}% used)"
 else

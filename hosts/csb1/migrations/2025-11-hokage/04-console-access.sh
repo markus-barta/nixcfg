@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T11: Console Access Verification
 # Verifies emergency access methods are available
@@ -42,7 +42,7 @@ echo
 
 # Test 1: SSH key authentication
 echo -n "Test 1: SSH key authentication... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" -o PasswordAuthentication=no "$SSH_USER@$HOST" 'echo "ok"' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS -o PasswordAuthentication=no "$SSH_USER@$HOST" 'echo "ok"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -90,7 +90,7 @@ fi
 
 # Test 7: IPv4 direct access works
 echo -n "Test 7: Direct IP access... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@152.53.64.166" 'echo "ok"' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@152.53.64.166" 'echo "ok"' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${YELLOW}⚠️ CHECK${NC} (direct IP: 152.53.64.166)"
@@ -98,7 +98,7 @@ fi
 
 # Test 8: Sudo works (for emergency commands)
 echo -n "Test 8: Sudo access... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'sudo -n true' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo -n true' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

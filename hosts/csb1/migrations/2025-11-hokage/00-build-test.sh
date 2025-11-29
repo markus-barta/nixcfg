@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # 00: Pre-Migration Build Test
 # Builds the new configuration WITHOUT applying it

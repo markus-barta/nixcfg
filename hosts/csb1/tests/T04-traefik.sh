@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T04: Traefik - Automated Test
 # Tests that Traefik reverse proxy is running and routing correctly
@@ -39,7 +39,7 @@ echo
 
 # Test 1: Container running
 echo -n "Test 1: Traefik container running... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps | grep -q traefik' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps | grep -q traefik' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -48,7 +48,7 @@ fi
 
 # Test 2: Container stable
 echo -n "Test 2: Container stable... "
-RESTARTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" "docker inspect csb1-traefik-1 --format='{{.RestartCount}}'" 2>/dev/null || echo "999")
+RESTARTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" "docker inspect csb1-traefik-1 --format='{{.RestartCount}}'" 2>/dev/null || echo "999")
 if [ "$RESTARTS" -lt 5 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($RESTARTS restarts)"
 else

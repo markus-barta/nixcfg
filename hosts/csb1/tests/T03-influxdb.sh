@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034,SC2086
 #
 # T03: InfluxDB - Automated Test
 # Tests that InfluxDB time series database is running
@@ -39,7 +39,7 @@ echo
 
 # Test 1: Container running
 echo -n "Test 1: InfluxDB container running... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker ps | grep -q influxdb' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker ps | grep -q influxdb' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
@@ -48,7 +48,7 @@ fi
 
 # Test 2: Container stable
 echo -n "Test 2: Container stable... "
-RESTARTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" "docker inspect csb1-influxdb-1 --format='{{.RestartCount}}'" 2>/dev/null || echo "999")
+RESTARTS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" "docker inspect csb1-influxdb-1 --format='{{.RestartCount}}'" 2>/dev/null || echo "999")
 if [ "$RESTARTS" -lt 5 ]; then
   echo -e "${GREEN}✅ PASS${NC} ($RESTARTS restarts)"
 else
@@ -57,7 +57,7 @@ fi
 
 # Test 3: Container running for extended period
 echo -n "Test 3: Container uptime... "
-STATUS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" "docker ps --filter name=csb1-influxdb-1 --format '{{.Status}}'" 2>/dev/null || echo "unknown")
+STATUS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" "docker ps --filter name=csb1-influxdb-1 --format '{{.Status}}'" 2>/dev/null || echo "unknown")
 if [[ "$STATUS" == *"Up"* ]]; then
   echo -e "${GREEN}✅ PASS${NC} ($STATUS)"
 else
@@ -67,7 +67,7 @@ fi
 
 # Test 4: InfluxDB data directory exists
 echo -n "Test 4: Data directory... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" "$SSH_OPTS" "$SSH_USER@$HOST" 'docker exec csb1-influxdb-1 ls /var/lib/influxdb3' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'docker exec csb1-influxdb-1 ls /var/lib/influxdb3' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${YELLOW}⚠️ CHECK DATA${NC}"
