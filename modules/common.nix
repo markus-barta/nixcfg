@@ -253,9 +253,12 @@ in
 
   home-manager.users = lib.genAttrs hokage.usersWithRoot (_userName: {
     imports = [
-      # Themed starship, zellij, and eza (auto-detects hostname from $HOST)
+      # Themed starship, zellij, and eza
       ./shared/theme-hm.nix
     ];
+
+    # Pass hostname explicitly (builtins.getEnv doesn't work during NixOS eval)
+    theme.hostname = config.networking.hostName;
 
     # The home.stateVersion option does not have a default and must be set
     home.stateVersion = "24.11";
