@@ -1,164 +1,190 @@
 # csb1 - Cloud Server Barta 1
 
-**Status**: ⚠️ Configuration extraction in progress  
+**Status**: 🟡 Migration to Hokage planned  
 **Type**: Cloud Server (Netcup VPS 1000 G11)  
-**OS**: NixOS  
+**OS**: NixOS 24.11 (Vicuna)  
+**Uptime**: 200+ days  
 **Primary Domain**: cs1.barta.cm
 
 ---
 
-## Overview
+## Quick Reference
 
-Cloud server hosting monitoring, documentation, and database services. Originally configured via nixos-anywhere.
-
----
-
-## Server Information
-
-### Network
-
-- **Primary Domain**: cs1.barta.cm
-- **IP Address**: 152.53.64.166
-- **IPv6**: 2a0a:4cc0:80:2d5:e8e8:c7ff:fe68:03c7
-- **FQDN**: v2202407214994279426.bestsrv.de
-- **Provider**: Netcup VPS 1000 G11
-- **Location**: Vienna (VIE)
-- **Quick Connect**: `qc1` (fish abbreviation)
-
-### Services
-
-Based on 1Password entries and DNS records, this server runs:
-
-- **Grafana**: Single instance with multiple users
-  - Domain: grafana.barta.cm
-  - Users: caroline, otto, gerhard, markus, mailina
-  - Purpose: Monitoring and visualization dashboards
-- **InfluxDB3**: Time series database
-  - Domain: influxdb.barta.cm
-  - User: `admin`
-  - Purpose: Time series data storage (fed by MQTT from csb0)
-- **Hedgedoc**: Collaborative markdown editor
-  - Domain: hdoc.barta.cm
-  - User: `hedgedoc`
-  - Purpose: Shared documentation
-- **Docmost**: Documentation platform
-  - Domain: docmost.barta.cm (Proxied via Cloudflare)
-  - Purpose: Knowledge base/wiki
-- **Paperless-ngx** (likely): Document management
-  - Domain: paperless.barta.cm (Proxied via Cloudflare)
-  - Purpose: Document archival and OCR
-- **WhoAmI**: Test/debug service
-  - Domain: whoami1.barta.cm
-  - Purpose: Service testing
+| Item          | Value                                   |
+| ------------- | --------------------------------------- |
+| **Hostname**  | csb1                                    |
+| **Domain**    | cs1.barta.cm                            |
+| **IP (v4)**   | 152.53.64.166                           |
+| **IP (v6)**   | 2a0a:4cc0:80:2d5:e8e8:c7ff:fe68:03c7    |
+| **SSH**       | `ssh -p 2222 mba@cs1.barta.cm` or `qc1` |
+| **Provider**  | Netcup VPS 1000 G11                     |
+| **Location**  | Vienna (VIE)                            |
+| **Server ID** | 646294                                  |
+| **FQDN**      | v2202407214994279426.bestsrv.de         |
 
 ---
 
-## Backup Configuration
-
-- **Backup Target**: Hetzner Storage Box
-- **Method**: restic
-- **Schedule**: TBD
-
----
-
-## Access
-
-### SSH Access
-
-- Connect: `ssh mba@cs1.barta.cm` or `qc1`
-- IP: `152.53.64.166`
-- Local user password: Stored in 1Password ("cs1 csb1 qc1")
-- Root password: Stored separately in 1Password
-
-### Service Access
-
-See encrypted secrets once secrets management is implemented.
-
----
-
-## Current Status & TODOs
-
-### ⚠️ Configuration Extraction Needed
-
-1. Extract current NixOS configuration from live server:
-
-   ```bash
-   ssh mba@cs1.barta.cm "nixos-generate-config --show-hardware-config" > hardware-configuration.nix
-   # Or via root: ssh root@152.53.64.166
-   # Copy /etc/nixos/configuration.nix
-   ```
-
-2. Document current services and their configurations
-
-3. Extract service credentials to secrets management:
-   - Local user (mba) password: F0NyqFJD7rwmpct24c1
-   - All Grafana user credentials (caroline, otto, gerhard, markus, mailina)
-   - InfluxDB admin credentials
-   - Hedgedoc credentials
-   - Hetzner storage credentials
-
-4. Create declarative configuration based on extracted data
-
-5. Test deployment with nixos-anywhere
-
----
-
-## SSH Key Fingerprints
-
-### Current Installation
-
-**ED25519**: `SHA256:XdDgST6kJOAsTOiiBCe04sEK5KbX1qDeS9DkeGAUa5s`  
-**RSA**: `SHA256:FZiajhINn73JIXq5gCFWBdQLlwvPzLbHCyWcv5mdkJ4`  
-**ECDSA**: `SHA256:U/94/tD0laaeI48MaxA0wqGE1LHq6OlBE3WH8jYN5OM`
-
----
-
-## Related Services
-
-- **node-RED** (csb0): Automation feeding data to Grafana
-- **Mosquitto MQTT** (csb0): Data source for InfluxDB
-- **Telegram Bot** (csb0): Notifications and alerts
-
----
-
-## Migration Notes
-
-### From 1Password to Secrets Management
-
-Currently, credentials are scattered across multiple 1Password entries:
-
-- "cs1 csb1 qc1" - Local mba user password
-- Multiple "grafana csb1" entries (caroline, otto, gerhard, markus, mailina)
-- "InfluxDB3 csb1" - Database admin
-- "Hedgedoc barta.cm csb1 - hdoc.barta.cm"
-
-Target: Consolidate into encrypted secrets structure:
+## Folder Structure
 
 ```
-~/Secrets/personal/encrypted/servers/csb1/
-├── ssh-mba-user.env.age
-├── grafana-users.env.age
-├── influxdb-admin.env.age
-├── hedgedoc-config.env.age
-└── hetzner-backup.env.age
+hosts/csb1/
+├── configuration.nix       # Main NixOS configuration
+├── hardware-configuration.nix
+├── README.md              # This file
+│
+├── docs/                  # 📚 Documentation
+│   ├── MIGRATION-PLAN-HOKAGE.md
+│   └── SSH-KEY-SECURITY-NOTE.md
+│
+├── tests/                 # ✅ Repeatable health checks (T00-T07)
+│   ├── T00-nixos-base.sh
+│   ├── T01-docker-services.sh
+│   ├── T02-grafana.sh
+│   ├── T03-influxdb.sh
+│   ├── T04-traefik.sh
+│   ├── T05-backup-system.sh
+│   ├── T06-ssh-access.sh
+│   └── T07-zfs-storage.sh
+│
+├── scripts/               # 🔧 Operational utilities
+│   ├── netcup-api.sh      # API connectivity test
+│   └── restart-safety.sh  # Pre-restart checklist
+│
+├── migrations/            # 📦 One-time migration scripts
+│   └── 2025-11-hokage/    # Current migration to Hokage
+│
+└── secrets/               # 🔒 Sensitive data (gitignored)
+    ├── RUNBOOK.md         # Emergency procedures with credentials
+    ├── MIGRATION-PLAN.md  # Full plan with sensitive details
+    └── netcup-api-refresh-token.txt
 ```
 
-Keep in 1Password: Only emergency root recovery password.
+---
+
+## Services (Docker)
+
+| Service       | Domain             | Purpose                |
+| ------------- | ------------------ | ---------------------- |
+| Grafana       | grafana.barta.cm   | Monitoring dashboards  |
+| InfluxDB      | influxdb.barta.cm  | Time series database   |
+| Docmost       | docmost.barta.cm   | Documentation/wiki     |
+| Paperless-ngx | paperless.barta.cm | Document management    |
+| Hedgedoc      | hdoc.barta.cm      | Collaborative markdown |
+| Traefik       | -                  | Reverse proxy & SSL    |
+
+All services run via Docker Compose with Traefik handling SSL.
 
 ---
 
-## Network Configuration
+## Common Operations
 
-### Original Installation Info
+### Health Check
 
-- **OS Options**: Debian 12 (bookworm) or Ubuntu 24.04 LTS
-- **Current**: NixOS (custom installation via nixos-anywhere)
-- **Root Password** (original): Stored in 1Password (not shown here)
+```bash
+# Run all health tests
+cd hosts/csb1/tests
+for f in T*.sh; do ./$f; done
+```
+
+### Update Configuration
+
+```bash
+ssh -p 2222 mba@cs1.barta.cm
+cd ~/Code/nixcfg
+git pull
+just switch
+```
+
+### Pre-Restart Safety
+
+```bash
+cd hosts/csb1/scripts
+./restart-safety.sh
+```
+
+### Rollback
+
+```bash
+# Via SSH
+sudo nixos-rebuild switch --rollback
+
+# Via VNC (if SSH broken)
+# 1. Netcup SCP → VNC Console
+# 2. GRUB menu → Select previous generation
+```
 
 ---
 
-## References
+## Current Migration
 
-- [Secrets Management Architecture](../imac-mba-home/docs/reference/secrets-management.md)
-- [nixos-anywhere](https://github.com/nix-community/nixos-anywhere)
-- Netcup Customer Panel: [customercontrolpanel.de](https://www.customercontrolpanel.de/)
+**Goal**: Migrate from local mixins to external Hokage modules (`github:pbek/nixcfg`)
+
+**Status**: 🟡 Planned
+
+**Pre-checks**:
+
+- ✅ Build test passed (`migrations/2025-11-hokage/00-build-test.sh`)
+- ✅ Pre-migration snapshots captured
+- ✅ Netcup API access configured
+- ✅ VNC emergency access documented
+
+**Procedure**: See `migrations/2025-11-hokage/README.md`
+
+---
+
+## Backup
+
+| Target          | Method | Content                |
+| --------------- | ------ | ---------------------- |
+| Hetzner Storage | restic | Docker volumes, config |
+
+See `secrets/RUNBOOK.md` for credentials and restore procedures.
+
+---
+
+## Network
+
+### SSH (Hardened)
+
+- Port: **2222** (not 22)
+- Password auth: **disabled**
+- Root login: **disabled**
+- Key auth only
+
+### Firewall
+
+| Port | Service         | Access     |
+| ---- | --------------- | ---------- |
+| 2222 | SSH             | Open       |
+| 80   | HTTP (redirect) | Open       |
+| 443  | HTTPS (Traefik) | Open       |
+| 22   | SSH (standard)  | **Closed** |
+
+---
+
+## Related
+
+- **csb0**: Node-RED, MQTT broker (feeds data to Grafana/InfluxDB)
+- **hsb1**: Monitors csb0/csb1 via Netcup API (daily at 19:00)
+
+---
+
+## Emergency
+
+See `secrets/RUNBOOK.md` for:
+
+- VNC console access
+- Netcup API commands
+- Recovery procedures
+- Backup restore
+- All credentials
+
+---
+
+## SSH Fingerprints
+
+```
+ED25519: SHA256:XdDgST6kJOAsTOiiBCe04sEK5KbX1qDeS9DkeGAUa5s
+RSA:     SHA256:FZiajhINn73JIXq5gCFWBdQLlwvPzLbHCyWcv5mdkJ4
+ECDSA:   SHA256:U/94/tD0laaeI48MaxA0wqGE1LHq6OlBE3WH8jYN5OM
+```
