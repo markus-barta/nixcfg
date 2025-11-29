@@ -78,12 +78,58 @@ users.users.mba = {
 
 ## 🚨 Incident Reference
 
-On November 22, 2025, hsb8 suffered complete SSH lockout after switching to external hokage. Only omega keys were present, requiring physical console access to recover.
+### hsb8 Incident (2025-11-22)
+
+hsb8 suffered complete SSH lockout after switching to external hokage. Only omega keys were present, requiring physical console access to recover.
 
 **Root Cause**: The `serverMba.enable` mixin was providing the SSH key, which was lost when switching to explicit hokage options.
 
-**This MUST NOT happen to csb1** - apply the `lib.mkForce` fix!
+### hsb1 Incident (2025-11-28)
+
+hsb1 ALSO got locked out despite having `lib.mkForce` SSH key override!
+
+**Root Cause**:
+
+1. ✅ Our `lib.mkForce` was correctly overriding SSH keys
+2. ❌ BUT hokage module ALSO sets `PasswordAuthentication = false`
+3. ❌ AND there was a conflict/order issue with SSH config
+4. Result: Neither key auth NOR password auth worked!
 
 ---
 
-**Action**: Ensure `lib.mkForce` SSH key override is in place BEFORE executing migration.
+## 🛡️ Complete Fix (Both Issues)
+
+```nix
+# 1. Override SSH keys
+users.users.mba = {
+  openssh.authorizedKeys.keys = lib.mkForce [
+    "ssh-rsa AAAAB3..." # Your key ONLY
+  ];
+  # Emergency password (generate with: mkpasswd -m yescrypt)
+  hashedPassword = "$y$j9T$...";
+};
+
+# 2. TEMPORARY: Enable password auth during migration
+services.openssh.settings.PasswordAuthentication = lib.mkForce true;
+
+# 3. Passwordless sudo
+security.sudo-rs.wheelNeedsPassword = false;
+```
+
+### Post-Migration Hardening
+
+After verifying SSH key login works:
+
+```nix
+# Remove or set to false:
+services.openssh.settings.PasswordAuthentication = false;
+```
+
+---
+
+**Action**:
+
+1. Ensure `lib.mkForce` SSH key override is in place
+2. **NEW**: Temporarily enable password auth during migration
+3. Set a known password for mba user
+4. Disable password auth after successful verification

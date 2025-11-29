@@ -211,6 +211,8 @@ Both hsb0 and hsb8 successfully migrated to external hokage consumer pattern in 
 - [ ] 🚨 Add `lib.mkForce` SSH key override (prevent lockout!)
 - [ ] 🚨 Add `security.sudo-rs.wheelNeedsPassword = false`
 - [ ] 🚨 Add fish shell `sourcefish` function
+- [ ] 🆕 Set `hashedPassword` for mba user (emergency recovery)
+- [ ] 🆕 TEMPORARILY enable `PasswordAuthentication = lib.mkForce true`
 - [ ] Declare Docker service management in configuration
 - [ ] Configure SSH host key preservation
 - [ ] Test configuration: `nixos-rebuild build --flake .#csb1`
@@ -457,17 +459,33 @@ See `secrets/RUNBOOK.md` for full restore procedure with credentials.
 
 ### Medium Risk ⚠️
 
-- SSH lockout (mitigated with `lib.mkForce` fix)
+- SSH lockout (mitigated - see below)
 - Docker networking changes
 - VNC console access (if needed)
 
 ### Mitigation
 
-- 🚨 SSH key security fix applied
-- Pre-migration backup
+- 🚨 SSH key security fix (`lib.mkForce`) applied
+- 🆕 Password auth temporarily enabled (hsb1 lesson!)
+- 🆕 Known password set for mba user
+- Pre-migration backup (Netcup + Restic + Archive)
 - VNC console access ready
 - Rollback procedure tested
 - csb1 is less critical than csb0
+
+### hsb1 Lockout Lesson (2025-11-28)
+
+Even with `lib.mkForce` SSH key override, hsb1 got locked out because:
+
+1. Hokage module also controls `PasswordAuthentication`
+2. There was a module ordering conflict
+3. Neither SSH keys NOR password worked
+
+**Fix for csb1**: Temporarily enable password auth during migration:
+
+```nix
+services.openssh.settings.PasswordAuthentication = lib.mkForce true;
+```
 
 ---
 

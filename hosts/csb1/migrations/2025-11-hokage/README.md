@@ -137,6 +137,8 @@ users.users.mba = {
   openssh.authorizedKeys.keys = lib.mkForce [
     "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABA..." # Your key
   ];
+  # Set a known password hash for emergency recovery
+  hashedPassword = "$y$j9T$...";  # Generate with: mkpasswd -m yescrypt
 };
 
 # 2. PASSWORDLESS SUDO
@@ -148,7 +150,29 @@ hokage = {
   useSecrets = false;
   useSharedKey = false;  # No omega keys!
 };
+
+# 4. 🆕 TEMPORARY PASSWORD LOGIN (for migration safety!)
+services.openssh.settings.PasswordAuthentication = lib.mkForce true;
 ```
+
+### ⚠️ hsb1 Lockout Lesson (2025-11-28)
+
+hsb1 migration failed because:
+
+1. Hokage module set SSH keys
+2. Our `lib.mkForce` override was applied
+3. **But hokage module also disabled password auth**
+4. **And our override didn't include password setting**
+5. Result: No way to login!
+
+**Fix**: During migration, TEMPORARILY enable password auth as backup:
+
+```nix
+# TEMPORARY - Remove after successful migration!
+services.openssh.settings.PasswordAuthentication = lib.mkForce true;
+```
+
+After verifying SSH key login works, disable password auth again.
 
 ---
 
