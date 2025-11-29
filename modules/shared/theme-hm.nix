@@ -250,13 +250,11 @@ in
       text = mkZellijConfig palette hostname;
     };
 
-    # EZA colors via session variable
+    # EZA colors via session variable (universal polished theme)
     home.sessionVariables = lib.mkIf config.theme.eza.enable {
-      # Use bold blue for directories (works universally)
-      # More sophisticated color mapping can be added later
-      EZA_COLORS = "di=1;34";
-      # Also set LS_COLORS for compatibility
-      LS_COLORS = "di=1;34";
+      EZA_COLORS = themePalettes.ezaColors;
+      # Also set LS_COLORS for basic ls compatibility (subset)
+      LS_COLORS = "di=1;38;5;110:ln=38;5;116:ex=38;5;114:or=38;5;167";
     };
   };
 }

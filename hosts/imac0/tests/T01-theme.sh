@@ -166,10 +166,83 @@ else
 fi
 
 # ────────────────────────────────────────────────────────────────────────────────
-# T01.8 - Theme Module Integration
+# T01.8 - Eza Colors Comprehensive
 # ────────────────────────────────────────────────────────────────────────────────
 
-print_test "T01.8 - Theme Module Integration"
+print_test "T01.8 - Eza Colors Comprehensive"
+
+# Check that EZA_COLORS has the polished theme (not just basic di=1;34)
+if [[ -f "$HM_SESSION_VARS" ]]; then
+  check_file_contains "$HM_SESSION_VARS" "di=1;38;5;110" "Eza directories use soft blue (38;5;110)"
+  check_file_contains "$HM_SESSION_VARS" "ex=38;5;114" "Eza executables use muted green"
+  check_file_contains "$HM_SESSION_VARS" "ln=38;5;116" "Eza symlinks use soft cyan"
+  check_file_contains "$HM_SESSION_VARS" "or=38;5;167" "Eza broken links use warning red"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────────
+# T01.9 - Unicode/Nerd Font Icons (CRITICAL - prevents corruption)
+# ────────────────────────────────────────────────────────────────────────────────
+
+print_test "T01.9 - Unicode/Nerd Font Icons"
+
+# These are the critical Unicode characters that must be preserved
+# If any of these fail, the template generation has corrupted Unicode!
+
+STARSHIP_TOML="$HOME/.config/starship.toml"
+
+# Check for Unicode characters using Python (most reliable for UTF-8)
+check_unicode_python() {
+  local file="$1"
+  local codepoint="$2"
+  local description="$3"
+
+  if python3 -c "
+import sys
+with open('$file', 'r') as f:
+    content = f.read()
+char = chr($codepoint)
+sys.exit(0 if char in content else 1)
+" 2>/dev/null; then
+    pass "$description"
+    return 0
+  else
+    fail "$description (U+$(printf '%04X' "$codepoint") not found)"
+    return 1
+  fi
+}
+
+# Rounded powerline arrows (CRITICAL - these broke multiple times today)
+check_unicode_python "$STARSHIP_TOML" 0xE0B4 "Rounded right arrow (U+E0B4) present"
+check_unicode_python "$STARSHIP_TOML" 0xE0B6 "Rounded left arrow (U+E0B6) present"
+
+# OS icons
+check_unicode_python "$STARSHIP_TOML" 0xF179 "Apple icon (U+F179) present"
+check_unicode_python "$STARSHIP_TOML" 0xF313 "NixOS icon (U+F313) present"
+check_unicode_python "$STARSHIP_TOML" 0xF17C "Linux icon (U+F17C) present"
+
+# Git icon
+check_unicode_python "$STARSHIP_TOML" 0xF418 "Git branch icon (U+F418) present"
+
+# Time/clock icon
+check_unicode_python "$STARSHIP_TOML" 0xF43A "Clock icon (U+F43A) present"
+
+# Language icons
+check_unicode_python "$STARSHIP_TOML" 0xE718 "Node.js icon (U+E718) present"
+check_unicode_python "$STARSHIP_TOML" 0xE73C "Python icon (U+E73C) present"
+
+# Special characters (should be ASCII-safe but verify)
+check_file_contains "$STARSHIP_TOML" "░▒▓" "Gradient shading characters present"
+check_file_contains "$STARSHIP_TOML" "❯" "Success prompt character present"
+check_file_contains "$STARSHIP_TOML" "✗" "Error prompt character present"
+check_file_contains "$STARSHIP_TOML" "⚠" "Root warning symbol present"
+check_file_contains "$STARSHIP_TOML" "⏱" "Stopwatch symbol present"
+check_file_contains "$STARSHIP_TOML" "✦" "Jobs star symbol present"
+
+# ────────────────────────────────────────────────────────────────────────────────
+# T01.10 - Theme Module Integration
+# ────────────────────────────────────────────────────────────────────────────────
+
+print_test "T01.10 - Theme Module Integration"
 
 # Check that all three configs have consistent theme info
 if grep -q "lightGray" "$HOME/.config/starship.toml" &&

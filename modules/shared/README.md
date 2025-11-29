@@ -61,7 +61,7 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 │    │                                                                     │  │
 │    │  ~/.config/starship.toml    (powerline, status, Unicode preserved)  │  │
 │    │  ~/.config/zellij/config.kdl (theme, keybindings)                   │  │
-│    │  EZA_COLORS, LS_COLORS      (environment variables)                 │  │
+│    │  EZA_COLORS, LS_COLORS      (universal polished theme)              │  │
 │    └─────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -72,6 +72,7 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 - Only ASCII color placeholders (`__PRIMARY__`, `__LIGHTEST__`, etc.) are substituted
 - One palette definition in `theme-palettes.nix` → three auto-generated configs
 - Add a new host: just add one line to `hostPalette` mapping
+- Eza colors are universal (same polished theme for all hosts)
 
 ### ⚠️ CRITICAL: Editing starship-template.toml
 
@@ -103,6 +104,39 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 | `__ERROR_BG__`         | `statusColors.error.bg`      |
 | `__ERROR_FG__`         | `statusColors.error.fg`      |
 | `__SUDO_FG__`          | `statusColors.sudo.fg`       |
+
+---
+
+## Eza Colors (Universal)
+
+The `ezaColors` in `theme-palettes.nix` provides a polished, universal color scheme for `eza` (modern ls replacement).
+
+### Design Philosophy
+
+- **Muted, cohesive palette** - No "pixel vomit"
+- **Gradual distinctions** - Subtle color differences for related items
+- **Important info visible** - But not overwhelming
+- **Consistent with starship** - Errors use same red, etc.
+
+### Color Categories
+
+| Category     | Color Style             | Purpose                       |
+| ------------ | ----------------------- | ----------------------------- |
+| Directories  | Soft blue (38;5;110)    | Navigational, prominent       |
+| Executables  | Muted green (38;5;114)  | Actionable                    |
+| Symlinks     | Soft cyan (38;5;116)    | Distinct but subtle           |
+| Broken links | Warning red (38;5;167)  | Errors need attention         |
+| Permissions  | Very muted grays        | Readable, not distracting     |
+| Size         | Gradient by magnitude   | Larger = more visible         |
+| User/Group   | Subtle grays            | Background info               |
+| Git status   | Matches git conventions | Green=add, yellow=mod, red=rm |
+
+### Testing
+
+```bash
+ll                    # Should show polished colors
+echo $EZA_COLORS      # Should show full color config
+```
 
 ---
 
