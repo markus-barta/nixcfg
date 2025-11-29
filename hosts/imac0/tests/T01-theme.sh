@@ -151,33 +151,56 @@ check_file_contains "$HOME/.config/zellij/config.kdl" 'unbind "Ctrl o"' "Ctrl+o 
 check_file_contains "$HOME/.config/zellij/config.kdl" 'bind "Ctrl a"' "Ctrl+a keybinding configured"
 
 # ────────────────────────────────────────────────────────────────────────────────
-# T01.7 - Eza Colors Environment Variable
+# T01.7 - Eza Colors File (backup check)
 # ────────────────────────────────────────────────────────────────────────────────
 
-print_test "T01.7 - Eza Colors"
+print_test "T01.7 - Eza Colors in Session Vars File"
 
-# Check session variables file
+# Check session variables file exists (for bash compatibility)
 HM_SESSION_VARS="$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
 if [[ -f "$HM_SESSION_VARS" ]]; then
-  check_file_contains "$HM_SESSION_VARS" "EZA_COLORS" "EZA_COLORS in session vars"
-  check_file_contains "$HM_SESSION_VARS" "LS_COLORS" "LS_COLORS in session vars"
+  check_file_contains "$HM_SESSION_VARS" "EZA_COLORS" "EZA_COLORS defined in hm-session-vars.sh"
+  check_file_contains "$HM_SESSION_VARS" "LS_COLORS" "LS_COLORS defined in hm-session-vars.sh"
 else
   fail "Session vars file not found: $HM_SESSION_VARS"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────────
-# T01.8 - Eza Colors Comprehensive
+# T01.8 - Eza Colors (Fish Environment - CRITICAL)
 # ────────────────────────────────────────────────────────────────────────────────
 
-print_test "T01.8 - Eza Colors Comprehensive"
+print_test "T01.8 - Eza Colors in Fish Shell"
 
-# Check that EZA_COLORS has the polished theme (not just basic di=1;34)
-if [[ -f "$HM_SESSION_VARS" ]]; then
-  check_file_contains "$HM_SESSION_VARS" "di=1;38;5;110" "Eza directories use soft blue (38;5;110)"
-  check_file_contains "$HM_SESSION_VARS" "ex=38;5;114" "Eza executables use muted green"
-  check_file_contains "$HM_SESSION_VARS" "ln=38;5;116" "Eza symlinks use soft cyan"
-  check_file_contains "$HM_SESSION_VARS" "or=38;5;167" "Eza broken links use warning red"
-fi
+# Check that EZA_COLORS is actually set in fish (not just in a file)
+# This is CRITICAL - the file may exist but fish may not source it!
+
+check_fish_var() {
+  local var_name="$1"
+  local expected_pattern="$2"
+  local description="$3"
+
+  # Run fish INTERACTIVELY (-i) to get the actual variable value
+  # (interactiveShellInit only runs in interactive mode)
+  local value
+  value=$(fish -i -c "echo \$$var_name" 2>/dev/null)
+
+  if [[ -n "$value" ]] && echo "$value" | grep -q "$expected_pattern"; then
+    pass "$description"
+    return 0
+  elif [[ -z "$value" ]]; then
+    fail "$description (variable not set in fish!)"
+    return 1
+  else
+    fail "$description (pattern '$expected_pattern' not in value)"
+    return 1
+  fi
+}
+
+check_fish_var "EZA_COLORS" "di=1;38;5;110" "EZA_COLORS set in fish with soft blue directories"
+check_fish_var "EZA_COLORS" "ex=38;5;114" "EZA_COLORS has muted green executables"
+check_fish_var "EZA_COLORS" "ln=38;5;116" "EZA_COLORS has soft cyan symlinks"
+check_fish_var "EZA_COLORS" "or=38;5;167" "EZA_COLORS has warning red for broken links"
+check_fish_var "LS_COLORS" "di=1;38;5;110" "LS_COLORS set in fish for compatibility"
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T01.9 - Unicode/Nerd Font Icons (CRITICAL - prevents corruption)
