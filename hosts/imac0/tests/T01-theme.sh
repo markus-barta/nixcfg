@@ -190,7 +190,8 @@ fi
 
 # Test that eza actually uses RGB colors (theme colors) not default ANSI
 # RGB colors use format like "38;2;R;G;B" while default uses "33m" etc.
-EZA_OUTPUT=$(EZA_CONFIG_DIR="$HOME/.config/eza" eza --color=always /tmp 2>/dev/null || true)
+# Use -la on / to get detailed output with permissions, which always shows theme colors
+EZA_OUTPUT=$(EZA_CONFIG_DIR="$HOME/.config/eza" eza --color=always -la / 2>/dev/null || true)
 if echo "$EZA_OUTPUT" | grep -q '38;2;'; then
   pass "Eza uses RGB colors from theme (38;2;r;g;b format)"
 else

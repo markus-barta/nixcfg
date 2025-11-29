@@ -175,8 +175,8 @@ else
   fail "EZA_CONFIG_DIR not set in fish config!"
 fi
 
-# Test that eza actually uses RGB colors
-EZA_OUTPUT=$(EZA_CONFIG_DIR="$HOME/.config/eza" eza --color=always /tmp 2>/dev/null || true)
+# Test that eza actually uses RGB colors (use -la on / to get detailed output with colors)
+EZA_OUTPUT=$(EZA_CONFIG_DIR="$HOME/.config/eza" eza --color=always -la / 2>/dev/null || true)
 if echo "$EZA_OUTPUT" | grep -q '38;2;'; then
   pass "Eza uses RGB colors from theme (38;2;r;g;b format)"
 else
