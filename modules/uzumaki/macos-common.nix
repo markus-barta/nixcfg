@@ -1,11 +1,16 @@
-# Shared macOS configuration for all Mac hosts
+# Uzumaki macOS Common - Shared macOS configuration for all Mac hosts
 # Provides common fish, starship, and wezterm settings
+#
+# Usage in home.nix (for imac-mba-work style):
+#   let macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
+#   in { programs.fish = macosCommon.fishConfig; ... }
+#
 { pkgs, lib, ... }:
 
 let
-  sharedFishConfig = import ./fish-config.nix;
+  sharedFishConfig = import ../shared/fish-config.nix;
   # Import uzumaki common functions (pingt, sourcefish, sourceenv)
-  uzumakiFunctions = import ../uzumaki/common.nix;
+  uzumakiFunctions = import ./common.nix;
 in
 {
   # ============================================================================

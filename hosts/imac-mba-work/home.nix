@@ -6,8 +6,8 @@
 }:
 
 let
-  # Import shared macOS configuration
-  macosCommon = import ../../modules/shared/macos-common.nix { inherit pkgs lib; };
+  # Import uzumaki macOS configuration
+  macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
 in
 
 {

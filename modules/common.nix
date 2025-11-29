@@ -27,6 +27,7 @@ in
   hokage.programs.atuin.enable = false;
 
   # Set some fish config
+  # Note: Fish functions (pingt, sourcefish, etc.) are provided by uzumaki modules
   programs = {
     fish = {
       enable = true;
@@ -36,7 +37,7 @@ in
       '';
       shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
       shellAbbrs = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs;
-      interactiveShellInit = mkDefault sharedFishConfig.fishInteractiveShellInit;
+      # interactiveShellInit is set by uzumaki/server.nix or uzumaki/desktop.nix
     };
 
     bash.shellAliases = config.programs.fish.shellAliases;

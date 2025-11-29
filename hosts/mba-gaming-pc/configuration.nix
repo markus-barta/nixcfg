@@ -19,6 +19,7 @@
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/hokage
+    ../../modules/uzumaki/desktop.nix # Fish pingt, sourcefish, zellij, EDITOR
   ];
 
   environment.systemPackages = with pkgs; [
