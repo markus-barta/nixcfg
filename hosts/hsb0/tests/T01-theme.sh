@@ -115,9 +115,9 @@ check_file_contains "$STARSHIP_CONFIG" '\[jobs\]' "Background jobs configured"
 print_test "T01.3 - Starship Colors (yellow palette)"
 
 # These are the yellow gradient colors from theme-palettes.nix
-check_file_contains "$STARSHIP_CONFIG" "#fff8e0" "Lightest gradient color (yellow) present"
-check_file_contains "$STARSHIP_CONFIG" "#e0c060" "Primary gradient color (yellow) present"
-check_file_contains "$STARSHIP_CONFIG" "#b89830" "Secondary gradient color (yellow) present"
+check_file_contains "$STARSHIP_CONFIG" "#e8e0a8" "Lightest gradient color (yellow) present"
+check_file_contains "$STARSHIP_CONFIG" "#d4c060" "Primary gradient color (yellow) present"
+check_file_contains "$STARSHIP_CONFIG" "#a89840" "Secondary gradient color (yellow) present"
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T01.4 - Zellij Configuration File
