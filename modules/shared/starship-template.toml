@@ -21,6 +21,10 @@
 # ════════════════════════════════════════════════════════════════════════════════
 # PROMPT FORMAT
 # ════════════════════════════════════════════════════════════════════════════════
+#
+# Left side: Rounded RIGHT arrows () for transitions
+# Right side: Rounded LEFT arrow () to START, then RIGHT arrows ()
+#
 
 format = """
 ${custom.root_alert}\
@@ -49,10 +53,10 @@ $status\
 $cmd_duration\
 [](fg:__DARKER__)\
 $time\
-[](fg:__DARKER__ bg:__DARKEST__)\
+[](fg:__DARKER__ bg:__DARKEST__)\
 $sudo\
 $nix_shell\
-[](fg:__DARKEST__)\
+[](fg:__DARKEST__)\
 \n$character"""
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -188,9 +192,9 @@ symbol = " "
 
 [status]
 disabled = false
-style = "bold fg:__ERROR_FG__ bg:__ERROR_BG__"
+style = "bold fg:__ERROR_BG__"
 symbol = "✘"
-format = '[ $symbol $status ]($style)'
+format = '[$symbol $status ]($style)'
 
 # ════════════════════════════════════════════════════════════════════════════════
 # COMMAND DURATION (> 2 seconds)
@@ -199,7 +203,7 @@ format = '[ $symbol $status ]($style)'
 [cmd_duration]
 min_time = 2000
 style = "fg:__TEXT_MUTED_LIGHT__"
-format = '[ ⏱ $duration]($style)'
+format = '[⏱ $duration ]($style)'
 
 # ════════════════════════════════════════════════════════════════════════════════
 # TIME
@@ -209,7 +213,7 @@ format = '[ ⏱ $duration]($style)'
 disabled = false
 time_format = "%T"
 style = "bg:__DARKER__"
-format = '[[  $time ](fg:__TEXT_MUTED_LIGHT__ bg:__DARKER__)]($style)'
+format = '[[  $time ](fg:__TEXT_MUTED_LIGHT__ bg:__DARKER__)]($style)'
 
 # ════════════════════════════════════════════════════════════════════════════════
 # SUDO (cached credentials)
@@ -218,7 +222,7 @@ format = '[[  $time ](fg:__TEXT_MUTED_LIGHT__ bg:__DARKER__)]($style)'
 [sudo]
 disabled = false
 style = "fg:__SUDO_FG__ bg:__DARKEST__"
-symbol = " "
+symbol = ""
 format = '[[$symbol](fg:__SUDO_FG__ bg:__DARKEST__)]($style)'
 
 # ════════════════════════════════════════════════════════════════════════════════
