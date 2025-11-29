@@ -124,56 +124,18 @@
   # Password auth disabled after successful migration (2025-11-29)
 
   # ============================================================================
-  # 🚨 PASSWORDLESS SUDO - Required (lost when removing serverMba mixin)
+  # PASSWORDLESS SUDO
   # ============================================================================
   security.sudo-rs.wheelNeedsPassword = false;
 
   # ============================================================================
-  # ZELLIJ THEME - Host-Specific
+  # THEMING - Managed via theme-hm.nix
   # ============================================================================
-  # Zellij package + fish sourcefish come from modules/uzumaki/mba-server.nix
-  # Only the csb1-specific theme is defined here
-  home-manager.users.mba = {
-    home.file.".config/zellij/config.kdl".text = ''
-      // Zellij keybindings configuration
-      keybinds {
-          unbind "Ctrl o"
-          normal {
-              bind "Ctrl a" { MoveTab "Left"; }
-              bind "Ctrl e" { SwitchToMode "Session"; }
-          }
-          session {
-              bind "Ctrl e" { SwitchToMode "Normal"; }
-          }
-          tab {
-              bind "c" {
-                  NewTab {
-                      cwd "~"
-                  }
-                  SwitchToMode "normal";
-              }
-          }
-      }
-
-      // csb1 theme (pink/magenta)
-      themes {
-          csb1 {
-              bg "#c45fc0"
-              fg "#cb54e3"
-              red "#f5f5f5"
-              green "#cb54e3"
-              blue "#0000ff"
-              yellow "#ffff00"
-              magenta "#ff00ff"
-              orange "#ed94ff"
-              cyan "#00ffff"
-              black "#00000f"
-              white "#ffffff"
-          }
-      }
-
-      session_serialization true
-      theme "csb1"
-    '';
-  };
+  # Starship, Zellij, and Eza colors are auto-applied by:
+  #   modules/uzumaki/common.nix → modules/shared/theme-hm.nix
+  #
+  # Theme: Blue (cloud server identity)
+  # See: modules/shared/theme-palettes.nix for color definitions
+  #
+  # Note: Zellij package + fish functions come from modules/uzumaki/server.nix
 }
