@@ -14,11 +14,11 @@ migrations/
     └── snapshots/
 ```
 
-## Current Migrations
+## Migrations
 
-| Migration         | Status     | Description                                  |
-| ----------------- | ---------- | -------------------------------------------- |
-| `2025-11-hokage/` | 🟡 Planned | Migrate from local mixins to external Hokage |
+| Migration         | Status      | Date       | Description                                  |
+| ----------------- | ----------- | ---------- | -------------------------------------------- |
+| `2025-11-hokage/` | ✅ Complete | 2025-11-29 | Migrate from local mixins to external Hokage |
 
 ## Philosophy
 

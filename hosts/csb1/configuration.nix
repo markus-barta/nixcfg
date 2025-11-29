@@ -115,29 +115,13 @@
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
     ];
 
-    # ============================================================================
-    # 🛡️ EMERGENCY PASSWORD ACCESS - MIGRATION SAFETY NET
-    # ============================================================================
-    # After hsb1 lockout on 2025-11-28, we enable password auth as backup.
-    # Password: overtime-impress-marin-utopia-AFGHAN-25!
-    #
-    # TODO: Disable password auth after successful migration verification!
-    # ============================================================================
-    hashedPassword = "$y$j9T$TIl/fJuOM5FsP4sqeTo8U.$VrTb1UIYM6tiEkU4GYRhxbOlAfCQ3tCWT90QWFKvif8";
   };
 
   # ============================================================================
   # SSH CONFIGURATION
   # ============================================================================
   services.openssh.ports = [ 2222 ];
-
-  # ============================================================================
-  # 🚨 TEMPORARY - ENABLE PASSWORD AUTH FOR MIGRATION
-  # ============================================================================
-  # This overrides hokage's default PasswordAuthentication = no
-  # REMOVE THIS AFTER SUCCESSFUL MIGRATION!
-  # ============================================================================
-  services.openssh.settings.PasswordAuthentication = lib.mkForce true;
+  # Password auth disabled after successful migration (2025-11-29)
 
   # ============================================================================
   # 🚨 PASSWORDLESS SUDO - Required (lost when removing serverMba mixin)

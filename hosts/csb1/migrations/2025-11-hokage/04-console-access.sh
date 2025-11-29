@@ -34,7 +34,8 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SECRETS_DIR="$(dirname "$SCRIPT_DIR")/secrets"
+# Go up two levels from migrations/2025-11-hokage to hosts/csb1, then into secrets
+SECRETS_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")/secrets"
 
 echo "=== T11: Console Access Verification ==="
 echo "Host: $HOST (port $SSH_PORT)"

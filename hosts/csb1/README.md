@@ -1,9 +1,9 @@
 # csb1 - Cloud Server Barta 1
 
-**Status**: 🟡 Migration to Hokage planned  
+**Status**: ✅ Running (Hokage)  
 **Type**: Cloud Server (Netcup VPS 1000 G11)  
-**OS**: NixOS 24.11 (Vicuna)  
-**Uptime**: 200+ days  
+**OS**: NixOS 25.11 (Xantusia)  
+**Config**: External Hokage (`github:pbek/nixcfg`)  
 **Primary Domain**: cs1.barta.cm
 
 ---
@@ -28,8 +28,9 @@
 
 ```
 hosts/csb1/
-├── configuration.nix       # Main NixOS configuration
+├── configuration.nix       # Main NixOS configuration (Hokage)
 ├── hardware-configuration.nix
+├── disk-config.zfs.nix
 ├── README.md              # This file
 │
 ├── docs/                  # 📚 Documentation
@@ -51,7 +52,10 @@ hosts/csb1/
 │   └── restart-safety.sh  # Pre-restart checklist
 │
 ├── migrations/            # 📦 One-time migration scripts
-│   └── 2025-11-hokage/    # Current migration to Hokage
+│   └── 2025-11-hokage/    # ✅ Completed 2025-11-29
+│
+├── archive/               # 📂 Historical configurations
+│   └── 2025-11-29-pre-hokage/  # Pre-migration backup
 │
 └── secrets/               # 🔒 Sensitive data (gitignored)
     ├── RUNBOOK.md         # Emergency procedures with credentials
@@ -72,7 +76,7 @@ hosts/csb1/
 | Hedgedoc      | hdoc.barta.cm      | Collaborative markdown |
 | Traefik       | -                  | Reverse proxy & SSL    |
 
-All services run via Docker Compose with Traefik handling SSL.
+All services run via Docker Compose with Traefik handling SSL (15 containers).
 
 ---
 
@@ -90,9 +94,9 @@ for f in T*.sh; do ./$f; done
 
 ```bash
 ssh -p 2222 mba@cs1.barta.cm
-cd ~/Code/nixcfg
+cd ~/nixcfg
 git pull
-just switch
+sudo nixos-rebuild switch --flake .#csb1
 ```
 
 ### Pre-Restart Safety
@@ -115,20 +119,21 @@ sudo nixos-rebuild switch --rollback
 
 ---
 
-## Current Migration
+## Migration History
 
-**Goal**: Migrate from local mixins to external Hokage modules (`github:pbek/nixcfg`)
+### Hokage Migration (2025-11-29) ✅
 
-**Status**: 🟡 Planned
+Migrated from local mixins to external Hokage modules.
 
-**Pre-checks**:
+| Milestone                       | Status |
+| ------------------------------- | ------ |
+| Pre-flight checks               | ✅     |
+| Backups (Netcup/Restic/Archive) | ✅     |
+| Configuration deployed          | ✅     |
+| Reboot verified                 | ✅     |
+| Password auth disabled          | ✅     |
 
-- ✅ Build test passed (`migrations/2025-11-hokage/00-build-test.sh`)
-- ✅ Pre-migration snapshots captured
-- ✅ Netcup API access configured
-- ✅ VNC emergency access documented
-
-**Procedure**: See `migrations/2025-11-hokage/README.md`
+See `migrations/2025-11-hokage/README.md` for details.
 
 ---
 
@@ -149,7 +154,7 @@ See `secrets/RUNBOOK.md` for credentials and restore procedures.
 - Port: **2222** (not 22)
 - Password auth: **disabled**
 - Root login: **disabled**
-- Key auth only
+- Key auth only (mba + hsb1/miniserver24)
 
 ### Firewall
 
