@@ -146,9 +146,84 @@
   security.sudo-rs.wheelNeedsPassword = false;
 
   # ============================================================================
+  # FISH SHELL CONFIGURATION
+  # ============================================================================
+  # From old server-mba.nix - sourcefish function for loading .env files
+  programs.fish.interactiveShellInit = ''
+    function sourcefish --description 'Load env vars from a .env file into current Fish session'
+      set file "$argv[1]"
+      if test -z "$file"
+        echo "Usage: sourcefish PATH_TO_ENV_FILE"
+        return 1
+      end
+      if test -f "$file"
+        for line in (cat "$file" | grep -v '^[[:space:]]*#' | grep .)
+          set key (echo $line | cut -d= -f1)
+          set val (echo $line | cut -d= -f2-)
+          set -gx $key "$val"
+        end
+      else
+        echo "File not found: $file"
+        return 1
+      end
+    end
+    set -gx EDITOR nano
+  '';
+
+  # ============================================================================
   # ADDITIONAL PACKAGES
   # ============================================================================
   environment.systemPackages = with pkgs; [
-    # Add system packages here as needed
+    # Zellij - terminal multiplexer (from old zellij.nix mixin)
+    # Custom themes in ~/.config/zellij/config.kdl (managed by home-manager below)
+    zellij
   ];
+
+  # ============================================================================
+  # ZELLIJ CONFIGURATION
+  # ============================================================================
+  # From old modules/mixins/zellij.nix - custom keybindings and csb0 theme
+  home-manager.users.mba = {
+    home.file.".config/zellij/config.kdl".text = ''
+      // Zellij keybindings configuration
+      keybinds {
+          unbind "Ctrl o"
+          normal {
+              bind "Ctrl a" { MoveTab "Left"; }
+              bind "Ctrl e" { SwitchToMode "Session"; }
+          }
+          session {
+              bind "Ctrl e" { SwitchToMode "Normal"; }
+          }
+          tab {
+              bind "c" {
+                  NewTab {
+                      cwd "~"
+                  }
+                  SwitchToMode "normal";
+              }
+          }
+      }
+
+      // csb0 theme (purple/blue)
+      themes {
+          csb0 {
+              bg "#9999ff"
+              fg "#6666af"
+              red "#f0f0f0"
+              green "#9999ff"
+              blue "#00d9e3"
+              yellow "#aae600"
+              magenta "#aa00ff"
+              orange "#006611"
+              cyan "#00e5e5"
+              black "#00000f"
+              white "#ffffff"
+          }
+      }
+
+      session_serialization true
+      theme "csb0"
+    '';
+  };
 }
