@@ -181,8 +181,8 @@
           };
         };
 
-        # MBA Gaming PC
-        mba-gaming-pc = mkDesktopHost "mba-gaming-pc" [ disko.nixosModules.disko ];
+        # Gaming PC 0 (formerly mba-gaming-pc)
+        pcg0 = mkDesktopHost "pcg0" [ disko.nixosModules.disko ];
 
         # Home Server Barta 8 (Parents' home automation server)
         # Using external hokage consumer pattern

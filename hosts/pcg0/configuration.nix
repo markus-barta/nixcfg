@@ -1,11 +1,11 @@
-# MBA Gaming PC
+# pcg0 - Gaming PC 0 (formerly mba-gaming-pc)
 #
 # Edit this configuration file to define what should be installed on
 # your system.  Help is available in the configuration.nix(5) man page
-# and in the NixOS manual (accessible by running ‘nixos-help’).
+# and in the NixOS manual (accessible by running 'nixos-help').
 #
 # To test in a VM, run:
-# nixos-rebuild --flake .#mba-gaming-pc build-vm
+# nixos-rebuild --flake .#pcg0 build-vm
 # just boot-vm-no-kvm
 #
 
@@ -76,7 +76,7 @@
       "mba"
       "omega"
     ];
-    hostName = "mba-gaming-pc";
+    hostName = "pcg0";
     userLogin = "mba";
     userNameLong = "Markus Barta";
     userNameShort = "Markus";
