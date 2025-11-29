@@ -17,6 +17,8 @@ in
   imports = [
     # Per-host theming (starship, zellij, eza) - auto-detects hostname
     ../../modules/shared/theme-hm.nix
+    # Uzumaki shared Fish functions (pingt, sourcefish, sourceenv)
+    ../../modules/uzumaki/macos.nix
   ];
 
   # Theme configuration - set hostname for palette lookup
@@ -72,7 +74,7 @@ in
       zoxide init fish | source
     '';
 
-    # Functions
+    # Functions (pingt, sourcefish, sourceenv are provided by uzumaki/macos.nix)
     functions = {
       # Custom cd function using zoxide
       cd = ''
@@ -102,41 +104,6 @@ in
         brew cleanup
         brew doctor
       '';
-
-      # sourceenv - load env vars from file
-      sourceenv = ''
-        sed -e 's/^/set -gx /' -e 's/=/\ /' $argv | source
-      '';
-
-      # sourcefish - load env vars from .env file
-      sourcefish = {
-        description = "Load env vars from a .env file into current Fish session";
-        body = ''
-          set file "$argv[1]"
-          if test -z "$file"
-              echo "Usage: sourcefish PATH_TO_ENV_FILE"
-              return 1
-          end
-          if test -f "$file"
-              for line in (cat "$file" | grep -v '^[[:space:]]*#' | grep .)
-                  set key (echo $line | cut -d= -f1)
-                  set val (echo $line | cut -d= -f2-)
-                  set -gx $key "$val"
-              end
-          else
-              echo "File not found: $file"
-              return 1
-          end
-        '';
-      };
-
-      # pingt wrapper
-      pingt = {
-        description = "Timestamped ping (calls ~/Scripts/pingt.sh)";
-        body = ''
-          /Users/markus/Scripts/pingt.sh $argv
-        '';
-      };
     };
 
     # Aliases - merge shared config with macOS-specific aliases

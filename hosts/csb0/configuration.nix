@@ -2,7 +2,6 @@
 # Smart Home Hub: Node-RED, MQTT, Telegram Bot
 # Hokage Migration: 2025-11-29
 {
-  pkgs,
   lib,
   ...
 }:
@@ -11,7 +10,7 @@
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
-    ../../modules/uzumaki/mba-server.nix # Fish sourcefish, zellij, EDITOR
+    ../../modules/uzumaki/server.nix # Fish pingt, sourcefish, zellij, EDITOR
   ];
 
   # ============================================================================

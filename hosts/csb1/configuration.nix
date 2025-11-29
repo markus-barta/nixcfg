@@ -1,7 +1,6 @@
 # csb1 - Cloud Server Barta 1 (Netcup VPS)
 # Hokage Migration: 2025-11-29
 {
-  pkgs,
   lib,
   ...
 }:
@@ -10,7 +9,7 @@
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
-    ../../modules/uzumaki/mba-server.nix # Fish sourcefish, zellij, EDITOR
+    ../../modules/uzumaki/server.nix # Fish pingt, sourcefish, zellij, EDITOR
   ];
 
   # ============================================================================

@@ -4,6 +4,8 @@
 
 let
   sharedFishConfig = import ./fish-config.nix;
+  # Import uzumaki common functions (pingt, sourcefish, sourceenv)
+  uzumakiFunctions = import ../uzumaki/common.nix;
 in
 {
   # ============================================================================
@@ -45,8 +47,11 @@ in
       zoxide init fish | source
     '';
 
-    # Functions
+    # Functions - uzumaki functions (pingt, sourcefish, sourceenv) + macOS-specific
     functions = {
+      # Uzumaki shared functions
+      inherit (uzumakiFunctions) pingt sourcefish sourceenv;
+
       # Custom cd function using zoxide
       cd = ''
         if set -q ZOXIDE_CMD
@@ -75,41 +80,6 @@ in
         brew cleanup
         brew doctor
       '';
-
-      # sourceenv - load env vars from file
-      sourceenv = ''
-        sed -e 's/^/set -gx /' -e 's/=/\ /' $argv | source
-      '';
-
-      # sourcefish - load env vars from .env file
-      sourcefish = {
-        description = "Load env vars from a .env file into current Fish session";
-        body = ''
-          set file "$argv[1]"
-          if test -z "$file"
-              echo "Usage: sourcefish PATH_TO_ENV_FILE"
-              return 1
-          end
-          if test -f "$file"
-              for line in (cat "$file" | grep -v '^[[:space:]]*#' | grep .)
-                  set key (echo $line | cut -d= -f1)
-                  set val (echo $line | cut -d= -f2-)
-                  set -gx $key "$val"
-              end
-          else
-              echo "File not found: $file"
-              return 1
-          end
-        '';
-      };
-
-      # pingt wrapper
-      pingt = {
-        description = "Timestamped ping (calls ~/Scripts/pingt.sh)";
-        body = ''
-          /Users/markus/Scripts/pingt.sh $argv
-        '';
-      };
     };
 
     # Aliases - merge shared config with macOS-specific aliases
