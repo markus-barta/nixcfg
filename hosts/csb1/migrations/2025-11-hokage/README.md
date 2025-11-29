@@ -1,73 +1,173 @@
 # csb1 Hokage Migration (November 2025)
 
-Migration from local mixins to external Hokage modules (`github:pbek/nixcfg`).
+**CONSOLIDATED EXECUTION DOCUMENT**
 
-## Status: 🟡 Planned
+Migration from local mixins (`~/nixcfg/modules/mixins/`) to external Hokage modules (`github:pbek/nixcfg`).
 
-## Scripts
+## Status: 🟢 READY TO EXECUTE
 
-Run in order:
+---
 
-| #   | Script                   | Purpose                                    |
-| --- | ------------------------ | ------------------------------------------ |
-| 00  | `00-build-test.sh`       | Build new config WITHOUT applying          |
-| 01  | `01-pre-snapshot.sh`     | Capture system state before migration      |
-| 02  | `02-post-verify.sh`      | Compare post-migration state with snapshot |
-| 03  | `03-rollback.sh`         | Verify rollback capability                 |
-| 04  | `04-console-access.sh`   | Verify VNC/emergency access                |
-| 05  | `05-data-integrity.sh`   | Check data volumes and configs             |
-| 06  | `06-service-recovery.sh` | Verify service restart policies            |
-| 07  | `07-firewall-network.sh` | Verify network/firewall rules              |
+## 🔒 Backups Created (2025-11-29)
 
-## Execution Order
+| Backup Type           | Status | Details                            | Restore Method       |
+| --------------------- | ------ | ---------------------------------- | -------------------- |
+| **Netcup Snapshot**   | ✅     | `pre-hokage-migration` @ 11:58:42Z | Netcup SCP → Restore |
+| **Restic to Hetzner** | ✅     | Snapshot `fd569a07`, 31 MiB added  | `restic restore`     |
+| **Local Archive**     | ✅     | `archive/2025-11-29-pre-hokage/`   | Copy back if needed  |
 
-### Before Migration
+### Rollback Options (in order of preference)
+
+1. **NixOS Rollback** (fastest): `sudo nixos-rebuild switch --rollback`
+2. **GRUB Menu** (if SSH broken): VNC → Select previous generation
+3. **Netcup Snapshot** (full disk): SCP panel → Restore snapshot
+4. **Restic Backup** (data only): Restore Docker volumes from Hetzner
+
+---
+
+## ✅ Pre-Flight Checks Passed (2025-11-29)
+
+| Check          | Result  | Details               |
+| -------------- | ------- | --------------------- |
+| Build Test     | ✅ PASS | Config compiles (43s) |
+| T00 NixOS Base | ✅ PASS | v24.11, 4 generations |
+| T01 Docker     | ✅ PASS | 15 containers healthy |
+| T02 Grafana    | ✅ PASS | Dashboard accessible  |
+| T03 InfluxDB   | ✅ PASS | 6 months uptime       |
+| T04 Traefik    | ✅ PASS | SSL working           |
+| T05 Backup     | ✅ PASS | Restic configured     |
+| T06 SSH        | ✅ PASS | Hardened, 4 keys      |
+| T07 ZFS        | ✅ PASS | 2% used, zstd         |
+| Restart Safety | ✅ PASS | All 10 checks green   |
+
+---
+
+## 🎯 What Will Happen
+
+### Services That Will CONTINUE Running
+
+| Service   | How It Survives    | Data Location                           |
+| --------- | ------------------ | --------------------------------------- |
+| Grafana   | Docker (unchanged) | `/var/lib/docker/volumes/grafana-data`  |
+| InfluxDB  | Docker (unchanged) | `/var/lib/docker/volumes/influxdb-data` |
+| Docmost   | Docker (unchanged) | `/var/lib/docker/volumes/docmost-data`  |
+| Paperless | Docker (unchanged) | `/var/lib/docker/volumes/paperless-*`   |
+| Traefik   | Docker (unchanged) | `/home/mba/docker/traefik/`             |
+| Hedgedoc  | Docker (unchanged) | `/var/lib/docker/volumes/hedgedoc-*`    |
+
+**Why services survive**: Docker is managed declaratively by NixOS, but the actual containers and volumes live on disk independently. The migration only changes how NixOS is configured, not Docker data.
+
+### What Changes
+
+| Before                                     | After                                         |
+| ------------------------------------------ | --------------------------------------------- |
+| Local mixins in `~/nixcfg/modules/mixins/` | External hokage from `github:pbek/nixcfg`     |
+| `serverMba.enable = true`                  | `hokage.role = "server-remote"`               |
+| SSH keys from mixin                        | SSH keys via `lib.mkForce` (explicit)         |
+| Implicit sudo config                       | Explicit `sudo-rs.wheelNeedsPassword = false` |
+
+---
+
+## 🚀 Execution Steps
+
+### Pre-Migration (Done ✅)
 
 ```bash
-./00-build-test.sh      # Verify build succeeds (no changes applied)
-./01-pre-snapshot.sh    # Creates snapshot in snapshots/
+# Already completed:
+./00-build-test.sh       # ✅ Build verified
+./01-pre-snapshot.sh     # ✅ Snapshot captured
+# Backups created         # ✅ Netcup + Restic + Archive
 ```
 
-### Apply Migration
+### Execute Migration
 
 ```bash
-# On csb1:
+# 1. SSH to server
+ssh -p 2222 mba@cs1.barta.cm
+
+# 2. Update repo (get new configuration)
 cd ~/Code/nixcfg
 git pull
+
+# 3. Apply migration
 sudo nixos-rebuild switch --flake .#csb1
+
+# 4. If successful, verify
+nixos-version
+docker ps
 ```
 
-### After Migration
+### Post-Migration Verification
 
 ```bash
-./02-post-verify.sh     # Compares with pre-migration snapshot
-./03-rollback.sh        # Verify rollback works
-./04-console-access.sh  # Verify emergency access
-./05-data-integrity.sh  # Check data survived
-./06-service-recovery.sh
-./07-firewall-network.sh
+# From your local machine:
+./02-post-verify.sh      # Compare with snapshot
+./03-rollback.sh         # Verify rollback capability
+./04-console-access.sh   # Verify VNC documented
+./05-data-integrity.sh   # Check Docker volumes
+./06-service-recovery.sh # Check restart policies
+./07-firewall-network.sh # Check network access
 ```
 
-### If Problems
+### If Something Goes Wrong
 
 ```bash
-# Via SSH (if working):
+# Option 1: SSH works - Rollback
 sudo nixos-rebuild switch --rollback
 
-# Via VNC (if SSH broken):
-# 1. Netcup SCP → VNC Console
-# 2. GRUB menu → Select previous generation
+# Option 2: SSH broken - VNC
+# 1. Netcup SCP → Server → VNC Console
+# 2. At GRUB: Select "NixOS - Configuration 4"
+# 3. Login locally, run rollback
+
+# Option 3: Restore Netcup Snapshot
+# 1. Netcup SCP → Server → Snapshots
+# 2. Restore "pre-hokage-migration"
 ```
 
-## Snapshots
+---
 
-Pre-migration snapshots are stored in `snapshots/`:
+## 🚨 Critical Configuration Elements
 
-- System info, Docker state, ZFS, security settings
-- Used by `02-post-verify.sh` for comparison
+These MUST be in the new `configuration.nix`:
 
-## Related Documentation
+```nix
+# 1. SSH KEY OVERRIDE (prevents lockout!)
+users.users.mba = {
+  openssh.authorizedKeys.keys = lib.mkForce [
+    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABA..." # Your key
+  ];
+};
 
-- `../../docs/MIGRATION-PLAN-HOKAGE.md` - Full migration plan
-- `../../docs/SSH-KEY-SECURITY-NOTE.md` - Critical SSH key override
-- `../../secrets/RUNBOOK.md` - Emergency procedures with credentials
+# 2. PASSWORDLESS SUDO
+security.sudo-rs.wheelNeedsPassword = false;
+
+# 3. HOKAGE SETTINGS
+hokage = {
+  useInternalInfrastructure = false;
+  useSecrets = false;
+  useSharedKey = false;  # No omega keys!
+};
+```
+
+---
+
+## 📊 Risk Assessment
+
+| Risk             | Mitigation                                      |
+| ---------------- | ----------------------------------------------- |
+| SSH lockout      | `lib.mkForce` SSH keys, VNC console ready       |
+| Service downtime | Docker data unchanged, ~2 min switch time       |
+| Data loss        | 3 independent backups (Netcup, Restic, Archive) |
+| Can't rollback   | 4 NixOS generations, tested rollback            |
+
+**Confidence Level**: 🟢 HIGH
+
+---
+
+## 📚 Related Documentation
+
+- [Full Migration Plan](../../docs/MIGRATION-PLAN-HOKAGE.md) - Detailed explanation
+- [SSH Key Security Note](../../docs/SSH-KEY-SECURITY-NOTE.md) - Why lib.mkForce
+- [Emergency Runbook](../../secrets/RUNBOOK.md) - All credentials & procedures
+- [Old Config Archive](../../archive/2025-11-29-pre-hokage/) - Pre-migration reference

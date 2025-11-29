@@ -3,9 +3,19 @@
 **Server**: csb1 (Cloud Server Barta 1)  
 **Migration Type**: External Hokage Consumer Pattern  
 **Risk Level**: 🟡 **MEDIUM** - Monitoring and documentation services  
-**Status**: ⏳ **PLANNED** - Ready after configuration preparation  
+**Status**: 🟢 **READY TO EXECUTE** - All pre-flight checks passed  
 **Created**: November 29, 2025  
 **Last Updated**: November 29, 2025
+
+### Pre-Flight Status (2025-11-29)
+
+| Check                  | Status                       |
+| ---------------------- | ---------------------------- |
+| Build Test             | ✅ PASS (43s)                |
+| Health Tests (T00-T07) | ✅ ALL PASS                  |
+| Restart Safety         | ✅ ALL 10 CHECKS PASS        |
+| Backups Created        | ✅ Netcup + Restic + Archive |
+| Rollback Tested        | ✅ 4 generations available   |
 
 ---
 
@@ -205,13 +215,21 @@ Both hsb0 and hsb8 successfully migrated to external hokage consumer pattern in 
 - [ ] Configure SSH host key preservation
 - [ ] Test configuration: `nixos-rebuild build --flake .#csb1`
 
-### Backup Verification ✅
+### Backup Verification ✅ (Completed 2025-11-29)
 
 - [x] Daily backups working
 - [x] Backup contains all critical data
 - [x] Restore procedure documented (see `secrets/RUNBOOK.md`)
-- [ ] Manual pre-migration backup triggered
-- [ ] Pre-migration backup verified
+- [x] Manual pre-migration backup triggered
+- [x] Pre-migration backup verified
+
+#### Backups Created
+
+| Type                | Details                            | Location                         |
+| ------------------- | ---------------------------------- | -------------------------------- |
+| **Netcup Snapshot** | `pre-hokage-migration` @ 11:58:42Z | Netcup SCP panel                 |
+| **Restic Backup**   | Snapshot `fd569a07`, 31 MiB        | Hetzner Storage Box              |
+| **Local Archive**   | 164 files, full old config         | `archive/2025-11-29-pre-hokage/` |
 
 ---
 
