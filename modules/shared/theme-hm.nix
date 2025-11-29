@@ -256,13 +256,16 @@ in
       source = ./eza-themes/sysop.yml;
     };
 
-    # LS_COLORS for basic ls compatibility (subset of our theme)
+    # Eza needs EZA_CONFIG_DIR to find the theme file
     home.sessionVariables = lib.mkIf config.theme.eza.enable {
+      EZA_CONFIG_DIR = "$HOME/.config/eza";
       LS_COLORS = "di=1;34:ln=36:ex=1;32:or=31";
     };
 
-    # Fish-specific: set LS_COLORS directly (fish doesn't source bash profiles)
+    # Fish-specific: eza config dir and LS_COLORS (fish doesn't source bash profiles)
     programs.fish.interactiveShellInit = lib.mkIf config.theme.eza.enable ''
+      # Tell eza where to find theme.yml
+      set -gx EZA_CONFIG_DIR "$HOME/.config/eza"
       # LS_COLORS for basic ls compatibility
       set -gx LS_COLORS "di=1;34:ln=36:ex=1;32:or=31"
     '';

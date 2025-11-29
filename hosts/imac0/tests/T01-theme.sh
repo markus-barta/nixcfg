@@ -175,6 +175,36 @@ check_file_contains "$EZA_THEME_FILE" 'number_giga:.*bold: true' "Large files (G
 check_file_contains "$EZA_THEME_FILE" 'special_user_file:.*bold: true' "Setuid files are bold"
 
 # ────────────────────────────────────────────────────────────────────────────────
+# T01.8b - Eza Theme ACTUALLY APPLIED (not just file exists!)
+# ────────────────────────────────────────────────────────────────────────────────
+
+print_test "T01.8b - Eza Theme Actually Applied"
+
+# Check EZA_CONFIG_DIR is set in fish config (check the config file directly)
+FISH_CONFIG="$HOME/.config/fish/config.fish"
+if grep -q "EZA_CONFIG_DIR" "$FISH_CONFIG" 2>/dev/null; then
+  pass "EZA_CONFIG_DIR is configured in fish config"
+else
+  fail "EZA_CONFIG_DIR not set in fish config! Theme won't load."
+fi
+
+# Test that eza actually uses RGB colors (theme colors) not default ANSI
+# RGB colors use format like "38;2;R;G;B" while default uses "33m" etc.
+EZA_OUTPUT=$(EZA_CONFIG_DIR="$HOME/.config/eza" eza --color=always /tmp 2>/dev/null || true)
+if echo "$EZA_OUTPUT" | grep -q '38;2;'; then
+  pass "Eza uses RGB colors from theme (38;2;r;g;b format)"
+else
+  fail "Eza NOT using theme colors! Check EZA_CONFIG_DIR"
+fi
+
+# Sanity check: verify eza command exists and works
+if command -v eza &>/dev/null; then
+  pass "eza command is available"
+else
+  fail "eza command not found!"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────────
 # T01.9 - Unicode/Nerd Font Icons (CRITICAL - prevents corruption)
 # ────────────────────────────────────────────────────────────────────────────────
 
