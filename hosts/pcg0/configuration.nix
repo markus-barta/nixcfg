@@ -15,10 +15,8 @@
 }:
 {
   imports = [
-    # Include the results of the hardware scan.
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
-    ../../modules/hokage
     ../../modules/uzumaki/desktop.nix # Fish pingt, sourcefish, zellij, EDITOR
   ];
 
@@ -86,6 +84,9 @@
     useSharedKey = false;
     programs.espanso.enable = false;
     programs.git.enableUrlRewriting = false;
+
+    # Point nixbit to Markus' repository (not pbek's default)
+    programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";
 
     gaming = {
       enable = true;

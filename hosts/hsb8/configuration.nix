@@ -467,6 +467,8 @@ in
     zfs.hostId = "cdbc4e20"; # ZFS host ID (required)
     audio.enable = false; # No audio on server
     programs.git.enableUrlRewriting = false; # No internal git rewrites
+    # Point nixbit to Markus' repository (not pbek's default)
+    programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";
     # NOTE: atuin disabled in common.nix (via commonServerModules)
 
     # Multi-user configuration (both mba and gb)

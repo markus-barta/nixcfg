@@ -87,20 +87,6 @@
         agenix.nixosModules.age
         espanso-fix.nixosModules.espanso-capdacoverride
       ];
-      mkDesktopHost =
-        hostName: extraModules:
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          modules =
-            commonDesktopModules
-            ++ [
-              ./hosts/${hostName}/configuration.nix
-            ]
-            ++ extraModules;
-          specialArgs = self.commonArgs // {
-            inherit inputs;
-          };
-        };
       pkgs = import nixpkgs {
         inherit system;
         config.allowUnfree = true;
@@ -182,7 +168,18 @@
         };
 
         # Gaming PC 0 (formerly mba-gaming-pc)
-        pcg0 = mkDesktopHost "pcg0" [ disko.nixosModules.disko ];
+        # Using external hokage consumer pattern
+        pcg0 = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = commonDesktopModules ++ [
+            inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./hosts/pcg0/configuration.nix
+            disko.nixosModules.disko
+          ];
+          specialArgs = self.commonArgs // {
+            inherit inputs;
+          };
+        };
 
         # Home Server Barta 8 (Parents' home automation server)
         # Using external hokage consumer pattern

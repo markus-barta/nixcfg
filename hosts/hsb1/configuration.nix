@@ -324,6 +324,8 @@
     zfs.hostId = "dabfdb01";
     audio.enable = true; # Required for VLC kiosk
     programs.git.enableUrlRewriting = false;
+    # Point nixbit to Markus' repository (not pbek's default)
+    programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";
     # NOTE: starship & atuin are configured via common.nix (DRY pattern)
   };
 
