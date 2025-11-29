@@ -1,0 +1,7 @@
+.idea
+./configuration.nix
+./hardware-configuration.nix
+/configuration.nix
+/hardware-configuration.nix
+/*.qcow2
+result
