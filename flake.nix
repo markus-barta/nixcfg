@@ -198,6 +198,22 @@
             # lib-utils already provided by self.commonArgs
           };
         };
+
+        # Cloud Server Barta 1 (Netcup VPS - Grafana, InfluxDB, Paperless, Docmost)
+        # Hokage Migration: 2025-11-29
+        # Using external hokage consumer pattern
+        csb1 = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = commonServerModules ++ [
+            inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./hosts/csb1/configuration.nix
+            disko.nixosModules.disko
+          ];
+          specialArgs = self.commonArgs // {
+            inherit inputs;
+            # lib-utils already provided by self.commonArgs
+          };
+        };
       };
 
       checks.x86_64-linux = {
