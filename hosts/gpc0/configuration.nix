@@ -86,7 +86,12 @@
     # Disable features we don't need on gaming PC
     programs.espanso.enable = false;
     programs.git.enableUrlRewriting = false;
-    # Note: onlyoffice/brave come from hokage desktop module, no individual disable option
+
+    # Exclude heavy packages that require building from source
+    excludePackages = [
+      "onlyoffice-desktopeditors"
+      "brave"
+    ];
 
     # Disable Catppuccin - we use Tokyo Night via theme-hm.nix
     catppuccin.enable = false;
