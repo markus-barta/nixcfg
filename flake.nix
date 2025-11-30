@@ -80,16 +80,6 @@
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age
       ];
-      commonDesktopModules = [
-        home-manager.nixosModules.home-manager
-        ./modules/common.nix # Shared config (fish, starship, theme, packages)
-        { home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ]; }
-        (_: {
-          nixpkgs.overlays = allOverlays;
-        })
-        agenix.nixosModules.age
-        espanso-fix.nixosModules.espanso-capdacoverride
-      ];
       pkgs = import nixpkgs {
         inherit system;
         config.allowUnfree = true;
@@ -172,10 +162,17 @@
 
         # Gaming PC 0 (formerly mba-gaming-pc)
         # Using external hokage consumer pattern
+        # NOTE: common.nix must load AFTER hokage to override its settings (fish, zellij, theme)
         gpc0 = nixpkgs.lib.nixosSystem {
           inherit system;
-          modules = commonDesktopModules ++ [
-            inputs.nixcfg.nixosModules.hokage # External hokage module
+          modules = [
+            home-manager.nixosModules.home-manager
+            { home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ]; }
+            (_: { nixpkgs.overlays = allOverlays; })
+            agenix.nixosModules.age
+            espanso-fix.nixosModules.espanso-capdacoverride
+            inputs.nixcfg.nixosModules.hokage # External hokage module (loads first)
+            ./modules/common.nix # OUR config (loads AFTER hokage to override)
             ./hosts/gpc0/configuration.nix
             disko.nixosModules.disko
           ];
