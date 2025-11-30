@@ -198,7 +198,7 @@ in
         difftastic # Structural diff tool that compares files based on their syntax
         # pingu # ping, but more colorful
         gping # graphical ping
-        # fast-cli removed from nixpkgs (unmaintainable) - use: nix run nixpkgs#fast-cli
+        speedtest-go # Speed test CLI (replacement for fast-cli)
         sysz # fzf terminal UI for systemctl
 
         # textual is currently broken in unstable

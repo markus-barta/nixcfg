@@ -339,6 +339,7 @@ in
     # Networking Tools (Stage 4)
     netcat # Network utility
     wakeonlan # Wake-on-LAN utility (wake remote machines via magic packets)
+    speedtest-go # Speed test CLI
     # inetutils excluded on macOS - Linux ping has timestamp overflow bug on Darwin
     # Use macOS native /sbin/ping instead (aliased below)
     # For telnet, use: brew install telnet or nc (netcat) as alternative
