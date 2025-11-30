@@ -198,6 +198,7 @@ in
         difftastic # Structural diff tool that compares files based on their syntax
         # pingu # ping, but more colorful
         gping # graphical ping
+        fast-cli # Netflix speed test
         sysz # fzf terminal UI for systemctl
 
         # textual is currently broken in unstable
