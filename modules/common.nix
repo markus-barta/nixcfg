@@ -223,7 +223,7 @@ in
         # ══════════════════════════════════════════════════════════════════════
         zellij # Modern terminal multiplexer
         starship # Cross-shell prompt (config via theme-hm.nix)
-        micro # Modern nano replacement
+        nano # Simple text editor
 
         # ══════════════════════════════════════════════════════════════════════
         # Development & Build Tools
