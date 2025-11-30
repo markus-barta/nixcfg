@@ -1,6 +1,28 @@
-# imac-mba-home - macOS Development Machine
+# imac0 - macOS Development Workstation
 
-Personal macOS development machine with Nix package management.
+Personal macOS development machine with Nix package management and home-manager.
+
+## Quick Reference
+
+| Item                 | Value                                        |
+| -------------------- | -------------------------------------------- |
+| **Hostname**         | `imac0` (formerly `imac-mba-home`)           |
+| **Model**            | iMac 27" 5K Retina (2019) - iMac19,1         |
+| **CPU**              | Intel Core i9-9900K @ 3.60GHz (8C/16T)       |
+| **RAM**              | 16 GB DDR4 @ 2667 MHz (4×4GB, upgradeable)   |
+| **GPU**              | AMD Radeon Pro Vega 48 (8 GB VRAM)           |
+| **Display**          | Built-in Retina 5K (5120×2880, 30-bit color) |
+| **Storage**          | 1TB Apple SSD SM1024L (NVMe, APFS)           |
+| **External Storage** | Samsung Portable SSD T5 (500GB, USB)         |
+| **Network**          | Gigabit Ethernet (`en0`)                     |
+| **Static IP**        | `192.168.1.150/24` (DHCP reservation)        |
+| **MAC Address**      | `38:f9:d3:0e:e1:c6`                          |
+| **Gateway**          | `192.168.1.5` (Fritz!Box)                    |
+| **DNS**              | `192.168.1.99` (hsb0 - AdGuard Home)         |
+| **OS**               | macOS 15.7.2 Sequoia (Build 24G325)          |
+| **Serial Number**    | `DGKYPHDYJV40`                               |
+| **User**             | `markus` (Markus Barta)                      |
+| **Configuration**    | home-manager + Nix flakes                    |
 
 ## Quick Links
 
@@ -8,6 +30,22 @@ Personal macOS development machine with Nix package management.
 - 🛠️ **[Manual Setup Guides](docs/manual-setup/)** - One-time configuration steps
 - 📚 **[Technical Reference](docs/reference/)** - Deep dives into specific features
 - 📁 **[Documentation Index](docs/README.md)** - Full docs structure
+
+---
+
+## Features
+
+| ID  | Technical                   | User-Friendly                            | Test |
+| --- | --------------------------- | ---------------------------------------- | ---- |
+| F00 | home-manager + Nix          | Declarative package & config management  | -    |
+| F01 | Fish Shell + Starship       | Modern shell with beautiful prompt       | -    |
+| F02 | WezTerm                     | GPU-accelerated terminal emulator        | -    |
+| F03 | Git Dual Identity           | Auto-switch personal/work git identity   | -    |
+| F04 | Karabiner-Elements          | Caps Lock → Hyper key, custom mappings   | -    |
+| F05 | Zellij Terminal Multiplexer | Modern tmux alternative with tabs/panes  | -    |
+| F06 | Tokyo Night Theme           | Consistent theming across tools          | -    |
+| F07 | direnv + devenv             | Project-specific dev environments        | -    |
+| F08 | Nix Build Host              | Fast builds with 16 threads and 16GB RAM | -    |
 
 ---
 
@@ -101,8 +139,8 @@ See [docs/manual-setup/terminal-app-fonts.md](docs/manual-setup/terminal-app-fon
 
 ## Directory Structure
 
-```
-hosts/imac-mba-home/
+```text
+hosts/imac0/
 ├── config/                      # Configuration files
 │   ├── starship.toml            # Starship prompt config
 │   └── karabiner.json           # Keyboard remapping config
@@ -133,13 +171,160 @@ hosts/imac-mba-home/
 
 ---
 
-## System Information
+## Hardware Specifications
 
-### Hardware
+### System Details
 
-- **Model**: iMac 27" (2019)
-- **OS**: macOS 15.7.2 (24G325)
+- **Model**: iMac 27" 5K Retina (Late 2019)
+- **Model Identifier**: iMac19,1
+- **Serial Number**: `DGKYPHDYJV40`
+- **Hardware UUID**: `5F080685-4766-54A5-8DDB-E8C23ECA2B00`
+
+### CPU
+
+- **Processor**: Intel Core i9-9900K @ 3.60 GHz
+  - **Cores/Threads**: 8 cores, 16 threads (Hyper-Threading)
+  - **Architecture**: Coffee Lake (9th generation)
+  - **L2 Cache**: 256 KB per core (2 MB total)
+  - **L3 Cache**: 16 MB (shared)
+  - **Features**: AVX2, AES-NI, Intel VT-x
+- **Performance**: **Fastest CPU** in the infrastructure
+  - 2× threads vs gpc0 (16 vs 8)
+  - Similar single-thread to i7-7700K
+
+### GPU
+
+- **Graphics**: AMD Radeon Pro Vega 48
+  - **VRAM**: 8 GB HBM2
+  - **Bus**: PCIe x16
+  - **Metal Support**: Metal 3
+  - **Vendor ID**: `1002:6869`
+  - **ROM**: 113-D0650E-072
+
+### Display
+
+- **Built-in**: Retina 5K LCD
+  - **Resolution**: 5120 × 2880 (14.7 megapixels)
+  - **Color Depth**: 30-bit (ARGB2101010)
+  - **P3 Wide Color**: Yes
+  - **True Tone**: Yes
+  - **Brightness**: Auto-adjust
+
+### Memory
+
+- **Total**: 16 GB DDR4 @ 2667 MHz
+- **Slots**: 4 (all populated with 4GB modules)
+- **Upgradeable**: Yes (up to 128 GB)
+
+| Slot | Size | Type | Speed    | Manufacturer | Part Number      |
+| ---- | ---- | ---- | -------- | ------------ | ---------------- |
+| 0    | 4 GB | DDR4 | 2667 MHz | SK Hynix     | HMA851S6CJR6N-VK |
+| 1    | 4 GB | DDR4 | 2667 MHz | Kingston     | 9905711-008.A00G |
+| 2    | 4 GB | DDR4 | 2667 MHz | SK Hynix     | HMA851S6CJR6N-VK |
+| 3    | 4 GB | DDR4 | 2667 MHz | Kingston     | 9905711-008.A00G |
+
+### Storage
+
+| Device       | Model               | Size   | Interface | Mount Points           |
+| ------------ | ------------------- | ------ | --------- | ---------------------- |
+| Internal SSD | Apple SSD SM1024L   | 1 TB   | NVMe/PCIe | `/`, `/nix`, `/Data`   |
+| External SSD | Samsung Portable T5 | 500 GB | USB 3.1   | `/Volumes/500GB ExFAT` |
+
+**Disk Layout (APFS Container)**:
+
+```text
+/dev/disk1 (Apple SSD SM1024L - 1TB NVMe)
+├─ disk1s1     /System/Volumes/Data    622 GB used (90%)
+├─ disk1s5s1   /                       10 GB (system, sealed)
+├─ disk1s7     /nix                    27 GB (Nix store)
+└─ (other system volumes)
+
+Free Space: ~74 GB available
+S.M.A.R.T. Status: Verified ✅
+```
+
+### Network
+
+- **Interface**: Gigabit Ethernet (`en0`)
+- **MAC Address**: `38:f9:d3:0e:e1:c6`
+- **IP Address**: `192.168.1.150/24` (DHCP static lease)
+- **Gateway**: `192.168.1.5` (Fritz!Box)
+- **DNS**: `192.168.1.99` (hsb0 - AdGuard Home)
+
+### Software
+
+- **OS**: macOS 15.7.2 Sequoia (Build 24G325)
 - **Architecture**: x86_64 (Intel)
+- **Firmware**: 2075.100.3.0.3
+- **SMC Version**: 2.46f12
+
+---
+
+## Nix Build Capabilities
+
+imac0 is the **most powerful Nix build machine** in the infrastructure:
+
+### Build Performance
+
+| Metric            | Value                       | Comparison                  |
+| ----------------- | --------------------------- | --------------------------- |
+| **CPU Threads**   | 16 (8C × 2T)                | 2× more than gpc0           |
+| **CPU Speed**     | 3.60 GHz (boost to 5.0 GHz) | Excellent single-thread     |
+| **RAM**           | 16 GB DDR4                  | Same as gpc0/hsb1           |
+| **Storage Speed** | NVMe SSD (Apple SM1024L)    | Very fast random I/O        |
+| **Architecture**  | x86_64 (native)             | No cross-compilation needed |
+
+### Use Cases
+
+1. **Local home-manager Rebuilds**
+
+   ```bash
+   cd ~/Code/nixcfg
+   home-manager switch --flake ".#markus@imac0"
+   ```
+
+2. **Building for NixOS Hosts** (cross-build to Linux)
+
+   ```bash
+   # Build configuration (may need Linux builder for some packages)
+   nix build .#nixosConfigurations.hsb0.config.system.build.toplevel
+   ```
+
+3. **Nix Package Development**
+
+   ```bash
+   # Build local packages
+   nix build .#qownnotes
+   nix build .#nixbit
+
+   # Enter development shell
+   nix develop
+   ```
+
+4. **Remote Builds via SSH**
+   ```bash
+   # Use imac0 as a remote builder from other machines
+   # (requires Nix daemon configuration)
+   ```
+
+### Build Time Comparison
+
+| Host      | CPU                | Threads | Architecture | Typical Build   |
+| --------- | ------------------ | ------- | ------------ | --------------- |
+| **imac0** | i9-9900K @ 3.60GHz | 16      | Darwin/x86   | **~2-3 min** ⚡ |
+| gpc0      | i7-7700K @ 4.20GHz | 8       | Linux/x86    | ~2-5 min        |
+| hsb1      | i7-4578U @ 3.00GHz | 4       | Linux/x86    | ~5-10 min       |
+| hsb0      | i5-2415M @ 2.30GHz | 4       | Linux/x86    | ~8-15 min       |
+
+**Note**: imac0 runs macOS, so building NixOS system configurations requires either:
+
+- A Linux remote builder (e.g., gpc0, hsb1)
+- Docker/Podman with Linux VM
+- home-manager only (native Darwin)
+
+---
+
+## System Information
 
 ### Package Managers
 
@@ -166,8 +351,8 @@ hosts/imac-mba-home/
 
 Automatically switches Git identity based on project location:
 
-- **Personal** (default): Markus Barta / markus@barta.com
-- **Work** (~/Code/BYTEPOETS/): mba / markus.barta@bytepoets.com
+- **Personal** (default): Markus Barta / `markus@barta.com`
+- **Work** (`~/Code/BYTEPOETS/`): mba / `markus.barta@bytepoets.com`
 
 ### Keyboard Remapping
 
@@ -322,5 +507,118 @@ killall karabiner_console_user_server
 - **Trade-off**: One-time manual execution vs full automation
 
 ---
+
+## Relationship with Other Hosts
+
+### Network Dependencies
+
+- **DNS**: Uses hsb0 (192.168.1.99) via AdGuard Home
+- **DHCP**: Static lease assigned by hsb0
+- **Ad-blocking**: Network-wide filtering via AdGuard Home
+
+### SSH Connections
+
+imac0 connects to other hosts via zellij abbreviations:
+
+```bash
+hsb0    # → ssh mba@192.168.1.99 with zellij
+hsb1    # → ssh mba@192.168.1.101 with zellij
+hsb8    # → ssh mba@192.168.1.100 with zellij
+csb0    # → ssh mba@cs0.barta.cm:2222 with zellij
+csb1    # → ssh mba@cs1.barta.cm:2222 with zellij
+```
+
+### Performance Comparison
+
+| Host      | CPU             | Threads | RAM   | GPU               | Role            |
+| --------- | --------------- | ------- | ----- | ----------------- | --------------- |
+| **imac0** | i9-9900K 3.6GHz | 16      | 16 GB | Vega 48 (8GB)     | Dev Workstation |
+| gpc0      | i7-7700K 4.2GHz | 8       | 16 GB | RX 9070 XT (16GB) | Gaming PC       |
+| hsb1      | i7-4578U 3.0GHz | 4       | 16 GB | Intel Iris        | Home Automation |
+| hsb0      | i5-2415M 2.3GHz | 4       | 8 GB  | Intel HD          | DNS/DHCP Server |
+| hsb8      | i5-2415M 2.3GHz | 4       | 8 GB  | Intel HD          | Parents' Server |
+
+**imac0 has the most CPU threads** (16), making it ideal for parallel Nix builds.
+
+---
+
+## Useful Commands
+
+```bash
+# home-manager rebuild
+cd ~/Code/nixcfg
+home-manager switch --flake ".#markus@imac0"
+
+# System info
+system_profiler SPHardwareDataType
+sw_vers
+
+# Disk usage
+df -h / /nix /System/Volumes/Data
+
+# Network
+ifconfig en0
+ping hsb0.lan
+
+# Nix
+nix flake check
+nix-store --gc
+
+# Homebrew
+brew update && brew upgrade && brew cleanup
+```
+
+---
+
+## Related Documentation
+
+### In This Repository
+
+- [Repository README](../../docs/README.md) - NixOS configuration guide
+- [How It Works](../../docs/how-it-works.md) - Architecture and machine inventory
+
+### Configuration Files
+
+- [home.nix](./home.nix) - Main home-manager configuration
+- [config/karabiner.json](./config/karabiner.json) - Keyboard remapping
+
+### Related Hosts
+
+- [gpc0 README](../gpc0/README.md) - Gaming PC (NixOS)
+- [hsb0 README](../hsb0/README.md) - DNS/DHCP server
+- [hsb1 README](../hsb1/README.md) - Home automation server
+
+### Local Documentation
+
+- [Progress & History](docs/progress.md) - Migration status & complete history
+- [Manual Setup Guides](docs/manual-setup/) - One-time configuration steps
+- [Technical Reference](docs/reference/) - Deep dives into specific features
+
+---
+
+## Changelog
+
+### 2025-11-30: Detailed Hardware Documentation
+
+- ✅ Added comprehensive Quick Reference table
+- ✅ Added detailed Hardware Specifications section
+- ✅ Added Nix Build Capabilities section
+- ✅ Added Features table (F00-F08)
+- ✅ Added Performance Comparison with other hosts
+- ✅ Added Related Documentation section
+
+### 2025-11-15: Migration Complete
+
+- ✅ All configurations declaratively managed via Nix
+- ✅ Shell (Fish), Terminal (WezTerm), Prompt (Starship)
+- ✅ Git dual identity (personal/work)
+- ✅ Karabiner-Elements declarative configuration
+- ✅ ~700MB freed from Homebrew migration
+
+---
+
+**Last Updated**: November 30, 2025  
+**Maintainer**: Markus Barta  
+**Repository**: <https://github.com/markus-barta/nixcfg>
 
 **For complete migration history and technical details, see [docs/progress.md](docs/progress.md)**
