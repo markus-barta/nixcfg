@@ -262,10 +262,10 @@ in
     };
 
     # Zellij config (generated from palette)
-    # Create the ENTIRE .config/zellij directory to override hokage's programs.zellij
-    # (programs.zellij creates a directory symlink, we need to replace the whole thing)
+    # Create the ENTIRE .config/zellij directory to override hokage's
+    # Must use mkForce on source to win the conflict with hokage's home.file
     home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
-      source = pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname);
+      source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname));
       recursive = true;
       force = true;
     };
