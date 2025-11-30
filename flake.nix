@@ -82,6 +82,7 @@
       ];
       commonDesktopModules = [
         home-manager.nixosModules.home-manager
+        ./modules/common.nix # Shared config (fish, starship, theme, packages)
         { home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ]; }
         (_: {
           nixpkgs.overlays = allOverlays;
