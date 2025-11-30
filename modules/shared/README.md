@@ -31,21 +31,88 @@ However, we use our own **Tokyo Night** theme system for consistent per-host col
 
 ### How Overrides Work
 
-1. **Starship**: Our `theme-hm.nix` writes `~/.config/starship.toml` with Tokyo Night colors,
-   which takes precedence over any hokage-configured starship settings.
+1. **Starship**: Our `theme-hm.nix` writes `~/.config/starship.toml` with Tokyo Night colors.
+   Uses `home.file` with `force = true` to override any hokage config.
 
-2. **Home Manager priority**: Our explicit `home.file` configurations override hokage's defaults
-   because they're defined later in the module evaluation order.
+2. **Zellij** (complex - see detailed section below): Creates entire `.config/zellij/`
+   directory to replace hokage's symlink.
 
-### TODO: When `hokage.catppuccin.enable` Becomes Available
+3. **Fish abbreviations**: Uses `lib.mkForce` in common.nix to override specific abbrs
+   like `nano` and `ping` that hokage sets differently.
 
-1. Set `hokage.catppuccin.enable = false` in all host configurations
-2. Remove `catppuccin.follows = "nixcfg/catppuccin"` from `flake.nix`
-3. (Optional) Add our own catppuccin/nix if we want it for specific apps
+### ✅ `hokage.catppuccin.enable` is NOW Available
 
-### Tracking Issue
+As of Nov 30, 2025, pbek added the option. Set in host configurations:
 
-Request sent to pbek for `hokage.catppuccin.enable` option.
+```nix
+hokage = {
+  catppuccin.enable = false;  # Disable Catppuccin, use Tokyo Night
+};
+```
+
+**Still needed**: Keep the catppuccin follows in flake.nix until all hosts are updated.
+
+---
+
+## 🔧 Zellij Override - Technical Deep Dive
+
+### The Problem
+
+Hokage's `programs.zellij` creates `.config/zellij` as a **symlink to a nix store directory**:
+
+```
+~/.config/zellij → /nix/store/xxx-hm_zellij/
+                   └── config.kdl (hokage's catppuccin config)
+```
+
+Our `home.file.".config/zellij/config.kdl"` tries to create a FILE, but you can't add files
+inside a symlinked directory - it's read-only in the nix store!
+
+### What We Tried (All Failed)
+
+| Attempt                    | Code                                                             | Why It Failed                    |
+| -------------------------- | ---------------------------------------------------------------- | -------------------------------- |
+| 1. Simple home.file        | `home.file.".config/zellij/config.kdl" = { text = ...; };`       | Can't write inside symlinked dir |
+| 2. With force              | `home.file.".config/zellij/config.kdl" = { force = true; ... };` | Still can't - dir is a symlink   |
+| 3. xdg.configFile          | `xdg.configFile."zellij/config.kdl" = { ... };`                  | Same issue                       |
+| 4. Disable programs.zellij | `programs.zellij.enable = lib.mkForce false;`                    | Still created symlink somehow    |
+| 5. Clear settings          | `programs.zellij.settings = lib.mkForce {};`                     | Didn't help                      |
+
+### The Solution
+
+Create the **entire directory**, not just the file inside it:
+
+```nix
+# In theme-hm.nix
+home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
+  source = pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname);
+  recursive = true;
+  force = true;
+};
+```
+
+This creates our OWN directory with our config inside, and `force = true` replaces
+hokage's symlink entirely.
+
+### Also Required in common.nix
+
+Completely disable hokage's zellij to prevent any interference:
+
+```nix
+programs = {
+  zellij = {
+    enable = lib.mkForce false;
+    settings = lib.mkForce { };
+    enableFishIntegration = lib.mkForce false;
+    enableBashIntegration = lib.mkForce false;
+  };
+};
+```
+
+### Key Insight
+
+> When a home-manager module (like `programs.zellij`) creates a directory as a symlink,
+> you cannot add files inside it. You must replace the entire directory.
 
 ---
 
