@@ -93,8 +93,8 @@
       brave
     ];
 
-    # Note: hokage.catppuccin.enable option doesn't exist yet in current hokage
-    # We override theming via theme-hm.nix and mkForce in common.nix instead
+    # Disable Catppuccin - we use Tokyo Night via theme-hm.nix
+    catppuccin.enable = false;
 
     # Point nixbit to Markus' repository (not pbek's default)
     programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";

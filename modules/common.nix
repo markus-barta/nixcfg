@@ -222,6 +222,7 @@ in
         # Terminal & Multiplexing
         # ══════════════════════════════════════════════════════════════════════
         zellij # Modern terminal multiplexer
+        starship # Cross-shell prompt (config via theme-hm.nix)
         micro # Modern nano replacement
 
         # ══════════════════════════════════════════════════════════════════════
