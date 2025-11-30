@@ -261,14 +261,15 @@ in
     };
 
     # Zellij config (generated from palette)
-    # Using xdg.configFile with highest priority to override hokage's programs.zellij
-    xdg.configFile."zellij/config.kdl" = lib.mkIf config.theme.zellij.enable {
+    # Must use home.file with force to override hokage's programs.zellij.settings
+    home.file.".config/zellij/config.kdl" = lib.mkIf config.theme.zellij.enable {
       text = mkZellijConfig palette hostname;
       force = true;
     };
 
-    # Also completely disable programs.zellij to prevent conflicts
+    # Completely disable programs.zellij to prevent conflicts
     programs.zellij.enable = lib.mkForce false;
+    programs.zellij.settings = lib.mkForce { };
 
     # Eza theme file (Tokyo Night based, sysop-focused)
     # Using theme file instead of EZA_COLORS for better maintainability
