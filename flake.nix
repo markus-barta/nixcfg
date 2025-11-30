@@ -36,7 +36,6 @@
       agenix,
       disko,
       plasma-manager,
-      espanso-fix,
       ...
     }@inputs:
 
@@ -170,7 +169,7 @@
             { home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ]; }
             (_: { nixpkgs.overlays = allOverlays; })
             agenix.nixosModules.age
-            espanso-fix.nixosModules.espanso-capdacoverride
+            # espanso-fix removed - espanso is disabled and it pulls in rustc!
             inputs.nixcfg.nixosModules.hokage # External hokage module (loads first)
             ./modules/common.nix # OUR config (loads AFTER hokage to override)
             ./hosts/gpc0/configuration.nix
