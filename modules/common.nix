@@ -296,9 +296,10 @@ in
         enableFishIntegration = true;
       };
 
-      # Zellij: Config is managed by theme-hm.nix via home.file (not programs.zellij)
-      # This allows us to override hokage's catppuccin theme with Tokyo Night
+      # Zellij: Disable hokage's programs.zellij so theme-hm.nix home.file can take over
+      # Config is managed by theme-hm.nix via home.file with Tokyo Night theme
       # Zellij binary is installed via environment.systemPackages
+      zellij.enable = lib.mkForce false;
 
       # A smarter cd command
       # https://github.com/ajeetdsouza/zoxide
