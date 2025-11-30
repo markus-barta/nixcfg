@@ -296,13 +296,9 @@ in
         enableFishIntegration = true;
       };
 
-      # Tiling terminal multiplexer (config file from theme-hm.nix with per-host theme)
-      zellij = {
-        enable = true;
-        # Shell integrations are disabled, because they would open zellij as soon as the shells start
-        enableFishIntegration = false;
-        enableBashIntegration = false;
-      };
+      # Zellij: Config is managed by theme-hm.nix via home.file (not programs.zellij)
+      # This allows us to override hokage's catppuccin theme with Tokyo Night
+      # Zellij binary is installed via environment.systemPackages
 
       # A smarter cd command
       # https://github.com/ajeetdsouza/zoxide
