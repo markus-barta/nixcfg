@@ -36,6 +36,8 @@
   # Common fish shell abbreviations used across all systems
   # Note: ping→pingt requires uzumaki module for the pingt function
   fishAbbrs = {
+    # Override hokage's nano→micro (we prefer nano)
+    nano = "nano";
     killall = "pkill";
     less = "bat";
     man = "batman";
