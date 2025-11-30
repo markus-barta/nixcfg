@@ -1593,7 +1593,7 @@ commonServerModules = [
 3. 🔜 **hsb1** (miniserver24) - Home automation + MQTT (medium risk)
 4. 🔜 **csb0** - Cloud server (high uptime, but external, medium risk)
 5. 🔜 **csb1** - Cloud server (high uptime, but external, medium risk)
-6. 🔜 **mba-gaming-pc** (pcg0) - Gaming PC (low risk, can rebuild)
+6. 🔜 **mba-gaming-pc** (gpc0) - Gaming PC (low risk, can rebuild)
 7. 🔜 **Other workstations** - Low risk
 
 ### Reference Implementation: hsb8

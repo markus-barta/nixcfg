@@ -171,11 +171,11 @@
 
         # Gaming PC 0 (formerly mba-gaming-pc)
         # Using external hokage consumer pattern
-        pcg0 = nixpkgs.lib.nixosSystem {
+        gpc0 = nixpkgs.lib.nixosSystem {
           inherit system;
           modules = commonDesktopModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
-            ./hosts/pcg0/configuration.nix
+            ./hosts/gpc0/configuration.nix
             disko.nixosModules.disko
           ];
           specialArgs = self.commonArgs // {

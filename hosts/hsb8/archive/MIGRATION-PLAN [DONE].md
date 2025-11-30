@@ -247,7 +247,7 @@ This makes hsb8 the **perfect guinea pig** before migrating:
 
 - hsb0 (miniserver99 - DNS/DHCP, 200+ days uptime)
 - hsb1 (miniserver24 - Home automation)
-- imac0, pcg0 (workstations)
+- imac0, gpc0 (workstations)
 
 ---
 
@@ -266,7 +266,7 @@ WORKSTATIONS:
   mbp0                    ← MacBook Pro (Markus, future)
 
 GAMING:
-  pcg0                    ← Gaming PC (Markus)
+  gpc0                    ← Gaming PC (Markus)
   stm0, stm1              ← Steam Machines (future)
 ```
 
@@ -1556,7 +1556,7 @@ ssh mba@192.168.1.100 'cd ~/nixcfg && git remote -v'
 
 - [ ] **Plan hsb1 migration** (miniserver24 - less critical than hsb0)
 - [ ] **Plan hsb0 migration** (miniserver99 - DNS/DHCP, most critical)
-- [ ] **Plan workstation migrations** (imac0, pcg0)
+- [ ] **Plan workstation migrations** (imac0, gpc0)
 - [ ] **Consider**: When to deploy hsb8 to parents (ww87 location)
 
 ---
@@ -1637,7 +1637,7 @@ ssh mba@192.168.1.100 'cd ~/nixcfg && git remote -v'
 || **Commits Made** | ~5-7 | 4 |
 || **Verification Checks** | 14 | 10+ |
 
-### Apply to Future Migrations (hsb0, hsb1, imac0, pcg0) 📝
+### Apply to Future Migrations (hsb0, hsb1, imac0, gpc0) 📝
 
 **Critical Success Factors**:
 
@@ -1663,7 +1663,7 @@ ssh mba@192.168.1.100 'cd ~/nixcfg && git remote -v'
 - Less urgent than miniserver99
 - Coordinate with home automation usage (avoid during peak hours)
 
-**For Workstation Migrations (imac0, pcg0)**:
+**For Workstation Migrations (imac0, gpc0)**:
 
 - Risk: 🟢 LOW (desktop systems)
 - Can be done during normal work hours
@@ -1759,7 +1759,7 @@ Once hsb8 stable:
 
 1. Migrate hsb1 (miniserver24) - home automation
 2. Migrate hsb0 (miniserver99) - DNS/DHCP (most critical)
-3. Migrate workstations (imac0, pcg0)
+3. Migrate workstations (imac0, gpc0)
 4. Eventually deploy hsb8 to parents (ww87)
 
 ---

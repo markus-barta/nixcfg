@@ -142,7 +142,7 @@ homeConfigurations."markus@imac0" = home-manager.lib.homeManagerConfiguration {
 ### After: `imac0`
 
 - ✅ Short (5 characters)
-- ✅ Consistent with unified scheme (`hsb0`, `pcg0`)
+- ✅ Consistent with unified scheme (`hsb0`, `gpc0`)
 - ✅ Scalable (imac1, imac2 for future devices)
 - ✅ Clear category identifier (`imac` = workstation type)
 
@@ -153,7 +153,7 @@ homeConfigurations."markus@imac0" = home-manager.lib.homeManagerConfiguration {
 | Home Server | `hsb[0-9]`  | `hsb0`  | Home server (was miniserver99)  |
 | Home Server | `hsb[0-9]`  | `hsb8`  | Home server (was msww87)        |
 | Workstation | `imac[0-9]` | `imac0` | iMac workstation (Markus, home) |
-| Gaming PC   | `pcg[0-9]`  | `pcg0`  | Gaming PC (was mba-gaming-pc)   |
+| Gaming PC   | `pcg[0-9]`  | `gpc0`  | Gaming PC (was mba-gaming-pc)   |
 
 **Pattern**: `<type><sequence>` where:
 
@@ -213,7 +213,7 @@ sudo journalctl -u adguardhome | grep imac0
 - **hsb8** (completed): `msww87` → `hsb8` - First migration, established pattern
 - **hsb0** (in progress): `miniserver99` → `hsb0` - Currently being migrated
 - **hsb1** (pending): `miniserver24` → `hsb1` - Not started
-- **pcg0** (pending): `mba-gaming-pc` → `pcg0` - Not started
+- **gpc0** (pending): `mba-gaming-pc` → `gpc0` - Not started
 
 ## Reference
 

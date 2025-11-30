@@ -108,7 +108,7 @@ Each host automatically gets a unique color palette via `theme-hm.nix`:
 ┌──────────────────────────────┐   ┌─────────────────────┐
 │    WORKSTATIONS              │   │      GAMING         │
 │                              │   │                     │
-│  imac0          ⬜ lightGray │   │  pcg0    💜 Purple  │
+│  imac0          ⬜ lightGray │   │  gpc0    💜 Purple  │
 │  imac-mba-work  ⬛ darkGray  │   │  stm*    💗 Pink    │
 └──────────────────────────────┘   └─────────────────────┘
 ```
@@ -296,7 +296,7 @@ WORKSTATIONS:
   mbp0                    ← MacBook Pro (Markus, personal - future)
 
 GAMING:
-  pcg0                    ← PC Gaming (Markus, NixOS)
+  gpc0                    ← PC Gaming (Markus, NixOS)
   stm0, stm1              ← Steam Machines (family - future)
 ```
 
@@ -330,7 +330,7 @@ GAMING:
 
 | Host   | Old Name      | Owner  | IP            | Theme | Status               |
 | ------ | ------------- | ------ | ------------- | ----- | -------------------- |
-| `pcg0` | mba-gaming-pc | Markus | 192.168.1.154 | 💜    | 🔄 Migration pending |
+| `gpc0` | mba-gaming-pc | Markus | 192.168.1.154 | 💜    | 🔄 Migration pending |
 | `stm0` | -             | Family | -             | 💗    | ⏳ Future            |
 | `stm1` | -             | Family | -             | 💗    | ⏳ Future            |
 
@@ -348,7 +348,7 @@ GAMING:
 | 2        | `hsb1`  | 🟡 Medium   | Home automation, but less critical   | ⏳ Next    |
 | 3        | `hsb0`  | 🔴 High     | DNS/DHCP, 200+ days uptime, critical | ✅ Done    |
 | 4        | `imac0` | 🟢 Low      | Workstation, DHCP+config rename      | ✅ Done    |
-| 5        | `pcg0`  | 🟢 Low      | Gaming PC, non-critical              | ⏳ Next    |
+| 5        | `gpc0`  | 🟢 Low      | Gaming PC, non-critical              | ⏳ Next    |
 
 ### Why This Order?
 
@@ -377,7 +377,7 @@ GAMING:
 
 **Gaming**:
 
-- pcg0, stm0, stm1 - Gaming systems
+- gpc0, stm0, stm1 - Gaming systems
 
 ---
 
@@ -410,7 +410,7 @@ GAMING:
 
 ### Gaming Naming
 
-- `pcg{n}` - PC Gaming (pcg0)
+- `pcg{n}` - PC Gaming (gpc0)
 - `stm{n}` - Steam Machines (stm0, stm1)
 
 ### Why This Scheme?
@@ -442,7 +442,7 @@ hsb8          Parents (DNS/DHCP, 192.168.1.100) [was: msww87]
 imac0         iMac 27" (Markus, home) [was: imac-mba-home]
 imac1         iMac (Mai, home) [was: wz-imac-mpe]
 imac-mba-work iMac (Markus, work/BYTEPOETS)
-pcg0          Gaming PC (Markus) [was: mba-gaming-pc]
+gpc0          Gaming PC (Markus) [was: mba-gaming-pc]
 ```
 
 ### Pbek Hosts (Repository Owner/Friend)
@@ -513,7 +513,7 @@ See archived hosts for full list of Pbek's machines
 | 3     | hsb0 (was miniserver99)   | ✅ Done    | ✅     | ✅      |
 | 4     | imac0 (was imac-mba-home) | ✅ Done    | ✅     | ✅      |
 | 5     | imac-mba-work             | ✅ Done    | N/A    | ✅      |
-| 6     | pcg0 (was mba-gaming-pc)  | ⏳ Pending | -      | -       |
+| 6     | gpc0 (was mba-gaming-pc)  | ⏳ Pending | -      | -       |
 
 **Includes**: Hostname rename, folder restructure, DHCP updates, external hokage pattern, per-host theming
 

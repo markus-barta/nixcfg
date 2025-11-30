@@ -206,7 +206,7 @@
 #
 #    GAMING                           WORKSTATIONS
 #    ┌─────────────────────┐          ┌─────────────────────┐
-#    │  pcg0    🟣 Purple  │          │  imac0   ⚪ L-Gray  │
+#    │  gpc0    🟣 Purple  │          │  imac0   ⚪ L-Gray  │
 #    │  stm0    🩷 Pink    │          │  imac1   🔘 M-Gray  │
 #    │  stm1    🩷 Pink    │          │  work    ⚫ D-Gray  │
 #    └─────────────────────┘          │  mbp0    🩶 W-Gray  │
@@ -416,7 +416,7 @@
     purple = {
       name = "Purple";
       category = "gaming";
-      description = "Gaming PC (pcg0)";
+      description = "Gaming PC (gpc0)";
 
       # Powerline gradient (light → dark)
       gradient = {
@@ -712,7 +712,7 @@
     hsb8 = "orange";
 
     # Gaming
-    pcg0 = "purple";
+    gpc0 = "purple";
     "mba-gaming-pc" = "purple"; # alias for transition
 
     stm0 = "pink";
@@ -741,7 +741,7 @@
     "mbp0" # MacBook Pro
     "stm0" # Steam Deck / Steam Machine
     "stm1" # Steam Deck / Steam Machine
-    # Note: pcg0 (gaming PC) is not portable, even though it's in gaming category
+    # Note: gpc0 (gaming PC) is not portable, even though it's in gaming category
   ];
 
   # Battery indicator colors (universal, like status colors)
