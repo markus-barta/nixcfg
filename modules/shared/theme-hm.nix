@@ -151,6 +151,7 @@ let
       //
 
       default_shell "fish"
+      show_startup_tips false
 
       // ════════════════════════════════════════════════════════════════════════════════
       // KEYBINDINGS
