@@ -99,4 +99,7 @@
       poolName = "mbazroot";
     };
   };
+
+  # Passwordless sudo for wheel group (gaming PC - low risk, local access)
+  security.sudo-rs.wheelNeedsPassword = false;
 }
