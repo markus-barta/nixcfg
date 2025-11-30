@@ -89,6 +89,9 @@
     programs.onlyoffice.enable = false;
     programs.brave.enable = false; # Already have browser
 
+    # Disable Catppuccin - we use Tokyo Night via theme-hm.nix
+    catppuccin.enable = false;
+
     # Point nixbit to Markus' repository (not pbek's default)
     programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";
 
