@@ -88,9 +88,9 @@
     programs.git.enableUrlRewriting = false;
 
     # Exclude heavy packages that require building from source
-    excludePackages = [
-      "onlyoffice-desktopeditors"
-      "brave"
+    excludePackages = with pkgs; [
+      onlyoffice-desktopeditors
+      brave
     ];
 
     # Disable Catppuccin - we use Tokyo Night via theme-hm.nix
