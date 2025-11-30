@@ -231,6 +231,7 @@ in
         just # Modern make alternative
         devenv # Development environments CLI
         nix-tree # Explore Nix store dependencies
+        nix-output-monitor # Beautiful nix build output with ETA (nom)
 
         # ══════════════════════════════════════════════════════════════════════
         # Backup & Security
