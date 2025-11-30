@@ -11,6 +11,7 @@
 
 {
   pkgs,
+  lib,
   ...
 }:
 {
@@ -68,6 +69,9 @@
 
   # TODO: Enable home-manager for "omega" user
   # home-manager.users.omega = config.home-manager.users.mba;
+
+  # Override hokage's zellij to allow our Tokyo Night theme from theme-hm.nix
+  home-manager.users.mba.programs.zellij.enable = lib.mkForce false;
 
   hokage = {
     users = [
