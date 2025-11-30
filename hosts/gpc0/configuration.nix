@@ -82,8 +82,12 @@
     useInternalInfrastructure = false;
     useSecrets = false;
     useSharedKey = false;
+
+    # Disable heavy apps we don't need on gaming PC
     programs.espanso.enable = false;
     programs.git.enableUrlRewriting = false;
+    programs.onlyoffice.enable = false;
+    programs.brave.enable = false; # Already have browser
 
     # Point nixbit to Markus' repository (not pbek's default)
     programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";
