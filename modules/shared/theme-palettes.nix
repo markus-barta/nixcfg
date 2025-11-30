@@ -446,6 +446,7 @@
         black = "#140c20";
         white = "#f8f0ff";
         highlight = "#d0b8e8";
+        keybindFg = "#ffffff"; # White keybind letters (red on pink is ugly)
       };
     };
 

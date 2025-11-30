@@ -185,7 +185,7 @@ let
           ${hn} {
               bg "${z.bg}"
               fg "${z.fg}"
-              red "${themePalettes.statusColors.root.bg}"
+              red "${z.keybindFg or themePalettes.statusColors.root.bg}"
               green "${z.highlight}"
               blue "${p.gradient.primary}"
               yellow "${themePalettes.statusColors.sudo.fg}"
