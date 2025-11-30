@@ -307,8 +307,8 @@ in
 
     # Enable fish and bash in home-manager to use enableFishIntegration and enableBashIntegration
     programs = {
-      # Starship: Disable programs.starship so theme-hm.nix home.file can manage config
-      # Shell integration is handled by theme-hm.nix or manual init
+      # Starship: Disable hokage's programs.starship so theme-hm.nix can manage config
+      # (defensive - hokage.catppuccin.enable = false should also prevent conflicts)
       starship.enable = lib.mkForce false;
       # Enable https://direnv.net/
       direnv = {
@@ -335,8 +335,8 @@ in
         enableFishIntegration = true;
       };
 
-      # Zellij: Disable hokage's programs.zellij so theme-hm.nix home.file can take over
-      # Config is managed by theme-hm.nix via home.file with Tokyo Night theme
+      # Zellij: Disable hokage's programs.zellij so theme-hm.nix can manage config
+      # (defensive - hokage.catppuccin.enable = false should also prevent conflicts)
       # Zellij binary is installed via environment.systemPackages
       zellij.enable = lib.mkForce false;
 

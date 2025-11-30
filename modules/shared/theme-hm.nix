@@ -256,13 +256,13 @@ in
   config = lib.mkIf config.theme.enable {
     # Starship config (generated from TEMPLATE to preserve Unicode)
     home.file.".config/starship.toml" = lib.mkIf config.theme.starship.enable {
-      force = true; # Override hokage's catppuccin config
+      force = true; # Defensive: ensure Tokyo Night wins over any hokage config
       text = mkStarshipConfig palette;
     };
 
     # Zellij config (generated from palette)
     home.file.".config/zellij/config.kdl" = lib.mkIf config.theme.zellij.enable {
-      force = true; # Override hokage's catppuccin config
+      force = true; # Defensive: ensure Tokyo Night wins over any hokage config
       text = mkZellijConfig palette hostname;
     };
 
