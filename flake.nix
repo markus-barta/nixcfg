@@ -2,7 +2,9 @@
   description = "pbek's machines";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    # Using stable (25.05) for reliable binary cache - everything is pre-built!
+    # To go back to bleeding edge: change to nixos-unstable (may require local builds)
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-25.05";
     nixpkgs-stable.url = "github:nixos/nixpkgs/nixos-25.05";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
