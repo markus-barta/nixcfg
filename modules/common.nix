@@ -157,62 +157,99 @@ in
       requiredPackages = [
       ];
       optionalPackages = [
-        # neovim # replaced by helix
-        wget
-        fish
-        tmux
-        gitFull # git and gitk
-        gitflow
-        jq
-        less
-        mc
-        htop
-        atop
-        btop
-        inetutils
-        dig
-        gnumake
-        restic
-        nix-tree # look into the nix store
-        erdtree # tree replacement
-        dust # disk usage (du) replacement
-        duf # disk free (df) replacement
-        dua # disk usage (du) replacement
-        ranger # midnight commander replacement (not really)
-        ripgrep # grep replacement
-        eza # ls replacement
-        bat # less replacement with syntax highlighting
-        # https://github.com/NixOS/nixpkgs/issues/454391
-        bat-extras.batgrep # ripgrep with bat
-        bat-extras.batman # man with bat
-        tldr # man replacement
-        fd # find replacement
-        # television # fuzzy finder TUI
-        # (callPackage ../../pkgs/television/package.nix { })
-        zellij # terminal multiplexer (like tmux)
-        netcat-openbsd # Netcat with -U parameter for libvirt
-        nmap
-        lazygit
-        dogdns # dig replacement
-        broot # fast directory switcher (has "br" alias for changing into directories)
-        difftastic # Structural diff tool that compares files based on their syntax
-        # pingu # ping, but more colorful
-        gping # graphical ping
-        speedtest-go # Speed test CLI (replacement for fast-cli)
-        sysz # fzf terminal UI for systemctl
+        # ══════════════════════════════════════════════════════════════════════
+        # Core Tools
+        # ══════════════════════════════════════════════════════════════════════
+        wget # HTTP/FTP file downloader
+        fish # Friendly interactive shell
+        tmux # Terminal multiplexer (legacy)
+        less # Pager for viewing files
+        gnumake # Build automation tool
 
-        # textual is currently broken in unstable
-        # https://github.com/NixOS/nixpkgs/pull/425707
-        # isd # a better way to work with systemd units
+        # ══════════════════════════════════════════════════════════════════════
+        # Git & Version Control
+        # ══════════════════════════════════════════════════════════════════════
+        gitFull # Git with gitk GUI
+        gitflow # Git branching model extensions
+        lazygit # Git TUI
 
-        ouch # compress and decompress files
-        procs # ps "replacement"
-        just # command runner like make
-        neosay # send messages to matrix room
-        rdap # whois replacement
-        lsof # list open files
-        devenv # DevEnv CLI
-        micro # Nano replacement
+        # ══════════════════════════════════════════════════════════════════════
+        # System Monitoring
+        # ══════════════════════════════════════════════════════════════════════
+        htop # Interactive process viewer
+        atop # Advanced system monitor
+        btop # Beautiful resource monitor
+        procs # Modern ps replacement
+        lsof # List open files
+
+        # ══════════════════════════════════════════════════════════════════════
+        # File Management
+        # ══════════════════════════════════════════════════════════════════════
+        mc # Midnight Commander file manager
+        ranger # Terminal file manager with vim bindings
+        broot # Fast directory navigator (br alias)
+        erdtree # Modern tree replacement
+        ouch # Compress/decompress archives
+
+        # ══════════════════════════════════════════════════════════════════════
+        # Modern CLI Replacements
+        # ══════════════════════════════════════════════════════════════════════
+        ripgrep # Fast grep replacement (rg)
+        fd # Fast find replacement
+        eza # Modern ls replacement
+        bat # Cat with syntax highlighting
+        bat-extras.batgrep # Ripgrep + bat integration
+        bat-extras.batman # Man pages with bat
+        tldr # Simplified man pages
+        dust # Disk usage analyzer (du replacement)
+        duf # Disk free viewer (df replacement)
+        dua # Disk usage interactive (ncdu replacement)
+        dogdns # Modern dig replacement
+        difftastic # Structural diff (syntax-aware)
+        rdap # Modern whois replacement
+
+        # ══════════════════════════════════════════════════════════════════════
+        # Networking
+        # ══════════════════════════════════════════════════════════════════════
+        inetutils # Network utilities (ping, telnet, etc.)
+        dig # DNS lookup utility
+        netcat-openbsd # Netcat with Unix socket support
+        nmap # Network scanner
+        gping # Graphical ping
+        speedtest-go # Internet speed test CLI
+
+        # ══════════════════════════════════════════════════════════════════════
+        # Terminal & Multiplexing
+        # ══════════════════════════════════════════════════════════════════════
+        zellij # Modern terminal multiplexer
+        micro # Modern nano replacement
+
+        # ══════════════════════════════════════════════════════════════════════
+        # Development & Build Tools
+        # ══════════════════════════════════════════════════════════════════════
+        jq # JSON processor
+        just # Modern make alternative
+        devenv # Development environments CLI
+        nix-tree # Explore Nix store dependencies
+
+        # ══════════════════════════════════════════════════════════════════════
+        # Backup & Security
+        # ══════════════════════════════════════════════════════════════════════
+        restic # Fast, encrypted backups
+
+        # ══════════════════════════════════════════════════════════════════════
+        # System Administration
+        # ══════════════════════════════════════════════════════════════════════
+        sysz # Systemctl with fzf interface
+        neosay # Send messages to Matrix rooms
+
+        # ══════════════════════════════════════════════════════════════════════
+        # Disabled packages
+        # ══════════════════════════════════════════════════════════════════════
+        # neovim              # Replaced by helix
+        # pingu               # Colorful ping (prefer gping)
+        # television          # Fuzzy finder TUI (broken)
+        # isd                 # Systemd TUI (broken in unstable)
       ];
     in
     requiredPackages ++ utils.removePackagesByName optionalPackages excludePackages;
