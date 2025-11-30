@@ -3,7 +3,7 @@
 **Host**: gpc0 (Gaming PC 0, formerly mba-gaming-pc)  
 **Migration Type**: External Hokage Consumer Pattern  
 **Risk Level**: 🟢 **LOW** - Desktop system with GUI access  
-**Status**: ⚠️ **DEPLOYED WITH ISSUES** - Theming and override conflicts resolved  
+**Status**: ✅ **COMPLETE** - All issues resolved including zellij theming  
 **Created**: November 29, 2025  
 **Updated**: November 30, 2025 (major lessons learned)
 
@@ -198,12 +198,12 @@ shellAbbrs = (lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs) // {
 4. ❌ `programs.zellij.settings = lib.mkForce {}`
    - Didn't prevent directory creation
 
-**What WORKED** (Final Solution):
+**What WORKED** (Final Solution - after 6+ attempts):
 
 ```nix
-# In theme-hm.nix - create the ENTIRE directory, not just the file
+# In theme-hm.nix - lib.mkForce on source is THE KEY!
 home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
-  source = pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname);
+  source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname));
   recursive = true;
   force = true;
 };
@@ -211,12 +211,23 @@ home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
 
 **Why It Works**:
 
-- `home.file.".config/zellij"` targets the DIRECTORY, not the file inside
-- `recursive = true` copies the entire directory structure
-- `force = true` replaces hokage's symlink with our directory
-- `pkgs.writeTextDir` creates a proper directory with our config.kdl inside
+1. `lib.mkForce` on `source` - Wins the Nix module merge conflict against hokage
+2. `pkgs.writeTextDir` - Creates a directory with our config.kdl inside
+3. `recursive = true` - Copies the directory structure
+4. `force = true` - Replaces symlinks on disk during activation
 
-**Key Insight**: When hokage's `programs.zellij` creates `.config/zellij` as a SYMLINK to a nix store path, you cannot add files inside it. You must replace the entire directory.
+**Manual Step Required (once per host)**:
+
+```bash
+rm -rf ~/.config/zellij
+sudo nixos-rebuild switch --flake .#gpc0
+```
+
+Home-manager can't backup files inside read-only nix store symlinks. You'll see
+`Read-only file system` error. Remove the old symlink first.
+
+**Key Insight**: The conflict error revealed the fix - hokage also sets
+`home.file.".config/zellij".source`. Use `lib.mkForce` to win the merge!
 
 ---
 

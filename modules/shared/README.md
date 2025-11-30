@@ -78,25 +78,29 @@ inside a symlinked directory - it's read-only in the nix store!
 | 4. Disable programs.zellij | `programs.zellij.enable = lib.mkForce false;`                    | Still created symlink somehow    |
 | 5. Clear settings          | `programs.zellij.settings = lib.mkForce {};`                     | Didn't help                      |
 
-### The Solution
+### The Solution (FINAL - November 30, 2025)
 
-Create the **entire directory**, not just the file inside it:
+After 6+ attempts, the **critical element** is `lib.mkForce` on the `source`:
 
 ```nix
 # In theme-hm.nix
 home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
-  source = pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname);
+  source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname));
   recursive = true;
   force = true;
 };
 ```
 
-This creates our OWN directory with our config inside, and `force = true` replaces
-hokage's symlink entirely.
+**Why this works**:
+
+1. `lib.mkForce` on `source` - Wins the Nix module merge conflict against hokage
+2. `pkgs.writeTextDir` - Creates a directory containing our config.kdl
+3. `recursive = true` - Ensures directory structure is copied
+4. `force = true` - Replaces existing symlinks on disk
 
 ### Also Required in common.nix
 
-Completely disable hokage's zellij to prevent any interference:
+Completely disable hokage's zellij:
 
 ```nix
 programs = {
@@ -109,10 +113,40 @@ programs = {
 };
 ```
 
-### Key Insight
+### ⚠️ Manual Step on First Deploy
 
-> When a home-manager module (like `programs.zellij`) creates a directory as a symlink,
-> you cannot add files inside it. You must replace the entire directory.
+When migrating from hokage's zellij to our themed config, you MUST manually remove
+the old symlinked directories **once**:
+
+```bash
+rm -rf ~/.config/zellij
+sudo nixos-rebuild switch --flake .#hostname
+```
+
+**Why?** Home-manager tries to backup the old config.kdl but can't write inside
+the read-only nix store symlink. Error: `Read-only file system`. Removing the
+symlink first allows a clean deployment.
+
+### Key Insights
+
+1. **Conflict errors reveal the fix** - Error message showed exactly what was fighting
+2. **`lib.mkForce` on source is essential** - Without it, hokage wins the merge
+3. **Directory replacement, not file** - Must replace entire `.config/zellij/`
+4. **One-time manual cleanup** - Old nix store symlinks block home-manager activation
+
+### Per-Host Zellij Customization
+
+The `keybindFg` field in zellij palette allows per-host override of keybind letter color:
+
+```nix
+# In theme-palettes.nix, inside a palette's zellij section:
+zellij = {
+  # ... other colors ...
+  keybindFg = "#ffffff";  # White keybind letters (optional, defaults to red)
+};
+```
+
+Used by gpc0 (purple) because red letters on pink/purple background was ugly.
 
 ---
 
