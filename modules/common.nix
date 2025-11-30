@@ -283,7 +283,11 @@ in
         nix-direnv.enable = true;
       };
 
-      fish.enable = true;
+      fish = {
+        enable = true;
+        shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
+        shellAbbrs = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs;
+      };
       bash.enable = true;
 
       # Run nix-shell, etc. in the fish shell instead of bash
