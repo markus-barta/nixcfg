@@ -345,10 +345,15 @@ in
         enableFishIntegration = true;
       };
 
-      # Zellij: Disable hokage's programs.zellij so theme-hm.nix can manage config
-      # (defensive - hokage.catppuccin.enable = false should also prevent conflicts)
+      # Zellij: COMPLETELY disable hokage's programs.zellij
+      # We manage config via theme-hm.nix home.file instead
       # Zellij binary is installed via environment.systemPackages
-      zellij.enable = lib.mkForce false;
+      zellij = {
+        enable = lib.mkForce false;
+        settings = lib.mkForce { };
+        enableFishIntegration = lib.mkForce false;
+        enableBashIntegration = lib.mkForce false;
+      };
 
       # A smarter cd command
       # https://github.com/ajeetdsouza/zoxide
