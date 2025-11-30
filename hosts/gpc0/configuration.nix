@@ -83,11 +83,10 @@
     useSecrets = false;
     useSharedKey = false;
 
-    # Disable heavy apps we don't need on gaming PC
+    # Disable features we don't need on gaming PC
     programs.espanso.enable = false;
     programs.git.enableUrlRewriting = false;
-    programs.onlyoffice.enable = false;
-    # programs.brave doesn't exist in hokage - brave comes from somewhere else
+    # Note: onlyoffice/brave come from hokage desktop module, no individual disable option
 
     # Disable Catppuccin - we use Tokyo Night via theme-hm.nix
     catppuccin.enable = false;
