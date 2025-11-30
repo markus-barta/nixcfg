@@ -6,6 +6,19 @@
 # palette to starship, zellij, and eza. It follows the DRY principle - define
 # colors once in theme-palettes.nix, use everywhere.
 #
+# ════════════════════════════════════════════════════════════════════════════════
+# CATPPUCCIN OVERRIDE (Tokyo Night)
+# ════════════════════════════════════════════════════════════════════════════════
+#
+# The external hokage module includes Catppuccin theming, but we use Tokyo Night.
+# This module OVERRIDES hokage's starship theming by writing our own config to
+# ~/.config/starship.toml with per-host gradient colors.
+#
+# When pbek adds `hokage.catppuccin.enable = false`, we can remove the catppuccin
+# dependency from flake.nix. See modules/shared/README.md for full details.
+#
+# ════════════════════════════════════════════════════════════════════════════════
+#
 # CRITICAL: Starship config uses a TEMPLATE FILE to preserve Unicode characters.
 # See modules/shared/README.md for details on why this is necessary.
 #
@@ -269,5 +282,73 @@ in
       # LS_COLORS for basic ls compatibility
       set -gx LS_COLORS "di=1;34:ln=36:ex=1;32:or=31"
     '';
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # CATPPUCCIN OVERRIDES - Tokyo Night for apps that catppuccin would theme
+    # ══════════════════════════════════════════════════════════════════════════
+    # These explicit settings override hokage's catppuccin theming.
+    # When hokage.catppuccin.enable = false becomes available, these can be removed
+    # (the apps will just use their defaults or our explicit Tokyo Night settings).
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # bat: Use Tokyo Night theme (built-in)
+    programs.bat = {
+      config = {
+        theme = "tokyonight_night";
+      };
+    };
+
+    # fzf: Tokyo Night colors
+    programs.fzf = {
+      colors = {
+        fg = "#c0caf5";
+        bg = "#1a1b26";
+        hl = "#bb9af7";
+        "fg+" = "#c0caf5";
+        "bg+" = "#292e42";
+        "hl+" = "#7dcfff";
+        info = "#7aa2f7";
+        prompt = "#7dcfff";
+        pointer = "#7dcfff";
+        marker = "#9ece6a";
+        spinner = "#9ece6a";
+        header = "#9ece6a";
+      };
+    };
+
+    # lazygit: Tokyo Night theme
+    home.file.".config/lazygit/config.yml" = {
+      text = ''
+        gui:
+          theme:
+            activeBorderColor:
+              - "#7aa2f7"
+              - bold
+            inactiveBorderColor:
+              - "#565f89"
+            searchingActiveBorderColor:
+              - "#7aa2f7"
+              - bold
+            optionsTextColor:
+              - "#7aa2f7"
+            selectedLineBgColor:
+              - "#292e42"
+            cherryPickedCommitFgColor:
+              - "#7aa2f7"
+            cherryPickedCommitBgColor:
+              - "#bb9af7"
+            markedBaseCommitFgColor:
+              - "#7aa2f7"
+            markedBaseCommitBgColor:
+              - "#e0af68"
+            unstagedChangesColor:
+              - "#db4b4b"
+            defaultFgColor:
+              - "#c0caf5"
+      '';
+    };
+
+    # Note: fish syntax highlighting still uses catppuccin on NixOS (no easy override)
+    # When hokage.catppuccin.enable = false is available, this will be resolved.
   };
 }

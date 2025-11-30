@@ -314,8 +314,9 @@ in
         enable = true;
         defaultEditor = useInternalInfrastructure;
         settings = {
-          # https://helix-editor.vercel.app/reference/list-of-themes#catppuccin_mocha
-          theme = "catppuccin_mocha";
+          # Tokyo Night to match our theme system (overrides hokage's catppuccin)
+          # https://helix-editor.vercel.app/reference/list-of-themes#tokyonight_storm
+          theme = lib.mkForce "tokyonight_storm";
         };
       };
     };

@@ -2,6 +2,53 @@
 
 This directory contains configuration files shared across all systems (NixOS servers and macOS workstations).
 
+---
+
+## ⚠️ Catppuccin Override (Tokyo Night)
+
+### Background
+
+The external hokage module (`github:pbek/nixcfg`) includes **Catppuccin theming** by default.
+However, we use our own **Tokyo Night** theme system for consistent per-host coloring.
+
+**Current status:** Catppuccin is a required dependency (no `hokage.catppuccin.enable` option yet).
+
+**Future:** When pbek adds `hokage.catppuccin.enable = false`, we can remove the dependency.
+
+### What We Override
+
+| Component    | Hokage (Catppuccin)    | Our Override (Tokyo Night)   | File               |
+| ------------ | ---------------------- | ---------------------------- | ------------------ |
+| **Starship** | `mocha.toml` palette   | Per-host gradient colors     | `theme-hm.nix`     |
+| **Eza**      | catppuccin colors      | Tokyo Night sysop theme      | `theme-hm.nix`     |
+| **Zellij**   | catppuccin colors      | Per-host accent colors       | `theme-hm.nix`     |
+| **WezTerm**  | (not themed by hokage) | Tokyo Night                  | `macos-common.nix` |
+| **Helix**    | catppuccin_mocha       | `tokyonight_storm` (mkForce) | `common.nix`       |
+| **bat**      | catppuccin theme       | `tokyonight_night`           | `theme-hm.nix`     |
+| **fzf**      | catppuccin colors      | Tokyo Night colors           | `theme-hm.nix`     |
+| **lazygit**  | catppuccin theme       | Tokyo Night theme            | `theme-hm.nix`     |
+| **fish**     | catppuccin syntax      | ⚠️ NOT overridden (pending)  | -                  |
+
+### How Overrides Work
+
+1. **Starship**: Our `theme-hm.nix` writes `~/.config/starship.toml` with Tokyo Night colors,
+   which takes precedence over any hokage-configured starship settings.
+
+2. **Home Manager priority**: Our explicit `home.file` configurations override hokage's defaults
+   because they're defined later in the module evaluation order.
+
+### TODO: When `hokage.catppuccin.enable` Becomes Available
+
+1. Set `hokage.catppuccin.enable = false` in all host configurations
+2. Remove `catppuccin.follows = "nixcfg/catppuccin"` from `flake.nix`
+3. (Optional) Add our own catppuccin/nix if we want it for specific apps
+
+### Tracking Issue
+
+Request sent to pbek for `hokage.catppuccin.enable` option.
+
+---
+
 ## Files
 
 | File                     | Purpose                                                  | Used By                        |
