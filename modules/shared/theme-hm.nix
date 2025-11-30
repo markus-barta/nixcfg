@@ -318,6 +318,7 @@ in
 
     # lazygit: Tokyo Night theme
     home.file.".config/lazygit/config.yml" = {
+      force = true; # Overwrite existing config
       text = ''
         gui:
           theme:
