@@ -270,13 +270,9 @@ in
 
     # Enable fish and bash in home-manager to use enableFishIntegration and enableBashIntegration
     programs = {
-      # Starship prompt (config file from theme-hm.nix with per-host colors)
-      starship = {
-        enable = true;
-        enableFishIntegration = true;
-        enableBashIntegration = true;
-        # settings intentionally empty - using theme-hm.nix home.file instead
-      };
+      # Starship: Disable programs.starship so theme-hm.nix home.file can manage config
+      # Shell integration is handled by theme-hm.nix or manual init
+      starship.enable = lib.mkForce false;
       # Enable https://direnv.net/
       direnv = {
         enable = true;
@@ -287,6 +283,12 @@ in
         enable = true;
         shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
         shellAbbrs = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs;
+        # Starship init (since programs.starship is disabled to allow theme-hm.nix config)
+        interactiveShellInit = lib.mkAfter ''
+          if test "$TERM" != "dumb"
+            starship init fish | source
+          end
+        '';
       };
       bash.enable = true;
 
