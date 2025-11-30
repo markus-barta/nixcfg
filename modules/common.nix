@@ -36,7 +36,11 @@ in
         set -e LANGUAGE
       '';
       shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
-      shellAbbrs = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs;
+      shellAbbrs = (lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs) // {
+        # Force overrides for abbrs we want to take precedence over hokage
+        nano = lib.mkForce "nano"; # hokage sets nano→micro, we want nano
+        ping = lib.mkForce "pingt"; # hokage sets ping→gping, we want pingt
+      };
       # interactiveShellInit is set by uzumaki/server.nix or uzumaki/desktop.nix
     };
 
@@ -321,7 +325,11 @@ in
       fish = {
         enable = true;
         shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
-        shellAbbrs = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs;
+        shellAbbrs = (lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs) // {
+          # Force overrides for abbrs we want to take precedence over hokage
+          nano = lib.mkForce "nano"; # hokage sets nano→micro, we want nano
+          ping = lib.mkForce "pingt"; # hokage sets ping→gping, we want pingt
+        };
         # Starship init (since programs.starship is disabled to allow theme-hm.nix config)
         interactiveShellInit = lib.mkAfter ''
           if test "$TERM" != "dumb"
