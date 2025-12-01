@@ -1,13 +1,9 @@
-name: 📄 Check formatting
+name: 📄 Check formatting (DISABLED)
 
+# DISABLED: The 'prek' command doesn't exist. Local pre-commit hooks handle formatting.
+# To re-enable: set up .pre-commit-config.yaml and fix the 'just format' command.
 on:
-  push:
-    branches-ignore:
-      - release
-    tags-ignore:
-      - "*"
-  pull_request:
-  workflow_dispatch:
+  workflow_dispatch: # Manual trigger only
 
 jobs:
   format-check:
