@@ -165,5 +165,5 @@ ssh mba@192.168.1.99 "journalctl -f"
 
 ## Related Documentation
 
-- [hsb0 README](../hosts/hsb0/README.md) - Full server documentation
-- [Static Leases](../hosts/hsb0/README.md#static-dhcp-leases) - Managing DHCP leases
+- [hsb0 README](../README.md) - Full server documentation
+- [Static Leases](../README.md#static-dhcp-leases) - Managing DHCP leases
