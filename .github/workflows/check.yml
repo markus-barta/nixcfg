@@ -21,11 +21,13 @@ jobs:
     strategy:
       matrix:
         host:
-          # Active hosts only (archived hosts removed)
-          - miniserver24
+          # Active hosts only (must match flake.nix nixosConfigurations)
           - hsb0
+          - hsb1
           - hsb8
-          - mba-gaming-pc
+          - gpc0
+          - csb0
+          - csb1
     steps:
       - uses: actions/checkout@v4
 
