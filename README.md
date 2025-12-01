@@ -154,11 +154,16 @@ This repository supports two patterns for using the hokage module system:
 
 ### Local Hokage Module (Legacy)
 
-Used by: `hsb0`, `miniserver24`
+Used by: `hsb0`, `hsb1`
 
 ```nix
 # flake.nix
-miniserver24 = mkServerHost "miniserver24" [ disko.nixosModules.disko ];
+hsb1 = nixpkgs.lib.nixosSystem {
+  modules = commonServerModules ++ [
+    ./hosts/hsb1/configuration.nix
+    disko.nixosModules.disko
+  ];
+};
 ```
 
 Configuration inherits hokage from local `modules/` directory.

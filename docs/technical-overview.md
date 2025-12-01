@@ -2,13 +2,13 @@
 
 > **New to this repository?** Start with [how-it-works.md](how-it-works.md) for a bird's eye view of the system architecture and key concepts.
 
-This document provides technical details on how NixOS configurations work together, using `miniserver24` as an example. It covers the build process, module system, and workflows for developers familiar with Nix.
+This document provides technical details on how NixOS configurations work together, using `hsb1` as an example. It covers the build process, module system, and workflows for developers familiar with Nix.
 
 ## Repository Summary
 
 This is a personal NixOS configuration repository that manages:
 
-- **40+ hosts** (desktops, laptops, servers, gaming devices)
+- **6 active hosts** (hsb0, hsb1, hsb8, gpc0, csb0, csb1)
 - **Modular architecture** with the custom `hokage` module system
 - **Declarative secrets** management with agenix
 - **Custom packages** (qownnotes, nixbit, ghostty, etc.)
@@ -21,15 +21,15 @@ This is a personal NixOS configuration repository that manages:
 
 ```text
 flake.nix
-  ├─> mkServerHost "miniserver24"
+  ├─> nixpkgs.lib.nixosSystem "hsb1"
   │     ├─> commonServerModules
   │     │     ├─> home-manager
   │     │     ├─> nixpkgs overlays
   │     │     └─> agenix (secrets)
-  │     ├─> hosts/miniserver24/configuration.nix
+  │     ├─> hosts/hsb1/configuration.nix
   │     └─> disko (disk management)
   │
-  └─> hosts/miniserver24/configuration.nix
+  └─> hosts/hsb1/configuration.nix
         ├─> hardware-configuration.nix
         ├─> disk-config.zfs.nix
         └─> modules/hokage (custom module system)
@@ -44,29 +44,36 @@ The `flake.nix` file is the main entry point that:
 
 - Defines inputs (nixpkgs, home-manager, agenix, disko, plasma-manager, nixos-hardware, etc.)
 - Creates overlays from the `overlays/` directory
-- Provides helper functions `mkServerHost` and `mkDesktopHost`
 - Declares all system configurations in `nixosConfigurations`
 - Exposes utility functions via `lib-utils` (from `lib/utils.nix`)
 - Provides both stable (nixos-25.05) and unstable (nixos-unstable) package sets
 
-### Example: miniserver24 Definition
+### Example: hsb1 Definition
 
 ```nix
-miniserver24 = mkServerHost "miniserver24" [ disko.nixosModules.disko ];
+hsb1 = nixpkgs.lib.nixosSystem {
+  inherit system;
+  modules = commonServerModules ++ [
+    inputs.nixcfg.nixosModules.hokage  # External hokage consumer
+    ./hosts/hsb1/configuration.nix
+    disko.nixosModules.disko
+  ];
+  specialArgs = self.commonArgs // { inherit inputs; };
+};
 ```
 
 This creates a server configuration by:
 
-1. Using `mkServerHost` with hostname "miniserver24"
+1. Using `nixosSystem` with hostname "hsb1"
 2. Including common server modules:
    - home-manager (NixOS module)
    - nixpkgs overlays (stable and unstable package sets)
    - agenix (secrets management)
-3. Loading `hosts/miniserver24/configuration.nix`
+3. Loading `hosts/hsb1/configuration.nix`
 4. Adding the disko module for ZFS disk management
 5. Passing special arguments (inputs, lib-utils) to all modules
 
-## 2. Host Configuration: hosts/miniserver24/configuration.nix
+## 2. Host Configuration: hosts/hsb1/configuration.nix
 
 This file contains the host-specific configuration:
 
@@ -79,7 +86,7 @@ This file contains the host-specific configuration:
   ];
 
   hokage = {
-    hostName = "miniserver24";
+    hostName = "hsb1";
     zfs.hostId = "dabfdb01";
     audio.enable = true;
     serverMba.enable = true;
@@ -119,7 +126,7 @@ modules/hokage/
 
 ```nix
 hokage = {
-  hostName = "miniserver24";
+  hostName = "hsb1";
   userLogin = "mba";
   role = "server-home";
   useInternalInfrastructure = false;
@@ -143,11 +150,11 @@ This file provides base configuration for **all** systems (automatically importe
 
 ## 5. How Everything Connects
 
-When you run `nixos-rebuild switch --flake .#miniserver24`:
+When you run `nixos-rebuild switch --flake .#hsb1`:
 
-1. **flake.nix** loads the miniserver24 configuration
-2. **mkServerHost** applies common server modules
-3. **hosts/miniserver24/configuration.nix** is loaded, which:
+1. **flake.nix** loads the hsb1 configuration
+2. **commonServerModules** applies common server modules
+3. **hosts/hsb1/configuration.nix** is loaded, which:
    - Imports hardware and disk configuration
    - Imports the hokage module system
    - Sets hokage options
@@ -177,17 +184,24 @@ When you run `nixos-rebuild switch --flake .#miniserver24`:
 
 ## Example: Adding a New Server
 
-To add a new server similar to miniserver24:
+To add a new server similar to hsb1:
 
 ```nix
 # 1. In flake.nix
-newserver = mkServerHost "newserver" [ disko.nixosModules.disko ];
+newserver = nixpkgs.lib.nixosSystem {
+  inherit system;
+  modules = commonServerModules ++ [
+    inputs.nixcfg.nixosModules.hokage
+    ./hosts/newserver/configuration.nix
+    disko.nixosModules.disko
+  ];
+  specialArgs = self.commonArgs // { inherit inputs; };
+};
 
 # 2. Create hosts/newserver/configuration.nix
 {
   imports = [
     ./hardware-configuration.nix
-    ../../modules/hokage
     ./disk-config.zfs.nix
   ];
 
@@ -203,7 +217,7 @@ This modular approach ensures consistency across systems while allowing host-spe
 
 ## Desktop vs Server Configurations
 
-### Desktop Hosts (`mkDesktopHost`)
+### Desktop Hosts
 
 Desktop configurations include additional modules:
 
@@ -211,25 +225,24 @@ Desktop configurations include additional modules:
 - **espanso-fix**: Text expander with capabilities fix
 - Full desktop environment support
 
-Common desktop hosts:
-
-- **gaia**: Office Work PC
-- **venus**: Livingroom PC
-- **rhea**: Asus Vivobook Laptop
-- **hyperion**: Acer Aspire 5 Laptop
-- **ally2**: Asus ROG Ally (using NixOS)
-
 Desktop systems typically use `hokage.role = "desktop"` with gaming, development, and graphics acceleration support.
 
 Server configurations are minimal and headless, using `hokage.role = "server-home"` or `"server-remote"` for network services and monitoring.
 
-## Example: miniserver99 (DNS/DHCP Server)
+## Example: hsb0 (DNS/DHCP Server)
 
-The repository includes `miniserver99`, a specialized DNS/DHCP server:
+The repository includes `hsb0`, a specialized DNS/DHCP server:
 
 ```nix
 # flake.nix
-miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
+hsb0 = nixpkgs.lib.nixosSystem {
+  inherit system;
+  modules = commonServerModules ++ [
+    ./hosts/hsb0/configuration.nix
+    disko.nixosModules.disko
+  ];
+  specialArgs = self.commonArgs // { inherit inputs; };
+};
 ```
 
 **Key Features:**
@@ -240,7 +253,7 @@ miniserver99 = mkServerHost "miniserver99" [ disko.nixosModules.disko ];
 
 **Network:** IP `192.168.1.99/24`, DHCP range `192.168.1.201-254`
 
-See `hosts/miniserver99/README.md` for deployment details.
+See `hosts/hsb0/README.md` for deployment details.
 
 ---
 

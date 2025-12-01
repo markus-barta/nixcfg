@@ -60,13 +60,13 @@ secrets/
 
 ## 🖥️ System Documentation
 
-### Production Servers (Markus)
+### Production Servers (Home)
 
-#### hsb0 (formerly miniserver99)
+#### hsb0
 
 **Role**: DNS/DHCP/AdGuard server at Markus' home  
-**Hokage Pattern**: Local module (legacy)  
-**Status**: ✅ Production, planned migration to external hokage
+**Hokage Pattern**: Local module  
+**Status**: ✅ Production
 
 ```
 hosts/hsb0/
@@ -74,19 +74,37 @@ hosts/hsb0/
 ├── configuration.nix                            # NixOS configuration
 ├── hardware-configuration.nix                   # Hardware specs
 ├── disk-config.zfs.nix                          # ZFS disk layout
-├── MIGRATION-PLAN-HOKAGE.md                     # [✅ READY] Hokage migration plan
-├── SSH-KEY-SECURITY-NOTE.md                     # SSH security documentation
+├── docs/
+│   └── RUNBOOK.md                               # Operational procedures
 └── archive/
     └── MIGRATION-PLAN-HOSTNAME [DONE].md        # Completed hostname migration
 ```
 
 **Key Features**: AdGuard Home DNS/DHCP, static DHCP leases (agenix), ZFS storage
 
-#### hsb8 (formerly msww87)
+#### hsb1
+
+**Role**: Home automation at Markus' home  
+**Hokage Pattern**: Local module  
+**Status**: ✅ Production
+
+```
+hosts/hsb1/
+├── README.md                                    # Server documentation
+├── configuration.nix                            # NixOS configuration
+├── hardware-configuration.nix                   # Hardware specs
+├── disk-config.zfs.nix                          # ZFS disk layout
+└── docs/
+    └── RUNBOOK.md                               # Operational procedures
+```
+
+**Key Features**: Node-RED, Mosquitto MQTT, Home Assistant, Scrypted, VLC kiosk, UPS monitoring
+
+#### hsb8
 
 **Role**: Home automation server at parents' home  
 **Hokage Pattern**: External consumer (reference implementation)  
-**Status**: ✅ Production ready, currently in test mode at jhw22
+**Status**: ✅ Production ready, deployed at jhw22
 
 ```
 hosts/hsb8/
@@ -94,102 +112,75 @@ hosts/hsb8/
 ├── configuration.nix                            # NixOS config with hokage options
 ├── hardware-configuration.nix                   # Hardware specs
 ├── disk-config.zfs.nix                          # ZFS disk layout
-├── enable-ww87.md                               # Location deployment guide
-├── BACKLOG.md                                   # Future improvements
+├── docs/
+│   └── RUNBOOK.md                               # Operational procedures
 ├── tests/                                       # Comprehensive test suite
 │   ├── README.md                                # Test suite overview
 │   ├── T00-nixos-base.{md,sh}                   # NixOS base system (5 tests)
 │   ├── T01-dns-server.{md,sh}                   # DNS server (AdGuard)
-│   ├── T02-ad-blocking.md                       # Ad blocking (manual)
-│   ├── T03-dns-cache.md                         # DNS cache (manual)
-│   ├── T04-dhcp-server.md                       # DHCP server (not implemented)
-│   ├── T05-static-dhcp-leases.md                # Static leases (depends on T04)
-│   ├── T06-web-ui.md                            # Web management interface
-│   ├── T07-query-logging.md                     # DNS query logging
-│   ├── T08-dns-rewrites.md                      # Custom DNS rewrites
 │   ├── T09-ssh-access.{md,sh}                   # SSH + security (11 tests) ⭐
 │   ├── T10-multi-user.{md,sh}                   # Multi-user access (5 tests)
 │   ├── T11-zfs-storage.{md,sh}                  # ZFS storage (6 tests)
-│   ├── T12-zfs-snapshots.{md,sh}                # ZFS snapshots (4 tests)
-│   ├── T13-location-config.md                   # Location-based config
-│   └── T14-deployment.md                        # One-command deployment
+│   └── ...
 └── archive/                                     # Historical documentation
-    ├── HOKAGE-MIGRATION-2025-11-21.md           # Completed hokage migration
-    ├── POST-HOKAGE-MIGRATION-SSH-FIX.md         # SSH key security fix
-    ├── PASSWORD-SUDO-MATRIX.md                  # Password/sudo analysis
-    ├── PASSWORDLESS-SUDO-DEPLOYMENT.md          # Sudo deployment guide
-    ├── RECOVERY-INSTRUCTIONS.md                 # SSH recovery procedures
-    ├── SECURITY-ANALYSIS-SUDO.md                # Security considerations
-    └── VALIDATION-REPORT-2025-11-22.md          # Final validation report
 ```
 
 **Key Features**: Location-based config (jhw22/ww87), AdGuard Home, ZFS, external hokage consumer, SSH security with `lib.mkForce`, agenix secret management, comprehensive test suite (19 features)
 
 **Reference Implementation**: hsb8 serves as the blueprint for external hokage consumer pattern
 
-#### miniserver24
-
-**Role**: Home automation at Markus' home  
-**Hokage Pattern**: Local module (legacy)  
-**Status**: ✅ Production
-
-```
-hosts/miniserver24/
-├── README.md                                    # Server documentation
-├── configuration.nix                            # NixOS configuration
-├── hardware-configuration.nix                   # Hardware specs
-└── disk-config.zfs.nix                          # ZFS disk layout
-```
-
-### Production Servers (Remote - csb0/csb1)
+### Production Servers (Cloud)
 
 #### csb0 & csb1
 
 **Role**: Remote servers  
-**Hokage Pattern**: Local module (OLD modules/mixins structure)  
-**Status**: ✅ Production (257 days uptime on csb0), need migration
+**Hokage Pattern**: Local module (OLD modules/mixins structure for csb0, external hokage for csb1)  
+**Status**: ✅ Production (csb0 needs hokage migration)
 
 ```
 hosts/csb0/                                      # Same structure for csb1
 ├── README.md                                    # Server documentation
+├── docs/
+│   └── RUNBOOK.md                               # Operational procedures (clean)
 └── secrets/
-    ├── BACKLOG.md                               # Future improvements
-    ├── MIGRATION-PLAN.md                        # Migration documentation
-    └── RUNBOOK.md                               # Operational procedures
+    ├── SECRETS.md                               # Credentials (gitignored)
+    └── DEPRECATED-RUNBOOK.md                    # Old runbook with secrets
 ```
 
-**Note**: Both csb0 and csb1 need migration from mixins → external hokage consumer pattern (use hsb8 as reference)
+**Note**: csb0 needs migration from mixins → external hokage consumer pattern (use hsb8 as reference)
 
 ### Desktop Systems
 
-#### mba-gaming-pc
+#### gpc0
 
 **Role**: Gaming PC at Markus' home  
-**Hokage Pattern**: Local module  
+**Hokage Pattern**: External consumer  
 **Status**: ✅ Production
 
 ```
-hosts/mba-gaming-pc/
+hosts/gpc0/
+├── README.md                                    # PC documentation
 ├── configuration.nix                            # NixOS configuration
 ├── hardware-configuration.nix                   # Hardware specs
 └── disk-config.zfs.nix                          # ZFS disk layout
 ```
 
-#### imac-mba-home
+**Key Features**: Steam gaming, AMD graphics, KDE Plasma desktop
 
-**Role**: MacBook Air (macOS with home-manager)  
+#### imac0
+
+**Role**: macOS development machine  
 **Pattern**: Home-manager only (not NixOS)  
 **Status**: ✅ Production
 
 ```
-hosts/imac-mba-home/
+hosts/imac0/
 ├── README.md                                    # Setup documentation
 ├── home.nix                                     # Home-manager configuration
 ├── config/
 │   ├── karabiner.json                           # Keyboard customization
 │   └── starship.toml                            # Shell prompt config
 ├── docs/                                        # Detailed documentation
-│   └── [11 markdown files]
 └── scripts/                                     # Helper scripts
     ├── host-user/                               # User scripts
     └── setup/                                   # Setup automation
@@ -202,15 +193,12 @@ hosts/archived/
 ├── ally/                                        # Archived: Ally device
 ├── ally2/                                       # Archived: Ally device 2
 ├── astra/                                       # Archived: Astra server
-├── caliban/                                     # Archived: Caliban server
 ├── dp01-dp09/                                   # Archived: Developer machines
 ├── eris/                                        # Archived: Eris system
 ├── gaia/                                        # Archived: Gaia system
-├── home01/                                      # Archived: Home server
 ├── hyperion/                                    # Archived: Hyperion server
 ├── jupiter/                                     # Archived: Jupiter system
 ├── mercury/                                     # Archived: Mercury server
-├── moobox01/                                    # Archived: Moobox server
 ├── neptun/                                      # Archived: Neptun system
 ├── netcup01/                                    # Archived: Netcup VPS 1
 ├── netcup02/                                    # Archived: Netcup VPS 2
@@ -218,8 +206,7 @@ hosts/archived/
 ├── rhea/                                        # Archived: Rhea system
 ├── sinope/                                      # Archived: Sinope system
 ├── venus/                                       # Archived: Venus server
-├── vm-desktop/                                  # Archived: Desktop VM
-└── vm-server/                                   # Archived: Server VM
+└── ...
 ```
 
 ---
@@ -230,7 +217,7 @@ This repository uses two patterns for hokage module consumption:
 
 ### Local Module (Legacy)
 
-Used by: `hsb0`, `miniserver24`, `mba-gaming-pc`, `csb0`, `csb1`
+Used by: `hsb0`, `hsb1`, `csb0`
 
 - Hokage module from local `modules/` directory
 - Implicit configuration via mixins
@@ -238,14 +225,12 @@ Used by: `hsb0`, `miniserver24`, `mba-gaming-pc`, `csb0`, `csb1`
 
 ### External Consumer (Recommended)
 
-Used by: `hsb8` ⭐
+Used by: `hsb8`, `gpc0`, `csb1` ⭐
 
 - Consumes hokage from `github:pbek/nixcfg`
 - Explicit configuration (no hidden mixins)
 - Better for systems not using pbek's internal infrastructure
 - Reference: [hosts/hsb8/](./hosts/hsb8/)
-
-**Migration Path**: hsb0 has a [ready migration plan](./hosts/hsb0/MIGRATION-PLAN-HOKAGE.md) to external consumer pattern
 
 ---
 
@@ -275,7 +260,6 @@ Used by: `hsb8` ⭐
 
 ### "I want to migrate a server to external hokage"
 
-→ [hosts/hsb0/MIGRATION-PLAN-HOKAGE.md](./hosts/hsb0/MIGRATION-PLAN-HOKAGE.md) - Complete migration guide  
 → [hosts/hsb8/](./hosts/hsb8/) - Reference implementation  
 → [hosts/hsb8/archive/HOKAGE-MIGRATION-2025-11-21.md](./hosts/hsb8/archive/HOKAGE-MIGRATION-2025-11-21.md) - Completed migration report
 
@@ -295,12 +279,12 @@ Used by: `hsb8` ⭐
 
 ## 📊 Documentation Statistics
 
-- **Active Production Systems**: 6 (hsb0, hsb8, miniserver24, csb0, csb1, mba-gaming-pc, imac-mba-home)
+- **Active Production Systems**: 6 (hsb0, hsb1, hsb8, gpc0, csb0, csb1) + 2 macOS (imac0, imac-mba-work)
 - **Total Test Cases**: 31 automated tests (hsb8)
 - **Documentation Files**: 100+ markdown files
 - **Hokage Options**: 200+ configuration options documented
 
 ---
 
-**Last Updated**: November 22, 2025  
+**Last Updated**: December 2025  
 **For Questions**: Check individual system README.md or [docs/](./docs/)

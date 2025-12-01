@@ -14,9 +14,9 @@ This configuration manages your entire computing environment:
 
 **Home Servers:**
 
-- **miniserver99** (192.168.1.99) - DNS/DHCP server running AdGuard Home
-- **miniserver24** (192.168.1.101) - Home automation hub with Node-RED, MQTT, HomeKit, and UPS monitoring
-- **msww87** - Home automation server at parents' home
+- **hsb0** (192.168.1.99) - DNS/DHCP server running AdGuard Home
+- **hsb1** (192.168.1.101) - Home automation hub with Node-RED, MQTT, HomeKit, and UPS monitoring
+- **hsb8** - Home automation server at parents' home
 
 **Cloud Servers:**
 
@@ -25,10 +25,8 @@ This configuration manages your entire computing environment:
 
 **Workstations:**
 
-- **imac-mba-home** - Your macOS development machine (managed via Home Manager)
-- **mba-gaming-pc** - AMD-powered gaming rig with Steam
-
-...plus several other TU Graz work machines (dp01-dp09), laptops, and test VMs.
+- **imac0** - Your macOS development machine (managed via Home Manager)
+- **gpc0** - AMD-powered gaming rig with Steam
 
 ## The Main Components
 
@@ -37,7 +35,7 @@ This configuration manages your entire computing environment:
 This is the entry point, like a table of contents that says:
 
 - **What external building blocks to use** (nixpkgs, home-manager, agenix, disko, etc.)
-- **Which machines exist** (miniserver99, miniserver24, csb0, csb1, imac-mba-home, etc.)
+- **Which machines exist** (hsb0, hsb1, csb0, csb1, imac0, etc.)
 - **What type each machine is** (desktop or server)
 
 It's the conductor of the orchestra, pointing to all the other pieces.
@@ -48,12 +46,12 @@ Each subdirectory represents one physical computer or VM.
 
 **Your Key Machines:**
 
-- `hosts/miniserver99/` - DNS & DHCP server (AdGuard Home)
-- `hosts/miniserver24/` - Smart home hub (Node-RED, MQTT, HomeKit, VLC kiosk, UPS)
+- `hosts/hsb0/` - DNS & DHCP server (AdGuard Home)
+- `hosts/hsb1/` - Smart home hub (Node-RED, MQTT, HomeKit, VLC kiosk, UPS)
 - `hosts/csb0/` - Cloud automation server (NixOS with old mixins structure, needs hokage migration)
-- `hosts/csb1/` - Cloud monitoring & docs (Ubuntu 24.04, NixOS + hokage migration scheduled Nov 22, 2025)
-- `hosts/imac-mba-home/` - macOS development machine
-- `hosts/mba-gaming-pc/` - Gaming desktop
+- `hosts/csb1/` - Cloud monitoring & docs (NixOS with external hokage pattern)
+- `hosts/imac0/` - macOS development machine
+- `hosts/gpc0/` - Gaming desktop
 
 Each host folder contains:
 
@@ -71,7 +69,7 @@ The hokage module provides:
 
 - **Roles**: Pre-configured sets of software and settings
   - `desktop` - For workstations with GUI
-  - `server-home` - For home servers (miniserver99, miniserver24)
+  - `server-home` - For home servers (hsb0, hsb1)
   - `server-mba` - For your MBA-specific server configs
   - `server-remote` - For cloud servers (csb0, csb1)
 
@@ -98,8 +96,8 @@ Software not available in the standard Nix repository gets built here. Custom-bu
 
 Passwords, API keys, SSH keys, and other sensitive configuration stored safely using `agenix` (age encryption). Examples:
 
-- MQTT broker credentials for miniserver24
-- AdGuard Home admin credentials for miniserver99
+- MQTT broker credentials for hsb1
+- AdGuard Home admin credentials for hsb0
 - GitHub tokens and SSH keys
 - Static DHCP leases for your network
 
@@ -122,7 +120,7 @@ When you need to tweak or override packages from the standard Nix repository, ov
        │
        └──→ Builds machine configuration:
             │
-            ├──→ Loads host-specific config (e.g., hosts/miniserver24/configuration.nix)
+            ├──→ Loads host-specific config (e.g., hosts/hsb1/configuration.nix)
             │    └──→ Imports hokage modules
             │         └──→ Enables programs, languages, features based on role
             │              Example: hokage.serverMba.enable = true
@@ -130,7 +128,7 @@ When you need to tweak or override packages from the standard Nix repository, ov
             ├──→ Installs custom packages (from pkgs/)
             │
             ├──→ Decrypts needed secrets (from secrets/)
-            │    Example: MQTT credentials for miniserver24
+            │    Example: MQTT credentials for hsb1
             │
             └──→ Generates complete system configuration
                  └──→ System activates with everything exactly as specified
@@ -138,11 +136,11 @@ When you need to tweak or override packages from the standard Nix repository, ov
 
 ## Real-World Examples from Your Setup
 
-### miniserver99 - DNS & DHCP Server
+### hsb0 - DNS & DHCP Server
 
 ```nix
 hokage = {
-  hostName = "miniserver99";
+  hostName = "hsb0";
   role = "server-home";     # ← Automatically enables Fish, SSH, ZFS, etc.
   zfs.hostId = "1234abcd";
 };
@@ -159,11 +157,11 @@ services.adguardhome = {
 
 The hokage module handles all the base server config, you just add the AdGuard Home specifics.
 
-### miniserver24 - Smart Home Hub
+### hsb1 - Smart Home Hub
 
 ```nix
 hokage = {
-  hostName = "miniserver24";
+  hostName = "hsb1";
   serverMba.enable = true;   # ← Your MBA-specific server preset
   audio.enable = true;       # ← For VLC audio to HomePod
 };
@@ -175,7 +173,7 @@ hardware.flirc.enable = true;    # IR remote receiver
 
 One configuration file describes the entire smart home hub!
 
-### imac-mba-home - macOS Development Machine
+### imac0 - macOS Development Machine
 
 Uses `home-manager` to manage user environment (not full system):
 
@@ -196,9 +194,9 @@ Manages CLI tools, shell config, fonts, WezTerm terminal—all declaratively!
 
 ### csb0 & csb1 - Cloud Servers
 
-**csb0**: Already running NixOS (255 days uptime) with the OLD `modules/mixins` structure. Needs migration to new hokage structure after csb1 migration succeeds.
+**csb0**: Running NixOS with the OLD `modules/mixins` structure. Needs migration to new hokage structure.
 
-**csb1**: Running Ubuntu 24.04 with Docker services. Scheduled for NixOS + hokage migration on November 22, 2025.
+**csb1**: Running NixOS with external hokage consumer pattern (migration completed November 2025).
 
 **Critical dependency**: csb1's InfluxDB receives IoT data from csb0's MQTT broker. Both servers share the same Hetzner backup repository, with csb0 managing cleanup for both.
 
@@ -229,7 +227,7 @@ Rather than configuring each machine from scratch:
 
 ## Typical Workflow
 
-1. **Edit a configuration** (e.g., add port forwarding rule to miniserver24)
+1. **Edit a configuration** (e.g., add port forwarding rule to hsb1)
 2. **Test locally** or build remotely:
    ```bash
    just check                    # Validate syntax
@@ -239,7 +237,7 @@ Rather than configuring each machine from scratch:
    ```bash
    just switch                  # Apply on current machine
    # OR for remote deployment:
-   just miniserver99-switch     # Deploy to miniserver99
+   just hsb0-switch             # Deploy to hsb0
    ```
 4. **Rollback if needed**: Nix keeps previous generations—you can always boot into an older working version
 
@@ -247,20 +245,20 @@ Rather than configuring each machine from scratch:
 
 Your Fish shell has handy abbreviations:
 
-- `qc99` → SSH into miniserver99 with zellij
-- `qc24` → SSH into miniserver24 with zellij
-- `qc0` → SSH into csb0 with zellij
-- `qc1` → SSH into csb1 with zellij
+- `qc0` → SSH into hsb0 with zellij
+- `qc1` → SSH into hsb1 with zellij
+- `qcsb0` → SSH into csb0 with zellij
+- `qcsb1` → SSH into csb1 with zellij
 
 ## Why This Approach?
 
 **For Your Setup Specifically:**
 
-- **Home Lab**: miniserver99 (DNS) and miniserver24 (automation) share common configuration but have unique services
-- **Cloud Infrastructure**: csb0 (NixOS with old mixins) and csb1 (Ubuntu, migrating soon) being unified under hokage structure
+- **Home Lab**: hsb0 (DNS) and hsb1 (automation) share common configuration but have unique services
+- **Cloud Infrastructure**: csb0 and csb1 managed under hokage structure
 - **Development Machine**: Your macOS iMac uses the same Fish config, Git setup, and tools as your NixOS machines
 - **One Source of Truth**: All network infrastructure in one Git repo
-- **Disaster Recovery**: Lost a miniserver? Reinstall NixOS, point it to this repo, done.
+- **Disaster Recovery**: Lost a server? Reinstall NixOS, point it to this repo, done.
 - **Safe Experimentation**: Want to test a new Node-RED setup? Try it, and roll back if it breaks
 - **Documentation Built-In**: The config files ARE the documentation
 
@@ -325,7 +323,7 @@ Your Fish shell has handy abbreviations:
 - **Home Manager**: Tool to manage user-specific configuration
   - Your dotfiles, user packages, shell config—all declarative
   - Works on NixOS and other Linux distros (even macOS!)
-  - Used for `imac-mba-home` to manage your macOS environment
+  - Used for `imac0` to manage your macOS environment
 
 ---
 
@@ -342,10 +340,10 @@ This namespace keeps all your custom settings organized and prevents naming conf
 ```nix
 hokage.role = "server-home";
 hokage.userLogin = "mba";
-hokage.hostName = "miniserver99";
+hokage.hostName = "hsb0";
 hokage.serverMba.enable = true;
 hokage.audio.enable = true;
 hokage.zfs.enable = true;
 ```
 
-Different machines can pick and choose which hokage features they need, making configuration DRY (Don't Repeat Yourself). This modular approach means you configure common features once and reuse them across all your machines—whether it's miniserver99 at home, csb0 in the cloud, or msww87 at your parents' place. Change it once, deploy everywhere! 🍥
+Different machines can pick and choose which hokage features they need, making configuration DRY (Don't Repeat Yourself). This modular approach means you configure common features once and reuse them across all your machines—whether it's hsb0 at home, csb0 in the cloud, or hsb8 at your parents' place. Change it once, deploy everywhere! 🍥

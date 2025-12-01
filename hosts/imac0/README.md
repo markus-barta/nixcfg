@@ -102,14 +102,14 @@ git clone https://github.com/markus-barta/nixcfg ~/Code/nixcfg
 cd ~/Code/nixcfg
 
 # Apply home-manager configuration
-home-manager switch --flake ".#markus@imac-mba-home"
+home-manager switch --flake ".#markus@imac0"
 ```
 
 ### 2. Run One-Time System Setup
 
 ```bash
 # Set Nix fish as default login shell (requires sudo)
-./hosts/imac-mba-home/scripts/setup/setup-macos.sh
+./hosts/imac0/scripts/setup/setup-macos.sh
 
 # Restart terminal
 ```
@@ -379,13 +379,13 @@ Essential user scripts version-controlled and symlinked to `~/Scripts/`:
 cd ~/Code/nixcfg
 
 # Edit configuration
-vim hosts/imac-mba-home/home.nix
+vim hosts/imac0/home.nix
 
 # Apply changes
-home-manager switch --flake ".#markus@imac-mba-home"
+home-manager switch --flake ".#markus@imac0"
 
 # Commit to git
-git add hosts/imac-mba-home/home.nix
+git add hosts/imac0/home.nix
 git commit -m "Update configuration"
 git push
 ```
@@ -394,29 +394,29 @@ git push
 
 ```bash
 # Create script in host-user directory
-vim hosts/imac-mba-home/scripts/host-user/new-script.sh
-chmod +x hosts/imac-mba-home/scripts/host-user/new-script.sh
+vim hosts/imac0/scripts/host-user/new-script.sh
+chmod +x hosts/imac0/scripts/host-user/new-script.sh
 
 # Commit to git
-git add hosts/imac-mba-home/scripts/host-user/new-script.sh
+git add hosts/imac0/scripts/host-user/new-script.sh
 git commit -m "Add new-script"
 
 # Apply changes (script automatically symlinked to ~/Scripts/)
-home-manager switch --flake ".#markus@imac-mba-home"
+home-manager switch --flake ".#markus@imac0"
 ```
 
 ### Update Karabiner Mappings
 
 ```bash
 # Edit configuration
-vim hosts/imac-mba-home/config/karabiner.json
+vim hosts/imac0/config/karabiner.json
 
 # Commit changes
-git add hosts/imac-mba-home/config/karabiner.json
+git add hosts/imac0/config/karabiner.json
 git commit -m "Update keyboard mappings"
 
 # Apply changes
-home-manager switch --flake ".#markus@imac-mba-home"
+home-manager switch --flake ".#markus@imac0"
 
 # Reload Karabiner-Elements (if needed)
 killall karabiner_console_user_server

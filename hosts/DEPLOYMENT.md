@@ -9,14 +9,14 @@
 
 ## NixOS Host Status
 
-| Host | Git (on host) | Nix System                      | Git | Nix | Checked          |
-| ---- | ------------- | ------------------------------- | --- | --- | ---------------- |
-| hsb0 | `e50b3d20`    | hsb0-25.11.20251117.89c2b23     | 🟡  | ✅  | 2025-11-30 09:38 |
-| hsb1 | `c091b9c9`    | hsb1-25.11.20251117.89c2b23     | 🟡  | 🟡  | 2025-11-30 09:38 |
-| hsb8 | —             | —                               | ⚫  | ⚫  | 2025-11-30 09:38 |
-| csb0 | `af420880`    | csb0-25.11.20251117.89c2b23     | 🟡  | ✅  | 2025-11-30 09:38 |
-| csb1 | `f71b56ca`    | csb1-25.11.20251117.89c2b23     | 🟡  | ✅  | 2025-11-30 09:38 |
-| gpc0 | `03572ef`     | mba-gaming-pc-25.11.20251117 ⚠️ | 🟡  | 🟡  | 2025-11-30 09:42 |
+| Host | Git (on host) | Nix System                  | Git | Nix | Checked          |
+| ---- | ------------- | --------------------------- | --- | --- | ---------------- |
+| hsb0 | `e50b3d20`    | hsb0-25.11.20251117.89c2b23 | 🟡  | ✅  | 2025-11-30 09:38 |
+| hsb1 | `c091b9c9`    | hsb1-25.11.20251117.89c2b23 | 🟡  | 🟡  | 2025-11-30 09:38 |
+| hsb8 | —             | —                           | ⚫  | ⚫  | 2025-11-30 09:38 |
+| csb0 | `af420880`    | csb0-25.11.20251117.89c2b23 | 🟡  | ✅  | 2025-11-30 09:38 |
+| csb1 | `f71b56ca`    | csb1-25.11.20251117.89c2b23 | 🟡  | ✅  | 2025-11-30 09:38 |
+| gpc0 | `03572ef`     | gpc0-25.11.20251117         | 🟡  | 🟡  | 2025-11-30 09:42 |
 
 ## macOS Home Manager Status
 
@@ -36,7 +36,6 @@
 - **Git**: Does `git log -1` on host match repo HEAD (`8b55088`)?
 - **Nix**: Was `nixos-rebuild switch` run after latest `git pull`?
 - **HM**: Was `home-manager switch` run after latest `git pull`?
-- **⚠️**: gpc0 still shows old hostname `mba-gaming-pc` in Nix system
 
 ## Quick Commands
 

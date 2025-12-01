@@ -12,7 +12,7 @@ This directory contains comprehensive documentation for the nixcfg repository.
 
 ### Host-Specific Documentation
 
-- **[hosts/miniserver24/README.md](../hosts/miniserver24/README.md)** - Home automation server
+- **[hosts/hsb1/README.md](../hosts/hsb1/README.md)** - Home automation server
 - **[hosts/hsb0/README.md](../hosts/hsb0/README.md)** - DNS/DHCP server
 
 ### Key Concepts

@@ -249,7 +249,7 @@ ssh mba@192.168.1.101 "journalctl -f"
 | Container           | Image                                                     | Purpose                      | Port         |
 | ------------------- | --------------------------------------------------------- | ---------------------------- | ------------ |
 | homeassistant       | `ghcr.io/home-assistant/home-assistant:stable`            | Main automation hub          | 8123 (host)  |
-| nodered             | `ghcr.io/markus-barta/node-red-miniserver24:main`         | Automation flows + FLIRC IR  | 1880 (host)  |
+| nodered             | `ghcr.io/markus-barta/node-red-miniserver24:main` ¹       | Automation flows + FLIRC IR  | 1880 (host)  |
 | zigbee2mqtt         | `koenkk/zigbee2mqtt:latest`                               | Zigbee device bridge         | 8888         |
 | mosquitto           | `eclipse-mosquitto:latest`                                | MQTT broker                  | 1883, 9001   |
 | scrypted            | `ghcr.io/koush/scrypted`                                  | Camera/NVR/HomeKit bridge    | 10443 (host) |
@@ -338,7 +338,9 @@ docker logs watchtower-weekly --tail 50
 | **Zigbee2MQTT**    | `192.168.1.101` | Uses IP (correct)                             |
 | **Node-RED**       | `localhost`     | Via MQTT nodes                                |
 
-If hostname changes (e.g., `miniserver24` → `hsb1`), HA MQTT will break. Always use `localhost`.
+If hostname changes, HA MQTT will break. Always use `localhost`.
+
+> ¹ **Note**: The Node-RED Docker image is still named `node-red-miniserver24` (legacy name). This is the actual image name on GHCR and works correctly.
 
 ---
 
