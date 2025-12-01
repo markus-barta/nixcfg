@@ -106,13 +106,13 @@ truncation_symbol = "…/"
 
 [username]
 show_always = true
-style_user = "fg:__TEXT_ON_MEDIUM__ bg:__SECONDARY__"
+style_user = "fg:__TEXT_ON_SECONDARY__ bg:__SECONDARY__"
 style_root = "fg:__ROOT_BG__ bg:__SECONDARY__"
 format = '[ $user]($style)'
 
 [hostname]
 ssh_only = false
-style = "fg:__TEXT_ON_MEDIUM__ bg:__SECONDARY__"
+style = "fg:__TEXT_ON_SECONDARY__ bg:__SECONDARY__"
 format = '[@$hostname ]($style)'
 
 # ════════════════════════════════════════════════════════════════════════════════

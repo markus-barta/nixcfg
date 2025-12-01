@@ -543,13 +543,14 @@
         darkest = "#101214"; # Nix shell bg
       };
 
-      # Text colors
+      # Text colors (work iMac: white path, brighter muted)
       text = {
         onLightest = "#101214"; # Dark text on lightest bg
-        onMedium = "#000000"; # Black for path (high contrast)
-        accent = "#a0a8b0"; # Accent fg on dark bg
-        muted = "#282c30"; # Git count, subtle
-        mutedLight = "#707478"; # Time text
+        onMedium = "#ffffff"; # White for path (work preference)
+        onSecondary = "#000000"; # Black for user@host (original)
+        accent = "#b8c0c8"; # Accent fg on dark bg (brighter)
+        muted = "#606468"; # Git count (brighter, was #282c30)
+        mutedLight = "#909498"; # Time text (brighter, was #707478)
       };
 
       # Zellij theme colors
