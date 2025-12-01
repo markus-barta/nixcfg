@@ -86,44 +86,46 @@
         config.allowUnfree = true;
         overlays = allOverlays;
       };
-    in
-    {
-      #     config = nixpkgs.config.systems.${builtins.currentSystem}.config;
-      #     hostname = config.networking.hostName;
-      #    nixosModules = import ./modules { inherit (nixpkgs) lib; };
+
+      # Shared args for all configurations
       commonArgs = {
         lib-utils = import ./lib/utils.nix { inherit (nixpkgs) lib; };
       };
 
+      # ════════════════════════════════════════════════════════════════════════
+      # macOS Home Manager Helper
+      # ════════════════════════════════════════════════════════════════════════
+      #
+      # Creates a Darwin home-manager config with hostname passed for theming.
+      # Flakes use pure evaluation, so env vars like $HOST aren't available.
+      # This passes hostname explicitly via extraSpecialArgs.
+      #
+      # Note: NixOS hosts get hostname from config.networking.hostName (see common.nix)
+      #
+      mkDarwinHome =
+        hostname:
+        home-manager.lib.homeManagerConfiguration {
+          pkgs = import nixpkgs {
+            system = "x86_64-darwin";
+            config.allowUnfree = true;
+            overlays = allOverlays;
+          };
+          modules = [ ./hosts/${hostname}/home.nix ];
+          extraSpecialArgs = commonArgs // {
+            inherit inputs hostname;
+          };
+        };
+    in
+    {
+      inherit commonArgs;
+
       # ========================================================================
       # macOS Home Manager Configurations
       # ========================================================================
-      homeConfigurations."markus@imac0" = home-manager.lib.homeManagerConfiguration {
-        pkgs = import nixpkgs {
-          system = "x86_64-darwin";
-          config.allowUnfree = true;
-          overlays = allOverlays;
-        };
-        modules = [ ./hosts/imac0/home.nix ];
-        extraSpecialArgs = self.commonArgs // {
-          inherit inputs;
-        };
-      };
-      # Short alias so `home-manager switch --flake .#imac0` also works
+      homeConfigurations."markus@imac0" = mkDarwinHome "imac0";
       homeConfigurations."imac0" = self.homeConfigurations."markus@imac0";
 
-      homeConfigurations."markus@imac-mba-work" = home-manager.lib.homeManagerConfiguration {
-        pkgs = import nixpkgs {
-          system = "x86_64-darwin";
-          config.allowUnfree = true;
-          overlays = allOverlays;
-        };
-        modules = [ ./hosts/imac-mba-work/home.nix ];
-        extraSpecialArgs = self.commonArgs // {
-          inherit inputs;
-        };
-      };
-      # Short alias so `home-manager switch --flake .#imac-mba-work` works (what you just tried)
+      homeConfigurations."markus@imac-mba-work" = mkDarwinHome "imac-mba-work";
       homeConfigurations."imac-mba-work" = self.homeConfigurations."markus@imac-mba-work";
 
       # ========================================================================

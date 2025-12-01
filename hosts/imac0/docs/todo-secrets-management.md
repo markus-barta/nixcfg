@@ -1,5 +1,7 @@
 # TODO: Secrets Management with Age
 
+> 📋 **Tracked in PM**: [PM/backlog/2025-12-01-imac0-secrets-management.md](../../../PM/backlog/2025-12-01-imac0-secrets-management.md)
+
 **Last Updated**: 2025-11-15  
 **Status**: Planning Phase
 

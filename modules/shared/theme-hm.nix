@@ -37,18 +37,31 @@
   config,
   lib,
   pkgs,
+  hostname ? null, # Passed from flake.nix extraSpecialArgs (pure, reliable)
   ...
 }:
+
+let
+  # Resolve hostname from extraSpecialArgs or environment (before module system)
+  detectedHostname =
+    if hostname != null then
+      hostname
+    else
+      let
+        envHost = builtins.getEnv "HOST";
+      in
+      if envHost != "" then envHost else "unknown";
+in
 
 let
   # Import the palette definitions
   themePalettes = import ./theme-palettes.nix;
 
-  # Get the configured or auto-detected hostname
-  hostname = config.theme.hostname;
+  # Get the configured or auto-detected hostname (renamed to avoid shadowing)
+  resolvedHostname = config.theme.hostname;
 
   # Look up the palette for this host (fallback to default)
-  paletteName = themePalettes.hostPalette.${hostname} or themePalettes.defaultPalette;
+  paletteName = themePalettes.hostPalette.${resolvedHostname} or themePalettes.defaultPalette;
   palette = themePalettes.palettes.${paletteName};
 
   # Status colors (universal across all palettes)
@@ -102,7 +115,7 @@ let
       ]
       [
         # Header values
-        hostname
+        resolvedHostname
         p.name
         paletteName
         p.category
@@ -218,8 +231,13 @@ in
 
     hostname = lib.mkOption {
       type = lib.types.str;
-      default = builtins.getEnv "HOST";
-      description = "Hostname for theme lookup. Auto-detected from $HOST if not set.";
+      default = detectedHostname;
+      description = ''
+        Hostname for theme lookup. Detection priority:
+        1. Explicit `theme.hostname = "myhost";` in config
+        2. `hostname` passed via flake.nix extraSpecialArgs (recommended)
+        3. $HOST environment variable (impure, may not work in flakes)
+      '';
     };
 
     starship.enable = lib.mkEnableOption "themed starship prompt" // {
@@ -265,7 +283,7 @@ in
     # Create the ENTIRE .config/zellij directory to override hokage's
     # Must use mkForce on source to win the conflict with hokage's home.file
     home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
-      source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname));
+      source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette resolvedHostname));
       recursive = true;
       force = true;
     };

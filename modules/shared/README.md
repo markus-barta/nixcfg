@@ -52,6 +52,8 @@ hokage = {
 
 **Still needed**: Keep the catppuccin follows in flake.nix until all hosts are updated.
 
+> 📋 **Tracked**: See [PM/backlog/2025-12-01-catppuccin-follows-cleanup.md](../../PM/backlog/2025-12-01-catppuccin-follows-cleanup.md)
+
 ---
 
 ## 🔧 Zellij Override - Technical Deep Dive
