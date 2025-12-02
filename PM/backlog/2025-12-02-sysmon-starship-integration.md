@@ -802,7 +802,7 @@ _Completed when moving to Done:_
 
 ---
 
-## GPT-5.1 Codex High - Feedback
+## GPT-5.1 Codex High - Architectural Review & Feedback
 
 **Feasibility snapshot**: Caching metrics in RAM via a daemon and letting Starship render from precomputed data is technically doable, but the current design layers a large amount of bespoke logic (daemon, width calculator, Starship glue) without first proving that per-prompt probes are the real bottleneck. Before investing further, benchmark the existing prompt (`hyperfine 'starship prompt'` or similar) to quantify latency and define an SLA that this architecture must beat.
 
