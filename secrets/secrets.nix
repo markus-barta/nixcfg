@@ -116,4 +116,9 @@ in
   # agenix -e secrets/static-leases-hsb8.age
   # Triple-key: Markus (personal key) + gb (user on hsb8) + hsb8 (host key)
   "static-leases-hsb8.age".publicKeys = markus ++ gb ++ hsb8;
+
+  # agenix -e secrets/mqtt-hsb0.age
+  # MQTT credentials for UPS status publishing (miniserver24/hsb1 broker)
+  # Format: KEY=VALUE lines (sourced by bash script)
+  "mqtt-hsb0.age".publicKeys = markus ++ hsb0;
 }

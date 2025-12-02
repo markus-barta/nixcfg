@@ -5,8 +5,9 @@
 **Risk Level**: 🔴 **HIGH** - Critical network infrastructure (DNS/DHCP for entire network)  
 **Status**: ✅ **COMPLETE** - External hokage migration successful!  
 **Created**: November 21, 2025  
-**Last Updated**: November 22, 2025  
-**Completed**: November 22, 2025 16:45 CET
+**Last Updated**: December 2, 2025  
+**Completed**: December 2, 2025 17:55 CET  
+**Tests**: All 76 tests passed (2025-12-02 18:59 CET)
 
 ---
 
@@ -1697,5 +1698,49 @@ hsb0 is a **CRITICAL DNS/DHCP server**. Unlike hsb8 (a test server), losing acce
 - Risk extended network downtime if recovery is complex
 
 **Prevention is CRITICAL**: The `lib.mkForce` SSH override in Phase 2.5 is **non-negotiable** for hsb0.
+
+---
+
+## 📋 Known Issues After Migration
+
+### Issue: Starship Path Error in Existing Shell Sessions
+
+**Date Discovered**: 2025-12-02 (during hsb0 external hokage migration)
+
+**Symptom**: After `nixos-rebuild switch`, existing fish shell sessions show errors:
+
+```
+fish: Unknown command: /home/mba/.nix-profile/bin/starship
+
+/tmp/.psub.DEPfYx (line 40):
+        /home/mba/.nix-profile/bin/starship prompt --terminal-width="$COLUMNS" ...
+        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+
+in function 'fish_prompt'
+in command substitution
+```
+
+**Cause**: Starship generates a fish prompt function at shell init time that hardcodes the starship binary path. Before the rebuild, starship was at `/home/mba/.nix-profile/bin/starship` (via home-manager). After the rebuild with external hokage, starship is installed system-wide at `/run/current-system/sw/bin/starship`.
+
+Existing shell sessions (SSH connections open during the rebuild) still have the old prompt function cached in memory with the old path.
+
+**Impact**: Cosmetic only - the prompt fails to render, but the shell still works.
+
+**Solution**: Restart the fish shell in affected sessions:
+
+```fish
+exec fish
+```
+
+Or simply disconnect and reconnect SSH:
+
+```bash
+exit
+ssh mba@192.168.1.99
+```
+
+**Prevention**: This is expected behavior during migrations. New shell sessions after the rebuild work correctly. Consider warning users to reconnect SSH after rebuild.
+
+**Status**: ✅ Documented - no code fix needed (expected behavior)
 
 ---

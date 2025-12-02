@@ -4,26 +4,26 @@
 
 | Attribute   | Value                                                               |
 | ----------- | ------------------------------------------------------------------- |
-| **Commit**  | `8b55088`                                                           |
+| **Commit**  | `b8eed49e`                                                          |
 | **Message** | fix: update starship template styles for user and hostname sections |
 
 ## NixOS Host Status
 
-| Host | Git (on host) | Nix System                  | Git | Nix | Checked          |
-| ---- | ------------- | --------------------------- | --- | --- | ---------------- |
-| hsb0 | `e50b3d20`    | hsb0-25.11.20251117.89c2b23 | 🟡  | ✅  | 2025-11-30 09:38 |
-| hsb1 | `c091b9c9`    | hsb1-25.11.20251117.89c2b23 | 🟡  | 🟡  | 2025-11-30 09:38 |
-| hsb8 | —             | —                           | ⚫  | ⚫  | 2025-11-30 09:38 |
-| csb0 | `af420880`    | csb0-25.11.20251117.89c2b23 | 🟡  | ✅  | 2025-11-30 09:38 |
-| csb1 | `f71b56ca`    | csb1-25.11.20251117.89c2b23 | 🟡  | ✅  | 2025-11-30 09:38 |
-| gpc0 | `03572ef`     | gpc0-25.11.20251117         | 🟡  | 🟡  | 2025-11-30 09:42 |
+| Host | Commit     | System Build                | Git | Built | Action         | Checked          |
+| ---- | ---------- | --------------------------- | --- | ----- | -------------- | ---------------- |
+| hsb0 | `b8eed49e` | hsb0-26.05.20251127.2fad6ea | ✅  | ✅    | —              | 2025-12-02 17:55 |
+| hsb1 | `c091b9c9` | hsb1-25.11.20251117.89c2b23 | 🟡  | 🟡    | `just upgrade` | 2025-11-30 09:38 |
+| hsb8 | —          | —                           | ⚫  | ⚫    | —              | 2025-11-30 09:38 |
+| csb0 | `af420880` | csb0-25.11.20251117.89c2b23 | 🟡  | ✅    | `git pull`     | 2025-11-30 09:38 |
+| csb1 | `f71b56ca` | csb1-25.11.20251117.89c2b23 | 🟡  | ✅    | `git pull`     | 2025-11-30 09:38 |
+| gpc0 | `03572ef`  | gpc0-25.11.20251117         | 🟡  | 🟡    | `just upgrade` | 2025-11-30 09:42 |
 
 ## macOS Home Manager Status
 
-| Host          | Git       | HM Generation | Git | HM  | Checked          |
-| ------------- | --------- | ------------- | --- | --- | ---------------- |
-| imac-mba-work | `8b55088` | gen 16        | ✅  | ✅  | 2025-12-01 13:11 |
-| imac0         | —         | —             | ⚫  | ⚫  | —                |
+| Host          | Commit    | HM Generation | Git | Built | Action | Checked          |
+| ------------- | --------- | ------------- | --- | ----- | ------ | ---------------- |
+| imac-mba-work | `8b55088` | gen 16        | ✅  | ✅    | —      | 2025-12-01 13:11 |
+| imac0         | —         | —             | ⚫  | ⚫    | —      | —                |
 
 ### Legend
 
@@ -33,9 +33,9 @@
 | 🟡   | Behind / Needs update |
 | ⚫   | Offline / Unknown     |
 
-- **Git**: Does `git log -1` on host match repo HEAD (`8b55088`)?
-- **Nix**: Was `nixos-rebuild switch` run after latest `git pull`?
-- **HM**: Was `home-manager switch` run after latest `git pull`?
+- **Git**: Does host commit match repo HEAD (`b8eed49e`)?
+- **Built**: Was system rebuilt from host's current commit?
+- **Action**: Command to run — `git pull`, `just switch`, `just upgrade`, or —
 
 ## Quick Commands
 

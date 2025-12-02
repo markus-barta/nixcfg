@@ -43,6 +43,7 @@ hsb0 provides comprehensive DNS/DHCP infrastructure for the entire network:
 | F09 | SSH Remote Access + Security          | Secure SSH with key-only auth, passwordless sudo       | T09  |
 | F10 | ZFS Storage (zroot pool)              | Reliable storage with compression & snapshots          | T10  |
 | F11 | ZFS Snapshots                         | Point-in-time backups for disaster recovery            | T11  |
+| F12 | APC UPS Monitoring + MQTT             | Power protection status published to home automation   | T12  |
 
 **Test Documentation**: All features have detailed test procedures in `hosts/hsb0/tests/` with both manual instructions and automated scripts.
 
@@ -582,6 +583,152 @@ ssh mba@192.168.1.99 "sudo tcpdump -i enp2s0f0 -vvv -n 'udp port 67 or udp port 
 
 ---
 
+## APC UPS Monitoring
+
+### Overview
+
+hsb0 monitors a USB-connected **APC Back-UPS ES 350** and publishes status to MQTT every minute for home automation integration. The UPS provides power protection for critical network infrastructure (DNS/DHCP server).
+
+| Item                 | Value                                      |
+| -------------------- | ------------------------------------------ |
+| **UPS Model**        | APC Back-UPS ES 350                        |
+| **Connection**       | USB                                        |
+| **Daemon**           | `apcupsd` (NixOS native)                   |
+| **MQTT Topic**       | `home/vr/battery/ups350`                   |
+| **MQTT Broker**      | hsb1 (192.168.1.101)                       |
+| **Publish Interval** | Every 1 minute                             |
+| **Credentials**      | Agenix-encrypted (`secrets/mqtt-hsb0.age`) |
+
+### Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ hsb0 (192.168.1.99)                                         │
+├─────────────────────────────────────────────────────────────┤
+│  USB ──► apcupsd daemon ──► apcaccess status               │
+│                                    │                        │
+│            ┌───────────────────────┘                        │
+│            ▼                                                │
+│  systemd timer (1min) ──► ups-mqtt-publish.service         │
+│                                    │                        │
+│            ┌───────────────────────┘                        │
+│            ▼                                                │
+│  /run/agenix/mqtt-hsb0 ──► mosquitto_pub                   │
+│            │                                                │
+└────────────│────────────────────────────────────────────────┘
+             │
+             ▼ MQTT: home/vr/battery/ups350
+┌─────────────────────────────────────────────────────────────┐
+│ hsb1 (192.168.1.101) - Mosquitto Broker                    │
+│     └─► Node-RED / Home Assistant / Automations            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### JSON Payload Example
+
+The service publishes UPS status as JSON to the MQTT broker:
+
+```json
+{
+  "apc": "001,036,0890",
+  "date": "2025-12-02 19:30:00 +0100",
+  "hostname": "hsb0",
+  "version": "3.14.14",
+  "upsname": "ups350vr",
+  "cable": "USB Cable",
+  "driver": "USB UPS Driver",
+  "upsmode": "Stand Alone",
+  "status": "ONLINE",
+  "linev": "230.0 Volts",
+  "loadpct": "12.0 Percent",
+  "bcharge": "100.0 Percent",
+  "timeleft": "45.0 Minutes",
+  "mbattchg": "5 Percent",
+  "mintimel": "3 Minutes",
+  "battv": "13.5 Volts",
+  "lastxfer": "No transfers since turnon",
+  "__published": 1733166600000
+}
+```
+
+### Configuration
+
+**NixOS configuration** (`configuration.nix`):
+
+```nix
+# APC UPS daemon
+services.apcupsd = {
+  enable = true;
+  configText = ''
+    UPSCABLE usb
+    UPSTYPE usb
+    DEVICE
+    UPSNAME ups350vr
+  '';
+};
+
+# MQTT credentials (agenix-encrypted)
+age.secrets.mqtt-hsb0 = {
+  file = ../../secrets/mqtt-hsb0.age;
+  mode = "400";
+};
+
+# Systemd service + timer for MQTT publishing
+systemd.services.ups-mqtt-publish = { ... };
+systemd.timers.ups-mqtt-publish = {
+  timerConfig.OnUnitActiveSec = "1min";
+};
+```
+
+**MQTT credentials** (`secrets/mqtt-hsb0.age`):
+
+```bash
+# Edit with: agenix -e secrets/mqtt-hsb0.age
+MQTT_HOST=hsb1.lan
+MQTT_USER=smarthome
+MQTT_PASS=<password>
+```
+
+### Useful Commands
+
+```bash
+# Check UPS status directly
+apcaccess status
+
+# Check service status
+systemctl status ups-mqtt-publish
+systemctl status apcupsd
+
+# View recent MQTT publications
+journalctl -u ups-mqtt-publish -n 20
+
+# Manually trigger a publish
+sudo systemctl start ups-mqtt-publish
+
+# Subscribe to MQTT topic (for testing)
+mosquitto_sub -h hsb1.lan -u smarthome -P '<password>' -t 'home/vr/battery/ups350'
+```
+
+### Migration History
+
+This UPS was previously connected to a Raspberry Pi (`raspi01` at 192.168.1.95) with:
+
+- Cron job running every minute
+- Plain text `.env` file for MQTT credentials
+- External bash script in `/home/mba/scripts/`
+
+The new NixOS implementation provides:
+
+| Aspect       | Raspi (old)                   | hsb0 (new)                   |
+| ------------ | ----------------------------- | ---------------------------- |
+| Secrets      | Plain text `.env` in home dir | Agenix-encrypted in git      |
+| Scheduler    | Cron                          | systemd timer                |
+| Script       | External file                 | Inline in Nix (reproducible) |
+| Dependencies | Manual apt install            | Declarative Nix packages     |
+| Audit trail  | None                          | Git history                  |
+
+---
+
 ## Useful Commands
 
 ### Service Management
@@ -729,6 +876,21 @@ With 24-hour DHCP leases, clients automatically pick up the restored service wit
 ---
 
 ## Changelog
+
+### 2025-12-02: APC UPS Monitoring Added
+
+- **Migrated UPS from Raspberry Pi** (`raspi01`) to hsb0
+  - USB-connected APC Back-UPS ES 350
+  - NixOS native `apcupsd` service
+  - systemd timer for MQTT publishing (every 1 minute)
+  - Agenix-encrypted MQTT credentials
+- **MQTT integration** with hsb1 broker
+  - Topic: `home/vr/battery/ups350`
+  - JSON payload with full UPS status
+- **Improved over Raspi setup**:
+  - No more plain text credentials
+  - Declarative, reproducible configuration
+  - Full audit trail in git
 
 ### 2025-11-22: Test Suite Created
 

@@ -3,6 +3,7 @@
 {
   pkgs,
   lib,
+  config,
   inputs,
   ...
 }:
@@ -18,6 +19,102 @@
 
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
+
+  # ============================================================================
+  # APC UPS Monitoring (Back-UPS ES 350)
+  # ============================================================================
+  # USB-connected UPS provides power protection and status monitoring.
+  # Status is published to MQTT every minute for home automation integration.
+  # ============================================================================
+
+  services.apcupsd = {
+    enable = true;
+    configText = ''
+      UPSCABLE usb
+      UPSTYPE usb
+      DEVICE
+      UPSNAME ups350vr
+    '';
+  };
+
+  # MQTT credentials for UPS status publishing
+  # Format: MQTT_HOST, MQTT_USER, MQTT_PASS (sourced by bash)
+  # Edit: agenix -e secrets/mqtt-hsb0.age
+  age.secrets.mqtt-hsb0 = {
+    file = ../../secrets/mqtt-hsb0.age;
+    mode = "400";
+    owner = "root";
+    group = "root";
+  };
+
+  # Systemd service: Publish UPS status to MQTT as JSON
+  systemd.services.ups-mqtt-publish = {
+    description = "Publish APC UPS status to MQTT";
+    after = [
+      "apcupsd.service"
+      "network-online.target"
+    ];
+    wants = [ "network-online.target" ];
+    path = [
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.coreutils
+    ];
+    script = ''
+      set -euo pipefail
+
+      # Source MQTT credentials from agenix secret
+      source ${config.age.secrets.mqtt-hsb0.path}
+
+      # Query UPS status
+      apc_status=$(${pkgs.apcupsd}/bin/apcaccess status)
+
+      # Get current timestamp in milliseconds
+      current_timestamp=$(date +%s%3N)
+
+      # Convert APC status to JSON
+      json_status=$(echo "$apc_status" | awk -v timestamp="$current_timestamp" '
+      BEGIN { print "{" }
+      NF > 1 {
+          gsub(/^[ \t]+|[ \t]+$/, "", $0)
+          key = tolower($1)
+          $1 = ""
+          gsub(/^[ \t]*: /, "", $0)
+          gsub(/^[ \t]+|[ \t]+$/, "", $0)
+          value = $0
+          gsub(/"/, "\\\"", value)
+          printf "  \"%s\": \"%s\",\n", key, value
+      }
+      END { printf "  \"__published\": %s\n", timestamp }
+      ' | sed '$ s/,$//')
+
+      json_status="$json_status
+      }"
+
+      # Publish to MQTT
+      ${pkgs.mosquitto}/bin/mosquitto_pub \
+        --topic home/vr/battery/ups350 \
+        -u "$MQTT_USER" \
+        -P "$MQTT_PASS" \
+        -h "$MQTT_HOST" \
+        -m "$json_status"
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      # Run as root to access agenix secrets
+    };
+  };
+
+  # Timer: Run every minute
+  systemd.timers.ups-mqtt-publish = {
+    description = "Timer for APC UPS MQTT publishing";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnBootSec = "1min";
+      OnUnitActiveSec = "1min";
+      Unit = "ups-mqtt-publish.service";
+    };
+  };
 
   # AdGuard Home - DNS and DHCP server with ad-blocking
   # Web interface: http://192.168.1.99:3000
@@ -255,6 +352,9 @@
     dig
     tcpdump
     nmap
+    # UPS monitoring
+    apcupsd # For apcaccess CLI
+    mosquitto # For mosquitto_sub debugging
     # Secret management tools
     rage # Modern age encryption tool (for agenix)
     inputs.agenix.packages.${pkgs.system}.default # agenix CLI
