@@ -21,6 +21,9 @@ in
 
     # Shell initialization (config.fish equivalent)
     shellInit = ''
+      # Reset mouse tracking (prevents garbled escape sequences from crashed apps)
+      printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'
+
       # Environment variables
       set -gx TERM xterm-256color
       set -gx EDITOR nano

@@ -34,6 +34,9 @@ in
       shellInit = ''
         # Fix: Help messages to be shown in English, instead of German
         set -e LANGUAGE
+
+        # Reset mouse tracking (prevents garbled escape sequences from crashed apps)
+        printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'
       '';
       shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
       shellAbbrs = (lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs) // {
