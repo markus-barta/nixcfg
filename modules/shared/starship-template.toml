@@ -259,3 +259,5 @@ format = '[[ $symbol $state](fg:__TEXT_MUTED__ bg:__DARKEST__)]($style)'
 [character]
 success_symbol = "[❯](bold fg:__TEXT_ACCENT__)"
 error_symbol = "[✗](bold fg:__ERROR_BG__)"
+# Remove default trailing space - we want prompt flush against typed command
+format = "$symbol"
