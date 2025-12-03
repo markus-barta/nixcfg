@@ -146,18 +146,22 @@ get_cpu_darwin() {
 
 get_ram_darwin() {
   # Parse vm_stat output for memory usage
-  local page_size pages_active pages_speculative pages_wired
+  local page_size pages_active=0 pages_speculative=0 pages_wired=0
 
   page_size=$(sysctl -n hw.pagesize 2>/dev/null || echo 4096)
 
   # Parse vm_stat (values are in pages)
+  # Format: "Pages active:                   1234567."
   # Note: We only use active, wired, and speculative for "used" memory
-  while IFS=': ' read -r key value; do
-    value="${value%.}" # Remove trailing period
-    case "$key" in
-    "Pages active") pages_active=$value ;;
-    "Pages speculative") pages_speculative=$value ;;
-    "Pages wired down") pages_wired=$value ;;
+  while IFS= read -r line; do
+    # Extract the numeric value (remove trailing period and spaces)
+    local value
+    value=$(echo "$line" | grep -oE '[0-9]+\.$' | tr -d '.')
+
+    case "$line" in
+    "Pages active:"*) pages_active=${value:-0} ;;
+    "Pages speculative:"*) pages_speculative=${value:-0} ;;
+    "Pages wired down:"*) pages_wired=${value:-0} ;;
     esac
   done < <(vm_stat 2>/dev/null)
 
@@ -167,7 +171,7 @@ get_ram_darwin() {
 
   # Calculate used memory (active + wired + speculative)
   # Free = free + inactive (inactive is reclaimable)
-  local used_pages=$((pages_active + pages_wired + ${pages_speculative:-0}))
+  local used_pages=$((pages_active + pages_wired + pages_speculative))
   local used_bytes=$((used_pages * page_size))
 
   if [[ $mem_total -gt 0 ]]; then

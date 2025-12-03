@@ -198,10 +198,8 @@ main() {
   local separator=" "
 
   # Sort metrics by priority (highest first)
-  local sorted
-  mapfile -t sorted < <(printf '%s\n' "${metrics[@]}" | sort -t'|' -k1 -rn)
-
-  for item in "${sorted[@]}"; do
+  # Using while loop instead of mapfile for bash 3.2 compatibility (macOS)
+  while IFS= read -r item; do
     local formatted="${item#*|}" # Remove priority prefix
     local item_width
     item_width=$(visible_width "$formatted")
@@ -221,7 +219,7 @@ main() {
       fi
       current_width=$((current_width + item_width + sep_width))
     fi
-  done
+  done < <(printf '%s\n' "${metrics[@]}" | sort -t'|' -k1 -rn)
 
   # Output final string
   echo -e "$output"
