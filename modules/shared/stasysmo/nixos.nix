@@ -23,7 +23,7 @@
 }:
 
 let
-  cfg = config.services.sysmon;
+  cfg = config.services.stasysmo;
 
   # Import centralized configuration defaults
   defaultConfig = import ./config.nix;
