@@ -11,6 +11,7 @@
 #   - Threshold-based coloring (muted → elevated → critical)
 #   - Priority-based truncation within character budget
 #   - Graceful error handling (empty output on failure)
+#   - Debug mode for troubleshooting (STASYSMO_DEBUG=1)
 #
 # Configuration:
 #   All settings come from environment variables (set by Nix module).
@@ -19,8 +20,35 @@
 # Usage: stasysmo-reader
 #   Called by Starship custom module, outputs formatted metrics string.
 #
+# Debug: STASYSMO_DEBUG=1 stasysmo-reader
+#   Outputs debug info on separate lines before metrics.
+#
 
 set -euo pipefail
+
+# ════════════════════════════════════════════════════════════════════════════════
+# DEBUG MODE
+# ════════════════════════════════════════════════════════════════════════════════
+DEBUG="${STASYSMO_DEBUG:-0}"
+DEBUG_LINES=()
+
+debug() {
+  if [[ "$DEBUG" == "1" ]]; then
+    DEBUG_LINES+=("$1")
+  fi
+}
+
+debug_output() {
+  if [[ "$DEBUG" == "1" && ${#DEBUG_LINES[@]} -gt 0 ]]; then
+    echo ""
+    echo "┌─ StaSysMo Debug ─────────────────────────────────────"
+    for line in "${DEBUG_LINES[@]}"; do
+      echo "│ $line"
+    done
+    echo "└──────────────────────────────────────────────────────"
+    echo ""
+  fi
+}
 
 # ════════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION (from environment, with defaults from sysmon-config.nix)
@@ -203,18 +231,24 @@ main() {
   # Get actual terminal width
   local cols
   cols=$(get_terminal_width)
+  debug "WIDTH: tput=$(tput cols 2>/dev/null || echo 'fail') COLUMNS=${COLUMNS:-unset} → using $cols"
 
   # Calculate how many metrics we can show
   local max_metrics
   max_metrics=$(calculate_metric_slots "$cols")
+  debug "SLOTS: hideAll=$WIDTH_HIDE_ALL show1=$WIDTH_SHOW_ONE show2=$WIDTH_SHOW_TWO show3=$WIDTH_SHOW_THREE → max_metrics=$max_metrics"
 
   # If terminal too narrow, show nothing - exit non-zero so Starship skips module
   if [[ "$max_metrics" -eq 0 ]]; then
+    debug "DECISION: hideAll triggered (cols=$cols < $WIDTH_HIDE_ALL)"
+    debug_output
     exit 1
   fi
 
   # Check if sysmon directory exists
   if [[ ! -d "$STASYSMO_DIR" ]]; then
+    debug "DECISION: daemon not running ($STASYSMO_DIR missing)"
+    debug_output
     exit 0 # Daemon not running, graceful exit
   fi
 
@@ -224,9 +258,12 @@ main() {
   local now
   now=$(date +%s)
   local age=$((now - timestamp))
+  debug "STALE: timestamp=$timestamp now=$now age=${age}s threshold=${STALE_THRESHOLD}s"
 
   if [[ "$age" -gt "$STALE_THRESHOLD" ]]; then
     # Data is stale, show indicator
+    debug "DECISION: data stale (age=$age > $STALE_THRESHOLD)"
+    debug_output
     printf '%s?%s' "$(ansi_color "$COLOR_MUTED")" "$(ansi_reset)"
     exit 0
   fi
@@ -237,6 +274,7 @@ main() {
   ram=$(read_metric "$STASYSMO_DIR/ram" "?")
   swap=$(read_metric "$STASYSMO_DIR/swap" "?")
   load=$(read_metric "$STASYSMO_DIR/load" "?")
+  debug "DATA: cpu=$cpu% ram=$ram% load=$load swap=$swap%"
 
   # Build metrics array with priorities (higher = more important)
   # Format: "priority|formatted_string"
@@ -300,6 +338,17 @@ main() {
       metric_count=$((metric_count + 1))
     fi
   done < <(printf '%s\n' "${metrics[@]}" | sort -t'|' -k1 -rn)
+
+  # Calculate visible width of output (without ANSI codes)
+  local output_visible_width=0
+  if [[ -n "$output" ]]; then
+    output_visible_width=$(visible_width "$output")
+  fi
+  debug "OUTPUT: metrics_shown=$metric_count visible_chars=$output_visible_width budget=$MAX_BUDGET"
+  debug "FORMAT: output_empty=$([[ -z "$output" ]] && echo 'yes' || echo 'no') output_len=${#output}"
+
+  # Output debug info first (if enabled)
+  debug_output
 
   # Output final string only if we have something to show
   # Empty output causes Starship to hide the module entirely (no artifacts)
