@@ -87,9 +87,10 @@ ansi_color() {
   printf '\033[38;5;%sm' "$code"
 }
 
-# Reset ANSI color
+# Reset ANSI foreground color only (preserve background for Starship powerline)
+# Use \033[39m instead of \033[0m to avoid resetting Starship's background styling
 ansi_reset() {
-  printf '\033[0m'
+  printf '\033[39m'
 }
 
 # Get color code based on value and thresholds (integer comparison)
