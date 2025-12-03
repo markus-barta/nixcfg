@@ -198,9 +198,11 @@ symbol = " "
 [custom.stasysmo]
 command = "stasysmo-reader"
 when = "test -f /dev/shm/stasysmo/timestamp || test -f /tmp/stasysmo/timestamp"
-# Rounded left cap () starts segment, content with __DARKEST__ bg, rounded right cap () ends
-format = "[](fg:__DARKEST__)[[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)]($style)[](fg:__DARKEST__)"
-style = "bg:__DARKEST__"
+# IMPORTANT: Entire segment (including caps) must be inside a single optional group
+# so nothing renders when $output is empty (hideAll active or no data)
+# Format: left-cap + content + right-cap, all conditional on $output having value
+format = "[[](fg:__DARKEST__) $output [](fg:__DARKEST__)](fg:__TEXT_MUTED__ bg:__DARKEST__)"
+style = ""
 
 # ════════════════════════════════════════════════════════════════════════════════
 # STATUS (Exit code on error)

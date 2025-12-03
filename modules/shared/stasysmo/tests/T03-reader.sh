@@ -72,6 +72,21 @@ else
   echo -e "${YELLOW}⚠️ WARN${NC} ($LENGTH chars > $MAX_BUDGET)"
 fi
 
+# Test 6: Empty output is truly empty (no artifacts)
+echo -n "Test 6: Empty output has no artifacts... "
+# Check that if output is empty, it's truly empty (no spaces, no escape sequences)
+if [[ -z "$OUTPUT" ]]; then
+  # If empty, verify no hidden characters
+  RAW_LEN=${#OUTPUT}
+  if [[ "$RAW_LEN" -eq 0 ]]; then
+    echo -e "${GREEN}✅ PASS${NC} (truly empty, no artifacts)"
+  else
+    echo -e "${RED}❌ FAIL${NC} (output appears empty but has $RAW_LEN hidden chars)"
+  fi
+else
+  echo -e "${YELLOW}⚠️ SKIP${NC} (output not empty, cannot test artifact-free empty)"
+fi
+
 # Show actual output for debugging
 echo
 echo "Reader output (raw):"

@@ -1,81 +1,150 @@
 # StaSysMo Test Suite
 
-This directory contains test procedures and automated scripts to verify StaSysMo functionality.
+This directory contains automated tests and manual test checklists for StaSysMo.
 
-## Test Format
+## Test Types
 
-Each feature has:
+### Automated Tests (T00-T03)
 
-- **Test Documentation** (`Txx-feature-name.md`): Manual test procedures for humans and AI
-- **Test Script** (`Txx-feature-name.sh`): Automated test script
+These run without human interaction and verify:
+
+- Platform detection and paths
+- Daemon process status
+- Output file creation
+- Reader command availability
+
+### Manual Tests (T04-T05)
+
+These **cannot be automated** because they require:
+
+- Visual inspection in a real terminal
+- Starship prompt rendering
+- Terminal resizing to test progressive hiding
+- Nerd Font icon verification
 
 ## Running Tests
-
-### Individual Test
-
-```bash
-# Run manual test (follow instructions in markdown file)
-cat tests/T01-daemon.md
-
-# Run automated test
-./tests/T01-daemon.sh
-```
 
 ### All Automated Tests
 
 ```bash
-# Run all tests for current platform
 ./tests/run-all.sh
 
-# Run with verbose output
+# With verbose output
 VERBOSE=1 ./tests/run-all.sh
 ```
 
-## Platform Detection
-
-Tests automatically detect the platform (Linux/macOS) and run appropriate checks:
+### Individual Automated Test
 
 ```bash
-# The test scripts use this pattern:
+./tests/T00-platform.sh
+./tests/T01-daemon.sh
+./tests/T02-output-files.sh
+./tests/T03-reader.sh
+```
+
+### Manual Test Checklists
+
+```bash
+# View and follow the checklist
+./tests/T04-width.sh      # Terminal width behavior (documents expected)
+./tests/T05-starship.sh   # Complete Starship integration checklist
+```
+
+## Test Matrix
+
+| ID  | Test                 | Type      | Linux | macOS | What it tests                            |
+| --- | -------------------- | --------- | ----- | ----- | ---------------------------------------- |
+| T00 | Platform Detection   | Automated | ✅    | ✅    | OS detection, directory paths            |
+| T01 | Daemon Running       | Automated | ✅    | ✅    | systemd (Linux) / launchd (macOS) status |
+| T02 | Output Files         | Automated | ✅    | ✅    | Metric files exist in correct directory  |
+| T03 | Reader Output        | Automated | ✅    | ✅    | Reader produces formatted output         |
+| T04 | Width Behavior       | Manual    | ✅    | ✅    | Progressive hiding at terminal widths    |
+| T05 | Starship Integration | Manual    | ✅    | ✅    | Full visual verification checklist       |
+
+## Why Some Tests Are Manual
+
+### Terminal Width (T04)
+
+```
+⚠️ Cannot be automated: tput cols queries actual terminal
+```
+
+The reader uses `tput cols` to detect terminal width. When run from a script or
+CI environment, this returns a default value (usually 80), not a simulated value.
+There's no way to fake terminal dimensions without creating a pseudo-terminal.
+
+### Starship Integration (T05)
+
+```
+⚠️ Cannot be automated: requires visual verification
+```
+
+Starship integration must be tested visually because:
+
+- ANSI escape codes render differently in different terminals
+- Nerd Font icons require specific fonts installed
+- Powerline segment alignment is visual
+- Color thresholds need to be seen
+- Artifact detection (gaps, misalignments) is visual
+
+## Manual Test Procedure
+
+When running manual tests, execute the script and follow the checklist:
+
+```bash
+./tests/T05-starship.sh
+```
+
+Then in a **real terminal with Starship**:
+
+1. Check each `[ ]` item visually
+2. Resize terminal to test width behavior
+3. Run stress tests to trigger threshold colors
+4. Stop daemon to test staleness indication
+
+## Platform Detection
+
+Tests automatically detect the platform:
+
+```bash
 if [[ "$(uname)" == "Darwin" ]]; then
-    # macOS-specific tests
+    # macOS-specific (launchd, /tmp/stasysmo)
 else
-    # Linux-specific tests
+    # Linux-specific (systemd, /dev/shm/stasysmo)
 fi
 ```
 
-## Test Status Legend
-
-- ✅ **Pass**: Feature working as expected
-- ⏳ **Pending**: Feature not yet tested
-- ❌ **Fail**: Feature not working, requires attention
-- N/A: Test not applicable for this platform
-
-## Test List
-
-| Test ID | Feature             | Linux | macOS | Notes                             |
-| ------- | ------------------- | ----- | ----- | --------------------------------- |
-| T00     | Platform Detection  | ✅    | ✅    | Detects OS and sets paths         |
-| T01     | Daemon Running      | ✅    | ✅    | systemd (Linux) / launchd (macOS) |
-| T02     | Output Files        | ✅    | ✅    | Metrics written to correct dir    |
-| T03     | Reader Output       | ✅    | ✅    | Formatted output with icons       |
-| T04     | Staleness Detection | ✅    | ✅    | Shows "?" when data stale         |
-| T05     | Threshold Colors    | ✅    | ✅    | Color changes at thresholds       |
-
 ## Prerequisites
 
-### NixOS
+### NixOS (Linux)
 
-- StaSysMo enabled: `services.stasysmo.enable = true`
-- System rebuilt: `nixos-rebuild switch`
+```nix
+services.stasysmo.enable = true;
+```
 
-### macOS
+Then: `nixos-rebuild switch`
 
-- StaSysMo enabled: `services.stasysmo.enable = true`
-- Home Manager applied: `home-manager switch`
+### macOS (Home Manager)
 
-## Notes
+```nix
+services.stasysmo.enable = true;
+```
 
-- Tests are designed to be non-destructive
-- Some tests may require waiting for daemon to produce output
-- Platform-specific tests are clearly marked
+Then: `home-manager switch`
+
+## Test Output Legend
+
+| Symbol | Meaning                                            |
+| ------ | -------------------------------------------------- |
+| ✅     | PASS - Test succeeded                              |
+| ❌     | FAIL - Test failed, needs fixing                   |
+| ⚠️     | WARN - Test passed with warnings                   |
+| ⚠️     | MANUAL - Cannot be automated, manual test required |
+| ⏭️     | SKIP - Test skipped (e.g., missing prerequisites)  |
+
+## Adding New Tests
+
+1. Create `Txx-feature.sh` (automated script or manual checklist)
+2. Add entry to Test Matrix above
+3. Mark as "Automated" or "Manual" in the Type column
+4. For manual tests: include `⚠️ Cannot be automated` notice
