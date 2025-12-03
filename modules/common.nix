@@ -38,10 +38,14 @@ in
         # Reset mouse tracking (prevents garbled escape sequences from crashed apps)
         printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'
 
-        # Export COLUMNS on every prompt so Starship can detect terminal width
-        # (fish maintains $COLUMNS internally but doesn't export it by default)
-        function __export_columns --on-event fish_prompt
-          set -q COLUMNS; and set -gx COLUMNS $COLUMNS
+        # Export COLUMNS for Starship width detection
+        # Fish maintains $COLUMNS but doesn't export it by default
+        # We export it immediately AND on every variable change (resize)
+        if set -q COLUMNS
+          set -gx COLUMNS $COLUMNS
+        end
+        function __sync_columns --on-variable COLUMNS
+          set -gx COLUMNS $COLUMNS
         end
       '';
       shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
