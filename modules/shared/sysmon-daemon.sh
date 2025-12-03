@@ -154,9 +154,10 @@ get_ram_darwin() {
   # Format: "Pages active:                   1234567."
   # Note: We only use active, wired, and speculative for "used" memory
   while IFS= read -r line; do
-    # Extract the numeric value (remove trailing period and spaces)
+    # Extract the numeric value (remove trailing period)
+    # Note: Don't anchor to $ - some systems may have trailing whitespace
     local value
-    value=$(echo "$line" | grep -oE '[0-9]+\.$' | tr -d '.')
+    value=$(echo "$line" | grep -oE '[0-9]+\.' | tr -d '.')
 
     case "$line" in
     "Pages active:"*) pages_active=${value:-0} ;;
