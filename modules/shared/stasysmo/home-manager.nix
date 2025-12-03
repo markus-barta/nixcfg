@@ -280,13 +280,13 @@ in
         thresholds = {
           elevated = lib.mkOption {
             type = lib.types.int;
-            default = defaultConfig.metrics.swap.thresholds.elevated;
-            description = "Swap% threshold for elevated color";
+            default = defaultConfig.metrics.swap.thresholds.darwin.elevated;
+            description = "Swap% threshold for elevated color (macOS default: 50%)";
           };
           critical = lib.mkOption {
             type = lib.types.int;
-            default = defaultConfig.metrics.swap.thresholds.critical;
-            description = "Swap% threshold for critical color";
+            default = defaultConfig.metrics.swap.thresholds.darwin.critical;
+            description = "Swap% threshold for critical color (macOS default: 75%)";
           };
         };
       };

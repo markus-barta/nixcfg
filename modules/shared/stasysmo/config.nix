@@ -202,8 +202,16 @@ rec {
 
     swap = {
       thresholds = {
-        elevated = 33;
-        critical = 66;
+        # Linux: swap usage often indicates memory pressure
+        linux = {
+          elevated = 33;
+          critical = 66;
+        };
+        # macOS: aggressive pre-swapping is normal, only alert on actual pressure
+        darwin = {
+          elevated = 50;
+          critical = 75;
+        };
       };
       priority = 60; # Lowest - hidden first when space is limited
       suffix = "%";

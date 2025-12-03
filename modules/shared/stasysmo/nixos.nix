@@ -280,13 +280,13 @@ in
         thresholds = {
           elevated = lib.mkOption {
             type = lib.types.int;
-            default = defaultConfig.metrics.swap.thresholds.elevated;
-            description = "Swap% threshold for elevated color";
+            default = defaultConfig.metrics.swap.thresholds.linux.elevated;
+            description = "Swap% threshold for elevated color (Linux default: 33%)";
           };
           critical = lib.mkOption {
             type = lib.types.int;
-            default = defaultConfig.metrics.swap.thresholds.critical;
-            description = "Swap% threshold for critical color";
+            default = defaultConfig.metrics.swap.thresholds.linux.critical;
+            description = "Swap% threshold for critical color (Linux default: 66%)";
           };
         };
       };
