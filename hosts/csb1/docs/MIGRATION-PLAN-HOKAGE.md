@@ -231,11 +231,10 @@ Both hsb0 and hsb8 successfully migrated to external hokage consumer pattern in 
 
 #### Backups Created
 
-| Type                | Details                            | Location                         |
-| ------------------- | ---------------------------------- | -------------------------------- |
-| **Netcup Snapshot** | `pre-hokage-migration` @ 11:58:42Z | Netcup SCP panel                 |
-| **Restic Backup**   | Snapshot `fd569a07`, 31 MiB        | Hetzner Storage Box              |
-| **Local Archive**   | 164 files, full old config         | `archive/2025-11-29-pre-hokage/` |
+| Type                | Details                            | Location            |
+| ------------------- | ---------------------------------- | ------------------- |
+| **Netcup Snapshot** | `pre-hokage-migration` @ 11:58:42Z | Netcup SCP panel    |
+| **Restic Backup**   | Snapshot `fd569a07`, 31 MiB        | Hetzner Storage Box |
 
 ---
 
