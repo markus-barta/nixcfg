@@ -84,7 +84,7 @@ services.stasysmo = {
     maxBudget = 45;           # Max characters for metrics
     minTerminalWidth = 0;     # Hide if terminal narrower (0 = always show)
     staleThreshold = 10;      # Seconds before data is "stale"
-    spacerIconValue = " ";    # Between icon and value (e.g., "C 5%" vs "C5%")
+    spacerIconValue = "";     # Between icon and value (e.g., "C5%" vs "C 5%")
     spacerMetrics = " ";      # Between metrics (e.g., "5% 52%" vs "5%  52%")
   };
 
@@ -100,6 +100,63 @@ services.stasysmo = {
   colors.critical = 196;  # Red - urgent
 };
 ```
+
+### Using Presets
+
+`config.nix` provides predefined constants so you don't have to type Unicode or remember magic numbers:
+
+```nix
+let
+  stasysmo = import ../../modules/shared/stasysmo/config.nix;
+in {
+  services.stasysmo = {
+    enable = true;
+
+    # Use preset intervals instead of raw milliseconds
+    daemon.interval = stasysmo.presets.interval.fast;  # 2000ms
+
+    display = {
+      # Use preset budgets
+      maxBudget = stasysmo.presets.budget.compact;     # 30 chars
+
+      # Use preset spacers (includes Unicode characters)
+      spacerIconValue = stasysmo.presets.spacer.thin;  # U+2009 thin space
+      spacerMetrics = stasysmo.presets.spacer.dot;     # " . " with bullet
+    };
+  };
+}
+```
+
+### Available Presets
+
+| Category     | Preset      | Value  | Description                |
+| ------------ | ----------- | ------ | -------------------------- |
+| **spacer**   | `none`      | `""`   | No space                   |
+|              | `hair`      | U+200A | Hair space (thinnest)      |
+|              | `thin`      | U+2009 | Thin space                 |
+|              | `narrow`    | U+202F | Narrow no-break space      |
+|              | `normal`    | ` `    | Regular ASCII space        |
+|              | `en`        | U+2002 | En space (half em)         |
+|              | `em`        | U+2003 | Em space (full width)      |
+|              | `double`    | `  `   | Two regular spaces         |
+|              | `pipe`      | `\|`   | Box drawing pipe separator |
+|              | `dot`       | `.`    | Bullet separator (U+2022)  |
+|              | `diamond`   | `X`    | Diamond separator (U+25C6) |
+|              | `bar`       | `\|`   | ASCII pipe separator       |
+| **interval** | `realtime`  | 1000   | 1s - high CPU              |
+|              | `fast`      | 2000   | 2s - responsive            |
+|              | `normal`    | 5000   | 5s - balanced              |
+|              | `relaxed`   | 10000  | 10s - low overhead         |
+|              | `lazy`      | 30000  | 30s - minimal              |
+| **budget**   | `minimal`   | 20     | Just CPU+RAM               |
+|              | `compact`   | 30     | CPU, RAM, Load             |
+|              | `normal`    | 45     | All metrics                |
+|              | `wide`      | 60     | Generous spacing           |
+|              | `unlimited` | 200    | No limit                   |
+| **stale**    | `strict`    | 5      | Mark stale quickly         |
+|              | `normal`    | 10     | Default                    |
+|              | `tolerant`  | 20     | More forgiving             |
+|              | `relaxed`   | 60     | Very tolerant              |
 
 ### Threshold Behavior
 

@@ -1,25 +1,86 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                     SYSMON CONFIGURATION - Centralized Settings              ║
+# ║                   StaSysMo CONFIGURATION - Centralized Settings              ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
-# All sysmon configuration in one place. No magic numbers!
-# Import this file in sysmon.nix and sysmon-hm.nix.
+# All StaSysMo configuration in one place. No magic numbers!
+# Import this file in nixos.nix and home-manager.nix.
 #
 # Icons use Unicode escape sequences to avoid corruption when processed by
 # Nix strings or shell heredocs. The reader script interprets these with printf.
 #
-{
+rec {
+  # ════════════════════════════════════════════════════════════════════════════
+  # PRESETS - Convenient predefined values
+  # ════════════════════════════════════════════════════════════════════════════
+  # Use these constants instead of typing Unicode or remembering numbers.
+  # Example: spacerIconValue = presets.spacer.thin;
+  #          daemon.interval = presets.interval.fast;
+
+  presets = {
+    # ──────────────────────────────────────────────────────────────────────────
+    # Spacer Characters
+    # ──────────────────────────────────────────────────────────────────────────
+    # For spacerIconValue and spacerMetrics
+    spacer = {
+      none = ""; # No space at all
+      hair = " "; # U+200A - Hair space (thinnest)
+      thin = " "; # U+2009 - Thin space
+      narrow = " "; # U+202F - Narrow no-break space
+      normal = " "; # Regular ASCII space
+      en = " "; # U+2002 - En space (half em)
+      em = " "; # U+2003 - Em space (full width)
+      double = "  "; # Two regular spaces
+      pipe = " │ "; # Space + box drawing pipe + space
+      dot = " • "; # Space + bullet + space (U+2022)
+      diamond = " ◆ "; # Space + diamond + space (U+25C6)
+      bar = " | "; # Space + ASCII pipe + space
+    };
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Daemon Interval (milliseconds)
+    # ──────────────────────────────────────────────────────────────────────────
+    interval = {
+      realtime = 1000; # 1 second - high CPU, very responsive
+      fast = 2000; # 2 seconds - responsive
+      normal = 5000; # 5 seconds - balanced (default)
+      relaxed = 10000; # 10 seconds - low overhead
+      lazy = 30000; # 30 seconds - minimal updates
+    };
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Character Budget (max width of metrics display)
+    # ──────────────────────────────────────────────────────────────────────────
+    budget = {
+      minimal = 20; # Just CPU and RAM
+      compact = 30; # CPU, RAM, maybe Load
+      normal = 45; # All metrics comfortably (default)
+      wide = 60; # Generous spacing
+      unlimited = 200; # Effectively no limit
+    };
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Stale Threshold (seconds before showing "?")
+    # ──────────────────────────────────────────────────────────────────────────
+    stale = {
+      strict = 5; # Mark stale quickly
+      normal = 10; # Default
+      tolerant = 20; # More forgiving
+      relaxed = 60; # Very tolerant
+    };
+  };
+
   # ════════════════════════════════════════════════════════════════════════════
   # DAEMON SETTINGS
   # ════════════════════════════════════════════════════════════════════════════
 
   daemon = {
     # Sampling interval in milliseconds
-    intervalMs = 5000;
+    # Use: presets.interval.normal, presets.interval.fast, etc.
+    intervalMs = presets.interval.normal;
 
     # Output directories (platform-specific)
-    linuxDir = "/dev/shm/sysmon";
-    darwinDir = "/tmp/sysmon";
+    linuxDir = "/dev/shm/stasysmo";
+    darwinDir = "/tmp/stasysmo";
   };
 
   # ════════════════════════════════════════════════════════════════════════════
@@ -28,22 +89,24 @@
 
   display = {
     # Maximum character budget for metrics display
-    maxBudget = 45;
+    # Use: presets.budget.normal, presets.budget.compact, etc.
+    maxBudget = presets.budget.normal;
 
     # Minimum terminal width to show metrics (hidden if narrower)
     # Set to 0 to always show
     minTerminalWidth = 0;
 
     # Seconds after which daemon data is considered stale (shows "?")
-    staleThresholdSec = 10;
+    # Use: presets.stale.normal, presets.stale.strict, etc.
+    staleThresholdSec = presets.stale.normal;
 
-    # Spacer between icon and value (e.g., " 42%" vs " 42%")
-    # Common values: " " (space), "" (no space), " " (thin space)
-    spacerIconValue = "";
+    # Spacer between icon and value (e.g., "C5%" vs "C 5%")
+    # Use: presets.spacer.none, presets.spacer.thin, presets.spacer.normal, etc.
+    spacerIconValue = presets.spacer.none;
 
-    # Spacer between metrics (e.g., "42%  67%" vs "42% 67%")
-    # Common values: " " (single space), "  " (double space), " │ " (separator)
-    spacerMetrics = " ";
+    # Spacer between metrics (e.g., "5% 52%" vs "5% • 52%")
+    # Use: presets.spacer.normal, presets.spacer.dot, presets.spacer.pipe, etc.
+    spacerMetrics = presets.spacer.normal;
   };
 
   # ════════════════════════════════════════════════════════════════════════════
@@ -122,8 +185,8 @@
 
     swap = {
       thresholds = {
-        elevated = 10;
-        critical = 50;
+        elevated = 33;
+        critical = 66;
       };
       priority = 60; # Lowest - hidden first when space is limited
       suffix = "%";
