@@ -29,8 +29,15 @@ set -euo pipefail
 # ════════════════════════════════════════════════════════════════════════════════
 # DEBUG MODE
 # ════════════════════════════════════════════════════════════════════════════════
+# Debug only works when running manually (TTY), not from Starship
+# Usage: STASYSMO_DEBUG=1 stasysmo-reader
 DEBUG="${STASYSMO_DEBUG:-0}"
 DEBUG_LINES=()
+
+# Check if running interactively (TTY) - Starship runs without TTY
+is_interactive() {
+  [[ -t 1 ]] # stdout is a terminal
+}
 
 debug() {
   if [[ "$DEBUG" == "1" ]]; then
@@ -39,7 +46,8 @@ debug() {
 }
 
 debug_output() {
-  if [[ "$DEBUG" == "1" && ${#DEBUG_LINES[@]} -gt 0 ]]; then
+  # Only output debug when running interactively AND debug is enabled
+  if [[ "$DEBUG" == "1" && ${#DEBUG_LINES[@]} -gt 0 ]] && is_interactive; then
     echo ""
     echo "┌─ StaSysMo Debug ─────────────────────────────────────"
     for line in "${DEBUG_LINES[@]}"; do
