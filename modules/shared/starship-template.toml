@@ -52,7 +52,7 @@ $docker_context\
 $fill\
 ${custom.stasysmo}\
 $status\
-[](fg:__DARKER__ bg:__DARKEST__)\
+[](fg:__DARKER__ bg:__DARKEST__)\
 $time\
 $cmd_duration\
 [](fg:__DARKER__ bg:__DARKEST__)\
