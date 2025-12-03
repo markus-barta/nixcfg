@@ -10,7 +10,7 @@ StaSysMo consists of:
 - **Reader**: Starship custom module displaying formatted metrics
 - **Config**: Centralized configuration (no magic numbers!)
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────┐
 │  daemon (systemd/launchd) → /dev/shm/stasysmo/ or /tmp/stasysmo/ │
 │                                    ↓                             │
