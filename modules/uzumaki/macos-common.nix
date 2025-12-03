@@ -184,13 +184,10 @@ in
         { key = "c",   mods = "CMD",       action = act.CopyTo("Clipboard") },
         { key = "v",   mods = "CMD",       action = act.PasteFrom("Clipboard") },
 
-        -- Font size: works on all keyboard layouts (US, German, etc.)
         { key = "-",   mods = "CMD",       action = act.DecreaseFontSize },
         { key = "0",   mods = "CMD",       action = act.ResetFontSize },
         { key = "=",   mods = "CMD",       action = act.IncreaseFontSize },
         { key = "=",   mods = "CMD|SHIFT", action = act.IncreaseFontSize },
-        { key = "+",   mods = "CMD",       action = act.IncreaseFontSize },
-        { key = "+",   mods = "CMD|SHIFT", action = act.IncreaseFontSize },
 
         -- Fullscreen
         { key = "f",   mods = "CMD|CTRL",  action = act.ToggleFullScreen },
