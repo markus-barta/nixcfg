@@ -17,7 +17,7 @@ Metrics like CPU% and network I/O require **delta calculations** over time — y
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                      sysmon-daemon                              │
 │  (systemd on NixOS / launchd on macOS)                          │
@@ -70,7 +70,7 @@ Metrics like CPU% and network I/O require **delta calculations** over time — y
 
 ### Format
 
-```
+```text
  42%   67%  󰊚 1.2  󰾴 2%
 ```
 
@@ -216,21 +216,21 @@ style = ""
 
 ## Acceptance Criteria
 
-### Core
+### Core AC
 
 - [ ] Daemon starts on boot (systemd/launchd)
 - [ ] Metrics update every 5 seconds
 - [ ] CPU% accurate (delta-based calculation)
 - [ ] Works on NixOS and macOS
 
-### Display
+### Display AC
 
 - [ ] Starship shows metrics in prompt
 - [ ] Fixed budget (45 chars) with priority truncation
 - [ ] Threshold colors work (muted → white → red)
 - [ ] Hidden if terminal < 100 cols
 
-### Reliability
+### Reliability AC
 
 - [ ] Staleness shows "?" after 10s
 - [ ] No errors when daemon not running
