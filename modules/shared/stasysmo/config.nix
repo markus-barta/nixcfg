@@ -66,6 +66,24 @@ rec {
       tolerant = 20; # More forgiving
       relaxed = 60; # Very tolerant
     };
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Terminal Width Thresholds (progressive metric hiding)
+    # ──────────────────────────────────────────────────────────────────────────
+    # When terminal is narrow, metrics gracefully disappear to preserve
+    # essential prompt info (path, username, git status).
+    # Values are terminal column widths.
+    terminalWidth = {
+      # Below this: show nothing (hide StaSysMo completely)
+      hideAll = 80;
+      # Below this: show 1 metric (CPU only)
+      showOne = 100;
+      # Below this: show 2 metrics (CPU + RAM)
+      showTwo = 120;
+      # Below this: show 3 metrics (CPU + RAM + Load)
+      showThree = 150;
+      # Above showThree: show all 4 metrics
+    };
   };
 
   # ════════════════════════════════════════════════════════════════════════════

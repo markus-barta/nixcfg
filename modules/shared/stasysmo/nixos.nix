@@ -81,6 +81,12 @@ let
     export STASYSMO_COLOR_ELEVATED="${toString cfg.colors.elevated}"
     export STASYSMO_COLOR_CRITICAL="${toString cfg.colors.critical}"
 
+    # Terminal width thresholds (progressive metric hiding)
+    export STASYSMO_WIDTH_HIDE_ALL="${toString cfg.display.terminalWidth.hideAll}"
+    export STASYSMO_WIDTH_SHOW_ONE="${toString cfg.display.terminalWidth.showOne}"
+    export STASYSMO_WIDTH_SHOW_TWO="${toString cfg.display.terminalWidth.showTwo}"
+    export STASYSMO_WIDTH_SHOW_THREE="${toString cfg.display.terminalWidth.showThree}"
+
     # Run the reader script
     ${builtins.readFile ./reader.sh}
   '';
@@ -140,10 +146,34 @@ in
         default = defaultConfig.display.spacerMetrics;
         description = "Spacer string between metrics (e.g., ' ' or '  ')";
       };
+
+      # Terminal width thresholds for progressive metric hiding
+      terminalWidth = {
+        hideAll = lib.mkOption {
+          type = lib.types.int;
+          default = defaultConfig.presets.terminalWidth.hideAll;
+          description = "Below this width: hide all metrics (preserve prompt)";
+        };
+        showOne = lib.mkOption {
+          type = lib.types.int;
+          default = defaultConfig.presets.terminalWidth.showOne;
+          description = "Below this width: show 1 metric (CPU only)";
+        };
+        showTwo = lib.mkOption {
+          type = lib.types.int;
+          default = defaultConfig.presets.terminalWidth.showTwo;
+          description = "Below this width: show 2 metrics (CPU + RAM)";
+        };
+        showThree = lib.mkOption {
+          type = lib.types.int;
+          default = defaultConfig.presets.terminalWidth.showThree;
+          description = "Below this width: show 3 metrics (CPU + RAM + Load)";
+        };
+      };
     };
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Icons (read from sysmon-icons.sh to preserve Unicode)
+    # Icons (read from icons.sh to preserve Unicode)
     # ──────────────────────────────────────────────────────────────────────────
 
     icons = {

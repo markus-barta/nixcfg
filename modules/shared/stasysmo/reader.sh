@@ -28,7 +28,6 @@ set -euo pipefail
 
 # Display settings
 MAX_BUDGET="${STASYSMO_MAX_BUDGET:-45}"
-MIN_TERMINAL="${STASYSMO_MIN_TERMINAL:-100}"
 STALE_THRESHOLD="${STASYSMO_STALE_THRESHOLD:-10}"
 
 # Thresholds (elevated, critical)
@@ -154,12 +153,56 @@ visible_width() {
 # MAIN LOGIC
 # ════════════════════════════════════════════════════════════════════════════════
 
+# Get actual terminal width (more reliable than COLUMNS)
+get_terminal_width() {
+  # Try tput first (most reliable)
+  local width
+  width=$(tput cols 2>/dev/null)
+  if [[ -n "$width" && "$width" -gt 0 ]]; then
+    echo "$width"
+    return
+  fi
+  # Fall back to COLUMNS, then default
+  echo "${COLUMNS:-80}"
+}
+
+# Terminal width thresholds (from config, with sensible defaults)
+WIDTH_HIDE_ALL="${STASYSMO_WIDTH_HIDE_ALL:-80}"
+WIDTH_SHOW_ONE="${STASYSMO_WIDTH_SHOW_ONE:-100}"
+WIDTH_SHOW_TWO="${STASYSMO_WIDTH_SHOW_TWO:-120}"
+WIDTH_SHOW_THREE="${STASYSMO_WIDTH_SHOW_THREE:-150}"
+
+# Calculate dynamic budget based on terminal width
+# Returns: number of metrics to show (0-4)
+# Strategy: Gracefully reduce metrics as terminal narrows to preserve prompt
+calculate_metric_slots() {
+  local cols="$1"
+
+  if [[ "$cols" -lt "$WIDTH_HIDE_ALL" ]]; then
+    echo 0 # Hide completely - preserve prompt
+  elif [[ "$cols" -lt "$WIDTH_SHOW_ONE" ]]; then
+    echo 1 # CPU only
+  elif [[ "$cols" -lt "$WIDTH_SHOW_TWO" ]]; then
+    echo 2 # CPU + RAM
+  elif [[ "$cols" -lt "$WIDTH_SHOW_THREE" ]]; then
+    echo 3 # CPU + RAM + Load
+  else
+    echo 4 # All metrics
+  fi
+}
+
 main() {
-  # Check terminal width
-  # When run by Starship, COLUMNS may not be set - assume wide terminal
-  local cols="${COLUMNS:-200}"
-  if [[ "$cols" -lt "$MIN_TERMINAL" ]]; then
-    exit 0 # Too narrow, show nothing
+  # Get actual terminal width
+  local cols
+  cols=$(get_terminal_width)
+
+  # Calculate how many metrics we can show
+  local max_metrics
+  max_metrics=$(calculate_metric_slots "$cols")
+
+  # If terminal too narrow, show nothing - let prompt info survive
+  if [[ "$max_metrics" -eq 0 ]]; then
+    exit 0
   fi
 
   # Check if sysmon directory exists
@@ -191,7 +234,7 @@ main() {
   # Format: "priority|formatted_string"
   declare -a metrics=()
 
-  # CPU (priority from config)
+  # CPU (priority 100 - highest, always first to show)
   local cpu_color
   cpu_color=$(get_color_int "$cpu" "$CPU_ELEVATED" "$CPU_CRITICAL")
   metrics+=("100|$(format_metric "$ICON_CPU" "$cpu" "%" "$cpu_color")")
@@ -213,14 +256,21 @@ main() {
     metrics+=("60|$(format_metric "$ICON_SWAP" "$swap" "%" "$swap_color")")
   fi
 
-  # Sort by priority (descending) and build output within budget
+  # Sort by priority (descending) and build output
+  # Respect both character budget AND terminal-width-based slot limit
   local output=""
   local current_width=0
+  local metric_count=0
   local separator="$SPACER_METRICS" # Configurable spacer between metrics
 
   # Sort metrics by priority (highest first)
   # Using while loop for bash 3.2 compatibility (macOS)
   while IFS= read -r item; do
+    # Stop if we've reached the terminal-width-based limit
+    if [[ "$metric_count" -ge "$max_metrics" ]]; then
+      break
+    fi
+
     local formatted="${item#*|}" # Remove priority prefix
     local item_width
     item_width=$(visible_width "$formatted")
@@ -231,7 +281,7 @@ main() {
       sep_width=${#separator}
     fi
 
-    # Check if adding this item would exceed budget
+    # Check if adding this item would exceed character budget
     if [[ $((current_width + item_width + sep_width)) -le "$MAX_BUDGET" ]]; then
       if [[ -n "$output" ]]; then
         output="${output}${separator}${formatted}"
@@ -239,6 +289,7 @@ main() {
         output="$formatted"
       fi
       current_width=$((current_width + item_width + sep_width))
+      ((metric_count++))
     fi
   done < <(printf '%s\n' "${metrics[@]}" | sort -t'|' -k1 -rn)
 
