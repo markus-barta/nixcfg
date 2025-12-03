@@ -289,7 +289,7 @@ main() {
         output="$formatted"
       fi
       current_width=$((current_width + item_width + sep_width))
-      ((metric_count++))
+      metric_count=$((metric_count + 1))
     fi
   done < <(printf '%s\n' "${metrics[@]}" | sort -t'|' -k1 -rn)
 
