@@ -13,7 +13,7 @@
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki/server.nix # Fish pingt, sourcefish, zellij, EDITOR
-    ../../modules/shared/sysmon.nix # System metrics for Starship prompt
+    ../../modules/shared/stasysmo/nixos.nix # StaSysMo - System metrics for Starship
   ];
 
   # NOTE: starship and atuin are configured in common.nix (via commonServerModules)
@@ -396,12 +396,12 @@
   # NOTE: Starship configured in common.nix (via commonServerModules)
 
   # ============================================================================
-  # SYSMON - System Metrics for Starship Prompt
+  # StaSysMo - Starship System Monitoring
   # ============================================================================
   # Displays CPU, RAM, Load, Swap in the prompt with threshold-based coloring.
-  # Daemon writes to /dev/shm/sysmon/ every 5 seconds.
+  # Daemon writes to /dev/shm/stasysmo/ every 5 seconds.
   # ============================================================================
-  services.sysmon.enable = true;
+  services.stasysmo.enable = true;
 
   # ============================================================================
   # 🚨 SSH KEY SECURITY

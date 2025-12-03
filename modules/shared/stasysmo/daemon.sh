@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                     SYSMON DAEMON - System Metrics Collector                  ║
+# ║                   StaSysMo Daemon - System Metrics Collector                  ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
 # Collects system metrics (CPU, RAM, Load, Swap) every N seconds and writes
-# them to a RAM-backed directory for fast reading by sysmon-reader.
+# them to a RAM-backed directory for fast reading by stasysmo-reader.
 #
 # Platform Support:
 #   - Linux: /proc/stat, /proc/meminfo, /proc/loadavg
 #   - macOS: ps, vm_stat, sysctl
 #
 # Output Directory:
-#   - Linux: /dev/shm/sysmon/ (RAM-backed tmpfs)
-#   - macOS: /tmp/sysmon/ (SSD-backed, acceptable for small files)
+#   - Linux: /dev/shm/stasysmo/ (RAM-backed tmpfs)
+#   - macOS: /tmp/stasysmo/ (SSD-backed, acceptable for small files)
 #
-# Usage: sysmon-daemon [interval_ms]
+# Usage: stasysmo-daemon [interval_ms]
 #   interval_ms: Sampling interval in milliseconds (default: 5000)
 #
 
@@ -30,10 +30,10 @@ INTERVAL_S=$((INTERVAL_MS / 1000))
 # Detect platform and set output directory
 if [[ "$(uname)" == "Darwin" ]]; then
   PLATFORM="darwin"
-  SYSMON_DIR="/tmp/sysmon"
+  STASYSMO_DIR="/tmp/stasysmo"
 else
   PLATFORM="linux"
-  SYSMON_DIR="/dev/shm/sysmon"
+  STASYSMO_DIR="/dev/shm/stasysmo"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -41,7 +41,7 @@ fi
 # ════════════════════════════════════════════════════════════════════════════════
 
 # Create output directory
-mkdir -p "$SYSMON_DIR"
+mkdir -p "$STASYSMO_DIR"
 
 # Previous CPU sample for delta calculation (Linux only)
 prev_cpu_total=0
@@ -239,11 +239,11 @@ write_metrics() {
   timestamp=$(date +%s)
 
   # Write metrics atomically (write to temp, then move)
-  echo "$cpu" >"$SYSMON_DIR/cpu.tmp" && mv "$SYSMON_DIR/cpu.tmp" "$SYSMON_DIR/cpu"
-  echo "$ram" >"$SYSMON_DIR/ram.tmp" && mv "$SYSMON_DIR/ram.tmp" "$SYSMON_DIR/ram"
-  echo "$swap" >"$SYSMON_DIR/swap.tmp" && mv "$SYSMON_DIR/swap.tmp" "$SYSMON_DIR/swap"
-  echo "$load" >"$SYSMON_DIR/load.tmp" && mv "$SYSMON_DIR/load.tmp" "$SYSMON_DIR/load"
-  echo "$timestamp" >"$SYSMON_DIR/timestamp.tmp" && mv "$SYSMON_DIR/timestamp.tmp" "$SYSMON_DIR/timestamp"
+  echo "$cpu" >"$STASYSMO_DIR/cpu.tmp" && mv "$STASYSMO_DIR/cpu.tmp" "$STASYSMO_DIR/cpu"
+  echo "$ram" >"$STASYSMO_DIR/ram.tmp" && mv "$STASYSMO_DIR/ram.tmp" "$STASYSMO_DIR/ram"
+  echo "$swap" >"$STASYSMO_DIR/swap.tmp" && mv "$STASYSMO_DIR/swap.tmp" "$STASYSMO_DIR/swap"
+  echo "$load" >"$STASYSMO_DIR/load.tmp" && mv "$STASYSMO_DIR/load.tmp" "$STASYSMO_DIR/load"
+  echo "$timestamp" >"$STASYSMO_DIR/timestamp.tmp" && mv "$STASYSMO_DIR/timestamp.tmp" "$STASYSMO_DIR/timestamp"
 }
 
 # Initial sample for CPU delta calculation (Linux)

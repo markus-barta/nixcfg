@@ -1,70 +1,77 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                     SYSMON READER - Starship Custom Module                    ║
+# ║                   StaSysMo Reader - Starship Custom Module                    ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
-# Reads system metrics from sysmon-daemon output files and formats them for
+# Reads system metrics from stasysmo-daemon output files and formats them for
 # display in Starship prompt with threshold-based coloring.
 #
 # Features:
-#   - Staleness detection (shows "?" if data > 10s old)
-#   - Threshold-based coloring (muted → white → red)
+#   - Staleness detection (shows "?" if data too old)
+#   - Threshold-based coloring (muted → elevated → critical)
 #   - Priority-based truncation within character budget
 #   - Graceful error handling (empty output on failure)
 #
-# Usage: sysmon-reader
+# Configuration:
+#   All settings come from environment variables (set by Nix module).
+#   See: modules/shared/stasysmo/config.nix
+#
+# Usage: stasysmo-reader
 #   Called by Starship custom module, outputs formatted metrics string.
 #
 
 set -euo pipefail
 
 # ════════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
+# CONFIGURATION (from environment, with defaults from sysmon-config.nix)
 # ════════════════════════════════════════════════════════════════════════════════
 
-# Character budget for output (prevents prompt overflow)
-MAX_BUDGET="${SYSMON_MAX_BUDGET:-45}"
+# Display settings
+MAX_BUDGET="${STASYSMO_MAX_BUDGET:-45}"
+MIN_TERMINAL="${STASYSMO_MIN_TERMINAL:-100}"
+STALE_THRESHOLD="${STASYSMO_STALE_THRESHOLD:-10}"
 
-# Minimum terminal width to show metrics (hide on narrow terminals)
-MIN_TERMINAL="${SYSMON_MIN_TERMINAL:-100}"
+# Thresholds (elevated, critical)
+CPU_ELEVATED="${STASYSMO_CPU_ELEVATED:-50}"
+CPU_CRITICAL="${STASYSMO_CPU_CRITICAL:-80}"
+RAM_ELEVATED="${STASYSMO_RAM_ELEVATED:-70}"
+RAM_CRITICAL="${STASYSMO_RAM_CRITICAL:-90}"
+LOAD_ELEVATED="${STASYSMO_LOAD_ELEVATED:-2.0}"
+LOAD_CRITICAL="${STASYSMO_LOAD_CRITICAL:-4.0}"
+SWAP_ELEVATED="${STASYSMO_SWAP_ELEVATED:-10}"
+SWAP_CRITICAL="${STASYSMO_SWAP_CRITICAL:-50}"
 
-# Staleness threshold in seconds
-STALE_THRESHOLD="${SYSMON_STALE_THRESHOLD:-10}"
+# Icons (set by Nix module from sysmon-icons.sh, or use fallback)
+# The Nix module reads sysmon-icons.sh and passes the Unicode characters
+ICON_CPU="${STASYSMO_ICON_CPU:-?}"
+ICON_RAM="${STASYSMO_ICON_RAM:-?}"
+ICON_LOAD="${STASYSMO_ICON_LOAD:-?}"
+ICON_SWAP="${STASYSMO_ICON_SWAP:-?}"
 
-# Metric thresholds: [elevated, critical]
-# Configurable via environment variables
-CPU_THRESH_ELEVATED="${SYSMON_CPU_ELEVATED:-50}"
-CPU_THRESH_CRITICAL="${SYSMON_CPU_CRITICAL:-80}"
-RAM_THRESH_ELEVATED="${SYSMON_RAM_ELEVATED:-70}"
-RAM_THRESH_CRITICAL="${SYSMON_RAM_CRITICAL:-90}"
-LOAD_THRESH_ELEVATED="${SYSMON_LOAD_ELEVATED:-2.0}"
-LOAD_THRESH_CRITICAL="${SYSMON_LOAD_CRITICAL:-4.0}"
-SWAP_THRESH_ELEVATED="${SYSMON_SWAP_ELEVATED:-10}"
-SWAP_THRESH_CRITICAL="${SYSMON_SWAP_CRITICAL:-50}"
+# Colors (ANSI 256)
+COLOR_MUTED="${STASYSMO_COLOR_MUTED:-242}"
+COLOR_ELEVATED="${STASYSMO_COLOR_ELEVATED:-255}"
+COLOR_CRITICAL="${STASYSMO_COLOR_CRITICAL:-196}"
 
-# Icons (Nerd Font)
-ICON_CPU="${SYSMON_ICON_CPU:-}"    # \uf4bc - chip
-ICON_RAM="${SYSMON_ICON_RAM:-}"    # \uefc5 - memory
-ICON_LOAD="${SYSMON_ICON_LOAD:-󰊚}" # \uF029A - pulse
-ICON_SWAP="${SYSMON_ICON_SWAP:-󰾴}" # \uF0FB4 - swap
+# Spacers (configurable strings)
+SPACER_ICON_VALUE="${STASYSMO_SPACER_ICON_VALUE:- }" # Between icon and value
+SPACER_METRICS="${STASYSMO_SPACER_METRICS:- }"       # Between metrics
 
-# Colors (ANSI escape codes for Starship)
-# These work within Starship's custom module output
-COLOR_MUTED="\033[38;5;242m"    # Gray (blends in)
-COLOR_ELEVATED="\033[38;5;255m" # White (noticeable)
-COLOR_CRITICAL="\033[38;5;196m" # Red (urgent)
-COLOR_RESET="\033[0m"
-
-# Detect platform and set input directory
+# Platform detection
 if [[ "$(uname)" == "Darwin" ]]; then
-  SYSMON_DIR="/tmp/sysmon"
+  STASYSMO_DIR="${STASYSMO_DIR:-/tmp/stasysmo}"
 else
-  SYSMON_DIR="/dev/shm/sysmon"
+  STASYSMO_DIR="${STASYSMO_DIR:-/dev/shm/stasysmo}"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
 # ════════════════════════════════════════════════════════════════════════════════
+
+# Return icon (already a character, not an escape sequence)
+get_icon() {
+  echo -n "$1"
+}
 
 # Read metric file with fallback
 read_metric() {
@@ -73,7 +80,18 @@ read_metric() {
   cat "$file" 2>/dev/null || echo "$default"
 }
 
-# Get color based on value and thresholds (integer comparison)
+# Get ANSI color escape sequence
+ansi_color() {
+  local code="$1"
+  printf '\033[38;5;%sm' "$code"
+}
+
+# Reset ANSI color
+ansi_reset() {
+  printf '\033[0m'
+}
+
+# Get color code based on value and thresholds (integer comparison)
 get_color_int() {
   local value="$1"
   local thresh_elevated="$2"
@@ -90,7 +108,7 @@ get_color_int() {
   fi
 }
 
-# Get color based on value and thresholds (float comparison)
+# Get color code based on value and thresholds (float comparison)
 get_color_float() {
   local value="$1"
   local thresh_elevated="$2"
@@ -100,30 +118,30 @@ get_color_float() {
     echo "$COLOR_MUTED"
   else
     # Use awk for float comparison
-    local level
-    level=$(awk -v v="$value" -v e="$thresh_elevated" -v c="$thresh_critical" \
-      'BEGIN { if (v >= c) print "critical"; else if (v >= e) print "elevated"; else print "normal" }')
-
-    case "$level" in
-    critical) echo "$COLOR_CRITICAL" ;;
-    elevated) echo "$COLOR_ELEVATED" ;;
-    *) echo "$COLOR_MUTED" ;;
-    esac
+    awk -v v="$value" -v e="$thresh_elevated" -v c="$thresh_critical" -v cm="$COLOR_MUTED" -v ce="$COLOR_ELEVATED" -v cc="$COLOR_CRITICAL" \
+      'BEGIN { if (v >= c) print cc; else if (v >= e) print ce; else print cm }'
   fi
 }
 
-# Format a metric with icon, value, and color
+# Format a metric with icon, value, suffix, and color
 format_metric() {
-  local icon="$1"
+  local icon_escape="$1"
   local value="$2"
   local suffix="$3"
-  local color="$4"
+  local color_code="$4"
 
-  echo -e "${color}${icon} ${value}${suffix}${COLOR_RESET}"
+  local icon
+  icon=$(get_icon "$icon_escape")
+  local color
+  color=$(ansi_color "$color_code")
+  local reset
+  reset=$(ansi_reset)
+
+  # Use configurable spacer between icon and value
+  printf '%s%s%s%s%s%s' "$color" "$icon" "$SPACER_ICON_VALUE" "$value" "$suffix" "$reset"
 }
 
 # Calculate display width of a string (accounting for ANSI codes)
-# Note: ANSI escape sequences don't count toward visible width
 visible_width() {
   local str="$1"
   # Remove ANSI escape codes and count remaining characters
@@ -136,71 +154,70 @@ visible_width() {
 
 main() {
   # Check terminal width
-  # Note: When run by Starship, tput may return 80 (default) even on wide terminals
-  # Only hide on genuinely narrow terminals where COLUMNS is explicitly set
-  local cols="${COLUMNS:-200}" # Assume wide if not set (Starship context)
+  # When run by Starship, COLUMNS may not be set - assume wide terminal
+  local cols="${COLUMNS:-200}"
   if [[ "$cols" -lt "$MIN_TERMINAL" ]]; then
     exit 0 # Too narrow, show nothing
   fi
 
   # Check if sysmon directory exists
-  if [[ ! -d "$SYSMON_DIR" ]]; then
+  if [[ ! -d "$STASYSMO_DIR" ]]; then
     exit 0 # Daemon not running, graceful exit
   fi
 
   # Check staleness
   local timestamp
-  timestamp=$(read_metric "$SYSMON_DIR/timestamp" "0")
+  timestamp=$(read_metric "$STASYSMO_DIR/timestamp" "0")
   local now
   now=$(date +%s)
   local age=$((now - timestamp))
 
   if [[ "$age" -gt "$STALE_THRESHOLD" ]]; then
     # Data is stale, show indicator
-    echo -e "${COLOR_MUTED}?${COLOR_RESET}"
+    printf '%s?%s' "$(ansi_color "$COLOR_MUTED")" "$(ansi_reset)"
     exit 0
   fi
 
   # Read metrics
   local cpu ram swap load
-  cpu=$(read_metric "$SYSMON_DIR/cpu" "?")
-  ram=$(read_metric "$SYSMON_DIR/ram" "?")
-  swap=$(read_metric "$SYSMON_DIR/swap" "?")
-  load=$(read_metric "$SYSMON_DIR/load" "?")
+  cpu=$(read_metric "$STASYSMO_DIR/cpu" "?")
+  ram=$(read_metric "$STASYSMO_DIR/ram" "?")
+  swap=$(read_metric "$STASYSMO_DIR/swap" "?")
+  load=$(read_metric "$STASYSMO_DIR/load" "?")
 
   # Build metrics array with priorities (higher = more important)
   # Format: "priority|formatted_string"
   declare -a metrics=()
 
-  # CPU (priority 100)
+  # CPU (priority from config)
   local cpu_color
-  cpu_color=$(get_color_int "$cpu" "$CPU_THRESH_ELEVATED" "$CPU_THRESH_CRITICAL")
+  cpu_color=$(get_color_int "$cpu" "$CPU_ELEVATED" "$CPU_CRITICAL")
   metrics+=("100|$(format_metric "$ICON_CPU" "$cpu" "%" "$cpu_color")")
 
-  # RAM (priority 90)
+  # RAM
   local ram_color
-  ram_color=$(get_color_int "$ram" "$RAM_THRESH_ELEVATED" "$RAM_THRESH_CRITICAL")
+  ram_color=$(get_color_int "$ram" "$RAM_ELEVATED" "$RAM_CRITICAL")
   metrics+=("90|$(format_metric "$ICON_RAM" "$ram" "%" "$ram_color")")
 
-  # Load (priority 70)
+  # Load
   local load_color
-  load_color=$(get_color_float "$load" "$LOAD_THRESH_ELEVATED" "$LOAD_THRESH_CRITICAL")
+  load_color=$(get_color_float "$load" "$LOAD_ELEVATED" "$LOAD_CRITICAL")
   metrics+=("70|$(format_metric "$ICON_LOAD" "$load" "" "$load_color")")
 
-  # Swap (priority 60) - only show if > 0
+  # Swap (only show if > 0)
   if [[ "$swap" != "?" && "$swap" != "0" ]]; then
     local swap_color
-    swap_color=$(get_color_int "$swap" "$SWAP_THRESH_ELEVATED" "$SWAP_THRESH_CRITICAL")
+    swap_color=$(get_color_int "$swap" "$SWAP_ELEVATED" "$SWAP_CRITICAL")
     metrics+=("60|$(format_metric "$ICON_SWAP" "$swap" "%" "$swap_color")")
   fi
 
   # Sort by priority (descending) and build output within budget
   local output=""
   local current_width=0
-  local separator=" "
+  local separator="$SPACER_METRICS" # Configurable spacer between metrics
 
   # Sort metrics by priority (highest first)
-  # Using while loop instead of mapfile for bash 3.2 compatibility (macOS)
+  # Using while loop for bash 3.2 compatibility (macOS)
   while IFS= read -r item; do
     local formatted="${item#*|}" # Remove priority prefix
     local item_width

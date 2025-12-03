@@ -19,16 +19,16 @@ in
     ../../modules/shared/theme-hm.nix
     # Uzumaki shared Fish functions (pingt, sourcefish, sourceenv)
     ../../modules/uzumaki/macos.nix
-    # System metrics for Starship prompt (launchd daemon)
-    ../../modules/shared/sysmon-hm.nix
+    # StaSysMo - System metrics for Starship prompt (launchd daemon)
+    ../../modules/shared/stasysmo/home-manager.nix
   ];
 
   # Theme configuration - set hostname for palette lookup
   theme.hostname = "imac0";
 
-  # System metrics for Starship prompt (CPU, RAM, Load, Swap)
-  # Daemon writes to /tmp/sysmon/ every 5 seconds via launchd
-  services.sysmon.enable = true;
+  # StaSysMo - Starship System Monitoring (CPU, RAM, Load, Swap)
+  # Daemon writes to /tmp/stasysmo/ every 5 seconds via launchd
+  services.stasysmo.enable = true;
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "markus";
   home.homeDirectory = "/Users/markus";

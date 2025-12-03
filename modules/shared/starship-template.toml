@@ -14,7 +14,7 @@
 #   - Command duration (> 2s)
 #   - Background jobs indicator
 #   - Success/error character prompt
-#   - System metrics (CPU, RAM, Load, Swap) via sysmon
+#   - System metrics (CPU, RAM, Load, Swap) via StaSysMo
 #
 
 "$schema" = 'https://starship.rs/config-schema.json'
@@ -50,7 +50,7 @@ $php\
 $docker_context\
 [](fg:__DARK__)\
 $fill\
-${custom.sysmon}\
+${custom.stasysmo}\
 $status\
 $cmd_duration\
 [](fg:__DARKER__)\
@@ -189,16 +189,18 @@ only_with_files = true
 symbol = " "
 
 # ════════════════════════════════════════════════════════════════════════════════
-# SYSMON (System metrics - CPU, RAM, Load, Swap)
+# STASYSMO (Starship System Monitoring - CPU, RAM, Load, Swap)
 # ════════════════════════════════════════════════════════════════════════════════
-# Requires sysmon-daemon to be running (systemd on NixOS, launchd on macOS)
+# Requires stasysmo-daemon to be running (systemd on NixOS, launchd on macOS)
 # Gracefully shows nothing if daemon not running or data stale
+# Powerline segment with same background as nix_shell (impure) for visual consistency
 
-[custom.sysmon]
-command = "sysmon-reader"
-when = "test -f /dev/shm/sysmon/timestamp || test -f /tmp/sysmon/timestamp"
-format = "[$output ]($style)"
-style = ""
+[custom.stasysmo]
+command = "stasysmo-reader"
+when = "test -f /dev/shm/stasysmo/timestamp || test -f /tmp/stasysmo/timestamp"
+# Rounded left cap () starts segment, content with __DARKEST__ bg, rounded right cap () ends
+format = "[](fg:__DARKEST__)[[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)]($style)[](fg:__DARKEST__) "
+style = "bg:__DARKEST__"
 
 # ════════════════════════════════════════════════════════════════════════════════
 # STATUS (Exit code on error)
