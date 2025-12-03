@@ -14,6 +14,7 @@
 #   - Command duration (> 2s)
 #   - Background jobs indicator
 #   - Success/error character prompt
+#   - System metrics (CPU, RAM, Load, Swap) via sysmon
 #
 
 "$schema" = 'https://starship.rs/config-schema.json'
@@ -49,6 +50,7 @@ $php\
 $docker_context\
 [](fg:__DARK__)\
 $fill\
+${custom.sysmon}\
 $status\
 $cmd_duration\
 [](fg:__DARKER__)\
@@ -185,6 +187,18 @@ only_with_files = true
 
 [fill]
 symbol = " "
+
+# ════════════════════════════════════════════════════════════════════════════════
+# SYSMON (System metrics - CPU, RAM, Load, Swap)
+# ════════════════════════════════════════════════════════════════════════════════
+# Requires sysmon-daemon to be running (systemd on NixOS, launchd on macOS)
+# Gracefully shows nothing if daemon not running or data stale
+
+[custom.sysmon]
+command = "sysmon-reader"
+when = "test -f /dev/shm/sysmon/timestamp || test -f /tmp/sysmon/timestamp"
+format = "[$output ]($style)"
+style = ""
 
 # ════════════════════════════════════════════════════════════════════════════════
 # STATUS (Exit code on error)
