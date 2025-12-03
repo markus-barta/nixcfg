@@ -191,22 +191,35 @@ visible_width() {
 
 # Get actual terminal width (more reliable than COLUMNS)
 get_terminal_width() {
-  # Try tput first (most reliable in interactive shells)
   local width
-  width=$(tput cols 2>/dev/null || echo "")
-  if [[ -n "$width" && "$width" -gt 0 && "$width" -ne 80 ]]; then
-    # Accept tput result if it's not the generic default
-    echo "$width"
-    return
-  fi
-  # Check COLUMNS (set by some shells) - use ${VAR:-} for set -u compatibility
+
+  # 1) Check COLUMNS env var (fast, if shell exports it)
   local cols_env="${COLUMNS:-}"
   if [[ -n "$cols_env" && "$cols_env" -gt 0 ]]; then
     echo "$cols_env"
     return
   fi
-  # Default to wide (show all metrics) when we can't detect
-  # Better to show more info than hide it when unsure
+
+  # 2) Use /dev/tty to talk to the real terminal (works from subprocesses!)
+  #    This is the key insight: even though Starship's subprocess has no TTY
+  #    on stdin/stdout, /dev/tty still connects to the controlling terminal.
+  if [[ -e /dev/tty ]]; then
+    # Try stty via /dev/tty (most portable)
+    width=$(stty size </dev/tty 2>/dev/null | awk '{print $2}')
+    if [[ -n "$width" && "$width" -gt 0 ]]; then
+      echo "$width"
+      return
+    fi
+
+    # Try tput via /dev/tty (backup)
+    width=$(tput cols </dev/tty 2>/dev/null)
+    if [[ -n "$width" && "$width" -gt 0 ]]; then
+      echo "$width"
+      return
+    fi
+  fi
+
+  # 3) Fallback: default to showing all metrics
   echo "200"
 }
 
@@ -239,7 +252,9 @@ main() {
   # Get actual terminal width
   local cols
   cols=$(get_terminal_width)
-  debug "WIDTH: tput=$(tput cols 2>/dev/null || echo 'fail') COLUMNS=${COLUMNS:-unset} → using $cols"
+  local tty_width=""
+  [[ -e /dev/tty ]] && tty_width=$(stty size </dev/tty 2>/dev/null | awk '{print $2}')
+  debug "WIDTH: COLUMNS=${COLUMNS:-unset} /dev/tty=${tty_width:-fail} → using $cols"
 
   # Calculate how many metrics we can show
   local max_metrics
