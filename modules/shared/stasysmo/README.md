@@ -256,3 +256,159 @@ cd tests
    ```bash
    cat icons.sh | od -c | head -20
    ```
+
+---
+
+## Development Notes
+
+Technical reference for continuing development. Documents design decisions, pitfalls, and solutions discovered during initial implementation.
+
+### Architecture Decisions
+
+| Decision                             | Rationale                                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| Daemon + reader separation           | CPU% requires delta calculation; pre-compute in daemon, instant read in prompt    |
+| RAM-backed files (`/dev/shm`)        | Zero I/O latency; macOS falls back to `/tmp` (SSD, acceptable)                    |
+| Fixed budget (45 chars)              | Decouples reader from prompt layout; simpler than dynamic width                   |
+| Platform-specific Nix modules        | `nixos.nix` (systemd) vs `home-manager.nix` (launchd) - cleaner than conditionals |
+| Python-generated `icons.sh`          | Only reliable way to preserve Unicode through Nix evaluation and shell sourcing   |
+| Placeholder substitution in template | `__PL_LEFT_SOFT__` → `` prevents Unicode corruption during text edits             |
+
+### Terminal Width Detection
+
+**Problem**: Starship custom modules run in subprocesses where `$COLUMNS` is unset and `tput cols` returns default (80).
+
+**Solution**: Use `/dev/tty` to query the controlling terminal directly:
+
+```bash
+width=$(stty size < /dev/tty 2>/dev/null | awk '{print $2}') || \
+width=$(tput cols < /dev/tty 2>/dev/null) || \
+width=80
+```
+
+**Why it works**: Even in a subprocess with piped stdin/stdout, `/dev/tty` always refers to the controlling terminal of the session.
+
+### ANSI Color Preservation
+
+**Problem**: `\033[0m` (full reset) clears Starship's background color, breaking powerline segment transitions.
+
+**Solution**: Use `\033[39m` (reset foreground only) to preserve the `bg:` style set by Starship:
+
+```bash
+ansi_reset() { printf '\033[39m'; }  # NOT \033[0m
+```
+
+### Powerline Character Handling
+
+**Problem**: Nerd Font glyphs (`, `) are corrupted when editing `starship-template.toml` in editors without Nerd Font support.
+
+**Solution**: Use ASCII placeholders in template, substitute in `theme-hm.nix`:
+
+```nix
+# starship-template.toml
+format = "[__PL_LEFT_SOFT__](fg:__DARKEST__)"
+
+# theme-hm.nix (builtins.replaceStrings)
+"__PL_LEFT_SOFT__" → ""  # U+E0B6
+```
+
+Placeholders: `__PL_LEFT_HARD__` (), `__PL_RIGHT_HARD__` (), `__PL_LEFT_SOFT__` (), `__PL_RIGHT_SOFT__` ()
+
+### macOS-Specific Issues
+
+| Issue                     | Solution                                                           |
+| ------------------------- | ------------------------------------------------------------------ |
+| `bash 3.2` (no `mapfile`) | Use `while IFS= read -r` loop instead                              |
+| `vm_stat` output format   | `grep -oE '[0-9]+\.'` (no `$` anchor - trailing whitespace varies) |
+| Swap thresholds           | macOS pre-swaps aggressively; use 50%/75% vs Linux 33%/66%         |
+| `$COLUMNS` unset          | Detect via `stty size < /dev/tty`                                  |
+
+### Bash Arithmetic Pitfalls
+
+**Problem**: `((metric_count++))` exits with code 1 when `metric_count=0`, triggering `set -e`.
+
+**Solution**: Use explicit assignment:
+
+```bash
+metric_count=$((metric_count + 1))  # NOT ((metric_count++))
+```
+
+### Variable Expansion for Empty Strings
+
+**Problem**: `${VAR:-default}` uses default if VAR is unset OR empty. Can't pass empty string as spacer.
+
+**Solution**: Use `${VAR-default}` (no colon) - uses default only if unset:
+
+```bash
+spacer="${SPACER_ICON_VALUE-}"  # Allows empty string
+```
+
+### Starship Format String Syntax
+
+Segment format with background color transitions:
+
+```toml
+# Rounded left cap (transition into segment)
+[__PL_LEFT_SOFT__](fg:__DARKEST__)
+
+# Segment content with background
+[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)
+
+# Transition to next segment (different bg)
+[__PL_LEFT_SOFT__](fg:__DARKER__ bg:__DARKEST__)
+```
+
+Key insight: The cap character's foreground must match the segment's background; the cap's background must match the previous segment's background (or none for first segment).
+
+### Progressive Hiding
+
+Terminal width thresholds for metric visibility:
+
+| Width   | Behavior                |
+| ------- | ----------------------- |
+| < 60    | Hide all (no artifacts) |
+| 60-79   | Show 1 metric (CPU)     |
+| 80-99   | Show 2 metrics          |
+| 100-129 | Show 3 metrics          |
+| ≥ 130   | Show all 4 metrics      |
+
+**Artifact prevention**: Only emit output if at least one metric will be shown:
+
+```bash
+[[ -z "$output" ]] && exit 0  # No output = no segment
+```
+
+### Debug Mode
+
+Set `STASYSMO_DEBUG=1` in Nix config for runtime diagnostics. Only displays in interactive TTY (not in Starship subprocess):
+
+```
+┌─ StaSysMo Debug ─────────────────────────────────
+│ WIDTH: tput=156 COLUMNS=unset → using 156
+│ SLOTS: hideAll=60 show1=80 ... → max_metrics=4
+│ STALE: timestamp=... now=... age=1s threshold=10s
+│ DATA: cpu=6% ram=51% load=7.47 swap=59%
+│ OUTPUT: metrics_shown=4 visible_chars=36 budget=45
+└──────────────────────────────────────────────────
+```
+
+### Known Issues (Backlog)
+
+1. **Trailing space after `nix_shell` segment**: A single space appears after the `)` powerline cap. Source not yet identified in Starship format strings. See enhancements backlog.
+
+### Testing Strategy
+
+Automated tests (`tests/run-all.sh`) cover:
+
+- Platform detection
+- Daemon file creation
+- Output file format
+- Reader output format
+- Width threshold behavior
+
+Manual verification required for:
+
+- Visual powerline transitions
+- Color rendering
+- Nerd Font icon display
+- Real terminal width responsiveness

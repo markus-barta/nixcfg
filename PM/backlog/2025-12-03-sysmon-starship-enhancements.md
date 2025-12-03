@@ -278,6 +278,39 @@ Low — optimize only if needed.
 
 ---
 
+## Enhancement 9: Trailing Space After nix_shell Segment
+
+### Description
+
+A single trailing space appears after the closing `)` powerline cap of the `nix_shell` (impure) segment. This creates a visible gap before the prompt character `❯`.
+
+### Current State
+
+```
+ 6%  51% 󰊚 7.47 󰾴 59%  17:29:40  impure) ❯
+                                        ^-- unwanted space
+```
+
+### Investigation Done
+
+- Hex dump (`xxd`) of `starship prompt` output analyzed
+- Space is NOT in `nix_shell` format string
+- Space is NOT after the `__PL_RIGHT_SOFT__` cap
+- Possibly injected by Starship between modules, or in a module not yet identified
+
+### Debugging Approach
+
+1. Run `starship prompt | xxd` and trace bytes around `impure`
+2. Check `character` module format
+3. Check main `format` string spacing between `$nix_shell` and `$character`
+4. May need to inspect Starship's internal module output concatenation
+
+### Priority
+
+Low — cosmetic issue, ~99.9% of MVP complete.
+
+---
+
 ## Implementation Order (Suggested)
 
 1. **Temperature (Linux)** — easy win, high value
@@ -288,3 +321,4 @@ Low — optimize only if needed.
 6. **Disk I/O** — lower priority
 7. **GPU** — niche use case
 8. **Compiled Reader** — only if measurements show need
+9. **Trailing space fix** — cosmetic, low priority
