@@ -24,14 +24,18 @@ in
       # Reset mouse tracking (prevents garbled escape sequences from crashed apps)
       printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'
 
-      # Export COLUMNS for Starship width detection
-      # Fish maintains $COLUMNS but doesn't export it by default
-      # We export it immediately AND on every variable change (resize)
+      # Export terminal width for Starship
+      # - COLUMNS: for custom modules (stasysmo-reader)
+      # - STARSHIP_TERM_WIDTH: forces Starship's $fill to use this width
+      # Fish maintains $COLUMNS internally but doesn't export it
+      function __sync_term_width --on-variable COLUMNS
+        set -gx COLUMNS $COLUMNS
+        set -gx STARSHIP_TERM_WIDTH $COLUMNS
+      end
+      # Initial export
       if set -q COLUMNS
         set -gx COLUMNS $COLUMNS
-      end
-      function __sync_columns --on-variable COLUMNS
-        set -gx COLUMNS $COLUMNS
+        set -gx STARSHIP_TERM_WIDTH $COLUMNS
       end
 
       # Environment variables
