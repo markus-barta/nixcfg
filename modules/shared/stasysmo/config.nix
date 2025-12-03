@@ -75,13 +75,13 @@ rec {
     # Values are terminal column widths.
     terminalWidth = {
       # Below this: show nothing (hide StaSysMo completely)
-      hideAll = 80;
+      hideAll = 60;
       # Below this: show 1 metric (CPU only)
-      showOne = 100;
+      showOne = 80;
       # Below this: show 2 metrics (CPU + RAM)
-      showTwo = 120;
+      showTwo = 100;
       # Below this: show 3 metrics (CPU + RAM + Load)
-      showThree = 150;
+      showThree = 130;
       # Above showThree: show all 4 metrics
     };
   };

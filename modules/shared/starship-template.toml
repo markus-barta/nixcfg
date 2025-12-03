@@ -199,7 +199,7 @@ symbol = " "
 command = "stasysmo-reader"
 when = "test -f /dev/shm/stasysmo/timestamp || test -f /tmp/stasysmo/timestamp"
 # Rounded left cap () starts segment, content with __DARKEST__ bg, rounded right cap () ends
-format = "[](fg:__DARKEST__)[[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)]($style)[](fg:__DARKEST__) "
+format = "[](fg:__DARKEST__)[[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)]($style)[](fg:__DARKEST__)"
 style = "bg:__DARKEST__"
 
 # ════════════════════════════════════════════════════════════════════════════════
