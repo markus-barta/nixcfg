@@ -52,7 +52,7 @@ $docker_context\
 $fill\
 ${custom.stasysmo}\
 $status\
-[](fg:__DARKER__)\
+[](fg:__DARKER__)\
 $time\
 $cmd_duration\
 [](fg:__DARKER__ bg:__DARKEST__)\
@@ -198,11 +198,10 @@ symbol = " "
 [custom.stasysmo]
 command = "stasysmo-reader"
 when = "test -f /dev/shm/stasysmo/timestamp || test -f /tmp/stasysmo/timestamp"
-# IMPORTANT: Entire segment (including caps) must be inside a single optional group
-# so nothing renders when $output is empty (hideAll active or no data)
-# Format: left-cap + content + right-cap, all conditional on $output having value
-format = "[[](fg:__DARKEST__) $output [](fg:__DARKEST__)](fg:__TEXT_MUTED__ bg:__DARKEST__)"
-style = ""
+# Floating powerline segment: left cap, content on DARKEST bg, right cap
+# No trailing space - next segment (time) has its own left cap
+format = "[](fg:__DARKEST__)[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)[](fg:__DARKEST__)"
+style = "bg:__DARKEST__"
 
 # ════════════════════════════════════════════════════════════════════════════════
 # STATUS (Exit code on error)

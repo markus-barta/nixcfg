@@ -155,15 +155,22 @@ visible_width() {
 
 # Get actual terminal width (more reliable than COLUMNS)
 get_terminal_width() {
-  # Try tput first (most reliable)
+  # Try tput first (most reliable in interactive shells)
   local width
   width=$(tput cols 2>/dev/null)
-  if [[ -n "$width" && "$width" -gt 0 ]]; then
+  if [[ -n "$width" && "$width" -gt 0 && "$width" -ne 80 ]]; then
+    # Accept tput result if it's not the generic default
     echo "$width"
     return
   fi
-  # Fall back to COLUMNS, then default
-  echo "${COLUMNS:-80}"
+  # Check COLUMNS (set by some shells)
+  if [[ -n "$COLUMNS" && "$COLUMNS" -gt 0 ]]; then
+    echo "$COLUMNS"
+    return
+  fi
+  # Default to wide (show all metrics) when we can't detect
+  # Better to show more info than hide it when unsure
+  echo "200"
 }
 
 # Terminal width thresholds (from config, with sensible defaults)
@@ -200,9 +207,9 @@ main() {
   local max_metrics
   max_metrics=$(calculate_metric_slots "$cols")
 
-  # If terminal too narrow, show nothing - let prompt info survive
+  # If terminal too narrow, show nothing - exit non-zero so Starship skips module
   if [[ "$max_metrics" -eq 0 ]]; then
-    exit 0
+    exit 1
   fi
 
   # Check if sysmon directory exists
