@@ -40,7 +40,7 @@ cd ~/Code/nixcfg
 
 agenix -e secrets/mqtt-hsb1.age
 # Contents:
-# MQTT_HOST=hsb1
+# MQTT_HOST=localhost   # Use localhost since MQTT broker is local
 # MQTT_USER=smarthome
 # MQTT_PASS=<password from /etc/secrets/mqtt.env>
 
@@ -97,3 +97,35 @@ ssh mba@hsb1.lan 'systemctl is-active mqtt-volume-control'
 
 - Must have hsb1 SSH public key in secrets.nix before encrypting
 - Coordinate with `2025-11-29-secrets-directory-restructure.md` for overall secrets strategy
+
+## ⚠️ Critical Fix Applied (2025-12-03)
+
+### Issue: MQTT Volume Control Broken After Migration
+
+After the `miniserver24 → hsb1` hostname migration, the `mqtt-volume-control` service was stuck in a restart loop (788+ restarts) because `/etc/secrets/mqtt.env` still had `MQTT_HOST=miniserver24` which no longer resolves.
+
+**Root Cause**: The manual `/etc/secrets/mqtt.env` file wasn't updated during the hostname migration.
+
+**Fix Applied**:
+
+```bash
+# Changed from:
+MQTT_HOST=miniserver24
+
+# To:
+MQTT_HOST=localhost
+```
+
+**Lesson**: When migrating to agenix, use `MQTT_HOST=localhost` (not the hostname) since the MQTT broker runs locally on hsb1. This avoids future hostname-related issues.
+
+### Updated Implementation
+
+When creating the agenix secret, use:
+
+```bash
+agenix -e secrets/mqtt-hsb1.age
+# Contents:
+# MQTT_HOST=localhost        # ← Use localhost, NOT hsb1
+# MQTT_USER=smarthome
+# MQTT_PASS=<password>
+```
