@@ -15,6 +15,7 @@ Applies to: csb0 (smart home automation, IoT hub, MQTT broker)
 
 ## Acceptance Criteria
 
+- [ ] Standardize repo path: `~/nixcfg` → `~/Code/nixcfg` (consistency with other hosts)
 - [ ] Configuration preparation complete
 - [ ] SSH key security (lib.mkForce) applied
 - [ ] Temporary password auth enabled during migration
