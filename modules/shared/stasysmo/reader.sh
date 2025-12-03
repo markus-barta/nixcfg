@@ -54,8 +54,9 @@ COLOR_ELEVATED="${STASYSMO_COLOR_ELEVATED:-255}"
 COLOR_CRITICAL="${STASYSMO_COLOR_CRITICAL:-196}"
 
 # Spacers (configurable strings)
-SPACER_ICON_VALUE="${STASYSMO_SPACER_ICON_VALUE:- }" # Between icon and value
-SPACER_METRICS="${STASYSMO_SPACER_METRICS:- }"       # Between metrics
+# Note: Use ${VAR-default} not ${VAR:-default} to allow empty strings
+SPACER_ICON_VALUE="${STASYSMO_SPACER_ICON_VALUE- }" # Between icon and value
+SPACER_METRICS="${STASYSMO_SPACER_METRICS- }"       # Between metrics
 
 # Platform detection
 if [[ "$(uname)" == "Darwin" ]]; then
