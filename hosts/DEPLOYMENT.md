@@ -46,8 +46,8 @@ ssh mba@192.168.1.101  # hsb1 → cd ~/Code/nixcfg
 ssh mba@192.168.1.154  # gpc0 → cd ~/Code/nixcfg
 
 # Cloud servers (port 2222)
-ssh -p 2222 mba@cs0.barta.cm  # csb0 → cd ~/nixcfg
-ssh -p 2222 mba@cs1.barta.cm  # csb1 → cd ~/nixcfg
+ssh -p 2222 mba@cs0.barta.cm  # csb0 → cd ~/nixcfg (TODO: migrate to ~/Code/nixcfg)
+ssh -p 2222 mba@cs1.barta.cm  # csb1 → cd ~/nixcfg (TODO: migrate to ~/Code/nixcfg)
 
 # Check NixOS status
 git log -1 --format='%h %s'
