@@ -24,6 +24,10 @@ in
   # introduces backwards incompatible changes.
   home.stateVersion = "24.11";
 
+  # Disable Home Manager / Nixpkgs version mismatch warning
+  # (Using HM 25.11 with Nixpkgs 26.05 is intentional)
+  home.enableNixpkgsReleaseCheck = false;
+
   # Let Home Manager install and manage itself
   programs.home-manager.enable = true;
 
