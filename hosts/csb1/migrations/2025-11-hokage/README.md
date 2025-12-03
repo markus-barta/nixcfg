@@ -33,6 +33,7 @@ Migration from local mixins (`~/nixcfg/modules/mixins/`) to external Hokage modu
 | --------------------- | ---------------------------------- | -------------------- |
 | **Netcup Snapshot**   | `pre-hokage-migration` @ 11:58:42Z | Netcup SCP → Restore |
 | **Restic to Hetzner** | Snapshot `fd569a07`, 31 MiB added  | `restic restore`     |
+| **Local Archive**     | `archive/2025-11-29-pre-hokage/`   | Copy back if needed  |
 
 ---
 
@@ -76,3 +77,4 @@ The hsb1 migration taught us to:
 - [Migration Plan](../../docs/MIGRATION-PLAN-HOKAGE.md) - Full details
 - [SSH Key Security](../../docs/SSH-KEY-SECURITY-NOTE.md) - Why lib.mkForce
 - [Emergency Runbook](../../secrets/RUNBOOK.md) - Credentials & procedures
+- [Old Config Archive](../../archive/2025-11-29-pre-hokage/) - Pre-migration reference

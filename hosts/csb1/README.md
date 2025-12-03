@@ -54,6 +54,9 @@ hosts/csb1/
 ├── migrations/            # 📦 One-time migration scripts
 │   └── 2025-11-hokage/    # ✅ Completed 2025-11-29
 │
+├── archive/               # 📂 Historical configurations
+│   └── 2025-11-29-pre-hokage/  # Pre-migration backup
+│
 └── secrets/               # 🔒 Sensitive data (gitignored)
     ├── RUNBOOK.md         # Emergency procedures with credentials
     ├── MIGRATION-PLAN.md  # Full plan with sensitive details
