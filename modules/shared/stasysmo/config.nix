@@ -40,13 +40,12 @@ rec {
     # Daemon Interval (milliseconds)
     # ──────────────────────────────────────────────────────────────────────────
     interval = {
-      realtime = 1000; # 1 second - high CPU, very responsive
-      fast = 2000; # 2 seconds - responsive
-      normal = 5000; # 5 seconds - balanced (default)
-      relaxed = 10000; # 10 seconds - low overhead
-      lazy = 30000; # 30 seconds - minimal updates
+      realtime = 500; # 0.5 second - very responsive, use sparingly
+      fast = 1000; # 1 second - responsive
+      normal = 2500; # 2.5 seconds - balanced (default)
+      relaxed = 5000; # 5 seconds - low overhead
+      lazy = 10000; # 10 seconds - minimal updates
     };
-
     # ──────────────────────────────────────────────────────────────────────────
     # Character Budget (max width of metrics display)
     # ──────────────────────────────────────────────────────────────────────────
@@ -102,11 +101,11 @@ rec {
 
     # Spacer between icon and value (e.g., "C5%" vs "C 5%")
     # Use: presets.spacer.none, presets.spacer.thin, presets.spacer.normal, etc.
-    spacerIconValue = presets.spacer.none;
+    spacerIconValue = presets.spacer.hair;
 
     # Spacer between metrics (e.g., "5% 52%" vs "5% • 52%")
     # Use: presets.spacer.normal, presets.spacer.dot, presets.spacer.pipe, etc.
-    spacerMetrics = presets.spacer.normal;
+    spacerMetrics = presets.spacer.double;
   };
 
   # ════════════════════════════════════════════════════════════════════════════

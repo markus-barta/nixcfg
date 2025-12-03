@@ -143,11 +143,11 @@ in {
 |              | `dot`       | `.`    | Bullet separator (U+2022)  |
 |              | `diamond`   | `X`    | Diamond separator (U+25C6) |
 |              | `bar`       | `\|`   | ASCII pipe separator       |
-| **interval** | `realtime`  | 1000   | 1s - high CPU              |
-|              | `fast`      | 2000   | 2s - responsive            |
-|              | `normal`    | 5000   | 5s - balanced              |
-|              | `relaxed`   | 10000  | 10s - low overhead         |
-|              | `lazy`      | 30000  | 30s - minimal              |
+| **interval** | `realtime`  | 500    | 0.5s - very responsive     |
+|              | `fast`      | 1000   | 1s - responsive            |
+|              | `normal`    | 2500   | 2.5s - balanced            |
+|              | `relaxed`   | 5000   | 5s - low overhead          |
+|              | `lazy`      | 10000  | 10s - minimal              |
 | **budget**   | `minimal`   | 20     | Just CPU+RAM               |
 |              | `compact`   | 30     | CPU, RAM, Load             |
 |              | `normal`    | 45     | All metrics                |
