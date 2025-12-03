@@ -136,7 +136,9 @@ visible_width() {
 
 main() {
   # Check terminal width
-  local cols="${COLUMNS:-$(tput cols 2>/dev/null || echo 120)}"
+  # Note: When run by Starship, tput may return 80 (default) even on wide terminals
+  # Only hide on genuinely narrow terminals where COLUMNS is explicitly set
+  local cols="${COLUMNS:-200}" # Assume wide if not set (Starship context)
   if [[ "$cols" -lt "$MIN_TERMINAL" ]]; then
     exit 0 # Too narrow, show nothing
   fi
