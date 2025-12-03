@@ -112,6 +112,12 @@ let
         "__ERROR_BG__"
         "__ERROR_FG__"
         "__SUDO_FG__"
+
+        # Powerline characters (defined here to avoid corruption in template)
+        "__PL_LEFT_HARD__" # - right-pointing triangle (hard edge)
+        "__PL_RIGHT_HARD__" # - left-pointing triangle (hard edge)
+        "__PL_LEFT_SOFT__" # - right-pointing semicircle (soft/rounded)
+        "__PL_RIGHT_SOFT__" # - left-pointing semicircle (soft/rounded)
       ]
       [
         # Header values
@@ -143,6 +149,12 @@ let
         status.error.bg
         status.error.fg
         status.sudo.fg
+
+        # Powerline characters
+        ""
+        ""
+        ""
+        ""
       ]
       starshipTemplate;
 

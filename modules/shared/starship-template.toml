@@ -23,42 +23,42 @@
 # PROMPT FORMAT
 # ════════════════════════════════════════════════════════════════════════════════
 #
-# Left side: Rounded RIGHT arrows () for transitions
-# Right side: Rounded LEFT arrow () to START, then RIGHT arrows ()
+# Left side: Rounded RIGHT arrows (__PL_RIGHT_SOFT__) for transitions
+# Right side: Rounded LEFT arrow (__PL_LEFT_SOFT__) to START, then RIGHT arrows (__PL_RIGHT_SOFT__)
 #
 
 format = """
 ${custom.root_alert}\
 [░▒▓](__LIGHTEST__)\
 $os\
-[](bg:__PRIMARY__ fg:__LIGHTEST__)\
+[__PL_RIGHT_SOFT__](bg:__PRIMARY__ fg:__LIGHTEST__)\
 $directory\
-[](fg:__PRIMARY__ bg:__SECONDARY__)\
+[__PL_RIGHT_SOFT__](fg:__PRIMARY__ bg:__SECONDARY__)\
 $username\
 $hostname\
-[](fg:__SECONDARY__ bg:__MIDDARK__)\
+[__PL_RIGHT_SOFT__](fg:__SECONDARY__ bg:__MIDDARK__)\
 $jobs\
 $git_branch\
 $git_status\
 ${custom.gitcount}\
-[](fg:__MIDDARK__ bg:__DARK__)\
+[__PL_RIGHT_SOFT__](fg:__MIDDARK__ bg:__DARK__)\
 $nodejs\
 $python\
 $rust\
 $golang\
 $php\
 $docker_context\
-[](fg:__DARK__)\
+[__PL_RIGHT_SOFT__](fg:__DARK__)\
 $fill\
 ${custom.stasysmo}\
 $status\
-[](fg:__DARKER__ bg:__DARKEST__)\
+[__PL_LEFT_SOFT__](fg:__DARKER__ bg:__DARKEST__)\
 $time\
 $cmd_duration\
-[](fg:__DARKER__ bg:__DARKEST__)\
+[__PL_RIGHT_SOFT__](fg:__DARKER__ bg:__DARKEST__)\
 $sudo\
 $nix_shell\
-[](fg:__DARKEST__)\
+[__PL_RIGHT_SOFT__](fg:__DARKEST__)\
 \n$character\
 """
 
@@ -201,7 +201,7 @@ command = "stasysmo-reader"
 when = "test -f /dev/shm/stasysmo/timestamp || test -f /tmp/stasysmo/timestamp"
 # Powerline segment: left cap only, Time segment creates the transition
 # No trailing space - next segment (time) has its own left cap
-format = "[](fg:__DARKEST__)[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)"
+format = "[__PL_LEFT_SOFT__](fg:__DARKEST__)[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)"
 style = "bg:__DARKEST__"
 
 # ════════════════════════════════════════════════════════════════════════════════
