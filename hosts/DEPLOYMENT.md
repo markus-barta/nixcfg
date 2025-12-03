@@ -2,28 +2,28 @@
 
 ## Current Repository
 
-| Attribute   | Value                                                               |
-| ----------- | ------------------------------------------------------------------- |
-| **Commit**  | `b8eed49e`                                                          |
-| **Message** | fix: update starship template styles for user and hostname sections |
+| Attribute   | Value                                                    |
+| ----------- | -------------------------------------------------------- |
+| **Commit**  | `a06e1181`                                               |
+| **Message** | docs: complete StaSysMo MVP, add dev notes, move to done |
 
 ## NixOS Host Status
 
 | Host | Commit     | System Build                | Git | Built | Action         | Checked          |
 | ---- | ---------- | --------------------------- | --- | ----- | -------------- | ---------------- |
-| hsb0 | `b8eed49e` | hsb0-26.05.20251127.2fad6ea | ✅  | ✅    | —              | 2025-12-02 17:55 |
-| hsb1 | `c091b9c9` | hsb1-25.11.20251117.89c2b23 | 🟡  | 🟡    | `just upgrade` | 2025-11-30 09:38 |
-| hsb8 | —          | —                           | ⚫  | ⚫    | —              | 2025-11-30 09:38 |
-| csb0 | `af420880` | csb0-25.11.20251117.89c2b23 | 🟡  | ✅    | `git pull`     | 2025-11-30 09:38 |
-| csb1 | `f71b56ca` | csb1-25.11.20251117.89c2b23 | 🟡  | ✅    | `git pull`     | 2025-11-30 09:38 |
-| gpc0 | `03572ef`  | gpc0-25.11.20251117         | 🟡  | 🟡    | `just upgrade` | 2025-11-30 09:42 |
+| hsb0 | `a06e1181` | hsb0-26.05.20251127.2fad6ea | ✅  | ✅    | —              | 2025-12-03 19:55 |
+| hsb1 | `c091b9c9` | hsb1-25.11.20251117.89c2b23 | 🟡  | 🟡    | `just upgrade` | 2025-12-03 19:55 |
+| hsb8 | —          | —                           | ⚫  | ⚫    | —              | 2025-12-03 19:55 |
+| csb0 | `af420880` | csb0-25.11.20251117.89c2b23 | 🟡  | 🟡    | `just upgrade` | 2025-12-03 19:55 |
+| csb1 | `f71b56ca` | csb1-25.11.20251117.89c2b23 | 🟡  | 🟡    | `just upgrade` | 2025-12-03 19:55 |
+| gpc0 | —          | —                           | ⚫  | ⚫    | —              | 2025-12-03 19:55 |
 
 ## macOS Home Manager Status
 
-| Host          | Commit    | HM Generation | Git | Built | Action | Checked          |
-| ------------- | --------- | ------------- | --- | ----- | ------ | ---------------- |
-| imac-mba-work | `8b55088` | gen 16        | ✅  | ✅    | —      | 2025-12-01 13:11 |
-| imac0         | —         | —             | ⚫  | ⚫    | —      | —                |
+| Host          | Commit     | HM Generation | Git | Built | Action         | Checked          |
+| ------------- | ---------- | ------------- | --- | ----- | -------------- | ---------------- |
+| imac0         | `a06e1181` | gen 68        | ✅  | ✅    | —              | 2025-12-03 19:55 |
+| imac-mba-work | `8b55088`  | gen 16        | 🟡  | 🟡    | `just upgrade` | 2025-12-01 13:11 |
 
 ### Legend
 
@@ -33,7 +33,7 @@
 | 🟡   | Behind / Needs update |
 | ⚫   | Offline / Unknown     |
 
-- **Git**: Does host commit match repo HEAD (`b8eed49e`)?
+- **Git**: Does host commit match repo HEAD (`a06e1181`)?
 - **Built**: Was system rebuilt from host's current commit?
 - **Action**: Command to run — `git pull`, `just switch`, `just upgrade`, or —
 
