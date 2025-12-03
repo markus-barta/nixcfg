@@ -52,9 +52,9 @@ $docker_context\
 $fill\
 ${custom.stasysmo}\
 $status\
-$cmd_duration\
 [](fg:__DARKER__)\
 $time\
+$cmd_duration\
 [](fg:__DARKER__ bg:__DARKEST__)\
 $sudo\
 $nix_shell\
@@ -198,7 +198,7 @@ symbol = " "
 [custom.stasysmo]
 command = "stasysmo-reader"
 when = "test -f /dev/shm/stasysmo/timestamp || test -f /tmp/stasysmo/timestamp"
-# Rounded left cap () starts segment, content with __DARKEST__ bg, rounded right cap () ends
+# Powerline arrows: start with left-pointing, end with right-pointing
 format = "[](fg:__DARKEST__)[[ $output ](fg:__TEXT_MUTED__ bg:__DARKEST__)]($style)[](fg:__DARKEST__) "
 style = "bg:__DARKEST__"
 
@@ -218,8 +218,8 @@ format = '[$symbol $status ]($style)'
 
 [cmd_duration]
 min_time = 2000
-style = "fg:__TEXT_MUTED_LIGHT__"
-format = '[⏱ $duration ]($style)'
+style = "bg:__DARKER__"
+format = '[[(S $duration) ](fg:__TEXT_MUTED__ bg:__DARKER__)]($style)'
 
 # ════════════════════════════════════════════════════════════════════════════════
 # TIME
@@ -229,7 +229,7 @@ format = '[⏱ $duration ]($style)'
 disabled = false
 time_format = "%T"
 style = "bg:__DARKER__"
-format = '[[  $time ](fg:__TEXT_MUTED_LIGHT__ bg:__DARKER__)]($style)'
+format = '[[ T $time ](fg:__TEXT_MUTED_LIGHT__ bg:__DARKER__)]($style)'
 
 # ════════════════════════════════════════════════════════════════════════════════
 # SUDO (cached credentials)
