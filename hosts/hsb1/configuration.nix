@@ -10,7 +10,11 @@
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki/server.nix # Fish pingt, sourcefish, zellij, EDITOR
+    ../../modules/shared/stasysmo/nixos.nix
   ];
+
+  # Enable StaSysMo system metrics in Starship prompt
+  services.stasysmo.enable = true;
 
   # Allow unfree package for "FLIRC" IR-USB-Module
   nixpkgs.config.allowUnfreePredicate =
