@@ -157,15 +157,16 @@ visible_width() {
 get_terminal_width() {
   # Try tput first (most reliable in interactive shells)
   local width
-  width=$(tput cols 2>/dev/null)
+  width=$(tput cols 2>/dev/null || echo "")
   if [[ -n "$width" && "$width" -gt 0 && "$width" -ne 80 ]]; then
     # Accept tput result if it's not the generic default
     echo "$width"
     return
   fi
-  # Check COLUMNS (set by some shells)
-  if [[ -n "$COLUMNS" && "$COLUMNS" -gt 0 ]]; then
-    echo "$COLUMNS"
+  # Check COLUMNS (set by some shells) - use ${VAR:-} for set -u compatibility
+  local cols_env="${COLUMNS:-}"
+  if [[ -n "$cols_env" && "$cols_env" -gt 0 ]]; then
+    echo "$cols_env"
     return
   fi
   # Default to wide (show all metrics) when we can't detect
@@ -300,8 +301,11 @@ main() {
     fi
   done < <(printf '%s\n' "${metrics[@]}" | sort -t'|' -k1 -rn)
 
-  # Output final string
-  echo -e "$output"
+  # Output final string only if we have something to show
+  # Empty output causes Starship to hide the module entirely (no artifacts)
+  if [[ -n "$output" ]]; then
+    echo -e "$output"
+  fi
 }
 
 main "$@"
