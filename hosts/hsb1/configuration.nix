@@ -9,9 +9,18 @@
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
-    ../../modules/uzumaki/server.nix # Fish pingt, sourcefish, zellij, EDITOR
+    ../../modules/uzumaki # New consolidated module (Phase 5 migration)
     ../../modules/shared/stasysmo/nixos.nix
   ];
+
+  # ============================================================================
+  # UZUMAKI MODULE - Fish functions, zellij, editor (migrated from server.nix)
+  # ============================================================================
+  uzumaki = {
+    enable = true;
+    role = "server";
+    fish.editor = "nano";
+  };
 
   # Enable StaSysMo system metrics in Starship prompt
   services.stasysmo.enable = true;

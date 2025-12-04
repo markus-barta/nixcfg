@@ -36,17 +36,12 @@
 let
   cfg = config.uzumaki;
 
-  # Platform detection: check if we're on NixOS or Darwin
-  # NixOS has `config.system.nixos` defined, Darwin doesn't
-  isNixOS = (config ? system) && (config.system ? nixos);
-  isDarwin = !isNixOS;
-
   # Import shared fish configuration (consolidated in Phase 3)
   sharedFish = import ../shared/fish;
   fishFunctions = sharedFish.functions;
 
   # ════════════════════════════════════════════════════════════════════════════
-  # NixOS: Convert function definitions to inline Fish functions
+  # Convert function definitions to inline Fish functions for interactiveShellInit
   # ════════════════════════════════════════════════════════════════════════════
   mkFishFunction = name: def: ''
     function ${name} --description '${def.description}'
@@ -54,7 +49,7 @@ let
     end
   '';
 
-  # Build the fish init string based on enabled functions (NixOS)
+  # Build the fish init string based on enabled functions
   fishInitFunctions = lib.concatStrings (
     lib.optional cfg.fish.functions.pingt (mkFishFunction "pingt" fishFunctions.pingt)
     ++ lib.optional cfg.fish.functions.sourcefish (mkFishFunction "sourcefish" fishFunctions.sourcefish)
@@ -62,17 +57,6 @@ let
     ++ lib.optional cfg.fish.functions.stress (mkFishFunction "stress" fishFunctions.stress)
     ++ lib.optional cfg.fish.functions.helpfish (mkFishFunction "helpfish" fishFunctions.helpfish)
   );
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # Darwin: Build the functions attrset (Home Manager style)
-  # ════════════════════════════════════════════════════════════════════════════
-  enabledFunctions =
-    { }
-    // lib.optionalAttrs cfg.fish.functions.pingt { inherit (fishFunctions) pingt; }
-    // lib.optionalAttrs cfg.fish.functions.sourcefish { inherit (fishFunctions) sourcefish; }
-    // lib.optionalAttrs cfg.fish.functions.sourceenv { inherit (fishFunctions) sourceenv; }
-    // lib.optionalAttrs cfg.fish.functions.stress { inherit (fishFunctions) stress; }
-    // lib.optionalAttrs cfg.fish.functions.helpfish { inherit (fishFunctions) helpfish; };
 
 in
 {
@@ -83,58 +67,29 @@ in
   imports = [ ./options.nix ];
 
   # ══════════════════════════════════════════════════════════════════════════════
-  # CONFIGURATION
+  # CONFIGURATION (NixOS only)
   # ══════════════════════════════════════════════════════════════════════════════
+  # NOTE: This module is for NixOS system-level configuration only.
+  # Darwin/macOS uses a separate Home Manager pattern - see hosts/imac0/home.nix
 
-  config = lib.mkIf cfg.enable (
-    lib.mkMerge [
-      # ════════════════════════════════════════════════════════════════════════
-      # Common: Set detected platform
-      # ════════════════════════════════════════════════════════════════════════
-      {
-        uzumaki.platform = if isNixOS then "nixos" else "darwin";
-      }
+  config = lib.mkIf cfg.enable {
+    # Platform marker
+    uzumaki.platform = "nixos";
 
-      # ════════════════════════════════════════════════════════════════════════
-      # NixOS Implementation
-      # ════════════════════════════════════════════════════════════════════════
-      (lib.mkIf isNixOS {
-        # Fish functions via interactiveShellInit
-        programs.fish.interactiveShellInit = lib.mkIf cfg.fish.enable (
-          lib.mkAfter ''
-            # ══════════════════════════════════════════════════════════════════
-            # Uzumaki Fish Functions
-            # ══════════════════════════════════════════════════════════════════
-            ${fishInitFunctions}
+    # Fish functions via interactiveShellInit
+    programs.fish.interactiveShellInit = lib.mkIf cfg.fish.enable (
+      lib.mkAfter ''
+        # ══════════════════════════════════════════════════════════════════
+        # Uzumaki Fish Functions
+        # ══════════════════════════════════════════════════════════════════
+        ${fishInitFunctions}
 
-            # Editor
-            set -gx EDITOR ${cfg.fish.editor}
-          ''
-        );
+        # Editor
+        set -gx EDITOR ${cfg.fish.editor}
+      ''
+    );
 
-        # Packages
-        environment.systemPackages = lib.mkIf cfg.zellij.enable [ pkgs.zellij ];
-      })
-
-      # ════════════════════════════════════════════════════════════════════════
-      # Darwin/Home Manager Implementation
-      # ════════════════════════════════════════════════════════════════════════
-      (lib.mkIf isDarwin {
-        # Fish functions via programs.fish.functions (Home Manager style)
-        programs.fish.functions = lib.mkIf cfg.fish.enable enabledFunctions;
-
-        programs.fish.interactiveShellInit = lib.mkIf cfg.fish.enable (
-          lib.mkAfter ''
-            # ══════════════════════════════════════════════════════════════════
-            # Uzumaki - Editor Configuration
-            # ══════════════════════════════════════════════════════════════════
-            set -gx EDITOR ${cfg.fish.editor}
-          ''
-        );
-
-        # Packages
-        home.packages = lib.mkIf cfg.zellij.enable [ pkgs.zellij ];
-      })
-    ]
-  );
+    # Packages
+    environment.systemPackages = lib.mkIf cfg.zellij.enable [ pkgs.zellij ];
+  };
 }
