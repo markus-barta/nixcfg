@@ -35,11 +35,8 @@ in
         # Fix: Help messages to be shown in English, instead of German
         set -e LANGUAGE
 
-        # Reset mouse tracking (prevents garbled escape sequences from crashed apps)
-        printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'
-
-        # NOTE: Do NOT set STARSHIP_TERM_WIDTH - Starship detects terminal width
-        # automatically and setting it manually breaks $fill on some hosts (hsb1)
+        # NOTE: Mouse tracking reset removed - was breaking Starship $fill on hsb1
+        # See: pm/backlog/2025-12-04-starship-fill-broken-hsb1.md
       '';
       shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
       shellAbbrs = (lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs) // {

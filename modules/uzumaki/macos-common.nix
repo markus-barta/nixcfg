@@ -21,11 +21,8 @@ in
 
     # Shell initialization (config.fish equivalent)
     shellInit = ''
-      # Reset mouse tracking (prevents garbled escape sequences from crashed apps)
-      printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'
-
-      # NOTE: Do NOT set STARSHIP_TERM_WIDTH - Starship detects terminal width
-      # automatically and setting it manually breaks $fill on some hosts
+      # NOTE: Mouse tracking reset removed - was breaking Starship $fill
+      # See: pm/backlog/2025-12-04-starship-fill-broken-hsb1.md
 
       # Environment variables
       set -gx TERM xterm-256color
