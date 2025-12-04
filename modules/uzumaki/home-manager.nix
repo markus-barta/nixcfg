@@ -65,6 +65,7 @@ in
         // lib.optionalAttrs cfg.fish.functions.pingt { inherit (fishFunctions) pingt; }
         // lib.optionalAttrs cfg.fish.functions.sourcefish { inherit (fishFunctions) sourcefish; }
         // lib.optionalAttrs cfg.fish.functions.stress { inherit (fishFunctions) stress; }
+        // lib.optionalAttrs cfg.fish.functions.stasysmod { inherit (fishFunctions) stasysmod; }
         // lib.optionalAttrs cfg.fish.functions.helpfish { inherit (fishFunctions) helpfish; };
 
       # Shell aliases from uzumaki/fish
