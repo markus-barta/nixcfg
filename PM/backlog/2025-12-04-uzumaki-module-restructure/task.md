@@ -209,14 +209,21 @@ cd ~/nixcfg/hosts/<host>/tests
 
 **Baseline Matrix (Phase I Hosts):**
 
-| Host          | T00 Base | T01 Theme | T02 Fish | T03 StaSysMo | Status  |
-| ------------- | -------- | --------- | -------- | ------------ | ------- |
-| hsb0          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
-| hsb1          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
-| hsb8          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
-| gpc0          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
-| imac0         | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
-| imac-mba-work | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
+| Host          | T00 Base | T01 Theme | T02 Fish | T03 StaSysMo | Status      |
+| ------------- | -------- | --------- | -------- | ------------ | ----------- |
+| hsb0          | ⬜       | ⬜        | ⬜       | ⬜           | Pending     |
+| hsb1          | ⏭️       | ✅ 27/27  | ❌ (exp) | ⚠️ partial   | ✅ Baseline |
+| hsb8          | ⬜       | ⬜        | ⬜       | ⬜           | Pending     |
+| gpc0          | ⬜       | ⬜        | ⬜       | ⬜           | Pending     |
+| imac0         | ⬜       | ⬜        | ⬜       | ⬜           | Pending     |
+| imac-mba-work | ⬜       | ⬜        | ⬜       | ⬜           | Pending     |
+
+**hsb1 Baseline Notes (2024-12-04):**
+
+- T00: Skipped (remote test, needs to run from workstation)
+- T01: ✅ Theme system fully functional (green palette)
+- T02: ❌ Expected failure - uzumaki module not yet applied, no fish functions
+- T03: ⚠️ Daemon runs, but output files missing (investigate)
 
 **Baseline Matrix (Phase II Hosts - Deferred):**
 
