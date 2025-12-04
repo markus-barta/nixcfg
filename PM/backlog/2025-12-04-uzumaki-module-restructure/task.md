@@ -4,14 +4,18 @@
 
 ## Quick Reference
 
-| Phase                | Description                                      | Status      |
-| -------------------- | ------------------------------------------------ | ----------- |
-| 1. Audit & Document  | Architecture flowcharts, dependency mapping      | ✅ Complete |
-| 2. Module Framework  | Create `default.nix`, `options.nix`, role system | ⬜ Pending  |
-| 3. Consolidate Fish  | Move to `shared/fish/`, proper exports           | ⬜ Pending  |
-| 4. **Test Suite** 🧪 | Baseline tests, infrastructure, validation       | ⬜ Pending  |
-| 5. Migrate Hosts     | Pilot → Rollout with validation gates            | ⬜ Pending  |
-| 6. Cleanup           | Remove deprecated, update docs                   | ⬜ Pending  |
+| Phase                 | Description                                      | Status      |
+| --------------------- | ------------------------------------------------ | ----------- |
+| 1. Audit & Document   | Architecture flowcharts, dependency mapping      | ✅ Complete |
+| 2. Module Framework   | Create `default.nix`, `options.nix`, role system | ⬜ Pending  |
+| 3. Consolidate Fish   | Move to `shared/fish/`, proper exports           | ⬜ Pending  |
+| 4. **Test Suite** 🧪  | Baseline tests, infrastructure, validation       | 🔄 Active   |
+| 5. Migrate Hosts (I)  | Pilot → Rollout: hsb0/1/8, gpc0, imac0/work      | ⬜ Pending  |
+| 6. Cleanup (I)        | Remove deprecated, update docs                   | ⬜ Pending  |
+| **─── Phase II ───**  | **Cloud Servers (csb0/csb1)** 🌐                 |             |
+| 7. Mixins → Hokage    | Migrate csb0/csb1 from old mixins structure      | ⬜ Pending  |
+| 8. Migrate Hosts (II) | Apply uzumaki module to csb0/csb1                | ⬜ Pending  |
+| 9. Final Cleanup      | Complete documentation, archive tests            | ⬜ Pending  |
 
 ---
 
@@ -96,16 +100,23 @@ See [architecture-planned.md](./architecture-planned.md) for full details.
 
 You already have professional-grade tests in `hosts/<host>/tests/`:
 
-| Host          | Test Location                | Existing Tests                              |
-| ------------- | ---------------------------- | ------------------------------------------- |
-| hsb0          | `hosts/hsb0/tests/`          | T00-T11 (nixos-base, dns, dhcp, theme, zfs) |
-| hsb1          | `hosts/hsb1/tests/`          | T01-theme                                   |
-| hsb8          | `hosts/hsb8/tests/`          | T00-T19 (nixos-base, theme, zfs, agenix)    |
-| csb0          | `hosts/csb0/tests/`          | _(check coverage)_                          |
-| csb1          | `hosts/csb1/tests/`          | _(check coverage)_                          |
-| gpc0          | —                            | _(needs tests directory)_                   |
-| imac0         | `hosts/imac0/tests/`         | T00-T11 (nix-base, fish, theme, cli, gui)   |
-| imac-mba-work | `hosts/imac-mba-work/tests/` | T00-T08 (nix-base, fish, starship, cli)     |
+**Phase I Hosts:**
+
+| Host          | Test Location                | Existing Tests                                                 |
+| ------------- | ---------------------------- | -------------------------------------------------------------- |
+| hsb0          | `hosts/hsb0/tests/`          | T00-T11 (nixos-base, dns, dhcp, theme, zfs)                    |
+| hsb1          | `hosts/hsb1/tests/`          | T01-theme                                                      |
+| hsb8          | `hosts/hsb8/tests/`          | T00-T19 (nixos-base, theme, zfs, agenix)                       |
+| gpc0          | `hosts/gpc0/tests/`          | ✅ T00-T11 (nixos-base, theme, fish, stasysmo, plasma, gaming) |
+| imac0         | `hosts/imac0/tests/`         | T00-T11 (nix-base, fish, theme, cli, gui)                      |
+| imac-mba-work | `hosts/imac-mba-work/tests/` | T00-T08 (nix-base, fish, starship, cli)                        |
+
+**Phase II Hosts (Deferred - OLD Mixins Structure):**
+
+| Host | Test Location       | Existing Tests                        | Notes                     |
+| ---- | ------------------- | ------------------------------------- | ------------------------- |
+| csb0 | `hosts/csb0/tests/` | T00-T07 (nixos-base, docker, traefik) | Needs mixins→hokage first |
+| csb1 | `hosts/csb1/tests/` | T00-T07 (nixos-base, docker, grafana) | Needs mixins→hokage first |
 
 **Existing helper functions** (already in tests):
 
@@ -185,20 +196,25 @@ cd ~/nixcfg/hosts/<host>/tests
 ./run-all-tests.sh 2>&1 | tee baseline-$(date +%Y%m%d).log
 ```
 
-**Baseline Matrix:**
+**Baseline Matrix (Phase I Hosts):**
 
 | Host          | T00 Base | T01 Theme | T02 Fish | T03 StaSysMo | Status  |
 | ------------- | -------- | --------- | -------- | ------------ | ------- |
 | hsb0          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
 | hsb1          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
 | hsb8          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
-| csb0          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
-| csb1          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
 | gpc0          | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
 | imac0         | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
 | imac-mba-work | ⬜       | ⬜        | ⬜       | ⬜           | Pending |
 
-**Legend:** ⬜ Pending | ✅ Pass | ❌ Fail | ⏭️ Skip
+**Baseline Matrix (Phase II Hosts - Deferred):**
+
+| Host | T00 Base | T01 Theme | T02 Fish | T03 StaSysMo | Status            |
+| ---- | -------- | --------- | -------- | ------------ | ----------------- |
+| csb0 | ⏭️       | ⏭️        | ⏭️       | ⏭️           | Phase II (mixins) |
+| csb1 | ⏭️       | ⏭️        | ⏭️       | ⏭️           | Phase II (mixins) |
+
+**Legend:** ⬜ Pending | ✅ Pass | ❌ Fail | ⏭️ Skip/Deferred
 
 #### 4.4 Post-Migration Validation Tests
 
@@ -226,7 +242,7 @@ nix build .#nixosConfigurations.$HOST.config.system.build.toplevel -o result-new
 diff -u baseline-$HOST result-new/
 ```
 
-### Phase 5: Migrate Hosts
+### Phase 5: Migrate Hosts (Phase I)
 
 > **Gate:** Phase 4 baseline tests MUST all pass before migration begins.
 
@@ -241,14 +257,16 @@ diff -u baseline-$HOST result-new/
 7. Run full test suite → all pass ✅
 8. Document any deviations
 
-**Migration Order:**
+**Migration Order (Phase I - Local Hosts):**
 
 - [ ] **Pilot 1:** hsb1 (server) - Most stable, good test case
 - [ ] **Pilot 2:** gpc0 (desktop) - Desktop-specific features
 - [ ] **Pilot 3:** imac0 (workstation) - macOS validation
-- [ ] **Rollout:** hsb0, hsb8, csb0, csb1, imac-mba-work
+- [ ] **Rollout:** hsb0, hsb8, imac-mba-work
 
-### Phase 6: Cleanup
+> ⚠️ **csb0/csb1 deferred to Phase II** - These cloud servers still use the old `modules/mixins/` structure and need a separate migration path (mixins → hokage first, then uzumaki).
+
+### Phase 6: Cleanup (Phase I)
 
 - [ ] Remove deprecated files:
   - [ ] `modules/uzumaki/server.nix` (merged into nixos.nix)
@@ -258,7 +276,37 @@ diff -u baseline-$HOST result-new/
 - [ ] Update all documentation
 - [ ] Archive migration tests (keep validation tests)
 - [ ] Update README.md in modules/uzumaki/
-- [ ] Final test run on all hosts
+- [ ] Final test run on Phase I hosts
+
+---
+
+## Phase II: Cloud Servers (csb0/csb1) 🌐
+
+> **Prerequisite:** Phase I complete. csb0/csb1 still use OLD `modules/mixins/` structure (not hokage).
+> They import `../../modules/mixins/server-remote.nix`, `server-mba.nix`, `zellij.nix` directly.
+> Migration requires: mixins → hokage consumer pattern, THEN uzumaki module.
+
+### Phase 7: Mixins → Hokage Migration
+
+- [ ] Audit csb0/csb1 current dependencies on `modules/mixins/`
+- [ ] Create migration plan for each server
+- [ ] Update csb0 to import from `github:pbek/nixcfg` (hokage consumer pattern)
+- [ ] Update csb1 to import from `github:pbek/nixcfg` (hokage consumer pattern)
+- [ ] Verify both servers build and deploy correctly
+- [ ] Run existing test suites → all pass
+
+### Phase 8: Migrate Hosts (Phase II)
+
+- [ ] csb0: Apply uzumaki module (same procedure as Phase 5)
+- [ ] csb1: Apply uzumaki module (same procedure as Phase 5)
+- [ ] Run full test suites → all pass
+
+### Phase 9: Final Cleanup
+
+- [ ] Remove ALL deprecated files (including mixins if no longer needed)
+- [ ] Complete documentation
+- [ ] Final test run on ALL hosts
+- [ ] Archive Phase II migration tests
 
 ## Risks
 

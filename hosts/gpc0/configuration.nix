@@ -18,7 +18,11 @@
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki/desktop.nix # Fish pingt, sourcefish, zellij, EDITOR
+    ../../modules/shared/stasysmo/nixos.nix
   ];
+
+  # StaSysMo - System metrics in Starship prompt
+  services.stasysmo.enable = true;
 
   environment.systemPackages = with pkgs; [
     amdgpu_top # AMD GPU monitoring
