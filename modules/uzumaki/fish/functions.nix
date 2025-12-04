@@ -116,37 +116,32 @@
       echo -e "║          Custom Fish Functions & Abbreviations                 ║"
       echo -e "╚════════════════════════════════════════════════════════════════╝$color_reset\n"
 
-      # ── Custom Functions ──
-      echo -e "$color_func┌── Functions ──────────────────────────────────────────────────┐$color_reset"
-      # Filter to show only our custom functions (not builtins or fish_*)
-      for func in pingt sourcefish sourceenv stress helpfish
-        if functions -q $func
-          set -l desc (functions -D $func 2>/dev/null)
-          if test -z "$desc" -o "$desc" = "-"
-            set desc "(no description)"
-          end
-          printf "  $color_func%-18s$color_reset %s\n" $func "$desc"
-        end
-      end
+      # ── Custom Functions (🌀 Uzumaki) ──
+      echo -e "$color_func┌── 🌀 Functions ─────────────────────────────────────────────────┐$color_reset"
+      printf "  $color_func%-14s$color_reset  %s\n" "pingt" "Timestamped ping with color-coded output (yellow=timeout, red=error)"
+      printf "  $color_func%-14s$color_reset  %s\n" "sourcefish" "Load .env file into current Fish session (parses KEY=value)"
+      printf "  $color_func%-14s$color_reset  %s\n" "sourceenv" "Quick .env loader (simpler format, direct sourcing)"
+      printf "  $color_func%-14s$color_reset  %s\n" "stress" "CPU stress test on all cores (stress [seconds] or Ctrl+C)"
+      printf "  $color_func%-14s$color_reset  %s\n" "helpfish" "Show this help (custom functions, aliases, abbreviations)"
       echo -e "$color_func└────────────────────────────────────────────────────────────────┘$color_reset\n"
 
       # ── Aliases ──
       echo -e "$color_alias┌── Aliases ─────────────────────────────────────────────────────┐$color_reset"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitc" "git commit" "Commit changes"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitps" "git push" "Push to remote"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitpl" "git pull + submodule" "Pull with submodules"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitplr" "git pull --rec" "Pull recursive"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitsub" "git submodule update" "Update submodules"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitpls" "git pull" "Pull only"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gita" "git add -A" "Stage all changes"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitst" "git status" "Show status"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitd" "git diff" "Show diff"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitds" "git diff --staged" "Show staged diff"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "gitl" "git log" "Show log"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "ll" "eza -hal --icons" "List files detailed"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "lg" "lazygit" "Git TUI"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "j" "just" "Command runner"
-      printf "  $color_alias%-12s$color_reset →  %s  $color_dim# %s$color_reset\n" "duai" "dua interactive" "Disk usage TUI"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitc" "git commit" "Commit changes"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitps" "git push" "Push to remote"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitpl" "git pull + submodule" "Pull with submodules"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitplr" "git pull --rec" "Pull recursive"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitsub" "git submodule update" "Update submodules"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitpls" "git pull" "Pull only"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gita" "git add -A" "Stage all changes"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitst" "git status" "Show status"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitd" "git diff" "Show diff"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitds" "git diff --staged" "Show staged diff"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "gitl" "git log" "Show log"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "ll" "eza -hal --icons" "List files detailed"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "lg" "lazygit" "Git TUI"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "j" "just" "Command runner"
+      printf "  $color_alias%-12s$color_reset →  %-22s $color_dim# %s$color_reset\n" "duai" "dua interactive" "Disk usage TUI"
       echo -e "$color_alias└────────────────────────────────────────────────────────────────┘$color_reset\n"
 
       # ── Abbreviations (modern CLI replacements) ──
