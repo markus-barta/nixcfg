@@ -15,7 +15,7 @@
 #   - modules/uzumaki/macos-common.nix (macOS config)
 #
 {
-  # Fish functions (pingt, stress, helpfish, sourcefish, sourceenv)
+  # Fish functions (pingt, stress, helpfish, sourcefish)
   functions = import ./functions.nix;
 
   # Fish aliases (gitc, gitps, ll, etc.)

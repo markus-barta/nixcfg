@@ -73,16 +73,6 @@
   };
 
   # ════════════════════════════════════════════════════════════════════════════
-  # SOURCEENV - Quick env loader (simpler version)
-  # ════════════════════════════════════════════════════════════════════════════
-  sourceenv = {
-    description = "Quick load env vars from file (simple format)";
-    body = ''
-      sed -e 's/^/set -gx /' -e 's/=/\ /' $argv | source
-    '';
-  };
-
-  # ════════════════════════════════════════════════════════════════════════════
   # STRESS - CPU stress test
   # ════════════════════════════════════════════════════════════════════════════
   stress = {
@@ -95,6 +85,22 @@
       else
         echo "Starting CPU stress test on $cores cores (Ctrl+C to stop)..."
         stress-ng --cpu $cores --cpu-load 100 --cpu-method matrixprod
+      end
+    '';
+  };
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STASYSMOD - Toggle StaSysMo debug mode
+  # ════════════════════════════════════════════════════════════════════════════
+  stasysmod = {
+    description = "Toggle StaSysMo debug mode (system metrics verbose output)";
+    body = ''
+      if set -q STASYSMO_DEBUG
+        set -e STASYSMO_DEBUG
+        echo "StaSysMo debug mode: OFF"
+      else
+        set -gx STASYSMO_DEBUG 1
+        echo "StaSysMo debug mode: ON (shows diagnostics on next prompt)"
       end
     '';
   };
@@ -120,8 +126,8 @@
       echo -e "$color_func┌── 🌀 Functions ─────────────────────────────────────────────────┐$color_reset"
       printf "  $color_func%-14s$color_reset  %s\n" "pingt" "Timestamped ping with color-coded output (yellow=timeout, red=error)"
       printf "  $color_func%-14s$color_reset  %s\n" "sourcefish" "Load .env file into current Fish session (parses KEY=value)"
-      printf "  $color_func%-14s$color_reset  %s\n" "sourceenv" "Quick .env loader (simpler format, direct sourcing)"
       printf "  $color_func%-14s$color_reset  %s\n" "stress" "CPU stress test on all cores (stress [seconds] or Ctrl+C)"
+      printf "  $color_func%-14s$color_reset  %s\n" "stasysmod" "Toggle StaSysMo debug mode (verbose metrics diagnostics)"
       printf "  $color_func%-14s$color_reset  %s\n" "helpfish" "Show this help (custom functions, aliases, abbreviations)"
       echo -e "$color_func└────────────────────────────────────────────────────────────────┘$color_reset\n"
 

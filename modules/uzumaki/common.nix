@@ -95,6 +95,23 @@
   };
 
   # ============================================================================
+  # FISH FUNCTION: stasysmod
+  # ============================================================================
+  # Toggle StaSysMo debug mode for verbose system metrics diagnostics
+  stasysmod = {
+    description = "Toggle StaSysMo debug mode (system metrics verbose output)";
+    body = ''
+      if set -q STASYSMO_DEBUG
+        set -e STASYSMO_DEBUG
+        echo "StaSysMo debug mode: OFF"
+      else
+        set -gx STASYSMO_DEBUG 1
+        echo "StaSysMo debug mode: ON (shows diagnostics on next prompt)"
+      end
+    '';
+  };
+
+  # ============================================================================
   # FISH FUNCTION: helpfish
   # ============================================================================
   # Display all custom functions and abbreviations with descriptions
@@ -115,7 +132,7 @@
       # ── Custom Functions ──
       echo -e "$color_func┌── Functions ──────────────────────────────────────────────────┐$color_reset"
       # Filter to show only our custom functions (not builtins or fish_*)
-      for func in pingt sourcefish sourceenv stress helpfish
+      for func in pingt sourcefish sourceenv stress stasysmod helpfish
         if functions -q $func
           set -l desc (functions -D $func 2>/dev/null)
           if test -z "$desc" -o "$desc" = "-"

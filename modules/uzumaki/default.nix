@@ -21,7 +21,7 @@
 #   };
 #
 # Features:
-#   - Fish functions: pingt, stress, helpfish, sourcefish, sourceenv
+#   - Fish functions: pingt, stress, helpfish, sourcefish
 #   - Zellij terminal multiplexer
 #   - StaSysMo system monitoring (opt-in via uzumaki.stasysmo.enable)
 #   - Role-based defaults (server/desktop/workstation)
@@ -53,8 +53,8 @@ let
   fishInitFunctions = lib.concatStrings (
     lib.optional cfg.fish.functions.pingt (mkFishFunction "pingt" fishFunctions.pingt)
     ++ lib.optional cfg.fish.functions.sourcefish (mkFishFunction "sourcefish" fishFunctions.sourcefish)
-    ++ lib.optional cfg.fish.functions.sourceenv (mkFishFunction "sourceenv" fishFunctions.sourceenv)
     ++ lib.optional cfg.fish.functions.stress (mkFishFunction "stress" fishFunctions.stress)
+    ++ lib.optional cfg.fish.functions.stasysmod (mkFishFunction "stasysmod" fishFunctions.stasysmod)
     ++ lib.optional cfg.fish.functions.helpfish (mkFishFunction "helpfish" fishFunctions.helpfish)
   );
 

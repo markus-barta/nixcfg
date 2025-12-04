@@ -13,7 +13,7 @@
 #   };
 #
 # Features:
-#   - Fish functions: pingt, stress, helpfish, sourcefish, sourceenv
+#   - Fish functions: pingt, stress, helpfish, sourcefish
 #   - Zellij terminal multiplexer
 #   - StaSysMo system monitoring (launchd on macOS)
 #   - Per-host theming (starship, zellij, eza)
@@ -64,7 +64,6 @@ in
         { }
         // lib.optionalAttrs cfg.fish.functions.pingt { inherit (fishFunctions) pingt; }
         // lib.optionalAttrs cfg.fish.functions.sourcefish { inherit (fishFunctions) sourcefish; }
-        // lib.optionalAttrs cfg.fish.functions.sourceenv { inherit (fishFunctions) sourceenv; }
         // lib.optionalAttrs cfg.fish.functions.stress { inherit (fishFunctions) stress; }
         // lib.optionalAttrs cfg.fish.functions.helpfish { inherit (fishFunctions) helpfish; };
 

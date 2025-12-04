@@ -70,11 +70,12 @@
           description = "Enable sourcefish - load env vars from .env files";
         };
 
-        sourceenv = lib.mkOption {
+        stasysmod = lib.mkOption {
           type = lib.types.bool;
           default = true;
-          description = "Enable sourceenv - quick env var loader";
+          description = "Enable stasysmod - toggle StaSysMo debug mode";
         };
+
       };
 
       editor = lib.mkOption {
