@@ -115,16 +115,16 @@ modules/shared/fish/
 
 You already have professional-grade tests in `hosts/<host>/tests/`:
 
-**Phase I Hosts:**
+**Phase I Hosts (All Updated with Uzumaki Tests):**
 
-| Host          | Test Location                | Existing Tests                                                 |
-| ------------- | ---------------------------- | -------------------------------------------------------------- |
-| hsb0          | `hosts/hsb0/tests/`          | T00-T11 (nixos-base, dns, dhcp, theme, zfs)                    |
-| hsb1          | `hosts/hsb1/tests/`          | T01-theme                                                      |
-| hsb8          | `hosts/hsb8/tests/`          | T00-T19 (nixos-base, theme, zfs, agenix)                       |
-| gpc0          | `hosts/gpc0/tests/`          | ✅ T00-T11 (nixos-base, theme, fish, stasysmo, plasma, gaming) |
-| imac0         | `hosts/imac0/tests/`         | T00-T11 (nix-base, fish, theme, cli, gui)                      |
-| imac-mba-work | `hosts/imac-mba-work/tests/` | T00-T08 (nix-base, fish, starship, cli)                        |
+| Host          | Test Location                | Tests                                                                    |
+| ------------- | ---------------------------- | ------------------------------------------------------------------------ |
+| hsb0          | `hosts/hsb0/tests/`          | ✅ T00-T13 + T12-uzumaki-fish + T13-stasysmo + run-all-tests.sh          |
+| hsb1          | `hosts/hsb1/tests/`          | ✅ T00-T03 + T02-uzumaki-fish + T03-stasysmo + run-all-tests.sh (PILOT)  |
+| hsb8          | `hosts/hsb8/tests/`          | ✅ T00-T21 + T20-uzumaki-fish + T21-stasysmo + run-all-tests.sh          |
+| gpc0          | `hosts/gpc0/tests/`          | ✅ T00-T11 (nixos-base, theme, fish, stasysmo, plasma, gaming) + run-all |
+| imac0         | `hosts/imac0/tests/`         | ✅ T01-fish-shell (updated with uzumaki) + run-all-tests.sh              |
+| imac-mba-work | `hosts/imac-mba-work/tests/` | ✅ T01-fish-shell (updated with uzumaki) + run-all-tests.sh              |
 
 **Phase II Hosts (Deferred - OLD Mixins Structure):**
 
@@ -140,7 +140,7 @@ You already have professional-grade tests in `hosts/<host>/tests/`:
 - `check_file_contains()` - Pattern matching
 - `check_unicode_python()` - Unicode verification (imac0)
 
-#### 4.1 Audit Existing Tests (Uzumaki Coverage)
+#### 4.1 Audit Existing Tests (Uzumaki Coverage) ✓
 
 Review which existing tests already cover uzumaki functionality:
 
@@ -152,54 +152,39 @@ Review which existing tests already cover uzumaki functionality:
 - [x] Unicode/Nerd Font icons preserved
 - [x] EZA_CONFIG_DIR set in fish
 
-**Fish Shell Tests (T01-fish-shell.sh)** - Partial coverage:
+**Fish Shell Tests** - Now Complete! ✅
 
 - [x] Fish installed from Nix
 - [x] Custom functions exist (`brewall`, `sourceenv`, `sourcefish`)
-- [ ] **ADD:** `pingt` function exists
-- [ ] **ADD:** `stress` function exists
-- [ ] **ADD:** `helpfish` function exists
+- [x] `pingt` function exists
+- [x] `stress` function exists
+- [x] `helpfish` function exists
+- [x] Key abbreviations: ping→pingt, tmux→zellij
 
-**NixOS Base Tests (T00-nixos-base.sh)** - System-level:
+#### 4.2 New Tests Added ✓
 
-- [ ] Verify includes fish, zellij, starship packages
+**NixOS hosts** - Added uzumaki-specific tests:
 
-#### 4.2 New Tests to Add (Per Host)
+- [x] hsb0: `T12-uzumaki-fish.sh`, `T13-stasysmo.sh`
+- [x] hsb1: `T02-uzumaki-fish.sh`, `T03-stasysmo.sh` (PILOT HOST)
+- [x] hsb8: `T20-uzumaki-fish.sh`, `T21-stasysmo.sh`
+- [x] gpc0: Full test suite created (T00-T11)
 
-**For ALL NixOS hosts** - Add to `hosts/<host>/tests/`:
+**gpc0** - Created `hosts/gpc0/tests/`:
 
-```bash
-# T02-uzumaki-fish.sh (or extend T01-fish-shell.sh)
-- pingt function exists and callable
-- sourcefish function exists
-- sourceenv function exists
-- stress function exists (shows core count)
-- helpfish function displays function list
-- Abbreviations: ping→pingt, tmux→zellij, vim→hx
+- [x] `T00-nixos-base.sh` - Base system checks
+- [x] `T01-theme.sh` - Purple palette verification
+- [x] `T02-uzumaki-fish.sh` - Fish functions
+- [x] `T03-stasysmo.sh` - StaSysMo daemon
+- [x] `T10-desktop-plasma.sh` - Plasma integration
+- [x] `T11-gaming.sh` - Gaming packages
 
-# T03-uzumaki-stasysmo.sh (or add to existing)
-- systemctl status stasysmo-daemon (active)
-- /dev/shm/sysmon_* files exist
-- stasysmo-reader produces output
+**macOS hosts** - Extended existing tests:
 
-# T04-uzumaki-zellij.sh
-- which zellij returns path
-- Config uses host-specific theme name
-```
+- [x] `imac0/T01-fish-shell.sh` - Added pingt, stress, helpfish checks
+- [x] `imac-mba-work/T01-fish-shell.sh` - Added pingt, stress, helpfish checks
 
-**For gpc0** - Create `hosts/gpc0/tests/`:
-
-- [ ] `T00-nixos-base.sh` - Base system checks
-- [ ] `T01-theme.sh` - Purple palette verification
-- [ ] `T02-uzumaki-fish.sh` - Fish functions
-- [ ] `T03-uzumaki-stasysmo.sh` - StaSysMo daemon
-- [ ] `T10-desktop-plasma.sh` - Plasma integration
-- [ ] `T11-desktop-gaming.sh` - Gaming packages
-
-**For macOS hosts** - Extend existing tests:
-
-- [ ] `T01-fish-shell.sh` - Add pingt, stress, helpfish checks
-- [ ] `T12-stasysmo.sh` - LaunchAgent running check
+**All hosts** - Added `run-all-tests.sh` runner script
 
 #### 4.3 Pre-Migration Baseline
 
