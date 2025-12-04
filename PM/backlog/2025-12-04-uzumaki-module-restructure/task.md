@@ -188,10 +188,21 @@ Review which existing tests already cover uzumaki functionality:
 
 #### 4.3 Pre-Migration Baseline
 
-Run ALL existing tests and record results:
+**Baseline Collection Script:**
 
 ```bash
-# Per host, SSH in and run:
+# From your workstation, run:
+cd ~/nixcfg/tests
+./collect-baselines.sh         # All Phase I hosts
+./collect-baselines.sh hsb1    # Single host (pilot)
+```
+
+Results saved to: `tests/baselines/YYYYMMDD-<host>.log`
+
+**Manual testing (per host):**
+
+```bash
+# SSH to host and run:
 cd ~/nixcfg/hosts/<host>/tests
 ./run-all-tests.sh 2>&1 | tee baseline-$(date +%Y%m%d).log
 ```
