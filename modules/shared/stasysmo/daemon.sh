@@ -44,7 +44,8 @@ fi
 mkdir -p "$STASYSMO_DIR"
 
 # Previous CPU sample for delta calculation (Linux only)
-prev_cpu_total=0
+# Initialize to -1 to detect first run (no valid baseline yet)
+prev_cpu_total=-1
 prev_cpu_idle=0
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -61,6 +62,14 @@ get_cpu_linux() {
   local non_idle=$((user + nice + system + irq + softirq + steal))
   local total=$((idle_total + non_idle))
 
+  # First run: no baseline yet, just store values and return 0
+  if [[ $prev_cpu_total -lt 0 ]]; then
+    prev_cpu_total=$total
+    prev_cpu_idle=$idle_total
+    CPU_RESULT=0
+    return
+  fi
+
   # Calculate delta from previous sample
   local total_delta=$((total - prev_cpu_total))
   local idle_delta=$((idle_total - prev_cpu_idle))
@@ -71,7 +80,6 @@ get_cpu_linux() {
 
   # Calculate CPU percentage (avoid division by zero)
   if [[ $total_delta -gt 0 ]]; then
-    # Store result in global variable (avoid subshell issue with $())
     CPU_RESULT=$(((total_delta - idle_delta) * 100 / total_delta))
   else
     CPU_RESULT=0
@@ -252,13 +260,9 @@ write_metrics() {
 # Global variable for CPU result (avoids subshell issues)
 CPU_RESULT=0
 
-# Initial sample for CPU delta calculation (Linux)
-if [[ "$PLATFORM" == "linux" ]]; then
-  get_cpu_linux # Initializes prev_cpu_* variables
-  sleep 0.1     # Brief pause to get meaningful delta on first real sample
-fi
-
 # Main loop
+# Note: First CPU sample on Linux will be 0 (establishing baseline),
+# subsequent samples will show accurate delta-based percentage
 while true; do
   write_metrics
   sleep "$INTERVAL_S"
