@@ -17,7 +17,7 @@ let
     ;
 
   # Import shared fish configuration
-  sharedFishConfig = import ./shared/fish-config.nix;
+  sharedFishConfig = import ./uzumaki/fish/config.nix;
 in
 {
   # Disable hokage's starship (we configure our own with shared TOML file)
@@ -302,8 +302,8 @@ in
 
   home-manager.users = lib.genAttrs hokage.usersWithRoot (_userName: {
     imports = [
-      # Themed starship, zellij, and eza
-      ./shared/theme-hm.nix
+      # Themed starship, zellij, and eza (consolidated into uzumaki)
+      ./uzumaki/theme/theme-hm.nix
     ];
 
     # Pass hostname explicitly (builtins.getEnv doesn't work during NixOS eval)

@@ -8,9 +8,10 @@
 { pkgs, lib, ... }:
 
 let
-  sharedFishConfig = import ../shared/fish-config.nix;
-  # Import uzumaki common functions (pingt, sourcefish, sourceenv)
-  uzumakiFunctions = import ./common.nix;
+  # Import fish configuration (consolidated into uzumaki)
+  fishModule = import ./fish;
+  fishConfig = fishModule.config;
+  uzumakiFunctions = fishModule.functions;
 in
 {
   # ============================================================================
@@ -96,8 +97,8 @@ in
       '';
     };
 
-    # Aliases - merge shared config with macOS-specific aliases
-    shellAliases = sharedFishConfig.fishAliases // {
+    # Aliases - merge uzumaki config with macOS-specific aliases
+    shellAliases = fishConfig.fishAliases // {
       # macOS specific aliases
       mc = "env LANG=en_US.UTF-8 mc";
       # Force macOS native ping (inetutils ping has bugs on Darwin)
@@ -107,9 +108,9 @@ in
       netstat = "/usr/sbin/netstat";
     };
 
-    # Abbreviations - merge shared config with macOS-specific abbreviations
-    # SSH shortcuts (hsb0, hsb1, hsb8, gpc0, csb0, csb1) are in shared/fish-config.nix
-    shellAbbrs = sharedFishConfig.fishAbbrs // {
+    # Abbreviations - merge uzumaki config with macOS-specific abbreviations
+    # SSH shortcuts (hsb0, hsb1, hsb8, gpc0, csb0, csb1) are in uzumaki/fish/config.nix
+    shellAbbrs = fishConfig.fishAbbrs // {
       flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
     };
   };

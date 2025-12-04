@@ -36,9 +36,9 @@
 let
   cfg = config.uzumaki;
 
-  # Import shared fish configuration (consolidated in Phase 3)
-  sharedFish = import ../shared/fish;
-  fishFunctions = sharedFish.functions;
+  # Import fish configuration (consolidated into uzumaki)
+  fishModule = import ./fish;
+  fishFunctions = fishModule.functions;
 
   # ════════════════════════════════════════════════════════════════════════════
   # Convert function definitions to inline Fish functions for interactiveShellInit
@@ -66,7 +66,7 @@ in
 
   imports = [
     ./options.nix
-    ../shared/stasysmo/nixos.nix # StaSysMo options (enabled via uzumaki.stasysmo.enable)
+    ./stasysmo/nixos.nix # StaSysMo options (enabled via uzumaki.stasysmo.enable)
   ];
 
   # ══════════════════════════════════════════════════════════════════════════════

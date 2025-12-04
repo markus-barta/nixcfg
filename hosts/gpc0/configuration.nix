@@ -17,12 +17,18 @@
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
-    ../../modules/uzumaki/desktop.nix # Fish pingt, sourcefish, zellij, EDITOR
-    ../../modules/shared/stasysmo/nixos.nix
+    ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
   ];
 
-  # StaSysMo - System metrics in Starship prompt
-  services.stasysmo.enable = true;
+  # ============================================================================
+  # UZUMAKI MODULE - Fish functions, zellij, stasysmo (all-in-one)
+  # ============================================================================
+  uzumaki = {
+    enable = true;
+    role = "desktop";
+    fish.editor = "nano";
+    stasysmo.enable = true; # System metrics in Starship prompt
+  };
 
   environment.systemPackages = with pkgs; [
     amdgpu_top # AMD GPU monitoring

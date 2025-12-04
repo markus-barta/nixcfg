@@ -1,25 +1,27 @@
 {
   pkgs,
-  lib,
   inputs,
   ...
 }:
 
-let
-  # Import uzumaki macOS configuration
-  macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
-in
-
 {
   imports = [
-    # Themed starship, zellij, and eza (auto-detects hostname)
-    ../../modules/shared/theme-hm.nix
-    # StaSysMo system metrics daemon for Starship prompt
-    ../../modules/shared/stasysmo/home-manager.nix
+    # Uzumaki: Fish functions, theming, stasysmo (all-in-one)
+    ../../modules/uzumaki/home-manager.nix
   ];
 
-  # Enable StaSysMo daemon (CPU, RAM, Load, Swap metrics in prompt)
-  services.stasysmo.enable = true;
+  # ============================================================================
+  # UZUMAKI MODULE - All personal config in one place
+  # ============================================================================
+  uzumaki = {
+    enable = true;
+    role = "workstation";
+    fish.editor = "nano";
+    stasysmo.enable = true; # System metrics in Starship prompt
+  };
+
+  # Theme configuration - set hostname for palette lookup
+  theme.hostname = "imac-mba-work";
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "markus";
   home.homeDirectory = "/Users/markus";
@@ -37,9 +39,86 @@ in
   programs.home-manager.enable = true;
 
   # ============================================================================
-  # Fish Shell Configuration (from shared config)
+  # Fish Shell Configuration
   # ============================================================================
-  programs.fish = macosCommon.fishConfig;
+  # Core config (functions, aliases, abbrs) provided by uzumaki/home-manager.nix
+  # Add host-specific overrides here
+  programs.fish = {
+    enable = true;
+
+    # Shell initialization
+    shellInit = ''
+      set -gx TERM xterm-256color
+      set -gx ZOXIDE_CMD z
+    '';
+
+    # Login shell initialization - prepend Nix paths to PATH
+    loginShellInit = ''
+      fish_add_path --prepend --move ~/.nix-profile/bin
+      fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
+    '';
+
+    interactiveShellInit = ''
+      # Custom greeting
+      function fish_greeting
+          set_color cyan
+          echo -n "Welcome to fish, the friendly interactive shell "
+          set_color green
+          echo -n (whoami)"@"(hostname -s)
+          set_color yellow
+          echo -n " · "(date "+%Y-%m-%d %H:%M")
+          set_color normal
+      end
+
+      # Initialize zoxide
+      zoxide init fish | source
+    '';
+
+    # Host-specific functions
+    functions = {
+      # Custom cd function using zoxide
+      cd = ''
+        if set -q ZOXIDE_CMD
+            z $argv
+        else
+            builtin cd $argv
+        end
+      '';
+
+      # Sudo with !! support
+      sudo = {
+        description = "Sudo with !! support";
+        body = ''
+          if test "$argv" = "!!"
+              eval command sudo $history[1]
+          else
+              command sudo $argv
+          end
+        '';
+      };
+
+      # Homebrew maintenance
+      brewall = ''
+        brew update
+        brew upgrade
+        brew cleanup
+        brew doctor
+      '';
+    };
+
+    # macOS-specific aliases (merged with uzumaki's)
+    shellAliases = {
+      mc = "env LANG=en_US.UTF-8 mc";
+      ping = "/sbin/ping";
+      traceroute = "/usr/sbin/traceroute";
+      netstat = "/usr/sbin/netstat";
+    };
+
+    # macOS-specific abbreviations (merged with uzumaki's)
+    shellAbbrs = {
+      flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
+    };
+  };
 
   # ============================================================================
   # Starship Prompt Configuration
@@ -170,7 +249,7 @@ in
   # Starship Config - NOW MANAGED BY theme-hm.nix (auto-detected hostname)
   # ============================================================================
   # Theme: darkGray (workstation-work category)
-  # See: modules/shared/theme-palettes.nix for color definitions
+  # See: modules/uzumaki/theme/theme-palettes.nix for color definitions
 
   # ============================================================================
   # Scripts Management

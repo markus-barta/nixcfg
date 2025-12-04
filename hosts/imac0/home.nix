@@ -5,30 +5,27 @@
   ...
 }:
 
-let
-  # Import shared fish configuration
-  sharedFishConfig = import ../../modules/shared/fish-config.nix;
-in
-
 {
   # ============================================================================
   # Module Imports
   # ============================================================================
   imports = [
-    # Per-host theming (starship, zellij, eza) - auto-detects hostname
-    ../../modules/shared/theme-hm.nix
-    # Uzumaki shared Fish functions (pingt, sourcefish, sourceenv)
-    ../../modules/uzumaki/macos.nix
-    # StaSysMo - System metrics for Starship prompt (launchd daemon)
-    ../../modules/shared/stasysmo/home-manager.nix
+    # Uzumaki: Fish functions, theming, stasysmo (all-in-one)
+    ../../modules/uzumaki/home-manager.nix
   ];
+
+  # ============================================================================
+  # UZUMAKI MODULE - All personal config in one place
+  # ============================================================================
+  uzumaki = {
+    enable = true;
+    role = "workstation";
+    fish.editor = "nano";
+    stasysmo.enable = true; # System metrics in Starship prompt
+  };
 
   # Theme configuration - set hostname for palette lookup
   theme.hostname = "imac0";
-
-  # StaSysMo - Starship System Monitoring (CPU, RAM, Load, Swap)
-  # Daemon writes to /tmp/stasysmo/ every 5 seconds via launchd
-  services.stasysmo.enable = true;
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "markus";
   home.homeDirectory = "/Users/markus";
@@ -116,9 +113,8 @@ in
       '';
     };
 
-    # Aliases - merge shared config with macOS-specific aliases
-    shellAliases = sharedFishConfig.fishAliases // {
-      # macOS specific aliases
+    # macOS-specific aliases (merged with uzumaki's shellAliases)
+    shellAliases = {
       mc = "env LANG=en_US.UTF-8 mc";
       # Force macOS native ping (inetutils ping has bugs on Darwin)
       # See: docs/reference/macos-network-tools.md
@@ -128,14 +124,9 @@ in
       netstat = "/usr/sbin/netstat";
     };
 
-    # Abbreviations - merge shared config with macOS-specific abbreviations
-    shellAbbrs = sharedFishConfig.fishAbbrs // {
+    # macOS-specific abbreviations (merged with uzumaki's shellAbbrs)
+    shellAbbrs = {
       flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
-      hsb0 = "ssh mba@192.168.1.99 -t \"zellij attach hsb0 -c\"";
-      hsb1 = "ssh mba@192.168.1.101 -t \"zellij attach hsb1 -c\"";
-      hsb8 = "ssh mba@192.168.1.100 -t \"zellij attach hsb8 -c\"";
-      csb0 = "ssh mba@cs0.barta.cm -p 2222 -t \"zellij attach csb0 -c\"";
-      csb1 = "ssh mba@cs1.barta.cm -p 2222 -t \"zellij attach csb1 -c\"";
     };
   };
 
@@ -528,7 +519,7 @@ in
   # Handled by theme-hm.nix module (imported above)
   # Theme: lightGray (Workstation - Home)
   # Features: Powerline gradient, root alert, error badge, sudo, duration, jobs
-  # See: modules/shared/theme-palettes.nix for color definitions
+  # See: modules/uzumaki/theme/theme-palettes.nix for color definitions
 
   # ============================================================================
   # Scripts Management
