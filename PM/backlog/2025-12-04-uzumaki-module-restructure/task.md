@@ -278,7 +278,10 @@ diff -u baseline-$HOST result-new/
 
 **Migration Order (Phase I - Local Hosts):**
 
-- [ ] **Pilot 1:** hsb1 (server) - Most stable, good test case
+- [x] **Pilot 1:** hsb1 (server) - ✅ Migrated 2024-12-04
+  - Functions: pingt, sourcefish, sourceenv, stress, helpfish ✅
+  - Zellij installed ✅
+  - User verified `pingt` works interactively ✅
 - [ ] **Pilot 2:** gpc0 (desktop) - Desktop-specific features
 - [ ] **Pilot 3:** imac0 (workstation) - macOS validation
 - [ ] **Rollout:** hsb0, hsb8, imac-mba-work
