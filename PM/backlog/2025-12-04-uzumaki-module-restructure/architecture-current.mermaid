@@ -1,0 +1,174 @@
+%%{init: {'theme': 'dark'}}%%
+flowchart TB
+    subgraph "ENTRY POINT"
+        FLAKE["flake.nix"]
+    end
+
+    subgraph "FLAKE INPUTS"
+        direction LR
+        NIXPKGS["nixpkgs<br/>(unstable)"]
+        HM["home-manager"]
+        AGENIX["agenix"]
+        DISKO["disko"]
+        PBEK["github:pbek/nixcfg<br/>(hokage)"]
+        CATPPUCCIN["catppuccin"]
+        PLASMA["plasma-manager"]
+    end
+
+    FLAKE --> NIXPKGS & HM & AGENIX & DISKO & PBEK & CATPPUCCIN & PLASMA
+
+    subgraph "COMMON SERVER MODULES"
+        direction TB
+        CSM["commonServerModules<br/>(array)"]
+        CSM_HM["home-manager.nixosModules"]
+        CSM_COMMON["modules/common.nix"]
+        CSM_OVERLAYS["nixpkgs.overlays"]
+        CSM_AGE["agenix.nixosModules.age"]
+    end
+
+    CSM --> CSM_HM
+    CSM --> CSM_COMMON
+    CSM --> CSM_OVERLAYS
+    CSM --> CSM_AGE
+
+    subgraph "NIXOS HOST CONFIGURATIONS"
+        direction TB
+        
+        subgraph "SERVERS (Home)"
+            HSB0["hsb0<br/>DNS/DHCP"]
+            HSB1["hsb1<br/>Home Automation"]
+            HSB8["hsb8<br/>Parents Server"]
+        end
+        
+        subgraph "SERVERS (Cloud)"
+            CSB0["csb0<br/>Node-RED, MQTT"]
+            CSB1["csb1<br/>Grafana, Paperless"]
+        end
+        
+        subgraph "DESKTOPS"
+            GPC0["gpc0<br/>Gaming PC"]
+        end
+    end
+
+    subgraph "MACOS CONFIGURATIONS"
+        IMAC0["imac0<br/>Home Workstation"]
+        IMACWORK["imac-mba-work<br/>Work Workstation"]
+    end
+
+    %% Server configurations flow
+    FLAKE --> HSB0 & HSB1 & HSB8 & CSB0 & CSB1
+    HSB0 & HSB1 & HSB8 & CSB0 & CSB1 --> CSM
+
+    %% Desktop configuration (special)
+    FLAKE --> GPC0
+    GPC0 -.-> |"No commonServerModules<br/>(inline definition)"| CSM_HM
+    GPC0 --> PLASMA
+
+    %% macOS configurations
+    FLAKE --> |"mkDarwinHome"| IMAC0 & IMACWORK
+
+    subgraph "EXTERNAL HOKAGE MODULE"
+        direction TB
+        HOKAGE["nixcfg.nixosModules.hokage<br/>(from pbek)"]
+        HOKAGE_OPTS["hokage options:<br/>hostName, userLogin, role<br/>useSecrets, zfs.enable<br/>gaming.enable, etc."]
+    end
+
+    HSB0 & HSB1 & HSB8 & CSB0 & CSB1 --> HOKAGE
+    GPC0 --> HOKAGE
+
+    subgraph "SHARED MODULES"
+        direction TB
+        
+        subgraph "modules/common.nix"
+            COMMON["Base NixOS Config"]
+            COMMON_FISH["Fish Shell Setup"]
+            COMMON_PKGS["System Packages"]
+            COMMON_HM["Home Manager Config"]
+            COMMON --> COMMON_FISH & COMMON_PKGS & COMMON_HM
+        end
+        
+        subgraph "modules/uzumaki/"
+            UZUMAKI_COMMON["common.nix<br/>(function definitions)"]
+            UZUMAKI_SERVER["server.nix"]
+            UZUMAKI_DESKTOP["desktop.nix"]
+            UZUMAKI_MACOS["macos.nix"]
+            UZUMAKI_MACOSCOMMON["macos-common.nix"]
+        end
+        
+        subgraph "modules/shared/"
+            SHARED_FISH["fish-config.nix<br/>(aliases, abbrs)"]
+            SHARED_THEME["theme-hm.nix"]
+            SHARED_PALETTE["theme-palettes.nix"]
+            SHARED_STASYSMO["stasysmo/<br/>(system metrics)"]
+            SHARED_EZA["eza-themes/"]
+            SHARED_STARSHIP["starship-template.toml"]
+        end
+    end
+
+    %% common.nix imports
+    COMMON_FISH --> SHARED_FISH
+    COMMON_HM --> SHARED_THEME
+
+    %% uzumaki imports
+    UZUMAKI_SERVER --> UZUMAKI_COMMON
+    UZUMAKI_DESKTOP --> UZUMAKI_COMMON
+    UZUMAKI_MACOS --> UZUMAKI_COMMON
+    UZUMAKI_MACOSCOMMON --> UZUMAKI_COMMON
+    UZUMAKI_MACOSCOMMON --> SHARED_FISH
+
+    %% theme-hm.nix imports
+    SHARED_THEME --> SHARED_PALETTE
+    SHARED_THEME --> SHARED_STARSHIP
+    SHARED_THEME --> SHARED_EZA
+
+    subgraph "HOST CONFIGURATIONS"
+        direction TB
+        
+        subgraph "hosts/hsb1/configuration.nix"
+            HSB1_CFG["imports:<br/>• hardware-configuration.nix<br/>• disk-config.zfs.nix<br/>• uzumaki/server.nix<br/>• stasysmo/nixos.nix<br/><br/>hokage = { ... }"]
+        end
+        
+        subgraph "hosts/gpc0/configuration.nix"
+            GPC0_CFG["imports:<br/>• hardware-configuration.nix<br/>• disk-config.zfs.nix<br/>• uzumaki/desktop.nix<br/>• stasysmo/nixos.nix<br/><br/>hokage = { ... }"]
+        end
+        
+        subgraph "hosts/imac0/home.nix"
+            IMAC0_CFG["imports:<br/>• theme-hm.nix<br/>• uzumaki/macos.nix<br/>• stasysmo/home-manager.nix<br/><br/>theme.hostname = 'imac0'"]
+        end
+    end
+
+    HSB1 --> HSB1_CFG
+    GPC0 --> GPC0_CFG
+    IMAC0 --> IMAC0_CFG
+
+    HSB1_CFG --> UZUMAKI_SERVER
+    HSB1_CFG --> SHARED_STASYSMO
+    
+    GPC0_CFG --> UZUMAKI_DESKTOP
+    GPC0_CFG --> SHARED_STASYSMO
+    
+    IMAC0_CFG --> UZUMAKI_MACOS
+    IMAC0_CFG --> SHARED_THEME
+    IMAC0_CFG --> SHARED_STASYSMO
+
+    subgraph "WHAT EACH MODULE PROVIDES"
+        direction TB
+        
+        PROVIDES_COMMON["modules/common.nix<br/>━━━━━━━━━━━━━━━━━━━<br/>✓ Fish shell + aliases<br/>✓ System packages<br/>✓ User accounts<br/>✓ Timezone, locale<br/>✓ Nix settings<br/>✓ Home-manager config<br/>✓ Theme integration"]
+        
+        PROVIDES_UZUMAKI["uzumaki/server.nix<br/>uzumaki/desktop.nix<br/>━━━━━━━━━━━━━━━━━━━<br/>✓ Fish functions:<br/>  pingt, sourcefish<br/>  sourceenv, stress<br/>  helpfish<br/>✓ Zellij package<br/>✓ EDITOR=nano"]
+        
+        PROVIDES_THEME["shared/theme-hm.nix<br/>━━━━━━━━━━━━━━━━━━━<br/>✓ Per-host Starship<br/>  prompt colors<br/>✓ Per-host Zellij<br/>  theme<br/>✓ Eza theme<br/>✓ bat, fzf, lazygit<br/>  Tokyo Night"]
+        
+        PROVIDES_STASYSMO["shared/stasysmo/<br/>━━━━━━━━━━━━━━━━━━━<br/>✓ CPU metrics<br/>✓ RAM metrics<br/>✓ Load average<br/>✓ Swap usage<br/>✓ Starship integration"]
+        
+        PROVIDES_HOKAGE["hokage (external)<br/>━━━━━━━━━━━━━━━━━━━<br/>✓ User management<br/>✓ SSH setup<br/>✓ Git config<br/>✓ Desktop apps<br/>✓ Gaming support<br/>✓ ZFS utilities<br/>✓ Catppuccin (opt-out)"]
+    end
+
+    style FLAKE fill:#4a9eff,color:#fff
+    style HOKAGE fill:#ff6b6b,color:#fff
+    style COMMON fill:#51cf66,color:#fff
+    style UZUMAKI_SERVER fill:#ffd93d,color:#000
+    style UZUMAKI_DESKTOP fill:#ffd93d,color:#000
+    style SHARED_THEME fill:#c084fc,color:#fff
+

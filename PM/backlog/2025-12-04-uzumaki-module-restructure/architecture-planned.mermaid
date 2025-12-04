@@ -1,0 +1,188 @@
+%%{init: {'theme': 'dark'}}%%
+flowchart TB
+    subgraph "ENTRY POINT"
+        FLAKE["flake.nix"]
+    end
+
+    subgraph "FLAKE INPUTS"
+        direction LR
+        NIXPKGS["nixpkgs<br/>(unstable)"]
+        HM["home-manager"]
+        AGENIX["agenix"]
+        DISKO["disko"]
+        PBEK["github:pbek/nixcfg<br/>(hokage)"]
+        PLASMA["plasma-manager"]
+    end
+
+    FLAKE --> NIXPKGS & HM & AGENIX & DISKO & PBEK & PLASMA
+
+    subgraph "NIXOS CONFIGURATIONS"
+        direction TB
+        
+        subgraph "SERVERS"
+            HSB0["hsb0"]
+            HSB1["hsb1"]
+            HSB8["hsb8"]
+            CSB0["csb0"]
+            CSB1["csb1"]
+        end
+        
+        subgraph "DESKTOPS"
+            GPC0["gpc0"]
+        end
+    end
+
+    subgraph "MACOS CONFIGURATIONS"
+        IMAC0["imac0"]
+        IMACWORK["imac-mba-work"]
+    end
+
+    FLAKE --> HSB0 & HSB1 & HSB8 & CSB0 & CSB1 & GPC0
+    FLAKE --> |"mkDarwinHome"| IMAC0 & IMACWORK
+
+    subgraph "EXTERNAL HOKAGE"
+        HOKAGE["hokage module<br/>(from pbek)"]
+    end
+
+    HSB0 & HSB1 & HSB8 & CSB0 & CSB1 & GPC0 --> HOKAGE
+
+    subgraph "UZUMAKI MODULE (New Structure)"
+        direction TB
+        
+        subgraph "modules/uzumaki/default.nix"
+            UZ_ENTRY["Entry Point<br/>━━━━━━━━━━━━━━<br/>Detects platform:<br/>NixOS vs Darwin<br/><br/>Loads appropriate<br/>implementation"]
+        end
+        
+        subgraph "modules/uzumaki/options.nix"
+            UZ_OPTIONS["Module Options<br/>━━━━━━━━━━━━━━<br/>uzumaki.enable<br/>uzumaki.role<br/>uzumaki.fish.*<br/>uzumaki.theme.*<br/>uzumaki.stasysmo.*"]
+        end
+        
+        subgraph "modules/uzumaki/nixos.nix"
+            UZ_NIXOS["NixOS Implementation<br/>━━━━━━━━━━━━━━<br/>Uses mkIf/mkMerge<br/>Proper module composition<br/>systemd integration"]
+        end
+        
+        subgraph "modules/uzumaki/darwin.nix"
+            UZ_DARWIN["Darwin Implementation<br/>━━━━━━━━━━━━━━<br/>Home Manager style<br/>launchd integration<br/>macOS specifics"]
+        end
+        
+        subgraph "modules/uzumaki/home-manager.nix"
+            UZ_HM["Home Manager Integration<br/>━━━━━━━━━━━━━━<br/>User-level config<br/>Shell setup<br/>Theme application"]
+        end
+        
+        UZ_ENTRY --> UZ_OPTIONS
+        UZ_ENTRY --> UZ_NIXOS
+        UZ_ENTRY --> UZ_DARWIN
+        UZ_OPTIONS --> UZ_NIXOS & UZ_DARWIN
+        UZ_NIXOS --> UZ_HM
+        UZ_DARWIN --> UZ_HM
+    end
+
+    %% Host configs import uzumaki
+    HSB0 & HSB1 & HSB8 & CSB0 & CSB1 --> UZ_ENTRY
+    GPC0 --> UZ_ENTRY
+    IMAC0 & IMACWORK --> UZ_ENTRY
+
+    subgraph "SHARED LIBRARY (Refactored)"
+        direction TB
+        
+        subgraph "modules/shared/fish/"
+            FISH_FUNCS["functions.nix<br/>━━━━━━━━━━━━━━<br/>pingt<br/>sourcefish<br/>sourceenv<br/>stress<br/>helpfish"]
+            FISH_ALIASES["aliases.nix"]
+            FISH_ABBRS["abbreviations.nix"]
+        end
+        
+        subgraph "modules/shared/theme/"
+            THEME_PALETTE["palettes.nix"]
+            THEME_HM["hm.nix"]
+            THEME_STARSHIP["starship-template.toml"]
+        end
+        
+        subgraph "modules/shared/stasysmo/"
+            STASYSMO_NIXOS["nixos.nix"]
+            STASYSMO_HM["home-manager.nix"]
+            STASYSMO_DAEMON["daemon.sh"]
+            STASYSMO_READER["reader.sh"]
+        end
+    end
+
+    UZ_HM --> FISH_FUNCS & FISH_ALIASES & FISH_ABBRS
+    UZ_HM --> THEME_HM
+    THEME_HM --> THEME_PALETTE & THEME_STARSHIP
+    UZ_NIXOS --> STASYSMO_NIXOS
+    UZ_DARWIN --> STASYSMO_HM
+
+    subgraph "HOST CONFIGURATION (Simplified)"
+        direction TB
+        
+        subgraph "hosts/hsb1/configuration.nix"
+            HSB1_NEW["imports = [ uzumaki ];<br/><br/>uzumaki = {<br/>  enable = true;<br/>  role = 'server';<br/>  theme.palette = 'green';<br/>  stasysmo.enable = true;<br/>};<br/><br/>hokage = { ... };"]
+        end
+        
+        subgraph "hosts/gpc0/configuration.nix"
+            GPC0_NEW["imports = [ uzumaki ];<br/><br/>uzumaki = {<br/>  enable = true;<br/>  role = 'desktop';<br/>  theme.palette = 'purple';<br/>  stasysmo.enable = true;<br/>};<br/><br/>hokage = { ... };"]
+        end
+        
+        subgraph "hosts/imac0/home.nix"
+            IMAC0_NEW["imports = [ uzumaki ];<br/><br/>uzumaki = {<br/>  enable = true;<br/>  role = 'workstation';<br/>  theme.palette = 'lightGray';<br/>  stasysmo.enable = true;<br/>};"]
+        end
+    end
+
+    HSB1 --> HSB1_NEW
+    GPC0 --> GPC0_NEW
+    IMAC0 --> IMAC0_NEW
+
+    subgraph "UZUMAKI OPTIONS SCHEMA"
+        direction TB
+        
+        OPTIONS_ROOT["uzumaki"]
+        
+        OPTIONS_ENABLE["enable : bool<br/>default: false"]
+        OPTIONS_ROLE["role : enum<br/>'server' | 'desktop' | 'workstation'"]
+        
+        subgraph "uzumaki.fish"
+            FISH_ENABLE["enable : bool<br/>default: true"]
+            FISH_PINGT["functions.pingt : bool"]
+            FISH_SOURCEFISH["functions.sourcefish : bool"]
+            FISH_STRESS["functions.stress : bool"]
+            FISH_HELPFISH["functions.helpfish : bool"]
+        end
+        
+        subgraph "uzumaki.theme"
+            THEME_ENABLE["enable : bool<br/>default: true"]
+            THEME_HOSTNAME["hostname : str<br/>default: auto-detect"]
+            THEME_PALETTE_OPT["palette : str<br/>default: from hostname"]
+            THEME_STARSHIP_EN["starship.enable : bool"]
+            THEME_ZELLIJ_EN["zellij.enable : bool"]
+            THEME_EZA_EN["eza.enable : bool"]
+        end
+        
+        subgraph "uzumaki.stasysmo"
+            STASYSMO_ENABLE["enable : bool<br/>default: true"]
+            STASYSMO_INTERVAL["daemon.interval : int"]
+            STASYSMO_METRICS["metrics.* : options"]
+        end
+        
+        OPTIONS_ROOT --> OPTIONS_ENABLE & OPTIONS_ROLE
+        OPTIONS_ROOT --> FISH_ENABLE
+        OPTIONS_ROOT --> THEME_ENABLE
+        OPTIONS_ROOT --> STASYSMO_ENABLE
+    end
+
+    subgraph "ROLE-BASED DEFAULTS"
+        direction LR
+        
+        ROLE_SERVER["role = 'server'<br/>━━━━━━━━━━━━━━<br/>✓ fish functions<br/>✓ zellij package<br/>✓ EDITOR = nano<br/>✗ desktop apps<br/>✗ plasma-manager"]
+        
+        ROLE_DESKTOP["role = 'desktop'<br/>━━━━━━━━━━━━━━<br/>✓ fish functions<br/>✓ zellij package<br/>✓ EDITOR = nano<br/>✓ desktop apps<br/>✓ plasma-manager"]
+        
+        ROLE_WORKSTATION["role = 'workstation'<br/>━━━━━━━━━━━━━━<br/>✓ fish functions<br/>✓ zellij package<br/>✓ wezterm config<br/>✓ macOS apps<br/>✓ karabiner"]
+    end
+
+    style FLAKE fill:#4a9eff,color:#fff
+    style HOKAGE fill:#ff6b6b,color:#fff
+    style UZ_ENTRY fill:#51cf66,color:#fff
+    style UZ_OPTIONS fill:#ffd93d,color:#000
+    style UZ_NIXOS fill:#22b8cf,color:#fff
+    style UZ_DARWIN fill:#22b8cf,color:#fff
+    style UZ_HM fill:#c084fc,color:#fff
+
