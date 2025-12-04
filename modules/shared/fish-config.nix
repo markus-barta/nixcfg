@@ -53,6 +53,7 @@
     ps = "procs";
     whois = "rdap";
     vim = "hx";
+    cls = "clear";
 
     # SSH shortcuts to local/remote hosts (with zellij session)
     hsb0 = "ssh mba@192.168.1.99 -t 'zellij attach hsb0 -c'";

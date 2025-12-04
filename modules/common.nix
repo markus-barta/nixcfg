@@ -188,6 +188,7 @@ in
         btop # Beautiful resource monitor
         procs # Modern ps replacement
         lsof # List open files
+        stress-ng # CPU/memory/IO stress testing
 
         # ══════════════════════════════════════════════════════════════════════
         # File Management

@@ -72,4 +72,25 @@
       sed -e 's/^/set -gx /' -e 's/=/\ /' $argv | source
     '';
   };
+
+  # ============================================================================
+  # FISH FUNCTION: stress
+  # ============================================================================
+  # CPU stress test using stress-ng with all cores at 100% load
+  # Usage: stress [seconds]
+  #   stress 15  - Run for 15 seconds
+  #   stress     - Run until Ctrl+C
+  stress = {
+    description = "CPU stress test (all cores at 100%)";
+    body = ''
+      set -l cores (nproc --all)
+      if test (count $argv) -gt 0
+        echo "Starting CPU stress test on $cores cores for $argv[1] seconds..."
+        stress-ng --cpu $cores --cpu-load 100 --cpu-method matrixprod --timeout "$argv[1]s"
+      else
+        echo "Starting CPU stress test on $cores cores (Ctrl+C to stop)..."
+        stress-ng --cpu $cores --cpu-load 100 --cpu-method matrixprod
+      end
+    '';
+  };
 }
