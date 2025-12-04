@@ -2,17 +2,17 @@
 
 ## Current Repository
 
-| Attribute   | Value                                          |
-| ----------- | ---------------------------------------------- |
-| **Commit**  | `117dd53e`                                     |
-| **Message** | docs: update DEPLOYMENT.md with uzumaki status |
+| Attribute   | Value                                                  |
+| ----------- | ------------------------------------------------------ |
+| **Commit**  | `4f0ebf36`                                             |
+| **Message** | docs: 🌀 only for hosts with uzumaki actually deployed |
 
 ## NixOS Host Status
 
 | Host | Status | Commit     | System Build                | Action        | Checked          |
 | ---- | ------ | ---------- | --------------------------- | ------------- | ---------------- |
 | hsb1 | 🌀✨   | `117dd53e` | hsb1-26.05.20251130.2d293cb | —             | 2025-12-04 19:15 |
-| hsb0 | 🔄     | `e3298aa5` | hsb0-26.05.20251127.2fad6ea | `just switch` | 2025-12-04 19:07 |
+| hsb0 | 🌀✨   | `4f0ebf36` | hsb0-26.05.20251127.2fad6ea | —             | 2025-12-04 19:20 |
 | gpc0 | 🔄     | `e3298aa5` | gpc0-26.05.20251127.2fad6ea | `just switch` | 2025-12-04 19:07 |
 | hsb8 | 🟡     | —          | —                           | migrate       | 2025-12-04 19:07 |
 | csb0 | ⏸️     | `af420880` | csb0-25.11.20251117.89c2b23 | Phase II      | 2025-12-04 19:07 |
