@@ -27,6 +27,7 @@ in
     ${mkFishFunction "sourcefish" fishFunctions.sourcefish}
     ${mkFishFunction "sourceenv" fishFunctions.sourceenv}
     ${mkFishFunction "stress" fishFunctions.stress}
+    ${mkFishFunction "helpfish" fishFunctions.helpfish}
 
     set -gx EDITOR nano
   '';
