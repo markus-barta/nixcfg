@@ -65,16 +65,16 @@ get_cpu_linux() {
   local total_delta=$((total - prev_cpu_total))
   local idle_delta=$((idle_total - prev_cpu_idle))
 
-  # Store for next iteration
+  # Store for next iteration (these are GLOBAL variables)
   prev_cpu_total=$total
   prev_cpu_idle=$idle_total
 
   # Calculate CPU percentage (avoid division by zero)
   if [[ $total_delta -gt 0 ]]; then
-    local cpu_pct=$(((total_delta - idle_delta) * 100 / total_delta))
-    echo "$cpu_pct"
+    # Store result in global variable (avoid subshell issue with $())
+    CPU_RESULT=$(((total_delta - idle_delta) * 100 / total_delta))
   else
-    echo "0"
+    CPU_RESULT=0
   fi
 }
 
@@ -230,7 +230,10 @@ write_metrics() {
     swap=$(get_swap_darwin)
     load=$(get_load_darwin)
   else
-    cpu=$(get_cpu_linux)
+    # IMPORTANT: Don't use $() for get_cpu_linux - it runs in a subshell
+    # and loses the prev_cpu_* variable updates needed for delta calculation!
+    get_cpu_linux # Updates CPU_RESULT and prev_cpu_* globals
+    cpu=$CPU_RESULT
     ram=$(get_ram_linux)
     swap=$(get_swap_linux)
     load=$(get_load_linux)
@@ -246,10 +249,13 @@ write_metrics() {
   echo "$timestamp" >"$STASYSMO_DIR/timestamp.tmp" && mv "$STASYSMO_DIR/timestamp.tmp" "$STASYSMO_DIR/timestamp"
 }
 
+# Global variable for CPU result (avoids subshell issues)
+CPU_RESULT=0
+
 # Initial sample for CPU delta calculation (Linux)
 if [[ "$PLATFORM" == "linux" ]]; then
-  get_cpu_linux >/dev/null
-  sleep 0.1 # Brief pause to get meaningful delta on first real sample
+  get_cpu_linux # Initializes prev_cpu_* variables
+  sleep 0.1     # Brief pause to get meaningful delta on first real sample
 fi
 
 # Main loop
