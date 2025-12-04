@@ -100,7 +100,14 @@
         echo "StaSysMo debug mode: OFF"
       else
         set -gx STASYSMO_DEBUG 1
-        echo "StaSysMo debug mode: ON (shows diagnostics on next prompt)"
+        echo "StaSysMo debug mode: ON"
+        echo ""
+        # Show current debug state immediately
+        if command -v stasysmo-reader &>/dev/null
+          stasysmo-reader
+        else
+          echo "(stasysmo-reader not in PATH)"
+        end
       end
     '';
   };

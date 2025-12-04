@@ -56,6 +56,11 @@
 
       # zoxide integration
       set -gx ZOXIDE_CMD z
+
+      # Add Nix profile completions to fish (enables completions for just, fd, etc.)
+      if test -d ~/.nix-profile/share/fish/vendor_completions.d
+        set -p fish_complete_path ~/.nix-profile/share/fish/vendor_completions.d
+      end
     '';
 
     # Login shell initialization - prepend Nix paths to PATH
