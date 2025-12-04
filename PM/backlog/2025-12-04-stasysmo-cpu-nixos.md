@@ -18,7 +18,7 @@ CPU utilization should display accurate percentage (e.g., `C 5%`) based on delta
 
 ## Actual Behavior
 
-CPU utilization is not being reported correctly (needs investigation to determine exact symptom - always 0%, always ?, or other).
+CPU utilization is not being reported correctly (always 1%).
 
 ## Probable Cause
 
