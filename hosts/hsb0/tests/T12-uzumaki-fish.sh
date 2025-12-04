@@ -50,11 +50,14 @@ fail() {
 }
 
 # Check if a fish function exists
+# NOTE: Functions defined in interactiveShellInit aren't available in non-interactive
+# shells, so we check the config file directly instead of using `functions -q`
 check_fish_function() {
   local func_name="$1"
   local description="$2"
 
-  if fish -c "functions -q $func_name" 2>/dev/null; then
+  # Check if function is defined in the fish config (handles interactiveShellInit)
+  if grep -q "function $func_name" /etc/fish/config.fish 2>/dev/null; then
     pass "$description"
     return 0
   else
