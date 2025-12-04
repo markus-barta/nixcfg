@@ -41,8 +41,9 @@ let
   isNixOS = (config ? system) && (config.system ? nixos);
   isDarwin = !isNixOS;
 
-  # Import shared function definitions
-  fishFunctions = import ./common.nix;
+  # Import shared fish configuration (consolidated in Phase 3)
+  sharedFish = import ../shared/fish;
+  fishFunctions = sharedFish.functions;
 
   # ════════════════════════════════════════════════════════════════════════════
   # NixOS: Convert function definitions to inline Fish functions

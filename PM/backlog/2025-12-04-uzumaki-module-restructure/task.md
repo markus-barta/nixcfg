@@ -7,9 +7,9 @@
 | Phase                 | Description                                      | Status      |
 | --------------------- | ------------------------------------------------ | ----------- |
 | 1. Audit & Document   | Architecture flowcharts, dependency mapping      | ✅ Complete |
-| 2. Module Framework   | Create `default.nix`, `options.nix`, role system | ⬜ Pending  |
-| 3. Consolidate Fish   | Move to `shared/fish/`, proper exports           | ⬜ Pending  |
-| 4. **Test Suite** 🧪  | Baseline tests, infrastructure, validation       | 🔄 Active   |
+| 2. Module Framework   | Create `default.nix`, `options.nix`, role system | ✅ Complete |
+| 3. Consolidate Fish   | Move to `shared/fish/`, proper exports           | ✅ Complete |
+| 4. **Test Suite** 🧪  | Baseline tests, infrastructure, validation       | ✅ Complete |
 | 5. Migrate Hosts (I)  | Pilot → Rollout: hsb0/1/8, gpc0, imac0/work      | ⬜ Pending  |
 | 6. Cleanup (I)        | Remove deprecated, update docs                   | ⬜ Pending  |
 | **─── Phase II ───**  | **Cloud Servers (csb0/csb1)** 🌐                 |             |
@@ -80,17 +80,32 @@ See [architecture-planned.md](./architecture-planned.md) for full details.
 - [x] Create architecture flowcharts
 - [x] Identify breaking changes
 
-### Phase 2: Create Module Framework
+### Phase 2: Create Module Framework ✓
 
-- [ ] Create `uzumaki/default.nix` with platform detection
-- [ ] Define options in `uzumaki/options.nix`
-- [ ] Add role-based defaults
+- [x] Create `uzumaki/default.nix` with platform detection
+- [x] Define options in `uzumaki/options.nix`
+- [x] Add role-based defaults (server/desktop/workstation)
 
-### Phase 3: Consolidate Fish Configuration
+**New files created:**
 
-- [ ] Move functions to `shared/fish/functions.nix`
-- [ ] Create proper export mechanism (no string interpolation)
-- [ ] Update module to use shared config
+- `modules/uzumaki/default.nix` - Entry point with NixOS/Darwin detection
+- `modules/uzumaki/options.nix` - Module options (enable, role, fish, zellij)
+
+### Phase 3: Consolidate Fish Configuration ✓
+
+- [x] Move functions to `shared/fish/functions.nix`
+- [x] Create proper export mechanism (no string interpolation)
+- [x] Update module to use shared config
+- [x] Mark old `fish-config.nix` as deprecated shim
+
+**New directory structure:**
+
+```
+modules/shared/fish/
+├── default.nix      # Entry point, exports functions/aliases/abbreviations
+├── functions.nix    # pingt, stress, helpfish, sourcefish, sourceenv
+└── config.nix       # Aliases and abbreviations
+```
 
 ### Phase 4: Test Suite Development 🧪
 
