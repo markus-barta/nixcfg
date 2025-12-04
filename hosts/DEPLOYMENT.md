@@ -2,10 +2,10 @@
 
 ## Current Repository
 
-| Attribute   | Value                 |
-| ----------- | --------------------- |
-| **Commit**  | `87444ce4`            |
-| **Message** | deploy: hsb0 now 🌀✨ |
+| Attribute   | Value                                                     |
+| ----------- | --------------------------------------------------------- |
+| **Commit**  | `5f64c7e9`                                                |
+| **Message** | fix(uzumaki): correct fish module imports in home-manager |
 
 ## NixOS Host Status
 
@@ -20,10 +20,10 @@
 
 ## macOS Home Manager Status
 
-| Host          | Status | Commit     | HM Generation | Action        | Checked          |
-| ------------- | ------ | ---------- | ------------- | ------------- | ---------------- |
-| imac0         | 🔄     | `e3298aa5` | gen 69        | `just switch` | 2025-12-04 19:07 |
-| imac-mba-work | ⚫     | —          | —             | —             | 2025-12-04 19:07 |
+| Host          | Status | Commit     | HM Generation | Action | Checked          |
+| ------------- | ------ | ---------- | ------------- | ------ | ---------------- |
+| imac0         | 🌀✨   | `5f64c7e9` | gen 70        | —      | 2025-12-04 19:22 |
+| imac-mba-work | ⚫     | —          | —             | —      | 2025-12-04 19:07 |
 
 ### Status Legend
 
