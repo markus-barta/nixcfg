@@ -9,31 +9,31 @@
 
 ## NixOS Host Status
 
-| Host | 🌀 Status | Commit     | System Build                | Action        | Checked          |
-| ---- | --------- | ---------- | --------------------------- | ------------- | ---------------- |
-| hsb1 | 🌀✨      | `117dd53e` | hsb1-26.05.20251130.2d293cb | —             | 2025-12-04 19:15 |
-| hsb0 | 🌀🔄      | `e3298aa5` | hsb0-26.05.20251127.2fad6ea | `just switch` | 2025-12-04 19:07 |
-| gpc0 | 🌀🔄      | `e3298aa5` | gpc0-26.05.20251127.2fad6ea | `just switch` | 2025-12-04 19:07 |
-| hsb8 | 🌀🟡      | —          | —                           | migrate       | 2025-12-04 19:07 |
-| csb0 | 🌀⏸️      | `af420880` | csb0-25.11.20251117.89c2b23 | Phase II      | 2025-12-04 19:07 |
-| csb1 | 🌀⏸️      | `f71b56ca` | csb1-25.11.20251117.89c2b23 | Phase II      | 2025-12-04 19:07 |
+| Host | Status | Commit     | System Build                | Action        | Checked          |
+| ---- | ------ | ---------- | --------------------------- | ------------- | ---------------- |
+| hsb1 | 🌀✨   | `117dd53e` | hsb1-26.05.20251130.2d293cb | —             | 2025-12-04 19:15 |
+| hsb0 | 🔄     | `e3298aa5` | hsb0-26.05.20251127.2fad6ea | `just switch` | 2025-12-04 19:07 |
+| gpc0 | 🔄     | `e3298aa5` | gpc0-26.05.20251127.2fad6ea | `just switch` | 2025-12-04 19:07 |
+| hsb8 | 🟡     | —          | —                           | migrate       | 2025-12-04 19:07 |
+| csb0 | ⏸️     | `af420880` | csb0-25.11.20251117.89c2b23 | Phase II      | 2025-12-04 19:07 |
+| csb1 | ⏸️     | `f71b56ca` | csb1-25.11.20251117.89c2b23 | Phase II      | 2025-12-04 19:07 |
 
 ## macOS Home Manager Status
 
-| Host          | 🌀 Status | Commit     | HM Generation | Action        | Checked          |
-| ------------- | --------- | ---------- | ------------- | ------------- | ---------------- |
-| imac0         | 🌀🔄      | `e3298aa5` | gen 69        | `just switch` | 2025-12-04 19:07 |
-| imac-mba-work | ⚫        | —          | —             | —             | 2025-12-04 19:07 |
+| Host          | Status | Commit     | HM Generation | Action        | Checked          |
+| ------------- | ------ | ---------- | ------------- | ------------- | ---------------- |
+| imac0         | 🔄     | `e3298aa5` | gen 69        | `just switch` | 2025-12-04 19:07 |
+| imac-mba-work | ⚫     | —          | —             | —             | 2025-12-04 19:07 |
 
-### 🌀 Status Legend
+### Status Legend
 
-| Status | Name              | Meaning                                                |
-| ------ | ----------------- | ------------------------------------------------------ |
-| 🌀✨   | **Perfect**       | Git ✅ + Built ✅ + Uzumaki ✅ (all done with honors!) |
-| 🌀🔄   | **Needs Rebuild** | Git synced, uzumaki configured, needs `just switch`    |
-| 🌀🟡   | **Old Pattern**   | Uses old `uzumaki/server.nix` import, needs migration  |
-| 🌀⏸️   | **Deferred**      | Phase II (cloud servers - mixins → hokage first)       |
-| ⚫     | **Offline**       | Can't reach host                                       |
+| Status | Name              | Meaning                                                         |
+| ------ | ----------------- | --------------------------------------------------------------- |
+| 🌀✨   | **Perfect**       | 🌀 Uzumaki deployed + Git ✅ + Built ✅ (all done with honors!) |
+| 🔄     | **Needs Rebuild** | Config ready in git, needs `just switch` to earn 🌀             |
+| 🟡     | **Old Pattern**   | Uses old `uzumaki/server.nix`, needs migration first            |
+| ⏸️     | **Deferred**      | Phase II (cloud servers - mixins → hokage first)                |
+| ⚫     | **Offline**       | Can't reach host                                                |
 
 ## 🌀 Uzumaki Module Status
 
