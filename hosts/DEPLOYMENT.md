@@ -1,58 +1,51 @@
-# Deployment Status
+# 🌀 Deployment Status
 
 ## Current Repository
 
-| Attribute   | Value                                                             |
-| ----------- | ----------------------------------------------------------------- |
-| **Commit**  | `e3298aa5`                                                        |
-| **Message** | feat(uzumaki): consolidate shared/ into uzumaki/ - MAJOR REFACTOR |
+| Attribute   | Value                                          |
+| ----------- | ---------------------------------------------- |
+| **Commit**  | `117dd53e`                                     |
+| **Message** | docs: update DEPLOYMENT.md with uzumaki status |
 
 ## NixOS Host Status
 
-| Host | Commit     | System Build                | Git | Built | Uzumaki | Action        | Checked          |
-| ---- | ---------- | --------------------------- | --- | ----- | ------- | ------------- | ---------------- |
-| hsb0 | `e3298aa5` | hsb0-26.05.20251127.2fad6ea | ✅  | 🟡    | ✅ new  | `just switch` | 2025-12-04 19:07 |
-| hsb1 | `e3298aa5` | hsb1-26.05.20251130.2d293cb | ✅  | 🟡    | ✅ new  | `just switch` | 2025-12-04 19:07 |
-| hsb8 | —          | —                           | ⚫  | ⚫    | 🟡 old  | —             | 2025-12-04 19:07 |
-| gpc0 | `e3298aa5` | gpc0-26.05.20251127.2fad6ea | ✅  | 🟡    | ✅ new  | `just switch` | 2025-12-04 19:07 |
-| csb0 | `af420880` | csb0-25.11.20251117.89c2b23 | 🟡  | 🟡    | 🟠 old  | Phase II      | 2025-12-04 19:07 |
-| csb1 | `f71b56ca` | csb1-25.11.20251117.89c2b23 | 🟡  | 🟡    | 🟠 old  | Phase II      | 2025-12-04 19:07 |
+| Host | 🌀 Status | Commit     | System Build                | Action        | Checked          |
+| ---- | --------- | ---------- | --------------------------- | ------------- | ---------------- |
+| hsb1 | 🌀✨      | `117dd53e` | hsb1-26.05.20251130.2d293cb | —             | 2025-12-04 19:15 |
+| hsb0 | 🌀🔄      | `e3298aa5` | hsb0-26.05.20251127.2fad6ea | `just switch` | 2025-12-04 19:07 |
+| gpc0 | 🌀🔄      | `e3298aa5` | gpc0-26.05.20251127.2fad6ea | `just switch` | 2025-12-04 19:07 |
+| hsb8 | 🌀🟡      | —          | —                           | migrate       | 2025-12-04 19:07 |
+| csb0 | 🌀⏸️      | `af420880` | csb0-25.11.20251117.89c2b23 | Phase II      | 2025-12-04 19:07 |
+| csb1 | 🌀⏸️      | `f71b56ca` | csb1-25.11.20251117.89c2b23 | Phase II      | 2025-12-04 19:07 |
 
 ## macOS Home Manager Status
 
-| Host          | Commit     | HM Generation | Git | Built | Uzumaki | Action        | Checked          |
-| ------------- | ---------- | ------------- | --- | ----- | ------- | ------------- | ---------------- |
-| imac0         | `e3298aa5` | gen 69        | ✅  | 🟡    | ✅ new  | `just switch` | 2025-12-04 19:07 |
-| imac-mba-work | —          | —             | ⚫  | ⚫    | ✅ new  | —             | 2025-12-04 19:07 |
+| Host          | 🌀 Status | Commit     | HM Generation | Action        | Checked          |
+| ------------- | --------- | ---------- | ------------- | ------------- | ---------------- |
+| imac0         | 🌀🔄      | `e3298aa5` | gen 69        | `just switch` | 2025-12-04 19:07 |
+| imac-mba-work | ⚫        | —          | —             | —             | 2025-12-04 19:07 |
 
-### Legend
+### 🌀 Status Legend
 
-| Icon   | Meaning                                 |
-| ------ | --------------------------------------- |
-| ✅     | Current / In sync                       |
-| 🟡     | Behind / Needs rebuild                  |
-| 🟠     | Old pattern (needs migration)           |
-| ⚫     | Offline / Unknown                       |
-| ✅ new | Uses new `uzumaki = { enable = true; }` |
-| 🟡 old | Uses old `uzumaki/server.nix` import    |
-| 🟠 old | Uses old pattern + deferred to Phase II |
+| Status | Name              | Meaning                                                |
+| ------ | ----------------- | ------------------------------------------------------ |
+| 🌀✨   | **Perfect**       | Git ✅ + Built ✅ + Uzumaki ✅ (all done with honors!) |
+| 🌀🔄   | **Needs Rebuild** | Git synced, uzumaki configured, needs `just switch`    |
+| 🌀🟡   | **Old Pattern**   | Uses old `uzumaki/server.nix` import, needs migration  |
+| 🌀⏸️   | **Deferred**      | Phase II (cloud servers - mixins → hokage first)       |
+| ⚫     | **Offline**       | Can't reach host                                       |
 
-- **Git**: Does host commit match repo HEAD (`e3298aa5`)?
-- **Built**: Was system rebuilt from host's current commit?
-- **Uzumaki**: Uses new consolidated uzumaki module pattern?
-- **Action**: Command to run — `just switch`, `just upgrade`, or Phase II
+## 🌀 Uzumaki Module Status
 
-## Uzumaki Module Status
+### ✅ Migrated to New Pattern (Phase I)
 
-### ✅ Migrated to New Pattern (Phase I Complete)
-
-| Host          | Platform | Role        | StaSysMo | Import                             |
-| ------------- | -------- | ----------- | -------- | ---------------------------------- |
-| hsb1          | NixOS    | server      | ✅       | `modules/uzumaki`                  |
-| hsb0          | NixOS    | server      | ✅       | `modules/uzumaki`                  |
-| gpc0          | NixOS    | desktop     | ✅       | `modules/uzumaki`                  |
-| imac0         | macOS    | workstation | ✅       | `modules/uzumaki/home-manager.nix` |
-| imac-mba-work | macOS    | workstation | ✅       | `modules/uzumaki/home-manager.nix` |
+| Host          | Platform | Role        | 🌀 Import                          |
+| ------------- | -------- | ----------- | ---------------------------------- |
+| hsb1          | NixOS    | server      | `modules/uzumaki`                  |
+| hsb0          | NixOS    | server      | `modules/uzumaki`                  |
+| gpc0          | NixOS    | desktop     | `modules/uzumaki`                  |
+| imac0         | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
+| imac-mba-work | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
 
 ### 🟡 Needs Migration (Phase I Pending)
 
@@ -60,7 +53,7 @@
 | ---- | -------- | -------------------- | ------- |
 | hsb8 | NixOS    | `uzumaki/server.nix` | Offline |
 
-### 🟠 Deferred to Phase II (Cloud Servers)
+### ⏸️ Deferred to Phase II (Cloud Servers)
 
 | Host | Platform | Current Import       | Notes                               |
 | ---- | -------- | -------------------- | ----------------------------------- |
@@ -95,7 +88,7 @@ git pull && sudo nixos-rebuild switch --flake .#<hostname>
 git pull && home-manager switch --flake .#<hostname>
 ```
 
-## Architecture Overview
+## 🌀 Architecture Overview
 
 ```
 modules/uzumaki/                    # Single source of truth
