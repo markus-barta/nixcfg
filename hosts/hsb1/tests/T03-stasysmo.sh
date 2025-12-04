@@ -82,27 +82,27 @@ fi
 
 print_test "T03.2 - StaSysMo Output Files"
 
-SYSMON_DIR="/dev/shm"
+SYSMON_DIR="/dev/shm/stasysmo"
 
-if [[ -f "$SYSMON_DIR/sysmon_cpu" ]]; then
-  CPU_VALUE=$(cat "$SYSMON_DIR/sysmon_cpu")
-  pass "sysmon_cpu exists: $CPU_VALUE"
+if [[ -f "$SYSMON_DIR/cpu" ]]; then
+  CPU_VALUE=$(cat "$SYSMON_DIR/cpu")
+  pass "cpu file exists: ${CPU_VALUE}%"
 else
-  fail "sysmon_cpu file missing"
+  fail "cpu file missing in $SYSMON_DIR"
 fi
 
-if [[ -f "$SYSMON_DIR/sysmon_ram" ]]; then
-  RAM_VALUE=$(cat "$SYSMON_DIR/sysmon_ram")
-  pass "sysmon_ram exists: $RAM_VALUE"
+if [[ -f "$SYSMON_DIR/ram" ]]; then
+  RAM_VALUE=$(cat "$SYSMON_DIR/ram")
+  pass "ram file exists: ${RAM_VALUE}%"
 else
-  fail "sysmon_ram file missing"
+  fail "ram file missing in $SYSMON_DIR"
 fi
 
-if [[ -f "$SYSMON_DIR/sysmon_load" ]]; then
-  LOAD_VALUE=$(cat "$SYSMON_DIR/sysmon_load")
-  pass "sysmon_load exists: $LOAD_VALUE"
+if [[ -f "$SYSMON_DIR/load" ]]; then
+  LOAD_VALUE=$(cat "$SYSMON_DIR/load")
+  pass "load file exists: $LOAD_VALUE"
 else
-  fail "sysmon_load file missing"
+  fail "load file missing in $SYSMON_DIR"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -126,10 +126,10 @@ print_test "T03.4 - Starship Integration"
 STARSHIP_CONFIG="$HOME/.config/starship.toml"
 
 if [[ -f "$STARSHIP_CONFIG" ]]; then
-  if grep -q "custom.sysmon" "$STARSHIP_CONFIG" 2>/dev/null; then
-    pass "Starship has custom.sysmon section"
+  if grep -q "custom.stasysmo" "$STARSHIP_CONFIG" 2>/dev/null; then
+    pass "Starship has custom.stasysmo section"
   else
-    fail "Starship missing custom.sysmon section"
+    fail "Starship missing custom.stasysmo section"
   fi
 
   if grep -q "stasysmo-reader" "$STARSHIP_CONFIG" 2>/dev/null; then

@@ -212,7 +212,7 @@ cd ~/nixcfg/hosts/<host>/tests
 | Host          | T00 Base | T01 Theme | T02 Fish | T03 StaSysMo | Status      |
 | ------------- | -------- | --------- | -------- | ------------ | ----------- |
 | hsb0          | ⬜       | ⬜        | ⬜       | ⬜           | Pending     |
-| hsb1          | ⏭️       | ✅ 27/27  | ❌ (exp) | ⚠️ partial   | ✅ Baseline |
+| hsb1          | ⏭️       | ✅ 27/27  | ❌ (exp) | ✅ 8/8       | ✅ Baseline |
 | hsb8          | ⬜       | ⬜        | ⬜       | ⬜           | Pending     |
 | gpc0          | ⬜       | ⬜        | ⬜       | ⬜           | Pending     |
 | imac0         | ⬜       | ⬜        | ⬜       | ⬜           | Pending     |
@@ -223,6 +223,7 @@ cd ~/nixcfg/hosts/<host>/tests
 - T00: Skipped (remote test, needs to run from workstation)
 - T01: ✅ Theme system fully functional (green palette)
 - T02: ❌ Expected failure - uzumaki module not yet applied, no fish functions
+- T03: ✅ StaSysMo fully functional (daemon, files, starship integration)
 - T03: ⚠️ Daemon runs, but output files missing (investigate)
 
 **Baseline Matrix (Phase II Hosts - Deferred):**
