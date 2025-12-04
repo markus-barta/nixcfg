@@ -38,16 +38,8 @@ in
         # Reset mouse tracking (prevents garbled escape sequences from crashed apps)
         printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'
 
-        # Export terminal width for Starship's $fill module
-        # Fish maintains $COLUMNS internally but doesn't export it
-        # NOTE: Do NOT set COLUMNS here - it triggers --on-variable recursion (infinite loop!)
-        function __sync_term_width --on-variable COLUMNS
-          set -gx STARSHIP_TERM_WIDTH $COLUMNS
-        end
-        # Initial export
-        if set -q COLUMNS
-          set -gx STARSHIP_TERM_WIDTH $COLUMNS
-        end
+        # NOTE: Do NOT set STARSHIP_TERM_WIDTH - Starship detects terminal width
+        # automatically and setting it manually breaks $fill on some hosts (hsb1)
       '';
       shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
       shellAbbrs = (lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs) // {
