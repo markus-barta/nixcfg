@@ -119,7 +119,7 @@ switch args='':
     #!/usr/bin/env bash
     # Detect platform and route to appropriate command
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        echo " Detected macOS - running 🏠 home-manager switch for {{ user }}@{{ hostname }}..."
+        echo "$(printf '\xef\x85\xb9') Detected macOS - running 🏠 home-manager switch for {{ user }}@{{ hostname }}..."
         start_time=$(date +%s)
         home-manager switch --flake ".#{{ user }}@{{ hostname }}" {{ args }}
         end_time=$(date +%s)
@@ -129,7 +129,7 @@ switch args='':
           just _notify "home-manager switch finished for {{ user }}@{{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
         fi
     else
-        echo " Detected NixOS - running ❄️ nixos-rebuild switch for {{ hostname }}..."
+        echo "$(printf '\xef\x8c\x93') Detected NixOS - running ❄️ nixos-rebuild switch for {{ hostname }}..."
         sudo true
         start_time=$(date +%s)
         nh os switch -H {{ hostname }} . -- {{ args }}
