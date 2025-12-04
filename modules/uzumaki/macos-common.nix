@@ -55,10 +55,15 @@ in
       zoxide init fish | source
     '';
 
-    # Functions - uzumaki functions (pingt, sourcefish, sourceenv) + macOS-specific
+    # Functions - uzumaki functions (pingt, sourcefish, sourceenv, stress) + macOS-specific
     functions = {
       # Uzumaki shared functions
-      inherit (uzumakiFunctions) pingt sourcefish sourceenv;
+      inherit (uzumakiFunctions)
+        pingt
+        sourcefish
+        sourceenv
+        stress
+        ;
 
       # Custom cd function using zoxide
       cd = ''
