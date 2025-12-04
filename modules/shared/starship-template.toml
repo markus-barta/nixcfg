@@ -221,7 +221,7 @@ format = '[$symbol $status ]($style)'
 [cmd_duration]
 min_time = 2000
 style = "bg:__DARKER__"
-format = '[[(⏱ $duration) ](fg:__TEXT_MUTED__ bg:__DARKER__)]($style)'
+format = '[[(⏱ $duration) ](fg:__TEXT_MUTED_LIGHT__ bg:__DARKER__)]($style)'
 
 # ════════════════════════════════════════════════════════════════════════════════
 # TIME

@@ -1,6 +1,16 @@
 # Starship $fill Module Broken on hsb1
 
-## Status: IN PROGRESS
+## Status: RESOLVED
+
+## Resolution
+
+**Root cause:** The `printf '\e[?1000l\e[?1002l\e[?1003l\e[?1006l'` mouse tracking reset in fish shellInit was interfering with Starship's terminal width detection.
+
+**Fix:** Removed the printf command from `modules/common.nix` and `modules/uzumaki/macos-common.nix` (commit 5f36669).
+
+---
+
+## Original Problem (Archived)
 
 ## Problem Statement
 
