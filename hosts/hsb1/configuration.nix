@@ -9,21 +9,18 @@
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
-    ../../modules/uzumaki # New consolidated module (Phase 5 migration)
-    ../../modules/shared/stasysmo/nixos.nix
+    ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
   ];
 
   # ============================================================================
-  # UZUMAKI MODULE - Fish functions, zellij, editor (migrated from server.nix)
+  # UZUMAKI MODULE - Fish functions, zellij, stasysmo (all-in-one)
   # ============================================================================
   uzumaki = {
     enable = true;
     role = "server";
     fish.editor = "nano";
+    stasysmo.enable = true; # System metrics in Starship prompt
   };
-
-  # Enable StaSysMo system metrics in Starship prompt
-  services.stasysmo.enable = true;
 
   # Allow unfree package for "FLIRC" IR-USB-Module
   nixpkgs.config.allowUnfreePredicate =

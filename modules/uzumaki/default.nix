@@ -23,8 +23,8 @@
 # Features:
 #   - Fish functions: pingt, stress, helpfish, sourcefish, sourceenv
 #   - Zellij terminal multiplexer
+#   - StaSysMo system monitoring (opt-in via uzumaki.stasysmo.enable)
 #   - Role-based defaults (server/desktop/workstation)
-#   - Automatic platform detection (NixOS vs Darwin)
 #
 {
   config,
@@ -61,10 +61,13 @@ let
 in
 {
   # ══════════════════════════════════════════════════════════════════════════════
-  # OPTIONS
+  # IMPORTS
   # ══════════════════════════════════════════════════════════════════════════════
 
-  imports = [ ./options.nix ];
+  imports = [
+    ./options.nix
+    ../shared/stasysmo/nixos.nix # StaSysMo options (enabled via uzumaki.stasysmo.enable)
+  ];
 
   # ══════════════════════════════════════════════════════════════════════════════
   # CONFIGURATION (NixOS only)
@@ -91,5 +94,8 @@ in
 
     # Packages
     environment.systemPackages = lib.mkIf cfg.zellij.enable [ pkgs.zellij ];
+
+    # StaSysMo - System monitoring in Starship prompt
+    services.stasysmo.enable = cfg.stasysmo.enable;
   };
 }

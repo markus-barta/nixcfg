@@ -92,6 +92,18 @@
       };
     };
 
+    stasysmo = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false; # Opt-in for system monitoring
+        description = ''
+          Enable StaSysMo system monitoring integration.
+          When enabled, uzumaki automatically imports and configures the
+          stasysmo module (CPU, RAM, Load, Swap in Starship prompt).
+        '';
+      };
+    };
+
     # ══════════════════════════════════════════════════════════════════════════
     # Platform Detection (set automatically by default.nix)
     # ══════════════════════════════════════════════════════════════════════════
