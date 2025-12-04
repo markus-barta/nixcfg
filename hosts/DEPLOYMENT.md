@@ -2,18 +2,18 @@
 
 ## Current Repository
 
-| Attribute   | Value                                                     |
-| ----------- | --------------------------------------------------------- |
-| **Commit**  | `5f64c7e9`                                                |
-| **Message** | fix(uzumaki): correct fish module imports in home-manager |
+| Attribute   | Value                                                      |
+| ----------- | ---------------------------------------------------------- |
+| **Commit**  | `6ccbd00b`                                                 |
+| **Message** | fix(justfile): use printf UTF-8 hex escapes for Nerd Fonts |
 
 ## NixOS Host Status
 
 | Host | Status | Commit     | System Build                | Action   | Checked          |
 | ---- | ------ | ---------- | --------------------------- | -------- | ---------------- |
-| hsb1 | 🌀✨   | `117dd53e` | hsb1-26.05.20251130.2d293cb | —        | 2025-12-04 19:15 |
-| hsb0 | 🌀✨   | `4f0ebf36` | hsb0-26.05.20251127.2fad6ea | —        | 2025-12-04 19:20 |
-| gpc0 | 🌀✨   | `87444ce4` | gpc0-26.05.20251127.2fad6ea | —        | 2025-12-04 19:18 |
+| hsb1 | 🔄     | `117dd53e` | hsb1-26.05.20251130.2d293cb | rebuild  | 2025-12-04 20:00 |
+| hsb0 | 🔄     | `4f0ebf36` | hsb0-26.05.20251127.2fad6ea | rebuild  | 2025-12-04 20:00 |
+| gpc0 | 🔄     | `87444ce4` | gpc0-26.05.20251127.2fad6ea | rebuild  | 2025-12-04 20:00 |
 | hsb8 | 🟡     | —          | —                           | migrate  | 2025-12-04 19:07 |
 | csb0 | ⏸️     | `af420880` | csb0-25.11.20251117.89c2b23 | Phase II | 2025-12-04 19:07 |
 | csb1 | ⏸️     | `f71b56ca` | csb1-25.11.20251117.89c2b23 | Phase II | 2025-12-04 19:07 |
@@ -22,7 +22,7 @@
 
 | Host          | Status | Commit     | HM Generation | Action | Checked          |
 | ------------- | ------ | ---------- | ------------- | ------ | ---------------- |
-| imac0         | 🌀✨   | `5f64c7e9` | gen 70        | —      | 2025-12-04 19:22 |
+| imac0         | 🌀✨   | `6ccbd00b` | gen 73        | —      | 2025-12-04 20:00 |
 | imac-mba-work | ⚫     | —          | —             | —      | 2025-12-04 19:07 |
 
 ### Status Legend
