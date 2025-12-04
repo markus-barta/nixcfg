@@ -14,7 +14,12 @@ in
   imports = [
     # Themed starship, zellij, and eza (auto-detects hostname)
     ../../modules/shared/theme-hm.nix
+    # StaSysMo system metrics daemon for Starship prompt
+    ../../modules/shared/stasysmo/home-manager.nix
   ];
+
+  # Enable StaSysMo daemon (CPU, RAM, Load, Swap metrics in prompt)
+  services.stasysmo.enable = true;
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "markus";
   home.homeDirectory = "/Users/markus";
