@@ -31,7 +31,8 @@ let
   # Import fish configuration (consolidated into uzumaki)
   fishModule = import ./fish;
   fishFunctions = fishModule.functions;
-  fishConfig = fishModule.config;
+  fishAliases = fishModule.aliases;
+  fishAbbrs = fishModule.abbreviations;
 
 in
 {
@@ -67,11 +68,11 @@ in
         // lib.optionalAttrs cfg.fish.functions.stress { inherit (fishFunctions) stress; }
         // lib.optionalAttrs cfg.fish.functions.helpfish { inherit (fishFunctions) helpfish; };
 
-      # Shell aliases from shared config
-      shellAliases = fishConfig.fishAliases;
+      # Shell aliases from uzumaki/fish
+      shellAliases = fishAliases;
 
-      # Shell abbreviations from shared config
-      shellAbbrs = fishConfig.fishAbbrs;
+      # Shell abbreviations from uzumaki/fish
+      shellAbbrs = fishAbbrs;
 
       # Editor environment variable
       interactiveShellInit = lib.mkAfter ''
