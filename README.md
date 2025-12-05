@@ -4,6 +4,8 @@ Personal NixOS configuration managing home servers, cloud infrastructure, and de
 
 > Built on the excellent [hokage module system](https://github.com/pbek/nixcfg) by Patrizio Bekerle, extended with custom tooling and Tokyo Night theming. 🍥
 
+![StaSysMo and Tokyo Night+ Theme Demo](./screenshots/shell.png)
+
 ## What This Does
 
 **Manages 6 NixOS hosts + 2 macOS workstations:**
@@ -38,7 +40,7 @@ Personal NixOS configuration managing home servers, cloud infrastructure, and de
         ┌──────────────────┼─────────────────────┐
         ▼                  ▼                     ▼
 ┌───────────────┐  ┌───────────────┐  ┌───────────────────────┐
-   🌀 Uzumaki        🤝🏻 common.nix        🍥 External Hokage
+   🌀 Uzumaki        🤝🏻 common.nix       🍥 External Hokage
    (Personal)          (Shared)          github:pbek/nixcfg
 
   Fish functions     Overrides &        Roles, users, core
