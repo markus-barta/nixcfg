@@ -43,34 +43,18 @@
 
     let
       system = "x86_64-linux";
-      overlaysDir = ./overlays;
-      overlaysFromDir = builtins.filter (x: x != null) (
-        builtins.attrValues (
-          builtins.mapAttrs (
-            name: type:
-            if type == "regular" && builtins.match ".*\\.nix$" name != null then
-              import (overlaysDir + "/${name}")
-            else
-              null
-          ) (builtins.readDir overlaysDir)
-        )
-      );
-      # Only include user-defined overlays here (exclude the meta overlays-nixpkgs to avoid recursion)
-      validOverlays = builtins.filter (x: builtins.isFunction x) overlaysFromDir;
-      # Provide stable and unstable package sets as attributes of pkgs while ensuring our local overlays are also applied there.
+      # Overlay providing pkgs.stable and pkgs.unstable attributes
       overlays-nixpkgs = _final: _prev: {
         stable = import nixpkgs-stable {
           inherit system;
           config.allowUnfree = true;
-          overlays = validOverlays;
         };
         unstable = import nixpkgs {
           inherit system;
           config.allowUnfree = true;
-          overlays = validOverlays;
         };
       };
-      allOverlays = validOverlays ++ [ overlays-nixpkgs ];
+      allOverlays = [ overlays-nixpkgs ];
       commonServerModules = [
         home-manager.nixosModules.home-manager
         ./modules/common.nix # Shared config for ALL servers (fish, starship, packages, etc.)
@@ -233,7 +217,7 @@
       };
 
       checks.x86_64-linux = {
-        # Unstable (nixos-unstable) test using local overlay package
+        # QOwnNotes integration test using nixpkgs package
         qownnotes-unstable = pkgs.testers.runNixOSTest ./tests/qownnotes.nix;
       };
 

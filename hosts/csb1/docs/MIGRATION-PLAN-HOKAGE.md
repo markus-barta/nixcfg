@@ -3,40 +3,95 @@
 **Server**: csb1 (Cloud Server Barta 1)  
 **Migration Type**: External Hokage Consumer Pattern  
 **Risk Level**: 🟡 **MEDIUM** - Monitoring and documentation services  
-**Status**: ✅ **COMPLETE** - Successfully migrated 2025-11-29  
+**Status**: ⏳ **READY TO DEPLOY** - Flake fixed, running OLD local hokage  
 **Created**: November 29, 2025  
-**Last Updated**: November 29, 2025
+**Last Updated**: December 5, 2025
 
-### Migration Complete (2025-11-29)
+---
 
-| Milestone              | Status                       |
-| ---------------------- | ---------------------------- |
-| Pre-flight checks      | ✅ ALL PASS                  |
-| Backups created        | ✅ Netcup + Restic + Archive |
-| Configuration deployed | ✅ 13:43                     |
-| Services restored      | ✅ 15/15 containers          |
-| Full reboot verified   | ✅ 13:54                     |
-| Password auth disabled | ✅ Hardened                  |
-| Post-migration tests   | ✅ ALL PASS                  |
+## 🚨 CURRENT STATUS (Validated 2025-12-05)
 
-**Final NixOS**: 25.11.20251117.89c2b23 (Xantusia)
+### Reality Check
+
+| Item                | Status                         | Notes                                                  |
+| ------------------- | ------------------------------ | ------------------------------------------------------ |
+| **Running Config**  | ❌ OLD local hokage            | No `nixbit` installed (external hokage signature tool) |
+| **Flake Evaluates** | ✅ FIXED 2025-12-05            | Removed obsolete overlays code from flake.nix          |
+| **External Hokage** | ⏳ Configured, READY to deploy | flake.nix correct, evaluation passes                   |
+| **Last Rebuild**    | 2025-11-29 17:25               | Done with old local hokage, needs new rebuild          |
+
+### Blockers Before Migration Can Proceed
+
+1. ~~**🔴 CRITICAL**: Fix `flake.nix` - overlays directory was deleted~~ ✅ **FIXED 2025-12-05**
+2. ~~**🟡 MEDIUM**: Validate flake evaluates~~ ✅ **PASS** - `nix eval '.#nixosConfigurations.csb1'` works
+3. **🟡 PENDING**: Test build: `nix build '.#nixosConfigurations.csb1.config.system.build.toplevel'`
+4. **🟡 PENDING**: Deploy to csb1 with `nixos-rebuild switch`
+
+### How to Verify Current State
+
+```bash
+# SSH to csb1 and check for nixbit (external hokage indicator)
+ssh -p 2222 mba@csb1 "which nixbit"
+# If "nixbit not found" → OLD local hokage
+# If path returned → External hokage deployed
+```
+
+---
+
+### Previous Migration Attempt (2025-11-29) - INCOMPLETE
+
+| Milestone              | Status                       | Reality                                    |
+| ---------------------- | ---------------------------- | ------------------------------------------ |
+| Pre-flight checks      | ✅ Passed                    | ✅                                         |
+| Backups created        | ✅ Netcup + Restic + Archive | ✅                                         |
+| Configuration deployed | ⚠️ Claimed 13:43             | ❌ Deployed OLD local hokage, not external |
+| Services restored      | ✅ 15/15 containers          | ✅ Services work                           |
+| Full reboot verified   | ✅ 13:54                     | ✅ System boots                            |
+| External hokage active | ❌ NOT VERIFIED              | ❌ No nixbit = not external hokage         |
+
+**Running NixOS**: 25.11.20251117.89c2b23 (Xantusia) - but with LOCAL hokage
 
 ---
 
 ## 🎯 Migration Overview
 
-### Current State
+### Uzumaki Compatibility ✅
 
-| Attribute       | Value                                               |
-| --------------- | --------------------------------------------------- |
-| **Hostname**    | `csb1`                                              |
-| **Role**        | Cloud server for monitoring, docs, and databases    |
-| **Criticality** | 🟡 **MEDIUM** - Monitoring/documentation services   |
-| **OS**          | NixOS 24.11.20240926.1925c60 (Vicuna)               |
-| **Structure**   | OLD modules/mixins (local fork on server)           |
-| **Config**      | Local `~/nixcfg` on server (drifted from main repo) |
-| **Services**    | 15 Docker containers                                |
-| **Backup**      | Daily at 01:30 AM (working ✅)                      |
+**Yes, uzumaki will work on csb1!**
+
+csb1's `configuration.nix` already imports `../../modules/uzumaki/server.nix` which provides:
+
+| Feature               | Source             | Current (old build)      | After Deploy |
+| --------------------- | ------------------ | ------------------------ | ------------ |
+| `pingt` function      | uzumaki/common.nix | ✅ Working               | ✅           |
+| `sourcefish` function | uzumaki/common.nix | ✅ Working               | ✅           |
+| `sourceenv` function  | uzumaki/common.nix | ✅ Working               | ✅           |
+| `stress` function     | uzumaki/common.nix | ❌ Missing (added later) | ✅ NEW       |
+| `stasysmod` function  | uzumaki/common.nix | ❌ Missing (added later) | ✅ NEW       |
+| `helpfish` function   | uzumaki/common.nix | ❌ Missing (added later) | ✅ NEW       |
+| `EDITOR=nano`         | uzumaki/server.nix | ✅ Working               | ✅           |
+| zellij package        | uzumaki/server.nix | ✅ Working               | ✅           |
+
+**Note**: Current running system (2025-11-29) predates some uzumaki functions. Deploy will add the new ones.
+
+After hokage migration, uzumaki will continue to work because:
+
+1. `uzumaki/server.nix` is imported in `configuration.nix`
+2. It uses `lib.mkAfter` so it layers ON TOP of hokage's fish config
+3. No conflicts with external hokage - uzumaki adds, hokage provides base
+
+### Current State (Validated 2025-12-05)
+
+| Attribute       | Value                                                     |
+| --------------- | --------------------------------------------------------- |
+| **Hostname**    | `csb1`                                                    |
+| **Role**        | Cloud server for monitoring, docs, and databases          |
+| **Criticality** | 🟡 **MEDIUM** - Monitoring/documentation services         |
+| **OS**          | NixOS 25.11.20251117.89c2b23 (Xantusia)                   |
+| **Structure**   | OLD local hokage (uzumaki functions work, no nixbit)      |
+| **Config**      | Main repo flake configured but BROKEN (missing overlays/) |
+| **Services**    | 15 Docker containers                                      |
+| **Backup**      | Daily at 01:30 AM (working ✅)                            |
 
 ### Target State
 
@@ -332,47 +387,88 @@ Remove `../../modules/mixins/*` imports from configuration.nix
 
 Replace `mkServerHost "csb1"` with full `nixosSystem` definition using external hokage.
 
-### Phase 4: Test Build
+### Phase 4: Test Build (Local)
 
-**Status**: ⏸️ Not Started  
-**Duration**: 5 minutes  
+**Status**: ✅ Evaluation passes  
+**Duration**: 5-15 minutes  
 **Risk**: 🟢 LOW (test only)
 
 ```bash
-# On a local NixOS machine:
+# From Mac - test that config evaluates and builds
 cd ~/Code/nixcfg
-nixos-rebuild build --flake .#csb1 --show-trace
+
+# Quick eval test (already passed!)
+nix eval '.#nixosConfigurations.csb1.config.system.build.toplevel'
+
+# Full build test (downloads/builds all packages)
+nix build '.#nixosConfigurations.csb1.config.system.build.toplevel' --no-link
 ```
 
-### Phase 5: Deploy
+### Phase 5: Capture Baseline
 
 **Status**: ⏸️ Not Started  
-**Duration**: 15-30 minutes  
+**Duration**: 2 minutes  
+**Risk**: 🟢 LOW (read-only)
+
+**CRITICAL: Do this BEFORE deploy!**
+
+```bash
+# Save current state for comparison
+ssh -p 2222 mba@csb1 "docker ps --format '{{.Names}}: {{.Status}}'" > ~/csb1-baseline-$(date +%Y%m%d).txt
+ssh -p 2222 mba@csb1 "fish -i -c 'type pingt'" >> ~/csb1-baseline-$(date +%Y%m%d).txt
+```
+
+### Phase 6: Deploy
+
+**Status**: ⏸️ Not Started  
+**Duration**: 5-15 minutes  
 **Risk**: 🟡 MEDIUM
 
 ```bash
-# From Mac:
+# From Mac - deploy to csb1
+cd ~/Code/nixcfg
+
+# Option A: Direct deploy (requires nixos-rebuild on Mac with Linux builder)
 nixos-rebuild switch --flake .#csb1 \
-  --target-host mba@<hostname> \
-  --use-remote-sudo
+  --target-host "mba@csb1" \
+  --build-host "mba@csb1" \
+  --use-remote-sudo \
+  --option extra-ssh-option "-p 2222"
+
+# Option B: Build remotely and switch
+ssh -p 2222 mba@csb1 "cd ~/nixcfg && git pull && sudo nixos-rebuild switch --flake .#csb1"
 ```
 
-### Phase 6: Verify Services
+### Phase 7: Immediate Verification
 
 **Status**: ⏸️ Not Started  
-**Duration**: 30 minutes
+**Duration**: 5 minutes  
+**Risk**: 🟢 LOW (verification only)
 
-1. Verify SSH access
-2. Check Docker containers
-3. Verify each service (Grafana, InfluxDB, Docmost, Paperless, Traefik)
-4. Check backup system
+Run verification checklist from "Post-Migration Verification" section:
 
-### Phase 7: Documentation
+```bash
+# Quick health check script
+ssh -p 2222 mba@csb1 << 'EOF'
+echo "=== SSH: OK ==="
+echo "=== Sudo: $(sudo whoami) ==="
+echo "=== Docker containers: $(docker ps -q | wc -l) running ==="
+echo "=== nixbit: $(which nixbit 2>/dev/null || echo 'NOT FOUND') ==="
+fish -i -c 'echo "=== pingt: $(type pingt >/dev/null 2>&1 && echo OK || echo MISSING) ==="'
+fish -i -c 'echo "=== EDITOR: $EDITOR ==="'
+EOF
+```
+
+### Phase 8: Documentation
 
 **Status**: ⏸️ Not Started  
 **Duration**: 5 minutes
 
-Update README and this migration plan with results.
+Update this migration plan with:
+
+- Actual deployment time
+- Any issues encountered
+- Lessons learned
 
 ---
 
@@ -403,24 +499,95 @@ See `secrets/RUNBOOK.md` for full restore procedure with credentials.
 
 ## ✅ Post-Migration Verification
 
-### Immediate Checks (Within 1 hour)
+### Pre-Deploy Baseline (CAPTURE BEFORE DEPLOY!)
 
-- [ ] SSH access working
-- [ ] 🚨 SSH keys verified - ONLY `mba@markus` key present
+Run these commands and save output for comparison:
+
+```bash
+# SSH to csb1 and capture baseline
+ssh -p 2222 mba@csb1 << 'EOF'
+echo "=== BASELINE CAPTURED: $(date -Iseconds) ==="
+
+echo -e "\n=== DOCKER CONTAINERS ==="
+docker ps --format 'table {{.Names}}\t{{.Status}}'
+
+echo -e "\n=== DOCKER NETWORKS ==="
+docker network ls
+
+echo -e "\n=== LISTENING PORTS ==="
+ss -tlnp | grep -E ':(80|443|8181|3000|22222|2222)\s'
+
+echo -e "\n=== FISH FUNCTIONS ==="
+fish -i -c 'functions pingt sourcefish helpfish' 2>/dev/null | head -5
+
+echo -e "\n=== DISK USAGE ==="
+df -h / /home
+
+echo -e "\n=== ZFS POOLS ==="
+zpool status -x
+EOF
+```
+
+### Immediate Checks (Within 5 minutes of deploy)
+
+#### 🚨 CRITICAL - SSH & Security
+
+- [ ] SSH access working: `ssh -p 2222 mba@csb1 "echo OK"`
+- [ ] 🚨 SSH keys verified - ONLY mba keys present: `ssh -p 2222 mba@csb1 "cat ~/.ssh/authorized_keys"`
 - [ ] 🚨 NO `omega@*` keys in authorized_keys
-- [ ] 🚨 Passwordless sudo working
-- [ ] All Docker containers running
-- [ ] All services accessible via URLs
-- [ ] No container restart loops
-- [ ] No critical errors in logs
-- [ ] SSL certificates valid
+- [ ] 🚨 Passwordless sudo working: `ssh -p 2222 mba@csb1 "sudo whoami"`
+
+#### 🐳 Docker Services (14 containers must be running)
+
+- [ ] All containers UP: `docker ps --format '{{.Names}}: {{.Status}}' | grep -c "Up"` = 14
+- [ ] Traefik: `curl -s https://csb1/ -o /dev/null -w '%{http_code}'` = 200 or 404
+- [ ] Grafana: `curl -s https://grafana.csb1/ -o /dev/null -w '%{http_code}'`
+- [ ] Paperless: `curl -s https://paperless.csb1/ -o /dev/null -w '%{http_code}'`
+- [ ] Docmost: `curl -s https://docmost.csb1/ -o /dev/null -w '%{http_code}'`
+- [ ] InfluxDB: `docker exec csb1-influxdb-1 influx ping`
+
+#### 🐟 Uzumaki (Fish functions)
+
+- [ ] pingt works: `ssh -p 2222 mba@csb1 "fish -i -c 'type pingt'"`
+- [ ] sourcefish works: `ssh -p 2222 mba@csb1 "fish -i -c 'type sourcefish'"`
+- [ ] helpfish works: `ssh -p 2222 mba@csb1 "fish -i -c 'helpfish'" | head -5`
+- [ ] EDITOR set: `ssh -p 2222 mba@csb1 "fish -i -c 'echo \$EDITOR'"` = nano
+
+#### 🔧 External Hokage Indicators
+
+- [ ] nixbit installed: `ssh -p 2222 mba@csb1 "which nixbit"`
+- [ ] nixbit works: `ssh -p 2222 mba@csb1 "nixbit --version"`
+
+#### 🔒 SSL/TLS
+
+- [ ] SSL certificates valid (Traefik ACME)
+- [ ] No certificate warnings in browser
+
+### Container Status Reference
+
+| Container                   | Purpose        | Health Check       |
+| --------------------------- | -------------- | ------------------ |
+| csb1-traefik-1              | Reverse proxy  | ports 80, 443 open |
+| csb1-grafana-1              | Monitoring UI  | HTTP 200           |
+| csb1-influxdb-1             | Time-series DB | `influx ping`      |
+| csb1-paperless-1            | Document mgmt  | HTTP 200, healthy  |
+| csb1-paperless-redis-1      | Cache          | running            |
+| csb1-paperless-db-1         | PostgreSQL     | running            |
+| csb1-paperless-tika-1       | OCR            | running            |
+| csb1-paperless-gotenberg-1  | PDF            | running            |
+| csb1-docmost-1              | Wiki/docs      | HTTP 200           |
+| csb1-docmost-redis-1        | Cache          | running            |
+| csb1-docmost-db-1           | PostgreSQL     | running            |
+| csb1-smtp-1                 | Email relay    | running            |
+| csb1-restic-cron-hetzner-1  | Backups        | running            |
+| csb1-docker-proxy-traefik-1 | Docker API     | running            |
 
 ### 24-Hour Monitoring
 
 - [ ] All services still running
-- [ ] Backup completed successfully (next night)
-- [ ] No unexpected restarts
-- [ ] Data collection working (MQTT → InfluxDB)
+- [ ] Backup completed successfully (next night @ 01:30)
+- [ ] No unexpected restarts: `docker ps -a --filter "status=restarting"`
+- [ ] Data collection working (csb0 MQTT → InfluxDB)
 
 ### 48-Hour Confirmation
 
@@ -521,26 +688,54 @@ services.openssh.settings.PasswordAuthentication = lib.mkForce true;
 
 ---
 
-## 📝 Post-Migration Notes
+## 📝 Investigation Notes
 
-### Execution Date
+### Validation (2025-12-05)
 
-- **Started**: _To be filled_
-- **Completed**: _To be filled_
-- **Duration**: _To be filled_
+Investigation revealed the migration was **NOT completed**:
 
-### Issues Encountered
+1. **SSH to csb1** confirmed no `nixbit` (external hokage tool) installed
+2. **System fish config** shows uzumaki functions (pingt, sourcefish) work - these come from local hokage
+3. **Flake.nix** is configured for external hokage BUT cannot evaluate
+4. **Blocker**: `overlays/` directory deleted in commit `95a8999` but still referenced
 
-- _To be filled post-migration_
+### What's Actually Running
 
-### Lessons Learned
+```bash
+# Checked via SSH on 2025-12-05
+$ which nixbit
+# NOT FOUND - confirms OLD local hokage
 
-1. **What went well**: _To be filled_
-2. **What could be improved**: _To be filled_
-3. **Apply to csb0 migration**: _To be filled_
+$ fish -i -c 'type pingt'
+# FOUND in /etc/fish/config.fish - uzumaki functions work
+
+$ nixos-version
+25.11.20251117.89c2b23 (Xantusia)
+```
+
+### Flake Error (FIXED)
+
+```
+error: Path 'overlays' does not exist in Git repository "/Users/markus/Code/nixcfg".
+```
+
+Commit `95a8999` ("chore: cleanup unused packages") deleted `overlays/` but `flake.nix` still references it at line 46-55.
+
+**Fix applied 2025-12-05**: Removed obsolete overlays loading code from flake.nix. The overlays were:
+
+- `nixbit.nix` - now provided by external hokage
+- `qownnotes.nix` - now uses standard nixpkgs package
+- `default.nix` - was empty placeholder
+
+### Next Steps
+
+1. ~~Fix flake.nix to handle missing overlays directory~~ ✅ DONE
+2. ~~Verify all NixOS configs can evaluate~~ ✅ DONE
+3. Test build csb1 configuration
+4. Deploy external hokage to csb1
 
 ---
 
-**STATUS**: ⏳ Planned - Configuration preparation needed  
-**CONFIDENCE**: 🟢 HIGH - Lessons from hsb0/hsb8 applied  
-**NEXT**: 1) Create configuration.nix, 2) Test build, 3) Execute
+**STATUS**: ⏳ READY TO DEPLOY - Flake fixed, evaluation passes  
+**CONFIDENCE**: 🟢 HIGH - Flake evaluates, external hokage configured  
+**NEXT**: 1) ~~Fix flake.nix~~ ✅, 2) ~~Verify eval~~ ✅, 3) Test build, 4) Deploy to csb1
