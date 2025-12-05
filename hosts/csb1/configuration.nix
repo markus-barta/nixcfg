@@ -47,10 +47,36 @@
   # ============================================================================
   # NETWORKING
   # ============================================================================
+  # 🚨 STATIC IP CONFIG - Prevents lockout during deploy (incident 2025-12-05)
+  # Root cause: NetworkManager had no connection profile after generation switch
+  # Fix: Declarative static IP that NixOS manages, NM ignores
   networking = {
     hostName = "csb1";
     hostId = "dabfdc02"; # Required for ZFS
     networkmanager.enable = true;
+
+    # Static IP for Netcup VPS
+    interfaces.ens3 = {
+      useDHCP = false;
+      ipv4.addresses = [
+        {
+          address = "152.53.64.166";
+          prefixLength = 24;
+        }
+      ];
+    };
+
+    defaultGateway = "152.53.64.1";
+    nameservers = [
+      "8.8.8.8"
+      "8.8.4.4"
+    ];
+
+    # Tell NetworkManager NOT to manage ens3 (we configure it statically)
+    networkmanager.unmanaged = [ "ens3" ];
+
+    # Disable DHCP globally (static IP server)
+    useDHCP = false;
 
     # Firewall - allow web traffic
     firewall = {
@@ -109,6 +135,11 @@
   # ============================================================================
   users.users.mba = {
     extraGroups = [ "mosquitto" ];
+
+    # 🚨 EMERGENCY RECOVERY PASSWORD - for VNC console access if SSH fails
+    # Enables login via Netcup VNC console during lockout scenarios
+    # Password stored in 1Password, rotate after migration complete
+    hashedPassword = "$6$Tk1YlwmY7R0sO8mi$I2I3YXnxkjrLRJ9odyuQeAcKv8aMT6rjCZUbB35qy2hlnWhoVL0bQrYG2vqpoRZOngGrPHYiYDaP54gtSDJDE0";
 
     openssh.authorizedKeys.keys = lib.mkForce [
       # markus@iMac-5k-MBA-home.local (id_rsa)
