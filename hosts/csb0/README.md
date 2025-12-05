@@ -1,9 +1,9 @@
 # csb0 - Cloud Server Barta 0
 
-**Status**: 🟡 Migration to Hokage planned
+**Status**: ⏳ READY TO DEPLOY - External Hokage migration
 **Type**: Cloud Server (Netcup VPS 1000 G11)
-**OS**: NixOS 24.11 (Vicuna)
-**Uptime**: 267+ days
+**OS**: NixOS 25.11 (Xantusia)
+**Uptime**: 267+ days (last checked 2025-12-05)
 **Primary Domain**: cs0.barta.cm
 
 ---
@@ -120,9 +120,16 @@ sudo nixos-rebuild switch --rollback
 
 **Goal**: Migrate from local mixins to external Hokage modules
 
-**Status**: 🟡 Planned (after csb1 success ✅)
+**Status**: ⏳ **READY TO DEPLOY** (csb1 successful ✅)
 
-See `migrations/2025-11-hokage/README.md` for details.
+| Item                     | Status         |
+| ------------------------ | -------------- |
+| Flake evaluates          | ✅ PASS        |
+| Password auth safety net | ✅ Added       |
+| uzumaki/server.nix       | ✅ Imported    |
+| SSH key security         | ✅ lib.mkForce |
+
+See `docs/MIGRATION-PLAN-HOKAGE.md` for full plan.
 
 ---
 
