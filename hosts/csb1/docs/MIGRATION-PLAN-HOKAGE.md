@@ -2,30 +2,38 @@
 
 **Server**: csb1 (Cloud Server Barta 1)  
 **Migration Type**: External Hokage Consumer Pattern  
-**Risk Level**: 🟡 **MEDIUM** - Monitoring and documentation services  
-**Status**: ⏳ **READY TO DEPLOY** - Flake fixed, running OLD local hokage  
+**Risk Level**: 🔴 **HIGH** - Network issues during deployment (see Incident Report)  
+**Status**: 🟡 **RECOVERED** - Services online, but OLD generation (needs re-deploy)  
 **Created**: November 29, 2025  
-**Last Updated**: December 5, 2025
+**Last Updated**: December 5, 2025 (Post-Incident)
 
 ---
 
-## 🚨 CURRENT STATUS (Validated 2025-12-05)
+## 🚨 CURRENT STATUS (Post-Incident 2025-12-05)
+
+### ⚠️ INCIDENT OCCURRED - Server Recovered
+
+**On 2025-12-05, deployment caused network loss.** Server recovered via VNC + manual intervention. See [Incident Report](#-incident-report-2025-12-05-network-loss-during-deployment) below.
 
 ### Reality Check
 
-| Item                | Status                         | Notes                                                  |
-| ------------------- | ------------------------------ | ------------------------------------------------------ |
-| **Running Config**  | ❌ OLD local hokage            | No `nixbit` installed (external hokage signature tool) |
-| **Flake Evaluates** | ✅ FIXED 2025-12-05            | Removed obsolete overlays code from flake.nix          |
-| **External Hokage** | ⏳ Configured, READY to deploy | flake.nix correct, evaluation passes                   |
-| **Last Rebuild**    | 2025-11-29 17:25               | Done with old local hokage, needs new rebuild          |
+| Item                | Status                           | Notes                                            |
+| ------------------- | -------------------------------- | ------------------------------------------------ |
+| **Server Status**   | ✅ ONLINE                        | Recovered via VNC, all services running          |
+| **Running Config**  | ❌ OLD local hokage (Gen 10)     | External hokage deployment FAILED (network loss) |
+| **Network**         | ✅ Fixed with NM connection file | Manual fix persists across reboots               |
+| **Flake**           | ✅ Fixed                         | Overlays code removed                            |
+| **External Hokage** | ❌ NOT DEPLOYED                  | Deployment crashed server - needs retry          |
+| **Docker**          | ✅ All 14 containers running     | Paperless, Grafana, InfluxDB, etc.               |
 
-### Blockers Before Migration Can Proceed
+### Blockers Before RE-Deployment
 
-1. ~~**🔴 CRITICAL**: Fix `flake.nix` - overlays directory was deleted~~ ✅ **FIXED 2025-12-05**
-2. ~~**🟡 MEDIUM**: Validate flake evaluates~~ ✅ **PASS** - `nix eval '.#nixosConfigurations.csb1'` works
-3. **🟡 PENDING**: Test build: `nix build '.#nixosConfigurations.csb1.config.system.build.toplevel'`
-4. **🟡 PENDING**: Deploy to csb1 with `nixos-rebuild switch`
+1. ~~**🔴 CRITICAL**: Fix `flake.nix` - overlays directory was deleted~~ ✅ **FIXED**
+2. ~~**🟡 MEDIUM**: Validate flake evaluates~~ ✅ **PASS**
+3. **🔴 CRITICAL**: Add static IP configuration to configuration.nix (caused network loss!)
+4. **🟡 MEDIUM**: Add `hashedPassword` for mba user (recovery fallback)
+5. **🟡 PENDING**: Test build: `nix build '.#nixosConfigurations.csb1.config.system.build.toplevel'`
+6. **🟡 PENDING**: Re-deploy to csb1 with `nixos-rebuild switch`
 
 ### How to Verify Current State
 
@@ -736,6 +744,256 @@ Commit `95a8999` ("chore: cleanup unused packages") deleted `overlays/` but `fla
 
 ---
 
-**STATUS**: ⏳ READY TO DEPLOY - Flake fixed, evaluation passes  
-**CONFIDENCE**: 🟢 HIGH - Flake evaluates, external hokage configured  
-**NEXT**: 1) ~~Fix flake.nix~~ ✅, 2) ~~Verify eval~~ ✅, 3) Test build, 4) Deploy to csb1
+---
+
+## 🚨 INCIDENT REPORT: 2025-12-05 Network Loss During Deployment
+
+### Timeline (All times CET/local)
+
+| Time   | Event                                                             |
+| ------ | ----------------------------------------------------------------- |
+| ~12:30 | Started deployment of csb1 with `nixos-rebuild switch`            |
+| ~12:35 | Deployment appeared to be running normally                        |
+| ~12:40 | **SSH connection lost** - csb1 became unreachable                 |
+| ~12:42 | Ping to 152.53.64.166 failing - request timeouts                  |
+| ~12:45 | Accessed Netcup SCP panel, initiated VNC console                  |
+| ~12:50 | VNC showed csb1 at login prompt (booted successfully)             |
+| ~12:55 | **Problem**: Cannot login - `mba` user has no console password    |
+| ~13:00 | Attempted boot to generation 9 - still no network                 |
+| ~13:10 | Attempted boot to generation 10 with `single` user mode           |
+| ~13:12 | Single user mode = root account locked, unusable                  |
+| ~13:15 | Booted gen 10 with `init=/bin/sh` via GRUB edit                   |
+| ~13:20 | **New problem**: Keyboard broken - cannot type colon `:`          |
+| ~13:25 | Brought up network interface manually via VNC                     |
+| ~13:30 | `ip link set ens3 up` - interface UP                              |
+| ~13:32 | `ip addr add 152.53.64.166/24 dev ens3` - IP assigned             |
+| ~13:34 | `ip route add default via 152.53.64.1` - gateway set              |
+| ~13:36 | Ping working from csb1! But cannot SSH in (no sshd running)       |
+| ~13:40 | Started sshd: `/nix/var/nix/profiles/system/sw/bin/sshd`          |
+| ~13:42 | SSH connection refused - PAM blocking access                      |
+| ~13:45 | Started sshd with `-o UsePAM=no`                                  |
+| ~13:47 | **SSH ACCESS RESTORED** - connected from Mac                      |
+| ~13:50 | Created NetworkManager connection file via SSH                    |
+| ~13:52 | Copied file to `/etc/NetworkManager/system-connections/` from VNC |
+| ~13:55 | Rebooted normally (no GRUB edits)                                 |
+| ~14:00 | **csb1 BACK ONLINE** - all 14 Docker containers running           |
+
+### Root Cause Analysis
+
+**Primary Issue: NetworkManager had no saved connection profile**
+
+The csb1 configuration uses `networking.networkmanager.enable = true` but:
+
+1. **No static IP configuration** was defined in NixOS config
+2. NetworkManager relies on saved connection profiles
+3. On a fresh generation switch, the connection profile was lost/not present
+4. Without a connection profile, NetworkManager didn't know to bring up `ens3`
+
+**Contributing Factors:**
+
+1. **No console password set** - `mba` user only had SSH key auth, no `hashedPassword`
+2. **External hokage may have changed network config** - The new generation potentially had different network settings
+3. **No fallback mechanism** - Unlike `networking.interfaces.*` which is declarative, NetworkManager needs imperative connection files
+
+### What Broke
+
+| Component        | Status    | Cause                                            |
+| ---------------- | --------- | ------------------------------------------------ |
+| Network on boot  | ❌ FAILED | No NM connection profile                         |
+| Console login    | ❌ FAILED | No user password set                             |
+| Single user mode | ❌ FAILED | Root account locked                              |
+| SSH              | ❌ FAILED | sshd not running in init=/bin/sh                 |
+| VNC keyboard     | ⚠️ BROKEN | Colon `:` character not working (codepage issue) |
+
+### Recovery Actions Taken
+
+#### Phase 1: VNC Access
+
+1. Accessed Netcup Server Control Panel
+2. Opened VNC console to csb1
+3. Discovered cannot login (no password)
+
+#### Phase 2: Emergency Boot (init=/bin/sh)
+
+1. Rebooted via VNC
+2. At GRUB menu, pressed `e` to edit boot entry
+3. Found `linux` line, changed `init=/nix/store/...-init` to `init=/bin/sh`
+4. Pressed Ctrl+X to boot
+5. Got minimal root shell `sh-5.3#`
+
+#### Phase 3: Manual Network Configuration
+
+Commands run from VNC (had to use full paths due to minimal PATH):
+
+```bash
+# Check interface status
+/nix/var/nix/profiles/system/sw/bin/ip link
+# Result: ens3 was DOWN
+
+# Bring up interface
+/nix/var/nix/profiles/system/sw/bin/ip link set ens3 up
+
+# Assign IP address (Netcup static IP)
+/nix/var/nix/profiles/system/sw/bin/ip addr add 152.53.64.166/24 dev ens3
+
+# Add default gateway
+/nix/var/nix/profiles/system/sw/bin/ip route add default via 152.53.64.1
+
+# Verify connectivity
+/nix/var/nix/profiles/system/sw/bin/ping 8.8.8.8
+# SUCCESS - packets flowing!
+```
+
+#### Phase 4: SSH Daemon
+
+```bash
+# Start sshd (initially blocked by PAM)
+/nix/var/nix/profiles/system/sw/bin/sshd
+# FAILED: PAM account configuration denied access
+
+# Fix symlink for run/current-system
+/nix/var/nix/profiles/system/sw/bin/ln -sf /nix/var/nix/profiles/system /run/current-system
+
+# Start sshd bypassing PAM
+/nix/var/nix/profiles/system/sw/bin/sshd -o UsePAM=no
+# SUCCESS - SSH accessible!
+```
+
+#### Phase 5: Permanent Fix
+
+From SSH session (as mba user):
+
+```bash
+# Create NetworkManager connection file
+echo '[connection]
+id=ens3
+type=ethernet
+interface-name=ens3
+autoconnect=true
+
+[ipv4]
+method=manual
+addresses=152.53.64.166/24
+gateway=152.53.64.1
+dns=8.8.8.8
+
+[ipv6]
+method=ignore' > /home/mba/ens3.nmconnection
+```
+
+From VNC (as root, because sudo didn't work in minimal boot):
+
+```bash
+# Copy to NetworkManager directory
+/nix/var/nix/profiles/system/sw/bin/cp /home/mba/ens3.nmconnection /etc/NetworkManager/system-connections/
+
+# Set correct permissions (NM requires 600)
+/nix/var/nix/profiles/system/sw/bin/chmod 600 /etc/NetworkManager/system-connections/ens3.nmconnection
+
+# Reboot normally
+/nix/var/nix/profiles/system/sw/bin/reboot
+```
+
+### Current State (After Recovery)
+
+| Component             | Status                       | Notes                            |
+| --------------------- | ---------------------------- | -------------------------------- |
+| **Network**           | ✅ Working                   | Static IP via NM connection file |
+| **SSH**               | ✅ Working                   | Port 2222, key + password auth   |
+| **Docker**            | ✅ All 14 containers running | Started automatically            |
+| **Services**          | ✅ All healthy               | Paperless, Grafana, etc.         |
+| **NixOS Generation**  | ⚠️ Gen 10 (pre-migration)    | External hokage NOT deployed     |
+| **Uzumaki functions** | ❌ Not present               | Needs re-deploy                  |
+| **nixbit**            | ❌ Not present               | Needs re-deploy                  |
+
+### Lessons Learned
+
+#### 1. NetworkManager Needs Connection Profiles
+
+**Problem**: `networking.networkmanager.enable = true` without connection profiles = no network on boot
+
+**Solution Options**:
+
+- A) Add explicit static IP to NixOS config:
+  ```nix
+  networking.interfaces.ens3 = {
+    useDHCP = false;
+    ipv4.addresses = [{
+      address = "152.53.64.166";
+      prefixLength = 24;
+    }];
+  };
+  networking.defaultGateway = "152.53.64.1";
+  networking.nameservers = [ "8.8.8.8" "8.8.4.4" ];
+  ```
+- B) Use systemd-networkd instead of NetworkManager for servers
+- C) Create NM connection file in NixOS activation script
+
+#### 2. Always Set Console Password for Remote Servers
+
+**Problem**: Cannot recover via VNC if no user has a password
+
+**Solution**: Add to configuration.nix:
+
+```nix
+users.users.mba.hashedPassword = "<hash from mkpasswd>";
+```
+
+#### 3. Document Network Configuration
+
+**Problem**: Had to guess/look up the correct gateway
+
+**Add to secrets/SECRETS.md**:
+
+```
+| **Static IP** | 152.53.64.166/24 |
+| **Gateway** | 152.53.64.1 |
+| **DNS** | 8.8.8.8, 8.8.4.4 |
+```
+
+#### 4. VNC Keyboard Issues
+
+**Problem**: German/international keyboard layout in VNC couldn't type colon `:`
+
+**Workaround**: Used full paths to avoid needing `:` character, or use on-screen keyboard
+
+#### 5. init=/bin/sh Recovery
+
+**Learned**: In minimal `init=/bin/sh` boot:
+
+- PATH is empty - use full paths `/nix/var/nix/profiles/system/sw/bin/*`
+- `/home` may not be mounted
+- `/run/current-system` symlink doesn't exist
+- PAM doesn't work (use `sshd -o UsePAM=no`)
+- sudo doesn't work (suid bits not set)
+- Must use VNC root shell for privileged operations
+
+### Recommendations for Next Deployment
+
+1. **Add static IP configuration** to csb1's configuration.nix BEFORE re-deploying
+2. **Set mba user hashedPassword** as backup recovery method
+3. **Keep password auth enabled** (`PasswordAuthentication = lib.mkForce true`) during migration
+4. **Have VNC console ready** before starting any deploy
+5. **Document IP/gateway** in accessible location
+6. **Test locally first**: `nix build '.#nixosConfigurations.csb1.config.system.build.toplevel'`
+
+### Files Modified During Recovery
+
+| File                                                       | Change  | Persistence                |
+| ---------------------------------------------------------- | ------- | -------------------------- |
+| `/etc/NetworkManager/system-connections/ens3.nmconnection` | Created | ✅ Persists across reboots |
+| (no NixOS config changes on server)                        | -       | -                          |
+
+### Action Items Before Re-Deploy
+
+- [ ] Add static networking to `hosts/csb1/configuration.nix`
+- [ ] Add `hashedPassword` for mba user
+- [ ] Test full build locally
+- [ ] Ensure NM connection file approach or switch to systemd-networkd
+- [ ] Have incident recovery commands documented
+
+---
+
+**STATUS**: 🟡 RECOVERED - csb1 online but running OLD generation (gen 10)  
+**CONFIDENCE**: 🟡 MEDIUM - Need to add static networking before re-deploy  
+**NEXT**: 1) Add static IP config to configuration.nix, 2) Re-deploy with proper networking
