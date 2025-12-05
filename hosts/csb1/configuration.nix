@@ -123,7 +123,11 @@
   # SSH CONFIGURATION
   # ============================================================================
   services.openssh.ports = [ 2222 ];
-  # Password auth disabled after successful migration (2025-11-29)
+
+  # 🚨 TEMPORARY: Enable password auth during external hokage migration
+  # This provides a fallback if SSH keys fail (learned from hsb1 lockout)
+  # TODO: Remove after successful migration verification!
+  services.openssh.settings.PasswordAuthentication = lib.mkForce true;
 
   # ============================================================================
   # PASSWORDLESS SUDO
