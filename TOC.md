@@ -26,7 +26,7 @@ This repository manages NixOS systems using a modular `hokage` architecture. Sys
 ```
 docs/
 ├── README.md                   # Documentation overview
-├── overview.md                 # Architecture and design philosophy
+├── how-it-works.md             # Architecture (hokage + uzumaki modules)
 ├── hokage-options.md           # Complete hokage module reference (1400+ lines)
 ├── CI-CD-PIPELINE.md           # GitHub Actions and automation
 └── private/                    # Private documentation (not in git)
@@ -238,7 +238,7 @@ Used by: `hsb8`, `gpc0`, `csb1` ⭐
 
 ### "I want to understand the architecture"
 
-→ [docs/overview.md](./docs/overview.md) - Architecture and design philosophy  
+→ [docs/how-it-works.md](./docs/how-it-works.md) - Architecture (hokage + uzumaki modules)  
 → [docs/hokage-options.md](./docs/hokage-options.md) - Complete hokage reference
 
 ### "I want to see a complete server example"
@@ -248,7 +248,7 @@ Used by: `hsb8`, `gpc0`, `csb1` ⭐
 
 ### "I want to understand secrets management"
 
-→ [docs/overview.md](./docs/overview.md) - Agenix workflow  
+→ [docs/how-it-works.md](./docs/how-it-works.md) - Agenix workflow  
 → [secrets/secrets.nix](./secrets/secrets.nix) - Secret definitions  
 → `just encrypt-file <file>` / `just decrypt-file <file>`
 

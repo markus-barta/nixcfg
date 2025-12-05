@@ -1018,7 +1018,7 @@ If you encounter issues not covered here:
 
 - [Main README](../../README.md) - Repository overview and quick start
 - [How It Works](../../docs/how-it-works.md) - Architecture and machine inventory
-- [Overview](../../docs/overview.md) - Technical reference and workflows
+- [How It Works](../../docs/how-it-works.md) - Architecture and workflows
 - [Hokage Module Options](../../docs/hokage-options.md) - Configuration options reference
 
 ### Similar Setups

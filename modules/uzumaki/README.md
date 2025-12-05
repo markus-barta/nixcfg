@@ -1,6 +1,101 @@
-# Shared Modules
+# Uzumaki Module
 
-This directory contains configuration files shared across all systems (NixOS servers and macOS workstations).
+The "son of hokage" — personalized tooling and theming built on top of hokage's foundation.
+
+While hokage handles system infrastructure (user management, base packages, services), uzumaki adds the personal touch: fish functions, per-host color themes, and system monitoring.
+
+---
+
+## Quick Start
+
+### NixOS Systems
+
+```nix
+# In configuration.nix
+imports = [ ../../modules/uzumaki ];
+
+uzumaki = {
+  enable = true;
+  role = "server";  # or "desktop"
+  stasysmo.enable = true;  # Optional: system monitoring in prompt
+};
+```
+
+### macOS (Home Manager)
+
+```nix
+# In home.nix
+imports = [ ../../modules/uzumaki/home-manager.nix ];
+
+uzumaki = {
+  enable = true;
+  role = "workstation";
+  stasysmo.enable = true;
+};
+```
+
+---
+
+## Module Options
+
+| Option                     | Type   | Default    | Description                                      |
+| -------------------------- | ------ | ---------- | ------------------------------------------------ |
+| `uzumaki.enable`           | bool   | `false`    | Enable the uzumaki module                        |
+| `uzumaki.role`             | enum   | `"server"` | Host role: `server`, `desktop`, or `workstation` |
+| `uzumaki.fish.enable`      | bool   | `true`     | Enable fish functions                            |
+| `uzumaki.fish.editor`      | string | `"nano"`   | Default `$EDITOR`                                |
+| `uzumaki.fish.functions.*` | bool   | `true`     | Toggle individual functions                      |
+| `uzumaki.zellij.enable`    | bool   | `true`     | Install zellij terminal multiplexer              |
+| `uzumaki.stasysmo.enable`  | bool   | `false`    | Enable StaSysMo system monitoring                |
+
+### Fish Functions
+
+| Function     | Description                                                                   |
+| ------------ | ----------------------------------------------------------------------------- |
+| `pingt`      | Timestamped ping with color-coded output (yellow for timeout, red for errors) |
+| `sourcefish` | Load `.env` file into current Fish session                                    |
+| `stress`     | CPU stress test on all cores                                                  |
+| `stasysmod`  | Toggle StaSysMo debug mode                                                    |
+| `helpfish`   | Show all custom functions & abbreviations                                     |
+
+---
+
+## File Structure
+
+```text
+modules/uzumaki/
+├── default.nix          # NixOS entry point (system-level)
+├── home-manager.nix     # Home Manager entry point (macOS/user-level)
+├── options.nix          # Module option definitions
+├── common.nix           # Shared fish function definitions (legacy)
+├── server.nix           # Direct import for NixOS servers (legacy)
+├── desktop.nix          # Direct import for NixOS desktops (legacy)
+├── macos.nix            # Direct import for macOS (legacy)
+├── macos-common.nix     # macOS-specific: WezTerm, fonts, packages
+├── fish/
+│   ├── default.nix      # Fish module exports
+│   ├── config.nix       # Aliases & abbreviations
+│   └── functions.nix    # Fish function definitions
+├── theme/
+│   ├── theme-hm.nix           # Home Manager theme module
+│   ├── theme-palettes.nix     # Color palette definitions per host
+│   ├── starship-template.toml # Template with color placeholders
+│   ├── starship.toml          # Legacy starship config
+│   └── eza-themes/
+│       └── sysop.yml          # Tokyo Night + sysop eza theme
+└── stasysmo/
+    ├── README.md              # Detailed StaSysMo documentation
+    ├── config.nix             # Centralized configuration
+    ├── daemon.sh              # Background metrics daemon
+    ├── reader.sh              # Starship custom module reader
+    ├── icons.sh               # Nerd Font icons (Python-generated)
+    ├── nixos.nix              # NixOS systemd service
+    └── home-manager.nix       # Home Manager launchd service
+```
+
+### Legacy vs Module Usage
+
+The `server.nix`, `desktop.nix`, and `macos.nix` files are **legacy direct imports** for hosts not yet migrated to the option-based system. New hosts should use the module pattern (`uzumaki.enable = true;`).
 
 ---
 
@@ -8,41 +103,11 @@ This directory contains configuration files shared across all systems (NixOS ser
 
 ### Background
 
-The external hokage module (`github:pbek/nixcfg`) includes **Catppuccin theming** by default.
-However, we use our own **Tokyo Night** theme system for consistent per-host coloring.
+The external hokage module includes Catppuccin theming by default. Uzumaki provides Tokyo Night theming instead for consistent per-host coloring.
 
-**Current status:** Catppuccin is a required dependency (no `hokage.catppuccin.enable` option yet).
+### Disabling Catppuccin
 
-**Future:** When pbek adds `hokage.catppuccin.enable = false`, we can remove the dependency.
-
-### What We Override
-
-| Component    | Hokage (Catppuccin)    | Our Override (Tokyo Night)   | File               |
-| ------------ | ---------------------- | ---------------------------- | ------------------ |
-| **Starship** | `mocha.toml` palette   | Per-host gradient colors     | `theme-hm.nix`     |
-| **Eza**      | catppuccin colors      | Tokyo Night sysop theme      | `theme-hm.nix`     |
-| **Zellij**   | catppuccin colors      | Per-host accent colors       | `theme-hm.nix`     |
-| **WezTerm**  | (not themed by hokage) | Tokyo Night                  | `macos-common.nix` |
-| **Helix**    | catppuccin_mocha       | `tokyonight_storm` (mkForce) | `common.nix`       |
-| **bat**      | catppuccin theme       | `tokyonight_night`           | `theme-hm.nix`     |
-| **fzf**      | catppuccin colors      | Tokyo Night colors           | `theme-hm.nix`     |
-| **lazygit**  | catppuccin theme       | Tokyo Night theme            | `theme-hm.nix`     |
-| **fish**     | catppuccin syntax      | ⚠️ NOT overridden (pending)  | -                  |
-
-### How Overrides Work
-
-1. **Starship**: Our `theme-hm.nix` writes `~/.config/starship.toml` with Tokyo Night colors.
-   Uses `home.file` with `force = true` to override any hokage config.
-
-2. **Zellij** (complex - see detailed section below): Creates entire `.config/zellij/`
-   directory to replace hokage's symlink.
-
-3. **Fish abbreviations**: Uses `lib.mkForce` in common.nix to override specific abbrs
-   like `nano` and `ping` that hokage sets differently.
-
-### ✅ `hokage.catppuccin.enable` is NOW Available
-
-As of Nov 30, 2025, pbek added the option. Set in host configurations:
+Set in host configurations:
 
 ```nix
 hokage = {
@@ -50,9 +115,18 @@ hokage = {
 };
 ```
 
-**Still needed**: Keep the catppuccin follows in flake.nix until all hosts are updated.
+### What We Override
 
-> 📋 **Tracked**: See [PM/backlog/2025-12-01-catppuccin-follows-cleanup.md](../../PM/backlog/2025-12-01-catppuccin-follows-cleanup.md)
+| Component    | Hokage (Catppuccin)    | Our Override (Tokyo Night)   | File                 |
+| ------------ | ---------------------- | ---------------------------- | -------------------- |
+| **Starship** | `mocha.toml` palette   | Per-host gradient colors     | `theme/theme-hm.nix` |
+| **Eza**      | catppuccin colors      | Tokyo Night sysop theme      | `theme/theme-hm.nix` |
+| **Zellij**   | catppuccin colors      | Per-host accent colors       | `theme/theme-hm.nix` |
+| **WezTerm**  | (not themed by hokage) | Tokyo Night                  | `macos-common.nix`   |
+| **Helix**    | catppuccin_mocha       | `tokyonight_storm` (mkForce) | via hokage override  |
+| **bat**      | catppuccin theme       | `tokyonight_night`           | `theme/theme-hm.nix` |
+| **fzf**      | catppuccin colors      | Tokyo Night colors           | `theme/theme-hm.nix` |
+| **lazygit**  | catppuccin theme       | Tokyo Night theme            | `theme/theme-hm.nix` |
 
 ---
 
@@ -62,30 +136,19 @@ hokage = {
 
 Hokage's `programs.zellij` creates `.config/zellij` as a **symlink to a nix store directory**:
 
-```
+```text
 ~/.config/zellij → /nix/store/xxx-hm_zellij/
                    └── config.kdl (hokage's catppuccin config)
 ```
 
-Our `home.file.".config/zellij/config.kdl"` tries to create a FILE, but you can't add files
-inside a symlinked directory - it's read-only in the nix store!
+Our `home.file.".config/zellij/config.kdl"` tries to create a FILE, but you can't add files inside a symlinked directory - it's read-only in the nix store!
 
-### What We Tried (All Failed)
+### The Solution
 
-| Attempt                    | Code                                                             | Why It Failed                    |
-| -------------------------- | ---------------------------------------------------------------- | -------------------------------- |
-| 1. Simple home.file        | `home.file.".config/zellij/config.kdl" = { text = ...; };`       | Can't write inside symlinked dir |
-| 2. With force              | `home.file.".config/zellij/config.kdl" = { force = true; ... };` | Still can't - dir is a symlink   |
-| 3. xdg.configFile          | `xdg.configFile."zellij/config.kdl" = { ... };`                  | Same issue                       |
-| 4. Disable programs.zellij | `programs.zellij.enable = lib.mkForce false;`                    | Still created symlink somehow    |
-| 5. Clear settings          | `programs.zellij.settings = lib.mkForce {};`                     | Didn't help                      |
-
-### The Solution (FINAL - November 30, 2025)
-
-After 6+ attempts, the **critical element** is `lib.mkForce` on the `source`:
+The **critical element** is `lib.mkForce` on the `source`:
 
 ```nix
-# In theme-hm.nix
+# In theme/theme-hm.nix
 home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
   source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname));
   recursive = true;
@@ -100,7 +163,7 @@ home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
 3. `recursive = true` - Ensures directory structure is copied
 4. `force = true` - Replaces existing symlinks on disk
 
-### Also Required in common.nix
+### Also Required
 
 Completely disable hokage's zellij:
 
@@ -117,68 +180,16 @@ programs = {
 
 ### ⚠️ Manual Step on First Deploy
 
-When migrating from hokage's zellij to our themed config, you MUST manually remove
-the old symlinked directories **once**:
+When migrating from hokage's zellij to themed config, you MUST manually remove the old symlinked directory **once**:
 
 ```bash
 rm -rf ~/.config/zellij
 sudo nixos-rebuild switch --flake .#hostname
 ```
 
-**Why?** Home-manager tries to backup the old config.kdl but can't write inside
-the read-only nix store symlink. Error: `Read-only file system`. Removing the
-symlink first allows a clean deployment.
-
-### Key Insights
-
-1. **Conflict errors reveal the fix** - Error message showed exactly what was fighting
-2. **`lib.mkForce` on source is essential** - Without it, hokage wins the merge
-3. **Directory replacement, not file** - Must replace entire `.config/zellij/`
-4. **One-time manual cleanup** - Old nix store symlinks block home-manager activation
-
-### Per-Host Zellij Customization
-
-The `keybindFg` field in zellij palette allows per-host override of keybind letter color:
-
-```nix
-# In theme-palettes.nix, inside a palette's zellij section:
-zellij = {
-  # ... other colors ...
-  keybindFg = "#ffffff";  # White keybind letters (optional, defaults to red)
-};
-```
-
-Used by gpc0 (purple) because red letters on pink/purple background was ugly.
-
 ---
 
-## Files
-
-| File                     | Purpose                                                  | Used By                        |
-| ------------------------ | -------------------------------------------------------- | ------------------------------ |
-| `fish-config.nix`        | Fish shell aliases, abbreviations, `sourcefish` function | `common.nix`, `imac0/home.nix` |
-| `macos-common.nix`       | macOS-specific: WezTerm, fonts, packages                 | `imac0`, `imac-mba-work`       |
-| `starship.toml`          | Tokyo Night prompt theme (legacy)                        | Systems not using theme-hm.nix |
-| `theme-palettes.nix`     | Color palette definitions per host                       | `theme-hm.nix`                 |
-| `theme-hm.nix`           | Home Manager theme module (auto-applies palettes)        | `imac0`, etc.                  |
-| `starship-template.toml` | Template with Unicode glyphs + color placeholders        | `theme-hm.nix`                 |
-
----
-
-## theme-hm.nix & starship-template.toml
-
-### How the Template System Works
-
-The theme module uses a **template-based approach** to preserve Unicode/Nerd Font characters:
-
-1. `starship-template.toml` contains the full starship config with:
-   - All Unicode/Nerd Font glyphs intact (✦, ❯, ✗, , , etc.)
-   - Color placeholders like `__PRIMARY__`, `__LIGHTEST__`, `__TEXT_ACCENT__`
-
-2. `theme-hm.nix` reads the template and uses `builtins.replaceStrings` to substitute
-   ONLY the ASCII color placeholders with actual hex values from the palette.
-
-3. This preserves all Unicode because we never write them in Nix strings.
+## Theme System
 
 ### DRY Architecture
 
@@ -190,7 +201,7 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 │         │                                                                   │
 │         │ imports                                                           │
 │         ▼                                                                   │
-│    modules/shared/theme-hm.nix ──────► theme.hostname = "imac0"             │
+│    modules/uzumaki/theme/theme-hm.nix ──► theme.hostname = "imac0"          │
 │         │                                       │                           │
 │         │ reads                                 │ lookup                    │
 │         ▼                                       ▼                           │
@@ -202,8 +213,7 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 │         │                                       │                           │
 │         │ builtins.replaceStrings               │                           │
 │         ▼                                       ▼                           │
-│    modules/shared/theme-palettes.nix ──► palettes.lightGray = { ... }       │
-│                                                 │                           │
+│    theme/theme-palettes.nix ──────────► palettes.lightGray = { ... }        │
 │                                                 │                           │
 │                                                 ▼                           │
 │    ┌─────────────────────────────────────────────────────────────────────┐  │
@@ -222,19 +232,9 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 - Only ASCII color placeholders (`__PRIMARY__`, `__LIGHTEST__`, etc.) are substituted
 - One palette definition in `theme-palettes.nix` → three auto-generated configs
 - Add a new host: just add one line to `hostPalette` mapping
-- Eza colors are universal (same polished theme for all hosts)
 - **Directory path text is pure white (`#ffffff`)** across all palettes for maximum contrast
 
-### ⚠️ CRITICAL: Editing starship-template.toml
-
-**The same rules as starship.toml apply here!**
-
-- ✅ Use Python for Unicode character edits
-- ✅ Use sed for simple ASCII value changes
-- ❌ DO NOT use heredocs or echo
-- ❌ DO NOT manually type Nerd Font icons
-
-### Color Placeholders in Template
+### Color Placeholders
 
 | Placeholder            | Source in theme-palettes.nix |
 | ---------------------- | ---------------------------- |
@@ -259,17 +259,6 @@ The theme module uses a **template-based approach** to preserve Unicode/Nerd Fon
 ---
 
 ## Eza Theme (Tokyo Night + Sysop)
-
-Eza uses a **theme file** at `~/.config/eza/theme.yml` instead of the `EZA_COLORS` variable.
-
-### Base Theme
-
-Based on [Tokyo Night from eza-themes](https://github.com/eza-community/eza-themes/blob/main/themes/tokyonight.yml)
-with sysop-focused modifications.
-
-### Source File
-
-`modules/shared/eza-themes/sysop.yml`
 
 ### Design Philosophy
 
@@ -296,69 +285,51 @@ with sysop-focused modifications.
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Key Modifications from Tokyo Night
+Theme file: `theme/eza-themes/sysop.yml`
 
-| Item              | Tokyo Night | Sysop Override  | Reason                   |
-| ----------------- | ----------- | --------------- | ------------------------ |
-| Executables       | Green       | **Bold** green  | Critical for sysops      |
-| Directories       | Blue        | **Bold** blue   | Navigation targets       |
-| User execute perm | Green       | **Bold** green  | "x" bit must stand out   |
-| GB+ file sizes    | Orange      | **Bold** orange | Disk space awareness     |
-| Broken symlinks   | Pink        | **Bold** pink   | Errors need attention    |
-| Setuid files      | Pink        | **Bold** pink   | Security concern         |
-| Git modified      | Purple      | Yellow/amber    | Match git conventions    |
-| Dates             | Orange      | Muted gray      | Less important           |
-| Byte sizes        | Gray        | Very muted      | Small files don't matter |
+---
 
-### Testing
+## StaSysMo - System Monitoring
 
-```bash
-ll                          # Should show Tokyo Night colors
-ll -la /usr/bin             # Check bold executables
-cat ~/.config/eza/theme.yml # View theme file
+StaSysMo displays system metrics (CPU, RAM, Load, Swap) in your Starship prompt with threshold-based coloring.
+
+```text
+Prompt: C 5% M 52% L 1.2 S 2%
+        (icons render as Nerd Font glyphs)
+```
+
+See [stasysmo/README.md](stasysmo/README.md) for detailed documentation.
+
+### Quick Enable
+
+```nix
+uzumaki.stasysmo.enable = true;
 ```
 
 ---
 
-## starship.toml (Legacy)
+## ⚠️ CRITICAL: Editing starship-template.toml
 
-### ⚠️ CRITICAL: Editing Rules
-
-**DO NOT edit this file with heredocs, echo, or manual typing of Unicode characters!**
+**DO NOT edit with heredocs, echo, or manual typing of Unicode characters!**
 
 The file contains Nerd Font Unicode glyphs that get corrupted easily.
 
 ### ✅ Safe Ways to Edit
 
-1. **Use the official preset as base:**
+1. **Use sed for simple ASCII value changes:**
 
    ```bash
-   starship preset tokyo-night -o ~/.config/starship.toml
+   sed -i '' 's/truncation_length = 3/truncation_length = 0/' starship-template.toml
    ```
 
-2. **Make surgical edits with sed (simple values only):**
-
-   ```bash
-   sed -i '' 's/truncation_length = 3/truncation_length = 0/' ~/.config/starship.toml
-   ```
-
-3. **Use Python for Unicode-safe edits:**
+2. **Use Python for Unicode-safe edits:**
 
    ```python
-   with open('starship.toml', 'r') as f:
+   with open('starship-template.toml', 'r') as f:
        content = f.read()
    content = content.replace('old', 'new')
-   with open('starship.toml', 'w') as f:
+   with open('starship-template.toml', 'w') as f:
        f.write(content)
-   ```
-
-4. **Add new sections by appending (with Python for symbols):**
-   ```python
-   new_section = '''
-   [python]
-   symbol = "\ue73c"
-   '''
-   content += new_section
    ```
 
 ### ❌ DO NOT
@@ -368,35 +339,12 @@ The file contains Nerd Font Unicode glyphs that get corrupted easily.
 - Copy/paste from web browsers (encoding issues)
 - Use `echo` to write the file
 
-### Features
+---
 
-| Feature         | Description                                       |
-| --------------- | ------------------------------------------------- |
-| Dynamic OS icon | Shows on Mac, on NixOS, on Linux                  |
-| Full path       | No truncation, always shows complete path         |
-| Git info        | Branch, status, commit count (#2329)              |
-| Languages       | Node.js, Python, Rust, Go, PHP                    |
-| Docker          | Shows context when in Docker project              |
-| Time            | **Always right-aligned**, with seconds (19:14:20) |
-| Nix shell       | Subtle segment after time (❄ impure/pure)        |
-
-### Layout
-
-```
-Left side                              $fill                    Right side
-░▒▓ [OS] [path] [git] [langs]  ←────────────────────→  [time] [❄ nix]
-#a3aed2  #769ff0 #394260 #212736                         #1d2230  #13161f
-brightest ────────────────────────────────────────────────────► darkest
-```
-
-- Uses `$fill` to push time to the right edge
-- Nix shell is a subtle, darker segment (muted gray text `#5a6070`)
-
-### Prerequisites
+## Prerequisites
 
 - **Nerd Font** installed (Hack Nerd Font Mono recommended)
-- **WezTerm** configured to use the Nerd Font
-- No conflicting plain Hack fonts in `~/Library/Fonts/`
+- **Terminal** configured to use the Nerd Font (WezTerm, Ghostty, etc.)
 
 ### Testing Icons
 
@@ -416,21 +364,9 @@ for char, name in icons:
 
 ---
 
-## fish-config.nix
-
-Provides:
-
-- `sourcefish` function - Load .env files into fish session
-- `EDITOR=nano` - Default editor
-- Common aliases and abbreviations
-
-Used via `programs.fish.interactiveShellInit` in `common.nix`.
-
----
-
 ## macos-common.nix
 
-Provides:
+Provides macOS-specific configuration:
 
 - WezTerm configuration (Tokyo Night theme, Hack Nerd Font)
 - Font installation activation script

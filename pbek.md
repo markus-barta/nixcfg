@@ -173,4 +173,4 @@ This document preserves the original content from the pbek/nixcfg repository as 
 - Contains paths specific to the original author (`/home/omega`)
 - Some installation methods may no longer be recommended
 
-For current usage, see [README.md](README.md) and [docs/overview.md](docs/overview.md).
+For current usage, see [README.md](README.md) and [docs/how-it-works.md](docs/how-it-works.md).

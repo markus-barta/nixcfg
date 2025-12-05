@@ -7,7 +7,7 @@ This directory contains comprehensive documentation for the nixcfg repository.
 ### Getting Started
 
 - **[README.md](../README.md)** - Main repository overview and quick start guide
-- **[overview.md](overview.md)** - Complete architecture overview and workflow documentation
+- **[how-it-works.md](how-it-works.md)** - Complete architecture overview (hokage + uzumaki modules)
 - **[pbek.md](../pbek.md)** - Original historical content and setup instructions
 
 ### Host-Specific Documentation
@@ -15,37 +15,26 @@ This directory contains comprehensive documentation for the nixcfg repository.
 - **[hosts/hsb1/README.md](../hosts/hsb1/README.md)** - Home automation server
 - **[hosts/hsb0/README.md](../hosts/hsb0/README.md)** - DNS/DHCP server
 
-### Key Concepts
+### Module System
 
-- **Modular Architecture**: Custom `hokage` module system for role-based configuration
+- **External Hokage** (`github:pbek/nixcfg`) - System foundation: roles, user management, core programs
+- **Local Uzumaki** (`modules/uzumaki/`) - Personal tooling: fish functions, theming, stasysmo
+
+### Key Features
+
+- **Layered Architecture**: External hokage + local uzumaki module system
 - **Secrets Management**: Declarative encryption with `agenix`
 - **ZFS Storage**: Declarative disk management with `disko`
+- **Tokyo Night Theme**: Per-host color palettes overriding hokage's Catppuccin
 - **Automated Workflows**: Streamlined deployment with `just` commands
-
-## Architecture Overview
-
-The repository follows a layered architecture:
-
-1. **flake.nix** - Entry point defining inputs and system configurations
-2. **hosts/** - Host-specific configurations and hardware settings
-3. **modules/hokage/** - Custom abstraction layer for role-based features
-4. **modules/common.nix** - Base configuration shared across all systems
-5. **overlays/** & **pkgs/** - Custom package definitions and modifications
 
 ## Essential Commands
 
 ```bash
-# Test configuration
-just check
-
-# Build and deploy
-just switch
-
-# Update and rebuild
-just upgrade
-
-# Free disk space
-just cleanup
+just check      # Validate configuration
+just switch     # Build and deploy
+just upgrade    # Update inputs and rebuild
+just cleanup    # Free disk space
 ```
 
-For complete documentation, see [overview.md](overview.md).
+For complete documentation, see [how-it-works.md](how-it-works.md).

@@ -96,7 +96,7 @@ just decrypt-file secrets/filename.age
 just rekey
 ```
 
-See [docs/overview.md](docs/overview.md) for detailed encryption documentation.
+See [docs/how-it-works.md](docs/how-it-works.md) for detailed architecture and encryption documentation.
 
 ## Example Configurations
 

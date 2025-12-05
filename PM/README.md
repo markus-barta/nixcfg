@@ -136,37 +136,4 @@ _Completed when moving to Done:_
 
 ```
 
-## Current Summary
-
-### Done (4 items)
-
-- `2025-12-01-runbook-restructuring.md` — Runbook restructuring complete ✅
-- `2025-11-26-hsb1-nixos-migration.md` — hsb1 NixOS migration complete ✅
-- `2025-12-01-cicd-hostname-fix.md` — CI/CD hostname fix complete ✅
-- `2025-12-01-cleanup-docs-old-hostnames.md` — Main docs hostname cleanup ✅
-
-### Cancelled (1 item)
-
-- `2025-11-29-mkserverhost-refactor.md` — mkServerHost no longer used
-
-### Backlog (11 items)
-
-**Host Migrations**
-- `2025-11-29-csb0-hokage-migration.md` — csb0 external hokage
-- `2025-12-01-hsb1-agenix-secrets.md` — hsb1 agenix secrets migration
-- `2025-12-01-hsb1-docker-restructure.md` — hsb1 docker/scripts to repo
-
-**Infrastructure**
-- `2025-11-29-netcup-monitor-declarative.md` — Declarative netcup monitoring
-- `2025-11-29-secrets-directory-restructure.md` — Cleanup legacy secrets & host keys
-
-**Documentation**
-- `2025-12-01-populate-secrets-documentation.md` — Fill in SECRETS.md credentials
-
-**Development**
-- `2025-12-01-catppuccin-follows-cleanup.md` — Disable catppuccin theming
-- `2025-12-01-imac0-secrets-management.md` — Age-based secrets for imac0
-- `2025-12-01-cicd-pipeline-fixes.md` — CI/CD optional improvements
-- `2025-12-01-pingt-standalone-package.md` — Standalone pingt package
-- `2025-12-01-hsb8-home-assistant.md` — Home Assistant on hsb8
 ```
