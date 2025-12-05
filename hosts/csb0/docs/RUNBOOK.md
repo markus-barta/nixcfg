@@ -166,14 +166,27 @@ High load → Check docker stats (find heavy container)
 ### Access Priority
 
 1. **Primary**: SSH with key (`~/.ssh/id_rsa`)
-2. **Emergency**: Netcup VNC console + root password (see SECRETS.md)
-3. **Recovery**: Netcup control panel access (with 2FA)
+2. **Backup**: SSH with mba password (see 1Password: "csb0 csb1 recovery")
+3. **Emergency**: Netcup VNC console + mba password
+4. **Recovery**: Netcup control panel access (with 2FA)
+
+### Recovery Password
+
+The `mba` user has a `hashedPassword` set in `configuration.nix` for emergency
+VNC console access. Password stored in 1Password under "csb0 csb1 recovery".
+
+### Network Configuration
+
+Static IP `85.235.65.226/24` is configured declaratively in NixOS.
+Gateway: `85.235.65.1` | DNS: `8.8.8.8`, `8.8.4.4`
+
+This prevents lockout during deploys (learned from csb1 incident 2025-12-05).
 
 ### If SSH Fails
 
 1. Login to Netcup SCP (https://www.servercontrolpanel.de/SCP)
 2. Navigate to server, open VNC console
-3. Login as `mba` or `root` (see SECRETS.md for password)
+3. Login as `mba` with recovery password (see 1Password)
 
 ### Netcup API Emergency Restart
 

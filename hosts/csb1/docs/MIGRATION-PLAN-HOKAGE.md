@@ -30,8 +30,8 @@
 
 1. ~~**🔴 CRITICAL**: Fix `flake.nix` - overlays directory was deleted~~ ✅ **FIXED**
 2. ~~**🟡 MEDIUM**: Validate flake evaluates~~ ✅ **PASS**
-3. **🔴 CRITICAL**: Add static IP configuration to configuration.nix (caused network loss!)
-4. **🟡 MEDIUM**: Add `hashedPassword` for mba user (recovery fallback)
+3. ~~**🔴 CRITICAL**: Add static IP configuration to configuration.nix (caused network loss!)~~ ✅ **FIXED** (2025-12-05)
+4. ~~**🟡 MEDIUM**: Add `hashedPassword` for mba user (recovery fallback)~~ ✅ **FIXED** (2025-12-05)
 5. **🟡 PENDING**: Test build: `nix build '.#nixosConfigurations.csb1.config.system.build.toplevel'`
 6. **🟡 PENDING**: Re-deploy to csb1 with `nixos-rebuild switch`
 
@@ -986,11 +986,11 @@ users.users.mba.hashedPassword = "<hash from mkpasswd>";
 
 ### Action Items Before Re-Deploy
 
-- [ ] Add static networking to `hosts/csb1/configuration.nix`
-- [ ] Add `hashedPassword` for mba user
+- [x] Add static networking to `hosts/csb1/configuration.nix` ✅ (2025-12-05)
+- [x] Add `hashedPassword` for mba user ✅ (2025-12-05)
 - [ ] Test full build locally
-- [ ] Ensure NM connection file approach or switch to systemd-networkd
-- [ ] Have incident recovery commands documented
+- [x] Ensure NM connection file approach or switch to systemd-networkd ✅ (using `networkmanager.unmanaged`)
+- [x] Have incident recovery commands documented ✅ (see RUNBOOK.md)
 
 ---
 
