@@ -8,7 +8,12 @@
 
 ## 📋 Executive Summary
 
-This repository manages NixOS systems using a modular `hokage` architecture. Systems can either use the local hokage module or consume it externally from upstream. Key features include declarative secrets management with `agenix`, ZFS storage with `disko`, and automated deployment workflows.
+This repository manages NixOS systems using a **layered module architecture**:
+
+- **External Hokage** (`github:pbek/nixcfg`) - System foundation: roles, user management, core programs
+- **Local Uzumaki** (`modules/uzumaki/`) - Personal tooling: fish functions, theming, stasysmo
+
+Key features include declarative secrets management with `agenix`, ZFS storage with `disko`, Tokyo Night theming, and automated deployment workflows.
 
 **Quick Actions**:
 
@@ -65,7 +70,7 @@ secrets/
 #### hsb0
 
 **Role**: DNS/DHCP/AdGuard server at Markus' home  
-**Hokage Pattern**: Local module  
+**Hokage Pattern**: External consumer  
 **Status**: ✅ Production
 
 ```
@@ -85,7 +90,7 @@ hosts/hsb0/
 #### hsb1
 
 **Role**: Home automation at Markus' home  
-**Hokage Pattern**: Local module  
+**Hokage Pattern**: External consumer + uzumaki  
 **Status**: ✅ Production
 
 ```
@@ -131,23 +136,39 @@ hosts/hsb8/
 
 ### Production Servers (Cloud)
 
-#### csb0 & csb1
+#### csb0
 
-**Role**: Remote servers  
-**Hokage Pattern**: Local module (OLD modules/mixins structure for csb0, external hokage for csb1)  
-**Status**: ✅ Production (csb0 needs hokage migration)
+**Role**: Smart home automation hub (Node-RED, MQTT, Telegram bot)  
+**Hokage Pattern**: External consumer  
+**Status**: ✅ Production
 
 ```
-hosts/csb0/                                      # Same structure for csb1
+hosts/csb0/
 ├── README.md                                    # Server documentation
+├── configuration.nix                            # NixOS configuration
 ├── docs/
-│   └── RUNBOOK.md                               # Operational procedures (clean)
-└── secrets/
-    ├── SECRETS.md                               # Credentials (gitignored)
-    └── DEPRECATED-RUNBOOK.md                    # Old runbook with secrets
+│   └── RUNBOOK.md                               # Operational procedures
+└── secrets/                                     # Host-specific secrets
 ```
 
-**Note**: csb0 needs migration from mixins → external hokage consumer pattern (use hsb8 as reference)
+**Key Features**: Node-RED, Mosquitto MQTT, Telegram garage door control
+
+#### csb1
+
+**Role**: Monitoring & documentation (Grafana, InfluxDB, Paperless, Docmost)  
+**Hokage Pattern**: External consumer  
+**Status**: ✅ Production
+
+```
+hosts/csb1/
+├── README.md                                    # Server documentation
+├── configuration.nix                            # NixOS configuration
+├── docs/
+│   └── RUNBOOK.md                               # Operational procedures
+└── secrets/                                     # Host-specific secrets
+```
+
+**Key Features**: Grafana dashboards, InfluxDB (fed by csb0 MQTT), Paperless, Docmost
 
 ### Desktop Systems
 
@@ -186,51 +207,41 @@ hosts/imac0/
     └── setup/                                   # Setup automation
 ```
 
-### Archived Systems
-
-```
-hosts/archived/
-├── ally/                                        # Archived: Ally device
-├── ally2/                                       # Archived: Ally device 2
-├── astra/                                       # Archived: Astra server
-├── dp01-dp09/                                   # Archived: Developer machines
-├── eris/                                        # Archived: Eris system
-├── gaia/                                        # Archived: Gaia system
-├── hyperion/                                    # Archived: Hyperion server
-├── jupiter/                                     # Archived: Jupiter system
-├── mercury/                                     # Archived: Mercury server
-├── neptun/                                      # Archived: Neptun system
-├── netcup01/                                    # Archived: Netcup VPS 1
-├── netcup02/                                    # Archived: Netcup VPS 2
-├── pluto/                                       # Archived: Pluto system
-├── rhea/                                        # Archived: Rhea system
-├── sinope/                                      # Archived: Sinope system
-├── venus/                                       # Archived: Venus server
-└── ...
-```
-
 ---
 
-## 🎯 Hokage Patterns
+## 🎯 Module Architecture
 
-This repository uses two patterns for hokage module consumption:
+This repository uses a **layered module system**:
 
-### Local Module (Legacy)
+### External Hokage 🍥
 
-Used by: `hsb0`, `hsb1`, `csb0`
+All hosts consume hokage from `github:pbek/nixcfg`:
 
-- Hokage module from local `modules/` directory
-- Implicit configuration via mixins
-- Older pattern, maintained for compatibility
+- **Used by**: All NixOS hosts (hsb0, hsb1, hsb8, gpc0, csb0, csb1)
+- **Provides**: Roles, user management, core programs, ZFS, networking
+- **Configuration**: `hokage.role`, `hokage.hostName`, etc.
 
-### External Consumer (Recommended)
+### Local Uzumaki 🌀
 
-Used by: `hsb8`, `gpc0`, `csb1` ⭐
+Personal tooling module in `modules/uzumaki/`:
 
-- Consumes hokage from `github:pbek/nixcfg`
-- Explicit configuration (no hidden mixins)
-- Better for systems not using pbek's internal infrastructure
-- Reference: [hosts/hsb8/](./hosts/hsb8/)
+- **Used by**: All hosts (NixOS and macOS)
+- **Provides**: Fish functions (pingt, stress, helpfish), StaSysMo, Tokyo Night theming
+- **Configuration**: `uzumaki.enable`, `uzumaki.role`, `uzumaki.stasysmo.enable`
+
+### Module Hierarchy
+
+```
+Host Configuration
+    ↓
+modules/uzumaki/          (personal tooling, theming)
+    ↓
+modules/common.nix        (shared overrides, loads AFTER hokage)
+    ↓
+github:pbek/nixcfg        (external hokage foundation)
+```
+
+**Reference**: [docs/how-it-works.md](./docs/how-it-works.md)
 
 ---
 

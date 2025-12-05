@@ -4,7 +4,7 @@
 
 Personal NixOS configuration repository with declarative infrastructure, custom packages, and automated deployment workflows.
 
-> **Note**: This repository was originally created by Patrizio Bekerle (pbek). For the original detailed setup instructions and historical content, see [pbek.md](pbek.md).
+> **Note**: This repository is a fork of [Patrizio Bekerle's (pbek) NixOS configuration](https://github.com/pbek/nixcfg). The hokage module system is imported externally from that repository.
 
 ## Features
 

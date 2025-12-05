@@ -8,7 +8,6 @@ This directory contains comprehensive documentation for the nixcfg repository.
 
 - **[README.md](../README.md)** - Main repository overview and quick start guide
 - **[how-it-works.md](how-it-works.md)** - Complete architecture overview (hokage + uzumaki modules)
-- **[pbek.md](../pbek.md)** - Original historical content and setup instructions
 
 ### Host-Specific Documentation
 

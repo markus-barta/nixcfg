@@ -283,11 +283,6 @@ keyscan:
 edit-secret secret-file:
     agenix -e {{ secret-file }}
 
-# Build an iso image
-[group('build')]
-build-iso:
-    nix-build '<nixpkgs/nixos>' -A config.system.build.isoImage -I nixos-config=iso.nix
-
 @_show-qemu-exit-message:
     echo "Booting VM. To exit, use: Ctrl + A then X"
     echo "Press any key to continue..."
@@ -390,11 +385,6 @@ optimize-store:
 fwup:
     -fwupdmgr refresh
     fwupdmgr update
-
-# Open a terminal with the nixcfg session
-[group('maintenance')]
-term:
-    zellij --layout term.kdl attach nixcfg -c
 
 # Kill the nixcfg session
 [group('maintenance')]
