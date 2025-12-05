@@ -112,8 +112,8 @@
       homeConfigurations."markus@imac-mba-work" = mkDarwinHome "imac-mba-work";
       homeConfigurations."imac-mba-work" = self.homeConfigurations."markus@imac-mba-work";
 
-      homeConfigurations."markus@mbp-mba-work" = mkDarwinHome "mbp-mba-work";
-      homeConfigurations."mbp-mba-work" = self.homeConfigurations."markus@mbp-mba-work";
+      homeConfigurations."markus@mba-mbp-work" = mkDarwinHome "mba-mbp-work";
+      homeConfigurations."mba-mbp-work" = self.homeConfigurations."markus@mba-mbp-work";
 
       # ========================================================================
       # NixOS Configurations

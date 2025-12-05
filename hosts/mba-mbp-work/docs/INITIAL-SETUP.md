@@ -1,4 +1,4 @@
-# Initial Setup Guide: mbp-mba-work
+# Initial Setup Guide: mba-mbp-work
 
 This guide walks you through setting up a fresh MacBook Pro with Nix, Home Manager, and the uzumaki configuration.
 
@@ -21,22 +21,22 @@ macOS hostname must match the configuration name for proper theming.
 
 1. Open **System Settings** → **General** → **About**
 2. Click on the computer name at the top
-3. Change to: `mbp-mba-work`
+3. Change to: `mba-mbp-work`
 4. Press Enter to confirm
 
 ### Via Terminal
 
 ```bash
 # Set all hostname variants
-sudo scutil --set ComputerName "mbp-mba-work"
-sudo scutil --set HostName "mbp-mba-work"
-sudo scutil --set LocalHostName "mbp-mba-work"
+sudo scutil --set ComputerName "mba-mbp-work"
+sudo scutil --set HostName "mba-mbp-work"
+sudo scutil --set LocalHostName "mba-mbp-work"
 
 # Verify
-scutil --get ComputerName    # → mbp-mba-work
-scutil --get HostName        # → mbp-mba-work
-scutil --get LocalHostName   # → mbp-mba-work
-hostname                     # → mbp-mba-work
+scutil --get ComputerName    # → mba-mbp-work
+scutil --get HostName        # → mba-mbp-work
+scutil --get LocalHostName   # → mba-mbp-work
+hostname                     # → mba-mbp-work
 ```
 
 **Note**: You may need to restart for all changes to take effect.
@@ -136,7 +136,7 @@ This installs Home Manager and applies your configuration in one command.
 cd ~/Code/nixcfg
 
 # First-time install: run home-manager via nix run
-nix run home-manager -- switch --flake ".#markus@mbp-mba-work"
+nix run home-manager -- switch --flake ".#markus@mba-mbp-work"
 ```
 
 This will:
@@ -264,7 +264,7 @@ git pull
 
 # Apply configuration
 just switch
-# or: home-manager switch --flake ".#markus@mbp-mba-work"
+# or: home-manager switch --flake ".#markus@mba-mbp-work"
 ```
 
 ### Update All Packages

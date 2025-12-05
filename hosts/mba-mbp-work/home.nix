@@ -25,7 +25,7 @@
   };
 
   # Theme configuration - set hostname for palette lookup
-  theme.hostname = "mbp-mba-work";
+  theme.hostname = "mba-mbp-work";
 
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "markus";

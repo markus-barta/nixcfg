@@ -723,7 +723,7 @@
     # Workstations
     imac0 = "lightGray";
     "imac-mba-work" = "darkGray";
-    "mbp-mba-work" = "warmGray"; # Work MacBook Pro
+    "mba-mbp-work" = "warmGray"; # Work MacBook Pro
     imac1 = "mediumGray";
     mbp0 = "warmGray";
   };

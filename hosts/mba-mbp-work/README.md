@@ -1,4 +1,4 @@
-# mbp-mba-work - Work MacBook Pro (BYTEPOETS)
+# mba-mbp-work - Work MacBook Pro (BYTEPOETS)
 
 Work macOS laptop with Nix package management.
 
@@ -14,7 +14,7 @@ Work macOS laptop with Nix package management.
 
 | Item               | Value                                            |
 | ------------------ | ------------------------------------------------ |
-| **Hostname**       | `mbp-mba-work`                                   |
+| **Hostname**       | `mba-mbp-work`                                   |
 | **Model**          | MacBook Pro                                      |
 | **OS**             | macOS (latest)                                   |
 | **Architecture**   | Apple Silicon (aarch64) or Intel (x86_64)        |
@@ -46,7 +46,7 @@ Work macOS laptop with Nix package management.
 ## Directory Structure
 
 ```
-hosts/mbp-mba-work/
+hosts/mba-mbp-work/
 ├── config/                      # Configuration files (karabiner, etc.)
 ├── docs/                        # Documentation
 │   └── INITIAL-SETUP.md         # First-time setup guide
@@ -68,17 +68,17 @@ hosts/mbp-mba-work/
 cd ~/Code/nixcfg
 
 # Edit configuration
-vim hosts/mbp-mba-work/home.nix
+vim hosts/mba-mbp-work/home.nix
 
 # Apply changes
 just switch
 
 # Or directly:
-home-manager switch --flake ".#markus@mbp-mba-work"
+home-manager switch --flake ".#markus@mba-mbp-work"
 
 # Commit to git
-git add hosts/mbp-mba-work/
-git commit -m "Update mbp-mba-work configuration"
+git add hosts/mba-mbp-work/
+git commit -m "Update mba-mbp-work configuration"
 git push
 ```
 
