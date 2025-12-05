@@ -1,219 +1,119 @@
 # nixcfg
 
-[GitHub](https://github.com/pbek/nixcfg)
+Personal NixOS configuration managing home servers, cloud infrastructure, and development workstations—all from a single Git repository.
 
-Personal NixOS configuration repository with declarative infrastructure, custom packages, and automated deployment workflows.
+> Built on the excellent [hokage module system](https://github.com/pbek/nixcfg) by Patrizio Bekerle, extended with custom tooling and Tokyo Night theming. 🍥
 
-> **Note**: This repository is a fork of [Patrizio Bekerle's (pbek) NixOS configuration](https://github.com/pbek/nixcfg). The hokage module system is imported externally from that repository.
+## What This Does
 
-## Features
+**Manages 6 NixOS hosts + 2 macOS workstations:**
 
-- **Modular Architecture**: Custom `hokage` module system for role-based configuration
-- **Multi-Platform**: Desktop, laptop, and server configurations
-- **Secrets Management**: Declarative encryption with `agenix`
-- **Custom Packages**: In-house software (QOwnNotes, NixBit, Ghostty, etc.)
-- **ZFS Storage**: Declarative disk management with `disko`
-- **Automated Workflows**: Streamlined deployment with `just` commands
-- **External Hokage Consumer**: Pattern for consuming hokage module from upstream
+| Host      | Role                                      | Location      |
+| --------- | ----------------------------------------- | ------------- |
+| **hsb0**  | DNS/DHCP (AdGuard Home)                   | Home          |
+| **hsb1**  | Smart Home Hub (Node-RED, MQTT, HomeKit)  | Home          |
+| **hsb8**  | Home Automation                           | Parents' Home |
+| **gpc0**  | Gaming Desktop (Steam, Plasma)            | Home          |
+| **csb0**  | IoT Hub (MQTT, Telegram Bot)              | Cloud         |
+| **csb1**  | Monitoring (Grafana, InfluxDB, Paperless) | Cloud         |
+| **imac0** | Development Workstation                   | macOS         |
 
-## Screenshots
+**Key Capabilities:**
 
-### Shell Environment
+- 🏗️ **Declarative Everything** — Systems defined in code, reproducible anywhere
+- 🔐 **Encrypted Secrets** — Passwords, keys, and tokens secured with [agenix](https://github.com/ryantm/agenix)
+- 💾 **ZFS Storage** — Declarative disk layouts with [disko](https://github.com/nix-community/disko)
+- 🎨 **Tokyo Night Theme** — Consistent look across all terminals and tools
+- 📦 **Custom Packages** — QOwnNotes, NixBit, and other in-house software
+- ⚡ **One-Command Deploys** — `just switch` and you're done
 
-![Shell](./screenshots/shell.png)
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Host Configuration                       │
+│              (hsb0, hsb1, gpc0, csb0, etc.)                 │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+┌───────────────┐  ┌───────────────┐  ┌───────────────────────┐
+│   Uzumaki 🌀  │  │  common.nix   │  │   External Hokage 🍥   │
+│  (Personal)   │  │   (Shared)    │  │  github:pbek/nixcfg   │
+│               │  │               │  │                       │
+│ Fish functions│  │ Overrides &   │  │ Roles, users, core    │
+│ Tokyo Night   │  │ customization │  │ programs, ZFS, SSH    │
+│ StaSysMo      │  │               │  │                       │
+└───────────────┘  └───────────────┘  └───────────────────────┘
+```
+
+**Hokage** provides the foundation. **Uzumaki** adds the personal touch.
 
 ## Quick Start
 
-1. **Clone the repository:**
+```bash
+# Clone
+git clone https://github.com/markus-barta/nixcfg.git && cd nixcfg
 
-   ```bash
-   git clone https://github.com/pbek/nixcfg.git
-   cd nixcfg
-   ```
+# Validate configuration
+just check
 
-2. **Add your host configuration** to `flake.nix` and create `hosts/yourhostname/configuration.nix`
+# Deploy to current machine
+just switch
 
-3. **Test your configuration:**
-
-   ```bash
-   just check
-   ```
-
-4. **Deploy:**
-   ```bash
-   just switch
-   ```
-
-For detailed setup instructions, see [docs/README.md](docs/README.md).
-
-## Secrets Management
-
-This repository uses [agenix](https://github.com/ryantm/agenix) for declarative secret encryption.
-
-### How It Works
-
-The repository uses a **wrapper pattern** for secret paths:
-
-```nix
-# secrets.nix (root) - Wrapper that enables both path formats
-let
-  rules = import ./secrets/secrets.nix;  # Actual secret definitions
-  prefixed = builtins.listToAttrs (
-    map (name: {
-      name = "secrets/${name}";           # Creates prefixed version
-      value = builtins.getAttr name rules;
-    }) (builtins.attrNames rules)
-  );
-in
-rules // prefixed  # Merge both unprefixed and prefixed paths
+# Deploy to remote host
+just hsb1-switch
 ```
 
-This allows both path formats to work:
+## Essential Commands
 
-- Unprefixed: `"static-leases-hsb0.age"`
-- Prefixed: `"secrets/static-leases-hsb0.age"` ✅ (recommended)
+| Command         | Description                     |
+| --------------- | ------------------------------- |
+| `just check`    | Validate all configurations     |
+| `just switch`   | Build and deploy locally        |
+| `just upgrade`  | Update flake inputs and rebuild |
+| `just rollback` | Revert to previous generation   |
+| `just cleanup`  | Free disk space                 |
 
-**Configuration**: `.agenix.toml` points to the root wrapper:
-
-```toml
-[default]
-secrets = "secrets.nix"  # Root wrapper, not secrets/secrets.nix
-```
-
-### Basic Workflow
+**Secrets:**
 
 ```bash
-# Edit an encrypted secret
-agenix -e secrets/static-leases-hsb0.age
-
-# Encrypt a new file
-just encrypt-file hosts/HOSTNAME/filename
-
-# Decrypt for inspection
-just decrypt-file secrets/filename.age
-
-# Rekey all secrets after adding new hosts
-just rekey
+just encrypt-file hosts/HOSTNAME/secret.txt  # Encrypt
+just decrypt-file secrets/secret.age         # Decrypt
+just rekey                                   # Rekey after adding hosts
 ```
 
-See [docs/how-it-works.md](docs/how-it-works.md) for detailed architecture and encryption documentation.
+## Documentation
 
-## Example Configurations
+- **[How It Works](docs/how-it-works.md)** — Architecture overview, module system explained
+- **[Hokage Options](docs/hokage-options.md)** — Complete configuration reference
+- **[Host READMEs](hosts/)** — Per-host documentation and runbooks
 
-### Server with External Hokage Consumer
+## Repository Structure
 
-See [hosts/hsb8/README.md](hosts/hsb8/README.md) - Complete example of:
-
-- External hokage module consumption from `github:pbek/nixcfg`
-- Location-based configuration (multi-site deployment)
-- AdGuard Home DNS/DHCP server
-- ZFS storage management
-- Comprehensive test suite (manual + automated)
-- SSH key security with `lib.mkForce` overrides
-
-### Server with Local Hokage Module
-
-See [hosts/hsb0/README.md](hosts/hsb0/README.md) - Migration example:
-
-- Local hokage module usage
-- DNS/DHCP with AdGuard Home
-- Static DHCP lease management with agenix
-- Hostname migration documentation
-
-## Installation Methods
-
-### Remote Deployment (Recommended)
-
-Deploy to new machines using [nixos-anywhere](https://github.com/nix-community/nixos-anywhere):
-
-```bash
-# Test in VM first
-nix run github:nix-community/nixos-anywhere -- --flake .#hostname --vm-test
-
-# Deploy to physical machine
-nix run github:nix-community/nixos-anywhere -- --flake .#hostname root@target-ip
+```
+nixcfg/
+├── flake.nix              # Entry point, all host definitions
+├── hosts/                 # Per-machine configurations
+│   ├── hsb0/             # DNS/DHCP server
+│   ├── hsb1/             # Smart home hub
+│   ├── gpc0/             # Gaming desktop
+│   └── ...
+├── modules/
+│   ├── common.nix        # Shared NixOS config
+│   └── uzumaki/          # Personal tooling & theming
+├── pkgs/                  # Custom packages
+├── secrets/               # Encrypted secrets (.age files)
+└── docs/                  # Documentation
 ```
 
-### Manual Installation
+## Why NixOS?
 
-For manual setup with ZFS and encryption:
-
-```bash
-# Boot NixOS minimal ISO
-# Partition and format disks
-sudo nix --experimental-features nix-command --extra-experimental-features flakes \
-  run github:nix-community/disko -- --mode disko ./hosts/hostname/disk-config.zfs.nix
-
-# Install system
-sudo nixos-install --flake .#hostname
-```
-
-## Hokage Module Patterns
-
-This repository supports two patterns for using the hokage module system:
-
-### Local Hokage Module (Legacy)
-
-Used by: `hsb0`, `hsb1`
-
-```nix
-# flake.nix
-hsb1 = nixpkgs.lib.nixosSystem {
-  modules = commonServerModules ++ [
-    ./hosts/hsb1/configuration.nix
-    disko.nixosModules.disko
-  ];
-};
-```
-
-Configuration inherits hokage from local `modules/` directory.
-
-### External Hokage Consumer (Recommended)
-
-For consuming the hokage module from upstream, see [examples/hokage-consumer](https://github.com/pbek/nixcfg/blob/main/examples/hokage-consumer/README.md) documentation.
-
-**Example**: `hsb8` configuration
-
-```nix
-# flake.nix
-hsb8 = nixpkgs.lib.nixosSystem {
-  inherit system;
-  modules = commonServerModules ++ [
-    inputs.nixcfg.nixosModules.hokage  # Consume from upstream
-    ./hosts/hsb8/configuration.nix
-    disko.nixosModules.disko
-  ];
-  specialArgs = self.commonArgs // { inherit inputs; };
-};
-```
-
-```nix
-# hosts/hsb8/configuration.nix
-hokage = {
-  hostName = "hsb8";
-  userLogin = "mba";
-  role = "server-home";
-  useInternalInfrastructure = false;
-  zfs.enable = true;
-  users = [ "mba" "gb" ];
-};
-
-# Override hokage's SSH key injection
-users.users.mba = {
-  openssh.authorizedKeys.keys = lib.mkForce [
-    "ssh-rsa AAAAB3..." # Your key only
-  ];
-};
-```
-
-**Benefits**:
-
-- Always up-to-date with upstream hokage
-- Explicit configuration (no hidden mixins)
-- Better for servers not using pbek's internal infrastructure
-
-See [hosts/hsb8/README.md](hosts/hsb8/README.md) for complete implementation.
+- **Reproducibility** — Same config = same system, every time
+- **Atomic Updates** — Changes apply completely or not at all
+- **Rollbacks** — Boot any previous generation from the menu
+- **Infrastructure as Code** — Your config _is_ the documentation
 
 ---
 
-See [hosts/hsb0/README.md](hosts/hsb0/README.md) for additional deployment examples.
+_One repo to rule them all, one flake to find them, one switch to bring them all, and in the Nix store bind them._ 💍
