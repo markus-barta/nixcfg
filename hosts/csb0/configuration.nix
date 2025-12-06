@@ -65,20 +65,24 @@
     networkmanager.enable = true;
 
     # Static IP for Netcup VPS
+    # CRITICAL: Values from DHCP analysis on Gen 22 (2025-12-06)
+    #   - Subnet is /22 (NOT /24!)
+    #   - Gateway is 85.235.64.1 (NOT 85.235.65.1!)
+    #   - DNS from Netcup DHCP
     interfaces.ens3 = {
       useDHCP = false;
       ipv4.addresses = [
         {
           address = "85.235.65.226";
-          prefixLength = 24;
+          prefixLength = 22; # /22 = 85.235.64.0 - 85.235.67.255
         }
       ];
     };
 
-    defaultGateway = "85.235.65.1";
+    defaultGateway = "85.235.64.1"; # Gateway is in .64 subnet, not .65!
     nameservers = [
-      "8.8.8.8"
-      "8.8.4.4"
+      "46.38.225.230" # Netcup primary DNS
+      "46.38.252.230" # Netcup secondary DNS
     ];
 
     # Tell NetworkManager NOT to manage ens3 (we configure it statically)
