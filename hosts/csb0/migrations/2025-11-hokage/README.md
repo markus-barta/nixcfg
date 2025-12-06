@@ -90,6 +90,6 @@ sudo nixos-rebuild switch --rollback
 ## 📚 Related
 
 - [Migration Plan](../../docs/MIGRATION-PLAN-HOKAGE.md)
-- [SSH Key Security](../../docs/SSH-KEY-SECURITY-NOTE.md)
+- [SSH Key Security](../../../../docs/SSH-KEY-SECURITY.md)
 - [Runbook](../../secrets/RUNBOOK.md)
 - [csb1 Migration](../../../csb1/migrations/2025-11-hokage/README.md) - Reference

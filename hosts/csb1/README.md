@@ -36,7 +36,7 @@ hosts/csb1/
 │
 ├── docs/                  # 📚 Documentation
 │   ├── MIGRATION-PLAN-HOKAGE.md
-│   └── SSH-KEY-SECURITY-NOTE.md
+│   └── RUNBOOK.md
 │
 ├── tests/                 # ✅ Repeatable health checks (T00-T07)
 │   ├── T00-nixos-base.sh

@@ -275,7 +275,7 @@ github:pbek/nixcfg        (external hokage foundation)
 
 ### "I want to understand SSH security"
 
-→ [hosts/hsb0/SSH-KEY-SECURITY-NOTE.md](./hosts/hsb0/SSH-KEY-SECURITY-NOTE.md) - SSH key security overview  
+→ [docs/SSH-KEY-SECURITY.md](./docs/SSH-KEY-SECURITY.md) - SSH key security for external hokage
 → [hosts/hsb8/tests/T09-ssh-access.md](./hosts/hsb8/tests/T09-ssh-access.md) - SSH security testing  
 → [hosts/hsb8/configuration.nix](./hosts/hsb8/configuration.nix) - `lib.mkForce` SSH key override example
 

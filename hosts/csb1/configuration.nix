@@ -139,7 +139,7 @@
   #
   # Security Policy: csb1 allows mba (Markus) SSH keys only.
   #
-  # See: hosts/csb1/docs/SSH-KEY-SECURITY-NOTE.md
+  # See: docs/SSH-KEY-SECURITY.md
   # ============================================================================
   users.users.mba = {
     extraGroups = [ "mosquitto" ];

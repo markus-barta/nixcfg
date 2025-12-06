@@ -75,6 +75,6 @@ The hsb1 migration taught us to:
 ## 📚 Reference
 
 - [Migration Plan](../../docs/MIGRATION-PLAN-HOKAGE.md) - Full details
-- [SSH Key Security](../../docs/SSH-KEY-SECURITY-NOTE.md) - Why lib.mkForce
+- [SSH Key Security](../../../../docs/SSH-KEY-SECURITY.md) - Why lib.mkForce
 - [Emergency Runbook](../../secrets/RUNBOOK.md) - Credentials & procedures
 - [Old Config Archive](../../archive/2025-11-29-pre-hokage/) - Pre-migration reference

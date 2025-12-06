@@ -505,7 +505,7 @@ IP4.DNS[2]:     46.38.252.230
 
 ## 📚 Related Documentation
 
-- [SSH Key Security Note](./SSH-KEY-SECURITY-NOTE.md) - Why lib.mkForce
+- [SSH Key Security](../../../docs/SSH-KEY-SECURITY.md) - Why lib.mkForce
 - [Emergency Runbook](../secrets/RUNBOOK.md) - All credentials & procedures
 - [csb1 Migration Plan](../../csb1/docs/MIGRATION-PLAN-HOKAGE.md) - Reference
 
