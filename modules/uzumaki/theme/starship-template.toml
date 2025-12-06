@@ -250,7 +250,7 @@ format = '[[$symbol](fg:__SUDO_FG__ bg:__DARKEST__)]($style)'
 [nix_shell]
 symbol = ""
 style = "bg:__DARKEST__"
-format = '[[ $symbol $state](fg:__TEXT_MUTED__ bg:__DARKEST__)]($style)'
+format = '[[ $symbol $state](fg:__TEXT_MUTED_LIGHT__ bg:__DARKEST__)]($style)'
 
 # ════════════════════════════════════════════════════════════════════════════════
 # CHARACTER (Prompt on new line)
