@@ -76,6 +76,21 @@ Hokage is imported **externally** from `github:pbek/nixcfg` and provides:
 - **Languages**: Development environments (javascript, php, go, cplusplus)
 - **Features**: ZFS, audio, networking, secrets management
 
+#### Browsing Hokage Source
+
+To explore hokage's implementation:
+
+```bash
+# Reference copy alongside your repo
+~/Code/pbek-nixcfg/modules/hokage/
+
+# Or use the multi-root workspace (opens both repos in one window)
+cursor ~/Code/nixcfg/nixcfg.code-workspace
+
+# View available options
+just hokage-options
+```
+
 ### Uzumaki: Personal Touch 🌀
 
 **Uzumaki** (うずまき, "spiral") is named after the Uzumaki clan from _Naruto_, masters of sealing techniques—fitting for a module that seals in your personal configuration.

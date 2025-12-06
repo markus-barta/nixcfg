@@ -283,6 +283,25 @@ keyscan:
 edit-secret secret-file:
     agenix -e {{ secret-file }}
 
+# Encrypt runbook secrets (per-host sysop reference docs)
+
+# Usage: just encrypt-runbook-secrets [host]
+[group('runbook-secrets')]
+encrypt-runbook-secrets host='':
+    nix-shell -p age --run "./scripts/runbook-secrets.sh encrypt {{ host }}"
+
+# Decrypt runbook secrets for editing
+
+# Usage: just decrypt-runbook-secrets [host]
+[group('runbook-secrets')]
+decrypt-runbook-secrets host='':
+    nix-shell -p age --run "./scripts/runbook-secrets.sh decrypt {{ host }}"
+
+# List hosts with runbook secrets
+[group('runbook-secrets')]
+list-runbook-secrets:
+    ./scripts/runbook-secrets.sh list
+
 @_show-qemu-exit-message:
     echo "Booting VM. To exit, use: Ctrl + A then X"
     echo "Press any key to continue..."

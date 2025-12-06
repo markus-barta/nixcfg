@@ -1,105 +1,74 @@
 # 2025-11-29 - Cleanup secrets/ Directory
 
-## Description
+## ✅ COMPLETED: 2025-12-06
 
-The `secrets/` directory contains legacy secrets and host keys from the old pbek/nixcfg structure that are no longer used. This cleanup removes unused items and documents the structure.
+This cleanup was completed as part of the pbek → markus nixcfg transition.
 
-## Analysis Results
+## What Was Done
 
-### Secrets Files Inventory
+### Phase 1: Archive Legacy Secrets ✅
 
-| File                     | Status        | Used By                            |
-| ------------------------ | ------------- | ---------------------------------- |
-| `static-leases-hsb0.age` | ✅ **ACTIVE** | hsb0/configuration.nix             |
-| `static-leases-hsb8.age` | ✅ **ACTIVE** | hsb8/configuration.nix             |
-| `id_ecdsa_sk.age`        | ❌ **LEGACY** | Only in archived pre-hokage mixins |
-| `nixpkgs-review.age`     | ❌ **LEGACY** | Only in archived pre-hokage mixins |
-| `pia-user.age`           | ❌ **LEGACY** | Only in archived pre-hokage mixins |
-| `pia-pass.age`           | ❌ **LEGACY** | Only in archived pre-hokage mixins |
-| `pia.age`                | ❌ **LEGACY** | Unknown, no references found       |
-| `github-token.age`       | ❌ **LEGACY** | Only in archived pre-hokage mixins |
-| `neosay.age`             | ❌ **LEGACY** | Unknown, no active references      |
-| `atuin.age`              | ❌ **LEGACY** | Unknown, no active references      |
-| `qc-config.age`          | ❌ **LEGACY** | Unknown, no active references      |
-| `secret1.age`            | ❌ **LEGACY** | Test file, not used                |
+Moved 10 unused `.age` files to `secrets/archived/`:
 
-### Host Keys in secrets.nix
+- `id_ecdsa_sk.age` - Yubikey SSH key (no Yubikey)
+- `nixpkgs-review.age` - nixpkgs workflow (not used)
+- `github-token.age` - Using `~/.secrets/github-token` instead
+- `neosay.age` - Matrix notifications (not configured)
+- `atuin.age` - Shell history (disabled in common.nix)
+- `qc-config.age` - QOwnNotes CLI (not used)
+- `secret1.age` - Test file
+- `pia-user.age`, `pia-pass.age`, `pia.age` - PIA VPN (archived for future use)
 
-| Key        | Status    | Notes                            |
-| ---------- | --------- | -------------------------------- |
-| `agenix`   | ✅ Keep   | System key for editing secrets   |
-| `hsb0`     | ✅ Keep   | Active home server               |
-| `hsb8`     | ✅ Keep   | Active home server               |
-| `markus`   | ✅ Keep   | Personal user key                |
-| `gb`       | ✅ Keep   | User on hsb8                     |
-| `general`  | ⚠️ Review | May be needed for shared secrets |
-| `eris`     | ❌ Delete | Only in `hosts/archived/`        |
-| `neptun`   | ❌ Delete | Only in `hosts/archived/`        |
-| `pluto`    | ❌ Delete | Only in `hosts/archived/`        |
-| `jupiter`  | ❌ Delete | Only in `hosts/archived/`        |
-| `gaia`     | ❌ Delete | Only in `hosts/archived/`        |
-| `venus`    | ❌ Delete | Only in `hosts/archived/`        |
-| `astra`    | ❌ Delete | Only in `hosts/archived/`        |
-| `caliban`  | ❌ Delete | Only in `hosts/archived/`        |
-| `sinope`   | ❌ Delete | Only in `hosts/archived/`        |
-| `rhea`     | ❌ Delete | Only in `hosts/archived/`        |
-| `hyperion` | ❌ Delete | Only in `hosts/archived/`        |
-| `mercury`  | ❌ Delete | Only in `hosts/archived/`        |
+### Phase 2: Clean Up secrets.nix ✅
 
-### Planned Secrets (from other backlog items)
+Removed 15 legacy host/user keys:
 
-| File               | For  | Status                                         |
-| ------------------ | ---- | ---------------------------------------------- |
-| `mqtt-hsb1.age`    | hsb1 | Planned in `2025-12-01-hsb1-agenix-secrets.md` |
-| `tapo-c210-00.age` | hsb1 | Planned in `2025-12-01-hsb1-agenix-secrets.md` |
+- `agenix` - pbek's editing key
+- `eris`, `neptun`, `pluto`, `jupiter`, `gaia`, `venus`, `astra`, `caliban`, `sinope`, `rhea`, `hyperion`, `mercury` - pbek's old hosts
+- `general` - Shared legacy keys
 
-## Acceptance Criteria
+Kept only active keys:
 
-### Part 1: Remove Legacy Host Keys
+- `markus` - Personal key for editing secrets
+- `gb` - User on hsb8
+- `hsb0`, `hsb8` - Active host keys
 
-- [ ] Remove all 12 legacy host keys from `secrets.nix` (eris, neptun, pluto, jupiter, gaia, venus, astra, caliban, sinope, rhea, hyperion, mercury)
-- [ ] Remove `systems` variable that aggregates legacy keys
-- [ ] Update any secrets that reference `systems` to use explicit keys
+### Phase 3: Documentation ✅
 
-### Part 2: Archive Legacy Secrets
+Created `secrets/archived/README.md` explaining:
 
-- [ ] Move unused `.age` files to `secrets/archived/`
-- [ ] Files to archive: `id_ecdsa_sk.age`, `nixpkgs-review.age`, `pia-*.age`, `github-token.age`, `neosay.age`, `atuin.age`, `qc-config.age`, `secret1.age`
-- [ ] Create `secrets/archived/README.md` explaining these are legacy
+- What each archived file was for
+- Why it was archived
+- How to restore if needed in the future
 
-### Part 3: Document Structure
+## Current State
 
-- [ ] Update or create `secrets/README.md` documenting:
-  - How to add new secrets
-  - Which hosts have which secrets
-  - Key naming conventions
+### Active Secrets (3 files)
 
-## Test Plan
+| File                     | Used By | Purpose                         |
+| ------------------------ | ------- | ------------------------------- |
+| `static-leases-hsb0.age` | hsb0    | AdGuard DHCP static leases      |
+| `static-leases-hsb8.age` | hsb8    | AdGuard DHCP static leases      |
+| `mqtt-hsb0.age`          | hsb0    | UPS monitoring MQTT credentials |
 
-### Manual Test
+### Active Keys (4 entries)
 
-1. After cleanup, verify builds still work:
-   ```bash
-   nixos-rebuild build --flake .#hsb0
-   nixos-rebuild build --flake .#hsb8
-   ```
-2. Verify active secrets still decrypt on hosts
+| Key      | Type | Purpose                               |
+| -------- | ---- | ------------------------------------- |
+| `markus` | User | Edit all secrets with `~/.ssh/id_rsa` |
+| `gb`     | User | Access hsb8 secrets                   |
+| `hsb0`   | Host | Decrypt secrets on hsb0               |
+| `hsb8`   | Host | Decrypt secrets on hsb8               |
 
-### Automated Test
+## Verification
 
 ```bash
-# Verify only expected files remain in secrets/
-ls secrets/*.age | wc -l
-# Expected: 2 (static-leases-hsb0.age, static-leases-hsb8.age)
-
-# Verify secrets.nix doesn't reference legacy hosts
-grep -E "(eris|neptun|pluto|jupiter|gaia|venus|astra|caliban|sinope|rhea|hyperion|mercury)" secrets/secrets.nix
-# Expected: no output
+# Builds still work
+nix eval '.#nixosConfigurations.hsb0.config.system.build.toplevel.drvPath'  # ✅
+nix eval '.#nixosConfigurations.hsb8.config.system.build.toplevel.drvPath'  # ✅
 ```
 
-## Summary
+## Future Work
 
-**Before**: 13 secrets files, 17 host keys (most unused)
-**After**: 2 active secrets + archived legacy, 6 host keys
-
-This is a cleanup task, not a restructure. The goal is to remove cruft from the old pbek/nixcfg structure.
+- Add csb0/csb1 host keys when they need secrets
+- Configure PIA VPN (files archived, ready when needed)
