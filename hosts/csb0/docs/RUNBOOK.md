@@ -186,7 +186,7 @@ VNC console access. Password stored in 1Password under "csb0 csb1 recovery".
 ⚠️ **CRITICAL**: Subnet is `/22` (NOT `/24`!) - Gateway is at `.64.1`, not `.65.1`.
 
 **Incident (2025-12-06)**: Server locked out due to wrong subnet/gateway.
-Fixed after DHCP analysis from Gen 22. See PICK-UP-HERE.md for details.
+Fixed after DHCP analysis from Gen 22. See [MIGRATION-PLAN-HOKAGE.md](./MIGRATION-PLAN-HOKAGE.md) for incident details.
 
 ### If SSH Fails
 

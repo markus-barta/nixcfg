@@ -499,7 +499,7 @@ IP4.DNS[2]:     46.38.252.230
 | -------------------------------- | ---------------------------------------- |
 | `hosts/csb0/configuration.nix`   | Fixed prefixLength (24→22), gateway, DNS |
 | `hosts/csb0/ip-85.235.65.226.md` | Documented correct network values        |
-| `docs/private/PICK-UP-HERE.md`   | Full incident documentation              |
+| (incident documented below)      | See incident report in this file         |
 
 ---
 
@@ -508,7 +508,6 @@ IP4.DNS[2]:     46.38.252.230
 - [SSH Key Security Note](./SSH-KEY-SECURITY-NOTE.md) - Why lib.mkForce
 - [Emergency Runbook](../secrets/RUNBOOK.md) - All credentials & procedures
 - [csb1 Migration Plan](../../csb1/docs/MIGRATION-PLAN-HOKAGE.md) - Reference
-- [PICK-UP-HERE.md](../../../docs/private/PICK-UP-HERE.md) - Full incident details
 
 ---
 

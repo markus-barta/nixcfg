@@ -35,7 +35,6 @@ docs/
 ├── hokage-options.md           # Complete hokage module reference (1400+ lines)
 ├── CI-CD-PIPELINE.md           # GitHub Actions and automation
 └── private/                    # Private documentation (not in git)
-    ├── PICK-UP-HERE.md         # Personal task tracking
     ├── secrets-inventory.md    # Secrets overview
     ├── secrets-migration-plan.md
     └── dns-barta-cm.md         # DNS configuration
