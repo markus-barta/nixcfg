@@ -96,7 +96,7 @@
     stasysmo = {
       enable = lib.mkOption {
         type = lib.types.bool;
-        default = false; # Opt-in for system monitoring
+        default = true; # Default ON for all uzumaki hosts
         description = ''
           Enable StaSysMo system monitoring integration.
           When enabled, uzumaki automatically imports and configures the

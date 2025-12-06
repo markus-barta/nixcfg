@@ -40,8 +40,16 @@ in
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
-    ../../modules/uzumaki/server.nix # Fish pingt, sourcefish, zellij, EDITOR
+    ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
   ];
+
+  # ============================================================================
+  # UZUMAKI MODULE CONFIGURATION
+  # ============================================================================
+  uzumaki = {
+    enable = true;
+    role = "server";
+  };
 
   # NOTE: starship and atuin are configured in common.nix (via commonServerModules)
 
