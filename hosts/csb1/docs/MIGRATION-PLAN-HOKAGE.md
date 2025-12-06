@@ -2,38 +2,31 @@
 
 **Server**: csb1 (Cloud Server Barta 1)  
 **Migration Type**: External Hokage Consumer Pattern  
-**Risk Level**: 🔴 **HIGH** - Network issues during deployment (see Incident Report)  
-**Status**: 🟡 **RECOVERED** - Services online, but OLD generation (needs re-deploy)  
+**Risk Level**: 🟢 **LOW** - Completed and stable  
+**Status**: ✅ **COMPLETED** - Deployed, reboot verified, StaSysMo enabled  
 **Created**: November 29, 2025  
-**Last Updated**: December 5, 2025 (Post-Incident)
+**Last Updated**: December 6, 2025 (Final)
 
 ---
 
-## 🚨 CURRENT STATUS (Post-Incident 2025-12-05)
+## ✅ CURRENT STATUS (Updated 2025-12-06)
 
-### ⚠️ INCIDENT OCCURRED - Server Recovered
+### Migration COMPLETED
 
-**On 2025-12-05, deployment caused network loss.** Server recovered via VNC + manual intervention. See [Incident Report](#-incident-report-2025-12-05-network-loss-during-deployment) below.
+| Item                | Status               | Notes                                           |
+| ------------------- | -------------------- | ----------------------------------------------- |
+| **Server Status**   | ✅ ONLINE            | All services running                            |
+| **Running Config**  | ✅ External Hokage   | Gen 26, deployed 2025-12-06                     |
+| **Uzumaki Pattern** | ✅ New pattern       | `uzumaki = { enable = true; role = "server"; }` |
+| **StaSysMo**        | ✅ Enabled           | System monitoring in prompt                     |
+| **Static IP**       | ✅ Configured        | Lockout prevention active                       |
+| **Docker**          | ✅ All 15 containers | Paperless, Grafana, InfluxDB, etc.              |
+| **Reboot Test**     | ✅ PASSED            | 2025-12-06                                      |
 
-### Reality Check
+### Previous Incident (2025-12-05) - RESOLVED
 
-| Item                | Status                           | Notes                                            |
-| ------------------- | -------------------------------- | ------------------------------------------------ |
-| **Server Status**   | ✅ ONLINE                        | Recovered via VNC, all services running          |
-| **Running Config**  | ❌ OLD local hokage (Gen 10)     | External hokage deployment FAILED (network loss) |
-| **Network**         | ✅ Fixed with NM connection file | Manual fix persists across reboots               |
-| **Flake**           | ✅ Fixed                         | Overlays code removed                            |
-| **External Hokage** | ❌ NOT DEPLOYED                  | Deployment crashed server - needs retry          |
-| **Docker**          | ✅ All 14 containers running     | Paperless, Grafana, InfluxDB, etc.               |
-
-### Blockers Before RE-Deployment
-
-1. ~~**🔴 CRITICAL**: Fix `flake.nix` - overlays directory was deleted~~ ✅ **FIXED**
-2. ~~**🟡 MEDIUM**: Validate flake evaluates~~ ✅ **PASS**
-3. ~~**🔴 CRITICAL**: Add static IP configuration to configuration.nix (caused network loss!)~~ ✅ **FIXED** (2025-12-05)
-4. ~~**🟡 MEDIUM**: Add `hashedPassword` for mba user (recovery fallback)~~ ✅ **FIXED** (2025-12-05)
-5. **🟡 PENDING**: Test build: `nix build '.#nixosConfigurations.csb1.config.system.build.toplevel'`
-6. **🟡 PENDING**: Re-deploy to csb1 with `nixos-rebuild switch`
+Network was lost during initial deploy due to missing static IP config.
+Fixed by adding declarative static IP. See [Incident Report](#-incident-report-2025-12-05-network-loss-during-deployment) below.
 
 ### How to Verify Current State
 
@@ -984,16 +977,33 @@ users.users.mba.hashedPassword = "<hash from mkpasswd>";
 | `/etc/NetworkManager/system-connections/ens3.nmconnection` | Created | ✅ Persists across reboots |
 | (no NixOS config changes on server)                        | -       | -                          |
 
-### Action Items Before Re-Deploy
+### Action Items - ALL COMPLETED ✅
 
 - [x] Add static networking to `hosts/csb1/configuration.nix` ✅ (2025-12-05)
 - [x] Add `hashedPassword` for mba user ✅ (2025-12-05)
-- [ ] Test full build locally
+- [x] Test full build locally ✅ (2025-12-06)
 - [x] Ensure NM connection file approach or switch to systemd-networkd ✅ (using `networkmanager.unmanaged`)
 - [x] Have incident recovery commands documented ✅ (see RUNBOOK.md)
+- [x] Deploy external hokage ✅ (2025-12-06)
+- [x] Enable StaSysMo monitoring ✅ (2025-12-06)
+- [x] Reboot test ✅ (2025-12-06)
 
 ---
 
-**STATUS**: 🟡 RECOVERED - csb1 online but running OLD generation (gen 10)  
-**CONFIDENCE**: 🟡 MEDIUM - Need to add static networking before re-deploy  
-**NEXT**: 1) Add static IP config to configuration.nix, 2) Re-deploy with proper networking
+## ✅ Final Deployment (2025-12-06)
+
+Successfully deployed with:
+
+- External Hokage from `github:pbek/nixcfg`
+- Uzumaki new pattern: `uzumaki = { enable = true; role = "server"; }`
+- StaSysMo system monitoring enabled
+- Static IP lockout prevention
+- Recovery password set
+
+Reboot test PASSED - csb1 is stable.
+
+---
+
+**STATUS**: ✅ COMPLETED - Deployed, reboot verified (2025-12-06)
+**CONFIDENCE**: 🟢 HIGH - All systems stable
+**NEXT**: Monitor for 24h, consider disabling password auth if stable

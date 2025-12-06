@@ -1,10 +1,11 @@
 # csb0 - Cloud Server Barta 0
 
-**Status**: ⏳ READY TO DEPLOY - External Hokage migration
+**Status**: ✅ Running (Hokage + Uzumaki)
 **Type**: Cloud Server (Netcup VPS 1000 G11)
-**OS**: NixOS 25.11 (Xantusia)
-**Uptime**: 267+ days (last checked 2025-12-05)
+**OS**: NixOS 26.05 (Warbler)
+**Config**: External Hokage (`github:pbek/nixcfg`) + Uzumaki modules
 **Primary Domain**: cs0.barta.cm
+**Last Deploy**: 2025-12-06 (reboot verified ✅)
 
 ---
 
@@ -120,16 +121,24 @@ sudo nixos-rebuild switch --rollback
 
 **Goal**: Migrate from local mixins to external Hokage modules
 
-**Status**: ⏳ **READY TO DEPLOY** (csb1 successful ✅)
+**Status**: ✅ **COMPLETED** (2025-12-06)
 
-| Item                     | Status         |
-| ------------------------ | -------------- |
-| Flake evaluates          | ✅ PASS        |
-| Password auth safety net | ✅ Added       |
-| uzumaki/server.nix       | ✅ Imported    |
-| SSH key security         | ✅ lib.mkForce |
+| Item                     | Status      |
+| ------------------------ | ----------- |
+| External Hokage deployed | ✅ COMPLETE |
+| Uzumaki new pattern      | ✅ COMPLETE |
+| StaSysMo monitoring      | ✅ ENABLED  |
+| Static IP lockout fix    | ✅ APPLIED  |
+| Reboot verified          | ✅ PASS     |
 
-See `docs/MIGRATION-PLAN-HOKAGE.md` for full plan.
+### Incident Note (2025-12-06)
+
+Initial deploy failed due to incorrect network configuration:
+
+- Wrong subnet: `/24` instead of `/22`
+- Wrong gateway: `85.235.65.1` instead of `85.235.64.1`
+
+Fixed after DHCP analysis. See `docs/MIGRATION-PLAN-HOKAGE.md` for details.
 
 ---
 
@@ -147,12 +156,23 @@ See `secrets/RUNBOOK.md` for credentials and restore procedures.
 
 ## Network
 
+### Static IP Configuration
+
+| Setting        | Value                            |
+| -------------- | -------------------------------- |
+| **IP Address** | `85.235.65.226/22`               |
+| **Gateway**    | `85.235.64.1`                    |
+| **DNS**        | `46.38.225.230`, `46.38.252.230` |
+| **Interface**  | `ens3` (NM unmanaged)            |
+
+⚠️ **CRITICAL**: Subnet is `/22` (NOT `/24`!) - Gateway is in `.64` subnet.
+
 ### SSH (Hardened)
 
 - Port: **2222** (not 22)
-- Password auth: Disabled (after migration)
+- Password auth: Enabled (recovery fallback)
 - Root login: Disabled
-- Key auth only
+- Key auth: Primary method
 
 ### Firewall
 

@@ -1,10 +1,11 @@
 # csb1 - Cloud Server Barta 1
 
-**Status**: ✅ Running (Hokage)  
-**Type**: Cloud Server (Netcup VPS 1000 G11)  
-**OS**: NixOS 25.11 (Xantusia)  
-**Config**: External Hokage (`github:pbek/nixcfg`)  
+**Status**: ✅ Running (Hokage + Uzumaki)
+**Type**: Cloud Server (Netcup VPS 1000 G11)
+**OS**: NixOS 26.05 (Warbler)
+**Config**: External Hokage (`github:pbek/nixcfg`) + Uzumaki modules
 **Primary Domain**: cs1.barta.cm
+**Last Deploy**: 2025-12-06 (reboot verified ✅)
 
 ---
 
@@ -121,19 +122,19 @@ sudo nixos-rebuild switch --rollback
 
 ## Migration History
 
-### Hokage Migration (2025-11-29) ✅
+### Hokage + Uzumaki Migration (2025-12-06) ✅
 
-Migrated from local mixins to external Hokage modules.
+Migrated to external Hokage + new Uzumaki pattern with StaSysMo.
 
-| Milestone                       | Status |
-| ------------------------------- | ------ |
-| Pre-flight checks               | ✅     |
-| Backups (Netcup/Restic/Archive) | ✅     |
-| Configuration deployed          | ✅     |
-| Reboot verified                 | ✅     |
-| Password auth disabled          | ✅     |
+| Milestone                   | Status |
+| --------------------------- | ------ |
+| External Hokage deployed    | ✅     |
+| Uzumaki new pattern         | ✅     |
+| StaSysMo monitoring enabled | ✅     |
+| Static IP lockout fix       | ✅     |
+| Reboot verified             | ✅     |
 
-See `migrations/2025-11-hokage/README.md` for details.
+See `docs/MIGRATION-PLAN-HOKAGE.md` for incident report (2025-12-05).
 
 ---
 
@@ -149,12 +150,21 @@ See `secrets/RUNBOOK.md` for credentials and restore procedures.
 
 ## Network
 
+### Static IP Configuration
+
+| Setting        | Value                 |
+| -------------- | --------------------- |
+| **IP Address** | `152.53.64.166/24`    |
+| **Gateway**    | `152.53.64.1`         |
+| **DNS**        | `8.8.8.8`, `8.8.4.4`  |
+| **Interface**  | `ens3` (NM unmanaged) |
+
 ### SSH (Hardened)
 
 - Port: **2222** (not 22)
-- Password auth: **disabled**
+- Password auth: **enabled** (recovery fallback)
 - Root login: **disabled**
-- Key auth only (mba + hsb1/miniserver24)
+- Key auth: Primary method (mba + hsb1/miniserver24)
 
 ### Firewall
 

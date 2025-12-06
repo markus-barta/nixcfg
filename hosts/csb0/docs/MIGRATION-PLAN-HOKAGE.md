@@ -3,30 +3,29 @@
 **Server**: csb0 (Cloud Server Barta 0)
 **Migration Type**: External Hokage Consumer Pattern
 **Risk Level**: 🟠 **MEDIUM-HIGH** - Smart home & IoT critical services
-**Status**: ⏳ **READY TO DEPLOY** - csb1 successful, flake evaluates
+**Status**: ✅ **COMPLETED** - Deployed and reboot verified
 **Created**: November 29, 2025
-**Last Updated**: December 5, 2025
+**Last Updated**: December 6, 2025 (Post-Incident)
 
 ---
 
-## 🚨 CURRENT STATUS (Validated 2025-12-05)
+## 🚨 CURRENT STATUS (Updated 2025-12-06)
 
-### Reality Check
+### ✅ MIGRATION COMPLETED
 
-| Item                | Status                         | Notes                                                  |
-| ------------------- | ------------------------------ | ------------------------------------------------------ |
-| **Running Config**  | ❌ OLD local hokage            | No `nixbit` installed (external hokage signature tool) |
-| **Flake Evaluates** | ✅ PASS                        | `nix eval '.#nixosConfigurations.csb0'` works          |
-| **External Hokage** | ⏳ Configured, READY to deploy | flake.nix correct, same pattern as csb1                |
-| **Last Rebuild**    | Unknown (267 days uptime!)     | Needs new rebuild for external hokage                  |
-| **Password Auth**   | ✅ ADDED 2025-12-05            | Safety net enabled                                     |
+| Item                | Status             | Notes                                           |
+| ------------------- | ------------------ | ----------------------------------------------- |
+| **Running Config**  | ✅ External Hokage | Gen 27, reboot verified                         |
+| **Uzumaki Pattern** | ✅ New pattern     | `uzumaki = { enable = true; role = "server"; }` |
+| **StaSysMo**        | ✅ Enabled         | System monitoring in prompt                     |
+| **Static IP**       | ✅ Correct values  | /22 subnet, 85.235.64.1 gateway                 |
+| **Password Auth**   | ✅ Enabled         | VNC recovery fallback                           |
+| **Reboot Test**     | ✅ PASSED          | 2025-12-06 after fix                            |
 
-### Blockers - NONE
+### Incident (2025-12-06) - RESOLVED
 
-1. ~~Fix flake.nix overlays~~ ✅ **FIXED** (same fix as csb1)
-2. ~~Validate flake evaluates~~ ✅ **PASS**
-3. ~~Add password auth safety net~~ ✅ **DONE**
-4. **🟡 PENDING**: Deploy to csb0 with `nixos-rebuild switch`
+**Initial deploy FAILED** due to wrong network configuration. Fixed and re-deployed.
+See [Incident Report](#-incident-report-2025-12-06-network-lockout) below.
 
 ### Uzumaki Compatibility ✅
 
@@ -415,14 +414,104 @@ EOF
 
 ---
 
+## 🚨 INCIDENT REPORT: 2025-12-06 Network Lockout
+
+### Timeline (All times CET)
+
+| Time   | Event                                                  |
+| ------ | ------------------------------------------------------ |
+| ~11:00 | Started deployment of csb0 with `nixos-rebuild switch` |
+| ~11:05 | **SSH connection lost** - csb0 became unreachable      |
+| ~11:10 | Ping to 85.235.65.226 failing                          |
+| ~11:15 | Accessed Netcup VNC console                            |
+| ~11:20 | Attempted `init=/bin/sh` recovery                      |
+| ~11:30 | VNC keyboard issues: Cannot type `:`, `-`, `\`, `\|`   |
+| ~12:00 | Struggled with minimal shell and keyboard problems     |
+| ~12:30 | Set mba password via passwd in init shell              |
+| ~12:35 | Rebooted to new gen, VNC login now works               |
+| ~12:45 | SSH still fails - network misconfigured                |
+| ~13:00 | Booted Gen 22 (2024-09-29) - **SSH WORKS!**            |
+| ~13:05 | DHCP analysis reveals correct values                   |
+| ~13:15 | Fixed configuration, committed, deployed               |
+| ~13:18 | Reboot test - **SUCCESS!**                             |
+
+### Root Cause Analysis
+
+**TWO configuration errors caused the lockout:**
+
+| Setting     | Wrong (Our Config) | Correct (DHCP) | Impact                    |
+| ----------- | ------------------ | -------------- | ------------------------- |
+| **Subnet**  | `/24`              | `/22`          | Gateway unreachable       |
+| **Gateway** | `85.235.65.1`      | `85.235.64.1`  | Packets sent to wrong IP! |
+
+**Why we got it wrong:**
+
+- Assumed gateway pattern from csb1 (`152.53.64.1` for `/24`)
+- Applied same pattern: `85.235.65.226` → `85.235.65.1`
+- But csb0 is on `/22` network, gateway is at start of range: `85.235.64.1`
+
+**Why manual /22 fix didn't work during recovery:**
+
+- We added correct `/22` subnet BUT kept wrong gateway `85.235.65.1`
+- Packets were routed to a non-existent gateway!
+
+### VNC Keyboard Issues (Netcup Console)
+
+**Broken keys** (German/international layout mismatch):
+
+- `:` (colon) - impossible to type
+- `-` (hyphen) - impossible to type
+- `\` (backslash) - impossible to type
+- `|` (pipe) - impossible to type
+
+**Working keys**: Letters, numbers, `=`, `/`, `.`
+
+**Impact**: Most Linux commands require these characters, making recovery extremely difficult.
+
+### Recovery via Old Generation
+
+**Gen 22 (2024-09-29)** was last known-good:
+
+- Used DHCP via NetworkManager
+- All network values correct (from Netcup DHCP)
+- SSH worked immediately after boot
+
+**DHCP values captured:**
+
+```
+IP4.ADDRESS[1]: 85.235.65.226/22
+IP4.GATEWAY:    85.235.64.1     ← CORRECT!
+IP4.DNS[1]:     46.38.225.230
+IP4.DNS[2]:     46.38.252.230
+```
+
+### Lessons Learned
+
+1. **ALWAYS check gateway from DHCP** before setting static IP
+2. **Subnet mask affects gateway location** - /22 gateway is NOT at .X.1
+3. **VNC keyboard is unreliable** - have alternative recovery methods
+4. **Keep one known-good generation** for emergency recovery
+5. **Document network values** in easily accessible location
+
+### Files Changed
+
+| File                             | Change                                   |
+| -------------------------------- | ---------------------------------------- |
+| `hosts/csb0/configuration.nix`   | Fixed prefixLength (24→22), gateway, DNS |
+| `hosts/csb0/ip-85.235.65.226.md` | Documented correct network values        |
+| `docs/private/PICK-UP-HERE.md`   | Full incident documentation              |
+
+---
+
 ## 📚 Related Documentation
 
 - [SSH Key Security Note](./SSH-KEY-SECURITY-NOTE.md) - Why lib.mkForce
 - [Emergency Runbook](../secrets/RUNBOOK.md) - All credentials & procedures
-- [csb1 Migration Plan](../../csb1/docs/MIGRATION-PLAN-HOKAGE.md) - Reference (completed 2025-12-05)
+- [csb1 Migration Plan](../../csb1/docs/MIGRATION-PLAN-HOKAGE.md) - Reference
+- [PICK-UP-HERE.md](../../../docs/private/PICK-UP-HERE.md) - Full incident details
 
 ---
 
-**STATUS**: ⏳ READY TO DEPLOY - Flake evaluates, password auth enabled
-**CONFIDENCE**: 🟢 HIGH - Same pattern as csb1, lessons applied
-**NEXT**: Deploy to csb0 with `nixos-rebuild switch`
+**STATUS**: ✅ COMPLETED - Deployed and reboot verified (2025-12-06)
+**CONFIDENCE**: 🟢 HIGH - Network configuration validated from DHCP
+**NEXT**: Monitor for 24h, then disable password auth if stable

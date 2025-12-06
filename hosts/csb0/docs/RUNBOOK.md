@@ -177,10 +177,16 @@ VNC console access. Password stored in 1Password under "csb0 csb1 recovery".
 
 ### Network Configuration
 
-Static IP `85.235.65.226/24` is configured declaratively in NixOS.
-Gateway: `85.235.65.1` | DNS: `8.8.8.8`, `8.8.4.4`
+| Setting   | Value                            |
+| --------- | -------------------------------- |
+| Static IP | `85.235.65.226/22`               |
+| Gateway   | `85.235.64.1`                    |
+| DNS       | `46.38.225.230`, `46.38.252.230` |
 
-This prevents lockout during deploys (learned from csb1 incident 2025-12-05).
+⚠️ **CRITICAL**: Subnet is `/22` (NOT `/24`!) - Gateway is at `.64.1`, not `.65.1`.
+
+**Incident (2025-12-06)**: Server locked out due to wrong subnet/gateway.
+Fixed after DHCP analysis from Gen 22. See PICK-UP-HERE.md for details.
 
 ### If SSH Fails
 

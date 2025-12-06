@@ -2,28 +2,28 @@
 
 ## Current Repository
 
-| Attribute   | Value                                                      |
-| ----------- | ---------------------------------------------------------- |
-| **Commit**  | `6ccbd00b`                                                 |
-| **Message** | fix(justfile): use printf UTF-8 hex escapes for Nerd Fonts |
+| Attribute   | Value                                                    |
+| ----------- | -------------------------------------------------------- |
+| **Commit**  | `5f539fb1`                                               |
+| **Message** | fix(csb0): correct gateway and subnet from DHCP analysis |
 
 ## NixOS Host Status
 
-| Host | Status | Commit     | System Build                | Action   | Checked          |
-| ---- | ------ | ---------- | --------------------------- | -------- | ---------------- |
-| hsb1 | 🔄     | `117dd53e` | hsb1-26.05.20251130.2d293cb | rebuild  | 2025-12-04 20:00 |
-| hsb0 | 🔄     | `4f0ebf36` | hsb0-26.05.20251127.2fad6ea | rebuild  | 2025-12-04 20:00 |
-| gpc0 | 🔄     | `87444ce4` | gpc0-26.05.20251127.2fad6ea | rebuild  | 2025-12-04 20:00 |
-| hsb8 | 🟡     | —          | —                           | migrate  | 2025-12-04 19:07 |
-| csb0 | ⏸️     | `af420880` | csb0-25.11.20251117.89c2b23 | Phase II | 2025-12-04 19:07 |
-| csb1 | ⏸️     | `f71b56ca` | csb1-25.11.20251117.89c2b23 | Phase II | 2025-12-04 19:07 |
+| Host | Status | Commit     | System Build                | Action  | Checked          |
+| ---- | ------ | ---------- | --------------------------- | ------- | ---------------- |
+| hsb1 | 🔄     | `57a2b0cc` | hsb1-26.05.20251130.2d293cb | rebuild | 2025-12-06 13:54 |
+| hsb0 | 🔄     | `57a2b0cc` | hsb0-26.05.20251127.2fad6ea | rebuild | 2025-12-06 13:54 |
+| gpc0 | ⚫     | —          | —                           | —       | 2025-12-06 13:54 |
+| hsb8 | ⚫     | —          | —                           | migrate | 2025-12-06 13:54 |
+| csb0 | 🔄     | `5f539fb1` | csb0-26.05.20251127.2fad6ea | rebuild | 2025-12-06 13:54 |
+| csb1 | 🔄     | `838951c6` | csb1-26.05.20251127.2fad6ea | rebuild | 2025-12-06 13:54 |
 
 ## macOS Home Manager Status
 
 | Host          | Status | Commit     | HM Generation | Action | Checked          |
 | ------------- | ------ | ---------- | ------------- | ------ | ---------------- |
-| imac0         | 🌀✨   | `6ccbd00b` | gen 73        | —      | 2025-12-04 20:00 |
-| imac-mba-work | ⚫     | —          | —             | —      | 2025-12-04 19:07 |
+| imac0         | 🌀✨   | `5f539fb1` | gen 75        | —      | 2025-12-06 13:54 |
+| imac-mba-work | ⚫     | —          | —             | —      | 2025-12-06 13:54 |
 
 ### Status Legend
 
@@ -53,12 +53,12 @@
 | ---- | -------- | -------------------- | ------- |
 | hsb8 | NixOS    | `uzumaki/server.nix` | Offline |
 
-### ⏸️ Deferred to Phase II (Cloud Servers)
+### ✅ Phase II Complete (Cloud Servers with Hokage)
 
-| Host | Platform | Current Import       | Notes                               |
-| ---- | -------- | -------------------- | ----------------------------------- |
-| csb0 | NixOS    | `uzumaki/server.nix` | Uses old mixins, needs hokage first |
-| csb1 | NixOS    | `uzumaki/server.nix` | Uses old mixins, needs hokage first |
+| Host | Platform | Current Import              | Notes                           |
+| ---- | -------- | --------------------------- | ------------------------------- |
+| csb0 | NixOS    | `github:pbek/nixcfg#hokage` | External hokage module deployed |
+| csb1 | NixOS    | `github:pbek/nixcfg#hokage` | External hokage module deployed |
 
 ## Quick Commands
 
@@ -90,7 +90,7 @@ git pull && home-manager switch --flake .#<hostname>
 
 ## 🌀 Architecture Overview
 
-```
+```text
 modules/uzumaki/                    # Single source of truth
 ├── default.nix                     # NixOS entry point
 ├── home-manager.nix                # macOS/Home Manager entry point
