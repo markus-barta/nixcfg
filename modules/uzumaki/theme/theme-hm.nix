@@ -57,6 +57,9 @@ let
   # Import the palette definitions
   themePalettes = import ./theme-palettes.nix;
 
+  # Import StaSysMo config for consistent color references
+  stasysmoConfig = import ../stasysmo/config.nix;
+
   # Get the configured or auto-detected hostname (renamed to avoid shadowing)
   resolvedHostname = config.theme.hostname;
 
@@ -118,6 +121,9 @@ let
         "__PL_RIGHT_HARD__" # - left-pointing triangle (hard edge)
         "__PL_LEFT_SOFT__" # - right-pointing semicircle (soft/rounded)
         "__PL_RIGHT_SOFT__" # - left-pointing semicircle (soft/rounded)
+
+        # StaSysMo colors (from stasysmo/config.nix - no magic numbers!)
+        "__STASYSMO_COLOR_MUTED__"
       ]
       [
         # Header values
@@ -150,11 +156,13 @@ let
         status.error.fg
         status.sudo.fg
 
-        # Powerline characters
+        # Powerline characters (defined here to avoid corruption in template)
         ""
         ""
         ""
         ""
+        # StaSysMo colors (from stasysmo/config.nix - no magic numbers!)
+        (toString stasysmoConfig.colors.muted)
       ]
       starshipTemplate;
 
