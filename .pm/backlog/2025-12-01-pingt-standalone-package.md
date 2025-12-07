@@ -1,6 +1,6 @@
 # 2025-12-01 - Create Standalone pingt Package
 
-## Status: BACKLOG (Low Priority - Reassess Need)
+## Status: BACKLOG (Medium Priority - Confirmed Interest)
 
 ## Description
 
@@ -48,45 +48,67 @@ pingt = {
 | Bash rewrite        | Medium | Different color handling, string matching  |
 | Python/Go rewrite   | High   | Cross-platform but overkill                |
 
-### Questions to Consider
+### Confirmed Interest (2025-12-07)
 
-1. **Is bash/zsh support needed?** Current fish-only works for our use case
-2. **Upstreaming?** Is there interest in contributing to nixpkgs?
-3. **ROI?** Time spent vs benefit gained
+1. **Bash/zsh support needed?** ✅ YES - for broader usability
+2. **Upstreaming?** ✅ YES - pbek expressed interest in using it
+3. **Other users?** ✅ YES - pbek would love it and use it!
 
 ## Recommendation
 
-**Deprioritize** unless:
+**Proceed with packaging** - confirmed external interest from pbek.
 
-- Need to use pingt from non-fish shells
-- Planning to upstream to nixpkgs
-- Other users request it
+Suggested approach: **Bash rewrite** for maximum compatibility (works in fish, bash, zsh).
 
-The fish function approach is simple, maintainable, and works perfectly.
+## Implementation Plan
 
-## If We Proceed
+### Recommended: Bash Script Package
 
-### Option A: Fish Script Package (Recommended)
+Pure bash for maximum compatibility (fish, bash, zsh, sh):
+
+```bash
+#!/usr/bin/env bash
+# pingt - Timestamped ping with color-coded output
+
+# ANSI colors
+GRAY='\033[90m'
+YELLOW='\033[33m'
+RED='\033[31m'
+RESET='\033[0m'
+
+ping "$@" 2>&1 | while IFS= read -r line; do
+  timestamp=$(date '+%H:%M:%S')
+  case "$line" in
+    *timeout*|*"Request timeout"*)
+      printf "${GRAY}%s ·${RESET} ${YELLOW}%s${RESET}\n" "$timestamp" "$line"
+      ;;
+    *sendto:*|*"No route to host"*|*"Host is down"*|*"Destination Host Unreachable"*)
+      printf "${GRAY}%s ·${RESET} ${RED}%s${RESET}\n" "$timestamp" "$line"
+      ;;
+    *)
+      printf "${GRAY}%s ·${RESET} %s\n" "$timestamp" "$line"
+      ;;
+  esac
+done
+```
+
+### Nix Package
 
 ```nix
 # pkgs/pingt/default.nix
-{ writeShellApplication, fish }:
+{ writeShellApplication }:
 writeShellApplication {
   name = "pingt";
-  runtimeInputs = [ fish ];
-  text = ''
-    fish -c 'source ${./pingt.fish}; pingt $argv' -- "$@"
-  '';
+  text = builtins.readFile ./pingt.sh;
 }
 ```
 
-### Option B: Bash Rewrite
+### Alternative: Keep Fish Function Too
 
-Would need to handle:
+Could provide both:
 
-- `set_color` → ANSI escape codes
-- `string match` → bash pattern matching
-- Fish `while read` → bash equivalent
+- `pingt` bash script (standalone package)
+- Fish function (for fish-specific features if needed)
 
 ## Acceptance Criteria (if proceeding)
 
