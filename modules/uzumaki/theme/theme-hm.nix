@@ -284,13 +284,11 @@ in
 
   config = lib.mkIf config.theme.enable {
     # Starship config (generated from TEMPLATE to preserve Unicode)
-    # No force needed with hokage.catppuccin.enable = false
     home.file.".config/starship.toml" = lib.mkIf config.theme.starship.enable {
       text = mkStarshipConfig palette;
     };
 
     # Zellij config (generated from palette)
-    # No mkForce/force needed with hokage.catppuccin.enable = false
     home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
       source = pkgs.writeTextDir "config.kdl" (mkZellijConfig palette resolvedHostname);
       recursive = true;
@@ -347,7 +345,6 @@ in
     };
 
     # lazygit: Tokyo Night theme
-    # No force needed with hokage.catppuccin.enable = false
     home.file.".config/lazygit/config.yml" = {
       text = ''
         gui:
