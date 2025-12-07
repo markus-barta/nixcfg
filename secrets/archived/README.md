@@ -12,7 +12,6 @@ They are kept for reference but are **NOT actively used**.
 | `github-token.age`   | GitHub API token              | Using `~/.secrets/github-token` instead |
 | `neosay.age`         | Matrix notification config    | Config not needed                       |
 | `atuin.age`          | Shell history sync config     | atuin disabled                          |
-| `qc-config.age`      | QOwnNotes CLI config          | QOwnNotes not used                      |
 | `secret1.age`        | Test file                     | Never used                              |
 
 ## If You Need These

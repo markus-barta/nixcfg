@@ -218,16 +218,7 @@
         };
       };
 
-      checks.x86_64-linux = {
-        # QOwnNotes integration test using nixpkgs package
-        qownnotes-unstable = pkgs.testers.runNixOSTest ./tests/qownnotes.nix;
-      };
-
       packages.x86_64-linux = {
-        inherit (pkgs) qownnotes;
-        qownnotes-stable = pkgs.stable.qownnotes;
-      }
-      // {
         # Generate Markdown docs for hokage module options
         hokage-options-md =
           let
