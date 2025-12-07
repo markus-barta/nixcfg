@@ -21,7 +21,7 @@ set -euo pipefail
 # ════════════════════════════════════════════════════════════════════════════════
 
 readonly VERSION="1.0.0"
-readonly SCRIPT_NAME="${0##*/}"
+readonly SCRIPT_NAME="pingt" # Hardcoded to avoid .pingt-wrapped from nix wrapper
 
 # ════════════════════════════════════════════════════════════════════════════════
 # Color Definitions
