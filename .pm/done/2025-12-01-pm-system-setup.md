@@ -36,7 +36,7 @@ for dir in .pm/backlog .pm/done .pm/cancelled tests; do
 done
 
 # Verify READMEs exist
-for readme in PM/README.md tests/README.md; do
+for readme in .pm/README.md tests/README.md; do
   [[ -f "$readme" ]] && echo "✓ $readme exists" || echo "✗ $readme missing"
 done
 ```
