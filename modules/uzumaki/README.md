@@ -117,55 +117,27 @@ hokage = {
 
 ### What We Override
 
-| Component    | Hokage (Catppuccin)    | Our Override (Tokyo Night)   | File                 |
-| ------------ | ---------------------- | ---------------------------- | -------------------- |
-| **Starship** | `mocha.toml` palette   | Per-host gradient colors     | `theme/theme-hm.nix` |
-| **Eza**      | catppuccin colors      | Tokyo Night sysop theme      | `theme/theme-hm.nix` |
-| **Zellij**   | catppuccin colors      | Per-host accent colors       | `theme/theme-hm.nix` |
-| **WezTerm**  | (not themed by hokage) | Tokyo Night                  | `macos-common.nix`   |
-| **Helix**    | catppuccin_mocha       | `tokyonight_storm` (mkForce) | via hokage override  |
-| **bat**      | catppuccin theme       | `tokyonight_night`           | `theme/theme-hm.nix` |
-| **fzf**      | catppuccin colors      | Tokyo Night colors           | `theme/theme-hm.nix` |
-| **lazygit**  | catppuccin theme       | Tokyo Night theme            | `theme/theme-hm.nix` |
+| Component    | Hokage Default            | Our Override (Tokyo Night) | File                 |
+| ------------ | ------------------------- | -------------------------- | -------------------- |
+| **Starship** | (disabled via catppuccin) | Per-host gradient colors   | `theme/theme-hm.nix` |
+| **Eza**      | (disabled via catppuccin) | Tokyo Night sysop theme    | `theme/theme-hm.nix` |
+| **Zellij**   | (disabled via catppuccin) | Per-host accent colors     | `theme/theme-hm.nix` |
+| **WezTerm**  | (not themed by hokage)    | Tokyo Night                | `macos-common.nix`   |
+| **Helix**    | (no override needed)      | `tokyonight_storm`         | `common.nix`         |
+| **bat**      | (disabled via catppuccin) | `tokyonight_night`         | `theme/theme-hm.nix` |
+| **fzf**      | (disabled via catppuccin) | Tokyo Night colors         | `theme/theme-hm.nix` |
+| **lazygit**  | (disabled via catppuccin) | Tokyo Night theme          | `theme/theme-hm.nix` |
+
+> **Note**: With `hokage.catppuccin.enable = false`, no `lib.mkForce` or `force = true` workarounds
+> are needed. Tested and verified on hsb1 (2025-12-07).
 
 ---
 
-## 🔧 Zellij Override - Technical Deep Dive
+## 🔧 Zellij Configuration
 
-### The Problem
+### Hokage Zellij Disabled
 
-Hokage's `programs.zellij` creates `.config/zellij` as a **symlink to a nix store directory**:
-
-```text
-~/.config/zellij → /nix/store/xxx-hm_zellij/
-                   └── config.kdl (hokage's catppuccin config)
-```
-
-Our `home.file.".config/zellij/config.kdl"` tries to create a FILE, but you can't add files inside a symlinked directory - it's read-only in the nix store!
-
-### The Solution
-
-The **critical element** is `lib.mkForce` on the `source`:
-
-```nix
-# In theme/theme-hm.nix
-home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
-  source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname));
-  recursive = true;
-  force = true;
-};
-```
-
-**Why this works**:
-
-1. `lib.mkForce` on `source` - Wins the Nix module merge conflict against hokage
-2. `pkgs.writeTextDir` - Creates a directory containing our config.kdl
-3. `recursive = true` - Ensures directory structure is copied
-4. `force = true` - Replaces existing symlinks on disk
-
-### Also Required
-
-Completely disable hokage's zellij:
+We completely disable hokage's zellij module to use our own config:
 
 ```nix
 programs = {
@@ -178,9 +150,18 @@ programs = {
 };
 ```
 
+Our theme config in `theme/theme-hm.nix` then provides the zellij configuration:
+
+```nix
+home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
+  source = pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname);
+  recursive = true;
+};
+```
+
 ### ⚠️ Manual Step on First Deploy
 
-When migrating from hokage's zellij to themed config, you MUST manually remove the old symlinked directory **once**:
+When migrating from hokage's zellij to our themed config, you MUST manually remove the old symlinked directory **once**:
 
 ```bash
 rm -rf ~/.config/zellij
