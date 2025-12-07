@@ -35,9 +35,17 @@ options.hokage.catppuccin = {
 ## Acceptance Criteria
 
 - [x] Add `hokage.catppuccin.enable = false` to hsb1 (pilot test)
-- [ ] Test build on hsb1 (evaluation passed, deploy pending)
+- [x] Test build on hsb1 - ✅ PASSED (2025-12-07)
+  - Starship: No catppuccin, Tokyo Night green palette
+  - Helix: tokyonight_storm theme
+  - Fish functions: All working
+  - Running generation 141
+- [x] Test removing workarounds on hsb1 - ✅ PASSED (2025-12-07)
+  - Removed `starship.enable = lib.mkForce false` from common.nix
+  - Starship still works with Tokyo Night theme
+  - No catppuccin contamination
 - [ ] Roll out to all hosts if successful
-- [ ] Remove redundant workarounds if they're no longer needed
+- [ ] Remove remaining workarounds (helix mkForce, force=true)
 - [x] ~~Consolidate scattered TODOs~~ → All now point to this file
 
 ## Implementation
