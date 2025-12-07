@@ -51,7 +51,7 @@ Updated all main documentation files to use new hostnames instead of old ones.
 These files intentionally keep old names for historical accuracy:
 
 - `hosts/*/archive/*.md` - Migration plans marked [DONE]
-- `PM/done/*.md` - Completed PM items
+- `.pm/done/*.md` - Completed PM items
 - Host-specific migration plans that document the rename
 - `hosts/hsb1/docs/MIGRATION-PLAN-HSB1.md` - Historical migration document
 - `hosts/csb1/docs/MIGRATION-PLAN-HOKAGE.md` - Historical migration document

@@ -7,7 +7,7 @@
 # colors once in theme-palettes.nix, use everywhere.
 #
 # Catppuccin Override: We use Tokyo Night instead of hokage's default Catppuccin.
-# See: pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
+# See: .pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
 #
 # CRITICAL: Starship config uses a TEMPLATE FILE to preserve Unicode characters.
 # See modules/shared/README.md for details on why this is necessary.
@@ -320,7 +320,7 @@ in
 
     # ══════════════════════════════════════════════════════════════════════════
     # TOKYO NIGHT OVERRIDES - Override hokage's catppuccin theming
-    # See: pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
+    # See: .pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
     # ══════════════════════════════════════════════════════════════════════════
 
     # bat: Use Tokyo Night theme (built-in)
@@ -381,6 +381,6 @@ in
       '';
     };
 
-    # Fish syntax highlighting: see pm/backlog/2025-12-07-fish-tokyo-night-syntax.md
+    # Fish syntax highlighting: see .pm/backlog/2025-12-07-fish-tokyo-night-syntax.md
   };
 }

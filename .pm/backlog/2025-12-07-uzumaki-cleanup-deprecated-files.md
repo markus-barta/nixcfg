@@ -43,7 +43,7 @@ grep -r "uzumaki/common.nix" hosts/ --include="*.nix"
 - [ ] Delete deprecated files (5 files)
 - [ ] Update `modules/uzumaki/README.md` - remove references to legacy files
 - [ ] Update documentation referencing old patterns:
-  - [ ] `pm/backlog/2025-12-04-uzumaki-module-restructure/architecture-current.md`
+  - [ ] `.pm/done/2025-12-04-uzumaki-module-restructure/architecture-current.md`
   - [ ] `hosts/*/docs/MIGRATION-PLAN-HOKAGE.md` files
 - [ ] Run builds on at least 2 hosts to verify no breakage
 - [ ] Commit with clear message

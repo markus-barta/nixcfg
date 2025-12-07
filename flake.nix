@@ -13,7 +13,7 @@
     pia.url = "github:pia-foss/manual-connections";
     pia.flake = false;
     # Catppuccin: Required by hokage, we use Tokyo Night instead
-    # See: pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
+    # See: .pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
     catppuccin.follows = "nixcfg/catppuccin";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";

@@ -9,7 +9,7 @@ Optional improvements for the CI/CD pipeline after the urgent hostname fix.
 - [x] Updated `check.yml` with correct hostnames (hsb0, hsb1, hsb8, gpc0, csb0, csb1)
 - [x] Disabled broken `format-check.yml` (uses non-existent `prek` command)
 
-See `PM/done/2025-12-01-cicd-hostname-fix.md` for details.
+See `.pm/done/2025-12-01-cicd-hostname-fix.md` for details.
 
 ## Optional Improvements (Low Priority)
 

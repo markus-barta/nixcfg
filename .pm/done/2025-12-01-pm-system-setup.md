@@ -31,7 +31,7 @@ Establish the centralized project management system for nixcfg repository. Migra
 ```bash
 # Verify folder structure
 cd /Users/markus/Code/nixcfg
-for dir in PM/backlog PM/ready PM/active PM/review PM/done PM/cancelled tests; do
+for dir in .pm/backlog .pm/done .pm/cancelled tests; do
   [[ -d "$dir" ]] && echo "✓ $dir exists" || echo "✗ $dir missing"
 done
 

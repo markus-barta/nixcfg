@@ -4,10 +4,10 @@
 
 ## Migrated Items
 
-| Item                           | Priority | New Location                                                                                                        |
-| ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------- |
-| Restructure secrets/ Directory | Medium   | [PM/backlog/2025-11-29-secrets-directory-restructure.md](../PM/backlog/2025-11-29-secrets-directory-restructure.md) |
+| Item                           | Priority | New Location                                                                                                    |
+| ------------------------------ | -------- | --------------------------------------------------------------------------------------------------------------- |
+| Restructure secrets/ Directory | Medium   | [.pm/done/2025-11-29-secrets-directory-restructure.md](../.pm/done/2025-11-29-secrets-directory-restructure.md) |
 
 ---
 
-For new items, create files in `PM/backlog/` following the format: `YYYY-MM-DD-descriptive-name.md`
+For new items, create files in `.pm/backlog/` following the format: `YYYY-MM-DD-descriptive-name.md`
