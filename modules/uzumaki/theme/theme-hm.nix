@@ -6,18 +6,8 @@
 # palette to starship, zellij, and eza. It follows the DRY principle - define
 # colors once in theme-palettes.nix, use everywhere.
 #
-# ════════════════════════════════════════════════════════════════════════════════
-# CATPPUCCIN OVERRIDE (Tokyo Night)
-# ════════════════════════════════════════════════════════════════════════════════
-#
-# The external hokage module includes Catppuccin theming, but we use Tokyo Night.
-# This module OVERRIDES hokage's starship theming by writing our own config to
-# ~/.config/starship.toml with per-host gradient colors.
-#
-# When pbek adds `hokage.catppuccin.enable = false`, we can remove the catppuccin
-# dependency from flake.nix. See modules/shared/README.md for full details.
-#
-# ════════════════════════════════════════════════════════════════════════════════
+# Catppuccin Override: We use Tokyo Night instead of hokage's default Catppuccin.
+# See: pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
 #
 # CRITICAL: Starship config uses a TEMPLATE FILE to preserve Unicode characters.
 # See modules/shared/README.md for details on why this is necessary.
@@ -329,11 +319,8 @@ in
     '';
 
     # ══════════════════════════════════════════════════════════════════════════
-    # CATPPUCCIN OVERRIDES - Tokyo Night for apps that catppuccin would theme
-    # ══════════════════════════════════════════════════════════════════════════
-    # These explicit settings override hokage's catppuccin theming.
-    # When hokage.catppuccin.enable = false becomes available, these can be removed
-    # (the apps will just use their defaults or our explicit Tokyo Night settings).
+    # TOKYO NIGHT OVERRIDES - Override hokage's catppuccin theming
+    # See: pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
     # ══════════════════════════════════════════════════════════════════════════
 
     # bat: Use Tokyo Night theme (built-in)
@@ -394,7 +381,6 @@ in
       '';
     };
 
-    # Note: fish syntax highlighting still uses catppuccin on NixOS (no easy override)
-    # When hokage.catppuccin.enable = false is available, this will be resolved.
+    # Fish syntax highlighting: see pm/backlog/2025-12-07-fish-tokyo-night-syntax.md
   };
 }

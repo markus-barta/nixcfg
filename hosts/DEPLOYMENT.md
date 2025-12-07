@@ -47,11 +47,11 @@
 | imac0         | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
 | imac-mba-work | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
 
-### 🟡 Needs Migration (Phase I Pending)
+### ⏳ Awaiting Deployment (Host Offline)
 
-| Host | Platform | Current Import       | Status  |
-| ---- | -------- | -------------------- | ------- |
-| hsb8 | NixOS    | `uzumaki/server.nix` | Offline |
+| Host | Platform | Config Status        | Notes                              |
+| ---- | -------- | -------------------- | ---------------------------------- |
+| hsb8 | NixOS    | ✅ `modules/uzumaki` | Config ready, host offline at WW87 |
 
 ### ✅ Phase II Complete (Cloud Servers with Hokage)
 

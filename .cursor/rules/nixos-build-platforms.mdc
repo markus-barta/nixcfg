@@ -1,0 +1,90 @@
+---
+description: Ensure NixOS configurations are built on correct target machines (not macOS)
+globs: "**/*"
+alwaysApply: true
+---
+
+# NixOS Build Platforms
+
+## 🖥️ CRITICAL RULE: Use hsb1 for NixOS Build/Test Operations
+
+**NEVER** attempt to build or test NixOS configurations on macOS/Darwin machines.
+
+### ⚠️ The Problem
+
+macOS (Darwin) cannot build NixOS configurations:
+- Build targets don't match (x86_64-darwin vs x86_64-linux)
+- Cross-compilation issues arise
+- NixOS-specific packages fail to evaluate
+- Hardware-configuration modules are incompatible
+
+### ✅ Correct Approach
+
+**Always use `hsb1`** (or another NixOS machine) when you need to:
+- `nixos-rebuild switch/test/build`
+- `nix build` NixOS configurations
+- `nix flake check` for NixOS systems
+- Test NixOS module changes
+
+### 📋 How to Build/Test NixOS Configs
+
+**Local builds (when ON a NixOS machine like hsb1):**
+```bash
+sudo nixos-rebuild test --flake .#hostname
+```
+
+**Remote builds (from any machine TO a NixOS machine):**
+```bash
+# Build and switch remotely on hsb1
+nixos-rebuild switch --flake .#hsb1 --target-host hsb1 --use-remote-sudo
+
+# Build locally on remote machine
+ssh hsb1 "cd /path/to/nixcfg && sudo nixos-rebuild test --flake .#hsb1"
+```
+
+### 🖥️ Machine Reference
+
+| Machine | OS | Can Build NixOS? |
+|---------|-----|-----------------|
+| hsb1, hsb0, hsb8, csb0, csb1, gpc0 | NixOS | ✅ Yes - Use hsb1! |
+| imac0, imac-mba-work, mba-mbp-work | macOS | ❌ No |
+
+### ✅ GOOD Examples
+
+```bash
+# SSH to hsb1 and build there
+ssh hsb1 "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb1"
+
+# Remote rebuild targeting hsb1
+nixos-rebuild switch --flake .#hsb1 --target-host hsb1 --use-remote-sudo
+```
+
+### ❌ BAD Examples
+
+```bash
+# DON'T try this on macOS - it will fail with architecture errors
+sudo nixos-rebuild test --flake .#hsb1
+
+# DON'T try to build NixOS configs locally on Darwin
+nix build .#nixosConfigurations.hsb1.config.system.build.toplevel
+```
+
+### 💡 Home Manager Exception
+
+Home Manager configurations for macOS **CAN** be built on macOS:
+```bash
+# This is FINE on macOS
+home-manager switch --flake .#imac0
+```
+
+Only **NixOS configurations** require a Linux/NixOS build host.
+
+### 🔔 AI Assistant Responsibility
+
+Before running any `nixos-rebuild` or NixOS-related `nix build`:
+
+1. **Identify target**: Is this a NixOS configuration?
+2. **Check host**: Are we currently on macOS or NixOS?
+3. **Route correctly**: If on macOS, use SSH to hsb1
+4. **Explain**: Tell the user why we're building remotely if needed
+5. **Always prefer hsb1** as the default build machine when unsure

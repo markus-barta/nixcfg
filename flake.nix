@@ -12,9 +12,8 @@
     agenix.inputs.nixpkgs.follows = "nixpkgs";
     pia.url = "github:pia-foss/manual-connections";
     pia.flake = false;
-    # Catppuccin is required by hokage modules (no opt-out yet)
-    # We override most theming with Tokyo Night (see modules/shared/README.md)
-    # TODO: When hokage.catppuccin.enable option is added, set to false and remove this
+    # Catppuccin: Required by hokage, we use Tokyo Night instead
+    # See: pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
     catppuccin.follows = "nixcfg/catppuccin";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";

@@ -7,8 +7,8 @@ Create a standalone Nix package for the `pingt` fish function (timestamped ping 
 ## Source
 
 - Original: Memory/backlog item
-- Currently defined in: `modules/uzumaki/common.nix`
-- Used by: `uzumaki/server.nix` and `uzumaki/desktop.nix`
+- Currently defined in: `modules/uzumaki/fish/functions.nix` (previously `modules/uzumaki/common.nix`)
+- Used by: `modules/uzumaki/default.nix` (via `fish/default.nix`)
 
 ## Scope
 

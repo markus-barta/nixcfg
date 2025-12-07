@@ -1,27 +1,14 @@
 # 2025-11-29 - Netcup Monitor - Make Fully Automatic
 
-## Description
+## Status: BACKLOG (Low Priority)
 
-The netcup-monitor checks daily if csb0/csb1 cloud servers are online, alerts via Telegram/Email/LaMetric if offline 2+ days.
+## Summary
 
-**Problem**: Currently requires manual setup after rebuilding hsb1:
+The netcup-monitor checks daily if csb0/csb1 cloud servers are online, alerts via Telegram/Email if offline 2+ days.
 
-- Script manually copied to `~/bin/netcup-monitor.sh`
-- Config manually created in `~/secrets/netcup-monitor.env`
+**Current state**: Works fine! But requires manual setup after fresh hsb1 rebuild.
 
-**Goal**: Make it fully automatic — rebuild hsb1 from scratch and monitoring just works.
-
-## Source
-
-- Original: `hosts/hsb1/BACKLOG.md` (High Priority item)
-- Current script: `hosts/hsb1/bin/netcup-monitor.sh`
-- Current config: `hosts/hsb1/configuration.nix` lines 356-398
-
-## Scope
-
-Applies to: hsb1
-
-## What Exists Today
+## The Problem
 
 | Item            | Location                       | Managed by NixOS? |
 | --------------- | ------------------------------ | ----------------- |
@@ -30,26 +17,59 @@ Applies to: hsb1
 | Script          | `~/bin/netcup-monitor.sh`      | ❌ No (manual)    |
 | Config/secrets  | `~/secrets/netcup-monitor.env` | ❌ No (manual)    |
 
-## Acceptance Criteria
+After fresh hsb1 rebuild, you need to manually copy the script and secrets.
 
-- [ ] Script moved to NixOS config (inline or as package)
-- [ ] Secrets migrated to agenix (`netcup-monitor.age`)
-- [ ] Remove dependency on manual `~/bin/` and `~/secrets/` files
-- [ ] Test: rebuild hsb1 → monitoring works without manual steps
-- [ ] Test: alert fires correctly when server offline
+## Priority Assessment
 
-## Implementation Options
+- **Frequency of problem**: Rare (hsb1 is rarely rebuilt from scratch)
+- **Monitoring itself**: Works perfectly
+- **Impact**: Convenience during rare rebuilds, not fixing broken functionality
 
-**Option A: Inline script in NixOS**
+---
+
+## Option A: Quick Fix (Recommended) ⚡
+
+**Effort**: 5 minutes | **Solves**: 80% of the problem
+
+Just reference the script directly from the repo instead of `~/bin/`:
 
 ```nix
+# In hosts/hsb1/configuration.nix
 systemd.services.netcup-monitor.serviceConfig.ExecStart =
-  pkgs.writeShellScript "netcup-monitor" ''
-    # script content here
-  '';
+  "${./bin/netcup-monitor.sh}";
 ```
 
-**Option B: Package in hosts/hsb1/**
+**Pros**:
+
+- Script is now managed by NixOS (no manual copy needed)
+- 1-line change
+- Good enough for practical purposes
+
+**Cons**:
+
+- Secrets still need manual setup (one-time)
+- Not "fully declarative"
+
+**Remaining manual step**: Create `~/secrets/netcup-monitor.env` once after fresh install.
+
+---
+
+## Option B: Full Declarative (Future) 🏗️
+
+**Effort**: 1-2 hours | **Solves**: 100% of the problem
+
+Full NixOS-native implementation with agenix for secrets.
+
+### Acceptance Criteria
+
+- [ ] Script as proper Nix package or inline
+- [ ] Secrets migrated to agenix (`secrets/hsb1/netcup-monitor.age`)
+- [ ] Remove all dependency on manual `~/bin/` and `~/secrets/` files
+- [ ] Test: rebuild hsb1 → monitoring works without ANY manual steps
+
+### Implementation
+
+#### Step 1: Script as package
 
 ```nix
 # hosts/hsb1/packages/netcup-monitor.nix
@@ -57,12 +77,45 @@ systemd.services.netcup-monitor.serviceConfig.ExecStart =
 pkgs.writeShellApplication {
   name = "netcup-monitor";
   runtimeInputs = [ pkgs.curl pkgs.jq ];
-  text = builtins.readFile ./netcup-monitor.sh;
+  text = builtins.readFile ../bin/netcup-monitor.sh;
 }
 ```
 
-## Notes
+#### Step 2: Agenix secrets
 
-- Priority: High (critical infrastructure monitoring)
-- The script already exists and works — just needs to be "nixified"
-- Secrets needed: NETCUP_REFRESH_TOKEN, CSB0_ID, CSB1_ID, TELEGRAM_BOT, TELEGRAM_CHAT, EMAIL, APPRISE_URL
+```bash
+# Create encrypted secret
+cd secrets/hsb1
+agenix -e netcup-monitor.age
+```
+
+#### Step 3: Update service
+
+```nix
+systemd.services.netcup-monitor = {
+  serviceConfig = {
+    ExecStart = "${netcup-monitor}/bin/netcup-monitor";
+    EnvironmentFile = config.age.secrets.netcup-monitor.path;
+  };
+};
+```
+
+### Secrets needed
+
+- NETCUP_REFRESH_TOKEN
+- CSB0_ID, CSB1_ID
+- TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+- EMAIL (optional)
+- APPRISE_URL (optional)
+
+---
+
+## Recommendation
+
+Start with **Option A** (quick fix) - it's pragmatic and solves the main annoyance.
+Revisit **Option B** later if you want full declarative purity or are doing a secrets audit.
+
+## Source
+
+- Script: `hosts/hsb1/bin/netcup-monitor.sh`
+- Service config: `hosts/hsb1/configuration.nix` lines 376-410

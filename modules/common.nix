@@ -317,8 +317,8 @@ in
 
     # Enable fish and bash in home-manager to use enableFishIntegration and enableBashIntegration
     programs = {
-      # Starship: Disable hokage's programs.starship so theme-hm.nix can manage config
-      # (defensive - hokage.catppuccin.enable = false should also prevent conflicts)
+      # Starship: Disable hokage's so theme-hm.nix manages config
+      # See: pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
       starship.enable = lib.mkForce false;
       # Enable https://direnv.net/
       direnv = {

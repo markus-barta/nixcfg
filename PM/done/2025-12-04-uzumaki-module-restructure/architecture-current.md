@@ -54,19 +54,20 @@ flake.nix → mkDarwinHome(hostname)
 
 ## Current Module Inventory
 
-| File                                       | Type                  | Platform | What It Provides                                  |
-| ------------------------------------------ | --------------------- | -------- | ------------------------------------------------- |
-| `modules/common.nix`                       | NixOS module          | NixOS    | Fish setup, packages, HM config, timezone, locale |
-| `modules/uzumaki/common.nix`               | Attribute set         | Both     | Fish function definitions (pingt, stress, etc.)   |
-| `modules/uzumaki/server.nix`               | NixOS config fragment | NixOS    | Fish interactiveShellInit, zellij package         |
-| `modules/uzumaki/desktop.nix`              | NixOS config fragment | NixOS    | Same as server.nix (identical!)                   |
-| `modules/uzumaki/macos.nix`                | HM config fragment    | macOS    | programs.fish.functions via inherit               |
-| `modules/uzumaki/macos-common.nix`         | Attribute set         | macOS    | fishConfig, weztermConfig, commonPackages         |
-| `modules/shared/fish-config.nix`           | Attribute set         | Both     | fishAliases, fishAbbrs                            |
-| `modules/shared/theme-hm.nix`              | HM module             | Both     | Per-host Starship, Zellij, Eza theming            |
-| `modules/shared/theme-palettes.nix`        | Attribute set         | Both     | Color palette definitions                         |
-| `modules/shared/stasysmo/nixos.nix`        | NixOS module          | NixOS    | systemd service for metrics                       |
-| `modules/shared/stasysmo/home-manager.nix` | HM module             | macOS    | launchd daemon for metrics                        |
+| File                                        | Type                  | Platform | What It Provides                                  |
+| ------------------------------------------- | --------------------- | -------- | ------------------------------------------------- |
+| `modules/common.nix`                        | NixOS module          | NixOS    | Fish setup, packages, HM config, timezone, locale |
+| `modules/uzumaki/common.nix`                | Attribute set         | Both     | **DEPRECATED** Old fish function definitions      |
+| `modules/uzumaki/fish/functions.nix`        | Attribute set         | Both     | Fish function definitions (pingt, stress, etc.)   |
+| `modules/uzumaki/server.nix`                | NixOS config fragment | NixOS    | Fish interactiveShellInit, zellij package         |
+| `modules/uzumaki/desktop.nix`               | NixOS config fragment | NixOS    | Same as server.nix (identical!)                   |
+| `modules/uzumaki/macos.nix`                 | HM config fragment    | macOS    | programs.fish.functions via inherit               |
+| `modules/uzumaki/macos-common.nix`          | Attribute set         | macOS    | fishConfig, weztermConfig, commonPackages         |
+| `modules/uzumaki/fish/config.nix`           | Attribute set         | Both     | fishAliases, fishAbbrs                            |
+| `modules/uzumaki/theme/theme-hm.nix`        | HM module             | Both     | Per-host Starship, Zellij, Eza theming            |
+| `modules/uzumaki/theme/theme-palettes.nix`  | Attribute set         | Both     | Color palette definitions                         |
+| `modules/uzumaki/stasysmo/nixos.nix`        | NixOS module          | NixOS    | systemd service for metrics                       |
+| `modules/uzumaki/stasysmo/home-manager.nix` | HM module             | macOS    | launchd daemon for metrics                        |
 
 ## Host Import Matrix
 

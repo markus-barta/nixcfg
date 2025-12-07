@@ -1,0 +1,56 @@
+---
+description: Prevent corruption of encrypted files by never touching them without explicit permission
+globs: "**/*"
+alwaysApply: true
+---
+
+# Encrypted Files Protection Policy
+
+## 🔐 CRITICAL RULE: Never Touch Encrypted Files Without Permission
+
+**NEVER** read, edit, or manipulate encrypted files (`.age`, `.gpg`, `.enc`) unless the user **EXPLICITLY** requests it.
+
+### ⛔ Absolutely Forbidden
+
+- Reading, editing, writing, moving, renaming, or copying encrypted files
+- Any operation that modifies encrypted content
+- File types: `*.age`, `*.gpg`, `*.enc`, files in `secrets/` with encryption extensions
+
+### ✅ What IS Allowed (With Explicit Permission ONLY)
+
+**ONLY if user explicitly says**:
+- "Decrypt and show me the contents of X.age"
+- "Edit the encrypted file X.age"
+- "Update the static leases in the .age file"
+
+### 🔍 How to Handle Encrypted Files
+
+**When user wants to modify encrypted content**:
+
+1. **ASK**: "I'll need to decrypt the file. Should I proceed?"
+2. **GUIDE**: Provide commands for the user to run themselves (`agenix -e secrets/filename.age`)
+3. **VERIFY**: Check file size before/after (encrypted files are typically 5KB+, often 10KB+)
+4. **NEVER**: Assume permission to touch encrypted files
+
+**Default Response**:
+> "This is an encrypted file. Would you like me to:
+> 1. Guide you through decrypting and editing it yourself
+> 2. Provide the commands you need to run
+>
+> I won't modify encrypted files directly to avoid corruption."
+
+### 🚨 If You Corrupt an Encrypted File
+
+1. **STOP**: Immediately alert the user
+2. **RESTORE**: Guide user to restore from git history
+3. **ROTATE**: Change the exposed credential immediately
+4. **LEARN**: Update this rule if needed
+
+### ⚠️ Remember
+
+> **Encrypted files are sensitive and fragile!**
+>
+> - They contain secrets (passwords, keys, tokens)
+> - Corruption means data loss
+> - Always err on the side of asking permission
+> - When in doubt: ASK THE USER!

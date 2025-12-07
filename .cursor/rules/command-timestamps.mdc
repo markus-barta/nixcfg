@@ -1,0 +1,55 @@
+---
+description: Always prefix long-running commands with timestamps for tracking and debugging
+globs: "**/*"
+alwaysApply: true
+---
+
+# Command Timestamps
+
+## 🕐 CRITICAL RULE: Always Show Timestamp Before Long Operations
+
+**ALWAYS** output a timestamp before running commands that are expected to take significant time (>10 seconds).
+
+### ⏱️ Commands That Require Timestamps
+
+- **NixOS Operations**: `nixos-rebuild`, `nix build`, `nix flake check/update`, `nixos-install`
+- **File System**: `find`, `du`, `rsync`, `tar`, `cp -r` (large operations)
+- **Development**: Package installations, test suites, Docker builds, database operations
+- **System**: Updates, ZFS operations, large network transfers
+
+### 📋 Implementation
+
+Prefix long-running commands with `date &&` (or `date; and` for fish shell):
+
+```bash
+# ✅ GOOD
+date && sudo nixos-rebuild switch --flake .#hostname
+
+# ❌ BAD
+sudo nixos-rebuild switch --flake .#hostname
+```
+
+**Shell-specific**:
+- **Fish**: `date; and <command>`
+- **Bash/Zsh**: `date && <command>`
+
+### 🎯 Why This Matters
+
+- **Tracking**: See when operation started in chat history
+- **Debugging**: Correlate timing with other events
+- **Planning**: Estimate duration for similar operations
+
+### 🔔 AI Assistant Responsibility
+
+Before running any long-running command:
+
+1. **Assess**: Will this take >10 seconds?
+2. **Add Timestamp**: Prefix with `date &&` (or `date; and` for fish)
+3. **Combine**: Use single command line so timestamp and command appear together
+
+**Special Cases**:
+- **Multiple commands**: Add timestamp before each: `date && cmd1 && date && cmd2`
+- **Background jobs**: `date && long-command &`
+- **Remote commands**: `ssh server "date && command"`
+
+> **When in doubt, add a timestamp!** Better to have an unnecessary timestamp than wonder when a long operation started.
