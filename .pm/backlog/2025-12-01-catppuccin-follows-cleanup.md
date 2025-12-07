@@ -1,14 +1,12 @@
 # 2025-12-01 - Disable Catppuccin Theming
 
-## Status: IN PROGRESS (hsb1 verified, rollout pending)
+## Status: ✅ COMPLETE (2025-12-07)
 
 ## Summary
 
 Set `hokage.catppuccin.enable = false` to cleanly disable catppuccin theming instead of using scattered workarounds.
 
 ## The Solution
-
-The external hokage module HAS the option:
 
 ```nix
 # In hosts/*/configuration.nix
@@ -28,25 +26,24 @@ hokage.catppuccin.enable = false;
   - [x] Removed `source = lib.mkForce` from zellij (theme-hm.nix)
   - [x] Removed `force = true` from zellij (theme-hm.nix)
   - [x] Removed `force = true` from lazygit (theme-hm.nix)
-- [ ] Roll out `hokage.catppuccin.enable = false` to all hosts
+- [x] Roll out `hokage.catppuccin.enable = false` to all NixOS hosts
 - [x] ~~Consolidate scattered TODOs~~ → All now point to this file
 
-## Remaining Hosts to Update
+## Deployment Status
 
-| Host                               | Status             |
-| ---------------------------------- | ------------------ |
-| hsb1                               | ✅ Complete        |
-| hsb0, hsb8, gpc0                   | ⏳ Pending         |
-| csb0, csb1                         | ⏳ Pending         |
-| imac0, imac-mba-work, mba-mbp-work | ⏳ Pending (macOS) |
+| Host          | Config | Deployed         |
+| ------------- | ------ | ---------------- |
+| hsb1          | ✅     | ✅ Verified      |
+| hsb0          | ✅     | ⏳ Manual deploy |
+| hsb8          | ✅     | ⏳ Manual deploy |
+| gpc0          | ✅     | ⏳ Manual deploy |
+| csb0          | ✅     | ⏳ Manual deploy |
+| csb1          | ✅     | ⏳ Manual deploy |
+| imac0         | N/A    | N/A (uzumaki)    |
+| imac-mba-work | N/A    | N/A (uzumaki)    |
+| mba-mbp-work  | N/A    | N/A (uzumaki)    |
 
-## Implementation
-
-Add to each host's `configuration.nix`:
-
-```nix
-hokage.catppuccin.enable = false;
-```
+> **Note**: macOS hosts use uzumaki module directly via Home Manager and don't use hokage.
 
 ## Notes
 
