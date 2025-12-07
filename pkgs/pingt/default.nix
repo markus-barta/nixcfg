@@ -37,7 +37,7 @@ writeShellApplication {
 
   text = ''
     # ╔══════════════════════════════════════════════════════════════════════════════╗
-    # ║  pingt - Timestamped ping with color-coded output                           ║
+    # ║  pingt - Timestamped ping with color-coded output                            ║
     # ╠══════════════════════════════════════════════════════════════════════════════╣
     # ║  Version: ${version}                                                              ║
     # ║  License: MIT                                                                ║
