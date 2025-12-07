@@ -80,6 +80,7 @@
   # home-manager.users.omega = config.home-manager.users.mba;
 
   hokage = {
+    catppuccin.enable = false; # Use Tokyo Night theme instead
     users = [
       "mba"
       "omega"

@@ -384,6 +384,7 @@
   };
 
   hokage = {
+    catppuccin.enable = false; # Use Tokyo Night theme instead
     hostName = "hsb0";
     userLogin = "mba";
     userNameLong = "Markus Barta";

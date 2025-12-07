@@ -462,6 +462,7 @@ in
   # ============================================================================
 
   hokage = {
+    catppuccin.enable = false; # Use Tokyo Night theme instead
     hostName = "hsb8";
     userLogin = "mba"; # Primary user for hokage
     userNameLong = "Markus Barta"; # Full name (prevents "Patrizio Bekerle" default)
