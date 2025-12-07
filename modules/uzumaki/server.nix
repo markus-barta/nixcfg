@@ -8,8 +8,9 @@
 { pkgs, lib, ... }:
 
 let
-  # Import shared function definitions
-  fishFunctions = import ./common.nix;
+  # Import shared function definitions from the consolidated fish module
+  fishModule = import ./fish;
+  fishFunctions = fishModule.functions;
 
   # Convert function definitions to inline Fish functions for interactiveShellInit
   mkFishFunction = name: def: ''
@@ -25,7 +26,6 @@ in
   programs.fish.interactiveShellInit = lib.mkAfter ''
     ${mkFishFunction "pingt" fishFunctions.pingt}
     ${mkFishFunction "sourcefish" fishFunctions.sourcefish}
-    ${mkFishFunction "sourceenv" fishFunctions.sourceenv}
     ${mkFishFunction "stress" fishFunctions.stress}
     ${mkFishFunction "stasysmod" fishFunctions.stasysmod}
     ${mkFishFunction "helpfish" fishFunctions.helpfish}

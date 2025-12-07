@@ -59,8 +59,7 @@ hosts/csb1/
 │   └── 2025-11-29-pre-hokage/  # Pre-migration backup
 │
 └── secrets/               # 🔒 Sensitive data (gitignored)
-    ├── RUNBOOK.md         # Emergency procedures with credentials
-    ├── MIGRATION-PLAN.md  # Full plan with sensitive details
+    ├── runbook-secrets.md # Emergency procedures & credentials
     └── netcup-api-refresh-token.txt
 ```
 
@@ -144,7 +143,7 @@ See `docs/MIGRATION-PLAN-HOKAGE.md` for incident report (2025-12-05).
 | --------------- | ------ | ---------------------- |
 | Hetzner Storage | restic | Docker volumes, config |
 
-See `secrets/RUNBOOK.md` for credentials and restore procedures.
+See `secrets/runbook-secrets.md` for credentials and restore procedures.
 
 ---
 
@@ -186,7 +185,7 @@ See `secrets/RUNBOOK.md` for credentials and restore procedures.
 
 ## Emergency
 
-See `secrets/RUNBOOK.md` for:
+See `secrets/runbook-secrets.md` for:
 
 - VNC console access
 - Netcup API commands

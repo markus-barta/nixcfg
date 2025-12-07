@@ -9,8 +9,9 @@
 { ... }:
 
 let
-  # Import shared function definitions
-  fishFunctions = import ./common.nix;
+  # Import shared function definitions from the consolidated fish module
+  fishModule = import ./fish;
+  fishFunctions = fishModule.functions;
 in
 {
   # ============================================================================
@@ -18,6 +19,6 @@ in
   # ============================================================================
   # These are added to programs.fish.functions (Home Manager style)
   programs.fish.functions = {
-    inherit (fishFunctions) pingt sourcefish sourceenv;
+    inherit (fishFunctions) pingt sourcefish;
   };
 }

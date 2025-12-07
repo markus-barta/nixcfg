@@ -67,7 +67,7 @@ hosts/csb0/
 │   └── 2025-11-hokage/    # Planned migration
 │
 └── secrets/               # 🔒 Sensitive data (gitignored)
-    ├── RUNBOOK.md         # Emergency procedures
+    ├── runbook-secrets.md # Emergency procedures & credentials
     └── netcup-api-refresh-token.txt
 ```
 
@@ -150,7 +150,7 @@ Fixed after DHCP analysis. See `docs/MIGRATION-PLAN-HOKAGE.md` for details.
 
 ⚠️ **This server manages backups for BOTH csb0 AND csb1!**
 
-See `secrets/RUNBOOK.md` for credentials and restore procedures.
+See `secrets/runbook-secrets.md` for credentials and restore procedures.
 
 ---
 
@@ -194,7 +194,7 @@ See `secrets/RUNBOOK.md` for credentials and restore procedures.
 
 ## Emergency
 
-See `secrets/RUNBOOK.md` for:
+See `secrets/runbook-secrets.md` for:
 
 - VNC console access
 - Netcup API commands

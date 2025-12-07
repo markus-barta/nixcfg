@@ -14,18 +14,121 @@
 
 set -euo pipefail
 
-# Colors
+# Base Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
+GRAY='\033[0;90m'
+BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m' # No Color
+
+# Theme palettes path (set after REPO_ROOT is defined)
+THEME_PALETTES=""
+
+# Cached JSON from nix eval (loaded once)
+HOST_THEME_JSON=""
+
+# Convert hex color to ANSI true color escape sequence
+hex_to_ansi() {
+  local hex="${1#\#}"
+  local r=$((16#${hex:0:2}))
+  local g=$((16#${hex:2:2}))
+  local b=$((16#${hex:4:2}))
+  printf '\033[38;2;%d;%d;%dm' "$r" "$g" "$b"
+}
+
+# Load host colors from theme-palettes.nix via nix eval (called once)
+load_host_colors() {
+  if [[ ! -f "$THEME_PALETTES" ]]; then
+    return
+  fi
+
+  # Get host data (host -> {color, category, bullet})
+  local hosts_json categories_json
+  # shellcheck disable=SC2016  # Single quotes intentional - Nix interpolation, not bash
+  hosts_json=$(nix eval --json --file "$THEME_PALETTES" --apply \
+    'p: builtins.mapAttrs (host: pal: { color = p.palettes.${pal}.gradient.primary; category = p.palettes.${pal}.category; bullet = p.categoryBullets.${p.palettes.${pal}.category} or "○"; }) p.hostPalette' \
+    2>/dev/null) || hosts_json="{}"
+
+  # Get category data (category -> {color, bullet})
+  # Uses representative colors: cloud=iceBlue, home=yellow, gaming=purple, workstation=lightGray
+  categories_json=$(nix eval --json --file "$THEME_PALETTES" --apply \
+    'p: { cloud = { bullet = p.categoryBullets.cloud; color = p.palettes.iceBlue.gradient.primary; }; home = { bullet = p.categoryBullets.home; color = p.palettes.yellow.gradient.primary; }; gaming = { bullet = p.categoryBullets.gaming; color = p.palettes.purple.gradient.primary; }; workstation = { bullet = p.categoryBullets.workstation; color = p.palettes.lightGray.gradient.primary; }; }' \
+    2>/dev/null) || categories_json="{}"
+
+  # Get default color
+  local default_color
+  # shellcheck disable=SC2016  # Single quotes intentional - Nix interpolation, not bash
+  default_color=$(nix eval --raw --file "$THEME_PALETTES" --apply \
+    'p: p.palettes.${p.defaultPalette}.gradient.primary' \
+    2>/dev/null) || default_color="#769ff0"
+
+  # Combine into single JSON
+  HOST_THEME_JSON=$(jq -n \
+    --argjson hosts "$hosts_json" \
+    --argjson categories "$categories_json" \
+    --arg defaultColor "$default_color" \
+    '{hosts: $hosts, categories: $categories, defaultColor: $defaultColor}')
+}
+
+# Get host data from cached JSON
+get_host_data() {
+  local host="$1"
+  local field="$2"
+  if [[ -n "$HOST_THEME_JSON" ]]; then
+    echo "$HOST_THEME_JSON" | jq -r ".hosts.\"$host\".$field // empty"
+  fi
+}
+
+# Get ANSI color for a host
+get_host_color() {
+  local host="$1"
+  local hex
+  hex=$(get_host_data "$host" "color")
+  if [[ -n "$hex" ]]; then
+    hex_to_ansi "$hex"
+  else
+    # Fallback: default palette color
+    hex=$(echo "$HOST_THEME_JSON" | jq -r '.defaultColor // "#769ff0"')
+    hex_to_ansi "$hex"
+  fi
+}
+
+# Get bullet symbol for a host
+get_host_bullet() {
+  local host="$1"
+  local bullet
+  bullet=$(get_host_data "$host" "bullet")
+  echo "${bullet:-○}"
+}
+
+# Get category for a host
+get_host_category() {
+  local host="$1"
+  local cat
+  cat=$(get_host_data "$host" "category")
+  echo "${cat:-unknown}"
+}
+
+# Get category color and bullet for legend
+get_category_data() {
+  local cat="$1"
+  local field="$2"
+  if [[ -n "$HOST_THEME_JSON" ]]; then
+    echo "$HOST_THEME_JSON" | jq -r ".categories.\"$cat\".$field // empty"
+  fi
+}
 
 # Config
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOSTS_DIR="$REPO_ROOT/hosts"
 AGE_KEY="${AGE_KEY:-$HOME/.ssh/id_rsa}"
+THEME_PALETTES="$REPO_ROOT/modules/uzumaki/theme/theme-palettes.nix"
+
+# Initialize host colors from Nix config
+load_host_colors
 
 # Check for age command
 check_age() {
@@ -59,12 +162,43 @@ find_hosts() {
   printf '%s\n' "${hosts[@]}"
 }
 
+# Get file modification time as epoch seconds
+get_mtime() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    # macOS uses -f %m, Linux uses -c %Y
+    local result
+    result=$(stat -f %m "$file" 2>/dev/null) || result=$(stat -c %Y "$file" 2>/dev/null) || result="0"
+    echo "$result"
+  else
+    echo "0"
+  fi
+}
+
+# Format timestamp for display (full format: YYYY-MM-DD HH:MM:SS)
+format_time() {
+  local file="$1"
+  if [[ -f "$file" ]]; then
+    # macOS uses -r, Linux uses -d
+    local result
+    result=$(date -r "$file" "+%Y-%m-%d %H:%M:%S" 2>/dev/null) || result=$(date -d "@$(stat -c %Y "$file" 2>/dev/null)" "+%Y-%m-%d %H:%M:%S" 2>/dev/null) || result=""
+    echo "$result"
+  else
+    echo ""
+  fi
+}
+
 # List hosts with their secret status
 cmd_list() {
-  echo -e "${BLUE}Hosts with runbook secrets:${NC}"
   echo ""
-  printf "%-20s %-15s %-15s\n" "HOST" "PLAIN (.md)" "ENCRYPTED (.age)"
-  printf "%-20s %-15s %-15s\n" "----" "-----------" "-----------------"
+  echo -e "  ${BOLD}Runbook Secrets Status${NC}"
+  echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+
+  # Header (aligned with data: 2 indent + bullet + 2 space + 15 host + 2 gap + 21 plain + 2 gap + encrypted)
+  printf "       ${DIM}%-15s${NC}  ${DIM}%-21s${NC}  ${DIM}%s${NC}\n" "HOST" "PLAIN (.md)" "ENCRYPTED (.age)"
+  printf "  %b─%b  %b───────────────%b  %b─────────────────────%b  %b─────────────────────%b\n" "$DIM" "$NC" "$DIM" "$NC" "$DIM" "$NC" "$DIM" "$NC"
+  echo ""
 
   for host_dir in "$HOSTS_DIR"/*/; do
     local host
@@ -75,17 +209,69 @@ cmd_list() {
     local md_file="$host_dir/secrets/runbook-secrets.md"
     local age_file="$host_dir/runbook-secrets.age"
 
-    local md_status="${RED}✗${NC}"
-    local age_status="${RED}✗${NC}"
-
-    [[ -f "$md_file" ]] && md_status="${GREEN}✓${NC}"
-    [[ -f "$age_file" ]] && age_status="${GREEN}✓${NC}"
-
     # Only show if at least one exists
     if [[ -f "$md_file" ]] || [[ -f "$age_file" ]]; then
-      printf "%-20s %-15b %-15b\n" "$host" "$md_status" "$age_status"
+      local md_time age_time md_epoch age_epoch
+      md_epoch=$(get_mtime "$md_file")
+      age_epoch=$(get_mtime "$age_file")
+      md_time=$(format_time "$md_file")
+      age_time=$(format_time "$age_file")
+
+      # Get host styling
+      local host_color bullet
+      host_color=$(get_host_color "$host")
+      bullet=$(get_host_bullet "$host")
+
+      # Determine which is older (older = stale = gray, newer = green)
+      local md_color_ts="$GREEN"
+      local age_color_ts="$GREEN"
+
+      if [[ -f "$md_file" ]] && [[ -f "$age_file" ]]; then
+        if [[ "$md_epoch" -lt "$age_epoch" ]]; then
+          md_color_ts="$GRAY"
+        elif [[ "$age_epoch" -lt "$md_epoch" ]]; then
+          age_color_ts="$GRAY"
+        fi
+      fi
+
+      # Print bullet and host (2 indent + bullet + 2 space + 15 char host)
+      printf "  %b%s%b  " "$host_color" "$bullet" "$NC"
+      printf "%b%-15s%b  " "$host_color" "$host" "$NC"
+
+      # Print plain (.md) column (21 chars wide)
+      if [[ -f "$md_file" ]]; then
+        # "✓ " = 2 chars, timestamp = 19 chars = 21 total
+        printf "%b✓ %s%b  " "$md_color_ts" "$md_time" "$NC"
+      else
+        printf "%b✗%b                      " "$RED" "$NC"
+      fi
+
+      # Print encrypted (.age) column
+      if [[ -f "$age_file" ]]; then
+        printf "%b✓ %s%b" "$age_color_ts" "$age_time" "$NC"
+      else
+        printf "%b✗%b  ${GRAY}not encrypted${NC}" "$RED" "$NC"
+      fi
+
+      echo ""
     fi
   done
+
+  echo ""
+
+  # Build legend from categories (all in gray except bullets)
+  local legend="  ${GRAY}Legend:${NC} "
+  for cat in cloud home gaming workstation; do
+    local hex bullet color
+    hex=$(get_category_data "$cat" "color")
+    bullet=$(get_category_data "$cat" "bullet")
+    if [[ -n "$hex" ]]; then
+      color=$(hex_to_ansi "$hex")
+      legend+="${color}${bullet}${NC} ${GRAY}${cat}${NC}  "
+    fi
+  done
+
+  echo -e "$legend"
   echo ""
 }
 
