@@ -289,8 +289,9 @@ in
     };
 
     # Zellij config (generated from palette)
+    # lib.mkForce needed: hokage provides zellij config regardless of catppuccin setting
     home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
-      source = pkgs.writeTextDir "config.kdl" (mkZellijConfig palette resolvedHostname);
+      source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette resolvedHostname));
       recursive = true;
     };
 
