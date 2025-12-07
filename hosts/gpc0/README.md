@@ -24,6 +24,7 @@ Primary gaming desktop system with AMD GPU, Steam, Gamescope, and emulation supp
 | **ZFS Pool**      | `mbazroot` (464 GB, 230 GB used)                  |
 | **ZFS Host ID**   | `96cb2b24`                                        |
 | **Users**         | `mba` (Markus Barta), `omega` (Patrizio Bekerle)  |
+| **Autologin**     | Enabled for `mba` (TV display workaround)         |
 | **Configuration** | External Hokage pattern (`github:pbek/nixcfg`)    |
 
 ## Features
@@ -40,6 +41,44 @@ Primary gaming desktop system with AMD GPU, Steam, Gamescope, and emulation supp
 | F07 | 1Password GUI           | Secure password management                       | -    |
 | F08 | VLC + mplayer           | Media playback for trailers and videos           | -    |
 | F09 | NixOS Build Host        | Fast builds with 8 threads and 16GB RAM          | -    |
+| F10 | Autologin               | Desktop ready when TV turns on (no login screen) | -    |
+
+---
+
+## Autologin Configuration
+
+gpc0 is configured with **autologin for the `mba` user**. This is intentional:
+
+### Why Autologin?
+
+The PC is connected to a TV that's often off when the system boots. Without autologin:
+
+1. System boots → SDDM starts Wayland greeter
+2. Greeter can't find display (TV off) → quits after ~1 minute
+3. User turns on TV → sees boot text instead of login screen
+4. Must SSH in and restart `display-manager` to get login screen
+
+With autologin:
+
+1. System boots → SDDM auto-logs in `mba` → Plasma starts
+2. User turns on TV → desktop already ready
+
+### Security Considerations
+
+| Aspect          | Assessment                               |
+| --------------- | ---------------------------------------- |
+| Physical access | Gaming PC in living room - low risk      |
+| Network         | Trusted home network (192.168.1.x)       |
+| Multi-user      | `omega` can switch user from lock screen |
+| Wake-on-LAN     | If enabled, consider who can wake the PC |
+
+### Switching to `omega` User
+
+With autologin, `omega` can still use the system:
+
+1. Lock the screen (or from login screen if mba logs out)
+2. Click "Switch User" or select `omega` from user list
+3. Enter omega's password
 
 ---
 

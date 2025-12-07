@@ -57,6 +57,27 @@
   # Enable flatpak support
   services.flatpak.enable = true;
 
+  # ============================================================================
+  # AUTOLOGIN CONFIGURATION
+  # ============================================================================
+  # Why autologin? When booting with TV off, SDDM's Wayland greeter starts but
+  # quits after ~1 minute when it can't find a display. By the time you turn on
+  # the TV, there's no login screen - just boot text stuck on screen.
+  #
+  # With autologin, Plasma starts immediately after boot, so when you turn on
+  # the TV, the desktop is already ready.
+  #
+  # Security consideration: This is a gaming PC on a trusted home network
+  # connected to a TV. Physical access = desktop access is acceptable here.
+  # ============================================================================
+  services.displayManager.autoLogin = {
+    enable = true;
+    user = "mba";
+  };
+
+  # Auto-unlock KDE Wallet on autologin (no password prompt at login)
+  security.pam.services.sddm.enableKwallet = true;
+
   programs.gamescope = {
     enable = true;
     capSysNice = true;
