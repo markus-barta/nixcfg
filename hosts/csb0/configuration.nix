@@ -118,6 +118,7 @@
   # HOKAGE MODULE CONFIGURATION
   # ============================================================================
   hokage = {
+    catppuccin.enable = false; # Use Tokyo Night theme instead
     hostName = "csb0";
     userLogin = "mba";
     userNameLong = "Markus Barta";
