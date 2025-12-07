@@ -19,15 +19,28 @@ hokage.catppuccin.enable = false;
 
 - [x] Add `hokage.catppuccin.enable = false` to hsb1 (pilot test)
 - [x] Test build on hsb1 - ✅ PASSED
-- [x] Test removing workarounds on hsb1 - ✅ ALL PASSED (2025-12-07)
+- [x] Test removing workarounds on hsb1 - ✅ PARTIAL (see regression below)
   - [x] Removed `starship.enable = lib.mkForce false` from common.nix
   - [x] Removed `theme = lib.mkForce` from helix (common.nix)
   - [x] Removed `force = true` from starship.toml (theme-hm.nix)
-  - [x] Removed `source = lib.mkForce` from zellij (theme-hm.nix)
+  - [x] ~~Removed `source = lib.mkForce` from zellij~~ **REVERTED** (see regression)
   - [x] Removed `force = true` from zellij (theme-hm.nix)
   - [x] Removed `force = true` from lazygit (theme-hm.nix)
 - [x] Roll out `hokage.catppuccin.enable = false` to all NixOS hosts
 - [x] ~~Consolidate scattered TODOs~~ → All now point to this file
+
+## ⚠️ Regression: Zellij Still Needs lib.mkForce
+
+**Discovered on gpc0 (2025-12-07):** Hokage provides zellij config **regardless of catppuccin.enable setting**. The zellij config comes from hokage's base module, not the catppuccin module.
+
+**Fix applied:** Restored `lib.mkForce` for zellij source in `theme-hm.nix`:
+
+```nix
+home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
+  source = lib.mkForce (pkgs.writeTextDir "config.kdl" ...);  # mkForce REQUIRED
+  recursive = true;
+};
+```
 
 ## Deployment Status
 
@@ -36,7 +49,7 @@ hokage.catppuccin.enable = false;
 | hsb1          | ✅     | ✅ Verified      |
 | hsb0          | ✅     | ⏳ Manual deploy |
 | hsb8          | ✅     | ⏳ Manual deploy |
-| gpc0          | ✅     | ⏳ Manual deploy |
+| gpc0          | ✅     | ✅ Verified      |
 | csb0          | ✅     | ⏳ Manual deploy |
 | csb1          | ✅     | ⏳ Manual deploy |
 | imac0         | N/A    | N/A (uzumaki)    |
@@ -45,8 +58,16 @@ hokage.catppuccin.enable = false;
 
 > **Note**: macOS hosts use uzumaki module directly via Home Manager and don't use hokage.
 
+## Summary: What Still Needs lib.mkForce
+
+| Item              | mkForce Needed? | Reason                                          |
+| ----------------- | --------------- | ----------------------------------------------- |
+| Helix theme       | ❌ No           | catppuccin.enable = false disables it           |
+| Starship config   | ❌ No           | catppuccin.enable = false disables it           |
+| Lazygit config    | ❌ No           | catppuccin.enable = false disables it           |
+| **Zellij source** | ✅ **YES**      | Hokage provides zellij regardless of catppuccin |
+
 ## Notes
 
-- **All workarounds verified removable** on hsb1 (2025-12-07)
 - `catppuccin.follows` in flake.nix must STAY (hokage depends on it as input)
 - Fish syntax highlighting: see `2025-12-07-fish-tokyo-night-syntax.md`

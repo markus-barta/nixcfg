@@ -121,15 +121,16 @@ hokage = {
 | ------------ | ------------------------- | -------------------------- | -------------------- |
 | **Starship** | (disabled via catppuccin) | Per-host gradient colors   | `theme/theme-hm.nix` |
 | **Eza**      | (disabled via catppuccin) | Tokyo Night sysop theme    | `theme/theme-hm.nix` |
-| **Zellij**   | (disabled via catppuccin) | Per-host accent colors     | `theme/theme-hm.nix` |
+| **Zellij**   | ⚠️ **NOT disabled**       | Per-host accent colors     | `theme/theme-hm.nix` |
 | **WezTerm**  | (not themed by hokage)    | Tokyo Night                | `macos-common.nix`   |
 | **Helix**    | (no override needed)      | `tokyonight_storm`         | `common.nix`         |
 | **bat**      | (disabled via catppuccin) | `tokyonight_night`         | `theme/theme-hm.nix` |
 | **fzf**      | (disabled via catppuccin) | Tokyo Night colors         | `theme/theme-hm.nix` |
 | **lazygit**  | (disabled via catppuccin) | Tokyo Night theme          | `theme/theme-hm.nix` |
 
-> **Note**: With `hokage.catppuccin.enable = false`, no `lib.mkForce` or `force = true` workarounds
-> are needed. Tested and verified on hsb1 (2025-12-07).
+> **Note**: With `hokage.catppuccin.enable = false`, most workarounds are not needed.
+> **Exception: Zellij** - hokage provides zellij config regardless of catppuccin setting,
+> so `lib.mkForce` is still required for zellij source.
 
 ---
 
@@ -154,7 +155,8 @@ Our theme config in `theme/theme-hm.nix` then provides the zellij configuration:
 
 ```nix
 home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
-  source = pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname);
+  # lib.mkForce REQUIRED: hokage provides zellij config regardless of catppuccin setting
+  source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette hostname));
   recursive = true;
 };
 ```

@@ -70,4 +70,4 @@ This way:
 - [x] Add KDE Wallet PAM integration
 - [x] Document in configuration.nix with rationale
 - [x] Update README.md with autologin section
-- [ ] Test: Boot with TV off, turn on TV → desktop ready (pending deployment)
+- [x] Test: Boot with TV off, turn on TV → desktop ready ✅ PASSED (2025-12-07)
