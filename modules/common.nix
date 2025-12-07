@@ -372,9 +372,9 @@ in
         enable = true;
         defaultEditor = useInternalInfrastructure;
         settings = {
-          # Tokyo Night to match our theme system (overrides hokage's catppuccin)
+          # Tokyo Night to match our theme system
           # https://helix-editor.vercel.app/reference/list-of-themes#tokyonight_storm
-          theme = lib.mkForce "tokyonight_storm";
+          theme = "tokyonight_storm"; # mkForce removed - hokage.catppuccin.enable = false
         };
       };
     };
