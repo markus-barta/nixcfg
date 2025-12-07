@@ -284,18 +284,16 @@ in
 
   config = lib.mkIf config.theme.enable {
     # Starship config (generated from TEMPLATE to preserve Unicode)
+    # No force needed with hokage.catppuccin.enable = false
     home.file.".config/starship.toml" = lib.mkIf config.theme.starship.enable {
-      force = true; # Defensive: ensure Tokyo Night wins over any hokage config
       text = mkStarshipConfig palette;
     };
 
     # Zellij config (generated from palette)
-    # Create the ENTIRE .config/zellij directory to override hokage's
-    # Must use mkForce on source to win the conflict with hokage's home.file
+    # No mkForce/force needed with hokage.catppuccin.enable = false
     home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
-      source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette resolvedHostname));
+      source = pkgs.writeTextDir "config.kdl" (mkZellijConfig palette resolvedHostname);
       recursive = true;
-      force = true;
     };
 
     # Eza theme file (Tokyo Night based, sysop-focused)
@@ -349,8 +347,8 @@ in
     };
 
     # lazygit: Tokyo Night theme
+    # No force needed with hokage.catppuccin.enable = false
     home.file.".config/lazygit/config.yml" = {
-      force = true; # Overwrite existing config
       text = ''
         gui:
           theme:
