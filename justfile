@@ -12,8 +12,15 @@ default:
 set shell := ["bash", "-c"]
 
 # Variables
+# Raw hostname from system
 
-hostname := `hostname -s`
+[private]
+_raw_hostname := `hostname -s`
+
+# Hostname mapping: normalize WiFi/DHCP variants to flake config names
+# imac, imac0w, etc. → imac0
+
+hostname := if _raw_hostname == "imac" { "imac0" } else if _raw_hostname == "imac0w" { "imac0" } else { _raw_hostname }
 user := `whoami`
 
 # Aliases
