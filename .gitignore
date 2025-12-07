@@ -54,6 +54,11 @@ hosts/*/secrets/
 # But allow encrypted versions to be committed
 !hosts/*/secrets/*.age
 
+# Infrastructure secrets (same pattern as hosts)
+infrastructure/*/secrets/
+# But allow encrypted versions to be committed
+!infrastructure/*/secrets/*.age
+
 # Patrizio's archived hosts (reference only)
 hosts/archive/
 

@@ -70,13 +70,7 @@ stdenvNoCC.mkDerivation rec {
     '';
     homepage = "https://github.com/markus-barta/nixcfg";
     license = licenses.mit;
-    maintainers = [
-      {
-        name = "Markus Barta";
-        email = "markus@barta.com";
-        github = "markus-barta";
-      }
-    ];
+    maintainers = [ ];
     platforms = platforms.unix;
     mainProgram = "pingt";
   };

@@ -199,6 +199,54 @@ This prevents lockout during deploys (incident 2025-12-05 - see MIGRATION-PLAN-H
 2. Navigate to server, open VNC console
 3. Login as `mba` with recovery password (see 1Password)
 
+### VNC Console Recovery (Netcup)
+
+⚠️ **Netcup VNC has German keyboard layout issues!**
+
+**Keys that WORK:**
+
+- Letters (a-z, A-Z), Numbers (0-9)
+- Forward slash `/`, Period `.`, Spaces
+- Dollar `$`, Parentheses `()`, Equals `=`, Underscore `_`
+- Arrow keys, Tab completion (in bash, NOT busybox)
+
+**Keys that DO NOT WORK:**
+
+- Hyphen `-` (critical for commands!)
+- Backslash `\`, Colon `:`, Pipe `|`
+
+**If login prompt works** → Use mba password from 1Password
+
+**If login broken** → Use `init=/bin/sh` recovery:
+
+1. Reboot via Netcup panel
+2. At GRUB, press `e` to edit boot entry
+3. Add `init=/bin/sh` to end of linux line
+4. Press Ctrl+X to boot
+5. In minimal shell (`sh-5.3#`), find tools with glob:
+
+```bash
+# Find password tool
+echo /nix/store/*shadow*/bin/passwd
+# Example: /nix/store/117zjnjzaw0n22z0xinp17qpbdv3wsra-shadow-4.18.0/bin/passwd
+
+# Set password (use Tab completion after partial path)
+/nix/store/117z[Tab]/bin/passwd mba
+
+# Find network tools
+echo /nix/store/*iproute*/bin/ip
+
+# Configure network (adjust path with Tab)
+/nix/store/m1b[Tab]/bin/ip addr add 152.53.64.166/24 dev ens3
+/nix/store/m1b[Tab]/bin/ip link set ens3 up
+/nix/store/m1b[Tab]/bin/ip route add default via 152.53.64.1
+
+# Continue normal boot
+exec /nix/var/nix/profiles/system/init
+```
+
+**Note:** Busybox ash shell is worse than bash (no arrow-up, no Tab). If you accidentally enter it, type `exit` to return to bash.
+
 ### Netcup API Emergency Restart
 
 ```bash
