@@ -85,7 +85,10 @@ in
     # Packages
     # ══════════════════════════════════════════════════════════════════════════
 
-    home.packages = lib.mkIf cfg.zellij.enable [ pkgs.zellij ];
+    home.packages = [
+      pkgs.pingt # Timestamped ping with color-coded output
+    ]
+    ++ lib.optionals cfg.zellij.enable [ pkgs.zellij ];
 
     # ══════════════════════════════════════════════════════════════════════════
     # StaSysMo - System Monitoring

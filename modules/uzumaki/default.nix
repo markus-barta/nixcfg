@@ -93,7 +93,10 @@ in
     );
 
     # Packages
-    environment.systemPackages = lib.mkIf cfg.zellij.enable [ pkgs.zellij ];
+    environment.systemPackages = [
+      pkgs.pingt # Timestamped ping with color-coded output
+    ]
+    ++ lib.optionals cfg.zellij.enable [ pkgs.zellij ];
 
     # StaSysMo - System monitoring in Starship prompt
     services.stasysmo.enable = cfg.stasysmo.enable;

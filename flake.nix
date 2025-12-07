@@ -53,7 +53,14 @@
           config.allowUnfree = true;
         };
       };
-      allOverlays = [ overlays-nixpkgs ];
+      # Local packages overlay
+      overlays-local = final: _prev: {
+        pingt = final.callPackage ./pkgs/pingt { };
+      };
+      allOverlays = [
+        overlays-nixpkgs
+        overlays-local
+      ];
       commonServerModules = [
         home-manager.nixosModules.home-manager
         ./modules/common.nix # Shared config for ALL servers (fish, starship, packages, etc.)
@@ -219,6 +226,9 @@
       };
 
       packages.x86_64-linux = {
+        # pingt - Timestamped ping with color-coded output
+        pingt = pkgs.callPackage ./pkgs/pingt { };
+
         # Generate Markdown docs for hokage module options
         hokage-options-md =
           let
@@ -262,6 +272,29 @@
             };
           in
           docs.optionsCommonMark;
+      };
+
+      # macOS packages (for imac0, mba-mbp-work, etc.)
+      packages.x86_64-darwin = {
+        pingt =
+          let
+            pkgsDarwin = import nixpkgs {
+              system = "x86_64-darwin";
+              config.allowUnfree = true;
+            };
+          in
+          pkgsDarwin.callPackage ./pkgs/pingt { };
+      };
+
+      packages.aarch64-darwin = {
+        pingt =
+          let
+            pkgsDarwin = import nixpkgs {
+              system = "aarch64-darwin";
+              config.allowUnfree = true;
+            };
+          in
+          pkgsDarwin.callPackage ./pkgs/pingt { };
       };
     };
 }
