@@ -342,6 +342,7 @@
       allowedTCPPorts = [
         53 # DNS
         3000 # AdGuard Home web interface
+        3001 # Uptime Kuma web interface
         80 # HTTP (for future use)
         443 # HTTPS (for future use)
       ];
@@ -349,6 +350,19 @@
         53 # DNS
         67 # DHCP
       ];
+    };
+  };
+
+  # ============================================================================
+  # Uptime Kuma - Service Monitoring
+  # ============================================================================
+  # Monitors service uptime and availability. Web interface: http://192.168.1.99:3001
+  # Uses native NixOS service (no Docker required).
+  # ============================================================================
+  services.uptime-kuma = {
+    enable = true;
+    settings = {
+      PORT = "3001";
     };
   };
 
