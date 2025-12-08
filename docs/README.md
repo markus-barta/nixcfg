@@ -8,27 +8,9 @@ This repository is a **blueprint factory** for all your computers. Instead of ma
 
 ## Infrastructure Overview
 
-### Home Servers
+See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for the complete host inventory, IPs, dependencies, and build platforms.
 
-| Host     | IP            | Purpose                                                            |
-| -------- | ------------- | ------------------------------------------------------------------ |
-| **hsb0** | 192.168.1.99  | DNS/DHCP server (AdGuard Home)                                     |
-| **hsb1** | 192.168.1.101 | Home automation (Node-RED, MQTT, HomeKit, VLC kiosk)               |
-| **hsb8** | 192.168.1.100 | Parent's DNS/DHCP server (AdGuard Home) and home automation server |
-
-### Cloud Servers
-
-| Host     | Domain       | Purpose                                                   |
-| -------- | ------------ | --------------------------------------------------------- |
-| **csb0** | cs0.barta.cm | Smart home hub (Node-RED, MQTT, Telegram bot)             |
-| **csb1** | cs1.barta.cm | Monitoring & docs (Grafana, InfluxDB, Docmost, Paperless) |
-
-### Workstations
-
-| Host      | Type  | Purpose                                |
-| --------- | ----- | -------------------------------------- |
-| **imac0** | macOS | Development (managed via Home Manager) |
-| **gpc0**  | NixOS | Gaming PC (Steam, Plasma desktop)      |
+**Quick summary**: 6 NixOS servers (hsb0, hsb1, hsb8, csb0, csb1, gpc0) + 3 macOS workstations (imac0, imac-mba-work, mba-mbp-work).
 
 ---
 
@@ -308,7 +290,15 @@ hosts/hsb1/
 
 ## Related Documentation
 
+### This Repository
+
+- **[INFRASTRUCTURE.md](./INFRASTRUCTURE.md)** - Host inventory, IPs, dependencies
+- **[AGENT-WORKFLOW.md](./AGENT-WORKFLOW.md)** - How to work with this codebase
+- **[HOST-TEMPLATE.md](./HOST-TEMPLATE.md)** - Required file structure per host
 - **Host READMEs**: `hosts/*/README.md` - Per-machine details
+
+### External
+
 - **Hokage Options**: `just hokage-options` or see `pbek-nixcfg/docs/hokage-options.md`
 - **NixOS Manual**: https://nixos.org/manual/nixos/stable/
 - **agenix**: https://github.com/ryantm/agenix
