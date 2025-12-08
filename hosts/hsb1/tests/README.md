@@ -4,12 +4,13 @@ Tests for Home Server Box 1 (hsb1) - NixOS server with home automation.
 
 ## Test Categories
 
-| Test                | Description                 | Runs On         |
-| ------------------- | --------------------------- | --------------- |
-| T00-nixos-base.sh   | NixOS system basics         | Remote (SSH)    |
-| T01-theme.sh        | Theme module (cyan palette) | Local (on host) |
-| T02-uzumaki-fish.sh | Fish functions from uzumaki | Local (on host) |
-| T03-stasysmo.sh     | System metrics daemon       | Local (on host) |
+| Test                   | Description                 | Runs On         |
+| ---------------------- | --------------------------- | --------------- |
+| T00-nixos-base.sh      | NixOS system basics         | Remote (SSH)    |
+| T01-theme.sh           | Theme module (cyan palette) | Local (on host) |
+| T02-uzumaki-fish.sh    | Fish functions from uzumaki | Local (on host) |
+| T03-stasysmo.sh        | System metrics daemon       | Local (on host) |
+| T04-docker-services.sh | Docker containers running   | Remote (SSH)    |
 
 ## Running Tests
 
@@ -47,3 +48,4 @@ hsb1 uses the **cyan** palette from `modules/shared/theme-palettes.nix`:
 - APC UPS daemon (apcupsd)
 - MQTT volume control
 - StaSysMo system metrics
+- Docker containers (homeassistant, nodered, zigbee2mqtt, mosquitto, scrypted, etc.)

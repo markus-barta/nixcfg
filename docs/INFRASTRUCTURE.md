@@ -15,7 +15,12 @@ Central reference for all hosts and their relationships.
 | **hsb8** | Parents' Server         | 192.168.1.100 | `ssh mba@hsb8.lan`             | 🟡 MEDIUM   |
 | **csb0** | Cloud Smart Home        | 85.235.65.226 | `ssh mba@cs0.barta.cm -p 2222` | 🔴 HIGH     |
 | **csb1** | Cloud Monitoring        | 152.53.64.166 | `ssh mba@cs1.barta.cm -p 2222` | 🟡 MEDIUM   |
-| **gpc0** | Gaming PC               | 192.168.1.154 | `ssh mba@gpc0.lan`             | 🟢 LOW      |
+
+### NixOS Desktops
+
+| Host     | Role      | IP            | SSH Command        | Criticality |
+| -------- | --------- | ------------- | ------------------ | ----------- |
+| **gpc0** | Gaming PC | 192.168.1.154 | `ssh mba@gpc0.lan` | 🟢 LOW      |
 
 ### macOS Machines (home-manager only)
 

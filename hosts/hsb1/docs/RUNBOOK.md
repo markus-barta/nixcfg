@@ -196,6 +196,48 @@ sudo nix-env --switch-generation N -p /nix/var/nix/profiles/system
 sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch
 ```
 
+### Restore from Backup (Restic/Hetzner)
+
+Docker volumes are backed up daily to Hetzner StorageBox via `restic-cron-hetzner` container.
+
+**1. List available snapshots:**
+
+```bash
+# On hsb1, enter the restic container
+docker exec -it restic-cron-hetzner sh
+
+# List snapshots (inside container)
+restic snapshots
+```
+
+**2. Restore specific files/directories:**
+
+```bash
+# Restore to a temp directory first
+restic restore SNAPSHOT_ID --target /tmp/restore --include /data/nodered
+
+# Or restore latest
+restic restore latest --target /tmp/restore --include /data/homeassistant
+```
+
+**3. Copy restored data to Docker mounts:**
+
+```bash
+# Stop the container first
+docker stop nodered
+
+# Copy restored data
+cp -r /tmp/restore/data/nodered/* ~/docker/mounts/nodered/data/
+
+# Restart container
+docker start nodered
+```
+
+**Backup repository location:**
+
+- Hetzner StorageBox (credentials in `~/secrets/` and 1Password)
+- Repository password: See `runbook-secrets.md` or 1Password
+
 ---
 
 ## Maintenance
