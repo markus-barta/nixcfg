@@ -414,7 +414,8 @@
     fi
   '';
 
-  # macOS GUI Applications linking
+  # macOS GUI Applications - create macOS aliases (not symlinks!)
+  # Symlinks to /nix/store don't get indexed by Spotlight, but aliases do.
   home.activation.linkMacOSApps = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     echo "Linking macOS GUI applications..."
     mkdir -p "$HOME/Applications"
@@ -433,12 +434,14 @@
           rm -rf "$target"
         fi
 
-        echo "  Linking $app"
-        ln -sf "$source" "$target"
+        # Create macOS alias (not symlink!) - Spotlight indexes aliases properly
+        echo "  Creating alias for $app"
+        /usr/bin/osascript -e "tell application \"Finder\" to make alias file to POSIX file \"$source\" at POSIX file \"$HOME/Applications\"" >/dev/null 2>&1
       fi
     done
 
-    echo "✅ macOS GUI applications linked"
+    echo "✅ macOS GUI applications aliased"
+    echo "   Apps will appear in Spotlight (⌘+Space)"
   '';
 
   # ============================================================================

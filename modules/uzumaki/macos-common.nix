@@ -375,6 +375,8 @@ in
   # ============================================================================
   # macOS App Linking Activation Script
   # ============================================================================
+  # Creates macOS aliases (not symlinks!) so Spotlight can index them.
+  # Symlinks to /nix/store don't get indexed by Spotlight.
   appLinkActivation = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     echo "Linking macOS GUI applications..."
 
@@ -391,18 +393,19 @@ in
       target="$HOME/Applications/$app"
 
       if [ -e "$source" ]; then
-        # Remove old symlink or Homebrew version
+        # Remove old symlink, alias, or Homebrew version
         if [ -L "$target" ] || [ -e "$target" ]; then
           echo "  Removing old $app..."
           rm -rf "$target"
         fi
 
-        # Create new symlink
-        echo "  Linking $app"
-        ln -sf "$source" "$target"
+        # Create macOS alias (not symlink!) - Spotlight indexes aliases properly
+        echo "  Creating alias for $app"
+        /usr/bin/osascript -e "tell application \"Finder\" to make alias file to POSIX file \"$source\" at POSIX file \"$HOME/Applications\"" >/dev/null 2>&1
       fi
     done
 
-    echo "✅ macOS GUI applications linked"
+    echo "✅ macOS GUI applications aliased"
+    echo "   Apps will appear in Spotlight (⌘+Space)"
   '';
 }
