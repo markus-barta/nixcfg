@@ -80,6 +80,81 @@ ssh mba@192.168.1.99 "zpool status"
 
 ---
 
+## AdGuard Home DNS Management
+
+### Web Interface
+
+Access at: http://192.168.1.99:3000
+
+### View Query Logs
+
+Query logs are stored at `/var/lib/private/AdGuardHome/data/querylog.json`
+
+```bash
+# Find all domains a device requested (replace IP with target device)
+ssh mba@192.168.1.99 "sudo grep '192.168.1.235' /var/lib/private/AdGuardHome/data/querylog.json | jq -r '.QH' | sort -u"
+
+# Recent queries from a device
+ssh mba@192.168.1.99 "sudo grep '192.168.1.235' /var/lib/private/AdGuardHome/data/querylog.json | tail -20 | jq '{time: .T, domain: .QH, result: .Result.Reason}'"
+
+# Find blocked queries for a device
+ssh mba@192.168.1.99 "sudo grep '192.168.1.235' /var/lib/private/AdGuardHome/data/querylog.json | jq 'select(.Result.IsFiltered == true) | .QH' | sort -u"
+```
+
+### Add Domains to Allowlist (Whitelist)
+
+Allowlist rules bypass ad-blocking for specific domains. Managed declaratively in NixOS config.
+
+**1. Find domains to whitelist:**
+
+```bash
+# Get all unique domains a device is trying to access
+ssh mba@192.168.1.99 "sudo grep 'DEVICE_IP' /var/lib/private/AdGuardHome/data/querylog.json | jq -r '.QH' | sort -u"
+```
+
+**2. Add to configuration:**
+
+Edit `hosts/hsb0/configuration.nix` and add to `services.adguardhome.settings.user_rules`:
+
+```nix
+user_rules = [
+  # Existing rules...
+  # Device Name (IP / hostname)
+  "@@||domain.example.com^"  # Purpose of this domain
+];
+```
+
+For hsb8 (ww87), add to the `dnsAllowlist` variable at the top of `hosts/hsb8/configuration.nix`.
+
+**Format:** `@@||domain^`
+
+- `@@` = allowlist rule (exception)
+- `||` = match domain start
+- `^` = domain separator/end
+
+**3. Deploy:**
+
+```bash
+# For hsb0
+ssh mba@192.168.1.99 "cd ~/Code/nixcfg && git pull && just switch"
+
+# For hsb8 (from any machine)
+nixos-rebuild switch --flake .#hsb8 --target-host hsb8 --use-remote-sudo
+```
+
+### Query Log Field Reference
+
+| Field                | Description                                          |
+| -------------------- | ---------------------------------------------------- |
+| `.T`                 | Timestamp                                            |
+| `.QH`                | Queried hostname (domain)                            |
+| `.IP`                | Client IP address                                    |
+| `.Result.Reason`     | Why processed (Filtered, NotFilteredAllowList, etc.) |
+| `.Result.IsFiltered` | true if blocked                                      |
+| `.Elapsed`           | Response time in nanoseconds                         |
+
+---
+
 ## Troubleshooting
 
 ### AdGuard Home Not Responding
