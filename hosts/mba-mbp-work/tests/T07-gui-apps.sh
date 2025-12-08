@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 #
-# T09: GUI Applications - Automated Test
+# T07: GUI Applications - Automated Test
 # Tests that GUI apps are properly installed and accessible via Spotlight
 #
 # NOTE: We use macOS aliases (not symlinks!) because:
 #       Symlinks to /nix/store don't get indexed by Spotlight.
 #       macOS aliases (created via osascript) ARE indexed properly.
 #
-
 set -euo pipefail
 
 GREEN='\033[0;32m'
@@ -15,7 +14,7 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo "=== T09: GUI Applications Test ==="
+echo "=== T07: GUI Applications Test ==="
 echo
 
 # Test 1: WezTerm in Home Manager Apps

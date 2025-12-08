@@ -520,7 +520,7 @@
   # Starship, Zellij, Eza Theming
   # ============================================================================
   # Handled by theme-hm.nix module (imported above)
-  # Theme: lightGray (Workstation - Home)
+  # Theme: warmGray (Workstation - Home)
   # Features: Powerline gradient, root alert, error badge, sudo, duration, jobs
   # See: modules/uzumaki/theme/theme-palettes.nix for color definitions
 

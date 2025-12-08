@@ -258,8 +258,12 @@ pingt 8.8.8.8
 # Check helpfish shows available functions
 helpfish
 
-# Check theme is applied (warm gray prompt)
-# Your prompt should have a brownish/taupe tint
+# Check theme is applied (light gray prompt)
+# Your prompt should have a cool silver/gray tint
+
+# Check new uzumaki functions
+hostcolors   # Show all hosts with colors
+hostsecrets  # Show runbook secrets status
 ```
 
 ### Test Git Identity
@@ -275,6 +279,35 @@ cd ~/Code/nixcfg
 git config user.email
 # → markus@barta.com
 ```
+
+---
+
+## Step 10: Enable direnv + devenv (For Development)
+
+The nixcfg repo uses direnv + devenv for its development environment:
+
+```bash
+cd ~/Code/nixcfg
+
+# Allow direnv to run .envrc
+direnv allow
+
+# Wait for devenv to download dependencies (first time is slow)
+# You should see: "🛠️ nixcfg  macOS"
+
+# Verify just works
+just --list
+```
+
+**If `just` fails with "Could not find source file for import":**
+
+This means the direnv → devenv → .shared/common.just chain broke:
+
+1. Check `devenv` is installed: `which devenv`
+2. If missing: already fixed, just run `home-manager switch`
+3. Re-allow direnv: `direnv allow`
+
+See `docs/MACOS-SETUP.md` section 5.3 for the full chain explanation.
 
 ---
 
@@ -330,10 +363,18 @@ If not, the fish `loginShellInit` should fix this on new terminal windows.
 
 ### WezTerm Not Found in Spotlight
 
-WezTerm is linked to `~/Applications/`. You can:
+WezTerm should appear in Spotlight automatically. The activation script creates
+a **macOS alias** (not symlink) in `~/Applications/` because symlinks to
+`/nix/store` don't get indexed by Spotlight.
 
-1. Search in Spotlight (⌘+Space) for "WezTerm"
-2. Add to Dock manually from `~/Applications/`
+If WezTerm doesn't appear:
+
+1. Run `home-manager switch` to create the alias
+2. Wait a moment for Spotlight to index
+3. Check: `mdfind "WezTerm*"` should show `~/Applications/WezTerm.app`
+
+**Technical note**: Check that `~/Applications/WezTerm.app` is a **file**
+(~1KB), not a symlink. If it's a symlink, the activation script needs updating.
 
 ### Nix Store Location
 
