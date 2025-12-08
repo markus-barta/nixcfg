@@ -6,19 +6,26 @@ Quick overview of infrastructure operations progress.
 
 ## Host Status
 
-| Host     | Type    | Audited | Fixed | Last Action      |
-| -------- | ------- | ------- | ----- | ---------------- |
-| hsb0     | Server  | ✅      | ✅    | 2025-12-08 SYSOP |
-| hsb1     | Server  | ✅      | ✅    | 2025-12-08 SYSOP |
-| hsb8     | Server  | ⏳      | ⏳    | 2025-12-08 SYSOP |
-| csb0     | Server  | ✅      | ✅    | 2025-12-08 SYSOP |
-| csb1     | Server  | ⏳      | ⏳    | -                |
-| gpc0     | Desktop | ⏳      | ⏳    | -                |
-| imac0    | macOS   | ⏳      | ⏳    | -                |
-| imac-mba | macOS   | ⏳      | ⏳    | -                |
-| mba-mbp  | macOS   | ⏳      | ⏳    | -                |
+### NixOS
 
-**Legend:** ✅ Done | ⏳ Pending | ❌ Issues
+| Host    | Audited | Fixed | Last Action      |
+| ------- | ------- | ----- | ---------------- |
+| 🖥️ hsb0 | ✅      | ✅    | 2025-12-08 SYSOP |
+| 🖥️ hsb1 | ✅      | ✅    | 2025-12-08 SYSOP |
+| 🖥️ hsb8 | ⏳      | ⏳    | 2025-12-08 SYSOP |
+| 🖥️ csb0 | ✅      | ✅    | 2025-12-08 SYSOP |
+| 🖥️ csb1 | ⏳      | ⏳    | -                |
+| 🎮 gpc0 | ⏳      | ⏳    | -                |
+
+### macOS
+
+| Host             | Audited | Fixed | Last Action |
+| ---------------- | ------- | ----- | ----------- |
+| 🍎 imac0         | ⏳      | ⏳    | -           |
+| 🍎 imac-mba-work | ⏳      | ⏳    | -           |
+| 🍎 mba-mbp-work  | ⏳      | ⏳    | -           |
+
+**Legend:** ✅ Done | ⏳ Pending | 🖥️ Server | 🎮 Desktop | 🍎 macOS
 
 ---
 
