@@ -1,0 +1,729 @@
+{
+  "global": {
+    "show_in_menu_bar": false
+  },
+  "profiles": [
+    {
+      "name": "Default profile",
+      "selected": true,
+      "complex_modifications": {
+        "rules": [
+          {
+            "description": "E to backtick test in Pixelmator Pro",
+            "enabled": false,
+            "manipulators": [
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "com.pixelmatorteam.pixelmator.x.trial"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "e"
+                },
+                "to": [
+                  {
+                    "key_code": "international6"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "description": "Caps Lock → Hyper (Cmd+Ctrl+Opt+Shift)",
+            "manipulators": [
+              {
+                "type": "basic",
+                "description": "Change caps_lock to command+control+option+shift.",
+                "from": {
+                  "key_code": "caps_lock",
+                  "modifiers": {
+                    "optional": ["any"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "left_shift",
+                    "modifiers": ["left_command", "left_control", "left_option"]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "description": "Use regular function keys in terminal",
+            "manipulators": [
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f1"
+                },
+                "to": [
+                  {
+                    "key_code": "f1",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f2"
+                },
+                "to": [
+                  {
+                    "key_code": "f2",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f3"
+                },
+                "to": [
+                  {
+                    "key_code": "f3",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f4"
+                },
+                "to": [
+                  {
+                    "key_code": "f4",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f5"
+                },
+                "to": [
+                  {
+                    "key_code": "f5",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f6"
+                },
+                "to": [
+                  {
+                    "key_code": "f6",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f7"
+                },
+                "to": [
+                  {
+                    "key_code": "f7",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f8"
+                },
+                "to": [
+                  {
+                    "key_code": "f8",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f9"
+                },
+                "to": [
+                  {
+                    "key_code": "f9",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f10"
+                },
+                "to": [
+                  {
+                    "key_code": "f10",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f11"
+                },
+                "to": [
+                  {
+                    "key_code": "f11",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f12"
+                },
+                "to": [
+                  {
+                    "key_code": "f12",
+                    "modifiers": ["fn"]
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f1",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f1"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f2",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f2"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f3",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f3"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f4",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f4"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f5",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f5"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f6",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f6"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f7",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f7"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f8",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f8"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f9",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f9"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f10",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f10"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f11",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f11"
+                  }
+                ]
+              },
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "^com\\.apple\\.Terminal$",
+                      "^com\\.googlecode\\.iterm2$",
+                      "^co\\.zeit\\.hyperterm$",
+                      "^co\\.zeit\\.hyper$",
+                      "^io\\.alacritty$",
+                      "^net\\.kovidgoyal\\.kitty$",
+                      "^com\\.mitchellh\\.ghostty$"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "f12",
+                  "modifiers": {
+                    "mandatory": ["fn"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "f12"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "devices": [
+        {
+          "identifiers": {
+            "is_keyboard": true,
+            "product_id": 50475,
+            "vendor_id": 1133
+          },
+          "ignore": true,
+          "manipulate_caps_lock_led": false
+        }
+      ],
+      "virtual_hid_keyboard": {
+        "country_code": 0,
+        "keyboard_type_v2": "ansi"
+      }
+    }
+  ]
+}

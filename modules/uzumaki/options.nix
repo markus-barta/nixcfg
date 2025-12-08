@@ -64,6 +64,18 @@
           description = "Enable helpfish - show custom functions & abbreviations";
         };
 
+        hostcolors = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "Enable hostcolors - show infrastructure hosts with color themes";
+        };
+
+        hostsecrets = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "Enable hostsecrets - show runbook secrets status for all hosts";
+        };
+
         sourcefish = lib.mkOption {
           type = lib.types.bool;
           default = true;

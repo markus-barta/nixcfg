@@ -113,6 +113,78 @@
   };
 
   # ════════════════════════════════════════════════════════════════════════════
+  # HOSTCOLORS - Show host color palette overview
+  # ════════════════════════════════════════════════════════════════════════════
+  hostcolors = {
+    description = "Show infrastructure hosts with their color-coded themes";
+    body = ''
+      set -l reset (set_color normal)
+      set -l bold (set_color -o)
+      set -l dim (set_color brblack)
+
+      # Define colors for each host (matching theme-palettes.nix)
+      set -l c_csb0 (set_color "#98b8d8")  # Ice Blue
+      set -l c_csb1 (set_color "#769ff0")  # Blue
+      set -l c_hsb0 (set_color "#d4c060")  # Yellow
+      set -l c_hsb1 (set_color "#68c878")  # Green
+      set -l c_hsb8 (set_color "#e09050")  # Orange
+      set -l c_gpc0 (set_color "#9868d0")  # Purple
+      set -l c_imac0 (set_color "#a8aeb8") # Light Gray
+      set -l c_imacw (set_color "#686c70") # Dark Gray
+      set -l c_mbpw (set_color "#a8a098")  # Warm Gray
+
+      echo ""
+      echo "$bold╔════════════════════════════════════════════════════════════════════════╗$reset"
+      echo "$bold║                    Infrastructure Host Colors                          ║$reset"
+      echo "$bold╚════════════════════════════════════════════════════════════════════════╝$reset"
+      echo ""
+      echo "  $dim CLOUD (Internet-facing)           HOME (Local network)$reset"
+      echo "  ┌─────────────────────────┐        ┌─────────────────────────┐"
+      printf "  │  $c_csb0●$reset csb0    $c_csb0Ice Blue$reset   │        │  $c_hsb0●$reset hsb0    $c_hsb0Yellow$reset     │\n"
+      printf "  │  $c_csb1●$reset csb1    $c_csb1Blue$reset       │        │  $c_hsb1●$reset hsb1    $c_hsb1Green$reset      │\n"
+      echo "  └─────────────────────────┘        │  $c_hsb8●$reset hsb8    $c_hsb8Orange$reset     │"
+      echo "                                     └─────────────────────────┘"
+      echo ""
+      echo "  $dim GAMING                            WORKSTATIONS$reset"
+      echo "  ┌─────────────────────────┐        ┌─────────────────────────┐"
+      printf "  │  $c_gpc0●$reset gpc0    $c_gpc0Purple$reset     │        │  $c_imac0●$reset imac0   $c_imac0Light Gray$reset │\n"
+      echo "  └─────────────────────────┘        │  $c_imacw●$reset imac-w  $c_imacw Dark Gray$reset │"
+      echo "                                     │  $c_mbpw●$reset mba-mbp $c_mbpw Warm Gray$reset │"
+      echo "                                     └─────────────────────────┘"
+      echo ""
+      echo "  $dim Colors flow through: Starship prompt → Zellij frame → Eza theme$reset"
+      echo "  $dim Recognize hosts instantly by their accent color!$reset"
+      echo ""
+    '';
+  };
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # HOSTSECRETS - Show runbook secrets status (wrapper for runbook-secrets.sh)
+  # ════════════════════════════════════════════════════════════════════════════
+  hostsecrets = {
+    description = "Show runbook secrets status for all hosts (plain/encrypted)";
+    body = ''
+      # Find nixcfg directory - check common locations
+      set -l nixcfg_dir ""
+      for dir in ~/Code/nixcfg ~/nixcfg /etc/nixos
+        if test -f "$dir/scripts/runbook-secrets.sh"
+          set nixcfg_dir "$dir"
+          break
+        end
+      end
+
+      if test -z "$nixcfg_dir"
+        echo "Error: Could not find nixcfg directory with runbook-secrets.sh"
+        echo "Checked: ~/Code/nixcfg, ~/nixcfg, /etc/nixos"
+        return 1
+      end
+
+      # Run the script with list command
+      bash "$nixcfg_dir/scripts/runbook-secrets.sh" list
+    '';
+  };
+
+  # ════════════════════════════════════════════════════════════════════════════
   # HELPFISH - Show custom functions & abbreviations
   # ════════════════════════════════════════════════════════════════════════════
   helpfish = {
@@ -136,6 +208,8 @@
       printf " $color_func%-12s$color_reset %-58s\n" "sourcefish" "Load .env file into current Fish session (KEY=value)"
       printf " $color_func%-12s$color_reset %-58s\n" "stress"     "CPU stress test on all cores (stress [sec] or Ctrl+C)"
       printf " $color_func%-12s$color_reset %-58s\n" "stasysmod"  "Toggle StaSysMo debug mode (verbose metrics)"
+      printf " $color_func%-12s$color_reset %-58s\n" "hostcolors" "Show infrastructure hosts with color-coded themes"
+      printf " $color_func%-12s$color_reset %-58s\n" "hostsecrets" "Show runbook secrets status (plain/encrypted)"
       printf " $color_func%-12s$color_reset %-58s\n" "helpfish"   "Show this help (functions, aliases, abbreviations)"
       echo -e "$color_func└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
 
