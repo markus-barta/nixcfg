@@ -138,14 +138,16 @@
 
       set -l theme_file "$nixcfg_dir/modules/uzumaki/theme/theme-palettes.nix"
 
-      # Get host data as JSON: { host: { color, name, category, bullet } }
+      # Get all host data with display order as JSON array
+      # Order: server>workstation, cloud>home, home>play>work
       set -l json (nix eval --json --file "$theme_file" --apply \
-        'p: builtins.mapAttrs (host: pal: {
-          color = p.palettes.''${pal}.gradient.primary;
-          name = p.palettes.''${pal}.name;
-          category = p.palettes.''${pal}.category;
-          bullet = p.categoryBullets.''${p.palettes.''${pal}.category} or "○";
-        }) p.hostPalette' 2>/dev/null)
+        'p: builtins.map (host: {
+          inherit host;
+          color = p.palettes.''${p.hostPalette.''${host}}.gradient.primary;
+          name = p.palettes.''${p.hostPalette.''${host}}.name;
+          category = p.palettes.''${p.hostPalette.''${host}}.category;
+          bullet = p.categoryBullets.''${p.palettes.''${p.hostPalette.''${host}}.category} or "○";
+        }) p.hostDisplayOrder' 2>/dev/null)
 
       if test -z "$json"
         echo "Error: Failed to evaluate theme-palettes.nix"
@@ -161,25 +163,25 @@
       echo "$bold╚════════════════════════════════════════════════════════════════════════╝$reset"
       echo ""
 
-      # Process each category
+      # Process each category (in order: cloud > home > gaming > workstation)
       for category in cloud home gaming workstation
         # Get category bullet
         set -l cat_bullet (echo $cat_bullets | jq -r ".$category // \"○\"")
 
-        # Get hosts in this category as JSON array, then iterate
-        set -l host_count (echo $json | jq "[to_entries | .[] | select(.value.category == \"$category\")] | length")
+        # Get hosts in this category (already in display order from hostDisplayOrder)
+        set -l hosts_in_cat (echo $json | jq -r ".[] | select(.category == \"$category\") | \"\(.host)|\(.color)|\(.name)\"")
 
-        if test "$host_count" -gt 0
+        if test -n "$hosts_in_cat"
           # Get category color from first host
-          set -l cat_hex (echo $json | jq -r "[to_entries | .[] | select(.value.category == \"$category\")] | sort_by(.key) | .[0].value.color")
+          set -l cat_hex (echo $json | jq -r "[.[] | select(.category == \"$category\")] | .[0].color")
           set -l cat_color (set_color "$cat_hex")
 
           # Category header
           set -l cat_upper (string upper $category)
           echo "  $cat_color$cat_bullet $cat_upper$reset $dim────────────────────────────────────────────────────────────$reset"
 
-          # List hosts in category (sorted)
-          for row in (echo $json | jq -r "to_entries | map(select(.value.category == \"$category\")) | sort_by(.key) | .[] | \"\(.key)|\(.value.color)|\(.value.name)\"")
+          # List hosts in category (display order preserved)
+          for row in $hosts_in_cat
             set -l parts (string split "|" $row)
             set -l host $parts[1]
             set -l hex $parts[2]
