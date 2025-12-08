@@ -6,12 +6,12 @@ Quick overview of infrastructure operations progress.
 
 ## Host Status
 
-|     | Host          | OS    | Type    | Audited             | Fixed               | Last Action                              |
+| •   | Host          | OS    | Type    | Audited             | Fixed               | Comment                                  |
 | --- | ------------- | ----- | ------- | ------------------- | ------------------- | ---------------------------------------- |
-| 🏠  | hsb0          | NixOS | Server  | 2025-12-08 14:30 ✅ | 2025-12-08 15:00 ✅ | Fixed 13 findings, T15-T16 tests (SYSOP) |
-| 🏠  | hsb1          | NixOS | Server  | 2025-12-08 16:00 ✅ | 2025-12-08 17:00 ✅ | Fixed 10 findings, T04 test (SYSOP)      |
+| 🏠  | hsb0          | NixOS | Server  | ✅ 2025-12-08 14:30 | ✅ 2025-12-08 15:00 | Fixed 13 findings, T15-T16 tests (SYSOP) |
+| 🏠  | hsb1          | NixOS | Server  | ✅ 2025-12-08 16:00 | ✅ 2025-12-08 17:00 | Fixed 10 findings, T04 test (SYSOP)      |
 | 🏠  | hsb8          | NixOS | Server  | ⏳                  | ⏳                  | Uzumaki deployed, tests pending (SYSOP)  |
-| 🌐  | csb0          | NixOS | Server  | 2025-12-08 13:00 ✅ | 2025-12-08 13:30 ✅ | Added 7 test docs (SYSOP)                |
+| 🌐  | csb0          | NixOS | Server  | ✅ 2025-12-08 13:00 | ✅ 2025-12-08 13:30 | Added 7 test docs (SYSOP)                |
 | 🌐  | csb1          | NixOS | Server  | ⏳                  | ⏳                  | -                                        |
 | 🎮  | gpc0          | NixOS | Desktop | ⏳                  | ⏳                  | -                                        |
 | 🖥️  | imac0         | macOS | Desktop | ⏳                  | ⏳                  | -                                        |
