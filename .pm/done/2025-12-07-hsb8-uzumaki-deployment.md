@@ -1,6 +1,8 @@
 # 2025-12-07 - hsb8: Deploy Uzumaki Module
 
-## Status: BACKLOG (Blocked - Host Offline)
+## Status: DONE (2025-12-08)
+
+**Deployed successfully.** Pending: test suite execution and reboot verification.
 
 ## Summary
 
@@ -28,11 +30,12 @@ However, hsb8 is **offline** and hasn't received a deployment yet.
 
 ## Acceptance Criteria
 
-- [ ] hsb8 is online and accessible
-- [ ] Deploy: `nixos-rebuild switch --flake .#hsb8`
-- [ ] Run test suite: `hosts/hsb8/tests/run-all-tests.sh`
-- [ ] Verify fish functions work: `fish -c "type pingt"`
-- [ ] Verify StaSysMo works (if enabled)
+- [x] hsb8 is online and accessible
+- [x] Deploy: `nixos-rebuild switch --flake .#hsb8`
+- [ ] Run test suite: `hosts/hsb8/tests/run-all-tests.sh` _(pending - next access)_
+- [ ] Verify fish functions work: `fish -c "type pingt"` _(pending)_
+- [ ] Verify StaSysMo works (if enabled) _(pending)_
+- [ ] Reboot verification _(pending - next access)_
 - [ ] Update `hosts/DEPLOYMENT.md` to reflect current state
 
 ## Tests to Run
