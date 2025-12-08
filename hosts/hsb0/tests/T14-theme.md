@@ -1,4 +1,4 @@
-# T01: Theme Module Tests (hsb0)
+# T14: Theme Module Tests (hsb0)
 
 Test the themed Starship, Zellij, and Eza configurations.
 

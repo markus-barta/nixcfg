@@ -24,6 +24,7 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, 
 | **ZFS Host ID**       | `dabfdb02`                                           |
 | **User**              | `mba` (Markus Barta)                                 |
 | **Role**              | `server-home` (via `serverMba.enable`)               |
+| **Exposure**          | LAN-only (192.168.1.0/24)                            |
 
 ## Features
 
@@ -43,7 +44,8 @@ hsb0 provides comprehensive DNS/DHCP infrastructure for the entire network:
 | F09 | SSH Remote Access + Security          | Secure SSH with key-only auth, passwordless sudo       | T09  |
 | F10 | ZFS Storage (zroot pool)              | Reliable storage with compression & snapshots          | T10  |
 | F11 | ZFS Snapshots                         | Point-in-time backups for disaster recovery            | T11  |
-| F12 | APC UPS Monitoring + MQTT             | Power protection status published to home automation   | T12  |
+| F12 | APC UPS Monitoring + MQTT             | Power protection status published to home automation   | T16  |
+| F13 | Uptime Kuma Service Monitoring        | Web UI for monitoring service uptime                   | T15  |
 
 **Test Documentation**: All features have detailed test procedures in `hosts/hsb0/tests/` with both manual instructions and automated scripts.
 
@@ -54,6 +56,7 @@ hsb0 provides comprehensive DNS/DHCP infrastructure for the entire network:
 - **UDP 67**: DHCP server
 - **TCP 3000**: AdGuard Home web interface
 - **TCP 22**: SSH
+- **TCP 3001**: Uptime Kuma web interface
 - **TCP 80/443**: Reserved for future use
 
 ---
@@ -578,7 +581,7 @@ ssh mba@192.168.1.99 "sudo tcpdump -i enp2s0f0 -vvv -n 'udp port 67 or udp port 
 - **SSH**: Key-based authentication
 - **Docker**: Container runtime (if needed)
 - **ZFS**: Automatic scrubbing and snapshots
-- **Fail2ban**: Intrusion prevention (ignores 192.168.1.0/16)
+- **Uptime Kuma**: Service monitoring (port 3001)
 - **Firewall**: iptables/nftables packet filtering
 
 ---
@@ -862,7 +865,7 @@ With 24-hour DHCP leases, clients automatically pick up the restored service wit
 - SSH remote access
 - ZFS with automatic snapshots
 - Firewall with restricted ports
-- Fail2ban intrusion prevention
+- Uptime Kuma service monitoring
 - Firmware updates (fwupd)
 
 ### Excluded

@@ -51,7 +51,6 @@ done
 | ------- | ---------------------------- | ------------------- | ------------------- | -------------------------------------------------- |
 | T00     | NixOS Base System            | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 5/5 passed, 10 generations, Yarara 26.05 (hokage)  |
 | T01     | DNS Server                   | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 5/5 tests passed, upstream DNS: 1.1.1.1, 1.0.0.1   |
-| T01     | Theme (starship/zellij/eza)  | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 27/27 passed - yellow theme, Tokyo Night eza       |
 | T02     | Ad Blocking                  | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 3/3 tests passed - protection & filtering enabled  |
 | T03     | DNS Cache                    | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 3/3 tests passed - 4MB cache, optimistic, 9ms perf |
 | T04     | DHCP Server                  | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 5/5 tests passed - DHCP enabled, .201-.254, 24h    |
@@ -62,6 +61,11 @@ done
 | T09     | SSH Remote Access + Security | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 8/8 passed - 1 SSH key, hardened, hokage mkForce   |
 | T10     | ZFS Storage                  | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 5/5 tests passed - ONLINE, 4% used, zstd compress  |
 | T11     | ZFS Snapshots                | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 4/4 tests passed - list, create, verify, destroy   |
+| T12     | Uzumaki Fish Functions       | ⏳ Pending          | ⏳ Pending          | pingt, helpfish, abbreviations, zellij             |
+| T13     | StaSysMo System Metrics      | ⏳ Pending          | ⏳ Pending          | Daemon, reader, Starship integration               |
+| T14     | Theme (starship/zellij/eza)  | ✅ 2025-12-02 18:59 | ✅ 2025-12-02 18:59 | 27/27 passed - yellow theme, Tokyo Night eza       |
+| T15     | Uptime Kuma Monitoring       | ⏳ Pending          | ⏳ Pending          | Service monitoring web UI on port 3001             |
+| T16     | APC UPS + MQTT               | ⏳ Pending          | ⏳ Pending          | apcupsd, MQTT publish, home/vr/battery/ups350      |
 
 ## Notes
 

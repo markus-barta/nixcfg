@@ -188,6 +188,9 @@ in
       users = [
         {
           name = "admin";
+          # NOTE: Bcrypt hash intentionally inline - AdGuard Home requires password in config.
+          # This is an accepted tradeoff since bcrypt is resistant to reversal and
+          # the hash is already in git history. The actual password is in 1Password.
           password = "$2y$05$6tWeTokm6nLLq7nTIpeQn.J9ln.4CWK9HDyhJzY.w6qAk4CmEpUNy";
         }
       ];
