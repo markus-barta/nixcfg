@@ -207,6 +207,59 @@ sudo nix-env --switch-generation N -p /nix/var/nix/profiles/system
 sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch
 ```
 
+### Restore from Backup
+
+**Restore static leases from git history:**
+
+```bash
+# Find the commit with the desired version
+git log secrets/static-leases-hsb0.age
+
+# Extract the file from a specific commit
+git show COMMIT:secrets/static-leases-hsb0.age > secrets/static-leases-hsb0.age
+
+# Verify and redeploy
+agenix -d secrets/static-leases-hsb0.age | jq empty
+just switch
+```
+
+**Restore from ZFS snapshot:**
+
+```bash
+# List available snapshots
+zfs list -t snapshot | grep zroot
+
+# Rollback to a snapshot (destroys newer data!)
+sudo zfs rollback zroot/root@SNAPSHOT_NAME
+```
+
+**Emergency: Recover from Time Machine (on Mac):**
+
+1. Navigate to `~/Code/nixcfg` in Time Machine
+2. Restore desired files
+3. Commit and push: `git add . && git commit -m "restore: from Time Machine backup"`
+4. Deploy to hsb0: `ssh mba@hsb0 "cd ~/Code/nixcfg && git pull && just switch"`
+
+---
+
+## Backup
+
+### Backup Frequency
+
+| Backup Type        | Frequency                 | Location               |
+| ------------------ | ------------------------- | ---------------------- |
+| Git repository     | On each commit/push       | GitHub (remote origin) |
+| ZFS auto-snapshots | Hourly/Daily (if enabled) | Local zroot pool       |
+| Time Machine       | Automatic (on Mac)        | External drive / NAS   |
+
+**Last Verified:** TODO - Set date after verification
+
+**Note:** Check if ZFS auto-snapshots are enabled in configuration:
+
+```bash
+ssh mba@hsb0 "grep -A5 'autoSnapshot' ~/Code/nixcfg/hosts/hsb0/configuration.nix"
+```
+
 ---
 
 ## Maintenance
