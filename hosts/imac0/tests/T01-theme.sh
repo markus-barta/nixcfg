@@ -78,7 +78,7 @@ check_file_contains() {
 # Test Suite
 # ════════════════════════════════════════════════════════════════════════════════
 
-print_header "T01 - Theme Module Tests (imac0 / lightGray)"
+print_header "T01 - Theme Module Tests (imac0 / warmGray)"
 
 echo "Host: $(hostname)"
 echo "Date: $(date)"
