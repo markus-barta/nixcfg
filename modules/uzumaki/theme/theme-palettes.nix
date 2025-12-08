@@ -209,7 +209,7 @@
 #    │  gpc0    🟣 Purple  │          │  imac0   🟫 W-Gray  │
 #    │  stm0    🩷 Pink    │          │  imac1   🔘 M-Gray  │
 #    │  stm1    🩷 Pink    │          │  work    ⚫ D-Gray  │
-#    └─────────────────────┘          │  mbp0    🩶 W-Gray  │
+#    └─────────────────────┘          │  mbp     🩶 L-Gray  │
 #                                     └─────────────────────┘
 #
 # ════════════════════════════════════════════════════════════════════════════════
@@ -636,6 +636,42 @@
       };
     };
 
+    roseGold = {
+      name = "Rose Gold";
+      category = "workstation";
+      description = "Wife's iMac (imac1)";
+
+      # Powerline gradient (light → dark) - subtle pink/copper tint
+      gradient = {
+        lightest = "#e8d8d4"; # OS icon bg - pale rose
+        primary = "#c8a8a0"; # Directory bg - rose gold
+        secondary = "#a08880"; # User/host bg - dusty rose
+        midDark = "#584844"; # Git section bg
+        dark = "#382c28"; # Languages bg
+        darker = "#2a2220"; # Time bg
+        darkest = "#1a1614"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#2a1818"; # Dark text on lightest bg
+        onMedium = "#000000"; # Black for path (high contrast)
+        accent = "#d8b8b0"; # Accent fg on dark bg
+        muted = "#483838"; # Git count, subtle
+        mutedLight = "#a89090"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#c8a8a0";
+        fg = "#a08880";
+        frame = "#c8a8a0";
+        black = "#1a1614";
+        white = "#fff8f6";
+        highlight = "#e8d8d4";
+      };
+    };
+
   };
 
   # ============================================================================
@@ -700,7 +736,12 @@
   # ============================================================================
   #
   # Maps hostname to palette name. Unknown hosts default to "blue" (the original
-  # Tokyo Night theme). Aliases are provided for hosts in transition.
+  # Tokyo Night theme).
+  #
+  # DISPLAY ORDER CONVENTION (for all lists):
+  #   1. Servers before workstations
+  #   2. Cloud before home (for servers)
+  #   3. Home before play before work (for workstations)
   #
 
   hostPalette = {
@@ -715,21 +756,38 @@
 
     # Gaming
     gpc0 = "purple";
-    "mba-gaming-pc" = "purple"; # alias for transition
-
     stm0 = "pink";
     stm1 = "pink";
 
-    # Workstations
+    # Workstations (home > work)
     imac0 = "warmGray";
+    imac1 = "roseGold"; # Wife's iMac (future)
     "imac-mba-work" = "darkGray";
-    "mba-mbp-work" = "lightGray"; # Work MacBook Pro
-    imac1 = "mediumGray";
-    mbp0 = "warmGray";
+    "mba-mbp-work" = "lightGray";
   };
 
   # Default palette for unknown hosts
   defaultPalette = "blue";
+
+  # Display order for CLI tools (follows: server>workstation, cloud>home, home>play>work)
+  hostDisplayOrder = [
+    # Cloud servers
+    "csb0"
+    "csb1"
+    # Home servers
+    "hsb0"
+    "hsb1"
+    "hsb8"
+    # Gaming
+    "gpc0"
+    "stm0"
+    "stm1"
+    # Workstations (home > work)
+    "imac0"
+    "imac1"
+    "imac-mba-work"
+    "mba-mbp-work"
+  ];
 
   # ============================================================================
   # CATEGORY BULLETS (for CLI tools like runbook-secrets)
@@ -752,7 +810,6 @@
   #
 
   portableHosts = [
-    "mbp0" # MacBook Pro
     "stm0" # Steam Deck / Steam Machine
     "stm1" # Steam Deck / Steam Machine
     # Note: gpc0 (gaming PC) is not portable, even though it's in gaming category
