@@ -2,8 +2,6 @@
 
 Test StaSysMo (Starship System Monitoring) daemon and reader functionality.
 
-> ⚠️ **Note**: hsb8 requires uzumaki migration before these tests can pass.
-
 ## Host Information
 
 | Property     | Value           |
