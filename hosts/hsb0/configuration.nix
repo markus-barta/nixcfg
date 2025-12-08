@@ -7,7 +7,34 @@
   inputs,
   ...
 }:
+let
+  # ============================================================================
+  # DNS ALLOWLIST - Domains that bypass ad-blocking
+  # ============================================================================
+  # Add domains here that need to be whitelisted for devices to function
+  # Format: "@@||domain.example.com^" (AdGuard Home allowlist syntax)
+  # Source: sudo grep 'DEVICE_IP' /var/lib/private/AdGuardHome/data/querylog.json | jq -r '.QH' | sort -u
+  # ============================================================================
+  dnsAllowlist = [
+    # Roborock Vacuum (192.168.1.235 / roborock-vacuum-a226)
+    "@@||mqtt-eu-3.roborock.com^" # MQTT broker
+    "@@||api-eu.roborock.com^" # API endpoint
+    "@@||eu-app.roborock.com^" # App backend
+    "@@||euiot.roborock.com^" # IoT endpoint
+    "@@||v-eu-2.roborock.com^" # Voice/firmware
+    "@@||v-eu-3.roborock.com^" # Voice/firmware
+    "@@||vivianspro-eu-1316693915.cos.eu-frankfurt.myqcloud.com^" # Tencent COS (maps)
+    "@@||conf-eu-1316693915.cos.eu-frankfurt.myqcloud.com^" # Tencent COS (config)
+    "@@||anonymousinfo-eu-1316693915.cos.eu-frankfurt.myqcloud.com^" # Tencent COS (telemetry)
+    "@@||cdn.awsde0.fds.api.mi-img.com^" # Xiaomi CDN (firmware/images)
+  ];
 
+  # DNS rewrite rules (internal hostnames)
+  dnsRewrites = [
+    "||csb0^$dnsrewrite=NOERROR;CNAME;cs0.barta.cm"
+    "||csb1^$dnsrewrite=NOERROR;CNAME;cs1.barta.cm"
+  ];
+in
 {
   imports = [
     ./hardware-configuration.nix
@@ -155,11 +182,8 @@
 
       rewrites = [ ];
 
-      # Admin user with password 'admin' (bcrypt hash)
-      user_rules = [
-        "||csb0^$dnsrewrite=NOERROR;CNAME;cs0.barta.cm"
-        "||csb1^$dnsrewrite=NOERROR;CNAME;cs1.barta.cm"
-      ];
+      # Custom filtering rules: allowlist + DNS rewrites
+      user_rules = dnsAllowlist ++ dnsRewrites;
 
       users = [
         {
