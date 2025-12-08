@@ -9,7 +9,8 @@ NC='\033[0m'
 echo "=== T07: Custom Scripts Test ==="
 echo
 
-SCRIPTS=("flushdns.sh" "pingt.sh" "stopAmphetamineAndSleep.sh")
+# Note: pingt is now a fish function (via uzumaki module), not a shell script
+SCRIPTS=("flushdns.sh" "stopAmphetamineAndSleep.sh")
 
 for script in "${SCRIPTS[@]}"; do
   echo -n "Test: $script exists... "

@@ -174,9 +174,8 @@ vim ~/Code/nixcfg/hosts/imac0/config/karabiner.json
 - `brewall` - Upgrade Homebrew packages
 - `cd` - Enhanced with auto-ls after directory change
 - `sudo` - Pass aliases and functions through sudo
-- `sourceenv` - Load .env files
 - `sourcefish` - Reload Fish configuration
-- `pingt` - Timestamped ping (uses custom script)
+- `pingt` - Timestamped ping with color-coded output
 
 **Fish Shell Abbreviations:**
 

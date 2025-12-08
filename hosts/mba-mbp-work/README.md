@@ -15,10 +15,18 @@ Work macOS laptop with Nix package management.
 | Item               | Value                                            |
 | ------------------ | ------------------------------------------------ |
 | **Hostname**       | `mba-mbp-work`                                   |
-| **Model**          | MacBook Pro                                      |
-| **OS**             | macOS (latest)                                   |
-| **Architecture**   | Apple Silicon (aarch64) or Intel (x86_64)        |
-| **User**           | `markus`                                         |
+| **Model**          | MacBook Pro 15,2 (2018 13" Touch Bar)            |
+| **Model ID**       | MacBookPro15,2                                   |
+| **CPU**            | Quad-Core Intel Core i5 @ 2.3 GHz                |
+| **Cores**          | 4                                                |
+| **RAM**            | 16 GB                                            |
+| **Storage**        | 500 GB SSD (~235 GB free)                        |
+| **OS**             | macOS 15.7.2 Sequoia                             |
+| **Architecture**   | x86_64 (Intel)                                   |
+| **Serial**         | C02XV2U3JHD3                                     |
+| **User**           | `mba`                                            |
+| **Static IP**      | `192.168.1.237/24` (DHCP reservation)            |
+| **MAC Address**    | `38:f9:d3:50:a7:0d`                              |
 | **Shell**          | Fish (via Nix)                                   |
 | **Terminal**       | WezTerm (via Nix)                                |
 | **Config Manager** | home-manager (standalone)                        |
@@ -39,7 +47,7 @@ Work macOS laptop with Nix package management.
 | F04 | WezTerm Terminal      | GPU-accelerated terminal with custom config      |
 | F05 | CLI Development Tools | bat, ripgrep, fd, fzf, btop, zoxide, jq, just    |
 | F06 | direnv + devenv       | Automatic project environment loading            |
-| F07 | Uzumaki Functions     | pingt, sourcefish, sourceenv, helpfish           |
+| F07 | Uzumaki Functions     | pingt, sourcefish, stress, helpfish              |
 
 ---
 

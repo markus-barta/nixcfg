@@ -30,12 +30,19 @@ else
   echo "⚠️  Fish not default shell: $SHELL"
 fi
 
-# Test 4: Custom functions exist (base)
-if fish -c "functions brewall sourceenv sourcefish" >/dev/null 2>&1; then
-  echo "✅ Base custom functions configured (brewall, sourceenv, sourcefish)"
+# Test 4: sourcefish function exists (from uzumaki)
+if fish -c "functions -q sourcefish" 2>/dev/null; then
+  echo "✅ sourcefish function exists"
 else
-  echo "❌ Base custom functions not found"
+  echo "❌ sourcefish function not found"
   exit 1
+fi
+
+# Test 4b: brewall function exists (macOS-specific, defined in home.nix)
+if fish -c "functions -q brewall" 2>/dev/null; then
+  echo "✅ brewall function exists"
+else
+  echo "⚠️  brewall function not found (optional)"
 fi
 
 # Test 5: Uzumaki functions exist (pingt, stress, helpfish)

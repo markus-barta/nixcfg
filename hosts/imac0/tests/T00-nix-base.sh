@@ -28,8 +28,8 @@ else
   exit 1
 fi
 
-# Test 4: Platform detection
-PLATFORM=$(nix eval --raw --expr 'builtins.currentSystem')
+# Test 4: Platform detection (requires --impure for builtins.currentSystem)
+PLATFORM=$(nix eval --impure --raw --expr 'builtins.currentSystem')
 if [[ "$PLATFORM" == "x86_64-darwin" ]]; then
   echo "✅ Platform detected: $PLATFORM"
 else

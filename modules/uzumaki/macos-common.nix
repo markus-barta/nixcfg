@@ -67,7 +67,6 @@ in
       inherit (uzumakiFunctions)
         pingt
         sourcefish
-        sourceenv
         stress
         helpfish
         ;

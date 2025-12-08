@@ -66,7 +66,6 @@ csb1's `configuration.nix` already imports `../../modules/uzumaki/server.nix` wh
 | --------------------- | ------------------ | ------------------------ | ------------ |
 | `pingt` function      | uzumaki/common.nix | ✅ Working               | ✅           |
 | `sourcefish` function | uzumaki/common.nix | ✅ Working               | ✅           |
-| `sourceenv` function  | uzumaki/common.nix | ✅ Working               | ✅           |
 | `stress` function     | uzumaki/common.nix | ❌ Missing (added later) | ✅ NEW       |
 | `stasysmod` function  | uzumaki/common.nix | ❌ Missing (added later) | ✅ NEW       |
 | `helpfish` function   | uzumaki/common.nix | ❌ Missing (added later) | ✅ NEW       |

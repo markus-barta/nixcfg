@@ -25,7 +25,6 @@ in
   programs.fish.interactiveShellInit = lib.mkAfter ''
     ${mkFishFunction "pingt" fishFunctions.pingt}
     ${mkFishFunction "sourcefish" fishFunctions.sourcefish}
-    ${mkFishFunction "sourceenv" fishFunctions.sourceenv}
     ${mkFishFunction "stress" fishFunctions.stress}
     ${mkFishFunction "helpfish" fishFunctions.helpfish}
 
