@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Test T01: Fish Shell
-# Tests fish shell installation and uzumaki functions (pingt, stress, helpfish, etc.)
+# Tests fish shell installation and uzumaki functions
 set -euo pipefail
 
 echo "Testing Fish Shell..."
@@ -30,41 +30,22 @@ else
   echo "⚠️  Fish not default shell: $SHELL"
 fi
 
-# Test 4: sourcefish function exists (from uzumaki)
-if fish -c "functions -q sourcefish" 2>/dev/null; then
-  echo "✅ sourcefish function exists"
-else
-  echo "❌ sourcefish function not found"
-  exit 1
-fi
+# Test 4: Core uzumaki functions
+CORE_FUNCTIONS=(pingt sourcefish stress helpfish stasysmod hostcolors hostsecrets)
+for func in "${CORE_FUNCTIONS[@]}"; do
+  if fish -c "functions -q $func" 2>/dev/null; then
+    echo "✅ $func function exists"
+  else
+    echo "❌ $func function not found"
+    exit 1
+  fi
+done
 
-# Test 4b: brewall function exists (macOS-specific, defined in home.nix)
+# Test 5: brewall function exists (macOS-specific, defined in macos-common.nix)
 if fish -c "functions -q brewall" 2>/dev/null; then
   echo "✅ brewall function exists"
 else
   echo "⚠️  brewall function not found (optional)"
-fi
-
-# Test 5: Uzumaki functions exist (pingt, stress, helpfish)
-if fish -c "functions -q pingt" 2>/dev/null; then
-  echo "✅ pingt function exists"
-else
-  echo "❌ pingt function not found"
-  exit 1
-fi
-
-if fish -c "functions -q stress" 2>/dev/null; then
-  echo "✅ stress function exists"
-else
-  echo "❌ stress function not found"
-  exit 1
-fi
-
-if fish -c "functions -q helpfish" 2>/dev/null; then
-  echo "✅ helpfish function exists"
-else
-  echo "❌ helpfish function not found"
-  exit 1
 fi
 
 # Test 6: pingt produces timestamped output
@@ -85,7 +66,16 @@ else
   exit 1
 fi
 
-# Test 8: Key abbreviations
+# Test 8: hostcolors shows host overview
+HOSTCOLORS_OUTPUT=$(fish -c "hostcolors" 2>&1 || true)
+if echo "$HOSTCOLORS_OUTPUT" | grep -q "CLOUD\|HOME\|WORKSTATIONS"; then
+  echo "✅ hostcolors shows host categories"
+else
+  echo "❌ hostcolors missing host overview"
+  exit 1
+fi
+
+# Test 9: Key abbreviations
 if fish -c "abbr --show" 2>/dev/null | grep -q "ping.*pingt"; then
   echo "✅ ping → pingt abbreviation"
 else
@@ -97,5 +87,16 @@ if fish -c "abbr --show" 2>/dev/null | grep -q "tmux.*zellij"; then
 else
   echo "⚠️  tmux → zellij abbreviation not set"
 fi
+
+# Test 10: SSH shortcuts (aliases)
+SSH_ALIASES=(hsb0 hsb1 hsb8 gpc0 mbpw csb0 csb1)
+echo "Checking SSH shortcuts..."
+for alias in "${SSH_ALIASES[@]}"; do
+  if fish -c "alias" 2>/dev/null | grep -q "^$alias "; then
+    echo "✅ $alias SSH shortcut exists"
+  else
+    echo "⚠️  $alias SSH shortcut not found (optional)"
+  fi
+done
 
 echo "✅ All Fish Shell tests passed"

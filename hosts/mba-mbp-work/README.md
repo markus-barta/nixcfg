@@ -32,7 +32,7 @@ Work macOS laptop with Nix package management.
 | **Config Manager** | home-manager (standalone)                        |
 | **Git Default**    | Work identity (mba / markus.barta@bytepoets.com) |
 | **Apply Config**   | `just switch` or `home-manager switch --flake .` |
-| **Theme**          | Warm Gray (mobile workstation palette)           |
+| **Theme**          | Light Gray (`#a8aeb8`) - cool silver workstation |
 
 ---
 
@@ -47,7 +47,7 @@ Work macOS laptop with Nix package management.
 | F04 | WezTerm Terminal      | GPU-accelerated terminal with custom config      |
 | F05 | CLI Development Tools | bat, ripgrep, fd, fzf, btop, zoxide, jq, just    |
 | F06 | direnv + devenv       | Automatic project environment loading            |
-| F07 | Uzumaki Functions     | pingt, sourcefish, stress, helpfish              |
+| F07 | Uzumaki Functions     | pingt, helpfish, hostcolors, hostsecrets, etc.   |
 
 ---
 
