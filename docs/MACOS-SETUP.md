@@ -420,7 +420,58 @@ helpfish
 # Check theme (starship prompt should have correct colors)
 ```
 
-### 5.3 Install Karabiner-Elements (Optional)
+### 5.3 Enable direnv + devenv (Required for nixcfg)
+
+The nixcfg repo uses **direnv** + **devenv** for development environment setup:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  THE CHAIN: How .shared/common.just gets created                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  1. You enter ~/Code/nixcfg                                     │
+│           │                                                     │
+│           ▼                                                     │
+│  2. direnv detects .envrc                                       │
+│           │                                                     │
+│           ▼                                                     │
+│  3. .envrc runs: eval "$(devenv direnvrc)" && use devenv        │
+│           │                                                     │
+│           ▼                                                     │
+│  4. devenv reads devenv.yaml                                    │
+│           │                                                     │
+│           ▼                                                     │
+│  5. devenv.yaml imports: shared/common (from github:pbek/...)   │
+│           │                                                     │
+│           ▼                                                     │
+│  6. Creates .shared/common.just symlink → Nix store             │
+│           │                                                     │
+│           ▼                                                     │
+│  7. justfile can now: import ".shared/common.just"              │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**First time setup:**
+
+```bash
+cd ~/Code/nixcfg
+direnv allow
+
+# Wait for devenv to download dependencies (first time is slow)
+# You'll see: "🛠️ nixcfg  macOS" when ready
+
+# Verify
+just --list
+```
+
+**If `just` fails with "Could not find source file for import":**
+
+- `devenv` is not installed → run `home-manager switch` to get it
+- `direnv allow` wasn't run → run `direnv allow`
+- First time → wait for devenv to create `.shared/`
+
+### 5.4 Install Karabiner-Elements (Optional)
 
 For keyboard remapping (Caps Lock → Hyper key):
 

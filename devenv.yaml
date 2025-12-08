@@ -1,4 +1,9 @@
 # yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+#
+# THE CHAIN: direnv → devenv → devenv.yaml → imports shared/common
+#            This creates .shared/common.just which justfile imports.
+#            See: docs/MACOS-SETUP.md section 5.3 for full explanation.
+#
 inputs:
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
@@ -6,8 +11,10 @@ inputs:
   nixpkgs-unstable:
     url: github:NixOS/nixpkgs/nixos-unstable
   shared:
+    # Provides common.just with shared justfile recipes
     url: github:pbek/nix-shared
     flake: false
 
 imports:
+  # Creates .shared/common.just symlink in repo root
   - shared/common
