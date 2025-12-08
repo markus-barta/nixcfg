@@ -1,32 +1,47 @@
-# T12: Custom Scripts
+# T07: Custom Scripts
 
-Test Custom Scripts functionality.
+Test custom shell scripts symlinked to ~/Scripts/.
 
 ## Prerequisites
 
-- Custom Scripts configured via home-manager
+- home-manager configured with Scripts symlink
+- Scripts directory: `hosts/imac0/scripts/host-user/`
+
+## Scripts Tested
+
+| Script                       | Purpose                            |
+| ---------------------------- | ---------------------------------- |
+| `flushdns.sh`                | Flush macOS DNS cache              |
+| `stopAmphetamineAndSleep.sh` | Stop Amphetamine app and sleep Mac |
+
+**Note:** `pingt` is now a fish function provided by the uzumaki module, not a shell script.
 
 ## Manual Test Procedures
 
-### Test 1: Installation Check
+### Test 1: Scripts Symlinked
 
 **Steps:**
 
-1. Verify Custom Scripts is installed
-2. Check configuration
+```bash
+ls -la ~/Scripts/
+```
 
-**Expected:** Custom Scripts working correctly
+**Expected:**
+
+- `flushdns.sh` → symlinked to Nix store
+- `stopAmphetamineAndSleep.sh` → symlinked to Nix store
 
 **Status:** ⏳ Pending
 
-### Test 2: Functionality
+### Test 2: Scripts Executable
 
 **Steps:**
 
-1. Test core functionality
-2. Verify integration
+```bash
+~/Scripts/flushdns.sh
+```
 
-**Expected:** All features working
+**Expected:** DNS cache flushed (may require sudo)
 
 **Status:** ⏳ Pending
 
@@ -39,5 +54,5 @@ Test Custom Scripts functionality.
 
 ## Related
 
-- Feature: [F12 - Custom Scripts](../docs/README.md#features)
-- Automated: [T12-custom-scripts.sh](./T12-custom-scripts.sh)
+- Feature: [F07 - Custom Scripts](../README.md#features)
+- Automated: [T07-custom-scripts.sh](./T07-custom-scripts.sh)

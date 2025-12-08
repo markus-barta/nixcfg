@@ -20,15 +20,20 @@ Test Fish shell configuration and custom functions.
 
 **Status:** ⏳ Pending
 
-### Test 2: Custom Functions
+### Test 2: Uzumaki Functions
 
 **Steps:**
 
-1. Test `brewall` function
-2. Test `sourceenv` function
-3. Test `sourcefish` function
+1. Check uzumaki functions: `fish -c "functions -q pingt sourcefish stress helpfish"`
+2. Test pingt output: `pingt -c 1 127.0.0.1`
+3. Test helpfish: `helpfish`
 
-**Expected:** All functions defined and working
+**Expected:**
+
+- Functions: `pingt`, `sourcefish`, `stress`, `helpfish` (from uzumaki)
+- `brewall` (optional, macOS-specific from home.nix)
+- pingt shows timestamps
+- helpfish shows Functions section
 
 **Status:** ⏳ Pending
 

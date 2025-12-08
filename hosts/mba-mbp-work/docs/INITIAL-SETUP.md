@@ -81,14 +81,22 @@ ssh localhost
 
 ## Step 3: Install Nix Package Manager
 
-We use the **Determinate Systems** installer (recommended for macOS).
+We use the **official NixOS.org installer** in multi-user (daemon) mode.
+
+**Important:** This command uses process substitution which does NOT work in fish shell.
+You must run it in bash/zsh:
 
 ```bash
-# Install Nix with Determinate Systems installer
-curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+# Switch to bash first (required if using fish!)
+bash
 
-# Follow the prompts (type 'y' to confirm)
+# Install Nix (official multi-user installation)
+sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install)
+
+# Follow the prompts
 ```
+
+See: [nix.dev/install-nix](https://nix.dev/install-nix)
 
 ### After Installation
 
@@ -98,17 +106,35 @@ curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix 
 # Verify Nix is installed
 nix --version
 # → nix (Nix) 2.x.x
+```
 
-# Verify flakes are enabled (automatic with Determinate installer)
+### Enable Flakes (Required)
+
+The official installer does NOT enable flakes by default:
+
+```bash
+# Edit nix.conf
+sudo nano /etc/nix/nix.conf
+
+# Add these lines:
+experimental-features = nix-command flakes
+trusted-users = root mba
+
+# Save and exit (Ctrl+O, Enter, Ctrl+X)
+
+# Restart nix daemon
+sudo launchctl kickstart -k system/org.nixos.nix-daemon
+
+# Verify flakes work
 nix flake --help
 # Should show flake subcommands
 ```
 
-**Note**: The Determinate Systems installer automatically:
+**Note**: The official installer:
 
-- Enables flakes and nix-command
-- Configures trusted-users
-- Sets up the Nix daemon
+- Creates the /nix APFS volume
+- Sets up build users (nixbld1-10)
+- Configures the Nix daemon (launchd)
 
 ---
 
@@ -136,7 +162,7 @@ This installs Home Manager and applies your configuration in one command.
 cd ~/Code/nixcfg
 
 # First-time install: run home-manager via nix run
-nix run home-manager -- switch --flake ".#markus@mba-mbp-work"
+nix run home-manager -- switch --flake ".#mba@mba-mbp-work"
 ```
 
 This will:
@@ -167,7 +193,7 @@ chsh -s ~/.nix-profile/bin/fish
 ```bash
 # Check you're in fish
 echo $SHELL
-# → /Users/markus/.nix-profile/bin/fish
+# → /Users/mba/.nix-profile/bin/fish
 
 # Check fish version
 fish --version
@@ -223,7 +249,7 @@ sudo launchctl kickstart -k system/org.nixos.nix-daemon
 ```bash
 # Check all tools come from Nix
 which fish starship git node python3 bat btop
-# All should show: /Users/markus/.nix-profile/bin/...
+# All should show: /Users/mba/.nix-profile/bin/...
 
 # Check fish functions work
 pingt 8.8.8.8
@@ -264,7 +290,7 @@ git pull
 
 # Apply configuration
 just switch
-# or: home-manager switch --flake ".#markus@mba-mbp-work"
+# or: home-manager switch --flake ".#mba@mba-mbp-work"
 ```
 
 ### Update All Packages

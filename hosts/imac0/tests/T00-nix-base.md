@@ -82,7 +82,7 @@ Test the Nix package manager and home-manager configuration.
    ```
 2. Verify Nix recognizes platform:
    ```bash
-   nix eval --expr 'builtins.currentSystem'
+   nix eval --impure --expr 'builtins.currentSystem'
    ```
 
 **Expected Results:**

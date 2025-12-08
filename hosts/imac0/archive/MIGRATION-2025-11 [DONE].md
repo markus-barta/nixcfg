@@ -114,7 +114,7 @@ Tested each component step-by-step to verify Nix versions work correctly.
 
 - Fish v4.1.2 from Nix
 - All configuration files symlinked
-- Custom functions: brewall, cd, sudo, sourceenv, sourcefish, pingt
+- Custom functions: brewall, cd, sudo, sourcefish, pingt
 - Aliases: mc, lg
 - Abbreviations: flushdns, qc0, qc1, qc24, qc99
 

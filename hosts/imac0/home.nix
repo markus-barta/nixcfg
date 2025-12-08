@@ -86,7 +86,7 @@
       zoxide init fish | source
     '';
 
-    # Functions (pingt, sourcefish, sourceenv are provided by uzumaki/macos.nix)
+    # Functions (pingt, sourcefish, stress, helpfish are provided by uzumaki)
     functions = {
       # Custom cd function using zoxide
       cd = ''

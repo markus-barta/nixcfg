@@ -47,7 +47,7 @@ Run: `./T20-uzumaki-fish.sh`
 
 **Expected Results:**
 
-- Functions defined: `pingt`, `sourcefish`, `sourceenv`, `stress`, `helpfish`
+- Functions defined: `pingt`, `sourcefish`, `stress`, `helpfish`
 
 **Status:** ⏳ Pending
 

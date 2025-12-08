@@ -14,7 +14,7 @@ Quick overview of infrastructure operations progress.
 | 🌐  | csb0          | NixOS | Server  | ✅ 2025-12-08 13:00 | ✅ 2025-12-08 13:30 | Added 7 test docs (SYSOP)                      |
 | 🌐  | csb1          | NixOS | Server  | ✅ 2025-12-08 18:30 | ✅ 2025-12-08 18:35 | Minor fixes: Features table, ip-marker (SYSOP) |
 | 🎮  | gpc0          | NixOS | Desktop | ⏳                  | ⏳                  | -                                              |
-| 🖥️  | imac0         | macOS | Desktop | ⏳                  | ⏳                  | -                                              |
+| 🖥️  | imac0         | macOS | Desktop | ✅ 2025-12-08 18:43 | ✅ 2025-12-08 18:43 | All 13 tests pass, removed sourceenv (SYSOP)   |
 | 🖥️  | imac-mba-work | macOS | Desktop | ⏳                  | ⏳                  | -                                              |
 | 💻  | mba-mbp-work  | macOS | Desktop | ⏳                  | ⏳                  | -                                              |
 
@@ -27,9 +27,9 @@ Quick overview of infrastructure operations progress.
 | Metric            | Count |
 | ----------------- | ----- |
 | Total hosts       | 9     |
-| Audited           | 5     |
-| Fixed after audit | 5     |
-| Pending audit     | 4     |
+| Audited           | 6     |
+| Fixed after audit | 6     |
+| Pending audit     | 3     |
 
 ---
 
