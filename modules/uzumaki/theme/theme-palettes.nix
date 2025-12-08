@@ -206,7 +206,7 @@
 #
 #    GAMING                           WORKSTATIONS
 #    ┌─────────────────────┐          ┌─────────────────────┐
-#    │  gpc0    🟣 Purple  │          │  imac0   ⚪ L-Gray  │
+#    │  gpc0    🟣 Purple  │          │  imac0   🟫 W-Gray  │
 #    │  stm0    🩷 Pink    │          │  imac1   🔘 M-Gray  │
 #    │  stm1    🩷 Pink    │          │  work    ⚫ D-Gray  │
 #    └─────────────────────┘          │  mbp0    🩶 W-Gray  │
@@ -493,7 +493,7 @@
     lightGray = {
       name = "Light Gray";
       category = "workstation";
-      description = "Home workstation (imac0)";
+      description = "Work MacBook Pro (mba-mbp-work)";
 
       # Powerline gradient (light → dark)
       gradient = {
@@ -603,7 +603,7 @@
     warmGray = {
       name = "Warm Gray";
       category = "workstation";
-      description = "Mobile workstation (mbp0)";
+      description = "Home workstation (imac0)";
 
       # Powerline gradient (light → dark) - warm/brownish tint
       gradient = {
@@ -721,9 +721,9 @@
     stm1 = "pink";
 
     # Workstations
-    imac0 = "lightGray";
+    imac0 = "warmGray";
     "imac-mba-work" = "darkGray";
-    "mba-mbp-work" = "warmGray"; # Work MacBook Pro
+    "mba-mbp-work" = "lightGray"; # Work MacBook Pro
     imac1 = "mediumGray";
     mbp0 = "warmGray";
   };

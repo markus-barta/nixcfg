@@ -277,8 +277,8 @@ Edit `modules/uzumaki/theme/theme-palettes.nix`:
   "your-hostname" = "warmGray";  # or lightGray, darkGray, etc.
 
   # Existing hosts...
-  "imac0" = "lightGray";
-  "mba-mbp-work" = "warmGray";
+  "imac0" = "warmGray";
+  "mba-mbp-work" = "lightGray";
 }
 ```
 

@@ -188,7 +188,7 @@ sudo nixos-rebuild switch --flake .#hostname
 │         │                                       │                           │
 │         │ reads                                 │ lookup                    │
 │         ▼                                       ▼                           │
-│    ┌────────────────────────┐          hostPalette.imac0 = "lightGray"      │
+│    ┌────────────────────────┐          hostPalette.imac0 = "warmGray"       │
 │    │ starship-template.toml │                   │                           │
 │    │ (Unicode glyphs +      │                   │                           │
 │    │  color placeholders)   │                   │                           │

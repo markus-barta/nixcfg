@@ -129,9 +129,9 @@
       set -l c_hsb1 (set_color "#68c878")  # Green
       set -l c_hsb8 (set_color "#e09050")  # Orange
       set -l c_gpc0 (set_color "#9868d0")  # Purple
-      set -l c_imac0 (set_color "#a8aeb8") # Light Gray
+      set -l c_imac0 (set_color "#a8a098") # Warm Gray
       set -l c_imacw (set_color "#686c70") # Dark Gray
-      set -l c_mbpw (set_color "#a8a098")  # Warm Gray
+      set -l c_mbpw (set_color "#a8aeb8")  # Light Gray
 
       echo ""
       echo "$bold╔════════════════════════════════════════════════════════════════════════╗$reset"
@@ -147,9 +147,9 @@
       echo ""
       echo "  $dim GAMING                            WORKSTATIONS$reset"
       echo "  ┌─────────────────────────┐        ┌─────────────────────────┐"
-      printf "  │  $c_gpc0●$reset gpc0    $c_gpc0Purple$reset     │        │  $c_imac0●$reset imac0   $c_imac0Light Gray$reset │\n"
+      printf "  │  $c_gpc0●$reset gpc0    $c_gpc0Purple$reset     │        │  $c_imac0●$reset imac0   $c_imac0Warm Gray$reset  │\n"
       echo "  └─────────────────────────┘        │  $c_imacw●$reset imac-w  $c_imacw Dark Gray$reset │"
-      echo "                                     │  $c_mbpw●$reset mba-mbp $c_mbpw Warm Gray$reset │"
+      echo "                                     │  $c_mbpw●$reset mba-mbp $c_mbpw Light Gray$reset│"
       echo "                                     └─────────────────────────┘"
       echo ""
       echo "  $dim Colors flow through: Starship prompt → Zellij frame → Eza theme$reset"
