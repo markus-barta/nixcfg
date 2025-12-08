@@ -32,9 +32,9 @@ However, hsb8 is **offline** and hasn't received a deployment yet.
 
 - [x] hsb8 is online and accessible
 - [x] Deploy: `nixos-rebuild switch --flake .#hsb8`
+- [x] Verify fish functions work: `fish -c "type pingt"`
+- [x] Verify StaSysMo works (if enabled)
 - [ ] Run test suite: `hosts/hsb8/tests/run-all-tests.sh` _(pending - next access)_
-- [ ] Verify fish functions work: `fish -c "type pingt"` _(pending)_
-- [ ] Verify StaSysMo works (if enabled) _(pending)_
 - [ ] Reboot verification _(pending - next access)_
 - [ ] Update `hosts/DEPLOYMENT.md` to reflect current state
 
