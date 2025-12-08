@@ -6,37 +6,42 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 
 ## Quick Reference
 
-| Item                            | Value                                                  |
-| ------------------------------- | ------------------------------------------------------ |
-| **Hostname**                    | `hsb1`                                                 |
-| **Model**                       | Mac mini 2014 (Late 2014)                              |
-| **CPU**                         | Intel Core i7-4578U @ 3.00GHz (2C/4T)                  |
-| **RAM**                         | 16 GB (15 GiB usable)                                  |
-| **Storage**                     | 512 GB Apple SSD (465.9 GB usable)                     |
-| **Filesystem**                  | ZFS (zroot pool, 12% used)                             |
-| **Static IP**                   | `192.168.1.101/24`                                     |
-| **Gateway**                     | `192.168.1.5` (Fritz!Box)                              |
-| **DNS**                         | `192.168.1.99` (hsb0) + `1.1.1.1` (fallback)           |
-| **Web Interface - Node-RED**    | [http://192.168.1.101:1880](http://192.168.1.101:1880) |
-| **Web Interface - Zigbee2MQTT** | [http://192.168.1.101:8888](http://192.168.1.101:8888) |
-| **Web Interface - Apprise**     | [http://192.168.1.101:8001](http://192.168.1.101:8001) |
-| **SSH Access**                  | `ssh mba@192.168.1.101` or `ssh mba@hsb1.lan`          |
-| **Network Interface**           | `enp3s0f0`                                             |
-| **ZFS Host ID**                 | `dabfdb01`                                             |
-| **User**                        | `mba` (Markus Barta)                                   |
-| **Role**                        | `server-home` (via `serverMba.enable`)                 |
+| Item                               | Value                                                    |
+| ---------------------------------- | -------------------------------------------------------- |
+| **Hostname**                       | `hsb1`                                                   |
+| **Model**                          | Mac mini 2014 (Late 2014)                                |
+| **CPU**                            | Intel Core i7-4578U @ 3.00GHz (2C/4T)                    |
+| **RAM**                            | 16 GB (15 GiB usable)                                    |
+| **Storage**                        | 512 GB Apple SSD (465.9 GB usable)                       |
+| **Filesystem**                     | ZFS (zroot pool, 12% used)                               |
+| **Static IP**                      | `192.168.1.101/24`                                       |
+| **Gateway**                        | `192.168.1.5` (Fritz!Box)                                |
+| **DNS**                            | `192.168.1.99` (hsb0) + `1.1.1.1` (fallback)             |
+| **Web Interface - Node-RED**       | [http://192.168.1.101:1880](http://192.168.1.101:1880)   |
+| **Web Interface - Zigbee2MQTT**    | [http://192.168.1.101:8888](http://192.168.1.101:8888)   |
+| **Web Interface - Apprise**        | [http://192.168.1.101:8001](http://192.168.1.101:8001)   |
+| **SSH Access**                     | `ssh mba@192.168.1.101` or `ssh mba@hsb1.lan`            |
+| **Network Interface**              | `enp3s0f0`                                               |
+| **ZFS Host ID**                    | `dabfdb01`                                               |
+| **User**                           | `mba` (Markus Barta)                                     |
+| **Role**                           | `server-home` (via `serverMba.enable`)                   |
+| **Exposure**                       | LAN-only (192.168.1.0/24)                                |
+| **Web Interface - Home Assistant** | [http://192.168.1.101:8123](http://192.168.1.101:8123)   |
+| **Web Interface - Scrypted**       | [http://192.168.1.101:10443](http://192.168.1.101:10443) |
 
 ## Features
 
 | ID  | Technical               | User-Friendly                                 | Test |
 | --- | ----------------------- | --------------------------------------------- | ---- |
 | F00 | NixOS Base System       | Stable system foundation with generation mgmt | T00  |
-| F01 | Node-RED                | Home automation flows and logic               | -    |
-| F02 | Zigbee2MQTT             | Zigbee device management                      | -    |
-| F03 | MQTT Broker (Mosquitto) | Message broker for IoT devices                | -    |
-| F04 | VLC Kiosk Mode          | Camera viewing on connected display           | -    |
-| F05 | APC UPS Monitoring      | UPS status via MQTT                           | -    |
-| F06 | ZFS Storage             | Reliable storage with compression & snapshots | -    |
+| F01 | Node-RED                | Home automation flows and logic               | T04  |
+| F02 | Zigbee2MQTT             | Zigbee device management                      | T04  |
+| F03 | MQTT Broker (Mosquitto) | Message broker for IoT devices                | T04  |
+| F04 | Home Assistant          | Main home automation hub                      | T04  |
+| F05 | Scrypted                | Camera/NVR/HomeKit bridge                     | T04  |
+| F06 | VLC Kiosk Mode          | Camera viewing on connected display           | -    |
+| F07 | APC UPS Monitoring      | UPS status via MQTT                           | -    |
+| F08 | ZFS Storage             | Reliable storage with compression & snapshots | -    |
 
 ---
 
@@ -96,8 +101,9 @@ Custom DNS entries for devices without proper DHCP hostnames:
 
 **Status**: Disabled (HomeKit compatibility issues)
 
-- Ports would be: 80, 443, 1880, 1883, 5223, 5353, 9000, 51827, 554
-- fail2ban also disabled
+If re-enabled, open ports: 80, 443, 1880, 1883, 5223, 5353, 9000, 51827, 554
+
+Note: fail2ban also disabled. This is acceptable for LAN-only server.
 
 ---
 
@@ -179,16 +185,21 @@ Filesystems:
 
 All containers run with host network access and DNS resolution:
 
-| Container               | Purpose               | Ports      |
-| ----------------------- | --------------------- | ---------- |
-| **nodered**             | Home automation flows | 1880       |
-| **mosquitto**           | MQTT broker           | 1883, 9001 |
-| **zigbee2mqtt**         | Zigbee bridge         | 8888       |
-| **apprise**             | Notifications         | 8001       |
-| **matter-server**       | Matter protocol       | -          |
-| **watchtower-weekly**   | Auto-updates          | -          |
-| **smtp**                | Mail relay            | 25         |
-| **restic-cron-hetzner** | Backups               | -          |
+| Container               | Purpose                    | Ports      |
+| ----------------------- | -------------------------- | ---------- |
+| **homeassistant**       | Main automation hub        | 8123       |
+| **nodered**             | Home automation flows      | 1880       |
+| **mosquitto**           | MQTT broker                | 1883, 9001 |
+| **zigbee2mqtt**         | Zigbee bridge              | 8888       |
+| **scrypted**            | Camera/NVR/HomeKit bridge  | 10443      |
+| **matter-server**       | Matter protocol            | 5580       |
+| **pidicon**             | Pixoo display control      | 10829      |
+| **apprise**             | Notifications              | 8001       |
+| **opus-stream-to-mqtt** | OPUS gateway → MQTT bridge | -          |
+| **smtp**                | Mail relay                 | 25         |
+| **restic-cron-hetzner** | Backups to Hetzner         | -          |
+| **watchtower-weekly**   | Weekly auto-updates        | -          |
+| **watchtower-pidicon**  | Fast pidicon updates       | -          |
 
 ## Native Services
 

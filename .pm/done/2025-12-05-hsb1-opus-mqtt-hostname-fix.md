@@ -6,9 +6,7 @@ Quick fix to update the MQTT broker hostname in the Opus-to-MQTT container to po
 
 ## Status
 
-✅ **COMPLETED** - 2025-12-05
-
-**Fix applied**: Changed `MQTT_BROKER=mqtt://miniserver24:1883` → `mqtt://hsb1:1883`
+🔴 **URGENT** - Container currently using wrong MQTT broker address
 
 ## Scope
 
