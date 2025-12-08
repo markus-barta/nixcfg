@@ -16,38 +16,39 @@ When changing host colors (e.g., swapping imac0 and mba-mbp-work), updates are n
 
 Change host color assignment in **one place only** (`theme-palettes.nix`) and have everything else auto-update.
 
-## Proposed Solution
+## Plan (make the palette consumable everywhere)
 
-### 1. Fish `hostcolors` Function
+1. Produce one canonical machine-readable export
 
-Instead of hardcoded colors, dynamically read from theme-palettes.nix using `nix eval`:
+- Add a single derivation/attr (e.g., `hostPaletteExport`) in `theme-palettes.nix` that emits JSON with hex, rgb, and label data for every host. Keep it stable and documented.
 
-```fish
-# Example approach - evaluate Nix to get host colors
-set -l host_data (nix eval --json --file $nixcfg/modules/uzumaki/theme/theme-palettes.nix hostPalette)
-# Parse JSON and display with actual colors
-```
+2. Ship a tiny CLI entrypoint
 
-This is similar to how `runbook-secrets.sh` already does it (see `load_host_colors` function).
+- Add `nix run .#host-colors` (or similar) that prints table/JSON so consumers don’t need to know the path to the Nix file. Mirror what `runbook-secrets.sh` already does.
 
-### 2. Documentation
+3. Point every consumer to the CLI/export
 
-Options:
+- `fish hostcolors` and any other shell helpers read via `nix run .#host-colors -- --format=table/json`.
+- Scripts/tests (`hosts/*/tests/T01-theme.*`) ingest the JSON once and compare expected palettes.
+- Docs pull a generated snippet (JSON → md table) so they stay in sync.
 
-- Generate docs from Nix (complex)
-- Accept some manual maintenance for docs (pragmatic)
-- Add CI check that docs match source of truth
+4. Add a consistency check
 
-### 3. Test Files
+- A lightweight `just check-host-colors` (or CI hook) that re-generates the doc/table/test fixtures and fails if git is dirty.
 
-- Tests are host-specific, so some hardcoding is acceptable
-- Could add validation that test expectations match actual palette
+5. Keep ergonomics + offline story
+
+- Cache the JSON in the Nix store; allow `--cached` mode so fish functions stay fast without network evaluation.
+
+## Where else this applies
+
+- Any place that shows host identity: shell prompts (starship), tmux/zellij status, SSH MOTD banners, runbooks, and onboarding docs.
+- Similar pattern can be reused for other shared data (host roles, region tags) to avoid multi-file edits.
 
 ## Effort
 
-- Medium complexity
-- Main work: Rewrite `hostcolors` fish function to use `nix eval`
-- Reference implementation exists in `scripts/runbook-secrets.sh`
+- Medium: most work is wiring the Nix export + CLI and swapping consumers to it.
+- Validation/doc generation adds small extra lift but avoids future churn.
 
 ## Related
 
