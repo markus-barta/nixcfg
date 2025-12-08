@@ -374,6 +374,10 @@
     prettier # Code formatter
     nano # Modern nano with syntax highlighting
 
+    # Utilities
+    esptool # ESP32/ESP8266 flashing tool
+    nmap # Network scanner
+
     # Fonts
     (pkgs.nerd-fonts.hack)
   ];
@@ -456,6 +460,17 @@
     set constantshow
     set matchbrackets "(<[{)>]}"
   '';
+
+  # ============================================================================
+  # Karabiner-Elements Configuration (Declarative!)
+  # ============================================================================
+  # Note: Karabiner-Elements app itself stays in Homebrew (system driver)
+  # But the configuration is fully declarative via home-manager
+  #
+  # Key mappings:
+  # - Caps Lock → Hyper (Cmd+Ctrl+Opt+Shift) - for powerful global shortcuts
+  # - Function keys work as regular F1-F12 in terminals (no media keys)
+  home.file.".config/karabiner/karabiner.json".source = ./config/karabiner.json;
 
   # ============================================================================
   # Scripts Management
