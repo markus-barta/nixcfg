@@ -511,6 +511,9 @@ in
 
   # NOTE: Starship configured in common.nix (via commonServerModules)
 
+  # Host-specific fish abbreviation override (c instead of cl for clear)
+  programs.fish.shellAbbrs.c = "clear";
+
   # ============================================================================
   # AGENIX SECRETS CONFIGURATION
   # ============================================================================
