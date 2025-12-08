@@ -6,19 +6,19 @@ Quick overview of infrastructure operations progress.
 
 ## Host Status
 
-| Host          | OS    | Type    | Audited | Fixed | Last Action      |
-| ------------- | ----- | ------- | ------- | ----- | ---------------- |
-| hsb0          | NixOS | Server  | ✅      | ✅    | 2025-12-08 SYSOP |
-| hsb1          | NixOS | Server  | ✅      | ✅    | 2025-12-08 SYSOP |
-| hsb8          | NixOS | Server  | ⏳      | ⏳    | 2025-12-08 SYSOP |
-| csb0          | NixOS | Server  | ✅      | ✅    | 2025-12-08 SYSOP |
-| csb1          | NixOS | Server  | ⏳      | ⏳    | -                |
-| gpc0          | NixOS | Desktop | ⏳      | ⏳    | -                |
-| imac0         | macOS | Desktop | ⏳      | ⏳    | -                |
-| imac-mba-work | macOS | Desktop | ⏳      | ⏳    | -                |
-| mba-mbp-work  | macOS | Desktop | ⏳      | ⏳    | -                |
+|     | Host          | OS    | Type    | Audited | Fixed | Last Action      |
+| --- | ------------- | ----- | ------- | ------- | ----- | ---------------- |
+| 🏠  | hsb0          | NixOS | Server  | ✅      | ✅    | 2025-12-08 SYSOP |
+| 🏠  | hsb1          | NixOS | Server  | ✅      | ✅    | 2025-12-08 SYSOP |
+| 🏠  | hsb8          | NixOS | Server  | ⏳      | ⏳    | 2025-12-08 SYSOP |
+| 🌐  | csb0          | NixOS | Server  | ✅      | ✅    | 2025-12-08 SYSOP |
+| 🌐  | csb1          | NixOS | Server  | ⏳      | ⏳    | -                |
+| 🎮  | gpc0          | NixOS | Desktop | ⏳      | ⏳    | -                |
+| 🖥️  | imac0         | macOS | Desktop | ⏳      | ⏳    | -                |
+| 🖥️  | imac-mba-work | macOS | Desktop | ⏳      | ⏳    | -                |
+| 💻  | mba-mbp-work  | macOS | Desktop | ⏳      | ⏳    | -                |
 
-**Legend:** ✅ Done | ⏳ Pending
+**Legend:** ✅ Done | ⏳ Pending | 🏠 Home | 🌐 Cloud | 🎮 Gaming | 🖥️ iMac | 💻 MacBook
 
 ---
 
