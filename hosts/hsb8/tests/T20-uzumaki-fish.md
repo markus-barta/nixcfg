@@ -2,8 +2,6 @@
 
 Test fish shell functions provided by the Uzumaki module.
 
-> ⚠️ **Note**: hsb8 requires uzumaki migration before these tests can pass.
-
 ## Host Information
 
 | Property     | Value           |
@@ -121,4 +119,3 @@ Run: `./T20-uzumaki-fish.sh`
 - Functions defined in `modules/uzumaki/common.nix`
 - Exported via `modules/uzumaki/server.nix`
 - Fish functions use `interactiveShellInit` so may not work in non-interactive shells
-- **Requires uzumaki migration** - see `.pm/backlog/2025-12-07-hsb8-uzumaki-deployment.md`
