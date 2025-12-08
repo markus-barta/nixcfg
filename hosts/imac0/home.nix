@@ -422,11 +422,11 @@
   '';
 
   # ============================================================================
-  # macOS GUI Applications - Elegant Solution
+  # macOS GUI Applications - Create Aliases for Spotlight
   # ============================================================================
   # home-manager automatically links GUI apps to ~/Applications/Home Manager Apps/
-  # This activation script additionally links important apps to ~/Applications/
-  # for easier access (Finder, Dock) while maintaining declarative management.
+  # This activation script creates macOS ALIASES (not symlinks!) in ~/Applications/
+  # because Spotlight doesn't index symlinks to /nix/store.
   #
   # See: docs/macos-gui-apps.md for detailed explanation
   home.activation.linkMacOSApps = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
@@ -446,22 +446,20 @@
       target="$HOME/Applications/$app"
 
       if [ -e "$source" ]; then
-        # Remove old symlink or Homebrew version
+        # Remove old symlink, alias, or Homebrew version
         if [ -L "$target" ] || [ -e "$target" ]; then
           echo "  Removing old $app..."
           rm -rf "$target"
         fi
 
-        # Create new symlink
-        echo "  Linking $app"
-        ln -sf "$source" "$target"
+        # Create macOS alias (not symlink!) - Spotlight indexes aliases properly
+        echo "  Creating alias for $app"
+        /usr/bin/osascript -e "tell application \"Finder\" to make alias file to POSIX file \"$source\" at POSIX file \"$HOME/Applications\"" >/dev/null 2>&1
       fi
     done
 
-    echo "✅ macOS GUI applications linked"
-    echo "   - Apps available in: ~/Applications/"
-    echo "   - Also searchable in Spotlight (⌘+Space)"
-    echo "   - Dock icons: Remove broken icons, then re-add from Spotlight"
+    echo "✅ macOS GUI applications aliased"
+    echo "   Apps will appear in Spotlight (⌘+Space)"
   '';
 
   # ============================================================================
