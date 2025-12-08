@@ -56,6 +56,12 @@ When you change configuration:
 2. Check INFRASTRUCTURE.md for dependencies
 3. Verify build platform (NixOS hosts only, use gpc0 or hsb1)
 
+### After Any Host Change
+
+1. Run the test suite for the host
+2. Verify the host is working as expected
+3. Update the OPS-STATUS.md file with the new status
+
 ---
 
 ## Security Reminders

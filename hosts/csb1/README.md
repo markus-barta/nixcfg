@@ -22,6 +22,24 @@
 | **Location**  | Vienna (VIE)                            |
 | **Server ID** | 646294                                  |
 | **FQDN**      | v2202407214994279426.bestsrv.de         |
+| **Exposure**  | Internet-exposed (ports 80, 443, 2222)  |
+
+---
+
+## Features
+
+| ID  | Technical         | User-Friendly                         | Test |
+| --- | ----------------- | ------------------------------------- | ---- |
+| F00 | NixOS Base System | Stable foundation with generations    | T00  |
+| F01 | Docker Services   | Container orchestration (15 services) | T01  |
+| F02 | Grafana           | Monitoring dashboards                 | T02  |
+| F03 | InfluxDB          | Time series database for IoT data     | T03  |
+| F04 | Traefik           | Reverse proxy with auto SSL           | T04  |
+| F05 | Backup System     | Restic to Hetzner (shared with csb0)  | T05  |
+| F06 | SSH Access        | Hardened SSH on port 2222             | T06  |
+| F07 | ZFS Storage       | Reliable storage with compression     | T07  |
+| F08 | Paperless-ngx     | Document management                   | -    |
+| F09 | Docmost           | Documentation wiki                    | -    |
 
 ---
 
