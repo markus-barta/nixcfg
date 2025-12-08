@@ -125,8 +125,12 @@
       brave
     ];
 
-    # Point nixbit to Markus' repository (not pbek's default)
-    programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";
+    # Enable Nixbit
+    programs.nixbit = {
+      enable = true;
+      repository = "https://github.com/markus-barta/nixcfg.git";
+      forceAutostart = true;
+    };
 
     gaming = {
       enable = true;
