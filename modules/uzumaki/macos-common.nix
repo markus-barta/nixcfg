@@ -242,6 +242,7 @@ in
 
     # CLI Development Tools
     cloc # Count lines of code
+    devenv # Development environments CLI (for .envrc)
     gh # GitHub CLI
     jq # JSON processor
     just # Command runner

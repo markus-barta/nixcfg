@@ -330,6 +330,7 @@
     python3 # Latest Python 3 - for IDEs, scripts, terminal
 
     # CLI Development Tools
+    devenv # Development environments CLI (for .envrc)
     gh # GitHub CLI
     jq # JSON processor
     just # Command runner
