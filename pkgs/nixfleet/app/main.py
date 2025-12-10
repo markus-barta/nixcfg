@@ -603,6 +603,7 @@ async def register_host(request: Request, host_id: str, registration: HostRegist
         existing = conn.execute("SELECT * FROM hosts WHERE id = ?", (host_id,)).fetchone()
         
         if existing:
+            # Update existing host - agent is alive, update last_seen
             conn.execute("""
                 UPDATE hosts SET
                     hostname = ?, host_type = ?, location = COALESCE(?, location),
@@ -615,14 +616,15 @@ async def register_host(request: Request, host_id: str, registration: HostRegist
                 registration.config_repo, host_id,
             ))
         else:
+            # New host - do NOT set last_seen (offline until agent actually polls)
             conn.execute("""
                 INSERT INTO hosts (id, hostname, host_type, location, criticality, icon,
                     current_generation, last_seen, status, comment, config_repo)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'ok', ?, ?)
             """, (
                 host_id, registration.hostname, registration.host_type, registration.location,
                 registration.criticality or "low", registration.icon,
-                registration.current_generation, datetime.utcnow().isoformat(),
+                registration.current_generation,
                 registration.comment, registration.config_repo,
             ))
         conn.commit()
