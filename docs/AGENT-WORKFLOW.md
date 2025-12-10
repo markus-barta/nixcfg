@@ -139,6 +139,42 @@ just decrypt-runbook-secrets <hostname>
 
 ---
 
+## Thymis Integration (Planned)
+
+Once [Thymis](https://thymis.barta.cm) is deployed, deployment workflows differ by host type:
+
+### NixOS Hosts → Thymis
+
+Thymis handles deployment for: hsb0, hsb1, hsb8, gpc0, csb0, csb1
+
+```text
+SYSOP edits config → Push to GitHub → Thymis pulls → Human approves → Deploy
+```
+
+**SYSOP role**: Edit configs, push to Git. Thymis handles the rest (after human approval).
+
+### macOS Hosts → Manual via SYSOP
+
+macOS hosts (imac0, mba-imac-work, mba-mbp-work) are **not managed by Thymis**.
+
+```bash
+# SYSOP deploys to macOS manually
+ssh <host> "cd ~/Code/nixcfg && git pull && home-manager switch --flake '.#markus@<host>'"
+```
+
+**SYSOP role**: Full deployment responsibility — pull, switch, verify.
+
+### Quick Reference
+
+| Host Type | Deployment Method | SYSOP Responsibility         |
+| --------- | ----------------- | ---------------------------- |
+| NixOS     | Thymis            | Edit + push (Thymis deploys) |
+| macOS     | Manual            | Edit + push + deploy         |
+
+For architecture details, see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md#thymis-fleet-management-planned).
+
+---
+
 ## References
 
 - **Host structure requirements**: [HOST-TEMPLATE.md](./HOST-TEMPLATE.md)
