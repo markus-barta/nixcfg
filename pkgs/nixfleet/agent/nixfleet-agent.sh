@@ -150,7 +150,15 @@ readonly GIT_HASH_CACHE="/tmp/nixfleet-git-hash-${HOST_ID}"
 refresh_git_hash() {
   # Fetch git hash and update cache - call after pull/switch
   local hash
-  hash=$(git -C "$NIXFLEET_NIXCFG" rev-parse HEAD 2>/dev/null || echo "unknown")
+  local git_result
+  # Capture both stdout and stderr, check exit code
+  if git_result=$(git -C "$NIXFLEET_NIXCFG" rev-parse HEAD 2>&1); then
+    hash="$git_result"
+  else
+    log_warn "Git hash failed: $git_result"
+    hash="unknown"
+  fi
+  log_info "Git hash: $hash"
   echo "$hash" >"$GIT_HASH_CACHE"
   echo "$hash"
 }
