@@ -295,10 +295,10 @@ in
       recursive = true;
     };
 
-    # Eza theme file (Tokyo Night based, sysop-focused)
+    # Eza theme file (Tokyo Night Uzumaki - enhanced visibility)
     # Using theme file instead of EZA_COLORS for better maintainability
     home.file.".config/eza/theme.yml" = lib.mkIf config.theme.eza.enable {
-      source = ./eza-themes/sysop.yml;
+      source = ./eza-themes/tokyonight-uzumaki.yml;
     };
 
     # Eza needs EZA_CONFIG_DIR to find the theme file

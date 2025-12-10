@@ -82,7 +82,7 @@ modules/uzumaki/
 │   ├── starship-template.toml # Template with color placeholders
 │   ├── starship.toml          # Legacy starship config
 │   └── eza-themes/
-│       └── sysop.yml          # Tokyo Night + sysop eza theme
+│       └── tokyonight-uzumaki.yml  # Tokyo Night Uzumaki eza theme
 └── stasysmo/
     ├── README.md              # Detailed StaSysMo documentation
     ├── config.nix             # Centralized configuration
@@ -120,7 +120,7 @@ hokage = {
 | Component    | Hokage Default            | Our Override (Tokyo Night) | File                 |
 | ------------ | ------------------------- | -------------------------- | -------------------- |
 | **Starship** | (disabled via catppuccin) | Per-host gradient colors   | `theme/theme-hm.nix` |
-| **Eza**      | (disabled via catppuccin) | Tokyo Night sysop theme    | `theme/theme-hm.nix` |
+| **Eza**      | (disabled via catppuccin) | Tokyo Night Uzumaki theme  | `theme/theme-hm.nix` |
 | **Zellij**   | ⚠️ **NOT disabled**       | Per-host accent colors     | `theme/theme-hm.nix` |
 | **WezTerm**  | (not themed by hokage)    | Tokyo Night                | `macos-common.nix`   |
 | **Helix**    | (no override needed)      | `tokyonight_storm`         | `common.nix`         |
@@ -204,7 +204,7 @@ sudo nixos-rebuild switch --flake .#hostname
 │    │                                                                     │  │
 │    │  ~/.config/starship.toml    (powerline, status, Unicode preserved)  │  │
 │    │  ~/.config/zellij/config.kdl (theme, keybindings)                   │  │
-│    │  ~/.config/eza/theme.yml    (sysop-focused colors)                  │  │
+│    │  ~/.config/eza/theme.yml    (Tokyo Night Uzumaki)                   │  │
 │    └─────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -241,7 +241,7 @@ sudo nixos-rebuild switch --flake .#hostname
 
 ---
 
-## Eza Theme (Tokyo Night + Sysop)
+## Eza Theme (Tokyo Night Uzumaki)
 
 ### Design Philosophy
 
@@ -268,7 +268,7 @@ sudo nixos-rebuild switch --flake .#hostname
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-Theme file: `theme/eza-themes/sysop.yml`
+Theme file: `theme/eza-themes/tokyonight-uzumaki.yml`
 
 ---
 
