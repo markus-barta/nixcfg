@@ -31,9 +31,11 @@ readonly NIXFLEET_TOKEN="${NIXFLEET_TOKEN:-}"
 readonly NIXFLEET_NIXCFG="${NIXFLEET_NIXCFG:-$HOME/Code/nixcfg}"
 readonly NIXFLEET_INTERVAL="${NIXFLEET_INTERVAL:-60}"
 
-# Host detection
-readonly HOSTNAME="${HOSTNAME:-$(hostname -s 2>/dev/null || hostname)}"
-readonly HOST_ID="${HOSTNAME}"
+# Host detection - always get short hostname (strip domain)
+DETECTED_HOSTNAME="$(hostname -s 2>/dev/null || hostname)"
+# Strip any domain suffix if hostname -s didn't work
+readonly HOST_ID="${DETECTED_HOSTNAME%%.*}"
+readonly HOSTNAME="${HOST_ID}" # For backwards compatibility
 
 # ════════════════════════════════════════════════════════════════════════════════
 # Host Type Detection
