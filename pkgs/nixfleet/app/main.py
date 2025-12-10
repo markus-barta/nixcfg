@@ -24,6 +24,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+import httpx
 
 # Optional bcrypt support (falls back to SHA-256 if not available)
 try:
@@ -58,6 +59,39 @@ REQUIRE_TOTP = os.environ.get("NIXFLEET_REQUIRE_TOTP", "").lower() in ("1", "tru
 
 SESSION_DURATION = timedelta(hours=24)
 VERSION = "0.1.0"
+
+# GitHub repo for version comparison
+GITHUB_REPO = os.getenv("NIXFLEET_GITHUB_REPO", "markus-barta/nixcfg")
+GITHUB_BRANCH = os.getenv("NIXFLEET_GITHUB_BRANCH", "main")
+
+# Cache for GitHub latest hash (avoid rate limits)
+_github_cache: dict = {"hash": None, "fetched_at": None}
+GITHUB_CACHE_TTL = timedelta(minutes=5)
+
+
+async def get_github_latest_hash() -> Optional[str]:
+    """Fetch the latest commit hash from GitHub. Cached for 5 minutes."""
+    global _github_cache
+    
+    now = datetime.utcnow()
+    if _github_cache["hash"] and _github_cache["fetched_at"]:
+        if now - _github_cache["fetched_at"] < GITHUB_CACHE_TTL:
+            return _github_cache["hash"]
+    
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/commits/{GITHUB_BRANCH}"
+            response = await client.get(url, headers={"Accept": "application/vnd.github.v3+json"})
+            if response.status_code == 200:
+                data = response.json()
+                _github_cache["hash"] = data.get("sha")
+                _github_cache["fetched_at"] = now
+                return _github_cache["hash"]
+    except Exception as e:
+        logger.warning(f"Failed to fetch GitHub hash: {e}")
+    
+    return _github_cache.get("hash")  # Return stale cache on error
+
 
 # Rate limiting
 limiter = Limiter(key_func=get_remote_address)
@@ -119,6 +153,7 @@ def init_db():
                 current_generation TEXT,
                 status TEXT DEFAULT 'unknown',
                 pending_command TEXT,
+                command_queued_at TEXT,
                 comment TEXT,
                 test_status TEXT,
                 config_repo TEXT,
@@ -809,13 +844,16 @@ async def queue_command(host_id: str, request_body: CommandRequest, request: Req
     
     logger.info(f"Queueing command for {host_id}: {request_body.command}")
     
+    now = datetime.utcnow().isoformat()
+    
     with get_db() as conn:
         if request_body.command == "stop":
-            # Stop command clears test state
+            # Stop command: clear pending command AND test state immediately (no queue)
             result = conn.execute(
                 """UPDATE hosts SET 
-                    pending_command = 'stop',
-                    test_running = 0
+                    pending_command = NULL,
+                    test_running = 0,
+                    status = 'ok'
                 WHERE id = ?""",
                 (host_id,)
             )
@@ -824,18 +862,19 @@ async def queue_command(host_id: str, request_body: CommandRequest, request: Req
             result = conn.execute(
                 """UPDATE hosts SET 
                     pending_command = 'test',
+                    command_queued_at = ?,
                     test_running = 1,
                     test_current = 0,
                     test_total = 0,
                     test_passed_count = 0,
                     test_result = NULL
                 WHERE id = ?""",
-                (host_id,)
+                (now, host_id,)
             )
         else:
             result = conn.execute(
-                "UPDATE hosts SET pending_command = ? WHERE id = ?",
-                (request_body.command, host_id)
+                "UPDATE hosts SET pending_command = ?, command_queued_at = ? WHERE id = ?",
+                (request_body.command, now, host_id)
             )
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Host not found")
@@ -872,6 +911,9 @@ async def dashboard(request: Request):
     if not token or not verify_session(token):
         return RedirectResponse(url="/login", status_code=302)
 
+    # Fetch latest hash from GitHub for version comparison
+    latest_hash = await get_github_latest_hash()
+    
     with get_db() as conn:
         rows = conn.execute("""
             SELECT * FROM hosts ORDER BY
@@ -911,6 +953,21 @@ async def dashboard(request: Request):
                 host["last_audit_relative"] = None
                 host["last_audit_iso"] = None
             
+            # Command timeout: if pending for >5 min, mark as stale
+            COMMAND_TIMEOUT_MINUTES = 5
+            if host.get("pending_command") and host.get("command_queued_at"):
+                queued_at = datetime.fromisoformat(host["command_queued_at"])
+                if datetime.utcnow() - queued_at > timedelta(minutes=COMMAND_TIMEOUT_MINUTES):
+                    # Command timed out - clear it
+                    host["pending_command"] = None
+                    host["test_running"] = 0
+                    # Also update in DB
+                    conn.execute(
+                        "UPDATE hosts SET pending_command = NULL, test_running = 0 WHERE id = ?",
+                        (host["id"],)
+                    )
+                    conn.commit()
+            
             # Test state - convert SQLite int to Python bool
             host["test_running"] = bool(host.get("test_running", 0))
             host["test_current"] = host.get("test_current", 0)
@@ -919,6 +976,14 @@ async def dashboard(request: Request):
             host["test_total_count"] = host.get("test_total", 0)
             host["test_passed"] = (host["test_passed_count"] == host["test_total_count"]) if host["test_total_count"] > 0 else None
             host["poll_interval"] = host.get("poll_interval", 60)
+            
+            # Check if host is outdated vs GitHub
+            host_gen = host.get("current_generation")
+            if host_gen and latest_hash:
+                host["outdated"] = not latest_hash.startswith(host_gen[:7]) and not host_gen.startswith(latest_hash[:7])
+            else:
+                host["outdated"] = False
+            host["latest_hash"] = latest_hash[:7] if latest_hash else None
             
             hosts.append(host)
 
