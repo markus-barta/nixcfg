@@ -9,7 +9,10 @@
 
 services:
   nixfleet:
-    build: .
+    build:
+      context: .
+      args:
+        - GIT_HASH=${GIT_HASH:-unknown}
     container_name: nixfleet
     restart: unless-stopped
     environment:
