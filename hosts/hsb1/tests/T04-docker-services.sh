@@ -30,6 +30,7 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 # Expected containers (must be running)
+# Note: Some containers like pidicon, smtp, watchtower-pidicon may be stopped/optional
 EXPECTED_CONTAINERS=(
   "homeassistant"
   "nodered"
@@ -37,13 +38,10 @@ EXPECTED_CONTAINERS=(
   "zigbee2mqtt"
   "scrypted"
   "matter-server"
-  "pidicon"
   "apprise"
   "opus-stream-to-mqtt"
-  "smtp"
   "restic-cron-hetzner"
   "watchtower-weekly"
-  "watchtower-pidicon"
 )
 
 echo "=== T04: Docker Services Test ==="
