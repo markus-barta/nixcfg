@@ -12,6 +12,8 @@
   imports = [
     # Uzumaki: Fish functions, theming, stasysmo (all-in-one)
     ../../modules/uzumaki/home-manager.nix
+    # NixFleet agent for fleet management
+    ../../modules/home/nixfleet-agent.nix
   ];
 
   # ============================================================================
@@ -22,6 +24,18 @@
     role = "workstation";
     fish.editor = "nano";
     stasysmo.enable = true; # System metrics in Starship prompt
+  };
+
+  # ============================================================================
+  # NIXFLEET AGENT - Fleet management dashboard agent
+  # ============================================================================
+  # Polls https://fleet.barta.cm every 10s for commands
+  # Token stored in ~/.config/nixfleet/token
+  services.nixfleet-agent = {
+    enable = true;
+    interval = 10;
+    tokenFile = "/Users/markus/.config/nixfleet/token";
+    nixcfgPath = "/Users/markus/Code/nixcfg";
   };
 
   # Theme configuration - set hostname for palette lookup

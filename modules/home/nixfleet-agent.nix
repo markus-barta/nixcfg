@@ -65,6 +65,8 @@ in
           "/bin/bash"
           "-c"
           ''
+            # Add Nix paths so home-manager is available
+            export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
             export NIXFLEET_URL="${cfg.url}"
             export NIXFLEET_NIXCFG="${cfg.nixcfgPath}"
             export NIXFLEET_INTERVAL="${toString cfg.interval}"
