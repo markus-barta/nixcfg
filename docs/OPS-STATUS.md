@@ -9,7 +9,7 @@ Quick overview of infrastructure operations progress.
 | •   | Host          | OS    | Type    | Audited             | Fixed               | Comment                                        |
 | --- | ------------- | ----- | ------- | ------------------- | ------------------- | ---------------------------------------------- |
 | 🏠  | hsb0          | NixOS | Server  | ✅ 2025-12-10 16:47 | ✅ 2025-12-10 16:47 | 17/17 tests pass, fixed local/remote execution |
-| 🏠  | hsb1          | NixOS | Server  | ✅ 2025-12-08 16:00 | ✅ 2025-12-08 17:00 | Fixed 10 findings, T04 test (SYSOP)            |
+| 🏠  | hsb1          | NixOS | Server  | ✅ 2025-12-10 18:03 | ✅ 2025-12-10 18:03 | 5/5 tests pass, fixed local/remote execution   |
 | 🏠  | hsb8          | NixOS | Server  | ⏳                  | ⏳                  | Uzumaki deployed, tests pending (SYSOP)        |
 | 🌐  | csb0          | NixOS | Server  | ✅ 2025-12-08 13:00 | ✅ 2025-12-08 13:30 | Added 7 test docs (SYSOP)                      |
 | 🌐  | csb1          | NixOS | Server  | ✅ 2025-12-08 18:30 | ✅ 2025-12-08 18:35 | Minor fixes: Features table, ip-marker (SYSOP) |
@@ -44,7 +44,7 @@ See `.pm/backlog/` for detailed task tracking.
 **Medium priority:**
 
 - hsb0: Complete runbook-secrets TODOs
-- hsb1: Complete runbook-secrets TODOs
+- hsb1: Complete runbook-secrets TODOs (system is degraded - investigate)
 - gpc0: Audit
 
 ---
