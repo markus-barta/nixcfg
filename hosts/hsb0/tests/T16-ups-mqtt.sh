@@ -117,7 +117,7 @@ fi
 
 print_test "T16.5 - MQTT Publish Service Exists"
 
-if systemctl list-unit-files | grep -q "ups-mqtt-publish.service"; then
+if systemctl cat ups-mqtt-publish.service &>/dev/null; then
   pass "ups-mqtt-publish service exists"
 else
   fail "ups-mqtt-publish service not found"
