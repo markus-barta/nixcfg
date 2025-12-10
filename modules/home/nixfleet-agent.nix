@@ -1,0 +1,105 @@
+# NixFleet Agent for Home Manager (macOS/Linux user-level)
+#
+# Usage:
+#   imports = [ ./modules/home/nixfleet-agent.nix ];
+#   services.nixfleet-agent = {
+#     enable = true;
+#     tokenFile = "~/.config/nixfleet/token";
+#   };
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
+let
+  cfg = config.services.nixfleet-agent;
+
+  agentScript = pkgs.writeShellApplication {
+    name = "nixfleet-agent";
+    runtimeInputs = with pkgs; [
+      curl
+      jq
+      git
+      hostname
+    ];
+    text = builtins.readFile ../../pkgs/nixfleet/agent/nixfleet-agent.sh;
+  };
+in
+{
+  options.services.nixfleet-agent = {
+    enable = lib.mkEnableOption "NixFleet agent for fleet management";
+
+    url = lib.mkOption {
+      type = lib.types.str;
+      default = "https://fleet.barta.cm";
+      description = "NixFleet dashboard URL";
+    };
+
+    tokenFile = lib.mkOption {
+      type = lib.types.str;
+      default = "~/.config/nixfleet/token";
+      description = "Path to file containing the API token";
+    };
+
+    interval = lib.mkOption {
+      type = lib.types.int;
+      default = 10;
+      description = "Poll interval in seconds";
+    };
+
+    nixcfgPath = lib.mkOption {
+      type = lib.types.str;
+      default = "~/Code/nixcfg";
+      description = "Path to nixcfg repository";
+    };
+  };
+
+  config = lib.mkIf cfg.enable {
+    # macOS launchd service
+    launchd.agents.nixfleet-agent = lib.mkIf pkgs.stdenv.isDarwin {
+      enable = true;
+      config = {
+        Label = "com.nixfleet.agent";
+        ProgramArguments = [
+          "/bin/bash"
+          "-c"
+          ''
+            export NIXFLEET_URL="${cfg.url}"
+            export NIXFLEET_NIXCFG="${cfg.nixcfgPath}"
+            export NIXFLEET_INTERVAL="${toString cfg.interval}"
+            export NIXFLEET_TOKEN="$(cat ${cfg.tokenFile})"
+            exec ${agentScript}/bin/nixfleet-agent
+          ''
+        ];
+        RunAtLoad = true;
+        KeepAlive = true;
+        StandardOutPath = "/tmp/nixfleet-agent.log";
+        StandardErrorPath = "/tmp/nixfleet-agent.err";
+      };
+    };
+
+    # Linux systemd user service
+    systemd.user.services.nixfleet-agent = lib.mkIf pkgs.stdenv.isLinux {
+      Unit = {
+        Description = "NixFleet Agent";
+        After = [ "network-online.target" ];
+      };
+      Service = {
+        Type = "simple";
+        ExecStart = "${agentScript}/bin/nixfleet-agent";
+        Restart = "always";
+        RestartSec = 30;
+        Environment = [
+          "NIXFLEET_URL=${cfg.url}"
+          "NIXFLEET_NIXCFG=${cfg.nixcfgPath}"
+          "NIXFLEET_INTERVAL=${toString cfg.interval}"
+        ];
+        EnvironmentFile = cfg.tokenFile;
+      };
+      Install = {
+        WantedBy = [ "default.target" ];
+      };
+    };
+  };
+}
