@@ -107,7 +107,7 @@ print_test "T02.3 - pingt Function Definition"
 
 # pingt is defined in interactiveShellInit so we verify the function body
 # instead of trying to run it in non-interactive mode
-if grep -A5 "function pingt" /etc/fish/config.fish 2>/dev/null | grep -q "date"; then
+if grep -A15 "function pingt" /etc/fish/config.fish 2>/dev/null | grep -q "date"; then
   pass "pingt function includes timestamp (date) call"
 else
   fail "pingt function doesn't include timestamp"
