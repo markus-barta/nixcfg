@@ -150,15 +150,12 @@ readonly GIT_HASH_CACHE="/tmp/nixfleet-git-hash-${HOST_ID}"
 refresh_git_hash() {
   # Fetch git hash and update cache - call after pull/switch
   local hash
-  local git_result
-  # Capture both stdout and stderr, check exit code
-  if git_result=$(git -C "$NIXFLEET_NIXCFG" rev-parse HEAD 2>&1); then
-    hash="$git_result"
+  # Use -c to bypass safe.directory check (root running on user-owned repo)
+  if hash=$(git -c safe.directory="$NIXFLEET_NIXCFG" -C "$NIXFLEET_NIXCFG" rev-parse HEAD 2>/dev/null); then
+    :
   else
-    log_warn "Git hash failed: $git_result"
     hash="unknown"
   fi
-  log_info "Git hash: $hash"
   echo "$hash" >"$GIT_HASH_CACHE"
   echo "$hash"
 }
@@ -286,7 +283,8 @@ do_pull() {
   cd "$NIXFLEET_NIXCFG"
 
   local output
-  if output=$(git pull 2>&1); then
+  # Use -c safe.directory to allow root to access user-owned repo
+  if output=$(git -c safe.directory="$NIXFLEET_NIXCFG" pull 2>&1); then
     log_info "Pull successful"
     refresh_git_hash >/dev/null # Update cached hash after pull
     report_status "ok" "$(get_generation)" "$output"
