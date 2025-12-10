@@ -141,17 +141,31 @@ api_call() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════════
-# Host Information
+# Host Information (with caching)
 # ════════════════════════════════════════════════════════════════════════════════
 
+# Cache file for git hash (avoid calling git every poll)
+readonly GIT_HASH_CACHE="/tmp/nixfleet-git-hash-${HOST_ID}"
+
+refresh_git_hash() {
+  # Fetch git hash and update cache - call after pull/switch
+  local hash
+  hash=$(git -C "$NIXFLEET_NIXCFG" rev-parse HEAD 2>/dev/null || echo "unknown")
+  echo "$hash" >"$GIT_HASH_CACHE"
+  echo "$hash"
+}
+
 get_git_hash() {
-  # Get current git commit hash from the nixcfg repo
-  # Use -C to avoid cd issues with errexit
-  git -C "$NIXFLEET_NIXCFG" rev-parse HEAD 2>/dev/null || echo "unknown"
+  # Read from cache, or refresh if cache doesn't exist
+  if [[ -f "$GIT_HASH_CACHE" ]]; then
+    cat "$GIT_HASH_CACHE"
+  else
+    refresh_git_hash
+  fi
 }
 
 get_generation() {
-  # Return current git hash (truncated for display)
+  # Return current git hash
   get_git_hash
 }
 
@@ -266,6 +280,7 @@ do_pull() {
   local output
   if output=$(git pull 2>&1); then
     log_info "Pull successful"
+    refresh_git_hash >/dev/null # Update cached hash after pull
     report_status "ok" "$(get_generation)" "$output"
     return 0
   else
@@ -374,6 +389,10 @@ main() {
   log_info "Interval:    ${NIXFLEET_INTERVAL}s"
 
   check_prerequisites
+
+  # Cache git hash at startup (avoids repeated git calls)
+  refresh_git_hash >/dev/null
+
   register
 
   while true; do
