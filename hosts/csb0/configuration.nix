@@ -11,6 +11,7 @@
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
+    ../../modules/nixfleet-agent.nix
   ];
 
   # ============================================================================
@@ -188,4 +189,15 @@
   # See: modules/shared/theme-palettes.nix for color definitions
   #
   # Note: Zellij, fish functions, and stasysmo come from modules/uzumaki
+
+  # ============================================================================
+  # NIXFLEET AGENT - Fleet management dashboard agent
+  # ============================================================================
+  age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
+
+  services.nixfleet-agent = {
+    enable = true;
+    interval = 10;
+    tokenFile = "/run/agenix/nixfleet-token";
+  };
 }

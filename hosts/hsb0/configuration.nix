@@ -40,6 +40,7 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
+    ../../modules/nixfleet-agent.nix
   ];
 
   # ============================================================================
@@ -477,4 +478,15 @@ in
   # ============================================================================
 
   security.sudo-rs.wheelNeedsPassword = false;
+
+  # ============================================================================
+  # NIXFLEET AGENT - Fleet management dashboard agent
+  # ============================================================================
+  age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
+
+  services.nixfleet-agent = {
+    enable = true;
+    interval = 10;
+    tokenFile = "/run/agenix/nixfleet-token";
+  };
 }

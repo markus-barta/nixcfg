@@ -63,6 +63,7 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
+    ../../modules/nixfleet-agent.nix
   ];
 
   # ============================================================================
@@ -546,5 +547,16 @@ in
     # Critical infrastructure - add more as needed
     # Example format (uncomment and adapt):
     # "192.168.1.99" = [ "hsb0" "hsb0.lan" ];  # DNS/DHCP server
+  };
+
+  # ============================================================================
+  # NIXFLEET AGENT - Fleet management dashboard agent
+  # ============================================================================
+  age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
+
+  services.nixfleet-agent = {
+    enable = true;
+    interval = 10;
+    tokenFile = "/run/agenix/nixfleet-token";
   };
 }
