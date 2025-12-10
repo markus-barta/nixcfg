@@ -11,15 +11,11 @@ set -euo pipefail
 # Configuration
 TARGET_HOST="hsb0"
 HOST="${HSB0_HOST:-192.168.1.99}"
-SSH_USER="${HSB0_USER:-mba}"
 
-# Detect if running locally on target host
+# Detect run mode for display
 if [[ "$(hostname)" == "$TARGET_HOST" ]]; then
-  run() { eval "$1"; }
   RUN_MODE="local"
 else
-  # shellcheck disable=SC2029
-  run() { ssh "$SSH_USER@$HOST" "$1" 2>/dev/null; }
   RUN_MODE="remote"
 fi
 
@@ -32,28 +28,27 @@ echo "=== T06: DNS Rewrites Test ==="
 echo "Host: $HOST ($RUN_MODE)"
 echo
 
-# Test 1: Rewrite rules configured (check actual AdGuard config user_rules)
-echo -n "Test 1: Rewrite rules configured... "
-if run 'sudo grep -A5 "user_rules:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "csb0"' &&
-  run 'sudo grep -A5 "user_rules:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "csb1"'; then
+# Test 1: csb0 DNS rewrite (check if it resolves via CNAME to cs0.barta.cm)
+echo -n "Test 1: csb0 DNS resolution... "
+if nslookup csb0 "$HOST" 2>/dev/null | grep -q "cs0.barta.cm"; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
   exit 1
 fi
 
-# Test 2: csb0 rewrite (check if it resolves)
-echo -n "Test 2: csb0 DNS rewrite... "
-if nslookup csb0 "$HOST" &>/dev/null; then
+# Test 2: csb1 DNS rewrite (check if it resolves via CNAME to cs1.barta.cm)
+echo -n "Test 2: csb1 DNS resolution... "
+if nslookup csb1 "$HOST" 2>/dev/null | grep -q "cs1.barta.cm"; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
   exit 1
 fi
 
-# Test 3: csb1 rewrite (check if it resolves)
-echo -n "Test 3: csb1 DNS rewrite... "
-if nslookup csb1 "$HOST" &>/dev/null; then
+# Test 3: Internal hostname resolution (hsb0.lan)
+echo -n "Test 3: Internal DNS resolution... "
+if nslookup hsb0.lan "$HOST" 2>/dev/null | grep -q "192.168.1.99"; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
