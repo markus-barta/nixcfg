@@ -63,6 +63,8 @@ fi
 # Test 4: System running
 echo -n "Test 4: System status... "
 STATUS=$(run 'systemctl is-system-running' || echo "unknown")
+# Strip whitespace/newlines that might come from git or other output
+STATUS=$(echo "$STATUS" | tr -d '\n\r' | xargs)
 if [ "$STATUS" = "running" ] || [ "$STATUS" = "degraded" ]; then
   echo -e "${GREEN}✅ PASS${NC} ($STATUS)"
 else
