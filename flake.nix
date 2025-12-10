@@ -115,8 +115,8 @@
       homeConfigurations."markus@imac0" = mkDarwinHome "imac0";
       homeConfigurations."imac0" = self.homeConfigurations."markus@imac0";
 
-      homeConfigurations."markus@imac-mba-work" = mkDarwinHome "imac-mba-work";
-      homeConfigurations."imac-mba-work" = self.homeConfigurations."markus@imac-mba-work";
+      homeConfigurations."markus@mba-imac-work" = mkDarwinHome "mba-imac-work";
+      homeConfigurations."mba-imac-work" = self.homeConfigurations."markus@mba-imac-work";
 
       homeConfigurations."mba@mba-mbp-work" = mkDarwinHome "mba-mbp-work";
       homeConfigurations."mba-mbp-work" = self.homeConfigurations."mba@mba-mbp-work";

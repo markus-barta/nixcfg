@@ -1,6 +1,6 @@
-# Runbook: imac-mba-work (Work Workstation)
+# Runbook: mba-imac-work (Work Workstation)
 
-**Host**: imac-mba-work  
+**Host**: mba-imac-work  
 **Role**: Work macOS development workstation (BYTEPOETS)  
 **OS**: macOS Sequoia + Nix + home-manager  
 **Criticality**: LOW - Work workstation
@@ -11,7 +11,7 @@
 
 | Item            | Value                       |
 | --------------- | --------------------------- |
-| **Hostname**    | `imac-mba-work`             |
+| **Hostname**    | `mba-imac-work`             |
 | **Model**       | iMac 27" (2019)             |
 | **CPU**         | Intel i9-9900K (16 threads) |
 | **RAM**         | 16 GB                       |
@@ -30,7 +30,7 @@ cd ~/Code/nixcfg
 git pull
 just switch
 # OR
-home-manager switch --flake ".#markus@imac-mba-work"
+home-manager switch --flake ".#markus@mba-imac-work"
 ```
 
 ### Update Flake Inputs
@@ -123,10 +123,10 @@ killall karabiner_console_user_server
 
 ```bash
 # Configuration
-~/Code/nixcfg/hosts/imac-mba-work/home.nix
+~/Code/nixcfg/hosts/mba-imac-work/home.nix
 
 # Scripts
-~/Scripts/                    # Symlinked from hosts/imac-mba-work/scripts/host-user/
+~/Scripts/                    # Symlinked from hosts/mba-imac-work/scripts/host-user/
 
 # Karabiner config
 ~/.config/karabiner/karabiner.json
@@ -136,7 +136,7 @@ killall karabiner_console_user_server
 
 ## Differences from imac0 (Home)
 
-| Feature         | imac0 (Home)      | imac-mba-work (Work)      |
+| Feature         | imac0 (Home)      | mba-imac-work (Work)      |
 | --------------- | ----------------- | ------------------------- |
 | **Git Default** | Personal identity | Work identity (BYTEPOETS) |
 | **esptool**     | ✅ Installed      | ❌ Not needed             |
@@ -182,7 +182,7 @@ exec fish                   # Restart shell
 
 ## Related Documentation
 
-- [imac-mba-work README](../README.md) - Full workstation documentation
+- [mba-imac-work README](../README.md) - Full workstation documentation
 - [SECRETS.md](../secrets/SECRETS.md) - Credentials (gitignored)
 - [Tests](../tests/README.md) - Validation test suite
 - [imac0 README](../../imac0/README.md) - Home iMac (similar config)

@@ -23,7 +23,7 @@
 | Host          | Status | Commit     | HM Generation | Action | Checked          |
 | ------------- | ------ | ---------- | ------------- | ------ | ---------------- |
 | imac0         | 🌀✨   | `5f539fb1` | gen 75        | —      | 2025-12-06 13:54 |
-| imac-mba-work | ⚫     | —          | —             | —      | 2025-12-06 13:54 |
+| mba-imac-work | ⚫     | —          | —             | —      | 2025-12-06 13:54 |
 
 ### Status Legend
 
@@ -45,7 +45,7 @@
 | hsb0          | NixOS    | server      | `modules/uzumaki`                  |
 | gpc0          | NixOS    | desktop     | `modules/uzumaki`                  |
 | imac0         | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
-| imac-mba-work | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
+| mba-imac-work | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
 
 ### ⏳ Awaiting Deployment (Host Offline)
 

@@ -1,4 +1,4 @@
-# imac-mba-work - Work iMac (BYTEPOETS)
+# mba-imac-work - Work iMac (BYTEPOETS)
 
 Work macOS development machine with Nix package management.
 
@@ -14,7 +14,7 @@ Work macOS development machine with Nix package management.
 
 | Item               | Value                                            |
 | ------------------ | ------------------------------------------------ |
-| **Hostname**       | `imac-mba-work`                                  |
+| **Hostname**       | `mba-imac-work`                                  |
 | **Model**          | iMac 27" (2019) - iMac19,1                       |
 | **CPU**            | Intel Core i9-9900K @ 3.6GHz (8C/16T)            |
 | **RAM**            | 16 GB DDR4                                       |
@@ -63,7 +63,7 @@ Work macOS development machine with Nix package management.
 
 ## Features
 
-imac-mba-work provides a complete development environment:
+mba-imac-work provides a complete development environment:
 
 | ID  | Technical             | User-Friendly                                    | Test |
 | --- | --------------------- | ------------------------------------------------ | ---- |
@@ -77,7 +77,7 @@ imac-mba-work provides a complete development environment:
 | F07 | Karabiner-Elements    | Caps Lock → Hyper, F-keys in terminals           | T07  |
 | F08 | Nerd Fonts            | Hack Nerd Font for terminal icons                | T08  |
 
-**Test Documentation**: All features have test procedures in `hosts/imac-mba-work/tests/` with both manual instructions and automated scripts.
+**Test Documentation**: All features have test procedures in `hosts/mba-imac-work/tests/` with both manual instructions and automated scripts.
 
 ---
 
@@ -103,7 +103,7 @@ git clone https://github.com/pbek/nixcfg ~/Code/nixcfg
 cd ~/Code/nixcfg
 
 # Install home-manager and apply configuration
-nix run home-manager -- switch --flake ".#markus@imac-mba-work"
+nix run home-manager -- switch --flake ".#markus@mba-imac-work"
 ```
 
 ### 3. Set Fish as Default Shell
@@ -148,7 +148,7 @@ brew install --cask karabiner-elements
 ## Directory Structure
 
 ```
-hosts/imac-mba-work/
+hosts/mba-imac-work/
 ├── config/                      # Configuration files
 │   └── karabiner.json           # Keyboard remapping config (host-specific)
 │
@@ -266,17 +266,17 @@ which ffmpeg    # Should be /opt/homebrew/bin/ffmpeg (Homebrew)
 cd ~/Code/nixcfg
 
 # Edit configuration
-vim hosts/imac-mba-work/home.nix
+vim hosts/mba-imac-work/home.nix
 
 # Apply changes (platform-aware: detects macOS and runs home-manager)
 just switch
 
 # Or directly:
-home-manager switch --flake ".#markus@imac-mba-work"
+home-manager switch --flake ".#markus@mba-imac-work"
 
 # Commit to git
-git add hosts/imac-mba-work/
-git commit -m "Update imac-mba-work configuration"
+git add hosts/mba-imac-work/
+git commit -m "Update mba-imac-work configuration"
 git push
 ```
 
@@ -297,7 +297,7 @@ just switch  # on imac0
 
 ## Differences from imac0 (Home)
 
-| Feature          | imac0 (Home)               | imac-mba-work (Work)        |
+| Feature          | imac0 (Home)               | mba-imac-work (Work)        |
 | ---------------- | -------------------------- | --------------------------- |
 | **Git Default**  | Personal identity          | Work identity (BYTEPOETS)   |
 | **Git Includes** | Work for ~/Code/BYTEPOETS/ | Personal for ~/Code/nixcfg/ |

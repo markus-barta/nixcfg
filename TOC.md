@@ -289,7 +289,7 @@ github:pbek/nixcfg        (external hokage foundation)
 
 ## 📊 Documentation Statistics
 
-- **Active Production Systems**: 6 (hsb0, hsb1, hsb8, gpc0, csb0, csb1) + 2 macOS (imac0, imac-mba-work)
+- **Active Production Systems**: 6 (hsb0, hsb1, hsb8, gpc0, csb0, csb1) + 2 macOS (imac0, mba-imac-work)
 - **Total Test Cases**: 31 automated tests (hsb8)
 - **Documentation Files**: 100+ markdown files
 - **Hokage Options**: 200+ configuration options documented

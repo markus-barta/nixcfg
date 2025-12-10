@@ -6,7 +6,7 @@ Work macOS laptop with Nix package management.
 
 - 🚀 **[Initial Setup](docs/INITIAL-SETUP.md)** - First-time setup guide (rename host, enable SSH, install Nix)
 - 🧪 **[Test Suite](tests/README.md)** - Validation tests for this configuration
-- 📚 **[imac-mba-work README](../imac-mba-work/README.md)** - Work iMac (similar configuration)
+- 📚 **[mba-imac-work README](../mba-imac-work/README.md)** - Work iMac (similar configuration)
 
 ---
 
@@ -101,7 +101,7 @@ git push
 
 ## Related Documentation
 
-- [imac-mba-work README](../imac-mba-work/README.md) - Work iMac (similar config)
+- [mba-imac-work README](../mba-imac-work/README.md) - Work iMac (similar config)
 - [imac0 README](../imac0/README.md) - Home iMac
 - [Main Repository README](../../README.md) - Repository overview
 

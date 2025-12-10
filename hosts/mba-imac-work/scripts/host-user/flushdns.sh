@@ -4,4 +4,3 @@
 
 sudo killall -HUP mDNSResponder
 echo "macOS DNS Cache Reset"
-

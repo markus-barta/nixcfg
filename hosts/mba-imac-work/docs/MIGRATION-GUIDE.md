@@ -1,7 +1,7 @@
-# imac-mba-work Migration Guide
+# mba-imac-work Migration Guide
 
 **Machine**: Work iMac (BYTEPOETS)  
-**Hostname**: imac-mba-work  
+**Hostname**: mba-imac-work  
 **Date**: 2025-11-27  
 **Status**: 🔄 In Progress
 
@@ -36,79 +36,79 @@
 
 These are in Homebrew AND will be installed by Nix:
 
-| Package   | Homebrew | Nix | Action |
-|-----------|----------|-----|--------|
-| fish      | ✅       | ✅  | `brew uninstall fish` |
-| starship  | ✅       | ✅  | `brew uninstall starship` |
-| zoxide    | ✅       | ✅  | `brew uninstall zoxide` |
-| wezterm   | ✅ cask  | ✅  | `brew uninstall --cask wezterm` |
-| nano      | ✅       | ✅  | `brew uninstall nano` |
-| gh        | ✅       | ✅  | `brew uninstall gh` |
-| jq        | ✅       | ✅  | `brew uninstall jq` |
-| git       | ✅       | ✅  | `brew uninstall git` |
-| node      | ✅       | ✅  | `brew uninstall node` |
-| btop      | ✅       | ✅  | `brew uninstall btop` |
-| midnight-commander | ✅ | ✅ | `brew uninstall midnight-commander` |
-| direnv    | ✅       | ✅  | `brew uninstall direnv` |
-| font-hack-nerd-font | ✅ cask | ✅ | `brew uninstall --cask font-hack-nerd-font` |
+| Package             | Homebrew | Nix | Action                                      |
+| ------------------- | -------- | --- | ------------------------------------------- |
+| fish                | ✅       | ✅  | `brew uninstall fish`                       |
+| starship            | ✅       | ✅  | `brew uninstall starship`                   |
+| zoxide              | ✅       | ✅  | `brew uninstall zoxide`                     |
+| wezterm             | ✅ cask  | ✅  | `brew uninstall --cask wezterm`             |
+| nano                | ✅       | ✅  | `brew uninstall nano`                       |
+| gh                  | ✅       | ✅  | `brew uninstall gh`                         |
+| jq                  | ✅       | ✅  | `brew uninstall jq`                         |
+| git                 | ✅       | ✅  | `brew uninstall git`                        |
+| node                | ✅       | ✅  | `brew uninstall node`                       |
+| btop                | ✅       | ✅  | `brew uninstall btop`                       |
+| midnight-commander  | ✅       | ✅  | `brew uninstall midnight-commander`         |
+| direnv              | ✅       | ✅  | `brew uninstall direnv`                     |
+| font-hack-nerd-font | ✅ cask  | ✅  | `brew uninstall --cask font-hack-nerd-font` |
 
 ### Packages to KEEP in Homebrew
 
 These are NOT in Nix config or work better via Homebrew:
 
-| Package | Reason |
-|---------|--------|
-| ffmpeg | Complex multimedia, many dependencies |
-| tesseract | OCR, complex dependencies |
-| docker, docker-compose | Docker Desktop integration |
-| openjdk | Java runtime |
-| tmux | Not using (zellij replaces it) - can remove |
-| htop | btop replaces it - can remove |
-| topgrade | System updater - evaluate if needed |
-| go-jira | Jira CLI - evaluate if needed |
-| cloc | Code counter - evaluate if needed |
-| blueutil | Bluetooth CLI - macOS specific |
-| defaultbrowser | macOS specific |
-| watch | Simple utility - keep or migrate |
+| Package                | Reason                                      |
+| ---------------------- | ------------------------------------------- |
+| ffmpeg                 | Complex multimedia, many dependencies       |
+| tesseract              | OCR, complex dependencies                   |
+| docker, docker-compose | Docker Desktop integration                  |
+| openjdk                | Java runtime                                |
+| tmux                   | Not using (zellij replaces it) - can remove |
+| htop                   | btop replaces it - can remove               |
+| topgrade               | System updater - evaluate if needed         |
+| go-jira                | Jira CLI - evaluate if needed               |
+| cloc                   | Code counter - evaluate if needed           |
+| blueutil               | Bluetooth CLI - macOS specific              |
+| defaultbrowser         | macOS specific                              |
+| watch                  | Simple utility - keep or migrate            |
 
 ### Homebrew Casks to KEEP
 
-| Cask | Reason |
-|------|--------|
-| ghostty | Alternative terminal (keep for now) |
-| hammerspoon | macOS automation |
-| macdown | Markdown editor |
-| zed | Code editor |
+| Cask        | Reason                              |
+| ----------- | ----------------------------------- |
+| ghostty     | Alternative terminal (keep for now) |
+| hammerspoon | macOS automation                    |
+| macdown     | Markdown editor                     |
+| zed         | Code editor                         |
 
 ### Packages Nix Will Install (Not in Homebrew)
 
 These are in the Nix config but not currently installed:
 
-| Package | Purpose |
-|---------|---------|
-| just | Command runner |
-| lazygit | Git TUI |
-| tree | Directory viewer |
-| pv | Pipe viewer |
-| tealdeer | tldr pages |
-| fswatch | File watcher |
-| zellij | Terminal multiplexer |
-| netcat | Network utility |
-| wakeonlan | WoL utility |
-| websocat | WebSocket client |
-| lynx | Text browser |
-| html2text | HTML converter |
-| restic | Backup |
-| rage | Encryption |
-| rsync | Modern rsync |
-| wget | Downloader |
-| bat | Better cat |
-| ripgrep | Fast grep |
-| fd | Fast find |
-| fzf | Fuzzy finder |
-| prettier | Code formatter |
-| nmap | Network scanner |
-| python3 | Python interpreter |
+| Package   | Purpose              |
+| --------- | -------------------- |
+| just      | Command runner       |
+| lazygit   | Git TUI              |
+| tree      | Directory viewer     |
+| pv        | Pipe viewer          |
+| tealdeer  | tldr pages           |
+| fswatch   | File watcher         |
+| zellij    | Terminal multiplexer |
+| netcat    | Network utility      |
+| wakeonlan | WoL utility          |
+| websocat  | WebSocket client     |
+| lynx      | Text browser         |
+| html2text | HTML converter       |
+| restic    | Backup               |
+| rage      | Encryption           |
+| rsync     | Modern rsync         |
+| wget      | Downloader           |
+| bat       | Better cat           |
+| ripgrep   | Fast grep            |
+| fd        | Fast find            |
+| fzf       | Fuzzy finder         |
+| prettier  | Code formatter       |
+| nmap      | Network scanner      |
+| python3   | Python interpreter   |
 
 ---
 
@@ -146,10 +146,11 @@ brew autoremove
 
 ```bash
 cd ~/Code/nixcfg
-nix run home-manager -- switch --flake ".#markus@imac-mba-work"
+nix run home-manager -- switch --flake ".#markus@mba-imac-work"
 ```
 
 This will install:
+
 - Fish shell + all config
 - Starship prompt
 - WezTerm terminal
@@ -212,6 +213,7 @@ brew list --cask
 ```
 
 Consider removing:
+
 - `tmux` (using zellij)
 - `htop` (using btop)
 - `topgrade` (if not using)
@@ -267,12 +269,12 @@ chsh -s /usr/local/bin/fish  # or /bin/zsh
 
 ## Differences from imac0 (Home)
 
-| Feature | imac0 (Home) | imac-mba-work (Work) |
-|---------|--------------|----------------------|
-| Git default | Personal (markus@barta.com) | Work (markus.barta@bytepoets.com) |
-| Git includes | Work for ~/Code/BYTEPOETS/ | Personal for ~/Code/nixcfg/ |
-| esptool | ✅ Installed | ❌ Not needed |
-| stopAmphetamineAndSleep.sh | ✅ | ❌ |
+| Feature                    | imac0 (Home)                | mba-imac-work (Work)              |
+| -------------------------- | --------------------------- | --------------------------------- |
+| Git default                | Personal (markus@barta.com) | Work (markus.barta@bytepoets.com) |
+| Git includes               | Work for ~/Code/BYTEPOETS/  | Personal for ~/Code/nixcfg/       |
+| esptool                    | ✅ Installed                | ❌ Not needed                     |
+| stopAmphetamineAndSleep.sh | ✅                          | ❌                                |
 
 ---
 
@@ -289,7 +291,7 @@ After migration, these are declaratively managed:
 - Hack Nerd Font
 - Nano config
 
-### From `hosts/imac-mba-work/home.nix`
+### From `hosts/mba-imac-work/home.nix`
 
 - Git config (work identity default)
 - Karabiner config
@@ -315,4 +317,3 @@ After migration, these are declaratively managed:
 ---
 
 **Next Step**: Run the Homebrew uninstall commands in Step 1, then apply Home Manager.
-

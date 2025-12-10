@@ -52,7 +52,7 @@ ls -la ~/.config/karabiner/karabiner.json
 
 **Expected Results:**
 
-- File exists (symlink to config in hosts/imac-mba-work/config/)
+- File exists (symlink to config in hosts/mba-imac-work/config/)
 
 **Status:** ⏳ Pending
 

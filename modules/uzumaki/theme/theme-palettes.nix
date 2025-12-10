@@ -530,7 +530,7 @@
     darkGray = {
       name = "Dark Gray";
       category = "workstation";
-      description = "Work workstation (imac-mba-work)";
+      description = "Work workstation (mba-imac-work)";
 
       # Powerline gradient (light → dark) - starts darker
       gradient = {
@@ -762,7 +762,7 @@
     # Workstations (home > work)
     imac0 = "warmGray";
     imac1 = "roseGold"; # Wife's iMac (future)
-    "imac-mba-work" = "darkGray";
+    "mba-imac-work" = "darkGray";
     "mba-mbp-work" = "lightGray";
   };
 
@@ -785,7 +785,7 @@
     # Workstations (home > work)
     "imac0"
     "imac1"
-    "imac-mba-work"
+    "mba-imac-work"
     "mba-mbp-work"
   ];
 
