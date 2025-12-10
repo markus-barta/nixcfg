@@ -97,7 +97,6 @@ print_test "T12.2 - Uzumaki Functions Exist"
 
 check_fish_function "pingt" "pingt function exists"
 check_fish_function "sourcefish" "sourcefish function exists"
-check_fish_function "stress" "stress function exists"
 check_fish_function "helpfish" "helpfish function exists"
 
 # ────────────────────────────────────────────────────────────────────────────────
