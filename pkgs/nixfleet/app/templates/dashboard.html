@@ -144,28 +144,35 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
 .loc-icon.game { color: var(--purple); }
 .loc-icon.mobile { color: var(--orange); }
 
-/* Criticality Badge - clean pill style */
-.crit-badge {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 3px;
-    font-size: 0.6rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+/* Device icons */
+.device-cell { text-align: center; }
+.device-icon {
+    width: 18px;
+    height: 18px;
 }
+.device-icon.cloud { color: var(--cyan); }
+.device-icon.home { color: var(--green); }
+.device-icon.office { color: var(--yellow); }
+.device-icon.game { color: var(--purple); }
+.device-icon.mobile { color: var(--orange); }
+.device-icon.desktop { color: var(--fg); }
+.device-icon.laptop { color: var(--fg-dark); }
 
-.crit-badge.high { 
-    background: var(--red);
-    color: var(--bg-dark);
+/* Version / Git hash */
+.version-cell {
+    font-size: 0.7rem;
 }
-.crit-badge.medium { 
-    background: var(--yellow);
-    color: var(--bg-dark);
+.git-hash {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    background: var(--bg-highlight);
+    border-radius: 3px;
+    color: var(--fg-dark);
 }
-.crit-badge.low { 
-    background: var(--fg-gutter);
-    color: var(--fg);
+.git-hash.outdated {
+    background: rgba(224, 175, 104, 0.2);
+    color: var(--yellow);
 }
 
 /* Status Indicators */
@@ -456,6 +463,15 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
     <symbol id="icon-mobile" viewBox="0 0 24 24">
         <path fill="currentColor" d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/>
     </symbol>
+    <symbol id="icon-desktop" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/>
+    </symbol>
+    <symbol id="icon-laptop" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
+    </symbol>
+    <symbol id="icon-server" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M2 2h20v6H2V2zm2 2v2h16V4H4zm-2 8h20v6H2v-6zm2 2v2h16v-2H4zm-2 8h20v2H2v-2z"/>
+    </symbol>
     <symbol id="icon-download" viewBox="0 0 24 24">
         <path fill="currentColor" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
     </symbol>
@@ -484,8 +500,9 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
         <thead>
             <tr>
                 <th>Host</th>
-                <th>Crit</th>
+                <th>Device</th>
                 <th>Status</th>
+                <th>Version</th>
                 <th>Last Seen</th>
                 <th>Audited</th>
                 <th>Tests</th>
@@ -496,7 +513,7 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
         <tbody>
             {% if hosts %}
                 {% for host in hosts %}
-                <tr data-host-id="{{ host.id }}" data-last-seen="{{ host.last_seen_iso or '' }}" data-poll-interval="{{ host.poll_interval or 60 }}">
+                <tr data-host-id="{{ host.id }}" data-last-seen="{{ host.last_seen_iso or '' }}" data-poll-interval="{{ host.poll_interval or 60 }}" data-git-hash="{{ host.current_generation or '' }}">
                     <td>
                         <div class="host-icons">
                             {% if host.host_type == 'macos' %}
@@ -504,22 +521,25 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
                             {% else %}
                             <svg class="os-icon nixos"><use href="#icon-nixos"/></svg>
                             {% endif %}
-                            {% if host.location == 'hetzner-nuremberg' or host.location == 'netcup-austria' or 'cloud' in (host.location or '') %}
-                            <svg class="loc-icon cloud"><use href="#icon-cloud"/></svg>
-                            {% elif host.location == 'office' %}
-                            <svg class="loc-icon office"><use href="#icon-office"/></svg>
-                            {% elif host.location == 'mobile' %}
-                            <svg class="loc-icon mobile"><use href="#icon-mobile"/></svg>
-                            {% elif host.location == 'remote' or 'game' in (host.hostname or '') or 'gpc' in (host.hostname or '') %}
-                            <svg class="loc-icon game"><use href="#icon-game"/></svg>
-                            {% else %}
-                            <svg class="loc-icon home"><use href="#icon-home"/></svg>
-                            {% endif %}
                             <span class="hostname">{{ host.hostname }}</span>
                         </div>
                     </td>
-                    <td>
-                        <span class="crit-badge {{ host.criticality or 'low' }}">{{ (host.criticality or 'low')[0] }}</span>
+                    <td class="device-cell">
+                        {% if host.location == 'hetzner-nuremberg' or host.location == 'netcup-austria' or 'cloud' in (host.location or '') %}
+                        <svg class="device-icon cloud" title="Cloud server"><use href="#icon-cloud"/></svg>
+                        {% elif host.location == 'office' %}
+                        <svg class="device-icon office" title="Office"><use href="#icon-office"/></svg>
+                        {% elif host.location == 'mobile' %}
+                        <svg class="device-icon mobile" title="Mobile"><use href="#icon-mobile"/></svg>
+                        {% elif host.location == 'remote' or 'gpc' in (host.hostname or '') %}
+                        <svg class="device-icon game" title="Gaming"><use href="#icon-game"/></svg>
+                        {% elif 'imac' in (host.hostname or '') %}
+                        <svg class="device-icon desktop" title="Desktop"><use href="#icon-desktop"/></svg>
+                        {% elif 'mbp' in (host.hostname or '') or 'mba' in (host.hostname or '') %}
+                        <svg class="device-icon laptop" title="Laptop"><use href="#icon-laptop"/></svg>
+                        {% else %}
+                        <svg class="device-icon home" title="Home server"><use href="#icon-server"/></svg>
+                        {% endif %}
                     </td>
                     <td>
                         <span class="status">
@@ -540,6 +560,13 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
                             Offline
                             {% endif %}
                         </span>
+                    </td>
+                    <td class="version-cell">
+                        {% if host.current_generation %}
+                        <code class="git-hash" title="{{ host.current_generation }}">{{ host.current_generation[:7] }}</code>
+                        {% else %}
+                        <span style="color: var(--fg-gutter);">—</span>
+                        {% endif %}
                     </td>
                     <td class="seen-cell">
                         <span class="seen-full" data-ts="{{ host.last_seen_iso or '' }}">{{ host.last_seen_iso or 'Never' }}</span>
@@ -601,7 +628,7 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
                 {% endfor %}
             {% else %}
             <tr>
-                <td colspan="8" class="empty">
+                <td colspan="9" class="empty">
                     No hosts registered yet. Agents will appear here once they connect.
                 </td>
             </tr>
@@ -701,7 +728,11 @@ setTimeout(() => location.reload(), 30000);
     </div>
     <div class="footer-right">
         <span class="made-with">
-            Made with <svg class="heart" style="width:12px;height:12px;"><use href="#icon-heart"/></svg> in Vienna
+            Made with <svg class="heart" style="width:12px;height:12px;"><use href="#icon-heart"/></svg>, Claude &amp; Cursor in
+            <a href="https://maps.google.com/?q=Graz,Austria" target="_blank" class="footer-link" style="margin-left:0.2rem;">
+                <svg style="width:10px;height:10px;"><use href="#icon-home"/></svg>
+                Graz
+            </a>
         </span>
     </div>
 </footer>

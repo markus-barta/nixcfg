@@ -142,19 +142,15 @@ api_call() {
 # Host Information
 # ════════════════════════════════════════════════════════════════════════════════
 
+get_git_hash() {
+  # Get current git commit hash from the nixcfg repo
+  cd "$NIXFLEET_NIXCFG"
+  git rev-parse HEAD 2>/dev/null || echo "unknown"
+}
+
 get_generation() {
-  if [[ "$HOST_TYPE" == "nixos" ]]; then
-    local path
-    path=$(readlink /run/current-system 2>/dev/null || echo "")
-    if [[ -n "$path" ]]; then
-      echo "$path" | grep -oE '[a-z0-9]{32}' | head -c 8
-    else
-      echo "unknown"
-    fi
-  else
-    # macOS: get home-manager generation
-    home-manager generations 2>/dev/null | head -1 | awk '{print $5}' | head -c 8 || echo "unknown"
-  fi
+  # Return current git hash (truncated for display)
+  get_git_hash
 }
 
 get_test_status() {
