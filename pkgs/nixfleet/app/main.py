@@ -24,7 +24,6 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-import httpx
 
 # Optional bcrypt support (falls back to SHA-256 if not available)
 try:
@@ -60,37 +59,54 @@ REQUIRE_TOTP = os.environ.get("NIXFLEET_REQUIRE_TOTP", "").lower() in ("1", "tru
 SESSION_DURATION = timedelta(hours=24)
 VERSION = "0.1.0"
 
-# GitHub repo for version comparison
-GITHUB_REPO = os.getenv("NIXFLEET_GITHUB_REPO", "markus-barta/nixcfg")
-GITHUB_BRANCH = os.getenv("NIXFLEET_GITHUB_BRANCH", "main")
-
-# Cache for GitHub latest hash (avoid rate limits)
-_github_cache: dict = {"hash": None, "fetched_at": None}
-GITHUB_CACHE_TTL = timedelta(minutes=5)
-
-
-async def get_github_latest_hash() -> Optional[str]:
-    """Fetch the latest commit hash from GitHub. Cached for 5 minutes."""
-    global _github_cache
+# Build-time git hash (embedded during docker build, no API calls needed)
+# This is the "source of truth" - hosts are outdated if they don't match this
+def get_build_git_hash() -> Optional[str]:
+    """Get the git hash embedded at build time. No API calls needed."""
+    # Try environment variable first (set in docker-compose or Dockerfile)
+    env_hash = os.getenv("NIXFLEET_GIT_HASH")
+    if env_hash:
+        return env_hash
     
-    now = datetime.utcnow()
-    if _github_cache["hash"] and _github_cache["fetched_at"]:
-        if now - _github_cache["fetched_at"] < GITHUB_CACHE_TTL:
-            return _github_cache["hash"]
+    # Fallback: try to read from version.json (created during build)
+    version_file = Path(__file__).parent / "version.json"
+    if version_file.exists():
+        try:
+            import json
+            with open(version_file) as f:
+                data = json.load(f)
+                return data.get("gitCommit")
+        except Exception:
+            pass
     
+    # Last resort: try git command (works in dev, not in container)
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            url = f"https://api.github.com/repos/{GITHUB_REPO}/commits/{GITHUB_BRANCH}"
-            response = await client.get(url, headers={"Accept": "application/vnd.github.v3+json"})
-            if response.status_code == 200:
-                data = response.json()
-                _github_cache["hash"] = data.get("sha")
-                _github_cache["fetched_at"] = now
-                return _github_cache["hash"]
-    except Exception as e:
-        logger.warning(f"Failed to fetch GitHub hash: {e}")
+        import subprocess
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=2,
+            cwd=Path(__file__).parent.parent
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
     
-    return _github_cache.get("hash")  # Return stale cache on error
+    return None
+
+
+# Cache the build hash (it never changes during runtime)
+_BUILD_GIT_HASH: Optional[str] = None
+
+
+def get_latest_hash() -> Optional[str]:
+    """Get the latest git hash (build-time embedded). Cached."""
+    global _BUILD_GIT_HASH
+    if _BUILD_GIT_HASH is None:
+        _BUILD_GIT_HASH = get_build_git_hash()
+        if _BUILD_GIT_HASH:
+            logger.info(f"Build git hash: {_BUILD_GIT_HASH[:7]}")
+    return _BUILD_GIT_HASH
 
 
 # Rate limiting
@@ -911,8 +927,8 @@ async def dashboard(request: Request):
     if not token or not verify_session(token):
         return RedirectResponse(url="/login", status_code=302)
 
-    # Fetch latest hash from GitHub for version comparison
-    latest_hash = await get_github_latest_hash()
+    # Get build-time hash for version comparison (no API calls)
+    latest_hash = get_latest_hash()
     
     with get_db() as conn:
         rows = conn.execute("""
