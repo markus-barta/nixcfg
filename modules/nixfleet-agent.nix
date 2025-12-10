@@ -71,10 +71,7 @@ in
         NIXFLEET_INTERVAL = toString cfg.interval;
       };
 
-      path = [
-        "/run/current-system/sw" # For nixos-rebuild
-        pkgs.git # For git operations
-      ];
+      path = [ "/run/current-system/sw" ]; # For nixos-rebuild
 
       serviceConfig = {
         Type = "simple";
