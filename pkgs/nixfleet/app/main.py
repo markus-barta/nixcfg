@@ -655,7 +655,7 @@ async def list_hosts(request: Request):
 async def register_host(request: Request, host_id: str, registration: HostRegistration, _: bool = Depends(verify_agent_auth)):
     """Register or update a host."""
     host_id = validate_host_id(host_id)
-    logger.info(f"Host registration: {host_id} ({registration.hostname})")
+    logger.info(f"Host registration: {host_id} ({registration.hostname}, gen={registration.current_generation})")
     
     with get_db() as conn:
         existing = conn.execute("SELECT * FROM hosts WHERE id = ?", (host_id,)).fetchone()
