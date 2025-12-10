@@ -21,9 +21,10 @@ services:
       - nixfleet-data:/data
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=csb1_traefik"
       - "traefik.http.routers.nixfleet.rule=Host(`fleet.barta.cm`)"
-      - "traefik.http.routers.nixfleet.entrypoints=websecure"
-      - "traefik.http.routers.nixfleet.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.nixfleet.tls=true"
+      - "traefik.http.routers.nixfleet.tls.certresolver=default"
       - "traefik.http.services.nixfleet.loadbalancer.server.port=8000"
     networks:
       - csb1_traefik
