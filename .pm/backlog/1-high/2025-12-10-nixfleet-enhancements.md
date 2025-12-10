@@ -14,7 +14,7 @@ Minor polish and improvements for the NixFleet dashboard.
 
 ## Tasks
 
-- [ ] **Cache git hash locally on host** — Avoid calling git commands every 10s; cache the hash and only refresh on pull/switch
+- [x] **Cache git hash locally on host** — Avoid calling git commands every 10s; cache the hash and only refresh on pull/switch
 - [ ] **Device icons** — Add icons for device types (NixOS penguin, Apple logo for macOS, etc.)
 - [ ] **Timestamp in locale** — Display timestamps in user's locale format instead of UTC/ISO
 - [ ] **Test icon** — Change "check icon" to something more appropriate
