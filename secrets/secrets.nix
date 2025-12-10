@@ -61,4 +61,9 @@ in
   # Edit: agenix -e secrets/mqtt-hsb0.age
   "mqtt-hsb0.age".publicKeys = markus ++ hsb0;
 
+  # NixFleet agent API token
+  # Format: NIXFLEET_TOKEN=xxx
+  # Edit: agenix -e secrets/nixfleet-token.age
+  "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb8;
+
 }
