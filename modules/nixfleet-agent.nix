@@ -25,6 +25,7 @@ let
       jq
       git
       hostname
+      # nixos-rebuild is a script, not a package - we add it via PATH in the service
     ];
     text = builtins.readFile ../pkgs/nixfleet/agent/nixfleet-agent.sh;
   };
@@ -69,6 +70,8 @@ in
         NIXFLEET_NIXCFG = cfg.nixcfgPath;
         NIXFLEET_INTERVAL = toString cfg.interval;
       };
+
+      path = [ "/run/current-system/sw" ]; # For nixos-rebuild
 
       serviceConfig = {
         Type = "simple";
