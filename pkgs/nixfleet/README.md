@@ -88,52 +88,170 @@ export NIXFLEET_TOKEN="<your-api-token>"
 nixfleet-agent
 ```
 
-## Agent Systemd Service (NixOS)
+## Adding Hosts
+
+### Adding a macOS Host
+
+macOS hosts use Home Manager with a launchd agent. The token is stored in a plain file.
+
+**Step 1: Create the token file on the macOS host**
+
+```bash
+# On the macOS host (e.g., imac0)
+mkdir -p ~/.config/nixfleet
+echo "YOUR_API_TOKEN_HERE" > ~/.config/nixfleet/token
+chmod 600 ~/.config/nixfleet/token
+```
+
+**Step 2: Enable the agent in Home Manager**
+
+Edit `hosts/<hostname>/home.nix`:
 
 ```nix
-systemd.services.nixfleet-agent = {
-  description = "NixFleet Agent";
-  after = [ "network.target" ];
-  wantedBy = [ "multi-user.target" ];
-  environment = {
-    NIXFLEET_URL = "https://fleet.barta.cm";
-    NIXFLEET_TOKEN = "your-token-here";  # Use agenix in production
+{
+  imports = [
+    ../../modules/home/nixfleet-agent.nix
+  ];
+
+  services.nixfleet-agent = {
+    enable = true;
+    interval = 10;  # Poll every 10 seconds
+    # Use absolute paths (~ doesn't expand in launchd)
+    tokenFile = "/Users/<username>/.config/nixfleet/token";
+    nixcfgPath = "/Users/<username>/Code/nixcfg";
   };
-  serviceConfig = {
-    ExecStart = "${pkgs.bash}/bin/bash /path/to/nixfleet-agent.sh";
-    Restart = "always";
-    RestartSec = 60;
-  };
-};
+}
 ```
 
-## Agent LaunchAgent (macOS)
+**Step 3: Rebuild**
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>cm.barta.nixfleet-agent</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/Users/markus/.local/bin/nixfleet-agent</string>
-    </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>NIXFLEET_URL</key>
-        <string>https://fleet.barta.cm</string>
-        <key>NIXFLEET_TOKEN</key>
-        <string>your-token-here</string>
-    </dict>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-</dict>
-</plist>
+```bash
+home-manager switch --flake ~/Code/nixcfg#<username>@<hostname>
 ```
+
+**Step 4: Verify**
+
+```bash
+# Check if agent is running
+launchctl list | grep nixfleet
+
+# Check logs
+tail -f /tmp/nixfleet-agent.err
+```
+
+---
+
+### Adding a NixOS Host
+
+NixOS hosts use a systemd service. The token is stored encrypted with agenix.
+
+**Step 1: Add the host key to secrets.nix (if not already)**
+
+Get the host's SSH key and add it to `secrets/secrets.nix`:
+
+```bash
+# On the NixOS host
+cat /etc/ssh/ssh_host_rsa_key.pub
+```
+
+Edit `secrets/secrets.nix`:
+
+```nix
+# Add host key
+myhost = [
+  "ssh-rsa AAAAB3..."
+];
+
+# Add to nixfleet-token.age publicKeys
+"nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb8 ++ myhost;
+```
+
+**Step 2: Rekey the secret (if host key was added)**
+
+```bash
+# On a machine with your personal SSH key (~/.ssh/id_rsa)
+cd ~/Code/nixcfg
+agenix --rekey
+```
+
+**Step 3: Create the encrypted token (first time only)**
+
+```bash
+# On a machine with your personal SSH key
+cd ~/Code/nixcfg
+agenix -e secrets/nixfleet-token.age
+# Editor opens - paste the token (just the token, no variable name):
+# 5496cb179f581b9269091ea3eaa0a52870409a200c99b44dcc7aaaa6ec160270
+# Save and exit
+```
+
+**Step 4: Enable the agent in NixOS configuration**
+
+Edit `hosts/<hostname>/configuration.nix`:
+
+```nix
+{ config, ... }:
+{
+  imports = [
+    ../../modules/nixfleet-agent.nix
+  ];
+
+  # Load the encrypted token
+  age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
+
+  services.nixfleet-agent = {
+    enable = true;
+    interval = 10;  # Poll every 10 seconds
+    tokenFile = config.age.secrets.nixfleet-token.path;
+  };
+}
+```
+
+**Step 5: Commit, push, and rebuild**
+
+```bash
+# Commit the changes
+git add -A && git commit -m "feat: enable nixfleet agent on <hostname>" && git push
+
+# On the NixOS host (or via SSH)
+cd ~/Code/nixcfg && git pull
+sudo nixos-rebuild switch --flake .#<hostname>
+```
+
+**Step 6: Verify**
+
+```bash
+# Check service status
+systemctl status nixfleet-agent.timer
+systemctl status nixfleet-agent.service
+
+# Check logs
+journalctl -u nixfleet-agent -f
+```
+
+---
+
+### Host Registration in Dashboard
+
+When a host's agent starts, it automatically registers with the dashboard. The dashboard will show:
+
+- **Hostname**: Detected from `hostname -s`
+- **OS Type**: NixOS or macOS (auto-detected)
+- **Location**: cloud/home/work/game (based on hostname pattern)
+- **Status**: Online/Offline (based on last heartbeat)
+- **Git Hash**: Current commit in nixcfg repo
+
+---
+
+### Troubleshooting
+
+| Issue                        | Solution                                                              |
+| ---------------------------- | --------------------------------------------------------------------- |
+| Agent not starting           | Check logs: `/tmp/nixfleet-agent.err` (macOS) or `journalctl` (NixOS) |
+| "Missing required commands"  | Ensure `home-manager` or `nixos-rebuild` is in PATH                   |
+| "Registration failed"        | Check token is correct and dashboard is reachable                     |
+| Host shows as Offline        | Check agent is running and can reach `fleet.barta.cm`                 |
+| "nixcfg directory not found" | Use absolute paths in config (no `~`)                                 |
 
 ## API Endpoints
 

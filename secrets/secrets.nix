@@ -36,9 +36,20 @@ let
     "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDeDdND1TRTYc6rnn/xMMhNHe6I8DJ5bQxZWT3GI2wHUcd4RpkkSUhtIhjYwbwtdi3nRYlsRKPeqZ8sERNAORkThdMy9ueMq3oDwrTlMbs6jlS8atbZPiozkOji2g00+xrb2tTp0480+M2kKIYv8gSN7lHzjnA3i128YN1NNsbqanU/pZVaEe0M10G9TMWifdZqQnGxFjWrMxlSCOwhvC7OixCLbKi4YPiVQ/LkeF67su1i68qZQgJRftx9te7AJm19P4gIz2Tn+OI0a4iESnLzA4PD2Zu7eBo63B35u0ardlH1AZK7GZIa4DFAcaCp3xpRQ1N5RKEjAfYi1LhSWh2UvsVp2vFTc7NvOcSCdR6BjumcGk2k/3b71YGfAWxI+7VY74eeugVIpsAWY3ewGikn2qYQrv8Op374dLVBpmtrBZG7mXayk2uqQIdybXNFm7drsXVPDenD/Dl/mewYRmzb2vcSyLDS5sevBBgNmvMdNNyrbdjXZEo8j0IkExrYkng5p/AMgC4pUV6X/tcGTk//QnknWESmtcNeYjJy17kBiSOwZ4+WjEltqQMqMyf6elIjhN56ZhdCSTUVGe8d4t4NcCj4aS2K3rLJIR7cMFpmXTr+Bo9g/Oj3Lnoj0i8R82CjTY/0fuZSOsqpFdOAhgXGyEIHmglxC2fcyxcMZJAFaQ=="
   ];
 
-  # TODO: Add these host keys when needed
-  # csb0 = [ "ssh-ed25519 AAAA..." ];
-  # csb1 = [ "ssh-ed25519 AAAA..." ];
+  hsb1 = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIU0cAsXtdYPO5W4ns6utAEkVvzcmOx5Xl/nVF/fvAVz"
+  ];
+
+  csb0 = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKQk8oklcJePMtYjjBCgKaTrzZ4kqad84htRV9fzOVSd"
+  ];
+
+  csb1 = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHWQjoKsgp+4m8M2ztlDSYtiW80loYfYMeYYJCfhIh7g"
+  ];
+
+  # TODO: Add gpc0 key when host is online
+  # gpc0 = [ "ssh-ed25519 AAAA..." ];
 
 in
 {
@@ -62,8 +73,8 @@ in
   "mqtt-hsb0.age".publicKeys = markus ++ hsb0;
 
   # NixFleet agent API token
-  # Format: NIXFLEET_TOKEN=xxx
+  # Format: NIXFLEET_TOKEN=xxx (for NixOS EnvironmentFile)
   # Edit: agenix -e secrets/nixfleet-token.age
-  "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb8;
+  "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1;
 
 }
