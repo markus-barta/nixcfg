@@ -1,12 +1,12 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                    EZA THEME - Sysop (Based on Tokyo Night)                  ║
+# ║                       EZA THEME - Tokyo Night Uzumaki                        ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
 # Base: https://github.com/eza-community/eza-themes/blob/main/themes/tokyonight.yml
-# Modifications: Sysop-focused tweaks for better visibility of critical items
+# Modifications: Enhanced visibility for infrastructure/operations work
 #
 # Design Philosophy:
-#   - Executables: Bold/bright - "Can I run this?" is critical for sysops
+#   - Executables: Bold/bright - "Can I run this?" stands out immediately
 #   - Security items (setuid/setgid): Warning colors - must stand out
 #   - Large files: More visible - disk space awareness
 #   - Broken links: Error red - fix this!
@@ -28,7 +28,7 @@ filekinds:
   char_device: { foreground: "#e0af68" }
   socket: { foreground: "#414868" }
   special: { foreground: "#9d7cd8" }
-  executable: { foreground: "#9ece6a", bold: true } # SYSOP: Bold executables!
+  executable: { foreground: "#9ece6a", bold: true } # Enhanced: Bold executables!
   mount_point: { foreground: "#b4f9f8" }
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -38,16 +38,16 @@ filekinds:
 perms:
   user_read: { foreground: "#2ac3de" }
   user_write: { foreground: "#bb9af7" }
-  user_execute_file: { foreground: "#9ece6a", bold: true } # SYSOP: Execute stands out
+  user_execute_file: { foreground: "#9ece6a", bold: true } # Enhanced: Execute stands out
   user_execute_other: { foreground: "#9ece6a", bold: true }
   group_read: { foreground: "#2ac3de" }
   group_write: { foreground: "#ff9e64" }
   group_execute: { foreground: "#9ece6a" }
   other_read: { foreground: "#2ac3de" }
-  other_write: { foreground: "#ff007c" } # SYSOP: World-writable = warning!
+  other_write: { foreground: "#ff007c" } # Enhanced: World-writable = warning!
   other_execute: { foreground: "#9ece6a" }
-  special_user_file: { foreground: "#ff007c", bold: true } # SYSOP: Setuid = danger!
-  special_other: { foreground: "#db4b4b", bold: true } # SYSOP: Setgid = danger!
+  special_user_file: { foreground: "#ff007c", bold: true } # Enhanced: Setuid = danger!
+  special_other: { foreground: "#db4b4b", bold: true } # Enhanced: Setgid = danger!
   attribute: { foreground: "#737aa2" }
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -57,11 +57,11 @@ perms:
 size:
   major: { foreground: "#2ac3de" }
   minor: { foreground: "#9d7cd8" }
-  number_byte: { foreground: "#545c7e" } # SYSOP: Bytes barely visible
+  number_byte: { foreground: "#545c7e" } # Enhanced: Bytes barely visible
   number_kilo: { foreground: "#737aa2" } # KB - slightly visible
   number_mega: { foreground: "#a9b1d6" } # MB - noticeable
-  number_giga: { foreground: "#ff9e64", bold: true } # SYSOP: GB stands out!
-  number_huge: { foreground: "#ff007c", bold: true } # SYSOP: TB+ = warning!
+  number_giga: { foreground: "#ff9e64", bold: true } # Enhanced: GB stands out!
+  number_huge: { foreground: "#ff007c", bold: true } # Enhanced: TB+ = warning!
   unit_byte: { foreground: "#545c7e" }
   unit_kilo: { foreground: "#737aa2" }
   unit_mega: { foreground: "#a9b1d6" }
@@ -74,7 +74,7 @@ size:
 
 users:
   user_you: { foreground: "#3d59a1" }
-  user_root: { foreground: "#bb9af7", bold: true } # SYSOP: Root ownership visible
+  user_root: { foreground: "#bb9af7", bold: true } # Enhanced: Root ownership visible
   user_other: { foreground: "#545c7e" }
   group_yours: { foreground: "#545c7e" }
   group_root: { foreground: "#bb9af7" }
@@ -94,12 +94,12 @@ links:
 
 git:
   new: { foreground: "#9ece6a" } # Green = added
-  modified: { foreground: "#e0af68" } # SYSOP: Yellow/amber for modified (was purple)
+  modified: { foreground: "#e0af68" } # Enhanced: Yellow/amber for modified (was purple)
   deleted: { foreground: "#db4b4b" } # Red = deleted
   renamed: { foreground: "#2ac3de" }
   typechange: { foreground: "#2ac3de" }
   ignored: { foreground: "#545c7e" }
-  conflicted: { foreground: "#ff9e64", bold: true } # SYSOP: Conflicts = attention!
+  conflicted: { foreground: "#ff9e64", bold: true } # Enhanced: Conflicts = attention!
 
 git_repo:
   branch_main: { foreground: "#737aa2" }
@@ -140,7 +140,7 @@ file_type:
 # ════════════════════════════════════════════════════════════════════════════════
 
 punctuation: { foreground: "#414868" }
-date: { foreground: "#545c7e" } # SYSOP: Dates muted (less important)
+date: { foreground: "#545c7e" } # Enhanced: Dates muted (less important)
 inode: { foreground: "#545c7e" }
 blocks: { foreground: "#545c7e" }
 header: { foreground: "#a9b1d6", bold: true }
@@ -149,5 +149,5 @@ flags: { foreground: "#9d7cd8" }
 
 symlink_path: { foreground: "#89ddff" }
 control_char: { foreground: "#ff9e64" }
-broken_symlink: { foreground: "#ff007c", bold: true } # SYSOP: Broken = fix this!
+broken_symlink: { foreground: "#ff007c", bold: true } # Enhanced: Broken = fix this!
 broken_path_overlay: { foreground: "#ff007c" }

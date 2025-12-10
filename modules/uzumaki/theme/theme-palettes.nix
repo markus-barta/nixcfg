@@ -836,9 +836,9 @@
   # ============================================================================
   #
   # Eza colors are now defined in a YAML theme file for better maintainability:
-  #   modules/shared/eza-themes/sysop.yml
+  #   modules/uzumaki/theme/eza-themes/tokyonight-uzumaki.yml
   #
-  # Based on Tokyo Night theme with sysop-focused modifications:
+  # Based on Tokyo Night theme with enhanced visibility modifications:
   # https://github.com/eza-community/eza-themes/blob/main/themes/tokyonight.yml
   #
   # The theme file is installed to ~/.config/eza/theme.yml by theme-hm.nix
