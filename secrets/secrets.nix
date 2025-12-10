@@ -48,8 +48,9 @@ let
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHWQjoKsgp+4m8M2ztlDSYtiW80loYfYMeYYJCfhIh7g"
   ];
 
-  # TODO: Add gpc0 key when host is online
-  # gpc0 = [ "ssh-ed25519 AAAA..." ];
+  gpc0 = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpykoFcMPeCtWH3aColM4fzCsslUxaHwW9DHSTi2Fr3"
+  ];
 
 in
 {
@@ -75,6 +76,6 @@ in
   # NixFleet agent API token
   # Format: NIXFLEET_TOKEN=xxx (for NixOS EnvironmentFile)
   # Edit: agenix -e secrets/nixfleet-token.age
-  "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1;
+  "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0;
 
 }
