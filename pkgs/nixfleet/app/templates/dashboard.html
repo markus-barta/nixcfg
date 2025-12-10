@@ -50,7 +50,6 @@ header {
 .logout:hover { 
     border-color: var(--red); 
     color: var(--red); 
-    text-decoration: none;
     background: rgba(247, 118, 142, 0.1);
 }
 
@@ -119,13 +118,8 @@ th {
     top: 0;
 }
 
-tr:last-child td {
-    border-bottom: none;
-}
-
-tr:hover td {
-    background: rgba(41, 46, 66, 0.5);
-}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: rgba(41, 46, 66, 0.5); }
 
 /* OS & Location Icons */
 .host-icons {
@@ -137,7 +131,6 @@ tr:hover td {
 .os-icon, .loc-icon {
     width: 16px;
     height: 16px;
-    display: inline-block;
     flex-shrink: 0;
 }
 
@@ -151,23 +144,29 @@ tr:hover td {
 .loc-icon.game { color: var(--purple); }
 .loc-icon.mobile { color: var(--orange); }
 
-/* Criticality Dots */
-.crit-dots {
-    display: inline-flex;
-    gap: 2px;
-    align-items: center;
+/* Criticality Badge - clean pill style */
+.crit-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
 }
 
-.crit-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
+.crit-badge.high { 
+    background: var(--red);
+    color: var(--bg-dark);
+}
+.crit-badge.medium { 
+    background: var(--yellow);
+    color: var(--bg-dark);
+}
+.crit-badge.low { 
     background: var(--fg-gutter);
+    color: var(--fg);
 }
-
-.crit-dots.high .crit-dot { background: var(--red); }
-.crit-dots.medium .crit-dot:nth-child(-n+2) { background: var(--yellow); }
-.crit-dots.low .crit-dot:first-child { background: var(--fg-dark); }
 
 /* Status Indicators */
 .status { 
@@ -188,19 +187,15 @@ tr:hover td {
     background: var(--green);
     box-shadow: 0 0 6px rgba(158, 206, 106, 0.5);
 }
-
 .status-dot.offline { background: var(--fg-gutter); }
-
 .status-dot.error { 
     background: var(--red);
     box-shadow: 0 0 6px rgba(247, 118, 142, 0.5);
 }
-
 .status-dot.pending { 
     background: var(--yellow); 
     animation: pulse 1.5s ease-in-out infinite;
 }
-
 .status-dot.testing {
     background: var(--purple);
     animation: pulse 1s ease-in-out infinite;
@@ -213,81 +208,89 @@ tr:hover td {
 
 /* Last seen + Heartbeat */
 .seen-cell {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
     font-size: 0.75rem;
     color: var(--fg-dark);
+    line-height: 1.4;
+}
+
+.seen-full {
+    display: block;
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+}
+
+.seen-relative {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--fg-dark);
+    font-size: 0.7rem;
 }
 
 .heartbeat {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    font-size: 0.65rem;
-    color: var(--fg-gutter);
-    opacity: 0.8;
-}
-
-.heartbeat.online {
+    gap: 2px;
+    font-size: 0.6rem;
     color: var(--green);
+    opacity: 0.7;
 }
 
 .hb-ring {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    border: 1.5px solid currentColor;
+    border: 1px solid currentColor;
     position: relative;
-    opacity: 0.6;
 }
 
 .hb-ring svg {
     position: absolute;
-    top: -1.5px;
-    left: -1.5px;
-    width: 10px;
-    height: 10px;
+    top: -1px;
+    left: -1px;
+    width: 8px;
+    height: 8px;
 }
 
 .hb-ring circle {
     fill: none;
     stroke: currentColor;
-    stroke-width: 1.5;
-    stroke-dasharray: 25;
-    stroke-dashoffset: 25;
+    stroke-width: 1;
+    stroke-dasharray: 20;
+    stroke-dashoffset: 20;
     transform: rotate(-90deg);
     transform-origin: center;
 }
 
 .hb-countdown {
     font-variant-numeric: tabular-nums;
-    min-width: 1.8em;
 }
 
 /* Action Buttons */
 .actions { 
     display: flex; 
-    gap: 0.25rem; 
+    gap: 0.3rem; 
 }
 
 .btn {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
-    padding: 0.3rem 0.5rem;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-family: inherit;
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     font-weight: 500;
     transition: all 0.15s ease;
+    white-space: nowrap;
 }
 
 .btn svg {
-    width: 12px;
-    height: 12px;
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
 }
 
 .btn-pull { 
@@ -295,53 +298,36 @@ tr:hover td {
     color: var(--cyan);
     border: 1px solid rgba(125, 207, 255, 0.2);
 }
-.btn-pull:hover { 
-    background: rgba(125, 207, 255, 0.2); 
-}
+.btn-pull:hover { background: rgba(125, 207, 255, 0.2); }
 
 .btn-switch { 
     background: rgba(158, 206, 106, 0.1); 
     color: var(--green);
     border: 1px solid rgba(158, 206, 106, 0.2);
 }
-.btn-switch:hover { 
-    background: rgba(158, 206, 106, 0.2); 
-}
+.btn-switch:hover { background: rgba(158, 206, 106, 0.2); }
 
 .btn-test { 
     background: rgba(187, 154, 247, 0.1); 
     color: var(--purple);
     border: 1px solid rgba(187, 154, 247, 0.2);
 }
-.btn-test:hover { 
-    background: rgba(187, 154, 247, 0.2); 
-}
+.btn-test:hover { background: rgba(187, 154, 247, 0.2); }
 
 .btn-stop {
     background: rgba(247, 118, 142, 0.1);
     color: var(--red);
     border: 1px solid rgba(247, 118, 142, 0.2);
 }
-.btn-stop:hover {
-    background: rgba(247, 118, 142, 0.2);
-}
+.btn-stop:hover { background: rgba(247, 118, 142, 0.2); }
 
-.btn:disabled { 
-    opacity: 0.3; 
-    cursor: not-allowed; 
-}
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 /* Text Styles */
 .hostname {
     font-weight: 600;
     color: var(--fg);
     font-size: 0.85rem;
-}
-
-.time { 
-    color: var(--fg-dark); 
-    font-size: 0.75rem;
-    cursor: help;
 }
 
 .comment {
@@ -357,23 +343,12 @@ tr:hover td {
 .audit.done { color: var(--green); }
 .audit.pending { color: var(--fg-dark); }
 
-.test-progress {
-    font-size: 0.7rem;
-    color: var(--purple);
-    font-variant-numeric: tabular-nums;
-}
-
-.test-result {
-    font-size: 0.7rem;
-}
+.test-progress { font-size: 0.7rem; color: var(--purple); font-variant-numeric: tabular-nums; }
+.test-result { font-size: 0.7rem; }
 .test-result.pass { color: var(--green); }
 .test-result.fail { color: var(--red); }
 
-.empty { 
-    text-align: center; 
-    padding: 3rem; 
-    color: var(--fg-dark); 
-}
+.empty { text-align: center; padding: 3rem; color: var(--fg-dark); }
 
 /* Footer */
 .site-footer {
@@ -401,15 +376,8 @@ tr:hover td {
     text-decoration: none;
     transition: color 0.15s;
 }
-
-.footer-link:hover {
-    color: var(--fg);
-}
-
-.footer-link svg {
-    width: 14px;
-    height: 14px;
-}
+.footer-link:hover { color: var(--fg); }
+.footer-link svg { width: 14px; height: 14px; }
 
 .made-with {
     display: inline-flex;
@@ -424,14 +392,10 @@ tr:hover td {
 
 @keyframes heartbeat {
     0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.1); }
+    50% { transform: scale(1.15); }
 }
 
-/* Responsive */
-@media (max-width: 1200px) {
-    .comment { max-width: 100px; }
-}
-
+@media (max-width: 1200px) { .comment { max-width: 100px; } }
 @media (max-width: 900px) {
     body { padding: 1rem; }
     th, td { padding: 0.4rem 0.5rem; }
@@ -471,14 +435,12 @@ tr:hover td {
 
 <!-- SVG icon definitions -->
 <svg style="display: none;">
-    <!-- OS Icons -->
     <symbol id="icon-nixos" viewBox="0 0 24 24">
         <path fill="currentColor" d="M12 2L2.5 7v10L12 22l9.5-5V7L12 2zm0 2.16l6.86 3.62-2.14 1.13-4.72-2.5-4.72 2.5-2.14-1.13L12 4.16zM5.5 8.84l2.14 1.13v5l4.36 2.3 4.36-2.3v-5l2.14-1.13v7.32L12 19.84l-6.5-3.68V8.84z"/>
     </symbol>
     <symbol id="icon-apple" viewBox="0 0 24 24">
         <path fill="currentColor" d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
     </symbol>
-    <!-- Location Icons -->
     <symbol id="icon-cloud" viewBox="0 0 24 24">
         <path fill="currentColor" d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/>
     </symbol>
@@ -494,7 +456,6 @@ tr:hover td {
     <symbol id="icon-mobile" viewBox="0 0 24 24">
         <path fill="currentColor" d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/>
     </symbol>
-    <!-- Action Icons -->
     <symbol id="icon-download" viewBox="0 0 24 24">
         <path fill="currentColor" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
     </symbol>
@@ -507,7 +468,6 @@ tr:hover td {
     <symbol id="icon-stop" viewBox="0 0 24 24">
         <path fill="currentColor" d="M6 6h12v12H6z"/>
     </symbol>
-    <!-- Footer Icons -->
     <symbol id="icon-github" viewBox="0 0 24 24">
         <path fill="currentColor" d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"/>
     </symbol>
@@ -559,11 +519,7 @@ tr:hover td {
                         </div>
                     </td>
                     <td>
-                        <span class="crit-dots {{ host.criticality or 'low' }}" title="{{ host.criticality or 'low' }}">
-                            <span class="crit-dot"></span>
-                            <span class="crit-dot"></span>
-                            <span class="crit-dot"></span>
-                        </span>
+                        <span class="crit-badge {{ host.criticality or 'low' }}">{{ (host.criticality or 'low')[0] }}</span>
                     </td>
                     <td>
                         <span class="status">
@@ -585,20 +541,21 @@ tr:hover td {
                             {% endif %}
                         </span>
                     </td>
-                    <td>
-                        <div class="seen-cell" title="{{ host.last_seen_iso or 'Never' }}">
-                            <span class="time">{{ host.last_seen_relative }}</span>
+                    <td class="seen-cell">
+                        <span class="seen-full" data-ts="{{ host.last_seen_iso or '' }}">{{ host.last_seen_iso or 'Never' }}</span>
+                        <span class="seen-relative">
+                            ({{ host.last_seen_relative }})
                             {% if host.online %}
-                            <span class="heartbeat online" data-host="{{ host.id }}">
+                            <span class="heartbeat" data-host="{{ host.id }}">
                                 <span class="hb-ring">
-                                    <svg viewBox="0 0 12 12">
-                                        <circle cx="6" cy="6" r="4"/>
+                                    <svg viewBox="0 0 10 10">
+                                        <circle cx="5" cy="5" r="3.5"/>
                                     </svg>
                                 </span>
                                 <span class="hb-countdown">--</span>
                             </span>
                             {% endif %}
-                        </div>
+                        </span>
                     </td>
                     <td class="audit {{ 'done' if host.last_audit_relative else 'pending' }}" title="{{ host.last_audit_iso or '' }}">
                         {% if host.last_audit_relative %}
@@ -615,24 +572,28 @@ tr:hover td {
                             {{ host.test_passed_count }}/{{ host.test_total_count }}
                         </span>
                         {% else %}
-                        <span class="time">{{ host.test_status or '—' }}</span>
+                        <span style="color: var(--fg-dark); font-size: 0.75rem;">{{ host.test_status or '—' }}</span>
                         {% endif %}
                     </td>
                     <td class="comment" title="{{ host.comment or '' }}">{{ host.comment or '—' }}</td>
                     <td class="actions">
                         <button class="btn btn-pull" onclick="sendCommand('{{ host.id }}', 'pull')" {% if not host.online %}disabled{% endif %} title="Git Pull">
                             <svg><use href="#icon-download"/></svg>
+                            Pull
                         </button>
                         <button class="btn btn-switch" onclick="sendCommand('{{ host.id }}', 'switch')" {% if not host.online %}disabled{% endif %} title="Rebuild Switch">
                             <svg><use href="#icon-refresh"/></svg>
+                            Switch
                         </button>
                         {% if host.test_running %}
                         <button class="btn btn-stop" onclick="sendCommand('{{ host.id }}', 'stop')" title="Stop Test">
                             <svg><use href="#icon-stop"/></svg>
+                            Stop
                         </button>
                         {% else %}
                         <button class="btn btn-test" onclick="sendCommand('{{ host.id }}', 'test')" {% if not host.online %}disabled{% endif %} title="Run Tests">
                             <svg><use href="#icon-check"/></svg>
+                            Test
                         </button>
                         {% endif %}
                     </td>
@@ -655,6 +616,19 @@ tr:hover td {
 const csrfToken = '{{ csrf_token }}';
 const POLL_INTERVAL = 60;
 
+// Format timestamps to local browser time
+function formatTimestamps() {
+    document.querySelectorAll('.seen-full[data-ts]').forEach(el => {
+        const ts = el.dataset.ts;
+        if (!ts || ts === 'Never') return;
+        try {
+            const d = new Date(ts);
+            el.textContent = d.toLocaleString();
+        } catch(e) {}
+    });
+}
+formatTimestamps();
+
 function updateHeartbeats() {
     const now = Date.now();
     document.querySelectorAll('tr[data-host-id]').forEach(row => {
@@ -673,12 +647,8 @@ function updateHeartbeats() {
         const countdown = hb.querySelector('.hb-countdown');
         const circle = hb.querySelector('circle');
         
-        if (countdown) {
-            countdown.textContent = Math.ceil(remaining) + 's';
-        }
-        if (circle) {
-            circle.style.strokeDashoffset = 25 * (1 - progress);
-        }
+        if (countdown) countdown.textContent = Math.ceil(remaining) + 's';
+        if (circle) circle.style.strokeDashoffset = 20 * (1 - progress);
     });
 }
 
