@@ -2,11 +2,10 @@
 #
 # Deploy with: docker compose up -d
 #
-# Environment variables (set in .env or docker-compose override):
-#   NIXFLEET_PASSWORD_HASH  - SHA256 hash of admin password
+# Environment variables (set in .env):
+#   NIXFLEET_PASSWORD_HASH  - bcrypt hash of admin password
 #   NIXFLEET_TOTP_SECRET    - Base32-encoded TOTP secret (optional)
 #   NIXFLEET_API_TOKEN      - Token for agent authentication
-#   NIXFLEET_SESSION_SECRET - Random string for session signing
 
 services:
   nixfleet:
@@ -18,7 +17,6 @@ services:
       - NIXFLEET_PASSWORD_HASH=${NIXFLEET_PASSWORD_HASH}
       - NIXFLEET_TOTP_SECRET=${NIXFLEET_TOTP_SECRET:-}
       - NIXFLEET_API_TOKEN=${NIXFLEET_API_TOKEN}
-      - NIXFLEET_SESSION_SECRET=${NIXFLEET_SESSION_SECRET}
     volumes:
       - nixfleet-data:/data
     labels:
@@ -28,11 +26,11 @@ services:
       - "traefik.http.routers.nixfleet.tls.certresolver=letsencrypt"
       - "traefik.http.services.nixfleet.loadbalancer.server.port=8000"
     networks:
-      - traefik
+      - csb1_traefik
 
 volumes:
   nixfleet-data:
 
 networks:
-  traefik:
+  csb1_traefik:
     external: true

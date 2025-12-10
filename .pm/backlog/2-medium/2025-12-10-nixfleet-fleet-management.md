@@ -97,12 +97,13 @@ A simple, custom-built fleet management dashboard that:
 
 ### Phase 2: Harden AuthZ/AuthN (TODO)
 
-- [ ] Make `NIXFLEET_API_TOKEN` mandatory (fail-closed agent auth)
-- [ ] Enforce bcrypt-only hashes; reject SHA-256
-- [ ] Require TOTP when configured; block login if missing code/secret
-- [ ] Sign/validate session cookies; add CSRF for dashboard actions; make logout POST
-- [ ] Restrict `/health` or redact sensitive flags
-- [ ] Extend rate limits beyond login (agent + queue endpoints)
+- [x] Make `NIXFLEET_API_TOKEN` mandatory (fail-closed agent auth)
+- [x] Enforce bcrypt-only hashes; reject SHA-256
+- [x] Require TOTP when configured; block login if missing code/secret
+- [x] Add CSRF for dashboard actions; make logout POST
+- [x] Restrict `/health` or redact sensitive flags
+- [x] Extend rate limits beyond login (agent + queue endpoints)
+- [ ] Sign/validate session cookies in addition to server-side storage (defense in depth)
 
 ### Phase 3: Deploy to csb1
 
@@ -111,6 +112,9 @@ A simple, custom-built fleet management dashboard that:
 - [ ] Add to Traefik network with HSTS and correct real-ip headers
 - [ ] Configure Cloudflare DNS (fleet.barta.cm)
 - [ ] Verify dashboard reachable over HTTPS only
+- [ ] Run in DEV_MODE=false with TOTP configured (prefer REQUIRE_TOTP=true)
+- [ ] Use persistent data dir on fast disk with backups
+- [ ] Optionally restrict admin access via firewall/allowlist
 
 ### Phase 4: Agent Deployment
 
@@ -208,14 +212,12 @@ Add to Cloudflare: `fleet.barta.cm → 152.53.64.166`
 
 ## Security TODOs (from current implementation)
 
-- Require `NIXFLEET_API_TOKEN`; reject agent calls when unset.
-- Enforce bcrypt-only hashes; drop SHA-256 fallback.
-- Make TOTP mandatory when configured; fail login if code/secret absent.
-- Sign/verify session cookies; add CSRF protection; make logout POST.
-- Rate-limit agent and queue endpoints; not just login.
-- Lock down `/health` or hide token/TOTP configuration signals.
-- Add HSTS/secure cookies by default; ensure Traefik forwards real client IPs for rate limits.
-- Consider per-host credentials or mTLS to avoid single shared agent token.
+- Sign/verify session cookies for defense in depth (currently random DB-backed only).
+- Tighten CSP to remove `'unsafe-inline'` once templates use nonces/hashes.
+- Consider per-host credentials or mTLS to avoid a single shared agent token.
+- Add agent-side TLS hardening (curl CA pinning / minimum TLS / retry with backoff).
+- Consider rate limiting / backoff on agent command execution loops to reduce dashboard load under auth failures.
+- Acceptable for limited internal testing behind TLS/Traefik; not production-grade until above are closed.
 
 ---
 
