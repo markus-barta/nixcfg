@@ -31,4 +31,5 @@ These are polish items to improve the user experience after core functionality i
 ## References
 
 - [pkgs/nixfleet/README.md](../../pkgs/nixfleet/README.md)
-- [.pm/backlog/2-medium/2025-12-10-nixfleet-fleet-management.md](../2-medium/2025-12-10-nixfleet-fleet-management.md)
+- [.pm/done/2025-12-10-nixfleet-fleet-management.md](../../done/2025-12-10-nixfleet-fleet-management.md)
+- [.pm/backlog/2-medium/2025-12-10-nixfleet-websocket-updates.md](../2-medium/2025-12-10-nixfleet-websocket-updates.md)
