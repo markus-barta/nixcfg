@@ -1,0 +1,455 @@
+{% extends "base.html" %}
+
+{% block title %}NixFleet Dashboard{% endblock %}
+
+{% block extra_styles %}
+body { 
+    padding: 1.5rem 2rem; 
+}
+
+/* Header */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.brand h1 { 
+    color: var(--blue); 
+    font-size: 1.5rem; 
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+.brand .subtitle { 
+    color: var(--fg-dark); 
+    font-size: 0.8rem; 
+    margin-top: 0.25rem;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.logout {
+    color: var(--fg-dark);
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.logout:hover { 
+    border-color: var(--red); 
+    color: var(--red); 
+    text-decoration: none;
+    background: rgba(247, 118, 142, 0.1);
+}
+
+/* Stats Cards */
+.stats { 
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1rem; 
+    margin-bottom: 1.5rem; 
+    max-width: 500px;
+}
+
+.stat {
+    background: var(--bg-dark);
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.stat-value { 
+    font-size: 1.75rem; 
+    font-weight: 700; 
+    color: var(--blue);
+    line-height: 1;
+}
+
+.stat-label { 
+    font-size: 0.7rem; 
+    color: var(--fg-dark); 
+    text-transform: uppercase; 
+    letter-spacing: 0.05em;
+    margin-top: 0.5rem;
+}
+
+.stat.online .stat-value { color: var(--green); }
+.stat.audited .stat-value { color: var(--cyan); }
+
+/* Table Container */
+.table-container {
+    background: var(--bg-dark);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th, td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+th {
+    background: var(--bg-highlight);
+    color: var(--fg-dark);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    position: sticky;
+    top: 0;
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+tr:hover td {
+    background: rgba(41, 46, 66, 0.5);
+}
+
+/* Status Indicators */
+.status { 
+    display: inline-flex; 
+    align-items: center; 
+    gap: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.status-dot { 
+    width: 8px; 
+    height: 8px; 
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-dot.online { 
+    background: var(--green);
+    box-shadow: 0 0 8px rgba(158, 206, 106, 0.5);
+}
+
+.status-dot.offline { background: var(--fg-gutter); }
+
+.status-dot.error { 
+    background: var(--red);
+    box-shadow: 0 0 8px rgba(247, 118, 142, 0.5);
+}
+
+.status-dot.pending { 
+    background: var(--yellow); 
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse { 
+    0%, 100% { opacity: 1; transform: scale(1); } 
+    50% { opacity: 0.6; transform: scale(0.95); } 
+}
+
+/* Badges */
+.badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.badge.nixos { 
+    background: rgba(122, 162, 247, 0.15); 
+    color: var(--blue);
+    border: 1px solid rgba(122, 162, 247, 0.3);
+}
+
+.badge.macos { 
+    background: rgba(187, 154, 247, 0.15); 
+    color: var(--purple);
+    border: 1px solid rgba(187, 154, 247, 0.3);
+}
+
+.badge.high { 
+    background: rgba(247, 118, 142, 0.15); 
+    color: var(--red);
+    border: 1px solid rgba(247, 118, 142, 0.3);
+}
+
+.badge.medium { 
+    background: rgba(224, 175, 104, 0.15); 
+    color: var(--yellow);
+    border: 1px solid rgba(224, 175, 104, 0.3);
+}
+
+.badge.low { 
+    background: rgba(86, 95, 137, 0.15); 
+    color: var(--fg-dark);
+    border: 1px solid rgba(86, 95, 137, 0.3);
+}
+
+/* Action Buttons */
+.actions { 
+    display: flex; 
+    gap: 0.35rem; 
+}
+
+button {
+    padding: 0.35rem 0.65rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.75rem;
+    font-weight: 500;
+    transition: all 0.15s ease;
+}
+
+.btn-pull { 
+    background: rgba(125, 207, 255, 0.15); 
+    color: var(--cyan);
+    border: 1px solid rgba(125, 207, 255, 0.3);
+}
+.btn-pull:hover { 
+    background: var(--cyan); 
+    color: var(--bg-dark);
+}
+
+.btn-switch { 
+    background: rgba(158, 206, 106, 0.15); 
+    color: var(--green);
+    border: 1px solid rgba(158, 206, 106, 0.3);
+}
+.btn-switch:hover { 
+    background: var(--green); 
+    color: var(--bg-dark);
+}
+
+.btn-test { 
+    background: rgba(187, 154, 247, 0.15); 
+    color: var(--purple);
+    border: 1px solid rgba(187, 154, 247, 0.3);
+}
+.btn-test:hover { 
+    background: var(--purple); 
+    color: var(--bg-dark);
+}
+
+button:hover { 
+    transform: translateY(-1px); 
+}
+
+button:disabled { 
+    opacity: 0.4; 
+    cursor: not-allowed; 
+    transform: none; 
+}
+
+/* Text Styles */
+.hostname {
+    font-weight: 600;
+    color: var(--fg);
+}
+
+.time { 
+    color: var(--fg-dark); 
+    font-size: 0.8rem; 
+}
+
+.comment {
+    color: var(--fg-dark);
+    font-size: 0.8rem;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.icon { 
+    font-size: 1.1rem; 
+    text-align: center;
+    width: 2rem;
+}
+
+.audit { font-size: 0.8rem; }
+.audit.done { color: var(--green); }
+.audit.pending { color: var(--fg-dark); }
+
+.empty { 
+    text-align: center; 
+    padding: 3rem; 
+    color: var(--fg-dark); 
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .comment { max-width: 120px; }
+}
+
+@media (max-width: 900px) {
+    body { padding: 1rem; }
+    th, td { padding: 0.5rem 0.75rem; }
+    .stats { max-width: 100%; }
+}
+{% endblock %}
+
+{% block content %}
+<header>
+    <div class="brand">
+        <h1>🚀 NixFleet</h1>
+        <p class="subtitle">Fleet management for NixOS and macOS</p>
+    </div>
+    <div class="header-actions">
+        <form action="/logout" method="post" style="display: inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="logout">Sign Out</button>
+        </form>
+    </div>
+</header>
+
+<div class="stats">
+    <div class="stat">
+        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-label">Total Hosts</div>
+    </div>
+    <div class="stat online">
+        <div class="stat-value">{{ stats.online }}</div>
+        <div class="stat-label">Online</div>
+    </div>
+    <div class="stat audited">
+        <div class="stat-value">{{ stats.audited }}</div>
+        <div class="stat-label">Audited</div>
+    </div>
+</div>
+
+<div class="table-container">
+    <table>
+        <thead>
+            <tr>
+                <th></th>
+                <th>Host</th>
+                <th>Type</th>
+                <th>Criticality</th>
+                <th>Status</th>
+                <th>Last Seen</th>
+                <th>Audited</th>
+                <th>Tests</th>
+                <th>Comment</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if hosts %}
+                {% for host in hosts %}
+                <tr>
+                    <td class="icon">{{ host.icon }}</td>
+                    <td class="hostname">{{ host.hostname }}</td>
+                    <td><span class="badge {{ host.host_type }}">{{ host.host_type }}</span></td>
+                    <td><span class="badge {{ host.criticality or 'low' }}">{{ host.criticality or 'low' }}</span></td>
+                    <td>
+                        <span class="status">
+                            {% if host.pending_command %}
+                            <span class="status-dot pending"></span>
+                            {{ host.pending_command }}
+                            {% elif host.status == 'error' %}
+                            <span class="status-dot error"></span>
+                            Error
+                            {% elif host.online %}
+                            <span class="status-dot online"></span>
+                            Online
+                            {% else %}
+                            <span class="status-dot offline"></span>
+                            Offline
+                            {% endif %}
+                        </span>
+                    </td>
+                    <td class="time">{{ host.last_seen_relative }}</td>
+                    <td class="audit {{ 'done' if host.last_audit_relative else 'pending' }}">
+                        {% if host.last_audit_relative %}
+                        ✓ {{ host.last_audit_relative }}
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                    <td class="time">{{ host.test_status or '—' }}</td>
+                    <td class="comment" title="{{ host.comment or '' }}">{{ host.comment or '—' }}</td>
+                    <td class="actions">
+                        <button class="btn-pull" onclick="sendCommand('{{ host.id }}', 'pull')">Pull</button>
+                        <button class="btn-switch" onclick="sendCommand('{{ host.id }}', 'switch')">Switch</button>
+                        <button class="btn-test" onclick="sendCommand('{{ host.id }}', 'test')">Test</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            {% else %}
+            <tr>
+                <td colspan="10" class="empty">
+                    No hosts registered yet. Agents will appear here once they connect.
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// CSRF token for state-changing requests
+const csrfToken = '{{ csrf_token }}';
+
+async function sendCommand(hostId, command) {
+    const btn = event.target;
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = '···';
+    
+    try {
+        const response = await fetch(`/api/hosts/${hostId}/command`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ command })
+        });
+        
+        if (response.ok) {
+            // Brief delay then reload to show pending state
+            setTimeout(() => location.reload(), 800);
+        } else if (response.status === 401) {
+            location.href = '/login';
+        } else {
+            const data = await response.json().catch(() => ({}));
+            alert(data.detail || 'Command failed');
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    } catch (e) {
+        alert('Network error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+// Auto-refresh every 30 seconds
+setTimeout(() => location.reload(), 30000);
+</script>
+
+<footer style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); text-align: center; color: var(--fg-dark); font-size: 0.75rem;">
+    NixFleet v{{ version }} · <a href="/health">Health</a> · <a href="https://github.com/markus-barta/nixcfg/tree/main/pkgs/nixfleet">Source</a>
+</footer>
+{% endblock %}
