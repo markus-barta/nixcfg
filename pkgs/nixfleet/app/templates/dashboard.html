@@ -92,13 +92,12 @@ header {
     background: var(--bg-dark);
     border-radius: 8px;
     border: 1px solid var(--border);
-    overflow: hidden;
+    overflow-x: auto;
 }
 
 table {
     width: 100%;
     border-collapse: collapse;
-    table-layout: fixed;
 }
 
 th, td {
@@ -106,20 +105,14 @@ th, td {
     text-align: left;
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-/* Column widths */
-th:nth-child(1), td:nth-child(1) { width: 120px; } /* Host */
-th:nth-child(2), td:nth-child(2) { width: 50px; text-align: center; } /* Device */
-th:nth-child(3), td:nth-child(3) { width: 90px; } /* Status */
-th:nth-child(4), td:nth-child(4) { width: 70px; } /* Version */
-th:nth-child(5), td:nth-child(5) { width: 180px; } /* Last Seen */
-th:nth-child(6), td:nth-child(6) { width: 80px; } /* Audited */
-th:nth-child(7), td:nth-child(7) { width: 70px; } /* Tests */
-th:nth-child(8), td:nth-child(8) { width: auto; min-width: 80px; } /* Comment */
-th:nth-child(9), td:nth-child(9) { width: 200px; white-space: nowrap; } /* Actions */
+/* Device column centered */
+th:nth-child(2), td:nth-child(2) { text-align: center; }
+
+/* Actions column - don't wrap */
+td.actions { white-space: nowrap; }
 
 th {
     background: var(--bg-highlight);
