@@ -1018,6 +1018,7 @@ async def dashboard(request: Request):
         hosts=hosts, 
         stats=stats, 
         version=VERSION,
+        latest_hash=latest_hash[:7] if latest_hash else None,
         csrf_token=csrf_token
     )
 

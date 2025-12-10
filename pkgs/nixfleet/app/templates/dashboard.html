@@ -397,6 +397,18 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
 .footer-link:hover { color: var(--fg); }
 .footer-link svg { width: 14px; height: 14px; }
 
+.latest-hash {
+    color: var(--fg-dark);
+    font-size: 0.7rem;
+}
+.latest-hash code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    background: var(--bg-highlight);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    color: var(--green);
+}
+
 .made-with {
     display: inline-flex;
     align-items: center;
@@ -733,6 +745,12 @@ setTimeout(() => location.reload(), 30000);
 <footer class="site-footer">
     <div class="footer-left">
         <span>NixFleet v{{ version }}</span>
+        {% if latest_hash %}
+        <span class="latest-hash" title="Hosts should be at this version">
+            <svg style="width:10px;height:10px;vertical-align:middle;margin-right:2px;"><use href="#icon-refresh"/></svg>
+            <code>{{ latest_hash }}</code>
+        </span>
+        {% endif %}
         <a href="https://github.com/markus-barta/nixcfg/tree/main/pkgs/nixfleet" class="footer-link" target="_blank">
             <svg><use href="#icon-github"/></svg>
             Source
