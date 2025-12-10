@@ -152,3 +152,164 @@ csb1    # → ssh with zellij to cs1.barta.cm:2222
 qc0     # → quick connect to csb0
 qc1     # → quick connect to csb1
 ```
+
+---
+
+## Thymis Fleet Management (Planned)
+
+### Overview
+
+[Thymis](https://github.com/Thymis-io/thymis) is a web-based platform for managing NixOS devices. It provides:
+
+- **Web UI** for configuration editing and deployment
+- **Agent-based architecture** — devices pull updates (no inbound firewall needed)
+- **Remote management** of devices behind NAT/firewalls
+- **Rollback support** via NixOS generations
+
+### Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                         INTERNET                            │
+└─────────────────────────────────────────────────────────────┘
+                              ▲
+                              │
+           ┌──────────────────┴──────────────────┐
+           │                                     │
+           │  csb1 (Thymis Controller)           │
+           │  https://thymis.barta.cm            │
+           │                                     │
+           │  ┌────────────────────────────┐     │
+           │  │  Web UI + REST API         │     │
+           │  │  - Device inventory        │     │
+           │  │  - Configuration editor    │     │
+           │  │  - Build queue             │     │
+           │  └────────────────────────────┘     │
+           │                                     │
+           └──────────────────┬──────────────────┘
+                              │
+                              │  Agents connect OUTBOUND
+                              │  (no inbound firewall needed!)
+                              │
+        ┌─────────────────────┼───────────────────┐
+        │                     │                   │
+        ▼                     ▼                   ▼
+   ┌─────────┐          ┌─────────┐          ┌─────────┐
+   │  hsb0   │          │  hsb1   │          │  hsb8   │
+   │ (agent) │          │ (agent) │          │ (agent) │
+   │         │          │         │          │         │
+   │ Connects│          │ Connects│          │ Connects│
+   │ to csb1 │          │ to csb1 │          │ to csb1 │
+   └─────────┘          └─────────┘          └─────────┘
+
+   YOUR HOME NETWORK                      PARENTS' NETWORK
+   (192.168.1.x)                          (192.168.1.x)
+```
+
+### Workflow
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                        HYBRID WORKFLOW                              │
+└─────────────────────────────────────────────────────────────────────┘
+
+  ┌──────────────┐         ┌──────────────┐         ┌──────────────┐
+  │   Cursor +   │  push   │    GitHub    │  pull   │    Thymis    │
+  │  SYSOP Agent │ ──────► │   nixcfg     │ ◄────── │  Controller  │
+  │              │         │              │         │   (csb1)     │
+  └──────────────┘         └──────────────┘         └──────┬───────┘
+        │                                                  │
+        │ Major changes                                    │ Deploy
+        │ (new modules, refactoring)                       │
+        │                                                  ▼
+        │                                           ┌─────────────┐
+        │                                           │   Agents    │
+        │                                           │ hsb0, hsb1  │
+        │                                           │ hsb8, gpc0  │
+        │                                           └─────────────┘
+        │
+        └──── Quick fixes possible via Thymis Web UI
+              (exports back to Git for history)
+```
+
+### Why Agent-Based (Pull Model)?
+
+| Traditional Push Model            | Thymis Pull Model                         |
+| --------------------------------- | ----------------------------------------- |
+| Controller must reach each device | Devices reach out to controller           |
+| Requires port forwarding / VPN    | Works through NAT automatically           |
+| Firewall holes needed             | Only outbound HTTPS needed                |
+| Complex for home networks         | Simple — like how your phone gets updates |
+
+### Remote Site Management (hsb8 Example)
+
+hsb8 at parents' house connects outbound — no VPN or port forwarding needed:
+
+```text
+Parents' Network (ww87)          Internet              Your Cloud
+┌─────────────────────┐                              ┌──────────────┐
+│  hsb8               │                              │    csb1      │
+│  ┌──────────────┐   │                              │              │
+│  │ Thymis Agent │───┼───► HTTPS ─────────────────► │  Controller  │
+│  └──────────────┘   │                              │              │
+│                     │                              └──────────────┘
+│  NAT Router         │
+│  (no config needed) │
+└─────────────────────┘
+```
+
+### Deployment Flow
+
+1. **Edit config** in Thymis web UI (from anywhere)
+2. **Controller builds** the NixOS configuration on csb1
+3. **Agent polls** periodically: "Any updates for me?"
+4. **Agent downloads** and applies the new configuration
+5. **Agent reports** status back to controller
+
+### Managed Hosts
+
+| Host          | Type  | Location | Thymis Role     | Status     |
+| ------------- | ----- | -------- | --------------- | ---------- |
+| csb1          | NixOS | Cloud    | 🎛️ Controller   | 📋 Planned |
+| hsb0          | NixOS | Home     | Agent           | 📋 Planned |
+| hsb1          | NixOS | Home     | Agent           | 📋 Planned |
+| hsb8          | NixOS | Parents  | Agent           | 📋 Planned |
+| gpc0          | NixOS | Home     | Agent           | 📋 Planned |
+| csb0          | NixOS | Cloud    | Agent           | 📋 Planned |
+| imac0         | macOS | Home     | 👁️ Monitor-only | 📋 Planned |
+| mba-imac-work | macOS | Work     | 👁️ Monitor-only | 📋 Planned |
+| mba-mbp-work  | macOS | Work     | 👁️ Monitor-only | 📋 Planned |
+
+### macOS Host Strategy
+
+Thymis only deploys to NixOS. macOS hosts are managed differently:
+
+| Aspect         | NixOS Hosts             | macOS Hosts                       |
+| -------------- | ----------------------- | --------------------------------- |
+| **Deployment** | Thymis agent            | Manual via Cursor/SYSOP           |
+| **Command**    | Thymis handles          | `home-manager switch --flake ...` |
+| **Automation** | Thymis (after approval) | None — full manual control        |
+| **Visibility** | Thymis dashboard        | Thymis dashboard (monitor-only)   |
+
+**Fallback**: If Thymis doesn't support monitor-only hosts natively, we'll create a Fleet Overview page that aggregates NixOS status from Thymis + macOS status from lightweight reporters.
+
+### Human-in-the-Loop Policy
+
+**Phase 1 (Initial)**: All hosts require manual approval before deployment.
+
+| Host      | Criticality | Policy                      |
+| --------- | ----------- | --------------------------- |
+| All NixOS | —           | ⏸️ Manual approval required |
+| All macOS | —           | 🖐️ Manual via SYSOP         |
+
+**Phase 2 (Future)**: Gradual automation based on trust.
+
+| Host             | When to Unlock                  |
+| ---------------- | ------------------------------- |
+| gpc0             | First to auto-deploy (test bed) |
+| hsb1, hsb8, csb1 | After gpc0 stable 2+ weeks      |
+| hsb0, csb0       | Last (🔴 HIGH, maybe never)     |
+
+### Backlog
+
+See [.pm/backlog/2-medium/2025-12-10-thymis-fleet-management.md](../.pm/backlog/2-medium/2025-12-10-thymis-fleet-management.md) for implementation details.
