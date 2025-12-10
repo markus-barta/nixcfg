@@ -146,8 +146,8 @@ api_call() {
 
 get_git_hash() {
   # Get current git commit hash from the nixcfg repo
-  cd "$NIXFLEET_NIXCFG"
-  git rev-parse HEAD 2>/dev/null || echo "unknown"
+  # Use -C to avoid cd issues with errexit
+  git -C "$NIXFLEET_NIXCFG" rev-parse HEAD 2>/dev/null || echo "unknown"
 }
 
 get_generation() {
