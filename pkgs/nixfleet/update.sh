@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # NixFleet update script - pulls latest and rebuilds with embedded git hash
 #
 # Usage: ./update.sh
