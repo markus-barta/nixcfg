@@ -1,6 +1,6 @@
-# imac-mba-work Test Suite
+# mba-imac-work Test Suite
 
-Comprehensive test procedures for validating imac-mba-work configuration.
+Comprehensive test procedures for validating mba-imac-work configuration.
 
 ## Quick Stats
 
@@ -29,7 +29,7 @@ Comprehensive test procedures for validating imac-mba-work configuration.
 Run the test suite to validate your configuration:
 
 ```bash
-cd ~/Code/nixcfg/hosts/imac-mba-work/tests
+cd ~/Code/nixcfg/hosts/mba-imac-work/tests
 for test in T*.sh; do ./"$test"; done
 ```
 
@@ -39,7 +39,7 @@ for test in T*.sh; do ./"$test"; done
 
 ```bash
 # Navigate to tests directory
-cd ~/Code/nixcfg/hosts/imac-mba-work/tests
+cd ~/Code/nixcfg/hosts/mba-imac-work/tests
 
 # Follow procedures in individual .md files
 # Example: T00-nix-base.md

@@ -27,7 +27,7 @@ Central reference for all hosts and their relationships.
 | Host              | Role             | User   | Git Default |
 | ----------------- | ---------------- | ------ | ----------- |
 | **imac0**         | Home Workstation | markus | Personal    |
-| **imac-mba-work** | Work iMac        | markus | BYTEPOETS   |
+| **mba-imac-work** | Work iMac        | markus | BYTEPOETS   |
 | **mba-mbp-work**  | Work MacBook     | markus | BYTEPOETS   |
 
 ---
@@ -86,7 +86,7 @@ Central reference for all hosts and their relationships.
 | **hsb1**          | ✅ Yes           | 🐢 Medium (4 threads)            | Remote deploys, CI             |
 | **hsb0**          | ✅ Yes           | 🐢 Slow (4 threads)              | Emergency only                 |
 | **imac0**         | ❌ No            | -                                | home-manager only              |
-| **imac-mba-work** | ❌ No            | -                                | home-manager only              |
+| **mba-imac-work** | ❌ No            | -                                | home-manager only              |
 | **mba-mbp-work**  | ❌ No            | -                                | home-manager only              |
 
 ### Build Commands

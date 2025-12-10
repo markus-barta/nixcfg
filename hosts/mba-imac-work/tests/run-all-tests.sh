@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run all imac-mba-work tests
+# Run all mba-imac-work tests
 set -euo pipefail
 
 GREEN='\033[0;32m'
@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "========================================"
-echo "  imac-mba-work Test Suite"
+echo "  mba-imac-work Test Suite"
 echo "  (timeout: ${TEST_TIMEOUT}s per test)"
 echo "========================================"
 echo

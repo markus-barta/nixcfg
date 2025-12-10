@@ -4,7 +4,7 @@
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
 # Collects baseline test results from all Phase I hosts before migration.
-# Run this from your workstation (imac0 or imac-mba-work).
+# Run this from your workstation (imac0 or mba-imac-work).
 #
 # Usage: ./collect-baselines.sh [host]
 #   ./collect-baselines.sh        # Run all hosts
@@ -135,7 +135,7 @@ echo ""
 if [[ $# -gt 0 ]]; then
   TARGETS=("$@")
 else
-  TARGETS=("hsb1" "hsb0" "hsb8" "gpc0" "imac0" "imac-mba-work")
+  TARGETS=("hsb1" "hsb0" "hsb8" "gpc0" "imac0" "mba-imac-work")
 fi
 
 # Results tracking
@@ -147,7 +147,7 @@ for host in "${TARGETS[@]}"; do
   print_header "Testing: $host"
 
   # Check if this is the current host (run locally) or remote
-  if [[ "$host" == "$CURRENT_HOST" ]] || [[ "$host" == "imac0" && "$CURRENT_HOST" == "imac0"* ]] || [[ "$host" == "imac-mba-work" && "$CURRENT_HOST" == *"mba-work"* ]]; then
+  if [[ "$host" == "$CURRENT_HOST" ]] || [[ "$host" == "imac0" && "$CURRENT_HOST" == "imac0"* ]] || [[ "$host" == "mba-imac-work" && "$CURRENT_HOST" == *"mba-work"* ]]; then
     if run_local_tests "$host"; then
       ((PASSED++))
     else

@@ -107,7 +107,7 @@ flake.nix
 </details>
 
 <details>
-<summary><strong>🍎 macOS Host Load Order</strong> (imac0, imac-mba-work, mba-mbp-work)</summary>
+<summary><strong>🍎 macOS Host Load Order</strong> (imac0, mba-imac-work, mba-mbp-work)</summary>
 
 ```
 flake.nix

@@ -1,9 +1,13 @@
 {
   pkgs,
+  lib,
   inputs,
   ...
 }:
 
+let
+  macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
+in
 {
   imports = [
     # Uzumaki: Fish functions, theming, stasysmo (all-in-one)
@@ -21,7 +25,7 @@
   };
 
   # Theme configuration - set hostname for palette lookup
-  theme.hostname = "imac-mba-work";
+  theme.hostname = "mba-imac-work";
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "markus";
   home.homeDirectory = "/Users/markus";

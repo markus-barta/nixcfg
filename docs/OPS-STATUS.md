@@ -15,7 +15,7 @@ Quick overview of infrastructure operations progress.
 | 🌐  | csb1          | NixOS | Server  | ✅ 2025-12-08 18:30 | ✅ 2025-12-08 18:35 | Minor fixes: Features table, ip-marker (SYSOP) |
 | 🎮  | gpc0          | NixOS | Desktop | ⏳                  | ⏳                  | -                                              |
 | 🖥️  | imac0         | macOS | Desktop | ✅ 2025-12-08 18:43 | ✅ 2025-12-08 18:43 | All 13 tests pass, removed sourceenv (SYSOP)   |
-| 🖥️  | imac-mba-work | macOS | Desktop | ⏳                  | ⏳                  | -                                              |
+| 🖥️  | mba-imac-work | macOS | Desktop | ⏳                  | ⏳                  | -                                              |
 | 💻  | mba-mbp-work  | macOS | Desktop | ⏳                  | ⏳                  | -                                              |
 
 **Legend:** 🏠 Home | 🌐 Cloud | 🎮 Gaming | 🖥️ iMac | 💻 MacBook | ⏳ Pending

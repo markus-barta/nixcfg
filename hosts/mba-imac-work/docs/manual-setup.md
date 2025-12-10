@@ -1,4 +1,4 @@
-# Manual Setup Guide - imac-mba-work
+# Manual Setup Guide - mba-imac-work
 
 One-time configuration steps that cannot be automated via home-manager.
 
@@ -130,7 +130,7 @@ Check: System Preferences → Security & Privacy → Privacy
 After completing setup, run the test suite:
 
 ```bash
-cd ~/Code/nixcfg/hosts/imac-mba-work/tests
+cd ~/Code/nixcfg/hosts/mba-imac-work/tests
 ./run-all-tests.sh
 ```
 

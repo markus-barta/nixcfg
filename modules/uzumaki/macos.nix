@@ -1,5 +1,5 @@
 # Uzumaki macOS - Home Manager Configuration for macOS
-# Provides shared Fish functions for mba's macOS machines (imac0, imac-mba-work, etc.)
+# Provides shared Fish functions for mba's macOS machines (imac0, mba-imac-work, etc.)
 #
 # Usage in home.nix:
 #   imports = [ ../../modules/uzumaki/macos.nix ];
