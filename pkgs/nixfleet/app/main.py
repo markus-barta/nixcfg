@@ -121,7 +121,14 @@ def init_db():
                 pending_command TEXT,
                 comment TEXT,
                 test_status TEXT,
-                config_repo TEXT
+                config_repo TEXT,
+                -- Test tracking
+                test_running INTEGER DEFAULT 0,
+                test_current INTEGER DEFAULT 0,
+                test_total INTEGER DEFAULT 0,
+                test_passed_count INTEGER DEFAULT 0,
+                test_result TEXT,
+                poll_interval INTEGER DEFAULT 60
             )
         """)
         
@@ -385,7 +392,7 @@ class HostUpdate(BaseModel):
 
 class CommandRequest(BaseModel):
     """Model for command queue requests."""
-    command: str = Field(..., pattern="^(pull|switch|pull-switch|test)$")
+    command: str = Field(..., pattern="^(pull|switch|pull-switch|test|stop)$")
 
 
 # ============================================================================
@@ -729,6 +736,64 @@ async def update_status(request: Request, host_id: str, status: HostStatus, _: b
     return {"status": "updated"}
 
 
+class TestProgress(BaseModel):
+    """Model for test progress updates from agent."""
+    current: int = Field(..., ge=0, description="Current test number")
+    total: int = Field(..., ge=0, description="Total number of tests")
+    passed: int = Field(0, ge=0, description="Number of passed tests so far")
+    running: bool = Field(True, description="Whether tests are still running")
+    result: Optional[str] = Field(None, description="Final result summary")
+    comment: Optional[str] = Field(None, description="Error message or notes")
+
+
+@app.post("/api/hosts/{host_id}/test-progress")
+@limiter.limit("60/minute")
+async def update_test_progress(request: Request, host_id: str, progress: TestProgress, _: bool = Depends(verify_agent_auth)):
+    """Agent reports test progress."""
+    host_id = validate_host_id(host_id)
+    logger.info(f"Test progress from {host_id}: {progress.current}/{progress.total} (passed: {progress.passed})")
+    
+    with get_db() as conn:
+        if progress.running:
+            # Test in progress
+            conn.execute("""
+                UPDATE hosts SET
+                    test_running = 1,
+                    test_current = ?,
+                    test_total = ?,
+                    test_passed_count = ?,
+                    last_seen = ?
+                WHERE id = ?
+            """, (progress.current, progress.total, progress.passed, datetime.utcnow().isoformat(), host_id))
+        else:
+            # Test completed
+            conn.execute("""
+                UPDATE hosts SET
+                    test_running = 0,
+                    test_current = ?,
+                    test_total = ?,
+                    test_passed_count = ?,
+                    test_result = ?,
+                    test_status = ?,
+                    comment = COALESCE(?, comment),
+                    last_seen = ?,
+                    last_audit = ?,
+                    pending_command = NULL
+                WHERE id = ?
+            """, (
+                progress.current, progress.total, progress.passed,
+                progress.result,
+                f"{progress.passed}/{progress.total} passed",
+                progress.comment,
+                datetime.utcnow().isoformat(),
+                datetime.utcnow().isoformat(),  # Tests complete = audit done
+                host_id
+            ))
+        conn.commit()
+    
+    return {"status": "updated"}
+
+
 @app.post("/api/hosts/{host_id}/command")
 async def queue_command(host_id: str, request_body: CommandRequest, request: Request):
     """Queue a command for a host. Requires session auth + CSRF token."""
@@ -745,10 +810,33 @@ async def queue_command(host_id: str, request_body: CommandRequest, request: Req
     logger.info(f"Queueing command for {host_id}: {request_body.command}")
     
     with get_db() as conn:
-        result = conn.execute(
-            "UPDATE hosts SET pending_command = ? WHERE id = ?",
-            (request_body.command, host_id)
-        )
+        if request_body.command == "stop":
+            # Stop command clears test state
+            result = conn.execute(
+                """UPDATE hosts SET 
+                    pending_command = 'stop',
+                    test_running = 0
+                WHERE id = ?""",
+                (host_id,)
+            )
+        elif request_body.command == "test":
+            # Test command initializes test state
+            result = conn.execute(
+                """UPDATE hosts SET 
+                    pending_command = 'test',
+                    test_running = 1,
+                    test_current = 0,
+                    test_total = 0,
+                    test_passed_count = 0,
+                    test_result = NULL
+                WHERE id = ?""",
+                (host_id,)
+            )
+        else:
+            result = conn.execute(
+                "UPDATE hosts SET pending_command = ? WHERE id = ?",
+                (request_body.command, host_id)
+            )
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Host not found")
         conn.commit()
@@ -795,16 +883,18 @@ async def dashboard(request: Request):
         for row in rows:
             host = dict(row)
             
-            # Calculate online status
+            # Calculate online status and add ISO timestamps for JS
             if host["last_seen"]:
                 last_seen = datetime.fromisoformat(host["last_seen"])
                 host["online"] = datetime.utcnow() - last_seen < timedelta(minutes=5)
                 host["last_seen_relative"] = relative_time(last_seen)
+                host["last_seen_iso"] = host["last_seen"]  # ISO format for JS
             else:
                 host["online"] = False
                 host["last_seen_relative"] = "never"
+                host["last_seen_iso"] = None
             
-            # Format other times
+            # Format other times with ISO for tooltips
             if host["last_switch"]:
                 host["last_switch_relative"] = relative_time(
                     datetime.fromisoformat(host["last_switch"])
@@ -816,19 +906,19 @@ async def dashboard(request: Request):
                 host["last_audit_relative"] = relative_time(
                     datetime.fromisoformat(host["last_audit"])
                 )
+                host["last_audit_iso"] = host["last_audit"]
             else:
                 host["last_audit_relative"] = None
+                host["last_audit_iso"] = None
             
-            # Set icon based on host type/location
-            if not host.get("icon"):
-                if host["host_type"] == "macos":
-                    host["icon"] = "🖥️" if "imac" in host["hostname"] else "💻"
-                elif "csb" in host["hostname"]:
-                    host["icon"] = "🌐"
-                elif "gpc" in host["hostname"]:
-                    host["icon"] = "🎮"
-                else:
-                    host["icon"] = "🏠"
+            # Test state - convert SQLite int to Python bool
+            host["test_running"] = bool(host.get("test_running", 0))
+            host["test_current"] = host.get("test_current", 0)
+            host["test_total"] = host.get("test_total", 0)
+            host["test_passed_count"] = host.get("test_passed_count", 0)
+            host["test_total_count"] = host.get("test_total", 0)
+            host["test_passed"] = (host["test_passed_count"] == host["test_total_count"]) if host["test_total_count"] > 0 else None
+            host["poll_interval"] = host.get("poll_interval", 60)
             
             hosts.append(host)
 
