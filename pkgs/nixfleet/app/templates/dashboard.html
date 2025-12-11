@@ -162,51 +162,33 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
 .type-icon.laptop { color: var(--fg-dark); }
 .type-icon.gaming { color: var(--purple); }
 
-/* Metrics column */
+/* Metrics column - compact display */
 .metrics-cell {
-    display: flex;
-    gap: 4px;
-    align-items: center;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
-.metric-bar {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    width: 40px;
-}
-
-.metric-label {
-    font-size: 0.6rem;
+.metric {
+    display: inline-block;
+    min-width: 18px;
+    text-align: right;
     color: var(--fg-dark);
-    width: 8px;
 }
 
-.metric-fill {
-    height: 6px;
-    background: var(--green);
-    border-radius: 2px;
-    max-width: 30px;
-    transition: width 0.3s ease;
+.metric::after {
+    content: '%';
+    font-size: 0.55rem;
+    opacity: 0.6;
 }
 
-.metric-bar[title*="80%"] .metric-fill,
-.metric-bar[title*="81%"] .metric-fill,
-.metric-bar[title*="82%"] .metric-fill,
-.metric-bar[title*="83%"] .metric-fill,
-.metric-bar[title*="84%"] .metric-fill,
-.metric-bar[title*="85%"] .metric-fill,
-.metric-bar[title*="86%"] .metric-fill,
-.metric-bar[title*="87%"] .metric-fill,
-.metric-bar[title*="88%"] .metric-fill,
-.metric-bar[title*="89%"] .metric-fill,
-.metric-bar[title*="9"] .metric-fill {
-    background: var(--red);
-}
+.metric.cpu { color: var(--cyan); }
+.metric.ram { color: var(--purple); margin-left: 4px; }
+.metric.high { color: var(--red); }
 
 .metrics-na {
     color: var(--fg-gutter);
-    font-size: 0.75rem;
+    font-size: 0.7rem;
 }
 
 /* Version / Git hash */
@@ -334,22 +316,12 @@ tr:hover .status .hb-countdown {
     50% { opacity: 0.4; } 
 }
 
-/* Last seen + Heartbeat - single line */
+/* Last seen - compact, full date on hover */
 .seen-cell {
     font-size: 0.7rem;
     color: var(--fg-dark);
     white-space: nowrap;
-}
-
-.seen-content {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.seen-full {
-    color: var(--fg);
-    font-variant-numeric: tabular-nums;
+    cursor: help;
 }
 
 .seen-relative {
@@ -920,16 +892,10 @@ tr:hover .status .hb-countdown {
                             {% endif %}
                         </span>
                     </td>
-                    <td class="metrics-cell">
+                    <td class="metrics-cell" title="{% if host.metrics %}CPU: {{ host.metrics.cpu }}% | RAM: {{ host.metrics.ram }}%{% if host.metrics.swap %} | Swap: {{ host.metrics.swap }}%{% endif %} | Load: {{ host.metrics.load }}{% endif %}">
                         {% if host.metrics %}
-                        <span class="metric-bar" title="CPU: {{ host.metrics.cpu }}%">
-                            <span class="metric-label">C</span>
-                            <span class="metric-fill" style="width: {{ host.metrics.cpu }}%;"></span>
-                        </span>
-                        <span class="metric-bar" title="RAM: {{ host.metrics.ram }}%">
-                            <span class="metric-label">M</span>
-                            <span class="metric-fill" style="width: {{ host.metrics.ram }}%;"></span>
-                        </span>
+                        <span class="metric cpu {{ 'high' if host.metrics.cpu >= 80 else '' }}">{{ host.metrics.cpu }}</span>
+                        <span class="metric ram {{ 'high' if host.metrics.ram >= 80 else '' }}">{{ host.metrics.ram }}</span>
                         {% else %}
                         <span class="metrics-na">—</span>
                         {% endif %}
@@ -944,11 +910,8 @@ tr:hover .status .hb-countdown {
                         <span style="color: var(--fg-gutter);">—</span>
                         {% endif %}
                     </td>
-                    <td class="seen-cell">
-                        <span class="seen-content">
-                            <span class="seen-full" data-ts="{{ host.last_seen_iso or '' }}">{{ host.last_seen_iso or 'Never' }}</span>
-                            <span class="seen-relative" data-host="{{ host.id }}">({{ host.last_seen_relative }})</span>
-                        </span>
+                    <td class="seen-cell" title="{{ host.last_seen_iso or 'Never' }}">
+                        <span class="seen-relative" data-host="{{ host.id }}" data-ts="{{ host.last_seen_iso or '' }}">{{ host.last_seen_relative or 'Never' }}</span>
                     </td>
                     <td class="audit {{ 'done' if host.last_audit_relative else 'pending' }}" title="{{ host.last_audit_iso or '' }}">
                         {% if host.last_audit_relative %}
@@ -1065,17 +1028,7 @@ function parseUTC(ts) {
     return new Date(ts.endsWith('Z') ? ts : ts + 'Z');
 }
 
-function formatTimestamps() {
-    document.querySelectorAll('.seen-full[data-ts]').forEach(el => {
-        const ts = el.dataset.ts;
-        if (!ts || ts === 'Never') return;
-        try {
-            const d = parseUTC(ts);
-            if (d) el.textContent = formatTimestamp(d);
-        } catch(e) {}
-    });
-}
-formatTimestamps();
+// No longer need to format timestamps inline - they're shown on hover via title attribute
 
 function updateHeartbeats() {
     const now = Date.now();
@@ -1091,7 +1044,7 @@ function updateHeartbeats() {
         // Update relative time in Last Seen column
         const relEl = row.querySelector(`.seen-relative[data-host="${hostId}"]`);
         if (relEl) {
-            relEl.textContent = `(${formatRelativeTime(elapsed)})`;
+            relEl.textContent = formatRelativeTime(elapsed);
         }
         
         // Update countdown in Status column
@@ -1223,14 +1176,14 @@ function updateHostRow(data) {
     // Update last seen timestamp
     if (data.last_seen) {
         row.dataset.lastSeen = data.last_seen;
-        const seenFull = row.querySelector('.seen-full');
-        if (seenFull) {
-            seenFull.dataset.ts = data.last_seen;
-            seenFull.textContent = formatTimestamp(parseUTC(data.last_seen));
+        const seenCell = row.querySelector('.seen-cell');
+        if (seenCell) {
+            seenCell.title = formatTimestamp(parseUTC(data.last_seen));
         }
         const seenRelative = row.querySelector(`.seen-relative[data-host="${data.host_id}"]`);
         if (seenRelative) {
-            seenRelative.textContent = '(just now)';
+            seenRelative.dataset.ts = data.last_seen;
+            seenRelative.textContent = 'just now';
         }
         
         // Trigger heartbeat ping animation
