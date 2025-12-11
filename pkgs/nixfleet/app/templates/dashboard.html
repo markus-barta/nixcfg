@@ -194,6 +194,10 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
     font-size: 0.8rem;
 }
 
+.status-text {
+    /* Text label next to status indicator */
+}
+
 .status-dot { 
     width: 6px; 
     height: 6px; 
@@ -201,14 +205,6 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
     flex-shrink: 0;
 }
 
-.status-dot.online { 
-    background: var(--green);
-    box-shadow: 0 0 6px rgba(158, 206, 106, 0.5);
-}
-.status-dot.online.has-error {
-    background: var(--orange);
-    box-shadow: 0 0 6px rgba(255, 158, 100, 0.5);
-}
 .status-dot.offline { background: var(--fg-gutter); }
 .status-dot.error { 
     background: var(--red);
@@ -221,6 +217,69 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
 .status-dot.testing {
     background: var(--purple);
     animation: pulse 1s ease-in-out infinite;
+}
+
+/* Status ripple for online hosts */
+.status-ripple {
+    width: 12px;
+    height: 12px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--green);
+    flex-shrink: 0;
+}
+
+.status-ripple .hb-core {
+    width: 4px;
+    height: 4px;
+    background: currentColor;
+    border-radius: 50%;
+    position: relative;
+    z-index: 2;
+    box-shadow: 0 0 4px currentColor;
+}
+
+.status-ripple .hb-wave {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    margin: -2px 0 0 -2px;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    opacity: 0;
+    animation: ripple-wave 2s ease-out infinite;
+}
+
+.status-ripple .hb-wave:nth-child(2) {
+    animation-delay: 0.5s;
+}
+
+.status-ripple .hb-wave:nth-child(3) {
+    animation-delay: 1s;
+}
+
+/* Ping burst on heartbeat arrival */
+.status-ripple.ping .hb-wave {
+    animation: ripple-ping 0.6s ease-out;
+    animation-iteration-count: 1;
+}
+
+/* Countdown next to status (visible on hover) */
+.status .hb-countdown {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.65rem;
+    min-width: 18px;
+    color: var(--green);
+    opacity: 0.1;
+    transition: opacity 0.15s ease;
+}
+
+tr:hover .status .hb-countdown {
+    opacity: 1;
 }
 
 @keyframes pulse { 
@@ -250,53 +309,7 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
     color: var(--fg-dark);
 }
 
-.heartbeat {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    color: var(--green);
-}
-
-.hb-ripple {
-    width: 12px;
-    height: 12px;
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.hb-ripple .hb-core {
-    width: 4px;
-    height: 4px;
-    background: currentColor;
-    border-radius: 50%;
-    position: relative;
-    z-index: 2;
-    box-shadow: 0 0 4px currentColor;
-}
-
-.hb-ripple .hb-wave {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 4px;
-    height: 4px;
-    margin: -2px 0 0 -2px;
-    border-radius: 50%;
-    border: 1px solid currentColor;
-    opacity: 0;
-    animation: ripple-wave 2s ease-out infinite;
-}
-
-.hb-ripple .hb-wave:nth-child(2) {
-    animation-delay: 0.5s;
-}
-
-.hb-ripple .hb-wave:nth-child(3) {
-    animation-delay: 1s;
-}
-
+/* Ripple wave animation (shared by status-ripple) */
 @keyframes ripple-wave {
     0% {
         width: 4px;
@@ -310,12 +323,6 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
         margin: -10px 0 0 -10px;
         opacity: 0;
     }
-}
-
-/* Ping burst on heartbeat arrival */
-.hb-ripple.ping .hb-wave {
-    animation: ripple-ping 0.6s ease-out;
-    animation-iteration-count: 1;
 }
 
 @keyframes ripple-ping {
@@ -333,18 +340,6 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
         opacity: 0;
         border-width: 1px;
     }
-}
-
-.hb-countdown {
-    font-variant-numeric: tabular-nums;
-    font-size: 0.65rem;
-    min-width: 20px;
-    opacity: 0.1;
-    transition: opacity 0.15s ease;
-}
-
-tr:hover .hb-countdown {
-    opacity: 1;
 }
 
 /* Action Buttons */
@@ -580,6 +575,10 @@ tr:hover .hb-countdown {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.comment.has-error {
+    color: var(--orange);
 }
 
 .audit { font-size: 0.75rem; }
@@ -847,19 +846,25 @@ tr:hover .hb-countdown {
                         {% endif %}
                     </td>
                     <td>
-                        <span class="status">
+                        <span class="status" data-host="{{ host.id }}" data-interval="{{ host.poll_interval or 10 }}">
                             {% if host.test_running %}
                             <span class="status-dot testing"></span>
-                            Testing {{ host.test_current }}/{{ host.test_total }}
+                            <span class="status-text">Testing {{ host.test_current }}/{{ host.test_total }}</span>
                             {% elif host.pending_command %}
                             <span class="status-dot pending"></span>
-                            {{ host.pending_command }}
+                            <span class="status-text">{{ host.pending_command }}</span>
                             {% elif host.online %}
-                            <span class="status-dot online {{ 'has-error' if host.status == 'error' else '' }}"></span>
-                            Online
+                            <span class="status-ripple">
+                                <span class="hb-wave"></span>
+                                <span class="hb-wave"></span>
+                                <span class="hb-wave"></span>
+                                <span class="hb-core"></span>
+                            </span>
+                            <span class="status-text">Online</span>
+                            <span class="hb-countdown">--</span>
                             {% else %}
                             <span class="status-dot offline"></span>
-                            Offline
+                            <span class="status-text">Offline</span>
                             {% endif %}
                         </span>
                     </td>
@@ -877,17 +882,6 @@ tr:hover .hb-countdown {
                         <span class="seen-content">
                             <span class="seen-full" data-ts="{{ host.last_seen_iso or '' }}">{{ host.last_seen_iso or 'Never' }}</span>
                             <span class="seen-relative" data-host="{{ host.id }}">({{ host.last_seen_relative }})</span>
-                            {% if host.online %}
-                            <span class="heartbeat" data-host="{{ host.id }}" data-interval="{{ host.poll_interval or 10 }}">
-                                <span class="hb-ripple">
-                                    <span class="hb-wave"></span>
-                                    <span class="hb-wave"></span>
-                                    <span class="hb-wave"></span>
-                                    <span class="hb-core"></span>
-                                </span>
-                                <span class="hb-countdown">--</span>
-                            </span>
-                            {% endif %}
                         </span>
                     </td>
                     <td class="audit {{ 'done' if host.last_audit_relative else 'pending' }}" title="{{ host.last_audit_iso or '' }}">
@@ -908,7 +902,7 @@ tr:hover .hb-countdown {
                         <span style="color: var(--fg-dark); font-size: 0.75rem;">{{ host.test_status or '—' }}</span>
                         {% endif %}
                     </td>
-                    <td class="comment" title="{{ host.comment or '' }}">{{ host.comment or '—' }}</td>
+                    <td class="comment {{ 'has-error' if host.status == 'error' else '' }}" title="{{ host.comment or '' }}">{{ host.comment or '—' }}</td>
                     <td>
                         <div class="actions">
                             <button class="btn btn-pull" onclick="sendCommand('{{ host.id }}', 'pull')" {% if not host.online %}disabled{% endif %} title="Git Pull">
@@ -1028,20 +1022,20 @@ function updateHeartbeats() {
         const elapsed = (now - lastSeen) / 1000;
         const hostId = row.dataset.hostId;
         
-        // Update relative time
+        // Update relative time in Last Seen column
         const relEl = row.querySelector(`.seen-relative[data-host="${hostId}"]`);
         if (relEl) {
             relEl.textContent = `(${formatRelativeTime(elapsed)})`;
         }
         
-        // Update heartbeat countdown
-        const hb = row.querySelector(`.heartbeat[data-host="${hostId}"]`);
-        if (!hb) return;
+        // Update countdown in Status column
+        const status = row.querySelector(`.status[data-host="${hostId}"]`);
+        if (!status) return;
         
-        const pollInterval = parseInt(hb.dataset.interval) || 10;
+        const pollInterval = parseInt(status.dataset.interval) || 10;
         const remaining = Math.max(0, pollInterval - (elapsed % pollInterval));
         
-        const countdown = hb.querySelector('.hb-countdown');
+        const countdown = status.querySelector('.hb-countdown');
         if (countdown) countdown.textContent = Math.ceil(remaining) + 's';
     });
 }
@@ -1146,14 +1140,14 @@ function connectSSE() {
 }
 
 function triggerHeartbeatPing(hostId) {
-    const hb = document.querySelector(`.heartbeat[data-host="${hostId}"] .hb-ripple`);
-    if (!hb) return;
+    const ripple = document.querySelector(`.status[data-host="${hostId}"] .status-ripple`);
+    if (!ripple) return;
     
     // Add ping class to trigger burst animation
-    hb.classList.add('ping');
+    ripple.classList.add('ping');
     
     // Remove after animation completes
-    setTimeout(() => hb.classList.remove('ping'), 600);
+    setTimeout(() => ripple.classList.remove('ping'), 600);
 }
 
 function updateHostRow(data) {
@@ -1180,15 +1174,24 @@ function updateHostRow(data) {
     // Update status cell
     const statusCell = row.querySelector('.status');
     if (statusCell) {
+        const hostId = statusCell.dataset.host;
+        const interval = statusCell.dataset.interval || 10;
         if (data.test_running) {
             const current = data.test_current || 0;
             const total = data.test_total || 0;
-            statusCell.innerHTML = `<span class="status-dot testing"></span> Testing ${current}/${total}`;
+            statusCell.innerHTML = `<span class="status-dot testing"></span><span class="status-text">Testing ${current}/${total}</span>`;
         } else if (data.pending_command) {
-            statusCell.innerHTML = `<span class="status-dot pending"></span> ${data.pending_command}`;
+            statusCell.innerHTML = `<span class="status-dot pending"></span><span class="status-text">${data.pending_command}</span>`;
         } else if (data.online !== false) {
-            const hasError = data.status === 'error' ? ' has-error' : '';
-            statusCell.innerHTML = `<span class="status-dot online${hasError}"></span> Online`;
+            statusCell.innerHTML = `<span class="status-ripple"><span class="hb-wave"></span><span class="hb-wave"></span><span class="hb-wave"></span><span class="hb-core"></span></span><span class="status-text">Online</span><span class="hb-countdown">--</span>`;
+        }
+    }
+    
+    // Update comment error state
+    if (data.status !== undefined) {
+        const commentCell = row.querySelector('.comment');
+        if (commentCell) {
+            commentCell.classList.toggle('has-error', data.status === 'error');
         }
     }
     
