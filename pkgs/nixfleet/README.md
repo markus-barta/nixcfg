@@ -261,6 +261,7 @@ When a host's agent starts, it automatically registers with the dashboard. The d
 | `/login`                   | GET/POST | -       | Login page               |
 | `/logout`                  | GET      | Session | Logout                   |
 | `/api/hosts`               | GET      | Session | List all hosts           |
+| `/api/hosts/{id}`          | DELETE   | Session | Remove host from fleet   |
 | `/api/hosts/{id}/register` | POST     | Token   | Register/update host     |
 | `/api/hosts/{id}/poll`     | GET      | Token   | Agent polls for commands |
 | `/api/hosts/{id}/status`   | POST     | Token   | Agent reports status     |
