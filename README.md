@@ -2,6 +2,8 @@
 
 Personal NixOS configuration managing home servers, cloud infrastructure, and development workstations—all from a single Git repository.
 
+<img src="./screenshots/nixfleet.png" alt="NixFleet Dashboard" width="50%">
+
 > Built on the excellent [hokage module system](https://github.com/pbek/nixcfg) by Patrizio Bekerle, extended with custom tooling and Tokyo Night theming. 🍥
 
 ![StaSysMo and Tokyo Night+ Theme Demo](./screenshots/shell.png)
