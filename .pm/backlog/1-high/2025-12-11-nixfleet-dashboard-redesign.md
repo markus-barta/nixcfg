@@ -1,4 +1,4 @@
-# NixFleet Dashboard Redesign
+# NixFleet Dashboard Redesign + Metrics
 
 **Created**: 2025-12-11
 **Priority**: High
@@ -6,11 +6,20 @@
 
 ## Overview
 
-Redesign the NixFleet dashboard with improved visual hierarchy, per-host theming, and refined column structure.
+Comprehensive NixFleet dashboard update:
+
+1. Ripple status indicator (✅ done)
+2. Location & Type columns
+3. Per-host theme colors
+4. StaSysMo metrics integration
+
+All changes combined into one agent/backend/dashboard update.
+
+---
 
 ## Changes
 
-### 1. Ripple → Status Column
+### 1. Ripple → Status Column ✅
 
 - [x] Move ripple from "Last Seen" to "Status" column
 - [x] Ripple replaces status dot (not additional)
@@ -30,9 +39,54 @@ Redesign the NixFleet dashboard with improved visual hierarchy, per-host theming
 
 ### 3. Theme Color per Host
 
-- [ ] Agent sends `theme_color` hex from Starship palette
+- [ ] Agent sends `theme_color` hex from config
 - [ ] Host column (OS icon + hostname) uses theme color
-- [ ] Update agent to read from theme-palettes.nix or config
+- [ ] Add `themeColor` option to agent modules
+
+### 4. StaSysMo Metrics (Optional)
+
+- [ ] Agent reads StaSysMo files if they exist
+- [ ] Include metrics in heartbeat: `cpu`, `ram`, `swap`, `load`
+- [ ] Backend stores metrics in host data
+- [ ] Dashboard shows metrics (compact bars or values)
+- [ ] Graceful fallback if StaSysMo not installed
+
+---
+
+## Agent Payload (Combined)
+
+```json
+{
+  "hostname": "hsb1",
+  "host_type": "nixos",
+  "location": "home",
+  "device_type": "server",
+  "theme_color": "#68c878",
+  "metrics": {
+    "cpu": 12,
+    "ram": 45,
+    "swap": 0,
+    "load": 1.23
+  }
+}
+```
+
+**Note**: `metrics` is optional - only sent if StaSysMo files exist.
+
+---
+
+## Dashboard Layout
+
+```
+| Host (themed) | Loc | Type | Status | Metrics | Version | Last Seen | Comment | Actions |
+```
+
+- **Host**: OS icon + hostname in theme color
+- **Loc**: Cloud ☁️ / Home 🏠 / Work 🏢 icons
+- **Type**: server/desktop/laptop/gaming icons
+- **Metrics**: CPU/RAM bars or `—` if unavailable
+
+---
 
 ## Files to Modify
 
@@ -44,6 +98,8 @@ Redesign the NixFleet dashboard with improved visual hierarchy, per-host theming
 | NixOS Module | `modules/nixfleet-agent.nix`                    |
 | HM Module    | `modules/home/nixfleet-agent.nix`               |
 | Host Configs | `hosts/*/configuration.nix`, `hosts/*/home.nix` |
+
+---
 
 ## Theme Colors Reference
 
@@ -59,10 +115,25 @@ Redesign the NixFleet dashboard with improved visual hierarchy, per-host theming
 | mba-imac-work | darkGray  | `#686c70`     |
 | mba-mbp-work  | lightGray | `#a8aeb8`     |
 
+---
+
+## StaSysMo Integration
+
+Agent checks for metrics files:
+
+- **Linux**: `/dev/shm/stasysmo/{cpu,ram,swap,load}`
+- **macOS**: `/tmp/stasysmo/{cpu,ram,swap,load}`
+
+If files exist and are fresh (< 30s old), include in payload.
+
+---
+
 ## Acceptance Criteria
 
-- [ ] Ripple in Status column, countdown on hover
+- [x] Ripple in Status column, countdown on hover
 - [ ] Location and Type as separate columns with icons
 - [ ] Hostname colored per theme palette
-- [ ] Error state only in comment (orange text)
-- [ ] All agents updated and deployed
+- [ ] Metrics displayed (bars or values) when available
+- [ ] `—` shown for hosts without StaSysMo
+- [ ] All agents updated with new config options
+- [ ] All hosts deployed with location/type/color config
