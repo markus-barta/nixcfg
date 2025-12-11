@@ -20,6 +20,7 @@ from typing import Optional, Set
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -506,6 +507,7 @@ app = FastAPI(
     description="Fleet management for NixOS and macOS hosts",
     version=VERSION,
 )
+app.mount("/static", StaticFiles(directory="static"), name="static")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 security = HTTPBearer(auto_error=False)

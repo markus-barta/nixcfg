@@ -22,6 +22,14 @@ header {
     font-size: 1.5rem; 
     font-weight: 600;
     letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.brand-logo {
+    height: 28px;
+    width: auto;
 }
 
 .brand .subtitle { 
@@ -53,39 +61,25 @@ header {
     background: rgba(247, 118, 142, 0.1);
 }
 
-/* Stats Cards */
-.stats { 
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 1rem; 
-    margin-bottom: 1.5rem; 
-    max-width: 500px;
+/* Header stat badges in table headers */
+.th-stat {
+    font-size: 0.65rem;
+    font-weight: 500;
+    padding: 2px 5px;
+    border-radius: 3px;
+    margin-left: 4px;
+    vertical-align: middle;
 }
 
-.stat {
-    background: var(--bg-dark);
-    padding: 1rem 1.25rem;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-}
-
-.stat-value { 
-    font-size: 1.75rem; 
-    font-weight: 700; 
+.th-stat.total {
+    background: rgba(122, 162, 247, 0.15);
     color: var(--blue);
-    line-height: 1;
 }
 
-.stat-label { 
-    font-size: 0.7rem; 
-    color: var(--fg-dark); 
-    text-transform: uppercase; 
-    letter-spacing: 0.05em;
-    margin-top: 0.5rem;
+.th-stat.online {
+    background: rgba(158, 206, 106, 0.15);
+    color: var(--green);
 }
-
-.stat.online .stat-value { color: var(--green); }
-.stat.audited .stat-value { color: var(--cyan); }
 
 /* Table Container */
 .table-container {
@@ -162,29 +156,35 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
 .type-icon.laptop { color: var(--fg-dark); }
 .type-icon.gaming { color: var(--purple); }
 
-/* Metrics column - compact display */
+/* Metrics column - compact display with icons */
 .metrics-cell {
     font-size: 0.7rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-}
-
-.metric {
-    display: inline-block;
-    min-width: 18px;
-    text-align: right;
     color: var(--fg-dark);
 }
 
-.metric::after {
+.metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--fg-dark);
+}
+
+.metric-icon {
+    font-size: 0.65rem;
+    opacity: 0.7;
+}
+
+.metric-val::after {
     content: '%';
-    font-size: 0.55rem;
+    font-size: 0.5rem;
     opacity: 0.6;
 }
 
-.metric.cpu { color: var(--cyan); }
-.metric.ram { color: var(--purple); margin-left: 4px; }
+.metric.ram { margin-left: 6px; }
 .metric.high { color: var(--red); }
+.metric.high .metric-icon { opacity: 1; }
 
 .metrics-na {
     color: var(--fg-gutter);
@@ -225,6 +225,10 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
 
 .status-text {
     /* Text label next to status indicator */
+}
+
+.status-text.offline {
+    color: var(--fg-gutter);
 }
 
 .status-dot { 
@@ -423,10 +427,13 @@ tr:hover .status .hb-countdown {
     background: rgba(169, 177, 214, 0.1);
     color: var(--fg-dark);
     border: 1px solid rgba(169, 177, 214, 0.2);
-    width: 21px;
+    width: 24px;
     height: 26px;
-    padding: 4px 4px 4px 6px;
+    padding: 4px;
     margin-left: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 .btn-more:hover { 
     background: rgba(169, 177, 214, 0.2); 
@@ -601,9 +608,7 @@ tr:hover .status .hb-countdown {
     font-size: 0.65rem;
 }
 
-.comment-icon.success { color: var(--green); }
-.comment-icon.error { color: var(--orange); }
-
+/* Icon inherits text color - ok is gray, error is orange */
 .comment.has-error {
     color: var(--orange);
 }
@@ -729,7 +734,7 @@ tr:hover .status .hb-countdown {
 {% block content %}
 <header>
     <div class="brand">
-        <h1>🚀 NixFleet</h1>
+        <h1><img src="/static/logo.png" alt="NixFleet" class="brand-logo"> NixFleet</h1>
         <p class="subtitle">Fleet management for NixOS and macOS</p>
     </div>
     <div class="header-actions">
@@ -744,20 +749,6 @@ tr:hover .status .hb-countdown {
     </div>
 </header>
 
-<div class="stats">
-    <div class="stat">
-        <div class="stat-value">{{ stats.total }}</div>
-        <div class="stat-label">Total Hosts</div>
-    </div>
-    <div class="stat online">
-        <div class="stat-value">{{ stats.online }}</div>
-        <div class="stat-label">Online</div>
-    </div>
-    <div class="stat audited">
-        <div class="stat-value">{{ stats.audited }}</div>
-        <div class="stat-label">Audited</div>
-    </div>
-</div>
 
 <!-- SVG icon definitions -->
 <svg style="display: none;">
@@ -830,10 +821,10 @@ tr:hover .status .hb-countdown {
     <table>
         <thead>
             <tr>
-                <th>Host</th>
+                <th>Host <span class="th-stat total">{{ stats.total }}</span></th>
                 <th>Loc</th>
                 <th>Type</th>
-                <th>Status</th>
+                <th>Status <span class="th-stat online">{{ stats.online }}</span></th>
                 <th>Metrics</th>
                 <th>Version</th>
                 <th>Last Seen</th>
@@ -881,7 +872,7 @@ tr:hover .status .hb-countdown {
                         <span class="status" data-host="{{ host.id }}" data-interval="{{ host.poll_interval or 10 }}">
                             {% if host.test_running %}
                             <span class="status-dot testing"></span>
-                            <span class="status-text">Testing {{ host.test_current }}/{{ host.test_total }}</span>
+                            <span class="status-text">Testing</span>
                             {% elif host.pending_command %}
                             <span class="status-dot pending"></span>
                             <span class="status-text">{{ host.pending_command }}</span>
@@ -896,14 +887,14 @@ tr:hover .status .hb-countdown {
                             <span class="hb-countdown">--</span>
                             {% else %}
                             <span class="status-dot offline"></span>
-                            <span class="status-text">Offline</span>
+                            <span class="status-text offline">Offline</span>
                             {% endif %}
                         </span>
                     </td>
                     <td class="metrics-cell" title="{% if host.metrics %}CPU: {{ host.metrics.cpu }}% | RAM: {{ host.metrics.ram }}%{% if host.metrics.swap %} | Swap: {{ host.metrics.swap }}%{% endif %} | Load: {{ host.metrics.load }}{% endif %}">
                         {% if host.metrics %}
-                        <span class="metric cpu {{ 'high' if host.metrics.cpu >= 80 else '' }}">{{ host.metrics.cpu }}</span>
-                        <span class="metric ram {{ 'high' if host.metrics.ram >= 80 else '' }}">{{ host.metrics.ram }}</span>
+                        <span class="metric cpu {{ 'high' if host.metrics.cpu >= 80 else '' }}"><span class="metric-icon"></span><span class="metric-val">{{ host.metrics.cpu }}</span></span>
+                        <span class="metric ram {{ 'high' if host.metrics.ram >= 80 else '' }}"><span class="metric-icon"></span><span class="metric-val">{{ host.metrics.ram }}</span></span>
                         {% else %}
                         <span class="metrics-na">—</span>
                         {% endif %}
@@ -939,7 +930,7 @@ tr:hover .status .hb-countdown {
                         <span style="color: var(--fg-dark); font-size: 0.75rem;">{{ host.test_status or '—' }}</span>
                         {% endif %}
                     </td>
-                    <td class="comment {{ 'has-error' if host.status == 'error' else '' }}" data-status="{{ host.status or 'unknown' }}" title="{{ host.comment or '' }}">{% if host.comment %}<span class="comment-icon {{ 'error' if host.status == 'error' else 'success' }}">{{ '✗' if host.status == 'error' else '✓' }}</span>{{ host.comment }}{% else %}—{% endif %}</td>
+                    <td class="comment {{ 'has-error' if host.status == 'error' else '' }}" data-status="{{ host.status or 'unknown' }}" data-test-running="{{ 'true' if host.test_running else 'false' }}" title="{{ host.comment or '' }}">{% if host.test_running %}<span class="test-progress">Test {{ host.test_current }}/{{ host.test_total }} running</span>{% elif host.comment %}<span class="comment-icon">{{ '✗' if host.status == 'error' else '✓' }}</span>{{ host.comment }}{% else %}—{% endif %}</td>
                     <td>
                         <div class="actions">
                             <button class="btn btn-pull" onclick="sendCommand('{{ host.id }}', 'pull')" {% if not host.online %}disabled{% endif %} title="Git Pull">
@@ -1072,7 +1063,11 @@ updateHeartbeats();
 
 async function sendCommand(hostId, command) {
     const btn = event.target.closest('button');
-    btn.disabled = true;
+    const row = document.querySelector(`tr[data-host-id="${hostId}"]`);
+    const allButtons = row ? row.querySelectorAll('.actions button:not(.dropdown-item)') : [btn];
+    
+    // Disable all action buttons for this host to prevent spam
+    allButtons.forEach(b => b.disabled = true);
     
     try {
         const response = await fetch(`/api/hosts/${hostId}/command`, {
@@ -1085,18 +1080,21 @@ async function sendCommand(hostId, command) {
         });
         
         if (response.ok) {
-            // SSE will handle the update, just re-enable button after delay
-            setTimeout(() => { btn.disabled = false; }, 1000);
+            // SSE will handle re-enabling when command completes
+            // Fallback: re-enable after 30s if SSE doesn't update
+            setTimeout(() => { 
+                allButtons.forEach(b => b.disabled = false); 
+            }, 30000);
         } else if (response.status === 401) {
             location.href = '/login';
         } else {
             const data = await response.json().catch(() => ({}));
             alert(data.detail || 'Command failed');
-            btn.disabled = false;
+            allButtons.forEach(b => b.disabled = false);
         }
     } catch (e) {
         alert('Network error');
-        btn.disabled = false;
+        allButtons.forEach(b => b.disabled = false);
     }
 }
 
@@ -1204,14 +1202,18 @@ function updateHostRow(data) {
         const hostId = statusCell.dataset.host;
         const interval = statusCell.dataset.interval || 10;
         if (data.test_running) {
-            const current = data.test_current || 0;
-            const total = data.test_total || 0;
-            statusCell.innerHTML = `<span class="status-dot testing"></span><span class="status-text">Testing ${current}/${total}</span>`;
+            statusCell.innerHTML = `<span class="status-dot testing"></span><span class="status-text">Testing</span>`;
         } else if (data.pending_command) {
             statusCell.innerHTML = `<span class="status-dot pending"></span><span class="status-text">${data.pending_command}</span>`;
         } else if (data.online !== false) {
             statusCell.innerHTML = `<span class="status-ripple"><span class="hb-wave"></span><span class="hb-wave"></span><span class="hb-wave"></span><span class="hb-core"></span></span><span class="status-text">Online</span><span class="hb-countdown">--</span>`;
         }
+    }
+    
+    // Re-enable action buttons when command completes (no pending_command and not testing)
+    if (data.pending_command === null && !data.test_running) {
+        const buttons = row.querySelectorAll('.actions button');
+        buttons.forEach(b => b.disabled = false);
     }
     
     // Update comment error state
@@ -1258,20 +1260,30 @@ function updateHostRow(data) {
         }
     }
     
-    // Update comment if changed
-    if (data.comment !== undefined) {
+    // Update comment - show test progress when running, otherwise normal comment
+    if (data.test_running !== undefined || data.comment !== undefined) {
         const commentCell = row.querySelector('.comment');
         if (commentCell) {
-            const isError = data.status === 'error';
-            if (data.comment) {
-                const icon = isError ? '✗' : '✓';
-                const iconClass = isError ? 'error' : 'success';
-                commentCell.innerHTML = `<span class="comment-icon ${iconClass}">${icon}</span>${data.comment}`;
+            if (data.test_running) {
+                const current = data.test_current || 0;
+                const total = data.test_total || 0;
+                commentCell.innerHTML = `<span class="test-progress">Test ${current}/${total} running</span>`;
+                commentCell.classList.remove('has-error');
+                commentCell.dataset.testRunning = 'true';
             } else {
-                commentCell.textContent = '—';
+                commentCell.dataset.testRunning = 'false';
+                const isError = data.status === 'error';
+                if (data.comment) {
+                    const icon = isError ? '✗' : '✓';
+                    commentCell.innerHTML = `<span class="comment-icon">${icon}</span>${data.comment}`;
+                    commentCell.classList.toggle('has-error', isError);
+                } else {
+                    commentCell.textContent = '—';
+                    commentCell.classList.remove('has-error');
+                }
+                commentCell.title = data.comment || '';
+                commentCell.dataset.status = data.status || 'unknown';
             }
-            commentCell.title = data.comment || '';
-            commentCell.dataset.status = data.status || 'unknown';
         }
     }
     
@@ -1282,7 +1294,7 @@ function updateHostRow(data) {
             if (data.metrics && data.metrics.cpu !== undefined) {
                 const cpuHigh = data.metrics.cpu >= 80 ? 'high' : '';
                 const ramHigh = data.metrics.ram >= 80 ? 'high' : '';
-                metricsCell.innerHTML = `<span class="metric cpu ${cpuHigh}">${data.metrics.cpu}</span><span class="metric ram ${ramHigh}">${data.metrics.ram}</span>`;
+                metricsCell.innerHTML = `<span class="metric cpu ${cpuHigh}"><span class="metric-icon"></span><span class="metric-val">${data.metrics.cpu}</span></span><span class="metric ram ${ramHigh}"><span class="metric-icon"></span><span class="metric-val">${data.metrics.ram}</span></span>`;
                 const swapInfo = data.metrics.swap ? ` | Swap: ${data.metrics.swap}%` : '';
                 metricsCell.title = `CPU: ${data.metrics.cpu}% | RAM: ${data.metrics.ram}%${swapInfo} | Load: ${data.metrics.load}`;
             } else {
