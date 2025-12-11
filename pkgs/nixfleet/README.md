@@ -243,6 +243,30 @@ When a host's agent starts, it automatically registers with the dashboard. The d
 
 ---
 
+### Watching Agent Logs
+
+To see your local agent respond to commands from the web UI:
+
+**macOS:**
+
+```bash
+tail -f /tmp/nixfleet-agent.log /tmp/nixfleet-agent.err
+```
+
+**NixOS:**
+
+```bash
+journalctl -u nixfleet-agent -f
+```
+
+**Server-side (dashboard logs on csb1):**
+
+```bash
+ssh -p 2222 mba@152.53.64.166 "docker logs -f nixfleet"
+```
+
+---
+
 ### Troubleshooting
 
 | Issue                        | Solution                                                              |
