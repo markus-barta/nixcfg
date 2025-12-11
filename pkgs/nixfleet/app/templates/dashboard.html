@@ -257,30 +257,82 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
     color: var(--green);
 }
 
-.hb-ring {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    border: 1.5px solid currentColor;
+.hb-ripple {
+    width: 12px;
+    height: 12px;
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.hb-ring svg {
+.hb-ripple .hb-core {
+    width: 4px;
+    height: 4px;
+    background: currentColor;
+    border-radius: 50%;
+    position: relative;
+    z-index: 2;
+    box-shadow: 0 0 4px currentColor;
+}
+
+.hb-ripple .hb-wave {
     position: absolute;
-    top: -1.5px;
-    left: -1.5px;
-    width: 10px;
-    height: 10px;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    margin: -2px 0 0 -2px;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    opacity: 0;
+    animation: ripple-wave 2s ease-out infinite;
 }
 
-.hb-ring circle {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.5;
-    stroke-dasharray: 22;
-    stroke-dashoffset: 22;
-    transform: rotate(-90deg);
-    transform-origin: center;
+.hb-ripple .hb-wave:nth-child(2) {
+    animation-delay: 0.5s;
+}
+
+.hb-ripple .hb-wave:nth-child(3) {
+    animation-delay: 1s;
+}
+
+@keyframes ripple-wave {
+    0% {
+        width: 4px;
+        height: 4px;
+        margin: -2px 0 0 -2px;
+        opacity: 0.6;
+    }
+    100% {
+        width: 20px;
+        height: 20px;
+        margin: -10px 0 0 -10px;
+        opacity: 0;
+    }
+}
+
+/* Ping burst on heartbeat arrival */
+.hb-ripple.ping .hb-wave {
+    animation: ripple-ping 0.6s ease-out;
+    animation-iteration-count: 1;
+}
+
+@keyframes ripple-ping {
+    0% {
+        width: 4px;
+        height: 4px;
+        margin: -2px 0 0 -2px;
+        opacity: 1;
+        border-width: 2px;
+    }
+    100% {
+        width: 24px;
+        height: 24px;
+        margin: -12px 0 0 -12px;
+        opacity: 0;
+        border-width: 1px;
+    }
 }
 
 .hb-countdown {
@@ -357,8 +409,10 @@ tr:hover .hb-countdown {
     background: rgba(169, 177, 214, 0.1);
     color: var(--fg-dark);
     border: 1px solid rgba(169, 177, 214, 0.2);
-    padding: 0.25rem 0.4rem;
-    min-width: 24px;
+    width: 21px;
+    height: 26px;
+    padding: 4px 4px 4px 6px;
+    margin-left: 4px;
 }
 .btn-more:hover { 
     background: rgba(169, 177, 214, 0.2); 
@@ -825,10 +879,11 @@ tr:hover .hb-countdown {
                             <span class="seen-relative" data-host="{{ host.id }}">({{ host.last_seen_relative }})</span>
                             {% if host.online %}
                             <span class="heartbeat" data-host="{{ host.id }}" data-interval="{{ host.poll_interval or 10 }}">
-                                <span class="hb-ring">
-                                    <svg viewBox="0 0 12 12">
-                                        <circle cx="6" cy="6" r="4.5"/>
-                                    </svg>
+                                <span class="hb-ripple">
+                                    <span class="hb-wave"></span>
+                                    <span class="hb-wave"></span>
+                                    <span class="hb-wave"></span>
+                                    <span class="hb-core"></span>
                                 </span>
                                 <span class="hb-countdown">--</span>
                             </span>
@@ -979,19 +1034,15 @@ function updateHeartbeats() {
             relEl.textContent = `(${formatRelativeTime(elapsed)})`;
         }
         
-        // Update heartbeat countdown using actual poll interval
+        // Update heartbeat countdown
         const hb = row.querySelector(`.heartbeat[data-host="${hostId}"]`);
         if (!hb) return;
         
         const pollInterval = parseInt(hb.dataset.interval) || 10;
         const remaining = Math.max(0, pollInterval - (elapsed % pollInterval));
-        const progress = (elapsed % pollInterval) / pollInterval;
         
         const countdown = hb.querySelector('.hb-countdown');
-        const circle = hb.querySelector('circle');
-        
         if (countdown) countdown.textContent = Math.ceil(remaining) + 's';
-        if (circle) circle.style.strokeDashoffset = 22 * (1 - progress);
     });
 }
 
@@ -1094,6 +1145,17 @@ function connectSSE() {
     });
 }
 
+function triggerHeartbeatPing(hostId) {
+    const hb = document.querySelector(`.heartbeat[data-host="${hostId}"] .hb-ripple`);
+    if (!hb) return;
+    
+    // Add ping class to trigger burst animation
+    hb.classList.add('ping');
+    
+    // Remove after animation completes
+    setTimeout(() => hb.classList.remove('ping'), 600);
+}
+
 function updateHostRow(data) {
     const row = document.querySelector(`tr[data-host-id="${data.host_id}"]`);
     if (!row) return;
@@ -1110,6 +1172,9 @@ function updateHostRow(data) {
         if (seenRelative) {
             seenRelative.textContent = '(just now)';
         }
+        
+        // Trigger heartbeat ping animation
+        triggerHeartbeatPing(data.host_id);
     }
     
     // Update status cell
