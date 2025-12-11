@@ -419,5 +419,8 @@
     enable = true;
     interval = 10;
     tokenFile = "/run/agenix/nixfleet-token";
+    location = "home";
+    deviceType = "server";
+    themeColor = "#68c878"; # green palette
   };
 }
