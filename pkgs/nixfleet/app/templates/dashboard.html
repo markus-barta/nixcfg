@@ -1145,6 +1145,15 @@ function updateHostRow(data) {
         row.dataset.gitHash = data.current_generation;
     }
     
+    // Update comment if changed
+    if (data.comment !== undefined) {
+        const commentCell = row.querySelector('.comment');
+        if (commentCell) {
+            commentCell.textContent = data.comment || '—';
+            commentCell.title = data.comment || '';
+        }
+    }
+    
     // Update action buttons (test vs stop)
     if (data.test_running !== undefined) {
         const actionsDiv = row.querySelector('.actions');
