@@ -596,6 +596,14 @@ tr:hover .status .hb-countdown {
     white-space: nowrap;
 }
 
+.comment-icon {
+    margin-right: 4px;
+    font-size: 0.65rem;
+}
+
+.comment-icon.success { color: var(--green); }
+.comment-icon.error { color: var(--orange); }
+
 .comment.has-error {
     color: var(--orange);
 }
@@ -931,7 +939,7 @@ tr:hover .status .hb-countdown {
                         <span style="color: var(--fg-dark); font-size: 0.75rem;">{{ host.test_status or '—' }}</span>
                         {% endif %}
                     </td>
-                    <td class="comment {{ 'has-error' if host.status == 'error' else '' }}" title="{{ host.comment or '' }}">{{ host.comment or '—' }}</td>
+                    <td class="comment {{ 'has-error' if host.status == 'error' else '' }}" data-status="{{ host.status or 'unknown' }}" title="{{ host.comment or '' }}">{% if host.comment %}<span class="comment-icon {{ 'error' if host.status == 'error' else 'success' }}">{{ '✗' if host.status == 'error' else '✓' }}</span>{{ host.comment }}{% else %}—{% endif %}</td>
                     <td>
                         <div class="actions">
                             <button class="btn btn-pull" onclick="sendCommand('{{ host.id }}', 'pull')" {% if not host.online %}disabled{% endif %} title="Git Pull">
@@ -1254,8 +1262,16 @@ function updateHostRow(data) {
     if (data.comment !== undefined) {
         const commentCell = row.querySelector('.comment');
         if (commentCell) {
-            commentCell.textContent = data.comment || '—';
+            const isError = data.status === 'error';
+            if (data.comment) {
+                const icon = isError ? '✗' : '✓';
+                const iconClass = isError ? 'error' : 'success';
+                commentCell.innerHTML = `<span class="comment-icon ${iconClass}">${icon}</span>${data.comment}`;
+            } else {
+                commentCell.textContent = '—';
+            }
             commentCell.title = data.comment || '';
+            commentCell.dataset.status = data.status || 'unknown';
         }
     }
     
