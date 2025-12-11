@@ -896,6 +896,13 @@ async def update_status(request: Request, host_id: str, status: HostStatus, _: b
         """, (status.status, status.output, datetime.utcnow().isoformat(), host_id))
         conn.commit()
     
+    # Check if host is now up-to-date
+    latest_hash = get_latest_hash()
+    host_gen = status.current_generation
+    outdated = False
+    if host_gen and latest_hash:
+        outdated = not latest_hash.startswith(host_gen[:7]) and not host_gen.startswith(latest_hash[:7])
+    
     # Broadcast SSE event
     await broadcast_event("host_update", {
         "host_id": host_id,
@@ -907,6 +914,7 @@ async def update_status(request: Request, host_id: str, status: HostStatus, _: b
         "last_seen": datetime.utcnow().isoformat(),
         "pending_command": None,  # Command completed
         "test_running": False,
+        "outdated": outdated,
     })
     
     return {"status": "updated"}
