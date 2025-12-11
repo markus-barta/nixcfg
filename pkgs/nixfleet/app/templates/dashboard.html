@@ -935,13 +935,19 @@ function formatRelativeTime(seconds) {
     return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+// Parse UTC timestamp (may or may not have Z suffix)
+function parseUTC(ts) {
+    if (!ts) return null;
+    return new Date(ts.endsWith('Z') ? ts : ts + 'Z');
+}
+
 function formatTimestamps() {
     document.querySelectorAll('.seen-full[data-ts]').forEach(el => {
         const ts = el.dataset.ts;
         if (!ts || ts === 'Never') return;
         try {
-            const d = new Date(ts);
-            el.textContent = formatTimestamp(d);
+            const d = parseUTC(ts);
+            if (d) el.textContent = formatTimestamp(d);
         } catch(e) {}
     });
 }
@@ -954,7 +960,7 @@ function updateHeartbeats() {
         const lastSeenStr = row.dataset.lastSeen;
         if (!lastSeenStr) return;
         
-        const lastSeen = new Date(lastSeenStr).getTime();
+        const lastSeen = parseUTC(lastSeenStr).getTime();
         const elapsed = (now - lastSeen) / 1000;
         const hostId = row.dataset.hostId;
         
@@ -1089,7 +1095,7 @@ function updateHostRow(data) {
         const seenFull = row.querySelector('.seen-full');
         if (seenFull) {
             seenFull.dataset.ts = data.last_seen;
-            seenFull.textContent = formatTimestamp(new Date(data.last_seen));
+            seenFull.textContent = formatTimestamp(parseUTC(data.last_seen));
         }
         const seenRelative = row.querySelector(`.seen-relative[data-host="${data.host_id}"]`);
         if (seenRelative) {
