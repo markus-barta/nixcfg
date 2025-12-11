@@ -25,7 +25,6 @@ let
       jq
       git
       hostname
-      # nixos-rebuild is a script, not a package - we add it via PATH in the service
     ];
     text = builtins.readFile ../pkgs/nixfleet/agent/nixfleet-agent.sh;
   };
@@ -56,9 +55,28 @@ in
       default = "/home/mba/Code/nixcfg";
       description = "Path to nixcfg repository";
     };
+
+    user = lib.mkOption {
+      type = lib.types.str;
+      default = "mba";
+      description = "User to run the agent as (needs sudo access for nixos-rebuild)";
+    };
   };
 
   config = lib.mkIf cfg.enable {
+    # Allow agent user to run nixos-rebuild without password
+    security.sudo.extraRules = [
+      {
+        users = [ cfg.user ];
+        commands = [
+          {
+            command = "/run/current-system/sw/bin/nixos-rebuild";
+            options = [ "NOPASSWD" ];
+          }
+        ];
+      }
+    ];
+
     systemd.services.nixfleet-agent = {
       description = "NixFleet Agent";
       after = [ "network-online.target" ];
@@ -69,9 +87,10 @@ in
         NIXFLEET_URL = cfg.url;
         NIXFLEET_NIXCFG = cfg.nixcfgPath;
         NIXFLEET_INTERVAL = toString cfg.interval;
+        HOME = "/home/${cfg.user}"; # Ensure SSH keys are found
       };
 
-      path = [ "/run/current-system/sw" ]; # For nixos-rebuild
+      path = [ "/run/current-system/sw" ]; # For nixos-rebuild and sudo
 
       serviceConfig = {
         Type = "simple";
@@ -82,10 +101,9 @@ in
         # Read token from file
         EnvironmentFile = cfg.tokenFile;
 
-        # Security hardening
-        DynamicUser = false;
-        User = "root"; # Needs root for nixos-rebuild
-        NoNewPrivileges = false; # Needs privileges for sudo
+        # Run as regular user (uses sudo for nixos-rebuild)
+        User = cfg.user;
+        Group = "users";
 
         # Logging
         StandardOutput = "journal";
