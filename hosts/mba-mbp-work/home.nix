@@ -12,6 +12,8 @@
   imports = [
     # Uzumaki: Fish functions, theming, stasysmo (all-in-one)
     ../../modules/uzumaki/home-manager.nix
+    # NixFleet agent for fleet management
+    ../../modules/home/nixfleet-agent.nix
   ];
 
   # ============================================================================
@@ -26,6 +28,20 @@
 
   # Theme configuration - set hostname for palette lookup
   theme.hostname = "mba-mbp-work";
+
+  # ============================================================================
+  # NixFleet Agent - Fleet Management
+  # ============================================================================
+  # Token stored in ~/.config/nixfleet/token
+  services.nixfleet-agent = {
+    enable = true;
+    interval = 10;
+    tokenFile = "/Users/mba/.config/nixfleet/token";
+    nixcfgPath = "/Users/mba/Code/nixcfg";
+    location = "work";
+    deviceType = "laptop";
+    themeColor = "#a8aeb8"; # lightGray palette
+  };
 
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "mba";
