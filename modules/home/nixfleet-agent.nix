@@ -53,6 +53,34 @@ in
       default = "~/Code/nixcfg";
       description = "Path to nixcfg repository";
     };
+
+    # New fields for dashboard display
+    location = lib.mkOption {
+      type = lib.types.enum [
+        "cloud"
+        "home"
+        "work"
+      ];
+      default = "home";
+      description = "Physical location category (cloud/home/work)";
+    };
+
+    deviceType = lib.mkOption {
+      type = lib.types.enum [
+        "server"
+        "desktop"
+        "laptop"
+        "gaming"
+      ];
+      default = "desktop";
+      description = "Device type (server/desktop/laptop/gaming)";
+    };
+
+    themeColor = lib.mkOption {
+      type = lib.types.str;
+      default = "#769ff0";
+      description = "Theme color hex (from theme-palettes.nix)";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -70,6 +98,9 @@ in
             export NIXFLEET_URL="${cfg.url}"
             export NIXFLEET_NIXCFG="${cfg.nixcfgPath}"
             export NIXFLEET_INTERVAL="${toString cfg.interval}"
+            export NIXFLEET_LOCATION="${cfg.location}"
+            export NIXFLEET_DEVICE_TYPE="${cfg.deviceType}"
+            export NIXFLEET_THEME_COLOR="${cfg.themeColor}"
             export NIXFLEET_TOKEN="$(cat ${cfg.tokenFile})"
             exec ${agentScript}/bin/nixfleet-agent
           ''
@@ -96,6 +127,9 @@ in
           "NIXFLEET_URL=${cfg.url}"
           "NIXFLEET_NIXCFG=${cfg.nixcfgPath}"
           "NIXFLEET_INTERVAL=${toString cfg.interval}"
+          "NIXFLEET_LOCATION=${cfg.location}"
+          "NIXFLEET_DEVICE_TYPE=${cfg.deviceType}"
+          "NIXFLEET_THEME_COLOR=${cfg.themeColor}"
         ];
         EnvironmentFile = cfg.tokenFile;
       };
