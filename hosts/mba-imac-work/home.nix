@@ -12,7 +12,20 @@ in
   imports = [
     # Uzumaki: Fish functions, theming, stasysmo (all-in-one)
     ../../modules/uzumaki/home-manager.nix
+    # NixFleet agent for fleet management
+    ../../modules/home/nixfleet-agent.nix
   ];
+
+  # ============================================================================
+  # NixFleet Agent - Fleet Management
+  # ============================================================================
+  # Token stored in ~/.config/nixfleet/token
+  services.nixfleet-agent = {
+    enable = true;
+    interval = 10;
+    tokenFile = "/Users/markus/.config/nixfleet/token";
+    nixcfgPath = "/Users/markus/Code/nixcfg";
+  };
 
   # ============================================================================
   # UZUMAKI MODULE - All personal config in one place
