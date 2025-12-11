@@ -35,14 +35,14 @@ All changes combined into one agent/backend/dashboard update.
 - [x] Add agent config fields: `location`, `device_type`
 - [x] Update NixOS module with new options
 - [x] Update Home Manager module with new options
-- [ ] Update all host configs with specific values
+- [x] Update all host configs with specific values
 
 ### 3. Theme Color per Host ✅
 
 - [x] Agent sends `theme_color` hex from config
 - [x] Host column (OS icon + hostname) uses theme color
 - [x] Add `themeColor` option to agent modules
-- [ ] Update all host configs with theme colors
+- [x] Update all host configs with theme colors
 
 ### 4. StaSysMo Metrics (Optional) ✅
 
@@ -137,4 +137,6 @@ If files exist and are fresh (< 30s old), include in payload.
 - [x] Metrics displayed (compact %) when available
 - [x] `—` shown for hosts without StaSysMo
 - [x] Agent modules updated with new config options
-- [ ] All hosts deployed with location/type/color config
+- [x] Comment column shows ✓/✗ icons for success/error
+- [x] Last Seen compact (relative only, full date on hover)
+- [x] All host configs updated (gpc0/hsb8/mba-imac-work offline, will deploy on next boot)
