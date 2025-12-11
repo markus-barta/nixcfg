@@ -212,13 +212,15 @@ register() {
     --arg criticality "$CRITICALITY" \
     --arg generation "$gen" \
     --arg config_repo "$NIXFLEET_NIXCFG" \
+    --argjson poll_interval "$NIXFLEET_INTERVAL" \
     '{
             hostname: $hostname,
             host_type: $host_type,
             location: $location,
             criticality: $criticality,
             current_generation: $generation,
-            config_repo: $config_repo
+            config_repo: $config_repo,
+            poll_interval: $poll_interval
         }')
 
   if api_call POST "/api/hosts/${HOST_ID}/register" "$payload" >/dev/null; then
