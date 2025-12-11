@@ -36,6 +36,9 @@
     interval = 10;
     tokenFile = "/Users/markus/.config/nixfleet/token";
     nixcfgPath = "/Users/markus/Code/nixcfg";
+    location = "home";
+    deviceType = "desktop";
+    themeColor = "#a8a098"; # warmGray palette
   };
 
   # Theme configuration - set hostname for palette lookup

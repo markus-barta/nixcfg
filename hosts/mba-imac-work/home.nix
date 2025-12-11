@@ -25,6 +25,9 @@ in
     interval = 10;
     tokenFile = "/Users/markus/.config/nixfleet/token";
     nixcfgPath = "/Users/markus/Code/nixcfg";
+    location = "work";
+    deviceType = "desktop";
+    themeColor = "#686c70"; # darkGray palette
   };
 
   # ============================================================================
