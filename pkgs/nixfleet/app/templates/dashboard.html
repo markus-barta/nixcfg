@@ -108,8 +108,9 @@ th, td {
     white-space: nowrap;
 }
 
-/* Device column centered */
-th:nth-child(2), td:nth-child(2) { text-align: center; }
+/* Location & Type columns centered */
+th:nth-child(2), td:nth-child(2),
+th:nth-child(3), td:nth-child(3) { text-align: center; }
 
 th {
     background: var(--bg-highlight);
@@ -138,29 +139,75 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
     flex-shrink: 0;
 }
 
-.os-icon.nixos { color: var(--blue); }
-.os-icon.macos { color: var(--fg); }
+/* OS icon inherits color from parent (themed) */
 
-.loc-icon { color: var(--fg-dark); }
+/* Location column */
+.loc-cell { text-align: center; }
+.loc-icon {
+    width: 16px;
+    height: 16px;
+}
 .loc-icon.cloud { color: var(--cyan); }
 .loc-icon.home { color: var(--green); }
-.loc-icon.office { color: var(--yellow); }
-.loc-icon.game { color: var(--purple); }
-.loc-icon.mobile { color: var(--orange); }
+.loc-icon.work { color: var(--yellow); }
 
-/* Device icons */
-.device-cell { text-align: center; }
-.device-icon {
-    width: 18px;
-    height: 18px;
+/* Type column */
+.type-cell { text-align: center; }
+.type-icon {
+    width: 16px;
+    height: 16px;
 }
-.device-icon.cloud { color: var(--cyan); }
-.device-icon.home { color: var(--green); }
-.device-icon.office { color: var(--yellow); }
-.device-icon.game { color: var(--purple); }
-.device-icon.mobile { color: var(--orange); }
-.device-icon.desktop { color: var(--fg); }
-.device-icon.laptop { color: var(--fg-dark); }
+.type-icon.server { color: var(--fg-dark); }
+.type-icon.desktop { color: var(--fg); }
+.type-icon.laptop { color: var(--fg-dark); }
+.type-icon.gaming { color: var(--purple); }
+
+/* Metrics column */
+.metrics-cell {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.metric-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    width: 40px;
+}
+
+.metric-label {
+    font-size: 0.6rem;
+    color: var(--fg-dark);
+    width: 8px;
+}
+
+.metric-fill {
+    height: 6px;
+    background: var(--green);
+    border-radius: 2px;
+    max-width: 30px;
+    transition: width 0.3s ease;
+}
+
+.metric-bar[title*="80%"] .metric-fill,
+.metric-bar[title*="81%"] .metric-fill,
+.metric-bar[title*="82%"] .metric-fill,
+.metric-bar[title*="83%"] .metric-fill,
+.metric-bar[title*="84%"] .metric-fill,
+.metric-bar[title*="85%"] .metric-fill,
+.metric-bar[title*="86%"] .metric-fill,
+.metric-bar[title*="87%"] .metric-fill,
+.metric-bar[title*="88%"] .metric-fill,
+.metric-bar[title*="89%"] .metric-fill,
+.metric-bar[title*="9"] .metric-fill {
+    background: var(--red);
+}
+
+.metrics-na {
+    color: var(--fg-gutter);
+    font-size: 0.75rem;
+}
 
 /* Version / Git hash */
 .version-cell {
@@ -804,8 +851,10 @@ tr:hover .status .hb-countdown {
         <thead>
             <tr>
                 <th>Host</th>
-                <th>Device</th>
+                <th>Loc</th>
+                <th>Type</th>
                 <th>Status</th>
+                <th>Metrics</th>
                 <th>Version</th>
                 <th>Last Seen</th>
                 <th>Audited</th>
@@ -819,30 +868,33 @@ tr:hover .status .hb-countdown {
                 {% for host in hosts %}
                 <tr data-host-id="{{ host.id }}" data-last-seen="{{ host.last_seen_iso or '' }}" data-poll-interval="{{ host.poll_interval or 60 }}" data-git-hash="{{ host.current_generation or '' }}">
                     <td>
-                        <div class="host-icons">
+                        <div class="host-icons" style="color: {{ host.theme_color or '#769ff0' }};">
                             {% if host.host_type == 'macos' %}
-                            <svg class="os-icon macos"><use href="#icon-apple"/></svg>
+                            <svg class="os-icon"><use href="#icon-apple"/></svg>
                             {% else %}
-                            <svg class="os-icon nixos"><use href="#icon-nixos"/></svg>
+                            <svg class="os-icon"><use href="#icon-nixos"/></svg>
                             {% endif %}
                             <span class="hostname">{{ host.hostname }}</span>
                         </div>
                     </td>
-                    <td class="device-cell">
-                        {% if host.location == 'hetzner-nuremberg' or host.location == 'netcup-austria' or 'cloud' in (host.location or '') %}
-                        <svg class="device-icon cloud" title="Cloud server"><use href="#icon-cloud"/></svg>
-                        {% elif host.location == 'office' %}
-                        <svg class="device-icon office" title="Office"><use href="#icon-office"/></svg>
-                        {% elif host.location == 'mobile' %}
-                        <svg class="device-icon mobile" title="Mobile"><use href="#icon-mobile"/></svg>
-                        {% elif host.location == 'remote' or 'gpc' in (host.hostname or '') %}
-                        <svg class="device-icon game" title="Gaming"><use href="#icon-game"/></svg>
-                        {% elif 'imac' in (host.hostname or '') %}
-                        <svg class="device-icon desktop" title="Desktop"><use href="#icon-desktop"/></svg>
-                        {% elif 'mbp' in (host.hostname or '') or 'mba' in (host.hostname or '') %}
-                        <svg class="device-icon laptop" title="Laptop"><use href="#icon-laptop"/></svg>
+                    <td class="loc-cell" title="{{ host.location or 'unknown' }}">
+                        {% if host.location == 'cloud' %}
+                        <svg class="loc-icon cloud"><use href="#icon-cloud"/></svg>
+                        {% elif host.location == 'work' %}
+                        <svg class="loc-icon work"><use href="#icon-office"/></svg>
                         {% else %}
-                        <svg class="device-icon home" title="Home server"><use href="#icon-server"/></svg>
+                        <svg class="loc-icon home"><use href="#icon-home"/></svg>
+                        {% endif %}
+                    </td>
+                    <td class="type-cell" title="{{ host.device_type or 'server' }}">
+                        {% if host.device_type == 'gaming' %}
+                        <svg class="type-icon gaming"><use href="#icon-game"/></svg>
+                        {% elif host.device_type == 'desktop' %}
+                        <svg class="type-icon desktop"><use href="#icon-desktop"/></svg>
+                        {% elif host.device_type == 'laptop' %}
+                        <svg class="type-icon laptop"><use href="#icon-laptop"/></svg>
+                        {% else %}
+                        <svg class="type-icon server"><use href="#icon-server"/></svg>
                         {% endif %}
                     </td>
                     <td>
@@ -867,6 +919,20 @@ tr:hover .status .hb-countdown {
                             <span class="status-text">Offline</span>
                             {% endif %}
                         </span>
+                    </td>
+                    <td class="metrics-cell">
+                        {% if host.metrics %}
+                        <span class="metric-bar" title="CPU: {{ host.metrics.cpu }}%">
+                            <span class="metric-label">C</span>
+                            <span class="metric-fill" style="width: {{ host.metrics.cpu }}%;"></span>
+                        </span>
+                        <span class="metric-bar" title="RAM: {{ host.metrics.ram }}%">
+                            <span class="metric-label">M</span>
+                            <span class="metric-fill" style="width: {{ host.metrics.ram }}%;"></span>
+                        </span>
+                        {% else %}
+                        <span class="metrics-na">—</span>
+                        {% endif %}
                     </td>
                     <td class="version-cell">
                         {% if host.current_generation %}

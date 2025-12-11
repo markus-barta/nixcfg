@@ -189,6 +189,8 @@ def init_db():
                 hostname TEXT NOT NULL,
                 host_type TEXT NOT NULL CHECK(host_type IN ('nixos', 'macos')),
                 location TEXT,
+                device_type TEXT DEFAULT 'server',
+                theme_color TEXT DEFAULT '#769ff0',
                 criticality TEXT DEFAULT 'low' CHECK(criticality IN ('low', 'medium', 'high')),
                 icon TEXT,
                 last_seen TEXT,
@@ -208,7 +210,9 @@ def init_db():
                 test_total INTEGER DEFAULT 0,
                 test_passed_count INTEGER DEFAULT 0,
                 test_result TEXT,
-                poll_interval INTEGER DEFAULT 60
+                poll_interval INTEGER DEFAULT 60,
+                -- Metrics (JSON)
+                metrics TEXT
             )
         """)
         
@@ -235,6 +239,19 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
+        
+        # Migrations for existing databases
+        # (ALTER TABLE fails silently if column exists - we catch the error)
+        migrations = [
+            "ALTER TABLE hosts ADD COLUMN device_type TEXT DEFAULT 'server'",
+            "ALTER TABLE hosts ADD COLUMN theme_color TEXT DEFAULT '#769ff0'",
+            "ALTER TABLE hosts ADD COLUMN metrics TEXT",
+        ]
+        for migration in migrations:
+            try:
+                conn.execute(migration)
+            except sqlite3.OperationalError:
+                pass  # Column already exists
         
         # Create indexes for performance
         conn.execute("CREATE INDEX IF NOT EXISTS idx_hosts_hostname ON hosts(hostname)")
@@ -423,6 +440,8 @@ class HostRegistration(BaseModel):
     hostname: str = Field(..., min_length=1, max_length=63)
     host_type: str = Field(..., pattern="^(nixos|macos)$")
     location: Optional[str] = Field(None, max_length=50)
+    device_type: Optional[str] = Field("server", pattern="^(server|desktop|laptop|gaming)$")
+    theme_color: Optional[str] = Field("#769ff0", pattern="^#[0-9a-fA-F]{6}$")
     criticality: Optional[str] = Field("low", pattern="^(low|medium|high)$")
     icon: Optional[str] = Field(None, max_length=10)
     current_generation: Optional[str] = Field(None, max_length=64)
@@ -430,6 +449,7 @@ class HostRegistration(BaseModel):
     test_status: Optional[str] = Field(None, max_length=100)
     config_repo: Optional[str] = Field(None, max_length=200)
     poll_interval: Optional[int] = Field(None, ge=1, le=3600)
+    metrics: Optional[dict] = Field(None)  # StaSysMo metrics (cpu, ram, swap, load)
 
     @field_validator("hostname")
     @classmethod
@@ -747,31 +767,41 @@ async def register_host(request: Request, host_id: str, registration: HostRegist
     with get_db() as conn:
         existing = conn.execute("SELECT * FROM hosts WHERE id = ?", (host_id,)).fetchone()
         
+        # Serialize metrics to JSON if present
+        metrics_json = json.dumps(registration.metrics) if registration.metrics else None
+        
         if existing:
             # Update existing host - agent is alive, update last_seen
             conn.execute("""
                 UPDATE hosts SET
                     hostname = ?, host_type = ?, location = COALESCE(?, location),
+                    device_type = COALESCE(?, device_type),
+                    theme_color = COALESCE(?, theme_color),
                     current_generation = ?, last_seen = ?, status = 'ok',
                     config_repo = COALESCE(?, config_repo),
-                    poll_interval = COALESCE(?, poll_interval)
+                    poll_interval = COALESCE(?, poll_interval),
+                    metrics = COALESCE(?, metrics)
                 WHERE id = ?
             """, (
                 registration.hostname, registration.host_type, registration.location,
+                registration.device_type, registration.theme_color,
                 registration.current_generation, datetime.utcnow().isoformat(),
-                registration.config_repo, registration.poll_interval, host_id,
+                registration.config_repo, registration.poll_interval, metrics_json, host_id,
             ))
         else:
             # New host - do NOT set last_seen (offline until agent actually polls)
             conn.execute("""
-                INSERT INTO hosts (id, hostname, host_type, location, criticality, icon,
-                    current_generation, last_seen, status, comment, config_repo, poll_interval)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'ok', ?, ?, ?)
+                INSERT INTO hosts (id, hostname, host_type, location, device_type, theme_color,
+                    criticality, icon, current_generation, last_seen, status, comment, 
+                    config_repo, poll_interval, metrics)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'ok', ?, ?, ?, ?)
             """, (
                 host_id, registration.hostname, registration.host_type, registration.location,
+                registration.device_type or "server", registration.theme_color or "#769ff0",
                 registration.criticality or "low", registration.icon,
                 registration.current_generation,
                 registration.comment, registration.config_repo, registration.poll_interval or 60,
+                metrics_json,
             ))
         conn.commit()
     
@@ -780,10 +810,14 @@ async def register_host(request: Request, host_id: str, registration: HostRegist
         "host_id": host_id,
         "hostname": registration.hostname,
         "host_type": registration.host_type,
+        "location": registration.location,
+        "device_type": registration.device_type,
+        "theme_color": registration.theme_color,
         "status": "ok",
         "online": True,
         "current_generation": registration.current_generation,
         "last_seen": datetime.utcnow().isoformat(),
+        "metrics": registration.metrics,
     })
     
     return {"status": "registered", "host_id": host_id}
@@ -1186,6 +1220,16 @@ async def dashboard(request: Request):
             host["test_total_count"] = host.get("test_total", 0)
             host["test_passed"] = (host["test_passed_count"] == host["test_total_count"]) if host["test_total_count"] > 0 else None
             host["poll_interval"] = host.get("poll_interval", 60)
+            
+            # Parse metrics JSON if present
+            metrics_str = host.get("metrics")
+            if metrics_str:
+                try:
+                    host["metrics"] = json.loads(metrics_str)
+                except (json.JSONDecodeError, TypeError):
+                    host["metrics"] = None
+            else:
+                host["metrics"] = None
             
             # Check if host is outdated vs GitHub
             host_gen = host.get("current_generation")
