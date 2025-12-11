@@ -1275,6 +1275,23 @@ function updateHostRow(data) {
         }
     }
     
+    // Update metrics if provided
+    if (data.metrics !== undefined) {
+        const metricsCell = row.querySelector('.metrics-cell');
+        if (metricsCell) {
+            if (data.metrics && data.metrics.cpu !== undefined) {
+                const cpuHigh = data.metrics.cpu >= 80 ? 'high' : '';
+                const ramHigh = data.metrics.ram >= 80 ? 'high' : '';
+                metricsCell.innerHTML = `<span class="metric cpu ${cpuHigh}">${data.metrics.cpu}</span><span class="metric ram ${ramHigh}">${data.metrics.ram}</span>`;
+                const swapInfo = data.metrics.swap ? ` | Swap: ${data.metrics.swap}%` : '';
+                metricsCell.title = `CPU: ${data.metrics.cpu}% | RAM: ${data.metrics.ram}%${swapInfo} | Load: ${data.metrics.load}`;
+            } else {
+                metricsCell.innerHTML = '<span class="metrics-na">—</span>';
+                metricsCell.title = '';
+            }
+        }
+    }
+    
     // Update action buttons (test vs stop)
     if (data.test_running !== undefined) {
         const actionsDiv = row.querySelector('.actions');
