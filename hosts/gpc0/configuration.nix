@@ -157,5 +157,8 @@
     enable = true;
     interval = 10;
     tokenFile = "/run/agenix/nixfleet-token";
+    location = "home";
+    deviceType = "gaming";
+    themeColor = "#9868d0"; # purple palette
   };
 }
