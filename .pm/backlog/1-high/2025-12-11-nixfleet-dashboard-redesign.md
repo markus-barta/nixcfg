@@ -28,28 +28,29 @@ All changes combined into one agent/backend/dashboard update.
 - [x] Countdown seconds visible on row hover (next to ripple)
 - [x] Error state shows only in Comment column (orange text)
 
-### 2. Split Device → Location + Type
+### 2. Split Device → Location + Type ✅
 
-- [ ] New "Location" column: Cloud, Home, Work
-- [ ] New "Type" column: server, desktop, laptop, gaming
-- [ ] Add agent config fields: `location`, `device_type`
-- [ ] Update NixOS module with new options
-- [ ] Update Home Manager module with new options
-- [ ] Update all host configs
+- [x] New "Location" column: Cloud, Home, Work
+- [x] New "Type" column: server, desktop, laptop, gaming
+- [x] Add agent config fields: `location`, `device_type`
+- [x] Update NixOS module with new options
+- [x] Update Home Manager module with new options
+- [ ] Update all host configs with specific values
 
-### 3. Theme Color per Host
+### 3. Theme Color per Host ✅
 
-- [ ] Agent sends `theme_color` hex from config
-- [ ] Host column (OS icon + hostname) uses theme color
-- [ ] Add `themeColor` option to agent modules
+- [x] Agent sends `theme_color` hex from config
+- [x] Host column (OS icon + hostname) uses theme color
+- [x] Add `themeColor` option to agent modules
+- [ ] Update all host configs with theme colors
 
-### 4. StaSysMo Metrics (Optional)
+### 4. StaSysMo Metrics (Optional) ✅
 
-- [ ] Agent reads StaSysMo files if they exist
-- [ ] Include metrics in heartbeat: `cpu`, `ram`, `swap`, `load`
-- [ ] Backend stores metrics in host data
-- [ ] Dashboard shows metrics (compact bars or values)
-- [ ] Graceful fallback if StaSysMo not installed
+- [x] Agent reads StaSysMo files if they exist
+- [x] Include metrics in heartbeat: `cpu`, `ram`, `swap`, `load`
+- [x] Backend stores metrics in host data
+- [x] Dashboard shows metrics (compact CPU/RAM %)
+- [x] Graceful fallback if StaSysMo not installed
 
 ---
 
@@ -131,9 +132,9 @@ If files exist and are fresh (< 30s old), include in payload.
 ## Acceptance Criteria
 
 - [x] Ripple in Status column, countdown on hover
-- [ ] Location and Type as separate columns with icons
-- [ ] Hostname colored per theme palette
-- [ ] Metrics displayed (bars or values) when available
-- [ ] `—` shown for hosts without StaSysMo
-- [ ] All agents updated with new config options
+- [x] Location and Type as separate columns with icons
+- [x] Hostname colored per theme palette
+- [x] Metrics displayed (compact %) when available
+- [x] `—` shown for hosts without StaSysMo
+- [x] Agent modules updated with new config options
 - [ ] All hosts deployed with location/type/color config
