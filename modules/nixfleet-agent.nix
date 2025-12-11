@@ -61,6 +61,34 @@ in
       default = "mba";
       description = "User to run the agent as (needs sudo access for nixos-rebuild)";
     };
+
+    # New fields for dashboard display
+    location = lib.mkOption {
+      type = lib.types.enum [
+        "cloud"
+        "home"
+        "work"
+      ];
+      default = "home";
+      description = "Physical location category (cloud/home/work)";
+    };
+
+    deviceType = lib.mkOption {
+      type = lib.types.enum [
+        "server"
+        "desktop"
+        "laptop"
+        "gaming"
+      ];
+      default = "server";
+      description = "Device type (server/desktop/laptop/gaming)";
+    };
+
+    themeColor = lib.mkOption {
+      type = lib.types.str;
+      default = "#769ff0";
+      description = "Theme color hex (from theme-palettes.nix)";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -87,6 +115,9 @@ in
         NIXFLEET_URL = cfg.url;
         NIXFLEET_NIXCFG = cfg.nixcfgPath;
         NIXFLEET_INTERVAL = toString cfg.interval;
+        NIXFLEET_LOCATION = cfg.location;
+        NIXFLEET_DEVICE_TYPE = cfg.deviceType;
+        NIXFLEET_THEME_COLOR = cfg.themeColor;
         HOME = "/home/${cfg.user}"; # Ensure SSH keys are found
       };
 

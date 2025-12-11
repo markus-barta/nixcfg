@@ -52,11 +52,31 @@ detect_host_type() {
 }
 
 detect_location() {
+  # Use env var if set, otherwise detect from hostname
+  if [[ -n "${NIXFLEET_LOCATION:-}" ]]; then
+    echo "$NIXFLEET_LOCATION"
+    return
+  fi
   case "$HOSTNAME" in
   hsb* | gpc* | imac*) echo "home" ;;
   csb*) echo "cloud" ;;
   mba-*-work) echo "work" ;;
-  *) echo "" ;;
+  *) echo "home" ;;
+  esac
+}
+
+detect_device_type() {
+  # Use env var if set, otherwise detect from hostname
+  if [[ -n "${NIXFLEET_DEVICE_TYPE:-}" ]]; then
+    echo "$NIXFLEET_DEVICE_TYPE"
+    return
+  fi
+  case "$HOSTNAME" in
+  hsb* | csb*) echo "server" ;;
+  gpc*) echo "gaming" ;;
+  *mbp* | *mba*) echo "laptop" ;;
+  imac*) echo "desktop" ;;
+  *) echo "server" ;;
   esac
 }
 
@@ -72,8 +92,62 @@ HOST_TYPE="$(detect_host_type)"
 readonly HOST_TYPE
 LOCATION="$(detect_location)"
 readonly LOCATION
+DEVICE_TYPE="$(detect_device_type)"
+readonly DEVICE_TYPE
+THEME_COLOR="${NIXFLEET_THEME_COLOR:-#769ff0}"
+readonly THEME_COLOR
 CRITICALITY="$(detect_criticality)"
 readonly CRITICALITY
+
+# ════════════════════════════════════════════════════════════════════════════════
+# StaSysMo Metrics (optional)
+# ════════════════════════════════════════════════════════════════════════════════
+
+get_stasysmo_metrics() {
+  # Detect StaSysMo directory based on platform
+  local stasysmo_dir
+  if [[ "$(uname)" == "Darwin" ]]; then
+    stasysmo_dir="/tmp/stasysmo"
+  else
+    stasysmo_dir="/dev/shm/stasysmo"
+  fi
+
+  # Check if StaSysMo is running (timestamp file exists and is fresh)
+  local timestamp_file="$stasysmo_dir/timestamp"
+  if [[ ! -f "$timestamp_file" ]]; then
+    echo ""
+    return
+  fi
+
+  # Check if data is stale (older than 30 seconds)
+  local file_ts now age
+  file_ts=$(cat "$timestamp_file" 2>/dev/null || echo 0)
+  now=$(date +%s)
+  age=$((now - file_ts))
+  if [[ $age -gt 30 ]]; then
+    echo ""
+    return
+  fi
+
+  # Read metrics
+  local cpu ram swap load
+  cpu=$(cat "$stasysmo_dir/cpu" 2>/dev/null || echo "")
+  ram=$(cat "$stasysmo_dir/ram" 2>/dev/null || echo "")
+  swap=$(cat "$stasysmo_dir/swap" 2>/dev/null || echo "")
+  load=$(cat "$stasysmo_dir/load" 2>/dev/null || echo "")
+
+  # Return JSON if we have at least CPU and RAM
+  if [[ -n "$cpu" && -n "$ram" ]]; then
+    jq -n \
+      --argjson cpu "${cpu:-0}" \
+      --argjson ram "${ram:-0}" \
+      --argjson swap "${swap:-0}" \
+      --arg load "${load:-0}" \
+      '{cpu: $cpu, ram: $ram, swap: $swap, load: $load}'
+  else
+    echo ""
+  fi
+}
 
 # ════════════════════════════════════════════════════════════════════════════════
 # Logging
@@ -201,26 +275,60 @@ register() {
   local gen
   gen="$(get_generation)"
 
-  log_info "Registering: $HOSTNAME ($HOST_TYPE, $LOCATION, $CRITICALITY)"
+  log_info "Registering: $HOSTNAME ($HOST_TYPE, $LOCATION, $DEVICE_TYPE)"
+
+  # Get optional StaSysMo metrics
+  local metrics_json
+  metrics_json=$(get_stasysmo_metrics)
 
   local payload
-  payload=$(jq -n \
-    --arg hostname "$HOSTNAME" \
-    --arg host_type "$HOST_TYPE" \
-    --arg location "$LOCATION" \
-    --arg criticality "$CRITICALITY" \
-    --arg generation "$gen" \
-    --arg config_repo "$NIXFLEET_NIXCFG" \
-    --argjson poll_interval "$NIXFLEET_INTERVAL" \
-    '{
-            hostname: $hostname,
-            host_type: $host_type,
-            location: $location,
-            criticality: $criticality,
-            current_generation: $generation,
-            config_repo: $config_repo,
-            poll_interval: $poll_interval
-        }')
+  if [[ -n "$metrics_json" ]]; then
+    payload=$(jq -n \
+      --arg hostname "$HOSTNAME" \
+      --arg host_type "$HOST_TYPE" \
+      --arg location "$LOCATION" \
+      --arg device_type "$DEVICE_TYPE" \
+      --arg theme_color "$THEME_COLOR" \
+      --arg criticality "$CRITICALITY" \
+      --arg generation "$gen" \
+      --arg config_repo "$NIXFLEET_NIXCFG" \
+      --argjson poll_interval "$NIXFLEET_INTERVAL" \
+      --argjson metrics "$metrics_json" \
+      '{
+              hostname: $hostname,
+              host_type: $host_type,
+              location: $location,
+              device_type: $device_type,
+              theme_color: $theme_color,
+              criticality: $criticality,
+              current_generation: $generation,
+              config_repo: $config_repo,
+              poll_interval: $poll_interval,
+              metrics: $metrics
+          }')
+  else
+    payload=$(jq -n \
+      --arg hostname "$HOSTNAME" \
+      --arg host_type "$HOST_TYPE" \
+      --arg location "$LOCATION" \
+      --arg device_type "$DEVICE_TYPE" \
+      --arg theme_color "$THEME_COLOR" \
+      --arg criticality "$CRITICALITY" \
+      --arg generation "$gen" \
+      --arg config_repo "$NIXFLEET_NIXCFG" \
+      --argjson poll_interval "$NIXFLEET_INTERVAL" \
+      '{
+              hostname: $hostname,
+              host_type: $host_type,
+              location: $location,
+              device_type: $device_type,
+              theme_color: $theme_color,
+              criticality: $criticality,
+              current_generation: $generation,
+              config_repo: $config_repo,
+              poll_interval: $poll_interval
+          }')
+  fi
 
   if api_call POST "/api/hosts/${HOST_ID}/register" "$payload" >/dev/null; then
     log_info "Registration successful"
@@ -435,7 +543,9 @@ main() {
   log_info "╚══════════════════════════════════════════════════════════════╝"
   log_info "URL:         $NIXFLEET_URL"
   log_info "Host:        $HOSTNAME ($HOST_TYPE)"
-  log_info "Location:    ${LOCATION:-unknown}"
+  log_info "Location:    $LOCATION"
+  log_info "Device:      $DEVICE_TYPE"
+  log_info "Theme:       $THEME_COLOR"
   log_info "Criticality: $CRITICALITY"
   log_info "nixcfg:      $NIXFLEET_NIXCFG"
   log_info "Interval:    ${NIXFLEET_INTERVAL}s"
