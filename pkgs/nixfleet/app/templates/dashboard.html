@@ -585,6 +585,47 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
     50% { transform: scale(1.15); }
 }
 
+/* SSE Connection Indicator */
+.connection-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+}
+
+.connection-status.connected {
+    color: var(--green);
+    background: rgba(158, 206, 106, 0.1);
+}
+
+.connection-status.disconnected {
+    color: var(--red);
+    background: rgba(247, 118, 142, 0.1);
+}
+
+.connection-status.connecting {
+    color: var(--yellow);
+    background: rgba(224, 175, 104, 0.1);
+}
+
+.connection-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.connection-status.connected .connection-dot {
+    box-shadow: 0 0 6px rgba(158, 206, 106, 0.5);
+}
+
+.connection-status.connecting .connection-dot {
+    animation: pulse 1s ease-in-out infinite;
+}
+
 @media (max-width: 1200px) { .comment { max-width: 100px; } }
 @media (max-width: 900px) {
     body { padding: 1rem; }
@@ -601,6 +642,10 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
         <p class="subtitle">Fleet management for NixOS and macOS</p>
     </div>
     <div class="header-actions">
+        <span class="connection-status connecting" id="connectionStatus">
+            <span class="connection-dot"></span>
+            <span class="connection-text">Connecting...</span>
+        </span>
         <form action="/logout" method="post" style="display: inline;">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="logout">Sign Out</button>
@@ -925,7 +970,8 @@ async function sendCommand(hostId, command) {
         });
         
         if (response.ok) {
-            setTimeout(() => location.reload(), 600);
+            // SSE will handle the update, just re-enable button after delay
+            setTimeout(() => { btn.disabled = false; }, 1000);
         } else if (response.status === 401) {
             location.href = '/login';
         } else {
@@ -939,7 +985,158 @@ async function sendCommand(hostId, command) {
     }
 }
 
-setTimeout(() => location.reload(), 30000);
+// ============================================================================
+// SSE (Server-Sent Events) for Real-Time Updates
+// ============================================================================
+
+let eventSource = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_DELAY = 30000;
+
+function updateConnectionStatus(status) {
+    const el = document.getElementById('connectionStatus');
+    el.className = 'connection-status ' + status;
+    const text = el.querySelector('.connection-text');
+    if (status === 'connected') text.textContent = 'Live';
+    else if (status === 'connecting') text.textContent = 'Connecting...';
+    else text.textContent = 'Disconnected';
+}
+
+function connectSSE() {
+    if (eventSource) {
+        eventSource.close();
+    }
+    
+    updateConnectionStatus('connecting');
+    eventSource = new EventSource('/api/events');
+    
+    eventSource.onopen = () => {
+        console.log('SSE connected');
+        updateConnectionStatus('connected');
+        reconnectAttempts = 0;
+    };
+    
+    eventSource.onerror = (e) => {
+        console.error('SSE error:', e);
+        updateConnectionStatus('disconnected');
+        eventSource.close();
+        
+        // Exponential backoff reconnect
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+        reconnectAttempts++;
+        console.log(`SSE reconnecting in ${delay}ms...`);
+        setTimeout(connectSSE, delay);
+    };
+    
+    eventSource.addEventListener('connected', (e) => {
+        console.log('SSE connected event:', e.data);
+    });
+    
+    eventSource.addEventListener('host_update', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Host update:', data);
+        updateHostRow(data);
+    });
+    
+    eventSource.addEventListener('test_progress', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Test progress:', data);
+        updateHostRow(data);
+    });
+    
+    eventSource.addEventListener('command_queued', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Command queued:', data);
+        updateHostRow(data);
+    });
+}
+
+function updateHostRow(data) {
+    const row = document.querySelector(`tr[data-host-id="${data.host_id}"]`);
+    if (!row) return;
+    
+    // Update last seen timestamp
+    if (data.last_seen) {
+        row.dataset.lastSeen = data.last_seen;
+        const seenFull = row.querySelector('.seen-full');
+        if (seenFull) {
+            seenFull.dataset.ts = data.last_seen;
+            seenFull.textContent = new Date(data.last_seen).toLocaleString();
+        }
+        const seenRelative = row.querySelector('.seen-relative');
+        if (seenRelative) {
+            // Update relative time
+            const firstText = seenRelative.childNodes[0];
+            if (firstText) firstText.textContent = '(just now) ';
+        }
+    }
+    
+    // Update status cell
+    const statusCell = row.querySelector('.status');
+    if (statusCell) {
+        if (data.test_running) {
+            const current = data.test_current || 0;
+            const total = data.test_total || 0;
+            statusCell.innerHTML = `<span class="status-dot testing"></span> Testing ${current}/${total}`;
+        } else if (data.pending_command) {
+            statusCell.innerHTML = `<span class="status-dot pending"></span> ${data.pending_command}`;
+        } else if (data.status === 'error') {
+            statusCell.innerHTML = `<span class="status-dot error"></span> Error`;
+        } else if (data.online !== false) {
+            statusCell.innerHTML = `<span class="status-dot online"></span> Online`;
+        }
+    }
+    
+    // Update test progress cell
+    const testCell = row.querySelector('td:nth-child(7)');
+    if (testCell && (data.test_running !== undefined || data.test_passed_count !== undefined)) {
+        if (data.test_running) {
+            testCell.innerHTML = `<span class="test-progress">${data.test_current || 0}/${data.test_total || 0}</span>`;
+        } else if (data.test_passed_count !== undefined && data.test_total !== undefined && data.test_total > 0) {
+            const passed = data.test_passed_count === data.test_total;
+            testCell.innerHTML = `<span class="test-result ${passed ? 'pass' : 'fail'}">${data.test_passed_count}/${data.test_total}</span>`;
+        }
+    }
+    
+    // Update git hash if changed
+    if (data.current_generation) {
+        const hashEl = row.querySelector('.git-hash');
+        if (hashEl) {
+            hashEl.textContent = data.current_generation.substring(0, 7);
+            hashEl.title = data.current_generation;
+        }
+        row.dataset.gitHash = data.current_generation;
+    }
+    
+    // Update action buttons (test vs stop)
+    if (data.test_running !== undefined) {
+        const actionsDiv = row.querySelector('.actions');
+        if (actionsDiv) {
+            const testBtn = actionsDiv.querySelector('.btn-test');
+            const stopBtn = actionsDiv.querySelector('.btn-stop');
+            
+            if (data.test_running && testBtn && !stopBtn) {
+                // Replace Test with Stop
+                testBtn.outerHTML = `<button class="btn btn-stop" onclick="sendCommand('${data.host_id}', 'stop')" title="Stop Test">
+                    <svg><use href="#icon-stop"/></svg>
+                    Stop
+                </button>`;
+            } else if (!data.test_running && stopBtn && !testBtn) {
+                // Replace Stop with Test
+                stopBtn.outerHTML = `<button class="btn btn-test" onclick="sendCommand('${data.host_id}', 'test')" title="Run Tests">
+                    <svg><use href="#icon-check"/></svg>
+                    Test
+                </button>`;
+            }
+        }
+    }
+}
+
+// Start SSE connection
+connectSSE();
+
+// Fallback: reload page every 5 minutes if SSE fails
+setTimeout(() => location.reload(), 300000);
 
 // Dropdown toggle
 function toggleDropdown(e) {

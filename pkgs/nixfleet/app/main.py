@@ -11,13 +11,15 @@ import secrets
 import hmac
 import logging
 import re
+import asyncio
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import contextmanager
-from typing import Optional
+from typing import Optional, Set
 
 from fastapi import FastAPI, HTTPException, Request, Depends, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, field_validator
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -111,6 +113,33 @@ def get_latest_hash() -> Optional[str]:
 
 # Rate limiting
 limiter = Limiter(key_func=get_remote_address)
+
+# ============================================================================
+# SSE (Server-Sent Events) Infrastructure
+# ============================================================================
+
+# Connected SSE clients (each is an asyncio.Queue)
+sse_clients: Set[asyncio.Queue] = set()
+
+
+async def broadcast_event(event_type: str, data: dict):
+    """Broadcast an event to all connected SSE clients."""
+    if not sse_clients:
+        return
+    
+    event_data = json.dumps({"type": event_type, **data})
+    message = f"event: {event_type}\ndata: {event_data}\n\n"
+    
+    # Send to all clients, remove disconnected ones
+    disconnected = []
+    for queue in sse_clients:
+        try:
+            queue.put_nowait(message)
+        except asyncio.QueueFull:
+            disconnected.append(queue)
+    
+    for queue in disconnected:
+        sse_clients.discard(queue)
 
 # Host ID validation pattern (alphanumeric + hyphen, like hostnames)
 HOST_ID_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9\-]{0,62}$")
@@ -553,6 +582,62 @@ async def health_check():
 
 
 # ============================================================================
+# SSE Endpoint
+# ============================================================================
+
+
+@app.get("/api/events")
+async def sse_events(request: Request):
+    """
+    Server-Sent Events endpoint for real-time dashboard updates.
+    Requires session authentication.
+    """
+    # Verify session
+    token = get_session_token(request)
+    if not token or not verify_session(token):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    async def event_generator():
+        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        sse_clients.add(queue)
+        logger.info(f"SSE client connected (total: {len(sse_clients)})")
+        
+        try:
+            # Send initial connection event
+            yield f"event: connected\ndata: {json.dumps({'clients': len(sse_clients)})}\n\n"
+            
+            # Keep connection alive and send events
+            while True:
+                try:
+                    # Wait for events with timeout (keepalive)
+                    message = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield message
+                except asyncio.TimeoutError:
+                    # Send keepalive ping
+                    yield f": keepalive\n\n"
+                    
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    break
+                    
+        except asyncio.CancelledError:
+            pass
+        finally:
+            sse_clients.discard(queue)
+            logger.info(f"SSE client disconnected (remaining: {len(sse_clients)})")
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
+
+
+# ============================================================================
 # Authentication Endpoints
 # ============================================================================
 
@@ -687,6 +772,17 @@ async def register_host(request: Request, host_id: str, registration: HostRegist
             ))
         conn.commit()
     
+    # Broadcast SSE event
+    await broadcast_event("host_update", {
+        "host_id": host_id,
+        "hostname": registration.hostname,
+        "host_type": registration.host_type,
+        "status": "ok",
+        "online": True,
+        "current_generation": registration.current_generation,
+        "last_seen": datetime.utcnow().isoformat(),
+    })
+    
     return {"status": "registered", "host_id": host_id}
 
 
@@ -784,6 +880,18 @@ async def update_status(request: Request, host_id: str, status: HostStatus, _: b
         """, (status.status, status.output, datetime.utcnow().isoformat(), host_id))
         conn.commit()
     
+    # Broadcast SSE event
+    await broadcast_event("host_update", {
+        "host_id": host_id,
+        "status": status.status,
+        "online": True,
+        "current_generation": status.current_generation,
+        "test_status": status.test_status,
+        "last_seen": datetime.utcnow().isoformat(),
+        "pending_command": None,  # Command completed
+        "test_running": False,
+    })
+    
     return {"status": "updated"}
 
 
@@ -842,6 +950,18 @@ async def update_test_progress(request: Request, host_id: str, progress: TestPro
             ))
         conn.commit()
     
+    # Broadcast SSE event for live test progress
+    await broadcast_event("test_progress", {
+        "host_id": host_id,
+        "test_running": progress.running,
+        "test_current": progress.current,
+        "test_total": progress.total,
+        "test_passed_count": progress.passed,
+        "test_result": progress.result,
+        "online": True,
+        "last_seen": datetime.utcnow().isoformat(),
+    })
+    
     return {"status": "updated"}
 
 
@@ -895,6 +1015,25 @@ async def queue_command(host_id: str, request_body: CommandRequest, request: Req
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Host not found")
         conn.commit()
+    
+    # Broadcast SSE event for immediate UI update
+    event_data = {
+        "host_id": host_id,
+        "pending_command": None if request_body.command == "stop" else request_body.command,
+    }
+    if request_body.command == "test":
+        event_data.update({
+            "test_running": True,
+            "test_current": 0,
+            "test_total": 0,
+        })
+    elif request_body.command == "stop":
+        event_data.update({
+            "test_running": False,
+            "status": "ok",
+        })
+    
+    await broadcast_event("command_queued", event_data)
     
     return {"status": "queued", "command": request_body.command}
 
