@@ -720,6 +720,9 @@ tr:hover .hb-countdown {
     <symbol id="icon-check" viewBox="0 0 24 24">
         <path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
     </symbol>
+    <symbol id="icon-flask" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M6 22a3 3 0 0 1-3-3c0-.6.18-1.16.5-1.63L9 7.81V6a1 1 0 0 1-1-1V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1v1.81l5.5 9.56c.32.47.5 1.03.5 1.63a3 3 0 0 1-3 3H6zm1.77-6h8.46l-3.23-5.6V6h-2v4.4L7.77 16z"/>
+    </symbol>
     <symbol id="icon-stop" viewBox="0 0 24 24">
         <path fill="currentColor" d="M6 6h12v12H6z"/>
     </symbol>
@@ -868,7 +871,7 @@ tr:hover .hb-countdown {
                             </button>
                             {% else %}
                             <button class="btn btn-test" onclick="sendCommand('{{ host.id }}', 'test')" {% if not host.online %}disabled{% endif %} title="Run Tests">
-                                <svg><use href="#icon-check"/></svg>
+                                <svg><use href="#icon-flask"/></svg>
                                 Test
                             </button>
                             {% endif %}
@@ -1185,7 +1188,7 @@ function updateHostRow(data) {
             } else if (!data.test_running && stopBtn && !testBtn) {
                 // Replace Stop with Test
                 stopBtn.outerHTML = `<button class="btn btn-test" onclick="sendCommand('${data.host_id}', 'test')" title="Run Tests">
-                    <svg><use href="#icon-check"/></svg>
+                    <svg><use href="#icon-flask"/></svg>
                     Test
                 </button>`;
             }
