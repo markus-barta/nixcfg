@@ -429,6 +429,7 @@ class HostRegistration(BaseModel):
     comment: Optional[str] = Field(None, max_length=500)
     test_status: Optional[str] = Field(None, max_length=100)
     config_repo: Optional[str] = Field(None, max_length=200)
+    poll_interval: Optional[int] = Field(None, ge=1, le=3600)
 
     @field_validator("hostname")
     @classmethod
@@ -751,24 +752,25 @@ async def register_host(request: Request, host_id: str, registration: HostRegist
                 UPDATE hosts SET
                     hostname = ?, host_type = ?, location = COALESCE(?, location),
                     current_generation = ?, last_seen = ?, status = 'ok',
-                    config_repo = COALESCE(?, config_repo)
+                    config_repo = COALESCE(?, config_repo),
+                    poll_interval = COALESCE(?, poll_interval)
                 WHERE id = ?
             """, (
                 registration.hostname, registration.host_type, registration.location,
                 registration.current_generation, datetime.utcnow().isoformat(),
-                registration.config_repo, host_id,
+                registration.config_repo, registration.poll_interval, host_id,
             ))
         else:
             # New host - do NOT set last_seen (offline until agent actually polls)
             conn.execute("""
                 INSERT INTO hosts (id, hostname, host_type, location, criticality, icon,
-                    current_generation, last_seen, status, comment, config_repo)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'ok', ?, ?)
+                    current_generation, last_seen, status, comment, config_repo, poll_interval)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'ok', ?, ?, ?)
             """, (
                 host_id, registration.hostname, registration.host_type, registration.location,
                 registration.criticality or "low", registration.icon,
                 registration.current_generation,
-                registration.comment, registration.config_repo,
+                registration.comment, registration.config_repo, registration.poll_interval or 60,
             ))
         conn.commit()
     

@@ -205,6 +205,10 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
     background: var(--green);
     box-shadow: 0 0 6px rgba(158, 206, 106, 0.5);
 }
+.status-dot.online.has-error {
+    background: var(--orange);
+    box-shadow: 0 0 6px rgba(255, 158, 100, 0.5);
+}
 .status-dot.offline { background: var(--fg-gutter); }
 .status-dot.error { 
     background: var(--red);
@@ -787,11 +791,8 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
                             {% elif host.pending_command %}
                             <span class="status-dot pending"></span>
                             {{ host.pending_command }}
-                            {% elif host.status == 'error' %}
-                            <span class="status-dot error"></span>
-                            Error
                             {% elif host.online %}
-                            <span class="status-dot online"></span>
+                            <span class="status-dot online {{ 'has-error' if host.status == 'error' else '' }}"></span>
                             Online
                             {% else %}
                             <span class="status-dot offline"></span>
@@ -1105,10 +1106,9 @@ function updateHostRow(data) {
             statusCell.innerHTML = `<span class="status-dot testing"></span> Testing ${current}/${total}`;
         } else if (data.pending_command) {
             statusCell.innerHTML = `<span class="status-dot pending"></span> ${data.pending_command}`;
-        } else if (data.status === 'error') {
-            statusCell.innerHTML = `<span class="status-dot error"></span> Error`;
         } else if (data.online !== false) {
-            statusCell.innerHTML = `<span class="status-dot online"></span> Online`;
+            const hasError = data.status === 'error' ? ' has-error' : '';
+            statusCell.innerHTML = `<span class="status-dot online${hasError}"></span> Online`;
         }
     }
     
