@@ -452,6 +452,7 @@ class HostStatus(BaseModel):
     current_generation: Optional[str] = Field(None, max_length=64)
     output: Optional[str] = Field(None, max_length=10000)
     test_status: Optional[str] = Field(None, max_length=100)
+    comment: Optional[str] = Field(None, max_length=200)
 
     @field_validator("output")
     @classmethod
@@ -863,16 +864,29 @@ async def update_status(request: Request, host_id: str, status: HostStatus, _: b
     host_id = validate_host_id(host_id)
     logger.info(f"Status update from {host_id}: {status.status}")
     
+    # Generate comment from output if not provided
+    comment = status.comment
+    if not comment and status.output:
+        # Use first line of output, truncated
+        first_line = status.output.split('\n')[0][:100]
+        if status.status == 'error':
+            comment = first_line
+        elif 'Already up to date' in status.output or 'Already up-to-date' in status.output:
+            comment = 'Already up to date'
+        elif 'Updating' in status.output:
+            comment = 'Pull successful'
+    
     with get_db() as conn:
         conn.execute("""
             UPDATE hosts SET
                 status = ?, current_generation = COALESCE(?, current_generation),
                 last_seen = ?, test_status = COALESCE(?, test_status),
+                comment = COALESCE(?, comment),
                 last_switch = CASE WHEN ? IN ('ok', 'success') THEN ? ELSE last_switch END
             WHERE id = ?
         """, (
             status.status, status.current_generation, datetime.utcnow().isoformat(),
-            status.test_status, status.status, datetime.utcnow().isoformat(), host_id,
+            status.test_status, comment, status.status, datetime.utcnow().isoformat(), host_id,
         ))
         
         conn.execute("""
@@ -889,6 +903,7 @@ async def update_status(request: Request, host_id: str, status: HostStatus, _: b
         "online": True,
         "current_generation": status.current_generation,
         "test_status": status.test_status,
+        "comment": comment,
         "last_seen": datetime.utcnow().isoformat(),
         "pending_command": None,  # Command completed
         "test_running": False,
