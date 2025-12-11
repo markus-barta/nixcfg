@@ -199,5 +199,8 @@
     enable = true;
     interval = 10;
     tokenFile = "/run/agenix/nixfleet-token";
+    location = "cloud";
+    deviceType = "server";
+    themeColor = "#98b8d8"; # iceBlue palette
   };
 }
