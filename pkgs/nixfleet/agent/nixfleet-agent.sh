@@ -274,6 +274,34 @@ report_status() {
   fi
 }
 
+report_test_progress() {
+  local current="$1"
+  local total="$2"
+  local passed="$3"
+  local running="$4"
+  local result="${5:-}"
+  local comment="${6:-}"
+
+  local payload
+  payload=$(jq -n \
+    --argjson current "$current" \
+    --argjson total "$total" \
+    --argjson passed "$passed" \
+    --argjson running "$running" \
+    --arg result "$result" \
+    --arg comment "$comment" \
+    '{
+            current: $current,
+            total: $total,
+            passed: $passed,
+            running: $running,
+            result: (if $result == "" then null else $result end),
+            comment: (if $comment == "" then null else $comment end)
+        }')
+
+  api_call POST "/api/hosts/${HOST_ID}/test-progress" "$payload" >/dev/null 2>&1 || true
+}
+
 # ════════════════════════════════════════════════════════════════════════════════
 # Command Execution
 # ════════════════════════════════════════════════════════════════════════════════
@@ -340,20 +368,34 @@ do_test() {
 
   if [[ ! -d "$test_dir" ]]; then
     log_info "No tests directory"
+    report_test_progress 0 0 0 false "no tests"
     report_status "ok" "$(get_generation)" "No tests found" "no tests"
     return 0
   fi
 
-  local total=0 passed=0 failed=0
+  # Count total tests first
+  local total=0
+  for script in "$test_dir"/T*.sh; do
+    [[ -f "$script" ]] && ((total++))
+  done
+
+  local current=0 passed=0 failed=0
   local output=""
+  local fail_comment=""
+
+  # Report initial progress
+  report_test_progress 0 "$total" 0 true
 
   for script in "$test_dir"/T*.sh; do
     [[ -f "$script" ]] || continue
-    ((total++))
+    ((current++))
 
     local name
     name=$(basename "$script" .sh)
     log_info "Running $name..."
+
+    # Report progress before running test
+    report_test_progress "$current" "$total" "$passed" true
 
     local result
     if result=$("$script" 2>&1); then
@@ -362,6 +404,7 @@ do_test() {
     else
       ((failed++))
       output+="❌ $name: ${result:0:100}"$'\n'
+      [[ -z "$fail_comment" ]] && fail_comment="$name failed"
     fi
   done
 
@@ -369,6 +412,9 @@ do_test() {
   [[ $failed -gt 0 ]] && test_status="$passed/$total pass, $failed fail"
 
   log_info "Tests complete: $test_status"
+
+  # Report final progress (running=false)
+  report_test_progress "$total" "$total" "$passed" false "$test_status" "$fail_comment"
 
   if [[ $failed -eq 0 ]]; then
     report_status "ok" "$(get_generation)" "$output" "$test_status"
