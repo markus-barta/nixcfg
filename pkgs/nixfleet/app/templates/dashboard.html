@@ -1141,8 +1141,23 @@ function updateHostRow(data) {
         if (hashEl) {
             hashEl.textContent = data.current_generation.substring(0, 7);
             hashEl.title = data.current_generation;
+            // Update outdated styling
+            if (data.outdated !== undefined) {
+                hashEl.classList.toggle('outdated', data.outdated);
+            }
         }
         row.dataset.gitHash = data.current_generation;
+        
+        // Update/remove outdated badge
+        if (data.outdated !== undefined) {
+            const versionCell = hashEl.closest('td');
+            let badge = versionCell.querySelector('.outdated-badge');
+            if (data.outdated && !badge) {
+                hashEl.insertAdjacentHTML('afterend', '<span class="outdated-badge" title="Behind main branch">↓</span>');
+            } else if (!data.outdated && badge) {
+                badge.remove();
+            }
+        }
     }
     
     // Update comment if changed
