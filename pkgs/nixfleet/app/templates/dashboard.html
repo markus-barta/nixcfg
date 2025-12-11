@@ -341,6 +341,166 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
 
 .btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
+/* Ellipsis/More Button & Dropdown */
+.btn-more {
+    background: rgba(169, 177, 214, 0.1);
+    color: var(--fg-dark);
+    border: 1px solid rgba(169, 177, 214, 0.2);
+    padding: 0.25rem 0.4rem;
+    min-width: 24px;
+}
+.btn-more:hover { 
+    background: rgba(169, 177, 214, 0.2); 
+    color: var(--fg);
+}
+
+.dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    margin-top: 4px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    min-width: 140px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+    overflow: hidden;
+}
+
+.dropdown.open .dropdown-menu {
+    display: block;
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--fg);
+    cursor: pointer;
+    transition: background 0.15s;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+}
+
+.dropdown-item:hover {
+    background: var(--bg-highlight);
+}
+
+.dropdown-item svg {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+}
+
+.dropdown-item.disabled {
+    color: var(--fg-gutter);
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 0.25rem 0;
+}
+
+.dropdown-item.danger {
+    color: var(--red);
+}
+.dropdown-item.danger:hover {
+    background: rgba(247, 118, 142, 0.1);
+}
+
+/* Confirmation Modal */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay.open {
+    display: flex;
+}
+
+.modal {
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.modal-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 0.75rem;
+}
+
+.modal-body {
+    font-size: 0.85rem;
+    color: var(--fg-dark);
+    margin-bottom: 1.25rem;
+    line-height: 1.5;
+}
+
+.modal-body code {
+    background: var(--bg-highlight);
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    color: var(--fg);
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.modal-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid var(--border);
+}
+
+.modal-btn-cancel {
+    background: var(--bg-highlight);
+    color: var(--fg);
+}
+.modal-btn-cancel:hover {
+    background: var(--bg);
+}
+
+.modal-btn-danger {
+    background: rgba(247, 118, 142, 0.15);
+    color: var(--red);
+    border-color: rgba(247, 118, 142, 0.3);
+}
+.modal-btn-danger:hover {
+    background: rgba(247, 118, 142, 0.25);
+}
+
 /* Text Styles */
 .hostname {
     font-weight: 600;
@@ -516,6 +676,15 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
     <symbol id="icon-license" viewBox="0 0 24 24">
         <path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>
     </symbol>
+    <symbol id="icon-more" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+    </symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+    </symbol>
+    <symbol id="icon-file" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+    </symbol>
 </svg>
 
 <div class="table-container">
@@ -650,6 +819,22 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
                                 Test
                             </button>
                             {% endif %}
+                            <div class="dropdown">
+                                <button class="btn btn-more" onclick="toggleDropdown(event)" title="More actions">
+                                    <svg><use href="#icon-more"/></svg>
+                                </button>
+                                <div class="dropdown-menu">
+                                    <button class="dropdown-item disabled" title="Coming soon">
+                                        <svg><use href="#icon-file"/></svg>
+                                        Download Log
+                                    </button>
+                                    <div class="dropdown-divider"></div>
+                                    <button class="dropdown-item danger" onclick="confirmRemoveHost('{{ host.id }}', '{{ host.hostname }}')">
+                                        <svg><use href="#icon-trash"/></svg>
+                                        Remove Host
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </td>
                 </tr>
@@ -663,6 +848,21 @@ tr:hover td { background: rgba(41, 46, 66, 0.5); }
             {% endif %}
         </tbody>
     </table>
+</div>
+<!-- Remove Host Confirmation Modal -->
+<div class="modal-overlay" id="removeHostModal">
+    <div class="modal">
+        <div class="modal-title">Remove Host</div>
+        <div class="modal-body">
+            Are you sure you want to remove <code id="removeHostName"></code> from the fleet?
+            <br><br>
+            This will delete all command history for this host. The host can re-register if its agent is still running.
+        </div>
+        <div class="modal-actions">
+            <button class="modal-btn modal-btn-cancel" onclick="closeRemoveModal()">Cancel</button>
+            <button class="modal-btn modal-btn-danger" id="confirmRemoveBtn" onclick="removeHost()">Remove</button>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -740,6 +940,90 @@ async function sendCommand(hostId, command) {
 }
 
 setTimeout(() => location.reload(), 30000);
+
+// Dropdown toggle
+function toggleDropdown(e) {
+    e.stopPropagation();
+    const dropdown = e.target.closest('.dropdown');
+    
+    // Close all other dropdowns first
+    document.querySelectorAll('.dropdown.open').forEach(d => {
+        if (d !== dropdown) d.classList.remove('open');
+    });
+    
+    dropdown.classList.toggle('open');
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.dropdown')) {
+        document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+    }
+});
+
+// Close dropdowns on escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+        closeRemoveModal();
+    }
+});
+
+// Remove host modal
+let hostToRemove = null;
+
+function confirmRemoveHost(hostId, hostname) {
+    hostToRemove = hostId;
+    document.getElementById('removeHostName').textContent = hostname;
+    document.getElementById('removeHostModal').classList.add('open');
+    // Close dropdown
+    document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+}
+
+function closeRemoveModal() {
+    document.getElementById('removeHostModal').classList.remove('open');
+    hostToRemove = null;
+}
+
+async function removeHost() {
+    if (!hostToRemove) return;
+    
+    const btn = document.getElementById('confirmRemoveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Removing...';
+    
+    try {
+        const response = await fetch(`/api/hosts/${hostToRemove}`, {
+            method: 'DELETE',
+            headers: { 
+                'X-CSRF-Token': csrfToken
+            }
+        });
+        
+        if (response.ok) {
+            closeRemoveModal();
+            location.reload();
+        } else if (response.status === 401) {
+            location.href = '/login';
+        } else {
+            const data = await response.json().catch(() => ({}));
+            alert(data.detail || 'Failed to remove host');
+            btn.disabled = false;
+            btn.textContent = 'Remove';
+        }
+    } catch (e) {
+        alert('Network error');
+        btn.disabled = false;
+        btn.textContent = 'Remove';
+    }
+}
+
+// Close modal when clicking overlay (outside modal)
+document.getElementById('removeHostModal').addEventListener('click', (e) => {
+    if (e.target.classList.contains('modal-overlay')) {
+        closeRemoveModal();
+    }
+});
 </script>
 
 <footer class="site-footer">

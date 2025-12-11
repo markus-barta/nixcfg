@@ -915,6 +915,36 @@ async def get_logs(host_id: str, request: Request, limit: int = 20):
         return {"logs": [dict(row) for row in rows]}
 
 
+@app.delete("/api/hosts/{host_id}")
+async def delete_host(host_id: str, request: Request):
+    """Delete a host from the fleet. Requires session auth + CSRF token."""
+    host_id = validate_host_id(host_id)
+    require_auth(request)
+    
+    # Validate CSRF token from header
+    session_token = get_session_token(request)
+    csrf_token = request.headers.get("X-CSRF-Token", "")
+    if not verify_csrf_token(session_token, csrf_token):
+        logger.warning(f"CSRF validation failed for delete host {host_id}")
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    
+    logger.info(f"Deleting host: {host_id}")
+    
+    with get_db() as conn:
+        # Check if host exists
+        existing = conn.execute("SELECT id FROM hosts WHERE id = ?", (host_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Host not found")
+        
+        # Delete command logs first (foreign key)
+        conn.execute("DELETE FROM command_log WHERE host_id = ?", (host_id,))
+        # Delete the host
+        conn.execute("DELETE FROM hosts WHERE id = ?", (host_id,))
+        conn.commit()
+    
+    return {"status": "deleted", "host_id": host_id}
+
+
 # ============================================================================
 # Web UI
 # ============================================================================
