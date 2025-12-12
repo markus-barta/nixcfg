@@ -26,6 +26,9 @@
     nixcfg.url = "github:pbek/nixcfg";
     # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
     espanso-fix.url = "github:pitkling/nixpkgs/espanso-fix-capabilities-export";
+    # NixFleet - Fleet management dashboard (local path for development, change to GitHub URL after push)
+    nixfleet.url = "path:/Users/markus/Code/nixfleet";
+    nixfleet.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -70,6 +73,8 @@
         })
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age
+        # NixFleet agent for fleet management
+        inputs.nixfleet.nixosModules.nixfleet-agent
       ];
       pkgs = import nixpkgs {
         inherit system;
@@ -100,7 +105,11 @@
             config.allowUnfree = true;
             overlays = allOverlays;
           };
-          modules = [ ./hosts/${hostname}/home.nix ];
+          modules = [
+            ./hosts/${hostname}/home.nix
+            # NixFleet agent for fleet management
+            inputs.nixfleet.homeManagerModules.nixfleet-agent
+          ];
           extraSpecialArgs = commonArgs // {
             inherit inputs hostname;
           };
@@ -171,6 +180,8 @@
             ./modules/common.nix # OUR config (loads AFTER hokage to override)
             ./hosts/gpc0/configuration.nix
             disko.nixosModules.disko
+            # NixFleet agent for fleet management
+            inputs.nixfleet.nixosModules.nixfleet-agent
           ];
           specialArgs = self.commonArgs // {
             inherit inputs;
