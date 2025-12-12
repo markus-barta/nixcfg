@@ -346,13 +346,16 @@
       },
       "locked": {
         "lastModified": 1765525618,
-        "narHash": "sha256-e6tWoXqK65ZdRIxzGf+WlrcGUjXpcDRj/tSuqnNDEkc=",
-        "path": "/Users/markus/Code/nixfleet",
-        "type": "path"
+        "narHash": "sha256-0tF3oTVkxGZdIopNtmPzU6Y7hk74MAWl9/+7+vDVCa4=",
+        "owner": "markus-barta",
+        "repo": "nixfleet",
+        "rev": "64fe9435c01e398dc45ed5378c2391130835022b",
+        "type": "github"
       },
       "original": {
-        "path": "/Users/markus/Code/nixfleet",
-        "type": "path"
+        "owner": "markus-barta",
+        "repo": "nixfleet",
+        "type": "github"
       }
     },
     "nixos-hardware": {
