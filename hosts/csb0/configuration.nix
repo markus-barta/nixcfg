@@ -202,7 +202,6 @@
     tokenFile = "/run/agenix/nixfleet-token";
     configRepo = "/home/mba/Code/nixcfg";
     user = "mba";
-    runAsRoot = true; # Bypass sudo-rs setuid issues
     location = "cloud";
     deviceType = "server";
     themeColor = "#98b8d8"; # iceBlue palette
