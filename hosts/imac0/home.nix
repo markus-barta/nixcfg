@@ -12,8 +12,7 @@
   imports = [
     # Uzumaki: Fish functions, theming, stasysmo (all-in-one)
     ../../modules/uzumaki/home-manager.nix
-    # NixFleet agent for fleet management
-    ../../modules/home/nixfleet-agent.nix
+    # nixfleet-agent is now loaded via flake input (inputs.nixfleet.homeManagerModules.nixfleet-agent)
   ];
 
   # ============================================================================
@@ -33,9 +32,10 @@
   # Token stored in ~/.config/nixfleet/token
   services.nixfleet-agent = {
     enable = true;
+    url = "https://fleet.barta.cm";
     interval = 10;
     tokenFile = "/Users/markus/.config/nixfleet/token";
-    nixcfgPath = "/Users/markus/Code/nixcfg";
+    configRepo = "/Users/markus/Code/nixcfg";
     location = "home";
     deviceType = "desktop";
     themeColor = "#a8a098"; # warmGray palette

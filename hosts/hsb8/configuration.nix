@@ -63,7 +63,7 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
-    ../../modules/nixfleet-agent.nix
+    # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
   ];
 
   # ============================================================================
@@ -556,8 +556,11 @@ in
 
   services.nixfleet-agent = {
     enable = true;
+    url = "https://fleet.barta.cm";
     interval = 10;
     tokenFile = "/run/agenix/nixfleet-token";
+    configRepo = "/home/mba/Code/nixcfg";
+    user = "mba";
     location = "home";
     deviceType = "server";
     themeColor = "#e09050"; # orange palette
