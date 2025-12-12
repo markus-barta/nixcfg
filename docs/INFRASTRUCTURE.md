@@ -312,4 +312,4 @@ Thymis only deploys to NixOS. macOS hosts are managed differently:
 
 ### Backlog
 
-See [.pm/backlog/2-medium/2025-12-10-thymis-fleet-management.md](../.pm/backlog/2-medium/2025-12-10-thymis-fleet-management.md) for implementation details.
+See [+pm/backlog/2-medium/2025-12-10-thymis-fleet-management.md](../+pm/backlog/2-medium/2025-12-10-thymis-fleet-management.md) for implementation details.

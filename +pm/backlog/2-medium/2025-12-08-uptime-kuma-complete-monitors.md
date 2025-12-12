@@ -131,4 +131,4 @@ Expected Status: 204
 
 - Uptime Kuma Dashboard: <http://192.168.1.99:3001>
 - [Uptime Kuma Documentation](https://github.com/louislam/uptime-kuma/wiki)
-- Related: `.pm/done/2025-12-07-hsb0-uptime-kuma.md` (initial installation)
+- Related: `+pm/done/2025-12-07-hsb0-uptime-kuma.md` (initial installation)
