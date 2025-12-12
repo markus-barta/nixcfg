@@ -21,6 +21,56 @@
 
 ---
 
+## Remote Access
+
+The iMac is on the BYTEPOETS internal network. To access remotely:
+
+### Network Topology
+
+```
+Home → WireGuard VPN → 10.100.0.x (VPN subnet)
+                     → Mac mini server (10.100.0.51)
+                                    → Internal network (10.17.1.x)
+                                    → mba-imac-work (10.17.1.7)
+```
+
+### SSH Access (via Mac mini jump host)
+
+```bash
+# From VPN: SSH to Mac mini, then to iMac
+ssh mba@10.100.0.51
+ssh markus@10.17.1.7
+
+# Or in one command (jump host)
+ssh -J mba@10.100.0.51 markus@10.17.1.7
+
+# mDNS also works from the Mac mini
+ssh markus@mba-imac-work.local
+```
+
+### Important Notes
+
+- The iMac sleeps when inactive and may not be reachable
+- When it wakes up, mDNS (`mba-imac-work.local`) should resolve
+- The NixFleet agent runs and will reconnect automatically when awake
+
+### NixFleet Agent
+
+The NixFleet agent runs as a launchd agent and reports to `fleet.barta.cm`.
+
+```bash
+# Check agent status
+tail -20 /tmp/nixfleet-agent.log
+
+# Restart agent
+launchctl kickstart -k gui/$(id -u)/com.nixfleet.agent
+
+# View launchd plist
+cat ~/Library/LaunchAgents/com.nixfleet.agent.plist
+```
+
+---
+
 ## Common Tasks
 
 ### Update Configuration
