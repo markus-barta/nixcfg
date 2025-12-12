@@ -2,25 +2,29 @@
 
 Personal NixOS configuration managing home servers, cloud infrastructure, and development workstations—all from a single Git repository.
 
-<img src="./assets/nixfleet.png" alt="NixFleet Dashboard" width="50%">
+<a href="https://github.com/markus-barta/nixfleet"><img src="./assets/nixfleet.png" alt="NixFleet Dashboard" width="50%"></a>
 
-> Built on the excellent [hokage module system](https://github.com/pbek/nixcfg) by Patrizio Bekerle, extended with custom tooling and Tokyo Night theming. 🍥
+> Built on the excellent [🍥 Hokage module system](https://github.com/pbek/nixcfg) by [Patrizio Bekerle](https://github.com/pbek), extended with custom tooling and Tokyo Night theming.
+>
+> **Fleet management?** Check out [NixFleet](https://github.com/markus-barta/nixfleet) — deploy, monitor, and control all your NixOS (and macOS) hosts from a single dashboard.
 
 ![StaSysMo and Tokyo Night+ Theme Demo](./assets/shell.png)
 
 ## What This Does
 
-**Manages 6 NixOS hosts + 2 macOS workstations:**
+**Manages 6 NixOS hosts + 3 macOS workstations:**
 
-| Host      | Role                                      | Location      |
-| --------- | ----------------------------------------- | ------------- |
-| **hsb0**  | DNS/DHCP (AdGuard Home)                   | Home          |
-| **hsb1**  | Smart Home Hub (Node-RED, MQTT, HomeKit)  | Home          |
-| **hsb8**  | Home Automation                           | Parents' Home |
-| **gpc0**  | Gaming Desktop (Steam, Plasma)            | Home          |
-| **csb0**  | IoT Hub (MQTT, Telegram Bot)              | Cloud         |
-| **csb1**  | Monitoring (Grafana, InfluxDB, Paperless) | Cloud         |
-| **imac0** | Development Workstation                   | macOS         |
+| Host              | Role                                      | Location      |
+| ----------------- | ----------------------------------------- | ------------- |
+| **hsb0**          | DNS/DHCP (AdGuard Home)                   | Home          |
+| **hsb1**          | Smart Home Hub (Node-RED, MQTT, HomeKit)  | Home          |
+| **hsb8**          | Home Automation                           | Parents' Home |
+| **gpc0**          | Gaming Desktop (Steam, Plasma)            | Home          |
+| **csb0**          | IoT Hub (MQTT, Telegram Bot)              | Cloud         |
+| **csb1**          | Monitoring (Grafana, InfluxDB, Paperless) | Cloud         |
+| **imac0**         | Development Workstation                   | macOS (Home)  |
+| **mba-mbp-work**  | Work Laptop                               | macOS (Work)  |
+| **mba-imac-work** | Work Desktop                              | macOS (Work)  |
 
 **Key Capabilities:**
 
