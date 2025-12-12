@@ -374,7 +374,7 @@
   # Continues alerting daily while offline
   #
   # ⚠️ BACKLOG: This is manually set up - needs to be made declarative!
-  #    See .pm/backlog/3-low/2025-11-29-netcup-monitor-declarative.md
+  #    See +pm/backlog/3-low/2025-11-29-netcup-monitor-declarative.md
   #
   # Config: ~/secrets/netcup-monitor.env (gitignored)
   # Script: ~/bin/netcup-monitor.sh

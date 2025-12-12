@@ -3,7 +3,7 @@
 ## Status: ✅ COMPLETE (2025-12-07)
 
 > **Migration complete!** All 9 hosts now use `uzumaki.enable = true`.
-> Remaining cleanup tracked in: `.pm/backlog/2025-12-07-uzumaki-cleanup-deprecated-files.md`
+> Remaining cleanup tracked in: `+pm/backlog/2025-12-07-uzumaki-cleanup-deprecated-files.md`
 
 ## Quick Reference
 
@@ -38,7 +38,7 @@
 | imac-mba-work | macOS    | workstation | `uzumaki = { enable = true; role = "workstation"; }` | ✅         |
 | mba-mbp-work  | macOS    | workstation | `uzumaki = { enable = true; role = "workstation"; }` | ✅         |
 
-> ⏳ hsb8 deployment tracked in: `.pm/backlog/2025-12-07-hsb8-uzumaki-deployment.md`
+> ⏳ hsb8 deployment tracked in: `+pm/backlog/2025-12-07-hsb8-uzumaki-deployment.md`
 
 **New Module Structure:**
 
@@ -318,11 +318,11 @@ diff -u baseline-$HOST result-new/
 - [x] **Pilot 3:** imac0 (workstation) - ✅ Migrated (macOS validation)
 - [x] **Rollout:** hsb0, imac-mba-work, mba-mbp-work - ✅ Deployed
 - [x] **hsb8:** Config ready, awaiting deployment (host offline)
-  - Tracked in: `.pm/backlog/2025-12-07-hsb8-uzumaki-deployment.md`
+  - Tracked in: `+pm/backlog/2025-12-07-hsb8-uzumaki-deployment.md`
 
 ### Phase 6: Cleanup (Phase I) ⏭️ DEFERRED
 
-> Moved to separate task: `.pm/backlog/2025-12-07-uzumaki-cleanup-deprecated-files.md`
+> Moved to separate task: `+pm/backlog/2025-12-07-uzumaki-cleanup-deprecated-files.md`
 
 - [ ] Remove deprecated files:
   - [ ] `modules/uzumaki/server.nix` (merged into default.nix)
@@ -358,7 +358,7 @@ diff -u baseline-$HOST result-new/
 
 ### Phase 9: Final Cleanup ⏭️ DEFERRED
 
-> Moved to separate task: `.pm/backlog/2025-12-07-uzumaki-cleanup-deprecated-files.md`
+> Moved to separate task: `+pm/backlog/2025-12-07-uzumaki-cleanup-deprecated-files.md`
 
 - [ ] Remove ALL deprecated files
 - [ ] Complete documentation

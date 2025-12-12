@@ -27,7 +27,7 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 | Agent workflow & checklists | [docs/AGENT-WORKFLOW.md](../../docs/AGENT-WORKFLOW.md) |
 | Host inventory & dependencies | [docs/INFRASTRUCTURE.md](../../docs/INFRASTRUCTURE.md) |
 | Host structure requirements | [docs/HOST-TEMPLATE.md](../../docs/HOST-TEMPLATE.md) |
-| Task management | [.pm/README.md](../../.pm/README.md) |
+| Task management | [+pm/README.md](../../+pm/README.md) |
 | Host-specific details | `hosts/<hostname>/README.md` |
 | Host procedures | `hosts/<hostname>/docs/RUNBOOK.md` |
 
@@ -37,9 +37,9 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 
 ### For Bigger Tasks
 
-1. **Create a .pm task first**: `.pm/backlog/YYYY-MM-DD-description.md`
+1. **Create a +pm task first**: `+pm/backlog/YYYY-MM-DD-description.md`
 2. Work through the task with acceptance criteria
-3. Move to `.pm/done/` when complete
+3. Move to `+pm/done/` when complete
 
 ### The Prime Directive
 

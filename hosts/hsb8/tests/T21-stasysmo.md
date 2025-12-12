@@ -119,4 +119,4 @@ Run: `./T21-stasysmo.sh`
 - StaSysMo daemon writes to `/dev/shm/stasysmo/` (RAM disk for speed)
 - Reader formats output for Starship's custom module
 - Defined in `modules/uzumaki/stasysmo/`
-- **Requires uzumaki migration** - see `.pm/backlog/2025-12-07-hsb8-uzumaki-deployment.md`
+- **Requires uzumaki migration** - see `+pm/backlog/2025-12-07-hsb8-uzumaki-deployment.md`

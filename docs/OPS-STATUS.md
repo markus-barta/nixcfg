@@ -35,7 +35,7 @@ Quick overview of infrastructure operations progress.
 
 ## Pending Work
 
-See `.pm/backlog/` for detailed task tracking.
+See `+pm/backlog/` for detailed task tracking.
 
 **High priority:**
 

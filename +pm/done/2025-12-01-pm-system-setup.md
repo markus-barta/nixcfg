@@ -31,12 +31,12 @@ Establish the centralized project management system for nixcfg repository. Migra
 ```bash
 # Verify folder structure
 cd /Users/markus/Code/nixcfg
-for dir in .pm/backlog .pm/done .pm/cancelled tests; do
+for dir in +pm/backlog +pm/done +pm/cancelled tests; do
   [[ -d "$dir" ]] && echo "✓ $dir exists" || echo "✗ $dir missing"
 done
 
 # Verify READMEs exist
-for readme in .pm/README.md tests/README.md; do
+for readme in +pm/README.md tests/README.md; do
   [[ -f "$readme" ]] && echo "✓ $readme exists" || echo "✗ $readme missing"
 done
 ```

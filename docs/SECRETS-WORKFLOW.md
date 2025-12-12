@@ -394,5 +394,5 @@ rm ~/Secrets/decrypted/api-keys/openai
 - `secrets/secrets.nix` - Key definitions and secret bindings
 - `scripts/runbook-secrets.sh` - Runbook encrypt/decrypt script
 - `justfile` - Commands in `[group('agenix')]` and `[group('runbook-secrets')]`
-- `.pm/backlog/2-medium/2025-12-01-hsb1-agenix-secrets.md` - hsb1 migration plan
-- `.pm/backlog/2-medium/2025-12-01-imac0-secrets-management.md` - Workstation secrets plan
+- `+pm/backlog/2-medium/2025-12-01-hsb1-agenix-secrets.md` - hsb1 migration plan
+- `+pm/backlog/2-medium/2025-12-01-imac0-secrets-management.md` - Workstation secrets plan

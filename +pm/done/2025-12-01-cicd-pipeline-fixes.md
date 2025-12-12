@@ -23,4 +23,4 @@ All CI/CD workflows are correctly configured:
 
 - Local pre-commit hooks handle formatting - CI format check not needed
 - Path filters already exist in `check.yml`
-- See `.pm/done/2025-12-01-cicd-hostname-fix.md` for original fix
+- See `+pm/done/2025-12-01-cicd-hostname-fix.md` for original fix

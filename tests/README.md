@@ -84,7 +84,7 @@ Examples:
 #!/usr/bin/env bash
 # T##-test-name.sh
 # Description: What this test verifies
-# Related PM task: .pm/done/YYYY-MM-DD-task-name.md (if applicable)
+# Related PM task: +pm/done/YYYY-MM-DD-task-name.md (if applicable)
 
 set -euo pipefail
 
@@ -160,5 +160,5 @@ nix build .#checks.x86_64-linux.qownnotes
 
 ## Related Documentation
 
-- [PM Workflow](../.pm/README.md) — How tests fit into the review process
+- [PM Workflow](../+pm/README.md) — How tests fit into the review process
 - [hsb0 Tests](../hosts/hsb0/tests/) — Example host-specific test suite

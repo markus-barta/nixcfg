@@ -34,5 +34,5 @@ These polish items have been completed. More complex features have been split in
 ## References
 
 - [pkgs/nixfleet/README.md](../../pkgs/nixfleet/README.md)
-- [.pm/done/2025-12-10-nixfleet-fleet-management.md](../../done/2025-12-10-nixfleet-fleet-management.md)
-- [.pm/done/2025-12-11-nixfleet-sse-live-updates.md](2025-12-11-nixfleet-sse-live-updates.md)
+- [+pm/done/2025-12-10-nixfleet-fleet-management.md](../../done/2025-12-10-nixfleet-fleet-management.md)
+- [+pm/done/2025-12-11-nixfleet-sse-live-updates.md](2025-12-11-nixfleet-sse-live-updates.md)

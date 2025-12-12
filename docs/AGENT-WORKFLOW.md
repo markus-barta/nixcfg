@@ -14,7 +14,7 @@ How agents (AI or human) should work with this infrastructure codebase.
 
 ### When to Create a .pm Task
 
-See [.pm/README.md](../.pm/README.md#when-to-create-a-task) for the decision table.
+See [+pm/README.md](../+pm/README.md#when-to-create-a-task) for the decision table.
 
 **Rule of thumb**: If you need to track progress or might get interrupted, create a task.
 
@@ -22,16 +22,16 @@ See [.pm/README.md](../.pm/README.md#when-to-create-a-task) for the decision tab
 
 ```bash
 # Create new task
-touch .pm/backlog/$(date +%Y-%m-%d)-short-description.md
+touch +pm/backlog/$(date +%Y-%m-%d)-short-description.md
 
 # Complete task
-mv .pm/backlog/YYYY-MM-DD-task.md .pm/done/
+mv +pm/backlog/YYYY-MM-DD-task.md +pm/done/
 
 # Cancel task
-mv .pm/backlog/YYYY-MM-DD-task.md .pm/cancelled/
+mv +pm/backlog/YYYY-MM-DD-task.md +pm/cancelled/
 ```
 
-For task template and full workflow details, see [.pm/README.md](../.pm/README.md).
+For task template and full workflow details, see [+pm/README.md](../+pm/README.md).
 
 ---
 
@@ -78,7 +78,7 @@ Every host has three components that must stay synchronized:
 | ------------------ | -------------------------- | ------------------------------------- |
 | Host-specific      | `hosts/<hostname>/tests/`  | Ongoing functionality (DNS, services) |
 | General/structural | `tests/`                   | Repository structure, cross-cutting   |
-| Task-specific      | Inline in `.pm/` task file | One-time verification                 |
+| Task-specific      | Inline in `+pm/` task file | One-time verification                 |
 
 ---
 
@@ -91,7 +91,7 @@ Before modifying any host configuration:
 □ Check host criticality in INFRASTRUCTURE.md
 □ Check dependencies (will this affect other hosts?)
 □ Review current RUNBOOK.md for the host
-□ For bigger tasks: Create .pm/backlog/ item
+□ For bigger tasks: Create +pm/backlog/ item
 □ Identify which docs/tests need updating
 □ For NixOS: Confirm build platform (gpc0 or hsb1, NOT macOS)
 ```
@@ -179,5 +179,5 @@ For architecture details, see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md#thymis-fle
 
 - **Host structure requirements**: [HOST-TEMPLATE.md](./HOST-TEMPLATE.md)
 - **Infrastructure inventory**: [INFRASTRUCTURE.md](./INFRASTRUCTURE.md)
-- **PM workflow**: [.pm/README.md](../.pm/README.md)
+- **PM workflow**: [+pm/README.md](../+pm/README.md)
 - **Test guidelines**: [tests/README.md](../tests/README.md)
