@@ -258,7 +258,8 @@ in
   home.activation.installMacOSFonts = macosCommon.fontActivation pkgs;
 
   # macOS app linking (from shared config)
-  home.activation.linkMacOSApps = macosCommon.appLinkActivation;
+  # TEMPORARILY DISABLED - was hanging during remote switch
+  # home.activation.linkMacOSApps = macosCommon.appLinkActivation;
 
   # ============================================================================
   # Nano Configuration (from shared config)
