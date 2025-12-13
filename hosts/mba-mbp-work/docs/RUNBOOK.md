@@ -53,13 +53,16 @@ home-manager switch --flake ".#mba@mba-mbp-work"
 
 ## SSH Access
 
-### From imac0
+### From Any Machine on Local Network
 
 ```bash
-# Using fish alias
+# Using mDNS (recommended - works even if IP changes)
+ssh mba@mba-mbp-work.local
+
+# Using fish alias (from imac0)
 mbpw
 
-# Or directly
+# Or directly by IP
 ssh mba@192.168.1.237
 ```
 
