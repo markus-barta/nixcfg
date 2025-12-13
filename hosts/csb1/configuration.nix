@@ -196,7 +196,7 @@
     url = "https://fleet.barta.cm";
     interval = 10;
     tokenFile = "/run/agenix/nixfleet-token";
-    configRepo = "/home/mba/Code/nixcfg";
+    repoUrl = "https://github.com/markus-barta/nixcfg.git"; # Isolated repo mode
     user = "mba";
     location = "cloud";
     deviceType = "server";
