@@ -37,7 +37,7 @@
     url = "https://fleet.barta.cm";
     interval = 10;
     tokenFile = "/Users/mba/.config/nixfleet/token";
-    configRepo = "/Users/mba/Code/nixcfg";
+    repoUrl = "https://github.com/markus-barta/nixcfg.git"; # Isolated repo mode
     location = "work";
     deviceType = "laptop";
     themeColor = "#a8aeb8"; # lightGray palette
