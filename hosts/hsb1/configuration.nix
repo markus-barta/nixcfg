@@ -420,7 +420,7 @@
     url = "https://fleet.barta.cm";
     interval = 10;
     tokenFile = "/run/agenix/nixfleet-token";
-    configRepo = "/home/mba/Code/nixcfg";
+    repoUrl = "https://github.com/markus-barta/nixcfg.git";
     user = "mba";
     location = "home";
     deviceType = "server";
