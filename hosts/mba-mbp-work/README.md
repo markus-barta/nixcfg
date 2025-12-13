@@ -4,6 +4,7 @@ Work macOS laptop with Nix package management.
 
 ## Quick Links
 
+- 📖 **[Runbook](docs/RUNBOOK.md)** - Common tasks, troubleshooting, quick reference
 - 🚀 **[Initial Setup](docs/INITIAL-SETUP.md)** - First-time setup guide (rename host, enable SSH, install Nix)
 - 🧪 **[Test Suite](tests/README.md)** - Validation tests for this configuration
 - 📚 **[mba-imac-work README](../mba-imac-work/README.md)** - Work iMac (similar configuration)
