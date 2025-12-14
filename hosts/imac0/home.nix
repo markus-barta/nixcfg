@@ -28,17 +28,15 @@
   # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
-  # Polls https://fleet.barta.cm every 10s for commands
+  # NixFleet v2 agent - connects to fleet.barta.cm via WebSocket
   # Token stored in ~/.config/nixfleet/token
   services.nixfleet-agent = {
     enable = true;
-    url = "https://fleet.barta.cm";
-    interval = 10;
+    url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
+    interval = 30; # Heartbeat interval in seconds
     tokenFile = "/Users/markus/.config/nixfleet/token";
     repoUrl = "https://github.com/markus-barta/nixcfg.git";
-    location = "home";
-    deviceType = "desktop";
-    themeColor = "#a8a098"; # warmGray palette
+    logLevel = "info";
   };
 
   # Theme configuration - set hostname for palette lookup
