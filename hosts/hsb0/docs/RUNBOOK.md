@@ -72,6 +72,19 @@ dig @192.168.1.99 google.com
 ssh mba@192.168.1.99 "sudo cat /var/lib/private/AdGuardHome/data/leases.json | jq"
 ```
 
+### Search Static Leases (Encrypted Source)
+
+```bash
+# Find a host by name
+agenix -d secrets/static-leases-hsb0.age | jq 'map(select(.hostname == "mba-mbp-work"))'
+
+# Find a host by IP
+agenix -d secrets/static-leases-hsb0.age | jq 'map(select(.ip == "192.168.1.197"))'
+
+# Count total static leases
+agenix -d secrets/static-leases-hsb0.age | jq 'length'
+```
+
 ### ZFS Pool Status
 
 ```bash
