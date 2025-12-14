@@ -193,13 +193,11 @@
 
   services.nixfleet-agent = {
     enable = true;
-    url = "https://fleet.barta.cm";
-    interval = 10;
+    url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
+    interval = 30; # Heartbeat interval in seconds
     tokenFile = "/run/agenix/nixfleet-token";
     repoUrl = "https://github.com/markus-barta/nixcfg.git"; # Isolated repo mode
     user = "mba";
-    location = "cloud";
-    deviceType = "server";
-    themeColor = "#769ff0"; # blue palette
+    logLevel = "info";
   };
 }
