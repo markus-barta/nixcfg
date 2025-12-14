@@ -31,16 +31,14 @@
   # ============================================================================
   # NixFleet Agent - Fleet Management
   # ============================================================================
-  # Token stored in ~/.config/nixfleet/token
+  # NIXFLEET AGENT v2 - Token stored in ~/.config/nixfleet/token
   services.nixfleet-agent = {
     enable = true;
-    url = "https://fleet.barta.cm";
-    interval = 10;
+    url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
+    interval = 30; # Heartbeat interval in seconds
     tokenFile = "/Users/mba/.config/nixfleet/token";
-    repoUrl = "https://github.com/markus-barta/nixcfg.git"; # Isolated repo mode
-    location = "work";
-    deviceType = "laptop";
-    themeColor = "#a8aeb8"; # lightGray palette
+    repoUrl = "https://github.com/markus-barta/nixcfg.git";
+    logLevel = "info";
   };
 
   # Home Manager needs a bit of information about you and the paths it should manage
