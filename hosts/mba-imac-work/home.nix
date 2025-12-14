@@ -18,16 +18,15 @@ in
   # ============================================================================
   # NixFleet Agent - Fleet Management
   # ============================================================================
+  # NixFleet v2 agent - connects to fleet.barta.cm via WebSocket
   # Token stored in ~/.config/nixfleet/token
   services.nixfleet-agent = {
     enable = true;
-    url = "https://fleet.barta.cm";
-    interval = 10;
+    url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
+    interval = 30; # Heartbeat interval in seconds
     tokenFile = "/Users/markus/.config/nixfleet/token";
     repoUrl = "https://github.com/markus-barta/nixcfg.git"; # Isolated repo mode
-    location = "work";
-    deviceType = "desktop";
-    themeColor = "#686c70"; # darkGray palette
+    logLevel = "info";
   };
 
   # ============================================================================
