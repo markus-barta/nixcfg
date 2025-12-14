@@ -8,13 +8,13 @@ Central reference for all hosts and their relationships.
 
 ### NixOS Servers
 
-| Host     | Role                    | IP            | SSH Command                    | Criticality |
-| -------- | ----------------------- | ------------- | ------------------------------ | ----------- |
-| **hsb0** | DNS/DHCP (AdGuard Home) | 192.168.1.99  | `ssh mba@hsb0.lan`             | 🔴 HIGH     |
-| **hsb1** | Home Automation         | 192.168.1.101 | `ssh mba@hsb1.lan`             | 🟡 MEDIUM   |
-| **hsb8** | Parents' Server         | 192.168.1.100 | `ssh mba@hsb8.lan`             | 🟡 MEDIUM   |
-| **csb0** | Cloud Smart Home        | 85.235.65.226 | `ssh mba@cs0.barta.cm -p 2222` | 🔴 HIGH     |
-| **csb1** | Cloud Monitoring        | 152.53.64.166 | `ssh mba@cs1.barta.cm -p 2222` | 🟡 MEDIUM   |
+| Host     | Role                      | IP            | SSH Command                    | Criticality |
+| -------- | ------------------------- | ------------- | ------------------------------ | ----------- |
+| **hsb0** | DNS/DHCP (AdGuard Home)   | 192.168.1.99  | `ssh mba@hsb0.lan`             | 🔴 HIGH     |
+| **hsb1** | Home Automation           | 192.168.1.101 | `ssh mba@hsb1.lan`             | 🟡 MEDIUM   |
+| **hsb8** | Parents' Server (offsite) | 192.168.1.100 | `ssh mba@hsb8.lan`             | 🟡 MEDIUM   |
+| **csb0** | Cloud Smart Home          | 85.235.65.226 | `ssh mba@cs0.barta.cm -p 2222` | 🔴 HIGH     |
+| **csb1** | Cloud Monitoring          | 152.53.64.166 | `ssh mba@cs1.barta.cm -p 2222` | 🟡 MEDIUM   |
 
 ### NixOS Desktops
 
@@ -44,7 +44,7 @@ Central reference for all hosts and their relationships.
 
 ## Dependencies
 
-```
+```text
                     ┌─────────┐
                     │  hsb0   │ DNS/DHCP for all home hosts
                     │ (DNS)   │
@@ -155,86 +155,86 @@ qc1     # → quick connect to csb1
 
 ---
 
-## Thymis Fleet Management (Planned)
+## NixFleet Fleet Management
 
 ### Overview
 
-[Thymis](https://github.com/Thymis-io/thymis) is a web-based platform for managing NixOS devices. It provides:
+[NixFleet](https://github.com/markus-barta/nixfleet) is our in-house fleet management system for NixOS and macOS hosts. It provides:
 
-- **Web UI** for configuration editing and deployment
-- **Agent-based architecture** — devices pull updates (no inbound firewall needed)
-- **Remote management** of devices behind NAT/firewalls
-- **Rollback support** via NixOS generations
+- **Web Dashboard** for viewing all hosts and triggering deployments
+- **Agent-based architecture** — devices poll for commands (works through NAT/firewalls)
+- **Unified management** — same agent pattern for NixOS and macOS
+- **Real-time updates** via Server-Sent Events (SSE)
+- **Authentication** — password + optional TOTP (2FA)
+
+**Dashboard URL**: `https://fleet.barta.cm` (hosted on csb1)
 
 ### Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                         INTERNET                            │
-└─────────────────────────────────────────────────────────────┘
-                              ▲
+┌─────────────────────────────────────────────────────────────────────┐
+│                        NIXFLEET DASHBOARD                           │
+│                      (Docker on csb1)                               │
+│                     https://fleet.barta.cm                          │
+│                                                                     │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │
+│  │   FastAPI       │  │   SQLite DB     │  │   SSE Events        │  │
+│  │   Backend       │  │   (hosts, cmds) │  │   (real-time)       │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
                               │
-           ┌──────────────────┴──────────────────┐
-           │                                     │
-           │  csb1 (Thymis Controller)           │
-           │  https://thymis.barta.cm            │
-           │                                     │
-           │  ┌────────────────────────────┐     │
-           │  │  Web UI + REST API         │     │
-           │  │  - Device inventory        │     │
-           │  │  - Configuration editor    │     │
-           │  │  - Build queue             │     │
-           │  └────────────────────────────┘     │
-           │                                     │
-           └──────────────────┬──────────────────┘
-                              │
-                              │  Agents connect OUTBOUND
-                              │  (no inbound firewall needed!)
-                              │
-        ┌─────────────────────┼───────────────────┐
-        │                     │                   │
-        ▼                     ▼                   ▼
-   ┌─────────┐          ┌─────────┐          ┌─────────┐
-   │  hsb0   │          │  hsb1   │          │  hsb8   │
-   │ (agent) │          │ (agent) │          │ (agent) │
-   │         │          │         │          │         │
-   │ Connects│          │ Connects│          │ Connects│
-   │ to csb1 │          │ to csb1 │          │ to csb1 │
-   └─────────┘          └─────────┘          └─────────┘
+              ┌───────────────┼───────────────┐
+              │               │               │
+              ▼               ▼               ▼
+        ┌──────────┐    ┌──────────┐    ┌──────────┐
+        │  NixOS   │    │  NixOS   │    │  macOS   │
+        │  Agent   │    │  Agent   │    │  Agent   │
+        │ (systemd)│    │ (systemd)│    │ (launchd)│
+        └──────────┘    └──────────┘    └──────────┘
 
-   YOUR HOME NETWORK                      PARENTS' NETWORK
-   (192.168.1.x)                          (192.168.1.x)
+        YOUR HOME NETWORK               PARENTS' NETWORK
+        (192.168.1.x)                   (192.168.1.x)
 ```
 
 ### Workflow
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        HYBRID WORKFLOW                              │
+│                        DEPLOYMENT WORKFLOW                          │
 └─────────────────────────────────────────────────────────────────────┘
 
   ┌──────────────┐         ┌──────────────┐         ┌──────────────┐
-  │   Cursor +   │  push   │    GitHub    │  pull   │    Thymis    │
-  │  SYSOP Agent │ ──────► │   nixcfg     │ ◄────── │  Controller  │
+  │   Cursor +   │  push   │    GitHub    │         │   NixFleet   │
+  │  SYSOP Agent │ ──────► │   nixcfg     │         │  Dashboard   │
   │              │         │              │         │   (csb1)     │
   └──────────────┘         └──────────────┘         └──────┬───────┘
         │                                                  │
-        │ Major changes                                    │ Deploy
-        │ (new modules, refactoring)                       │
+        │ Edit configs                                     │ Commands:
+        │ Push to Git                                      │ Pull, Switch
+        │                                                  │ Test
         │                                                  ▼
         │                                           ┌─────────────┐
         │                                           │   Agents    │
         │                                           │ hsb0, hsb1  │
         │                                           │ hsb8, gpc0  │
+        │                                           │ imac0, etc  │
         │                                           └─────────────┘
         │
-        └──── Quick fixes possible via Thymis Web UI
-              (exports back to Git for history)
+        └──── Trigger Pull + Switch from dashboard
 ```
+
+### Dashboard Commands
+
+| Command       | Description                                         |
+| ------------- | --------------------------------------------------- |
+| `pull`        | Run `git pull` in the config repo                   |
+| `switch`      | Run `nixos-rebuild switch` or `home-manager switch` |
+| `pull-switch` | Run both in sequence                                |
+| `test`        | Run host test suite (`hosts/<host>/tests/T*.sh`)    |
 
 ### Why Agent-Based (Pull Model)?
 
-| Traditional Push Model            | Thymis Pull Model                         |
+| Traditional Push Model            | NixFleet Pull Model                       |
 | --------------------------------- | ----------------------------------------- |
 | Controller must reach each device | Devices reach out to controller           |
 | Requires port forwarding / VPN    | Works through NAT automatically           |
@@ -250,7 +250,7 @@ Parents' Network (ww87)          Internet              Your Cloud
 ┌─────────────────────┐                              ┌──────────────┐
 │  hsb8               │                              │    csb1      │
 │  ┌──────────────┐   │                              │              │
-│  │ Thymis Agent │───┼───► HTTPS ─────────────────► │  Controller  │
+│  │ NixFleet Agt │───┼───► HTTPS ─────────────────► │  Dashboard   │
 │  └──────────────┘   │                              │              │
 │                     │                              └──────────────┘
 │  NAT Router         │
@@ -258,58 +258,43 @@ Parents' Network (ww87)          Internet              Your Cloud
 └─────────────────────┘
 ```
 
-### Deployment Flow
-
-1. **Edit config** in Thymis web UI (from anywhere)
-2. **Controller builds** the NixOS configuration on csb1
-3. **Agent polls** periodically: "Any updates for me?"
-4. **Agent downloads** and applies the new configuration
-5. **Agent reports** status back to controller
-
 ### Managed Hosts
 
-| Host          | Type  | Location | Thymis Role     | Status     |
-| ------------- | ----- | -------- | --------------- | ---------- |
-| csb1          | NixOS | Cloud    | 🎛️ Controller   | 📋 Planned |
-| hsb0          | NixOS | Home     | Agent           | 📋 Planned |
-| hsb1          | NixOS | Home     | Agent           | 📋 Planned |
-| hsb8          | NixOS | Parents  | Agent           | 📋 Planned |
-| gpc0          | NixOS | Home     | Agent           | 📋 Planned |
-| csb0          | NixOS | Cloud    | Agent           | 📋 Planned |
-| imac0         | macOS | Home     | 👁️ Monitor-only | 📋 Planned |
-| mba-imac-work | macOS | Work     | 👁️ Monitor-only | 📋 Planned |
-| mba-mbp-work  | macOS | Work     | 👁️ Monitor-only | 📋 Planned |
+| Host          | Type  | Location | Agent Status | Notes               |
+| ------------- | ----- | -------- | ------------ | ------------------- |
+| csb1          | NixOS | Cloud    | ✅ Active    | Hosts the dashboard |
+| csb0          | NixOS | Cloud    | ✅ Active    | Smart home          |
+| hsb0          | NixOS | Home     | 📋 Planned   | DNS/DHCP server     |
+| hsb1          | NixOS | Home     | 📋 Planned   | Home automation     |
+| hsb8          | NixOS | Parents  | 📋 Planned   | Parents' server     |
+| gpc0          | NixOS | Home     | 📋 Planned   | Gaming PC           |
+| imac0         | macOS | Home     | 📋 Planned   | Home workstation    |
+| mba-imac-work | macOS | Work     | 📋 Planned   | Work iMac           |
+| mba-mbp-work  | macOS | Work     | 📋 Planned   | Work MacBook        |
 
-### macOS Host Strategy
+### NixOS vs macOS Agents
 
-Thymis only deploys to NixOS. macOS hosts are managed differently:
+Both use the same polling mechanism. The difference is in what they execute:
 
-| Aspect         | NixOS Hosts             | macOS Hosts                       |
-| -------------- | ----------------------- | --------------------------------- |
-| **Deployment** | Thymis agent            | Manual via Cursor/SYSOP           |
-| **Command**    | Thymis handles          | `home-manager switch --flake ...` |
-| **Automation** | Thymis (after approval) | None — full manual control        |
-| **Visibility** | Thymis dashboard        | Thymis dashboard (monitor-only)   |
-
-**Fallback**: If Thymis doesn't support monitor-only hosts natively, we'll create a Fleet Overview page that aggregates NixOS status from Thymis + macOS status from lightweight reporters.
+| Aspect         | NixOS Hosts                 | macOS Hosts                |
+| -------------- | --------------------------- | -------------------------- |
+| **Agent**      | systemd service             | launchd agent              |
+| **Switch cmd** | `sudo nixos-rebuild switch` | `home-manager switch`      |
+| **Test suite** | `hosts/<host>/tests/T*.sh`  | `hosts/<host>/tests/T*.sh` |
+| **Visibility** | Full dashboard support      | Full dashboard support     |
 
 ### Human-in-the-Loop Policy
 
-**Phase 1 (Initial)**: All hosts require manual approval before deployment.
+All deployments require manual trigger from the dashboard — no auto-deploy.
 
-| Host      | Criticality | Policy                      |
-| --------- | ----------- | --------------------------- |
-| All NixOS | —           | ⏸️ Manual approval required |
-| All macOS | —           | 🖐️ Manual via SYSOP         |
+| Host Type | Criticality      | Policy                      |
+| --------- | ---------------- | --------------------------- |
+| 🔴 HIGH   | hsb0, csb0       | Extra caution, verify first |
+| 🟡 MEDIUM | hsb1, csb1, hsb8 | Standard workflow           |
+| 🟢 LOW    | gpc0, macOS      | Test bed, lower risk        |
 
-**Phase 2 (Future)**: Gradual automation based on trust.
+### References
 
-| Host             | When to Unlock                  |
-| ---------------- | ------------------------------- |
-| gpc0             | First to auto-deploy (test bed) |
-| hsb1, hsb8, csb1 | After gpc0 stable 2+ weeks      |
-| hsb0, csb0       | Last (🔴 HIGH, maybe never)     |
-
-### Backlog
-
-See [+pm/backlog/2-medium/2025-12-10-thymis-fleet-management.md](../+pm/backlog/2-medium/2025-12-10-thymis-fleet-management.md) for implementation details.
+- **NixFleet repo**: [nixfleet](https://github.com/markus-barta/nixfleet)
+- **Dashboard deployment**: See csb1 RUNBOOK (`hosts/csb1/docs/RUNBOOK.md`)
+- **Agent configuration**: NixFleet README (module options)

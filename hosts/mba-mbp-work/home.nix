@@ -39,6 +39,7 @@
     tokenFile = "/Users/mba/.config/nixfleet/token";
     repoUrl = "https://github.com/markus-barta/nixcfg.git";
     logLevel = "info";
+    nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
   };
 
   # Home Manager needs a bit of information about you and the paths it should manage
