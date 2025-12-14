@@ -30,7 +30,7 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 | csb0         | `ssh mba@cs0.barta.cm -p 2222`   | Cloud - port 2222!       |
 | csb1         | `ssh mba@cs1.barta.cm -p 2222`   | Cloud - port 2222!       |
 | gpc0         | `ssh mba@gpc0.lan`               | Gaming PC / build host   |
-| mba-mbp-work | `ssh mba@mba-mbp-work.local`     | Work MacBook (DHCP - needs static IP!) |
+| mba-mbp-work | `ssh mba@mba-mbp-work.lan`       | Work MacBook (192.168.1.197)   |
 | imac0        | `ssh markus@imac0.lan`           | iMac - user is **markus** not mba! |
 
 ---
