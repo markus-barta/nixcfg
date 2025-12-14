@@ -18,6 +18,23 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 
 ---
 
+## SSH Quick Reference
+
+**Always use these exact commands - never bare hostnames!**
+
+| Host         | SSH Command                      | Notes                    |
+| ------------ | -------------------------------- | ------------------------ |
+| hsb0         | `ssh mba@hsb0.lan`               | DNS/DHCP server          |
+| hsb1         | `ssh mba@hsb1.lan`               | Home automation          |
+| hsb8         | `ssh mba@hsb8.lan`               | Parents' server          |
+| csb0         | `ssh mba@cs0.barta.cm -p 2222`   | Cloud - port 2222!       |
+| csb1         | `ssh mba@cs1.barta.cm -p 2222`   | Cloud - port 2222!       |
+| gpc0         | `ssh mba@gpc0.lan`               | Gaming PC / build host   |
+| mba-mbp-work | `ssh mba@mba-mbp-work.local`     | Work MacBook (DHCP - needs static IP!) |
+| imac0        | `ssh markus@imac0.lan`           | iMac - user is **markus** not mba! |
+
+---
+
 ## Sources of Truth
 
 **Read these, don't duplicate their content:**

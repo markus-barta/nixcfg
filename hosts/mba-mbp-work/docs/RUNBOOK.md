@@ -1,9 +1,20 @@
 # Runbook: mba-mbp-work (Work MacBook Pro)
 
-**Host**: mba-mbp-work (192.168.1.237)  
+**Host**: mba-mbp-work  
 **Role**: Work macOS laptop (BYTEPOETS)  
 **OS**: macOS Sequoia + Nix + home-manager  
 **Criticality**: MEDIUM - Work laptop
+
+---
+
+## Quick Connect
+
+```bash
+# Via mDNS (no static IP yet)
+ssh mba@mba-mbp-work.local
+```
+
+> ⚠️ **TODO**: Assign static IP via hsb0 DHCP. See `+pm/backlog/2025-12-14-mba-mbp-work-static-ip.md`
 
 ---
 
@@ -12,7 +23,7 @@
 | Item           | Value                                 |
 | -------------- | ------------------------------------- |
 | **Hostname**   | `mba-mbp-work`                        |
-| **IP Address** | `192.168.1.237`                       |
+| **IP Address** | DHCP (needs static lease in hsb0)     |
 | **Model**      | MacBook Pro 15,2 (2018 13" Touch Bar) |
 | **CPU**        | Quad-Core Intel i5 @ 2.3 GHz          |
 | **RAM**        | 16 GB                                 |
