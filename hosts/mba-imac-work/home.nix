@@ -27,6 +27,7 @@ in
     tokenFile = "/Users/markus/.config/nixfleet/token";
     repoUrl = "https://github.com/markus-barta/nixcfg.git"; # Isolated repo mode
     logLevel = "info";
+    nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
   };
 
   # ============================================================================
