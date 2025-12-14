@@ -92,11 +92,12 @@
     # Disable DHCP globally (static IP server)
     useDHCP = false;
 
-    # Firewall - allow web traffic
+    # Firewall - allow web traffic and SSH
     firewall = {
       allowedTCPPorts = [
         80 # HTTP
         443 # HTTPS
+        2222 # SSH (hardened port)
       ];
     };
   };
@@ -154,7 +155,7 @@
     # 🚨 EMERGENCY RECOVERY PASSWORD - for VNC console access if SSH fails
     # Enables login via Netcup VNC console during lockout scenarios
     # Password stored in 1Password, rotate after migration complete
-    hashedPassword = "$6$Tk1YlwmY7R0sO8mi$I2I3YXnxkjrLRJ9odyuQeAcKv8aMT6rjCZUbB35qy2hlnWhoVL0bQrYG2vqpoRZOngGrPHYiYDaP54gtSDJDE0";
+    hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
 
     openssh.authorizedKeys.keys = lib.mkForce [
       # markus@iMac-5k-MBA-home.local (id_rsa)
