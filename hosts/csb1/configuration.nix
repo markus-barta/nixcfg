@@ -87,11 +87,12 @@
     # Disable DHCP globally (static IP server)
     useDHCP = false;
 
-    # Firewall - allow web traffic
+    # Firewall - allow web traffic and SSH
     firewall = {
       allowedTCPPorts = [
         80 # HTTP
         443 # HTTPS
+        2222 # SSH (hardened port)
       ];
     };
   };
