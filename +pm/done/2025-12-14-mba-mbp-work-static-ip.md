@@ -1,7 +1,7 @@
 # Assign Static IP to mba-mbp-work
 
 **Priority**: Low
-**Status**: Open
+**Status**: Done
 **Date**: 2024-12-14
 **Host**: hsb0 (DHCP server), mba-mbp-work (client)
 
@@ -52,8 +52,9 @@ Add a static DHCP lease for `mba-mbp-work` in hsb0's AdGuard Home / DHCP configu
 
 ## Acceptance Criteria
 
-- [ ] mba-mbp-work has static IP in hsb0 DHCP config
-- [ ] Can SSH using `ssh mba@<static-ip>`
-- [ ] Can SSH using `ssh mba@mba-mbp-work.lan` (not just .local)
-- [ ] RUNBOOK.md updated with IP
-- [ ] SYSOP.mdc updated with IP
+- [x] mba-mbp-work has static IP in hsb0 DHCP config (192.168.1.197)
+- [x] Can SSH using `ssh mba@192.168.1.197`
+- [x] Can SSH using `ssh mba@mba-mbp-work.lan`
+- [x] RUNBOOK.md updated with IP
+- [x] SYSOP.mdc updated with IP
+- [x] Memory ID 12214258 updated
