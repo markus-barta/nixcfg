@@ -298,7 +298,7 @@
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "hsb1" "Home server 1"   "(192.168.1.101)"
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "hsb8" "Home server 8"   "(192.168.1.100)"
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "gpc0" "Gaming PC"       "(192.168.1.154)"
-      printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "mbpw" "Work MacBook"    "(192.168.1.237)"
+      printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "mbpw" "Work MacBook"    "(192.168.1.197)"
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "csb0" "Cloud server 0"  "(cs0.barta.cm)"
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "csb1" "Cloud server 1"  "(cs1.barta.cm)"
       echo -e "$color_abbr└────────────────────────────────────────────────────────────────────────┘$color_reset\n"

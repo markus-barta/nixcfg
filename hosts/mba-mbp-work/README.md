@@ -26,7 +26,7 @@ Work macOS laptop with Nix package management.
 | **Architecture**   | x86_64 (Intel)                                   |
 | **Serial**         | C02XV2U3JHD3                                     |
 | **User**           | `mba`                                            |
-| **Static IP**      | `192.168.1.237/24` (DHCP reservation)            |
+| **Static IP**      | `192.168.1.197/24` (DHCP reservation via hsb0)   |
 | **MAC Address**    | `38:f9:d3:50:a7:0d`                              |
 | **Shell**          | Fish (via Nix)                                   |
 | **Terminal**       | WezTerm (via Nix)                                |

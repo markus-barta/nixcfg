@@ -28,7 +28,7 @@ Test Fish shell configuration and uzumaki functions.
 | `hsb1` | 192.168.1.101     | Home server 1    |
 | `hsb8` | 192.168.1.100     | Home server 8    |
 | `gpc0` | 192.168.1.154     | Gaming PC        |
-| `mbpw` | 192.168.1.237     | Work MacBook Pro |
+| `mbpw` | 192.168.1.197     | Work MacBook Pro |
 | `csb0` | cs0.barta.cm:2222 | Cloud server 0   |
 | `csb1` | cs1.barta.cm:2222 | Cloud server 1   |
 
@@ -65,7 +65,7 @@ hostsecrets
 ```bash
 # Type alias name, should connect with zellij session
 hsb1  # → ssh mba@192.168.1.101 -t 'zellij attach hsb1 -c'
-mbpw  # → ssh mba@192.168.1.237 -t 'zellij attach mbpw -c'
+mbpw  # → ssh mba@192.168.1.197 -t 'zellij attach mbpw -c'
 ```
 
 ### Test 4: Abbreviations
