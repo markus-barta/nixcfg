@@ -345,11 +345,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1765715666,
-        "narHash": "sha256-gMeIGU8gNVYvM1GuzFufSn/TmIDUfl9z8+ckMOM/RjY=",
+        "lastModified": 1765717486,
+        "narHash": "sha256-BcHp9ncpjEKATvtyoIRhfpaQX1rrbMyOlw4GHy9PMs4=",
         "owner": "markus-barta",
         "repo": "nixfleet",
-        "rev": "001bfcabce674aa59ad6ad24eea4f1b0496a3e23",
+        "rev": "2dc955d87fa5a48e817784a382a0db0100b45eb5",
         "type": "github"
       },
       "original": {
