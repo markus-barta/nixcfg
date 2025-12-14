@@ -32,7 +32,7 @@ Add a static DHCP lease for `mba-mbp-work` in hsb0's AdGuard Home / DHCP configu
 
 2. **Add static lease** in hsb0's DHCP config:
    - Edit `nixcfg/hosts/hsb0/` DHCP configuration
-   - Add MAC → IP mapping (suggest: `192.168.1.237` to keep current)
+   - Add MAC → IP mapping: `192.168.1.197`
 
 3. **Update documentation**:
    - `hosts/mba-mbp-work/docs/RUNBOOK.md` - add IP to Quick Reference
