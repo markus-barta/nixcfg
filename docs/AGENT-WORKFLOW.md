@@ -139,39 +139,49 @@ just decrypt-runbook-secrets <hostname>
 
 ---
 
-## Thymis Integration (Planned)
+## NixFleet Integration
 
-Once [Thymis](https://thymis.barta.cm) is deployed, deployment workflows differ by host type:
+[NixFleet](https://fleet.barta.cm) provides centralized deployment for all hosts.
 
-### NixOS Hosts → Thymis
+### Deployment via NixFleet Dashboard
 
-Thymis handles deployment for: hsb0, hsb1, hsb8, gpc0, csb0, csb1
+All hosts (NixOS and macOS) use the same workflow:
 
 ```text
-SYSOP edits config → Push to GitHub → Thymis pulls → Human approves → Deploy
+SYSOP edits config → Push to GitHub → Dashboard: Pull + Switch → Verify
 ```
 
-**SYSOP role**: Edit configs, push to Git. Thymis handles the rest (after human approval).
+**SYSOP role**: Edit configs, push to Git, trigger deployment from dashboard.
 
-### macOS Hosts → Manual via SYSOP
+### Dashboard Commands
 
-macOS hosts (imac0, mba-imac-work, mba-mbp-work) are **not managed by Thymis**.
+| Command       | Description                                         |
+| ------------- | --------------------------------------------------- |
+| `pull`        | Run `git pull` in the config repo                   |
+| `switch`      | Run `nixos-rebuild switch` or `home-manager switch` |
+| `pull-switch` | Run both in sequence                                |
+| `test`        | Run host test suite (`hosts/<host>/tests/T*.sh`)    |
+
+### Manual Deployment (Fallback)
+
+If dashboard is unavailable:
 
 ```bash
-# SYSOP deploys to macOS manually
+# NixOS
+ssh <host> "cd ~/Code/nixcfg && git pull && sudo nixos-rebuild switch --flake .#<host>"
+
+# macOS
 ssh <host> "cd ~/Code/nixcfg && git pull && home-manager switch --flake '.#markus@<host>'"
 ```
 
-**SYSOP role**: Full deployment responsibility — pull, switch, verify.
-
 ### Quick Reference
 
-| Host Type | Deployment Method | SYSOP Responsibility         |
-| --------- | ----------------- | ---------------------------- |
-| NixOS     | Thymis            | Edit + push (Thymis deploys) |
-| macOS     | Manual            | Edit + push + deploy         |
+| Host Type | Deployment Method | SYSOP Responsibility            |
+| --------- | ----------------- | ------------------------------- |
+| NixOS     | NixFleet          | Edit + push + trigger dashboard |
+| macOS     | NixFleet          | Edit + push + trigger dashboard |
 
-For architecture details, see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md#thymis-fleet-management-planned).
+For architecture details, see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md#nixfleet-fleet-management).
 
 ---
 

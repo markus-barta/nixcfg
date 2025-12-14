@@ -37,6 +37,7 @@
     tokenFile = "/Users/markus/.config/nixfleet/token";
     repoUrl = "https://github.com/markus-barta/nixcfg.git";
     logLevel = "info";
+    nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
   };
 
   # Theme configuration - set hostname for palette lookup
