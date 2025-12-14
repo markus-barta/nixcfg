@@ -10,11 +10,10 @@
 ## Quick Connect
 
 ```bash
-# Via mDNS (no static IP yet)
-ssh mba@mba-mbp-work.local
+ssh mba@mba-mbp-work.lan
+# or
+ssh mba@192.168.1.197
 ```
-
-> ⚠️ **TODO**: Assign static IP via hsb0 DHCP. See `+pm/backlog/2025-12-14-mba-mbp-work-static-ip.md`
 
 ---
 
@@ -23,7 +22,7 @@ ssh mba@mba-mbp-work.local
 | Item           | Value                                 |
 | -------------- | ------------------------------------- |
 | **Hostname**   | `mba-mbp-work`                        |
-| **IP Address** | DHCP (needs static lease in hsb0)     |
+| **IP Address** | `192.168.1.197` (static via hsb0)     |
 | **Model**      | MacBook Pro 15,2 (2018 13" Touch Bar) |
 | **CPU**        | Quad-Core Intel i5 @ 2.3 GHz          |
 | **RAM**        | 16 GB                                 |
@@ -67,14 +66,14 @@ home-manager switch --flake ".#mba@mba-mbp-work"
 ### From Any Machine on Local Network
 
 ```bash
-# Using mDNS (recommended - works even if IP changes)
-ssh mba@mba-mbp-work.local
+# Using .lan (recommended - via hsb0 DNS)
+ssh mba@mba-mbp-work.lan
 
 # Using fish alias (from imac0)
 mbpw
 
 # Or directly by IP
-ssh mba@192.168.1.237
+ssh mba@192.168.1.197
 ```
 
 ### Enable Remote Login (if disabled)
