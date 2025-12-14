@@ -149,19 +149,17 @@
   security.sudo-rs.wheelNeedsPassword = false;
 
   # ============================================================================
-  # NIXFLEET AGENT - Fleet management dashboard agent
+  # NIXFLEET AGENT v2 - Fleet management dashboard agent
   # ============================================================================
   age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
 
   services.nixfleet-agent = {
     enable = true;
-    url = "https://fleet.barta.cm";
-    interval = 10;
+    url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
+    interval = 30; # Heartbeat interval in seconds
     tokenFile = "/run/agenix/nixfleet-token";
-    repoUrl = "https://github.com/markus-barta/nixcfg.git"; # Isolated repo mode
+    repoUrl = "https://github.com/markus-barta/nixcfg.git";
     user = "mba";
-    location = "home";
-    deviceType = "gaming";
-    themeColor = "#9868d0"; # purple palette
+    logLevel = "info";
   };
 }
