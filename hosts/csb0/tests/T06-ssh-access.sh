@@ -34,6 +34,16 @@ echo
 
 FAILURES=0
 
+# Pre-Test: Port 2222 reachable (TCP check before SSH)
+echo -n "Pre-test: Port $SSH_PORT reachable... "
+if nc -z -w 5 "$HOST" "$SSH_PORT" 2>/dev/null; then
+  echo -e "${GREEN}✅ PASS${NC}"
+else
+  echo -e "${RED}❌ FAIL - Port $SSH_PORT blocked (firewall?)${NC}"
+  echo "⚠️  Check networking.firewall.allowedTCPPorts includes $SSH_PORT"
+  ((FAILURES++))
+fi
+
 # Test 1: SSH connectivity
 echo -n "Test 1: SSH connectivity... "
 if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'echo "success"' &>/dev/null; then
