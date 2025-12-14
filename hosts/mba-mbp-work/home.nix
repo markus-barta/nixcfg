@@ -35,7 +35,7 @@
   services.nixfleet-agent = {
     enable = true;
     url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
-    interval = 30; # Heartbeat interval in seconds
+    interval = 5; # Heartbeat interval in seconds
     tokenFile = "/Users/mba/.config/nixfleet/token";
     repoUrl = "https://github.com/markus-barta/nixcfg.git";
     logLevel = "info";
