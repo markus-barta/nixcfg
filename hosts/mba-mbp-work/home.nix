@@ -40,7 +40,7 @@
     repoUrl = "https://github.com/markus-barta/nixcfg.git";
     logLevel = "info";
     nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
-    location = "home";
+    location = "work";
     deviceType = "laptop";
   };
 
