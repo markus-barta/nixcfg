@@ -492,5 +492,7 @@ in
     repoUrl = "https://github.com/markus-barta/nixcfg.git"; # Isolated repo mode
     user = "mba";
     logLevel = "info";
+    location = "home";
+    deviceType = "server";
   };
 }

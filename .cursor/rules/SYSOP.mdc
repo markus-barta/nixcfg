@@ -35,6 +35,61 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 
 ---
 
+## Context Detection
+
+**First action in any SYSOP session:** Run `hostname` to determine context.
+
+### Decision Tree
+
+```
+hostname?
+├── imac0 ────────────→ 🏠 HOME CONTEXT
+├── mba-imac-work ────→ 🏢 WORK CONTEXT (stationary at work)
+├── mba-mbp-work ─────→ 🔍 CHECK NETWORK (portable)
+│   ├── can reach hsb0.lan? → 🏠 HOME CONTEXT
+│   └── cannot reach .lan?  → 🏢 WORK CONTEXT
+├── gpc0 ─────────────→ 🖥️ SERVER CONTEXT (home)
+├── hsb0/hsb1/hsb8 ───→ 🖥️ SERVER CONTEXT (home)
+└── csb0/csb1 ────────→ ☁️ SERVER CONTEXT (cloud)
+```
+
+### Network Check (for portable machines)
+
+Quick test with 5s timeout:
+
+```bash
+ping -c1 -W5 hsb0.lan >/dev/null 2>&1 && echo "HOME" || echo "WORK"
+```
+
+### 🏠 HOME CONTEXT (imac0, or mba-mbp-work when home)
+
+Full access. Use the SSH Quick Reference above as-is.
+
+| Reachable | Via |
+|-----------|-----|
+| All `*.lan` hosts | Direct |
+| Cloud servers | Public internet |
+| All secrets | Local |
+
+### 🏢 WORK CONTEXT (mba-imac-work, or mba-mbp-work when away)
+
+Limited access. Home network requires VPN.
+
+| Host | Reachable? | How |
+|------|------------|-----|
+| csb0 | ✅ | `ssh mba@cs0.barta.cm -p 2222` |
+| csb1 | ✅ | `ssh mba@cs1.barta.cm -p 2222` |
+| hsb0, hsb1, hsb8, gpc0 | ❌ | Requires VPN first |
+| imac0 | ❌ | Requires VPN first |
+
+**Secrets:** May need to fetch from 1Password. Ask if something is missing!
+
+### 🖥️ SERVER CONTEXT
+
+Already on infrastructure. SSH to other hosts as needed using the Quick Reference.
+
+---
+
 ## Sources of Truth
 
 **Read these, don't duplicate their content:**

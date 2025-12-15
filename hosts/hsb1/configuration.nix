@@ -423,5 +423,7 @@
     repoUrl = "https://github.com/markus-barta/nixcfg.git";
     user = "mba";
     logLevel = "info";
+    location = "home";
+    deviceType = "server";
   };
 }
