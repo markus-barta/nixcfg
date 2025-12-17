@@ -4,6 +4,41 @@ Central hub for tracking work across the nixcfg repository.
 
 ---
 
+## Priority System
+
+Tasks use a **P-number** prefix for ordering:
+
+```
+P{number}-{name}.md
+```
+
+**Lower number = Higher priority**
+
+| Range       | Priority    | Description                           |
+| ----------- | ----------- | ------------------------------------- |
+| P4000-P4999 | 🔴 Critical | System maintenance, keeping things up |
+| P5000-P5999 | 🟡 Medium   | Infrastructure improvements           |
+| P6000-P6999 | 🟢 Low      | Nice-to-have, do when time permits    |
+
+### Ordering Within Priority
+
+- Start at **X000** (e.g., P4000, P5000, P6000)
+- New items: add/subtract 100 (P4100, P4200...)
+- Insert between: use finer granularity (P4050 between P4000 and P4100)
+- **Goal**: Never need to rename existing files when priorities change
+
+### Priority Focus: System Uptime
+
+**Main priority indicator: Keep systems up to date and running.**
+
+| Priority | Examples                                              |
+| -------- | ----------------------------------------------------- |
+| 🔴 P4xxx | Watchtower auto-updates, crash prevention, monitoring |
+| 🟡 P5xxx | Security (agenix), agent deployments, build speed     |
+| 🟢 P6xxx | Cleanup, cosmetic fixes, declarative improvements     |
+
+---
+
 ## Workflow
 
 ```
@@ -32,7 +67,7 @@ Central hub for tracking work across the nixcfg repository.
 
 ## When to Create a Task
 
-| Situation                        | Create .pm task?                 |
+| Situation                        | Create +pm task?                 |
 | -------------------------------- | -------------------------------- |
 | Quick fix, single file, <15 min  | ❌ No, just do it                |
 | Change affects multiple files    | ✅ Yes                           |
@@ -48,35 +83,49 @@ Central hub for tracking work across the nixcfg repository.
 
 ## File Naming Convention
 
-Files are date-prefixed: `YYYY-MM-DD-short-description.md`
+```
+P{number}-{short-description}.md
+```
 
-Example: `2025-12-01-migrate-csb0-to-hokage.md`
+Examples:
+
+- `P4000-cloud-servers-watchtower.md`
+- `P5100-hsb1-agenix-secrets.md`
+
+**Note**: Date is tracked inside the file, not in the filename.
 
 ---
 
 ## Task Template
 
 ````markdown
-# YYYY-MM-DD - Task Title
+# Task Title
 
-## Status: BACKLOG | DONE | CANCELLED
+**Created**: YYYY-MM-DD  
+**Priority**: P{number} (Critical/Medium/Low)  
+**Status**: Backlog  
+**Depends on**: P{other} (optional)
 
-## Description
+---
 
-Brief explanation of what needs to be done.
+## Problem
 
-## Source
+Brief explanation of what needs to be fixed or built.
 
-- Original: [path to source file where TODO was found]
+---
 
-## Scope
+## Solution
 
-Applies to: [host/module/area affected]
+How we're going to solve it.
+
+---
 
 ## Acceptance Criteria
 
 - [ ] Criterion 1
 - [ ] Criterion 2
+
+---
 
 ## Test Plan
 
@@ -84,19 +133,20 @@ Applies to: [host/module/area affected]
 
 1. Step 1 to verify
 2. Step 2 to verify
-3. Expected result
 
 ### Automated Test
 
 ```bash
-# Reference to test script or inline commands
-bash hosts/<hostname>/tests/T##-test-name.sh
+# Commands to verify
 ```
 ````
 
-## Notes
+---
 
-- Relevant context, links, or references
+## Related
+
+- Depends on: P{number}
+- Enables: P{number}
 
 ```
 
@@ -106,49 +156,25 @@ bash hosts/<hostname>/tests/T##-test-name.sh
 
 Every task should have tests defined:
 
-| Test Type          | Description                                     | Required |
-| ------------------ | ----------------------------------------------- | -------- |
-| **Manual Test**    | Human verification steps documented in the task | ✅ Yes   |
-| **Automated Test** | Script that can verify the change               | Recommended |
+| Test Type       | Description                              | Required    |
+| --------------- | ---------------------------------------- | ----------- |
+| **Manual Test** | Human verification steps in the task     | ✅ Yes      |
+| **Automated**   | Script or commands that verify the change | Recommended |
 
-### Where Tests Live
+### Testing Approaches
 
-| Test Type              | Location                                 | Purpose                                           |
-| ---------------------- | ---------------------------------------- | ------------------------------------------------- |
-| **Host-specific**      | `hosts/<hostname>/tests/`                | Ongoing functionality tests (DNS, services, etc.) |
-| **General/structural** | `tests/`                                 | Repository structure, cross-cutting concerns      |
-| **Task-specific**      | Inline in task file or referenced script | One-time verification                             |
-
-See [tests/README.md](../tests/README.md) for test writing guidelines.
+| Test Type     | How to Test                              |
+| ------------- | ---------------------------------------- |
+| **NixOS**     | `nixos-rebuild test`, host test scripts  |
+| **macOS**     | `home-manager switch`, manual verify     |
+| **Services**  | `systemctl status`, curl endpoints       |
+| **Docker**    | `docker compose up -d`, logs check       |
 
 ---
 
-## Alternative: Full Kanban Workflow
+## Related
 
-For larger projects or teams, a more structured workflow may be useful:
-
-```
-
-┌──────────┐ ┌───────┐ ┌────────┐ ┌────────┐ ┌──────┐
-│ Backlog │───▶│ Ready │───▶│ Active │───▶│ Review │───▶│ Done │
-└──────────┘ └───────┘ └────────┘ └────────┘ └──────┘
-
-```
-
-| State       | Description                                                   |
-| ----------- | ------------------------------------------------------------- |
-| **Backlog** | Raw ideas and tasks captured, not yet refined                 |
-| **Ready**   | Refined with clear acceptance criteria, ready to be picked up |
-| **Active**  | Currently being worked on (limit: 1-2 tasks)                  |
-| **Review**  | Work complete, pending test verification                      |
-| **Done**    | Verified complete                                             |
-
-This approach is useful when:
-
-- Multiple people work on the same codebase
-- Tasks require formal review before completion
-- You want explicit WIP limits
-- Formal test plans are needed before starting work
-
-For this personal nixcfg repo, the simple 3-state workflow is sufficient.
+- [Main README](../README.md) - Project overview
+- [Tests](../tests/README.md) - Test infrastructure
+- [NixFleet +pm](../../nixfleet/+pm/README.md) - Same system for NixFleet
 ```
