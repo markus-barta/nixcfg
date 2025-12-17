@@ -6,11 +6,11 @@
 
 ## Problem
 
-hsb8 is currently offsite and not reachable from the home network. It still has the v1 NixFleet agent configuration.
+hsb8 is currently offsite and not reachable from the home network. It still has the v1 NixFleet agent configuration (or rather, it has no NixFleet agent configuration at all).
 
 ## When Available
 
-Next time hsb8 is online (brought back home or VPN established), deploy the v2 agent:
+Next time hsb8 is online (brought back home or VPN established), deploy the v2 NixFleet agent:
 
 ```bash
 ssh mba@hsb8.lan "cd ~/Code/nixcfg && git pull && sudo nixos-rebuild switch --flake .#hsb8"
