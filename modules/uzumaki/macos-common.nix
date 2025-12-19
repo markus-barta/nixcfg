@@ -69,6 +69,7 @@ in
         sourcefish
         stress
         helpfish
+        imacw
         ;
 
       # Custom cd function using zoxide
