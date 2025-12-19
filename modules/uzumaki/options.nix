@@ -42,7 +42,7 @@
       enable = lib.mkOption {
         type = lib.types.bool;
         default = true;
-        description = "Enable uzumaki fish functions (pingt, stress, helpfish, etc.)";
+        description = "Enable uzumaki fish functions (pingt, stress, helpfish, imacw, etc.)";
       };
 
       functions = {
@@ -86,6 +86,12 @@
           type = lib.types.bool;
           default = true;
           description = "Enable stasysmod - toggle StaSysMo debug mode";
+        };
+
+        imacw = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "Enable imacw - SSH to mba-imac-work via BYTEPOETS VPN";
         };
 
       };

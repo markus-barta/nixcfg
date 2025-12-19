@@ -28,23 +28,54 @@ The iMac is on the BYTEPOETS internal network. To access remotely:
 ### Network Topology
 
 ```
-Home → WireGuard VPN → 10.100.0.x (VPN subnet)
-                     → Mac mini server (10.100.0.51)
-                                    → Internal network (10.17.1.x)
-                                    → mba-imac-work (10.17.1.7)
+Home → WireGuard VPN ("BYTEPOETS+") → 10.100.0.x (VPN subnet)
+                                    → miniserver-bp (10.100.0.51) [Ubuntu]
+                                                   → Internal network (10.17.1.x)
+                                                   → mba-imac-work (10.17.1.7)
 ```
 
-### SSH Access (via Mac mini jump host)
+### Access from Home (Step-by-Step)
+
+1. **Connect to VPN**: Open WireGuard app on macOS → Select "BYTEPOETS+" → Activate
+2. **SSH to miniserver-bp** (Ubuntu jump host):
+   ```bash
+   ssh mba@10.100.0.51
+   ```
+3. **SSH to mba-imac-work** from miniserver-bp:
+   ```bash
+   ssh markus@10.17.1.7
+   ```
+
+**Or in one command** (jump host):
 
 ```bash
-# From VPN: SSH to Mac mini, then to iMac
-ssh mba@10.100.0.51
-ssh markus@10.17.1.7
-
-# Or in one command (jump host)
 ssh -J mba@10.100.0.51 markus@10.17.1.7
+```
 
-# mDNS also works from the Mac mini
+### SSH Key Setup (Passwordless Access)
+
+To avoid password prompts when SSHing from miniserver-bp to mba-imac-work:
+
+```bash
+# On miniserver-bp, copy the SSH key to mba-imac-work
+ssh-copy-id markus@10.17.1.7
+
+# Verify passwordless access
+ssh markus@10.17.1.7 "echo 'SSH key auth working!'"
+```
+
+If `ssh-copy-id` is not available on miniserver-bp:
+
+```bash
+# Manual method: append your public key to authorized_keys
+cat ~/.ssh/id_rsa.pub | ssh markus@10.17.1.7 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+```
+
+### mDNS Access
+
+From miniserver-bp, mDNS also works:
+
+```bash
 ssh markus@mba-imac-work.local
 ```
 
@@ -53,6 +84,7 @@ ssh markus@mba-imac-work.local
 - The iMac sleeps when inactive and may not be reachable
 - When it wakes up, mDNS (`mba-imac-work.local`) should resolve
 - The NixFleet agent runs and will reconnect automatically when awake
+- **miniserver-bp** runs Ubuntu 24.04 (future: migrate to NixOS - see backlog)
 
 ### NixFleet Agent
 

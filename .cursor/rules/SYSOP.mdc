@@ -61,6 +61,14 @@ Quick test with 5s timeout:
 ping -c1 -W5 hsb0.lan >/dev/null 2>&1 && echo "HOME" || echo "WORK"
 ```
 
+### VPN Hostname Detection
+
+If you see a hostname like `ip-192-168-1-150.eu-west-1.compute.internal`, this indicates the machine is connected to a **company VPN**. In this case:
+
+- Home network hosts (`*.lan`) are likely **not reachable** via hostnames, we may need to use IP addresses instead
+- Cloud servers (`csb0`, `csb1`) should be reachable
+- Treat as 🏢 WORK CONTEXT
+
 ### 🏠 HOME CONTEXT (imac0, or mba-mbp-work when home)
 
 Full access. Use the SSH Quick Reference above as-is.
