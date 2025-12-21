@@ -283,123 +283,123 @@ in
   # MODULE CONFIGURATION
   # ════════════════════════════════════════════════════════════════════════════
 
-  config =
-    lib.mkIf config.theme.enable {
-      # Starship config (generated from TEMPLATE to preserve Unicode)
-      home.file.".config/starship.toml" = lib.mkIf config.theme.starship.enable {
-        text = mkStarshipConfig palette;
-      };
-
-      # Zellij config (generated from palette)
-      # lib.mkForce needed: hokage provides zellij config regardless of catppuccin setting
-      home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
-        source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette resolvedHostname));
-        recursive = true;
-      };
-
-      # Eza theme file (Tokyo Night Uzumaki - enhanced visibility)
-      # Using theme file instead of EZA_COLORS for better maintainability
-      home.file.".config/eza/theme.yml" = lib.mkIf config.theme.eza.enable {
-        source = ./eza-themes/tokyonight-uzumaki.yml;
-      };
-
-      # Eza needs EZA_CONFIG_DIR to find the theme file
-      home.sessionVariables = lib.mkIf config.theme.eza.enable {
-        EZA_CONFIG_DIR = "$HOME/.config/eza";
-        LS_COLORS = "di=1;34:ln=36:ex=1;32:or=31";
-      };
-
-      # Fish-specific: eza config dir and LS_COLORS (fish doesn't source bash profiles)
-      programs.fish.interactiveShellInit = lib.mkIf config.theme.eza.enable ''
-        # Tell eza where to find theme.yml
-        set -gx EZA_CONFIG_DIR "$HOME/.config/eza"
-        # LS_COLORS for basic ls compatibility
-        set -gx LS_COLORS "di=1;34:ln=36:ex=1;32:or=31"
-      '';
-
-      # ══════════════════════════════════════════════════════════════════════════
-      # TOKYO NIGHT OVERRIDES - Override hokage's catppuccin theming
-      # See: +pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
-      # ══════════════════════════════════════════════════════════════════════════
-
-      # bat: Use Tokyo Night theme (built-in)
-      programs.bat = {
-        config = {
-          theme = "tokyonight_night";
-        };
-      };
-
-      # fzf: Tokyo Night colors
-      programs.fzf = {
-        colors = {
-          fg = "#c0caf5";
-          bg = "#1a1b26";
-          hl = "#bb9af7";
-          "fg+" = "#c0caf5";
-          "bg+" = "#292e42";
-          "hl+" = "#7dcfff";
-          info = "#7aa2f7";
-          prompt = "#7dcfff";
-          pointer = "#7dcfff";
-          marker = "#9ece6a";
-          spinner = "#9ece6a";
-          header = "#9ece6a";
-        };
-      };
-
-      # lazygit: Tokyo Night theme
-      home.file.".config/lazygit/config.yml" = {
-        text = ''
-          gui:
-            theme:
-              activeBorderColor:
-                - "#7aa2f7"
-                - bold
-              inactiveBorderColor:
-                - "#565f89"
-              searchingActiveBorderColor:
-                - "#7aa2f7"
-                - bold
-              optionsTextColor:
-                - "#7aa2f7"
-              selectedLineBgColor:
-                - "#292e42"
-              cherryPickedCommitFgColor:
-                - "#7aa2f7"
-              cherryPickedCommitBgColor:
-                - "#bb9af7"
-              markedBaseCommitFgColor:
-                - "#7aa2f7"
-              markedBaseCommitBgColor:
-                - "#e0af68"
-              unstagedChangesColor:
-                - "#db4b4b"
-              defaultFgColor:
-                - "#c0caf5"
-        '';
-      };
-
-      # Fish syntax highlighting: see +pm/backlog/2025-12-07-fish-tokyo-night-syntax.md
-
-      # ══════════════════════════════════════════════════════════════════════════
-      # NIXFLEET AGENT - Auto-wire theme color from palette
-      # See: P7200-host-colors-single-source-of-truth.md
-      # ══════════════════════════════════════════════════════════════════════════
-      # This sets the agent's themeColor from the palette's primary gradient color,
-      # so the NixFleet dashboard shows each host with its correct starship color.
-      #
-      # Only applies if:
-      # 1. nixfleet-agent Home Manager module is loaded (standalone HM, e.g., macOS)
-      # 2. nixfleet-agent is enabled
-      #
-      # NOTE: On NixOS, the agent is a system service (not Home Manager), so this
-      # wiring doesn't apply there. NixOS wiring is in uzumaki/default.nix instead.
-      #
-      # Using lib.optionalAttrs to NOT DEFINE the option at all if the module isn't loaded.
-      #
-    }
-    // lib.optionalAttrs (builtins.hasAttr "nixfleet-agent" (options.services or { })) {
-      services.nixfleet-agent.themeColor = lib.mkIf (config.services.nixfleet-agent.enable or false
-      ) palette.gradient.primary;
+  config = lib.mkIf config.theme.enable {
+    # Starship config (generated from TEMPLATE to preserve Unicode)
+    home.file.".config/starship.toml" = lib.mkIf config.theme.starship.enable {
+      text = mkStarshipConfig palette;
     };
+
+    # Zellij config (generated from palette)
+    # lib.mkForce needed: hokage provides zellij config regardless of catppuccin setting
+    home.file.".config/zellij" = lib.mkIf config.theme.zellij.enable {
+      source = lib.mkForce (pkgs.writeTextDir "config.kdl" (mkZellijConfig palette resolvedHostname));
+      recursive = true;
+    };
+
+    # Eza theme file (Tokyo Night Uzumaki - enhanced visibility)
+    # Using theme file instead of EZA_COLORS for better maintainability
+    home.file.".config/eza/theme.yml" = lib.mkIf config.theme.eza.enable {
+      source = ./eza-themes/tokyonight-uzumaki.yml;
+    };
+
+    # Eza needs EZA_CONFIG_DIR to find the theme file
+    home.sessionVariables = lib.mkIf config.theme.eza.enable {
+      EZA_CONFIG_DIR = "$HOME/.config/eza";
+      LS_COLORS = "di=1;34:ln=36:ex=1;32:or=31";
+    };
+
+    # Fish-specific: eza config dir and LS_COLORS (fish doesn't source bash profiles)
+    programs.fish.interactiveShellInit = lib.mkIf config.theme.eza.enable ''
+      # Tell eza where to find theme.yml
+      set -gx EZA_CONFIG_DIR "$HOME/.config/eza"
+      # LS_COLORS for basic ls compatibility
+      set -gx LS_COLORS "di=1;34:ln=36:ex=1;32:or=31"
+    '';
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TOKYO NIGHT OVERRIDES - Override hokage's catppuccin theming
+    # See: +pm/backlog/2025-12-01-catppuccin-follows-cleanup.md
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # bat: Use Tokyo Night theme (built-in)
+    programs.bat = {
+      config = {
+        theme = "tokyonight_night";
+      };
+    };
+
+    # fzf: Tokyo Night colors
+    programs.fzf = {
+      colors = {
+        fg = "#c0caf5";
+        bg = "#1a1b26";
+        hl = "#bb9af7";
+        "fg+" = "#c0caf5";
+        "bg+" = "#292e42";
+        "hl+" = "#7dcfff";
+        info = "#7aa2f7";
+        prompt = "#7dcfff";
+        pointer = "#7dcfff";
+        marker = "#9ece6a";
+        spinner = "#9ece6a";
+        header = "#9ece6a";
+      };
+    };
+
+    # lazygit: Tokyo Night theme
+    home.file.".config/lazygit/config.yml" = {
+      text = ''
+        gui:
+          theme:
+            activeBorderColor:
+              - "#7aa2f7"
+              - bold
+            inactiveBorderColor:
+              - "#565f89"
+            searchingActiveBorderColor:
+              - "#7aa2f7"
+              - bold
+            optionsTextColor:
+              - "#7aa2f7"
+            selectedLineBgColor:
+              - "#292e42"
+            cherryPickedCommitFgColor:
+              - "#7aa2f7"
+            cherryPickedCommitBgColor:
+              - "#bb9af7"
+            markedBaseCommitFgColor:
+              - "#7aa2f7"
+            markedBaseCommitBgColor:
+              - "#e0af68"
+            unstagedChangesColor:
+              - "#db4b4b"
+            defaultFgColor:
+              - "#c0caf5"
+      '';
+    };
+
+    # Fish syntax highlighting: see +pm/backlog/2025-12-07-fish-tokyo-night-syntax.md
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # NIXFLEET AGENT - Auto-wire theme color from palette
+    # See: P7200-host-colors-single-source-of-truth.md
+    # ══════════════════════════════════════════════════════════════════════════
+    # This sets the agent's themeColor from the palette's primary gradient color,
+    # so the NixFleet dashboard shows each host with its correct starship color.
+    #
+    # Only applies if:
+    # 1. nixfleet-agent Home Manager module is loaded (standalone HM, e.g., macOS)
+    # 2. nixfleet-agent is enabled
+    #
+    # NOTE: On NixOS, the agent is a system service (not Home Manager), so this
+    # wiring doesn't apply there. NixOS wiring is in uzumaki/default.nix instead.
+    #
+    # P1000 FIX: Use lib.mkIf on the VALUE, not lib.optionalAttrs on the config.
+    # lib.optionalAttrs evaluates before all modules are loaded, so the check
+    # for "nixfleet-agent" in options.services fails at that time.
+    #
+    services.nixfleet-agent.themeColor = lib.mkIf (
+      (options.services ? nixfleet-agent) && (config.services.nixfleet-agent.enable or false)
+    ) palette.gradient.primary;
+  };
 }
