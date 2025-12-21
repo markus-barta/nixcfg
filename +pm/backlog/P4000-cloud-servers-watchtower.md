@@ -56,4 +56,4 @@ watchtower:
 
 ## Related
 
-- hsb1 Watchtower fix: `+pm/backlog/3-low/2025-12-14-hsb1-watchtower-docker-api-version.md`
+- hsb1 Watchtower fix: `+pm/done/P6000-hsb1-watchtower-docker-api-version.md`
