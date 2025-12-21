@@ -40,6 +40,9 @@ let
   fishModule = import ./fish;
   fishFunctions = fishModule.functions;
 
+  # Import theme palettes for nixfleet-agent color wiring
+  themePalettes = import ./theme/theme-palettes.nix;
+
   # ════════════════════════════════════════════════════════════════════════════
   # Convert function definitions to inline Fish functions for interactiveShellInit
   # ════════════════════════════════════════════════════════════════════════════
@@ -104,5 +107,20 @@ in
 
     # StaSysMo - System monitoring in Starship prompt
     services.stasysmo.enable = cfg.stasysmo.enable;
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # NIXFLEET AGENT - Auto-wire theme color from palette
+    # See: P7200-host-colors-single-source-of-truth.md
+    # ══════════════════════════════════════════════════════════════════════════
+    # This sets the agent's themeColor from the palette's primary gradient color,
+    # so the NixFleet dashboard shows each host with its correct starship color.
+    #
+    services.nixfleet-agent.themeColor =
+      let
+        hostname = config.networking.hostName;
+        paletteName = themePalettes.hostPalette.${hostname} or themePalettes.defaultPalette;
+        palette = themePalettes.palettes.${paletteName};
+      in
+      lib.mkIf (config.services.nixfleet-agent.enable or false) palette.gradient.primary;
   };
 }
