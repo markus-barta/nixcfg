@@ -752,7 +752,7 @@
     # Home servers
     hsb0 = "yellow";
     hsb1 = "green";
-    hsb8 = "purple";
+    hsb8 = "orange";
 
     # Gaming
     gpc0 = "purple";
