@@ -190,7 +190,7 @@ Fixed after DHCP analysis from Gen 22. See [MIGRATION-PLAN-HOKAGE.md](./MIGRATIO
 
 ### If SSH Fails
 
-1. Login to Netcup SCP (https://www.servercontrolpanel.de/SCP)
+1. Login to Netcup SCP (<https://www.servercontrolpanel.de/SCP>)
 2. Navigate to server, open VNC console
 3. Login as `mba` with recovery password (see 1Password)
 
@@ -257,7 +257,7 @@ curl -X POST "https://servercontrolpanel.de/scp-core/api/v1/servers/607878/reset
 
 ## Backup System
 
-### 🚨 CRITICAL: csb0 is the Cleanup Manager!
+### 🚨 CRITICAL: csb0 is the Cleanup Manager
 
 **⚠️ csb0 manages cleanup for BOTH csb0 and csb1 backups!**
 
@@ -309,6 +309,64 @@ IoT Devices → MQTT (csb0) → InfluxDB (csb1) → Grafana (csb1)
 
 ---
 
+## Telegram Bot Architecture
+
+### Bots Overview
+
+| Bot              | Username              | Purpose                                     | Token Location                      |
+| ---------------- | --------------------- | ------------------------------------------- | ----------------------------------- |
+| **Building Bot** | `@janischhofweg22bot` | Smart home control (garage, doors, cameras) | `JHW22_BOT_TOKEN` in `telegram.env` |
+| **CSB0 Bot**     | `@csb0bot`            | Legacy/test bot (NOT actively used)         | `CSB0_BOT_TOKEN` in `telegram.env`  |
+
+### Active Bot: @janischhofweg22bot
+
+This is the **production bot** used by building residents for:
+
+- `/zufahrt` - Open driveway gate
+- `/smartlock` - Control door lock
+- `/keller` - Access cellar
+- `/kamera` - View camera feeds
+- `/pp20ein`, `/pp20aus` - Parking space controls
+
+**User permissions** are defined in Node-RED flows (`flows.json` → `userConfig` object) by Telegram user ID.
+
+### Token Storage
+
+```
+~/docker/nodered/telegram.env
+├── JHW22_BOT_TOKEN='...'  # Active building bot
+└── CSB0_BOT_TOKEN='...'   # Legacy (can be removed)
+```
+
+### Cross-Server Communication
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        CSB0 (Cloud)                         │
+│  ┌─────────────────┐    ┌──────────────────────────────┐    │
+│  │   Node-RED      │───▶│ @janischhofweg22bot          │    │
+│  │   (flows.json)  │    │ Smart home commands          │    │
+│  └────────┬────────┘    └──────────────────────────────┘    │
+│           │ MQTT                                            │
+└───────────┼─────────────────────────────────────────────────┘
+            │
+            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                        HSB1 (Home)                          │
+│  ┌─────────────────┐    ┌──────────────────────────────┐    │
+│  │   Node-RED      │───▶│ @janischhofweg22bot          │    │
+│  │   + Apprise     │    │ Notifications (same bot!)    │    │
+│  └─────────────────┘    └──────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Note**: Both csb0 and hsb1 use the SAME `@janischhofweg22bot` token:
+
+- CSB0: Handles interactive commands (via Node-RED Telegram nodes)
+- HSB1: Sends notifications via Apprise (one-way)
+
+---
+
 ## Maintenance
 
 ### Clean Up Disk Space
@@ -331,11 +389,11 @@ ssh mba@cs0.barta.cm -p 2222 "journalctl -f"
 
 ## Web Interfaces
 
-| Service   | URL                                    |
-| --------- | -------------------------------------- |
-| Node-RED  | https://home.barta.cm                  |
-| Bitwarden | https://bitwarden.barta.cm (TEST ONLY) |
-| MQTT      | mosquitto.barta.cm:8883 (TLS)          |
+| Service   | URL                                      |
+| --------- | ---------------------------------------- |
+| Node-RED  | <https://home.barta.cm>                  |
+| Bitwarden | <https://bitwarden.barta.cm> (TEST ONLY) |
+| MQTT      | mosquitto.barta.cm:8883 (TLS)            |
 
 ---
 

@@ -36,7 +36,7 @@ Complex cryptographic authentication code exists in Node-RED but was never fully
 
 ## Priority
 
-🟡 MEDIUM - Involves auth code, needs careful testing
+P6 (Low) - Cleanup task, involves auth code, needs careful testing
 
 ## Effort
 

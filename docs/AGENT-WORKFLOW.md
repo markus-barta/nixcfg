@@ -22,13 +22,14 @@ See [+pm/README.md](../+pm/README.md#when-to-create-a-task) for the decision tab
 
 ```bash
 # Create new task
-touch +pm/backlog/$(date +%Y-%m-%d)-short-description.md
+# Create task (see +pm/README.md for P-number ranges)
+touch +pm/backlog/P5100-short-description.md
 
 # Complete task
-mv +pm/backlog/YYYY-MM-DD-task.md +pm/done/
+mv +pm/backlog/P5100-task.md +pm/done/
 
 # Cancel task
-mv +pm/backlog/YYYY-MM-DD-task.md +pm/cancelled/
+mv +pm/backlog/P5100-task.md +pm/cancelled/
 ```
 
 For task template and full workflow details, see [+pm/README.md](../+pm/README.md).

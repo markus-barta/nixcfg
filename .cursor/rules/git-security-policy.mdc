@@ -56,7 +56,7 @@ Always check:
 services.mysql.rootPassword = "SuperSecret123";
 
 # BAD - API token
-telegram.botToken = "7010071349:AAF3B_q7vLQGKOTDJsbSKAnvXFYpOa5Mnsg";
+telegram.botToken = "1234567890:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
 ```
 
 ### ✅ Examples of What IS Safe to Commit

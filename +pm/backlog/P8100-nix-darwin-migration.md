@@ -1,7 +1,7 @@
 # Migrate macOS Hosts to nix-darwin
 
 **Created**: 2025-12-16
-**Priority**: Low
+**Priority**: P8 (Backlog)
 **Effort**: Medium-High
 **Hosts**: imac0, mba-mbp-work, mba-imac-work
 
