@@ -3,7 +3,8 @@
 **Host**: hsb8 (192.168.1.100)  
 **Role**: DNS/DHCP (AdGuard Home) + Home Automation at parents' home  
 **Location**: ww87 (parents' home) - currently configured for this location  
-**Criticality**: MEDIUM - Parents' network infrastructure
+**Criticality**: MEDIUM - Parents' network infrastructure  
+**Owner**: Gerhard (gb) - primary admin when Markus is unavailable
 
 ---
 
@@ -30,9 +31,10 @@ ssh gb@192.168.1.100
 ║ Location:  ww87 (parents' home)                            ║
 ╠════════════════════════════════════════════════════════════╣
 ║ 🌐 SERVICES (when at ww87)                                 ║
-║ • AdGuard Home:  http://192.168.1.100:3000                 ║
-║ • DNS Server:    192.168.1.100:53                          ║
-║ • DHCP:          192.168.1.200-254 (if enabled)            ║
+║ • Home Assistant: http://192.168.1.100:8123                ║
+║ • AdGuard Home:   http://192.168.1.100:3000                ║
+║ • DNS Server:     192.168.1.100:53                         ║
+║ • Zigbee2MQTT:    http://192.168.1.11:8085 (external)      ║
 ╠════════════════════════════════════════════════════════════╣
 ║ 🚨 IF DOWN                                                 ║
 ║ 1. SSH check: ssh mba@192.168.1.100                        ║
@@ -181,9 +183,63 @@ sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch
 
 ### Docker
 
-- Ready for Home Assistant and related services
 - Gerhard (`gb`) user has Docker access
-- Configuration expected at: `/home/gb/docker/docker-compose.yml`
+- Configuration: `/home/gb/docker/docker-compose.yml`
+
+### Home Assistant (Deployed 2025-12-21)
+
+| Item                    | Value                                  |
+| ----------------------- | -------------------------------------- |
+| **Web UI**              | http://192.168.1.100:8123              |
+| **User**                | gb (primary operator)                  |
+| **MQTT Broker**         | External: 192.168.1.11:1883 (z2m host) |
+| **Zigbee2MQTT**         | External: http://192.168.1.11:8085     |
+| **Custom Integrations** | HACS, Kostal Piko, Tesla Custom        |
+
+#### Docker Containers
+
+```bash
+# Check status
+ssh mba@192.168.1.100 "docker ps --format 'table {{.Names}}\t{{.Status}}'"
+
+# Expected containers:
+# - homeassistant (HA core)
+# - mosquitto (local MQTT, may be unused)
+# - watchtower (auto-updates, Saturdays 08:00)
+```
+
+#### Integrations Configured
+
+| Integration  | Purpose                       | Config Method             |
+| ------------ | ----------------------------- | ------------------------- |
+| MQTT         | Zigbee devices via z2m        | UI (broker: 192.168.1.11) |
+| Zigbee2MQTT  | z2m UI integration            | HACS + UI                 |
+| Kostal Piko  | Solar inverter (192.168.1.20) | YAML                      |
+| Tesla Custom | Tesla vehicle                 | HACS + UI                 |
+| Tasmota      | Smart plugs/switches          | Auto-discovered via MQTT  |
+
+#### HA Logs
+
+```bash
+# View logs
+ssh mba@192.168.1.100 "docker logs homeassistant --tail 50"
+
+# Follow logs
+ssh mba@192.168.1.100 "docker logs -f homeassistant"
+
+# Restart HA
+ssh mba@192.168.1.100 "docker restart homeassistant"
+```
+
+#### HACS
+
+Installed custom integrations are in `/home/gb/docker/mounts/homeassistant/custom_components/`:
+
+- `hacs` - Home Assistant Community Store
+- `kostal` - Kostal Piko solar inverter
+- `tesla_custom` - Tesla vehicle integration
+
+To install new integrations: HACS → Integrations → Explore & Download
 
 ---
 
@@ -215,12 +271,45 @@ ssh mba@192.168.1.100 "journalctl -f"
 
 ## User Access
 
-| User  | Role                | SSH Key          |
-| ----- | ------------------- | ---------------- |
-| `mba` | Admin (Markus)      | Personal RSA key |
-| `gb`  | Secondary (Gerhard) | Personal RSA key |
+| User  | Role                     | SSH Key          | Telegram Chat ID |
+| ----- | ------------------------ | ---------------- | ---------------- |
+| `mba` | Secondary Admin (Markus) | Personal RSA key | 855566964        |
+| `gb`  | Owner/Primary (Gerhard)  | Personal RSA key | 873192422        |
 
 Both users have passwordless sudo.
+
+---
+
+## Telegram Notifications
+
+Watchtower sends container update notifications to both users via the `janischhofweg22bot`.
+
+**Bot**: @janischhofweg22bot (managed from csb0 Node-RED)
+
+| Recipient | Chat ID   | Receives                    |
+| --------- | --------- | --------------------------- |
+| Gerhard   | 873192422 | Watchtower updates (owner)  |
+| Markus    | 855566964 | Watchtower updates (backup) |
+
+### Manual Test Notification
+
+To verify notifications work:
+
+```bash
+# From csb0 (where the bot runs)
+curl -s "https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=873192422&text=Test%20from%20hsb8"
+```
+
+### Configuration
+
+Watchtower env file: `/home/gb/secrets/watchtower.env`
+
+```bash
+# View current config
+ssh mba@hsb8.lan "sudo cat /home/gb/secrets/watchtower.env"
+
+# Add/remove recipients: edit the channels= parameter (comma-separated chat IDs)
+```
 
 ---
 
