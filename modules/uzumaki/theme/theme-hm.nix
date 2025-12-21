@@ -25,7 +25,6 @@
 #
 {
   config,
-  options,
   lib,
   pkgs,
   hostname ? null, # Passed from flake.nix extraSpecialArgs (pure, reliable)
@@ -381,25 +380,20 @@ in
     # Fish syntax highlighting: see +pm/backlog/2025-12-07-fish-tokyo-night-syntax.md
 
     # ══════════════════════════════════════════════════════════════════════════
-    # NIXFLEET AGENT - Auto-wire theme color from palette
+    # NIXFLEET AGENT - Theme color wiring
     # See: P7200-host-colors-single-source-of-truth.md
     # ══════════════════════════════════════════════════════════════════════════
-    # This sets the agent's themeColor from the palette's primary gradient color,
-    # so the NixFleet dashboard shows each host with its correct starship color.
+    # Theme color wiring is handled OUTSIDE this module:
     #
-    # Only applies if:
-    # 1. nixfleet-agent Home Manager module is loaded (standalone HM, e.g., macOS)
-    # 2. nixfleet-agent is enabled
+    # - NixOS: System-level service → wired in modules/uzumaki/default.nix
+    # - macOS: Home Manager service → wired in each host's home.nix using
+    #          config.theme.palette.gradient.primary
     #
-    # NOTE: On NixOS, the agent is a system service (not Home Manager), so this
-    # wiring doesn't apply there. NixOS wiring is in uzumaki/default.nix instead.
-    #
-    # P1000 FIX: Use lib.mkIf on the VALUE, not lib.optionalAttrs on the config.
-    # lib.optionalAttrs evaluates before all modules are loaded, so the check
-    # for "nixfleet-agent" in options.services fails at that time.
-    #
-    services.nixfleet-agent.themeColor = lib.mkIf (
-      (options.services ? nixfleet-agent) && (config.services.nixfleet-agent.enable or false)
-    ) palette.gradient.primary;
+    # WHY NOT HERE: The Nix module system declares option paths before evaluating
+    # conditions. On NixOS with HM integration, this module is imported into the
+    # home-manager.users.* context, where services.nixfleet-agent doesn't exist
+    # (it's a NixOS system service). Any attempt to set services.nixfleet-agent.*
+    # here causes "option does not exist" errors, regardless of lib.mkIf/optionalAttrs.
+    # ══════════════════════════════════════════════════════════════════════════
   };
 }

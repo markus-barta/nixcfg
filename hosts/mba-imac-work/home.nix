@@ -1,4 +1,5 @@
 {
+  config,
   pkgs,
   lib,
   inputs,
@@ -30,6 +31,8 @@ in
     nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
     location = "work";
     deviceType = "desktop";
+    # Theme color from palette (P7200 - single source of truth)
+    themeColor = config.theme.palette.gradient.primary;
   };
 
   # ============================================================================
