@@ -239,6 +239,74 @@ sudo nixos-rebuild switch --flake .#hostname
 | `__ERROR_FG__`         | `statusColors.error.fg`      |
 | `__SUDO_FG__`          | `statusColors.sudo.fg`       |
 
+### Adding a New Host
+
+1. Add an entry to `hostPalette` in `theme-palettes.nix`:
+
+   ```nix
+   hostPalette = {
+     # ... existing hosts ...
+     myNewHost = "purple";  # Use existing palette name
+   };
+   ```
+
+2. Import uzumaki in host config (NixOS or Home Manager)
+3. Rebuild — starship, zellij, and eza will use the new color
+
+### Complete Color Flow
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     SINGLE SOURCE OF TRUTH                                  │
+│                                                                             │
+│    theme-palettes.nix                                                       │
+│    ├── palettes.yellow = { gradient.primary = "#d4c060", ... }             │
+│    ├── hostPalette.hsb0 = "yellow"                                         │
+│    └── hostPalette.imac0 = "warmGray"                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         theme-hm.nix                                        │
+│                                                                             │
+│    1. Detects hostname (from extraSpecialArgs or config)                   │
+│    2. Looks up palette: hostPalette.${hostname} → paletteName             │
+│    3. Gets colors: palettes.${paletteName} → gradient, text, zellij       │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┼───────────────┬───────────────┐
+                    ▼               ▼               ▼               ▼
+            ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+            │  Starship   │ │   Zellij    │ │    Eza      │ │  NixFleet   │
+            │   Prompt    │ │   Frame     │ │   Theme     │ │  Dashboard  │
+            │             │ │             │ │             │ │  (optional) │
+            │ __PRIMARY__ │ │ frame color │ │ dir colors  │ │ themeColor  │
+            └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+                    │               │               │               │
+                    ▼               ▼               ▼               ▼
+            ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+            │ starship    │ │ zellij/     │ │ eza/        │ │ Dashboard   │
+            │ .toml       │ │ config.kdl  │ │ theme.yml   │ │ row color   │
+            └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+```
+
+**Everything works without NixFleet** — the dashboard integration is optional.
+
+### NixFleet Dashboard Integration
+
+When NixFleet agent is enabled, the theme color is automatically wired:
+
+```nix
+# In theme-hm.nix (Home Manager) and default.nix (NixOS):
+services.nixfleet-agent.themeColor = palette.gradient.primary;
+```
+
+This means:
+
+- **No manual configuration** — colors flow automatically from `theme-palettes.nix`
+- **Visual consistency** — terminal prompt and dashboard show the same color
+- **Single source of truth** — change color once, updates everywhere on rebuild
+
 ---
 
 ## Eza Theme (Tokyo Night Uzumaki)
