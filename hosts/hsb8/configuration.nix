@@ -12,20 +12,11 @@ let
   # Add domains here that need to be whitelisted for devices to function
   # Format: "@@||domain.example.com^" (AdGuard Home allowlist syntax)
   # Source: AdGuard query logs for each device IP
+  # Usage: grep '<device-ip>' querylog.json | jq -r '.QH' | sort -u
   # ============================================================================
   dnsAllowlist = [
-    # Roborock Vacuum (192.168.1.235 / roborock-vacuum-a226)
-    # Extracted from: grep '192.168.1.235' querylog.json | jq -r '.QH' | sort -u
-    "@@||mqtt-eu-3.roborock.com^" # MQTT broker
-    "@@||api-eu.roborock.com^" # API endpoint
-    "@@||eu-app.roborock.com^" # App backend
-    "@@||euiot.roborock.com^" # IoT endpoint
-    "@@||v-eu-2.roborock.com^" # Voice/firmware
-    "@@||v-eu-3.roborock.com^" # Voice/firmware
-    "@@||vivianspro-eu-1316693915.cos.eu-frankfurt.myqcloud.com^" # Tencent COS (maps)
-    "@@||conf-eu-1316693915.cos.eu-frankfurt.myqcloud.com^" # Tencent COS (config)
-    "@@||anonymousinfo-eu-1316693915.cos.eu-frankfurt.myqcloud.com^" # Tencent COS (telemetry)
-    "@@||cdn.awsde0.fds.api.mi-img.com^" # Xiaomi CDN (firmware/images)
+    # No devices require allowlisting yet
+    # Add entries here as needed when smart home devices are deployed
   ];
 
   # ============================================================================
@@ -113,7 +104,9 @@ in
       allowedTCPPorts = [
         80 # HTTP
         443 # HTTPS
-        8883 # MQTT
+        1883 # MQTT (Mosquitto)
+        8123 # Home Assistant Web UI
+        8883 # MQTT over TLS (future)
       ]
       ++ lib.optionals enableAdGuard [
         53 # DNS (AdGuard Home)

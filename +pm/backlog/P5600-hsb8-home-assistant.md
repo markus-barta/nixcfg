@@ -1,4 +1,8 @@
-# 2025-12-01 - Enable Home Assistant on hsb8
+# P5600: Enable Home Assistant on hsb8
+
+**Priority**: P5 (Medium)  
+**Status**: Ready to implement  
+**Access**: `ssh mba@192.168.1.100` (via WireGuard VPN to ww87)
 
 ## Description
 
@@ -74,8 +78,8 @@ networking.firewall = {
 #### 1.2 Apply Configuration
 
 ```bash
-# On hsb8 or remote with:
-ssh mba@hsb8 "cd ~/Code/nixcfg && git pull && sudo nixos-rebuild switch --flake .#hsb8"
+# Via WireGuard VPN:
+ssh mba@192.168.1.100 "cd ~/nixcfg && git pull && sudo nixos-rebuild switch --flake .#hsb8"
 ```
 
 ---
@@ -189,6 +193,18 @@ MQTT_USER=smarthome
 MQTT_PASS=<generate-secure-password>
 ```
 
+#### 3.3 Create Watchtower Notification Config
+
+Create `/home/gb/secrets/watchtower.env`:
+
+```bash
+# Telegram notification for Watchtower on hsb8
+# Uses the @janischhofweg22bot for home server notifications
+WATCHTOWER_NOTIFICATION_URL=telegram://<BOT_TOKEN>@telegram?channels=<CHAT_ID>
+```
+
+Get the bot token and chat ID from hsb1's watchtower.env or ask mba for the values.
+
 ---
 
 ### Phase 4: Docker Compose Configuration
@@ -254,14 +270,19 @@ services:
     container_name: watchtower
     image: containrrr/watchtower:latest
     restart: unless-stopped
+    command: --schedule "0 0 8 * * SAT" --cleanup --scope weekly
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - TZ=Europe/Vienna
       - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_SCHEDULE=0 0 5 * * SAT
+      - DOCKER_API_VERSION=1.44
+      - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      - WATCHTOWER_NOTIFICATIONS_HOSTNAME=hsb8
+      - WATCHTOWER_NOTIFICATION_TITLE_TAG=🏠
       - WATCHTOWER_SCOPE=weekly
-    command: --scope weekly
+    env_file:
+      - ~/secrets/watchtower.env
 ```
 
 ---
@@ -452,6 +473,7 @@ After completing all phases, verify:
 - [ ] **HACS functional**: Can browse integrations in HACS store
 - [ ] **Logs clean**: `docker logs homeassistant --tail 50` shows no errors
 - [ ] **Watchtower running**: `docker logs watchtower` shows scheduled updates
+- [ ] **Watchtower notifications**: Test with `docker exec watchtower /watchtower --run-once` and verify Telegram message shows "🏠 hsb8:"
 
 ---
 
