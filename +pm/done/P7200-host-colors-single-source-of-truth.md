@@ -1,8 +1,9 @@
 # P7200 - Host Colors: Single Source of Truth
 
 **Priority**: P7200 (Low - Infrastructure Polish)  
-**Status**: Backlog  
-**Effort**: Phase 1: Low (1-2h) | Phase 2: High (8-16h)
+**Status**: ✅ Done (Phase 1)  
+**Completed**: 2025-12-21  
+**Effort**: Phase 1: Low (1-2h) | Phase 2: High (8-16h, future)
 
 ---
 
@@ -100,10 +101,10 @@ Add NixOS module later if needed for server colors.
 
 ### Acceptance Criteria (Phase 1)
 
-- [ ] `theme-hm.nix` auto-populates `themeColor` from palette
-- [ ] Dashboard shows distinct colors per host
-- [ ] No manual `themeColor` setting required in host configs
-- [ ] Hosts without uzumaki still work (use fallback colors)
+- [x] `theme-hm.nix` auto-populates `themeColor` from palette
+- [x] Dashboard shows distinct colors per host (after rebuild)
+- [x] No manual `themeColor` setting required in host configs
+- [x] Hosts without uzumaki still work (use fallback colors)
 
 ---
 
