@@ -1,5 +1,8 @@
 # hsb1 Watchtower Docker API Version Fix
 
+**Status**: DONE  
+**Completed**: 2025-12-14
+
 ## Description
 
 Sync the `DOCKER_API_VERSION=1.44` fix applied to `~/docker/docker-compose.yml` on hsb1 to the source repository (if managed elsewhere).
@@ -39,9 +42,8 @@ watchtower-pidicon:
 
 ## Acceptance Criteria
 
-- [ ] Determine if `~/docker/docker-compose.yml` is managed in a git repository
-- [ ] If yes, commit the `DOCKER_API_VERSION=1.44` change to that repo
-- [ ] If no, document this as a manual hsb1 configuration
+- [x] Determine if `~/docker/docker-compose.yml` is managed in a git repository → Not managed in git
+- [x] Document this as a manual hsb1 configuration → Documented in this file
 
 ## Priority
 
