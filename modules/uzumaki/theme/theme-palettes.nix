@@ -729,7 +729,43 @@
       fg = "#e04040"; # Same as root alert
       symbol = "#"; # Traditional root prompt
     };
-  };
+  
+    # Custom palettes (auto-generated)
+
+    # P2950: Auto-generated custom palette for hsb8
+    custom-hsb8 = {
+      name = "Custom (hsb8)";
+      category = "custom";
+      description = "User-defined color for hsb8";
+
+      gradient = {
+        lightest = "#ecba93";
+        primary = "#e09051";
+        secondary = "#c26923";
+        midDark = "#572f0f";
+        dark = "#341c09";
+        darker = "#231306";
+        darkest = "#160c04";
+      };
+
+      text = {
+        onLightest = "#2b1708";
+        onMedium = "#000000";
+        accent = "#e8ac7d";
+        muted = "#341c09";
+        mutedLight = "#dc833c";
+      };
+
+      zellij = {
+        bg = "#e09051";
+        fg = "#c26923";
+        frame = "#e09051";
+        black = "#160c04";
+        white = "#fbf1e9";
+        highlight = "#ecba93";
+      };
+    };
+};
 
   # ============================================================================
   # HOST → PALETTE MAPPING
@@ -752,7 +788,7 @@
     # Home servers
     hsb0 = "yellow";
     hsb1 = "green";
-    hsb8 = "orange";
+    hsb8 = "custom-hsb8";
 
     # Gaming
     gpc0 = "purple";
