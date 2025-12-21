@@ -1,56 +1,308 @@
-# Host Colors: Single Source of Truth Refactor
+# P7200 - Host Colors: Single Source of Truth
 
-## Problem
+**Priority**: P7200 (Low - Infrastructure Polish)  
+**Status**: Backlog  
+**Effort**: Phase 1: Low (1-2h) | Phase 2: High (8-16h)
 
-When changing host colors (e.g., swapping imac0 and mba-mbp-work), updates are needed in **7 files** with hardcoded references:
+---
 
-1. `modules/uzumaki/theme/theme-palettes.nix` - hostPalette map (SOURCE OF TRUTH) + descriptions + diagram
-2. `modules/uzumaki/fish/functions.nix` - hostcolors function has hardcoded hex colors and labels
-3. `docs/MACOS-SETUP.md` - documentation example showing hostPalette
-4. `modules/uzumaki/README.md` - documentation showing hostPalette example
-5. `hosts/README.md` - host overview table with color names
-6. `hosts/*/tests/T01-theme.sh` - host-specific test headers
-7. `hosts/*/tests/T01-theme.md` - host-specific test documentation
+## Summary
 
-## Goal
+Consolidate host color management so:
 
-Change host color assignment in **one place only** (`theme-palettes.nix`) and have everything else auto-update.
+1. **Single source of truth**: `theme-palettes.nix` defines all colors
+2. **Auto-propagation**: Colors flow to starship, zellij, AND nixfleet dashboard
+3. **Dashboard-editable** (future): Change colors via NixFleet UI → writes to nixcfg
 
-## Plan (make the palette consumable everywhere)
+---
 
-1. Produce one canonical machine-readable export
+## Current Architecture (What Works)
 
-- Add a single derivation/attr (e.g., `hostPaletteExport`) in `theme-palettes.nix` that emits JSON with hex, rgb, and label data for every host. Keep it stable and documented.
+```
+theme-palettes.nix
+    │
+    │ hostPalette.hsb0 = "yellow"
+    │ palettes.yellow.gradient.primary = "#d4c060"
+    │
+    ▼
+theme-hm.nix (auto-detects hostname, looks up palette)
+    │
+    ├──► starship.toml (yellow prompt segments) ✅
+    ├──► zellij/config.kdl (yellow frame) ✅
+    └──► eza theme ✅
+```
 
-2. Ship a tiny CLI entrypoint
+**This works perfectly.** Each host has its distinct color in terminal.
 
-- Add `nix run .#host-colors` (or similar) that prints table/JSON so consumers don’t need to know the path to the Nix file. Mirror what `runbook-secrets.sh` already does.
+---
 
-3. Point every consumer to the CLI/export
+## Current Gap (What's Broken)
 
-- `fish hostcolors` and any other shell helpers read via `nix run .#host-colors -- --format=table/json`.
-- Scripts/tests (`hosts/*/tests/T01-theme.*`) ingest the JSON once and compare expected palettes.
-- Docs pull a generated snippet (JSON → md table) so they stay in sync.
+```
+theme-palettes.nix
+    │
+    │ (NO CONNECTION)
+    │
+    ▼
+services.nixfleet-agent.themeColor = "" (not set!)
+    │
+    ▼
+Agent fallback (hub.go:573-579):
+    - NixOS → #7aa2f7 (blue)
+    - macOS → #bb9af7 (purple)
+    │
+    ▼
+Dashboard shows ALL NixOS hosts as blue, ALL macOS as purple ❌
+```
 
-4. Add a consistency check
+**The nixfleet-agent config exists** (`themeColor` option in shared.nix), but **no host sets it**, and **uzumaki doesn't wire it**.
 
-- A lightweight `just check-host-colors` (or CI hook) that re-generates the doc/table/test fixtures and fails if git is dirty.
+---
 
-5. Keep ergonomics + offline story
+## Phase 1: Auto-Wire Colors (Immediate Fix)
 
-- Cache the JSON in the Nix store; allow `--cached` mode so fish functions stay fast without network evaluation.
+### Goal
 
-## Where else this applies
+Wire `palette.gradient.primary` → `services.nixfleet-agent.themeColor` automatically.
 
-- Any place that shows host identity: shell prompts (starship), tmux/zellij status, SSH MOTD banners, runbooks, and onboarding docs.
-- Similar pattern can be reused for other shared data (host roles, region tags) to avoid multi-file edits.
+### Implementation Options
 
-## Effort
+**Option A: In theme-hm.nix (Home Manager only)**
 
-- Medium: most work is wiring the Nix export + CLI and swapping consumers to it.
-- Validation/doc generation adds small extra lift but avoids future churn.
+```nix
+# In theme-hm.nix config section:
+services.nixfleet-agent.themeColor = lib.mkIf
+  (config.services.nixfleet-agent.enable or false)
+  palette.gradient.primary;
+```
 
-## Related
+**Pros**: DRY, automatic for all Home Manager hosts  
+**Cons**: Only works for macOS/Linux Home Manager, not NixOS system-level
 
-- `hostsecrets` function already wraps a bash script that reads from theme-palettes.nix
-- `runbook-secrets.sh` has working `load_host_colors()` implementation
+**Option B: In a shared uzumaki module (NixOS + HM)**
+
+Create a small module that wires the color for both NixOS and Home Manager.
+
+**Option C: In each host config (manual, not recommended)**
+
+```nix
+services.nixfleet-agent = {
+  themeColor = "#d4c060";  # Must match theme-palettes.nix manually
+};
+```
+
+**Cons**: Violates single source of truth, error-prone
+
+### Recommended Approach
+
+**Option A** for now (Home Manager covers all macOS + gpc0).  
+Add NixOS module later if needed for server colors.
+
+### Acceptance Criteria (Phase 1)
+
+- [ ] `theme-hm.nix` auto-populates `themeColor` from palette
+- [ ] Dashboard shows distinct colors per host
+- [ ] No manual `themeColor` setting required in host configs
+- [ ] Hosts without uzumaki still work (use fallback colors)
+
+---
+
+## Phase 2: Dashboard-Editable Colors (Future Feature)
+
+### Goal
+
+Allow changing host colors via NixFleet dashboard UI, with changes persisted to nixcfg.
+
+### User Flow
+
+```
+1. User opens NixFleet dashboard
+2. Clicks host row → Settings → "Theme Color"
+3. Picks new color from palette or color picker
+4. Clicks "Apply"
+5. NixFleet creates PR / commits to nixcfg
+6. User merges / auto-deploys
+7. Next rebuild: prompt, zellij, AND dashboard use new color
+```
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     NixFleet Dashboard                          │
+│  ┌──────────────┐                                               │
+│  │ Color Picker │ ──► API: POST /hosts/{name}/settings         │
+│  └──────────────┘                                               │
+└────────────────────────────────────────────────────────────────-┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    NixFleet Backend                             │
+│  1. Clone nixcfg repo (if not already)                          │
+│  2. Parse theme-palettes.nix                                    │
+│  3. Update hostPalette.{hostname} = "newPalette"               │
+│     OR create new palette if custom color                       │
+│  4. Commit with message: "theme(hsb0): change color to blue"   │
+│  5. Push to branch / create PR                                  │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      GitHub / nixcfg                            │
+│  PR: "theme(hsb0): change color to blue"                       │
+│  Modified: modules/uzumaki/theme/theme-palettes.nix            │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      On Next Rebuild                            │
+│  - Starship uses new color                                      │
+│  - Zellij uses new color                                        │
+│  - Agent reports new color                                      │
+│  - Dashboard shows new color                                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Design Decisions
+
+| Question                      | Decision                                                                      |
+| ----------------------------- | ----------------------------------------------------------------------------- |
+| How to pick colors?           | **Full color picker** + existing palette presets                              |
+| Where to store custom colors? | New palette entry in theme-palettes.nix (auto-generate gradient from primary) |
+| How to modify nixcfg?         | NixFleet already has repo access (isolated clone), can commit                 |
+| PR or direct push?            | **Both supported**, controlled by `ColorCommitMode` setting                   |
+| How to name custom palettes?  | `custom-{hostname}` (e.g., `custom-hsb0`)                                     |
+
+### Settings (Code-Only for Now)
+
+```go
+// In settings or config (not exposed in UI yet)
+type ColorSettings struct {
+    // "pr" = create pull request, "push" = direct push to main
+    ColorCommitMode string `json:"colorCommitMode" default:"pr"`
+}
+```
+
+Future P6400 (Settings Page) will expose this in UI.
+
+### Color Picker UI
+
+```
+┌─────────────────────────────────────────────────┐
+│  Host Theme Color                               │
+├─────────────────────────────────────────────────┤
+│                                                 │
+│  Presets:                                       │
+│  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐    │
+│  │ 🟡 │ │ 🟢 │ │ 🟠 │ │ 🔵 │ │ 🟣 │ │ 🩷 │    │
+│  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘    │
+│  Yellow  Green Orange  Blue  Purple  Pink      │
+│                                                 │
+│  Custom:  ┌────────────────────┐               │
+│           │ #d4c060            │ [🎨]          │
+│           └────────────────────┘               │
+│                                                 │
+│  Preview: ░▒▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░▒▓     │
+│                                                 │
+│  [ Cancel ]                    [ Apply Color ]  │
+└─────────────────────────────────────────────────┘
+```
+
+### Gradient Generation from Primary Color
+
+When user picks a custom hex color, auto-generate the full gradient:
+
+```nix
+# Generated in theme-palettes.nix for custom colors
+custom-hsb0 = {
+  name = "Custom (hsb0)";
+  category = "custom";
+  description = "User-defined color for hsb0";
+
+  gradient = {
+    # Auto-calculated from primary (#ff6b6b example):
+    lightest  = "#ffb3b3";  # primary + 30% lightness
+    primary   = "#ff6b6b";  # USER INPUT
+    secondary = "#cc5656";  # primary - 15% lightness
+    midDark   = "#662b2b";  # primary - 50% lightness
+    dark      = "#401b1b";  # primary - 65% lightness
+    darker    = "#2d1313";  # primary - 75% lightness
+    darkest   = "#1a0c0c";  # primary - 85% lightness
+  };
+
+  # Auto-calculated text colors
+  text = {
+    onLightest = "#1a0c0c";
+    onMedium = "#000000";
+    accent = "#ff8a8a";
+    muted = "#401b1b";
+    mutedLight = "#cc8080";
+  };
+
+  # Auto-calculated zellij colors
+  zellij = { ... };
+};
+
+### Challenges
+
+1. **Parsing Nix**: Need to parse/modify theme-palettes.nix (Nix syntax is non-trivial)
+   - Option: Use `nix eval` to read, template to write
+   - Option: Store colors in JSON, generate Nix from it
+
+2. **Atomic updates**: What if multiple color changes conflict?
+   - Use git branches, let user merge
+
+3. **Validation**: Must generate valid Nix syntax
+   - Test by evaluating before commit
+
+### Acceptance Criteria (Phase 2)
+
+- [ ] Dashboard shows **full color picker** + palette presets per host
+- [ ] `ColorCommitMode` setting controls PR vs direct push (code-only for now)
+- [ ] Custom colors auto-generate full gradient palette
+- [ ] Selecting color creates commit/PR to nixcfg (based on setting)
+- [ ] New `custom-{hostname}` palette created for custom colors
+- [ ] Existing palette name used for preset colors
+- [ ] Changes validate (`nix eval` succeeds) before commit
+- [ ] Preview shows how gradient will look
+- [ ] Rebuild propagates color to all consumers (starship, zellij, dashboard)
+
+---
+
+## Files Involved
+
+| File | Role |
+|------|------|
+| `modules/uzumaki/theme/theme-palettes.nix` | **Source of truth** for palettes |
+| `modules/uzumaki/theme/theme-hm.nix` | Wires palette → starship/zellij/eza |
+| `nixfleet/modules/shared.nix` | Defines `themeColor` option |
+| `nixfleet/v2/internal/dashboard/hub.go` | Fallback color logic |
+| `hosts/*/home.nix` or `configuration.nix` | Host-specific overrides (if any) |
+
+---
+
+## Related Tasks
+
+- **P2900** (nixfleet): Dashboard host theme colors display
+- **P5200** (nixfleet): Declarative secrets (similar pattern: dashboard → nixcfg)
+- **P6400** (nixfleet): Settings page (will expose `ColorCommitMode` setting)
+
+---
+
+## Notes
+
+### Why Not Store Colors in NixFleet DB?
+
+Colors need to be consistent across:
+- Terminal prompt (starship)
+- Terminal multiplexer (zellij)
+- File listings (eza)
+- SSH banners
+- Dashboard
+
+If dashboard stored colors separately, they'd drift from terminal colors. By writing to nixcfg, we ensure one source of truth for everything.
+
+### Immediate Win
+
+Phase 1 can ship independently and immediately fixes dashboard showing all hosts same color. Phase 2 is a nice-to-have for the future.
+```

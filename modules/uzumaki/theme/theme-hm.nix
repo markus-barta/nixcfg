@@ -378,5 +378,19 @@ in
     };
 
     # Fish syntax highlighting: see +pm/backlog/2025-12-07-fish-tokyo-night-syntax.md
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # NIXFLEET AGENT - Auto-wire theme color from palette
+    # See: P7200-host-colors-single-source-of-truth.md
+    # ══════════════════════════════════════════════════════════════════════════
+    # This sets the agent's themeColor from the palette's primary gradient color,
+    # so the NixFleet dashboard shows each host with its correct starship color.
+    #
+    # Only applies if:
+    # 1. nixfleet-agent is enabled (via services.nixfleet-agent.enable)
+    # 2. Theme module is enabled (via theme.enable, which gates this whole block)
+    #
+    services.nixfleet-agent.themeColor = lib.mkIf (config.services.nixfleet-agent.enable or false
+    ) palette.gradient.primary;
   };
 }
