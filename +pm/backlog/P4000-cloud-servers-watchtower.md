@@ -1,58 +1,83 @@
 # Add Watchtower to Cloud Servers (csb0, csb1)
 
-## Priority: HIGH
+**Priority**: P4 (Medium)  
+**Effort**: ~15 minutes  
+**Status**: Ready to implement
 
 ## Description
 
-Neither csb0 nor csb1 run Watchtower for automatic Docker container updates. This means containers on these servers must be manually updated.
+Add automatic Docker container updates to cloud servers using Watchtower with built-in shoutrrr for Telegram notifications.
 
 ## Current State
 
-| Host | Watchtower | Container Updates            |
-| ---- | ---------- | ---------------------------- |
-| hsb1 | ✅ Running | Automatic (weekly + pidicon) |
-| csb0 | ❌ Missing | Manual only                  |
-| csb1 | ❌ Missing | Manual only                  |
-
-## Why This Matters
-
-- **Security**: Containers may run with known vulnerabilities
-- **Maintenance burden**: Manual updates are easy to forget
-- **Inconsistency**: hsb1 has auto-updates, cloud servers don't
+| Host | Watchtower | Schedule  | Notifications |
+| ---- | ---------- | --------- | ------------- |
+| hsb1 | ✅ Running | Sat 05:00 | Telegram      |
+| csb0 | ❌ Missing | -         | -             |
+| csb1 | ❌ Missing | -         | -             |
 
 ## Implementation
 
-Add Watchtower to docker-compose on both cloud servers:
+Add to `~/docker/docker-compose.yml` on **both** csb0 and csb1:
 
 ```yaml
 watchtower:
   image: containrrr/watchtower:latest
   container_name: watchtower
   restart: unless-stopped
-  command: --schedule "0 0 4 * * *" --cleanup
+  command: --schedule "0 0 8 * * SAT" --cleanup
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock:rw
   environment:
-    - "WATCHTOWER_CLEANUP=true"
-    - "DOCKER_API_VERSION=1.44" # Required for modern Docker!
-    - "WATCHTOWER_NOTIFICATIONS=shoutrrr"
+    - WATCHTOWER_CLEANUP=true
+    - DOCKER_API_VERSION=1.44
+    - WATCHTOWER_NOTIFICATIONS=shoutrrr
+    - WATCHTOWER_NOTIFICATIONS_HOSTNAME=csb0 # ← Shows "Watchtower updates on csb0"
+    - WATCHTOWER_NOTIFICATION_TITLE_TAG=[CLOUD] # ← Optional prefix
   env_file:
-    - /path/to/watchtower.env # Telegram notification URL
+    - ./watchtower.env
 ```
+
+Create `~/docker/watchtower.env`:
+
+```bash
+WATCHTOWER_NOTIFICATION_URL=telegram://BOT_TOKEN@telegram?chats=CHAT_ID
+```
+
+### Notification Config Explained
+
+| Variable                            | Purpose              | Example Output                      |
+| ----------------------------------- | -------------------- | ----------------------------------- |
+| `WATCHTOWER_NOTIFICATIONS_HOSTNAME` | Server name in title | "updates on **csb0**"               |
+| `WATCHTOWER_NOTIFICATION_TITLE_TAG` | Prefix (optional)    | "**[CLOUD]** Watchtower updates..." |
+
+Result: `[CLOUD] Watchtower updates on csb0`
+
+**Docs**: <https://containrrr.dev/watchtower/notifications/>
+
+## Steps
+
+1. SSH to csb0: `ssh mba@cs0.barta.cm -p 2222`
+2. Add watchtower service to `~/docker/docker-compose.yml`
+3. Create `~/docker/watchtower.env` with Telegram credentials
+4. `docker-compose up -d watchtower`
+5. Verify: `docker logs watchtower`
+6. Repeat for csb1
 
 ## Acceptance Criteria
 
 - [ ] Watchtower running on csb0
 - [ ] Watchtower running on csb1
-- [ ] Both configured with `DOCKER_API_VERSION=1.44`
-- [ ] Telegram notifications working
-- [ ] Verify at least one update cycle completes successfully
+- [ ] Schedule: Saturday 08:00 (`0 0 8 * * SAT`)
+- [ ] `DOCKER_API_VERSION=1.44` set (required!)
+- [ ] Telegram notification test successful
 
 ## Notes
 
-- Remember `DOCKER_API_VERSION=1.44` — without this, Watchtower fails on modern Docker (see hsb1 fix from 2025-12-14)
-- Consider weekly schedule to avoid disruption during business hours
-- May need to create watchtower.env with Telegram shoutrrr URL
+- **Critical**: `DOCKER_API_VERSION=1.44` required for modern Docker (learned from hsb1)
+- Uses shoutrrr (built-in) — no Apprise dependency
+- Same bot token as building automation (`JHW22_BOT_TOKEN`)
+- **Also update hsb1**: Add `WATCHTOWER_NOTIFICATIONS_HOSTNAME=hsb1` to fix the cryptic hash there too
 
 ## Related
 
