@@ -1,4 +1,5 @@
 {
+  config,
   pkgs,
   lib,
   inputs,
@@ -42,6 +43,8 @@
     nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
     location = "work";
     deviceType = "laptop";
+    # Theme color from palette (P7200 - single source of truth)
+    themeColor = config.theme.palette.gradient.primary;
   };
 
   # Home Manager needs a bit of information about you and the paths it should manage
