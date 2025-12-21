@@ -471,6 +471,15 @@ in
   # Reference: miniserver24:/home/mba/docker/
 
   # ============================================================================
+  # BLUETOOTH SUPPORT (for Home Assistant)
+  # ============================================================================
+  hardware.bluetooth = {
+    enable = true;
+    powerOnBoot = true;
+  };
+  services.blueman.enable = false; # No GUI needed on server
+
+  # ============================================================================
   # HOKAGE MODULE CONFIGURATION
   # ============================================================================
   # Using external hokage consumer pattern from github:pbek/nixcfg
