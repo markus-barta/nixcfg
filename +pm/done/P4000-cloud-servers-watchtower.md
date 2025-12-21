@@ -1,8 +1,8 @@
 # Add Watchtower to Cloud Servers (csb0, csb1)
 
 **Priority**: P4 (Medium)  
-**Effort**: ~15 minutes  
-**Status**: Ready to implement
+**Completed**: 2025-12-21  
+**Status**: DONE
 
 ## Description
 
@@ -66,11 +66,12 @@ Result: `[CLOUD] Watchtower updates on csb0`
 
 ## Acceptance Criteria
 
-- [ ] Watchtower running on csb0
-- [ ] Watchtower running on csb1
-- [ ] Schedule: Saturday 08:00 (`0 0 8 * * SAT`)
-- [ ] `DOCKER_API_VERSION=1.44` set (required!)
-- [ ] Telegram notification test successful
+- [x] Watchtower running on csb0
+- [x] Watchtower running on csb1
+- [x] Schedule: Saturday 08:00 (`0 0 8 * * SAT`)
+- [x] `DOCKER_API_VERSION=1.44` set (required!)
+- [x] Telegram notifications configured with hostname
+- [x] **Bonus**: Fixed hsb1 hostname (was showing hash)
 
 ## Notes
 
