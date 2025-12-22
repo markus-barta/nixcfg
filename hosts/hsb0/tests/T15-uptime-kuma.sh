@@ -111,6 +111,34 @@ else
   fail "Page missing Uptime Kuma content"
 fi
 
+# ────────────────────────────────────────────────────────────────────────────────
+# T15.5 - Apprise Integration (Required for Notifications)
+# ────────────────────────────────────────────────────────────────────────────────
+
+print_test "T15.5 - Apprise CLI Availability"
+
+# Check if apprise is in the system path
+if command -v apprise >/dev/null 2>&1; then
+  APPRISE_VER=$(apprise --version | head -n 1)
+  pass "Apprise CLI is available ($APPRISE_VER)"
+else
+  fail "Apprise CLI not found in system PATH"
+fi
+
+# Check if apprise is in the uptime-kuma service path
+print_test "T15.6 - Apprise in Uptime Kuma Service PATH"
+KUMA_ENV=$(systemctl show uptime-kuma --property=Environment --value)
+if echo "$KUMA_ENV" | grep -q "apprise"; then
+  pass "Apprise found in Uptime Kuma Environment PATH"
+else
+  # Fallback check
+  if systemctl show uptime-kuma | grep -q "Environment=.*apprise"; then
+    pass "Apprise found in Uptime Kuma Environment (fallback check)"
+  else
+    fail "Apprise not found in Uptime Kuma service environment"
+  fi
+fi
+
 # ════════════════════════════════════════════════════════════════════════════════
 # Summary
 # ════════════════════════════════════════════════════════════════════════════════
