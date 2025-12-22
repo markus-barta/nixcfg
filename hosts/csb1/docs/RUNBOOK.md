@@ -93,6 +93,45 @@ sudo nixos-rebuild switch --rollback
 
 ---
 
+## NixFleet Dashboard
+
+The fleet management dashboard runs on this server at https://fleet.barta.cm
+
+### Deploy NixFleet
+
+Images are built by GitHub Actions and pushed to `ghcr.io/markus-barta/nixfleet`.
+
+```bash
+# Standard deploy (pull pre-built image, ~10 seconds)
+ssh mba@cs1.barta.cm -p 2222 "cd ~/docker && docker compose pull nixfleet && docker compose up -d nixfleet"
+
+# Check status
+ssh mba@cs1.barta.cm -p 2222 "docker ps --filter name=nixfleet"
+```
+
+### Rollback NixFleet
+
+```bash
+# 1. SSH to server
+ssh mba@cs1.barta.cm -p 2222
+
+# 2. Edit ~/docker/docker-compose.yml, change:
+#    image: ghcr.io/markus-barta/nixfleet:master
+#    to:
+#    image: ghcr.io/markus-barta/nixfleet:<previous-sha>
+
+# 3. Restart
+cd ~/docker && docker compose up -d nixfleet
+```
+
+### View Logs
+
+```bash
+ssh mba@cs1.barta.cm -p 2222 "docker logs nixfleet --tail 50 -f"
+```
+
+---
+
 ## Docker Services
 
 ### All Containers (15 running)
