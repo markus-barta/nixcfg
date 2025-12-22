@@ -395,6 +395,29 @@ in
     };
   };
 
+  # Apprise support for Uptime Kuma with Environment Variable expansion.
+  # This allows using $VAR_NAME in the Apprise URL within the Uptime Kuma UI.
+  # Tokens are stored securely in agenix and expanded by the wrapper script.
+  systemd.services.uptime-kuma = {
+    path = [
+      (pkgs.writeShellScriptBin "apprise" ''
+        # Apprise Wrapper for Environment Variable Expansion
+        # Usage in Uptime Kuma UI: tgram://$TELEGRAM_TOKEN/ChatID
+
+        args=()
+        for arg in "$@"; do
+          # Use envsubst to safely expand environment variables
+          # We provide the variables from the EnvironmentFile
+          expanded_arg=$(echo "$arg" | ${pkgs.gettext}/bin/envsubst)
+          args+=("$expanded_arg")
+        done
+
+        exec ${pkgs.apprise}/bin/apprise "''${args[@]}"
+      '')
+    ];
+    serviceConfig.EnvironmentFile = [ config.age.secrets.uptime-kuma-env.path ];
+  };
+
   # Enable Fwupd for firmware updates
   # https://nixos.wiki/wiki/Fwupd
   services.fwupd.enable = true;
@@ -411,6 +434,8 @@ in
     # Secret management tools
     rage # Modern age encryption tool (for agenix)
     inputs.agenix.packages.${pkgs.system}.default # agenix CLI
+    # Notifications
+    apprise # Apprise CLI for Uptime Kuma and manual alerts
   ];
 
   # Agenix secrets configuration
@@ -424,6 +449,13 @@ in
     mode = "444"; # World-readable (not sensitive data, just DHCP assignments)
     owner = "root";
     group = "root";
+  };
+
+  # Uptime Kuma secrets (e.g., APPRISE_TELEGRAM_TOKEN)
+  age.secrets.uptime-kuma-env = {
+    file = ../../secrets/uptime-kuma-env.age;
+    mode = "400";
+    owner = "root";
   };
 
   hokage = {

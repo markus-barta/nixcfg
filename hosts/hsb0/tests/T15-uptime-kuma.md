@@ -62,16 +62,36 @@ Run: `./T15-uptime-kuma.sh`
 
 **Status:** ⏳ Pending
 
+### Test 4: Apprise Integration
+
+**Steps:**
+
+1. Check Apprise CLI: `apprise --version`
+2. Check Uptime Kuma notification settings (Manual)
+   - Open Uptime Kuma UI
+   - Settings -> Notifications -> Setup Notification
+   - Select "Apprise"
+   - Verify "Apprise is not installed" message is GONE
+
+**Expected Results:**
+
+- Apprise CLI returns version
+- Uptime Kuma UI allows configuring Apprise notifications without errors
+
+**Status:** ⏳ Pending
+
 ## Test Results Summary
 
-| Test | Description       | Status |
-| ---- | ----------------- | ------ |
-| T1   | Service Running   | ⏳     |
-| T2   | Web UI Accessible | ⏳     |
-| T3   | Port Listening    | ⏳     |
+| Test | Description         | Status |
+| ---- | ------------------- | ------ |
+| T1   | Service Running     | ⏳     |
+| T2   | Web UI Accessible   | ⏳     |
+| T3   | Port Listening      | ⏳     |
+| T4   | Apprise Integration | ⏳     |
 
 ## Notes
 
 - Uptime Kuma provides web-based service monitoring
 - Configuration in `configuration.nix` under `services.uptime-kuma`
+- Apprise is injected into the service path for native notification support
 - Data stored in `/var/lib/uptime-kuma/`
