@@ -78,4 +78,9 @@ in
   # Edit: agenix -e secrets/nixfleet-token.age
   "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0;
 
+  # Uptime Kuma environment variables (for Apprise tokens)
+  # Format: KEY=VALUE lines
+  # Edit: agenix -e secrets/uptime-kuma-env.age
+  "uptime-kuma-env.age".publicKeys = markus ++ hsb0;
+
 }
