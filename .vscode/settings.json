@@ -1,0 +1,41 @@
+{
+  // Disable all linting and diagnostics
+  "problems.showCurrentInStatus": false,
+  "editor.formatOnSave": false,
+  "editor.codeActionsOnSave": {},
+
+  // Disable markdownlint extension completely
+  "markdownlint.enabled": false,
+  "markdownlint.run": "onSave",
+  "markdownlint.config": {
+    "default": false
+  },
+
+  // Disable built-in markdown validation
+  "markdown.validate.enabled": false,
+  "markdown.validate.duplicateLinkDefinitions.enabled": "ignore",
+  "markdown.validate.fileLinks.enabled": "ignore",
+  "markdown.validate.fragmentLinks.enabled": "ignore",
+  "markdown.validate.headerLinks.enabled": "ignore",
+  "markdown.validate.referenceLinks.enabled": "ignore",
+  "markdown.validate.unusedLinkDefinitions.enabled": "ignore",
+
+  // Disable diagnostics/problems panel
+  "problems.autoReveal": false,
+  "problems.showNearby": false,
+
+  // Disable language-specific linting
+  "[markdown]": {
+    "editor.formatOnSave": false,
+    "editor.defaultFormatter": null,
+    "editor.quickSuggestions": false
+  },
+  "[go]": {
+    "editor.formatOnSave": false,
+    "editor.defaultFormatter": null
+  },
+  "[nix]": {
+    "editor.formatOnSave": false,
+    "editor.defaultFormatter": null
+  }
+}
