@@ -146,11 +146,36 @@ When you change configuration:
 
 ## Security Reminders
 
+**Core rules:**
+
 - ❌ NEVER commit plain text secrets
 - ❌ NEVER touch .age files without explicit permission
 - ❌ NEVER build NixOS on macOS (use gpc0 or SSH to target)
 - ✅ Always use agenix for secrets
 - ✅ Always check `git diff` before commit
+
+**nixcfg-specific (also forbidden):**
+
+- PII: No family names, personal emails, phone numbers
+- MAC addresses: Only in encrypted .age files
+- SSH private keys: Only if encrypted with agenix
+
+**Safe to commit:**
+
+- Local IPs: `192.168.x.x` in config files ✅
+- Location codes: `ww87`, `jhw22` ✅
+- User initials: `mba`, `mpe`, `gb` ✅
+- Hostnames: `hsb0`, `csb1`, etc. ✅
+
+**Agenix pattern:**
+
+```nix
+# BAD
+services.mysql.rootPassword = "SuperSecret123";
+
+# GOOD
+services.mysql.rootPasswordFile = config.age.secrets.mysql-root.path;
+```
 
 ---
 
@@ -172,3 +197,38 @@ Always state:
 - **Which files** will be modified
 - **What docs/tests** need updating
 - **Risk level** (🔴 HIGH / 🟡 MEDIUM / 🟢 LOW host)
+
+---
+
+## Audit Mode (Optional)
+
+When user says "audit this host" or "check compliance":
+
+**Quick checklist:**
+
+```text
+□ Required files exist (README.md, RUNBOOK.md, tests/)
+□ IP marker file matches README Quick Reference
+□ runbook-secrets.age exists and is reasonable size (>1KB)
+□ README ports/services match actual config
+□ No plain text secrets in configuration.nix
+□ Each service has a test in tests/
+```
+
+**Verification (live system is ground truth):**
+
+```bash
+# Check if service is running (before flagging "config missing X")
+ssh mba@<host> "systemctl status <service> 2>/dev/null || echo 'not found'"
+```
+
+> ⚠️ `configuration.nix` is NOT the only source. External modules (hokage, flake inputs) can enable services. Always verify via SSH before reporting mismatches.
+
+**Host criticality:**
+
+| Priority | Hosts | Notes |
+|----------|-------|-------|
+| 🏆 Crown jewel | hsb0 | DNS/DHCP for all home hosts |
+| 🔴 High | hsb1, csb0, csb1 | Home automation, public-facing |
+| 🟡 Medium | hsb8, imac0 | Parents, workstation |
+| 🟢 Low | gpc0, mba-* | Gaming, portable |
