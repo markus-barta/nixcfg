@@ -450,6 +450,9 @@
       target="$HOME/Applications/$app"
 
       if [ -e "$source" ]; then
+        # Cleanup potential duplicates from buggy Finder script
+        find "$HOME/Applications" -name "$app alias*" -delete 2>/dev/null || true
+
         if [ -L "$target" ] || [ -e "$target" ]; then
           echo "  Removing old $app..."
           rm -rf "$target"
@@ -457,7 +460,7 @@
 
         # Create macOS alias (not symlink!) - Spotlight indexes aliases properly
         echo "  Creating alias for $app"
-        /usr/bin/osascript -e "tell application \"Finder\" to make alias file to POSIX file \"$source\" at POSIX file \"$HOME/Applications\"" >/dev/null 2>&1
+        /usr/bin/osascript -e "tell application \"Finder\" to make alias file to POSIX file \"$source\" at POSIX file \"$HOME/Applications\" with properties {name:\"$app\"}" >/dev/null 2>&1
       fi
     done
 
