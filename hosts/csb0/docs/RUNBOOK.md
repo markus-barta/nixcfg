@@ -94,6 +94,16 @@ sudo nixos-rebuild switch --rollback
 
 ---
 
+## 🏗️ Uzumaki & Hokage Pattern
+
+`csb0` is an **External Hokage Consumer**. It consumes the base server configuration from the global `hokage` module but applies local customizations via the `uzumaki` namespace.
+
+- **Status**: Enabled (`uzumaki.enable = true`)
+- **Role**: `server`
+- **Indicator**: The `nixbit` command should be available and working.
+
+---
+
 ## Docker Services
 
 ### All Containers (9 running)
@@ -185,8 +195,12 @@ VNC console access. Password stored in 1Password under "csb0 csb1 recovery".
 
 ⚠️ **CRITICAL**: Subnet is `/22` (NOT `/24`!) - Gateway is at `.64.1`, not `.65.1`.
 
-**Incident (2025-12-06)**: Server locked out due to wrong subnet/gateway.
-Fixed after DHCP analysis from Gen 22. See [MIGRATION-PLAN-HOKAGE.md](./MIGRATION-PLAN-HOKAGE.md) for incident details.
+### 🚨 Historical Incident: 2025-12-06 Network Lockout
+
+**Symptom:** Server became unreachable immediately after `nixos-rebuild switch`.
+**Root Cause:** The configuration assumed a `/24` subnet and a gateway at `.65.1` (based on `csb1` patterns). However, `csb0` is on a `/22` network where the gateway is at the start of the range: `85.235.64.1`.
+**VNC Recovery Note:** The Netcup VNC console has severe keyboard mapping issues. Colons `:`, hyphens `-`, and pipes `|` often cannot be typed.
+**Fix:** Always verify gateway via DHCP (`journalctl` or `ip route`) before applying static IP config.
 
 ### If SSH Fails
 
@@ -330,40 +344,12 @@ This is the **production bot** used by building residents for:
 
 **User permissions** are defined in Node-RED flows (`flows.json` → `userConfig` object) by Telegram user ID.
 
-### Token Storage
-
-```
-~/docker/nodered/telegram.env
-├── JHW22_BOT_TOKEN='...'  # Active building bot
-└── CSB0_BOT_TOKEN='...'   # Legacy (can be removed)
-```
-
 ### Cross-Server Communication
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        CSB0 (Cloud)                         │
-│  ┌─────────────────┐    ┌──────────────────────────────┐    │
-│  │   Node-RED      │───▶│ @janischhofweg22bot          │    │
-│  │   (flows.json)  │    │ Smart home commands          │    │
-│  └────────┬────────┘    └──────────────────────────────┘    │
-│           │ MQTT                                            │
-└───────────┼─────────────────────────────────────────────────┘
-            │
-            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        HSB1 (Home)                          │
-│  ┌─────────────────┐    ┌──────────────────────────────┐    │
-│  │   Node-RED      │───▶│ @janischhofweg22bot          │    │
-│  │   + Apprise     │    │ Notifications (same bot!)    │    │
-│  └─────────────────┘    └──────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-```
+Both `csb0` and `hsb1` use the SAME `@janischhofweg22bot` token:
 
-**Note**: Both csb0 and hsb1 use the SAME `@janischhofweg22bot` token:
-
-- CSB0: Handles interactive commands (via Node-RED Telegram nodes)
-- HSB1: Sends notifications via Apprise (one-way)
+- **CSB0**: Handles interactive commands (via Node-RED Telegram nodes).
+- **HSB1**: Sends notifications via Apprise (one-way).
 
 ---
 
