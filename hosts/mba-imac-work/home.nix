@@ -263,7 +263,8 @@ in
   home.activation.installMacOSFonts = macosCommon.fontActivation pkgs;
 
   # macOS app linking (from shared config)
-  home.activation.linkMacOSApps = macosCommon.appLinkActivation;
+  # DISABLED: Requires UI interaction (Finder permission) - see RUNBOOK.md
+  # home.activation.linkMacOSApps = macosCommon.appLinkActivation;
 
   # ============================================================================
   # Nano Configuration (from shared config)

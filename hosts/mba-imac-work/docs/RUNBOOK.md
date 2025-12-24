@@ -307,3 +307,10 @@ When migrating to Nix, always uninstall the corresponding Homebrew package first
 ### 💤 System Sleep
 
 The iMac may sleep when inactive, breaking remote SSH and NixFleet agent heartbeats. If unreachable, it likely needs to be woken up physically or via a colleague.
+
+### 🖱️ GUI App Linking (osascript)
+
+The `linkMacOSApps` activation script uses `osascript` to talk to Finder. This **requires a UI permission click** on the machine.
+
+- **Remote Switch**: Will hang "forever" if permissions aren't already granted.
+- **Status**: Currently **DISABLED** in `home.nix` to allow remote switches. Re-enable when physical access is available.
