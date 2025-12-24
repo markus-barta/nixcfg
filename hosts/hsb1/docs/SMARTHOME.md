@@ -115,10 +115,7 @@ devices:
       🏠 Gästezimmer • Anwesenheit
 ```
 
-**Naming Convention**: `room/type/device`
-
-- `gz` = Gästezimmer, `bz` = Badezimmer, `vr` = Vorraum, etc.
-- `presence`, `motion`, `contact`, `temp`, `light`, `plug`, `valve`
+**Naming Convention**: See [Naming & UX Best Practices](#🏆-naming--ux-best-practices) for details.
 
 ### Step 3: Verify in Home Assistant
 
@@ -279,6 +276,28 @@ homekit:
 - **Valves**: Use `type: valve` for irrigation switches
 - **Locks**: Get a warning recommending accessory mode (can ignore)
 - **Sensors**: Automatically detected based on device class
+
+---
+
+## 🏆 Naming & UX Best Practices
+
+### HomeKit Naming
+
+When exposing entities to HomeKit via Home Assistant, always **prefix the literal room name** to the entity name in `entity_config`.
+
+- ✅ **DO**: `Terrasse D28`, `Esszimmer Ensis Oben`
+- ❌ **DON'T**: `D28`, `Ensis Oben`
+
+**Benefits:**
+
+1. **Searchability**: Easier to identify devices in global search or lists.
+2. **Error Detection**: If a device is moved to the wrong room in HomeKit, the prefix makes the mismatch immediately obvious.
+3. **Smart Display**: HomeKit automatically trims the room name from the UI if it matches the room the device is assigned to (e.g., "Terrasse D28" in the "Terrasse" room displays simply as "D28").
+
+### Zigbee2MQTT Naming
+
+Use the convention: `room/type/device_name` (e.g., `bz/light/mirror`, `ku/plug/coffee`).
+See [Room Abbreviations](#🏠-room-abbreviations) for codes.
 
 ---
 
