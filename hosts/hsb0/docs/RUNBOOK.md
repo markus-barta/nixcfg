@@ -16,6 +16,30 @@ ssh mba@hsb0.lan
 
 ---
 
+## 🛡️ Security Policy (SSH Hardening)
+
+### The Markus-Only Rule
+
+As a personal infrastructure server, `hsb0` allows SSH access **ONLY** for the `mba` user using Markus' authorized keys.
+
+**Hokage Override:**
+The `hokage` module (role `server-home`) automatically injects external developer keys (omega@\*). To prevent this, we use `lib.mkForce` in the NixOS configuration:
+
+```nix
+users.users.mba.openssh.authorizedKeys.keys = lib.mkForce [
+  "ssh-rsa AAAAB3..." # mba@markus
+];
+```
+
+**Verification:**
+
+```bash
+ssh mba@192.168.1.99 'cat ~/.ssh/authorized_keys'
+# Should show ONLY mba@markus
+```
+
+---
+
 ## Common Tasks
 
 ### Update & Switch Configuration
@@ -62,8 +86,24 @@ ssh mba@192.168.1.99 "systemctl status adguardhome && zpool status | head -10"
 ### DNS Check
 
 ```bash
-# From any machine on the network
+# External Resolution
 dig @192.168.1.99 google.com
+
+# Internal (.lan) Resolution
+dig @192.168.1.99 hsb1.lan
+
+# DNS Rewrites (Internal Overrides)
+dig @192.168.1.99 csb0  # Should return cs0.barta.cm
+```
+
+### DHCP Verification
+
+```bash
+# Check if service is managing DHCP
+systemctl status adguardhome | grep -i "dhcp"
+
+# Check for new lease assignments in logs
+sudo journalctl -u adguardhome | grep -i "dhcp"
 ```
 
 ### DHCP Leases
@@ -205,9 +245,18 @@ sudo systemctl restart adguardhome
 
 If hsb0 is completely down:
 
-- Devices will use fallback DNS (1.1.1.1) if configured
-- Static IPs continue working
-- DHCP renewals will fail (24-hour lease)
+- Devices will use fallback DNS (1.1.1.1) if configured.
+- Static IPs continue working.
+- DHCP renewals will fail (24-hour lease).
+
+### 🛠️ Recovery Scenarios
+
+| Scenario               | Impact                        | Action                                                                                      |
+| ---------------------- | ----------------------------- | ------------------------------------------------------------------------------------------- |
+| **AdGuard Home Stops** | 🔴 CRITICAL - No DNS/DHCP     | `sudo nixos-rebuild switch --rollback` or `sudo systemctl restart adguardhome`              |
+| **DNS Broken**         | 🔴 HIGH - No internet by name | `nslookup google.com 127.0.0.1`. If fails, check upstream DNS in AdGuard Web UI.            |
+| **DHCP Broken**        | 🟡 MEDIUM - New devices fail  | Verify `/run/agenix/static-leases-hsb0` exists and is valid JSON.                           |
+| **SSH Lockout**        | 🟡 MEDIUM - No remote access  | Connect monitor/keyboard, login as `mba`, and rollback. Check for `omega@*` keys in config. |
 
 ### Restore from Generation
 
