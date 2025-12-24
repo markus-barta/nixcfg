@@ -388,6 +388,7 @@ If hostname changes, HA MQTT will break. Always use `localhost`.
 
 ## Related Documentation
 
+- [SMARTHOME.md](./SMARTHOME.md#🏆-naming--ux-best-practices) - UX and Naming Best Practices (HomeKit/Z2M)
 - [hsb1 README](../README.md) - Full server documentation
 - [hsb0 Runbook](../../hsb0/docs/RUNBOOK.md) - DNS/DHCP server (dependency)
 - [SECRETS.md](../secrets/SECRETS.md) - All service credentials (gitignored)
