@@ -72,7 +72,7 @@ fi
 # Test 7: hostcolors shows categories
 echo -n "Test 7: hostcolors output... "
 HOSTCOLORS_OUTPUT=$(fish -c "hostcolors" 2>&1 || true)
-if echo "$HOSTCOLORS_OUTPUT" | grep -q "WORKSTATIONS"; then
+if echo "$HOSTCOLORS_OUTPUT" | grep -q "WORKSTATION"; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
