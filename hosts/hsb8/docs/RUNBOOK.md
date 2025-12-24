@@ -316,6 +316,68 @@ ssh mba@hsb8.lan "sudo cat /home/gb/secrets/watchtower.env"
 ## Related Documentation
 
 - [hsb8 README](../README.md) - Full server documentation
+- [ip-100.md](../ip-100.md) - Identity Card (Static IP, MAC, Gateway)
 - [SECRETS.md](../secrets/SECRETS.md) - All credentials (gitignored)
 - [enable-ww87.md](./enable-ww87.md) - Location switching guide
 - [hsb0 Runbook](../../hsb0/docs/RUNBOOK.md) - DNS server at Markus' home
+
+---
+
+## 🔴 Critical Known Issues (Gotchas)
+
+### 🚨 Historical Incident: 2025-11-22 SSH Lockout
+
+**Symptom:** Complete loss of SSH access after reboot.
+**Root Cause:** When migrating to the "External Hokage Consumer" pattern, the default hokage configuration injected external developer keys (omega@\*) and removed local authorized keys.
+**Impact:** Required physical console access to recover.
+**Fix:** Always use `lib.mkForce` for `users.users.<name>.openssh.authorizedKeys.keys` to block external key injection.
+**Security Policy:** Familly servers (`hsb0`, `hsb8`) MUST NOT allow external developer keys.
+
+### 📍 Location Switching (ww87 ↔ jhw22)
+
+**Symptom:** Server reachable via IP but no internet/DNS after transport.
+**Cause:** Gateway and DNS settings differ between locations.
+
+- **ww87 (Parents)**: Gateway `192.168.1.1`
+- **jhw22 (Markus)**: Gateway `192.168.1.5`
+  **Fix:** Run `enable-ww87` at the physical console after transport to apply location-specific networking.
+
+---
+
+## 📋 Deployment & Initial Setup
+
+### Phase 1: Configuration Switch
+
+If moving the server between locations:
+
+1. Log in at console as `mba`.
+2. Run: `enable-ww87` (one-command deployment).
+3. Wait for configuration to apply (~2-3 minutes).
+4. Network will reconfigure (may lose console connection briefly).
+
+### Phase 2: DHCP Activation
+
+⚠️ **DHCP is disabled by default for safety.**
+When ready to take over DHCP from an old router/Pi-hole:
+
+1. Edit `hosts/hsb8/configuration.nix`.
+2. Set `services.adguardhome.settings.dhcp.enabled = true;`.
+3. `just switch`.
+4. Verify with `ss -ulnp | grep :67`.
+
+---
+
+## 🔐 Handover Inventory (2025-11-23)
+
+| Service        | Port | URL / Access                        |
+| -------------- | ---- | ----------------------------------- |
+| AdGuard Home   | 3000 | http://192.168.1.100:3000           |
+| Home Assistant | 8123 | http://192.168.1.100:8123           |
+| Zigbee2MQTT    | 8085 | http://192.168.1.11:8085 (external) |
+| SSH (mba/gb)   | 22   | ssh 192.168.1.100                   |
+
+### System Stats
+
+- **Storage**: ZFS (zroot) on 120GB SSD (~7% used).
+- **Users**: `mba` (admin), `gb` (Gerhard/Owner).
+- **Backup**: 15+ generations for rollback.
