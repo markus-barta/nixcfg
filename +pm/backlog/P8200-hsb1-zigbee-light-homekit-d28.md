@@ -2,7 +2,7 @@
 
 **Created**: 2025-01-27  
 **Priority**: P8200 (Backlog)  
-**Status**: Backlog  
+**Status**: Completed  
 **Host**: hsb1
 
 ---
@@ -27,11 +27,11 @@ Add the light entity to Home Assistant's HomeKit bridge configuration in `~/dock
 ## Acceptance Criteria
 
 - [x] Entity ID identified: `light.0x385b44fffe6d1ba4`
-- [ ] Light entity added to HomeKit bridge `include_entities` list
-- [ ] Entity configured in `entity_config` with name "Terrasse D28"
-- [ ] Home Assistant restarted successfully
-- [ ] Light appears in HomeKit as "Terrasse D28" (displays as "D28" when in room "Terrasse")
-- [ ] Light can be controlled via HomeKit (on/off, brightness)
+- [x] Light entity added to HomeKit bridge `include_entities` list
+- [x] Entity configured in `entity_config` with name "Terrasse D28"
+- [x] Home Assistant restarted successfully
+- [x] Light appears in HomeKit as "Terrasse D28" (displays as "D28" when in room "Terrasse")
+- [x] Light can be controlled via HomeKit (on/off, brightness)
 
 ---
 
