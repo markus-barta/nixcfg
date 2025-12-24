@@ -45,19 +45,45 @@ just switch
 sudo nixos-rebuild switch --rollback
 ```
 
-### Build for Other Hosts
+## 🏗️ Fleet Build Host
 
-gpc0 is the fastest NixOS build machine (8 threads, 16GB RAM):
+`gpc0` is the most powerful machine in the infrastructure (8 threads, 4.2GHz, native x86_64). It should be used to build configurations for slower Mac minis to save time.
+
+### Local Fleet Rebuilds
 
 ```bash
-# Build for another host
-cd ~/Code/nixcfg
+# Build configuration for another host (without deploying)
 nixos-rebuild build --flake .#hsb0
-nixos-rebuild build --flake .#hsb1
 
-# Deploy to remote host
+# Deploy to remote host from gpc0
 nixos-rebuild switch --flake .#hsb0 --target-host mba@192.168.1.99
 ```
+
+### ⚡ Build Optimization
+
+For heavy rebuilds, use `systemd-inhibit` to prevent the machine from sleeping:
+
+```bash
+systemd-inhibit --what=sleep:idle sudo nixos-rebuild switch --flake .#gpc0
+```
+
+---
+
+## 📺 Display & Autologin (TV Workaround)
+
+`gpc0` is configured with **autologin for the `mba` user** to prevent SDDM/Wayland from timing out if the TV is off during boot.
+
+- **Switching Users**: Lock the screen or log out to switch to `omega`.
+
+---
+
+## 🔴 Critical Known Issues (Gotchas)
+
+### Zellij Theming Override
+
+**Symptom**: Zellij ignores Tokyo Night theming.
+**Fix**: Use `lib.mkForce` on the `source` attribute in `theme-hm.nix`.
+**Manual Step**: Run `rm -rf ~/.config/zellij` before the first rebuild after a theme change.
 
 ---
 
@@ -214,4 +240,3 @@ sensors                       # Temperature sensors
 
 - [gpc0 README](../README.md) - Full system documentation
 - [SECRETS.md](../secrets/SECRETS.md) - Credentials (gitignored)
-- [Migration Plan](./MIGRATION-PLAN-HOKAGE.md) - Hokage migration details
