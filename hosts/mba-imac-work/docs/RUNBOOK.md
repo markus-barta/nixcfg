@@ -265,6 +265,45 @@ exec fish                   # Restart shell
 ## Related Documentation
 
 - [mba-imac-work README](../README.md) - Full workstation documentation
+- [ip-10.17.1.7.md](../ip-10.17.1.7.md) - Identity Card (VPN IP, Jump Host)
 - [SECRETS.md](../secrets/SECRETS.md) - Credentials (gitignored)
 - [Tests](../tests/README.md) - Validation test suite
 - [imac0 README](../../imac0/README.md) - Home iMac (similar config)
+
+---
+
+## 🛠️ Initial Setup & Migration
+
+### One-Time Manual Steps
+
+Home-manager on macOS cannot automate these system-level tasks:
+
+1. **Nix Installation**:
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
+   ```
+2. **Set Fish as Default Shell**:
+   ```bash
+   echo ~/.nix-profile/bin/fish | sudo tee -a /etc/shells
+   chsh -s ~/.nix-profile/bin/fish
+   ```
+3. **Karabiner-Elements**:
+   ```bash
+   brew install --cask karabiner-elements
+   # Grant Input Monitoring permissions in System Settings
+   ```
+4. **Binary Cache Permissions**:
+   Add `trusted-users = root markus` to `/etc/nix/nix.conf`.
+
+---
+
+## 🔴 Critical Known Issues (Gotchas)
+
+### 🚨 Homebrew Conflicts
+
+When migrating to Nix, always uninstall the corresponding Homebrew package first to avoid `linking` errors:
+`fish`, `starship`, `zoxide`, `wezterm`, `git`, `btop`, `direnv`.
+
+### 💤 System Sleep
+
+The iMac may sleep when inactive, breaking remote SSH and NixFleet agent heartbeats. If unreachable, it likely needs to be woken up physically or via a colleague.
