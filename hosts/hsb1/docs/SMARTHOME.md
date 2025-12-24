@@ -557,7 +557,6 @@ bash -c 'source /etc/secrets/mqtt.env && echo $MQTT_HOST'
 
 ## 📚 Related Documentation
 
-- [Migration Plan](./MIGRATION-PLAN-HSB1.md) - Server migration to hsb1
 - [Zigbee2MQTT Docs](https://www.zigbee2mqtt.io/)
 - [Home Assistant HomeKit](https://www.home-assistant.io/integrations/homekit/)
 - [Node-RED Docs](https://nodered.org/docs/)
