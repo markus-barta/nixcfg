@@ -103,22 +103,27 @@ in
     services.stasysmo.enable = cfg.stasysmo.enable;
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Nix Configuration
+    # Nix Configuration (NCPS Binary Cache Proxy)
     # ══════════════════════════════════════════════════════════════════════════
-    # NCPS Binary Cache Proxy (hsb0)
-    # Priority: lib.mkOverride 0 ensures local cache is prioritized
+    # hsb0.lan provides a local cache for the home network.
+    # We always manage the file (file handles), but only add the local cache
+    # entries if uzumaki.ncps.enable is true.
     nix.package = pkgs.nix;
     nix.settings = {
-      substituters = lib.mkOverride 0 [
-        "http://hsb0.lan:8501"
-        "https://cache.nixos.org"
-        "https://nix-community.cachix.org"
-      ];
-      trusted-public-keys = lib.mkOverride 0 [
-        "hsb0.lan-1:jKVnVnEwJPaevI5NyBKBtk7mJGPQ3EMlIoPb7VmPcD0="
-        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-      ];
+      substituters = lib.mkOverride 0 (
+        [
+          "https://cache.nixos.org"
+          "https://nix-community.cachix.org"
+        ]
+        ++ lib.optionals cfg.ncps.enable [ "http://hsb0.lan:8501" ]
+      );
+      trusted-public-keys = lib.mkOverride 0 (
+        [
+          "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+          "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+        ]
+        ++ lib.optionals cfg.ncps.enable [ "hsb0.lan-1:jKVnVnEwJPaevI5NyBKBtk7mJGPQ3EMlIoPb7VmPcD0=" ]
+      );
     };
   };
 }
