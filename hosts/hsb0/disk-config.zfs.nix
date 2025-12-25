@@ -70,6 +70,14 @@
               mountpoint = "legacy";
             };
           };
+          ncps = {
+            type = "zfs_fs";
+            mountpoint = "/var/lib/ncps";
+            options = {
+              mountpoint = "legacy";
+              quota = "50G";
+            };
+          };
         };
       };
     };
