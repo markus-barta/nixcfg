@@ -85,7 +85,7 @@ in
       ]
     );
     # Set empty password initially. Don't forget to set a password with "passwd".
-    initialHashedPassword = mkDefault "";
+    initialHashedPassword = mkDefault null;
   });
 
   # Set your time zone.
