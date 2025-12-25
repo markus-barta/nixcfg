@@ -86,6 +86,32 @@
 
   programs.steam.gamescopeSession.enable = true; # Integrates with programs.steam
 
+  # Networking configuration
+  networking = {
+    nameservers = [
+      "192.168.1.99" # hsb0 / AdGuard Home
+      "1.1.1.1" # Cloudflare fallback
+    ];
+    search = [ "lan" ];
+    hosts = {
+      # This DNS/DHCP server itself - local resolution for core services
+      "192.168.1.99" = [
+        "hsb0"
+        "hsb0.lan"
+      ];
+      # Home automation server
+      "192.168.1.101" = [
+        "hsb1"
+        "hsb1.lan"
+      ];
+      # This server itself
+      "192.168.1.154" = [
+        "gpc0"
+        "gpc0.lan"
+      ];
+    };
+  };
+
   users.users.mba = {
     openssh.authorizedKeys.keys = [
       # Markus public key

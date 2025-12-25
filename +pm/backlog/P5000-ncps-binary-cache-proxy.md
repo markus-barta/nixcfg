@@ -121,7 +121,7 @@ services.ncps = {
 ```nix
 nix.settings = {
   substituters = lib.mkBefore [ "http://hsb0.lan:8501" ];
-  trusted-public-keys = [ "hsb0.lan-1:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=" ];
+  trusted-public-keys = [ "hsb0.lan-1:jKVnVnEwJPaevI5NyBKBtk7mJGPQ3EMlIoPb7VmPcD0=" ];
 };
 ```
 
