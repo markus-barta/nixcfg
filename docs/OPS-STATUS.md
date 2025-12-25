@@ -11,12 +11,12 @@ Quick overview of infrastructure operations progress.
 | 🏠  | hsb0          | NixOS | Server  | ✅ 2025-12-25 12:48 | ✅ 2025-12-25 12:48 | Fixed hsb0 outage, deployed resilient NCPS (SYSOP)       |
 | 🏠  | hsb1          | NixOS | Server  | ✅ 2025-12-25 13:15 | ✅ 2025-12-25 13:15 | NCPS client active, 5/5 tests pass (SYSOP)               |
 | 🏠  | hsb8          | NixOS | Server  | ✅ 2025-12-24 23:45 | ✅ 2025-12-24 23:45 | Consolidated docs, fixed tests (SYSOP)                   |
-| 🌐  | csb0          | NixOS | Server  | ✅ 2025-12-08 13:00 | ✅ 2025-12-08 13:30 | Added 7 test docs (SYSOP)                                |
+| 🌐  | csb0          | NixOS | Server  | ✅ 2025-12-25 16:45 | ✅ 2025-12-25 16:45 | Investigated load spike, created incident report (SYSOP) |
 | 🌐  | csb1          | NixOS | Server  | ✅ 2025-12-08 18:30 | ✅ 2025-12-08 18:35 | Minor fixes: Features table, ip-marker (SYSOP)           |
 | 🎮  | gpc0          | NixOS | Desktop | ✅ 2025-12-25 13:15 | ✅ 2025-12-25 13:15 | NCPS client active, fixed tests (SYSOP)                  |
 | 🖥️  | imac0         | macOS | Desktop | ✅ 2025-12-25 13:15 | ✅ 2025-12-25 13:15 | Local build host (imac0.lan), NCPS client active (SYSOP) |
-| 🖥️  | mba-imac-work | macOS | Desktop | ✅ 2025-12-24 23:55 | ✅ 2025-12-24 23:55 | All 9 tests pass, remote switch requires UI (SYSOP)      |
-| 💻  | mba-mbp-work  | macOS | Desktop | ✅ 2025-12-24 23:55 | ✅ 2025-12-24 23:55 | All 4 tests pass, fixed hostcolors/aliases (SYSOP)       |
+| 🖥️  | mba-imac-work | macOS | Desktop | ✅ 2025-12-25 18:20 | ✅ 2025-12-25 18:20 | Globally managed nix.conf, NCPS disabled (SYSOP)         |
+| 💻  | mba-mbp-work  | macOS | Desktop | ✅ 2025-12-25 18:20 | ✅ 2025-12-25 18:20 | Globally managed nix.conf, NCPS enabled (SYSOP)          |
 
 **Legend:** 🏠 Home | 🌐 Cloud | 🎮 Gaming | 🖥️ iMac | 💻 MacBook | ⏳ Pending
 
