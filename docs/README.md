@@ -50,6 +50,51 @@ See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for the complete host inventory, IP
 | `secrets/`           | Encrypted secrets (agenix .age files)      |
 | `infrastructure/`    | External infrastructure (Cloudflare, etc.) |
 | `pkgs/`              | Custom packages                            |
+| `docs/`              | Detailed documentation (you are here)      |
+
+---
+
+## Nix Binary Cache (NCPS)
+
+To speed up rebuilds across the home network and reduce WAN bandwidth, we use [NCPS](https://github.com/kalbasit/ncps) running on **hsb0**.
+
+### How it works
+
+- **Server**: `hsb0` (192.168.1.99) acts as a pull-through proxy for `cache.nixos.org`.
+- **Clients**: All home hosts are configured to check `hsb0.lan:8501` before reaching out to the internet.
+- **Warming**: `hsb0` pre-fetches updates nightly (Sat/Mon 03:00) so they are already on the LAN when you start your work week.
+
+### Enabling NCPS on a host
+
+NCPS is **enabled by default** for all fleet hosts via `modules/common.nix` (NixOS) and `modules/uzumaki/home-manager.nix` (macOS).
+
+If you need to manually configure a host or verify the settings:
+
+```nix
+nix.settings = {
+  # Priority: Ensure local cache is checked first
+  substituters = lib.mkOverride 0 [
+    "http://hsb0.lan:8501"
+    "https://cache.nixos.org"
+  ];
+  trusted-public-keys = [
+    "hsb0.lan-1:jKVnVnEwJPaevI5NyBKBtk7mJGPQ3EMlIoPb7VmPcD0="
+  ];
+};
+```
+
+### Verification
+
+Run a build with the `-L` (logs) flag and look for "copying from http://hsb0.lan:8501":
+
+```bash
+nix build nixpkgs#hello --no-link -L
+```
+
+### Offsite / VPN Usage
+
+- **Behavior**: If the host is offsite (e.g., Work MacBook) and cannot reach `hsb0.lan`, Nix will wait for a 5-second timeout and then automatically fall back to `cache.nixos.org`.
+- **Resilience**: The `hsb0` server uses `nofail` mount logic, so even if its own cache disk fails, the server (and your DNS/DHCP) stays online.
 
 ---
 

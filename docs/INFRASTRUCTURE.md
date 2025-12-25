@@ -68,11 +68,12 @@ Central reference for all hosts and their relationships.
 
 ### Key Relationships
 
-| Dependency                | Impact if Down                           |
-| ------------------------- | ---------------------------------------- |
-| hsb0 → all home hosts     | DNS resolution fails, DHCP renewals fail |
-| csb0 MQTT → csb1 InfluxDB | Metrics stop flowing to Grafana          |
-| csb0 backup → csb0 + csb1 | Cleanup jobs only run on csb0            |
+| Dependency                 | Impact if Down                              |
+| -------------------------- | ------------------------------------------- |
+| hsb0 → all home hosts      | DNS resolution fails, DHCP renewals fail    |
+| hsb0 NCPS → all home hosts | Slower rebuilds (WAN speed), no LAN caching |
+| csb0 MQTT → csb1 InfluxDB  | Metrics stop flowing to Grafana             |
+| csb0 backup → csb0 + csb1  | Cleanup jobs only run on csb0               |
 
 ---
 
