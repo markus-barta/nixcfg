@@ -42,6 +42,7 @@ For `hsb0` (and eventually others), we will adopt a **Wait and Verify** approach
   - `networking.*` (interfaces/gateway/nameservers)
   - `services.adguardhome.*` (DNS/DHCP)
     Then it MUST be treated as a “maintenance event”.
+- **Console Ready**: The "root account is locked" message in emergency mode is a major blocker. We must ensure either a root password is set or the console is accessible for recovery.
 - **Dry Run First**: Always run `nixos-rebuild dry-activate` (or `nh os switch --dry`) and scan for:
   - New mountpoints
   - Unit changes affecting `adguardhome` / networking
