@@ -4,7 +4,7 @@
 **Updated**: 2025-12-25 (Refined after hsb0 outage)  
 **Priority**: P4900 (High)  
 **Status**: Backlog  
-**Host**: hsb0 (Primary), Fleet-wide
+**Host**: hsb0 (full protocol), other hosts (dry-run + serial only)
 
 ---
 
@@ -47,7 +47,6 @@ For `hsb0` (and eventually others), we will adopt a **Wait and Verify** approach
   - Unit changes affecting `adguardhome` / networking
 - **Manual Prep**: If a new ZFS dataset is added, it MUST be created manually on the host _before_ the switch.
 - **Serial Switching**: Never switch multiple critical hosts at once.
-- **Console Ready**: Before applying, ensure you have a recovery path (local console access, or someone onsite).
 
 ### 2. Post-Switch Verification (Manual for now)
 
@@ -67,17 +66,14 @@ Instead of full "automatic rollbacks," we will investigate a **"Confirm Connecti
 - If the operator doesn't run a "confirm" command within that time (because they lost SSH access), the system rolls back.
 - _Status_: Experimental/Investigation only.
 
-### 4. Filesystem/Mount Resilience Rules (to prevent “mount breaks DNS”)
+### 4. Filesystem/Mount Resilience Rules (to prevent "mount breaks DNS")
 
 When adding new mountpoints for **non-critical services** (like caches):
 
-- Prefer **non-blocking mounts** so a missing dataset can’t take down the host.
-- Candidate tactics to evaluate for `hsb0` (choose the least complex that works):
-  - Mark mount as **non-essential** (don’t block boot).
-  - Use systemd **automount** semantics.
-  - Ensure service units (like `ncps`) depend on the mount, not the other way around.
+- **Rule**: Ensure the service unit (e.g., `ncps.service`) depends on the mount (`var-lib-ncps.mount`), **not** the other way around. A missing dataset fails the service, not the boot.
+- **Implementation**: Use `systemd.services.<name>.requires` and `after` to tie the service to its mount.
 
-We should explicitly avoid any design where a failed mount can cascade into DNS/DHCP downtime.
+We explicitly avoid any design where a failed mount can cascade into DNS/DHCP downtime.
 
 ---
 
@@ -88,7 +84,7 @@ We should explicitly avoid any design where a failed mount can cascade into DNS/
 - [ ] A documented “maintenance event” flow exists for filesystem/network changes on `hsb0`.
 - [ ] Emergency rollback procedure verified for `hsb0` (explicit commands + where to run them from).
 - [ ] Investigation into **operator confirmation** rollback mechanism completed (decision: adopt or reject).
-- [ ] A documented rule exists for **non-blocking mounts** for optional services (so cache mounts can’t down DNS/DHCP).
+- [ ] Optional service mounts (e.g., `ncps`) use **service-depends-on-mount** pattern (not blocking boot).
 
 ---
 
@@ -96,3 +92,4 @@ We should explicitly avoid any design where a failed mount can cascade into DNS/
 
 - Incident Report: `docs/incidents/2025-12-25-hsb0-network-outage.md`
 - NCPS Backlog: `+pm/backlog/P5000-ncps-binary-cache-proxy.md`
+- hsb0 Runbook: `hosts/hsb0/docs/RUNBOOK.md` (target for safety checklist)
