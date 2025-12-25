@@ -80,7 +80,7 @@
             };
             # RESILIENCE: Do not block boot if this mount fails.
             # This prevents the server from entering emergency mode for a non-critical cache.
-            fsOptions = [ "nofail" ];
+            mountOptions = [ "nofail" ];
           };
         };
       };
