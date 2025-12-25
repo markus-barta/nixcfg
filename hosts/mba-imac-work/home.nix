@@ -43,6 +43,7 @@ in
     role = "workstation";
     fish.editor = "nano";
     stasysmo.enable = true; # System metrics in Starship prompt
+    ncps.enable = false; # Work iMac: Never sees hsb0
   };
 
   # Theme configuration - set hostname for palette lookup
