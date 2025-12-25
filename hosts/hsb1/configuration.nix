@@ -50,13 +50,6 @@
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
 
-  # Nix Package Manager configuration
-  nix.extraOptions = ''
-    substituters = http://hsb0.lan:8501 https://cache.nixos.org
-  '';
-
-  # Networking configuration
-
   # Networking configuration
   networking = {
     nameservers = [

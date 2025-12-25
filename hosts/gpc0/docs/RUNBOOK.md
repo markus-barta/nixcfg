@@ -95,6 +95,15 @@ systemd-inhibit --what=sleep:idle sudo nixos-rebuild switch --flake .#gpc0
 ssh mba@192.168.1.154 "zpool status && nvidia-smi 2>/dev/null || amdgpu_top --version"
 ```
 
+### NCPS Binary Cache (hsb0)
+
+Verified that the local cache is being used:
+
+```bash
+nix build nixpkgs#hello --no-link -L
+# Should show: copying path '...' from 'http://hsb0.lan:8501'
+```
+
 ### GPU Status
 
 ```bash

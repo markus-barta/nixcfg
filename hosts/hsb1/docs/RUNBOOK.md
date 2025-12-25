@@ -81,6 +81,15 @@ Managed files point back to the `nixcfg` repository to ensure version control. R
 ssh mba@192.168.1.101 "docker ps && zpool status | head -10"
 ```
 
+### NCPS Binary Cache (hsb0)
+
+Verified that the local cache is being used:
+
+```bash
+nix build nixpkgs#cowsay --no-link -L
+# Should show: copying path '...' from 'http://hsb0.lan:8501'
+```
+
 ### Container Status
 
 ```bash

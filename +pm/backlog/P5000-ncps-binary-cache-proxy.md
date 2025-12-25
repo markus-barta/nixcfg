@@ -80,11 +80,28 @@ To prevent rebuilds from consuming bandwidth during work hours, we will implemen
 
 ### Phase 2: Client Deployment
 
-1.  [ ] Update `modules/common.nix` or `modules/uzumaki/server.nix` with the new substituter.
-2.  [ ] Add the public key to `trusted-public-keys`.
-3.  [ ] Test on `hsb1` (NixOS).
-4.  [ ] Test on `gpc0` (NixOS).
-5.  [ ] Test on `imac0` (macOS).
+1.  [x] Update `modules/common.nix` or `modules/uzumaki/server.nix` with the new substituter.
+2.  [x] Add the public key to `trusted-public-keys`.
+3.  [x] Test on `hsb1` (NixOS).
+4.  [x] Test on `gpc0` (NixOS).
+5.  [x] Test on `imac0` (macOS).
+6.  [x] Add core infrastructure to `/etc/hosts` on all clients for DNS resilience.
+
+---
+
+## Configuration Details
+
+### substituters (common.nix)
+
+- **Primary**: `http://hsb0.lan:8501`
+- **Fallback 1**: `https://cache.nixos.org`
+- **Fallback 2**: `https://nix-community.cachix.org`
+
+### trusted-public-keys (common.nix)
+
+- `hsb0.lan-1:jKVnVnEwJPaevI5NyBKBtk7mJGPQ3EMlIoPb7VmPcD0=`
+- `cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=`
+- `nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=`
 
 ---
 
