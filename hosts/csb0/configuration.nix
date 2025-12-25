@@ -20,6 +20,7 @@
   uzumaki = {
     enable = true;
     role = "server";
+    ncps.enable = false; # Cloud server: Never sees hsb0
   };
 
   # ============================================================================
