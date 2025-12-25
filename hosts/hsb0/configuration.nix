@@ -477,8 +477,8 @@ in
     enable = true;
     cache = {
       hostName = "hsb0.lan";
-      dataPath = "/var/lib/ncps/data";
-      databaseURL = "sqlite:/var/lib/ncps/data/db/db.sqlite";
+      dataPath = "/var/lib/ncps";
+      databaseURL = "sqlite:/var/lib/ncps/db.sqlite";
       maxSize = "50G";
       lru.schedule = "0 3 * * *"; # Clean up daily at 3 AM
       allowPutVerb = true; # Allow pushing local builds to the cache
@@ -497,6 +497,14 @@ in
         "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
       ];
     };
+  };
+
+  # RESILIENCE: NCPS service must depend on its ZFS mount.
+  # This prevents the service from starting (and failing) if the mount is missing,
+  # and ensures the mount failure doesn't block the rest of the system boot (like DNS).
+  systemd.services.ncps = {
+    requires = [ "var-lib-ncps.mount" ];
+    after = [ "var-lib-ncps.mount" ];
   };
 
   # ============================================================================
