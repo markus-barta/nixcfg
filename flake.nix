@@ -160,7 +160,6 @@
           inherit system;
           modules = commonServerModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
-            ./modules/ncps.nix # Local NCPS module
             ./hosts/hsb0/configuration.nix
             disko.nixosModules.disko
           ];
