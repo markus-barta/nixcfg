@@ -1,185 +1,146 @@
 # NCPS Binary Cache Proxy on hsb0
 
 **Created**: 2025-12-13  
+**Updated**: 2025-12-24 (Refined Analysis & Plan)  
 **Priority**: MEDIUM  
-**Status**: Backlog
+**Status**: In Progress (Planning)
 
 ---
 
 ## Overview
 
-Install [ncps](https://github.com/kalbasit/ncps) (Nix binary Cache Proxy Service) on hsb0 to act as a local binary cache for all home LAN hosts. This will:
+Install [ncps](https://github.com/kalbasit/ncps) (Nix binary Cache Proxy Service) on hsb0 to act as a local binary cache for all home LAN hosts.
 
-- Cache Nix store paths locally, reducing bandwidth
-- Speed up rebuilds across all home hosts
-- Sign cached packages with local key
-- Proxy upstream caches (cache.nixos.org, nix-community, etc.)
+### Why NCPS?
 
----
-
-## Requirements
-
-### 1. Install ncps on hsb0
-
-- [ ] Add ncps flake input or use nixpkgs module
-- [ ] Configure ncps service on hsb0
-- [ ] Set up storage location (ZFS dataset recommended)
-- [ ] Configure upstream caches:
-  - `https://cache.nixos.org`
-  - `https://nix-community.cachix.org`
-- [ ] Set max cache size (e.g., 50G)
-- [ ] Enable LRU cleanup schedule
-- [ ] Generate and store signing key
-
-### 2. Configure Home LAN Hosts as Clients
-
-Configure these hosts to use hsb0 as substituter:
-
-| Host | Type    | Location    |
-| ---- | ------- | ----------- |
-| hsb0 | server  | home (self) |
-| hsb1 | server  | home        |
-| gpc0 | desktop | home        |
-
-- [ ] Add `http://hsb0.lan:8501` to `nix.settings.substituters`
-- [ ] Add ncps public key to `nix.settings.trusted-public-keys`
-- [ ] Keep upstream caches as fallback
-
-### 3. Firewall & Network
-
-- [ ] Open port 8501 on hsb0 (LAN only)
-- [ ] Ensure hsb0.lan resolves correctly for all hosts
+- **Bandwidth**: Reduces internet usage by caching common store paths.
+- **Speed**: LAN-speed rebuilds (1 Gbps) vs WAN-speed.
+- **Sign locally**: Packages built locally (e.g., on gpc0) can be pushed to hsb0 and shared.
+- **Transparency**: Acts as a pull-through proxy for `cache.nixos.org` and others.
+- **Cache Warming**: Pre-fetches updates during off-peak hours (nightly) to ensure zero impact on web-usage during work hours.
 
 ---
 
-## Implementation
+## Detailed Analysis & Plan
 
-### hsb0 Configuration
+### 1. Service Source
+
+`ncps` is NOT in standard `nixpkgs`. We must use the flake provided by the author.
+
+- **Flake**: `github:kalbasit/ncps`
+- **Module**: `inputs.ncps.nixosModules.ncps`
+
+### 2. Storage Strategy (ZFS)
+
+`hsb0` uses ZFS. We will create a dedicated dataset for the cache.
+
+- **Dataset**: `zroot/ncps`
+- **Mountpoint**: `/var/lib/ncps`
+- **Quota**: 50GB (enforced by ZFS)
+- **Backup Exclusion**: Exclude this dataset from Restic backups (cache is transient).
+
+### 3. Signing & Trust
+
+A signing key pair is required for clients to trust the cache.
+
+- **Private Key**: Generated on-device, stored via `agenix`.
+- **Public Key**: Shared with all clients.
+- **Trusted Public Keys**: Added to `nix.settings.trusted-public-keys` across the fleet.
+
+### 4. Network Configuration
+
+- **Host**: `hsb0.lan` (192.168.1.99)
+- **Port**: `8501` (TCP)
+- **Firewall**: Open port 8501 on `enp2s0f0` (LAN only).
+- **DNS**: Resolution is already handled by AdGuard Home on hsb0.
+
+### 5. Cache Warming (Nightly Pre-fetch)
+
+To prevent rebuilds from consuming bandwidth during work hours, we will implement a "Warmer" service on `hsb0` or `gpc0`.
+
+- **Schedule**:
+  - **Fri ➔ Sat**: (Saturday 03:00) Prepares for weekend tinkering.
+  - **Sun ➔ Mon**: (Monday 03:00) Prepares for the start of the work week.
+- **Action**: Runs `nix build --dry-run` or `nix build --eval-only` for all flake outputs, triggering `ncps` to fetch missing paths from upstream.
+- **Fail-Safe**: If `hsb0` is unreachable, clients fall back to `cache.nixos.org` immediately.
+
+---
+
+## Implementation Steps
+
+### Phase 1: Infrastructure (hsb0)
+
+1.  [ ] Add `ncps` flake input to `flake.nix`.
+2.  [ ] Add `zroot/ncps` dataset to `hosts/hsb0/disk-config.zfs.nix`.
+3.  [ ] Generate signing key: `nix-store --generate-binary-cache-key hsb0.lan-1 secret-key public-key`.
+4.  [ ] Add secret key to `secrets/ncps-key.age`.
+5.  [ ] Configure `services.ncps` in `hosts/hsb0/configuration.nix`.
+6.  [ ] Open firewall port 8501.
+7.  [ ] **Implement Cache Warmer**: Create Systemd Timer with the defined schedule.
+
+### Phase 2: Client Deployment
+
+1.  [ ] Update `modules/common.nix` or `modules/uzumaki/server.nix` with the new substituter.
+2.  [ ] Add the public key to `trusted-public-keys`.
+3.  [ ] Test on `hsb1` (NixOS).
+4.  [ ] Test on `gpc0` (NixOS).
+5.  [ ] Test on `imac0` (macOS).
+
+---
+
+## Configuration Snippets
+
+### hsb0 configuration.nix (Draft)
 
 ```nix
-# In hosts/hsb0/configuration.nix
-
 services.ncps = {
   enable = true;
-
-  cache = {
-    hostname = "hsb0.lan";
-    dataPath = "/var/lib/ncps/data";
-    databaseURL = "sqlite:/var/lib/ncps/db/db.sqlite";
-    maxSize = "50G";
-    lru.schedule = "0 3 * * *";  # Clean up daily at 3 AM
-    allowPutVerb = true;  # Allow pushing to cache
-  };
-
-  server.addr = "0.0.0.0:8501";
-
-  upstream = {
-    caches = [
-      "https://cache.nixos.org"
-      "https://nix-community.cachix.org"
-    ];
-    publicKeys = [
-      "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-    ];
+  settings = {
+    cache = {
+      hostname = "hsb0.lan";
+      dataPath = "/var/lib/ncps/data";
+      databaseURL = "sqlite:/var/lib/ncps/db/db.sqlite";
+      maxSize = "50G";
+      lru.schedule = "0 3 * * *";
+      allowPutVerb = true;
+    };
+    server.addr = "0.0.0.0:8501";
+    upstream = {
+      caches = [ "https://cache.nixos.org" "https://nix-community.cachix.org" ];
+      publicKeys = [
+        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+      ];
+    };
   };
 };
-
-# Firewall - LAN only
-networking.firewall.interfaces."enp2s0".allowedTCPPorts = [ 8501 ];
 ```
 
-### Client Configuration (uzumaki or per-host)
+### Client configuration (Draft)
 
 ```nix
-# In modules/common.nix or uzumaki module
-
 nix.settings = {
-  substituters = [
-    "http://hsb0.lan:8501"  # Local cache first
-    "https://cache.nixos.org"
-    "https://nix-community.cachix.org"
-  ];
-
-  trusted-public-keys = [
-    "hsb0.lan:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX="  # Get from hsb0
-    "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-    "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-  ];
+  substituters = lib.mkBefore [ "http://hsb0.lan:8501" ];
+  trusted-public-keys = [ "hsb0.lan-1:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX=" ];
 };
 ```
 
 ---
 
-## Storage Considerations
+## Verification Plan
 
-**Option A: Dedicated ZFS Dataset**
-
-```bash
-sudo zfs create -o mountpoint=/var/lib/ncps rpool/ncps
-```
-
-**Option B: Use existing /var/lib** (WE WANT THIS)
-
-- Simpler but no separate snapshot/quota management
-
-### Notes
-
-- ncps should have a setting to set a quota for about 50 GB.
-- Also, we want our backup not to include that cache. --> TODO: Add a backlog item for that.
-
----
-
-## Verification
-
-After deployment:
-
-```bash
-# On hsb0 - get public key
-curl http://localhost:8501/pubkey
-
-# On hsb0 - verify service
-systemctl status ncps
-curl http://localhost:8501/nix-cache-info
-
-# On client (hsb1, gpc0) - test cache
-curl http://hsb0.lan:8501/nix-cache-info
-nix path-info --store http://hsb0.lan:8501 /nix/store/...
-```
-
----
-
-## Benefits
-
-| Metric          | Before                            | After                                 |
-| --------------- | --------------------------------- | ------------------------------------- |
-| **Bandwidth**   | Each host downloads from internet | First download cached, others use LAN |
-| **Build speed** | Limited by WAN speed              | LAN speed (1 Gbps)                    |
-| **Resilience**  | Internet required                 | Can rebuild from cache offline        |
+1.  **Service check**: `curl http://hsb0.lan:8501/nix-cache-info`.
+2.  **Pull check**: Run a build on `hsb1`, then the same build on `gpc0`. Check `nix log` for "copying from http://hsb0.lan:8501".
+3.  **Push check**: `nix copy --to http://hsb0.lan:8501 <path>`.
+4.  **Fail-safe check**: Temporarily block 8501 on hsb0 and verify clients still rebuild using `cache.nixos.org`.
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] ncps running on hsb0, accessible at `http://hsb0.lan:8501`
-- [ ] hsb1 and gpc0 configured to use hsb0 as first substituter
-- [ ] Cache verified working: second build of same derivation uses local cache
-- [ ] LRU cleanup configured and tested
-- [ ] Firewall allows only LAN access to port 8501
-
----
-
-## Related
-
-- ncps repository: <https://github.com/kalbasit/ncps>
-- NixOS module options: search.nixos.org
-- hsb0 configuration: `hosts/hsb0/configuration.nix`
-
----
-
-## Notes
-
-- Consider adding attic as alternative (more features, but more complex)
-- macOS hosts (imac0, mba-\*-work) can also use this cache
-- Cloud hosts (csb0, csb1) won't benefit (not on LAN)
-- hsb8 at parents' house won't have access unless VPN is set up
+- [ ] `ncps` service active on `hsb0`.
+- [ ] `zroot/ncps` dataset mounted with 50GB quota.
+- [ ] LAN hosts successfully pull paths from `hsb0`.
+- [ ] Local builds successfully pushed/shared via `hsb0`.
+- [ ] No rebuild failures when `hsb0` is unreachable.
+- [ ] Backup configuration updated to exclude `/var/lib/ncps`.
