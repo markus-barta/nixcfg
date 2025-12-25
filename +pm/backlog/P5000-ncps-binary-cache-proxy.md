@@ -144,3 +144,12 @@ nix.settings = {
 - [ ] Local builds successfully pushed/shared via `hsb0`.
 - [ ] No rebuild failures when `hsb0` is unreachable.
 - [ ] Backup configuration updated to exclude `/var/lib/ncps`.
+
+---
+
+## Related
+
+- ncps repository: <https://github.com/kalbasit/ncps>
+- NixOS module options: search.nixos.org
+- hsb0 configuration: `hosts/hsb0/configuration.nix`
+- Deployment Safety: `+pm/backlog/P4900-infra-safety-resilience.md`
