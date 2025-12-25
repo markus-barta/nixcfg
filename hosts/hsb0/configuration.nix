@@ -475,29 +475,27 @@ in
   # ============================================================================
   services.ncps = {
     enable = true;
-    settings = {
-      cache = {
-        hostname = "hsb0.lan";
-        dataPath = "/var/lib/ncps/data";
-        databaseURL = "sqlite:/var/lib/ncps/db/db.sqlite";
-        maxSize = "50G";
-        lru.schedule = "0 3 * * *"; # Clean up daily at 3 AM
-        allowPutVerb = true; # Allow pushing local builds to the cache
-        signingKeyPath = config.age.secrets.ncps-key.path;
-      };
+    cache = {
+      hostName = "hsb0.lan";
+      dataPath = "/var/lib/ncps/data";
+      databaseURL = "sqlite:/var/lib/ncps/data/db/db.sqlite";
+      maxSize = "50G";
+      lru.schedule = "0 3 * * *"; # Clean up daily at 3 AM
+      allowPutVerb = true; # Allow pushing local builds to the cache
+      secretKeyPath = config.age.secrets.ncps-key.path;
+    };
 
-      server.addr = "0.0.0.0:8501";
+    server.addr = "0.0.0.0:8501";
 
-      upstream = {
-        caches = [
-          "https://cache.nixos.org"
-          "https://nix-community.cachix.org"
-        ];
-        publicKeys = [
-          "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-          "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-        ];
-      };
+    upstream = {
+      caches = [
+        "https://cache.nixos.org"
+        "https://nix-community.cachix.org"
+      ];
+      publicKeys = [
+        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+      ];
     };
   };
 
