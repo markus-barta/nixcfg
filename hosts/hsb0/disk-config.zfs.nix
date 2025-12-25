@@ -76,7 +76,11 @@
             options = {
               mountpoint = "legacy";
               quota = "50G";
+              "com.sun:auto-snapshot" = "false";
             };
+            # RESILIENCE: Do not block boot if this mount fails.
+            # This prevents the server from entering emergency mode for a non-critical cache.
+            fsOptions = [ "nofail" ];
           };
         };
       };
