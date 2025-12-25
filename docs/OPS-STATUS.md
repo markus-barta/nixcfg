@@ -39,6 +39,7 @@ See `+pm/backlog/` for detailed task tracking.
 
 **High priority:**
 
+- P4900: Infrastructure Safety & Deployment Resilience (after hsb0 outage)
 - imac0: Investigate why `imacw` function is missing (currently unreachable)
 
 **Medium priority:**

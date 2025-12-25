@@ -41,4 +41,4 @@ The host `hsb0` was hard-reset/rebooted. It has successfully rolled back or reco
 1.  **Stop all host changes**: No further deployments to `hsb0` until a safety plan is in place.
 2.  **Disko Safety**: Never add new mountpoints to `disk-config.zfs.nix` and expect a `switch` to work without manual filesystem preparation.
 3.  **Network Redundancy**: Add a "DNS Fallback" rule to clients or a secondary DNS server to prevent a single point of failure during `hsb0` maintenance.
-4.  **Backlog Task**: Create a safety checklist for `hsb0` deployments.
+4.  **Backlog Task**: Created `P4900` for deployment safety protocols.
