@@ -135,6 +135,9 @@ When you change configuration:
 1. Read the host's RUNBOOK.md
 2. Check INFRASTRUCTURE.md for dependencies
 3. Verify build platform (NixOS configs need Linux - use gpc0, not macOS!)
+4. Ensure all is committed and pushed to the remote repository.
+5. Then pull the changes to the on the target host.
+6. Then switch the host to the new configuration.
 
 ### After Any Host Change
 
