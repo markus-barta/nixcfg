@@ -8,7 +8,7 @@ Quick overview of infrastructure operations progress.
 
 | •   | Host          | OS    | Type    | Audited             | Fixed               | Comment                                                 |
 | --- | ------------- | ----- | ------- | ------------------- | ------------------- | ------------------------------------------------------- |
-| 🏠  | hsb0          | NixOS | Server  | ✅ 2025-12-24 22:33 | ❌ DEGRADED         | Outage 2025-12-25, see incident report (SYSOP)          |
+| 🏠  | hsb0          | NixOS | Server  | ✅ 2025-12-25 12:48 | ✅ 2025-12-25 12:48 | Fixed hsb0 outage, deployed resilient NCPS (SYSOP)      |
 | 🏠  | hsb1          | NixOS | Server  | ✅ 2025-12-24 22:28 | ✅ 2025-12-24 23:35 | 5/5 tests pass, exposed Terrasse D28 to HomeKit (SYSOP) |
 | 🏠  | hsb8          | NixOS | Server  | ✅ 2025-12-24 23:45 | ✅ 2025-12-24 23:45 | Consolidated docs, fixed tests (SYSOP)                  |
 | 🌐  | csb0          | NixOS | Server  | ✅ 2025-12-08 13:00 | ✅ 2025-12-08 13:30 | Added 7 test docs (SYSOP)                               |

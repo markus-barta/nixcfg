@@ -30,15 +30,17 @@ Dez 25 10:06:12 hsb0 sshd-session[490234]: error: mm_reap: child terminated by s
 
 ---
 
-## 🛠️ Immediate Recovery
+## 🛠️ Resolution (2025-12-25 12:48)
 
-The host `hsb0` was hard-reset/rebooted. It has successfully rolled back or recovered to a working state where **AdGuard Home** is providing DNS and DHCP again.
+1.  **Safety Protocol**: Implemented **P4900** (Deployment Safety).
+2.  **Resilience**: Configured NCPS mount with `nofail` and service dependencies.
+3.  **Manual Prep**: Created ZFS dataset manually before the 2nd (resilient) attempt.
+4.  **Verification**: Verified NCPS is active and DNS/DHCP is stable.
 
 ---
 
 ## 🛡️ Prevention & Next Steps
 
-1.  **Stop all host changes**: No further deployments to `hsb0` until a safety plan is in place.
-2.  **Disko Safety**: Never add new mountpoints to `disk-config.zfs.nix` and expect a `switch` to work without manual filesystem preparation.
-3.  **Network Redundancy**: Add a "DNS Fallback" rule to clients or a secondary DNS server to prevent a single point of failure during `hsb0` maintenance.
-4.  **Backlog Task**: Created `P4900` for deployment safety protocols.
+1.  **P4900 Implementation**: Follow the "Wait and Verify" protocol for all hsb0 changes.
+2.  **P5200 Backlog**: Investigate automatic rollback for failed boots and console recovery options (High risk due to locked root account).
+3.  **Disko Safety**: Never add new mountpoints to `disk-config.zfs.nix` and expect a `switch` to work without manual filesystem preparation.

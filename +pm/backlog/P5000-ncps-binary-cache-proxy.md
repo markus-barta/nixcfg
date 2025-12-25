@@ -70,13 +70,13 @@ To prevent rebuilds from consuming bandwidth during work hours, we will implemen
 
 ### Phase 1: Infrastructure (hsb0)
 
-1.  [ ] Add `ncps` flake input to `flake.nix`.
-2.  [ ] Add `zroot/ncps` dataset to `hosts/hsb0/disk-config.zfs.nix`.
-3.  [ ] Generate signing key: `nix-store --generate-binary-cache-key hsb0.lan-1 secret-key public-key`.
-4.  [ ] Add secret key to `secrets/ncps-key.age`.
-5.  [ ] Configure `services.ncps` in `hosts/hsb0/configuration.nix`.
-6.  [ ] Open firewall port 8501.
-7.  [ ] **Implement Cache Warmer**: Create Systemd Timer with the defined schedule.
+1.  [x] Add `ncps` flake input to `flake.nix`.
+2.  [x] Add `zroot/ncps` dataset to `hosts/hsb0/disk-config.zfs.nix`.
+3.  [x] Generate signing key: `nix-store --generate-binary-cache-key hsb0.lan-1 secret-key public-key`.
+4.  [x] Add secret key to `secrets/ncps-key.age`.
+5.  [x] Configure `services.ncps` in `hosts/hsb0/configuration.nix`.
+6.  [x] Open firewall port 8501.
+7.  [x] **Implement Cache Warmer**: Create Systemd Timer with the defined schedule.
 
 ### Phase 2: Client Deployment
 
