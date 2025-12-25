@@ -371,6 +371,7 @@ in
         53 # DNS
         3000 # AdGuard Home web interface
         3001 # Uptime Kuma web interface
+        8501 # NCPS binary cache proxy
         80 # HTTP (for future use)
         443 # HTTPS (for future use)
       ];
@@ -456,6 +457,91 @@ in
     file = ../../secrets/uptime-kuma-env.age;
     mode = "400";
     owner = "root";
+  };
+
+  # NCPS signing key for binary cache proxy
+  age.secrets.ncps-key = {
+    file = ../../secrets/ncps-key.age;
+    mode = "400";
+    owner = "root";
+  };
+
+  # ============================================================================
+  # NCPS - Nix binary Cache Proxy Service
+  # ============================================================================
+  # Local binary cache that proxies and caches upstream stores.
+  # Speeds up rebuilds across the home LAN and reduces WAN bandwidth.
+  # Web UI / Stats: http://192.168.1.99:8501
+  # ============================================================================
+  services.ncps = {
+    enable = true;
+    settings = {
+      cache = {
+        hostname = "hsb0.lan";
+        dataPath = "/var/lib/ncps/data";
+        databaseURL = "sqlite:/var/lib/ncps/db/db.sqlite";
+        maxSize = "50G";
+        lru.schedule = "0 3 * * *"; # Clean up daily at 3 AM
+        allowPutVerb = true; # Allow pushing local builds to the cache
+        signingKeyPath = config.age.secrets.ncps-key.path;
+      };
+
+      server.addr = "0.0.0.0:8501";
+
+      upstream = {
+        caches = [
+          "https://cache.nixos.org"
+          "https://nix-community.cachix.org"
+        ];
+        publicKeys = [
+          "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+          "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+        ];
+      };
+    };
+  };
+
+  # ============================================================================
+  # Cache Warmer (Nightly Pre-fetch)
+  # ============================================================================
+  # Triggers NCPS to download updates during off-peak hours.
+  # Schedule: Sat 03:00 (Weekend) and Mon 03:00 (Work Week)
+  # ============================================================================
+  systemd.services.ncps-warmer = {
+    description = "Pre-fetch Nix updates into local NCPS cache";
+    after = [
+      "ncps.service"
+      "network-online.target"
+    ];
+    wants = [ "network-online.target" ];
+    script = ''
+      # Trigger evaluation/dry-run of all fleet hosts to warm the cache
+      # We use --eval-only which is enough to trigger substituter lookups in some cases,
+      # but --dry-run is safer for ensuring the proxy actually fetches.
+      ${pkgs.nix}/bin/nix build --flake .#hsb0 --dry-run
+      ${pkgs.nix}/bin/nix build --flake .#hsb1 --dry-run
+      ${pkgs.nix}/bin/nix build --flake .#gpc0 --dry-run
+      ${pkgs.nix}/bin/nix build --flake .#imac0 --dry-run
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      WorkingDirectory = "/home/mba/Code/nixcfg";
+      User = "mba";
+    };
+  };
+
+  systemd.timers.ncps-warmer = {
+    description = "Timer for NCPS Cache Warmer";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      # Sat 03:00 (Fri -> Sat) and Mon 03:00 (Sun -> Mon)
+      OnCalendar = [
+        "Sat 03:00:00"
+        "Mon 03:00:00"
+      ];
+      Persistent = true;
+      Unit = "ncps-warmer.service";
+    };
   };
 
   hokage = {

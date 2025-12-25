@@ -83,4 +83,9 @@ in
   # Edit: agenix -e secrets/uptime-kuma-env.age
   "uptime-kuma-env.age".publicKeys = markus ++ hsb0;
 
+  # NCPS signing key for binary cache proxy on hsb0
+  # Format: secret-key-file content (nix-store generated)
+  # Edit: agenix -e secrets/ncps-key.age
+  "ncps-key.age".publicKeys = markus ++ hsb0;
+
 }

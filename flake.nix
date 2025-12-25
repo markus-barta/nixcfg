@@ -29,6 +29,9 @@
     # NixFleet - Fleet management dashboard
     nixfleet.url = "github:markus-barta/nixfleet";
     nixfleet.inputs.nixpkgs.follows = "nixpkgs";
+    # NCPS - Nix binary Cache Proxy Service
+    ncps.url = "github:kalbasit/ncps";
+    ncps.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -59,6 +62,7 @@
       # Local packages overlay
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
+        ncps = inputs.ncps.packages.${system}.default;
       };
       allOverlays = [
         overlays-nixpkgs
@@ -156,6 +160,7 @@
           inherit system;
           modules = commonServerModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./modules/ncps.nix # Local NCPS module
             ./hosts/hsb0/configuration.nix
             disko.nixosModules.disko
           ];
