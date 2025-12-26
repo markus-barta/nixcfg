@@ -91,6 +91,7 @@ in
     home.packages = [
       pkgs.pingt # Timestamped ping with color-coded output
       pkgs.watch # Run command repeatedly, showing output (not in macOS by default)
+      pkgs.age # Modern encryption tool (reference implementation)
     ]
     ++ lib.optionals cfg.zellij.enable [ pkgs.zellij ];
 
