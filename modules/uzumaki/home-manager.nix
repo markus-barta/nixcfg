@@ -112,6 +112,12 @@ in
     # entries if uzumaki.ncps.enable is true.
     nix.package = pkgs.nix;
     nix.settings = {
+      # Allow flakes and nix-command (required for nix flake commands)
+      experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
+
       substituters = lib.mkOverride 0 (
         [
           "https://cache.nixos.org"
