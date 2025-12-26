@@ -63,6 +63,7 @@
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
         ncps = inputs.ncps.packages.${system}.default;
+        nixfleet-agent = inputs.nixfleet.packages.${system}.default;
       };
       allOverlays = [
         overlays-nixpkgs

@@ -103,6 +103,7 @@ in
     environment.systemPackages = [
       pkgs.pingt # Timestamped ping with color-coded output
       pkgs.age # Modern encryption tool (reference implementation)
+      pkgs.nixfleet-agent # Fleet management agent CLI
     ]
     ++ lib.optionals cfg.zellij.enable [ pkgs.zellij ];
 
