@@ -81,7 +81,7 @@ services:
       - "com.centurylinklabs.watchtower.scope=weekly"
 
   watchtower-weekly:
-    image: containrrr/watchtower:latest
+    image: beatkind/watchtower:latest
     container_name: watchtower-weekly
     restart: unless-stopped
     command: --schedule "0 0 5 * * 6" --label-enable --scope weekly

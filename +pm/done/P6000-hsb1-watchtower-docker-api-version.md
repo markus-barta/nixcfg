@@ -1,7 +1,9 @@
 # hsb1 Watchtower Docker API Version Fix
 
-**Status**: DONE  
+**Status**: DONE (Archived - Use beatkind/watchtower)  
 **Completed**: 2025-12-14
+
+> ⚠️ **MIGRATED**: As of 2025-12-27, containrrr/watchtower is archived. Migration to beatkind/watchtower is underway (see beatkind repo for current image details).
 
 ## Description
 

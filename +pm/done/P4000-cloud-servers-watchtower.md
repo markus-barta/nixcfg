@@ -2,7 +2,9 @@
 
 **Priority**: P4 (Medium)  
 **Completed**: 2025-12-21  
-**Status**: DONE
+**Status**: DONE (Archived - Use beatkind/watchtower)
+
+> ⚠️ **MIGRATED**: As of 2025-12-27, containrrr/watchtower is archived. See [P7xxx](#) for migration to beatkind/watchtower.
 
 ## Description
 
