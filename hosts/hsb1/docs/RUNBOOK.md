@@ -350,8 +350,8 @@ ssh mba@192.168.1.101 "journalctl -f"
 | opus-stream-to-mqtt | `node:alpine`                                             | OPUS gateway → MQTT bridge   | host         |
 | smtp                | `namshi/smtp`                                             | Mail relay (via Hover)       | bridge       |
 | restic-cron-hetzner | custom build                                              | Daily backups to Hetzner     | -            |
-| watchtower-weekly   | `containrrr/watchtower:latest`                            | Weekly updates (Sat 5am)     | -            |
-| watchtower-pidicon  | `containrrr/watchtower:latest`                            | Fast pidicon updates (10s)   | -            |
+| watchtower-weekly   | `beatkind/watchtower:latest`                              | Weekly updates (Sat 5am)     | -            |
+| watchtower-pidicon  | `beatkind/watchtower:latest`                              | Fast pidicon updates (10s)   | -            |
 
 ### Key Paths
 
