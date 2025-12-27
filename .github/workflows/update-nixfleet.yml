@@ -1,0 +1,49 @@
+name: 🔄 Update nixfleet input
+
+on:
+  # Triggered by nixfleet repo after successful Docker build
+  repository_dispatch:
+    types: [nixfleet-updated]
+
+  # Manual trigger (for testing)
+  workflow_dispatch:
+
+jobs:
+  update-flake:
+    name: Update flake.lock
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout nixcfg
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Update nixfleet input
+        run: nix flake update nixfleet
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check if there are changes
+          if git diff --quiet flake.lock; then
+            echo "No changes to flake.lock"
+            exit 0
+          fi
+
+          # Commit with version info if available
+          VERSION="${{ github.event.client_payload.version }}"
+          SHA="${{ github.event.client_payload.sha }}"
+
+          if [ -n "$VERSION" ]; then
+            MSG="chore: bump nixfleet to v${VERSION} (${SHA:0:7})"
+          else
+            MSG="chore: bump nixfleet"
+          fi
+
+          git add flake.lock
+          git commit -m "$MSG"
+          git push
