@@ -1,7 +1,7 @@
-# P7000: Migrate miniserver-bp to NixOS
+# P8000: Migrate miniserver-bp to NixOS
 
 **Status**: BACKLOG  
-**Priority**: P7 (Low - future enhancement)  
+**Priority**: P8 (Backlog - future enhancement)  
 **Created**: 2025-12-19
 
 ---

@@ -29,7 +29,7 @@ let
   # SSH host keys from each server (get with: ssh-keyscan hostname)
 
   hsb0 = [
-    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC2WZLgDFx1FGa7Veoy+KIpN3cHywnBsXo+ytLBpYnzT9uaxb+YI94k2zi+c67YJnN5gpX/EpGn3vXpCyJHZZHg4hJWjjj2kbXZv7op1MSusGCAP7HbR4a+dasF9mAZLOwzbnpLRwFUg+/Fjb0iAb3ri1sISEzAhkUkKuxJogNl7kqytFWexPkPb8J5Qvf+V6KnACB67G/T3bBf8u3R4IDp7EKOaCQwz8aWeuBrNNJevecPtfBuq3Uj/FipMMCHuHi4X95Q7V2OOUDuWxqcGz/iLUswoW+z1qE5Vv47W9J+QledsHCJhMzjsTZCknRorZyqzrzeicIqHpQvUvQKznWQwI50Op2AbYRPd3gwUmnCCUy5b5FWdmVWyzdSqfOiqYU1AKvY75bl1L6wQVOH/3RRHOfRNA3u6o9DnUhK/kSDv34Vl0kzm6fbqJX+uh6LRdMfioWmbeqTq62SZFt/a0xogMTQdjQS5M6yoZmbIVmC3L0k+IPrt+UVmlwm0gu0zbeTtzjLlyHe2X4AttoMr6OcMoLvst3SmJebS6CJcwT1Aca5MRqTcfzJZ/Fuy68ByaGIW9zPG1xp+/P4BvT53/OnUYbjaoln7yiOySHozafrAQ28p5goE+ITCmwJGxZxfceskvkir67kdxAT8GQoWR5i/Sarpal0FoVY7prV+OFm+w=="
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO5LSuJ8JJO03QNhl/eYpoQSmJFgF6ioFDsDOKTAxql3"
   ];
 
   hsb8 = [
@@ -77,5 +77,15 @@ in
   # Format: NIXFLEET_TOKEN=xxx (for NixOS EnvironmentFile)
   # Edit: agenix -e secrets/nixfleet-token.age
   "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0;
+
+  # Uptime Kuma environment variables (for Apprise tokens)
+  # Format: KEY=VALUE lines
+  # Edit: agenix -e secrets/uptime-kuma-env.age
+  "uptime-kuma-env.age".publicKeys = markus ++ hsb0;
+
+  # NCPS signing key for binary cache proxy on hsb0
+  # Format: secret-key-file content (nix-store generated)
+  # Edit: agenix -e secrets/ncps-key.age
+  "ncps-key.age".publicKeys = markus ++ hsb0;
 
 }

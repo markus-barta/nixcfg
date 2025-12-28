@@ -240,7 +240,7 @@
         set_color green
         echo "✓ VPN connected - connecting to mba-imac-work..."
         set_color normal
-        ssh -J "$jump_user@$vpn_host" "$target_user@$target_host" $argv
+        ssh -i ~/.ssh/id_ed25519_bytepoets -J "$jump_user@$vpn_host" "$target_user@$target_host" $argv
       else
         set_color yellow
         echo "⚠ Cannot reach BYTEPOETS network (10.100.0.51)"

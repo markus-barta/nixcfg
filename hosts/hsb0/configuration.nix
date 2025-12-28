@@ -371,6 +371,7 @@ in
         53 # DNS
         3000 # AdGuard Home web interface
         3001 # Uptime Kuma web interface
+        8501 # NCPS binary cache proxy
         80 # HTTP (for future use)
         443 # HTTPS (for future use)
       ];
@@ -395,6 +396,29 @@ in
     };
   };
 
+  # Apprise support for Uptime Kuma with Environment Variable expansion.
+  # This allows using $VAR_NAME in the Apprise URL within the Uptime Kuma UI.
+  # Tokens are stored securely in agenix and expanded by the wrapper script.
+  systemd.services.uptime-kuma = {
+    path = [
+      (pkgs.writeShellScriptBin "apprise" ''
+        # Apprise Wrapper for Environment Variable Expansion
+        # Usage in Uptime Kuma UI: tgram://$TELEGRAM_TOKEN/ChatID
+
+        args=()
+        for arg in "$@"; do
+          # Use envsubst to safely expand environment variables
+          # We provide the variables from the EnvironmentFile
+          expanded_arg=$(echo "$arg" | ${pkgs.gettext}/bin/envsubst)
+          args+=("$expanded_arg")
+        done
+
+        exec ${pkgs.apprise}/bin/apprise "''${args[@]}"
+      '')
+    ];
+    serviceConfig.EnvironmentFile = [ config.age.secrets.uptime-kuma-env.path ];
+  };
+
   # Enable Fwupd for firmware updates
   # https://nixos.wiki/wiki/Fwupd
   services.fwupd.enable = true;
@@ -411,6 +435,8 @@ in
     # Secret management tools
     rage # Modern age encryption tool (for agenix)
     inputs.agenix.packages.${pkgs.system}.default # agenix CLI
+    # Notifications
+    apprise # Apprise CLI for Uptime Kuma and manual alerts
   ];
 
   # Agenix secrets configuration
@@ -424,6 +450,104 @@ in
     mode = "444"; # World-readable (not sensitive data, just DHCP assignments)
     owner = "root";
     group = "root";
+  };
+
+  # Uptime Kuma secrets (e.g., APPRISE_TELEGRAM_TOKEN)
+  age.secrets.uptime-kuma-env = {
+    file = ../../secrets/uptime-kuma-env.age;
+    mode = "400";
+    owner = "root";
+  };
+
+  # NCPS signing key for binary cache proxy
+  age.secrets.ncps-key = {
+    file = ../../secrets/ncps-key.age;
+    mode = "400";
+    owner = "root";
+  };
+
+  # ============================================================================
+  # NCPS - Nix binary Cache Proxy Service
+  # ============================================================================
+  # Local binary cache that proxies and caches upstream stores.
+  # Speeds up rebuilds across the home LAN and reduces WAN bandwidth.
+  # Web UI / Stats: http://192.168.1.99:8501
+  # ============================================================================
+  services.ncps = {
+    enable = true;
+    cache = {
+      hostName = "hsb0.lan";
+      dataPath = "/var/lib/ncps";
+      databaseURL = "sqlite:/var/lib/ncps/db.sqlite";
+      maxSize = "50G";
+      lru.schedule = "0 3 * * *"; # Clean up daily at 3 AM
+      allowPutVerb = true; # Allow pushing local builds to the cache
+      secretKeyPath = config.age.secrets.ncps-key.path;
+    };
+
+    server.addr = "0.0.0.0:8501";
+
+    upstream = {
+      caches = [
+        "https://cache.nixos.org"
+        "https://nix-community.cachix.org"
+      ];
+      publicKeys = [
+        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+      ];
+    };
+  };
+
+  # RESILIENCE: NCPS service must depend on its ZFS mount.
+  # This prevents the service from starting (and failing) if the mount is missing,
+  # and ensures the mount failure doesn't block the rest of the system boot (like DNS).
+  systemd.services.ncps = {
+    requires = [ "var-lib-ncps.mount" ];
+    after = [ "var-lib-ncps.mount" ];
+  };
+
+  # ============================================================================
+  # Cache Warmer (Nightly Pre-fetch)
+  # ============================================================================
+  # Triggers NCPS to download updates during off-peak hours.
+  # Schedule: Sat 03:00 (Weekend) and Mon 03:00 (Work Week)
+  # ============================================================================
+  systemd.services.ncps-warmer = {
+    description = "Pre-fetch Nix updates into local NCPS cache";
+    after = [
+      "ncps.service"
+      "network-online.target"
+    ];
+    wants = [ "network-online.target" ];
+    script = ''
+      # Trigger evaluation/dry-run of all fleet hosts to warm the cache
+      # We use --eval-only which is enough to trigger substituter lookups in some cases,
+      # but --dry-run is safer for ensuring the proxy actually fetches.
+      ${pkgs.nix}/bin/nix build --flake .#hsb0 --dry-run
+      ${pkgs.nix}/bin/nix build --flake .#hsb1 --dry-run
+      ${pkgs.nix}/bin/nix build --flake .#gpc0 --dry-run
+      ${pkgs.nix}/bin/nix build --flake .#imac0 --dry-run
+    '';
+    serviceConfig = {
+      Type = "oneshot";
+      WorkingDirectory = "/home/mba/Code/nixcfg";
+      User = "mba";
+    };
+  };
+
+  systemd.timers.ncps-warmer = {
+    description = "Timer for NCPS Cache Warmer";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      # Sat 03:00 (Fri -> Sat) and Mon 03:00 (Sun -> Mon)
+      OnCalendar = [
+        "Sat 03:00:00"
+        "Mon 03:00:00"
+      ];
+      Persistent = true;
+      Unit = "ncps-warmer.service";
+    };
   };
 
   hokage = {

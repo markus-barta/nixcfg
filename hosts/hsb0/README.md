@@ -46,6 +46,7 @@ hsb0 provides comprehensive DNS/DHCP infrastructure for the entire network:
 | F11 | ZFS Snapshots                         | Point-in-time backups for disaster recovery            | T11  |
 | F12 | APC UPS Monitoring + MQTT             | Power protection status published to home automation   | T16  |
 | F13 | Uptime Kuma Service Monitoring        | Web UI for monitoring service uptime                   | T15  |
+| F14 | Apprise Notification Integration      | Send alerts via 80+ services (Telegram, etc.)          | T15  |
 
 **Test Documentation**: All features have detailed test procedures in `hosts/hsb0/tests/` with both manual instructions and automated scripts.
 

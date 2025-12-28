@@ -93,6 +93,55 @@ sudo nixos-rebuild switch --rollback
 
 ---
 
+## 🏗️ Uzumaki & Hokage Pattern
+
+`csb1` is an **External Hokage Consumer**. It consumes the base server configuration from the global `hokage` module but applies local customizations via the `uzumaki` namespace.
+
+- **Status**: Enabled (`uzumaki.enable = true`)
+- **Role**: `server`
+- **Indicator**: The `nixbit` command should be available and working.
+
+---
+
+## NixFleet Dashboard
+
+The fleet management dashboard runs on this server at https://fleet.barta.cm
+
+### Deploy NixFleet
+
+Images are built by GitHub Actions and pushed to `ghcr.io/markus-barta/nixfleet`.
+
+```bash
+# Standard deploy (pull pre-built image, ~10 seconds)
+ssh mba@cs1.barta.cm -p 2222 "cd ~/docker && docker compose pull nixfleet && docker compose up -d nixfleet"
+
+# Check status
+ssh mba@cs1.barta.cm -p 2222 "docker ps --filter name=nixfleet"
+```
+
+### Rollback NixFleet
+
+```bash
+# 1. SSH to server
+ssh mba@cs1.barta.cm -p 2222
+
+# 2. Edit ~/docker/docker-compose.yml, change:
+#    image: ghcr.io/markus-barta/nixfleet:master
+#    to:
+#    image: ghcr.io/markus-barta/nixfleet:<previous-sha>
+
+# 3. Restart
+cd ~/docker && docker compose up -d nixfleet
+```
+
+### View Logs
+
+```bash
+ssh mba@cs1.barta.cm -p 2222 "docker logs nixfleet --tail 50 -f"
+```
+
+---
+
 ## Docker Services
 
 ### All Containers (15 running)
@@ -191,7 +240,12 @@ VNC console access. Password stored in 1Password under "csb0 csb1 recovery".
 Static IP `152.53.64.166/24` is configured declaratively in NixOS.
 Gateway: `152.53.64.1` | DNS: `8.8.8.8`, `8.8.4.4`
 
-This prevents lockout during deploys (incident 2025-12-05 - see MIGRATION-PLAN-HOKAGE.md).
+### 🚨 Historical Incident: 2025-12-05 Network Loss
+
+**Symptom:** Server became unreachable immediately after `nixos-rebuild switch`.
+**Root Cause:** The configuration used NetworkManager (`networking.networkmanager.enable = true`) but did not define a static IP declaratively. On a fresh generation switch, the imperative connection profile was lost, and NetworkManager didn't know how to bring up the interface.
+**Recovery:** Had to boot with `init=/bin/sh`, manually bring up `ens3` with `ip addr add` and `ip link set`, and then start `sshd -o UsePAM=no` to regain access and fix the configuration.
+**Fix:** Always define static networking declaratively for servers (`networking.interfaces.ens3...`) and set a `hashedPassword` for the `mba` user for VNC console recovery.
 
 ### If SSH Fails
 

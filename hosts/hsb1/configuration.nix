@@ -60,6 +60,21 @@
     defaultGateway = "192.168.1.5";
     resolvconf.useLocalResolver = false;
     hosts = {
+      # This DNS/DHCP server itself - local resolution for core services
+      "192.168.1.99" = [
+        "hsb0"
+        "hsb0.lan"
+      ];
+      # This server itself
+      "192.168.1.101" = [
+        "hsb1"
+        "hsb1.lan"
+      ];
+      # Gaming PC
+      "192.168.1.154" = [
+        "gpc0"
+        "gpc0.lan"
+      ];
       "192.168.1.32" = [
         "kr-sonnen-batteriespeicher"
         "kr-sonnen-batteriespeicher.lan"

@@ -85,7 +85,7 @@ in
       ]
     );
     # Set empty password initially. Don't forget to set a password with "passwd".
-    initialHashedPassword = mkDefault "";
+    initialHashedPassword = mkDefault null;
   });
 
   # Set your time zone.
@@ -146,6 +146,19 @@ in
       # Allow fallback from local caches
       connect-timeout = 5;
       fallback = true;
+
+      # NCPS Binary Cache Proxy (hsb0)
+      # Priority: lib.mkOverride 0 ensures local cache is prioritized across the fleet
+      substituters = lib.mkOverride 0 [
+        "http://hsb0.lan:8501"
+        "https://cache.nixos.org"
+        "https://nix-community.cachix.org"
+      ];
+      trusted-public-keys = lib.mkOverride 0 [
+        "hsb0.lan-1:jKVnVnEwJPaevI5NyBKBtk7mJGPQ3EMlIoPb7VmPcD0="
+        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+      ];
     };
 
     # Use symlink to the latest nixpkgs of the flake as nixpkgs, e.g. for nix-shell

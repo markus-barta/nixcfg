@@ -1,4 +1,5 @@
 {
+  config,
   pkgs,
   lib,
   inputs,
@@ -40,6 +41,8 @@
     nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
     location = "home";
     deviceType = "desktop";
+    # Theme color from palette (P7200 - single source of truth)
+    themeColor = config.theme.palette.gradient.primary;
   };
 
   # Theme configuration - set hostname for palette lookup

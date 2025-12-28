@@ -14,28 +14,30 @@ P{number}-{name}.md
 
 **Lower number = Higher priority**
 
-| Range       | Priority    | Description                           |
-| ----------- | ----------- | ------------------------------------- |
-| P4000-P4999 | 🔴 Critical | System maintenance, keeping things up |
-| P5000-P5999 | 🟡 Medium   | Infrastructure improvements           |
-| P6000-P6999 | 🟢 Low      | Nice-to-have, do when time permits    |
+| Range       | Priority    | Description                             |
+| ----------- | ----------- | --------------------------------------- |
+| P0000-P1999 | 🔴 Critical | Blocking bugs, security, fix now        |
+| P2000-P3999 | 🟠 High     | Important bugs/issues, fix soon         |
+| P4000-P5999 | 🟡 Medium   | Features and improvements, planned work |
+| P6000-P7999 | 🟢 Low      | Nice-to-have, do when time permits      |
+| P8000-P9999 | ⚪ Backlog  | Ideas, future enhancements, someday     |
 
 ### Ordering Within Priority
 
-- Start at **X000** (e.g., P4000, P5000, P6000)
+- Start at **X000** (e.g., P1000, P4000, P6000)
 - New items: add/subtract 100 (P4100, P4200...)
 - Insert between: use finer granularity (P4050 between P4000 and P4100)
 - **Goal**: Never need to rename existing files when priorities change
 
-### Priority Focus: System Uptime
-
-**Main priority indicator: Keep systems up to date and running.**
+### Priority Examples
 
 | Priority | Examples                                              |
 | -------- | ----------------------------------------------------- |
-| 🔴 P4xxx | Watchtower auto-updates, crash prevention, monitoring |
-| 🟡 P5xxx | Security (agenix), agent deployments, build speed     |
-| 🟢 P6xxx | Cleanup, cosmetic fixes, declarative improvements     |
+| 🔴 P0-1k | Security incidents, system down, data loss prevention |
+| 🟠 P2-3k | Important fixes, migrations, breaking changes         |
+| 🟡 P4-5k | Infrastructure improvements, agenix, monitoring       |
+| 🟢 P6-7k | Cleanup, cosmetic fixes, declarative improvements     |
+| ⚪ P8-9k | Future ideas, nice-to-have, research                  |
 
 ---
 

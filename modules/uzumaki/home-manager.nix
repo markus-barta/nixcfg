@@ -90,6 +90,9 @@ in
 
     home.packages = [
       pkgs.pingt # Timestamped ping with color-coded output
+      pkgs.watch # Run command repeatedly, showing output (not in macOS by default)
+      pkgs.age # Modern encryption tool (reference implementation)
+      pkgs.nixfleet-agent # Fleet management agent CLI
     ]
     ++ lib.optionals cfg.zellij.enable [ pkgs.zellij ];
 
@@ -100,5 +103,35 @@ in
     # The stasysmo/home-manager.nix module handles launchd service setup
 
     services.stasysmo.enable = cfg.stasysmo.enable;
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Nix Configuration (NCPS Binary Cache Proxy)
+    # ══════════════════════════════════════════════════════════════════════════
+    # hsb0.lan provides a local cache for the home network.
+    # We always manage the file (file handles), but only add the local cache
+    # entries if uzumaki.ncps.enable is true.
+    nix.package = pkgs.nix;
+    nix.settings = {
+      # Allow flakes and nix-command (required for nix flake commands)
+      experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
+
+      substituters = lib.mkOverride 0 (
+        [
+          "https://cache.nixos.org"
+          "https://nix-community.cachix.org"
+        ]
+        ++ lib.optionals cfg.ncps.enable [ "http://hsb0.lan:8501" ]
+      );
+      trusted-public-keys = lib.mkOverride 0 (
+        [
+          "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+          "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+        ]
+        ++ lib.optionals cfg.ncps.enable [ "hsb0.lan-1:jKVnVnEwJPaevI5NyBKBtk7mJGPQ3EMlIoPb7VmPcD0=" ]
+      );
+    };
   };
 }

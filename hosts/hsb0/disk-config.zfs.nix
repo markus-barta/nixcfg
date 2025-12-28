@@ -70,6 +70,18 @@
               mountpoint = "legacy";
             };
           };
+          ncps = {
+            type = "zfs_fs";
+            mountpoint = "/var/lib/ncps";
+            options = {
+              mountpoint = "legacy";
+              quota = "50G";
+              "com.sun:auto-snapshot" = "false";
+            };
+            # RESILIENCE: Do not block boot if this mount fails.
+            # This prevents the server from entering emergency mode for a non-critical cache.
+            mountOptions = [ "nofail" ];
+          };
         };
       };
     };
