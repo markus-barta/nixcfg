@@ -378,5 +378,22 @@ in
     };
 
     # Fish syntax highlighting: see +pm/backlog/2025-12-07-fish-tokyo-night-syntax.md
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # NIXFLEET AGENT - Theme color wiring
+    # See: P7200-host-colors-single-source-of-truth.md
+    # ══════════════════════════════════════════════════════════════════════════
+    # Theme color wiring is handled OUTSIDE this module:
+    #
+    # - NixOS: System-level service → wired in modules/uzumaki/default.nix
+    # - macOS: Home Manager service → wired in each host's home.nix using
+    #          config.theme.palette.gradient.primary
+    #
+    # WHY NOT HERE: The Nix module system declares option paths before evaluating
+    # conditions. On NixOS with HM integration, this module is imported into the
+    # home-manager.users.* context, where services.nixfleet-agent doesn't exist
+    # (it's a NixOS system service). Any attempt to set services.nixfleet-agent.*
+    # here causes "option does not exist" errors, regardless of lib.mkIf/optionalAttrs.
+    # ══════════════════════════════════════════════════════════════════════════
   };
 }

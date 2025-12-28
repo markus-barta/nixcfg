@@ -51,12 +51,43 @@ sudo nixos-rebuild switch --rollback
 
 ---
 
+## 📂 File Management & Symlinks
+
+### The Prime Directive
+
+**Every managed file is a symlink. If it's not a symlink, it's not managed.**
+
+Managed files point back to the `nixcfg` repository to ensure version control. Runtime data is stored in unmanaged directories.
+
+| Symlink Path                            | Repo Target                                | Purpose                          |
+| --------------------------------------- | ------------------------------------------ | -------------------------------- |
+| `~/docker`                              | `hosts/hsb1/docker/`                       | Docker Compose & service configs |
+| `~/scripts`                             | `hosts/hsb1/users/mba/scripts/`            | User maintenance scripts         |
+| `/home/kiosk/.config/openbox/autostart` | `hosts/hsb1/users/kiosk/openbox/autostart` | Kiosk startup sequence           |
+| `/home/kiosk/scripts/`                  | `hosts/hsb1/users/kiosk/scripts/`          | Kiosk control scripts            |
+
+**Data Storage:**
+
+- Runtime data (unmanaged): `~/docker-data/`
+- Configuration (managed): `~/Code/nixcfg/hosts/hsb1/`
+
+---
+
 ## Health Checks
 
 ### Quick Status
 
 ```bash
 ssh mba@192.168.1.101 "docker ps && zpool status | head -10"
+```
+
+### NCPS Binary Cache (hsb0)
+
+Verified that the local cache is being used:
+
+```bash
+nix build nixpkgs#cowsay --no-link -L
+# Should show: copying path '...' from 'http://hsb0.lan:8501'
 ```
 
 ### Container Status
@@ -168,6 +199,24 @@ docker exec mosquitto mosquitto_sub -h localhost -u smarthome -P '<password>' \
 ```bash
 ssh mba@192.168.1.101 "apcaccess status"
 ```
+
+---
+
+## 🔴 Critical Known Issues (Gotchas)
+
+### PAM/SSH Lockout (Restic Wrapper Bug)
+
+**Symptom:** SSH access denied for all users, including with correct keys.
+**Root Cause:** If `security.wrappers.restic.capabilities` is defined in multiple places (e.g., `common.nix` and `hokage`), the string can become duplicated (e.g., `cap_dac_read_search=+ep,cap_dac_read_search=+ep`).
+**Impact:** `setcap` fails, `suid-sgid-wrappers.service` fails, `/run/wrappers/bin/unix_chkpwd` is NOT created. PAM fails to verify passwords/accounts.
+**Fix:** Always use `lib.mkForce` for restic capabilities in `modules/common.nix`.
+**Verification:** `ls -la /run/wrappers/bin/unix_chkpwd` must exist.
+
+### Kiosk Autologin Failure
+
+**Symptom:** OpenBox/LightDM login screen appears instead of VLC kiosk.
+**Cause:** Display manager sometimes starts before user sessions are fully configured after a rebuild.
+**Fix:** `sudo systemctl restart display-manager.service`.
 
 ---
 
@@ -301,8 +350,8 @@ ssh mba@192.168.1.101 "journalctl -f"
 | opus-stream-to-mqtt | `node:alpine`                                             | OPUS gateway → MQTT bridge   | host         |
 | smtp                | `namshi/smtp`                                             | Mail relay (via Hover)       | bridge       |
 | restic-cron-hetzner | custom build                                              | Daily backups to Hetzner     | -            |
-| watchtower-weekly   | `containrrr/watchtower:latest`                            | Weekly updates (Sat 5am)     | -            |
-| watchtower-pidicon  | `containrrr/watchtower:latest`                            | Fast pidicon updates (10s)   | -            |
+| watchtower-weekly   | `beatkind/watchtower:latest`                              | Weekly updates (Sat 5am)     | -            |
+| watchtower-pidicon  | `beatkind/watchtower:latest`                              | Fast pidicon updates (10s)   | -            |
 
 ### Key Paths
 
@@ -386,8 +435,26 @@ If hostname changes, HA MQTT will break. Always use `localhost`.
 
 ---
 
+## 🔐 Secrets Inventory
+
+| File                           | Purpose                      | Service             |
+| ------------------------------ | ---------------------------- | ------------------- |
+| `smarthome.env`                | Main smart home credentials  | HA, Node-RED        |
+| `zigbee2mqtt.env`              | Z2M MQTT credentials         | zigbee2mqtt         |
+| `mqtt.env`                     | MQTT broker credentials      | mosquitto           |
+| `watchtower.env`               | Notification URLs            | watchtower          |
+| `fritz.env`                    | Fritz!Box credentials        | maintenance scripts |
+| `pidicon.env`                  | Pixoo display config         | pidicon             |
+| `github.env`                   | GitHub container registry    | watchtower          |
+| `ghcr.env`                     | GHCR login token             | docker login        |
+| `/etc/secrets/mqtt.env`        | System-wide MQTT credentials | agenix managed      |
+| `/etc/secrets/tapoC210-00.env` | Camera/VLC credentials       | agenix managed      |
+
+---
+
 ## Related Documentation
 
+- [SMARTHOME.md](./SMARTHOME.md#🏆-naming--ux-best-practices) - UX and Naming Best Practices (HomeKit/Z2M)
 - [hsb1 README](../README.md) - Full server documentation
 - [hsb0 Runbook](../../hsb0/docs/RUNBOOK.md) - DNS/DHCP server (dependency)
 - [SECRETS.md](../secrets/SECRETS.md) - All service credentials (gitignored)

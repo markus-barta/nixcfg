@@ -1,4 +1,5 @@
 {
+  config,
   pkgs,
   lib,
   inputs,
@@ -30,6 +31,8 @@ in
     nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
     location = "work";
     deviceType = "desktop";
+    # Theme color from palette (P7200 - single source of truth)
+    themeColor = config.theme.palette.gradient.primary;
   };
 
   # ============================================================================
@@ -40,6 +43,7 @@ in
     role = "workstation";
     fish.editor = "nano";
     stasysmo.enable = true; # System metrics in Starship prompt
+    ncps.enable = false; # Work iMac: Never sees hsb0
   };
 
   # Theme configuration - set hostname for palette lookup
@@ -260,7 +264,7 @@ in
   home.activation.installMacOSFonts = macosCommon.fontActivation pkgs;
 
   # macOS app linking (from shared config)
-  # TEMPORARILY DISABLED - was hanging during remote switch
+  # DISABLED: Requires UI interaction (Finder permission) - see RUNBOOK.md
   # home.activation.linkMacOSApps = macosCommon.appLinkActivation;
 
   # ============================================================================

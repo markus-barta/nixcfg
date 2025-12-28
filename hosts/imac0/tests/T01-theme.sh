@@ -114,10 +114,11 @@ check_file_contains "$HOME/.config/starship.toml" '\[jobs\]' "Background jobs co
 print_test "T01.3 - Starship Colors (warmGray palette)"
 
 # These are the warmGray gradient colors from theme-palettes.nix
+# Updated to match actual palette values (P7200 fix)
 check_file_contains "$HOME/.config/starship.toml" "#d8d4d0" "Lightest gradient color present"
 check_file_contains "$HOME/.config/starship.toml" "#a8a098" "Primary gradient color present"
-check_file_contains "$HOME/.config/starship.toml" "#888e98" "Secondary gradient color present"
-check_file_contains "$HOME/.config/starship.toml" "#181a1c" "Darkest gradient color present"
+check_file_contains "$HOME/.config/starship.toml" "#888078" "Secondary gradient color present"
+check_file_contains "$HOME/.config/starship.toml" "#181614" "Darkest gradient color present"
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T01.4 - Zellij Configuration File

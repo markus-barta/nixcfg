@@ -94,6 +94,16 @@ sudo nixos-rebuild switch --rollback
 
 ---
 
+## 🏗️ Uzumaki & Hokage Pattern
+
+`csb0` is an **External Hokage Consumer**. It consumes the base server configuration from the global `hokage` module but applies local customizations via the `uzumaki` namespace.
+
+- **Status**: Enabled (`uzumaki.enable = true`)
+- **Role**: `server`
+- **Indicator**: The `nixbit` command should be available and working.
+
+---
+
 ## Docker Services
 
 ### All Containers (9 running)
@@ -185,12 +195,16 @@ VNC console access. Password stored in 1Password under "csb0 csb1 recovery".
 
 ⚠️ **CRITICAL**: Subnet is `/22` (NOT `/24`!) - Gateway is at `.64.1`, not `.65.1`.
 
-**Incident (2025-12-06)**: Server locked out due to wrong subnet/gateway.
-Fixed after DHCP analysis from Gen 22. See [MIGRATION-PLAN-HOKAGE.md](./MIGRATION-PLAN-HOKAGE.md) for incident details.
+### 🚨 Historical Incident: 2025-12-06 Network Lockout
+
+**Symptom:** Server became unreachable immediately after `nixos-rebuild switch`.
+**Root Cause:** The configuration assumed a `/24` subnet and a gateway at `.65.1` (based on `csb1` patterns). However, `csb0` is on a `/22` network where the gateway is at the start of the range: `85.235.64.1`.
+**VNC Recovery Note:** The Netcup VNC console has severe keyboard mapping issues. Colons `:`, hyphens `-`, and pipes `|` often cannot be typed.
+**Fix:** Always verify gateway via DHCP (`journalctl` or `ip route`) before applying static IP config.
 
 ### If SSH Fails
 
-1. Login to Netcup SCP (https://www.servercontrolpanel.de/SCP)
+1. Login to Netcup SCP (<https://www.servercontrolpanel.de/SCP>)
 2. Navigate to server, open VNC console
 3. Login as `mba` with recovery password (see 1Password)
 
@@ -257,7 +271,7 @@ curl -X POST "https://servercontrolpanel.de/scp-core/api/v1/servers/607878/reset
 
 ## Backup System
 
-### 🚨 CRITICAL: csb0 is the Cleanup Manager!
+### 🚨 CRITICAL: csb0 is the Cleanup Manager
 
 **⚠️ csb0 manages cleanup for BOTH csb0 and csb1 backups!**
 
@@ -309,6 +323,36 @@ IoT Devices → MQTT (csb0) → InfluxDB (csb1) → Grafana (csb1)
 
 ---
 
+## Telegram Bot Architecture
+
+### Bots Overview
+
+| Bot              | Username              | Purpose                                     | Token Location                      |
+| ---------------- | --------------------- | ------------------------------------------- | ----------------------------------- |
+| **Building Bot** | `@janischhofweg22bot` | Smart home control (garage, doors, cameras) | `JHW22_BOT_TOKEN` in `telegram.env` |
+| **CSB0 Bot**     | `@csb0bot`            | Legacy/test bot (NOT actively used)         | `CSB0_BOT_TOKEN` in `telegram.env`  |
+
+### Active Bot: @janischhofweg22bot
+
+This is the **production bot** used by building residents for:
+
+- `/zufahrt` - Open driveway gate
+- `/smartlock` - Control door lock
+- `/keller` - Access cellar
+- `/kamera` - View camera feeds
+- `/pp20ein`, `/pp20aus` - Parking space controls
+
+**User permissions** are defined in Node-RED flows (`flows.json` → `userConfig` object) by Telegram user ID.
+
+### Cross-Server Communication
+
+Both `csb0` and `hsb1` use the SAME `@janischhofweg22bot` token:
+
+- **CSB0**: Handles interactive commands (via Node-RED Telegram nodes).
+- **HSB1**: Sends notifications via Apprise (one-way).
+
+---
+
 ## Maintenance
 
 ### Clean Up Disk Space
@@ -331,11 +375,11 @@ ssh mba@cs0.barta.cm -p 2222 "journalctl -f"
 
 ## Web Interfaces
 
-| Service   | URL                                    |
-| --------- | -------------------------------------- |
-| Node-RED  | https://home.barta.cm                  |
-| Bitwarden | https://bitwarden.barta.cm (TEST ONLY) |
-| MQTT      | mosquitto.barta.cm:8883 (TLS)          |
+| Service   | URL                                      |
+| --------- | ---------------------------------------- |
+| Node-RED  | <https://home.barta.cm>                  |
+| Bitwarden | <https://bitwarden.barta.cm> (TEST ONLY) |
+| MQTT      | mosquitto.barta.cm:8883 (TLS)            |
 
 ---
 
