@@ -5,8 +5,8 @@ on:
     - cron: "0 3 * * 0" # Runs every Sunday at 3am UTC
 
 jobs:
-  create-pr:
-    name: Create Pull Request
+  update-and-merge:
+    name: Update and Auto-Merge
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -17,6 +17,7 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
       - name: Update flake.lock
+        id: update
         uses: DeterminateSystems/update-flake-lock@main
         with:
           # https://github.com/DeterminateSystems/update-flake-lock?tab=readme-ov-file#with-a-personal-authentication-token
@@ -32,3 +33,15 @@ jobs:
           # git-author-email: 'patrizio@bekerle.com'
           # git-committer-name: 'Patrizio Bekerle'
           # git-committer-email: 'patrizio@bekerle.com'
+
+      # Auto-merge the PR immediately (user doesn't want manual merges)
+      # See: +pm/backlog/P7400-auto-merge-flake-lock-prs.md
+      - name: Auto-merge PR
+        if: steps.update.outputs.pull-request-number != ''
+        run: |
+          gh pr merge ${{ steps.update.outputs.pull-request-number }} \
+            --merge \
+            --delete-branch \
+            --admin
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
