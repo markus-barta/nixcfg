@@ -63,7 +63,7 @@ Monthly cron: `0 3 1 * * ~/docker/scripts/influxdb3-snapshot-cleanup.sh`
 
 ## Priority
 
-Low — ulimits increase prevents immediate recurrence. Cleanup is preventive maintenance.
+P6 (Low) — ulimits increase prevents immediate recurrence. Cleanup is preventive maintenance.
 
 ## Related
 

@@ -30,7 +30,7 @@ fi
 
 # Test 2: Configuration directory exists
 echo -n "Test 2: Configuration directory... "
-if ssh "$SSH_USER@$HOST" 'test -d ~/nixcfg/hosts/gpc0' &>/dev/null; then
+if ssh "$SSH_USER@$HOST" 'test -d ~/Code/nixcfg/hosts/gpc0' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
