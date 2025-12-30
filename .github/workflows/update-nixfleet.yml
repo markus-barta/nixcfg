@@ -84,6 +84,7 @@ jobs:
         run: |
           # Get the actual latest commit SHA (after our push)
           COMMIT_SHA=$(git rev-parse HEAD)
+          LOCK_HASH=$(sha256sum flake.lock | cut -d' ' -f1)
           mkdir -p _site
           cat > _site/version.json << EOF
           {
@@ -91,7 +92,8 @@ jobs:
             "message": $(git log -1 --format='%s' | jq -Rs .),
             "branch": "main",
             "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "repo": "${{ github.repository }}"
+            "repo": "${{ github.repository }}",
+            "lockHash": "${LOCK_HASH}"
           }
           EOF
           cat _site/version.json
