@@ -15,9 +15,13 @@ let
     pkgs.writers.writePython3 "child-keyboard-fun"
       {
         libraries = with pkgs.python3Packages; [ evdev ];
+        flakeIgnore = [
+          "E265"
+          "E501"
+        ]; # Ignore shebang format and line length (Nix paths)
       }
       ''
-        #! /usr/bin/env python3
+        #!/usr/bin/env python3
         import evdev
         import subprocess
         import os
