@@ -59,9 +59,11 @@ let
 
             # Use mpg123 for MP3, aplay for WAV
             if str(sound_file).endswith('.mp3'):
-                subprocess.Popen(['${pkgs.mpg123}/bin/mpg123', '-q', str(sound_file)])
+                cmd = ['${pkgs.mpg123}/bin/mpg123', '-q', str(sound_file)]
             else:
-                subprocess.Popen(['${pkgs.alsa-utils}/bin/aplay', '-q', str(sound_file)])
+                cmd = ['${pkgs.alsa-utils}/bin/aplay', '-q', str(sound_file)]
+            subprocess.Popen(cmd)
+
 
         def main():
             # Load configuration
