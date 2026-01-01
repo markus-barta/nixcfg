@@ -17,13 +17,13 @@ let
         libraries = with pkgs.python3Packages; [ evdev ];
       }
       ''
-            #!/usr/bin/env python3
-            import evdev
-            import subprocess
-            import os
-            import random
-            import sys
-            from pathlib import Path
+        #!/usr/bin/env python3
+        import evdev
+        import subprocess
+        import os
+        import random
+        import sys
+        from pathlib import Path
 
         def load_env(env_file):
             """Simple .env file parser"""
