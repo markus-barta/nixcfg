@@ -62,15 +62,15 @@ let
                 print(f"Warning: Sound file {sound_file} not found")
                 return
 
-            # Play through kiosk user's PipeWire session (same as baby cam)
-            # This allows both to play simultaneously
-            env = os.environ.copy()
-            env['XDG_RUNTIME_DIR'] = '/run/user/1001'  # kiosk user
+            # Run paplay as kiosk user to access their PipeWire session
+            # This allows keyboard sounds to play alongside baby cam
             subprocess.Popen([
+                '${pkgs.sudo}/bin/sudo',
+                '-u', 'kiosk',
                 '${pkgs.pulseaudio}/bin/paplay',
-                '--volume=45875',  # ~70% volume (65536 = 100%)
+                '--volume=45875',  # ~70% volume
                 str(sound_file)
-            ], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
         def main():
