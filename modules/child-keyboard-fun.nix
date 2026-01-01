@@ -66,10 +66,10 @@ let
             # This works alongside VLC which uses PipeWire
             subprocess.Popen([
                 '${pkgs.ffmpeg-headless}/bin/ffplay',
-                '-nodisp',           # No display
-                '-autoexit',         # Exit when done
-                '-loglevel', 'quiet', # Quiet
-                '-af', 'volume=0.7',  # 70% volume to not overpower baby cam
+                '-nodisp',  # No display
+                '-autoexit',  # Exit when done
+                '-loglevel', 'quiet',  # Quiet
+                '-af', 'volume=0.7',  # 70% volume
                 str(sound_file)
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
