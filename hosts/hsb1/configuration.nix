@@ -61,7 +61,7 @@
   # 5. _netdev: Wait for network before attempting mount
   # ============================================================================
   fileSystems."/mnt/fritzbox-media" = {
-    device = "//192.168.1.5/fritz.nas";
+    device = "//192.168.1.5/vr-fritz-box-smb";
     fsType = "cifs";
     options = [
       "credentials=/run/agenix/fritzbox-smb-credentials"
