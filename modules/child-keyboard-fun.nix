@@ -57,19 +57,17 @@ let
 
 
         def play_sound(sound_file):
-            """Play sound using ALSA directly (works alongside VLC/Pipewire)"""
+            """Play sound using sox (works alongside VLC/Pipewire)"""
             if not os.path.exists(sound_file):
                 print(f"Warning: Sound file {sound_file} not found")
                 return
 
-            # Use ffplay with ALSA output for both MP3 and WAV
-            # This works alongside VLC which uses PipeWire
+            # Use sox play command - works with both MP3 and WAV
+            # Volume at 0.7 to not overpower baby cam
             subprocess.Popen([
-                '${pkgs.ffmpeg-headless}/bin/ffplay',
-                '-nodisp',  # No display
-                '-autoexit',  # Exit when done
-                '-loglevel', 'quiet',  # Quiet
-                '-af', 'volume=0.7',  # 70% volume
+                '${pkgs.sox}/bin/play',
+                '-q',  # Quiet
+                '-v', '0.7',  # 70% volume
                 str(sound_file)
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
