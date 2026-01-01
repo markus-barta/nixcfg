@@ -50,6 +50,36 @@
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
 
+  # ============================================================================
+  # FRITZ!BOX SMB MOUNT - Plex Media Storage
+  # ============================================================================
+  # RESILIENCE: Multiple layers prevent boot failure if mount unavailable:
+  # 1. nofail: Boot continues if mount fails
+  # 2. x-systemd.automount: Mount on-demand, not at boot
+  # 3. x-systemd.idle-timeout: Unmount when idle (reduces lock issues)
+  # 4. x-systemd.device-timeout: Give up quickly if device unavailable
+  # 5. _netdev: Wait for network before attempting mount
+  # ============================================================================
+  fileSystems."/mnt/fritzbox-media" = {
+    device = "//192.168.1.5/500GB_NTFS";
+    fsType = "cifs";
+    options = [
+      "credentials=/run/agenix/fritzbox-smb-credentials"
+      "uid=1000" # mba user
+      "gid=100" # users group
+      "iocharset=utf8"
+      "file_mode=0644"
+      "dir_mode=0755"
+      # RESILIENCE OPTIONS (prevent boot failure):
+      "nofail" # Don't fail boot if mount unavailable
+      "x-systemd.automount" # Mount on first access, not at boot
+      "x-systemd.idle-timeout=300" # Unmount after 5min idle
+      "x-systemd.device-timeout=10" # Give up after 10s if device unavailable
+      "x-systemd.mount-timeout=10" # Give up after 10s if mount fails
+      "_netdev" # Wait for network before attempting
+    ];
+  };
+
   # Networking configuration
   networking = {
     nameservers = [
@@ -109,6 +139,7 @@
         1880 # Node-RED Web UI
         1883 # MQTT
         9000 # Portainer web
+        32400 # Plex Media Server
         51827 # HomeKit accessory communication
         554 # HomeKit Secure Video RTSP
         5223 # HomeKit notifications (APNS, Apple Push Notification Service)
@@ -423,6 +454,17 @@
       Persistent = true; # Run if missed (e.g., system was off)
       RandomizedDelaySec = "2min"; # Slight randomization
     };
+  };
+
+  # ============================================================================
+  # AGENIX SECRETS
+  # ============================================================================
+
+  # Fritz!Box SMB credentials for Plex media mount
+  age.secrets.fritzbox-smb-credentials = {
+    file = ../../secrets/fritzbox-smb-credentials.age;
+    mode = "400";
+    owner = "root";
   };
 
   # ============================================================================
