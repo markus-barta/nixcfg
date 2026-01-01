@@ -17,13 +17,13 @@ let
         libraries = with pkgs.python3Packages; [ evdev ];
       }
       ''
-        #!/usr/bin/env python3
-        import evdev
-        import subprocess
-        import os
-        import random
-        import sys
-        from pathlib import Path
+            #!/usr/bin/env python3
+            import evdev
+            import subprocess
+            import os
+            import random
+            import sys
+            from pathlib import Path
 
         def load_env(env_file):
             """Simple .env file parser"""
@@ -31,7 +31,7 @@ let
             if not os.path.exists(env_file):
                 print(f"Error: Config file {env_file} not found")
                 sys.exit(1)
-            
+
             with open(env_file, 'r') as f:
                 for line in f:
                     line = line.strip()
@@ -39,6 +39,7 @@ let
                         key, value = line.split('=', 1)
                         config[key.strip()] = value.strip()
             return config
+
 
         def get_sound_files(sound_dir):
             """Get list of audio files in directory"""
@@ -49,12 +50,13 @@ let
             mp3_files = list(Path(sound_dir).glob('*.mp3'))
             return wav_files + mp3_files
 
+
         def play_sound(sound_file):
             """Play sound using appropriate player (non-blocking)"""
             if not os.path.exists(sound_file):
                 print(f"Warning: Sound file {sound_file} not found")
                 return
-            
+
             # Use mpg123 for MP3, aplay for WAV
             if str(sound_file).endswith('.mp3'):
                 subprocess.Popen(['${pkgs.mpg123}/bin/mpg123', '-q', str(sound_file)])
@@ -65,46 +67,46 @@ let
             # Load configuration
             env_file = os.getenv('KEYBOARD_FUN_CONFIG', '/etc/child-keyboard-fun.env')
             config = load_env(env_file)
-            
+
             device_path = config.get('KEYBOARD_DEVICE')
             sound_dir = config.get('SOUND_DIR')
-            
+
             if not device_path:
                 print("Error: KEYBOARD_DEVICE not set in config")
                 sys.exit(1)
-            
+
             if not sound_dir:
                 print("Error: SOUND_DIR not set in config")
                 sys.exit(1)
-            
+
             # Get available sound files
             sound_files = get_sound_files(sound_dir)
             if not sound_files:
-                print(f"Warning: No .wav files found in {sound_dir}")
-            
+                print(f"Warning: No audio files found in {sound_dir}")
+
             # Build key mapping from config
             key_mappings = {}
             for key, value in config.items():
                 if key.startswith('KEY_'):
                     key_name = key[4:]  # Remove 'KEY_' prefix
                     key_mappings[key_name] = value
-            
-            print(f"Child Keyboard Fun starting...")
+
+            print("Child Keyboard Fun starting...")
             print(f"Device: {device_path}")
             print(f"Sound directory: {sound_dir}")
             print(f"Available sounds: {len(sound_files)}")
             print(f"Key mappings: {len(key_mappings)}")
-            
+
             # Open and grab the keyboard device
             try:
                 device = evdev.InputDevice(device_path)
             except Exception as e:
                 print(f"Error opening device {device_path}: {e}")
                 sys.exit(1)
-            
+
             print(f"Grabbed device: {device.name}")
             device.grab()
-            
+
             # Event loop
             try:
                 for event in device.read_loop():
@@ -114,11 +116,11 @@ let
                             key_name = key_event.keycode
                             if isinstance(key_name, list):
                                 key_name = key_name[0]
-                            
+
                             # Remove KEY_ prefix if present
                             if key_name.startswith('KEY_'):
                                 key_name = key_name[4:]
-                            
+
                             # Check if key has specific mapping
                             if key_name in key_mappings:
                                 action = key_mappings[key_name]
@@ -136,11 +138,12 @@ let
                                 if sound_files:
                                     sound_file = random.choice(sound_files)
                                     play_sound(sound_file)
-            
+
             except KeyboardInterrupt:
                 print("\nStopping...")
             finally:
                 device.ungrab()
+
 
         if __name__ == '__main__':
             main()
