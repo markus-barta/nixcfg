@@ -17,13 +17,14 @@ let
         libraries = with pkgs.python3Packages; [ evdev ];
       }
       ''
-        #!/usr/bin/env python3
+        #! /usr/bin/env python3
         import evdev
         import subprocess
         import os
         import random
         import sys
         from pathlib import Path
+
 
         def load_env(env_file):
             """Simple .env file parser"""
@@ -59,10 +60,10 @@ let
 
             # Use mpg123 for MP3, aplay for WAV
             if str(sound_file).endswith('.mp3'):
-                cmd = ['${pkgs.mpg123}/bin/mpg123', '-q', str(sound_file)]
+                player = '${pkgs.mpg123}/bin/mpg123'
             else:
-                cmd = ['${pkgs.alsa-utils}/bin/aplay', '-q', str(sound_file)]
-            subprocess.Popen(cmd)
+                player = '${pkgs.alsa-utils}/bin/aplay'
+            subprocess.Popen([player, '-q', str(sound_file)])
 
 
         def main():
