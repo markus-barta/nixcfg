@@ -88,4 +88,9 @@ in
   # Edit: agenix -e secrets/ncps-key.age
   "ncps-key.age".publicKeys = markus ++ hsb0;
 
+  # Fritz!Box SMB share credentials for Plex on hsb1
+  # Format: KEY=VALUE lines (username, password, domain)
+  # Edit: agenix -e secrets/fritzbox-smb-credentials.age
+  "fritzbox-smb-credentials.age".publicKeys = markus ++ hsb1;
+
 }
