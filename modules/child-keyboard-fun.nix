@@ -204,7 +204,7 @@ in
         NoNewPrivileges = true;
         PrivateTmp = true;
         ProtectSystem = "strict";
-        ProtectHome = true;
+        ProtectHome = "read-only"; # Need to read sound files from home
         ReadOnlyPaths = [ cfg.configFile ];
       };
     };
