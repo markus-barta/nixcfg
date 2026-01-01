@@ -57,17 +57,21 @@ let
 
 
         def play_sound(sound_file):
-            """Play sound using appropriate player (non-blocking)"""
+            """Play sound using ALSA directly (works alongside VLC/Pipewire)"""
             if not os.path.exists(sound_file):
                 print(f"Warning: Sound file {sound_file} not found")
                 return
 
-            # Use mpg123 for MP3, aplay for WAV
-            if str(sound_file).endswith('.mp3'):
-                player = '${pkgs.mpg123}/bin/mpg123'
-            else:
-                player = '${pkgs.alsa-utils}/bin/aplay'
-            subprocess.Popen([player, '-q', str(sound_file)])
+            # Use ffplay with ALSA output for both MP3 and WAV
+            # This works alongside VLC which uses PipeWire
+            subprocess.Popen([
+                '${pkgs.ffmpeg-headless}/bin/ffplay',
+                '-nodisp',           # No display
+                '-autoexit',         # Exit when done
+                '-loglevel', 'quiet', # Quiet
+                '-af', 'volume=0.7',  # 70% volume to not overpower baby cam
+                str(sound_file)
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
         def main():
