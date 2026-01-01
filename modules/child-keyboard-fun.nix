@@ -200,17 +200,9 @@ in
         # Environment
         Environment = "KEYBOARD_FUN_CONFIG=${cfg.configFile}";
 
-        # Security - relaxed for input/audio device access
-        NoNewPrivileges = true;
+        # Security - minimal restrictions for device access
         ProtectHome = "read-only"; # Need to read sound files from home
         ReadOnlyPaths = [ cfg.configFile ];
-
-        # Device access - allow all devices (needed for input and audio)
-        DevicePolicy = "closed";
-        DeviceAllow = [
-          "char-input rw" # Input devices
-          "char-sound rw" # Sound devices
-        ];
       };
     };
   };
