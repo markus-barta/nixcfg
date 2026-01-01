@@ -73,10 +73,16 @@
       # RESILIENCE OPTIONS (prevent boot failure):
       "nofail" # Don't fail boot if mount unavailable
       "x-systemd.automount" # Mount on first access, not at boot
-      "x-systemd.idle-timeout=300" # Unmount after 5min idle
+      "x-systemd.idle-timeout=0" # Never auto-unmount (prevent stale handles)
       "x-systemd.device-timeout=10" # Give up after 10s if device unavailable
       "x-systemd.mount-timeout=10" # Give up after 10s if mount fails
       "_netdev" # Wait for network before attempting
+      # CIFS STABILITY OPTIONS (prevent stale file handles):
+      "vers=3.0" # Use SMB3 protocol
+      "cache=loose" # Better performance, cache aggressively
+      "actimeo=30" # Attribute cache timeout
+      "noserverino" # Don't use server-provided inode numbers
+      "noperm" # Don't check permissions on client side
     ];
   };
 
