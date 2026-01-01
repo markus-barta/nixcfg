@@ -209,6 +209,45 @@ All containers run with host network access and DNS resolution:
 - **ZFS**: Auto-scrubbing enabled
 - **FLIRC IR-USB**: Remote control support
 - **Bluetooth**: Enabled
+- **Child Keyboard Fun**: ACME BK03 Bluetooth keyboard for interactive sound playback (see below)
+
+### Child's Bluetooth Keyboard Fun System
+
+Interactive system that plays sounds when keys are pressed on the ACME BK03 Bluetooth keyboard.
+
+**Hardware**: ACME BK03 (MAC: `20:73:00:04:21:4F`) at `/dev/input/event0`
+
+**Setup**:
+
+1. Create sound directory:
+
+   ```bash
+   mkdir -p ~/child-keyboard-sounds
+   # Add .wav files to this directory
+   ```
+
+2. Create configuration file:
+
+   ```bash
+   sudo cp /home/mba/Code/nixcfg/examples/child-keyboard-fun.env /etc/child-keyboard-fun.env
+   sudo nano /etc/child-keyboard-fun.env
+   ```
+
+3. Enable the service in `configuration.nix`:
+
+   ```nix
+   services.child-keyboard-fun.enable = true;
+   ```
+
+4. Rebuild and test:
+   ```bash
+   just switch
+   sudo systemctl status child-keyboard-fun
+   ```
+
+**Configuration**: Edit `/etc/child-keyboard-fun.env` to map specific keys to specific sounds.
+
+**Pairing**: See [Runbook - Bluetooth Devices](./docs/RUNBOOK.md#bluetooth-devices) for BK03 pairing instructions.
 
 ## Relationship with hsb0
 
