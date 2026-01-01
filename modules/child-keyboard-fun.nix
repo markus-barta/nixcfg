@@ -57,19 +57,20 @@ let
 
 
         def play_sound(sound_file):
-            """Play sound using sox (works alongside VLC/Pipewire)"""
+            """Play sound via kiosk user's PipeWire (same as VLC)"""
             if not os.path.exists(sound_file):
                 print(f"Warning: Sound file {sound_file} not found")
                 return
 
-            # Use sox play command - works with both MP3 and WAV
-            # Volume at 0.7 to not overpower baby cam
+            # Play through kiosk user's PipeWire session (same as baby cam)
+            # This allows both to play simultaneously
+            env = os.environ.copy()
+            env['XDG_RUNTIME_DIR'] = '/run/user/1001'  # kiosk user
             subprocess.Popen([
-                '${pkgs.sox}/bin/play',
-                '-q',  # Quiet
-                '-v', '0.7',  # 70% volume
+                '${pkgs.pulseaudio}/bin/paplay',
+                '--volume=45875',  # ~70% volume (65536 = 100%)
                 str(sound_file)
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
         def main():
