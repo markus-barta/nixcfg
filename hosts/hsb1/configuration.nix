@@ -10,6 +10,7 @@
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
+    ../../modules/child-keyboard-fun.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
   ];
 
@@ -46,6 +47,15 @@
 
   # Enable bluetooth
   hardware.bluetooth.enable = true;
+
+  # Child's Bluetooth Keyboard Fun System
+  # Config: /etc/child-keyboard-fun.env
+  # Sounds: ~/child-keyboard-sounds/
+  services.child-keyboard-fun = {
+    enable = true;
+    user = "mba";
+    configFile = "/etc/child-keyboard-fun.env";
+  };
 
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
