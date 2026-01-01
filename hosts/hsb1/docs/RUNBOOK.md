@@ -452,6 +452,67 @@ If hostname changes, HA MQTT will break. Always use `localhost`.
 
 ---
 
+## Bluetooth Devices
+
+### ACME BK03 Keyboard (Child's Keyboard Fun System)
+
+**Device Details:**
+
+- **Name**: ACME BK03
+- **MAC Address**: `20:73:00:04:21:4F`
+- **Type**: Human Interface Device (HID) - Keyboard
+- **Class**: 0x00002540 (keyboard)
+- **Modalias**: usb:v04E8p7021d0001
+
+**Pairing Instructions:**
+
+1. **Put keyboard in pairing mode:**
+   - Turn on the keyboard (slide power switch to ON)
+   - Press and hold **ESC + K** for 3 seconds
+   - Red LED indicator will start blinking (pairing mode active for ~60 seconds)
+
+2. **Pair with hsb1:**
+
+```bash
+ssh mba@hsb1.lan
+
+# Start scanning (look for "ACME BK03" or MAC 20:73:00:04:21:4F)
+bluetoothctl scan on
+
+# In another terminal or after seeing the device:
+bluetoothctl pair 20:73:00:04:21:4F
+bluetoothctl trust 20:73:00:04:21:4F
+bluetoothctl connect 20:73:00:04:21:4F
+```
+
+3. **Verify connection:**
+
+```bash
+# Check Bluetooth status
+bluetoothctl info 20:73:00:04:21:4F
+
+# Find input device path
+cat /proc/bus/input/devices | grep -A 10 'ACME'
+# Look for: H: Handlers=... eventXX
+
+# The device will appear as /dev/input/eventXX (e.g., event17)
+```
+
+4. **Unpair/Remove:**
+
+```bash
+bluetoothctl remove 20:73:00:04:21:4F
+```
+
+**Notes:**
+
+- Pairing mode times out after ~60 seconds - be quick!
+- Device will appear as `/dev/input/eventXX` when connected
+- Used for the child-keyboard-fun system (see P8000 task)
+- Bluetooth keyboards don't appear in `/dev/input/by-id/` - use `/proc/bus/input/devices` to identify
+
+---
+
 ## Related Documentation
 
 - [SMARTHOME.md](./SMARTHOME.md#🏆-naming--ux-best-practices) - UX and Naming Best Practices (HomeKit/Z2M)
