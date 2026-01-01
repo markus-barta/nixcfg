@@ -57,6 +57,20 @@
     configFile = "/etc/child-keyboard-fun.env";
   };
 
+  # Allow mba user to run paplay as kiosk (for audio playback)
+  security.sudo.extraRules = [
+    {
+      users = [ "mba" ];
+      commands = [
+        {
+          command = "${pkgs.pulseaudio}/bin/paplay";
+          options = [ "NOPASSWD" ];
+          runAs = "kiosk";
+        }
+      ];
+    }
+  ];
+
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
 
