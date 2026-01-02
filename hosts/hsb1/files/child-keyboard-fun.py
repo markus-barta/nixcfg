@@ -195,6 +195,18 @@ def main():
 
     print(f"Opened device: {device.name}", flush=True)
     mqtt_log(f"Opened device: {device.name}")
+    
+    # Wait a moment for device to stabilize before grabbing
+    time.sleep(0.5)
+    
+    # Grab device exclusively to prevent VLC/X from seeing keys
+    try:
+        device.grab()
+        print("Device grabbed exclusively", flush=True)
+        mqtt_log("Device grabbed exclusively")
+    except Exception as e:
+        print(f"Warning: Could not grab device: {e}", flush=True)
+        mqtt_log(f"Warning: Could not grab device: {e}", "warning")
 
     # Event loop
     try:
@@ -243,11 +255,20 @@ def main():
     except KeyboardInterrupt:
         print("\nStopping...", flush=True)
         mqtt_log("Service stopping (KeyboardInterrupt)")
+    except OSError as e:
+        # Device disconnected (common with Bluetooth)
+        print(f"Device error (likely disconnected): {e}", flush=True)
+        mqtt_log(f"Device disconnected: {e}", "warning")
+        # systemd will auto-restart the service
     except Exception as e:
         print(f"Error: {e}", flush=True)
         mqtt_log(f"Service error: {e}", "error")
     finally:
         stop_all_sounds()
+        try:
+            device.ungrab()
+        except Exception:
+            pass  # Device might already be gone
         if mqtt_client:
             mqtt_client.loop_stop()
             mqtt_client.disconnect()
