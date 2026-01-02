@@ -213,8 +213,8 @@ def main():
     mqtt_log("Entering event loop")
     try:
         for event in device.read_loop():
-            print(f"DEBUG: Got event type={event.type}", flush=True)
             if event.type == evdev.ecodes.EV_KEY:
+                print(f"DEBUG: EV_KEY event detected", flush=True)
                 key_event = evdev.categorize(event)
                 if key_event.keystate == evdev.KeyEvent.key_down:
                     key_name = key_event.keycode
