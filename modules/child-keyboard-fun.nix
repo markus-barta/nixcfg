@@ -59,9 +59,11 @@ in
 
     # udev rule to prevent X/systemd-logind from grabbing ACME BK03
     # This allows our service to have exclusive access without bluetooth issues
+    # CRITICAL: Prevents power/suspend keys from shutting down the system
     services.udev.extraRules = ''
       # ACME BK03 Bluetooth Keyboard - for child-keyboard-fun only
-      SUBSYSTEM=="input", ATTRS{name}=="ACME BK03", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEYBOARD}="0", TAG-="seat", TAG-="uaccess"
+      # Remove all input/keyboard identification to prevent system from processing events
+      SUBSYSTEM=="input", ATTRS{name}=="ACME BK03", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{KEYBOARD_KEY_*}="reserved", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
     '';
 
     # systemd service
@@ -71,7 +73,14 @@ in
       after = [
         "bluetooth.target"
         "sound.target"
+        "network-online.target"
+        "multi-user.target"
       ];
+      wants = [ "bluetooth.target" ];
+      # Wait a bit for Bluetooth devices to settle after boot
+      preStart = ''
+        sleep 5
+      '';
 
       serviceConfig = {
         Type = "simple";
