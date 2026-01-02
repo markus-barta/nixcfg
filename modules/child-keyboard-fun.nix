@@ -76,7 +76,6 @@ in
       serviceConfig = {
         Type = "simple";
         User = "kiosk"; # Run as kiosk to access PipeWire session
-        Group = "kiosk";
         SupplementaryGroups = [
           "input"
           "audio"
