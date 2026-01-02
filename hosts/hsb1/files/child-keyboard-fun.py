@@ -194,6 +194,15 @@ def should_process_key(key_name):
     return True
 
 
+def find_device_by_name(device_name):
+    """Find input device by name"""
+    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    for device in devices:
+        if device.name == device_name:
+            return device.path
+    return None
+
+
 def main():
     global mqtt_client
 
@@ -203,6 +212,17 @@ def main():
 
     device_path = config.get('KEYBOARD_DEVICE')
     sound_dir = config.get('SOUND_DIR')
+
+    # If device path looks like a name (not starting with /), search for it
+    if device_path and not device_path.startswith('/'):
+        print(f"Searching for device by name: {device_path}", flush=True)
+        found_path = find_device_by_name(device_path)
+        if found_path:
+            device_path = found_path
+            print(f"Found device at: {device_path}", flush=True)
+        else:
+            print(f"Error: Device '{device_path}' not found", flush=True)
+            sys.exit(1)
 
     if not device_path:
         print("Error: KEYBOARD_DEVICE not set in config")
