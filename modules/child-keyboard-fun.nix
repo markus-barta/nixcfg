@@ -70,8 +70,11 @@ in
         Type = "simple";
         User = cfg.user;
         ExecStart = "${keyboardFunWrapper}";
+
+        # Auto-healing: restart on any failure
         Restart = "always";
-        RestartSec = "5";
+        RestartSec = "3"; # Quick restart for reconnection
+        StartLimitBurst = 0; # No limit on restart attempts
 
         # Environment
         Environment = "KEYBOARD_FUN_CONFIG=/etc/child-keyboard-fun.env";
