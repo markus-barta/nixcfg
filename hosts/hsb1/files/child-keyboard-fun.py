@@ -196,17 +196,10 @@ def main():
     print(f"Opened device: {device.name}", flush=True)
     mqtt_log(f"Opened device: {device.name}")
     
-    # Wait a moment for device to stabilize before grabbing
-    time.sleep(0.5)
-    
-    # Grab device exclusively to prevent VLC/X from seeing keys
-    try:
-        device.grab()
-        print("Device grabbed exclusively", flush=True)
-        mqtt_log("Device grabbed exclusively")
-    except Exception as e:
-        print(f"Warning: Could not grab device: {e}", flush=True)
-        mqtt_log(f"Warning: Could not grab device: {e}", "warning")
+    # Note: We don't grab() because it causes Bluetooth keyboards to disconnect
+    # Instead, udev rules prevent X/systemd-logind from accessing this device
+    print("Device ready (udev-isolated from X)", flush=True)
+    mqtt_log("Device ready (udev-isolated)")
 
     # Event loop
     try:
@@ -265,10 +258,6 @@ def main():
         mqtt_log(f"Service error: {e}", "error")
     finally:
         stop_all_sounds()
-        try:
-            device.ungrab()
-        except Exception:
-            pass  # Device might already be gone
         if mqtt_client:
             mqtt_client.loop_stop()
             mqtt_client.disconnect()
