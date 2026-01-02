@@ -218,7 +218,9 @@ def main():
             if event.type == evdev.ecodes.EV_KEY:
                 print(f"DEBUG: EV_KEY matched! Processing...", flush=True)
                 key_event = evdev.categorize(event)
+                print(f"DEBUG: keystate={key_event.keystate} key_down={evdev.KeyEvent.key_down}", flush=True)
                 if key_event.keystate == evdev.KeyEvent.key_down:
+                    print(f"DEBUG: Key down detected!", flush=True)
                     key_name = key_event.keycode
                     if isinstance(key_name, list):
                         key_name = key_name[0]
@@ -227,6 +229,7 @@ def main():
                     if key_name.startswith('KEY_'):
                         key_name = key_name[4:]
 
+                    print(f"DEBUG: Key name = {key_name}", flush=True)
                     mqtt_log(f"Key pressed: {key_name}")
 
                     # Special function: SPACE stops all sounds
