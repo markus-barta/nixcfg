@@ -234,28 +234,36 @@ def main():
 
                     # Special function: SPACE stops all sounds
                     if key_name == 'SPACE':
+                        print(f"DEBUG: SPACE key - stopping sounds", flush=True)
                         mqtt_log("SPACE pressed - stopping all sounds")
                         stop_all_sounds()
                         continue
 
                     # Check debounce
+                    print(f"DEBUG: Checking debounce for {key_name}", flush=True)
                     if not should_process_key(key_name):
+                        print(f"DEBUG: Debounced {key_name}", flush=True)
                         continue
 
+                    print(f"DEBUG: Passed debounce, checking mapping", flush=True)
                     # Check if key has specific mapping
                     if key_name in key_mappings:
+                        print(f"DEBUG: Found mapping for {key_name}", flush=True)
                         action = key_mappings[key_name]
                         if action.startswith('sound:'):
                             # Play specific sound
                             sound_file = os.path.join(sound_dir, action[6:])
+                            print(f"DEBUG: Playing specific sound: {sound_file}", flush=True)
                             play_sound(sound_file)
                         elif action == 'random':
                             # Play random sound
                             if sound_files:
                                 sound_file = random.choice(sound_files)
+                                print(f"DEBUG: Playing random sound: {sound_file}", flush=True)
                                 play_sound(sound_file)
                     else:
                         # Default: play random sound
+                        print(f"DEBUG: No mapping for {key_name}, playing random", flush=True)
                         if sound_files:
                             sound_file = random.choice(sound_files)
                             play_sound(sound_file)
