@@ -172,16 +172,23 @@ def main():
     print(f"Key mappings: {len(key_mappings)}", flush=True)
     print(f"Debounce: {DEBOUNCE_SECONDS}s", flush=True)
 
-    # Connect to MQTT for debug logging
+    # Connect to MQTT for debug logging (non-blocking)
     if MQTT_AVAILABLE:
         try:
             mqtt_client = mqtt.Client()
-            mqtt_client.connect("localhost", 1883, 60)
+            mqtt_client.connect_async("localhost", 1883, 60)
             mqtt_client.loop_start()
-            print("MQTT connected for debug logging", flush=True)
-            mqtt_log("Keyboard Fun service started")
+            print("MQTT connecting (async)...", flush=True)
+            # Give it a moment to connect, but don't block
+            time.sleep(0.5)
+            if mqtt_client.is_connected():
+                print("MQTT connected for debug logging", flush=True)
+                mqtt_log("Keyboard Fun service started")
+            else:
+                print("MQTT connection pending (will retry in background)", flush=True)
         except Exception as e:
             print(f"MQTT connection failed: {e} (continuing without MQTT)", flush=True)
+            mqtt_client = None
     else:
         print("MQTT not available, continuing without debug logging", flush=True)
 
