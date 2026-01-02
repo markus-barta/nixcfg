@@ -49,12 +49,12 @@
   hardware.bluetooth.enable = true;
 
   # Child's Bluetooth Keyboard Fun System
-  # Config: /etc/child-keyboard-fun.env
-  # Sounds: ~/child-keyboard-sounds/
+  # Script: hosts/hsb1/files/child-keyboard-fun.py (edit directly, no rebuild needed)
+  # Config: hosts/hsb1/files/child-keyboard-fun.env (edit directly, no rebuild needed)
+  # Sounds: /var/lib/child-keyboard-sounds/
   services.child-keyboard-fun = {
     enable = true;
     user = "mba";
-    configFile = "/etc/child-keyboard-fun.env";
   };
 
   # Allow mba user to run paplay as kiosk (for audio playback)
