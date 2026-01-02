@@ -31,6 +31,12 @@
       "flirc"
     ];
 
+  # Remap ACME BK03 Power key to F13 to prevent accidental shutdowns
+  # and allow using it for custom actions (like babycam toggle)
+  services.udev.extraRules = ''
+    ACTION=="add|change", SUBSYSTEM=="input", ATTRS{name}=="ACME BK03", RUN+="${pkgs.kbd}/bin/setkeycodes 70 191"
+  '';
+
   # Enable local APC UPS monitoring
   # Notes
   #     - The header '## apcupsd.conf v1.1 ##' with a comment is added by NixOS at the beginning
