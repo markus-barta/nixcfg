@@ -19,9 +19,10 @@ let
           paho-mqtt
         ];
         flakeIgnore = [
-          "E265"
-          "E501"
-        ]; # Ignore shebang format and line length (Nix paths)
+          "E265" # Ignore shebang format
+          "E501" # Ignore line length (Nix paths)
+          "W503" # Ignore line break before binary operator
+        ];
       }
       ''
         #!/usr/bin/env python3
