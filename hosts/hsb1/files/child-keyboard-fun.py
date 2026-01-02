@@ -92,13 +92,17 @@ def play_sound(sound_file):
     """Play sound via kiosk user's PipeWire (same as VLC)"""
     global active_processes
 
+    print(f"DEBUG: play_sound() called with {sound_file}", flush=True)
     if not os.path.exists(sound_file):
+        print(f"DEBUG: Sound file not found: {sound_file}", flush=True)
         mqtt_log(f"Sound file not found: {sound_file}", "error")
         return
 
+    print(f"DEBUG: File exists, stopping old sounds", flush=True)
     # Stop all currently playing sounds first
     stop_all_sounds()
 
+    print(f"DEBUG: Starting paplay subprocess", flush=True)
     # Run paplay as kiosk user with XDG_RUNTIME_DIR set
     proc = subprocess.Popen([
         'sudo',
@@ -108,9 +112,10 @@ def play_sound(sound_file):
         'paplay',
         '--volume=45875',  # ~70% volume
         str(sound_file)
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     active_processes.append(proc)
+    print(f"DEBUG: Subprocess started, PID={proc.pid}", flush=True)
     mqtt_log(f"Playing: {os.path.basename(sound_file)}")
 
 
