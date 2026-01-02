@@ -75,7 +75,12 @@ in
 
       serviceConfig = {
         Type = "simple";
-        User = cfg.user;
+        User = "kiosk"; # Run as kiosk to access PipeWire session
+        Group = "kiosk";
+        SupplementaryGroups = [
+          "input"
+          "audio"
+        ]; # Need input for keyboard, audio for sound
         ExecStart = "${keyboardFunWrapper}";
 
         # Auto-healing: restart on any failure
@@ -86,6 +91,7 @@ in
         # Environment
         Environment = [
           "KEYBOARD_FUN_CONFIG=/etc/child-keyboard-fun.env"
+          "XDG_RUNTIME_DIR=/run/user/1001" # kiosk user's runtime dir
         ];
         EnvironmentFile = "/home/mba/secrets/smarthome.env";
 

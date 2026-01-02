@@ -103,29 +103,29 @@ The service opens **only** the ACME BK03 device by its specific path (`/dev/inpu
 │ hsb1 (NixOS Host)                                           │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌──────────────────┐        ┌──────────────────┐          │
-│  │ ACME BK03        │  BT    │ /dev/input/      │          │
-│  │ Bluetooth        │───────▶│ event0           │          │
-│  │ Keyboard         │        │                  │          │
-│  └──────────────────┘        └────────┬─────────┘          │
+│  ┌──────────────────┐        ┌──────────────────┐           │
+│  │ ACME BK03        │  BT    │ /dev/input/      │           │
+│  │ Bluetooth        │───────▶│ event0           │           │
+│  │ Keyboard         │        │                  │           │
+│  └──────────────────┘        └────────┬─────────┘           │
 │                                       │                     │
 │                                       │ evdev               │
 │                                       ▼                     │
-│  ┌────────────────────────────────────────────────┐        │
-│  │ child-keyboard-fun.service                     │        │
-│  │ - User: mba                                    │        │
-│  │ - Python script with evdev                     │        │
-│  │ - Reads /etc/child-keyboard-fun.env            │        │
-│  │ - Maps keys → sound files                      │        │
-│  └────────────────┬───────────────────────────────┘        │
+│  ┌────────────────────────────────────────────────┐         │
+│  │ child-keyboard-fun.service                     │         │
+│  │ - User: mba                                    │         │
+│  │ - Python script with evdev                     │         │
+│  │ - Reads /etc/child-keyboard-fun.env            │         │
+│  │ - Maps keys → sound files                      │         │
+│  └────────────────┬───────────────────────────────┘         │
 │                   │                                         │
 │                   │ sudo -u kiosk paplay                    │
 │                   ▼                                         │
-│  ┌────────────────────────────────────────────────┐        │
-│  │ PipeWire Audio (kiosk user)                    │        │
-│  │ - XDG_RUNTIME_DIR=/run/user/1001               │        │
-│  │ - Mixes keyboard sounds + VLC baby cam         │        │
-│  └────────────────┬───────────────────────────────┘        │
+│  ┌────────────────────────────────────────────────┐         │
+│  │ PipeWire Audio (kiosk user)                    │         │
+│  │ - XDG_RUNTIME_DIR=/run/user/1001               │         │
+│  │ - Mixes keyboard sounds + VLC baby cam         │         │
+│  └────────────────┬───────────────────────────────┘         │
 │                   │                                         │
 │                   ▼                                         │
 │              HDMI Audio Out                                 │
