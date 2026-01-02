@@ -57,13 +57,13 @@
     user = "mba";
   };
 
-  # Allow mba user to run paplay as kiosk (for audio playback)
+  # Allow mba user to run commands as kiosk (for audio playback)
   security.sudo.extraRules = [
     {
       users = [ "mba" ];
       commands = [
         {
-          command = "${pkgs.pulseaudio}/bin/paplay";
+          command = "${pkgs.bash}/bin/sh";
           options = [ "NOPASSWD" ];
           runAs = "kiosk";
         }
