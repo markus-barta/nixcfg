@@ -114,6 +114,17 @@ def play_sound(sound_file):
 
     active_processes.append(proc)
     print(f"DEBUG: Subprocess started, PID={proc.pid}", flush=True)
+    
+    # Check subprocess status after a brief moment
+    time.sleep(0.1)
+    if proc.poll() is not None:
+        # Process already exited
+        stdout, stderr = proc.communicate()
+        print(f"DEBUG: paplay exited with code {proc.returncode}", flush=True)
+        if stderr:
+            print(f"DEBUG: paplay stderr: {stderr.decode()}", flush=True)
+            mqtt_log(f"paplay error: {stderr.decode()}", "error")
+    
     mqtt_log(f"Playing: {os.path.basename(sound_file)}")
 
 
@@ -179,9 +190,15 @@ def main():
     if MQTT_AVAILABLE:
         try:
             mqtt_client = mqtt.Client()
-            mqtt_client.connect_async("localhost", 1883, 60)
+            mqtt_host = os.getenv('MOSQITTO_HOST_HSB1', 'localhost')
+            mqtt_user = os.getenv('MOSQITTO_USER_HSB1', 'smarthome')
+            mqtt_pass = os.getenv('MOSQITTO_PASS_HSB1')
+            if mqtt_pass:
+                mqtt_client.username_pw_set(mqtt_user, mqtt_pass)
+            mqtt_port = int(os.getenv('MQTT_PORT', '1883'))
+            mqtt_client.connect_async(mqtt_host, mqtt_port, 60)
             mqtt_client.loop_start()
-            print("MQTT connecting (async)...", flush=True)
+            print(f"MQTT connecting to {mqtt_host}:{mqtt_port} as {mqtt_user}...", flush=True)
             # Give it a moment to connect, but don't block
             time.sleep(0.5)
             if mqtt_client.is_connected():
