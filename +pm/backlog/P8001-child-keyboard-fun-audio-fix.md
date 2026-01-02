@@ -1,9 +1,10 @@
-# P8001: Child Keyboard Fun - Audio Playback Fix
+# P8001: Child Keyboard Fun - Event Loop Issue
 
 **Status:** 🔴 Blocked  
 **Priority:** High  
 **Effort:** ~2 hours  
 **Created:** 2026-01-01  
+**Updated:** 2026-01-02 07:06  
 **Parent:** P8000-child-keyboard-fun-acme-bk03.md
 
 ## Problem Statement
