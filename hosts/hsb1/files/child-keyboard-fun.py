@@ -205,6 +205,23 @@ def play_sound(sound_file, device=None):
         mqtt_publish_status(device, sound_file=sound_file)
 
 
+def toggle_babycam():
+    """Toggle the babycam via MQTT or script"""
+    mqtt_log("Toggling Babycam...")
+    # Example: Publish to a topic that Home Assistant or Node-RED listens to
+    global mqtt_client
+    if mqtt_client and mqtt_client.is_connected():
+        mqtt_client.publish("home/hsb1/babycam/toggle", "TOGGLE", qos=1)
+    
+    # Also attempt to run any local script if needed
+    try:
+        # If there's a specific CLI for the camera viewer
+        # subprocess.run(["toggle-babycam-viewer.sh"])
+        pass
+    except Exception as e:
+        mqtt_log(f"Babycam toggle error: {e}", "error")
+
+
 def should_process_key(key_name):
     """Check if key press should be processed (debouncing)"""
     global last_key_time, last_any_key_time
@@ -252,21 +269,10 @@ def main():
     env_file = os.getenv('KEYBOARD_FUN_CONFIG', '/etc/child-keyboard-fun.env')
     config = load_env(env_file)
 
-    device_path = config.get('KEYBOARD_DEVICE')
+    device_name_or_path = config.get('KEYBOARD_DEVICE')
     sound_dir = config.get('SOUND_DIR')
 
-    # If device path looks like a name (not starting with /), search for it
-    if device_path and not device_path.startswith('/'):
-        print(f"Searching for device by name: {device_path}", flush=True)
-        found_path = find_device_by_name(device_path)
-        if found_path:
-            device_path = found_path
-            print(f"Found device at: {device_path}", flush=True)
-        else:
-            print(f"Error: Device '{device_path}' not found", flush=True)
-            sys.exit(1)
-
-    if not device_path:
+    if not device_name_or_path:
         print("Error: KEYBOARD_DEVICE not set in config")
         sys.exit(1)
 
@@ -287,11 +293,9 @@ def main():
             key_mappings[key_name] = value
 
     print("Child Keyboard Fun starting...", flush=True)
-    print(f"Device: {device_path}", flush=True)
+    print(f"Target Device: {device_name_or_path}", flush=True)
     print(f"Sound directory: {sound_dir}", flush=True)
     print(f"Available sounds: {len(sound_files)}", flush=True)
-    print(f"Key mappings: {len(key_mappings)}", flush=True)
-    print(f"Debounce: {DEBOUNCE_SECONDS}s", flush=True)
 
     # Connect to MQTT for debug logging (non-blocking)
     if MQTT_AVAILABLE:
@@ -319,114 +323,107 @@ def main():
     else:
         print("MQTT not available, continuing without debug logging", flush=True)
 
-    # Open the keyboard device
-    try:
-        device = evdev.InputDevice(device_path)
-    except Exception as e:
-        print(f"Error opening device {device_path}: {e}")
-        mqtt_log(f"Error opening device: {e}", "error")
-        sys.exit(1)
+    # Main Connection Loop: Retry until keyboard found, then enter event loop
+    while True:
+        device_path = None
+        if device_name_or_path.startswith('/'):
+            if os.path.exists(device_name_or_path):
+                device_path = device_name_or_path
+        else:
+            device_path = find_device_by_name(device_name_or_path)
 
-    print(f"Opened device: {device.name}", flush=True)
-    mqtt_log(f"Opened device: {device.name}")
-    
-    # Publish keyboard connection info
-    mqtt_publish_keyboard_info(device)
-    
-    # Start background thread to periodically publish keyboard info
-    info_thread = threading.Thread(
-        target=keyboard_info_publisher,
-        args=(device, 60),
-        daemon=True
-    )
-    info_thread.start()
-    
-    # Note: We don't grab() because it causes Bluetooth keyboards to disconnect
-    # Instead, udev rules prevent X/systemd-logind from accessing this device
-    print("Device ready (udev-isolated from X)", flush=True)
-    mqtt_log("Device ready (udev-isolated)")
+        if not device_path:
+            # Not found: Wait and retry
+            print(f"Waiting for keyboard '{device_name_or_path}' to appear...", flush=True)
+            mqtt_log(f"Waiting for keyboard '{device_name_or_path}'")
+            time.sleep(5)
+            continue
 
-    # Event loop
-    print("Entering event loop...", flush=True)
-    mqtt_log("Entering event loop")
-    print(f"DEBUG: EV_KEY constant = {evdev.ecodes.EV_KEY}", flush=True)
-    try:
-        for event in device.read_loop():
-            print(f"DEBUG: Got event type={event.type} code={event.code} value={event.value}", flush=True)
-            if event.type == evdev.ecodes.EV_KEY:
-                print(f"DEBUG: EV_KEY matched! Processing...", flush=True)
-                key_event = evdev.categorize(event)
-                print(f"DEBUG: keystate={key_event.keystate} key_down={evdev.KeyEvent.key_down}", flush=True)
-                if key_event.keystate == evdev.KeyEvent.key_down:
-                    print(f"DEBUG: Key down detected!", flush=True)
-                    key_name = key_event.keycode
-                    if isinstance(key_name, list):
-                        key_name = key_name[0]
+        # Found! Try to open it
+        try:
+            device = evdev.InputDevice(device_path)
+            print(f"Opened device: {device.name} at {device_path}", flush=True)
+            mqtt_log(f"Opened device: {device.name}")
+            
+            # Publish keyboard connection info
+            mqtt_publish_keyboard_info(device)
+            
+            # Start background thread to periodically publish keyboard info
+            info_thread = threading.Thread(
+                target=keyboard_info_publisher,
+                args=(device, 60),
+                daemon=True
+            )
+            info_thread.start()
+            
+            # Note: We don't grab() because it causes Bluetooth keyboards to disconnect
+            print("Device ready (udev-isolated from X). Entering event loop...", flush=True)
+            mqtt_log("Entering event loop")
 
-                    # Remove KEY_ prefix if present
-                    if key_name.startswith('KEY_'):
-                        key_name = key_name[4:]
+            # Event loop
+            for event in device.read_loop():
+                if event.type == evdev.ecodes.EV_KEY:
+                    key_event = evdev.categorize(event)
+                    if key_event.keystate == evdev.KeyEvent.key_down:
+                        key_name = key_event.keycode
+                        if isinstance(key_name, list):
+                            key_name = key_name[0]
 
-                    print(f"DEBUG: Key name = {key_name}", flush=True)
-                    
-                    # Update global last key
-                    global last_key_pressed
-                    last_key_pressed = key_name
-                    
-                    mqtt_log(f"Key pressed: {key_name}")
+                        # Remove KEY_ prefix if present
+                        if key_name.startswith('KEY_'):
+                            key_name = key_name[4:]
 
-                    # Special function: SPACE stops all sounds
-                    if key_name == 'SPACE':
-                        print(f"DEBUG: SPACE key - stopping sounds", flush=True)
-                        mqtt_log("SPACE pressed - stopping all sounds")
-                        stop_all_sounds()
-                        continue
+                        # Update global last key
+                        global last_key_pressed
+                        last_key_pressed = key_name
+                        
+                        mqtt_log(f"Key pressed: {key_name}")
 
-                    # Check debounce
-                    print(f"DEBUG: Checking debounce for {key_name}", flush=True)
-                    if not should_process_key(key_name):
-                        print(f"DEBUG: Debounced {key_name}", flush=True)
-                        continue
+                        # Special function: SPACE stops all sounds
+                        if key_name == 'SPACE':
+                            mqtt_log("SPACE pressed - stopping all sounds")
+                            stop_all_sounds()
+                            continue
 
-                    print(f"DEBUG: Passed debounce, checking mapping", flush=True)
-                    # Check if key has specific mapping
-                    if key_name in key_mappings:
-                        print(f"DEBUG: Found mapping for {key_name}", flush=True)
-                        action = key_mappings[key_name]
-                        if action.startswith('sound:'):
-                            # Play specific sound
-                            sound_file = os.path.join(sound_dir, action[6:])
-                            print(f"DEBUG: Playing specific sound: {sound_file}", flush=True)
-                            play_sound(sound_file, device)
-                        elif action == 'random':
-                            # Play random sound
+                        # Check debounce
+                        if not should_process_key(key_name):
+                            continue
+
+                        # Check if key has specific mapping
+                        if key_name in key_mappings:
+                            action = key_mappings[key_name]
+                            if action == 'toggle_babycam':
+                                toggle_babycam()
+                            elif action.startswith('sound:'):
+                                sound_file = os.path.join(sound_dir, action[6:])
+                                play_sound(sound_file, device)
+                            elif action == 'random':
+                                if sound_files:
+                                    sound_file = random.choice(sound_files)
+                                    play_sound(sound_file, device)
+                        else:
+                            # Default: play random sound
                             if sound_files:
                                 sound_file = random.choice(sound_files)
-                                print(f"DEBUG: Playing random sound: {sound_file}", flush=True)
                                 play_sound(sound_file, device)
-                    else:
-                        # Default: play random sound
-                        print(f"DEBUG: No mapping for {key_name}, playing random", flush=True)
-                        if sound_files:
-                            sound_file = random.choice(sound_files)
-                            play_sound(sound_file, device)
 
-    except KeyboardInterrupt:
-        print("\nStopping...", flush=True)
-        mqtt_log("Service stopping (KeyboardInterrupt)")
-    except OSError as e:
-        # Device disconnected (common with Bluetooth)
-        print(f"Device error (likely disconnected): {e}", flush=True)
-        mqtt_log(f"Device disconnected: {e}", "warning")
-        # systemd will auto-restart the service
-    except Exception as e:
-        print(f"Error: {e}", flush=True)
-        mqtt_log(f"Service error: {e}", "error")
-    finally:
-        stop_all_sounds()
-        if mqtt_client:
-            mqtt_client.loop_stop()
-            mqtt_client.disconnect()
+        except (OSError, Exception) as e:
+            # Device disconnected or other error
+            print(f"Device error or disconnect: {e}", flush=True)
+            mqtt_log(f"Device disconnected: {e}", "warning")
+            stop_all_sounds()
+            # Loop will retry in 5 seconds
+            time.sleep(5)
+            continue
+        except KeyboardInterrupt:
+            print("\nStopping...", flush=True)
+            mqtt_log("Service stopping (KeyboardInterrupt)")
+            break
+
+    # Cleanup
+    if mqtt_client:
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
 
 
 if __name__ == '__main__':
