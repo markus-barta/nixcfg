@@ -84,7 +84,10 @@ in
         StartLimitBurst = 0; # No limit on restart attempts
 
         # Environment
-        Environment = "KEYBOARD_FUN_CONFIG=/etc/child-keyboard-fun.env";
+        Environment = [
+          "KEYBOARD_FUN_CONFIG=/etc/child-keyboard-fun.env"
+        ];
+        EnvironmentFile = "/home/mba/secrets/smarthome.env";
 
         # Security - minimal restrictions for device access
         ProtectHome = "read-only"; # Need to read sound files
