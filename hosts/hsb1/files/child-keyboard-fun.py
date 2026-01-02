@@ -6,6 +6,7 @@ import os
 import random
 import sys
 import time
+import threading
 from pathlib import Path
 import json
 
@@ -85,6 +86,37 @@ def mqtt_publish_status(device, key_name=None, sound_file=None):
             )
         except Exception as e:
             print(f"MQTT status error: {e}", flush=True)
+
+
+def mqtt_publish_keyboard_info(device):
+    """Publish keyboard connection info to MQTT"""
+    global mqtt_client
+    if mqtt_client and mqtt_client.is_connected():
+        try:
+            battery = get_battery_level(device)
+            
+            # Get device info
+            info = {
+                "timestamp": time.time(),
+                "device_name": device.name,
+                "device_path": device.path,
+                "phys": device.phys if hasattr(device, 'phys') else None,
+                "uniq": device.uniq if hasattr(device, 'uniq') else None,
+                "battery_level": battery,
+                "vendor_id": f"0x{device.info.vendor:04x}" if hasattr(device, 'info') else None,
+                "product_id": f"0x{device.info.product:04x}" if hasattr(device, 'info') else None,
+                "version": device.info.version if hasattr(device, 'info') else None,
+                "bustype": device.info.bustype if hasattr(device, 'info') else None,
+            }
+            
+            mqtt_client.publish(
+                "home/hsb1/keyboard-fun/keyboard-info",
+                json.dumps(info),
+                qos=0,
+                retain=True
+            )
+        except Exception as e:
+            print(f"MQTT keyboard info error: {e}", flush=True)
 
 
 def load_env(env_file):
@@ -203,6 +235,16 @@ def find_device_by_name(device_name):
     return None
 
 
+def keyboard_info_publisher(device, interval=60):
+    """Background thread to periodically publish keyboard info"""
+    while True:
+        try:
+            mqtt_publish_keyboard_info(device)
+        except Exception as e:
+            print(f"Error publishing keyboard info: {e}", flush=True)
+        time.sleep(interval)
+
+
 def main():
     global mqtt_client
 
@@ -287,6 +329,17 @@ def main():
 
     print(f"Opened device: {device.name}", flush=True)
     mqtt_log(f"Opened device: {device.name}")
+    
+    # Publish keyboard connection info
+    mqtt_publish_keyboard_info(device)
+    
+    # Start background thread to periodically publish keyboard info
+    info_thread = threading.Thread(
+        target=keyboard_info_publisher,
+        args=(device, 60),
+        daemon=True
+    )
+    info_thread.start()
     
     # Note: We don't grab() because it causes Bluetooth keyboards to disconnect
     # Instead, udev rules prevent X/systemd-logind from accessing this device
