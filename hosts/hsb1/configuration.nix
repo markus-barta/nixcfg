@@ -207,6 +207,14 @@
 
   # Additional system packages
   environment.systemPackages = with pkgs; [
+    # Python environment for debugging
+    (python3.withPackages (
+      ps: with ps; [
+        evdev
+        paho-mqtt
+      ]
+    ))
+
     # Network-related packages
     samba # Enables remote shutdown of Windows PC via Node-RED and HomeKit voice command
     wol # Facilitates wake-on-LAN for Windows 10 PC in Node-RED, triggered by HomeKit voice command
