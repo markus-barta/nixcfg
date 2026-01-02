@@ -63,7 +63,7 @@ fi
 # Test 4: System running
 echo -n "Test 4: System status... "
 # systemctl is-system-running returns non-zero for degraded, so capture output first
-STATUS=$(systemctl is-system-running 2>/dev/null) || true
+STATUS=$(run 'systemctl is-system-running 2>/dev/null') || true
 STATUS=$(echo "$STATUS" | tr -d '\n\r' | xargs)
 if [ "$STATUS" = "running" ] || [ "$STATUS" = "degraded" ]; then
   echo -e "${GREEN}✅ PASS${NC} ($STATUS)"
