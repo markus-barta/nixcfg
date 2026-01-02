@@ -57,6 +57,13 @@ in
       "audio"
     ];
 
+    # udev rule to prevent X/systemd-logind from grabbing ACME BK03
+    # This allows our service to have exclusive access without bluetooth issues
+    services.udev.extraRules = ''
+      # ACME BK03 Bluetooth Keyboard - for child-keyboard-fun only
+      SUBSYSTEM=="input", ATTRS{name}=="ACME BK03", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEYBOARD}="0", TAG-="seat", TAG-="uaccess"
+    '';
+
     # systemd service
     systemd.services.child-keyboard-fun = {
       description = "Child's Bluetooth Keyboard Fun System";
