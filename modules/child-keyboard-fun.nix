@@ -66,6 +66,35 @@ in
       SUBSYSTEM=="input", ATTRS{name}=="ACME BK03", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{KEYBOARD_KEY_*}="reserved", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
     '';
 
+    # Auto-reconnect ACME BK03 keyboard on boot
+    systemd.services.acme-bk03-reconnect = {
+      description = "Auto-reconnect ACME BK03 Bluetooth Keyboard";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "bluetooth.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = false;
+      };
+      script = ''
+        # Wait for Bluetooth to be ready
+        sleep 3
+
+        # Try to connect up to 5 times with 2s delay between attempts
+        for i in {1..5}; do
+          echo "Attempt $i: Connecting to ACME BK03..."
+          if ${pkgs.bluez}/bin/bluetoothctl connect 20:73:00:04:21:4F; then
+            echo "ACME BK03 connected successfully!"
+            exit 0
+          fi
+          sleep 2
+        done
+
+        echo "Warning: Could not connect to ACME BK03 (keyboard may be off or out of range)"
+        # Don't fail the service - keyboard might be turned on later
+        exit 0
+      '';
+    };
+
     # systemd service
     systemd.services.child-keyboard-fun = {
       description = "Child's Bluetooth Keyboard Fun System";
@@ -75,8 +104,12 @@ in
         "sound.target"
         "network-online.target"
         "multi-user.target"
+        "acme-bk03-reconnect.service"
       ];
-      wants = [ "bluetooth.target" ];
+      wants = [
+        "bluetooth.target"
+        "acme-bk03-reconnect.service"
+      ];
       # Wait a bit for Bluetooth devices to settle after boot
       preStart = ''
         sleep 5
