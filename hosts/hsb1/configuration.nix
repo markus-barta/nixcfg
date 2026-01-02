@@ -50,12 +50,12 @@
 
   # Prevent keyboard from triggering power events (power button, suspend, etc.)
   # This is critical for child-keyboard-fun to prevent accidental shutdowns
-  services.logind.extraConfig = ''
-    HandlePowerKey=ignore
-    HandleSuspendKey=ignore
-    HandleHibernateKey=ignore
-    HandleLidSwitch=ignore
-  '';
+  services.logind.settings.Login = {
+    HandlePowerKey = "ignore";
+    HandleSuspendKey = "ignore";
+    HandleHibernateKey = "ignore";
+    HandleLidSwitch = "ignore";
+  };
 
   # Child's Bluetooth Keyboard Fun System
   # Script: hosts/hsb1/files/child-keyboard-fun.py (edit directly, no rebuild needed)
