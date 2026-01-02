@@ -104,14 +104,12 @@ def play_sound(sound_file):
 
     print(f"DEBUG: Starting paplay subprocess", flush=True)
     # Run paplay as kiosk user with XDG_RUNTIME_DIR set
+    # Note: We can't set env vars through sudo, so we use a wrapper script
     proc = subprocess.Popen([
         'sudo',
         '-u', 'kiosk',
-        'env',
-        'XDG_RUNTIME_DIR=/run/user/1001',
-        'paplay',
-        '--volume=45875',  # ~70% volume
-        str(sound_file)
+        'sh', '-c',
+        f'XDG_RUNTIME_DIR=/run/user/1001 paplay --volume=45875 "{sound_file}"'
     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     active_processes.append(proc)
