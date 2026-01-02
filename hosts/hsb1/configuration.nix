@@ -57,19 +57,7 @@
     user = "mba";
   };
 
-  # Allow mba user to run commands as kiosk (for audio playback)
-  security.sudo.extraRules = [
-    {
-      users = [ "mba" ];
-      commands = [
-        {
-          command = "${pkgs.bash}/bin/sh";
-          options = [ "NOPASSWD" ];
-          runAs = "kiosk";
-        }
-      ];
-    }
-  ];
+  # No sudo rules needed - service runs as kiosk user directly
 
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
