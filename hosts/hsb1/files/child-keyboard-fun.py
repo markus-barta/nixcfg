@@ -211,10 +211,12 @@ def main():
     # Event loop
     print("Entering event loop...", flush=True)
     mqtt_log("Entering event loop")
+    print(f"DEBUG: EV_KEY constant = {evdev.ecodes.EV_KEY}", flush=True)
     try:
         for event in device.read_loop():
+            print(f"DEBUG: Got event type={event.type} code={event.code} value={event.value}", flush=True)
             if event.type == evdev.ecodes.EV_KEY:
-                print(f"DEBUG: EV_KEY event detected", flush=True)
+                print(f"DEBUG: EV_KEY matched! Processing...", flush=True)
                 key_event = evdev.categorize(event)
                 if key_event.keystate == evdev.KeyEvent.key_down:
                     key_name = key_event.keycode
