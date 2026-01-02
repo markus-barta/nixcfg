@@ -35,11 +35,11 @@ def mqtt_log(message, level="info"):
                 "level": level,
                 "message": message
             }
-            mqtt_client.publish(
-                "zigbee2mqtt/keyboard-fun/debug",
-                json.dumps(payload),
-                qos=0
-            )
+                    mqtt_client.publish(
+                        "home/hsb1/keyboard-fun/debug",
+                        json.dumps(payload),
+                        qos=0
+                    )
         except Exception as e:
             print(f"MQTT log error: {e}", flush=True)
 
