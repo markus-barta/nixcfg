@@ -19,6 +19,7 @@ A dedicated Bluetooth keyboard for children that plays fun cartoon sounds when k
 - **Easy configuration**: Change key mappings without rebuilding NixOS
 - **Non-intrusive**: Runs alongside baby cam (VLC) without audio conflicts
 - **Isolated & Safe**: ACME BK03 keys only play sounds, don't type into system. Other keyboards work normally.
+- **Power-Safe**: Power/suspend keys are blocked to prevent accidental shutdowns
 
 ---
 
@@ -63,6 +64,7 @@ bluetoothctl
 - ❌ Does NOT type into terminal/X11
 - ❌ Does NOT trigger system shortcuts
 - ❌ Does NOT interfere with running applications
+- ❌ Does NOT trigger power/suspend/hibernate (CRITICAL: prevents shutdowns)
 - ✅ Safe to mash 1000 keys/second
 
 **Other Keyboards (USB, etc.):**
