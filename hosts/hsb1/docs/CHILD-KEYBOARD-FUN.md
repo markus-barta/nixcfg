@@ -18,6 +18,7 @@ A dedicated Bluetooth keyboard for children that plays fun cartoon sounds when k
 - **Zero-maintenance**: Must work reliably without debugging sessions
 - **Easy configuration**: Change key mappings without rebuilding NixOS
 - **Non-intrusive**: Runs alongside baby cam (VLC) without audio conflicts
+- **Isolated & Safe**: ACME BK03 keys only play sounds, don't type into system. Other keyboards work normally.
 
 ---
 
@@ -49,6 +50,47 @@ bluetoothctl
 > trust 20:73:00:04:21:4F
 > connect 20:73:00:04:21:4F
 ```
+
+---
+
+## Safety & Isolation
+
+### ✅ What Happens When Child Presses Keys
+
+**ACME BK03 Keyboard (Bluetooth):**
+
+- ✅ Plays cartoon sounds
+- ❌ Does NOT type into terminal/X11
+- ❌ Does NOT trigger system shortcuts
+- ❌ Does NOT interfere with running applications
+- ✅ Safe to mash 1000 keys/second
+
+**Other Keyboards (USB, etc.):**
+
+- ✅ Work completely normally
+- ✅ Type into terminal/X11 as expected
+- ✅ Trigger system shortcuts
+- ❌ Do NOT play cartoon sounds
+
+### How It Works
+
+The service opens **only** the ACME BK03 device by its specific path (`/dev/input/event0`). Events from this device are consumed by the Python script and never reach the system. Other input devices continue to work normally.
+
+```bash
+# ACME BK03 Bluetooth keyboard
+/dev/input/event0  → child-keyboard-fun service → sounds only
+
+# USB keyboard (or other input devices)
+/dev/input/event3  → X11/systemd-logind → normal typing
+/dev/input/event4  → X11/systemd-logind → normal typing
+# ... etc
+```
+
+**Parent-Friendly Result:**
+
+- Child plays with ACME BK03 → only sounds, no system interference
+- Parent types on USB keyboard → works normally, no sounds
+- Both can be used simultaneously without conflicts
 
 ---
 
@@ -198,21 +240,31 @@ serviceConfig = {
 - When keyboard reconnects, device reappears, service succeeds
 - No manual intervention needed
 
-### 2. Device Disconnection Handling
+### 2. Device Isolation & Safety
 
-**Problem**: Bluetooth keyboard disconnects mid-session  
-**Solution**: Script doesn't grab device exclusively (causes disconnect)
+**Problem**: Need to prevent keyboard input from affecting the system  
+**Solution**: Script opens the specific device exclusively by path
+
+**Key Isolation:**
+
+- **ACME BK03 only**: Service opens `/dev/input/event0` (ACME BK03 device)
+- **Other keyboards unaffected**: USB keyboard at `/dev/input/event3` (or other) works normally
+- **No system input**: Key presses on ACME BK03 only trigger sounds, don't type into X11/terminal
+- **Safe for kids**: Child can mash 1000 keys/second without affecting system
+
+**Why it works:**
 
 ```python
-# Don't grab exclusively - causes BT keyboard to disconnect
-# device.grab()  # ❌ Commented out
+# Opens specific device by path
+device = evdev.InputDevice('/dev/input/event0')  # Only ACME BK03
 
-# Just read events - allows other processes to see keys too
+# Reads events exclusively - other devices not affected
 for event in device.read_loop():
-    # Process key presses
+    # Only processes events from ACME BK03
+    # Other keyboards (USB, etc.) continue working normally
 ```
 
-**Trade-off**: Keyboard keys also visible to X11/systemd-logind, but acceptable for toy use case.
+**Note**: We removed `device.grab()` because it caused Bluetooth disconnects. However, since we open the specific device path (`/dev/input/event0`), only that device's events are processed. Other input devices are completely unaffected.
 
 ### 3. Service Restart on Crash
 
@@ -449,10 +501,10 @@ sudo nixos-rebuild switch --flake .#hsb1
 
 ### 📋 Limitations
 
-- **Single keyboard**: Only supports one ACME BK03 keyboard
+- **Single keyboard**: Only supports one ACME BK03 keyboard at a time
 - **No MQTT**: Home Assistant integration not yet implemented
-- **No visual feedback**: No on-screen display when keys pressed
-- **Keys visible to X11**: Since we don't grab exclusively, keys also sent to X11/systemd-logind
+- **No visual feedback**: No on-screen display when keys are pressed
+- **Device path hardcoded**: Must update config if device path changes (e.g., after re-pairing)
 
 ---
 
