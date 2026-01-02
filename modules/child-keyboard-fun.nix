@@ -64,13 +64,15 @@ let
 
             # Run paplay as kiosk user to access their PipeWire session
             # This allows keyboard sounds to play alongside baby cam
+            env = os.environ.copy()
+            env['XDG_RUNTIME_DIR'] = '/run/user/1001'
             subprocess.Popen([
                 '${pkgs.sudo}/bin/sudo',
                 '-u', 'kiosk',
                 '${pkgs.pulseaudio}/bin/paplay',
                 '--volume=45875',  # ~70% volume
                 str(sound_file)
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
 
 
         def main():
@@ -114,8 +116,9 @@ let
                 print(f"Error opening device {device_path}: {e}")
                 sys.exit(1)
 
-            print(f"Grabbed device: {device.name}")
-            device.grab()
+            print(f"Opened device: {device.name}")
+            # Don't grab exclusively - causes Bluetooth keyboard to disconnect
+            # device.grab()
 
             # Event loop
             try:
@@ -152,7 +155,8 @@ let
             except KeyboardInterrupt:
                 print("\nStopping...")
             finally:
-                device.ungrab()
+                # device.ungrab()  # Not needed if we don't grab
+                pass
 
 
         if __name__ == '__main__':
