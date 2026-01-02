@@ -23,6 +23,27 @@ last_any_key_time = 0  # Global debounce
 active_processes = []  # Track running audio processes
 DEBOUNCE_SECONDS = 1.0  # 1 second debounce
 mqtt_client = None  # MQTT client for debug logging
+last_key_pressed = None  # Track last key for status updates
+
+
+def get_battery_level(device):
+    """Get battery level from device if available"""
+    try:
+        # Try to read battery level from device capabilities
+        if hasattr(device, 'capabilities'):
+            caps = device.capabilities(verbose=True)
+            # Battery info is usually in EV_PWR or via sysfs
+        # For Bluetooth devices, check sysfs
+        device_path = device.path
+        # Extract event number (e.g., event0 -> 0)
+        event_num = device_path.split('event')[-1]
+        battery_path = f"/sys/class/power_supply/hid-{device.info.bustype:02x}:{device.info.vendor:04x}:{device.info.product:04x}.{event_num}/capacity"
+        if os.path.exists(battery_path):
+            with open(battery_path, 'r') as f:
+                return int(f.read().strip())
+    except Exception:
+        pass
+    return None
 
 
 def mqtt_log(message, level="info"):
@@ -42,6 +63,28 @@ def mqtt_log(message, level="info"):
             )
         except Exception as e:
             print(f"MQTT log error: {e}", flush=True)
+
+
+def mqtt_publish_status(device, key_name=None, sound_file=None):
+    """Publish status update to MQTT"""
+    global mqtt_client, last_key_pressed
+    if mqtt_client and mqtt_client.is_connected():
+        try:
+            battery = get_battery_level(device)
+            payload = {
+                "timestamp": time.time(),
+                "last_key": key_name or last_key_pressed,
+                "battery_level": battery,
+                "sound_playing": os.path.basename(sound_file) if sound_file else None
+            }
+            mqtt_client.publish(
+                "home/hsb1/keyboard-fun/status",
+                json.dumps(payload),
+                qos=0,
+                retain=True
+            )
+        except Exception as e:
+            print(f"MQTT status error: {e}", flush=True)
 
 
 def load_env(env_file):
@@ -88,7 +131,7 @@ def stop_all_sounds():
         mqtt_log(f"Stopped {stopped_count} sound(s)")
 
 
-def play_sound(sound_file):
+def play_sound(sound_file, device=None):
     """Play sound via kiosk user's PipeWire (same as VLC)"""
     global active_processes
 
@@ -124,6 +167,10 @@ def play_sound(sound_file):
             mqtt_log(f"paplay error: {stderr.decode()}", "error")
     
     mqtt_log(f"Playing: {os.path.basename(sound_file)}")
+    
+    # Publish status update with battery level
+    if device:
+        mqtt_publish_status(device, sound_file=sound_file)
 
 
 def should_process_key(key_name):
@@ -248,6 +295,11 @@ def main():
                         key_name = key_name[4:]
 
                     print(f"DEBUG: Key name = {key_name}", flush=True)
+                    
+                    # Update global last key
+                    global last_key_pressed
+                    last_key_pressed = key_name
+                    
                     mqtt_log(f"Key pressed: {key_name}")
 
                     # Special function: SPACE stops all sounds
@@ -272,19 +324,19 @@ def main():
                             # Play specific sound
                             sound_file = os.path.join(sound_dir, action[6:])
                             print(f"DEBUG: Playing specific sound: {sound_file}", flush=True)
-                            play_sound(sound_file)
+                            play_sound(sound_file, device)
                         elif action == 'random':
                             # Play random sound
                             if sound_files:
                                 sound_file = random.choice(sound_files)
                                 print(f"DEBUG: Playing random sound: {sound_file}", flush=True)
-                                play_sound(sound_file)
+                                play_sound(sound_file, device)
                     else:
                         # Default: play random sound
                         print(f"DEBUG: No mapping for {key_name}, playing random", flush=True)
                         if sound_files:
                             sound_file = random.choice(sound_files)
-                            play_sound(sound_file)
+                            play_sound(sound_file, device)
 
     except KeyboardInterrupt:
         print("\nStopping...", flush=True)
