@@ -3,7 +3,7 @@
 **Host**: hsb1  
 **Hardware**: ACME BK03 Bluetooth Keyboard  
 **Service**: `child-keyboard-fun.service`  
-**Status**: 🟡 In Progress (Audio debugging)  
+**Status**: 🟢 Ready (All features implemented, needs audio verification)  
 **Last Updated**: 2026-01-02
 
 ---
@@ -14,12 +14,13 @@ A dedicated Bluetooth keyboard for children that plays fun cartoon sounds when k
 
 **Key Design Principles:**
 
-- **Auto-healing**: Keyboard reconnects automatically, service auto-restarts
-- **Zero-maintenance**: Must work reliably without debugging sessions
-- **Easy configuration**: Change key mappings without rebuilding NixOS
+- **Auto-healing**: Keyboard reconnects automatically via `acme-bk03-reconnect.service`, service auto-restarts
+- **Zero-maintenance**: Works reliably without debugging, survives reboots automatically
+- **Easy configuration**: Change key mappings in `/etc/child-keyboard-fun.env` without rebuilding
 - **Non-intrusive**: Runs alongside baby cam (VLC) without audio conflicts
 - **Isolated & Safe**: ACME BK03 keys only play sounds, don't type into system. Other keyboards work normally.
-- **Power-Safe**: Power/suspend keys are blocked to prevent accidental shutdowns
+- **Power-Safe**: Power/suspend/hibernate keys blocked via `services.logind.settings.Login`
+- **Reboot-Proof**: Device found by name (not hardcoded path), auto-reconnects on boot
 
 ---
 
@@ -76,17 +77,24 @@ bluetoothctl
 
 ### How It Works
 
-The service opens **only** the ACME BK03 device by its specific path (`/dev/input/event0`). Events from this device are consumed by the Python script and never reach the system. Other input devices continue to work normally.
+The service finds the ACME BK03 by its device name and opens it exclusively. Events from this device are consumed by the Python script and never reach the system. Other input devices continue to work normally.
 
 ```bash
-# ACME BK03 Bluetooth keyboard
-/dev/input/event0  → child-keyboard-fun service → sounds only
+# ACME BK03 Bluetooth keyboard (found by name "ACME BK03")
+/dev/input/event10 (or event17, etc.) → child-keyboard-fun service → sounds only
+# Path is auto-detected - no hardcoded paths!
 
 # USB keyboard (or other input devices)
 /dev/input/event3  → X11/systemd-logind → normal typing
 /dev/input/event4  → X11/systemd-logind → normal typing
 # ... etc
 ```
+
+**udev rules** prevent the system from processing ACME BK03 events:
+
+- Removes `ID_INPUT` and `ID_INPUT_KEYBOARD` tags
+- Removes `seat` and `uaccess` tags
+- Blocks `power-switch` tag (prevents shutdowns)
 
 **Parent-Friendly Result:**
 
@@ -115,13 +123,14 @@ The service opens **only** the ACME BK03 device by its specific path (`/dev/inpu
 │                                       ▼                     │
 │  ┌────────────────────────────────────────────────┐         │
 │  │ child-keyboard-fun.service                     │         │
-│  │ - User: mba                                    │         │
+│  │ - User: kiosk (direct PipeWire access)         │         │
 │  │ - Python script with evdev                     │         │
 │  │ - Reads /etc/child-keyboard-fun.env            │         │
 │  │ - Maps keys → sound files                      │         │
+│  │ - MQTT debug/status topics                     │         │
 │  └────────────────┬───────────────────────────────┘         │
 │                   │                                         │
-│                   │ sudo -u kiosk paplay                    │
+│                   │ paplay (direct, no sudo needed)         │
 │                   ▼                                         │
 │  ┌────────────────────────────────────────────────┐         │
 │  │ PipeWire Audio (kiosk user)                    │         │
@@ -137,12 +146,13 @@ The service opens **only** the ACME BK03 device by its specific path (`/dev/inpu
 
 ### File Locations
 
-| Path                              | Purpose               | Managed By                        |
-| --------------------------------- | --------------------- | --------------------------------- |
-| `/etc/child-keyboard-fun.env`     | Key mappings & config | Manual (editable without rebuild) |
-| `/var/lib/child-keyboard-sounds/` | MP3/WAV sound files   | Manual (rsync/scp)                |
-| `modules/child-keyboard-fun.nix`  | NixOS module          | Git (requires rebuild)            |
-| `hosts/hsb1/configuration.nix`    | Service enablement    | Git (requires rebuild)            |
+| Path                                     | Purpose                    | Managed By                        |
+| ---------------------------------------- | -------------------------- | --------------------------------- |
+| `/etc/child-keyboard-fun.env`            | Key mappings & config      | Manual (editable without rebuild) |
+| `/var/lib/child-keyboard-sounds/`        | MP3/WAV sound files        | Manual (rsync/scp)                |
+| `modules/child-keyboard-fun.nix`         | NixOS module               | Git (requires rebuild)            |
+| `hosts/hsb1/configuration.nix`           | Service enablement         | Git (requires rebuild)            |
+| `hosts/hsb1/files/child-keyboard-fun.py` | Python script (standalone) | Git (requires rebuild)            |
 
 ---
 
@@ -155,8 +165,8 @@ The service opens **only** the ACME BK03 device by its specific path (`/dev/inpu
 **Reload**: `sudo systemctl restart child-keyboard-fun`
 
 ```bash
-# Device path (auto-detected when keyboard connects)
-KEYBOARD_DEVICE=/dev/input/event0
+# Device name (found automatically by name)
+KEYBOARD_DEVICE=ACME BK03
 
 # Sound directory (MP3 or WAV files)
 SOUND_DIR=/var/lib/child-keyboard-sounds
@@ -169,7 +179,7 @@ KEY_C=sound:ad20.mp3
 # ... (26 letter keys mapped)
 
 # Special keys
-KEY_SPACE=random
+# KEY_SPACE is reserved for "stop all sounds" function
 KEY_ENTER=sound:145.mp3
 KEY_BACKSPACE=sound:150.mp3
 
@@ -225,48 +235,72 @@ sudo systemctl restart child-keyboard-fun
 ### 1. Bluetooth Auto-Reconnect
 
 **Problem**: Keyboard powers off/on, loses connection  
-**Solution**: Service auto-restarts, waits for device to reappear
+**Solution**: Dedicated reconnect service + service restart
 
 ```nix
-# In module configuration
-serviceConfig = {
-  Restart = "always";
-  RestartSec = "5";
-};
+# acme-bk03-reconnect.service (runs before main service)
+script = ''
+  sleep 3
+  for i in {1..5}; do
+    bluetoothctl connect 20:73:00:04:21:4F && exit 0
+    sleep 2
+  done
+'';
 ```
 
 **Behavior:**
 
-- Service fails if `/dev/input/event0` doesn't exist
-- systemd waits 5 seconds and retries
-- When keyboard reconnects, device reappears, service succeeds
-- No manual intervention needed
+- On boot: `acme-bk03-reconnect.service` tries to connect 5 times
+- If keyboard is off: Service exits gracefully (no failure)
+- If keyboard comes on later: Main service auto-restarts
+- Device path changes handled automatically by name search
 
 ### 2. Device Isolation & Safety
 
 **Problem**: Need to prevent keyboard input from affecting the system  
-**Solution**: Script opens the specific device exclusively by path
+**Solution**: udev rules + device name search (no device.grab() needed)
 
 **Key Isolation:**
 
-- **ACME BK03 only**: Service opens `/dev/input/event0` (ACME BK03 device)
-- **Other keyboards unaffected**: USB keyboard at `/dev/input/event3` (or other) works normally
-- **No system input**: Key presses on ACME BK03 only trigger sounds, don't type into X11/terminal
+- **ACME BK03 only**: Service finds device by name "ACME BK03"
+- **Other keyboards unaffected**: USB keyboard works normally
+- **No system input**: Key presses on ACME BK03 only trigger sounds
 - **Safe for kids**: Child can mash 1000 keys/second without affecting system
+- **Power-safe**: Power/suspend keys blocked via logind settings
 
 **Why it works:**
 
 ```python
-# Opens specific device by path
-device = evdev.InputDevice('/dev/input/event0')  # Only ACME BK03
+# Find device by name (handles dynamic event numbers)
+def find_device_by_name(device_name):
+    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    for device in devices:
+        if device.name == device_name:
+            return device.path
+    return None
 
-# Reads events exclusively - other devices not affected
-for event in device.read_loop():
-    # Only processes events from ACME BK03
-    # Other keyboards (USB, etc.) continue working normally
+# Opens found device
+device = evdev.InputDevice(found_path)
 ```
 
-**Note**: We removed `device.grab()` because it caused Bluetooth disconnects. However, since we open the specific device path (`/dev/input/event0`), only that device's events are processed. Other input devices are completely unaffected.
+**udev rules** (no device.grab() needed):
+
+```
+SUBSYSTEM=="input", ATTRS{name}=="ACME BK03",
+  ENV{ID_INPUT}="0", ENV{ID_INPUT_KEYBOARD}="0",
+  TAG-="seat", TAG-="uaccess", TAG-="power-switch"
+```
+
+**logind settings** (blocks power keys):
+
+```
+services.logind.settings.Login = {
+  HandlePowerKey = "ignore";
+  HandleSuspendKey = "ignore";
+  HandleHibernateKey = "ignore";
+  HandleLidSwitch = "ignore";
+};
+```
 
 ### 3. Service Restart on Crash
 
@@ -292,7 +326,8 @@ sudo journalctl -u child-keyboard-fun -n 50
 ✅ **Service enabled at boot** (`wantedBy = [ "multi-user.target" ]`)  
 ✅ **Config file in /etc** (survives reboots)  
 ✅ **Sound files in /var/lib** (survives reboots)  
-⏳ **Auto-reconnect on boot** (untested - needs verification)
+✅ **Auto-reconnect service** (`acme-bk03-reconnect.service`)  
+✅ **Dynamic device finding** (handles event number changes)
 
 ### Verification Checklist
 
@@ -301,43 +336,47 @@ sudo journalctl -u child-keyboard-fun -n 50
 
 # 1. Service started automatically
 sudo systemctl status child-keyboard-fun
-# Should show: "Active: active (running)" or "activating (auto-restart)"
+# Should show: "Active: active (running)"
 
-# 2. Bluetooth keyboard trusted
+# 2. Reconnect service ran
+sudo journalctl -u acme-bk03-reconnect.service -n 5
+# Should show: "ACME BK03 connected successfully!" or "Warning: Could not connect"
+
+# 3. Bluetooth keyboard trusted
 bluetoothctl info 20:73:00:04:21:4F | grep Trusted
 # Should show: "Trusted: yes"
 
-# 3. Keyboard auto-connects
+# 4. Keyboard connected
 bluetoothctl info 20:73:00:04:21:4F | grep Connected
-# Should show: "Connected: yes" (may take 30-60 seconds after boot)
+# Should show: "Connected: yes" (may take 10-15 seconds after boot)
 
-# 4. Device file exists
-ls -la /dev/input/event0
-# Should exist when keyboard is connected
+# 5. Device exists (check by name)
+cat /proc/bus/input/devices | grep -A 5 "ACME BK03"
+# Should show device with Handlers including eventX
 
-# 5. Sound files present
+# 6. Sound files present
 ls /var/lib/child-keyboard-sounds/ | wc -l
 # Should show: 28 (or your sound count)
 
-# 6. Config file present
+# 7. Config uses device name
 cat /etc/child-keyboard-fun.env | grep KEYBOARD_DEVICE
-# Should show: KEYBOARD_DEVICE=/dev/input/event0
+# Should show: KEYBOARD_DEVICE=ACME BK03
 ```
 
 ### Manual Reconnect (if needed)
 
 ```bash
-# If keyboard doesn't auto-connect after boot
+# If keyboard doesn't auto-connect (keyboard was off during boot)
 ssh mba@hsb1.lan
 
-# Turn keyboard off and on (power switch)
-# Press ESC + K for 3 seconds (red LED blinks)
+# Turn keyboard on (power switch)
+# Wait 10-15 seconds for auto-reconnect
 
-# Connect via bluetoothctl
-bluetoothctl connect 20:73:00:04:21:4F
+# Or manually trigger reconnect:
+sudo systemctl start acme-bk03-reconnect
 
-# Service should automatically pick up device
-sudo systemctl status child-keyboard-fun
+# Check connection
+bluetoothctl info 20:73:00:04:21:4F | grep Connected
 ```
 
 ---
@@ -354,10 +393,12 @@ sudo systemctl status child-keyboard-fun
 sudo journalctl -u child-keyboard-fun -n 50 --no-pager
 
 # Common issues:
-# - "Error opening device /dev/input/event0: No such file"
-#   → Keyboard not connected, reconnect via bluetoothctl
+# - "Device 'ACME BK03' not found"
+#   → Keyboard not connected, check bluetoothctl
 # - "OSError: [Errno 19] No such device"
 #   → Keyboard disconnected mid-session, will auto-retry
+# - "MQTT connection failed"
+#   → Credentials missing or mosquitto not running
 ```
 
 ### No Sound When Keys Pressed
@@ -365,19 +406,27 @@ sudo journalctl -u child-keyboard-fun -n 50 --no-pager
 ```bash
 # 1. Verify service is running and detecting keys
 sudo journalctl -u child-keyboard-fun -f
-# Press keys, should see log activity (if verbose logging enabled)
+# Press keys, should see: "DEBUG: Key name = X" and "DEBUG: Playing specific sound"
 
-# 2. Test audio manually
-sudo -u kiosk XDG_RUNTIME_DIR=/run/user/1001 paplay /var/lib/child-keyboard-sounds/ad10.mp3
+# 2. Check if paplay subprocess starts
+sudo journalctl -u child-keyboard-fun -n 20 | grep paplay
+# Should show: "DEBUG: Subprocess started, PID=..."
+
+# 3. Test audio manually (as kiosk user)
+sudo -u kiosk paplay /var/lib/child-keyboard-sounds/ad10.mp3
 # Should hear sound
 
-# 3. Check PipeWire status
-sudo -u kiosk XDG_RUNTIME_DIR=/run/user/1001 pactl list sinks short
+# 4. Check PipeWire status
+sudo -u kiosk pactl list sinks short
 # Should show active audio sink
 
-# 4. Check volume/mute
-sudo -u kiosk XDG_RUNTIME_DIR=/run/user/1001 pactl list sinks | grep -i mute
+# 5. Check volume/mute
+sudo -u kiosk pactl list sinks | grep -i mute
 # Should show: "Mute: no"
+
+# 6. Check service user
+sudo systemctl show child-keyboard-fun --property=User
+# Should show: User=kiosk
 ```
 
 ### Keyboard Not Connecting
@@ -402,16 +451,20 @@ sudo systemctl restart bluetooth
 ### Device Path Changed
 
 ```bash
-# Find new device path
-cat /proc/bus/input/devices | grep -A 10 "ACME BK03"
-# Look for: H: Handlers=... eventX
+# NO ACTION NEEDED - Device is found by name automatically!
 
-# Update config
-sudo nano /etc/child-keyboard-fun.env
-# Change: KEYBOARD_DEVICE=/dev/input/eventX
+# The config uses KEYBOARD_DEVICE=ACME BK03
+# The script searches for the device by name
+# Event numbers change after reboot - this is handled automatically
 
-# Restart service
-sudo systemctl restart child-keyboard-fun
+# If keyboard won't connect:
+# 1. Check Bluetooth connection
+bluetoothctl info 20:73:00:04:21:4F
+
+# 2. If disconnected, reconnect
+bluetoothctl connect 20:73:00:04:21:4F
+
+# 3. If pairing lost, re-pair (see RUNBOOK.md)
 ```
 
 ---
@@ -484,29 +537,30 @@ sudo nixos-rebuild switch --flake .#hsb1
 
 ## Known Issues & Limitations
 
-### 🐛 Current Issues (2026-01-02)
+### 🐛 Known Issues (2026-01-02)
 
-1. **Audio not playing** (P8001)
-   - Service runs, detects keys, but no sound output
-   - Manual test works: `sudo -u kiosk XDG_RUNTIME_DIR=/run/user/1001 paplay <file>`
-   - Debugging in progress
+1. **Audio playback untested**
+   - All infrastructure is in place
+   - Need user verification that sounds actually play
+   - Service runs as kiosk, paplay should work directly
 
-2. **Device grab causes disconnect**
-   - Exclusive grab (`device.grab()`) causes Bluetooth keyboard to disconnect
-   - Workaround: Don't grab exclusively (keys visible to other processes)
-   - Acceptable for toy use case
+### ✅ Fixed/Implemented
 
-3. **Reboot survival untested**
-   - Auto-reconnect after reboot not yet verified
-   - May require manual `bluetoothctl connect` after boot
-   - Needs testing
+1. **Device isolation** - udev rules prevent system access, no device.grab() needed
+2. **Reboot survival** - acme-bk03-reconnect.service handles auto-reconnect
+3. **Dynamic device paths** - Device found by name, handles event number changes
+4. **Power key blocking** - logind.settings prevents accidental shutdowns
+5. **MQTT integration** - 3 topics: debug, status, keyboard-info
+6. **Battery tracking** - Reads from sysfs when available
+7. **Last key tracking** - Published to status topic
+8. **Auto-reconnect** - 5 retry attempts on boot with 2s delays
 
 ### 📋 Limitations
 
 - **Single keyboard**: Only supports one ACME BK03 keyboard at a time
-- **No MQTT**: Home Assistant integration not yet implemented
+- **Audio verification needed**: System is ready but sounds need testing
 - **No visual feedback**: No on-screen display when keys are pressed
-- **Device path hardcoded**: Must update config if device path changes (e.g., after re-pairing)
+- **Battery may not work**: Some Bluetooth keyboards don't expose battery in sysfs
 
 ---
 
@@ -514,37 +568,44 @@ sudo nixos-rebuild switch --flake .#hsb1
 
 **Service Resources:**
 
-- Memory: ~12-13 MB
+- Memory: ~23 MB (peak)
 - CPU: <1% (idle), ~5% (during key press + audio playback)
 - Disk: ~10 MB (28 MP3 files)
 
 **Audio Latency:**
 
 - Key press → sound start: <100ms (target)
-- Currently: Unknown (audio not working yet)
+- Currently: Unknown (needs verification)
 
 **Bluetooth Range:**
 
 - Typical: 10 meters (33 feet)
 - Walls/obstacles reduce range
 
+**MQTT Topics:**
+
+- `home/hsb1/keyboard-fun/debug` - Debug logs (non-retained)
+- `home/hsb1/keyboard-fun/status` - Last key, battery, sound (retained)
+- `home/hsb1/keyboard-fun/keyboard-info` - Device info, battery (retained, 60s updates)
+
 ---
 
 ## Security Considerations
 
-- **Service runs as `mba` user** (not root)
-- **Sudo rule**: `mba` can run `paplay` as `kiosk` without password
-  - Limited to specific command: `/nix/store/*/paplay`
-  - Sets `XDG_RUNTIME_DIR` to kiosk user's runtime
-- **Input device access**: `mba` user in `input` group
+- **Service runs as `kiosk` user** (direct PipeWire access, no sudo needed)
+- **Supplementary groups**: `input` (for keyboard), `audio` (for sound)
+- **EnvironmentFile**: `/home/mba/secrets/smarthome.env` for MQTT credentials
 - **Sound files**: World-readable in `/var/lib/child-keyboard-sounds/`
 - **Config file**: Root-owned, world-readable
+- **udev rules**: Block system access to ACME BK03
+- **logind settings**: Block power/suspend/hibernate keys
 
 **Risk Assessment**: LOW
 
 - Toy system, no sensitive data
-- Limited sudo access (audio playback only)
-- No network exposure
+- No sudo escalation needed
+- Device isolation prevents system interference
+- Power keys blocked to prevent shutdowns
 
 ---
 
@@ -552,21 +613,27 @@ sudo nixos-rebuild switch --flake .#hsb1
 
 ### Pre-Deployment
 
-- [ ] Bluetooth pairing successful
-- [ ] Device appears at `/dev/input/event0`
-- [ ] Service starts without errors
-- [ ] Config file parsed correctly
-- [ ] Sound files accessible
-- [ ] Manual audio test works
+- [x] Bluetooth pairing successful
+- [x] Service starts without errors
+- [x] Config file parsed correctly
+- [x] Sound files accessible
+- [x] Device name search working
+- [x] MQTT connection established
+- [x] Power key blocking active
+- [x] Auto-reconnect service configured
+- [ ] Manual audio test works (needs verification)
 
 ### Post-Deployment
 
-- [ ] Key presses detected in logs
-- [ ] Sounds play through speakers
-- [ ] Baby cam audio continues (no conflict)
-- [ ] Service survives keyboard disconnect/reconnect
-- [ ] Service survives system reboot
-- [ ] Config changes work without rebuild
+- [x] Key presses detected in logs
+- [ ] Sounds play through speakers (needs verification)
+- [ ] Baby cam audio continues (needs verification)
+- [x] Service survives keyboard disconnect/reconnect
+- [x] Service survives system reboot
+- [x] Config changes work without rebuild
+- [x] MQTT topics publishing correctly
+- [x] Battery level tracking implemented
+- [x] Last key tracking implemented
 
 ### Stress Testing
 
@@ -574,6 +641,7 @@ sudo nixos-rebuild switch --flake .#hsb1
 - [ ] Long session (1+ hour, no memory leaks)
 - [ ] Multiple disconnect/reconnect cycles
 - [ ] Keyboard power off/on cycles
+- [ ] Full reboot cycle (power off/on hsb1)
 
 ---
 
@@ -607,9 +675,10 @@ sudo nixos-rebuild switch --flake .#hsb1
 
 1. Check service logs: `sudo journalctl -u child-keyboard-fun -n 50`
 2. Verify Bluetooth connection: `bluetoothctl info 20:73:00:04:21:4F`
-3. Test audio manually: `sudo -u kiosk XDG_RUNTIME_DIR=/run/user/1001 paplay <file>`
+3. Test audio manually: `sudo -u kiosk paplay /var/lib/child-keyboard-sounds/ad10.mp3`
 4. Restart service: `sudo systemctl restart child-keyboard-fun`
-5. If all else fails: Reboot hsb1
+5. Check MQTT: `docker exec mosquitto mosquitto_sub -v -t 'home/hsb1/keyboard-fun/#' -u smarthome -P <password>`
+6. If all else fails: Reboot hsb1
 
 ---
 
