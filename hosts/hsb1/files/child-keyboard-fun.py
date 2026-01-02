@@ -209,8 +209,11 @@ def main():
     mqtt_log("Device ready (udev-isolated)")
 
     # Event loop
+    print("Entering event loop...", flush=True)
+    mqtt_log("Entering event loop")
     try:
         for event in device.read_loop():
+            print(f"DEBUG: Got event type={event.type}", flush=True)
             if event.type == evdev.ecodes.EV_KEY:
                 key_event = evdev.categorize(event)
                 if key_event.keystate == evdev.KeyEvent.key_down:
