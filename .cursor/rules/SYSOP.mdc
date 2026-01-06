@@ -92,7 +92,7 @@ Current Context          Target Host         Reachable?
 | csb0         | `ssh mba@cs0.barta.cm -p 2222`   | mba     | Cloud - port 2222!   |
 | csb1         | `ssh mba@cs1.barta.cm -p 2222`   | mba     | Cloud - port 2222!   |
 | mba-mbp-work | `ssh mba@mba-mbp-work.lan`       | mba     | Work MacBook         |
-| imac0        | `ssh markus@imac0.lan`           | markus  | ⚠️ User is markus!   |
+| imac0        | `ssh markus@imac0.lan`           | markus  |    |
 
 ---
 
