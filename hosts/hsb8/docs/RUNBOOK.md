@@ -11,11 +11,12 @@
 ## Quick Connect
 
 ```bash
-ssh mba@192.168.1.100
-ssh mba@hsb8.lan
-
-# As Gerhard (father)
+# At ww87 (parents' home), prefer gb user (primary operator for HA/Docker)
 ssh gb@192.168.1.100
+ssh gb@hsb8.lan
+
+# As Markus (secondary admin)
+ssh mba@192.168.1.100  # May require key refresh if issues
 ```
 
 ---
@@ -154,7 +155,7 @@ grep "location =" ~/nixcfg/hosts/hsb8/configuration.nix
 
 1. Physical access to Mac mini required
 2. Connect keyboard and monitor
-3. Login as `mba` or `gb`
+3. Login as `gb` (preferred primary user) or `mba` (if needed for admin tasks)
 
 ### Restore from Generation
 
@@ -273,8 +274,8 @@ ssh mba@192.168.1.100 "journalctl -f"
 
 | User  | Role                     | SSH Key          | Telegram Chat ID |
 | ----- | ------------------------ | ---------------- | ---------------- |
-| `mba` | Secondary Admin (Markus) | Personal RSA key | 855566964        |
-| `gb`  | Owner/Primary (Gerhard)  | Personal RSA key | 873192422        |
+| `gb`  | Owner/Primary Operator (Gerhard) | Personal RSA key | 873192422        |  # Preferred for ww87 ops (HA/Docker)
+| `mba` | Secondary Admin (Markus) | Personal RSA key | 855566964        |  # Backup access; check keys if denied
 
 Both users have passwordless sudo.
 
