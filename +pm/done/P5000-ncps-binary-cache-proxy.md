@@ -1,9 +1,9 @@
 # NCPS Binary Cache Proxy on hsb0
 
 **Created**: 2025-12-13  
-**Updated**: 2025-12-24 (Refined Analysis & Plan)  
+**Updated**: 2026-01-06 (Validated & Completed)  
 **Priority**: MEDIUM  
-**Status**: In Progress (Planning)
+**Status**: ✅ DONE
 
 ---
 
@@ -155,12 +155,12 @@ nix.settings = {
 
 ## Acceptance Criteria
 
-- [ ] `ncps` service active on `hsb0`.
-- [ ] `zroot/ncps` dataset mounted with 50GB quota.
-- [ ] LAN hosts successfully pull paths from `hsb0`.
-- [ ] Local builds successfully pushed/shared via `hsb0`.
-- [ ] No rebuild failures when `hsb0` is unreachable.
-- [ ] Backup configuration updated to exclude `/var/lib/ncps`.
+- [x] `ncps` service active on `hsb0`.
+- [x] `zroot/ncps` dataset mounted with 50GB quota.
+- [x] LAN hosts successfully pull paths from `hsb0`.
+- [x] Local builds successfully pushed/shared via `hsb0`.
+- [x] No rebuild failures when `hsb0` is unreachable.
+- [x] Backup configuration updated to exclude `/var/lib/ncps`.
 
 ---
 
