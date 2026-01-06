@@ -249,3 +249,4 @@ nixcfg/
 ---
 
 _One repo to rule them all, one flake to find them, one switch to bring them all, and in the Nix store bind them._ 💍
+test
