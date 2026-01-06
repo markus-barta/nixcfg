@@ -256,7 +256,8 @@ main() {
   local cols
   cols=$(get_terminal_width)
   local tty_width=""
-  [[ -e /dev/tty ]] && tty_width=$(stty size </dev/tty 2>/dev/null | awk '{print $2}')
+  # Get tty width for debug only, don't fail if unavailable
+  [[ -e /dev/tty ]] && tty_width=$(bash -c "stty size </dev/tty 2>/dev/null" 2>/dev/null | awk '{print $2}' 2>/dev/null || true)
   debug "WIDTH: COLUMNS=${COLUMNS:-unset} /dev/tty=${tty_width:-fail} → using $cols"
 
   # Calculate how many metrics we can show
