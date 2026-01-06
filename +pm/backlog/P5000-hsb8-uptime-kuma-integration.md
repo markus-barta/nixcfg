@@ -12,122 +12,133 @@ Complete separation from your network - no shared components, no dependencies.
 - **Access**: http://192.168.1.100:3001
 - **Independence**: Works without VPN, operates standalone
 
+## Current State (2026-01-06)
+
+| Component        | Status                                                    |
+| ---------------- | --------------------------------------------------------- |
+| **NixOS**        | ✅ 26.05 (Yarara), kernel 6.17.8                          |
+| **Docker**       | ✅ Running (Home Assistant, Mosquitto, Watchtower)        |
+| **Uptime Kuma**  | ❌ Not installed                                          |
+| **Apprise**      | ❌ Not installed                                          |
+| **AdGuard Home** | ✅ Running (DNS/DHCP at ww87 location)                    |
+| **Resources**    | 7.7GB RAM (5.1GB available), 99GB disk free on zroot/root |
+
 ## Architecture
 
 ```
 hsb8 (192.168.1.100)
-├── Uptime Kuma (port 3001)
+├── Uptime Kuma (port 3001) - Native NixOS service
 │   ├── Monitors all parents' services
-│   └── Sends webhook to Apprise
+│   └── Uses Apprise CLI for notifications
 │
-└── Apprise Service (port 8000)
-    ├── Receives webhooks from Uptime Kuma
+└── Apprise CLI (in uptime-kuma PATH)
+    ├── Environment variables from agenix secret
     ├── Dad's notifications: Telegram + Email
-    └── All alerts (no filtering)
+    └── Supports $VAR_NAME expansion in URLs
 ```
 
 ## Implementation
 
-### 1. Uptime Kuma Service
+### 1. Uptime Kuma Service (Native NixOS - same as hsb0)
 
 ```nix
 # hosts/hsb8/configuration.nix
+
+# ============================================================================
+# Uptime Kuma - Service Monitoring
+# ============================================================================
+# Monitors service uptime and availability. Web interface: http://192.168.1.100:3001
+# Uses native NixOS service (no Docker required).
+# ============================================================================
 services.uptime-kuma = {
   enable = true;
   settings = {
     PORT = "3001";
-    HOST = "0.0.0.0";
+    HOST = "0.0.0.0"; # Listen on all interfaces
   };
 };
 
-networking.firewall.allowedTCPPorts = [ 3001 ];
+# Apprise support for Uptime Kuma with Environment Variable expansion.
+# This allows using $VAR_NAME in the Apprise URL within the Uptime Kuma UI.
+# Tokens are stored securely in agenix and expanded by the wrapper script.
+systemd.services.uptime-kuma = {
+  path = [
+    (pkgs.writeShellScriptBin "apprise" ''
+      # Apprise Wrapper for Environment Variable Expansion
+      # Usage in Uptime Kuma UI: tgram://$TELEGRAM_TOKEN/ChatID
+
+      args=()
+      for arg in "$@"; do
+        # Use envsubst to safely expand environment variables
+        # We provide the variables from the EnvironmentFile
+        expanded_arg=$(echo "$arg" | ${pkgs.gettext}/bin/envsubst)
+        args+=("$expanded_arg")
+      done
+
+      exec ${pkgs.apprise}/bin/apprise "''${args[@]}"
+    '')
+  ];
+  serviceConfig.EnvironmentFile = [ config.age.secrets.uptime-kuma-env-hsb8.path ];
+};
+
+# Firewall - add 3001 to existing allowedTCPPorts
+networking.firewall.allowedTCPPorts = [
+  # ... existing ports ...
+  3001 # Uptime Kuma web interface
+];
 ```
 
-### 2. Apprise Service (Dad's Alerts)
+### 2. Secrets Configuration
 
 ```nix
-# hosts/hsb8/configuration.nix
-systemd.services.apprise-dad = {
-  enable = true;
-  description = "Apprise notification service for parents";
-  wantedBy = [ "multi-user.target" ];
+# hosts/hsb8/configuration.nix (add to existing age.secrets)
 
-  serviceConfig = {
-    Type = "simple";
-    ExecStart = ''
-      ${pkgs.apprise}/bin/apprise \
-        -t "hsb8 Alert" \
-        -b "$MESSAGE" \
-        "$NOTIFY_URL"
-    '';
-    EnvironmentFile = config.age.secrets.uptime-kuma-env-hsb8.path;
-    Restart = "always";
-    RestartSec = "30s";
-  };
-};
-
-# Apprise listens for webhooks
-systemd.services.apprise-listener = {
-  enable = true;
-  description = "Apprise webhook listener";
-  wantedBy = [ "multi-user.target" ];
-
-  serviceConfig = {
-    Type = "simple";
-    ExecStart = ''
-      ${pkgs.apprise}/bin/apprise \
-        --listen 0.0.0.0:8000 \
-        --config ${config.age.secrets.uptime-kuma-env-hsb8.path}
-    '';
-    Restart = "always";
-  };
-};
-
-networking.firewall.allowedTCPPorts = [ 8000 ];
-```
-
-### 3. Secrets (Independent)
-
-```nix
-# hosts/hsb8/secrets.nix
+# Uptime Kuma environment variables (for Apprise tokens)
 age.secrets.uptime-kuma-env-hsb8 = {
   file = ../../secrets/uptime-kuma-env-hsb8.age;
   mode = "400";
   owner = "root";
-  group = "root";
 };
 ```
 
-**Secrets file content** (`secrets/uptime-kuma-env-hsb8.age`):
+### 3. Secrets File Setup
+
+**Update `secrets/secrets.nix`:**
+
+```nix
+# Uptime Kuma environment variables for hsb8 (Apprise tokens)
+# Format: KEY=VALUE lines (TELEGRAM_TOKEN, etc.)
+# Edit: agenix -e secrets/uptime-kuma-env-hsb8.age
+"uptime-kuma-env-hsb8.age".publicKeys = markus ++ gb ++ hsb8;
+```
+
+**Create secret file:**
 
 ```bash
-# Dad's notification channels
-NOTIFY_URL=telegram://token@telegram?discord=webhook_url&mailto:email@example.com
+# From nixcfg directory on a machine with agenix
+agenix -e secrets/uptime-kuma-env-hsb8.age
 ```
 
-### 4. Uptime Kuma → Apprise Integration
+**Secret file content** (example):
 
-**In Uptime Kuma UI** (http://192.168.1.100:3001):
+```bash
+# Dad's Telegram bot token (get from @BotFather)
+TELEGRAM_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
 
-1. Settings → Notifications → Add Notification
-2. Type: **Webhook**
-3. URL: `http://localhost:8000/notify`
-4. Method: POST
-5. Body: JSON with alert details
-6. Save and test
-
-**Webhook payload format** (Uptime Kuma sends):
-
-```json
-{
-  "monitor": "Service Name",
-  "status": "UP/DOWN",
-  "message": "Details",
-  "time": "Timestamp"
-}
+# Optional: Email SMTP credentials
+# SMTP_USER=alerts@example.com
+# SMTP_PASS=app-password-here
 ```
 
-**Apprise processes** → Sends to Telegram + Email
+### 4. System Packages
+
+```nix
+# Add to environment.systemPackages
+environment.systemPackages = with pkgs; [
+  # ... existing packages ...
+  apprise # Apprise CLI for Uptime Kuma notifications
+];
+```
 
 ---
 
@@ -135,50 +146,37 @@ NOTIFY_URL=telegram://token@telegram?discord=webhook_url&mailto:email@example.co
 
 ### Core Services (High Priority)
 
-| Monitor            | Type | Host               | Purpose         | Priority |
-| ------------------ | ---- | ------------------ | --------------- | -------- |
-| **Home Assistant** | HTTP | 192.168.1.100:8123 | Core automation | HIGH     |
-| **MQTT Broker**    | MQTT | 192.168.1.100:1883 | Message bus     | HIGH     |
-| **AdGuard Home**   | HTTP | 192.168.1.100:3000 | DNS/DHCP        | HIGH     |
-| **SSH Access**     | TCP  | 192.168.1.100:22   | Server access   | HIGH     |
-
-### Migration Period (Medium Priority)
-
-| Monitor                 | Type | Host           | Purpose            | Notes                    |
-| ----------------------- | ---- | -------------- | ------------------ | ------------------------ |
-| **InfluxDB (Pi)**       | HTTP | [Pi IP]:8086   | Historical data    | Until migration complete |
-| **Grafana (Pi)**        | HTTP | [Pi IP]:3000   | Data visualization | Until migration complete |
-| **Temperature Logging** | HTTP | [Pi IP]:[port] | Dad's kitchen data | Legacy service           |
+| Monitor            | Type     | Target             | Purpose         |
+| ------------------ | -------- | ------------------ | --------------- |
+| **Home Assistant** | HTTP     | 192.168.1.100:8123 | Core automation |
+| **MQTT Broker**    | TCP Port | 192.168.1.100:1883 | Message bus     |
+| **AdGuard Home**   | HTTP     | 192.168.1.100:3000 | DNS/DHCP        |
+| **DNS**            | DNS      | 192.168.1.100:53   | DNS resolution  |
 
 ### Optional (Low Priority)
 
-| Monitor         | Type | Host               | Purpose       |
-| --------------- | ---- | ------------------ | ------------- |
-| **Zigbee2MQTT** | HTTP | 192.168.1.100:8080 | Zigbee bridge |
-| **gpc0**        | Ping | 192.168.1.154      | Gaming PC     |
+| Monitor         | Type     | Target             | Purpose       |
+| --------------- | -------- | ------------------ | ------------- |
+| **Zigbee2MQTT** | HTTP     | 192.168.1.100:8080 | Zigbee bridge |
+| **SSH**         | TCP Port | 192.168.1.100:22   | Server access |
 
 ---
 
-## Alert Routing
+## Alert Configuration
 
-### Dad's Alerts (All Events)
+### In Uptime Kuma UI
 
-- **Channels**: Telegram + Email
-- **Triggers**: All monitor status changes
-- **Format**: Simple, clear messages
-- **Examples**:
-  - "hsb8 - Home Assistant is DOWN"
-  - "hsb8 - MQTT Broker is UP"
-  - "hsb8 - DNS resolution failed"
+1. Settings → Notifications → Add Notification
+2. Type: **Apprise (Installed)**
+3. Apprise URL: `tgram://$TELEGRAM_TOKEN/<chat_id>`
+4. Test and save
 
-### Your Alerts (Via VPN)
+### Telegram Setup (for Dad)
 
-- **Method**: When VPN connected, hsb0 Uptime Kuma monitors hsb8
-- **Channels**: Your Apprise (SMS/Telegram)
-- **Triggers**: Critical services only (HA, MQTT, DNS)
-- **Format**: Brief, actionable
-
-**Note**: Your alerts don't come from hsb8 - they come from hsb0 monitoring hsb8 via VPN.
+1. Create bot via @BotFather → get token
+2. Get chat ID: send message to bot, then `https://api.telegram.org/bot<TOKEN>/getUpdates`
+3. Add token to `uptime-kuma-env-hsb8.age`
+4. Use in Uptime Kuma: `tgram://$TELEGRAM_TOKEN/<chat_id>`
 
 ---
 
@@ -186,36 +184,27 @@ NOTIFY_URL=telegram://token@telegram?discord=webhook_url&mailto:email@example.co
 
 ### Phase 1: Service Deployment
 
-1. Add Uptime Kuma to `hosts/hsb8/configuration.nix`
-2. Add Apprise service configuration
-3. Create secrets file `secrets/uptime-kuma-env-hsb8.age`
-4. Deploy configuration to hsb8
+1. [ ] Update `secrets/secrets.nix` with new secret definition
+2. [ ] Create `secrets/uptime-kuma-env-hsb8.age` with Telegram token
+3. [ ] Add Uptime Kuma service to `hosts/hsb8/configuration.nix`
+4. [ ] Add Apprise wrapper to systemd service
+5. [ ] Add firewall rule for port 3001
+6. [ ] Add `apprise` to system packages
+7. [ ] Deploy configuration to hsb8
 
-### Phase 2: Uptime Kuma Configuration
+### Phase 2: Uptime Kuma Configuration (Manual in UI)
 
-1. Access http://192.168.1.100:3001
-2. Set up admin account
-3. Configure all monitors from tables above
-4. Add webhook notification to Apprise (localhost:8000/notify)
-5. Test notifications
+1. [ ] Access http://192.168.1.100:3001
+2. [ ] Create admin account
+3. [ ] Configure Apprise notification with Telegram
+4. [ ] Add monitors from table above
+5. [ ] Test notifications
 
-### Phase 3: Apprise Setup
+### Phase 3: Documentation
 
-1. Verify Apprise service is running
-2. Test webhook endpoint: `curl -X POST http://localhost:8000/notify -d '{"test": "message"}'`
-3. Verify Telegram notifications work
-4. Verify Email notifications work
-5. Document dad's notification preferences
-
-### Phase 4: Documentation
-
-1. Update `hosts/hsb8/README.md` with Uptime Kuma info
-2. Create simple RUNBOOK for dad:
-   - How to access dashboard
-   - What alerts mean
-   - Basic troubleshooting
-   - Who to contact
-3. Add to infrastructure docs
+1. [ ] Update `hosts/hsb8/README.md` with Uptime Kuma info
+2. [ ] Update `hosts/hsb8/docs/RUNBOOK.md` with procedures
+3. [ ] Create simple guide for Dad (optional)
 
 ---
 
@@ -223,27 +212,27 @@ NOTIFY_URL=telegram://token@telegram?discord=webhook_url&mailto:email@example.co
 
 ### Deployment
 
-- [ ] Uptime Kuma service running on hsb8
+- [ ] Uptime Kuma service running on hsb8 (native NixOS, not Docker)
 - [ ] Web UI accessible at http://192.168.1.100:3001
-- [ ] Apprise service running and listening on port 8000
-- [ ] Webhook from Uptime Kuma reaches Apprise
-- [ ] Dad receives Telegram notifications
-- [ ] Dad receives Email notifications
-- [ ] All monitors configured and working
+- [ ] Apprise CLI available in uptime-kuma service PATH
+- [ ] Environment variables loaded from agenix secret
+- [ ] Dad receives Telegram notifications on service down/up
+- [ ] All core monitors configured and working
 
 ### Independence
 
 - [ ] Works without VPN connection
-- [ ] No shared secrets with your network
-- [ ] Separate configuration files
-- [ ] Dad can manage his own alerts
+- [ ] Separate secrets file (`uptime-kuma-env-hsb8.age`)
+- [ ] No dependencies on hsb0 or other home network services
 
-### Parent Experience
+---
 
-- [ ] Dad knows dashboard URL
-- [ ] Dad understands alert messages
-- [ ] Simple troubleshooting guide exists
-- [ ] Dad can restart services if needed
+## Risk Assessment
+
+- **Risk Level**: 🟢 LOW
+- **Impact**: Additive change, no impact on existing Docker services
+- **Duration**: ~30 minutes deployment + ~15 minutes UI configuration
+- **Rollback**: Remove service from configuration.nix, rebuild
 
 ---
 
@@ -255,5 +244,17 @@ NOTIFY_URL=telegram://token@telegram?discord=webhook_url&mailto:email@example.co
 
 ## Related
 
-- P4100: Your network monitoring
-- P6000: Cloud services monitoring
+- P4100: hsb0 local network monitoring (completed)
+- P5200: hsb0 Uptime Kuma installation (completed, reference implementation)
+- P5300: hsb0 Apprise integration (completed, reference implementation)
+
+---
+
+## Reference: hsb0 Implementation
+
+The hsb0 implementation in `hosts/hsb0/configuration.nix` (lines 386-420) serves as the reference:
+
+- Native `services.uptime-kuma` module
+- Apprise wrapper script with `envsubst` for variable expansion
+- EnvironmentFile pointing to agenix secret
+- Port 3001 on all interfaces
