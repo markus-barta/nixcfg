@@ -13,80 +13,67 @@ Complete Uptime Kuma setup on hsb0 for monitoring your local network infrastruct
   - hsb8 (parents' network) - see P5000
   - Cloud services (csb0/csb1) - see P6000
 
-## Current State (8 HTTP monitors, all working)
+## Monitor Status (Last Updated: 2026-01-06)
 
-| Monitor               | URL/Host           | Status     |
-| --------------------- | ------------------ | ---------- |
-| csb0 - node RED       | home.barta.cm      | ✅ Working |
-| csb1 - Docmost        | docmost.barta.cm   | ✅ Working |
-| csb1 - Grafana        | grafana.barta.cm   | ✅ Working |
-| csb1 - Paperless      | paperless.barta.cm | ✅ Working |
-| hsb0 - AdGuard Home   | 192.168.1.99:3000  | ✅ Working |
-| hsb1 - Apprise        | 192.168.1.101:8001 | ✅ Working |
-| hsb1 - Home Assistant | 192.168.1.101:8123 | ✅ Working |
-| hsb1 - Zigbee2MQTT    | 192.168.1.101:8888 | ✅ Working |
+| Service            | Hostname           | Port  | Type     | Tags     | Status    |
+| ------------------ | ------------------ | ----- | -------- | -------- | --------- |
+| **AdGuard Home**   | 192.168.1.99       | 3000  | HTTP     | 🏠 hsb0  | ✅ 100%   |
+| **Apprise**        | 192.168.1.101      | 8001  | HTTP     | 🏠 hsb1  | ✅ 100%   |
+| **DNS**            | 192.168.1.99       | 53    | DNS      | 🏠 hsb0  | ✅ 100%   |
+| **Docmost**        | docmost.barta.cm   | —     | HTTP     | ☁️ csb1  | ✅ 100%   |
+| **FritzBox**       | 192.168.1.5        | —     | Ping     | 🏠 infra | ✅ 100%   |
+| **Grafana**        | grafana.barta.cm   | —     | HTTP     | ☁️ csb1  | ✅ 100%   |
+| **Home Assistant** | 192.168.1.101      | 8123  | HTTP     | 🏠 hsb1  | ✅ 99.93% |
+| **HUE Bridge**     | 192.168.1.104      | —     | Ping     | 🏠 infra | ✅ 100%   |
+| **Matter Server**  | 192.168.1.101      | 5580  | HTTP     | 🏠 hsb1  | ✅ 100%   |
+| **Mosquitto**      | 192.168.1.101      | 1883  | MQTT     | 🏠 hsb1  | ✅ 100%   |
+| **NCPS**           | 192.168.1.99       | 8501  | HTTP     | 🏠 hsb0  | ✅ 100%   |
+| **Netgear Switch** | 192.168.1.3        | —     | Ping     | 🏠 infra | ✅ 100%   |
+| **node RED**       | home.barta.cm      | 1880  | HTTP     | ☁️ csb0  | ✅ 100%   |
+| **OpenDTU**        | 192.168.1.160      | —     | Ping     | 🏠 infra | ✅ 100%   |
+| **OPUS Gateway**   | 192.168.1.102      | —     | Ping     | 🏠 infra | ✅ 100%   |
+| **Paperless**      | paperless.barta.cm | —     | HTTP     | ☁️ csb1  | ✅ 100%   |
+| **Scrypted**       | 192.168.1.101      | 11080 | HTTP     | 🏠 hsb1  | ✅ 94.74% |
+| **SSH - hsb1**     | 192.168.1.101      | 22    | TCP Port | 🏠 hsb1  | ✅ 100%   |
+| **SolarEdge**      | 192.168.1.31       | —     | Ping     | 🏠 infra | ✅ 100%   |
+| **Sonnen Battery** | 192.168.1.32       | —     | Ping     | 🏠 infra | ✅ 100%   |
+| **TADO Bridge**    | 192.168.1.103      | —     | Ping     | 🏠 infra | ✅ 93.18% |
+| **Zigbee2MQTT**    | 192.168.1.101      | 8888  | HTTP     | 🏠 hsb1  | ✅ 100%   |
+| **Zigbee Adapter** | 192.168.1.16       | —     | Ping     | 🏠 infra | ✅ 100%   |
 
-## Tasks
+### Tag Legend
 
-### ✅ Verified (2026-01-06)
+| Tag      | Meaning                 |
+| -------- | ----------------------- |
+| 🏠       | On-site (local network) |
+| ☁️       | Cloud service           |
+| **Tags** | hsb0, hsb1, infra       |
 
-- All 8 monitors are configured and working (100% uptime)
-- Home Assistant correctly on port 8123 (not 1880)
-- node RED is on csb0 (home.barta.cm:1880), not hsb1
+### Not Monitored (By Design)
 
-### High Priority - Core Local Infrastructure
+| Service                | Reason                                           |
+| ---------------------- | ------------------------------------------------ |
+| **SSH - hsb0**         | Loopback from hsb0 → hsb0 adds no value          |
+| **Uptime Kuma (self)** | Self-monitoring adds no value                    |
+| **Gaming PC**          | Only active a few hours/week — always shows down |
+| **Fritz Repeaters**    | If main FritzBox works, they're fine             |
+| **Mobile Devices**     | Phones/iPads - always moving, not infrastructure |
 
-| Task | Monitor Name           | Type     | Host/URL      | Port | Notes                  |
-| ---- | ---------------------- | -------- | ------------- | ---- | ---------------------- |
-| [ ]  | **hsb0 - DNS**         | DNS      | 192.168.1.99  | 53   | Query: google.com      |
-| [ ]  | **hsb1 - MQTT Broker** | MQTT     | 192.168.1.101 | 1883 | Topic: home/#          |
-| [ ]  | **hsb0 - SSH**         | TCP Port | 192.168.1.99  | 22   | Home server            |
-| [ ]  | **hsb1 - SSH**         | TCP Port | 192.168.1.101 | 22   | Home automation server |
+### Future Consideration
 
-### Medium Priority - Local Services
-
-| Task | Monitor Name              | Type | Host/URL                   | Port  | Notes               |
-| ---- | ------------------------- | ---- | -------------------------- | ----- | ------------------- |
-| [ ]  | **hsb0 - Uptime Kuma**    | HTTP | http://192.168.1.99:3001   | 3001  | Monitor the monitor |
-| [ ]  | **hsb0 - NCPS**           | HTTP | http://192.168.1.99:8501   | 8501  | Binary cache proxy  |
-| [ ]  | **hsb1 - Home Assistant** | HTTP | http://192.168.1.101:8123  | 8123  | Core automation     |
-| [ ]  | **hsb1 - Scrypted**       | HTTP | http://192.168.1.101:10443 | 10443 | Camera/NVR bridge   |
-| [ ]  | **hsb1 - Matter Server**  | HTTP | http://192.168.1.101:5580  | 5580  | Matter protocol     |
-
-### Optional - Local Infrastructure
-
-| Task | Monitor Name         | Type | Host/URL      | Port | Notes          |
-| ---- | -------------------- | ---- | ------------- | ---- | -------------- |
-| [ ]  | **gpc0 - Gaming PC** | Ping | 192.168.1.154 | -    | Often OFF      |
-| [ ]  | **fritzbox**         | Ping | 192.168.1.5   | -    | Router/gateway |
-
-## Not Monitored (By Design)
-
-| Item                 | Reason                       |
-| -------------------- | ---------------------------- |
-| hsb8 (192.168.1.100) | Parents' network - see P5000 |
-| csb0/csb1            | Cloud services - see P6000   |
-| HedgeDoc             | No longer in use             |
-| Uptime Kuma itself   | Don't monitor yourself       |
+| Service                 | Notes                                          |
+| ----------------------- | ---------------------------------------------- |
+| **Uptime Kuma (cloud)** | Consider when csb0/csb1 monitoring is deployed |
 
 ## Monitor Type Reference
 
-| Type         | Use Case                 | Example            |
-| ------------ | ------------------------ | ------------------ |
-| **HTTP(s)**  | Web services, APIs       | grafana.barta.cm   |
-| **TCP Port** | SSH, database ports      | :22, :2222         |
-| **Ping**     | Basic host availability  | Gaming PC          |
-| **DNS**      | DNS server health        | AdGuard DNS on :53 |
-| **MQTT**     | MQTT broker connectivity | Mosquitto on :1883 |
-
-## Acceptance Criteria
-
-- [ ] All 8 existing monitors continue working
-- [ ] DNS monitor verifies AdGuard Home is resolving queries
-- [ ] MQTT monitor confirms Mosquitto broker is accepting connections
-- [ ] All SSH ports monitored via TCP Port checks
-- [ ] Core local services added (HA, Scrypted, Matter, NCPS, Uptime Kuma)
-- [ ] (Optional) Gaming PC and FritzBox ping monitors added
+| Type         | Use Case                 |
+| ------------ | ------------------------ |
+| **HTTP(s)**  | Web services, APIs       |
+| **TCP Port** | SSH, database ports      |
+| **Ping**     | Basic host availability  |
+| **DNS**      | DNS server health        |
+| **MQTT**     | MQTT broker connectivity |
 
 ## Resources
 
