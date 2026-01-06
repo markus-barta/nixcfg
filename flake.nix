@@ -25,7 +25,6 @@
     };
     nixcfg.url = "github:pbek/nixcfg";
     # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
-    espanso-fix.url = "github:pitkling/nixpkgs/espanso-fix-capabilities-export";
     # NixFleet - Fleet management dashboard
     nixfleet.url = "github:markus-barta/nixfleet";
     nixfleet.inputs.nixpkgs.follows = "nixpkgs";
