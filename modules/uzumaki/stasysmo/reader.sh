@@ -194,6 +194,7 @@ get_terminal_width() {
   local width
 
   # 1) Check COLUMNS env var (fast, if shell exports it)
+  #    This is the most reliable method for non-interactive contexts
   local cols_env="${COLUMNS:-}"
   if [[ -n "$cols_env" && "$cols_env" -gt 0 ]]; then
     echo "$cols_env"
@@ -203,16 +204,18 @@ get_terminal_width() {
   # 2) Use /dev/tty to talk to the real terminal (works from subprocesses!)
   #    This is the key insight: even though Starship's subprocess has no TTY
   #    on stdin/stdout, /dev/tty still connects to the controlling terminal.
+  #    Note: Use bash -c to isolate errors and prevent set -e from triggering
   if [[ -e /dev/tty ]]; then
     # Try stty via /dev/tty (most portable)
-    width=$(stty size </dev/tty 2>/dev/null | awk '{print $2}')
+    # Wrapped in bash -c to handle /dev/tty access failures gracefully
+    width=$(bash -c "stty size </dev/tty 2>/dev/null" 2>/dev/null | awk '{print $2}' 2>/dev/null)
     if [[ -n "$width" && "$width" -gt 0 ]]; then
       echo "$width"
       return
     fi
 
     # Try tput via /dev/tty (backup)
-    width=$(tput cols </dev/tty 2>/dev/null)
+    width=$(bash -c "tput cols </dev/tty 2>/dev/null" 2>/dev/null)
     if [[ -n "$width" && "$width" -gt 0 ]]; then
       echo "$width"
       return
