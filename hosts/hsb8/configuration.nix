@@ -287,28 +287,27 @@ in
       # Gerhard's (father) SSH key
       "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAwgtI71qYnLJnq0PPs/PWR0O+0zvEQfT7QYaHbrPUdILnK5jqZTj6o02kyfce6JLk+xyYhI596T6DD9But943cKFY/cYG037EjlECq+LXdS7bRsb8wYdc8vjcyF21Ol6gSJdT3noAzkZnqnucnvd7D1lae2ZVw7km6GQvz5XQGS/LQ38JpPZ2JYb0ufT3Z1vgigq9GqhCU6C7NdUslJJJ1Lj4JfPqQTbS1ihZqMe3SQ+ctfmHNYniUkd5Potu7wLMG1OJDL13BXu/M5IihgerZ3QuPb2VPQkb37oxKfquMKveYL9bt4fmK+7+CRHJnzFB45HfG5PiTKsyjuPR5A1N3U5Os+9Wrav9YrqDHWjCaFI1EIY4HRM/kRufD+0ncvvXpsp4foS9DAhK5g3OObRlKgPEc4hkD7hC2KBXUt7Kyg6SLL89gD42qSXLxZlxaTD65UaqB28PuOt7+LtKEPhm1jfH65cKu5vGqUp3145hSJuHB4FuA0ieplfxO78psVM=" # gb@gerhard
     ];
+  };
 
-    # Git configuration for gb (Gerhard) - declarative identity and helpers
-    packages = with pkgs; [ git ];
-
-    # Declarative git config via activation script (applied on rebuild)
-    activationScripts.gitConfig = lib.stringAfter [ "users" ] ''
+  # Declarative git config for gb user (Gerhard) - mirrors hokage for mba
+  system.activationScripts.gbGitConfig = lib.stringAfter [ "users" ] ''
+    if [ -d /home/gb ]; then
       mkdir -p /home/gb/.config/git
       cat > /home/gb/.gitconfig << 'EOF'
-[user]
-    name = Gerhard Barta
-    email = gerhard@barta.com
-[credential]
-    helper = store
-[init]
-    defaultBranch = main
-[core]
-    editor = nano
-EOF
+  [user]
+      name = Gerhard Barta
+      email = gerhard@barta.com
+  [credential]
+      helper = store
+  [init]
+      defaultBranch = main
+  [core]
+      editor = nano
+  EOF
       chown -R gb:users /home/gb/.config/git
       chmod 600 /home/gb/.gitconfig
-    '';
-  };
+    fi
+  '';
 
   # Helper script to enable ww87 location (for moving to parents' home)
   environment.systemPackages = [
