@@ -4,7 +4,7 @@
 **Priority**: P6 (Medium-Low)  
 **Effort**: 1-2 hours  
 **Host**: imac0 (macOS)  
-**Status**: Ready for Implementation  
+**Status**: DONE (2026-01-07)
 **Documentation**: `docs/SECRETS.md`
 
 ---
