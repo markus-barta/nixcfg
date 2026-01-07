@@ -318,7 +318,7 @@ list-runbook-secrets:
 # Prerequisites: ~/Secrets/ directory must exist (manual setup required)
 [group('private')]
 private-encrypt file='':
-    ~/Secrets/scripts/encrypt.sh {{ file }}
+    cd ~/Secrets && ./scripts/encrypt.sh {{ file }}
 
 # Decrypt a private secret (Tier 3: personal secrets)
 # Usage: just private-decrypt tapo-c210-living-room
@@ -326,28 +326,28 @@ private-encrypt file='':
 # Prerequisites: ~/Secrets/ directory must exist (manual setup required)
 [group('private')]
 private-decrypt file='':
-    ~/Secrets/scripts/decrypt.sh {{ file }}
+    cd ~/Secrets && ./scripts/decrypt.sh {{ file }}
 
 # Encrypt all private secrets
 
 # Usage: just private-encrypt-all
 [group('private')]
 private-encrypt-all:
-    ~/Secrets/scripts/encrypt.sh --all
+    cd ~/Secrets && ./scripts/encrypt.sh --all
 
 # Decrypt all private secrets
 
 # Usage: just private-decrypt-all
 [group('private')]
 private-decrypt-all:
-    ~/Secrets/scripts/decrypt.sh --all
+    cd ~/Secrets && ./scripts/decrypt.sh --all
 
 # List private secrets status
 
 # Usage: just private-list
 [group('private')]
 private-list:
-    ~/Secrets/scripts/list.sh
+    cd ~/Secrets && ./scripts/list.sh
 
 # Encrypt, commit and push all private secrets to git
 
