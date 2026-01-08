@@ -169,13 +169,13 @@ TTL: Auto
 
 #### csb0 Services (High Priority)
 
-| Monitor         | Type     | Host                           | Purpose          | Priority |
-| --------------- | -------- | ------------------------------ | ---------------- | -------- |
-| **Traefik**     | HTTP     | `https://traefik.barta.cm`     | Reverse proxy    | HIGH     |
-| **SSH**         | TCP Port | `cs0.barta.cm:2222`            | Server access    | HIGH     |
-| **Node-RED**    | HTTP     | `https://home.barta.cm`        | Automation flows | HIGH     |
-| **Uptime Kuma** | HTTP     | `https://uptime-kuma.barta.cm` | Self-monitoring  | HIGH     |
-| **MQTT**        | TCP Port | `cs0.barta.cm:1883`            | IoT messaging    | HIGH     |
+| Monitor         | Type     | Host                       | Purpose          | Priority |
+| --------------- | -------- | -------------------------- | ---------------- | -------- |
+| **Traefik**     | HTTP     | `https://traefik.barta.cm` | Reverse proxy    | HIGH     |
+| **SSH**         | TCP Port | `cs0.barta.cm:2222`        | Server access    | HIGH     |
+| **Node-RED**    | HTTP     | `https://home.barta.cm`    | Automation flows | HIGH     |
+| **Uptime Kuma** | HTTP     | `https://uptime.barta.cm`  | Self-monitoring  | HIGH     |
+| **MQTT**        | TCP Port | `cs0.barta.cm:1883`        | IoT messaging    | HIGH     |
 
 #### csb1 Services (High Priority)
 
@@ -381,7 +381,7 @@ sudo nixos-rebuild switch --flake .#csb0
 - ✅ csb0 infrastructure (already deployed)
 - ✅ Traefik on csb0 (already running)
 - ✅ agenix configured (already in use)
-- 📋 DNS record for `uptime-kuma.barta.cm` (needs to be added)
+- 📋 DNS record for `uptime.barta.cm` (needs to be added)
 
 ## Risk Assessment
 
