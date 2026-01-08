@@ -4,9 +4,10 @@
 
 Deploy Uptime Kuma on csb0 to monitor all cloud infrastructure services (csb0, csb1, and other cloud resources).
 
-**Status**: 📋 Ready for implementation  
+**Status**: 📋 Ready for deployment tomorrow (2026-01-09)  
 **Criticality**: 🔴 HIGH (csb0 is critical infrastructure)  
-**Build Host**: csb0 (local NixOS build)
+**Build Host**: csb0 (local NixOS build)  
+**Last Updated**: 2026-01-08 23:30 - All prep complete, ready for tomorrow's switch
 
 ## Scope
 
@@ -398,9 +399,77 @@ sudo nixos-rebuild switch --flake .#csb0
 ## Timeline
 
 - **Priority**: Medium-High (P6000 range)
-- **Effort**: 3-4 hours (includes testing)
-- **When**: Ready to deploy now
-- **Build Time**: ~15-20 minutes (on gpc0)
+- **Effort**: 2-3 hours (includes testing)
+- **When**: 📋 Scheduled for tomorrow (2026-01-09)
+- **Build Time**: ~10-15 minutes (on csb0)
+
+## Current Status (2026-01-08 23:30)
+
+### ✅ Completed
+
+- [x] NixOS configuration added to `hosts/csb0/configuration.nix`
+- [x] Secrets configured in `secrets/secrets.nix` (includes csb0)
+- [x] `uptime-kuma-env.age` secret exists (851 bytes)
+- [x] DNS A-record added: `uptime.barta.cm` → `85.235.65.226`
+- [x] Docker compose updated with Traefik labels
+- [x] File backed up to `hosts/csb0/scripts/docker-compose.yml`
+
+### 📋 Tomorrow's Deployment Steps
+
+**Step 1: Copy docker-compose.yml back**
+
+```bash
+scp -P 2222 /Users/markus/Code/nixcfg/hosts/csb0/scripts/docker-compose.yml mba@cs0.barta.cm:~/docker/
+```
+
+**Step 2: SSH to csb0 and deploy**
+
+```bash
+ssh mba@cs0.barta.cm -p 2222
+
+# Pull latest config
+cd ~/Code/nixcfg
+git pull origin main
+
+# Build and test NixOS service
+sudo nixos-rebuild test --flake .#csb0
+systemctl status uptime-kuma
+
+# Restart Traefik with new labels
+cd ~/docker
+docker compose up -d traefik
+
+# Verify
+curl -sf https://uptime.barta.cm/api/health
+```
+
+**Step 3: If all good, switch generation**
+
+```bash
+sudo nixos-rebuild switch --flake .#csb0
+```
+
+**Step 4: Configure Uptime Kuma**
+
+- Access: `https://uptime.barta.cm`
+- Create admin account (save to 1Password)
+- Settings → Notifications → Add Apprise
+- Use secret: `cat /run/agenix/uptime-kuma-env`
+- Add monitors from tables in this doc
+- Test notifications
+
+**Step 5: Rollback if needed**
+
+```bash
+sudo nixos-rebuild switch --rollback
+```
+
+### 📝 Files Modified
+
+- `hosts/csb0/configuration.nix` - Added Uptime Kuma service
+- `secrets/secrets.nix` - Updated to include csb0
+- `hosts/csb0/scripts/docker-compose.yml` - Added Traefik routing (local copy)
+- `+pm/backlog/P6000-csb0-uptime-kuma.md` - This file
 
 ## Related
 
