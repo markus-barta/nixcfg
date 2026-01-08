@@ -81,7 +81,7 @@ in
   # Uptime Kuma environment variables (for Apprise tokens)
   # Format: KEY=VALUE lines
   # Edit: agenix -e secrets/uptime-kuma-env.age
-  "uptime-kuma-env.age".publicKeys = markus ++ hsb0;
+  "uptime-kuma-env.age".publicKeys = markus ++ csb0;
 
   # NCPS signing key for binary cache proxy on hsb0
   # Format: secret-key-file content (nix-store generated)
