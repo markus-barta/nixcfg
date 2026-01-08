@@ -69,23 +69,26 @@ csb0 (Cloud Server)
     mode = "400";
   };
 
-  # Traefik reverse proxy configuration
-  services.traefik.virtualHosts."uptime.barta.cm" = {
-    entryPoints = [ "websecure" ];
-    routes = [{
-      rule = "Host(`uptime.barta.cm`)";
-      service = "uptime-kuma";
-    }];
-    middlewares = [ "security-headers" ];
-  };
-
-  services.traefik.services.uptime-kuma = {
-    loadBalancer.servers = [{ url = "http://127.0.0.1:3001"; }];
-  };
-
   # Firewall: Port 3001 stays internal (no public exposure)
   # Only HTTPS via Traefik (ports 80/443 already open)
 }
+```
+
+**Traefik Docker Configuration** (add to `~/docker/docker-compose.yml` on csb0):
+
+```yaml
+# Add to the traefik service labels
+services:
+  traefik:
+    # ... existing config ...
+    labels:
+      # ... existing labels ...
+      # Uptime Kuma route
+      - "traefik.http.routers.uptime-kuma.rule=Host(\`uptime.barta.cm\`)"
+      - "traefik.http.routers.uptime-kuma.entrypoints=websecure"
+      - "traefik.http.routers.uptime-kuma.tls=true"
+      - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
+      - "traefik.http.routers.uptime-kuma.middlewares=security-headers@file"
 ```
 
 **Build & Deploy** (on csb0 directly):
@@ -162,7 +165,7 @@ TTL: Auto
 
 ### 4. Monitors to Configure
 
-**Access Uptime Kuma**: `https://uptime-kuma.barta.cm` (after Traefik config)
+**Access Uptime Kuma**: `https://uptime.barta.cm` (after Traefik config)
 
 #### csb0 Services (High Priority)
 
