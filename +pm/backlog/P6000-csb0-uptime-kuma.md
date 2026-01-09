@@ -40,57 +40,39 @@ csb0 (Cloud Server)
 
 ### 1. Uptime Kuma Service on csb0
 
-**NixOS Configuration** (via Hokage module):
-
-```nix
-# hosts/csb0/configuration.nix
-{ config, ... }:
-
-{
-  # Uptime Kuma service
-  services.uptime-kuma = {
-    enable = true;
-    settings = {
-      PORT = "3001";
-      HOST = "0.0.0.0";
-    };
-  };
-
-  # Firewall - keep port 3001 internal only
-  # Access via Traefik reverse proxy with HTTPS
-  networking.firewall.allowedTCPPorts = [
-    # 3001  # ❌ DO NOT expose publicly
-  ];
-
-  # Secrets for notifications
-  age.secrets.uptime-kuma-env = {
-    file = ../../secrets/uptime-kuma-env.age;
-    owner = "uptime-kuma";
-    group = "uptime-kuma";
-    mode = "400";
-  };
-
-  # Firewall: Port 3001 stays internal (no public exposure)
-  # Only HTTPS via Traefik (ports 80/443 already open)
-}
-```
-
-**Traefik Docker Configuration** (add to `~/docker/docker-compose.yml` on csb0):
+**Docker Configuration** (consistent with other csb0 services):
 
 ```yaml
-# Add to the traefik service labels
+# hosts/csb0/scripts/docker-compose.yml
 services:
-  traefik:
-    # ... existing config ...
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    volumes:
+      - ./uptime-kuma/data:/app/data
+      - ./uptime-kuma/ssl:/app/ssl
+    environment:
+      - TZ=Europe/Vienna
+      - UPTIME_KUMA_PORT=3001
+    env_file:
+      - ./uptime-kuma/notifications.env
     labels:
-      # ... existing labels ...
-      # Uptime Kuma route
-      - "traefik.http.routers.uptime-kuma.rule=Host(\`uptime.barta.cm\`)"
-      - "traefik.http.routers.uptime-kuma.entrypoints=websecure"
-      - "traefik.http.routers.uptime-kuma.tls=true"
-      - "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
-      - "traefik.http.routers.uptime-kuma.middlewares=security-headers@file"
+      - traefik.http.routers.uptime-kuma.rule=Host(`uptime.barta.cm`)
+      - traefik.http.routers.uptime-kuma.entrypoints=web-secure
+      - traefik.http.routers.uptime-kuma.tls=true
+      - traefik.http.routers.uptime-kuma.tls.certresolver=default
+      - traefik.http.routers.uptime-kuma.middlewares=cloudflarewarp@file
+      - traefik.http.services.uptime-kuma.loadbalancer.server.port=3001
+      # HTTP to HTTPS redirection
+      - traefik.http.routers.uptime-kuma-http.rule=Host(`uptime.barta.cm`)
+      - traefik.http.routers.uptime-kuma-http.entrypoints=web
+      - traefik.http.routers.uptime-kuma-http.middlewares=redirect-to-https@docker
+    networks:
+      - traefik
+    restart: unless-stopped
 ```
+
+**Note**: Uptime Kuma now runs as a Docker service (not NixOS) for consistency with csb0's Docker-based architecture.
 
 **Build & Deploy** (on csb0 directly):
 
@@ -251,23 +233,26 @@ ssh mba@cs0.barta.cm -p 2222 "docker ps | grep traefik"
 # 1. SSH to csb0
 ssh mba@cs0.barta.cm -p 2222
 
-# 2. Navigate to config
-cd ~/Code/nixcfg
+# 2. Navigate to docker directory
+cd ~/docker
 
-# 3. Build and test (dry run)
-sudo nixos-rebuild test --flake .#csb0
+# 3. Stop old NixOS service (if running)
+sudo systemctl stop uptime-kuma
 
-# 4. Verify service started
-systemctl status uptime-kuma
+# 4. Start Docker service
+docker compose up -d uptime-kuma
 
-# 5. Check logs if needed
-journalctl -u uptime-kuma -n 50
+# 5. Verify container started
+docker ps | grep uptime-kuma
 
-# 6. Verify Traefik routing
-docker logs traefik 2>&1 | grep uptime
+# 6. Check logs if needed
+docker logs uptime-kuma -n 50
 
-# 7. If all good, switch to generation
-sudo nixos-rebuild switch --flake .#csb0
+# 7. Verify Traefik routing
+docker logs traefik 2>&1 | grep uptime-kuma
+
+# 8. Test the URL
+curl -I https://uptime.barta.cm
 ```
 
 ### Phase 3: Initial Setup
@@ -403,19 +388,24 @@ sudo nixos-rebuild switch --flake .#csb0
 - **When**: 🚀 **IN PROGRESS** (2026-01-09 15:55)
 - **Build Time**: ~10-15 minutes (on csb0)
 
-## Current Status (2026-01-09 15:55)
+## Current Status (2026-01-09 16:55)
 
 ### ✅ Completed
 
-- [x] NixOS configuration added to `hosts/csb0/configuration.nix`
+- [x] Docker service configuration added to `hosts/csb0/scripts/docker-compose.yml`
 - [x] Secrets configured in `secrets/secrets.nix` (includes csb0)
 - [x] `uptime-kuma-env.age` secret exists (851 bytes)
 - [x] DNS A-record added: `uptime.barta.cm` → `85.235.65.226`
-- [x] Docker compose updated with Traefik labels
+- [x] NixOS service removed (migrated to Docker for consistency)
 - [x] File backed up to `hosts/csb0/scripts/docker-compose.yml`
 - [x] All repos synced (imac0, csb0, remote)
 - [x] docker-compose.yml copied to csb0 `~/docker/`
-- [x] **DEPLOYMENT STARTED**: `just switch` running on csb0
+- [x] **DEPLOYMENT COMPLETED**: Uptime Kuma running as Docker container
+- [x] **VERIFIED WORKING**: `https://uptime.barta.cm` returns 302 redirect to dashboard
+
+### 📝 Notes
+
+**Temporary Solution**: Current Docker Compose setup is functional but manual. This will be properly integrated into NixOS configuration during the P7000 server migration. The manual file copying approach is acceptable for now as an interim solution until the full migration to the new server is complete.
 
 ### 🔄 In Progress
 
@@ -484,6 +474,7 @@ sudo nixos-rebuild switch --rollback
 
 - P4100: Local network monitoring (hsb0)
 - P5000: Parents' network monitoring (hsb8)
+- **P7000**: CSB0 migration to new server (this service will be migrated)
 - **csb0 README**: `hosts/csb0/README.md`
 - **csb0 RUNBOOK**: `hosts/csb0/docs/RUNBOOK.md`
 
