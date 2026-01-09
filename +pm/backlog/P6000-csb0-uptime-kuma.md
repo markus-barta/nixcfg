@@ -400,10 +400,10 @@ sudo nixos-rebuild switch --flake .#csb0
 
 - **Priority**: Medium-High (P6000 range)
 - **Effort**: 2-3 hours (includes testing)
-- **When**: 📋 Scheduled for tomorrow (2026-01-09)
+- **When**: 🚀 **IN PROGRESS** (2026-01-09 15:55)
 - **Build Time**: ~10-15 minutes (on csb0)
 
-## Current Status (2026-01-08 23:30)
+## Current Status (2026-01-09 15:55)
 
 ### ✅ Completed
 
@@ -413,8 +413,17 @@ sudo nixos-rebuild switch --flake .#csb0
 - [x] DNS A-record added: `uptime.barta.cm` → `85.235.65.226`
 - [x] Docker compose updated with Traefik labels
 - [x] File backed up to `hosts/csb0/scripts/docker-compose.yml`
+- [x] All repos synced (imac0, csb0, remote)
+- [x] docker-compose.yml copied to csb0 `~/docker/`
+- [x] **DEPLOYMENT STARTED**: `just switch` running on csb0
 
-### 📋 Tomorrow's Deployment Steps
+### 🔄 In Progress
+
+- [ ] `just switch` completing NixOS rebuild (~10-15 min)
+- [ ] Traefik will restart automatically with new config
+- [ ] Waiting for build to complete
+
+### ⏳ Post-Deployment Checklist
 
 **Step 1: Copy docker-compose.yml back**
 
