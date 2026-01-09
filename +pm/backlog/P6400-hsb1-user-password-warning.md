@@ -1,8 +1,8 @@
-# hsb1 User Password Configuration Warning
+# User Password Configuration Warning (hsb1, csb0)
 
 ## Description
 
-Fix the NixOS evaluation warning about multiple password options being set for user 'mba' on hsb1.
+Fix the NixOS evaluation warning about multiple password options being set for user 'mba' on multiple hosts.
 
 ## Warning
 
@@ -12,10 +12,20 @@ evaluation warning: The user 'mba' has multiple of the options
 & `hashedPasswordFile` set to a non-null value.
 ```
 
+## Affected Hosts
+
+- **hsb1**: `hashedPassword` + `initialHashedPassword = ""`
+- **csb0**: `hashedPassword` + `initialHashedPassword = ""`
+
 ## Current State
 
 ```nix
+# hsb1
 users.users."mba".hashedPassword = "$y$j9T$bi9LmgTpnV.EleK4RduzQ/$eLkQ9o8n/Ix7YneRJBUNSdK6tCxAwwSYR.wL08wu1H/"
+users.users."mba".initialHashedPassword = ""  # Empty string is not null!
+
+# csb0
+users.users."mba".hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN."
 users.users."mba".initialHashedPassword = ""  # Empty string is not null!
 ```
 
@@ -34,14 +44,15 @@ Find where `initialHashedPassword` is being set and either:
 
 ```bash
 # Find where initialHashedPassword is set
-grep -r "initialHashedPassword" hosts/hsb1/
+grep -r "initialHashedPassword" hosts/
 grep -r "initialHashedPassword" modules/
 ```
 
 Likely candidates:
 
-- hokage module setting a default
-- Local configuration override
+- **Hokage module** setting a default `initialHashedPassword = "";`
+- Affects multiple hosts using Hokage
+- Root cause: Empty string vs null in Hokage module
 
 ## Acceptance Criteria
 
