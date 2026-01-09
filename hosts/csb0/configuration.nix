@@ -212,19 +212,7 @@
   # ============================================================================
   # UPTIME KUMA - Cloud services monitoring
   # ============================================================================
-  # Secrets for Apprise notifications
-  age.secrets.uptime-kuma-env.file = ../../secrets/uptime-kuma-env.age;
-
-  # Uptime Kuma service (internal only, exposed via Traefik Docker)
-  services.uptime-kuma = {
-    enable = true;
-    settings = {
-      PORT = "3001";
-      HOST = "0.0.0.0";
-    };
-  };
-
-  # Note: Traefik is Docker-based on csb0
-  # After deployment, add uptime.barta.cm route to Docker config
-  # See P6000 task for Traefik Docker compose additions
+  # Uptime Kuma now runs as Docker service (consistent with other services)
+  # Configuration moved to hosts/csb0/scripts/docker-compose.yml
+  # See P6000 task for details
 }
