@@ -238,6 +238,19 @@
             # lib-utils already provided by self.commonArgs
           };
         };
+
+        # BYTEPOETS office Mac Mini (external, not in home network)
+        miniserver-bp = nixpkgs.lib.nixosSystem {
+          inherit system;
+          modules = commonServerModules ++ [
+            inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./hosts/miniserver-bp/configuration.nix
+            disko.nixosModules.disko
+          ];
+          specialArgs = self.commonArgs // {
+            inherit inputs;
+          };
+        };
       };
 
       packages.x86_64-linux = {
