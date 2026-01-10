@@ -216,6 +216,10 @@
     file = ../../secrets/restic-hetzner-env.age;
     owner = "mba";
   };
+  age.secrets.uptime-kuma-env = {
+    file = ../../secrets/uptime-kuma-env.age;
+    owner = "mba";
+  };
 
   services.nixfleet-agent = {
     enable = true;
