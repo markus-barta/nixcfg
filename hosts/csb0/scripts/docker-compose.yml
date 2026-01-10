@@ -255,8 +255,8 @@ services:
       - WATCHTOWER_NOTIFICATIONS=shoutrrr
       - WATCHTOWER_NOTIFICATIONS_HOSTNAME=csb0
       - WATCHTOWER_NOTIFICATION_TITLE_TAG=🌐
-    env_file:
-      - ./watchtower.env
+    # env_file:
+    #   - ./watchtower.env
     labels:
       - traefik.enable=false
 
@@ -271,7 +271,7 @@ services:
       - TZ=Europe/Vienna
       - UPTIME_KUMA_PORT=3001
     env_file:
-      - ./uptime-kuma/notifications.env
+      - /run/agenix/uptime-kuma-env
     labels:
       - traefik.http.routers.uptime-kuma.rule=Host(`uptime.barta.cm`)
       - traefik.http.routers.uptime-kuma.entrypoints=web-secure
