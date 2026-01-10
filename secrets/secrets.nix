@@ -102,4 +102,10 @@ in
   # Edit: agenix -e secrets/mosquitto-passwd.age
   "mosquitto-passwd.age".publicKeys = markus ++ csb0;
 
+  # Restic Hetzner SSH key
+  "restic-hetzner-ssh-key.age".publicKeys = markus ++ csb0;
+
+  # Restic Hetzner environment variables
+  "restic-hetzner-env.age".publicKeys = markus ++ csb0;
+
 }
