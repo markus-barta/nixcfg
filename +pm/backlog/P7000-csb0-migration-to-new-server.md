@@ -93,38 +93,24 @@ sudo nix-channel --update
 
 ### Phase 2: New Server Setup (Week 3-4)
 
-**Objective**: Build new server with proper NixOS configuration
+**Objective**: Deploy new server using nixos-anywhere
 
-```nix
-# New configuration structure
-{
-  # Proper Docker Compose integration
-  services.docker-compose = {
-    enable = true;
-    files = [
-      {
-        name = "csb0-services";
-        file = ./docker-services.nix;  # Generated from Nix
-      }
-    ];
-  };
+```bash
+# 1. Provision new Netcup VPS with base image
+# 2. Deploy using nixos-anywhere
+nixos-anywhere --flake .#csb0 root@89.58.63.96
 
-  # Individual service configurations
-  services.uptime-kuma = {
-    enable = true;
-    package = pkgs.uptime-kuma;
-    # ... config ...
-  };
-}
+# 3. Verify deployment
+ssh -p 2222 mba@89.58.63.96 "sudo nixos-rebuild test"
 ```
 
 **Tasks**:
 
-- [ ] Provision new server (Hetzner/Netcup)
-- [ ] Set up NixOS with current channel
-- [ ] Implement Docker Compose via NixOS module
-- [ ] Migrate all services to proper Nix configurations
-- [ ] Test each service individually
+- [ ] Provision new Netcup VPS server
+- [ ] Deploy using nixos-anywhere with correct flake reference
+- [ ] Verify network connectivity (IP: 89.58.63.96, Gateway: 89.58.60.1)
+- [ ] Test SSH access on port 2222
+- [ ] Verify all services are running
 - [ ] Set up monitoring for new server
 - [ ] Configure automated backups
 
