@@ -208,6 +208,10 @@
     owner = "root";
     group = "mosquitto";
   };
+  age.secrets.mosquitto-conf = {
+    file = ../../secrets/mosquitto-conf.age;
+    owner = "root";
+  };
   age.secrets.restic-hetzner-ssh-key = {
     file = ../../secrets/restic-hetzner-ssh-key.age;
     owner = "mba";
@@ -219,6 +223,18 @@
   age.secrets.uptime-kuma-env = {
     file = ../../secrets/uptime-kuma-env.age;
     owner = "mba";
+  };
+  age.secrets.traefik-static = {
+    file = ../../secrets/traefik-static.age;
+    owner = "root";
+  };
+  age.secrets.traefik-dynamic = {
+    file = ../../secrets/traefik-dynamic.age;
+    owner = "root";
+  };
+  age.secrets.traefik-variables = {
+    file = ../../secrets/traefik-variables.age;
+    owner = "root";
   };
 
   services.nixfleet-agent = {

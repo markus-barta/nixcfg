@@ -108,4 +108,8 @@ in
   # Restic Hetzner environment variables
   "restic-hetzner-env.age".publicKeys = markus ++ csb0;
 
+  "mosquitto-conf.age".publicKeys = markus ++ csb0;
+  "traefik-static.age".publicKeys = markus ++ csb0;
+  "traefik-dynamic.age".publicKeys = markus ++ csb0;
+  "traefik-variables.age".publicKeys = markus ++ csb0;
 }
