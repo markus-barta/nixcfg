@@ -1,0 +1,313 @@
+name: csb0
+services:
+  #  cypress:
+  #    image: cypress/included:13.11.0
+  #    restart: unless-stopped
+  #    init: true
+  #    cap_add:
+  #      - SYS_ADMIN
+  #    volumes:
+  #      - ./cypress-scraper:/app
+  #      - ./shared/tmp:/destination
+  #    entrypoint: ["/app/entrypoint.sh"]
+  #    deploy:
+  #      resources:
+  #        limits:
+  #          cpus: "1.5"
+  #    labels:
+  #      - traefik.enable=false
+
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+      - ./mosquitto/var/run:/var/run
+    labels:
+      - traefik.tcp.routers.mosquitto.rule=HostSNI(`mosquitto.barta.cm`)
+      - traefik.tcp.routers.mosquitto.entrypoints=mqtt
+      - traefik.tcp.routers.mosquitto.tls=true
+      - traefik.tcp.routers.mosquitto.service=mosquitto-svc
+      - traefik.tcp.services.mosquitto-svc.loadbalancer.server.port=1883
+      - traefik.tcp.routers.mosquitto.tls.certResolver=default
+    user: "1883:1883"
+    group_add:
+      - "1883"
+    environment:
+      - TZ=Europe/Vienna
+    networks:
+      - traefik
+    restart: unless-stopped
+
+  nodered:
+    image: nodered/node-red:latest
+    environment:
+      - TZ=Europe/Vienna
+      - NODE_RED_ENABLE_PROJECTS=false
+      - NODE_RED_ENABLE_EDITOR=true
+    env_file:
+      - ./nodered/auth.env
+      - ./nodered/telegram.env
+    volumes:
+      - ./nodered/data:/data
+      - ./nodered/scripts:/scripts
+      - ./nodered/webserver:/webserver
+      - ./shared/tmp:/shared-tmp
+    entrypoint: ["/bin/bash", "/scripts/startup.sh"]
+    labels:
+      # Traefik config
+      - traefik.http.routers.nodered.rule=Host(`home.barta.cm`)
+      - traefik.http.routers.nodered.tls.certresolver=default
+      - traefik.http.routers.nodered.tls=true
+      - traefik.http.services.nodered.loadbalancer.server.port=1880
+      - traefik.docker.network=csb0_traefik
+      - traefik.http.routers.nodered.middlewares=cloudflarewarp@file
+      # HTTP to HTTPS redirection
+      - traefik.http.routers.nodered-http.rule=Host(`home.barta.cm`)
+      - traefik.http.routers.nodered-http.entrypoints=web
+      - traefik.http.routers.nodered-http.middlewares=redirect-to-https@docker
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true
+      #       # Telegram webhook config
+      #       - traefik.http.routers.nodered-telegram.rule=Host(`home.barta.cm`) && PathPrefix(`/telegram`)
+      #       - traefik.http.routers.nodered-telegram.tls=true
+      #       - traefik.http.routers.nodered-telegram.service=nodered-telegram
+      #       - traefik.http.services.nodered-telegram.loadbalancer.server.port=1880
+    networks:
+      - traefik
+    restart: unless-stopped
+
+  # https://hub.docker.com/r/vaultwarden/server
+  # https://github.com/dani-garcia/vaultwarden
+  bitwarden:
+    image: vaultwarden/server:latest
+    restart: always
+    depends_on:
+      - bitwarden-db
+    volumes:
+      - bitwarden:/data/
+    # https://github.com/dani-garcia/vaultwarden/blob/main/.env.template
+    environment:
+      - WEBSOCKET_ENABLED=true
+      # invites can still be sent to email addresses in an organization
+      - SIGNUPS_ALLOWED=false
+      - SMTP_HOST=smtp
+      - SMTP_FROM=markus@barta.com
+      - SMTP_FROM_NAME=Bitwarden Barta
+      - SMTP_PORT=25
+      - SMTP_SECURITY=off
+      #      - LOG_LEVEL=debug
+      #      - DATABASE_URL=data/db.sqlite3
+      - DOMAIN=https://bitwarden.barta.cm
+      - TZ=Europe/Vienna
+    env_file:
+      - ./bitwarden/app.env
+      #    ports:
+      #- "2080:80"
+    labels:
+      - traefik.http.routers.bitwarden-ui.rule=Host(`bitwarden.barta.cm`)
+      - traefik.http.routers.bitwarden-ui.tls.certresolver=default
+      - traefik.http.routers.bitwarden-ui.tls=true
+      - traefik.http.routers.bitwarden-ui.service=bitwarden-ui
+      - traefik.http.services.bitwarden-ui.loadbalancer.server.port=80
+      - traefik.http.routers.bitwarden-websocket.rule=Host(`bitwarden.barta.cm`) && Path(`/notifications/hub`)
+      - traefik.http.routers.bitwarden-websocket.service=bitwarden-websocket
+      - traefik.http.services.bitwarden-websocket.loadbalancer.server.port=3012
+      - traefik.http.routers.bitwarden-websocket.tls=true
+      - traefik.docker.network=csb0_traefik
+      # to allow to see the container the correct client ip address when sending "Incomplete Two-Step Login" emails
+      - traefik.http.routers.bitwarden-ui.middlewares=cloudflarewarp@file
+      - traefik.http.routers.bitwarden-websocket.middlewares=cloudflarewarp@file
+    networks:
+      - traefik
+      - bitwarden
+
+  bitwarden-db:
+    image: mariadb
+    restart: always
+    volumes:
+      - bitwarden-db:/var/lib/mysql
+    environment:
+      - MYSQL_DATABASE=bitwarden
+      - MYSQL_USER=bitwarden
+      - TZ=Europe/Vienna
+    env_file:
+      - ./bitwarden/db.env
+    networks:
+      - bitwarden
+    #      - phpmyadmin
+    labels:
+      - traefik.enable=false
+
+  docker-proxy-traefik:
+    image: tecnativa/docker-socket-proxy
+    environment:
+      - CONTAINERS=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker-sock-traefik
+    restart: always
+    labels:
+      - traefik.enable=false
+
+  # https://docs.traefik.io/v2.5/providers/docker/
+  traefik:
+    image: traefik
+    command: --providers.docker
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+      - "443:443/udp"
+      # mqtt
+      - "8883:8883"
+    networks:
+      - traefik
+      - docker-sock-traefik
+    volumes:
+      - ./traefik/static.yml:/etc/traefik/traefik.yml
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml
+      - ./traefik/acme.json:/etc/traefik/acme/acme.json
+    labels:
+      #changed to cs0 #- traefik.http.routers.traefik.rule=Host(`traefik.barta.cm`)
+      - traefik.http.routers.traefik.rule=Host(`cs0.barta.cm`)
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.routers.traefik.tls.certresolver=default
+      - traefik.http.routers.traefik.tls=true
+      - traefik.http.routers.traefik.middlewares=authelia
+      - com.centurylinklabs.watchtower.enable=false
+      # fixes error: middleware "authelia@docker" does not exist
+      - traefik.http.middlewares.authelia.forwardAuth.address=http://authelia:9091/api/verify?rd=https://login.barta.cm/
+    environment:
+      - TZ=Europe/Vienna
+    env_file:
+      - ./traefik/variables.env
+
+  # https://github.com/containous/whoami
+  whoami:
+    image: containous/whoami
+    networks:
+      - traefik
+    labels:
+      - traefik.http.routers.whoami.rule=Host(`whoami0.barta.cm`)
+      - traefik.http.routers.whoami.tls.certresolver=default
+      - traefik.http.routers.whoami.tls=true
+      - traefik.http.routers.whoami.middlewares=cloudflarewarp@file
+
+  # https://github.com/namshi/docker-smtp
+  smtp:
+    image: namshi/smtp
+    restart: always
+    networks:
+      - traefik
+      - smtp
+    environment:
+      - TZ=Europe/Vienna
+      - SMARTHOST_ADDRESS=mail.hover.com
+      - SMARTHOST_PORT=587
+      #      - SMARTHOST_PORT=465
+      - SMARTHOST_USER=markus@barta.com
+      - SMARTHOST_ALIASES=*
+      - RELAY_NETWORKS=:172.0.0.0/8
+    env_file:
+      - ./smtp/variables.env
+    labels:
+      - traefik.enable=false
+
+  restic-cron-hetzner:
+    build: ./restic-cron
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/lib/docker/volumes:/backup/var/lib/docker/volumes:ro
+      - /home:/backup/home:ro
+      - /root:/backup/root:ro
+      - /etc:/backup/etc:ro
+      - ./restic-cron/id_rsa:/root/.ssh/id_rsa:ro
+      - ./restic-cron/id_rsa.pub:/root/.ssh/id_rsa.pub:ro
+      - ./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro
+      - ./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro
+      - ./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro
+      - ./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro
+      - ./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro
+    environment:
+      RESTIC_BACKUP_OPTIONS: "-r sftp:u387549-sub1@u387549.your-storagebox.de:/"
+      MAIL_SUBJECT: "💾 Restic Backup netcup csb0 (hetzner)"
+      CRON_BACKUP_EXPRESSION: "30 1 * * *" # 1:30am
+    env_file:
+      - ./restic-cron/variables.hetzner.env
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+      - traefik.enable=false
+    networks:
+      - smtp
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    command: --schedule "0 0 8 * * SAT" --cleanup
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - DOCKER_API_VERSION=1.44
+      - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      - WATCHTOWER_NOTIFICATIONS_HOSTNAME=csb0
+      - WATCHTOWER_NOTIFICATION_TITLE_TAG=🌐
+    env_file:
+      - ./watchtower.env
+    labels:
+      - traefik.enable=false
+
+  # Uptime Kuma - Docker service (consistent with other services)
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    volumes:
+      - ./uptime-kuma/data:/app/data
+      - ./uptime-kuma/ssl:/app/ssl
+    environment:
+      - TZ=Europe/Vienna
+      - UPTIME_KUMA_PORT=3001
+    env_file:
+      - ./uptime-kuma/notifications.env
+    labels:
+      - traefik.http.routers.uptime-kuma.rule=Host(`uptime.barta.cm`)
+      - traefik.http.routers.uptime-kuma.entrypoints=web-secure
+      - traefik.http.routers.uptime-kuma.tls=true
+      - traefik.http.routers.uptime-kuma.tls.certresolver=default
+      - traefik.http.routers.uptime-kuma.middlewares=cloudflarewarp@file
+      - traefik.http.services.uptime-kuma.loadbalancer.server.port=3001
+      # HTTP to HTTPS redirection
+      - traefik.http.routers.uptime-kuma-http.rule=Host(`uptime.barta.cm`)
+      - traefik.http.routers.uptime-kuma-http.entrypoints=web
+      - traefik.http.routers.uptime-kuma-http.middlewares=redirect-to-https@docker
+    networks:
+      - traefik
+    restart: unless-stopped
+
+volumes:
+  bitwarden:
+  bitwarden-db:
+
+networks:
+  traefik:
+  smtp:
+  bitwarden:
+  #kimai:
+  #phpmyadmin:
+  #nextcloud:
+  #matomo:
+  #bitwarden:
+  # mail:
+  #   ipam:
+  #     config:
+  #       - subnet: 172.30.0.0/24
+  docker-sock-traefik:
+    internal: true
+  # pgadmin:
+  # roundcube:
+  # minio:
