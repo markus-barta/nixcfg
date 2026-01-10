@@ -181,7 +181,7 @@ services:
     environment:
       - TZ=Europe/Vienna
     env_file:
-      - /run/agenix/traefik-variables
+      - ./traefik/variables.env
 
   # https://github.com/containous/whoami
   whoami:
