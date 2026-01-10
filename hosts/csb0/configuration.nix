@@ -63,7 +63,7 @@
   # Fix: Declarative static IP that NixOS manages, NM ignores
   networking = {
     hostName = "csb0";
-    hostId = "dabfdc01"; # Required for ZFS
+    hostId = "ad684098"; # Generated from machine-id 2026-01-10
     networkmanager.enable = true;
 
     # Static IP: Netcup VPS - NEW SERVER (2026-01-10)
@@ -131,7 +131,7 @@
     useSecrets = true;
     useSharedKey = false;
     zfs.enable = true;
-    zfs.hostId = "dabfdc01";
+    zfs.hostId = "ad684098";
     programs.git.enableUrlRewriting = false;
     # Point nixbit to Markus' repository (not pbek's default)
     programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";
