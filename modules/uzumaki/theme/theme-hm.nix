@@ -183,6 +183,7 @@ let
 
       keybinds {
           unbind "Ctrl o"
+          unbind "~" // Prevent tilde from triggering a split
           normal {
               bind "Ctrl a" { MoveTab "Left"; }
               bind "Ctrl e" { SwitchToMode "Session"; }
