@@ -231,18 +231,6 @@
     file = ../../secrets/uptime-kuma-env.age;
     owner = "mba";
   };
-  age.secrets.traefik-static = {
-    file = ../../secrets/traefik-static.age;
-    owner = "root";
-  };
-  age.secrets.traefik-dynamic = {
-    file = ../../secrets/traefik-dynamic.age;
-    owner = "root";
-  };
-  age.secrets.traefik-variables = {
-    file = ../../secrets/traefik-variables.age;
-    owner = "root";
-  };
 
   services.nixfleet-agent = {
     enable = true;
