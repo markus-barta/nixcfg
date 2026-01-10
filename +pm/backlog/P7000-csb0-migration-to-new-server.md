@@ -63,33 +63,36 @@ graph TD
 
 ## Implementation Plan
 
-### Phase 1: Preparation & Freeze (Week 1-2)
+### Phase 1: Pre-Deployment Checklist
 
-**Objective**: Stabilize current environment and prepare for migration
+**Objective**: Verify everything is ready for clean deployment
 
 ```bash
-# 1. Document current state
-nixos-generate-config --show-hardware-config > hardware-configuration.nix
-systemctl list-units --type=service --state=running
+# 1. Verify new server provisioning
+# - Netcup VPS with base image
+# - Correct IP: 89.58.63.96
+# - Gateway: 89.58.60.1
 
-# 2. Create comprehensive backups
-restic backup /home/mba/docker
-restic backup /var/lib/docker/volumes
+# 2. Confirm network access
+ping 89.58.63.96
+ssh -p 2222 mba@89.58.63.96 "echo 'Network OK'"
 
-# 3. Freeze updates
-sudo nix-channel --remove nixos
-sudo nix-channel --add https://nixos.org/channels/nixos-23.11 nixos
-sudo nix-channel --update
+# 3. Verify flake configuration
+nix flake check
+nix build .#csb0
+
+# 4. Check restic backups are accessible
+restic snapshots
 ```
 
 **Tasks**:
 
-- [ ] Create `hosts/csb0/migrations/2026-01-new-server/` directory
-- [ ] Document all running services and versions
-- [ ] Backup all Docker volumes and configurations
-- [ ] Test backup restoration procedure
-- [ ] Set update freeze in Nix configuration
-- [ ] Notify users of upcoming migration
+- [ ] Confirm new server is provisioned with correct network
+- [ ] Verify SSH access via VNC console (port 2222)
+- [ ] Test flake build locally
+- [ ] Confirm restic backups are available
+- [ ] Review configuration for new server
+- [ ] Ensure no conflicting services will run
 
 ### Phase 2: New Server Setup (Week 3-4)
 
