@@ -208,6 +208,14 @@
     owner = "root";
     group = "mosquitto";
   };
+  age.secrets.restic-hetzner-ssh-key = {
+    file = ../../secrets/restic-hetzner-ssh-key.age;
+    owner = "mba";
+  };
+  age.secrets.restic-hetzner-env = {
+    file = ../../secrets/restic-hetzner-env.age;
+    owner = "mba";
+  };
 
   services.nixfleet-agent = {
     enable = true;
