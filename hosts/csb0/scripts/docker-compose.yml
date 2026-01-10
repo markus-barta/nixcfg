@@ -23,8 +23,8 @@ services:
     volumes:
       - /run/agenix/mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
       - /run/agenix/mosquitto-conf:/mosquitto/config/mosquitto.conf:ro
-      - /var/lib/docker/volumes/mosquitto/data:/mosquitto/data
-      - /var/lib/docker/volumes/mosquitto/log:/mosquitto/log
+      # - /var/lib/docker/volumes/mosquitto/data:/mosquitto/data
+      # - /var/lib/docker/volumes/mosquitto/log:/mosquitto/log
       # - /var/lib/docker/volumes/mosquitto/var/run:/var/run
     labels:
       - traefik.tcp.routers.mosquitto.rule=HostSNI(`mosquitto.barta.cm`)
