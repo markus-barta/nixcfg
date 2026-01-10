@@ -19,13 +19,17 @@ services:
 
   mosquitto:
     image: eclipse-mosquitto:latest
-    # user: "0:0"
     volumes:
       - /run/agenix/mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
       - /run/agenix/mosquitto-conf:/mosquitto/config/mosquitto.conf:ro
-      # - /var/lib/docker/volumes/mosquitto/data:/mosquitto/data
-      # - /var/lib/docker/volumes/mosquitto/log:/mosquitto/log
-      # - /var/lib/docker/volumes/mosquitto/var/run:/var/run
+      - /var/lib/docker/volumes/mosquitto/data:/mosquitto/data
+      - /var/lib/docker/volumes/mosquitto/log:/mosquitto/log
+      - /var/lib/docker/volumes/mosquitto/var/run:/var/run
+    environment:
+      - TZ=Europe/Vienna
+    networks:
+      - traefik
+    restart: unless-stopped
     labels:
       - traefik.tcp.routers.mosquitto.rule=HostSNI(`mosquitto.barta.cm`)
       - traefik.tcp.routers.mosquitto.entrypoints=mqtt
@@ -33,12 +37,6 @@ services:
       - traefik.tcp.routers.mosquitto.service=mosquitto-svc
       - traefik.tcp.services.mosquitto-svc.loadbalancer.server.port=1883
       - traefik.tcp.routers.mosquitto.tls.certResolver=default
-    # user: "1883:1883"
-    environment:
-      - TZ=Europe/Vienna
-    networks:
-      - traefik
-    restart: unless-stopped
 
   nodered:
     image: nodered/node-red:latest
