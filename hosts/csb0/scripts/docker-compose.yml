@@ -180,8 +180,8 @@ services:
       - traefik.http.middlewares.authelia.forwardAuth.address=http://authelia:9091/api/verify?rd=https://login.barta.cm/
     environment:
       - TZ=Europe/Vienna
-    env_file:
-      - ./traefik/variables.env
+    # env_file:
+    #   - ./traefik/variables.env
 
   # https://github.com/containous/whoami
   whoami:
