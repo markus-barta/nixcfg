@@ -168,6 +168,11 @@ services:
     #   - ./traefik/static.yml:/etc/traefik/traefik.yml
     #   - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml
     #   - ./traefik/acme.json:/etc/traefik/acme/acme.json
+    #
+    # ⚠️ RECOVERY NOTE 2026-01-10: These are handled by NixOS/Hokage pattern.
+    # The files below were missing because csb0 is an "External Hokage Consumer".
+    #
+    # See docs/INFRASTRUCTURE-PATTERNS.md (to be created)
     labels:
       #changed to cs0 #- traefik.http.routers.traefik.rule=Host(`traefik.barta.cm`)
       - traefik.http.routers.traefik.rule=Host(`cs0.barta.cm`)
