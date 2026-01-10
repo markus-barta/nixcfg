@@ -93,4 +93,12 @@ in
   # Edit: agenix -e secrets/fritzbox-smb-credentials.age
   "fritzbox-smb-credentials.age".publicKeys = markus ++ hsb1;
 
+  # Node-RED environment variables (Telegram bot token, etc)
+  # Edit: agenix -e secrets/nodered-env.age
+  "nodered-env.age".publicKeys = markus ++ csb0;
+
+  # Mosquitto password file
+  # Edit: agenix -e secrets/mosquitto-passwd.age
+  "mosquitto-passwd.age".publicKeys = markus ++ csb0;
+
 }

@@ -20,10 +20,11 @@ services:
   mosquitto:
     image: eclipse-mosquitto:latest
     volumes:
-      - ./mosquitto/config:/mosquitto/config
-      - ./mosquitto/data:/mosquitto/data
-      - ./mosquitto/log:/mosquitto/log
-      - ./mosquitto/var/run:/var/run
+      - /run/agenix/mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
+      - /var/lib/docker/volumes/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - /var/lib/docker/volumes/mosquitto/data:/mosquitto/data
+      - /var/lib/docker/volumes/mosquitto/log:/mosquitto/log
+      - /var/lib/docker/volumes/mosquitto/var/run:/var/run
     labels:
       - traefik.tcp.routers.mosquitto.rule=HostSNI(`mosquitto.barta.cm`)
       - traefik.tcp.routers.mosquitto.entrypoints=mqtt
@@ -47,13 +48,12 @@ services:
       - NODE_RED_ENABLE_PROJECTS=false
       - NODE_RED_ENABLE_EDITOR=true
     env_file:
-      - ./nodered/auth.env
-      - ./nodered/telegram.env
+      - /run/agenix/nodered-env
     volumes:
-      - ./nodered/data:/data
-      - ./nodered/scripts:/scripts
-      - ./nodered/webserver:/webserver
-      - ./shared/tmp:/shared-tmp
+      - /var/lib/docker/volumes/nodered/data:/data
+      - /var/lib/docker/volumes/nodered/scripts:/scripts
+      - /var/lib/docker/volumes/nodered/webserver:/webserver
+      - /var/lib/docker/volumes/shared/tmp:/shared-tmp
     entrypoint: ["/bin/bash", "/scripts/startup.sh"]
     labels:
       # Traefik config
@@ -267,8 +267,8 @@ services:
     image: louislam/uptime-kuma:latest
     container_name: uptime-kuma
     volumes:
-      - ./uptime-kuma/data:/app/data
-      - ./uptime-kuma/ssl:/app/ssl
+      - /var/lib/docker/volumes/uptime-kuma/data:/app/data
+      - /var/lib/docker/volumes/uptime-kuma/ssl:/app/ssl
     environment:
       - TZ=Europe/Vienna
       - UPTIME_KUMA_PORT=3001
