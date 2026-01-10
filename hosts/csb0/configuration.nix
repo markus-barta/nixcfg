@@ -195,10 +195,14 @@
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
   age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
-  age.secrets.nodered-env.file = ../../secrets/nodered-env.age;
+  age.secrets.nodered-env = {
+    file = ../../secrets/nodered-env.age;
+    owner = "mba";
+  };
   age.secrets.mosquitto-passwd = {
     file = ../../secrets/mosquitto-passwd.age;
     mode = "644"; # Mosquitto needs to read this
+    owner = "mba";
   };
 
   services.nixfleet-agent = {
