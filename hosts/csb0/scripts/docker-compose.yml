@@ -25,6 +25,9 @@ services:
       - /var/lib/docker/volumes/mosquitto/data:/mosquitto/data
       - /var/lib/docker/volumes/mosquitto/log:/mosquitto/log
       - /var/lib/docker/volumes/mosquitto/var/run:/var/run
+    user: "1883:1883"
+    group_add:
+      - "1883"
     environment:
       - TZ=Europe/Vienna
     networks:
