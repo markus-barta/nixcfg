@@ -50,11 +50,11 @@
       # Overlay providing pkgs.stable and pkgs.unstable attributes
       overlays-nixpkgs = _final: _prev: {
         stable = import nixpkgs-stable {
-          inherit system;
+          localSystem = system;
           config.allowUnfree = true;
         };
         unstable = import nixpkgs {
-          inherit system;
+          localSystem = system;
           config.allowUnfree = true;
         };
       };
@@ -71,7 +71,7 @@
       commonServerModules = [
         home-manager.nixosModules.home-manager
         ./modules/common.nix # Shared config for ALL servers (fish, starship, packages, etc.)
-        { }
+        { nixpkgs.hostPlatform = system; }
         (_: {
           nixpkgs.overlays = allOverlays;
         })
@@ -81,7 +81,7 @@
         inputs.nixfleet.nixosModules.nixfleet-agent
       ];
       pkgs = import nixpkgs {
-        inherit system;
+        localSystem = system;
         config.allowUnfree = true;
         overlays = allOverlays;
       };
@@ -105,7 +105,7 @@
         hostname:
         home-manager.lib.homeManagerConfiguration {
           pkgs = import nixpkgs {
-            system = "x86_64-darwin";
+            localSystem = "x86_64-darwin";
             config.allowUnfree = true;
             overlays = allOverlays;
           };
@@ -141,7 +141,6 @@
         # Home Automation Server - Home Server Barta 1 (formerly miniserver24)
         # Using external hokage consumer pattern
         hsb1 = nixpkgs.lib.nixosSystem {
-          inherit system;
           modules = commonServerModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
             ./hosts/hsb1/configuration.nix
@@ -157,7 +156,6 @@
         # DNS/DHCP Server (AdGuard Home) - Home Server Barta 0
         # Using external hokage consumer pattern
         hsb0 = nixpkgs.lib.nixosSystem {
-          inherit system;
           modules = commonServerModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
             ./hosts/hsb0/configuration.nix
@@ -173,8 +171,8 @@
         # Using external hokage consumer pattern
         # NOTE: common.nix must load AFTER hokage to override its settings (fish, zellij, theme)
         gpc0 = nixpkgs.lib.nixosSystem {
-          inherit system;
           modules = [
+            { nixpkgs.hostPlatform = system; }
             home-manager.nixosModules.home-manager
             { home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ]; }
             (_: { nixpkgs.overlays = allOverlays; })
@@ -195,7 +193,6 @@
         # Home Server Barta 8 (Parents' home automation server)
         # Using external hokage consumer pattern
         hsb8 = nixpkgs.lib.nixosSystem {
-          inherit system;
           modules = commonServerModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
             ./hosts/hsb8/configuration.nix
@@ -211,7 +208,6 @@
         # Hokage Migration: 2025-11-29
         # Using external hokage consumer pattern
         csb1 = nixpkgs.lib.nixosSystem {
-          inherit system;
           modules = commonServerModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
             ./hosts/csb1/configuration.nix
@@ -227,7 +223,6 @@
         # Hokage Migration: Planned 2025-11
         # Using external hokage consumer pattern
         csb0 = nixpkgs.lib.nixosSystem {
-          inherit system;
           modules = commonServerModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
             ./hosts/csb0/configuration.nix
@@ -241,7 +236,6 @@
 
         # BYTEPOETS office Mac Mini (external, not in home network)
         miniserver-bp = nixpkgs.lib.nixosSystem {
-          inherit system;
           modules = commonServerModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
             ./hosts/miniserver-bp/configuration.nix
@@ -307,7 +301,7 @@
         pingt =
           let
             pkgsDarwin = import nixpkgs {
-              system = "x86_64-darwin";
+              localSystem = "x86_64-darwin";
               config.allowUnfree = true;
             };
           in
@@ -318,7 +312,7 @@
         pingt =
           let
             pkgsDarwin = import nixpkgs {
-              system = "aarch64-darwin";
+              localSystem = "aarch64-darwin";
               config.allowUnfree = true;
             };
           in
