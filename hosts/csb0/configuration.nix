@@ -114,6 +114,11 @@
       chown -R mba:mosquitto /home/mba/docker/mosquitto
       chmod -R 775 /home/mba/docker/mosquitto
     fi
+    # Fix for new ZFS volume paths
+    if [ -d /var/lib/docker/volumes/mosquitto ]; then
+      chown -R 1883:1883 /var/lib/docker/volumes/mosquitto
+      chmod -R 775 /var/lib/docker/volumes/mosquitto
+    fi
   '';
 
   # ============================================================================
