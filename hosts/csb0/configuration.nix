@@ -201,8 +201,9 @@
   };
   age.secrets.mosquitto-passwd = {
     file = ../../secrets/mosquitto-passwd.age;
-    mode = "644"; # Mosquitto needs to read this
-    owner = "mba";
+    mode = "640";
+    owner = "root";
+    group = "mosquitto";
   };
 
   services.nixfleet-agent = {
