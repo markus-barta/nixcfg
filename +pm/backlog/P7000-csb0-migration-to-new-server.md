@@ -114,116 +114,62 @@ ssh -p 2222 mba@89.58.63.96 "sudo nixos-rebuild test"
 - [ ] Set up monitoring for new server
 - [ ] Configure automated backups
 
-### Phase 3: Data Migration (Week 5)
+### Phase 3: Data Migration & Validation
 
-**Objective**: Migrate all data from old to new server
-
-```bash
-# 1. Database migration (example for Uptime Kuma)
-cd ~/docker/uptime-kuma
-tar czvf uptime-kuma-data.tar.gz data/
-scp -P 2222 uptime-kuma-data.tar.gz mba@new-server:/tmp/
-
-# 2. Docker volume migration
-docker run --rm -v uptime-kuma_data:/data -v /backup:/backup alpine
-  tar czvf /backup/uptime-kuma-data.tar.gz -C /data .
-
-# 3. Verify data integrity
-ssh mba@new-server "cd /tmp && tar xzvf uptime-kuma-data.tar.gz"
-```
-
-**Tasks**:
-
-- [ ] Migrate all Docker volumes
-- [ ] Migrate database data
-- [ ] Migrate configuration files
-- [ ] Verify data integrity
-- [ ] Test service functionality with migrated data
-- [ ] Set up final backups before cutover
-
-### Phase 4: DNS Cutover (Migration Day)
-
-**Objective**: Switch traffic from old to new server
+**Objective**: Restore data from old server and validate functionality
 
 ```bash
-# 1. Reduce DNS TTL 1 hour before
-# Cloudflare API call to set TTL=60
-curl -X PATCH "https://api.cloudflare.com/client/v4/zones/ZONE_ID/dns_records/RECORD_ID" \
-  -H "Authorization: Bearer $CF_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  --data '{"ttl":60}'
+# 1. Restore from restic backup
+restic restore latest --target /home/mba/docker-restore
 
-# 2. Change DNS records
-# Update cs0.barta.cm to point to new server IP
+# 2. Verify critical data
+ls -la /home/mba/docker-restore/
 
-# 3. Monitor DNS propagation
-watch -n 5 "dig cs0.barta.cm +short"
+# 3. Start services with restored data
+docker-compose up -d
 
-# 4. Verify services on new server
-curl -I https://uptime.barta.cm
-curl -I https://home.barta.cm
-```
-
-**Tasks**:
-
-- [ ] Set DNS TTL to 60 seconds (1 hour before)
-- [ ] Update Cloudflare DNS records
-- [ ] Monitor DNS propagation
-- [ ] Verify all services accessible
-- [ ] Monitor for errors
-- [ ] Restore normal TTL after migration
-
-### Phase 5: Verification & Rollback (Post-Cutover)
-
-**Objective**: Ensure everything works, with rollback capability
-
-```bash
-# 1. Service health checks
-for service in uptime.barta.cm home.barta.cm traefik.barta.cm; do
-  if ! curl -sSf "https://$service" >/dev/null; then
-    echo "❌ $service failed"
-    # Rollback procedure
-    exit 1
-  fi
+# 4. Validate service functionality
+for service in uptime-kuma mosquitto traefik; do
+  docker logs $service | tail -20
+  docker ps | grep $service
 done
-
-# 2. Monitor for 24 hours
-# 3. Check logs
-journalctl -u docker-compose-csb0-services -n 50 -f
 ```
 
 **Tasks**:
 
-- [ ] Verify all services functional
-- [ ] Monitor system resources
-- [ ] Check application logs
-- [ ] Test backup restoration
-- [ ] Verify monitoring alerts
-- [ ] Document any issues
+- [ ] Restore all Docker volumes from restic
+- [ ] Verify data integrity and permissions
+- [ ] Start services with restored data
+- [ ] Validate each service functionality
+- [ ] Test critical workflows (MQTT, Node-RED, Uptime Kuma)
+- [ ] Verify monitoring and alerts
 
-### Phase 6: Decommission Old Server (Week 6)
+### Phase 4: Cutover & Decommission (Migration Day)
 
-**Objective**: Safely retire old server
+**Objective**: Final switch and retire old server
 
 ```bash
-# 1. Final backup
-restic backup --host csb0-old /home/mba/docker
+# 1. Verify new server is ready
+ssh -p 2222 mba@89.58.63.96 "systemctl status"
 
-# 2. Power down
-sudo poweroff
+# 2. Update DNS (if needed)
+# Most services use direct IP, minimal DNS changes required
 
-# 3. Archive configuration
+# 3. Shutdown old server (after validation)
+ssh mba@85.235.65.226 "sudo poweroff"
+
+# 4. Archive old configuration
 mv hosts/csb0 hosts/csb0-old-$(date +%Y-%m-%d)
 ```
 
 **Tasks**:
 
-- [ ] Create final backups
-- [ ] Power down old server
+- [ ] Final verification of new server
+- [ ] Update any necessary DNS records
+- [ ] Shutdown old server (csb0-old)
 - [ ] Archive old configuration
-- [ ] Update documentation
-- [ ] Close migration ticket
-- [ ] Celebrate! 🎉
+- [ ] Monitor new server for 24 hours
+- [ ] Document final state
 
 ## Risk Assessment
 
