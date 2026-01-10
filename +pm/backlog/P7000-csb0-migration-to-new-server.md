@@ -39,15 +39,27 @@ graph TD
 
 ### Server Comparison
 
-| Aspect          | Current CSB0   | New Server           |
-| --------------- | -------------- | -------------------- |
-| **Provider**    | Netcup VPS     | TBD (Hetzner/Netcup) |
-| **OS**          | NixOS (old)    | NixOS (current)      |
-| **CPU**         | 2 vCPUs        | 4+ vCPUs             |
-| **RAM**         | 4GB            | 8GB+                 |
-| **Storage**     | 80GB SSD       | 160GB+ NVMe          |
-| **Docker Mgmt** | Manual compose | NixOS module         |
-| **Backup**      | Manual         | Automated            |
+| Aspect          | Current CSB0   | New Server      |
+| --------------- | -------------- | --------------- |
+| **Provider**    | Netcup VPS     | Netcup VPS      |
+| **OS**          | NixOS (old)    | NixOS (current) |
+| **CPU**         | 2 vCPUs        | 4+ vCPUs        |
+| **RAM**         | 4GB            | 8GB+            |
+| **Storage**     | 80GB SSD       | 160GB+ NVMe     |
+| **Docker Mgmt** | Manual compose | NixOS module    |
+| **Backup**      | Manual         | Automated       |
+
+## Network Configuration
+
+### New Server (CSB0)
+
+- **MAC Address**: `2A:E3:9B:5B:92:23`
+- **IPv4**: `89.58.63.96/22`
+- **IPv6**: `fe80::28e3:9bff:fe5b:9223/10`, `2a0a:4cc0:1:8e2::/64`
+- **Gateway**: `89.58.60.1` (v2202601214994425422.nicesrv.de)
+- **DNS Servers**: `46.38.225.230`, `46.38.252.230` (Netcup)
+- **SSH Port**: `2222`
+- **Interface**: `ens3`
 
 ## Implementation Plan
 
@@ -348,3 +360,31 @@ done
 - **Docker Volumes**: Use `docker run --rm -v volume:/data alpine tar` for backup
 - **Testing**: Test each service individually before full cutover
 - **Communication**: Keep users informed throughout the process
+
+## Lessons Learned from Initial Deployment
+
+### Network Configuration Issues
+
+1. **Wrong Configuration Applied**: The new server was initially configured with the OLD csb0 configuration (85.235.65.226) instead of the NEW configuration (89.58.63.96)
+
+2. **Network Isolation**: Even with correct IP configuration, the server had connectivity issues due to:
+   - Multiple conflicting router entries in ARP table
+   - Gateway unreachable despite ARP entry
+   - Possible MAC address binding issues
+
+3. **VNC Console Limitations**: The Netcup VNC console has character limitations (no "-" character), making troubleshooting difficult
+
+### Key Takeaways
+
+1. **Always verify the correct flake reference** when deploying (`.#csb0` vs `.#csb0-old`)
+2. **Test network connectivity early** in the deployment process
+3. **Have a rollback plan** for network configuration issues
+4. **Document MAC addresses** and network details before migration
+5. **Consider DHCP first** for initial network setup if static configuration fails
+
+### Successful Resolution
+
+- ✅ Corrected network configuration applied
+- ✅ Migration documentation updated with accurate network information
+- ✅ Server ready for clean reinstall with proper configuration
+- ✅ Lessons documented to prevent future issues
