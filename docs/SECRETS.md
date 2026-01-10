@@ -69,6 +69,12 @@
 │  Commands: just edit-secret secrets/foo.age, just rekey                     │
 │  Use for: MQTT credentials, API keys for services, system passwords        │
 │                                                                             │
+│  ⚠️ DANGER: The Rekeying Protocol                                           │
+│  Global rekeys can SILENTLY WIPE secrets if your SSH key is missing.        │
+│  1. Check file sizes: `ls -l secrets/*.age`                                 │
+│  2. Look for "578 bytes" (corrupted/empty header only)                      │
+│  3. Verify with `git diff --stat` BEFORE committing                         │
+│                                                                             │
 │  TIER 2: Runbook Secrets (all hosts)                                        │
 │  Location: hosts/<host>/runbook-secrets.age                                 │
 │  Tool: age (manual decryption)                                              │
@@ -533,12 +539,13 @@ just decrypt-runbook-secrets hsb8
 
 ### Threat Model
 
-| Attacker           | Access        | Can Get Secrets?          | Mitigation                       |
-| ------------------ | ------------- | ------------------------- | -------------------------------- |
-| **Local malware**  | Your account  | ✅ Yes                    | SSH passphrase, file permissions |
-| **Remote breach**  | Server access | ✅ Yes (that server only) | Server hardening                 |
-| **Git breach**     | Repo access   | ❌ No                     | Encrypted only                   |
-| **Physical theft** | Stolen device | ✅ Yes                    | FileVault, SSH passphrase        |
+| Attacker           | Access        | Can Get Secrets?          | Mitigation                        |
+| ------------------ | ------------- | ------------------------- | --------------------------------- |
+| **Local malware**  | Your account  | ✅ Yes                    | SSH passphrase, file permissions  |
+| **Remote breach**  | Server access | ✅ Yes (that server only) | Server hardening                  |
+| **Git breach**     | Repo access   | ❌ No                     | Encrypted only                    |
+| **Physical theft** | Stolen device | ✅ Yes                    | FileVault, SSH passphrase         |
+| **Misconfig**      | **YOU**       | 🔴 **DATA LOSS**          | **Verify file sizes after rekey** |
 
 ---
 
@@ -591,6 +598,15 @@ just private-pull-decrypt
 ---
 
 ## 🆘 Troubleshooting
+
+### 🚨 EMERGENCY: Secrets were wiped (578 bytes)
+
+If you ran `just rekey` and your secrets suddenly dropped to ~578 bytes:
+
+1. **STOP**: Do not commit or push.
+2. **RESTORE**: `git reset --hard HEAD` (or `HEAD~1` if already committed).
+3. **DEBUG**: Ensure your SSH key is added to the agent (`ssh-add ~/.ssh/id_rsa`).
+4. **RETRY**: Try decrypting one file first: `agenix -d secrets/foo.age`.
 
 ### "Command not found"
 
