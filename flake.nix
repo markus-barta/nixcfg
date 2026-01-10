@@ -50,11 +50,11 @@
       # Overlay providing pkgs.stable and pkgs.unstable attributes
       overlays-nixpkgs = _final: _prev: {
         stable = import nixpkgs-stable {
-          localSystem = system;
+          localSystem = { inherit system; };
           config.allowUnfree = true;
         };
         unstable = import nixpkgs {
-          localSystem = system;
+          localSystem = { inherit system; };
           config.allowUnfree = true;
         };
       };
@@ -81,7 +81,7 @@
         inputs.nixfleet.nixosModules.nixfleet-agent
       ];
       pkgs = import nixpkgs {
-        localSystem = system;
+        localSystem = { inherit system; };
         config.allowUnfree = true;
         overlays = allOverlays;
       };
@@ -105,7 +105,9 @@
         hostname:
         home-manager.lib.homeManagerConfiguration {
           pkgs = import nixpkgs {
-            localSystem = "x86_64-darwin";
+            localSystem = {
+              system = "x86_64-darwin";
+            };
             config.allowUnfree = true;
             overlays = allOverlays;
           };
@@ -301,7 +303,9 @@
         pingt =
           let
             pkgsDarwin = import nixpkgs {
-              localSystem = "x86_64-darwin";
+              localSystem = {
+                system = "x86_64-darwin";
+              };
               config.allowUnfree = true;
             };
           in
@@ -312,7 +316,9 @@
         pingt =
           let
             pkgsDarwin = import nixpkgs {
-              localSystem = "aarch64-darwin";
+              localSystem = {
+                system = "aarch64-darwin";
+              };
               config.allowUnfree = true;
             };
           in
