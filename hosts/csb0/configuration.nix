@@ -66,11 +66,7 @@
     hostId = "dabfdc01"; # Required for ZFS
     networkmanager.enable = true;
 
-    # Static IP for Netcup VPS - NEW SERVER (89.58.63.96)
-    # CRITICAL: Values for new csb0 server (2026-01-10)
-    #   - Subnet is /22
-    #   - Gateway is 89.58.63.1 (first IP in /22 subnet)
-    #   - DNS from Netcup DHCP
+    # Static IP: Netcup VPS - NEW SERVER (2026-01-10)
     interfaces.ens3 = {
       useDHCP = false;
       ipv4.addresses = [
