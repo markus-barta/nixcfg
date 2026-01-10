@@ -1,10 +1,70 @@
-# Infrastructure
+# Infrastructure Reference
 
-Central reference for all hosts and their relationships.
+Central reference for all hosts, relationships, and configuration patterns.
 
 ---
 
-## Host Inventory
+## 🏗️ Configuration Architecture
+
+Most hosts in this repo follow a layered configuration pattern:
+
+1.  **Hokage (Base)**: Core system management (users, SSH, base packages, security).
+2.  **Uzumaki (Personalization)**: User-specific tooling (fish, zellij, themes) and role-based defaults (server/desktop).
+3.  **Host Specifics**: `configuration.nix` in the host directory for IP addresses, ZFS pools, and specific services.
+
+### 📦 Docker Orchestration vs. NixOS
+
+While some services are managed directly by NixOS (e.g., `openssh`, `zfs`), others run in **Docker Compose**.
+
+**Why Docker?**
+
+- Legacy compatibility (Node-RED flows, Mosquitto data).
+- Portability between VPS providers (Netcup, Hetzner).
+- Separation of concerns.
+
+**How it's Managed**
+
+- Compose files are stored in `hosts/<hostname>/scripts/docker-compose.yml`.
+- **CRITICAL**: Do NOT manually edit files on the server.
+- **Workflow**:
+  1. Edit the compose file locally.
+  2. Commit and push to GitHub.
+  3. `git pull` on the host.
+  4. `docker compose up -d`.
+
+### 🔐 Secret Management (Agenix)
+
+Secrets are never stored in plain text.
+
+1.  **Agenix (Tier 1)**: Encrypted `.age` files in `secrets/`.
+2.  **Decryption**: Handled by NixOS during activation.
+3.  **Runtime**: Secrets appear in `/run/agenix/`.
+4.  **Docker Integration**: Compose files reference `/run/agenix/<secret>` for environment variables and password files.
+
+---
+
+## 🚦 Traefik Architecture
+
+Traefik acts as the global reverse proxy and edge router.
+
+### 🔧 Components
+
+- **NixOS Role**: Handles the `traefik` binary (if not using container) and firewall (80, 443, 8883).
+- **Docker Role**: Traefik usually runs as a container to auto-discover other services via the **Docker Socket Proxy**.
+
+### ⚙️ Configuration Patterns
+
+1.  **Static Config** (`static.yml`): Entrypoints, providers (Docker, File), and certificate resolvers (ACME/Cloudflare).
+2.  **Dynamic Config** (`dynamic.yml`): Middlewares (e.g., `cloudflarewarp`, `authelia`) and non-Docker services.
+3.  **Certificates**: Managed via ACME with DNS-01 challenge (Cloudflare token).
+
+### 🚨 Migration Note (csb0)
+
+On `csb0`, Traefik config was historically managed via local files (`~/docker/traefik/`) not in git. These are being transitioned to Nix-managed paths or committed to the repository to prevent "directory mount" errors in Docker Compose.
+
+---
+
+## 🖥️ Host Inventory
 
 ### NixOS Servers
 
@@ -32,17 +92,7 @@ Central reference for all hosts and their relationships.
 
 ---
 
-## Criticality Levels
-
-| Level     | Meaning                                          | Examples                          |
-| --------- | ------------------------------------------------ | --------------------------------- |
-| 🔴 HIGH   | Network/infra depends on it, affects other hosts | hsb0 (DNS), csb0 (backup manager) |
-| 🟡 MEDIUM | Important services, but isolated impact          | hsb1, csb1, hsb8                  |
-| 🟢 LOW    | Personal use, no dependencies                    | gpc0, macOS machines              |
-
----
-
-## Dependencies
+## 📊 Relationships & Dependencies
 
 ```text
                     ┌─────────┐
@@ -77,7 +127,9 @@ Central reference for all hosts and their relationships.
 
 ---
 
-## Build Platforms
+## 🛠️ Build & Deployment
+
+### Build Platforms
 
 **NixOS configurations can only be built on NixOS hosts.**
 
@@ -90,7 +142,7 @@ Central reference for all hosts and their relationships.
 | **mba-imac-work** | ❌ No            | -                                | home-manager only              |
 | **mba-mbp-work**  | ❌ No            | -                                | home-manager only              |
 
-### Build Commands
+### Quick Commands
 
 ```bash
 # Build on gpc0 (fastest)
@@ -102,9 +154,9 @@ nixos-rebuild switch --flake .#<host> --target-host <host> --use-remote-sudo
 
 ---
 
-## Cloud Server Notes (csb0, csb1)
+## ☁️ Cloud VPS (Netcup)
 
-### Netcup VPS Details
+### VPS Details
 
 | Item           | csb0             | csb1             |
 | -------------- | ---------------- | ---------------- |
@@ -124,178 +176,31 @@ German keyboard layout issues in Netcup VNC:
 - ❌ Backslash `\`, colon `:`, pipe `|` don't work
 - ✅ Letters, numbers, `/`, `.`, `$`, `()`, `=`, `_` work
 
-If login fails, use `init=/bin/sh` recovery mode (see host runbooks).
+---
+
+## 📡 NixFleet Management
+
+[NixFleet](https://github.com/markus-barta/nixfleet) provides centralized monitoring and push-button deployment via an agent-based pull model.
+
+### Managed Hosts Status
+
+| Host           | Agent Status | Notes               |
+| -------------- | ------------ | ------------------- |
+| **csb1**       | ✅ Active    | Hosts the dashboard |
+| **csb0**       | ✅ Active    | Smart home          |
+| **hsb0**       | 📋 Planned   | DNS/DHCP server     |
+| **hsb1**       | 📋 Planned   | Home automation     |
+| **hsb8**       | 📋 Planned   | Parents' server     |
+| **gpc0**       | 📋 Planned   | Gaming PC           |
+| **imac0**      | 📋 Planned   | Home workstation    |
+| **macOS work** | 📋 Planned   | Work iMac/MacBook   |
 
 ---
 
-## Location-Aware: hsb8
+## 🚨 Migration Notes (2026-01-10)
 
-hsb8 can operate at two locations with different network configs:
+Modernized patterns for `csb0` transition:
 
-| Location      | Code  | Gateway     | Purpose             |
-| ------------- | ----- | ----------- | ------------------- |
-| Parents' home | ww87  | 192.168.1.1 | Production          |
-| Markus' home  | jhw22 | 192.168.1.5 | Development/testing |
-
-Switching requires physical access (network changes during switch).
-
----
-
-## Quick SSH Aliases
-
-These are defined in uzumaki fish config:
-
-```bash
-hsb0    # → ssh with zellij to 192.168.1.99
-hsb1    # → ssh with zellij to 192.168.1.101
-csb0    # → ssh with zellij to cs0.barta.cm:2222
-csb1    # → ssh with zellij to cs1.barta.cm:2222
-qc0     # → quick connect to csb0
-qc1     # → quick connect to csb1
-```
-
----
-
-## NixFleet Fleet Management
-
-### Overview
-
-[NixFleet](https://github.com/markus-barta/nixfleet) is our in-house fleet management system for NixOS and macOS hosts. It provides:
-
-- **Web Dashboard** for viewing all hosts and triggering deployments
-- **Agent-based architecture** — devices poll for commands (works through NAT/firewalls)
-- **Unified management** — same agent pattern for NixOS and macOS
-- **Real-time updates** via Server-Sent Events (SSE)
-- **Authentication** — password + optional TOTP (2FA)
-
-**Dashboard URL**: `https://fleet.barta.cm` (hosted on csb1)
-
-### Architecture
-
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                        NIXFLEET DASHBOARD                           │
-│                      (Docker on csb1)                               │
-│                     https://fleet.barta.cm                          │
-│                                                                     │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │
-│  │   FastAPI       │  │   SQLite DB     │  │   SSE Events        │  │
-│  │   Backend       │  │   (hosts, cmds) │  │   (real-time)       │  │
-│  └─────────────────┘  └─────────────────┘  └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              │               │               │
-              ▼               ▼               ▼
-        ┌──────────┐    ┌──────────┐    ┌──────────┐
-        │  NixOS   │    │  NixOS   │    │  macOS   │
-        │  Agent   │    │  Agent   │    │  Agent   │
-        │ (systemd)│    │ (systemd)│    │ (launchd)│
-        └──────────┘    └──────────┘    └──────────┘
-
-        YOUR HOME NETWORK               PARENTS' NETWORK
-        (192.168.1.x)                   (192.168.1.x)
-```
-
-### Workflow
-
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                        DEPLOYMENT WORKFLOW                          │
-└─────────────────────────────────────────────────────────────────────┘
-
-  ┌──────────────┐         ┌──────────────┐         ┌──────────────┐
-  │   Cursor +   │  push   │    GitHub    │         │   NixFleet   │
-  │  SYSOP Agent │ ──────► │   nixcfg     │         │  Dashboard   │
-  │              │         │              │         │   (csb1)     │
-  └──────────────┘         └──────────────┘         └──────┬───────┘
-        │                                                  │
-        │ Edit configs                                     │ Commands:
-        │ Push to Git                                      │ Pull, Switch
-        │                                                  │ Test
-        │                                                  ▼
-        │                                           ┌─────────────┐
-        │                                           │   Agents    │
-        │                                           │ hsb0, hsb1  │
-        │                                           │ hsb8, gpc0  │
-        │                                           │ imac0, etc  │
-        │                                           └─────────────┘
-        │
-        └──── Trigger Pull + Switch from dashboard
-```
-
-### Dashboard Commands
-
-| Command       | Description                                         |
-| ------------- | --------------------------------------------------- |
-| `pull`        | Run `git pull` in the config repo                   |
-| `switch`      | Run `nixos-rebuild switch` or `home-manager switch` |
-| `pull-switch` | Run both in sequence                                |
-| `test`        | Run host test suite (`hosts/<host>/tests/T*.sh`)    |
-
-### Why Agent-Based (Pull Model)?
-
-| Traditional Push Model            | NixFleet Pull Model                       |
-| --------------------------------- | ----------------------------------------- |
-| Controller must reach each device | Devices reach out to controller           |
-| Requires port forwarding / VPN    | Works through NAT automatically           |
-| Firewall holes needed             | Only outbound HTTPS needed                |
-| Complex for home networks         | Simple — like how your phone gets updates |
-
-### Remote Site Management (hsb8 Example)
-
-hsb8 at parents' house connects outbound — no VPN or port forwarding needed:
-
-```text
-Parents' Network (ww87)          Internet              Your Cloud
-┌─────────────────────┐                              ┌──────────────┐
-│  hsb8               │                              │    csb1      │
-│  ┌──────────────┐   │                              │              │
-│  │ NixFleet Agt │───┼───► HTTPS ─────────────────► │  Dashboard   │
-│  └──────────────┘   │                              │              │
-│                     │                              └──────────────┘
-│  NAT Router         │
-│  (no config needed) │
-└─────────────────────┘
-```
-
-### Managed Hosts
-
-| Host          | Type  | Location | Agent Status | Notes               |
-| ------------- | ----- | -------- | ------------ | ------------------- |
-| csb1          | NixOS | Cloud    | ✅ Active    | Hosts the dashboard |
-| csb0          | NixOS | Cloud    | ✅ Active    | Smart home          |
-| hsb0          | NixOS | Home     | 📋 Planned   | DNS/DHCP server     |
-| hsb1          | NixOS | Home     | 📋 Planned   | Home automation     |
-| hsb8          | NixOS | Parents  | 📋 Planned   | Parents' server     |
-| gpc0          | NixOS | Home     | 📋 Planned   | Gaming PC           |
-| imac0         | macOS | Home     | 📋 Planned   | Home workstation    |
-| mba-imac-work | macOS | Work     | 📋 Planned   | Work iMac           |
-| mba-mbp-work  | macOS | Work     | 📋 Planned   | Work MacBook        |
-
-### NixOS vs macOS Agents
-
-Both use the same polling mechanism. The difference is in what they execute:
-
-| Aspect         | NixOS Hosts                 | macOS Hosts                |
-| -------------- | --------------------------- | -------------------------- |
-| **Agent**      | systemd service             | launchd agent              |
-| **Switch cmd** | `sudo nixos-rebuild switch` | `home-manager switch`      |
-| **Test suite** | `hosts/<host>/tests/T*.sh`  | `hosts/<host>/tests/T*.sh` |
-| **Visibility** | Full dashboard support      | Full dashboard support     |
-
-### Human-in-the-Loop Policy
-
-All deployments require manual trigger from the dashboard — no auto-deploy.
-
-| Host Type | Criticality      | Policy                      |
-| --------- | ---------------- | --------------------------- |
-| 🔴 HIGH   | hsb0, csb0       | Extra caution, verify first |
-| 🟡 MEDIUM | hsb1, csb1, hsb8 | Standard workflow           |
-| 🟢 LOW    | gpc0, macOS      | Test bed, lower risk        |
-
-### References
-
-- **NixFleet repo**: [nixfleet](https://github.com/markus-barta/nixfleet)
-- **Dashboard deployment**: See csb1 RUNBOOK (`hosts/csb1/docs/RUNBOOK.md`)
-- **Agent configuration**: NixFleet README (module options)
+- **Secrets**: Replaced local `.env` files with Agenix `/run/agenix/` secrets.
+- **Data**: Moved bind mounts to persistent ZFS volumes at `/var/lib/docker/volumes/`.
+- **Infrastructure**: Documented source configs for Traefik and Mosquitto from the legacy environment.
