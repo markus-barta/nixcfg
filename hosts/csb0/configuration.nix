@@ -204,13 +204,15 @@
   };
   age.secrets.mosquitto-passwd = {
     file = ../../secrets/mosquitto-passwd.age;
-    mode = "640";
-    owner = "root";
-    group = "mosquitto";
+    mode = "644";
+    owner = "1883";
+    group = "1883";
   };
   age.secrets.mosquitto-conf = {
     file = ../../secrets/mosquitto-conf.age;
-    owner = "root";
+    mode = "644";
+    owner = "1883";
+    group = "1883";
   };
   age.secrets.restic-hetzner-ssh-key = {
     file = ../../secrets/restic-hetzner-ssh-key.age;
