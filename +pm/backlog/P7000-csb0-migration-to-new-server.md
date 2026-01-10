@@ -30,10 +30,10 @@
 
 ```mermaid
 graph TD
-    A[Current CSB0] -->|Freeze| B[Migration Preparation]
-    B --> C[New Server Setup]
-    C --> D[DNS Cutover]
-    D --> E[Verification]
+    A[Current CSB0] -->|Freeze| B[Data Sync & Validation]
+    B --> C[Service Verification on New IP]
+    C --> D[IP/DNS Switch]
+    D --> E[Post-Migration Monitoring]
     E --> F[Decommission Old]
 ```
 
@@ -83,6 +83,9 @@ nix build .#csb0
 
 # 4. Check restic backups are accessible
 restic snapshots
+restic mount /mnt/restic-check &
+ls -R /mnt/restic-check/latest/data/docker-volumes
+umount /mnt/restic-check
 ```
 
 **Tasks**:
@@ -90,62 +93,54 @@ restic snapshots
 - [ ] Confirm new server is provisioned with correct network
 - [ ] Verify SSH access via VNC console (port 2222)
 - [ ] Test flake build locally
-- [ ] Confirm restic backups are available
+- [ ] **Validation**: Mount `restic` backup and verify data readability
 - [ ] Review configuration for new server
 - [ ] Ensure no conflicting services will run
 
-### Phase 2: New Server Setup (Week 3-4)
+### Phase 2: NixOS Deployment (Week 3-4)
 
-**Objective**: Deploy new server using nixos-anywhere
+**Objective**: Deploy the `csb0` flake to the existing server instance.
 
 ```bash
-# 1. Provision new Netcup VPS with base image
-# 2. Deploy using nixos-anywhere
+# Deploy using nixos-anywhere (assuming server is in reach via SSH/VNC)
 nixos-anywhere --flake .#csb0 root@89.58.63.96
-
-# 3. Verify deployment
-ssh -p 2222 mba@89.58.63.96 "sudo nixos-rebuild test"
 ```
 
 **Tasks**:
 
-- [ ] Provision new Netcup VPS server
-- [ ] Deploy using nixos-anywhere with correct flake reference
-- [ ] Verify network connectivity (IP: 89.58.63.96, Gateway: 89.58.60.1)
-- [ ] Test SSH access on port 2222
-- [ ] Verify all services are running
-- [ ] Set up monitoring for new server
-- [ ] Configure automated backups
+- [ ] Deploy flake `.#csb0` via `nixos-anywhere`
+- [ ] Verify `systemctl` status (no failed units)
+- [ ] Confirm `restic` and monitoring exporters are active (auto-configured by Nix)
+- [ ] Verify SSH access on port 2222
 
 ### Phase 3: Data Migration & Validation
 
-**Objective**: Restore data from old server and validate functionality
+**Objective**: Restore data and validate critical service states (Node-RED flows, Uptime Kuma).
 
 ```bash
-# 1. Restore from restic backup
-restic restore latest --target /home/mba/docker-restore
+# 1. Restore critical service volumes
+restic restore latest --target /var/lib/docker-volumes
 
-# 2. Verify critical data
-ls -la /home/mba/docker-restore/
+# 2. Verify Node-RED data integrity
+ls -la /var/lib/docker-volumes/nodered/data/flows.json
 
-# 3. Start services with restored data
-docker-compose up -d
+# 3. Local Validation (on your workstation)
+# Temporary /etc/hosts entry:
+# 89.58.63.96 cs0.barta.cm traefik.barta.cm uptime.barta.cm nr.barta.cm
 
-# 4. Validate service functionality
-for service in uptime-kuma mosquitto traefik; do
-  docker logs $service | tail -20
-  docker ps | grep $service
+# 4. Validate service functionality via new IP
+for service in nodered uptime-kuma mosquitto; do
+  systemctl status docker-$service
 done
 ```
 
 **Tasks**:
 
 - [ ] Restore all Docker volumes from restic
-- [ ] Verify data integrity and permissions
-- [ ] Start services with restored data
-- [ ] Validate each service functionality
-- [ ] Test critical workflows (MQTT, Node-RED, Uptime Kuma)
-- [ ] Verify monitoring and alerts
+- [ ] **Validation**: Verify Node-RED flows exist in `/var/lib/docker-volumes/nodered/data/flows.json`
+- [ ] **Validation**: Use `/etc/hosts` override to test Node-RED and Uptime Kuma UIs
+- [ ] Test Node-RED automation (e.g., inject a test node)
+- [ ] Verify MQTT connectivity and monitoring data flow
 
 ### Phase 4: Cutover & Decommission (Migration Day)
 
@@ -178,39 +173,33 @@ mv hosts/csb0 hosts/csb0-old-$(date +%Y-%m-%d)
 
 ### High Risks 🔴
 
-- **DNS Propagation Issues**: Mitigation: Low TTL, monitor propagation
-- **Data Corruption**: Mitigation: Multiple backups, verify integrity
-- **Service Downtime**: Mitigation: Rollback plan, old server available
+- **Data Consistency**: Docker volume restore fails or permissions mismatch. Mitigation: Verify `uid/gid` in NixOS vs old server.
+- **Service Downtime**: Extended window if data restore is slow. Mitigation: Pre-sync data before maintenance window.
 
 ### Medium Risks 🟡
 
-- **Configuration Errors**: Mitigation: Test in staging, peer review
-- **Performance Issues**: Mitigation: Load testing, resource monitoring
-- **Certificate Issues**: Mitigation: Test TLS before cutover
+- **Network Routing**: Netcup ARP/Gateway issues (seen in initial attempts). Mitigation: Keep VNC open.
+- **Certificate Issues**: ACME/Let's Encrypt rate limits during re-issuance.
 
 ### Low Risks 🟢
 
-- **IP Address Changes**: Mitigation: Update Cloudflare records
-- **User Confusion**: Mitigation: Clear communication
-- **Monitoring Gaps**: Mitigation: Temporary enhanced monitoring
+- **DNS Propagation**: Only affects subdomains; direct IP access remains as fallback.
+- **Monitoring Gaps**: Temporary lack of historical data.
 
 ## Success Criteria
 
 ### Pre-Migration
 
-- [ ] New server provisioned and configured
-- [ ] All services tested in staging
-- [ ] Migration plan documented and reviewed
-- [ ] Backups verified restorable
-- [ ] Rollback procedure documented
+- [ ] New server running current NixOS generation.
+- [ ] Flake builds and evaluates without warnings.
+- [ ] Restic repository accessible from new host.
 
 ### Migration Day
 
-- [ ] DNS changes propagated successfully
-- [ ] All services accessible on new server
-- [ ] No critical errors in logs
-- [ ] Users can access all services
-- [ ] Monitoring shows normal operation
+- [ ] All Docker services reachable via `89.58.63.96`.
+- [ ] Application data (MQTT, DBs) verified as current.
+- [ ] Traefik dashboard shows green for all backends.
+- [ ] Monitoring (Grafana/Uptime) confirms service health.
 
 ### Post-Migration
 

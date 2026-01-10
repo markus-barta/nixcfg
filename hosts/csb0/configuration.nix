@@ -83,8 +83,11 @@
       "46.38.252.230" # Netcup secondary DNS
     ];
 
-    # Tell NetworkManager NOT to manage ens3 (we configure it statically)
-    networkmanager.unmanaged = [ "ens3" ];
+    # Tell NetworkManager NOT to manage ens3 or eth0 (we configure statically)
+    networkmanager.unmanaged = [
+      "ens3"
+      "eth0"
+    ];
 
     # Disable DHCP globally (static IP server)
     useDHCP = false;
