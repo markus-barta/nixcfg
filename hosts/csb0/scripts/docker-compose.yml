@@ -78,67 +78,65 @@ services:
       - traefik
     restart: unless-stopped
 
-  # https://hub.docker.com/r/vaultwarden/server
-  # https://github.com/dani-garcia/vaultwarden
-  bitwarden:
-    image: vaultwarden/server:latest
-    restart: always
-    depends_on:
-      - bitwarden-db
-    volumes:
-      - bitwarden:/data/
-    # https://github.com/dani-garcia/vaultwarden/blob/main/.env.template
-    environment:
-      - WEBSOCKET_ENABLED=true
-      # invites can still be sent to email addresses in an organization
-      - SIGNUPS_ALLOWED=false
-      - SMTP_HOST=smtp
-      - SMTP_FROM=markus@barta.com
-      - SMTP_FROM_NAME=Bitwarden Barta
-      - SMTP_PORT=25
-      - SMTP_SECURITY=off
-      #      - LOG_LEVEL=debug
-      #      - DATABASE_URL=data/db.sqlite3
-      - DOMAIN=https://bitwarden.barta.cm
-      - TZ=Europe/Vienna
-    env_file:
-      - ./bitwarden/app.env
-      #    ports:
-      #- "2080:80"
-    labels:
-      - traefik.http.routers.bitwarden-ui.rule=Host(`bitwarden.barta.cm`)
-      - traefik.http.routers.bitwarden-ui.tls.certresolver=default
-      - traefik.http.routers.bitwarden-ui.tls=true
-      - traefik.http.routers.bitwarden-ui.service=bitwarden-ui
-      - traefik.http.services.bitwarden-ui.loadbalancer.server.port=80
-      - traefik.http.routers.bitwarden-websocket.rule=Host(`bitwarden.barta.cm`) && Path(`/notifications/hub`)
-      - traefik.http.routers.bitwarden-websocket.service=bitwarden-websocket
-      - traefik.http.services.bitwarden-websocket.loadbalancer.server.port=3012
-      - traefik.http.routers.bitwarden-websocket.tls=true
-      - traefik.docker.network=csb0_traefik
-      # to allow to see the container the correct client ip address when sending "Incomplete Two-Step Login" emails
-      - traefik.http.routers.bitwarden-ui.middlewares=cloudflarewarp@file
-      - traefik.http.routers.bitwarden-websocket.middlewares=cloudflarewarp@file
-    networks:
-      - traefik
-      - bitwarden
-
-  bitwarden-db:
-    image: mariadb
-    restart: always
-    volumes:
-      - bitwarden-db:/var/lib/mysql
-    environment:
-      - MYSQL_DATABASE=bitwarden
-      - MYSQL_USER=bitwarden
-      - TZ=Europe/Vienna
-    env_file:
-      - ./bitwarden/db.env
-    networks:
-      - bitwarden
-    #      - phpmyadmin
-    labels:
-      - traefik.enable=false
+  #  bitwarden:
+  #    image: vaultwarden/server:latest
+  #    restart: always
+  #    depends_on:
+  #      - bitwarden-db
+  #    volumes:
+  #      - bitwarden:/data/
+  #    # https://github.com/dani-garcia/vaultwarden/blob/main/.env.template
+  #    environment:
+  #      - WEBSOCKET_ENABLED=true
+  #      # invites can still be sent to email addresses in an organization
+  #      - SIGNUPS_ALLOWED=false
+  #      - SMTP_HOST=smtp
+  #      - SMTP_FROM=markus@barta.com
+  #      - SMTP_FROM_NAME=Bitwarden Barta
+  #      - SMTP_PORT=25
+  #      - SMTP_SECURITY=off
+  #      #      - LOG_LEVEL=debug
+  #      #      - DATABASE_URL=data/db.sqlite3
+  #      - DOMAIN=https://bitwarden.barta.cm
+  #      - TZ=Europe/Vienna
+  #    env_file:
+  #      - ./bitwarden/app.env
+  #      #    ports:
+  #      #- "2080:80"
+  #    labels:
+  #      - traefik.http.routers.bitwarden-ui.rule=Host(`bitwarden.barta.cm`)
+  #      - traefik.http.routers.bitwarden-ui.tls.certresolver=default
+  #      - traefik.http.routers.bitwarden-ui.tls=true
+  #      - traefik.http.routers.bitwarden-ui.service=bitwarden-ui
+  #      - traefik.http.services.bitwarden-ui.loadbalancer.server.port=80
+  #      - traefik.http.routers.bitwarden-websocket.rule=Host(`bitwarden.barta.cm`) && Path(`/notifications/hub`)
+  #      - traefik.http.routers.bitwarden-websocket.service=bitwarden-websocket
+  #      - traefik.http.services.bitwarden-websocket.loadbalancer.server.port=3012
+  #      - traefik.http.routers.bitwarden-websocket.tls=true
+  #      - traefik.docker.network=csb0_traefik
+  #      # to allow to see the container the correct client ip address when sending "Incomplete Two-Step Login" emails
+  #      - traefik.http.routers.bitwarden-ui.middlewares=cloudflarewarp@file
+  #      - traefik.http.routers.bitwarden-websocket.middlewares=cloudflarewarp@file
+  #    networks:
+  #      - traefik
+  #      - bitwarden
+  #
+  #  bitwarden-db:
+  #    image: mariadb
+  #    restart: always
+  #    volumes:
+  #      - bitwarden-db:/var/lib/mysql
+  #    environment:
+  #      - MYSQL_DATABASE=bitwarden
+  #      - MYSQL_USER=bitwarden
+  #      - TZ=Europe/Vienna
+  #    env_file:
+  #      - ./bitwarden/db.env
+  #    networks:
+  #      - bitwarden
+  #    #      - phpmyadmin
+  #    labels:
+  #      - traefik.enable=false
 
   docker-proxy-traefik:
     image: tecnativa/docker-socket-proxy
@@ -211,8 +209,8 @@ services:
       - SMARTHOST_USER=markus@barta.com
       - SMARTHOST_ALIASES=*
       - RELAY_NETWORKS=:172.0.0.0/8
-    env_file:
-      - ./smtp/variables.env
+    # env_file:
+    #   - ./smtp/variables.env
     labels:
       - traefik.enable=false
 
