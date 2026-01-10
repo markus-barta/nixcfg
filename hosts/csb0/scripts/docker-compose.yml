@@ -20,7 +20,7 @@ services:
   mosquitto:
     image: eclipse-mosquitto:latest
     volumes:
-      - /run/agenix/mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
+      # - /run/agenix/mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
       - /var/lib/docker/volumes/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - /var/lib/docker/volumes/mosquitto/data:/mosquitto/data
       - /var/lib/docker/volumes/mosquitto/log:/mosquitto/log
@@ -43,18 +43,18 @@ services:
 
   nodered:
     image: nodered/node-red:latest
-    environment:
-      - TZ=Europe/Vienna
-      - NODE_RED_ENABLE_PROJECTS=false
-      - NODE_RED_ENABLE_EDITOR=true
-    env_file:
-      - /run/agenix/nodered-env
-    volumes:
-      - /var/lib/docker/volumes/nodered/data:/data
-      - /var/lib/docker/volumes/nodered/scripts:/scripts
-      - /var/lib/docker/volumes/nodered/webserver:/webserver
-      - /var/lib/docker/volumes/shared/tmp:/shared-tmp
-    entrypoint: ["/bin/bash", "/scripts/startup.sh"]
+    # environment:
+    #   - TZ=Europe/Vienna
+    #   - NODE_RED_ENABLE_PROJECTS=false
+    #   - NODE_RED_ENABLE_EDITOR=true
+    # env_file:
+    #   - /run/agenix/nodered-env
+    # volumes:
+    #   - /var/lib/docker/volumes/nodered/data:/data
+    #   - /var/lib/docker/volumes/nodered/scripts:/scripts
+    #   - /var/lib/docker/volumes/nodered/webserver:/webserver
+    #   - /var/lib/docker/volumes/shared/tmp:/shared-tmp
+    # entrypoint: ["/bin/bash", "/scripts/startup.sh"]
     labels:
       # Traefik config
       - traefik.http.routers.nodered.rule=Host(`home.barta.cm`)
