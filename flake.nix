@@ -46,23 +46,27 @@
     }@inputs:
 
     let
-      system = "x86_64-linux";
+      linuxSystem = "x86_64-linux";
       # Overlay providing pkgs.stable and pkgs.unstable attributes
       overlays-nixpkgs = _final: _prev: {
         stable = import nixpkgs-stable {
-          localSystem = { inherit system; };
+          localSystem = {
+            system = linuxSystem;
+          };
           config.allowUnfree = true;
         };
         unstable = import nixpkgs {
-          localSystem = { inherit system; };
+          localSystem = {
+            system = linuxSystem;
+          };
           config.allowUnfree = true;
         };
       };
       # Local packages overlay
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
-        ncps = inputs.ncps.packages.${final.system}.default;
-        nixfleet-agent = inputs.nixfleet.packages.${final.system}.default;
+        ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
+        nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
       allOverlays = [
         overlays-nixpkgs
@@ -71,7 +75,7 @@
       commonServerModules = [
         home-manager.nixosModules.home-manager
         ./modules/common.nix # Shared config for ALL servers (fish, starship, packages, etc.)
-        { nixpkgs.hostPlatform = system; }
+        { nixpkgs.hostPlatform = linuxSystem; }
         (_: {
           nixpkgs.overlays = allOverlays;
         })
@@ -81,7 +85,9 @@
         inputs.nixfleet.nixosModules.nixfleet-agent
       ];
       pkgs = import nixpkgs {
-        localSystem = { inherit system; };
+        localSystem = {
+          system = linuxSystem;
+        };
         config.allowUnfree = true;
         overlays = allOverlays;
       };
@@ -174,7 +180,7 @@
         # NOTE: common.nix must load AFTER hokage to override its settings (fish, zellij, theme)
         gpc0 = nixpkgs.lib.nixosSystem {
           modules = [
-            { nixpkgs.hostPlatform = system; }
+            { nixpkgs.hostPlatform = linuxSystem; }
             home-manager.nixosModules.home-manager
             { home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ]; }
             (_: { nixpkgs.overlays = allOverlays; })
