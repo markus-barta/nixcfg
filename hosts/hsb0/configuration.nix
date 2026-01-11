@@ -466,6 +466,19 @@ in
     owner = "root";
   };
 
+  # Restic Hetzner secrets (shared sub1)
+  age.secrets.restic-hetzner-env = {
+    file = ../../secrets/restic-hetzner-env.age;
+    mode = "400";
+    owner = "root";
+  };
+
+  age.secrets.restic-hetzner-ssh-key = {
+    file = ../../secrets/restic-hetzner-ssh-key.age;
+    mode = "400";
+    owner = "root";
+  };
+
   # ============================================================================
   # NCPS - Nix binary Cache Proxy Service
   # ============================================================================
