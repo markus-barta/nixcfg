@@ -1,0 +1,29 @@
+services:
+  restic-cron-hetzner:
+    build: ./restic-cron
+    container_name: restic-cron-hetzner
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/lib/AdGuardHome:/backup/var/lib/AdGuardHome:ro
+      - /var/lib/ncps:/backup/var/lib/ncps:ro
+      - /etc:/backup/etc:ro
+      # Use SSH key from agenix (shared with csb0)
+      - /run/agenix/restic-hetzner-ssh-key:/root/.ssh/id_rsa:ro
+      - ./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro
+      # BIND MOUNTS: Local scripts override container defaults
+      - ./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro
+      - ./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro
+      - ./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro
+      - ./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro
+    environment:
+      # Target shared sub1 but in a dedicated folder /hsb0
+      RESTIC_REPOSITORY: "sftp:u387549-sub1@u387549.your-storagebox.de:23/hsb0"
+      MAIL_SUBJECT: "💾 Restic backup report (hsb0)"
+      CRON_BACKUP_EXPRESSION: "0 2 * * *" # 2:00am
+    env_file:
+      # Load RESTIC_PASSWORD from agenix (shared with csb0)
+      - /run/agenix/restic-hetzner-env
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+      - traefik.enable=false
