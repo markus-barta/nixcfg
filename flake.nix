@@ -29,7 +29,7 @@
     nixfleet.url = "github:markus-barta/nixfleet";
     nixfleet.inputs.nixpkgs.follows = "nixpkgs";
     # NCPS - Nix binary Cache Proxy Service
-    ncps.url = "github:kalbasit/ncps";
+    ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
   };
 
