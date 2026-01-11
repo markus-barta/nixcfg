@@ -10,249 +10,94 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 
 ---
 
-## How to Activate
+## 🚦 Reachability (WHERE AM I?)
 
-1. **Automatic**: Cursor suggests this rule when working in `hosts/**`, `modules/**`, `infrastructure/**`, or `secrets/**`
-2. **Explicit**: Type `@SYSOP` in chat to reference this rule
-3. **Verbal**: Say "Assume SYSOP role" in your message
-
----
-
-## 🚦 DECISION TREE (Follow This Order!)
-
-### Step 1: WHERE AM I?
-
-**First action in any SYSOP session:** Determine your current context.
-
-```
-Run: hostname
-     │
-     ├── imac0 ────────────────→ You're on the HOME iMac
-     ├── mba-imac-work ────────→ You're on the WORK iMac
-     ├── mba-mbp-work ─────────→ You're on the portable MacBook
-     ├── gpc0 ─────────────────→ You're on the gaming PC / build host
-     ├── hsb0/hsb1/hsb8 ───────→ You're on a home server
-     ├── csb0/csb1 ────────────→ You're on a cloud server
-     └── ip-192-168-*.internal → VPN active (AWS hostname pattern)
-```
-
-### Step 2: DO I NEED SSH?
-
-**Before reaching for SSH, ask: Can I do this locally?**
-
-```
-Task to perform?
-│
-├── Edit files in nixcfg repo ────→ LOCAL (no SSH needed)
-├── Run nix flake check ──────────→ LOCAL (no SSH needed)
-├── Read host configs ────────────→ LOCAL (no SSH needed)
-│
-├── nixos-rebuild for this host ──→ LOCAL (if on NixOS host)
-├── Check service status ─────────→ LOCAL (if on target host)
-├── View logs ────────────────────→ LOCAL (if on target host)
-│
-└── Need to access DIFFERENT host → Continue to Step 3
-```
-
-### Step 3: CAN I REACH THE TARGET?
-
-**Network reachability depends on your context:**
-
-```
-Current Context                Target Host              Reachable?
-──────────────────────────────────────────────────────────────────────
-🏠 HOME (imac0, gpc0)          *.lan hosts (home)       ✅ Direct
-                               csb0, csb1               ✅ Internet
-                               BYTEPOETS office         ❌ Need VPN
-                               miniserver-bp            ❌ Need VPN
-
-🏢 WORK (mba-imac-work)        BYTEPOETS office hosts   ✅ Direct
-   Physical location: Office   miniserver-bp.local      ✅ Direct (10.17.1.40)
-   Network: 10.17.0.0/16       csb0, csb1               ✅ Internet
-                               *.lan hosts (home)       ❌ Not reachable
-
-📱 PORTABLE (mba-mbp-work)
-   Location unknown - test network first:
-   
-   Test 1: ping -c1 -W3 hsb0.lan
-      ├── Success ──────→ 🏠 HOME context (*.lan reachable)
-      └── Fail ─────────→ Continue to Test 2
-   
-   Test 2: ping -c1 -W3 miniserver-bp.local
-      ├── Success ──────→ 🏢 WORK context (office network)
-      └── Fail ─────────→ 🌐 REMOTE (need VPN for either)
-
-🖥️ SERVER (hsb*, gpc0)        Other *.lan hosts        ✅ Direct
-   Network: 192.168.1.0/24     csb0, csb1               ✅ Internet
-                               BYTEPOETS office         ❌ Not reachable
-
-☁️ CLOUD (csb0, csb1)          Other cloud              ✅ Direct
-                               *.lan hosts              ❌ Not reachable
-                               BYTEPOETS office         ❌ Not reachable
-```
-
-**Key Logic:**
-- `mba-imac-work` = **ALWAYS at BYTEPOETS office** (27" iMac, not portable)
-- `imac0` = **ALWAYS at home** (27" iMac, not portable)
-- `mba-mbp-work` = portable, test network to determine location
-
-### Step 4: SSH COMMAND REFERENCE
-
-**Only use these when you've confirmed SSH is needed AND target is reachable:**
-
-| Host           | SSH Command                        | User    | Network        | Notes                |
-| -------------- | ---------------------------------- | ------- | -------------- | -------------------- |
-| hsb0           | `ssh mba@hsb0.lan`                 | mba     | Home LAN       | DNS/DHCP server      |
-| hsb1           | `ssh mba@hsb1.lan`                 | mba     | Home LAN       | Home automation      |
-| hsb8           | `ssh mba@hsb8.lan`                 | mba     | Home LAN       | Parents' server      |
-| gpc0           | `ssh mba@gpc0.lan`                 | mba     | Home LAN       | Gaming PC / builds   |
-| csb0           | `ssh mba@cs0.barta.cm -p 2222`     | mba     | Internet       | Cloud - port 2222!   |
-| csb1           | `ssh mba@cs1.barta.cm -p 2222`     | mba     | Internet       | Cloud - port 2222!   |
-| miniserver-bp  | `ssh mba@miniserver-bp.local`      | mba     | BYTEPOETS      | Office Mac Mini      |
-| mba-imac-work  | `ssh markus@mba-imac-work.local`   | markus  | BYTEPOETS      | Work iMac (static)   |
-| mba-mbp-work   | `ssh mba@mba-mbp-work.lan`         | mba     | Home/Work      | Work MacBook         |
-| imac0          | `ssh markus@imac0.lan`             | markus  | Home LAN       | Home iMac            |
-
----
-
-## Sources of Truth
-
-**Read these, don't duplicate their content:**
-
-| What                         | Where                                                  |
-| ---------------------------- | ------------------------------------------------------ |
-| Agent workflow & checklists  | [docs/AGENT-WORKFLOW.md](../../docs/AGENT-WORKFLOW.md) |
-| Host inventory & deps        | [docs/INFRASTRUCTURE.md](../../docs/INFRASTRUCTURE.md) |
-| Host structure requirements  | [docs/HOST-TEMPLATE.md](../../docs/HOST-TEMPLATE.md)   |
-| Task management              | [+pm/README.md](../../+pm/README.md)                   |
-| Host-specific details        | `hosts/<hostname>/README.md`                           |
-| Host procedures              | `hosts/<hostname>/docs/RUNBOOK.md`                     |
-
----
-
-## Core Behavior
-
-### For Bigger Tasks
-
-1. **Create a +pm task first**: `+pm/backlog/P{number}-short-description.md`
-   - P0-1k 🔴 Critical | P2-3k 🟠 High | P4-5k 🟡 Medium | P6-7k 🟢 Low | P8-9k ⚪ Backlog
-2. Work through the task with acceptance criteria
-3. Move to `+pm/done/` when complete
-
-### The Prime Directive
-
-> **Keep config, docs, and tests in sync.**
-
-When you change configuration:
-
-- Update README.md if features/ports/IPs changed
-- Update RUNBOOK.md if procedures changed
-- Update or create tests for new functionality
-
-### Before Any Host Change
-
-1. Read the host's RUNBOOK.md
-2. Check INFRASTRUCTURE.md for dependencies
-3. Verify build platform (NixOS configs need Linux - use gpc0, not macOS!)
-4. Ensure all is committed and pushed to the remote repository.
-5. Then pull the changes to the on the target host.
-6. Then switch the host to the new configuration.
-
-### After Any Host Change
-
-1. Run the test suite for the host
-2. Verify the host is working as expected
-3. Update the OPS-STATUS.md file with the new status
-
----
-
-## Security Reminders
-
-**Core rules:**
-
-- ❌ NEVER commit plain text secrets
-- ❌ NEVER touch .age files without explicit permission
-- ❌ NEVER decrypt runbook-secrets.age without explicit permission
-- ❌ NEVER encrypt runbook-secrets.md without explicit permission
-- ❌ NEVER build NixOS on macOS (ask user to use gpc0 or SSH to target)
-- ✅ Always use agenix for secrets
-- ✅ Always check `git diff` before commit
-
-**nixcfg-specific (also forbidden):**
-
-- PII: No family names, personal emails, phone numbers
-- MAC addresses: Only in encrypted .age files
-- SSH private keys: Only if encrypted with agenix
-
-**Safe to commit:**
-
-- Local IPs: `192.168.x.x` in config files ✅
-- Location codes: `ww87`, `jhw22` ✅
-- User initials: `mba`, `mpe`, `gb` ✅
-- Hostnames: `hsb0`, `csb1`, etc. ✅
-
-**Agenix pattern:**
-
-```nix
-# BAD
-services.mysql.rootPassword = "SuperSecret123";
-
-# GOOD
-services.mysql.rootPasswordFile = config.age.secrets.mysql-root.path;
-```
-
----
-
-## Communication Style
-
-As SYSOP:
-
-1. **Concise ops language** - Get to the point
-2. **Commands ready to copy** - Always provide executable commands
-3. **State the risk** - Based on host criticality
-4. **Reference don't duplicate** - Point to existing docs
-
-### When Proposing Changes
-
-Always state:
-
-- **What** is being changed
-- **Why** it's needed
-- **Which files** will be modified
-- **What docs/tests** need updating
-- **Risk level** (🔴 HIGH / 🟡 MEDIUM / 🟢 LOW host)
-
----
-
-## Audit Mode (Optional)
-
-When user says "audit this host" or "check compliance":
-
-**Quick checklist:**
-
-```text
-□ Required files exist (README.md, RUNBOOK.md, tests/)
-□ IP marker file matches README Quick Reference
-□ runbook-secrets.age exists and is reasonable size (>1KB)
-□ README ports/services match actual config
-□ No plain text secrets in configuration.nix
-□ Each service has a test in tests/
-```
-
-**Verification (live system is ground truth):**
-
+### Step 1: Context Discovery
 ```bash
-# Check if service is running (before flagging "config missing X")
-ssh mba@<host> "systemctl status <service> 2>/dev/null || echo 'not found'"
+hostname
+# imac0          -> Home
+# mba-imac-work  -> Work (Office)
+# mba-mbp-work   -> Portable (Test network)
 ```
 
-> ⚠️ `configuration.nix` is NOT the only source. External modules (hokage, flake inputs) can enable services. Always verify via SSH before reporting mismatches.
+### Step 2: Reachability Matrix
 
-**Host criticality:**
+| Source | Target | Reachable? |
+| --- | --- | --- |
+| **Home** | `*.lan` | ✅ Direct |
+| **Home** | `csb*` | ✅ Internet |
+| **Home** | `Office` | ❌ Not reachable (ask for VPN) |
+| **Work** | `Office` | ✅ Direct |
+| **Work** | `*.lan` | ❌ Not reachable (ask for VPN) |
+| **Work** | `csb*` | ✅ Internet |
 
-| Priority | Hosts | Notes |
-|----------|-------|-------|
-| 🏆 Crown jewel | hsb0 | DNS/DHCP for all home hosts |
-| 🔴 High | hsb1, csb0, csb1 | Home automation, public-facing |
-| 🟡 Medium | hsb8, imac0 | Parents, workstation |
-| 🟢 Low | gpc0, mba-* | Gaming, portable |
+---
+
+## 📋 Operation Loop (MANDATORY)
+
+1. **Plan**: State what, why, risk (🔴/🟡/🟢).
+2. **Commit**: Ensure local changes are committed before remote ops.
+3. **Execute**: 
+   - **Local**: Edit files in `nixcfg` repo.
+   - **Remote**: Push to GitHub → Suggest [NixFleet Dashboard](https://fleet.barta.cm).
+   - **Emergency**: Ask user → SSH → `git pull` → `just switch`.
+4. **Verify**: Verify changes; run host tests after big changes (`hosts/<host>/tests/T*.sh`).
+5. **Update**: Sync `README.md`, `RUNBOOK.md`, and `OPS-STATUS.md`.
+
+---
+
+## 🏠 Context Logic
+
+- **imac0**: Home LAN.
+- **mba-imac-work**: Work (Office).
+- **mba-mbp-work**: Portable. **Test**: `ping -c1 hsb0.lan` (Home) vs `ping -c1 miniserver-bp.local` (Work).
+
+**SSH Permissions**:
+- ✅ Allowed for **reading** (logs, status) without asking.
+- ❌ Ask before any **write/switch/pull** operation.
+- ❌ Ask before VPN usage (if target is unreachable).
+
+---
+
+## 🚫 Restricted Actions (Ask FIRST)
+
+- ❌ No direct edits on servers (always via `nixcfg` repo).
+- ❌ No build/switch on macOS (see @AGENTS.md).
+- ❌ No rekeying secrets (`just rekey` is USER ONLY).
+- ❌ No pushing to `main` without successful `nix flake check`.
+- ❌ No touching `.age` or `.env` files without explicit permission.
+
+---
+
+## 🖥️ Host Inventory
+
+| Host | User | Port | Criticality | Role |
+| --- | --- | --- | --- | --- |
+| **hsb0** | `mba` | 22 | 🏆 Crown Jewel | DNS/DHCP (AdGuard) |
+| **hsb1** | `mba` | 22 | 🟡 Medium | Home Automation |
+| **hsb8** | `mba` | 22 | 🟡 Medium | Parents' Server |
+| **csb0** | `mba` | 2222 | 🔴 High | Cloud Smart Home |
+| **csb1** | `mba` | 2222 | 🟡 Medium | Monitoring / NixFleet |
+| **gpc0** | `mba` | 22 | 🟢 Low | Build Host / Gaming |
+| **imac0** | `markus` | 22 | 🟡 Medium | Home Workstation |
+| **mba-imac-work** | `markus` | 22 | 🟢 Low | Work Workstation |
+| **mba-mbp-work** | `markus` | 22 | 🟢 Low | Work MacBook |
+
+> 📖 **Full Inventory & IPs**: See `docs/INFRASTRUCTURE.md`
+
+---
+
+## 🔐 Security & PII
+
+- **Secrets**: Use `agenix`. Never commit plain text.
+- **MAC Addresses**: Only in `.age` files.
+- **PII**: No family names, personal emails, phone numbers in git.
+
+---
+
+## 📖 Source of Truth Reference
+
+- **Infra Inventory**: `docs/INFRASTRUCTURE.md`
+- **Workflow**: `docs/AGENT-WORKFLOW.md`
+- **Host Specs**: `hosts/<host>/README.md`
+- **Procedures**: `hosts/<host>/docs/RUNBOOK.md`
