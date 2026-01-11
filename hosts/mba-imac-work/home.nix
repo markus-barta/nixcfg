@@ -233,7 +233,7 @@ in
     enable = true;
 
     # Prepend Nix paths to PATH (same as Fish loginShellInit)
-    initExtra = ''
+    initContent = ''
       # Ensure Nix paths are prioritized
       export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
     '';
