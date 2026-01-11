@@ -122,42 +122,18 @@ When user wants to modify encrypted content:
 
 **If corrupted:** STOP → alert user → guide restore from git → rotate credential.
 
-## NixOS Build Platforms
+## NixOS Build Safety
 
-**NEVER build NixOS configs on macOS.** Use gpc0 or SSH to target.
-
-| Machine                            | OS    | Can Build NixOS?  |
-| ---------------------------------- | ----- | ----------------- |
-| hsb0, hsb1, hsb8, csb0, csb1, gpc0 | NixOS | ✅ Yes (use gpc0) |
-| imac0, mba-imac-work, mba-mbp-work | macOS | ❌ No             |
+**NEVER build NixOS configs on macOS.** See `docs/INFRASTRUCTURE.md` for build host availability.
 
 **From macOS, build remotely:**
 
 ```bash
-ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#<host>"
+# Example for building hsb0 via gpc0 (fastest host)
+ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 ```
 
-**Home Manager exception:** macOS HM configs CAN be built on macOS.
-
 ## Starship Config
-
-When editing `starship.toml`: never use heredocs/echo (corrupts Unicode). Use `starship preset` or `sed`.
-
-## Language/Stack Notes
-
-### Nix
-
-- Use `nix flake check` before committing flake changes.
-- NixOS builds require Linux host (use gpc0, not macOS).
-- Home Manager for macOS configs.
-- `devenv` for development environments (see `devenv.nix`).
-- Secrets via `agenix` - never commit plain text.
-
-### Shell (Fish/Bash)
-
-- User runs fish shell on all machines.
-- Shebang: prefer `#!/usr/bin/env bash` for scripts.
-- Use shellcheck patterns.
 
 ## Critical Thinking
 
