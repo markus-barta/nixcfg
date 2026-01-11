@@ -497,6 +497,9 @@ in
     after = [ "var-lib-ncps.mount" ];
   };
 
+  # Fix: P6400 / P5012 - Remove evaluation warning by forcing null on initialHashedPassword
+  users.users.mba.initialHashedPassword = lib.mkForce null;
+
   # ============================================================================
   # Cache Warmer (Nightly Pre-fetch)
   # ============================================================================
