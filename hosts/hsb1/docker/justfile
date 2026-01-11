@@ -1,0 +1,26 @@
+# Docker Restic Management Shorthands
+# Based on pbek's patterns: https://github.com/pbek/nixcfg/blob/master/justfile
+
+# List all snapshots
+snapshots container='restic-cron-hetzner':
+    docker exec -it {{ container }} restic snapshots
+
+# List files in a snapshot
+ls snapshot='latest' container='restic-cron-hetzner':
+    docker exec -it {{ container }} restic ls {{ snapshot }}
+
+# Show repository stats
+stats container='restic-cron-hetzner':
+    docker exec -it {{ container }} restic stats
+
+# Trigger a manual integrity check
+check container='restic-cron-hetzner':
+    docker exec -it {{ container }} /usr/local/bin/run_check.sh
+
+# Trigger a manual backup
+backup container='restic-cron-hetzner':
+    docker exec -it {{ container }} /usr/local/bin/run_backup.sh
+
+# Unlock the repository
+unlock container='restic-cron-hetzner':
+    docker exec -it {{ container }} restic unlock
