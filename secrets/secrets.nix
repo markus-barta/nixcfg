@@ -103,10 +103,14 @@ in
   "mosquitto-passwd.age".publicKeys = markus ++ csb0;
 
   # Restic Hetzner SSH key
-  "restic-hetzner-ssh-key.age".publicKeys = markus ++ csb0;
+  "restic-hetzner-ssh-key.age".publicKeys = markus ++ csb0 ++ hsb1 ++ hsb0;
 
   # Restic Hetzner environment variables
-  "restic-hetzner-env.age".publicKeys = markus ++ csb0;
+  "restic-hetzner-env.age".publicKeys = markus ++ csb0 ++ hsb1 ++ hsb0;
+
+  # hsb1 specific restic secrets (sub2)
+  "hsb1-restic-ssh-key.age".publicKeys = markus ++ hsb1;
+  "hsb1-restic-env.age".publicKeys = markus ++ hsb1;
 
   "mosquitto-conf.age".publicKeys = markus ++ csb0;
   "traefik-static.age".publicKeys = markus ++ csb0;
