@@ -1,0 +1,391 @@
+# Runbook: csb0 (Smart Home Hub)
+
+**Host**: csb0 (cs0.barta.cm / 85.235.65.226)  
+**Role**: Smart Home Hub & IoT Automation Platform  
+**Criticality**: HIGH - Smart home + backup manager for BOTH csb0 and csb1  
+**Provider**: Netcup VPS
+
+---
+
+## Quick Connect
+
+```bash
+# Via alias
+qc0
+
+# Direct SSH
+ssh mba@cs0.barta.cm -p 2222
+
+# With IP
+ssh mba@85.235.65.226 -p 2222
+```
+
+---
+
+## Quick Reference Card
+
+```
+╔════════════════════════════════════════════════════════════╗
+║ 🌀 csb0 - Smart Home Hub Emergency Reference               ║
+╠════════════════════════════════════════════════════════════╣
+║ SSH:       ssh mba@cs0.barta.cm -p 2222                    ║
+║ IP:        85.235.65.226                                   ║
+║ Netcup:    Customer # 227044 (2FA required)                ║
+║ VNC:       servercontrolpanel.de/SCP                       ║
+╠════════════════════════════════════════════════════════════╣
+║ 🌐 SERVICES                                                ║
+║ • Node-RED:    https://home.barta.cm                       ║
+║ • Bitwarden:   https://bitwarden.barta.cm (TEST ONLY)      ║
+║ • MQTT:        mosquitto.barta.cm:8883 (TLS)               ║
+║ • Telegram:    t.me/csb0bot                                ║
+╠════════════════════════════════════════════════════════════╣
+║ ⚠️ CRITICAL SERVICES                                       ║
+║ • MQTT (mosquitto) → Feeds csb1 InfluxDB!                  ║
+║ • Node-RED → Garage door control for family/neighbors!     ║
+║ • Telegram bot → Smart home notifications & control        ║
+║ • Backup cleanup → Manages BOTH csb0 and csb1!             ║
+╠════════════════════════════════════════════════════════════╣
+║ 🚨 IF DOWN                                                 ║
+║ 1. SSH check: ssh mba@cs0.barta.cm -p 2222                 ║
+║ 2. VNC console via Netcup SCP (if SSH fails)               ║
+║ 3. Restore from backup (< 2h)                              ║
+╚════════════════════════════════════════════════════════════╝
+```
+
+---
+
+## Health Checks
+
+### Quick Status
+
+```bash
+# One-liner: container count, disk usage, load
+ssh mba@cs0.barta.cm -p 2222 "docker ps | wc -l && df -h / | tail -1 && uptime"
+# Expected: 10 containers, <20% disk, load <1.0
+
+# Check container health
+ssh mba@cs0.barta.cm -p 2222 "docker ps --filter 'status=exited'"
+# Should be empty (all running)
+
+# Check services responding
+curl -I https://home.barta.cm  # Node-RED (expect 200)
+curl -I https://bitwarden.barta.cm  # Bitwarden (expect 200)
+```
+
+---
+
+## Common Tasks
+
+### Update & Switch Configuration
+
+```bash
+ssh mba@cs0.barta.cm -p 2222
+cd ~/nixcfg  # or ~/Code/nixcfg
+git pull
+just switch
+```
+
+### Rollback to Previous Generation
+
+```bash
+ssh mba@cs0.barta.cm -p 2222
+sudo nixos-rebuild switch --rollback
+```
+
+---
+
+## 🏗️ Uzumaki & Hokage Pattern
+
+`csb0` is an **External Hokage Consumer**. It consumes the base server configuration from the global `hokage` module but applies local customizations via the `uzumaki` namespace.
+
+- **Status**: Enabled (`uzumaki.enable = true`)
+- **Role**: `server`
+- **Indicator**: The `nixbit` command should be available and working.
+
+---
+
+## Docker Services
+
+### All Containers (9 running)
+
+| Container                   | Purpose                          |
+| --------------------------- | -------------------------------- |
+| csb0-traefik-1              | Reverse proxy                    |
+| csb0-bitwarden-1            | Password manager (TEST ONLY)     |
+| csb0-bitwarden-db-1         | MariaDB for Bitwarden            |
+| csb0-mosquitto-1            | MQTT broker (CRITICAL)           |
+| csb0-nodered-1              | Smart home automation (CRITICAL) |
+| csb0-cypress-1              | Sonnen website scraper           |
+| csb0-smtp-1                 | Mail relay                       |
+| csb0-restic-cron-hetzner-1  | Backup + cleanup manager         |
+| csb0-docker-proxy-traefik-1 | Traefik proxy                    |
+
+### Quick Commands
+
+```bash
+# View all containers
+docker ps -a
+
+# Restart a container
+docker restart csb0-nodered-1
+docker restart csb0-mosquitto-1
+
+# View logs
+docker logs csb0-nodered-1 --tail 50
+docker logs csb0-mosquitto-1 --tail 50
+
+# Restart all services
+cd ~/docker && docker-compose down && docker-compose up -d
+```
+
+---
+
+## Troubleshooting
+
+### Decision Tree
+
+```
+Service Not Responding?
+├─ Can SSH?
+│  ├─ YES: Docker/service issue
+│  │  ├─ docker ps → container running?
+│  │  │  ├─ YES: Check logs: docker logs <container>
+│  │  │  └─ NO: Start it: cd ~/docker && docker-compose up -d
+│  │  └─ Docker down? systemctl status docker
+│  └─ NO: Server/network issue
+│     ├─ Can ping 85.235.65.226?
+│     │  ├─ YES: SSH service down → Use VNC console
+│     │  └─ NO: Server down → Check Netcup panel
+│     └─ Last resort: VNC console (Netcup SCP)
+```
+
+### Common Issues & Quick Fixes
+
+```
+Node-RED down → docker restart csb0-nodered-1
+MQTT down → docker restart csb0-mosquitto-1 (⚠️ affects csb1!)
+Backup failed → docker logs csb0-restic-cron-hetzner-1
+Telegram bot → Re-register webhook (see SECRETS.md for token)
+High load → Check docker stats (find heavy container)
+```
+
+---
+
+## Emergency Recovery
+
+### Access Priority
+
+1. **Primary**: SSH with key (`~/.ssh/id_rsa`)
+2. **Backup**: SSH with mba password (see 1Password: "csb0 csb1 recovery")
+3. **Emergency**: Netcup VNC console + mba password
+4. **Recovery**: Netcup control panel access (with 2FA)
+
+### Recovery Password
+
+The `mba` user has a `hashedPassword` set in `configuration.nix` for emergency
+VNC console access. Password stored in 1Password under "csb0 csb1 recovery".
+
+### Network Configuration
+
+| Setting   | Value                            |
+| --------- | -------------------------------- |
+| Static IP | `85.235.65.226/22`               |
+| Gateway   | `85.235.64.1`                    |
+| DNS       | `46.38.225.230`, `46.38.252.230` |
+
+⚠️ **CRITICAL**: Subnet is `/22` (NOT `/24`!) - Gateway is at `.64.1`, not `.65.1`.
+
+### 🚨 Historical Incident: 2025-12-06 Network Lockout
+
+**Symptom:** Server became unreachable immediately after `nixos-rebuild switch`.
+**Root Cause:** The configuration assumed a `/24` subnet and a gateway at `.65.1` (based on `csb1` patterns). However, `csb0` is on a `/22` network where the gateway is at the start of the range: `85.235.64.1`.
+**VNC Recovery Note:** The Netcup VNC console has severe keyboard mapping issues. Colons `:`, hyphens `-`, and pipes `|` often cannot be typed.
+**Fix:** Always verify gateway via DHCP (`journalctl` or `ip route`) before applying static IP config.
+
+### If SSH Fails
+
+1. Login to Netcup SCP (<https://www.servercontrolpanel.de/SCP>)
+2. Navigate to server, open VNC console
+3. Login as `mba` with recovery password (see 1Password)
+
+### VNC Console Recovery (Netcup)
+
+⚠️ **Netcup VNC has German keyboard layout issues!**
+
+**Keys that WORK:**
+
+- Letters (a-z, A-Z), Numbers (0-9)
+- Forward slash `/`, Period `.`, Spaces
+- Dollar `$`, Parentheses `()`, Equals `=`, Underscore `_`
+- Arrow keys, Tab completion (in bash, NOT busybox)
+
+**Keys that DO NOT WORK:**
+
+- Hyphen `-` (critical for commands!)
+- Backslash `\`, Colon `:`, Pipe `|`
+
+**If login prompt works** → Use mba password from 1Password
+
+**If login broken** → Use `init=/bin/sh` recovery:
+
+1. Reboot via Netcup panel
+2. At GRUB, press `e` to edit boot entry
+3. Add `init=/bin/sh` to end of linux line
+4. Press Ctrl+X to boot
+5. In minimal shell (`sh-5.3#`), find tools with glob:
+
+```bash
+# Find password tool
+echo /nix/store/*shadow*/bin/passwd
+# Example: /nix/store/117zjnjzaw0n22z0xinp17qpbdv3wsra-shadow-4.18.0/bin/passwd
+
+# Set password (use Tab completion after partial path)
+/nix/store/117z[Tab]/bin/passwd mba
+
+# Find network tools
+echo /nix/store/*iproute*/bin/ip
+
+# Configure network (adjust path with Tab)
+/nix/store/m1b[Tab]/bin/ip addr add 85.235.65.226/22 dev ens3
+/nix/store/m1b[Tab]/bin/ip link set ens3 up
+/nix/store/m1b[Tab]/bin/ip route add default via 85.235.64.1
+
+# Continue normal boot
+exec /nix/var/nix/profiles/system/init
+```
+
+**Note:** Busybox ash shell is worse than bash (no arrow-up, no Tab). If you accidentally enter it, type `exit` to return to bash.
+
+### Netcup API Emergency Restart
+
+```bash
+# Get token and restart (see SECRETS.md for refresh token location)
+TOKEN=$(curl -s 'https://servercontrolpanel.de/realms/scp/protocol/openid-connect/token' \
+  -d 'client_id=scp' -d "refresh_token=$(cat ~/Code/nixcfg/hosts/csb0/secrets/netcup-api-refresh-token.txt)" \
+  -d 'grant_type=refresh_token' | jq -r '.access_token') && \
+curl -X POST "https://servercontrolpanel.de/scp-core/api/v1/servers/607878/reset" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## Backup System
+
+### 🚨 CRITICAL: csb0 is the Cleanup Manager
+
+**⚠️ csb0 manages cleanup for BOTH csb0 and csb1 backups!**
+
+- Both servers backup to the same Hetzner repository
+- csb0 runs cleanup at 03:15 AM daily
+- csb1's cleanup script exits early and defers to csb0
+
+### Schedule
+
+| Task    | Time                   | Container                  |
+| ------- | ---------------------- | -------------------------- |
+| Backup  | 01:30 AM daily         | csb0-restic-cron-hetzner-1 |
+| Cleanup | 03:15 AM daily         | csb0-restic-cron-hetzner-1 |
+| Check   | 05:30 AM monthly (1st) | csb0-restic-cron-hetzner-1 |
+
+### What Gets Backed Up
+
+```
+✅ /var/lib/docker/volumes - Docker volumes
+✅ /home - All Docker bind mounts (Node-RED, Mosquitto, everything!)
+✅ /root - Root user data
+✅ /etc - System configuration
+❌ Exclusions: */cache/*, *.log*
+```
+
+### Check Backup Status
+
+```bash
+# View logs
+docker logs csb0-restic-cron-hetzner-1 | tail -50
+
+# List snapshots (see SECRETS.md for repository details)
+docker exec csb0-restic-cron-hetzner-1 restic snapshots
+```
+
+---
+
+## Service Dependencies
+
+```
+IoT Devices → MQTT (csb0) → InfluxDB (csb1) → Grafana (csb1)
+            ↓
+     Node-RED (csb0) → Telegram Bot → Users
+            ↓
+    Smart Home Controls
+```
+
+**⚠️ If csb0 MQTT is down, csb1's InfluxDB stops receiving IoT data!**
+
+---
+
+## Telegram Bot Architecture
+
+### Bots Overview
+
+| Bot              | Username              | Purpose                                     | Token Location                      |
+| ---------------- | --------------------- | ------------------------------------------- | ----------------------------------- |
+| **Building Bot** | `@janischhofweg22bot` | Smart home control (garage, doors, cameras) | `JHW22_BOT_TOKEN` in `telegram.env` |
+| **CSB0 Bot**     | `@csb0bot`            | Legacy/test bot (NOT actively used)         | `CSB0_BOT_TOKEN` in `telegram.env`  |
+
+### Active Bot: @janischhofweg22bot
+
+This is the **production bot** used by building residents for:
+
+- `/zufahrt` - Open driveway gate
+- `/smartlock` - Control door lock
+- `/keller` - Access cellar
+- `/kamera` - View camera feeds
+- `/pp20ein`, `/pp20aus` - Parking space controls
+
+**User permissions** are defined in Node-RED flows (`flows.json` → `userConfig` object) by Telegram user ID.
+
+### Cross-Server Communication
+
+Both `csb0` and `hsb1` use the SAME `@janischhofweg22bot` token:
+
+- **CSB0**: Handles interactive commands (via Node-RED Telegram nodes).
+- **HSB1**: Sends notifications via Apprise (one-way).
+
+---
+
+## Maintenance
+
+### Clean Up Disk Space
+
+```bash
+ssh mba@cs0.barta.cm -p 2222 "docker system prune -f"
+```
+
+### View Logs
+
+```bash
+# Current boot
+ssh mba@cs0.barta.cm -p 2222 "journalctl -b -e"
+
+# Follow logs
+ssh mba@cs0.barta.cm -p 2222 "journalctl -f"
+```
+
+---
+
+## Web Interfaces
+
+| Service   | URL                                      |
+| --------- | ---------------------------------------- |
+| Node-RED  | <https://home.barta.cm>                  |
+| Bitwarden | <https://bitwarden.barta.cm> (TEST ONLY) |
+| MQTT      | mosquitto.barta.cm:8883 (TLS)            |
+
+---
+
+## Related Documentation
+
+- [csb0 README](../README.md) - Full server documentation
+- [SECRETS.md](../secrets/SECRETS.md) - All credentials (gitignored)
+- [DEPRECATED-RUNBOOK.md](../secrets/DEPRECATED-RUNBOOK.md) - Old runbook with inline secrets
+- [csb1 Runbook](../../csb1/docs/RUNBOOK.md) - Monitoring server

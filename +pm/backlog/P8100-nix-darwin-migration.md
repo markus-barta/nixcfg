@@ -90,3 +90,15 @@ homebrew = {
 ## Notes
 
 Triggered by wanting to install `tw93/tap/mole` declaratively instead of manual `brew install`.
+
+---
+
+## 📌 Relationship to Secrets Management
+
+**Important**: This task is **NOT required** for secrets management.
+
+- **P5950** (workstation secrets) works with home-manager only
+- **P8100** (nix-darwin) is separate infrastructure decision
+- Secrets architecture is independent of nix-darwin migration
+
+**Recommendation**: Defer P8100 unless you have a specific blocker that requires nix-darwin.

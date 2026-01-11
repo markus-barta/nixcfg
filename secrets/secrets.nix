@@ -41,7 +41,8 @@ let
   ];
 
   csb0 = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKQk8oklcJePMtYjjBCgKaTrzZ4kqad84htRV9fzOVSd"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJK1DM6yCiWlEz9xXwAmCLR9j6Ylmao5AJMX8oMPDDWz"
+    # "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKQk8oklcJePMtYjjBCgKaTrzZ4kqad84htRV9fzOVSd" //old key - decomissioned csb0-old 2026-01-10
   ];
 
   csb1 = [
@@ -81,7 +82,7 @@ in
   # Uptime Kuma environment variables (for Apprise tokens)
   # Format: KEY=VALUE lines
   # Edit: agenix -e secrets/uptime-kuma-env.age
-  "uptime-kuma-env.age".publicKeys = markus ++ hsb0;
+  "uptime-kuma-env.age".publicKeys = markus ++ csb0;
 
   # NCPS signing key for binary cache proxy on hsb0
   # Format: secret-key-file content (nix-store generated)
@@ -93,4 +94,22 @@ in
   # Edit: agenix -e secrets/fritzbox-smb-credentials.age
   "fritzbox-smb-credentials.age".publicKeys = markus ++ hsb1;
 
+  # Node-RED environment variables (Telegram bot token, etc)
+  # Edit: agenix -e secrets/nodered-env.age
+  "nodered-env.age".publicKeys = markus ++ csb0;
+
+  # Mosquitto password file
+  # Edit: agenix -e secrets/mosquitto-passwd.age
+  "mosquitto-passwd.age".publicKeys = markus ++ csb0;
+
+  # Restic Hetzner SSH key
+  "restic-hetzner-ssh-key.age".publicKeys = markus ++ csb0;
+
+  # Restic Hetzner environment variables
+  "restic-hetzner-env.age".publicKeys = markus ++ csb0;
+
+  "mosquitto-conf.age".publicKeys = markus ++ csb0;
+  "traefik-static.age".publicKeys = markus ++ csb0;
+  "traefik-dynamic.age".publicKeys = markus ++ csb0;
+  "traefik-variables.age".publicKeys = markus ++ csb0;
 }

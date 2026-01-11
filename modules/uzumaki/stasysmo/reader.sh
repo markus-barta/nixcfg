@@ -377,10 +377,35 @@ main() {
   # Output debug info first (if enabled)
   debug_output
 
+  # Check for SYSOP_NOTE
+  local sysop_note_file="$HOME/SYSOP_NOTE"
+  local sysop_indicator=""
+  if [[ -s "$sysop_note_file" ]]; then
+    local note_text
+    note_text=$(head -n 1 "$sysop_note_file" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [[ -n "$note_text" ]]; then
+      local red
+      red=$(ansi_color "$COLOR_CRITICAL")
+      local reset
+      reset=$(ansi_reset)
+
+      # Determine if we show the full note or just the indicator
+      # Show full note only if we have at least 3 metric slots (wide terminal)
+      if [[ "$max_metrics" -ge 3 ]]; then
+        sysop_indicator="${red}! ${note_text}${reset} "
+      else
+        sysop_indicator="${red}!${reset} "
+      fi
+    fi
+  fi
+
   # Output final string only if we have something to show
   # Empty output causes Starship to hide the module entirely (no artifacts)
   if [[ -n "$output" ]]; then
-    echo -e "$output"
+    echo -e "${sysop_indicator}${output}"
+  elif [[ -n "$sysop_indicator" ]]; then
+    # If metrics are hidden but note exists, show at least the note
+    echo -e "${sysop_indicator% }" # Remove trailing space
   fi
 }
 
