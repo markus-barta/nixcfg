@@ -64,3 +64,9 @@ hosts/archive/
 
 # Network topology with MAC addresses (keep local only)
 hosts/hsb8/examples/network-reference-pihole-backup.md
+
+# Legacy/Manual Docker Secrets (Safety Guard)
+id_rsa
+id_rsa.pub
+*.env
+!*.example.env
