@@ -291,22 +291,22 @@ in
 
   # Declarative git config for gb user (Gerhard) - mirrors hokage for mba
   system.activationScripts.gbGitConfig = lib.stringAfter [ "users" ] ''
-    if [ -d /home/gb ]; then
-      mkdir -p /home/gb/.config/git
-      cat > /home/gb/.gitconfig << 'EOF'
-  [user]
-      name = Gerhard Barta
-      email = gerhard@barta.com
-  [credential]
-      helper = store
-  [init]
-      defaultBranch = main
-  [core]
-      editor = nano
-  EOF
-      chown -R gb:users /home/gb/.config/git
-      chmod 600 /home/gb/.gitconfig
-    fi
+      if [ -d /home/gb ]; then
+        mkdir -p /home/gb/.config/git
+        cat > /home/gb/.gitconfig << 'EOF'
+    [user]
+        name = Gerhard Barta
+        email = gerhard@barta.com
+    [credential]
+        helper = store
+    [init]
+        defaultBranch = main
+    [core]
+        editor = nano
+    EOF
+        chown -R gb:users /home/gb/.config/git
+        chmod 600 /home/gb/.gitconfig
+      fi
   '';
 
   # Helper script to enable ww87 location (for moving to parents' home)
@@ -448,7 +448,7 @@ in
       nmap
       # Secret management tools
       rage # Modern age encryption tool (for agenix)
-      inputs.agenix.packages.${pkgs.system}.default # agenix CLI
+      inputs.agenix.packages.${pkgs.stdenv.hostPlatform.system}.default # agenix CLI
     ]
   );
 

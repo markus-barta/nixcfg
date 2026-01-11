@@ -434,7 +434,7 @@ in
     mosquitto # For mosquitto_sub debugging
     # Secret management tools
     rage # Modern age encryption tool (for agenix)
-    inputs.agenix.packages.${pkgs.system}.default # agenix CLI
+    inputs.agenix.packages.${pkgs.stdenv.hostPlatform.system}.default # agenix CLI
     # Notifications
     apprise # Apprise CLI for Uptime Kuma and manual alerts
   ];
