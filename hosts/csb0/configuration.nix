@@ -63,32 +63,31 @@
   # Fix: Declarative static IP that NixOS manages, NM ignores
   networking = {
     hostName = "csb0";
-    hostId = "dabfdc01"; # Required for ZFS
+    hostId = "ad684098"; # Generated from machine-id 2026-01-10
     networkmanager.enable = true;
 
-    # Static IP for Netcup VPS
-    # CRITICAL: Values from DHCP analysis on Gen 22 (2025-12-06)
-    #   - Subnet is /22 (NOT /24!)
-    #   - Gateway is 85.235.64.1 (NOT 85.235.65.1!)
-    #   - DNS from Netcup DHCP
+    # Static IP: Netcup VPS - NEW SERVER (2026-01-10)
     interfaces.ens3 = {
       useDHCP = false;
       ipv4.addresses = [
         {
-          address = "85.235.65.226";
-          prefixLength = 22; # /22 = 85.235.64.0 - 85.235.67.255
+          address = "89.58.63.96";
+          prefixLength = 22; # /22 = 89.58.60.0 - 89.58.63.255
         }
       ];
     };
 
-    defaultGateway = "85.235.64.1"; # Gateway is in .64 subnet, not .65!
+    defaultGateway = "89.58.60.1"; # Gateway from Netcup SCP
     nameservers = [
       "46.38.225.230" # Netcup primary DNS
       "46.38.252.230" # Netcup secondary DNS
     ];
 
-    # Tell NetworkManager NOT to manage ens3 (we configure it statically)
-    networkmanager.unmanaged = [ "ens3" ];
+    # Tell NetworkManager NOT to manage ens3 or eth0 (we configure statically)
+    networkmanager.unmanaged = [
+      "ens3"
+      "eth0"
+    ];
 
     # Disable DHCP globally (static IP server)
     useDHCP = false;
@@ -115,6 +114,11 @@
       chown -R mba:mosquitto /home/mba/docker/mosquitto
       chmod -R 775 /home/mba/docker/mosquitto
     fi
+    # Fix for new ZFS volume paths
+    if [ -d /var/lib/docker/volumes/mosquitto ]; then
+      chown -R 1883:1883 /var/lib/docker/volumes/mosquitto
+      chmod -R 775 /var/lib/docker/volumes/mosquitto
+    fi
   '';
 
   # ============================================================================
@@ -132,7 +136,7 @@
     useSecrets = true;
     useSharedKey = false;
     zfs.enable = true;
-    zfs.hostId = "dabfdc01";
+    zfs.hostId = "ad684098";
     programs.git.enableUrlRewriting = false;
     # Point nixbit to Markus' repository (not pbek's default)
     programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";
@@ -152,6 +156,9 @@
   # ============================================================================
   users.users.mba = {
     extraGroups = [ "mosquitto" ];
+
+    # Fix: P6400 - Remove evaluation warning by forcing null on initialHashedPassword
+    initialHashedPassword = lib.mkForce null;
 
     # 🚨 EMERGENCY RECOVERY PASSWORD - for VNC console access if SSH fails
     # Enables login via Netcup VNC console during lockout scenarios
@@ -196,6 +203,34 @@
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
   age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
+  age.secrets.nodered-env = {
+    file = ../../secrets/nodered-env.age;
+    owner = "mba";
+  };
+  age.secrets.mosquitto-passwd = {
+    file = ../../secrets/mosquitto-passwd.age;
+    mode = "644";
+    owner = "1883";
+    group = "1883";
+  };
+  age.secrets.mosquitto-conf = {
+    file = ../../secrets/mosquitto-conf.age;
+    mode = "644";
+    owner = "1883";
+    group = "1883";
+  };
+  age.secrets.restic-hetzner-ssh-key = {
+    file = ../../secrets/restic-hetzner-ssh-key.age;
+    owner = "mba";
+  };
+  age.secrets.restic-hetzner-env = {
+    file = ../../secrets/restic-hetzner-env.age;
+    owner = "mba";
+  };
+  age.secrets.uptime-kuma-env = {
+    file = ../../secrets/uptime-kuma-env.age;
+    owner = "mba";
+  };
 
   services.nixfleet-agent = {
     enable = true;
@@ -208,4 +243,11 @@
     location = "cloud";
     deviceType = "server";
   };
+
+  # ============================================================================
+  # UPTIME KUMA - Cloud services monitoring
+  # ============================================================================
+  # Uptime Kuma now runs as Docker service (consistent with other services)
+  # Configuration moved to hosts/csb0/scripts/docker-compose.yml
+  # See P6000 task for details
 }

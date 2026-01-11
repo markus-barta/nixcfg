@@ -1,0 +1,44 @@
+experimental:
+  plugins:
+    cloudflarewarp:
+      modulename: github.com/BetterCorp/cloudflarewarp
+      version: v1.3.3
+
+entryPoints:
+  web:
+    address: ":80"
+  web-secure:
+    address: ":443"
+    http3: {}
+  mqtt:
+    address: ":8883"
+    transport:
+      # https://doc.traefik.io/traefik/routing/entrypoints/#transport
+      # https://doc.traefik.io/traefik/migration/v2/#v2112
+      # I get "Error while Peeking first byte: read tcp" with the default
+      respondingTimeouts:
+        # idleTimeout: 3600
+        readTimeout: 0
+
+providers:
+  docker:
+    endpoint: "tcp://docker-proxy-traefik:2375"
+    watch: true
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+    filename: dynamic.yml
+
+certificatesResolvers:
+  default:
+    acme:
+      email: markus@barta.com
+      storage: /etc/traefik/acme/acme.json
+      #      httpChallenge:
+      #        entryPoint: web
+      dnsChallenge:
+        provider: cloudflare
+        delayBeforeCheck: 0
+
+api:
+  dashboard: false
