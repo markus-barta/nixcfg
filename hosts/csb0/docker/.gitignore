@@ -1,0 +1,3 @@
+# ignores
+traefik/acme.json
+traefik/variables.env
