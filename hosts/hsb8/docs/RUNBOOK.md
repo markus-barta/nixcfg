@@ -15,8 +15,10 @@
 ssh gb@192.168.1.100
 ssh gb@hsb8.lan
 
-# As Markus (secondary admin)
-ssh mba@192.168.1.100  # May require key refresh if issues
+# Accessing Home Assistant Config (on hsb8)
+# Path: /home/gb/docker/mounts/homeassistant/configuration.yaml
+# Note: File is owned by root, use 'sudo' for edits.
+# Backups: ./Archive/
 ```
 
 ---
