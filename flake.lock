@@ -398,19 +398,19 @@
         "nixpkgs": [
           "nixpkgs"
         ],
-        "process-compose-flake": "process-compose-flake",
         "treefmt-nix": "treefmt-nix"
       },
       "locked": {
-        "lastModified": 1768097799,
-        "narHash": "sha256-zFjk9ojK5KenBSl+wn8XQbry9x/barifHemY9dNZZec=",
+        "lastModified": 1765933463,
+        "narHash": "sha256-Z/D0T/MT6vjmHi7eVwFQtUqgKXsqwxefu7MYSCi1JRo=",
         "owner": "kalbasit",
         "repo": "ncps",
-        "rev": "995a89acb65dd968d183e3e099dd95092f2b2ee3",
+        "rev": "ff083aff2970d6133f625b0f7c05f7438c189ae4",
         "type": "github"
       },
       "original": {
         "owner": "kalbasit",
+        "ref": "ff083aff",
         "repo": "ncps",
         "type": "github"
       }
@@ -713,21 +713,6 @@
       "original": {
         "owner": "nix-community",
         "repo": "plasma-manager",
-        "type": "github"
-      }
-    },
-    "process-compose-flake": {
-      "locked": {
-        "lastModified": 1764915241,
-        "narHash": "sha256-vTqn6IAkZhuuctvkxjhzI1EEybyzwaNd7HJvhF662O8=",
-        "owner": "Platonic-Systems",
-        "repo": "process-compose-flake",
-        "rev": "36678818ecbd0e06a60740a291c55b683fec79dd",
-        "type": "github"
-      },
-      "original": {
-        "owner": "Platonic-Systems",
-        "repo": "process-compose-flake",
         "type": "github"
       }
     },
