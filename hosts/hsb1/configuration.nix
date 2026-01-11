@@ -508,6 +508,19 @@
     owner = "root";
   };
 
+  # Restic Hetzner secrets (isolated sub2)
+  age.secrets.hsb1-restic-env = {
+    file = ../../secrets/hsb1-restic-env.age;
+    mode = "400";
+    owner = "root";
+  };
+
+  age.secrets.hsb1-restic-ssh-key = {
+    file = ../../secrets/hsb1-restic-ssh-key.age;
+    mode = "400";
+    owner = "root";
+  };
+
   # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
