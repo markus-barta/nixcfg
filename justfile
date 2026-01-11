@@ -309,6 +309,66 @@ decrypt-runbook-secrets host='':
 list-runbook-secrets:
     ./scripts/runbook-secrets.sh list
 
+# Encrypt a workstation secret (Tier 3: personal secrets)
+# Usage: just encrypt-secret tapo-c210-living-room
+# Prerequisites: ~/Secrets/ directory must exist (manual setup required)
+# Encrypt a private secret (Tier 3: personal secrets)
+# Usage: just private-encrypt tapo-c210-living-room
+
+# Prerequisites: ~/Secrets/ directory must exist (manual setup required)
+[group('private')]
+private-encrypt file='':
+    cd ~/Secrets && ./scripts/encrypt.sh {{ file }}
+
+# Decrypt a private secret (Tier 3: personal secrets)
+# Usage: just private-decrypt tapo-c210-living-room
+
+# Prerequisites: ~/Secrets/ directory must exist (manual setup required)
+[group('private')]
+private-decrypt file='':
+    cd ~/Secrets && ./scripts/decrypt.sh {{ file }}
+
+# Encrypt all private secrets
+
+# Usage: just private-encrypt-all
+[group('private')]
+private-encrypt-all:
+    cd ~/Secrets && ./scripts/encrypt.sh --all
+
+# Decrypt all private secrets
+
+# Usage: just private-decrypt-all
+[group('private')]
+private-decrypt-all:
+    cd ~/Secrets && ./scripts/decrypt.sh --all
+
+# List private secrets status
+
+# Usage: just private-list
+[group('private')]
+private-list:
+    cd ~/Secrets && ./scripts/list.sh
+
+# Encrypt, commit and push all private secrets to git
+
+# Usage: just private-encrypt-commit
+[group('private')]
+private-encrypt-commit:
+    cd ~/Secrets && \
+    ./scripts/encrypt.sh --all && \
+    git add encrypted/ && \
+    git commit -m "Update private secrets" && \
+    git push
+
+# Pull and decrypt all private secrets from git
+
+# Usage: just private-pull-decrypt
+[group('private')]
+private-pull-decrypt:
+    cd ~/Secrets && \
+    git pull && \
+    ./scripts/decrypt.sh --all
+
 @_show-qemu-exit-message:
     echo "Booting VM. To exit, use: Ctrl + A then X"
     echo "Press any key to continue..."

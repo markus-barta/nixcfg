@@ -37,15 +37,11 @@ Quick overview of infrastructure operations progress.
 
 See `+pm/backlog/` for detailed task tracking.
 
-**High priority:**
-
-- P4900: Infrastructure Safety & Deployment Resilience (after hsb0 outage)
-
 **Medium priority:**
 
-- hsb0: Complete runbook-secrets TODOs (ping Markus for plain text password)
-- hsb1: Complete runbook-secrets TODOs (partially done, ping Markus for remaining)
-- hsb8: Update runbook-secrets TODOs (ping Markus)
+- hsb0: Complete runbook-secrets TODOs (root password, 1Password refs)
+- hsb1: Complete runbook-secrets TODOs (HA/NR/Scrypted/Camera creds, 1Password refs)
+- hsb8: Complete runbook-secrets TODOs (HA/MQTT creds when deployed, 1Password refs)
 
 ---
 

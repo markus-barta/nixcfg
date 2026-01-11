@@ -4,151 +4,497 @@
 
 Deploy Uptime Kuma on csb0 to monitor all cloud infrastructure services (csb0, csb1, and other cloud resources).
 
+**Status**: 📋 Ready for deployment tomorrow (2026-01-09)  
+**Criticality**: 🔴 HIGH (csb0 is critical infrastructure)  
+**Build Host**: csb0 (local NixOS build)  
+**Last Updated**: 2026-01-08 23:30 - All prep complete, ready for tomorrow's switch
+
 ## Scope
 
 - **Network**: Cloud infrastructure (public internet)
-- **Instance**: csb0 (accessible via public IP or VPN)
-- **Goal**: Monitor all cloud services independently from local network
+- **Instance**: csb0 (accessible via public IP)
+- **Goal**: Monitor all cloud servers and service types (NixOS, Docker, any type of service)
 - **Independence**: Works without VPN, no dependency on hsb0/hsb8
 
 ## Architecture
 
 ```
 csb0 (Cloud Server)
-├── Uptime Kuma (port 3001)
+├── Uptime Kuma (port 3001, HTTPS via Traefik)
 │   ├── Monitors csb0 services
 │   └── Monitors csb1 services
 │
-└── Apprise (notifications)
-    ├── Telegram
-    └── Email
+├── Apprise (notifications)
+│   ├── Telegram
+│   └── Email
+│
+└── Firewall: Port 3001 closed to public, HTTPS only
 ```
+
+**Security**: Uptime Kuma NOT exposed directly. Access via:
+
+- Traefik reverse proxy: `https://uptime.barta.cm`
+- Internal only: `http://localhost:3001` (for debugging)
 
 ## Implementation
 
 ### 1. Uptime Kuma Service on csb0
 
-```nix
-# hosts/csb0/configuration.nix (if NixOS)
-services.uptime-kuma = {
-  enable = true;
-  settings = {
-    PORT = "3001";
-    HOST = "0.0.0.0";
-  };
-};
+**Docker Configuration** (consistent with other csb0 services):
 
-networking.firewall.allowedTCPPorts = [ 3001 ];
+```yaml
+# hosts/csb0/scripts/docker-compose.yml
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    volumes:
+      - ./uptime-kuma/data:/app/data
+      - ./uptime-kuma/ssl:/app/ssl
+    environment:
+      - TZ=Europe/Vienna
+      - UPTIME_KUMA_PORT=3001
+    env_file:
+      - ./uptime-kuma/notifications.env
+    labels:
+      - traefik.http.routers.uptime-kuma.rule=Host(`uptime.barta.cm`)
+      - traefik.http.routers.uptime-kuma.entrypoints=web-secure
+      - traefik.http.routers.uptime-kuma.tls=true
+      - traefik.http.routers.uptime-kuma.tls.certresolver=default
+      - traefik.http.routers.uptime-kuma.middlewares=cloudflarewarp@file
+      - traefik.http.services.uptime-kuma.loadbalancer.server.port=3001
+      # HTTP to HTTPS redirection
+      - traefik.http.routers.uptime-kuma-http.rule=Host(`uptime.barta.cm`)
+      - traefik.http.routers.uptime-kuma-http.entrypoints=web
+      - traefik.http.routers.uptime-kuma-http.middlewares=redirect-to-https@docker
+    networks:
+      - traefik
+    restart: unless-stopped
 ```
 
-**Or via Docker** (if csb0 is not NixOS):
+**Note**: Uptime Kuma now runs as a Docker service (not NixOS) for consistency with csb0's Docker-based architecture.
+
+**Build & Deploy** (on csb0 directly):
 
 ```bash
-docker run -d \
-  --name uptime-kuma \
-  --restart unless-stopped \
-  -p 3001:3001 \
-  -v uptime-kuma-data:/app/data \
-  --name uptime-kuma \
-  louislam/uptime-kuma:1
+# 1. SSH to csb0
+ssh mba@cs0.barta.cm -p 2222
+
+# 2. Navigate to config repo
+cd ~/Code/nixcfg
+
+# 3. Build and test locally (NixOS can build on itself)
+sudo nixos-rebuild test --flake .#csb0
+
+# 4. Verify service
+systemctl status uptime-kuma
+
+# 5. If all good, switch to generation
+sudo nixos-rebuild switch --flake .#csb0
 ```
 
-### 2. Apprise Integration (csb0)
-
-```nix
-# Separate from hsb0/h8
-age.secrets.uptime-kuma-env-csb0 = {
-  file = ../../secrets/uptime-kuma-env-csb0.age;
-  mode = "400";
-  owner = "root";
-};
-```
-
-**Secrets file** (`secrets/uptime-kuma-env-csb0.age`):
+**Alternative: Remote deploy from local machine**:
 
 ```bash
-# Your notification channels
-NOTIFY_URL=telegram://token@telegram?mailto:your-email@example.com
+# From imac0/gpc0 (no SSH needed to csb0 for build)
+cd ~/Code/nixcfg
+nixos-rebuild switch --flake .#csb0 --target-host mba@cs0.barta.cm --use-remote-sudo
 ```
 
-### 3. Monitors to Configure
+### 2. Secrets Management (agenix)
+
+**Create the secrets file:**
+
+```bash
+# On any machine with agenix (imac0, gpc0, or csb0)
+cd ~/Code/nixcfg
+
+# Create plaintext file
+echo 'NOTIFY_URL=telegram://123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11@telegram?mailto:your-email@example.com' > /tmp/uptime.env
+
+# Encrypt with agenix
+agenix -e secrets/uptime-kuma-env.age
+
+# Clean up plaintext
+rm /tmp/uptime.env
+
+# Verify encrypted file size (>1KB)
+ls -lh secrets/uptime-kuma-env.age
+```
+
+**Update secrets.nix** (if entry doesn't exist):
+
+```nix
+# secrets/secrets.nix
+"uptime-kuma-env.age".publicKeys = markus ++ csb0;
+```
+
+**Reference in config:**
+
+- Already included in configuration.nix above
+- Service will read from `/run/agenix/uptime-kuma-env`
+
+### 3. DNS Configuration
+
+**Add DNS record** (Cloudflare):
+
+```
+Type: A
+Name: uptime
+Content: 85.235.65.226 (csb0 IP)
+Proxy status: DNS only (gray cloud)
+TTL: Auto
+```
+
+### 4. Monitors to Configure
+
+**Access Uptime Kuma**: `https://uptime.barta.cm` (after Traefik config)
 
 #### csb0 Services (High Priority)
 
-| Monitor         | Type     | Host                     | Purpose          | Priority |
-| --------------- | -------- | ------------------------ | ---------------- | -------- |
-| **Traefik**     | HTTP     | https://traefik.barta.cm | Reverse proxy    | HIGH     |
-| **SSH**         | TCP Port | csb0 public IP:2222      | Server access    | HIGH     |
-| **Node-RED**    | HTTP     | https://home.barta.cm    | Automation flows | HIGH     |
-| **Uptime Kuma** | HTTP     | http://localhost:3001    | Self-monitoring  | HIGH     |
+| Monitor         | Type     | Host                       | Purpose          | Priority |
+| --------------- | -------- | -------------------------- | ---------------- | -------- |
+| **Traefik**     | HTTP     | `https://traefik.barta.cm` | Reverse proxy    | HIGH     |
+| **SSH**         | TCP Port | `cs0.barta.cm:2222`        | Server access    | HIGH     |
+| **Node-RED**    | HTTP     | `https://home.barta.cm`    | Automation flows | HIGH     |
+| **Uptime Kuma** | HTTP     | `https://uptime.barta.cm`  | Self-monitoring  | HIGH     |
+| **MQTT**        | TCP Port | `cs0.barta.cm:1883`        | IoT messaging    | HIGH     |
 
 #### csb1 Services (High Priority)
 
-| Monitor       | Type     | Host                           | Purpose         | Priority |
-| ------------- | -------- | ------------------------------ | --------------- | -------- |
-| **InfluxDB**  | HTTP     | https://influxdb.barta.cm/ping | Metrics storage | HIGH     |
-| **Docmost**   | HTTP     | https://docmost.barta.cm       | Documentation   | MEDIUM   |
-| **Grafana**   | HTTP     | https://grafana.barta.cm       | Metrics viz     | MEDIUM   |
-| **Paperless** | HTTP     | https://paperless.barta.cm     | Documents       | MEDIUM   |
-| **SSH**       | TCP Port | csb1 public IP:2222            | Server access   | HIGH     |
+| Monitor       | Type     | Host                             | Purpose         | Priority |
+| ------------- | -------- | -------------------------------- | --------------- | -------- |
+| **InfluxDB**  | HTTP     | `https://influxdb.barta.cm/ping` | Metrics storage | HIGH     |
+| **Grafana**   | HTTP     | `https://grafana.barta.cm`       | Metrics viz     | HIGH     |
+| **Docmost**   | HTTP     | `https://docmost.barta.cm`       | Documentation   | MEDIUM   |
+| **Paperless** | HTTP     | `https://paperless.barta.cm`     | Documents       | MEDIUM   |
+| **SSH**       | TCP Port | `cs1.barta.cm:2222`              | Server access   | HIGH     |
 
-#### Optional
+#### Optional (Future)
 
-| Monitor       | Type | Host                       | Purpose          |
-| ------------- | ---- | -------------------------- | ---------------- |
-| **Nextcloud** | HTTP | https://nextcloud.barta.cm | File sync        |
-| **Bitwarden** | HTTP | https://bitwarden.barta.cm | Password manager |
+| Monitor       | Type | Host                         | Purpose          |
+| ------------- | ---- | ---------------------------- | ---------------- |
+| **Nextcloud** | HTTP | `https://nextcloud.barta.cm` | File sync        |
+| **Bitwarden** | HTTP | `https://bitwarden.barta.cm` | Password manager |
 
-### 4. Alert Routing
+### 5. Alert Routing
 
-- **Channels**: Telegram + Email (same as your preference)
-- **Triggers**: All monitor status changes
-- **Format**: Clear, actionable messages
+**Configuration in Uptime Kuma UI:**
+
+1. Settings → Notifications → Add Apprise
+2. Use `NOTIFY_URL` from secrets file
+3. Test notification
+
+**Channels**: Telegram + Email (via Apprise)  
+**Triggers**: All monitor status changes  
+**Format**: Clear, actionable messages with host/service names
 
 ## Implementation Steps
 
-### Phase 1: Service Deployment
+### Phase 0: Pre-Flight Checks
 
-1. Deploy Uptime Kuma on csb0 (NixOS or Docker)
-2. Configure firewall (port 3001)
-3. Set up Apprise with secrets
-4. Test notifications
+```bash
+# 1. Verify csb0 is reachable
+ping -c1 cs0.barta.cm
 
-### Phase 2: Monitor Configuration
+# 2. Check current service state
+ssh mba@cs0.barta.cm -p 2222 "systemctl status uptime-kuma 2>/dev/null || echo 'Not installed'"
 
-1. Access http://csb0:3001
-2. Set up admin account
-3. Add all monitors from tables above
-4. Configure webhook to Apprise
-5. Test all monitors
+# 3. Verify secrets exist
+ls -lh secrets/uptime-kuma-env.age
 
-### Phase 3: Documentation
+# 4. Check git status
+git status
+git diff  # Review all changes before proceeding
 
-1. Update csb0 README with Uptime Kuma info
-2. Document access URL
-3. Add to infrastructure docs
+# 5. Verify Traefik is running
+ssh mba@cs0.barta.cm -p 2222 "docker ps | grep traefik"
+```
+
+### Phase 1: Secrets & Configuration
+
+1. **Create secrets** (see Section 2 above)
+   - Encrypt `uptime-kuma-env.age`
+   - Verify `secrets.nix` entry exists
+
+2. **Update csb0 configuration**
+   - Add Uptime Kuma service to `hosts/csb0/configuration.nix`
+   - Add Traefik virtual host config
+   - Commit changes: `git add . && git commit -m "feat(csb0): deploy uptime-kuma"`
+
+3. **Push to remote**
+   ```bash
+   git push origin main
+   ```
+
+### Phase 2: Service Deployment
+
+```bash
+# 1. SSH to csb0
+ssh mba@cs0.barta.cm -p 2222
+
+# 2. Navigate to docker directory
+cd ~/docker
+
+# 3. Stop old NixOS service (if running)
+sudo systemctl stop uptime-kuma
+
+# 4. Start Docker service
+docker compose up -d uptime-kuma
+
+# 5. Verify container started
+docker ps | grep uptime-kuma
+
+# 6. Check logs if needed
+docker logs uptime-kuma -n 50
+
+# 7. Verify Traefik routing
+docker logs traefik 2>&1 | grep uptime-kuma
+
+# 8. Test the URL
+curl -I https://uptime.barta.cm
+```
+
+### Phase 3: Initial Setup
+
+1. **Access Uptime Kuma**
+   - URL: `https://uptime.barta.cm`
+   - First login: Create admin account
+   - Save credentials in 1Password
+
+2. **Configure notifications**
+   - Settings → Notifications → Add Apprise
+   - Copy `NOTIFY_URL` from secrets file
+   - Test notification
+
+3. **Add monitors**
+   - Add all monitors from tables above
+   - Set retry intervals (recommended: 60s)
+   - Enable retries (3x)
+   - Configure heartbeat timeout (60s)
+
+4. **Test each monitor**
+   - Verify all show "UP" status
+   - Test notification by temporarily failing a monitor
+   - Verify Telegram/email alerts arrive
+
+5. **Verify Traefik routing**
+   - Check `https://uptime.barta.cm` loads correctly
+   - Verify SSL certificate is valid
+
+### Phase 4: Documentation & Tests
+
+1. **Update csb0 README**
+   - Add Uptime Kuma to "Critical Services" table
+   - Document access URL: `https://uptime.barta.cm`
+   - Add to "Services (Docker)" section (or create new "Services (NixOS)")
+
+2. **Create test script**
+
+   ```bash
+   # hosts/csb0/tests/T08-uptime-kuma.sh
+   #!/usr/bin/env bash
+   # Test Uptime Kuma via Traefik
+   curl -sf https://uptime.barta.cm/api/health || exit 1
+   ```
+
+3. **Update infrastructure docs**
+   - Add Uptime Kuma to `docs/INFRASTRUCTURE.md` if monitoring section exists
+   - Update OPS-STATUS.md
+
+4. **Run full test suite**
+
+   ```bash
+   cd hosts/csb0/tests
+   for f in T*.sh; do ./$f; done
+   ```
+
+5. **Commit and push**
+   ```bash
+   git add .
+   git commit -m "feat(csb0): deploy uptime-kuma monitoring"
+   git push origin main
+   ```
 
 ## Success Criteria
 
-- [ ] Uptime Kuma running on csb0
-- [ ] Web UI accessible (public IP or VPN)
-- [ ] All csb0 services monitored
-- [ ] All csb1 services monitored
-- [ ] Telegram notifications working
-- [ ] Email notifications working
-- [ ] Independent from local network
+### Pre-Deployment
+
+- [ ] Secrets encrypted: `secrets/uptime-kuma-env.age` exists
+- [ ] `secrets.nix` entry added for csb0
+- [ ] Configuration committed and pushed
+- [ ] Build host (gpc0) verified reachable
+
+### Deployment
+
+- [ ] Uptime Kuma service running on csb0
+- [ ] Service healthy: `systemctl status uptime-kuma` = active
+- [ ] Traefik virtual host configured
+- [ ] HTTPS accessible: `https://uptime.barta.cm`
+
+### Configuration
+
+- [ ] Admin account created (credentials in 1Password)
+- [ ] Apprise notifications configured
+- [ ] Telegram alerts tested and working
+- [ ] Email alerts tested and working
+
+### Monitoring
+
+- [ ] All csb0 services monitored (5 monitors)
+- [ ] All csb1 services monitored (5 monitors)
+- [ ] All monitors show "UP" status
+- [ ] Self-monitoring (Uptime Kuma itself) configured
+
+### Documentation & Tests
+
+- [ ] csb0 README updated with Uptime Kuma section
+- [ ] Test script created: `hosts/csb0/tests/T08-uptime-kuma.sh`
+- [ ] Test script passes
+- [ ] OPS-STATUS.md updated
+- [ ] Changes committed and pushed
+
+### Security
+
+- [ ] Port 3001 NOT exposed to public internet
+- [ ] Access only via HTTPS reverse proxy
+- [ ] Firewall rules verified
+- [ ] Secrets file size >1KB (encrypted)
+- [ ] DNS record added: `uptime.barta.cm`
 
 ## Dependencies
 
-- None (standalone cloud infrastructure)
+- ✅ csb0 infrastructure (already deployed)
+- ✅ Traefik on csb0 (already running)
+- ✅ agenix configured (already in use)
+- 📋 DNS record for `uptime.barta.cm` (needs to be added)
+
+## Risk Assessment
+
+**🔴 HIGH** - csb0 is critical infrastructure
+
+**Mitigations:**
+
+- Build on gpc0 (verified NixOS build host)
+- Test deployment first (`nixos-rebuild test`, not `switch`)
+- Rollback available: `sudo nixos-rebuild switch --rollback`
+- No public exposure of port 3001
+- Secrets encrypted with agenix
 
 ## Timeline
 
-- **Priority**: Medium (P6000 range)
-- **Effort**: 2-3 hours
-- **When**: After P4100 and P5000 complete
+- **Priority**: Medium-High (P6000 range)
+- **Effort**: 2-3 hours (includes testing)
+- **When**: 🚀 **IN PROGRESS** (2026-01-09 15:55)
+- **Build Time**: ~10-15 minutes (on csb0)
+
+## Current Status (2026-01-09 16:55)
+
+### ✅ Completed
+
+- [x] Docker service configuration added to `hosts/csb0/scripts/docker-compose.yml`
+- [x] Secrets configured in `secrets/secrets.nix` (includes csb0)
+- [x] `uptime-kuma-env.age` secret exists (851 bytes)
+- [x] DNS A-record added: `uptime.barta.cm` → `85.235.65.226`
+- [x] NixOS service removed (migrated to Docker for consistency)
+- [x] File backed up to `hosts/csb0/scripts/docker-compose.yml`
+- [x] All repos synced (imac0, csb0, remote)
+- [x] docker-compose.yml copied to csb0 `~/docker/`
+- [x] **DEPLOYMENT COMPLETED**: Uptime Kuma running as Docker container
+- [x] **VERIFIED WORKING**: `https://uptime.barta.cm` returns 302 redirect to dashboard
+
+### 📝 Notes
+
+**Temporary Solution**: Current Docker Compose setup is functional but manual. This will be properly integrated into NixOS configuration during the P7000 server migration. The manual file copying approach is acceptable for now as an interim solution until the full migration to the new server is complete.
+
+### 🔄 In Progress
+
+- [ ] `just switch` completing NixOS rebuild (~10-15 min)
+- [ ] Traefik will restart automatically with new config
+- [ ] Waiting for build to complete
+
+### ⏳ Post-Deployment Checklist
+
+**Step 1: Copy docker-compose.yml back**
+
+```bash
+scp -P 2222 /Users/markus/Code/nixcfg/hosts/csb0/scripts/docker-compose.yml mba@cs0.barta.cm:~/docker/
+```
+
+**Step 2: SSH to csb0 and deploy**
+
+```bash
+ssh mba@cs0.barta.cm -p 2222
+
+# Pull latest config
+cd ~/Code/nixcfg
+git pull origin main
+
+# Build and test NixOS service
+sudo nixos-rebuild test --flake .#csb0
+systemctl status uptime-kuma
+
+# Restart Traefik with new labels
+cd ~/docker
+docker compose up -d traefik
+
+# Verify
+curl -sf https://uptime.barta.cm/api/health
+```
+
+**Step 3: If all good, switch generation**
+
+```bash
+sudo nixos-rebuild switch --flake .#csb0
+```
+
+**Step 4: Configure Uptime Kuma**
+
+- Access: `https://uptime.barta.cm`
+- Create admin account (save to 1Password)
+- Settings → Notifications → Add Apprise
+- Use secret: `cat /run/agenix/uptime-kuma-env`
+- Add monitors from tables in this doc
+- Test notifications
+
+**Step 5: Rollback if needed**
+
+```bash
+sudo nixos-rebuild switch --rollback
+```
+
+### 📝 Files Modified
+
+- `hosts/csb0/configuration.nix` - Added Uptime Kuma service
+- `secrets/secrets.nix` - Updated to include csb0
+- `hosts/csb0/scripts/docker-compose.yml` - Added Traefik routing (local copy)
+- `+pm/backlog/P6000-csb0-uptime-kuma.md` - This file
 
 ## Related
 
 - P4100: Local network monitoring (hsb0)
 - P5000: Parents' network monitoring (hsb8)
+- **P7000**: CSB0 migration to new server (this service will be migrated)
+- **csb0 README**: `hosts/csb0/README.md`
+- **csb0 RUNBOOK**: `hosts/csb0/docs/RUNBOOK.md`
+
+## Quick Reference Commands
+
+```bash
+# Build & deploy (on csb0)
+ssh mba@cs0.barta.cm -p 2222
+cd ~/Code/nixcfg
+sudo nixos-rebuild test --flake .#csb0
+systemctl status uptime-kuma
+sudo nixos-rebuild switch --flake .#csb0
+
+# Test
+curl -sf https://uptime.barta.cm/api/health
+
+# Rollback (if needed)
+ssh mba@cs0.barta.cm -p 2222 "sudo nixos-rebuild switch --rollback"
+
+# Alternative: Remote deploy from local
+cd ~/Code/nixcfg
+nixos-rebuild switch --flake .#csb0 --target-host mba@cs0.barta.cm --use-remote-sudo
+```

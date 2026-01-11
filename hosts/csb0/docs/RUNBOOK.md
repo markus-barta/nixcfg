@@ -106,19 +106,21 @@ sudo nixos-rebuild switch --rollback
 
 ## Docker Services
 
-### All Containers (9 running)
+### Docker Services
 
-| Container                   | Purpose                          |
-| --------------------------- | -------------------------------- |
-| csb0-traefik-1              | Reverse proxy                    |
-| csb0-bitwarden-1            | Password manager (TEST ONLY)     |
-| csb0-bitwarden-db-1         | MariaDB for Bitwarden            |
-| csb0-mosquitto-1            | MQTT broker (CRITICAL)           |
-| csb0-nodered-1              | Smart home automation (CRITICAL) |
-| csb0-cypress-1              | Sonnen website scraper           |
-| csb0-smtp-1                 | Mail relay                       |
-| csb0-restic-cron-hetzner-1  | Backup + cleanup manager         |
-| csb0-docker-proxy-traefik-1 | Traefik proxy                    |
+| Container                  | Purpose                          | Data Path (ZFS)                       |
+| -------------------------- | -------------------------------- | ------------------------------------- |
+| csb0-mosquitto-1           | MQTT broker (CRITICAL)           | `/var/lib/docker/volumes/mosquitto`   |
+| csb0-nodered-1             | Smart home automation (CRITICAL) | `/var/lib/docker/volumes/nodered`     |
+| csb0-traefik-1             | Reverse proxy                    | `/var/lib/docker/volumes/traefik`     |
+| uptime-kuma                | Monitoring                       | `/var/lib/docker/volumes/uptime-kuma` |
+| csb0-restic-cron-hetzner-1 | Backup manager                   | -                                     |
+
+### Backup & Restore Logic
+
+1. **Cold Backups**: Stop containers before backup to ensure DB consistency.
+2. **Path Mapping**: Restic `/backup/home/mba/docker/` maps to `/var/lib/docker/volumes/`.
+3. **Secrets**: Managed via `agenix` Tier 1. Decrypted to `/run/agenix/`.
 
 ### Quick Commands
 
@@ -187,13 +189,21 @@ VNC console access. Password stored in 1Password under "csb0 csb1 recovery".
 
 ### Network Configuration
 
-| Setting   | Value                            |
-| --------- | -------------------------------- |
-| Static IP | `85.235.65.226/22`               |
-| Gateway   | `85.235.64.1`                    |
-| DNS       | `46.38.225.230`, `46.38.252.230` |
+| Setting   | Value                                  |
+| --------- | -------------------------------------- |
+| Static IP | `89.58.63.96/22`                       |
+| Gateway   | `89.58.60.1`                           |
+| DNS       | `46.38.225.230`, `46.38.252.230`       |
+| MAC       | `2A:E3:9B:5B:92:23`                    |
+| Interface | `ens3` (NixOS) / `eth0` (Ubuntu/Kexec) |
 
-⚠️ **CRITICAL**: Subnet is `/22` (NOT `/24`!) - Gateway is at `.64.1`, not `.65.1`.
+⚠️ **CRITICAL**: The interface is named `eth0` during the initial Ubuntu install and `nixos-anywhere` kexec phase, but renames to `ens3` once NixOS is fully booted. Both are listed in `networking.networkmanager.unmanaged` to prevent lockout.
+
+### 🚨 Historical Incident: 2026-01-10 Migration Lockout Prevention
+
+**Symptom:** Potential lockout due to interface name mismatch (`eth0` vs `ens3`).
+**Root Cause:** Ubuntu Minimal uses legacy naming; NixOS uses predictable naming.
+**Fix:** Explicitly configure `ens3` but unmanage both names in NetworkManager. Verify `hostId` from `/etc/machine-id`.
 
 ### 🚨 Historical Incident: 2025-12-06 Network Lockout
 
