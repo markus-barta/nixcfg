@@ -37,18 +37,21 @@ services:
     volumes:
       - /var/lib/ncps:/storage
       - /run/agenix/ncps-key:/run/secrets/ncps-key:ro
-    command: ["/bin/ncps", "serve"]
+    command:
+      - serve
+      - --cache-hostname=hsb0.lan
+      - --cache-database-url=sqlite:/storage/db.sqlite
+      - --cache-storage-local=/storage
+      - --cache-temp-path=/tmp
+      - --server-addr=0.0.0.0:8501
+      - --cache-allow-put-verb
+      - --cache-max-size=50G
+      - --cache-lru-schedule=0 3 * * *
+      - --cache-secret-key-path=/run/secrets/ncps-key
+      - --cache-upstream-url=https://cache.nixos.org
+      - --cache-upstream-url=https://nix-community.cachix.org
+      - --cache-upstream-public-key=cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+      - --cache-upstream-public-key=nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
     environment:
       - NCPS_LOG_LEVEL=info
       - ANALYTICS_REPORTING_ENABLED=false
-      - NCPS_CACHE_HOSTNAME=hsb0.lan
-      - NCPS_CACHE_STORAGE_LOCAL=/storage
-      - NCPS_CACHE_DATABASE_URL=sqlite:/storage/db.sqlite
-      - NCPS_CACHE_TEMP_PATH=/tmp
-      - NCPS_SERVER_ADDR=0.0.0.0:8501
-      - NCPS_CACHE_ALLOW_PUT_VERB=true
-      - NCPS_CACHE_MAX_SIZE=50G
-      - NCPS_CACHE_LRU_SCHEDULE=0 3 * * *
-      - NCPS_CACHE_SECRET_KEY_PATH=/run/secrets/ncps-key
-      - NCPS_CACHE_UPSTREAM_URL=https://cache.nixos.org,https://nix-community.cachix.org
-      - NCPS_CACHE_UPSTREAM_PUBLIC_KEY=cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=,nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
