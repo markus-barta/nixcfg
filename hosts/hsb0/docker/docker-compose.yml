@@ -37,7 +37,7 @@ services:
     volumes:
       - /var/lib/ncps:/storage
       - /run/agenix/ncps-key:/run/secrets/ncps-key:ro
-    command: ["serve"]
+    command: ["/bin/ncps", "serve"]
     environment:
       - NCPS_LOG_LEVEL=info
       - NCPS_SERVE=true
