@@ -37,6 +37,7 @@ services:
     volumes:
       - /var/lib/ncps:/storage
       - /run/agenix/ncps-key:/run/secrets/ncps-key:ro
+    entrypoint: ["/bin/ncps"]
     command:
       - serve
       - --cache-hostname=hsb0.lan
