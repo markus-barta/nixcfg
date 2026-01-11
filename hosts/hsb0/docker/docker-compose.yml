@@ -41,7 +41,7 @@ services:
     command:
       - serve
       - --cache-hostname=hsb0.lan
-      - --cache-database-url=sqlite:/storage/db.sqlite
+      - --cache-database-url=sqlite:/storage/db.sqlite?_pragma=foreign_keys(1)
       - --cache-storage-local=/storage
       - --cache-temp-path=/tmp
       - --server-addr=0.0.0.0:8501
