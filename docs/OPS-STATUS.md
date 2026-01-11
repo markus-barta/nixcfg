@@ -1,53 +1,46 @@
 # Operations Status
 
-Quick overview of infrastructure operations progress.
+📍 TL;DR: Infrastructure inventory and backup status. Managed via **NixFleet**.
+
+## NixFleet Overview
+
+**NixFleet** is the central management tool for this infrastructure. It provides:
+
+- **Fleet Dashboard**: Real-time status of all hosts.
+- **Automated Deployments**: Unified `just` recipes for NixOS and Home Manager.
+- **Backup Tracking**: (WIP) Monitoring of restic and ZFS snapshots.
 
 ---
 
 ## Host Status
 
-| •   | Host          | OS    | Type    | Audited             | Fixed               | Comment                                                  |
-| --- | ------------- | ----- | ------- | ------------------- | ------------------- | -------------------------------------------------------- |
-| 🏠  | hsb0          | NixOS | Server  | ✅ 2025-12-25 12:48 | ✅ 2025-12-25 12:48 | Fixed hsb0 outage, deployed resilient NCPS (SYSOP)       |
-| 🏠  | hsb1          | NixOS | Server  | ✅ 2025-12-25 13:15 | ✅ 2025-12-25 13:15 | NCPS client active, 5/5 tests pass (SYSOP)               |
-| 🏠  | hsb8          | NixOS | Server  | ✅ 2025-12-24 23:45 | ✅ 2025-12-24 23:45 | Consolidated docs, fixed tests (SYSOP)                   |
-| 🌐  | csb0          | NixOS | Server  | ✅ 2025-12-25 16:45 | ✅ 2025-12-25 16:45 | Investigated load spike, created incident report (SYSOP) |
-| 🌐  | csb1          | NixOS | Server  | ✅ 2025-12-08 18:30 | ✅ 2025-12-08 18:35 | Minor fixes: Features table, ip-marker (SYSOP)           |
-| 🎮  | gpc0          | NixOS | Desktop | ✅ 2025-12-25 13:15 | ✅ 2025-12-25 13:15 | NCPS client active, fixed tests (SYSOP)                  |
-| 🖥️  | imac0         | macOS | Desktop | ✅ 2025-12-25 13:15 | ✅ 2025-12-25 13:15 | Local build host (imac0.lan), NCPS client active (SYSOP) |
-| 🖥️  | mba-imac-work | macOS | Desktop | ✅ 2025-12-25 18:20 | ✅ 2025-12-25 18:20 | Globally managed nix.conf, NCPS disabled (SYSOP)         |
-| 💻  | mba-mbp-work  | macOS | Desktop | ✅ 2025-12-25 18:20 | ✅ 2025-12-25 18:20 | Globally managed nix.conf, NCPS enabled (SYSOP)          |
+| •   | Host          | OS    | Type    | Comment                                      |
+| :-- | :------------ | :---- | :------ | :------------------------------------------- |
+| 🏠  | hsb0          | NixOS | Server  | DNS/DHCP. Managed via NixFleet.              |
+| 🏠  | hsb1          | NixOS | Server  | Smart Home Hub. Managed via NixFleet.        |
+| 🏠  | hsb8          | NixOS | Server  | Parents' Home Server. Managed via NixFleet.  |
+| 🌐  | csb0          | NixOS | Server  | Cloud Gateway. Managed via NixFleet.         |
+| 🌐  | csb1          | NixOS | Server  | Monitoring/Fleet Host. Managed via NixFleet. |
+| 🎮  | gpc0          | NixOS | Desktop | Gaming PC. Managed via NixFleet.             |
+| 🖥️  | imac0         | macOS | Desktop | Workstation. Managed via NixFleet.           |
+| 🖥️  | mba-imac-work | macOS | Desktop | Work iMac. Managed via NixFleet.             |
+| 💻  | mba-mbp-work  | macOS | Desktop | MacBook Pro. Managed via NixFleet.           |
 
-**Legend:** 🏠 Home | 🌐 Cloud | 🎮 Gaming | 🖥️ iMac | 💻 MacBook | ⏳ Pending
-
----
-
-## Progress Summary
-
-| Metric            | Count |
-| ----------------- | ----- |
-| Total hosts       | 9     |
-| Audited           | 9     |
-| Fixed after audit | 9     |
-| Pending audit     | 0     |
+**Legend:** 🏠 Home | 🌐 Cloud | 🎮 Gaming | 🖥️ iMac | 💻 MacBook
 
 ---
 
-## Pending Work
+## Backup Inventory
 
-See `+pm/backlog/` for detailed task tracking.
-
-**Medium priority:**
-
-- hsb0: Complete runbook-secrets TODOs (root password, 1Password refs)
-- hsb1: Complete runbook-secrets TODOs (HA/NR/Scrypted/Camera creds, 1Password refs)
-- hsb8: Complete runbook-secrets TODOs (HA/MQTT creds when deployed, 1Password refs)
+| Host       | Method        | Destination             | Validation / Monitoring                                   |
+| :--------- | :------------ | :---------------------- | :-------------------------------------------------------- |
+| **csb0**   | `restic-cron` | Hetzner Storage Box     | `docker exec csb0-restic-cron-hetzner-1 restic snapshots` |
+| **csb1**   | `restic-cron` | Hetzner (Shared)        | `docker exec csb1-restic-cron-hetzner-1 restic snapshots` |
+| **hsb0**   | ZFS Snapshots | Local Pool (`zroot`)    | `just test hsb0 T11` (Daily auto-snapshots)               |
+| **hsb1**   | `restic-cron` | Hetzner Storage Box     | `docker exec restic-cron-hetzner restic snapshots`        |
+| **hsb8**   | ZFS Snapshots | Local Pool (`zroot`)    | `just test hsb8 T12` (Manual snapshots)                   |
+| **gpc0**   | ZFS Snapshots | Local Pool (`mbazroot`) | `zfs list -t snapshot` (No persistent data backup)        |
+| **imac0**  | Time Machine  | External Drive          | macOS `tmutil latestbackup`                               |
+| **mba-\*** | Time Machine  | External Drive          | macOS System Settings                                     |
 
 ---
-
-## Role Reference
-
-| Role    | Trigger                           | Defined In                  |
-| ------- | --------------------------------- | --------------------------- |
-| SYSOP   | Working on hosts/modules/infra    | `.cursor/rules/SYSOP.mdc`   |
-| AUDITOR | Auditing compliance/security/docs | `.cursor/rules/AUDITOR.mdc` |
