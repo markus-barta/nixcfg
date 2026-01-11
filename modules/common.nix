@@ -225,7 +225,7 @@ in
         dust # Disk usage analyzer (du replacement)
         duf # Disk free viewer (df replacement)
         dua # Disk usage interactive (ncdu replacement)
-        dogdns # Modern dig replacement
+        doggo # Modern dig replacement
         difftastic # Structural diff (syntax-aware)
         rdap # Modern whois replacement
 
