@@ -6,7 +6,7 @@
 }:
 
 let
-  unstablePkgs = nixpkgs-unstable.legacyPackages.${pkgs.system};
+  unstablePkgs = nixpkgs-unstable.legacyPackages.${pkgs.stdenv.hostPlatform.system};
 
   # Platform detection
   isDarwin = pkgs.stdenv.isDarwin;
