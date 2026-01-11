@@ -88,6 +88,10 @@ in
     initialHashedPassword = mkDefault null;
   });
 
+  # Fix: child-keyboard-fun.service is ordered after 'network-online.target' but doesn't depend on it
+  # Consolidated in P5012
+  systemd.services.child-keyboard-fun.wants = [ "network-online.target" ];
+
   # Set your time zone.
   time.timeZone = "Europe/Vienna";
 
