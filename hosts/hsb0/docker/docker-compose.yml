@@ -40,9 +40,9 @@ services:
     command: ["/bin/ncps", "serve"]
     environment:
       - NCPS_LOG_LEVEL=info
-      - NCPS_SERVE=true
+      - ANALYTICS_REPORTING_ENABLED=false
       - NCPS_CACHE_HOSTNAME=hsb0.lan
-      - NCPS_CACHE_DATA_PATH=/storage
+      - NCPS_CACHE_STORAGE_LOCAL=/storage
       - NCPS_CACHE_DATABASE_URL=sqlite:/storage/db.sqlite
       - NCPS_CACHE_TEMP_PATH=/tmp
       - NCPS_SERVER_ADDR=0.0.0.0:8501
@@ -50,5 +50,5 @@ services:
       - NCPS_CACHE_MAX_SIZE=50G
       - NCPS_CACHE_LRU_SCHEDULE=0 3 * * *
       - NCPS_CACHE_SECRET_KEY_PATH=/run/secrets/ncps-key
-      - NCPS_UPSTREAM_CACHE=https://cache.nixos.org,https://nix-community.cachix.org
-      - NCPS_UPSTREAM_PUBLIC_KEY=cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=,nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
+      - NCPS_CACHE_UPSTREAM_URL=https://cache.nixos.org,https://nix-community.cachix.org
+      - NCPS_CACHE_UPSTREAM_PUBLIC_KEY=cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=,nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
