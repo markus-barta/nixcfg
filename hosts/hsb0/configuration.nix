@@ -485,37 +485,14 @@ in
   # Local binary cache that proxies and caches upstream stores.
   # Speeds up rebuilds across the home LAN and reduces WAN bandwidth.
   # Web UI / Stats: http://192.168.1.99:8501
+  #
+  # MIGRATED TO DOCKER (2026-01-11): Native service removed to avoid migration issues.
+  # See: hosts/hsb0/docker/docker-compose.yml
   # ============================================================================
-  services.ncps = {
-    enable = true;
-    cache = {
-      hostName = "hsb0.lan";
-      dataPath = "/var/lib/ncps";
-      databaseURL = "sqlite:/var/lib/ncps/db.sqlite";
-      maxSize = "50G";
-      lru.schedule = "0 3 * * *"; # Clean up daily at 3 AM
-      allowPutVerb = true; # Allow pushing local builds to the cache
-      secretKeyPath = config.age.secrets.ncps-key.path;
-    };
 
-    server.addr = "0.0.0.0:8501";
-
-    upstream = {
-      caches = [
-        "https://cache.nixos.org"
-        "https://nix-community.cachix.org"
-      ];
-      publicKeys = [
-        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-      ];
-    };
-  };
-
-  # RESILIENCE: NCPS service must depend on its ZFS mount.
-  # This prevents the service from starting (and failing) if the mount is missing,
-  # and ensures the mount failure doesn't block the rest of the system boot (like DNS).
-  systemd.services.ncps = {
+  # RESILIENCE: NCPS container data must depend on its ZFS mount.
+  # We keep the mount defined here so systemd manages it.
+  systemd.services.docker-ncps = {
     requires = [ "var-lib-ncps.mount" ];
     after = [ "var-lib-ncps.mount" ];
   };
