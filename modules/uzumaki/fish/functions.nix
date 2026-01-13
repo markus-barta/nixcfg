@@ -279,15 +279,7 @@
 
       # ── Functions ──
       echo -e "$color_func┌─ Functions ────────────────────────────────────────────────────────────┐$color_reset"
-      printf " $color_func%-12s$color_reset %-58s\n" "pingt"      "Timestamped ping with color-coded output (yellow/red)"
-      printf " $color_func%-12s$color_reset %-58s\n" "sourcefish" "Load .env file into current Fish session (KEY=value)"
-      printf " $color_func%-12s$color_reset %-58s\n" "stress"     "CPU stress test on all cores (stress [sec] or Ctrl+C)"
-      printf " $color_func%-12s$color_reset %-58s\n" "stasysmod"  "Toggle StaSysMo debug mode (verbose metrics)"
-      printf " $color_func%-12s$color_reset %-58s\n" "hostcolors" "Show infrastructure hosts with color-coded themes"
-      printf " $color_func%-12s$color_reset %-58s\n" "hostsecrets" "Show runbook secrets status (plain/encrypted)"
-      printf " $color_func%-12s$color_reset %-58s\n" "imacw"      "SSH to mba-imac-work via BYTEPOETS VPN (jump host)"
-      printf " $color_func%-12s$color_reset %-58s\n" "helpfish"   "Show this help (functions, aliases, abbreviations)"
-      printf " $color_func%-12s$color_reset %-58s\n" "ccc"        "Clear Cursor cache directories (macOS)"
+      @FUNCTION_LIST@
       echo -e "$color_func└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
 
       # ── Aliases ──
