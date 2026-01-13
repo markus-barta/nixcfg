@@ -456,50 +456,6 @@
   security.sudo-rs.wheelNeedsPassword = false;
 
   # ============================================================================
-  # 📡 NETCUP SERVER MONITOR - Daily health check for csb0 & csb1
-  # ============================================================================
-  # Checks Netcup API daily at 19:00 (evening)
-  # Alerts via Telegram + Email + LaMetric if server is offline for 2+ days
-  # Continues alerting daily while offline
-  #
-  # ⚠️ BACKLOG: This is manually set up - needs to be made declarative!
-  #    See +pm/backlog/3-low/2025-11-29-netcup-monitor-declarative.md
-  #
-  # Config: ~/secrets/netcup-monitor.env (gitignored)
-  # Script: ~/bin/netcup-monitor.sh
-  # State: /var/lib/netcup-monitor/
-  # ============================================================================
-  systemd.services.netcup-monitor = {
-    description = "Netcup Server Health Monitor";
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
-    path = [
-      pkgs.curl
-      pkgs.jq
-      pkgs.bash
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      User = "mba";
-      ExecStart = "/home/mba/bin/netcup-monitor.sh";
-      # Create state directory
-      StateDirectory = "netcup-monitor";
-      StateDirectoryMode = "0755";
-    };
-  };
-
-  systemd.timers.netcup-monitor = {
-    description = "Daily Netcup Server Health Check";
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      # Every day at 19:00 (7 PM)
-      OnCalendar = "*-*-* 19:00:00";
-      Persistent = true; # Run if missed (e.g., system was off)
-      RandomizedDelaySec = "2min"; # Slight randomization
-    };
-  };
-
-  # ============================================================================
   # AGENIX SECRETS
   # ============================================================================
 
