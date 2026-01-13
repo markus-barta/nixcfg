@@ -287,6 +287,7 @@
       printf " $color_func%-12s$color_reset %-58s\n" "hostsecrets" "Show runbook secrets status (plain/encrypted)"
       printf " $color_func%-12s$color_reset %-58s\n" "imacw"      "SSH to mba-imac-work via BYTEPOETS VPN (jump host)"
       printf " $color_func%-12s$color_reset %-58s\n" "helpfish"   "Show this help (functions, aliases, abbreviations)"
+      printf " $color_func%-12s$color_reset %-58s\n" "ccc"        "Clear Cursor cache directories (macOS)"
       echo -e "$color_func└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
 
       # ── Aliases ──
@@ -338,6 +339,30 @@
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "csb0" "Cloud server 0"  "(cs0.barta.cm)"
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "csb1" "Cloud server 1"  "(cs1.barta.cm)"
       echo -e "$color_abbr└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
+    '';
+  };
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # CCC - Clear Cursor Cache
+  # ════════════════════════════════════════════════════════════════════════════
+  ccc = {
+    description = "Clear Cursor cache directories (macOS)";
+    body = ''
+      set -l paths \
+        "$HOME/Library/Application Support/Cursor/CachedData" \
+        "$HOME/Library/Application Support/Cursor/GPUCache" \
+        "$HOME/Library/Application Support/Cursor/Service Worker" \
+        "$HOME/Library/Application Support/Cursor/User/workspaceStorage"
+
+      for p in $paths
+        if test -e "$p"
+          rm -rf "$p"
+        end
+      end
+
+      set_color green
+      echo "✅ Success – Cursor caches cleared"
+      set_color normal
     '';
   };
 }

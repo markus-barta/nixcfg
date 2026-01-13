@@ -63,6 +63,7 @@
     ps = "procs";
     whois = "rdap";
     vim = "hx";
+    c = "clear";
     cl = "clear";
 
     # SSH shortcuts to local/remote hosts (with zellij session)
