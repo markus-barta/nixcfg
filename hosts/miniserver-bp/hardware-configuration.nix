@@ -28,18 +28,8 @@
   boot.kernelModules = [ "kvm-intel" ];
   boot.extraModulePackages = [ ];
 
-  # Placeholder filesystem - nixos-anywhere will configure this
-  fileSystems."/" = {
-    device = "/dev/disk/by-label/nixos";
-    fsType = "ext4";
-  };
-
-  fileSystems."/boot" = {
-    device = "/dev/disk/by-label/boot";
-    fsType = "vfat";
-  };
-
-  swapDevices = [ ];
+  # Filesystems configured by disko (disk-config.zfs.nix)
+  # This placeholder is intentionally empty to avoid conflicts
 
   # Mac Mini 2009 - Intel Core 2 Duo
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
