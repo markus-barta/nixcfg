@@ -1,1 +1,2 @@
-assume @nixcfg/.cursor/rules/SYSOP.mdc role
+read and follow /AGENTS.md
+then assume /SYSOP.mdc role
