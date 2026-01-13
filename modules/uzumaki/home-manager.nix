@@ -34,6 +34,21 @@ let
   fishAliases = fishModule.aliases;
   fishAbbrs = fishModule.abbreviations;
 
+  # ════════════════════════════════════════════════════════════════════════════
+  # Generate function list for helpfish from functions.nix
+  # ════════════════════════════════════════════════════════════════════════════
+  # Extract function data (name + description) from all functions
+  helpfishFunctionList = lib.concatStringsSep "\n" (
+    lib.mapAttrsToList (name: def: 
+      ''printf " $color_func%-12s$color_reset %-58s\n" "${name}" "${def.description}"''
+    ) fishFunctions
+  );
+
+  # Replace @FUNCTION_LIST@ placeholder in helpfish body
+  helpfishWithDynamicList = fishFunctions.helpfish // {
+    body = lib.replaceStrings ["@FUNCTION_LIST@"] [helpfishFunctionList] fishFunctions.helpfish.body;
+  };
+
 in
 {
   # ══════════════════════════════════════════════════════════════════════════════
@@ -68,8 +83,9 @@ in
         // lib.optionalAttrs cfg.fish.functions.stasysmod { inherit (fishFunctions) stasysmod; }
         // lib.optionalAttrs cfg.fish.functions.hostcolors { inherit (fishFunctions) hostcolors; }
         // lib.optionalAttrs cfg.fish.functions.hostsecrets { inherit (fishFunctions) hostsecrets; }
-        // lib.optionalAttrs cfg.fish.functions.helpfish { inherit (fishFunctions) helpfish; }
-        // lib.optionalAttrs cfg.fish.functions.imacw { inherit (fishFunctions) imacw; };
+        // lib.optionalAttrs cfg.fish.functions.helpfish { helpfish = helpfishWithDynamicList; }
+        // lib.optionalAttrs cfg.fish.functions.imacw { inherit (fishFunctions) imacw; }
+        // lib.optionalAttrs cfg.fish.functions.ccc { inherit (fishFunctions) ccc; };
 
       # Shell aliases from uzumaki/fish
       shellAliases = fishAliases;
