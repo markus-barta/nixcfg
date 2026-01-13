@@ -56,7 +56,7 @@
     ips = [ "10.100.0.51/32" ];
 
     # Private key copied by nixos-anywhere --extra-files
-    privateKeyFile = "/secrets/wireguard-private.key";
+    privateKeyFile = "/etc/nixos/secrets/wireguard-private.key";
 
     peers = [
       {
