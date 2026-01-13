@@ -94,6 +94,12 @@
           description = "Enable imacw - SSH to mba-imac-work via BYTEPOETS VPN";
         };
 
+        ccc = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "Enable ccc - Clear Cursor cache directories (macOS)";
+        };
+
       };
 
       editor = lib.mkOption {

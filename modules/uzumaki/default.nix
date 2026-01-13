@@ -44,6 +44,17 @@ let
   themePalettes = import ./theme/theme-palettes.nix;
 
   # ════════════════════════════════════════════════════════════════════════════
+  # Generate function list for helpfish from functions.nix
+  # ════════════════════════════════════════════════════════════════════════════
+  # Extract function data (name + description) from all functions
+  # This is used to auto-populate helpfish - no manual updates needed!
+  helpfishFunctionList = lib.concatStringsSep "\n" (
+    lib.mapAttrsToList (
+      name: def: ''printf " $color_func%-12s$color_reset %-58s\n" "${name}" "${def.description}"''
+    ) fishFunctions
+  );
+
+  # ════════════════════════════════════════════════════════════════════════════
   # Convert function definitions to inline Fish functions for interactiveShellInit
   # ════════════════════════════════════════════════════════════════════════════
   mkFishFunction = name: def: ''
@@ -62,7 +73,19 @@ let
     ++ lib.optional cfg.fish.functions.hostsecrets (
       mkFishFunction "hostsecrets" fishFunctions.hostsecrets
     )
-    ++ lib.optional cfg.fish.functions.helpfish (mkFishFunction "helpfish" fishFunctions.helpfish)
+    ++ lib.optional cfg.fish.functions.helpfish (
+      # Generate helpfish with dynamic function list
+      let
+        helpfishBody = fishFunctions.helpfish.body;
+        # Replace the function list placeholder with actual generated list
+        helpfishBodyWithFunctions =
+          lib.replaceStrings [ "@FUNCTION_LIST@" ] [ helpfishFunctionList ]
+            helpfishBody;
+      in
+      mkFishFunction "helpfish" (fishFunctions.helpfish // { body = helpfishBodyWithFunctions; })
+    )
+    ++ lib.optional cfg.fish.functions.imacw (mkFishFunction "imacw" fishFunctions.imacw)
+    ++ lib.optional cfg.fish.functions.ccc (mkFishFunction "ccc" fishFunctions.ccc)
   );
 
 in
