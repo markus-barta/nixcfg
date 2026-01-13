@@ -1,5 +1,1 @@
-# Exclude pbek-nixcfg from AI chat context
-# This is an external repository that should not be referenced in conversations
-../pbek-nixcfg
-**/pbek-nixcfg/**
-
+.aiignore/**
