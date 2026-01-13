@@ -1,75 +1,108 @@
-# Dynamic helpfish data
+# P8300: Auto-sync helpfish function list
 
 **Created**: 2025-12-24  
 **Priority**: P8300 (Backlog)  
-**Status**: Backlog
+**Status**: Backlog  
+**Effort**: 2 hours  
+**Risk**: Low
 
 ---
 
 ## Problem
 
-The `helpfish` function currently uses hardcoded `printf` statements to display available functions, aliases, and abbreviations. This makes it difficult to maintain and often results in the help output being out of sync with the actual shell environment.
+The `helpfish` function uses **hardcoded `printf` statements** for the function list. Every time a new function is added to `modules/uzumaki/fish/functions.nix`, you must manually update:
 
-Current implementation in `modules/uzumaki/fish/functions.nix` is a manual list that must be updated every time a new tool is added to the infrastructure.
+1. `functions.nix` - helpfish body (line ~282-289)
+2. `default.nix` - fishInitFunctions (lines 56-66)
+3. `options.nix` - function toggle options (lines 48-96)
+
+**Result:** Functions get out of sync, causing confusion.
 
 ---
 
-## Solution
+## Solution (Option C: Hybrid Approach)
 
-Refactor `helpfish` to derive its output from dynamic data sources and the live shell environment where possible.
+**Auto-generate the function list** from `functions.nix` during build, keep aliases/abbreviations/SSH hardcoded (they rarely change).
 
-### Proposed Data Sources
+### Architecture
 
-1.  **Functions**:
-    - Use `functions -D` to get descriptions if available.
-    - Parse `modules/uzumaki/fish/functions.nix` via `nix eval` to get the list of functions and their intended help text.
-2.  **Abbreviations/Aliases**:
-    - Use `abbr -l` and `alias` to list active definitions.
-    - Filter for "known" or "interesting" ones to keep the output clean.
-3.  **SSH Shortcuts**:
-    - Fetch host list and descriptions from `modules/uzumaki/theme/theme-palettes.nix` or `docs/INFRASTRUCTURE.md` using `nix eval`.
-    - This ensures `helpfish` always matches the current infrastructure inventory.
+```
+Build Time (modules/uzumaki/default.nix):
+  1. Import functions.nix
+  2. Extract: name + description for each function
+  3. Generate printf statements as string
+  4. Inject into helpfish function body
 
-### Complexity & "Great Lengths"
+Runtime:
+  helpfish → displays pre-generated list (instant)
+```
 
-As requested, we should aim for maximum dynamism. This might involve:
+### Implementation Details
 
-- A small helper script (perhaps in `scripts/`) that `helpfish` calls to gather data.
-- Using `nix eval` within the fish function to pull data from the Nix configuration files (similar to how `hostcolors` works).
-- Parsing markdown docs if they are the only source of truth for certain descriptions.
+**In `modules/uzumaki/default.nix`:**
 
-_Note: If implementing the Nix-to-Fish bridge becomes too complex, consult the user._
+```nix
+let
+  # Extract function data from functions.nix
+  funcData = lib.mapAttrsToList (name: def: {
+    inherit name;
+    desc = def.description;
+  }) (import ./fish/functions.nix);
+
+  # Generate printf statements
+  funcList = lib.concatStringsSep "\n" (lib.map (f:
+    ''printf " $color_func%-12s$color_reset %-58s\n" "${f.name}" "${f.desc}"''
+  ) funcData);
+
+in {
+  # Inject into helpfish
+  programs.fish.interactiveShellInit = ''
+    function helpfish
+      # ... header ...
+      ${funcList}
+      # ... rest ...
+    end
+  '';
+}
+```
+
+**In `modules/uzumaki/fish/functions.nix`:**
+
+- Remove hardcoded function list from helpfish
+- Keep the rest (aliases, abbreviations, SSH)
+
+### What Stays Hardcoded
+
+- **Aliases** (`config.nix`) - Stable, rarely change
+- **Abbreviations** (`config.nix`) - Stable, rarely change
+- **SSH shortcuts** (`config.nix`) - IPs stable
+
+### What Becomes Dynamic
+
+- **Functions** - Auto-sync from `functions.nix`
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `helpfish` no longer contains a hardcoded list of `uzumaki` functions.
-- [ ] Abbreviations and Aliases are discovered dynamically.
-- [ ] SSH shortcuts are sourced from the repository's host configuration.
-- [ ] The visual style (boxed headers, color-coding) is preserved or improved.
-- [ ] Performance remains acceptable (caching may be needed if `nix eval` is too slow).
+- [ ] Adding a function to `functions.nix` automatically appears in `helpfish`
+- [ ] No manual updates needed to helpfish body
+- [ ] Build time overhead < 1 second
+- [ ] Runtime performance unchanged (instant)
+- [ ] Visual style preserved
 
 ---
 
 ## Test Plan
 
-### Manual Test
-
-1. Add a dummy function to `modules/uzumaki/fish/functions.nix`.
-2. Run `helpfish` and verify the new function appears automatically.
-3. Remove a host from the Nix configuration and verify it disappears from `helpfish` SSH shortcuts.
-
-### Automated Test
-
-```bash
-# Check if helpfish output contains a known dynamic element
-helpfish | grep -q "hostcolors"
-```
+1. Add test function to `functions.nix`
+2. Rebuild system
+3. Run `helpfish` → verify new function appears
+4. Run `helpfish | grep -q "test-function"`
 
 ---
 
 ## Related
 
-- Enables: Better developer experience across all hosts.
-- Related: `P6900-fish-tokyo-night-syntax.md`
+- **P8400**: Full module refactor (Option D) - future
+- **P6900**: Fish Tokyo Night syntax
