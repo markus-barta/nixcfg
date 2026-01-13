@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
 {
   imports = [
@@ -16,6 +16,28 @@
     role = "server";
     fish.editor = "vim";
     stasysmo.enable = true; # System metrics in Starship prompt
+  };
+
+  # ==========================================================================
+  # HOKAGE MODULE CONFIGURATION
+  # ==========================================================================
+  hokage = {
+    catppuccin.enable = false; # Use Tokyo Night theme instead
+    hostName = "miniserver-bp";
+    userLogin = "mba";
+    userNameLong = "Markus Barta";
+    userNameShort = "Markus";
+    userEmail = "markus@barta.com";
+    role = "server-remote";
+    useInternalInfrastructure = false;
+    useSecrets = false; # No agenix secrets for this host yet
+    useSharedKey = false;
+    zfs.enable = true;
+    zfs.hostId = "f687c770"; # Must match networking.hostId
+    programs.git.enableUrlRewriting = false;
+    # Point nixbit to Markus' repository (not pbek's default)
+    programs.nixbit.repository = "https://github.com/markus-barta/nixcfg.git";
+    # NOTE: starship & atuin are configured via common.nix (DRY pattern)
   };
 
   # ==========================================================================
@@ -56,7 +78,7 @@
     ips = [ "10.100.0.51/32" ];
 
     # Private key copied by nixos-anywhere --extra-files
-    privateKeyFile = "/secrets/wireguard-private.key";
+    privateKeyFile = "/etc/nixos/secrets/wireguard-private.key";
 
     peers = [
       {
@@ -93,10 +115,35 @@
 
     settings = {
       PermitRootLogin = "no";
-      PasswordAuthentication = true; # Allow password auth for initial setup
+      PasswordAuthentication = lib.mkForce true; # Allow password auth for initial setup (override hokage)
       X11Forwarding = true;
     };
   };
+
+  # ==========================================================================
+  # 🚨 SSH KEY SECURITY - CRITICAL FIX FROM hsb8/hsb1/csb1 INCIDENTS
+  # ==========================================================================
+  # The external hokage server-remote module auto-injects external SSH keys
+  # (omega@yubikey, omega@rsa, etc). We use lib.mkForce to REPLACE these
+  # with ONLY authorized keys.
+  #
+  # SECURITY RATIONALE:
+  # - hokage module adds pbek's SSH keys by default
+  # - We want ONLY Markus' keys for security
+  # - lib.mkForce ensures our list completely replaces hokage's list
+  #
+  # LEARNED FROM INCIDENTS:
+  # - hsb8: Discovered unauthorized omega@ keys (2025-11-28)
+  # - hsb1: SSH lockout during migration (2025-11-29)
+  # - csb1: Successful migration with this pattern (2025-12-06)
+  #
+  # MIGRATION SAFETY:
+  # - Password auth enabled as fallback (PasswordAuthentication = true above)
+  # - Can disable password auth after verifying SSH key access works
+  # ==========================================================================
+  users.users.mba.openssh.authorizedKeys.keys = pkgs.lib.mkForce [
+    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # markus@iMac-5k-MBA-home.local
+  ];
 
   # ==========================================================================
   # USER ACCOUNT
@@ -110,11 +157,7 @@
       "wheel"
       "networkmanager"
     ];
-
-    # Your SSH public key for passwordless access
-    openssh.authorizedKeys.keys = [
-      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # markus@iMac-5k-MBA-home.local
-    ];
+    # SSH keys configured below with lib.mkForce (security override)
   };
 
   # Fish shell enabled by uzumaki module
@@ -162,8 +205,13 @@
   # BOOT
   # ==========================================================================
 
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
+  boot.loader.grub = {
+    enable = true;
+    zfsSupport = true;
+    efiSupport = true;
+    efiInstallAsRemovable = true; # Mac Mini 2009 - safer for old hardware
+    device = "nodev"; # EFI mode
+  };
 
   # ==========================================================================
   # NIX SETTINGS
