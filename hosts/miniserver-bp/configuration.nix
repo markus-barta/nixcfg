@@ -74,22 +74,23 @@
 
   # VPN for remote access from home
   # Allows SSH jump to mba-imac-work (10.17.1.7)
-  networking.wireguard.interfaces.wg0 = {
-    ips = [ "10.100.0.51/32" ];
-
-    # Private key copied by nixos-anywhere --extra-files
-    privateKeyFile = "/etc/nixos/secrets/wireguard-private.key";
-
-    peers = [
-      {
-        # BYTEPOETS VPN server
-        publicKey = "TZHbPPkIaxlpLKP2frzJl8PmOjYaRnfz/MqwCS7JDUQ=";
-        endpoint = "vpn.bytepoets.net:51820";
-        allowedIPs = [ "10.100.0.0/24" ];
-        persistentKeepalive = 25;
-      }
-    ];
-  };
+  # TODO: Enable after copying wireguard-private.key to /etc/nixos/secrets/
+  # networking.wireguard.interfaces.wg0 = {
+  #   ips = [ "10.100.0.51/32" ];
+  #
+  #   # Private key copied by nixos-anywhere --extra-files
+  #   privateKeyFile = "/etc/nixos/secrets/wireguard-private.key";
+  #
+  #   peers = [
+  #     {
+  #       # BYTEPOETS VPN server
+  #       publicKey = "TZHbPPkIaxlpLKP2frzJl8PmOjYaRnfz/MqwCS7JDUQ=";
+  #       endpoint = "vpn.bytepoets.net:51820";
+  #       allowedIPs = [ "10.100.0.0/24" ];
+  #       persistentKeepalive = 25;
+  #     }
+  #   ];
+  # };
 
   # ==========================================================================
   # SSH SERVER
@@ -98,20 +99,8 @@
   services.openssh = {
     enable = true;
 
-    # Preserve host keys from Ubuntu installation
-    # Prevents "host key changed" warnings for existing clients
-    # Copied by nixos-anywhere --extra-files
-    hostKeys = [
-      {
-        path = "/secrets/ssh_host_ed25519_key";
-        type = "ed25519";
-      }
-      {
-        path = "/secrets/ssh_host_rsa_key";
-        type = "rsa";
-        bits = 4096;
-      }
-    ];
+    # Use default SSH host keys (generated automatically by NixOS)
+    # Note: Host key will change from Ubuntu - clients will see warning on first connect
 
     settings = {
       PermitRootLogin = "no";
@@ -157,6 +146,12 @@
       "wheel"
       "networkmanager"
     ];
+
+    # 🚨 EMERGENCY RECOVERY PASSWORD - matches csb0/csb1 pattern
+    # Password stored in 1Password: "csb0 csb1 recovery"
+    # Can be changed after successful migration with `passwd mba`
+    hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
+
     # SSH keys configured below with lib.mkForce (security override)
   };
 

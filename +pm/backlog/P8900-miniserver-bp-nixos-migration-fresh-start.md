@@ -185,12 +185,20 @@ ssh mba@10.17.1.7
 **Template**:
 
 ```bash
+# IMPORTANT: Two-step installation due to secrets directory issue
+# Step 1: Basic installation without --extra-files
 nix run github:nix-community/nixos-anywhere -- \
   --flake .#miniserver-bp \
   --build-on-remote \
-  --extra-files hosts/miniserver-bp/secrets \
-  --chown /secrets 0:0 \
   mba@<IP>
+
+# Step 2: After successful boot, manually copy secrets
+# On the new NixOS system:
+# sudo mkdir -p /secrets
+# sudo chown mba:mba /secrets
+# scp -r user@source:/path/to/secrets/* mba@miniserver-bp:/secrets/
+# sudo chown -R mba:mba /secrets/*
+# sudo chmod 600 /secrets/*
 ```
 
 **Questions**:
