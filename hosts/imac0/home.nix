@@ -6,6 +6,9 @@
   ...
 }:
 
+let
+  macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
+in
 {
   # ============================================================================
   # Module Imports
@@ -168,98 +171,11 @@
   };
 
   # ============================================================================
-  # WezTerm Terminal Configuration
+  # WezTerm Terminal Configuration (Shared Config)
   # ============================================================================
   programs.wezterm = {
     enable = true;
-    extraConfig = ''
-      local wezterm = require("wezterm")
-      local act = wezterm.action
-      local config = wezterm.config_builder()
-
-      ------------------------------------------------------------
-      -- ## Fonts & Text
-      ------------------------------------------------------------
-      config.font_size = 12
-      config.line_height = 1.1
-      config.font = wezterm.font("Hack Nerd Font Mono")
-
-      ------------------------------------------------------------
-      -- ## Colors & Cursor
-      ------------------------------------------------------------
-      config.color_scheme = "tokyonight_night"
-      config.colors = {
-          cursor_bg = "#7aa2f7",
-          cursor_border = "#7aa2f7",
-          cursor_fg = "black",
-      }
-      config.default_cursor_style = "BlinkingBar"
-
-      ------------------------------------------------------------
-      -- ## Window Look & Feel
-      ------------------------------------------------------------
-      config.window_decorations = "RESIZE|INTEGRATED_BUTTONS"
-      config.hide_tab_bar_if_only_one_tab = false
-      config.native_macos_fullscreen_mode = true
-
-      config.window_background_opacity = 0.9
-      config.macos_window_background_blur = 10
-      config.window_padding = { left = 8, right = 8, top = 8, bottom = 8 }
-
-      -- Double terminal grid size
-      config.initial_cols = 160
-      config.initial_rows = 48
-
-      ------------------------------------------------------------
-      -- ## Behavior
-      ------------------------------------------------------------
-      config.adjust_window_size_when_changing_font_size = false
-      config.audible_bell = "Disabled"
-
-      -- macOS Alt keys
-      config.send_composed_key_when_left_alt_is_pressed = yes
-      config.send_composed_key_when_right_alt_is_pressed = yes
-
-      ------------------------------------------------------------
-      -- ## Keys
-      ------------------------------------------------------------
-      config.keys = {
-          { key = "c",   mods = "CMD",       action = act.CopyTo("Clipboard") },
-          { key = "v",   mods = "CMD",       action = act.PasteFrom("Clipboard") },
-
-          { key = "-",   mods = "CMD",       action = act.DecreaseFontSize },
-          { key = "0",   mods = "CMD",       action = act.ResetFontSize },
-          { key = "=",   mods = "CMD",       action = act.IncreaseFontSize },
-          { key = "=",   mods = "CMD|SHIFT", action = act.IncreaseFontSize },
-
-          -- Fullscreen
-          { key = "f",   mods = "CMD|CTRL",  action = act.ToggleFullScreen },
-          { key = "F11", mods = "",          action = act.ToggleFullScreen },
-
-          -- Tabs & windows
-          { key = "t",   mods = "CMD",       action = act.SpawnTab("CurrentPaneDomain") },
-          { key = "w",   mods = "CMD",       action = act.CloseCurrentPane({ confirm = true }) },
-          { key = "n",   mods = "CMD",       action = act.SpawnWindow },
-      }
-
-      ------------------------------------------------------------
-      -- ## Mouse
-      ------------------------------------------------------------
-      config.mouse_bindings = {
-          {
-              event = { Down = { streak = 1, button = { WheelUp = 1 } } },
-              mods = "CMD",
-              action = act.IncreaseFontSize,
-          },
-          {
-              event = { Down = { streak = 1, button = { WheelDown = 1 } } },
-              mods = "CMD",
-              action = act.DecreaseFontSize,
-          },
-      }
-
-      return config
-    '';
+    extraConfig = macosCommon.weztermConfig;
   };
 
   # ============================================================================
