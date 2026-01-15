@@ -238,6 +238,7 @@ in
   # ============================================================================
   programs.zsh = {
     enable = true;
+    dotDir = "${config.xdg.configHome}/zsh"; # XDG-compliant (keeps home directory clean)
 
     # Prepend Nix paths to PATH (same as Fish loginShellInit)
     initContent = ''
