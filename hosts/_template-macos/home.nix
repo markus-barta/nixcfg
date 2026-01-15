@@ -191,8 +191,8 @@
       -- Behavior
       config.adjust_window_size_when_changing_font_size = false
       config.audible_bell = "Disabled"
-      config.send_composed_key_when_left_alt_is_pressed = false
-      config.send_composed_key_when_right_alt_is_pressed = false
+      config.send_composed_key_when_left_alt_is_pressed = yes
+      config.send_composed_key_when_right_alt_is_pressed = yes
 
       -- Keys
       config.keys = {
