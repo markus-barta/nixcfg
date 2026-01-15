@@ -673,6 +673,45 @@
     };
 
     # --------------------------------------------------------------------------
+    # OFFICE SERVERS: Very Dark Gray
+    # --------------------------------------------------------------------------
+    veryDarkGray = {
+      name = "Very Dark Gray";
+      category = "office";
+      description = "Office test server (miniserver-bp)";
+
+      # Powerline gradient (light → very dark)
+      gradient = {
+        lightest = "#707478"; # OS icon bg - muted medium gray
+        primary = "#404448"; # Directory bg - VERY DARK GRAY
+        secondary = "#303438"; # User/host bg
+        midDark = "#202428"; # Git section bg
+        dark = "#181c20"; # Languages bg
+        darker = "#121618"; # Time bg
+        darkest = "#0a0c10"; # Nix shell bg (near-black)
+      };
+
+      # Text colors (high contrast on very dark bgs)
+      text = {
+        onLightest = "#0a0c10"; # Dark text on lightest
+        onMedium = "#ffffff"; # White path text (matches darkGray work pref)
+        accent = "#a0a8b0"; # Accent fg (muted blue-gray)
+        muted = "#505458"; # Git count
+        mutedLight = "#707478"; # Time text
+      };
+
+      # Zellij (frame/UI very dark gray)
+      zellij = {
+        bg = "#404448";
+        fg = "#303438";
+        frame = "#404448";
+        black = "#0a0c10";
+        white = "#e8e8e8";
+        highlight = "#707478";
+      };
+    };
+
+    # --------------------------------------------------------------------------
     # CUSTOM PALETTES (auto-generated from NixFleet dashboard)
     # --------------------------------------------------------------------------
 
@@ -802,6 +841,7 @@
     imac1 = "roseGold"; # Wife's iMac (future)
     "mba-imac-work" = "darkGray";
     "mba-mbp-work" = "lightGray";
+    miniserver-bp = "veryDarkGray";
   };
 
   # Default palette for unknown hosts
@@ -816,6 +856,8 @@
     "hsb0"
     "hsb1"
     "hsb8"
+    # Office servers
+    "miniserver-bp"
     # Gaming
     "gpc0"
     "stm0"
@@ -833,6 +875,7 @@
   categoryBullets = {
     cloud = "◆";
     home = "●";
+    office = "◾";
     gaming = "▶";
     workstation = "◼";
     unknown = "○";
