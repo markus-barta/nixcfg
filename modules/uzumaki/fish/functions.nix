@@ -273,14 +273,14 @@
       set -l color_reset (set_color normal)
 
       # All boxes are exactly 76 chars wide (74 inside + 2 border)
-      echo -e "\n$color_heading╔════════════════════════════════════════════════════════════════════════╗"
-      echo -e "║                 Custom Fish Functions & Abbreviations                  ║"
-      echo -e "╚════════════════════════════════════════════════════════════════════════╝$color_reset\n"
+      echo -e "\n$color_heading╔═══════════════════════════════════════════════════════════════════════╗"
+      echo -e "║                 Custom Fish Functions & Abbreviations                 ║"
+      echo -e "╚═══════════════════════════════════════════════════════════════════════╝$color_reset\n"
 
       # ── Functions ──
-      echo -e "$color_func┌─ Functions ────────────────────────────────────────────────────────────┐$color_reset"
+      echo -e "$color_func┌─ Functions ───────────────────────────────────────────────────────────┐$color_reset"
       @FUNCTION_LIST@
-      echo -e "$color_func└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
+      echo -e "$color_func└───────────────────────────────────────────────────────────────────────┘$color_reset\n"
 
       # ── Aliases ──
       echo -e "$color_alias┌─ Aliases ─────────────────────────────────────────────────────────────┐$color_reset"
