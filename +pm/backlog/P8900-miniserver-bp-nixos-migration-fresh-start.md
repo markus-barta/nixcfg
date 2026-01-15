@@ -3,7 +3,7 @@
 **Status**: READY FOR INSTALLATION  
 **Priority**: P8 (Installation Ready)  
 **Created**: 2026-01-13  
-**Updated**: 2026-01-13
+**Updated**: 2026-01-15
 
 ---
 
@@ -15,10 +15,11 @@ Migrate `miniserver-bp` (Mac Mini 2009, Ubuntu 24.04) to NixOS for declarative c
 
 - Hostname: `miniserver-bp` (MUST NOT CHANGE)
 - Primary IP: `10.17.1.40/16` (MUST NOT CHANGE)
-- WireGuard IP: `10.100.0.51/32` (MUST NOT CHANGE)
+- WireGuard: Disabled initially (enable manually post-install)
 - User: `mba` (UID 1000)
-- Shell: `fish`
-- Role: Jump host + test server
+- Shell: `fish` (via uzumaki module)
+- SSH: Same authorized keys as csb0/csb1
+- Role: Test server + future jump host
 
 ---
 
@@ -87,17 +88,23 @@ ssh mba@10.17.1.7
 
 ### 2.1 Required Secrets
 
-| File                    | Purpose                 | Source        | Status |
-| ----------------------- | ----------------------- | ------------- | ------ |
-| `wireguard-private.key` | VPN private key         | Ubuntu server | ⏳     |
-| `id_rsa`                | mba user SSH key        | Ubuntu server | ⏳     |
-| `id_rsa.pub`            | mba user SSH public key | Ubuntu server | ⏳     |
-| `ssh_host_ed25519_key`  | SSH host key (ed25519)  | Ubuntu server | ⏳     |
-| `ssh_host_rsa_key`      | SSH host key (RSA)      | Ubuntu server | ⏳     |
+**DECISION**: No secrets needed for initial installation.
 
-**Location**: `hosts/miniserver-bp/secrets/`
+**Rationale**:
 
-**Status**: ✅ **COMPLETED** - All secrets validated and ready
+- SSH host keys: NixOS generates fresh keys (clients will see warning - acceptable)
+- SSH authorized keys: Embedded in configuration.nix (same as csb0/csb1)
+- WireGuard: Disabled initially (commented out in config)
+- Emergency password: Hashed password in configuration.nix
+
+**WireGuard Re-enablement** (post-install):
+
+1. Extract `wireguard-private.key` from Ubuntu backup
+2. Copy to `/etc/nixos/secrets/wireguard-private.key` on NixOS
+3. Uncomment WireGuard config in configuration.nix
+4. `nixos-rebuild switch`
+
+**Status**: ✅ **NO SECRETS NEEDED** - Clean installation approach
 
 ---
 
@@ -123,16 +130,16 @@ ssh mba@10.17.1.7
 
 **WireGuard**:
 
-- [x] Local IP: `10.100.0.51/32` ✅ Correct
-- [x] Peer public key: `TZHbPPkIaxlpLKP2frzJl8PmOjYaRnfz/MqwCS7JDUQ=` ✅ Correct
-- [x] Endpoint: `vpn.bytepoets.net:51820` ✅ Correct
-- [x] Private key file path: `/etc/nixos/secrets/wireguard-private.key` ✅ Will be created by nixos-anywhere
+- [x] Config commented out in configuration.nix ✅ Safe initial state
+- [x] Can be enabled post-install manually ✅ Documented in runbook
+- [x] Private key will be copied from Ubuntu backup later ✅ Planned
 
 **SSH**:
 
-- [x] Host keys configured to preserve ✅ ed25519 and RSA keys ready
-- [x] Password auth enabled for initial setup ✅ Configured
-- [x] Authorized keys for mba user ✅ Public key present
+- [x] Host keys: Fresh generation (Ubuntu keys discarded) ✅ Acceptable
+- [x] Password auth enabled ✅ Emergency fallback
+- [x] Authorized keys: Same as csb0/csb1 ✅ lib.mkForce pattern
+- [x] Recovery password: Matches csb0/csb1 ✅ Hashed in config
 
 **User**:
 
@@ -182,30 +189,46 @@ ssh mba@10.17.1.7
 
 ### 4.2 nixos-anywhere Command
 
-**Template**:
+**Installation Approach**: USB stick minimal NixOS → nixos-anywhere
+
+**Prerequisites**:
+
+1. Boot miniserver-bp from minimal NixOS USB
+2. User: `nixos`, Password: `1234` (temp)
+3. Verify network: `ip addr show` (should get DHCP)
+4. Get IP address for nixos-anywhere target
+
+**Validated Command** (2026-01-15):
 
 ```bash
-# IMPORTANT: Two-step installation due to secrets directory issue
-# Step 1: Basic installation without --extra-files
+# From mba-imac-work (or any office machine)
+cd ~/Code/nixcfg
+
+# Run nixos-anywhere (no secrets, no extra files)
 nix run github:nix-community/nixos-anywhere -- \
   --flake .#miniserver-bp \
   --build-on-remote \
-  mba@<IP>
-
-# Step 2: After successful boot, manually copy secrets
-# On the new NixOS system:
-# sudo mkdir -p /secrets
-# sudo chown mba:mba /secrets
-# scp -r user@source:/path/to/secrets/* mba@miniserver-bp:/secrets/
-# sudo chown -R mba:mba /secrets/*
-# sudo chmod 600 /secrets/*
+  nixos@10.17.1.40
 ```
 
-**Questions**:
+**Flags Explained**:
 
-- [ ] Which installation method to use?
-- [ ] What IP to use (local vs VPN)?
-- [ ] Is `--build-on-remote` needed?
+- `--flake .#miniserver-bp`: Use local flake config
+- `--build-on-remote`: Build on target (Mac Mini, not iMac)
+- `nixos@10.17.1.40`: Target user@IP (USB stick user)
+
+**No flags needed**:
+
+- ~~`--extra-files`~~: No secrets to copy
+- ~~`--copy-host-keys`~~: Fresh keys acceptable
+- ~~`--disk-encryption-keys`~~: No encryption
+
+**Expected Outcome**:
+
+- Full disk format (ZFS)
+- NixOS installed with mba user
+- SSH accessible via password or key
+- WireGuard disabled (manual enable later)
 
 ---
 
@@ -237,60 +260,153 @@ sudo tar -czf /tmp/ubuntu-backup.tar.gz /etc/ssh /home/mba /var/lib
 
 **Goal**: Confirm NixOS is working correctly.
 
+**Status**: ✅ **COMPLETED** (2026-01-15 12:40 CET)
+
 ### 6.1 Basic Checks
 
-- [ ] SSH access works (no host key warning)
-- [ ] Hostname is correct
-- [ ] IP address is correct
-- [ ] Fish shell is default
-- [ ] Uzumaki functions available
+- [x] ✅ SSH access works (port 2222)
+- [x] ✅ Hostname: miniserver-bp
+- [x] ✅ IP address: 10.17.1.40/16
+- [x] ✅ Fish shell: v4.3.3
+- [x] ✅ User: mba (UID 1000)
+- [x] ✅ NixOS version: 26.05 (Yarara)
+- [x] ✅ Kernel: 6.18.4
 
-### 6.2 Network Tests
+### 6.2 Uzumaki Components
 
-- [ ] WireGuard VPN connects
-- [ ] Jump host to mba-imac-work works
-- [ ] Internet connectivity
+- [x] ✅ zellij installed and working
+- [x] ✅ starship installed and working
+- [x] ✅ eza installed and working
+- [x] ✅ bat installed and working
+- [x] ✅ fish shell set as default
+- [x] ✅ StaSysMo: N/A (needs terminal for metrics)
 
-### 6.3 Theme Tests
+### 6.3 Network Tests
 
-- [ ] Starship prompt shows correct color
-- [ ] Zellij theme applied
-- [ ] Eza theme applied
+- [x] ✅ Static IP configured: 10.17.1.40/16
+- [x] ✅ Office network reachable
+- [x] ✅ Internet connectivity: Working
+- [ ] ⏳ WireGuard VPN: Deferred to Phase 7
+
+### 6.4 Storage
+
+- [x] ✅ ZFS pool: zroot (healthy)
+- [x] ✅ Disk usage: 1% (467GB available)
+- [x] ✅ Boot: EFI working
+
+### 6.5 Documentation
+
+- [x] ✅ README.md created
+- [x] ✅ RUNBOOK.md created (with Phase 7 WireGuard guide)
+
+---
+
+## 📋 Phase 7: WireGuard Setup (Post-Install)
+
+**Goal**: Enable WireGuard VPN for jump host functionality.
+
+**Status**: ⏳ AFTER PHASE 6
+
+### 7.1 Extract WireGuard Key from Ubuntu
+
+**Before wiping Ubuntu**, backup the WireGuard key:
+
+```bash
+# On Ubuntu miniserver-bp (if still accessible):
+ssh mba@miniserver-bp.local
+sudo cat /etc/wireguard/wg0.conf
+# Copy the PrivateKey value
+```
+
+**Alternative**: If Ubuntu already wiped, regenerate:
+
+1. Generate new key: `wg genkey | tee privatekey | wg pubkey > publickey`
+2. Update BYTEPOETS VPN server with new public key
+3. Use new private key
+
+### 7.2 Configure WireGuard on NixOS
+
+```bash
+# On NixOS miniserver-bp:
+ssh mba@10.17.1.40
+
+# Create secrets directory
+sudo mkdir -p /etc/nixos/secrets
+sudo chmod 700 /etc/nixos/secrets
+
+# Create WireGuard private key file
+# Paste the private key from Ubuntu backup
+sudo nano /etc/nixos/secrets/wireguard-private.key
+sudo chmod 600 /etc/nixos/secrets/wireguard-private.key
+```
+
+### 7.3 Enable WireGuard in Configuration
+
+```bash
+# On mba-imac-work:
+cd ~/Code/nixcfg
+
+# Edit configuration.nix - uncomment WireGuard section (lines 78-93)
+# Then rebuild:
+just switch-remote miniserver-bp
+```
+
+### 7.4 Test VPN
+
+```bash
+# On miniserver-bp:
+sudo wg show
+# Should show wg0 interface with peer
+
+# From home (via VPN):
+ping 10.100.0.51
+ssh mba@10.100.0.51
+```
 
 ---
 
 ## 🎯 Next Action
 
-**Status**: ✅ **READY FOR INSTALLATION**
+**Status**: ✅ **INSTALLATION COMPLETE** (2026-01-15 12:30 CET)
 
-**All preflight checks completed successfully**:
-
-- ✅ Environment validation (Phase 1)
-- ✅ Secrets inventory (Phase 2)
-- ✅ Configuration validation (Phase 3)
-- ✅ Installation method determined (Phase 4)
-
-**Installation command ready**:
+**Used command**:
 
 ```bash
+cd ~/Code/nixcfg
+
 nix run github:nix-community/nixos-anywhere -- \
   --flake .#miniserver-bp \
   --build-on-remote \
-  --extra-files hosts/miniserver-bp/secrets \
-  --chown /secrets 0:0 \
-  mba@10.17.1.40
+  nixos@10.17.1.40
 ```
 
-**Expected outcome**:
+**Prerequisites**:
 
-- ✅ SSH access preserved (no host key warnings)
-- ✅ WireGuard VPN working immediately
-- ✅ Jump host functionality maintained
-- ✅ All services operational
+1. ✅ Boot miniserver-bp from minimal NixOS USB
+2. ✅ User: `nixos`, Password: `1234`
+3. ✅ Network: DHCP → 10.17.1.40
+4. ✅ Run from: mba-imac-work (office network)
 
-**Risk level**: 🟢 LOW (all components validated)
+**What happens**:
 
-**Next step**: Run the installation command above
+1. Formats disk with ZFS (disko)
+2. Builds NixOS on target (--build-on-remote)
+3. Installs with mba user (UID 1000)
+4. Configures SSH (fresh host keys)
+5. Applies uzumaki module (fish, zellij, stasysmo)
+6. Reboots into NixOS
+
+**Post-install**:
+
+- SSH: `ssh mba@10.17.1.40` (password auth enabled)
+- WireGuard: Disabled (enable manually later)
+- Recovery password: Same as csb0/csb1
+
+**Risk level**: 🟢 LOW (minimal config, no secrets)
+
+**Result**: ✅ **SUCCESS** - System installed and verified
+
+**Next phase**: Phase 7 (WireGuard setup) - See RUNBOOK.md
 
 ## 🔍 Step-by-Step Validation Plan
 
@@ -364,21 +480,21 @@ nix run github:nix-community/nixos-anywhere -- \
 - Network configuration validated (10.17.1.40/16 on enp0s10)
 - WireGuard service confirmed active and configured
 
-**Phase 2: Secrets Inventory** ✅
+**Phase 2: Secrets Strategy** ✅
 
-- WireGuard private key extracted and verified ✅
-- SSH host keys (ed25519, RSA) present in secrets ✅
-- User SSH keys (id_rsa, id_rsa.pub) present in secrets ✅
-- All secrets validated and ready for nixos-anywhere ✅
+- No secrets needed for initial install ✅
+- SSH keys embedded in configuration.nix ✅
+- WireGuard deferred to Phase 7 (post-install) ✅
+- Emergency password hashed in configuration.nix ✅
 
 **Phase 3: Configuration Validation** ✅
 
-- Network settings match current Ubuntu configuration ✅
-- WireGuard configuration matches Ubuntu setup ✅
-- SSH host keys paths correct for nixos-anywhere ✅
-- User configuration (mba, UID 1000) correct ✅
-- Uzumaki module integrated and configured ✅
-- Hokage module imported and configured ✅
+- Network settings: 10.17.1.40/16 static IP ✅
+- WireGuard: Commented out (Phase 7) ✅
+- SSH: lib.mkForce pattern (csb0/csb1 compatible) ✅
+- User: mba (UID 1000), fish shell ✅
+- Uzumaki: server role, vim editor, stasysmo ✅
+- Hokage: server-remote role, Tokyo Night theme ✅
 
 **Phase 4: Installation Preparation** ✅
 
@@ -405,4 +521,46 @@ nix run github:nix-community/nixos-anywhere -- \
 
 ---
 
-**Next**: Wait for user confirmation on Phase 1 checks.
+## ✅ Installation Complete (2026-01-15)
+
+**Timeline**:
+
+- 12:30 CET: nixos-anywhere installation started
+- 12:30 CET: System booted successfully
+- 12:40 CET: Verification completed
+
+**Verified Components**:
+
+| Component | Status  | Details                              |
+| --------- | ------- | ------------------------------------ |
+| OS        | ✅ Pass | NixOS 26.05 (Yarara), kernel 6.18.4  |
+| SSH       | ✅ Pass | Port 2222, password + key auth       |
+| Network   | ✅ Pass | 10.17.1.40/16 static IP              |
+| User      | ✅ Pass | mba (UID 1000), fish shell           |
+| Storage   | ✅ Pass | ZFS pool healthy, 467GB free         |
+| Uzumaki   | ✅ Pass | zellij, starship, eza, bat installed |
+| Hokage    | ✅ Pass | External module working              |
+| Docs      | ✅ Pass | README.md + RUNBOOK.md created       |
+
+**Known Items**:
+
+- ✅ Font warning on console: Normal for headless server (ignored)
+- ✅ SSH port 2222: Correct (hokage server-remote pattern)
+- ⏳ WireGuard: Intentionally disabled (Phase 7 manual setup)
+
+**Lessons Learned**:
+
+1. ✅ No secrets in --extra-files = simpler install
+2. ✅ Fresh SSH keys = acceptable for test server
+3. ✅ Password auth fallback = prevented lockout
+4. ✅ Port 2222 from hokage = expected behavior
+
+**Next Actions**:
+
+1. ⏳ **Optional**: Enable WireGuard (see RUNBOOK.md Phase 7)
+2. ✅ **Done**: Document installation (this file + README + RUNBOOK)
+3. ⏳ **Future**: Clone nixcfg repo to server for local rebuilds
+
+---
+
+**Installation validated successfully. System ready for use.**
