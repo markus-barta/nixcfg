@@ -1,116 +1,74 @@
-# 2026-01-17 - csb0/csb1 Cloudflare Token Rotation - Cleanup & QA
+# P4501 - csb0/csb1 Cloudflare Token Rotation - Cleanup & QA
 
-## Description
+**Task:** csb0/csb1 Cloudflare Token Rotation - Cleanup & QA
+**Status:** In Progress - Verification Complete, Documentation Pending
+**Session Date:** 2026-01-17
 
-Final cleanup and quality assurance after Cloudflare API token rotation and infrastructure refactoring. Ensure all old credentials are removed from git history and local systems, and verify proper documentation.
+---
 
 ## Context
 
-**Completed Work:**
+**Completed Work (as of 2026-01-17):**
 
-- Rotated Cloudflare API token (scope: `barta.cm` only, IP-filtered)
-- Encrypted via agenix (`secrets/traefik-variables.age`)
-- Refactored csb0 with proper directory structure (`/var/lib/csb0-docker/`)
-- Token deployed to both csb0 and csb1
-- Services verified working
+- ✅ Rotated Cloudflare API token (scope: `barta.cm` only, IP-filtered)
+- ✅ Encrypted via agenix (`secrets/traefik-variables.age`)
+- ✅ Refactored csb0 with proper directory structure (`/var/lib/csb0-docker/`)
+- ✅ Token deployed to both csb0 and csb1
+- ✅ Old token revoked from Cloudflare
+- ✅ Git history cleaned with `git-filter-repo` (old token replaced with `***REDACTED***`)
+- ✅ Force pushed to GitHub (history rewritten)
+- ✅ Backup created: `../nixcfg-backup-20260117-143309.git`
+- ✅ Verified services (csb0: home, cs0; csb1: grafana, influxdb, docmost)
+- ✅ Verified absence of old repo `~/nixcfg` on hosts
 
-**Remaining:**
+---
 
-- Old token still exists in Cloudflare (not revoked yet)
-- Need to verify no leaked secrets in git history
-- Check for leftover files from refactoring
-- Final QA pass
+## Remaining Work
 
-## Acceptance Criteria
+### 1. Documentation Updates (MANDATORY)
 
-### 1. Revoke Old Token
-
-- [x] Login to Cloudflare: https://dash.cloudflare.com/profile/api-tokens
-- [x] Find old token: **"Edit zone DNS"** (with "All zones" access)
-- [x] Revoke old token
-- [x] Verify both csb0 and csb1 still working (using new token)
-- [ ] Document in SECRETS.md: old token revoked on 2026-01-17
-
-### 2. Git History Cleanup
-
-- [x] Search for old token in git history:
-  ```bash
-  cd ~/Code/nixcfg
-  git log --all --full-history -S '***REDACTED***' --oneline
-  ```
-- [x] Used git-filter-repo to replace old token with `***REDACTED***` in all files
-- [x] Force pushed to GitHub (history rewritten)
-- [x] Verified old token completely removed from git history
-- [x] Backup created: `../nixcfg-backup-20260117-143309.git`
-
-### 3. Check Local Decrypted Secrets on Hosts
-
-- [ ] **csb0:** Check for plain text secrets
-  ```bash
-  ssh mba@cs0.barta.cm -p 2222 "find ~ -name '*.env' -type f 2>/dev/null | grep -v Code/nixcfg"
-  ```
-- [ ] **csb1:** Check for plain text secrets
-  ```bash
-  ssh mba@cs1.barta.cm -p 2222 "find ~ -name '*.env' -type f 2>/dev/null | grep -v Code/nixcfg"
-  ```
-- [ ] Remove any found (only keep in `/run/agenix/` and repo examples)
-
-### 4. Check for Leftover Files
-
-**csb0:**
-
-- [ ] Old repo dir removed: `ssh mba@cs0.barta.cm -p 2222 "test ! -d ~/nixcfg && echo OK"`
-- [ ] Backup files cleaned: `ssh mba@cs0.barta.cm -p 2222 "ls -lah ~/docker-backup-* ~/traefik-broken-*"`
-- [ ] Old docker dir structure: Check `~/Code/nixcfg/hosts/csb0/docker/traefik/` for unexpected files
-
-**csb1:**
-
-- [ ] Old repo dir removed: `ssh mba@cs1.barta.cm -p 2222 "test ! -d ~/nixcfg && echo OK"`
-- [ ] Check for old token file: `ssh mba@cs1.barta.cm -p 2222 "cat ~/docker/traefik/variables.env | head -1"`
-  - Should be symlink to `/run/agenix/traefik-variables`
-
-### 5. Final QA & Documentation
-
-**Verify Services:**
-
-- [ ] csb0 services working:
-  - `curl -sI https://home.barta.cm | head -2` (expect HTTP/2 200)
-  - `curl -sI https://cs0.barta.cm | head -2` (expect HTTP/2 404)
-  - MQTT: `mosquitto.barta.cm:8883` (test with IoT device)
-- [ ] csb1 services working:
-  - `curl -sI https://grafana.barta.cm | head -2` (expect HTTP/2 302)
-  - `curl -sI https://influxdb.barta.cm | head -2` (expect HTTP/2 200)
-  - `curl -sI https://docmost.barta.cm | head -2` (expect HTTP/2 200)
-
-**Documentation:**
-
-- [ ] Update `hosts/csb0/docs/RUNBOOK.md`:
+- [ ] **`hosts/csb0/docs/RUNBOOK.md`**:
   - Document new directory structure (`/var/lib/csb0-docker/`)
   - Update secret management section (agenix)
-- [ ] Update `hosts/csb1/docs/RUNBOOK.md`:
-  - Document token rotation
-  - Add TODO for docker files migration
-- [ ] Update `docs/SECRETS.md`:
-  - Document Cloudflare token scope
-  - List which hosts use which secrets
-- [ ] Close P6400 task with summary
+- [ ] **`hosts/csb1/docs/RUNBOOK.md`**:
+  - Document token rotation (2026-01-17)
+  - Add TODO for docker files migration (see P4500)
+- [ ] **`docs/SECRETS.md`**:
+  - Document Cloudflare token scope (`barta.cm` only, IP-filtered)
+  - List which hosts use which secrets (`secrets/traefik-variables.age` → csb0, csb1)
+  - Document old token revoked on 2026-01-17
 
-## Files to Check/Update
+### 2. Cleanup Actions (Requires User Approval)
 
-- `.gitignore` → Verify `*.env` and `acme.json` ignored
-- `hosts/csb0/docs/RUNBOOK.md` → Document new structure
-- `hosts/csb1/docs/RUNBOOK.md` → Document token rotation
-- `docs/SECRETS.md` → Document secret inventory
-- `+pm/backlog/P6400-csb0-cloudflare-token-rotation.md` → Mark complete
+- [ ] **csb0 backup files**:
+  - Remove: `/home/mba/docker-backup-20260117-124057.tar.gz`
+  - Remove: `/home/mba/docker-backup-20260117-124053.tar.gz`
+- [ ] **csb1 plain text secrets**:
+  - 10 .env files found in `/home/mba/secrets/` and `/home/mba/docker/`.
+  - Migrate to agenix (tracked in P4500).
+  - Remove plain text files ONLY after verified migration.
 
-## Priority
+### 3. Final QA
 
-P6 (Low-Medium) - Cleanup and verification, no urgent operational impact
+- [ ] Verify `.gitignore` covers `*.env` and `acme.json` across repo
+- [ ] Final check of `git status` for any accidental secret leaks (none currently known)
 
-## Effort
+### 4. Task Closure
 
-Low (1-2 hours) - Mostly verification and documentation
+- [ ] Mark `+pm/backlog/P6400-csb0-cloudflare-token-rotation.md` as complete
+- [ ] Move this file (P4501) to `+pm/done/`
 
-## Origin
+---
 
-Follow-up to P6400 token rotation work (2026-01-17)
+## Issues/Notes Discovered
+
+1. **csb1 plain text secrets**: 10 .env files contain unencrypted secrets. Migration is tracked in P4500 (csb1 docker files to repo).
+2. **Restored Secrets**: On 2026-01-17, 4 `.age` files were restored after being truncated to 578B by a faulty rekey (see chat history). Verified and fixed.
+
+---
+
+## Meta
+
+- **Priority:** P6 (Low-Medium)
+- **Effort:** Low (1-2 hours)
+- **Origin:** Follow-up to P6400 token rotation
