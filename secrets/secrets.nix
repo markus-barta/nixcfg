@@ -115,5 +115,5 @@ in
   "mosquitto-conf.age".publicKeys = markus ++ csb0;
   "traefik-static.age".publicKeys = markus ++ csb0;
   "traefik-dynamic.age".publicKeys = markus ++ csb0;
-  "traefik-variables.age".publicKeys = markus ++ csb0;
+  "traefik-variables.age".publicKeys = markus ++ csb0 ++ csb1;
 }
