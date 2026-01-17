@@ -25,26 +25,23 @@ Final cleanup and quality assurance after Cloudflare API token rotation and infr
 
 ### 1. Revoke Old Token
 
-- [ ] Login to Cloudflare: https://dash.cloudflare.com/profile/api-tokens
-- [ ] Find old token: **"Edit zone DNS"** (with "All zones" access)
-- [ ] Revoke old token
-- [ ] Verify both csb0 and csb1 still working (using new token)
-- [ ] Document in SECRETS.md: old token revoked on [date]
+- [x] Login to Cloudflare: https://dash.cloudflare.com/profile/api-tokens
+- [x] Find old token: **"Edit zone DNS"** (with "All zones" access)
+- [x] Revoke old token
+- [x] Verify both csb0 and csb1 still working (using new token)
+- [ ] Document in SECRETS.md: old token revoked on 2026-01-17
 
 ### 2. Git History Cleanup
 
-- [ ] Search for old token in git history:
+- [x] Search for old token in git history:
   ```bash
   cd ~/Code/nixcfg
   git log --all --full-history -S '***REDACTED***' --oneline
   ```
-- [ ] If found: Use BFG Repo-Cleaner or git-filter-repo to remove
-- [ ] Verify plain text token never committed:
-  ```bash
-  git log --all --full-history -- hosts/csb0/docker/traefik/variables.env
-  git log --all --full-history -- hosts/csb1/docker/traefik/variables.env
-  ```
-- [ ] Update P6400 task with findings
+- [x] Used git-filter-repo to replace old token with `***REDACTED***` in all files
+- [x] Force pushed to GitHub (history rewritten)
+- [x] Verified old token completely removed from git history
+- [x] Backup created: `../nixcfg-backup-20260117-143309.git`
 
 ### 3. Check Local Decrypted Secrets on Hosts
 
