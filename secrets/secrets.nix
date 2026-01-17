@@ -116,4 +116,9 @@ in
   "traefik-static.age".publicKeys = markus ++ csb0;
   "traefik-dynamic.age".publicKeys = markus ++ csb0;
   "traefik-variables.age".publicKeys = markus ++ csb0 ++ csb1;
+
+  # MQTT credentials for csb0
+  # Format: KEY=VALUE lines (MQTT_HOST, MQTT_USER, MQTT_PASS)
+  # Edit: agenix -e secrets/mqtt-csb0.age
+  "mqtt-csb0.age".publicKeys = markus ++ csb0;
 }
