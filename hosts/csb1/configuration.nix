@@ -192,6 +192,13 @@
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
   age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
+  age.secrets.traefik-variables = {
+    file = ../../secrets/traefik-variables.age;
+    path = "/home/mba/docker/traefik/variables.env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
 
   services.nixfleet-agent = {
     enable = true;
