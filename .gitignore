@@ -70,3 +70,7 @@ id_rsa
 id_rsa.pub
 *.env
 !*.example.env
+!*.env.exam
+
+# Docker mutable state (Traefik ACME certificates)
+**/docker/traefik/acme.json

@@ -103,6 +103,43 @@
   };
 
   # ============================================================================
+  # DOCKER COMPOSE SETUP - Declarative directory structure
+  # ============================================================================
+  # Separation of concerns:
+  # - /home/mba/Code/nixcfg/hosts/csb0/docker/ = immutable config (in git)
+  # - /var/lib/csb0-docker/ = runtime directory (mutable state)
+  # - /run/agenix/ = decrypted secrets (ephemeral)
+
+  systemd.tmpfiles.rules =
+    let
+      dockerRoot = "/var/lib/csb0-docker";
+      repoDockerFiles = "/home/mba/Code/nixcfg/hosts/csb0/docker";
+    in
+    [
+      # Create runtime directory structure
+      "d ${dockerRoot} 0755 mba users -"
+      "d ${dockerRoot}/traefik 0755 mba users -"
+      "d ${dockerRoot}/restic-cron 0755 mba users -"
+
+      # Symlink immutable config files from git repo
+      "L+ ${dockerRoot}/docker-compose.yml - - - - ${repoDockerFiles}/docker-compose.yml"
+      "L+ ${dockerRoot}/traefik/static.yml - - - - ${repoDockerFiles}/traefik/static.yml"
+      "L+ ${dockerRoot}/traefik/dynamic.yml - - - - ${repoDockerFiles}/traefik/dynamic.yml"
+
+      # Symlink restic-cron scripts
+      "L+ ${dockerRoot}/restic-cron/backup.sh - - - - ${repoDockerFiles}/restic-cron/backup.sh"
+      "L+ ${dockerRoot}/restic-cron/cleanup.sh - - - - ${repoDockerFiles}/restic-cron/cleanup.sh"
+      "L+ ${dockerRoot}/restic-cron/check.sh - - - - ${repoDockerFiles}/restic-cron/check.sh"
+      "L+ ${dockerRoot}/restic-cron/Dockerfile - - - - ${repoDockerFiles}/restic-cron/Dockerfile"
+
+      # Create mutable files (Docker writes to these)
+      "f ${dockerRoot}/traefik/acme.json 0600 root root -"
+
+      # Legacy compatibility symlink (for existing docker-compose references)
+      "L+ /home/mba/docker - - - - ${dockerRoot}"
+    ];
+
+  # ============================================================================
   # MOSQUITTO MQTT BROKER PERMISSIONS
   # ============================================================================
   users.groups.mosquitto = {
@@ -110,11 +147,7 @@
   };
 
   system.activationScripts.mosquittoPermissions = ''
-    if [ -d /home/mba/docker/mosquitto ]; then
-      chown -R mba:mosquitto /home/mba/docker/mosquitto
-      chmod -R 775 /home/mba/docker/mosquitto
-    fi
-    # Fix for new ZFS volume paths
+    # Mosquitto permissions for ZFS volume paths
     if [ -d /var/lib/docker/volumes/mosquitto ]; then
       chown -R 1883:1883 /var/lib/docker/volumes/mosquitto
       chmod -R 775 /var/lib/docker/volumes/mosquitto
@@ -233,7 +266,7 @@
   };
   age.secrets.traefik-variables = {
     file = ../../secrets/traefik-variables.age;
-    path = "/home/mba/docker/traefik/variables.env";
+    path = "/var/lib/csb0-docker/traefik/variables.env";
     owner = "root";
     group = "root";
     mode = "0644";
