@@ -272,6 +272,13 @@
     mode = "0644";
   };
 
+  age.secrets.mqtt-csb0 = {
+    file = ../../secrets/mqtt-csb0.age;
+    owner = "mba";
+    group = "users";
+    mode = "0644";
+  };
+
   services.nixfleet-agent = {
     enable = true;
     url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
