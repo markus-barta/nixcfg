@@ -319,6 +319,7 @@
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim# %-28s$color_reset\n" "whois"   "rdap"            "Modern whois"
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim# %-28s$color_reset\n" "vim"     "hx"              "Helix editor"
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim# %-28s$color_reset\n" "killall" "pkill"           "Kill by name"
+      printf " $color_abbr%-10s$color_reset → %-22s $color_dim# %-28s$color_reset\n" "docker-upf" "docker compose up -d" "Force recreate containers"
       echo -e "$color_abbr└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
 
       # ── SSH Shortcuts ──

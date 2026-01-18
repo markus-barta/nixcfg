@@ -49,6 +49,7 @@
     # Override hokage's nano→micro (we prefer nano)
     nano = "nano";
     killall = "pkill";
+    "docker-upf" = "docker compose up -d --force-recreate --remove-orphans";
     less = "bat";
     man = "batman";
     du = "dua";
