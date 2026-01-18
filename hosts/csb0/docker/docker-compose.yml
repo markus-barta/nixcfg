@@ -22,7 +22,9 @@ services:
     volumes:
       - /run/agenix/mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
       - /run/agenix/mosquitto-conf:/mosquitto/config/mosquitto.conf:ro
-      - mosquitto-data:/mosquitto
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+      - mosquitto-run:/var/run
     user: "1883:1883"
     group_add:
       - "1883"
