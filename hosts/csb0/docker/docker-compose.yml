@@ -24,7 +24,7 @@ services:
       - /run/agenix/mosquitto-conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
-      - mosquitto-run:/var/run
+      - mosquitto-run:/run
     user: "1883:1883"
     group_add:
       - "1883"
