@@ -2,7 +2,7 @@
 
 **Created**: 2026-01-18  
 **Priority**: P1503 (Critical)
-**Status**: In Progress
+**Status**: Completed
 **Depends on**: P1501 (Done)
 
 ---
@@ -22,28 +22,29 @@ Simplify structure: run `docker compose` from the repo. Use `/var/lib/csb0-docke
 
 ## Acceptance Criteria
 
-- [ ] **Simplify `csb0` Structure**:
+- [x] **Simplify `csb0` Structure**:
   - [x] Remove over-engineered symlinks from `configuration.nix`.
   - [x] Use `/var/lib/csb0-docker` strictly for mutable data (acme.json, volumes).
-  - [ ] Run `docker compose` directly from the git repo.
-- [ ] **Cleanup `csb0` Home**:
+  - [x] Run `docker compose` directly from the git repo.
+- [x] **Cleanup `csb0` Home**:
   - [x] Remove `/home/mba/docker-backup-20260117-124057.tar.gz`
   - [x] Remove `/home/mba/docker-backup-20260117-124053.tar.gz`
-  - [ ] Delete legacy `/home/mba/docker` (⚠️ verify first!).
-- [ ] **Hardening Traefik**:
+  - [x] Delete legacy `/home/mba/docker` (Transitioned to `docker-data` link).
+- [x] **Hardening Traefik**:
   - [x] Fix `docker-compose.yml`: Ensure `traefik` uses `env_file: ["./traefik/variables.env"]` and NOT `environment:` for the token.
-  - [ ] Re-deploy Traefik and verify `docker inspect` no longer shows the token.
-- [ ] **Repair Restic Backups**:
+  - [x] Re-deploy Traefik and verify `docker inspect` no longer shows the token.
+- [x] **Repair Restic Backups**:
   - [x] Delete erroneous directories in `/var/lib/csb0-docker/restic-cron/hetzner/` (Docker created them as dirs instead of mounting files).
   - [x] Restore relative paths in `docker-compose.yml` for bind mounts.
   - [x] Fix symlink paths in `hosts/csb0/configuration.nix` to align with repo structure (simplified to remove them).
-- [ ] **Documentation**:
-  - [ ] Update `hosts/csb0/docs/RUNBOOK.md` with new path `/var/lib/csb0-docker`.
-  - [ ] Update `hosts/csb0/docs/RUNBOOK.md` to reflect `agenix` usage for Traefik variables.
+- [x] **Documentation**:
+  - [x] Update `hosts/csb0/docs/RUNBOOK.md` with new path `/var/lib/csb0-docker`.
+  - [x] Update `hosts/csb0/docs/RUNBOOK.md` to reflect `agenix` usage for Traefik variables.
+  - [x] Corrected host IPs in README and RUNBOOK (89.58.63.96).
 
 ---
 
 ## Meta
 
 - **Origin:** P4501 Split
-- **Risk:** 🟡 Medium (Deleting old docker dir)
+- **Risk:** 🟡 Medium (Transitioned successfully)
