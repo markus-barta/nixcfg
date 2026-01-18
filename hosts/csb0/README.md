@@ -15,7 +15,7 @@
 | ------------- | --------------------------------------- |
 | **Hostname**  | csb0                                    |
 | **Domain**    | cs0.barta.cm                            |
-| **IP (v4)**   | 85.235.65.226                           |
+| **IP (v4)**   | 89.58.63.96                             |
 | **SSH**       | `ssh -p 2222 mba@cs0.barta.cm` or `qc0` |
 | **Provider**  | Netcup VPS 1000 G11                     |
 | **Location**  | Vienna (VIE)                            |
@@ -160,8 +160,8 @@ See `secrets/runbook-secrets.md` for credentials and restore procedures.
 
 | Setting        | Value                            |
 | -------------- | -------------------------------- |
-| **IP Address** | `85.235.65.226/22`               |
-| **Gateway**    | `85.235.64.1`                    |
+| **IP Address** | `89.58.63.96/22`                 |
+| **Gateway**    | `89.58.60.1`                     |
 | **DNS**        | `46.38.225.230`, `46.38.252.230` |
 | **Interface**  | `ens3` (NM unmanaged)            |
 
