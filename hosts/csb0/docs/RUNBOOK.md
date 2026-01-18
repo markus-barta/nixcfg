@@ -184,6 +184,37 @@ High load → Check docker stats (find heavy container)
 
 ---
 
+## 🚨 Disaster Recovery: ZFS Boot Loop (hostid mismatch)
+
+If the server fails to boot with `cannot import 'zroot': pool was previously in use from another system`, follow these steps exactly:
+
+### 1. Preparation
+
+1.  **Netcup SCP** -> **Media** -> **DVD Drive**.
+2.  **Upload custom DVD** using this URL:
+    `https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-x86_64-linux.iso`
+3.  **Attach** the ISO and set **Boot Mode** to **DVD**.
+4.  **Reboot** the server.
+
+### 2. The Fix (NixOS Shell)
+
+Once the NixOS live environment boots to a prompt:
+
+```bash
+sudo -i
+partprobe             # Ensure disks are scanned
+zpool import -f zroot # Force import to reset the hostid lock
+zpool export zroot    # Cleanly export to stamp it as safe
+reboot
+```
+
+### 3. Cleanup
+
+1.  Immediately after typing `reboot`, go to the Netcup panel.
+2.  **Detach the DVD** or set **Boot Mode** back to **Hard Disk**.
+
+---
+
 ## Emergency Recovery
 
 ### Access Priority
