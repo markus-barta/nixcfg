@@ -167,7 +167,7 @@ services:
     volumes:
       - ./traefik/static.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
-      - ./traefik/acme.json:/etc/traefik/acme/acme.json:rw
+      - /var/lib/csb0-docker/traefik/acme.json:/etc/traefik/acme/acme.json:rw
     labels:
       #changed to cs0 #- traefik.http.routers.traefik.rule=Host(`traefik.barta.cm`)
       - traefik.http.routers.traefik.rule=Host(`cs0.barta.cm`)

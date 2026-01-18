@@ -113,32 +113,20 @@
   systemd.tmpfiles.rules =
     let
       dockerRoot = "/var/lib/csb0-docker";
-      repoDockerFiles = "/home/mba/Code/nixcfg/hosts/csb0/docker";
     in
     [
-      # Create runtime directory structure
+      # Create runtime directory structure for mutable state
       "d ${dockerRoot} 0755 mba users -"
       "d ${dockerRoot}/traefik 0755 mba users -"
-      "d ${dockerRoot}/restic-cron 0755 mba users -"
-
-      # Symlink immutable config files from git repo
-      "L+ ${dockerRoot}/docker-compose.yml - - - - ${repoDockerFiles}/docker-compose.yml"
-      "L+ ${dockerRoot}/traefik/static.yml - - - - ${repoDockerFiles}/traefik/static.yml"
-      "L+ ${dockerRoot}/traefik/dynamic.yml - - - - ${repoDockerFiles}/traefik/dynamic.yml"
-
-      # Symlink restic-cron scripts
-      "L+ ${dockerRoot}/restic-cron/ssh_known_hosts - - - - ${repoDockerFiles}/restic-cron/ssh_known_hosts"
-      "L+ ${dockerRoot}/restic-cron/hetzner/run_backup.sh - - - - ${repoDockerFiles}/restic-cron/hetzner/run_backup.sh"
-      "L+ ${dockerRoot}/restic-cron/hetzner/run_cleanup.sh - - - - ${repoDockerFiles}/restic-cron/hetzner/run_cleanup.sh"
-      "L+ ${dockerRoot}/restic-cron/hetzner/run_check.sh - - - - ${repoDockerFiles}/restic-cron/hetzner/run_check.sh"
-      "L+ ${dockerRoot}/restic-cron/hetzner/start_cron.sh - - - - ${repoDockerFiles}/restic-cron/hetzner/start_cron.sh"
-      "L+ ${dockerRoot}/restic-cron/Dockerfile - - - - ${repoDockerFiles}/restic-cron/Dockerfile"
+      "d ${dockerRoot}/nodered 0755 mba users -"
+      "d ${dockerRoot}/mosquitto 0755 mba users -"
+      "d ${dockerRoot}/uptime-kuma 0755 mba users -"
 
       # Create mutable files (Docker writes to these)
       "f ${dockerRoot}/traefik/acme.json 0600 root root -"
 
-      # Legacy compatibility symlink (for existing docker-compose references)
-      "L+ /home/mba/docker - - - - ${dockerRoot}"
+      # Legacy compatibility symlink (optional, points to the new data root)
+      "L+ /home/mba/docker-data - - - - ${dockerRoot}"
     ];
 
   # ============================================================================

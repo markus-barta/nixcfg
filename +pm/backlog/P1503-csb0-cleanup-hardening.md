@@ -18,25 +18,28 @@ Token rotation is done, but `csb0` is in a messy intermediate state.
 
 ## Solution
 
-Align all paths to `/var/lib/csb0-docker`, fix Traefik environment exposure, and repair the Restic mount configuration.
+Simplify structure: run `docker compose` from the repo. Use `/var/lib/csb0-docker` only for mutable data (acme.json, volumes). Align all paths to relative for config and absolute for data.
 
 ## Acceptance Criteria
 
-- [x] **Cleanup `csb0` Home**:
-  - Remove `/home/mba/docker-backup-20260117-124057.tar.gz`
-  - Remove `/home/mba/docker-backup-20260117-124053.tar.gz`
-  - Verify `/var/lib/csb0-docker` is the source of truth for all services.
-  - Delete legacy `/home/mba/docker` (⚠️ verify first!).
+- [ ] **Simplify `csb0` Structure**:
+  - [x] Remove over-engineered symlinks from `configuration.nix`.
+  - [x] Use `/var/lib/csb0-docker` strictly for mutable data (acme.json, volumes).
+  - [ ] Run `docker compose` directly from the git repo.
+- [ ] **Cleanup `csb0` Home**:
+  - [x] Remove `/home/mba/docker-backup-20260117-124057.tar.gz`
+  - [x] Remove `/home/mba/docker-backup-20260117-124053.tar.gz`
+  - [ ] Delete legacy `/home/mba/docker` (⚠️ verify first!).
 - [ ] **Hardening Traefik**:
-  - Fix `docker-compose.yml`: Ensure `traefik` uses `env_file: ["./traefik/variables.env"]` and NOT `environment:` for the token.
-  - Re-deploy Traefik and verify `docker inspect` no longer shows the token.
-- [x] **Repair Restic Backups**:
-  - Delete erroneous directories in `/var/lib/csb0-docker/restic-cron/hetzner/` (Docker created them as dirs instead of mounting files).
-  - Restore relative paths in `docker-compose.yml` for bind mounts.
-  - Fix symlink paths in `hosts/csb0/configuration.nix` to align with repo structure.
+  - [x] Fix `docker-compose.yml`: Ensure `traefik` uses `env_file: ["./traefik/variables.env"]` and NOT `environment:` for the token.
+  - [ ] Re-deploy Traefik and verify `docker inspect` no longer shows the token.
+- [ ] **Repair Restic Backups**:
+  - [x] Delete erroneous directories in `/var/lib/csb0-docker/restic-cron/hetzner/` (Docker created them as dirs instead of mounting files).
+  - [x] Restore relative paths in `docker-compose.yml` for bind mounts.
+  - [x] Fix symlink paths in `hosts/csb0/configuration.nix` to align with repo structure (simplified to remove them).
 - [ ] **Documentation**:
-  - Update `hosts/csb0/docs/RUNBOOK.md` with new path `/var/lib/csb0-docker`.
-  - Update `hosts/csb0/docs/RUNBOOK.md` to reflect `agenix` usage for Traefik variables.
+  - [ ] Update `hosts/csb0/docs/RUNBOOK.md` with new path `/var/lib/csb0-docker`.
+  - [ ] Update `hosts/csb0/docs/RUNBOOK.md` to reflect `agenix` usage for Traefik variables.
 
 ---
 
