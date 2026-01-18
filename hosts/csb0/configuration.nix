@@ -127,9 +127,11 @@
       "L+ ${dockerRoot}/traefik/dynamic.yml - - - - ${repoDockerFiles}/traefik/dynamic.yml"
 
       # Symlink restic-cron scripts
-      "L+ ${dockerRoot}/restic-cron/backup.sh - - - - ${repoDockerFiles}/restic-cron/backup.sh"
-      "L+ ${dockerRoot}/restic-cron/cleanup.sh - - - - ${repoDockerFiles}/restic-cron/cleanup.sh"
-      "L+ ${dockerRoot}/restic-cron/check.sh - - - - ${repoDockerFiles}/restic-cron/check.sh"
+      "L+ ${dockerRoot}/restic-cron/ssh_known_hosts - - - - ${repoDockerFiles}/restic-cron/ssh_known_hosts"
+      "L+ ${dockerRoot}/restic-cron/hetzner/run_backup.sh - - - - ${repoDockerFiles}/restic-cron/hetzner/run_backup.sh"
+      "L+ ${dockerRoot}/restic-cron/hetzner/run_cleanup.sh - - - - ${repoDockerFiles}/restic-cron/hetzner/run_cleanup.sh"
+      "L+ ${dockerRoot}/restic-cron/hetzner/run_check.sh - - - - ${repoDockerFiles}/restic-cron/hetzner/run_check.sh"
+      "L+ ${dockerRoot}/restic-cron/hetzner/start_cron.sh - - - - ${repoDockerFiles}/restic-cron/hetzner/start_cron.sh"
       "L+ ${dockerRoot}/restic-cron/Dockerfile - - - - ${repoDockerFiles}/restic-cron/Dockerfile"
 
       # Create mutable files (Docker writes to these)
