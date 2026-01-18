@@ -62,63 +62,87 @@ in
   # AdGuard Home static DHCP leases for hsb0
   # Format: JSON array of {mac, ip, hostname}
   # Edit: agenix -e secrets/static-leases-hsb0.age
+  # TODO: Rename to hsb0-adguard-leases.age
   "static-leases-hsb0.age".publicKeys = markus ++ hsb0;
 
   # AdGuard Home static DHCP leases for hsb8
   # Format: JSON array of {mac, ip, hostname}
   # Edit: agenix -e secrets/static-leases-hsb8.age
+  # TODO: Rename to hsb8-adguard-leases.age
   "static-leases-hsb8.age".publicKeys = markus ++ gb ++ hsb8;
 
   # MQTT credentials for UPS status publishing on hsb0
   # Format: KEY=VALUE lines (MQTT_HOST, MQTT_USER, MQTT_PASS)
   # Edit: agenix -e secrets/mqtt-hsb0.age
+  # TODO: Rename to hsb0-mqtt-client.age
   "mqtt-hsb0.age".publicKeys = markus ++ hsb0;
 
   # NixFleet agent API token
   # Format: NIXFLEET_TOKEN=xxx (for NixOS EnvironmentFile)
   # Edit: agenix -e secrets/nixfleet-token.age
+  # TODO: Rename to shared-nixfleet-token.age
   "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0;
 
   # Uptime Kuma environment variables (for Apprise tokens)
   # Format: KEY=VALUE lines
   # Edit: agenix -e secrets/uptime-kuma-env.age
+  # TODO: Rename to csb0-uptime-kuma-env.age
   "uptime-kuma-env.age".publicKeys = markus ++ csb0 ++ hsb0;
 
   # NCPS signing key for binary cache proxy on hsb0
   # Format: secret-key-file content (nix-store generated)
   # Edit: agenix -e secrets/ncps-key.age
+  # TODO: Rename to hsb0-ncps-key.age
   "ncps-key.age".publicKeys = markus ++ hsb0;
 
   # Fritz!Box SMB share credentials for Plex on hsb1
   # Format: KEY=VALUE lines (username, password, domain)
   # Edit: agenix -e secrets/fritzbox-smb-credentials.age
+  # TODO: Rename to hsb1-fritzbox-smb.age
   "fritzbox-smb-credentials.age".publicKeys = markus ++ hsb1;
 
   # Node-RED environment variables (Telegram bot token, etc)
   # Edit: agenix -e secrets/nodered-env.age
+  # TODO: Rename to csb0-nodered-env.age
   "nodered-env.age".publicKeys = markus ++ csb0;
 
   # Mosquitto password file
   # Edit: agenix -e secrets/mosquitto-passwd.age
+  # NOTE: This is for Mosquitto BROKER configuration (server-side)
+  # TODO: Rename to csb0-mosquitto-passwd.age
   "mosquitto-passwd.age".publicKeys = markus ++ csb0;
 
   # Restic Hetzner SSH key
+  # TODO: Rename to shared-restic-hetzner-ssh.age
   "restic-hetzner-ssh-key.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ csb0 ++ csb1;
 
   # Restic Hetzner environment variables
+  # TODO: Rename to shared-restic-hetzner-env.age
   "restic-hetzner-env.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ csb0 ++ csb1;
 
   # hsb1 specific restic secrets (sub2)
   "hsb1-restic-ssh-key.age".publicKeys = markus ++ hsb1;
   "hsb1-restic-env.age".publicKeys = markus ++ hsb1;
 
+  # Mosquitto broker configuration file
+  # Edit: agenix -e secrets/mosquitto-conf.age
+  # NOTE: This is for Mosquitto BROKER configuration (server-side)
+  # TODO: Rename to csb0-mosquitto-conf.age
   "mosquitto-conf.age".publicKeys = markus ++ csb0;
+
+  # Traefik configuration
+  # TODO: Rename to csb0-traefik-static.age
   "traefik-static.age".publicKeys = markus ++ csb0;
+  # TODO: Rename to csb0-traefik-dynamic.age
   "traefik-dynamic.age".publicKeys = markus ++ csb0;
+  # TODO: Rename to csb0-traefik-env.age
   "traefik-variables.age".publicKeys = markus ++ csb0 ++ csb1;
 
   # MQTT credentials for csb0
   # Format: KEY=VALUE lines (MQTT_HOST, MQTT_USER, MQTT_PASS)
   # Edit: agenix -e secrets/mqtt-csb0.age
+  # NOTE: This is for MQTT CLIENT credentials (client-side)
+  # TODO: Rename to csb0-mqtt-client.age
   "mqtt-csb0.age".publicKeys = markus ++ csb0;
+
 }
