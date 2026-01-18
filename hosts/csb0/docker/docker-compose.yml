@@ -22,9 +22,7 @@ services:
     volumes:
       - /run/agenix/mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
       - /run/agenix/mosquitto-conf:/mosquitto/config/mosquitto.conf:ro
-      - /var/lib/docker/volumes/mosquitto/data:/mosquitto/data
-      - /var/lib/docker/volumes/mosquitto/log:/mosquitto/log
-      - /var/lib/docker/volumes/mosquitto/var/run:/var/run
+      - mosquitto-data:/mosquitto
     user: "1883:1883"
     group_add:
       - "1883"
@@ -50,10 +48,7 @@ services:
     env_file:
       - /run/agenix/nodered-env
     volumes:
-      - /var/lib/docker/volumes/nodered/data:/data
-      - /var/lib/docker/volumes/nodered/scripts:/scripts
-      - /var/lib/docker/volumes/nodered/webserver:/webserver
-      - /var/lib/docker/volumes/shared/tmp:/shared-tmp
+      - nodered-data:/data
     entrypoint: ["/bin/bash", "/scripts/startup.sh"]
     labels:
       # Traefik config
@@ -167,7 +162,7 @@ services:
     volumes:
       - ./traefik/static.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
-      - /var/lib/csb0-docker/traefik/acme.json:/etc/traefik/acme/acme.json:rw
+      - ./traefik/acme.json:/etc/traefik/acme/acme.json:rw
     labels:
       #changed to cs0 #- traefik.http.routers.traefik.rule=Host(`traefik.barta.cm`)
       - traefik.http.routers.traefik.rule=Host(`cs0.barta.cm`)
@@ -266,8 +261,7 @@ services:
   uptime-kuma:
     image: louislam/uptime-kuma:latest
     volumes:
-      - /var/lib/docker/volumes/uptime-kuma/data:/app/data
-      - /var/lib/docker/volumes/uptime-kuma/ssl:/app/ssl
+      - uptime-kuma-data:/app/data
     environment:
       - TZ=Europe/Vienna
       - UPTIME_KUMA_PORT=3001
@@ -289,6 +283,9 @@ services:
     restart: unless-stopped
 
 volumes:
+  mosquitto-data:
+  nodered-data:
+  uptime-kuma-data:
   bitwarden:
   bitwarden-db:
 
