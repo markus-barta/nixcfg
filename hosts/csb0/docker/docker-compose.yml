@@ -49,6 +49,9 @@ services:
       - /run/agenix/nodered-env
     volumes:
       - nodered-data:/data
+      - nodered-scripts:/scripts
+      - nodered-webserver:/webserver
+      - shared-tmp:/shared-tmp
     entrypoint: ["/bin/bash", "/scripts/startup.sh"]
     labels:
       # Traefik config
@@ -285,6 +288,9 @@ services:
 volumes:
   mosquitto-data:
   nodered-data:
+  nodered-scripts:
+  nodered-webserver:
+  shared-tmp:
   uptime-kuma-data:
   bitwarden:
   bitwarden-db:
