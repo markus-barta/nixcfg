@@ -247,7 +247,6 @@ services:
 
   watchtower:
     image: containrrr/watchtower:latest
-    container_name: watchtower
     restart: unless-stopped
     command: --schedule "0 0 8 * * SAT" --cleanup
     volumes:
@@ -266,7 +265,6 @@ services:
   # Uptime Kuma - Docker service (consistent with other services)
   uptime-kuma:
     image: louislam/uptime-kuma:latest
-    container_name: uptime-kuma
     volumes:
       - /var/lib/docker/volumes/uptime-kuma/data:/app/data
       - /var/lib/docker/volumes/uptime-kuma/ssl:/app/ssl
