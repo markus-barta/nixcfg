@@ -103,46 +103,11 @@
   };
 
   # ============================================================================
-  # DOCKER COMPOSE SETUP - Declarative directory structure
-  # ============================================================================
-  # Separation of concerns:
-  # - /home/mba/Code/nixcfg/hosts/csb0/docker/ = immutable config (in git)
-  # - /var/lib/csb0-docker/ = runtime directory (mutable state)
-  # - /run/agenix/ = decrypted secrets (ephemeral)
-
-  systemd.tmpfiles.rules =
-    let
-      dockerRoot = "/var/lib/csb0-docker";
-    in
-    [
-      # Create runtime directory structure for mutable state
-      "d ${dockerRoot} 0755 mba users -"
-      "d ${dockerRoot}/traefik 0755 mba users -"
-      "d ${dockerRoot}/nodered 0755 mba users -"
-      "d ${dockerRoot}/mosquitto 0755 mba users -"
-      "d ${dockerRoot}/uptime-kuma 0755 mba users -"
-
-      # Create mutable files (Docker writes to these)
-      "f ${dockerRoot}/traefik/acme.json 0600 root root -"
-
-      # Legacy compatibility symlink (optional, points to the new data root)
-      "L+ /home/mba/docker-data - - - - ${dockerRoot}"
-    ];
-
-  # ============================================================================
   # MOSQUITTO MQTT BROKER PERMISSIONS
   # ============================================================================
   users.groups.mosquitto = {
     gid = 1883;
   };
-
-  system.activationScripts.mosquittoPermissions = ''
-    # Mosquitto permissions for ZFS volume paths
-    if [ -d /var/lib/docker/volumes/mosquitto ]; then
-      chown -R 1883:1883 /var/lib/docker/volumes/mosquitto
-      chmod -R 775 /var/lib/docker/volumes/mosquitto
-    fi
-  '';
 
   # ============================================================================
   # HOKAGE MODULE CONFIGURATION
