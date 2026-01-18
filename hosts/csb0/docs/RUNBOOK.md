@@ -190,11 +190,11 @@ If the server fails to boot with `cannot import 'zroot': pool was previously in 
 
 ### 1. Preparation
 
-1.  **Netcup SCP** -> **Media** -> **DVD Drive**.
-2.  **Upload custom DVD** using this URL:
-    `https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-x86_64-linux.iso`
-3.  **Attach** the ISO and set **Boot Mode** to **DVD**.
-4.  **Reboot** the server.
+1. Download the ISO from this URL: https://nixos.org/download/ (eg. https://channels.nixos.org/nixos-25.11/latest-nixos-minimal-x86_64-linux.iso)
+1. **Netcup SCP** -> **Media** -> **DVD Drive**.
+1. **Upload custom ISO** (downloaded in step 1)
+1. **Attach** the ISO and **Boot from DVD**.
+1. **Start** the server.
 
 ### 2. The Fix (NixOS Shell)
 
@@ -205,13 +205,14 @@ sudo -i
 partprobe             # Ensure disks are scanned
 zpool import -f zroot # Force import to reset the hostid lock
 zpool export zroot    # Cleanly export to stamp it as safe
-reboot
+poweroff              # Shut down to safely detach DVD
 ```
 
 ### 3. Cleanup
 
-1.  Immediately after typing `reboot`, go to the Netcup panel.
+1.  Wait for the server to reach "Offline" status in Netcup SCP.
 2.  **Detach the DVD** or set **Boot Mode** back to **Hard Disk**.
+3.  **Start** the server.
 
 ---
 
