@@ -1,9 +1,9 @@
 # Runbook: csb0 (Smart Home Hub)
 
-**Host**: csb0 (cs0.barta.cm / 85.235.65.226)  
+**Host**: csb0 (cs0.barta.cm / 89.58.63.96)  
 **Role**: Smart Home Hub & IoT Automation Platform  
 **Criticality**: HIGH - Smart home + backup manager for BOTH csb0 and csb1  
-**Provider**: Netcup VPS
+**Provider**: Netcup VPS (New Server 2026-01-10)
 
 ---
 
@@ -17,7 +17,7 @@ qc0
 ssh mba@cs0.barta.cm -p 2222
 
 # With IP
-ssh mba@85.235.65.226 -p 2222
+ssh mba@89.58.63.96 -p 2222
 ```
 
 ---
@@ -29,7 +29,7 @@ ssh mba@85.235.65.226 -p 2222
 ║ 🌀 csb0 - Smart Home Hub Emergency Reference               ║
 ╠════════════════════════════════════════════════════════════╣
 ║ SSH:       ssh mba@cs0.barta.cm -p 2222                    ║
-║ IP:        85.235.65.226                                   ║
+║ IP:        89.58.63.96                                     ║
 ║ Netcup:    Customer # 227044 (2FA required)                ║
 ║ VNC:       servercontrolpanel.de/SCP                       ║
 ╠════════════════════════════════════════════════════════════╣
@@ -61,7 +61,7 @@ ssh mba@85.235.65.226 -p 2222
 ```bash
 # One-liner: container count, disk usage, load
 ssh mba@cs0.barta.cm -p 2222 "docker ps | wc -l && df -h / | tail -1 && uptime"
-# Expected: 10 containers, <20% disk, load <1.0
+# Expected: 9 containers, <20% disk, load <1.0
 
 # Check container health
 ssh mba@cs0.barta.cm -p 2222 "docker ps --filter 'status=exited'"
@@ -79,17 +79,22 @@ curl -I https://bitwarden.barta.cm  # Bitwarden (expect 200)
 ### Update & Switch Configuration
 
 ```bash
+# Local
+just build-host csb0
+git push
+
+# Remote
 ssh mba@cs0.barta.cm -p 2222
-cd ~/nixcfg  # or ~/Code/nixcfg
+cd ~/Code/nixcfg
 git pull
 just switch
 ```
 
-### Rollback to Previous Generation
+### Docker Management
 
 ```bash
-ssh mba@cs0.barta.cm -p 2222
-sudo nixos-rebuild switch --rollback
+cd ~/Code/nixcfg/hosts/csb0/docker
+docker-upf  # Custom fish abbreviation for force-recreate
 ```
 
 ---
@@ -106,20 +111,29 @@ sudo nixos-rebuild switch --rollback
 
 ## Docker Services
 
-### Docker Services
+### Configuration & Data Paths
 
-| Container                  | Purpose                          | Data Path (ZFS)                       |
-| -------------------------- | -------------------------------- | ------------------------------------- |
-| csb0-mosquitto-1           | MQTT broker (CRITICAL)           | `/var/lib/docker/volumes/mosquitto`   |
-| csb0-nodered-1             | Smart home automation (CRITICAL) | `/var/lib/docker/volumes/nodered`     |
-| csb0-traefik-1             | Reverse proxy                    | `/var/lib/docker/volumes/traefik`     |
-| uptime-kuma                | Monitoring                       | `/var/lib/docker/volumes/uptime-kuma` |
-| csb0-restic-cron-hetzner-1 | Backup manager                   | -                                     |
+| Component        | Path                                                 |
+| :--------------- | :--------------------------------------------------- |
+| **Compose File** | `~/Code/nixcfg/hosts/csb0/docker/docker-compose.yml` |
+| **Config (Git)** | `~/Code/nixcfg/hosts/csb0/docker/`                   |
+| **Data (ZFS)**   | `/var/lib/csb0-docker/`                              |
+| **Secrets**      | `/run/agenix/`                                       |
+
+### All Containers
+
+| Container                  | Purpose                          | Data Path (ZFS)                    |
+| -------------------------- | -------------------------------- | ---------------------------------- |
+| csb0-mosquitto-1           | MQTT broker (CRITICAL)           | `/var/lib/csb0-docker/mosquitto`   |
+| csb0-nodered-1             | Smart home automation (CRITICAL) | `/var/lib/csb0-docker/nodered`     |
+| csb0-traefik-1             | Reverse proxy                    | `/var/lib/csb0-docker/traefik`     |
+| csb0-uptime-kuma-1         | Monitoring                       | `/var/lib/csb0-docker/uptime-kuma` |
+| csb0-restic-cron-hetzner-1 | Backup manager                   | -                                  |
 
 ### Backup & Restore Logic
 
 1. **Cold Backups**: Stop containers before backup to ensure DB consistency.
-2. **Path Mapping**: Restic `/backup/home/mba/docker/` maps to `/var/lib/docker/volumes/`.
+2. **Path Mapping**: Restic `/backup/home/mba/docker/` maps to `/var/lib/csb0-docker/`.
 3. **Secrets**: Managed via `agenix` Tier 1. Decrypted to `/run/agenix/`.
 
 ### Quick Commands
@@ -129,15 +143,12 @@ sudo nixos-rebuild switch --rollback
 docker ps -a
 
 # Restart a container
-docker restart csb0-nodered-1
-docker restart csb0-mosquitto-1
+docker-upf  # (Force all) OR
+docker restart <container-name>
 
 # View logs
 docker logs csb0-nodered-1 --tail 50
 docker logs csb0-mosquitto-1 --tail 50
-
-# Restart all services
-cd ~/docker && docker-compose down && docker-compose up -d
 ```
 
 ---
@@ -152,10 +163,10 @@ Service Not Responding?
 │  ├─ YES: Docker/service issue
 │  │  ├─ docker ps → container running?
 │  │  │  ├─ YES: Check logs: docker logs <container>
-│  │  │  └─ NO: Start it: cd ~/docker && docker-compose up -d
+│  │  │  └─ NO: Start it: cd ~/Code/nixcfg/hosts/csb0/docker && docker compose up -d
 │  │  └─ Docker down? systemctl status docker
 │  └─ NO: Server/network issue
-│     ├─ Can ping 85.235.65.226?
+│     ├─ Can ping 89.58.63.96?
 │     │  ├─ YES: SSH service down → Use VNC console
 │     │  └─ NO: Server down → Check Netcup panel
 │     └─ Last resort: VNC console (Netcup SCP)
@@ -170,6 +181,38 @@ Backup failed → docker logs csb0-restic-cron-hetzner-1
 Telegram bot → Re-register webhook (see SECRETS.md for token)
 High load → Check docker stats (find heavy container)
 ```
+
+---
+
+## 🚨 Disaster Recovery: ZFS Boot Loop (hostid mismatch)
+
+If the server fails to boot with `cannot import 'zroot': pool was previously in use from another system`, follow these steps exactly:
+
+### 1. Preparation
+
+1. Download the ISO from this URL: https://nixos.org/download/ (eg. https://channels.nixos.org/nixos-25.11/latest-nixos-minimal-x86_64-linux.iso)
+1. **Netcup SCP** -> **Media** -> **DVD Drive**.
+1. **Upload custom ISO** (downloaded in step 1)
+1. **Attach** the ISO and **Boot from DVD**.
+1. **Start** the server.
+
+### 2. The Fix (NixOS Shell)
+
+Once the NixOS live environment boots to a prompt:
+
+```bash
+sudo -i
+partprobe             # Ensure disks are scanned
+zpool import -f zroot # Force import to reset the hostid lock
+zpool export zroot    # Cleanly export to stamp it as safe
+poweroff              # Shut down to safely detach DVD
+```
+
+### 3. Cleanup
+
+1.  Wait for the server to reach "Offline" status in Netcup SCP.
+2.  **Detach the DVD** or set **Boot Mode** back to **Hard Disk**.
+3.  **Start** the server.
 
 ---
 
@@ -198,6 +241,11 @@ VNC console access. Password stored in 1Password under "csb0 csb1 recovery".
 | Interface | `ens3` (NixOS) / `eth0` (Ubuntu/Kexec) |
 
 ⚠️ **CRITICAL**: The interface is named `eth0` during the initial Ubuntu install and `nixos-anywhere` kexec phase, but renames to `ens3` once NixOS is fully booted. Both are listed in `networking.networkmanager.unmanaged` to prevent lockout.
+
+### 🚨 Historical Incident: 2026-01-16 Old Server Decommissioned
+
+**Event:** The old `csb0` server (`85.235.65.226`) was successfully decommissioned on Friday, 2026-01-16, following the migration to the new hardware (`89.58.63.96`).
+**Action:** All DNS records and services have been transitioned. Documentation has been updated to reflect the new IP.
 
 ### 🚨 Historical Incident: 2026-01-10 Migration Lockout Prevention
 
@@ -256,9 +304,9 @@ echo /nix/store/*shadow*/bin/passwd
 echo /nix/store/*iproute*/bin/ip
 
 # Configure network (adjust path with Tab)
-/nix/store/m1b[Tab]/bin/ip addr add 85.235.65.226/22 dev ens3
+/nix/store/m1b[Tab]/bin/ip addr add 89.58.63.96/22 dev ens3
 /nix/store/m1b[Tab]/bin/ip link set ens3 up
-/nix/store/m1b[Tab]/bin/ip route add default via 85.235.64.1
+/nix/store/m1b[Tab]/bin/ip route add default via 89.58.60.1
 
 # Continue normal boot
 exec /nix/var/nix/profiles/system/init
@@ -273,7 +321,7 @@ exec /nix/var/nix/profiles/system/init
 TOKEN=$(curl -s 'https://servercontrolpanel.de/realms/scp/protocol/openid-connect/token' \
   -d 'client_id=scp' -d "refresh_token=$(cat ~/Code/nixcfg/hosts/csb0/secrets/netcup-api-refresh-token.txt)" \
   -d 'grant_type=refresh_token' | jq -r '.access_token') && \
-curl -X POST "https://servercontrolpanel.de/scp-core/api/v1/servers/607878/reset" \
+  curl -X POST "https://servercontrolpanel.de/scp-core/api/v1/servers/607878/reset" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -300,8 +348,8 @@ curl -X POST "https://servercontrolpanel.de/scp-core/api/v1/servers/607878/reset
 ### What Gets Backed Up
 
 ```
-✅ /var/lib/docker/volumes - Docker volumes
-✅ /home - All Docker bind mounts (Node-RED, Mosquitto, everything!)
+✅ /var/lib/csb0-docker - ALL Docker volumes & data
+✅ /home/mba/Code/nixcfg - System configuration (via git)
 ✅ /root - Root user data
 ✅ /etc - System configuration
 ❌ Exclusions: */cache/*, *.log*
@@ -396,6 +444,5 @@ ssh mba@cs0.barta.cm -p 2222 "journalctl -f"
 ## Related Documentation
 
 - [csb0 README](../README.md) - Full server documentation
-- [SECRETS.md](../secrets/SECRETS.md) - All credentials (gitignored)
-- [DEPRECATED-RUNBOOK.md](../secrets/DEPRECATED-RUNBOOK.md) - Old runbook with inline secrets
+- [SECRETS.md](../../docs/SECRETS.md) - All credentials (gitignored)
 - [csb1 Runbook](../../csb1/docs/RUNBOOK.md) - Monitoring server
