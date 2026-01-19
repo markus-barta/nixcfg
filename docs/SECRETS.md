@@ -67,7 +67,7 @@
 │  Location: secrets/                                                         │
 │  Tool: agenix (automatic decryption at boot)                                │
 │  Commands: just edit-secret secrets/foo.age, just rekey                     │
-│  Use for: MQTT credentials, API keys for services, system passwords        │
+│  Use for: MQTT credentials, API keys for services, system passwords         │
 │                                                                             │
 │  ⚠️ DANGER: The Rekeying Protocol                                           │
 │  Global rekeys can SILENTLY WIPE secrets if your SSH key is missing.        │
@@ -79,13 +79,13 @@
 │  Location: hosts/<host>/runbook-secrets.age                                 │
 │  Tool: age (manual decryption)                                              │
 │  Commands: just decrypt-runbook-secrets <host>                              │
-│  Use for: Emergency docs, 1Password refs, network info                     │
+│  Use for: Emergency docs, 1Password refs, network info                      │
 │                                                                             │
 │  TIER 3: Private Secrets (workstations)                                     │
 │  Location: ~/Secrets/                                                       │
 │  Tool: age (manual decryption)                                              │
 │  Commands: just private-decrypt <name>, just private-encrypt-commit         │
-│  Use for: Camera tokens, personal API keys, env vars                       │
+│  Use for: Camera tokens, personal API keys, env vars                        │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -476,12 +476,17 @@ ffmpeg -i "rtsp://admin:${stream_token}@192.168.1.50:554/stream1" ...
 
 ### MQTT Credentials (Tier 1)
 
-**File**: `secrets/mqtt-hsb0.age`  
+**Two patterns exist for different use cases:**
+
+#### Pattern 1: MQTT Client Credentials (Standardized)
+
+**Files**: `secrets/mqtt-hsb0.age`, `secrets/mqtt-csb0.age`  
 **Content**: `MQTT_HOST=localhost\nMQTT_USER=smarthome\nMQTT_PASS=secret`  
-**Use**: Systemd service (automatic)
+**Use**: MQTT client services (Node-RED, UPS monitoring, etc.)  
+**Format**: Environment variables for service configuration
 
 ```nix
-# In configuration.nix
+# Example: UPS MQTT publishing service
 age.secrets.mqtt-hsb0 = {
   file = ../../secrets/mqtt-hsb0.age;
   mode = "400";
@@ -491,6 +496,40 @@ age.secrets.mqtt-hsb0 = {
 systemd.services.ups-mqtt.serviceConfig.EnvironmentFile =
   config.age.secrets.mqtt-hsb0.path;
 ```
+
+#### Pattern 2: Mosquitto Broker Configuration (Legacy but Functional)
+
+**Files**: `secrets/mosquitto-conf.age`, `secrets/mosquitto-passwd.age`  
+**Content**:
+
+- `mosquitto-conf.age`: Mosquitto configuration file (mosquitto.conf format)
+- `mosquitto-passwd.age`: Mosquitto password file (password_file format)  
+  **Use**: Mosquitto broker Docker service configuration  
+  **Format**: Direct configuration files mounted as Docker volumes
+
+```nix
+# Example: Mosquitto broker configuration
+age.secrets.mosquitto-conf = {
+  file = ../../secrets/mosquitto-conf.age;
+  mode = "644";
+  owner = "1883";  # mosquitto user
+  group = "1883";
+};
+
+age.secrets.mosquitto-passwd = {
+  file = ../../secrets/mosquitto-passwd.age;
+  mode = "644";
+  owner = "1883";
+  group = "1883";
+};
+```
+
+**Key Difference:**
+
+- **Client credentials** (`mqtt-*.age`): Used by services connecting TO the broker
+- **Broker configuration** (`mosquitto-*.age`): Used BY the broker itself for operation
+
+Both patterns are valid and serve complementary purposes in the MQTT infrastructure.
 
 ### Emergency Access (Tier 2)
 
@@ -751,6 +790,7 @@ just private-decrypt tapo-c210
 - `+pm/backlog/P5950-imac0-secrets-management.md` - Implementation plan
 - `justfile` - All just commands
 - `secrets/secrets.nix` - Tier 1 key definitions
+- `secrets/NAMING-PATTERN.md` - Naming standards and migration guide
 - `scripts/runbook-secrets.sh` - Tier 2 tooling
 
 ---

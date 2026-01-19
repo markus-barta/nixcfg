@@ -99,6 +99,32 @@
   };
 
   # ============================================================================
+  # DOCKER COMPOSE SETUP - Declarative directory structure
+  # ============================================================================
+  # Separation of concerns:
+  # - /home/mba/docker/ = current location (real files, not in git yet)
+  # - /var/lib/csb1-docker/ = future runtime directory (mutable state)
+  # - /run/agenix/ = decrypted secrets (ephemeral)
+  #
+  # TODO: Move docker files to git repo like csb0 (separate task)
+
+  systemd.tmpfiles.rules =
+    let
+      dockerRoot = "/var/lib/csb1-docker";
+    in
+    [
+      # Create runtime directory structure
+      "d ${dockerRoot} 0755 mba users -"
+      "d ${dockerRoot}/traefik 0755 mba users -"
+
+      # Create mutable files (Docker writes to these)
+      "f ${dockerRoot}/traefik/acme.json 0600 root root -"
+
+      # Legacy compatibility: keep /home/mba/docker as primary location for now
+      # Will migrate to /var/lib/csb1-docker in future task
+    ];
+
+  # ============================================================================
   # MOSQUITTO MQTT BROKER PERMISSIONS
   # ============================================================================
   users.groups.mosquitto = {
@@ -192,6 +218,16 @@
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
   age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
+
+  # Traefik Cloudflare API token (for DNS-01 ACME challenge)
+  # TODO: Move to /var/lib/csb1-docker when docker files are in repo
+  age.secrets.traefik-variables = {
+    file = ../../secrets/traefik-variables.age;
+    path = "/home/mba/docker/traefik/variables.env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
 
   services.nixfleet-agent = {
     enable = true;

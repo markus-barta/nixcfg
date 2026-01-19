@@ -273,14 +273,14 @@
       set -l color_reset (set_color normal)
 
       # All boxes are exactly 76 chars wide (74 inside + 2 border)
-      echo -e "\n$color_heading╔════════════════════════════════════════════════════════════════════════╗"
-      echo -e "║                 Custom Fish Functions & Abbreviations                  ║"
-      echo -e "╚════════════════════════════════════════════════════════════════════════╝$color_reset\n"
+      echo -e "\n$color_heading╔═══════════════════════════════════════════════════════════════════════╗"
+      echo -e "║                 Custom Fish Functions & Abbreviations                 ║"
+      echo -e "╚═══════════════════════════════════════════════════════════════════════╝$color_reset\n"
 
       # ── Functions ──
-      echo -e "$color_func┌─ Functions ────────────────────────────────────────────────────────────┐$color_reset"
+      echo -e "$color_func┌─ Functions ───────────────────────────────────────────────────────────┐$color_reset"
       @FUNCTION_LIST@
-      echo -e "$color_func└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
+      echo -e "$color_func└───────────────────────────────────────────────────────────────────────┘$color_reset\n"
 
       # ── Aliases ──
       echo -e "$color_alias┌─ Aliases ─────────────────────────────────────────────────────────────┐$color_reset"
@@ -319,6 +319,7 @@
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim# %-28s$color_reset\n" "whois"   "rdap"            "Modern whois"
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim# %-28s$color_reset\n" "vim"     "hx"              "Helix editor"
       printf " $color_abbr%-10s$color_reset → %-22s $color_dim# %-28s$color_reset\n" "killall" "pkill"           "Kill by name"
+      printf " $color_abbr%-10s$color_reset → %-22s $color_dim# %-28s$color_reset\n" "docker-upf" "docker compose up -d" "Force recreate containers"
       echo -e "$color_abbr└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
 
       # ── SSH Shortcuts ──

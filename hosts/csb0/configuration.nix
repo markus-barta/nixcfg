@@ -109,18 +109,6 @@
     gid = 1883;
   };
 
-  system.activationScripts.mosquittoPermissions = ''
-    if [ -d /home/mba/docker/mosquitto ]; then
-      chown -R mba:mosquitto /home/mba/docker/mosquitto
-      chmod -R 775 /home/mba/docker/mosquitto
-    fi
-    # Fix for new ZFS volume paths
-    if [ -d /var/lib/docker/volumes/mosquitto ]; then
-      chown -R 1883:1883 /var/lib/docker/volumes/mosquitto
-      chmod -R 775 /var/lib/docker/volumes/mosquitto
-    fi
-  '';
-
   # ============================================================================
   # HOKAGE MODULE CONFIGURATION
   # ============================================================================
@@ -230,6 +218,20 @@
   age.secrets.uptime-kuma-env = {
     file = ../../secrets/uptime-kuma-env.age;
     owner = "mba";
+  };
+  age.secrets.traefik-variables = {
+    file = ../../secrets/traefik-variables.age;
+    path = "/var/lib/csb0-docker/traefik/variables.env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  age.secrets.mqtt-csb0 = {
+    file = ../../secrets/mqtt-csb0.age;
+    owner = "mba";
+    group = "users";
+    mode = "0644";
   };
 
   services.nixfleet-agent = {
