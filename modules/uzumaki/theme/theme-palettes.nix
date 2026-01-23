@@ -547,7 +547,7 @@
       text = {
         onLightest = "#101214"; # Dark text on lightest bg
         onMedium = "#ffffff"; # White for path (work preference)
-        onSecondary = "#000000"; # Black for user@host (original)
+        onSecondary = "#cccccc"; # Light gray for user@host (80% white)
         accent = "#b8c0c8"; # Accent fg on dark bg (brighter)
         muted = "#606468"; # Git count (brighter, was #282c30)
         mutedLight = "#909498"; # Time text (brighter, was #707478)
