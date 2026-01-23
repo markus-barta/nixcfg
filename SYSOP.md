@@ -8,18 +8,18 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 
 ### Step 1: WHERE AM I?
 
-**First action in any SYSOP session:** Determine your current context.
+**First action in any SYSOP session:** Determine your current context. YOU MUST RUN `hostname` - no guessing!
 
 ```
 Run: hostname
      │
-     ├── imac0 ────────────────→ You're on the HOME iMac
-     ├── mba-imac-work ────────→ You're on the WORK iMac
-     ├── mba-mbp-work ─────────→ You're on the portable MacBook
-     ├── gpc0 ─────────────────→ You're on the gaming PC / build host
-     ├── hsb0/hsb1/hsb8 ───────→ You're on a home server
-     ├── csb0/csb1 ────────────→ You're on a cloud server
-     └── ip-192-168-*.internal → VPN active (AWS hostname pattern)
+     ├── imac0 ────────────────→ You're at home on the home iMac
+     ├── mba-imac-work ────────→ You're at work on the work iMac
+     ├── mba-mbp-work ─────────→ You're at home OR work on the portable MacBook (work machine)
+     ├── gpc0 ─────────────────→ You're at on the gaming PC via ssh
+     ├── hsb0/hsb1/hsb8 ───────→ You're at home on a home server via ssh
+     ├── csb0/csb1 ────────────→ You're at on a cloud server via ssh
+     └── ip-192-168-*.internal → VPN active (AWS hostname pattern) likely home machine via ssh
 ```
 
 ### Step 2: DO I NEED SSH?
