@@ -9,6 +9,42 @@
 
 ## 📊 Architecture Overview
 
+## 🏠 Home Assistant (HA) Deep Dive
+
+### Runtime Context
+
+HA runs as a privileged Docker container on `hsb1` using `network_mode: host` to ensure full mDNS/HomeKit discovery.
+
+- **Image**: `ghcr.io/home-assistant/home-assistant:stable`
+- **Data Root**: `/home/mba/docker/mounts/homeassistant/`
+
+### Configuration Structure
+
+- `configuration.yaml`: Main entry point. Includes other files and defines the `homekit` bridge.
+- `automations.yaml` / `scripts.yaml`: Managed via UI but stored here.
+- `.storage/`: **CRITICAL** - contains the internal registry and UI-managed dashboards.
+  - `core.entity_registry`: Mapping of unique IDs to `entity_id`.
+  - `lovelace.dashboard_main`: The JSON config for the "Main" dashboard.
+  - `lovelace_dashboards`: Metadata about all custom dashboards.
+
+### Dashboard Management (Lovelace)
+
+While YAML mode is possible, we use the default **Storage Mode** for the Main dashboard.
+
+- **Path**: `.storage/lovelace.dashboard_main`
+- **Format**: JSON (not YAML!)
+- **Key Entity**: `lock.nuki_vr` (configured as a `tile` card in the Main dashboard).
+
+### MQTT Integration
+
+HA connects to the `mosquitto` container on `localhost:1883`.
+
+- ⚠️ **Gotcha**: If HA is moved or the hostname changes, ensure the MQTT integration is set to `localhost` or the fixed IP `192.168.1.101`.
+
+---
+
+## 📊 Architecture Overview
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                            SMART HOME STACK                                 │

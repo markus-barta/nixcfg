@@ -51,6 +51,27 @@ sudo nixos-rebuild switch --rollback
 
 ---
 
+## 🏠 Home Assistant Basics
+
+- **Host**: `hsb1.lan` (192.168.1.101)
+- **Runtime**: Docker container (`homeassistant`)
+- **Web UI**: [http://192.168.1.101:8123](http://192.168.1.101:8123)
+- **Config Path**: `~/docker/mounts/homeassistant/`
+- **Dashboard Config**: `.storage/lovelace.<dashboard_id>` (JSON format)
+- **Core Config**: `configuration.yaml`, `automations.yaml`, `scripts.yaml`
+
+### Quick Check
+
+```bash
+# View HA logs
+ssh mba@hsb1.lan "docker logs -f homeassistant --tail 50"
+
+# List dashboard configs
+ssh mba@hsb1.lan "ls ~/docker/mounts/homeassistant/.storage/lovelace.*"
+```
+
+---
+
 ## 📂 File Management & Symlinks
 
 ### The Prime Directive
