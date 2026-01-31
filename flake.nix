@@ -68,10 +68,46 @@
       # Local packages overlay
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
-        # OpenClaw - use upstream nix-openclaw package (batteries-included with tools)
+        # OpenClaw - use upstream nix-openclaw package with templates fix
+        # Fixes upstream packaging bug where docs/reference/templates are not copied
         openclaw =
-          inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw
-            or inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.default;
+          let
+            upstreamPkg =
+              inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw
+                or inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.default;
+            # Templates from same revision as upstream nix-openclaw
+            # See: https://github.com/openclaw/nix-openclaw/blob/main/nix/sources/openclaw-source.nix
+            templatesSrc = final.fetchFromGitHub {
+              owner = "openclaw";
+              repo = "openclaw";
+              rev = "fcf08299fa4ac7c3730542f949388276b83a9518";
+              hash = "sha256-B3QLeNIpigmDR0nKOD2fgdjzGJIMkT7w3LCgwA8yf7Y=";
+            };
+          in
+          final.runCommand "openclaw-with-templates"
+            {
+              buildInputs = [ final.makeWrapper ];
+              meta = upstreamPkg.meta;
+            }
+            ''
+              # Copy upstream package
+              cp -r ${upstreamPkg} $out
+              chmod -R +w $out
+
+              # Copy missing templates (upstream packaging bug)
+              mkdir -p $out/lib/openclaw/docs/reference/templates
+              cp -r ${templatesSrc}/docs/reference/templates/* $out/lib/openclaw/docs/reference/templates/
+
+              # Fix wrapper script path
+              rm -f $out/bin/openclaw
+              makeWrapper ${final.nodejs_22}/bin/node $out/bin/openclaw \
+                --add-flags "$out/lib/openclaw/dist/index.js" \
+                --set-default MOLTBOT_NIX_MODE "1" \
+                --set-default CLAWDBOT_NIX_MODE "1"
+
+              # Re-link moltbot alias
+              ln -sf $out/bin/openclaw $out/bin/moltbot
+            '';
         ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
