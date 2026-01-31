@@ -130,6 +130,11 @@ in
   # TODO: Rename to csb0-mosquitto-conf.age
   "mosquitto-conf.age".publicKeys = markus ++ csb0;
 
+  # OpenClaw AI assistant secrets (hsb1)
+  "hsb1-openclaw-gateway-token.age".publicKeys = markus ++ hsb1;
+  "hsb1-openclaw-telegram-token.age".publicKeys = markus ++ hsb1;
+  "hsb1-openclaw-openrouter-key.age".publicKeys = markus ++ hsb1;
+
   # Traefik configuration
   # TODO: Rename to csb0-traefik-static.age
   "traefik-static.age".publicKeys = markus ++ csb0;
