@@ -50,6 +50,16 @@ stdenv.mkDerivation {
   version = (builtins.fromJSON (builtins.readFile (src + "/package.json"))).version;
   inherit src;
 
+  # Patch package.json to remove packageManager field (prevents corepack from downloading pnpm)
+  postPatch = ''
+    ${nodejs_22}/bin/node -e "
+      const fs = require('fs');
+      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+      delete pkg.packageManager;
+      fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+    "
+  '';
+
   nativeBuildInputs = [
     nodejs_22
     pnpm
