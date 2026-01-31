@@ -56,13 +56,25 @@ stdenv.mkDerivation {
     makeWrapper
   ];
 
+  # Prevent pnpm from trying to download itself
+  preBuild = ''
+    # Disable pnpm self-installation
+    export COREPACK_ENABLE_AUTO_PIN=0
+    export PNPM_IGNORE_PACKAGE_MANAGER_VERSION=true
+  '';
+
   buildPhase = ''
     runHook preBuild
+
+    # Use system pnpm, don't try to download
     export PNPM_HOME=$TMPDIR/pnpm
     mkdir -p $PNPM_HOME
-    pnpm install --frozen-lockfile
+
+    # Install without strict engine checks
+    pnpm install --frozen-lockfile --ignore-engines
     pnpm ui:build
     pnpm build
+
     runHook postBuild
   '';
 
