@@ -9,7 +9,7 @@ Home Server Barta 2 - Lightweight Raspberry Pi server for future home automation
 
 | Item           | Value                                 |
 | -------------- | ------------------------------------- |
-| **Hostname**   | `hsb2` (currently `raspi01`)          |
+| **Hostname**   | `hsb2`                                |
 | **Model**      | Raspberry Pi Zero W Rev 1.1           |
 | **CPU**        | ARMv6Z (BCM2835) @ 1GHz (single core) |
 | **RAM**        | 512 MB                                |
