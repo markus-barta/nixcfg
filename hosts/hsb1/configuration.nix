@@ -549,15 +549,21 @@
       mkdir -p /home/mba/.openclaw/workspace
       mkdir -p /home/mba/.openclaw/logs
 
-      # Always write minimal valid openclaw.json (backup old if exists)
+      # Always write valid openclaw.json with token from agenix (backup old if exists)
       if [ -f /home/mba/.openclaw/openclaw.json ]; then
         mv /home/mba/.openclaw/openclaw.json /home/mba/.openclaw/openclaw.json.bak.$(date +%s)
       fi
 
-      cat > /home/mba/.openclaw/openclaw.json << 'EOF'
+      # Read gateway token from agenix secret
+      GATEWAY_TOKEN=$(cat /run/agenix/hsb1-openclaw-gateway-token 2>/dev/null || echo "")
+
+      cat > /home/mba/.openclaw/openclaw.json << EOF
       {
         "gateway": {
-          "mode": "local"
+          "mode": "local",
+          "auth": {
+            "token": "$GATEWAY_TOKEN"
+          }
         },
         "agents": {
           "defaults": {
@@ -572,6 +578,7 @@
       EOF
 
       chown mba:users /home/mba/.openclaw/openclaw.json
+      chmod 600 /home/mba/.openclaw/openclaw.json
     '';
   };
 }
