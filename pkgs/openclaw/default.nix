@@ -51,7 +51,7 @@ buildNpmPackage {
   # The npmDepsHash will be computed on first build
   # If build fails with hash mismatch, update with:
   #   nix-prefetch-npm ./pkgs/openclaw/src
-  npmDepsHash = lib.fakeSha256;
+  npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
   # Build steps from OpenClaw docs (using npm, not pnpm)
   buildPhase = ''
