@@ -56,16 +56,17 @@ stdenv.mkDerivation {
     makeWrapper
   ];
 
-  # Environment variables to prevent pnpm from downloading itself
-  COREPACK_ENABLE_AUTO_PIN = "0";
-  COREPACK_ENABLE_STRICT = "0";
-  PNPM_IGNORE_PACKAGE_MANAGER_VERSION = "true";
-
-  # Use system pnpm
-  PNPM_HOME = "${placeholder "out"}/pnpm";
-
   buildPhase = ''
     runHook preBuild
+
+    # Disable corepack to prevent pnpm self-download
+    export COREPACK_ENABLE_AUTO_PIN=0
+    export COREPACK_ENABLE_STRICT=0
+    export PNPM_IGNORE_PACKAGE_MANAGER_VERSION=1
+
+    # Use system pnpm directly
+    export PNPM_HOME=$TMPDIR/pnpm
+    mkdir -p $PNPM_HOME
 
     # Install dependencies using system pnpm
     pnpm install --frozen-lockfile
