@@ -480,6 +480,25 @@
     owner = "root";
   };
 
+  # OpenClaw AI assistant secrets
+  age.secrets.hsb1-openclaw-gateway-token = {
+    file = ../../secrets/hsb1-openclaw-gateway-token.age;
+    mode = "400";
+    owner = "mba";
+  };
+
+  age.secrets.hsb1-openclaw-telegram-token = {
+    file = ../../secrets/hsb1-openclaw-telegram-token.age;
+    mode = "400";
+    owner = "mba";
+  };
+
+  age.secrets.hsb1-openclaw-openrouter-key = {
+    file = ../../secrets/hsb1-openclaw-openrouter-key.age;
+    mode = "400";
+    owner = "mba";
+  };
+
   # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
@@ -495,5 +514,31 @@
     logLevel = "info";
     location = "home";
     deviceType = "server";
+  };
+
+  # ============================================================================
+  # OPENCLAW AI ASSISTANT - Gateway service
+  # ============================================================================
+  systemd.services.openclaw-gateway = {
+    description = "OpenClaw AI Assistant Gateway";
+    after = [ "network.target" ];
+    wantedBy = [ "multi-user.target" ];
+
+    serviceConfig = {
+      Type = "simple";
+      User = "mba";
+      Group = "users";
+      WorkingDirectory = "/home/mba/.openclaw";
+      ExecStart = "${pkgs.nodejs_22}/bin/node /home/mba/.openclaw/gateway.js";
+      Restart = "always";
+      RestartSec = "10s";
+      Environment = "PATH=/run/current-system/sw/bin";
+    };
+
+    # Ensure workspace directory exists
+    preStart = ''
+      mkdir -p /home/mba/.openclaw/workspace
+      mkdir -p /home/mba/.openclaw/logs
+    '';
   };
 }
