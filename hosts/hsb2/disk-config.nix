@@ -9,29 +9,30 @@
       device = lib.mkDefault "/dev/mmcblk0";
       type = "disk";
       content = {
-        type = "table";
-        format = "msdos";
-        partitions = [
-          {
-            name = "boot";
+        type = "gpt";
+        partitions = {
+          # Boot partition (FAT32 for Raspberry Pi bootloader)
+          # Raspberry Pi firmware expects a FAT partition.
+          # GPT is supported by modern Pi firmware (Zero W supports it).
+          boot = {
             size = "256M";
-            bootable = true;
+            type = "EF00"; # EFI System Partition
             content = {
               type = "filesystem";
               format = "vfat";
               mountpoint = "/boot";
             };
-          }
-          {
-            name = "root";
+          };
+          # Root partition (ext4)
+          root = {
             size = "100%";
             content = {
               type = "filesystem";
               format = "ext4";
               mountpoint = "/";
             };
-          }
-        ];
+          };
+        };
       };
     };
   };
