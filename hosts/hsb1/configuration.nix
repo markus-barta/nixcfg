@@ -556,6 +556,9 @@
 
       cat > /home/mba/.openclaw/openclaw.json << 'EOF'
       {
+        "gateway": {
+          "mode": "local"
+        },
         "agents": {
           "defaults": {
             "workspace": "/home/mba/.openclaw/workspace"
