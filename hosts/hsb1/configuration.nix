@@ -205,6 +205,10 @@
   hardware.flirc.enable = true;
   users.users.mba.extraGroups = [ "plugdev" ];
 
+  # OpenClaw template path fix (upstream packaging bug)
+  # Templates are in our wrapper package, but CLI looks in upstream path
+  environment.variables.OPENCLAW_TEMPLATES_DIR = "${pkgs.openclaw}/lib/openclaw/docs/reference/templates";
+
   # Additional system packages
   environment.systemPackages = with pkgs; [
     # Python environment for debugging
@@ -541,6 +545,8 @@
         "OPENCLAW_GATEWAY_TOKEN_FILE=/run/agenix/hsb1-openclaw-gateway-token"
         "OPENCLAW_TELEGRAM_TOKEN_FILE=/run/agenix/hsb1-openclaw-telegram-token"
         "OPENCLAW_OPENROUTER_KEY_FILE=/run/agenix/hsb1-openclaw-openrouter-key"
+        # Fix upstream packaging bug: templates not included in nix build
+        "OPENCLAW_TEMPLATES_DIR=${pkgs.openclaw}/lib/openclaw/docs/reference/templates"
       ];
     };
 
