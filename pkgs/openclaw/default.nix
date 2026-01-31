@@ -53,7 +53,8 @@ stdenv.mkDerivation {
   # Fetch pre-built package from npm (includes all deps)
   src = fetchurl {
     url = "https://registry.npmjs.org/openclaw/-/openclaw-${version}.tgz";
-    sha256 = lib.fakeSha256; # Will fail first time, get real hash from error
+    # sha256 = lib.fakeSha256; # Will fail first time, get real hash from mnt/etc/nixos/hardware-configuration.nix
+    sha256 = "sha256-5tiVpmjA86SC/4Ne3+28JgdCbsvgi2bA5HqV5f64Lmg=";
   };
 
   nativeBuildInputs = [ makeWrapper ];
