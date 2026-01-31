@@ -69,51 +69,34 @@
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
         # OpenClaw - use upstream nix-openclaw package with templates fix
-        # Fixes upstream packaging bug where docs/reference/templates are not copied
-        # Note: Must copy (not symlink) lib/ so __dirname resolves correctly for templates
+        # Upstream packaging bug: docs/reference/templates not included
+        # Fix: symlinkJoin + postBuild to add templates directory
         openclaw =
           let
-            # Full bundle with all tools (whisper, ffmpeg, etc)
+            # Full bundle with all tools
             upstreamBundle = inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw;
-            # Gateway has lib/openclaw with dist/index.js
-            upstreamGateway = inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw-gateway;
+            # Gateway has lib/openclaw
             # Templates from same revision as upstream nix-openclaw
-            # See: https://github.com/openclaw/nix-openclaw/blob/main/nix/sources/openclaw-source.nix
             templatesSrc = final.fetchFromGitHub {
               owner = "openclaw";
               repo = "openclaw";
               rev = "fcf08299fa4ac7c3730542f949388276b83a9518";
               hash = "sha256-B3QLeNIpigmDR0nKOD2fgdjzGJIMkT7w3LCgwA8yf7Y=";
             };
-          in
-          final.runCommand "openclaw-with-templates"
-            {
-              nativeBuildInputs = [ final.makeWrapper ];
-              meta = upstreamBundle.meta;
-            }
-            ''
-              mkdir -p $out/bin $out/lib
-
-              # Copy all bin symlinks from the bundle (tools: whisper, ffmpeg, etc)
-              cp -a ${upstreamBundle}/bin/* $out/bin/ || true
-
-              # Copy lib directory from gateway (not symlink!) so __dirname resolves to our package
-              cp -rL ${upstreamGateway}/lib/openclaw $out/lib/
-              chmod -R u+w $out/lib/openclaw
-
-              # Add missing templates
+            # Standalone templates directory
+            templatesDir = final.runCommand "openclaw-templates" { } ''
               mkdir -p $out/lib/openclaw/docs/reference/templates
               cp -r ${templatesSrc}/docs/reference/templates/* $out/lib/openclaw/docs/reference/templates/
-
-              # Override openclaw/moltbot wrappers to point to OUR lib directory
-              rm -f $out/bin/openclaw $out/bin/moltbot
-              makeWrapper ${final.nodejs_22}/bin/node $out/bin/openclaw \
-                --add-flags "$out/lib/openclaw/dist/index.js" \
-                --set-default MOLTBOT_NIX_MODE "1" \
-                --set-default CLAWDBOT_NIX_MODE "1"
-
-              ln -s $out/bin/openclaw $out/bin/moltbot
             '';
+          in
+          final.symlinkJoin {
+            name = "openclaw-with-templates";
+            paths = [
+              upstreamBundle
+              templatesDir
+            ];
+            meta = upstreamBundle.meta;
+          };
         ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
