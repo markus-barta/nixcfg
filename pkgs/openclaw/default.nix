@@ -52,7 +52,7 @@ buildNpmPackage {
   # Install pnpm globally for the build
   nativeBuildInputs = [
     nodejs_22
-    pkgs.pnpm
+    pnpm
   ];
 
   # Don't use npmDepsHash - pnpm handles deps differently
