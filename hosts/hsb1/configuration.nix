@@ -535,13 +535,36 @@
       ExecStart = "${pkgs.openclaw}/bin/openclaw gateway";
       Restart = "always";
       RestartSec = "10s";
-      Environment = "PATH=/run/current-system/sw/bin";
+      Environment = [
+        "PATH=/run/current-system/sw/bin"
+        # OpenClaw environment variables for secrets
+        "OPENCLAW_GATEWAY_TOKEN_FILE=/run/agenix/hsb1-openclaw-gateway-token"
+        "OPENCLAW_TELEGRAM_TOKEN_FILE=/run/agenix/hsb1-openclaw-telegram-token"
+        "OPENCLAW_OPENROUTER_KEY_FILE=/run/agenix/hsb1-openclaw-openrouter-key"
+      ];
     };
 
-    # Ensure workspace directory exists
+    # Ensure workspace directory exists and generate valid config
     preStart = ''
       mkdir -p /home/mba/.openclaw/workspace
       mkdir -p /home/mba/.openclaw/logs
+
+      # Generate minimal valid openclaw.json if it doesn't exist
+      if [ ! -f /home/mba/.openclaw/openclaw.json ]; then
+        cat > /home/mba/.openclaw/openclaw.json << 'EOF'
+      {
+        "agents": {
+          "defaults": {
+            "workspace": "/home/mba/.openclaw/workspace"
+          }
+        },
+        "meta": {
+          "lastTouchedVersion": "2026.1.30",
+          "lastTouchedAt": "2026-01-31T00:00:00.000Z"
+        }
+      }
+      EOF
+      fi
     '';
   };
 }
