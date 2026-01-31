@@ -232,6 +232,7 @@
     openbox # Lightweight window manager
     xorg.xset # X11 user preference utility tool
     pulseaudio # To enable audio forwarding to a homepod
+    nodejs_22 # Required for OpenClaw AI assistant
   ];
 
   # +X11 and VLC kiosk mode configuration
