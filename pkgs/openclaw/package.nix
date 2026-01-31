@@ -91,8 +91,5 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     mainProgram = "openclaw";
     maintainers = with lib.maintainers; [ chrisportela ];
     platforms = with lib.platforms; linux ++ darwin;
-    knownVulnerabilities = [
-      "Project is in early development and uses LLMs to parse untrusted content while having full access to system by default."
-    ];
   };
 })
