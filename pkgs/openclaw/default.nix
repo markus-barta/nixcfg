@@ -48,16 +48,22 @@ buildNpmPackage {
   # Use Node.js 22 as required by OpenClaw
   nodejs = nodejs_22;
 
-  # The npmDepsHash will be computed on first build
-  # If build fails with hash mismatch, update with:
-  #   nix-prefetch-npm ./pkgs/openclaw/src
-  npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+  # Use pnpm2nix for proper pnpm support
+  # Install pnpm globally for the build
+  nativeBuildInputs = [
+    nodejs_22
+    pkgs.pnpm
+  ];
 
-  # Build steps from OpenClaw docs (using npm, not pnpm)
+  # Don't use npmDepsHash - pnpm handles deps differently
+  npmDepsHash = null;
+
+  # Build steps using pnpm as intended by OpenClaw
   buildPhase = ''
     runHook preBuild
-    npm run ui:build
-    npm run build
+    pnpm install --frozen-lockfile
+    pnpm ui:build
+    pnpm build
     runHook postBuild
   '';
 
