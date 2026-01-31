@@ -33,6 +33,7 @@
   # Raspberry Pi CPU settings
   nixpkgs.hostPlatform = lib.mkDefault {
     system = "armv6l-linux";
+    config = "armv6l-unknown-linux-gnueabihf";
   };
   nixpkgs.buildPlatform = lib.mkDefault "x86_64-linux";
   nixpkgs.config.allowUnsupportedSystem = true;
