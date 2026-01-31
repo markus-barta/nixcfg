@@ -9,8 +9,14 @@
 {
   imports = [
     ./hardware-configuration.nix
+    ./disk-config.nix
     ../../modules/uzumaki
+    inputs.disko.nixosModules.disko
   ];
+
+  # Resolve conflict between disko and native sdImage builder
+  # sdImage expects / to be labeled NIXOS_SD
+  fileSystems."/".device = lib.mkForce "/dev/disk/by-label/NIXOS_SD";
 
   # ============================================================================
   # UZUMAKI MODULE - Fish functions, zellij, stasysmo (minimal for Pi)
