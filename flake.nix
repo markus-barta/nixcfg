@@ -70,12 +70,11 @@
         pingt = final.callPackage ./pkgs/pingt { };
         # OpenClaw - use upstream nix-openclaw package with templates fix
         # Upstream packaging bug: docs/reference/templates not included
-        # Fix: symlinkJoin + postBuild to add templates directory
+        # Fix: override both openclaw and openclaw-gateway packages
         openclaw =
           let
             # Full bundle with all tools
             upstreamBundle = inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw;
-            # Gateway has lib/openclaw
             # Templates from same revision as upstream nix-openclaw
             templatesSrc = final.fetchFromGitHub {
               owner = "openclaw";
@@ -95,14 +94,33 @@
               upstreamBundle
               templatesDir
             ];
-            buildInputs = [ final.makeWrapper ];
+            nativeBuildInputs = [ final.makeWrapper ];
             postBuild = ''
               # Wrap openclaw binary to include templates path
               wrapProgram $out/bin/openclaw \
-                --set OPENCLAW_TEMPLATES_DIR "${templatesDir}/lib/openclaw/docs/reference/templates"
+                --set OPENCLAW_TEMPLATES_DIR "$out/lib/openclaw/docs/reference/templates"
             '';
             meta = upstreamBundle.meta;
           };
+        # Also fix the gateway package which openclaw CLI uses internally
+        openclaw-gateway =
+          let
+            upstreamGateway = inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw-gateway;
+            templatesSrc = final.fetchFromGitHub {
+              owner = "openclaw";
+              repo = "openclaw";
+              rev = "fcf08299fa4ac7c3730542f949388276b83a9518";
+              hash = "sha256-B3QLeNIpigmDR0nKOD2fgdjzGJIMkT7w3LCgwA8yf7Y=";
+            };
+          in
+          final.runCommand "openclaw-gateway-with-templates" { } ''
+            mkdir -p $out
+            # Copy entire upstream gateway
+            cp -r ${upstreamGateway}/* $out/
+            # Add templates to lib/openclaw/docs/reference/templates
+            mkdir -p $out/lib/openclaw/docs/reference/templates
+            cp -r ${templatesSrc}/docs/reference/templates/* $out/lib/openclaw/docs/reference/templates/
+          '';
         ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
