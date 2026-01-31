@@ -94,6 +94,7 @@
 
               # Copy lib directory (not symlink!) so __dirname resolves to our package
               cp -rL ${upstreamGateway}/lib/openclaw $out/lib/
+              chmod -R u+w $out/lib/openclaw
 
               # Add missing templates
               mkdir -p $out/lib/openclaw/docs/reference/templates
