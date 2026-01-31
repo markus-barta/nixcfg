@@ -25,7 +25,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     if stdenvNoCC.hostPlatform.isDarwin then
       "sha256-PCzuuPWqJW7FfGOTcFi0TKFV6TlPcwjyIQz88tsBgtM="
     else
-      "sha256-P7iHHbnuOMS8dV72FdrZVI7X9yCAYjvuRaCWPqu/Qvs=";
+      "sha256-qLUtwHwkyHNpEh9GTi4Wo6EyeIZu6wQy24/xedH9kYc=";
 
   pnpmDeps = fetchPnpmDeps {
     inherit (finalAttrs) pname version src;
