@@ -31,9 +31,6 @@
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
-    # OpenClaw - AI Assistant Gateway
-    nix-openclaw.url = "github:openclaw/nix-openclaw";
-    nix-openclaw.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -68,60 +65,9 @@
       # Local packages overlay
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
-        # OpenClaw - use upstream nix-openclaw package with templates fix
-        # Upstream packaging bug: docs/reference/templates not included
-        # Fix: override both openclaw and openclaw-gateway packages
-        openclaw =
-          let
-            # Full bundle with all tools
-            upstreamBundle = inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw;
-            # Templates from same revision as upstream nix-openclaw
-            templatesSrc = final.fetchFromGitHub {
-              owner = "openclaw";
-              repo = "openclaw";
-              rev = "fcf08299fa4ac7c3730542f949388276b83a9518";
-              hash = "sha256-B3QLeNIpigmDR0nKOD2fgdjzGJIMkT7w3LCgwA8yf7Y=";
-            };
-            # Standalone templates directory
-            templatesDir = final.runCommand "openclaw-templates" { } ''
-              mkdir -p $out/lib/openclaw/docs/reference/templates
-              cp -r ${templatesSrc}/docs/reference/templates/* $out/lib/openclaw/docs/reference/templates/
-            '';
-          in
-          final.symlinkJoin {
-            name = "openclaw-with-templates";
-            paths = [
-              upstreamBundle
-              templatesDir
-            ];
-            nativeBuildInputs = [ final.makeWrapper ];
-            postBuild = ''
-              # Wrap openclaw binary to include templates path
-              wrapProgram $out/bin/openclaw \
-                --set OPENCLAW_TEMPLATES_DIR "$out/lib/openclaw/docs/reference/templates"
-            '';
-            meta = upstreamBundle.meta;
-          };
-        # Also fix the gateway package which openclaw CLI uses internally
-        openclaw-gateway =
-          let
-            upstreamGateway = inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw-gateway;
-            templatesSrc = final.fetchFromGitHub {
-              owner = "openclaw";
-              repo = "openclaw";
-              rev = "fcf08299fa4ac7c3730542f949388276b83a9518";
-              hash = "sha256-B3QLeNIpigmDR0nKOD2fgdjzGJIMkT7w3LCgwA8yf7Y=";
-            };
-          in
-          final.runCommand "openclaw-gateway-with-templates" { } ''
-            mkdir -p $out
-            # Copy entire upstream gateway
-            cp -r ${upstreamGateway}/* $out/
-            # Add templates to lib/openclaw/docs/reference/templates
-            mkdir -p $out/lib/openclaw/docs/reference/templates
-            cp -r ${templatesSrc}/docs/reference/templates/* $out/lib/openclaw/docs/reference/templates/
-          '';
-        ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
+        # OpenClaw - custom package (not from nix-openclaw flake)
+        # You'll need to add your own openclaw package to pkgs/openclaw/
+        # ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
       allOverlays = [

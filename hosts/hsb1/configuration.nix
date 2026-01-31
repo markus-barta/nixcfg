@@ -236,8 +236,6 @@
     openbox # Lightweight window manager
     xorg.xset # X11 user preference utility tool
     pulseaudio # To enable audio forwarding to a homepod
-    nodejs_22 # Required for OpenClaw AI assistant
-    openclaw # OpenClaw AI assistant gateway
   ];
 
   # +X11 and VLC kiosk mode configuration
@@ -536,7 +534,7 @@
       User = "mba";
       Group = "users";
       WorkingDirectory = "/home/mba/.openclaw";
-      ExecStart = "${pkgs.openclaw}/bin/openclaw gateway";
+      # ExecStart = "<path-to-your-openclaw>/bin/openclaw gateway";
       Restart = "always";
       RestartSec = "10s";
       Environment = [
@@ -545,8 +543,8 @@
         "OPENCLAW_GATEWAY_TOKEN_FILE=/run/agenix/hsb1-openclaw-gateway-token"
         "OPENCLAW_TELEGRAM_TOKEN_FILE=/run/agenix/hsb1-openclaw-telegram-token"
         "OPENCLAW_OPENROUTER_KEY_FILE=/run/agenix/hsb1-openclaw-openrouter-key"
-        # Fix upstream packaging bug: templates not included in nix build
-        "OPENCLAW_TEMPLATES_DIR=${pkgs.openclaw}/lib/openclaw/docs/reference/templates"
+        # Set this to your openclaw templates directory
+        # "OPENCLAW_TEMPLATES_DIR=<path-to-your-openclaw>/lib/openclaw/docs/reference/templates"
       ];
     };
 
