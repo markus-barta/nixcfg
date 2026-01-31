@@ -95,6 +95,12 @@
               upstreamBundle
               templatesDir
             ];
+            buildInputs = [ final.makeWrapper ];
+            postBuild = ''
+              # Wrap openclaw binary to include templates path
+              wrapProgram $out/bin/openclaw \
+                --set OPENCLAW_TEMPLATES_DIR "${templatesDir}/lib/openclaw/docs/reference/templates"
+            '';
             meta = upstreamBundle.meta;
           };
         ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
