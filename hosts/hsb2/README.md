@@ -3,7 +3,7 @@
 ## Purpose
 
 Home Server Barta 2 - Lightweight Raspberry Pi server for future home automation tasks.
-Currently running Raspbian, planned migration to NixOS.
+**Status: Running Raspbian 11 (bullseye) - NixOS migration abandoned due to ARMv6l complexity.**
 
 ## Quick Reference
 
@@ -26,7 +26,7 @@ Currently running Raspbian, planned migration to NixOS.
 
 | ID  | Technical         | User-Friendly                  | Test |
 | --- | ----------------- | ------------------------------ | ---- |
-| F00 | NixOS Base System | Stable system foundation       | T00  |
+| F00 | Raspbian OS       | Debian-based stable system     | T00  |
 | F01 | SSH Remote Access | Secure remote management       | T01  |
 | F02 | WiFi Support      | Built-in wireless connectivity | T02  |
 
@@ -50,79 +50,78 @@ Currently running Raspbian, planned migration to NixOS.
 
 ### Software
 
-- **OS**: Planned NixOS (currently Raspbian 11 bullseye)
+- **OS**: Raspbian 11 (bullseye) - staying on Raspbian
 - **Architecture**: armv6l-linux (32-bit)
+- **NixOS Status**: Migration abandoned - ARMv6l support too complex for Pi Zero W
 
 ---
 
-## Installation
+## Installation (Historical - Raspbian Only)
 
-### Prerequisites
+> **Note**: NixOS installation abandoned. This section kept for reference only.
 
-- Raspberry Pi Zero W with SD card
-- Access to home network
-- SSH access to raspi01 at 192.168.1.95
+### Current Setup
 
-### Installation Options
+- **OS**: Raspbian 11 (bullseye) - flashed via Raspberry Pi Imager
+- **SSH**: Pre-configured with `mba` user
+- **WiFi**: Configured via `wpa_supplicant.conf` on boot partition
 
-#### Option 1: nixos-anywhere (Recommended for Remote Deploy)
+### Raspbian Management
 
-Deploy NixOS directly over SSH without manual SD card flashing.
-
-**Requirements:**
-
-- Root access via SSH to current system (raspi01)
-- kexec-tools may need to be installed on target first
-
-**From your Mac or gpc0:**
+Standard Debian/Raspbian administration:
 
 ```bash
-cd ~/Code/nixcfg
+ssh mba@192.168.1.95
 
-# Deploy via nixos-anywhere
+# Update packages
+sudo apt update && sudo apt upgrade -y
+
+# Install packages
+sudo apt install <package>
+
+# Check system status
+systemctl status
+free -h
+df -h
+```
+
+### Historical: NixOS Installation (Abandoned)
+
+The following NixOS installation options were evaluated but abandoned:
+
+#### Option 1: nixos-anywhere
+
+```bash
+# Would have deployed via nixos-anywhere
 nix run github:nix-community/nixos-anywhere -- \
   --flake .#hsb2 \
   --target-host root@192.168.1.95
 ```
 
-**⚠️ Pi Zero W Limitations:**
+**Why abandoned**: ARMv6l kexec support unreliable on Pi Zero W.
 
-- ARMv6l architecture has limited nixos-anywhere support
-- kexec may not work on older Pi kernels
-- If nixos-anywhere fails, use Option 2 (SD card image)
-
-#### Option 2: SD Card Image (Most Reliable)
-
-Build a NixOS SD card image and flash it manually.
+#### Option 2: SD Card Image
 
 ```bash
-# Build SD card image (run on Linux/x86_64 with QEMU)
+# Would have built NixOS SD image
 nix build .#nixosConfigurations.hsb2.config.system.build.sdImage
-
-# Flash to SD card
-dd if=result/sd-image/nixos-sd-image-*.img of=/dev/sdX bs=4M status=progress
 ```
 
-**Post-flash steps:**
-
-1. Insert SD card into Pi Zero W
-2. Boot and wait for WiFi connection
-3. SSH in: `ssh mba@192.168.1.95`
-4. Generate hardware config: `nixos-generate-config --show-hardware-config`
-5. Copy hardware-config.nix back to this repo
-6. Deploy full config: `just switch`
+**Why abandoned**: Complex cross-compilation, limited ARMv6l support.
 
 ---
 
-## Migration Status
+## NixOS Migration Status
 
-**Current Status**: 🔧 Planned
+**Current Status**: ❌ Abandoned
 
-- [ ] Create NixOS configuration
-- [ ] Prepare SD card image
-- [ ] Test WiFi connectivity
-- [ ] Deploy and verify
-- [ ] Add to NixFleet
+NixOS migration for Pi Zero W (ARMv6l) abandoned due to:
+
+- Limited NixOS ARMv6l support
+- Complex SD card image building requirements
+- Low ROI for 512MB RAM device
+
+**Decision**: Keep Raspbian, manage manually.
 
 ---
 
@@ -131,18 +130,20 @@ dd if=result/sd-image/nixos-sd-image-*.img of=/dev/sdX bs=4M status=progress
 ### Design Principles
 
 - **Minimal resource usage**: Optimized for 512MB RAM
-- **No ZFS**: Uses ext4 (ZFS requires 2GB+ RAM)
 - **Headless**: No GUI, SSH only
 - **WiFi primary**: No ethernet on Pi Zero W
+- **Manual management**: Raspbian (not NixOS)
 
 ### Included
 
+- Raspbian base system
 - SSH remote access
 - WiFi support
-- Firewall
+- Standard Debian tools (apt, systemd)
 
 ### Excluded
 
+- NixOS (migration abandoned)
 - ZFS (insufficient RAM)
 - Docker (too heavy for 512MB RAM)
 - Graphical environment
@@ -151,6 +152,17 @@ dd if=result/sd-image/nixos-sd-image-*.img of=/dev/sdX bs=4M status=progress
 ---
 
 ## Changelog
+
+### 2026-01-31: NixOS Migration Abandoned
+
+- **Decision**: Keep Raspbian, abandon NixOS migration
+- **Reason**: ARMv6l support too complex for Pi Zero W
+- **Actions**:
+  - Updated README.md to reflect Raspbian-only status
+  - Rewrote RUNBOOK.md with Raspbian/Debian commands
+  - Commented out hsb2 from flake.nix
+  - Marked all NixOS config files as archived/inactive
+- **Current State**: Running Raspbian 11 (bullseye), managed manually
 
 ### 2026-01-31: Initial Configuration Created
 

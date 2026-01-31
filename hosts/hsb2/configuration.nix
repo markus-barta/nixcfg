@@ -1,4 +1,10 @@
 # hsb2 - Raspberry Pi Zero W
+# STATUS: ARCHIVED/INACTIVE - Host running Raspbian (not NixOS)
+#
+# This configuration file is kept for reference only.
+# NixOS migration was abandoned due to ARMv6l complexity.
+# See README.md for current Raspbian management instructions.
+#
 # Primary Purpose: Lightweight home server for future automation tasks
 {
   pkgs,

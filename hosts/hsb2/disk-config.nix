@@ -1,4 +1,10 @@
 # Disk configuration for hsb2 (Raspberry Pi Zero W)
+# STATUS: ARCHIVED/INACTIVE - Host running Raspbian (not NixOS)
+#
+# This file is kept for reference only.
+# NixOS migration was abandoned due to ARMv6l complexity.
+# See README.md for current Raspbian management instructions.
+#
 # Uses ext4 on SD card (ZFS requires 2GB+ RAM, Pi Zero has 512MB)
 
 { lib, ... }:
