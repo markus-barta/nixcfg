@@ -253,6 +253,18 @@
             inherit inputs;
           };
         };
+
+        # Home Server Barta 2 - Raspberry Pi Zero W
+        # ARMv6l architecture, 512MB RAM
+        hsb2 = nixpkgs.lib.nixosSystem {
+          modules = commonServerModules ++ [
+            inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./hosts/hsb2/configuration.nix
+          ];
+          specialArgs = self.commonArgs // {
+            inherit inputs;
+          };
+        };
       };
 
       packages.x86_64-linux = {
