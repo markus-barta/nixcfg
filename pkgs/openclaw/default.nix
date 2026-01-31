@@ -56,32 +56,18 @@ stdenv.mkDerivation {
     makeWrapper
   ];
 
-  # Patch package.json to remove packageManager field (prevents pnpm self-download)
-  postPatch = ''
-    # Remove packageManager field which forces specific pnpm version
-    ${nodejs_22}/bin/node -e "
-      const fs = require('fs');
-      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-      delete pkg.packageManager;
-      fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n');
-    "
-  '';
+  # Environment variables to prevent pnpm from downloading itself
+  COREPACK_ENABLE_AUTO_PIN = "0";
+  COREPACK_ENABLE_STRICT = "0";
+  PNPM_IGNORE_PACKAGE_MANAGER_VERSION = "true";
 
-  # Prevent pnpm from trying to download itself
-  preBuild = ''
-    # Disable pnpm self-installation
-    export COREPACK_ENABLE_AUTO_PIN=0
-    export PNPM_IGNORE_PACKAGE_MANAGER_VERSION=true
-  '';
+  # Use system pnpm
+  PNPM_HOME = "${placeholder "out"}/pnpm";
 
   buildPhase = ''
     runHook preBuild
 
-    # Use system pnpm, don't try to download
-    export PNPM_HOME=$TMPDIR/pnpm
-    mkdir -p $PNPM_HOME
-
-    # Install dependencies
+    # Install dependencies using system pnpm
     pnpm install --frozen-lockfile
     pnpm ui:build
     pnpm build
