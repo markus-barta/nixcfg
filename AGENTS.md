@@ -138,6 +138,7 @@ ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 ## Critical Thinking
 
 - **Clarity over speed**: If uncertain, ask before proceeding. Better one question than three bugs.
+- **Always verify the full context of edits!** Read before replacing.
 - Fix root cause (not band-aid).
 - Unsure: read more code; if still stuck, ask w/ short options.
 - Conflicts: call out; pick safer path.
