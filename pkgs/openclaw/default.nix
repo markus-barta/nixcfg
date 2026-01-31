@@ -74,9 +74,9 @@ stdenv.mkDerivation {
     # Copy all package files
     cp -r . $out/lib/openclaw/
 
-    # Create wrapper script
+    # Create wrapper script (entry point is openclaw.mjs per package.json)
     makeWrapper ${nodejs_22}/bin/node $out/bin/openclaw \
-      --add-flags "$out/lib/openclaw/bin/openclaw.js" \
+      --add-flags "$out/lib/openclaw/openclaw.mjs" \
       --prefix PATH : ${nodejs_22}/bin
 
     runHook postInstall
