@@ -549,9 +549,12 @@
       mkdir -p /home/mba/.openclaw/workspace
       mkdir -p /home/mba/.openclaw/logs
 
-      # Generate minimal valid openclaw.json if it doesn't exist
-      if [ ! -f /home/mba/.openclaw/openclaw.json ]; then
-        cat > /home/mba/.openclaw/openclaw.json << 'EOF'
+      # Always write minimal valid openclaw.json (backup old if exists)
+      if [ -f /home/mba/.openclaw/openclaw.json ]; then
+        mv /home/mba/.openclaw/openclaw.json /home/mba/.openclaw/openclaw.json.bak.$(date +%s)
+      fi
+
+      cat > /home/mba/.openclaw/openclaw.json << 'EOF'
       {
         "agents": {
           "defaults": {
@@ -564,7 +567,8 @@
         }
       }
       EOF
-      fi
+
+      chown mba:users /home/mba/.openclaw/openclaw.json
     '';
   };
 }
