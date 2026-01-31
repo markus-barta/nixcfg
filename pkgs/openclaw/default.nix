@@ -72,7 +72,7 @@ buildNpmPackage {
   # npmDepsHash for all dependencies
   # Run: nix-prefetch-npm-deps pkgs/openclaw/package-lock.json
   # Or: let build fail and copy the expected hash
-  npmDepsHash = lib.fakeSha256; # Will fail and tell us the real hash
+  npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # Will fail and tell us the real hash
 
   # Don't rebuild - dist/ already contains compiled JS
   dontNpmBuild = true;
