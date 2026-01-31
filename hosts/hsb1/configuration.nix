@@ -233,6 +233,7 @@
     xorg.xset # X11 user preference utility tool
     pulseaudio # To enable audio forwarding to a homepod
     nodejs_22 # Required for OpenClaw AI assistant
+    openclaw # OpenClaw AI assistant gateway
   ];
 
   # +X11 and VLC kiosk mode configuration
@@ -481,6 +482,8 @@
   };
 
   # OpenClaw AI assistant secrets
+  # Runtime paths: /run/agenix/hsb1-openclaw-*
+  # Config references these in ~/.openclaw/openclaw.json
   age.secrets.hsb1-openclaw-gateway-token = {
     file = ../../secrets/hsb1-openclaw-gateway-token.age;
     mode = "400";
@@ -529,7 +532,7 @@
       User = "mba";
       Group = "users";
       WorkingDirectory = "/home/mba/.openclaw";
-      ExecStart = "${pkgs.nodejs_22}/bin/node /home/mba/.openclaw/gateway.js";
+      ExecStart = "${pkgs.openclaw}/bin/openclaw gateway";
       Restart = "always";
       RestartSec = "10s";
       Environment = "PATH=/run/current-system/sw/bin";
