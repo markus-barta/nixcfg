@@ -34,32 +34,30 @@
   lib,
   buildNpmPackage,
   nodejs_22,
-  pnpm,
   # Provided via flake input (see flake.nix inputs.openclaw)
   src,
 }:
 
 buildNpmPackage {
   pname = "openclaw";
-  # Version from package.json
+  # Use version from package.json
+  version = (builtins.fromJSON (builtins.readFile (src + "/package.json"))).version;
+
   inherit src;
 
   # Use Node.js 22 as required by OpenClaw
   nodejs = nodejs_22;
-
-  # Use pnpm for building (OpenClaw uses pnpm)
-  npm = pnpm;
 
   # The npmDepsHash will be computed on first build
   # If build fails with hash mismatch, update with:
   #   nix-prefetch-npm ./pkgs/openclaw/src
   npmDepsHash = lib.fakeSha256;
 
-  # Build steps from OpenClaw docs
+  # Build steps from OpenClaw docs (using npm, not pnpm)
   buildPhase = ''
     runHook preBuild
-    pnpm ui:build
-    pnpm build
+    npm run ui:build
+    npm run build
     runHook postBuild
   '';
 
