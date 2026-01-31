@@ -260,6 +260,7 @@
           modules = commonServerModules ++ [
             inputs.nixcfg.nixosModules.hokage # External hokage module
             ./hosts/hsb2/configuration.nix
+            disko.nixosModules.disko
           ];
           specialArgs = self.commonArgs // {
             inherit inputs;
