@@ -613,22 +613,6 @@
         "type": "github"
       }
     },
-    "openclaw": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1769861593,
-        "narHash": "sha256-Dq292fpHG7PUJDFQPznUnUqQxSdcpg1rodRbJiDA03k=",
-        "owner": "openclaw",
-        "repo": "openclaw",
-        "rev": "8cab78abbc8dec493ae0fc63f9828636845eb1f8",
-        "type": "github"
-      },
-      "original": {
-        "owner": "openclaw",
-        "repo": "openclaw",
-        "type": "github"
-      }
-    },
     "pia": {
       "flake": false,
       "locked": {
@@ -724,7 +708,6 @@
         "nixos-hardware": "nixos-hardware_2",
         "nixpkgs": "nixpkgs_4",
         "nixpkgs-stable": "nixpkgs-stable_2",
-        "openclaw": "openclaw",
         "pia": "pia_2",
         "plasma-manager": "plasma-manager_2"
       }
