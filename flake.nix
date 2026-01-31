@@ -31,11 +31,6 @@
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
-    # OpenClaw - Personal AI Assistant Gateway
-    # Updates with `just update` (nix flake update)
-    # See: +pm/backlog/P9400-hsb1-openclaw-deployment.md
-    openclaw.url = "github:openclaw/openclaw";
-    openclaw.flake = false; # Not a flake, we'll build it ourselves
   };
 
   outputs =
@@ -70,9 +65,8 @@
       # Local packages overlay
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
-        # OpenClaw - built from GitHub source via flake input
-        # Updates with `nix flake update openclaw`
-        openclaw = final.callPackage ./pkgs/openclaw { src = inputs.openclaw; };
+        # OpenClaw - fetched from npm registry (pre-built)
+        openclaw = final.callPackage ./pkgs/openclaw { };
         ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };

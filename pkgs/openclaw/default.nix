@@ -22,9 +22,9 @@
 #   ~/.openclaw/workspace/        # Workspace for file operations
 #
 # Build Notes:
-#   - Uses pnpm (OpenClaw's native package manager)
-#   - Built from GitHub source via flake input
-#   - Uses stdenv.mkDerivation (not buildNpmPackage) for pnpm support
+#   - Fetches pre-built package from npm registry
+#   - All dependencies already bundled (no network during build)
+#   - Uses stdenv.mkDerivation for simple installation
 #
 # Updates:
 #   nix flake update openclaw     # Update to latest
@@ -38,60 +38,46 @@
 {
   lib,
   stdenv,
+  fetchurl,
   nodejs_22,
-  pnpm,
   makeWrapper,
-  # Provided via flake input (see flake.nix inputs.openclaw)
-  src,
 }:
 
+let
+  version = "2026.1.30";
+in
 stdenv.mkDerivation {
   pname = "openclaw";
-  version = (builtins.fromJSON (builtins.readFile (src + "/package.json"))).version;
-  inherit src;
+  inherit version;
 
-  # Patch package.json to remove packageManager field (prevents corepack from downloading pnpm)
-  postPatch = ''
-    ${nodejs_22}/bin/node -e "
-      const fs = require('fs');
-      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-      delete pkg.packageManager;
-      fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-    "
+  # Fetch pre-built package from npm (includes all deps)
+  src = fetchurl {
+    url = "https://registry.npmjs.org/openclaw/-/openclaw-${version}.tgz";
+    sha256 = lib.fakeSha256; # Will fail first time, get real hash from error
+  };
+
+  nativeBuildInputs = [ makeWrapper ];
+
+  # npm packages are tar.gz
+  unpackPhase = ''
+    tar -xzf $src
   '';
 
-  nativeBuildInputs = [
-    nodejs_22
-    pnpm
-    makeWrapper
-  ];
-
-  buildPhase = ''
-    runHook preBuild
-
-    # Disable corepack to prevent pnpm self-download
-    export COREPACK_ENABLE_AUTO_PIN=0
-    export COREPACK_ENABLE_STRICT=0
-    export PNPM_IGNORE_PACKAGE_MANAGER_VERSION=1
-
-    # Use system pnpm directly
-    export PNPM_HOME=$TMPDIR/pnpm
-    mkdir -p $PNPM_HOME
-
-    # Install dependencies using system pnpm
-    pnpm install --frozen-lockfile
-    pnpm ui:build
-    pnpm build
-
-    runHook postBuild
-  '';
+  sourceRoot = "package";
 
   installPhase = ''
     runHook preInstall
+
     mkdir -p $out/bin $out/lib/openclaw
-    cp -r dist node_modules package.json $out/lib/openclaw/
+
+    # Copy all package files
+    cp -r . $out/lib/openclaw/
+
+    # Create wrapper script
     makeWrapper ${nodejs_22}/bin/node $out/bin/openclaw \
-      --add-flags "$out/lib/openclaw/dist/index.js"
+      --add-flags "$out/lib/openclaw/bin/openclaw.js" \
+      --prefix PATH : ${nodejs_22}/bin
+
     runHook postInstall
   '';
 
