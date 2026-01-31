@@ -5,6 +5,11 @@
   ...
 }:
 
+let
+  # Custom OpenClaw package (templates included)
+  openclaw = pkgs.callPackage ../../pkgs/openclaw/package.nix { };
+in
+
 {
   imports = [
     ./hardware-configuration.nix
@@ -205,9 +210,8 @@
   hardware.flirc.enable = true;
   users.users.mba.extraGroups = [ "plugdev" ];
 
-  # OpenClaw template path fix (upstream packaging bug)
-  # Templates are in our wrapper package, but CLI looks in upstream path
-  environment.variables.OPENCLAW_TEMPLATES_DIR = "${pkgs.openclaw}/lib/openclaw/docs/reference/templates";
+  # OpenClaw template path (custom package includes templates)
+  environment.variables.OPENCLAW_TEMPLATES_DIR = "${openclaw}/lib/openclaw/docs/reference/templates";
 
   # Additional system packages
   environment.systemPackages = with pkgs; [
@@ -236,6 +240,7 @@
     openbox # Lightweight window manager
     xorg.xset # X11 user preference utility tool
     pulseaudio # To enable audio forwarding to a homepod
+    openclaw
   ];
 
   # +X11 and VLC kiosk mode configuration
@@ -534,7 +539,7 @@
       User = "mba";
       Group = "users";
       WorkingDirectory = "/home/mba/.openclaw";
-      # ExecStart = "<path-to-your-openclaw>/bin/openclaw gateway";
+      ExecStart = "${openclaw}/bin/openclaw gateway";
       Restart = "always";
       RestartSec = "10s";
       Environment = [
@@ -543,53 +548,54 @@
         "OPENCLAW_GATEWAY_TOKEN_FILE=/run/agenix/hsb1-openclaw-gateway-token"
         "OPENCLAW_TELEGRAM_TOKEN_FILE=/run/agenix/hsb1-openclaw-telegram-token"
         "OPENCLAW_OPENROUTER_KEY_FILE=/run/agenix/hsb1-openclaw-openrouter-key"
-        # Set this to your openclaw templates directory
-        # "OPENCLAW_TEMPLATES_DIR=<path-to-your-openclaw>/lib/openclaw/docs/reference/templates"
+        "OPENCLAW_TEMPLATES_DIR=${openclaw}/lib/openclaw/docs/reference/templates"
       ];
     };
 
-    # Ensure workspace directory exists and generate valid config
-    preStart = ''
-      mkdir -p /home/mba/.openclaw/workspace
-      mkdir -p /home/mba/.openclaw/logs
+    /*
+      Ensure workspace directory exists and generate valid config
+      preStart = ''
+        mkdir -p /home/mba/.openclaw/workspace
+        mkdir -p /home/mba/.openclaw/logs
 
-      # Create dummy template files (upstream packaging issue)
-      mkdir -p /home/mba/.openclaw/workspace
-      touch /home/mba/.openclaw/workspace/AGENTS.md
-      touch /home/mba/.openclaw/workspace/SOUL.md
-      touch /home/mba/.openclaw/workspace/TOOLS.md
-      chown -R mba:users /home/mba/.openclaw/workspace
+        # Create dummy template files (upstream packaging issue)
+        mkdir -p /home/mba/.openclaw/workspace
+        touch /home/mba/.openclaw/workspace/AGENTS.md
+        touch /home/mba/.openclaw/workspace/SOUL.md
+        touch /home/mba/.openclaw/workspace/TOOLS.md
+        chown -R mba:users /home/mba/.openclaw/workspace
 
-      # Always write valid openclaw.json with token from agenix (backup old if exists)
-      if [ -f /home/mba/.openclaw/openclaw.json ]; then
-        mv /home/mba/.openclaw/openclaw.json /home/mba/.openclaw/openclaw.json.bak.$(date +%s)
-      fi
+        # Always write valid openclaw.json with token from agenix (backup old if exists)
+        if [ -f /home/mba/.openclaw/openclaw.json ]; then
+          mv /home/mba/.openclaw/openclaw.json /home/mba/.openclaw/openclaw.json.bak.$(date +%s)
+        fi
 
-      # Read gateway token from agenix secret
-      GATEWAY_TOKEN=$(cat /run/agenix/hsb1-openclaw-gateway-token 2>/dev/null || echo "")
+        # Read gateway token from agenix secret
+        GATEWAY_TOKEN=$(cat /run/agenix/hsb1-openclaw-gateway-token 2>/dev/null || echo "")
 
-      cat > /home/mba/.openclaw/openclaw.json << EOF
-      {
-        "gateway": {
-          "mode": "local",
-          "auth": {
-            "token": "$GATEWAY_TOKEN"
+        cat > /home/mba/.openclaw/openclaw.json << EOF
+        {
+          "gateway": {
+            "mode": "local",
+            "auth": {
+              "token": "$GATEWAY_TOKEN"
+            }
+          },
+          "agents": {
+            "defaults": {
+              "workspace": "/home/mba/.openclaw/workspace"
+            }
+          },
+          "meta": {
+            "lastTouchedVersion": "2026.1.30",
+            "lastTouchedAt": "2026-01-31T00:00:00.000Z"
           }
-        },
-        "agents": {
-          "defaults": {
-            "workspace": "/home/mba/.openclaw/workspace"
-          }
-        },
-        "meta": {
-          "lastTouchedVersion": "2026.1.30",
-          "lastTouchedAt": "2026-01-31T00:00:00.000Z"
         }
-      }
-      EOF
+        EOF
 
-      chown mba:users /home/mba/.openclaw/openclaw.json
-      chmod 600 /home/mba/.openclaw/openclaw.json
-    '';
+        chown mba:users /home/mba/.openclaw/openclaw.json
+        chmod 600 /home/mba/.openclaw/openclaw.json
+      '';
+    */
   };
 }
