@@ -8,6 +8,7 @@
 }:
 {
   imports = [
+    "${modulesPath}/installer/sd-card/sd-image-raspberrypi.nix"
     ./hardware-configuration.nix
     ./disk-config.nix
     ../../modules/uzumaki
