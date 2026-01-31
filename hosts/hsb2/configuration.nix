@@ -9,9 +9,9 @@
 {
   imports = [
     ./hardware-configuration.nix
-    ./disk-config.nix
+    # ./disk-config.nix
     ../../modules/uzumaki
-    inputs.disko.nixosModules.disko
+    # inputs.disko.nixosModules.disko
   ];
 
   # ============================================================================
