@@ -31,10 +31,7 @@
   swapDevices = [ ];
 
   # Raspberry Pi CPU settings
-  nixpkgs.hostPlatform = lib.mkDefault {
-    system = "armv6l-linux";
-    config = "armv6l-unknown-linux-gnueabihf";
-  };
+  nixpkgs.hostPlatform = lib.mkDefault "armv6l-linux";
   nixpkgs.buildPlatform = lib.mkDefault "x86_64-linux";
   nixpkgs.config.allowUnsupportedSystem = true;
 
