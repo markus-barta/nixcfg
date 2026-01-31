@@ -8,7 +8,7 @@
     disk.disk1 = {
       device = lib.mkDefault "/dev/mmcblk0";
       type = "disk";
-      imageSize = "4G"; # Fixed image size to ensure enough space for closure
+      imageSize = "8G"; # Increased to 8GB to definitely fit closure + overhead
       content = {
         type = "gpt";
         partitions = {
