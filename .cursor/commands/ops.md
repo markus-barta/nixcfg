@@ -1,2 +1,2 @@
 read and follow /AGENTS.md
-then assume /SYSOP.mdc role
+then assume /SYSOP.md role
