@@ -21,6 +21,11 @@
 #   ~/.openclaw/openclaw.json     # Main configuration file
 #   ~/.openclaw/workspace/        # Workspace for file operations
 #
+# Build Notes:
+#   - Uses pnpm (OpenClaw's native package manager)
+#   - Built from GitHub source via flake input
+#   - Uses stdenv.mkDerivation (not buildNpmPackage) for pnpm support
+#
 # Updates:
 #   nix flake update openclaw     # Update to latest
 #
@@ -32,40 +37,42 @@
 #
 {
   lib,
-  buildNpmPackage,
+  stdenv,
   nodejs_22,
+  pnpm,
+  makeWrapper,
   # Provided via flake input (see flake.nix inputs.openclaw)
   src,
 }:
 
-buildNpmPackage {
+stdenv.mkDerivation {
   pname = "openclaw";
-  # Use version from package.json
   version = (builtins.fromJSON (builtins.readFile (src + "/package.json"))).version;
-
   inherit src;
 
-  # Use Node.js 22 as required by OpenClaw
-  nodejs = nodejs_22;
+  nativeBuildInputs = [
+    nodejs_22
+    pnpm
+    makeWrapper
+  ];
 
-  # Convert pnpm-lock.yaml to package-lock.json for npm
-  postPatch = ''
-    # Generate a minimal package-lock.json from pnpm-lock.yaml
-    # This allows buildNpmPackage to work with pnpm projects
-    echo '{"lockfileVersion": 3, "packages": {}}' > package-lock.json
-  '';
-
-  # The npmDepsHash will be computed on first build
-  # If build fails with hash mismatch, update with the expected hash from error
-  npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-
-  # Build steps - npm install will use the lock file
   buildPhase = ''
     runHook preBuild
-    npm ci
-    npm run ui:build
-    npm run build
+    export PNPM_HOME=$TMPDIR/pnpm
+    mkdir -p $PNPM_HOME
+    pnpm install --frozen-lockfile
+    pnpm ui:build
+    pnpm build
     runHook postBuild
+  '';
+
+  installPhase = ''
+    runHook preInstall
+    mkdir -p $out/bin $out/lib/openclaw
+    cp -r dist node_modules package.json $out/lib/openclaw/
+    makeWrapper ${nodejs_22}/bin/node $out/bin/openclaw \
+      --add-flags "$out/lib/openclaw/dist/index.js"
+    runHook postInstall
   '';
 
   meta = with lib; {
