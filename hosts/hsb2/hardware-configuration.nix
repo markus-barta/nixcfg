@@ -32,6 +32,7 @@
 
   # Raspberry Pi CPU settings
   nixpkgs.hostPlatform = lib.mkDefault "armv6l-linux";
+  nixpkgs.config.allowUnsupportedSystem = true;
 
   # Disable ZFS on 32-bit ARM
   boot.supportedFilesystems.zfs = lib.mkForce false;
