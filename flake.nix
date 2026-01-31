@@ -68,14 +68,13 @@
       # Local packages overlay
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
-        # OpenClaw - use upstream nix-openclaw package with templates fix
+        # OpenClaw - use upstream nix-openclaw gateway package with templates fix
         # Fixes upstream packaging bug where docs/reference/templates are not copied
         # Note: Must copy (not symlink) lib/ so __dirname resolves correctly for templates
         openclaw =
           let
-            upstreamPkg =
-              inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw
-                or inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.default;
+            # Use openclaw-gateway (has lib/openclaw), not openclaw (only bin symlinks)
+            upstreamGateway = inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw-gateway;
             # Templates from same revision as upstream nix-openclaw
             # See: https://github.com/openclaw/nix-openclaw/blob/main/nix/sources/openclaw-source.nix
             templatesSrc = final.fetchFromGitHub {
@@ -88,13 +87,13 @@
           final.runCommand "openclaw-with-templates"
             {
               nativeBuildInputs = [ final.makeWrapper ];
-              meta = upstreamPkg.meta;
+              meta = upstreamGateway.meta;
             }
             ''
               mkdir -p $out/bin $out/lib
 
               # Copy lib directory (not symlink!) so __dirname resolves to our package
-              cp -rL ${upstreamPkg}/lib/openclaw $out/lib/
+              cp -rL ${upstreamGateway}/lib/openclaw $out/lib/
 
               # Add missing templates
               mkdir -p $out/lib/openclaw/docs/reference/templates
