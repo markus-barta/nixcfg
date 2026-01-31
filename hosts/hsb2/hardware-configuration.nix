@@ -16,7 +16,6 @@
 
 {
   imports = [
-    (modulesPath + "/installer/sd-card/sd-image-raspberrypi.nix")
     (modulesPath + "/installer/scan/not-detected.nix")
   ];
 
