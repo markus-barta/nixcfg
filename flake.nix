@@ -84,30 +84,19 @@
               hash = "sha256-B3QLeNIpigmDR0nKOD2fgdjzGJIMkT7w3LCgwA8yf7Y=";
             };
           in
-          final.runCommand "openclaw-with-templates"
-            {
-              buildInputs = [ final.makeWrapper ];
-              meta = upstreamPkg.meta;
-            }
-            ''
-              # Copy upstream package
-              cp -r ${upstreamPkg} $out
-              chmod -R +w $out
-
+          final.symlinkJoin {
+            name = "openclaw-with-templates";
+            paths = [ upstreamPkg ];
+            buildInputs = [ final.makeWrapper ];
+            postBuild = ''
               # Copy missing templates (upstream packaging bug)
               mkdir -p $out/lib/openclaw/docs/reference/templates
               cp -r ${templatesSrc}/docs/reference/templates/* $out/lib/openclaw/docs/reference/templates/
 
-              # Fix wrapper script path
-              rm -f $out/bin/openclaw
-              makeWrapper ${final.nodejs_22}/bin/node $out/bin/openclaw \
-                --add-flags "$out/lib/openclaw/dist/index.js" \
-                --set-default MOLTBOT_NIX_MODE "1" \
-                --set-default CLAWDBOT_NIX_MODE "1"
-
-              # Re-link moltbot alias
-              ln -sf $out/bin/openclaw $out/bin/moltbot
+              # The wrapper script from upstream works correctly, no need to recreate
             '';
+            meta = upstreamPkg.meta;
+          };
         ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
