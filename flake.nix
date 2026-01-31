@@ -31,6 +31,9 @@
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
+    # OpenClaw - AI Assistant Gateway
+    nix-openclaw.url = "github:openclaw/nix-openclaw";
+    nix-openclaw.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -65,8 +68,10 @@
       # Local packages overlay
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
-        # OpenClaw - fetched from npm registry (pre-built)
-        openclaw = final.callPackage ./pkgs/openclaw { };
+        # OpenClaw - use upstream nix-openclaw package (batteries-included with tools)
+        openclaw =
+          inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.openclaw
+            or inputs.nix-openclaw.packages.${final.stdenv.hostPlatform.system}.default;
         ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
