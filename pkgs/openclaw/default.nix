@@ -70,8 +70,8 @@ stdenv.mkDerivation {
     export PNPM_HOME=$TMPDIR/pnpm
     mkdir -p $PNPM_HOME
 
-    # Install without strict engine checks
-    pnpm install --frozen-lockfile --ignore-engines
+    # Install dependencies
+    pnpm install --frozen-lockfile
     pnpm ui:build
     pnpm build
 
