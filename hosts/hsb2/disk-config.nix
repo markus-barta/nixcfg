@@ -25,7 +25,7 @@
           };
           # Root partition (ext4)
           root = {
-            size = "100%";
+            size = "2G"; # Fixed size to ensure enough space for closure
             content = {
               type = "filesystem";
               format = "ext4";
