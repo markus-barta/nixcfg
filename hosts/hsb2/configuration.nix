@@ -10,10 +10,10 @@
 {
   imports = [
     "${modulesPath}/installer/sd-card/sd-image-raspberrypi.nix"
+    # ./disk-config.nix # Temporarily disable disko for native sdImage build to avoid conflicts
     ./hardware-configuration.nix
-    ./disk-config.nix
     ../../modules/uzumaki
-    inputs.disko.nixosModules.disko
+    # inputs.disko.nixosModules.disko
   ];
 
   # ============================================================================
