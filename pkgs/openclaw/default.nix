@@ -44,7 +44,7 @@
 }:
 
 let
-  version = "2026.1.30";
+  version = "2026.1.29";
 in
 stdenv.mkDerivation {
   pname = "openclaw";
