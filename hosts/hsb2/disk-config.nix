@@ -8,30 +8,30 @@
     disk.disk1 = {
       device = lib.mkDefault "/dev/mmcblk0";
       type = "disk";
+      imageSize = "16G"; # Fixed image size to ensure enough space for closure
       content = {
-        type = "table";
-        format = "msdos";
-        partitions = [
-          {
-            name = "boot";
+        type = "gpt";
+        partitions = {
+          # Boot partition (FAT32 for Raspberry Pi bootloader)
+          boot = {
             size = "256M";
-            bootable = true;
+            type = "EF00";
             content = {
               type = "filesystem";
               format = "vfat";
               mountpoint = "/boot";
             };
-          }
-          {
-            name = "root";
+          };
+          # Root partition (ext4)
+          root = {
             size = "100%";
             content = {
               type = "filesystem";
               format = "ext4";
               mountpoint = "/";
             };
-          }
-        ];
+          };
+        };
       };
     };
   };
