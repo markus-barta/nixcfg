@@ -43,8 +43,7 @@ buildNpmPackage {
   inherit version src;
 
   # npmDepsHash will be provided by build failure
-  npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-
+  npmDepsHash = "sha256-XwN7iToEgSSkhVwaPGDayHJoP7d3VG+yYz4rycioMNI=";
   # Don't rebuild - dist/ already contains compiled JS
   dontNpmBuild = true;
 
