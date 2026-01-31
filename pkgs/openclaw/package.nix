@@ -7,6 +7,7 @@
   pnpm_10,
   nodejs_22,
   makeWrapper,
+  jq,
 }:
 
 stdenvNoCC.mkDerivation (finalAttrs: {
@@ -39,7 +40,13 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     pnpm_10
     nodejs_22
     makeWrapper
+    jq
   ];
+
+  postPatch = ''
+    jq '.version = "${finalAttrs.version}"' package.json > package.json.tmp
+    mv package.json.tmp package.json
+  '';
 
   buildPhase = ''
     runHook preBuild
