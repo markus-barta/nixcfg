@@ -56,6 +56,17 @@ stdenv.mkDerivation {
     makeWrapper
   ];
 
+  # Patch package.json to remove packageManager field (prevents pnpm self-download)
+  postPatch = ''
+    # Remove packageManager field which forces specific pnpm version
+    ${nodejs_22}/bin/node -e "
+      const fs = require('fs');
+      const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+      delete pkg.packageManager;
+      fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\\n');
+    "
+  '';
+
   # Prevent pnpm from trying to download itself
   preBuild = ''
     # Disable pnpm self-installation
