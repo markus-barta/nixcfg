@@ -4,6 +4,19 @@
 
 Deploy [OpenClaw](https://openclaw.ai/) (personal AI assistant) on hsb1 in **hybrid mode** — native Gateway with sandboxed tools. This provides full "hands" capability (host tools, browser automation, file access) while maintaining security through per-session sandboxing for untrusted chats.
 
+## Package Source
+
+**Using upstream nix-openclaw flake** (`github:openclaw/nix-openclaw`) - NOT vendored.
+
+This provides:
+
+- Pre-built pnpm-based package (no npm cache issues)
+- Garnix binary cache available (faster builds)
+- Batteries-included: gateway + CLI tools bundle
+- Maintained upstream (proper build scripts, platform support)
+
+**Flake input:** `inputs.nix-openclaw` → `pkgs.openclaw`
+
 ## Goals
 
 - **Full functionality**: AI can manage hsb1 services, edit configs, check Docker containers
@@ -24,7 +37,7 @@ Deploy [OpenClaw](https://openclaw.ai/) (personal AI assistant) on hsb1 in **hyb
 ## Prerequisites
 
 - [x] hsb1 backup validated (latest: Jan 31, snapshot `5f1e7fa7`)
-- [ ] Node.js 22+ available on hsb1 → add `nodejs_22` to systemPackages
+- [x] Node.js 22+ available → included in upstream `nix-openclaw` package
 - [ ] OpenRouter API key (store in 1Password, then encrypt via agenix)
 - [ ] Telegram Bot Token (create via @BotFather, then encrypt via agenix)
 - [ ] Verify `mba` user in `docker` group (for sandbox containers)
@@ -123,7 +136,9 @@ The AI will have access to:
 
 ### Phase 1: Foundation
 
-- [ ] Add `nodejs_22` to `environment.systemPackages` in hsb1 configuration.nix
+- [x] Add `nix-openclaw` flake input to `flake.nix`
+- [x] Update `overlays-local` to use upstream package
+- [x] Remove vendored `pkgs/openclaw/` directory
 - [ ] Add 3 secrets to `secrets/secrets.nix` (see Section 3)
 - [ ] Create agenix secrets: `agenix -e secrets/hsb1-openclaw-*.age`
 - [ ] Add OpenClaw systemd service to `hosts/hsb1/configuration.nix`
