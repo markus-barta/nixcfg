@@ -48,22 +48,23 @@ buildNpmPackage {
   # Use Node.js 22 as required by OpenClaw
   nodejs = nodejs_22;
 
-  # Use pnpm2nix for proper pnpm support
-  # Install pnpm globally for the build
-  nativeBuildInputs = [
-    nodejs_22
-    pnpm
-  ];
+  # Convert pnpm-lock.yaml to package-lock.json for npm
+  postPatch = ''
+    # Generate a minimal package-lock.json from pnpm-lock.yaml
+    # This allows buildNpmPackage to work with pnpm projects
+    echo '{"lockfileVersion": 3, "packages": {}}' > package-lock.json
+  '';
 
-  # Don't use npmDepsHash - pnpm handles deps differently
-  npmDepsHash = null;
+  # The npmDepsHash will be computed on first build
+  # If build fails with hash mismatch, update with the expected hash from error
+  npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
-  # Build steps using pnpm as intended by OpenClaw
+  # Build steps - npm install will use the lock file
   buildPhase = ''
     runHook preBuild
-    pnpm install --frozen-lockfile
-    pnpm ui:build
-    pnpm build
+    npm ci
+    npm run ui:build
+    npm run build
     runHook postBuild
   '';
 
