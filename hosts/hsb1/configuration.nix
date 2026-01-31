@@ -549,6 +549,13 @@
       mkdir -p /home/mba/.openclaw/workspace
       mkdir -p /home/mba/.openclaw/logs
 
+      # Create dummy template files (upstream packaging issue)
+      mkdir -p /home/mba/.openclaw/workspace
+      touch /home/mba/.openclaw/workspace/AGENTS.md
+      touch /home/mba/.openclaw/workspace/SOUL.md
+      touch /home/mba/.openclaw/workspace/TOOLS.md
+      chown -R mba:users /home/mba/.openclaw/workspace
+
       # Always write valid openclaw.json with token from agenix (backup old if exists)
       if [ -f /home/mba/.openclaw/openclaw.json ]; then
         mv /home/mba/.openclaw/openclaw.json /home/mba/.openclaw/openclaw.json.bak.$(date +%s)
