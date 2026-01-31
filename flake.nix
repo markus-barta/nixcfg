@@ -70,6 +70,7 @@
         pingt = final.callPackage ./pkgs/pingt { };
         # OpenClaw - use upstream nix-openclaw package with templates fix
         # Fixes upstream packaging bug where docs/reference/templates are not copied
+        # Note: Must copy (not symlink) lib/ so __dirname resolves correctly for templates
         openclaw =
           let
             upstreamPkg =
@@ -84,19 +85,29 @@
               hash = "sha256-B3QLeNIpigmDR0nKOD2fgdjzGJIMkT7w3LCgwA8yf7Y=";
             };
           in
-          final.symlinkJoin {
-            name = "openclaw-with-templates";
-            paths = [ upstreamPkg ];
-            buildInputs = [ final.makeWrapper ];
-            postBuild = ''
-              # Copy missing templates (upstream packaging bug)
+          final.runCommand "openclaw-with-templates"
+            {
+              nativeBuildInputs = [ final.makeWrapper ];
+              meta = upstreamPkg.meta;
+            }
+            ''
+              mkdir -p $out/bin $out/lib
+
+              # Copy lib directory (not symlink!) so __dirname resolves to our package
+              cp -rL ${upstreamPkg}/lib/openclaw $out/lib/
+
+              # Add missing templates
               mkdir -p $out/lib/openclaw/docs/reference/templates
               cp -r ${templatesSrc}/docs/reference/templates/* $out/lib/openclaw/docs/reference/templates/
 
-              # The wrapper script from upstream works correctly, no need to recreate
+              # Create wrapper pointing to OUR lib directory
+              makeWrapper ${final.nodejs_22}/bin/node $out/bin/openclaw \
+                --add-flags "$out/lib/openclaw/dist/index.js" \
+                --set-default MOLTBOT_NIX_MODE "1" \
+                --set-default CLAWDBOT_NIX_MODE "1"
+
+              ln -s $out/bin/openclaw $out/bin/moltbot
             '';
-            meta = upstreamPkg.meta;
-          };
         ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
