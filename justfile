@@ -579,6 +579,11 @@ nixbit-update-release:
 update-openclaw:
     ./scripts/update-openclaw.sh
 
+# Force OpenClaw update (re-probe hashes even if version unchanged)
+[group('openclaw')]
+update-openclaw-force:
+    OPENCLAW_FORCE=1 ./scripts/update-openclaw.sh
+
 # Evaluate a config for a hostname (default current host)
 eval-config configPath host=hostname *args:
     nix eval .#nixosConfigurations.{{ host }}.config.{{ configPath }} {{ args }}
