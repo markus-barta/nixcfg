@@ -110,6 +110,21 @@ set +e
 # Always capture output to a log file for debugging
 BUILD_OUTPUT=$({ nix build .#openclaw --no-link; } 2>&1 | tee "$LOG_FILE")
 BUILD_EXIT=${PIPESTATUS[0]}
+
+# If the flake doesn't expose openclaw, fall back to a direct nixpkgs callPackage
+if grep -q "does not provide attribute 'packages.x86_64-linux.openclaw'" "$LOG_FILE"; then
+  echo "ℹ️  Flake does not expose openclaw package; falling back to callPackage expression."
+  BUILD_OUTPUT=$({
+    nix build --impure --no-link --expr '
+      let
+        flake = builtins.getFlake (toString ./.);
+        pkgs = flake.inputs.nixpkgs.legacyPackages.x86_64-linux;
+      in
+        pkgs.callPackage ./pkgs/openclaw/package.nix {}
+    '
+  } 2>&1 | tee "$LOG_FILE")
+  BUILD_EXIT=${PIPESTATUS[0]}
+fi
 set -e
 
 # 8. Extract the "got:" hash from the error output
