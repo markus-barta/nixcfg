@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+
+# OpenClaw Autopilot Update Script
+# Designed to run on hsb1 (Linux) from ~/Code/nixcfg
+#
+# Updates version, source hash, and pnpm dependencies hash automatically.
+#
+# IMPORTANT IMPLEMENTATION NOTES:
+# ================================
+# 1. The pnpmDepsHash in package.nix uses a ternary structure:
+#      pnpmDepsHash =
+#        if stdenvNoCC.hostPlatform.isDarwin then
+#          "sha256-DARWIN..."
+#        else
+#          "sha256-LINUX...";
+#    We target the "else" line specifically using line-based sed.
+#
+# 2. To get the correct hash, we must trigger a build failure.
+#    We build the full package (not .pnpmDeps) because the latter
+#    isn't directly exposed. The pnpm fetch phase fails first.
+#
+# 3. The script expects to be run from ~/Code/nixcfg (repo root).
+
+set -euo pipefail
+
+# Ensure we're in the repo root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$REPO_ROOT"
+
+PACKAGE_FILE="pkgs/openclaw/package.nix"
+GITHUB_REPO="openclaw/openclaw"
+
+echo "🦞 OpenClaw Update Autopilot starting..."
+echo "📂 Working directory: $(pwd)"
+
+# Validate package file exists
+if [ ! -f "$PACKAGE_FILE" ]; then
+  echo "❌ Package file not found: $PACKAGE_FILE"
+  exit 1
+fi
+
+# 1. Find latest version from GitHub
+echo "🔍 Fetching latest version from GitHub..."
+LATEST_TAG=$(curl -s "https://api.github.com/repos/$GITHUB_REPO/releases/latest" | jq -r .tag_name)
+
+if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" == "null" ]; then
+  echo "❌ Failed to fetch latest release from GitHub"
+  exit 1
+fi
+
+NEW_VERSION=${LATEST_TAG#v} # remove 'v' prefix
+echo "✨ Latest version: $NEW_VERSION"
+
+# 2. Check if we are already on this version
+CURRENT_VERSION=$(grep 'version = "' "$PACKAGE_FILE" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
+echo "📌 Current version: $CURRENT_VERSION"
+
+if [ "$CURRENT_VERSION" == "$NEW_VERSION" ]; then
+  echo "✅ Already on version $NEW_VERSION. Nothing to do."
+  exit 0
+fi
+
+# 3. Calculate new source hash
+echo "📥 Calculating source hash for v$NEW_VERSION..."
+SRC_URL="https://github.com/$GITHUB_REPO/archive/refs/tags/$LATEST_TAG.tar.gz"
+NEW_SRC_HASH=$(nix-prefetch-url --unpack "$SRC_URL" 2>/dev/null | xargs nix hash convert --hash-algo sha256)
+echo "📦 New source hash: $NEW_SRC_HASH"
+
+# 4. Patch version in package.nix
+echo "📝 Patching version..."
+sed -i "s/version = \"$CURRENT_VERSION\";/version = \"$NEW_VERSION\";/" "$PACKAGE_FILE"
+
+# 5. Patch source hash in package.nix
+# The hash is inside the fetchFromGitHub block
+echo "📝 Patching source hash..."
+OLD_SRC_HASH=$(grep -A5 'src = fetchFromGitHub' "$PACKAGE_FILE" | grep 'hash = "' | sed -E 's/.*"([^"]+)".*/\1/')
+sed -i "s|hash = \"$OLD_SRC_HASH\";|hash = \"$NEW_SRC_HASH\";|" "$PACKAGE_FILE"
+
+# 6. Reset Linux pnpmDepsHash to trigger recalculation
+# Structure in package.nix:
+#   pnpmDepsHash =
+#     if stdenvNoCC.hostPlatform.isDarwin then
+#       "sha256-DARWIN..."    <- line 27
+#     else
+#       "sha256-LINUX...";    <- line 29 (THIS IS WHAT WE TARGET)
+#
+# We use a marker hash that's obviously fake
+FAKE_HASH="sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+echo "🔄 Resetting Linux pnpmDepsHash to trigger probe build..."
+
+# Find the line number of "else" in the pnpmDepsHash block
+ELSE_LINE=$(grep -n "else" "$PACKAGE_FILE" | head -n1 | cut -d: -f1)
+LINUX_HASH_LINE=$((ELSE_LINE + 1))
+
+# Extract current Linux hash for replacement
+CURRENT_LINUX_HASH=$(sed -n "${LINUX_HASH_LINE}p" "$PACKAGE_FILE" | sed -E 's/.*"([^"]+)".*/\1/')
+echo "📌 Current Linux hash: $CURRENT_LINUX_HASH"
+
+# Replace the Linux hash line
+sed -i "${LINUX_HASH_LINE}s|\"$CURRENT_LINUX_HASH\"|\"$FAKE_HASH\"|" "$PACKAGE_FILE"
+
+# 7. Run probe build to get the real pnpmDepsHash
+echo "🏗️ Running probe build (this will fail to reveal the correct hash)..."
+echo "   This may take a minute..."
+set +e
+# Build the full package - it will fail at pnpm deps fetch with hash mismatch
+BUILD_OUTPUT=$(nix build .#openclaw --no-link 2>&1)
+BUILD_EXIT=$?
+set -e
+
+# 8. Extract the "got:" hash from the error output
+echo "🧪 Extracting new hash from build output..."
+GOT_HASH=$(echo "$BUILD_OUTPUT" | grep -oP "got:\s+\Ksha256-[A-Za-z0-9+/=]+" | head -n1)
+
+if [ -z "$GOT_HASH" ]; then
+  echo "❌ Failed to extract hash from build output."
+  echo "   Build exit code: $BUILD_EXIT"
+  echo "   Looking for 'got:' pattern in output..."
+  echo "$BUILD_OUTPUT" | grep -i "got:" || echo "   (no 'got:' found)"
+  echo ""
+  echo "📋 Full build output saved to /tmp/openclaw-update-error.log"
+  echo "$BUILD_OUTPUT" >/tmp/openclaw-update-error.log
+  exit 1
+fi
+
+echo "✅ Found new Linux hash: $GOT_HASH"
+
+# 9. Apply the final hash
+echo "📝 Applying final pnpmDepsHash..."
+sed -i "${LINUX_HASH_LINE}s|\"$FAKE_HASH\"|\"$GOT_HASH\"|" "$PACKAGE_FILE"
+
+# 10. Verify evaluation (fast check, single host)
+echo "🛡️ Verifying flake evaluation for hsb1..."
+if ! just check-host hsb1; then
+  echo "❌ Flake evaluation failed. Check $PACKAGE_FILE for issues."
+  exit 1
+fi
+
+# 11. Commit and Push
+echo "🚀 Committing and pushing changes..."
+git add "$PACKAGE_FILE"
+git commit -m "fix(openclaw): update to $NEW_VERSION"
+git push
+
+echo ""
+echo "🎉 OpenClaw updated to v$NEW_VERSION successfully!"
+echo "   Run 'just switch' on hsb1 to deploy."

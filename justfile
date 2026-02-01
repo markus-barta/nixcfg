@@ -574,6 +574,11 @@ nixbit-hash:
 nixbit-update-release:
     ./scripts/update-nixbit-release.sh
 
+# Update OpenClaw release (hsb1 only)
+[group('openclaw')]
+update-openclaw:
+    ./scripts/update-openclaw.sh
+
 # Evaluate a config for a hostname (default current host)
 eval-config configPath host=hostname *args:
     nix eval .#nixosConfigurations.{{ host }}.config.{{ configPath }} {{ args }}

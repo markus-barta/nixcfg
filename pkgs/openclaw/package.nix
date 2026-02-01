@@ -43,9 +43,12 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     jq
   ];
 
+  # Patch ALL package.json files in the monorepo to fix version 0.0.0 display
   postPatch = ''
-    jq '.version = "${finalAttrs.version}"' package.json > package.json.tmp
-    mv package.json.tmp package.json
+    find . -name "package.json" -type f | while read -r f; do
+      jq '.version = "${finalAttrs.version}"' "$f" > "$f.tmp"
+      mv "$f.tmp" "$f"
+    done
   '';
 
   buildPhase = ''
