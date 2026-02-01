@@ -59,6 +59,9 @@ in
   # Enable bluetooth
   hardware.bluetooth.enable = true;
 
+  # Enable cron daemon (needed for OpenClaw scheduler)
+  services.cron.enable = true;
+
   # Prevent keyboard from triggering power events (power button, suspend, etc.)
   # This is critical for child-keyboard-fun to prevent accidental shutdowns
   services.logind.settings.Login = {
