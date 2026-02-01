@@ -56,8 +56,9 @@ echo "✨ Latest version: $NEW_VERSION"
 CURRENT_VERSION=$(grep 'version = "' "$PACKAGE_FILE" | head -n1 | sed -E 's/.*"([^"]+)".*/\1/')
 echo "📌 Current version: $CURRENT_VERSION"
 
-if [ "$CURRENT_VERSION" == "$NEW_VERSION" ]; then
+if [ "$CURRENT_VERSION" == "$NEW_VERSION" ] && [ "${OPENCLAW_FORCE:-0}" != "1" ]; then
   echo "✅ Already on version $NEW_VERSION. Nothing to do."
+  echo "   Tip: run with OPENCLAW_FORCE=1 to re-probe hashes."
   exit 0
 fi
 
