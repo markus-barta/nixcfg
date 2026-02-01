@@ -43,6 +43,14 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     jq
   ];
 
+  preConfigure = ''
+    export HOME="$TMPDIR"
+    export XDG_DATA_HOME="$TMPDIR/.local/share"
+    export XDG_CACHE_HOME="$TMPDIR/.cache"
+    export PNPM_HOME="$TMPDIR/.local/share/pnpm"
+    mkdir -p "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$PNPM_HOME"
+  '';
+
   # Patch ALL package.json files in the monorepo to fix version 0.0.0 display
   postPatch = ''
     find . -name "package.json" -type f | while read -r f; do
