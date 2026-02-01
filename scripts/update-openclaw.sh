@@ -103,27 +103,32 @@ sed -i "${LINUX_HASH_LINE}s|\"$CURRENT_LINUX_HASH\"|\"$FAKE_HASH\"|" "$PACKAGE_F
 
 # 7. Run probe build to get the real pnpmDepsHash
 echo "🏗️ Running probe build (this will fail to reveal the correct hash)..."
-echo "   This may take a minute..."
+echo "   Expect ~2-8 minutes on hsb1 depending on cache/network."
 LOG_FILE="/tmp/openclaw-update-error.log"
+
+run_probe_build() {
+  local cmd="$1"
+  echo "⏳ Build in progress... (log: $LOG_FILE)"
+  SECONDS=0
+  bash -c "$cmd" 2>&1 | tee "$LOG_FILE" &
+  local pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 15
+    echo "⏳ still running (${SECONDS}s elapsed)"
+  done
+  wait "$pid"
+  return $?
+}
+
 set +e
-# Build the full package - it will fail at pnpm deps fetch with hash mismatch
-# Always capture output to a log file for debugging
-BUILD_OUTPUT=$({ nix build .#openclaw --no-link; } 2>&1 | tee "$LOG_FILE")
-BUILD_EXIT=${PIPESTATUS[0]}
+run_probe_build "nix build .#openclaw --no-link"
+BUILD_EXIT=$?
 
 # If the flake doesn't expose openclaw, fall back to a direct nixpkgs callPackage
 if grep -q "does not provide attribute 'packages.x86_64-linux.openclaw'" "$LOG_FILE"; then
   echo "ℹ️  Flake does not expose openclaw package; falling back to callPackage expression."
-  BUILD_OUTPUT=$({
-    nix build --impure --no-link --expr '
-      let
-        flake = builtins.getFlake (toString ./.);
-        pkgs = flake.inputs.nixpkgs.legacyPackages.x86_64-linux;
-      in
-        pkgs.callPackage ./pkgs/openclaw/package.nix {}
-    '
-  } 2>&1 | tee "$LOG_FILE")
-  BUILD_EXIT=${PIPESTATUS[0]}
+  run_probe_build "nix build --impure --no-link --expr 'let flake = builtins.getFlake (toString ./.); pkgs = flake.inputs.nixpkgs.legacyPackages.x86_64-linux; in pkgs.callPackage ./pkgs/openclaw/package.nix {}'"
+  BUILD_EXIT=$?
 fi
 set -e
 
@@ -135,7 +140,7 @@ if [ -z "$GOT_HASH" ]; then
   echo "❌ Failed to extract hash from build output."
   echo "   Build exit code: $BUILD_EXIT"
   echo "   Looking for 'got:' pattern in output..."
-  echo "$BUILD_OUTPUT" | grep -i "got:" || echo "   (no 'got:' found)"
+  grep -i "got:" "$LOG_FILE" || echo "   (no 'got:' found)"
   echo ""
   echo "📋 Full build output saved to $LOG_FILE"
   exit 1
