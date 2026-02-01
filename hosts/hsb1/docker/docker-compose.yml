@@ -321,13 +321,6 @@ services:
     env_file:
       - /home/mba/secrets/smarthome.env
       - /home/mba/secrets/influxdb3-csb1.env
-    devices:
-      - /dev/input/by-id/usb-flirc.tv_flirc-if01-event-kbd:/dev/input/by-id/usb-flirc.tv_flirc-if01-event-kbd
-    cap_add:
-      - SYS_RAWIO # Necessary for direct device interaction with FLIRC IR-USB-Stick
-    group_add: # group IDs for node-RED to access FLIRC
-      - "174" # input group
-      - "992" # flirc group
     entrypoint: ["/bin/bash", "/scripts/startup.sh"]
     command: ["npm", "start", "--", "--userDir", "/data"]
     logging:

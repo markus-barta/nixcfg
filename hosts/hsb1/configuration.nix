@@ -30,6 +30,7 @@ in
   };
 
   # Allow unfree package for "FLIRC" IR-USB-Module
+  # NOTE: keep disabled unless FLIRC receiver returns to hsb1.
   nixpkgs.config.allowUnfreePredicate =
     pkg:
     builtins.elem (lib.getName pkg) [
@@ -210,8 +211,8 @@ in
   services.fwupd.enable = true;
 
   # Enable FLIRC IR-USB-Module
-  hardware.flirc.enable = true;
-  users.users.mba.extraGroups = [ "plugdev" ];
+  # NOTE: receiver moved off hsb1.
+  hardware.flirc.enable = false;
 
   # OpenClaw template path (custom package includes templates)
   environment.variables.OPENCLAW_TEMPLATES_DIR = "${openclaw}/lib/openclaw/docs/reference/templates";
