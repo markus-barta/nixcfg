@@ -49,6 +49,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     export XDG_CACHE_HOME="$TMPDIR/.cache"
     export PNPM_HOME="$TMPDIR/.local/share/pnpm"
     mkdir -p "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$PNPM_HOME"
+    export NODE_OPTIONS="--dns-result-order=ipv4first ${NODE_OPTIONS-}"
   '';
 
   # Patch ALL package.json files in the monorepo to fix version 0.0.0 display
