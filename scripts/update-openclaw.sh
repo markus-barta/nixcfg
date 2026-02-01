@@ -104,15 +104,17 @@ sed -i "${LINUX_HASH_LINE}s|\"$CURRENT_LINUX_HASH\"|\"$FAKE_HASH\"|" "$PACKAGE_F
 # 7. Run probe build to get the real pnpmDepsHash
 echo "🏗️ Running probe build (this will fail to reveal the correct hash)..."
 echo "   This may take a minute..."
+LOG_FILE="/tmp/openclaw-update-error.log"
 set +e
 # Build the full package - it will fail at pnpm deps fetch with hash mismatch
-BUILD_OUTPUT=$(nix build .#openclaw --no-link 2>&1)
-BUILD_EXIT=$?
+# Always capture output to a log file for debugging
+BUILD_OUTPUT=$({ nix build .#openclaw --no-link; } 2>&1 | tee "$LOG_FILE")
+BUILD_EXIT=${PIPESTATUS[0]}
 set -e
 
 # 8. Extract the "got:" hash from the error output
 echo "🧪 Extracting new hash from build output..."
-GOT_HASH=$(echo "$BUILD_OUTPUT" | grep -oP "got:\s+\Ksha256-[A-Za-z0-9+/=]+" | head -n1)
+GOT_HASH=$(sed -nE 's/.*got:[[:space:]]*(sha256-[A-Za-z0-9+/=]+).*/\1/p' "$LOG_FILE" | head -n1)
 
 if [ -z "$GOT_HASH" ]; then
   echo "❌ Failed to extract hash from build output."
@@ -120,8 +122,7 @@ if [ -z "$GOT_HASH" ]; then
   echo "   Looking for 'got:' pattern in output..."
   echo "$BUILD_OUTPUT" | grep -i "got:" || echo "   (no 'got:' found)"
   echo ""
-  echo "📋 Full build output saved to /tmp/openclaw-update-error.log"
-  echo "$BUILD_OUTPUT" >/tmp/openclaw-update-error.log
+  echo "📋 Full build output saved to $LOG_FILE"
   exit 1
 fi
 
