@@ -167,6 +167,11 @@ docker logs nodered --tail 50
 docker restart nodered
 ```
 
+### FLIRC Receiver (Retired)
+
+- FLIRC receiver was permanently moved off hsb1.
+- Node-RED no longer expects `/dev/input/by-id/usb-flirc.tv_flirc-if01-event-kbd`.
+
 ### Zigbee Devices Not Responding
 
 1. Check Zigbee2MQTT: `docker logs zigbee2mqtt --tail 50`
