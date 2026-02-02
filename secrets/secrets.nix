@@ -153,5 +153,6 @@ in
   "hsb1-openclaw-gateway-token.age".publicKeys = markus ++ hsb1;
   "hsb1-openclaw-telegram-token.age".publicKeys = markus ++ hsb1;
   "hsb1-openclaw-openrouter-key.age".publicKeys = markus ++ hsb1;
+  "hsb1-openclaw-hass-token.age".publicKeys = markus ++ hsb1;
 
 }
