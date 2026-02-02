@@ -519,6 +519,12 @@ in
     owner = "mba";
   };
 
+  age.secrets.hsb1-openclaw-brave-key = {
+    file = ../../secrets/hsb1-openclaw-brave-key.age;
+    mode = "400";
+    owner = "mba";
+  };
+
   # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
