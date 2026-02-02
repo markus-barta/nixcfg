@@ -513,6 +513,12 @@ in
     owner = "mba";
   };
 
+  age.secrets.hsb1-openclaw-hass-token = {
+    file = ../../secrets/hsb1-openclaw-hass-token.age;
+    mode = "400";
+    owner = "mba";
+  };
+
   # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
