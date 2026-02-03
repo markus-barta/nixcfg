@@ -525,6 +525,12 @@ in
     owner = "mba";
   };
 
+  age.secrets.hsb1-openclaw-icloud-password = {
+    file = ../../secrets/hsb1-openclaw-icloud-password.age;
+    mode = "400";
+    owner = "mba";
+  };
+
   # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
