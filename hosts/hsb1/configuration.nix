@@ -219,11 +219,13 @@ in
 
   # Additional system packages
   environment.systemPackages = with pkgs; [
-    # Python environment for debugging
+    # Python environment for debugging and Microsoft Graph integration
     (python3.withPackages (
       ps: with ps; [
         evdev
         paho-mqtt
+        msal
+        requests
       ]
     ))
 
