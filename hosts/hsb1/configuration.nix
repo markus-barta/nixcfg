@@ -244,7 +244,9 @@ in
     openbox # Lightweight window manager
     xorg.xset # X11 user preference utility tool
     pulseaudio # To enable audio forwarding to a homepod
-    openclaw
+    openclaw # Merlin AI assistant
+    vdirsyncer # CalDAV client (for Merlin)
+    khal # CalDAV client (for Merlin)
   ];
 
   # +X11 and VLC kiosk mode configuration
