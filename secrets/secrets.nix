@@ -156,5 +156,8 @@ in
   "hsb1-openclaw-hass-token.age".publicKeys = markus ++ hsb1;
   "hsb1-openclaw-brave-key.age".publicKeys = markus ++ hsb1;
   "hsb1-openclaw-icloud-password.age".publicKeys = markus ++ hsb1;
+  "hsb1-openclaw-m365-client-id.age".publicKeys = markus ++ hsb1;
+  "hsb1-openclaw-m365-tenant-id.age".publicKeys = markus ++ hsb1;
+  "hsb1-openclaw-m365-client-secret.age".publicKeys = markus ++ hsb1;
 
 }

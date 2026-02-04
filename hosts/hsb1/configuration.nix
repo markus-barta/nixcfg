@@ -533,6 +533,24 @@ in
     owner = "mba";
   };
 
+  age.secrets.hsb1-openclaw-m365-client-id = {
+    file = ../../secrets/hsb1-openclaw-m365-client-id.age;
+    mode = "400";
+    owner = "mba";
+  };
+
+  age.secrets.hsb1-openclaw-m365-tenant-id = {
+    file = ../../secrets/hsb1-openclaw-m365-tenant-id.age;
+    mode = "400";
+    owner = "mba";
+  };
+
+  age.secrets.hsb1-openclaw-m365-client-secret = {
+    file = ../../secrets/hsb1-openclaw-m365-client-secret.age;
+    mode = "400";
+    owner = "mba";
+  };
+
   # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
