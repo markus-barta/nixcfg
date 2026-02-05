@@ -12,13 +12,13 @@
 
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "openclaw";
-  version = "2026.1.30";
+  version = "2026.2.3";
 
   src = fetchFromGitHub {
     owner = "openclaw";
     repo = "openclaw";
     tag = "v${finalAttrs.version}";
-    hash = "sha256-L/AUBlpOGf1Hy+OyFE0xXqTTDyfppMckNzHBp7HvKN4=";
+    hash = "sha256-gQwwra9c9ID3O+W/fRNgSXHvjTASYV/lng7d+f1+XT4=";
   };
 
   # pnpm deps differ by platform (optional deps / native bindings)
@@ -26,7 +26,7 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     if stdenvNoCC.hostPlatform.isDarwin then
       "sha256-PCzuuPWqJW7FfGOTcFi0TKFV6TlPcwjyIQz88tsBgtM="
     else
-      "sha256-CqtcNIxYZM9LXNuvhhSSvBPQz6gkoLA11bTybmJMc/w=";
+      "sha256-uOhFo64Y0JmgY4JFjoX6z7M/Vg9mnjBa/oOPWmXz2IU=";
 
   pnpmDeps = fetchPnpmDeps {
     inherit (finalAttrs) pname version src;
