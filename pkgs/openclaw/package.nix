@@ -25,7 +25,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   # pnpm deps differ by platform (optional deps / native bindings)
   pnpmDepsHash =
-    if stdenvNoCC.hostPlatform.isDarwin then
+    if stdenv.hostPlatform.isDarwin then
       "sha256-PCzuuPWqJW7FfGOTcFi0TKFV6TlPcwjyIQz88tsBgtM="
     else
       "sha256-uOhFo64Y0JmgY4JFjoX6z7M/Vg9mnjBa/oOPWmXz2IU=";
