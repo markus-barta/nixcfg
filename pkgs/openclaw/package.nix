@@ -1,6 +1,6 @@
 {
   lib,
-  stdenvNoCC,
+  stdenv,
   fetchFromGitHub,
   fetchPnpmDeps,
   pnpmConfigHook,
@@ -8,9 +8,11 @@
   nodejs_22,
   makeWrapper,
   jq,
+  cmake,
+  python3,
 }:
 
-stdenvNoCC.mkDerivation (finalAttrs: {
+stdenv.mkDerivation (finalAttrs: {
   pname = "openclaw";
   version = "2026.2.3";
 
@@ -41,7 +43,15 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     nodejs_22
     makeWrapper
     jq
+    cmake
+    python3
   ];
+
+  # Force node-llama-cpp to build from source instead of downloading binaries
+  # and prevent it from trying to access the internet during the build phase.
+  # Reference: https://node-llama-cpp.com/guide/installation#environment-variables
+  NODE_LLAMA_CPP_SKIP_BINARY_DOWNLOAD = "1";
+  NODE_LLAMA_CPP_LOCAL_BUILD = "1";
 
   preConfigure = ''
     export HOME="$TMPDIR"
