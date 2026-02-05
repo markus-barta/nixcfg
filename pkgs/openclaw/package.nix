@@ -53,6 +53,8 @@ stdenv.mkDerivation (finalAttrs: {
   NODE_LLAMA_CPP_SKIP_BINARY_DOWNLOAD = "1";
   NODE_LLAMA_CPP_LOCAL_BUILD = "1";
 
+  dontUseCmakeConfigure = true;
+
   preConfigure = ''
     export HOME="$TMPDIR"
     export XDG_DATA_HOME="$TMPDIR/.local/share"
