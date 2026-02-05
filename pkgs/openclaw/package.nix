@@ -10,6 +10,8 @@
   jq,
   cmake,
   python3,
+  git,
+  pkg-config,
 }:
 
 stdenv.mkDerivation (finalAttrs: {
@@ -45,6 +47,8 @@ stdenv.mkDerivation (finalAttrs: {
     jq
     cmake
     python3
+    git
+    pkg-config
   ];
 
   # Force node-llama-cpp to build from source instead of downloading binaries
