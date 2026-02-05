@@ -68,17 +68,18 @@ SRC_URL="https://github.com/$GITHUB_REPO/archive/refs/tags/$LATEST_TAG.tar.gz"
 NEW_SRC_HASH=$(nix-prefetch-url --unpack "$SRC_URL" 2>/dev/null | xargs nix hash convert --hash-algo sha256)
 echo "📦 New source hash: $NEW_SRC_HASH"
 
-# 4. Patch version in package.nix
+# 4. Extract current source hash for later comparison
+OLD_SRC_HASH=$(grep -A5 'src = fetchFromGitHub' "$PACKAGE_FILE" | grep 'hash = "' | sed -E 's/.*"([^"]+)".*/\1/')
+
+# 5. Patch version in package.nix
 echo "📝 Patching version..."
 sed -i "s/version = \"$CURRENT_VERSION\";/version = \"$NEW_VERSION\";/" "$PACKAGE_FILE"
 
-# 5. Patch source hash in package.nix
-# The hash is inside the fetchFromGitHub block
+# 6. Patch source hash in package.nix
 echo "📝 Patching source hash..."
-OLD_SRC_HASH=$(grep -A5 'src = fetchFromGitHub' "$PACKAGE_FILE" | grep 'hash = "' | sed -E 's/.*"([^"]+)".*/\1/')
 sed -i "s|hash = \"$OLD_SRC_HASH\";|hash = \"$NEW_SRC_HASH\";|" "$PACKAGE_FILE"
 
-# 6. Reset Linux pnpmDepsHash to trigger recalculation
+# 7. Reset Linux pnpmDepsHash to trigger recalculation
 # Structure in package.nix:
 #   pnpmDepsHash =
 #     if stdenvNoCC.hostPlatform.isDarwin then
@@ -94,14 +95,14 @@ echo "🔄 Resetting Linux pnpmDepsHash to trigger probe build..."
 ELSE_LINE=$(grep -n "else" "$PACKAGE_FILE" | head -n1 | cut -d: -f1)
 LINUX_HASH_LINE=$((ELSE_LINE + 1))
 
-# Extract current Linux hash for replacement
-CURRENT_LINUX_HASH=$(sed -n "${LINUX_HASH_LINE}p" "$PACKAGE_FILE" | sed -E 's/.*"([^"]+)".*/\1/')
-echo "📌 Current Linux hash: $CURRENT_LINUX_HASH"
+# Extract current Linux hash for replacement/comparison
+OLD_LINUX_HASH=$(sed -n "${LINUX_HASH_LINE}p" "$PACKAGE_FILE" | sed -E 's/.*"([^"]+)".*/\1/')
+echo "📌 Current Linux hash: $OLD_LINUX_HASH"
 
 # Replace the Linux hash line
-sed -i "${LINUX_HASH_LINE}s|\"$CURRENT_LINUX_HASH\"|\"$FAKE_HASH\"|" "$PACKAGE_FILE"
+sed -i "${LINUX_HASH_LINE}s|\"$OLD_LINUX_HASH\"|\"$FAKE_HASH\"|" "$PACKAGE_FILE"
 
-# 7. Run probe build to get the real pnpmDepsHash
+# 8. Run probe build to get the real pnpmDepsHash
 echo "🏗️ Running probe build (this will fail to reveal the correct hash)..."
 echo "   Expect ~2-8 minutes on hsb1 depending on cache/network."
 LOG_FILE="/tmp/openclaw-update-error.log"
@@ -109,12 +110,13 @@ LOG_FILE="/tmp/openclaw-update-error.log"
 run_probe_build() {
   local cmd="$1"
   echo "⏳ Build in progress... (log: $LOG_FILE)"
-  SECONDS=0
+  PROBE_SECONDS=0
   bash -c "$cmd" 2>&1 | tee "$LOG_FILE" &
   local pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     sleep 15
-    echo "⏳ still running (${SECONDS}s elapsed)"
+    PROBE_SECONDS=$((PROBE_SECONDS + 15))
+    echo "⏳ still running (${PROBE_SECONDS}s elapsed)"
   done
   wait "$pid"
   return $?
@@ -132,11 +134,11 @@ if grep -q "does not provide attribute 'packages.x86_64-linux.openclaw'" "$LOG_F
 fi
 set -e
 
-# 8. Extract the "got:" hash from the error output
+# 9. Extract the "got:" hash from the error output
 echo "🧪 Extracting new hash from build output..."
-GOT_HASH=$(sed -nE 's/.*got:[[:space:]]*(sha256-[A-Za-z0-9+/=]+).*/\1/p' "$LOG_FILE" | head -n1)
+NEW_LINUX_HASH=$(sed -nE 's/.*got:[[:space:]]*(sha256-[A-Za-z0-9+/=]+).*/\1/p' "$LOG_FILE" | head -n1)
 
-if [ -z "$GOT_HASH" ]; then
+if [ -z "$NEW_LINUX_HASH" ]; then
   echo "❌ Failed to extract hash from build output."
   echo "   Build exit code: $BUILD_EXIT"
   echo "   Looking for 'got:' pattern in output..."
@@ -146,25 +148,32 @@ if [ -z "$GOT_HASH" ]; then
   exit 1
 fi
 
-echo "✅ Found new Linux hash: $GOT_HASH"
+echo "✅ Found new Linux hash: $NEW_LINUX_HASH"
 
-# 9. Apply the final hash
+# 10. Apply the final hash
 echo "📝 Applying final pnpmDepsHash..."
-sed -i "${LINUX_HASH_LINE}s|\"$FAKE_HASH\"|\"$GOT_HASH\"|" "$PACKAGE_FILE"
+sed -i "${LINUX_HASH_LINE}s|\"$FAKE_HASH\"|\"$NEW_LINUX_HASH\"|" "$PACKAGE_FILE"
 
-# 10. Verify evaluation (fast check, single host)
+# 11. Verify evaluation (fast check, single host)
 echo "🛡️ Verifying flake evaluation for hsb1..."
 if ! just check-host hsb1; then
   echo "❌ Flake evaluation failed. Check $PACKAGE_FILE for issues."
   exit 1
 fi
 
-# 11. Commit and Push
+# 12. Summary message
+SUMMARY="OpenClaw: 🧙🏻‍♂️ Update von $CURRENT_VERSION auf $NEW_VERSION
+- Source: $OLD_SRC_HASH -> $NEW_SRC_HASH
+- PNPM (Linux): $OLD_LINUX_HASH -> $NEW_LINUX_HASH"
+
+# 13. Commit and Push
 echo "🚀 Committing and pushing changes..."
 git add "$PACKAGE_FILE"
-git commit -m "fix(openclaw): update to $NEW_VERSION"
+git commit -m "$SUMMARY"
 git push
 
 echo ""
-echo "🎉 OpenClaw updated to v$NEW_VERSION successfully!"
+echo "🎉 $SUMMARY"
+echo ""
+echo "🎉 OpenClaw updated successfully!"
 echo "   Run 'just switch' on hsb1 to deploy."
