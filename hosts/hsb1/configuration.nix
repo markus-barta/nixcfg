@@ -599,7 +599,10 @@ in
       Type = "simple";
       User = "mba";
       Group = "users";
-      WorkingDirectory = "/home/mba/.openclaw";
+      # WorkingDirectory must be the package lib dir so openclaw's
+      # resolveWorkspaceTemplateDir() finds docs/reference/templates/ via CWD.
+      # Config is found via $HOME/.openclaw/ regardless of CWD.
+      WorkingDirectory = "${openclaw}/lib/openclaw";
       ExecStart = pkgs.writeShellScript "openclaw-gateway-start" ''
         # Load secrets from agenix into env vars that openclaw reads directly
         export OPENCLAW_GATEWAY_TOKEN="$(cat /run/agenix/hsb1-openclaw-gateway-token 2>/dev/null)"
