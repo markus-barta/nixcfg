@@ -95,6 +95,9 @@ stdenv.mkDerivation (finalAttrs: {
 
     cp --reflink=auto -r dist node_modules $libdir/
     cp --reflink=auto -r assets docs skills patches extensions $libdir/ 2>/dev/null || true
+    # package.json is needed for openclaw's resolveOpenClawPackageRoot() to find
+    # the package root and resolve template paths (docs/reference/templates/)
+    cp package.json $libdir/
 
     rm -f $libdir/node_modules/.pnpm/node_modules/clawdbot \
       $libdir/node_modules/.pnpm/node_modules/moltbot \
