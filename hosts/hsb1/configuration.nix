@@ -570,76 +570,54 @@ in
     deviceType = "server";
   };
 
-  /*
-    # ============================================================================
-    # OPENCLAW AI ASSISTANT - Gateway service
-    # ============================================================================
-    systemd.services.openclaw-gateway = {
-      description = "OpenClaw AI Assistant Gateway";
-      after = [ "network.target" ];
-      wantedBy = [ "multi-user.target" ];
+  # ============================================================================
+  # OPENCLAW AI ASSISTANT - Gateway service (declarative, replaces user service)
+  # See: +pm/backlog/P6600-declarative-openclaw-gateway.md
+  #
+  # Secrets are loaded from agenix files at runtime via wrapper script because
+  # openclaw reads env vars directly (OPENCLAW_GATEWAY_TOKEN, TELEGRAM_BOT_TOKEN,
+  # OPENROUTER_API_KEY, BRAVE_API_KEY) — no _FILE suffix support.
+  # ============================================================================
+  systemd.services.openclaw-gateway = {
+    description = "OpenClaw AI Assistant Gateway";
+    after = [
+      "network-online.target"
+      "agenix.service"
+    ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
 
-      serviceConfig = {
-        Type = "simple";
-        User = "mba";
-        Group = "users";
-        WorkingDirectory = "/home/mba/.openclaw";
-        ExecStart = "${openclaw}/bin/openclaw gateway";
-        Restart = "always";
-        RestartSec = "10s";
-        Environment = [
-          "PATH=/run/current-system/sw/bin"
-          # OpenClaw environment variables for secrets
-          "OPENCLAW_GATEWAY_TOKEN_FILE=/run/agenix/hsb1-openclaw-gateway-token"
-          "OPENCLAW_TELEGRAM_TOKEN_FILE=/run/agenix/hsb1-openclaw-telegram-token"
-          "OPENCLAW_OPENROUTER_KEY_FILE=/run/agenix/hsb1-openclaw-openrouter-key"
-          "OPENCLAW_TEMPLATES_DIR=${openclaw}/lib/openclaw/docs/reference/templates"
-        ];
-      };
-
-        # Ensure workspace directory exists and generate valid config
-        preStart = ''
-          mkdir -p /home/mba/.openclaw/workspace
-          mkdir -p /home/mba/.openclaw/logs
-
-          # Create dummy template files (upstream packaging issue)
-          mkdir -p /home/mba/.openclaw/workspace
-          touch /home/mba/.openclaw/workspace/AGENTS.md
-          touch /home/mba/.openclaw/workspace/SOUL.md
-          touch /home/mba/.openclaw/workspace/TOOLS.md
-          chown -R mba:users /home/mba/.openclaw/workspace
-
-          # Always write valid openclaw.json with token from agenix (backup old if exists)
-          if [ -f /home/mba/.openclaw/openclaw.json ]; then
-            mv /home/mba/.openclaw/openclaw.json /home/mba/.openclaw/openclaw.json.bak.$(date +%s)
-          fi
-
-          # Read gateway token from agenix secret
-          GATEWAY_TOKEN=$(cat /run/agenix/hsb1-openclaw-gateway-token 2>/dev/null || echo "")
-
-          cat > /home/mba/.openclaw/openclaw.json << EOF
-          {
-            "gateway": {
-              "mode": "local",
-              "auth": {
-                "token": "$GATEWAY_TOKEN"
-              }
-            },
-            "agents": {
-              "defaults": {
-                "workspace": "/home/mba/.openclaw/workspace"
-              }
-            },
-            "meta": {
-              "lastTouchedVersion": "2026.1.30",
-              "lastTouchedAt": "2026-01-31T00:00:00.000Z"
-            }
-          }
-          EOF
-
-          chown mba:users /home/mba/.openclaw/openclaw.json
-          chmod 600 /home/mba/.openclaw/openclaw.json
-        '';
+    environment = {
+      HOME = "/home/mba";
+      OPENCLAW_TEMPLATES_DIR = "${openclaw}/lib/openclaw/docs/reference/templates";
+      OPENCLAW_SYSTEMD_UNIT = "openclaw-gateway.service";
+      OPENCLAW_SERVICE_MARKER = "openclaw";
+      OPENCLAW_SERVICE_KIND = "gateway";
     };
-  */
+
+    serviceConfig = {
+      Type = "simple";
+      User = "mba";
+      Group = "users";
+      WorkingDirectory = "/home/mba/.openclaw";
+      ExecStart = pkgs.writeShellScript "openclaw-gateway-start" ''
+        # Load secrets from agenix into env vars that openclaw reads directly
+        export OPENCLAW_GATEWAY_TOKEN="$(cat /run/agenix/hsb1-openclaw-gateway-token 2>/dev/null)"
+        export TELEGRAM_BOT_TOKEN="$(cat /run/agenix/hsb1-openclaw-telegram-token 2>/dev/null)"
+        export OPENROUTER_API_KEY="$(cat /run/agenix/hsb1-openclaw-openrouter-key 2>/dev/null)"
+        export BRAVE_API_KEY="$(cat /run/agenix/hsb1-openclaw-brave-key 2>/dev/null)"
+        export PATH="/run/current-system/sw/bin"
+        exec ${openclaw}/bin/openclaw gateway --port 18789
+      '';
+      Restart = "always";
+      RestartSec = "10s";
+    };
+
+    # Ensure workspace directories exist (don't touch openclaw.json — managed by openclaw CLI)
+    preStart = ''
+      mkdir -p /home/mba/.openclaw/workspace
+      mkdir -p /home/mba/.openclaw/logs
+      chown -R mba:users /home/mba/.openclaw/workspace /home/mba/.openclaw/logs
+    '';
+  };
 }
