@@ -353,6 +353,7 @@ ssh mba@192.168.1.101 "journalctl -f"
 | -------------- | ---------------------------- |
 | Home Assistant | <http://192.168.1.101:8123>  |
 | Node-RED       | <http://192.168.1.101:1880>  |
+| OpenClaw       | <http://192.168.1.101:18789> |
 | Zigbee2MQTT    | <http://192.168.1.101:8888>  |
 | Scrypted       | <http://192.168.1.101:10443> |
 | Apprise        | <http://192.168.1.101:8001>  |
@@ -536,6 +537,112 @@ bluetoothctl remove 20:73:00:04:21:4F
 - Device will appear as `/dev/input/eventXX` when connected
 - Used for the child-keyboard-fun system (see P8000 task)
 - Bluetooth keyboards don't appear in `/dev/input/by-id/` - use `/proc/bus/input/devices` to identify
+
+---
+
+## OpenClaw AI Assistant (Merlin)
+
+- **Service**: `openclaw-gateway.service` (system-level, runs as `mba`)
+- **Dashboard**: <http://192.168.1.101:18789>
+- **Telegram bot**: `@merlin_oc_bot`
+- **Config**: `~/.openclaw/openclaw.json` (managed by `openclaw` CLI, don't overwrite)
+- **Workspace**: `~/.openclaw/workspace/`
+- **NixOS config**: `hosts/hsb1/configuration.nix` (declarative systemd service)
+- **PM task**: `+pm/backlog/P6600-declarative-openclaw-gateway.md`
+
+### Quick Status
+
+```bash
+# Service status
+systemctl status openclaw-gateway.service
+
+# Health check
+curl -s http://localhost:18789/health
+
+# Logs (systemd)
+sudo journalctl -u openclaw-gateway -f
+
+# Logs (openclaw file log)
+tail -f /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log
+```
+
+### Service Architecture
+
+The gateway runs as a **declarative NixOS system service** (not a user service).
+Secrets are loaded from agenix via a wrapper script that exports env vars:
+
+| Env Var                  | Agenix Source                              |
+| ------------------------ | ------------------------------------------ |
+| `OPENCLAW_GATEWAY_TOKEN` | `/run/agenix/hsb1-openclaw-gateway-token`  |
+| `TELEGRAM_BOT_TOKEN`     | `/run/agenix/hsb1-openclaw-telegram-token` |
+| `OPENROUTER_API_KEY`     | `/run/agenix/hsb1-openclaw-openrouter-key` |
+| `BRAVE_API_KEY`          | `/run/agenix/hsb1-openclaw-brave-key`      |
+
+`OPENCLAW_TEMPLATES_DIR` is set via `environment` block in the service.
+`WorkingDirectory` is the nix store package dir (required for template resolution).
+
+### Restart / Recover
+
+```bash
+sudo systemctl restart openclaw-gateway.service
+```
+
+### Troubleshooting: "All models failed / Provider in cooldown"
+
+**Symptom**: `Provider openrouter is in cooldown (all profiles unavailable) (rate_limit)` — persists across restarts.
+
+**Root cause**: openclaw stores API keys + cooldown state in `~/.openclaw/agents/main/agent/auth-profiles.json`. If an old/exhausted key is stored there, it takes precedence over the `OPENROUTER_API_KEY` env var. When billing limits are hit, openclaw disables the profile for hours (`disabledUntil`).
+
+**Diagnosis**:
+
+```bash
+# Check stored auth profiles for stale keys or cooldown state
+cat ~/.openclaw/agents/main/agent/auth-profiles.json
+
+# Look for: "disabledUntil", "disabledReason", or a "key" field with an old API key
+# Verify the env var key works directly:
+curl -s https://openrouter.ai/api/v1/auth/key \
+  -H "Authorization: Bearer $(cat /run/agenix/hsb1-openclaw-openrouter-key)"
+```
+
+**Fix**:
+
+```bash
+# Edit auth-profiles.json:
+# 1. Remove the "key" field from profiles.openrouter:default (let env var take over)
+# 2. Remove "disabledUntil" and "disabledReason" from usageStats
+# 3. Reset "errorCount" to 0 and "failureCounts" to {}
+nano ~/.openclaw/agents/main/agent/auth-profiles.json
+
+# Then restart
+sudo systemctl restart openclaw-gateway.service
+```
+
+**Prevention**: After rotating the OpenRouter API key in agenix, always check `auth-profiles.json` for a stale stored key. The env var only works if the profile has no `key` field.
+
+### Troubleshooting: "Missing workspace template: AGENTS.md"
+
+**Symptom**: Error in dashboard/chat: `Missing workspace template: AGENTS.md (/home/mba/.openclaw/docs/reference/templates/AGENTS.md)`
+
+**Root cause**: openclaw resolves templates relative to `process.cwd()`. If WorkingDirectory is `~/.openclaw/`, it looks for `~/.openclaw/docs/reference/templates/` which doesn't exist. Templates live in the nix store package.
+
+**Fix**: The NixOS service sets `WorkingDirectory` to the nix store package dir where `docs/reference/templates/` exists. If this recurs after `openclaw doctor` regenerates a user service, disable the user service and ensure the system service is active:
+
+```bash
+systemctl --user disable --now openclaw-gateway.service 2>/dev/null
+rm -f ~/.config/systemd/user/openclaw-gateway.service
+sudo systemctl restart openclaw-gateway.service
+```
+
+### Do NOT Run `openclaw doctor` Fixes
+
+`openclaw doctor` may offer to "fix" the gateway service config. **Do not accept** — it creates a user-level systemd service that lacks:
+
+- Agenix secret injection
+- Correct `OPENCLAW_TEMPLATES_DIR`
+- Correct `WorkingDirectory` for template resolution
+
+The declarative NixOS system service handles all of this. If `doctor` breaks things, re-run `sudo nixos-rebuild switch --flake .#hsb1` to restore the correct service.
 
 ---
 

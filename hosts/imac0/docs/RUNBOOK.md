@@ -143,6 +143,14 @@ csb1                          # → ssh mba@cs1.barta.cm:2222 with zellij
 
 ---
 
+## Manual Installs (not in Nix or Homebrew)
+
+| App                  | Source                                                                          | Notes                                                                                                                                                                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Syntax Highlight** | [GitHub releases](https://github.com/sbarex/SourceCodeSyntaxHighlight/releases) | Quick Look extension for source files. Brew cask deprecated (Gatekeeper). Download zip, unpack to `/Applications/`, run `xattr -cr` to clear quarantine. Has Sparkle auto-update. Enable QL extension in System Settings > Privacy & Security > Extensions. |
+
+---
+
 ## Package Managers
 
 | Manager      | Purpose                            | Count         |
