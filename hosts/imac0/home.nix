@@ -155,6 +155,7 @@ in
 
     # macOS-specific abbreviations (merged with uzumaki's shellAbbrs)
     shellAbbrs = {
+      c = "codium ."; # Open Codium editor
       flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
     };
   };
