@@ -146,9 +146,7 @@ in
     };
 
     # macOS-specific abbreviations (merged with uzumaki's)
-    shellAbbrs = {
-      flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
-    };
+    shellAbbrs = macosCommon.fishConfig.shellAbbrs;
   };
 
   # ============================================================================
