@@ -14,20 +14,22 @@ Temperature data from 3 ESP32 controllers (with DS18B20 sensors) is currently fl
 The data structure from the ESP32s is nested JSON, which needs careful parsing in HA.
 
 **Current Setup:**
+
 - **ESP32-1**: 1 sensor (Dachboden) + RSSI
 - **ESP32-2**: 1 sensor (Kellerraum) + RSSI
 - **ESP32-3**: 8 sensors (Heizung/WW/Außen) + RSSI
 
 **Example Data (parsed JSON):**
+
 ```json
 // Topic: esp32-3/ds18b20/temperature/#
 {
   "0": 39.3125, // Heizkörperkreis Rücklauftemperatur
-  "1": -0.125,  // Heizraum Außentemperatur
-  "2": 15.5,    // Warmwasserwärmepumpe Austrittstemperatur
+  "1": -0.125, // Heizraum Außentemperatur
+  "2": 15.5, // Warmwasserwärmepumpe Austrittstemperatur
   "3": 42.8125, // Heizkörperkreis-Vorlauftemperatur
   "4": 19.4375, // Heizraum Innentemperatur
-  "5": 32.75,   // Fußbodenheizungskreis-Vorlauftemperatur
+  "5": 32.75, // Fußbodenheizungskreis-Vorlauftemperatur
   "6": 45.0625, // Warmwasserwärmepumpe Wassertemperatur
   "7": 31.4375, // Fußbodenheizungskreis-Rücklauftemperatur
   "rssi": -79
@@ -75,10 +77,12 @@ mqtt:
 ## Implementation Steps
 
 ### 1. Backup
+
 - Create a full backup in HA (Settings > System > Backups).
 - Download the backup and save the encryption key.
 
 ### 2. Configuration
+
 - Edit `configuration.yaml`.
 - Define all sensors for ESP32-1, ESP32-2, and ESP32-3.
 - **CRITICAL**: Assign a `unique_id` to every sensor (e.g., `hsb8_esp32_1_temp`).
@@ -86,9 +90,11 @@ mqtt:
 - Use the correct `state_topic` (without the `#` wildcard).
 
 ### 3. Dashboard
+
 - Since sensors are now part of a device, you can use the "Add to Dashboard" button directly from the Device page in HA.
 
 ### 4. Verification
+
 - Restart Home Assistant or reload MQTT entities.
 - Check "Settings > Devices & Services > Devices" for the new ESP32 entries.
 - Verify that icons/names can be changed via the UI.
@@ -106,6 +112,7 @@ mqtt:
 ---
 
 ## Notes
+
 - **Variante B** from the chat is mostly correct, but needs bracket notation for numeric keys: `value_json['0']`.
 - Topic should be specific (e.g., `esp32-3/ds18b20/temperature`) rather than using wildcards if possible.
 - If the ESP32s send data to sub-topics (e.g., `.../temperature/0`), then **Variante A** would be the way, but the JSON example suggests a single object.

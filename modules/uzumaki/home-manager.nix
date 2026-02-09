@@ -39,14 +39,16 @@ let
   # ════════════════════════════════════════════════════════════════════════════
   # Extract function data (name + description) from all functions
   helpfishFunctionList = lib.concatStringsSep "\n" (
-    lib.mapAttrsToList (name: def: 
-      ''printf " $color_func%-12s$color_reset %-58s\n" "${name}" "${def.description}"''
+    lib.mapAttrsToList (
+      name: def: ''printf " $color_func%-12s$color_reset %-58s\n" "${name}" "${def.description}"''
     ) fishFunctions
   );
 
   # Replace @FUNCTION_LIST@ placeholder in helpfish body
   helpfishWithDynamicList = fishFunctions.helpfish // {
-    body = lib.replaceStrings ["@FUNCTION_LIST@"] [helpfishFunctionList] fishFunctions.helpfish.body;
+    body =
+      lib.replaceStrings [ "@FUNCTION_LIST@" ] [ helpfishFunctionList ]
+        fishFunctions.helpfish.body;
   };
 
 in

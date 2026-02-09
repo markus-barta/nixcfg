@@ -274,10 +274,10 @@ ssh mba@192.168.1.100 "journalctl -f"
 
 ## User Access
 
-| User  | Role                     | SSH Key          | Telegram Chat ID |
-| ----- | ------------------------ | ---------------- | ---------------- |
-| `gb`  | Owner/Primary Operator (Gerhard) | Personal RSA key | 873192422        |  # Preferred for ww87 ops (HA/Docker)
-| `mba` | Secondary Admin (Markus) | Personal RSA key | 855566964        |  # Backup access; check keys if denied
+| User  | Role                             | SSH Key          | Telegram Chat ID |
+| ----- | -------------------------------- | ---------------- | ---------------- | ------------------------------------- |
+| `gb`  | Owner/Primary Operator (Gerhard) | Personal RSA key | 873192422        | # Preferred for ww87 ops (HA/Docker)  |
+| `mba` | Secondary Admin (Markus)         | Personal RSA key | 855566964        | # Backup access; check keys if denied |
 
 Both users have passwordless sudo.
 
