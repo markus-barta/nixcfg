@@ -1,4 +1,6 @@
-# 🌀 Deployment Status
+# 🌀 Deployment Status [DEPRECATED]
+
+Note: This document is deprecated as of 2026-01-01. Nixfleet (fleet.barta.cm) is used for status for tracking.
 
 ## Current Repository
 
