@@ -37,9 +37,9 @@ A minimal CRUD web application for project and issue tracking. Think "RedBan-lit
 
 ### Scale
 
-- ~30 projects/year
-- ~15 users
-- ~100-300 issues/project
+- <50 projects/year
+- <50 users
+- <300 issues/project
 - Single-digit concurrent users
 
 ---
