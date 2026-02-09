@@ -21,15 +21,15 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 - PRs: use `gh pr view/diff` (no URLs).
 - Only edit AGENTS when user says "edit AGENTS.md"
 - Guardrails: use `trash` for deletes, never `rm -rf`.
-- Web: search early; quote exact errors; prefer 2024–2025 sources.
-- Style: telegraph. Drop filler/grammar. Min tokens.
+- Web: search early; quote exact errors; prefer 2026+ sources, fallback to 2025+, then older results.
+- Style: Friendly telegraph. Drop filler/grammar. Min tokens.
 
 ## Screenshots ("use a screenshot")
 
 - Pick newest PNG in `~/Desktop` or `~/Downloads`.
 - Verify it's the right UI (ignore filename).
 - Size check: `sips -g pixelWidth -g pixelHeight <file>`.
-- Optimize: for macOS `imageoptim <file>`; on Linux `image_optim <file>`.
+- Optimize: for macOS `imageoptim <file>` on Linux `image_optim <file>` - STOP and tell user if the tool is missing.
 
 ## Important Locations
 
@@ -49,7 +49,6 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 - Start: run `just --list` to see available commands; read docs before coding.
 - Follow links until domain makes sense; honor existing patterns.
 - Keep notes short; update docs when behavior/API changes (no ship w/o docs).
-- Model preference (descending): Claude Opus 4.5, Gemini 3 Flash, Composer 1 (Cursor).
 
 ## Markdown Policy
 
@@ -105,7 +104,7 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 
 **Before every commit:** `git diff` to scan for secrets; `git status` to verify files.
 
-**If secrets committed:** STOP → `git reset --soft HEAD~1` → rotate credential → if pushed, assume compromised.
+**If secrets committed:** STOP AND IMMEDIATELY TELL USER, then discuss → rotate credential → if pushed, assume compromised.
 
 **AI responsibility:** Detect potential secret → STOP → alert user → suggest env var → wait for confirmation.
 
@@ -133,11 +132,10 @@ When user wants to modify encrypted content:
 ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 ```
 
-## Starship Config
-
 ## Critical Thinking
 
 - **Clarity over speed**: If uncertain, ask before proceeding. Better one question than three bugs.
+- **Always verify the full context of edits!** Read before replacing.
 - Fix root cause (not band-aid).
 - Unsure: read more code; if still stuck, ask w/ short options.
 - Conflicts: call out; pick safer path.
