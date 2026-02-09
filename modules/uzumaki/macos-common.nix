@@ -116,6 +116,7 @@ in
     # Abbreviations - merge uzumaki config with macOS-specific abbreviations
     # SSH shortcuts (hsb0, hsb1, hsb8, gpc0, csb0, csb1) are in uzumaki/fish/config.nix
     shellAbbrs = fishConfig.fishAbbrs // {
+      co = "codium ."; # Open Codium editor
       flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
     };
   };
