@@ -17,6 +17,7 @@ The parents' home has a Raspberry Pi 4 (`p4-1` at `192.168.1.11`) running Grafan
 4. Ensure data continuity during the migration
 
 **Current State (p4-1):**
+
 - **Hostname**: p4-1
 - **IP**: 192.168.1.11
 - **Services**: Grafana + InfluxDB (likely Docker-based)
@@ -24,6 +25,7 @@ The parents' home has a Raspberry Pi 4 (`p4-1` at `192.168.1.11`) running Grafan
 - **Status**: Running, needs migration
 
 **Target State (hsb8):**
+
 - **IP**: 192.168.1.100 (already configured)
 - **Services**: Grafana + InfluxDB (native NixOS or Docker)
 - **Integration**: Works with existing hsb8 services (AdGuard Home, Home Assistant)
@@ -60,6 +62,7 @@ p4-1 (192.168.1.11)                    hsb8 (192.168.1.100)
 ### Implementation Options
 
 **Option A: Native NixOS Services** (Preferred for hsb8)
+
 ```nix
 services.grafana = {
   enable = true;
@@ -75,6 +78,7 @@ services.influxdb2 = {
 ```
 
 **Option B: Docker Compose** (If data migration is complex)
+
 - Use Docker for easier data volume migration
 - Match p4-1's Docker setup if it exists
 - Later refactor to native NixOS if desired
@@ -103,6 +107,7 @@ services.influxdb2 = {
 **Manual Tests:**
 
 1. **Inventory Services**
+
    ```bash
    ssh pi@192.168.1.11
    docker ps  # or systemctl status
@@ -110,12 +115,14 @@ services.influxdb2 = {
    ```
 
 2. **Export Grafana Dashboards**
+
    ```bash
    # Via Grafana API or UI export
    # Save all dashboards to archive
    ```
 
 3. **Export InfluxDB Data**
+
    ```bash
    # Use InfluxDB export tools
    # Backup all buckets
@@ -255,7 +262,7 @@ networking.firewall.allowedTCPPorts = [ 3000 8086 ];
 
 ```yaml
 # /home/gb/docker/docker-compose.yml (or similar)
-version: '3'
+version: "3"
 services:
   grafana:
     image: grafana/grafana:latest
@@ -265,7 +272,7 @@ services:
       - grafana-data:/var/lib/grafana
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=...
-      
+
   influxdb:
     image: influxdb:2.7
     ports:
@@ -283,6 +290,7 @@ services:
 ### Step 3: Data Migration
 
 **InfluxDB Data:**
+
 ```bash
 # On hsb8, after InfluxDB is running
 # Export from p4-1
@@ -293,6 +301,7 @@ influx export all --file export.txt
 ```
 
 **Grafana Dashboards:**
+
 ```bash
 # Import via API
 curl -X POST http://localhost:3000/api/dashboards/db \
@@ -315,6 +324,7 @@ curl -X POST http://localhost:3000/api/dashboards/db \
    - Confirm no errors
 
 2. **Power down p4-1**
+
    ```bash
    ssh pi@192.168.1.11
    sudo shutdown now
@@ -329,15 +339,16 @@ curl -X POST http://localhost:3000/api/dashboards/db \
 
 ## Risk Assessment
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| **Data loss during migration** | 🔴 High | Multiple backups, test restore on staging |
-| **Service downtime** | 🟡 Medium | Migrate during low-activity hours, keep p4-1 running until verification |
-| **Configuration mismatch** | 🟡 Medium | Document p4-1 config thoroughly before migration |
-| **Network issues** | 🟢 Low | hsb8 already on same network, static IP configured |
-| **Resource constraints** | 🟢 Low | hsb8 has 7.7GB RAM, 99GB disk free - should be sufficient |
+| Risk                           | Impact    | Mitigation                                                              |
+| ------------------------------ | --------- | ----------------------------------------------------------------------- |
+| **Data loss during migration** | 🔴 High   | Multiple backups, test restore on staging                               |
+| **Service downtime**           | 🟡 Medium | Migrate during low-activity hours, keep p4-1 running until verification |
+| **Configuration mismatch**     | 🟡 Medium | Document p4-1 config thoroughly before migration                        |
+| **Network issues**             | 🟢 Low    | hsb8 already on same network, static IP configured                      |
+| **Resource constraints**       | 🟢 Low    | hsb8 has 7.7GB RAM, 99GB disk free - should be sufficient               |
 
 **Rollback Plan:**
+
 - Keep p4-1 powered off but intact for 1 week post-migration
 - If issues arise: power on p4-1, update DNS to point back to .11
 - NixOS rollback on hsb8 if configuration issues
@@ -363,20 +374,24 @@ curl -X POST http://localhost:3000/api/dashboards/db \
 ## Notes
 
 ### Data Volume Estimation
+
 - Need to check p4-1: `du -sh /var/lib/influxdb` or `docker volume ls -q | xargs docker volume inspect`
 - hsb8 has 99GB free - should accommodate historical data
 
 ### Service Ports
+
 - **Grafana**: 3000 (HTTP)
 - **InfluxDB**: 8086 (HTTP)
 - Both will be exposed on hsb8 (192.168.1.100)
 
 ### Security Considerations
+
 - Use agenix for admin passwords and tokens
 - Consider firewall rules (only allow from local network)
 - Update any client configurations that point to p4-1
 
 ### Timing
+
 - Best done during low-activity period (evening/night)
 - Coordinate with family to avoid disrupting monitoring
 - Allow 2-4 hours for complete migration
@@ -385,4 +400,3 @@ curl -X POST http://localhost:3000/api/dashboards/db \
 
 **Last Updated**: 2026-01-07  
 **Created By**: SYSOP (via user request)
-
