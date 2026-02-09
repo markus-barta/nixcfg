@@ -1,0 +1,123 @@
+# Headscale Configuration
+# https://headscale.net/stable/ref/configuration/
+#
+# CRITICAL: This server is behind Traefik reverse proxy.
+# - TLS is handled by Traefik (not Headscale)
+# - WebSockets must be supported by Traefik
+# - Do NOT use Cloudflare proxy (breaks WebSocket POSTs)
+
+# Server URL that clients will connect to
+# Must match the DNS record (DNS-only, NOT Cloudflare-proxied)
+server_url: https://hs.barta.cm
+
+# Address to listen on inside the container
+# 0.0.0.0:8080 allows Traefik to connect via Docker network
+listen_addr: 0.0.0.0:8080
+
+# Metrics endpoint (internal only, not exposed)
+metrics_listen_addr: 0.0.0.0:9090
+
+# TLS handled by Traefik - disable in Headscale
+tls_cert_path: ""
+tls_key_path: ""
+
+# gRPC admin interface (disabled - use Unix socket instead)
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+
+# Noise protocol private key (auto-generated on first start)
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+# IP prefixes for tailnet addresses
+# These are Tailscale's reserved ranges - do not change
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+# DERP relay servers
+# Phase 1: Use Tailscale's public DERP servers only
+# Phase 2: Enable embedded DERP for better NAT traversal
+derp:
+  server:
+    enabled: false
+    # When enabled, configure:
+    # region_id: 999
+    # region_code: "csb0"
+    # region_name: "csb0 Headscale DERP"
+    # stun_listen_addr: "0.0.0.0:3478"
+    # private_key_path: /var/lib/headscale/derp_server_private.key
+    # ipv4: 89.58.63.96
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+  paths: []
+  auto_update_enabled: true
+  update_frequency: 3h
+
+# Database configuration
+# SQLite is recommended for single-server deployments
+database:
+  type: sqlite
+  debug: false
+  gorm:
+    prepare_stmt: true
+    parameterized_queries: true
+    skip_err_record_not_found: true
+    slow_threshold: 1000
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+    wal_autocheckpoint: 1000
+
+# Disable update checks (managed via Docker image updates)
+disable_check_updates: true
+
+# Ephemeral node cleanup
+ephemeral_node_inactivity_timeout: 30m
+
+# DNS / MagicDNS configuration
+dns:
+  magic_dns: true
+  # Base domain for MagicDNS
+  # Hosts will be: <hostname>.ts.barta.cm
+  # NOTE: Must differ from server_url domain
+  base_domain: ts.barta.cm
+  # Don't override local DNS - home hosts rely on hsb0 AdGuard
+  override_local_dns: false
+  nameservers:
+    global:
+      - 1.1.1.1
+      - 1.0.0.1
+      - 2606:4700:4700::1111
+      - 2606:4700:4700::1001
+  split: {}
+  search_domains: []
+  extra_records: []
+
+# Unix socket for CLI access
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"
+
+# ACL policy (file-based)
+# Start with empty ACLs (allow all)
+# Future: configure granular access control
+policy:
+  mode: file
+  path: ""
+
+# Disable Tailscale's logtail telemetry
+logtail:
+  enabled: false
+
+# Randomize client WireGuard port (optional workaround for strict firewalls)
+randomize_client_port: false
+
+# Taildrop (file sharing between nodes)
+taildrop:
+  enabled: true
+
+# Logging configuration
+log:
+  level: info
+  format: text
