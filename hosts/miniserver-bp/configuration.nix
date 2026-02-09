@@ -1,4 +1,9 @@
-{ pkgs, lib, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  ...
+}:
 
 {
   imports = [
@@ -69,28 +74,30 @@
   ];
 
   # ==========================================================================
+  # AGENIX SECRETS
+  # ==========================================================================
+
+  age.secrets.miniserver-bp-wireguard-key.file = ../../secrets/miniserver-bp-wireguard-key.age;
+
+  # ==========================================================================
   # WIREGUARD VPN
   # ==========================================================================
 
   # VPN for remote access from home
   # Allows SSH jump to mba-imac-work (10.17.1.7)
-  # TODO: Enable after copying wireguard-private.key to /etc/nixos/secrets/
-  # networking.wireguard.interfaces.wg0 = {
-  #   ips = [ "10.100.0.51/32" ];
-  #
-  #   # Private key copied by nixos-anywhere --extra-files
-  #   privateKeyFile = "/etc/nixos/secrets/wireguard-private.key";
-  #
-  #   peers = [
-  #     {
-  #       # BYTEPOETS VPN server
-  #       publicKey = "TZHbPPkIaxlpLKP2frzJl8PmOjYaRnfz/MqwCS7JDUQ=";
-  #       endpoint = "vpn.bytepoets.net:51820";
-  #       allowedIPs = [ "10.100.0.0/24" ];
-  #       persistentKeepalive = 25;
-  #     }
-  #   ];
-  # };
+  networking.wireguard.interfaces.wg0 = {
+    ips = [ "10.100.0.51/32" ];
+    privateKeyFile = config.age.secrets.miniserver-bp-wireguard-key.path;
+    peers = [
+      {
+        # BYTEPOETS VPN server
+        publicKey = "TZHbPPkIaxlpLKP2frzJl8PmOjYaRnfz/MqwCS7JDUQ=";
+        endpoint = "vpn.bytepoets.net:51820";
+        allowedIPs = [ "10.100.0.0/24" ];
+        persistentKeepalive = 25;
+      }
+    ];
+  };
 
   # ==========================================================================
   # SSH SERVER

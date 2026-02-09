@@ -53,6 +53,10 @@ let
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpykoFcMPeCtWH3aColM4fzCsslUxaHwW9DHSTi2Fr3"
   ];
 
+  miniserver-bp = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGj56E7xRa8qaNM9Pt9wf9+bQElsZ5C/DQcR/aJ6Uyak root@miniserver-bp"
+  ];
+
 in
 {
   # ============================================================================
@@ -81,7 +85,8 @@ in
   # Format: NIXFLEET_TOKEN=xxx (for NixOS EnvironmentFile)
   # Edit: agenix -e secrets/nixfleet-token.age
   # TODO: Rename to shared-nixfleet-token.age
-  "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0;
+  "nixfleet-token.age".publicKeys =
+    markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0 ++ miniserver-bp;
 
   # Uptime Kuma environment variables (for Apprise tokens)
   # Format: KEY=VALUE lines
@@ -159,5 +164,9 @@ in
   "hsb1-openclaw-m365-client-id.age".publicKeys = markus ++ hsb1;
   "hsb1-openclaw-m365-tenant-id.age".publicKeys = markus ++ hsb1;
   "hsb1-openclaw-m365-client-secret.age".publicKeys = markus ++ hsb1;
+
+  # WireGuard private key for miniserver-bp (BYTEPOETS VPN)
+  # Edit: agenix -e secrets/miniserver-bp-wireguard-key.age
+  "miniserver-bp-wireguard-key.age".publicKeys = markus ++ miniserver-bp;
 
 }
