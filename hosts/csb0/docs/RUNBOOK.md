@@ -36,6 +36,7 @@ ssh mba@89.58.63.96 -p 2222
 ║ 🌐 SERVICES                                                ║
 ║ • Node-RED:    https://home.barta.cm                       ║
 ║ • Bitwarden:   https://bitwarden.barta.cm (TEST ONLY)      ║
+║ • Headscale:   https://hs.barta.cm (VPN control)           ║
 ║ • MQTT:        mosquitto.barta.cm:8883 (TLS)               ║
 ║ • Telegram:    t.me/csb0bot                                ║
 ╠════════════════════════════════════════════════════════════╣
@@ -61,7 +62,7 @@ ssh mba@89.58.63.96 -p 2222
 ```bash
 # One-liner: container count, disk usage, load
 ssh mba@cs0.barta.cm -p 2222 "docker ps | wc -l && df -h / | tail -1 && uptime"
-# Expected: 9 containers, <20% disk, load <1.0
+# Expected: 10 containers, <20% disk, load <1.0
 
 # Check container health
 ssh mba@cs0.barta.cm -p 2222 "docker ps --filter 'status=exited'"
@@ -128,6 +129,7 @@ docker-upf  # Custom fish abbreviation for force-recreate
 | csb0-nodered-1             | Smart home automation (CRITICAL) | `/var/lib/csb0-docker/nodered`     |
 | csb0-traefik-1             | Reverse proxy                    | `/var/lib/csb0-docker/traefik`     |
 | csb0-uptime-kuma-1         | Monitoring                       | `/var/lib/csb0-docker/uptime-kuma` |
+| headscale                  | VPN control server (Tailscale)   | Docker volume `headscale-data`     |
 | csb0-restic-cron-hetzner-1 | Backup manager                   | -                                  |
 
 ### Backup & Restore Logic
@@ -177,6 +179,7 @@ Service Not Responding?
 ```
 Node-RED down → docker restart csb0-nodered-1
 MQTT down → docker restart csb0-mosquitto-1 (⚠️ affects csb1!)
+Headscale down → docker restart headscale (VPN clients reconnect automatically)
 Backup failed → docker logs csb0-restic-cron-hetzner-1
 Telegram bot → Re-register webhook (see SECRETS.md for token)
 High load → Check docker stats (find heavy container)
@@ -411,6 +414,59 @@ Both `csb0` and `hsb1` use the SAME `@janischhofweg22bot` token:
 
 ---
 
+## Headscale (VPN Control Server)
+
+Self-hosted Tailscale control server. Manages mesh VPN for all infrastructure hosts.
+
+- **URL**: <https://hs.barta.cm>
+- **Container**: `headscale`
+- **Config**: `~/Code/nixcfg/hosts/csb0/docker/headscale/config/config.yaml`
+- **Data**: Docker volume `headscale-data` (SQLite DB + private keys)
+- **DNS**: `hs.barta.cm` must be **DNS-only** in Cloudflare (NOT proxied - breaks WebSocket POSTs)
+
+### Common Commands
+
+```bash
+# List users
+docker exec headscale headscale users list
+
+# List connected nodes
+docker exec headscale headscale nodes list
+
+# Create new user
+docker exec headscale headscale users create <username>
+
+# Generate pre-auth key (reusable, 24h expiry)
+docker exec headscale headscale preauthkeys create --user <username> --reusable --expiration 24h
+
+# Check config validity
+docker exec headscale headscale configtest
+
+# View logs
+docker logs headscale --tail 50
+```
+
+### Connect a New Device
+
+```bash
+# macOS (use the .app CLI, NOT brew's tailscale)
+/Applications/Tailscale.app/Contents/MacOS/Tailscale up --login-server https://hs.barta.cm --authkey <KEY>
+
+# Linux
+tailscale up --login-server https://hs.barta.cm --authkey <KEY>
+```
+
+### Troubleshooting
+
+```
+Headscale unhealthy → docker logs headscale (check for DB or config errors)
+TLS cert missing → Check Cloudflare DNS is DNS-only (gray cloud); restart Traefik
+Nodes can't connect → Verify hs.barta.cm resolves to 89.58.63.96 (not Cloudflare IP)
+After restart → Nodes reconnect automatically (no action needed)
+```
+
+---
+
 ## Maintenance
 
 ### Clean Up Disk Space
@@ -437,6 +493,7 @@ ssh mba@cs0.barta.cm -p 2222 "journalctl -f"
 | --------- | ---------------------------------------- |
 | Node-RED  | <https://home.barta.cm>                  |
 | Bitwarden | <https://bitwarden.barta.cm> (TEST ONLY) |
+| Headscale | <https://hs.barta.cm>                    |
 | MQTT      | mosquitto.barta.cm:8883 (TLS)            |
 
 ---

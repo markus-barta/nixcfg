@@ -2,7 +2,7 @@
 
 **Created**: 2026-02-09
 **Priority**: 🟡 MEDIUM (P4-5k range)
-**Status**: Backlog
+**Status**: In Progress (Phase 1 complete, Phase 2-3 pending)
 **Target Host**: csb0 (89.58.63.96)
 **Risk Level**: 🟡 MEDIUM (adds auth surface to existing public server)
 
@@ -230,17 +230,17 @@ ts.barta.cm  →  NS records pointing to Headscale (future consideration)
 
 ## Implementation Phases
 
-### Phase 1: Basic Deployment
+### Phase 1: Basic Deployment -- COMPLETE (2026-02-09)
 
-1. Create `hosts/csb0/docker/headscale/config/config.yaml`
-2. Add Headscale service to `docker-compose.yml`
-3. Add `headscale-data` volume
-4. Create Cloudflare DNS record (DNS-only!)
-5. Deploy: `docker compose up -d headscale`
-6. Verify: `curl https://hs.barta.cm/health`
-7. Create first user: `docker exec headscale headscale users create markus`
-8. Generate auth key: `docker exec headscale headscale preauthkeys create --user markus`
-9. Connect test device: `tailscale up --login-server https://hs.barta.cm --authkey <KEY>`
+1. [x] Create `hosts/csb0/docker/headscale/config/config.yaml`
+2. [x] Add Headscale service to `docker-compose.yml`
+3. [x] Add `headscale-data` volume
+4. [x] Create Cloudflare DNS record (DNS-only!)
+5. [x] Deploy: `docker compose up -d headscale`
+6. [x] Verify: TLS cert provisioned via Cloudflare DNS challenge
+7. [x] Create first user: `docker exec headscale headscale users create markus`
+8. [x] Generate auth key: `docker exec headscale headscale preauthkeys create --user markus`
+9. [x] Connect test device: imac0 connected via Tailscale macOS app
 
 ### Phase 2: Embedded DERP Server
 
@@ -367,10 +367,18 @@ $SSH_CMD "docker exec headscale headscale users list" || fail "CLI not working"
 
 ---
 
+## Lessons Learned (Phase 1)
+
+- **Healthcheck:** `headscale health` command does NOT exist in v0.25. Use `headscale configtest` instead.
+- **Traefik filtering:** Traefik ignores containers with `health: starting` status. This delayed cert provisioning until the first healthcheck passed (~30s). Plan for this delay on future deploys.
+- **Cloudflare DNS challenge:** Works correctly. Cert provisioned automatically once Traefik saw the healthy container.
+- **Tailscale macOS app:** The `.app` version (not brew) is needed for macOS. The brew CLI (`tailscale`) cannot talk to the app's daemon. Use `/Applications/Tailscale.app/Contents/MacOS/Tailscale` for CLI access.
+- **User/key management:** Imperative only (CLI). No declarative config for users/nodes.
+
 ## Open Questions
 
-- [ ] Enable embedded DERP immediately or start without? (Recommendation: Phase 2)
-- [ ] MagicDNS `base_domain` — use `ts.barta.cm` or something else?
-- [ ] `override_local_dns: false` — home hosts rely on hsb0 AdGuard, don't override?
-- [ ] Pin to specific version (e.g. `0.25.1`) or minor (`0.25`)? Check latest stable at deploy time.
+- [x] Enable embedded DERP immediately or start without? **Decision: Phase 2**
+- [x] MagicDNS `base_domain` — use `ts.barta.cm` or something else? **Decision: ts.barta.cm**
+- [x] `override_local_dns: false` — home hosts rely on hsb0 AdGuard, don't override? **Decision: false**
+- [x] Pin to specific version (e.g. `0.25.1`) or minor (`0.25`)? **Decision: 0.25 (resolves to 0.25.1)**
 - [ ] Watchtower: should it auto-update Headscale? (Recommendation: NO, pin version, manual updates)

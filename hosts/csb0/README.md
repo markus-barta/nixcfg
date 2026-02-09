@@ -32,6 +32,7 @@
 | **Telegram** | -                | 🔴 Garage door control BROKEN     |
 | **Backup**   | -                | 🔴 BOTH servers lose backups      |
 | Traefik      | traefik.barta.cm | SSL/routing                       |
+| Headscale    | hs.barta.cm      | VPN control server (mesh network) |
 | Cypress      | -                | Solar scraping                    |
 
 ---
@@ -81,6 +82,7 @@ hosts/csb0/
 | Mosquitto    | -                | MQTT broker (IoT + csb1)   |
 | Telegram Bot | -                | Garage door, notifications |
 | Traefik      | traefik.barta.cm | Reverse proxy & SSL        |
+| Headscale    | hs.barta.cm      | Self-hosted Tailscale VPN  |
 | Cypress      | -                | Solar data scraping        |
 | Restic       | -                | Backup (BOTH servers!)     |
 
