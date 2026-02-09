@@ -40,5 +40,9 @@ certificatesResolvers:
         provider: cloudflare
         delayBeforeCheck: 0
 
+# TODO: Remove debug logging after hs.barta.cm cert is provisioned
+log:
+  level: DEBUG
+
 api:
   dashboard: false

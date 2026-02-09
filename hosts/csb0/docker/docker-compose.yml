@@ -320,7 +320,7 @@ services:
       - traefik.http.routers.headscale-http.entrypoints=web
       - traefik.http.routers.headscale-http.middlewares=redirect-to-https@docker
     healthcheck:
-      test: ["CMD", "headscale", "health"]
+      test: ["CMD", "headscale", "configtest"]
       interval: 30s
       timeout: 10s
       retries: 3
