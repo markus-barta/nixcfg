@@ -10,7 +10,8 @@
 let
   # Import fish configuration (consolidated into uzumaki)
   fishModule = import ./fish;
-  fishConfig = fishModule.config;
+  fishAliases = fishModule.aliases;
+  fishAbbrs = fishModule.abbreviations;
   uzumakiFunctions = fishModule.functions;
 in
 {
@@ -103,7 +104,7 @@ in
     };
 
     # Aliases - merge uzumaki config with macOS-specific aliases
-    shellAliases = fishConfig.fishAliases // {
+    shellAliases = fishAliases // {
       # macOS specific aliases
       mc = "env LANG=en_US.UTF-8 mc";
       # Force macOS native ping (inetutils ping has bugs on Darwin)
@@ -115,7 +116,7 @@ in
 
     # Abbreviations - merge uzumaki config with macOS-specific abbreviations
     # SSH shortcuts (hsb0, hsb1, hsb8, gpc0, csb0, csb1) are in uzumaki/fish/config.nix
-    shellAbbrs = fishConfig.fishAbbrs // {
+    shellAbbrs = fishAbbrs // {
       co = "codium ."; # Open Codium editor
       flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
     };
