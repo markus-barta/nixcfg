@@ -287,6 +287,44 @@ services:
       - traefik
     restart: unless-stopped
 
+  # Headscale - self-hosted Tailscale control server
+  # https://headscale.net/stable/
+  # ⚠️ DNS record MUST be DNS-only (gray cloud) in Cloudflare - proxy breaks WebSocket POSTs
+  headscale:
+    image: headscale/headscale:0.25
+    container_name: headscale
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/run/headscale
+    volumes:
+      - ./headscale/config:/etc/headscale:ro
+      - headscale-data:/var/lib/headscale
+    command: serve
+    environment:
+      - TZ=Europe/Vienna
+    networks:
+      - traefik
+    labels:
+      # Traefik HTTP routing
+      - traefik.enable=true
+      - traefik.http.routers.headscale.rule=Host(`hs.barta.cm`)
+      - traefik.http.routers.headscale.entrypoints=web-secure
+      - traefik.http.routers.headscale.tls=true
+      - traefik.http.routers.headscale.tls.certresolver=default
+      - traefik.http.services.headscale.loadbalancer.server.port=8080
+      - traefik.docker.network=csb0_traefik
+      # ⚠️ NO cloudflarewarp middleware! Headscale requires direct connection.
+      # HTTP to HTTPS redirect
+      - traefik.http.routers.headscale-http.rule=Host(`hs.barta.cm`)
+      - traefik.http.routers.headscale-http.entrypoints=web
+      - traefik.http.routers.headscale-http.middlewares=redirect-to-https@docker
+    healthcheck:
+      test: ["CMD", "headscale", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   mosquitto-data:
   mosquitto-log:
@@ -296,6 +334,7 @@ volumes:
   nodered-webserver:
   shared-tmp:
   uptime-kuma-data:
+  headscale-data:
   bitwarden:
   bitwarden-db:
 
