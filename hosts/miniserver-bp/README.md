@@ -1,8 +1,10 @@
-# miniserver-bp - Mac Mini 2009 Test Server
+# msbp (miniserver-bp) - Mac Mini 2009 Test Server
+
+> **Host Alias**: `msbp` (preferred shorthand for "miniserver-bp")
 
 **Status**: ✅ Running (Hokage + Uzumaki)
 **Type**: Office Server (Mac Mini Early 2009)
-**OS**: NixOS 26.05 (Warbler)
+**OS**: NixOS 26.05 (Yarara)
 **Config**: External Hokage (`github:pbek/nixcfg`) + Uzumaki modules
 **Location**: BYTEPOETS Office
 **Last Deploy**: 2026-01-15 (fresh install ✅)
@@ -24,12 +26,14 @@
 
 ## ⚠️ Current Role
 
-| Service       | Status      | Purpose                     |
-| ------------- | ----------- | --------------------------- |
-| **SSH**       | ✅ Running  | Remote access               |
-| **WireGuard** | ❌ Disabled | VPN (planned - see Phase 7) |
+| Service       | Status      | Port | Purpose                           |
+| ------------- | ----------- | ---- | --------------------------------- |
+| **SSH**       | ✅ Running  | 2222 | Remote access                     |
+| **pm-tool**   | ✅ Running  | 8888 | PM tool (hello-world placeholder) |
+| **Docker**    | ✅ Running  | —    | Container runtime                 |
+| **WireGuard** | ❌ Disabled | —    | VPN (planned - see Phase 7)       |
 
-**Primary Use**: Test server for NixOS experiments and configurations.
+**Primary Use**: Test server for NixOS experiments and pm-tool development.
 
 **Future**: WireGuard jump host for remote access to office network.
 
@@ -133,6 +137,7 @@ See `+pm/backlog/P8900-miniserver-bp-nixos-migration-fresh-start.md` for full mi
 | Port | Service | Access     |
 | ---- | ------- | ---------- |
 | 2222 | SSH     | Open       |
+| 8888 | pm-tool | Open       |
 | 22   | SSH     | **Closed** |
 
 ---

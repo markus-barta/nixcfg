@@ -190,12 +190,40 @@
   security.sudo-rs.wheelNeedsPassword = false;
 
   # ==========================================================================
+  # DOCKER CONTAINERS (declarative via NixOS)
+  # ==========================================================================
+
+  virtualisation.oci-containers.backend = "docker";
+
+  # Hello-world placeholder — will be replaced by pm-tool (P4550)
+  virtualisation.oci-containers.containers.pm-tool = {
+    image = "nginx:alpine";
+    ports = [ "8888:80" ];
+    volumes = [ "/var/lib/pm-tool/html:/usr/share/nginx/html:ro" ];
+    autoStart = true;
+  };
+
+  # Seed hello-world page (managed by NixOS activation script)
+  system.activationScripts.pm-tool-hello = ''
+    mkdir -p /var/lib/pm-tool/html
+    cat > /var/lib/pm-tool/html/index.html << 'HELLO'
+    <!DOCTYPE html>
+    <html><head><title>pm-tool</title></head>
+    <body><h1>Hello, World!</h1><p>pm-tool placeholder on msbp</p></body>
+    </html>
+    HELLO
+  '';
+
+  # ==========================================================================
   # FIREWALL
   # ==========================================================================
 
   networking.firewall = {
     enable = true;
-    allowedTCPPorts = [ 22 ]; # SSH
+    allowedTCPPorts = [
+      22 # SSH
+      8888 # pm-tool (hello-world placeholder)
+    ];
     # WireGuard uses UDP 51820 (outbound only, no incoming needed)
   };
 

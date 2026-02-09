@@ -1,6 +1,6 @@
 # Runbook: miniserver-bp (Office Test Server)
 
-**Host**: miniserver-bp (10.17.1.40)  
+**Host**: miniserver-bp (10.17.1.40) — _alias: msbp_  
 **Role**: Test Server & Future Jump Host  
 **Criticality**: LOW - Non-production test environment  
 **Location**: BYTEPOETS Office
@@ -23,9 +23,10 @@ ssh -p 2222 mba@10.17.1.40
 
 ```
 ╔════════════════════════════════════════════════════════════╗
-║ 🌀 miniserver-bp - Office Test Server Reference            ║
+║ 🌀 msbp (miniserver-bp) - Office Test Server Reference     ║
 ╠════════════════════════════════════════════════════════════╣
 ║ SSH:       ssh -p 2222 mba@10.17.1.40                      ║
+║ Alias:     msbp (preferred shorthand)                      ║
 ║ IP:        10.17.1.40                                      ║
 ║ Network:   BYTEPOETS Office LAN (10.17.0.0/16)             ║
 ║ Hardware:  Mac Mini Early 2009                             ║
