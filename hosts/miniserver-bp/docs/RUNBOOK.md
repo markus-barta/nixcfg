@@ -33,7 +33,7 @@ ssh -p 2222 mba@10.100.0.51
 ║ Network:   BYTEPOETS Office LAN (10.17.0.0/16)             ║
 ║ Hardware:  Mac Mini Early 2009                             ║
 ╠════════════════════════════════════════════════════════════╣
-║ 🌐 SERVICES (Planned)                                      ║
+║ 🌐 SERVICES                                                ║
 ║ • WireGuard VPN: 10.100.0.51 (via agenix)                 ║
 ║ • Jump host to office network                              ║
 ╠════════════════════════════════════════════════════════════╣
