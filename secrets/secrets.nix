@@ -54,7 +54,7 @@ let
   ];
 
   miniserver-bp = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGj56E7xRa8qaNM9Pt9wf9+bQElsZ5C/DQcR/aJ6Uyak root@miniserver-bp"
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIINZUHm99JEREiB538opcE04Ho/2EpgoE26EKVGdc4oF root@miniserver-bp"
   ];
 
 in

@@ -13,9 +13,11 @@
 # From office network
 ssh -p 2222 mba@10.17.1.40
 
-# From home (after WireGuard setup - Phase 7)
-# TBD - VPN not yet configured
+# From home (via BYTEPOETS WireGuard VPN)
+ssh -p 2222 mba@10.100.0.51
 ```
+
+> **Note**: mDNS (`miniserver-bp.local`) does not resolve reliably. Always use the IP directly.
 
 ---
 
@@ -32,13 +34,12 @@ ssh -p 2222 mba@10.17.1.40
 ║ Hardware:  Mac Mini Early 2009                             ║
 ╠════════════════════════════════════════════════════════════╣
 ║ 🌐 SERVICES (Planned)                                      ║
-║ • WireGuard VPN: 10.100.0.51 (not yet configured)         ║
-║ • Jump host to office network (future)                     ║
+║ • WireGuard VPN: 10.100.0.51 (via agenix)                 ║
+║ • Jump host to office network                              ║
 ╠════════════════════════════════════════════════════════════╣
 ║ ⚠️  CURRENT STATUS                                         ║
-║ • Fresh NixOS install (2026-01-15)                         ║
-║ • SSH only (port 2222)                                     ║
-║ • WireGuard disabled (see Phase 7 below)                   ║
+║ • NixOS (installed 2026-01-15)                             ║
+║ • SSH port 2222 + WireGuard VPN active                     ║
 ╠════════════════════════════════════════════════════════════╣
 ║ 🚨 IF DOWN                                                 ║
 ║ 1. Physical access required (office only)                  ║
@@ -97,116 +98,31 @@ ssh -p 2222 mba@10.17.1.40 "nixos-version && uname -a"
 
 ---
 
-## Phase 7: WireGuard VPN Setup (Post-Install)
+## WireGuard VPN
 
-**Status**: ⏳ **NOT YET CONFIGURED**
+**Status**: ✅ **ACTIVE** (via agenix)
 
-**Goal**: Enable WireGuard for remote access from home to office network.
+- Interface: `wg0`, VPN IP: `10.100.0.51/32`
+- Peer: BYTEPOETS VPN server (`vpn.bytepoets.net:51820`)
+- Private key: `secrets/miniserver-bp-wireguard-key.age` (managed by agenix)
 
-### Prerequisites
-
-Before starting, you need the WireGuard private key from the old Ubuntu installation.
-
-**If you have Ubuntu backup**:
+### Verify
 
 ```bash
-# Extract private key from Ubuntu backup
-# (stored somewhere safe before wiping)
-cat /backup/ubuntu-wireguard/privatekey
+ssh -p 2222 mba@10.17.1.40 "sudo wg show"
 ```
 
-**If no backup available**:
-
-You'll need to generate a new key pair and update the BYTEPOETS VPN server:
+### Jump Host Usage
 
 ```bash
-# Generate new keypair
-wg genkey | tee privatekey | wg pubkey > publickey
-
-# Send public key to BYTEPOETS VPN admin to update server config
-```
-
-### Step 1: Copy Private Key to miniserver-bp
-
-```bash
-# From your machine with the private key
-ssh -p 2222 mba@10.17.1.40
-
-# On miniserver-bp:
-sudo mkdir -p /etc/nixos/secrets
-sudo chmod 700 /etc/nixos/secrets
-
-# Create the private key file (paste the key when prompted)
-sudo nano /etc/nixos/secrets/wireguard-private.key
-# Paste the private key, save (Ctrl+O, Enter, Ctrl+X)
-
-# Secure the file
-sudo chmod 600 /etc/nixos/secrets/wireguard-private.key
-sudo chown root:root /etc/nixos/secrets/wireguard-private.key
-```
-
-### Step 2: Enable WireGuard in Configuration
-
-```bash
-# On your workstation (mba-imac-work)
-cd ~/Code/nixcfg
-
-# Edit hosts/miniserver-bp/configuration.nix
-# Uncomment lines 78-93 (WireGuard section)
-nano hosts/miniserver-bp/configuration.nix
-
-# Commit the change
-git add hosts/miniserver-bp/configuration.nix
-git commit -m "Enable WireGuard VPN on miniserver-bp"
-
-# Push to GitHub (if using NixFleet) or apply directly
-git push
-```
-
-### Step 3: Apply Configuration
-
-```bash
-# On miniserver-bp:
-cd ~/Code/nixcfg
-git pull
-sudo nixos-rebuild switch --flake .#miniserver-bp
-```
-
-### Step 4: Verify WireGuard
-
-```bash
-# On miniserver-bp:
-sudo wg show
-# Expected output:
-# interface: wg0
-#   public key: <your public key>
-#   private key: (hidden)
-#   listening port: <random>
-#
-# peer: TZHbPPkIaxlpLKP2frzJl8PmOjYaRnfz/MqwCS7JDUQ=
-#   endpoint: vpn.bytepoets.net:51820
-#   allowed ips: 10.100.0.0/24
-#   latest handshake: <timestamp>
-#   transfer: <stats>
-
-# Test from home (via VPN):
-ping 10.100.0.51
-ssh -p 2222 mba@10.100.0.51
-```
-
-### Step 5: Test Jump Host Functionality
-
-```bash
-# From home, connect to office iMac via miniserver-bp jump host
+# From home, reach office iMac via miniserver-bp
 ssh -J mba@10.100.0.51:2222 markus@10.17.1.7
 
-# Or configure ~/.ssh/config for easier access:
+# Or in ~/.ssh/config:
 # Host office-imac
 #   HostName 10.17.1.7
 #   User markus
 #   ProxyJump mba@10.100.0.51:2222
-#
-# Then: ssh office-imac
 ```
 
 ---
@@ -237,13 +153,13 @@ Expected: No custom port set (defaults to 22 in NixOS, but hokage module sets 22
 
 ```bash
 # Check WireGuard service status
-ssh -p 2222 mba@10.17.1.40 "sudo systemctl status wg-quick-wg0"
+ssh -p 2222 mba@10.17.1.40 "sudo systemctl status wireguard-wg0"
 
 # Check logs
-ssh -p 2222 mba@10.17.1.40 "sudo journalctl -xeu wg-quick-wg0"
+ssh -p 2222 mba@10.17.1.40 "sudo journalctl -xeu wireguard-wg0"
 
-# Verify private key exists
-ssh -p 2222 mba@10.17.1.40 "sudo ls -la /etc/nixos/secrets/wireguard-private.key"
+# Verify agenix decrypted the key
+ssh -p 2222 mba@10.17.1.40 "sudo ls -la /run/agenix/miniserver-bp-wireguard-key"
 ```
 
 ### Fonts Missing on Console
@@ -348,11 +264,10 @@ Not monitored by NixFleet or other systems (intentional - test server only).
 
 Hokage module (`github:pbek/nixcfg`) sets SSH to port 2222 for `server-remote` role (security hardening).
 
-### Why No WireGuard Initially?
+### WireGuard Key Management
 
-To simplify initial installation and avoid secrets management during nixos-anywhere.
-
-WireGuard can be enabled manually after verifying base system works (Phase 7 above).
+Private key managed via agenix (`secrets/miniserver-bp-wireguard-key.age`).
+Decrypted at boot to `/run/agenix/miniserver-bp-wireguard-key` (tmpfs, never on disk).
 
 ### Hardware Limitations
 
