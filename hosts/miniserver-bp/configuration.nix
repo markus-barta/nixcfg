@@ -221,8 +221,8 @@
   networking.firewall = {
     enable = true;
     allowedTCPPorts = [
-      22 # SSH
-      8888 # pm-tool (hello-world placeholder)
+      2222 # SSH
+      8888 # pm-tool
     ];
     # WireGuard uses UDP 51820 (outbound only, no incoming needed)
   };
