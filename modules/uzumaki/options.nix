@@ -135,7 +135,7 @@
         default = true;
         description = ''
           Enable NCPS (Nix Cache Proxy Server) configuration.
-          When enabled, the host will use hsb0.lan:8501 as a primary
+          When enabled, the host will use hsb0 (192.168.1.99:8501) as a primary
           binary cache for faster builds on the home network.
         '';
       };

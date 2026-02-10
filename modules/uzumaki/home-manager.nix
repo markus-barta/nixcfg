@@ -125,9 +125,10 @@ in
     # ══════════════════════════════════════════════════════════════════════════
     # Nix Configuration (NCPS Binary Cache Proxy)
     # ══════════════════════════════════════════════════════════════════════════
-    # hsb0.lan provides a local cache for the home network.
-    # We always manage the file (file handles), but only add the local cache
-    # entries if uzumaki.ncps.enable is true.
+    # hsb0 provides a local binary cache for the home network.
+    # Uses IP instead of hsb0.lan because Tailscale MagicDNS can override
+    # the system resolver and doesn't know about .lan domains.
+    # Only adds the local cache entries if uzumaki.ncps.enable is true.
     nix.package = pkgs.nix;
     nix.settings = {
       # Allow flakes and nix-command (required for nix flake commands)
@@ -141,7 +142,7 @@ in
           "https://cache.nixos.org"
           "https://nix-community.cachix.org"
         ]
-        ++ lib.optionals cfg.ncps.enable [ "http://hsb0.lan:8501" ]
+        ++ lib.optionals cfg.ncps.enable [ "http://192.168.1.99:8501" ]
       );
       trusted-public-keys = lib.mkOverride 0 (
         [
