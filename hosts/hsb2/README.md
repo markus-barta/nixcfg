@@ -19,6 +19,7 @@ Home Server Barta 2 - Lightweight Raspberry Pi server for future home automation
 | **Tailscale IP** | `100.64.0.5` (hsb2.ts.barta.cm)                           |
 | **Gateway**      | `192.168.1.5` (Fritz!Box)                                 |
 | **SSH Access**   | `ssh hsb2` (auto LAN→Tailscale) or `ssh mba@192.168.1.95` |
+| **Session Mgmt** | `tmux` (zellij not available on ARMv6)                    |
 | **User**         | `mba` (Markus Barta)                                      |
 | **Role**         | `server-home`                                             |
 | **Exposure**     | LAN + Tailscale VPN                                       |
