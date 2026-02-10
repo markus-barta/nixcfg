@@ -22,6 +22,22 @@ in
   ];
 
   # ============================================================================
+  # SSH KEYS - Host-specific Git SSH config (preserved from manual ~/.ssh/config)
+  # ============================================================================
+  programs.ssh.matchBlocks = {
+    "github-bp" = {
+      hostname = "github.com";
+      user = "git";
+      identityFile = "~/.ssh/id_ed25519_bytepoets";
+    };
+    "github.com" = {
+      hostname = "github.com";
+      user = "git";
+      identityFile = "~/.ssh/id_rsa";
+    };
+  };
+
+  # ============================================================================
   # UZUMAKI MODULE - All personal config in one place
   # ============================================================================
   uzumaki = {
