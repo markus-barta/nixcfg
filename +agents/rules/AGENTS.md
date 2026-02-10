@@ -40,6 +40,7 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 | "hokage" ref (pbek-nixcfg)  | `~/Code/pbek-nixcfg`                      |
 | Secrets / credentials       | 1Password (no agent access) — ping Markus |
 | Host runbooks               | `hosts/<hostname>/docs/RUNBOOK.md`        |
+| Host backlogs               | `hosts/<hostname>/docs/backlog/`          |
 | Agent workflow              | `docs/AGENT-WORKFLOW.md`                  |
 | Infrastructure inventory    | `docs/INFRASTRUCTURE.md`                  |
 | Task/project mgmt           | `+pm/` in repo                            |
@@ -179,3 +180,78 @@ ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 - Terminal multiplexer (not tmux).
 - Use for persistent sessions: servers, long builds, debugging.
 - Layouts in `~/.config/zellij/`.
+
+## Backlog Item Creation
+
+**ALWAYS use scripts** to create backlog items. Never manually create files.
+
+### Infrastructure-Wide Items
+
+```bash
+./scripts/create-backlog-item.sh P50 fix-bug-description
+```
+
+### Host-Specific Items
+
+```bash
+# Infer directory from host
+./scripts/create-backlog-item.sh P30 audit-docker --host hsb0
+
+# Or with explicit directory
+./scripts/create-backlog-item.sh P30 audit-docker --dir hosts/hsb0/docs/backlog
+```
+
+### File Format
+
+- **Naming**: `LNN.hash.description.md` (e.g., `P50.abc1234.fix-bug.md`)
+- **Priority**: Letter (A-Z) + 2 digits (00-99), e.g., P50, A10, Z99
+- **Hash**: 7-char hex (auto-generated, collision-checked)
+- **Description**: kebab-case, short
+
+### When to Create Backlog Items
+
+| Situation                                   | Location                     |
+| ------------------------------------------- | ---------------------------- |
+| Host-specific task (affects one host only)  | `hosts/<host>/docs/backlog/` |
+| Infrastructure-wide (multiple hosts, fleet) | `+pm/backlog/`               |
+| Quick fix (<15 min, single file)            | ❌ No backlog item needed    |
+
+### Template Structure
+
+All backlog items follow this template:
+
+```markdown
+# description
+
+**Host**: hostname (if host-specific)
+**Priority**: LNN
+**Status**: Backlog
+**Created**: YYYY-MM-DD
+
+---
+
+## Problem
+
+[Brief description]
+
+## Solution
+
+[Approach]
+
+## Implementation
+
+- [ ] Task 1
+- [ ] Documentation update
+- [ ] Test
+
+## Acceptance Criteria
+
+- [ ] Criterion 1
+- [ ] Tests pass
+
+## Notes
+
+[Optional]
+```
+
+**See** `+pm/README.md` for full details.
