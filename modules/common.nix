@@ -20,13 +20,6 @@ let
   sharedFishConfig = import ./uzumaki/fish/config.nix;
 in
 {
-  # ════════════════════════════════════════════════════════════════════════════
-  # IMPORTS - Shared modules
-  # ════════════════════════════════════════════════════════════════════════════
-  imports = [
-    ./shared/ssh-fleet.nix # Fleet SSH config with Tailscale fallback
-  ];
-
   # Disable hokage's starship (we configure our own with shared TOML file)
   hokage.programs.starship.enable = false;
 
