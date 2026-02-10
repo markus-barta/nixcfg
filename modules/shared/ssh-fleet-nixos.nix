@@ -10,16 +10,9 @@
     # Keep-alive disabled (prevents drops during long ops like nixos-rebuild)
     # ServerAliveInterval 0 is the default - omitted
 
-    # === EXISTING MANUAL CONFIG ===
-    Host github-bp
-      HostName github.com
-      User git
-      IdentityFile ~/.ssh/id_ed25519_bytepoets
-
-    Host github.com
-      HostName github.com
-      User git
-      IdentityFile ~/.ssh/id_rsa
+    # NOTE: No GitHub/Git SSH keys here!
+    # Each host has its own keys. Per-host Git SSH config belongs in
+    # the host's configuration.nix or user SSH config (~/.ssh/config).
 
     Host traefik.barta.cm
       HostName traefik.barta.cm
