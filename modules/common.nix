@@ -20,6 +20,13 @@ let
   sharedFishConfig = import ./uzumaki/fish/config.nix;
 in
 {
+  # ════════════════════════════════════════════════════════════════════════════
+  # IMPORTS - Shared modules
+  # ════════════════════════════════════════════════════════════════════════════
+  imports = [
+    ./shared/ssh-fleet-nixos.nix # Fleet SSH config (NixOS system-level)
+  ];
+
   # Disable hokage's starship (we configure our own with shared TOML file)
   hokage.programs.starship.enable = false;
 
