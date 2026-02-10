@@ -439,6 +439,12 @@ docker exec headscale headscale users create <username>
 # Generate pre-auth key (reusable, 24h expiry)
 docker exec headscale headscale preauthkeys create --user <username> --reusable --expiration 24h
 
+# Generate long-lived pre-auth key (store in 1Password!)
+docker exec headscale headscale preauthkeys create --user <username> --reusable --expiration 87600h
+
+# List existing pre-auth keys
+docker exec headscale headscale preauthkeys list --user <username>
+
 # Check config validity
 docker exec headscale headscale configtest
 
@@ -448,13 +454,25 @@ docker logs headscale --tail 50
 
 ### Connect a New Device
 
+> **Note:** The `--authkey` does NOT need a `--user` flag on the client side.
+> The user is baked into the pre-auth key at creation time (`--user <username>`).
+> Any device registering with that key automatically belongs to that user.
+
 ```bash
 # macOS (use the .app CLI, NOT brew's tailscale)
 /Applications/Tailscale.app/Contents/MacOS/Tailscale up --login-server https://hs.barta.cm --authkey <KEY>
 
-# Linux
+# NixOS (requires services.tailscale.enable = true in configuration.nix)
+sudo tailscale up --login-server https://hs.barta.cm --authkey <KEY>
+
+# Linux (generic)
 tailscale up --login-server https://hs.barta.cm --authkey <KEY>
 ```
+
+**Prerequisites per platform:**
+
+- **macOS**: Tailscale.app installed and running
+- **NixOS**: Add `services.tailscale.enable = true;` to host config, deploy first
 
 ### Troubleshooting
 
