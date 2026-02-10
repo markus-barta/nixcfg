@@ -378,6 +378,7 @@ in
       allowedUDPPorts = [
         53 # DNS
         67 # DHCP
+        41641 # Tailscale WireGuard
       ];
     };
   };
@@ -422,6 +423,12 @@ in
   # Enable Fwupd for firmware updates
   # https://nixos.wiki/wiki/Fwupd
   services.fwupd.enable = true;
+
+  # Tailscale VPN client (connects to headscale on csb0)
+  services.tailscale = {
+    enable = true;
+    useRoutingFeatures = "client"; # Client mode only
+  };
 
   # Additional system packages for DNS/DHCP server
   environment.systemPackages = with pkgs; [
