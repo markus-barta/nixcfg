@@ -63,22 +63,33 @@ home-manager switch --flake ".#mba@mba-mbp-work"
 
 ## SSH Access
 
-### From Any Machine on Local Network
+### From Any Machine
 
 ```bash
-# Using .lan (recommended - via hsb0 DNS)
-ssh mba@mba-mbp-work.lan
+# Auto LAN→Tailscale fallback (recommended)
+ssh mbpw
+ssh mba-mbp-work
 
-# Using fish alias (from imac0)
-mbpw
+# Force specific route
+ssh mbpw-lan     # LAN only
+ssh mbpw-ts      # Tailscale only
 
-# Or directly by IP
+# Direct IP
 ssh mba@192.168.1.197
 ```
 
 ### Enable Remote Login (if disabled)
 
 System Preferences → Sharing → Remote Login → On
+
+### Pre-Migration SSH Config (Reference)
+
+The original `~/.ssh/config` was empty (no SSH config file existed).
+SSH keys present: `~/.ssh/id_ed25519` (generic key, no BYTEPOETS-specific keys).
+
+**Note:** BYTEPOETS keys (`id_ed25519_bytepoets_office`, `ops-bytepoets-com`)
+are NOT yet provisioned on this machine. See `hosts/mba-mbp-work/home.nix`
+for current SSH config — add entries there once keys are copied over.
 
 ---
 
@@ -211,11 +222,12 @@ just switch
 # Flush DNS cache
 flushdns
 
-# SSH to servers (with zellij)
-hsb0                          # → ssh mba@192.168.1.99 with zellij
-hsb1                          # → ssh mba@192.168.1.101 with zellij
-csb0                          # → ssh mba@cs0.barta.cm:2222 with zellij
-csb1                          # → ssh mba@cs1.barta.cm:2222 with zellij
+# SSH to servers (with zellij, auto LAN→Tailscale fallback)
+hsb0                          # Home server 0 (DNS/DHCP)
+hsb1                          # Home server 1 (Home Automation)
+csb0                          # Cloud server 0 (Tailscale only)
+csb1                          # Cloud server 1 (Tailscale only)
+# See: modules/shared/ssh-fleet.nix for full config
 ```
 
 ---
