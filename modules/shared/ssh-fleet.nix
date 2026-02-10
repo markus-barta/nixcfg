@@ -28,13 +28,12 @@
       # ═══════════════════════════════════════════════════════════
       # GLOBAL DEFAULTS
       # Replaces Home Manager's enableDefaultConfig with our own values
-      # (keep-alive overridden to 60s instead of default 0)
       # ═══════════════════════════════════════════════════════════
       "*" = {
         forwardAgent = false;
         addKeysToAgent = "no";
         compression = false;
-        serverAliveInterval = 60; # Override: 60s instead of default 0
+        serverAliveInterval = 0; # Default: disabled (prevents drops during long ops like nixos-rebuild)
         serverAliveCountMax = 3;
         hashKnownHosts = false;
         userKnownHostsFile = "~/.ssh/known_hosts";
