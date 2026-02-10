@@ -58,6 +58,7 @@ in
   # compatible with. This helps avoid breakage when a new Home Manager release
   # introduces backwards incompatible changes.
   home.stateVersion = "24.11";
+  home.backupFileExtension = "hm-backup"; # Backup existing files instead of failing
 
   # Disable Home Manager / Nixpkgs version mismatch warning
   # (Using HM 25.11 with Nixpkgs 26.05 is intentional)
