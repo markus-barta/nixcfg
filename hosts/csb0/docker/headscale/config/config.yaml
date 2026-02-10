@@ -91,8 +91,14 @@ dns:
       - 1.0.0.1
       - 2606:4700:4700::1111
       - 2606:4700:4700::1001
-  split: {}
-  search_domains: []
+    split:
+      # Route .lan queries to hsb0 AdGuard (home DNS/DHCP server)
+      # Without this, Tailscale MagicDNS overrides the system resolver
+      # and .lan hostnames fail to resolve
+      lan:
+        - 192.168.1.99
+  search_domains:
+    - lan
   extra_records: []
 
 # Unix socket for CLI access
