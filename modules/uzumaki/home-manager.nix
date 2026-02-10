@@ -126,8 +126,7 @@ in
     # Nix Configuration (NCPS Binary Cache Proxy)
     # ══════════════════════════════════════════════════════════════════════════
     # hsb0 provides a local binary cache for the home network.
-    # Uses IP instead of hsb0.lan because Tailscale MagicDNS can override
-    # the system resolver and doesn't know about .lan domains.
+    # .lan resolution works via headscale split DNS → hsb0 AdGuard.
     # Only adds the local cache entries if uzumaki.ncps.enable is true.
     nix.package = pkgs.nix;
     nix.settings = {
@@ -142,7 +141,7 @@ in
           "https://cache.nixos.org"
           "https://nix-community.cachix.org"
         ]
-        ++ lib.optionals cfg.ncps.enable [ "http://192.168.1.99:8501" ]
+        ++ lib.optionals cfg.ncps.enable [ "http://hsb0.lan:8501" ]
       );
       trusted-public-keys = lib.mkOverride 0 (
         [
