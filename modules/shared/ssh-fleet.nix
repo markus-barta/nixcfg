@@ -22,14 +22,16 @@
 {
   programs.ssh = {
     enable = true;
-
-    # ═══════════════════════════════════════════════════════════
-    # Keep-Alive Settings (prevent timeout)
-    # ═══════════════════════════════════════════════════════════
-    serverAliveInterval = 60; # Send ping every 60s
-    serverAliveCountMax = 3; # Disconnect after 3 failed pings (3min total)
+    enableDefaultConfig = false;
 
     matchBlocks = {
+      # ═══════════════════════════════════════════════════════════
+      # GLOBAL DEFAULTS (keep-alive settings for all hosts)
+      # ═══════════════════════════════════════════════════════════
+      "*" = {
+        serverAliveInterval = 60; # Send ping every 60s
+        serverAliveCountMax = 3; # Disconnect after 3 failed pings (3min total)
+      };
       # ═══════════════════════════════════════════════════════════
       # EXISTING MANUAL CONFIG (preserved from ~/.ssh/config)
       # ═══════════════════════════════════════════════════════════
