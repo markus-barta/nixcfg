@@ -22,16 +22,26 @@ in
   ];
 
   # ============================================================================
-  # SSH KEYS - Host-specific Git SSH config
+  # SSH KEYS - Host-specific Git SSH config (dual-use: personal + BYTEPOETS)
   # ============================================================================
-  # NOTE: mba-mbp-work only has id_ed25519 (generic key)
-  # BYTEPOETS keys (id_ed25519_bytepoets_office, ops-bytepoets-com) not yet
-  # provisioned on this machine. Add entries here once keys are copied over.
+  # KEY SETUP: Run on mba-mbp-work once:
+  #   ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_personal -C "markus@barta.com"
+  #   ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_bytepoets_office -C "markus.barta@bytepoets.com"
+  # Then add public keys to GitHub:
+  #   id_ed25519_personal.pub → github.com (markus-barta)
+  #   id_ed25519_bytepoets_office.pub → github.com (bytepoets-mba)
   programs.ssh.matchBlocks = {
+    # Personal (default for github.com)
     "github.com" = {
       hostname = "github.com";
       user = "git";
-      identityFile = "~/.ssh/id_ed25519";
+      identityFile = "~/.ssh/id_ed25519_personal";
+    };
+    # BYTEPOETS
+    "github-bp" = {
+      hostname = "github.com";
+      user = "git";
+      identityFile = "~/.ssh/id_ed25519_bytepoets_office";
     };
   };
 
