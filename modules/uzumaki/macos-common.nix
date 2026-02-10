@@ -44,6 +44,8 @@ in
       # Ensure Nix paths are prioritized
       fish_add_path --prepend --move ~/.nix-profile/bin
       fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
+      # VSCodium CLI (codium) - installed via Homebrew cask
+      fish_add_path --append /Applications/VSCodium.app/Contents/Resources/app/bin
     '';
 
     interactiveShellInit = ''
@@ -117,7 +119,7 @@ in
     # Abbreviations - merge uzumaki config with macOS-specific abbreviations
     # SSH shortcuts (hsb0, hsb1, hsb8, gpc0, csb0, csb1) are in uzumaki/fish/config.nix
     shellAbbrs = fishAbbrs // {
-      co = "codium ."; # Open Codium editor
+      co = "codium ."; # Open VSCodium editor
       flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
     };
   };

@@ -9,6 +9,31 @@
       "complex_modifications": {
         "rules": [
           {
+            "description": "E to backtick test in Pixelmator Pro",
+            "enabled": false,
+            "manipulators": [
+              {
+                "type": "basic",
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": [
+                      "com.pixelmatorteam.pixelmator.x.trial"
+                    ]
+                  }
+                ],
+                "from": {
+                  "key_code": "e"
+                },
+                "to": [
+                  {
+                    "key_code": "international6"
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "description": "Caps Lock → Hyper (Cmd+Ctrl+Opt+Shift)",
             "manipulators": [
               {
@@ -30,6 +55,33 @@
             ]
           },
           {
+            "description": "VSCodium: Shift+Enter → Ctrl+J",
+            "manipulators": [
+              {
+                "type": "basic",
+                "from": {
+                  "key_code": "return_or_enter",
+                  "modifiers": {
+                    "mandatory": ["shift"],
+                    "optional": ["any"]
+                  }
+                },
+                "to": [
+                  {
+                    "key_code": "j",
+                    "modifiers": ["control"]
+                  }
+                ],
+                "conditions": [
+                  {
+                    "type": "frontmost_application_if",
+                    "bundle_identifiers": ["^com\\.vscodium$"]
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "description": "Use regular function keys in terminal",
             "manipulators": [
               {
@@ -44,7 +96,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -70,7 +123,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -96,7 +150,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -122,7 +177,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -148,7 +204,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -174,7 +231,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -200,7 +258,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -226,7 +285,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -252,7 +312,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -278,7 +339,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -304,7 +366,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -330,7 +393,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -356,7 +420,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -384,7 +449,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -412,7 +478,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -440,7 +507,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -468,7 +536,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -496,7 +565,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -524,7 +594,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -552,7 +623,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -580,7 +652,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -608,7 +681,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -636,7 +710,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -664,7 +739,8 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$"
+                      "^com\\.mitchellh\\.ghostty$",
+                      "^com\\.github\\.wez\\.wezterm$"
                     ]
                   }
                 ],
@@ -684,6 +760,17 @@
           }
         ]
       },
+      "devices": [
+        {
+          "identifiers": {
+            "is_keyboard": true,
+            "product_id": 50475,
+            "vendor_id": 1133
+          },
+          "ignore": true,
+          "manipulate_caps_lock_led": false
+        }
+      ],
       "virtual_hid_keyboard": {
         "country_code": 0,
         "keyboard_type_v2": "ansi"
