@@ -274,7 +274,8 @@ in
   # ============================================================================
   # Karabiner-Elements Configuration (Declarative!)
   # ============================================================================
-  home.file.".config/karabiner/karabiner.json".source = ./config/karabiner.json;
+  # SSOT: modules/config/karabiner.json (shared across all macOS hosts)
+  home.file.".config/karabiner/karabiner.json".source = ../../modules/config/karabiner.json;
 
   # ============================================================================
   # Starship Config - NOW MANAGED BY theme-hm.nix (auto-detected hostname)

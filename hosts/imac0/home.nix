@@ -444,14 +444,14 @@ in
   # ============================================================================
   # Note: Karabiner-Elements app itself stays in Homebrew (system driver)
   # But the configuration is fully declarative via home-manager
+  # SSOT: modules/config/karabiner.json (shared across all macOS hosts)
   #
   # Key mappings:
   # - Caps Lock → Hyper (Cmd+Ctrl+Opt+Shift) - for powerful global shortcuts
   # - Function keys work as regular F1-F12 in terminals (no media keys)
+  # - VSCodium: Shift+Enter → Ctrl+J
   # - E → backtick in Pixelmator Pro (disabled by default)
-  #
-  # See: docs/karabiner-elements.md for details
-  home.file.".config/karabiner/karabiner.json".source = ./config/karabiner.json;
+  home.file.".config/karabiner/karabiner.json".source = ../../modules/config/karabiner.json;
 
   # ============================================================================
   # Starship, Zellij, Eza Theming
