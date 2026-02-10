@@ -231,7 +231,16 @@
       2222 # SSH
       8888 # pm-tool
     ];
+    allowedUDPPorts = [
+      41641 # Tailscale WireGuard
+    ];
     # WireGuard uses UDP 51820 (outbound only, no incoming needed)
+  };
+
+  # Tailscale VPN client (connects to headscale on csb0)
+  services.tailscale = {
+    enable = true;
+    useRoutingFeatures = "client";
   };
 
   # ==========================================================================
