@@ -1,6 +1,6 @@
 # AGENTS.MD
 
-Markus owns this. Start: say hi + 1 motivating line.
+Markus owns this. Start: say hi + 1 motivating line when session begins.
 Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 
 ## Response Style
@@ -15,21 +15,21 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 ## Agent Protocol
 
 - Contact: Markus Barta (@markus-barta, markus@barta.com).
-- Workspace: `~/Code`. Missing a repo? Clone `https://github.com/markus-barta/<repo>.git`.
+- Workspace: `~/Code`. Missing a repo? Ask to clone `https://github.com/markus-barta/<repo>.git`.
 - 3rd-party/OSS (non-markus-barta): clone under `~/Projects/3rdparty`.
 - Work devices: `imac0` (home iMac), `mba-imac-work` (work iMac), `mba-mbp-work` (portable MacBook).
 - PRs: use `gh pr view/diff` (no URLs).
-- Only edit AGENTS when user says "edit AGENTS.md"
-- Guardrails: use `trash` for deletes, never `rm -rf`.
-- Web: search early; quote exact errors; prefer 2026+ sources, fallback to 2025+, then older results.
+- Only edit files in folder `+agents` when user explicitly permits it.
+- Use `trash` for deletes, never `rm -rf`.
+- Web: search early; Do not guess or invent URLS; quote exact errors; prefer 2026+ sources, fallback to 2025+, then older results.
 - Style: Friendly telegraph. Drop filler/grammar. Min tokens.
 
 ## Screenshots ("use a screenshot")
 
 - Pick newest PNG in `~/Desktop` or `~/Downloads`.
 - Verify it's the right UI (ignore filename).
-- Size check: `sips -g pixelWidth -g pixelHeight <file>`.
-- Optimize: for macOS `imageoptim <file>` on Linux `image_optim <file>` - STOP and tell user if the tool is missing.
+- If size check is needed: `sips -g pixelWidth -g pixelHeight <file>`.
+- If optimize is needed: for macOS `imageoptim <file>` on Linux `image_optim <file>` - STOP and tell user if the tool is missing.
 
 ## Important Locations
 
@@ -67,9 +67,6 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 
 - Use repo's package manager/runtime; no swaps w/o approval.
 - Long jobs: run in background or zellij session.
-
-## Command Timestamps
-
 - Prefix long-running commands (>10s) with `date &&` (bash) or `date; and` (fish).
 - Applies to: nix builds, docker ops, large file ops, test suites, package installs.
 - When in doubt, add timestamp. Better unnecessary than wondering when it started.
