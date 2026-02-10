@@ -145,7 +145,7 @@ in
           "https://cache.nixos.org"
           "https://nix-community.cachix.org"
         ]
-        ++ lib.optionals cfg.ncps.enable [ "http://hsb0.lan:8501" ]
+        ++ lib.optionals cfg.ncps.enable [ "http://192.168.1.99:8501" ]
       );
       trusted-public-keys = lib.mkOverride 0 (
         [
