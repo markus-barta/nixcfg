@@ -27,12 +27,6 @@ in
       user = "git";
       identityFile = "~/.ssh/id_ed25519_bytepoets_office";
     };
-    "bitbucket.org" = {
-      hostname = "bitbucket.org";
-      user = "git";
-      identityFile = "~/.ssh/id_ed25519_bytepoets_office";
-      identitiesOnly = true;
-    };
     "5.75.130.206" = {
       hostname = "5.75.130.206";
       user = "git";
