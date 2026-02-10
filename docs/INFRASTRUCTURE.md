@@ -92,6 +92,43 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 
 ---
 
+## 🔗 SSH Host Nicknames
+
+Shorter aliases for commonly accessed hosts with long names:
+
+| Nickname | Full Hostname | Purpose          | Network       |
+| -------- | ------------- | ---------------- | ------------- |
+| `mbpw`   | mba-mbp-work  | Work MacBook Pro | Home/Portable |
+| `imacw`  | mba-imac-work | Work iMac        | BYTEPOETS     |
+| `msbp`   | miniserver-bp | Office Mac Mini  | BYTEPOETS     |
+
+### SSH Connection Examples
+
+```bash
+# Using full hostname
+ssh mba-mbp-work
+
+# Using nickname (equivalent)
+ssh mbpw
+
+# Force specific route
+ssh mbpw-lan    # LAN only (fail if unreachable)
+ssh mbpw-ts     # Tailscale only
+
+# Auto-fallback (default)
+ssh mbpw        # Try LAN first (2s timeout), fallback to Tailscale
+```
+
+### How LAN→Tailscale Fallback Works
+
+1. **At home/office:** Connects via LAN (fast, direct)
+2. **Remote/coffee shop:** Auto-fallbacks to Tailscale after 2s
+3. **Zellij integration:** All aliases include `zellij attach` for session persistence
+
+**Note:** SSH config is declaratively managed in `modules/shared/ssh-fleet.nix`.
+
+---
+
 ## 📊 Relationships & Dependencies
 
 ```text

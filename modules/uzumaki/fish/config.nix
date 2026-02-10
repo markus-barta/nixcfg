@@ -67,13 +67,28 @@
     c = "clear";
     cl = "clear";
 
-    # SSH shortcuts to local/remote hosts (with zellij session)
-    hsb0 = "ssh mba@192.168.1.99 -t 'zellij attach hsb0 -c'";
-    hsb1 = "ssh mba@192.168.1.101 -t 'zellij attach hsb1 -c'";
-    hsb8 = "ssh mba@192.168.1.100 -t 'zellij attach hsb8 -c'";
-    gpc0 = "ssh mba@192.168.1.154 -t 'zellij attach gpc0 -c'";
-    mbpw = "ssh mba@192.168.1.197 -t 'zellij attach mbpw -c'";
-    csb0 = "ssh mba@cs0.barta.cm -p 2222 -t 'zellij attach csb0 -c'";
-    csb1 = "ssh mba@cs1.barta.cm -p 2222 -t 'zellij attach csb1 -c'";
+    # ═══════════════════════════════════════════════════════════
+    # SSH Shortcuts (zellij auto-attach)
+    # SSH config handles LAN/Tailscale fallback automatically
+    # See: modules/shared/ssh-fleet.nix
+    # ═══════════════════════════════════════════════════════════
+
+    # Home network
+    hsb0 = "ssh hsb0 -t 'zellij attach hsb0 -c'";
+    hsb1 = "ssh hsb1 -t 'zellij attach hsb1 -c'";
+    hsb8 = "ssh hsb8 -t 'zellij attach hsb8 -c'";
+    gpc0 = "ssh gpc0 -t 'zellij attach gpc0 -c'";
+    imac0 = "ssh imac0 -t 'zellij attach imac0 -c'";
+
+    # Work network (nicknames)
+    imacw = "ssh imacw -t 'zellij attach imacw -c'"; # → mba-imac-work
+    msbp = "ssh msbp -t 'zellij attach msbp -c'"; # → miniserver-bp
+
+    # Portable (nickname)
+    mbpw = "ssh mbpw -t 'zellij attach mbpw -c'"; # → mba-mbp-work
+
+    # Cloud
+    csb0 = "ssh csb0 -t 'zellij attach csb0 -c'";
+    csb1 = "ssh csb1 -t 'zellij attach csb1 -c'";
   };
 }
