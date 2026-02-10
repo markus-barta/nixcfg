@@ -17,9 +17,13 @@
 #   ssh mbpw         # Nickname → mba-mbp-work
 #
 {
+  lib,
   ...
 }:
 {
+  # Force-manage ~/.ssh/config (overwrite any pre-existing manual file)
+  home.file.".ssh/config".force = lib.mkDefault true;
+
   programs.ssh = {
     enable = true;
     enableDefaultConfig = false;
