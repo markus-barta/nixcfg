@@ -16,6 +16,8 @@ in
   imports = [
     # Uzumaki: Fish functions, theming, stasysmo (all-in-one)
     ../../modules/uzumaki/home-manager.nix
+    # Fleet SSH config with Tailscale fallback
+    ../../modules/shared/ssh-fleet.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.homeManagerModules.nixfleet-agent)
   ];
 
