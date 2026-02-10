@@ -4,40 +4,51 @@ Central hub for tracking work across the nixcfg repository.
 
 ---
 
+## Structure
+
+```
++pm/
+├── README.md              # This file
+├── backlog/               # Infrastructure-wide items
+│   └── LNN.hash.description.md
+└── done/                  # Completed items
+    └── LNN.hash.description.md
+
+hosts/<hostname>/docs/backlog/  # Host-specific items
+└── LNN.hash.description.md
+```
+
+---
+
 ## Priority System
 
-Tasks use a **P-number** prefix for ordering:
+Tasks use **LNN** format (Letter + 2 digits):
 
 ```
-P{number}-{name}.md
+LNN.hash.description.md
 ```
 
-**Lower number = Higher priority**
+**Examples**: `P50.abc1234.fix-bug.md`, `A10.def5678.critical-issue.md`
 
-| Range       | Priority    | Description                             |
-| ----------- | ----------- | --------------------------------------- |
-| P0000-P1999 | 🔴 Critical | Blocking bugs, security, fix now        |
-| P2000-P3999 | 🟠 High     | Important bugs/issues, fix soon         |
-| P4000-P5999 | 🟡 Medium   | Features and improvements, planned work |
-| P6000-P7999 | 🟢 Low      | Nice-to-have, do when time permits      |
-| P8000-P9999 | ⚪ Backlog  | Ideas, future enhancements, someday     |
+### Priority Levels
 
-### Ordering Within Priority
-
-- Start at **X000** (e.g., P1000, P4000, P6000)
-- New items: add/subtract 100 (P4100, P4200...)
-- Insert between: use finer granularity (P4050 between P4000 and P4100)
-- **Goal**: Never need to rename existing files when priorities change
+| Letter  | Range | Priority    | Description                             |
+| ------- | ----- | ----------- | --------------------------------------- |
+| **A-E** | 00-99 | 🔴 Critical | Blocking bugs, security, fix now        |
+| **F-O** | 00-99 | 🟠 High     | Important bugs/issues, fix soon         |
+| **P**   | 00-99 | 🟡 Medium   | Features and improvements (P50 default) |
+| **Q-V** | 00-99 | 🟢 Low      | Nice-to-have, do when time permits      |
+| **W-Z** | 00-99 | ⚪ Backlog  | Ideas, future enhancements, someday     |
 
 ### Priority Examples
 
-| Priority | Examples                                              |
-| -------- | ----------------------------------------------------- |
-| 🔴 P0-1k | Security incidents, system down, data loss prevention |
-| 🟠 P2-3k | Important fixes, migrations, breaking changes         |
-| 🟡 P4-5k | Infrastructure improvements, agenix, monitoring       |
-| 🟢 P6-7k | Cleanup, cosmetic fixes, declarative improvements     |
-| ⚪ P8-9k | Future ideas, nice-to-have, research                  |
+| Priority   | Examples                                              |
+| ---------- | ----------------------------------------------------- |
+| 🔴 A00-E99 | Security incidents, system down, data loss prevention |
+| 🟠 F00-O99 | Important fixes, migrations, breaking changes         |
+| 🟡 P00-P99 | Infrastructure improvements, agenix, monitoring       |
+| 🟢 Q00-V99 | Cleanup, cosmetic fixes, declarative improvements     |
+| ⚪ W00-Z99 | Future ideas, nice-to-have, research                  |
 
 ---
 
@@ -83,74 +94,97 @@ P{number}-{name}.md
 
 ---
 
-## File Naming Convention
+## Creating Backlog Items
 
+### Using Scripts (REQUIRED)
+
+**ALWAYS use the script to create backlog items.** Never manually create files.
+
+```bash
+# Infrastructure-wide item (default)
+./scripts/create-backlog-item.sh P50 fix-bug-description
+
+# Host-specific item (infers directory from host)
+./scripts/create-backlog-item.sh P30 audit-docker --host hsb0
+
+# With explicit directory
+./scripts/create-backlog-item.sh P30 audit-docker --dir hosts/hsb0/docs/backlog
 ```
-P{number}-{short-description}.md
-```
 
-Examples:
+### File Naming Convention
 
-- `P4000-cloud-servers-watchtower.md`
-- `P5100-hsb1-agenix-secrets.md`
+Format: `LNN.hash.description.md`
 
-**Note**: Date is tracked inside the file, not in the filename.
+**Components**:
+
+- **L**: Letter (A-Z) for priority level
+- **NN**: 2-digit sub-priority (00-99)
+- **hash**: 7-char hex (auto-generated, collision-checked)
+- **description**: kebab-case slug (a-z, 0-9, hyphens)
+
+**Examples**:
+
+- `P50.abc1234.fix-bug.md` (Medium priority, default)
+- `A10.def5678.critical-issue.md` (Critical priority)
+- `Z99.ghi9012.nice-to-have.md` (Lowest priority)
+
+### When to Create Host-Specific vs Infrastructure
+
+| Situation              | Location                     | Example               |
+| ---------------------- | ---------------------------- | --------------------- |
+| Affects one host only  | `hosts/<host>/docs/backlog/` | csb0 Docker config    |
+| Affects multiple hosts | `+pm/backlog/`               | Fleet-wide monitoring |
+| Generic feature        | `+pm/backlog/`               | New skill development |
+| Quick fix (<15 min)    | ❌ No backlog item           | Single-file typo fix  |
 
 ---
 
-## Task Template
+## Backlog Item Template
 
-````markdown
-# Task Title
+The script automatically creates this template:
 
-**Created**: YYYY-MM-DD  
-**Priority**: P{number} (Critical/Medium/Low)  
-**Status**: Backlog  
-**Depends on**: P{other} (optional)
+```markdown
+# description
+
+**Host**: hostname (if host-specific)
+**Priority**: LNN
+**Status**: Backlog
+**Created**: YYYY-MM-DD
 
 ---
 
 ## Problem
 
-Brief explanation of what needs to be fixed or built.
-
----
+[Brief description of what needs to be fixed or built]
 
 ## Solution
 
-How we're going to solve it.
+[How we're going to solve it]
 
----
+## Implementation
+
+- [ ] Task 1
+- [ ] Task 2
+- [ ] Documentation update
+- [ ] Test
 
 ## Acceptance Criteria
 
 - [ ] Criterion 1
 - [ ] Criterion 2
+- [ ] Tests pass
 
----
+## Notes
 
-## Test Plan
-
-### Manual Test
-
-1. Step 1 to verify
-2. Step 2 to verify
-
-### Automated Test
-
-```bash
-# Commands to verify
+[Optional: Dependencies, risks, references, related items]
 ```
-````
 
----
+### Template Guidelines
 
-## Related
-
-- Depends on: P{number}
-- Enables: P{number}
-
-```
+- **Keep concise**: Problem/Solution should be 1-3 sentences each
+- **Actionable tasks**: Implementation uses checkboxes for tracking
+- **Testable**: Acceptance criteria must be verifiable
+- **Optional Notes**: Dependencies, risks, related items, rollback plans
 
 ---
 
@@ -158,19 +192,19 @@ How we're going to solve it.
 
 Every task should have tests defined:
 
-| Test Type       | Description                              | Required    |
-| --------------- | ---------------------------------------- | ----------- |
-| **Manual Test** | Human verification steps in the task     | ✅ Yes      |
+| Test Type       | Description                               | Required    |
+| --------------- | ----------------------------------------- | ----------- |
+| **Manual Test** | Human verification steps in the task      | ✅ Yes      |
 | **Automated**   | Script or commands that verify the change | Recommended |
 
 ### Testing Approaches
 
-| Test Type     | How to Test                              |
-| ------------- | ---------------------------------------- |
-| **NixOS**     | `nixos-rebuild test`, host test scripts  |
-| **macOS**     | `home-manager switch`, manual verify     |
-| **Services**  | `systemctl status`, curl endpoints       |
-| **Docker**    | `docker compose up -d`, logs check       |
+| Test Type    | How to Test                             |
+| ------------ | --------------------------------------- |
+| **NixOS**    | `nixos-rebuild test`, host test scripts |
+| **macOS**    | `home-manager switch`, manual verify    |
+| **Services** | `systemctl status`, curl endpoints      |
+| **Docker**   | `docker compose up -d`, logs check      |
 
 ---
 
@@ -179,4 +213,7 @@ Every task should have tests defined:
 - [Main README](../README.md) - Project overview
 - [Tests](../tests/README.md) - Test infrastructure
 - [NixFleet +pm](../../nixfleet/+pm/README.md) - Same system for NixFleet
+
+```
+
 ```
