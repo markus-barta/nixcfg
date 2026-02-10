@@ -127,6 +127,58 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 
 ---
 
+## 🔗 Headscale VPN (Mesh Network)
+
+Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts.
+
+- **Control server**: `https://hs.barta.cm` (csb0, Docker)
+- **MagicDNS domain**: `ts.barta.cm` (hosts addressable as `<hostname>.ts.barta.cm`)
+- **IP range**: `100.64.0.0/10`
+- **Server docs**: See `hosts/csb0/docs/RUNBOOK.md` → Headscale section
+
+### Connected Nodes
+
+| Host              | Platform | Status     |
+| ----------------- | -------- | ---------- |
+| **imac0**         | macOS    | ✅ Active  |
+| **mba-imac-work** | macOS    | ✅ Active  |
+| **miniserver-bp** | NixOS    | 📋 Planned |
+| other hosts       | -        | 📋 Planned |
+
+### Adding a New Node
+
+**1. Generate a pre-auth key on csb0:**
+
+```bash
+# Long-lived reusable key (store in 1Password!)
+ssh mba@cs0.barta.cm -p 2222 \
+  "docker exec headscale headscale preauthkeys create --user <username> --reusable --expiration 87600h"
+```
+
+> The user is baked into the key at creation time. No `--user` needed on the client.
+
+**2. Connect the device:**
+
+```bash
+# macOS (use the .app CLI, NOT brew's tailscale)
+/Applications/Tailscale.app/Contents/MacOS/Tailscale up --login-server https://hs.barta.cm --authkey <KEY>
+
+# NixOS (requires services.tailscale.enable = true; deployed first)
+sudo tailscale up --login-server https://hs.barta.cm --authkey <KEY>
+```
+
+**3. Verify:**
+
+```bash
+# On the new node
+tailscale status
+
+# On csb0 (list all nodes)
+ssh mba@cs0.barta.cm -p 2222 "docker exec headscale headscale nodes list"
+```
+
+---
+
 ## 🛠️ Build & Deployment
 
 ### Build Platforms
