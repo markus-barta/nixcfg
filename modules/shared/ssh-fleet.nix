@@ -31,6 +31,27 @@
 
     matchBlocks = {
       # ═══════════════════════════════════════════════════════════
+      # EXISTING MANUAL CONFIG (preserved from ~/.ssh/config)
+      # ═══════════════════════════════════════════════════════════
+
+      "github-bp" = {
+        hostname = "github.com";
+        user = "git";
+        identityFile = "~/.ssh/id_ed25519_bytepoets";
+      };
+
+      "github.com" = {
+        hostname = "github.com";
+        user = "git";
+        identityFile = "~/.ssh/id_rsa";
+      };
+
+      "traefik.barta.cm" = {
+        hostname = "traefik.barta.cm";
+        user = "mba";
+      };
+
+      # ═══════════════════════════════════════════════════════════
       # HOME NETWORK HOSTS (192.168.1.0/24) - LAN with TS fallback
       # ═══════════════════════════════════════════════════════════
 
