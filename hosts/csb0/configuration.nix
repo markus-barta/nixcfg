@@ -99,7 +99,17 @@
         443 # HTTPS
         2222 # SSH (hardened port)
       ];
+      allowedUDPPorts = [
+        41641 # Tailscale WireGuard
+      ];
     };
+  };
+
+  # Tailscale VPN client (connects to headscale on csb0)
+  # Note: csb0 runs the headscale server AND is a client node on its own network
+  services.tailscale = {
+    enable = true;
+    useRoutingFeatures = "client"; # Client mode only
   };
 
   # ============================================================================
