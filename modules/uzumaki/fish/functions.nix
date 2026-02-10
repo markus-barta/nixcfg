@@ -324,13 +324,13 @@
 
       # ── SSH Shortcuts ──
       echo -e "$color_abbr┌─ SSH Shortcuts (with zellij session) ──────────────────────────────────┐$color_reset"
-      printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "hsb0" "Home server 0"   "(192.168.1.99)"
-      printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "hsb1" "Home server 1"   "(192.168.1.101)"
-      printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "hsb8" "Home server 8"   "(192.168.1.100)"
-      printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "gpc0" "Gaming PC"       "(192.168.1.154)"
-      printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "mbpw" "Work MacBook"    "(192.168.1.197)"
-      printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "csb0" "Cloud server 0"  "(cs0.barta.cm)"
-      printf " $color_abbr%-10s$color_reset → %-22s $color_dim%-28s$color_reset\n" "csb1" "Cloud server 1"  "(cs1.barta.cm)"
+      printf " $color_abbr%-10s$color_reset → %-30s $color_dim# Auto LAN→TS fallback$color_reset\n" "hsb0" "ssh hsb0 -t 'zellij attach...'"
+      printf " $color_dim%-10s   %-30s %s$color_reset\n" "Explicit:" "hsb0-lan (Force LAN)" "hsb0-ts (Force Tailscale)"
+      echo ""
+      printf " $color_dim%-10s   Nicknames for long hostnames:$color_reset\n" ""
+      printf " $color_abbr%-10s$color_reset → %-30s $color_dim# → mba-mbp-work$color_reset\n" "mbpw" "Work MacBook Pro"
+      printf " $color_abbr%-10s$color_reset → %-30s $color_dim# → mba-imac-work$color_reset\n" "imacw" "Work iMac"
+      printf " $color_abbr%-10s$color_reset → %-30s $color_dim# → miniserver-bp$color_reset\n" "msbp" "Office Mac Mini"
       echo -e "$color_abbr└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
     '';
   };

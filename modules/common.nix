@@ -20,6 +20,13 @@ let
   sharedFishConfig = import ./uzumaki/fish/config.nix;
 in
 {
+  # ════════════════════════════════════════════════════════════════════════════
+  # IMPORTS - Shared modules
+  # ════════════════════════════════════════════════════════════════════════════
+  imports = [
+    ./shared/ssh-fleet.nix # Fleet SSH config with Tailscale fallback
+  ];
+
   # Disable hokage's starship (we configure our own with shared TOML file)
   hokage.programs.starship.enable = false;
 
@@ -47,7 +54,31 @@ in
       # interactiveShellInit is set by uzumaki/server.nix or uzumaki/desktop.nix
     };
 
-    bash.shellAliases = config.programs.fish.shellAliases;
+    bash.shellAliases = config.programs.fish.shellAliases // {
+      # ═══════════════════════════════════════════════════════════
+      # SSH Shortcuts (zellij auto-attach) - bash compatibility
+      # Mirrors fish abbreviations
+      # SSH config handles LAN/Tailscale fallback automatically
+      # ═══════════════════════════════════════════════════════════
+
+      # Home network
+      hsb0 = "ssh hsb0 -t 'zellij attach hsb0 -c'";
+      hsb1 = "ssh hsb1 -t 'zellij attach hsb1 -c'";
+      hsb8 = "ssh hsb8 -t 'zellij attach hsb8 -c'";
+      gpc0 = "ssh gpc0 -t 'zellij attach gpc0 -c'";
+      imac0 = "ssh imac0 -t 'zellij attach imac0 -c'";
+
+      # Work network (nicknames)
+      imacw = "ssh imacw -t 'zellij attach imacw -c'";
+      msbp = "ssh msbp -t 'zellij attach msbp -c'";
+
+      # Portable (nickname)
+      mbpw = "ssh mbpw -t 'zellij attach mbpw -c'";
+
+      # Cloud
+      csb0 = "ssh csb0 -t 'zellij attach csb0 -c'";
+      csb1 = "ssh csb1 -t 'zellij attach csb1 -c'";
+    };
 
     # yet-another-nix-helper
     # https://github.com/viperML/nh
