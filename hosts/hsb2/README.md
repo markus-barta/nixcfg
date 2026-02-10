@@ -7,20 +7,21 @@ Home Server Barta 2 - Lightweight Raspberry Pi server for future home automation
 
 ## Quick Reference
 
-| Item           | Value                                 |
-| -------------- | ------------------------------------- |
-| **Hostname**   | `hsb2`                                |
-| **Model**      | Raspberry Pi Zero W Rev 1.1           |
-| **CPU**        | ARMv6Z (BCM2835) @ 1GHz (single core) |
-| **RAM**        | 512 MB                                |
-| **Storage**    | SD Card (ext4)                        |
-| **Filesystem** | ext4 (no ZFS - insufficient RAM)      |
-| **Static IP**  | `192.168.1.95/24`                     |
-| **Gateway**    | `192.168.1.5` (Fritz!Box)             |
-| **SSH Access** | `ssh mba@192.168.1.95`                |
-| **User**       | `mba` (Markus Barta)                  |
-| **Role**       | `server-home`                         |
-| **Exposure**   | LAN-only (192.168.1.0/24)             |
+| Item             | Value                                                     |
+| ---------------- | --------------------------------------------------------- |
+| **Hostname**     | `hsb2`                                                    |
+| **Model**        | Raspberry Pi Zero W Rev 1.1                               |
+| **CPU**          | ARMv6Z (BCM2835) @ 1GHz (single core)                     |
+| **RAM**          | 512 MB                                                    |
+| **Storage**      | SD Card (ext4)                                            |
+| **Filesystem**   | ext4 (no ZFS - insufficient RAM)                          |
+| **Static IP**    | `192.168.1.95/24`                                         |
+| **Tailscale IP** | `100.64.0.5` (hsb2.ts.barta.cm)                           |
+| **Gateway**      | `192.168.1.5` (Fritz!Box)                                 |
+| **SSH Access**   | `ssh hsb2` (auto LAN→Tailscale) or `ssh mba@192.168.1.95` |
+| **User**         | `mba` (Markus Barta)                                      |
+| **Role**         | `server-home`                                             |
+| **Exposure**     | LAN + Tailscale VPN                                       |
 
 ## Features
 
@@ -29,6 +30,7 @@ Home Server Barta 2 - Lightweight Raspberry Pi server for future home automation
 | F00 | Raspbian OS       | Debian-based stable system     | T00  |
 | F01 | SSH Remote Access | Secure remote management       | T01  |
 | F02 | WiFi Support      | Built-in wireless connectivity | T02  |
+| F03 | Tailscale VPN     | Remote access from anywhere    | T03  |
 
 ## Firewall Ports
 

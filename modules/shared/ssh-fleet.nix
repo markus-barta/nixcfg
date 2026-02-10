@@ -97,6 +97,20 @@
         user = "mba";
       };
 
+      "hsb2" = {
+        hostname = "192.168.1.95";
+        user = "mba";
+        proxyCommand = "sh -c 'nc -w2 %h %p || nc hsb2.ts.barta.cm %p'";
+      };
+      "hsb2-lan" = {
+        hostname = "192.168.1.95";
+        user = "mba";
+      };
+      "hsb2-ts" = {
+        hostname = "hsb2.ts.barta.cm";
+        user = "mba";
+      };
+
       "gpc0" = {
         hostname = "192.168.1.154";
         user = "mba";

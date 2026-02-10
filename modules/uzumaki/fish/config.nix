@@ -76,6 +76,7 @@
     # Home network
     hsb0 = "ssh hsb0 -t 'zellij attach hsb0 -c'";
     hsb1 = "ssh hsb1 -t 'zellij attach hsb1 -c'";
+    hsb2 = "ssh hsb2 -t 'zellij attach hsb2 -c'";
     hsb8 = "ssh hsb8 -t 'zellij attach hsb8 -c'";
     gpc0 = "ssh gpc0 -t 'zellij attach gpc0 -c'";
     imac0 = "ssh imac0 -t 'zellij attach imac0 -c'";
