@@ -22,14 +22,25 @@
 {
   programs.ssh = {
     enable = true;
+    enableDefaultConfig = false;
 
     matchBlocks = {
       # ═══════════════════════════════════════════════════════════
-      # GLOBAL DEFAULTS (keep-alive settings for all hosts)
+      # GLOBAL DEFAULTS
+      # Replaces Home Manager's enableDefaultConfig with our own values
+      # (keep-alive overridden to 60s instead of default 0)
       # ═══════════════════════════════════════════════════════════
       "*" = {
-        serverAliveInterval = 60; # Send ping every 60s
-        serverAliveCountMax = 3; # Disconnect after 3 failed pings (3min total)
+        forwardAgent = false;
+        addKeysToAgent = "no";
+        compression = false;
+        serverAliveInterval = 60; # Override: 60s instead of default 0
+        serverAliveCountMax = 3;
+        hashKnownHosts = false;
+        userKnownHostsFile = "~/.ssh/known_hosts";
+        controlMaster = "no";
+        controlPath = "~/.ssh/master-%r@%n:%p";
+        controlPersist = "no";
       };
       # ═══════════════════════════════════════════════════════════
       # EXISTING MANUAL CONFIG (preserved from ~/.ssh/config)
