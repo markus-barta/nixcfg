@@ -183,6 +183,9 @@
   users.users.mba = {
     extraGroups = [ "mosquitto" ];
 
+    # Fix: Remove evaluation warning by forcing null on initialHashedPassword
+    initialHashedPassword = lib.mkForce null;
+
     # 🚨 EMERGENCY RECOVERY PASSWORD - for VNC console access if SSH fails
     # Enables login via Netcup VNC console during lockout scenarios
     # Password stored in 1Password, rotate after migration complete
