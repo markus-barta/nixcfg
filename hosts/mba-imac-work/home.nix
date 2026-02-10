@@ -19,6 +19,28 @@ in
   ];
 
   # ============================================================================
+  # SSH KEYS - Host-specific Git SSH config (preserved from manual ~/.ssh/config)
+  # ============================================================================
+  programs.ssh.matchBlocks = {
+    "github-bp" = {
+      hostname = "github.com";
+      user = "git";
+      identityFile = "~/.ssh/id_ed25519_bytepoets_office";
+    };
+    "bitbucket.org" = {
+      hostname = "bitbucket.org";
+      user = "git";
+      identityFile = "~/.ssh/id_ed25519_bytepoets_office";
+      identitiesOnly = true;
+    };
+    "5.75.130.206" = {
+      hostname = "5.75.130.206";
+      user = "git";
+      identityFile = "~/.ssh/ops-bytepoets-com";
+    };
+  };
+
+  # ============================================================================
   # NixFleet Agent - Fleet Management
   # ============================================================================
   # NixFleet v2 agent - connects to fleet.barta.cm via WebSocket

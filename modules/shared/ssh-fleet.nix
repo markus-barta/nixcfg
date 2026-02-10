@@ -46,20 +46,9 @@
         controlPersist = "no";
       };
       # ═══════════════════════════════════════════════════════════
-      # EXISTING MANUAL CONFIG (preserved from ~/.ssh/config)
+      # SHARED NON-HOST CONFIG
+      # (Per-host Git SSH keys are in each host's home.nix)
       # ═══════════════════════════════════════════════════════════
-
-      "github-bp" = {
-        hostname = "github.com";
-        user = "git";
-        identityFile = "~/.ssh/id_ed25519_bytepoets";
-      };
-
-      "github.com" = {
-        hostname = "github.com";
-        user = "git";
-        identityFile = "~/.ssh/id_rsa";
-      };
 
       "traefik.barta.cm" = {
         hostname = "traefik.barta.cm";

@@ -22,6 +22,35 @@ in
   ];
 
   # ============================================================================
+  # SSH KEYS - Host-specific Git SSH config (dual-use: personal + BYTEPOETS)
+  # ============================================================================
+  programs.ssh.matchBlocks = {
+    # Personal (default for github.com)
+    "github.com" = {
+      hostname = "github.com";
+      user = "git";
+      identityFile = "~/.ssh/id_rsa";
+    };
+    # BYTEPOETS
+    "github-bp" = {
+      hostname = "github.com";
+      user = "git";
+      identityFile = "~/.ssh/id_ed25519_bytepoets_office";
+    };
+    "bitbucket.org" = {
+      hostname = "bitbucket.org";
+      user = "git";
+      identityFile = "~/.ssh/id_ed25519_bytepoets_office";
+      identitiesOnly = true;
+    };
+    "5.75.130.206" = {
+      hostname = "5.75.130.206";
+      user = "git";
+      identityFile = "~/.ssh/ops-bytepoets-com";
+    };
+  };
+
+  # ============================================================================
   # UZUMAKI MODULE - All personal config in one place
   # ============================================================================
   uzumaki = {
