@@ -189,6 +189,7 @@ in
       allowedUDPPorts = [
         443 # HTTPS
         5353 # mDNS for HomeKit: Bonjour discovery and CIAO
+        41641 # Tailscale WireGuard
       ];
     };
   };
@@ -209,6 +210,12 @@ in
   # Enable Fwupd
   # https://nixos.wiki/wiki/Fwupd
   services.fwupd.enable = true;
+
+  # Tailscale VPN client (connects to headscale on csb0)
+  services.tailscale = {
+    enable = true;
+    useRoutingFeatures = "client"; # Client mode only
+  };
 
   # Enable FLIRC IR-USB-Module
   # NOTE: receiver moved off hsb1.
