@@ -184,10 +184,10 @@ in
       fallback = true;
 
       # NCPS Binary Cache Proxy (hsb0)
-      # Uses IP: Tailscale MagicDNS can override .lan resolution
+      # .lan resolution works via headscale split DNS → hsb0 AdGuard
       # Priority: lib.mkOverride 0 ensures local cache is prioritized across the fleet
       substituters = lib.mkOverride 0 [
-        "http://192.168.1.99:8501"
+        "http://hsb0.lan:8501"
         "https://cache.nixos.org"
         "https://nix-community.cachix.org"
       ];
