@@ -62,7 +62,7 @@
       "hsb0" = {
         hostname = "192.168.1.99";
         user = "mba";
-        proxyCommand = "sh -c 'nc -w2 %h %p || nc hsb0.ts.barta.cm %p'";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb0.ts.barta.cm %p; fi'";
       };
       "hsb0-lan" = {
         hostname = "192.168.1.99";
@@ -76,7 +76,7 @@
       "hsb1" = {
         hostname = "192.168.1.101";
         user = "mba";
-        proxyCommand = "sh -c 'nc -w2 %h %p || nc hsb1.ts.barta.cm %p'";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb1.ts.barta.cm %p; fi'";
       };
       "hsb1-lan" = {
         hostname = "192.168.1.101";
@@ -90,7 +90,7 @@
       "hsb8" = {
         hostname = "192.168.1.100";
         user = "mba";
-        proxyCommand = "sh -c 'nc -w2 %h %p || nc hsb8.ts.barta.cm %p'";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb8.ts.barta.cm %p; fi'";
       };
       "hsb8-lan" = {
         hostname = "192.168.1.100";
@@ -104,7 +104,7 @@
       "hsb2" = {
         hostname = "192.168.1.95";
         user = "mba";
-        proxyCommand = "sh -c 'nc -w2 %h %p || nc hsb2.ts.barta.cm %p'";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb2.ts.barta.cm %p; fi'";
       };
       "hsb2-lan" = {
         hostname = "192.168.1.95";
@@ -118,7 +118,7 @@
       "gpc0" = {
         hostname = "192.168.1.154";
         user = "mba";
-        proxyCommand = "sh -c 'nc -w2 %h %p || nc gpc0.ts.barta.cm %p'";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc gpc0.ts.barta.cm %p; fi'";
       };
       "gpc0-lan" = {
         hostname = "192.168.1.154";
@@ -132,7 +132,7 @@
       "imac0" = {
         hostname = "192.168.1.150";
         user = "markus"; # Note: user is markus, not mba!
-        proxyCommand = "sh -c 'nc -w2 %h %p || nc imac0.ts.barta.cm %p'";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc imac0.ts.barta.cm %p; fi'";
       };
       "imac0-lan" = {
         hostname = "192.168.1.150";
@@ -150,7 +150,7 @@
       "mba-mbp-work" = {
         hostname = "192.168.1.197"; # When at home
         user = "mba";
-        proxyCommand = "sh -c 'nc -w2 %h %p || nc mba-mbp-work.ts.barta.cm %p'";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc mba-mbp-work.ts.barta.cm %p; fi'";
       };
       "mba-mbp-work-lan" = {
         hostname = "192.168.1.197";
@@ -181,7 +181,7 @@
       "mba-imac-work" = {
         hostname = "10.17.1.7";
         user = "markus"; # Note: user is markus, not mba!
-        proxyCommand = "sh -c 'nc -w2 %h %p || nc mba-imac-work.ts.barta.cm %p'";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc mba-imac-work.ts.barta.cm %p; fi'";
       };
       "mba-imac-work-lan" = {
         hostname = "10.17.1.7";
@@ -208,7 +208,7 @@
       "miniserver-bp" = {
         hostname = "10.17.1.40";
         user = "mba";
-        proxyCommand = "sh -c 'nc -w2 %h %p || nc miniserver-bp.ts.barta.cm %p'";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc miniserver-bp.ts.barta.cm %p; fi'";
       };
       "miniserver-bp-lan" = {
         hostname = "10.17.1.40";

@@ -22,7 +22,7 @@
     Host hsb0
       HostName 192.168.1.99
       User mba
-      ProxyCommand sh -c 'nc -w2 %h %p || nc hsb0.ts.barta.cm %p'
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb0.ts.barta.cm %p; fi'
 
     Host hsb0-lan
       HostName 192.168.1.99
@@ -35,7 +35,7 @@
     Host hsb1
       HostName 192.168.1.101
       User mba
-      ProxyCommand sh -c 'nc -w2 %h %p || nc hsb1.ts.barta.cm %p'
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb1.ts.barta.cm %p; fi'
 
     Host hsb1-lan
       HostName 192.168.1.101
@@ -48,7 +48,7 @@
     Host hsb2
       HostName 192.168.1.95
       User mba
-      ProxyCommand sh -c 'nc -w2 %h %p || nc hsb2.ts.barta.cm %p'
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb2.ts.barta.cm %p; fi'
 
     Host hsb2-lan
       HostName 192.168.1.95
@@ -61,7 +61,7 @@
     Host hsb8
       HostName 192.168.1.100
       User mba
-      ProxyCommand sh -c 'nc -w2 %h %p || nc hsb8.ts.barta.cm %p'
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb8.ts.barta.cm %p; fi'
 
     Host hsb8-lan
       HostName 192.168.1.100
@@ -74,7 +74,7 @@
     Host gpc0
       HostName 192.168.1.154
       User mba
-      ProxyCommand sh -c 'nc -w2 %h %p || nc gpc0.ts.barta.cm %p'
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc gpc0.ts.barta.cm %p; fi'
 
     Host gpc0-lan
       HostName 192.168.1.154
@@ -87,7 +87,7 @@
     Host imac0
       HostName 192.168.1.150
       User markus
-      ProxyCommand sh -c 'nc -w2 %h %p || nc imac0.ts.barta.cm %p'
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc imac0.ts.barta.cm %p; fi'
 
     Host imac0-lan
       HostName 192.168.1.150
@@ -101,7 +101,7 @@
     Host mba-mbp-work
       HostName 192.168.1.197
       User mba
-      ProxyCommand sh -c 'nc -w2 %h %p || nc mba-mbp-work.ts.barta.cm %p'
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc mba-mbp-work.ts.barta.cm %p; fi'
 
     Host mba-mbp-work-lan
       HostName 192.168.1.197
@@ -125,7 +125,7 @@
     Host mba-imac-work
       HostName 10.17.1.7
       User markus
-      ProxyCommand sh -c 'nc -w2 %h %p || nc mba-imac-work.ts.barta.cm %p'
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc mba-imac-work.ts.barta.cm %p; fi'
 
     Host mba-imac-work-lan
       HostName 10.17.1.7
@@ -149,7 +149,7 @@
     Host miniserver-bp
       HostName 10.17.1.40
       User mba
-      ProxyCommand sh -c 'nc -w2 %h %p || nc miniserver-bp.ts.barta.cm %p'
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc miniserver-bp.ts.barta.cm %p; fi'
 
     Host miniserver-bp-lan
       HostName 10.17.1.40
