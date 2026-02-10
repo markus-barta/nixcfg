@@ -114,6 +114,7 @@ in
       ];
       allowedUDPPorts = [
         443 # HTTPS
+        41641 # Tailscale WireGuard
       ]
       ++ lib.optionals enableAdGuard [
         53 # DNS (AdGuard Home)
@@ -455,6 +456,12 @@ in
   # Enable Fwupd for firmware updates
   # https://nixos.wiki/wiki/Fwupd
   services.fwupd.enable = true;
+
+  # Tailscale VPN client (connects to headscale on csb0)
+  services.tailscale = {
+    enable = true;
+    useRoutingFeatures = "client"; # Client mode only
+  };
 
   # Passwordless sudo for wheel group (required for remote deployment)
   security.sudo-rs.wheelNeedsPassword = false;
