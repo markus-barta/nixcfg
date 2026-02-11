@@ -210,22 +210,31 @@
         port = 2222;
         user = "mba";
         proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc miniserver-bp.ts.barta.cm %p; fi'";
-        serverAliveInterval = 60;
-        serverAliveCountMax = 3;
+        serverAliveInterval = 10;
+        serverAliveCountMax = 6;
+        extraOptions = {
+          TCPKeepAlive = "yes";
+        };
       };
       "miniserver-bp-lan" = {
         hostname = "10.17.1.40";
         port = 2222;
         user = "mba";
-        serverAliveInterval = 60;
-        serverAliveCountMax = 3;
+        serverAliveInterval = 10;
+        serverAliveCountMax = 6;
+        extraOptions = {
+          TCPKeepAlive = "yes";
+        };
       };
       "miniserver-bp-ts" = {
         hostname = "miniserver-bp.ts.barta.cm";
         port = 2222;
         user = "mba";
-        serverAliveInterval = 60;
-        serverAliveCountMax = 3;
+        serverAliveInterval = 10;
+        serverAliveCountMax = 6;
+        extraOptions = {
+          TCPKeepAlive = "yes";
+        };
       };
 
       # Nickname: msbp → miniserver-bp
