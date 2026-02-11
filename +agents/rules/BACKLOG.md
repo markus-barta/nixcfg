@@ -21,7 +21,7 @@
 ./scripts/create-backlog-item.sh P50 fix-bug-description
 ```
 
-Creates: `+pm/backlog/P50.abc1234.fix-bug-description.md`
+Creates: `+pm/backlog/infra/P50--abc1234--fix-bug-description.md`
 
 ### Host-Specific Item
 
@@ -29,7 +29,7 @@ Creates: `+pm/backlog/P50.abc1234.fix-bug-description.md`
 ./scripts/create-backlog-item.sh P30 audit-docker --host hsb0
 ```
 
-Creates: `hosts/hsb0/docs/backlog/P30.def5678.audit-docker.md`
+Creates: `hosts/hsb0/docs/backlog/P30--def5678--audit-docker.md`
 
 ---
 
@@ -38,14 +38,20 @@ Creates: `hosts/hsb0/docs/backlog/P30.def5678.audit-docker.md`
 ```
 Does this task affect ONLY ONE host?
 ├─ YES → Use --host flag → hosts/<host>/docs/backlog/
-└─ NO  → Default location → +pm/backlog/
+└─ NO  → Default location → +pm/backlog/infra/
 
 Examples:
 - "Fix csb0 Docker config" → --host csb0
-- "Add monitoring to all hosts" → infrastructure (+pm/backlog/)
+- "Add monitoring to all hosts" → infrastructure (+pm/backlog/infra/)
 - "Update hsb1 secrets" → --host hsb1
-- "Improve OpenClaw skill" → infrastructure (+pm/backlog/)
+- "Improve OpenClaw skill" → infrastructure (+pm/backlog/infra/)
 ```
+
+**Quick Access**: Host backlogs are symlinked in `+pm/backlog/`:
+
+- `+pm/backlog/hsb0/` → hosts/hsb0/docs/backlog/
+- `+pm/backlog/csb0/` → hosts/csb0/docs/backlog/
+- `+pm/backlog/mbpw/` → hosts/mba-mbp-work/docs/backlog/ (nickname)
 
 ---
 

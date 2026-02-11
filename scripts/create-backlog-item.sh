@@ -21,7 +21,7 @@
 #   --dir: Target directory (default: +pm/backlog)
 #   --host: Hostname (auto-sets dir to hosts/<host>/docs/backlog if --dir not specified)
 #
-# OUTPUT: {dir}/{priority}.{hash}.{description}.md
+# OUTPUT: {dir}/{priority}--{hash}--{description}.md
 
 set -euo pipefail
 
@@ -104,7 +104,7 @@ mkdir -p "$dir"
 hash=$(generate_unique_hash ".")
 
 # Build filename
-filename="$dir/${priority}.${hash}.${desc}.md"
+filename="$dir/${priority}--${hash}--${desc}.md"
 
 # Create template
 cat >"$filename" <<EOF
