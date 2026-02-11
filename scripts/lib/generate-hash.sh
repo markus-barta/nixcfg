@@ -21,7 +21,7 @@ generate_unique_hash() {
 
     # Check for collision by seeing if any file uses this hash
     # Search recursively to handle both +pm/backlog/ and hosts/*/docs/backlog/
-    if ! find "$search_dir" -name "*.$hash.*.md" 2>/dev/null | grep -q .; then
+    if ! find "$search_dir" -name "*--${hash}--*.md" 2>/dev/null | grep -q .; then
       echo "$hash"
       return 0
     fi

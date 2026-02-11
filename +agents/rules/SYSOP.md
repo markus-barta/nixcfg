@@ -187,7 +187,7 @@ Current Context                Target Host              Reachable?
 
 ### For Bigger Tasks
 
-1. **Create a +pm task first**: `+pm/backlog/P{number}-short-description.md`
+1. **Create a +pm task first**: `+pm/backlog/infra/P{number}--{hash}--short-description.md`
    - P0-1k 🔴 Critical | P2-3k 🟠 High | P4-5k 🟡 Medium | P6-7k 🟢 Low | P8-9k ⚪ Backlog
 2. Work through the task with acceptance criteria
 3. Move to `+pm/done/` when complete

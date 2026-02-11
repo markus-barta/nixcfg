@@ -9,7 +9,7 @@
 
 ## Problem
 
-Need to install OpenClaw AI agent on miniserver-bp with identifier "Percaival" for testing and experimentation.
+Need to install OpenClaw AI agent on miniserver-bp with identifier "Percaival", nicknames "Percai/Percy" for testing and experimentation.
 
 ## Solution
 

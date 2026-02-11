@@ -9,13 +9,20 @@ Central hub for tracking work across the nixcfg repository.
 ```
 +pm/
 ├── README.md              # This file
-├── backlog/               # Infrastructure-wide items
-│   └── LNN.hash.description.md
-└── done/                  # Completed items
-    └── LNN.hash.description.md
+├── backlog/               # All backlog items
+│   ├── infra/             # Infrastructure-wide items
+│   │   └── LNN--hash--description.md
+│   ├── hsb0 -> ../../hosts/hsb0/docs/backlog/  # Host symlinks
+│   ├── hsb1 -> ../../hosts/hsb1/docs/backlog/
+│   ├── csb0 -> ../../hosts/csb0/docs/backlog/
+│   └── ... (11 total)
+├── done/                  # Completed items
+│   └── LNN--hash--description.md
+└── cancelled/             # Cancelled items
+    └── LNN--hash--description.md
 
-hosts/<hostname>/docs/backlog/  # Host-specific items
-└── LNN.hash.description.md
+hosts/<hostname>/docs/backlog/  # Host-specific items (actual location)
+└── LNN--hash--description.md
 ```
 
 ---
@@ -25,10 +32,10 @@ hosts/<hostname>/docs/backlog/  # Host-specific items
 Tasks use **LNN** format (Letter + 2 digits):
 
 ```
-LNN.hash.description.md
+LNN--hash--description.md
 ```
 
-**Examples**: `P50.abc1234.fix-bug.md`, `A10.def5678.critical-issue.md`
+**Examples**: `P50--abc1234--fix-bug.md`, `A10--def5678--critical-issue.md`
 
 ### Priority Levels
 
@@ -113,7 +120,7 @@ LNN.hash.description.md
 
 ### File Naming Convention
 
-Format: `LNN.hash.description.md`
+Format: `LNN--hash--description.md`
 
 **Components**:
 
@@ -124,18 +131,20 @@ Format: `LNN.hash.description.md`
 
 **Examples**:
 
-- `P50.abc1234.fix-bug.md` (Medium priority, default)
-- `A10.def5678.critical-issue.md` (Critical priority)
-- `Z99.ghi9012.nice-to-have.md` (Lowest priority)
+- `P50--abc1234--fix-bug.md` (Medium priority, default)
+- `A10--def5678--critical-issue.md` (Critical priority)
+- `Z99--ghi9012--nice-to-have.md` (Lowest priority)
 
 ### When to Create Host-Specific vs Infrastructure
 
 | Situation              | Location                     | Example               |
 | ---------------------- | ---------------------------- | --------------------- |
 | Affects one host only  | `hosts/<host>/docs/backlog/` | csb0 Docker config    |
-| Affects multiple hosts | `+pm/backlog/`               | Fleet-wide monitoring |
-| Generic feature        | `+pm/backlog/`               | New skill development |
+| Affects multiple hosts | `+pm/backlog/infra/`         | Fleet-wide monitoring |
+| Generic feature        | `+pm/backlog/infra/`         | New skill development |
 | Quick fix (<15 min)    | ❌ No backlog item           | Single-file typo fix  |
+
+**Note**: Access host backlogs via symlinks in `+pm/backlog/` (e.g., `+pm/backlog/hsb0/`, `+pm/backlog/csb0/`)
 
 ---
 

@@ -203,7 +203,7 @@ ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 
 ### File Format
 
-- **Naming**: `LNN.hash.description.md` (e.g., `P50.abc1234.fix-bug.md`)
+- **Naming**: `LNN--hash--description.md` (e.g., `P50--abc1234--fix-bug.md`)
 - **Priority**: Letter (A-Z) + 2 digits (00-99), e.g., P50, A10, Z99
 - **Hash**: 7-char hex (auto-generated, collision-checked)
 - **Description**: kebab-case, short
@@ -213,7 +213,7 @@ ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 | Situation                                   | Location                     |
 | ------------------------------------------- | ---------------------------- |
 | Host-specific task (affects one host only)  | `hosts/<host>/docs/backlog/` |
-| Infrastructure-wide (multiple hosts, fleet) | `+pm/backlog/`               |
+| Infrastructure-wide (multiple hosts, fleet) | `+pm/backlog/infra/`         |
 | Quick fix (<15 min, single file)            | ❌ No backlog item needed    |
 
 ### Template Structure
