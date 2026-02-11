@@ -78,6 +78,7 @@
   # ==========================================================================
 
   age.secrets.miniserver-bp-wireguard-key.file = ../../secrets/miniserver-bp-wireguard-key.age;
+  age.secrets.miniserver-bp-openclaw-telegram-token.file = ../../secrets/miniserver-bp-openclaw-telegram-token.age;
 
   # ==========================================================================
   # WIREGUARD VPN
@@ -210,6 +211,14 @@
     autoStart = true;
   };
 
+  # OpenClaw Percaival - AI assistant via Telegram
+  virtualisation.oci-containers.containers.openclaw-percaival = {
+    image = "openclaw-percaival:latest";
+    ports = [ "18789:18789" ];
+    volumes = [ "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw" ];
+    autoStart = true;
+  };
+
   # Seed hello-world page (managed by NixOS activation script)
   system.activationScripts.pm-tool-hello = ''
     mkdir -p /var/lib/pm-tool/html
@@ -221,6 +230,29 @@
     HELLO
   '';
 
+  # Create OpenClaw data directory + config with Telegram token from agenix
+  system.activationScripts.openclaw-percaival = ''
+    mkdir -p /var/lib/openclaw-percaival/data/workspace
+    TOKEN=$(cat ${config.age.secrets.miniserver-bp-openclaw-telegram-token.path})
+    cat > /var/lib/openclaw-percaival/data/openclaw.json << EOF
+    {
+      "gateway": { "port": 18789, "bind": "0.0.0.0" },
+      "agents": {
+        "defaults": { "workspace": "/home/node/.openclaw/workspace" },
+        "list": [{
+          "id": "main",
+          "identity": { "name": "Percaival", "theme": "helpful AI butler with a poetic technical vibe", "emoji": "⚔️" },
+          "groupChat": { "mentionPatterns": ["@Percaival", "@Percai", "@Percy", "Percaival"] }
+        }]
+      },
+      "channels": {
+        "telegram": { "enabled": true, "botToken": "$TOKEN", "dmPolicy": "pairing" }
+      }
+    }
+    EOF
+    chown -R 1000:1000 /var/lib/openclaw-percaival/data
+  '';
+
   # ==========================================================================
   # FIREWALL
   # ==========================================================================
@@ -230,6 +262,7 @@
     allowedTCPPorts = [
       2222 # SSH
       8888 # pm-tool
+      18789 # OpenClaw Percaival
     ];
     allowedUDPPorts = [
       41641 # Tailscale WireGuard
