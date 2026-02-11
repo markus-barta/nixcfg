@@ -169,4 +169,8 @@ in
   # Edit: agenix -e secrets/miniserver-bp-wireguard-key.age
   "miniserver-bp-wireguard-key.age".publicKeys = markus ++ miniserver-bp;
 
+  # OpenClaw Percaival - Telegram bot token
+  # Edit: agenix -e secrets/miniserver-bp-openclaw-telegram-token.age
+  "miniserver-bp-openclaw-telegram-token.age".publicKeys = markus ++ miniserver-bp;
+
 }
