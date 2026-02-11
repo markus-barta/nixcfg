@@ -2,9 +2,9 @@
 
 **Host**: miniserver-bp
 **Priority**: P89
-**Status**: Ready for Installation
+**Status**: Done
 **Created**: 2026-01-13
-**Updated**: 2026-01-15
+**Updated**: 2026-02-11
 
 ---
 
@@ -28,35 +28,35 @@ Migrate to NixOS using nixos-anywhere. Preserve hostname, IP, and WireGuard for 
 
 ### Phase 2: Pre-Installation Prep
 
-- [ ] Backup current SSH host keys
-- [ ] Document WireGuard config (disable initially, re-enable post-install)
-- [ ] Test nixos-anywhere from workstation
-- [ ] Prepare disk-config for 500GB disk
+- [x] Backup current SSH host keys
+- [x] Document WireGuard config (disable initially, re-enable post-install)
+- [x] Test nixos-anywhere from workstation
+- [x] Prepare disk-config for 500GB disk
 
 ### Phase 3: NixOS Installation
 
-- [ ] Deploy: `nixos-anywhere --flake .#miniserver-bp root@10.17.1.40`
-- [ ] Verify boot and SSH access (port 2222)
-- [ ] Confirm hostname: miniserver-bp
-- [ ] Confirm IP: 10.17.1.40/16
-- [ ] Test uzumaki module (fish shell, user mba)
+- [x] Deploy: `nixos-anywhere --flake .#miniserver-bp root@10.17.1.40`
+- [x] Verify boot and SSH access (port 2222)
+- [x] Confirm hostname: miniserver-bp
+- [x] Confirm IP: 10.17.1.40/16
+- [x] Test uzumaki module (fish shell, user mba)
 
 ### Phase 4: Post-Installation
 
-- [ ] Re-enable WireGuard (manual, not in initial config)
-- [ ] Test jump host functionality
-- [ ] Update documentation
-- [ ] Archive Ubuntu backup
+- [x] Re-enable WireGuard (manual, not in initial config)
+- [x] Test jump host functionality
+- [x] Update documentation
+- [x] Archive Ubuntu backup
 
 ## Acceptance Criteria
 
-- [ ] NixOS deployed successfully
-- [ ] Hostname preserved: miniserver-bp
-- [ ] IP preserved: 10.17.1.40/16
-- [ ] SSH working on port 2222
-- [ ] User mba with fish shell
-- [ ] WireGuard functional (post-manual-config)
-- [ ] Documentation updated
+- [x] NixOS deployed successfully
+- [x] Hostname preserved: miniserver-bp
+- [x] IP preserved: 10.17.1.40/16
+- [x] SSH working on port 2222
+- [x] User mba with fish shell
+- [x] WireGuard functional (post-manual-config)
+- [x] Documentation updated
 
 ## Notes
 

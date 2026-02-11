@@ -2,8 +2,9 @@
 
 **Host**: miniserver-bp
 **Priority**: P65
-**Status**: Backlog
+**Status**: Cancelled
 **Created**: 2026-02-09
+**Cancelled**: 2026-02-11
 
 ---
 
@@ -37,3 +38,9 @@ Remove port 22 from firewall configuration. Hokage module automatically opens po
 
 - Risk: 🟢 LOW (test server, but verify SSH works before disconnecting!)
 - Port 2222 opened by Hokage module automatically
+
+---
+
+## Cancellation Reason
+
+Task already complete. Port 22 was previously removed from firewall configuration. Current config only opens ports 2222 (SSH) and 8888 (pm-tool). No action needed.
