@@ -28,34 +28,39 @@ Deploy OpenClaw via a custom Docker image (`FROM node:22-bookworm-slim` + `npm i
 
 ### Phase 1: Docker Image
 
-Build a custom image on miniserver-bp (one-time, until OpenClaw publishes official images):
+Create Dockerfile in nixcfg repo (follows fleet pattern: hsb0, hsb1, csb0 store Dockerfiles in git):
 
 ```dockerfile
-# /var/lib/openclaw-percaival/Dockerfile
+# hosts/miniserver-bp/docker/Dockerfile
 FROM node:22-bookworm-slim
 RUN npm install -g openclaw@latest
 EXPOSE 18789
 CMD ["openclaw", "gateway", "--port", "18789"]
 ```
 
+Build on miniserver-bp:
+
 ```bash
-# Build on miniserver-bp (SSH first: ssh -p 2222 mba@10.17.1.40)
-mkdir -p /var/lib/openclaw-percaival
-# create Dockerfile as above
-docker build -t openclaw-percaival:latest /var/lib/openclaw-percaival/
+# SSH to miniserver-bp
+ssh -p 2222 mba@10.17.1.40
+
+# On miniserver-bp:
+cd ~/Code/nixcfg/hosts/miniserver-bp/docker
+docker build -t openclaw-percaival:latest .
 ```
 
 To update OpenClaw later: rebuild image with same command, then `docker restart docker-openclaw-percaival.service`.
 
 ### Phase 2: Prepare Secrets (requires Markus)
 
-- [ ] Create Telegram bot via @BotFather → get token
-- [ ] Create agenix secret: `agenix -e secrets/miniserver-bp-openclaw-telegram-token.age`
-- [ ] Add to `secrets/secrets.nix`:
+- [x] Create Telegram bot via @BotFather → get token
+- [x] Create agenix secret: `agenix -e secrets/miniserver-bp-openclaw-telegram-token.age`
+- [x] Add to `secrets/secrets.nix`:
   ```nix
   "miniserver-bp-openclaw-telegram-token.age".publicKeys = markus ++ miniserver-bp;
   ```
-- [ ] Rekey: `just rekey` (USER ONLY — do not run as agent)
+- [x] Rekey: `just rekey` (USER ONLY — do not run as agent)
+- [x] Committed to git
 
 ### Phase 3: NixOS Configuration Changes
 
