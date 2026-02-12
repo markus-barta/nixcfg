@@ -263,6 +263,23 @@ docker exec -it openclaw-percaival openclaw pairing approve telegram <YOURPAIRIN
 docker exec -it openclaw-percaival openclaw pairing list telegram
 ```
 
+## Skills
+
+### Web Search (Brave Search)
+
+OpenClaw uses Brave Search for the `web_search` tool. Without a Brave Search API key, web search won't work.
+
+**Setup:**
+
+```bash
+docker exec -it openclaw-percaival openclaw config set tools.web.search.apiKey "YOUR_BRAVE_API_KEY"
+docker restart openclaw-percaival
+```
+
+Alternative: set `BRAVE_API_KEY` in the gateway environment (no config change needed).
+
+Docs: https://docs.openclaw.ai/tools/web
+
 ## Files
 
 | What                       | Where                                                                          |
