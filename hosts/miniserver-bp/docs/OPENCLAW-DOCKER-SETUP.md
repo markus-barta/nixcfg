@@ -290,31 +290,42 @@ Gateway target: ws://172.17.0.3:18789
 Source: local lan 172.17.0.3
 ```
 
-**What we tried (none worked for cron):**
+**Root cause**: OpenClaw's security model: loopback (127.0.0.1) = trusted, no pairing. Anything else = external = pairing required. This is by design, not a bug. In Docker, the embedded agent auto-discovers the container's bridge IP (172.17.x.x) as the gateway address, which the gateway classifies as external.
 
-- `gateway.controlUi.allowInsecureAuth: true` — only fixes Control UI
-- `gateway.controlUi.dangerouslyDisableDeviceAuth: true` — only fixes Control UI
-- `gateway.trustedProxies: ["172.17.0.0/16"]` — no effect on internal WS
+**Key insight**: The gateway bind (`0.0.0.0`) is correct — it controls what the gateway _listens_ on. The problem is what the _client_ (embedded agent) _connects to_. Clients must use `127.0.0.1` to be trusted.
 
-**Root cause**: OpenClaw assumes gateway + agent share loopback (127.0.0.1). In Docker, the container's own IP is a LAN address (172.17.x.x), breaking this assumption.
+**What did NOT work:**
 
-**Potential fixes to investigate:**
+- `gateway.controlUi.allowInsecureAuth: true` — only affects Control UI, not gateway WS
+- `gateway.controlUi.dangerouslyDisableDeviceAuth: true` — only affects Control UI
+- `gateway.trustedProxies: ["172.17.0.0/16"]` — for forwarded headers, not auth bypass
+- Official repo Dockerfile / `docker-setup.sh` — same gateway auth logic, no difference
 
-1. Use official repo Dockerfile with full `pnpm build` — may handle internal connections differently
-2. Use `docker-setup.sh` from repo — may configure network/auth to avoid this
-3. Run with `--network=host` (bypasses Docker network namespace, container uses host loopback)
-4. Add socat/nginx inside container: proxy `0.0.0.0:18789` → `127.0.0.1:18789`
-5. Check if newer OpenClaw versions have a gateway-level device auth bypass
+**Currently investigating** — force agent to use loopback via env var:
 
-**Impact**: Gateway + Telegram DMs work. Cron, internal tools, and any feature requiring agent→gateway WebSocket are broken.
+```nix
+# In NixOS oci-containers config:
+environment = {
+  OPENCLAW_GATEWAY_URL = "ws://127.0.0.1:18789";
+};
+```
+
+If this works, the agent connects via loopback → gateway auto-trusts → no pairing. The gateway still listens on `0.0.0.0` so Docker port forwarding and external access continue to work.
+
+**Fallback options if env var doesn't work:**
+
+1. `--network=host` — container shares host network stack, loopback is real loopback
+2. socat inside container: proxy `0.0.0.0:18789` → `127.0.0.1:18789`
+
+**Impact**: Gateway + Telegram DMs work. Cron, internal tools, and any feature requiring agent→gateway WebSocket are affected.
 
 ## Deployment Approach Comparison
 
-| Approach                                            | Pros                                  | Cons                                           | Status                           |
-| --------------------------------------------------- | ------------------------------------- | ---------------------------------------------- | -------------------------------- |
-| **Option A**: Official Dockerfile (full repo build) | Official, may fix pairing             | Heavy build, slow updates                      | Not tested                       |
-| **Option B**: npm install in slim image (current)   | Simple, fast, small image             | Device pairing broken for internal tools       | In use, partially broken         |
-| **Option C**: Nix package + systemd                 | No container overhead, loopback works | Brittle, constant patching, npm sandbox breaks | Tested on hsb1 — not recommended |
+| Approach                                            | Pros                                  | Cons                                           | Status                               |
+| --------------------------------------------------- | ------------------------------------- | ---------------------------------------------- | ------------------------------------ |
+| **Option A**: Official Dockerfile (full repo build) | Official                              | Heavy build, slow updates, same auth logic     | Not viable (doesn't fix the problem) |
+| **Option B**: npm install in slim image (current)   | Simple, fast, small image             | Needs OPENCLAW_GATEWAY_URL workaround          | In use, investigating loopback fix   |
+| **Option C**: Nix package + systemd                 | No container overhead, loopback works | Brittle, constant patching, npm sandbox breaks | Tested on hsb1 — not recommended     |
 
 ## References
 
