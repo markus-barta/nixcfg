@@ -83,59 +83,48 @@ sudo systemctl start docker-openclaw-percaival
 
 Note: `docker stop` won't work alone — NixOS systemd service auto-restarts. Use `systemctl mask`.
 
-### 5. Gateway must bind to 0.0.0.0 inside container
+### 5. Use `--network=host` (required)
 
-Loopback (127.0.0.1) won't work — Docker port forwarding needs the container to listen on all interfaces.
+OpenClaw's security model: loopback = trusted (no pairing), anything else = external (pairing required). This is by design.
 
-During onboard wizard, select: **LAN (0.0.0.0)**
+With default Docker bridge networking, the embedded agent connects to the gateway via the container's bridge IP (e.g. `172.17.0.3`). The gateway sees this as a non-loopback external connection and enforces device pairing — breaking cron, internal tools, and CLI commands inside the container.
 
-### 6. Docker + LAN bind = device pairing issues
+**The fix: `--network=host`**. The container shares the host's network stack. Loopback is real loopback. No Docker bridge, no bridge IP, no pairing issues. Port 18789 is directly on the host (no Docker port mapping needed).
 
-**Root cause:** When the gateway binds to `0.0.0.0` (required for Docker port forwarding), ALL connections — including the agent's internal WebSocket to itself — arrive on the container's LAN IP (e.g. `172.17.0.3`), not loopback. The gateway treats non-loopback connections as external and enforces device pairing.
+```nix
+virtualisation.oci-containers.containers.openclaw-percaival = {
+  image = "openclaw-percaival:latest";
+  extraOptions = [ "--network=host" ];
+  volumes = [ "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw" ];
+  autoStart = true;
+};
+```
 
-This causes two separate errors:
+During onboard wizard, select: **LAN (0.0.0.0)** — gateway listens on all interfaces for LAN access, internal agent connects via loopback.
 
-**6a. Control UI: "secure context" error**
+**Trade-off**: `--network=host` reduces container network isolation. Acceptable for a test server on office LAN.
+
+### 6. Control UI requires `allowInsecureAuth` over HTTP
+
+Accessing `http://10.17.1.40:18789/#token=...` fails with:
 
 ```
 disconnected (1008): control ui requires HTTPS or localhost (secure context)
 ```
 
-Fix: `allowInsecureAuth` allows token-only auth when device identity is missing (typical over plain HTTP).
-
-**6b. Cron / internal tools: "pairing required" error**
-
-```
-[tools] cron failed: gateway closed (1008): pairing required
-Gateway target: ws://172.17.0.3:18789
-Source: local lan 172.17.0.3
-```
-
-The embedded agent connects to the gateway over WebSocket using the container's LAN IP. The gateway sees a non-loopback connection and demands device pairing — even though it's the same process.
-
-Fix: `dangerouslyDisableDeviceAuth` disables the device identity layer entirely (token/password auth remains active).
-
-**Combined fix** — add both to `openclaw.json`:
+Fix — add to `openclaw.json`:
 
 ```json5
 {
   gateway: {
     controlUi: {
       allowInsecureAuth: true,
-      dangerouslyDisableDeviceAuth: true,
     },
   },
 }
 ```
 
-**Risk assessment:**
-
-- Token auth still active — not fully open
-- Container is isolated (Docker network)
-- Host is on office LAN, not internet-facing
-- Acceptable for test server; for production use Tailscale Serve or reverse proxy with TLS
-
-**Why this doesn't happen outside Docker:** On a bare-metal install, the agent connects via `127.0.0.1` (loopback) which bypasses device pairing automatically. Docker's network namespace makes the internal connection appear as a LAN connection.
+Acceptable for office LAN. For production, use Tailscale Serve or reverse proxy with TLS.
 
 ### 7. Systemd unavailable in container — expected
 
@@ -276,13 +265,13 @@ docker exec -it openclaw-percaival openclaw pairing list telegram
 | 8888  | pm-tool            | Open     |
 | 18789 | OpenClaw Percaival | Open     |
 
-## Known Issues
+## Investigation Log: Docker Bridge vs Loopback
 
-### Cron / internal tools broken: "pairing required" (UNRESOLVED)
+This section documents the pairing issue we hit and what we tried, for future reference.
 
-**Status**: Open — needs external validation
+### Problem
 
-**Problem**: The embedded agent connects to its own gateway via WebSocket on the container's LAN IP (`ws://172.17.0.3:18789`). The gateway treats this as a non-loopback external connection and enforces device pairing — even though it's the same process.
+With default Docker bridge networking, the embedded agent connects to the gateway via the container's bridge IP (`ws://172.17.0.3:18789`). Gateway classifies this as external → enforces device pairing → cron, CLI, and internal tools all fail:
 
 ```
 [tools] cron failed: gateway closed (1008): pairing required
@@ -290,42 +279,28 @@ Gateway target: ws://172.17.0.3:18789
 Source: local lan 172.17.0.3
 ```
 
-**Root cause**: OpenClaw's security model: loopback (127.0.0.1) = trusted, no pairing. Anything else = external = pairing required. This is by design, not a bug. In Docker, the embedded agent auto-discovers the container's bridge IP (172.17.x.x) as the gateway address, which the gateway classifies as external.
+### What did NOT work
 
-**Key insight**: The gateway bind (`0.0.0.0`) is correct — it controls what the gateway _listens_ on. The problem is what the _client_ (embedded agent) _connects to_. Clients must use `127.0.0.1` to be trusted.
+| Attempt                                                | Why it failed                                               |
+| ------------------------------------------------------ | ----------------------------------------------------------- |
+| `gateway.controlUi.allowInsecureAuth: true`            | Only affects Control UI, not gateway WS auth                |
+| `gateway.controlUi.dangerouslyDisableDeviceAuth: true` | Only affects Control UI                                     |
+| `gateway.trustedProxies: ["172.17.0.0/16"]`            | For forwarded headers, not auth bypass                      |
+| `OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789` env var    | This env var doesn't exist — OpenClaw ignores it            |
+| `openclaw devices approve` (Grok's suggestion)         | Chicken-and-egg: CLI itself needs gateway access to approve |
+| Official repo Dockerfile / `docker-setup.sh`           | Same gateway auth logic, doesn't change loopback behavior   |
 
-**What did NOT work:**
+### What works
 
-- `gateway.controlUi.allowInsecureAuth: true` — only affects Control UI, not gateway WS
-- `gateway.controlUi.dangerouslyDisableDeviceAuth: true` — only affects Control UI
-- `gateway.trustedProxies: ["172.17.0.0/16"]` — for forwarded headers, not auth bypass
-- Official repo Dockerfile / `docker-setup.sh` — same gateway auth logic, no difference
-
-**Currently investigating** — force agent to use loopback via env var:
-
-```nix
-# In NixOS oci-containers config:
-environment = {
-  OPENCLAW_GATEWAY_URL = "ws://127.0.0.1:18789";
-};
-```
-
-If this works, the agent connects via loopback → gateway auto-trusts → no pairing. The gateway still listens on `0.0.0.0` so Docker port forwarding and external access continue to work.
-
-**Fallback options if env var doesn't work:**
-
-1. `--network=host` — container shares host network stack, loopback is real loopback
-2. socat inside container: proxy `0.0.0.0:18789` → `127.0.0.1:18789`
-
-**Impact**: Gateway + Telegram DMs work. Cron, internal tools, and any feature requiring agent→gateway WebSocket are affected.
+**`--network=host`** — container shares host network stack. No bridge IP. Internal connections use real loopback. See gotcha #5.
 
 ## Deployment Approach Comparison
 
-| Approach                                            | Pros                                  | Cons                                           | Status                               |
-| --------------------------------------------------- | ------------------------------------- | ---------------------------------------------- | ------------------------------------ |
-| **Option A**: Official Dockerfile (full repo build) | Official                              | Heavy build, slow updates, same auth logic     | Not viable (doesn't fix the problem) |
-| **Option B**: npm install in slim image (current)   | Simple, fast, small image             | Needs OPENCLAW_GATEWAY_URL workaround          | In use, investigating loopback fix   |
-| **Option C**: Nix package + systemd                 | No container overhead, loopback works | Brittle, constant patching, npm sandbox breaks | Tested on hsb1 — not recommended     |
+| Approach                                               | Pros                      | Cons                                           | Status                           |
+| ------------------------------------------------------ | ------------------------- | ---------------------------------------------- | -------------------------------- |
+| **Option A**: Official Dockerfile (full repo build)    | Official                  | Heavy build, slow updates, same auth logic     | Not viable (doesn't fix pairing) |
+| **Option B**: npm install + `--network=host` (current) | Simple, fast, small image | Reduced network isolation                      | In use, testing                  |
+| **Option C**: Nix package + systemd                    | No container overhead     | Brittle, constant patching, npm sandbox breaks | Tested on hsb1 — not recommended |
 
 ## References
 
