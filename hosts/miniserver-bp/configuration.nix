@@ -214,14 +214,12 @@
   # OpenClaw Percaival - AI assistant via Telegram
   virtualisation.oci-containers.containers.openclaw-percaival = {
     image = "openclaw-percaival:latest";
-    ports = [ "18789:18789" ];
+    # Use host networking so the gateway binds to real loopback (127.0.0.1).
+    # Without this, Docker's bridge network makes internal agent→gateway connections
+    # appear as external LAN traffic, triggering "pairing required" errors.
+    # With --network=host, port 18789 is directly on the host (no port mapping needed).
+    extraOptions = [ "--network=host" ];
     volumes = [ "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw" ];
-    environment = {
-      # Force internal agent→gateway connections via loopback (not container bridge IP).
-      # Without this, the agent connects via 172.17.x.x which the gateway treats as
-      # external, triggering "pairing required" errors for cron and internal tools.
-      OPENCLAW_GATEWAY_URL = "ws://127.0.0.1:18789";
-    };
     autoStart = true;
   };
 
@@ -236,13 +234,14 @@
     HELLO
   '';
 
-  # Create OpenClaw data directory + config with Telegram token from agenix
+  # Create OpenClaw data directory. Only seed openclaw.json if missing (onboard wizard manages it).
   system.activationScripts.openclaw-percaival = ''
     mkdir -p /var/lib/openclaw-percaival/data/workspace
-    TOKEN=$(cat ${config.age.secrets.miniserver-bp-openclaw-telegram-token.path})
-    cat > /var/lib/openclaw-percaival/data/openclaw.json << EOF
+    if [ ! -f /var/lib/openclaw-percaival/data/openclaw.json ]; then
+      TOKEN=$(cat ${config.age.secrets.miniserver-bp-openclaw-telegram-token.path})
+      cat > /var/lib/openclaw-percaival/data/openclaw.json << EOF
     {
-      "gateway": { "port": 18789, "bind": "0.0.0.0" },
+      "gateway": { "port": 18789, "bind": "lan" },
       "agents": {
         "defaults": { "workspace": "/home/node/.openclaw/workspace" },
         "list": [{
@@ -256,6 +255,7 @@
       }
     }
     EOF
+    fi
     chown -R 1000:1000 /var/lib/openclaw-percaival/data
   '';
 
