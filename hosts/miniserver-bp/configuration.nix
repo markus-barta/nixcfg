@@ -79,6 +79,7 @@
 
   age.secrets.miniserver-bp-wireguard-key.file = ../../secrets/miniserver-bp-wireguard-key.age;
   age.secrets.miniserver-bp-openclaw-telegram-token.file = ../../secrets/miniserver-bp-openclaw-telegram-token.age;
+  age.secrets.miniserver-bp-gogcli-keyring-password.file = ../../secrets/miniserver-bp-gogcli-keyring-password.age;
 
   # ==========================================================================
   # WIREGUARD VPN
@@ -222,6 +223,14 @@
     volumes = [
       "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw"
       "/var/lib/openclaw-percaival/gogcli:/home/node/.config/gogcli:rw"
+    ];
+    # gogcli uses encrypted on-disk keyring (no OS keychain in container)
+    environment = {
+      GOG_KEYRING_BACKEND = "file";
+      GOG_ACCOUNT = "percy.ai@bytepoets.com";
+    };
+    environmentFiles = [
+      config.age.secrets.miniserver-bp-gogcli-keyring-password.path
     ];
     autoStart = true;
   };

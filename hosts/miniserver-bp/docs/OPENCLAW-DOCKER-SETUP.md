@@ -282,46 +282,63 @@ Docs: https://docs.openclaw.ai/tools/web
 
 [gogcli](https://github.com/steipete/gogcli) provides Gmail, Calendar, Drive, Contacts, Tasks, Sheets, and more as CLI commands. Installed inside the container from pre-built release binary (v0.9.0).
 
-**First-time setup (interactive OAuth flow):**
+**Container environment** (set via NixOS config):
 
-gogcli uses an encrypted on-disk keyring inside the container (no OS keychain available). Set `GOG_KEYRING_BACKEND=file` and provide a password.
-
-```bash
-# 1. Store OAuth client credentials (download from Google Cloud Console)
-docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
-  gog auth credentials /home/node/.config/gogcli/client_secret.json
-
-# 2. Authorize account (opens browser URL for OAuth — use --remote for headless)
-docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
-  gog auth add you@gmail.com --remote --step 1
-# Copy the URL, open in browser, paste redirect URL back:
-docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
-  gog auth add you@gmail.com --remote --step 2 --auth-url 'http://localhost:1/?code=...&state=...'
-
-# 3. Test
-docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
-  gog gmail labels list
-```
+- `GOG_KEYRING_BACKEND=file` — uses encrypted on-disk keyring (no OS keychain in container)
+- `GOG_KEYRING_PASSWORD` — injected via agenix (`miniserver-bp-gogcli-keyring-password.age`, format: `GOG_KEYRING_PASSWORD=<password>`)
+- `GOG_ACCOUNT=percy.ai@bytepoets.com` — default account
 
 **Credentials persistence**: gogcli config is stored at `/var/lib/openclaw-percaival/gogcli/` on the host (mounted to `/home/node/.config/gogcli/` in the container).
 
-**Deployment steps (after adding gogcli to Dockerfile):**
+#### First-time OAuth setup
+
+The container runs headless — no browser. The auth flow uses a local HTTP callback on a random port. Since the container uses `--network=host`, the callback listener is on miniserver-bp's network.
 
 ```bash
-ssh miniserver-bp
-cd ~/Code/nixcfg && git pull
+# 1. Copy OAuth client JSON to the host (from your workstation)
+scp -P 2222 ~/Downloads/client_secret_....json mba@10.17.1.40:/tmp/
 
-# 1. Rebuild Docker image (downloads gogcli binary)
-cd hosts/miniserver-bp/docker
-docker build -t openclaw-percaival:latest .
+# 2. SSH to miniserver-bp
+ssh -p 2222 mba@10.17.1.40
 
-# 2. Rebuild NixOS (adds gogcli volume mount)
-cd ~/Code/nixcfg
-sudo nixos-rebuild switch --flake .#miniserver-bp
+# 3. Move to gogcli volume and fix ownership
+sudo mv /tmp/client_secret_....json /var/lib/openclaw-percaival/gogcli/client_secret.json
+sudo chown 1000:1000 /var/lib/openclaw-percaival/gogcli/client_secret.json
 
-# 3. Verify gogcli is available
-docker exec openclaw-percaival gog --help
+# 4. Store credentials in gogcli (use full container path)
+docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
+  gog auth credentials /home/node/.config/gogcli/client_secret.json
+
+# 5. Start OAuth flow (will print a Google auth URL and wait for callback)
+#    NOTE: --remote flag does NOT exist in v0.9.0. Use the callback approach below.
+docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
+  gog auth add percy.ai@bytepoets.com
+
+# 6. Copy the printed Google auth URL -> open in browser on your workstation
+#    Authorize the account in Google.
+#    Google redirects to http://127.0.0.1:<port>/oauth2/callback?code=...&state=...
+#    This fails in your browser (wrong machine). Copy the FULL redirect URL from the address bar.
+
+# 7. In a SECOND terminal on miniserver-bp, curl the redirect URL:
+curl "http://127.0.0.1:<port>/oauth2/callback?code=...&state=..."
+#    The gog listener receives the callback and completes the OAuth exchange.
+#    It will prompt for a keyring passphrase — enter the same password stored in agenix.
+
+# 8. Verify
+docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
+  gog auth list
 ```
+
+**Alternative (SSH tunnel)**: Forward the callback port so your browser hits miniserver-bp directly. Run this _before_ step 5:
+
+```bash
+# From your workstation (use the port number from the auth URL):
+ssh -p 2222 -L <port>:127.0.0.1:<port> mba@10.17.1.40
+```
+
+Then the browser redirect to `127.0.0.1:<port>` tunnels to miniserver-bp automatically — no manual curl needed.
+
+**After NixOS rebuild**: The container gets `GOG_KEYRING_PASSWORD` via agenix env file, so gogcli works non-interactively (no passphrase prompts for OpenClaw tool calls).
 
 **Docs**: https://github.com/steipete/gogcli
 
@@ -333,7 +350,8 @@ docker exec openclaw-percaival gog --help
 | NixOS config               | `hosts/miniserver-bp/configuration.nix` (lines 215-226, 240-256)               |
 | Config (host)              | `/var/lib/openclaw-percaival/data/openclaw.json`                               |
 | Workspace (host)           | `/var/lib/openclaw-percaival/data/workspace/`                                  |
-| Agenix secret              | `secrets/miniserver-bp-openclaw-telegram-token.age`                            |
+| Agenix secret (Telegram)   | `secrets/miniserver-bp-openclaw-telegram-token.age`                            |
+| Agenix secret (gogcli)     | `secrets/miniserver-bp-gogcli-keyring-password.age`                            |
 | Backlog item               | `hosts/miniserver-bp/docs/backlog/P80--5c21a08--install-openclaw-percaival.md` |
 | Container logs             | `docker logs openclaw-percaival`                                               |
 | Gateway log (in container) | `/tmp/openclaw/openclaw-YYYY-MM-DD.log`                                        |
