@@ -173,4 +173,9 @@ in
   # Edit: agenix -e secrets/miniserver-bp-openclaw-telegram-token.age
   "miniserver-bp-openclaw-telegram-token.age".publicKeys = markus ++ miniserver-bp;
 
+  # gogcli keyring password for OpenClaw Percaival container
+  # Format: GOG_KEYRING_PASSWORD=<password> (KEY=VALUE for Docker environmentFiles)
+  # Edit: agenix -e secrets/miniserver-bp-gogcli-keyring-password.age
+  "miniserver-bp-gogcli-keyring-password.age".publicKeys = markus ++ miniserver-bp;
+
 }
