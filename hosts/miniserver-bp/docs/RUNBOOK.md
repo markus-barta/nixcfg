@@ -36,10 +36,13 @@ ssh -p 2222 mba@10.100.0.51
 ║ 🌐 SERVICES                                                ║
 ║ • WireGuard VPN: 10.100.0.51 (via agenix)                 ║
 ║ • Jump host to office network                              ║
+║ • OpenClaw Percaival: port 18789 (AI agent via Telegram)   ║
+║ • pm-tool: port 8888 (placeholder)                         ║
 ╠════════════════════════════════════════════════════════════╣
 ║ ⚠️  CURRENT STATUS                                         ║
 ║ • NixOS (installed 2026-01-15)                             ║
 ║ • SSH port 2222 + WireGuard VPN active                     ║
+║ • OpenClaw Percaival running (Docker, --network=host)      ║
 ╠════════════════════════════════════════════════════════════╣
 ║ 🚨 IF DOWN                                                 ║
 ║ 1. Physical access required (office only)                  ║
@@ -281,8 +284,41 @@ Mac Mini 2009 is **old hardware**:
 
 ---
 
+## Docker Services
+
+### OpenClaw Percaival (AI Agent)
+
+- **Container**: `openclaw-percaival` (systemd: `docker-openclaw-percaival`)
+- **Port**: 18789 (Control UI + gateway)
+- **Telegram**: @percaival_bot
+- **Network**: `--network=host` (required, see OPENCLAW-DOCKER-SETUP.md)
+- **Config**: `/var/lib/openclaw-percaival/data/openclaw.json`
+- **Tools**: Brave web search, gogcli (Google Suite CLI)
+
+```bash
+# Status
+sudo systemctl status docker-openclaw-percaival
+docker logs -f openclaw-percaival
+
+# Restart
+sudo systemctl restart docker-openclaw-percaival
+
+# Approve Telegram pairing
+docker exec -it openclaw-percaival openclaw pairing approve telegram <CODE>
+```
+
+Full setup guide: `hosts/miniserver-bp/docs/OPENCLAW-DOCKER-SETUP.md`
+
+### pm-tool (placeholder)
+
+- **Container**: `pm-tool` (nginx, port 8888)
+- Hello-world placeholder
+
+---
+
 ## Related Documentation
 
+- **OpenClaw Docker Setup**: `hosts/miniserver-bp/docs/OPENCLAW-DOCKER-SETUP.md`
 - **Installation Plan**: `+pm/backlog/P8900-miniserver-bp-nixos-migration-fresh-start.md`
 - **Host README**: `hosts/miniserver-bp/README.md`
 - **SSH Security**: `docs/SSH-KEY-SECURITY.md`
