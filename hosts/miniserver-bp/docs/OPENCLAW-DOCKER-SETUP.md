@@ -89,27 +89,53 @@ Loopback (127.0.0.1) won't work — Docker port forwarding needs the container t
 
 During onboard wizard, select: **LAN (0.0.0.0)**
 
-### 6. Control UI requires HTTPS — or `allowInsecureAuth`
+### 6. Docker + LAN bind = device pairing issues
 
-Accessing `http://10.17.1.40:18789/#token=...` fails with:
+**Root cause:** When the gateway binds to `0.0.0.0` (required for Docker port forwarding), ALL connections — including the agent's internal WebSocket to itself — arrive on the container's LAN IP (e.g. `172.17.0.3`), not loopback. The gateway treats non-loopback connections as external and enforces device pairing.
+
+This causes two separate errors:
+
+**6a. Control UI: "secure context" error**
 
 ```
 disconnected (1008): control ui requires HTTPS or localhost (secure context)
 ```
 
-Fix: add to `openclaw.json`:
+Fix: `allowInsecureAuth` allows token-only auth when device identity is missing (typical over plain HTTP).
+
+**6b. Cron / internal tools: "pairing required" error**
+
+```
+[tools] cron failed: gateway closed (1008): pairing required
+Gateway target: ws://172.17.0.3:18789
+Source: local lan 172.17.0.3
+```
+
+The embedded agent connects to the gateway over WebSocket using the container's LAN IP. The gateway sees a non-loopback connection and demands device pairing — even though it's the same process.
+
+Fix: `dangerouslyDisableDeviceAuth` disables the device identity layer entirely (token/password auth remains active).
+
+**Combined fix** — add both to `openclaw.json`:
 
 ```json5
 {
   gateway: {
     controlUi: {
       allowInsecureAuth: true,
+      dangerouslyDisableDeviceAuth: true,
     },
   },
 }
 ```
 
-Acceptable for office LAN test server. For production, use Tailscale Serve or a reverse proxy with TLS.
+**Risk assessment:**
+
+- Token auth still active — not fully open
+- Container is isolated (Docker network)
+- Host is on office LAN, not internet-facing
+- Acceptable for test server; for production use Tailscale Serve or reverse proxy with TLS
+
+**Why this doesn't happen outside Docker:** On a bare-metal install, the agent connects via `127.0.0.1` (loopback) which bypasses device pairing automatically. Docker's network namespace makes the internal connection appear as a LAN connection.
 
 ### 7. Systemd unavailable in container — expected
 
@@ -149,7 +175,17 @@ system.activationScripts.openclaw-percaival = ''
 
 Note: onboard wizard overwrites `openclaw.json` — token must be re-added or use `TELEGRAM_BOT_TOKEN` env var instead.
 
-### 10. Tailscale exposure — skip for now
+### 10. Nix package is not a viable alternative
+
+The Nix package (`pkgs/openclaw/package.nix`) exists but is **not recommended**. Experience from hsb1 deployment: OpenClaw updates frequently and aggressively, the Node.js dependency tree is volatile, and npm postinstall scripts break in the Nix sandbox. Keeping the package up to date requires constant patching. Native Nix packaging for OpenClaw is a maintenance nightmare — Docker (despite its issues) is far more practical.
+
+### 11. npm install vs official Dockerfile — open investigation
+
+Our approach (`npm install -g openclaw@latest` in a slim image) causes device pairing issues because the npm CLI package connects to the gateway via the container's LAN IP, which the gateway treats as external.
+
+The official repo Dockerfile uses a full `pnpm build` from source and may handle internal connections differently. The official `docker-setup.sh` script may also configure the container to avoid this. **This needs further investigation** — see "Known Issues" section below.
+
+### 12. Tailscale exposure — skip for now
 
 Onboard offers Tailscale Serve/Funnel. Select **Off** — we handle access via Docker port mapping + firewall. Tailscale Serve can be added later if needed.
 
@@ -239,6 +275,46 @@ docker exec -it openclaw-percaival openclaw pairing list telegram
 | 2222  | SSH                | Open     |
 | 8888  | pm-tool            | Open     |
 | 18789 | OpenClaw Percaival | Open     |
+
+## Known Issues
+
+### Cron / internal tools broken: "pairing required" (UNRESOLVED)
+
+**Status**: Open — needs external validation
+
+**Problem**: The embedded agent connects to its own gateway via WebSocket on the container's LAN IP (`ws://172.17.0.3:18789`). The gateway treats this as a non-loopback external connection and enforces device pairing — even though it's the same process.
+
+```
+[tools] cron failed: gateway closed (1008): pairing required
+Gateway target: ws://172.17.0.3:18789
+Source: local lan 172.17.0.3
+```
+
+**What we tried (none worked for cron):**
+
+- `gateway.controlUi.allowInsecureAuth: true` — only fixes Control UI
+- `gateway.controlUi.dangerouslyDisableDeviceAuth: true` — only fixes Control UI
+- `gateway.trustedProxies: ["172.17.0.0/16"]` — no effect on internal WS
+
+**Root cause**: OpenClaw assumes gateway + agent share loopback (127.0.0.1). In Docker, the container's own IP is a LAN address (172.17.x.x), breaking this assumption.
+
+**Potential fixes to investigate:**
+
+1. Use official repo Dockerfile with full `pnpm build` — may handle internal connections differently
+2. Use `docker-setup.sh` from repo — may configure network/auth to avoid this
+3. Run with `--network=host` (bypasses Docker network namespace, container uses host loopback)
+4. Add socat/nginx inside container: proxy `0.0.0.0:18789` → `127.0.0.1:18789`
+5. Check if newer OpenClaw versions have a gateway-level device auth bypass
+
+**Impact**: Gateway + Telegram DMs work. Cron, internal tools, and any feature requiring agent→gateway WebSocket are broken.
+
+## Deployment Approach Comparison
+
+| Approach                                            | Pros                                  | Cons                                           | Status                           |
+| --------------------------------------------------- | ------------------------------------- | ---------------------------------------------- | -------------------------------- |
+| **Option A**: Official Dockerfile (full repo build) | Official, may fix pairing             | Heavy build, slow updates                      | Not tested                       |
+| **Option B**: npm install in slim image (current)   | Simple, fast, small image             | Device pairing broken for internal tools       | In use, partially broken         |
+| **Option C**: Nix package + systemd                 | No container overhead, loopback works | Brittle, constant patching, npm sandbox breaks | Tested on hsb1 — not recommended |
 
 ## References
 
