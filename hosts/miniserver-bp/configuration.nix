@@ -216,6 +216,12 @@
     image = "openclaw-percaival:latest";
     ports = [ "18789:18789" ];
     volumes = [ "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw" ];
+    environment = {
+      # Force internal agent→gateway connections via loopback (not container bridge IP).
+      # Without this, the agent connects via 172.17.x.x which the gateway treats as
+      # external, triggering "pairing required" errors for cron and internal tools.
+      OPENCLAW_GATEWAY_URL = "ws://127.0.0.1:18789";
+    };
     autoStart = true;
   };
 
