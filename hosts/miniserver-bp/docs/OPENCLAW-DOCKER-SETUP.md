@@ -290,6 +290,19 @@ Docs: https://docs.openclaw.ai/tools/web
 
 **Credentials persistence**: gogcli config is stored at `/var/lib/openclaw-percaival/gogcli/` on the host (mounted to `/home/node/.config/gogcli/` in the container).
 
+#### Google Cloud project setup
+
+The OAuth client must belong to a Google Cloud project with the required APIs enabled. Enable them at:
+
+- Gmail API: `https://console.cloud.google.com/apis/api/gmail.googleapis.com`
+- Google Calendar API: `https://console.cloud.google.com/apis/api/calendar-json.googleapis.com`
+- Google Drive API: `https://console.cloud.google.com/apis/api/drive.googleapis.com`
+- People API (Contacts): `https://console.cloud.google.com/apis/api/people.googleapis.com`
+- Google Tasks API: `https://console.cloud.google.com/apis/api/tasks.googleapis.com`
+- Google Sheets API: `https://console.cloud.google.com/apis/api/sheets.googleapis.com`
+
+Our project ID: `793253295853`. If a `gog` command fails with "API not enabled", check the link above for the relevant API.
+
 #### First-time OAuth setup
 
 The container runs headless — no browser. The auth flow uses a local HTTP callback on a random port. Since the container uses `--network=host`, the callback listener is on miniserver-bp's network.
