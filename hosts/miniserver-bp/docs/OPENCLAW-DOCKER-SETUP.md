@@ -187,11 +187,9 @@ Note: onboard wizard overwrites `openclaw.json` — token must be re-added or us
 
 The Nix package (`pkgs/openclaw/package.nix`) exists but is **not recommended**. Experience from hsb1 deployment: OpenClaw updates frequently and aggressively, the Node.js dependency tree is volatile, and npm postinstall scripts break in the Nix sandbox. Keeping the package up to date requires constant patching. Native Nix packaging for OpenClaw is a maintenance nightmare — Docker (despite its issues) is far more practical.
 
-### 11. npm install vs official Dockerfile — open investigation
+### 11. npm install vs official Dockerfile — resolved
 
-Our approach (`npm install -g openclaw@latest` in a slim image) causes device pairing issues because the npm CLI package connects to the gateway via the container's LAN IP, which the gateway treats as external.
-
-The official repo Dockerfile uses a full `pnpm build` from source and may handle internal connections differently. The official `docker-setup.sh` script may also configure the container to avoid this. **This needs further investigation** — see "Known Issues" section below.
+Our approach (`npm install -g openclaw@latest`) works fine with `--network=host`. The official repo Dockerfile uses a full `pnpm build` but has the same gateway auth logic — it would hit the same pairing issue on bridge networking. The pairing problem is a Docker networking issue, not an npm vs source build issue. See investigation log below.
 
 ### 12. Tailscale exposure — skip for now
 
@@ -378,7 +376,9 @@ Source: local lan 172.17.0.3
 
 ### What works
 
-**`--network=host` + `bind=auto`** — container shares host network stack. `auto` bind mode tries loopback first. The in-process agent runtime (cron, Telegram, tools) works because it doesn't go through the RPC pairing layer. See gotcha #5.
+**`--network=host` + `bind=lan`** — container shares host network stack. The in-process agent runtime (cron, Telegram, tools) works because it doesn't go through the RPC pairing layer. `bind=lan` keeps the Control UI accessible from the office LAN. See gotcha #5.
+
+We also tested `bind=auto` (loopback only) — agent runtime also works, but Control UI becomes inaccessible from LAN. `bind=lan` is the better choice.
 
 **Remaining quirk**: CLI RPC commands (`openclaw devices list`, `openclaw gateway status`) still fail with "pairing required" even on loopback. This appears to be a separate pairing layer for WebSocket RPC that is enforced regardless of source IP. The `openclaw doctor` command works because it reads state directly. This doesn't affect actual agent functionality — it's cosmetic.
 
