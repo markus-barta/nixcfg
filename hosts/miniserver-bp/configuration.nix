@@ -219,7 +219,10 @@
     # appear as external LAN traffic, triggering "pairing required" errors.
     # With --network=host, port 18789 is directly on the host (no port mapping needed).
     extraOptions = [ "--network=host" ];
-    volumes = [ "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw" ];
+    volumes = [
+      "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw"
+      "/var/lib/openclaw-percaival/gogcli:/home/node/.config/gogcli:rw"
+    ];
     autoStart = true;
   };
 
@@ -236,7 +239,7 @@
 
   # Create OpenClaw data directory. Only seed openclaw.json if missing (onboard wizard manages it).
   system.activationScripts.openclaw-percaival = ''
-    mkdir -p /var/lib/openclaw-percaival/data/workspace
+    mkdir -p /var/lib/openclaw-percaival/data/workspace /var/lib/openclaw-percaival/gogcli
     if [ ! -f /var/lib/openclaw-percaival/data/openclaw.json ]; then
       TOKEN=$(cat ${config.age.secrets.miniserver-bp-openclaw-telegram-token.path})
       cat > /var/lib/openclaw-percaival/data/openclaw.json << EOF
@@ -256,7 +259,7 @@
     }
     EOF
     fi
-    chown -R 1000:1000 /var/lib/openclaw-percaival/data
+    chown -R 1000:1000 /var/lib/openclaw-percaival/data /var/lib/openclaw-percaival/gogcli
   '';
 
   # ==========================================================================

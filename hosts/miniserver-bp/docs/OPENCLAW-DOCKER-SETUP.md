@@ -280,6 +280,35 @@ Alternative: set `BRAVE_API_KEY` in the gateway environment (no config change ne
 
 Docs: https://docs.openclaw.ai/tools/web
 
+### Google Suite CLI (gogcli)
+
+[gogcli](https://github.com/steipete/gogcli) provides Gmail, Calendar, Drive, Contacts, Tasks, Sheets, and more as CLI commands. Installed inside the container from pre-built release binary (v0.9.0).
+
+**First-time setup (interactive OAuth flow):**
+
+gogcli uses an encrypted on-disk keyring inside the container (no OS keychain available). Set `GOG_KEYRING_BACKEND=file` and provide a password.
+
+```bash
+# 1. Store OAuth client credentials (download from Google Cloud Console)
+docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
+  gog auth credentials /home/node/.config/gogcli/client_secret.json
+
+# 2. Authorize account (opens browser URL for OAuth — use --remote for headless)
+docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
+  gog auth add you@gmail.com --remote --step 1
+# Copy the URL, open in browser, paste redirect URL back:
+docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
+  gog auth add you@gmail.com --remote --step 2 --auth-url 'http://localhost:1/?code=...&state=...'
+
+# 3. Test
+docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
+  gog gmail labels list
+```
+
+**Credentials persistence**: gogcli config is stored at `/var/lib/openclaw-percaival/gogcli/` on the host (mounted to `/home/node/.config/gogcli/` in the container).
+
+**Docs**: https://github.com/steipete/gogcli
+
 ## Files
 
 | What                       | Where                                                                          |
@@ -292,6 +321,7 @@ Docs: https://docs.openclaw.ai/tools/web
 | Backlog item               | `hosts/miniserver-bp/docs/backlog/P80--5c21a08--install-openclaw-percaival.md` |
 | Container logs             | `docker logs openclaw-percaival`                                               |
 | Gateway log (in container) | `/tmp/openclaw/openclaw-YYYY-MM-DD.log`                                        |
+| gogcli config (host)       | `/var/lib/openclaw-percaival/gogcli/`                                          |
 
 ## Network
 
