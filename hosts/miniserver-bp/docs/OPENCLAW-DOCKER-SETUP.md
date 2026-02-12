@@ -83,13 +83,16 @@ sudo systemctl start docker-openclaw-percaival
 
 Note: `docker stop` won't work alone — NixOS systemd service auto-restarts. Use `systemctl mask`.
 
-### 5. Use `--network=host` (required)
+### 5. Use `--network=host` + `bind=auto` (required)
 
 OpenClaw's security model: loopback = trusted (no pairing), anything else = external (pairing required). This is by design.
 
-With default Docker bridge networking, the embedded agent connects to the gateway via the container's bridge IP (e.g. `172.17.0.3`). The gateway sees this as a non-loopback external connection and enforces device pairing — breaking cron, internal tools, and CLI commands inside the container.
+With default Docker bridge networking, the embedded agent connects to the gateway via the container's bridge IP (e.g. `172.17.0.3`), which the gateway treats as external.
 
-**The fix: `--network=host`**. The container shares the host's network stack. Loopback is real loopback. No Docker bridge, no bridge IP, no pairing issues. Port 18789 is directly on the host (no Docker port mapping needed).
+**The fix: `--network=host` + `gateway.bind: "auto"`**. The container shares the host's network stack. The `auto` bind mode tries loopback first, falling back to LAN. Combined with host networking, this gives us:
+
+- Internal agent runtime (cron, tools, Telegram) → connects via loopback → trusted
+- External access (Control UI from browser) → accessible on LAN IP (`10.17.1.40:18789`)
 
 ```nix
 virtualisation.oci-containers.containers.openclaw-percaival = {
@@ -100,7 +103,29 @@ virtualisation.oci-containers.containers.openclaw-percaival = {
 };
 ```
 
-During onboard wizard, select: **LAN (0.0.0.0)** — gateway listens on all interfaces for LAN access, internal agent connects via loopback.
+In `openclaw.json`:
+
+```json5
+{ gateway: { bind: "auto" } }
+```
+
+**Quirk**: Even with this setup, `docker exec openclaw-percaival openclaw devices list` (and other CLI RPC commands) still fail with "pairing required". This is because the CLI connects to the gateway via a separate WebSocket RPC path that enforces device pairing regardless of loopback.
+
+However, the **actual agent runtime works fine**: the embedded agent, cron scheduler, Telegram channel, and internal tools all operate in-process and don't go through the RPC pairing layer. `openclaw doctor` also works.
+
+**What works:**
+
+- Telegram DMs and group chat
+- Cron jobs
+- Internal tools
+- `openclaw doctor`
+- Control UI from browser (with `allowInsecureAuth`)
+
+**What doesn't work (cosmetic):**
+
+- `openclaw devices list` — "pairing required" via RPC
+- `openclaw gateway status` — RPC probe fails (but shows correct config)
+- Other CLI RPC commands that connect via WebSocket
 
 **Trade-off**: `--network=host` reduces container network isolation. Acceptable for a test server on office LAN.
 
@@ -289,18 +314,32 @@ Source: local lan 172.17.0.3
 | `OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789` env var    | This env var doesn't exist — OpenClaw ignores it            |
 | `openclaw devices approve` (Grok's suggestion)         | Chicken-and-egg: CLI itself needs gateway access to approve |
 | Official repo Dockerfile / `docker-setup.sh`           | Same gateway auth logic, doesn't change loopback behavior   |
+| `--network=host` + `bind=lan`                          | Agent still connects via host LAN IP (10.17.1.40)           |
+| `--network=host` + `bind=auto` for CLI RPC             | Loopback works but CLI RPC still requires pairing (see #5)  |
 
 ### What works
 
-**`--network=host`** — container shares host network stack. No bridge IP. Internal connections use real loopback. See gotcha #5.
+**`--network=host` + `bind=auto`** — container shares host network stack. `auto` bind mode tries loopback first. The in-process agent runtime (cron, Telegram, tools) works because it doesn't go through the RPC pairing layer. See gotcha #5.
+
+**Remaining quirk**: CLI RPC commands (`openclaw devices list`, `openclaw gateway status`) still fail with "pairing required" even on loopback. This appears to be a separate pairing layer for WebSocket RPC that is enforced regardless of source IP. The `openclaw doctor` command works because it reads state directly. This doesn't affect actual agent functionality — it's cosmetic.
+
+### Pairing architecture (what we learned)
+
+OpenClaw has two distinct connection paths:
+
+1. **In-process agent runtime** — the embedded agent, cron scheduler, and channel connectors (Telegram, etc.) run inside the gateway process. Not subject to device pairing. This is why cron and Telegram work.
+
+2. **CLI RPC commands** — `openclaw devices list`, `openclaw gateway status`, etc. connect via WebSocket RPC. This path enforces device pairing even on loopback. `openclaw doctor` is an exception (reads state directly, no RPC).
+
+The "pairing required" on loopback for CLI RPC may be a bug, a v2026.2.9 behavior change, or undocumented. For practical purposes it doesn't matter — the agent runtime works without CLI RPC.
 
 ## Deployment Approach Comparison
 
-| Approach                                               | Pros                      | Cons                                           | Status                           |
-| ------------------------------------------------------ | ------------------------- | ---------------------------------------------- | -------------------------------- |
-| **Option A**: Official Dockerfile (full repo build)    | Official                  | Heavy build, slow updates, same auth logic     | Not viable (doesn't fix pairing) |
-| **Option B**: npm install + `--network=host` (current) | Simple, fast, small image | Reduced network isolation                      | In use, testing                  |
-| **Option C**: Nix package + systemd                    | No container overhead     | Brittle, constant patching, npm sandbox breaks | Tested on hsb1 — not recommended |
+| Approach                                                   | Pros                  | Cons                                           | Status                           |
+| ---------------------------------------------------------- | --------------------- | ---------------------------------------------- | -------------------------------- |
+| **Option A**: Official Dockerfile (full repo build)        | Official              | Heavy build, slow updates, same auth logic     | Not viable (doesn't fix pairing) |
+| **Option B**: npm install + `--network=host` + `bind=auto` | Simple, fast, working | Reduced network isolation, CLI RPC broken      | **In use, working**              |
+| **Option C**: Nix package + systemd                        | No container overhead | Brittle, constant patching, npm sandbox breaks | Tested on hsb1 — not recommended |
 
 ## References
 
