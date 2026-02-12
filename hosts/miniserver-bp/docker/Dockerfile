@@ -5,7 +5,7 @@ RUN npm install -g openclaw@latest
 # Install gogcli (Google Suite CLI for Gmail, Calendar, Drive, etc.)
 # https://github.com/steipete/gogcli
 RUN curl -sL https://github.com/steipete/gogcli/releases/download/v0.9.0/gogcli_0.9.0_linux_amd64.tar.gz \
-    | tar xz -C /usr/local/bin gog
+    | tar xz -C /tmp && mv /tmp/gog /usr/local/bin/gog && chmod +x /usr/local/bin/gog
 
 RUN mkdir -p /home/node/.openclaw/workspace /home/node/.config/gogcli \
     && chown -R node:node /home/node/.openclaw /home/node/.config/gogcli
