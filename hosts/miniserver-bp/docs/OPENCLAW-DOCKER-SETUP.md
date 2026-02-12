@@ -307,6 +307,24 @@ docker exec -it -e GOG_KEYRING_BACKEND=file openclaw-percaival \
 
 **Credentials persistence**: gogcli config is stored at `/var/lib/openclaw-percaival/gogcli/` on the host (mounted to `/home/node/.config/gogcli/` in the container).
 
+**Deployment steps (after adding gogcli to Dockerfile):**
+
+```bash
+ssh miniserver-bp
+cd ~/Code/nixcfg && git pull
+
+# 1. Rebuild Docker image (downloads gogcli binary)
+cd hosts/miniserver-bp/docker
+docker build -t openclaw-percaival:latest .
+
+# 2. Rebuild NixOS (adds gogcli volume mount)
+cd ~/Code/nixcfg
+sudo nixos-rebuild switch --flake .#miniserver-bp
+
+# 3. Verify gogcli is available
+docker exec openclaw-percaival gog --help
+```
+
 **Docs**: https://github.com/steipete/gogcli
 
 ## Files
