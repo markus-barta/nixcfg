@@ -7,18 +7,13 @@ RUN npm install -g openclaw@latest
 RUN curl -sL https://github.com/steipete/gogcli/releases/download/v0.9.0/gogcli_0.9.0_linux_amd64.tar.gz \
     | tar xz -C /tmp && mv /tmp/gog /usr/local/bin/gog && chmod +x /usr/local/bin/gog
 
-# Install himalaya (CLI email client for IMAP/SMTP)
-# https://github.com/pimalaya/himalaya
-RUN curl -sL https://github.com/pimalaya/himalaya/releases/download/v1.1.0/himalaya.x86_64-linux.tgz \
-    | tar xz -C /tmp && mv /tmp/himalaya /usr/local/bin/himalaya && chmod +x /usr/local/bin/himalaya
-
 # Install CLI for Microsoft 365 (Outlook, Teams, SharePoint, etc.)
 # https://github.com/pnp/cli-microsoft365
 # Auth: client secret (headless), device code, certificate
 RUN npm install -g @pnp/cli-microsoft365
 
-RUN mkdir -p /home/node/.openclaw/workspace /home/node/.config/gogcli /home/node/.config/himalaya \
-    && chown -R node:node /home/node/.openclaw /home/node/.config/gogcli /home/node/.config/himalaya
+RUN mkdir -p /home/node/.openclaw/workspace /home/node/.config/gogcli \
+    && chown -R node:node /home/node/.openclaw /home/node/.config/gogcli
 USER node
 EXPOSE 18789
 CMD ["openclaw", "gateway", "--port", "18789"]
