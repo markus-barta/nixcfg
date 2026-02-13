@@ -83,19 +83,70 @@ Migrate Merlin to a **Docker container on hsb0**, replicating the proven miniser
 
 **Calendar Architecture Decision (DONE - see below)**
 
-**Document current Merlin `openclaw.json` settings**
+**Document current Merlin `openclaw.json` settings (DONE - see Migration Notes below)**
 
-- [ ] Model configuration (temperature, provider, etc.)
-- [ ] Skills configuration
-- [ ] Bindings and routing
-- [ ] Agent memory and sessions
+**Migration Notes from hsb1 inspection:**
 
-**Verify hsb0 resources**
+| Setting            | Current Value (hsb1)            | Docker Change Required                                               |
+| ------------------ | ------------------------------- | -------------------------------------------------------------------- |
+| **Workspace path** | `/home/mba/.openclaw/workspace` | Change to `/home/node/.openclaw/workspace` (Docker uses `node` user) |
+| **Bot token**      | Hardcoded in JSON               | Move to agenix secret, inject via activation script                  |
+| **Gateway token**  | Hardcoded in JSON               | Move to agenix secret, inject via activation script                  |
+| **User context**   | `mba`                           | `node` (uid 1000 inside container)                                   |
 
-- [ ] `free -h` (RAM check)
-- [ ] `df -h` (disk space)
-- [ ] `docker ps` (existing containers)
-- [ ] Confirm capacity for new workload
+**Settings that copy AS-IS (no changes needed):**
+
+- **Models**: Primary `openrouter/google/gemini-3-flash-preview`, Fallback `openrouter/moonshotai/kimi-k2.5`
+- **Tools**: Web search/fetch enabled
+- **Channels**: Telegram enabled, dmPolicy=pairing, streamMode=partial
+- **Gateway**: Port 18789, bind=lan, allowInsecureAuth=true
+- **Cron**: Enabled
+- **Skills**: nodeManager=npm
+- **Max concurrent**: 4 agents / 8 subagents
+
+**Files to transfer from hsb1:**
+
+```bash
+~/.openclaw/openclaw.json          # Adapt paths and remove hardcoded tokens
+~/.openclaw/agents/main/           # Agent memory, auth profiles, sessions
+~/.openclaw/workspace/             # Skills, knowledge, files
+~/.openclaw/cron/jobs.json         # Scheduled tasks
+~/.config/vdirsyncer/config        # iCloud CalDAV (if keeping)
+~/.config/khal/config              # Calendar display config
+```
+
+**Verify hsb0 resources (DONE - see Capacity Assessment below)**
+
+**Capacity Assessment from research:**
+
+| Resource   | hsb0 Spec                | Current Usage               | OpenClaw Need                   | Verdict       |
+| ---------- | ------------------------ | --------------------------- | ------------------------------- | ------------- |
+| **CPU**    | i5-2415M 2.3GHz (2C/4T)  | Light (DNS, monitoring)     | Low (API calls, occasional LLM) | ✅ Sufficient |
+| **RAM**    | 8 GB DDR3                | ~2-3 GB used                | ~1-2 GB for OpenClaw            | ✅ Sufficient |
+| **Disk**   | 250 GB SSD (223 GB free) | ~9 GB used                  | ~1 GB for container + state     | ✅ Plenty     |
+| **Docker** | Already enabled          | 2 containers (restic, ncps) | Add 1 container                 | ✅ Ready      |
+
+**Current hsb0 containers:**
+
+- `restic-cron-hetzner` (backup, minimal resources)
+- `ncps` (Nix cache proxy, port 8501)
+
+**OpenClaw resource profile:**
+
+- Mostly idle (waits for Telegram messages)
+- Spikes during LLM inference (OpenRouter API, not local)
+- Minimal disk I/O (logs, workspace files)
+- Network: Port 18789 needs firewall opening
+
+**Pre-migration verification needed on hsb0:**
+
+```bash
+# Run these on hsb0 before starting:
+free -h                    # Confirm >4GB available
+df -h /var/lib/docker      # Confirm >10GB free
+docker ps                  # Verify existing containers running
+docker info | grep -i "storage"  # Confirm overlay2 or zfs driver
+```
 
 ---
 
