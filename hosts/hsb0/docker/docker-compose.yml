@@ -41,9 +41,10 @@ services:
       - /run/agenix/hsb0-openclaw-openrouter-key:/run/secrets/openrouter-key:ro
       - /run/agenix/hsb0-openclaw-brave-key:/run/secrets/brave-key:ro
       - /run/agenix/hsb0-openclaw-hass-token:/run/secrets/hass-token:ro
-      - /run/agenix/hsb0-openclaw-m365-cal-client-id:/run/secrets/m365-cal-client-id:ro
-      - /run/agenix/hsb0-openclaw-m365-cal-tenant-id:/run/secrets/m365-cal-tenant-id:ro
-      - /run/agenix/hsb0-openclaw-m365-cal-client-secret:/run/secrets/m365-cal-client-secret:ro
+      # TODO: Uncomment when Azure AD app (Merlin-AI-hsb0-cal) is created
+      # - /run/agenix/hsb0-openclaw-m365-cal-client-id:/run/secrets/m365-cal-client-id:ro
+      # - /run/agenix/hsb0-openclaw-m365-cal-tenant-id:/run/secrets/m365-cal-tenant-id:ro
+      # - /run/agenix/hsb0-openclaw-m365-cal-client-secret:/run/secrets/m365-cal-client-secret:ro
     # OpenClaw reads API keys from env vars directly.
     # Secrets are mounted from agenix (mode 444 in NixOS config).
     # The entrypoint reads them into env vars, then execs as node user.

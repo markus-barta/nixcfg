@@ -173,9 +173,10 @@ in
   "hsb0-openclaw-brave-key.age".publicKeys = markus ++ hsb0;
   "hsb0-openclaw-icloud-password.age".publicKeys = markus ++ hsb0;
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
-  "hsb0-openclaw-m365-cal-client-id.age".publicKeys = markus ++ hsb0;
-  "hsb0-openclaw-m365-cal-tenant-id.age".publicKeys = markus ++ hsb0;
-  "hsb0-openclaw-m365-cal-client-secret.age".publicKeys = markus ++ hsb0;
+  # TODO: Uncomment when Azure AD app is created and .age files exist
+  # "hsb0-openclaw-m365-cal-client-id.age".publicKeys = markus ++ hsb0;
+  # "hsb0-openclaw-m365-cal-tenant-id.age".publicKeys = markus ++ hsb0;
+  # "hsb0-openclaw-m365-cal-client-secret.age".publicKeys = markus ++ hsb0;
 
   # WireGuard private key for miniserver-bp (BYTEPOETS VPN)
   # Edit: agenix -e secrets/miniserver-bp-wireguard-key.age
