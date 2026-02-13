@@ -162,6 +162,21 @@ in
   "hsb1-openclaw-brave-key.age".publicKeys = markus ++ hsb1;
   "hsb1-openclaw-icloud-password.age".publicKeys = markus ++ hsb1;
 
+  # OpenClaw Merlin AI assistant secrets (hsb0)
+  # Format: Plain text tokens/keys (no KEY=VALUE)
+  # Edit: agenix -e secrets/hsb0-openclaw-*.age
+  # Runtime: /run/agenix/hsb0-openclaw-*
+  "hsb0-openclaw-gateway-token.age".publicKeys = markus ++ hsb0;
+  "hsb0-openclaw-telegram-token.age".publicKeys = markus ++ hsb0;
+  "hsb0-openclaw-openrouter-key.age".publicKeys = markus ++ hsb0;
+  "hsb0-openclaw-hass-token.age".publicKeys = markus ++ hsb0;
+  "hsb0-openclaw-brave-key.age".publicKeys = markus ++ hsb0;
+  "hsb0-openclaw-icloud-password.age".publicKeys = markus ++ hsb0;
+  # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
+  "hsb0-openclaw-m365-cal-client-id.age".publicKeys = markus ++ hsb0;
+  "hsb0-openclaw-m365-cal-tenant-id.age".publicKeys = markus ++ hsb0;
+  "hsb0-openclaw-m365-cal-client-secret.age".publicKeys = markus ++ hsb0;
+
   # WireGuard private key for miniserver-bp (BYTEPOETS VPN)
   # Edit: agenix -e secrets/miniserver-bp-wireguard-key.age
   "miniserver-bp-wireguard-key.age".publicKeys = markus ++ miniserver-bp;

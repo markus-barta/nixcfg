@@ -372,6 +372,7 @@ in
         3000 # AdGuard Home web interface
         3001 # Uptime Kuma web interface
         8501 # NCPS binary cache proxy
+        18789 # OpenClaw Merlin (AI assistant)
         80 # HTTP (for future use)
         443 # HTTPS (for future use)
       ];
@@ -485,6 +486,92 @@ in
     mode = "400";
     owner = "root";
   };
+
+  # ============================================================================
+  # OpenClaw Merlin - AI assistant via Telegram
+  # ============================================================================
+  # Runs in Docker via docker-compose (hosts/hsb0/docker/docker-compose.yml).
+  # Secrets mounted as files in container (mode 444 for node user access).
+  # Data persisted at /var/lib/openclaw-merlin/
+
+  age.secrets.hsb0-openclaw-gateway-token = {
+    file = ../../secrets/hsb0-openclaw-gateway-token.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-openclaw-telegram-token = {
+    file = ../../secrets/hsb0-openclaw-telegram-token.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-openclaw-openrouter-key = {
+    file = ../../secrets/hsb0-openclaw-openrouter-key.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-openclaw-hass-token = {
+    file = ../../secrets/hsb0-openclaw-hass-token.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-openclaw-brave-key = {
+    file = ../../secrets/hsb0-openclaw-brave-key.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-openclaw-icloud-password = {
+    file = ../../secrets/hsb0-openclaw-icloud-password.age;
+    mode = "444";
+  };
+  # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
+  age.secrets.hsb0-openclaw-m365-cal-client-id = {
+    file = ../../secrets/hsb0-openclaw-m365-cal-client-id.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-openclaw-m365-cal-tenant-id = {
+    file = ../../secrets/hsb0-openclaw-m365-cal-tenant-id.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-openclaw-m365-cal-client-secret = {
+    file = ../../secrets/hsb0-openclaw-m365-cal-client-secret.age;
+    mode = "444";
+  };
+
+  # Create OpenClaw data directories. Only seed openclaw.json if missing.
+  system.activationScripts.openclaw-merlin = ''
+    mkdir -p /var/lib/openclaw-merlin/data/workspace
+    mkdir -p /var/lib/openclaw-merlin/vdirsyncer
+    mkdir -p /var/lib/openclaw-merlin/khal
+    if [ ! -f /var/lib/openclaw-merlin/data/openclaw.json ]; then
+      TOKEN=$(cat ${config.age.secrets.hsb0-openclaw-telegram-token.path} 2>/dev/null || echo "PLACEHOLDER")
+      GWTOKEN=$(cat ${config.age.secrets.hsb0-openclaw-gateway-token.path} 2>/dev/null || echo "PLACEHOLDER")
+      cat > /var/lib/openclaw-merlin/data/openclaw.json << EOF
+    {
+      "gateway": {
+        "port": 18789,
+        "bind": "lan",
+        "controlUi": { "allowInsecureAuth": true },
+        "auth": { "mode": "token", "token": "$GWTOKEN" }
+      },
+      "agents": {
+        "defaults": {
+          "workspace": "/home/node/.openclaw/workspace",
+          "model": {
+            "primary": "openrouter/google/gemini-3-flash-preview",
+            "fallbacks": ["openrouter/moonshotai/kimi-k2.5"]
+          },
+          "maxConcurrent": 4,
+          "subagents": { "maxConcurrent": 8 }
+        }
+      },
+      "channels": {
+        "telegram": { "enabled": true, "botToken": "$TOKEN", "dmPolicy": "pairing", "streamMode": "partial" }
+      },
+      "tools": { "web": { "search": { "enabled": true }, "fetch": { "enabled": true } } },
+      "cron": { "enabled": true },
+      "commands": { "native": "auto", "nativeSkills": "auto" },
+      "messages": { "ackReactionScope": "group-mentions" },
+      "skills": { "install": { "nodeManager": "npm" } }
+    }
+    EOF
+    fi
+    chown -R 1000:1000 /var/lib/openclaw-merlin/
+  '';
 
   # ============================================================================
   # NCPS - Nix binary Cache Proxy Service
