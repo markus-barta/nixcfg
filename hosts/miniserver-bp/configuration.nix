@@ -223,6 +223,7 @@
     volumes = [
       "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw"
       "/var/lib/openclaw-percaival/gogcli:/home/node/.config/gogcli:rw"
+      "/var/lib/openclaw-percaival/himalaya:/home/node/.config/himalaya:rw"
     ];
     # gogcli uses encrypted on-disk keyring (no OS keychain in container)
     environment = {
@@ -248,7 +249,7 @@
 
   # Create OpenClaw data directory. Only seed openclaw.json if missing (onboard wizard manages it).
   system.activationScripts.openclaw-percaival = ''
-    mkdir -p /var/lib/openclaw-percaival/data/workspace /var/lib/openclaw-percaival/gogcli
+    mkdir -p /var/lib/openclaw-percaival/data/workspace /var/lib/openclaw-percaival/gogcli /var/lib/openclaw-percaival/himalaya
     if [ ! -f /var/lib/openclaw-percaival/data/openclaw.json ]; then
       TOKEN=$(cat ${config.age.secrets.miniserver-bp-openclaw-telegram-token.path})
       cat > /var/lib/openclaw-percaival/data/openclaw.json << EOF
@@ -268,7 +269,7 @@
     }
     EOF
     fi
-    chown -R 1000:1000 /var/lib/openclaw-percaival/data /var/lib/openclaw-percaival/gogcli
+    chown -R 1000:1000 /var/lib/openclaw-percaival/data /var/lib/openclaw-percaival/gogcli /var/lib/openclaw-percaival/himalaya
   '';
 
   # ==========================================================================
