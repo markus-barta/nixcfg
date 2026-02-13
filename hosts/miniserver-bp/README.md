@@ -7,7 +7,7 @@
 **OS**: NixOS 26.05 (Yarara)
 **Config**: External Hokage (`github:pbek/nixcfg`) + Uzumaki modules
 **Location**: BYTEPOETS Office
-**Last Deploy**: 2026-01-15 (fresh install ✅)
+**Last Deploy**: 2026-02-12
 
 ---
 
@@ -26,14 +26,15 @@
 
 ## ⚠️ Current Role
 
-| Service       | Status      | Port | Purpose                           |
-| ------------- | ----------- | ---- | --------------------------------- |
-| **SSH**       | ✅ Running  | 2222 | Remote access                     |
-| **pm-tool**   | ✅ Running  | 8888 | PM tool (hello-world placeholder) |
-| **Docker**    | ✅ Running  | —    | Container runtime                 |
-| **WireGuard** | ❌ Disabled | —    | VPN (planned - see Phase 7)       |
+| Service       | Status      | Port  | Purpose                           |
+| ------------- | ----------- | ----- | --------------------------------- |
+| **SSH**       | ✅ Running  | 2222  | Remote access                     |
+| **pm-tool**   | ✅ Running  | 8888  | PM tool (hello-world placeholder) |
+| **OpenClaw**  | ✅ Running  | 18789 | AI agent (Percaival) via Telegram |
+| **Docker**    | ✅ Running  | —     | Container runtime                 |
+| **WireGuard** | ❌ Disabled | —     | VPN (planned - see Phase 7)       |
 
-**Primary Use**: Test server for NixOS experiments and pm-tool development.
+**Primary Use**: Test server for NixOS experiments, pm-tool, and OpenClaw AI agent.
 
 **Future**: WireGuard jump host for remote access to office network.
 
