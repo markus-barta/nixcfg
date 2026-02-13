@@ -10,14 +10,14 @@
 
 ## Current Status
 
-| Component      | Status           | Notes                  |
-| -------------- | ---------------- | ---------------------- |
-| Container      | ✅ Running       | 19+ hours uptime       |
-| Telegram       | ✅ Connected     | @percaival_bot         |
-| gog (Google)   | ✅ Working       | percy.ai@bytepoets.com |
-| weather        | ✅ Ready         | Bundled skill          |
-| healthcheck    | ✅ Ready         | Bundled skill          |
-| Skills (other) | ❌ Not installed | See below              |
+| Component    | Status       | Notes                             |
+| ------------ | ------------ | --------------------------------- |
+| Container    | ✅ Running   | Docker, `--network=host`          |
+| Telegram     | ✅ Connected | @percaival_bot                    |
+| gog (Google) | ✅ Working   | percy.ai@bytepoets.com            |
+| m365-email   | ✅ Working   | Percy-AI-miniserver-bp (Azure AD) |
+| weather      | ✅ Ready     | Bundled skill                     |
+| healthcheck  | ✅ Ready     | Bundled skill                     |
 
 ## Available Skills
 
@@ -42,7 +42,11 @@ Other bundled skills are available but may need binaries or API keys. Enable/dis
 
 ### Workspace Skills (user-installed)
 
-None installed yet. Use ClawHub CLI or manual git-clone — see "Adding Skills" below.
+| Skill      | Description                  | Location                       |
+| ---------- | ---------------------------- | ------------------------------ |
+| m365-email | Read/send email via M365 CLI | `workspace/skills/m365-email/` |
+
+Installed manually. Use ClawHub CLI or manual git-clone for more — see "Adding Skills" below.
 
 ## Operational Commands
 
@@ -151,6 +155,98 @@ The gog keyring password is stored in agenix:
 - Format in secret: `GOG_KEYRING_PASSWORD=<password>`
 - Injected via NixOS config to container environment
 
+## M365 Email (Microsoft 365)
+
+### Identity
+
+- **Azure AD app**: `Percy-AI-miniserver-bp`
+- **Auth**: Client credentials grant (`--authType secret`), fully headless
+- **Mailbox**: `percy.ai@bytepoets.com`
+- **Permissions**: Mail.Read, Mail.Send (application-level, admin-consented)
+- **Constraint**: Internal only (@bytepoets.com) — enforced by Exchange transport rule
+
+### Verify Auth
+
+```bash
+docker exec openclaw-percaival m365 status
+```
+
+Expected: `connectedAs: Percy-AI-miniserver-bp`
+
+### Re-login (if session expired)
+
+```bash
+docker exec -it openclaw-percaival sh -c \
+  'm365 login --authType secret \
+    --appId "$(cat /run/secrets/m365-client-id)" \
+    --tenant "$(cat /run/secrets/m365-tenant-id)" \
+    --secret "$(cat /run/secrets/m365-client-secret)"'
+```
+
+### Test Commands
+
+```bash
+# List inbox
+docker exec openclaw-percaival m365 outlook message list \
+  --folderName inbox --userName percy.ai@bytepoets.com -o json
+
+# Send test email
+docker exec openclaw-percaival m365 outlook mail send \
+  --to markus.barta@bytepoets.com --subject "Percy test" \
+  --bodyContents "Test from miniserver-bp" --sender percy.ai@bytepoets.com
+```
+
+### Exchange Transport Rule (hard enforcement)
+
+| Setting       | Value                                                                          |
+| ------------- | ------------------------------------------------------------------------------ |
+| **Name**      | `Block percy.ai external sends`                                                |
+| **Condition** | Sender is `percy.ai@bytepoets.com` AND recipient is outside organization       |
+| **Action**    | Reject with: "Percy AI is restricted to internal emails only (@bytepoets.com)" |
+| **Mode**      | Enforce                                                                        |
+| **Severity**  | High                                                                           |
+| **Priority**  | 1                                                                              |
+
+This is the hard security boundary -- even if prompt injection bypasses the skill-level restriction, Exchange blocks the email at the transport layer.
+
+Managed in: **Exchange Admin Center > Mail flow > Rules**
+
+### Secrets (agenix)
+
+| Secret                                 | Content        |
+| -------------------------------------- | -------------- |
+| `miniserver-bp-m365-client-id.age`     | Application ID |
+| `miniserver-bp-m365-tenant-id.age`     | Directory ID   |
+| `miniserver-bp-m365-client-secret.age` | Client secret  |
+
+### Skill
+
+Custom workspace skill at `workspace/skills/m365-email/SKILL.md`. Teaches Percy to use `m365` CLI for reading inbox, getting messages, sending internal emails, and downloading attachments via Graph API.
+
+**Security layers in the skill:**
+
+- Anti-prompt-injection rules (treats email body as untrusted data, never as instructions)
+- Domain restriction (only @bytepoets.com recipients)
+- Identity enforcement (always sends as percy.ai@bytepoets.com)
+
+### Attachments
+
+The `m365 outlook message get` command does NOT include attachment content. Use `m365 request` with Graph API:
+
+```bash
+# List attachments
+docker exec openclaw-percaival m365 request \
+  --url "https://graph.microsoft.com/v1.0/users/percy.ai@bytepoets.com/messages/<msg-id>/attachments?\$select=id,name,contentType,size" \
+  --method get -o json
+
+# Download attachment (base64)
+docker exec openclaw-percaival m365 request \
+  --url "https://graph.microsoft.com/v1.0/users/percy.ai@bytepoets.com/messages/<msg-id>/attachments/<att-id>" \
+  --method get -o json --query "contentBytes" | tr -d '"' | base64 -d > /tmp/filename
+```
+
+---
+
 ## Adding Skills
 
 Skills are not managed via Nix — they live in the container's persistent volume. The recommended approach is **ClawHub CLI**; manual git-clone is the fallback.
@@ -228,17 +324,19 @@ See [OPENCLAW-DOCKER-SETUP.md — Adding a second agent](./OPENCLAW-DOCKER-SETUP
 
 ## Files Reference
 
-| What                    | Location                                               |
-| ----------------------- | ------------------------------------------------------ |
-| Dockerfile              | `hosts/miniserver-bp/docker/Dockerfile`                |
-| NixOS config            | `hosts/miniserver-bp/configuration.nix`                |
-| Config (host)           | `/var/lib/openclaw-percaival/data/openclaw.json`       |
-| Workspace               | `/var/lib/openclaw-percaival/data/workspace/`          |
-| Telegram token (agenix) | `secrets/miniserver-bp-openclaw-telegram-token.age`    |
-| gogcli keyring (agenix) | `secrets/miniserver-bp-gogcli-keyring-password.age`    |
-| Container logs          | `docker logs openclaw-percaival`                       |
-| Gateway log             | `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (in container) |
-| gogcli config           | `/var/lib/openclaw-percaival/gogcli/`                  |
+| What                    | Location                                                             |
+| ----------------------- | -------------------------------------------------------------------- |
+| Dockerfile              | `hosts/miniserver-bp/docker/Dockerfile`                              |
+| NixOS config            | `hosts/miniserver-bp/configuration.nix`                              |
+| Config (host)           | `/var/lib/openclaw-percaival/data/openclaw.json`                     |
+| Workspace               | `/var/lib/openclaw-percaival/data/workspace/`                        |
+| M365 skill              | `/var/lib/openclaw-percaival/data/workspace/skills/m365-email/`      |
+| Telegram token (agenix) | `secrets/miniserver-bp-openclaw-telegram-token.age`                  |
+| gogcli keyring (agenix) | `secrets/miniserver-bp-gogcli-keyring-password.age`                  |
+| M365 secrets (agenix)   | `secrets/miniserver-bp-m365-{client-id,tenant-id,client-secret}.age` |
+| Container logs          | `docker logs openclaw-percaival`                                     |
+| Gateway log             | `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (in container)               |
+| gogcli config           | `/var/lib/openclaw-percaival/gogcli/`                                |
 
 ## Access
 
