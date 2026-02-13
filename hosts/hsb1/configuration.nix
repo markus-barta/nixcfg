@@ -566,8 +566,11 @@ in
   # Secrets are loaded from agenix files at runtime via wrapper script because
   # openclaw reads env vars directly (OPENCLAW_GATEWAY_TOKEN, TELEGRAM_BOT_TOKEN,
   # OPENROUTER_API_KEY, BRAVE_API_KEY) — no _FILE suffix support.
+  #
+  # NOTE: Disabled 2026-02-13 — Merlin migrated to hsb0 Docker (see hsb0 config).
   # ============================================================================
   systemd.services.openclaw-gateway = {
+    enable = false;
     description = "OpenClaw AI Assistant Gateway";
     after = [
       "network-online.target"

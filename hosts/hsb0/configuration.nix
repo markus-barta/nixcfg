@@ -518,6 +518,10 @@ in
     file = ../../secrets/hsb0-openclaw-icloud-password.age;
     mode = "444";
   };
+  age.secrets.hsb0-openclaw-opus-gateway = {
+    file = ../../secrets/hsb0-openclaw-opus-gateway.age;
+    mode = "444";
+  };
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
   # TODO: Uncomment when Azure AD app is created and .age files exist
   # age.secrets.hsb0-openclaw-m365-cal-client-id = {
