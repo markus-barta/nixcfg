@@ -31,15 +31,15 @@ Migrate Merlin to a **Docker container on hsb0**, replicating the proven miniser
 
 ### Architecture comparison
 
-| Aspect   | hsb1 (current)                      | hsb0 (target)                                     |
-| -------- | ----------------------------------- | ------------------------------------------------- |
-| Runtime  | Nix package (pnpm from-source)      | Docker container (npm registry)                   |
-| Service  | `systemd.services.openclaw-gateway` | `virtualisation.oci-containers`                   |
-| Config   | Imperative (`~/.openclaw/`)         | Activation script seeds `openclaw.json`           |
-| Secrets  | env vars via wrapper script         | agenix → mounted files + activation script        |
-| Update   | Rebuild Nix package (hard)          | `docker build --no-cache` (easy)                  |
-| Skills   | Imperative + broken symlinks        | Workspace volume (persistent)                     |
-| Calendar | vdirsyncer + khal (native)          | vdirsyncer + khal inside container (or Graph API) |
+| Aspect   | hsb1 (current)                      | hsb0 (target)                                                   |
+| -------- | ----------------------------------- | --------------------------------------------------------------- |
+| Runtime  | Nix package (pnpm from-source)      | Docker container (npm registry)                                 |
+| Service  | `systemd.services.openclaw-gateway` | `virtualisation.oci-containers`                                 |
+| Config   | Imperative (`~/.openclaw/`)         | Activation script seeds `openclaw.json`                         |
+| Secrets  | env vars via wrapper script         | agenix → mounted files + activation script                      |
+| Update   | Rebuild Nix package (hard)          | `docker build --no-cache` (easy)                                |
+| Skills   | Imperative + broken symlinks        | Workspace volume (persistent)                                   |
+| Calendar | vdirsyncer + khal (native)          | iCloud: vdirsyncer+khal in container; M365: Graph API read-only |
 
 ## Current Merlin State (hsb1)
 
@@ -52,18 +52,38 @@ Migrate Merlin to a **Docker container on hsb0**, replicating the proven miniser
 | `hsb1-openclaw-openrouter-key`  | LLM inference             | **Reuse** -- same API key                                      |
 | `hsb1-openclaw-hass-token`      | Home Assistant            | **Reuse** -- HASS at `192.168.1.101` still reachable from hsb0 |
 | `hsb1-openclaw-brave-key`       | Web search                | **Reuse** -- same API key                                      |
-| `hsb1-openclaw-icloud-password` | CalDAV sync               | Evaluate: replace with M365 calendar or keep iCloud            |
+| `hsb1-openclaw-icloud-password` | CalDAV sync (personal)    | **Reuse** -- iCloud calendar stays for personal use            |
 
 ### Persistent state to transfer
 
-| What              | hsb1 path                     | Transfer method                               |
-| ----------------- | ----------------------------- | --------------------------------------------- |
-| `openclaw.json`   | `~/.openclaw/openclaw.json`   | Copy, adapt for Docker paths                  |
-| Agent config      | `~/.openclaw/agents/main/`    | Copy (auth profiles, memory, sessions)        |
-| Workspace         | `~/.openclaw/workspace/`      | Copy (skills, files, knowledge)               |
-| Cron jobs         | `~/.openclaw/cron/jobs.json`  | Copy                                          |
-| vdirsyncer config | `~/.config/vdirsyncer/config` | Evaluate: install in container or drop iCloud |
-| khal config       | `~/.config/khal/config`       | Same as above                                 |
+| What                | hsb1 path                                       | Transfer                   | Notes                                                    |
+| ------------------- | ----------------------------------------------- | -------------------------- | -------------------------------------------------------- |
+| `openclaw.json`     | `~/.openclaw/openclaw.json`                     | Copy + adapt               | Change workspace path, remove hardcoded tokens           |
+| Agent auth profiles | `~/.openclaw/agents/main/agent/`                | Copy                       | OpenRouter auth profile, usage stats                     |
+| Agent sessions      | `~/.openclaw/agents/main/sessions/`             | Copy                       | 21 session files (conversation history)                  |
+| Workspace docs      | `~/.openclaw/workspace/*.md`                    | Copy                       | IDENTITY.md, USER.md, MEMORY.md, HEARTBEAT.md, etc.      |
+| Workspace memory    | `~/.openclaw/workspace/memory/`                 | Copy                       | family.md, infrastructure.md, debug_log.md, workflows.md |
+| Workspace skills    | `~/.openclaw/workspace/skills/`                 | **Selective**              | See skills section below                                 |
+| Cron jobs           | `~/.openclaw/cron/jobs.json`                    | Copy                       | Currently empty (`"jobs": []`)                           |
+| Credentials         | `~/.openclaw/credentials/`                      | Copy                       | telegram-allowFrom.json, telegram-pairing.json           |
+| Exec approvals      | `~/.openclaw/exec-approvals.json`               | **Adapt**                  | Socket path needs updating for Docker                    |
+| Canvas              | `~/.openclaw/canvas/`                           | Copy                       | If non-empty                                             |
+| Identity/devices    | `~/.openclaw/identity/`, `~/.openclaw/devices/` | **Do NOT copy**            | New device identity will be generated on hsb0            |
+| `m365_token.json`   | `~/.openclaw/m365_token.json`                   | **Do NOT copy**            | Stale token from deleted Merlin-AI-hsb1 app              |
+| Telegram state      | `~/.openclaw/telegram/`                         | Copy                       | Preserves chat state                                     |
+| vdirsyncer config   | `~/.config/vdirsyncer/config`                   | Copy into container volume | Needed for iCloud CalDAV                                 |
+| khal config         | `~/.config/khal/config`                         | Copy into container volume | Needed for calendar display                              |
+
+### Skills migration
+
+| Skill                        | Type                 | Transfer | Notes                                                 |
+| ---------------------------- | -------------------- | -------- | ----------------------------------------------------- |
+| `calendar` (caldav-calendar) | Real workspace skill | **Copy** | vdirsyncer + khal, needs bins installed in Dockerfile |
+| `openrouter-free-models`     | Real workspace skill | **Copy** | Includes `scripts/fetch_models.sh`                    |
+| `docker`                     | **Broken symlink**   | **Skip** | Points to GC'd nix store path `openclaw-2026.1.29`    |
+| `home-assistant`             | **Broken symlink**   | **Skip** | Points to GC'd nix store path `openclaw-2026.1.29`    |
+
+The two broken symlinks (`docker`, `home-assistant`) point to `/nix/store/3k2mx0c9csz5l1wiazajg9b5xxif8r49-openclaw-2026.1.29/...` which no longer exists. In Docker, these bundled skills ship with `openclaw@latest` and will be available automatically -- no symlinks needed.
 
 ### Services/skills
 
@@ -107,12 +127,29 @@ Migrate Merlin to a **Docker container on hsb0**, replicating the proven miniser
 **Files to transfer from hsb1:**
 
 ```bash
-~/.openclaw/openclaw.json          # Adapt paths and remove hardcoded tokens
-~/.openclaw/agents/main/           # Agent memory, auth profiles, sessions
-~/.openclaw/workspace/             # Skills, knowledge, files
-~/.openclaw/cron/jobs.json         # Scheduled tasks
-~/.config/vdirsyncer/config        # iCloud CalDAV (if keeping)
-~/.config/khal/config              # Calendar display config
+# TRANSFER (copy to /var/lib/openclaw-merlin/data/ on hsb0):
+~/.openclaw/openclaw.json          # Adapt: paths, remove hardcoded tokens
+~/.openclaw/agents/main/           # Auth profiles, sessions (21 files)
+~/.openclaw/workspace/*.md         # IDENTITY, USER, MEMORY, HEARTBEAT, SOUL, TOOLS
+~/.openclaw/workspace/memory/      # family.md, infrastructure.md, debug_log.md, workflows.md
+~/.openclaw/workspace/skills/calendar/          # CalDAV skill (real dir)
+~/.openclaw/workspace/skills/openrouter-free-models/  # Model finder skill (real dir)
+~/.openclaw/cron/                  # jobs.json (currently empty)
+~/.openclaw/credentials/           # telegram-allowFrom.json, telegram-pairing.json
+~/.openclaw/exec-approvals.json    # Adapt: socket path for Docker
+~/.openclaw/canvas/                # If non-empty
+~/.openclaw/telegram/              # Chat state
+
+# ALSO TRANSFER (calendar configs, mount separately in container):
+~/.config/vdirsyncer/config        # iCloud CalDAV
+~/.config/khal/config              # Calendar display
+
+# DO NOT TRANSFER:
+~/.openclaw/identity/              # New device identity generated on hsb0
+~/.openclaw/devices/               # New device registration on hsb0
+~/.openclaw/m365_token.json        # Stale (Merlin-AI-hsb1 app deleted)
+~/.openclaw/workspace/skills/docker            # Broken symlink to GC'd nix store
+~/.openclaw/workspace/skills/home-assistant    # Broken symlink to GC'd nix store
 ```
 
 **Verify hsb0 resources (DONE - see Capacity Assessment below)**
@@ -189,9 +226,10 @@ m365 request --url "https://graph.microsoft.com/v1.0/users/markus.barta@bytepoet
 - [ ] Create `hosts/hsb0/docker/openclaw-merlin/Dockerfile` (based on miniserver-bp pattern)
   - `node:22-bookworm-slim`
   - `openclaw@latest`
-  - `gogcli` if Google Workspace needed (Merlin doesn't use it currently)
-  - `vdirsyncer` + `khal` if keeping iCloud calendar
-  - Any other Merlin-specific binaries
+  - `@pnp/cli-microsoft365` (for company calendar read-only via Graph API)
+  - `vdirsyncer` + `khal` (apt: for iCloud CalDAV personal calendar)
+  - `git` + `curl` (required by OpenClaw)
+  - NO `gogcli` (Merlin doesn't use Google Workspace)
 - [ ] Add `virtualisation.oci-containers` definition to `hosts/hsb0/configuration.nix`
   - Container: `openclaw-merlin`
   - `--network=host`
@@ -214,22 +252,58 @@ m365 request --url "https://graph.microsoft.com/v1.0/users/markus.barta@bytepoet
 
 ### Phase 2: Transfer state from hsb1
 
-- [ ] Stop Merlin on hsb1: `sudo systemctl stop openclaw-gateway`
+- [ ] Stop Merlin on hsb1: `sudo systemctl stop openclaw-gateway && sudo systemctl mask openclaw-gateway`
 - [ ] Copy persistent state from hsb1 to hsb0:
+
   ```bash
-  # From hsb0:
+  # On hsb0:
   sudo mkdir -p /var/lib/openclaw-merlin/data
-  scp -r mba@hsb1.lan:~/.openclaw/{openclaw.json,agents,workspace,cron} /tmp/merlin-state/
-  # Adapt openclaw.json paths for Docker (e.g., /home/node/.openclaw/)
-  sudo cp -r /tmp/merlin-state/* /var/lib/openclaw-merlin/data/
-  sudo chown -R 1000:1000 /var/lib/openclaw-merlin/data
+  sudo mkdir -p /var/lib/openclaw-merlin/vdirsyncer
+  sudo mkdir -p /var/lib/openclaw-merlin/khal
+
+  # Transfer OpenClaw state (selective -- see transfer list above):
+  scp mba@hsb1.lan:~/.openclaw/openclaw.json /tmp/openclaw.json
+  scp -r mba@hsb1.lan:~/.openclaw/agents /tmp/agents
+  scp -r mba@hsb1.lan:~/.openclaw/cron /tmp/cron
+  scp -r mba@hsb1.lan:~/.openclaw/credentials /tmp/credentials
+  scp -r mba@hsb1.lan:~/.openclaw/canvas /tmp/canvas 2>/dev/null
+  scp -r mba@hsb1.lan:~/.openclaw/telegram /tmp/telegram
+  scp mba@hsb1.lan:~/.openclaw/exec-approvals.json /tmp/exec-approvals.json
+
+  # Transfer workspace (skip broken symlinks):
+  scp -r mba@hsb1.lan:~/.openclaw/workspace/*.md /tmp/workspace/
+  scp -r mba@hsb1.lan:~/.openclaw/workspace/memory /tmp/workspace/memory
+  scp -r mba@hsb1.lan:~/.openclaw/workspace/skills/calendar /tmp/workspace/skills/calendar
+  scp -r mba@hsb1.lan:~/.openclaw/workspace/skills/openrouter-free-models /tmp/workspace/skills/openrouter-free-models
+
+  # Transfer calendar configs:
+  scp mba@hsb1.lan:~/.config/vdirsyncer/config /tmp/vdirsyncer-config
+  scp mba@hsb1.lan:~/.config/khal/config /tmp/khal-config
+
+  # Assemble on hsb0:
+  sudo cp -r /tmp/{openclaw.json,agents,cron,credentials,canvas,telegram,exec-approvals.json} /var/lib/openclaw-merlin/data/
+  sudo mkdir -p /var/lib/openclaw-merlin/data/workspace/{skills,memory}
+  sudo cp -r /tmp/workspace/* /var/lib/openclaw-merlin/data/workspace/
+  sudo cp /tmp/vdirsyncer-config /var/lib/openclaw-merlin/vdirsyncer/config
+  sudo cp /tmp/khal-config /var/lib/openclaw-merlin/khal/config
+  sudo chown -R 1000:1000 /var/lib/openclaw-merlin/
   ```
+
 - [ ] Adapt `openclaw.json`:
-  - Gateway bind: `lan` (for LAN access)
-  - `allowInsecureAuth: true` (HTTP control UI)
-  - Update HASS token path if needed
-  - Verify Telegram bot token injection
-- [ ] If keeping iCloud: copy vdirsyncer + khal configs into container volume
+  - Change workspace path: `/home/mba/.openclaw/workspace` → `/home/node/.openclaw/workspace`
+  - Remove hardcoded `botToken` (injected via activation script)
+  - Remove hardcoded `gateway.auth.token` (injected via activation script)
+  - Verify `bind=lan`, `allowInsecureAuth=true`, `port=18789` (should be correct as-is)
+- [ ] Adapt `exec-approvals.json`:
+  - Change socket path: `/home/mba/.openclaw/` → `/home/node/.openclaw/`
+- [ ] Login M365 CLI for company calendar (after container starts):
+  ```bash
+  docker exec -it openclaw-merlin sh -c \
+    'm365 login --authType secret \
+      --appId "$(cat /run/secrets/m365-cal-client-id)" \
+      --tenant "$(cat /run/secrets/m365-cal-tenant-id)" \
+      --secret "$(cat /run/secrets/m365-cal-client-secret)"'
+  ```
 
 ### Phase 3: Build + Deploy on hsb0
 
@@ -290,7 +364,8 @@ m365 request --url "https://graph.microsoft.com/v1.0/users/markus.barta@bytepoet
 - [ ] Home Assistant integration works (lights, sensors)
 - [ ] Brave Search works
 - [ ] Cron/scheduled tasks execute
-- [ ] Calendar works (if applicable)
+- [ ] iCloud personal calendar works (vdirsyncer sync + khal query)
+- [ ] M365 company calendar works (read-only via Graph API)
 - [ ] Memory/context preserved from hsb1
 - [ ] hsb1 OpenClaw service stopped and disabled (not deleted)
 - [ ] hsb1 state preserved as backup
@@ -299,14 +374,14 @@ m365 request --url "https://graph.microsoft.com/v1.0/users/markus.barta@bytepoet
 
 ## Risks
 
-| Risk                                       | Impact                           | Mitigation                                                                   |
-| ------------------------------------------ | -------------------------------- | ---------------------------------------------------------------------------- |
-| hsb0 resource constraint (8GB RAM, 2C CPU) | Merlin slow or OOM               | Monitor with `docker stats`; OpenClaw is mostly API calls, low local compute |
-| Telegram bot token conflict                | Two instances polling = errors   | **Stop hsb1 BEFORE starting hsb0** -- only one instance per bot token        |
-| HASS token path change                     | Home Assistant skill breaks      | Mount secret at known path in container                                      |
-| State transfer incomplete                  | Lost memory/context              | Verify file list before decommissioning hsb1; keep hsb1 backup 30 days       |
-| iCloud CalDAV in container                 | Complex setup                    | Consider dropping iCloud, use M365 calendar or Google Calendar instead       |
-| hsb0 is crown jewel (DNS/DHCP)             | Container issue could affect DNS | OpenClaw is isolated in container; `--network=host` risk is low              |
+| Risk                                       | Impact                           | Mitigation                                                                                       |
+| ------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| hsb0 resource constraint (8GB RAM, 2C CPU) | Merlin slow or OOM               | Monitor with `docker stats`; OpenClaw is mostly API calls, low local compute                     |
+| Telegram bot token conflict                | Two instances polling = errors   | **Stop hsb1 BEFORE starting hsb0** -- only one instance per bot token                            |
+| HASS token path change                     | Home Assistant skill breaks      | Mount secret at known path in container; HA bundled skill reads from env or file -- verify which |
+| State transfer incomplete                  | Lost memory/context              | Verify file list before decommissioning hsb1; keep hsb1 backup 30 days                           |
+| iCloud CalDAV in container                 | Complex setup                    | Install vdirsyncer+khal via apt in Dockerfile; mount configs from host volume                    |
+| hsb0 is crown jewel (DNS/DHCP)             | Container issue could affect DNS | OpenClaw is isolated in container; `--network=host` risk is low                                  |
 
 ## Key Gotchas (from miniserver-bp experience)
 
