@@ -172,6 +172,7 @@ in
   "hsb0-openclaw-hass-token.age".publicKeys = markus ++ hsb0;
   "hsb0-openclaw-brave-key.age".publicKeys = markus ++ hsb0;
   "hsb0-openclaw-icloud-password.age".publicKeys = markus ++ hsb0;
+  "hsb0-openclaw-opus-gateway.age".publicKeys = markus ++ hsb0;
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
   # TODO: Uncomment when Azure AD app is created and .age files exist
   # "hsb0-openclaw-m365-cal-client-id.age".publicKeys = markus ++ hsb0;

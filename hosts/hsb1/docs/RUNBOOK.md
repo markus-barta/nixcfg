@@ -542,6 +542,9 @@ bluetoothctl remove 20:73:00:04:21:4F
 
 ## OpenClaw AI Assistant (Merlin)
 
+> ⚠️ **MIGRATED**: Merlin moved to **hsb0** (Docker) on 2026-02-13.
+> The service below is **disabled**. See [hsb0 RUNBOOK](../hsb0/docs/RUNBOOK.md#merlin-openclaw-ai-assistant).
+
 - **Service**: `openclaw-gateway.service` (system-level, runs as `mba`)
 - **Dashboard**: <http://192.168.1.101:18789>
 - **Telegram bot**: `@merlin_oc_bot`

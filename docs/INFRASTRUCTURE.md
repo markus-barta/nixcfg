@@ -68,13 +68,13 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 
 ### NixOS Servers
 
-| Host     | Role                      | IP            | SSH Command                    | Criticality |
-| -------- | ------------------------- | ------------- | ------------------------------ | ----------- |
-| **hsb0** | DNS/DHCP (AdGuard Home)   | 192.168.1.99  | `ssh mba@hsb0.lan`             | 🔴 HIGH     |
-| **hsb1** | Home Automation           | 192.168.1.101 | `ssh mba@hsb1.lan`             | 🟡 MEDIUM   |
-| **hsb8** | Parents' Server (offsite) | 192.168.1.100 | `ssh mba@hsb8.lan`             | 🟡 MEDIUM   |
-| **csb0** | Cloud Smart Home          | 85.235.65.226 | `ssh mba@cs0.barta.cm -p 2222` | 🔴 HIGH     |
-| **csb1** | Cloud Monitoring          | 152.53.64.166 | `ssh mba@cs1.barta.cm -p 2222` | 🟡 MEDIUM   |
+| Host     | Role                                | IP            | SSH Command                    | Criticality |
+| -------- | ----------------------------------- | ------------- | ------------------------------ | ----------- |
+| **hsb0** | DNS/DHCP + Merlin (OpenClaw Docker) | 192.168.1.99  | `ssh mba@hsb0.lan`             | 🔴 HIGH     |
+| **hsb1** | Home Automation                     | 192.168.1.101 | `ssh mba@hsb1.lan`             | 🟡 MEDIUM   |
+| **hsb8** | Parents' Server (offsite)           | 192.168.1.100 | `ssh mba@hsb8.lan`             | 🟡 MEDIUM   |
+| **csb0** | Cloud Smart Home                    | 85.235.65.226 | `ssh mba@cs0.barta.cm -p 2222` | 🔴 HIGH     |
+| **csb1** | Cloud Monitoring                    | 152.53.64.166 | `ssh mba@cs1.barta.cm -p 2222` | 🟡 MEDIUM   |
 
 ### NixOS Desktops
 
