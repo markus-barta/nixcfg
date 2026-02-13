@@ -148,26 +148,33 @@
 
     Host miniserver-bp
       HostName 10.17.1.40
+      Port 2222
       User mba
       ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc miniserver-bp.ts.barta.cm %p; fi'
 
     Host miniserver-bp-lan
       HostName 10.17.1.40
+      Port 2222
       User mba
 
     Host miniserver-bp-ts
       HostName miniserver-bp.ts.barta.cm
+      Port 2222
       User mba
 
     Host msbp
       HostName miniserver-bp
+      Port 2222
+      User mba
 
     Host msbp-lan
       HostName 10.17.1.40
+      Port 2222
       User mba
 
     Host msbp-ts
       HostName miniserver-bp.ts.barta.cm
+      Port 2222
       User mba
 
     # === CLOUD HOSTS ===
