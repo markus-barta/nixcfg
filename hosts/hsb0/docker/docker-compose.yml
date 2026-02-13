@@ -28,6 +28,35 @@ services:
       - com.centurylinklabs.watchtower.enable=false
       - traefik.enable=false
 
+  openclaw-merlin:
+    build: ./openclaw-merlin
+    container_name: openclaw-merlin
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - /var/lib/openclaw-merlin/data:/home/node/.openclaw:rw
+      - /var/lib/openclaw-merlin/vdirsyncer:/home/node/.config/vdirsyncer:rw
+      - /var/lib/openclaw-merlin/khal:/home/node/.config/khal:rw
+      # Secrets (read-only, mounted from agenix)
+      - /run/agenix/hsb0-openclaw-openrouter-key:/run/secrets/openrouter-key:ro
+      - /run/agenix/hsb0-openclaw-brave-key:/run/secrets/brave-key:ro
+      - /run/agenix/hsb0-openclaw-hass-token:/run/secrets/hass-token:ro
+      - /run/agenix/hsb0-openclaw-m365-cal-client-id:/run/secrets/m365-cal-client-id:ro
+      - /run/agenix/hsb0-openclaw-m365-cal-tenant-id:/run/secrets/m365-cal-tenant-id:ro
+      - /run/agenix/hsb0-openclaw-m365-cal-client-secret:/run/secrets/m365-cal-client-secret:ro
+    # OpenClaw reads API keys from env vars directly.
+    # Secrets are mounted from agenix (mode 444 in NixOS config).
+    # The entrypoint reads them into env vars, then execs as node user.
+    user: "node"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
+        export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
+        exec openclaw gateway --port 18789
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
   ncps:
     image: kalbasit/ncps:latest
     container_name: ncps
