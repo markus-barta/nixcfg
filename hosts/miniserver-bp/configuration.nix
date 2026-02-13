@@ -81,7 +81,7 @@
   age.secrets.miniserver-bp-openclaw-telegram-token.file = ../../secrets/miniserver-bp-openclaw-telegram-token.age;
   age.secrets.miniserver-bp-gogcli-keyring-password.file = ../../secrets/miniserver-bp-gogcli-keyring-password.age;
 
-  # M365 CLI credentials (same Azure AD app as hsb1)
+  # M365 CLI credentials (Azure AD app: Percy-AI-miniserver-bp)
   # mode 444: readable by container's node user (uid 1000) via ro mount
   age.secrets.miniserver-bp-m365-client-id = {
     file = ../../secrets/miniserver-bp-m365-client-id.age;

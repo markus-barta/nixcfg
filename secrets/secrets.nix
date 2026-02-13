@@ -161,9 +161,6 @@ in
   "hsb1-openclaw-hass-token.age".publicKeys = markus ++ hsb1;
   "hsb1-openclaw-brave-key.age".publicKeys = markus ++ hsb1;
   "hsb1-openclaw-icloud-password.age".publicKeys = markus ++ hsb1;
-  "hsb1-openclaw-m365-client-id.age".publicKeys = markus ++ hsb1;
-  "hsb1-openclaw-m365-tenant-id.age".publicKeys = markus ++ hsb1;
-  "hsb1-openclaw-m365-client-secret.age".publicKeys = markus ++ hsb1;
 
   # WireGuard private key for miniserver-bp (BYTEPOETS VPN)
   # Edit: agenix -e secrets/miniserver-bp-wireguard-key.age
@@ -179,7 +176,7 @@ in
   "miniserver-bp-gogcli-keyring-password.age".publicKeys = markus ++ miniserver-bp;
 
   # M365 (CLI for Microsoft 365) credentials for OpenClaw Percaival
-  # Same Azure AD app as hsb1 — reuse client-id, tenant-id, client-secret
+  # Azure AD app: Percy-AI-miniserver-bp (dedicated app registration)
   # Format: Plain text value (no KEY=VALUE)
   # Edit: agenix -e secrets/miniserver-bp-m365-client-id.age
   # Edit: agenix -e secrets/miniserver-bp-m365-tenant-id.age
