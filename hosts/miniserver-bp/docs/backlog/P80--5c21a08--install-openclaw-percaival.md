@@ -2,7 +2,7 @@
 
 **Host**: miniserver-bp
 **Priority**: P80
-**Status**: Backlog
+**Status**: Done
 **Created**: 2026-02-10
 **Updated**: 2026-02-11
 
@@ -185,14 +185,14 @@ docker exec -it $(docker ps -q -f name=openclaw-percaival) openclaw onboard
 
 ## Acceptance Criteria
 
-- [ ] OpenClaw Docker container running on miniserver-bp
-- [ ] Agent identity is "Percaival" (verified in Telegram)
-- [ ] Container auto-starts on boot (`autoStart = true`)
-- [ ] `docker ps` shows openclaw-percaival container
-- [ ] Control UI accessible at `http://10.17.1.40:18789/`
-- [ ] Telegram DM pairing works
-- [ ] README.md updated with OpenClaw service entry + port 18789
-- [ ] RUNBOOK.md updated with container ops (restart, logs, update)
+- [x] OpenClaw Docker container running on miniserver-bp
+- [x] Agent identity is "Percaival" (verified in Telegram)
+- [x] Container auto-starts on boot (`autoStart = true`)
+- [x] `docker ps` shows openclaw-percaival container
+- [x] Control UI accessible at `http://10.17.1.40:18789/`
+- [x] Telegram DM pairing works
+- [x] README.md updated with OpenClaw service entry + port 18789
+- [x] RUNBOOK.md updated with container ops (restart, logs, update)
 
 ## Open Questions
 
