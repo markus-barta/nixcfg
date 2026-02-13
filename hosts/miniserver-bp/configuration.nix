@@ -82,9 +82,19 @@
   age.secrets.miniserver-bp-gogcli-keyring-password.file = ../../secrets/miniserver-bp-gogcli-keyring-password.age;
 
   # M365 CLI credentials (same Azure AD app as hsb1)
-  age.secrets.miniserver-bp-m365-client-id.file = ../../secrets/miniserver-bp-m365-client-id.age;
-  age.secrets.miniserver-bp-m365-tenant-id.file = ../../secrets/miniserver-bp-m365-tenant-id.age;
-  age.secrets.miniserver-bp-m365-client-secret.file = ../../secrets/miniserver-bp-m365-client-secret.age;
+  # mode 444: readable by container's node user (uid 1000) via ro mount
+  age.secrets.miniserver-bp-m365-client-id = {
+    file = ../../secrets/miniserver-bp-m365-client-id.age;
+    mode = "444";
+  };
+  age.secrets.miniserver-bp-m365-tenant-id = {
+    file = ../../secrets/miniserver-bp-m365-tenant-id.age;
+    mode = "444";
+  };
+  age.secrets.miniserver-bp-m365-client-secret = {
+    file = ../../secrets/miniserver-bp-m365-client-secret.age;
+    mode = "444";
+  };
 
   # ==========================================================================
   # WIREGUARD VPN
