@@ -318,7 +318,8 @@ Full setup guide: `hosts/miniserver-bp/docs/OPENCLAW-DOCKER-SETUP.md`
 
 ## Related Documentation
 
-- **OpenClaw Docker Setup**: `hosts/miniserver-bp/docs/OPENCLAW-DOCKER-SETUP.md`
+- **OpenClaw Runbook**: `hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md` (operations, current status)
+- **OpenClaw Docker Setup**: `hosts/miniserver-bp/docs/OPENCLAW-DOCKER-SETUP.md` (installation, architecture, gotchas)
 - **Installation Plan**: `+pm/backlog/P8900-miniserver-bp-nixos-migration-fresh-start.md`
 - **Host README**: `hosts/miniserver-bp/README.md`
 - **SSH Security**: `docs/SSH-KEY-SECURITY.md`

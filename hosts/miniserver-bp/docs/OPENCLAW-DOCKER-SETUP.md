@@ -263,7 +263,93 @@ docker exec -it openclaw-percaival openclaw pairing list telegram
 
 ## Skills
 
-### Web Search (Brave Search)
+### How Skills Work
+
+OpenClaw loads skills from **three locations** (highest precedence first):
+
+| Priority | Location (in container) | Host path                                            | What                      |
+| -------- | ----------------------- | ---------------------------------------------------- | ------------------------- |
+| Highest  | `<workspace>/skills`    | `/var/lib/openclaw-percaival/data/workspace/skills/` | Per-agent, user-installed |
+| Middle   | `~/.openclaw/skills`    | `/var/lib/openclaw-percaival/data/skills/`           | Shared across agents      |
+| Lowest   | Bundled (npm package)   | Inside container node_modules                        | Ships with OpenClaw       |
+
+Same-name skill in a higher-priority location **overrides** lower ones. Skills are picked up on next session start (or via hot-reload if watcher is enabled).
+
+Additional skill dirs can be configured via `skills.load.extraDirs` in `openclaw.json`.
+
+Docs: https://docs.openclaw.ai/tools/skills
+
+### Bundled Skills
+
+These ship with the npm package and are available out of the box (~50 total). Key ones for Percaival:
+
+| Skill       | Status    | Notes                                                               |
+| ----------- | --------- | ------------------------------------------------------------------- |
+| gog         | ✅ Active | Google Workspace — requires gogcli binary (installed in Dockerfile) |
+| weather     | ✅ Ready  | Current weather and forecasts                                       |
+| healthcheck | ✅ Ready  | Host security hardening                                             |
+
+All other bundled skills are available but may require binaries or API keys. Enable/disable via `openclaw.json`:
+
+```json5
+{ skills: { entries: { "some-skill": { enabled: false } } } }
+```
+
+### Declarative vs Non-Declarative
+
+| Aspect       | Declarative (Nix/Agenix)           | Non-Declarative (Container)         |
+| ------------ | ---------------------------------- | ----------------------------------- |
+| **What**     | Secrets, container config          | Skills, openclaw.json runtime state |
+| **How**      | NixOS `configuration.nix` + agenix | ClawHub CLI or manual install       |
+| **Persists** | Yes (nix store / agenix)           | Yes (in `/var/lib/`)                |
+| **Examples** | Telegram token, gogcli password    | Workspace skills, agent docs        |
+
+Skills are not managed via Nix — they live in the container's persistent volume.
+
+### Managing Skills with ClawHub
+
+[ClawHub](https://clawhub.ai) is the public skill registry. The `clawhub` CLI is the recommended way to install, update, and track skills.
+
+```bash
+# Install CLI (already available if added to Dockerfile, otherwise:)
+docker exec -it openclaw-percaival npm install -g clawhub
+
+# Search for skills
+docker exec -it openclaw-percaival clawhub search "calendar"
+
+# Install a skill (into workspace/skills/)
+docker exec -it openclaw-percaival clawhub install <skill-slug>
+
+# Update all installed skills
+docker exec -it openclaw-percaival clawhub update --all
+
+# List installed (reads .clawhub/lock.json)
+docker exec -it openclaw-percaival clawhub list
+```
+
+Docs: https://docs.openclaw.ai/tools/clawhub
+
+### Manual Skill Install (alternative)
+
+For skills not on ClawHub, or for development:
+
+```bash
+# SSH to miniserver-bp
+ssh -p 2222 mba@10.17.1.40
+
+# Create skills directory if needed
+sudo mkdir -p /var/lib/openclaw-percaival/data/workspace/skills
+sudo chown -R 1000:1000 /var/lib/openclaw-percaival/data/workspace
+
+# Clone skill (example: m365-skill)
+cd /var/lib/openclaw-percaival/data/workspace/skills
+sudo git clone https://github.com/cvsloane/m365-skill ms365
+
+# Restart container (or start new session)
+sudo systemctl restart docker-openclaw-percaival
+```
+
+### Brave Web Search
 
 OpenClaw uses Brave Search for the `web_search` tool. Without a Brave Search API key, web search won't work.
 
@@ -355,6 +441,131 @@ Then the browser redirect to `127.0.0.1:<port>` tunnels to miniserver-bp automat
 
 **Docs**: https://github.com/steipete/gogcli
 
+## Multi-Agent Architecture
+
+One gateway process can host **multiple agents** — no separate containers needed. Each agent is a fully isolated "brain" with its own workspace, identity, sessions, auth, and memory.
+
+Docs: https://docs.openclaw.ai/concepts/multi-agent
+
+### Isolation (per agent)
+
+| Component                               | Isolated by               | Path (in container)                      |
+| --------------------------------------- | ------------------------- | ---------------------------------------- |
+| Workspace (persona, AGENTS.md, SOUL.md) | `agents.list[].workspace` | `~/.openclaw/workspace-<agentId>`        |
+| State & auth profiles                   | `agents.list[].agentDir`  | `~/.openclaw/agents/<agentId>/agent/`    |
+| Sessions (chat history)                 | Per-agent store           | `~/.openclaw/agents/<agentId>/sessions/` |
+| Memory (daily logs, MEMORY.md)          | Per-workspace             | `<workspace>/memory/`                    |
+| Memory search index                     | Per-agent SQLite          | `~/.openclaw/memory/<agentId>.sqlite`    |
+| Workspace skills                        | Per-workspace             | `<workspace>/skills/`                    |
+
+**Never reuse `agentDir` across agents** — causes auth/session collisions.
+
+### Sharing (built-in mechanisms)
+
+OpenClaw provides explicit config-based sharing. **Do NOT use symlinks** — the memory search indexer explicitly ignores them.
+
+| What to share          | Mechanism                            | Config key                                                           |
+| ---------------------- | ------------------------------------ | -------------------------------------------------------------------- |
+| Skills (common pack)   | Extra skill dirs (lowest precedence) | `skills.load.extraDirs: ["/path/to/shared/skills"]`                  |
+| Skills (all agents)    | Managed skills dir                   | Install to `~/.openclaw/skills/` (shared by default)                 |
+| Knowledge / notes      | Extra memory search paths            | `agents.defaults.memorySearch.extraPaths: ["/path/to/shared-notes"]` |
+| API keys, model config | Global config                        | `skills.entries`, `tools.web`, `models.providers` in `openclaw.json` |
+| Google auth (gogcli)   | Copy auth-profiles.json              | Copy between agent dirs (not symlink)                                |
+| Agent-to-agent comms   | Opt-in messaging                     | `tools.agentToAgent: { enabled: true, allow: ["a", "b"] }`           |
+
+### Routing (bindings)
+
+Inbound messages are routed to agents via `bindings` in `openclaw.json`. Deterministic, most-specific wins:
+
+1. `match.peer` (exact DM/group id)
+2. `match.guildId` / `match.teamId`
+3. `match.accountId` (exact)
+4. `match.accountId: "*"` (channel-wide)
+5. Default agent (`agents.list[].default`, else first entry)
+
+Example — two Telegram bots, one gateway:
+
+```json5
+{
+  agents: {
+    list: [
+      {
+        id: "percaival",
+        workspace: "~/.openclaw/workspace-percaival",
+        identity: { name: "Percaival", emoji: "⚔️" },
+      },
+      {
+        id: "other",
+        workspace: "~/.openclaw/workspace-other",
+        identity: { name: "Other Bot", emoji: "🤖" },
+      },
+    ],
+  },
+  bindings: [
+    {
+      agentId: "percaival",
+      match: { channel: "telegram", accountId: "default" },
+    },
+    {
+      agentId: "other",
+      match: { channel: "telegram", accountId: "other-bot" },
+    },
+  ],
+  channels: {
+    telegram: {
+      accounts: {
+        default: { botToken: "..." },
+        "other-bot": { botToken: "..." },
+      },
+    },
+  },
+}
+```
+
+### Per-agent overrides
+
+Each agent can have its own model, sandbox, tool restrictions, and identity:
+
+```json5
+{
+  agents: {
+    list: [
+      {
+        id: "fast-chat",
+        model: "anthropic/claude-sonnet-4-5",
+        sandbox: { mode: "off" },
+      },
+      {
+        id: "deep-work",
+        model: "anthropic/claude-opus-4-6",
+        tools: { deny: ["browser"] },
+        sandbox: { mode: "all", scope: "agent" },
+      },
+    ],
+  },
+}
+```
+
+### Adding a second agent (checklist)
+
+1. Create new workspace dir on host (e.g. `/var/lib/openclaw-percaival/data/workspace-<agentId>`)
+2. Add agent to `agents.list[]` in `openclaw.json` with unique `id`, `workspace`, `agentDir`
+3. Add `bindings[]` entry to route channel/peer to the new agent
+4. If new Telegram bot: add bot token to `channels.telegram.accounts` (via agenix)
+5. Restart gateway: `sudo systemctl restart docker-openclaw-percaival`
+6. Bootstrap: the agent auto-creates workspace files on first session (or use `openclaw setup`)
+
+### Current state
+
+Single-agent mode (default `agentId: "main"`, workspace at `/var/lib/openclaw-percaival/data/`). Ready for multi-agent when needed — config change only, no container changes.
+
+Docs:
+
+- Multi-agent routing: https://docs.openclaw.ai/concepts/multi-agent
+- Multi-agent sandbox & tools: https://docs.openclaw.ai/tools/multi-agent-sandbox-tools
+- Skills config: https://docs.openclaw.ai/tools/skills-config
+- Agent workspace: https://docs.openclaw.ai/concepts/agent-workspace
+
 ## Files
 
 | What                       | Where                                                                          |
@@ -380,48 +591,7 @@ Then the browser redirect to `127.0.0.1:<port>` tunnels to miniserver-bp automat
 
 ## Investigation Log: Docker Bridge vs Loopback
 
-This section documents the pairing issue we hit and what we tried, for future reference.
-
-### Problem
-
-With default Docker bridge networking, the embedded agent connects to the gateway via the container's bridge IP (`ws://172.17.0.3:18789`). Gateway classifies this as external → enforces device pairing → cron, CLI, and internal tools all fail:
-
-```
-[tools] cron failed: gateway closed (1008): pairing required
-Gateway target: ws://172.17.0.3:18789
-Source: local lan 172.17.0.3
-```
-
-### What did NOT work
-
-| Attempt                                                | Why it failed                                               |
-| ------------------------------------------------------ | ----------------------------------------------------------- |
-| `gateway.controlUi.allowInsecureAuth: true`            | Only affects Control UI, not gateway WS auth                |
-| `gateway.controlUi.dangerouslyDisableDeviceAuth: true` | Only affects Control UI                                     |
-| `gateway.trustedProxies: ["172.17.0.0/16"]`            | For forwarded headers, not auth bypass                      |
-| `OPENCLAW_GATEWAY_URL=ws://127.0.0.1:18789` env var    | This env var doesn't exist — OpenClaw ignores it            |
-| `openclaw devices approve` (Grok's suggestion)         | Chicken-and-egg: CLI itself needs gateway access to approve |
-| Official repo Dockerfile / `docker-setup.sh`           | Same gateway auth logic, doesn't change loopback behavior   |
-| `--network=host` + `bind=lan`                          | Agent still connects via host LAN IP (10.17.1.40)           |
-| `--network=host` + `bind=auto` for CLI RPC             | Loopback works but CLI RPC still requires pairing (see #5)  |
-
-### What works
-
-**`--network=host` + `bind=lan`** — container shares host network stack. The in-process agent runtime (cron, Telegram, tools) works because it doesn't go through the RPC pairing layer. `bind=lan` keeps the Control UI accessible from the office LAN. See gotcha #5.
-
-We also tested `bind=auto` (loopback only) — agent runtime also works, but Control UI becomes inaccessible from LAN. `bind=lan` is the better choice.
-
-**Remaining quirk**: CLI RPC commands (`openclaw devices list`, `openclaw gateway status`) still fail with "pairing required" even on loopback. This appears to be a separate pairing layer for WebSocket RPC that is enforced regardless of source IP. The `openclaw doctor` command works because it reads state directly. This doesn't affect actual agent functionality — it's cosmetic.
-
-### Pairing architecture (what we learned)
-
-OpenClaw has two distinct connection paths:
-
-1. **In-process agent runtime** — the embedded agent, cron scheduler, and channel connectors (Telegram, etc.) run inside the gateway process. Not subject to device pairing. This is why cron and Telegram work.
-
-2. **CLI RPC commands** — `openclaw devices list`, `openclaw gateway status`, etc. connect via WebSocket RPC. This path enforces device pairing even on loopback. `openclaw doctor` is an exception (reads state directly, no RPC).
-
-The "pairing required" on loopback for CLI RPC may be a bug, a v2026.2.9 behavior change, or undocumented. For practical purposes it doesn't matter — the agent runtime works without CLI RPC.
+See: [OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md) for the detailed investigation log (what didn't work, what works, pairing architecture).
 
 ## Deployment Approach Comparison
 
