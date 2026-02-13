@@ -6,7 +6,7 @@ check() {
   echo "Check ${REPOSITORY}..."
   echo
 
-  MESSAGE="$(/usr/local/bin/restic check "${RESTIC_BACKUP_OPTIONS}" --read-data 2>&1 | tee /dev/tty)" || true
+  MESSAGE="$(/usr/local/bin/restic check "${RESTIC_BACKUP_OPTIONS}" --read-data 2>&1)" || true
 
   {
     echo To: "$MAIL_TO"
