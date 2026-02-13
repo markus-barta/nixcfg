@@ -21,8 +21,8 @@ Install himalaya CLI in Docker container + configure IMAP credentials.
 - [ ] **Add himalaya to Dockerfile**:
   ```dockerfile
   # Install himalaya (CLI email client for IMAP/SMTP)
-  # https://github.com/soywod/himalaya/releases
-  RUN curl -sL https://github.com/soywod/himalaya/releases/download/v1.1.0/himalaya-linux-x86_64.tar.gz \
+  # https://github.com/pimalaya/himalaya/releases
+  RUN curl -sL https://github.com/pimalaya/himalaya/releases/download/v1.1.0/himalaya-linux-x86_64.tar.gz \
       | tar xz -C /tmp && mv /tmp/himalaya /usr/local/bin/himalaya && chmod +x /usr/local/bin/himalaya
   ```
 - [ ] Rebuild Docker image: `docker build -t openclaw-percaival:latest .`
@@ -47,5 +47,5 @@ Install himalaya CLI in Docker container + configure IMAP credentials.
 ## References
 
 - Skill: https://clawhub.ai/lamelas/himalaya
-- CLI: https://github.com/soywod/himalaya
+- CLI: https://github.com/pimalaya/himalaya
 - Docs: https://pimalaya.org/himalaya/cli/latest/
