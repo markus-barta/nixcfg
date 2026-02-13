@@ -9,7 +9,7 @@ RUN curl -sL https://github.com/steipete/gogcli/releases/download/v0.9.0/gogcli_
 
 # Install himalaya (CLI email client for IMAP/SMTP)
 # https://github.com/pimalaya/himalaya
-RUN curl -sL https://github.com/pimalaya/himalaya/releases/download/v1.1.0/himalaya-linux-x86_64.tar.gz \
+RUN curl -sL https://github.com/pimalaya/himalaya/releases/download/v1.1.0/himalaya.x86_64-linux.tgz \
     | tar xz -C /tmp && mv /tmp/himalaya /usr/local/bin/himalaya && chmod +x /usr/local/bin/himalaya
 
 RUN mkdir -p /home/node/.openclaw/workspace /home/node/.config/gogcli \
