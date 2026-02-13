@@ -286,7 +286,7 @@ These ship with the npm package and are available out of the box (~50 total). Ke
 | Skill       | Status    | Notes                                                               |
 | ----------- | --------- | ------------------------------------------------------------------- |
 | gog         | ✅ Active | Google Workspace — requires gogcli binary (installed in Dockerfile) |
-| himalaya    | ⚙️ Setup  | Email via IMAP/SMTP — requires config (in progress)                 |
+| m365        | ⚙️ Setup  | Microsoft 365 via @pnp/cli-microsoft365 (client secret auth)        |
 | weather     | ✅ Ready  | Current weather and forecasts                                       |
 | healthcheck | ✅ Ready  | Host security hardening                                             |
 
@@ -342,9 +342,9 @@ ssh -p 2222 mba@10.17.1.40
 sudo mkdir -p /var/lib/openclaw-percaival/data/workspace/skills
 sudo chown -R 1000:1000 /var/lib/openclaw-percaival/data/workspace
 
-# Clone skill (example: m365-skill)
+# Clone skill (example: brave-search)
 cd /var/lib/openclaw-percaival/data/workspace/skills
-sudo git clone https://github.com/cvsloane/m365-skill ms365
+sudo git clone https://github.com/example/skill-name my-skill
 
 # Restart container (or start new session)
 sudo systemctl restart docker-openclaw-percaival
@@ -442,28 +442,36 @@ Then the browser redirect to `127.0.0.1:<port>` tunnels to miniserver-bp automat
 
 **Docs**: https://github.com/steipete/gogcli
 
-### Himalaya Email CLI (IMAP/SMTP)
+### CLI for Microsoft 365 (Email, Teams, SharePoint, etc.)
 
-[himalaya](https://github.com/pimalaya/himalaya) provides email access via IMAP/SMTP. Installed inside the container from pre-built release binary (v1.1.0).
+[@pnp/cli-microsoft365](https://github.com/pnp/cli-microsoft365) provides full Microsoft 365 access via CLI. Installed via npm (Node.js already in container).
 
 **Dockerfile install**:
 
 ```dockerfile
-RUN curl -sL https://github.com/pimalaya/himalaya/releases/download/v1.1.0/himalaya.x86_64-linux.tgz \
-    | tar xz -C /tmp && mv /tmp/himalaya /usr/local/bin/himalaya && chmod +x /usr/local/bin/himalaya
+RUN npm install -g @pnp/cli-microsoft365
 ```
 
-**Volume mount** (in `configuration.nix`):
+**Auth**: Client secret (fully headless, no browser needed). Credentials mounted from agenix:
 
 ```nix
-"/var/lib/openclaw-percaival/himalaya:/home/node/.config/himalaya:rw"
+"${config.age.secrets.miniserver-bp-m365-client-id.path}:/run/secrets/m365-client-id:ro"
+"${config.age.secrets.miniserver-bp-m365-tenant-id.path}:/run/secrets/m365-tenant-id:ro"
+"${config.age.secrets.miniserver-bp-m365-client-secret.path}:/run/secrets/m365-client-secret:ro"
 ```
 
-**Credentials**: himalaya stores config at `/var/lib/openclaw-percaival/himalaya/config.toml` (on host). Create app password in Microsoft/Outlook if 2FA is enabled.
+**Login**:
 
-**Test**: `docker exec openclaw-percaival himalaya envelope list`
+```bash
+m365 login --authType secret \
+  --appId "$(cat /run/secrets/m365-client-id)" \
+  --tenant "$(cat /run/secrets/m365-tenant-id)" \
+  --secret "$(cat /run/secrets/m365-client-secret)"
+```
 
-**Docs**: https://pimalaya.org/himalaya/cli/latest/
+**Test**: `docker exec openclaw-percaival m365 outlook mail list`
+
+**Docs**: https://pnp.github.io/cli-microsoft365
 
 ## Multi-Agent Architecture
 

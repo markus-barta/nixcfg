@@ -186,7 +186,7 @@ sudo mkdir -p /var/lib/openclaw-percaival/data/workspace/skills
 sudo chown -R 1000:1000 /var/lib/openclaw-percaival/data/workspace
 
 cd /var/lib/openclaw-percaival/data/workspace/skills
-sudo git clone https://github.com/cvsloane/m365-skill ms365
+sudo git clone https://github.com/example/skill-name my-skill
 
 sudo systemctl restart docker-openclaw-percaival
 ```
