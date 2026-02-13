@@ -519,18 +519,19 @@ in
     mode = "444";
   };
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
-  age.secrets.hsb0-openclaw-m365-cal-client-id = {
-    file = ../../secrets/hsb0-openclaw-m365-cal-client-id.age;
-    mode = "444";
-  };
-  age.secrets.hsb0-openclaw-m365-cal-tenant-id = {
-    file = ../../secrets/hsb0-openclaw-m365-cal-tenant-id.age;
-    mode = "444";
-  };
-  age.secrets.hsb0-openclaw-m365-cal-client-secret = {
-    file = ../../secrets/hsb0-openclaw-m365-cal-client-secret.age;
-    mode = "444";
-  };
+  # TODO: Uncomment when Azure AD app is created and .age files exist
+  # age.secrets.hsb0-openclaw-m365-cal-client-id = {
+  #   file = ../../secrets/hsb0-openclaw-m365-cal-client-id.age;
+  #   mode = "444";
+  # };
+  # age.secrets.hsb0-openclaw-m365-cal-tenant-id = {
+  #   file = ../../secrets/hsb0-openclaw-m365-cal-tenant-id.age;
+  #   mode = "444";
+  # };
+  # age.secrets.hsb0-openclaw-m365-cal-client-secret = {
+  #   file = ../../secrets/hsb0-openclaw-m365-cal-client-secret.age;
+  #   mode = "444";
+  # };
 
   # Create OpenClaw data directories. Only seed openclaw.json if missing.
   system.activationScripts.openclaw-merlin = ''
