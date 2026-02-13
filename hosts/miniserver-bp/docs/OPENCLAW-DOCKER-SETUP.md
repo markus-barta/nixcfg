@@ -286,6 +286,7 @@ These ship with the npm package and are available out of the box (~50 total). Ke
 | Skill       | Status    | Notes                                                               |
 | ----------- | --------- | ------------------------------------------------------------------- |
 | gog         | ✅ Active | Google Workspace — requires gogcli binary (installed in Dockerfile) |
+| himalaya    | ⚙️ Setup  | Email via IMAP/SMTP — requires config (in progress)                 |
 | weather     | ✅ Ready  | Current weather and forecasts                                       |
 | healthcheck | ✅ Ready  | Host security hardening                                             |
 
@@ -440,6 +441,29 @@ Then the browser redirect to `127.0.0.1:<port>` tunnels to miniserver-bp automat
 **After NixOS rebuild**: The container gets `GOG_KEYRING_PASSWORD` via agenix env file, so gogcli works non-interactively (no passphrase prompts for OpenClaw tool calls).
 
 **Docs**: https://github.com/steipete/gogcli
+
+### Himalaya Email CLI (IMAP/SMTP)
+
+[himalaya](https://github.com/pimalaya/himalaya) provides email access via IMAP/SMTP. Installed inside the container from pre-built release binary (v1.1.0).
+
+**Dockerfile install**:
+
+```dockerfile
+RUN curl -sL https://github.com/pimalaya/himalaya/releases/download/v1.1.0/himalaya.x86_64-linux.tgz \
+    | tar xz -C /tmp && mv /tmp/himalaya /usr/local/bin/himalaya && chmod +x /usr/local/bin/himalaya
+```
+
+**Volume mount** (in `configuration.nix`):
+
+```nix
+"/var/lib/openclaw-percaival/himalaya:/home/node/.config/himalaya:rw"
+```
+
+**Credentials**: himalaya stores config at `/var/lib/openclaw-percaival/himalaya/config.toml` (on host). Create app password in Microsoft/Outlook if 2FA is enabled.
+
+**Test**: `docker exec openclaw-percaival himalaya envelope list`
+
+**Docs**: https://pimalaya.org/himalaya/cli/latest/
 
 ## Multi-Agent Architecture
 
