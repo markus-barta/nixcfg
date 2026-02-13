@@ -22,7 +22,7 @@ Deploy OpenClaw via a custom Docker image (`FROM node:22-bookworm-slim` + `npm i
 - [x] Existing oci-containers pattern: pm-tool on port 8888 (`configuration.nix:206-211`)
 - [x] miniserver-bp host key in `secrets/secrets.nix:56-58` (needed for new agenix secrets)
 - [x] mba uid = 1000 (`configuration.nix:155`) — matches container `node` user (uid 1000)
-- [ ] Telegram bot token (Markus creates via @BotFather, stores in 1Password)
+- [x] Telegram bot token (Markus creates via @BotFather, stores in 1Password)
 
 ## Implementation
 
@@ -175,13 +175,13 @@ docker exec -it $(docker ps -q -f name=openclaw-percaival) openclaw onboard
 
 ### Phase 6: Verify + Document
 
-- [ ] `docker ps | grep openclaw` — container running
-- [ ] `curl http://10.17.1.40:18789/` — Control UI responds
-- [ ] Send Telegram DM to bot → receive pairing code
-- [ ] Approve pairing: `docker exec ... openclaw pairing approve telegram <code>`
-- [ ] Send test message → "Percaival" responds
-- [ ] Update `hosts/miniserver-bp/README.md` — add OpenClaw to services table
-- [ ] Update `hosts/miniserver-bp/docs/RUNBOOK.md` — add ops procedures
+- [x] `docker ps | grep openclaw` — container running
+- [x] `curl http://10.17.1.40:18789/` — Control UI responds
+- [x] Send Telegram DM to bot → receive pairing code
+- [x] Approve pairing: `docker exec ... openclaw pairing approve telegram <code>`
+- [x] Send test message → "Percaival" responds
+- [x] Update `hosts/miniserver-bp/README.md` — add OpenClaw to services table
+- [x] Update `hosts/miniserver-bp/docs/RUNBOOK.md` — add ops procedures
 
 ## Acceptance Criteria
 
