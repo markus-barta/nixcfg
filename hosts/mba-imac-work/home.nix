@@ -105,6 +105,8 @@ in
     loginShellInit = ''
       fish_add_path --prepend --move ~/.nix-profile/bin
       fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
+      # VSCodium CLI (codium) - installed via Homebrew cask
+      fish_add_path --append /Applications/VSCodium.app/Contents/Resources/app/bin
     '';
 
     interactiveShellInit = ''

@@ -225,13 +225,17 @@
       # Nickname: msbp → miniserver-bp
       "msbp" = {
         hostname = "miniserver-bp";
+        port = 2222;
+        user = "mba";
       };
       "msbp-lan" = {
         hostname = "10.17.1.40";
+        port = 2222;
         user = "mba";
       };
       "msbp-ts" = {
         hostname = "miniserver-bp.ts.barta.cm";
+        port = 2222;
         user = "mba";
       };
 
