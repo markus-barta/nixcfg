@@ -1,5 +1,5 @@
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y git curl vdirsyncer khal && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal && rm -rf /var/lib/apt/lists/*
 RUN npm install -g openclaw@latest
 
 # Install CLI for Microsoft 365 (company calendar read-only via Graph API)
