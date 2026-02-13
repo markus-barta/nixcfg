@@ -1,58 +1,51 @@
-# m365-for-percy
+# email-via-himalaya
 
 **Host**: miniserver-bp
 **Priority**: P40
 **Status**: Backlog
 **Created**: 2026-02-13
+**Updated**: 2026-02-13
 
 ---
 
 ## Problem
 
-Percy (Percaival) on miniserver-bp needs Microsoft 365 integration (email, calendar via Graph API). Azure AD app is already configured, but credentials and skills are missing.
+Percy (Percaival) on miniserver-bp needs email access. Using IMAP via himalaya CLI (simpler than M365/Graph API).
 
 ## Solution
 
-Install and configure m365-skill for Percy:
-
-1. Copy/create M365 secrets for miniserver-bp
-2. Install m365-skill in workspace
-3. Install @softeria/ms-365-mcp-server
-4. Configure mcporter
-5. Test M365 access
+Install himalaya CLI in Docker container + configure IMAP credentials.
 
 ## Implementation
 
-- [ ] **Copy M365 secrets**: Reuse from hsb1 or create new
-  - Files: `secrets/hsb1-openclaw-m365-*.age`
-  - Add to `secrets/secrets.nix` with miniserver-bp public key
-  - Rekey: `just rekey`
-- [ ] Deploy secrets to miniserver-bp via nixos-rebuild
-- [ ] **Install m365-skill**:
-  ```bash
-  ssh -p 2222 mba@10.17.1.40
-  sudo mkdir -p /var/lib/openclaw-percaival/data/workspace/skills
-  sudo chown -R 1000:1000 /var/lib/openclaw-percaival/data/workspace
-  cd /var/lib/openclaw-percaival/data/workspace/skills
-  sudo git clone https://github.com/cvsloane/m365-skill ms365
+- [ ] **Add himalaya to Dockerfile**:
+  ```dockerfile
+  # Install himalaya (CLI email client for IMAP/SMTP)
+  # https://github.com/soywod/himalaya/releases
+  RUN curl -sL https://github.com/soywod/himalaya/releases/download/v1.1.0/himalaya-linux-x86_64.tar.gz \
+      | tar xz -C /tmp && mv /tmp/himalaya /usr/local/bin/himalaya && chmod +x /usr/local/bin/himalaya
   ```
-- [ ] **Install dependencies**: `docker exec openclaw-percaival npm install -g @softeria/ms-365-mcp-server`
-- [ ] **Configure mcporter**: Create `~/.clawdbot/mcporter.json` in container
-- [ ] **Set env vars**: MS365_MCP_CLIENT_ID, MS365_MCP_CLIENT_SECRET, MS365_MCP_TENANT_ID
-- [ ] Test: `docker exec openclaw-percaival mcporter call ms365.list_events`
-- [ ] Restart container
+- [ ] Rebuild Docker image: `docker build -t openclaw-percaival:latest .`
+- [ ] Restart container: `sudo systemctl restart docker-openclaw-percaival`
+- [ ] Verify: `docker exec openclaw-percaival himalaya --version`
+- [ ] **Configure IMAP credentials**:
+  - Create app password in Microsoft/Outlook (if 2FA enabled)
+  - Store in `/var/lib/openclaw-percaival/himalaya/config.toml`
+- [ ] Test: `docker exec openclaw-percaival himalaya envelope list`
 
-## Acceptance Criteria
+## Skills
 
-- [ ] M365 secrets deployed to miniserver-bp
-- [ ] m365-skill cloned to workspace/skills/
-- [ ] mcporter can list M365 events
-- [ ] Percy can access M365 calendar via Telegram
+- himalaya skill is bundled in OpenClaw: `openclaw skills list` shows it (but binary is missing)
+- Install skill: `clawhub install lamelas/himalaya` (or use bundled version once binary is present)
 
 ## Notes
 
-**Reference**: https://github.com/cvsloane/m365-skill
+- **Why himalaya?** Simpler than M365/Graph API - just IMAP/SMTP
+- **Microsoft Outlook**: Need app password if 2FA is enabled
+- **Similar to gogcli**: Binary in Dockerfile, config in volume mount
 
-**Declarative approach**: M365 secrets should be added to NixOS config (like Telegram token). Skills are non-declarative (git clone to workspace).
+## References
 
-**Azure AD app**: Already configured (reuse credentials from hsb1)
+- Skill: https://clawhub.ai/lamelas/himalaya
+- CLI: https://github.com/soywod/himalaya
+- Docs: https://pimalaya.org/himalaya/cli/latest/
