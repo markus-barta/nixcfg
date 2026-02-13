@@ -12,7 +12,7 @@ cleanup() {
     --keep-weekly "${RESTIC_CLEANUP_KEEP_WEEKLY}" \
     --keep-monthly "${RESTIC_CLEANUP_KEEP_MONTHLY}" \
     --keep-yearly "${RESTIC_CLEANUP_KEEP_YEARLY}" \
-    --prune 2>&1 | tee /dev/tty)" || true
+    --prune 2>&1)" || true
 
   {
     echo To: "$MAIL_TO"
