@@ -26,13 +26,13 @@
 
 ## ⚠️ Current Role
 
-| Service       | Status      | Port  | Purpose                           |
-| ------------- | ----------- | ----- | --------------------------------- |
-| **SSH**       | ✅ Running  | 2222  | Remote access                     |
-| **pm-tool**   | ✅ Running  | 8888  | PM tool (hello-world placeholder) |
-| **OpenClaw**  | ✅ Running  | 18789 | AI agent (Percaival) via Telegram |
-| **Docker**    | ✅ Running  | —     | Container runtime                 |
-| **WireGuard** | ❌ Disabled | —     | VPN (planned - see Phase 7)       |
+| Service       | Status      | Port  | Purpose                                    |
+| ------------- | ----------- | ----- | ------------------------------------------ |
+| **SSH**       | ✅ Running  | 2222  | Remote access                              |
+| **pm-tool**   | ✅ Running  | 8888  | PM tool (hello-world placeholder)          |
+| **OpenClaw**  | ✅ Running  | 18789 | AI agent (Percaival) — Telegram, M365, gog |
+| **Docker**    | ✅ Running  | —     | Container runtime                          |
+| **WireGuard** | ❌ Disabled | —     | VPN (planned - see Phase 7)                |
 
 **Primary Use**: Test server for NixOS experiments, pm-tool, and OpenClaw AI agent.
 

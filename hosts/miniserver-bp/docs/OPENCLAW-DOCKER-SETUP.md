@@ -286,7 +286,7 @@ These ship with the npm package and are available out of the box (~50 total). Ke
 | Skill       | Status    | Notes                                                               |
 | ----------- | --------- | ------------------------------------------------------------------- |
 | gog         | ✅ Active | Google Workspace — requires gogcli binary (installed in Dockerfile) |
-| m365        | ⚙️ Setup  | Microsoft 365 via @pnp/cli-microsoft365 (client secret auth)        |
+| m365-email  | ✅ Active | Microsoft 365 email via @pnp/cli-microsoft365 (client secret auth)  |
 | weather     | ✅ Ready  | Current weather and forecasts                                       |
 | healthcheck | ✅ Ready  | Host security hardening                                             |
 
@@ -469,7 +469,7 @@ m365 login --authType secret \
   --secret "$(cat /run/secrets/m365-client-secret)"
 ```
 
-**Test**: `docker exec openclaw-percaival m365 outlook mail list`
+**Test**: `docker exec openclaw-percaival m365 outlook message list --folderName inbox --userName percy.ai@bytepoets.com -o json`
 
 **Docs**: https://pnp.github.io/cli-microsoft365
 
