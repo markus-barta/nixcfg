@@ -94,21 +94,24 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 
 ## 🔗 SSH Host Nicknames
 
-Shorter aliases for commonly accessed hosts with long names:
+Shorter aliases for commonly accessed hosts:
 
-| Nickname | Full Hostname | Purpose          | Network       |
-| -------- | ------------- | ---------------- | ------------- |
-| `mbpw`   | mba-mbp-work  | Work MacBook Pro | Home/Portable |
-| `imacw`  | mba-imac-work | Work iMac        | BYTEPOETS     |
-| `msbp`   | miniserver-bp | Office Mac Mini  | BYTEPOETS     |
+| Nickname | Full Hostname | Purpose          | Tailscale Address |
+| -------- | ------------- | ---------------- | ----------------- |
+| `mbpw`   | mba-mbp-work  | Work MacBook Pro | mbpw.ts.barta.cm  |
+| `imacw`  | mba-imac-work | Work iMac        | imacw.ts.barta.cm |
+| `msbp`   | miniserver-bp | Office Mac Mini  | msbp.ts.barta.cm  |
+| `hsb0`   | hsb0          | Home DNS/DHCP    | hsb0.ts.barta.cm  |
+| `hsb1`   | hsb1          | Home Automation  | hsb1.ts.barta.cm  |
+| `csb0`   | csb0          | Cloud Smart Home | csb0.ts.barta.cm  |
 
 ### SSH Connection Examples
 
 ```bash
-# Using full hostname
-ssh mba-mbp-work
+# 🌐 From ANYWHERE (recommended - works from home, work, coffee shop)
+ssh mba@hsb1.ts.barta.cm
 
-# Using nickname (equivalent)
+# Using nickname (for local machines)
 ssh mbpw
 
 # Force specific route
@@ -124,6 +127,8 @@ ssh mbpw        # Try LAN first (2s timeout), fallback to Tailscale
 1. **At home/office:** Connects via LAN (fast, direct)
 2. **Remote/coffee shop:** Auto-fallbacks to Tailscale after 2s
 3. **Zellij integration:** All aliases include `zellij attach` for session persistence
+
+**🌐 Pro tip:** Always use Tailscale addresses (`*.ts.barta.cm`) when away from home/office network.
 
 **Note:** SSH config is declaratively managed in `modules/shared/ssh-fleet.nix`.
 
@@ -164,23 +169,39 @@ ssh mbpw        # Try LAN first (2s timeout), fallback to Tailscale
 
 ---
 
-## 🔗 Headscale VPN (Mesh Network)
+## 🔗 Headscale VPN (Mesh Network - Access from ANYWHERE)
 
-Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts.
+Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts - **reachable from anywhere with internet**.
 
 - **Control server**: `https://hs.barta.cm` (csb0, Docker)
 - **MagicDNS domain**: `ts.barta.cm` (hosts addressable as `<hostname>.ts.barta.cm`)
 - **IP range**: `100.64.0.0/10`
 - **Server docs**: See `hosts/csb0/docs/RUNBOOK.md` → Headscale section
 
+### Why Use Tailscale?
+
+| From Location  | LAN (.lan)       | Internet (barta.cm) | Tailscale (ts.barta.cm) |
+| -------------- | ---------------- | ------------------- | ----------------------- |
+| 🏠 Home        | ✅ Works         | ✅ Works            | ✅ Works                |
+| 🏢 Office      | ❌ Not reachable | ✅ Works            | ✅ Works                |
+| ☕ Coffee shop | ❌ Not reachable | ❌ Not reachable    | ✅ Works                |
+| 📱 Mobile      | ❌ Not reachable | ❌ Not reachable    | ✅ Works                |
+
+**Always use Tailscale when LAN doesn't work** - it works from everywhere.
+
 ### Connected Nodes
 
-| Host              | Platform | Status     |
-| ----------------- | -------- | ---------- |
-| **imac0**         | macOS    | ✅ Active  |
-| **mba-imac-work** | macOS    | ✅ Active  |
-| **miniserver-bp** | NixOS    | 📋 Planned |
-| other hosts       | -        | 📋 Planned |
+| Host              | Platform | Tailscale Address | Status     |
+| ----------------- | -------- | ----------------- | ---------- |
+| **imac0**         | macOS    | imac0.ts.barta.cm | ✅ Active  |
+| **mba-imac-work** | macOS    | imacw.ts.barta.cm | ✅ Active  |
+| **mba-mbp-work**  | macOS    | mbpw.ts.barta.cm  | ✅ Active  |
+| **hsb0**          | NixOS    | hsb0.ts.barta.cm  | ✅ Active  |
+| **hsb1**          | NixOS    | hsb1.ts.barta.cm  | ✅ Active  |
+| **gpc0**          | NixOS    | gpc0.ts.barta.cm  | ✅ Active  |
+| **csb0**          | NixOS    | csb0.ts.barta.cm  | ✅ Active  |
+| **csb1**          | NixOS    | csb1.ts.barta.cm  | ✅ Active  |
+| miniserver-bp     | NixOS    | msbp.ts.barta.cm  | 📋 Planned |
 
 ### Adding a New Node
 
