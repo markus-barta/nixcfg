@@ -81,6 +81,11 @@
   age.secrets.miniserver-bp-openclaw-telegram-token.file = ../../secrets/miniserver-bp-openclaw-telegram-token.age;
   age.secrets.miniserver-bp-gogcli-keyring-password.file = ../../secrets/miniserver-bp-gogcli-keyring-password.age;
 
+  # M365 CLI credentials (same Azure AD app as hsb1)
+  age.secrets.miniserver-bp-m365-client-id.file = ../../secrets/miniserver-bp-m365-client-id.age;
+  age.secrets.miniserver-bp-m365-tenant-id.file = ../../secrets/miniserver-bp-m365-tenant-id.age;
+  age.secrets.miniserver-bp-m365-client-secret.file = ../../secrets/miniserver-bp-m365-client-secret.age;
+
   # ==========================================================================
   # WIREGUARD VPN
   # ==========================================================================
@@ -224,6 +229,10 @@
       "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw"
       "/var/lib/openclaw-percaival/gogcli:/home/node/.config/gogcli:rw"
       "/var/lib/openclaw-percaival/himalaya:/home/node/.config/himalaya:rw"
+      # M365 CLI credentials (read-only, mounted from agenix)
+      "${config.age.secrets.miniserver-bp-m365-client-id.path}:/run/secrets/m365-client-id:ro"
+      "${config.age.secrets.miniserver-bp-m365-tenant-id.path}:/run/secrets/m365-tenant-id:ro"
+      "${config.age.secrets.miniserver-bp-m365-client-secret.path}:/run/secrets/m365-client-secret:ro"
     ];
     # gogcli uses encrypted on-disk keyring (no OS keychain in container)
     environment = {

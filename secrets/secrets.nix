@@ -178,4 +178,14 @@ in
   # Edit: agenix -e secrets/miniserver-bp-gogcli-keyring-password.age
   "miniserver-bp-gogcli-keyring-password.age".publicKeys = markus ++ miniserver-bp;
 
+  # M365 (CLI for Microsoft 365) credentials for OpenClaw Percaival
+  # Same Azure AD app as hsb1 — reuse client-id, tenant-id, client-secret
+  # Format: Plain text value (no KEY=VALUE)
+  # Edit: agenix -e secrets/miniserver-bp-m365-client-id.age
+  # Edit: agenix -e secrets/miniserver-bp-m365-tenant-id.age
+  # Edit: agenix -e secrets/miniserver-bp-m365-client-secret.age
+  "miniserver-bp-m365-client-id.age".publicKeys = markus ++ miniserver-bp;
+  "miniserver-bp-m365-tenant-id.age".publicKeys = markus ++ miniserver-bp;
+  "miniserver-bp-m365-client-secret.age".publicKeys = markus ++ miniserver-bp;
+
 }
