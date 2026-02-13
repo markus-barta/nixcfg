@@ -67,22 +67,71 @@ Migrate Merlin to a **Docker container on hsb0**, replicating the proven miniser
 
 ### Services/skills
 
-| Service                     | How connected                                    | hsb0 impact                                                           |
-| --------------------------- | ------------------------------------------------ | --------------------------------------------------------------------- |
-| Telegram (`@merlin_oc_bot`) | Bot token env var                                | Same token, only one instance can poll -- **must stop hsb1 first**    |
-| OpenRouter (LLM)            | API key env var                                  | No change                                                             |
-| Brave Search                | API key env var                                  | No change                                                             |
-| Home Assistant              | HASS token, skill reads from `/run/agenix/` path | Mount secret in container, update skill config for new path           |
-| iCloud Calendar             | vdirsyncer + khal                                | **Decision needed**: install in container, use M365 calendar, or drop |
-| Cron/scheduler              | Built-in OpenClaw                                | Transfer `jobs.json`                                                  |
+| Service                     | How connected                                    | hsb0 impact                                                        |
+| --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------ |
+| Telegram (`@merlin_oc_bot`) | Bot token env var                                | Same token, only one instance can poll -- **must stop hsb1 first** |
+| OpenRouter (LLM)            | API key env var                                  | No change                                                          |
+| Brave Search                | API key env var                                  | No change                                                          |
+| Home Assistant              | HASS token, skill reads from `/run/agenix/` path | Mount secret in container, update skill config for new path        |
+| iCloud Calendar (personal)  | vdirsyncer + khal (CalDAV)                       | Install in container, read/write personal calendar                 |
+| M365 Calendar (company)     | Graph API via `m365 request`                     | Read-ONLY via separate Azure AD app (`Merlin-AI-hsb0-cal`)         |
+| Cron/scheduler              | Built-in OpenClaw                                | Transfer `jobs.json`                                               |
 
 ## Implementation
 
 ### Phase 0: Preparation
 
-- [ ] Decide on calendar approach: keep iCloud (vdirsyncer in container), switch to M365, or drop
-- [ ] Document current Merlin `openclaw.json` settings (model, temperature, skills config, bindings)
-- [ ] Verify hsb0 resources: `free -h`, `df -h`, `docker ps` (confirm capacity)
+**Calendar Architecture Decision (DONE - see below)**
+
+**Document current Merlin `openclaw.json` settings**
+
+- [ ] Model configuration (temperature, provider, etc.)
+- [ ] Skills configuration
+- [ ] Bindings and routing
+- [ ] Agent memory and sessions
+
+**Verify hsb0 resources**
+
+- [ ] `free -h` (RAM check)
+- [ ] `df -h` (disk space)
+- [ ] `docker ps` (existing containers)
+- [ ] Confirm capacity for new workload
+
+---
+
+### Calendar Architecture (Approved)
+
+Merlin is **strictly a personal AI for private use**. Company data access is **read-only** only.
+
+| Calendar             | Service       | Access Level  | Implementation                                              |
+| -------------------- | ------------- | ------------- | ----------------------------------------------------------- |
+| **Personal/Private** | iCloud        | Read/Write    | vdirsyncer + khal (CalDAV) inside container                 |
+| **Company**          | Microsoft 365 | **Read-ONLY** | Separate Azure AD app with `Calendars.Read` permission only |
+
+**Company Access Details:**
+
+- **Azure AD App**: `Merlin-AI-hsb0-cal` (separate from Percy's email app)
+- **Permissions**: `Calendars.Read` only (NOT `Calendars.ReadWrite`)
+- **Scope**: Can read `markus.barta@bytepoets.com` calendar events
+- **NO email access**: Merlin does NOT have `Mail.Read` or `Mail.Send` for company account
+- **Write operations**: If company calendar/email write needed, Merlin uses **inter-agent communication** to ask Percy (who has company email permissions)
+
+**Why separate Azure AD app for calendar?**
+
+- Clean security boundary: calendar-only, read-only
+- Different scope from Percy's email app (`Mail.Read`, `Mail.Send`)
+- Enforced at Azure level (can't accidentally write to company calendar)
+- Follows principle of least privilege
+
+**Graph API Commands for Company Calendar:**
+
+```bash
+# List events for next 7 days
+m365 request --url "https://graph.microsoft.com/v1.0/users/markus.barta@bytepoets.com/calendar/calendarView?startDateTime=2026-02-13T00:00:00Z&endDateTime=2026-02-20T23:59:59Z" --method get
+
+# List all calendars
+m365 request --url "https://graph.microsoft.com/v1.0/users/markus.barta@bytepoets.com/calendars" --method get
+```
 
 ### Phase 1: Dockerfile + NixOS config on hsb0
 
@@ -104,7 +153,10 @@ Migrate Merlin to a **Docker container on hsb0**, replicating the proven miniser
   - `hsb0-openclaw-openrouter-key.age` (copy from hsb1)
   - `hsb0-openclaw-hass-token.age` (copy from hsb1)
   - `hsb0-openclaw-brave-key.age` (copy from hsb1)
-  - `hsb0-openclaw-icloud-password.age` (if keeping iCloud)
+  - `hsb0-openclaw-icloud-password.age` (for iCloud CalDAV)
+  - `hsb0-openclaw-m365-cal-client-id.age` (Azure AD app `Merlin-AI-hsb0-cal`)
+  - `hsb0-openclaw-m365-cal-tenant-id.age` (same tenant as Percy)
+  - `hsb0-openclaw-m365-cal-client-secret.age` (read-only calendar app)
 - [ ] Add secrets to `secrets/secrets.nix` with hsb0 host key
 - [ ] Add activation script to seed `openclaw.json` with Telegram token
 - [ ] Open port 18789 in hsb0 firewall
