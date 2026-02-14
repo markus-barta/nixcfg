@@ -47,6 +47,17 @@ cd ~/Code/nixcfg/hosts/hsb0/docker
 docker compose restart openclaw-merlin
 ```
 
+### Force Recreate (fresh boot)
+
+```bash
+cd ~/Code/nixcfg/hosts/hsb0/docker
+docker compose up -d --force-recreate openclaw-merlin
+
+# With rebuild:
+docker compose build --no-cache openclaw-merlin
+docker compose up -d --force-recreate openclaw-merlin
+```
+
 ### Stop (Prevent Auto-Restart)
 
 ```bash
