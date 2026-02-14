@@ -238,7 +238,8 @@
     volumes = [
       "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw"
       "/var/lib/openclaw-percaival/gogcli:/home/node/.config/gogcli:rw"
-      # M365 CLI credentials (read-only, mounted from agenix)
+      "/var/lib/openclaw-percaival/m365:/home/node/.config/cli-microsoft365:rw"
+      # M365 CLI secrets (read-only, mounted from agenix)
       "${config.age.secrets.miniserver-bp-m365-client-id.path}:/run/secrets/m365-client-id:ro"
       "${config.age.secrets.miniserver-bp-m365-tenant-id.path}:/run/secrets/m365-tenant-id:ro"
       "${config.age.secrets.miniserver-bp-m365-client-secret.path}:/run/secrets/m365-client-secret:ro"
@@ -267,7 +268,7 @@
 
   # Create OpenClaw data directory. Only seed openclaw.json if missing (onboard wizard manages it).
   system.activationScripts.openclaw-percaival = ''
-    mkdir -p /var/lib/openclaw-percaival/data/workspace /var/lib/openclaw-percaival/gogcli
+    mkdir -p /var/lib/openclaw-percaival/data/workspace /var/lib/openclaw-percaival/gogcli /var/lib/openclaw-percaival/m365
     if [ ! -f /var/lib/openclaw-percaival/data/openclaw.json ]; then
       TOKEN=$(cat ${config.age.secrets.miniserver-bp-openclaw-telegram-token.path})
       cat > /var/lib/openclaw-percaival/data/openclaw.json << EOF
