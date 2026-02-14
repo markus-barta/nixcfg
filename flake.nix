@@ -31,6 +31,11 @@
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
+    # Helium browser
+    helium-nix = {
+      url = "github:AlvaroParker/helium-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =

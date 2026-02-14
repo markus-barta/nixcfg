@@ -38,6 +38,7 @@
     mplayer
     vlc
     brave # Brave browser
+    helium-nix.packages.${pkgs.stdenv.hostPlatform.system}.helium
     # Audio not working on e.g. X (Twitter) and Tiktok
     # (callPackage ../../pkgs/zen-browser/package.nix { })
   ];
