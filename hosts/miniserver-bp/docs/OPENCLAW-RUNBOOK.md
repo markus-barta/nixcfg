@@ -73,8 +73,8 @@ sudo systemctl restart docker-openclaw-percaival
 ### Force Recreate (fresh boot / --force-recreate)
 
 ```bash
-# Stop container, remove it, then let systemd restart it fresh
-sudo docker stop openclaw-percaival
+# Stop via systemd, remove container, then systemd starts fresh
+sudo systemctl stop docker-openclaw-percaival
 sudo docker rm openclaw-percaival
 sudo systemctl start docker-openclaw-percaival
 ```
