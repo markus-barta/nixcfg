@@ -1,6 +1,6 @@
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients && rm -rf /var/lib/apt/lists/*
-RUN npm install -g openclaw@latest
+RUN npm install -g openclaw@latest sharp
 
 # Install CLI for Microsoft 365 (company calendar read-only via Graph API)
 # https://github.com/pnp/cli-microsoft365

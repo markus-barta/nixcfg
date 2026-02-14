@@ -538,6 +538,8 @@ in
   # Create OpenClaw data directories. Only seed openclaw.json if missing.
   system.activationScripts.openclaw-merlin = ''
     mkdir -p /var/lib/openclaw-merlin/data/workspace
+    mkdir -p /var/lib/openclaw-merlin/data/media/inbound
+    mkdir -p /var/lib/openclaw-merlin/data/media/outbound
     mkdir -p /var/lib/openclaw-merlin/vdirsyncer
     mkdir -p /var/lib/openclaw-merlin/khal
     if [ ! -f /var/lib/openclaw-merlin/data/openclaw.json ]; then
