@@ -70,11 +70,10 @@ curl http://10.17.1.40:18789/health
 sudo systemctl restart docker-openclaw-percaival
 ```
 
-### Force Recreate (fresh boot / --force-recreate)
+### Force Recreate (fresh boot)
 
 ```bash
-# Stop via systemd, remove container, then systemd starts fresh
-sudo systemctl stop docker-openclaw-percaival
+# Remove container, let systemd start fresh
 sudo docker rm openclaw-percaival
 sudo systemctl start docker-openclaw-percaival
 ```
