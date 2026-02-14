@@ -3,13 +3,13 @@
 **Created**: 2026-02-02  
 **Priority**: P4500 (Medium)  
 **Status**: Backlog  
-**Depends on**: P6600-declarative-openclaw-gateway.md
+**Depends on**: Merlin running on hsb0 (Docker) -- migration complete
 
 ---
 
 ## Problem
 
-Currently, there is no generic skill to control Home Assistant entities from OpenClaw on `hsb1`. We want a solution that allow controlling all lights, switches, and sensors without creating individual skills for each device.
+Currently, there is no generic skill to control Home Assistant entities from OpenClaw on `hsb0` (Docker). We want a solution that allows controlling all lights, switches, and sensors without creating individual skills for each device.
 
 ---
 
@@ -17,7 +17,7 @@ Currently, there is no generic skill to control Home Assistant entities from Ope
 
 Build or configure a generic Home Assistant skill that interacts with the Home Assistant REST API.
 
-1.  **Authentication**: Use a Long-Lived Access Token (LLAT) managed via `agenix` (expected at `/run/agenix/hsb1-openclaw-hass-token`).
+1.  **Authentication**: Use a Long-Lived Access Token (LLAT) managed via `agenix` (mounted at `/run/secrets/hass-token` inside container, from `/run/agenix/hsb0-openclaw-hass-token` on host).
 2.  **Discovery**: Implement/use a mechanism to fetch all entities via `GET /api/states`.
 3.  **Command Execution**: Map natural language intents to HA service calls (e.g., `light.toggle`, `switch.turn_on`).
 4.  **Security**: Ensure the token is only accessible by the OpenClaw service user.
@@ -44,7 +44,8 @@ Build or configure a generic Home Assistant skill that interacts with the Home A
 
 ```bash
 # Verify API connectivity via curl using the agenix token
-curl -X GET -H "Authorization: Bearer $(cat /run/agenix/hsb1-openclaw-hass-token)" \
+# From hsb0 host (HA is on hsb1 at 192.168.1.101):
+curl -X GET -H "Authorization: Bearer $(cat /run/agenix/hsb0-openclaw-hass-token)" \
      -H "Content-Type: application/json" \
-     http://localhost:8123/api/states/light.ledstrip_esszimmer
+     http://192.168.1.101:8123/api/states/light.ledstrip_esszimmer
 ```

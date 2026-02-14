@@ -5,11 +5,6 @@
   ...
 }:
 
-let
-  # Custom OpenClaw package (templates included)
-  openclaw = pkgs.callPackage ../../pkgs/openclaw/package.nix { };
-in
-
 {
   imports = [
     ./hardware-configuration.nix
@@ -59,9 +54,6 @@ in
 
   # Enable bluetooth
   hardware.bluetooth.enable = true;
-
-  # Enable cron daemon (needed for OpenClaw scheduler)
-  services.cron.enable = true;
 
   # Prevent keyboard from triggering power events (power button, suspend, etc.)
   # This is critical for child-keyboard-fun to prevent accidental shutdowns
@@ -221,9 +213,6 @@ in
   # NOTE: receiver moved off hsb1.
   hardware.flirc.enable = false;
 
-  # OpenClaw template path (custom package includes templates)
-  environment.variables.OPENCLAW_TEMPLATES_DIR = "${openclaw}/lib/openclaw/docs/reference/templates";
-
   # Additional system packages
   environment.systemPackages = with pkgs; [
     # Python environment for debugging and Microsoft Graph integration
@@ -253,9 +242,6 @@ in
     openbox # Lightweight window manager
     xorg.xset # X11 user preference utility tool
     pulseaudio # To enable audio forwarding to a homepod
-    openclaw # Merlin AI assistant
-    vdirsyncer # CalDAV client (for Merlin)
-    khal # CalDAV client (for Merlin)
   ];
 
   # +X11 and VLC kiosk mode configuration
@@ -503,45 +489,6 @@ in
     owner = "root";
   };
 
-  # OpenClaw AI assistant secrets
-  # Runtime paths: /run/agenix/hsb1-openclaw-*
-  # Config references these in ~/.openclaw/openclaw.json
-  age.secrets.hsb1-openclaw-gateway-token = {
-    file = ../../secrets/hsb1-openclaw-gateway-token.age;
-    mode = "400";
-    owner = "mba";
-  };
-
-  age.secrets.hsb1-openclaw-telegram-token = {
-    file = ../../secrets/hsb1-openclaw-telegram-token.age;
-    mode = "400";
-    owner = "mba";
-  };
-
-  age.secrets.hsb1-openclaw-openrouter-key = {
-    file = ../../secrets/hsb1-openclaw-openrouter-key.age;
-    mode = "400";
-    owner = "mba";
-  };
-
-  age.secrets.hsb1-openclaw-hass-token = {
-    file = ../../secrets/hsb1-openclaw-hass-token.age;
-    mode = "400";
-    owner = "mba";
-  };
-
-  age.secrets.hsb1-openclaw-brave-key = {
-    file = ../../secrets/hsb1-openclaw-brave-key.age;
-    mode = "400";
-    owner = "mba";
-  };
-
-  age.secrets.hsb1-openclaw-icloud-password = {
-    file = ../../secrets/hsb1-openclaw-icloud-password.age;
-    mode = "400";
-    owner = "mba";
-  };
-
   # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
@@ -559,57 +506,4 @@ in
     deviceType = "server";
   };
 
-  # ============================================================================
-  # OPENCLAW AI ASSISTANT - Gateway service (declarative, replaces user service)
-  # See: +pm/backlog/P6600-declarative-openclaw-gateway.md
-  #
-  # Secrets are loaded from agenix files at runtime via wrapper script because
-  # openclaw reads env vars directly (OPENCLAW_GATEWAY_TOKEN, TELEGRAM_BOT_TOKEN,
-  # OPENROUTER_API_KEY, BRAVE_API_KEY) — no _FILE suffix support.
-  #
-  # NOTE: Disabled 2026-02-13 — Merlin migrated to hsb0 Docker (see hsb0 config).
-  # ============================================================================
-  systemd.services.openclaw-gateway = {
-    enable = false;
-    description = "OpenClaw AI Assistant Gateway";
-    after = [
-      "network-online.target"
-      "agenix.service"
-    ];
-    wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-
-    environment = {
-      HOME = "/home/mba";
-      OPENCLAW_TEMPLATES_DIR = "${openclaw}/lib/openclaw/docs/reference/templates";
-      OPENCLAW_SYSTEMD_UNIT = "openclaw-gateway.service";
-      OPENCLAW_SERVICE_MARKER = "openclaw";
-      OPENCLAW_SERVICE_KIND = "gateway";
-    };
-
-    serviceConfig = {
-      Type = "simple";
-      User = "mba";
-      Group = "users";
-      WorkingDirectory = "/home/mba/.openclaw";
-      ExecStart = pkgs.writeShellScript "openclaw-gateway-start" ''
-        # Load secrets from agenix into env vars that openclaw reads directly
-        export OPENCLAW_GATEWAY_TOKEN="$(cat /run/agenix/hsb1-openclaw-gateway-token 2>/dev/null)"
-        export TELEGRAM_BOT_TOKEN="$(cat /run/agenix/hsb1-openclaw-telegram-token 2>/dev/null)"
-        export OPENROUTER_API_KEY="$(cat /run/agenix/hsb1-openclaw-openrouter-key 2>/dev/null)"
-        export BRAVE_API_KEY="$(cat /run/agenix/hsb1-openclaw-brave-key 2>/dev/null)"
-        export PATH="/run/current-system/sw/bin"
-        exec ${openclaw}/bin/openclaw gateway --port 18789
-      '';
-      Restart = "always";
-      RestartSec = "10s";
-    };
-
-    # Ensure workspace directories exist (don't touch openclaw.json — managed by openclaw CLI)
-    preStart = ''
-      mkdir -p /home/mba/.openclaw/workspace
-      mkdir -p /home/mba/.openclaw/logs
-      chown -R mba:users /home/mba/.openclaw/workspace /home/mba/.openclaw/logs
-    '';
-  };
 }

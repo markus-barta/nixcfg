@@ -10,7 +10,7 @@
 
 Scheduled tasks (Cron jobs) are firing at unexpected times.
 
-1. **Clock Skew/Drift**: The system time on `hsb1` (Feb 2026) is heavily ahead of the LLM's perceived internal state (training cutoff drift).
+1. **Clock Skew/Drift**: The system time on `hsb0` (Feb 2026) is heavily ahead of the LLM's perceived internal state (training cutoff drift).
 2. **Execution Lag**: Some jobs seem to trigger arbitrarily when the gateway is reloaded or after significant delay.
 3. **Stale Jobs**: Firing logic for "past" jobs needs to be verified (should they catch up or be discarded?).
 
@@ -45,5 +45,6 @@ Analyze the root cause within the OpenClaw Cron implementation and implement saf
 
 ```bash
 # Check current cron store for unexpected entries
-cat ~/.openclaw/cron/jobs.json | jq '.'
+# Inside container:
+docker exec openclaw-merlin cat /home/node/.openclaw/cron/jobs.json | jq '.'
 ```
