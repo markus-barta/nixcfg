@@ -2,7 +2,7 @@
 
 **Host**: hsb0
 **Priority**: P30
-**Status**: Backlog
+**Status**: In Progress (Phase 7 cleanup)
 **Created**: 2026-02-13
 
 ---
@@ -358,18 +358,140 @@ m365 request --url "https://graph.microsoft.com/v1.0/users/markus.barta@bytepoet
   - `P66--5c3930e--declarative-openclaw-gateway.md` (infra) -- Docker approach instead
   - `P40--0dd6291--openclaw-update-automation.md` (infra) -- Docker `--no-cache` rebuild is trivial
 
+### Phase 7: hsb1 Cleanup (post-migration, 2026-02-14)
+
+Migration successful. Now remove all hsb1 OpenClaw infrastructure from the repo.
+Each item below lists the exact change, git-revertable via `git log --all --oneline -- <file>`.
+
+> **iCal sync (P40) stays open** -- still needed on hsb0 Docker. Moved from hsb1 backlog to hsb0 backlog.
+
+#### 7a. `hosts/hsb1/configuration.nix` -- remove all OpenClaw blocks
+
+| What                                                                       | Lines (approx) | Action                                       |
+| -------------------------------------------------------------------------- | -------------- | -------------------------------------------- |
+| `let openclaw = pkgs.callPackage ../../pkgs/openclaw/package.nix {};`      | 9-10           | **Delete** let binding                       |
+| `services.cron.enable = true;` + comment "(needed for OpenClaw scheduler)" | 63             | **Delete** if nothing else uses cron on hsb1 |
+| `OPENCLAW_TEMPLATES_DIR` env var                                           | 224-225        | **Delete** from `environment.variables`      |
+| `openclaw` in `environment.systemPackages`                                 | 256            | **Delete** package                           |
+| `vdirsyncer` in `environment.systemPackages`                               | 257            | **Delete** (calendar now in Docker on hsb0)  |
+| `khal` in `environment.systemPackages`                                     | 258            | **Delete** (calendar now in Docker on hsb0)  |
+| 6x `age.secrets.hsb1-openclaw-*` blocks                                    | 506-543        | **Delete** all 6 secret declarations         |
+| `systemd.services.openclaw-gateway` block (disabled)                       | 562-614        | **Delete** entire block incl. comment header |
+
+**Rollback**: `git show HEAD:hosts/hsb1/configuration.nix` to see previous state.
+
+#### 7b. `secrets/secrets.nix` -- remove hsb1 secret entries
+
+| What                                   | Lines (approx) | Action     |
+| -------------------------------------- | -------------- | ---------- |
+| Comment block "OpenClaw Merlin (hsb1)" | 153-157        | **Delete** |
+| `hsb1-openclaw-gateway-token.age`      | 158            | **Delete** |
+| `hsb1-openclaw-telegram-token.age`     | 159            | **Delete** |
+| `hsb1-openclaw-openrouter-key.age`     | 160            | **Delete** |
+| `hsb1-openclaw-hass-token.age`         | 161            | **Delete** |
+| `hsb1-openclaw-brave-key.age`          | 162            | **Delete** |
+| `hsb1-openclaw-icloud-password.age`    | 163            | **Delete** |
+
+**Rollback**: Entries can be re-added; .age files still in git history.
+
+#### 7c. `secrets/*.age` -- delete 6 encrypted files
+
+| File                                        | Action     |
+| ------------------------------------------- | ---------- |
+| `secrets/hsb1-openclaw-gateway-token.age`   | **Delete** |
+| `secrets/hsb1-openclaw-telegram-token.age`  | **Delete** |
+| `secrets/hsb1-openclaw-openrouter-key.age`  | **Delete** |
+| `secrets/hsb1-openclaw-hass-token.age`      | **Delete** |
+| `secrets/hsb1-openclaw-brave-key.age`       | **Delete** |
+| `secrets/hsb1-openclaw-icloud-password.age` | **Delete** |
+
+**Rollback**: `git checkout <commit>^ -- secrets/hsb1-openclaw-*.age` to restore.
+Note: These are encrypted -- content not lost, just needs re-encryption if restored.
+
+#### 7d. `pkgs/openclaw/` -- delete entire package directory
+
+| File                                    | Action     |
+| --------------------------------------- | ---------- |
+| `pkgs/openclaw/package.nix` (135 lines) | **Delete** |
+| `pkgs/openclaw/justfile`                | **Delete** |
+
+**Rollback**: `git checkout <commit>^ -- pkgs/openclaw/` to restore.
+Note: Package was only used by hsb1. hsb0 uses Docker (`npm install -g openclaw@latest`).
+
+#### 7e. `scripts/update-openclaw.sh` -- delete update script
+
+| File                                     | Action     |
+| ---------------------------------------- | ---------- |
+| `scripts/update-openclaw.sh` (180 lines) | **Delete** |
+
+**Rollback**: `git checkout <commit>^ -- scripts/update-openclaw.sh`.
+Note: Script was hsb1-only; Docker updates via `docker build --no-cache`.
+
+#### 7f. `justfile` -- remove openclaw recipes
+
+| What                           | Lines (approx) | Action     |
+| ------------------------------ | -------------- | ---------- |
+| `update-openclaw` recipe       | 577-580        | **Delete** |
+| `update-openclaw-force` recipe | 582-585        | **Delete** |
+
+**Rollback**: `git show <commit>^:justfile` to see previous state.
+
+#### 7g. `flake.nix` -- remove openclaw comments
+
+| What                                             | Lines (approx) | Action     |
+| ------------------------------------------------ | -------------- | ---------- |
+| Comment about openclaw package in overlays-local | 68-69          | **Delete** |
+
+#### 7h. `hosts/hsb1/docs/RUNBOOK.md` -- trim OpenClaw section
+
+| What                                          | Lines (approx) | Action                                                     |
+| --------------------------------------------- | -------------- | ---------------------------------------------------------- |
+| Full "OpenClaw AI Assistant (Merlin)" section | 543-648        | **Replace** with short "Migrated to hsb0" note (3-5 lines) |
+| OpenClaw in web interfaces table              | 356            | **Remove** row                                             |
+
+**Rollback**: `git show <commit>^:hosts/hsb1/docs/RUNBOOK.md`.
+
+#### 7i. Backlog items -- delete superseded, move ical-sync
+
+| File                                                                     | Action                                 | Reason                                 |
+| ------------------------------------------------------------------------ | -------------------------------------- | -------------------------------------- |
+| `hosts/hsb1/docs/backlog/P94--0e9a020--openclaw-deployment.md`           | **Delete**                             | Superseded by Docker migration         |
+| `hosts/hsb1/docs/backlog/P66--56fe6e8--declarative-openclaw-skills.md`   | **Delete**                             | Docker makes skill symlinks moot       |
+| `hosts/hsb1/docs/backlog/P40--0c5e66c--ical-sync-fix.md`                 | **Move** to `hosts/hsb0/docs/backlog/` | Still needed -- fix on hsb0 Docker now |
+| `+pm/backlog/infra/P66--5c3930e--declarative-openclaw-gateway.md`        | **Delete**                             | Replaced by Docker approach            |
+| `+pm/backlog/infra/P40--0dd6291--openclaw-update-automation.md`          | **Delete**                             | Docker `--no-cache` is trivial         |
+| `+pm/backlog/infra/P45--3f8672e--generic-home-assistant-skill.md`        | **Update**                             | Change host ref from hsb1 → hsb0       |
+| `+pm/backlog/infra/P21--7537467--fix-cron-scheduling-sync.md`            | **Update**                             | Change host ref from hsb1 → hsb0       |
+| `+pm/backlog/infra/P22--2a75158--fix-gemini-thought-signature-errors.md` | **Keep**                               | Not hsb1-specific                      |
+| `+pm/pickups/P9400-pickup-2026-01-31.md`                                 | **Delete**                             | Historical hsb1 deployment session     |
+
+**Rollback**: All files recoverable from git history.
+
+#### 7j. On-host cleanup (manual, on hsb1 via SSH)
+
+> These are **runtime artifacts**, NOT in git. Do after 30 days or when confident.
+
+| What                   | Path on hsb1               | Action                                                          |
+| ---------------------- | -------------------------- | --------------------------------------------------------------- |
+| OpenClaw state dir     | `~/.openclaw/`             | **Keep 30 days**, then delete                                   |
+| vdirsyncer config      | `~/.config/vdirsyncer/`    | **Delete** (now in hsb0 Docker volume)                          |
+| khal config            | `~/.config/khal/`          | **Delete** (now in hsb0 Docker volume)                          |
+| Masked systemd service | `openclaw-gateway.service` | Auto-removed when config block deleted + `nixos-rebuild switch` |
+
+---
+
 ## Acceptance Criteria
 
-- [ ] Merlin responds via Telegram (`@merlin_oc_bot`) from hsb0
-- [ ] Home Assistant integration works (lights, sensors)
-- [ ] Brave Search works
-- [ ] Cron/scheduled tasks execute
-- [ ] iCloud personal calendar works (vdirsyncer sync + khal query)
-- [ ] M365 company calendar works (read-only via Graph API)
-- [ ] Memory/context preserved from hsb1
-- [ ] hsb1 OpenClaw service stopped and disabled (not deleted)
-- [ ] hsb1 state preserved as backup
-- [ ] All docs updated (hsb0 README/RUNBOOK, hsb1 README/RUNBOOK, INFRASTRUCTURE.md)
+- [x] Merlin responds via Telegram (`@merlin_oc_bot`) from hsb0
+- [x] Home Assistant integration works (lights, sensors)
+- [x] Brave Search works
+- [x] Cron/scheduled tasks execute
+- [ ] iCloud personal calendar works (vdirsyncer sync + khal query) -- **P40 still open**
+- [ ] M365 company calendar works (read-only via Graph API) -- **Azure AD app not yet created**
+- [x] Memory/context preserved from hsb1
+- [x] hsb1 OpenClaw service stopped and disabled
+- [ ] hsb1 infrastructure fully removed from repo (Phase 7)
+- [x] All docs updated (hsb0 RUNBOOK, hsb1 RUNBOOK, INFRASTRUCTURE.md)
 - [ ] `docker build --no-cache` successfully updates OpenClaw (test upgrade path)
 
 ## Risks
