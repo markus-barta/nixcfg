@@ -4,7 +4,7 @@ RUN npm install -g openclaw@latest
 
 # Install gogcli (Google Suite CLI for Gmail, Calendar, Drive, etc.)
 # https://github.com/steipete/gogcli
-RUN curl -sL https://github.com/steipete/gogcli/releases/download/v0.9.0/gogcli_0.9.0_linux_amd64.tar.gz \
+RUN curl -sL https://github.com/steipete/gogcli/releases/download/v0.10.0/gogcli_0.10.0_linux_amd64.tar.gz \
     | tar xz -C /tmp && mv /tmp/gog /usr/local/bin/gog && chmod +x /usr/local/bin/gog
 
 # Install CLI for Microsoft 365 (Outlook, Teams, SharePoint, etc.)

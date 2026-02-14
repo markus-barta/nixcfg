@@ -367,7 +367,7 @@ Docs: https://docs.openclaw.ai/tools/web
 
 ### Google Suite CLI (gogcli)
 
-[gogcli](https://github.com/steipete/gogcli) provides Gmail, Calendar, Drive, Contacts, Tasks, Sheets, and more as CLI commands. Installed inside the container from pre-built release binary (v0.9.0).
+[gogcli](https://github.com/steipete/gogcli) provides Gmail, Calendar, Drive, Contacts, Tasks, Sheets, and more as CLI commands. Installed inside the container from pre-built release binary (v0.10.0).
 
 **Container environment** (set via NixOS config):
 
