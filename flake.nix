@@ -65,8 +65,6 @@
       # Local packages overlay
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
-        # OpenClaw - custom package (not from nix-openclaw flake)
-        # You'll need to add your own openclaw package to pkgs/openclaw/
         # ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
