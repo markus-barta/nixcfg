@@ -208,12 +208,20 @@ Expected: `connectedAs: Percy-AI-miniserver-bp`
 
 ### Re-login (if session expired)
 
+Sessions can expire after container rebuilds or m365 CLI upgrades.
+Unlike gog, this is fully headless (client credentials, no browser needed).
+
 ```bash
-docker exec -it openclaw-percaival sh -c \
+# Check status first
+docker exec openclaw-percaival m365 status
+# If "Logged out", re-login:
+docker exec openclaw-percaival sh -c \
   'm365 login --authType secret \
     --appId "$(cat /run/secrets/m365-client-id)" \
     --tenant "$(cat /run/secrets/m365-tenant-id)" \
     --secret "$(cat /run/secrets/m365-client-secret)"'
+# Verify: should show "connectedAs: Percy-AI-miniserver-bp"
+docker exec openclaw-percaival m365 status
 ```
 
 ### Test Commands
