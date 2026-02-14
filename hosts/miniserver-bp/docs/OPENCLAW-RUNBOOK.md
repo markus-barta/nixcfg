@@ -70,11 +70,12 @@ curl http://10.17.1.40:18789/health
 sudo systemctl restart docker-openclaw-percaival
 ```
 
-### Force Recreate (fresh boot)
+### Force Recreate (fresh boot / --force-recreate)
 
 ```bash
-# Stop and remove container, then let systemd restart it
-sudo docker rm -f openclaw-percaival
+# Stop container, remove it, then let systemd restart it fresh
+sudo docker stop openclaw-percaival
+sudo docker rm openclaw-percaival
 sudo systemctl start docker-openclaw-percaival
 ```
 
@@ -103,7 +104,7 @@ sudo vim /var/lib/openclaw-percaival/data/openclaw.json
 sudo systemctl restart docker-openclaw-percaival
 ```
 
-### Update OpenClaw
+### Update OpenClaw (duration ~3-5min)
 
 ```bash
 cd ~/Code/nixcfg/hosts/miniserver-bp/docker
