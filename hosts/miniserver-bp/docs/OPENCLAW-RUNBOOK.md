@@ -70,15 +70,17 @@ curl http://10.17.1.40:18789/health
 sudo systemctl restart docker-openclaw-percaival
 ```
 
-### Force Recreate (fresh boot)
+### Force Recreate (fresh boot / like --force-recreate with docker compose)
 
 ```bash
 # Mask (prevent auto-restart), stop, remove, unmask, then start fresh
-sudo systemctl mask docker-openclaw-percaival
+# Use --runtime on NixOS to avoid conflicts with symlinks from /nix/store
+sudo systemctl mask --runtime docker-openclaw-percaival
 sudo systemctl stop docker-openclaw-percaival
-sudo docker rm openclaw-percaival
-sudo systemctl unmask docker-openclaw-percaival
-sudo systemctl start docker-openclaw-percaival
+sudo docker stop -t 10 openclaw-percaival  # Graceful stop with timeout
+sudo docker rm -f openclaw-percaival       # Force remove
+sudo systemctl unmask --runtime docker-openclaw-percaival
+sudo systemctl start docker-openclaw-percaival # Expect 3min+ for full startup
 ```
 
 ### Stop (Prevent Auto-Restart)
@@ -154,9 +156,29 @@ percy.ai@bytepoets.com	default	calendar,chat,classroom,contacts,docs,drive,gmail
 - **Contacts**: Search contacts
 - **Sheets/Docs**: Read documents
 
-### Re-authenticate (if needed)
+### Re-authenticate (headless server via SSH port forward)
 
-See: [OPENCLAW-DOCKER-SETUP.md](./OPENCLAW-DOCKER-SETUP.md) - gogcli setup section
+This is needed after gogcli upgrades or if the OAuth refresh token expires.
+
+**Terminal 1** (on msbp -- start auth, note the port):
+
+```bash
+docker exec -it openclaw-percaival gog auth login
+# Output: "Opening accounts manager in browser..."
+# "If the browser doesn't open, visit: http://127.0.0.1:<PORT>"
+# Note the PORT number (random each time, e.g. 38689)
+```
+
+**Terminal 2** (from your Mac -- SSH port forward):
+
+```bash
+# Replace <PORT> with the port from terminal 1
+ssh -L <PORT>:127.0.0.1:<PORT> -p 2222 mba@msbp
+```
+
+**Browser** (on your Mac): Open `http://127.0.0.1:<PORT>`, complete Google OAuth flow, close tab when done.
+
+See also: [OPENCLAW-DOCKER-SETUP.md](./OPENCLAW-DOCKER-SETUP.md) - gogcli setup section
 
 ### Keyring Password
 
