@@ -355,63 +355,23 @@ ssh mba@192.168.1.99 "journalctl -f"
 
 ## 🤖 Merlin (OpenClaw AI Assistant)
 
-**Service**: Docker container `openclaw-merlin`  
-**Port**: 18789 (Gateway WebSocket)  
-**Data**: `/var/lib/openclaw-merlin/data`  
-**Runbook**: See `hosts/hsb0/docs/RUNBOOK.md` (this file)
+**Service**: Docker container `openclaw-merlin`
+**Port**: 18789 | **Telegram**: @merlin_oc_bot | **Data**: `/var/lib/openclaw-merlin/data`
 
-### Quick Connect
+Full operational runbook: **[OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md)**
 
-```bash
-ssh mba@hsb0.lan
-docker ps | grep openclaw
-docker logs openclaw-merlin -f
-```
-
-### Status & Logs
+Quick commands:
 
 ```bash
-# Service status
-sudo systemctl status docker-openclaw-merlin
-
-# Container logs
-docker logs openclaw-merlin
-
-# Follow logs
-sudo journalctl -u docker-openclaw-merlin -f
+docker logs -f openclaw-merlin                              # Logs
+sudo systemctl restart docker-openclaw-merlin               # Restart
+curl http://192.168.1.99:18789/health                       # Health check
 ```
-
-### Restart
-
-```bash
-sudo systemctl restart docker-openclaw-merlin
-```
-
-### Access Gateway
-
-- **WebSocket**: `ws://192.168.1.99:18789`
-- **Telegram**: @merlin_oc_bot
-
-### Secrets (Agenix)
-
-| Secret                          | Purpose                              |
-| ------------------------------- | ------------------------------------ |
-| `hsb0-openclaw-gateway-token`   | Gateway WS auth                      |
-| `hsb0-openclaw-telegram-token`  | Telegram bot                         |
-| `hsb0-openclaw-openrouter-key`  | LLM inference                        |
-| `hsb0-openclaw-hass-token`      | Home Assistant                       |
-| `hsb0-openclaw-brave-key`       | Web search                           |
-| `hsb0-openclaw-icloud-password` | iCloud CalDAV                        |
-| `hsb0-openclaw-m365-cal-*`      | Microsoft Graph (read-only calendar) |
-
-### Migration Note
-
-Merlin migrated from hsb1 (Nix package) to hsb0 (Docker) on 2026-02-13.
-The hsb1 `openclaw-gateway` service is now disabled.
 
 ---
 
 ## Related Documentation
 
+- [OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md) - Merlin operational runbook
 - [Static Leases](../README.md#static-dhcp-leases) - Managing DHCP leases
 - [Merlin Migration Backlog](../backlog/P30--438b3b8--migrate-merlin-openclaw-to-hsb0-docker.md)
