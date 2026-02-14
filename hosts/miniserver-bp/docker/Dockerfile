@@ -1,6 +1,6 @@
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
-RUN npm install -g openclaw@latest
+RUN npm install -g openclaw@latest sharp
 
 # Install gogcli (Google Suite CLI for Gmail, Calendar, Drive, etc.)
 # https://github.com/steipete/gogcli
