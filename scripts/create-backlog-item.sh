@@ -6,7 +6,7 @@
 # RUN FROM: Repository root
 #
 # EXAMPLES:
-#   # Infrastructure backlog (default)
+#   # Infrastructure backlog (default: +pm/backlog/infra/)
 #   ./scripts/create-backlog-item.sh P50 fix-nix-flake
 #
 #   # Host-specific backlog with explicit directory
@@ -18,7 +18,7 @@
 # ARGUMENTS:
 #   priority: LNN format (A00-Z99, default: P50)
 #   description: kebab-case slug (default: timestamp)
-#   --dir: Target directory (default: +pm/backlog)
+#   --dir: Target directory (default: +pm/backlog/infra)
 #   --host: Hostname (auto-sets dir to hosts/<host>/docs/backlog if --dir not specified)
 #
 # OUTPUT: {dir}/{priority}--{hash}--{description}.md
@@ -29,7 +29,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source hash generation library
-# shellcheck source=scripts/lib/generate-hash.sh
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/generate-hash.sh"
 
 # Defaults
@@ -93,7 +93,7 @@ if [[ -z "$dir" ]]; then
     dir="hosts/$host/docs/backlog"
   else
     # Default to infrastructure backlog
-    dir="+pm/backlog"
+    dir="+pm/backlog/infra"
   fi
 fi
 
