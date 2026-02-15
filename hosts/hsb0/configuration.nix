@@ -520,6 +520,10 @@ in
     file = ../../secrets/hsb0-openclaw-opus-gateway.age;
     mode = "444";
   };
+  age.secrets.hsb0-gogcli-keyring-password = {
+    file = ../../secrets/hsb0-gogcli-keyring-password.age;
+    mode = "444";
+  };
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
   # TODO: Uncomment when Azure AD app is created and .age files exist
   # age.secrets.hsb0-openclaw-m365-cal-client-id = {
@@ -542,6 +546,7 @@ in
     mkdir -p /var/lib/openclaw-merlin/data/media/outbound
     mkdir -p /var/lib/openclaw-merlin/vdirsyncer
     mkdir -p /var/lib/openclaw-merlin/khal
+    mkdir -p /var/lib/openclaw-merlin/gogcli
     if [ ! -f /var/lib/openclaw-merlin/data/openclaw.json ]; then
       cat > /var/lib/openclaw-merlin/data/openclaw.json << 'EOF'
     {
