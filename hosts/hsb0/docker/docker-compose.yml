@@ -38,6 +38,8 @@ services:
       - /var/lib/openclaw-merlin/vdirsyncer:/home/node/.config/vdirsyncer:rw
       - /var/lib/openclaw-merlin/khal:/home/node/.config/khal:rw
       # Secrets (read-only, mounted from agenix)
+      - /run/agenix/hsb0-openclaw-telegram-token:/run/secrets/telegram-token:ro
+      - /run/agenix/hsb0-openclaw-gateway-token:/run/secrets/gateway-token:ro
       - /run/agenix/hsb0-openclaw-openrouter-key:/run/secrets/openrouter-key:ro
       - /run/agenix/hsb0-openclaw-brave-key:/run/secrets/brave-key:ro
       - /run/agenix/hsb0-openclaw-hass-token:/run/secrets/hass-token:ro
@@ -53,6 +55,8 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        export TELEGRAM_BOT_TOKEN=$$(cat /run/secrets/telegram-token)
+        export OPENCLAW_GATEWAY_TOKEN=$$(cat /run/secrets/gateway-token)
         export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
         export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
         exec openclaw gateway --port 18789

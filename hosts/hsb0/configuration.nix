@@ -543,15 +543,13 @@ in
     mkdir -p /var/lib/openclaw-merlin/vdirsyncer
     mkdir -p /var/lib/openclaw-merlin/khal
     if [ ! -f /var/lib/openclaw-merlin/data/openclaw.json ]; then
-      TOKEN=$(cat ${config.age.secrets.hsb0-openclaw-telegram-token.path} 2>/dev/null || echo "PLACEHOLDER")
-      GWTOKEN=$(cat ${config.age.secrets.hsb0-openclaw-gateway-token.path} 2>/dev/null || echo "PLACEHOLDER")
-      cat > /var/lib/openclaw-merlin/data/openclaw.json << EOF
+      cat > /var/lib/openclaw-merlin/data/openclaw.json << 'EOF'
     {
       "gateway": {
         "port": 18789,
         "bind": "lan",
         "controlUi": { "allowInsecureAuth": true },
-        "auth": { "mode": "token", "token": "$GWTOKEN" }
+        "auth": { "mode": "token", "token": "''${OPENCLAW_GATEWAY_TOKEN}" }
       },
       "agents": {
         "defaults": {
@@ -565,7 +563,7 @@ in
         }
       },
       "channels": {
-        "telegram": { "enabled": true, "botToken": "$TOKEN", "dmPolicy": "pairing", "streamMode": "partial" }
+        "telegram": { "enabled": true, "botToken": "''${TELEGRAM_BOT_TOKEN}", "dmPolicy": "pairing", "streamMode": "partial" }
       },
       "tools": { "web": { "search": { "enabled": true }, "fetch": { "enabled": true } } },
       "cron": { "enabled": true },

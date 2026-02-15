@@ -80,6 +80,8 @@
   age.secrets.miniserver-bp-wireguard-key.file = ../../secrets/miniserver-bp-wireguard-key.age;
   age.secrets.miniserver-bp-openclaw-telegram-token.file = ../../secrets/miniserver-bp-openclaw-telegram-token.age;
   age.secrets.miniserver-bp-openclaw-gateway-token.file = ../../secrets/miniserver-bp-openclaw-gateway-token.age;
+  age.secrets.miniserver-bp-openclaw-openrouter-key.file = ../../secrets/miniserver-bp-openclaw-openrouter-key.age;
+  age.secrets.miniserver-bp-openclaw-brave-key.file = ../../secrets/miniserver-bp-openclaw-brave-key.age;
   age.secrets.miniserver-bp-gogcli-keyring-password.file = ../../secrets/miniserver-bp-gogcli-keyring-password.age;
 
   # M365 CLI credentials (Azure AD app: Percy-AI-miniserver-bp)
