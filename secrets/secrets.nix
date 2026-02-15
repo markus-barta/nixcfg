@@ -171,9 +171,11 @@ in
   # Edit: agenix -e secrets/miniserver-bp-wireguard-key.age
   "miniserver-bp-wireguard-key.age".publicKeys = markus ++ miniserver-bp;
 
-  # OpenClaw Percaival - Telegram bot token
+  # OpenClaw Percaival - Telegram bot token & gateway token
   # Edit: agenix -e secrets/miniserver-bp-openclaw-telegram-token.age
+  # Edit: agenix -e secrets/miniserver-bp-openclaw-gateway-token.age
   "miniserver-bp-openclaw-telegram-token.age".publicKeys = markus ++ miniserver-bp;
+  "miniserver-bp-openclaw-gateway-token.age".publicKeys = markus ++ miniserver-bp;
 
   # gogcli keyring password for OpenClaw Percaival container
   # Format: GOG_KEYRING_PASSWORD=<password> (KEY=VALUE for Docker environmentFiles)
