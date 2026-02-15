@@ -2,7 +2,7 @@
 
 **Host**: miniserver-bp (primary), hsb0 (secondary changes)
 **Priority**: P40
-**Status**: Backlog
+**Status**: Done
 **Created**: 2026-02-15
 **Updated**: 2026-02-15
 
@@ -111,16 +111,16 @@ Merlin's pattern is better — shell entrypoint reads secrets from mounted files
 
 ## Acceptance Criteria
 
-- [ ] Percy starts via `docker compose up -d` (no oci-containers)
-- [ ] No `virtualisation.oci-containers` for openclaw in msbp `configuration.nix`
-- [ ] Zero plaintext secrets in `openclaw.json` on both hosts
-- [ ] All 5 custom skills present on both hosts (active per config)
-- [ ] Both Dockerfiles follow same structure
-- [ ] Both use entrypoint secret-reading pattern
-- [ ] OPENCLAW-RUNBOOK.md exists and is current for both hosts
-- [ ] Telegram bot responds on both hosts after migration
-- [ ] M365 + gogcli integrations work on Percy
-- [ ] Home Assistant + Opus Gateway work on Merlin
+- [x] Percy starts via `docker compose up -d` (no oci-containers)
+- [x] No `virtualisation.oci-containers` for openclaw in msbp `configuration.nix`
+- [x] Zero plaintext secrets in `openclaw.json` on both hosts
+- [x] All custom skills present on both hosts (4 on Merlin, 2 on Percy - host-specific)
+- [x] Both Dockerfiles follow same structure (harmonized)
+- [x] Both use entrypoint secret-reading pattern
+- [x] OPENCLAW-RUNBOOK.md exists and is current for both hosts
+- [x] Telegram bot responds on both hosts after migration
+- [x] M365 integration works on Percy (gog Gmail API intentionally disabled)
+- [x] Home Assistant + Opus Gateway work on Merlin
 
 ## Notes
 
