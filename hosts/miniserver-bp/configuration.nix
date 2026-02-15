@@ -78,11 +78,28 @@
   # ==========================================================================
 
   age.secrets.miniserver-bp-wireguard-key.file = ../../secrets/miniserver-bp-wireguard-key.age;
-  age.secrets.miniserver-bp-openclaw-telegram-token.file = ../../secrets/miniserver-bp-openclaw-telegram-token.age;
-  age.secrets.miniserver-bp-openclaw-gateway-token.file = ../../secrets/miniserver-bp-openclaw-gateway-token.age;
-  age.secrets.miniserver-bp-openclaw-openrouter-key.file = ../../secrets/miniserver-bp-openclaw-openrouter-key.age;
-  age.secrets.miniserver-bp-openclaw-brave-key.file = ../../secrets/miniserver-bp-openclaw-brave-key.age;
-  age.secrets.miniserver-bp-gogcli-keyring-password.file = ../../secrets/miniserver-bp-gogcli-keyring-password.age;
+
+  # OpenClaw secrets (mode 444: readable by container's node user uid 1000)
+  age.secrets.miniserver-bp-openclaw-telegram-token = {
+    file = ../../secrets/miniserver-bp-openclaw-telegram-token.age;
+    mode = "444";
+  };
+  age.secrets.miniserver-bp-openclaw-gateway-token = {
+    file = ../../secrets/miniserver-bp-openclaw-gateway-token.age;
+    mode = "444";
+  };
+  age.secrets.miniserver-bp-openclaw-openrouter-key = {
+    file = ../../secrets/miniserver-bp-openclaw-openrouter-key.age;
+    mode = "444";
+  };
+  age.secrets.miniserver-bp-openclaw-brave-key = {
+    file = ../../secrets/miniserver-bp-openclaw-brave-key.age;
+    mode = "444";
+  };
+  age.secrets.miniserver-bp-gogcli-keyring-password = {
+    file = ../../secrets/miniserver-bp-gogcli-keyring-password.age;
+    mode = "444";
+  };
 
   # M365 CLI credentials (Azure AD app: Percy-AI-miniserver-bp)
   # mode 444: readable by container's node user (uid 1000) via ro mount
