@@ -79,6 +79,7 @@
 
   age.secrets.miniserver-bp-wireguard-key.file = ../../secrets/miniserver-bp-wireguard-key.age;
   age.secrets.miniserver-bp-openclaw-telegram-token.file = ../../secrets/miniserver-bp-openclaw-telegram-token.age;
+  age.secrets.miniserver-bp-openclaw-gateway-token.file = ../../secrets/miniserver-bp-openclaw-gateway-token.age;
   age.secrets.miniserver-bp-gogcli-keyring-password.file = ../../secrets/miniserver-bp-gogcli-keyring-password.age;
 
   # M365 CLI credentials (Azure AD app: Percy-AI-miniserver-bp)
@@ -228,32 +229,8 @@
   };
 
   # OpenClaw Percaival - AI assistant via Telegram
-  virtualisation.oci-containers.containers.openclaw-percaival = {
-    image = "openclaw-percaival:latest";
-    # Use host networking so the gateway binds to real loopback (127.0.0.1).
-    # Without this, Docker's bridge network makes internal agent→gateway connections
-    # appear as external LAN traffic, triggering "pairing required" errors.
-    # With --network=host, port 18789 is directly on the host (no port mapping needed).
-    extraOptions = [ "--network=host" ];
-    volumes = [
-      "/var/lib/openclaw-percaival/data:/home/node/.openclaw:rw"
-      "/var/lib/openclaw-percaival/gogcli:/home/node/.config/gogcli:rw"
-      "/var/lib/openclaw-percaival/m365:/home/node/.config/cli-microsoft365:rw"
-      # M365 CLI secrets (read-only, mounted from agenix)
-      "${config.age.secrets.miniserver-bp-m365-client-id.path}:/run/secrets/m365-client-id:ro"
-      "${config.age.secrets.miniserver-bp-m365-tenant-id.path}:/run/secrets/m365-tenant-id:ro"
-      "${config.age.secrets.miniserver-bp-m365-client-secret.path}:/run/secrets/m365-client-secret:ro"
-    ];
-    # gogcli uses encrypted on-disk keyring (no OS keychain in container)
-    environment = {
-      GOG_KEYRING_BACKEND = "file";
-      GOG_ACCOUNT = "percy.ai@bytepoets.com";
-    };
-    environmentFiles = [
-      config.age.secrets.miniserver-bp-gogcli-keyring-password.path
-    ];
-    autoStart = true;
-  };
+  # Managed via docker-compose (hosts/miniserver-bp/docker/docker-compose.yml)
+  # No longer using oci-containers (systemd mask/unmask hassle avoided)
 
   # Seed hello-world page (managed by NixOS activation script)
   system.activationScripts.pm-tool-hello = ''
@@ -270,10 +247,9 @@
   system.activationScripts.openclaw-percaival = ''
     mkdir -p /var/lib/openclaw-percaival/data/workspace /var/lib/openclaw-percaival/gogcli /var/lib/openclaw-percaival/m365
     if [ ! -f /var/lib/openclaw-percaival/data/openclaw.json ]; then
-      TOKEN=$(cat ${config.age.secrets.miniserver-bp-openclaw-telegram-token.path})
-      cat > /var/lib/openclaw-percaival/data/openclaw.json << EOF
+      cat > /var/lib/openclaw-percaival/data/openclaw.json << 'EOF'
     {
-      "gateway": { "port": 18789, "bind": "lan" },
+      "gateway": { "port": 18789, "bind": "lan", "token": "''${OPENCLAW_GATEWAY_TOKEN}" },
       "agents": {
         "defaults": { "workspace": "/home/node/.openclaw/workspace" },
         "list": [{
@@ -283,7 +259,7 @@
         }]
       },
       "channels": {
-        "telegram": { "enabled": true, "botToken": "$TOKEN", "dmPolicy": "pairing" }
+        "telegram": { "enabled": true, "botToken": "''${TELEGRAM_BOT_TOKEN}", "dmPolicy": "pairing" }
       }
     }
     EOF
