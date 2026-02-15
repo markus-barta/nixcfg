@@ -37,6 +37,7 @@ services:
       - /var/lib/openclaw-merlin/data:/home/node/.openclaw:rw
       - /var/lib/openclaw-merlin/vdirsyncer:/home/node/.config/vdirsyncer:rw
       - /var/lib/openclaw-merlin/khal:/home/node/.config/khal:rw
+      - /var/lib/openclaw-merlin/gogcli:/home/node/.config/gogcli:rw
       # Secrets (read-only, mounted from agenix)
       - /run/agenix/hsb0-openclaw-telegram-token:/run/secrets/telegram-token:ro
       - /run/agenix/hsb0-openclaw-gateway-token:/run/secrets/gateway-token:ro
@@ -48,6 +49,11 @@ services:
       # - /run/agenix/hsb0-openclaw-m365-cal-client-id:/run/secrets/m365-cal-client-id:ro
       # - /run/agenix/hsb0-openclaw-m365-cal-tenant-id:/run/secrets/m365-cal-tenant-id:ro
       # - /run/agenix/hsb0-openclaw-m365-cal-client-secret:/run/secrets/m365-cal-client-secret:ro
+    environment:
+      GOG_KEYRING_BACKEND: "file"
+      GOG_ACCOUNT: "markus@barta.com"
+    env_file:
+      - /run/agenix/hsb0-gogcli-keyring-password
     # OpenClaw reads API keys from env vars directly.
     # Secrets are mounted from agenix (mode 444 in NixOS config).
     # The entrypoint reads them into env vars, then execs as node user.
