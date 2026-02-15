@@ -185,7 +185,7 @@ ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 
 **ALWAYS use scripts** to create backlog items. Never manually create files.
 
-### Infrastructure-Wide Items
+### Infrastructure-Wide Items (default: `+pm/backlog/infra/`)
 
 ```bash
 ./scripts/create-backlog-item.sh P50 fix-bug-description
