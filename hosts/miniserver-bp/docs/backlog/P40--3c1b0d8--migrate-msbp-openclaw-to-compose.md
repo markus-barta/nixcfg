@@ -30,10 +30,10 @@ Merlin (hsb0) and Percy (miniserver-bp) run OpenClaw with different management a
 
 ## 1. Migrate Percy to docker-compose
 
-- [ ] Create `hosts/miniserver-bp/docker/docker-compose.yml`
-- [ ] Remove `virtualisation.oci-containers.containers.openclaw-percaival` from `configuration.nix`
-- [ ] Keep activation script for dir creation + `openclaw.json` seeding
-- [ ] Keep agenix secrets, mount via compose volumes
+- [x] Create `hosts/miniserver-bp/docker/docker-compose.yml`
+- [x] Remove `virtualisation.oci-containers.containers.openclaw-percaival` from `configuration.nix`
+- [x] Keep activation script for dir creation + `openclaw.json` seeding
+- [x] Keep agenix secrets, mount via compose volumes
 - [ ] Verify: `docker compose up -d` starts Percy on port 18789
 
 ## 2. No plaintext secrets
@@ -41,9 +41,9 @@ Merlin (hsb0) and Percy (miniserver-bp) run OpenClaw with different management a
 OpenClaw supports `${ENV_VAR}` substitution in `openclaw.json` (see docs.openclaw.ai/gateway/configuration).
 
 - [ ] Merlin: add `TELEGRAM_BOT_TOKEN` and `OPENCLAW_GATEWAY_TOKEN` to entrypoint (read from agenix mounts)
-- [ ] Percy: same pattern — entrypoint reads secrets into env vars
-- [ ] Both: update `openclaw.json` seed to use `${TELEGRAM_BOT_TOKEN}` and `${OPENCLAW_GATEWAY_TOKEN}`
-- [ ] Both: remove hardcoded tokens from live `openclaw.json` on hosts
+- [x] Percy: same pattern — entrypoint reads secrets into env vars
+- [x] Both: update `openclaw.json` seed to use `${TELEGRAM_BOT_TOKEN}` and `${OPENCLAW_GATEWAY_TOKEN}`
+- [ ] Both: remove hardcoded tokens from live `openclaw.json` on hosts (runtime task - after deploy)
 - [ ] Percy: move Brave API key from `openclaw.json` `tools.web.search.apiKey` to env var
 
 ## 3. Harmonize Dockerfiles
@@ -56,11 +56,11 @@ Merlin-specific:      vdirsyncer, khal, mosquitto-clients
 Percy-specific:       gogcli (pinned binary)
 ```
 
-- [ ] Add `jq` to Percy's Dockerfile
-- [ ] Add gogcli install block to Merlin's Dockerfile (commented out or active)
-- [ ] Add vdirsyncer/khal/mosquitto-clients to Percy's Dockerfile (commented out or active)
-- [ ] Decide: install everything on both (simpler updates) vs keep host-specific (smaller images)
-- [ ] Create config dirs for all tools in both Dockerfiles
+- [x] Add `jq` to Percy's Dockerfile
+- [x] ~~Add gogcli install block to Merlin's Dockerfile~~ (keep host-specific)
+- [x] ~~Add vdirsyncer/khal/mosquitto-clients to Percy's Dockerfile~~ (keep host-specific)
+- [x] Decide: install everything on both vs keep host-specific → **Decision: keep host-specific**
+- [x] ~~Create config dirs for all tools~~ (not needed - host-specific tools stay separate)
 
 ## 4. Shared skills (available, not necessarily active)
 
@@ -68,35 +68,44 @@ Custom skills live in `/var/lib/openclaw-*/data/workspace/skills/`. They activat
 
 ### Current inventory
 
-| Skill                               | Merlin | Percy  | Host-specific?               |
-| ----------------------------------- | ------ | ------ | ---------------------------- |
-| `calendar` (caldav/vdirsyncer/khal) | Active | --     | Yes (Merlin's iCloud creds)  |
-| `home-assistant`                    | Active | --     | Yes (home LAN only)          |
-| `opus-gateway` (EnOcean)            | Active | --     | Yes (home LAN only)          |
-| `openrouter-free-models`            | Active | --     | No — useful for both         |
-| `m365-email`                        | --     | Active | Partially (Percy's identity) |
+| Skill                               | Merlin | Percy | Host-specific?                              |
+| ----------------------------------- | ------ | ----- | ------------------------------------------- |
+| `calendar` (caldav/vdirsyncer/khal) | ✅     | ❌    | Yes (Merlin's iCloud creds)                 |
+| `home-assistant`                    | ✅     | ❌    | Yes (home LAN 192.168.1.101)                |
+| `opus-gateway` (EnOcean)            | ✅     | ❌    | Yes (home LAN 192.168.1.102)                |
+| `openrouter-free-models`            | ✅     | ✅    | No — portable (OpenRouter API only)         |
+| `m365-email`                        | ❌     | ✅    | Yes (Percy identity percy.ai@bytepoets.com) |
+
+**Safety analysis:** Skills self-limit based on tools/endpoints. No cross-contamination risk:
+
+- calendar/home-assistant/opus-gateway require home LAN access (won't activate on Percy at office)
+- m365-email hardcoded to percy.ai@bytepoets.com (Percy-specific identity)
+- openrouter-free-models is portable (copied to Percy - safe addition)
 
 ### Tasks
 
-- [ ] Copy `openrouter-free-models` skill to Percy
-- [ ] Copy `m365-email` skill to Merlin (adapt identity when Merlin gets Azure AD app)
-- [ ] Copy `calendar`, `home-assistant`, `opus-gateway` skill SKILL.md files to Percy (won't activate — tools/endpoints not available, but ready if needed)
-- [ ] Version-control skill SKILL.md files in the repo (e.g., `hosts/<host>/docker/skills/`)
-- [ ] Backup existing workspace skills before any changes
+- [x] Copy `openrouter-free-models` skill to Percy
+- [x] ~~Copy `m365-email` skill to Merlin~~ (Percy-specific identity, won't work on Merlin)
+- [x] ~~Copy `calendar`, `home-assistant`, `opus-gateway` to Percy~~ (home LAN only, won't work on msbp)
+- [ ] Version-control skill SKILL.md files in the repo → **Extracted to P50--0e95515**
+- [x] Backup existing workspace skills before any changes
 
 ## 5. Harmonized entrypoint
 
 Merlin's pattern is better — shell entrypoint reads secrets from mounted files into env vars, then execs gateway.
 
-- [ ] Create shared entrypoint template
-- [ ] Percy: adopt same pattern (currently uses Dockerfile CMD directly)
-- [ ] Both: entrypoint reads `OPENROUTER_API_KEY`, `BRAVE_API_KEY`, `TELEGRAM_BOT_TOKEN`, `OPENCLAW_GATEWAY_TOKEN` from mounted secret files
+- [x] ~~Create shared entrypoint template~~ (keep host-specific, patterns already match)
+- [x] Percy: adopt same pattern (done in compose.yml)
+- [x] Merlin: add `TELEGRAM_BOT_TOKEN` and `OPENCLAW_GATEWAY_TOKEN` to entrypoint
+- [x] Percy: add `OPENROUTER_API_KEY` and `BRAVE_API_KEY` to secrets/entrypoint
 
 ## 6. Harmonized RUNBOOK docs
 
-- [ ] Same OPENCLAW-RUNBOOK.md structure in both `hosts/<host>/docs/`
-- [ ] Sections: overview, start/stop, update, re-auth, skills, troubleshooting
-- [ ] Host-specific content (connection details, skill details) stays per host
+- [x] Same OPENCLAW-RUNBOOK.md structure in both `hosts/<host>/docs/`
+- [x] Sections: architecture, status, skills, operations, troubleshooting
+- [x] Host-specific content (connection details, skill details) stays per host
+- [x] Archived Percy's OPENCLAW-DOCKER-SETUP.md → `docs/legacy/` (oci-containers era)
+- [x] Updated both RUNBOOKs to reflect docker-compose (not systemctl)
 
 ---
 

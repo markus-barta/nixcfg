@@ -3,8 +3,9 @@
 **Host**: miniserver-bp (10.17.1.40)
 **Instance**: Percaival
 **Port**: 18789
-**Version**: 2026.2.9 (npm)
-**Updated**: 2026-02-13
+**Management**: docker-compose (not oci-containers)
+**Version**: latest (npm)
+**Updated**: 2026-02-15
 
 ---
 
@@ -21,7 +22,7 @@
 
 ## Available Skills
 
-OpenClaw loads skills from three layers: bundled (npm package), managed (`~/.openclaw/skills`), and workspace (`<workspace>/skills`). See [OPENCLAW-DOCKER-SETUP.md](./OPENCLAW-DOCKER-SETUP.md#skills) for full details on precedence and paths.
+OpenClaw loads skills from three layers: bundled (npm package), managed (`~/.openclaw/skills`), and workspace (`<workspace>/skills`).
 
 ```bash
 # List all eligible skills
@@ -42,9 +43,10 @@ Other bundled skills are available but may need binaries or API keys. Enable/dis
 
 ### Workspace Skills (user-installed)
 
-| Skill      | Description                  | Location                       |
-| ---------- | ---------------------------- | ------------------------------ |
-| m365-email | Read/send email via M365 CLI | `workspace/skills/m365-email/` |
+| Skill                  | Description                  | Location                                   |
+| ---------------------- | ---------------------------- | ------------------------------------------ |
+| m365-email             | Read/send email via M365 CLI | `workspace/skills/m365-email/`             |
+| openrouter-free-models | Find free LLMs on OpenRouter | `workspace/skills/openrouter-free-models/` |
 
 Installed manually. Use ClawHub CLI or manual git-clone for more — see "Adding Skills" below.
 
@@ -53,12 +55,16 @@ Installed manually. Use ClawHub CLI or manual git-clone for more — see "Adding
 ### Check Status
 
 ```bash
-# Container status
-sudo systemctl status docker-openclaw-percaival
+# Container status (via docker compose)
+cd ~/Code/nixcfg/hosts/miniserver-bp/docker
+docker compose ps
+
+# Or via docker directly
 docker ps | grep openclaw
 
 # View logs
-docker logs -f openclaw-percaival
+docker compose logs -f openclaw-percaival
+# Or: docker logs -f openclaw-percaival
 
 # Gateway health
 curl http://10.17.1.40:18789/health
@@ -67,28 +73,25 @@ curl http://10.17.1.40:18789/health
 ### Restart
 
 ```bash
-sudo systemctl restart docker-openclaw-percaival
+cd ~/Code/nixcfg/hosts/miniserver-bp/docker
+docker compose restart openclaw-percaival
 ```
 
-### Force Recreate (fresh boot / like --force-recreate with docker compose)
+### Force Recreate (fresh boot)
 
 ```bash
-# Mask (prevent auto-restart), stop, remove, unmask, then start fresh
-# Use --runtime on NixOS to avoid conflicts with symlinks from /nix/store
-sudo systemctl mask --runtime docker-openclaw-percaival
-sudo systemctl stop docker-openclaw-percaival
-sudo docker stop -t 10 openclaw-percaival  # Graceful stop with timeout
-sudo docker rm -f openclaw-percaival       # Force remove
-sudo systemctl unmask --runtime docker-openclaw-percaival
-sudo systemctl start docker-openclaw-percaival # Expect 3min+ for full startup
+cd ~/Code/nixcfg/hosts/miniserver-bp/docker
+docker compose down
+docker compose up -d --force-recreate
+# Or: docker compose up -d --build --force-recreate (rebuild image too)
 ```
 
-### Stop (Prevent Auto-Restart)
+### Stop
 
 ```bash
-sudo systemctl mask docker-openclaw-percaival
-sudo systemctl stop docker-openclaw-percaival
-# Later: sudo systemctl unmask docker-openclaw-percaival
+cd ~/Code/nixcfg/hosts/miniserver-bp/docker
+docker compose stop openclaw-percaival
+# Later: docker compose start openclaw-percaival
 ```
 
 ### View Config
@@ -105,15 +108,16 @@ docker exec openclaw-percaival openclaw dashboard --no-open
 
 ```bash
 sudo vim /var/lib/openclaw-percaival/data/openclaw.json
-sudo systemctl restart docker-openclaw-percaival
+cd ~/Code/nixcfg/hosts/miniserver-bp/docker
+docker compose restart openclaw-percaival
 ```
 
 ### Update OpenClaw (duration ~3-5min)
 
 ```bash
 cd ~/Code/nixcfg/hosts/miniserver-bp/docker
-docker build --no-cache -t openclaw-percaival:latest .
-sudo systemctl restart docker-openclaw-percaival
+docker compose build --no-cache openclaw-percaival
+docker compose up -d openclaw-percaival
 ```
 
 ## Telegram Operations
@@ -178,7 +182,7 @@ ssh -L <PORT>:127.0.0.1:<PORT> -p 2222 mba@msbp
 
 **Browser** (on your Mac): Open `http://127.0.0.1:<PORT>`, complete Google OAuth flow, close tab when done.
 
-See also: [OPENCLAW-DOCKER-SETUP.md](./OPENCLAW-DOCKER-SETUP.md) - gogcli setup section
+See also: [legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md](./legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md) - gogcli setup section (archived)
 
 ### Keyring Password
 
@@ -325,7 +329,8 @@ sudo chown -R 1000:1000 /var/lib/openclaw-percaival/data/workspace
 cd /var/lib/openclaw-percaival/data/workspace/skills
 sudo git clone https://github.com/example/skill-name my-skill
 
-sudo systemctl restart docker-openclaw-percaival
+cd ~/Code/nixcfg/hosts/miniserver-bp/docker
+docker compose restart openclaw-percaival
 ```
 
 ### Find Skills
@@ -344,8 +349,6 @@ One gateway = multiple agents. No separate containers needed. Each agent gets is
 
 **Current state**: single-agent (Percaival, `agentId: "main"`). Multi-agent = config change only.
 
-Full architecture details: [OPENCLAW-DOCKER-SETUP.md](./OPENCLAW-DOCKER-SETUP.md#multi-agent-architecture)
-
 ### List agents
 
 ```bash
@@ -357,27 +360,27 @@ docker exec openclaw-percaival openclaw agents list --bindings
 1. Create workspace dir on host
 2. Add to `agents.list[]` + `bindings[]` in `openclaw.json`
 3. Add bot token if new Telegram bot (via agenix)
-4. `sudo systemctl restart docker-openclaw-percaival`
-
-See [OPENCLAW-DOCKER-SETUP.md — Adding a second agent](./OPENCLAW-DOCKER-SETUP.md#multi-agent-architecture) for full checklist.
+4. `docker compose restart openclaw-percaival`
 
 ---
 
 ## Files Reference
 
-| What                    | Location                                                             |
-| ----------------------- | -------------------------------------------------------------------- |
-| Dockerfile              | `hosts/miniserver-bp/docker/Dockerfile`                              |
-| NixOS config            | `hosts/miniserver-bp/configuration.nix`                              |
-| Config (host)           | `/var/lib/openclaw-percaival/data/openclaw.json`                     |
-| Workspace               | `/var/lib/openclaw-percaival/data/workspace/`                        |
-| M365 skill              | `/var/lib/openclaw-percaival/data/workspace/skills/m365-email/`      |
-| Telegram token (agenix) | `secrets/miniserver-bp-openclaw-telegram-token.age`                  |
-| gogcli keyring (agenix) | `secrets/miniserver-bp-gogcli-keyring-password.age`                  |
-| M365 secrets (agenix)   | `secrets/miniserver-bp-m365-{client-id,tenant-id,client-secret}.age` |
-| Container logs          | `docker logs openclaw-percaival`                                     |
-| Gateway log             | `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (in container)               |
-| gogcli config           | `/var/lib/openclaw-percaival/gogcli/`                                |
+| What                    | Location                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| docker-compose.yml      | `hosts/miniserver-bp/docker/docker-compose.yml`                               |
+| Dockerfile              | `hosts/miniserver-bp/docker/openclaw-percaival/Dockerfile`                    |
+| NixOS config            | `hosts/miniserver-bp/configuration.nix`                                       |
+| Config (host)           | `/var/lib/openclaw-percaival/data/openclaw.json`                              |
+| Workspace               | `/var/lib/openclaw-percaival/data/workspace/`                                 |
+| M365 skill              | `/var/lib/openclaw-percaival/data/workspace/skills/m365-email/`               |
+| OpenRouter skill        | `/var/lib/openclaw-percaival/data/workspace/skills/openrouter-free-models/`   |
+| Secrets (agenix)        | `secrets/miniserver-bp-openclaw-*.age` (telegram, gateway, openrouter, brave) |
+| gogcli keyring (agenix) | `secrets/miniserver-bp-gogcli-keyring-password.age`                           |
+| M365 secrets (agenix)   | `secrets/miniserver-bp-m365-{client-id,tenant-id,client-secret}.age`          |
+| Container logs          | `docker compose logs openclaw-percaival`                                      |
+| Gateway log             | `/tmp/openclaw/openclaw-YYYY-MM-DD.log` (in container)                        |
+| gogcli config           | `/var/lib/openclaw-percaival/gogcli/`                                         |
 
 ## Access
 
@@ -388,9 +391,38 @@ See [OPENCLAW-DOCKER-SETUP.md — Adding a second agent](./OPENCLAW-DOCKER-SETUP
 
 ## Related Documentation
 
-- [OPENCLAW-DOCKER-SETUP.md](./OPENCLAW-DOCKER-SETUP.md) - Installation, architecture, gotchas, deployment approach
-- [OPENCLAW-DOCKER-SETUP.md](./OPENCLAW-DOCKER-SETUP.md#investigation-log-docker-bridge-vs-loopback) - Investigation Log (below)
+- [legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md](./legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md) - Original oci-containers setup (archived 2026-02-15)
 - Backlog: `hosts/miniserver-bp/docs/backlog/`
+- Migration: `+pm/backlog/msbp/P40--3c1b0d8--migrate-msbp-openclaw-to-compose.md`
+
+## Architecture
+
+**Management**: docker-compose (not NixOS oci-containers)
+
+```
+docker-compose.yml → Docker → node:22-bookworm-slim + openclaw@latest
+                                ↓
+                       /home/node/.openclaw (volume mount)
+                                ↓
+                       /var/lib/openclaw-percaival/data (host)
+```
+
+- Docker Compose manages container lifecycle
+- Image built from `docker/openclaw-percaival/Dockerfile`
+- Config + data persisted at `/var/lib/openclaw-percaival/data/`
+- Secrets injected via env vars from agenix-mounted files (no plaintext in openclaw.json)
+- NixOS activation script seeds dirs + openclaw.json template on first boot
+
+### Secret Handling (2026-02-15 update)
+
+All secrets now use env var substitution pattern:
+
+1. **Agenix** decrypts secrets to `/run/agenix/miniserver-bp-openclaw-*`
+2. **Compose** mounts secrets as ro volumes to `/run/secrets/*`
+3. **Entrypoint** reads secrets into env vars (`TELEGRAM_BOT_TOKEN`, `OPENCLAW_GATEWAY_TOKEN`, etc.)
+4. **openclaw.json** references via `${ENV_VAR}` (no plaintext tokens)
+
+This pattern matches Merlin (hsb0) for consistency.
 
 ---
 

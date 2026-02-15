@@ -3,8 +3,38 @@
 **Host**: hsb0 (192.168.1.99)
 **Instance**: Merlin
 **Port**: 18789
-**Version**: latest (npm, Docker)
-**Updated**: 2026-02-14
+**Management**: docker-compose
+**Version**: latest (npm)
+**Updated**: 2026-02-15
+
+---
+
+## Architecture
+
+**Management**: docker-compose
+
+```
+docker-compose.yml → Docker → node:22-bookworm-slim + openclaw@latest
+                                ↓
+                       /home/node/.openclaw (volume mount)
+                                ↓
+                       /var/lib/openclaw-merlin/data (host)
+```
+
+- Docker Compose manages container lifecycle
+- Image built from `docker/openclaw-merlin/Dockerfile`
+- Config + data persisted at `/var/lib/openclaw-merlin/data/`
+- Secrets injected via env vars from agenix-mounted files (no plaintext in openclaw.json)
+- NixOS activation script seeds dirs + openclaw.json template on first boot
+
+### Secret Handling (2026-02-15 update)
+
+All secrets now use env var substitution pattern:
+
+1. **Agenix** decrypts secrets to `/run/agenix/hsb0-openclaw-*`
+2. **Compose** mounts secrets as ro volumes to `/run/secrets/*`
+3. **Entrypoint** reads secrets into env vars (`TELEGRAM_BOT_TOKEN`, `OPENCLAW_GATEWAY_TOKEN`, `OPENROUTER_API_KEY`, `BRAVE_API_KEY`)
+4. **openclaw.json** references via `${ENV_VAR}` (no plaintext tokens)
 
 ---
 
@@ -21,17 +51,39 @@
 | M365 Calendar   | ❌ Not setup  | Azure AD app not yet created     |
 | Opus Gateway    | ✅ Configured | Credentials mounted from agenix  |
 
+## Available Skills
+
+### Workspace Skills (user-installed)
+
+| Skill                  | Description                             | Location                                   |
+| ---------------------- | --------------------------------------- | ------------------------------------------ |
+| calendar               | CalDAV sync (iCloud, vdirsyncer + khal) | `workspace/skills/calendar/`               |
+| home-assistant         | Control Home Assistant (192.168.1.101)  | `workspace/skills/home-assistant/`         |
+| opus-gateway           | EnOcean devices via Opus Gateway        | `workspace/skills/opus-gateway/`           |
+| openrouter-free-models | Find free LLMs on OpenRouter            | `workspace/skills/openrouter-free-models/` |
+
+All skills are home LAN specific except `openrouter-free-models` (portable).
+
+```bash
+# List all skills
+docker exec openclaw-merlin openclaw skills list
+```
+
 ## Operational Commands
 
 ### Check Status
 
 ```bash
-# Container status
-sudo systemctl status docker-openclaw-merlin
+# Container status (via docker compose)
+cd ~/Code/nixcfg/hosts/hsb0/docker
+docker compose ps
+
+# Or via docker directly
 docker ps | grep openclaw
 
 # View logs
-docker logs -f openclaw-merlin
+docker compose logs -f openclaw-merlin
+# Or: docker logs -f openclaw-merlin
 
 # Gateway health
 curl http://192.168.1.99:18789/health
@@ -40,9 +92,6 @@ curl http://192.168.1.99:18789/health
 ### Restart
 
 ```bash
-sudo systemctl restart docker-openclaw-merlin
-
-# Or via docker compose:
 cd ~/Code/nixcfg/hosts/hsb0/docker
 docker compose restart openclaw-merlin
 ```
@@ -58,12 +107,12 @@ docker compose build --no-cache openclaw-merlin
 docker compose up -d --force-recreate openclaw-merlin
 ```
 
-### Stop (Prevent Auto-Restart)
+### Stop
 
 ```bash
-sudo systemctl mask docker-openclaw-merlin
-sudo systemctl stop docker-openclaw-merlin
-# Later: sudo systemctl unmask docker-openclaw-merlin
+cd ~/Code/nixcfg/hosts/hsb0/docker
+docker compose stop openclaw-merlin
+# Later: docker compose start openclaw-merlin
 ```
 
 ### View Config
@@ -80,7 +129,8 @@ docker exec openclaw-merlin openclaw dashboard --no-open
 
 ```bash
 sudo vim /var/lib/openclaw-merlin/data/openclaw.json
-sudo systemctl restart docker-openclaw-merlin
+cd ~/Code/nixcfg/hosts/hsb0/docker
+docker compose restart openclaw-merlin
 ```
 
 ### Update OpenClaw

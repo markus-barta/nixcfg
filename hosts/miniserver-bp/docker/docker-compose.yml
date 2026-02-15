@@ -11,6 +11,8 @@ services:
       # Secrets (read-only, mounted from agenix)
       - /run/agenix/miniserver-bp-openclaw-telegram-token:/run/secrets/telegram-token:ro
       - /run/agenix/miniserver-bp-openclaw-gateway-token:/run/secrets/gateway-token:ro
+      - /run/agenix/miniserver-bp-openclaw-openrouter-key:/run/secrets/openrouter-key:ro
+      - /run/agenix/miniserver-bp-openclaw-brave-key:/run/secrets/brave-key:ro
       - /run/agenix/miniserver-bp-m365-client-id:/run/secrets/m365-client-id:ro
       - /run/agenix/miniserver-bp-m365-tenant-id:/run/secrets/m365-tenant-id:ro
       - /run/agenix/miniserver-bp-m365-client-secret:/run/secrets/m365-client-secret:ro
@@ -25,6 +27,8 @@ services:
       - |
         export TELEGRAM_BOT_TOKEN=$$(cat /run/secrets/telegram-token)
         export OPENCLAW_GATEWAY_TOKEN=$$(cat /run/secrets/gateway-token)
+        export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
+        export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
         exec openclaw gateway --port 18789
     labels:
       - com.centurylinklabs.watchtower.enable=false
