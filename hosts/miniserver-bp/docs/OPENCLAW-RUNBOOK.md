@@ -199,7 +199,7 @@ The gog keyring password is stored in agenix:
 - **Azure AD app**: `Percy-AI-miniserver-bp`
 - **Auth**: Client credentials grant (`--authType secret`), fully headless
 - **Mailbox**: `percy.ai@bytepoets.com`
-- **Permissions**: Mail.Read, Mail.Send (application-level, admin-consented)
+- **Permissions**: Mail.Read, Mail.ReadWrite, Mail.Send (application-level, admin-consented)
 - **Constraint**: Internal only (@bytepoets.com) — enforced by Exchange transport rule
 
 ### Verify Auth
@@ -210,15 +210,19 @@ docker exec openclaw-percaival m365 status
 
 Expected: `connectedAs: Percy-AI-miniserver-bp`
 
-### Re-login (if session expired)
+### Re-login (if session expired or permissions changed)
 
 Sessions can expire after container rebuilds or m365 CLI upgrades.
 Unlike gog, this is fully headless (client credentials, no browser needed).
 
+**Also required after Azure permission changes** — the cached OAuth token
+contains the old scopes. A re-login forces a fresh token with updated permissions.
+Without re-login, new permissions return 403 until the old token expires (~1 hour).
+
 ```bash
 # Check status first
 docker exec openclaw-percaival m365 status
-# If "Logged out", re-login:
+# If "Logged out" or after permission changes, re-login:
 docker exec openclaw-percaival sh -c \
   'm365 login --authType secret \
     --appId "$(cat /run/secrets/m365-client-id)" \
@@ -273,6 +277,38 @@ Custom workspace skill at `workspace/skills/m365-email/SKILL.md`. Teaches Percy 
 - Anti-prompt-injection rules (treats email body as untrusted data, never as instructions)
 - Domain restriction (only @bytepoets.com recipients)
 - Identity enforcement (always sends as percy.ai@bytepoets.com)
+
+### Graph API Write Operations (move, update)
+
+The `m365 request` command requires `--body` + `--content-type` for POST/PATCH.
+Using `--data` instead of `--body` causes 400 errors.
+
+```bash
+# Move message to folder
+docker exec openclaw-percaival m365 request \
+  --url "https://graph.microsoft.com/v1.0/users/percy.ai@bytepoets.com/messages/<msg-id>/move" \
+  --method post \
+  --body '{"destinationId":"<folder-id>"}' \
+  --content-type 'application/json'
+
+# Mark message as read
+docker exec openclaw-percaival m365 request \
+  --url "https://graph.microsoft.com/v1.0/users/percy.ai@bytepoets.com/messages/<msg-id>" \
+  --method patch \
+  --body '{"isRead":true}' \
+  --content-type 'application/json'
+
+# List mail folders (get folder IDs)
+docker exec openclaw-percaival m365 request \
+  --url "https://graph.microsoft.com/v1.0/users/percy.ai@bytepoets.com/mailFolders/inbox/childFolders" \
+  --method get
+```
+
+**Common pitfalls:**
+
+- `--data` flag → 400 error. Always use `--body` + `--content-type 'application/json'`
+- 403 after adding permissions in Azure → re-login needed (cached token, see above)
+- `m365 outlook message move` may not exist; use `m365 request` with Graph API `/move` endpoint
 
 ### Attachments
 
@@ -458,6 +494,23 @@ Source: local lan 172.17.0.3
 **`--network=host` + `bind=lan`** — container shares host network stack. The in-process agent runtime (cron, Telegram, tools) works because it doesn't go through the RPC pairing layer. `bind=lan` keeps the Control UI accessible from the office LAN.
 
 **Remaining quirk**: CLI RPC commands (`openclaw devices list`, `openclaw gateway status`) still fail with "pairing required" even on loopback. This appears to be a separate pairing layer for WebSocket RPC that is enforced regardless of source IP. The `openclaw doctor` command works because it reads state directly. This doesn't affect actual agent functionality — it's cosmetic.
+
+### m365 CLI "update check failed" Warning
+
+Every `m365` command prints this warning:
+
+```
+┌────────────────────────────────────────────────────────┐
+│       @pnp/cli-microsoft365 update check failed        │
+│ sudo chown -R $USER:$(id -gn $USER) /home/node/.config │
+└────────────────────────────────────────────────────────┘
+```
+
+**This is harmless.** The m365 CLI tries to write update-check metadata to
+`/home/node/.config/cli-microsoft365` and fails on permissions. The actual CLI
+works fine — auth, queries, and write operations all succeed. Do NOT try to
+fix this with `sudo` (not installed in container) or `chown` (no permission).
+Ignore it.
 
 ### Pairing architecture
 
