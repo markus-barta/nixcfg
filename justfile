@@ -630,6 +630,45 @@ hokage-options-interactive:
         clear
     done
 
+# ============================================================================
+# OpenClaw Merlin (hsb0) — works from macOS (via SSH) and locally on hsb0
+# ============================================================================
+
+# Helper: run command on hsb0 (SSH if remote, direct if local)
+[private]
+_hsb0-run cmd:
+    #!/usr/bin/env bash
+    if [ "$(hostname -s)" = "hsb0" ]; then
+        bash -c "{{ cmd }}"
+    else
+        ssh mba@hsb0.lan "{{ cmd }}"
+    fi
+
+# Stop the Merlin gateway (container stays, process stops)
+[group('merlin')]
+merlin-stop:
+    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose stop openclaw-merlin"
+
+# Start the Merlin gateway
+[group('merlin')]
+merlin-start:
+    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose start openclaw-merlin"
+
+# Pull latest workspace changes into running container (after Markus pushes)
+[group('merlin')]
+merlin-pull-workspace:
+    just _hsb0-run "docker exec openclaw-merlin git -C /home/node/.openclaw/workspace pull --ff-only"
+
+# Rebuild and restart the Merlin container (after Dockerfile/docker-compose changes)
+[group('merlin')]
+merlin-rebuild:
+    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose up -d --build --force-recreate openclaw-merlin"
+
+# Show Merlin container status and recent logs
+[group('merlin')]
+merlin-status:
+    just _hsb0-run "docker ps -f name=openclaw-merlin --format 'table {{{{.Status}}\t{{{{.Ports}}' && echo '---' && docker logs openclaw-merlin --tail 20"
+
 # Get the reverse dependencies of a nix store path
 [group('maintenance')]
 nix-store-reverse-dependencies:
