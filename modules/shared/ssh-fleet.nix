@@ -222,9 +222,9 @@
         user = "mba";
       };
 
-      # Nickname: msbp → miniserver-bp
+      # Nickname: msbp → miniserver-bp (Tailscale: works from anywhere)
       "msbp" = {
-        hostname = "miniserver-bp";
+        hostname = "miniserver-bp.ts.barta.cm";
         port = 2222;
         user = "mba";
       };
