@@ -162,6 +162,9 @@ in
   "hsb0-openclaw-icloud-password.age".publicKeys = markus ++ hsb0;
   "hsb0-openclaw-opus-gateway.age".publicKeys = markus ++ hsb0;
   "hsb0-gogcli-keyring-password.age".publicKeys = markus ++ hsb0;
+  # GitHub PAT for @merlin-ai-mba (workspace git push)
+  # Edit: agenix -e secrets/hsb0-openclaw-github-pat.age
+  "hsb0-openclaw-github-pat.age".publicKeys = markus ++ hsb0;
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
   # TODO: Uncomment when Azure AD app is created and .age files exist
   # "hsb0-openclaw-m365-cal-client-id.age".publicKeys = markus ++ hsb0;
