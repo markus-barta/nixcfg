@@ -13,14 +13,15 @@ Merlin's OpenClaw workspace (`/home/node/.openclaw/workspace/` in container) is 
 
 ## Solution
 
-Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-controlled workspace. Merlin pushes changes via `@merlin-ai` GitHub account. Markus can see/edit via local clone + VS Code workspace.
+Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-controlled workspace. Merlin pushes changes via `@merlin-ai-mba` GitHub account. Markus can see/edit via local clone + VS Code workspace.
 
 ## Prerequisites (manual, user-only)
 
-- [ ] Create GitHub account `@merlin-ai`
-- [ ] Create GitHub repo `markus-barta/oc-workspace-merlin` (private)
-- [ ] Add `@merlin-ai` as collaborator to `markus-barta/oc-workspace-merlin`
-- [ ] Create classic PAT for `@merlin-ai` (scopes: `repo`, `read:org`)
+- [x] Create GitHub account `@merlin-ai-mba`
+- [x] Create GitHub repo `markus-barta/oc-workspace-merlin` (private)
+- [x] Add `@merlin-ai-mba` as collaborator to `markus-barta/oc-workspace-merlin`
+- [ ] Accept collaborator invite as `@merlin-ai-mba`
+- [ ] Create classic PAT for `@merlin-ai-mba` (scopes: `repo`, `read:org`)
 - [ ] Store PAT in agenix: `hsb0-openclaw-github-pat.age`
 
 ## Implementation
@@ -47,7 +48,7 @@ Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-cont
 - [ ] Configure git identity in container:
   ```
   git config user.name "Merlin AI"
-  git config user.email "merlin-ai@users.noreply.github.com"
+  git config user.email "merlin-ai-mba@users.noreply.github.com"
   ```
 - [ ] Verify Merlin can `git add/commit/push`
 
@@ -74,7 +75,7 @@ Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-cont
 ## Acceptance Criteria
 
 - [ ] `oc-workspace-merlin` repo has clean `.gitignore`, no junk files tracked
-- [ ] `@merlin-ai` can push to the repo
+- [ ] `@merlin-ai-mba` can push to the repo
 - [ ] Merlin's container workspace is a git clone of the repo
 - [ ] Merlin can commit and push workspace changes
 - [ ] Markus can see Merlin's changes locally
