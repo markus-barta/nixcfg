@@ -524,6 +524,10 @@ in
     file = ../../secrets/hsb0-gogcli-keyring-password.age;
     mode = "444";
   };
+  age.secrets.hsb0-openclaw-github-pat = {
+    file = ../../secrets/hsb0-openclaw-github-pat.age;
+    mode = "444";
+  };
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
   # TODO: Uncomment when Azure AD app is created and .age files exist
   # age.secrets.hsb0-openclaw-m365-cal-client-id = {
@@ -540,6 +544,7 @@ in
   # };
 
   # Create OpenClaw data directories. Only seed openclaw.json if missing.
+  # Workspace cloned from git on container startup (see docker-compose entrypoint).
   system.activationScripts.openclaw-merlin = ''
     mkdir -p /var/lib/openclaw-merlin/data/workspace
     mkdir -p /var/lib/openclaw-merlin/data/media/inbound
