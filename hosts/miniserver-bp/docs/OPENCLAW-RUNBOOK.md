@@ -19,6 +19,15 @@
 | m365-email   | ✅ Working   | Percy-AI-miniserver-bp (Azure AD) |
 | weather      | ✅ Ready     | Bundled skill                     |
 | healthcheck  | ✅ Ready     | Bundled skill                     |
+| GitHub       | ✅ Ready     | bytepoets-percyai                 |
+
+## Identities
+
+| Service   | Account                | Purpose                      |
+| --------- | ---------------------- | ---------------------------- |
+| Google    | percy.ai@bytepoets.com | Gmail, Calendar, Drive, Docs |
+| Microsoft | percy.ai@bytepoets.com | Email (Exchange)             |
+| GitHub    | @bytepoets-percyai     | Code, issues, actions        |
 
 ## Available Skills
 

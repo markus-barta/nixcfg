@@ -16,6 +16,7 @@ services:
       - /run/agenix/miniserver-bp-m365-client-id:/run/secrets/m365-client-id:ro
       - /run/agenix/miniserver-bp-m365-tenant-id:/run/secrets/m365-tenant-id:ro
       - /run/agenix/miniserver-bp-m365-client-secret:/run/secrets/m365-client-secret:ro
+      - /run/agenix/miniserver-bp-github-pat:/run/secrets/github-pat:ro
     environment:
       GOG_KEYRING_BACKEND: "file"
       GOG_ACCOUNT: "percy.ai@bytepoets.com"
@@ -29,6 +30,7 @@ services:
         export OPENCLAW_GATEWAY_TOKEN=$$(cat /run/secrets/gateway-token)
         export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
         export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
+        export GITHUB_PAT=$$(cat /run/secrets/github-pat)
         exec openclaw gateway --port 18789
     labels:
       - com.centurylinklabs.watchtower.enable=false

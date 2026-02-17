@@ -194,4 +194,9 @@ in
   "miniserver-bp-m365-tenant-id.age".publicKeys = markus ++ miniserver-bp;
   "miniserver-bp-m365-client-secret.age".publicKeys = markus ++ miniserver-bp;
 
+  # GitHub PAT for Percy AI (@bytepoets-percyai)
+  # Format: GITHUB_PAT=<token>
+  # Edit: agenix -e secrets/miniserver-bp-github-pat.age
+  "miniserver-bp-github-pat.age".publicKeys = markus ++ miniserver-bp;
+
 }
