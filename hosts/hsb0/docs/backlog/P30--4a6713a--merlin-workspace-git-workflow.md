@@ -35,16 +35,13 @@ Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-cont
 
 ### Phase 2: Container integration
 
-- [ ] Add GitHub PAT secret to `secrets/secrets.nix` + `configuration.nix`
-- [ ] Add PAT to docker-compose secrets mount
-- [ ] Replace workspace dir in container with git clone of `oc-workspace-merlin`
+- [x] Add GitHub PAT secret to `secrets/secrets.nix` + `configuration.nix`
+- [x] Add PAT to docker-compose secrets mount
+- [x] Replace workspace dir in container with git clone of `oc-workspace-merlin`
   - Container path: `/home/node/.openclaw/workspace/`
   - Remote URL: `https://<PAT>@github.com/markus-barta/oc-workspace-merlin.git`
-- [ ] Configure git identity in container:
-  ```
-  git config user.name "Merlin AI"
-  git config user.email "merlin-ai-mba@users.noreply.github.com"
-  ```
+- [x] Configure git identity in container (done in entrypoint)
+- [ ] Deploy to hsb0 + rebuild container
 - [ ] Verify Merlin can `git add/commit/push`
 
 ### Phase 3: Operational commands
