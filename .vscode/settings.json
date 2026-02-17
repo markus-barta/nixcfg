@@ -9,7 +9,7 @@
   // Disable all diagnostics for markdown files
   "[markdown]": {
     "editor.formatOnSave": false,
-    "editor.defaultFormatter": null,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.codeActionsOnSave": {},
     "editor.suggest.showStatusBar": false
   },
