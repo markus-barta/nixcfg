@@ -28,6 +28,20 @@ services:
       - com.centurylinklabs.watchtower.enable=false
       - traefik.enable=false
 
+  smtp:
+    image: namshi/smtp
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Vienna
+      - SMARTHOST_ADDRESS=mail.hover.com
+      - SMARTHOST_PORT=587
+      - SMARTHOST_USER=markus@barta.com
+      - SMARTHOST_ALIASES=*
+      - RELAY_NETWORKS=:172.0.0.0/8
+    labels:
+      - traefik.enable=false
+      - com.centurylinklabs.watchtower.enable=false
+
   openclaw-merlin:
     build: ./openclaw-merlin
     container_name: openclaw-merlin
