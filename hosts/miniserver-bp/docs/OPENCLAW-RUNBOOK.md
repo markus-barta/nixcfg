@@ -434,6 +434,36 @@ docker exec openclaw-percaival openclaw agents list --bindings
 | Control UI | http://10.17.1.40:18789/ |
 | Telegram   | @percaival_bot           |
 
+## Git vs Host State
+
+**What goes in git (workspace repo):**
+
+The workspace (`/home/node/.openclaw/workspace/`) is version-controlled in a separate git repo (`bytepoets-mba/oc-workspace-percy`). This includes:
+
+- `skills/` - Skill definitions
+- `memory/` - Agent's learned knowledge
+- `IDENTITY.md` - Agent identity
+- `HEARTBEAT.md` - Agent self-awareness
+- `workbench/` - Working files
+- `AGENTS.md` - Git workflow instructions
+
+**What stays in `/var/lib/` (NOT in git):**
+
+All other files in `/var/lib/openclaw-percaival/` are runtime state and never go into git:
+
+| Directory/File  | Why                                          |
+| --------------- | -------------------------------------------- |
+| `openclaw.json` | Gateway config - infrastructure, not content |
+| `credentials/`  | Secrets - handled by agenix                  |
+| `telegram/`     | Runtime state (updates, offsets)             |
+| `cron/`         | Operational logs and jobs                    |
+| `devices/`      | Paired device state                          |
+| `vdirsyncer/`   | External tool config                         |
+| `khal/`         | External tool config                         |
+| `gogcli/`       | External tool config                         |
+
+The workspace repo is for **content the agent creates** (skills, memory, identity). The `/var/lib/` is for **infrastructure and runtime state** that should not be version-controlled.
+
 ## Related Documentation
 
 - [legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md](./legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md) - Original oci-containers setup (archived 2026-02-15)
