@@ -116,6 +116,12 @@
     mode = "444";
   };
 
+  # GitHub PAT for Percy AI (@bytepoets-percyai)
+  age.secrets.miniserver-bp-github-pat = {
+    file = ../../secrets/miniserver-bp-github-pat.age;
+    mode = "444";
+  };
+
   # ==========================================================================
   # WIREGUARD VPN
   # ==========================================================================
