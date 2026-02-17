@@ -1,0 +1,36 @@
+{
+	"folders": [
+		{
+			"name": "nixcfg",
+			"path": "."
+		},
+		{
+			"name": "merlin-workspace",
+			"path": "../oc-workspace-merlin"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.nix": "nix",
+			"flake.lock": "json"
+		},
+		"editor.formatOnSave": true,
+		"[nix]": {
+			"editor.defaultFormatter": "jnoortheen.nix-ide"
+		},
+		"nix.enableLanguageServer": true,
+		"nix.serverPath": "nil",
+		"search.exclude": {
+			"**/result": true,
+			"**/result-*": true,
+			"**/.direnv": true
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"jnoortheen.nix-ide",
+			"mkhl.direnv",
+			"bbenoist.nix"
+		]
+	}
+}

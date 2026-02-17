@@ -20,23 +20,18 @@ Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-cont
 - [x] Create GitHub account `@merlin-ai-mba`
 - [x] Create GitHub repo `markus-barta/oc-workspace-merlin` (private)
 - [x] Add `@merlin-ai-mba` as collaborator to `markus-barta/oc-workspace-merlin`
-- [ ] Accept collaborator invite as `@merlin-ai-mba`
-- [ ] Create classic PAT for `@merlin-ai-mba` (scopes: `repo`, `read:org`)
-- [ ] Store PAT in agenix: `hsb0-openclaw-github-pat.age`
+- [x] Accept collaborator invite as `@merlin-ai-mba`
+- [x] Create classic PAT for `@merlin-ai-mba` (scopes: `repo`, `read:org`)
+- [x] Store PAT in agenix: `hsb0-openclaw-github-pat.age`
 
 ## Implementation
 
 ### Phase 1: Repo setup & .gitignore
 
-- [ ] Initialize repo with `.gitignore`:
-  ```
-  node_modules/
-  .openclaw/
-  .DS_Store
-  ```
-- [ ] Create `workbench/` dir for generated/ephemeral files
-- [ ] Create workspace identity files (AGENTS.md, IDENTITY.md, etc.) — mirror Percy's structure
-- [ ] Initial commit + push
+- [x] Initialize repo with `.gitignore` (node_modules/, .openclaw/, .DS_Store)
+- [x] Create `workbench/` dir for generated/ephemeral files
+- [x] Import workspace files from live hsb0 container
+- [x] Initial commit + push
 
 ### Phase 2: Container integration
 
@@ -62,9 +57,9 @@ Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-cont
 
 ### Phase 4: Local development setup
 
-- [ ] Clone repo to `~/Code/oc-workspace-merlin` on imac0
-- [ ] Create or update VS Code workspace file for nixcfg+merlin
-- [ ] Set up direnv/GH_TOKEN for markus-barta (already done via `~/Code/.envrc`)
+- [x] Clone repo to `~/Code/oc-workspace-merlin` on imac0
+- [x] Create VS Code workspace file `nixcfg+merlin.code-workspace`
+- [x] Set up direnv/GH_TOKEN for markus-barta (done via `~/Code/.envrc`)
 
 ### Phase 5: Documentation
 
