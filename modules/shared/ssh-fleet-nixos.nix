@@ -163,7 +163,7 @@
       User mba
 
     Host msbp
-      HostName miniserver-bp
+      HostName miniserver-bp.ts.barta.cm
       Port 2222
       User mba
 
