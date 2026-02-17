@@ -314,6 +314,36 @@ Merlin migrated from hsb1 (Nix package, `systemd.services.openclaw-gateway`) to 
 - **Migration backlog**: `hosts/hsb0/docs/backlog/P30--438b3b8--migrate-merlin-openclaw-to-hsb0-docker.md`
 - **hsb1 on-host state** (`~/.openclaw/`) kept as backup until 2026-03-14
 
+## Git vs Host State
+
+**What goes in git (workspace repo):**
+
+The workspace (`/home/node/.openclaw/workspace/`) is version-controlled in a separate git repo (`markus-barta/oc-workspace-merlin`). This includes:
+
+- `skills/` - Skill definitions
+- `memory/` - Agent's learned knowledge
+- `IDENTITY.md` - Agent identity
+- `HEARTBEAT.md` - Agent self-awareness
+- `workbench/` - Working files
+- `AGENTS.md` - Git workflow instructions
+
+**What stays in `/var/lib/` (NOT in git):**
+
+All other files in `/var/lib/openclaw-merlin/` are runtime state and never go into git:
+
+| Directory/File  | Why                                          |
+| --------------- | -------------------------------------------- |
+| `openclaw.json` | Gateway config - infrastructure, not content |
+| `credentials/`  | Secrets - handled by agenix                  |
+| `telegram/`     | Runtime state (updates, offsets)             |
+| `cron/`         | Operational logs and jobs                    |
+| `devices/`      | Paired device state                          |
+| `vdirsyncer/`   | External tool config                         |
+| `khal/`         | External tool config                         |
+| `gogcli/`       | External tool config                         |
+
+The workspace repo is for **content the agent creates** (skills, memory, identity). The `/var/lib/` is for **infrastructure and runtime state** that should not be version-controlled.
+
 ## Related Documentation
 
 - [hsb0 RUNBOOK](./RUNBOOK.md) - Main host runbook
