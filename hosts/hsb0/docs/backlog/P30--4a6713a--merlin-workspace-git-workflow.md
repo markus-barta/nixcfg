@@ -2,7 +2,7 @@
 
 **Host**: hsb0
 **Priority**: P30
-**Status**: Backlog
+**Status**: In Progress
 **Created**: 2026-02-17
 
 ---
@@ -44,34 +44,64 @@ Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-cont
 - [ ] Deploy to hsb0 + rebuild container
 - [ ] Verify Merlin can `git add/commit/push`
 
-### Phase 3: Operational commands
+### Phase 3: Git push strategy & awareness
 
-- [ ] Create `just` recipes or scripts for:
-  - `merlin-update-workspace` — pull latest changes into container
-  - `merlin-rebuild` — rebuild + restart container
-- [ ] Ensure container startup handles git pull (or at least doesn't break if repo exists)
-- [ ] Document workflow in OPENCLAW-RUNBOOK.md
+Merlin decides when to commit+push (agent-native). Daily safety net ensures nothing is lost.
 
-### Phase 4: Local development setup
+- [ ] Add git awareness to Merlin's workspace (AGENTS.md or similar) telling him:
+  - Workspace is git-tracked, he can/should commit meaningful changes
+  - Use `git add/commit/push` when updating memory, skills, or config
+  - `git config` already set (name: "Merlin AI", email: merlin-ai-mba noreply)
+- [ ] Add daily auto-push safety net to entrypoint (cron or OpenClaw cron):
+  - If uncommitted changes exist, auto-commit+push with generic message
+  - Runs at least once per day
+
+### Phase 4: Just recipes
+
+- [ ] `merlin-pull-workspace` — `docker exec` git pull in container (Markus triggers when he pushed changes Merlin should pick up NOW)
+- [ ] `merlin-rebuild` — rebuild + restart container (after Dockerfile/docker-compose changes)
+
+### Phase 5: Local development setup
 
 - [x] Clone repo to `~/Code/oc-workspace-merlin` on imac0
 - [x] Create VS Code workspace file `nixcfg+merlin.code-workspace`
 - [x] Set up direnv/GH_TOKEN for markus-barta (done via `~/Code/.envrc`)
 
-### Phase 5: Documentation
+### Phase 6: Deploy & verify
+
+- [ ] Deploy to hsb0 (nixos-rebuild switch)
+- [ ] Rebuild Merlin container
+- [ ] Verify workspace cloned from git in container
+- [ ] Verify Merlin can `git add/commit/push`
+- [ ] Verify Markus can push changes + `merlin-pull-workspace` works
+
+### Phase 7: Documentation
 
 - [ ] Update `hosts/hsb0/docs/OPENCLAW-RUNBOOK.md` with workspace git workflow
-- [ ] Document how Markus pushes changes Merlin picks up
-- [ ] Document how Merlin pushes changes Markus can review
+- [ ] Document the two flows:
+  - **Merlin writes**: Merlin edits → commits → pushes → Markus sees via `git pull` locally
+  - **Markus writes**: Markus edits → commits → pushes → `just merlin-pull-workspace` or wait for restart
+
+## Workflow design
+
+| Who                  | Action                                     | How                                        |
+| -------------------- | ------------------------------------------ | ------------------------------------------ |
+| **Merlin** writes    | Edits workspace files during conversations | In container, direct fs                    |
+| **Merlin** publishes | Commits + pushes when meaningful           | `git add/commit/push` (he decides)         |
+| **Safety net**       | Auto-push uncommitted changes              | Daily cron (at least 1x/day)               |
+| **Markus** writes    | Edits workspace files locally              | `~/Code/oc-workspace-merlin` + VS Code     |
+| **Markus** publishes | Commits + pushes to GitHub                 | Normal git workflow                        |
+| **Merlin** receives  | Picks up Markus's changes                  | `just merlin-pull-workspace` or on restart |
 
 ## Acceptance Criteria
 
 - [ ] `oc-workspace-merlin` repo has clean `.gitignore`, no junk files tracked
 - [ ] `@merlin-ai-mba` can push to the repo
 - [ ] Merlin's container workspace is a git clone of the repo
-- [ ] Merlin can commit and push workspace changes
+- [ ] Merlin can commit and push workspace changes (he decides when)
+- [ ] Daily safety net auto-pushes uncommitted changes
 - [ ] Markus can see Merlin's changes locally
-- [ ] Markus can push changes that Merlin picks up
+- [ ] Markus can push changes that Merlin picks up via `just merlin-pull-workspace`
 - [ ] `workbench/` exists for Merlin's generated/working files
 - [ ] OPENCLAW-RUNBOOK.md updated with git workflow
 
@@ -79,6 +109,7 @@ Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-cont
 
 - Pattern mirrors Percy's setup (see P30--744b13a)
 - Merlin runs 24/7 on hsb0 — container rebuild requires brief downtime
-- GitHub PAT will be stored in agenix, mounted as docker secret (same pattern as Percy)
+- GitHub PAT stored in agenix, mounted as docker secret (same pattern as Percy)
 - Merlin's repo under `markus-barta` (personal infra), not `bytepoets-mba`
 - Clone locally to `~/Code/oc-workspace-merlin` (not under BYTEPOETS/)
+- Config changes: agent makes config, Markus deploys, together we validate
