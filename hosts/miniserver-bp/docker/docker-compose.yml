@@ -30,7 +30,7 @@ services:
         export OPENCLAW_GATEWAY_TOKEN=$$(cat /run/secrets/gateway-token)
         export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
         export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
-        export GITHUB_PAT=$$(cat /run/secrets/github-pat)
+        export GITHUB_PAT=$$(cat /run/secrets/github-pat | sed 's/^GITHUB_PAT=//')
 
         # Initialize workspace from git if not already cloned
         WORKSPACE_DIR=/home/node/.openclaw/workspace
