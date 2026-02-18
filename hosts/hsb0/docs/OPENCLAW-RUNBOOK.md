@@ -396,10 +396,13 @@ Each container's entrypoint:
 
 PATs are stored in agenix, mounted as docker secrets at `/run/secrets/github-pat`.
 
-### Local Setup (imac0)
+### Local Setup (imac0, mba-imac-work)
 
 - Clones at `~/Code/oc-workspace-merlin` and `~/Code/oc-workspace-percy`
-- `GH_TOKEN` set via `~/Code/.envrc` (macOS Keychain, `markus-barta` account)
+- Each workspace has its own `.envrc` loading `GH_TOKEN` from macOS Keychain:
+  - nixcfg + Merlin: `gh-token-markus-barta` → `@markus-barta`
+  - Percy: `gh-token-bytepoets-mba` → `@bytepoets-mba`
+- direnv auto-switches identity based on working directory
 - Open `nixcfg+agents.code-workspace` in VSCodium for all three repos
 
 ## Related Documentation
