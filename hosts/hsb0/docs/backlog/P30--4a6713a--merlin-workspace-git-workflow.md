@@ -2,7 +2,7 @@
 
 **Host**: hsb0
 **Priority**: P30
-**Status**: In Progress
+**Status**: Done
 **Created**: 2026-02-17
 
 ---
@@ -41,25 +41,25 @@ Use `markus-barta/oc-workspace-merlin` (private GitHub repo) as the version-cont
   - Container path: `/home/node/.openclaw/workspace/`
   - Remote URL: `https://<PAT>@github.com/markus-barta/oc-workspace-merlin.git`
 - [x] Configure git identity in container (done in entrypoint)
-- [ ] Deploy to hsb0 + rebuild container
-- [ ] Verify Merlin can `git add/commit/push`
+- [x] Deploy to hsb0 + rebuild container
+- [x] Verify Merlin can `git add/commit/push`
 
 ### Phase 3: Git push strategy & awareness
 
 Merlin decides when to commit+push (agent-native). Daily safety net ensures nothing is lost.
 
-- [ ] Add git awareness to Merlin's workspace (AGENTS.md or similar) telling him:
+- [x] Add git awareness to Merlin's workspace (AGENTS.md or similar) telling him:
   - Workspace is git-tracked, he can/should commit meaningful changes
   - Use `git add/commit/push` when updating memory, skills, or config
   - `git config` already set (name: "Merlin AI", email: merlin-ai-mba noreply)
-- [ ] Add daily auto-push safety net to entrypoint (cron or OpenClaw cron):
+- [x] Add daily auto-push safety net to entrypoint (cron or OpenClaw cron):
   - If uncommitted changes exist, auto-commit+push with generic message
   - Runs at least once per day
 
 ### Phase 4: Just recipes
 
-- [ ] `merlin-pull-workspace` — `docker exec` git pull in container (Markus triggers when he pushed changes Merlin should pick up NOW)
-- [ ] `merlin-rebuild` — rebuild + restart container (after Dockerfile/docker-compose changes)
+- [x] `merlin-pull-workspace` — `docker exec` git pull in container (Markus triggers when he pushed changes Merlin should pick up NOW)
+- [x] `merlin-rebuild` — rebuild + restart container (after Dockerfile/docker-compose changes)
 
 ### Phase 5: Local development setup
 
@@ -69,16 +69,16 @@ Merlin decides when to commit+push (agent-native). Daily safety net ensures noth
 
 ### Phase 6: Deploy & verify
 
-- [ ] Deploy to hsb0 (nixos-rebuild switch)
-- [ ] Rebuild Merlin container
-- [ ] Verify workspace cloned from git in container
-- [ ] Verify Merlin can `git add/commit/push`
-- [ ] Verify Markus can push changes + `merlin-pull-workspace` works
+- [x] Deploy to hsb0 (nixos-rebuild switch)
+- [x] Rebuild Merlin container
+- [x] Verify workspace cloned from git in container
+- [x] Verify Merlin can `git add/commit/push`
+- [x] Verify Markus can push changes + `merlin-pull-workspace` works
 
 ### Phase 7: Documentation
 
-- [ ] Update `hosts/hsb0/docs/OPENCLAW-RUNBOOK.md` with workspace git workflow
-- [ ] Document the two flows:
+- [x] Update `hosts/hsb0/docs/OPENCLAW-RUNBOOK.md` with workspace git workflow
+- [x] Document the two flows:
   - **Merlin writes**: Merlin edits → commits → pushes → Markus sees via `git pull` locally
   - **Markus writes**: Markus edits → commits → pushes → `just merlin-pull-workspace` or wait for restart
 
@@ -95,15 +95,15 @@ Merlin decides when to commit+push (agent-native). Daily safety net ensures noth
 
 ## Acceptance Criteria
 
-- [ ] `oc-workspace-merlin` repo has clean `.gitignore`, no junk files tracked
-- [ ] `@merlin-ai-mba` can push to the repo
-- [ ] Merlin's container workspace is a git clone of the repo
-- [ ] Merlin can commit and push workspace changes (he decides when)
-- [ ] Daily safety net auto-pushes uncommitted changes
-- [ ] Markus can see Merlin's changes locally
-- [ ] Markus can push changes that Merlin picks up via `just merlin-pull-workspace`
-- [ ] `workbench/` exists for Merlin's generated/working files
-- [ ] OPENCLAW-RUNBOOK.md updated with git workflow
+- [x] `oc-workspace-merlin` repo has clean `.gitignore`, no junk files tracked
+- [x] `@merlin-ai-mba` can push to the repo
+- [x] Merlin's container workspace is a git clone of the repo
+- [x] Merlin can commit and push workspace changes (he decides when)
+- [x] Daily safety net auto-pushes uncommitted changes
+- [x] Markus can see Merlin's changes locally
+- [x] Markus can push changes that Merlin picks up via `just merlin-pull-workspace`
+- [x] `workbench/` exists for Merlin's generated/working files
+- [x] OPENCLAW-RUNBOOK.md updated with git workflow
 
 ## Notes
 
