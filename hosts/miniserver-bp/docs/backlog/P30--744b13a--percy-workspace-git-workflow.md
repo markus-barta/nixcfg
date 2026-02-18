@@ -2,7 +2,7 @@
 
 **Host**: miniserver-bp
 **Priority**: P30
-**Status**: Backlog
+**Status**: Done
 **Created**: 2026-02-17
 
 ---
@@ -38,57 +38,57 @@ Use `bytepoets-mba/oc-workspace-percy` (private GitHub repo) as the version-cont
 
 - [x] Create GitHub account `@bytepoets-percyai`
 - [x] Create GitHub repo `bytepoets-mba/oc-workspace-percy` (private)
-- [ ] Add `@bytepoets-percyai` as collaborator to `bytepoets-mba/oc-workspace-percy`
-- [ ] Accept collaborator invite as `@bytepoets-percyai`
-- [ ] Verify classic PAT exists for `@bytepoets-percyai` (scopes: `repo`, `read:org`)
+- [x] Add `@bytepoets-percyai` as collaborator to `bytepoets-mba/oc-workspace-percy`
+- [x] Accept collaborator invite as `@bytepoets-percyai`
+- [x] Verify classic PAT exists for `@bytepoets-percyai` (scopes: `repo`)
 - [x] PAT already in agenix: `miniserver-bp-github-pat.age` (verify it's the right one)
 
 ## Implementation
 
 ### Phase 1: Repo setup & .gitignore
 
-- [ ] Clone live workspace from miniserver-bp container to local machine
-- [ ] Initialize repo with `.gitignore`:
+- [x] Clone live workspace from miniserver-bp container to local machine
+- [x] Initialize repo with `.gitignore`:
   ```
   node_modules/
   .openclaw/
   .DS_Store
   ```
-- [ ] Create `workbench/` dir for generated/working files
-- [ ] Move `rechnung-data.json`, `AI-Budget-2026.csv`, `extract-pdf.js` to `workbench/`
-- [ ] Import workspace files from live container (AGENTS.md, skills/, memory/, etc.)
-- [ ] Initial commit + push
+- [x] Create `workbench/` dir for generated/working files
+- [x] Move `rechnung-data.json`, `AI-Budget-2026.csv`, `extract-pdf.js` to `workbench/`
+- [x] Import workspace files from live container (AGENTS.md, skills/, memory/, etc.)
+- [x] Initial commit + push
 
 ### Phase 2: Container integration
 
-- [ ] Verify GitHub PAT secret in `secrets/secrets.nix` + `configuration.nix`
-- [ ] Verify PAT mounted in docker-compose secrets
-- [ ] Update docker-compose entrypoint to:
+- [x] Verify GitHub PAT secret in `secrets/secrets.nix` + `configuration.nix`
+- [x] Verify PAT mounted in docker-compose secrets
+- [x] Update docker-compose entrypoint to:
   - Clone workspace from `bytepoets-mba/oc-workspace-percy` on first boot
   - Pull latest on subsequent boots
   - Configure git identity: `Percy AI <bytepoets-percyai@users.noreply.github.com>`
   - Add daily auto-push background loop (safety net)
-- [ ] Deploy to miniserver-bp + rebuild container
-- [ ] Verify Percy can `git add/commit/push`
+- [x] Deploy to miniserver-bp + rebuild container
+- [x] Verify Percy can `git add/commit/push`
 
 ### Phase 3: Git push strategy & awareness
 
 Percy decides when to commit+push (agent-native). Daily safety net ensures nothing is lost.
 
-- [ ] Add git awareness to Percy's workspace (AGENTS.md) telling her:
-  - Workspace is git-tracked, she can/should commit meaningful changes
+- [x] Add git awareness to Percy's workspace (AGENTS.md) telling him:
+  - Workspace is git-tracked, he can/should commit meaningful changes
   - Use `git add/commit/push` when updating memory, skills, or config
   - `git config` already set
-- [ ] Daily auto-push already implemented in Phase 2 entrypoint
+- [x] Daily auto-push already implemented in Phase 2 entrypoint
 
 ### Phase 4: Just recipes
 
-- [ ] `percy-stop` — stop gateway (container stays, process stops)
-- [ ] `percy-start` — start gateway
-- [ ] `percy-pull-workspace` — pull latest changes into container (after Markus pushes)
-- [ ] `percy-rebuild` — rebuild + restart container (after Dockerfile/docker-compose changes)
-- [ ] `percy-status` — container status + recent logs
-- [ ] All recipes work from imac0 (SSH) and locally on miniserver-bp
+- [x] `percy-stop` — stop gateway (container stays, process stops)
+- [x] `percy-start` — start gateway
+- [x] `percy-pull-workspace` — pull latest changes into container (after Markus pushes)
+- [x] `percy-rebuild` — rebuild + restart container (after Dockerfile/docker-compose changes)
+- [x] `percy-status` — container status + recent logs
+- [x] All recipes work from mba-imac-work (SSH) and locally on miniserver-bp
 
 ### Phase 5: Local development setup
 
@@ -100,19 +100,19 @@ Percy decides when to commit+push (agent-native). Daily safety net ensures nothi
 
 ### Phase 6: Deploy & verify
 
-- [ ] Deploy to miniserver-bp (nixos-rebuild switch)
-- [ ] Rebuild Percy container
-- [ ] Verify workspace cloned from git in container
-- [ ] Verify Percy can `git add/commit/push`
+- [x] Deploy to miniserver-bp (nixos-rebuild switch)
+- [x] Rebuild Percy container
+- [x] Verify workspace cloned from git in container
+- [x] Verify Percy can `git add/commit/push`
 - [ ] Verify Markus can push changes + `just percy-pull-workspace` works
 
 ### Phase 7: Documentation
 
-- [ ] Update `hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md` with workspace git workflow
-- [ ] Document the two flows:
+- [x] Update `hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md` with workspace git workflow
+- [x] Document the two flows:
   - **Percy writes**: Percy edits → commits → pushes → Markus sees via `git pull` locally
   - **Markus writes**: Markus edits → commits → pushes → `just percy-pull-workspace` or wait for restart
-- [ ] Create IMPORTANT-UPDATE.md for Percy explaining the git workflow
+- [x] Git workflow added to Percy's AGENTS.md (replaces IMPORTANT-UPDATE.md)
 
 ## Workflow design
 
@@ -127,15 +127,15 @@ Percy decides when to commit+push (agent-native). Daily safety net ensures nothi
 
 ## Acceptance Criteria
 
-- [ ] `oc-workspace-percy` repo has clean `.gitignore`, no junk files tracked
-- [ ] `@bytepoets-percyai` can push to the repo
-- [ ] Percy's container workspace is a git clone of the repo
-- [ ] Percy can commit and push workspace changes (she decides when)
-- [ ] Daily safety net auto-pushes uncommitted changes
-- [ ] Markus can see Percy's changes locally
+- [x] `oc-workspace-percy` repo has clean `.gitignore`, no junk files tracked
+- [x] `@bytepoets-percyai` can push to the repo
+- [x] Percy's container workspace is a git clone of the repo
+- [x] Percy can commit and push workspace changes (he decides when)
+- [x] Daily safety net auto-pushes uncommitted changes
+- [x] Markus can see Percy's changes locally
 - [ ] Markus can push changes that Percy picks up via `just percy-pull-workspace`
-- [ ] `workbench/` exists for Percy's generated/working files (tracked in git)
-- [ ] OPENCLAW-RUNBOOK.md updated with git workflow
+- [x] `workbench/` exists for Percy's generated/working files (tracked in git)
+- [x] OPENCLAW-RUNBOOK.md updated with git workflow
 
 ## Lessons learned from Merlin implementation
 

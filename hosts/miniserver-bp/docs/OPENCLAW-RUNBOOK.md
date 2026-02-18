@@ -5,7 +5,7 @@
 **Port**: 18789
 **Management**: docker-compose (not oci-containers)
 **Version**: latest (npm)
-**Updated**: 2026-02-15
+**Updated**: 2026-02-18
 
 ---
 
@@ -58,6 +58,60 @@ Other bundled skills are available but may need binaries or API keys. Enable/dis
 | openrouter-free-models | Find free LLMs on OpenRouter | `workspace/skills/openrouter-free-models/` |
 
 Installed manually. Use ClawHub CLI or manual git-clone for more — see "Adding Skills" below.
+
+## Workspace Git Workflow
+
+### Overview
+
+Percy's workspace (`/home/node/.openclaw/workspace/`) is version-controlled via `bytepoets-mba/oc-workspace-percy` (private). Percy pushes via `@bytepoets-percyai`. Markus edits locally in VSCodium.
+
+| Component        | Repo                               | GitHub account       | Local clone                 |
+| ---------------- | ---------------------------------- | -------------------- | --------------------------- |
+| Nix infra config | `markus-barta/nixcfg`              | `@markus-barta`      | `~/Code/nixcfg`             |
+| Percy workspace  | `bytepoets-mba/oc-workspace-percy` | `@bytepoets-percyai` | `~/Code/oc-workspace-percy` |
+
+### Flows
+
+**Percy writes**:
+
+1. Percy edits workspace files during conversation
+2. Percy decides when to `git add/commit/push`
+3. Daily auto-push safety net catches uncommitted changes (background loop in entrypoint)
+4. Markus sees changes via `git pull` in local clone
+
+**Markus writes**:
+
+1. Markus edits in VSCodium
+2. Commits + pushes to GitHub
+3. Percy picks up changes via `just percy-pull-workspace` or on container restart
+
+### Just Recipes (from mba-imac-work or miniserver-bp)
+
+```bash
+just percy-stop              # stop container process
+just percy-start             # start container process
+just percy-pull-workspace    # git pull inside running container
+just percy-rebuild           # rebuild + recreate container
+just percy-status            # container status + recent logs
+```
+
+### Container Git Setup
+
+The container's entrypoint:
+
+- Clones workspace repo on first boot (using PAT from agenix secret)
+- Pulls latest on subsequent boots (`git pull --ff-only`)
+- Configures git identity: `Percy AI <bytepoets-percyai@users.noreply.github.com>`
+- Starts daily auto-push background loop (`sleep 86400` cycle)
+
+### PAT Details
+
+- Secret: `miniserver-bp-github-pat.age`
+- Account: `@bytepoets-percyai`
+- Scopes: `repo`
+- Format in secret: `GITHUB_PAT=<token>` (entrypoint strips prefix)
+
+---
 
 ## Operational Commands
 
