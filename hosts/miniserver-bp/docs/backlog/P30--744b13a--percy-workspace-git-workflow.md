@@ -13,7 +13,7 @@ Percy's OpenClaw workspace (`/home/node/.openclaw/workspace/` in container) is n
 
 ## Solution
 
-Use `bytepoets-mba/oc-workspace-percy` (private GitHub repo) as the version-controlled workspace. Percy pushes changes via `@bytepoets-percyai` GitHub account. Markus can see/edit via local clone + VS Code workspace (`nixcfg+percy.code-workspace`).
+Use `bytepoets-mba/oc-workspace-percy` (private GitHub repo) as the version-controlled workspace. Percy pushes changes via `@bytepoets-percyai` GitHub account. Markus can see/edit via local clone + VSCodium workspace (`nixcfg+agents.code-workspace` or `nixcfg+percy.code-workspace`).
 
 ## Decisions Made
 
@@ -30,7 +30,7 @@ Use `bytepoets-mba/oc-workspace-percy` (private GitHub repo) as the version-cont
 | `AI-Budget-2026.csv`                 | Move to `workbench/` (tracked)                                                    |
 | `extract-pdf.js`                     | Move to `workbench/` (tracked, but ask Percy if it's a utility or ephemeral)      |
 | `HEARTBEAT.md`                       | Tracked (want change history)                                                     |
-| VS Code workspace                    | `nixcfg+percy.code-workspace` (already exists in nixcfg)                          |
+| VS Code workspace                    | `nixcfg+percy.code-workspace` + combined `nixcfg+agents.code-workspace`           |
 | Git push strategy                    | Percy decides when to push + daily auto-push safety net                           |
 | Percy's git email                    | `percy.ai@bytepoets.com` → change to `bytepoets-percyai@users.noreply.github.com` |
 
@@ -93,8 +93,10 @@ Percy decides when to commit+push (agent-native). Daily safety net ensures nothi
 ### Phase 5: Local development setup
 
 - [x] VS Code workspace `nixcfg+percy.code-workspace` already exists
-- [ ] Clone repo to local machine for editing (location TBD - under `~/Code/BYTEPOETS/` or `~/Code/`)
-- [ ] Set up direnv/GH_TOKEN (already exists via `~/Code/.envrc` for markus-barta, or `~/Code/BYTEPOETS/.envrc` for bytepoets-mba)
+- [x] Combined workspace `nixcfg+agents.code-workspace` includes Percy
+- [x] Clone repo to `~/Code/oc-workspace-percy` (done on imac0 + mba-imac-work)
+- [x] Set up direnv/GH_TOKEN via `.envrc` in workspace (macOS Keychain: `gh-token-bytepoets-mba`)
+- [x] Percy remote switched to SSH: `git@github-bp:bytepoets-mba/oc-workspace-percy.git`
 
 ### Phase 6: Deploy & verify
 
