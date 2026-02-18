@@ -344,6 +344,64 @@ All other files in `/var/lib/openclaw-merlin/` are runtime state and never go in
 
 The workspace repo is for **content the agent creates** (skills, memory, identity). The `/var/lib/` is for **infrastructure and runtime state** that should not be version-controlled.
 
+## Workspace Git Workflow
+
+### Overview
+
+Both AI agents (Merlin on hsb0, Percy on miniserver-bp) have git-backed workspaces. Each agent pushes via its own GitHub account. Markus edits all three repos locally in a single VSCodium workspace.
+
+| Component        | Repo                               | GitHub account       | Local clone                  |
+| ---------------- | ---------------------------------- | -------------------- | ---------------------------- |
+| Nix infra config | `markus-barta/nixcfg`              | `@markus-barta`      | `~/Code/nixcfg`              |
+| Merlin workspace | `markus-barta/oc-workspace-merlin` | `@merlin-ai-mba`     | `~/Code/oc-workspace-merlin` |
+| Percy workspace  | `bytepoets-mba/oc-workspace-percy` | `@bytepoets-percyai` | `~/Code/oc-workspace-percy`  |
+
+**Combined VSCodium workspace**: `nixcfg+agents.code-workspace` (all three repos as roots).
+
+### Flows
+
+**Agent writes** (Merlin or Percy):
+
+1. Agent edits workspace files during conversation
+2. Agent decides when to `git add/commit/push`
+3. Daily auto-push safety net catches uncommitted changes (background loop in entrypoint)
+4. Markus sees changes via `git pull` in local clone
+
+**Markus writes**:
+
+1. Markus edits in VSCodium (any of the three roots)
+2. Commits + pushes to GitHub
+3. Agent picks up changes via `just <agent>-pull-workspace` or on container restart
+
+### Just Recipes (from imac0 or hsb0)
+
+```bash
+just merlin-stop              # stop container process
+just merlin-start             # start container process
+just merlin-pull-workspace    # git pull inside running container
+just merlin-rebuild           # rebuild + recreate container
+just merlin-status            # container status + recent logs
+```
+
+Percy recipes (`percy-stop`, `percy-pull-workspace`, etc.) follow the same pattern on miniserver-bp.
+
+### Container Git Setup
+
+Each container's entrypoint:
+
+- Clones workspace repo on first boot (using PAT from agenix secret)
+- Pulls latest on subsequent boots (`git pull --ff-only`)
+- Configures git identity (name + noreply email)
+- Starts daily auto-push background loop (`sleep 86400` cycle)
+
+PATs are stored in agenix, mounted as docker secrets at `/run/secrets/github-pat`.
+
+### Local Setup (imac0)
+
+- Clones at `~/Code/oc-workspace-merlin` and `~/Code/oc-workspace-percy`
+- `GH_TOKEN` set via `~/Code/.envrc` (macOS Keychain, `markus-barta` account)
+- Open `nixcfg+agents.code-workspace` in VSCodium for all three repos
+
 ## Related Documentation
 
 - [hsb0 RUNBOOK](./RUNBOOK.md) - Main host runbook
