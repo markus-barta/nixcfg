@@ -95,6 +95,8 @@ just percy-rebuild           # rebuild + recreate container
 just percy-status            # container status + recent logs
 ```
 
+**Note:** `percy-rebuild` dauert ca. 15 Minuten (pip installiert pymupdf4llm, pdfplumber — ca. 30MB Python-Pakete). Geduld beim ersten Rebuild nach Dockerfile-Änderungen.
+
 ### Container Git Setup
 
 The container's entrypoint:
