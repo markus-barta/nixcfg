@@ -5,8 +5,12 @@
 			"path": "."
 		},
 		{
-			"name": "nixfleet",
-			"path": "../nixfleet"
+			"name": "merlin-workspace",
+			"path": "../oc-workspace-merlin"
+		},
+		{
+			"name": "percy-workspace",
+			"path": "../oc-workspace-percy"
 		}
 	],
 	"settings": {

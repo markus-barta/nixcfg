@@ -23,7 +23,8 @@
 		"search.exclude": {
 			"**/result": true,
 			"**/result-*": true,
-			"**/.direnv": true
+			"**/.direnv": true,
+			"**/node_modules": true
 		}
 	},
 	"extensions": {
