@@ -1,6 +1,7 @@
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y git curl jq python3 && rm -rf /var/lib/apt/lists/* \
-    && ln -s /usr/bin/python3 /usr/bin/python
+RUN apt-get update && apt-get install -y git curl jq python3 python3-pip poppler-utils && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/bin/python3 /usr/bin/python \
+    && pip3 install --break-system-packages pymupdf4llm pdfplumber
 # Install gh CLI (GitHub CLI)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod +r /usr/share/keyrings/githubcli-archive-keyring.gpg \
