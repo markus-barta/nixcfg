@@ -1,4 +1,4 @@
-Commit all uncommitted changes and push to remote. Follow this procedure:
+Commit all uncommitted changes in the **current working directory repo** and push to remote. Follow this procedure:
 
 1. Run `git status` and `git diff` (staged + unstaged) to see everything that changed.
 2. Analyze the changes and **group them into logical commits** — files that belong together (same feature, same host, same fix) go in one commit. Don't lump unrelated changes into a single commit. Examples of good grouping:
