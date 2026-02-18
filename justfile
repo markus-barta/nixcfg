@@ -669,6 +669,45 @@ merlin-rebuild:
 merlin-status:
     just _hsb0-run "docker ps -f name=openclaw-merlin --format 'table {{{{.Status}}\t{{{{.Ports}}' && echo '---' && docker logs openclaw-merlin --tail 20"
 
+# ============================================================================
+# OpenClaw Percy (miniserver-bp) — works from macOS (via SSH) and locally
+# ============================================================================
+
+# Helper: run command on miniserver-bp (SSH if remote, direct if local)
+[private]
+_msbp-run cmd:
+    #!/usr/bin/env bash
+    if [ "$(hostname -s)" = "miniserver-bp" ]; then
+        bash -c "{{ cmd }}"
+    else
+        ssh -p 2222 mba@10.17.1.40 "{{ cmd }}"
+    fi
+
+# Stop the Percy gateway (container stays, process stops)
+[group('percy')]
+percy-stop:
+    just _msbp-run "cd ~/Code/nixcfg/hosts/miniserver-bp/docker && docker compose stop openclaw-percaival"
+
+# Start the Percy gateway
+[group('percy')]
+percy-start:
+    just _msbp-run "cd ~/Code/nixcfg/hosts/miniserver-bp/docker && docker compose start openclaw-percaival"
+
+# Pull latest workspace changes into running container (after Markus pushes)
+[group('percy')]
+percy-pull-workspace:
+    just _msbp-run "docker exec openclaw-percaival git -C /home/node/.openclaw/workspace pull --ff-only"
+
+# Rebuild and restart the Percy container (after Dockerfile/docker-compose changes)
+[group('percy')]
+percy-rebuild:
+    just _msbp-run "cd ~/Code/nixcfg/hosts/miniserver-bp/docker && docker compose up -d --build --force-recreate openclaw-percaival"
+
+# Show Percy container status and recent logs
+[group('percy')]
+percy-status:
+    just _msbp-run "docker ps -f name=openclaw-percaival --format 'table {{{{.Status}}\t{{{{.Ports}}' && echo '---' && docker logs openclaw-percaival --tail 20"
+
 # Get the reverse dependencies of a nix store path
 [group('maintenance')]
 nix-store-reverse-dependencies:

@@ -31,6 +31,36 @@ services:
         export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
         export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
         export GITHUB_PAT=$$(cat /run/secrets/github-pat)
+
+        # Initialize workspace from git if not already cloned
+        WORKSPACE_DIR=/home/node/.openclaw/workspace
+        if [ ! -d "$$WORKSPACE_DIR/.git" ]; then
+          echo "Cloning workspace from GitHub..."
+          rm -rf "$$WORKSPACE_DIR"
+          git clone https://$$GITHUB_PAT@github.com/bytepoets-mba/oc-workspace-percy.git "$$WORKSPACE_DIR"
+          cd "$$WORKSPACE_DIR"
+          git config user.name "Percy AI"
+          git config user.email "bytepoets-percyai@users.noreply.github.com"
+        else
+          echo "Workspace already cloned, pulling latest..."
+          cd "$$WORKSPACE_DIR"
+          git config user.name "Percy AI"
+          git config user.email "bytepoets-percyai@users.noreply.github.com"
+          git pull --ff-only || echo "Pull failed or conflicts, continuing..."
+        fi
+
+        # Daily auto-push safety net (runs in background, every 24h)
+        (while true; do
+          sleep 86400
+          cd "$$WORKSPACE_DIR"
+          if [ -n "$$(git status --porcelain)" ]; then
+            echo "[auto-push] Uncommitted workspace changes detected, pushing..."
+            git add -A
+            git commit -m "auto: daily workspace sync"
+            git push || echo "[auto-push] Push failed, will retry next cycle"
+          fi
+        done) &
+
         exec openclaw gateway --port 18789
     labels:
       - com.centurylinklabs.watchtower.enable=false
