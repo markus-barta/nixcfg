@@ -371,6 +371,7 @@ ssh mba@192.168.1.101 "journalctl -f"
 | mosquitto              | `eclipse-mosquitto:latest`                                | MQTT broker                  | 1883, 9001   |
 | scrypted               | `ghcr.io/koush/scrypted`                                  | Camera/NVR/HomeKit bridge    | 10443 (host) |
 | matter-server          | `ghcr.io/home-assistant-libs/python-matter-server:stable` | Matter protocol              | 5580 (host)  |
+| health-pixoo           | `ghcr.io/markus-barta/health-pixoo:latest`                | Smart home health on Pixoo64 | host         |
 | ~~pidicon~~            | `ghcr.io/markus-barta/pidicon:latest`                     | Pixoo display control        | 10829 (host) | **disabled** — commented out in docker-compose |
 | apprise                | `caronc/apprise:latest`                                   | Multi-platform notifications | 8001         |
 | opus-stream-to-mqtt    | `node:alpine`                                             | OPUS gateway → MQTT bridge   | host         |
@@ -441,11 +442,11 @@ docker logs watchtower-weekly --tail 50
 
 ### Network Modes
 
-| Mode        | Containers                                                                    |
-| ----------- | ----------------------------------------------------------------------------- |
-| **host**    | homeassistant, nodered, scrypted, matter-server, pidicon, opus-stream-to-mqtt |
-| **bridge**  | zigbee2mqtt, mosquitto, apprise, smtp, restic-cron, watchtowers               |
-| **macvlan** | (available for static IP assignment on 192.168.1.0/24)                        |
+| Mode        | Containers                                                                         |
+| ----------- | ---------------------------------------------------------------------------------- |
+| **host**    | homeassistant, nodered, scrypted, matter-server, health-pixoo, opus-stream-to-mqtt |
+| **bridge**  | zigbee2mqtt, mosquitto, apprise, smtp, restic-cron, watchtowers                    |
+| **macvlan** | (available for static IP assignment on 192.168.1.0/24)                             |
 
 ### MQTT Broker Configuration
 
@@ -470,7 +471,8 @@ If hostname changes, HA MQTT will break. Always use `localhost`.
 | `mqtt.env`                     | MQTT broker credentials      | mosquitto           |
 | `watchtower.env`               | Notification URLs            | watchtower          |
 | `fritz.env`                    | Fritz!Box credentials        | maintenance scripts |
-| `pidicon.env`                  | Pixoo display config         | pidicon             |
+| `health-pixoo.env`             | MQTT password for Pixoo dash | health-pixoo        |
+| `pidicon.env`                  | Pixoo display config         | pidicon (disabled)  |
 | `github.env`                   | GitHub container registry    | watchtower          |
 | `ghcr.env`                     | GHCR login token             | docker login        |
 | `/etc/secrets/mqtt.env`        | System-wide MQTT credentials | agenix managed      |

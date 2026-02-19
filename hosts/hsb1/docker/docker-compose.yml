@@ -20,6 +20,25 @@ services:
       - "com.centurylinklabs.watchtower.scope=weekly"
     #entrypoint: ["sh", "-c", "env && tail -f /dev/null"]
 
+  health-pixoo:
+    image: ghcr.io/markus-barta/health-pixoo:latest
+    container_name: health-pixoo
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Vienna
+      - PIXOO_IP=192.168.1.159
+      - PIXOO_BRIGHTNESS=70
+      - MQTT_HOST=localhost
+      - MQTT_PORT=1883
+      - MQTT_USER=smarthome
+      - LOG_LEVEL=info
+    env_file:
+      - /home/mba/secrets/health-pixoo.env
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
   #  pidicon:
   #    image: ghcr.io/markus-barta/pidicon:latest
   #    container_name: pidicon
