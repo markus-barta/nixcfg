@@ -122,6 +122,12 @@
     mode = "444";
   };
 
+  # OpenClaw Percaival Mattermost channel
+  age.secrets.miniserver-bp-mattermost-bot-token = {
+    file = ../../secrets/miniserver-bp-mattermost-bot-token.age;
+    mode = "444";
+  };
+
   # ==========================================================================
   # WIREGUARD VPN
   # ==========================================================================
@@ -284,7 +290,8 @@
         }]
       },
       "channels": {
-        "telegram": { "enabled": true, "botToken": "''${TELEGRAM_BOT_TOKEN}", "dmPolicy": "pairing" }
+        "telegram": { "enabled": true, "botToken": "''${TELEGRAM_BOT_TOKEN}", "dmPolicy": "pairing" },
+        "mattermost": { "enabled": true, "dmPolicy": "pairing" }
       }
     }
     EOF

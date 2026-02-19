@@ -17,6 +17,7 @@ services:
       - /run/agenix/miniserver-bp-m365-tenant-id:/run/secrets/m365-tenant-id:ro
       - /run/agenix/miniserver-bp-m365-client-secret:/run/secrets/m365-client-secret:ro
       - /run/agenix/miniserver-bp-github-pat:/run/secrets/github-pat:ro
+      - /run/agenix/miniserver-bp-mattermost-bot-token:/run/secrets/mattermost-bot-token:ro
     environment:
       GOG_KEYRING_BACKEND: "file"
       GOG_ACCOUNT: "percy.ai@bytepoets.com"
@@ -31,6 +32,8 @@ services:
         export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
         export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
         export GITHUB_PAT=$$(cat /run/secrets/github-pat | sed 's/^GITHUB_PAT=//')
+        export MATTERMOST_BOT_TOKEN=$$(cat /run/secrets/mattermost-bot-token)
+        export MATTERMOST_URL="https://mattermost.bytepoets.com"
 
         # Initialize workspace from git if not already cloned
         WORKSPACE_DIR=/home/node/.openclaw/workspace
