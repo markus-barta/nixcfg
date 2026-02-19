@@ -31,11 +31,11 @@ services:
       - PIXOO_BRIGHTNESS=70
       - MQTT_HOST=localhost
       - MQTT_PORT=1883
-      - MQTT_USER=${MOSQITTO_USER_HSB1}
-      - MQTT_PASSWORD=${MOSQITTO_PASS_HSB1}
+      - MQTT_USER=smarthome
       - LOG_LEVEL=info
     env_file:
       - /home/mba/secrets/smarthome.env
+      - /home/mba/secrets/health-pixoo.env
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
