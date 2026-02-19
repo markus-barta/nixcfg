@@ -29,13 +29,25 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        export TELEGRAM_BOT_TOKEN=$$(cat /run/secrets/telegram-token)
-        export OPENCLAW_GATEWAY_TOKEN=$$(cat /run/secrets/gateway-token)
-        export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
-        export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
-        export GITHUB_PAT=$$(cat /run/secrets/github-pat | sed 's/^GITHUB_PAT=//')
-        export MATTERMOST_BOT_TOKEN=$$(cat /run/secrets/mattermost-bot-token)
-        export MATTERMOST_URL="https://mattermost.bytepoets.com"
+        # Build env file from secrets (available to entrypoint + docker exec)
+        ENV_FILE=/home/node/.env
+        cat > "$$ENV_FILE" <<ENVEOF
+        TELEGRAM_BOT_TOKEN=$$(cat /run/secrets/telegram-token)
+        OPENCLAW_GATEWAY_TOKEN=$$(cat /run/secrets/gateway-token)
+        OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
+        BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
+        GITHUB_PAT=$$(cat /run/secrets/github-pat | sed 's/^GITHUB_PAT=//')
+        MATTERMOST_BOT_TOKEN=$$(cat /run/secrets/mattermost-bot-token)
+        MATTERMOST_URL=https://mattermost.bytepoets.com
+        ENVEOF
+        sed -i 's/^[[:space:]]*//' "$$ENV_FILE"
+
+        # Source env for this process (gateway)
+        set -a; . "$$ENV_FILE"; set +a
+
+        # Make env available to docker exec shells
+        echo '. /home/node/.env 2>/dev/null' > /home/node/.profile
+        echo 'set -a; . /home/node/.env 2>/dev/null; set +a' > /home/node/.bashrc
 
         # Deploy git-managed config (backup existing, then overwrite)
         CONFIG_SRC=/home/node/.openclaw-config/openclaw.json
