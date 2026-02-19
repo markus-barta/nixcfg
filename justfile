@@ -839,3 +839,23 @@ hokage-options-md-save path='docs/hokage-options.md':
     mkdir -p "$(dirname "{{ path }}")"
     install -Dm644 "$FILE" "{{ path }}"
     echo "✅ Saved hokage options documentation to {{ path }}"
+
+# Start health-pixoo dashboard on Pixoo64
+[group('smarthome')]
+pixoo-start:
+    ssh mba@hsb1.lan "mosquitto_pub -h localhost -u smarthome -P \$(grep MQTT_PASSWORD ~/secrets/health-pixoo.env | cut -d= -f2) -t 'jhw2211/health/control' -m 'start'"
+
+# Stop health-pixoo dashboard, restore Pixoo clock face
+[group('smarthome')]
+pixoo-stop:
+    ssh mba@hsb1.lan "mosquitto_pub -h localhost -u smarthome -P \$(grep MQTT_PASSWORD ~/secrets/health-pixoo.env | cut -d= -f2) -t 'jhw2211/health/control' -m 'stop'"
+
+# Rebuild and redeploy health-pixoo on hsb1
+[group('smarthome')]
+pixoo-deploy:
+    ssh mba@hsb1.lan "cd ~/Code/health-pixoo && git pull && docker build -t ghcr.io/markus-barta/health-pixoo:latest . && cd ~/docker && docker compose up -d health-pixoo"
+
+# Tail health-pixoo logs from hsb1
+[group('smarthome')]
+pixoo-logs:
+    ssh mba@hsb1.lan "docker logs -f health-pixoo"
