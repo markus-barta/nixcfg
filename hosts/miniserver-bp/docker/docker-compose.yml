@@ -23,81 +23,12 @@ services:
     environment:
       GOG_KEYRING_BACKEND: "file"
       GOG_ACCOUNT: "percy.ai@bytepoets.com"
+      # docker exec sources this file to get secrets into env
+      BASH_ENV: "/home/node/.env"
+      ENV: "/home/node/.env"
     env_file:
       - /run/agenix/miniserver-bp-gogcli-keyring-password
     user: "node"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        # Build env file from secrets (available to entrypoint + docker exec)
-        ENV_FILE=/home/node/.env
-        cat > "$$ENV_FILE" <<ENVEOF
-        TELEGRAM_BOT_TOKEN=$$(cat /run/secrets/telegram-token)
-        OPENCLAW_GATEWAY_TOKEN=$$(cat /run/secrets/gateway-token)
-        OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
-        BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
-        GITHUB_PAT=$$(cat /run/secrets/github-pat | sed 's/^GITHUB_PAT=//')
-        MATTERMOST_BOT_TOKEN=$$(cat /run/secrets/mattermost-bot-token)
-        MATTERMOST_URL=https://mattermost.bytepoets.com
-        ENVEOF
-        sed -i 's/^[[:space:]]*//' "$$ENV_FILE"
-
-        # Source env for this process (gateway)
-        set -a; . "$$ENV_FILE"; set +a
-
-        # Make env available to docker exec shells
-        echo '. /home/node/.env 2>/dev/null' > /home/node/.profile
-        echo 'set -a; . /home/node/.env 2>/dev/null; set +a' > /home/node/.bashrc
-
-        # Deploy git-managed config (backup existing, then overwrite)
-        CONFIG_SRC=/home/node/.openclaw-config/openclaw.json
-        CONFIG_DST=/home/node/.openclaw/openclaw.json
-        if [ -f "$$CONFIG_DST" ]; then
-          BACKUP="$$CONFIG_DST.bak.$$(date +%Y%m%d-%H%M%S)"
-          cp "$$CONFIG_DST" "$$BACKUP"
-          echo "[config] Backed up existing config to $$BACKUP"
-        fi
-        cp "$$CONFIG_SRC" "$$CONFIG_DST"
-        echo "[config] Deployed git-managed openclaw.json"
-
-        # Initialize workspace from git if not already cloned
-        WORKSPACE_DIR=/home/node/.openclaw/workspace
-        if [ ! -d "$$WORKSPACE_DIR/.git" ]; then
-          echo "Cloning workspace from GitHub..."
-          rm -rf "$$WORKSPACE_DIR"
-          git clone https://$$GITHUB_PAT@github.com/bytepoets-mba/oc-workspace-percy.git "$$WORKSPACE_DIR"
-          cd "$$WORKSPACE_DIR"
-          git config user.name "Percy AI"
-          git config user.email "bytepoets-percyai@users.noreply.github.com"
-        else
-          echo "Workspace already cloned, pulling latest..."
-          cd "$$WORKSPACE_DIR"
-          git config user.name "Percy AI"
-          git config user.email "bytepoets-percyai@users.noreply.github.com"
-          git pull --ff-only || echo "Pull failed or conflicts, continuing..."
-        fi
-
-        # Install bundled plugins if not already present (persisted in data volume)
-        OPENCLAW_EXT=/usr/local/lib/node_modules/openclaw/extensions
-        for PLUGIN in mattermost; do
-          if ! openclaw plugins list 2>/dev/null | grep -q "$$PLUGIN"; then
-            echo "[plugins] Installing $$PLUGIN from bundled extensions..."
-            openclaw plugins install "$$OPENCLAW_EXT/$$PLUGIN"
-          fi
-        done
-
-        # Daily auto-push safety net (runs in background, every 24h)
-        (while true; do
-          sleep 86400
-          cd "$$WORKSPACE_DIR"
-          if [ -n "$$(git status --porcelain)" ]; then
-            echo "[auto-push] Uncommitted workspace changes detected, pushing..."
-            git add -A
-            git commit -m "auto: daily workspace sync"
-            git push || echo "[auto-push] Push failed, will retry next cycle"
-          fi
-        done) &
-
-        exec openclaw gateway --port 18789
+    entrypoint: ["/home/node/entrypoint.sh"]
     labels:
       - com.centurylinklabs.watchtower.enable=false
