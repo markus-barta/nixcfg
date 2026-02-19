@@ -191,24 +191,24 @@ Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts
 
 ### Connected Nodes
 
-| Host              | Platform | Tailscale Address | Status     |
-| ----------------- | -------- | ----------------- | ---------- |
-| **imac0**         | macOS    | imac0.ts.barta.cm | ✅ Active  |
-| **mba-imac-work** | macOS    | imacw.ts.barta.cm | ✅ Active  |
-| **mba-mbp-work**  | macOS    | mbpw.ts.barta.cm  | ✅ Active  |
-| **hsb0**          | NixOS    | hsb0.ts.barta.cm  | ✅ Active  |
-| **hsb1**          | NixOS    | hsb1.ts.barta.cm  | ✅ Active  |
-| **gpc0**          | NixOS    | gpc0.ts.barta.cm  | ✅ Active  |
-| **csb0**          | NixOS    | csb0.ts.barta.cm  | ✅ Active  |
-| **csb1**          | NixOS    | csb1.ts.barta.cm  | ✅ Active  |
-| miniserver-bp     | NixOS    | msbp.ts.barta.cm  | 📋 Planned |
+| Host              | Platform | Tailscale Address | Status    |
+| ----------------- | -------- | ----------------- | --------- |
+| **imac0**         | macOS    | imac0.ts.barta.cm | ✅ Active |
+| **mba-imac-work** | macOS    | imacw.ts.barta.cm | ✅ Active |
+| **mba-mbp-work**  | macOS    | mbpw.ts.barta.cm  | ✅ Active |
+| **hsb0**          | NixOS    | hsb0.ts.barta.cm  | ✅ Active |
+| **hsb1**          | NixOS    | hsb1.ts.barta.cm  | ✅ Active |
+| **gpc0**          | NixOS    | gpc0.ts.barta.cm  | ✅ Active |
+| **csb0**          | NixOS    | csb0.ts.barta.cm  | ✅ Active |
+| **csb1**          | NixOS    | csb1.ts.barta.cm  | ✅ Active |
+| miniserver-bp     | NixOS    | msbp.ts.barta.cm  | ✅ Active |
 
 ### Adding a New Node
 
 **1. Generate a pre-auth key on csb0:**
 
 ```bash
-# Long-lived reusable key (store in 1Password!)
+# Long-lived reusable key (stored in 1Password!)
 ssh mba@cs0.barta.cm -p 2222 \
   "docker exec headscale headscale preauthkeys create --user <username> --reusable --expiration 87600h"
 ```
@@ -304,6 +304,98 @@ German keyboard layout issues in Netcup VNC:
 | **gpc0**       | 📋 Planned   | Gaming PC           |
 | **imac0**      | 📋 Planned   | Home workstation    |
 | **macOS work** | 📋 Planned   | Work iMac/MacBook   |
+
+---
+
+## 🏠 Smart Home Naming Convention
+
+Room codes, device types, and MQTT topic templates for all smart home devices.
+
+### Room Codes
+
+| Code | Room (EN)   | Room (DE)    |
+| ---- | ----------- | ------------ |
+| `bz` | bathroom    | Badezimmer   |
+| `dt` | rooftop     | Dachterrasse |
+| `ez` | diningroom  | Esszimmer    |
+| `gb` | guestbath   | Gäste-Bad    |
+| `gw` | guesttoilet | Gäste-WC     |
+| `gz` | guestroom   | Gäste-Zimmer |
+| `ke` | basement    | Keller       |
+| `ki` | kidsroom    | Kinderzimmer |
+| `ku` | kitchen     | Küche        |
+| `sh` | hallway     | Stiegenhaus  |
+| `sz` | bedroom     | Schlafzimmer |
+| `te` | terrace     | Terrasse     |
+| `tg` | parking     | Tiefgarage   |
+| `vk` | backkitchen | Vorküche     |
+| `vr` | foyer       | Vorraum      |
+| `wc` | toilet      | WC           |
+| `wz` | livingroom  | Wohnzimmer   |
+
+### Special / Object Codes
+
+| Code    | EN        | DE          |
+| ------- | --------- | ----------- |
+| `o-boi` | boiler    | Boiler      |
+| `o-kus` | fridge    | Kühlschrank |
+| `o-sra` | closet    | Schrank     |
+| `smah`  | smarthome | Smarthome   |
+
+### Device Type Codes
+
+| Code       | HomeKit Type | Description          |
+| ---------- | ------------ | -------------------- |
+| `light`    | light        | Light                |
+| `window`   | window       | Window               |
+| `door`     | door         | Door                 |
+| `blind`    | blind        | Blind                |
+| `lock`     | lock         | Lock                 |
+| `temp`     | sensor       | Temperature          |
+| `humidity` | sensor       | Humidity             |
+| `pressure` | sensor       | Pressure             |
+| `contact`  | sensor       | Contact              |
+| `motion`   | sensor       | Movement             |
+| `camera`   | camera       | Camera               |
+| `speaker`  | speaker      | Speaker              |
+| `water`    | switch       | Water                |
+| `tv`       | switch       | TV                   |
+| `heating`  | heating      | Heating              |
+| `co2`      | sensor       | Air Quality CO2      |
+| `tvoc`     | sensor       | Air Quality TVOC     |
+| `smoke`    | sensor       | Smoke Detector       |
+| `alarm`    | alarm        | Security Alarm       |
+| `fan`      | fan          | Fan                  |
+| `switch`   | switch       | Switch               |
+| `plug`     | plug         | Plug                 |
+| `special`  | switch       | Generic Smart Device |
+
+### MQTT Topic Templates
+
+```
+home/_room/_type/_entity          ← room-scoped devices
+home/_room/door/_targetroom-d     ← door to another room
+jhw2211/_category/_entity         ← home-wide / infra-level topics
+```
+
+**Examples:**
+
+```
+home/smarthome/switch/syncbox-sync
+home/bz/light/d13
+home/boiler/temp
+home/vr/door/sh-d
+home/wz/door/te-d
+home/wz/button/pixoo01
+home/ki/contact/w06
+jhw2211/sensor/weatherStationAddon/vr/setTime
+jhw2211/health/boiler
+jhw2211/health/heat-chain
+```
+
+> `jhw2211` = home identity prefix (address/apartment code). Use for home-wide concerns not tied to a single room.
+>
+> Source of truth: Google Sheets: https://docs.google.com/spreadsheets/d/189WtwTyrDPWnu6OvpM3_8O-jQG9mq9Qt7ycR5p9zOK4/edit?gid=292639110#gid=292639110
 
 ---
 

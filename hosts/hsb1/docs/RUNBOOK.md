@@ -363,21 +363,21 @@ ssh mba@192.168.1.101 "journalctl -f"
 
 ### Container Overview
 
-| Container           | Image                                                     | Purpose                      | Port         |
-| ------------------- | --------------------------------------------------------- | ---------------------------- | ------------ |
-| homeassistant       | `ghcr.io/home-assistant/home-assistant:stable`            | Main automation hub          | 8123 (host)  |
-| nodered             | `ghcr.io/markus-barta/node-red-miniserver24:main` ¹       | Automation flows + FLIRC IR  | 1880 (host)  |
-| zigbee2mqtt         | `koenkk/zigbee2mqtt:latest`                               | Zigbee device bridge         | 8888         |
-| mosquitto           | `eclipse-mosquitto:latest`                                | MQTT broker                  | 1883, 9001   |
-| scrypted            | `ghcr.io/koush/scrypted`                                  | Camera/NVR/HomeKit bridge    | 10443 (host) |
-| matter-server       | `ghcr.io/home-assistant-libs/python-matter-server:stable` | Matter protocol              | 5580 (host)  |
-| pidicon             | `ghcr.io/markus-barta/pidicon:latest`                     | Pixoo display control        | 10829 (host) |
-| apprise             | `caronc/apprise:latest`                                   | Multi-platform notifications | 8001         |
-| opus-stream-to-mqtt | `node:alpine`                                             | OPUS gateway → MQTT bridge   | host         |
-| smtp                | `namshi/smtp`                                             | Mail relay (via Hover)       | bridge       |
-| restic-cron-hetzner | custom build                                              | Daily backups to Hetzner     | -            |
-| watchtower-weekly   | `beatkind/watchtower:latest`                              | Weekly updates (Sat 5am)     | -            |
-| watchtower-pidicon  | `beatkind/watchtower:latest`                              | Fast pidicon updates (10s)   | -            |
+| Container              | Image                                                     | Purpose                      | Port         |
+| ---------------------- | --------------------------------------------------------- | ---------------------------- | ------------ | ---------------------------------------------- |
+| homeassistant          | `ghcr.io/home-assistant/home-assistant:stable`            | Main automation hub          | 8123 (host)  |
+| nodered                | `ghcr.io/markus-barta/node-red-miniserver24:main` ¹       | Automation flows + FLIRC IR  | 1880 (host)  |
+| zigbee2mqtt            | `koenkk/zigbee2mqtt:latest`                               | Zigbee device bridge         | 8888         |
+| mosquitto              | `eclipse-mosquitto:latest`                                | MQTT broker                  | 1883, 9001   |
+| scrypted               | `ghcr.io/koush/scrypted`                                  | Camera/NVR/HomeKit bridge    | 10443 (host) |
+| matter-server          | `ghcr.io/home-assistant-libs/python-matter-server:stable` | Matter protocol              | 5580 (host)  |
+| ~~pidicon~~            | `ghcr.io/markus-barta/pidicon:latest`                     | Pixoo display control        | 10829 (host) | **disabled** — commented out in docker-compose |
+| apprise                | `caronc/apprise:latest`                                   | Multi-platform notifications | 8001         |
+| opus-stream-to-mqtt    | `node:alpine`                                             | OPUS gateway → MQTT bridge   | host         |
+| smtp                   | `namshi/smtp`                                             | Mail relay (via Hover)       | bridge       |
+| restic-cron-hetzner    | custom build                                              | Daily backups to Hetzner     | -            |
+| watchtower-weekly      | `beatkind/watchtower:latest`                              | Weekly updates (Sat 5am)     | -            |
+| ~~watchtower-pidicon~~ | `beatkind/watchtower:latest`                              | Fast pidicon updates (10s)   | -            | **disabled** — commented out in docker-compose |
 
 ### Key Paths
 
