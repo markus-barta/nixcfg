@@ -172,11 +172,18 @@ docker exec openclaw-percaival openclaw dashboard --no-open
 
 ### Edit Config
 
+Config is **git-managed** at `hosts/miniserver-bp/docker/openclaw-percaival/openclaw.json`.
+The entrypoint copies it into the data volume on every boot (with timestamped backup).
+
 ```bash
-sudo vim /var/lib/openclaw-percaival/data/openclaw.json
-cd ~/Code/nixcfg/hosts/miniserver-bp/docker
+# Edit in nixcfg repo, commit, push, then:
+cd ~/Code/nixcfg && git pull
+cd hosts/miniserver-bp/docker
 docker compose restart openclaw-percaival
+# Entrypoint backs up old config and deploys the new one
 ```
+
+**Do NOT edit `/var/lib/openclaw-percaival/data/openclaw.json` directly** -- it will be overwritten on next restart.
 
 ### Update OpenClaw (duration ~3-5min)
 
@@ -482,12 +489,13 @@ docker exec openclaw-percaival sh -c 'echo $<CHANNEL>_BOT_TOKEN | head -c4'
 
 ### Files checklist
 
-| File                                                       | What to add                                                     |
-| ---------------------------------------------------------- | --------------------------------------------------------------- |
-| `secrets/secrets.nix`                                      | `.age` entry with `publicKeys`                                  |
-| `hosts/miniserver-bp/configuration.nix`                    | `age.secrets.*` block (mode 444) + channel in activation script |
-| `hosts/miniserver-bp/docker/docker-compose.yml`            | Volume mount + env var export                                   |
-| `hosts/miniserver-bp/docker/openclaw-percaival/Dockerfile` | `openclaw plugins install`                                      |
+| File                                                          | What to add                          |
+| ------------------------------------------------------------- | ------------------------------------ |
+| `secrets/secrets.nix`                                         | `.age` entry with `publicKeys`       |
+| `hosts/miniserver-bp/configuration.nix`                       | `age.secrets.*` block (mode 444)     |
+| `hosts/miniserver-bp/docker/docker-compose.yml`               | Volume mount + env var export        |
+| `hosts/miniserver-bp/docker/openclaw-percaival/openclaw.json` | Channel config under `channels.<id>` |
+| `hosts/miniserver-bp/docker/openclaw-percaival/Dockerfile`    | Only if new system packages needed   |
 
 After all files are committed and pushed, run `agenix -e` locally, then deploy on the host.
 
@@ -572,7 +580,8 @@ docker exec openclaw-percaival openclaw agents list --bindings
 | docker-compose.yml      | `hosts/miniserver-bp/docker/docker-compose.yml`                               |
 | Dockerfile              | `hosts/miniserver-bp/docker/openclaw-percaival/Dockerfile`                    |
 | NixOS config            | `hosts/miniserver-bp/configuration.nix`                                       |
-| Config (host)           | `/var/lib/openclaw-percaival/data/openclaw.json`                              |
+| Config (git, canonical) | `hosts/miniserver-bp/docker/openclaw-percaival/openclaw.json`                 |
+| Config (runtime copy)   | `/var/lib/openclaw-percaival/data/openclaw.json`                              |
 | Workspace               | `/var/lib/openclaw-percaival/data/workspace/`                                 |
 | M365 skill              | `/var/lib/openclaw-percaival/data/workspace/skills/m365-email/`               |
 | OpenRouter skill        | `/var/lib/openclaw-percaival/data/workspace/skills/openrouter-free-models/`   |
