@@ -1,3 +1,5 @@
 read and follow @+agents/rules/AGENTS.md
 assume @+agents/rules/SYSOP.md role
-do not start any task until the user explicitly asks you to do so
+
+- Do not start any task until the I explicitly ask you to do so!
+- Deployments will be done by me. Just provide the commands unless I explicitly tell you to do the deployment.
