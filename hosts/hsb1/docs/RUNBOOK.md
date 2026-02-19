@@ -464,19 +464,19 @@ If hostname changes, HA MQTT will break. Always use `localhost`.
 
 ## 🔐 Secrets Inventory
 
-| File                           | Purpose                      | Service             |
-| ------------------------------ | ---------------------------- | ------------------- |
-| `smarthome.env`                | Main smart home credentials  | HA, Node-RED        |
-| `zigbee2mqtt.env`              | Z2M MQTT credentials         | zigbee2mqtt         |
-| `mqtt.env`                     | MQTT broker credentials      | mosquitto           |
-| `watchtower.env`               | Notification URLs            | watchtower          |
-| `fritz.env`                    | Fritz!Box credentials        | maintenance scripts |
-| `health-pixoo.env`             | MQTT password for Pixoo dash | health-pixoo        |
-| `pidicon.env`                  | Pixoo display config         | pidicon (disabled)  |
-| `github.env`                   | GitHub container registry    | watchtower          |
-| `ghcr.env`                     | GHCR login token             | docker login        |
-| `/etc/secrets/mqtt.env`        | System-wide MQTT credentials | agenix managed      |
-| `/etc/secrets/tapoC210-00.env` | Camera/VLC credentials       | agenix managed      |
+| File              | Purpose                     | Service                    |
+| ----------------- | --------------------------- | -------------------------- |
+| `smarthome.env`   | Main smart home credentials | HA, Node-RED, health-pixoo |
+| `zigbee2mqtt.env` | Z2M MQTT credentials        | zigbee2mqtt                |
+| `mqtt.env`        | MQTT broker credentials     | mosquitto                  |
+| `watchtower.env`  | Notification URLs           | watchtower                 |
+| `fritz.env`       | Fritz!Box credentials       | maintenance scripts        |
+
+| `pidicon.env` | Pixoo display config | pidicon (disabled) |
+| `github.env` | GitHub container registry | watchtower |
+| `ghcr.env` | GHCR login token | docker login |
+| `/etc/secrets/mqtt.env` | System-wide MQTT credentials | agenix managed |
+| `/etc/secrets/tapoC210-00.env` | Camera/VLC credentials | agenix managed |
 
 ---
 
