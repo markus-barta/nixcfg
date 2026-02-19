@@ -8,6 +8,8 @@ services:
       - /var/lib/openclaw-percaival/data:/home/node/.openclaw:rw
       - /var/lib/openclaw-percaival/gogcli:/home/node/.config/gogcli:rw
       - /var/lib/openclaw-percaival/m365:/home/node/.config/cli-microsoft365:rw
+      # Git-managed config (read-only source, copied to data volume at boot)
+      - ./openclaw-percaival/openclaw.json:/home/node/.openclaw-config/openclaw.json:ro
       # Secrets (read-only, mounted from agenix)
       - /run/agenix/miniserver-bp-openclaw-telegram-token:/run/secrets/telegram-token:ro
       - /run/agenix/miniserver-bp-openclaw-gateway-token:/run/secrets/gateway-token:ro
@@ -35,6 +37,17 @@ services:
         export MATTERMOST_BOT_TOKEN=$$(cat /run/secrets/mattermost-bot-token)
         export MATTERMOST_URL="https://mattermost.bytepoets.com"
 
+        # Deploy git-managed config (backup existing, then overwrite)
+        CONFIG_SRC=/home/node/.openclaw-config/openclaw.json
+        CONFIG_DST=/home/node/.openclaw/openclaw.json
+        if [ -f "$$CONFIG_DST" ]; then
+          BACKUP="$$CONFIG_DST.bak.$$(date +%Y%m%d-%H%M%S)"
+          cp "$$CONFIG_DST" "$$BACKUP"
+          echo "[config] Backed up existing config to $$BACKUP"
+        fi
+        cp "$$CONFIG_SRC" "$$CONFIG_DST"
+        echo "[config] Deployed git-managed openclaw.json"
+
         # Initialize workspace from git if not already cloned
         WORKSPACE_DIR=/home/node/.openclaw/workspace
         if [ ! -d "$$WORKSPACE_DIR/.git" ]; then
@@ -54,10 +67,12 @@ services:
 
         # Install bundled plugins if not already present (persisted in data volume)
         OPENCLAW_EXT=/usr/local/lib/node_modules/openclaw/extensions
-        if ! openclaw plugins list 2>/dev/null | grep -q mattermost; then
-          echo "[plugins] Installing Mattermost from bundled extensions..."
-          openclaw plugins install $$OPENCLAW_EXT/mattermost
-        fi
+        for PLUGIN in mattermost; do
+          if ! openclaw plugins list 2>/dev/null | grep -q "$$PLUGIN"; then
+            echo "[plugins] Installing $$PLUGIN from bundled extensions..."
+            openclaw plugins install "$$OPENCLAW_EXT/$$PLUGIN"
+          fi
+        done
 
         # Daily auto-push safety net (runs in background, every 24h)
         (while true; do
