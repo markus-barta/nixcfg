@@ -5,21 +5,22 @@
 **Port**: 18789
 **Management**: docker-compose (not oci-containers)
 **Version**: latest (npm)
-**Updated**: 2026-02-18
+**Updated**: 2026-02-19
 
 ---
 
 ## Current Status
 
-| Component    | Status       | Notes                             |
-| ------------ | ------------ | --------------------------------- |
-| Container    | ✅ Running   | Docker, `--network=host`          |
-| Telegram     | ✅ Connected | @percaival_bot                    |
-| gog (Google) | ✅ Working   | percy.ai@bytepoets.com            |
-| m365-email   | ✅ Working   | Percy-AI-miniserver-bp (Azure AD) |
-| weather      | ✅ Ready     | Bundled skill                     |
-| healthcheck  | ✅ Ready     | Bundled skill                     |
-| GitHub       | ✅ Ready     | bytepoets-percyai                 |
+| Component    | Status       | Notes                                               |
+| ------------ | ------------ | --------------------------------------------------- |
+| Container    | ✅ Running   | Docker, `--network=host`                            |
+| Telegram     | ✅ Connected | @percaival_bot                                      |
+| gog (Google) | ✅ Working   | percy.ai@bytepoets.com                              |
+| m365-email   | ✅ Working   | Percy-AI-miniserver-bp (Azure AD)                   |
+| weather      | ✅ Ready     | Bundled skill                                       |
+| healthcheck  | ✅ Ready     | Bundled skill                                       |
+| GitHub       | ✅ Ready     | bytepoets-percyai                                   |
+| Mattermost   | ⏳ Pending   | mattermost.bytepoets.com (age file not yet created) |
 
 ## Identities
 
@@ -390,6 +391,105 @@ docker exec openclaw-percaival m365 request \
   --url "https://graph.microsoft.com/v1.0/users/percy.ai@bytepoets.com/messages/<msg-id>/attachments/<att-id>" \
   --method get -o json --query "contentBytes" | tr -d '"' | base64 -d > /tmp/filename
 ```
+
+---
+
+## Adding a New Channel Plugin + Secret
+
+When integrating a new channel (e.g., Mattermost, Slack) that requires a bot token or API key, four files need updating plus an agenix encrypt step.
+
+### Step-by-step
+
+**1. Register the secret in `secrets/secrets.nix`:**
+
+Add an entry under the miniserver-bp section:
+
+```nix
+# <Channel name> bot token for OpenClaw Percaival
+# Format: Plain text token (no KEY=VALUE)
+# Edit: agenix -e secrets/miniserver-bp-<channel>-bot-token.age
+"miniserver-bp-<channel>-bot-token.age".publicKeys = markus ++ miniserver-bp;
+```
+
+**2. Declare the secret in `hosts/miniserver-bp/configuration.nix`:**
+
+Add under the agenix secrets block:
+
+```nix
+age.secrets.miniserver-bp-<channel>-bot-token = {
+  file = ../../secrets/miniserver-bp-<channel>-bot-token.age;
+  mode = "444";
+};
+```
+
+If the activation script seeds `openclaw.json` on first boot, also add the channel there:
+
+```json
+"channels": {
+  "<channel>": { "enabled": true, "dmPolicy": "pairing" }
+}
+```
+
+**3. Mount + export in `hosts/miniserver-bp/docker/docker-compose.yml`:**
+
+Add volume mount:
+
+```yaml
+- /run/agenix/miniserver-bp-<channel>-bot-token:/run/secrets/<channel>-bot-token:ro
+```
+
+Add env var export in the entrypoint command block:
+
+```bash
+export <CHANNEL>_BOT_TOKEN=$$(cat /run/secrets/<channel>-bot-token)
+```
+
+**4. Install the plugin in `hosts/miniserver-bp/docker/openclaw-percaival/Dockerfile`:**
+
+```dockerfile
+RUN openclaw plugins install @openclaw/<channel>
+```
+
+**5. Create the encrypted secret:**
+
+```bash
+agenix -e secrets/miniserver-bp-<channel>-bot-token.age
+# Enter the plain text token, save, exit
+```
+
+**6. Deploy:**
+
+```bash
+# On miniserver-bp (or via SSH):
+cd ~/Code/nixcfg && git pull
+sudo nixos-rebuild switch --flake .#miniserver-bp
+
+# Rebuild container (plugin added to Dockerfile):
+cd ~/Code/nixcfg/hosts/miniserver-bp/docker
+docker compose build --no-cache openclaw-percaival
+docker compose up -d --force-recreate openclaw-percaival
+```
+
+**7. Verify:**
+
+```bash
+# Check plugin loaded
+docker logs openclaw-percaival 2>&1 | grep -i <channel>
+
+# Check env var is set
+docker exec openclaw-percaival sh -c 'echo $<CHANNEL>_BOT_TOKEN | head -c4'
+```
+
+### Files checklist
+
+| File                                                       | What to add                                                     |
+| ---------------------------------------------------------- | --------------------------------------------------------------- |
+| `secrets/secrets.nix`                                      | `.age` entry with `publicKeys`                                  |
+| `hosts/miniserver-bp/configuration.nix`                    | `age.secrets.*` block (mode 444) + channel in activation script |
+| `hosts/miniserver-bp/docker/docker-compose.yml`            | Volume mount + env var export                                   |
+| `hosts/miniserver-bp/docker/openclaw-percaival/Dockerfile` | `openclaw plugins install`                                      |
+
+After all files are committed and pushed, run `agenix -e` locally, then deploy on the host.
 
 ---
 

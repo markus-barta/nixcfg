@@ -202,4 +202,9 @@ in
   # Edit: agenix -e secrets/miniserver-bp-github-pat.age
   "miniserver-bp-github-pat.age".publicKeys = markus ++ miniserver-bp;
 
+  # Mattermost bot token for OpenClaw Percaival
+  # Format: Plain text token (no KEY=VALUE). URL is in docker-compose.yml.
+  # Edit: agenix -e secrets/miniserver-bp-mattermost-bot-token.age
+  "miniserver-bp-mattermost-bot-token.age".publicKeys = markus ++ miniserver-bp;
+
 }
