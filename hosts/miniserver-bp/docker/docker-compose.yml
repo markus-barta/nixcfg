@@ -52,6 +52,13 @@ services:
           git pull --ff-only || echo "Pull failed or conflicts, continuing..."
         fi
 
+        # Install bundled plugins if not already present (persisted in data volume)
+        OPENCLAW_EXT=/usr/local/lib/node_modules/openclaw/extensions
+        if ! openclaw plugins list 2>/dev/null | grep -q mattermost; then
+          echo "[plugins] Installing Mattermost from bundled extensions..."
+          openclaw plugins install $$OPENCLAW_EXT/mattermost
+        fi
+
         # Daily auto-push safety net (runs in background, every 24h)
         (while true; do
           sleep 86400

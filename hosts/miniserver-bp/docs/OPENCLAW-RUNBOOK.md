@@ -11,16 +11,16 @@
 
 ## Current Status
 
-| Component    | Status       | Notes                                               |
-| ------------ | ------------ | --------------------------------------------------- |
-| Container    | ✅ Running   | Docker, `--network=host`                            |
-| Telegram     | ✅ Connected | @percaival_bot                                      |
-| gog (Google) | ✅ Working   | percy.ai@bytepoets.com                              |
-| m365-email   | ✅ Working   | Percy-AI-miniserver-bp (Azure AD)                   |
-| weather      | ✅ Ready     | Bundled skill                                       |
-| healthcheck  | ✅ Ready     | Bundled skill                                       |
-| GitHub       | ✅ Ready     | bytepoets-percyai                                   |
-| Mattermost   | ⏳ Pending   | mattermost.bytepoets.com (age file not yet created) |
+| Component    | Status       | Notes                                                       |
+| ------------ | ------------ | ----------------------------------------------------------- |
+| Container    | ✅ Running   | Docker, `--network=host`                                    |
+| Telegram     | ✅ Connected | @percaival_bot                                              |
+| gog (Google) | ✅ Working   | percy.ai@bytepoets.com                                      |
+| m365-email   | ✅ Working   | Percy-AI-miniserver-bp (Azure AD)                           |
+| weather      | ✅ Ready     | Bundled skill                                               |
+| healthcheck  | ✅ Ready     | Bundled skill                                               |
+| GitHub       | ✅ Ready     | bytepoets-percyai                                           |
+| Mattermost   | ⏳ Pending   | mattermost.bytepoets.com (installed from bundled extension) |
 
 ## Identities
 
