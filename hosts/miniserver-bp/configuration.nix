@@ -274,28 +274,9 @@
     HELLO
   '';
 
-  # Create OpenClaw data directory. Only seed openclaw.json if missing (onboard wizard manages it).
+  # Create OpenClaw data directories. Config is git-managed (docker/openclaw-percaival/openclaw.json).
   system.activationScripts.openclaw-percaival = ''
     mkdir -p /var/lib/openclaw-percaival/data/workspace /var/lib/openclaw-percaival/gogcli /var/lib/openclaw-percaival/m365
-    if [ ! -f /var/lib/openclaw-percaival/data/openclaw.json ]; then
-      cat > /var/lib/openclaw-percaival/data/openclaw.json << 'EOF'
-    {
-      "gateway": { "port": 18789, "bind": "lan", "token": "''${OPENCLAW_GATEWAY_TOKEN}" },
-      "agents": {
-        "defaults": { "workspace": "/home/node/.openclaw/workspace" },
-        "list": [{
-          "id": "main",
-          "identity": { "name": "Percaival", "theme": "helpful AI butler with a poetic technical vibe", "emoji": "⚔️" },
-          "groupChat": { "mentionPatterns": ["@Percaival", "@Percai", "@Percy", "Percaival"] }
-        }]
-      },
-      "channels": {
-        "telegram": { "enabled": true, "botToken": "''${TELEGRAM_BOT_TOKEN}", "dmPolicy": "pairing" },
-        "mattermost": { "enabled": true, "dmPolicy": "pairing" }
-      }
-    }
-    EOF
-    fi
     chown -R 1000:1000 /var/lib/openclaw-percaival/data /var/lib/openclaw-percaival/gogcli
   '';
 
