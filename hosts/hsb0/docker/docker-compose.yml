@@ -71,60 +71,9 @@ services:
       GOG_ACCOUNT: "markus@barta.com"
     env_file:
       - /run/agenix/hsb0-gogcli-keyring-password
-    # OpenClaw reads API keys from env vars directly.
-    # Secrets are mounted from agenix (mode 444 in NixOS config).
-    # The entrypoint reads them into env vars, then execs as node user.
+    # Secrets are read from mounted files by entrypoint.sh into env vars.
+    # entrypoint.sh also deploys git-managed config + seeds auth-profiles.json.
     user: "node"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        export TELEGRAM_BOT_TOKEN=$$(cat /run/secrets/telegram-token)
-        export OPENCLAW_GATEWAY_TOKEN=$$(cat /run/secrets/gateway-token)
-        export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
-        export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
-        export GITHUB_PAT=$$(cat /run/secrets/github-pat)
-
-        # Deploy git-managed config (backup existing, then overwrite)
-        CONFIG_SRC=/home/node/.openclaw-config/openclaw.json
-        CONFIG_DST=/home/node/.openclaw/openclaw.json
-        if [ -f "$$CONFIG_DST" ]; then
-          BACKUP="$$CONFIG_DST.bak.$$(date +%Y%m%d-%H%M%S)"
-          cp "$$CONFIG_DST" "$$BACKUP"
-          echo "[config] Backed up existing config to $$BACKUP"
-        fi
-        cp "$$CONFIG_SRC" "$$CONFIG_DST"
-        echo "[config] Deployed git-managed openclaw.json"
-
-        # Initialize workspace from git if not already cloned
-        WORKSPACE_DIR=/home/node/.openclaw/workspace
-        if [ ! -d "$$WORKSPACE_DIR/.git" ]; then
-          echo "Cloning workspace from GitHub..."
-          rm -rf "$$WORKSPACE_DIR"
-          git clone https://$$GITHUB_PAT@github.com/markus-barta/oc-workspace-merlin.git "$$WORKSPACE_DIR"
-          cd "$$WORKSPACE_DIR"
-          git config user.name "Merlin AI"
-          git config user.email "merlin-ai-mba@users.noreply.github.com"
-        else
-          echo "Workspace already cloned, pulling latest..."
-          cd "$$WORKSPACE_DIR"
-          git config user.name "Merlin AI"
-          git config user.email "merlin-ai-mba@users.noreply.github.com"
-          git pull --ff-only || echo "Pull failed or conflicts, continuing..."
-        fi
-
-        # Daily auto-push safety net (runs in background, every 24h)
-        (while true; do
-          sleep 86400
-          cd "$$WORKSPACE_DIR"
-          if [ -n "$$(git status --porcelain)" ]; then
-            echo "[auto-push] Uncommitted workspace changes detected, pushing..."
-            git add -A
-            git commit -m "auto: daily workspace sync"
-            git push || echo "[auto-push] Push failed, will retry next cycle"
-          fi
-        done) &
-
-        exec openclaw gateway --port 18789
     labels:
       - com.centurylinklabs.watchtower.enable=false
 
