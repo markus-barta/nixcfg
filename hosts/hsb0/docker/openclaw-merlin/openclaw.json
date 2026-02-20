@@ -1,0 +1,61 @@
+{
+  "gateway": {
+    "port": 18789,
+    "bind": "lan",
+    "mode": "local",
+    "controlUi": { "allowInsecureAuth": true },
+    "auth": { "mode": "token", "token": "${OPENCLAW_GATEWAY_TOKEN}" },
+    "tailscale": { "mode": "off", "resetOnExit": false }
+  },
+  "agents": {
+    "defaults": {
+      "workspace": "/home/node/.openclaw/workspace",
+      "model": {
+        "primary": "openrouter/google/gemini-3-flash-preview",
+        "fallbacks": ["openrouter/moonshotai/kimi-k2.5"]
+      },
+      "models": {
+        "opencode-zen/glm-5-free": { "alias": "GLM-5 Free" },
+        "opencode-zen/minimax-m2.5-free": { "alias": "MiniMax M2.5 Free" },
+        "openrouter/anthropic/claude-opus-4.6": { "alias": "Claude Opus 4.6" },
+        "openrouter/anthropic/claude-sonnet-4.6": {
+          "alias": "Claude Sonnet 4.6"
+        },
+        "openrouter/google/gemini-3-flash-preview": {
+          "alias": "Gemini 3 Flash Preview"
+        },
+        "openrouter/google/gemini-3.1-pro-preview": {
+          "alias": "Gemini 3.1 Pro Preview"
+        },
+        "openrouter/moonshotai/kimi-k2.5": { "alias": "Kimi K2.5" },
+        "openrouter/openai/gpt-5.2-codex": { "alias": "GPT-5.2-Codex" },
+        "openrouter/z-ai/glm-5": { "alias": "GLM-5" }
+      },
+      "maxConcurrent": 4,
+      "subagents": { "maxConcurrent": 8 },
+      "compaction": { "reserveTokensFloor": 5000 }
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "botToken": "${TELEGRAM_BOT_TOKEN}",
+      "dmPolicy": "pairing",
+      "groupPolicy": "allowlist",
+      "streamMode": "partial"
+    }
+  },
+  "auth": {
+    "profiles": {
+      "openrouter:default": { "mode": "api_key", "provider": "openrouter" }
+    }
+  },
+  "commands": { "native": "auto", "nativeSkills": "auto" },
+  "cron": { "enabled": true },
+  "messages": { "ackReactionScope": "group-mentions" },
+  "plugins": { "entries": { "telegram": { "enabled": true } } },
+  "skills": { "install": { "nodeManager": "npm" } },
+  "tools": {
+    "web": { "search": { "enabled": true }, "fetch": { "enabled": true } }
+  }
+}

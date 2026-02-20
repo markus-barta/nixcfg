@@ -543,8 +543,9 @@ in
   #   mode = "444";
   # };
 
-  # Create OpenClaw data directories. Only seed openclaw.json if missing.
-  # Workspace cloned from git on container startup (see docker-compose entrypoint).
+  # Create OpenClaw data directories.
+  # openclaw.json is now git-managed (see docker/openclaw-merlin/openclaw.json).
+  # The entrypoint script deploys it on every container start (with timestamped backup).
   system.activationScripts.openclaw-merlin = ''
     mkdir -p /var/lib/openclaw-merlin/data/workspace
     mkdir -p /var/lib/openclaw-merlin/data/media/inbound
@@ -552,37 +553,6 @@ in
     mkdir -p /var/lib/openclaw-merlin/vdirsyncer
     mkdir -p /var/lib/openclaw-merlin/khal
     mkdir -p /var/lib/openclaw-merlin/gogcli
-    if [ ! -f /var/lib/openclaw-merlin/data/openclaw.json ]; then
-      cat > /var/lib/openclaw-merlin/data/openclaw.json << 'EOF'
-    {
-      "gateway": {
-        "port": 18789,
-        "bind": "lan",
-        "controlUi": { "allowInsecureAuth": true },
-        "auth": { "mode": "token", "token": "''${OPENCLAW_GATEWAY_TOKEN}" }
-      },
-      "agents": {
-        "defaults": {
-          "workspace": "/home/node/.openclaw/workspace",
-          "model": {
-            "primary": "openrouter/google/gemini-3-flash-preview",
-            "fallbacks": ["openrouter/moonshotai/kimi-k2.5"]
-          },
-          "maxConcurrent": 4,
-          "subagents": { "maxConcurrent": 8 }
-        }
-      },
-      "channels": {
-        "telegram": { "enabled": true, "botToken": "''${TELEGRAM_BOT_TOKEN}", "dmPolicy": "pairing", "streamMode": "partial" }
-      },
-      "tools": { "web": { "search": { "enabled": true }, "fetch": { "enabled": true } } },
-      "cron": { "enabled": true },
-      "commands": { "native": "auto", "nativeSkills": "auto" },
-      "messages": { "ackReactionScope": "group-mentions" },
-      "skills": { "install": { "nodeManager": "npm" } }
-    }
-    EOF
-    fi
     chown -R 1000:1000 /var/lib/openclaw-merlin/
   '';
 
