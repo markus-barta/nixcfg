@@ -710,17 +710,17 @@
     "opus-stream": {
       "flake": false,
       "locked": {
-        "lastModified": 1771601825,
-        "narHash": "sha256-Aalf0+6PIEnm8e9ItrzTsZ4nYKs7C7DFW1ILo2RuZjU=",
-        "ref": "refs/heads/master",
-        "rev": "c6e207867c9675a19b55ed34ddd61f4950419b7b",
-        "revCount": 3,
-        "type": "git",
-        "url": "ssh://git@github.com/markus-barta/opus-stream-to-mqtt.git"
+        "lastModified": 1771602395,
+        "narHash": "sha256-B2fgTzNDHgqAqsxTgWxXmUcE/VnpeyXeaPvUl3djwMY=",
+        "owner": "markus-barta",
+        "repo": "opus-stream-to-mqtt",
+        "rev": "80826e4d21a8f04ceb3a8ed63a88d5ba12c40afc",
+        "type": "github"
       },
       "original": {
-        "type": "git",
-        "url": "ssh://git@github.com/markus-barta/opus-stream-to-mqtt.git"
+        "owner": "markus-barta",
+        "repo": "opus-stream-to-mqtt",
+        "type": "github"
       }
     },
     "pia": {
