@@ -95,7 +95,7 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ```
 ~/docker/
-├── docker-compose.yml          # Main compose file
+├── docker-compose.yml          # Main compose file (Symlink to repo)
 ├── Makefile                    # Common commands
 ├── mounts/                     # Runtime data
 │   ├── homeassistant/
