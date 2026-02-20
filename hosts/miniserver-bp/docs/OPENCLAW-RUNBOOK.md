@@ -143,6 +143,16 @@ cd ~/Code/nixcfg/hosts/miniserver-bp/docker
 docker compose restart openclaw-percaival
 ```
 
+### Standard Deploy (after pushing changes to nixcfg)
+
+```bash
+# One-liner Markus uses on miniserver-bp directly:
+gitpl && just switch && just percy-rebuild
+# gitpl = git pull + submodule update (fish alias)
+# just switch = sudo nixos-rebuild switch --flake .#miniserver-bp
+# just percy-rebuild = docker compose up -d --build --force-recreate openclaw-percaival
+```
+
 ### Force Recreate (fresh boot)
 
 ```bash

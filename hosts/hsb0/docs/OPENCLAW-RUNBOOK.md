@@ -96,6 +96,16 @@ cd ~/Code/nixcfg/hosts/hsb0/docker
 docker compose restart openclaw-merlin
 ```
 
+### Standard Deploy (after pushing changes to nixcfg)
+
+```bash
+# One-liner Markus uses on hsb0 directly:
+gitpl && just switch && just merlin-rebuild
+# gitpl = git pull + submodule update (fish alias)
+# just switch = sudo nixos-rebuild switch --flake .#hsb0
+# just merlin-rebuild = docker compose up -d --build --force-recreate openclaw-merlin
+```
+
 ### Force Recreate (fresh boot)
 
 ```bash
