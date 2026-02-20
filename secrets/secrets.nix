@@ -129,6 +129,11 @@ in
   "hsb1-restic-ssh-key.age".publicKeys = markus ++ hsb1;
   "hsb1-restic-env.age".publicKeys = markus ++ hsb1;
 
+  # OPUS SmartHome Stream to MQTT Bridge credentials
+  # Format: KEY=VALUE lines (.env format)
+  # Edit: agenix -e secrets/opus-stream-hsb1.age
+  "opus-stream-hsb1.age".publicKeys = markus ++ hsb1;
+
   # Mosquitto broker configuration file
   # Edit: agenix -e secrets/mosquitto-conf.age
   # NOTE: This is for Mosquitto BROKER configuration (server-side)

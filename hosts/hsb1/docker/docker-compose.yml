@@ -270,13 +270,16 @@ services:
     container_name: opus-stream-to-mqtt
     network_mode: host
     restart: unless-stopped
+    env_file:
+      - /run/agenix/opus-stream-hsb1
     environment:
       - TZ=Europe/Vienna
     volumes:
-      - ./mounts/opus-stream-to-mqtt/app:/app
+      - /etc/opus-stream-to-mqtt:/source:ro
+      - opus-stream-app:/app
       - ./mounts/shared/tmp:/shared-tmp
     working_dir: /app
-    command: sh -c "npm install && npm ci && npm update && npm start" # note: such a small container that built on the fly real fast, no need to make an explicit pre-built container build in github
+    command: sh -c "cp /source/*.js /source/package*.json /app/ && npm install && npm start"
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
@@ -369,8 +372,8 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
 
-# volumes:
-#   portainer_data:
+volumes:
+  opus-stream-app: # Mutable runtime for opus-stream-to-mqtt (node_modules cached here)
 
 networks:
   bridge:

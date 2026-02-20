@@ -707,6 +707,22 @@
         "type": "github"
       }
     },
+    "opus-stream": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1771586529,
+        "narHash": "sha256-NrQhCpCY4nBK6GLattP4PZqeUEsego4iURzzEwh9mGY=",
+        "ref": "refs/heads/master",
+        "rev": "dd65d3378b9980d22bfe1eae37a5c8be2ad2db87",
+        "revCount": 2,
+        "type": "git",
+        "url": "ssh://git@github.com/markus-barta/opus-stream-to-mqtt.git"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@github.com/markus-barta/opus-stream-to-mqtt.git"
+      }
+    },
     "pia": {
       "flake": false,
       "locked": {
@@ -803,6 +819,7 @@
         "nixos-hardware": "nixos-hardware_2",
         "nixpkgs": "nixpkgs_4",
         "nixpkgs-stable": "nixpkgs-stable_2",
+        "opus-stream": "opus-stream",
         "pia": "pia_2",
         "plasma-manager": "plasma-manager_2"
       }
