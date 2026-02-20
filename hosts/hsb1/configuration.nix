@@ -490,6 +490,19 @@
   };
 
   # ============================================================================
+  # OPUS SmartHome Stream to MQTT Bridge
+  # ============================================================================
+  # Install source code directly from GitHub input
+  environment.etc."opus-stream-to-mqtt".source = inputs.opus-stream;
+
+  # Secrets for docker-compose (loaded via agenix)
+  age.secrets.opus-stream-hsb1 = {
+    file = ../../secrets/opus-stream-hsb1.age;
+    mode = "400";
+    owner = "mba"; # Needs to be readable by docker compose
+  };
+
+  # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
   age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
