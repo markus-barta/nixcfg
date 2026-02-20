@@ -2,7 +2,7 @@
 
 **Host**: hsb1
 **Priority**: P40
-**Status**: Backlog
+**Status**: Done
 **Created**: 2026-02-20
 
 ---
@@ -37,21 +37,21 @@ The `opus-stream-to-mqtt` application running on `hsb1` is currently a raw Node.
     - `env_file:` pointing to `/run/agenix/opus-stream-hsb1`
     - `command:` copies source into `/app` on boot, then runs `npm install && npm start`
   - [ ] Close the related old backlog item `P63--7a52404--opus-mqtt-credentials.md`.
-- [ ] **Phase 3: Deployment & Validation**
-  - [ ] Markus creates agenix secret: `agenix -e secrets/opus-stream-hsb1.age` (copy values from current `.env`)
-  - [ ] Commit, push, pull on hsb1, `just switch`
-  - [ ] Restart opus container: `docker compose up -d opus-stream-to-mqtt`
-  - [ ] Verify container logs: `docker logs opus-stream-to-mqtt --tail 20`
-  - [ ] Verify MQTT messages arrive on `opus2mqtt/telegrams`
-  - [ ] Verify Node-RED flows still consume events
-  - [ ] Remove old plain-text `.env` from `~/docker/mounts/opus-stream-to-mqtt/app/`
+- [x] **Phase 3: Deployment & Validation**
+  - [x] Markus creates agenix secret: `agenix -e secrets/opus-stream-hsb1.age` (copy values from current `.env`)
+  - [x] Commit, push, pull on hsb1, `just switch`
+  - [x] Restart opus container: `docker compose up -d opus-stream-to-mqtt`
+  - [x] Verify container logs: `docker logs opus-stream-to-mqtt --tail 20`
+  - [x] Verify MQTT messages arrive on `opus2mqtt/telegrams`
+  - [x] Verify Node-RED flows still consume events
+  - [x] Remove old plain-text `.env` from `~/docker/mounts/opus-stream-to-mqtt/app/`
 
 ## Acceptance Criteria
 
 - [x] A new private GitHub repository contains the clean source code for `opus-stream-to-mqtt`.
-- [ ] The `opus-stream-to-mqtt` container starts successfully using Nix-managed source from `/etc/opus-stream-to-mqtt`.
-- [ ] The container receives its configuration securely via Agenix without any plain-text `.env` files in unmanaged directories.
-- [ ] The application successfully connects to the OPUS gateway and publishes to MQTT.
+- [x] The `opus-stream-to-mqtt` container starts successfully using Nix-managed source from `/etc/opus-stream-to-mqtt`.
+- [x] The container receives its configuration securely via Agenix without any plain-text `.env` files in unmanaged directories.
+- [x] The application successfully connects to the OPUS gateway and publishes to MQTT.
 
 ## Notes
 
