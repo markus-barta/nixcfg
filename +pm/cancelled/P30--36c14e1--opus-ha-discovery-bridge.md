@@ -5,6 +5,8 @@
 **Status**: In Progress
 **Created**: 2026-02-20
 
+Note: Replaced by https://github.com/kegelmeier/opus_homeassistant
+
 ---
 
 ## Problem
