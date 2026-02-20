@@ -257,6 +257,7 @@ ssh mba@192.168.1.101 "apcaccess status"
 ### Docker Compose Location
 
 ```bash
+# Docker compose (Symlink to ~/Code/nixcfg/hosts/hsb1/docker/docker-compose.yml)
 ~/docker/docker-compose.yml
 ```
 
