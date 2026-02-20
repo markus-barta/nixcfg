@@ -25,21 +25,35 @@ The `opus-stream-to-mqtt` application running on `hsb1` is currently a raw Node.
   - [x] Copy source files (`opus_stream_to_mqtt.js`, `package.json`, `package-lock.json`, `.env.example`, `.gitignore`) to a new local workspace `~/Code/opus-stream-to-mqtt` on the iMac (discarding `node_modules`, `archive`, and `.env`).
   - [x] Write a clean `README.md` for the project.
   - [x] Create a private GitHub repository (`markus-barta/opus-stream-to-mqtt`) and push the initial commit.
-- [ ] **Phase 2: NixOS Integration**
-  - [ ] Add the new GitHub repository as a Flake input in `nixcfg/flake.nix`.
-  - [ ] Update `hosts/hsb1/configuration.nix` to use `environment.etc."opus-stream-to-mqtt".source = inputs.opus-stream;` to place the source code on the host.
-  - [ ] Create a new Agenix secret `secrets/opus-stream-hsb1.age` containing the required `.env` values and add it to `secrets/secrets.nix`.
-  - [ ] Configure `age.secrets.opus-stream-hsb1` in `hosts/hsb1/configuration.nix`.
-  - [ ] Update `hosts/hsb1/docker/docker-compose.yml` to change the volume bind to `- /etc/opus-stream-to-mqtt:/app` and add an `env_file:` directive pointing to the Agenix secret.
+- [x] **Phase 2: NixOS Integration**
+  - [x] Add the new GitHub repository as a Flake input in `nixcfg/flake.nix` (private repo, uses `git+ssh`).
+  - [x] Update `hosts/hsb1/configuration.nix`:
+    - `environment.etc."opus-stream-to-mqtt".source = inputs.opus-stream;` (read-only source in Nix store)
+    - `age.secrets.opus-stream-hsb1` for credentials
+  - [x] Add `opus-stream-hsb1.age` to `secrets/secrets.nix`.
+  - [x] Update `hosts/hsb1/docker/docker-compose.yml`:
+    - Mount source read-only: `/etc/opus-stream-to-mqtt:/source:ro`
+    - Named volume for mutable `/app` (persists `node_modules` across restarts)
+    - `env_file:` pointing to `/run/agenix/opus-stream-hsb1`
+    - `command:` copies source into `/app` on boot, then runs `npm install && npm start`
   - [ ] Close the related old backlog item `P63--7a52404--opus-mqtt-credentials.md`.
+- [ ] **Phase 3: Deployment & Validation**
+  - [ ] Markus creates agenix secret: `agenix -e secrets/opus-stream-hsb1.age` (copy values from current `.env`)
+  - [ ] Commit, push, pull on hsb1, `just switch`
+  - [ ] Restart opus container: `docker compose up -d opus-stream-to-mqtt`
+  - [ ] Verify container logs: `docker logs opus-stream-to-mqtt --tail 20`
+  - [ ] Verify MQTT messages arrive on `opus2mqtt/telegrams`
+  - [ ] Verify Node-RED flows still consume events
+  - [ ] Remove old plain-text `.env` from `~/docker/mounts/opus-stream-to-mqtt/app/`
 
 ## Acceptance Criteria
 
-- [ ] A new private GitHub repository contains the clean source code for `opus-stream-to-mqtt`.
-- [ ] The `opus-stream-to-mqtt` container starts successfully using the code from `/etc/opus-stream-to-mqtt`.
+- [x] A new private GitHub repository contains the clean source code for `opus-stream-to-mqtt`.
+- [ ] The `opus-stream-to-mqtt` container starts successfully using Nix-managed source from `/etc/opus-stream-to-mqtt`.
 - [ ] The container receives its configuration securely via Agenix without any plain-text `.env` files in unmanaged directories.
 - [ ] The application successfully connects to the OPUS gateway and publishes to MQTT.
 
 ## Notes
 
 - Critical finding during analysis: `~/docker/docker-compose.yml` on `hsb1` is actually a symlink to `~/Code/nixcfg/hosts/hsb1/docker/docker-compose.yml`. RUNBOOK has been updated to reflect this.
+- **Read-only fix:** `environment.etc` produces read-only files (Nix store symlinks). Since `npm install` needs to write `node_modules`, we use Option 2: mount source as `/source:ro`, copy into mutable `/app` (named Docker volume) on container boot. This keeps `node_modules` cached across restarts while source stays immutable.
