@@ -375,7 +375,7 @@ ssh mba@192.168.1.101 "journalctl -f"
 | health-pixoo           | `ghcr.io/markus-barta/health-pixoo:latest`                | Smart home health on Pixoo64 | host         |
 | ~~pidicon~~            | `ghcr.io/markus-barta/pidicon:latest`                     | Pixoo display control        | 10829 (host) | **disabled** — commented out in docker-compose |
 | apprise                | `caronc/apprise:latest`                                   | Multi-platform notifications | 8001         |
-| opus-stream-to-mqtt    | `node:alpine`                                             | OPUS gateway → MQTT bridge   | host         |
+| opus-stream-to-mqtt    | `node:alpine`                                             | OPUS/EnOcean → MQTT bridge   | host         |
 | smtp                   | `namshi/smtp`                                             | Mail relay (via Hover)       | bridge       |
 | restic-cron-hetzner    | custom build                                              | Daily backups to Hetzner     | -            |
 | watchtower-weekly      | `beatkind/watchtower:latest`                              | Weekly updates (Sat 5am)     | -            |

@@ -73,19 +73,19 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ## 🐳 Docker Services
 
-| Container               | Port       | Purpose                  | Critical |
-| ----------------------- | ---------- | ------------------------ | -------- |
-| **zigbee2mqtt**         | 8888       | Zigbee device management | 🔴 Yes   |
-| **homeassistant**       | 8123       | Smart home platform      | 🔴 Yes   |
-| **mosquitto**           | 1883, 9001 | MQTT broker              | 🔴 Yes   |
-| **scrypted**            | varies     | Camera/HomeKit bridge    | 🔴 Yes   |
-| **nodered**             | 1880       | Automation flows         | 🟠 High  |
-| **matter-server**       | varies     | Matter protocol          | 🟡 Med   |
-| **apprise**             | 8001       | Notifications            | 🟡 Med   |
-| **restic-cron-hetzner** | N/A        | Backups                  | 🟠 High  |
-| **watchtower-weekly**   | N/A        | Auto-updates             | 🟢 Low   |
-| **smtp**                | 25         | Mail relay               | 🟢 Low   |
-| **opus-stream-to-mqtt** | N/A        | Audio streaming          | 🟢 Low   |
+| Container               | Port       | Purpose                    | Critical |
+| ----------------------- | ---------- | -------------------------- | -------- |
+| **zigbee2mqtt**         | 8888       | Zigbee device management   | 🔴 Yes   |
+| **homeassistant**       | 8123       | Smart home platform        | 🔴 Yes   |
+| **mosquitto**           | 1883, 9001 | MQTT broker                | 🔴 Yes   |
+| **scrypted**            | varies     | Camera/HomeKit bridge      | 🔴 Yes   |
+| **nodered**             | 1880       | Automation flows           | 🟠 High  |
+| **matter-server**       | varies     | Matter protocol            | 🟡 Med   |
+| **apprise**             | 8001       | Notifications              | 🟡 Med   |
+| **restic-cron-hetzner** | N/A        | Backups                    | 🟠 High  |
+| **watchtower-weekly**   | N/A        | Auto-updates               | 🟢 Low   |
+| **smtp**                | 25         | Mail relay                 | 🟢 Low   |
+| **opus-stream-to-mqtt** | N/A        | OPUS/EnOcean → MQTT bridge | 🟢 Low   |
 
 ---
 
