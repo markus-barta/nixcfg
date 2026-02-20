@@ -12,8 +12,12 @@ RUN curl -sL https://github.com/steipete/gogcli/releases/download/v0.11.0/gogcli
 # https://github.com/pnp/cli-microsoft365
 RUN npm install -g @pnp/cli-microsoft365
 
-RUN mkdir -p /home/node/.openclaw/workspace /home/node/.config/vdirsyncer /home/node/.config/khal /home/node/.config/gogcli \
-    && chown -R node:node /home/node/.openclaw /home/node/.config/vdirsyncer /home/node/.config/khal /home/node/.config/gogcli
+COPY entrypoint.sh /home/node/entrypoint.sh
+# Wrapper: sources .env then runs openclaw (use: docker exec <container> oc <cmd>)
+RUN printf '#!/bin/sh\n. /home/node/.env 2>/dev/null\nexec openclaw "$@"\n' > /usr/local/bin/oc \
+    && chmod +x /usr/local/bin/oc /home/node/entrypoint.sh \
+    && mkdir -p /home/node/.openclaw/workspace /home/node/.config/vdirsyncer /home/node/.config/khal /home/node/.config/gogcli \
+    && chown -R node:node /home/node/.openclaw /home/node/.config/vdirsyncer /home/node/.config/khal /home/node/.config/gogcli /home/node/entrypoint.sh
 USER node
 EXPOSE 18789
-CMD ["openclaw", "gateway", "--port", "18789"]
+ENTRYPOINT ["/home/node/entrypoint.sh"]
