@@ -1,10 +1,21 @@
 #!/bin/sh
 set -e
 
-# Build env file from mounted secrets
-# This file is sourced by the gateway AND by docker exec commands
-ENV_FILE=/home/node/.env
-cat >"$ENV_FILE" <<EOF
+# Build env file from mounted secrets.
+# Written to ~/.openclaw/.env — openclaw's global fallback location.
+# Also written to ~/.env for docker exec convenience (oc wrapper sources it).
+OPENCLAW_ENV_FILE=/home/node/.openclaw/.env
+HOME_ENV_FILE=/home/node/.env
+mkdir -p /home/node/.openclaw
+cat >"$OPENCLAW_ENV_FILE" <<EOF
+TELEGRAM_BOT_TOKEN=$(cat /run/secrets/telegram-token)
+OPENCLAW_GATEWAY_TOKEN=$(cat /run/secrets/gateway-token)
+OPENROUTER_API_KEY=$(cat /run/secrets/openrouter-key)
+BRAVE_API_KEY=$(cat /run/secrets/brave-key)
+GITHUB_PAT=$(cat /run/secrets/github-pat)
+EOF
+# Also write shell-sourceable version for docker exec / oc wrapper
+cat >"$HOME_ENV_FILE" <<EOF
 export TELEGRAM_BOT_TOKEN=$(cat /run/secrets/telegram-token)
 export OPENCLAW_GATEWAY_TOKEN=$(cat /run/secrets/gateway-token)
 export OPENROUTER_API_KEY=$(cat /run/secrets/openrouter-key)
@@ -14,7 +25,7 @@ EOF
 
 # Source env for this process
 # shellcheck disable=SC1090,SC1091
-. "$ENV_FILE"
+. "$HOME_ENV_FILE"
 
 # Deploy git-managed config (backup existing, then overwrite)
 CONFIG_SRC=/home/node/.openclaw-config/openclaw.json
