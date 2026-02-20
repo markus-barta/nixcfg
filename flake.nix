@@ -36,7 +36,7 @@
       url = "github:AlvaroParker/helium-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # OPUS SmartHome Stream to MQTT Bridge (private repo needs git+ssh)
+    # OPUS SmartHome Stream to MQTT Bridge
     opus-stream = {
       url = "github:markus-barta/opus-stream-to-mqtt";
       flake = false;
