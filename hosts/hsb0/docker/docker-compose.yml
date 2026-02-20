@@ -52,6 +52,8 @@ services:
       - /var/lib/openclaw-merlin/vdirsyncer:/home/node/.config/vdirsyncer:rw
       - /var/lib/openclaw-merlin/khal:/home/node/.config/khal:rw
       - /var/lib/openclaw-merlin/gogcli:/home/node/.config/gogcli:rw
+      # Git-managed config (read-only source, copied to data volume at boot)
+      - ./openclaw-merlin/openclaw.json:/home/node/.openclaw-config/openclaw.json:ro
       # Secrets (read-only, mounted from agenix)
       - /run/agenix/hsb0-openclaw-telegram-token:/run/secrets/telegram-token:ro
       - /run/agenix/hsb0-openclaw-gateway-token:/run/secrets/gateway-token:ro
@@ -81,6 +83,17 @@ services:
         export OPENROUTER_API_KEY=$$(cat /run/secrets/openrouter-key)
         export BRAVE_API_KEY=$$(cat /run/secrets/brave-key)
         export GITHUB_PAT=$$(cat /run/secrets/github-pat)
+
+        # Deploy git-managed config (backup existing, then overwrite)
+        CONFIG_SRC=/home/node/.openclaw-config/openclaw.json
+        CONFIG_DST=/home/node/.openclaw/openclaw.json
+        if [ -f "$$CONFIG_DST" ]; then
+          BACKUP="$$CONFIG_DST.bak.$$(date +%Y%m%d-%H%M%S)"
+          cp "$$CONFIG_DST" "$$BACKUP"
+          echo "[config] Backed up existing config to $$BACKUP"
+        fi
+        cp "$$CONFIG_SRC" "$$CONFIG_DST"
+        echo "[config] Deployed git-managed openclaw.json"
 
         # Initialize workspace from git if not already cloned
         WORKSPACE_DIR=/home/node/.openclaw/workspace
