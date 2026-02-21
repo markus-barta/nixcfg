@@ -500,7 +500,30 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 - [ ] **D2: Update `OPENCLAW-RUNBOOK.md`** — reflect multi-agent architecture, new paths, new commands
 - [ ] **D3: Update `hsb0/README.md`** — add Nimue to features table, update firewall comment
 - [ ] **D4: Update workspace git workflow section** in runbook (add Nimue row to table)
-- [ ] **D5: Keep backup for 30 days** then remove:
+- [ ] **D5: Fix git noreply emails for both agents** (for clean git history):
+
+  GitHub assigns a numeric noreply address: `<id>+<username>@users.noreply.github.com`.
+  The plain `username@users.noreply.github.com` also works but the numeric form is canonical.
+
+  **Check Merlin's actual address:**
+  Log into `@merlin-ai-mba` on GitHub → Settings → Emails → note the numeric noreply email.
+
+  **Check Nimue's actual address:**
+  Log into `@nimue-ai-mai` on GitHub → Settings → Emails → note the numeric noreply email.
+
+  Then update `entrypoint.sh` with the correct addresses:
+
+  ```sh
+  # in init_agent call for merlin:
+  "1234567+merlin-ai-mba@users.noreply.github.com"  # replace with actual
+
+  # in init_agent call for nimue:
+  "7654321+nimue-ai-mai@users.noreply.github.com"   # replace with actual
+  ```
+
+  Commit, push, `just oc-rebuild` on hsb0.
+
+- [ ] **D6: Keep backup for 30 days** then remove:
   - hsb0: `/var/lib/openclaw-merlin-backup-*`
   - imac0: `~/Desktop/hsb0-backup/`
 
