@@ -2,7 +2,7 @@
 
 **Host**: hsb0
 **Priority**: P40
-**Status**: Backlog
+**Status**: Done
 **Created**: 2026-02-21
 
 ---
@@ -72,14 +72,14 @@ Refactor the existing single-agent `openclaw-merlin` container into a multi-agen
 
 These steps require human interaction and cannot be automated:
 
-- [ ] **P1: Create Nimue's Telegram bot** via BotFather.
+- [x] **P1: Create Nimue's Telegram bot** via BotFather.
   - Open Telegram → @BotFather → `/newbot` → name it (e.g., "Nimue AI") → save token.
-- [ ] **P2: Create Nimue's GitHub account** (e.g., `nimue-ai-mai` or similar).
+- [x] **P2: Create Nimue's GitHub account** (e.g., `nimue-ai-mai` or similar).
   - Create account → generate a PAT with `repo` scope → save token.
-- [ ] **P3: Create Nimue's workspace repo** on GitHub.
+- [x] **P3: Create Nimue's workspace repo** on GitHub.
   - Under `markus-barta` org: `oc-workspace-nimue` (private repo).
   - Initialize with a basic `IDENTITY.md` and `AGENTS.md`.
-- [ ] **P4: Encrypt new secrets with agenix** (on imac0 or any machine with your SSH key):
+- [x] **P4: Encrypt new secrets with agenix** (on imac0 or any machine with your SSH key):
   ```bash
   agenix -e secrets/hsb0-nimue-telegram-token.age   # paste Telegram token
   agenix -e secrets/hsb0-nimue-github-pat.age        # paste GitHub PAT
@@ -115,22 +115,22 @@ mkdir -p ~/Desktop/hsb0-backup
 scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 ```
 
-- [ ] **B0: Backup Merlin state on hsb0** (`/var/lib/openclaw-merlin-backup-*`)
-- [ ] **B1: Backup Merlin state to imac0** (`~/Desktop/hsb0-backup/`)
-- [ ] **B2: Verify both backups** contain `data/openclaw.json`, `data/workspace/.git`, `data/devices/paired.json`
+- [x] **B0: Backup Merlin state on hsb0** (`/var/lib/openclaw-merlin-backup-*`)
+- [x] **B1: Backup Merlin state to imac0** (`~/Desktop/hsb0-backup/`)
+- [x] **B2: Verify both backups** contain `data/openclaw.json`, `data/workspace/.git`, `data/devices/paired.json`
 
 ### Phase 1: Git changes (local, on imac0 in `~/Code/nixcfg`)
 
 #### 1.1 Rename Docker build context
 
-- [ ] Rename `hosts/hsb0/docker/openclaw-merlin/` → `hosts/hsb0/docker/openclaw-gateway/`
+- [x] Rename `hosts/hsb0/docker/openclaw-merlin/` → `hosts/hsb0/docker/openclaw-gateway/`
   ```bash
   git mv hosts/hsb0/docker/openclaw-merlin hosts/hsb0/docker/openclaw-gateway
   ```
 
 #### 1.2 Update Dockerfile
 
-- [ ] Edit `hosts/hsb0/docker/openclaw-gateway/Dockerfile`:
+- [x] Edit `hosts/hsb0/docker/openclaw-gateway/Dockerfile`:
   - No functional changes needed — the Dockerfile installs `openclaw@latest`, `git`, `jq`, etc. which work for both agents.
   - Update comment at top if present (s/merlin/gateway/).
   - The `mkdir` line needs to create both agent workspace dirs, both config dirs, AND skills must use explicit path flags (not env vars) for isolation:
@@ -153,7 +153,7 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 
 #### 1.3 Rewrite entrypoint.sh
 
-- [ ] Rewrite `hosts/hsb0/docker/openclaw-gateway/entrypoint.sh` to handle multi-agent init via a loop:
+- [x] Rewrite `hosts/hsb0/docker/openclaw-gateway/entrypoint.sh` to handle multi-agent init via a loop:
 
   **Key changes from current single-agent entrypoint:**
   - Build `.env` with SHARED keys (OpenRouter, Brave, HASS) + PER-AGENT keys (Telegram, GitHub PAT)
@@ -203,7 +203,7 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 
 #### 1.4 Rewrite openclaw.json
 
-- [ ] Rewrite `hosts/hsb0/docker/openclaw-gateway/openclaw.json` to multi-agent format:
+- [x] Rewrite `hosts/hsb0/docker/openclaw-gateway/openclaw.json` to multi-agent format:
 
   **Key changes from current config:**
   - Add `agents.list` with entries for `merlin` and `nimue` (each with `id`, `workspace`, `agentDir`, `name`)
@@ -248,7 +248,7 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 
 #### 1.5 Update docker-compose.yml
 
-- [ ] Replace `openclaw-merlin` service with `openclaw-gateway`:
+- [x] Replace `openclaw-merlin` service with `openclaw-gateway`:
 
   **Changes:**
   - Service name: `openclaw-merlin` → `openclaw-gateway`
@@ -302,7 +302,7 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 
 #### 1.6 Add new secrets to `secrets/secrets.nix`
 
-- [ ] Add after the existing Merlin secrets block:
+- [x] Add after the existing Merlin secrets block:
   ```nix
   # Nimue agent secrets (second agent in openclaw-gateway)
   # Edit: agenix -e secrets/hsb0-nimue-*.age
@@ -315,7 +315,7 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 
 #### 1.7 Add new agenix declarations to `hosts/hsb0/configuration.nix`
 
-- [ ] Add after the existing `hsb0-openclaw-github-pat` block:
+- [x] Add after the existing `hsb0-openclaw-github-pat` block:
 
   ```nix
   # Nimue agent secrets
@@ -337,7 +337,7 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
   };
   ```
 
-- [ ] Update the activation script (rename + add new dirs):
+- [x] Update the activation script (rename + add new dirs):
 
   ```nix
   system.activationScripts.openclaw-gateway = ''
@@ -373,13 +373,13 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
   '';
   ```
 
-- [ ] Remove the old `system.activationScripts.openclaw-merlin` block.
+- [x] Remove the old `system.activationScripts.openclaw-merlin` block.
 
-- [ ] Update firewall comment: `18789 # OpenClaw Gateway (Merlin + Nimue)`.
+- [x] Update firewall comment: `18789 # OpenClaw Gateway (Merlin + Nimue)`.
 
 #### 1.8 Update justfile
 
-- [ ] Replace the `[merlin]` recipe group with:
+- [x] Replace the `[merlin]` recipe group with:
 
   ```just
   # ============================================================================
@@ -419,12 +419,12 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 
 #### 1.9 Local workspace clone (imac0)
 
-- [ ] Clone Nimue's workspace locally:
+- [x] Clone Nimue's workspace locally:
   ```bash
   cd ~/Code
   git clone https://github.com/markus-barta/oc-workspace-nimue.git
   ```
-- [ ] Add it to the VSCodium workspace file (`nixcfg+agents.code-workspace`).
+- [x] Add it to the VSCodium workspace file (`nixcfg+agents.code-workspace`).
 
 ### Phase 2: Deploy
 
@@ -459,10 +459,10 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 
 ### Phase 3: Verify
 
-- [ ] **V1: Gateway health**: `curl http://192.168.1.99:18789/health`
-- [ ] **V2: Merlin responds on Telegram** — send a message to `@merlin_oc_bot`
-- [ ] **V3: Nimue responds on Telegram** — send a message to `@nimue_oc_bot` (name TBD)
-- [ ] **V4: Pair BOTH agents** (known first-boot pairing issue — expect it for both):
+- [x] **V1: Gateway health**: `curl http://192.168.1.99:18789/health`
+- [x] **V2: Merlin responds on Telegram** — send a message to `@merlin_oc_bot`
+- [x] **V3: Nimue responds on Telegram** — send a message to `@nimue_oc_bot` (name TBD)
+- [x] **V4: Pair BOTH agents** (known first-boot pairing issue — expect it for both):
 
   ```bash
   # Check Merlin (should already be paired from before migration — verify)
@@ -486,20 +486,20 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
   > (`agents/merlin/agent/devices/paired.json`). If the migration script moved his data
   > correctly it should be populated. Verify before assuming pairing is needed.
 
-- [ ] **V5: Agent-to-agent comm**: Ask Merlin on Telegram: "Send a message to Nimue saying hello"
-- [ ] **V6: Merlin's state intact**: Check Merlin remembers past conversations, skills work, cron jobs fire
-- [ ] **V7: Git push from both agents**: Trigger a workspace change in each, verify commits appear under correct GitHub accounts
+- [x] **V5: Agent-to-agent comm**: Ask Merlin on Telegram: "Send a message to Nimue saying hello"
+- [x] **V6: Merlin's state intact**: Check Merlin remembers past conversations, skills work, cron jobs fire
+- [x] **V7: Git push from both agents**: Trigger a workspace change in each, verify commits appear under correct GitHub accounts
 
 ### Phase 4: Cleanup & Documentation
 
-- [ ] **D1: Update Merlin's existing skills** to use explicit `-c` paths:
+- [x] **D1: Update Merlin's existing skills** to use explicit `-c` paths:
   - `calendar` skill: `vdirsyncer -c /home/node/.config/merlin/vdirsyncer/config`
   - `calendar` skill: `khal -c /home/node/.config/merlin/khal/khal.conf`
   - Any skill calling `gog` must source `/home/node/.config/merlin/gogcli.env` first
   - Verify Nimue's new skills are written with `/home/node/.config/nimue/...` from the start
-- [ ] **D2: Update `OPENCLAW-RUNBOOK.md`** — reflect multi-agent architecture, new paths, new commands
-- [ ] **D3: Update `hsb0/README.md`** — add Nimue to features table, update firewall comment
-- [ ] **D4: Update workspace git workflow section** in runbook (add Nimue row to table)
+- [x] **D2: Update `OPENCLAW-RUNBOOK.md`** — reflect multi-agent architecture, new paths, new commands
+- [x] **D3: Update `hsb0/README.md`** — add Nimue to features table, update firewall comment
+- [x] **D4: Update workspace git workflow section** in runbook (add Nimue row to table)
 - [x] **D5: Fix git noreply emails for both agents** ✅ 2026-02-21
   - Merlin: `262173326+merlin-ai-mba@users.noreply.github.com`
   - Nimue: `262988279+nimue-ai-mai@users.noreply.github.com`
@@ -554,15 +554,15 @@ docker logs -f openclaw-merlin
 
 ## Acceptance Criteria
 
-- [ ] Single `openclaw-gateway` container runs both agents.
-- [ ] Merlin responds on his existing Telegram bot with full state/memory preserved.
-- [ ] Nimue responds on her own Telegram bot.
-- [ ] Agent state (DB/sessions/workspace) is fully isolated.
-- [ ] Agents can communicate in real-time using `sessions_send`.
-- [ ] Commits from Nimue appear under her distinct GitHub account.
-- [ ] `just oc-rebuild`, `just oc-status`, `just merlin-pull-workspace`, `just nimue-pull-workspace` all work.
-- [ ] OPENCLAW-RUNBOOK.md and README.md are updated.
-- [ ] Backups verified and retention period set.
+- [x] Single `openclaw-gateway` container runs both agents.
+- [x] Merlin responds on his existing Telegram bot with full state/memory preserved.
+- [x] Nimue responds on her own Telegram bot.
+- [x] Agent state (DB/sessions/workspace) is fully isolated.
+- [x] Agents can communicate in real-time using `sessions_send`.
+- [x] Commits from Nimue appear under her distinct GitHub account.
+- [x] `just oc-rebuild`, `just oc-status`, `just merlin-pull-workspace`, `just nimue-pull-workspace` all work.
+- [x] OPENCLAW-RUNBOOK.md and README.md are updated.
+- [x] Backups verified and retention period set.
 
 ---
 
