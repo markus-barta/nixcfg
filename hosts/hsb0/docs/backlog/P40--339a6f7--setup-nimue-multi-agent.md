@@ -500,28 +500,21 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 - [ ] **D2: Update `OPENCLAW-RUNBOOK.md`** — reflect multi-agent architecture, new paths, new commands
 - [ ] **D3: Update `hsb0/README.md`** — add Nimue to features table, update firewall comment
 - [ ] **D4: Update workspace git workflow section** in runbook (add Nimue row to table)
-- [ ] **D5: Fix git noreply emails for both agents** (for clean git history):
+- [x] **D5: Fix git noreply emails for both agents** ✅ 2026-02-21
+  - Merlin: `262173326+merlin-ai-mba@users.noreply.github.com`
+  - Nimue: `262988279+nimue-ai-mai@users.noreply.github.com`
+  - Updated in: `entrypoint.sh`, `oc-workspace-merlin/AGENTS.md`, `oc-workspace-nimue/AGENTS.md`
 
-  GitHub assigns a numeric noreply address: `<id>+<username>@users.noreply.github.com`.
-  The plain `username@users.noreply.github.com` also works but the numeric form is canonical.
+- [ ] **D7: Create a dedicated email for Nimue** (deferred — not blocking)
 
-  **Check Merlin's actual address:**
-  Log into `@merlin-ai-mba` on GitHub → Settings → Emails → note the numeric noreply email.
+  Nimue's GitHub account currently uses `mailina.barta@gmail.com` as primary email.
+  This is fine for now but ideally she'd have her own email (e.g. `nimue.ai.mai@gmail.com`)
+  for proper separation and so account recovery doesn't depend on Mailina's personal inbox.
 
-  **Check Nimue's actual address:**
-  Log into `@nimue-ai-mai` on GitHub → Settings → Emails → note the numeric noreply email.
-
-  Then update `entrypoint.sh` with the correct addresses:
-
-  ```sh
-  # in init_agent call for merlin:
-  "1234567+merlin-ai-mba@users.noreply.github.com"  # replace with actual
-
-  # in init_agent call for nimue:
-  "7654321+nimue-ai-mai@users.noreply.github.com"   # replace with actual
-  ```
-
-  Commit, push, `just oc-rebuild` on hsb0.
+  Steps when ready:
+  1. Create a new Gmail account for Nimue (e.g. `nimue.ai.mai@gmail.com`)
+  2. Log into `@nimue-ai-mai` GitHub → Settings → Emails → update primary email
+  3. No changes needed to nixcfg or entrypoint (email is not used in config)
 
 - [ ] **D6: Remove backups after 2026-03-21** (30 days from deploy):
   ```bash
