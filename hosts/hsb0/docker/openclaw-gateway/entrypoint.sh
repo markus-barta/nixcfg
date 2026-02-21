@@ -167,7 +167,7 @@ init_agent \
   "markus-barta/oc-workspace-nimue" \
   "${GITHUB_PAT_NIMUE}" \
   "Nimue AI" \
-  "nimue-ai-mba@users.noreply.github.com" \
+  "nimue-ai-mai@users.noreply.github.com" \
   "mailina.barta@gmail.com" \
   "/run/secrets/gogcli-keyring-password-nimue"
 

@@ -74,7 +74,7 @@ These steps require human interaction and cannot be automated:
 
 - [ ] **P1: Create Nimue's Telegram bot** via BotFather.
   - Open Telegram → @BotFather → `/newbot` → name it (e.g., "Nimue AI") → save token.
-- [ ] **P2: Create Nimue's GitHub account** (e.g., `nimue-ai-mba` or similar).
+- [ ] **P2: Create Nimue's GitHub account** (e.g., `nimue-ai-mai` or similar).
   - Create account → generate a PAT with `repo` scope → save token.
 - [ ] **P3: Create Nimue's workspace repo** on GitHub.
   - Under `markus-barta` org: `oc-workspace-nimue` (private repo).
@@ -189,7 +189,7 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
   WORKSPACE_REPO=markus-barta/oc-workspace-nimue
   GITHUB_PAT_FILE=/run/secrets/github-pat-nimue
   GIT_NAME="Nimue AI"
-  GIT_EMAIL="nimue-ai-mba@users.noreply.github.com"
+  GIT_EMAIL="nimue-ai-mai@users.noreply.github.com"
   WORKSPACE_DIR=/home/node/.openclaw/workspace-nimue
   AGENT_DIR=/home/node/.openclaw/agents/nimue/agent
   CONFIG_DIR=/home/node/.config/nimue
@@ -307,7 +307,7 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
   # Nimue agent secrets (second agent in openclaw-gateway)
   # Edit: agenix -e secrets/hsb0-nimue-*.age
   "hsb0-nimue-telegram-token.age".publicKeys = markus ++ hsb0;
-  # GitHub PAT for @nimue-ai-mba (workspace git push)
+  # GitHub PAT for @nimue-ai-mai (workspace git push)
   "hsb0-nimue-github-pat.age".publicKeys = markus ++ hsb0;
   "hsb0-nimue-icloud-password.age".publicKeys = markus ++ hsb0;
   "hsb0-nimue-gogcli-keyring-password.age".publicKeys = markus ++ hsb0;
