@@ -175,7 +175,7 @@ in
   # Edit: agenix -e secrets/hsb0-nimue-*.age
   # Runtime: /run/agenix/hsb0-nimue-*
   "hsb0-nimue-telegram-token.age".publicKeys = markus ++ hsb0;
-  # GitHub PAT for @nimue-ai-mba (workspace git push)
+  # GitHub PAT for @nimue-ai-mai (workspace git push)
   "hsb0-nimue-github-pat.age".publicKeys = markus ++ hsb0;
   "hsb0-nimue-icloud-password.age".publicKeys = markus ++ hsb0;
   "hsb0-nimue-gogcli-keyring-password.age".publicKeys = markus ++ hsb0;
