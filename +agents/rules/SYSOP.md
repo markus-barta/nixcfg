@@ -131,6 +131,46 @@ Current Context                Target Host              Reachable?
 
 ---
 
+## 🤝 Human-in-the-Loop Protocol (MANDATORY for state-changing ops)
+
+**Applies to:** any operation that modifies state — files, containers, NixOS configs, secrets, services.
+**Does NOT apply to:** read-only / diagnostic ops (logs, status checks, `git diff`, SSH reads).
+
+### Flow (follow in order, no skipping):
+
+```
+1. REVIEW   → Confirm backlog item is accurate + up to date before starting.
+2. CLASSIFY → Can the next step be done by AI, or does it require human action?
+              AI can do:    edit files, write configs, update docs, git ops (no push)
+              Human must:   run nix builds, docker rebuilds, agenix encrypt, push, deploy
+3. PROPOSE  → TL;DR: "I will do X. Files affected: Y. Risk: 🟢/🟡/🔴."
+              Ask: "OK to proceed?"
+4. EXECUTE  → Do it (AI) or hand off exact commands (human).
+5. SMOKE    → Quick check: obvious errors? expected output present?
+              Report: "✅ Done" or "❌ Failed: <error>"
+6. HANDOFF  → Tell user what was achieved + how to verify (specific commands to run).
+7. LONG OPS → For ops >30s (nix builds, docker rebuilds, container restarts):
+              - Provide the commands, do NOT run them.
+              - State estimated duration: "~3-5 min for docker build"
+              - Suggest running in zellij for observability.
+```
+
+### Classification Guide:
+
+| Operation                     | Who   | Notes                              |
+| ----------------------------- | ----- | ---------------------------------- |
+| Edit nixcfg files             | AI    | Propose + get OK first             |
+| `git add/commit`              | AI    | After user approves changes        |
+| `git push`                    | Human | Always                             |
+| `agenix -e` (encrypt secret)  | Human | Always — requires SSH key + editor |
+| `just switch` (NixOS rebuild) | Human | Provide command + ~5-10 min ETA    |
+| `docker compose up --build`   | Human | Provide command + ~3-5 min ETA     |
+| `docker compose restart`      | Human | Provide command + ~30s ETA         |
+| SSH read (logs, status)       | AI    | No approval needed                 |
+| SSH write (direct on host)    | ❌    | Never — always via nixcfg repo     |
+
+---
+
 ## 🏠 Context Logic
 
 - **imac0**: Home LAN.

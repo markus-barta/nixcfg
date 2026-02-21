@@ -1,11 +1,11 @@
 # OpenClaw Runbook - hsb0
 
 **Host**: hsb0 (192.168.1.99)
-**Instance**: Merlin
+**Agents**: Merlin (primary), Nimue (planned — see backlog P40--339a6f7)
 **Port**: 18789
 **Management**: docker-compose
 **Version**: latest (npm)
-**Updated**: 2026-02-15
+**Updated**: 2026-02-21
 
 ---
 
@@ -415,9 +415,29 @@ PATs are stored in agenix, mounted as docker secrets at `/run/secrets/github-pat
 - direnv auto-switches identity based on working directory
 - Open `nixcfg+agents.code-workspace` in VSCodium for all three repos
 
+---
+
+## Planned: Multi-Agent Gateway (Nimue)
+
+**Status**: Backlog — see `hosts/hsb0/docs/backlog/P40--339a6f7--setup-nimue-multi-agent.md`
+
+**Summary**: A second agent ("Nimue") will join Merlin inside a single `openclaw-gateway` container using OpenClaw's native Multi-Agent Routing. Key changes:
+
+- Container rename: `openclaw-merlin` → `openclaw-gateway`
+- Host data path: `/var/lib/openclaw-merlin/` → `/var/lib/openclaw-gateway/`
+- Config: `openclaw.json` gains `agents.list`, `bindings`, `tools.agentToAgent`
+- Just recipes: `just merlin-*` → `just oc-*` (unified) + per-agent workspace pull
+- Secrets: Two new `.age` files for Nimue (Telegram token, GitHub PAT)
+- Inter-agent communication: `sessions_send` for real-time, shared volumes for static docs
+
+**Architecture docs**: `https://docs.openclaw.ai/concepts/multi-agent`, `https://docs.openclaw.ai/concepts/session-tool`
+
+**Impact on this runbook**: Once implemented, most commands in this runbook will change (container name, paths, recipe names). The backlog item contains the full migration guide.
+
 ## Related Documentation
 
 - [hsb0 RUNBOOK](./RUNBOOK.md) - Main host runbook
 - [Percy OPENCLAW-RUNBOOK](../../miniserver-bp/docs/OPENCLAW-RUNBOOK.md) - Sister instance (miniserver-bp)
+- [Nimue Multi-Agent Setup (P40)](../backlog/P40--339a6f7--setup-nimue-multi-agent.md)
 - [Migration Backlog (P30)](../backlog/P30--438b3b8--migrate-merlin-openclaw-to-hsb0-docker.md)
 - [iCal Sync Fix (P40)](../backlog/P40--0c5e66c--ical-sync-fix.md)
