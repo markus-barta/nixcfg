@@ -158,7 +158,7 @@ init_agent \
   "markus-barta/oc-workspace-merlin" \
   "${GITHUB_PAT_MERLIN}" \
   "Merlin AI" \
-  "merlin-ai-mba@users.noreply.github.com" \
+  "262173326+merlin-ai-mba@users.noreply.github.com" \
   "markus@barta.com" \
   "/run/secrets/gogcli-keyring-password"
 
@@ -167,7 +167,7 @@ init_agent \
   "markus-barta/oc-workspace-nimue" \
   "${GITHUB_PAT_NIMUE}" \
   "Nimue AI" \
-  "nimue-ai-mai@users.noreply.github.com" \
+  "262988279+nimue-ai-mai@users.noreply.github.com" \
   "mailina.barta@gmail.com" \
   "/run/secrets/gogcli-keyring-password-nimue"
 
