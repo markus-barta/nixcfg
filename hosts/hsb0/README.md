@@ -47,6 +47,7 @@ hsb0 provides comprehensive DNS/DHCP infrastructure for the entire network:
 | F12 | APC UPS Monitoring + MQTT             | Power protection status published to home automation   | T16  |
 | F13 | Uptime Kuma Service Monitoring        | Web UI for monitoring service uptime                   | T15  |
 | F14 | Apprise Notification Integration      | Send alerts via 80+ services (Telegram, etc.)          | T15  |
+| F15 | OpenClaw Gateway (Merlin + Nimue)     | Multi-agent AI assistants with real-time comms         | —    |
 
 **Test Documentation**: All features have detailed test procedures in `hosts/hsb0/tests/` with both manual instructions and automated scripts.
 
@@ -58,6 +59,7 @@ hsb0 provides comprehensive DNS/DHCP infrastructure for the entire network:
 - **TCP 3000**: AdGuard Home web interface
 - **TCP 22**: SSH
 - **TCP 3001**: Uptime Kuma web interface
+- **TCP 18789**: OpenClaw Gateway (Merlin + Nimue AI agents)
 - **TCP 80/443**: Reserved for future use
 
 ---
