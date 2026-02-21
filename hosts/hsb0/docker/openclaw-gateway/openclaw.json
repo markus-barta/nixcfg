@@ -94,6 +94,9 @@
       "enabled": true,
       "allow": ["merlin", "nimue"]
     },
+    "sessions": {
+      "visibility": "all"
+    },
     "web": { "search": { "enabled": true }, "fetch": { "enabled": true } }
   }
 }
