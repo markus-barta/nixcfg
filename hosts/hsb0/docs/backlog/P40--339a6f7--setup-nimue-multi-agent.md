@@ -523,9 +523,13 @@ scp -r mba@hsb0.lan:/var/lib/openclaw-merlin/ ~/Desktop/hsb0-backup/
 
   Commit, push, `just oc-rebuild` on hsb0.
 
-- [ ] **D6: Keep backup for 30 days** then remove:
-  - hsb0: `/var/lib/openclaw-merlin-backup-*`
-  - imac0: `~/Desktop/hsb0-backup/`
+- [ ] **D6: Remove backups after 2026-03-21** (30 days from deploy):
+  ```bash
+  # On hsb0:
+  sudo trash /var/lib/openclaw-merlin-backup-20260221-122426
+  # On imac0:
+  trash ~/Desktop/hsb0-backup/
+  ```
 
 ---
 
