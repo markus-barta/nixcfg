@@ -42,37 +42,44 @@ services:
       - traefik.enable=false
       - com.centurylinklabs.watchtower.enable=false
 
-  openclaw-merlin:
-    build: ./openclaw-merlin
-    container_name: openclaw-merlin
+  openclaw-gateway:
+    build: ./openclaw-gateway
+    container_name: openclaw-gateway
     restart: unless-stopped
     network_mode: host
     volumes:
-      - /var/lib/openclaw-merlin/data:/home/node/.openclaw:rw
-      - /var/lib/openclaw-merlin/vdirsyncer:/home/node/.config/vdirsyncer:rw
-      - /var/lib/openclaw-merlin/khal:/home/node/.config/khal:rw
-      - /var/lib/openclaw-merlin/gogcli:/home/node/.config/gogcli:rw
+      # Shared OpenClaw state (all agents live under here)
+      - /var/lib/openclaw-gateway/data:/home/node/.openclaw:rw
       # Git-managed config (read-only source, copied to data volume at boot)
-      - ./openclaw-merlin/openclaw.json:/home/node/.openclaw-config/openclaw.json:ro
-      # Secrets (read-only, mounted from agenix)
-      - /run/agenix/hsb0-openclaw-telegram-token:/run/secrets/telegram-token:ro
+      - ./openclaw-gateway/openclaw.json:/home/node/.openclaw-config/openclaw.json:ro
+      # SHARED secrets (both agents use these)
       - /run/agenix/hsb0-openclaw-gateway-token:/run/secrets/gateway-token:ro
       - /run/agenix/hsb0-openclaw-openrouter-key:/run/secrets/openrouter-key:ro
       - /run/agenix/hsb0-openclaw-brave-key:/run/secrets/brave-key:ro
       - /run/agenix/hsb0-openclaw-hass-token:/run/secrets/hass-token:ro
       - /run/agenix/hsb0-openclaw-opus-gateway:/home/node/.openclaw/credentials/opus-gateway.env:ro
-      - /run/agenix/hsb0-openclaw-github-pat:/run/secrets/github-pat:ro
+      # MERLIN-specific secrets
+      - /run/agenix/hsb0-openclaw-telegram-token:/run/secrets/telegram-token-merlin:ro
+      - /run/agenix/hsb0-openclaw-github-pat:/run/secrets/github-pat-merlin:ro
+      - /run/agenix/hsb0-gogcli-keyring-password:/run/secrets/gogcli-keyring-password:ro
+      # NIMUE-specific secrets
+      - /run/agenix/hsb0-nimue-telegram-token:/run/secrets/telegram-token-nimue:ro
+      - /run/agenix/hsb0-nimue-github-pat:/run/secrets/github-pat-nimue:ro
+      - /run/agenix/hsb0-nimue-gogcli-keyring-password:/run/secrets/gogcli-keyring-password-nimue:ro
+      - /run/agenix/hsb0-nimue-icloud-password:/run/secrets/icloud-password-nimue:ro
       # TODO: Uncomment when Azure AD app (Merlin-AI-hsb0-cal) is created
       # - /run/agenix/hsb0-openclaw-m365-cal-client-id:/run/secrets/m365-cal-client-id:ro
       # - /run/agenix/hsb0-openclaw-m365-cal-tenant-id:/run/secrets/m365-cal-tenant-id:ro
       # - /run/agenix/hsb0-openclaw-m365-cal-client-secret:/run/secrets/m365-cal-client-secret:ro
-    environment:
-      GOG_KEYRING_BACKEND: "file"
-      GOG_ACCOUNT: "markus@barta.com"
-    env_file:
-      - /run/agenix/hsb0-gogcli-keyring-password
-    # Secrets are read from mounted files by entrypoint.sh into env vars.
-    # entrypoint.sh also deploys git-managed config + seeds auth-profiles.json.
+      # Per-agent external tool configs (isolated paths, NOT shared)
+      - /var/lib/openclaw-gateway/merlin-vdirsyncer:/home/node/.config/merlin/vdirsyncer:rw
+      - /var/lib/openclaw-gateway/merlin-khal:/home/node/.config/merlin/khal:rw
+      - /var/lib/openclaw-gateway/merlin-gogcli:/home/node/.config/merlin/gogcli:rw
+      - /var/lib/openclaw-gateway/nimue-vdirsyncer:/home/node/.config/nimue/vdirsyncer:rw
+      - /var/lib/openclaw-gateway/nimue-khal:/home/node/.config/nimue/khal:rw
+      - /var/lib/openclaw-gateway/nimue-gogcli:/home/node/.config/nimue/gogcli:rw
+    # GOG_ACCOUNT and GOG_KEYRING_BACKEND are intentionally NOT here —
+    # they differ per agent and are injected by entrypoint.sh per-agent.
     user: "node"
     labels:
       - com.centurylinklabs.watchtower.enable=false

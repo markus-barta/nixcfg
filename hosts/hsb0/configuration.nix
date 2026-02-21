@@ -372,7 +372,7 @@ in
         3000 # AdGuard Home web interface
         3001 # Uptime Kuma web interface
         8501 # NCPS binary cache proxy
-        18789 # OpenClaw Merlin (AI assistant)
+        18789 # OpenClaw Gateway (Merlin + Nimue AI agents)
         80 # HTTP (for future use)
         443 # HTTPS (for future use)
       ];
@@ -528,6 +528,25 @@ in
     file = ../../secrets/hsb0-openclaw-github-pat.age;
     mode = "444";
   };
+
+  # Nimue agent secrets (second agent in openclaw-gateway)
+  age.secrets.hsb0-nimue-telegram-token = {
+    file = ../../secrets/hsb0-nimue-telegram-token.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-nimue-github-pat = {
+    file = ../../secrets/hsb0-nimue-github-pat.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-nimue-icloud-password = {
+    file = ../../secrets/hsb0-nimue-icloud-password.age;
+    mode = "444";
+  };
+  age.secrets.hsb0-nimue-gogcli-keyring-password = {
+    file = ../../secrets/hsb0-nimue-gogcli-keyring-password.age;
+    mode = "444";
+  };
+
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
   # TODO: Uncomment when Azure AD app is created and .age files exist
   # age.secrets.hsb0-openclaw-m365-cal-client-id = {
@@ -543,17 +562,35 @@ in
   #   mode = "444";
   # };
 
-  # Create OpenClaw data directories.
-  # openclaw.json is now git-managed (see docker/openclaw-merlin/openclaw.json).
+  # OpenClaw Gateway data directories — multi-agent (Merlin + Nimue).
+  # openclaw.json is git-managed (see docker/openclaw-gateway/openclaw.json).
   # The entrypoint script deploys it on every container start (with timestamped backup).
-  system.activationScripts.openclaw-merlin = ''
-    mkdir -p /var/lib/openclaw-merlin/data/workspace
-    mkdir -p /var/lib/openclaw-merlin/data/media/inbound
-    mkdir -p /var/lib/openclaw-merlin/data/media/outbound
-    mkdir -p /var/lib/openclaw-merlin/vdirsyncer
-    mkdir -p /var/lib/openclaw-merlin/khal
-    mkdir -p /var/lib/openclaw-merlin/gogcli
-    chown -R 1000:1000 /var/lib/openclaw-merlin/
+  system.activationScripts.openclaw-gateway = ''
+    # One-time migration: move old Merlin data to new unified path
+    if [ -d /var/lib/openclaw-merlin ] && [ ! -d /var/lib/openclaw-gateway ]; then
+      echo "[migration] Moving /var/lib/openclaw-merlin -> /var/lib/openclaw-gateway/data"
+      mkdir -p /var/lib/openclaw-gateway
+      mv /var/lib/openclaw-merlin/data /var/lib/openclaw-gateway/data
+      mv /var/lib/openclaw-merlin/vdirsyncer /var/lib/openclaw-gateway/merlin-vdirsyncer
+      mv /var/lib/openclaw-merlin/khal /var/lib/openclaw-gateway/merlin-khal
+      mv /var/lib/openclaw-merlin/gogcli /var/lib/openclaw-gateway/merlin-gogcli
+    fi
+
+    mkdir -p /var/lib/openclaw-gateway/data/workspace-merlin
+    mkdir -p /var/lib/openclaw-gateway/data/workspace-nimue
+    mkdir -p /var/lib/openclaw-gateway/data/agents/merlin/agent
+    mkdir -p /var/lib/openclaw-gateway/data/agents/merlin/sessions
+    mkdir -p /var/lib/openclaw-gateway/data/agents/nimue/agent
+    mkdir -p /var/lib/openclaw-gateway/data/agents/nimue/sessions
+    mkdir -p /var/lib/openclaw-gateway/data/media/inbound
+    mkdir -p /var/lib/openclaw-gateway/data/media/outbound
+    mkdir -p /var/lib/openclaw-gateway/merlin-vdirsyncer
+    mkdir -p /var/lib/openclaw-gateway/merlin-khal
+    mkdir -p /var/lib/openclaw-gateway/merlin-gogcli
+    mkdir -p /var/lib/openclaw-gateway/nimue-vdirsyncer
+    mkdir -p /var/lib/openclaw-gateway/nimue-khal
+    mkdir -p /var/lib/openclaw-gateway/nimue-gogcli
+    chown -R 1000:1000 /var/lib/openclaw-gateway/
   '';
 
   # ============================================================================

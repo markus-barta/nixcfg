@@ -11,6 +11,10 @@
 		{
 			"name": "percy-workspace",
 			"path": "../oc-workspace-percy"
+		},
+		{
+			"name": "nimue-workspace",
+			"path": "../oc-workspace-nimue"
 		}
 	],
 	"settings": {

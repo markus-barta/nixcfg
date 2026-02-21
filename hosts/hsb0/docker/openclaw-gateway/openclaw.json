@@ -9,7 +9,6 @@
   },
   "agents": {
     "defaults": {
-      "workspace": "/home/node/.openclaw/workspace",
       "model": {
         "primary": "openrouter/google/gemini-3-flash-preview",
         "fallbacks": ["openrouter/moonshotai/kimi-k2.5"]
@@ -34,15 +33,50 @@
       "maxConcurrent": 4,
       "subagents": { "maxConcurrent": 8 },
       "compaction": { "reserveTokensFloor": 5000 }
-    }
+    },
+    "list": [
+      {
+        "id": "merlin",
+        "default": true,
+        "name": "Merlin",
+        "workspace": "/home/node/.openclaw/workspace-merlin",
+        "agentDir": "/home/node/.openclaw/agents/merlin/agent"
+      },
+      {
+        "id": "nimue",
+        "name": "Nimue",
+        "workspace": "/home/node/.openclaw/workspace-nimue",
+        "agentDir": "/home/node/.openclaw/agents/nimue/agent"
+      }
+    ]
   },
+  "bindings": [
+    {
+      "agentId": "merlin",
+      "match": { "channel": "telegram", "accountId": "merlin" }
+    },
+    {
+      "agentId": "nimue",
+      "match": { "channel": "telegram", "accountId": "nimue" }
+    }
+  ],
   "channels": {
     "telegram": {
       "enabled": true,
-      "botToken": "${TELEGRAM_BOT_TOKEN}",
-      "dmPolicy": "pairing",
-      "groupPolicy": "allowlist",
-      "streamMode": "partial"
+      "accounts": {
+        "merlin": {
+          "botToken": "${TELEGRAM_BOT_TOKEN_MERLIN}",
+          "dmPolicy": "pairing",
+          "groupPolicy": "allowlist",
+          "streamMode": "partial"
+        },
+        "nimue": {
+          "botToken": "${TELEGRAM_BOT_TOKEN_NIMUE}",
+          "dmPolicy": "pairing",
+          "groupPolicy": "allowlist",
+          "streamMode": "partial"
+        }
+      }
     }
   },
   "auth": {
@@ -56,6 +90,10 @@
   "plugins": { "entries": { "telegram": { "enabled": true } } },
   "skills": { "install": { "nodeManager": "npm" } },
   "tools": {
+    "agentToAgent": {
+      "enabled": true,
+      "allow": ["merlin", "nimue"]
+    },
     "web": { "search": { "enabled": true }, "fetch": { "enabled": true } }
   }
 }

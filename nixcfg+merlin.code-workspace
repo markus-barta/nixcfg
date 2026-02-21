@@ -7,6 +7,10 @@
 		{
 			"name": "merlin-workspace",
 			"path": "../oc-workspace-merlin"
+		},
+		{
+			"name": "nimue-workspace",
+			"path": "../oc-workspace-nimue"
 		}
 	],
 	"settings": {
