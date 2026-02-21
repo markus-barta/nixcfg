@@ -170,6 +170,16 @@ in
   # GitHub PAT for @merlin-ai-mba (workspace git push)
   # Edit: agenix -e secrets/hsb0-openclaw-github-pat.age
   "hsb0-openclaw-github-pat.age".publicKeys = markus ++ hsb0;
+
+  # Nimue agent secrets (second agent in openclaw-gateway)
+  # Edit: agenix -e secrets/hsb0-nimue-*.age
+  # Runtime: /run/agenix/hsb0-nimue-*
+  "hsb0-nimue-telegram-token.age".publicKeys = markus ++ hsb0;
+  # GitHub PAT for @nimue-ai-mba (workspace git push)
+  "hsb0-nimue-github-pat.age".publicKeys = markus ++ hsb0;
+  "hsb0-nimue-icloud-password.age".publicKeys = markus ++ hsb0;
+  "hsb0-nimue-gogcli-keyring-password.age".publicKeys = markus ++ hsb0;
+
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
   # TODO: Uncomment when Azure AD app is created and .age files exist
   # "hsb0-openclaw-m365-cal-client-id.age".publicKeys = markus ++ hsb0;

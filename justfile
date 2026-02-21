@@ -631,7 +631,8 @@ hokage-options-interactive:
     done
 
 # ============================================================================
-# OpenClaw Merlin (hsb0) — works from macOS (via SSH) and locally on hsb0
+# OpenClaw Gateway (hsb0) — Merlin + Nimue multi-agent
+# works from macOS (via SSH) and locally on hsb0
 # ============================================================================
 
 # Helper: run command on hsb0 (SSH if remote, direct if local)
@@ -644,30 +645,35 @@ _hsb0-run cmd:
         ssh mba@hsb0.lan "{{ cmd }}"
     fi
 
-# Stop the Merlin gateway (container stays, process stops)
-[group('merlin')]
-merlin-stop:
-    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose stop openclaw-merlin"
+# Rebuild and restart the OpenClaw gateway container
+[group('openclaw')]
+oc-rebuild:
+    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose up -d --build --force-recreate openclaw-gateway"
 
-# Start the Merlin gateway
-[group('merlin')]
-merlin-start:
-    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose start openclaw-merlin"
+# Show gateway container status and recent logs
+[group('openclaw')]
+oc-status:
+    just _hsb0-run "docker ps -f name=openclaw-gateway --format 'table {{{{.Status}}\t{{{{.Ports}}' && echo '---' && docker logs openclaw-gateway --tail 30"
 
-# Pull latest workspace changes into running container (after Markus pushes)
-[group('merlin')]
+# Stop the OpenClaw gateway
+[group('openclaw')]
+oc-stop:
+    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose stop openclaw-gateway"
+
+# Start the OpenClaw gateway
+[group('openclaw')]
+oc-start:
+    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose start openclaw-gateway"
+
+# Pull Merlin's workspace changes into running container
+[group('openclaw')]
 merlin-pull-workspace:
-    just _hsb0-run "docker exec openclaw-merlin git -C /home/node/.openclaw/workspace pull --ff-only"
+    just _hsb0-run "docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-merlin pull --ff-only"
 
-# Rebuild and restart the Merlin container (after Dockerfile/docker-compose changes)
-[group('merlin')]
-merlin-rebuild:
-    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose up -d --build --force-recreate openclaw-merlin"
-
-# Show Merlin container status and recent logs
-[group('merlin')]
-merlin-status:
-    just _hsb0-run "docker ps -f name=openclaw-merlin --format 'table {{{{.Status}}\t{{{{.Ports}}' && echo '---' && docker logs openclaw-merlin --tail 20"
+# Pull Nimue's workspace changes into running container
+[group('openclaw')]
+nimue-pull-workspace:
+    just _hsb0-run "docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-nimue pull --ff-only"
 
 # ============================================================================
 # OpenClaw Percy (miniserver-bp) — works from macOS (via SSH) and locally
