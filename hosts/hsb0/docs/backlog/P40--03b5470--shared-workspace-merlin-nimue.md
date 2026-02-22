@@ -34,13 +34,15 @@ gets its own clone, pull, and push cycle in the entrypoint.
 │   ├── shared -> /home/node/.openclaw/workspace-shared   (symlink)
 │   ├── .gitignore             # includes "shared"
 │   └── ...
-└── workspace-shared/          # markus-barta/oc-workspace-shared (new repo)
-    ├── FAMILY.md              # Core family context: names, relationships, home, routines
-    ├── MERLIN-NOTES.md        # Merlin's contributions for Nimue to read
-    └── NIMUE-NOTES.md         # Nimue's contributions for Merlin to read
+└── workspace-shared/              # markus-barta/oc-workspace-shared (new repo)
+    ├── KNOWLEDGEBASE.md           # Core family context: names, relationships, home, routines (Markus maintains)
+    ├── KB.md -> KNOWLEDGEBASE.md  # Symlink — short alias for agent use in chats/prompts
+    ├── FROM-MERLIN.md             # Merlin writes, Nimue reads
+    └── FROM-NIMUE.md              # Nimue writes, Merlin reads
 ```
 
-Flat structure — no subfolders. Each agent owns their own `*-NOTES.md` to avoid merge conflicts.
+Flat structure — no subfolders. Each agent owns their own `FROM-*.md` to avoid merge conflicts.
+`KB.md` is a symlink inside the shared repo itself — works as a short alias in agent chats.
 
 ## Implementation
 
@@ -48,10 +50,11 @@ Flat structure — no subfolders. Each agent owns their own `*-NOTES.md` to avoi
 
 - [ ] **1.1** Create `markus-barta/oc-workspace-shared` (private repo) on GitHub
 - [ ] **1.2** Initialize with:
-  - `FAMILY.md` — seed with: Markus + Mailina (married), Maurice (son), home in Graz Austria,
+  - `KNOWLEDGEBASE.md` — seed with: Markus + Mailina (married), Maurice (son), home in Graz Austria,
     home automation setup, shared routines, preferences
-  - `MERLIN-NOTES.md` — stub: "# Merlin's Notes for Nimue"
-  - `NIMUE-NOTES.md` — stub: "# Nimue's Notes for Merlin"
+  - `KB.md` — symlink to `KNOWLEDGEBASE.md` (`ln -s KNOWLEDGEBASE.md KB.md`)
+  - `FROM-MERLIN.md` — stub: "# From Merlin"
+  - `FROM-NIMUE.md` — stub: "# From Nimue"
 - [ ] **1.3** Grant read/write access to both agent GitHub accounts (`merlin-ai-mba`, `nimue-ai-mai`)
       — or use Markus' PAT via `GITHUB_PAT_MERLIN` (already in container, see Notes)
 
@@ -78,20 +81,21 @@ Flat structure — no subfolders. Each agent owns their own `*-NOTES.md` to avoi
 
 ### Phase 3: Seed content (Human + AI)
 
-- [ ] **3.1** Populate `FAMILY.md` with real family context (AI drafts, Markus reviews)
+- [ ] **3.1** Populate `KNOWLEDGEBASE.md` with real family context (AI drafts, Markus reviews)
 - [ ] **3.2** Update both agent `AGENTS.md` files in their workspace repos:
   - "Your workspace contains a `shared/` directory — shared knowledge base with Merlin/Nimue.
-    Read it for family context. Write to `shared/MERLIN-NOTES.md` / `shared/NIMUE-NOTES.md`
-    when you learn something the other agent should know."
+    Read `shared/KB.md` (or `shared/KNOWLEDGEBASE.md`) for family context.
+    Write to `shared/FROM-MERLIN.md` / `shared/FROM-NIMUE.md` when you learn something
+    the other agent should know."
 
 ### Phase 4: Verify
 
 - [ ] **4.1** Container boots, shared repo cloned, symlinks present in both workspaces
 - [ ] **4.2** `docker exec openclaw-gateway ls workspace-merlin/shared/` shows shared files
 - [ ] **4.3** `docker exec openclaw-gateway ls workspace-nimue/shared/` shows same files
-- [ ] **4.4** Merlin can answer basic question about Mailina (reads `FAMILY.md` via symlink)
-- [ ] **4.5** Nimue can answer basic question about Markus (reads `FAMILY.md` via symlink)
-- [ ] **4.6** Merlin writes to `shared/MERLIN-NOTES.md`, commit lands in `oc-workspace-shared`
+- [ ] **4.4** Merlin can answer basic question about Mailina (reads `shared/KB.md` via symlink)
+- [ ] **4.5** Nimue can answer basic question about Markus (reads `shared/KB.md` via symlink)
+- [ ] **4.6** Merlin writes to `shared/FROM-MERLIN.md`, commit lands in `oc-workspace-shared`
 
 ### Phase 5: Documentation updates (AI can do)
 
@@ -102,10 +106,10 @@ Flat structure — no subfolders. Each agent owns their own `*-NOTES.md` to avoi
 
 ## Acceptance Criteria
 
-- [ ] `markus-barta/oc-workspace-shared` exists with `FAMILY.md`, `MERLIN-NOTES.md`, `NIMUE-NOTES.md`
+- [ ] `markus-barta/oc-workspace-shared` exists with `KNOWLEDGEBASE.md`, `KB.md` (symlink), `FROM-MERLIN.md`, `FROM-NIMUE.md`
 - [ ] Both agent workspaces have a working `shared/` symlink pointing to the shared clone
 - [ ] `shared` is in `.gitignore` of both agent workspace repos
-- [ ] Both agents can read `FAMILY.md` and answer basic cross-family questions
+- [ ] Both agents can read `KNOWLEDGEBASE.md` (via `KB.md` alias) and answer basic cross-family questions
 - [ ] Write → push works for shared repo from inside container
 - [ ] OPENCLAW-RUNBOOK.md updated
 - [ ] Both agent `AGENTS.md` files reference the shared workspace
@@ -115,8 +119,8 @@ Flat structure — no subfolders. Each agent owns their own `*-NOTES.md` to avoi
 - **PAT for shared repo**: simplest = reuse `GITHUB_PAT_MERLIN` (already in container, just needs
   access granted to `oc-workspace-shared`). Cleaner alternative: dedicate `hsb0-shared-github-pat`
   agenix secret — better audit trail, minimal extra setup.
-- **Merge conflicts**: low risk — each agent writes only to their own `*-NOTES.md`. `FAMILY.md`
-  is maintained by Markus, not written by agents.
+- **Merge conflicts**: low risk — each agent writes only to their own `FROM-*.md`. `KNOWLEDGEBASE.md`
+  is maintained by Markus only, not written by agents.
 - **Symlink + git**: git records the symlink as a file (the target path string), not the target
   content. `shared` in `.gitignore` keeps agent workspace repos clean.
 - **OpenClaw file reading**: OpenClaw walks the workspace tree and follows symlinks —
