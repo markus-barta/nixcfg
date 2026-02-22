@@ -80,6 +80,14 @@ docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw skills list --
 
 ## Operational Commands
 
+### Update to Latest Version
+
+```bash
+just oc-rebuild
+# Runs: docker compose build --no-cache && docker compose up -d --force-recreate
+# --no-cache ensures npm pulls openclaw@latest (not a cached layer)
+```
+
 ### Check Status
 
 ```bash
@@ -91,35 +99,24 @@ docker logs -f openclaw-gateway
 curl http://192.168.1.99:18789/health
 ```
 
-### Restart
+### Restart (no rebuild)
 
 ```bash
+just oc-stop && just oc-start
+
+# Or directly on hsb0:
 cd ~/Code/nixcfg/hosts/hsb0/docker
 docker compose restart openclaw-gateway
 ```
 
-### Standard Deploy (after pushing nixcfg changes)
+### Full Deploy (nixcfg config changes + container rebuild)
 
 ```bash
 # On hsb0:
 gitpl && just switch && just oc-rebuild
 # gitpl = git pull + submodule update (fish alias)
 # just switch = sudo nixos-rebuild switch --flake .#hsb0
-# just oc-rebuild = docker compose up -d --build --force-recreate openclaw-gateway
-```
-
-### Force Recreate
-
-```bash
-cd ~/Code/nixcfg/hosts/hsb0/docker
-docker compose up -d --build --force-recreate openclaw-gateway
-```
-
-### Stop / Start
-
-```bash
-just oc-stop    # stop container
-just oc-start   # start container
+# just oc-rebuild = build --no-cache + recreate container
 ```
 
 ### View Live Config
@@ -130,14 +127,6 @@ cat ~/Code/nixcfg/hosts/hsb0/docker/openclaw-gateway/openclaw.json | jq
 
 # Live config in running container
 docker exec openclaw-gateway cat /home/node/.openclaw/openclaw.json | jq
-```
-
-### Update OpenClaw
-
-```bash
-cd ~/Code/nixcfg/hosts/hsb0/docker
-docker compose build --no-cache openclaw-gateway
-docker compose up -d openclaw-gateway
 ```
 
 ---
@@ -215,22 +204,22 @@ All secrets are `mode = "444"` in NixOS config for Docker read access.
 
 ## Files Reference
 
-| What                       | Location                                                  |
-| -------------------------- | --------------------------------------------------------- | ---- | -------- |
-| Dockerfile                 | `hosts/hsb0/docker/openclaw-gateway/Dockerfile`           |
-| entrypoint.sh              | `hosts/hsb0/docker/openclaw-gateway/entrypoint.sh`        |
-| openclaw.json (git source) | `hosts/hsb0/docker/openclaw-gateway/openclaw.json`        |
-| docker-compose             | `hosts/hsb0/docker/docker-compose.yml`                    |
-| NixOS config               | `hosts/hsb0/configuration.nix`                            |
-| Live config                | `/var/lib/openclaw-gateway/data/openclaw.json`            |
-| Merlin workspace           | `/var/lib/openclaw-gateway/data/workspace-merlin/`        |
-| Nimue workspace            | `/var/lib/openclaw-gateway/data/workspace-nimue/`         |
-| Merlin agent state         | `/var/lib/openclaw-gateway/data/agents/merlin/`           |
-| Nimue agent state          | `/var/lib/openclaw-gateway/data/agents/nimue/`            |
-| Merlin vdirsyncer/khal     | `/var/lib/openclaw-gateway/merlin-vdirsyncer              | khal | gogcli/` |
-| Nimue vdirsyncer/khal      | `/var/lib/openclaw-gateway/nimue-vdirsyncer               | khal | gogcli/` |
-| Container logs             | `docker logs openclaw-gateway`                            |
-| Secrets (agenix)           | `secrets/hsb0-openclaw-*.age`, `secrets/hsb0-nimue-*.age` |
+| What                       | Location                                                     |
+| -------------------------- | ------------------------------------------------------------ |
+| Dockerfile                 | `hosts/hsb0/docker/openclaw-gateway/Dockerfile`              |
+| entrypoint.sh              | `hosts/hsb0/docker/openclaw-gateway/entrypoint.sh`           |
+| openclaw.json (git source) | `hosts/hsb0/docker/openclaw-gateway/openclaw.json`           |
+| docker-compose             | `hosts/hsb0/docker/docker-compose.yml`                       |
+| NixOS config               | `hosts/hsb0/configuration.nix`                               |
+| Live config                | `/var/lib/openclaw-gateway/data/openclaw.json`               |
+| Merlin workspace           | `/var/lib/openclaw-gateway/data/workspace-merlin/`           |
+| Nimue workspace            | `/var/lib/openclaw-gateway/data/workspace-nimue/`            |
+| Merlin agent state         | `/var/lib/openclaw-gateway/data/agents/merlin/`              |
+| Nimue agent state          | `/var/lib/openclaw-gateway/data/agents/nimue/`               |
+| Merlin external tools      | `/var/lib/openclaw-gateway/merlin-{vdirsyncer,khal,gogcli}/` |
+| Nimue external tools       | `/var/lib/openclaw-gateway/nimue-{vdirsyncer,khal,gogcli}/`  |
+| Container logs             | `docker logs openclaw-gateway`                               |
+| Secrets (agenix)           | `secrets/hsb0-openclaw-*.age`, `secrets/hsb0-nimue-*.age`    |
 
 ## Access
 
@@ -365,7 +354,7 @@ Each agent has a separate private GitHub repo:
 ### Just Recipes (from imac0 or hsb0)
 
 ```bash
-just oc-rebuild             # rebuild + recreate container
+just oc-rebuild             # update + rebuild container (--no-cache, pulls latest openclaw)
 just oc-status              # container status + recent logs
 just oc-stop                # stop container
 just oc-start               # start container
@@ -394,6 +383,5 @@ The entrypoint handles both agents in a loop:
 
 - [hsb0 RUNBOOK](./RUNBOOK.md) - Main host runbook
 - [Percy OPENCLAW-RUNBOOK](../../miniserver-bp/docs/OPENCLAW-RUNBOOK.md) - Sister instance (miniserver-bp)
-- [Nimue Multi-Agent Setup (P40)](../backlog/P40--339a6f7--setup-nimue-multi-agent.md)
-- [Migration Backlog (P30)](../backlog/P30--438b3b8--migrate-merlin-openclaw-to-hsb0-docker.md)
-- [iCal Sync Fix (P40)](../backlog/P40--0c5e66c--ical-sync-fix.md)
+- [Agent-to-Agent Comms (P40)](../backlog/P40--1681369--agent-to-agent-comms-opencode-merlin.md)
+- [Git-managed openclaw.json (P40, done)](../backlog/P40--599943c--merlin-git-managed-openclaw-json.md)
