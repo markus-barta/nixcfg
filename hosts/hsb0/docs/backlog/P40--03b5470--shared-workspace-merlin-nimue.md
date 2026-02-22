@@ -19,8 +19,7 @@ what the other has learned).
 A third git repo (`oc-workspace-shared`) acts as a shared knowledge base. Both agent workspaces get
 a `shared` symlink pointing to a shared clone of this repo. Both agents can read and write freely —
 flat structure, no subfolders. No merge conflicts by design — each agent exclusively writes to their
-own `FROM-*.md` file. The shared repo
-gets its own clone, pull, and push cycle in the entrypoint.
+own `FROM-*.md` file. The shared repo gets its own clone, pull, and push cycle in the entrypoint.
 
 **Design:**
 
@@ -64,8 +63,11 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
   - Clone/pull `oc-workspace-shared` to `/home/node/.openclaw/workspace-shared/`
   - Create symlinks: `ln -sfn ../workspace-shared /home/node/.openclaw/workspace-merlin/shared`
     and same for Nimue
-  - Add daily auto-push loop for shared repo (same pattern as agent workspaces)
-  - Use `GITHUB_PAT_MERLIN` for clone/push unless a dedicated PAT is created (see Notes)
+  - Add **per-agent** daily auto-push loop for the shared repo:
+    - Merlin's loop: sets `GIT_AUTHOR/COMMITTER` to `merlin-ai-mba`, commits + pushes only `FROM-MERLIN.md`
+    - Nimue's loop: sets `GIT_AUTHOR/COMMITTER` to `nimue-ai-mai`, commits + pushes only `FROM-NIMUE.md`
+    - `KNOWLEDGEBASE.md` is never touched by agents — Markus pushes manually
+  - Use `GITHUB_PAT_MERLIN` / `GITHUB_PAT_NIMUE` respectively for push auth
 
 - [ ] **2.2** Add `shared` to `.gitignore` in both agent workspace repos
       (`oc-workspace-merlin`, `oc-workspace-nimue`) — prevents git tracking the symlink
@@ -95,7 +97,9 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
 - [ ] **4.3** `docker exec openclaw-gateway ls workspace-nimue/shared/` shows same files
 - [ ] **4.4** Merlin can answer basic question about Mailina (reads `shared/KB.md` via symlink)
 - [ ] **4.5** Nimue can answer basic question about Markus (reads `shared/KB.md` via symlink)
-- [ ] **4.6** Merlin writes to `shared/FROM-MERLIN.md`, commit lands in `oc-workspace-shared`
+- [ ] **4.6** Merlin writes to `shared/FROM-MERLIN.md`, daily auto-push commits under `merlin-ai-mba`
+- [ ] **4.7** Nimue writes to `shared/FROM-NIMUE.md`, daily auto-push commits under `nimue-ai-mai`
+- [ ] **4.8** `KNOWLEDGEBASE.md` is NOT auto-pushed by agents (Markus-only)
 
 ### Phase 5: Documentation updates (AI can do)
 
@@ -110,19 +114,22 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
 - [ ] Both agent workspaces have a working `shared/` symlink pointing to the shared clone
 - [ ] `shared` is in `.gitignore` of both agent workspace repos
 - [ ] Both agents can read `KNOWLEDGEBASE.md` (via `KB.md` alias) and answer basic cross-family questions
-- [ ] Write → push works for shared repo from inside container
+- [ ] Daily auto-push: `FROM-MERLIN.md` committed as `merlin-ai-mba`, `FROM-NIMUE.md` as `nimue-ai-mai`
+- [ ] `KNOWLEDGEBASE.md` never auto-pushed by agents
 - [ ] OPENCLAW-RUNBOOK.md updated
 - [ ] Both agent `AGENTS.md` files reference the shared workspace
 
 ## Notes
 
-- **PAT for shared repo**: simplest = reuse `GITHUB_PAT_MERLIN` (already in container, just needs
-  access granted to `oc-workspace-shared`). Cleaner alternative: dedicate `hsb0-shared-github-pat`
-  agenix secret — better audit trail, minimal extra setup.
+- **PAT for shared repo**: each agent uses their own PAT for push (`GITHUB_PAT_MERLIN` /
+  `GITHUB_PAT_NIMUE`) — both already in container, just need access granted to `oc-workspace-shared`
+  on GitHub. Clean audit trail: commits show correct author per agent. No new secrets needed.
+- **Daily knowledge transfer**: auto-push fires once per day per agent. Each agent commits only
+  their own `FROM-*.md` — git history clearly shows who wrote what and when.
 - **Merge conflicts**: impossible by design — each agent exclusively writes to their own `FROM-*.md`.
   `KNOWLEDGEBASE.md` is maintained by Markus only, not written by agents.
 - **Symlink + git**: git records the symlink as a file (the target path string), not the target
   content. `shared` in `.gitignore` keeps agent workspace repos clean.
 - **OpenClaw file reading**: OpenClaw walks the workspace tree and follows symlinks —
-  `shared/FAMILY.md` will be visible to each agent as workspace context automatically.
+  `shared/KB.md` and `shared/FROM-*.md` will be visible to each agent as workspace context automatically.
 - **Future**: if OpenClaw adds native multi-workspace support, symlinks can be replaced cleanly.
