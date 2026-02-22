@@ -554,6 +554,29 @@ Merlin migrated to **hsb0** (Docker) on 2026-02-14. All config, secrets, and pac
 
 ---
 
+## Merlin SSH Access (from hsb0)
+
+Merlin (openclaw-gateway on hsb0) has SSH access to this host as the `merlin` user for direct HA/Node-RED management.
+
+| Property | Value                                                                |
+| -------- | -------------------------------------------------------------------- |
+| User     | `merlin` (uid=1002)                                                  |
+| Groups   | `wheel` (passwordless sudo) + `docker`                               |
+| Auth     | SSH key only (`hsb0-merlin-ssh-key.age`)                             |
+| Revoke   | Remove `users.users.merlin` block from `configuration.nix` + rebuild |
+
+**⚠️ Important:** `/home/mba` is `0700` — Merlin must use `sudo` for any path under it:
+
+```bash
+# From openclaw-gateway container on hsb0:
+docker exec openclaw-gateway ssh hsb1.lan "sudo docker compose -f /home/mba/docker/docker-compose.yml restart homeassistant"
+docker exec openclaw-gateway ssh hsb1.lan "sudo nano /home/mba/docker/mounts/homeassistant/configuration.yaml"
+```
+
+See full operational details: [OPENCLAW-RUNBOOK.md](../../hsb0/docs/OPENCLAW-RUNBOOK.md#merlin-ssh-access-to-hsb1)
+
+---
+
 ## Related Documentation
 
 - [SMARTHOME.md](./SMARTHOME.md#🏆-naming--ux-best-practices) - UX and Naming Best Practices (HomeKit/Z2M)
