@@ -645,10 +645,10 @@ _hsb0-run cmd:
         ssh mba@hsb0.lan "{{ cmd }}"
     fi
 
-# Rebuild and restart the OpenClaw gateway container
+# Rebuild and restart the OpenClaw gateway container (--no-cache to pull latest openclaw@latest)
 [group('openclaw')]
 oc-rebuild:
-    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose up -d --build --force-recreate openclaw-gateway"
+    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose build --no-cache openclaw-gateway && docker compose up -d --force-recreate openclaw-gateway"
 
 # Show gateway container status and recent logs
 [group('openclaw')]
