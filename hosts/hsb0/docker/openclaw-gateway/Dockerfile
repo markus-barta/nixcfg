@@ -1,6 +1,6 @@
 # openclaw-gateway: multi-agent container (Merlin + Nimue)
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients python3 && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients python3 build-essential && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python
 RUN npm install -g openclaw@latest sharp
 
