@@ -62,6 +62,8 @@ services:
       - /run/agenix/hsb0-openclaw-telegram-token:/run/secrets/telegram-token-merlin:ro
       - /run/agenix/hsb0-openclaw-github-pat:/run/secrets/github-pat-merlin:ro
       - /run/agenix/hsb0-gogcli-keyring-password:/run/secrets/gogcli-keyring-password:ro
+      - /run/agenix/hsb0-merlin-ssh-key:/run/secrets/merlin-ssh-key:ro
+      - ./openclaw-gateway/ssh_config:/home/node/.ssh/config:ro
       # NIMUE-specific secrets
       - /run/agenix/hsb0-nimue-telegram-token:/run/secrets/telegram-token-nimue:ro
       - /run/agenix/hsb0-nimue-github-pat:/run/secrets/github-pat-nimue:ro

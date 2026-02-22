@@ -1,6 +1,6 @@
 # openclaw-gateway: multi-agent container (Merlin + Nimue)
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients python3 build-essential && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients python3 build-essential openssh-client && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python
 RUN npm install -g openclaw@latest sharp
 
@@ -30,7 +30,8 @@ RUN printf '#!/bin/sh\n. /home/node/.env 2>/dev/null\nexec openclaw "$@"\n' > /u
         /home/node/.config/nimue/vdirsyncer \
         /home/node/.config/nimue/khal \
         /home/node/.config/nimue/gogcli \
-    && chown -R node:node /home/node/.openclaw /home/node/.config /home/node/entrypoint.sh
+        /home/node/.ssh \
+    && chown -R node:node /home/node/.openclaw /home/node/.config /home/node/.ssh /home/node/entrypoint.sh
 USER node
 EXPOSE 18789
 ENTRYPOINT ["/home/node/entrypoint.sh"]
