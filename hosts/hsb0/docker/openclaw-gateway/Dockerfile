@@ -1,6 +1,6 @@
 # openclaw-gateway: multi-agent container (Merlin + Nimue)
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients python3 build-essential openssh-client cron && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients python3 build-essential openssh-client cron sudo && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python
 RUN npm install -g openclaw@latest sharp
 
@@ -34,7 +34,8 @@ RUN printf '#!/bin/sh\n. /home/node/.env 2>/dev/null\nexec openclaw "$@"\n' > /u
         /home/node/.config/nimue/gogcli \
         /home/node/.ssh \
     && chown -R node:node /home/node/.openclaw /home/node/.config /home/node/.ssh /home/node/entrypoint.sh /home/node/shared-sync.sh \
-    && chmod +x /home/node/shared-sync.sh
+    && chmod +x /home/node/shared-sync.sh \
+    && echo "node ALL=(root) NOPASSWD: /usr/sbin/cron" >> /etc/sudoers
 USER node
 EXPOSE 18789
 ENTRYPOINT ["/home/node/entrypoint.sh"]
