@@ -164,6 +164,7 @@ ssh mbpw        # Try LAN first (2s timeout), fallback to Tailscale
 | -------------------------- | ------------------------------------------- |
 | hsb0 → all home hosts      | DNS resolution fails, DHCP renewals fail    |
 | hsb0 NCPS → all home hosts | Slower rebuilds (WAN speed), no LAN caching |
+| hsb0 Merlin → hsb1         | Merlin loses SSH access to HA/Node-RED      |
 | csb0 MQTT → csb1 InfluxDB  | Metrics stop flowing to Grafana             |
 | csb0 backup → csb0 + csb1  | Cleanup jobs only run on csb0               |
 

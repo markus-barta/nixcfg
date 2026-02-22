@@ -157,6 +157,33 @@ docker exec openclaw-gateway sh -c \
    http://192.168.1.101:8123/api/states | jq length'
 ```
 
+### Merlin SSH Access to hsb1
+
+Merlin has direct SSH access to **hsb1** (home automation host) as the `merlin` user.
+
+- **User**: `merlin` (uid=1002, `wheel` + `docker` groups — full host access)
+- **Key**: `/home/node/.ssh/merlin-hsb1` (copied from agenix at container boot)
+- **SSH config**: `/home/node/.ssh/config` → `Host hsb1 hsb1.lan`
+
+```bash
+# Test connectivity
+docker exec openclaw-gateway ssh hsb1.lan "hostname && whoami"
+
+# Edit HA config (sudo required — /home/mba is 0700, some files are root:root)
+docker exec openclaw-gateway ssh hsb1.lan "sudo nano /home/mba/docker/mounts/homeassistant/configuration.yaml"
+
+# Restart HA (full path required for docker compose)
+docker exec openclaw-gateway ssh hsb1.lan "sudo docker compose -f /home/mba/docker/docker-compose.yml restart homeassistant"
+
+# docker exec into HA (no sudo needed)
+docker exec openclaw-gateway ssh hsb1.lan "docker exec homeassistant ha core check"
+
+# Reset known_hosts if hsb1 was rebuilt
+docker exec openclaw-gateway ssh-keygen -R hsb1.lan
+```
+
+> ⚠️ `/home/mba` is `0700` — all paths under it require `sudo`. Direct `docker` commands work without sudo (merlin is in docker group).
+
 ---
 
 ## Opus Gateway
@@ -182,12 +209,13 @@ Credentials mounted from agenix:
 
 ### Merlin-specific
 
-| Secret                          | Purpose                 | Container path                         |
-| ------------------------------- | ----------------------- | -------------------------------------- |
-| `hsb0-openclaw-telegram-token`  | Merlin's Telegram bot   | `/run/secrets/telegram-token-merlin`   |
-| `hsb0-openclaw-github-pat`      | Merlin's GitHub PAT     | `/run/secrets/github-pat-merlin`       |
-| `hsb0-openclaw-icloud-password` | iCloud CalDAV           | Not yet wired to vdirsyncer            |
-| `hsb0-gogcli-keyring-password`  | Merlin's gogcli keyring | `/run/secrets/gogcli-keyring-password` |
+| Secret                          | Purpose                 | Container path                                                                  |
+| ------------------------------- | ----------------------- | ------------------------------------------------------------------------------- |
+| `hsb0-openclaw-telegram-token`  | Merlin's Telegram bot   | `/run/secrets/telegram-token-merlin`                                            |
+| `hsb0-openclaw-github-pat`      | Merlin's GitHub PAT     | `/run/secrets/github-pat-merlin`                                                |
+| `hsb0-openclaw-icloud-password` | iCloud CalDAV           | Not yet wired to vdirsyncer                                                     |
+| `hsb0-gogcli-keyring-password`  | Merlin's gogcli keyring | `/run/secrets/gogcli-keyring-password`                                          |
+| `hsb0-merlin-ssh-key`           | SSH key for hsb1 access | `/run/secrets/merlin-ssh-key` (copied to `/home/node/.ssh/merlin-hsb1` at boot) |
 
 ### Nimue-specific
 
@@ -307,6 +335,7 @@ Known quirk — CLI RPC enforces pairing even on loopback. In-process agent runt
 
 ## Migration History
 
+- **2026-02-22**: Merlin SSH access to hsb1 added. Dedicated `merlin` user on hsb1 (wheel + docker). See `hosts/hsb1/docs/backlog/P40--160a6d8--merlin-ssh-access-hsb1.md`.
 - **2026-02-21**: Migrated from single-agent `openclaw-merlin` to multi-agent `openclaw-gateway`. Nimue added as second agent. See `hosts/hsb0/docs/backlog/P40--339a6f7--setup-nimue-multi-agent.md`.
 - **2026-02-13**: Merlin migrated from hsb1 (Nix package) to hsb0 (Docker).
 
