@@ -462,6 +462,26 @@
   };
 
   # ============================================================================
+  # MERLIN AI AGENT USER
+  # Dedicated user for Merlin (OpenClaw on hsb0) SSH access.
+  # wheel + docker = full host control; intentional (hsb1 is home automation only).
+  # Revoke: remove this block + nixos-rebuild switch.
+  # ============================================================================
+  users.users.merlin = {
+    isNormalUser = true;
+    description = "Merlin AI Agent (OpenClaw on hsb0)";
+    extraGroups = [
+      "wheel"
+      "docker"
+    ];
+    shell = pkgs.bash;
+    hashedPassword = "!"; # Locked — SSH key auth only
+    openssh.authorizedKeys.keys = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDJCgudf3tbOJrT+HioSyT/DoHYf1rHVoLKc+hjGspsQ merlin@openclaw-gateway-hsb0"
+    ];
+  };
+
+  # ============================================================================
   # 🚨 PASSWORDLESS SUDO - Lost when removing serverMba mixin
   # ============================================================================
   security.sudo-rs.wheelNeedsPassword = false;
