@@ -529,6 +529,12 @@ in
     mode = "444";
   };
 
+  # Merlin SSH key for accessing hsb1 (home automation host)
+  age.secrets.hsb0-merlin-ssh-key = {
+    file = ../../secrets/hsb0-merlin-ssh-key.age;
+    mode = "444"; # Readable by container (node user, uid 1000)
+  };
+
   # Nimue agent secrets (second agent in openclaw-gateway)
   age.secrets.hsb0-nimue-telegram-token = {
     file = ../../secrets/hsb0-nimue-telegram-token.age;

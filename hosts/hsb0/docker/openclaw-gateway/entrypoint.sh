@@ -47,7 +47,21 @@ EOF
 . "$HOME_ENV_FILE"
 
 # -----------------------------------------------------------------------------
-# 2. Deploy git-managed openclaw.json (with timestamped backup)
+# 2. Install SSH key for Merlin → hsb1 access
+#    agenix mounts secrets as 444 (world-readable) but SSH refuses keys
+#    with permissions looser than 600. Copy to writable location + chmod.
+# -----------------------------------------------------------------------------
+if [ -f /run/secrets/merlin-ssh-key ]; then
+  mkdir -p /home/node/.ssh
+  cp /run/secrets/merlin-ssh-key /home/node/.ssh/merlin-hsb1
+  chmod 600 /home/node/.ssh/merlin-hsb1
+  echo "[ssh] Merlin SSH key installed at /home/node/.ssh/merlin-hsb1"
+else
+  echo "[ssh] WARNING: /run/secrets/merlin-ssh-key not found — hsb1 SSH access will not work"
+fi
+
+# -----------------------------------------------------------------------------
+# 3. Deploy git-managed openclaw.json (with timestamped backup)
 # -----------------------------------------------------------------------------
 CONFIG_SRC=/home/node/.openclaw-config/openclaw.json
 CONFIG_DST=/home/node/.openclaw/openclaw.json
@@ -60,7 +74,7 @@ cp "$CONFIG_SRC" "$CONFIG_DST"
 echo "[config] Deployed git-managed openclaw.json"
 
 # -----------------------------------------------------------------------------
-# 3. Per-agent init
+# 4. Per-agent init
 # -----------------------------------------------------------------------------
 init_agent() {
   AGENT_ID="$1"

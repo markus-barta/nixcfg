@@ -197,6 +197,9 @@ in
   "miniserver-bp-openclaw-openrouter-key.age".publicKeys = markus ++ miniserver-bp;
   "miniserver-bp-openclaw-brave-key.age".publicKeys = markus ++ miniserver-bp;
 
+  # Merlin AI SSH key to access hsb1
+  "hsb0-merlin-ssh-key.age".publicKeys = markus ++ hsb0;
+
   # gogcli keyring password for OpenClaw Percaival container
   # Format: GOG_KEYRING_PASSWORD=<password> (KEY=VALUE for Docker environmentFiles)
   # Edit: agenix -e secrets/miniserver-bp-gogcli-keyring-password.age

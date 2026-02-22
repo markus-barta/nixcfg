@@ -1,0 +1,6 @@
+Host hsb1 hsb1.lan
+    HostName hsb1.lan
+    User merlin
+    IdentityFile /home/node/.ssh/merlin-hsb1
+    StrictHostKeyChecking accept-new
+    UserKnownHostsFile /home/node/.ssh/known_hosts
