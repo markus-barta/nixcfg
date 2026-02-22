@@ -222,8 +222,8 @@ crontab "${CRONTAB_FILE}"
 rm "${CRONTAB_FILE}"
 echo "[shared] Nightly cron sync registered (Merlin: 23:30, Nimue: 23:31)"
 
-# Start cron daemon in background
-cron
+# Start cron daemon as root (node has passwordless sudo for /usr/sbin/cron only)
+sudo cron
 echo "[shared] Cron daemon started"
 
 echo "[gateway] All agents initialised. Starting openclaw gateway on port 18789..."
