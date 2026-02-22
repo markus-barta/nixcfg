@@ -55,33 +55,51 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
   - `FROM-MERLIN.md` — stub: "# From Merlin"
   - `FROM-NIMUE.md` — stub: "# From Nimue"
 - [ ] **1.3** Grant read/write access to both agent GitHub accounts (`merlin-ai-mba`, `nimue-ai-mai`)
-      — or use Markus' PAT via `GITHUB_PAT_MERLIN` (already in container, see Notes)
+      on the `oc-workspace-shared` repo (both PATs already in container)
 
 ### Phase 2: nixcfg changes (AI can do — propose + get OK)
 
-- [ ] **2.1** Add shared workspace clone + symlinks to `entrypoint.sh`:
-  - Clone/pull `oc-workspace-shared` to `/home/node/.openclaw/workspace-shared/`
-  - Create symlinks: `ln -sfn ../workspace-shared /home/node/.openclaw/workspace-merlin/shared`
-    and same for Nimue
-  - Add **per-agent** nightly sync (cron, NOT a background loop) for the shared repo:
-    - **23:30:00** — Merlin: `git pull` → commit `FROM-MERLIN.md` → `git push` (as `merlin-ai-mba`)
-    - **23:30:30** — Nimue: `git pull` → commit `FROM-NIMUE.md` → `git push` (as `nimue-ai-mai`)
-    - Pull-before-push ensures each agent gets the other's latest before committing their own
-    - 30s stagger eliminates push race between the two agents
-    - `KNOWLEDGEBASE.md` is never touched by agents — Markus pushes manually
-  - Use `GITHUB_PAT_MERLIN` / `GITHUB_PAT_NIMUE` respectively for push auth
+- [ ] **2.1** Install `cron` in Dockerfile:
 
-- [ ] **2.2** Add `shared` to `.gitignore` in both agent workspace repos
+  ```dockerfile
+  RUN apt-get update && apt-get install -y ... cron ...
+  ```
+
+- [ ] **2.2** Add shared workspace clone + symlinks to `entrypoint.sh`:
+  - Clone `oc-workspace-shared` using `GITHUB_PAT_MERLIN` (first in boot sequence)
+  - Or `git pull` if already cloned (container restart)
+  - Create relative symlinks in each agent workspace:
+    `ln -sfn ../workspace-shared /home/node/.openclaw/workspace-merlin/shared`
+    `ln -sfn ../workspace-shared /home/node/.openclaw/workspace-nimue/shared`
+
+- [ ] **2.3** Write crontab + start `cron` in entrypoint (before final `exec`):
+  - Write `/home/node/shared-sync.sh` script that takes agent ID as arg
+  - Crontab:
+    ```cron
+    30 23 * * * /home/node/shared-sync.sh merlin
+    31 23 * * * /home/node/shared-sync.sh nimue
+    ```
+  - `shared-sync.sh` logic per agent:
+    1. `cd /home/node/.openclaw/workspace-shared`
+    2. Set `GIT_AUTHOR_NAME`/`GIT_COMMITTER_NAME` + email for the agent
+    3. Set remote URL with the agent's PAT
+    4. `git pull --ff-only`
+    5. `git add FROM-<AGENT>.md` (only their own file)
+    6. `git diff --cached --quiet || git commit -m "sync: FROM-<AGENT>.md"`
+    7. `git push`
+  - Start `cron` as background daemon before `exec openclaw gateway`:
+    ```sh
+    cron
+    exec openclaw gateway --port 18789
+    ```
+
+- [ ] **2.4** Add `shared` to `.gitignore` in both agent workspace repos
       (`oc-workspace-merlin`, `oc-workspace-nimue`) — prevents git tracking the symlink
 
-- [ ] **2.3** Add shared workspace dir to Dockerfile mkdir block:
-
+- [ ] **2.5** Add shared workspace dir to Dockerfile mkdir block:
   ```dockerfile
   /home/node/.openclaw/workspace-shared \
   ```
-
-- [ ] **2.4** (Optional) Create dedicated `hsb0-shared-github-pat` agenix secret if Merlin's PAT
-      should not have write access to the shared repo. Otherwise reuse `GITHUB_PAT_MERLIN`.
 
 ### Phase 3: Seed content (Human + AI)
 
@@ -100,9 +118,10 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
 - [ ] **4.4** Merlin can answer basic question about Mailina (reads `shared/KB.md` via symlink)
 - [ ] **4.5** Nimue can answer basic question about Markus (reads `shared/KB.md` via symlink)
 - [ ] **4.6** At 23:30 Merlin pulls shared, commits `FROM-MERLIN.md`, pushes as `merlin-ai-mba`
-- [ ] **4.7** At 23:30:30 Nimue pulls shared (gets Merlin's push), commits `FROM-NIMUE.md`, pushes as `nimue-ai-mai`
-- [ ] **4.8** Both agents have each other's latest knowledge by 23:31 every night
+- [ ] **4.7** At 23:31 Nimue pulls shared (gets Merlin's push), commits `FROM-NIMUE.md`, pushes as `nimue-ai-mai`
+- [ ] **4.8** Both agents have each other's latest knowledge by 23:32 every night
 - [ ] **4.9** `KNOWLEDGEBASE.md` is NOT committed by agents (Markus-only)
+- [ ] **4.10** Container restart triggers fresh `git pull` of shared repo (immediate KB refresh)
 
 ### Phase 5: Documentation updates (AI can do)
 
@@ -117,9 +136,10 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
 - [ ] Both agent workspaces have a working `shared/` symlink pointing to the shared clone
 - [ ] `shared` is in `.gitignore` of both agent workspace repos
 - [ ] Both agents can read `KNOWLEDGEBASE.md` (via `KB.md` alias) and answer basic cross-family questions
-- [ ] Nightly sync at 23:30 — pull-then-push, Merlin first, Nimue 30s later
-- [ ] Both agents have mutual knowledge by 23:31 every night
+- [ ] Nightly cron sync — Merlin at 23:30, Nimue at 23:31 (pull-then-push)
+- [ ] Both agents have mutual knowledge by 23:32 every night
 - [ ] `KNOWLEDGEBASE.md` never committed by agents
+- [ ] Container restart triggers immediate `git pull` of shared repo
 - [ ] OPENCLAW-RUNBOOK.md updated
 - [ ] Both agent `AGENTS.md` files reference the shared workspace
 
@@ -127,14 +147,20 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
 
 - **PAT for shared repo**: each agent uses their own PAT for push (`GITHUB_PAT_MERLIN` /
   `GITHUB_PAT_NIMUE`) — both already in container, just need access granted to `oc-workspace-shared`
-  on GitHub. Clean audit trail: commits show correct author per agent. No new secrets needed.
-- **Nightly sync at 23:30**: pull-then-push, Merlin at :00, Nimue at :30s — both agents have
-  each other's latest by 23:31. Git history clearly shows who wrote what and when.
-  No separate morning pull needed — the pull-before-push covers it.
+  on GitHub. Clone uses `GITHUB_PAT_MERLIN` (first in boot sequence). No new secrets needed.
+- **Nightly cron sync**: Merlin at 23:30, Nimue at 23:31 — pull-then-push, both agents have
+  each other's latest by 23:32. Git history clearly shows who wrote what and when.
+- **KB refresh on restart**: `entrypoint.sh` does `git pull` of shared repo on every boot.
+  If Markus pushes `KNOWLEDGEBASE.md` manually, agents get it on next container restart or
+  next nightly sync — whichever comes first.
 - **Merge conflicts**: impossible by design — each agent exclusively writes to their own `FROM-*.md`.
   `KNOWLEDGEBASE.md` is maintained by Markus only, not written by agents.
-- **Symlink + git**: git records the symlink as a file (the target path string), not the target
-  content. `shared` in `.gitignore` keeps agent workspace repos clean.
-- **OpenClaw file reading**: OpenClaw walks the workspace tree and follows symlinks —
-  `shared/KB.md` and `shared/FROM-*.md` will be visible to each agent as workspace context automatically.
+- **Symlinks**: relative symlinks (`../workspace-shared`) — portable within the container path
+  structure. `shared` in `.gitignore` keeps agent workspace repos clean. Git records the symlink
+  as a file (the target path string), not the target content.
+- **OpenClaw context**: OpenClaw walks the workspace tree and follows symlinks — `shared/KB.md`
+  and `shared/FROM-*.md` will be indexed into each agent's context automatically. Keep
+  `KNOWLEDGEBASE.md` concise to avoid consuming excessive tokens every session.
+- **Percy extensibility**: if Percy (miniserver-bp) ever needs family context, just add
+  `FROM-PERCY.md` and symlink the shared repo into Percy's workspace. Same pattern.
 - **Future**: if OpenClaw adds native multi-workspace support, symlinks can be replaced cleanly.
