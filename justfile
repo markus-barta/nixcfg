@@ -650,6 +650,11 @@ _hsb0-run cmd:
 oc-rebuild:
     just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose build --no-cache openclaw-gateway && docker compose up -d --force-recreate openclaw-gateway"
 
+# Fast rebuild — uses Docker layer cache (for entrypoint/config/compose changes, not npm updates)
+[group('openclaw')]
+oc-rebuild-fast:
+    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose up -d --build --force-recreate openclaw-gateway"
+
 # Show gateway container status and recent logs
 [group('openclaw')]
 oc-status:
