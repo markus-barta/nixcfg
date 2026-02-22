@@ -18,8 +18,8 @@ what the other has learned).
 
 A third git repo (`oc-workspace-shared`) acts as a shared knowledge base. Both agent workspaces get
 a `shared` symlink pointing to a shared clone of this repo. Both agents can read and write freely —
-flat structure, no subfolders. No merge conflict risk in practice (they cover different domains:
-Merlin covers Markus/tech/home-automation, Nimue covers Mailina/family/calendar). The shared repo
+flat structure, no subfolders. No merge conflicts by design — each agent exclusively writes to their
+own `FROM-*.md` file. The shared repo
 gets its own clone, pull, and push cycle in the entrypoint.
 
 **Design:**
@@ -41,8 +41,8 @@ gets its own clone, pull, and push cycle in the entrypoint.
     └── FROM-NIMUE.md              # Nimue writes, Merlin reads
 ```
 
-Flat structure — no subfolders. Each agent owns their own `FROM-*.md` to avoid merge conflicts.
-`KB.md` is a symlink inside the shared repo itself — works as a short alias in agent chats.
+Flat structure — no subfolders. No merge conflicts by design: each agent exclusively owns their `FROM-*.md`.
+`KB.md` is a symlink inside the shared repo itself — short alias for agent use in chats/prompts.
 
 ## Implementation
 
@@ -119,8 +119,8 @@ Flat structure — no subfolders. Each agent owns their own `FROM-*.md` to avoid
 - **PAT for shared repo**: simplest = reuse `GITHUB_PAT_MERLIN` (already in container, just needs
   access granted to `oc-workspace-shared`). Cleaner alternative: dedicate `hsb0-shared-github-pat`
   agenix secret — better audit trail, minimal extra setup.
-- **Merge conflicts**: low risk — each agent writes only to their own `FROM-*.md`. `KNOWLEDGEBASE.md`
-  is maintained by Markus only, not written by agents.
+- **Merge conflicts**: impossible by design — each agent exclusively writes to their own `FROM-*.md`.
+  `KNOWLEDGEBASE.md` is maintained by Markus only, not written by agents.
 - **Symlink + git**: git records the symlink as a file (the target path string), not the target
   content. `shared` in `.gitignore` keeps agent workspace repos clean.
 - **OpenClaw file reading**: OpenClaw walks the workspace tree and follows symlinks —
