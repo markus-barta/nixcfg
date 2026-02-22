@@ -131,7 +131,7 @@ Current Context                Target Host              Reachable?
 
 ---
 
-## 🤝 Human-in-the-Loop Protocol (MANDATORY for state-changing ops)
+## 🤝 THE "HIL" PROTOCOLL (Human-in-the-Loop is MANDATORY for state-changing ops)
 
 **Applies to:** any operation that modifies state — files, containers, NixOS configs, secrets, services.
 **Does NOT apply to:** read-only / diagnostic ops (logs, status checks, `git diff`, SSH reads).
