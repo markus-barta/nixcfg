@@ -185,5 +185,46 @@ init_agent \
   "mailina.barta@gmail.com" \
   "/run/secrets/gogcli-keyring-password-nimue"
 
+# -----------------------------------------------------------------------------
+# 5. Shared workspace — clone/pull + symlinks in each agent workspace
+# -----------------------------------------------------------------------------
+SHARED_DIR="/home/node/.openclaw/workspace-shared"
+SHARED_REPO="markus-barta/oc-workspace-shared"
+
+echo "[shared] Initialising shared workspace..."
+if [ ! -d "${SHARED_DIR}/.git" ]; then
+  echo "[shared] Cloning shared workspace from GitHub..."
+  rm -rf "${SHARED_DIR}"
+  git clone "https://${GITHUB_PAT_MERLIN}@github.com/${SHARED_REPO}.git" "${SHARED_DIR}"
+else
+  echo "[shared] Shared workspace exists, pulling latest..."
+  cd "${SHARED_DIR}"
+  git remote set-url origin "https://${GITHUB_PAT_MERLIN}@github.com/${SHARED_REPO}.git"
+  git pull --ff-only || echo "[shared] Pull failed or conflicts, continuing..."
+fi
+
+# Create symlinks in each agent workspace (relative, idempotent)
+ln -sfn /home/node/.openclaw/workspace-shared /home/node/.openclaw/workspace-merlin/shared
+ln -sfn /home/node/.openclaw/workspace-shared /home/node/.openclaw/workspace-nimue/shared
+echo "[shared] Symlinks created in workspace-merlin/shared and workspace-nimue/shared"
+
+# -----------------------------------------------------------------------------
+# 6. Set up nightly cron sync for shared workspace
+#    Merlin: 23:30 — pull + commit FROM-MERLIN.md + push (as merlin-ai-mba)
+#    Nimue:  23:31 — pull + commit FROM-NIMUE.md  + push (as nimue-ai-mai)
+# -----------------------------------------------------------------------------
+CRONTAB_FILE="/home/node/shared-crontab"
+cat >"${CRONTAB_FILE}" <<CRONEOF
+30 23 * * * GITHUB_PAT_MERLIN=${GITHUB_PAT_MERLIN} GITHUB_PAT_NIMUE=${GITHUB_PAT_NIMUE} /home/node/shared-sync.sh merlin >> /home/node/.openclaw/shared-sync-merlin.log 2>&1
+31 23 * * * GITHUB_PAT_MERLIN=${GITHUB_PAT_MERLIN} GITHUB_PAT_NIMUE=${GITHUB_PAT_NIMUE} /home/node/shared-sync.sh nimue >> /home/node/.openclaw/shared-sync-nimue.log 2>&1
+CRONEOF
+crontab "${CRONTAB_FILE}"
+rm "${CRONTAB_FILE}"
+echo "[shared] Nightly cron sync registered (Merlin: 23:30, Nimue: 23:31)"
+
+# Start cron daemon in background
+cron
+echo "[shared] Cron daemon started"
+
 echo "[gateway] All agents initialised. Starting openclaw gateway on port 18789..."
 exec openclaw gateway --port 18789
