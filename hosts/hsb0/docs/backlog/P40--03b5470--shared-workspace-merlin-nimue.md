@@ -63,9 +63,11 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
   - Clone/pull `oc-workspace-shared` to `/home/node/.openclaw/workspace-shared/`
   - Create symlinks: `ln -sfn ../workspace-shared /home/node/.openclaw/workspace-merlin/shared`
     and same for Nimue
-  - Add **per-agent** daily auto-push loop for the shared repo:
-    - Merlin's loop: sets `GIT_AUTHOR/COMMITTER` to `merlin-ai-mba`, commits + pushes only `FROM-MERLIN.md`
-    - Nimue's loop: sets `GIT_AUTHOR/COMMITTER` to `nimue-ai-mai`, commits + pushes only `FROM-NIMUE.md`
+  - Add **per-agent** nightly sync (cron, NOT a background loop) for the shared repo:
+    - **23:30:00** — Merlin: `git pull` → commit `FROM-MERLIN.md` → `git push` (as `merlin-ai-mba`)
+    - **23:30:30** — Nimue: `git pull` → commit `FROM-NIMUE.md` → `git push` (as `nimue-ai-mai`)
+    - Pull-before-push ensures each agent gets the other's latest before committing their own
+    - 30s stagger eliminates push race between the two agents
     - `KNOWLEDGEBASE.md` is never touched by agents — Markus pushes manually
   - Use `GITHUB_PAT_MERLIN` / `GITHUB_PAT_NIMUE` respectively for push auth
 
@@ -97,9 +99,10 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
 - [ ] **4.3** `docker exec openclaw-gateway ls workspace-nimue/shared/` shows same files
 - [ ] **4.4** Merlin can answer basic question about Mailina (reads `shared/KB.md` via symlink)
 - [ ] **4.5** Nimue can answer basic question about Markus (reads `shared/KB.md` via symlink)
-- [ ] **4.6** Merlin writes to `shared/FROM-MERLIN.md`, daily auto-push commits under `merlin-ai-mba`
-- [ ] **4.7** Nimue writes to `shared/FROM-NIMUE.md`, daily auto-push commits under `nimue-ai-mai`
-- [ ] **4.8** `KNOWLEDGEBASE.md` is NOT auto-pushed by agents (Markus-only)
+- [ ] **4.6** At 23:30 Merlin pulls shared, commits `FROM-MERLIN.md`, pushes as `merlin-ai-mba`
+- [ ] **4.7** At 23:30:30 Nimue pulls shared (gets Merlin's push), commits `FROM-NIMUE.md`, pushes as `nimue-ai-mai`
+- [ ] **4.8** Both agents have each other's latest knowledge by 23:31 every night
+- [ ] **4.9** `KNOWLEDGEBASE.md` is NOT committed by agents (Markus-only)
 
 ### Phase 5: Documentation updates (AI can do)
 
@@ -114,8 +117,9 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
 - [ ] Both agent workspaces have a working `shared/` symlink pointing to the shared clone
 - [ ] `shared` is in `.gitignore` of both agent workspace repos
 - [ ] Both agents can read `KNOWLEDGEBASE.md` (via `KB.md` alias) and answer basic cross-family questions
-- [ ] Daily auto-push: `FROM-MERLIN.md` committed as `merlin-ai-mba`, `FROM-NIMUE.md` as `nimue-ai-mai`
-- [ ] `KNOWLEDGEBASE.md` never auto-pushed by agents
+- [ ] Nightly sync at 23:30 — pull-then-push, Merlin first, Nimue 30s later
+- [ ] Both agents have mutual knowledge by 23:31 every night
+- [ ] `KNOWLEDGEBASE.md` never committed by agents
 - [ ] OPENCLAW-RUNBOOK.md updated
 - [ ] Both agent `AGENTS.md` files reference the shared workspace
 
@@ -124,8 +128,9 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
 - **PAT for shared repo**: each agent uses their own PAT for push (`GITHUB_PAT_MERLIN` /
   `GITHUB_PAT_NIMUE`) — both already in container, just need access granted to `oc-workspace-shared`
   on GitHub. Clean audit trail: commits show correct author per agent. No new secrets needed.
-- **Daily knowledge transfer**: auto-push fires once per day per agent. Each agent commits only
-  their own `FROM-*.md` — git history clearly shows who wrote what and when.
+- **Nightly sync at 23:30**: pull-then-push, Merlin at :00, Nimue at :30s — both agents have
+  each other's latest by 23:31. Git history clearly shows who wrote what and when.
+  No separate morning pull needed — the pull-before-push covers it.
 - **Merge conflicts**: impossible by design — each agent exclusively writes to their own `FROM-*.md`.
   `KNOWLEDGEBASE.md` is maintained by Markus only, not written by agents.
 - **Symlink + git**: git records the symlink as a file (the target path string), not the target
