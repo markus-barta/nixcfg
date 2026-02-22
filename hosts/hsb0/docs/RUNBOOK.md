@@ -16,27 +16,70 @@ ssh mba@hsb0.lan
 
 ---
 
-## 🛡️ Security Policy (SSH Hardening)
+## OpenClaw Gateway (Merlin + Nimue)
 
-### The Markus-Only Rule
+**Container**: `openclaw-gateway` | **Port**: 18789 | **Data**: `/var/lib/openclaw-gateway/data`
+**Telegram**: @merlin_oc_bot (Merlin), Nimue's bot (Nimue)
 
-As a personal infrastructure server, `hsb0` allows SSH access **ONLY** for the `mba` user using Markus' authorized keys.
+Full operational runbook: **[OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md)**
 
-**Hokage Override:**
-The `hokage` module (role `server-home`) automatically injects external developer keys (omega@\*). To prevent this, we use `lib.mkForce` in the NixOS configuration:
-
-```nix
-users.users.mba.openssh.authorizedKeys.keys = lib.mkForce [
-  "ssh-rsa AAAAB3..." # mba@markus
-];
-```
-
-**Verification:**
+### Top 3
 
 ```bash
-ssh mba@192.168.1.99 'cat ~/.ssh/authorized_keys'
-# Should show ONLY mba@markus
+# 1. UPDATE to latest version (rebuilds container, pulls openclaw@latest from npm)
+just oc-rebuild
+
+# 2. CHECK STATUS + recent logs
+just oc-status
+
+# 3. HEALTH CHECK
+curl http://192.168.1.99:18789/health
 ```
+
+### Top 4-10
+
+```bash
+# 4. VIEW LIVE LOGS (follow mode)
+ssh mba@hsb0.lan "docker logs -f openclaw-gateway"
+
+# 5. RESTART (no rebuild, keeps current version)
+just oc-stop && just oc-start
+
+# 6. FULL DEPLOY (git pull + NixOS switch + container rebuild)
+#    Run on hsb0 or via SSH:
+ssh mba@hsb0.lan "cd ~/Code/nixcfg && gitpl && just switch && just oc-rebuild"
+
+# 7. VIEW LIVE CONFIG (what's running vs what's in git)
+docker exec openclaw-gateway cat /home/node/.openclaw/openclaw.json | jq
+
+# 8. PULL AGENT WORKSPACE (sync workspace repo into container)
+just merlin-pull-workspace
+just nimue-pull-workspace
+
+# 9. TELEGRAM PAIRING (list pending, then approve)
+docker exec -it openclaw-gateway sh -c \
+  '. /home/node/.env && openclaw pairing list telegram --agent merlin'
+docker exec -it openclaw-gateway sh -c \
+  '. /home/node/.env && openclaw pairing approve telegram <CODE> --agent merlin'
+# Replace "merlin" with "nimue" for Nimue
+
+# 10. LIST AGENT SKILLS
+docker exec openclaw-gateway sh -c \
+  '. /home/node/.env && openclaw skills list --agent merlin'
+docker exec openclaw-gateway sh -c \
+  '. /home/node/.env && openclaw skills list --agent nimue'
+```
+
+### All Just Recipes
+
+| Recipe                       | What                                                           |
+| ---------------------------- | -------------------------------------------------------------- |
+| `just oc-rebuild`            | Update + rebuild container (--no-cache, pulls latest openclaw) |
+| `just oc-status`             | Container status + last 30 log lines                           |
+| `just oc-stop`               | Stop container                                                 |
+| `just oc-start`              | Start container                                                |
+| `just merlin-pull-workspace` | Pull Merlin's workspace repo in container                      |
+| `just nimue-pull-workspace`  | Pull Nimue's workspace repo in container                       |
 
 ---
 
@@ -208,6 +251,35 @@ nixos-rebuild switch --flake .#hsb8 --target-host hsb8 --use-remote-sudo
 
 ---
 
+## Maintenance
+
+### Clean Up Disk Space
+
+```bash
+ssh mba@192.168.1.99 "cd ~/Code/nixcfg && just cleanup"
+```
+
+### ZFS Scrub (Manual)
+
+```bash
+ssh mba@192.168.1.99 "sudo zpool scrub zroot"
+```
+
+### View Logs
+
+```bash
+# Current boot
+ssh mba@192.168.1.99 "journalctl -b -e"
+
+# Previous boot
+ssh mba@192.168.1.99 "journalctl -b-1"
+
+# Follow logs
+ssh mba@192.168.1.99 "journalctl -f"
+```
+
+---
+
 ## Troubleshooting
 
 ### AdGuard Home Not Responding
@@ -233,6 +305,30 @@ sudo systemctl restart adguardhome
 
 ---
 
+## Security Policy (SSH Hardening)
+
+### The Markus-Only Rule
+
+As a personal infrastructure server, `hsb0` allows SSH access **ONLY** for the `mba` user using Markus' authorized keys.
+
+**Hokage Override:**
+The `hokage` module (role `server-home`) automatically injects external developer keys (omega@\*). To prevent this, we use `lib.mkForce` in the NixOS configuration:
+
+```nix
+users.users.mba.openssh.authorizedKeys.keys = lib.mkForce [
+  "ssh-rsa AAAAB3..." # mba@markus
+];
+```
+
+**Verification:**
+
+```bash
+ssh mba@192.168.1.99 'cat ~/.ssh/authorized_keys'
+# Should show ONLY mba@markus
+```
+
+---
+
 ## Emergency Recovery
 
 ### If SSH Fails
@@ -249,14 +345,14 @@ If hsb0 is completely down:
 - Static IPs continue working.
 - DHCP renewals will fail (24-hour lease).
 
-### 🛠️ Recovery Scenarios
+### Recovery Scenarios
 
-| Scenario               | Impact                        | Action                                                                                      |
-| ---------------------- | ----------------------------- | ------------------------------------------------------------------------------------------- |
-| **AdGuard Home Stops** | 🔴 CRITICAL - No DNS/DHCP     | `sudo nixos-rebuild switch --rollback` or `sudo systemctl restart adguardhome`              |
-| **DNS Broken**         | 🔴 HIGH - No internet by name | `nslookup google.com 127.0.0.1`. If fails, check upstream DNS in AdGuard Web UI.            |
-| **DHCP Broken**        | 🟡 MEDIUM - New devices fail  | Verify `/run/agenix/static-leases-hsb0` exists and is valid JSON.                           |
-| **SSH Lockout**        | 🟡 MEDIUM - No remote access  | Connect monitor/keyboard, login as `mba`, and rollback. Check for `omega@*` keys in config. |
+| Scenario               | Impact                     | Action                                                                                      |
+| ---------------------- | -------------------------- | ------------------------------------------------------------------------------------------- |
+| **AdGuard Home Stops** | CRITICAL - No DNS/DHCP     | `sudo nixos-rebuild switch --rollback` or `sudo systemctl restart adguardhome`              |
+| **DNS Broken**         | HIGH - No internet by name | `nslookup google.com 127.0.0.1`. If fails, check upstream DNS in AdGuard Web UI.            |
+| **DHCP Broken**        | MEDIUM - New devices fail  | Verify `/run/agenix/static-leases-hsb0` exists and is valid JSON.                           |
+| **SSH Lockout**        | MEDIUM - No remote access  | Connect monitor/keyboard, login as `mba`, and rollback. Check for `omega@*` keys in config. |
 
 ### Restore from Generation
 
@@ -302,10 +398,6 @@ sudo zfs rollback zroot/root@SNAPSHOT_NAME
 3. Commit and push: `git add . && git commit -m "restore: from Time Machine backup"`
 4. Deploy to hsb0: `ssh mba@hsb0 "cd ~/Code/nixcfg && git pull && just switch"`
 
----
-
-## Backup
-
 ### Backup Frequency
 
 | Backup Type        | Frequency                 | Location               |
@@ -324,54 +416,7 @@ ssh mba@hsb0 "grep -A5 'autoSnapshot' ~/Code/nixcfg/hosts/hsb0/configuration.nix
 
 ---
 
-## Maintenance
-
-### Clean Up Disk Space
-
-```bash
-ssh mba@192.168.1.99 "cd ~/Code/nixcfg && just cleanup"
-```
-
-### ZFS Scrub (Manual)
-
-```bash
-ssh mba@192.168.1.99 "sudo zpool scrub zroot"
-```
-
-### View Logs
-
-```bash
-# Current boot
-ssh mba@192.168.1.99 "journalctl -b -e"
-
-# Previous boot
-ssh mba@192.168.1.99 "journalctl -b-1"
-
-# Follow logs
-ssh mba@192.168.1.99 "journalctl -f"
-```
-
----
-
-## 🤖 Merlin (OpenClaw AI Assistant)
-
-**Service**: Docker container `openclaw-merlin`
-**Port**: 18789 | **Telegram**: @merlin_oc_bot | **Data**: `/var/lib/openclaw-merlin/data`
-
-Full operational runbook: **[OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md)**
-
-Quick commands:
-
-```bash
-docker logs -f openclaw-merlin                              # Logs
-sudo systemctl restart docker-openclaw-merlin               # Restart
-curl http://192.168.1.99:18789/health                       # Health check
-```
-
----
-
 ## Related Documentation
 
-- [OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md) - Merlin operational runbook
+- [OPENCLAW-RUNBOOK.md](./OPENCLAW-RUNBOOK.md) - Full OpenClaw operational runbook
 - [Static Leases](../README.md#static-dhcp-leases) - Managing DHCP leases
-- [Merlin Migration Backlog](../backlog/P30--438b3b8--migrate-merlin-openclaw-to-hsb0-docker.md)
