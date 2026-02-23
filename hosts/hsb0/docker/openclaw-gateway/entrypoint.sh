@@ -107,32 +107,27 @@ init_agent() {
   git config user.name "${GIT_NAME}"
   git config user.email "${GIT_EMAIL}"
 
-  # -- Auth profiles: seed OpenRouter key if missing --
+  # -- Auth profiles: always sync OpenRouter key from env --
   AUTH_PROFILES="${AGENT_DIR}/auth-profiles.json"
   mkdir -p "${AGENT_DIR}"
   if [ -f "$AUTH_PROFILES" ]; then
-    HAS_KEY=$(python3 -c "
-import json,sys
-d=json.load(open('${AUTH_PROFILES}'))
-p=d.get('profiles',{}).get('openrouter:default',{})
-print('yes' if p.get('key') else 'no')
-" 2>/dev/null || echo "no")
-    if [ "$HAS_KEY" = "no" ]; then
-      echo "[agent:${AGENT_ID}] Seeding OpenRouter key into auth-profiles.json"
-      python3 -c "
+    python3 -c "
 import json
 path = '${AUTH_PROFILES}'
 key = '${OPENROUTER_API_KEY}'
 with open(path) as f:
     d = json.load(f)
-d.setdefault('profiles', {}).setdefault('openrouter:default', {})['key'] = key
-d['profiles']['openrouter:default']['type'] = 'api_key'
-d['profiles']['openrouter:default']['provider'] = 'openrouter'
-with open(path, 'w') as f:
-    json.dump(d, f, indent=2)
-print('[agent:${AGENT_ID}] auth-profiles.json seeded.')
+old_key = d.get('profiles', {}).get('openrouter:default', {}).get('key', '')
+if old_key == key:
+    print('[agent:${AGENT_ID}] auth-profiles.json OpenRouter key already current.')
+else:
+    d.setdefault('profiles', {}).setdefault('openrouter:default', {})['key'] = key
+    d['profiles']['openrouter:default']['type'] = 'api_key'
+    d['profiles']['openrouter:default']['provider'] = 'openrouter'
+    with open(path, 'w') as f:
+        json.dump(d, f, indent=2)
+    print('[agent:${AGENT_ID}] auth-profiles.json OpenRouter key UPDATED.')
 "
-    fi
   else
     echo "[agent:${AGENT_ID}] auth-profiles.json not found yet — openclaw will create on first run"
   fi

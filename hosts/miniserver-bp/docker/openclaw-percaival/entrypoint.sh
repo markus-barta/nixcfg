@@ -46,6 +46,32 @@ else
   git pull --ff-only || echo "Pull failed or conflicts, continuing..."
 fi
 
+# Sync OpenRouter key into auth-profiles.json (key rotations take effect on restart)
+# Single-agent mode: check both possible paths (agent/ and agents/main/agent/)
+for AGENT_DIR in /home/node/.openclaw/agent /home/node/.openclaw/agents/main/agent; do
+  AUTH_PROFILES="${AGENT_DIR}/auth-profiles.json"
+  if [ -f "$AUTH_PROFILES" ]; then
+    python3 -c "
+import json
+path = '${AUTH_PROFILES}'
+key = '${OPENROUTER_API_KEY}'
+with open(path) as f:
+    d = json.load(f)
+old_key = d.get('profiles', {}).get('openrouter:default', {}).get('key', '')
+if old_key == key:
+    print('[percy] auth-profiles.json OpenRouter key already current.')
+else:
+    d.setdefault('profiles', {}).setdefault('openrouter:default', {})['key'] = key
+    d['profiles']['openrouter:default']['type'] = 'api_key'
+    d['profiles']['openrouter:default']['provider'] = 'openrouter'
+    with open(path, 'w') as f:
+        json.dump(d, f, indent=2)
+    print('[percy] auth-profiles.json OpenRouter key UPDATED.')
+"
+    break
+  fi
+done
+
 # Install bundled plugins if not already present (persisted in data volume)
 OPENCLAW_EXT=/usr/local/lib/node_modules/openclaw/extensions
 # shellcheck disable=SC2043
