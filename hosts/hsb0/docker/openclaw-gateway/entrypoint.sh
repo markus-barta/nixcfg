@@ -108,8 +108,13 @@ init_agent() {
   git config user.email "${GIT_EMAIL}"
 
   # -- Auth profiles: always sync OpenRouter key from env --
+  # Check per-agent path first, then legacy path (pre-multi-agent migration)
   AUTH_PROFILES="${AGENT_DIR}/auth-profiles.json"
+  LEGACY_AUTH="/home/node/.openclaw/agents/agent/auth-profiles.json"
   mkdir -p "${AGENT_DIR}"
+  if [ ! -f "$AUTH_PROFILES" ] && [ -f "$LEGACY_AUTH" ]; then
+    AUTH_PROFILES="$LEGACY_AUTH"
+  fi
   if [ -f "$AUTH_PROFILES" ]; then
     python3 -c "
 import json
