@@ -119,6 +119,26 @@ gitpl && just switch && just oc-rebuild
 # just oc-rebuild = build --no-cache + recreate container
 ```
 
+### Rotate an API Key / Secret
+
+Secrets flow: `.age` file (git) -> agenix decrypt (`/run/agenix/`) -> Docker mount (`/run/secrets/`) -> entrypoint (`.env` + `auth-profiles.json`). All layers must be refreshed.
+
+```bash
+# 1. On your Mac (encrypt new value):
+agenix -e secrets/hsb0-openclaw-<secret-name>.age
+
+# 2. Commit + push:
+git add secrets/hsb0-openclaw-<secret-name>.age && git commit -m "secrets: rotate <secret>" && git push
+
+# 3. On hsb0 (all three steps required!):
+gitpl && just switch && just oc-rebuild
+#   gitpl       = pulls the new .age file
+#   just switch = agenix re-decrypts to /run/agenix/ (REQUIRED — without this the old key stays!)
+#   oc-rebuild  = container picks up the new secret from /run/secrets/
+```
+
+> **Common mistake:** skipping `just switch` after updating a `.age` file. `oc-rebuild` alone only rebuilds the container — agenix secrets are decrypted by NixOS, not Docker.
+
 ### View Live Config
 
 ```bash
