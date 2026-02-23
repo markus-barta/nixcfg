@@ -273,7 +273,7 @@ When you change configuration:
 - ❌ NEVER decrypt runbook-secrets.age without explicit permission
 - ❌ NEVER encrypt runbook-secrets.md without explicit permission
 - ❌ NEVER build NixOS on macOS (ask user to use gpc0 or SSH to target)
-- ✅ Always use agenix for secrets
+- ✅ Always tell the user to use agenix for secrets
 - ✅ Always check `git diff` before commit
 
 **nixcfg-specific (also forbidden):**
