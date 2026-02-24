@@ -1,8 +1,9 @@
 # Smart Home Health Dashboard
 
 **Priority**: P40
-**Status**: Backlog
+**Status**: Done — UI polish only (see Notes)
 **Created**: 2026-02-19
+**Updated**: 2026-02-24
 
 ---
 
@@ -152,6 +153,8 @@ Solution: **tab-based views** — auto-cycling on alert, manual advance via butt
 
 ## Implementation
 
+> **2026-02-24:** Phases 1–4 complete. Script running in Docker on hsb1. All collectors, renderer, and tabs working. Remaining: HA automation + minor UI polish.
+
 ### Phase 1: Data sources — confirmed MQTT topics + polling
 
 **Wi-Fi devices:**
@@ -188,33 +191,30 @@ Availability: `z2m/<device>/availability` → `{"state":"online"|"offline"}`
 
 ### Phase 2: Heating chain integrity (Node-RED)
 
-- [ ] Add logic to existing Node-RED boiler flow:
+- [x] Add logic to existing Node-RED boiler flow:
   - Periodically (every 5 min) compare `wc/shelly1-tado-bridge input/0` vs `vr/shelly-pro-4-heizung1 switch:0 output`
   - If input=OFF but output=ON for >10min → publish alert to `jhw2211/health/heat-chain`
   - Payload: `{"state":"ok"|"mismatch"|"unknown", "checked_at":"ISO8601"}`
-- [ ] Boiler integrity: Node-RED already owns this — just publish current state to `jhw2211/health/boiler`
+- [x] Boiler integrity: Node-RED already owns this — just publish current state to `jhw2211/health/boiler`
   - Payload: `{"state":"ok"|"error", "temp_c": 48.0, "nr_running": true}`
 
 ### Phase 3: Pixoo standalone script
 
-- [ ] New repo or subfolder — `health-pixoo/` (Node.js)
-  - Copy `lib/pixoo-http.js` from `~/Code/pidicon` as drawing primitive base
-  - Subscribe to Z2M availability + state topics
-  - Subscribe to Shelly MQTT topics
-  - Poll Shelly Pro 4PM via HTTP RPC every 60s
-  - Ping Fritz devices every 60s
-  - Subscribe to Node-RED health topics (`jhw2211/health/#`)
-  - Render tab-based 64×64 display (see UX spec above)
-  - Docker container on hsb1
-- [ ] Pixel art design: icons, gradient bar palette, scanline effect, ambient color zones
-- [ ] Finalize German short labels for all devices (see Tab 1/2 sketches above)
-- [ ] Add to `hosts/hsb1/docker/docker-compose.yml`
+- [x] New repo — `~/Code/health-pixoo` (Node.js)
+  - Drawing primitives from `lib/pixoo-http.js` (ported from pidicon)
+  - Collectors: mqtt-collector, ping-collector, rpc-collector
+  - Central state store + health helpers
+  - Tab-based renderer: ÜBERSICHT, WLAN, ZIGBEE, HEIZUNG
+  - Docker container on hsb1 (`ghcr.io/markus-barta/health-pixoo:latest`)
+- [x] Demoscene aesthetic: gradient bars, scanlines, ambient glow, 3D dots
+- [x] German short labels finalized
+- [x] Added to `hosts/hsb1/docker/docker-compose.yml` (host network mode)
 
 ### Phase 4: Deployment
 
-- [ ] Power on Pixoo64 (`192.168.1.159`), verify reachability from hsb1
-- [ ] Deploy Docker container on hsb1
-- [ ] Update `hosts/hsb1/docs/RUNBOOK.md` with new service
+- [x] Pixoo64 (`192.168.1.159`) reachable from hsb1
+- [x] Docker container deployed on hsb1
+- [x] `hosts/hsb1/docs/RUNBOOK.md` updated (health-pixoo in container overview + secrets inventory)
 
 ---
 
@@ -229,19 +229,30 @@ Availability: `z2m/<device>/availability` → `{"state":"online"|"offline"}`
 
 ## Acceptance Criteria
 
-- [ ] Pixoo64 shows Tab 0 overview when all systems nominal (green ambient)
-- [ ] Pixoo64 auto-cycles to detail tab when any device is offline/degraded
-- [ ] Wi-Fi bars reflect real RSSI/ping for all 6 devices
-- [ ] Zigbee bars reflect real LQI for all 6 devices
-- [ ] Node-RED publishes heating chain state to MQTT; Pixoo renders it
-- [ ] Script reconnects automatically after MQTT or Pixoo disconnect
-- [ ] No secrets committed to repo
+- [x] Pixoo64 shows Tab 0 overview when all systems nominal (green ambient)
+- [x] Pixoo64 auto-cycles to detail tab when any device is offline/degraded
+- [x] Wi-Fi bars reflect real RSSI/ping for all 6 devices
+- [x] Zigbee bars reflect real LQI for all 6 devices
+- [x] Node-RED publishes heating chain state to MQTT; Pixoo renders it
+- [x] Script reconnects automatically after MQTT or Pixoo disconnect
+- [x] No secrets committed to repo
 
 ## Open Questions
 
 - [x] Heating chain check interval: 5min — confirmed
 - [x] MQTT topic prefix: `jhw2211/health/` — home-scoped, consistent with existing `jhw2211/` namespace
 - [x] Short labels for Pixoo tabs — German, room-code based (see Tab sketches above)
+
+## Remaining Work
+
+### UI Polish (low priority, not blocking)
+
+- `vk-wlk` (Wasserleck) shows permanently offline — dead battery, fix separately
+- `bz-sh` RSSI -86 dBm renders yellow — expected, acceptable
+
+### Spin-offs
+
+- NR self-heal + Telegram alert for heat-chain mismatch → `+pm/backlog/infra/P50--4c4417f--ha-alert-heat-chain-mismatch.md`
 
 ## Notes
 
