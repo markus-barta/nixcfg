@@ -105,7 +105,8 @@
     "bind": "lan",
     "controlUi": {
       "allowInsecureAuth": true,
-      "dangerouslyDisableDeviceAuth": true
+      "dangerouslyDisableDeviceAuth": true,
+      "allowedOrigins": ["http://10.17.1.40:18789"]
     },
     "auth": {
       "mode": "token",
