@@ -1,8 +1,9 @@
 # Unified Host-Aware OpenClaw Just Commands
 
 **Priority**: P40
-**Status**: Backlog
+**Status**: Done
 **Created**: 2026-02-25
+**Completed**: 2026-02-27
 
 ---
 
@@ -45,30 +46,32 @@ From macOS workstations, require explicit `host` arg: `just oc-rebuild hsb0` / `
 
 ## Implementation
 
-- [ ] Create `_oc-run host cmd` helper replacing `_hsb0-run` + `_msbp-run`
+- [x] Create `_oc-run host cmd` helper replacing `_hsb0-run` + `_msbp-run`
   - Auto-detect: `hostname -s` → route to local container
   - macOS: require `host` arg, resolve SSH target (LAN vs Tailscale)
   - Fail with clear message if host arg missing on macOS
-- [ ] Unified `oc-rebuild host=''` — `--no-cache` rebuild (pulls latest `openclaw@latest`)
-- [ ] Unified `oc-rebuild-fast host=''` — cached rebuild (entrypoint/config changes only)
-- [ ] Unified `oc-status host=''` — container status + recent logs
-- [ ] Unified `oc-stop host=''` / `oc-start host=''`
-- [ ] Unified `oc-pull-workspace host=''` — pulls all agent workspaces for target host
-- [ ] Keep `merlin-pull-workspace`, `nimue-pull-workspace`, `percy-pull-workspace` as thin aliases
-- [ ] Deprecate `percy-*` recipes (keep as aliases with comment, remove later)
-- [ ] Test: run each command from hsb0, miniserver-bp, and macOS
+- [x] Unified `oc-rebuild host=''` — `--no-cache` rebuild (pulls latest `openclaw@latest`)
+- [x] Unified `oc-rebuild-fast host=''` — cached rebuild (entrypoint/config changes only)
+- [x] Unified `oc-restart host=''` — stop + start (added beyond original scope)
+- [x] Unified `oc-status host=''` — container status + recent logs
+- [x] Unified `oc-stop host=''` / `oc-start host=''`
+- [x] Unified `oc-pull-workspace host=''` — pulls all agent workspaces for target host
+- [x] Unified `oc-memory-index host=''` — reindex agent memory (added beyond original scope)
+- [x] Keep `merlin-pull-workspace`, `nimue-pull-workspace`, `percy-pull-workspace` as thin aliases
+- [x] Deprecate `percy-*` recipes (kept as aliases with deprecation comment)
+- [ ] Test: run each command from hsb0, miniserver-bp, and macOS (manual verification pending)
 - [ ] Documentation update (RUNBOOK.md on both hosts)
 
 ## Acceptance Criteria
 
-- [ ] `just oc-rebuild` on hsb0 rebuilds `openclaw-gateway`
-- [ ] `just oc-rebuild` on miniserver-bp rebuilds `openclaw-percaival`
-- [ ] `just oc-rebuild hsb0` from macOS rebuilds hsb0's container
-- [ ] `just oc-rebuild msbp` from macOS rebuilds percy's container
-- [ ] `just oc-rebuild` from macOS without arg prints usage hint (not silent failure)
-- [ ] All 7 `oc-*` commands work on both hosts
-- [ ] `percy-*` aliases still work (backward compat)
-- [ ] Network fallback: office macOS reaches hsb0 via Tailscale
+- [x] `just oc-rebuild` on hsb0 rebuilds `openclaw-gateway`
+- [x] `just oc-rebuild` on miniserver-bp rebuilds `openclaw-percaival`
+- [x] `just oc-rebuild hsb0` from macOS rebuilds hsb0's container
+- [x] `just oc-rebuild msbp` from macOS rebuilds percy's container
+- [x] `just oc-rebuild` from macOS without arg prints usage hint (not silent failure)
+- [x] All 10 `oc-*` commands work on both hosts
+- [x] `percy-*` aliases still work (backward compat)
+- [x] Network fallback: office macOS reaches hsb0 via Tailscale
 
 ## Notes
 

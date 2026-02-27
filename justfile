@@ -631,93 +631,305 @@ hokage-options-interactive:
     done
 
 # ============================================================================
-# OpenClaw Gateway (hsb0) — Merlin + Nimue multi-agent
-# works from macOS (via SSH) and locally on hsb0
+# OpenClaw — Unified host-aware commands
+# Works from macOS (explicit host arg), hsb0, and miniserver-bp (auto-detect)
+#
+# Host routing:
+#   hsb0         → container: openclaw-gateway,   compose: hosts/hsb0/docker
+#   msbp         → container: openclaw-percaival, compose: hosts/miniserver-bp/docker
+#
+# Usage from macOS:   just oc-rebuild hsb0 / just oc-rebuild msbp
+# Usage on host:      just oc-rebuild          (auto-detects local host)
 # ============================================================================
+# Helper: run a command on the target OpenClaw host
 
-# Helper: run command on hsb0 (SSH if remote, direct if local)
+# host: hsb0 | msbp | (empty = auto-detect from hostname)
 [private]
-_hsb0-run cmd:
+_oc-run host cmd:
     #!/usr/bin/env bash
-    if [ "$(hostname -s)" = "hsb0" ]; then
-        bash -c "{{ cmd }}"
+    set -euo pipefail
+    _hostname="$(hostname -s)"
+
+    # Resolve target host
+    if [ -n "{{ host }}" ]; then
+        _target="{{ host }}"
+    elif [ "$_hostname" = "hsb0" ]; then
+        _target="hsb0"
+    elif [ "$_hostname" = "miniserver-bp" ]; then
+        _target="msbp"
     else
-        ssh mba@hsb0.lan "{{ cmd }}"
+        echo "Error: running on macOS (${_hostname}) — specify host: just <recipe> hsb0  OR  just <recipe> msbp" >&2
+        exit 1
     fi
 
-# Rebuild and restart the OpenClaw gateway container (--no-cache to pull latest openclaw@latest)
-[group('openclaw')]
-oc-rebuild:
-    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose build --no-cache openclaw-gateway && docker compose up -d --force-recreate openclaw-gateway"
+    # Route to correct host
+    case "$_target" in
+        hsb0)
+            if [ "$_hostname" = "hsb0" ]; then
+                bash -c "{{ cmd }}"
+            else
+                # From home LAN (imac0, gpc0): use .lan
+                # From office/remote: fall back to Tailscale
+                if ping -c1 -W3 hsb0.lan &>/dev/null; then
+                    ssh mba@hsb0.lan "{{ cmd }}"
+                else
+                    ssh mba@hsb0.ts.barta.cm "{{ cmd }}"
+                fi
+            fi
+            ;;
+        msbp)
+            if [ "$_hostname" = "miniserver-bp" ]; then
+                bash -c "{{ cmd }}"
+            else
+                ssh -p 2222 mba@10.17.1.40 "{{ cmd }}"
+            fi
+            ;;
+        *)
+            echo "Error: unknown host '${_target}'. Use: hsb0 | msbp" >&2
+            exit 1
+            ;;
+    esac
 
-# Fast rebuild — uses Docker layer cache (for entrypoint/config/compose changes, not npm updates)
-[group('openclaw')]
-oc-rebuild-fast:
-    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose up -d --build --force-recreate openclaw-gateway"
+# Helper: resolve container name for a given host target
+[private]
+_oc-container host:
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+            *) echo "openclaw-gateway" ;; # fallback
+        esac
+    fi
+    case "$_target" in
+        hsb0) echo "openclaw-gateway" ;;
+        msbp) echo "openclaw-percaival" ;;
+        *) echo "openclaw-gateway" ;;
+    esac
 
-# Show gateway container status and recent logs
-[group('openclaw')]
-oc-status:
-    just _hsb0-run "docker ps -f name=openclaw-gateway --format 'table {{{{.Status}}\t{{{{.Ports}}' && echo '---' && docker logs openclaw-gateway --tail 30"
+# Helper: resolve compose dir for a given host target
+[private]
+_oc-compose-dir host:
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+        esac
+    fi
+    case "$_target" in
+        hsb0) echo "~/Code/nixcfg/hosts/hsb0/docker" ;;
+        msbp) echo "~/Code/nixcfg/hosts/miniserver-bp/docker" ;;
+        *) echo "~/Code/nixcfg/hosts/hsb0/docker" ;;
+    esac
 
-# Stop the OpenClaw gateway
-[group('openclaw')]
-oc-stop:
-    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose stop openclaw-gateway"
+# Rebuild container from scratch — pulls latest openclaw@latest from npm (slow, ~5-15 min)
 
-# Start the OpenClaw gateway
+# Usage: just oc-rebuild [hsb0|msbp]
 [group('openclaw')]
-oc-start:
-    just _hsb0-run "cd ~/Code/nixcfg/hosts/hsb0/docker && docker compose start openclaw-gateway"
+oc-rebuild host='':
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+            *) echo "Error: specify host: just oc-rebuild hsb0  OR  just oc-rebuild msbp" >&2; exit 1 ;;
+        esac
+    fi
+    _container="$(just _oc-container $_target)"
+    _dir="$(just _oc-compose-dir $_target)"
+    just _oc-run "$_target" "cd $_dir && docker compose build --no-cache $_container && docker compose up -d --force-recreate $_container"
 
-# Pull Merlin's workspace changes into running container
+# Fast rebuild — uses Docker cache (for config/entrypoint changes, not npm updates)
+
+# Usage: just oc-rebuild-fast [hsb0|msbp]
+[group('openclaw')]
+oc-rebuild-fast host='':
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+            *) echo "Error: specify host: just oc-rebuild-fast hsb0  OR  just oc-rebuild-fast msbp" >&2; exit 1 ;;
+        esac
+    fi
+    _container="$(just _oc-container $_target)"
+    _dir="$(just _oc-compose-dir $_target)"
+    just _oc-run "$_target" "cd $_dir && docker compose up -d --build --force-recreate $_container"
+
+# Show container status and recent logs
+
+# Usage: just oc-status [hsb0|msbp]
+[group('openclaw')]
+oc-status host='':
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+            *) echo "Error: specify host: just oc-status hsb0  OR  just oc-status msbp" >&2; exit 1 ;;
+        esac
+    fi
+    _container="$(just _oc-container $_target)"
+    just _oc-run "$_target" "docker ps -f name=$_container --format 'table {{{{.Status}}\t{{{{.Ports}}' && echo '---' && docker logs $_container --tail 30"
+
+# Stop the OpenClaw container
+
+# Usage: just oc-stop [hsb0|msbp]
+[group('openclaw')]
+oc-stop host='':
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+            *) echo "Error: specify host: just oc-stop hsb0  OR  just oc-stop msbp" >&2; exit 1 ;;
+        esac
+    fi
+    _container="$(just _oc-container $_target)"
+    _dir="$(just _oc-compose-dir $_target)"
+    just _oc-run "$_target" "cd $_dir && docker compose stop $_container"
+
+# Start the OpenClaw container
+
+# Usage: just oc-start [hsb0|msbp]
+[group('openclaw')]
+oc-start host='':
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+            *) echo "Error: specify host: just oc-start hsb0  OR  just oc-start msbp" >&2; exit 1 ;;
+        esac
+    fi
+    _container="$(just _oc-container $_target)"
+    _dir="$(just _oc-compose-dir $_target)"
+    just _oc-run "$_target" "cd $_dir && docker compose start $_container"
+
+# Stop then start the container (no rebuild — picks up new openclaw.json on boot)
+
+# Usage: just oc-restart [hsb0|msbp]
+[group('openclaw')]
+oc-restart host='':
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+            *) echo "Error: specify host: just oc-restart hsb0  OR  just oc-restart msbp" >&2; exit 1 ;;
+        esac
+    fi
+    _container="$(just _oc-container $_target)"
+    _dir="$(just _oc-compose-dir $_target)"
+    just _oc-run "$_target" "cd $_dir && docker compose stop $_container && docker compose start $_container"
+
+# Pull all agent workspace repos into running container
+
+# Usage: just oc-pull-workspace [hsb0|msbp]
+[group('openclaw')]
+oc-pull-workspace host='':
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+            *) echo "Error: specify host: just oc-pull-workspace hsb0  OR  just oc-pull-workspace msbp" >&2; exit 1 ;;
+        esac
+    fi
+    case "$_target" in
+        hsb0)
+            just _oc-run hsb0 "docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-merlin pull --ff-only"
+            just _oc-run hsb0 "docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-nimue pull --ff-only"
+            ;;
+        msbp)
+            just _oc-run msbp "docker exec openclaw-percaival git -C /home/node/.openclaw/workspace pull --ff-only"
+            ;;
+    esac
+
+# Reindex agent memory (triggers GGUF embedding model if needed, ~328MB first run)
+
+# Usage: just oc-memory-index [hsb0|msbp]
+[group('openclaw')]
+oc-memory-index host='':
+    #!/usr/bin/env bash
+    _hostname="$(hostname -s)"
+    _target="{{ host }}"
+    if [ -z "$_target" ]; then
+        case "$_hostname" in
+            hsb0) _target="hsb0" ;;
+            miniserver-bp) _target="msbp" ;;
+            *) echo "Error: specify host: just oc-memory-index hsb0  OR  just oc-memory-index msbp" >&2; exit 1 ;;
+        esac
+    fi
+    case "$_target" in
+        hsb0)
+            just _oc-run hsb0 "docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory index --force --agent merlin 2>&1 | tail -5'"
+            just _oc-run hsb0 "docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory index --force --agent nimue 2>&1 | tail -5'"
+            just _oc-run hsb0 "docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory status 2>&1 | grep -E \"Provider|Indexed|Vector\"'"
+            ;;
+        msbp)
+            just _oc-run msbp "docker exec openclaw-percaival sh -c 'openclaw memory index --force 2>&1 | tail -5'"
+            just _oc-run msbp "docker exec openclaw-percaival sh -c 'openclaw memory status 2>&1 | grep -E \"Provider|Indexed|Vector\"'"
+            ;;
+    esac
+
+# ── Workspace aliases (thin wrappers, hsb0-only agents) ──────────────────────
+
+# Pull Merlin's workspace into running container (hsb0 only)
 [group('openclaw')]
 merlin-pull-workspace:
-    just _hsb0-run "docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-merlin pull --ff-only"
+    just oc-pull-workspace hsb0
 
-# Pull Nimue's workspace changes into running container
+# Pull Nimue's workspace into running container (hsb0 only)
 [group('openclaw')]
 nimue-pull-workspace:
-    just _hsb0-run "docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-nimue pull --ff-only"
+    just oc-pull-workspace hsb0
 
-# ============================================================================
-# OpenClaw Percy (miniserver-bp) — works from macOS (via SSH) and locally
-# ============================================================================
+# ── Percy aliases (backward compat — prefer oc-* commands) ───────────────────
 
-# Helper: run command on miniserver-bp (SSH if remote, direct if local)
-[private]
-_msbp-run cmd:
-    #!/usr/bin/env bash
-    if [ "$(hostname -s)" = "miniserver-bp" ]; then
-        bash -c "{{ cmd }}"
-    else
-        ssh -p 2222 mba@10.17.1.40 "{{ cmd }}"
-    fi
-
-# Stop the Percy gateway (container stays, process stops)
-[group('percy')]
+# [deprecated: use 'just oc-stop msbp'] Stop Percy container
+[group('openclaw')]
 percy-stop:
-    just _msbp-run "cd ~/Code/nixcfg/hosts/miniserver-bp/docker && docker compose stop openclaw-percaival"
+    just oc-stop msbp
 
-# Start the Percy gateway
-[group('percy')]
+# [deprecated: use 'just oc-start msbp'] Start Percy container
+[group('openclaw')]
 percy-start:
-    just _msbp-run "cd ~/Code/nixcfg/hosts/miniserver-bp/docker && docker compose start openclaw-percaival"
+    just oc-start msbp
 
-# Pull latest workspace changes into running container (after Markus pushes)
-[group('percy')]
+# [deprecated: use 'just oc-pull-workspace msbp'] Pull Percy workspace
+[group('openclaw')]
 percy-pull-workspace:
-    just _msbp-run "docker exec openclaw-percaival git -C /home/node/.openclaw/workspace pull --ff-only"
+    just oc-pull-workspace msbp
 
-# Rebuild and restart the Percy container (after Dockerfile/docker-compose changes)
-[group('percy')]
+# [deprecated: use 'just oc-rebuild msbp'] Rebuild Percy container
+[group('openclaw')]
 percy-rebuild:
-    just _msbp-run "cd ~/Code/nixcfg/hosts/miniserver-bp/docker && docker compose up -d --build --force-recreate openclaw-percaival"
+    just oc-rebuild msbp
 
-# Show Percy container status and recent logs
-[group('percy')]
+# [deprecated: use 'just oc-status msbp'] Percy container status
+[group('openclaw')]
 percy-status:
-    just _msbp-run "docker ps -f name=openclaw-percaival --format 'table {{{{.Status}}\t{{{{.Ports}}' && echo '---' && docker logs openclaw-percaival --tail 20"
+    just oc-status msbp
 
 # Get the reverse dependencies of a nix store path
 [group('maintenance')]
