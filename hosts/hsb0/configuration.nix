@@ -485,6 +485,12 @@ in
     mode = "444";
   };
 
+  # Uptime Kuma API key for Merlin (read monitors, create incidents)
+  age.secrets.hsb0-uptime-kuma-api-key = {
+    file = ../../secrets/hsb0-uptime-kuma-api-key.age;
+    mode = "444";
+  };
+
   # ============================================================================
   # OpenClaw Merlin - AI assistant via Telegram
   # ============================================================================

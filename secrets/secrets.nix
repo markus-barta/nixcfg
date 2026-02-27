@@ -155,6 +155,11 @@ in
   # TODO: Rename to csb0-mqtt-client.age
   "mqtt-csb0.age".publicKeys = markus ++ csb0;
 
+  # Uptime Kuma API key for Merlin (read monitors, create incidents)
+  # Format: Plain text token (no KEY=VALUE)
+  # Edit: agenix -e secrets/hsb0-uptime-kuma-api-key.age
+  "hsb0-uptime-kuma-api-key.age".publicKeys = markus ++ hsb0;
+
   # OpenClaw Merlin AI assistant secrets (hsb0)
   # Format: Plain text tokens/keys (no KEY=VALUE)
   # Edit: agenix -e secrets/hsb0-openclaw-*.age
