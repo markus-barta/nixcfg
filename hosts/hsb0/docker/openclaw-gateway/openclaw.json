@@ -36,7 +36,11 @@
       },
       "maxConcurrent": 4,
       "subagents": { "maxConcurrent": 8 },
-      "compaction": { "reserveTokensFloor": 5000 }
+      "compaction": { "reserveTokensFloor": 5000 },
+      "memorySearch": {
+        "provider": "local",
+        "fallback": "none"
+      }
     },
     "list": [
       {
