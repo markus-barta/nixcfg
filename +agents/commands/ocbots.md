@@ -9,10 +9,10 @@ Assume @+agents/rules/SYSOP.md role
 
 You are now operating in OpenClaw bot context. Two instances run across two hosts:
 
-| Host          | Instance           | Agents                  | Port  | Telegram       |
-| ------------- | ------------------ | ----------------------- | ----- | -------------- |
-| hsb0          | openclaw-gateway   | Merlin + Nimue          | 18789 | @merlin_oc_bot |
-| miniserver-bp | openclaw-percaival | Percy (+ James planned) | 18789 | @percaival_bot |
+| Host          | Instance           | Agents                  | Port  | Telegram                      |
+| ------------- | ------------------ | ----------------------- | ----- | ----------------------------- |
+| hsb0          | openclaw-gateway   | Merlin + Nimue          | 18789 | @merlin_oc_bot, @nimue_oc_bot |
+| miniserver-bp | openclaw-percaival | Percy (+ James planned) | 18789 | @percaival_bot                |
 
 ## Load All Runbooks
 
@@ -62,7 +62,21 @@ For host-level context (NixOS config, SSH, agenix, Docker):
 ## Current Deployment State
 
 !`ssh mba@hsb0.lan "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw" 2>/dev/null || echo "hsb0 unreachable"`
-!`ssh mba@miniserver-bp.local "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw" 2>/dev/null || echo "miniserver-bp unreachable"`
+!`ssh mba@10.17.1.40 -p 2222 "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw" 2>/dev/null || echo "miniserver-bp unreachable"`
+
+## Last Known Version: 2026.2.26 — Breaking Changes Summary
+
+Before any `just oc-rebuild` or `just percy-rebuild`, check the changelog:
+
+| Breaking change                                                | Fix applied                                                            |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `channels.telegram` flat → `accounts.<id>` format              | ✅ Both hosts migrated                                                 |
+| `controlUi.allowedOrigins` required for non-loopback           | ✅ Both hosts fixed                                                    |
+| `controlUi.dangerouslyDisableDeviceAuth` required for HTTP     | ✅ Both hosts fixed                                                    |
+| `--agent` flag removed from pairing commands → use `--account` | ✅ Docs updated                                                        |
+| Telegram pairings lost after upgrade                           | Re-pair with `openclaw pairing approve telegram <CODE> --account <id>` |
+
+**Doctor warning "Moved channels.telegram..."** — false positive, ignore. Config is already correct.
 
 ## Online Resources (check before any update/upgrade)
 

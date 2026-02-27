@@ -4,8 +4,8 @@
 **Instance**: Percaival
 **Port**: 18789
 **Management**: docker-compose (not oci-containers)
-**Version**: latest (npm)
-**Updated**: 2026-02-19
+**Version**: 2026.2.26
+**Updated**: 2026-02-27
 
 ---
 
@@ -96,7 +96,7 @@ just percy-rebuild           # rebuild + recreate container
 just percy-status            # container status + recent logs
 ```
 
-**Note:** `percy-rebuild` dauert ca. 15 Minuten (pip installiert pymupdf4llm, pdfplumber — ca. 30MB Python-Pakete). Geduld beim ersten Rebuild nach Dockerfile-Änderungen.
+**Note:** `percy-rebuild` takes ~15 minutes (pip installs pymupdf4llm, pdfplumber — ~30MB Python packages). Be patient on first rebuild after Dockerfile changes.
 
 ### Container Git Setup
 
@@ -658,6 +658,37 @@ All other files in `/var/lib/openclaw-percaival/` are runtime state and never go
 | `gogcli/`       | External tool config                         |
 
 The workspace repo is for **content the agent creates** (skills, memory, identity). The `/var/lib/` is for **infrastructure and runtime state** that should not be version-controlled.
+
+## Migration History
+
+- **2026-02-27**: Upgraded to OpenClaw 2026.2.26. Breaking changes applied: (1) Telegram config migrated from flat `channels.telegram.*` to `channels.telegram.accounts.default.*`, (2) `gateway.controlUi.allowedOrigins` added (required for non-loopback Control UI), (3) `dangerouslyDisableDeviceAuth: true` already present. Workspace files (SOUL.md, USER.md, TOOLS.md, IDENTITY.md, MEMORY.md, memory/family.md, memory/people.md) created/rewritten. Note: Percy has no `memorySearch` configured — intentional, old hardware (Mac Mini 2009), low RAM.
+- **2026-02-15**: Migrated from NixOS oci-containers to docker-compose. See `legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md`.
+
+## Known Issues
+
+### Doctor warning: "Moved channels.telegram single-account top-level values"
+
+**This is a false positive** after migrating to the new `accounts.<id>` format. Our config is correct. The warning may appear until the legacy runtime state file is renamed:
+
+```bash
+# On miniserver-bp:
+docker exec openclaw-percaival mv \
+  /home/node/.openclaw/credentials/telegram-allowFrom.json \
+  /home/node/.openclaw/credentials/telegram-allowFrom.json.old
+```
+
+### agentId "main" vs display name "Percaival"
+
+Percy's `agentId` is `"main"` (single-agent gateway). The display name is `Percaival`. CLI commands use the account id, not the agent id for single-agent — omit `--account` flag entirely for Percy:
+
+```bash
+docker exec -it openclaw-percaival openclaw pairing list telegram
+docker exec -it openclaw-percaival openclaw pairing approve telegram <CODE>
+```
+
+### memorySearch not configured (intentional)
+
+Percy has no `memorySearch` block in `openclaw.json`. This is intentional — miniserver-bp is a Mac Mini 2009 with limited RAM. Local GGUF model (~328MB) would strain the host. FTS (keyword search) still works. Add `memorySearch` config if hardware is upgraded.
 
 ## Related Documentation
 
