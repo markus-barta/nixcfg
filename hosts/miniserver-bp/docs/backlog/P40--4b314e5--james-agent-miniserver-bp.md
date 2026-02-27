@@ -73,4 +73,15 @@ Add James as a second agent to the existing `openclaw-percaival` container via O
 - Emoji skin tone: always 🏻 light — never yellow
 - Agent-to-agent: Percy + James can coordinate (same gateway)
 - Mattermost: James needs own bot account (not Percy's) — create in Mattermost admin
+
+## Prep Work Done (2026-02-27)
+
+- ✅ `tools.agentToAgent.enabled: true` + `tools.sessions.visibility: "all"` added to `openclaw.json`
+- ✅ Committed + pushed to nixcfg (commit `4fe74a54`)
+- ⏳ `just oc-restart msbp` still needed to activate (not yet live)
+- ⏳ When James added: expand `tools.agentToAgent.allow` from `["main"]` to `["main", "james"]`
+- ⏳ Three things needed from Markus before implementation starts:
+  1. Telegram bot token — register @james bot via @BotFather
+  2. Mattermost bot account for James on mattermost.bytepoets.com
+  3. GitHub account `bytepoets-jamesai` + PAT
 - Hardware check done: 3.2GB RAM free on miniserver-bp — no issue running 2 agents
