@@ -180,7 +180,7 @@ gitpl && just switch && just oc-rebuild
 # just oc-rebuild = build --no-cache + recreate container
 ```
 
-### Rotate an API Key / Secret
+## Rotate an API Key / Secret
 
 Secrets flow: `.age` file (git) -> agenix decrypt (`/run/agenix/`) -> Docker mount (`/run/secrets/`) -> entrypoint (`.env` + `auth-profiles.json`). All layers must be refreshed.
 

@@ -58,9 +58,9 @@ just nimue-pull-workspace
 
 # 9. TELEGRAM PAIRING (list pending, then approve)
 docker exec -it openclaw-gateway sh -c \
-  '. /home/node/.env && openclaw pairing list telegram --agent merlin'
+  '. /home/node/.env && openclaw pairing list telegram --account merlin'
 docker exec -it openclaw-gateway sh -c \
-  '. /home/node/.env && openclaw pairing approve telegram <CODE> --agent merlin'
+  '. /home/node/.env && openclaw pairing approve telegram <CODE> --account merlin'
 # Replace "merlin" with "nimue" for Nimue
 
 # 10. LIST AGENT SKILLS
@@ -80,6 +80,67 @@ docker exec openclaw-gateway sh -c \
 | `just oc-start`              | Start container                                                |
 | `just merlin-pull-workspace` | Pull Merlin's workspace repo in container                      |
 | `just nimue-pull-workspace`  | Pull Nimue's workspace repo in container                       |
+
+---
+
+## Docker / Secrets
+
+### Add a New Secret to a Container
+
+Use this pattern whenever a Docker container on hsb0 needs a new API key or token.
+
+**Four files + one human step:**
+
+| File                                   | What to add                                                    |
+| -------------------------------------- | -------------------------------------------------------------- |
+| `secrets/secrets.nix`                  | `.age` entry with `publicKeys = markus ++ hsb0`                |
+| `hosts/hsb0/configuration.nix`         | `age.secrets.hsb0-<name>` block (`mode = "444"`)               |
+| `hosts/hsb0/docker/docker-compose.yml` | Volume mount: `/run/agenix/hsb0-<name>:/run/secrets/<name>:ro` |
+| Container entrypoint                   | Read secret into var + export to `.env`                        |
+
+**1. Register in `secrets/secrets.nix`:**
+
+```nix
+# <Description> — Format: Plain text token
+# Edit: agenix -e secrets/hsb0-<name>.age
+"hsb0-<name>.age".publicKeys = markus ++ hsb0;
+```
+
+**2. Declare in `hosts/hsb0/configuration.nix`:**
+
+```nix
+age.secrets.hsb0-<name> = {
+  file = ../../secrets/hsb0-<name>.age;
+  mode = "444";
+};
+```
+
+**3. Mount in `hosts/hsb0/docker/docker-compose.yml`** (under the relevant service volumes):
+
+```yaml
+- /run/agenix/hsb0-<name>:/run/secrets/<name>:ro
+```
+
+**4. Read in the container entrypoint** (or env block if no entrypoint):
+
+```sh
+MY_KEY=$(cat /run/secrets/<name>)
+# then export / write to .env as needed
+```
+
+**5. Encrypt (you do this on imac0):**
+
+```bash
+agenix -e secrets/hsb0-<name>.age
+```
+
+**6. Deploy:**
+
+```bash
+# Commit + push, then on hsb0:
+gitpl && just switch && just <container>-rebuild
+# 'just switch' is required — agenix only decrypts on NixOS switch, not docker rebuild
+```
 
 ---
 
