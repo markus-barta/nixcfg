@@ -81,7 +81,8 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 
 ## Git
 
-- Safe by default: `git status/diff/log`. Push only when user asks.
+- Safe by default: `git status/diff/log`.
+- Push is part of the normal flow when working on agreed changes — do it without asking.
 - `git checkout` ok for PR review / explicit request.
 - Branch changes require user consent.
 - Destructive ops forbidden unless explicit (`reset --hard`, `clean`, `restore`, `rm`, …).
