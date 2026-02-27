@@ -78,6 +78,67 @@ docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw skills list --
 
 ---
 
+## Memory Search
+
+Memory is plain Markdown in each agent's workspace (`workspace-merlin/memory/`, `workspace-nimue/memory/`). OpenClaw indexes these files for semantic recall via `memory_search` and `memory_get` tools.
+
+### Configuration (openclaw.json)
+
+```json
+"memorySearch": {
+  "provider": "local",
+  "fallback": "none"
+}
+```
+
+`provider: "local"` uses a local GGUF embedding model (~0.6 GB, auto-downloaded on first use via node-llama-cpp). No external API key required. First index run is slow; subsequent runs are fast.
+
+**Why not OpenRouter?** OpenRouter only provides chat/completions, no embedding endpoint.
+
+### Commands
+
+```bash
+# Check index status (all agents)
+docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory status'
+
+# Check with JSON detail (shows provider, file counts, issues)
+docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory status --json'
+
+# Force full reindex (after adding new memory files)
+docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory index --force'
+docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory index --force --agent nimue'
+
+# Search (diagnostic)
+docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory search "Maurice"'
+```
+
+### Memory file layout
+
+| File                         | Purpose                             |
+| ---------------------------- | ----------------------------------- |
+| `memory/family.md`           | People, relationships, context      |
+| `memory/infrastructure.md`   | Home automation, NixOS setup        |
+| `memory/workflows.md`        | Agent workflows, sub-agent patterns |
+| `memory/debug_log.md`        | Troubleshooting notes               |
+| `memory/daily/YYYY-MM-DD.md` | Daily logs (auto-created by agent)  |
+
+### Workspace root files
+
+| File           | Purpose                               |
+| -------------- | ------------------------------------- |
+| `SOUL.md`      | Identity, tone, character, boundaries |
+| `USER.md`      | About the human — rich context        |
+| `TOOLS.md`     | Environment-specific tool notes       |
+| `AGENTS.md`    | Git workflow instructions             |
+| `HEARTBEAT.md` | Scheduled/recurring tasks             |
+| `IDENTITY.md`  | Name, emoji, vibe summary             |
+
+### First-boot note
+
+On first start after enabling local embeddings, the GGUF model downloads automatically (~0.6 GB). During this time `memory status` shows `provider: local, files: 0`. Wait for download to complete, then run `openclaw memory index --force`. Check container logs to monitor progress.
+
+---
+
 ## Operational Commands
 
 ### Update to Latest Version
