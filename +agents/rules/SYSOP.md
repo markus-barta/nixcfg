@@ -141,8 +141,8 @@ Current Context                Target Host              Reachable?
 ```
 1. REVIEW   → Confirm backlog item is accurate + up to date before starting.
 2. CLASSIFY → Can the next step be done by AI, or does it require human action?
-              AI can do:    edit files, write configs, update docs, git ops (no push)
-              Human must:   run nix builds, docker rebuilds, agenix encrypt, push, deploy
+              AI can do:    edit files, write configs, update docs, git ops (add/commit/push) on agreed changes
+              Human must:   run nix builds, docker rebuilds, agenix encrypt, deploy
 3. PROPOSE  → TL;DR: "I will do X. Files affected: Y. Risk: 🟢/🟡/🔴."
               Ask: "OK to proceed?"
 4. EXECUTE  → Do it (AI) or hand off exact commands (human).
@@ -160,8 +160,8 @@ Current Context                Target Host              Reachable?
 | Operation                     | Who   | Notes                              |
 | ----------------------------- | ----- | ---------------------------------- |
 | Edit nixcfg files             | AI    | Propose + get OK first             |
-| `git add/commit`              | AI    | After user approves changes        |
-| `git push`                    | Human | Always                             |
+| `git add/commit/push`         | AI    | Normal flow on agreed changes      |
+| `git push --force`            | ❌    | Never without explicit request     |
 | `agenix -e` (encrypt secret)  | Human | Always — requires SSH key + editor |
 | `just switch` (NixOS rebuild) | Human | Provide command + ~5-10 min ETA    |
 | `docker compose up --build`   | Human | Provide command + ~3-5 min ETA     |
