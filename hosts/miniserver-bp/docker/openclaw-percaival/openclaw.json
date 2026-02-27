@@ -73,6 +73,13 @@
     ]
   },
   "tools": {
+    "agentToAgent": {
+      "enabled": true,
+      "allow": ["main"]
+    },
+    "sessions": {
+      "visibility": "all"
+    },
     "web": {
       "search": {
         "apiKey": "${BRAVE_API_KEY}"
