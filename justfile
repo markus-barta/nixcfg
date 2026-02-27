@@ -681,7 +681,12 @@ _oc-run host cmd:
             if [ "$_hostname" = "miniserver-bp" ]; then
                 bash -c "{{ cmd }}"
             else
-                ssh -p 2222 mba@10.17.1.40 "{{ cmd }}"
+                # From office LAN: use direct IP; from anywhere else: use Tailscale
+                if ping -c1 -W3 10.17.1.40 &>/dev/null; then
+                    ssh -p 2222 mba@10.17.1.40 "{{ cmd }}"
+                else
+                    ssh -p 2222 mba@miniserver-bp.ts.barta.cm "{{ cmd }}"
+                fi
             fi
             ;;
         *)

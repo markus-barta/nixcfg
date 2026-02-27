@@ -273,8 +273,22 @@ When you change configuration:
 - ❌ NEVER decrypt runbook-secrets.age without explicit permission
 - ❌ NEVER encrypt runbook-secrets.md without explicit permission
 - ❌ NEVER build NixOS on macOS (ask user to use gpc0 or SSH to target)
+- ❌ NEVER run commands that print secrets to output — see Secret Output Safety below
 - ✅ Always tell the user to use agenix for secrets
 - ✅ Always check `git diff` before commit
+
+**Secret Output Safety — CRITICAL:**
+
+**NEVER run commands that print secrets to output.** Forbidden:
+
+- `cat`, `less`, `head`, `tail`, `echo` on any `.env`, `.age`, `.gpg`, `/run/secrets/*`, `/run/agenix/*` files
+- `docker exec ... cat /home/node/.env` or any container env file
+- `printenv`, `env`, `export` without explicit filtering
+- Any command where secrets could appear in stdout/stderr captured by this tool
+
+**If you need to verify a secret exists:** check file existence (`ls -la`) or check a non-secret property. Never print the value.
+
+**If secrets appear in tool output:** STOP. Do not reference, repeat, or quote the values. Inform the user immediately.
 
 **nixcfg-specific (also forbidden):**
 
