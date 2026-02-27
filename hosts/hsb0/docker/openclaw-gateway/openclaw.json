@@ -3,7 +3,10 @@
     "port": 18789,
     "bind": "lan",
     "mode": "local",
-    "controlUi": { "allowInsecureAuth": true },
+    "controlUi": {
+      "allowInsecureAuth": true,
+      "allowedOrigins": ["http://192.168.1.99:18789"]
+    },
     "auth": { "mode": "token", "token": "${OPENCLAW_GATEWAY_TOKEN}" },
     "tailscale": { "mode": "off", "resetOnExit": false }
   },
