@@ -291,23 +291,23 @@ Mac Mini 2009 is **old hardware**:
 - **Container**: `openclaw-percaival` (systemd: `docker-openclaw-percaival`)
 - **Port**: 18789 (Control UI + gateway)
 - **Telegram**: @percaival_bot
-- **Network**: `--network=host` (required, see OPENCLAW-DOCKER-SETUP.md)
+- **Network**: `--network=host` (required, see OPENCLAW-RUNBOOK.md)
 - **Config**: `/var/lib/openclaw-percaival/data/openclaw.json`
-- **Tools**: Brave web search, gogcli (Google Suite CLI)
+- **Tools**: Brave web search, gogcli (Google Suite CLI), m365-email
 
 ```bash
 # Status
-sudo systemctl status docker-openclaw-percaival
+docker compose -f ~/Code/nixcfg/hosts/miniserver-bp/docker/docker-compose.yml ps
 docker logs -f openclaw-percaival
 
-# Restart
-sudo systemctl restart docker-openclaw-percaival
+# Restart (preferred)
+just percy-stop && just percy-start
 
-# Approve Telegram pairing
+# Approve Telegram pairing (2026.2.26+: --account, not --agent)
 docker exec -it openclaw-percaival openclaw pairing approve telegram <CODE>
 ```
 
-Full setup guide: `hosts/miniserver-bp/docs/OPENCLAW-DOCKER-SETUP.md`
+Full operational runbook: `hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md`
 
 ### pm-tool (placeholder)
 
@@ -319,7 +319,7 @@ Full setup guide: `hosts/miniserver-bp/docs/OPENCLAW-DOCKER-SETUP.md`
 ## Related Documentation
 
 - **OpenClaw Runbook**: `hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md` (operations, current status)
-- **OpenClaw Docker Setup**: `hosts/miniserver-bp/docs/OPENCLAW-DOCKER-SETUP.md` (installation, architecture, gotchas)
+- **OpenClaw Setup Archive**: `hosts/miniserver-bp/docs/legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md` (archived 2026-02-15, original oci-containers setup)
 - **Installation Plan**: `+pm/backlog/P8900-miniserver-bp-nixos-migration-fresh-start.md`
 - **Host README**: `hosts/miniserver-bp/README.md`
 - **SSH Security**: `docs/SSH-KEY-SECURITY.md`

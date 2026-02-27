@@ -4,8 +4,8 @@
 **Agents**: Merlin + Nimue (multi-agent gateway)
 **Port**: 18789
 **Management**: docker-compose
-**Version**: latest (npm)
-**Updated**: 2026-02-21
+**Version**: 2026.2.26
+**Updated**: 2026-02-27
 
 ---
 
@@ -91,7 +91,7 @@ Memory is plain Markdown in each agent's workspace (`workspace-merlin/memory/`, 
 }
 ```
 
-`provider: "local"` uses a local GGUF embedding model (~0.6 GB, auto-downloaded on first use via node-llama-cpp). No external API key required. First index run is slow; subsequent runs are fast.
+`provider: "local"` uses a local GGUF embedding model (~328MB, auto-downloaded on first use via node-llama-cpp). No external API key required. First index run is slow; subsequent runs are fast.
 
 **Why not OpenRouter?** OpenRouter only provides chat/completions, no embedding endpoint.
 
@@ -135,7 +135,7 @@ docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory search 
 
 ### First-boot note
 
-On first start after enabling local embeddings, the GGUF model downloads automatically (~0.6 GB). During this time `memory status` shows `provider: local, files: 0`. Wait for download to complete, then run `openclaw memory index --force`. Check container logs to monitor progress.
+On first start after enabling local embeddings, the GGUF model downloads automatically (~328MB). During this time `memory status` shows `provider: local, files: 0`. Wait for download to complete, then run `openclaw memory index --force`. Check container logs to monitor progress. Model path: `~/.node-llama-cpp/models/hf_ggml-org_embeddinggemma-300m-qat-Q8_0.gguf`.
 
 ---
 
@@ -216,14 +216,16 @@ docker exec openclaw-gateway cat /home/node/.openclaw/openclaw.json | jq
 
 ### Pairing (per-agent)
 
+> ⚠️ **2026.2.26 change**: flag is `--account`, not `--agent`. `--agent` no longer exists in this version.
+
 ```bash
 # Merlin
-docker exec -it openclaw-gateway sh -c '. /home/node/.env && openclaw pairing list telegram --agent merlin'
-docker exec -it openclaw-gateway sh -c '. /home/node/.env && openclaw pairing approve telegram <CODE> --agent merlin'
+docker exec -it openclaw-gateway sh -c '. /home/node/.env && openclaw pairing list telegram --account merlin'
+docker exec -it openclaw-gateway sh -c '. /home/node/.env && openclaw pairing approve telegram <CODE> --account merlin'
 
 # Nimue
-docker exec -it openclaw-gateway sh -c '. /home/node/.env && openclaw pairing list telegram --agent nimue'
-docker exec -it openclaw-gateway sh -c '. /home/node/.env && openclaw pairing approve telegram <CODE> --agent nimue'
+docker exec -it openclaw-gateway sh -c '. /home/node/.env && openclaw pairing list telegram --account nimue'
+docker exec -it openclaw-gateway sh -c '. /home/node/.env && openclaw pairing approve telegram <CODE> --account nimue'
 ```
 
 ---
@@ -336,11 +338,75 @@ All secrets are `mode = "444"` in NixOS config for Docker read access.
 | ---------- | ------ | -------------------------- |
 | Control UI | both   | http://192.168.1.99:18789/ |
 | Telegram   | Merlin | @merlin_oc_bot             |
-| Telegram   | Nimue  | Nimue's bot                |
+| Telegram   | Nimue  | @nimue_oc_bot              |
 
 ---
 
 ## Troubleshooting
+
+### Doctor warning: "Moved channels.telegram single-account top-level values"
+
+**Symptom**: Every CLI command prints:
+
+```
+◇  Doctor changes
+│  Moved channels.telegram single-account top-level values into
+│  channels.telegram.accounts.default.
+```
+
+**This is a false positive.** Our `openclaw.json` already uses the correct `accounts.<id>` format. The warning is triggered by a legacy runtime state file. Fix:
+
+```bash
+# Rename the old file (already done 2026-02-27, here for reference)
+docker exec openclaw-gateway mv \
+  /home/node/.openclaw/credentials/telegram-allowFrom.json \
+  /home/node/.openclaw/credentials/telegram-allowFrom.json.old
+```
+
+If it persists after a rebuild, the entrypoint may be recreating it — check `entrypoint.sh`.
+
+### Control UI: "origin not allowed" (Tailscale IP)
+
+**Symptom**: Accessing Control UI via Tailscale IP (`100.64.0.x`) returns:
+
+```
+code=1008 reason=origin not allowed
+```
+
+**Cause**: `gateway.controlUi.allowedOrigins` only allows `http://192.168.1.99:18789`. Tailscale uses a different IP.
+
+**Workaround**: Access via LAN IP `http://192.168.1.99:18789` directly, or add the Tailscale origin to `allowedOrigins` in `openclaw.json`.
+
+### Control UI: "requires device identity" / "requires HTTPS or localhost"
+
+**Symptom**: Browser shows "Control UI requires device identity" when opening via HTTP.
+
+**Fix**: Ensure `openclaw.json` has both flags set:
+
+```json
+"controlUi": {
+  "allowInsecureAuth": true,
+  "dangerouslyDisableDeviceAuth": true,
+  "allowedOrigins": ["http://192.168.1.99:18789"]
+}
+```
+
+This was a **breaking change in 2026.2.26** — non-loopback HTTP access now requires both flags explicitly.
+
+### Telegram pairing broke after upgrade
+
+After upgrading to 2026.2.26, existing Telegram pairings are lost. Re-pair:
+
+```bash
+# Agent sends a pairing code in Telegram — use that code below
+docker exec -it openclaw-gateway sh -c \
+  '. /home/node/.env && openclaw pairing approve telegram <CODE> --account merlin'
+# Replace --account merlin with --account nimue for Nimue
+```
+
+> ⚠️ Flag is `--account` (not `--agent` — that flag no longer exists in 2026.2.26).
+
+### Troubleshooting
 
 ### "pairing required" — cron/tools fail after fresh deploy
 
@@ -416,6 +482,7 @@ Known quirk — CLI RPC enforces pairing even on loopback. In-process agent runt
 
 ## Migration History
 
+- **2026-02-27**: Upgraded to OpenClaw 2026.2.26. Breaking changes applied: (1) Telegram config migrated to `channels.telegram.accounts.<id>` format, (2) `gateway.controlUi.allowedOrigins` added (required for non-loopback Control UI), (3) `dangerouslyDisableDeviceAuth: true` added (required for HTTP Control UI access). Local embedding model configured (`memorySearch.provider: local`, ~328MB GGUF). Merlin memory: 6/6 files indexed. Nimue memory: 3/3 files indexed. Workspace files (SOUL.md, USER.md, TOOLS.md) filled for both agents. Telegram re-paired after upgrade.
 - **2026-02-22**: Merlin SSH access to hsb1 added. Dedicated `merlin` user on hsb1 (wheel + docker). See `hosts/hsb1/docs/backlog/P40--160a6d8--merlin-ssh-access-hsb1.md`.
 - **2026-02-21**: Migrated from single-agent `openclaw-merlin` to multi-agent `openclaw-gateway`. Nimue added as second agent. See `hosts/hsb0/docs/backlog/P40--339a6f7--setup-nimue-multi-agent.md`.
 - **2026-02-13**: Merlin migrated from hsb1 (Nix package) to hsb0 (Docker).
