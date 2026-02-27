@@ -106,6 +106,19 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 
 **AI responsibility:** Detect potential secret → STOP → alert user → suggest env var → wait for confirmation.
 
+## Secret Output Safety
+
+**NEVER run commands that print secrets to output.** Forbidden:
+
+- `cat`, `less`, `head`, `tail`, `echo` on any `.env`, `.age`, `.gpg`, `/run/secrets/*`, `/run/agenix/*` files
+- `docker exec ... cat /home/node/.env` or any container env file
+- `printenv`, `env`, `export` without explicit filtering
+- Any command where secrets could appear in stdout/stderr captured by this tool
+
+**If you need to verify a secret exists:** check file existence (`ls -la`) or check a non-secret property. Never print the value.
+
+**If secrets appear in tool output:** STOP. Do not reference, repeat, or quote the values. Inform the user immediately.
+
 ## Encrypted Files
 
 **NEVER touch `.age`/`.gpg`/`.enc` files without explicit permission.**
