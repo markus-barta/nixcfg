@@ -686,10 +686,6 @@ docker exec -it openclaw-percaival openclaw pairing list telegram
 docker exec -it openclaw-percaival openclaw pairing approve telegram <CODE>
 ```
 
-### memorySearch not configured (intentional)
-
-Percy has no `memorySearch` block in `openclaw.json`. This is intentional — miniserver-bp is a Mac Mini 2009 with limited RAM. Local GGUF model (~328MB) would strain the host. FTS (keyword search) still works. Add `memorySearch` config if hardware is upgraded.
-
 ## Related Documentation
 
 - [legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md](./legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md) - Original oci-containers setup (archived 2026-02-15)
