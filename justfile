@@ -884,11 +884,11 @@ oc-memory-index host='':
         hsb0)
             just _oc-run hsb0 "docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory index --force --agent merlin 2>&1 | tail -5'"
             just _oc-run hsb0 "docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory index --force --agent nimue 2>&1 | tail -5'"
-            just _oc-run hsb0 "docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory status 2>&1 | grep -E \"Provider|Indexed|Vector\"'"
+            just _oc-run hsb0 "docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory status 2>&1 | grep -e Provider -e Indexed -e Vector'"
             ;;
         msbp)
             just _oc-run msbp "docker exec openclaw-percaival sh -c 'openclaw memory index --force 2>&1 | tail -5'"
-            just _oc-run msbp "docker exec openclaw-percaival sh -c 'openclaw memory status 2>&1 | grep -E \"Provider|Indexed|Vector\"'"
+            just _oc-run msbp "docker exec openclaw-percaival sh -c 'openclaw memory status 2>&1 | grep -e Provider -e Indexed -e Vector'"
             ;;
     esac
 
