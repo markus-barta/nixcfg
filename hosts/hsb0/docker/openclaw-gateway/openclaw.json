@@ -54,7 +54,27 @@
         "id": "nimue",
         "name": "Nimue",
         "workspace": "/home/node/.openclaw/workspace-nimue",
-        "agentDir": "/home/node/.openclaw/agents/nimue/agent"
+        "agentDir": "/home/node/.openclaw/agents/nimue/agent",
+        "messages": {
+          "tts": {
+            "auto": "inbound",
+            "provider": "elevenlabs",
+            "modelOverrides": { "enabled": false },
+            "elevenlabs": {
+              "voiceId": "D9MdulIxfrCUUJcGNQon",
+              "modelId": "eleven_multilingual_v2",
+              "languageCode": "de",
+              "applyTextNormalization": "auto",
+              "voiceSettings": {
+                "stability": 0.5,
+                "similarityBoost": 0.75,
+                "style": 0.0,
+                "useSpeakerBoost": true,
+                "speed": 1.0
+              }
+            }
+          }
+        }
       }
     ]
   },
@@ -127,6 +147,12 @@
     "sessions": {
       "visibility": "all"
     },
-    "web": { "search": { "enabled": true }, "fetch": { "enabled": true } }
+    "web": { "search": { "enabled": true }, "fetch": { "enabled": true } },
+    "media": {
+      "audio": {
+        "enabled": true,
+        "models": [{ "provider": "groq", "model": "whisper-large-v3" }]
+      }
+    }
   }
 }

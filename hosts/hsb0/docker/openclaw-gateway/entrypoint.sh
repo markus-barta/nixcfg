@@ -21,6 +21,7 @@ OPENROUTER_API_KEY=$(cat /run/secrets/openrouter-key)
 BRAVE_API_KEY=$(cat /run/secrets/brave-key)
 OPENCLAW_GATEWAY_TOKEN=$(cat /run/secrets/gateway-token)
 ELEVENLABS_API_KEY=$(cat /run/secrets/elevenlabs-api-key)
+GROQ_API_KEY=$(cat /run/secrets/groq-api-key)
 TELEGRAM_BOT_TOKEN_MERLIN=$(cat /run/secrets/telegram-token-merlin)
 TELEGRAM_BOT_TOKEN_NIMUE=$(cat /run/secrets/telegram-token-nimue)
 GITHUB_PAT_MERLIN=$(cat /run/secrets/github-pat-merlin)
@@ -36,6 +37,7 @@ TELEGRAM_BOT_TOKEN_MERLIN=${TELEGRAM_BOT_TOKEN_MERLIN}
 TELEGRAM_BOT_TOKEN_NIMUE=${TELEGRAM_BOT_TOKEN_NIMUE}
 UPTIME_KUMA_API_KEY=${UPTIME_KUMA_API_KEY}
 ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+GROQ_API_KEY=${GROQ_API_KEY}
 EOF
 
 # Shell-sourceable version for docker exec / oc wrapper
@@ -47,6 +49,7 @@ export TELEGRAM_BOT_TOKEN_MERLIN=${TELEGRAM_BOT_TOKEN_MERLIN}
 export TELEGRAM_BOT_TOKEN_NIMUE=${TELEGRAM_BOT_TOKEN_NIMUE}
 export UPTIME_KUMA_API_KEY=${UPTIME_KUMA_API_KEY}
 export ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+export GROQ_API_KEY=${GROQ_API_KEY}
 EOF
 
 # shellcheck disable=SC1090,SC1091

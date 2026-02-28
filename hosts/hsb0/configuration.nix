@@ -502,6 +502,10 @@ in
     file = ../../secrets/hsb0-elevenlabs-api-key.age;
     mode = "444";
   };
+  age.secrets.hsb0-groq-api-key = {
+    file = ../../secrets/hsb0-groq-api-key.age;
+    mode = "444";
+  };
   age.secrets.hsb0-openclaw-gateway-token = {
     file = ../../secrets/hsb0-openclaw-gateway-token.age;
     mode = "444";

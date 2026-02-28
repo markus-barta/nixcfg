@@ -165,6 +165,11 @@ in
   # Edit: agenix -e secrets/hsb0-elevenlabs-api-key.age
   "hsb0-elevenlabs-api-key.age".publicKeys = markus ++ hsb0;
 
+  # Groq API key for STT — Whisper Large v3 (shared: Merlin + Nimue on hsb0)
+  # Format: Plain text API key (no KEY=VALUE)
+  # Edit: agenix -e secrets/hsb0-groq-api-key.age
+  "hsb0-groq-api-key.age".publicKeys = markus ++ hsb0;
+
   # OpenClaw Merlin AI assistant secrets (hsb0)
   # Format: Plain text tokens/keys (no KEY=VALUE)
   # Edit: agenix -e secrets/hsb0-openclaw-*.age
