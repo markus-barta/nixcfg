@@ -100,7 +100,6 @@
       "auto": "inbound",
       "provider": "elevenlabs",
       "elevenlabs": {
-        "apiKey": "${ELEVENLABS_API_KEY}",
         "voiceId": "EQIVtVkE7IWwwaRgwyPi",
         "modelId": "eleven_multilingual_v2",
         "languageCode": "de",
