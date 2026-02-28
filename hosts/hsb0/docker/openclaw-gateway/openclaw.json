@@ -104,7 +104,7 @@
         "allowProvider": false
       },
       "elevenlabs": {
-        "voiceId": "EQIVtVkE7IWwwaRgwyPi",
+        "voiceId": "DoY3AnZIeAWxlPZrUH7g",
         "modelId": "eleven_multilingual_v2",
         "languageCode": "de",
         "applyTextNormalization": "auto",
