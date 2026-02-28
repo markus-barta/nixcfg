@@ -48,27 +48,7 @@
         "default": true,
         "name": "Merlin",
         "workspace": "/home/node/.openclaw/workspace-merlin",
-        "agentDir": "/home/node/.openclaw/agents/merlin/agent",
-        "messages": {
-          "tts": {
-            "auto": "inbound",
-            "provider": "elevenlabs",
-            "elevenlabs": {
-              "apiKey": "${ELEVENLABS_API_KEY}",
-              "voiceId": "EQIVtVkE7IWwwaRgwyPi",
-              "modelId": "eleven_multilingual_v2",
-              "languageCode": "de",
-              "applyTextNormalization": "auto",
-              "voiceSettings": {
-                "stability": 0.5,
-                "similarityBoost": 0.75,
-                "style": 0.0,
-                "useSpeakerBoost": true,
-                "speed": 1.0
-              }
-            }
-          }
-        }
+        "agentDir": "/home/node/.openclaw/agents/merlin/agent"
       },
       {
         "id": "nimue",
@@ -96,13 +76,13 @@
           "botToken": "${TELEGRAM_BOT_TOKEN_MERLIN}",
           "dmPolicy": "pairing",
           "groupPolicy": "allowlist",
-          "streamMode": "partial"
+          "streaming": "partial"
         },
         "nimue": {
           "botToken": "${TELEGRAM_BOT_TOKEN_NIMUE}",
           "dmPolicy": "pairing",
           "groupPolicy": "allowlist",
-          "streamMode": "partial"
+          "streaming": "partial"
         }
       }
     }
@@ -114,7 +94,27 @@
   },
   "commands": { "native": "auto", "nativeSkills": "auto" },
   "cron": { "enabled": true },
-  "messages": { "ackReactionScope": "group-mentions" },
+  "messages": {
+    "ackReactionScope": "group-mentions",
+    "tts": {
+      "auto": "inbound",
+      "provider": "elevenlabs",
+      "elevenlabs": {
+        "apiKey": "${ELEVENLABS_API_KEY}",
+        "voiceId": "EQIVtVkE7IWwwaRgwyPi",
+        "modelId": "eleven_multilingual_v2",
+        "languageCode": "de",
+        "applyTextNormalization": "auto",
+        "voiceSettings": {
+          "stability": 0.5,
+          "similarityBoost": 0.75,
+          "style": 0.0,
+          "useSpeakerBoost": true,
+          "speed": 1.0
+        }
+      }
+    }
+  },
   "plugins": { "entries": { "telegram": { "enabled": true } } },
   "skills": { "install": { "nodeManager": "npm" } },
   "tools": {
