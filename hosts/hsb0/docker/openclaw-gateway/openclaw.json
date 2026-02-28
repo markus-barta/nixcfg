@@ -99,6 +99,9 @@
     "tts": {
       "auto": "inbound",
       "provider": "elevenlabs",
+      "modelOverrides": {
+        "enabled": false
+      },
       "elevenlabs": {
         "voiceId": "EQIVtVkE7IWwwaRgwyPi",
         "modelId": "eleven_multilingual_v2",
