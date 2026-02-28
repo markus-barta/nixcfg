@@ -53,6 +53,7 @@ services:
       # Git-managed config (read-only source, copied to data volume at boot)
       - ./openclaw-gateway/openclaw.json:/home/node/.openclaw-config/openclaw.json:ro
       # SHARED secrets (both agents use these)
+      - /run/agenix/hsb0-elevenlabs-api-key:/run/secrets/elevenlabs-api-key:ro
       - /run/agenix/hsb0-uptime-kuma-api-key:/run/secrets/uptime-kuma-api-key:ro
       - /run/agenix/hsb0-openclaw-gateway-token:/run/secrets/gateway-token:ro
       - /run/agenix/hsb0-openclaw-openrouter-key:/run/secrets/openrouter-key:ro

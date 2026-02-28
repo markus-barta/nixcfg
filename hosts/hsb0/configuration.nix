@@ -498,6 +498,10 @@ in
   # Secrets mounted as files in container (mode 444 for node user access).
   # Data persisted at /var/lib/openclaw-merlin/
 
+  age.secrets.hsb0-elevenlabs-api-key = {
+    file = ../../secrets/hsb0-elevenlabs-api-key.age;
+    mode = "444";
+  };
   age.secrets.hsb0-openclaw-gateway-token = {
     file = ../../secrets/hsb0-openclaw-gateway-token.age;
     mode = "444";
