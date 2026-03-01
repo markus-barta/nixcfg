@@ -523,6 +523,13 @@
     owner = "mba"; # Needs to be readable by docker compose
   };
 
+  # PIDICON Light MQTT credentials
+  age.secrets.hsb1-pidicon-light-env = {
+    file = ../../secrets/hsb1-pidicon-light-env.age;
+    mode = "0400";
+    owner = "mba";
+  };
+
   # ============================================================================
   # NIXFLEET AGENT - Fleet management dashboard agent
   # ============================================================================
