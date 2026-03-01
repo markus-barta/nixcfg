@@ -110,6 +110,8 @@ in
       # Ensure Nix paths are prioritized
       fish_add_path --prepend --move ~/.nix-profile/bin
       fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
+      # User local bin (e.g. claude code)
+      fish_add_path --append ~/.local/bin
     '';
 
     interactiveShellInit = ''
@@ -255,6 +257,8 @@ in
     initContent = ''
       # Ensure Nix paths are prioritized
       export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
+      # User local bin (e.g. claude code)
+      export PATH="$PATH:$HOME/.local/bin"
     '';
   };
 
