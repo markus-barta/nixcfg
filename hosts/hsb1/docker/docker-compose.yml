@@ -71,10 +71,11 @@ services:
       - TZ=Europe/Vienna
       - MQTT_PORT=1883
       - LOG_LEVEL=info
+      - PIDICON_CONFIG_PATH=/data/config.json
     env_file:
-      - /run/agenix/hsb1-pidicon-light-env # MOSQUITTO_HOST / MOSQUITTO_USER / MOSQUITTO_PASS
+      - /run/agenix/hsb1-pidicon-light-env # MOSQUITTO_HOST / MOSQUITTO_USER / MOSQUITTO_PASS / SONNEN_BATTERY_HOST / SONNEN_BATTERY_API_TOKEN
     volumes:
-      - ./mounts/pidicon-light:/data
+      - ./mounts/pidicon-light/config.json:/data/config.json:ro # config only — scenes baked into image
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"

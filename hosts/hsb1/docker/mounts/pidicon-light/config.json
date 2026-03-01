@@ -4,12 +4,12 @@
       "name": "ulanzi-56",
       "type": "ulanzi",
       "ip": "192.168.1.56",
-      "scenes": ["clock"]
+      "scenes": ["clock_with_homestats"]
     }
   ],
   "scenes": {
-    "clock": {
-      "path": "./scenes/clock.js"
+    "clock_with_homestats": {
+      "path": "/app/scenes/clock_with_homestats.js"
     }
   }
 }
