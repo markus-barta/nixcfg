@@ -1,0 +1,15 @@
+{
+  "devices": [
+    {
+      "name": "ulanzi-56",
+      "type": "ulanzi",
+      "ip": "192.168.1.56",
+      "scenes": ["clock"]
+    }
+  ],
+  "scenes": {
+    "clock": {
+      "path": "./scenes/clock.js"
+    }
+  }
+}
