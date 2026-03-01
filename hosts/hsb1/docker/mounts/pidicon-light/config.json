@@ -5,6 +5,12 @@
       "type": "ulanzi",
       "ip": "192.168.1.56",
       "scenes": ["clock_with_homestats"]
+    },
+    {
+      "name": "ulanzi-57",
+      "type": "ulanzi",
+      "ip": "192.168.1.57",
+      "scenes": ["clock_with_homestats"]
     }
   ],
   "scenes": {
