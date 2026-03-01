@@ -62,6 +62,23 @@ services:
   #      - "com.centurylinklabs.watchtower.enable=true"
   #      - "com.centurylinklabs.watchtower.scope=pidicon"
 
+  pidicon-light:
+    image: ghcr.io/markus-barta/pidicon-light:latest
+    container_name: pidicon-light
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Vienna
+      - MQTT_PORT=1883
+      - LOG_LEVEL=info
+    env_file:
+      - /run/agenix/hsb1-pidicon-light-env # MOSQUITTO_HOST / MOSQUITTO_USER / MOSQUITTO_PASS
+    volumes:
+      - ./mounts/pidicon-light:/data
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
   homeassistant:
     container_name: homeassistant
     image: "ghcr.io/home-assistant/home-assistant:stable"
