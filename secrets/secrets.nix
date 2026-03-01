@@ -134,6 +134,11 @@ in
   # Edit: agenix -e secrets/opus-stream-hsb1.age
   "opus-stream-hsb1.age".publicKeys = markus ++ hsb1;
 
+  # PIDICON Light MQTT credentials
+  # Format: KEY=VALUE lines (MQTT_PASS)
+  # Edit: agenix -e secrets/hsb1-pidicon-light-env.age
+  "hsb1-pidicon-light-env.age".publicKeys = markus ++ hsb1;
+
   # Mosquitto broker configuration file
   # Edit: agenix -e secrets/mosquitto-conf.age
   # NOTE: This is for Mosquitto BROKER configuration (server-side)
