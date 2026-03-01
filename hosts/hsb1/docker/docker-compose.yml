@@ -62,36 +62,6 @@ services:
   #      - "com.centurylinklabs.watchtower.enable=true"
   #      - "com.centurylinklabs.watchtower.scope=pidicon"
 
-  #  pihole: # replaced by hsb0 - adguard - 2025-11
-  #    image: pihole/pihole:latest
-  #    restart: unless-stopped
-  #    container_name: pihole
-  #    shm_size: 256mb # Increase shared memory from 64 MB (docker default) to 256 MB
-  #    cap_add:
-  #      - NET_ADMIN # Required for using Pi-hole as DHCP server
-  #      - SYS_NICE # Allow Pi-hole to run with high CPU priority (-10 niceness) for better DNS performance
-  #    environment:
-  #      - TZ=Europe/Vienna
-  #      - FTLCONF_webserver_api_password= # we do not want a password in our local setup
-  #    volumes:
-  #      - ./mounts/pihole/etc/pihole/:/etc/pihole/
-  #      # tell dnsmasq to ignore DHCP requests on eth0 while still allowing DNS queries and inter-container communication
-  #      - ./mounts/pihole/etc/dnsmasq.d/:/etc/dnsmasq.d/
-  #    ports:
-  #      - "53:53/tcp"
-  #      - "53:53/udp"
-  #      - "67:67/udp" # Required for using Pi-hole as DHCP server
-  #      - "80:80/tcp" # Simple, works, sufficient for local access
-  #      # - "443:443/tcp" # Would add certificate complexity (for very minimal security gain)
-  #    networks:
-  #      # dnscrypt:
-  #      bridge:
-  #      local:
-  #        ipv4_address: 192.168.1.99
-  #    labels:
-  #      - "com.centurylinklabs.watchtower.enable=true"
-  #      - "com.centurylinklabs.watchtower.scope=weekly"
-
   homeassistant:
     container_name: homeassistant
     image: "ghcr.io/home-assistant/home-assistant:stable"
@@ -152,16 +122,6 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
 
-  #   matterbridge disabled b/c currently we do not want to expose z2m devices to matter network (i.e. one additional layer is not more stability)
-  #   matterbridge:
-  #     image: luligu/matterbridge:latest
-  #     container_name: matterbridge
-  #     restart: unless-stopped
-  #     network_mode: host
-  #     volumes:
-  #       - ./mounts/matterbridge:/root/Matterbridge
-  #       - ./mounts/matterbridge-storage:/root/.matterbridge
-
   matter-server:
     image: ghcr.io/home-assistant-libs/python-matter-server:stable
     container_name: matter-server
@@ -183,27 +143,6 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
-
-  #   homebridge disabled b/c we do not need it any more (final usage was ewelink for vr/TXU01, accessed now via HA)
-  #   homebridge:
-  #     image: homebridge/homebridge:latest
-  #     container_name: homebridge
-  #     privileged: true
-  #     cap_add:
-  #       - NET_ADMIN
-  #       - NET_RAW
-  #       - SYS_ADMIN
-  #     restart: unless-stopped
-  #     network_mode: host
-  #     environment:
-  #       - TZ=Europe/Vienna
-  #       - PGID=1000
-  #       - PUID=1000
-  #       - HOMEBRIDGE_CONFIG_UI=1
-  #       - HOMEBRIDGE_CONFIG_UI_PORT=8580
-  #       - HOMEBRIDGE_INSECURE=1
-  #     volumes:
-  #       - ./mounts/homebridge:/homebridge
 
   mosquitto:
     image: eclipse-mosquitto:latest
@@ -305,25 +244,6 @@ services:
       - /home/mba/secrets/watchtower.env
   #  dns:
   #     - 1.1.1.1
-
-  #  # PIDICON Watchtower - checks only pidicon every couple of seconds
-  #  watchtower-pidicon:
-  #    image: beatkind/watchtower:latest
-  #    container_name: watchtower-pidicon
-  #    restart: unless-stopped
-  #    command: --revive-stopped --interval 10 --label-enable --scope pidicon
-  #    volumes:
-  #      - /var/run/docker.sock:/var/run/docker.sock:rw
-  #    environment:
-  #      - "WATCHTOWER_CLEANUP=true"
-  #      - "DOCKER_API_VERSION=1.44"
-  #      - "WATCHTOWER_DEBUG=true"
-  #      - "SHOUTRR_URL="
-  #    env_file:
-  #      - /home/mba/secrets/github.env
-  #      - /home/mba/secrets/watchtower.env
-  # #   dns:
-  # #     - 1.1.1.1
 
   nodered:
     #custom built image in github, originally from #image: nodered/node-red:latest
