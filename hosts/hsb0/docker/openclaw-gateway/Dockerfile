@@ -15,6 +15,7 @@ RUN npm install -g @pnp/cli-microsoft365
 
 COPY entrypoint.sh /home/node/entrypoint.sh
 COPY shared-sync.sh /home/node/shared-sync.sh
+COPY workspace-push.sh /home/node/workspace-push.sh
 # Wrapper: sources .env then runs openclaw (use: docker exec <container> oc <cmd>)
 RUN printf '#!/bin/sh\n. /home/node/.env 2>/dev/null\nexec openclaw "$@"\n' > /usr/local/bin/oc \
     && chmod +x /usr/local/bin/oc /home/node/entrypoint.sh \
@@ -33,8 +34,8 @@ RUN printf '#!/bin/sh\n. /home/node/.env 2>/dev/null\nexec openclaw "$@"\n' > /u
         /home/node/.config/nimue/khal \
         /home/node/.config/nimue/gogcli \
         /home/node/.ssh \
-    && chown -R node:node /home/node/.openclaw /home/node/.config /home/node/.ssh /home/node/entrypoint.sh /home/node/shared-sync.sh \
-    && chmod +x /home/node/shared-sync.sh \
+    && chown -R node:node /home/node/.openclaw /home/node/.config /home/node/.ssh /home/node/entrypoint.sh /home/node/shared-sync.sh /home/node/workspace-push.sh \
+    && chmod +x /home/node/shared-sync.sh /home/node/workspace-push.sh \
     && echo "node ALL=(root) NOPASSWD: /usr/sbin/cron" >> /etc/sudoers
 USER node
 EXPOSE 18789
