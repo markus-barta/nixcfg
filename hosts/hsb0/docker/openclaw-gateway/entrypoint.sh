@@ -100,15 +100,24 @@ init_agent() {
 
   echo "[agent:${AGENT_ID}] Initialising..."
 
-  # -- Workspace clone / pull --
+  # -- Workspace clone / push-before-pull --
   if [ ! -d "${WORKSPACE_DIR}/.git" ]; then
     echo "[agent:${AGENT_ID}] Cloning workspace from GitHub..."
     rm -rf "${WORKSPACE_DIR}"
     git clone "https://${GITHUB_PAT}@github.com/${WORKSPACE_REPO}.git" "${WORKSPACE_DIR}"
   else
-    echo "[agent:${AGENT_ID}] Workspace exists, pulling latest..."
     cd "${WORKSPACE_DIR}"
     git remote set-url origin "https://${GITHUB_PAT}@github.com/${WORKSPACE_REPO}.git"
+    git config user.name "${GIT_NAME}"
+    git config user.email "${GIT_EMAIL}"
+    # Push any uncommitted work BEFORE pulling (prevents data loss on rebuild)
+    if [ -n "$(git status --porcelain)" ]; then
+      echo "[agent:${AGENT_ID}] Uncommitted changes found — pushing before pull..."
+      git add -A
+      git commit -m "auto: pre-pull backup (container restart)"
+      git push || echo "[agent:${AGENT_ID}] Pre-pull push failed, continuing..."
+    fi
+    echo "[agent:${AGENT_ID}] Pulling latest..."
     git pull --ff-only || echo "[agent:${AGENT_ID}] Pull failed or conflicts, continuing..."
   fi
 
@@ -161,14 +170,14 @@ export GOGCLI_KEYRING_PASSWORD=${GOG_KEYRING_PASSWORD}
 GOGEOF
   echo "[agent:${AGENT_ID}] gogcli env written to ${GOG_ENV_FILE}"
 
-  # -- Daily auto-push loop (background) --
+  # -- Hourly auto-push loop (background) --
   (while true; do
-    sleep 86400
+    sleep 3600
     cd "${WORKSPACE_DIR}"
     if [ -n "$(git status --porcelain)" ]; then
       echo "[auto-push:${AGENT_ID}] Uncommitted workspace changes, pushing..."
       git add -A
-      git commit -m "auto: daily workspace sync"
+      git commit -m "auto: hourly workspace sync"
       git push || echo "[auto-push:${AGENT_ID}] Push failed, will retry next cycle"
     fi
   done) &
@@ -221,11 +230,19 @@ echo "[shared] Symlinks created in workspace-merlin/shared and workspace-nimue/s
 # 6. Set up nightly cron sync for shared workspace
 #    Merlin: 23:30 — pull + commit FROM-MERLIN.md + push (as merlin-ai-mba)
 #    Nimue:  23:31 — pull + commit FROM-NIMUE.md  + push (as nimue-ai-mai)
+#    PATs stored in env file (not baked into crontab — security)
 # -----------------------------------------------------------------------------
+CRON_ENV_FILE="/home/node/.shared-sync-env"
+cat >"${CRON_ENV_FILE}" <<ENVEOF
+GITHUB_PAT_MERLIN=${GITHUB_PAT_MERLIN}
+GITHUB_PAT_NIMUE=${GITHUB_PAT_NIMUE}
+ENVEOF
+chmod 600 "${CRON_ENV_FILE}"
+
 CRONTAB_FILE="/home/node/shared-crontab"
 cat >"${CRONTAB_FILE}" <<CRONEOF
-30 23 * * * GITHUB_PAT_MERLIN=${GITHUB_PAT_MERLIN} GITHUB_PAT_NIMUE=${GITHUB_PAT_NIMUE} /home/node/shared-sync.sh merlin >> /home/node/.openclaw/shared-sync-merlin.log 2>&1
-31 23 * * * GITHUB_PAT_MERLIN=${GITHUB_PAT_MERLIN} GITHUB_PAT_NIMUE=${GITHUB_PAT_NIMUE} /home/node/shared-sync.sh nimue >> /home/node/.openclaw/shared-sync-nimue.log 2>&1
+30 23 * * * . /home/node/.shared-sync-env && /home/node/shared-sync.sh merlin >> /home/node/.openclaw/shared-sync-merlin.log 2>&1
+31 23 * * * . /home/node/.shared-sync-env && /home/node/shared-sync.sh nimue >> /home/node/.openclaw/shared-sync-nimue.log 2>&1
 CRONEOF
 crontab "${CRONTAB_FILE}"
 rm "${CRONTAB_FILE}"

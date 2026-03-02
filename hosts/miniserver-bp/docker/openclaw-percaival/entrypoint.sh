@@ -39,10 +39,17 @@ if [ ! -d "$WORKSPACE_DIR/.git" ]; then
   git config user.name "Percy AI"
   git config user.email "bytepoets-percyai@users.noreply.github.com"
 else
-  echo "Workspace already cloned, pulling latest..."
   cd "$WORKSPACE_DIR"
   git config user.name "Percy AI"
   git config user.email "bytepoets-percyai@users.noreply.github.com"
+  # Push any uncommitted work BEFORE pulling (prevents data loss on rebuild)
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "[percy] Uncommitted changes found — pushing before pull..."
+    git add -A
+    git commit -m "auto: pre-pull backup (container restart)"
+    git push || echo "[percy] Pre-pull push failed, continuing..."
+  fi
+  echo "Pulling latest..."
   git pull --ff-only || echo "Pull failed or conflicts, continuing..."
 fi
 
@@ -82,14 +89,14 @@ for PLUGIN in mattermost; do
   fi
 done
 
-# Daily auto-push safety net (runs in background, every 24h)
+# Hourly auto-push safety net (runs in background)
 (while true; do
-  sleep 86400
+  sleep 3600
   cd "$WORKSPACE_DIR"
   if [ -n "$(git status --porcelain)" ]; then
     echo "[auto-push] Uncommitted workspace changes detected, pushing..."
     git add -A
-    git commit -m "auto: daily workspace sync"
+    git commit -m "auto: hourly workspace sync"
     git push || echo "[auto-push] Push failed, will retry next cycle"
   fi
 done) &
