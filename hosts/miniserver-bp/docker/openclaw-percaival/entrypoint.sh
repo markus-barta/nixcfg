@@ -89,16 +89,28 @@ for PLUGIN in mattermost; do
   fi
 done
 
-# Hourly auto-push safety net (runs in background)
-(while true; do
-  sleep 3600
-  cd "$WORKSPACE_DIR"
-  if [ -n "$(git status --porcelain)" ]; then
-    echo "[auto-push] Uncommitted workspace changes detected, pushing..."
-    git add -A
-    git commit -m "auto: hourly workspace sync"
-    git push || echo "[auto-push] Push failed, will retry next cycle"
-  fi
-done) &
+# -----------------------------------------------------------------------------
+# Write agent env file (sourced by cron — PAT not baked into crontab)
+# -----------------------------------------------------------------------------
+AGENT_ENV_FILE="/home/node/.agent-env"
+cat >"${AGENT_ENV_FILE}" <<ENVEOF
+GITHUB_PAT=${GITHUB_PAT}
+ENVEOF
+chmod 600 "${AGENT_ENV_FILE}"
+
+# -----------------------------------------------------------------------------
+# Register cron job: 22:00 — daily workspace push
+# -----------------------------------------------------------------------------
+CRONTAB_FILE="/home/node/.crontab"
+cat >"${CRONTAB_FILE}" <<CRONEOF
+0 22 * * * . /home/node/.agent-env && /home/node/workspace-push.sh >> /home/node/.openclaw/workspace-push.log 2>&1
+CRONEOF
+crontab "${CRONTAB_FILE}"
+rm "${CRONTAB_FILE}"
+echo "[cron] Daily workspace push registered at 22:00"
+
+# Start cron daemon (node has passwordless sudo for /usr/sbin/cron only)
+sudo cron
+echo "[cron] Daemon started"
 
 exec openclaw gateway --port 18789

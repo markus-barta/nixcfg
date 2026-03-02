@@ -170,18 +170,6 @@ export GOGCLI_KEYRING_PASSWORD=${GOG_KEYRING_PASSWORD}
 GOGEOF
   echo "[agent:${AGENT_ID}] gogcli env written to ${GOG_ENV_FILE}"
 
-  # -- Hourly auto-push loop (background) --
-  (while true; do
-    sleep 3600
-    cd "${WORKSPACE_DIR}"
-    if [ -n "$(git status --porcelain)" ]; then
-      echo "[auto-push:${AGENT_ID}] Uncommitted workspace changes, pushing..."
-      git add -A
-      git commit -m "auto: hourly workspace sync"
-      git push || echo "[auto-push:${AGENT_ID}] Push failed, will retry next cycle"
-    fi
-  done) &
-
   echo "[agent:${AGENT_ID}] Init complete."
 }
 
@@ -204,7 +192,7 @@ init_agent \
   "/run/secrets/gogcli-keyring-password-nimue"
 
 # -----------------------------------------------------------------------------
-# 5. Shared workspace — clone/pull + symlinks in each agent workspace
+# 5. Shared workspace — clone/push-before-pull + symlinks in each agent workspace
 # -----------------------------------------------------------------------------
 SHARED_DIR="/home/node/.openclaw/workspace-shared"
 SHARED_REPO="markus-barta/oc-workspace-shared"
@@ -215,42 +203,58 @@ if [ ! -d "${SHARED_DIR}/.git" ]; then
   rm -rf "${SHARED_DIR}"
   git clone "https://${GITHUB_PAT_MERLIN}@github.com/${SHARED_REPO}.git" "${SHARED_DIR}"
 else
-  echo "[shared] Shared workspace exists, pulling latest..."
   cd "${SHARED_DIR}"
   git remote set-url origin "https://${GITHUB_PAT_MERLIN}@github.com/${SHARED_REPO}.git"
+  git config user.name "Merlin AI"
+  git config user.email "262173326+merlin-ai-mba@users.noreply.github.com"
+  # Push any uncommitted shared workspace changes BEFORE pulling
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "[shared] Uncommitted changes found — pushing before pull..."
+    git add -A
+    git commit -m "auto: pre-pull backup (container restart)"
+    git push || echo "[shared] Pre-pull push failed, continuing..."
+  fi
+  echo "[shared] Pulling latest..."
   git pull --ff-only || echo "[shared] Pull failed or conflicts, continuing..."
 fi
 
-# Create symlinks in each agent workspace (relative, idempotent)
+# Create symlinks in each agent workspace (idempotent)
 ln -sfn /home/node/.openclaw/workspace-shared /home/node/.openclaw/workspace-merlin/shared
 ln -sfn /home/node/.openclaw/workspace-shared /home/node/.openclaw/workspace-nimue/shared
 echo "[shared] Symlinks created in workspace-merlin/shared and workspace-nimue/shared"
 
 # -----------------------------------------------------------------------------
-# 6. Set up nightly cron sync for shared workspace
-#    Merlin: 23:30 — pull + commit FROM-MERLIN.md + push (as merlin-ai-mba)
-#    Nimue:  23:31 — pull + commit FROM-NIMUE.md  + push (as nimue-ai-mai)
-#    PATs stored in env file (not baked into crontab — security)
+# 6. Write agent env file (sourced by cron scripts — PATs not baked into crontab)
 # -----------------------------------------------------------------------------
-CRON_ENV_FILE="/home/node/.shared-sync-env"
-cat >"${CRON_ENV_FILE}" <<ENVEOF
+AGENT_ENV_FILE="/home/node/.agent-env"
+cat >"${AGENT_ENV_FILE}" <<ENVEOF
 GITHUB_PAT_MERLIN=${GITHUB_PAT_MERLIN}
 GITHUB_PAT_NIMUE=${GITHUB_PAT_NIMUE}
 ENVEOF
-chmod 600 "${CRON_ENV_FILE}"
+chmod 600 "${AGENT_ENV_FILE}"
+echo "[cron] Agent env file written to ${AGENT_ENV_FILE}"
 
-CRONTAB_FILE="/home/node/shared-crontab"
+# -----------------------------------------------------------------------------
+# 7. Register cron jobs
+#    22:00 — Merlin personal workspace push
+#    22:05 — Nimue personal workspace push
+#    23:30 — Shared workspace sync (Merlin)
+#    23:35 — Shared workspace sync (Nimue, 5-min gap avoids concurrent git ops)
+# -----------------------------------------------------------------------------
+CRONTAB_FILE="/home/node/.crontab"
 cat >"${CRONTAB_FILE}" <<CRONEOF
-30 23 * * * . /home/node/.shared-sync-env && /home/node/shared-sync.sh merlin >> /home/node/.openclaw/shared-sync-merlin.log 2>&1
-31 23 * * * . /home/node/.shared-sync-env && /home/node/shared-sync.sh nimue >> /home/node/.openclaw/shared-sync-nimue.log 2>&1
+0 22 * * * . /home/node/.agent-env && /home/node/workspace-push.sh merlin >> /home/node/.openclaw/workspace-push-merlin.log 2>&1
+5 22 * * * . /home/node/.agent-env && /home/node/workspace-push.sh nimue >> /home/node/.openclaw/workspace-push-nimue.log 2>&1
+30 23 * * * . /home/node/.agent-env && /home/node/shared-sync.sh merlin >> /home/node/.openclaw/shared-sync-merlin.log 2>&1
+35 23 * * * . /home/node/.agent-env && /home/node/shared-sync.sh nimue >> /home/node/.openclaw/shared-sync-nimue.log 2>&1
 CRONEOF
 crontab "${CRONTAB_FILE}"
 rm "${CRONTAB_FILE}"
-echo "[shared] Nightly cron sync registered (Merlin: 23:30, Nimue: 23:31)"
+echo "[cron] Jobs registered: workspace push 22:00/22:05, shared sync 23:30/23:35"
 
-# Start cron daemon as root (node has passwordless sudo for /usr/sbin/cron only)
+# Start cron daemon (node has passwordless sudo for /usr/sbin/cron only)
 sudo cron
-echo "[shared] Cron daemon started"
+echo "[cron] Daemon started"
 
 echo "[gateway] All agents initialised. Starting openclaw gateway on port 18789..."
 exec openclaw gateway --port 18789

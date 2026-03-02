@@ -1,5 +1,5 @@
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y git curl jq python3 python3-pip poppler-utils procps && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y git curl jq python3 python3-pip poppler-utils procps cron sudo && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python \
     && pip3 install --break-system-packages pymupdf4llm pdfplumber
 # Install gh CLI (GitHub CLI)
@@ -20,11 +20,13 @@ RUN curl -sL https://github.com/steipete/gogcli/releases/download/v0.11.0/gogcli
 RUN npm install -g @pnp/cli-microsoft365
 
 COPY entrypoint.sh /home/node/entrypoint.sh
+COPY workspace-push.sh /home/node/workspace-push.sh
 # Wrapper: sources .env then runs openclaw (use: docker exec <container> oc <cmd>)
 RUN printf '#!/bin/sh\n. /home/node/.env 2>/dev/null\nexec openclaw "$@"\n' > /usr/local/bin/oc \
-    && chmod +x /usr/local/bin/oc /home/node/entrypoint.sh \
+    && chmod +x /usr/local/bin/oc /home/node/entrypoint.sh /home/node/workspace-push.sh \
     && mkdir -p /home/node/.openclaw/workspace /home/node/.config/gogcli \
-    && chown -R node:node /home/node/.openclaw /home/node/.config/gogcli /home/node/entrypoint.sh
+    && chown -R node:node /home/node/.openclaw /home/node/.config/gogcli /home/node/entrypoint.sh /home/node/workspace-push.sh \
+    && echo "node ALL=(root) NOPASSWD: /usr/sbin/cron" >> /etc/sudoers
 USER node
 EXPOSE 18789
-CMD ["openclaw", "gateway", "--port", "18789"]
+ENTRYPOINT ["/home/node/entrypoint.sh"]
