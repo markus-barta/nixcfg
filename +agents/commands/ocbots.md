@@ -1,5 +1,5 @@
 ---
-description: OpenClaw bots ops context — load all agent runbooks + SYSOP role
+description: "OpenClaw bots ops context - load all agent runbooks + SYSOP role"
 ---
 
 Read and follow @+agents/rules/AGENTS.md
@@ -61,8 +61,15 @@ For host-level context (NixOS config, SSH, agenix, Docker):
 
 ## Current Deployment State
 
-!`ssh mba@hsb0.lan "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw" 2>/dev/null || echo "hsb0 unreachable"`
-!`ssh mba@10.17.1.40 -p 2222 "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw" 2>/dev/null || echo "miniserver-bp unreachable"`
+Check live status via SSH (read-only, no approval needed):
+
+```bash
+# hsb0 (Merlin + Nimue)
+ssh mba@hsb0.lan "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw"
+
+# miniserver-bp (Percy) — only reachable from office or via Tailscale
+ssh mba@10.17.1.40 -p 2222 "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw"
+```
 
 ## Last Known Version: 2026.2.26 — Breaking Changes Summary
 
