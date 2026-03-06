@@ -94,7 +94,7 @@ done
 # -----------------------------------------------------------------------------
 AGENT_ENV_FILE="/home/node/.agent-env"
 cat >"${AGENT_ENV_FILE}" <<ENVEOF
-GITHUB_PAT=${GITHUB_PAT}
+export GITHUB_PAT=${GITHUB_PAT}
 ENVEOF
 chmod 600 "${AGENT_ENV_FILE}"
 

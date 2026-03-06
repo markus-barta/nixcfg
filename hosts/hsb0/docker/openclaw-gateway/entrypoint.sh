@@ -228,8 +228,8 @@ echo "[shared] Symlinks created in workspace-merlin/shared and workspace-nimue/s
 # -----------------------------------------------------------------------------
 AGENT_ENV_FILE="/home/node/.agent-env"
 cat >"${AGENT_ENV_FILE}" <<ENVEOF
-GITHUB_PAT_MERLIN=${GITHUB_PAT_MERLIN}
-GITHUB_PAT_NIMUE=${GITHUB_PAT_NIMUE}
+export GITHUB_PAT_MERLIN=${GITHUB_PAT_MERLIN}
+export GITHUB_PAT_NIMUE=${GITHUB_PAT_NIMUE}
 ENVEOF
 chmod 600 "${AGENT_ENV_FILE}"
 echo "[cron] Agent env file written to ${AGENT_ENV_FILE}"
