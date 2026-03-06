@@ -217,7 +217,25 @@ InfluxDB no data → Check csb0's MQTT (dependency!)
 Paperless down → docker restart csb1-paperless-1
 Backup failed → docker logs csb1-restic-cron-hetzner-1
 High load → Check docker stats (find heavy container)
+SSL Error 526 (Cloudflare) → CF API token expired; see below
 ```
+
+### SSL / TLS Certificate Renewal (Cloudflare DNS-01)
+
+Traefik uses `secrets/traefik-variables.age` (shared with csb0) for ACME DNS-01 via Cloudflare API.
+
+**Symptom:** Cloudflare Error 526 on all `*.barta.cm` services; Traefik logs show:
+`status code 403 — 9109: Invalid access token`
+
+**Token rotation (last done: 2026-03-06, stored in 1Password as "dns-token-2026-03-06"):**
+
+1. Cloudflare Dashboard → Profile → API Tokens → Create Token
+   - Permission: `Zone / DNS / Edit` scoped to `barta.cm` (no TTL, no IP filter)
+2. Save new token to 1Password; name entry with date
+3. Re-encrypt: `cd ~/Code/nixcfg && agenix -e secrets/traefik-variables.age`
+4. Commit + push; deploy both csb0 and csb1
+5. `docker restart csb1-traefik-1` to trigger immediate cert renewal
+6. Verify: `docker logs csb1-traefik-1 --tail 50 2>&1 | grep -i acme`
 
 ---
 

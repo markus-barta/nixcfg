@@ -183,6 +183,7 @@ Headscale down → docker restart headscale (VPN clients reconnect automatically
 Backup failed → docker logs csb0-restic-cron-hetzner-1
 Telegram bot → Re-register webhook (see SECRETS.md for token)
 High load → Check docker stats (find heavy container)
+SSL Error 526 (Cloudflare) → CF API token expired; rotate via csb1 RUNBOOK procedure
 ```
 
 ---
