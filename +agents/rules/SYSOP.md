@@ -60,8 +60,8 @@ Current Context                Target Host              Reachable?
 ─────────────────────────────────────────────────────────────────────
 🏠 HOME (imac0, gpc0)          *.lan hosts (home)       ✅ Direct
                                csb0, csb1               ✅ Internet
-                               BYTEPOETS office         ❌ Need Tailscale
-                               miniserver-bp            ❌ Need Tailscale
+                               miniserver-bp            ✅ Tailscale (ssh msbp)
+                               BYTEPOETS office (other) ❌ Need Tailscale
 
 🏢 WORK (mba-imac-work)        BYTEPOETS office hosts   ✅ Direct
    Physical location: Office    miniserver-bp.local      ✅ Direct (10.17.1.40)
@@ -95,18 +95,19 @@ Current Context                Target Host              Reachable?
 
 **Only use these when you've confirmed SSH is needed AND target is reachable:**
 
-|               | Host                             | SSH Command | User      | Network   | Notes              |
-| ------------- | -------------------------------- | ----------- | --------- | --------- | ------------------ |
-| hsb0          | `ssh mba@hsb0.lan`               | mba         | Home LAN  | Home LAN  | DNS/DHCP server    |
-| hsb1          | `ssh mba@hsb1.lan`               | mba         | Home LAN  | Home LAN  | Home automation    |
-| hsb8          | `ssh mba@hsb8.lan`               | mba         | Home LAN  | Home LAN  | Parents' server    |
-| gpc0          | `ssh mba@gpc0.lan`               | mba         | Home LAN  | Home LAN  | Gaming PC / builds |
-| csb0          | `ssh mba@cs0.barta.cm -p 2222`   | mba         | Internet  | Internet  | Cloud - port 2222! |
-| csb1          | `ssh mba@cs1.barta.cm -p 2222`   | mba         | Internet  | Internet  | Cloud - port 2222! |
-| miniserver-bp | `ssh mba@miniserver-bp.local`    | mba         | BYTEPOETS | BYTEPOETS | Office Mac Mini    |
-| mba-imac-work | `ssh markus@mba-imac-work.local` | markus      | BYTEPOETS | BYTEPOETS | Work iMac (static) |
-| mba-mbp-work  | `ssh mba@mba-mbp-work.lan`       | mba         | Home/Work | Home/Work | Work MacBook       |
-| imac0         | `ssh markus@imac0.lan`           | markus      | Home LAN  | Home LAN  | Home iMac          |
+|               | Host                              | SSH Command | User      | Network   | Notes              |
+| ------------- | --------------------------------- | ----------- | --------- | --------- | ------------------ |
+| hsb0          | `ssh mba@hsb0.lan`                | mba         | Home LAN  | Home LAN  | DNS/DHCP server    |
+| hsb1          | `ssh mba@hsb1.lan`                | mba         | Home LAN  | Home LAN  | Home automation    |
+| hsb8          | `ssh mba@hsb8.lan`                | mba         | Home LAN  | Home LAN  | Parents' server    |
+| gpc0          | `ssh mba@gpc0.lan`                | mba         | Home LAN  | Home LAN  | Gaming PC / builds |
+| csb0          | `ssh mba@cs0.barta.cm -p 2222`    | mba         | Internet  | Internet  | Cloud - port 2222! |
+| csb1          | `ssh mba@cs1.barta.cm -p 2222`    | mba         | Internet  | Internet  | Cloud - port 2222! |
+| miniserver-bp | `ssh msbp` (Tailscale, preferred) | mba         | Anywhere  | Tailscale | Office Mac Mini    |
+|               | `ssh msbp-lan` (office direct)    | mba         | BYTEPOETS | BYTEPOETS |                    |
+| mba-imac-work | `ssh markus@mba-imac-work.local`  | markus      | BYTEPOETS | BYTEPOETS | Work iMac (static) |
+| mba-mbp-work  | `ssh mba@mba-mbp-work.lan`        | mba         | Home/Work | Home/Work | Work MacBook       |
+| imac0         | `ssh markus@imac0.lan`            | markus      | Home LAN  | Home LAN  | Home iMac          |
 
 **🌐 Tailscale SSH (from anywhere):** `ssh mba@<host>.ts.barta.cm`
 
