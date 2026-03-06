@@ -335,6 +335,7 @@ in
     esptool # ESP32/ESP8266 flashing tool
     image_optim # ImageOptim CLI
     nmap # Network scanner
+    tokstat # AI token quota monitor
 
     # Note: evernote-backup not in nixpkgs, keeping in Homebrew for now
 

@@ -75,6 +75,7 @@
       # Local packages overlay
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
+        tokstat = final.callPackage ./pkgs/tokstat { };
         # ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
       };
