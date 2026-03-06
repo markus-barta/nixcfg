@@ -67,8 +67,8 @@ Check live status via SSH (read-only, no approval needed):
 # hsb0 (Merlin + Nimue)
 ssh mba@hsb0.lan "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw"
 
-# miniserver-bp (Percy) — only reachable from office or via Tailscale
-ssh mba@10.17.1.40 -p 2222 "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw"
+# miniserver-bp (Percy) — reachable via Tailscale (ssh msbp) or office LAN (ssh msbp-lan)
+ssh msbp "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw"
 ```
 
 ## Last Known Version: 2026.2.26 — Breaking Changes Summary
