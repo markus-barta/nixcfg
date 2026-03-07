@@ -666,6 +666,14 @@ The workspace repo is for **content the agent creates** (skills, memory, identit
 
 ## Known Issues
 
+### Doctor warning: "groupPolicy is allowlist but groupAllowFrom is empty"
+
+**Intentional.** Percy is a DM-only bot. Group chat disabled by design (`groupPolicy: "allowlist"` + empty `groupAllowFrom`). Ignore this warning.
+
+If group access ever needed: add Telegram user/group IDs to `groupAllowFrom` in `openclaw.json`, or set `groupPolicy: "open"`.
+
+---
+
 ### Doctor warning: "Moved channels.telegram single-account top-level values"
 
 **This is a false positive** after migrating to the new `accounts.<id>` format. Our config is correct. The warning may appear until the legacy runtime state file is renamed:
