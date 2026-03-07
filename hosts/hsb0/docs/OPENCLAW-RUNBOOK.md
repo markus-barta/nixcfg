@@ -4,8 +4,8 @@
 **Agents**: Merlin + Nimue (multi-agent gateway)
 **Port**: 18789
 **Management**: docker-compose
-**Version**: 2026.2.26
-**Updated**: 2026-02-27
+**Version**: 2026.3.2
+**Updated**: 2026-03-07
 
 ---
 
@@ -157,7 +157,7 @@ just oc-status                          # from imac0 or hsb0
 # Or directly on hsb0:
 docker ps | grep openclaw-gateway
 docker logs -f openclaw-gateway
-curl http://192.168.1.99:18789/health
+curl -k https://192.168.1.99:18789/health
 ```
 
 ### Restart (no rebuild)
@@ -334,20 +334,52 @@ All secrets are `mode = "444"` in NixOS config for Docker read access.
 
 ## Access
 
-| Service    | Agent  | URL / Handle               | Network         |
-| ---------- | ------ | -------------------------- | --------------- |
-| Control UI | both   | http://192.168.1.99:18789/ | Home LAN only   |
-| Control UI | both   | http://100.64.0.6:18789/   | Tailscale (any) |
-| Telegram   | Merlin | @merlin_oc_bot             | —               |
-| Telegram   | Nimue  | @nimue_oc_bot              | —               |
+| Service    | Agent  | URL / Handle                | Network         |
+| ---------- | ------ | --------------------------- | --------------- |
+| Control UI | both   | https://192.168.1.99:18789/ | Home LAN only   |
+| Control UI | both   | https://100.64.0.6:18789/   | Tailscale (any) |
+| Telegram   | Merlin | @merlin_oc_bot              | —               |
+| Telegram   | Nimue  | @nimue_oc_bot               | —               |
 
 ### Control UI access notes
 
 - `bind: "tailnet"` — gateway listens on both LAN IP and Tailscale IP (`100.64.0.6`)
 - `tailscale.mode: "off"` — no Tailscale Serve/Funnel; direct bind only (works with Headscale)
-- `dangerouslyDisableDeviceAuth: true` — no device pairing required (open access on allowed origins)
-- Both origins whitelisted in `allowedOrigins`; accessing from any other IP will fail with "origin not allowed"
-- **2026.3.2 change**: `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — `bind: "tailnet"` is required to make LAN/Tailscale access work without token pairing
+- `gateway.tls.enabled: true` — built-in self-signed TLS (RSA-2048, 10-year cert, auto-generated, stored in data volume)
+- Trust model: **SHA-256 fingerprint pinning** — browser shows cert warning on first visit only; click "proceed anyway" once per browser profile
+- Device pairing required (HTTPS secure context — browsers require HTTPS for the crypto/storage APIs the Control UI uses)
+- `dangerouslyDisableDeviceAuth` removed — no longer effective for non-loopback origins in 2026.3.2
+
+### TLS setup procedure (one-time per host)
+
+> **Status**: TLS enabled in config. Awaiting Markus to run `--force-recreate` and provide fingerprint.
+
+**Step 1** — Force-recreate container (Markus runs on hsb0):
+
+```bash
+ssh mba@hsb0.lan
+cd ~/Code/nixcfg && gitpl
+cd hosts/hsb0/docker
+docker compose up --force-recreate -d
+```
+
+**Step 2** — Read the generated fingerprint:
+
+```bash
+docker logs openclaw-gateway 2>&1 | grep -i "tls\|fingerprint\|cert"
+```
+
+Note the SHA-256 fingerprint. Provide it to the agent.
+
+**Step 3** — Agent adds `gateway.remote.tlsFingerprint` + `wss://` URL to `openclaw.json`, commits, pushes.
+
+**Step 4** — Force-recreate again:
+
+```bash
+docker compose up --force-recreate -d
+```
+
+**Step 5** — Verify: open `https://100.64.0.6:18789/` in browser, accept cert warning, confirm device pairing works.
 
 ---
 
@@ -406,20 +438,22 @@ code=1008 reason=origin not allowed
 
 **Symptom**: Browser shows "Control UI requires device identity" when opening via HTTP.
 
-**Fix**: Ensure `openclaw.json` has:
+**Root cause (2026.3.2)**: The Control UI uses `crypto`/`storage` browser APIs that require a **secure context** (HTTPS or localhost). HTTP access from non-loopback IPs no longer works regardless of `dangerouslyDisableDeviceAuth`.
+
+**Fix**: Enable `gateway.tls.enabled: true` in `openclaw.json`. See "TLS setup procedure" in the Access section above.
+
+**Config required** (after TLS first boot — fingerprint needed):
 
 ```json
 "gateway": {
   "bind": "tailnet",
-  "controlUi": {
-    "allowInsecureAuth": true,
-    "dangerouslyDisableDeviceAuth": true,
-    "allowedOrigins": ["http://192.168.1.99:18789", "http://100.64.0.6:18789"]
+  "tls": { "enabled": true },
+  "remote": {
+    "url": "wss://100.64.0.6:18789",
+    "tlsFingerprint": "<sha256-from-first-boot-logs>"
   }
 }
 ```
-
-**Note (2026.3.2 breaking change)**: `dangerouslyDisableDeviceAuth` no longer works for non-loopback origins unless `bind` is `"tailnet"` or `"lan"`. Using `bind: "tailnet"` is required to access via both LAN and Tailscale IPs without device pairing.
 
 ### Telegram pairing broke after upgrade
 
@@ -510,7 +544,7 @@ Known quirk — CLI RPC enforces pairing even on loopback. In-process agent runt
 
 ## Migration History
 
-- **2026-02-27**: Upgraded to OpenClaw 2026.2.26. Breaking changes applied: (1) Telegram config migrated to `channels.telegram.accounts.<id>` format, (2) `gateway.controlUi.allowedOrigins` added (required for non-loopback Control UI), (3) `dangerouslyDisableDeviceAuth: true` added (required for HTTP Control UI access). Local embedding model configured (`memorySearch.provider: local`, ~328MB GGUF). Merlin memory: 6/6 files indexed. Nimue memory: 3/3 files indexed. Workspace files (SOUL.md, USER.md, TOOLS.md) filled for both agents. Telegram re-paired after upgrade.
+- **2026-03-07**: Upgraded to OpenClaw 2026.3.2. Breaking changes: (1) `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — removed. (2) `ws://` hardened to loopback-only — `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1` added to docker-compose env. (3) `gateway.tls.enabled: true` added — built-in self-signed TLS (RSA-2048, 10-year cert). Control UI now requires HTTPS (browser secure context). Awaiting first boot to generate TLS fingerprint.
 - **2026-02-22**: Merlin SSH access to hsb1 added. Dedicated `merlin` user on hsb1 (wheel + docker). See `hosts/hsb1/docs/backlog/P40--160a6d8--merlin-ssh-access-hsb1.md`.
 - **2026-02-21**: Migrated from single-agent `openclaw-merlin` to multi-agent `openclaw-gateway`. Nimue added as second agent. See `hosts/hsb0/docs/backlog/P40--339a6f7--setup-nimue-multi-agent.md`.
 - **2026-02-13**: Merlin migrated from hsb1 (Nix package) to hsb0 (Docker).

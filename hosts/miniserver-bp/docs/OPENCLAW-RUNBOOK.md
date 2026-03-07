@@ -4,8 +4,8 @@
 **Instance**: Percaival
 **Port**: 18789
 **Management**: docker-compose (not oci-containers)
-**Version**: 2026.2.26
-**Updated**: 2026-02-27
+**Version**: 2026.3.2
+**Updated**: 2026-03-07
 
 ---
 
@@ -133,7 +133,7 @@ docker compose logs -f openclaw-percaival
 # Or: docker logs -f openclaw-percaival
 
 # Gateway health
-curl http://10.17.1.40:18789/health
+curl -k https://10.17.1.40:18789/health
 ```
 
 ### Restart
@@ -624,19 +624,51 @@ docker exec openclaw-percaival openclaw agents list --bindings
 
 ## Access
 
-| Service    | URL                       | Network              |
-| ---------- | ------------------------- | -------------------- |
-| Control UI | http://10.17.1.40:18789/  | Office LAN only      |
-| Control UI | http://100.64.0.10:18789/ | Tailscale (anywhere) |
-| Telegram   | @percaival_bot            | —                    |
+| Service    | URL                        | Network              |
+| ---------- | -------------------------- | -------------------- |
+| Control UI | https://10.17.1.40:18789/  | Office LAN only      |
+| Control UI | https://100.64.0.10:18789/ | Tailscale (anywhere) |
+| Telegram   | @percaival_bot             | —                    |
 
 ### Control UI access notes
 
 - `bind: "tailnet"` — gateway listens on both LAN IP and Tailscale IP (`100.64.0.10`)
 - `tailscale.mode: "off"` — no Tailscale Serve/Funnel; direct bind only (works with Headscale)
-- `dangerouslyDisableDeviceAuth: true` — no device pairing required (open access on allowed origins)
-- Both origins whitelisted in `allowedOrigins`
-- **2026.3.2 change**: `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — `bind: "tailnet"` is required
+- `gateway.tls.enabled: true` — built-in self-signed TLS (RSA-2048, 10-year cert, auto-generated, stored in data volume)
+- Trust model: **SHA-256 fingerprint pinning** — browser shows cert warning on first visit only; click "proceed anyway" once per browser profile
+- Device pairing required (HTTPS secure context — browsers require HTTPS for the crypto/storage APIs the Control UI uses)
+- `dangerouslyDisableDeviceAuth` removed — no longer effective for non-loopback origins in 2026.3.2
+
+### TLS setup procedure (one-time per host)
+
+> **Status**: TLS enabled in config. Awaiting Markus to run `--force-recreate` and provide fingerprint.
+
+**Step 1** — Force-recreate container (Markus runs on miniserver-bp):
+
+```bash
+ssh -p 2222 mba@msbp
+cd ~/Code/nixcfg && gitpl
+cd hosts/miniserver-bp/docker
+docker compose up --force-recreate -d
+```
+
+**Step 2** — Read the generated fingerprint:
+
+```bash
+docker logs openclaw-percaival 2>&1 | grep -i "tls\|fingerprint\|cert"
+```
+
+Note the SHA-256 fingerprint. Provide it to the agent.
+
+**Step 3** — Agent adds `gateway.remote.tlsFingerprint` + `wss://` URL to `openclaw.json`, commits, pushes.
+
+**Step 4** — Force-recreate again:
+
+```bash
+docker compose up --force-recreate -d
+```
+
+**Step 5** — Verify: open `https://100.64.0.10:18789/` in browser, accept cert warning, confirm device pairing works.
 
 ## Git vs Host State
 
@@ -670,6 +702,7 @@ The workspace repo is for **content the agent creates** (skills, memory, identit
 
 ## Migration History
 
+- **2026-03-07**: Upgraded to OpenClaw 2026.3.2. Breaking changes: (1) `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — removed. (2) `ws://` hardened to loopback-only — `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1` added to docker-compose env. (3) `gateway.tls.enabled: true` added — built-in self-signed TLS (RSA-2048, 10-year cert). Control UI now requires HTTPS (browser secure context). Awaiting first boot to generate TLS fingerprint.
 - **2026-02-27**: Upgraded to OpenClaw 2026.2.26. Breaking changes applied: (1) Telegram config migrated from flat `channels.telegram.*` to `channels.telegram.accounts.default.*`, (2) `gateway.controlUi.allowedOrigins` added (required for non-loopback Control UI), (3) `dangerouslyDisableDeviceAuth: true` already present. Workspace files (SOUL.md, USER.md, TOOLS.md, IDENTITY.md, MEMORY.md, memory/family.md, memory/people.md) created/rewritten. Note: Percy has no `memorySearch` configured — intentional, old hardware (Mac Mini 2009), low RAM.
 - **2026-02-15**: Migrated from NixOS oci-containers to docker-compose. See `legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md`.
 

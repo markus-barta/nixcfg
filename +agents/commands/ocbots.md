@@ -75,21 +75,24 @@ ssh msbp "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep 
 
 Before any `just oc-rebuild` or `just percy-rebuild`, check the changelog:
 
-| Breaking change                                                                                   | Fix applied                                                               |
-| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `channels.telegram` flat → `accounts.<id>` format                                                 | ✅ Both hosts migrated                                                    |
-| `controlUi.allowedOrigins` required for non-loopback                                              | ✅ Both hosts fixed                                                       |
-| `controlUi.dangerouslyDisableDeviceAuth` required for HTTP                                        | ✅ Both hosts fixed                                                       |
-| `--agent` flag removed from pairing commands → use `--account`                                    | ✅ Docs updated                                                           |
-| Telegram pairings lost after upgrade                                                              | Re-pair with `openclaw pairing approve telegram <CODE> --account <id>`    |
-| `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins (2026.3.2) | ✅ Both hosts: `bind: "tailnet"`, Tailscale IPs added to `allowedOrigins` |
+| Breaking change                                                                                   | Fix applied                                                            |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `channels.telegram` flat → `accounts.<id>` format                                                 | ✅ Both hosts migrated                                                 |
+| `controlUi.allowedOrigins` required for non-loopback                                              | ✅ Both hosts fixed                                                    |
+| `controlUi.dangerouslyDisableDeviceAuth` required for HTTP                                        | ✅ Removed — no longer effective; TLS is the fix                       |
+| `--agent` flag removed from pairing commands → use `--account`                                    | ✅ Docs updated                                                        |
+| Telegram pairings lost after upgrade                                                              | Re-pair with `openclaw pairing approve telegram <CODE> --account <id>` |
+| `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins (2026.3.2) | ✅ Both hosts: `bind: "tailnet"`, `gateway.tls.enabled: true`          |
+| `ws://` hardened to loopback-only (2026.3.2)                                                      | ✅ Both hosts: `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1` + TLS enabled    |
 
-**Control UI access:**
+**Control UI access (HTTPS — TLS enabled, cert warning on first visit is expected):**
 
-| Instance              | LAN URL                    | Tailscale URL             |
-| --------------------- | -------------------------- | ------------------------- |
-| hsb0 (Merlin+Nimue)   | http://192.168.1.99:18789/ | http://100.64.0.6:18789/  |
-| miniserver-bp (Percy) | http://10.17.1.40:18789/   | http://100.64.0.10:18789/ |
+| Instance              | LAN URL                     | Tailscale URL              |
+| --------------------- | --------------------------- | -------------------------- |
+| hsb0 (Merlin+Nimue)   | https://192.168.1.99:18789/ | https://100.64.0.6:18789/  |
+| miniserver-bp (Percy) | https://10.17.1.40:18789/   | https://100.64.0.10:18789/ |
+
+> ⚠️ **TLS setup in progress**: `gateway.tls.enabled: true` is in config. Awaiting `--force-recreate` on both hosts to generate self-signed certs. After first boot, read SHA-256 fingerprint from logs and add `gateway.remote.tlsFingerprint` to config. See TLS setup procedure in each host's OPENCLAW-RUNBOOK.md.
 
 **Doctor warning "Moved channels.telegram..."** — false positive, ignore. Config is already correct.
 **Doctor warning "groupPolicy allowlist but groupAllowFrom empty"** — intentional. DM-only bots.
