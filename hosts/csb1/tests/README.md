@@ -14,6 +14,7 @@ Repeatable health checks for csb1. These tests can be run **anytime** and should
 | T05  | Backup System   | Restic configured, recent backups |
 | T06  | SSH Access      | Key auth, sudo, hardening         |
 | T07  | ZFS Storage     | Pool health, compression          |
+| T08  | Excalidraw      | Whiteboard accessible, SSL valid  |
 
 ## Usage
 

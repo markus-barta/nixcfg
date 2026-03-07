@@ -38,6 +38,7 @@ ssh mba@152.53.64.166 -p 2222
 ║ • InfluxDB:    http://influxdb.barta.cm:8086               ║
 ║ • Paperless:   https://paperless.barta.cm                  ║
 ║ • Docmost:     https://docmost.barta.cm                    ║
+║ • Excalidraw:  https://draw.barta.cm                       ║
 ╠════════════════════════════════════════════════════════════╣
 ║ ⚠️  CRITICAL DEPENDENCIES                                  ║
 ║ • InfluxDB → Depends on csb0's MQTT!                       ║
@@ -69,6 +70,7 @@ ssh mba@cs1.barta.cm -p 2222 "docker ps --filter 'status=exited'"
 curl -I https://grafana.barta.cm  # Grafana (expect 302 redirect)
 curl -I https://paperless.barta.cm  # Paperless (expect 200)
 curl -I https://docmost.barta.cm  # Docmost (expect 200)
+curl -I https://draw.barta.cm  # Excalidraw (expect 200)
 ```
 
 ---
@@ -146,23 +148,24 @@ ssh mba@cs1.barta.cm -p 2222 "docker logs nixfleet --tail 50 -f"
 
 ### All Containers (15 running)
 
-| Container                   | Purpose                   |
-| --------------------------- | ------------------------- |
-| csb1-grafana-1              | Monitoring dashboards     |
-| csb1-influxdb-1             | Time-series database      |
-| csb1-docmost-1              | Documentation wiki        |
-| csb1-docmost-db-1           | PostgreSQL for Docmost    |
-| csb1-docmost-redis-1        | Redis cache               |
-| csb1-paperless-1            | Document management       |
-| csb1-paperless-db-1         | PostgreSQL for Paperless  |
-| csb1-paperless-redis-1      | Redis                     |
-| csb1-paperless-tika-1       | Document parsing          |
-| csb1-paperless-gotenberg-1  | PDF conversion            |
-| csb1-traefik-1              | Reverse proxy             |
-| csb1-docker-proxy-traefik-1 | Traefik proxy             |
-| csb1-restic-cron-hetzner-1  | Backup (cleanup on csb0!) |
-| csb1-smtp-1                 | Mail relay                |
-| csb1-whoami-1               | Test service              |
+| Container                   | Purpose                    |
+| --------------------------- | -------------------------- |
+| csb1-grafana-1              | Monitoring dashboards      |
+| csb1-influxdb-1             | Time-series database       |
+| csb1-docmost-1              | Documentation wiki         |
+| csb1-docmost-db-1           | PostgreSQL for Docmost     |
+| csb1-docmost-redis-1        | Redis cache                |
+| csb1-paperless-1            | Document management        |
+| csb1-paperless-db-1         | PostgreSQL for Paperless   |
+| csb1-paperless-redis-1      | Redis                      |
+| csb1-paperless-tika-1       | Document parsing           |
+| csb1-paperless-gotenberg-1  | PDF conversion             |
+| csb1-traefik-1              | Reverse proxy              |
+| csb1-docker-proxy-traefik-1 | Traefik proxy              |
+| csb1-restic-cron-hetzner-1  | Backup (cleanup on csb0!)  |
+| csb1-smtp-1                 | Mail relay                 |
+| csb1-whoami-1               | Test service               |
+| csb1-excalidraw-1           | Whiteboard (draw.barta.cm) |
 
 ### Quick Commands
 
@@ -414,12 +417,13 @@ ssh mba@cs1.barta.cm -p 2222 "journalctl -f"
 
 ## Web Interfaces
 
-| Service   | URL                           |
-| --------- | ----------------------------- |
-| Grafana   | https://grafana.barta.cm      |
-| InfluxDB  | http://influxdb.barta.cm:8086 |
-| Paperless | https://paperless.barta.cm    |
-| Docmost   | https://docmost.barta.cm      |
+| Service    | URL                           |
+| ---------- | ----------------------------- |
+| Grafana    | https://grafana.barta.cm      |
+| InfluxDB   | http://influxdb.barta.cm:8086 |
+| Paperless  | https://paperless.barta.cm    |
+| Docmost    | https://docmost.barta.cm      |
+| Excalidraw | https://draw.barta.cm         |
 
 ---
 
