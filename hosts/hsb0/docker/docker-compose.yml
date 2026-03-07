@@ -89,6 +89,9 @@ services:
       # Required in 2026.3.2+: ws:// is loopback-only by default; this opts in
       # to plaintext WebSocket over private network (LAN + Tailscale).
       - OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1
+      # Direct CLI commands inside the container to the tailnet URL (bind=tailnet
+      # means loopback is not listening; without this the CLI defaults to 127.0.0.1).
+      - OPENCLAW_GATEWAY_URL=wss://100.64.0.6:18789
     user: "node"
     labels:
       - com.centurylinklabs.watchtower.enable=false
