@@ -344,6 +344,22 @@ All secrets are `mode = "444"` in NixOS config for Docker read access.
 
 ## Troubleshooting
 
+### Doctor warning: "groupPolicy is allowlist but groupAllowFrom is empty"
+
+**Symptom**: CLI commands print warnings like:
+
+```
+- channels.telegram.accounts.merlin.groupPolicy is "allowlist" but
+  groupAllowFrom (and allowFrom) is empty — all group messages will be
+  silently dropped.
+```
+
+**Intentional.** Merlin and Nimue are DM-only bots. Group chat is disabled by design (`groupPolicy: "allowlist"` + empty `groupAllowFrom`). Ignore this warning.
+
+If group access is ever needed: add Telegram user/group IDs to `groupAllowFrom` in `openclaw.json`, or set `groupPolicy: "open"`.
+
+---
+
 ### Doctor warning: "Moved channels.telegram single-account top-level values"
 
 **Symptom**: Every CLI command prints:
