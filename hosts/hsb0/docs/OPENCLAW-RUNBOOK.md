@@ -39,20 +39,21 @@ docker-compose.yml → Docker → node:22-bookworm-slim + openclaw@latest
 
 ## Current Status
 
-| Component       | Agent  | Status        | Notes                             |
-| --------------- | ------ | ------------- | --------------------------------- |
-| Container       | both   | ✅ Running    | Docker, `--network=host`          |
-| Telegram        | Merlin | ✅ Connected  | @merlin_oc_bot                    |
-| Telegram        | Nimue  | ✅ Connected  | Nimue's bot                       |
-| Agent-to-Agent  | both   | ✅ Working    | `sessions_send` real-time comms   |
-| Home Assistant  | Merlin | ✅ Working    | HASS at 192.168.1.101:8123        |
-| Brave Search    | both   | ✅ Working    | Shared key                        |
-| Cron            | Merlin | ✅ Working    | Built-in scheduler                |
-| iCloud Calendar | Merlin | ❌ Broken     | vdirsyncer sync needs fix         |
-| iCloud Calendar | Nimue  | ❌ Not setup  | Credentials mounted, needs config |
-| M365 Calendar   | Merlin | ❌ Not setup  | Azure AD app not yet created      |
-| Google (gogcli) | Nimue  | ❌ Not setup  | Credentials mounted, needs auth   |
-| Opus Gateway    | Merlin | ✅ Configured | Credentials mounted from agenix   |
+| Component       | Agent  | Status          | Notes                                                           |
+| --------------- | ------ | --------------- | --------------------------------------------------------------- |
+| Container       | both   | ✅ Running      | Docker, `--network=host`                                        |
+| Telegram        | Merlin | ✅ Connected    | @merlin_oc_bot                                                  |
+| Telegram        | Nimue  | ✅ Connected    | Nimue's bot                                                     |
+| Agent-to-Agent  | both   | ✅ Working      | `sessions_send` real-time comms                                 |
+| Home Assistant  | Merlin | ✅ Working      | HASS at 192.168.1.101:8123                                      |
+| Brave Search    | both   | ✅ Working      | Shared key                                                      |
+| Cron            | Merlin | ✅ Working      | Built-in scheduler                                              |
+| iCloud Calendar | Merlin | ❌ Broken       | vdirsyncer sync needs fix                                       |
+| iCloud Calendar | Nimue  | ❌ Not setup    | Credentials mounted, needs config                               |
+| M365 Calendar   | Merlin | ❌ Not setup    | Azure AD app not yet created                                    |
+| Google (gogcli) | Merlin | ⏳ Auth pending | Credentials OK, token not yet written (see gogcli Auth section) |
+| Google (gogcli) | Nimue  | ❌ Not setup    | Credentials mounted, needs auth                                 |
+| Opus Gateway    | Merlin | ✅ Configured   | Credentials mounted from agenix                                 |
 
 ## Available Skills
 
@@ -394,6 +395,83 @@ automatically (no TLS in play for internal connections).
 
 > `dashboard --no-open` always prints `http://127.0.0.1` because the CLI uses loopback. The token
 > in the URL fragment is what matters — swap the IP to the Tailscale or LAN address before opening.
+
+---
+
+## gogcli Auth (Merlin — Google Workspace)
+
+### Background
+
+- gog version: `v0.11.0 (91c4c15 2026-02-15)`
+- `GOG_CONFIG_DIR` env var is **ignored** — config always goes to `/home/node/.config/gogcli/`
+- Account must be **`markus.barta@gmail.com`** (not `markus@barta.com`) — gog rejects the Workspace alias; "authorized as markus.barta@gmail.com, expected markus@barta.com" message is cosmetic
+- `--remote --step 2` has a **confirmed bug** (`manual auth state mismatch` every time) — use `--auth-code` workaround instead
+- `--auth-code` is a hidden/undocumented flag that bypasses the broken state check entirely
+- SSH tunnel required: hsb0 has no browser; the OAuth callback must be forwarded from your Mac
+
+### Auth Procedure
+
+**Terminal 1 — container shell:**
+
+```bash
+ssh mba@hsb0.lan
+docker exec -it openclaw-gateway bash
+. /home/node/.config/merlin/gogcli/gogcli.env
+rm -f /home/node/.config/gogcli/oauth-manual-state-*.json
+gog auth add markus.barta@gmail.com --services calendar,drive,gmail,contacts,sheets,docs --remote
+```
+
+Note the **PORT** in the printed auth URL (e.g. `redirect_uri=http%3A%2F%2F127.0.0.1%3AXXXXX`).
+
+**Terminal 2 — SSH tunnel (Mac):**
+
+```bash
+ssh -L PORT:127.0.0.1:PORT mba@hsb0.lan
+# Keep this open during the whole OAuth flow
+```
+
+**Browser (Mac):** Open the auth URL, sign in as `markus.barta@gmail.com`, grant all scopes. Browser will show "connection refused" on redirect — that's expected. From the address bar, copy **only the `code=` parameter value** (starts with `4/0A...`, ends before `&scope=`).
+
+**Terminal 1 — complete auth:**
+
+```bash
+. /home/node/.config/merlin/gogcli/gogcli.env
+gog auth add markus.barta@gmail.com --auth-code 'PASTE_CODE_HERE'
+```
+
+**Verify:**
+
+```bash
+gog auth list
+gog gmail list inbox --limit 1
+```
+
+**Persist token (survives container rebuilds):**
+
+```bash
+cp -r /home/node/.config/gogcli/keyring/ /home/node/.config/merlin/gogcli/keyring/
+```
+
+The host volume at `/var/lib/openclaw-gateway/merlin-gogcli/` is mounted to `/home/node/.config/merlin/gogcli/` — anything copied there survives rebuilds.
+
+### Files (in container)
+
+| File                                          | Purpose                                               |
+| --------------------------------------------- | ----------------------------------------------------- |
+| `/home/node/.config/merlin/gogcli/gogcli.env` | Merlin's gogcli env — source before any `gog` command |
+| `/home/node/.config/gogcli/credentials.json`  | Google OAuth credentials (installed-app format)       |
+| `/home/node/.config/gogcli/keyring/`          | Token location (transient — copy to below after auth) |
+| `/home/node/.config/merlin/gogcli/keyring/`   | Persistent token location (host volume)               |
+
+### Re-auth (token expired)
+
+Delete stale state + keyring, then repeat the procedure above:
+
+```bash
+rm -f /home/node/.config/gogcli/oauth-manual-state-*.json
+rm -f /home/node/.config/gogcli/keyring/*
+rm -f /home/node/.config/merlin/gogcli/keyring/*
+```
 
 ---
 
