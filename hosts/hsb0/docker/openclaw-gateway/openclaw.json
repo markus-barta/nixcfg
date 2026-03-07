@@ -1,7 +1,7 @@
 {
   "gateway": {
     "port": 18789,
-    "bind": "tailnet",
+    "bind": "lan",
     "mode": "local",
     "tls": { "enabled": true },
     "controlUi": {
