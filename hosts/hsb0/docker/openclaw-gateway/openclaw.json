@@ -20,8 +20,11 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "openrouter/google/gemini-3-flash-preview",
-        "fallbacks": ["openrouter/moonshotai/kimi-k2.5"]
+        "primary": "openrouter/anthropic/claude-sonnet-4.6",
+        "fallbacks": [
+          "openrouter/moonshotai/kimi-k2.5",
+          "openrouter/google/gemini-3-flash-preview"
+        ]
       },
       "models": {
         "opencode-zen/glm-5-free": { "alias": "GLM-5 Free" },
@@ -98,7 +101,12 @@
       "openrouter:default": { "mode": "api_key", "provider": "openrouter" }
     }
   },
-  "commands": { "native": "auto", "nativeSkills": "auto" },
+  "commands": {
+    "native": "auto",
+    "nativeSkills": "auto",
+    "restart": true,
+    "ownerDisplay": "raw"
+  },
   "cron": { "enabled": true },
   "messages": {
     "ackReactionScope": "group-mentions",
