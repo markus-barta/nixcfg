@@ -118,9 +118,12 @@
     "port": 18789,
     "mode": "local",
     "bind": "tailnet",
+    "tls": { "enabled": true },
     "controlUi": {
-      "allowInsecureAuth": true,
-      "allowedOrigins": ["http://10.17.1.40:18789", "http://100.64.0.10:18789"]
+      "allowedOrigins": [
+        "https://10.17.1.40:18789",
+        "https://100.64.0.10:18789"
+      ]
     },
     "auth": {
       "mode": "token",
@@ -130,7 +133,7 @@
       "mode": "off",
       "resetOnExit": false
     },
-    "remote": { "url": "ws://100.64.0.10:18789" },
+    "remote": { "url": "wss://100.64.0.10:18789" },
     "nodes": {
       "denyCommands": [
         "camera.snap",
