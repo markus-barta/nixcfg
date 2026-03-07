@@ -2,7 +2,7 @@
   "gateway": {
     "port": 18789,
     "bind": "tailnet",
-    "mode": "local",
+    "mode": "remote",
     "tls": { "enabled": true },
     "controlUi": {
       "allowedOrigins": [
