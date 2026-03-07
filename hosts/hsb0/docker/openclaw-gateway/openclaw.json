@@ -5,11 +5,11 @@
     "mode": "local",
     "controlUi": {
       "allowInsecureAuth": true,
-      "dangerouslyDisableDeviceAuth": true,
       "allowedOrigins": ["http://192.168.1.99:18789", "http://100.64.0.6:18789"]
     },
     "auth": { "mode": "token", "token": "${OPENCLAW_GATEWAY_TOKEN}" },
-    "tailscale": { "mode": "off", "resetOnExit": false }
+    "tailscale": { "mode": "off", "resetOnExit": false },
+    "remote": { "url": "ws://100.64.0.6:18789" }
   },
   "agents": {
     "defaults": {
