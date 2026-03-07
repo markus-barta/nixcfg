@@ -26,12 +26,9 @@ services:
       # docker exec sources this file to get secrets into env
       BASH_ENV: "/home/node/.env"
       ENV: "/home/node/.env"
-      # Required in 2026.3.2+: ws:// is loopback-only by default; this opts in
-      # to plaintext WebSocket over private network (LAN + Tailscale).
-      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: "1"
-      # Direct CLI commands inside the container to the tailnet URL (bind=tailnet
-      # means loopback is not listening; without this the CLI defaults to 127.0.0.1).
-      OPENCLAW_GATEWAY_URL: "wss://100.64.0.10:18789"
+      # bind=lan (0.0.0.0) means gateway listens on loopback + LAN + tailnet.
+      # CLI inside container defaults to ws://127.0.0.1 — no URL override needed,
+      # no TLS fingerprint issues. Browser uses https://100.64.0.10:18789.
     env_file:
       - /run/agenix/miniserver-bp-gogcli-keyring-password
     user: "node"

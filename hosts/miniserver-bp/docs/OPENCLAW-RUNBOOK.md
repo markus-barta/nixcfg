@@ -632,43 +632,45 @@ docker exec openclaw-percaival openclaw agents list --bindings
 
 ### Control UI access notes
 
-- `bind: "tailnet"` — gateway listens on both LAN IP and Tailscale IP (`100.64.0.10`)
+- `bind: "lan"` — gateway binds to `0.0.0.0`; listens on loopback, LAN IP, and Tailscale IP
 - `tailscale.mode: "off"` — no Tailscale Serve/Funnel; direct bind only (works with Headscale)
 - `gateway.tls.enabled: true` — built-in self-signed TLS (RSA-2048, 10-year cert, auto-generated, stored in data volume)
-- Trust model: **SHA-256 fingerprint pinning** — browser shows cert warning on first visit only; click "proceed anyway" once per browser profile
-- Device pairing required (HTTPS secure context — browsers require HTTPS for the crypto/storage APIs the Control UI uses)
-- `dangerouslyDisableDeviceAuth` removed — no longer effective for non-loopback origins in 2026.3.2
+- Trust model: browser shows cert warning on first visit; click "proceed anyway" once per browser profile
+- Device pairing required on first browser visit (HTTPS secure context — browsers require HTTPS for the crypto/storage APIs the Control UI uses)
+- No `OPENCLAW_GATEWAY_URL` env var in docker-compose — CLI auto-discovers `ws://127.0.0.1:18789`
 
-### TLS setup procedure (one-time per host)
+### Why bind: "lan" (not "tailnet")
 
-> **Status**: TLS enabled in config. Awaiting Markus to run `--force-recreate` and provide fingerprint.
+`bind: "tailnet"` only listens on `100.64.0.10` — loopback is dead. CLI inside the container
+then can't reach the gateway on `ws://127.0.0.1`. The workaround of setting
+`OPENCLAW_GATEWAY_URL=wss://100.64.0.10:18789` causes the CLI to enter "explicit connection mode",
+which ignores `gateway.remote.tlsFingerprint` from config → TLS cert not trusted → WebSocket 1006.
 
-**Step 1** — Force-recreate container (Markus runs on miniserver-bp):
+`bind: "lan"` = `0.0.0.0`: gateway listens on all interfaces simultaneously. CLI uses loopback
+(no TLS, no fingerprint needed), browser uses Tailscale IP (TLS, cert warning once).
+
+Bind mode source behavior (verified in bundle source `net-Bf8Z-b6p.js`):
+
+| mode       | binds to                              |
+| ---------- | ------------------------------------- |
+| `loopback` | `127.0.0.1`                           |
+| `lan`      | `0.0.0.0` (all interfaces) ✅ current |
+| `tailnet`  | Tailscale IPv4 only (loopback dead)   |
+| `auto`     | `127.0.0.1` only (loopback fallback)  |
+| `custom`   | single user-specified IP              |
+
+### Device pairing (browser, one-time per browser profile)
+
+After opening `https://100.64.0.10:18789/` and accepting the cert warning, the browser sends a
+pairing request. Approve it from inside the container:
 
 ```bash
-ssh -p 2222 mba@msbp
-cd ~/Code/nixcfg && gitpl
-cd hosts/miniserver-bp/docker
-docker compose up --force-recreate -d
+docker exec openclaw-percaival openclaw devices list
+docker exec openclaw-percaival openclaw devices approve --latest
 ```
 
-**Step 2** — Read the generated fingerprint:
-
-```bash
-docker logs openclaw-percaival 2>&1 | grep -i "tls\|fingerprint\|cert"
-```
-
-Note the SHA-256 fingerprint. Provide it to the agent.
-
-**Step 3** — Agent adds `gateway.remote.tlsFingerprint` + `wss://` URL to `openclaw.json`, commits, pushes.
-
-**Step 4** — Force-recreate again:
-
-```bash
-docker compose up --force-recreate -d
-```
-
-**Step 5** — Verify: open `https://100.64.0.10:18789/` in browser, accept cert warning, confirm device pairing works.
+No `--url`, `--token`, or `--tls-fingerprint` flags needed — CLI connects to `ws://127.0.0.1:18789`
+automatically (no TLS in play for internal connections).
 
 ## Git vs Host State
 
@@ -702,7 +704,7 @@ The workspace repo is for **content the agent creates** (skills, memory, identit
 
 ## Migration History
 
-- **2026-03-07**: Upgraded to OpenClaw 2026.3.2. Breaking changes: (1) `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — removed. (2) `ws://` hardened to loopback-only — `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1` added to docker-compose env. (3) `gateway.tls.enabled: true` added — built-in self-signed TLS (RSA-2048, 10-year cert). Control UI now requires HTTPS (browser secure context). Awaiting first boot to generate TLS fingerprint.
+- **2026-03-07**: Upgraded to OpenClaw 2026.3.2. Breaking changes: (1) `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — removed. (2) `ws://` hardened to loopback-only — mitigated by `bind: "lan"`. (3) `gateway.tls.enabled: true` added — built-in self-signed TLS (RSA-2048, 10-year cert). Control UI now requires HTTPS (browser secure context). `bind` changed from `"tailnet"` to `"lan"` (`0.0.0.0`) so CLI inside container uses `ws://127.0.0.1` (no TLS/fingerprint needed) while browser uses `wss://100.64.0.10:18789`. Removed `OPENCLAW_GATEWAY_URL` and `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS` env vars from docker-compose. Default model updated to `openrouter/anthropic/claude-sonnet-4.6`; `commands.restart` + `commands.ownerDisplay` enabled.
 - **2026-02-27**: Upgraded to OpenClaw 2026.2.26. Breaking changes applied: (1) Telegram config migrated from flat `channels.telegram.*` to `channels.telegram.accounts.default.*`, (2) `gateway.controlUi.allowedOrigins` added (required for non-loopback Control UI), (3) `dangerouslyDisableDeviceAuth: true` already present. Workspace files (SOUL.md, USER.md, TOOLS.md, IDENTITY.md, MEMORY.md, memory/family.md, memory/people.md) created/rewritten. Note: Percy has no `memorySearch` configured — intentional, old hardware (Mac Mini 2009), low RAM.
 - **2026-02-15**: Migrated from NixOS oci-containers to docker-compose. See `legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md`.
 
