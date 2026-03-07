@@ -85,13 +85,9 @@ services:
       - /var/lib/openclaw-gateway/nimue-gogcli:/home/node/.config/nimue/gogcli:rw
     # GOG_ACCOUNT and GOG_KEYRING_BACKEND are intentionally NOT here —
     # they differ per agent and are injected by entrypoint.sh per-agent.
-    environment:
-      # Required in 2026.3.2+: ws:// is loopback-only by default; this opts in
-      # to plaintext WebSocket over private network (LAN + Tailscale).
-      - OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1
-      # Direct CLI commands inside the container to the tailnet URL (bind=tailnet
-      # means loopback is not listening; without this the CLI defaults to 127.0.0.1).
-      - OPENCLAW_GATEWAY_URL=wss://100.64.0.6:18789
+    # bind=lan (0.0.0.0) means gateway listens on loopback + LAN + tailnet.
+    # CLI inside container defaults to ws://127.0.0.1 — no URL override needed,
+    # no TLS fingerprint issues. Browser uses https://100.64.0.6:18789.
     user: "node"
     labels:
       - com.centurylinklabs.watchtower.enable=false
