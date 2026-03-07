@@ -372,8 +372,17 @@ Bind mode source behavior (verified in bundle source `net-Bf8Z-b6p.js`):
 
 ### Device pairing (browser, one-time per browser profile)
 
-After opening `https://100.64.0.6:18789/` and accepting the cert warning, the browser sends a
-pairing request. Approve it from inside the container:
+**Step 1** — Get the dashboard URL with token embedded (CLI outputs `http://127.0.0.1:...` — swap the IP):
+
+```bash
+docker exec openclaw-gateway openclaw dashboard --no-open
+# Output: Dashboard URL: http://127.0.0.1:18789/#token=<token>
+# Manually change to: https://100.64.0.6:18789/#token=<token>
+```
+
+**Step 2** — Open the corrected URL in your browser. Accept the cert warning. This seeds the token into browser storage.
+
+**Step 3** — The browser sends a device pairing request. Approve it:
 
 ```bash
 docker exec openclaw-gateway openclaw devices list
@@ -382,6 +391,9 @@ docker exec openclaw-gateway openclaw devices approve --latest
 
 No `--url`, `--token`, or `--tls-fingerprint` flags needed — CLI connects to `ws://127.0.0.1:18789`
 automatically (no TLS in play for internal connections).
+
+> `dashboard --no-open` always prints `http://127.0.0.1` because the CLI uses loopback. The token
+> in the URL fragment is what matters — swap the IP to the Tailscale or LAN address before opening.
 
 ---
 
