@@ -117,11 +117,11 @@
   "gateway": {
     "port": 18789,
     "mode": "local",
-    "bind": "lan",
+    "bind": "tailnet",
     "controlUi": {
       "allowInsecureAuth": true,
       "dangerouslyDisableDeviceAuth": true,
-      "allowedOrigins": ["http://10.17.1.40:18789"]
+      "allowedOrigins": ["http://10.17.1.40:18789", "http://100.64.0.10:18789"]
     },
     "auth": {
       "mode": "token",

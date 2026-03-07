@@ -71,19 +71,28 @@ ssh mba@hsb0.lan "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 ssh msbp "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw"
 ```
 
-## Last Known Version: 2026.2.26 — Breaking Changes Summary
+## Last Known Version: 2026.3.2 — Breaking Changes Summary
 
 Before any `just oc-rebuild` or `just percy-rebuild`, check the changelog:
 
-| Breaking change                                                | Fix applied                                                            |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `channels.telegram` flat → `accounts.<id>` format              | ✅ Both hosts migrated                                                 |
-| `controlUi.allowedOrigins` required for non-loopback           | ✅ Both hosts fixed                                                    |
-| `controlUi.dangerouslyDisableDeviceAuth` required for HTTP     | ✅ Both hosts fixed                                                    |
-| `--agent` flag removed from pairing commands → use `--account` | ✅ Docs updated                                                        |
-| Telegram pairings lost after upgrade                           | Re-pair with `openclaw pairing approve telegram <CODE> --account <id>` |
+| Breaking change                                                                                   | Fix applied                                                               |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `channels.telegram` flat → `accounts.<id>` format                                                 | ✅ Both hosts migrated                                                    |
+| `controlUi.allowedOrigins` required for non-loopback                                              | ✅ Both hosts fixed                                                       |
+| `controlUi.dangerouslyDisableDeviceAuth` required for HTTP                                        | ✅ Both hosts fixed                                                       |
+| `--agent` flag removed from pairing commands → use `--account`                                    | ✅ Docs updated                                                           |
+| Telegram pairings lost after upgrade                                                              | Re-pair with `openclaw pairing approve telegram <CODE> --account <id>`    |
+| `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins (2026.3.2) | ✅ Both hosts: `bind: "tailnet"`, Tailscale IPs added to `allowedOrigins` |
+
+**Control UI access:**
+
+| Instance              | LAN URL                    | Tailscale URL             |
+| --------------------- | -------------------------- | ------------------------- |
+| hsb0 (Merlin+Nimue)   | http://192.168.1.99:18789/ | http://100.64.0.6:18789/  |
+| miniserver-bp (Percy) | http://10.17.1.40:18789/   | http://100.64.0.10:18789/ |
 
 **Doctor warning "Moved channels.telegram..."** — false positive, ignore. Config is already correct.
+**Doctor warning "groupPolicy allowlist but groupAllowFrom empty"** — intentional. DM-only bots.
 
 ## Online Resources (check before any update/upgrade)
 

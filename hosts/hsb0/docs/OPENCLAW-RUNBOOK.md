@@ -334,11 +334,20 @@ All secrets are `mode = "444"` in NixOS config for Docker read access.
 
 ## Access
 
-| Service    | Agent  | URL / Handle               |
-| ---------- | ------ | -------------------------- |
-| Control UI | both   | http://192.168.1.99:18789/ |
-| Telegram   | Merlin | @merlin_oc_bot             |
-| Telegram   | Nimue  | @nimue_oc_bot              |
+| Service    | Agent  | URL / Handle               | Network         |
+| ---------- | ------ | -------------------------- | --------------- |
+| Control UI | both   | http://192.168.1.99:18789/ | Home LAN only   |
+| Control UI | both   | http://100.64.0.6:18789/   | Tailscale (any) |
+| Telegram   | Merlin | @merlin_oc_bot             | —               |
+| Telegram   | Nimue  | @nimue_oc_bot              | —               |
+
+### Control UI access notes
+
+- `bind: "tailnet"` — gateway listens on both LAN IP and Tailscale IP (`100.64.0.6`)
+- `tailscale.mode: "off"` — no Tailscale Serve/Funnel; direct bind only (works with Headscale)
+- `dangerouslyDisableDeviceAuth: true` — no device pairing required (open access on allowed origins)
+- Both origins whitelisted in `allowedOrigins`; accessing from any other IP will fail with "origin not allowed"
+- **2026.3.2 change**: `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — `bind: "tailnet"` is required to make LAN/Tailscale access work without token pairing
 
 ---
 
@@ -397,17 +406,20 @@ code=1008 reason=origin not allowed
 
 **Symptom**: Browser shows "Control UI requires device identity" when opening via HTTP.
 
-**Fix**: Ensure `openclaw.json` has both flags set:
+**Fix**: Ensure `openclaw.json` has:
 
 ```json
-"controlUi": {
-  "allowInsecureAuth": true,
-  "dangerouslyDisableDeviceAuth": true,
-  "allowedOrigins": ["http://192.168.1.99:18789"]
+"gateway": {
+  "bind": "tailnet",
+  "controlUi": {
+    "allowInsecureAuth": true,
+    "dangerouslyDisableDeviceAuth": true,
+    "allowedOrigins": ["http://192.168.1.99:18789", "http://100.64.0.6:18789"]
+  }
 }
 ```
 
-This was a **breaking change in 2026.2.26** — non-loopback HTTP access now requires both flags explicitly.
+**Note (2026.3.2 breaking change)**: `dangerouslyDisableDeviceAuth` no longer works for non-loopback origins unless `bind` is `"tailnet"` or `"lan"`. Using `bind: "tailnet"` is required to access via both LAN and Tailscale IPs without device pairing.
 
 ### Telegram pairing broke after upgrade
 
