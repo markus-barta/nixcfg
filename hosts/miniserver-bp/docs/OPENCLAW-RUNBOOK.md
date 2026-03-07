@@ -624,10 +624,19 @@ docker exec openclaw-percaival openclaw agents list --bindings
 
 ## Access
 
-| Service    | URL                      |
-| ---------- | ------------------------ |
-| Control UI | http://10.17.1.40:18789/ |
-| Telegram   | @percaival_bot           |
+| Service    | URL                       | Network              |
+| ---------- | ------------------------- | -------------------- |
+| Control UI | http://10.17.1.40:18789/  | Office LAN only      |
+| Control UI | http://100.64.0.10:18789/ | Tailscale (anywhere) |
+| Telegram   | @percaival_bot            | —                    |
+
+### Control UI access notes
+
+- `bind: "tailnet"` — gateway listens on both LAN IP and Tailscale IP (`100.64.0.10`)
+- `tailscale.mode: "off"` — no Tailscale Serve/Funnel; direct bind only (works with Headscale)
+- `dangerouslyDisableDeviceAuth: true` — no device pairing required (open access on allowed origins)
+- Both origins whitelisted in `allowedOrigins`
+- **2026.3.2 change**: `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — `bind: "tailnet"` is required
 
 ## Git vs Host State
 
