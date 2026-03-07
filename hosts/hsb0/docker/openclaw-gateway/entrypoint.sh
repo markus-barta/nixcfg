@@ -161,7 +161,8 @@ else:
   GOG_ENV_FILE="${CONFIG_DIR}/gogcli/gogcli.env"
   GOG_KEYRING_PASSWORD=""
   if [ -f "${GOG_KEYRING_FILE}" ]; then
-    GOG_KEYRING_PASSWORD=$(cat "${GOG_KEYRING_FILE}")
+    # Strip optional "GOG_KEYRING_PASSWORD=" or "GOGCLI_KEYRING_PASSWORD=" prefix
+    GOG_KEYRING_PASSWORD=$(cat "${GOG_KEYRING_FILE}" | sed 's/^[A-Z_]*KEYRING_PASSWORD=//')
   fi
   cat >"${GOG_ENV_FILE}" <<GOGEOF
 export GOG_ACCOUNT=${GOG_ACCOUNT}
