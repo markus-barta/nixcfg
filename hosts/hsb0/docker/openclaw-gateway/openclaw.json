@@ -12,7 +12,10 @@
     },
     "auth": { "mode": "token", "token": "${OPENCLAW_GATEWAY_TOKEN}" },
     "tailscale": { "mode": "off", "resetOnExit": false },
-    "remote": { "url": "wss://100.64.0.6:18789" }
+    "remote": {
+      "url": "wss://100.64.0.6:18789",
+      "tlsFingerprint": "C9:78:34:30:4C:25:3D:D5:58:C0:C3:DE:05:62:F0:03:83:33:3B:AB:03:06:45:13:98:29:B6:23:83:12:A5:E3"
+    }
   },
   "agents": {
     "defaults": {
