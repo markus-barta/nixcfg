@@ -336,50 +336,52 @@ All secrets are `mode = "444"` in NixOS config for Docker read access.
 
 | Service    | Agent  | URL / Handle                | Network         |
 | ---------- | ------ | --------------------------- | --------------- |
-| Control UI | both   | https://192.168.1.99:18789/ | Home LAN only   |
+| Control UI | both   | https://192.168.1.99:18789/ | Home LAN        |
 | Control UI | both   | https://100.64.0.6:18789/   | Tailscale (any) |
 | Telegram   | Merlin | @merlin_oc_bot              | —               |
 | Telegram   | Nimue  | @nimue_oc_bot               | —               |
 
 ### Control UI access notes
 
-- `bind: "tailnet"` — gateway listens on both LAN IP and Tailscale IP (`100.64.0.6`)
+- `bind: "lan"` — gateway binds to `0.0.0.0`; listens on loopback, LAN IP, and Tailscale IP
 - `tailscale.mode: "off"` — no Tailscale Serve/Funnel; direct bind only (works with Headscale)
 - `gateway.tls.enabled: true` — built-in self-signed TLS (RSA-2048, 10-year cert, auto-generated, stored in data volume)
-- Trust model: **SHA-256 fingerprint pinning** — browser shows cert warning on first visit only; click "proceed anyway" once per browser profile
-- Device pairing required (HTTPS secure context — browsers require HTTPS for the crypto/storage APIs the Control UI uses)
-- `dangerouslyDisableDeviceAuth` removed — no longer effective for non-loopback origins in 2026.3.2
+- Trust model: browser shows cert warning on first visit; click "proceed anyway" once per browser profile
+- Device pairing required on first browser visit (HTTPS secure context — browsers require HTTPS for the crypto/storage APIs the Control UI uses)
+- No `OPENCLAW_GATEWAY_URL` env var in docker-compose — CLI auto-discovers `ws://127.0.0.1:18789`
 
-### TLS setup procedure (one-time per host)
+### Why bind: "lan" (not "tailnet")
 
-> **Status**: TLS enabled in config. Awaiting Markus to run `--force-recreate` and provide fingerprint.
+`bind: "tailnet"` only listens on `100.64.0.6` — loopback is dead. CLI inside the container
+then can't reach the gateway on `ws://127.0.0.1`. The workaround of setting
+`OPENCLAW_GATEWAY_URL=wss://100.64.0.6:18789` causes the CLI to enter "explicit connection mode",
+which ignores `gateway.remote.tlsFingerprint` from config → TLS cert not trusted → WebSocket 1006.
 
-**Step 1** — Force-recreate container (Markus runs on hsb0):
+`bind: "lan"` = `0.0.0.0`: gateway listens on all interfaces simultaneously. CLI uses loopback
+(no TLS, no fingerprint needed), browser uses Tailscale IP (TLS, cert warning once).
+
+Bind mode source behavior (verified in bundle source `net-Bf8Z-b6p.js`):
+
+| mode       | binds to                              |
+| ---------- | ------------------------------------- |
+| `loopback` | `127.0.0.1`                           |
+| `lan`      | `0.0.0.0` (all interfaces) ✅ current |
+| `tailnet`  | Tailscale IPv4 only (loopback dead)   |
+| `auto`     | `127.0.0.1` only (loopback fallback)  |
+| `custom`   | single user-specified IP              |
+
+### Device pairing (browser, one-time per browser profile)
+
+After opening `https://100.64.0.6:18789/` and accepting the cert warning, the browser sends a
+pairing request. Approve it from inside the container:
 
 ```bash
-ssh mba@hsb0.lan
-cd ~/Code/nixcfg && gitpl
-cd hosts/hsb0/docker
-docker compose up --force-recreate -d
+docker exec openclaw-gateway openclaw devices list
+docker exec openclaw-gateway openclaw devices approve --latest
 ```
 
-**Step 2** — Read the generated fingerprint:
-
-```bash
-docker logs openclaw-gateway 2>&1 | grep -i "tls\|fingerprint\|cert"
-```
-
-Note the SHA-256 fingerprint. Provide it to the agent.
-
-**Step 3** — Agent adds `gateway.remote.tlsFingerprint` + `wss://` URL to `openclaw.json`, commits, pushes.
-
-**Step 4** — Force-recreate again:
-
-```bash
-docker compose up --force-recreate -d
-```
-
-**Step 5** — Verify: open `https://100.64.0.6:18789/` in browser, accept cert warning, confirm device pairing works.
+No `--url`, `--token`, or `--tls-fingerprint` flags needed — CLI connects to `ws://127.0.0.1:18789`
+automatically (no TLS in play for internal connections).
 
 ---
 
@@ -440,13 +442,13 @@ code=1008 reason=origin not allowed
 
 **Root cause (2026.3.2)**: The Control UI uses `crypto`/`storage` browser APIs that require a **secure context** (HTTPS or localhost). HTTP access from non-loopback IPs no longer works regardless of `dangerouslyDisableDeviceAuth`.
 
-**Fix**: Enable `gateway.tls.enabled: true` in `openclaw.json`. See "TLS setup procedure" in the Access section above.
+**Fix**: Enable `gateway.tls.enabled: true` and `gateway.bind: "lan"` in `openclaw.json`. See "Control UI access notes" and "Why bind: lan" in the Access section above.
 
-**Config required** (after TLS first boot — fingerprint needed):
+**Config required**:
 
 ```json
 "gateway": {
-  "bind": "tailnet",
+  "bind": "lan",
   "tls": { "enabled": true },
   "remote": {
     "url": "wss://100.64.0.6:18789",
@@ -454,6 +456,9 @@ code=1008 reason=origin not allowed
   }
 }
 ```
+
+`remote.url` and `remote.tlsFingerprint` are used by external CLI clients connecting from outside
+the container. Internal CLI (inside container) uses `ws://127.0.0.1:18789` automatically.
 
 ### Telegram pairing broke after upgrade
 
@@ -544,7 +549,7 @@ Known quirk — CLI RPC enforces pairing even on loopback. In-process agent runt
 
 ## Migration History
 
-- **2026-03-07**: Upgraded to OpenClaw 2026.3.2. Breaking changes: (1) `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — removed. (2) `ws://` hardened to loopback-only — `OPENCLAW_ALLOW_INSECURE_PRIVATE_WS=1` added to docker-compose env. (3) `gateway.tls.enabled: true` added — built-in self-signed TLS (RSA-2048, 10-year cert). Control UI now requires HTTPS (browser secure context). Awaiting first boot to generate TLS fingerprint.
+- **2026-03-07**: Upgraded to OpenClaw 2026.3.2. Breaking changes: (1) `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — removed. (2) `ws://` hardened to loopback-only — mitigated by `bind: "lan"`. (3) `gateway.tls.enabled: true` added — built-in self-signed TLS (RSA-2048, 10-year cert). Control UI now requires HTTPS (browser secure context). `bind` changed from `"tailnet"` to `"lan"` (`0.0.0.0`) so CLI inside container uses `ws://127.0.0.1` (no TLS/fingerprint needed) while browser uses `wss://100.64.0.6:18789`. Removed `OPENCLAW_GATEWAY_URL` env var from docker-compose (was causing TLS fingerprint resolution failure in explicit connection mode).
 - **2026-02-22**: Merlin SSH access to hsb1 added. Dedicated `merlin` user on hsb1 (wheel + docker). See `hosts/hsb1/docs/backlog/P40--160a6d8--merlin-ssh-access-hsb1.md`.
 - **2026-02-21**: Migrated from single-agent `openclaw-merlin` to multi-agent `openclaw-gateway`. Nimue added as second agent. See `hosts/hsb0/docs/backlog/P40--339a6f7--setup-nimue-multi-agent.md`.
 - **2026-02-13**: Merlin migrated from hsb1 (Nix package) to hsb0 (Docker).
