@@ -26,6 +26,9 @@ services:
       # docker exec sources this file to get secrets into env
       BASH_ENV: "/home/node/.env"
       ENV: "/home/node/.env"
+      # Required in 2026.3.2+: ws:// is loopback-only by default; this opts in
+      # to plaintext WebSocket over private network (LAN + Tailscale).
+      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: "1"
     env_file:
       - /run/agenix/miniserver-bp-gogcli-keyring-password
     user: "node"
