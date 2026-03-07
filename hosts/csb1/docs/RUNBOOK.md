@@ -417,13 +417,21 @@ ssh mba@cs1.barta.cm -p 2222 "journalctl -f"
 
 ## Web Interfaces
 
-| Service    | URL                           |
-| ---------- | ----------------------------- |
-| Grafana    | https://grafana.barta.cm      |
-| InfluxDB   | http://influxdb.barta.cm:8086 |
-| Paperless  | https://paperless.barta.cm    |
-| Docmost    | https://docmost.barta.cm      |
-| Excalidraw | https://draw.barta.cm         |
+| Service    | URL                           | Auth                          |
+| ---------- | ----------------------------- | ----------------------------- |
+| Grafana    | https://grafana.barta.cm      | Grafana login                 |
+| InfluxDB   | http://influxdb.barta.cm:8086 | InfluxDB login                |
+| Paperless  | https://paperless.barta.cm    | Paperless login               |
+| Docmost    | https://docmost.barta.cm      | Docmost login                 |
+| Excalidraw | https://draw.barta.cm         | Cloudflare Access (email OTP) |
+
+### Excalidraw Access Management
+
+Protected via **Cloudflare Zero Trust** → Access → Applications → `Excalidraw`.
+
+- Auth method: One-time PIN (email)
+- Policy: email allowlist (family + friends)
+- To add/remove users: Cloudflare Zero Trust dashboard → Access → Applications → Excalidraw → Edit policy
 
 ---
 
