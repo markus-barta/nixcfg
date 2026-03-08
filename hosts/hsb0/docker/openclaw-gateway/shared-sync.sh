@@ -16,7 +16,7 @@ fi
 case "${AGENT_ID}" in
 merlin)
   GIT_NAME="Merlin AI"
-  GIT_EMAIL="262173326+merlin-ai-mba@users.noreply.github.com"
+  GIT_EMAIL="262173326+merlin-ai-markus@users.noreply.github.com"
   GITHUB_PAT="${GITHUB_PAT_MERLIN}"
   OWN_FILE="FROM-MERLIN.md"
   ;;

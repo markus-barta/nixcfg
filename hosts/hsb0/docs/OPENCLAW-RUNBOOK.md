@@ -683,7 +683,7 @@ Each agent has a separate private GitHub repo:
 | Component        | Repo                               | GitHub account       | Local clone                  |
 | ---------------- | ---------------------------------- | -------------------- | ---------------------------- |
 | Nix infra config | `markus-barta/nixcfg`              | `@markus-barta`      | `~/Code/nixcfg`              |
-| Merlin workspace | `markus-barta/oc-workspace-merlin` | `@merlin-ai-mba`     | `~/Code/oc-workspace-merlin` |
+| Merlin workspace | `markus-barta/oc-workspace-merlin` | `@merlin-ai-markus`  | `~/Code/oc-workspace-merlin` |
 | Nimue workspace  | `markus-barta/oc-workspace-nimue`  | `@nimue-ai-mai`      | `~/Code/oc-workspace-nimue`  |
 | Percy workspace  | `bytepoets-mba/oc-workspace-percy` | `@bytepoets-percyai` | `~/Code/oc-workspace-percy`  |
 

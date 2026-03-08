@@ -187,6 +187,9 @@ in
   "hsb0-openclaw-icloud-password.age".publicKeys = markus ++ hsb0;
   "hsb0-openclaw-opus-gateway.age".publicKeys = markus ++ hsb0;
   "hsb0-gogcli-keyring-password.age".publicKeys = markus ++ hsb0;
+  # GitHub PAT for @merlin-ai-markus (1Password: hsb0-openclaw-merlin-workspace)
+  # Edit: agenix -e secrets/hsb0-openclaw-github-pat.age
+  "hsb0-openclaw-github-pat.age".publicKeys = markus ++ hsb0;
 
   # Nimue agent secrets (second agent in openclaw-gateway)
   # Edit: agenix -e secrets/hsb0-nimue-*.age

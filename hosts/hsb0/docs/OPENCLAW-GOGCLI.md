@@ -155,11 +155,12 @@ This makes the token survive container rebuilds because `/home/node/.config/merl
 
 ## Relevant Files
 
-| File                                               | Notes                                         |
-| -------------------------------------------------- | --------------------------------------------- |
-| `hosts/hsb0/docker/openclaw-gateway/entrypoint.sh` | Writes Merlin gog env including `GOG_ACCOUNT` |
-| `hosts/hsb0/docker/openclaw-gateway/Dockerfile`    | Bakes gog into the image                      |
-| `hosts/hsb0/docs/OPENCLAW-RUNBOOK.md`              | Canonical auth procedure                      |
-| `/home/node/.config/gogcli/`                       | Transient gog runtime config                  |
-| `/home/node/.config/merlin/gogcli/`                | Merlin persistent config mount                |
-| `/var/lib/openclaw-gateway/merlin-gogcli/`         | Host-side persistent volume                   |
+| File                                               | Notes                                            |
+| -------------------------------------------------- | ------------------------------------------------ |
+| `hosts/hsb0/docker/openclaw-gateway/entrypoint.sh` | Writes Merlin gog env including `GOG_ACCOUNT`    |
+| `hosts/hsb0/docker/openclaw-gateway/Dockerfile`    | Bakes gog into the image                         |
+| `hosts/hsb0/docs/OPENCLAW-RUNBOOK.md`              | Canonical auth procedure                         |
+| `secrets/hsb0-openclaw-github-pat.age`             | 1Password item: `hsb0-openclaw-merlin-workspace` |
+| `/home/node/.config/gogcli/`                       | Transient gog runtime config                     |
+| `/home/node/.config/merlin/gogcli/`                | Merlin persistent config mount                   |
+| `/var/lib/openclaw-gateway/merlin-gogcli/`         | Host-side persistent volume                      |

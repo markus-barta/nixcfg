@@ -197,7 +197,7 @@ init_agent \
   "markus-barta/oc-workspace-merlin" \
   "${GITHUB_PAT_MERLIN}" \
   "Merlin AI" \
-  "262173326+merlin-ai-mba@users.noreply.github.com" \
+  "262173326+merlin-ai-markus@users.noreply.github.com" \
   "merlin.ai.markus@gmail.com" \
   "/run/secrets/gogcli-keyring-password"
 
@@ -236,7 +236,7 @@ else
     echo "[shared] WARNING: no GitHub PAT available - skipping shared workspace pull/push"
   fi
   git config user.name "Merlin AI"
-  git config user.email "262173326+merlin-ai-mba@users.noreply.github.com"
+  git config user.email "262173326+merlin-ai-markus@users.noreply.github.com"
   # Push any uncommitted shared workspace changes BEFORE pulling
   if [ -n "${SHARED_GITHUB_PAT}" ] && [ -n "$(git status --porcelain)" ]; then
     echo "[shared] Uncommitted changes found - pushing before pull..."
