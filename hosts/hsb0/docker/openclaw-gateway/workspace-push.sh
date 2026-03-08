@@ -38,6 +38,11 @@ echo "[workspace-push:${AGENT_ID}] Starting daily push — $(date)"
 
 cd "${WORKSPACE_DIR}"
 
+if [ -z "${GITHUB_PAT}" ]; then
+  echo "[workspace-push:${AGENT_ID}] Git push disabled - no GitHub PAT configured"
+  exit 0
+fi
+
 # Ensure PAT is current (rotations take effect without rebuild)
 git remote set-url origin "https://${GITHUB_PAT}@github.com/${WORKSPACE_REPO}.git"
 git config user.name "${GIT_NAME}"

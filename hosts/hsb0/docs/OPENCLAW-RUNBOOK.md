@@ -39,21 +39,21 @@ docker-compose.yml → Docker → node:22-bookworm-slim + openclaw@latest
 
 ## Current Status
 
-| Component       | Agent  | Status          | Notes                                                         |
-| --------------- | ------ | --------------- | ------------------------------------------------------------- |
-| Container       | both   | ✅ Running      | Docker, `--network=host`                                      |
-| Telegram        | Merlin | ✅ Connected    | @merlin_oc_bot                                                |
-| Telegram        | Nimue  | ✅ Connected    | Nimue's bot                                                   |
-| Agent-to-Agent  | both   | ✅ Working      | `sessions_send` real-time comms                               |
-| Home Assistant  | Merlin | ✅ Working      | HASS at 192.168.1.101:8123                                    |
-| Brave Search    | both   | ✅ Working      | Shared key                                                    |
-| Cron            | Merlin | ✅ Working      | Built-in scheduler                                            |
-| iCloud Calendar | Merlin | ❌ Broken       | vdirsyncer sync needs fix                                     |
-| iCloud Calendar | Nimue  | ❌ Not setup    | Credentials mounted, needs config                             |
-| M365 Calendar   | Merlin | ❌ Not setup    | Azure AD app not yet created                                  |
-| Google (gogcli) | Merlin | ⏳ Auth pending | Dedicated account `merlin.ai.mba@gmail.com` not yet connected |
-| Google (gogcli) | Nimue  | ❌ Not setup    | Credentials mounted, needs auth                               |
-| Opus Gateway    | Merlin | ✅ Configured   | Credentials mounted from agenix                               |
+| Component       | Agent  | Status          | Notes                                                            |
+| --------------- | ------ | --------------- | ---------------------------------------------------------------- |
+| Container       | both   | ✅ Running      | Docker, `--network=host`                                         |
+| Telegram        | Merlin | ✅ Connected    | @merlin_oc_bot                                                   |
+| Telegram        | Nimue  | ✅ Connected    | Nimue's bot                                                      |
+| Agent-to-Agent  | both   | ✅ Working      | `sessions_send` real-time comms                                  |
+| Home Assistant  | Merlin | ✅ Working      | HASS at 192.168.1.101:8123                                       |
+| Brave Search    | both   | ✅ Working      | Shared key                                                       |
+| Cron            | Merlin | ✅ Working      | Built-in scheduler                                               |
+| iCloud Calendar | Merlin | ❌ Broken       | vdirsyncer sync needs fix                                        |
+| iCloud Calendar | Nimue  | ❌ Not setup    | Credentials mounted, needs config                                |
+| M365 Calendar   | Merlin | ❌ Not setup    | Azure AD app not yet created                                     |
+| Google (gogcli) | Merlin | ⏳ Auth pending | Dedicated account `merlin.ai.markus@gmail.com` not yet connected |
+| Google (gogcli) | Nimue  | ❌ Not setup    | Credentials mounted, needs auth                                  |
+| Opus Gateway    | Merlin | ✅ Configured   | Credentials mounted from agenix                                  |
 
 ## Available Skills
 
@@ -296,7 +296,6 @@ Credentials mounted from agenix:
 | Secret                          | Purpose                 | Container path                                                                  |
 | ------------------------------- | ----------------------- | ------------------------------------------------------------------------------- |
 | `hsb0-openclaw-telegram-token`  | Merlin's Telegram bot   | `/run/secrets/telegram-token-merlin`                                            |
-| `hsb0-openclaw-github-pat`      | Merlin's GitHub PAT     | `/run/secrets/github-pat-merlin`                                                |
 | `hsb0-openclaw-icloud-password` | iCloud CalDAV           | Not yet wired to vdirsyncer                                                     |
 | `hsb0-gogcli-keyring-password`  | Merlin's gogcli keyring | `/run/secrets/gogcli-keyring-password`                                          |
 | `hsb0-merlin-ssh-key`           | SSH key for hsb1 access | `/run/secrets/merlin-ssh-key` (copied to `/home/node/.ssh/merlin-hsb1` at boot) |
@@ -404,7 +403,8 @@ automatically (no TLS in play for internal connections).
 
 - gog version: `v0.11.0 (91c4c15 2026-02-15)`
 - `GOG_CONFIG_DIR` env var is **ignored** — config always goes to `/home/node/.config/gogcli/`
-- Merlin's target account is **`merlin.ai.mba@gmail.com`**
+- Merlin's target account is **`merlin.ai.markus@gmail.com`**
+- old Google Cloud project was deleted; current setup is a clean start from scratch
 - gog requires the exact authorized email; alias mismatches fail before token persistence
 - `--remote --step 2` has a **confirmed bug** (`manual auth state mismatch` every time) — use `--auth-code` workaround instead
 - `--auth-code` is a hidden/undocumented flag that bypasses the broken state check entirely
@@ -420,7 +420,7 @@ ssh mba@hsb0.lan
 docker exec -it openclaw-gateway bash
 . /home/node/.config/merlin/gogcli/gogcli.env
 rm -f /home/node/.config/gogcli/oauth-manual-state-*.json
-gog auth add merlin.ai.mba@gmail.com --services calendar,drive,gmail,contacts,sheets,docs --remote
+gog auth add merlin.ai.markus@gmail.com --services calendar,drive,gmail,contacts,sheets,docs --remote
 ```
 
 Note the **PORT** in the printed auth URL (e.g. `redirect_uri=http%3A%2F%2F127.0.0.1%3AXXXXX`).
@@ -432,13 +432,13 @@ ssh -L PORT:127.0.0.1:PORT mba@hsb0.lan
 # Keep this open during the whole OAuth flow
 ```
 
-**Browser (Mac):** Open the auth URL, sign in as `merlin.ai.mba@gmail.com`, grant all scopes. Browser will show "connection refused" on redirect — that's expected. From the address bar, copy **only the `code=` parameter value** (starts with `4/0A...`, ends before `&scope=`).
+**Browser (Mac):** Open the auth URL, sign in as `merlin.ai.markus@gmail.com`, grant all scopes. Browser will show "connection refused" on redirect — that's expected. From the address bar, copy **only the `code=` parameter value** (starts with `4/0A...`, ends before `&scope=`).
 
 **Terminal 1 — complete auth:**
 
 ```bash
 . /home/node/.config/merlin/gogcli/gogcli.env
-gog auth add merlin.ai.mba@gmail.com --services calendar,drive,gmail,contacts,sheets,docs --auth-code 'PASTE_CODE_HERE'
+gog auth add merlin.ai.markus@gmail.com --services calendar,drive,gmail,contacts,sheets,docs --auth-code 'PASTE_CODE_HERE'
 ```
 
 **Verify:**
@@ -456,7 +456,7 @@ cp -r /home/node/.config/gogcli/keyring/ /home/node/.config/merlin/gogcli/keyrin
 
 The host volume at `/var/lib/openclaw-gateway/merlin-gogcli/` is mounted to `/home/node/.config/merlin/gogcli/` — anything copied there survives rebuilds.
 
-See also `hosts/hsb0/docs/OPENCLAW-GOGCLI.md` for known traps and persistence notes.
+See also `hosts/hsb0/docs/OPENCLAW-GOGCLI.md` for Google Console setup, known traps, and persistence notes.
 
 ### Files (in container)
 
@@ -704,11 +704,11 @@ just nimue-pull-workspace   # git pull Nimue's workspace into container
 
 The entrypoint handles both agents in a loop:
 
-- Clones workspace repo on first boot (using per-agent PAT from agenix)
-- Pulls latest on subsequent boots (`git pull --ff-only`)
+- Clones workspace repo on first boot when a per-agent PAT is configured
+- Pulls latest on subsequent boots (`git pull --ff-only`) when PAT is present
 - Configures git identity per agent (name + noreply email)
 - Writes per-agent gogcli env file (`/home/node/.config/<agent>/gogcli/gogcli.env`)
-- Starts daily auto-push background loop per agent
+- Starts daily auto-push background loop per agent; Merlin push is currently disabled until a replacement PAT is added
 
 ### Local Setup (imac0)
 

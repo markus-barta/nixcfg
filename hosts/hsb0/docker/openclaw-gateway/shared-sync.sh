@@ -39,6 +39,11 @@ echo "[shared-sync:${AGENT_ID}] Starting nightly sync — $(date)"
 
 cd "${SHARED_DIR}"
 
+if [ -z "${GITHUB_PAT}" ]; then
+  echo "[shared-sync:${AGENT_ID}] Git push disabled - no GitHub PAT configured"
+  exit 0
+fi
+
 # Update remote URL with current PAT (rotations, restarts)
 git remote set-url origin "https://${GITHUB_PAT}@github.com/${SHARED_REPO}.git"
 
