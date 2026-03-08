@@ -39,21 +39,21 @@ docker-compose.yml → Docker → node:22-bookworm-slim + openclaw@latest
 
 ## Current Status
 
-| Component       | Agent  | Status          | Notes                                                           |
-| --------------- | ------ | --------------- | --------------------------------------------------------------- |
-| Container       | both   | ✅ Running      | Docker, `--network=host`                                        |
-| Telegram        | Merlin | ✅ Connected    | @merlin_oc_bot                                                  |
-| Telegram        | Nimue  | ✅ Connected    | Nimue's bot                                                     |
-| Agent-to-Agent  | both   | ✅ Working      | `sessions_send` real-time comms                                 |
-| Home Assistant  | Merlin | ✅ Working      | HASS at 192.168.1.101:8123                                      |
-| Brave Search    | both   | ✅ Working      | Shared key                                                      |
-| Cron            | Merlin | ✅ Working      | Built-in scheduler                                              |
-| iCloud Calendar | Merlin | ❌ Broken       | vdirsyncer sync needs fix                                       |
-| iCloud Calendar | Nimue  | ❌ Not setup    | Credentials mounted, needs config                               |
-| M365 Calendar   | Merlin | ❌ Not setup    | Azure AD app not yet created                                    |
-| Google (gogcli) | Merlin | ⏳ Auth pending | Credentials OK, token not yet written (see gogcli Auth section) |
-| Google (gogcli) | Nimue  | ❌ Not setup    | Credentials mounted, needs auth                                 |
-| Opus Gateway    | Merlin | ✅ Configured   | Credentials mounted from agenix                                 |
+| Component       | Agent  | Status          | Notes                                                         |
+| --------------- | ------ | --------------- | ------------------------------------------------------------- |
+| Container       | both   | ✅ Running      | Docker, `--network=host`                                      |
+| Telegram        | Merlin | ✅ Connected    | @merlin_oc_bot                                                |
+| Telegram        | Nimue  | ✅ Connected    | Nimue's bot                                                   |
+| Agent-to-Agent  | both   | ✅ Working      | `sessions_send` real-time comms                               |
+| Home Assistant  | Merlin | ✅ Working      | HASS at 192.168.1.101:8123                                    |
+| Brave Search    | both   | ✅ Working      | Shared key                                                    |
+| Cron            | Merlin | ✅ Working      | Built-in scheduler                                            |
+| iCloud Calendar | Merlin | ❌ Broken       | vdirsyncer sync needs fix                                     |
+| iCloud Calendar | Nimue  | ❌ Not setup    | Credentials mounted, needs config                             |
+| M365 Calendar   | Merlin | ❌ Not setup    | Azure AD app not yet created                                  |
+| Google (gogcli) | Merlin | ⏳ Auth pending | Dedicated account `merlin.ai.mba@gmail.com` not yet connected |
+| Google (gogcli) | Nimue  | ❌ Not setup    | Credentials mounted, needs auth                               |
+| Opus Gateway    | Merlin | ✅ Configured   | Credentials mounted from agenix                               |
 
 ## Available Skills
 
@@ -398,16 +398,18 @@ automatically (no TLS in play for internal connections).
 
 ---
 
-## gogcli Auth (Merlin — Google Workspace)
+## gogcli Auth (Merlin — dedicated Google account)
 
 ### Background
 
 - gog version: `v0.11.0 (91c4c15 2026-02-15)`
 - `GOG_CONFIG_DIR` env var is **ignored** — config always goes to `/home/node/.config/gogcli/`
-- Account must be **`markus.barta@gmail.com`** (not `markus@barta.com`) — gog rejects the Workspace alias; "authorized as markus.barta@gmail.com, expected markus@barta.com" message is cosmetic
+- Merlin's target account is **`merlin.ai.mba@gmail.com`**
+- gog requires the exact authorized email; alias mismatches fail before token persistence
 - `--remote --step 2` has a **confirmed bug** (`manual auth state mismatch` every time) — use `--auth-code` workaround instead
 - `--auth-code` is a hidden/undocumented flag that bypasses the broken state check entirely
 - SSH tunnel required: hsb0 has no browser; the OAuth callback must be forwarded from your Mac
+- gog writes tokens to `/home/node/.config/gogcli/keyring/`; copy them to Merlin's mounted config dir after auth
 
 ### Auth Procedure
 
@@ -418,7 +420,7 @@ ssh mba@hsb0.lan
 docker exec -it openclaw-gateway bash
 . /home/node/.config/merlin/gogcli/gogcli.env
 rm -f /home/node/.config/gogcli/oauth-manual-state-*.json
-gog auth add markus.barta@gmail.com --services calendar,drive,gmail,contacts,sheets,docs --remote
+gog auth add merlin.ai.mba@gmail.com --services calendar,drive,gmail,contacts,sheets,docs --remote
 ```
 
 Note the **PORT** in the printed auth URL (e.g. `redirect_uri=http%3A%2F%2F127.0.0.1%3AXXXXX`).
@@ -430,13 +432,13 @@ ssh -L PORT:127.0.0.1:PORT mba@hsb0.lan
 # Keep this open during the whole OAuth flow
 ```
 
-**Browser (Mac):** Open the auth URL, sign in as `markus.barta@gmail.com`, grant all scopes. Browser will show "connection refused" on redirect — that's expected. From the address bar, copy **only the `code=` parameter value** (starts with `4/0A...`, ends before `&scope=`).
+**Browser (Mac):** Open the auth URL, sign in as `merlin.ai.mba@gmail.com`, grant all scopes. Browser will show "connection refused" on redirect — that's expected. From the address bar, copy **only the `code=` parameter value** (starts with `4/0A...`, ends before `&scope=`).
 
 **Terminal 1 — complete auth:**
 
 ```bash
 . /home/node/.config/merlin/gogcli/gogcli.env
-gog auth add markus.barta@gmail.com --auth-code 'PASTE_CODE_HERE'
+gog auth add merlin.ai.mba@gmail.com --services calendar,drive,gmail,contacts,sheets,docs --auth-code 'PASTE_CODE_HERE'
 ```
 
 **Verify:**
@@ -453,6 +455,8 @@ cp -r /home/node/.config/gogcli/keyring/ /home/node/.config/merlin/gogcli/keyrin
 ```
 
 The host volume at `/var/lib/openclaw-gateway/merlin-gogcli/` is mounted to `/home/node/.config/merlin/gogcli/` — anything copied there survives rebuilds.
+
+See also `hosts/hsb0/docs/OPENCLAW-GOGCLI.md` for known traps and persistence notes.
 
 ### Files (in container)
 
@@ -717,5 +721,6 @@ The entrypoint handles both agents in a loop:
 
 - [hsb0 RUNBOOK](./RUNBOOK.md) - Main host runbook
 - [Percy OPENCLAW-RUNBOOK](../../miniserver-bp/docs/OPENCLAW-RUNBOOK.md) - Sister instance (miniserver-bp)
+- [OpenClaw gogcli Notes](./OPENCLAW-GOGCLI.md) - Merlin gogcli knowledge base
 - [Agent-to-Agent Comms (P40)](../backlog/P40--1681369--agent-to-agent-comms-opencode-merlin.md)
 - [Git-managed openclaw.json (P40, done)](../backlog/P40--599943c--merlin-git-managed-openclaw-json.md)

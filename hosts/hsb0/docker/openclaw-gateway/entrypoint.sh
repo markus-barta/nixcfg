@@ -180,7 +180,7 @@ init_agent \
   "${GITHUB_PAT_MERLIN}" \
   "Merlin AI" \
   "262173326+merlin-ai-mba@users.noreply.github.com" \
-  "markus@barta.com" \
+  "merlin.ai.mba@gmail.com" \
   "/run/secrets/gogcli-keyring-password"
 
 init_agent \
