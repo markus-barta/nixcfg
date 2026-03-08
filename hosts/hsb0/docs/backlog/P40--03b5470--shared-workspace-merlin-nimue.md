@@ -54,7 +54,7 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
   - `KB.md` — symlink to `KNOWLEDGEBASE.md` (`ln -s KNOWLEDGEBASE.md KB.md`)
   - `FROM-MERLIN.md` — stub: "# From Merlin"
   - `FROM-NIMUE.md` — stub: "# From Nimue"
-- [ ] **1.3** Grant read/write access to both agent GitHub accounts (`merlin-ai-mba`, `nimue-ai-mai`)
+- [ ] **1.3** Grant read/write access to both agent GitHub accounts (`merlin-ai-markus`, `nimue-ai-mai`)
       on the `oc-workspace-shared` repo (both PATs already in container)
 
 ### Phase 2: nixcfg changes (AI can do — propose + get OK)
@@ -117,7 +117,7 @@ Flat structure — no subfolders. No merge conflicts by design: each agent exclu
 - [ ] **4.3** `docker exec openclaw-gateway ls workspace-nimue/shared/` shows same files
 - [ ] **4.4** Merlin can answer basic question about Mailina (reads `shared/KB.md` via symlink)
 - [ ] **4.5** Nimue can answer basic question about Markus (reads `shared/KB.md` via symlink)
-- [ ] **4.6** At 23:30 Merlin pulls shared, commits `FROM-MERLIN.md`, pushes as `merlin-ai-mba`
+- [ ] **4.6** At 23:30 Merlin pulls shared, commits `FROM-MERLIN.md`, pushes as `merlin-ai-markus`
 - [ ] **4.7** At 23:31 Nimue pulls shared (gets Merlin's push), commits `FROM-NIMUE.md`, pushes as `nimue-ai-mai`
 - [ ] **4.8** Both agents have each other's latest knowledge by 23:32 every night
 - [ ] **4.9** `KNOWLEDGEBASE.md` is NOT committed by agents (Markus-only)
