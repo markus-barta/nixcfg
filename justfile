@@ -862,7 +862,7 @@ oc-pull-workspace host='':
     fi
     case "$_target" in
         hsb0)
-            just _oc-run hsb0 "docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-merlin pull --ff-only"
+            just _oc-run hsb0 "if [ -f /run/agenix/hsb0-openclaw-github-pat ]; then docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-merlin pull --ff-only; else echo 'Merlin workspace pull disabled - no GitHub PAT configured'; fi"
             just _oc-run hsb0 "docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-nimue pull --ff-only"
             ;;
         msbp)

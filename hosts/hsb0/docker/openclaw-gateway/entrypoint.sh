@@ -24,9 +24,15 @@ ELEVENLABS_API_KEY=$(cat /run/secrets/elevenlabs-api-key)
 GROQ_API_KEY=$(cat /run/secrets/groq-api-key)
 TELEGRAM_BOT_TOKEN_MERLIN=$(cat /run/secrets/telegram-token-merlin)
 TELEGRAM_BOT_TOKEN_NIMUE=$(cat /run/secrets/telegram-token-nimue)
-GITHUB_PAT_MERLIN=$(cat /run/secrets/github-pat-merlin)
 GITHUB_PAT_NIMUE=$(cat /run/secrets/github-pat-nimue)
 UPTIME_KUMA_API_KEY=$(cat /run/secrets/uptime-kuma-api-key)
+
+GITHUB_PAT_MERLIN=""
+if [ -f /run/secrets/github-pat-merlin ]; then
+  GITHUB_PAT_MERLIN=$(cat /run/secrets/github-pat-merlin)
+else
+  echo "[git] Merlin GitHub PAT not configured - workspace auto-sync disabled"
+fi
 
 # Write global .env for the gateway process (openclaw reads this for ${VAR} substitution)
 cat >"$OPENCLAW_ENV_FILE" <<EOF
@@ -102,23 +108,35 @@ init_agent() {
 
   # -- Workspace clone / push-before-pull --
   if [ ! -d "${WORKSPACE_DIR}/.git" ]; then
-    echo "[agent:${AGENT_ID}] Cloning workspace from GitHub..."
-    rm -rf "${WORKSPACE_DIR}"
-    git clone "https://${GITHUB_PAT}@github.com/${WORKSPACE_REPO}.git" "${WORKSPACE_DIR}"
+    if [ -n "${GITHUB_PAT}" ]; then
+      echo "[agent:${AGENT_ID}] Cloning workspace from GitHub..."
+      rm -rf "${WORKSPACE_DIR}"
+      git clone "https://${GITHUB_PAT}@github.com/${WORKSPACE_REPO}.git" "${WORKSPACE_DIR}"
+    else
+      echo "[agent:${AGENT_ID}] WARNING: no GitHub PAT - cannot clone ${WORKSPACE_REPO}"
+      mkdir -p "${WORKSPACE_DIR}"
+    fi
   else
     cd "${WORKSPACE_DIR}"
-    git remote set-url origin "https://${GITHUB_PAT}@github.com/${WORKSPACE_REPO}.git"
+    if [ -n "${GITHUB_PAT}" ]; then
+      git remote set-url origin "https://${GITHUB_PAT}@github.com/${WORKSPACE_REPO}.git"
+    else
+      git remote set-url origin "https://github.com/${WORKSPACE_REPO}.git" || true
+      echo "[agent:${AGENT_ID}] GitHub PAT missing - skipping workspace pull/push"
+    fi
     git config user.name "${GIT_NAME}"
     git config user.email "${GIT_EMAIL}"
     # Push any uncommitted work BEFORE pulling (prevents data loss on rebuild)
-    if [ -n "$(git status --porcelain)" ]; then
-      echo "[agent:${AGENT_ID}] Uncommitted changes found — pushing before pull..."
+    if [ -n "${GITHUB_PAT}" ] && [ -n "$(git status --porcelain)" ]; then
+      echo "[agent:${AGENT_ID}] Uncommitted changes found - pushing before pull..."
       git add -A
       git commit -m "auto: pre-pull backup (container restart)"
       git push || echo "[agent:${AGENT_ID}] Pre-pull push failed, continuing..."
     fi
-    echo "[agent:${AGENT_ID}] Pulling latest..."
-    git pull --ff-only || echo "[agent:${AGENT_ID}] Pull failed or conflicts, continuing..."
+    if [ -n "${GITHUB_PAT}" ]; then
+      echo "[agent:${AGENT_ID}] Pulling latest..."
+      git pull --ff-only || echo "[agent:${AGENT_ID}] Pull failed or conflicts, continuing..."
+    fi
   fi
 
   cd "${WORKSPACE_DIR}"
@@ -180,7 +198,7 @@ init_agent \
   "${GITHUB_PAT_MERLIN}" \
   "Merlin AI" \
   "262173326+merlin-ai-mba@users.noreply.github.com" \
-  "merlin.ai.mba@gmail.com" \
+  "merlin.ai.markus@gmail.com" \
   "/run/secrets/gogcli-keyring-password"
 
 init_agent \
@@ -197,26 +215,39 @@ init_agent \
 # -----------------------------------------------------------------------------
 SHARED_DIR="/home/node/.openclaw/workspace-shared"
 SHARED_REPO="markus-barta/oc-workspace-shared"
+SHARED_GITHUB_PAT="${GITHUB_PAT_MERLIN:-$GITHUB_PAT_NIMUE}"
 
 echo "[shared] Initialising shared workspace..."
 if [ ! -d "${SHARED_DIR}/.git" ]; then
-  echo "[shared] Cloning shared workspace from GitHub..."
-  rm -rf "${SHARED_DIR}"
-  git clone "https://${GITHUB_PAT_MERLIN}@github.com/${SHARED_REPO}.git" "${SHARED_DIR}"
+  if [ -n "${SHARED_GITHUB_PAT}" ]; then
+    echo "[shared] Cloning shared workspace from GitHub..."
+    rm -rf "${SHARED_DIR}"
+    git clone "https://${SHARED_GITHUB_PAT}@github.com/${SHARED_REPO}.git" "${SHARED_DIR}"
+  else
+    echo "[shared] WARNING: no GitHub PAT available - cannot clone shared workspace"
+    mkdir -p "${SHARED_DIR}"
+  fi
 else
   cd "${SHARED_DIR}"
-  git remote set-url origin "https://${GITHUB_PAT_MERLIN}@github.com/${SHARED_REPO}.git"
+  if [ -n "${SHARED_GITHUB_PAT}" ]; then
+    git remote set-url origin "https://${SHARED_GITHUB_PAT}@github.com/${SHARED_REPO}.git"
+  else
+    git remote set-url origin "https://github.com/${SHARED_REPO}.git" || true
+    echo "[shared] WARNING: no GitHub PAT available - skipping shared workspace pull/push"
+  fi
   git config user.name "Merlin AI"
   git config user.email "262173326+merlin-ai-mba@users.noreply.github.com"
   # Push any uncommitted shared workspace changes BEFORE pulling
-  if [ -n "$(git status --porcelain)" ]; then
-    echo "[shared] Uncommitted changes found — pushing before pull..."
+  if [ -n "${SHARED_GITHUB_PAT}" ] && [ -n "$(git status --porcelain)" ]; then
+    echo "[shared] Uncommitted changes found - pushing before pull..."
     git add -A
     git commit -m "auto: pre-pull backup (container restart)"
     git push || echo "[shared] Pre-pull push failed, continuing..."
   fi
-  echo "[shared] Pulling latest..."
-  git pull --ff-only || echo "[shared] Pull failed or conflicts, continuing..."
+  if [ -n "${SHARED_GITHUB_PAT}" ]; then
+    echo "[shared] Pulling latest..."
+    git pull --ff-only || echo "[shared] Pull failed or conflicts, continuing..."
+  fi
 fi
 
 # Create symlinks in each agent workspace (idempotent)

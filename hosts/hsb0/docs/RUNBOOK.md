@@ -53,6 +53,7 @@ ssh mba@hsb0.lan "cd ~/Code/nixcfg && gitpl && just switch && just oc-rebuild"
 docker exec openclaw-gateway cat /home/node/.openclaw/openclaw.json | jq
 
 # 8. PULL AGENT WORKSPACE (sync workspace repo into container)
+# Merlin temporarily disabled until replacement GitHub PAT is configured
 just merlin-pull-workspace
 just nimue-pull-workspace
 
@@ -78,7 +79,7 @@ docker exec openclaw-gateway sh -c \
 | `just oc-status`             | Container status + last 30 log lines                           |
 | `just oc-stop`               | Stop container                                                 |
 | `just oc-start`              | Start container                                                |
-| `just merlin-pull-workspace` | Pull Merlin's workspace repo in container                      |
+| `just merlin-pull-workspace` | Pull Merlin's workspace repo in container (currently disabled) |
 | `just nimue-pull-workspace`  | Pull Nimue's workspace repo in container                       |
 
 ---

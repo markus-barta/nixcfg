@@ -538,10 +538,6 @@ in
     file = ../../secrets/hsb0-gogcli-keyring-password.age;
     mode = "444";
   };
-  age.secrets.hsb0-openclaw-github-pat = {
-    file = ../../secrets/hsb0-openclaw-github-pat.age;
-    mode = "444";
-  };
 
   # Merlin SSH key for accessing hsb1 (home automation host)
   age.secrets.hsb0-merlin-ssh-key = {
