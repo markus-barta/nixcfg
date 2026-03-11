@@ -20,6 +20,7 @@ services:
       - /run/agenix/miniserver-bp-m365-client-secret:/run/secrets/m365-client-secret:ro
       - /run/agenix/miniserver-bp-github-pat:/run/secrets/github-pat:ro
       - /run/agenix/miniserver-bp-mattermost-bot-token:/run/secrets/mattermost-bot-token:ro
+      - /run/agenix/miniserver-bp-openclaw-pmo-token:/run/secrets/pmo-token:ro
     environment:
       GOG_KEYRING_BACKEND: "file"
       GOG_ACCOUNT: "percy.ai@bytepoets.com"

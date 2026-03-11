@@ -16,6 +16,7 @@ OPENROUTER_API_KEY=$(cat /run/secrets/openrouter-key)
 BRAVE_API_KEY=$(cat /run/secrets/brave-key)
 GITHUB_PAT=$(cat /run/secrets/github-pat | sed 's/^GITHUB_PAT=//')
 MATTERMOST_BOT_TOKEN=$(cat /run/secrets/mattermost-bot-token)
+PMO_TOKEN=$(cat /run/secrets/pmo-token | sed 's/^PMO_TOKEN=//')
 
 # Bare format — OpenClaw reads this for ${VAR} substitution in openclaw.json
 cat >"$OPENCLAW_ENV_FILE" <<EOF
@@ -26,6 +27,7 @@ BRAVE_API_KEY=${BRAVE_API_KEY}
 GITHUB_PAT=${GITHUB_PAT}
 MATTERMOST_BOT_TOKEN=${MATTERMOST_BOT_TOKEN}
 MATTERMOST_URL=https://mattermost.bytepoets.com
+PMO_TOKEN=${PMO_TOKEN}
 EOF
 
 # Sourceable format — for docker exec and shell scripts
@@ -37,6 +39,7 @@ export BRAVE_API_KEY=${BRAVE_API_KEY}
 export GITHUB_PAT=${GITHUB_PAT}
 export MATTERMOST_BOT_TOKEN=${MATTERMOST_BOT_TOKEN}
 export MATTERMOST_URL=https://mattermost.bytepoets.com
+export PMO_TOKEN=${PMO_TOKEN}
 EOF
 
 # Source env for this process
