@@ -128,6 +128,12 @@
     mode = "444";
   };
 
+  # PMO (online PM tool) API token for OpenClaw Percaival
+  age.secrets.miniserver-bp-openclaw-pmo-token = {
+    file = ../../secrets/miniserver-bp-openclaw-pmo-token.age;
+    mode = "444";
+  };
+
   # ==========================================================================
   # WIREGUARD VPN
   # ==========================================================================

@@ -245,4 +245,9 @@ in
   # Edit: agenix -e secrets/miniserver-bp-mattermost-bot-token.age
   "miniserver-bp-mattermost-bot-token.age".publicKeys = markus ++ miniserver-bp;
 
+  # PMO (online PM tool) API token for OpenClaw Percaival
+  # Format: PMO_TOKEN=<token> (KEY=VALUE for Docker environmentFiles)
+  # Edit: agenix -e secrets/miniserver-bp-openclaw-pmo-token.age
+  "miniserver-bp-openclaw-pmo-token.age".publicKeys = markus ++ miniserver-bp;
+
 }
