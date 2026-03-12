@@ -31,6 +31,10 @@
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
+    # git-hooks — explicit top-level input so devenv uses a current version
+    # (ncps pins an old transitive git-hooks-nix without modules/all-modules.nix)
+    git-hooks.url = "github:cachix/git-hooks.nix";
+    git-hooks.inputs.nixpkgs.follows = "nixpkgs";
     # Helium browser
     helium-nix = {
       url = "github:AlvaroParker/helium-nix";
