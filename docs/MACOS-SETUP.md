@@ -471,6 +471,41 @@ just --list
 - `direnv allow` wasn't run → run `direnv allow`
 - First time → wait for devenv to create `.shared/`
 
+**If `direnv allow` fails with `path '.../git-hooks.nix/.../modules/all-modules.nix' does not exist`:**
+
+Root cause: `devenv.lock` has a stale pin. Happened on fresh-clone machines because `follows: nixpkgs`
+in `devenv.yaml` made devenv treat `git-hooks` as an alias for nixpkgs itself (not a separate flake).
+Fixed 2026-03-12: removed `follows` from `git-hooks` input in `devenv.yaml`.
+
+If it recurs (e.g. after a devenv upgrade regenerates the lock with a bad pin):
+
+```bash
+rm ~/Code/nixcfg/devenv.lock
+direnv allow
+```
+
+**If `direnv allow` on a Linux host stalls 30s on `http://hsb0.lan:8501/nix-cache-info`:**
+
+Root cause: `common.nix` sets `hsb0.lan:8501` (home NCPS cache) fleet-wide. Linux hosts that can't
+resolve `.lan` (e.g. company hosts without split-DNS) stall on every nix eval.
+
+Fix for company/non-home hosts: override substituters in the host's `configuration.nix`:
+
+```nix
+nix.settings = {
+  substituters = lib.mkOverride 0 [
+    "https://cache.nixos.org"
+    "https://nix-community.cachix.org"
+  ];
+  trusted-public-keys = lib.mkOverride 0 [
+    "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+    "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
+  ];
+};
+```
+
+Already applied to `hosts/miniserver-bp/configuration.nix` (2026-03-12).
+
 ### 5.4 Install Karabiner-Elements (Optional)
 
 For keyboard remapping (Caps Lock → Hyper key):
