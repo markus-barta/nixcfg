@@ -199,6 +199,10 @@ in
   "hsb0-nimue-github-pat.age".publicKeys = markus ++ hsb0;
   "hsb0-nimue-icloud-password.age".publicKeys = markus ++ hsb0;
   "hsb0-nimue-gogcli-keyring-password.age".publicKeys = markus ++ hsb0;
+  # Google OAuth client credentials (OAuth app registration, not a token)
+  # Format: JSON (downloaded from Google Cloud Console → Credentials → OAuth client)
+  # Edit: agenix -e secrets/hsb0-nimue-gogcli-credentials.age
+  "hsb0-nimue-gogcli-credentials.age".publicKeys = markus ++ hsb0;
 
   # M365 calendar (read-only) - Azure AD app: Merlin-AI-hsb0-cal
   # TODO: Uncomment when Azure AD app is created and .age files exist

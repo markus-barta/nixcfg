@@ -99,6 +99,7 @@ init_agent() {
   GIT_EMAIL="$5"
   GOG_ACCOUNT="$6"
   GOG_KEYRING_FILE="$7"
+  GOG_CREDENTIALS_FILE="${8:-}"
 
   WORKSPACE_DIR="/home/node/.openclaw/workspace-${AGENT_ID}"
   AGENT_DIR="/home/node/.openclaw/agents/${AGENT_ID}/agent"
@@ -189,6 +190,13 @@ export GOG_KEYRING_PASSWORD=${GOG_KEYRING_PASSWORD}
 GOGEOF
   echo "[agent:${AGENT_ID}] gogcli env written to ${GOG_ENV_FILE}"
 
+  # -- gogcli credentials.json (OAuth client registration, from agenix) --
+  # Only deployed if a credentials file is provided (declarative path, agent-specific)
+  if [ -n "${GOG_CREDENTIALS_FILE}" ] && [ -f "${GOG_CREDENTIALS_FILE}" ]; then
+    cp "${GOG_CREDENTIALS_FILE}" "${CONFIG_DIR}/gogcli/credentials.json"
+    echo "[agent:${AGENT_ID}] gogcli credentials.json deployed from agenix"
+  fi
+
   echo "[agent:${AGENT_ID}] Init complete."
 }
 
@@ -208,7 +216,8 @@ init_agent \
   "Nimue AI" \
   "262988279+nimue-ai-mai@users.noreply.github.com" \
   "nimue.ai.mailina@gmail.com" \
-  "/run/secrets/gogcli-keyring-password-nimue"
+  "/run/secrets/gogcli-keyring-password-nimue" \
+  "/run/secrets/nimue-gogcli-credentials"
 
 # -----------------------------------------------------------------------------
 # 5. Shared workspace — clone/push-before-pull + symlinks in each agent workspace
