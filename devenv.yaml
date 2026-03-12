@@ -12,7 +12,6 @@ inputs:
     url: github:NixOS/nixpkgs/nixos-unstable
   git-hooks:
     url: github:cachix/git-hooks.nix
-    follows: nixpkgs
   shared:
     # Provides common.just with shared justfile recipes
     url: github:pbek/nix-shared
