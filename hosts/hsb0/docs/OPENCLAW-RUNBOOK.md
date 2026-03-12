@@ -52,7 +52,7 @@ docker-compose.yml → Docker → node:22-bookworm-slim + openclaw@latest
 | iCloud Calendar | Nimue  | ❌ Not setup    | Credentials mounted, needs config                                |
 | M365 Calendar   | Merlin | ❌ Not setup    | Azure AD app not yet created                                     |
 | Google (gogcli) | Merlin | ⏳ Auth pending | Dedicated account `merlin.ai.markus@gmail.com` not yet connected |
-| Google (gogcli) | Nimue  | ❌ Not setup    | Credentials mounted, needs auth                                  |
+| Google (gogcli) | Nimue  | ⏳ Auth pending | Account `nimue.ai.mailina@gmail.com` created, needs auth         |
 | Opus Gateway    | Merlin | ✅ Configured   | Credentials mounted from agenix                                  |
 
 ## Available Skills
@@ -399,6 +399,13 @@ automatically (no TLS in play for internal connections).
 
 ## gogcli Auth (Merlin — dedicated Google account)
 
+### Agent Google Identities
+
+| Agent  | Gmail account                | Owner   |
+| ------ | ---------------------------- | ------- |
+| Merlin | `merlin.ai.markus@gmail.com` | Markus  |
+| Nimue  | `nimue.ai.mailina@gmail.com` | Mailina |
+
 ### Background
 
 - gog version: `v0.11.0 (91c4c15 2026-02-15)`
@@ -406,9 +413,9 @@ automatically (no TLS in play for internal connections).
 - Merlin's target account is **`merlin.ai.markus@gmail.com`**
 - old Google Cloud project was deleted; current setup is a clean start from scratch
 - gog requires the exact authorized email; alias mismatches fail before token persistence
-- `--remote --step 2` has a **confirmed bug** (`manual auth state mismatch` every time) — use `--auth-code` workaround instead
-- `--auth-code` is a hidden/undocumented flag that bypasses the broken state check entirely
-- SSH tunnel required: hsb0 has no browser; the OAuth callback must be forwarded from your Mac
+- `--remote --step 2 --auth-url '<redirect-url>'` is the correct flow — paste the full redirect URL from the browser address bar after OAuth
+- ⚠️ Previous note said `--remote --step 2` had a "confirmed bug" (`manual auth state mismatch`) — likely caused by email mismatch (`markus@barta.com` vs `markus.barta@gmail.com`), not a gog bug. `--auth-code` workaround probably unnecessary.
+- No SSH tunnel needed — use `--auth-url` with the full redirect URL instead
 - gog writes tokens to `/home/node/.config/gogcli/keyring/`; copy them to Merlin's mounted config dir after auth
 
 ### Auth Procedure

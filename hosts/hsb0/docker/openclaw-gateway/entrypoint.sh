@@ -207,7 +207,7 @@ init_agent \
   "${GITHUB_PAT_NIMUE}" \
   "Nimue AI" \
   "262988279+nimue-ai-mai@users.noreply.github.com" \
-  "mailina.barta@gmail.com" \
+  "nimue.ai.mailina@gmail.com" \
   "/run/secrets/gogcli-keyring-password-nimue"
 
 # -----------------------------------------------------------------------------
