@@ -193,7 +193,8 @@ GOGEOF
   # -- gogcli credentials.json (OAuth client registration, from agenix) --
   # Only deployed if a credentials file is provided (declarative path, agent-specific)
   if [ -n "${GOG_CREDENTIALS_FILE}" ] && [ -f "${GOG_CREDENTIALS_FILE}" ]; then
-    cp "${GOG_CREDENTIALS_FILE}" "${CONFIG_DIR}/gogcli/credentials.json"
+    cp -f "${GOG_CREDENTIALS_FILE}" "${CONFIG_DIR}/gogcli/credentials.json" ||
+      install -m 644 "${GOG_CREDENTIALS_FILE}" "${CONFIG_DIR}/gogcli/credentials.json"
     echo "[agent:${AGENT_ID}] gogcli credentials.json deployed from agenix"
   fi
 
