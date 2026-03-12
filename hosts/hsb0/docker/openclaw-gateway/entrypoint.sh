@@ -191,11 +191,15 @@ GOGEOF
   echo "[agent:${AGENT_ID}] gogcli env written to ${GOG_ENV_FILE}"
 
   # -- gogcli credentials.json (OAuth client registration, from agenix) --
-  # Only deployed if a credentials file is provided (declarative path, agent-specific)
+  # gog ignores GOG_CONFIG_DIR and always reads from /home/node/.config/gogcli/
+  # Deploy to both the global path (required by gog) and the per-agent path (for reference)
   if [ -n "${GOG_CREDENTIALS_FILE}" ] && [ -f "${GOG_CREDENTIALS_FILE}" ]; then
+    mkdir -p /home/node/.config/gogcli
+    cp -f "${GOG_CREDENTIALS_FILE}" /home/node/.config/gogcli/credentials.json ||
+      install -m 644 "${GOG_CREDENTIALS_FILE}" /home/node/.config/gogcli/credentials.json
     cp -f "${GOG_CREDENTIALS_FILE}" "${CONFIG_DIR}/gogcli/credentials.json" ||
       install -m 644 "${GOG_CREDENTIALS_FILE}" "${CONFIG_DIR}/gogcli/credentials.json"
-    echo "[agent:${AGENT_ID}] gogcli credentials.json deployed from agenix"
+    echo "[agent:${AGENT_ID}] gogcli credentials.json deployed from agenix (global + per-agent)"
   fi
 
   echo "[agent:${AGENT_ID}] Init complete."
