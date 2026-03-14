@@ -33,6 +33,9 @@ in
   # Disable atuin - causes fish shell to hang on some systems
   hokage.programs.atuin.enable = false;
 
+  # Disable netbird - we use Tailscale/Headscale for mesh networking
+  services.netbird.enable = false;
+
   # Set some fish config
   # Note: Fish functions (pingt, sourcefish, etc.) are provided by uzumaki modules
   programs = {
