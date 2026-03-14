@@ -174,6 +174,9 @@ in
         "@wheel"
       ];
 
+      # Override hokage's invalid trusted-substituters (non-URL values break newer Nix validation)
+      trusted-substituters = lib.mkForce [ ];
+
       # Allow fallback from local caches
       connect-timeout = 5;
       fallback = true;
