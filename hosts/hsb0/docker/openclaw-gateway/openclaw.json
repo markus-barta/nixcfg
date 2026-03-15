@@ -27,21 +27,17 @@
         ]
       },
       "models": {
-        "opencode-zen/glm-5-free": { "alias": "GLM-5 Free" },
-        "opencode-zen/minimax-m2.5-free": { "alias": "MiniMax M2.5 Free" },
-        "openrouter/anthropic/claude-opus-4.6": { "alias": "Claude Opus 4.6" },
-        "openrouter/anthropic/claude-sonnet-4.6": {
-          "alias": "Claude Sonnet 4.6"
-        },
-        "openrouter/google/gemini-3-flash-preview": {
-          "alias": "Gemini 3 Flash Preview"
-        },
-        "openrouter/google/gemini-3.1-pro-preview": {
-          "alias": "Gemini 3.1 Pro Preview"
-        },
-        "openrouter/moonshotai/kimi-k2.5": { "alias": "Kimi K2.5" },
-        "openrouter/openai/gpt-5.2-codex": { "alias": "GPT-5.2-Codex" },
-        "openrouter/z-ai/glm-5": { "alias": "GLM-5" }
+        "opencode-zen/glm-5-free": { "alias": "glm5free" },
+        "opencode-zen/minimax-m2.5-free": { "alias": "minimax25free" },
+        "openrouter/anthropic/claude-opus-4.6": { "alias": "opus46" },
+        "openrouter/anthropic/claude-sonnet-4.6": { "alias": "sonnet46" },
+        "openrouter/google/gemini-3-flash-preview": { "alias": "gem3flash" },
+        "openrouter/google/gemini-3.1-pro-preview": { "alias": "gem3pro" },
+        "openrouter/healer-alpha": { "alias": "healer-alpha" },
+        "openrouter/hunter-alpha": { "alias": "hunter-alpha" },
+        "openrouter/moonshotai/kimi-k2.5": { "alias": "kimi25" },
+        "openrouter/openai/gpt-5.4": { "alias": "gpt54" },
+        "openrouter/z-ai/glm-5": { "alias": "glm5" }
       },
       "maxConcurrent": 4,
       "subagents": { "maxConcurrent": 8 },
