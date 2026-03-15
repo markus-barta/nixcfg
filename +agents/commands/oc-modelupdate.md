@@ -78,19 +78,60 @@ Present a clear summary:
 
 Ask: "OK to apply these changes?"
 
-## Step 5 — After user approval: apply + commit + push
+## Step 5 — After user approval: apply + commit + push (nixcfg)
 
 1. Edit both JSON configs (identical models section)
 2. `git diff` to verify — no secrets, no unrelated changes
 3. `git add` + `git commit` + `git push`
-4. Provide restart commands (no rebuild needed for config-only changes):
+
+## Step 6 — Regenerate modelhelp skill in all 3 workspace repos
+
+The `modelhelp` skill contains a static model table that must mirror the openclaw.json model
+list exactly. After updating the configs, regenerate the SKILL.md in all three workspace repos.
+
+**Skill file locations:**
+
+- `~/Code/oc-workspace-merlin/skills/modelhelp/SKILL.md`
+- `~/Code/oc-workspace-nimue/skills/modelhelp/SKILL.md`
+- `~/Code/oc-workspace-percy/skills/modelhelp/SKILL.md`
+
+**Tier assignment rules** (apply to new/changed models):
+
+| Tier        | Criteria                            |
+| ----------- | ----------------------------------- |
+| 🆓 free     | prompt=0 AND completion=0           |
+| 💸 cheap    | prompt < $0.50 / 1M tokens          |
+| 💰 mid      | prompt $0.50–3 / 1M tokens          |
+| 🏆 powerful | prompt > $3 / 1M tokens OR flagship |
+
+**Keyword categories to assign** (pick all that apply per model):
+
+- Use-case domains: `general`, `coding`, `dev`, `it`, `writing`, `research`, `science`, `finance`, `human-sciences`, `multilingual`, `chinese`, `current-events`, `creative`
+- Capability terms: `fast`, `long-ctx`, `reasoning`, `multimodal`, `structured-output`, `tools`, `experimental`, `large-model`, `powerful-for-free`, `high-volume`, `very-cheap`
+
+**Decision guide** — update the "Task type → model" table to reflect any added/removed models.
+
+**After editing all 3 SKILL.md files:**
 
 ```bash
-# hsb0 (~30s)
-ssh mba@hsb0.lan "cd ~/Code/nixcfg && gitpl && cd hosts/hsb0/docker && docker compose restart openclaw-gateway"
+# Pull latest remote changes first, then commit and push each repo
+cd ~/Code/oc-workspace-merlin && git pull --ff-only && git add skills/modelhelp/SKILL.md && git commit -m "skills: update modelhelp model list" && git push
+cd ~/Code/oc-workspace-nimue && git pull --ff-only && git add skills/modelhelp/SKILL.md && git commit -m "skills: update modelhelp model list" && git push
+cd ~/Code/oc-workspace-percy && git pull --ff-only && git add skills/modelhelp/SKILL.md && git commit -m "skills: update modelhelp model list" && git push
+```
 
-# miniserver-bp (~30s)
+(If `--ff-only` fails, use `git pull --rebase` instead.)
+
+## Step 7 — Provide all deploy + sync commands
+
+```bash
+# Restart containers to pick up new openclaw.json (~30s each)
+ssh mba@hsb0.lan "cd ~/Code/nixcfg && gitpl && cd hosts/hsb0/docker && docker compose restart openclaw-gateway"
 ssh msbp "cd ~/Code/nixcfg && gitpl && cd hosts/miniserver-bp/docker && docker compose restart openclaw-percaival"
+
+# Pull updated modelhelp skill into running containers
+just oc-pull-workspace hsb0   # pulls merlin + nimue workspaces
+just oc-pull-workspace msbp   # pulls percy workspace
 ```
 
 ## SYSOP rules
@@ -98,4 +139,5 @@ ssh msbp "cd ~/Code/nixcfg && gitpl && cd hosts/miniserver-bp/docker && docker c
 - Do NOT touch fallback/primary model without explicit approval
 - Do NOT commit without user saying "OK to apply"
 - Do NOT invent or guess model IDs — only use IDs confirmed in the catalogue
-- Both configs must stay in sync — always edit both
+- Both openclaw.json configs must stay in sync — always edit both
+- modelhelp SKILL.md in all 3 workspace repos must stay in sync with openclaw.json
