@@ -27,11 +27,14 @@
         ]
       },
       "models": {
+        "arcee-ai/trinity-large-preview:free": { "alias": "trinitylgfree" },
+        "arcee-ai/trinity-mini:free": { "alias": "trinityfree" },
         "deepseek/deepseek-v3.2": { "alias": "dsv32" },
         "minimax/minimax-m2.5:free": { "alias": "mini25free" },
         "nvidia/nemotron-3-super-120b-a12b:free": {
           "alias": "nemotron3super-free"
         },
+        "openai/gpt-5.4-pro": { "alias": "gpt54pro" },
         "openrouter/anthropic/claude-opus-4.6": { "alias": "opus46" },
         "openrouter/anthropic/claude-sonnet-4.6": { "alias": "sonnet46" },
         "openrouter/google/gemini-3-flash-preview": { "alias": "gem3flash" },
@@ -47,8 +50,8 @@
         "openrouter/qwen/qwen3.5-397b-a17b": { "alias": "qwen35" },
         "openrouter/stepfun/step-3.5-flash:free": { "alias": "step35free" },
         "openrouter/z-ai/glm-5": { "alias": "glm5" },
-        "x-ai/grok-4.1-fast": { "alias": "grok41fast" },
-        "x-ai/grok-4.20-beta": { "alias": "grok420" }
+        "x-ai/grok-4.20-beta": { "alias": "grok420" },
+        "x-ai/grok-4.20-multi-agent-beta": { "alias": "grok420ma" }
       },
       "maxConcurrent": 4,
       "subagents": { "maxConcurrent": 8 },
