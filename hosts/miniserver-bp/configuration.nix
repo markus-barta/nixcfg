@@ -21,6 +21,7 @@
     role = "server";
     fish.editor = "vim";
     stasysmo.enable = true; # System metrics in Starship prompt
+    ncps.enable = false; # Office network: can't reach hsb0.lan
   };
 
   # ==========================================================================
@@ -331,22 +332,13 @@
   # NIX SETTINGS
   # ==========================================================================
 
+  # Substituters managed by uzumaki.ncps.enable = false (see above)
   nix.settings = {
     experimental-features = [
       "nix-command"
       "flakes"
     ];
     auto-optimise-store = true;
-
-    # Override fleet-wide substituters (common.nix) — company host must not contact home cache (hsb0)
-    substituters = lib.mkOverride 0 [
-      "https://cache.nixos.org"
-      "https://nix-community.cachix.org"
-    ];
-    trusted-public-keys = lib.mkOverride 0 [
-      "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-      "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-    ];
   };
 
   # ==========================================================================
