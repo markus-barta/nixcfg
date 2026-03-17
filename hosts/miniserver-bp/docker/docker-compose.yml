@@ -32,6 +32,7 @@ services:
       # no TLS fingerprint issues. Browser uses https://100.64.0.10:18789.
     env_file:
       - /run/agenix/miniserver-bp-gogcli-keyring-password
+      - /run/agenix/miniserver-bp-percy-nextcloud-share
     user: "node"
     entrypoint: ["/home/node/entrypoint.sh"]
     labels:

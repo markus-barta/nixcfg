@@ -134,6 +134,12 @@
     mode = "444";
   };
 
+  # Nextcloud share credentials for Percy (NEXTCLOUD_SHARE_URL, NEXTCLOUD_SHARE_PASSWORD)
+  age.secrets.miniserver-bp-percy-nextcloud-share = {
+    file = ../../secrets/miniserver-bp-percy-nextcloud-share.age;
+    mode = "444";
+  };
+
   # ==========================================================================
   # WIREGUARD VPN
   # ==========================================================================
