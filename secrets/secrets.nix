@@ -244,6 +244,11 @@ in
   # Edit: agenix -e secrets/miniserver-bp-github-pat.age
   "miniserver-bp-github-pat.age".publicKeys = markus ++ miniserver-bp;
 
+  # Nextcloud share credentials for Percy (upload/download files)
+  # Format: KEY=VALUE lines (NEXTCLOUD_SHARE_URL, NEXTCLOUD_SHARE_PASSWORD)
+  # Edit: agenix -e secrets/miniserver-bp-percy-nextcloud-share.age
+  "miniserver-bp-percy-nextcloud-share.age".publicKeys = markus ++ miniserver-bp;
+
   # Mattermost bot token for OpenClaw Percaival
   # Format: Plain text token (no KEY=VALUE). URL is in docker-compose.yml.
   # Edit: agenix -e secrets/miniserver-bp-mattermost-bot-token.age
