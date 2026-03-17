@@ -181,19 +181,10 @@ in
       connect-timeout = 5;
       fallback = true;
 
-      # NCPS Binary Cache Proxy (hsb0)
-      # .lan resolution works via headscale split DNS → hsb0 AdGuard
-      # Priority: lib.mkOverride 0 ensures local cache is prioritized across the fleet
-      substituters = lib.mkOverride 0 [
-        "http://hsb0.lan:8501"
-        "https://cache.nixos.org"
-        "https://nix-community.cachix.org"
-      ];
-      trusted-public-keys = lib.mkOverride 0 [
-        "hsb0.lan-1:jKVnVnEwJPaevI5NyBKBtk7mJGPQ3EMlIoPb7VmPcD0="
-        "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
-        "nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="
-      ];
+      # NOTE: substituters and trusted-public-keys are managed exclusively by
+      # the uzumaki module (modules/uzumaki/default.nix) via uzumaki.ncps.enable.
+      # Do NOT set them here — duplicate mkOverride 0 causes list merges instead
+      # of overrides, leaking hsb0.lan into hosts that can't reach it.
     };
 
     # Use symlink to the latest nixpkgs of the flake as nixpkgs, e.g. for nix-shell
