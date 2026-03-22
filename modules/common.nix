@@ -123,11 +123,6 @@ in
     initialHashedPassword = mkDefault null;
   });
 
-  # Fix: funkeykid.service is ordered after 'network-online.target' but doesn't depend on it
-  # Consolidated in P5012
-  # TODO: Move this into modules/funkeykid.nix — it shouldn't be in common.nix
-  systemd.services.funkeykid.wants = [ "network-online.target" ];
-
   # Set your time zone.
   time.timeZone = "Europe/Vienna";
 
