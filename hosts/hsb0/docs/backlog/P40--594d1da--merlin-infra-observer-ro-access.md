@@ -50,7 +50,7 @@ Ausnahme hsb0: Merlin läuft dort selbst im Container — SSH auf localhost wenn
 | `homeassistant`       | `docker exec`, `docker restart`                              | HA CLI, Automationen debuggen; exec-Breakout akzeptiert (privates LAN) |
 | `nodered`             | `docker exec`, `docker restart`                              | Flows lesen/debuggen                                                   |
 | `opus-stream-to-mqtt` | `docker restart`, `docker logs`                              | Restart bei Hängern                                                    |
-| `pidicon-light`       | `docker restart`, `docker logs`                              | Restart bei Hängern                                                    |
+| `pixdcon`             | `docker restart`, `docker logs`                              | Restart bei Hängern                                                    |
 | `zigbee2mqtt`         | `docker logs`, `docker inspect`                              | Privileged container — kein exec, kein restart                         |
 | `mosquitto`           | `docker logs`                                                | Nur Monitoring                                                         |
 | `scrypted`            | `docker logs`, `docker inspect`                              | Nur Monitoring                                                         |
@@ -152,7 +152,7 @@ security.sudo.extraRules = [{
     { command = "/run/current-system/sw/bin/docker restart homeassistant"; options = ["NOPASSWD"]; }
     { command = "/run/current-system/sw/bin/docker restart nodered"; options = ["NOPASSWD"]; }
     { command = "/run/current-system/sw/bin/docker restart opus-stream-to-mqtt"; options = ["NOPASSWD"]; }
-    { command = "/run/current-system/sw/bin/docker restart pidicon-light"; options = ["NOPASSWD"]; }
+    { command = "/run/current-system/sw/bin/docker restart pixdcon"; options = ["NOPASSWD"]; }
   ];
 }];
 ```
