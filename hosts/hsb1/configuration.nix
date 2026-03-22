@@ -65,15 +65,10 @@
     HandleLidSwitch = "ignore";
   };
 
-  # funkeykid — Educational keyboard toy
-  # Config: /etc/funkeykid/config.json (edit directly, no rebuild needed)
-  # Sounds: /var/lib/funkeykid-sounds/
-  services.funkeykid = {
-    enable = true;
-    user = "mba";
-  };
-
-  # No sudo rules needed - service runs as kiosk user directly
+  # funkeykid — now runs as Docker container (ghcr.io/markus-barta/funkeykid)
+  # Web UI: http://hsb1.lan:8081
+  # NixOS service disabled — Docker handles keyboard listener + web UI
+  services.funkeykid.enable = false;
 
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
