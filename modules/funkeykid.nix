@@ -137,7 +137,11 @@ in
           "FUNKEYKID_CONFIG=/etc/funkeykid.env"
           "XDG_RUNTIME_DIR=/run/user/1001" # kiosk user's runtime dir
         ];
-        EnvironmentFile = "/home/mba/secrets/smarthome.env";
+        EnvironmentFile = [
+          "/home/mba/secrets/smarthome.env"
+          # ElevenLabs API key for TTS (created via: agenix -e secrets/hsb1-funkeykid-elevenlabs-api-key.age)
+          # TODO: Wire as age.secrets once .age file is created
+        ];
 
         # Security - minimal restrictions for device access
         ProtectHome = "read-only"; # Need to read sound files
