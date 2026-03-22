@@ -201,7 +201,7 @@ Availability: `z2m/<device>/availability` → `{"state":"online"|"offline"}`
 ### Phase 3: Pixoo standalone script
 
 - [x] New repo — `~/Code/health-pixoo` (Node.js)
-  - Drawing primitives from `lib/pixoo-http.js` (ported from pidicon)
+  - Drawing primitives from `lib/pixoo-http.js` (ported from pixdcon)
   - Collectors: mqtt-collector, ping-collector, rpc-collector
   - Central state store + health helpers
   - Tab-based renderer: ÜBERSICHT, WLAN, ZIGBEE, HEIZUNG
@@ -257,15 +257,15 @@ Availability: `z2m/<device>/availability` → `{"state":"online"|"offline"}`
 ## Notes
 
 - Room/device naming convention: `docs/INFRASTRUCTURE.md` → "Smart Home Naming Convention"
-- pidicon repo: `~/Code/pidicon` — drawing primitives in `lib/pixoo-http.js`
+- pixdcon repo: `~/Code/pixdcon` — drawing primitives in `lib/pixoo-http.js`
 - Reference scenes: `scenes/pixoo/dev/power_price.js` (gradient bars), `scenes/awtrix/timestats.js` (status dots)
-- pidicon container on hsb1 currently disabled — do NOT re-enable; standalone script only
+- pixdcon container on hsb1 currently disabled — do NOT re-enable; standalone script only
 - Shelly Pro 4PM (`192.168.1.169`): MQTT broken, HTTP RPC works fine
 - Shelly bz/boiler RSSI = -86 dBm: known weak signal, worth a yellow threshold
 - Tado: proprietary, no MQTT, HA integration unreliable — monitor only via Shelly bridge input
 - `vk/waterleak/washingmachine` (Zigbee): offline since 2025-12-27 — battery dead or device lost. Fix separately.
 
-### Pixoo64 protocol reference (from pidicon)
+### Pixoo64 protocol reference (from pixdcon)
 
 **Init sequence** (must do once on startup):
 
@@ -284,7 +284,7 @@ Availability: `z2m/<device>/availability` → `{"state":"online"|"offline"}`
 - **No delta frames** — every push is full 64×64 (~16KB base64)
 - **5 fps hardware max** — HTTP round-trip ~200-300ms is the natural governor
 - **Custom Channel must be active** — if user manually switches on device, rendering goes invisible
-- **No push retry** in pidicon — if POST fails, scene loop retries on next cycle
+- **No push retry** in pixdcon — if POST fails, scene loop retries on next cycle
 
 **Brightness:** `{ "Command": "Channel/SetBrightness", "Brightness": 0-100 }`
 **Health ping:** `{ "Command": "Channel/GetHttpGifId" }` (lightweight check)
