@@ -179,9 +179,18 @@ build-host-on buildHost hostname args='':
     nh os build -H {{ hostname }} --build-host omega@{{ buildHost }} . -- {{ args }}
     just _notify "build of host {{ hostname }} on {{ buildHost }} finished"
 
-# Build the current host with nh
+# Build the current host (platform-aware)
 [group('build')]
-build args='': (build-host hostname args)
+build args='':
+    #!/usr/bin/env bash
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "$(printf '\xef\x85\xb9') Detected macOS - running 🏠 home-manager build for {{ user }}@{{ hostname }}..."
+        home-manager build --flake ".#{{ user }}@{{ hostname }}" {{ args }}
+    else
+        echo "$(printf '\xef\x8c\x93') Detected NixOS - running ❄️ nh os build for {{ hostname }}..."
+        nh os build -H {{ hostname }} . -- {{ args }}
+        just _notify "build of host {{ hostname }} finished"
+    fi
 
 # Build the current host on the Caliban host
 [group('build')]

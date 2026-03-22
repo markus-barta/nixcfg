@@ -74,3 +74,4 @@ id_rsa.pub
 
 # Docker mutable state (Traefik ACME certificates)
 **/docker/traefik/acme.json
+.claude/
