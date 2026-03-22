@@ -59,7 +59,7 @@ def mqtt_log(message, level="info"):
                 "message": message
             }
             mqtt_client.publish(
-                "home/hsb1/keyboard-fun/debug",
+                "home/hsb1/funkeykid/debug",
                 json.dumps(payload),
                 qos=0
             )
@@ -80,7 +80,7 @@ def mqtt_publish_status(device, key_name=None, sound_file=None):
                 "sound_playing": os.path.basename(sound_file) if sound_file else None
             }
             mqtt_client.publish(
-                "home/hsb1/keyboard-fun/status",
+                "home/hsb1/funkeykid/status",
                 json.dumps(payload),
                 qos=0,
                 retain=True
@@ -111,7 +111,7 @@ def mqtt_publish_keyboard_info(device):
             }
             
             mqtt_client.publish(
-                "home/hsb1/keyboard-fun/keyboard-info",
+                "home/hsb1/funkeykid/keyboard-info",
                 json.dumps(info),
                 qos=0,
                 retain=True
@@ -206,6 +206,27 @@ def play_sound(sound_file, device=None):
         mqtt_publish_status(device, sound_file=sound_file)
 
 
+def mqtt_publish_display(letter):
+    """Publish letter to Pixoo display via pidicon-light MQTT."""
+    global mqtt_client
+    if mqtt_client and mqtt_client.is_connected():
+        try:
+            colors = ["#FF0000", "#00CC00", "#0066FF", "#FF6600", "#CC00CC",
+                      "#00CCCC", "#FFCC00", "#FF3399", "#6633FF", "#33CC33"]
+            payload = json.dumps({
+                "letter": letter,
+                "word": letter,
+                "color": random.choice(colors),
+                "timestamp": time.time()
+            })
+            mqtt_client.publish(
+                "home/hsb1/funkeykid/display",
+                payload, qos=0
+            )
+        except Exception as e:
+            print(f"MQTT display error: {e}", flush=True)
+
+
 def toggle_babycam():
     """Toggle the babycam via MQTT or script"""
     mqtt_log("Toggling Babycam...")
@@ -267,7 +288,7 @@ def main():
     global mqtt_client
 
     # Load configuration
-    env_file = os.getenv('KEYBOARD_FUN_CONFIG', '/etc/child-keyboard-fun.env')
+    env_file = os.getenv('FUNKEYKID_CONFIG', '/etc/funkeykid.env')
     config = load_env(env_file)
 
     device_name_or_path = config.get('KEYBOARD_DEVICE')
@@ -389,6 +410,9 @@ def main():
                         # Check debounce
                         if not should_process_key(key_name):
                             continue
+
+                        # Publish letter to Pixoo display
+                        mqtt_publish_display(key_name)
 
                         # Check if key has specific mapping
                         if key_name in key_mappings:
