@@ -217,7 +217,7 @@ LETTER_WORDS = {
     'M': 'Muh-Kuh', 'N': 'Nachtigall', 'O': 'Orgel', 'P': 'Pferd',
     'Q': 'Quaken', 'R': 'Regen', 'S': 'Schwein', 'T': 'Telefon',
     'U': 'Uhu', 'V': 'Vogel', 'W': 'Wasser', 'X': 'Xylophon',
-    'Y': 'Yak', 'Z': 'Ziege',
+    'Y': 'Ziege', 'Z': 'Yak',
 }
 
 
