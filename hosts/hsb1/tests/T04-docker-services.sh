@@ -30,7 +30,7 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 # Expected containers (must be running)
-# Note: Some containers like pidicon, smtp, watchtower-pidicon may be stopped/optional
+# Note: Some containers like pixdcon, smtp, watchtower-pixdcon may be stopped/optional
 EXPECTED_CONTAINERS=(
   "homeassistant"
   "nodered"

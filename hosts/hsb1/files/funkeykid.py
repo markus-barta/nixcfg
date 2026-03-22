@@ -222,7 +222,7 @@ LETTER_WORDS = {
 
 
 def mqtt_publish_display(letter):
-    """Publish letter + German word to Pixoo display via pidicon-light MQTT."""
+    """Publish letter + German word to Pixoo display via pixdcon MQTT."""
     global mqtt_client
     if mqtt_client and mqtt_client.is_connected():
         try:

@@ -49,13 +49,13 @@ All 13 containers running:
 - zigbee2mqtt
 - scrypted
 - matter-server
-- pidicon
+- pixdcon
 - apprise
 - opus-stream-to-mqtt
 - smtp
 - restic-cron-hetzner
 - watchtower-weekly
-- watchtower-pidicon
+- watchtower-pixdcon
 
 **Status:** ⏳ Pending
 

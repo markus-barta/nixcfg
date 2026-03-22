@@ -40,42 +40,25 @@ services:
   #    - "com.centurylinklabs.watchtower.enable=true"
   #    - "com.centurylinklabs.watchtower.scope=weekly"
 
-  #  pidicon:
-  #    image: ghcr.io/markus-barta/pidicon:latest
-  #    container_name: pidicon
-  #    network_mode: host
-  #    restart: no
-  #    environment:
-  #      - TZ=Europe/Vienna
-  #      - PIDICON_CONFIG_PATH=/data/devices.json
-  #      - PIDICON_MEDIA_PATH=/data/media
-  #      - PIDICON_SCENES_PATH=/data/scenes
-  #      - PIDICON_WEB_PORT=10829
-  #      - PIDICON_WEB_AUTH=admin:123
-  #    volumes:
-  #      - ./mounts/pidicon/data:/data
-  #      - ./mounts/shared/tmp:/shared-tmp
-  #    env_file:
-  #      - /home/mba/secrets/smarthome.env
-  #      - /home/mba/secrets/pidicon.env
-  #    labels:
-  #      - "com.centurylinklabs.watchtower.enable=true"
-  #      - "com.centurylinklabs.watchtower.scope=pidicon"
+  # pidicon (legacy, archived) — commented out, replaced by pixdcon
+  # pidicon-light (legacy, archived) — commented out, replaced by pixdcon
 
-  pidicon-light:
-    image: ghcr.io/markus-barta/pidicon-light:latest
-    container_name: pidicon-light
+  pixdcon:
+    image: ghcr.io/markus-barta/pixdcon:latest
+    container_name: pixdcon
     network_mode: host
     restart: unless-stopped
     environment:
       - TZ=Europe/Vienna
       - MQTT_PORT=1883
       - LOG_LEVEL=info
-      - PIDICON_CONFIG_PATH=/data/config.json
+      - PIXDCON_CONFIG_PATH=/data/config.json
     env_file:
-      - /run/agenix/hsb1-pidicon-light-env # MOSQUITTO_HOST / MOSQUITTO_USER / MOSQUITTO_PASS / SONNEN_BATTERY_HOST / SONNEN_BATTERY_API_TOKEN
+      - /run/agenix/hsb1-pixdcon-env # MOSQUITTO_HOST / MOSQUITTO_USER / MOSQUITTO_PASS / SONNEN_BATTERY_HOST / SONNEN_BATTERY_API_TOKEN
     volumes:
-      - ./mounts/pidicon-light/config.json:/data/config.json:ro # config only — scenes baked into image
+      - ./mounts/pixdcon/config.json:/data/config.json # rw — web UI saves settings
+      - ./mounts/pixdcon/scenes:/data/scenes # rw — editable scene files
+      - ./mounts/pixdcon/generated-scenes:/data/generated-scenes # rw — cloned/detached scenes
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"

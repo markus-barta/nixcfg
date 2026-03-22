@@ -14,7 +14,7 @@
 
 **Why:** WiFi is unreliable in this environment (10+ competing networks). Phones drop off WiFi for minutes at a time. HA sees `zone.home = 0` → fires "everyone left" → turns off devices that shouldn't be touched.
 
-**Incident (2026-03-20):** The automation `🧙🏻‍♂️ Everyone Left - All Lights Off` used `light.turn_off target: entity_id: "all"` when `zone.home < 1`. This turned off AWTRIX LED matrices (`light.awtrix_*_matrix`) multiple times per day, causing pidicon displays to go dark. **Automation deleted.**
+**Incident (2026-03-20):** The automation `🧙🏻‍♂️ Everyone Left - All Lights Off` used `light.turn_off target: entity_id: "all"` when `zone.home < 1`. This turned off AWTRIX LED matrices (`light.awtrix_*_matrix`) multiple times per day, causing pixdcon displays to go dark. **Automation deleted.**
 
 **Rules:**
 
@@ -32,7 +32,7 @@
 - `light.awtrix_5807d0_matrix` — LED matrix display
 - `light.awtrix_*_indicator_*` — status LEDs on AWTRIX devices
 
-Turning these off breaks pidicon scene rendering silently (AWTRIX accepts HTTP commands fine, just doesn't display).
+Turning these off breaks pixdcon scene rendering silently (AWTRIX accepts HTTP commands fine, just doesn't display).
 
 ---
 
@@ -101,7 +101,7 @@ Turning these off breaks pidicon scene rendering silently (AWTRIX accepts HTTP c
 
 ### Disabled tabs
 
-- **Awtrix Ulanzi** — Old Node-RED AWTRIX control (replaced by pidicon-light)
+- **Awtrix Ulanzi** — Old Node-RED AWTRIX control (replaced by pixdcon)
 
 ---
 

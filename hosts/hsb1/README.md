@@ -193,13 +193,13 @@ All containers run with host network access and DNS resolution:
 | **zigbee2mqtt**         | Zigbee bridge              | 8888       |
 | **scrypted**            | Camera/NVR/HomeKit bridge  | 10443      |
 | **matter-server**       | Matter protocol            | 5580       |
-| **pidicon**             | Pixoo display control      | 10829      |
+| **pixdcon**             | Pixoo display control      | 10829      |
 | **apprise**             | Notifications              | 8001       |
 | **opus-stream-to-mqtt** | OPUS gateway → MQTT bridge | -          |
 | **smtp**                | Mail relay                 | 25         |
 | **restic-cron-hetzner** | Backups to Hetzner         | -          |
 | **watchtower-weekly**   | Weekly auto-updates        | -          |
-| **watchtower-pidicon**  | Fast pidicon updates       | -          |
+| **watchtower-pixdcon**  | Fast pixdcon updates       | -          |
 
 ## Native Services
 
