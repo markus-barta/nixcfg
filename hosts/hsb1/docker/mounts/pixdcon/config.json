@@ -15,7 +15,7 @@
   ],
   "scenes": {
     "clock_with_homestats": {
-      "path": "/app/scenes/clock_with_homestats.js"
+      "path": "./scenes/ulanzi/clock_with_homestats.js"
     }
   }
 }

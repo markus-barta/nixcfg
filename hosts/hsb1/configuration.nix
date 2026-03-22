@@ -61,7 +61,7 @@
   #   - Docker container (ghcr.io/markus-barta/funkeykid) handles:
   #     → evdev keyboard listener (ACME BK03 via /dev/input, privileged)
   #     → sound playback (paplay via PipeWire)
-  #     → MQTT publish to pidicon-light for Pixoo display
+  #     → MQTT publish to pixdcon for Pixoo display
   #     → web UI at http://hsb1.lan:8081 (config, test mode, file mgmt)
   #   - NixOS provides hardware-level isolation (always active):
   #     → udev rules: strip ACME BK03 from logind/X11 (no host keypresses)
@@ -522,9 +522,9 @@
     owner = "mba"; # Needs to be readable by docker compose
   };
 
-  # PIDICON Light MQTT credentials
-  age.secrets.hsb1-pidicon-light-env = {
-    file = ../../secrets/hsb1-pidicon-light-env.age;
+  # PIXDCON MQTT credentials
+  age.secrets.hsb1-pixdcon-env = {
+    file = ../../secrets/hsb1-pixdcon-env.age;
     mode = "0400";
     owner = "mba";
   };

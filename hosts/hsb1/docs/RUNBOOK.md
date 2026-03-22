@@ -373,13 +373,13 @@ ssh mba@192.168.1.101 "journalctl -f"
 | scrypted               | `ghcr.io/koush/scrypted`                                  | Camera/NVR/HomeKit bridge    | 10443 (host) |
 | matter-server          | `ghcr.io/home-assistant-libs/python-matter-server:stable` | Matter protocol              | 5580 (host)  |
 | health-pixoo           | `ghcr.io/markus-barta/health-pixoo:latest`                | Smart home health on Pixoo64 | host         |
-| ~~pidicon~~            | `ghcr.io/markus-barta/pidicon:latest`                     | Pixoo display control        | 10829 (host) | **disabled** — commented out in docker-compose |
+| ~~pixdcon~~            | `ghcr.io/markus-barta/pixdcon:latest`                     | Pixoo display control        | 10829 (host) | **disabled** — commented out in docker-compose |
 | apprise                | `caronc/apprise:latest`                                   | Multi-platform notifications | 8001         |
 | opus-stream-to-mqtt    | `node:alpine`                                             | OPUS/EnOcean → MQTT bridge   | host         |
 | smtp                   | `namshi/smtp`                                             | Mail relay (via Hover)       | bridge       |
 | restic-cron-hetzner    | custom build                                              | Daily backups to Hetzner     | -            |
 | watchtower-weekly      | `beatkind/watchtower:latest`                              | Weekly updates (Sat 5am)     | -            |
-| ~~watchtower-pidicon~~ | `beatkind/watchtower:latest`                              | Fast pidicon updates (10s)   | -            | **disabled** — commented out in docker-compose |
+| ~~watchtower-pixdcon~~ | `beatkind/watchtower:latest`                              | Fast pixdcon updates (10s)   | -            | **disabled** — commented out in docker-compose |
 
 ### Key Paths
 
@@ -393,14 +393,14 @@ ssh mba@192.168.1.101 "journalctl -f"
 ~/docker/mounts/zigbee2mqtt/       # Z2M config + database
 ~/docker/mounts/mosquitto/         # MQTT config + data
 ~/docker/mounts/scrypted/volume/   # Camera configs
-~/docker/mounts/pidicon/data/      # Pixoo scenes/media
+~/docker/mounts/pixdcon/data/      # Pixoo scenes/media
 ~/docker/mounts/matter-server/     # Matter credentials
 
 # Secrets (env files) - passwords in secrets/SECRETS.md
 ~/secrets/smarthome.env            # Shared HA/NR secrets
 ~/secrets/zigbee2mqtt.env          # Z2M network key
 ~/secrets/watchtower.env           # Notification URLs
-~/secrets/pidicon.env              # Pixoo API keys
+~/secrets/pixdcon.env              # Pixoo API keys
 ~/secrets/github.env               # GHCR token
 ~/secrets/influxdb3-csb1.env       # InfluxDB connection
 /etc/secrets/tapoC210-00.env       # Camera credentials
@@ -438,7 +438,7 @@ docker logs watchtower-weekly --tail 50
 ### Update Schedule
 
 - **watchtower-weekly**: Saturdays 5:00am — updates all containers with `scope=weekly`
-- **watchtower-pidicon**: Every 10 seconds — fast updates for pidicon only
+- **watchtower-pixdcon**: Every 10 seconds — fast updates for pixdcon only
 - **restic-cron-hetzner**: Daily 1:30am — backup to Hetzner StorageBox
 
 ### Network Modes
@@ -473,7 +473,7 @@ If hostname changes, HA MQTT will break. Always use `localhost`.
 | `watchtower.env`  | Notification URLs           | watchtower                 |
 | `fritz.env`       | Fritz!Box credentials       | maintenance scripts        |
 
-| `pidicon.env` | Pixoo display config | pidicon (disabled) |
+| `pixdcon.env` | Pixoo display config | pixdcon (disabled) |
 | `github.env` | GitHub container registry | watchtower |
 | `ghcr.env` | GHCR login token | docker login |
 | `/etc/secrets/mqtt.env` | System-wide MQTT credentials | agenix managed |
