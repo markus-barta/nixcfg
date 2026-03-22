@@ -209,16 +209,29 @@ def play_sound(sound_file, device=None):
         mqtt_publish_status(device, sound_file=sound_file)
 
 
+# German words for each letter (DE-AT)
+LETTER_WORDS = {
+    'A': 'Affe', 'B': 'Biene', 'C': 'Clown', 'D': 'Donner',
+    'E': 'Elefant', 'F': 'Frosch', 'G': 'Glocke', 'H': 'Hammer',
+    'I': 'Igel', 'J': 'Jaguar', 'K': 'Katze', 'L': 'Loewe',
+    'M': 'Muh-Kuh', 'N': 'Nachtigall', 'O': 'Orgel', 'P': 'Pferd',
+    'Q': 'Quaken', 'R': 'Regen', 'S': 'Schwein', 'T': 'Telefon',
+    'U': 'Uhu', 'V': 'Vogel', 'W': 'Wasser', 'X': 'Xylophon',
+    'Y': 'Yak', 'Z': 'Ziege',
+}
+
+
 def mqtt_publish_display(letter):
-    """Publish letter to Pixoo display via pidicon-light MQTT."""
+    """Publish letter + German word to Pixoo display via pidicon-light MQTT."""
     global mqtt_client
     if mqtt_client and mqtt_client.is_connected():
         try:
             colors = ["#FF0000", "#00CC00", "#0066FF", "#FF6600", "#CC00CC",
                       "#00CCCC", "#FFCC00", "#FF3399", "#6633FF", "#33CC33"]
+            word = LETTER_WORDS.get(letter, letter)
             payload = json.dumps({
                 "letter": letter,
-                "word": letter,
+                "word": word,
                 "color": random.choice(colors),
                 "timestamp": time.time()
             })
