@@ -11,7 +11,7 @@
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
-    ../../modules/child-keyboard-fun.nix
+    ../../modules/funkeykid.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
   ];
 
@@ -57,7 +57,7 @@
   hardware.bluetooth.enable = true;
 
   # Prevent keyboard from triggering power events (power button, suspend, etc.)
-  # This is critical for child-keyboard-fun to prevent accidental shutdowns
+  # This is critical for funkeykid to prevent accidental shutdowns
   services.logind.settings.Login = {
     HandlePowerKey = "ignore";
     HandleSuspendKey = "ignore";
@@ -65,11 +65,10 @@
     HandleLidSwitch = "ignore";
   };
 
-  # Child's Bluetooth Keyboard Fun System
-  # Script: hosts/hsb1/files/child-keyboard-fun.py (edit directly, no rebuild needed)
-  # Config: hosts/hsb1/files/child-keyboard-fun.env (edit directly, no rebuild needed)
-  # Sounds: /var/lib/child-keyboard-sounds/
-  services.child-keyboard-fun = {
+  # funkeykid — Educational keyboard toy
+  # Config: /etc/funkeykid/config.json (edit directly, no rebuild needed)
+  # Sounds: /var/lib/funkeykid-sounds/
+  services.funkeykid = {
     enable = true;
     user = "mba";
   };

@@ -2,7 +2,7 @@
 
 **Host**: hsb1
 **Priority**: P70
-**Status**: Backlog
+**Status**: Superseded by funkeykid project (see https://github.com/markus-barta/funkeykid)
 **Created**: 2026-02-15
 
 ---

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Child Keyboard Fun - Standalone script for ACME BK03 keyboard"""
+"""funkeykid (legacy) — Standalone script for ACME BK03 keyboard.
+TODO: Replace with package from funkeykid repo flake input."""
 import evdev
 import subprocess
 import os

@@ -537,7 +537,7 @@ bluetoothctl remove 20:73:00:04:21:4F
 
 - Pairing mode times out after ~60 seconds - be quick!
 - Device will appear as `/dev/input/eventXX` when connected
-- Used for the child-keyboard-fun system (see P8000 task)
+- Used for the funkeykid system (see P8000 task)
 - Bluetooth keyboards don't appear in `/dev/input/by-id/` - use `/proc/bus/input/devices` to identify
 
 ---

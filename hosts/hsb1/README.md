@@ -222,30 +222,30 @@ Interactive system that plays sounds when keys are pressed on the ACME BK03 Blue
 1. Create sound directory:
 
    ```bash
-   mkdir -p ~/child-keyboard-sounds
+   mkdir -p ~/funkeykid-sounds
    # Add .wav files to this directory
    ```
 
 2. Create configuration file:
 
    ```bash
-   sudo cp /home/mba/Code/nixcfg/examples/child-keyboard-fun.env /etc/child-keyboard-fun.env
-   sudo nano /etc/child-keyboard-fun.env
+   sudo cp /home/mba/Code/nixcfg/examples/funkeykid.env /etc/funkeykid.env
+   sudo nano /etc/funkeykid.env
    ```
 
 3. Enable the service in `configuration.nix`:
 
    ```nix
-   services.child-keyboard-fun.enable = true;
+   services.funkeykid.enable = true;
    ```
 
 4. Rebuild and test:
    ```bash
    just switch
-   sudo systemctl status child-keyboard-fun
+   sudo systemctl status funkeykid
    ```
 
-**Configuration**: Edit `/etc/child-keyboard-fun.env` to map specific keys to specific sounds.
+**Configuration**: Edit `/etc/funkeykid.env` to map specific keys to specific sounds.
 
 **Pairing**: See [Runbook - Bluetooth Devices](./docs/RUNBOOK.md#bluetooth-devices) for BK03 pairing instructions.
 
