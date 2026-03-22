@@ -170,6 +170,11 @@ in
   # Edit: agenix -e secrets/hsb0-elevenlabs-api-key.age
   "hsb0-elevenlabs-api-key.age".publicKeys = markus ++ hsb0;
 
+  # ElevenLabs API key for funkeykid TTS on hsb1
+  # Format: Plain text API key (no KEY=VALUE)
+  # Edit: agenix -e secrets/hsb1-funkeykid-elevenlabs-api-key.age
+  "hsb1-funkeykid-elevenlabs-api-key.age".publicKeys = markus ++ hsb1;
+
   # Groq API key for STT — Whisper Large v3 (shared: Merlin + Nimue on hsb0)
   # Format: Plain text API key (no KEY=VALUE)
   # Edit: agenix -e secrets/hsb0-groq-api-key.age
