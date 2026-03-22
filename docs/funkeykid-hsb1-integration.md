@@ -14,16 +14,16 @@ Edit `hosts/hsb1/configuration.nix` (or wherever hsb1 is configured):
 {
   imports = [
     # ... existing imports ...
-    ../../modules/child-keyboard-fun.nix
+    ../../modules/funkeykid.nix
   ];
 
   # ... existing configuration ...
 
   # Enable child keyboard fun service
-  services.child-keyboard-fun = {
+  services.funkeykid = {
     enable = true;
     user = "childuser";  # Change to actual user on hsb1
-    configFile = "/etc/child-keyboard-fun.env";
+    configFile = "/etc/funkeykid.env";
   };
 
   # Ensure user exists (if not already configured)
@@ -60,18 +60,18 @@ sudo evtest
 # Note the /dev/input/by-id/ path for the child's keyboard
 
 # 2. Create sound directory
-sudo mkdir -p /home/childuser/child-keyboard-sounds
-sudo chown childuser:users /home/childuser/child-keyboard-sounds
+sudo mkdir -p /home/childuser/funkeykid-sounds
+sudo chown childuser:users /home/childuser/funkeykid-sounds
 
 # 3. Add sound files
 # Either copy from another machine:
-scp ~/sounds/*.wav hsb1:/home/childuser/child-keyboard-sounds/
+scp ~/sounds/*.wav hsb1:/home/childuser/funkeykid-sounds/
 # Or download directly on hsb1
 
 # 4. Create configuration
-sudo tee /etc/child-keyboard-fun.env << 'EOF'
+sudo tee /etc/funkeykid.env << 'EOF'
 KEYBOARD_DEVICE=/dev/input/by-id/YOUR-KEYBOARD-HERE-event-kbd
-SOUND_DIR=/home/childuser/child-keyboard-sounds
+SOUND_DIR=/home/childuser/funkeykid-sounds
 
 # Optional: Add MQTT for Home Assistant
 # MQTT_HOST=homeassistant.local
@@ -85,14 +85,14 @@ KEY_SPACE=random
 EOF
 
 # 5. Set permissions
-sudo chmod 600 /etc/child-keyboard-fun.env
+sudo chmod 600 /etc/funkeykid.env
 
 # 6. Start service
-sudo systemctl start child-keyboard-fun
+sudo systemctl start funkeykid
 
 # 7. Check status
-sudo systemctl status child-keyboard-fun
-sudo journalctl -u child-keyboard-fun -f
+sudo systemctl status funkeykid
+sudo journalctl -u funkeykid -f
 ```
 
 ## Flake Integration (if using flakes)
@@ -107,12 +107,12 @@ If hsb1 is configured via flakes, you might structure it like:
       system = "x86_64-linux";
       modules = [
         ./hosts/hsb1/configuration.nix
-        ./modules/child-keyboard-fun.nix
+        ./modules/funkeykid.nix
         {
-          services.child-keyboard-fun = {
+          services.funkeykid = {
             enable = true;
             user = "childuser";
-            configFile = "/etc/child-keyboard-fun.env";
+            configFile = "/etc/funkeykid.env";
           };
         }
       ];
@@ -165,13 +165,13 @@ mosquitto_sub -h localhost -u keyboard -P secure_password \
 
 ```bash
 # Service status
-systemctl status child-keyboard-fun
+systemctl status funkeykid
 
 # Recent logs
-journalctl -u child-keyboard-fun -n 50
+journalctl -u funkeykid -n 50
 
 # Follow logs live
-journalctl -u child-keyboard-fun -f
+journalctl -u funkeykid -f
 
 # Check if device is grabbed
 lsof | grep /dev/input/by-id/
@@ -207,7 +207,7 @@ sudo nixos-rebuild switch
 aplay -L
 
 # Test audio as user
-sudo -u childuser aplay /home/childuser/child-keyboard-sounds/test.wav
+sudo -u childuser aplay /home/childuser/funkeykid-sounds/test.wav
 
 # Check PulseAudio/PipeWire
 systemctl --user -M childuser@ status pipewire
@@ -264,21 +264,21 @@ Ideas for extending the system on hsb1:
 
 ```bash
 # Start/stop service
-sudo systemctl start child-keyboard-fun
-sudo systemctl stop child-keyboard-fun
-sudo systemctl restart child-keyboard-fun
+sudo systemctl start funkeykid
+sudo systemctl stop funkeykid
+sudo systemctl restart funkeykid
 
 # View logs
-sudo journalctl -u child-keyboard-fun -f
+sudo journalctl -u funkeykid -f
 
 # Edit config
-sudo nano /etc/child-keyboard-fun.env
-sudo systemctl restart child-keyboard-fun
+sudo nano /etc/funkeykid.env
+sudo systemctl restart funkeykid
 
 # Test manually
-sudo systemctl stop child-keyboard-fun
-sudo -u childuser /run/current-system/sw/bin/child-keyboard-fun \
-  /etc/child-keyboard-fun.env
+sudo systemctl stop funkeykid
+sudo -u childuser /run/current-system/sw/bin/funkeykid \
+  /etc/funkeykid.env
 
 # Rebuild NixOS
 sudo nixos-rebuild switch

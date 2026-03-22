@@ -25,14 +25,14 @@ Edit your `/etc/nixos/configuration.nix` or host-specific config:
 {
   # Import the module
   imports = [
-    ./modules/child-keyboard-fun.nix
+    ./modules/funkeykid.nix
   ];
 
   # Enable and configure the service
-  services.child-keyboard-fun = {
+  services.funkeykid = {
     enable = true;
     user = "childuser";  # Change to your user
-    configFile = "/etc/child-keyboard-fun.env";
+    configFile = "/etc/funkeykid.env";
   };
 
   # The module automatically adds the user to required groups (input, audio)
@@ -70,8 +70,8 @@ Look for your keyboard and note its `/dev/input/by-id/...` path. For example:
 Create a directory for sound files:
 
 ```bash
-sudo mkdir -p /home/childuser/child-keyboard-sounds
-sudo chown childuser:users /home/childuser/child-keyboard-sounds
+sudo mkdir -p /home/childuser/funkeykid-sounds
+sudo chown childuser:users /home/childuser/funkeykid-sounds
 ```
 
 Add WAV files to this directory. You can:
@@ -91,7 +91,7 @@ Example sounds to look for:
 ```bash
 # Example: Copy some system sounds
 cp /run/current-system/sw/share/sounds/freedesktop/stereo/*.wav \
-   /home/childuser/child-keyboard-sounds/
+   /home/childuser/funkeykid-sounds/
 ```
 
 ### 4. Configure the Service
@@ -100,24 +100,24 @@ Copy and edit the configuration file:
 
 ```bash
 # Copy example config
-sudo cp examples/child-keyboard-fun.env /etc/child-keyboard-fun.env
+sudo cp examples/funkeykid.env /etc/funkeykid.env
 
 # Edit configuration
-sudo nano /etc/child-keyboard-fun.env
+sudo nano /etc/funkeykid.env
 ```
 
 **Minimal configuration:**
 
 ```env
 KEYBOARD_DEVICE=/dev/input/by-id/usb-Your_Keyboard_Here-event-kbd
-SOUND_DIR=/home/childuser/child-keyboard-sounds
+SOUND_DIR=/home/childuser/funkeykid-sounds
 ```
 
 **With Home Assistant MQTT:**
 
 ```env
 KEYBOARD_DEVICE=/dev/input/by-id/usb-Your_Keyboard_Here-event-kbd
-SOUND_DIR=/home/childuser/child-keyboard-sounds
+SOUND_DIR=/home/childuser/funkeykid-sounds
 
 # MQTT settings
 MQTT_HOST=192.168.1.100
@@ -137,10 +137,10 @@ KEY_F2=mqtt:homeassistant/scene/goodnight:ON
 sudo nixos-rebuild switch
 
 # Check service status
-sudo systemctl status child-keyboard-fun
+sudo systemctl status funkeykid
 
 # View logs
-sudo journalctl -u child-keyboard-fun -f
+sudo journalctl -u funkeykid -f
 ```
 
 ## Configuration Examples
@@ -234,7 +234,7 @@ sudo nixos-rebuild switch
 
 ```bash
 # Test aplay directly
-aplay /home/childuser/child-keyboard-sounds/some_sound.wav
+aplay /home/childuser/funkeykid-sounds/some_sound.wav
 
 # Check ALSA devices
 aplay -L
@@ -243,7 +243,7 @@ aplay -L
 groups childuser | grep audio
 
 # Test as the user
-sudo -u childuser aplay /home/childuser/child-keyboard-sounds/test.wav
+sudo -u childuser aplay /home/childuser/funkeykid-sounds/test.wav
 ```
 
 ### MQTT Not Connecting
@@ -257,14 +257,14 @@ mosquitto_pub -h homeassistant.local -u keyboard -P password \
 # In Home Assistant: Settings > System > Logs
 
 # View service logs
-sudo journalctl -u child-keyboard-fun -n 100
+sudo journalctl -u funkeykid -n 100
 ```
 
 ### Service Keeps Restarting
 
 ```bash
 # Check detailed logs
-sudo journalctl -u child-keyboard-fun -xe
+sudo journalctl -u funkeykid -xe
 
 # Common issues:
 # - Wrong device path in config
@@ -288,11 +288,11 @@ Stop the service and test the script directly:
 
 ```bash
 # Stop service
-sudo systemctl stop child-keyboard-fun
+sudo systemctl stop funkeykid
 
 # Run script manually (as user)
-sudo -u childuser /run/current-system/sw/bin/child-keyboard-fun \
-  /etc/child-keyboard-fun.env
+sudo -u childuser /run/current-system/sw/bin/funkeykid \
+  /etc/funkeykid.env
 
 # Press keys on the child's keyboard
 # Ctrl+C to stop
@@ -314,8 +314,8 @@ mosquitto_sub -h homeassistant.local -u keyboard -P password \
 
 ```bash
 # Add new sounds
-sudo cp new_sounds/*.wav /home/childuser/child-keyboard-sounds/
-sudo chown childuser:users /home/childuser/child-keyboard-sounds/*.wav
+sudo cp new_sounds/*.wav /home/childuser/funkeykid-sounds/
+sudo chown childuser:users /home/childuser/funkeykid-sounds/*.wav
 
 # No service restart needed - sounds are loaded on each keypress
 ```
@@ -324,22 +324,22 @@ sudo chown childuser:users /home/childuser/child-keyboard-sounds/*.wav
 
 ```bash
 # Edit config
-sudo nano /etc/child-keyboard-fun.env
+sudo nano /etc/funkeykid.env
 
 # Restart service to apply changes
-sudo systemctl restart child-keyboard-fun
+sudo systemctl restart funkeykid
 ```
 
 ### Disable Temporarily
 
 ```bash
 # Stop service
-sudo systemctl stop child-keyboard-fun
+sudo systemctl stop funkeykid
 
 # Keyboard will work normally again
 
 # Re-enable
-sudo systemctl start child-keyboard-fun
+sudo systemctl start funkeykid
 ```
 
 ## Advanced Usage
@@ -349,22 +349,22 @@ sudo systemctl start child-keyboard-fun
 To support multiple child keyboards, create separate service instances:
 
 ```nix
-services.child-keyboard-fun-kid1 = {
+services.funkeykid-kid1 = {
   enable = true;
   user = "kid1";
-  configFile = "/etc/child-keyboard-fun-kid1.env";
+  configFile = "/etc/funkeykid-kid1.env";
 };
 
-services.child-keyboard-fun-kid2 = {
+services.funkeykid-kid2 = {
   enable = true;
   user = "kid2";
-  configFile = "/etc/child-keyboard-fun-kid2.env";
+  configFile = "/etc/funkeykid-kid2.env";
 };
 ```
 
 ### Custom Sound Selection Logic
 
-Edit the Python script in `modules/child-keyboard-fun.nix` to implement custom sound selection, like:
+Edit the Python script in `modules/funkeykid.nix` to implement custom sound selection, like:
 
 - Sequential playback instead of random
 - Time-based sounds (different sounds morning vs evening)

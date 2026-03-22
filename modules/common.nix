@@ -123,9 +123,10 @@ in
     initialHashedPassword = mkDefault null;
   });
 
-  # Fix: child-keyboard-fun.service is ordered after 'network-online.target' but doesn't depend on it
+  # Fix: funkeykid.service is ordered after 'network-online.target' but doesn't depend on it
   # Consolidated in P5012
-  systemd.services.child-keyboard-fun.wants = [ "network-online.target" ];
+  # TODO: Move this into modules/funkeykid.nix — it shouldn't be in common.nix
+  systemd.services.funkeykid.wants = [ "network-online.target" ];
 
   # Set your time zone.
   time.timeZone = "Europe/Vienna";

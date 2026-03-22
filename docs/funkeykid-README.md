@@ -1,6 +1,8 @@
-# Child's Keyboard Fun 🎮🎵
+# funkeykid
 
-A NixOS service that turns a dedicated child's keyboard into an interactive, fun learning tool with sounds and smart home integration.
+Educational keyboard toy for children. NixOS service that turns a dedicated Bluetooth keyboard into a learning tool with language-aware sounds, Pixoo display integration, and TTS.
+
+> Renamed from funkeykid. App repo: https://github.com/markus-barta/funkeykid
 
 ## What It Does
 
@@ -24,12 +26,12 @@ A NixOS service that turns a dedicated child's keyboard into an interactive, fun
 
 ```
 nixcfg/
-├── modules/child-keyboard-fun.nix        # Main NixOS module
-├── examples/child-keyboard-fun.env       # Example configuration
+├── modules/funkeykid.nix        # Main NixOS module
+├── examples/funkeykid.env       # Example configuration
 ├── docs/
-│   ├── child-keyboard-fun-setup.md       # Complete setup guide
-│   └── child-keyboard-fun-hsb1-integration.md  # hsb1-specific guide
-└── BACKLOG-child-keyboard-fun.md         # Detailed requirements
+│   ├── funkeykid-setup.md       # Complete setup guide
+│   └── funkeykid-hsb1-integration.md  # hsb1-specific guide
+└── BACKLOG-funkeykid.md         # Detailed requirements
 ```
 
 ### 2. Basic Setup (3 Steps)
@@ -38,12 +40,12 @@ nixcfg/
 
 ```nix
 {
-  imports = [ ./modules/child-keyboard-fun.nix ];
+  imports = [ ./modules/funkeykid.nix ];
 
-  services.child-keyboard-fun = {
+  services.funkeykid = {
     enable = true;
     user = "childuser";
-    configFile = "/etc/child-keyboard-fun.env";
+    configFile = "/etc/funkeykid.env";
   };
 }
 ```
@@ -58,14 +60,14 @@ sudo evtest  # Find your keyboard's /dev/input/by-id/ path
 
 ```bash
 # Create config
-sudo tee /etc/child-keyboard-fun.env << 'EOF'
+sudo tee /etc/funkeykid.env << 'EOF'
 KEYBOARD_DEVICE=/dev/input/by-id/YOUR-KEYBOARD-event-kbd
-SOUND_DIR=/home/childuser/child-keyboard-sounds
+SOUND_DIR=/home/childuser/funkeykid-sounds
 KEY_SPACE=random
 EOF
 
 # Add sound files
-sudo mkdir -p /home/childuser/child-keyboard-sounds
+sudo mkdir -p /home/childuser/funkeykid-sounds
 # Copy .wav files here
 
 # Apply
@@ -76,7 +78,7 @@ sudo nixos-rebuild switch
 
 ```bash
 # Check service
-sudo systemctl status child-keyboard-fun
+sudo systemctl status funkeykid
 
 # Test keyboard - press keys, hear sounds!
 # Keys should NOT type into console
@@ -178,21 +180,21 @@ KEY_F3=random,mqtt:homeassistant/scene/bedtime:ON
 
 ## Documentation
 
-- **[Setup Guide](./child-keyboard-fun-setup.md)**: Complete installation and configuration
-- **[hsb1 Integration](./child-keyboard-fun-hsb1-integration.md)**: Host-specific deployment guide
-- **[Backlog Item](../BACKLOG-child-keyboard-fun.md)**: Detailed requirements and user stories
+- **[Setup Guide](./funkeykid-setup.md)**: Complete installation and configuration
+- **[hsb1 Integration](./funkeykid-hsb1-integration.md)**: Host-specific deployment guide
+- **[Backlog Item](../BACKLOG-funkeykid.md)**: Detailed requirements and user stories
 
 ## Troubleshooting
 
-| Problem             | Solution                                           |
-| ------------------- | -------------------------------------------------- |
-| Device not found    | Check path with `sudo evtest`                      |
-| Permission denied   | Ensure user in `input` group                       |
-| No sound            | Test with `aplay`, check `audio` group             |
-| MQTT not working    | Verify credentials, check Home Assistant logs      |
-| Service won't start | Check logs: `journalctl -u child-keyboard-fun -xe` |
+| Problem             | Solution                                      |
+| ------------------- | --------------------------------------------- |
+| Device not found    | Check path with `sudo evtest`                 |
+| Permission denied   | Ensure user in `input` group                  |
+| No sound            | Test with `aplay`, check `audio` group        |
+| MQTT not working    | Verify credentials, check Home Assistant logs |
+| Service won't start | Check logs: `journalctl -u funkeykid -xe`     |
 
-See [Setup Guide](./child-keyboard-fun-setup.md) for detailed troubleshooting.
+See [Setup Guide](./funkeykid-setup.md) for detailed troubleshooting.
 
 ## Dependencies
 
@@ -238,21 +240,21 @@ Ideas for enhancement:
 
 For issues or questions:
 
-1. Check the [Setup Guide](./child-keyboard-fun-setup.md)
-2. Review logs: `sudo journalctl -u child-keyboard-fun -f`
+1. Check the [Setup Guide](./funkeykid-setup.md)
+2. Review logs: `sudo journalctl -u funkeykid -f`
 3. Test manually: `sudo -u user /path/to/script /path/to/config`
 
 ## Quick Reference
 
 ```bash
 # Service control
-sudo systemctl start|stop|restart|status child-keyboard-fun
+sudo systemctl start|stop|restart|status funkeykid
 
 # View logs
-sudo journalctl -u child-keyboard-fun -f
+sudo journalctl -u funkeykid -f
 
 # Edit config
-sudo nano /etc/child-keyboard-fun.env
+sudo nano /etc/funkeykid.env
 
 # Find keyboard
 sudo evtest

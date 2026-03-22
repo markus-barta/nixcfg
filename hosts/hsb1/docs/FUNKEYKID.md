@@ -1,8 +1,8 @@
-# Child Keyboard Fun System - Technical Specification
+# funkeykid System - Technical Specification
 
 **Host**: hsb1  
 **Hardware**: ACME BK03 Bluetooth Keyboard  
-**Service**: `child-keyboard-fun.service`  
+**Service**: `funkeykid.service`  
 **Status**: 🟢 Ready (All features implemented, needs audio verification)  
 **Last Updated**: 2026-01-02
 
@@ -16,7 +16,7 @@ A dedicated Bluetooth keyboard for children that plays fun cartoon sounds when k
 
 - **Auto-healing**: Keyboard reconnects automatically via `acme-bk03-reconnect.service`, service auto-restarts
 - **Zero-maintenance**: Works reliably without debugging, survives reboots automatically
-- **Easy configuration**: Change key mappings in `/etc/child-keyboard-fun.env` without rebuilding
+- **Easy configuration**: Change key mappings in `/etc/funkeykid.env` without rebuilding
 - **Non-intrusive**: Runs alongside baby cam (VLC) without audio conflicts
 - **Isolated & Safe**: ACME BK03 keys only play sounds, don't type into system. Other keyboards work normally.
 - **Power-Safe**: Power/suspend/hibernate keys blocked via `services.logind.settings.Login`
@@ -81,7 +81,7 @@ The service finds the ACME BK03 by its device name and opens it exclusively. Eve
 
 ```bash
 # ACME BK03 Bluetooth keyboard (found by name "ACME BK03")
-/dev/input/event10 (or event17, etc.) → child-keyboard-fun service → sounds only
+/dev/input/event10 (or event17, etc.) → funkeykid service → sounds only
 # Path is auto-detected - no hardcoded paths!
 
 # USB keyboard (or other input devices)
@@ -122,10 +122,10 @@ The service finds the ACME BK03 by its device name and opens it exclusively. Eve
 │                                       │ evdev               │
 │                                       ▼                     │
 │  ┌────────────────────────────────────────────────┐         │
-│  │ child-keyboard-fun.service                     │         │
+│  │ funkeykid.service                     │         │
 │  │ - User: kiosk (direct PipeWire access)         │         │
 │  │ - Python script with evdev                     │         │
-│  │ - Reads /etc/child-keyboard-fun.env            │         │
+│  │ - Reads /etc/funkeykid.env            │         │
 │  │ - Maps keys → sound files                      │         │
 │  │ - MQTT debug/status topics                     │         │
 │  └────────────────┬───────────────────────────────┘         │
@@ -146,30 +146,30 @@ The service finds the ACME BK03 by its device name and opens it exclusively. Eve
 
 ### File Locations
 
-| Path                                     | Purpose                    | Managed By                        |
-| ---------------------------------------- | -------------------------- | --------------------------------- |
-| `/etc/child-keyboard-fun.env`            | Key mappings & config      | Manual (editable without rebuild) |
-| `/var/lib/child-keyboard-sounds/`        | MP3/WAV sound files        | Manual (rsync/scp)                |
-| `modules/child-keyboard-fun.nix`         | NixOS module               | Git (requires rebuild)            |
-| `hosts/hsb1/configuration.nix`           | Service enablement         | Git (requires rebuild)            |
-| `hosts/hsb1/files/child-keyboard-fun.py` | Python script (standalone) | Git (requires rebuild)            |
+| Path                            | Purpose                    | Managed By                        |
+| ------------------------------- | -------------------------- | --------------------------------- |
+| `/etc/funkeykid.env`            | Key mappings & config      | Manual (editable without rebuild) |
+| `/var/lib/funkeykid-sounds/`    | MP3/WAV sound files        | Manual (rsync/scp)                |
+| `modules/funkeykid.nix`         | NixOS module               | Git (requires rebuild)            |
+| `hosts/hsb1/configuration.nix`  | Service enablement         | Git (requires rebuild)            |
+| `hosts/hsb1/files/funkeykid.py` | Python script (standalone) | Git (requires rebuild)            |
 
 ---
 
 ## Configuration
 
-### Main Config: `/etc/child-keyboard-fun.env`
+### Main Config: `/etc/funkeykid.env`
 
-**Location**: `/etc/child-keyboard-fun.env`  
+**Location**: `/etc/funkeykid.env`  
 **Format**: Simple `KEY=value` pairs  
-**Reload**: `sudo systemctl restart child-keyboard-fun`
+**Reload**: `sudo systemctl restart funkeykid`
 
 ```bash
 # Device name (found automatically by name)
 KEYBOARD_DEVICE=ACME BK03
 
 # Sound directory (MP3 or WAV files)
-SOUND_DIR=/var/lib/child-keyboard-sounds
+SOUND_DIR=/var/lib/funkeykid-sounds
 
 # Per-key sound mappings
 # Format: KEY_<name>=sound:<filename>
@@ -198,16 +198,16 @@ KEY_2=random
 ssh mba@hsb1.lan
 
 # Edit config (no NixOS rebuild needed!)
-sudo nano /etc/child-keyboard-fun.env
+sudo nano /etc/funkeykid.env
 
 # Restart service to apply changes
-sudo systemctl restart child-keyboard-fun
+sudo systemctl restart funkeykid
 
 # Verify service is running
-sudo systemctl status child-keyboard-fun
+sudo systemctl status funkeykid
 ```
 
-### Sound Files: `/var/lib/child-keyboard-sounds/`
+### Sound Files: `/var/lib/funkeykid-sounds/`
 
 **Current Library**: 28 Warner Bros cartoon sound effects (MP3)  
 **Supported Formats**: MP3, WAV  
@@ -217,15 +217,15 @@ sudo systemctl status child-keyboard-fun
 
 ```bash
 # From local machine, copy sounds to hsb1
-rsync -avz ~/my-sounds/*.mp3 mba@hsb1.lan:/var/lib/child-keyboard-sounds/
+rsync -avz ~/my-sounds/*.mp3 mba@hsb1.lan:/var/lib/funkeykid-sounds/
 
 # Or SSH and download
 ssh mba@hsb1.lan
-cd /var/lib/child-keyboard-sounds
+cd /var/lib/funkeykid-sounds
 wget https://example.com/sound.mp3
 
 # Restart service to pick up new files
-sudo systemctl restart child-keyboard-fun
+sudo systemctl restart funkeykid
 ```
 
 ---
@@ -309,11 +309,11 @@ services.logind.settings.Login = {
 
 ```bash
 # Check restart counter
-sudo systemctl status child-keyboard-fun
+sudo systemctl status funkeykid
 # Shows: "restart counter is at N"
 
 # View crash logs
-sudo journalctl -u child-keyboard-fun -n 50
+sudo journalctl -u funkeykid -n 50
 ```
 
 ---
@@ -335,7 +335,7 @@ sudo journalctl -u child-keyboard-fun -n 50
 # After reboot, check:
 
 # 1. Service started automatically
-sudo systemctl status child-keyboard-fun
+sudo systemctl status funkeykid
 # Should show: "Active: active (running)"
 
 # 2. Reconnect service ran
@@ -355,11 +355,11 @@ cat /proc/bus/input/devices | grep -A 5 "ACME BK03"
 # Should show device with Handlers including eventX
 
 # 6. Sound files present
-ls /var/lib/child-keyboard-sounds/ | wc -l
+ls /var/lib/funkeykid-sounds/ | wc -l
 # Should show: 28 (or your sound count)
 
 # 7. Config uses device name
-cat /etc/child-keyboard-fun.env | grep KEYBOARD_DEVICE
+cat /etc/funkeykid.env | grep KEYBOARD_DEVICE
 # Should show: KEYBOARD_DEVICE=ACME BK03
 ```
 
@@ -387,10 +387,10 @@ bluetoothctl info 20:73:00:04:21:4F | grep Connected
 
 ```bash
 # Check service status
-sudo systemctl status child-keyboard-fun
+sudo systemctl status funkeykid
 
 # View recent logs
-sudo journalctl -u child-keyboard-fun -n 50 --no-pager
+sudo journalctl -u funkeykid -n 50 --no-pager
 
 # Common issues:
 # - "Device 'ACME BK03' not found"
@@ -405,15 +405,15 @@ sudo journalctl -u child-keyboard-fun -n 50 --no-pager
 
 ```bash
 # 1. Verify service is running and detecting keys
-sudo journalctl -u child-keyboard-fun -f
+sudo journalctl -u funkeykid -f
 # Press keys, should see: "DEBUG: Key name = X" and "DEBUG: Playing specific sound"
 
 # 2. Check if paplay subprocess starts
-sudo journalctl -u child-keyboard-fun -n 20 | grep paplay
+sudo journalctl -u funkeykid -n 20 | grep paplay
 # Should show: "DEBUG: Subprocess started, PID=..."
 
 # 3. Test audio manually (as kiosk user)
-sudo -u kiosk paplay /var/lib/child-keyboard-sounds/ad10.mp3
+sudo -u kiosk paplay /var/lib/funkeykid-sounds/ad10.mp3
 # Should hear sound
 
 # 4. Check PipeWire status
@@ -425,7 +425,7 @@ sudo -u kiosk pactl list sinks | grep -i mute
 # Should show: "Mute: no"
 
 # 6. Check service user
-sudo systemctl show child-keyboard-fun --property=User
+sudo systemctl show funkeykid --property=User
 # Should show: User=kiosk
 ```
 
@@ -487,10 +487,10 @@ bluetoothctl connect 20:73:00:04:21:4F
 ssh mba@hsb1.lan
 
 # 2. Edit config (no rebuild needed!)
-sudo nano /etc/child-keyboard-fun.env
+sudo nano /etc/funkeykid.env
 
 # 3. Restart service
-sudo systemctl restart child-keyboard-fun
+sudo systemctl restart funkeykid
 
 # 4. Test immediately
 # Press keys on keyboard, sounds should reflect new mappings
@@ -500,15 +500,15 @@ sudo systemctl restart child-keyboard-fun
 
 ```bash
 # 1. Copy sound files to hsb1
-rsync -avz ~/new-sounds/*.mp3 mba@hsb1.lan:/var/lib/child-keyboard-sounds/
+rsync -avz ~/new-sounds/*.mp3 mba@hsb1.lan:/var/lib/funkeykid-sounds/
 
 # 2. Update key mappings (if needed)
 ssh mba@hsb1.lan
-sudo nano /etc/child-keyboard-fun.env
+sudo nano /etc/funkeykid.env
 # Add: KEY_X=sound:new-sound.mp3
 
 # 3. Restart service
-sudo systemctl restart child-keyboard-fun
+sudo systemctl restart funkeykid
 ```
 
 ### Updating Module Code
@@ -517,10 +517,10 @@ sudo systemctl restart child-keyboard-fun
 
 ```bash
 # 1. Edit module locally
-vim modules/child-keyboard-fun.nix
+vim modules/funkeykid.nix
 
 # 2. Commit changes
-git add modules/child-keyboard-fun.nix
+git add modules/funkeykid.nix
 git commit -m "fix: improve keyboard reconnection logic"
 git push
 
@@ -584,9 +584,9 @@ sudo nixos-rebuild switch --flake .#hsb1
 
 **MQTT Topics:**
 
-- `home/hsb1/keyboard-fun/debug` - Debug logs (non-retained)
-- `home/hsb1/keyboard-fun/status` - Last key, battery, sound (retained)
-- `home/hsb1/keyboard-fun/keyboard-info` - Device info, battery (retained, 60s updates)
+- `home/hsb1/funkeykid/debug` - Debug logs (non-retained)
+- `home/hsb1/funkeykid/status` - Last key, battery, sound (retained)
+- `home/hsb1/funkeykid/keyboard-info` - Device info, battery (retained, 60s updates)
 
 ---
 
@@ -595,7 +595,7 @@ sudo nixos-rebuild switch --flake .#hsb1
 - **Service runs as `kiosk` user** (direct PipeWire access, no sudo needed)
 - **Supplementary groups**: `input` (for keyboard), `audio` (for sound)
 - **EnvironmentFile**: `/home/mba/secrets/smarthome.env` for MQTT credentials
-- **Sound files**: World-readable in `/var/lib/child-keyboard-sounds/`
+- **Sound files**: World-readable in `/var/lib/funkeykid-sounds/`
 - **Config file**: Root-owned, world-readable
 - **udev rules**: Block system access to ACME BK03
 - **logind settings**: Block power/suspend/hibernate keys
@@ -648,10 +648,10 @@ sudo nixos-rebuild switch --flake .#hsb1
 ## Related Documentation
 
 - **RUNBOOK.md**: Bluetooth pairing commands, operational procedures
-- **P8000-child-keyboard-fun-acme-bk03.md**: Original requirements & design
-- **P8001-child-keyboard-fun-audio-fix.md**: Audio debugging (in progress)
-- **modules/child-keyboard-fun.nix**: NixOS module source code
-- **examples/child-keyboard-fun.env**: Example configuration file
+- **P8000-funkeykid-acme-bk03.md**: Original requirements & design
+- **P8001-funkeykid-audio-fix.md**: Audio debugging (in progress)
+- **modules/funkeykid.nix**: NixOS module source code
+- **examples/funkeykid.env**: Example configuration file
 
 ---
 
@@ -673,11 +673,11 @@ sudo nixos-rebuild switch --flake .#hsb1
 
 **For issues**:
 
-1. Check service logs: `sudo journalctl -u child-keyboard-fun -n 50`
+1. Check service logs: `sudo journalctl -u funkeykid -n 50`
 2. Verify Bluetooth connection: `bluetoothctl info 20:73:00:04:21:4F`
-3. Test audio manually: `sudo -u kiosk paplay /var/lib/child-keyboard-sounds/ad10.mp3`
-4. Restart service: `sudo systemctl restart child-keyboard-fun`
-5. Check MQTT: `docker exec mosquitto mosquitto_sub -v -t 'home/hsb1/keyboard-fun/#' -u smarthome -P <password>`
+3. Test audio manually: `sudo -u kiosk paplay /var/lib/funkeykid-sounds/ad10.mp3`
+4. Restart service: `sudo systemctl restart funkeykid`
+5. Check MQTT: `docker exec mosquitto mosquitto_sub -v -t 'home/hsb1/funkeykid/#' -u smarthome -P <password>`
 6. If all else fails: Reboot hsb1
 
 ---

@@ -8,10 +8,11 @@
 with lib;
 
 let
-  cfg = config.services.child-keyboard-fun;
+  cfg = config.services.funkeykid;
 
-  # Python script wrapper that sets up environment and runs the actual script
-  keyboardFunWrapper = pkgs.writeShellScript "child-keyboard-fun-wrapper" ''
+  # Python script wrapper — runs funkeykid with all dependencies
+  # TODO: Replace with flake input package once funkeykid repo has a working flake
+  funkeykidWrapper = pkgs.writeShellScript "funkeykid-wrapper" ''
     export PATH=${
       lib.makeBinPath [
         pkgs.python3
@@ -25,8 +26,8 @@ let
 
 in
 {
-  options.services.child-keyboard-fun = {
-    enable = mkEnableOption "Child's Bluetooth Keyboard Fun System";
+  options.services.funkeykid = {
+    enable = mkEnableOption "funkeykid — Educational keyboard toy for children";
 
     user = mkOption {
       type = types.str;
@@ -36,20 +37,21 @@ in
 
     scriptPath = mkOption {
       type = types.path;
-      default = ../hosts/hsb1/files/child-keyboard-fun.py;
+      # TODO: Replace with package from flake input
+      default = ../hosts/hsb1/files/funkeykid.py;
       description = "Path to the Python script";
     };
 
     configFile = mkOption {
       type = types.path;
-      default = ../hosts/hsb1/files/child-keyboard-fun.env;
+      default = ../hosts/hsb1/files/funkeykid.env;
       description = "Path to the .env configuration file";
     };
   };
 
   config = mkIf cfg.enable {
     # Copy config file to /etc
-    environment.etc."child-keyboard-fun.env".source = cfg.configFile;
+    environment.etc."funkeykid.env".source = cfg.configFile;
 
     # Ensure user is in input group
     users.users.${cfg.user}.extraGroups = [
@@ -61,7 +63,7 @@ in
     # This allows our service to have exclusive access without bluetooth issues
     # CRITICAL: Prevents power/suspend keys from shutting down the system
     services.udev.extraRules = ''
-      # ACME BK03 Bluetooth Keyboard - for child-keyboard-fun only
+      # ACME BK03 Bluetooth Keyboard - for funkeykid only
       # Remove all input/keyboard identification to prevent system from processing events
       SUBSYSTEM=="input", ATTRS{name}=="ACME BK03", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{KEYBOARD_KEY_*}="reserved", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
     '';
@@ -96,8 +98,8 @@ in
     };
 
     # systemd service
-    systemd.services.child-keyboard-fun = {
-      description = "Child's Bluetooth Keyboard Fun System";
+    systemd.services.funkeykid = {
+      description = "funkeykid — Educational keyboard toy";
       wantedBy = [ "multi-user.target" ];
       after = [
         "bluetooth.target"
@@ -108,6 +110,7 @@ in
       ];
       wants = [
         "bluetooth.target"
+        "network-online.target"
         "acme-bk03-reconnect.service"
       ];
       # Wait a bit for Bluetooth devices to settle after boot
@@ -122,7 +125,7 @@ in
           "input"
           "audio"
         ]; # Need input for keyboard, audio for sound
-        ExecStart = "${keyboardFunWrapper}";
+        ExecStart = "${funkeykidWrapper}";
 
         # Auto-healing: restart on any failure
         Restart = "always";
@@ -131,7 +134,7 @@ in
 
         # Environment
         Environment = [
-          "KEYBOARD_FUN_CONFIG=/etc/child-keyboard-fun.env"
+          "FUNKEYKID_CONFIG=/etc/funkeykid.env"
           "XDG_RUNTIME_DIR=/run/user/1001" # kiosk user's runtime dir
         ];
         EnvironmentFile = "/home/mba/secrets/smarthome.env";

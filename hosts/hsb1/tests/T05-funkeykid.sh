@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                  T05 - Child Keyboard Fun Automated Tests                     ║
+# ║                  T05 - funkeykid Automated Tests                              ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
 # Host: hsb1
-# Feature: child-keyboard-fun service & bluetooth
+# Feature: funkeykid service & bluetooth
 #
-# Usage: ./T05-child-keyboard.sh
+# Usage: ./T05-funkeykid.sh
 #
 
 set -euo pipefail
@@ -83,7 +83,7 @@ check_directory_exists() {
 # Test Suite
 # ════════════════════════════════════════════════════════════════════════════════
 
-print_header "T05 - Child Keyboard Fun Tests (hsb1)"
+print_header "T05 - funkeykid Tests (hsb1)"
 
 echo "Host: $(hostname)"
 echo "Date: $(date)"
@@ -93,7 +93,7 @@ echo "Date: $(date)"
 # ────────────────────────────────────────────────────────────────────────────────
 
 print_test "T05.1 - Systemd Service"
-check_service_active "child-keyboard-fun.service"
+check_service_active "funkeykid.service"
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T05.2 - Python Script & Config
@@ -101,15 +101,15 @@ check_service_active "child-keyboard-fun.service"
 
 print_test "T05.2 - Application Files"
 # Note: These paths are from configuration.nix
-check_file_exists "/home/mba/Code/nixcfg/hosts/hsb1/files/child-keyboard-fun.py"
-check_file_exists "/home/mba/Code/nixcfg/hosts/hsb1/files/child-keyboard-fun.env"
+check_file_exists "/home/mba/Code/nixcfg/hosts/hsb1/files/funkeykid.py"
+check_file_exists "/home/mba/Code/nixcfg/hosts/hsb1/files/funkeykid.env"
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T05.3 - Sound Assets
 # ────────────────────────────────────────────────────────────────────────────────
 
 print_test "T05.3 - Sound Assets"
-check_directory_exists "/var/lib/child-keyboard-sounds/"
+check_directory_exists "/var/lib/funkeykid-sounds/"
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T05.4 - Bluetooth Support
