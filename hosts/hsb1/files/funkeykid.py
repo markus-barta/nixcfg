@@ -26,6 +26,7 @@ active_processes = []  # Track running audio processes
 DEBOUNCE_SECONDS = 1.0  # 1 second debounce
 mqtt_client = None  # MQTT client for debug logging
 last_key_pressed = None  # Track last key for status updates
+current_volume = 100  # Volume percentage (0-100), paplay maps to 0-65536
 
 
 def get_battery_level(device):
@@ -180,9 +181,11 @@ def play_sound(sound_file, device=None):
 
     print(f"DEBUG: Starting paplay subprocess", flush=True)
     # Run paplay directly (service runs as kiosk user with XDG_RUNTIME_DIR set)
+    global current_volume
+    pa_vol = int(current_volume / 100 * 65536)
     proc = subprocess.Popen([
         'paplay',
-        '--volume=65536',  # 100% volume
+        f'--volume={pa_vol}',
         str(sound_file)
     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -225,6 +228,30 @@ def mqtt_publish_display(letter):
             )
         except Exception as e:
             print(f"MQTT display error: {e}", flush=True)
+
+
+def change_volume(delta):
+    """Change volume by delta percent, show on Pixoo."""
+    global current_volume
+    current_volume = max(0, min(100, current_volume + delta))
+    mqtt_log(f"Volume: {current_volume}%")
+    print(f"Volume: {current_volume}%", flush=True)
+    # Show volume on Pixoo display
+    global mqtt_client
+    if mqtt_client and mqtt_client.is_connected():
+        try:
+            payload = json.dumps({
+                "letter": f"{current_volume}%",
+                "word": "lautstaerke",
+                "color": "#FFCC00" if current_volume > 0 else "#FF0000",
+                "timestamp": time.time()
+            })
+            mqtt_client.publish(
+                "home/hsb1/funkeykid/display",
+                payload, qos=0
+            )
+        except Exception:
+            pass
 
 
 def toggle_babycam():
@@ -405,6 +432,14 @@ def main():
                         if key_name == 'SPACE':
                             mqtt_log("SPACE pressed - stopping all sounds")
                             stop_all_sounds()
+                            continue
+
+                        # Volume control: +/- keys
+                        if key_name in ('EQUAL', 'KPPLUS'):
+                            change_volume(10)
+                            continue
+                        if key_name in ('MINUS', 'KPMINUS'):
+                            change_volume(-10)
                             continue
 
                         # Check debounce
