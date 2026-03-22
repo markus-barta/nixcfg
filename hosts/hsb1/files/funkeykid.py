@@ -182,7 +182,7 @@ def play_sound(sound_file, device=None):
     # Run paplay directly (service runs as kiosk user with XDG_RUNTIME_DIR set)
     proc = subprocess.Popen([
         'paplay',
-        '--volume=45875',  # ~70% volume
+        '--volume=65536',  # 100% volume
         str(sound_file)
     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
