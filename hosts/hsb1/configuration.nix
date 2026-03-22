@@ -56,19 +56,24 @@
   # Enable bluetooth
   hardware.bluetooth.enable = true;
 
-  # Prevent keyboard from triggering power events (power button, suspend, etc.)
-  # This is critical for funkeykid to prevent accidental shutdowns
-  services.logind.settings.Login = {
-    HandlePowerKey = "ignore";
-    HandleSuspendKey = "ignore";
-    HandleHibernateKey = "ignore";
-    HandleLidSwitch = "ignore";
+  # ── funkeykid (educational keyboard toy) ─────────────────────────────
+  # Architecture:
+  #   - Docker container (ghcr.io/markus-barta/funkeykid) handles:
+  #     → evdev keyboard listener (ACME BK03 via /dev/input, privileged)
+  #     → sound playback (paplay via PipeWire)
+  #     → MQTT publish to pidicon-light for Pixoo display
+  #     → web UI at http://hsb1.lan:8081 (config, test mode, file mgmt)
+  #   - NixOS provides hardware-level isolation (always active):
+  #     → udev rules: strip ACME BK03 from logind/X11 (no host keypresses)
+  #     → logind: ignore power/suspend keys (child safety)
+  #     → BT reconnect: auto-connect keyboard on boot
+  #   - Docker compose: ~/docker/docker-compose.yml (funkeykid service)
+  #   - Data: ~/docker/mounts/funkeykid/{settings.json,sounds/,images/}
+  services.funkeykid = {
+    enable = false; # systemd service off — Docker container runs instead
+    hardwareIsolation = true; # udev + logind isolation (MUST stay on)
+    bluetoothReconnect = true; # auto-connect ACME BK03 on boot
   };
-
-  # funkeykid — now runs as Docker container (ghcr.io/markus-barta/funkeykid)
-  # Web UI: http://hsb1.lan:8081
-  # NixOS service disabled — Docker handles keyboard listener + web UI
-  services.funkeykid.enable = false;
 
   # ZFS configuration
   services.zfs.autoScrub.enable = true;
