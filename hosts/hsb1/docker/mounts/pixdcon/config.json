@@ -4,18 +4,89 @@
       "name": "ulanzi-56",
       "type": "ulanzi",
       "ip": "192.168.1.56",
-      "scenes": ["clock_with_homestats"]
+      "scenes": ["clock_with_homestats"],
+      "minFrameMs": 500,
+      "displayName": "Ulanzi Badezimmer",
+      "comment": "TC001 awtrix_58197c",
+      "preview": { "showGrid": true, "pollMs": 1000 },
+      "sceneSettings": {
+        "clock_with_homestats": {
+          "day_start_hour": 7,
+          "night_start_hour": 19,
+          "bri_day": 30,
+          "bri_night": 8,
+          "show_seconds": true,
+          "sonnen_poll_ms": 3000,
+          "timezone": "Europe/Vienna",
+          "locale": "de-AT"
+        }
+      }
     },
     {
       "name": "ulanzi-57",
       "type": "ulanzi",
       "ip": "192.168.1.57",
-      "scenes": ["clock_with_homestats"]
+      "scenes": ["clock_with_homestats"],
+      "minFrameMs": 500,
+      "displayName": "Ulanzi Kinderzimmer",
+      "comment": "TC002 - awtrix_5807d0",
+      "preview": { "showGrid": true, "pollMs": 1000 },
+      "sceneSettings": {
+        "clock_with_homestats": {
+          "day_start_hour": 7,
+          "night_start_hour": 19,
+          "bri_day": 20,
+          "bri_night": 1,
+          "show_seconds": false,
+          "sonnen_poll_ms": 3000,
+          "timezone": "Europe/Vienna",
+          "locale": "de-AT"
+        }
+      }
+    },
+    {
+      "name": "pixoo-159",
+      "type": "pixoo",
+      "ip": "192.168.1.159",
+      "scenes": ["home"],
+      "minFrameMs": 500,
+      "maxPowerCycles": 10,
+      "powerCyclePlugin": {
+        "topic": "z2m/wz/plug/zisp32/set",
+        "offPayload": "{\"state\":\"OFF\"}",
+        "onPayload": "{\"state\":\"ON\"}",
+        "offWaitMs": 10000,
+        "onWaitMs": 30000
+      },
+      "displayName": "Pixoo Wohnzimmer (U)",
+      "comment": "Im Medienschrank unten",
+      "preview": { "showGrid": true, "pollMs": 2000 },
+      "sceneSettings": {}
+    },
+    {
+      "name": "pixoo-189",
+      "type": "pixoo",
+      "ip": "192.168.1.189",
+      "scenes": ["funkeykid"],
+      "minFrameMs": 500,
+      "displayName": "Pixoo Wohnzimmer (FunKeyKid)",
+      "comment": "Dedicated to funkeykid educational keyboard",
+      "preview": { "showGrid": true, "pollMs": 2000 },
+      "sceneSettings": {
+        "funkeykid": {
+          "idle_timeout_ms": 5000,
+          "brightness": 75,
+          "letter_scale": 3
+        }
+      }
     }
   ],
   "scenes": {
     "clock_with_homestats": {
       "path": "./scenes/ulanzi/clock_with_homestats.js"
-    }
+    },
+    "health": { "path": "./scenes/pixoo/health.js" },
+    "home": { "path": "./scenes/pixoo/home.js" },
+    "funkeykid": { "path": "./scenes/pixoo/funkeykid.js" }
   }
 }
