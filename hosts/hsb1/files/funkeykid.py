@@ -217,7 +217,7 @@ LETTER_WORDS = {
     'M': 'Muh-Kuh', 'N': 'Nachtigall', 'O': 'Orgel', 'P': 'Pferd',
     'Q': 'Quaken', 'R': 'Regen', 'S': 'Schwein', 'T': 'Telefon',
     'U': 'Uhu', 'V': 'Vogel', 'W': 'Wasser', 'X': 'Xylophon',
-    'Y': 'Ziege', 'Z': 'Yak',
+    'Y': 'Yak', 'Z': 'Ziege',
 }
 
 
@@ -435,10 +435,19 @@ def main():
                         if key_name.startswith('KEY_'):
                             key_name = key_name[4:]
 
+                        # QWERTZ layout: translate evdev US scancodes to German letters
+                        # Physical German Z (next to T) sends KEY_Y in evdev
+                        # Physical German Y (bottom row) sends KEY_Z in evdev
+                        QWERTZ_MAP = {
+                            'Y': 'Z', 'Z': 'Y',
+                            'RIGHTBRACE': 'EQUAL', 'SLASH': 'MINUS',
+                        }
+                        key_name = QWERTZ_MAP.get(key_name, key_name)
+
                         # Update global last key
                         global last_key_pressed
                         last_key_pressed = key_name
-                        
+
                         mqtt_log(f"Key pressed: {key_name}")
 
                         # Special function: SPACE stops all sounds
@@ -475,10 +484,8 @@ def main():
                                     sound_file = random.choice(sound_files)
                                     play_sound(sound_file, device)
                         else:
-                            # Default: play random sound
-                            if sound_files:
-                                sound_file = random.choice(sound_files)
-                                play_sound(sound_file, device)
+                            # Unmapped key: ignore (no random sounds — confuses kids learning alphabet)
+                            pass
 
         except (OSError, Exception) as e:
             # Device disconnected or other error
