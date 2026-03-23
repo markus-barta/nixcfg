@@ -38,6 +38,7 @@ in
     # DSC Infrastructure
     "dsc0" = {
       hostname = "5.78.201.129";
+      port = 2222;
       user = "mba";
       identityFile = "~/.ssh/dsccfg_deploy";
     };
