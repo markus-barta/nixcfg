@@ -139,6 +139,16 @@ in
   # Edit: agenix -e secrets/hsb1-pixdcon-env.age
   "hsb1-pixdcon-env.age".publicKeys = markus ++ hsb1;
 
+  # PPM (Personal Project Management) environment variables for csb1
+  # Format: KEY=VALUE lines (PPM_ADMIN_PASSWORD, COOKIE_SECURE, etc.)
+  # Edit: agenix -e secrets/csb1-ppm-env.age
+  "csb1-ppm-env.age".publicKeys = markus ++ csb1;
+
+  # MinIO environment variables for csb1 (PPM attachment storage)
+  # Format: KEY=VALUE lines (MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, etc.)
+  # Edit: agenix -e secrets/csb1-minio-env.age
+  "csb1-minio-env.age".publicKeys = markus ++ csb1;
+
   # Mosquitto broker configuration file
   # Edit: agenix -e secrets/mosquitto-conf.age
   # NOTE: This is for Mosquitto BROKER configuration (server-side)
