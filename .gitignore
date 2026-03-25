@@ -69,6 +69,7 @@ hosts/hsb8/examples/network-reference-pihole-backup.md
 id_rsa
 id_rsa.pub
 *.env
+*.env.local
 !*.example.env
 !*.env.exam
 

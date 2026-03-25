@@ -241,6 +241,26 @@
     mode = "0644";
   };
 
+  # PPM (Personal Project Management) Docker env
+  # Format: KEY=VALUE (ADMIN_PASSWORD for first-run seed)
+  age.secrets.csb1-ppm-env = {
+    file = ../../secrets/csb1-ppm-env.age;
+    path = "/run/agenix/csb1-ppm-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  # MinIO Docker env (PPM attachment storage)
+  # Format: KEY=VALUE (MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)
+  age.secrets.csb1-minio-env = {
+    file = ../../secrets/csb1-minio-env.age;
+    path = "/run/agenix/csb1-minio-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
   services.nixfleet-agent = {
     enable = true;
     url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
