@@ -148,6 +148,25 @@
   '';
 
   # ============================================================================
+  # PPM CI DEPLOY — restricted script for test report uploads
+  # ============================================================================
+  # GitHub Actions sends: tar czf - reports/ | ssh -p 2222 mba@... ppm-deploy-reports
+  # The command= restriction in authorized_keys ensures this key can ONLY run this script.
+  environment.etc."ppm-deploy-reports.sh" = {
+    mode = "0755";
+    text = ''
+      #!/bin/sh
+      set -eu
+      docker exec ppm mkdir -p /app/data/test-reports
+      TMPDIR=$(mktemp -d)
+      tar xzf - -C "$TMPDIR"
+      docker cp "$TMPDIR/." ppm:/app/data/test-reports/
+      rm -rf "$TMPDIR"
+      echo "ok: reports deployed"
+    '';
+  };
+
+  # ============================================================================
   # HOKAGE MODULE CONFIGURATION
   # ============================================================================
   hokage = {
@@ -196,6 +215,8 @@
       "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt"
       # hsb1 (miniserver24): Node-RED container SSH automation
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
+      # PPM CI deploy key — command-restricted to test report uploads only
+      "command=\"/etc/ppm-deploy-reports.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN2B8Ya6hnF5nxhZ7uBtN/YfChRRHIjsv+GIa01XdiI1 ppm-ci-deploy"
     ];
 
   };
