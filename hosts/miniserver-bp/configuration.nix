@@ -345,6 +345,20 @@
   # SYSTEM
   # ==========================================================================
 
+  # FleetCom agent — fleet monitoring heartbeat
+  age.secrets.fleetcom-token-miniserver-bp.file = ../../secrets/fleetcom-token-miniserver-bp.age;
+
+  services.fleetcom-agent = {
+    enable = true;
+    tokenFile = config.age.secrets.fleetcom-token-miniserver-bp.path;
+    agents = [
+      {
+        name = "Percy";
+        type = "assistant";
+      }
+    ];
+  };
+
   # NixOS version - DO NOT CHANGE after installation
   system.stateVersion = "24.11";
 }

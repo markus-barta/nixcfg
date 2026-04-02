@@ -1,5 +1,6 @@
 # hsb1 - Home Server Barta 1 (formerly miniserver24)
 {
+  config,
   pkgs,
   lib,
   inputs,
@@ -546,4 +547,12 @@
   #   deviceType = "server";
   # };
 
+  # FleetCom agent — fleet monitoring heartbeat
+  age.secrets.fleetcom-token-hsb1.file = ../../secrets/fleetcom-token-hsb1.age;
+
+  services.fleetcom-agent = {
+    enable = true;
+    tokenFile = config.age.secrets.fleetcom-token-hsb1.path;
+    agents = [ ];
+  };
 }

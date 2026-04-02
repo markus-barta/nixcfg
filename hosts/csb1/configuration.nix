@@ -1,6 +1,7 @@
 # csb1 - Cloud Server Barta 1 (Netcup VPS)
 # Hokage Migration: 2025-11-29
 {
+  config,
   lib,
   ...
 }:
@@ -322,4 +323,13 @@
   #   location = "cloud";
   #   deviceType = "server";
   # };
+
+  # FleetCom agent — fleet monitoring heartbeat
+  age.secrets.fleetcom-token-csb1.file = ../../secrets/fleetcom-token-csb1.age;
+
+  services.fleetcom-agent = {
+    enable = true;
+    tokenFile = config.age.secrets.fleetcom-token-csb1.path;
+    agents = [ ];
+  };
 }

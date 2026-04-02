@@ -10,6 +10,7 @@
 #
 
 {
+  config,
   pkgs,
   inputs,
   ...
@@ -192,4 +193,13 @@
   #   location = "home";
   #   deviceType = "gaming";
   # };
+
+  # FleetCom agent — fleet monitoring heartbeat
+  age.secrets.fleetcom-token-gpc0.file = ../../secrets/fleetcom-token-gpc0.age;
+
+  services.fleetcom-agent = {
+    enable = true;
+    tokenFile = config.age.secrets.fleetcom-token-gpc0.path;
+    agents = [ ];
+  };
 }
