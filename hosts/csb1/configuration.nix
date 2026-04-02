@@ -282,6 +282,16 @@
     mode = "0644";
   };
 
+  # FleetCom Docker env (password hash + TOTP secret)
+  # Format: KEY=VALUE (FLEETCOM_PASSWORD_HASH, FLEETCOM_TOTP_SECRET)
+  age.secrets.csb1-fleetcom-env = {
+    file = ../../secrets/csb1-fleetcom-env.age;
+    path = "/run/agenix/csb1-fleetcom-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
   # services.nixfleet-agent = {
   #   enable = true;
   #   url = "wss://fleet.barta.cm/ws";
