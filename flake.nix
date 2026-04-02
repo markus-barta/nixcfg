@@ -29,8 +29,7 @@
     # nixfleet.url = "github:markus-barta/nixfleet";
     # nixfleet.inputs.nixpkgs.follows = "nixpkgs";
     # FleetCom — fleet management & agent monitoring
-    fleetcom.url = "git+ssh://git@github.com/markus-barta/fleetcom.git";
-    fleetcom.flake = true;
+    fleetcom.url = "github:markus-barta/fleetcom";
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";

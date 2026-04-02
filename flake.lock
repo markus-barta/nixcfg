@@ -330,15 +330,15 @@
       "locked": {
         "lastModified": 1775149578,
         "narHash": "sha256-rf9ixOvys4nwP25GWpLK26Juz/v+yf3xvmAm+Da9olk=",
-        "ref": "refs/heads/main",
+        "owner": "markus-barta",
+        "repo": "fleetcom",
         "rev": "6d30f71f54b4e9c39605d7d2d0b45b7937f0b086",
-        "revCount": 11,
-        "type": "git",
-        "url": "ssh://git@github.com/markus-barta/fleetcom.git"
+        "type": "github"
       },
       "original": {
-        "type": "git",
-        "url": "ssh://git@github.com/markus-barta/fleetcom.git"
+        "owner": "markus-barta",
+        "repo": "fleetcom",
+        "type": "github"
       }
     },
     "git-hooks": {
