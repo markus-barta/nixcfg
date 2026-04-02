@@ -40,8 +40,7 @@ let
   fishModule = import ./fish;
   fishFunctions = fishModule.functions;
 
-  # Import theme palettes for nixfleet-agent color wiring
-  themePalettes = import ./theme/theme-palettes.nix;
+  # Import theme palettes (used for starship + host identity colors)
 
   # ════════════════════════════════════════════════════════════════════════════
   # Generate function list for helpfish from functions.nix
@@ -126,7 +125,7 @@ in
     environment.systemPackages = [
       pkgs.pingt # Timestamped ping with color-coded output
       pkgs.age # Modern encryption tool (reference implementation)
-      pkgs.nixfleet-agent # Fleet management agent CLI
+      # pkgs.nixfleet-agent # Disabled (decommissioned, replaced by FleetCom DSC26-52)
     ]
     ++ lib.optionals cfg.zellij.enable [ pkgs.zellij ];
 
@@ -157,18 +156,14 @@ in
     };
 
     # ══════════════════════════════════════════════════════════════════════════
-    # NIXFLEET AGENT - Auto-wire theme color from palette
-    # See: P7200-host-colors-single-source-of-truth.md
+    # NIXFLEET AGENT - Disabled (decommissioned, replaced by FleetCom DSC26-52)
     # ══════════════════════════════════════════════════════════════════════════
-    # This sets the agent's themeColor from the palette's primary gradient color,
-    # so the NixFleet dashboard shows each host with its correct starship color.
-    #
-    services.nixfleet-agent.themeColor =
-      let
-        hostname = config.networking.hostName;
-        paletteName = themePalettes.hostPalette.${hostname} or themePalettes.defaultPalette;
-        palette = themePalettes.palettes.${paletteName};
-      in
-      lib.mkIf (config.services.nixfleet-agent.enable or false) palette.gradient.primary;
+    # services.nixfleet-agent.themeColor =
+    #   let
+    #     hostname = config.networking.hostName;
+    #     paletteName = themePalettes.hostPalette.${hostname} or themePalettes.defaultPalette;
+    #     palette = themePalettes.palettes.${paletteName};
+    #   in
+    #   lib.mkIf (config.services.nixfleet-agent.enable or false) palette.gradient.primary;
   };
 }

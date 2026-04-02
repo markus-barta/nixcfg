@@ -140,32 +140,11 @@ just decrypt-runbook-secrets <hostname>
 
 ---
 
-## NixFleet Integration
+## Fleet Management (Decommissioned)
 
-[NixFleet](https://fleet.barta.cm) provides centralized deployment for all hosts.
+NixFleet has been decommissioned (DSC26-53). Its successor **FleetCom** (DSC26-52) is in development.
 
-### Deployment via NixFleet Dashboard
-
-All hosts (NixOS and macOS) use the same workflow:
-
-```text
-SYSOP edits config → Push to GitHub → Dashboard: Pull + Switch → Verify
-```
-
-**SYSOP role**: Edit configs, push to Git, trigger deployment from dashboard.
-
-### Dashboard Commands
-
-| Command       | Description                                         |
-| ------------- | --------------------------------------------------- |
-| `pull`        | Run `git pull` in the config repo                   |
-| `switch`      | Run `nixos-rebuild switch` or `home-manager switch` |
-| `pull-switch` | Run both in sequence                                |
-| `test`        | Run host test suite (`hosts/<host>/tests/T*.sh`)    |
-
-### Manual Deployment (Fallback)
-
-If dashboard is unavailable:
+### Manual Deployment
 
 ```bash
 # NixOS
@@ -177,12 +156,12 @@ ssh <host> "cd ~/Code/nixcfg && git pull && home-manager switch --flake '.#marku
 
 ### Quick Reference
 
-| Host Type | Deployment Method | SYSOP Responsibility            |
-| --------- | ----------------- | ------------------------------- |
-| NixOS     | NixFleet          | Edit + push + trigger dashboard |
-| macOS     | NixFleet          | Edit + push + trigger dashboard |
+| Host Type | Deployment Method | SYSOP Responsibility       |
+| --------- | ----------------- | -------------------------- |
+| NixOS     | SSH + rebuild     | Edit + push + SSH + switch |
+| macOS     | SSH + HM switch   | Edit + push + SSH + switch |
 
-For architecture details, see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md#nixfleet-fleet-management).
+For architecture details, see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md#-fleet-management).
 
 ---
 

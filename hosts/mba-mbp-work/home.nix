@@ -59,22 +59,20 @@ in
   theme.hostname = "mba-mbp-work";
 
   # ============================================================================
-  # NixFleet Agent - Fleet Management
+  # NIXFLEET AGENT - Disabled (decommissioned, replaced by FleetCom DSC26-52)
   # ============================================================================
-  # NIXFLEET AGENT v2 - Token stored in ~/.config/nixfleet/token
-  services.nixfleet-agent = {
-    enable = true;
-    url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
-    interval = 5; # Heartbeat interval in seconds
-    tokenFile = "/Users/mba/.config/nixfleet/token";
-    repoUrl = "https://github.com/markus-barta/nixcfg.git";
-    logLevel = "info";
-    nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
-    location = "work";
-    deviceType = "laptop";
-    # Theme color from palette (P7200 - single source of truth)
-    themeColor = config.theme.palette.gradient.primary;
-  };
+  # services.nixfleet-agent = {
+  #   enable = true;
+  #   url = "wss://fleet.barta.cm/ws";
+  #   interval = 5;
+  #   tokenFile = "/Users/mba/.config/nixfleet/token";
+  #   repoUrl = "https://github.com/markus-barta/nixcfg.git";
+  #   logLevel = "info";
+  #   nixpkgsVersion = inputs.nixpkgs.shortRev;
+  #   location = "work";
+  #   deviceType = "laptop";
+  #   themeColor = config.theme.palette.gradient.primary;
+  # };
 
   # Home Manager needs a bit of information about you and the paths it should manage
   home.username = "mba";

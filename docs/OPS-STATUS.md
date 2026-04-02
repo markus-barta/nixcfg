@@ -1,14 +1,16 @@
 # Operations Status
 
-📍 TL;DR: Infrastructure inventory and backup status. Managed via **NixFleet**.
+📍 TL;DR: Infrastructure inventory and backup status. NixFleet decommissioned — **FleetCom** (DSC26-52) is the successor.
 
-## NixFleet Overview
+## Fleet Management
 
-**NixFleet** is the central management tool for this infrastructure. It provides:
+**NixFleet** has been decommissioned (DSC26-53). Its successor **FleetCom** is in development.
 
-- **Fleet Dashboard**: Real-time status of all hosts.
-- **Automated Deployments**: Unified `just` recipes for NixOS and Home Manager.
-- **Backup Tracking**: (WIP) Monitoring of restic and ZFS snapshots.
+Previously provided:
+
+- Fleet Dashboard: Real-time status of all hosts.
+- Automated Deployments: Unified `just` recipes for NixOS and Home Manager.
+- Backup Tracking: (WIP) Monitoring of restic and ZFS snapshots.
 
 ---
 

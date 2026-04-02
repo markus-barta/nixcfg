@@ -248,9 +248,9 @@
   # Note: Zellij, fish functions, and stasysmo come from modules/uzumaki
 
   # ============================================================================
-  # NIXFLEET AGENT - Fleet management dashboard agent
+  # NIXFLEET AGENT - Disabled (decommissioned, replaced by FleetCom DSC26-52)
   # ============================================================================
-  age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
+  # age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
 
   # Traefik Cloudflare API token (for DNS-01 ACME challenge)
   # TODO: Move to /var/lib/csb1-docker when docker files are in repo
@@ -282,15 +282,15 @@
     mode = "0644";
   };
 
-  services.nixfleet-agent = {
-    enable = true;
-    url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
-    interval = 5; # Heartbeat interval in seconds
-    tokenFile = "/run/agenix/nixfleet-token";
-    repoUrl = "https://github.com/markus-barta/nixcfg.git"; # Isolated repo mode
-    user = "mba";
-    logLevel = "info";
-    location = "cloud";
-    deviceType = "server";
-  };
+  # services.nixfleet-agent = {
+  #   enable = true;
+  #   url = "wss://fleet.barta.cm/ws";
+  #   interval = 5;
+  #   tokenFile = "/run/agenix/nixfleet-token";
+  #   repoUrl = "https://github.com/markus-barta/nixcfg.git";
+  #   user = "mba";
+  #   logLevel = "info";
+  #   location = "cloud";
+  #   deviceType = "server";
+  # };
 }

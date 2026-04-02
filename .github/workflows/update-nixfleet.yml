@@ -1,4 +1,4 @@
-name: 🔄 Update nixfleet input
+name: 🔄 Update nixfleet input (DISABLED — NixFleet decommissioned, replaced by FleetCom DSC26-52)
 
 on:
   # Triggered by nixfleet repo after successful Docker build
@@ -20,6 +20,7 @@ permissions:
 
 jobs:
   update-flake:
+    if: false # Disabled — NixFleet decommissioned (DSC26-53)
     name: Update flake.lock
     runs-on: ubuntu-latest
     outputs:

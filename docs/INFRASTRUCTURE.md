@@ -289,22 +289,11 @@ German keyboard layout issues in Netcup VNC:
 
 ---
 
-## 📡 NixFleet Management
+## 📡 Fleet Management
 
-[NixFleet](https://github.com/markus-barta/nixfleet) provides centralized monitoring and push-button deployment via an agent-based pull model.
+**NixFleet** has been decommissioned (DSC26-53). Its successor **FleetCom** (DSC26-52) is in development.
 
-### Managed Hosts Status
-
-| Host           | Agent Status | Notes               |
-| -------------- | ------------ | ------------------- |
-| **csb1**       | ✅ Active    | Hosts the dashboard |
-| **csb0**       | ✅ Active    | Smart home          |
-| **hsb0**       | 📋 Planned   | DNS/DHCP server     |
-| **hsb1**       | 📋 Planned   | Home automation     |
-| **hsb8**       | 📋 Planned   | Parents' server     |
-| **gpc0**       | 📋 Planned   | Gaming PC           |
-| **imac0**      | 📋 Planned   | Home workstation    |
-| **macOS work** | 📋 Planned   | Work iMac/MacBook   |
+NixFleet previously provided centralized monitoring and push-button deployment via an agent-based pull model. All agents have been disabled across hosts. The NixFleet codebase remains at `~/Code/nixfleet` for reference.
 
 ---
 

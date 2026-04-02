@@ -110,7 +110,7 @@ in
       pkgs.pingt # Timestamped ping with color-coded output
       pkgs.watch # Run command repeatedly, showing output (not in macOS by default)
       pkgs.age # Modern encryption tool (reference implementation)
-      pkgs.nixfleet-agent # Fleet management agent CLI
+      # pkgs.nixfleet-agent # Disabled (decommissioned, replaced by FleetCom DSC26-52)
     ]
     ++ lib.optionals cfg.zellij.enable [ pkgs.zellij ];
 
