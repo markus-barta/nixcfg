@@ -42,6 +42,19 @@ in
       user = "mba";
       identityFile = "~/.ssh/dsccfg_deploy";
     };
+    # Work iMac - SSH key for passwordless access
+    "mba-imac-work" = {
+      identityFile = "~/.ssh/id_ed25519_bytepoets";
+    };
+    "mba-imac-work-ts" = {
+      identityFile = "~/.ssh/id_ed25519_bytepoets";
+    };
+    "imacw" = {
+      identityFile = "~/.ssh/id_ed25519_bytepoets";
+    };
+    "imacw-ts" = {
+      identityFile = "~/.ssh/id_ed25519_bytepoets";
+    };
   };
 
   # ============================================================================
@@ -55,23 +68,20 @@ in
   };
 
   # ============================================================================
-  # NIXFLEET AGENT - Fleet management dashboard agent
+  # NIXFLEET AGENT - Disabled (decommissioned, replaced by FleetCom DSC26-52)
   # ============================================================================
-  # NixFleet v2 agent - connects to fleet.barta.cm via WebSocket
-  # Token stored in ~/.config/nixfleet/token
-  services.nixfleet-agent = {
-    enable = true;
-    url = "wss://fleet.barta.cm/ws"; # v2 uses WebSocket
-    interval = 5; # Heartbeat interval in seconds
-    tokenFile = "/Users/markus/.config/nixfleet/token";
-    repoUrl = "https://github.com/markus-barta/nixcfg.git";
-    logLevel = "info";
-    nixpkgsVersion = inputs.nixpkgs.shortRev; # Pass nixpkgs version to agent
-    location = "home";
-    deviceType = "desktop";
-    # Theme color from palette (P7200 - single source of truth)
-    themeColor = config.theme.palette.gradient.primary;
-  };
+  # services.nixfleet-agent = {
+  #   enable = true;
+  #   url = "wss://fleet.barta.cm/ws";
+  #   interval = 5;
+  #   tokenFile = "/Users/markus/.config/nixfleet/token";
+  #   repoUrl = "https://github.com/markus-barta/nixcfg.git";
+  #   logLevel = "info";
+  #   nixpkgsVersion = inputs.nixpkgs.shortRev;
+  #   location = "home";
+  #   deviceType = "desktop";
+  #   themeColor = config.theme.palette.gradient.primary;
+  # };
 
   # Theme configuration - set hostname for palette lookup
   theme.hostname = "imac0";

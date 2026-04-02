@@ -43,11 +43,10 @@ home-manager switch --flake ".#mba@mba-mbp-work"
 just switch
 ```
 
-### Update Flake Inputs (including nixfleet agent)
+### Update Flake Inputs
 
 ```bash
 cd ~/Code/nixcfg
-nix flake update nixfleet
 home-manager switch --flake ".#mba@mba-mbp-work"
 ```
 
@@ -93,36 +92,13 @@ for current SSH config — add entries there once keys are copied over.
 
 ---
 
-## NixFleet Agent
+## NixFleet Agent (DECOMMISSIONED)
 
-### Check Agent Status
-
-```bash
-launchctl list | grep nixfleet
-# Should show: PID  0  com.nixfleet.agent
-```
-
-### View Agent Logs
+NixFleet has been decommissioned (DSC26-53). To clean up leftover agent on this host:
 
 ```bash
-# Stdout log
-tail -50 /tmp/nixfleet-agent.log
-
-# Stderr log
-tail -50 /tmp/nixfleet-agent.err
-```
-
-### Restart Agent
-
-```bash
-launchctl kickstart -k gui/$(id -u)/com.nixfleet.agent
-```
-
-### Reload Agent (after config change)
-
-```bash
-launchctl bootout gui/$(id -u)/com.nixfleet.agent
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nixfleet.agent.plist
+launchctl bootout gui/$(id -u)/com.nixfleet.agent 2>/dev/null
+rm -f ~/Library/LaunchAgents/com.nixfleet.agent.plist
 ```
 
 ---
@@ -138,19 +114,6 @@ exec fish
 # Or check PATH
 echo $PATH | tr ':' '\n' | head -5
 # Should show ~/.nix-profile/bin first
-```
-
-### Agent Not Running
-
-```bash
-# Check if plist exists
-ls ~/Library/LaunchAgents/com.nixfleet.agent.plist
-
-# Load agent
-launchctl load ~/Library/LaunchAgents/com.nixfleet.agent.plist
-
-# Verify running
-launchctl list | grep nixfleet
 ```
 
 ### Git Wrong Identity
@@ -183,12 +146,9 @@ git pull
 # Scripts
 ~/Scripts/                    # Symlinked from hosts/mba-mbp-work/scripts/host-user/
 
-# Agent logs
-/tmp/nixfleet-agent.log       # Stdout
-/tmp/nixfleet-agent.err       # Stderr
-
-# Agent plist
-~/Library/LaunchAgents/com.nixfleet.agent.plist
+# Agent logs (NixFleet decommissioned — remove if present)
+# /tmp/nixfleet-agent.log
+# /tmp/nixfleet-agent.err
 ```
 
 ---
@@ -207,8 +167,7 @@ df -h / /nix
 nix --version
 home-manager --version
 
-# Agent version
-cat ~/Library/LaunchAgents/com.nixfleet.agent.plist | grep -A1 AGENT_VERSION
+# NixFleet decommissioned — no agent version to check
 ```
 
 ---

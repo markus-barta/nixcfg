@@ -2,11 +2,9 @@
 
 Personal NixOS configuration managing home servers, cloud infrastructure, and development workstations—all from a single Git repository.
 
-<a href="https://github.com/markus-barta/nixfleet"><img src="./assets/nixfleet.png" alt="NixFleet Dashboard" width="50%"></a>
-
 > Built on the excellent [🍥 Hokage module system](https://github.com/pbek/nixcfg) by [Patrizio Bekerle](https://github.com/pbek), extended with custom tooling and Tokyo Night theming.
 >
-> **Fleet management?** Check out [NixFleet](https://github.com/markus-barta/nixfleet) — deploy, monitor, and control all your NixOS (and macOS) hosts from a single dashboard.
+> **Fleet management?** NixFleet has been decommissioned. Its successor, **FleetCom**, is in development (DSC26-52).
 
 ![StaSysMo and Tokyo Night+ Theme Demo](./assets/shell.png)
 

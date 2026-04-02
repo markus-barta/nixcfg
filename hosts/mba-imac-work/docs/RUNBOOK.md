@@ -83,23 +83,8 @@ ssh markus@mba-imac-work.local
 
 - The iMac sleeps when inactive and may not be reachable
 - When it wakes up, mDNS (`mba-imac-work.local`) should resolve
-- The NixFleet agent runs and will reconnect automatically when awake
+- NixFleet agent decommissioned (DSC26-53) — clean up leftover plist if present
 - **miniserver-bp** runs Ubuntu 24.04 (future: migrate to NixOS - see backlog)
-
-### NixFleet Agent
-
-The NixFleet agent runs as a launchd agent and reports to `fleet.barta.cm`.
-
-```bash
-# Check agent status
-tail -20 /tmp/nixfleet-agent.log
-
-# Restart agent
-launchctl kickstart -k gui/$(id -u)/com.nixfleet.agent
-
-# View launchd plist
-cat ~/Library/LaunchAgents/com.nixfleet.agent.plist
-```
 
 ---
 
@@ -306,7 +291,7 @@ When migrating to Nix, always uninstall the corresponding Homebrew package first
 
 ### 💤 System Sleep
 
-The iMac may sleep when inactive, breaking remote SSH and NixFleet agent heartbeats. If unreachable, it likely needs to be woken up physically or via a colleague.
+The iMac may sleep when inactive, breaking remote SSH. If unreachable, it likely needs to be woken up physically or via a colleague.
 
 ### 🖱️ GUI App Linking (osascript)
 

@@ -25,9 +25,9 @@
     };
     nixcfg.url = "github:pbek/nixcfg";
     # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
-    # NixFleet - Fleet management dashboard
-    nixfleet.url = "github:markus-barta/nixfleet";
-    nixfleet.inputs.nixpkgs.follows = "nixpkgs";
+    # NixFleet - Disabled (decommissioned, replaced by FleetCom DSC26-52)
+    # nixfleet.url = "github:markus-barta/nixfleet";
+    # nixfleet.inputs.nixpkgs.follows = "nixpkgs";
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
@@ -81,7 +81,7 @@
         pingt = final.callPackage ./pkgs/pingt { };
         tokstat = final.callPackage ./pkgs/tokstat { };
         # ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
-        nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default;
+        # nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default; # Disabled (FleetCom DSC26-52)
       };
       allOverlays = [
         overlays-nixpkgs
@@ -96,8 +96,8 @@
         })
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age
-        # NixFleet agent for fleet management
-        inputs.nixfleet.nixosModules.nixfleet-agent
+        # NixFleet agent — disabled (decommissioned, replaced by FleetCom DSC26-52)
+        # inputs.nixfleet.nixosModules.nixfleet-agent
       ];
       pkgs = import nixpkgs {
         localSystem = {
@@ -134,8 +134,8 @@
           };
           modules = [
             ./hosts/${hostname}/home.nix
-            # NixFleet agent for fleet management
-            inputs.nixfleet.homeManagerModules.nixfleet-agent
+            # NixFleet agent — disabled (decommissioned, replaced by FleetCom DSC26-52)
+            # inputs.nixfleet.homeManagerModules.nixfleet-agent
           ];
           extraSpecialArgs = commonArgs // {
             inherit inputs hostname;
@@ -205,8 +205,8 @@
             ./modules/common.nix # OUR config (loads AFTER hokage to override)
             ./hosts/gpc0/configuration.nix
             disko.nixosModules.disko
-            # NixFleet agent for fleet management
-            inputs.nixfleet.nixosModules.nixfleet-agent
+            # NixFleet agent — disabled (decommissioned, replaced by FleetCom DSC26-52)
+            # inputs.nixfleet.nixosModules.nixfleet-agent
           ];
           specialArgs = self.commonArgs // {
             inherit inputs;
