@@ -167,6 +167,23 @@
   };
 
   # ============================================================================
+  # FLEETCOM CI DEPLOY — pull latest image and restart container
+  # ============================================================================
+  # GitHub Actions: ssh -p 2222 mba@csb1 fleetcom-deploy
+  # The command= restriction in authorized_keys ensures this key can ONLY run this script.
+  environment.etc."fleetcom-deploy.sh" = {
+    mode = "0755";
+    text = ''
+      #!/bin/sh
+      set -eu
+      cd /home/mba/docker/fleetcom
+      docker compose pull
+      docker compose up -d
+      echo "ok: fleetcom deployed"
+    '';
+  };
+
+  # ============================================================================
   # HOKAGE MODULE CONFIGURATION
   # ============================================================================
   hokage = {
@@ -217,6 +234,8 @@
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
       # PPM CI deploy key — command-restricted to test report uploads only
       "command=\"/etc/ppm-deploy-reports.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN2B8Ya6hnF5nxhZ7uBtN/YfChRRHIjsv+GIa01XdiI1 ppm-ci-deploy"
+      # FleetCom CI deploy key — command-restricted to docker pull + restart
+      "command=\"/etc/fleetcom-deploy.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOVzORKFD8fPff97PpkpfMEmuUwW3vhCsM5c3ujls7Bz fleetcom-ci-deploy"
     ];
 
   };
