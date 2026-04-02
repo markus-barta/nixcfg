@@ -33,17 +33,15 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 
 ## Important Locations
 
-| What                        | Location/Notes                            |
-| --------------------------- | ----------------------------------------- |
-| NixOS infra config          | `~/Code/nixcfg`                           |
-| NixFleet (dashboard, agent) | `~/Code/nixfleet`                         |
-| "hokage" ref (pbek-nixcfg)  | `~/Code/pbek-nixcfg`                      |
-| Secrets / credentials       | 1Password (no agent access) — ping Markus |
-| Host runbooks               | `hosts/<hostname>/docs/RUNBOOK.md`        |
-| Host backlogs               | `hosts/<hostname>/docs/backlog/`          |
-| Agent workflow              | `docs/AGENT-WORKFLOW.md`                  |
-| Infrastructure inventory    | `docs/INFRASTRUCTURE.md`                  |
-| Task/project mgmt           | `+pm/` in repo                            |
+| What                       | Location/Notes                            |
+| -------------------------- | ----------------------------------------- |
+| NixOS infra config         | `~/Code/nixcfg`                           |
+| "hokage" ref (pbek-nixcfg) | `~/Code/pbek-nixcfg`                      |
+| Secrets / credentials      | 1Password (no agent access) — ping Markus |
+| Host runbooks              | `hosts/<hostname>/docs/RUNBOOK.md`        |
+| Agent workflow             | `docs/AGENT-WORKFLOW.md`                  |
+| Infrastructure inventory   | `docs/INFRASTRUCTURE.md`                  |
+| Task/project mgmt          | PPM (`pm.barta.cm`)                       |
 
 ## Docs
 
@@ -195,77 +193,11 @@ ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 - Use for persistent sessions: servers, long builds, debugging.
 - Layouts in `~/.config/zellij/`.
 
-## Backlog Item Creation
+## Task / Backlog Management
 
-**ALWAYS use scripts** to create backlog items. Never manually create files.
+All task and backlog management is handled via **PPM** (`pm.barta.cm`).
 
-### Infrastructure-Wide Items (default: `+pm/backlog/infra/`)
-
-```bash
-./scripts/create-backlog-item.sh P50 fix-bug-description
-```
-
-### Host-Specific Items
-
-```bash
-# Infer directory from host
-./scripts/create-backlog-item.sh P30 audit-docker --host hsb0
-
-# Or with explicit directory
-./scripts/create-backlog-item.sh P30 audit-docker --dir hosts/hsb0/docs/backlog
-```
-
-### File Format
-
-- **Naming**: `LNN--hash--description.md` (e.g., `P50--abc1234--fix-bug.md`)
-- **Priority**: Letter (A-Z) + 2 digits (00-99), e.g., P50, A10, Z99
-- **Hash**: 7-char hex (auto-generated, collision-checked)
-- **Description**: kebab-case, short
-
-### When to Create Backlog Items
-
-| Situation                                   | Location                     |
-| ------------------------------------------- | ---------------------------- |
-| Host-specific task (affects one host only)  | `hosts/<host>/docs/backlog/` |
-| Infrastructure-wide (multiple hosts, fleet) | `+pm/backlog/infra/`         |
-| Quick fix (<15 min, single file)            | ❌ No backlog item needed    |
-
-### Template Structure
-
-All backlog items follow this template:
-
-```markdown
-# description
-
-**Host**: hostname (if host-specific)
-**Priority**: LNN
-**Status**: Backlog
-**Created**: YYYY-MM-DD
-
----
-
-## Problem
-
-[Brief description]
-
-## Solution
-
-[Approach]
-
-## Implementation
-
-- [ ] Task 1
-- [ ] Documentation update
-- [ ] Test
-
-## Acceptance Criteria
-
-- [ ] Criterion 1
-- [ ] Tests pass
-
-## Notes
-
-[Optional]
-```
-
-**See** `+pm/README.md` for full details.
+- Default project: **NIX** (project ID: 1) for nixcfg infrastructure
+- Cross-project: **DSC26** (project ID: 2) for DSC-related work
+- API: `curl -s -H "Authorization: Bearer $PPMAPIKEY" https://pm.barta.cm/api/...`
+- No markdown backlog files in this repo (migrated to PPM, tagged `backlog-final`)

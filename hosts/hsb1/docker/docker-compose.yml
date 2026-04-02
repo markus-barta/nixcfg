@@ -59,6 +59,7 @@ services:
       - ./mounts/pixdcon/config.json:/data/config.json # rw — web UI saves settings
       - ./mounts/pixdcon/scenes:/data/scenes # rw — editable scene files
       - ./mounts/pixdcon/generated-scenes:/data/generated-scenes # rw — cloned/detached scenes
+      - ./mounts/funkeykid/images:/app/assets/pixoo/funkeykid:ro # funkeykid v2 images (overrides baked-in v1)
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
