@@ -149,6 +149,11 @@ in
   # Edit: agenix -e secrets/csb1-minio-env.age
   "csb1-minio-env.age".publicKeys = markus ++ csb1;
 
+  # FleetCom environment variables for csb1
+  # Format: KEY=VALUE lines (FLEETCOM_PASSWORD_HASH, FLEETCOM_TOTP_SECRET)
+  # Edit: agenix -e secrets/csb1-fleetcom-env.age
+  "csb1-fleetcom-env.age".publicKeys = markus ++ csb1;
+
   # Mosquitto broker configuration file
   # Edit: agenix -e secrets/mosquitto-conf.age
   # NOTE: This is for Mosquitto BROKER configuration (server-side)
