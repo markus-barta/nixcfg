@@ -235,7 +235,7 @@
       # PPM CI deploy key — command-restricted to test report uploads only
       "command=\"/etc/ppm-deploy-reports.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN2B8Ya6hnF5nxhZ7uBtN/YfChRRHIjsv+GIa01XdiI1 ppm-ci-deploy"
       # FleetCom CI deploy key — command-restricted to docker pull + restart
-      "command=\"/etc/fleetcom-deploy.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOVzORKFD8fPff97PpkpfMEmuUwW3vhCsM5c3ujls7Bz fleetcom-ci-deploy"
+      "command=\"/etc/fleetcom-deploy.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJm8QD58SU9ZqbjNYsT/NCKMNXxLnIrb/Ii1SgUsn+kQ fleetcom-ci-deploy"
     ];
 
   };
