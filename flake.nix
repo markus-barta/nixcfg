@@ -25,9 +25,12 @@
     };
     nixcfg.url = "github:pbek/nixcfg";
     # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
-    # NixFleet - Disabled (decommissioned, replaced by FleetCom DSC26-52)
+    # NixFleet - Disabled (decommissioned, replaced by FleetCom)
     # nixfleet.url = "github:markus-barta/nixfleet";
     # nixfleet.inputs.nixpkgs.follows = "nixpkgs";
+    # FleetCom — fleet management & agent monitoring
+    fleetcom.url = "git+ssh://git@github.com/markus-barta/fleetcom.git";
+    fleetcom.flake = true;
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
@@ -96,8 +99,9 @@
         })
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age
-        # NixFleet agent — disabled (decommissioned, replaced by FleetCom DSC26-52)
+        # NixFleet agent — disabled (decommissioned, replaced by FleetCom)
         # inputs.nixfleet.nixosModules.nixfleet-agent
+        inputs.fleetcom.nixosModules.fleetcom-agent
       ];
       pkgs = import nixpkgs {
         localSystem = {

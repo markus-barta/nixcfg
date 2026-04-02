@@ -2,6 +2,7 @@
 # Smart Home Hub: Node-RED, MQTT, Telegram Bot
 # Hokage Migration: 2025-11-29
 {
+  config,
   lib,
   ...
 }:
@@ -255,6 +256,15 @@
   #   location = "cloud";
   #   deviceType = "server";
   # };
+
+  # FleetCom agent — fleet monitoring heartbeat
+  age.secrets.fleetcom-token-csb0.file = ../../secrets/fleetcom-token-csb0.age;
+
+  services.fleetcom-agent = {
+    enable = true;
+    tokenFile = config.age.secrets.fleetcom-token-csb0.path;
+    agents = [ ];
+  };
 
   # ============================================================================
   # UPTIME KUMA - Cloud services monitoring

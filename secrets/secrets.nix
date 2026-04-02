@@ -81,12 +81,22 @@ in
   # TODO: Rename to hsb0-mqtt-client.age
   "mqtt-hsb0.age".publicKeys = markus ++ hsb0;
 
-  # NixFleet agent API token
-  # Format: NIXFLEET_TOKEN=xxx (for NixOS EnvironmentFile)
-  # Edit: agenix -e secrets/nixfleet-token.age
-  # TODO: Rename to shared-nixfleet-token.age
+  # NixFleet agent API token — DEPRECATED (replaced by FleetCom per-host tokens)
+  # TODO: Remove after FleetCom is fully deployed
   "nixfleet-token.age".publicKeys =
     markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0 ++ miniserver-bp;
+
+  # FleetCom agent tokens — one per host, plain text bearer token
+  # Generate in FleetCom UI (Hosts → Add Host), paste token into .age file
+  # Edit: agenix -e secrets/fleetcom-token-<host>.age
+  "fleetcom-token-hsb0.age".publicKeys = markus ++ hsb0;
+  "fleetcom-token-hsb1.age".publicKeys = markus ++ hsb1;
+  # hsb2: no host key in agenix (Raspberry Pi, Raspbian — not NixOS)
+  "fleetcom-token-hsb8.age".publicKeys = markus ++ hsb8;
+  "fleetcom-token-csb0.age".publicKeys = markus ++ csb0;
+  "fleetcom-token-csb1.age".publicKeys = markus ++ csb1;
+  "fleetcom-token-gpc0.age".publicKeys = markus ++ gpc0;
+  "fleetcom-token-miniserver-bp.age".publicKeys = markus ++ miniserver-bp;
 
   # Uptime Kuma environment variables (for Apprise tokens)
   # Format: KEY=VALUE lines

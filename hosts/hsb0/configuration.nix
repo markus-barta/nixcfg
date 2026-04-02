@@ -750,4 +750,22 @@ in
   #   location = "home";
   #   deviceType = "server";
   # };
+
+  # FleetCom agent — fleet monitoring heartbeat
+  age.secrets.fleetcom-token-hsb0.file = ../../secrets/fleetcom-token-hsb0.age;
+
+  services.fleetcom-agent = {
+    enable = true;
+    tokenFile = config.age.secrets.fleetcom-token-hsb0.path;
+    agents = [
+      {
+        name = "Merlin";
+        type = "personal-assistant";
+      }
+      {
+        name = "Nimue";
+        type = "personal-assistant";
+      }
+    ];
+  };
 }

@@ -1,5 +1,6 @@
 # hsb8 server - Parents' home automation server
 {
+  config,
   pkgs,
   lib,
   inputs,
@@ -594,4 +595,13 @@ in
   #   location = "home";
   #   deviceType = "server";
   # };
+
+  # FleetCom agent — fleet monitoring heartbeat
+  age.secrets.fleetcom-token-hsb8.file = ../../secrets/fleetcom-token-hsb8.age;
+
+  services.fleetcom-agent = {
+    enable = true;
+    tokenFile = config.age.secrets.fleetcom-token-hsb8.path;
+    agents = [ ];
+  };
 }

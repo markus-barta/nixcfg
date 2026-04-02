@@ -142,4 +142,6 @@
   #   location = "home";
   #   deviceType = "server";
   # };
+
+  # hsb2: no FleetCom agent (Raspbian, not NixOS — no agenix)
 }

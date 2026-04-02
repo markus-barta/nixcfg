@@ -326,22 +326,19 @@
         "type": "github"
       }
     },
-    "flake-utils_6": {
-      "inputs": {
-        "systems": "systems_9"
-      },
+    "fleetcom": {
       "locked": {
-        "lastModified": 1731533236,
-        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
-        "type": "github"
+        "lastModified": 1775149578,
+        "narHash": "sha256-rf9ixOvys4nwP25GWpLK26Juz/v+yf3xvmAm+Da9olk=",
+        "ref": "refs/heads/main",
+        "rev": "6d30f71f54b4e9c39605d7d2d0b45b7937f0b086",
+        "revCount": 11,
+        "type": "git",
+        "url": "ssh://git@github.com/markus-barta/fleetcom.git"
       },
       "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
+        "type": "git",
+        "url": "ssh://git@github.com/markus-barta/fleetcom.git"
       }
     },
     "git-hooks": {
@@ -636,27 +633,6 @@
         "type": "github"
       }
     },
-    "nixfleet": {
-      "inputs": {
-        "flake-utils": "flake-utils_6",
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1769354813,
-        "narHash": "sha256-/GHYtvy2H1ps6tW8yordpAjzsz+t0iWK7yha6F8vVm8=",
-        "owner": "markus-barta",
-        "repo": "nixfleet",
-        "rev": "2c4ef43821b466f9625d728042f7cb583baf66e1",
-        "type": "github"
-      },
-      "original": {
-        "owner": "markus-barta",
-        "repo": "nixfleet",
-        "type": "github"
-      }
-    },
     "nixos-hardware": {
       "locked": {
         "lastModified": 1774465523,
@@ -889,12 +865,12 @@
           "catppuccin"
         ],
         "disko": "disko",
+        "fleetcom": "fleetcom",
         "git-hooks": "git-hooks",
         "helium-nix": "helium-nix",
         "home-manager": "home-manager_2",
         "ncps": "ncps",
         "nixcfg": "nixcfg",
-        "nixfleet": "nixfleet",
         "nixos-hardware": "nixos-hardware_2",
         "nixpkgs": "nixpkgs_4",
         "nixpkgs-stable": "nixpkgs-stable_2",
@@ -1009,21 +985,6 @@
       }
     },
     "systems_8": {
-      "locked": {
-        "lastModified": 1681028828,
-        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
-        "owner": "nix-systems",
-        "repo": "default",
-        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "default",
-        "type": "github"
-      }
-    },
-    "systems_9": {
       "locked": {
         "lastModified": 1681028828,
         "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
