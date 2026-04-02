@@ -208,8 +208,9 @@
             ./modules/common.nix # OUR config (loads AFTER hokage to override)
             ./hosts/gpc0/configuration.nix
             disko.nixosModules.disko
-            # NixFleet agent — disabled (decommissioned, replaced by FleetCom DSC26-52)
+            # NixFleet agent — disabled (decommissioned, replaced by FleetCom)
             # inputs.nixfleet.nixosModules.nixfleet-agent
+            inputs.fleetcom.nixosModules.fleetcom-agent
           ];
           specialArgs = self.commonArgs // {
             inherit inputs;
