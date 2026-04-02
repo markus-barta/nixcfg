@@ -328,11 +328,11 @@
     },
     "fleetcom": {
       "locked": {
-        "lastModified": 1775149578,
-        "narHash": "sha256-rf9ixOvys4nwP25GWpLK26Juz/v+yf3xvmAm+Da9olk=",
+        "lastModified": 1775150967,
+        "narHash": "sha256-tp4Mxjbk/ihNPI/5od08n9oODvWt87pnKGBXWxjpYeo=",
         "owner": "markus-barta",
         "repo": "fleetcom",
-        "rev": "6d30f71f54b4e9c39605d7d2d0b45b7937f0b086",
+        "rev": "f4e3902aa4ca0739b9126a39265b5f43f1211d34",
         "type": "github"
       },
       "original": {
