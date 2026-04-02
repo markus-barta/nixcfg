@@ -82,6 +82,8 @@
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
         tokstat = final.callPackage ./pkgs/tokstat { };
+        # Stub: hokage/desktop.nix references sonar but it doesn't exist in nixpkgs
+        sonar = final.hello;
         # ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         # nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default; # Disabled (FleetCom DSC26-52)
       };
