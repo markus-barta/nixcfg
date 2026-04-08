@@ -51,6 +51,12 @@
       "subagents": {
         "maxConcurrent": 8
       },
+      "heartbeat": {
+        "every": "1h",
+        "lightContext": true,
+        "isolatedSession": true,
+        "target": "none"
+      },
       "memorySearch": {
         "provider": "local",
         "fallback": "none"
