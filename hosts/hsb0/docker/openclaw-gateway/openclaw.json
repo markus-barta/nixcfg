@@ -56,6 +56,12 @@
       "maxConcurrent": 4,
       "subagents": { "maxConcurrent": 8 },
       "compaction": { "reserveTokensFloor": 5000 },
+      "heartbeat": {
+        "every": "1h",
+        "lightContext": true,
+        "isolatedSession": true,
+        "target": "none"
+      },
       "memorySearch": {
         "provider": "local",
         "fallback": "none"
