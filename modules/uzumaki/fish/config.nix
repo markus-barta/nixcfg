@@ -66,6 +66,8 @@
     vim = "hx";
     c = "clear";
     cl = "clear";
+    cc = "claude --dangerously-skip-permissions";
+    ccr = "claude --dangerously-skip-permissions --resume";
 
     # ═══════════════════════════════════════════════════════════
     # SSH Shortcuts (zellij auto-attach)
