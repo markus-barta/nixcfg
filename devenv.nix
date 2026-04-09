@@ -62,9 +62,6 @@ in
   git-hooks.hooks = {
     statix.settings = {
       ignore = [ "hardware-configuration.nix" ];
-      config = ''
-        nix_version = '2.28.1'
-      '';
     };
   };
 

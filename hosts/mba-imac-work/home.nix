@@ -104,6 +104,8 @@ in
       fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
       # VSCodium CLI (codium) - installed via Homebrew cask
       fish_add_path --append /Applications/VSCodium.app/Contents/Resources/app/bin
+      # User local bin (e.g. claude code)
+      fish_add_path --append ~/.local/bin
     '';
 
     interactiveShellInit = ''
