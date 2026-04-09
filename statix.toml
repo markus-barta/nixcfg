@@ -1,0 +1,12 @@
+nix_version = "2.28.1"
+
+# Disable noisy lints that are pre-existing across the repo
+disabled = [
+  "repeated_keys",       # W20 — repeated attribute keys (idiomatic in NixOS configs)
+  "useless_parens",      # W08 — cosmetic
+  "manual_inherit",      # W03 — cosmetic
+  "manual_inherit_from", # W04 — cosmetic
+  "empty_pattern",       # W10 — cosmetic
+  "collapsible_let_in",  # W06 — nested let-in (intentional structure)
+  "eta_reduction",       # W07 — cosmetic
+]
