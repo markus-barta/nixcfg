@@ -65,6 +65,17 @@ in
         # ACME BK03 Bluetooth Keyboard — isolated for funkeykid only
         SUBSYSTEM=="input", ATTRS{name}=="ACME BK03", ENV{ID_INPUT}="0", ENV{ID_INPUT_KEYBOARD}="0", ENV{KEYBOARD_KEY_*}="reserved", TAG-="seat", TAG-="uaccess", TAG-="power-switch"
       '';
+
+      # Defense-in-depth: udev TAG- can lose the race on BT reconnect (2026-04-11
+      # incident: logind re-watched event9 and accidental power key press triggered
+      # shutdown). Ignore power/suspend/hibernate keys at the logind level too.
+      # Long-press still allows intentional poweroff.
+      services.logind.settings.Login = {
+        HandlePowerKey = "ignore";
+        HandlePowerKeyLongPress = "poweroff";
+        HandleSuspendKey = "ignore";
+        HandleHibernateKey = "ignore";
+      };
     })
 
     # ── Bluetooth auto-reconnect (always on by default) ───────────────────
