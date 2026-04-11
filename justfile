@@ -963,6 +963,15 @@ zfs-generate-host-id:
 restart-plasmashell:
     systemctl restart --user plasma-plasmashell.service
 
+# Register local git merge drivers for lockfiles (run once per clone)
+[group('config')]
+setup-git-drivers:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git config --local merge.ours.driver true
+    echo "✅ Registered 'ours' merge driver. devenv.lock/flake.lock conflicts now auto-resolve on pull/rebase."
+    echo "   See docs/AGENT-WORKFLOW.md → 'Lockfile Merge Conflicts' for details."
+
 # Generate aider configuration file with GitHub Copilot oauth token
 [group('config')]
 @generate-aider-config:

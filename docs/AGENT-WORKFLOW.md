@@ -165,6 +165,59 @@ For architecture details, see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md#-fleet-man
 
 ---
 
+## Lockfile Merge Conflicts
+
+`devenv.lock` and `flake.lock` are **generated files committed to git**.
+Whenever multiple clones regenerate them in parallel (dev boxes, hosts
+running `direnv`/`devenv`, CI, agents), `git pull`/`git rebase` produces
+textual conflicts that can't be merged line-by-line — the JSON layout
+shifts wholesale.
+
+### The fix (already in-repo)
+
+`.gitattributes` marks both files as `merge=ours`, so git's merge driver
+keeps the current side and leaves the tree clean. This is safe because:
+
+- Lockfiles are deterministic outputs of `nix` / `devenv` — never hand-edited.
+- If the kept side is stale, the next `nix flake check` / `devenv` run
+  regenerates it.
+
+### One-time setup per clone
+
+The `merge=ours` attribute references a **local git driver** that is not
+enabled automatically — each clone must register it once:
+
+```bash
+just setup-git-drivers
+# equivalent to:  git config --local merge.ours.driver true
+```
+
+Verify:
+
+```bash
+git config --local --get merge.ours.driver   # expect: true
+```
+
+### When it matters most
+
+- **Servers running `direnv`** (e.g. hsb1): `cd ~/Code/nixcfg` silently
+  regenerates `devenv.lock`, then your next `git pull` conflicts.
+- **Parallel agent sessions** pushing from different machines.
+- **CI pipelines** that bump lockfiles (update_flake_lock_action).
+
+### If you see a conflict anyway
+
+The driver is not registered on that clone. Either:
+
+```bash
+# nuke the conflict state and re-pull
+git checkout HEAD -- devenv.lock flake.lock
+git pull
+just setup-git-drivers   # so it doesn't happen next time
+```
+
+---
+
 ## References
 
 - **Host structure requirements**: [HOST-TEMPLATE.md](./HOST-TEMPLATE.md)
