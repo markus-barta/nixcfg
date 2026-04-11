@@ -42,6 +42,18 @@ git pull
 just switch
 ```
 
+**Lockfile conflicts** (`devenv.lock`, `flake.lock`): these auto-resolve via
+the repo's merge driver — but only if `just setup-git-drivers` has been run
+once on this clone. To verify:
+
+```bash
+git config --local --get merge.ours.driver   # expect: true
+```
+
+If empty, run `just setup-git-drivers`. See
+[`docs/AGENT-WORKFLOW.md`](../../../docs/AGENT-WORKFLOW.md#lockfile-merge-conflicts)
+for the full story.
+
 ### Rollback to Previous Generation
 
 ```bash

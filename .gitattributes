@@ -1,0 +1,10 @@
+# Generated lockfiles — auto-resolve merge conflicts by keeping the current
+# side ("ours"), then let tooling regenerate as needed. Requires a one-time
+# per-clone driver registration:  just setup-git-drivers
+#
+# Rationale: multiple machines/agents (dev boxes, hsb1 direnv, CI) regenerate
+# these independently, producing spurious textual conflicts on pull/rebase.
+# The lockfiles are deterministic outputs of nix/devenv — never hand-edited —
+# so "keep one side, regenerate if stale" is always safe.
+devenv.lock merge=ours
+flake.lock  merge=ours
