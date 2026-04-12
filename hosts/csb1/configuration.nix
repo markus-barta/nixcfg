@@ -1,7 +1,6 @@
 # csb1 - Cloud Server Barta 1 (Netcup VPS)
 # Hokage Migration: 2025-11-29
 {
-  config,
   lib,
   ...
 }:
@@ -324,12 +323,7 @@
   #   deviceType = "server";
   # };
 
-  # FleetCom agent — fleet monitoring heartbeat
+  # FleetCom agent — now runs as Docker container (FLEET-12)
+  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-csb1
   age.secrets.fleetcom-token-csb1.file = ../../secrets/fleetcom-token-csb1.age;
-
-  services.fleetcom-agent = {
-    enable = true;
-    tokenFile = config.age.secrets.fleetcom-token-csb1.path;
-    agents = [ ];
-  };
 }

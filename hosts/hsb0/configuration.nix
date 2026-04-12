@@ -751,21 +751,8 @@ in
   #   deviceType = "server";
   # };
 
-  # FleetCom agent — fleet monitoring heartbeat
+  # FleetCom agent — now runs as Docker container (FLEET-12)
+  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-hsb0
+  # Agents: FLEETCOM_AGENTS='[{"name":"Merlin","agent_type":"personal-assistant","status":"online"},{"name":"Nimue","agent_type":"personal-assistant","status":"online"}]'
   age.secrets.fleetcom-token-hsb0.file = ../../secrets/fleetcom-token-hsb0.age;
-
-  services.fleetcom-agent = {
-    enable = true;
-    tokenFile = config.age.secrets.fleetcom-token-hsb0.path;
-    agents = [
-      {
-        name = "Merlin";
-        type = "personal-assistant";
-      }
-      {
-        name = "Nimue";
-        type = "personal-assistant";
-      }
-    ];
-  };
 }

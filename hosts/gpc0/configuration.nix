@@ -10,7 +10,6 @@
 #
 
 {
-  config,
   pkgs,
   inputs,
   ...
@@ -194,12 +193,7 @@
   #   deviceType = "gaming";
   # };
 
-  # FleetCom agent — fleet monitoring heartbeat
+  # FleetCom agent — now runs as Docker container (FLEET-12)
+  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-gpc0
   age.secrets.fleetcom-token-gpc0.file = ../../secrets/fleetcom-token-gpc0.age;
-
-  services.fleetcom-agent = {
-    enable = true;
-    tokenFile = config.age.secrets.fleetcom-token-gpc0.path;
-    agents = [ ];
-  };
 }
