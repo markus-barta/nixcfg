@@ -29,7 +29,8 @@
     # nixfleet.url = "github:markus-barta/nixfleet";
     # nixfleet.inputs.nixpkgs.follows = "nixpkgs";
     # FleetCom — fleet management & agent monitoring
-    fleetcom.url = "github:markus-barta/fleetcom";
+    # NixOS module removed — agent now runs as Docker container (FLEET-12)
+    # fleetcom.url = "github:markus-barta/fleetcom";
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
@@ -102,7 +103,8 @@
         agenix.nixosModules.age
         # NixFleet agent — disabled (decommissioned, replaced by FleetCom)
         # inputs.nixfleet.nixosModules.nixfleet-agent
-        inputs.fleetcom.nixosModules.fleetcom-agent
+        # FleetCom NixOS agent — disabled, now runs as Docker container (FLEET-12)
+        # inputs.fleetcom.nixosModules.fleetcom-agent
       ];
       pkgs = import nixpkgs {
         localSystem = {
@@ -212,7 +214,8 @@
             disko.nixosModules.disko
             # NixFleet agent — disabled (decommissioned, replaced by FleetCom)
             # inputs.nixfleet.nixosModules.nixfleet-agent
-            inputs.fleetcom.nixosModules.fleetcom-agent
+            # FleetCom NixOS agent — disabled, now runs as Docker container (FLEET-12)
+            # inputs.fleetcom.nixosModules.fleetcom-agent
           ];
           specialArgs = self.commonArgs // {
             inherit inputs;

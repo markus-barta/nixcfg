@@ -345,19 +345,10 @@
   # SYSTEM
   # ==========================================================================
 
-  # FleetCom agent — fleet monitoring heartbeat
+  # FleetCom agent — now runs as Docker container (FLEET-12)
+  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-miniserver-bp
+  # Agents: FLEETCOM_AGENTS='[{"name":"Percy","agent_type":"assistant","status":"online"}]'
   age.secrets.fleetcom-token-miniserver-bp.file = ../../secrets/fleetcom-token-miniserver-bp.age;
-
-  services.fleetcom-agent = {
-    enable = true;
-    tokenFile = config.age.secrets.fleetcom-token-miniserver-bp.path;
-    agents = [
-      {
-        name = "Percy";
-        type = "assistant";
-      }
-    ];
-  };
 
   # NixOS version - DO NOT CHANGE after installation
   system.stateVersion = "24.11";

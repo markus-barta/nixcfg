@@ -1,6 +1,5 @@
 # hsb8 server - Parents' home automation server
 {
-  config,
   pkgs,
   lib,
   inputs,
@@ -596,12 +595,7 @@ in
   #   deviceType = "server";
   # };
 
-  # FleetCom agent — fleet monitoring heartbeat
+  # FleetCom agent — now runs as Docker container (FLEET-12)
+  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-hsb8
   age.secrets.fleetcom-token-hsb8.file = ../../secrets/fleetcom-token-hsb8.age;
-
-  services.fleetcom-agent = {
-    enable = true;
-    tokenFile = config.age.secrets.fleetcom-token-hsb8.path;
-    agents = [ ];
-  };
 }

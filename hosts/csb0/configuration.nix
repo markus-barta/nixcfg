@@ -2,7 +2,6 @@
 # Smart Home Hub: Node-RED, MQTT, Telegram Bot
 # Hokage Migration: 2025-11-29
 {
-  config,
   lib,
   ...
 }:
@@ -257,14 +256,9 @@
   #   deviceType = "server";
   # };
 
-  # FleetCom agent — fleet monitoring heartbeat
+  # FleetCom agent — now runs as Docker container (FLEET-12)
+  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-csb0
   age.secrets.fleetcom-token-csb0.file = ../../secrets/fleetcom-token-csb0.age;
-
-  services.fleetcom-agent = {
-    enable = true;
-    tokenFile = config.age.secrets.fleetcom-token-csb0.path;
-    agents = [ ];
-  };
 
   # ============================================================================
   # UPTIME KUMA - Cloud services monitoring
