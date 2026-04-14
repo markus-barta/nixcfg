@@ -169,7 +169,7 @@ in
         dhcpv4 = {
           gateway_ip = "192.168.1.1";
           subnet_mask = "255.255.255.0";
-          range_start = "192.168.1.200";
+          range_start = "192.168.1.225";
           range_end = "192.168.1.254";
           lease_duration = 86400; # 24 hours
           icmp_timeout_msec = 1000;

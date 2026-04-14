@@ -180,7 +180,7 @@ sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch
 | ---------------- | ----------------------------- |
 | **Web UI**       | http://192.168.1.100:3000     |
 | **DNS Port**     | 53                            |
-| **DHCP Range**   | 192.168.1.200-254             |
+| **DHCP Range**   | 192.168.1.225-254             |
 | **DHCP Gateway** | 192.168.1.1                   |
 | **Upstream DNS** | 1.1.1.1, 1.0.0.1 (Cloudflare) |
 
@@ -318,6 +318,7 @@ ssh mba@hsb8.lan "sudo cat /home/gb/secrets/watchtower.env"
 
 ## Related Documentation
 
+- [NETWORK.md](./NETWORK.md) - ww87 network topology, device inventory, Orbi mesh, diagnostic playbook
 - [hsb8 README](../README.md) - Full server documentation
 - [ip-100.md](../ip-100.md) - Identity Card (Static IP, MAC, Gateway)
 - [SECRETS.md](../secrets/SECRETS.md) - All credentials (gitignored)
