@@ -336,7 +336,10 @@
   # Scoped to a single workflow via the runner label "bp-pm-staging".
   services.github-runners.bp-pm-staging = {
     enable = true;
-    url = "https://github.com/bytepoets/bp-pm";
+    # Canonical org casing is BYTEPOETS — GitHub registration API returns 404
+    # for lowercase `bytepoets` even though org names are case-insensitive in
+    # most other contexts. Must match the URL shown on the "new runner" page.
+    url = "https://github.com/BYTEPOETS/bp-pm";
     tokenFile = config.age.secrets.miniserver-bp-github-runner-token.path;
     name = "msbp-bp-pm-staging";
     extraLabels = [
