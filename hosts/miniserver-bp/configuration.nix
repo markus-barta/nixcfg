@@ -384,10 +384,15 @@
     # Pre-create an empty trigger file with 0666 so the runner can truncate-
     # rewrite it without needing dir write for unlink+create (simpler and
     # race-free: the path unit fires on modification, including O_TRUNC).
+    # The `z` rule re-applies mode/owner to an existing file — `f` alone
+    # won't adjust an already-created file from a previous generation.
     "f /var/spool/bp-pm-deploy/trigger 0666 root root - "
+    "z /var/spool/bp-pm-deploy/trigger 0666 root root -"
     # Status file starts as "unknown" so a brand-new host doesn't leave a
-    # stale value from a previous deploy.
-    "f /var/spool/bp-pm-deploy/status 0644 root root - unknown"
+    # stale value from a previous deploy. Mode 0666 so the runner
+    # (DynamicUser) can reset it to "pending" at the start of each run.
+    "f /var/spool/bp-pm-deploy/status 0666 root root - unknown"
+    "z /var/spool/bp-pm-deploy/status 0666 root root -"
   ];
 
   systemd.paths.bp-pm-deploy = {
