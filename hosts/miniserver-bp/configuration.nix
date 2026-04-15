@@ -153,10 +153,14 @@
   # Consumed by services.github-runners.bp-pm-staging on first start; after
   # successful registration, the runner persists its own credentials under
   # /var/lib/github-runners/bp-pm-staging/.credentials and this token is burnt.
+  #
+  # mode 444, no owner: the github-runner module uses a systemd DynamicUser,
+  # so there is no static `github-runner` account at activation time — agenix
+  # can't chown to a user that does not yet exist. World-readable is fine
+  # because the /run/agenix tmpfs is only traversable by root.
   age.secrets.miniserver-bp-github-runner-token = {
     file = ../../secrets/miniserver-bp-github-runner-token.age;
-    mode = "400";
-    owner = "github-runner";
+    mode = "444";
   };
 
   # ==========================================================================
