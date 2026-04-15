@@ -274,6 +274,7 @@ in
         jq # JSON processor
         just # Modern make alternative
         devenv # Development environments CLI
+        bun # JS runtime + package manager (provides bun, bunx)
         nix-tree # Explore Nix store dependencies
         nix-output-monitor # Beautiful nix build output with ETA (nom)
 
