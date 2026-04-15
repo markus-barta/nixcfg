@@ -163,6 +163,16 @@
     mode = "444";
   };
 
+  # SMTP env file for bp-pm (PMO) password-reset email magic links.
+  # KEY=VALUE format consumed by virtualisation.oci-containers.containers
+  # .bp-pm.environmentFiles below. Read by the docker daemon at container
+  # start, so root-readable is sufficient.
+  age.secrets.miniserver-bp-bp-pm-smtp-env = {
+    file = ../../secrets/miniserver-bp-bp-pm-smtp-env.age;
+    mode = "400";
+    owner = "root";
+  };
+
   # ==========================================================================
   # WIREGUARD VPN
   # ==========================================================================
@@ -309,7 +319,17 @@
       PORT = "8888";
       INSTANCE_LABEL = "STAGING";
       # COOKIE_SECURE left unset — staging is HTTP-only on the office LAN.
+      # SMTP_* and APP_BASE_URL come from the agenix env file below.
     };
+    environmentFiles = [
+      # KEY=VALUE lines: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS,
+      # SMTP_FROM, APP_BASE_URL. Decrypted by agenix at activation time
+      # to /run/agenix/miniserver-bp-bp-pm-smtp-env (root:root 400).
+      # When the file is missing or empty (e.g. before the agenix file
+      # has been created), the bp-pm backend falls back to dev-mode
+      # stdout logging — the container still starts cleanly.
+      config.age.secrets.miniserver-bp-bp-pm-smtp-env.path
+    ];
     autoStart = true;
   };
 
