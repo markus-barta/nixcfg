@@ -274,6 +274,20 @@ in
   # Edit: agenix -e secrets/miniserver-bp-github-pat.age
   "miniserver-bp-github-pat.age".publicKeys = markus ++ miniserver-bp;
 
+  # GHCR read-only PAT for pulling ghcr.io/bytepoets/bp-pm (PMO staging)
+  # Classic PAT under bytepoets-mba, scope: read:packages only
+  # Format: raw token string (no KEY=VALUE) — consumed by oci-containers.login.passwordFile
+  # Edit: agenix -e secrets/miniserver-bp-ghcr-pat.age
+  "miniserver-bp-ghcr-pat.age".publicKeys = markus ++ miniserver-bp;
+
+  # GitHub Actions self-hosted runner registration token for bp-pm repo.
+  # Generate fresh at: github.com/bytepoets/bp-pm/settings/actions/runners/new
+  # (token is valid ~1h — paste immediately, rebuild, the runner then self-manages
+  # its own persistent credentials in /var/lib/github-runners/bp-pm-staging/)
+  # Format: raw token string.
+  # Edit: agenix -e secrets/miniserver-bp-github-runner-token.age
+  "miniserver-bp-github-runner-token.age".publicKeys = markus ++ miniserver-bp;
+
   # Nextcloud share credentials for Percy (upload/download files)
   # Format: KEY=VALUE lines (NEXTCLOUD_SHARE_URL, NEXTCLOUD_SHARE_PASSWORD)
   # Edit: agenix -e secrets/miniserver-bp-percy-nextcloud-share.age

@@ -141,6 +141,24 @@
     mode = "444";
   };
 
+  # GHCR read-only PAT for pulling ghcr.io/bytepoets/bp-pm (PMO staging container)
+  # Raw token, read by docker daemon at container login — root-readable only.
+  age.secrets.miniserver-bp-ghcr-pat = {
+    file = ../../secrets/miniserver-bp-ghcr-pat.age;
+    mode = "400";
+    owner = "root";
+  };
+
+  # GitHub Actions self-hosted runner registration token (one-shot, ~1h TTL).
+  # Consumed by services.github-runners.bp-pm-staging on first start; after
+  # successful registration, the runner persists its own credentials under
+  # /var/lib/github-runners/bp-pm-staging/.credentials and this token is burnt.
+  age.secrets.miniserver-bp-github-runner-token = {
+    file = ../../secrets/miniserver-bp-github-runner-token.age;
+    mode = "400";
+    owner = "github-runner";
+  };
+
   # ==========================================================================
   # WIREGUARD VPN
   # ==========================================================================
@@ -264,11 +282,30 @@
 
   virtualisation.oci-containers.backend = "docker";
 
-  # Hello-world placeholder — will be replaced by pm-tool (P4550)
-  virtualisation.oci-containers.containers.pm-tool = {
-    image = "nginx:alpine";
-    ports = [ "8888:80" ];
-    volumes = [ "/var/lib/pm-tool/html:/usr/share/nginx/html:ro" ];
+  # ──────────────────────────────────────────────────────────────────────────
+  # bp-pm — PMO (BYTEPOETS Project Management Online) — STAGING
+  # ──────────────────────────────────────────────────────────────────────────
+  # Pulled from GHCR. Image is re-pulled on every deploy via a GitHub Actions
+  # workflow that runs on a self-hosted runner on this host (see services
+  # .github-runners below) — the runner issues `docker compose … pull && up -d`
+  # locally. NixOS only handles first-start, restart, and volume wiring.
+  #
+  # Source repo: https://github.com/bytepoets/bp-pm
+  # Image:        ghcr.io/bytepoets/bp-pm:latest  (private, auth via GHCR PAT)
+  virtualisation.oci-containers.containers.bp-pm = {
+    image = "ghcr.io/bytepoets/bp-pm:latest";
+    login = {
+      registry = "ghcr.io";
+      username = "bytepoets-mba";
+      passwordFile = config.age.secrets.miniserver-bp-ghcr-pat.path;
+    };
+    ports = [ "8888:8888" ];
+    volumes = [ "/var/lib/bp-pm/data:/app/data" ];
+    environment = {
+      PORT = "8888";
+      INSTANCE_LABEL = "STAGING";
+      # COOKIE_SECURE left unset — staging is HTTP-only on the office LAN.
+    };
     autoStart = true;
   };
 
@@ -276,16 +313,53 @@
   # Managed via docker-compose (hosts/miniserver-bp/docker/docker-compose.yml)
   # No longer using oci-containers (systemd mask/unmask hassle avoided)
 
-  # Seed hello-world page (managed by NixOS activation script)
-  system.activationScripts.pm-tool-hello = ''
-    mkdir -p /var/lib/pm-tool/html
-    cat > /var/lib/pm-tool/html/index.html << 'HELLO'
-    <!DOCTYPE html>
-    <html><head><title>pm-tool</title></head>
-    <body><h1>Hello, World!</h1><p>pm-tool placeholder on msbp</p></body>
-    </html>
-    HELLO
+  # bp-pm SQLite volume. The data/ bind-mount must exist before the container
+  # starts, otherwise Docker creates it root-owned and the bp-pm process (uid
+  # root inside the alpine image) works fine, but a wrong-owned host dir from a
+  # previous rsync-era deploy would shadow it.
+  system.activationScripts.bp-pm-data-dir = ''
+    mkdir -p /var/lib/bp-pm/data
   '';
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # GitHub Actions self-hosted runner for bp-pm deploys
+  # ──────────────────────────────────────────────────────────────────────────
+  # Runs as its own `github-runner` user, registers with the bp-pm repo on
+  # first boot using the one-shot token above, then self-manages its
+  # credentials. Executes the `deploy-staging.yml` workflow: pull the new
+  # image from GHCR and restart the `docker-bp-pm.service` unit.
+  #
+  # Scoped to a single workflow via the runner label "bp-pm-staging".
+  services.github-runners.bp-pm-staging = {
+    enable = true;
+    url = "https://github.com/bytepoets/bp-pm";
+    tokenFile = config.age.secrets.miniserver-bp-github-runner-token.path;
+    name = "msbp-bp-pm-staging";
+    extraLabels = [
+      "self-hosted"
+      "bp-pm-staging"
+      "msbp"
+    ];
+    replace = true; # Re-register cleanly if the name already exists upstream
+  };
+
+  # Passwordless sudo for exactly the two commands the deploy workflow runs.
+  # No shell, no wildcards, no broad `ALL=(ALL) NOPASSWD: ALL` — just these.
+  security.sudo.extraRules = [
+    {
+      users = [ "github-runner" ];
+      commands = [
+        {
+          command = "/run/current-system/sw/bin/docker pull ghcr.io/bytepoets/bp-pm:latest";
+          options = [ "NOPASSWD" ];
+        }
+        {
+          command = "/run/current-system/sw/bin/systemctl restart docker-bp-pm.service";
+          options = [ "NOPASSWD" ];
+        }
+      ];
+    }
+  ];
 
   # Create OpenClaw data directories. Config is git-managed (docker/openclaw-percaival/openclaw.json).
   system.activationScripts.openclaw-percaival = ''
@@ -301,7 +375,7 @@
     enable = true;
     allowedTCPPorts = [
       2222 # SSH
-      8888 # pm-tool
+      8888 # bp-pm (PMO staging)
       18789 # OpenClaw Percaival
     ];
     allowedUDPPorts = [
