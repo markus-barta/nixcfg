@@ -348,6 +348,18 @@
       "msbp"
     ];
     replace = true; # Re-register cleanly if the name already exists upstream
+    # The NixOS services.github-runners module sets NoNewPrivileges=true and
+    # PrivateUsers=true by default. Both block `sudo` from elevating — sudo
+    # is a setuid binary, and user namespaces + no-new-privs refuse setuid
+    # elevation even when the sudoers rule is valid. Deploy jobs need to
+    # `sudo docker pull` and `sudo systemctl restart docker-bp-pm.service`,
+    # so flip both off. The security.sudo.extraRules allowlist is still the
+    # real boundary — only those two specific commands can be run as root,
+    # and the runner only executes workflows from this private repo.
+    serviceOverrides = {
+      NoNewPrivileges = false;
+      PrivateUsers = false;
+    };
   };
 
   # Passwordless sudo for exactly the two commands the deploy workflow runs.
