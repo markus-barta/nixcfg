@@ -243,6 +243,7 @@ in
   commonPackages = with pkgs; [
     # Interpreters (global baseline - always available)
     nodejs # Latest Node.js - for IDEs, scripts, terminal
+    bun # JS runtime + package manager (provides bun, bunx)
     python3 # Latest Python 3 - for IDEs, scripts, terminal
 
     # CLI Development Tools
