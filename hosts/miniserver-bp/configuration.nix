@@ -348,37 +348,92 @@
       "msbp"
     ];
     replace = true; # Re-register cleanly if the name already exists upstream
-    # The NixOS services.github-runners module sets NoNewPrivileges=true and
-    # PrivateUsers=true by default. Both block `sudo` from elevating — sudo
-    # is a setuid binary, and user namespaces + no-new-privs refuse setuid
-    # elevation even when the sudoers rule is valid. Deploy jobs need to
-    # `sudo docker pull` and `sudo systemctl restart docker-bp-pm.service`,
-    # so flip both off. The security.sudo.extraRules allowlist is still the
-    # real boundary — only those two specific commands can be run as root,
-    # and the runner only executes workflows from this private repo.
+    # The runner writes deploy trigger/status files under /var/spool/bp-pm-deploy.
+    # That path lives outside the default ReadWritePaths of the runner sandbox,
+    # so add it explicitly. No sudo, no NoNewPrivileges tweaking — the runner
+    # itself stays fully sandboxed, and the actual deploy runs in a separate
+    # root-owned bp-pm-deploy.service (see below) triggered by a path unit.
     serviceOverrides = {
-      NoNewPrivileges = false;
-      PrivateUsers = false;
+      ReadWritePaths = [ "/var/spool/bp-pm-deploy" ];
     };
   };
 
-  # Passwordless sudo for exactly the two commands the deploy workflow runs.
-  # No shell, no wildcards, no broad `ALL=(ALL) NOPASSWD: ALL` — just these.
-  security.sudo.extraRules = [
-    {
-      users = [ "github-runner" ];
-      commands = [
-        {
-          command = "/run/current-system/sw/bin/docker pull ghcr.io/bytepoets/bp-pm:latest";
-          options = [ "NOPASSWD" ];
-        }
-        {
-          command = "/run/current-system/sw/bin/systemctl restart docker-bp-pm.service";
-          options = [ "NOPASSWD" ];
-        }
-      ];
-    }
+  # ──────────────────────────────────────────────────────────────────────────
+  # bp-pm deploy path-triggered service
+  # ──────────────────────────────────────────────────────────────────────────
+  # Architecture: the github-runner writes a timestamp to
+  #   /var/spool/bp-pm-deploy/trigger
+  # A systemd path unit watches that file and fires bp-pm-deploy.service
+  # (oneshot, root), which pulls the new GHCR image and restarts
+  # docker-bp-pm.service. The deploy service writes /var/spool/bp-pm-deploy/
+  # status with `ok` or `failed`/`unhealthy`. The runner then polls that
+  # status file to decide the workflow result.
+  #
+  # Why not sudo? services.github-runners uses a systemd sandbox that sets
+  # ProtectKernelTunables / RestrictSUIDSGID / friends, each of which implies
+  # NoNewPrivileges=yes — a setting that, once on, **cannot be disabled per
+  # systemd.exec(5)**. That blocks setuid elevation (sudo) even when the
+  # sudoers allowlist is valid. Path-triggered deploy sidesteps the whole
+  # problem: the runner never needs any privilege.
+
+  systemd.tmpfiles.rules = [
+    # Spool dir: world-writable so the DynamicUser runner can drop a trigger
+    # file, world-readable so it can read the status file written by the
+    # root-owned deploy service. Contains no secrets.
+    "d /var/spool/bp-pm-deploy 0777 root root -"
+    # Pre-create an empty trigger file with 0666 so the runner can truncate-
+    # rewrite it without needing dir write for unlink+create (simpler and
+    # race-free: the path unit fires on modification, including O_TRUNC).
+    "f /var/spool/bp-pm-deploy/trigger 0666 root root - "
+    # Status file starts as "unknown" so a brand-new host doesn't leave a
+    # stale value from a previous deploy.
+    "f /var/spool/bp-pm-deploy/status 0644 root root - unknown"
   ];
+
+  systemd.paths.bp-pm-deploy = {
+    description = "Watch for bp-pm deploy triggers";
+    wantedBy = [ "multi-user.target" ];
+    pathConfig = {
+      PathChanged = "/var/spool/bp-pm-deploy/trigger";
+      Unit = "bp-pm-deploy.service";
+    };
+  };
+
+  systemd.services.bp-pm-deploy = {
+    description = "Pull latest bp-pm image from GHCR and restart container";
+    # NOT wantedBy anything — only started by the path unit above.
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = pkgs.writeShellScript "bp-pm-deploy" ''
+        set -e
+        echo "running" > /var/spool/bp-pm-deploy/status
+        echo "[bp-pm-deploy] pulling ghcr.io/bytepoets/bp-pm:latest"
+        ${pkgs.docker}/bin/docker pull ghcr.io/bytepoets/bp-pm:latest
+        echo "[bp-pm-deploy] restarting docker-bp-pm.service"
+        ${pkgs.systemd}/bin/systemctl restart docker-bp-pm.service
+        echo "[bp-pm-deploy] waiting for health"
+        for _ in $(seq 1 15); do
+          if ${pkgs.curl}/bin/curl -sf http://localhost:8888/api/health > /dev/null 2>&1; then
+            echo "[bp-pm-deploy] OK"
+            echo "ok" > /var/spool/bp-pm-deploy/status
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "[bp-pm-deploy] health check FAILED after 30s"
+        echo "unhealthy" > /var/spool/bp-pm-deploy/status
+        exit 1
+      '';
+      # Catch-all: if ExecStart bailed before writing a terminal status
+      # (set -e mid-script, OOM, etc.) record a failure.
+      ExecStopPost = "-${pkgs.writeShellScript "bp-pm-deploy-post" ''
+        s=$(cat /var/spool/bp-pm-deploy/status 2>/dev/null || echo running)
+        if [ "$s" = "running" ]; then
+          echo "failed" > /var/spool/bp-pm-deploy/status
+        fi
+      ''}";
+    };
+  };
 
   # Create OpenClaw data directories. Config is git-managed (docker/openclaw-percaival/openclaw.json).
   system.activationScripts.openclaw-percaival = ''
