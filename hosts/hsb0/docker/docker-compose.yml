@@ -61,6 +61,8 @@ services:
       - /run/agenix/hsb0-openclaw-brave-key:/run/secrets/brave-key:ro
       - /run/agenix/hsb0-openclaw-hass-token:/run/secrets/hass-token:ro
       - /run/agenix/hsb0-openclaw-opus-gateway:/home/node/.openclaw/credentials/opus-gateway.env:ro
+      # PPM API key (pm.barta.cm) — shared by Merlin + Nimue (NIX-80).
+      - /run/agenix/hsb0-ppm-api-key:/run/secrets/ppm-api-key:ro
       # MERLIN-specific secrets
       - /run/agenix/hsb0-openclaw-telegram-token:/run/secrets/telegram-token-merlin:ro
       - /run/agenix/hsb0-openclaw-github-pat:/run/secrets/github-pat-merlin:ro

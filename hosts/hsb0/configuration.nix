@@ -755,4 +755,9 @@ in
   # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-hsb0
   # Agents: FLEETCOM_AGENTS='[{"name":"Merlin","agent_type":"personal-assistant","status":"online"},{"name":"Nimue","agent_type":"personal-assistant","status":"online"}]'
   age.secrets.fleetcom-token-hsb0.file = ../../secrets/fleetcom-token-hsb0.age;
+
+  # PPM (Personal Project Management) API key for Merlin/Nimue at pm.barta.cm.
+  # Mounted into openclaw-gateway via docker-compose.yml; entrypoint.sh exports
+  # as PPMAPIKEY (variable name matches Markus's ~/Secrets/ppm.env convention).
+  age.secrets.hsb0-ppm-api-key.file = ../../secrets/hsb0-ppm-api-key.age;
 }
