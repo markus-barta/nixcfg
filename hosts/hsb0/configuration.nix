@@ -510,6 +510,12 @@ in
     file = ../../secrets/hsb0-openclaw-gateway-token.age;
     mode = "444";
   };
+  # FLEET-52: FleetCom operator token, pre-seeded into OpenClaw's
+  # paired.json at entrypoint so FleetCom can pair zero-touch.
+  age.secrets.fleetcom-openclaw-hsb0-tok = {
+    file = ../../secrets/fleetcom-openclaw-hsb0-tok.age;
+    mode = "444";
+  };
   age.secrets.hsb0-openclaw-telegram-token = {
     file = ../../secrets/hsb0-openclaw-telegram-token.age;
     mode = "444";
