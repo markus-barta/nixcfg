@@ -5,7 +5,10 @@
 FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients python3 build-essential openssh-client cron sudo && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python
-RUN npm install -g openclaw@latest sharp
+# node-llama-cpp is openclaw's OPTIONAL embedding dep; npm skips optional native
+# builds silently on failure, leaving local memory-search broken (NIX-70). Force
+# it explicitly so a build failure surfaces at image-build time, not at runtime.
+RUN npm install -g openclaw@latest sharp node-llama-cpp@^3
 
 # Install gogcli (Google Suite CLI for Gmail, Calendar, Drive, etc.)
 # https://github.com/steipete/gogcli
