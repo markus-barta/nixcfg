@@ -100,6 +100,79 @@ cp "$CONFIG_SRC" "$CONFIG_DST"
 echo "[config] Deployed git-managed openclaw.json"
 
 # -----------------------------------------------------------------------------
+# 3.5 FLEET-52: pre-seed FleetCom's operator identity into paired.json
+#     so fleetcom.barta.cm can connect to this gateway with zero manual
+#     pairing. Idempotent — a merge, not a replace, so any other
+#     already-approved devices are preserved.
+# -----------------------------------------------------------------------------
+FC_PUBKEY_FILE=/run/secrets/fleetcom-pubkey
+FC_OP_TOKEN_FILE=/run/secrets/fleetcom-operator-token
+if [ -f "$FC_PUBKEY_FILE" ] && [ -f "$FC_OP_TOKEN_FILE" ]; then
+  PAIRED_JSON=/home/node/.openclaw/devices/paired.json
+  mkdir -p "$(dirname "$PAIRED_JSON")"
+  FC_PUBKEY_FILE="$FC_PUBKEY_FILE" FC_OP_TOKEN_FILE="$FC_OP_TOKEN_FILE" \
+    PAIRED_JSON="$PAIRED_JSON" python3 <<'PY' || echo "[fleetcom] paired.json merge failed — gateway will start without FleetCom pre-seed"
+import base64, hashlib, json, os, time
+
+with open(os.environ["FC_PUBKEY_FILE"]) as f:
+    pem = f.read()
+with open(os.environ["FC_OP_TOKEN_FILE"]) as f:
+    token = f.read().strip()
+
+# Strip PEM armor, decode DER, slice off the SPKI prefix to get the 32-byte
+# raw Ed25519 public key — matches OpenClaw's derivePublicKeyRaw.
+der = base64.b64decode("".join(
+    l.strip() for l in pem.splitlines()
+    if l.strip() and not l.startswith("-----")
+))
+raw = der[-32:]
+device_id = hashlib.sha256(raw).hexdigest()
+pub_b64u = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+paired_path = os.environ["PAIRED_JSON"]
+data = {}
+if os.path.exists(paired_path):
+    try:
+        data = json.loads(open(paired_path).read() or "{}")
+    except Exception:
+        data = {}
+
+now_ms = int(time.time() * 1000)
+entry = data.get(device_id, {})
+existing_token = (entry.get("tokens", {}) or {}).get("operator", {}) or {}
+data[device_id] = {
+    "deviceId":    device_id,
+    "publicKey":   pub_b64u,
+    "platform":    "linux",
+    "clientId":    "gateway-client",
+    "clientMode":  "backend",
+    "role":        "operator",
+    "roles":       ["operator"],
+    "scopes":      ["operator.read", "operator.pairing"],
+    "approvedAt":  entry.get("approvedAt", now_ms),
+    "approvedScopes": ["operator.read", "operator.pairing"],
+    "tokens": {
+        "operator": {
+            "token":       token,
+            "role":        "operator",
+            "scopes":      ["operator.read", "operator.pairing"],
+            "createdAtMs": existing_token.get("createdAtMs", now_ms),
+        },
+    },
+}
+
+os.makedirs(os.path.dirname(paired_path), exist_ok=True)
+tmp = paired_path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(data, f, indent=2)
+os.replace(tmp, paired_path)
+print(f"[fleetcom] paired.json seeded with deviceId={device_id[:12]} ({len(data)} total entries)")
+PY
+else
+  echo "[fleetcom] pre-seed skipped (no /run/secrets/fleetcom-pubkey + fleetcom-operator-token)"
+fi
+
+# -----------------------------------------------------------------------------
 # 4. Per-agent init
 # -----------------------------------------------------------------------------
 init_agent() {

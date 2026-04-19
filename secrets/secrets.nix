@@ -98,6 +98,16 @@ in
   "fleetcom-token-gpc0.age".publicKeys = markus ++ gpc0;
   "fleetcom-token-miniserver-bp.age".publicKeys = markus ++ miniserver-bp;
 
+  # FleetCom ↔ OpenClaw per-gateway operator identity (FLEET-51/52).
+  # FleetCom connects to each gateway's WS RPC with a gateway-scoped
+  # Ed25519 keypair + operator token. Pre-seeded into OpenClaw's
+  # paired.json at container boot so the first handshake is zero-touch.
+  #   -key.age : PKCS#8 Ed25519 private PEM (fleetcom container only)
+  #   -tok.age : shared operator token (both fleetcom + gateway hosts)
+  # Public half lives alongside the compose as a plain PEM (non-secret).
+  "fleetcom-openclaw-hsb0-key.age".publicKeys = markus ++ csb1;
+  "fleetcom-openclaw-hsb0-tok.age".publicKeys = markus ++ csb1 ++ hsb0;
+
   # Uptime Kuma environment variables (for Apprise tokens)
   # Format: KEY=VALUE lines
   # Edit: agenix -e secrets/uptime-kuma-env.age

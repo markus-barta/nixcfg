@@ -57,6 +57,10 @@ services:
       - /run/agenix/hsb0-groq-api-key:/run/secrets/groq-api-key:ro
       - /run/agenix/hsb0-uptime-kuma-api-key:/run/secrets/uptime-kuma-api-key:ro
       - /run/agenix/hsb0-openclaw-gateway-token:/run/secrets/gateway-token:ro
+      # FLEET-52: FleetCom's operator identity, merged into paired.json
+      # by the entrypoint so the fleetcom↔gateway pairing is zero-touch.
+      - /run/agenix/fleetcom-openclaw-hsb0-tok:/run/secrets/fleetcom-operator-token:ro
+      - ./openclaw-gateway/fleetcom-pubkey.pem:/run/secrets/fleetcom-pubkey:ro
       - /run/agenix/hsb0-openclaw-openrouter-key:/run/secrets/openrouter-key:ro
       - /run/agenix/hsb0-openclaw-brave-key:/run/secrets/brave-key:ro
       - /run/agenix/hsb0-openclaw-hass-token:/run/secrets/hass-token:ro

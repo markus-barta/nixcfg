@@ -326,4 +326,19 @@
   # FleetCom agent — now runs as Docker container (FLEET-12)
   # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-csb1
   age.secrets.fleetcom-token-csb1.file = ../../secrets/fleetcom-token-csb1.age;
+
+  # FLEET-51/52: per-gateway operator identity FleetCom uses to connect
+  # to each OpenClaw gateway via WS. Mounted into the fleetcom container
+  # at /run/agenix/fleetcom-openclaw-<host>-{key,tok}; the manager picks
+  # them up on reconcile and starts auto-approving bridge pairings.
+  age.secrets.fleetcom-openclaw-hsb0-key = {
+    file = ../../secrets/fleetcom-openclaw-hsb0-key.age;
+    path = "/run/agenix/fleetcom-openclaw-hsb0-key";
+    mode = "0400";
+  };
+  age.secrets.fleetcom-openclaw-hsb0-tok = {
+    file = ../../secrets/fleetcom-openclaw-hsb0-tok.age;
+    path = "/run/agenix/fleetcom-openclaw-hsb0-tok";
+    mode = "0400";
+  };
 }
