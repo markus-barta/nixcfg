@@ -294,6 +294,27 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
 
+  # FleetCom Bosun — heartbeats + container lifecycle to https://fleet.barta.cm.
+  # Migrated from /opt/fleetcom-agent/ on 2026-04-19 (NIX-82). FLEETCOM_TOKEN
+  # stays in /opt/fleetcom-agent/.env until a follow-up wires the agenix
+  # secret (fleetcom-token-hsb1) directly.
+  fleetcom-agent:
+    image: ghcr.io/markus-barta/fleetcom-bosun:latest
+    container_name: fleetcom-agent
+    restart: unless-stopped
+    env_file: [/opt/fleetcom-agent/.env]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+    environment:
+      - FLEETCOM_URL=https://fleet.barta.cm
+      - FLEETCOM_HOSTNAME=hsb1
+    labels:
+      - traefik.enable=false
+      - com.centurylinklabs.watchtower.enable=true
+
 volumes:
   opus-stream-app: # Mutable runtime for opus-stream-to-mqtt (node_modules cached here)
 
