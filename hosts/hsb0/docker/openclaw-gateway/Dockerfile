@@ -1,5 +1,8 @@
 # openclaw-gateway: multi-agent container (Merlin + Nimue)
-FROM node:22-bookworm-slim
+# Node 24: required by node-llama-cpp (optional dep of openclaw) for local
+# memory-search embeddings. OpenClaw itself runs on >=22.14.0; the bump exists
+# only to satisfy the embedder's prebuilt-binary matrix.
+FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients python3 build-essential openssh-client cron sudo && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python
 RUN npm install -g openclaw@latest sharp
