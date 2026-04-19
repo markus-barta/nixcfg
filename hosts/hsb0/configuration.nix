@@ -759,5 +759,10 @@ in
   # PPM (Personal Project Management) API key for Merlin/Nimue at pm.barta.cm.
   # Mounted into openclaw-gateway via docker-compose.yml; entrypoint.sh exports
   # as PPMAPIKEY (variable name matches Markus's ~/Secrets/ppm.env convention).
-  age.secrets.hsb0-ppm-api-key.file = ../../secrets/hsb0-ppm-api-key.age;
+  # mode = "444" matches sibling container-mounted secrets so node user (uid
+  # 1000) inside openclaw-gateway can read it.
+  age.secrets.hsb0-ppm-api-key = {
+    file = ../../secrets/hsb0-ppm-api-key.age;
+    mode = "444";
+  };
 }
