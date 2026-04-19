@@ -1,0 +1,22 @@
+# hsb8 docker services (currently: just FleetCom Bosun).
+# Migrated from /opt/fleetcom-agent/ on 2026-04-19 (NIX-82).
+services:
+  # FleetCom Bosun — heartbeats + container lifecycle to https://fleet.barta.cm.
+  # FLEETCOM_TOKEN stays in /opt/fleetcom-agent/.env until a follow-up wires
+  # the agenix secret (fleetcom-token-hsb8) directly.
+  fleetcom-agent:
+    image: ghcr.io/markus-barta/fleetcom-bosun:latest
+    container_name: fleetcom-agent
+    restart: unless-stopped
+    env_file: [/opt/fleetcom-agent/.env]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+    environment:
+      - FLEETCOM_URL=https://fleet.barta.cm
+      - FLEETCOM_HOSTNAME=hsb8
+    labels:
+      - traefik.enable=false
+      - com.centurylinklabs.watchtower.enable=true
