@@ -93,6 +93,61 @@ services:
     labels:
       - com.centurylinklabs.watchtower.enable=false
 
+  # FleetCom Bosun agent — heartbeats + container lifecycle events to
+  # https://fleet.barta.cm. Moved into this compose project from
+  # /opt/fleetcom-agent/ on 2026-04-19 (NIX-76) so it shares a default
+  # network with fleetcom-agent-bridge — bridge's /v1/agent-state is then
+  # resolvable as `http://fleetcom-agent-bridge:9180`. Image is
+  # `fleetcom-bosun` even though container is `fleetcom-agent` (legacy
+  # name kept to avoid touching the FleetCom-server side host record).
+  # FLEETCOM_TOKEN comes from /opt/fleetcom-agent/.env (root:root 0600);
+  # left there until a follow-up wires the agenix secret in directly.
+  fleetcom-agent:
+    image: ghcr.io/markus-barta/fleetcom-bosun:latest
+    container_name: fleetcom-agent
+    restart: unless-stopped
+    env_file: [/opt/fleetcom-agent/.env]
+    environment:
+      - FLEETCOM_URL=https://fleet.barta.cm
+      - FLEETCOM_HOSTNAME=hsb0
+      - FLEETCOM_AGENTS=[{"name":"Merlin","agent_type":"personal-assistant","status":"online"},{"name":"Nimue","agent_type":"personal-assistant","status":"online"}]
+      # Bridge's snapshot endpoint — same compose project = DNS resolves.
+      - OPENCLAW_STATE_URL=http://fleetcom-agent-bridge:9180/v1/agent-state
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  # FleetCom agent-bridge — tails openclaw-gateway docker logs, converts
+  # structured lines into agent-observability events, exposes /v1/agent-state
+  # for fleetcom-agent (bosun) to scrape, pushes lifecycle events directly to
+  # FleetCom. See fleetcom/agent-bridge/README.md and OPENCLAW-RUNBOOK.md
+  # "FleetCom Observability" section. (NIX-76, FLEET-36 rollout.)
+  fleetcom-agent-bridge:
+    image: ghcr.io/markus-barta/fleetcom-agent-bridge:latest
+    container_name: fleetcom-agent-bridge
+    restart: unless-stopped
+    depends_on:
+      - openclaw-gateway
+    env_file: [/opt/fleetcom-agent/.env]
+    environment:
+      - FLEETCOM_URL=https://fleet.barta.cm
+      - FLEETCOM_HOSTNAME=hsb0
+      - BRIDGE_LOG_CONTAINER=openclaw-gateway
+      - BRIDGE_AGENT_NAMES=merlin,nimue
+      - BRIDGE_AGENT_TYPE=openclaw
+    volumes:
+      # Read-only docker socket — needed to tail openclaw-gateway logs.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      # Loopback only — bosun reaches the bridge via docker DNS, not host port.
+      - "127.0.0.1:9180:9180"
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
   ncps:
     image: kalbasit/ncps:latest
     container_name: ncps
