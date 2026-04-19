@@ -289,38 +289,6 @@ in
   # Edit: agenix -e secrets/miniserver-bp-github-pat.age
   "miniserver-bp-github-pat.age".publicKeys = markus ++ miniserver-bp;
 
-  # GHCR read-only PAT for pulling ghcr.io/bytepoets/bp-pm (PMO staging)
-  # Classic PAT under bytepoets-mba, scope: read:packages only
-  # Format: raw token string (no KEY=VALUE) — consumed by oci-containers.login.passwordFile
-  # Edit: agenix -e secrets/miniserver-bp-ghcr-pat.age
-  "miniserver-bp-ghcr-pat.age".publicKeys = markus ++ miniserver-bp;
-
-  # GitHub Actions self-hosted runner registration token for bp-pm repo.
-  # Generate fresh at: github.com/bytepoets/bp-pm/settings/actions/runners/new
-  # (token is valid ~1h — paste immediately, rebuild, the runner then self-manages
-  # its own persistent credentials in /var/lib/github-runners/bp-pm-staging/)
-  # Format: raw token string.
-  # Edit: agenix -e secrets/miniserver-bp-github-runner-token.age
-  "miniserver-bp-github-runner-token.age".publicKeys = markus ++ miniserver-bp;
-
-  # SMTP credentials for bp-pm (PMO) password-reset email magic links.
-  # Provider: SendGrid SMTP relay. The username is the literal string
-  # "apikey" — that's how SendGrid's SMTP auth works, the API key itself
-  # goes in SMTP_PASS. APP_BASE_URL is included so the magic link in the
-  # email points at the right host (live → pm.bytepoets.com, staging →
-  # http://10.17.1.40:8888).
-  #
-  # Format: KEY=VALUE lines (consumed by oci-containers `environmentFiles`):
-  #   SMTP_HOST=smtp.sendgrid.net
-  #   SMTP_PORT=587
-  #   SMTP_USER=apikey
-  #   SMTP_PASS=SG.xxxxxxxxxxxxxxxx
-  #   SMTP_FROM=noreply@pm.bytepoets.com
-  #   APP_BASE_URL=http://10.17.1.40:8888
-  #
-  # Edit: agenix -e secrets/miniserver-bp-bp-pm-smtp-env.age
-  "miniserver-bp-bp-pm-smtp-env.age".publicKeys = markus ++ miniserver-bp;
-
   # Nextcloud share credentials for Percy (upload/download files)
   # Format: KEY=VALUE lines (NEXTCLOUD_SHARE_URL, NEXTCLOUD_SHARE_PASSWORD)
   # Edit: agenix -e secrets/miniserver-bp-percy-nextcloud-share.age
