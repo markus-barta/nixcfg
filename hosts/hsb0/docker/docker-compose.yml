@@ -122,6 +122,10 @@ services:
       - /etc/os-release:/host/etc/os-release:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
+      # Bosun is push-only (no HTTP surface) — opt out of any Traefik
+      # auto-discovery to avoid "port is missing" errors. (csb1 hit this
+      # 2026-04-19; mirroring defensively here.)
+      - traefik.enable=false
 
   # FleetCom agent-bridge — tails openclaw-gateway docker logs, converts
   # structured lines into agent-observability events, exposes /v1/agent-state
@@ -149,6 +153,9 @@ services:
       - "127.0.0.1:9180:9180"
     labels:
       - com.centurylinklabs.watchtower.enable=true
+      # /v1/agent-state is internal-only (bosun scrapes via container DNS).
+      # No public Traefik routing wanted.
+      - traefik.enable=false
 
   ncps:
     image: kalbasit/ncps:latest
