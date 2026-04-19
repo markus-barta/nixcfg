@@ -724,6 +724,66 @@ The entrypoint handles both agents in a loop:
 
 ---
 
+## FleetCom Observability (FLEET-36)
+
+OpenClaw turn/tool/reply activity is surfaced in the FleetCom
+dashboard via the **agent-bridge** sidecar. It runs alongside
+`openclaw-gateway` on hsb0, tails its docker logs, converts
+structured lines into generic agent-events, and publishes them to
+FleetCom on two channels:
+
+- `GET /v1/agent-state` on `:9180` — scraped by `fleetcom-bosun` each
+  heartbeat (60s).
+- `POST /api/agent-events` to `https://fleet.barta.cm` — real-time
+  lifecycle push (turn started, tool invoked, replied, errored).
+
+### Wiring
+
+1. Deploy the bridge container on hsb0 (see
+   [`agent-bridge/docker-compose.sample.yml`](https://github.com/markus-barta/fleetcom/tree/main/agent-bridge)).
+2. Add `OPENCLAW_STATE_URL=http://agent-bridge:9180/v1/agent-state`
+   to the `fleetcom-bosun` service env on hsb0.
+3. Share `FLEETCOM_TOKEN` (the host's Bosun bearer) with the bridge.
+
+### What shows up on the dashboard
+
+- Rich agent chip: `merlin · BUSY 12m · claude-cli → hsb1`
+- Agent drawer (click the chip): current turn span, last 50 turns,
+  per-chat last-reply, recent errors, model/prompt config.
+- Global **ACTIVITY** drawer (header button): live event stream
+  across all agents with filters by agent/kind/severity, pause/resume.
+- **STUCK** detector: card border pulses red + sticky toast when a
+  turn runs >`stuck_threshold_sec` (default 120s) without any event
+  for >`stuck_silence_sec` (default 120s).
+
+### Debugging when the dashboard goes quiet
+
+Ranked by likelihood:
+
+1. **Log format drift.** OpenClaw rotates a field name and the
+   regex patterns stop matching. Tail `docker logs openclaw-gateway`,
+   compare against the patterns in
+   [`agent-bridge/cmd/agent-bridge/patterns.go`](https://github.com/markus-barta/fleetcom/blob/main/agent-bridge/cmd/agent-bridge/patterns.go),
+   adjust, redeploy.
+2. **Bridge can't reach FleetCom.** `docker logs fleetcom-agent-bridge`
+   shows `event dropped after 3 retries`. Check `FLEETCOM_URL`,
+   `FLEETCOM_TOKEN`, outbound HTTPS from hsb0.
+3. **Bosun not scraping.** `OPENCLAW_STATE_URL` env var missing, or
+   bridge not on the same docker network. Test:
+   `docker exec fleetcom-bosun wget -qO- http://agent-bridge:9180/v1/agent-state`.
+4. **Excerpts not showing** in the dashboard — set `emitExcerpts:
+true` in the agent's `openclaw.json` config block. Default is off
+   (metadata-only by privacy policy).
+5. **STUCK false-positive** on a legitimately long-running tool — the
+   wrapper isn't emitting any observable log line. Either log
+   `typing.refreshed` periodically, or raise `stuck_silence_sec` in
+   the snapshot's `config` block.
+
+Canonical schema reference:
+[`fleetcom/docs/AGENT-OBSERVABILITY.md`](https://github.com/markus-barta/fleetcom/blob/main/docs/AGENT-OBSERVABILITY.md).
+
+---
+
 ## Related Documentation
 
 - [hsb0 RUNBOOK](./RUNBOOK.md) - Main host runbook
@@ -731,3 +791,4 @@ The entrypoint handles both agents in a loop:
 - [OpenClaw gogcli Notes](./OPENCLAW-GOGCLI.md) - Merlin gogcli knowledge base
 - [Agent-to-Agent Comms (P40)](../backlog/P40--1681369--agent-to-agent-comms-opencode-merlin.md)
 - [Git-managed openclaw.json (P40, done)](../backlog/P40--599943c--merlin-git-managed-openclaw-json.md)
+- [FleetCom Agent Observability schema](https://github.com/markus-barta/fleetcom/blob/main/docs/AGENT-OBSERVABILITY.md) — canonical event + snapshot contract
