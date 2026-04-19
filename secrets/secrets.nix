@@ -232,7 +232,7 @@ in
   "hsb0-openclaw-github-pat.age".publicKeys = markus ++ hsb0;
 
   # PPM (pm.barta.cm) API key — shared by Merlin + Nimue for personal PM access.
-  # Format: bare token (starts with `bppm_`, legacy bp-pm fork prefix).
+  # Format: bare token (starts with `paimos_`).
   # Edit: agenix -e secrets/hsb0-ppm-api-key.age
   "hsb0-ppm-api-key.age".publicKeys = markus ++ hsb0;
 
