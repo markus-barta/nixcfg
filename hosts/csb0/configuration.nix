@@ -41,6 +41,11 @@
     ];
   };
 
+  # Keep scripted stage 1 initrd: `boot.initrd.network.postCommands` below is
+  # not supported under systemd stage 1 (nixpkgs default flipped). Revisit
+  # migration to `boot.initrd.systemd.services.*` when console-testable.
+  boot.initrd.systemd.enable = lib.mkForce false;
+
   # Network settings for the initial RAM disk (initrd)
   boot.initrd.network = {
     enable = true;
