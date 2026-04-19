@@ -27,6 +27,15 @@ TELEGRAM_BOT_TOKEN_NIMUE=$(cat /run/secrets/telegram-token-nimue)
 GITHUB_PAT_NIMUE=$(cat /run/secrets/github-pat-nimue)
 UPTIME_KUMA_API_KEY=$(cat /run/secrets/uptime-kuma-api-key)
 
+# PPM (pm.barta.cm) API key — shared by Merlin + Nimue (NIX-80). Optional:
+# warn if the agenix mount isn't materialised yet so a first-boot doesn't fail.
+PPMAPIKEY=""
+if [ -f /run/secrets/ppm-api-key ]; then
+  PPMAPIKEY=$(cat /run/secrets/ppm-api-key)
+else
+  echo "[ppm] /run/secrets/ppm-api-key missing - PPM API access disabled until secret is provisioned"
+fi
+
 GITHUB_PAT_MERLIN=""
 if [ -f /run/secrets/github-pat-merlin ]; then
   GITHUB_PAT_MERLIN=$(cat /run/secrets/github-pat-merlin)
@@ -44,6 +53,7 @@ TELEGRAM_BOT_TOKEN_NIMUE=${TELEGRAM_BOT_TOKEN_NIMUE}
 UPTIME_KUMA_API_KEY=${UPTIME_KUMA_API_KEY}
 ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
 GROQ_API_KEY=${GROQ_API_KEY}
+PPMAPIKEY=${PPMAPIKEY}
 EOF
 
 # Shell-sourceable version for docker exec / oc wrapper
@@ -56,6 +66,7 @@ export TELEGRAM_BOT_TOKEN_NIMUE=${TELEGRAM_BOT_TOKEN_NIMUE}
 export UPTIME_KUMA_API_KEY=${UPTIME_KUMA_API_KEY}
 export ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
 export GROQ_API_KEY=${GROQ_API_KEY}
+export PPMAPIKEY=${PPMAPIKEY}
 EOF
 
 # shellcheck disable=SC1090,SC1091
