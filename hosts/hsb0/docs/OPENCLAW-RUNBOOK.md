@@ -96,6 +96,25 @@ Memory is plain Markdown in each agent's workspace (`workspace-merlin/memory/`, 
 
 **Why not OpenRouter?** OpenRouter only provides chat/completions, no embedding endpoint.
 
+### Container build requirement
+
+`node-llama-cpp` is an **optional** dependency of `openclaw` and **must be installed explicitly** in the Dockerfile. npm silently skips optional native deps when their build/binary-fetch fails — leaving local embeddings unavailable at runtime with the misleading "memory search broken" doctor warning. The Dockerfile lists it directly:
+
+```dockerfile
+RUN npm install -g openclaw@latest sharp node-llama-cpp@^3
+```
+
+`node:24-bookworm-slim` is the base image — Node 24 is required by the embedder's prebuilt-binary matrix (Node 22 leaves it as `UNMET OPTIONAL DEPENDENCY` even when explicitly listed).
+
+If memory search reports unavailable after a rebuild, verify with:
+
+```bash
+docker exec openclaw-gateway sh -c 'ls /usr/local/lib/node_modules/ | grep node-llama-cpp'
+docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory status --deep --agent merlin'
+```
+
+Expected: `node-llama-cpp` directory present; `Embeddings: ready`, `Vector: ready (768 dims)`.
+
 ### Commands
 
 ```bash
@@ -563,6 +582,8 @@ the container. Internal CLI (inside container) uses `ws://127.0.0.1:18789` autom
 
 ### Telegram pairing broke after upgrade
 
+> **Update 2026-04-19**: Pairings for both Merlin and Nimue **survived** the upgrade from 2026.4.8 → 2026.4.15. The "always lost on upgrade" guidance below is from the 2026.2.26 era and may no longer apply. Still pre-stage the re-pair commands in case a future upgrade reverts the behavior — but expect pairings to persist.
+
 After upgrading to 2026.2.26, existing Telegram pairings are lost. Re-pair:
 
 ```bash
@@ -650,6 +671,7 @@ Known quirk — CLI RPC enforces pairing even on loopback. In-process agent runt
 
 ## Migration History
 
+- **2026-04-19**: Bundled maintenance window (NIX-74). Upgraded OpenClaw 2026.4.8 → 2026.4.15 and Node 22 → 24 in the openclaw-gateway image (single Dockerfile change covers both, since the Node bump exists only to satisfy node-llama-cpp's prebuilt-binary matrix). Memory search now works locally for both agents (NIX-70). **Two builds required**: first build kept Node 24 + openclaw@latest but left `node-llama-cpp` as `UNMET OPTIONAL DEPENDENCY` because npm silently skips optional native builds; fix-forward listed `node-llama-cpp@^3` explicitly in the npm install line. **Telegram pairings survived** for both bots (vs. RUNBOOK §564 prediction) — re-pair commands were pre-staged but unused. `dreaming.storage.mode` default flipped inline → `separate` upstream — accepted new default. Telegram round-trip latency dropped 3718ms → 73ms. doctor --fix only installed shell completion. ACP/sub-agent capability (NIX-73) was pulled from this window after Anthropic's 2026-04-04 ToS change blocked Pro/Max OAuth in claude-agent-acp; NIX-73 now parked as foundational ticket awaiting a non-Anthropic ACP target (codex / gemini-cli / planned 4-Mac-mini exo-cluster).
 - **2026-03-07**: Upgraded to OpenClaw 2026.3.2. Breaking changes: (1) `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — removed. (2) `ws://` hardened to loopback-only — mitigated by `bind: "lan"`. (3) `gateway.tls.enabled: true` added — built-in self-signed TLS (RSA-2048, 10-year cert). Control UI now requires HTTPS (browser secure context). `bind` changed from `"tailnet"` to `"lan"` (`0.0.0.0`) so CLI inside container uses `ws://127.0.0.1` (no TLS/fingerprint needed) while browser uses `wss://100.64.0.6:18789`. Removed `OPENCLAW_GATEWAY_URL` env var from docker-compose (was causing TLS fingerprint resolution failure in explicit connection mode).
 - **2026-02-22**: Merlin SSH access to hsb1 added. Dedicated `merlin` user on hsb1 (wheel + docker). See `hosts/hsb1/docs/backlog/P40--160a6d8--merlin-ssh-access-hsb1.md`.
 - **2026-02-21**: Migrated from single-agent `openclaw-merlin` to multi-agent `openclaw-gateway`. Nimue added as second agent. See `hosts/hsb0/docs/backlog/P40--339a6f7--setup-nimue-multi-agent.md`.
