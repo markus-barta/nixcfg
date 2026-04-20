@@ -85,14 +85,15 @@ hosts/csb1/
 
 ## Services (Docker)
 
-| Service       | Domain             | Purpose                |
-| ------------- | ------------------ | ---------------------- |
-| Grafana       | grafana.barta.cm   | Monitoring dashboards  |
-| InfluxDB      | influxdb.barta.cm  | Time series database   |
-| Docmost       | docmost.barta.cm   | Documentation/wiki     |
-| Paperless-ngx | paperless.barta.cm | Document management    |
-| Hedgedoc      | hdoc.barta.cm      | Collaborative markdown |
-| Traefik       | -                  | Reverse proxy & SSL    |
+| Service       | Domain             | Purpose                          |
+| ------------- | ------------------ | -------------------------------- |
+| PAIMOS (ppm)  | pm.barta.cm        | Project management (paimos v1.x) |
+| Grafana       | grafana.barta.cm   | Monitoring dashboards            |
+| InfluxDB      | influxdb.barta.cm  | Time series database             |
+| Docmost       | docmost.barta.cm   | Documentation/wiki               |
+| Paperless-ngx | paperless.barta.cm | Document management              |
+| Hedgedoc      | hdoc.barta.cm      | Collaborative markdown           |
+| Traefik       | -                  | Reverse proxy & SSL              |
 
 All services run via Docker Compose with Traefik handling SSL (15 containers).
 

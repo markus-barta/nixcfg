@@ -34,6 +34,7 @@ ssh mba@152.53.64.166 -p 2222
 ║ VNC:       servercontrolpanel.de/SCP                       ║
 ╠════════════════════════════════════════════════════════════╣
 ║ 🌐 SERVICES                                                ║
+║ • PAIMOS (PM): https://pm.barta.cm                         ║
 ║ • Grafana:     https://grafana.barta.cm                    ║
 ║ • InfluxDB:    http://influxdb.barta.cm:8086               ║
 ║ • Paperless:   https://paperless.barta.cm                  ║
@@ -140,6 +141,9 @@ ssh mba@cs1.barta.cm -p 2222 "cd ~/docker && docker compose stop nixfleet"
 | csb1-smtp-1                 | Mail relay                 |
 | csb1-whoami-1               | Test service               |
 | csb1-excalidraw-1           | Whiteboard (draw.barta.cm) |
+| ppm                         | PAIMOS PM (pm.barta.cm)    |
+| minio                       | S3 for ppm attachments     |
+| paimos-www                  | paimos.com static (caddy)  |
 
 ### Quick Commands
 
@@ -159,6 +163,36 @@ docker logs csb1-influxdb-1 --tail 50
 # Restart all services
 cd ~/docker && docker-compose down && docker-compose up -d
 ```
+
+### Upgrade PAIMOS (pm.barta.cm)
+
+Image source: `ghcr.io/markus-barta/paimos:latest` (published by the
+`ci.yml` workflow on every push to main).
+
+```bash
+# On csb1 — safety backup first, then pull + swap:
+ssh mba@cs1.barta.cm -p 2222
+TS=$(date +%Y-%m-%d-%H%M)
+mkdir -p ~/backups/paimos-$TS
+docker save ghcr.io/markus-barta/paimos:latest | gzip > ~/backups/paimos-$TS/paimos-latest.tar.gz
+docker run --rm -v ppm_data:/data -v ~/backups/paimos-$TS:/backup alpine \
+  tar czf /backup/ppm_data.tar.gz -C /data .
+
+# Pull + recreate:
+/etc/paimos-deploy.sh
+# Equivalent: (cd ~/docker && docker compose pull ppm && docker compose up -d ppm)
+
+# Verify:
+docker ps --filter name=ppm --format '{{.Image}} {{.Status}}'
+curl -fsSI https://pm.barta.cm/ | head -1
+docker logs ppm --tail 50
+```
+
+Rollback on failure: `docker load -i ~/backups/paimos-<TS>/paimos-latest.tar.gz`,
+pin the compose `image:` line back to the saved tag, `docker compose up -d ppm`.
+
+Data rollback (only on migration corruption — additive-only schema, very rare):
+`docker compose stop ppm && docker run --rm -v ppm_data:/data -v ~/backups/paimos-<TS>:/backup alpine sh -c "rm -rf /data/* && tar xzf /backup/ppm_data.tar.gz -C /data" && docker compose up -d ppm`.
 
 ---
 

@@ -172,6 +172,23 @@
   };
 
   # ============================================================================
+  # PAIMOS DEPLOY — pull latest GHCR image and restart ppm container
+  # ============================================================================
+  # Image: ghcr.io/markus-barta/paimos (tag pinned in ~/docker/docker-compose.yml,
+  # typically `:latest`). Assumes that file already points at the GHCR image.
+  environment.etc."paimos-deploy.sh" = {
+    mode = "0755";
+    text = ''
+      #!/bin/sh
+      set -eu
+      cd /home/mba/docker
+      docker compose pull ppm
+      docker compose up -d ppm
+      echo "ok: ppm updated"
+    '';
+  };
+
+  # ============================================================================
   # FLEETCOM CI DEPLOY — pull latest image and restart container
   # ============================================================================
   # GitHub Actions: ssh -p 2222 mba@csb1 fleetcom-deploy
