@@ -33,15 +33,16 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 
 ## Important Locations
 
-| What                       | Location/Notes                            |
-| -------------------------- | ----------------------------------------- |
-| NixOS infra config         | `~/Code/nixcfg`                           |
-| "hokage" ref (pbek-nixcfg) | `~/Code/pbek-nixcfg`                      |
-| Secrets / credentials      | 1Password (no agent access) — ping Markus |
-| Host runbooks              | `hosts/<hostname>/docs/RUNBOOK.md`        |
-| Agent workflow             | `docs/AGENT-WORKFLOW.md`                  |
-| Infrastructure inventory   | `docs/INFRASTRUCTURE.md`                  |
-| Task/project mgmt          | PPM (`pm.barta.cm`)                       |
+| What                       | Location/Notes                                      |
+| -------------------------- | --------------------------------------------------- |
+| NixOS infra config         | `~/Code/nixcfg`                                     |
+| "hokage" ref (pbek-nixcfg) | `~/Code/pbek-nixcfg`                                |
+| Secrets / credentials      | 1Password (no agent access) — ping Markus           |
+| Host runbooks              | `hosts/<hostname>/docs/RUNBOOK.md`                  |
+| Agent workflow             | `docs/AGENT-WORKFLOW.md`                            |
+| Infrastructure inventory   | `docs/INFRASTRUCTURE.md`                            |
+| Task/project mgmt          | PPM (`pm.barta.cm`)                                 |
+| Fleet / agent dashboard    | FleetCom (`fleet.barta.cm`, repo `~/Code/fleetcom`) |
 
 ## Docs
 
@@ -195,9 +196,12 @@ ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 
 ## Task / Backlog Management
 
-All task and backlog management is handled via **PPM** (`pm.barta.cm`).
+All task and backlog management is handled via **PPM** = **Personal Project Management** at `https://pm.barta.cm` (Markus says "ppm" or "PPM" interchangeably). Schema mirrors bp-pm (BYTEPOETS PMO).
 
-- Default project: **NIX** (project ID: 1) for nixcfg infrastructure
-- Cross-project: **DSC26** (project ID: 2) for DSC-related work
-- API: `curl -s -H "Authorization: Bearer $PPMAPIKEY" https://pm.barta.cm/api/...`
-- No markdown backlog files in this repo (migrated to PPM, tagged `backlog-final`)
+- **Auth**: `source ~/Secrets/ppm.env` → exposes `$PPMAPIKEY`. Never cat/read the file. Hostname is `pm.barta.cm` (no `$URL` var in this env file).
+- **API**: `curl -s -H "Authorization: Bearer $PPMAPIKEY" https://pm.barta.cm/api/...`
+- **Project IDs**: NIX=1 (this repo), DSC26=2, GSC26=3, FLEET=4 (fleetcom), FKID=5 (funkeykid). User `mba` = `user_id=2`.
+- **Default for nixcfg work**: project NIX (1). Default for fleetcom work: FLEET (4), parent epic FLEET-1 (id=183).
+- **Search before create** to dedupe: `GET /api/search?q=<topic>`.
+- **Enums**: type ∈ {epic, ticket, task}; status ∈ {new, backlog, in-progress, qa, done, accepted, invoiced, cancelled}; priority ∈ {low, medium, high}.
+- **No markdown backlog files** in this repo (migrated, tagged `backlog-final`).
