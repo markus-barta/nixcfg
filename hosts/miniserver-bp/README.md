@@ -1,6 +1,16 @@
 # msbp (miniserver-bp) - Mac Mini 2009 Test Server
 
 > **Host Alias**: `msbp` (preferred shorthand for "miniserver-bp")
+>
+> **⚠️ MIGRATION TODO (2026-04-15):** `msbp` will eventually move to the
+> BYTEPOETS-owned `bpnixcfg` repo (`/Users/markus/Code/bpnixcfg`, remote
+> `github:BYTEPOETS/bpnixcfg`). Scope: drop the external
+> `inputs.nixcfg = "github:pbek/nixcfg"` dependency, switch imports from
+> `hokage.*` to the in-tree `bpnixcore` module that lives there.
+> **Not urgent** — this host keeps running here until the bonelio hosts
+> are live and `bpnixcore` is battle-tested on real infra. Do not touch
+> the NixOS config here until then. See `modules/bpnixcore/DESIGN.md`
+> in the bpnixcfg repo for the migration story.
 
 **Status**: ✅ Running (Hokage + Uzumaki)
 **Type**: Office Server (Mac Mini Early 2009)
