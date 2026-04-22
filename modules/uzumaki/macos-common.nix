@@ -103,56 +103,6 @@ in
         brew cleanup
         brew doctor
       '';
-
-      # ── PAIMOS instance shortcuts ────────────────────────────────────────
-      # `ppm <args>` / `pmo <args>` forward to `paimos --instance <name> <args>`.
-      # If the instance isn't in ~/.paimos/config.yaml yet, print a setup
-      # hint pointing at the matching ~/Secrets/<instance>/ folder instead
-      # of letting the raw paimos error scroll past. The one-time auth
-      # step stays imperative (API key is a secret — not declarative).
-      #
-      # Secrets conventions (see README.md in each folder):
-      #   ~/Secrets/ppm/  → PPMAPIKEY
-      #   ~/Secrets/PMO/  → PMOAPIKEY + PMOURL
-
-      __paimos_has_instance = {
-        description = "internal: exit 0 if ~/.paimos/config.yaml has the named instance";
-        body = ''
-          set -l cfg $HOME/.paimos/config.yaml
-          test -f $cfg; and grep -qE "^[[:space:]]+$argv[1]:" $cfg
-        '';
-      };
-
-      ppm = {
-        description = "paimos → pm.barta.cm (personal)";
-        body = ''
-          if not __paimos_has_instance ppm
-              echo "paimos: instance 'ppm' not configured on this machine." >&2
-              echo "  One-time setup:" >&2
-              echo "    source ~/Secrets/ppm/PPMAPIKEY.env" >&2
-              echo '    paimos auth login --url https://pm.barta.cm --api-key $PPMAPIKEY --name ppm' >&2
-              echo "  Secrets live in ~/Secrets/ppm/ (see README.md there if any .env file is missing)." >&2
-              return 2
-          end
-          paimos --instance ppm $argv
-        '';
-      };
-
-      pmo = {
-        description = "paimos → pm.bytepoets.com (bytepoets)";
-        body = ''
-          if not __paimos_has_instance pmo
-              echo "paimos: instance 'pmo' not configured on this machine." >&2
-              echo "  One-time setup:" >&2
-              echo "    source ~/Secrets/PMO/PMOAPIKEY.env" >&2
-              echo "    source ~/Secrets/PMO/PMOURL.env" >&2
-              echo '    paimos auth login --url $PMOURL --api-key $PMOAPIKEY --name pmo' >&2
-              echo "  Secrets live in ~/Secrets/PMO/ (see README.md there if any .env file is missing)." >&2
-              return 2
-          end
-          paimos --instance pmo $argv
-        '';
-      };
     };
 
     # Aliases - merge uzumaki config with macOS-specific aliases
