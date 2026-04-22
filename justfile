@@ -243,7 +243,15 @@ switch-push-all: push-all push
 # Update the flakes
 [group('build')]
 update args='':
-    NIX_CONFIG="access-tokens = github.com=`cat ~/.secrets/github-token`" nix flake update {{ args }}
+    #!/usr/bin/env bash
+    set -eu
+    token=$(gh auth token 2>/dev/null || cat ~/.secrets/github-token 2>/dev/null || true)
+    if [ -n "$token" ]; then
+      NIX_CONFIG="access-tokens = github.com=$token" nix flake update {{ args }}
+    else
+      echo "warn: no GitHub token (tried gh auth, ~/.secrets/github-token); running unauthenticated (60 req/hr limit)" >&2
+      nix flake update {{ args }}
+    fi
 
 # Update the flakes and switch to the new configuration
 [group('build')]
