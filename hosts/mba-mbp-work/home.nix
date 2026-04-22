@@ -340,6 +340,9 @@ in
     esptool # ESP32/ESP8266 flashing tool
     nmap # Network scanner
 
+    # PAIMOS
+    paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
+
     # Fonts
     (pkgs.nerd-fonts.hack)
   ];

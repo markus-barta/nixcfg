@@ -273,6 +273,9 @@ in
     ++ (with pkgs; [
       # System Tools
       inputs.agenix.packages.x86_64-darwin.default
+
+      # PAIMOS
+      paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
     ]);
 
   # Enable fontconfig for fonts to be recognized
