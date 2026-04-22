@@ -354,6 +354,13 @@ in
     nmap # Network scanner
     tokstat # AI token quota monitor
 
+    # AI Coding Agents (declarative — replaces `npm install -g`)
+    codex # OpenAI Codex CLI
+    pi-coding-agent # Mario Zechner's pi coding agent
+
+    # PAIMOS
+    paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
+
     # Note: evernote-backup not in nixpkgs, keeping in Homebrew for now
 
     # Fonts

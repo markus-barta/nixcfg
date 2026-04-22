@@ -83,6 +83,7 @@
       overlays-local = final: _prev: {
         pingt = final.callPackage ./pkgs/pingt { };
         tokstat = final.callPackage ./pkgs/tokstat { };
+        paimos-cli = final.callPackage ./pkgs/paimos-cli { };
         # Stub: hokage/desktop.nix references sonar but it doesn't exist in nixpkgs
         sonar = final.hello;
         # ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
@@ -298,6 +299,9 @@
         # pingt - Timestamped ping with color-coded output
         pingt = pkgs.callPackage ./pkgs/pingt { };
 
+        # paimos-cli - Agent-facing CLI for PAIMOS
+        paimos-cli = pkgs.callPackage ./pkgs/paimos-cli { };
+
         # Generate Markdown docs for hokage module options
         hokage-options-md =
           let
@@ -344,30 +348,32 @@
       };
 
       # macOS packages (for imac0, mba-mbp-work, etc.)
-      packages.x86_64-darwin = {
-        pingt =
-          let
-            pkgsDarwin = import nixpkgs {
-              localSystem = {
-                system = "x86_64-darwin";
-              };
-              config.allowUnfree = true;
+      packages.x86_64-darwin =
+        let
+          pkgsDarwin = import nixpkgs {
+            localSystem = {
+              system = "x86_64-darwin";
             };
-          in
-          pkgsDarwin.callPackage ./pkgs/pingt { };
-      };
+            config.allowUnfree = true;
+          };
+        in
+        {
+          pingt = pkgsDarwin.callPackage ./pkgs/pingt { };
+          paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli { };
+        };
 
-      packages.aarch64-darwin = {
-        pingt =
-          let
-            pkgsDarwin = import nixpkgs {
-              localSystem = {
-                system = "aarch64-darwin";
-              };
-              config.allowUnfree = true;
+      packages.aarch64-darwin =
+        let
+          pkgsDarwin = import nixpkgs {
+            localSystem = {
+              system = "aarch64-darwin";
             };
-          in
-          pkgsDarwin.callPackage ./pkgs/pingt { };
-      };
+            config.allowUnfree = true;
+          };
+        in
+        {
+          pingt = pkgsDarwin.callPackage ./pkgs/pingt { };
+          paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli { };
+        };
     };
 }
