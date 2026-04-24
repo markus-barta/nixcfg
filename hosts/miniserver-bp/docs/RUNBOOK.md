@@ -217,7 +217,7 @@ nix run github:nix-community/nixos-anywhere -- \
   nixos@10.17.1.40
 ```
 
-See `+pm/backlog/P8900-miniserver-bp-nixos-migration-fresh-start.md` for full procedure.
+Full migration procedure is tracked in PPM; see the relevant `NIX-*` issue for the planning/history.
 
 ---
 
@@ -320,7 +320,7 @@ Full operational runbook: `hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md`
 
 - **OpenClaw Runbook**: `hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md` (operations, current status)
 - **OpenClaw Setup Archive**: `hosts/miniserver-bp/docs/legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md` (archived 2026-02-15, original oci-containers setup)
-- **Installation Plan**: `+pm/backlog/P8900-miniserver-bp-nixos-migration-fresh-start.md`
+- **Installation Plan**: tracked in PPM (`pm.barta.cm`)
 - **Host README**: `hosts/miniserver-bp/README.md`
 - **SSH Security**: `docs/SSH-KEY-SECURITY.md`
 - **Infrastructure Inventory**: `docs/INFRASTRUCTURE.md`

@@ -84,7 +84,7 @@ ssh markus@mba-imac-work.local
 - The iMac sleeps when inactive and may not be reachable
 - When it wakes up, mDNS (`mba-imac-work.local`) should resolve
 - NixFleet agent decommissioned (DSC26-53) — clean up leftover plist if present
-- **miniserver-bp** runs Ubuntu 24.04 (future: migrate to NixOS - see backlog)
+- **miniserver-bp** runs Ubuntu 24.04 (future NixOS migration follow-up should be tracked in PPM)
 
 ---
 

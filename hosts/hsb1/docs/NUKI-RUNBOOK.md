@@ -132,8 +132,8 @@ http://192.168.1.101:1880/#flow/d1b80e2d5f08edaf
 
 ### Charging Logic
 
-- **VR**: Smart plug automation (see backlog: `P40--01f1163--nuki-ke-charging-automation.md`)
-- **KE**: Similar pattern - see backlog item
+- **VR**: Smart plug automation follow-up is tracked in PPM (`pm.barta.cm`)
+- **KE**: Similar pattern; track follow-up in PPM
 
 ---
 
@@ -208,7 +208,7 @@ The Nuki Ultra should be configured in the Nuki App to publish to:
 **See Also**:
 
 - [SMARTHOME.md](./SMARTHOME.md) - Full smart home architecture
-- [backlog/P40--01f1163--nuki-ke-charging-automation.md](./docs/backlog/P40--01f1163--nuki-ke-charging-automation.md)
+- NUKI charging automation follow-up: tracked in PPM (`pm.barta.cm`)
 
 ---
 

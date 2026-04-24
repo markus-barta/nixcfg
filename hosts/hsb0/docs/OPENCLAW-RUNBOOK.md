@@ -673,8 +673,8 @@ Known quirk — CLI RPC enforces pairing even on loopback. In-process agent runt
 
 - **2026-04-19**: Bundled maintenance window (NIX-74). Upgraded OpenClaw 2026.4.8 → 2026.4.15 and Node 22 → 24 in the openclaw-gateway image (single Dockerfile change covers both, since the Node bump exists only to satisfy node-llama-cpp's prebuilt-binary matrix). Memory search now works locally for both agents (NIX-70). **Two builds required**: first build kept Node 24 + openclaw@latest but left `node-llama-cpp` as `UNMET OPTIONAL DEPENDENCY` because npm silently skips optional native builds; fix-forward listed `node-llama-cpp@^3` explicitly in the npm install line. **Telegram pairings survived** for both bots (vs. RUNBOOK §564 prediction) — re-pair commands were pre-staged but unused. `dreaming.storage.mode` default flipped inline → `separate` upstream — accepted new default. Telegram round-trip latency dropped 3718ms → 73ms. doctor --fix only installed shell completion. ACP/sub-agent capability (NIX-73) was pulled from this window after Anthropic's 2026-04-04 ToS change blocked Pro/Max OAuth in claude-agent-acp; NIX-73 now parked as foundational ticket awaiting a non-Anthropic ACP target (codex / gemini-cli / planned 4-Mac-mini exo-cluster).
 - **2026-03-07**: Upgraded to OpenClaw 2026.3.2. Breaking changes: (1) `dangerouslyDisableDeviceAuth` no longer bypasses device auth for non-loopback origins — removed. (2) `ws://` hardened to loopback-only — mitigated by `bind: "lan"`. (3) `gateway.tls.enabled: true` added — built-in self-signed TLS (RSA-2048, 10-year cert). Control UI now requires HTTPS (browser secure context). `bind` changed from `"tailnet"` to `"lan"` (`0.0.0.0`) so CLI inside container uses `ws://127.0.0.1` (no TLS/fingerprint needed) while browser uses `wss://100.64.0.6:18789`. Removed `OPENCLAW_GATEWAY_URL` env var from docker-compose (was causing TLS fingerprint resolution failure in explicit connection mode).
-- **2026-02-22**: Merlin SSH access to hsb1 added. Dedicated `merlin` user on hsb1 (wheel + docker). See `hosts/hsb1/docs/backlog/P40--160a6d8--merlin-ssh-access-hsb1.md`.
-- **2026-02-21**: Migrated from single-agent `openclaw-merlin` to multi-agent `openclaw-gateway`. Nimue added as second agent. See `hosts/hsb0/docs/backlog/P40--339a6f7--setup-nimue-multi-agent.md`.
+- **2026-02-22**: Merlin SSH access to hsb1 added. Dedicated `merlin` user on hsb1 (wheel + docker). Follow-up tracking moved to PPM.
+- **2026-02-21**: Migrated from single-agent `openclaw-merlin` to multi-agent `openclaw-gateway`. Nimue added as second agent. Follow-up tracking moved to PPM.
 - **2026-02-13**: Merlin migrated from hsb1 (Nix package) to hsb0 (Docker).
 
 ---
@@ -811,6 +811,6 @@ Canonical schema reference:
 - [hsb0 RUNBOOK](./RUNBOOK.md) - Main host runbook
 - [Percy OPENCLAW-RUNBOOK](../../miniserver-bp/docs/OPENCLAW-RUNBOOK.md) - Sister instance (miniserver-bp)
 - [OpenClaw gogcli Notes](./OPENCLAW-GOGCLI.md) - Merlin gogcli knowledge base
-- [Agent-to-Agent Comms (P40)](../backlog/P40--1681369--agent-to-agent-comms-opencode-merlin.md)
-- [Git-managed openclaw.json (P40, done)](../backlog/P40--599943c--merlin-git-managed-openclaw-json.md)
+- Agent-to-agent comms follow-up: tracked in PPM
+- Git-managed `openclaw.json` follow-up: tracked in PPM
 - [FleetCom Agent Observability schema](https://github.com/markus-barta/fleetcom/blob/main/docs/AGENT-OBSERVABILITY.md) — canonical event + snapshot contract

@@ -35,7 +35,7 @@ jobs:
           # git-committer-email: 'patrizio@bekerle.com'
 
       # Auto-merge the PR immediately (user doesn't want manual merges)
-      # See: +pm/backlog/P7400-auto-merge-flake-lock-prs.md
+      # Tracking for this policy lives in PPM (`pm.barta.cm`)
       - name: Auto-merge PR
         if: steps.update.outputs.pull-request-number != ''
         run: |

@@ -121,7 +121,7 @@ sudo nixos-rebuild switch --rollback
 - SSH port changed: 22 → 2222
 - WireGuard temporarily disabled
 
-See `+pm/backlog/P8900-miniserver-bp-nixos-migration-fresh-start.md` for full migration plan.
+Migration planning is tracked in PPM; see the relevant `NIX-*` issue for the full migration plan.
 
 ---
 

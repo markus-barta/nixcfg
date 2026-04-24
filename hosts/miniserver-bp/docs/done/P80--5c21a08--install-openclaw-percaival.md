@@ -207,18 +207,18 @@ docker exec -it $(docker ps -q -f name=openclaw-percaival) openclaw onboard
 
 ## References
 
-| What                       | Where                                                          |
-| -------------------------- | -------------------------------------------------------------- |
-| OpenClaw Docs              | https://docs.openclaw.ai/                                      |
-| OpenClaw GitHub            | https://github.com/openclaw/openclaw                           |
-| Docker Install Guide       | https://docs.openclaw.ai/install/docker                        |
-| Config Reference           | https://docs.openclaw.ai/gateway/configuration                 |
-| Existing container pattern | `hosts/miniserver-bp/configuration.nix:203-211`                |
-| Secrets config             | `secrets/secrets.nix:56-58` (miniserver-bp host key)           |
-| Host README                | `hosts/miniserver-bp/README.md`                                |
-| Host RUNBOOK               | `hosts/miniserver-bp/docs/RUNBOOK.md`                          |
-| hsb1 OpenClaw backlog      | `hosts/hsb1/docs/backlog/P94--0e9a020--openclaw-deployment.md` |
-| Nix package (not used)     | `pkgs/openclaw/package.nix` (v2026.2.3)                        |
+| What                       | Where                                                |
+| -------------------------- | ---------------------------------------------------- |
+| OpenClaw Docs              | https://docs.openclaw.ai/                            |
+| OpenClaw GitHub            | https://github.com/openclaw/openclaw                 |
+| Docker Install Guide       | https://docs.openclaw.ai/install/docker              |
+| Config Reference           | https://docs.openclaw.ai/gateway/configuration       |
+| Existing container pattern | `hosts/miniserver-bp/configuration.nix:203-211`      |
+| Secrets config             | `secrets/secrets.nix:56-58` (miniserver-bp host key) |
+| Host README                | `hosts/miniserver-bp/README.md`                      |
+| Host RUNBOOK               | `hosts/miniserver-bp/docs/RUNBOOK.md`                |
+| hsb1 OpenClaw tracking     | PPM (`pm.barta.cm`)                                  |
+| Nix package (not used)     | `pkgs/openclaw/package.nix` (v2026.2.3)              |
 
 ## Notes
 

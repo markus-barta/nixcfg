@@ -2,8 +2,10 @@
 
 **Host**: hsb1
 **Priority**: P50
-**Status**: In Progress
+**Status**: Historical planning reference
 **Created**: 2026-03-22
+
+> Legacy note: active follow-up tracking now lives in PPM as `FKID-53`.
 
 ---
 

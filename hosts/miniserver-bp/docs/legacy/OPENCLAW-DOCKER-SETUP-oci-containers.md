@@ -600,18 +600,18 @@ Docs:
 
 ## Files
 
-| What                       | Where                                                                          |
-| -------------------------- | ------------------------------------------------------------------------------ |
-| Dockerfile                 | `hosts/miniserver-bp/docker/Dockerfile`                                        |
-| NixOS config               | `hosts/miniserver-bp/configuration.nix` (lines 215-226, 240-256)               |
-| Config (host)              | `/var/lib/openclaw-percaival/data/openclaw.json`                               |
-| Workspace (host)           | `/var/lib/openclaw-percaival/data/workspace/`                                  |
-| Agenix secret (Telegram)   | `secrets/miniserver-bp-openclaw-telegram-token.age`                            |
-| Agenix secret (gogcli)     | `secrets/miniserver-bp-gogcli-keyring-password.age`                            |
-| Backlog item               | `hosts/miniserver-bp/docs/backlog/P80--5c21a08--install-openclaw-percaival.md` |
-| Container logs             | `docker logs openclaw-percaival`                                               |
-| Gateway log (in container) | `/tmp/openclaw/openclaw-YYYY-MM-DD.log`                                        |
-| gogcli config (host)       | `/var/lib/openclaw-percaival/gogcli/`                                          |
+| What                       | Where                                                            |
+| -------------------------- | ---------------------------------------------------------------- |
+| Dockerfile                 | `hosts/miniserver-bp/docker/Dockerfile`                          |
+| NixOS config               | `hosts/miniserver-bp/configuration.nix` (lines 215-226, 240-256) |
+| Config (host)              | `/var/lib/openclaw-percaival/data/openclaw.json`                 |
+| Workspace (host)           | `/var/lib/openclaw-percaival/data/workspace/`                    |
+| Agenix secret (Telegram)   | `secrets/miniserver-bp-openclaw-telegram-token.age`              |
+| Agenix secret (gogcli)     | `secrets/miniserver-bp-gogcli-keyring-password.age`              |
+| Tracking                   | PPM (`pm.barta.cm`)                                              |
+| Container logs             | `docker logs openclaw-percaival`                                 |
+| Gateway log (in container) | `/tmp/openclaw/openclaw-YYYY-MM-DD.log`                          |
+| gogcli config (host)       | `/var/lib/openclaw-percaival/gogcli/`                            |
 
 ## Network
 

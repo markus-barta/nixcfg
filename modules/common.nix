@@ -46,7 +46,7 @@ in
         set -e LANGUAGE
 
         # NOTE: Mouse tracking reset removed - was breaking Starship $fill on hsb1
-        # See: +pm/done/2025-12-04-starship-fill-broken-hsb1.md
+        # Fix tracked historically in PPM
       '';
       shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
       shellAbbrs = (lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs) // {

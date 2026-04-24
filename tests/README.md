@@ -53,16 +53,16 @@ for t in tests/T*.sh; do bash "$t"; done
 | **NixOS VM tests**     | `tests/*.nix`             | Package/integration testing in VMs |
 | **Host-specific**      | `hosts/<hostname>/tests/` | Ongoing functionality verification |
 | **General/structural** | `tests/T*.sh`             | Repository-wide checks             |
-| **PM task-specific**   | Inline in task file       | One-time verification for changes  |
+| **PM task-specific**   | PPM issue AC / comments   | One-time verification for changes  |
 
 ### PM Task Test Requirements
 
-Every PM task that moves through `review/` to `done/` **must** have:
+Every tracked PM task that moves to `done` in PPM **should** have:
 
-| Test Type          | Description                                     | Required |
-| ------------------ | ----------------------------------------------- | -------- |
-| **Manual Test**    | Human verification steps documented in the task | ✅ Yes   |
-| **Automated Test** | Script that can verify the change               | ✅ Yes   |
+| Test Type          | Description                                          | Required |
+| ------------------ | ---------------------------------------------------- | -------- |
+| **Manual Test**    | Human verification steps documented in the PPM issue | ✅ Yes   |
+| **Automated Test** | Script that can verify the change                    | ✅ Yes   |
 
 ## Shell Test Naming Convention
 
@@ -84,7 +84,7 @@ Examples:
 #!/usr/bin/env bash
 # T##-test-name.sh
 # Description: What this test verifies
-# Related PM task: +pm/done/YYYY-MM-DD-task-name.md (if applicable)
+# Related PPM issue: NIX-123 (if applicable)
 
 set -euo pipefail
 
@@ -160,5 +160,5 @@ nix build .#checks.x86_64-linux.qownnotes
 
 ## Related Documentation
 
-- [PM Workflow](../+pm/README.md) — How tests fit into the review process
+- `paimos` / PPM (`pm.barta.cm`) — How tests fit into the review process
 - [hsb0 Tests](../hosts/hsb0/tests/) — Example host-specific test suite

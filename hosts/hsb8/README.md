@@ -794,7 +794,7 @@ ssh gb@hsb8.lan
 
 **Result**: hsb8 now uses external hokage module from upstream (github:pbek/nixcfg), following best practices and making it easier to receive hokage updates.
 
-**See**: `docs/MIGRATION-PLAN.md` and `docs/📋 BACKLOG.md` for detailed documentation
+**See**: `docs/MIGRATION-PLAN.md` for migration detail. Any remaining follow-up work is tracked in PPM (`pm.barta.cm`).
 
 ### System History
 

@@ -468,7 +468,6 @@ See archived hosts for full list of Pbek's machines
 ├── disk-config.zfs.nix        # Disk/ZFS layout
 │
 ├── docs/                      # All non-README documentation
-│   ├── 📋 BACKLOG.md          # Current work tracking (emoji for sorting)
 │   ├── enable-ww87.md         # Feature-specific guides
 │   └── ...                    # Other docs
 │
@@ -493,11 +492,11 @@ See archived hosts for full list of Pbek's machines
 **Key principles:**
 
 - `README.md` always in root (main entry point)
-- `docs/` for all other documentation (BACKLOG, guides, notes)
+- `docs/` for all other documentation (guides, notes, runbooks)
 - `archive/` for completed work only (migration histories with [DONE] marker)
 - `tests/` with paired manual (.md) + automated (.sh) files
 - `examples/` for reference configs and templates
-- `📋 BACKLOG.md` uses emoji prefix to stand out and sort first
+- Work tracking lives in PPM (`pm.barta.cm`), not markdown backlog files
 
 ---
 

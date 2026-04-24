@@ -31,7 +31,7 @@ nixcfg/
 ├── docs/
 │   ├── funkeykid-setup.md       # Complete setup guide
 │   └── funkeykid-hsb1-integration.md  # hsb1-specific guide
-└── BACKLOG-funkeykid.md         # Detailed requirements
+└── PPM issue FKID-53            # Current follow-up tracking
 ```
 
 ### 2. Basic Setup (3 Steps)
@@ -141,6 +141,8 @@ KEY_F3=random,mqtt:homeassistant/scene/bedtime:ON
 
 ### 🚀 Future Ideas
 
+Tracked in PPM: `FKID-53` ("Finish Funkeykid educational expansion on hsb1")
+
 - [ ] LED/RGB keyboard backlight control
 - [ ] Visual feedback (screen overlay)
 - [ ] Statistics and achievements
@@ -182,7 +184,7 @@ KEY_F3=random,mqtt:homeassistant/scene/bedtime:ON
 
 - **[Setup Guide](./funkeykid-setup.md)**: Complete installation and configuration
 - **[hsb1 Integration](./funkeykid-hsb1-integration.md)**: Host-specific deployment guide
-- **[Backlog Item](../BACKLOG-funkeykid.md)**: Detailed requirements and user stories
+- **PPM Tracking**: `FKID-53` in `pm.barta.cm`
 
 ## Troubleshooting
 
