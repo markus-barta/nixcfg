@@ -2,7 +2,7 @@
 
 **Host**: hsb0  
 **Agent**: Merlin  
-**Backlog item**: `hosts/hsb0/docs/backlog/P50--43dc3b5--connect-merlin-gogcli-google-auth.md`
+**Tracking**: follow-up work lives in PPM (`pm.barta.cm`)
 
 ---
 

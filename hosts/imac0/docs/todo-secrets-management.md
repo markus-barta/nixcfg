@@ -1,9 +1,9 @@
-# TODO: Secrets Management with Age
+# Secrets Management with Age
 
-> 📋 **Tracked in PM**: [+pm/backlog/2025-12-01-imac0-secrets-management.md](../../../+pm/backlog/2025-12-01-imac0-secrets-management.md)
+> 📋 **Tracked in PPM**: planning and status live in `pm.barta.cm` via the `paimos` CLI.
 
 **Last Updated**: 2025-11-15  
-**Status**: Planning Phase
+**Status**: Planning reference
 
 ---
 

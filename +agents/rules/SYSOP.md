@@ -31,7 +31,7 @@ Task to perform?
 │
 ├── Edit NixOS configuration files ────→ LOCAL (no SSH needed)
 ├── Review existing host configurations → LOCAL (no SSH needed)
-├── Create/modify +pm tasks ──────────→ LOCAL (no SSH needed)
+├── Search/create/update PPM tasks ───→ LOCAL via `paimos` CLI (no SSH needed)
 │
 ├── Run nix flake check ──────────────→ ⚠️ ASK FIRST (long-running, 5-30min)
 ├── Build NixOS generations ───────────→ ⚠️ ASK FIRST (long-running, 10-60min)
@@ -140,7 +140,7 @@ Current Context                Target Host              Reachable?
 ### Flow (follow in order, no skipping):
 
 ```
-1. REVIEW   → Confirm backlog item is accurate + up to date before starting.
+1. REVIEW   → Confirm the PPM issue is accurate + up to date before starting.
 2. CLASSIFY → Can the next step be done by AI, or does it require human action?
               AI can do:    edit files, write configs, update docs, git ops (add/commit/push) on agreed changes
               Human must:   run nix builds, docker rebuilds, agenix encrypt, deploy
@@ -223,7 +223,7 @@ Current Context                Target Host              Reachable?
 | Agent workflow & checklists | [docs/AGENT-WORKFLOW.md](../../docs/AGENT-WORKFLOW.md) |
 | Host inventory & deps       | [docs/INFRASTRUCTURE.md](../../docs/INFRASTRUCTURE.md) |
 | Host structure requirements | [docs/HOST-TEMPLATE.md](../../docs/HOST-TEMPLATE.md)   |
-| Task management             | [+pm/README.md](../../+pm/README.md)                   |
+| Task management             | PPM via `paimos` CLI (`NIX` project in this repo)      |
 | Host-specific details       | `hosts/<hostname>/README.md`                           |
 | Host procedures             | `hosts/<hostname>/docs/RUNBOOK.md`                     |
 
@@ -233,10 +233,22 @@ Current Context                Target Host              Reachable?
 
 ### For Bigger Tasks
 
-1. **Create a +pm task first**: `+pm/backlog/infra/P{number}--{hash}--short-description.md`
-   - P0-1k 🔴 Critical | P2-3k 🟠 High | P4-5k 🟡 Medium | P6-7k 🟢 Low | P8-9k ⚪ Backlog
-2. Work through the task with acceptance criteria
-3. Move to `+pm/done/` when complete
+1. **Search PPM first** to avoid duplicates:
+   - `paimos --json issue list --project NIX --limit 100 | jq -r '.issues[] | [.issue_key, .title] | @tsv'`
+2. **Create a PPM issue if needed**:
+   - `paimos issue create --project NIX --type task --priority medium --title "<title>" --description-file /tmp/desc.md`
+   - Use `epic`, `ticket`, or `task` as appropriate; prefer `ticket` or `task` for infra work.
+3. **Work the issue with acceptance criteria in PPM**:
+   - `paimos issue update NIX-123 --ac-file /tmp/ac.md`
+   - `paimos issue ensure-status NIX-123 in-progress`
+4. **Close it in PPM when complete**:
+   - `paimos issue update NIX-123 --status done --close-note-file /tmp/close.md`
+
+**PPM CLI setup / checks:**
+
+- `paimos auth login --name ppm --url https://pm.barta.cm`
+- `paimos doctor`
+- Use `--instance ppm` if `ppm` is not the default instance.
 
 ### The Prime Directive
 

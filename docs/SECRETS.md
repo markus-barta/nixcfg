@@ -787,7 +787,7 @@ just private-decrypt tapo-c210
 
 ## 📚 Related Files
 
-- `+pm/backlog/P5950-imac0-secrets-management.md` - Implementation plan
+- PPM issue / planning record for imac0 secrets management
 - `justfile` - All just commands
 - `secrets/secrets.nix` - Tier 1 key definitions
 - `secrets/NAMING-PATTERN.md` - Naming standards and migration guide

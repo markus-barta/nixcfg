@@ -12,27 +12,33 @@ How agents (AI or human) should work with this infrastructure codebase.
 
 ## Task Management
 
-### When to Create a .pm Task
+### When to Create a PPM Issue
 
-See [+pm/README.md](../+pm/README.md#when-to-create-a-task) for the decision table.
+Use PPM via the `paimos` CLI. Search first to avoid duplicates; create an issue if the work needs tracking or might get interrupted.
 
-**Rule of thumb**: If you need to track progress or might get interrupted, create a task.
+**Rule of thumb**: If you need to track progress or might get interrupted, create a PPM issue.
 
 ### Task Workflow
 
 ```bash
-# Create new task
-# Create task (see +pm/README.md for P-number ranges)
-touch +pm/backlog/P5100-short-description.md
+# List recent issues in the NIX project
+paimos --json issue list --project NIX --limit 20
+
+# Create new task/ticket
+paimos issue create --project NIX --type task --priority medium \
+  --title "<title>" --description-file /tmp/desc.md
+
+# Start work
+paimos issue ensure-status NIX-123 in-progress
 
 # Complete task
-mv +pm/backlog/P5100-task.md +pm/done/
+paimos issue update NIX-123 --status done --close-note-file /tmp/close.md
 
 # Cancel task
-mv +pm/backlog/P5100-task.md +pm/cancelled/
+paimos issue update NIX-123 --status cancelled --close-note-file /tmp/close.md
 ```
 
-For task template and full workflow details, see [+pm/README.md](../+pm/README.md).
+Run `paimos doctor` first if the CLI is not configured on this machine.
 
 ---
 
@@ -75,11 +81,11 @@ Every host has three components that must stay synchronized:
 
 ### Where Tests Live
 
-| Test Type          | Location                   | Purpose                               |
-| ------------------ | -------------------------- | ------------------------------------- |
-| Host-specific      | `hosts/<hostname>/tests/`  | Ongoing functionality (DNS, services) |
-| General/structural | `tests/`                   | Repository structure, cross-cutting   |
-| Task-specific      | Inline in `+pm/` task file | One-time verification                 |
+| Test Type          | Location                  | Purpose                               |
+| ------------------ | ------------------------- | ------------------------------------- |
+| Host-specific      | `hosts/<hostname>/tests/` | Ongoing functionality (DNS, services) |
+| General/structural | `tests/`                  | Repository structure, cross-cutting   |
+| Task-specific      | PPM issue AC / comments   | One-time verification                 |
 
 ---
 
@@ -92,7 +98,7 @@ Before modifying any host configuration:
 □ Check host criticality in INFRASTRUCTURE.md
 □ Check dependencies (will this affect other hosts?)
 □ Review current RUNBOOK.md for the host
-□ For bigger tasks: Create +pm/backlog/ item
+□ For bigger tasks: Search/create PPM issue
 □ Identify which docs/tests need updating
 □ For NixOS: Confirm build platform (gpc0 or hsb1, NOT macOS)
 ```
@@ -111,7 +117,7 @@ After modifying any host configuration:
 □ secrets/runbook-secrets.md updated (if new credentials)
 □ runbook-secrets.age re-encrypted (if secrets changed)
 □ Git commit with descriptive message
-□ Move .pm task to done/ (if applicable)
+□ Update PPM issue status / close note (if applicable)
 ```
 
 ---
@@ -222,5 +228,5 @@ just setup-git-drivers   # so it doesn't happen next time
 
 - **Host structure requirements**: [HOST-TEMPLATE.md](./HOST-TEMPLATE.md)
 - **Infrastructure inventory**: [INFRASTRUCTURE.md](./INFRASTRUCTURE.md)
-- **PM workflow**: [+pm/README.md](../+pm/README.md)
+- **PM workflow**: PPM via `paimos` CLI (`pm.barta.cm`, project `NIX`)
 - **Test guidelines**: [tests/README.md](../tests/README.md)

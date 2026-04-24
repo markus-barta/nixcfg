@@ -741,8 +741,8 @@ docker exec -it openclaw-percaival openclaw pairing approve telegram <CODE>
 ## Related Documentation
 
 - [legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md](./legacy/OPENCLAW-DOCKER-SETUP-oci-containers.md) - Original oci-containers setup (archived 2026-02-15)
-- Backlog: `hosts/miniserver-bp/docs/backlog/`
-- Migration: `+pm/backlog/msbp/P40--3c1b0d8--migrate-msbp-openclaw-to-compose.md`
+- Backlog / follow-up work: tracked in PPM (`pm.barta.cm`)
+- Migration: tracked in PPM (`pm.barta.cm`)
 
 ## Architecture
 

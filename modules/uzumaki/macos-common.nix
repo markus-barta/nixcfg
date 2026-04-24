@@ -24,7 +24,7 @@ in
     # Shell initialization (config.fish equivalent)
     shellInit = ''
       # NOTE: Mouse tracking reset removed - was breaking Starship $fill
-      # See: +pm/done/2025-12-04-starship-fill-broken-hsb1.md
+      # Fix tracked historically in PPM
 
       # Environment variables
       set -gx TERM xterm-256color

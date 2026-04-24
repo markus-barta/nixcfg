@@ -560,7 +560,7 @@ Merlin migrated to **hsb0** (Docker) on 2026-02-14. All config, secrets, and pac
 
 - **New location**: hsb0 Docker container `openclaw-merlin`
 - **Runbook**: See [hsb0 RUNBOOK](../../hsb0/docs/RUNBOOK.md#-merlin-openclaw-ai-assistant)
-- **Migration backlog**: `hosts/hsb0/docs/backlog/P30--438b3b8--migrate-merlin-openclaw-to-hsb0-docker.md`
+- **Migration tracking**: moved to PPM (`pm.barta.cm`)
 
 > **On-host state** (`~/.openclaw/`) kept as backup. Safe to delete after 2026-03-14.
 

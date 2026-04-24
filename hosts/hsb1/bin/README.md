@@ -73,7 +73,7 @@ sudo systemctl start netcup-monitor.service
 journalctl -u netcup-monitor.service
 ```
 
-### ⚠️ Backlog Note
+### ⚠️ Tracking Note
 
 This script is **manually set up** - not fully declarative yet.
-See `hosts/hsb1/BACKLOG.md` for planned improvements.
+Planned improvements should be tracked in PPM (`pm.barta.cm`).
