@@ -15,16 +15,16 @@
 
 rustPlatform.buildRustPackage rec {
   pname = "lact";
-  version = "0.6.0";
+  version = "0.8.4";
 
   src = fetchFromGitHub {
     owner = "ilya-zlobintsev";
     repo = "LACT";
     rev = "v${version}";
-    hash = "sha256-goNwLtVjNY3O/BhFrCcM3X11dtM34XgfHL6bh+YFoIY=";
+    hash = "sha256-5z4IAiApUjlsSL0EX1PQH6rceeQxAD8f3CKmYO2x8gQ=";
   };
 
-  cargoHash = "sha256-uoMkz+0Jr07GpMRUKuJvrTTSAGdhLf35q/8but1fgIi=";
+  cargoHash = "sha256-mN7WGCRVXa9pxXin8FB0VD9oQDYyxpWD/Wy5r2y9IeA=";
 
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = ./Cargo.lock;
