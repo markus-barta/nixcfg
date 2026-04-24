@@ -302,6 +302,10 @@ services:
     image: ghcr.io/markus-barta/fleetcom-bosun:latest
     container_name: fleetcom-agent
     restart: unless-stopped
+    # mem_limit caps a known leak in bosun (FLEET-78, cs1 outage 2026-04-25).
+    # Baseline RSS ~13 MiB; 512m gives ~40× headroom and OOM-kills runaway.
+    mem_limit: 512m
+    memswap_limit: 512m
     env_file: [/opt/fleetcom-agent/.env]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
