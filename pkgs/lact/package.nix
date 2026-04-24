@@ -24,7 +24,7 @@ rustPlatform.buildRustPackage rec {
     hash = "sha256-5z4IAiApUjlsSL0EX1PQH6rceeQxAD8f3CKmYO2x8gQ=";
   };
 
-  cargoHash = "sha256-mN7WGCRVXa9pxXin8FB0VD9oQDYyxpWD/Wy5r2y9IeA=";
+  cargoHash = "sha256-5d6wr/skHExMCuTUhACiWQJ8bm7nlOaFoeQYP2ux+/8=";
 
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = ./Cargo.lock;
