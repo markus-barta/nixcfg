@@ -296,9 +296,7 @@ in
     # Utilities
     nmap # Network scanner
 
-    # AI Coding Agents (declarative — replaces `npm install -g`)
-    codex # OpenAI Codex CLI
-    pi-coding-agent # Mario Zechner's pi coding agent
+    # AI Coding Agents now installed via ai-clis-npm.nix (always-latest)
 
     # Fonts
     (pkgs.nerd-fonts.hack)

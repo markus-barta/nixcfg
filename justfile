@@ -1122,3 +1122,14 @@ pixoo-deploy:
 [group('smarthome')]
 pixoo-logs:
     just _hsb1 "docker logs -f health-pixoo"
+
+# ── AI CLIs ───────────────────────────────────────────────────────────────────
+
+# Bump AI CLIs (claude-code, codex) to npm latest — runs anywhere with node
+[group('ai')]
+update-ai-clis:
+    @date
+    npm i -g @anthropic-ai/claude-code@latest @openai/codex@latest
+    @echo "---"
+    @claude --version 2>/dev/null || echo "claude: not installed"
+    @codex  --version 2>/dev/null || echo "codex:  not installed"
