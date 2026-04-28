@@ -29,13 +29,13 @@ buildGoModule rec {
   pname = "paimos-cli";
   # VERSION file at pinned rev + short sha so `paimos --version` is unambiguous
   # for unreleased builds.
-  version = "1.0.0-unstable-219c788";
+  version = "2.1.22";
 
   src = fetchFromGitHub {
     owner = "markus-barta";
     repo = "paimos";
-    rev = "219c7889c5bac675484ac73f9c3066832ca02dff";
-    hash = "sha256-YNSGfUf5vPpMcNLc4hDDbPsMVViRY2JAKAEmyVIvmas=";
+    rev = "a1423f33016b55232b7e8ee630ce0f6181fed9e3";
+    hash = "sha256-MGZMXqkjlEH9QL85c8NH7+GKMyPuCjbUnH60tsr90gQ=";
   };
 
   # The repo is a polyglot monorepo; the Go module lives under backend/,
@@ -43,7 +43,11 @@ buildGoModule rec {
   modRoot = "backend";
   subPackages = [ "cmd/paimos" ];
 
-  vendorHash = "sha256-In74bZxkgf8NM7jsroUeiNzzWwUhrtQ51MSFDF3sAxg=";
+  # tree-sitter (cgo) deps ship C sources (parser.c, api.h) that `go mod vendor`
+  # strips from the vendor tree — proxyVendor preserves the full module zips
+  # from the Go proxy, so cgo can find the headers.
+  proxyVendor = true;
+  vendorHash = "sha256-KLvqgjf/GVHV8Ysb/kQkv+P3kDkyrzD8q/+N2hwWjbc=";
 
   # Upstream CI runs `go test ./...` on every push; re-running inside the
   # Nix sandbox adds latency without catching anything new, and some tests
