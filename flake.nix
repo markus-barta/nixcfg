@@ -80,12 +80,20 @@
         };
       };
       # Local packages overlay
-      overlays-local = final: _prev: {
+      overlays-local = final: prev: {
         pingt = final.callPackage ./pkgs/pingt { };
         tokstat = final.callPackage ./pkgs/tokstat { };
         paimos-cli = final.callPackage ./pkgs/paimos-cli { };
         # Stub: hokage/desktop.nix references sonar but it doesn't exist in nixpkgs
         sonar = final.hello;
+        # direnv 2.37.1's upstream test suite hangs in the Nix sandbox on
+        # x86_64-darwin (one of the zsh integration tests blocks indefinitely
+        # with no CPU). Upstream CI runs the same suite on every release, so
+        # skipping here only loses a redundant local re-run.
+        direnv = prev.direnv.overrideAttrs (_: {
+          doCheck = false;
+          doInstallCheck = false;
+        });
         # ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
         # nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default; # Disabled (FleetCom DSC26-52)
       };
