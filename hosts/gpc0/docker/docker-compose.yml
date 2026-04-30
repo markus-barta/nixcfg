@@ -52,5 +52,9 @@ services:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=86400
       - WATCHTOWER_HTTP_API_UPDATE=true
+      # Without this, enabling the HTTP API disables the periodic poll
+      # (watchtower ≥1.7 behavior). We want both: auto-update daily AND
+      # the dashboard's "Update now" trigger.
+      - WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
     labels:
       - traefik.enable=false
