@@ -148,6 +148,9 @@
         "git-hooks": "git-hooks",
         "nixpkgs": "nixpkgs_2",
         "nixpkgs-unstable": "nixpkgs-unstable",
+        "pre-commit-hooks": [
+          "git-hooks"
+        ],
         "shared": "shared"
       }
     },

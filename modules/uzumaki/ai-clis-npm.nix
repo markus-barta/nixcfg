@@ -22,14 +22,20 @@ let
 in
 {
   home.sessionVariables.NPM_CONFIG_PREFIX = npmPrefix;
-  home.sessionPath = [ "${npmPrefix}/bin" ];
+  home.sessionPath = [ "${npmPrefix}/bin" ]; # bash/zsh
+
+  # Fish needs explicit PATH wiring (HM sessionPath doesn't reach fish).
+  # Prepend so npm-global wins over any older imperative installs in ~/.local/bin.
+  programs.fish.shellInit = ''
+    fish_add_path --prepend --move ${npmPrefix}/bin
+  '';
 
   home.activation.updateAiClis = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     export PATH="${pkgs.nodejs}/bin:$PATH"
     export NPM_CONFIG_PREFIX="${npmPrefix}"
     mkdir -p "${npmPrefix}"
     echo "📦 ai-clis-npm: bumping to latest…"
-    $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm i -g --silent ${npmPkgsLatest} \
+    $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm i -g ${npmPkgsLatest} \
       || echo "⚠️  ai-clis-npm: npm update failed (offline?). Existing versions kept."
   '';
 }
