@@ -55,7 +55,12 @@
   console.font = "${pkgs.terminus_font}/share/consolefonts/ter-u20n.psf.gz";
 
   # Increase the console font size for kmscon
-  services.kmscon.extraConfig = "font-size = 26";
+  # Disabled 2026-04-30: kmscon held /dev/dri/card1 on tty1 during boot,
+  # causing kwin_wayland to fail with EBUSY and the SDDM autologin Plasma
+  # session to collapse. See docs/AUTOLOGIN-RACE.md for full analysis +
+  # rollback. The kernel `console.font` above already gives a readable
+  # big-font tty1, so no day-to-day visual change.
+  # services.kmscon.extraConfig = "font-size = 26";
 
   # Enable flatpak support
   services.flatpak.enable = true;
