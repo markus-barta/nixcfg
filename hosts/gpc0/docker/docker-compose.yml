@@ -3,6 +3,11 @@
 # /opt compose also used the legacy `fleetcom-agent` image alias; this file
 # bumps it to the canonical `fleetcom-bosun` image (same digest today, but
 # the `-agent` alias is being phased out).
+#
+# /opt/fleetcom-agent/.env must contain:
+#   FLEETCOM_TOKEN=<host bearer token>
+#   WATCHTOWER_TOKEN=<random 20+ chars>            (read by bosun)
+#   WATCHTOWER_HTTP_API_TOKEN=<same value>         (read by watchtower)
 services:
   # FleetCom Bosun — heartbeats + container lifecycle to https://fleet.barta.cm.
   # FLEETCOM_TOKEN stays in /opt/fleetcom-agent/.env until a follow-up wires
@@ -24,6 +29,25 @@ services:
     environment:
       - FLEETCOM_URL=https://fleet.barta.cm
       - FLEETCOM_HOSTNAME=gpc0
+      # Dashboard "Update now" → bosun calls watchtower's HTTP API.
+      - WATCHTOWER_URL=http://watchtower:8080
     labels:
       - traefik.enable=false
       - com.centurylinklabs.watchtower.enable=true
+
+  # Label-scoped watchtower so the bosun image stays current. Only manages
+  # containers carrying com.centurylinklabs.watchtower.enable=true.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: fleetcom-watchtower
+    restart: unless-stopped
+    env_file: [/opt/fleetcom-agent/.env]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=86400
+      - WATCHTOWER_HTTP_API_UPDATE=true
+    labels:
+      - traefik.enable=false
