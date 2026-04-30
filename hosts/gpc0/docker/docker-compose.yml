@@ -45,6 +45,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      # Pin API version: watchtower's bundled default is too old for modern
+      # Docker daemons (host floor is 1.40+). 1.44 matches csb0's pattern.
+      - DOCKER_API_VERSION=1.44
       - WATCHTOWER_LABEL_ENABLE=true
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=86400
