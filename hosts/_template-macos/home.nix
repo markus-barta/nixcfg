@@ -244,6 +244,7 @@ in
     jq
     just
     lazygit
+    paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
 
     # File Management
     tree
