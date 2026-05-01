@@ -144,6 +144,7 @@ ssh mba@cs1.barta.cm -p 2222 "cd ~/docker && docker compose stop nixfleet"
 | ppm                         | PAIMOS PM (pm.barta.cm)    |
 | minio                       | S3 for ppm attachments     |
 | paimos-www                  | paimos.com static (caddy)  |
+| inspr-www                   | inspr.at static (caddy)    |
 
 ### Quick Commands
 
