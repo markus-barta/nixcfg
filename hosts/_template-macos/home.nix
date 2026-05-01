@@ -16,6 +16,7 @@
 # See docs/MACOS-SETUP.md for detailed instructions.
 #
 {
+  config,
   pkgs,
   lib,
   inputs,
@@ -52,8 +53,8 @@ in
   # ============================================================================
   # USER SETTINGS
   # ============================================================================
-  home.username = "markus"; # ← Change if different user
-  home.homeDirectory = "/Users/markus"; # ← Change if different user
+  home.username = "CHANGE-ME"; # ← REQUIRED: macOS username (e.g. "markus", "mba")
+  home.homeDirectory = "/Users/CHANGE-ME"; # ← REQUIRED: must match home.username
 
   home.stateVersion = "24.11";
   home.enableNixpkgsReleaseCheck = false;
