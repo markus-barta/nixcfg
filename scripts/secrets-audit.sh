@@ -47,10 +47,17 @@ case "${1:-}" in
     ;;
 esac
 
-# Resolve nixcfg root (works from any cwd)
+# Resolve nixcfg root. Try in order:
+#   1. cwd's git toplevel (the common case: invoked from inside nixcfg)
+#   2. this script's own location's parent (lets external callers like
+#      inspr-doctor invoke the audit by absolute path from any cwd)
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "$REPO" || ! -f "$REPO/secrets/secrets.nix" ]]; then
-    echo "${RED}error:${RESET} not in nixcfg repo (no secrets/secrets.nix)" >&2
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
+if [[ ! -f "$REPO/secrets/secrets.nix" ]]; then
+    echo "${RED}error:${RESET} cannot locate nixcfg repo (no secrets/secrets.nix found)" >&2
     exit 2
 fi
 
