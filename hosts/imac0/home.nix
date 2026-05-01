@@ -20,6 +20,8 @@ in
     ../../modules/shared/ssh-fleet.nix
     # Two-identity git config (personal default + BYTEPOETS via remote-URL match)
     ../../modules/shared/git-identity.nix
+    # Agent-exception secrets materialized to ~/Secrets/age/decrypted/agents/
+    ../../modules/shared/agent-secrets.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.homeManagerModules.nixfleet-agent)
   ];
 
@@ -27,6 +29,15 @@ in
   # INSPR — Git identity (personal default + BYTEPOETS via remote-URL match)
   # ============================================================================
   inspr.git-identity.enable = true;
+
+  # ============================================================================
+  # INSPR — Agent-exception secrets materialization
+  # ============================================================================
+  # Decrypts shared/* and host/imac0/* (none yet) age files at HM activation.
+  # Uses markus's ~/.ssh/id_rsa for decryption (the user-key path; HM-standalone
+  # can't use root-owned host keys). markus is in every shared secret's
+  # publicKeys, so all 9 shared secrets are accessible on imac0 too.
+  inspr.secrets.agents.enable = true;
 
   # ============================================================================
   # SSH KEYS - Host-specific Git SSH config (preserved from manual ~/.ssh/config)
