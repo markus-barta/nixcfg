@@ -121,9 +121,11 @@ sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install)
 
 See: [nix.dev/install-nix](https://nix.dev/install-nix)
 
+> ⚠️ **Stay at the machine for the duration of the install.** With Touch ID for sudo enabled (set up earlier), the installer triggers ~6+ Touch ID dialogs in succession (creating `/nix` APFS volume, adding `nixbld1-10` build users, installing the LaunchDaemon, etc.). The dialog is visible when it pops, but if you walk away and the screen sleeps mid-wait, the prompt becomes invisible behind the dark screen — a one-minute install can stall for hours while you assume "still building." Total install time is ~1 minute of wall clock if you stay and tap.
+
 ### 2.2 Verify Installation
 
-**Open a NEW terminal window**, then:
+**Open a NEW terminal window** (so the updated `/etc/zshrc` Nix block is sourced), then:
 
 ```bash
 # Check Nix version
@@ -131,17 +133,30 @@ nix --version
 # → nix (Nix) 2.x.x
 ```
 
+> 💡 **Don't want to open a new terminal?** Source the profile script in the current shell:
+> ```bash
+> . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+> ```
+> Useful for scripted / automation flows (e.g. Bosun) where opening a new terminal isn't an option.
+
 ### 2.3 Enable Flakes (Required)
 
 The official installer does NOT enable flakes by default. Add to `/etc/nix/nix.conf`:
 
 ```bash
-# Edit nix.conf (requires sudo)
+# Interactive (sudo nano)
 sudo nano /etc/nix/nix.conf
 
 # Add these lines:
 experimental-features = nix-command flakes
 trusted-users = root YOUR-USERNAME
+```
+
+Or **non-interactive** (better for scripts / Bosun automation — uses Touch ID once via `sudo`):
+
+```bash
+echo 'experimental-features = nix-command flakes
+trusted-users = root YOUR-USERNAME' | sudo tee -a /etc/nix/nix.conf > /dev/null
 ```
 
 Then restart the Nix daemon:
@@ -207,6 +222,7 @@ Edit `hosts/$HOSTNAME/home.nix`:
 
 ```nix
 {
+  config,    # ← REQUIRED: bound for `${config.xdg.configHome}` references later in the template
   pkgs,
   lib,
   inputs,
@@ -235,8 +251,8 @@ Edit `hosts/$HOSTNAME/home.nix`:
   theme.hostname = "YOUR-HOSTNAME";  # ← CHANGE THIS
 
   # User settings
-  home.username = "YOUR-USERNAME";   # ← CHANGE THIS (usually "markus")
-  home.homeDirectory = "/Users/YOUR-USERNAME";  # ← CHANGE THIS
+  home.username = "YOUR-USERNAME";   # ← CHANGE THIS (usually "markus" or "mba")
+  home.homeDirectory = "/Users/YOUR-USERNAME";  # ← CHANGE THIS (must match home.username)
 
   home.stateVersion = "24.11";
   home.enableNixpkgsReleaseCheck = false;
@@ -245,6 +261,8 @@ Edit `hosts/$HOSTNAME/home.nix`:
   # ... rest of configuration (copy from imac0/home.nix)
 }
 ```
+
+> ⚠️ **`config` MUST be in the function args.** The template body uses `${config.xdg.configHome}/zsh` later on. If `config` is omitted from the args pattern (`{ pkgs, lib, inputs, ... }` instead of `{ config, pkgs, lib, inputs, ... }`), the very first `home-manager switch` fails with `error: undefined variable 'config'`. The current `_template-macos/home.nix` has it correct; this excerpt is the canonical reference.
 
 ### 3.5 Fix Architecture (Apple Silicon vs Intel)
 
@@ -357,8 +375,14 @@ programs.git = {
 
 ### 4.1 First-Time Installation
 
+> ⚠️ **`git add` your new files first.** Nix flakes only see git-tracked files when the working tree is dirty. Untracked files (new host directory, new modules, new secret declarations) are invisible to flake evaluation. Skipping this step gives errors like `Path 'hosts/<hostname>/home.nix' in the repository is not tracked by Git.` — or worse, silent "discovered nothing" behavior in modules that `builtins.readDir` data directories.
+
 ```bash
 cd ~/Code/nixcfg
+
+# Stage everything new/modified so the flake can see it
+git add hosts/$HOSTNAME/ flake.nix modules/uzumaki/theme/theme-palettes.nix
+# (no need to commit yet — `git add` alone is enough for nix to see)
 
 # Run home-manager via nix run (first time only)
 nix run home-manager -- switch --flake ".#YOUR-USERNAME@YOUR-HOSTNAME"
@@ -371,7 +395,7 @@ nix run home-manager -- switch --flake ".#YOUR-USERNAME@YOUR-HOSTNAME"
 - Configure shell, terminal, and tools
 - Set up theming
 
-**Note:** First run takes 5-15 minutes.
+**Note:** First run takes a few minutes (depends on cache hits and your link to `cache.nixos.org`). Apple Silicon hosts may build slightly more from source than Intel hosts, since not every nixpkgs binary is pre-built for `aarch64-darwin`.
 
 ### 4.2 Subsequent Updates
 
