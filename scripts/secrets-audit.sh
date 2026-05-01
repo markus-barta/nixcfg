@@ -66,8 +66,16 @@ disk_paths="$(find "$SECRETS_DIR" -name '*.age' -type f -printf '%P\n' 2>/dev/nu
     find "$SECRETS_DIR" -name '*.age' -type f | sed "s|^$SECRETS_DIR/||")"
 disk_paths="$(echo "$disk_paths" | sort -u)"
 
-# Declared: anything in quoted form `"...age"` in secrets.nix
-declared="$(grep -oE '"[^"]+\.age"' "$SECRETS_NIX" | tr -d '"' | sort -u)"
+# Declared: anything in quoted form `"...age"` in secrets.nix.
+# Strip nix line-comments first (`# …` to end of line) so commented-out
+# declarations (TODO/staged-but-disabled) don't show up as false drift.
+# Block comments (/* … */) aren't used in this file — bail loudly if they
+# appear so we know to extend this stripper.
+if grep -q '/\*' "$SECRETS_NIX"; then
+    echo "${RED}error:${RESET} secrets.nix uses block comments — audit script only handles line comments. Extend before trusting output." >&2
+    exit 2
+fi
+declared="$(sed 's|#.*||' "$SECRETS_NIX" | grep -oE '"[^"]+\.age"' | tr -d '"' | sort -u)"
 
 # Compute deltas
 declared_missing="$(comm -23 \
