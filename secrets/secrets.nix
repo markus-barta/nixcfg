@@ -73,6 +73,13 @@ let
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH6ene6+iB5I9brFPfFwuqNil7nbJpWguycyZqv67+LU root@mba-mbp-m5-work"
   ];
 
+  # imac0: second macOS host onboarded to inspr.secrets.agents (2026-05-01).
+  # Host key was already present (Intel iMac, pre-INSPR setup); this is its
+  # /etc/ssh/ssh_host_ed25519_key.pub registered as an agenix recipient.
+  imac0 = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICIFF/rwrg7ajnKf9vFjQIK6leHbl1JqmVcrspowGW3y root@imac0"
+  ];
+
 in
 {
   # ============================================================================
