@@ -126,6 +126,10 @@ in
       ${lib.concatMapStringsSep "\n" (s: ''
         echo "agent-secrets: decrypting ${s.name}"
         target="$DECRYPTED_DIR/${s.name}.env"
+        # Remove prior file first — previous activation set mode 0400, so
+        # the `>` truncate-open below would fail with Permission denied.
+        # rm honors the read-only file mode (dir is 0700 during activation).
+        rm -f "$target"
         # umask narrows default file perms so the plaintext is never even
         # momentarily readable by other accounts.
         umask 0277
