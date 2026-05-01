@@ -91,6 +91,75 @@
 
 ---
 
+## 🆕 Emerging patterns (added 2026-05-01 — INSPR onboarding session)
+
+The 3-tier model above is the canonical foundation. Two practices have
+emerged from real fleet use that AUGMENT (not replace) it.
+
+### Implicit Tier 4 — macOS Keychain (`security` CLI)
+
+Per-tool secrets that scripts read via `security find-generic-password -s "<name>" -w`
+are an *implicit* fourth tier. The `.envrc` at the nixcfg repo root already uses
+this pattern for `gh-token-markus-barta`. On macOS this is the native, OS-managed
+secret store with the lowest activation friction.
+
+| | |
+|---|---|
+| Location | macOS Keychain |
+| Tool | `security` CLI |
+| Add | `security add-generic-password -a $USER -s "<name>" -w "<value>"` |
+| Read | `security find-generic-password -s "<name>" -w` |
+| Use for | Per-tool credentials a script needs to source ad-hoc on macOS |
+
+**Caveat:** keychain entries are per-machine. Fresh machines start without them
+→ tools that depend on them silently get empty values. **Not portable across
+the fleet** unless explicitly seeded on each host.
+
+### Auto-materialization for Tier 3 — `inspr.secrets.agents.*` (macOS hosts)
+
+Tier 3 has historically been MANUAL (`just private-decrypt <name>` per secret,
+per machine). The new `inspr.secrets.agents.*` Home Manager module
+(`modules/shared/agent-secrets.nix`) adds an **auto-materialization layer**
+on top: encrypted `.age` files in the repo are decrypted by HM activation
+and placed at known paths with strict permissions.
+
+| | |
+|---|---|
+| Encrypted in repo | `secrets/agents/shared/<NAME>.age` (all hosts) |
+| | `secrets/agents/host/<hostname>/<NAME>.age` (one host) |
+| Materialized to | `/Users/mba/Secrets/age/decrypted/agents/<NAME>.env` |
+| Mode | `0400` files in `0500` dir — read-only, one-way |
+| Recipients required | the user (e.g. `markus`) — HM activation runs as user |
+| Daily interface | unchanged: `( set -a; source <file>; cmd; set +a )` |
+
+Architecture details (category × scope, future Paimos / FleetCom integration):
+see `~/Code/inspr/playbook.md → "Architecture — secrets / agent-exception design"`.
+
+**First user:** `mba-mbp-m5-work` (the M5 work portable, also the first
+aarch64-darwin host in the fleet). Adds GitHub PAT (`GH_TOKEN.env`) consumed
+by `gh` CLI auto-pickup. `git push` to github.com works via the declarative
+`!gh auth git-credential` helper in `home.nix`.
+
+### macOS-as-agenix-recipient prerequisite
+
+macOS does **not** auto-generate `/etc/ssh/ssh_host_ed25519_key` even with
+Remote Login enabled — Apple's CryptoTokenKit handles SSH service keys
+separately on modern macOS, leaving the conventional file slot empty. agenix
+needs the conventional file as the host identity. One-time setup per macOS host:
+
+```bash
+sudo ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" \
+     -C "root@<hostname>"
+```
+
+Then add the resulting `.pub` to `secrets/secrets.nix` under HOST KEYS as that
+host's entry. sshd is NOT reconfigured to use this key — it exists purely as
+agenix's identity anchor. See the "MACOS HOSTS" section in `secrets/secrets.nix`
+for the canonical pattern (`mba-mbp-m5-work` was first; subsequent macOS hosts
+follow the same shape).
+
+---
+
 ## 🎯 How Do I Start?
 
 ### I'm a family member (wife, dad, etc.)
