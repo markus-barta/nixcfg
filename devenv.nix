@@ -17,6 +17,9 @@ let
     git
     gum
     prettier
+    flarectl
+    wrangler
+    cloudflared
   ];
 
   # macOS-specific packages (tools migrated from Homebrew)
