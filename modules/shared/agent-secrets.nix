@@ -92,8 +92,13 @@ in
 
     decryptedDir = lib.mkOption {
       type        = lib.types.str;
-      default     = "/Users/mba/Secrets/age/decrypted/agents";
-      description = "Where decrypted .env files are materialized. Activation owns this dir entirely.";
+      default     = "${config.home.homeDirectory}/Secrets/age/decrypted/agents";
+      defaultText = lib.literalExpression ''"''${config.home.homeDirectory}/Secrets/age/decrypted/agents"'';
+      description = ''
+        Where decrypted .env files are materialized. Activation owns this dir entirely.
+        Default derives from `config.home.homeDirectory` so the same module works for
+        any user (`mba` on M5 → /Users/mba/...; `markus` on imac0 → /Users/markus/...).
+      '';
     };
 
     identityFile = lib.mkOption {
