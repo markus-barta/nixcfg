@@ -332,31 +332,49 @@ cd ~/ir-bridge && python3 test_tv.py
 | Architecture | `linux/armv6` (matches Pi Zero W; **never** use `arm64`/`armv7` builds)                       |
 | User         | `root` (unit has no `User=`)                                                                  |
 | Baseline RSS | ~8 MiB (after 5d on v0.4.4) — no leak observed natively, leak in FLEET-78 was Docker-specific |
+| Current ver  | **0.5.0** (bumped 2026-05-01, see "Upgrade procedure" below)                                  |
+| Auto-update  | **Available from v0.5.0+** via FleetCom dashboard "Update agent" button (FLEET-87/88)         |
 
 #### Upgrade procedure
 
-The upstream repo ships a native installer that grabs the right ARMv6 asset from GitHub Releases automatically. **Run this on hsb2 itself**:
+There are now **two paths** to upgrade hsb2's bosun. From v0.5.0 onwards the dashboard path is the preferred default; the manual installer remains the bootstrap and emergency fallback.
+
+##### Path A: Dashboard "Update agent" button (preferred from v0.5.0+)
+
+FleetCom's universal `agent.update` command (FLEET-83 epic, shipped 2026-05-01) drives the systemd-native strategy in-process: bosun fetches the matching ARMv6 asset from GitHub Releases, verifies SHA-256, atomic-mvs the binary onto `/usr/local/bin/fleetcom-agent`, posts `restarting` to the server, then `systemctl restart --no-block fleetcom-agent`. Server reconciles the command to `done` on the next heartbeat after the new version reports back.
+
+1. Open https://fleet.barta.cm and find hsb2's host card.
+2. Confirm the deployment-shape badge reads `systemd` (the dashboard refuses to fire `agent.update` for shapes it can't act on).
+3. Click "Update agent" → confirm the dialog.
+4. Watch the per-host Commands tab — `agent.update` should land `pending → executing → restarting → done` within ~60s.
+
+##### Path B: Native installer (bootstrap + manual fallback)
+
+Run this **on hsb2 itself** when:
+
+- Bringing hsb2 onto the v0.5.0 baseline that has Path A (initial bootstrap before FLEET-87 lands on the host).
+- The dashboard path fails for any reason (network, GitHub Release missing, systemctl permission issue).
 
 ```bash
 ssh mba@hsb2  # (Tailscale MagicDNS) or  ssh mba@192.168.1.95
-sudo AGENT_VERSION=0.4.5 bash <(curl -fsSL \
+sudo AGENT_VERSION=0.5.0 bash <(curl -fsSL \
   https://raw.githubusercontent.com/markus-barta/fleetcom/main/agent/install-native.sh)
 ```
 
 What the script does:
 
 1. Detects `armv6l` → picks asset `fleetcom-bosun-linux-armv6`
-2. Downloads `https://github.com/markus-barta/fleetcom/releases/download/agent-v0.4.5/fleetcom-bosun-linux-armv6`
+2. Downloads `https://github.com/markus-barta/fleetcom/releases/download/agent-v0.5.0/fleetcom-bosun-linux-armv6`
 3. Verifies SHA256 against the published `.sha256` sidecar
 4. `install -m 755` over `/usr/local/bin/fleetcom-agent`
 5. `systemctl restart fleetcom-agent`
 
-Use `AGENT_VERSION=latest` to track the rolling tag instead of pinning.
+Use `AGENT_VERSION=latest` to track GitHub's "Latest release" marker. Note: our CI doesn't always set that flag — pinning the version explicitly (as above) is the safer default.
 
-**Manual fallback** (if `install-native.sh` is unreachable):
+**Manual-manual fallback** (if `install-native.sh` itself is unreachable, e.g. GitHub raw is blocked):
 
 ```bash
-TAG=agent-v0.4.5
+TAG=agent-v0.5.0
 curl -fsSL -o /tmp/bosun "https://github.com/markus-barta/fleetcom/releases/download/${TAG}/fleetcom-bosun-linux-armv6"
 curl -fsSL -o /tmp/bosun.sha256 "https://github.com/markus-barta/fleetcom/releases/download/${TAG}/fleetcom-bosun-linux-armv6.sha256"
 sha256sum -c <(awk -v p=/tmp/bosun '{print $1"  "p}' /tmp/bosun.sha256)
@@ -364,12 +382,17 @@ sudo install -m 755 /tmp/bosun /usr/local/bin/fleetcom-agent
 sudo systemctl restart fleetcom-agent
 ```
 
+##### History
+
+- **2026-05-01** Bootstrapped onto v0.5.0 via Path B (`AGENT_VERSION=0.5.0 bash install-native.sh`). This was the version that introduced FLEET-87's in-process update path, so subsequent upgrades on hsb2 should use Path A by default.
+- **2026-04-24** Bumped to v0.4.5 (FLEET-78 version-parity).
+
 #### Verify after upgrade
 
 ```bash
 ssh mba@hsb2
 sudo journalctl -u fleetcom-agent --since "5 min ago" --no-pager | grep -E "starting|Bosun"
-# expected: "FleetCom Bosun 0.4.5 ... starting: host=hsb2 ..."
+# expected: "FleetCom Bosun 0.5.0 ... starting: host=hsb2 ..."
 
 ps -o pid,rss,etime,comm -p $(pgrep -f fleetcom-agent)
 # expected: RSS in MiB-range (e.g. 8000–15000 KiB), elapsed=fresh
@@ -437,8 +460,9 @@ ps -o pid,rss,etime -p $(pgrep -f fleetcom-agent)
 #### Related context
 
 - **FLEET-78** (PPM): bosun memory leak on Docker hosts (cs1 outage 2026-04-25). Native binary on hsb2 was unaffected but kept on the upgrade list for version parity.
+- **FLEET-83 epic** (PPM, shipped 2026-05-01): universal `agent.update` command. FLEET-84 added the deployment-shape detector (hsb2 reports `systemd-native`); FLEET-87 added the in-process self-update path that Path A above relies on; FLEET-88 added the dashboard Update button. Bootstrap onto a v0.5.0+ binary first via Path B; from there, Path A handles all subsequent upgrades.
 - **Upstream installer**: `~/Code/fleetcom/agent/install-native.sh` (single source of truth for native deploys).
-- **Release tag pattern**: `agent-v<MAJOR>.<MINOR>.<PATCH>` (e.g. `agent-v0.4.5`); CI publishes both the binary and a `.sha256` sidecar.
+- **Release tag pattern**: `agent-v<MAJOR>.<MINOR>.<PATCH>` (e.g. `agent-v0.5.0`); CI publishes both the binary and a `.sha256` sidecar.
 
 ---
 
