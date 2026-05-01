@@ -32,7 +32,16 @@ in
   # ============================================================================
   imports = [
     ../../modules/uzumaki/home-manager.nix
+    ../../modules/shared/agent-secrets.nix
   ];
+
+  # ============================================================================
+  # INSPR — Agent-exception secrets materialization
+  # ============================================================================
+  # See modules/shared/agent-secrets.nix for the full architecture.
+  # Materializes encrypted secrets in secrets/agents/host/<this-host>/ to
+  # /Users/mba/Secrets/age/decrypted/agents/<NAME>.env at HM activation.
+  inspr.secrets.agents.enable = true;
 
   # ============================================================================
   # UZUMAKI MODULE - Fish functions, theming, monitoring
@@ -184,7 +193,15 @@ in
         email = "markus.barta@bytepoets.com";
       };
 
-      credential.helper = "osxkeychain";
+      credential = {
+        # Generic fallback (osxkeychain stores user/password for any HTTPS host)
+        helper = "osxkeychain";
+        # Per-host: GitHub goes through `gh` so the materialized GH_TOKEN
+        # (and any keychain-stored gh auth) is the source of truth for
+        # github.com and gist.github.com pushes.
+        "https://github.com".helper = "!gh auth git-credential";
+        "https://gist.github.com".helper = "!gh auth git-credential";
+      };
     };
 
     # Personal identity for personal repos (override BYTEPOETS default)
