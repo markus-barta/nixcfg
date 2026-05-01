@@ -17,7 +17,7 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 - Contact: Markus Barta (@markus-barta, markus@barta.com).
 - Workspace: `~/Code`. Missing a repo? Ask to clone `https://github.com/markus-barta/<repo>.git`.
 - 3rd-party/OSS (non-markus-barta): clone under `~/Projects/3rdparty`.
-- Work devices: `imac0` (home iMac), `mba-imac-work` (work iMac), `mba-mbp-work` (portable MacBook).
+- **Fleet inventory: query FleetCom — do not assume.** Canonical, live source for hosts/agents/services is **FleetCom** at `https://fleet.barta.cm` (repo: `~/Code/fleetcom`). Static lists drift; the live inventory does not. Browse the dashboard for current hosts, status, OS, agent versions. (Programmatic agent access pending — see FleetCom backlog.)
 - PRs: use `gh pr view/diff` (no URLs).
 - Only edit files in folder `+agents` when user explicitly permits it.
 - Use `trash` for deletes, never `rm -rf`.
@@ -42,7 +42,7 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 | Agent workflow             | `docs/AGENT-WORKFLOW.md`                            |
 | Infrastructure inventory   | `docs/INFRASTRUCTURE.md`                            |
 | Task/project mgmt          | PPM (`pm.barta.cm`)                                 |
-| Fleet / agent dashboard    | FleetCom (`fleet.barta.cm`, repo `~/Code/fleetcom`) |
+| **Fleet inventory & status** | **FleetCom (`fleet.barta.cm`) — canonical live source for hosts/agents/services. Query, do not assume.** Repo: `~/Code/fleetcom` |
 
 ## Docs
 
