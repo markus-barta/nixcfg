@@ -334,4 +334,33 @@ in
   # Edit: agenix -e secrets/agents/host/mba-mbp-m5-work/GH_TOKEN.age
   "agents/host/mba-mbp-m5-work/GH_TOKEN.age".publicKeys = markus ++ mba-mbp-m5-work;
 
+  # ────────────────────────────────────────────────────────────────────────
+  # Shared agent secrets (cross-machine)
+  # Format inside each .age file: <VARNAME>=<value>
+  # Workflow per secret: agenix -e secrets/agents/shared/<NAME>.age → paste → save
+  # ────────────────────────────────────────────────────────────────────────
+  # Recipients = markus (user) + every macOS host using inspr.secrets.agents.
+  # Add more hosts here as they join the pipeline (rekey afterwards).
+
+  # Cloudflare DNS API token (AIA account)
+  "agents/shared/CF_DNS_TOKEN_AIA.age".publicKeys = markus ++ mba-mbp-m5-work;
+
+  # Cloudflare Zone API token (AIA account)
+  "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mba-mbp-m5-work;
+
+  # PMO = BYTEPOETS Project Management Online (the company Paimos instance).
+  # NOTE: BYTEPOETS-context credentials. Long-term these belong in a
+  # BYTEPOETS-private flake (per Pattern β), not Markus's personal nixcfg.
+  # Currently in shared/ as a transitional layer until BYTEPOETS gets its
+  # own flake — flag for migration when that happens.
+  "agents/shared/PMOAPIKEY.age".publicKeys           = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOSERVERPASS.age".publicKeys       = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOSERVERURL.age".publicKeys        = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOSERVERUSER.age".publicKeys       = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOSSHKEYFILELOCATION.age".publicKeys = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOURL.age".publicKeys              = markus ++ mba-mbp-m5-work;
+
+  # PPM = Personal Project Management (Markus's personal Paimos at pm.barta.cm)
+  "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mba-mbp-m5-work;
+
 }
