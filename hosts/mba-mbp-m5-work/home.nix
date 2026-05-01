@@ -33,6 +33,7 @@ in
   imports = [
     ../../modules/uzumaki/home-manager.nix
     ../../modules/shared/agent-secrets.nix
+    ../../modules/shared/git-identity.nix
   ];
 
   # ============================================================================
@@ -42,6 +43,14 @@ in
   # Materializes encrypted secrets in secrets/agents/host/<this-host>/ to
   # /Users/mba/Secrets/age/decrypted/agents/<NAME>.env at HM activation.
   inspr.secrets.agents.enable = true;
+
+  # ============================================================================
+  # INSPR — Git identity (personal default + BYTEPOETS via remote-URL match)
+  # ============================================================================
+  # See modules/shared/git-identity.nix for the full architecture.
+  # Default = Markus Barta <markus@barta.com>. Repos in BYTEPOETS GitHub orgs
+  # (BYTEPOETS, bytepoets-mba) auto-switch via includeIf hasconfig:remote.*.url.
+  inspr.git-identity.enable = true;
 
   # ============================================================================
   # UZUMAKI MODULE - Fish functions, theming, monitoring
@@ -178,56 +187,23 @@ in
   # ============================================================================
   # Git Configuration
   # ============================================================================
+  # Identity is managed by modules/shared/git-identity.nix (see above).
+  # This block owns host-specific bits only: ignores + credential helpers.
   programs.git = {
-    enable = true;
-
     ignores = [
       "*~"
       ".DS_Store"
     ];
 
-    settings = {
-      # Default identity = work (BYTEPOETS) — this is a work machine
-      user = {
-        name = "mba";
-        email = "markus.barta@bytepoets.com";
-      };
-
-      credential = {
-        # Generic fallback (osxkeychain stores user/password for any HTTPS host)
-        helper = "osxkeychain";
-        # Per-host: GitHub goes through `gh` so the materialized GH_TOKEN
-        # (and any keychain-stored gh auth) is the source of truth for
-        # github.com and gist.github.com pushes.
-        "https://github.com".helper = "!gh auth git-credential";
-        "https://gist.github.com".helper = "!gh auth git-credential";
-      };
+    settings.credential = {
+      # Generic fallback (osxkeychain stores user/password for any HTTPS host)
+      helper = "osxkeychain";
+      # Per-host: GitHub goes through `gh` so the materialized GH_TOKEN
+      # (and any keychain-stored gh auth) is the source of truth for
+      # github.com and gist.github.com pushes.
+      "https://github.com".helper = "!gh auth git-credential";
+      "https://gist.github.com".helper = "!gh auth git-credential";
     };
-
-    # Personal identity for personal repos (override BYTEPOETS default)
-    includes = [
-      {
-        condition = "gitdir:~/Code/personal/";
-        contents.user = {
-          name = "Markus Barta";
-          email = "markus@barta.com";
-        };
-      }
-      {
-        condition = "gitdir:~/Code/nixcfg/";
-        contents.user = {
-          name = "Markus Barta";
-          email = "markus@barta.com";
-        };
-      }
-      {
-        condition = "gitdir:~/Code/inspr/";
-        contents.user = {
-          name = "Markus Barta";
-          email = "markus@barta.com";
-        };
-      }
-    ];
   };
 
   # ============================================================================

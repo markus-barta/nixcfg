@@ -15,8 +15,15 @@ in
     ../../modules/uzumaki/home-manager.nix
     # Fleet SSH config with Tailscale fallback
     ../../modules/shared/ssh-fleet.nix
+    # Two-identity git config (personal default + BYTEPOETS via remote-URL match)
+    ../../modules/shared/git-identity.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.homeManagerModules.nixfleet-agent)
   ];
+
+  # ============================================================================
+  # INSPR — Git identity (personal default + BYTEPOETS via remote-URL match)
+  # ============================================================================
+  inspr.git-identity.enable = true;
 
   # ============================================================================
   # SSH KEYS - Host-specific Git SSH config (preserved from manual ~/.ssh/config)
@@ -228,28 +235,21 @@ in
   };
 
   # ============================================================================
-  # Git Configuration - Work Identity (BYTEPOETS default)
+  # Git Configuration
   # ============================================================================
+  # Identity is managed by modules/shared/git-identity.nix (see imports above).
+  # This block owns host-specific bits only.
   programs.git = {
-    enable = true;
-
-    # Global gitignore
     ignores = [
       "*~"
       ".DS_Store"
     ];
 
     settings = {
-      # User settings - Work identity as default for work machine
-      user = {
-        name = "mba";
-        email = "markus.barta@bytepoets.com";
-      };
-
       # macOS keychain credential helper
       credential.helper = "osxkeychain";
 
-      # Sourcetree diff/merge tools (preserved from existing config)
+      # Sourcetree diff/merge tools
       difftool.sourcetree = {
         cmd = ''opendiff "$LOCAL" "$REMOTE"'';
         path = "";
@@ -259,31 +259,9 @@ in
         trustExitCode = true;
       };
 
-      # Commit template (preserved from existing config)
+      # Commit template (path is /Users/markus/ — host-historical; preserved as-is)
       commit.template = "/Users/markus/.stCommitMsg";
     };
-
-    # Dual identity: personal identity for personal projects
-    includes = [
-      {
-        condition = "gitdir:~/Code/personal/";
-        contents = {
-          user = {
-            name = "Markus Barta";
-            email = "markus@barta.com";
-          };
-        };
-      }
-      {
-        condition = "gitdir:~/Code/nixcfg/";
-        contents = {
-          user = {
-            name = "Markus Barta";
-            email = "markus@barta.com";
-          };
-        };
-      }
-    ];
   };
 
   # ============================================================================

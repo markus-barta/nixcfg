@@ -32,7 +32,15 @@ in
   # ============================================================================
   imports = [
     ../../modules/uzumaki/home-manager.nix
+    ../../modules/shared/git-identity.nix # Markus's two-identity git config (personal + BYTEPOETS)
   ];
+
+  # ============================================================================
+  # INSPR — Git identity (personal default + BYTEPOETS via remote-URL match)
+  # ============================================================================
+  # See modules/shared/git-identity.nix. Default = Markus Barta <markus@barta.com>.
+  # Repos in BYTEPOETS GitHub orgs auto-switch via includeIf hasconfig:remote.*.url.
+  inspr.git-identity.enable = true;
 
   # ============================================================================
   # UZUMAKI MODULE - Fish functions, theming, monitoring
