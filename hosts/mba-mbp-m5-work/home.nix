@@ -34,6 +34,7 @@ in
     ../../modules/uzumaki/home-manager.nix
     ../../modules/shared/agent-secrets.nix
     ../../modules/shared/git-identity.nix
+    ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
   ];
 
   # ============================================================================
