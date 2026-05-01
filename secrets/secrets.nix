@@ -320,4 +320,18 @@ in
   # Edit: agenix -e secrets/miniserver-bp-openclaw-pmo-token.age
   "miniserver-bp-openclaw-pmo-token.age".publicKeys = markus ++ miniserver-bp;
 
+  # ============================================================================
+  # AGENT-EXCEPTION SECRETS — inspr.secrets.agents.* module (Phase 1)
+  # ============================================================================
+  # Layout: secrets/agents/{shared,host/<hostname>}/<NAME>.age
+  # Materialized at activation to /Users/mba/Secrets/age/decrypted/agents/<NAME>.env
+  # See ~/Code/inspr/proposals/agent-secrets/ for the architecture.
+
+  # GitHub PAT for @markus-barta on this device (mba-mbp-m5-work).
+  # Per-device for per-device revocability. Filename = GH_TOKEN.age so the
+  # materialized env file is GH_TOKEN.env — gh CLI auto-picks up $GH_TOKEN.
+  # Format inside the .age file: GH_TOKEN=ghp_xxxxxxxxxxxx
+  # Edit: agenix -e secrets/agents/host/mba-mbp-m5-work/GH_TOKEN.age
+  "agents/host/mba-mbp-m5-work/GH_TOKEN.age".publicKeys = markus ++ mba-mbp-m5-work;
+
 }

@@ -115,7 +115,9 @@ in
       AGE_BIN="${pkgs.age}/bin/age"
 
       mkdir -p "$DECRYPTED_DIR"
-      chmod 0500 "$DECRYPTED_DIR"
+      # Open the dir for writes during this activation. Lock it back to
+      # 0500 (no manual writes possible) at the end of the script.
+      chmod 0700 "$DECRYPTED_DIR"
 
       # Build the expected file set (computed at Nix eval time; baked into script)
       expected="${expectedBasenames}"
@@ -124,7 +126,8 @@ in
       ${lib.concatMapStringsSep "\n" (s: ''
         echo "agent-secrets: decrypting ${s.name}"
         target="$DECRYPTED_DIR/${s.name}.env"
-        # Use printf+chmod ordering so we never have a momentary 0644 plaintext
+        # umask narrows default file perms so the plaintext is never even
+        # momentarily readable by other accounts.
         umask 0277
         "$AGE_BIN" --decrypt --identity "$IDENTITY" "${s.src}" > "$target"
         chmod 0400 "$target"
@@ -143,6 +146,10 @@ in
             ;;
         esac
       done
+
+      # Lock the directory: no further writes possible without explicit chmod.
+      # This is the "one-way street" guarantee from the architecture.
+      chmod 0500 "$DECRYPTED_DIR"
     '';
   };
 }
