@@ -57,6 +57,22 @@ let
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIINZUHm99JEREiB538opcE04Ho/2EpgoE26EKVGdc4oF root@miniserver-bp"
   ];
 
+  # ============================================================================
+  # MACOS HOSTS
+  # ============================================================================
+  # First macOS host as agenix recipient (mba-mbp-m5-work, added 2026-05-01).
+  # macOS does NOT auto-generate /etc/ssh/ssh_host_ed25519_key — manually
+  # created via:
+  #     sudo ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" \
+  #          -C "root@<hostname>"
+  # This key is dedicated to agenix decryption; sshd is not explicitly
+  # configured to use it (Apple's CryptoTokenKit handles SSH service keys
+  # separately on modern macOS). See playbook field notes for context.
+
+  "mba-mbp-m5-work" = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH6ene6+iB5I9brFPfFwuqNil7nbJpWguycyZqv67+LU root@mba-mbp-m5-work"
+  ];
+
 in
 {
   # ============================================================================

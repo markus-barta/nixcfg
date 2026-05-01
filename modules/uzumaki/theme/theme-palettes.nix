@@ -841,6 +841,7 @@
     imac1 = "roseGold"; # Wife's iMac (future)
     "mba-imac-work" = "darkGray";
     "mba-mbp-work" = "lightGray";
+    "mba-mbp-m5-work" = "lightGray"; # M5 work portable — same lightGray family as the predecessor it replaces
     miniserver-bp = "veryDarkGray";
   };
 
@@ -867,6 +868,7 @@
     "imac1"
     "mba-imac-work"
     "mba-mbp-work"
+    "mba-mbp-m5-work"
   ];
 
   # ============================================================================

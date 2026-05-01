@@ -136,14 +136,19 @@
       # Flakes use pure evaluation, so env vars like $HOST aren't available.
       # This passes hostname explicitly via extraSpecialArgs.
       #
+      # First arg `system` is the Darwin system string ("x86_64-darwin" for
+      # Intel, "aarch64-darwin" for Apple Silicon). Previously hard-coded to
+      # x86_64-darwin; widened to support Apple Silicon hosts (mba-mbp-m5-work
+      # is the first aarch64 macOS host in the fleet, 2026-05-01).
+      #
       # Note: NixOS hosts get hostname from config.networking.hostName (see common.nix)
       #
       mkDarwinHome =
-        hostname:
+        system: hostname:
         home-manager.lib.homeManagerConfiguration {
           pkgs = import nixpkgs {
             localSystem = {
-              system = "x86_64-darwin";
+              inherit system;
             };
             config.allowUnfree = true;
             overlays = allOverlays;
@@ -164,14 +169,18 @@
       # ========================================================================
       # macOS Home Manager Configurations
       # ========================================================================
-      homeConfigurations."markus@imac0" = mkDarwinHome "imac0";
+      homeConfigurations."markus@imac0" = mkDarwinHome "x86_64-darwin" "imac0";
       homeConfigurations."imac0" = self.homeConfigurations."markus@imac0";
 
-      homeConfigurations."markus@mba-imac-work" = mkDarwinHome "mba-imac-work";
+      homeConfigurations."markus@mba-imac-work" = mkDarwinHome "x86_64-darwin" "mba-imac-work";
       homeConfigurations."mba-imac-work" = self.homeConfigurations."markus@mba-imac-work";
 
-      homeConfigurations."mba@mba-mbp-work" = mkDarwinHome "mba-mbp-work";
+      homeConfigurations."mba@mba-mbp-work" = mkDarwinHome "x86_64-darwin" "mba-mbp-work";
       homeConfigurations."mba-mbp-work" = self.homeConfigurations."mba@mba-mbp-work";
+
+      # NEW: first aarch64-darwin host (Apple Silicon M5)
+      homeConfigurations."mba@mba-mbp-m5-work" = mkDarwinHome "aarch64-darwin" "mba-mbp-m5-work";
+      homeConfigurations."mba-mbp-m5-work" = self.homeConfigurations."mba@mba-mbp-m5-work";
 
       # ========================================================================
       # NixOS Configurations
