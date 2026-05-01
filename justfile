@@ -299,6 +299,13 @@ rekey:
 keyscan:
     ssh-keyscan localhost
 
+# Audit drift between secrets/*.age and secrets/secrets.nix declarations
+# Usage: just secrets-audit          # Human report; exit 1 on drift
+#        just secrets-audit --json   # Machine output (requires jq)
+[group('agenix')]
+secrets-audit *args='':
+    ./scripts/secrets-audit.sh {{ args }}
+
 # Edit secrets using agenix (recommended workflow)
 # Usage: just edit-secret secrets/SECRETNAME.age
 
