@@ -644,11 +644,11 @@
         "zfsguard": "zfsguard"
       },
       "locked": {
-        "lastModified": 1777180769,
-        "narHash": "sha256-oKcxJgpAapFQq1n6eeL8BZlZQ7NZOzQ4zUAVCsia+64=",
+        "lastModified": 1777698846,
+        "narHash": "sha256-9XLfPJf2zSkRooGsP9ldw2RzSH0pBNhUq8/iybN4rXI=",
         "owner": "pbek",
         "repo": "nixcfg",
-        "rev": "7dd96fb832d50c6ec2f515814320058a5d70f51d",
+        "rev": "642f235040c5a3b571b2b01dcbd16f8969883ec5",
         "type": "github"
       },
       "original": {
