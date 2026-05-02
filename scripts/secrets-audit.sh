@@ -20,8 +20,6 @@
 #   1 — drift detected
 #   2 — usage / environment error
 #
-# Closes NIX-1330.
-#
 set -euo pipefail
 
 # Colors (mirror runbook-secrets.sh palette)
