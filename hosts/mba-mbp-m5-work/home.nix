@@ -34,6 +34,7 @@ in
     ../../modules/uzumaki/home-manager.nix
     ../../modules/shared/agent-secrets.nix
     ../../modules/shared/git-identity.nix
+    ../../modules/shared/paimos-config.nix # Auto-bootstrap ~/.paimos/config.yaml from agent-secrets
     ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
   ];
 
@@ -52,6 +53,13 @@ in
   # Default = Markus Barta <markus@barta.com>. Repos in BYTEPOETS GitHub orgs
   # (BYTEPOETS, bytepoets-mba) auto-switch via includeIf hasconfig:remote.*.url.
   inspr.git-identity.enable = true;
+
+  # ============================================================================
+  # INSPR — paimos-cli auto-bootstrap (~/.paimos/config.yaml from PPMAPIKEY.env)
+  # ============================================================================
+  # See modules/shared/paimos-config.nix. After activation, `paimos auth whoami`
+  # works immediately — no manual `paimos auth login` step on fresh hosts.
+  inspr.paimos-cli.enable = true;
 
   # ============================================================================
   # UZUMAKI MODULE - Fish functions, theming, monitoring

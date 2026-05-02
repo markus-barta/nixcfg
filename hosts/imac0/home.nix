@@ -22,6 +22,8 @@ in
     ../../modules/shared/git-identity.nix
     # Agent-exception secrets materialized to ~/Secrets/age/decrypted/agents/
     ../../modules/shared/agent-secrets.nix
+    # Auto-bootstrap ~/.paimos/config.yaml from agent-secrets PPMAPIKEY.env
+    ../../modules/shared/paimos-config.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.homeManagerModules.nixfleet-agent)
   ];
 
@@ -38,6 +40,11 @@ in
   # can't use root-owned host keys). markus is in every shared secret's
   # publicKeys, so all 9 shared secrets are accessible on imac0 too.
   inspr.secrets.agents.enable = true;
+
+  # ============================================================================
+  # INSPR — paimos-cli auto-bootstrap (~/.paimos/config.yaml from PPMAPIKEY.env)
+  # ============================================================================
+  inspr.paimos-cli.enable = true;
 
   # ============================================================================
   # SSH KEYS - Host-specific Git SSH config (preserved from manual ~/.ssh/config)
