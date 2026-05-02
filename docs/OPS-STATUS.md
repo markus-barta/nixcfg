@@ -27,7 +27,8 @@ Previously provided:
 | 🖥️  | imac0         | macOS | Desktop | Time Machine  |   ⚪   | External Drive          | 2026-01-11 11:45 |
 | 🖥️  | mba-imac-work | macOS | Desktop | Time Machine  |   ⚪   | External Drive          | 2026-01-11 11:45 |
 | 💻  | mba-mbp-work  | macOS | Desktop | Time Machine  |   ⚪   | External Drive          | 2026-01-11 11:45 |
-| 🏢  | miniserver-bp | NixOS | Server  | ZFS Snapshots |   🔴   | Office Jump Host        | 2026-01-11 11:55 |
+<!-- 🏢  miniserver-bp moved to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24) -->
+
 
 **Legend:** 🏠 Home | 🌐 Cloud | 🏢 Office | 🎮 Gaming | 🖥️ iMac | 💻 MacBook
 **Status:** 🔴 Snapshot/None | 🟡 Restic (Unverified) | 🟢 Restic (Verified) | ⚪ Time Machine (Ext)

@@ -53,9 +53,11 @@ let
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpykoFcMPeCtWH3aColM4fzCsslUxaHwW9DHSTi2Fr3"
   ];
 
-  miniserver-bp = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIINZUHm99JEREiB538opcE04Ho/2EpgoE26EKVGdc4oF root@miniserver-bp"
-  ];
+  # miniserver-bp host key removed 2026-05-02 (INSPR-24): host migrated
+  # to BYTEPOETS/bpnixcfg. Its host key now lives in that flake's
+  # secrets/secrets.nix. The deprecated `nixfleet-token.age` below loses
+  # msbp as a recipient — rekey deferred (file is on the deprecation
+  # path; will be removed entirely once FleetCom Phase 2 lands).
 
   # ============================================================================
   # MACOS HOSTS
@@ -107,7 +109,7 @@ in
   # NixFleet agent API token — DEPRECATED (replaced by FleetCom per-host tokens)
   # TODO: Remove after FleetCom is fully deployed
   "nixfleet-token.age".publicKeys =
-    markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0 ++ miniserver-bp;
+    markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0;
 
   # FleetCom agent tokens — one per host, plain text bearer token
   # Generate in FleetCom UI (Hosts → Add Host), paste token into .age file
@@ -119,7 +121,7 @@ in
   "fleetcom-token-csb0.age".publicKeys = markus ++ csb0;
   "fleetcom-token-csb1.age".publicKeys = markus ++ csb1;
   "fleetcom-token-gpc0.age".publicKeys = markus ++ gpc0;
-  "fleetcom-token-miniserver-bp.age".publicKeys = markus ++ miniserver-bp;
+  # fleetcom-token-miniserver-bp.age moved to BYTEPOETS/bpnixcfg with msbp (2026-05-02)
 
   # FleetCom ↔ OpenClaw per-gateway operator identity (FLEET-51/52).
   # FleetCom connects to each gateway's WS RPC with a gateway-scoped
@@ -278,54 +280,18 @@ in
   # "hsb0-openclaw-m365-cal-tenant-id.age".publicKeys = markus ++ hsb0;
   # "hsb0-openclaw-m365-cal-client-secret.age".publicKeys = markus ++ hsb0;
 
-  # WireGuard private key for miniserver-bp (BYTEPOETS VPN)
-  # Edit: agenix -e secrets/miniserver-bp-wireguard-key.age
-  "miniserver-bp-wireguard-key.age".publicKeys = markus ++ miniserver-bp;
-
-  # OpenClaw Percaival secrets
-  # Edit: agenix -e secrets/miniserver-bp-openclaw-*.age
-  "miniserver-bp-openclaw-telegram-token.age".publicKeys = markus ++ miniserver-bp;
-  "miniserver-bp-openclaw-gateway-token.age".publicKeys = markus ++ miniserver-bp;
-  "miniserver-bp-openclaw-openrouter-key.age".publicKeys = markus ++ miniserver-bp;
-  "miniserver-bp-openclaw-brave-key.age".publicKeys = markus ++ miniserver-bp;
+  # ============================================================================
+  # MINISERVER-BP secrets — MOVED to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24)
+  # ============================================================================
+  # 14 secrets (wireguard-key + 4 openclaw + gogcli + 3 m365 + github-pat +
+  # percy-nextcloud-share + mattermost-bot-token + openclaw-pmo-token, plus
+  # fleetcom-token-miniserver-bp moved separately above) live in
+  # bpnixcfg/secrets/. Recipients: markus_personal + miniserver-bp host
+  # (transitional; INSPR-24 Stage 3 will re-encrypt to a dedicated
+  # BYTEPOETS internal-ops keypair). See INSPR-24 commit history.
 
   # Merlin AI SSH key to access hsb1
   "hsb0-merlin-ssh-key.age".publicKeys = markus ++ hsb0;
-
-  # gogcli keyring password for OpenClaw Percaival container
-  # Format: GOG_KEYRING_PASSWORD=<password> (KEY=VALUE for Docker environmentFiles)
-  # Edit: agenix -e secrets/miniserver-bp-gogcli-keyring-password.age
-  "miniserver-bp-gogcli-keyring-password.age".publicKeys = markus ++ miniserver-bp;
-
-  # M365 (CLI for Microsoft 365) credentials for OpenClaw Percaival
-  # Azure AD app: Percy-AI-miniserver-bp (dedicated app registration)
-  # Format: Plain text value (no KEY=VALUE)
-  # Edit: agenix -e secrets/miniserver-bp-m365-client-id.age
-  # Edit: agenix -e secrets/miniserver-bp-m365-tenant-id.age
-  # Edit: agenix -e secrets/miniserver-bp-m365-client-secret.age
-  "miniserver-bp-m365-client-id.age".publicKeys = markus ++ miniserver-bp;
-  "miniserver-bp-m365-tenant-id.age".publicKeys = markus ++ miniserver-bp;
-  "miniserver-bp-m365-client-secret.age".publicKeys = markus ++ miniserver-bp;
-
-  # GitHub PAT for Percy AI (@bytepoets-percyai)
-  # Format: GITHUB_PAT=<token>
-  # Edit: agenix -e secrets/miniserver-bp-github-pat.age
-  "miniserver-bp-github-pat.age".publicKeys = markus ++ miniserver-bp;
-
-  # Nextcloud share credentials for Percy (upload/download files)
-  # Format: KEY=VALUE lines (NEXTCLOUD_SHARE_URL, NEXTCLOUD_SHARE_PASSWORD)
-  # Edit: agenix -e secrets/miniserver-bp-percy-nextcloud-share.age
-  "miniserver-bp-percy-nextcloud-share.age".publicKeys = markus ++ miniserver-bp;
-
-  # Mattermost bot token for OpenClaw Percaival
-  # Format: Plain text token (no KEY=VALUE). URL is in docker-compose.yml.
-  # Edit: agenix -e secrets/miniserver-bp-mattermost-bot-token.age
-  "miniserver-bp-mattermost-bot-token.age".publicKeys = markus ++ miniserver-bp;
-
-  # PMO (online PM tool) API token for OpenClaw Percaival
-  # Format: PMO_TOKEN=<token> (KEY=VALUE for Docker environmentFiles)
-  # Edit: agenix -e secrets/miniserver-bp-openclaw-pmo-token.age
-  "miniserver-bp-openclaw-pmo-token.age".publicKeys = markus ++ miniserver-bp;
 
   # ============================================================================
   # AGENT-EXCEPTION SECRETS — inspr.secrets.agents.* module (Phase 1)

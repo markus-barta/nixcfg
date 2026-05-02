@@ -100,7 +100,6 @@ Shorter aliases for commonly accessed hosts:
 | -------- | ------------- | ---------------- | ----------------- |
 | `mbpw`   | mba-mbp-work  | Work MacBook Pro | mbpw.ts.barta.cm  |
 | `imacw`  | mba-imac-work | Work iMac        | imacw.ts.barta.cm |
-| `msbp`   | miniserver-bp | Office Mac Mini  | msbp.ts.barta.cm  |
 | `hsb0`   | hsb0          | Home DNS/DHCP    | hsb0.ts.barta.cm  |
 | `hsb1`   | hsb1          | Home Automation  | hsb1.ts.barta.cm  |
 | `csb0`   | csb0          | Cloud Smart Home | csb0.ts.barta.cm  |
@@ -202,7 +201,8 @@ Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts
 | **gpc0**          | NixOS    | gpc0.ts.barta.cm  | ✅ Active |
 | **csb0**          | NixOS    | csb0.ts.barta.cm  | ✅ Active |
 | **csb1**          | NixOS    | csb1.ts.barta.cm  | ✅ Active |
-| miniserver-bp     | NixOS    | msbp.ts.barta.cm  | ✅ Active |
+<!-- miniserver-bp moved to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24) -->
+
 
 ### Adding a New Node
 

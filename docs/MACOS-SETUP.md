@@ -528,7 +528,7 @@ nix.settings = {
 };
 ```
 
-Already applied to `hosts/miniserver-bp/configuration.nix` (2026-03-12).
+Already applied where this matters (was first set on miniserver-bp 2026-03-12; that host moved to BYTEPOETS/bpnixcfg on 2026-05-02 — see commit history).
 
 ### 5.4 Install Karabiner-Elements (Optional)
 
