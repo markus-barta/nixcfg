@@ -291,17 +291,9 @@
           };
         };
 
-        # BYTEPOETS office Mac Mini (external, not in home network)
-        miniserver-bp = nixpkgs.lib.nixosSystem {
-          modules = commonServerModules ++ [
-            inputs.nixcfg.nixosModules.hokage # External hokage module
-            ./hosts/miniserver-bp/configuration.nix
-            disko.nixosModules.disko
-          ];
-          specialArgs = self.commonArgs // {
-            inherit inputs;
-          };
-        };
+        # miniserver-bp moved to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24
+        # Pattern β graduation). It's a BYTEPOETS internal-ops host, not a
+        # personal one — belongs in the BYTEPOETS context flake.
 
         # Home Server Barta 2 - Raspberry Pi Zero W
         # ARMv6l architecture, 512MB RAM
