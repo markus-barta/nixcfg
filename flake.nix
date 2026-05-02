@@ -48,6 +48,13 @@
       url = "github:markus-barta/opus-stream-to-mqtt";
       flake = false;
     };
+    # INSPR — public Home Manager modules (Pattern β graduation; INSPR-27/28).
+    # Workstation-side primitives that used to live in modules/shared/ here.
+    # Consumers (this nixcfg + future BYTEPOETS/family/etc. context flakes)
+    # provide identity-specific values; the library stays opinionated only
+    # about mechanics.
+    inspr-modules.url = "github:markus-barta/inspr-modules";
+    inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
