@@ -32,10 +32,10 @@ in
   # ============================================================================
   imports = [
     ../../modules/uzumaki/home-manager.nix
-    ../../modules/shared/agent-secrets.nix
-    ../../modules/shared/git-identity.nix
-    ../../modules/shared/paimos-config.nix # Auto-bootstrap ~/.paimos/config.yaml from agent-secrets
     ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
+    # markus-defaults bundles all 3 INSPR public modules + Markus's values
+    # (identities, contexts, instances, encrypted-secrets root)
+    ../../modules/shared/markus-defaults.nix
   ];
 
   # ============================================================================

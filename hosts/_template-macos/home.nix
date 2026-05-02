@@ -32,9 +32,9 @@ in
   # ============================================================================
   imports = [
     ../../modules/uzumaki/home-manager.nix
-    ../../modules/shared/git-identity.nix # Markus's two-identity git config (personal + BYTEPOETS)
-    # ../../modules/shared/agent-secrets.nix   # Materialize agent-exception secrets (requires host = agenix recipient)
-    # ../../modules/shared/paimos-config.nix   # Auto-bootstrap ~/.paimos/config.yaml (requires agent-secrets enabled)
+    # markus-defaults bundles all 3 INSPR public modules + Markus's values.
+    # Hosts opt in per-module via `inspr.X.enable = true` (see below).
+    ../../modules/shared/markus-defaults.nix
   ];
 
   # ============================================================================

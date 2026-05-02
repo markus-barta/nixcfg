@@ -18,12 +18,8 @@ in
     ../../modules/uzumaki/home-manager.nix
     # Fleet SSH config with Tailscale fallback
     ../../modules/shared/ssh-fleet.nix
-    # Two-identity git config (personal default + BYTEPOETS via remote-URL match)
-    ../../modules/shared/git-identity.nix
-    # Agent-exception secrets materialized to ~/Secrets/age/decrypted/agents/
-    ../../modules/shared/agent-secrets.nix
-    # Auto-bootstrap ~/.paimos/config.yaml from agent-secrets PPMAPIKEY.env
-    ../../modules/shared/paimos-config.nix
+    # markus-defaults bundles all 3 INSPR public modules + Markus's values
+    ../../modules/shared/markus-defaults.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.homeManagerModules.nixfleet-agent)
   ];
 
