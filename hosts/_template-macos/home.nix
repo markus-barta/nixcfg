@@ -33,6 +33,8 @@ in
   imports = [
     ../../modules/uzumaki/home-manager.nix
     ../../modules/shared/git-identity.nix # Markus's two-identity git config (personal + BYTEPOETS)
+    # ../../modules/shared/agent-secrets.nix   # Materialize agent-exception secrets (requires host = agenix recipient)
+    # ../../modules/shared/paimos-config.nix   # Auto-bootstrap ~/.paimos/config.yaml (requires agent-secrets enabled)
   ];
 
   # ============================================================================
@@ -41,6 +43,14 @@ in
   # See modules/shared/git-identity.nix. Default = Markus Barta <markus@barta.com>.
   # Repos in BYTEPOETS GitHub orgs auto-switch via includeIf hasconfig:remote.*.url.
   inspr.git-identity.enable = true;
+
+  # ============================================================================
+  # INSPR — Secrets pipeline (agent-secrets + paimos-cli config)
+  # ============================================================================
+  # Uncomment after this host has been added as an agenix recipient in
+  # secrets/secrets.nix (see playbook step 3 + docs/SECRETS.md).
+  # inspr.secrets.agents.enable = true;
+  # inspr.paimos-cli.enable = true;
 
   # ============================================================================
   # UZUMAKI MODULE - Fish functions, theming, monitoring
