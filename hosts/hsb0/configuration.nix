@@ -780,11 +780,6 @@ in
       enable = true;
       trust  = config._inspr.trustPresets.personalHosts;
     };
-    # NIX-101 minimal repro probe (2026-05-03): trivial HM-only change
-    # to force HM gen hash change → switch-to-config should restart
-    # home-manager-mba.service. If it doesn't, bug is reproducible.
-    # REVERT after observation.
-    home.sessionVariables.NIX_101_REPRO_PROBE = "2026-05-03T18:00";
   };
 
   # ============================================================================
