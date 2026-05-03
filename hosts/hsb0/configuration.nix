@@ -730,11 +730,31 @@ in
   # ============================================================================
 
   users.users.mba = {
+    # 🚨 EMERGENCY RECOVERY PASSWORD - for console/Tailscale access if SSH keys fail
+    # Same hash as csb0/csb1/msbp → same csb-shared 1P entry password unlocks
+    # all four hosts. Plaintext stored in 1Password vault Familie Barta:
+    # entry "csb0 • cs0 • csb1 • cs1 • nix shell" (verified 2026-05-03).
+    #
+    # INSPR-79: previously hsb0 was the only RSA-only NixOS host with NO
+    # password fallback (single-point-of-failure for SSH access). Adding
+    # this provides a recovery path independent of the shared id_rsa key
+    # — important as we transition to per-host ed25519 (INSPR-78) and
+    # eventually retire the shared RSA (INSPR-76).
+    hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
+
     openssh.authorizedKeys.keys = lib.mkForce [
       # Markus' SSH key ONLY
       "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # mba@markus
     ];
   };
+
+  # 🚨 SSH PASSWORD AUTH FALLBACK (INSPR-79)
+  # hsb0 is home-LAN only (no public IP, accessible only via Tailscale +
+  # actual home network), so password auth is acceptable risk for the
+  # defence-in-depth recovery path. Pairs with the hashedPassword above.
+  # See INSPR-80 for the longer-term keep-or-remove decision applying to
+  # this and the equivalent csb0/csb1/msbp settings.
+  services.openssh.settings.PasswordAuthentication = lib.mkForce true;
 
   # ============================================================================
   # 🚨 PASSWORDLESS SUDO - Also lost when removing serverMba mixin
