@@ -136,6 +136,43 @@
   # TODO: Enable home-manager for "omega" user
   # home-manager.users.omega = config.home-manager.users.mba;
 
+  # ============================================================================
+  # INSPR-43 Phase 3 — Declarative SSH inbound trust via inspr.ssh.authorized
+  # ============================================================================
+  # Adds a marker-block-managed `~/.ssh/authorized_keys` for user `mba` via
+  # the inspr-modules HM module (with rich keys form per INSPR-77).
+  #
+  # SAFETY: strictly ADDITIVE. The `users.users.mba.openssh.authorizedKeys.keys`
+  # declaration above (lines 124-130) stays in place — its contents are
+  # rendered into `/etc/ssh/authorized_keys.d/mba`. sshd reads BOTH that
+  # file AND `~/.ssh/authorized_keys` (per `AuthorizedKeysFile %h/.ssh/authorized_keys
+  # /etc/ssh/authorized_keys.d/%u` in sshd_config). Net effect: trust set =
+  # UNION of both files → no key removed, only added. No lockout possible
+  # from this change alone.
+  #
+  # Why gpc0 first (Phase 3 verification target):
+  #   - on-LAN (instant physical recovery if anything breaks)
+  #   - already has the Cs2rTwv4 ed25519 backup admitted (extra safety)
+  #   - is the build host → fast iteration
+  #
+  # The two imports below capture `inputs` from THIS NixOS-module scope
+  # (where `inputs` is in scope via the outer function arg) and pass it
+  # into the HM-module scope (where `inputs` is normally NOT in scope —
+  # extraSpecialArgs is only set for darwin standalone HM via mkDarwinHome
+  # in flake.nix). When this is rolled out fleet-wide, common.nix can be
+  # extended with the same imports and per-host wire-ups become just
+  # `inspr.ssh.authorized.{enable, trust}` declarations.
+  home-manager.users.mba = { config, ... }: {
+    imports = [
+      inputs.inspr-modules.homeManagerModules.ssh-authorized
+      ../../modules/shared/ssh-authorized.nix
+    ];
+    inspr.ssh.authorized = {
+      enable = true;
+      trust  = config._inspr.trustPresets.personalHosts;
+    };
+  };
+
   hokage = {
     catppuccin.enable = false; # Use Tokyo Night theme instead
     users = [
