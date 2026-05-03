@@ -2,6 +2,7 @@
 {
   pkgs,
   lib,
+  config,
   inputs,
   ...
 }:
@@ -55,6 +56,15 @@ in
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
+
+    # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
+    # inspr.ssh.authorized.users.{mba,gb} block further down. force=true
+    # for both because hsb8 hokage-injects external operator keys we do
+    # NOT want admitted on this private/family server. Multi-user: mba
+    # gets the personalHosts preset (legacy + 2 ed25519s); gb gets the
+    # gerhardOnly preset (Gerhard's RSA-3072 personal key).
+    inputs.inspr-modules.nixosModules.ssh-authorized
+    ../../modules/shared/ssh-authorized-nixos.nix
   ];
 
   # ============================================================================
@@ -266,28 +276,39 @@ in
   );
 
   # ============================================================================
-  # SSH KEY CONFIGURATION - Override hokage defaults
+  # INSPR-73 (2026-05-04) — Declarative SSH inbound trust (NixOS, multi-user)
   # ============================================================================
-  # The hokage server-home module auto-injects external SSH keys (omega@*).
-  # We use lib.mkForce to REPLACE (not append) with our own keys only.
+  # System-side: inspr-modules nixosModules.ssh-authorized renders into
+  # users.users.<u>.openssh.authorizedKeys.keys → /etc/ssh/authorized_keys.d/<u>.
+  # Both mba and gb consume from the same shared keyring at
+  # modules/shared/ssh-keyring.nix.
   #
-  # Security Policy:
-  # - hsb8: Only mba (Markus) + gb (Gerhard/father) keys
+  # Security Policy (unchanged):
+  # - hsb8 admits ONLY mba (Markus) + gb (Gerhard/father) keys
   # - NO external access (omega/Yubikey) on personal/family servers
-  # ============================================================================
-
-  users.users.mba = {
-    openssh.authorizedKeys.keys = lib.mkForce [
-      # Markus' SSH key
-      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # mba@markus
-    ];
-  };
-
-  users.users.gb = {
-    openssh.authorizedKeys.keys = lib.mkForce [
-      # Gerhard's (father) SSH key
-      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAwgtI71qYnLJnq0PPs/PWR0O+0zvEQfT7QYaHbrPUdILnK5jqZTj6o02kyfce6JLk+xyYhI596T6DD9But943cKFY/cYG037EjlECq+LXdS7bRsb8wYdc8vjcyF21Ol6gSJdT3noAzkZnqnucnvd7D1lae2ZVw7km6GQvz5XQGS/LQ38JpPZ2JYb0ufT3Z1vgigq9GqhCU6C7NdUslJJJ1Lj4JfPqQTbS1ihZqMe3SQ+ctfmHNYniUkd5Potu7wLMG1OJDL13BXu/M5IihgerZ3QuPb2VPQkb37oxKfquMKveYL9bt4fmK+7+CRHJnzFB45HfG5PiTKsyjuPR5A1N3U5Os+9Wrav9YrqDHWjCaFI1EIY4HRM/kRufD+0ncvvXpsp4foS9DAhK5g3OObRlKgPEc4hkD7hC2KBXUt7Kyg6SLL89gD42qSXLxZlxaTD65UaqB28PuOt7+LtKEPhm1jfH65cKu5vGqUp3145hSJuHB4FuA0ieplfxO78psVM=" # gb@gerhard
-    ];
+  #
+  # force = true on both users because hsb8's server-home / hokage profile
+  # injects external operator keys we do NOT want admitted on this
+  # private/family server. mkForce-wrap drops them. (Defence-in-depth:
+  # matches the lib.mkForce posture the previous manual declarations used.)
+  #
+  # NOTE: hsb8 has NO HM-side ssh-authorized wire-up (unlike the 5
+  # workstation-class personal hosts). The HM module only renders for
+  # the user it runs as (typically `mba`); the multi-user system-side
+  # render via this NixOS module is the right shape for hsb8's mba+gb
+  # admittance pattern. If we later want HM-managed ~/.ssh/authorized_keys
+  # for mba on hsb8 too, add a `home-manager.users.mba = { ... }` block
+  # with the same trust = personalHosts assignment as the other 5 hosts.
+  inspr.ssh.authorized = {
+    enable = true;
+    users.mba = {
+      trust = config._inspr.trustPresets.personalHosts;
+      force = true;
+    };
+    users.gb = {
+      trust = config._inspr.trustPresets.gerhardOnly;
+      force = true;
+    };
   };
 
   # Declarative git config for gb user (Gerhard) - mirrors hokage for mba
