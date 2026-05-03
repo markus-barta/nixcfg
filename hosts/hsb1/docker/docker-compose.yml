@@ -315,9 +315,16 @@ services:
     environment:
       - FLEETCOM_URL=https://fleet.barta.cm
       - FLEETCOM_HOSTNAME=hsb1
+      # FLEET-1397: dashboard "Update agent" → bosun calls watchtower-weekly's
+      # HTTP API. WATCHTOWER_TOKEN is provided via /opt/fleetcom-agent/.env.
+      - WATCHTOWER_URL=http://watchtower-weekly:8080
     labels:
       - traefik.enable=false
       - com.centurylinklabs.watchtower.enable=true
+      # FLEET-1397: scope=weekly so watchtower-weekly (which runs with
+      # --scope weekly) picks bosun up for both the Saturday auto-cycle
+      # AND the on-demand HTTP API trigger.
+      - com.centurylinklabs.watchtower.scope=weekly
 
 volumes:
   opus-stream-app: # Mutable runtime for opus-stream-to-mqtt (node_modules cached here)
