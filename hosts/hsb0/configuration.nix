@@ -658,13 +658,18 @@ in
     ];
     wants = [ "network-online.target" ];
     script = ''
-      # Trigger evaluation/dry-run of all fleet hosts to warm the cache
-      # We use --eval-only which is enough to trigger substituter lookups in some cases,
-      # but --dry-run is safer for ensuring the proxy actually fetches.
-      ${pkgs.nix}/bin/nix build --flake .#hsb0 --dry-run
-      ${pkgs.nix}/bin/nix build --flake .#hsb1 --dry-run
-      ${pkgs.nix}/bin/nix build --flake .#gpc0 --dry-run
-      ${pkgs.nix}/bin/nix build --flake .#imac0 --dry-run
+      # Trigger dry-build of all fleet hosts to warm the local NCPS cache.
+      # --dry-run ensures derivations are evaluated and substituters are
+      # contacted (so NCPS pre-fetches binaries), without actually building.
+      # NIX-100 fix: `nix build` takes the flake-ref positionally, NOT
+      # `--flake` (that's a `nixos-rebuild` flag). Pre-fix this script had
+      # been failing weekly since deployment with `unrecognised flag '--flake'`.
+      ${pkgs.nix}/bin/nix build .#nixosConfigurations.hsb0.config.system.build.toplevel --dry-run
+      ${pkgs.nix}/bin/nix build .#nixosConfigurations.hsb1.config.system.build.toplevel --dry-run
+      ${pkgs.nix}/bin/nix build .#nixosConfigurations.gpc0.config.system.build.toplevel --dry-run
+      # imac0 is a darwin workstation — uses Home Manager standalone (no nix-darwin),
+      # so the closure to warm is the HM activation package.
+      ${pkgs.nix}/bin/nix build '.#homeConfigurations."markus@imac0".activationPackage' --dry-run
     '';
     serviceConfig = {
       Type = "oneshot";
