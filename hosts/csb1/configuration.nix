@@ -2,6 +2,7 @@
 # Hokage Migration: 2025-11-29
 {
   lib,
+  inputs,
   ...
 }:
 
@@ -260,6 +261,34 @@
       "command=\"/etc/fleetcom-deploy.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbe5h6FEOzyrh4f7I9RS84KOD9hKiVaBgjizcX3ztxS fleetcom-ci-deploy"
     ];
 
+  };
+
+  # ============================================================================
+  # INSPR-43 Phase 3 — Declarative SSH inbound trust via inspr.ssh.authorized
+  # ============================================================================
+  # SAFETY: strictly ADDITIVE. The `users.users.mba.openssh.authorizedKeys.keys`
+  # declaration above stays in place; sshd reads BOTH /etc/ssh/authorized_keys.d/mba
+  # AND ~/.ssh/authorized_keys per AuthorizedKeysFile config. Net trust = UNION
+  # of both files → no key removed, only added. Pattern proven on gpc0
+  # (commit 48e895fa, deployed 2026-05-03). See ../../modules/shared/ssh-authorized.nix
+  # for the keyring + trust presets.
+  #
+  # NOTE on csb1 password drift (INSPR-87): csb1's live system password
+  # (yescrypt $y$j9T$4hK404plGnQ2Z.ucDYrxq/...) differs from the SHA-512
+  # hash declared at line 250 (which would activate post-rebuild). After
+  # `nixos-rebuild switch` the live password switches to the shared csb-shared
+  # 1P entry (same hash as csb0/msbp). This is the convergence path agreed
+  # in INSPR-87 (option α). Verified: SSH key-auth (RSA + the new ed25519
+  # admitted via this block) keeps working throughout — no lockout risk.
+  home-manager.users.mba = { config, ... }: {
+    imports = [
+      inputs.inspr-modules.homeManagerModules.ssh-authorized
+      ../../modules/shared/ssh-authorized.nix
+    ];
+    inspr.ssh.authorized = {
+      enable = true;
+      trust  = config._inspr.trustPresets.personalHosts;
+    };
   };
 
   # ============================================================================

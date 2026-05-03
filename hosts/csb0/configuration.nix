@@ -3,6 +3,7 @@
 # Hokage Migration: 2025-11-29
 {
   lib,
+  inputs,
   ...
 }:
 
@@ -174,6 +175,26 @@
       # hsb1 (miniserver24): Node-RED container SSH automation
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
     ];
+  };
+
+  # ============================================================================
+  # INSPR-43 Phase 3 — Declarative SSH inbound trust via inspr.ssh.authorized
+  # ============================================================================
+  # SAFETY: strictly ADDITIVE. The `users.users.mba.openssh.authorizedKeys.keys`
+  # declaration above stays in place; sshd reads BOTH /etc/ssh/authorized_keys.d/mba
+  # AND ~/.ssh/authorized_keys per AuthorizedKeysFile config. Net trust = UNION
+  # of both files → no key removed, only added. Pattern proven on gpc0
+  # (commit 48e895fa, deployed 2026-05-03). See ../../modules/shared/ssh-authorized.nix
+  # for the keyring + trust presets.
+  home-manager.users.mba = { config, ... }: {
+    imports = [
+      inputs.inspr-modules.homeManagerModules.ssh-authorized
+      ../../modules/shared/ssh-authorized.nix
+    ];
+    inspr.ssh.authorized = {
+      enable = true;
+      trust  = config._inspr.trustPresets.personalHosts;
+    };
   };
 
   # ============================================================================

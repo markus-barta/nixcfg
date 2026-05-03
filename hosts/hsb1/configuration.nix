@@ -461,6 +461,26 @@
   };
 
   # ============================================================================
+  # INSPR-43 Phase 3 — Declarative SSH inbound trust via inspr.ssh.authorized
+  # ============================================================================
+  # SAFETY: strictly ADDITIVE. The `users.users.mba.openssh.authorizedKeys.keys`
+  # declaration above stays in place; sshd reads BOTH /etc/ssh/authorized_keys.d/mba
+  # AND ~/.ssh/authorized_keys per AuthorizedKeysFile config. Net trust = UNION
+  # of both files → no key removed, only added. Pattern proven on gpc0
+  # (commit 48e895fa, deployed 2026-05-03). See ../../modules/shared/ssh-authorized.nix
+  # for the keyring + trust presets.
+  home-manager.users.mba = { config, ... }: {
+    imports = [
+      inputs.inspr-modules.homeManagerModules.ssh-authorized
+      ../../modules/shared/ssh-authorized.nix
+    ];
+    inspr.ssh.authorized = {
+      enable = true;
+      trust  = config._inspr.trustPresets.personalHosts;
+    };
+  };
+
+  # ============================================================================
   # MERLIN AI AGENT USER
   # Dedicated user for Merlin (OpenClaw on hsb0) SSH access.
   # wheel + docker = full host control; intentional (hsb1 is home automation only).
