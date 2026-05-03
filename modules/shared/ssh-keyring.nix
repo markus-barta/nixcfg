@@ -79,6 +79,13 @@
     legacyOnly = [
       "markus-rsa-shared-pre-2026"
     ];
+
+    # Gerhard's (Markus's father) admittance — used for the `gb` user
+    # on family hosts (today: hsb8 only). Single-key preset; expand
+    # if/when Gerhard gains an ed25519 alongside the RSA.
+    gerhardOnly = [
+      "gerhard-rsa"
+    ];
   };
 
   # ── The keyring ─────────────────────────────────────────────────────────
@@ -106,5 +113,14 @@
     # under per-host entries.
     "mba@mba-mbp-m5-work" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mba-mbp-m5-work (added 2026-05-03)";
     "markus@imac0" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOdow+y+02Ekej5q3JD+5SSCWDDW4Hmiwwbfe9fTYUBA markus@imac0 (added 2026-05-03)";
+
+    # ── Family ────────────────────────────────────────────────────────────
+    # Gerhard Barta (Markus's father). Used for the `gb` user on hsb8
+    # (parents' home automation server). RSA-3072 modern key (NOT the
+    # shared pre-2026 RSA); status = "active" since this is his actual
+    # personal key, no retirement planned. If/when Gerhard gains an
+    # ed25519, add it here as `gerhard@<machine>` and treat this entry
+    # as legacy via the same workflow as INSPR-76.
+    "gerhard-rsa" = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAwgtI71qYnLJnq0PPs/PWR0O+0zvEQfT7QYaHbrPUdILnK5jqZTj6o02kyfce6JLk+xyYhI596T6DD9But943cKFY/cYG037EjlECq+LXdS7bRsb8wYdc8vjcyF21Ol6gSJdT3noAzkZnqnucnvd7D1lae2ZVw7km6GQvz5XQGS/LQ38JpPZ2JYb0ufT3Z1vgigq9GqhCU6C7NdUslJJJ1Lj4JfPqQTbS1ihZqMe3SQ+ctfmHNYniUkd5Potu7wLMG1OJDL13BXu/M5IihgerZ3QuPb2VPQkb37oxKfquMKveYL9bt4fmK+7+CRHJnzFB45HfG5PiTKsyjuPR5A1N3U5Os+9Wrav9YrqDHWjCaFI1EIY4HRM/kRufD+0ncvvXpsp4foS9DAhK5g3OObRlKgPEc4hkD7hC2KBXUt7Kyg6SLL89gD42qSXLxZlxaTD65UaqB28PuOt7+LtKEPhm1jfH65cKu5vGqUp3145hSJuHB4FuA0ieplfxO78psVM= gb@gerhard";
   };
 }
