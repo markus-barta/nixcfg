@@ -757,6 +757,32 @@ in
   services.openssh.settings.PasswordAuthentication = lib.mkForce true;
 
   # ============================================================================
+  # INSPR-43 Phase 3 — Declarative SSH inbound trust via inspr.ssh.authorized
+  # ============================================================================
+  # SAFETY: strictly ADDITIVE. The `users.users.mba.openssh.authorizedKeys.keys`
+  # declaration above stays in place; sshd reads BOTH /etc/ssh/authorized_keys.d/mba
+  # AND ~/.ssh/authorized_keys per AuthorizedKeysFile config. Net trust = UNION
+  # of both files → no key removed, only added. Pattern proven on
+  # gpc0/csb0/csb1/hsb1 (commits 48e895fa + 3e64fd64, deployed 2026-05-03).
+  # See ../../modules/shared/ssh-authorized.nix for the keyring + presets.
+  #
+  # hsb0 was the LAST personal NixOS host to receive this — deferred until
+  # INSPR-79 (above) gave hsb0 a password recovery fallback so the rollout
+  # was no longer a single-key-dependency risk. With both INSPR-79 and
+  # this block live, hsb0 has a 3-layer recovery posture matching the
+  # rest of the personal fleet.
+  home-manager.users.mba = { config, ... }: {
+    imports = [
+      inputs.inspr-modules.homeManagerModules.ssh-authorized
+      ../../modules/shared/ssh-authorized.nix
+    ];
+    inspr.ssh.authorized = {
+      enable = true;
+      trust  = config._inspr.trustPresets.personalHosts;
+    };
+  };
+
+  # ============================================================================
   # 🚨 PASSWORDLESS SUDO - Also lost when removing serverMba mixin
   # ============================================================================
   # The serverMba mixin provided passwordless sudo, which is also lost.
