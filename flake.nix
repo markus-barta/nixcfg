@@ -318,7 +318,12 @@
         # paimos-cli - Agent-facing CLI for PAIMOS
         paimos-cli = pkgs.callPackage ./pkgs/paimos-cli { };
 
-        # Generate Markdown docs for hokage module options
+        # Generate Markdown docs for hokage module options.
+        # NOTE: hokage is consumed as a flake input (`inputs.nixcfg`) — pbek's
+        # nixcfg, NOT a local module here. The path used to be `./modules/hokage`
+        # back when hokage was vendored locally; that path is stale and would
+        # break `nix flake check` (and any direct eval) with "Path does not
+        # exist in Git repository". Use the flake-input's source path instead.
         hokage-options-md =
           let
             inherit (nixpkgs) lib;
@@ -334,7 +339,7 @@
             eval = lib.evalModules {
               modules = [
                 { _module.check = false; }
-                ./modules/hokage
+                (inputs.nixcfg + "/modules/hokage")
               ];
               # Provide required special arguments used by the modules
               specialArgs = self.commonArgs // {
