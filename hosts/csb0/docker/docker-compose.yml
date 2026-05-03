@@ -257,8 +257,15 @@ services:
       - WATCHTOWER_NOTIFICATIONS=shoutrrr
       - WATCHTOWER_NOTIFICATIONS_HOSTNAME=csb0
       - WATCHTOWER_NOTIFICATION_TITLE_TAG=🌐
-    # env_file:
-    #   - ./watchtower.env
+      # FLEET-1397: enable HTTP API so bosun can trigger updates on demand
+      # (the dashboard's "Update agent" button). Without this, the button
+      # silently no-ops — watchtower only auto-pulls on its 24h schedule.
+      - WATCHTOWER_HTTP_API_UPDATE=true
+    env_file:
+      # Provides WATCHTOWER_HTTP_API_TOKEN — must match the WATCHTOWER_TOKEN
+      # set in /opt/fleetcom-agent/.env on this host. File is gitignored;
+      # provision per-host with `openssl rand -hex 24`.
+      - ./watchtower.env
     labels:
       - traefik.enable=false
 
@@ -348,6 +355,9 @@ services:
     environment:
       - FLEETCOM_URL=https://fleet.barta.cm
       - FLEETCOM_HOSTNAME=csb0
+      # FLEET-1397: dashboard "Update agent" → bosun calls watchtower's
+      # HTTP API. WATCHTOWER_TOKEN is provided via /opt/fleetcom-agent/.env.
+      - WATCHTOWER_URL=http://watchtower:8080
     labels:
       - traefik.enable=false
       - com.centurylinklabs.watchtower.enable=true
