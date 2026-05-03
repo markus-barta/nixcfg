@@ -171,6 +171,103 @@ For architecture details, see [INFRASTRUCTURE.md](./INFRASTRUCTURE.md#-fleet-man
 
 ---
 
+## `nixos-rebuild` — service-restart pitfalls (lessons from NIX-101)
+
+Captured 2026-05-03 after the INSPR-43 Phase 3 rollout, where a single
+operator mistake caused 32 minutes of home-automation downtime on hsb1.
+The mistake was treating a benign-looking error as something to "fix"
+with `systemctl stop`. Don't.
+
+### The trap
+
+`nixos-rebuild test` (or `switch`) runs as a transient systemd unit
+(`nixos-rebuild-switch-to-configuration.service`). If you immediately
+chain another rebuild OR if the previous one is still running, you may
+see:
+
+```
+Failed to start transient service unit:
+Unit nixos-rebuild-switch-to-configuration.service was already loaded
+or has a fragment file.
+```
+
+**This is NOT a bug — it's "wait, the previous one isn't finished yet".**
+The previous switch-to-configuration may be:
+- Mid-restart of services (some stopped, not yet re-started)
+- Reloading systemd after writing new unit files
+- Running activation scripts (HM, agenix, etc.)
+
+### What NOT to do
+
+```bash
+# ❌ DON'T do this — kills the in-flight restart sequence
+sudo systemctl stop nixos-rebuild-switch-to-configuration.service
+```
+
+This forcibly aborts the rebuild mid-way. Services that were stopped
+but not yet re-started stay dead. **NIX-101 root cause: this killed
+docker on hsb1 while it was between the stop and start phases.**
+
+### What TO do instead
+
+```bash
+# 1. Wait for the previous rebuild to actually finish:
+systemctl is-active nixos-rebuild-switch-to-configuration.service
+# → if "active", just wait. Use `systemctl status` to see what it's doing.
+
+# 2. If the unit has finished but is in a "failed" state holding the
+#    name (rare, but possible after a real failure):
+sudo systemctl reset-failed nixos-rebuild-switch-to-configuration.service
+# ...then retry your rebuild.
+```
+
+### Post-rebuild verification (always)
+
+After every `nixos-rebuild test` or `switch`, especially on hosts with
+critical long-running services, verify they're actually up:
+
+```bash
+# Quick fleet-wide service health check
+systemctl is-active docker.service home-manager-mba.service
+systemctl --failed
+```
+
+If a service is `inactive` after rebuild on a host where it should be
+running, you've hit a (rare) auto-restart anomaly. Fix:
+
+```bash
+# Reload systemd's view of unit files (in case the new unit definition
+# isn't yet loaded), THEN restart:
+sudo systemctl daemon-reload
+sudo systemctl restart <unit>.service
+```
+
+For Home Manager specifically, also verify the user gen symlink updated:
+
+```bash
+readlink ~/.local/state/nix/profiles/home-manager
+# → should reference a recent `home-manager-N-link` (where N matches
+# the latest activated NixOS gen's HM ExecStart path)
+```
+
+### Production-rollout preference: `switch` over `test`
+
+`nixos-rebuild test` activates the new gen for the current boot only
+(reverts on reboot). `switch` activates AND updates the bootloader.
+For production rollouts where you want the change to stick AND want
+the most aggressive service restart logic, prefer `switch`:
+
+```bash
+sudo nixos-rebuild switch --flake .#<host>
+```
+
+`test + boot` is useful for staged rollouts where you want to verify
+before committing to the bootloader update — but it's a 2-step
+operation, and (per NIX-101 evidence) the `boot` step's transient unit
+can collide with a still-running `test` step's transient unit.
+
+---
+
 ## Lockfile Merge Conflicts
 
 `devenv.lock` and `flake.lock` are **generated files committed to git**.
