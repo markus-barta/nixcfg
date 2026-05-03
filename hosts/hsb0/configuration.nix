@@ -41,6 +41,13 @@ in
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
+
+    # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
+    # inspr.ssh.authorized.users.mba block further down. force=true
+    # because hsb0 hokage-injects external operator keys we do not
+    # want admitted on this private/family host.
+    inputs.inspr-modules.nixosModules.ssh-authorized
+    ../../modules/shared/ssh-authorized-nixos.nix
   ];
 
   # ============================================================================
@@ -741,11 +748,8 @@ in
     # — important as we transition to per-host ed25519 (INSPR-78) and
     # eventually retire the shared RSA (INSPR-76).
     hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
-
-    openssh.authorizedKeys.keys = lib.mkForce [
-      # Markus' SSH key ONLY
-      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt" # mba@markus
-    ];
+    # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
+    # render is now declarative via inspr.ssh.authorized.users.mba below.
   };
 
   # 🚨 SSH PASSWORD AUTH FALLBACK (INSPR-79)
@@ -757,20 +761,26 @@ in
   services.openssh.settings.PasswordAuthentication = lib.mkForce true;
 
   # ============================================================================
-  # INSPR-43 Phase 3 — Declarative SSH inbound trust via inspr.ssh.authorized
+  # INSPR-73 (2026-05-04) — Declarative SSH inbound trust (NixOS + HM)
   # ============================================================================
-  # SAFETY: strictly ADDITIVE. The `users.users.mba.openssh.authorizedKeys.keys`
-  # declaration above stays in place; sshd reads BOTH /etc/ssh/authorized_keys.d/mba
-  # AND ~/.ssh/authorized_keys per AuthorizedKeysFile config. Net trust = UNION
-  # of both files → no key removed, only added. Pattern proven on
-  # gpc0/csb0/csb1/hsb1 (commits 48e895fa + 3e64fd64, deployed 2026-05-03).
-  # See ../../modules/shared/ssh-authorized.nix for the keyring + presets.
+  # System-side: inspr-modules nixosModules.ssh-authorized renders into
+  # users.users.mba.openssh.authorizedKeys.keys → /etc/ssh/authorized_keys.d/mba.
+  # HM-side: inspr-modules homeManagerModules.ssh-authorized renders into
+  # ~/.ssh/authorized_keys (marker block).
+  # Both consume the same shared keyring at modules/shared/ssh-keyring.nix.
   #
-  # hsb0 was the LAST personal NixOS host to receive this — deferred until
-  # INSPR-79 (above) gave hsb0 a password recovery fallback so the rollout
-  # was no longer a single-key-dependency risk. With both INSPR-79 and
-  # this block live, hsb0 has a 3-layer recovery posture matching the
-  # rest of the personal fleet.
+  # force = true here — hsb0 hokage-injects external operator keys we do
+  # NOT want admitted on this private/family host. mkForce-wrap drops them.
+  # (Defence-in-depth: matches the lib.mkForce posture the previous manual
+  # declaration used.)
+  inspr.ssh.authorized = {
+    enable = true;
+    users.mba = {
+      trust = config._inspr.trustPresets.personalHosts;
+      force = true;
+    };
+  };
+
   home-manager.users.mba = { config, ... }: {
     imports = [
       inputs.inspr-modules.homeManagerModules.ssh-authorized

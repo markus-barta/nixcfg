@@ -2,6 +2,7 @@
 # Hokage Migration: 2025-11-29
 {
   lib,
+  config,
   inputs,
   ...
 }:
@@ -12,6 +13,16 @@
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
+
+    # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
+    # inspr.ssh.authorized.users.mba block further down. force=true
+    # because csb1 hokage-injects external operator keys we do not
+    # want admitted on this private server. extraKeys carries:
+    #   - one-off mba@miniserver24 (= mba@hsb1) ed25519 (Node-RED automation)
+    #   - PPM CI deploy key (command-restricted to test-report uploads)
+    #   - FleetCom CI deploy key (command-restricted to docker pull+restart)
+    inputs.inspr-modules.nixosModules.ssh-authorized
+    ../../modules/shared/ssh-authorized-nixos.nix
   ];
 
   # ============================================================================
@@ -250,36 +261,57 @@
     # Password stored in 1Password, rotate after migration complete
     hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
 
-    openssh.authorizedKeys.keys = lib.mkForce [
-      # markus@iMac-5k-MBA-home.local (id_rsa)
-      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt"
-      # hsb1 (miniserver24): Node-RED container SSH automation
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
-      # PPM CI deploy key — command-restricted to test report uploads only
-      "command=\"/etc/ppm-deploy-reports.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN2B8Ya6hnF5nxhZ7uBtN/YfChRRHIjsv+GIa01XdiI1 ppm-ci-deploy"
-      # FleetCom CI deploy key — command-restricted to docker pull + restart
-      "command=\"/etc/fleetcom-deploy.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbe5h6FEOzyrh4f7I9RS84KOD9hKiVaBgjizcX3ztxS fleetcom-ci-deploy"
-    ];
+    # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
+    # render is now declarative via inspr.ssh.authorized.users.mba below.
+    # The 2 command-restricted CI deploy keys (PPM, FleetCom) live in
+    # extraKeys and are preserved verbatim with their command="..." prefix.
 
   };
 
   # ============================================================================
-  # INSPR-43 Phase 3 — Declarative SSH inbound trust via inspr.ssh.authorized
+  # INSPR-73 (2026-05-04) — Declarative SSH inbound trust (NixOS + HM)
   # ============================================================================
-  # SAFETY: strictly ADDITIVE. The `users.users.mba.openssh.authorizedKeys.keys`
-  # declaration above stays in place; sshd reads BOTH /etc/ssh/authorized_keys.d/mba
-  # AND ~/.ssh/authorized_keys per AuthorizedKeysFile config. Net trust = UNION
-  # of both files → no key removed, only added. Pattern proven on gpc0
-  # (commit 48e895fa, deployed 2026-05-03). See ../../modules/shared/ssh-authorized.nix
-  # for the keyring + trust presets.
+  # System-side: inspr-modules nixosModules.ssh-authorized renders into
+  # users.users.mba.openssh.authorizedKeys.keys → /etc/ssh/authorized_keys.d/mba.
+  # HM-side: inspr-modules homeManagerModules.ssh-authorized renders into
+  # ~/.ssh/authorized_keys (marker block).
+  # Both consume the same shared keyring at modules/shared/ssh-keyring.nix.
+  #
+  # force = true here because csb1 (server-home / hokage profile) injects
+  # external operator keys we do NOT want admitted on this private server.
+  # mkForce-wrap drops them. (Defence-in-depth: matches the lib.mkForce
+  # posture the previous manual declaration used.)
+  #
+  # extraKeys carries 3 csb1-specific entries:
+  #   - mba@miniserver24 (= mba@hsb1) ed25519 — Node-RED automation
+  #   - PPM CI deploy key (command-restricted to test-report uploads only)
+  #   - FleetCom CI deploy key (command-restricted to docker pull + restart)
+  # The two command="..." CI keys are CRITICAL — the prefix is what enforces
+  # the principle-of-least-authority. They are preserved verbatim here.
   #
   # NOTE on csb1 password drift (INSPR-87): csb1's live system password
   # (yescrypt $y$j9T$4hK404plGnQ2Z.ucDYrxq/...) differs from the SHA-512
-  # hash declared at line 250 (which would activate post-rebuild). After
-  # `nixos-rebuild switch` the live password switches to the shared csb-shared
-  # 1P entry (same hash as csb0/msbp). This is the convergence path agreed
-  # in INSPR-87 (option α). Verified: SSH key-auth (RSA + the new ed25519
-  # admitted via this block) keeps working throughout — no lockout risk.
+  # hash declared above (which would activate post-rebuild). After
+  # `nixos-rebuild switch` the live password switches to the shared
+  # csb-shared 1P entry (same hash as csb0/msbp). This is the convergence
+  # path agreed in INSPR-87 (option α). Verified: SSH key-auth (RSA + the
+  # ed25519s admitted here) keeps working throughout — no lockout risk.
+  inspr.ssh.authorized = {
+    enable = true;
+    users.mba = {
+      trust = config._inspr.trustPresets.personalHosts;
+      force = true;
+      extraKeys = [
+        # hsb1 (miniserver24): Node-RED container SSH automation
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
+        # PPM CI deploy key — command-restricted to test report uploads only
+        "command=\"/etc/ppm-deploy-reports.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN2B8Ya6hnF5nxhZ7uBtN/YfChRRHIjsv+GIa01XdiI1 ppm-ci-deploy"
+        # FleetCom CI deploy key — command-restricted to docker pull + restart
+        "command=\"/etc/fleetcom-deploy.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbe5h6FEOzyrh4f7I9RS84KOD9hKiVaBgjizcX3ztxS fleetcom-ci-deploy"
+      ];
+    };
+  };
+
   home-manager.users.mba = { config, ... }: {
     imports = [
       inputs.inspr-modules.homeManagerModules.ssh-authorized
