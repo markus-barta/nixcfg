@@ -10,6 +10,7 @@
 #
 
 {
+  config,
   pkgs,
   inputs,
   ...
@@ -20,6 +21,12 @@
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
+
+    # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
+    # `inspr.ssh.authorized.users.mba` block below + the per-host
+    # extraKeys for the node-red container's mba@hsb1 ed25519.
+    inputs.inspr-modules.nixosModules.ssh-authorized
+    ../../modules/shared/ssh-authorized-nixos.nix
   ];
 
   # ============================================================================
@@ -121,14 +128,6 @@
     };
   };
 
-  users.users.mba = {
-    openssh.authorizedKeys.keys = [
-      # Markus public key
-      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt"
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@hsb1" # node-red container ssh calls (formerly miniserver24)
-    ];
-  };
-
   users.users.omega = {
     description = "Patrizio Bekerle";
   };
@@ -137,31 +136,51 @@
   # home-manager.users.omega = config.home-manager.users.mba;
 
   # ============================================================================
-  # INSPR-43 Phase 3 — Declarative SSH inbound trust via inspr.ssh.authorized
+  # INSPR-73 (2026-05-04) — Declarative SSH inbound trust (NixOS + HM)
   # ============================================================================
-  # Adds a marker-block-managed `~/.ssh/authorized_keys` for user `mba` via
-  # the inspr-modules HM module (with rich keys form per INSPR-77).
+  # Two complementary modules; both consume the same shared keyring at
+  # ../../modules/shared/ssh-keyring.nix (single source of truth).
   #
-  # SAFETY: strictly ADDITIVE. The `users.users.mba.openssh.authorizedKeys.keys`
-  # declaration above (lines 124-130) stays in place — its contents are
-  # rendered into `/etc/ssh/authorized_keys.d/mba`. sshd reads BOTH that
-  # file AND `~/.ssh/authorized_keys` (per `AuthorizedKeysFile %h/.ssh/authorized_keys
-  # /etc/ssh/authorized_keys.d/%u` in sshd_config). Net effect: trust set =
-  # UNION of both files → no key removed, only added. No lockout possible
-  # from this change alone.
+  # 1. NixOS-scope module — inspr-modules nixosModules.ssh-authorized
+  #    Renders into users.users.mba.openssh.authorizedKeys.keys, which
+  #    NixOS materializes as /etc/ssh/authorized_keys.d/mba. Imported
+  #    in the top-level `imports` list above; configured in the
+  #    `inspr.ssh.authorized = { ... };` block below.
   #
-  # Why gpc0 first (Phase 3 verification target):
-  #   - on-LAN (instant physical recovery if anything breaks)
-  #   - already has the Cs2rTwv4 ed25519 backup admitted (extra safety)
-  #   - is the build host → fast iteration
+  # 2. HM-scope module — inspr-modules homeManagerModules.ssh-authorized
+  #    Renders into ~/.ssh/authorized_keys (marker-block managed, since
+  #    INSPR-43 Phase 3). Imported via `home-manager.users.mba.imports`
+  #    below; configured via `inspr.ssh.authorized = { ... };` at HM
+  #    scope (note: SAME option-path string, but different scope, so no
+  #    conflict).
   #
-  # The two imports below capture `inputs` from THIS NixOS-module scope
-  # (where `inputs` is in scope via the outer function arg) and pass it
-  # into the HM-module scope (where `inputs` is normally NOT in scope —
-  # extraSpecialArgs is only set for darwin standalone HM via mkDarwinHome
-  # in flake.nix). When this is rolled out fleet-wide, common.nix can be
-  # extended with the same imports and per-host wire-ups become just
-  # `inspr.ssh.authorized.{enable, trust}` declarations.
+  # sshd reads BOTH /etc/ssh/authorized_keys.d/mba AND ~/.ssh/authorized_keys
+  # per `AuthorizedKeysFile %h/.ssh/authorized_keys /etc/ssh/authorized_keys.d/%u`,
+  # so the two are complementary not competing. On gpc0 today they admit
+  # an identical key set (legacy RSA + 2 ed25519s); the HM-side file is
+  # also the safety net during this NixOS-side migration.
+  #
+  # `force = false` here — gpc0 has no upstream hokage server-home
+  # injection to displace (cf. csb0/csb1/hsb0/hsb1 where the omega/Yubi
+  # keys would otherwise leak in). List-merge semantics is the safer
+  # default during rollout.
+  #
+  # `extraKeys` carries the one-off mba@hsb1 ed25519 used by the node-red
+  # container ssh calls (formerly miniserver24) — kept as raw because
+  # this key is gpc0-specific, not fleet-shared, so it doesn't belong
+  # in the shared keyring.
+  inspr.ssh.authorized = {
+    enable = true;
+    users.mba = {
+      trust = config._inspr.trustPresets.personalHosts;
+      force = false;
+      extraKeys = [
+        # node-red container ssh calls (formerly miniserver24)
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@hsb1"
+      ];
+    };
+  };
+
   home-manager.users.mba = { config, ... }: {
     imports = [
       inputs.inspr-modules.homeManagerModules.ssh-authorized
