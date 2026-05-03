@@ -3,6 +3,7 @@
 # Hokage Migration: 2025-11-29
 {
   lib,
+  config,
   inputs,
   ...
 }:
@@ -13,6 +14,15 @@
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
+
+    # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
+    # inspr.ssh.authorized.users.mba block further down. force=true
+    # because csb0 hokage-injects external operator keys we do not
+    # want admitted on this private server. extraKeys carries the
+    # one-off mba@miniserver24 (= mba@hsb1) ed25519 used by node-red
+    # container ssh automation.
+    inputs.inspr-modules.nixosModules.ssh-authorized
+    ../../modules/shared/ssh-authorized-nixos.nix
   ];
 
   # ============================================================================
@@ -169,23 +179,39 @@
     # Password stored in 1Password, rotate after migration complete
     hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
 
-    openssh.authorizedKeys.keys = lib.mkForce [
-      # markus@iMac-5k-MBA-home.local (id_rsa)
-      "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt"
-      # hsb1 (miniserver24): Node-RED container SSH automation
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
-    ];
+    # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
+    # render is now declarative via inspr.ssh.authorized.users.mba below.
   };
 
   # ============================================================================
-  # INSPR-43 Phase 3 — Declarative SSH inbound trust via inspr.ssh.authorized
+  # INSPR-73 (2026-05-04) — Declarative SSH inbound trust (NixOS + HM)
   # ============================================================================
-  # SAFETY: strictly ADDITIVE. The `users.users.mba.openssh.authorizedKeys.keys`
-  # declaration above stays in place; sshd reads BOTH /etc/ssh/authorized_keys.d/mba
-  # AND ~/.ssh/authorized_keys per AuthorizedKeysFile config. Net trust = UNION
-  # of both files → no key removed, only added. Pattern proven on gpc0
-  # (commit 48e895fa, deployed 2026-05-03). See ../../modules/shared/ssh-authorized.nix
-  # for the keyring + trust presets.
+  # System-side: inspr-modules nixosModules.ssh-authorized renders into
+  # users.users.mba.openssh.authorizedKeys.keys → /etc/ssh/authorized_keys.d/mba.
+  # HM-side: inspr-modules homeManagerModules.ssh-authorized renders into
+  # ~/.ssh/authorized_keys (marker block).
+  # Both consume the same shared keyring at modules/shared/ssh-keyring.nix.
+  #
+  # force = true here because csb0 (server-home / hokage profile) injects
+  # external operator keys we do NOT want admitted on this private server.
+  # mkForce-wrap drops them. (Defence-in-depth: matches the lib.mkForce
+  # posture the previous manual declaration used.)
+  #
+  # extraKeys carries the one-off mba@miniserver24 ed25519 — used by the
+  # Node-RED container's SSH automation calls into csb0. Not in the shared
+  # keyring because it is csb-context only (not fleet-shared).
+  inspr.ssh.authorized = {
+    enable = true;
+    users.mba = {
+      trust = config._inspr.trustPresets.personalHosts;
+      force = true;
+      extraKeys = [
+        # hsb1 (miniserver24): Node-RED container SSH automation
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
+      ];
+    };
+  };
+
   home-manager.users.mba = { config, ... }: {
     imports = [
       inputs.inspr-modules.homeManagerModules.ssh-authorized
