@@ -363,79 +363,33 @@ in
   # ============================================================================
   # Global Packages
   # ============================================================================
-  home.packages = with pkgs; [
-    # System Tools
-    inputs.agenix.packages.x86_64-darwin.default
+  # Refactored 2026-05-05 (NIX-104): use `macosCommon.commonPackages` as the
+  # base — single source of truth for the default macOS dev toolkit. Anything
+  # added to commonPackages auto-reaches M5 + imac0 (mba-imac-work already
+  # follows this pattern). Per-host extras listed below; if you add something
+  # that ALL macOS hosts should have, prefer adding it to commonPackages
+  # in modules/uzumaki/macos-common.nix instead.
+  home.packages =
+    macosCommon.commonPackages
+    ++ [
+      # System Tools (per-arch — can't live in commonPackages because agenix
+      # pkg comes from `inputs`, not `pkgs`)
+      inputs.agenix.packages.x86_64-darwin.default
 
-    # Interpreters (global baseline - always available)
-    nodejs # Latest Node.js - for IDEs, scripts, terminal
-    python3 # Latest Python 3 - for IDEs, scripts, terminal
-
-    # CLI Development Tools (Stage 4 migration)
-    devenv # Development environments CLI (loaded by ~/Code/nixcfg/.envrc via `use devenv`)
-    gh # GitHub CLI
-    jq # JSON processor
-    just # Command runner
-    lazygit # Git TUI
-
-    # File Management & Utilities (Stage 4)
-    tree # Directory tree viewer
-    pv # Pipe viewer (progress for pipes)
-    tealdeer # tldr - simplified man pages
-    fswatch # File system watcher
-    mc # midnight-commander - file manager
-
-    # Terminal Tools (Stage 4)
-    zellij # Modern terminal multiplexer
-    eza # Modern ls replacement (themed via theme-hm.nix)
-
-    # Networking Tools (Stage 4)
-    netcat # Network utility
-    wakeonlan # Wake-on-LAN utility (wake remote machines via magic packets)
-    speedtest-go # Speed test CLI
-    # inetutils excluded on macOS - Linux ping has timestamp overflow bug on Darwin
-    # Use macOS native /sbin/ping instead (aliased below)
-    # For telnet, use: brew install telnet or nc (netcat) as alternative
-    websocat # WebSocket client
-
-    # Text Processing (Stage 4)
-    lynx # Text-based web browser
-    html2text # HTML to text converter
-
-    # Backup & Archive (Stage 4)
-    restic # Backup program
-    rage # Age encryption (Rust implementation)
-
-    # macOS Built-in Overrides (Stage 4)
-    rsync # Modern rsync (macOS has 2006 version!)
-    wget # File downloader (not in macOS)
-
-    # CLI tools (migrated from Homebrew earlier)
-    zoxide # Smart directory jumper
-    bat # Better cat with syntax highlighting
-    btop # Better top/htop
-    ripgrep # Fast grep (rg)
-    fd # Fast find
-    fzf # Fuzzy finder
-    prettier # Code formatter (was Homebrew dependency)
-    nano # Modern nano with syntax highlighting (macOS has ancient version)
-
-    # Utilities
-    esptool # ESP32/ESP8266 flashing tool
-    image_optim # ImageOptim CLI
-    nmap # Network scanner
-    tokstat # AI token quota monitor
-
-    # AI Coding Agents now installed via ai-clis-npm.nix (always-latest)
-
-    # PAIMOS
-    paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
-
-    # Note: evernote-backup not in nixpkgs, keeping in Homebrew for now
-
-    # Fonts
-    (pkgs.nerd-fonts.hack)
-  ];
+      # Per-host extras (NOT in commonPackages)
+      pkgs.paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
+      pkgs.speedtest-go # Speed test CLI
+      pkgs.esptool # ESP32/ESP8266 flashing tool
+      pkgs.image_optim # ImageOptim CLI
+      pkgs.tokstat # AI token quota monitor
+      # ── Notes:
+      # - inetutils excluded on macOS (Linux ping has timestamp overflow bug
+      #   on Darwin). Use macOS native /sbin/ping instead (aliased in fish).
+      # - evernote-backup not in nixpkgs, keeping in Homebrew for now.
+      # - AI coding agents installed via ai-clis-npm.nix (always-latest).
+      # - paimos-cli + speedtest-go are also on M5 + mba-mbp-work; safe to
+      #   promote to commonPackages in a future pass.
+    ];
 
   # Enable fontconfig for fonts to be recognized
   fonts.fontconfig.enable = true;

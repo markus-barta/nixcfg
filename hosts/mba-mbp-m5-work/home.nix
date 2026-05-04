@@ -234,65 +234,25 @@ in
   # ============================================================================
   # Packages
   # ============================================================================
-  home.packages = with pkgs; [
-    # System Tools
-    # M5 Apple Silicon → aarch64-darwin
-    inputs.agenix.packages.aarch64-darwin.default
+  # Refactored 2026-05-05 (NIX-104): use `macosCommon.commonPackages` as the
+  # base — single source of truth for the default macOS dev toolkit. Anything
+  # added to commonPackages auto-reaches M5 + imac0 (mba-imac-work already
+  # follows this pattern). Per-host extras listed below; if you add something
+  # that ALL macOS hosts should have, prefer adding it to commonPackages
+  # in modules/uzumaki/macos-common.nix instead.
+  home.packages =
+    macosCommon.commonPackages
+    ++ [
+      # System Tools (per-arch — can't live in commonPackages because agenix
+      # pkg comes from `inputs`, not `pkgs`)
+      inputs.agenix.packages.aarch64-darwin.default
 
-    # Interpreters
-    nodejs
-    python3
-
-    # CLI Development Tools
-    devenv # Development environments CLI (loaded by ~/Code/nixcfg/.envrc via `use devenv`)
-    gh
-    jq
-    just
-    lazygit
-    paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
-
-    # File Management
-    tree
-    pv
-    tealdeer
-    fswatch
-    mc
-
-    # Terminal Tools
-    zellij
-    eza
-
-    # Networking
-    netcat
-    wakeonlan
-    speedtest-go
-    websocat
-
-    # Text Processing
-    lynx
-    html2text
-
-    # Backup & Archive
-    restic
-    rage
-
-    # macOS Built-in Overrides
-    rsync
-    wget
-
-    # CLI Tools
-    zoxide
-    bat
-    btop
-    ripgrep
-    fd
-    fzf
-    prettier
-    nano
-
-    # Fonts
-    (pkgs.nerd-fonts.hack)
-  ];
+      # Per-host extras (NOT in commonPackages)
+      pkgs.paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
+      pkgs.speedtest-go # Speed test CLI
+      # ── Promotion candidates: paimos-cli + speedtest-go are also on imac0 +
+      # mba-mbp-work; safe to promote to commonPackages in a future pass.
+    ];
 
   # Enable fontconfig
   fonts.fontconfig.enable = true;
