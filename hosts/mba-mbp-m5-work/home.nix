@@ -244,6 +244,7 @@ in
     python3
 
     # CLI Development Tools
+    devenv # Development environments CLI (loaded by ~/Code/nixcfg/.envrc via `use devenv`)
     gh
     jq
     just
