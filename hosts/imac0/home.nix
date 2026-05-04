@@ -20,8 +20,38 @@ in
     ../../modules/shared/ssh-fleet.nix
     # markus-defaults bundles all 3 INSPR public modules + Markus's values
     ../../modules/shared/markus-defaults.nix
+    # ssh-authorized: declarative ~/.ssh/authorized_keys via shared keyring.
+    # Two-import pattern (per modules/shared/ssh-authorized.nix header):
+    # the public inspr-modules HM module + this nixcfg's wrapper (which
+    # feeds the keyring + exposes `_inspr.trustPresets`).
+    inputs.inspr-modules.homeManagerModules.ssh-authorized
+    ../../modules/shared/ssh-authorized.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.homeManagerModules.nixfleet-agent)
   ];
+
+  # ============================================================================
+  # INSPR — declarative ~/.ssh/authorized_keys
+  # ============================================================================
+  # Three trust dimensions concatenated (all sourced from the shared keyring
+  # in modules/shared/ssh-keyring.nix):
+  #
+  #   - personalHosts:    legacy RSA + per-host ed25519s (M5 + imac0-itself)
+  #                       — same-context inbound (Markus on Markus's hosts)
+  #   - bytepoetsInbound: BYTEPOETS work-identity ed25519
+  #                       — cross-context inbound (Markus from work hosts)
+  #   - imac0Specific:    grandfathered orphan `mba@miniserver` legacy RSA
+  #                       — INSPR-76 retirement candidate, see keyring note
+  #
+  # Migrated from manual ~/.ssh/authorized_keys 2026-05-05 (INSPR-73 follow-on).
+  # Strict superset of pre-migration state — same 3 admittances + each new
+  # ed25519 (M5, imac0-itself) added.
+  inspr.ssh.authorized = {
+    enable = true;
+    trust =
+      config._inspr.trustPresets.personalHosts
+      ++ config._inspr.trustPresets.bytepoetsInbound
+      ++ config._inspr.trustPresets.imac0Specific;
+  };
 
   # ============================================================================
   # INSPR — Git identity (personal default + BYTEPOETS via remote-URL match)
