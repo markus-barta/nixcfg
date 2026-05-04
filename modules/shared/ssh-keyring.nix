@@ -86,6 +86,26 @@
     gerhardOnly = [
       "gerhard-rsa"
     ];
+
+    # Markus's BYTEPOETS work identity — `id_ed25519_bytepoets` private
+    # key lives on every work-context macOS host (mba-imac-work,
+    # mba-mbp-work, mba-mbp-m5-work). Use this preset on hosts where
+    # Markus should be able to SSH IN from any work-context machine
+    # (cross-context inbound). Initially used on imac0 only; promote to
+    # other personal hosts (hsb0, hsb1, csb0, …) as the need arises.
+    bytepoetsInbound = [
+      "bytepoets-mba-ed25519"
+    ];
+
+    # Discovered-orphan grandfathering for imac0. Single-host scope: the
+    # `mba@miniserver` RSA was found in imac0's pre-keyring authorized_keys
+    # 2026-05-05 with no live-source provenance (predates miniserver24
+    # era). Kept admitted for safety until usage audit completes; flip
+    # the underlying key to `status = "revoked"` and remove this preset
+    # under INSPR-76 logic once confirmed unused for ≥4 weeks.
+    imac0Specific = [
+      "mba-rsa-miniserver24-legacy"
+    ];
   };
 
   # ── The keyring ─────────────────────────────────────────────────────────
@@ -106,6 +126,22 @@
       note = "shared pre-2026 RSA; carried across M5+imac0+gpc0; retire via INSPR-76 once per-host ed25519 deployment is fleet-validated (target: late 2026)";
     };
 
+    # Discovered on imac0 ~/.ssh/authorized_keys 2026-05-05 during the
+    # INSPR-73 imac0 wire-up. Comment was `mba@miniserver` (NO `24`
+    # suffix) — predates the miniserver24-era hostname. RSA-3072
+    # (more recent than the shared pre-2026 RSA which is RSA-2048),
+    # so likely a separate key generated on miniserver24 itself at
+    # some point and propagated to imac0's authorized_keys for
+    # passwordless SSH-from-server-to-iMac. No live source-side usage
+    # found in nixcfg/inspr greps. Grandfathered for retirement under
+    # INSPR-76 logic; flip to `status = "revoked"` and drop the
+    # `imac0Specific` preset once confirmed orphan.
+    "mba-rsa-miniserver24-legacy" = {
+      key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC5E4aEHw3DWe7AJODk3B5f50VyT86BPhtawQEOpJc8YgmpVa0yGe6gISTcoolkM4Xn4YzS9b4JB8EmnYZtEJQBZOoYS8ZXb0Xqklwr3ZqtOli9l/lcXOhYo/PiFOgYZykTJDSJ5zdy9z+H+eX658t38BgXOc+D8hZxoxKbgr+RwKZwCdjMm6BzRmV7cPkyD4v0Yq8ORILmm/Pf5wHguA2eWugoV5wvkoN8tKf/Eqr9ysV6c3ZnSdBYUZe35IYtRzVDOzMIhqm4RY+gsNsLuf3nrOWItYO6iv14G9KQGOA5aJioUv0NdTx9etICHyCnr2YmTT+L/M4xwDbVvmDsLWzMn4bFbLodCvhRhn5de8GvSLO/izs6DLWcxTpPVB1BqBdc+mwCEisV0go5TS6HE0kkWPI5B8SXfTuJrzX4SYp5xLMJFcAlBoLqOiKHFi/YTrFfqA15NPfcrVh6IZ7qENGeiigW2trzsVTQCRBOcb+sHdcPZGnJDJpWAB6p6H7d7CU= mba@miniserver";
+      status = "legacy";
+      note = "discovered on imac0 2026-05-05; provenance: predates miniserver24 hostname era; orphan candidate for INSPR-76 retirement — verify no live source-side usage on hsb1 / pre-rename backups before flipping to revoked";
+    };
+
     # ── Per-host ed25519s (added 2026-05-03 via INSPR-78) ─────────────────
     # Generated on each workstation with no passphrase (matches existing
     # id_rsa pattern; filesystem perms + 1P backup are the security
@@ -122,5 +158,15 @@
     # ed25519, add it here as `gerhard@<machine>` and treat this entry
     # as legacy via the same workflow as INSPR-76.
     "gerhard-rsa" = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAwgtI71qYnLJnq0PPs/PWR0O+0zvEQfT7QYaHbrPUdILnK5jqZTj6o02kyfce6JLk+xyYhI596T6DD9But943cKFY/cYG037EjlECq+LXdS7bRsb8wYdc8vjcyF21Ol6gSJdT3noAzkZnqnucnvd7D1lae2ZVw7km6GQvz5XQGS/LQ38JpPZ2JYb0ufT3Z1vgigq9GqhCU6C7NdUslJJJ1Lj4JfPqQTbS1ihZqMe3SQ+ctfmHNYniUkd5Potu7wLMG1OJDL13BXu/M5IihgerZ3QuPb2VPQkb37oxKfquMKveYL9bt4fmK+7+CRHJnzFB45HfG5PiTKsyjuPR5A1N3U5Os+9Wrav9YrqDHWjCaFI1EIY4HRM/kRufD+0ncvvXpsp4foS9DAhK5g3OObRlKgPEc4hkD7hC2KBXUt7Kyg6SLL89gD42qSXLxZlxaTD65UaqB28PuOt7+LtKEPhm1jfH65cKu5vGqUp3145hSJuHB4FuA0ieplfxO78psVM= gb@gerhard";
+
+    # ── Cross-context (work) ──────────────────────────────────────────────
+    # Markus's BYTEPOETS work identity. Public key of `id_ed25519_bytepoets`
+    # — the private key lives on every work-context macOS host
+    # (mba-imac-work, mba-mbp-work, mba-mbp-m5-work). Currently admitted on
+    # imac0 only via the `bytepoetsInbound` preset; promote to other personal
+    # hosts as cross-context-inbound need arises. NOT in `personalHosts`
+    # because it's a deliberately separate trust dimension (work → personal),
+    # not the same-context-inbound that personalHosts captures.
+    "bytepoets-mba-ed25519" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGd32Z80au6Tz7qrBFcpcF5AvMY0/p3KraFlytZpjiER markus.barta@bytepoets.com";
   };
 }
