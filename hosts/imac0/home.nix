@@ -372,6 +372,7 @@ in
     python3 # Latest Python 3 - for IDEs, scripts, terminal
 
     # CLI Development Tools (Stage 4 migration)
+    devenv # Development environments CLI (loaded by ~/Code/nixcfg/.envrc via `use devenv`)
     gh # GitHub CLI
     jq # JSON processor
     just # Command runner
