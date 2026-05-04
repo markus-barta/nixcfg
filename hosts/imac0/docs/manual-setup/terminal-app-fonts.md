@@ -2,7 +2,7 @@
 
 ## The Issue
 
-macOS Terminal.app needs to be manually configured to use Nerd Fonts. Unlike WezTerm (which is managed by Nix and already configured), Terminal.app stores its settings in `~/Library/Preferences/com.apple.Terminal.plist`.
+macOS Terminal.app needs to be manually configured to use Nerd Fonts. Unlike Ghostty (which reads font config from a text file in `~/Library/Application Support/com.mitchellh.ghostty/config`), Terminal.app stores its settings in `~/Library/Preferences/com.apple.Terminal.plist` (NSKeyedArchiver binary format — not declarative-friendly).
 
 ## Solution 1: Configure Terminal.app Manually (Recommended for Terminal.app users)
 
@@ -18,24 +18,31 @@ macOS Terminal.app needs to be manually configured to use Nerd Fonts. Unlike Wez
 
 The Nerd Font icons should now render correctly!
 
-## Solution 2: Use Nix-Managed WezTerm (Already Configured!)
+## Solution 2: Use Ghostty (recommended; replaces the previous WezTerm option)
 
-Your WezTerm is already configured with Hack Nerd Font via Nix:
+Ghostty (installed via Homebrew, `brew install --cask ghostty`) is the daily
+terminal across the macOS fleet since 2026-05-05. Configure its font:
 
 ```bash
-# Launch WezTerm from Nix
-wezterm-gui start
+# Edit Ghostty config (text file, easy to manage)
+mkdir -p ~/Library/Application\ Support/com.mitchellh.ghostty
+cat >> ~/Library/Application\ Support/com.mitchellh.ghostty/config <<'EOF'
+font-family = Hack Nerd Font Mono
+font-size = 12
+EOF
 ```
 
-Or make WezTerm your default terminal (it's already configured in your home.nix).
+Restart Ghostty to apply.
 
-### Benefits of WezTerm:
+### Benefits of Ghostty:
 
-- ✅ Already configured via Nix (declarative)
-- ✅ Nerd Fonts work out of the box
-- ✅ Better performance
-- ✅ GPU-accelerated
-- ✅ More features (splits, tabs, etc.)
+- ✅ GPU-accelerated, fast
+- ✅ Text config file (easy to back up / version-control out-of-Nix)
+- ✅ Nerd Fonts work natively (font-family pulls from `~/Library/Fonts/`)
+- ✅ Zig-based, native macOS feel
+- ⚠️ Currently NOT declaratively managed via Nix (config lives in the support
+  dir; not in `home.nix`). Future: file an HM ticket to wire Ghostty config
+  into Nix similar to how `programs.wezterm.extraConfig` worked pre-2026-05-05.
 
 ## How Fonts Are Installed
 
@@ -76,13 +83,12 @@ You should see: Git branch , Node.js , Python , Folder , Check
 - This format can't be reliably generated programmatically
 - Apple doesn't provide CLI tools to manipulate this data
 
-**Contrast with WezTerm**:
+**Contrast with Ghostty**:
 
-- WezTerm uses **Lua config files** (declarative, text-based)
-- Can be fully managed by Nix via `home.nix`
-- Works identically across all machines
-- No manual setup required
+- Ghostty uses a **plain-text config file** (declarative-friendly, but currently
+  not wired into Nix on this fleet — Homebrew install + manual config edit)
+- Could be wired into Nix as a small `home.file` for ergonomics; HM ticket pending
 
 ## Recommendation
 
-**Use WezTerm** (already configured) - it's the only fully declarative solution. Terminal.app will always require one-time manual setup per machine due to macOS limitations.
+**Use Ghostty** (Homebrew install) — fast, modern, text-file config. Pre-2026-05-05 this doc recommended Nix-managed WezTerm; that path was retired during fleet-wide migration to Ghostty. Terminal.app will always require one-time manual setup per machine due to macOS plist limitations regardless of which terminal you choose as default.

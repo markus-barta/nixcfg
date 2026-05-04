@@ -16,7 +16,7 @@ Comprehensive test procedures for validating mba-imac-work configuration.
 | T01     | Fish Shell         | ✅ 2025-11-28      | ✅ 2025-11-28    | Shell, functions, aliases                             |
 | T02     | Git Dual Identity  | ✅ 2025-11-28      | ✅ 2025-11-28    | Work default, personal for nixcfg                     |
 | T03     | Starship Prompt    | ✅ 2025-11-28      | ✅ 2025-11-28    | Prompt config, Git integration                        |
-| T04     | WezTerm Terminal   | ✅ 2025-11-28      | ✅ 2025-11-28    | Terminal emulator, config                             |
+| ~~T04~~ | ~~WezTerm Terminal~~ | REMOVED 2026-05-05 | — | (purged; Ghostty via Homebrew, not Nix) |
 | T05     | CLI Tools          | ✅ 2025-11-28      | ✅ 2025-11-28    | bat, rg, fd, fzf, btop, zoxide, jq, just, cloc, watch |
 | T06     | direnv + devenv    | ✅ 2025-11-28      | ✅ 2025-11-28    | Auto env loading, devenv shell                        |
 | T07     | Karabiner-Elements | ✅ 2025-11-28      | ✅ 2025-11-28    | Caps→Hyper, F-keys                                    |
@@ -79,7 +79,7 @@ for test in T*.sh; do ./"$test"; done
 
 - Fish shell configuration and functions
 - Starship prompt customization
-- WezTerm terminal emulator
+- ~~WezTerm terminal emulator~~ (purged 2026-05-05; Ghostty via Homebrew now)
 
 ### Development Tools (T02, T05-T06)
 

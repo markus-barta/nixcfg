@@ -1,5 +1,9 @@
 # Uzumaki macOS Common - Shared macOS configuration for all Mac hosts
-# Provides common fish, starship, and wezterm settings
+# Provides common fish + starship settings.
+# (WezTerm config removed 2026-05-05 — Markus migrated to Ghostty fleet-wide;
+# Ghostty is currently managed outside Nix — Homebrew install + manual config.
+# If Ghostty config ever moves into Nix, add a `ghosttyConfig = ''...''` block
+# here as the SSOT, mirroring how `weztermConfig` lived previously.)
 #
 # Usage in home.nix (for mba-imac-work style):
 #   let macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
@@ -125,117 +129,9 @@ in
   };
 
   # ============================================================================
-  # WezTerm Configuration
+  # Terminal config (WezTerm removed 2026-05-05 — Ghostty is now the daily;
+  # Ghostty config lives outside Nix today. Future: add `ghosttyConfig` here.)
   # ============================================================================
-  weztermConfig = ''
-    local wezterm = require("wezterm")
-    local act = wezterm.action
-    local os = require("os")
-    local config = wezterm.config_builder()
-
-    ------------------------------------------------------------
-    -- ## Fonts & Text
-    ------------------------------------------------------------
-    config.font_size = 12
-    config.line_height = 1.1
-
-    -- Primary font with proper fallback chain
-    config.font = wezterm.font_with_fallback({
-        { family = "Hack Nerd Font Mono", weight = "Regular" },
-        { family = "Hack Nerd Font", weight = "Regular" },
-        "Apple Color Emoji",
-        "Menlo",
-    })
-
-    -- Ensure symbols and icons render properly
-    config.harfbuzz_features = { "calt=1", "clig=1", "liga=1" }
-    config.freetype_load_flags = "NO_HINTING"
-    config.freetype_load_target = "Light"
-
-    ------------------------------------------------------------
-    -- ## Colors & Cursor
-    ------------------------------------------------------------
-    config.color_scheme = "tokyonight_night"
-    config.colors = {
-        cursor_bg = "#7aa2f7",
-        cursor_border = "#7aa2f7",
-        cursor_fg = "black",
-    }
-    config.default_cursor_style = "BlinkingBar"
-
-    ------------------------------------------------------------
-    -- ## Window Look & Feel
-    ------------------------------------------------------------
-    config.window_decorations = "RESIZE|INTEGRATED_BUTTONS"
-    config.hide_tab_bar_if_only_one_tab = false
-    config.native_macos_fullscreen_mode = true
-
-    config.window_background_opacity = 0.9
-    config.macos_window_background_blur = 10
-    config.window_padding = { left = 8, right = 8, top = 8, bottom = 8 }
-
-    -- Double terminal grid size
-    config.initial_cols = 160
-    config.initial_rows = 48
-
-    ------------------------------------------------------------
-    -- ## Behavior
-    ------------------------------------------------------------
-    config.adjust_window_size_when_changing_font_size = false
-    config.audible_bell = "Disabled"
-
-    -- Always launch Nix-managed fish with Starship/Tokyo Night config
-    config.default_prog = { os.getenv("HOME") .. "/.nix-profile/bin/fish", "-l" }
-
-    -- Make sure Starship in WezTerm uses the shared Tokio Night config
-    config.set_environment_variables = {
-        STARSHIP_CONFIG = os.getenv("HOME") .. "/.config/starship.toml",
-    }
-
-    -- macOS Alt keys (enable Option key for special characters like Alt+7 for |)
-    config.send_composed_key_when_left_alt_is_pressed = true
-    config.send_composed_key_when_right_alt_is_pressed = true
-
-    ------------------------------------------------------------
-    -- ## Keys
-    ------------------------------------------------------------
-    config.keys = {
-        { key = "c",   mods = "CMD",       action = act.CopyTo("Clipboard") },
-        { key = "v",   mods = "CMD",       action = act.PasteFrom("Clipboard") },
-
-        { key = "-",   mods = "CMD",       action = act.DecreaseFontSize },
-        { key = "0",   mods = "CMD",       action = act.ResetFontSize },
-        { key = "=",   mods = "CMD",       action = act.IncreaseFontSize },
-        { key = "=",   mods = "CMD|SHIFT", action = act.IncreaseFontSize },
-
-        -- Fullscreen
-        { key = "f",   mods = "CMD|CTRL",  action = act.ToggleFullScreen },
-        { key = "F11", mods = "",          action = act.ToggleFullScreen },
-
-        -- Tabs & windows
-        { key = "t",   mods = "CMD",       action = act.SpawnTab("CurrentPaneDomain") },
-        { key = "w",   mods = "CMD",       action = act.CloseCurrentPane({ confirm = true }) },
-        { key = "n",   mods = "CMD",       action = act.SpawnWindow },
-    }
-
-    ------------------------------------------------------------
-    -- ## Mouse
-    ------------------------------------------------------------
-    config.mouse_bindings = {
-        {
-            event = { Down = { streak = 1, button = { WheelUp = 1 } } },
-            mods = "CMD",
-            action = act.IncreaseFontSize,
-        },
-        {
-            event = { Down = { streak = 1, button = { WheelDown = 1 } } },
-            mods = "CMD",
-            action = act.DecreaseFontSize,
-        },
-    }
-
-    return config
-  '';
 
   # ============================================================================
   # Common macOS Packages
@@ -392,10 +288,10 @@ in
     # Ensure main Applications directory exists
     mkdir -p "$HOME/Applications"
 
-    # Apps to link to main Applications folder (from Home Manager Apps)
-    apps=(
-      "WezTerm.app"
-    )
+    # Apps to link to main Applications folder (from Home Manager Apps).
+    # Empty since WezTerm purge 2026-05-05 — Ghostty is installed outside Nix
+    # (Homebrew). Add new HM-installed GUI apps here as they're enabled.
+    apps=()
 
     for app in "''${apps[@]}"; do
       source="$HOME/Applications/Home Manager Apps/$app"
@@ -413,13 +309,21 @@ in
         fi
 
         # Create macOS alias (not symlink!) - Spotlight indexes aliases properly
-        # We specify the name to avoid "WezTerm.app alias" suffix
         echo "  Creating alias for $app"
         /usr/bin/osascript -e "tell application \"Finder\" to make alias file to POSIX file \"$source\" at POSIX file \"$HOME/Applications\" with properties {name:\"$app\"}" >/dev/null 2>&1
       fi
     done
 
+    # One-shot cleanup: drop the lingering WezTerm.app alias from the
+    # pre-2026-05-05 era (the activation no longer creates it; this removes
+    # the old one if still present). Safe to run repeatedly — no-op when
+    # the alias is already gone. Drop this block in a few weeks once all
+    # macOS hosts have activated at least once after 2026-05-05.
+    if [ -e "$HOME/Applications/WezTerm.app" ] || [ -L "$HOME/Applications/WezTerm.app" ]; then
+      echo "  Removing lingering WezTerm.app alias (post-2026-05-05 cleanup)..."
+      rm -rf "$HOME/Applications/WezTerm.app"
+    fi
+
     echo "✅ macOS GUI applications aliased"
-    echo "   Apps will appear in Spotlight (⌘+Space)"
   '';
 }

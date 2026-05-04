@@ -24,7 +24,7 @@ Work macOS development machine with Nix package management.
 | **Architecture**   | x86_64 (Intel, Hyper-Threading enabled)          |
 | **User**           | `markus`                                         |
 | **Shell**          | Fish (via Nix)                                   |
-| **Terminal**       | WezTerm (via Nix)                                |
+| **Terminal**       | ~~WezTerm (via Nix)~~ Ghostty (via Homebrew, since 2026-05-05)                                |
 | **Config Manager** | home-manager (standalone)                        |
 | **Nix Packages**   | ~37 packages (declarative)                       |
 | **Homebrew**       | ~110 formulae + 4 casks (5 explicit)             |
@@ -48,7 +48,7 @@ Work macOS development machine with Nix package management.
 
 - ✅ Fish shell (shared config from `modules/shared/fish-config.nix`)
 - ✅ Starship prompt (shared config from `modules/shared/starship.toml`)
-- ✅ WezTerm terminal (shared config)
+- ✅ Ghostty terminal (managed via Homebrew, not Nix; shared config in macos-common.nix is just the launch hook)
 - ✅ Git with work identity (BYTEPOETS default)
 - ✅ CLI development tools
 - ✅ Karabiner-Elements keyboard remapping
@@ -71,7 +71,7 @@ mba-imac-work provides a complete development environment:
 | F01 | Fish Shell            | Modern shell with custom functions & aliases     | T01  |
 | F02 | Git Dual Identity     | Auto-switch between work/personal Git identities | T02  |
 | F03 | Starship Prompt       | Beautiful, informative prompt with Git status    | T03  |
-| F04 | WezTerm Terminal      | GPU-accelerated terminal with custom config      | T04  |
+| F04 | Ghostty Terminal      | GPU-accelerated terminal with custom config      | T04  |
 | F05 | CLI Development Tools | bat, ripgrep, fd, fzf, btop, zoxide, jq, just    | T05  |
 | F06 | direnv + devenv       | Automatic project environment loading            | T06  |
 | F07 | Karabiner-Elements    | Caps Lock → Hyper, F-keys in terminals           | T07  |
@@ -175,7 +175,7 @@ This host uses shared configs from `modules/shared/`:
 ```
 modules/shared/
 ├── fish-config.nix              # Fish aliases & abbreviations (all systems)
-├── macos-common.nix             # macOS fish, wezterm, packages (all Macs)
+├── macos-common.nix             # macOS fish + packages (all Macs); terminal: Ghostty (Homebrew, not Nix)
 └── starship.toml                # Starship prompt (all Macs)
 ```
 
@@ -244,7 +244,7 @@ Filesystem      Size   Used  Avail  Capacity  Mounted on
 ### Key Binaries (from Nix)
 
 ```bash
-which fish git node python3 starship wezterm bat rg fd
+which fish git node python3 starship bat rg fd
 # All should show ~/.nix-profile/bin/...
 ```
 
@@ -308,7 +308,7 @@ just switch  # on imac0
 
 - Fish shell config
 - Starship prompt
-- WezTerm terminal
+- Ghostty terminal (via Homebrew, not Nix)
 - CLI tools (bat, rg, fd, fzf, btop, zoxide, jq, just)
 - Karabiner keyboard remapping
 - direnv + devenv
@@ -437,7 +437,7 @@ Based on the [imac0 migration](../imac0/archive/MIGRATION-2025-11%20[DONE].md):
 
 **Shell & Terminal** ✅ (already migrated)
 
-- fish, starship, wezterm, zellij
+- fish, starship, zellij (terminal: ghostty via Homebrew)
 
 **CLI Development Tools** ✅ (already migrated)
 
@@ -693,7 +693,7 @@ exec fish                   # Restart shell
 ### 2025-11-27: Initial Configuration
 
 - Initial setup with home-manager
-- Fish shell, Starship, WezTerm configured
+- Fish shell, Starship, Ghostty configured (Ghostty via Homebrew)
 - Git dual identity (work default, personal for nixcfg)
 - Karabiner-Elements keyboard remapping
 - CLI development tools installed

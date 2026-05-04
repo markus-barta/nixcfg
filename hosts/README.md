@@ -40,7 +40,7 @@ This repository uses a modular architecture where **NixOS servers** import the f
     │                         │           │ (Home Manager only)      │
     │ - Hardware config       │           │                          │
     │ - Disk config (ZFS)     │           │ - macOS-specific tools   │
-    │ - Networking            │           │ - WezTerm, Karabiner     │
+    │ - Networking            │           │ - Karabiner (Ghostty: brew) │
     │ - Host-specific options │           │ - GUI app linking        │
     └────────┬────────────────┘           └─────────┬────────────────┘
              │                                      │
@@ -130,7 +130,7 @@ Each host automatically gets a unique color palette via `theme-hm.nix`:
 | **common.nix**        | ✅ Auto-imported via hokage       | ❌ Not imported (NixOS-specific)  |
 | **theme-hm.nix**      | ✅ Via common.nix                 | ✅ Direct import                  |
 | **fish-config.nix**   | ✅ Via common.nix                 | ✅ Direct import                  |
-| **Platform Specific** | ZFS, systemd, networking          | WezTerm, Karabiner, GUI app links |
+| **Platform Specific** | ZFS, systemd, networking          | Karabiner, GUI app links (Ghostty managed via Homebrew) |
 | **Theming**           | Auto (hostname from NixOS config) | Auto (hostname from `$HOST`)      |
 
 ### Why This Architecture?

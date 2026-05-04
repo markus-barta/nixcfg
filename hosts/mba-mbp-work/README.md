@@ -29,7 +29,7 @@ Work macOS laptop with Nix package management.
 | **Static IP**      | `192.168.1.197/24` (DHCP reservation via hsb0)   |
 | **MAC Address**    | `38:f9:d3:50:a7:0d`                              |
 | **Shell**          | Fish (via Nix)                                   |
-| **Terminal**       | WezTerm (via Nix)                                |
+| **Terminal**       | ~~WezTerm (via Nix)~~ Ghostty (via Homebrew, since 2026-05-05)                                |
 | **Config Manager** | home-manager (standalone)                        |
 | **Git Default**    | Work identity (mba / markus.barta@bytepoets.com) |
 | **Apply Config**   | `just switch` or `home-manager switch --flake .` |
@@ -45,7 +45,7 @@ Work macOS laptop with Nix package management.
 | F01 | Fish Shell            | Modern shell with custom functions & aliases     |
 | F02 | Git Dual Identity     | Auto-switch between work/personal Git identities |
 | F03 | Starship Prompt       | Beautiful, informative prompt with Git status    |
-| F04 | WezTerm Terminal      | GPU-accelerated terminal with custom config      |
+| F04 | Ghostty Terminal      | GPU-accelerated terminal with custom config      |
 | F05 | CLI Development Tools | bat, ripgrep, fd, fzf, btop, zoxide, jq, just    |
 | F06 | direnv + devenv       | Automatic project environment loading            |
 | F07 | Uzumaki Functions     | pingt, helpfish, hostcolors, hostsecrets, etc.   |

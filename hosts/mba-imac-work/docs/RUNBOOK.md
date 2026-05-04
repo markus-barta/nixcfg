@@ -287,7 +287,7 @@ Home-manager on macOS cannot automate these system-level tasks:
 ### 🚨 Homebrew Conflicts
 
 When migrating to Nix, always uninstall the corresponding Homebrew package first to avoid `linking` errors:
-`fish`, `starship`, `zoxide`, `wezterm`, `git`, `btop`, `direnv`.
+`fish`, `starship`, `zoxide`, `git`, `btop`, `direnv` (terminal: `ghostty` via Homebrew).
 
 ### 💤 System Sleep
 

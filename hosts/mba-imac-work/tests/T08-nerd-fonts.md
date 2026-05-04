@@ -41,7 +41,7 @@ fc-list | grep -i "hack nerd"
 
 **Steps:**
 
-1. Open WezTerm
+1. Open Ghostty
 2. Run:
 
 ```bash
@@ -75,21 +75,13 @@ cd ~/Code/nixcfg
 
 **Status:** ⏳ Pending
 
-### Test 5: WezTerm Font Configuration
+### ~~Test 5: WezTerm Font Configuration~~ — REMOVED 2026-05-05
 
-**Steps:**
-
-1. Check WezTerm is using Hack Nerd Font
-
-```bash
-grep -i "hack" ~/.config/wezterm/wezterm.lua 2>/dev/null || echo "Check home-manager config"
-```
-
-**Expected Results:**
-
-- Font configuration shows "Hack Nerd Font Mono"
-
-**Status:** ⏳ Pending
+WezTerm purged from the fleet 2026-05-05 (replaced by Ghostty, installed via
+Homebrew not Nix). Ghostty's font config lives in `~/Library/Application
+Support/com.mitchellh.ghostty/config` (not declarative today). If the
+declarative test is needed, file a follow-up after Ghostty config moves
+into Nix.
 
 ## Summary
 

@@ -20,8 +20,8 @@ Comprehensive test procedures for validating imac0 configuration.
 | T05     | direnv + nix-direnv | ⏳ Not yet run     | ✅ 2025-11-23 17:15 | 3/3 tests passed - Fish integration working     |
 | T06     | CLI Tools           | ⏳ Not yet run     | ✅ 2025-11-23 17:15 | 8/8 tools - bat, rg, fd, fzf, btop, zoxide, jq  |
 | T07     | Custom Scripts      | ⏳ Not yet run     | ✅ 2025-11-23 17:15 | 3/3 scripts - flushdns, pingt, stopAmphetamine  |
-| T08     | Nerd Fonts          | ⏳ Not yet run     | ✅ 2025-11-23 17:20 | 4/4 tests - 25 fonts, Nix-managed, WezTerm      |
-| T09     | GUI Applications    | ⏳ Not yet run     | ✅ 2025-11-23 17:21 | 4/4 tests - WezTerm installed & symlinked       |
+| T08     | Nerd Fonts          | ⏳ Not yet run     | ✅ 2025-11-23 17:20 | 3/3 tests (Test 4 was WezTerm-specific, removed 2026-05-05) |
+| ~~T09~~ | ~~GUI Applications~~ | REMOVED 2026-05-05 | — | (was WezTerm install + symlink check; purged) |
 | T10     | Homebrew Isolation  | ⏳ Not yet run     | ✅ 2025-11-23 17:22 | 4/4 tests - no conflicts, PATH correct          |
 | T11     | macOS Preferences   | ⏳ Not yet run     | ℹ️ 2025-11-23 17:23 | 5/5 checks - informational, system state logged |
 
@@ -51,7 +51,7 @@ Comprehensive test procedures for validating imac0 configuration.
 
 ## Notes
 
-- **Removed Tests**: Starship Prompt, WezTerm Terminal, Karabiner (cosmetic/hard to test)
+- **Removed Tests**: Starship Prompt, ~~WezTerm Terminal~~ (purged 2026-05-05), Karabiner (cosmetic/hard to test)
 - T00 has a minor issue with `builtins.currentSystem` check (doesn't affect functionality)
 - T11 is informational - documents system state for reproducibility
 - All core functionality verified and working
@@ -99,7 +99,7 @@ for test in T*.sh; do ./"$test"; done
 
 - Fish shell configuration and functions
 - Starship prompt customization
-- WezTerm terminal emulator
+- ~~WezTerm terminal emulator~~ (purged 2026-05-05; Ghostty via Homebrew now)
 
 ### Development Tools (T04-T07)
 

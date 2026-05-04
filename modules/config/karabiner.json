@@ -96,8 +96,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -123,8 +122,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -150,8 +148,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -177,8 +174,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -204,8 +200,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -231,8 +226,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -258,8 +252,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -285,8 +278,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -312,8 +304,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -339,8 +330,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -366,8 +356,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -393,8 +382,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -420,8 +408,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -449,8 +436,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -478,8 +464,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -507,8 +492,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -536,8 +520,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -565,8 +548,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -594,8 +576,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -623,8 +604,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -652,8 +632,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -681,8 +660,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -710,8 +688,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],
@@ -739,8 +716,7 @@
                       "^co\\.zeit\\.hyper$",
                       "^io\\.alacritty$",
                       "^net\\.kovidgoyal\\.kitty$",
-                      "^com\\.mitchellh\\.ghostty$",
-                      "^com\\.github\\.wez\\.wezterm$"
+                      "^com\\.mitchellh\\.ghostty$"
                     ]
                   }
                 ],

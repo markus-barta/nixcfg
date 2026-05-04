@@ -391,7 +391,7 @@ nix run home-manager -- switch --flake ".#YOUR-USERNAME@YOUR-HOSTNAME"
 **This will:**
 
 - Install home-manager
-- Install all packages (fish, starship, wezterm, etc.)
+- Install all packages (fish, starship, etc. — terminal is Ghostty, installed separately via Homebrew)
 - Configure shell, terminal, and tools
 - Set up theming
 
@@ -579,7 +579,7 @@ Brief description of this machine.
 | F00 | Nix Base System   | Reproducible package mgmt   |
 | F01 | Fish Shell        | Modern shell with functions |
 | F02 | Starship Prompt   | Beautiful themed prompt     |
-| F03 | WezTerm Terminal  | GPU-accelerated terminal    |
+| F03 | Ghostty Terminal  | (managed via Homebrew, not Nix — was WezTerm pre-2026-05-05) |
 | F04 | Git Identity      | Personal/work auto-switch   |
 | F05 | CLI Tools         | bat, ripgrep, fd, fzf, etc. |
 | F06 | Uzumaki Functions | pingt, helpfish, sourcefish |
@@ -623,9 +623,9 @@ launchctl print system/org.nixos.nix-daemon
 sudo launchctl kickstart -k system/org.nixos.nix-daemon
 ```
 
-### WezTerm Not in Spotlight
+### Terminal app (Ghostty) not in Spotlight
 
-WezTerm is linked to `~/Applications/`. Search in Spotlight (⌘+Space) or add to Dock manually.
+Ghostty is installed via Homebrew (`brew install --cask ghostty`) — it should appear in Spotlight automatically. WezTerm was the previous default (purged 2026-05-05); a one-shot HM activation cleanup removes any leftover `~/Applications/WezTerm.app` alias on next `home-manager switch`.
 
 ---
 
