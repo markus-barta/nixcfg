@@ -39,7 +39,7 @@ Personal macOS development machine with Nix package management and home-manager.
 | --- | --------------------------- | ---------------------------------------- | ---- |
 | F00 | home-manager + Nix          | Declarative package & config management  | -    |
 | F01 | Fish Shell + Starship       | Modern shell with beautiful prompt       | -    |
-| F02 | WezTerm                     | GPU-accelerated terminal emulator        | -    |
+| F02 | Ghostty (Homebrew, not Nix)                     | GPU-accelerated terminal emulator        | -    |
 | F03 | Git Dual Identity           | Auto-switch personal/work git identity   | -    |
 | F04 | Karabiner-Elements          | Caps Lock → Hyper key, custom mappings   | -    |
 | F05 | Zellij Terminal Multiplexer | Modern tmux alternative with tabs/panes  | -    |
@@ -56,10 +56,10 @@ Personal macOS development machine with Nix package management and home-manager.
 **Core Migration Complete**:
 
 - ✅ All configurations declaratively managed via Nix
-- ✅ Shell (Fish), Terminal (WezTerm), Prompt (Starship), Git dual identity
+- ✅ Shell (Fish), Terminal (Ghostty — was WezTerm pre-2026-05-05), Prompt (Starship), Git dual identity
 - ✅ Global interpreters (Node.js, Python) + project-specific versions
 - ✅ Essential CLI tools (bat, btop, ripgrep, fd, fzf, etc.)
-- ✅ Fonts (Hack Nerd Font) for both WezTerm and Terminal.app
+- ✅ Fonts (Hack Nerd Font) for both Ghostty and Terminal.app
 - ✅ Karabiner-Elements configuration declarative
 
 **System Integration**:
@@ -72,13 +72,13 @@ Personal macOS development machine with Nix package management and home-manager.
 **Current Setup**:
 
 ```bash
-$ which fish git node python3 starship wezterm
+$ which fish git node python3 starship
 /Users/markus/.nix-profile/bin/fish (v4.1.2)
 /Users/markus/.nix-profile/bin/git (v2.51.0) ✅
 /Users/markus/.nix-profile/bin/node (v22.20.0)
 /Users/markus/.nix-profile/bin/python3 (v3.13.8)
 /Users/markus/.nix-profile/bin/starship
-/Users/markus/.nix-profile/bin/wezterm
+
 ```
 
 **Git Dual Identity Verified** ✅:
@@ -126,7 +126,7 @@ brew install --cask karabiner-elements
 
 ### 4. Terminal.app Fonts (Optional)
 
-If you use Terminal.app (not just WezTerm):
+If you use Terminal.app (not Ghostty):
 
 - Fonts are automatically symlinked to ~/Library/Fonts/
 - Refresh font cache: `killall fontd`
@@ -610,7 +610,7 @@ brew update && brew upgrade && brew cleanup
 ### 2025-11-15: Migration Complete
 
 - ✅ All configurations declaratively managed via Nix
-- ✅ Shell (Fish), Terminal (WezTerm), Prompt (Starship)
+- ✅ Shell (Fish), Terminal (Ghostty — was WezTerm pre-2026-05-05), Prompt (Starship)
 - ✅ Git dual identity (personal/work)
 - ✅ Karabiner-Elements declarative configuration
 - ✅ ~700MB freed from Homebrew migration

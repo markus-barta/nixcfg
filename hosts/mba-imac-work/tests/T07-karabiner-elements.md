@@ -74,7 +74,7 @@ ls -la ~/.config/karabiner/karabiner.json
 
 **Steps:**
 
-1. Open WezTerm
+1. Open Ghostty
 2. Press F1, F2, etc.
 
 **Expected Results:**

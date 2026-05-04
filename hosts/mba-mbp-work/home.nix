@@ -241,12 +241,9 @@ in
   };
 
   # ============================================================================
-  # WezTerm Terminal Configuration (Shared Config)
+  # Terminal: Ghostty (managed outside Nix — Homebrew install + manual config).
+  # WezTerm purged 2026-05-05; Ghostty is now the daily across the macOS fleet.
   # ============================================================================
-  programs.wezterm = {
-    enable = true;
-    extraConfig = macosCommon.weztermConfig;
-  };
 
   # ============================================================================
   # Git Configuration
@@ -406,9 +403,8 @@ in
     echo "Linking macOS GUI applications..."
     mkdir -p "$HOME/Applications"
 
-    apps=(
-      "WezTerm.app"
-    )
+    # Empty since WezTerm purge 2026-05-05 (Ghostty installed via Homebrew, not Nix).
+    apps=()
 
     for app in "''${apps[@]}"; do
       source="$HOME/Applications/Home Manager Apps/$app"
@@ -429,8 +425,13 @@ in
       fi
     done
 
+    # One-shot cleanup of pre-2026-05-05 WezTerm alias. Drop in a few weeks.
+    if [ -e "$HOME/Applications/WezTerm.app" ] || [ -L "$HOME/Applications/WezTerm.app" ]; then
+      echo "  Removing lingering WezTerm.app (post-2026-05-05 cleanup)"
+      rm -rf "$HOME/Applications/WezTerm.app"
+    fi
+
     echo "✅ macOS GUI applications aliased"
-    echo "   Apps will appear in Spotlight (⌘+Space)"
   '';
 
   # ============================================================================

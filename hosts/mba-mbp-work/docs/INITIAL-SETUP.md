@@ -168,7 +168,7 @@ nix run home-manager -- switch --flake ".#mba@mba-mbp-work"
 This will:
 
 - Install home-manager
-- Install all packages (fish, starship, wezterm, etc.)
+- Install all packages (fish, starship, etc. — terminal: Ghostty, installed via Homebrew)
 - Configure your shell, terminal, and tools
 - Set up theming (warm gray palette for this laptop)
 
@@ -361,20 +361,12 @@ echo $PATH | tr ':' '\n' | head -5
 
 If not, the fish `loginShellInit` should fix this on new terminal windows.
 
-### WezTerm Not Found in Spotlight
+### Terminal app (Ghostty) not in Spotlight
 
-WezTerm should appear in Spotlight automatically. The activation script creates
-a **macOS alias** (not symlink) in `~/Applications/` because symlinks to
-`/nix/store` don't get indexed by Spotlight.
-
-If WezTerm doesn't appear:
-
-1. Run `home-manager switch` to create the alias
-2. Wait a moment for Spotlight to index
-3. Check: `mdfind "WezTerm*"` should show `~/Applications/WezTerm.app`
-
-**Technical note**: Check that `~/Applications/WezTerm.app` is a **file**
-(~1KB), not a symlink. If it's a symlink, the activation script needs updating.
+Ghostty is installed via Homebrew (`brew install --cask ghostty`) and should
+appear in Spotlight automatically. WezTerm was the previous default (purged
+2026-05-05) — a one-shot HM activation cleanup removes any leftover
+`~/Applications/WezTerm.app` alias on next `home-manager switch`.
 
 ### Nix Store Location
 
@@ -406,7 +398,7 @@ After setup, you'll have:
 | ---------- | ---------------------------------- |
 | Fish       | Modern shell                       |
 | Starship   | Beautiful prompt (warm gray)       |
-| WezTerm    | GPU-accelerated terminal           |
+~~| WezTerm    | GPU-accelerated terminal           |~~ — purged 2026-05-05; Ghostty (Homebrew) replaces it
 | Git        | With dual identity (work/personal) |
 | bat        | Better cat                         |
 | ripgrep    | Fast grep (rg)                     |

@@ -126,7 +126,7 @@ flake.nix
             ├── User-level packages (git, jq, zellij, etc.)
             ├── programs.fish (shell config)
             ├── programs.git (dual identity)
-            ├── programs.wezterm (terminal)
+            ├── (terminal: Ghostty, managed outside Nix — Homebrew)
             │
             └── modules/uzumaki/home-manager.nix
                 ├── options.nix

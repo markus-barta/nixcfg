@@ -10,10 +10,10 @@ Test procedures for validating the Work MacBook Pro (mba-mbp-work) configuration
 | T01 | Fish Shell        | ✅ Ready | Fish + uzumaki functions |
 | T02 | Git Dual Identity | ⏳ TODO  | Personal/work git config |
 | T03 | Theme (Starship)  | ⏳ TODO  | Starship prompt colors   |
-| T04 | WezTerm Terminal  | ⏳ TODO  | WezTerm config           |
+| ~~T04~~ | ~~WezTerm Terminal~~ | REMOVED  | (purged 2026-05-05; Ghostty via Homebrew) |
 | T05 | direnv + devenv   | ✅ Ready | Development environment  |
 | T06 | CLI Tools         | ⏳ TODO  | Essential CLI tools      |
-| T07 | GUI Apps          | ✅ Ready | WezTerm Spotlight alias  |
+| ~~T07~~ | ~~GUI Apps~~  | REMOVED  | (was WezTerm Spotlight alias check; purged 2026-05-05) |
 
 ## Running Tests
 
@@ -25,7 +25,7 @@ Test procedures for validating the Work MacBook Pro (mba-mbp-work) configuration
 ./T00-nix-base.sh
 ./T01-fish-shell.sh
 ./T05-direnv.sh
-./T07-gui-apps.sh
+# T07-gui-apps.sh removed 2026-05-05 (was WezTerm-specific)
 ```
 
 ## Key Tests for This Host
@@ -40,10 +40,11 @@ direnv → .envrc → devenv → devenv.yaml → .shared/common.just → justfil
 
 If `just` fails with "Could not find source file", this chain is broken.
 
-### T07: GUI Apps (macOS Aliases)
+### ~~T07: GUI Apps~~ (REMOVED 2026-05-05)
 
-Tests that WezTerm appears in Spotlight via macOS alias (not symlink).
-Symlinks to `/nix/store` don't get indexed by Spotlight!
+Was the WezTerm Spotlight-alias-vs-symlink test. WezTerm purged from the fleet
+2026-05-05; Ghostty (its replacement) is installed via Homebrew, not Nix, so
+no HM-side aliasing is needed for it.
 
 ## Quick Validation
 
@@ -53,7 +54,6 @@ fish --version                    # Fish from Nix?
 which devenv                      # devenv installed?
 hostcolors                        # uzumaki function works?
 just --list                       # justfile imports work?
-mdfind "WezTerm*"                 # Spotlight finds WezTerm?
 ```
 
 ## Adding Tests

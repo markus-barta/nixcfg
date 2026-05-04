@@ -300,12 +300,9 @@ in
   };
 
   # ============================================================================
-  # WezTerm Terminal Configuration (Shared Config)
+  # Terminal: Ghostty (managed outside Nix — Homebrew install + manual config).
+  # WezTerm purged 2026-05-05; Ghostty is now the daily across the macOS fleet.
   # ============================================================================
-  programs.wezterm = {
-    enable = true;
-    extraConfig = macosCommon.weztermConfig;
-  };
 
   # ============================================================================
   # Git Configuration
@@ -444,7 +441,8 @@ in
 
   # Install Hack Nerd Font for macOS (symlink to ~/Library/Fonts/)
   # macOS Font Book and Terminal.app only see fonts in ~/Library/Fonts/
-  # WezTerm uses fontconfig and can see Nix fonts directly
+  # (Ghostty also reads from ~/Library/Fonts/. Pre-2026-05-05 note about
+  #  WezTerm using fontconfig directly is no longer relevant — WezTerm purged.)
   home.activation.installMacOSFonts = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     echo "Installing Hack Nerd Font for macOS..."
     mkdir -p "$HOME/Library/Fonts"
@@ -491,11 +489,10 @@ in
     # Ensure main Applications directory exists
     mkdir -p "$HOME/Applications"
 
-    # Apps to link to main Applications folder (from Home Manager Apps)
-    # Add more apps here as you enable them in home.nix
-    apps=(
-      "WezTerm.app"
-    )
+    # Apps to link to main Applications folder (from Home Manager Apps).
+    # Empty since WezTerm purge 2026-05-05 (Ghostty installed via Homebrew, not Nix).
+    # Add new HM-installed GUI apps here as they're enabled.
+    apps=()
 
     for app in "''${apps[@]}"; do
       source="$HOME/Applications/Home Manager Apps/$app"
@@ -513,6 +510,12 @@ in
         /usr/bin/osascript -e "tell application \"Finder\" to make alias file to POSIX file \"$source\" at POSIX file \"$HOME/Applications\"" >/dev/null 2>&1
       fi
     done
+
+    # One-shot cleanup of pre-2026-05-05 WezTerm alias. Drop in a few weeks.
+    if [ -e "$HOME/Applications/WezTerm.app" ] || [ -L "$HOME/Applications/WezTerm.app" ]; then
+      echo "  Removing lingering WezTerm.app (post-2026-05-05 cleanup)"
+      rm -rf "$HOME/Applications/WezTerm.app"
+    fi
 
     echo "✅ macOS GUI applications aliased"
     echo "   Apps will appear in Spotlight (⌘+Space)"

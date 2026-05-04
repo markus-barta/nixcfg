@@ -161,7 +161,7 @@ csb1                          # → ssh mba@cs1.barta.cm:2222 with zellij
 ### Key Binaries (Nix)
 
 ```bash
-which fish git node python3 starship wezterm bat rg fd
+which fish git node python3 starship bat rg fd
 # All should show ~/.nix-profile/bin/...
 ```
 

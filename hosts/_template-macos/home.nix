@@ -177,12 +177,10 @@ in
   };
 
   # ============================================================================
-  # WezTerm Terminal (Shared Config)
+  # Terminal: Ghostty (managed outside Nix — Homebrew install + manual config).
+  # WezTerm purged 2026-05-05; if a future macOS host wants a different
+  # Nix-managed terminal, wire it here (and add the .app to the apps list below).
   # ============================================================================
-  programs.wezterm = {
-    enable = true;
-    extraConfig = macosCommon.weztermConfig;
-  };
 
   # ============================================================================
   # Git Configuration
@@ -330,7 +328,8 @@ in
     echo "Linking macOS GUI applications..."
     mkdir -p "$HOME/Applications"
 
-    apps=("WezTerm.app")
+    # Empty since WezTerm purge 2026-05-05. Add Nix-managed GUI apps as needed.
+    apps=()
 
     for app in "''${apps[@]}"; do
       source="$HOME/Applications/Home Manager Apps/$app"

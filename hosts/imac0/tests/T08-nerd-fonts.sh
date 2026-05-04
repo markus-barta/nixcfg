@@ -48,18 +48,11 @@ else
   echo -e "${YELLOW}⚠️  WARN${NC} (may need to restart apps)"
 fi
 
-# Test 4: WezTerm config references Nerd Font
-echo -n "Test 4: WezTerm configured for Nerd Font... "
-if [[ -f "$HOME/.config/wezterm/wezterm.lua" ]]; then
-  if grep -iq "hack.*nerd" "$HOME/.config/wezterm/wezterm.lua"; then
-    echo -e "${GREEN}✅ PASS${NC}"
-  else
-    echo -e "${RED}❌ FAIL${NC}"
-    exit 1
-  fi
-else
-  echo -e "${YELLOW}⚠️  SKIP${NC} (no wezterm config)"
-fi
+# Test 4: REMOVED 2026-05-05 — WezTerm purged, Ghostty installed via Homebrew
+# (config not declarative today). If Ghostty config moves into Nix, replace
+# this with a Ghostty-specific font check.
+echo -n "Test 4: (removed — WezTerm purged 2026-05-05) ... "
+echo -e "${YELLOW}— SKIP —${NC}"
 
 echo
 echo -e "${GREEN}🎉 All tests passed!${NC}"

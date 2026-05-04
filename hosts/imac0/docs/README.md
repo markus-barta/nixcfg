@@ -20,7 +20,7 @@
 | **User**            | `markus` (Markus Barta)        |
 | **Management**      | home-manager (NOT nix-darwin)  |
 | **Shell**           | Fish v4.1.2 (Nix)              |
-| **Terminal**        | WezTerm (Nix)                  |
+| **Terminal**        | ~~WezTerm (Nix)~~ Ghostty (Homebrew)                  |
 | **Config Location** | `~/Code/nixcfg/hosts/imac0/`   |
 
 ---
@@ -32,7 +32,7 @@
 | F00 | Nix Base System      | Flakes, home-manager, platform detection          | ✅     |
 | F01 | Fish Shell           | Modern interactive shell with custom functions    | ✅     |
 | F02 | Starship Prompt      | Cross-shell prompt with git & language indicators | ✅     |
-| F03 | WezTerm Terminal     | GPU-accelerated terminal with Nerd Fonts          | ✅     |
+| F03 | Ghostty Terminal     | GPU-accelerated terminal (Homebrew, not Nix)          | ✅     |
 | F04 | Git Dual Identity    | Auto-switch between personal & work identities    | ✅     |
 | F05 | Node.js (LTS)        | Global Node.js v22.20.0 + project-specific        | ✅     |
 | F06 | Python               | Global Python v3.13.8 + project-specific          | ✅     |
@@ -40,7 +40,7 @@
 | F08 | Hack Nerd Font       | Nerd Font for terminals & system-wide             | ✅     |
 | F09 | CLI Tools (45+)      | bat, btop, ripgrep, fd, fzf, zoxide, etc.         | ✅     |
 | F10 | Karabiner-Elements   | Caps Lock → Hyper, F1-F12 in terminals            | ✅     |
-| F11 | macOS GUI Apps (Nix) | WezTerm managed via home-manager                  | ✅     |
+| F11 | macOS GUI Apps (Nix) | Ghostty (managed via Homebrew, not Nix)                  | ✅     |
 | F12 | Custom Scripts       | flushdns, pingt, stopAmphetamineAndSleep          | ✅     |
 | F13 | Homebrew Cleanup     | Reduced from 167 → 127 formulae (~700MB freed)    | ✅     |
 
@@ -156,7 +156,7 @@ vim ~/Code/nixcfg/hosts/imac0/config/karabiner.json
 ### Shell & Terminal
 
 - **Shell**: Fish v4.1.2 (from Nix)
-- **Terminal**: WezTerm (from Nix)
+- **Terminal**: Ghostty (from Homebrew; WezTerm purged 2026-05-05)
 - **Prompt**: Starship v1.23.0
 - **Font**: Hack Nerd Font (system-wide)
 
@@ -250,7 +250,7 @@ vim ~/Code/nixcfg/hosts/imac0/config/karabiner.json
 
 **From Nix (home-manager):**
 
-- `wezterm` - Terminal emulator
+- `ghostty` - Terminal emulator (managed via Homebrew, not Nix)
 
 **From Homebrew (10 casks):**
 
@@ -359,7 +359,7 @@ git config user.email   # markus.barta@bytepoets.com
 
 **F1-F12 in Terminals**:
 
-- Function keys work as regular F-keys in WezTerm, Terminal.app, etc.
+- Function keys work as regular F-keys in Ghostty, Terminal.app, etc.
 - No need to press Fn key
 
 **Device-Specific Settings**:
@@ -626,7 +626,7 @@ ping -c 3 8.8.8.8
 
 - ✅ Pre-migration backup (56 files, checksums verified)
 - ✅ Infrastructure setup (home.nix, flake integration)
-- ✅ Core environment testing (Fish, Starship, WezTerm, Git)
+- ✅ Core environment testing (Fish, Starship, Ghostty, Git)
 - ✅ Post-migration PATH fix (Nix priority over Homebrew)
 - ✅ Reboot testing (persistence verification)
 - ✅ Homebrew cleanup (167 → 127 formulae)
@@ -637,7 +637,7 @@ ping -c 3 8.8.8.8
 **Packages Migrated**: 45+ packages from Homebrew to Nix
 
 - Shell: Fish, Starship
-- Terminal: WezTerm
+- Terminal: Ghostty (Homebrew)
 - Dev Tools: Node.js, Python, Git, gh, jq, just, lazygit
 - CLI Tools: bat, btop, ripgrep, fd, fzf, zoxide, tree, mc
 - Network: netcat, websocat, lynx, rsync, wget

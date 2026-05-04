@@ -71,7 +71,7 @@ modules/uzumaki/
 ├── server.nix           # Direct import for NixOS servers (legacy)
 ├── desktop.nix          # Direct import for NixOS desktops (legacy)
 ├── macos.nix            # Direct import for macOS (legacy)
-├── macos-common.nix     # macOS-specific: WezTerm, fonts, packages
+├── macos-common.nix     # macOS-specific: fonts, packages (terminal: Ghostty via Homebrew, not Nix; WezTerm purged 2026-05-05)
 ├── fish/
 │   ├── default.nix      # Fish module exports
 │   ├── config.nix       # Aliases & abbreviations
@@ -122,7 +122,7 @@ hokage = {
 | **Starship** | (disabled via catppuccin) | Per-host gradient colors   | `theme/theme-hm.nix` |
 | **Eza**      | (disabled via catppuccin) | Tokyo Night Uzumaki theme  | `theme/theme-hm.nix` |
 | **Zellij**   | ⚠️ **NOT disabled**       | Per-host accent colors     | `theme/theme-hm.nix` |
-| **WezTerm**  | (not themed by hokage)    | Tokyo Night                | `macos-common.nix`   |
+| ~~**WezTerm**~~ | (purged 2026-05-05; replaced by Ghostty, themed via its own config outside Nix) | — | — |
 | **Helix**    | (no override needed)      | `tokyonight_storm`         | `common.nix`         |
 | **bat**      | (disabled via catppuccin) | `tokyonight_night`         | `theme/theme-hm.nix` |
 | **fzf**      | (disabled via catppuccin) | Tokyo Night colors         | `theme/theme-hm.nix` |
@@ -395,7 +395,7 @@ The file contains Nerd Font Unicode glyphs that get corrupted easily.
 ## Prerequisites
 
 - **Nerd Font** installed (Hack Nerd Font Mono recommended)
-- **Terminal** configured to use the Nerd Font (WezTerm, Ghostty, etc.)
+- **Terminal** configured to use the Nerd Font (Ghostty currently; WezTerm was the previous default until 2026-05-05)
 
 ### Testing Icons
 
@@ -419,7 +419,7 @@ for char, name in icons:
 
 Provides macOS-specific configuration:
 
-- WezTerm configuration (Tokyo Night theme, Hack Nerd Font)
+- ~~WezTerm configuration (Tokyo Night theme, Hack Nerd Font)~~ — purged 2026-05-05; Ghostty is now the daily, managed via Homebrew (config outside Nix)
 - Font installation activation script
 - Common macOS packages
 - Nano configuration

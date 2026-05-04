@@ -50,15 +50,12 @@ else
   ((PASSED++))
 fi
 
-# Test 4: WezTerm font configured
-echo -n "Test 4: WezTerm font configured... "
-if grep -qi "hack" ~/.config/wezterm/wezterm.lua 2>/dev/null || grep -qi "hack" ~/.wezterm.lua 2>/dev/null; then
-  echo -e "${GREEN}✅ PASS${NC}"
-  ((PASSED++))
-else
-  echo -e "${YELLOW}⚠️ WARN${NC} (check home-manager wezterm config)"
-  ((PASSED++))
-fi
+# Test 4: REMOVED 2026-05-05 — WezTerm purged, Ghostty installed via Homebrew
+# (config not declarative today). If Ghostty config moves into Nix, replace
+# this with a Ghostty-specific font check.
+echo -n "Test 4: (removed — WezTerm purged 2026-05-05) ... "
+echo -e "${YELLOW}— SKIP —${NC}"
+((PASSED++))
 
 echo
 echo "Results: $PASSED passed, $FAILED failed"
