@@ -101,13 +101,13 @@
           "botToken": "${TELEGRAM_BOT_TOKEN_MERLIN}",
           "dmPolicy": "pairing",
           "groupPolicy": "allowlist",
-          "streaming": "partial"
+          "streaming": { "mode": "partial" }
         },
         "nimue": {
           "botToken": "${TELEGRAM_BOT_TOKEN_NIMUE}",
           "dmPolicy": "pairing",
           "groupPolicy": "allowlist",
-          "streaming": "partial"
+          "streaming": { "mode": "partial" }
         }
       }
     }
