@@ -131,8 +131,18 @@ just switch
 # Deploy remotely to NixOS host
 nixos-rebuild switch --flake .#<host> --target-host <host> --use-remote-sudo
 
-# Deploy to macOS (home-manager)
+# Deploy to macOS (home-manager) — RAW (no pre-flight)
 home-manager switch --flake ".#markus@<host>"
+
+# Deploy to macOS (home-manager) — DEFENSIVE (NIX-105, recommended)
+# Pre-flights `nix profile list` for imperative-vs-HM conflicts +
+# warns if login shell points into ~/.nix-profile/bin/. On failure,
+# prints the canonical recovery sequence (System Settings → /bin/zsh
+# → Terminal.app → nix run nixpkgs#home-manager bootstrap).
+# Use this on ANY macOS host that may have imperative `nix profile install`
+# entries from before the HM-managed era. See ~/Code/inspr/playbook.md
+# "Day-5 EVENING amendment" for the incident this prevents.
+just safe-switch
 
 # Check all configs build (from NixOS host)
 nix flake check
