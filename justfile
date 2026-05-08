@@ -148,6 +148,130 @@ switch args='':
         fi
     fi
 
+# NIX-105: Defensive `home-manager switch` wrapper for macOS hosts.
+# Catches the conflict pattern that brick'd imac0 on 2026-05-05:
+# an imperative `nix profile install` package + the SAME package added
+# to home.nix → HM activation aborts mid-tear-down → critical binaries
+# (fish, home-manager itself) vanish from ~/.nix-profile/bin → if the
+# user's login shell points there, no terminal can open until GUI shell
+# reset. See ~/Code/inspr/playbook.md "Day-5 EVENING amendment" for the
+# full incident write-up + canonical recovery sequence.
+[group('build')]
+safe-switch args='':
+    #!/usr/bin/env bash
+    if [[ "$OSTYPE" != "darwin"* ]]; then
+        echo "❌ safe-switch is macOS-only (the conflict pattern is HM-standalone-specific)."
+        echo "   For NixOS hosts, use \`just switch\` (failure modes differ)."
+        exit 2
+    fi
+
+    echo ""
+    echo "🔍 Pre-flight checks for home-manager switch on {{ user }}@{{ hostname }} ..."
+    echo ""
+
+    # ── Pre-flight 1: imperative `nix profile` entries ──────────────────
+    # Detects the exact conflict pattern from the 2026-05-05 incident.
+    # Heuristic: just LIST imperative entries + warn. We don't try to
+    # statically predict which ones will conflict with the new HM
+    # generation — too brittle. User decides whether to proceed.
+    echo "  [1/3] Imperative \`nix profile\` entries (potential conflicts) ..."
+    # Filter:
+    # - Strip ANSI color codes (nix uses bold for entry names)
+    # - Drop `home-manager-path` (HM's OWN entry — not a conflict candidate)
+    profile_entries=$(nix profile list 2>/dev/null \
+        | sed $'s/\x1b\[[0-9;]*m//g' \
+        | grep -E "^Name:" \
+        | sed 's/^Name:[[:space:]]*//' \
+        | grep -v "^home-manager-path$" || true)
+    if [[ -z "$profile_entries" ]]; then
+        echo "        ✓ no imperative entries — clean profile, no conflict risk"
+    else
+        echo "        ⚠️  Imperative entries found (alongside home-manager-path):"
+        echo "$profile_entries" | sed 's/^/             • /'
+        echo ""
+        echo "        These MAY conflict if HM is about to install the same package."
+        echo "        If yes: \`nix profile remove <name>\` BEFORE the switch to avoid"
+        echo "        a half-torn-down profile. (Playbook 2026-05-05 EVENING.)"
+    fi
+    echo ""
+
+    # ── Pre-flight 2: login shell dependency on Nix profile ─────────────
+    # If the login shell points into ~/.nix-profile/bin/ AND a switch
+    # tears down the profile, the user loses terminal access until a
+    # GUI shell-reset. Surface the risk; don't block.
+    echo "  [2/3] Login shell dependency on \$HOME/.nix-profile/bin ..."
+    login_shell=$(dscl . -read /Users/{{ user }} UserShell 2>/dev/null | awk '{print $2}')
+    if [[ "$login_shell" == "$HOME/.nix-profile/bin/"* ]]; then
+        echo "        ⚠️  Your login shell is in the Nix profile:"
+        echo "             $login_shell"
+        echo "        If this switch tears down the profile, you'll lose terminal access"
+        echo "        until you reset shell via System Settings → Users & Groups →"
+        echo "        Advanced Options → Login Shell: /bin/zsh → Save → Terminal.app."
+    else
+        echo "        ✓ login shell is system-managed: $login_shell"
+    fi
+    echo ""
+
+    # ── Pre-flight 3: confirmation ──────────────────────────────────────
+    echo "  [3/3] Continue with home-manager switch? [y/N]"
+    if [[ -t 0 ]]; then
+        read -r answer
+    else
+        answer=""
+        echo "        (non-interactive shell → aborting by default; use \`just switch\` to bypass)"
+    fi
+    if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
+        echo ""
+        echo "❌ Aborted."
+        exit 1
+    fi
+    echo ""
+
+    # ── Actual switch ───────────────────────────────────────────────────
+    echo "🚀 Running home-manager switch ..."
+    start_time=$(date +%s)
+    home-manager switch --flake ".#{{ user }}@{{ hostname }}" {{ args }}
+    exit_code=$?
+    end_time=$(date +%s)
+    runtime=$((end_time - start_time))
+
+    if [[ $exit_code -ne 0 ]]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════════════════"
+        echo "❌ home-manager switch failed (exit $exit_code, ${runtime}s)."
+        echo ""
+        echo "If the failure tore down your Nix profile, you may now be missing"
+        echo "critical binaries (fish, home-manager itself). Canonical recovery:"
+        echo ""
+        echo "  1. If your terminal won't open after this:"
+        echo "       System Settings → Users & Groups → right-click {{ user }}"
+        echo "       → Advanced Options → Login Shell: /bin/zsh → Save"
+        echo "     Then open Terminal.app (NOT Ghostty/WezTerm — they inherit"
+        echo "     the bricked login shell)."
+        echo ""
+        echo "  2. nix profile list                          # see what's still there"
+        echo "  3. nix profile remove <conflicting>          # the imperative duplicate"
+        echo "  4. nix run nixpkgs#home-manager -- \\"
+        echo "       switch --flake \".#{{ user }}@{{ hostname }}\""
+        echo ""
+        echo "  (After success, optionally chsh back to fish:"
+        echo "    sudo chsh -s ~/.nix-profile/bin/fish {{ user }})"
+        echo ""
+        echo "  See ~/Code/inspr/playbook.md \"Day-5 EVENING amendment\" for the"
+        echo "  full incident write-up that motivated this wrapper."
+        echo "════════════════════════════════════════════════════════════════════════"
+        if [[ $runtime -gt 10 ]]; then
+            just _notify "safe-switch FAILED for {{ user }}@{{ hostname }}, exit $exit_code"
+        fi
+        exit $exit_code
+    fi
+
+    if [[ $runtime -gt 10 ]]; then
+        just _notify "safe-switch finished for {{ user }}@{{ hostname }}, exit 0 (runtime: ${runtime}s)"
+    fi
+    echo ""
+    echo "✅ Activation successful (${runtime}s)."
+
 # Build and switch home-manager configuration (for macOS/standalone home-manager)
 [group('build')]
 home-switch args='':
