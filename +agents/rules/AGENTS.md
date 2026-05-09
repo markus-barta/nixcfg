@@ -33,15 +33,15 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 
 ## Important Locations
 
-| What                       | Location/Notes                                      |
-| -------------------------- | --------------------------------------------------- |
-| NixOS infra config         | `~/Code/nixcfg`                                     |
-| "hokage" ref (pbek-nixcfg) | `~/Code/pbek-nixcfg`                                |
-| Secrets / credentials      | 1Password (no agent access) — ping Markus           |
-| Host runbooks              | `hosts/<hostname>/docs/RUNBOOK.md`                  |
-| Agent workflow             | `docs/AGENT-WORKFLOW.md`                            |
-| Infrastructure inventory   | `docs/INFRASTRUCTURE.md`                            |
-| Task/project mgmt          | PPM (`pm.barta.cm`)                                 |
+| What                         | Location/Notes                                                                                                                   |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| NixOS infra config           | `~/Code/nixcfg`                                                                                                                  |
+| "hokage" ref (pbek-nixcfg)   | `~/Code/pbek-nixcfg`                                                                                                             |
+| Secrets / credentials        | 1Password (no agent access) — ping Markus                                                                                        |
+| Host runbooks                | `hosts/<hostname>/docs/RUNBOOK.md`                                                                                               |
+| Agent workflow               | `docs/AGENT-WORKFLOW.md`                                                                                                         |
+| Infrastructure inventory     | `docs/INFRASTRUCTURE.md`                                                                                                         |
+| Task/project mgmt            | PPM (`pm.barta.cm`)                                                                                                              |
 | **Fleet inventory & status** | **FleetCom (`fleet.barta.cm`) — canonical live source for hosts/agents/services. Query, do not assume.** Repo: `~/Code/fleetcom` |
 
 ## Docs
@@ -114,6 +114,7 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 - `docker exec ... cat /home/node/.env` or any container env file
 - `printenv`, `env`, `export` without explicit filtering
 - Any command where secrets could appear in stdout/stderr captured by this tool
+- **Reading env-resolved deployed configs.** Tools that expand `${VAR}` placeholders write secrets in clear inside the running container. Never `cat`/`diff` the deployed copy — work from the git-source file (which keeps `${BRAVE_API_KEY}` etc. as placeholders). Examples to avoid: `docker exec <c> cat /home/node/.openclaw/openclaw.json`, `docker exec <c> openclaw doctor --fix` piped back to host, any `kubectl get cm/secret` resolved-output. Use the repo source-of-truth file instead.
 
 **If you need to verify a secret exists:** check file existence (`ls -la`) or check a non-secret property. Never print the value.
 

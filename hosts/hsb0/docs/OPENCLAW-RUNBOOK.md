@@ -223,12 +223,15 @@ gitpl && just switch && just oc-rebuild
 ### View Live Config
 
 ```bash
-# Git-managed source (what gets deployed on next boot)
+# Git-managed source (what gets deployed on next boot) — SAFE
 cat ~/Code/nixcfg/hosts/hsb0/docker/openclaw-gateway/openclaw.json | jq
 
-# Live config in running container
+# Live config in running container — ⚠️ CONTAINS RESOLVED ${VAR} SECRETS
+# Do not pipe to host / agents. For inspection, prefer the git-source above.
 docker exec openclaw-gateway cat /home/node/.openclaw/openclaw.json | jq
 ```
+
+> ⚠️ **The deployed `openclaw.json` has all `${ENV_VAR}` placeholders expanded to plaintext.** That includes `BRAVE_API_KEY`, gateway tokens, etc. `openclaw doctor --fix` rewrites the deployed file too, so its output also contains resolved secrets. For agents/automation: only ever read/edit the **git-source** copy at `hosts/<host>/docker/<container>/openclaw.json`. To migrate legacy keys safely, derive changes from the upstream Zod schemas inside the image (`/usr/local/lib/node_modules/openclaw/dist/zod-schema.*.js`) and apply them by hand to the git source.
 
 ---
 
