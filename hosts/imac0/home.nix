@@ -306,6 +306,8 @@ in
   # ============================================================================
   home.file."Library/Application Support/com.mitchellh.ghostty/config".text =
     macosCommon.ghosttyConfig;
+  # Sanity check: warn at activation if Ghostty.app is missing OR doubled.
+  home.activation.checkGhosttyInstall = macosCommon.ghosttyCheckActivation;
 
   # ============================================================================
   # Git Configuration

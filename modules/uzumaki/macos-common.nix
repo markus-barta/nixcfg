@@ -129,13 +129,28 @@ in
   };
 
   # ============================================================================
-  # Ghostty Terminal Configuration (since 2026-05-10 — was WezTerm pre-2026-05-05;
-  # Ghostty itself still installed via Homebrew, only the config is Nix-managed)
+  # Ghostty Terminal — config + install-state check (since 2026-05-10)
+  # WezTerm pre-2026-05-05; Ghostty replaces it. NIX-106 follow-up tracks the
+  # bigger question of declarative brew management (Brewfile / nix-darwin).
   # ============================================================================
+  #
+  # Install-ownership model (single source of truth per concern):
+  #   - Ghostty.app  →  Homebrew (`brew install --cask ghostty`)
+  #                     Why: Ghostty maintainer doesn't ship a Nix package
+  #                     (deliberate stance). Homebrew is the only sane
+  #                     macOS-native install path today.
+  #   - Ghostty config → Nix (this file → ~/Library/.../config)
+  #                     Why: declarative SSOT across all 4 macOS hosts.
+  #
+  # The `ghosttyCheckActivation` script below WARNS at HM activation time if:
+  #   - The config is wired but no Ghostty.app is found (config wasted)
+  #   - Multiple Ghostty.app installs are detected (doubled stuff — pick one)
+  # Silent on the happy path (single Homebrew install in /Applications/).
   #
   # Wire-up at consumer (per-host home.nix):
   #   home.file."Library/Application Support/com.mitchellh.ghostty/config".text =
   #     macosCommon.ghosttyConfig;
+  #   home.activation.checkGhosttyInstall = macosCommon.ghosttyCheckActivation;
   #
   # Conservative ports of WezTerm choices: Hack Nerd Font Mono @ 12pt, Tokyo Night,
   # macOS-blurred translucent window, blinking bar cursor, Option-as-Alt for special
@@ -176,6 +191,43 @@ in
     confirm-close-surface = false
     copy-on-select = false
     mouse-hide-while-typing = true
+  '';
+
+  # ── Install-state sanity check (companion to ghosttyConfig above) ──
+  # Runs at every HM activation. Warns on misalignment between "Nix wrote
+  # the config" and "macOS has the .app to read it." Doesn't block — advisory.
+  # See the doc comment block above for the install-ownership model.
+  ghosttyCheckActivation = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    # Detect Ghostty.app in known locations.
+    ghostty_locations=()
+    [ -d "/Applications/Ghostty.app" ] && ghostty_locations+=("/Applications/Ghostty.app")
+    [ -d "$HOME/Applications/Ghostty.app" ] && ghostty_locations+=("$HOME/Applications/Ghostty.app")
+
+    # Detect install method (best-effort: Caskroom presence = Homebrew).
+    install_method="unknown"
+    if [ -d "/opt/homebrew/Caskroom/ghostty" ] || [ -d "/usr/local/Caskroom/ghostty" ]; then
+        install_method="Homebrew (cask)"
+    fi
+
+    n=''${#ghostty_locations[@]}
+    if [ "$n" -eq 0 ]; then
+        echo ""
+        echo "⚠️  Ghostty config wired in Nix, but Ghostty.app NOT FOUND."
+        echo "   The rendered config at ~/Library/Application Support/com.mitchellh.ghostty/"
+        echo "   config has nothing to read it. Install Ghostty via Homebrew:"
+        echo "       brew install --cask ghostty"
+        echo "   (See modules/uzumaki/macos-common.nix → ghosttyConfig install-ownership note.)"
+    elif [ "$n" -gt 1 ]; then
+        echo ""
+        echo "⚠️  Multiple Ghostty.app installations detected:"
+        for loc in "''${ghostty_locations[@]}"; do
+            echo "       • $loc"
+        done
+        echo "   Recommend keeping ONLY the Homebrew install (/Applications/Ghostty.app)"
+        echo "   and removing any duplicates. Spotlight + Dock + dock-jump will pick"
+        echo "   one unpredictably otherwise."
+    fi
+    # Silent on the happy path: single install + Homebrew detected.
   '';
 
   # ============================================================================
