@@ -48,11 +48,12 @@
       url = "github:markus-barta/opus-stream-to-mqtt";
       flake = false;
     };
-    # INSPR — public Home Manager modules (Pattern β graduation; INSPR-27/28).
-    # Workstation-side primitives that used to live in modules/shared/ here.
-    # Consumers (this nixcfg + future BYTEPOETS/family/etc. context flakes)
-    # provide identity-specific values; the library stays opinionated only
-    # about mechanics.
+    # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
+    # graduation; INSPR-27/28). The shared atelier (this library) holds the
+    # workstation-side primitives that used to live in modules/shared/ here.
+    # Studios (this nixcfg + BYTEPOETS bpnixcfg + future family/paid-product
+    # context flakes) provide identity-specific values; the atelier stays
+    # opinionated only about mechanics. (Older docs: "Pattern β".)
     inspr-modules.url = "github:markus-barta/inspr-modules";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -292,8 +293,10 @@
         };
 
         # miniserver-bp moved to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24
-        # Pattern β graduation). It's a BYTEPOETS internal-ops host, not a
-        # personal one — belongs in the BYTEPOETS context flake.
+        # atelier-pattern graduation; "Pattern β" in older docs). It was a
+        # BYTEPOETS internal-ops host, not a personal one — belonged in the
+        # BYTEPOETS studio. (msbp itself was retired 2026-05-05;
+        # bonelio-staging + bonelio-live now carry the BYTEPOETS context.)
 
         # Home Server Barta 2 - Raspberry Pi Zero W
         # ARMv6l architecture, 512MB RAM

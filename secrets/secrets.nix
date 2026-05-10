@@ -86,12 +86,12 @@ let
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH6ene6+iB5I9brFPfFwuqNil7nbJpWguycyZqv67+LU root@mba-mbp-m5-work"
   ];
 
-  # imac0: second macOS host onboarded to inspr.secrets.agents (2026-05-01).
-  # Host key was already present (Intel iMac, pre-INSPR setup); this is its
-  # /etc/ssh/ssh_host_ed25519_key.pub registered as an agenix recipient.
-  imac0 = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICIFF/rwrg7ajnKf9vFjQIK6leHbl1JqmVcrspowGW3y root@imac0"
-  ];
+  # imac0 host-key entry was removed 2026-05-10 (declared 2026-05-01,
+  # never wired as a recipient — agent-secrets uses USER keys via the
+  # `markus_*` aggregate, not HOST keys). Statix flagged it as an unused
+  # binding. If system-level agenix on imac0 ever materializes, restore
+  # via `git show <pre-2026-05-10>:secrets/secrets.nix` (the host pubkey
+  # is preserved in git history forever).
 
 in
 {
@@ -119,8 +119,7 @@ in
 
   # NixFleet agent API token — DEPRECATED (replaced by FleetCom per-host tokens)
   # TODO: Remove after FleetCom is fully deployed
-  "nixfleet-token.age".publicKeys =
-    markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0;
+  "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0;
 
   # FleetCom agent tokens — one per host, plain text bearer token
   # Generate in FleetCom UI (Hosts → Add Host), paste token into .age file
@@ -333,16 +332,17 @@ in
   "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mba-mbp-m5-work;
 
   # PMO = BYTEPOETS Project Management Online (the company Paimos instance).
-  # NOTE: BYTEPOETS-context credentials. Long-term these belong in a
-  # BYTEPOETS-private flake (per Pattern β), not Markus's personal nixcfg.
-  # Currently in shared/ as a transitional layer until BYTEPOETS gets its
-  # own flake — flag for migration when that happens.
-  "agents/shared/PMOAPIKEY.age".publicKeys           = markus ++ mba-mbp-m5-work;
-  "agents/shared/PMOSERVERPASS.age".publicKeys       = markus ++ mba-mbp-m5-work;
-  "agents/shared/PMOSERVERURL.age".publicKeys        = markus ++ mba-mbp-m5-work;
-  "agents/shared/PMOSERVERUSER.age".publicKeys       = markus ++ mba-mbp-m5-work;
+  # NOTE: BYTEPOETS-context credentials. Long-term these belong in the
+  # BYTEPOETS studio (per the atelier pattern — formerly "Pattern β"), not
+  # Markus's personal nixcfg studio. Currently in shared/ as a transitional
+  # layer until BYTEPOETS gets its own agent-secrets pipeline — flag for
+  # migration when that happens.
+  "agents/shared/PMOAPIKEY.age".publicKeys = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOSERVERPASS.age".publicKeys = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOSERVERURL.age".publicKeys = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOSERVERUSER.age".publicKeys = markus ++ mba-mbp-m5-work;
   "agents/shared/PMOSSHKEYFILELOCATION.age".publicKeys = markus ++ mba-mbp-m5-work;
-  "agents/shared/PMOURL.age".publicKeys              = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOURL.age".publicKeys = markus ++ mba-mbp-m5-work;
 
   # PPM = Personal Project Management (Markus's personal Paimos at pm.barta.cm)
   "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mba-mbp-m5-work;

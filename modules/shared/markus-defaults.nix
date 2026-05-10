@@ -2,16 +2,17 @@
 # ║         INSPR-context defaults: Markus's personal nixcfg                    ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
-# Pattern β consumer-side defaults. The public inspr-modules library
-# (github.com/markus-barta/inspr-modules) provides only mechanics — this
-# module provides the values that make those mechanics specific to
-# Markus's personal context.
+# Studio-side defaults (per the atelier pattern; "Pattern β" in older docs).
+# The shared atelier — public inspr-modules library at
+# github.com/markus-barta/inspr-modules — provides only mechanics. This
+# module provides the values that make those mechanics specific to Markus's
+# personal studio (his context).
 #
-# Imported by every macOS host home.nix in this nixcfg. Future "context
-# flakes" (BYTEPOETS, family, paid-product) will define their own
+# Imported by every macOS host home.nix in this nixcfg. Future studios
+# (BYTEPOETS, family, paid-product context flakes) will define their own
 # equivalent defaults file with their own identities / instances /
-# patterns — each consumes the same inspr-modules and provides its own
-# values.
+# patterns — each studio consumes the same atelier and provides its own
+# private values.
 #
 # What this provides:
 #   - inspr.git-identity.{identities, default, contexts}
@@ -27,7 +28,12 @@
 # values. The host's home.nix still needs `inspr.git-identity.enable = true`
 # etc. to actually apply.
 #
-{ config, lib, inputs, ... }:
+{
+  config,
+  lib,
+  inputs,
+  ...
+}:
 
 {
   # ── Bundle: import all three INSPR public modules so Markus's hosts
