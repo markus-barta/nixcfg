@@ -292,9 +292,18 @@ bundle:
         echo "   first to materialize it from macos-common.nix → mkBrewfile."
         exit 1
     fi
-    echo "📦 Installing missing entries from $BREWFILE ..."
-    brew bundle install --file="$BREWFILE" --no-lock --verbose
+    echo "📦 Installing missing entries from $BREWFILE (with --upgrade for outdated) ..."
+    # --upgrade: also upgrade outdated formulae listed in Brewfile (otherwise
+    #   `bundle check` keeps reporting "needs to be installed or updated" for
+    #   stale installs that brew has newer bottles for — observed 2026-05-10).
+    # NOTE: --no-lock was removed in newer Homebrew (Brewfile.lock.json gone).
+    brew bundle install --file="$BREWFILE" --upgrade --verbose
+    exit_code=$?
     echo ""
+    if [[ $exit_code -ne 0 ]]; then
+        echo "❌ Bundle install FAILED (exit $exit_code). Investigate before re-running."
+        exit $exit_code
+    fi
     echo "✅ Bundle install complete (additive — nothing removed)."
     echo "   To remove casks not listed in the Brewfile: \`just bundle-cleanup\`"
 
