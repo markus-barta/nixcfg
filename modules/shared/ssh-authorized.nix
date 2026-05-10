@@ -3,13 +3,16 @@
 # ║   modules/shared/ssh-keyring.nix; feeds inspr-modules HM ssh-authorized)    ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
-# Pattern β consumer-side wiring for `inspr.ssh.authorized` (HM module).
+# Studio-side wiring (per the atelier pattern; "Pattern β" in older docs)
+# for `inspr.ssh.authorized` (HM module from the shared atelier
+# inspr-modules). This is Markus's studio's specific composition of the
+# atelier's mechanics with his per-context trust values from ssh-keyring.nix.
 # Sibling to:
 #   - ssh-fleet.nix             outbound SSH config (~/.ssh/config matchBlocks)
 #   - ssh-fleet-nixos.nix       NixOS-side SSH config
 #   - ssh-authorized-nixos.nix  NixOS-scope counterpart (since INSPR-73)
 #   - ssh-keyring.nix           shared keyring data (single source of truth)
-#   - markus-defaults.nix       other INSPR consumer-side defaults
+#   - markus-defaults.nix       other studio-side defaults
 #
 # Since INSPR-73 (2026-05-04) the keyring + trust presets live in plain
 # Nix data at `./ssh-keyring.nix` and are consumed by BOTH this file
@@ -36,7 +39,6 @@
 # on NixOS hosts (extraSpecialArgs is only set for the standalone darwin
 # HM via mkDarwinHome in flake.nix). The consumer wires both imports.
 {
-  config,
   lib,
   ...
 }:
