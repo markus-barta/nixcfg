@@ -194,6 +194,8 @@ in
     macosCommon.ghosttyConfig;
   # Sanity check: warn at activation if Ghostty.app is missing OR doubled.
   home.activation.checkGhosttyInstall = macosCommon.ghosttyCheckActivation;
+  # NIX-103: warn if macOS DirectoryService login shell doesn't match HM's fish.
+  home.activation.checkLoginShell = macosCommon.loginShellCheckActivation "${config.home.homeDirectory}/.nix-profile/bin/fish";
 
   # ============================================================================
   # Brewfile — declarative cask manifest (NIX-107 Path A; apply with `just bundle`)
