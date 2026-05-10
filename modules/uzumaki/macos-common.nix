@@ -1,9 +1,24 @@
 # Uzumaki macOS Common - Shared macOS configuration for all Mac hosts
-# Provides common fish + starship settings.
-# (WezTerm config removed 2026-05-05 — Markus migrated to Ghostty fleet-wide;
-# Ghostty is currently managed outside Nix — Homebrew install + manual config.
-# If Ghostty config ever moves into Nix, add a `ghosttyConfig = ''...''` block
-# here as the SSOT, mirroring how `weztermConfig` lived previously.)
+# Provides common fish + starship + Ghostty (config) + Brewfile (cask manifest).
+#
+# Key exports (consumed by per-host home.nix):
+#   - fishConfig                   programs.fish settings (functions, aliases, abbrs)
+#   - ghosttyConfig                ~/Library/.../com.mitchellh.ghostty/config text
+#   - ghosttyCheckActivation       HM activation script: warns if Ghostty.app
+#                                   missing or doubled (single source of truth check)
+#   - mkBrewfile { ... }           Renders ~/.config/homebrew/Brewfile from
+#                                   commonCasks/Taps + per-host extras (NIX-107)
+#   - commonPackages               Default macOS Nix packages (CLI tools)
+#   - nanoConfig                   ~/.nanorc text
+#   - fontActivation               Hack Nerd Font installer (HM activation)
+#   - appLinkActivation            Empty since WezTerm purge 2026-05-05
+#
+# History:
+#   - 2026-05-05: WezTerm purged fleet-wide; Ghostty became the daily
+#                  (still installed via Homebrew — maintainer doesn't ship Nix)
+#   - 2026-05-10: Ghostty config moved into Nix (ghosttyConfig)
+#                  + install-state check (ghosttyCheckActivation)
+#                  + declarative cask manifest via mkBrewfile (NIX-107 Path A)
 #
 # Usage in home.nix (for mba-imac-work style):
 #   let macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
@@ -17,6 +32,20 @@ let
   fishAliases = fishModule.aliases;
   fishAbbrs = fishModule.abbreviations;
   uzumakiFunctions = fishModule.functions;
+
+  # ── NIX-107: declarative cask manifest baseline ─────────────────────
+  # commonCasks/Taps are scoped here (let-bindings) so mkBrewfile below
+  # can reference them. Not exported in the returned attrset because
+  # consumers wire only via `mkBrewfile { extraCasks = ...; ... }`.
+  # See the doc comment block on `mkBrewfile` for the full rationale.
+  commonCasks = [
+    "ghostty" # Terminal — config wired in this same file (ghosttyConfig export)
+  ];
+  commonTaps = [
+    # (none currently universal — all observed taps are per-host:
+    # ddev/ddev on M5, 7 dev-tool taps on imac0. Keep empty until a true
+    # cross-host need emerges.)
+  ];
 in
 {
   # ============================================================================
@@ -229,6 +258,83 @@ in
     fi
     # Silent on the happy path: single install + Homebrew detected.
   '';
+
+  # ============================================================================
+  # Brewfile generation (NIX-107 Path A — declarative cask manifest)
+  # ============================================================================
+  #
+  # WHY: Today (2026-05-10) brew installs are imperative + per-host. New macOS
+  # host onboarding requires N manual `brew install --cask ...` steps. Drift
+  # detection is per-app activation scripts (like ghosttyCheckActivation above)
+  # — doesn't scale. Path A: generate a Brewfile from declarations here, run
+  # `just bundle` to install.
+  #
+  # WHY NOT Path B (nix-darwin homebrew module): nix-darwin has unresolved
+  # foundational issues on macOS Tahoe 26.x (e.g. nix-darwin#1544
+  # `darwin-rebuild: command not found` post-install, #1627 Mac App Store via
+  # flakes broken). Cask inventory built here is reusable 1:1 for B when
+  # Tahoe-stability lands.
+  #
+  # SCOPE v1: casks only (the GUI-app double-install risk surfaced 2026-05-10).
+  # Formulae + taps are smaller risk surface (Nix commonPackages already covers
+  # most CLI tools). Could extend mkBrewfile to handle them in v2.
+  #
+  # COMMON BASELINE = strict. Only `ghostty` for now — INSPR-required because
+  # we Nix-manage its config + the activation check expects the .app to exist.
+  # `commonCasks`/`commonTaps` live in the outer `let` block above (so
+  # `mkBrewfile` can reference them); not exported in the returned attrset.
+  # Each macOS host adds its per-host extras via the consumer wire-up:
+  #
+  #   home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile {
+  #     extraCasks = [ "raycast" "zed" "..." ];  # this host's GUI apps
+  #     extraTaps  = [ ];                         # custom taps (rare)
+  #     extraBrews = [ ];                         # CLI tools NOT covered by Nix
+  #   };
+  #
+  # APPLY: `just bundle` (additive — installs missing, NEVER removes). For
+  # full declarative cleanup (`brew bundle cleanup` to remove non-listed casks),
+  # use `just bundle-cleanup` — destructive, requires explicit invocation.
+  # PREVIEW: `just bundle-check` — diff Brewfile vs installed, no side effects.
+
+  # mkBrewfile : { extraCasks ? [], extraTaps ? [], extraBrews ? [] } -> string
+  # Renders a Brewfile combining commonCasks/Taps with the host's extras.
+  # Brewfile syntax docs: https://github.com/Homebrew/homebrew-bundle
+  mkBrewfile =
+    {
+      extraCasks ? [ ],
+      extraTaps ? [ ],
+      extraBrews ? [ ],
+    }:
+    let
+      allTaps = commonTaps ++ extraTaps;
+      allCasks = commonCasks ++ extraCasks;
+      tapLines = builtins.concatStringsSep "\n" (map (t: ''tap "${t}"'') allTaps);
+      brewLines = builtins.concatStringsSep "\n" (map (b: ''brew "${b}"'') extraBrews);
+      caskLines = builtins.concatStringsSep "\n" (map (c: ''cask "${c}"'') allCasks);
+    in
+    ''
+      # ─────────────────────────────────────────────────────────────────────
+      # INSPR-managed Brewfile (NIX-107 Path A)
+      # SOURCE OF TRUTH: nixcfg/modules/uzumaki/macos-common.nix → mkBrewfile
+      #   - commonCasks: strict INSPR baseline
+      #   - extraCasks/Taps/Brews: per-host (declared in this host's home.nix)
+      # APPLY: `just bundle` (additive only — installs missing, never removes)
+      # CLEANUP (destructive): `just bundle-cleanup` (uninstalls non-listed casks)
+      # Edit lists + `just safe-switch` to re-render this file, then `just bundle`.
+      # ─────────────────────────────────────────────────────────────────────
+
+      ${if allTaps == [ ] then "# (no taps)" else "# Taps\n${tapLines}"}
+
+      ${
+        if extraBrews == [ ] then
+          "# (no brew formulae — Nix commonPackages covers most CLI tools)"
+        else
+          "# Brew formulae (top-level)\n${brewLines}"
+      }
+
+      # Casks (GUI apps managed via Homebrew; configs Nix-managed where applicable)
+      ${caskLines}
+    '';
 
   # ============================================================================
   # Common macOS Packages

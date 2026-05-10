@@ -251,6 +251,14 @@ in
   home.activation.checkGhosttyInstall = macosCommon.ghosttyCheckActivation;
 
   # ============================================================================
+  # Brewfile — declarative cask manifest (NIX-107 Path A; apply with `just bundle`)
+  # mba-mbp-work extras NOT YET INVENTORIED (host offline 20+ days as of 2026-05-10).
+  # When the host comes back online, run `brew list --cask` + `brew leaves` + `brew tap`
+  # and populate extras here. For now: just the common baseline (ghostty).
+  # ============================================================================
+  home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile { };
+
+  # ============================================================================
   # Git Configuration
   # ============================================================================
   # Identity is managed by modules/shared/git-identity.nix (see imports above).

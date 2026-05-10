@@ -272,6 +272,78 @@ safe-switch args='':
     echo ""
     echo "✅ Activation successful (${runtime}s)."
 
+# NIX-107 Path A: install Homebrew casks/formulae/taps from the declarative
+# Brewfile rendered by HM (~/.config/homebrew/Brewfile, sourced from
+# macos-common.nix → mkBrewfile via per-host home.nix wire-up).
+# ADDITIVE only — installs missing entries, NEVER removes existing ones.
+# For destructive cleanup (uninstall casks not in the Brewfile), see
+# `just bundle-cleanup` below.
+[group('build')]
+bundle:
+    #!/usr/bin/env bash
+    if [[ "$OSTYPE" != "darwin"* ]]; then
+        echo "❌ just bundle is macOS-only (Brewfile is a Homebrew concept)."
+        exit 2
+    fi
+    BREWFILE="$HOME/.config/homebrew/Brewfile"
+    if [[ ! -f "$BREWFILE" ]]; then
+        echo "❌ No Brewfile at $BREWFILE."
+        echo "   It's rendered by home-manager — run \`just safe-switch\` (or \`just switch\`)"
+        echo "   first to materialize it from macos-common.nix → mkBrewfile."
+        exit 1
+    fi
+    echo "📦 Installing missing entries from $BREWFILE ..."
+    brew bundle install --file="$BREWFILE" --no-lock --verbose
+    echo ""
+    echo "✅ Bundle install complete (additive — nothing removed)."
+    echo "   To remove casks not listed in the Brewfile: \`just bundle-cleanup\`"
+
+# NIX-107 Path A — DESTRUCTIVE companion to `just bundle`. Uninstalls any
+# Homebrew casks/formulae/taps that are NOT in the Brewfile. Use with care:
+# this can remove apps you forgot to add to the per-host extras list.
+# Always run `just bundle-check` first to preview.
+[group('build')]
+bundle-cleanup:
+    #!/usr/bin/env bash
+    if [[ "$OSTYPE" != "darwin"* ]]; then
+        echo "❌ just bundle-cleanup is macOS-only."
+        exit 2
+    fi
+    BREWFILE="$HOME/.config/homebrew/Brewfile"
+    if [[ ! -f "$BREWFILE" ]]; then
+        echo "❌ No Brewfile at $BREWFILE."
+        exit 1
+    fi
+    echo "⚠️  DESTRUCTIVE: this will uninstall casks/formulae/taps NOT in the Brewfile."
+    echo "   Brewfile: $BREWFILE"
+    echo ""
+    echo "   Preview with \`brew bundle cleanup --file=\"$BREWFILE\"\` (no flags = dry-run)."
+    echo "   Continue with actual cleanup? [y/N]"
+    if [[ -t 0 ]]; then
+        read -r answer
+    else
+        answer=""
+        echo "        (non-interactive shell → aborting by default)"
+    fi
+    if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
+        echo "❌ Aborted."
+        exit 1
+    fi
+    brew bundle cleanup --file="$BREWFILE" --force
+    echo "✅ Cleanup complete."
+
+# NIX-107 Path A — preview what `just bundle` would install (no side effects).
+[group('build')]
+bundle-check:
+    #!/usr/bin/env bash
+    BREWFILE="$HOME/.config/homebrew/Brewfile"
+    if [[ ! -f "$BREWFILE" ]]; then
+        echo "❌ No Brewfile at $BREWFILE."
+        exit 1
+    fi
+    echo "🔍 Brewfile vs installed state:"
+    brew bundle check --file="$BREWFILE" --verbose || true
+
 # Build and switch home-manager configuration (for macOS/standalone home-manager)
 [group('build')]
 home-switch args='':
@@ -425,7 +497,7 @@ keyscan:
 
 # Audit drift between secrets/*.age and secrets/secrets.nix declarations
 # Usage: just secrets-audit          # Human report; exit 1 on drift
-#        just secrets-audit --json   # Machine output (requires jq)
+# just secrets-audit --json   # Machine output (requires jq)
 [group('agenix')]
 secrets-audit *args='':
     ./scripts/secrets-audit.sh {{ args }}
