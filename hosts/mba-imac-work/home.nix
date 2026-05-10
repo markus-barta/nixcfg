@@ -227,9 +227,12 @@ in
   };
 
   # ============================================================================
-  # Terminal: Ghostty (managed outside Nix — Homebrew install + manual config).
-  # WezTerm purged 2026-05-05; Ghostty is now the daily across the macOS fleet.
+  # Terminal: Ghostty (Homebrew-installed, Nix-config-managed since 2026-05-10).
+  # WezTerm was purged 2026-05-05; Ghostty config is the SSOT in macos-common.nix.
+  # Edit `ghosttyConfig` there + `just safe-switch` to apply across all macOS hosts.
   # ============================================================================
+  home.file."Library/Application Support/com.mitchellh.ghostty/config".text =
+    macosCommon.ghosttyConfig;
 
   # ============================================================================
   # Git Configuration

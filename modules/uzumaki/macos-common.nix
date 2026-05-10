@@ -129,9 +129,54 @@ in
   };
 
   # ============================================================================
-  # Terminal config (WezTerm removed 2026-05-05 — Ghostty is now the daily;
-  # Ghostty config lives outside Nix today. Future: add `ghosttyConfig` here.)
+  # Ghostty Terminal Configuration (since 2026-05-10 — was WezTerm pre-2026-05-05;
+  # Ghostty itself still installed via Homebrew, only the config is Nix-managed)
   # ============================================================================
+  #
+  # Wire-up at consumer (per-host home.nix):
+  #   home.file."Library/Application Support/com.mitchellh.ghostty/config".text =
+  #     macosCommon.ghosttyConfig;
+  #
+  # Conservative ports of WezTerm choices: Hack Nerd Font Mono @ 12pt, Tokyo Night,
+  # macOS-blurred translucent window, blinking bar cursor, Option-as-Alt for special
+  # chars. Defaults inherited where Ghostty's defaults already do the right thing
+  # (cmd+c/v copy/paste, cmd+plus/minus font-size, cmd+t tabs — no custom keybinds).
+  # Login shell intentionally NOT set — Ghostty inherits from chsh, which respects
+  # each user's per-host shell choice (fish on M5/imac0; whatever on BYTEPOETS Macs).
+  ghosttyConfig = ''
+    # ─────────────────────────────────────────────────────────────────────
+    # INSPR-managed Ghostty config
+    # SOURCE OF TRUTH: nixcfg/modules/uzumaki/macos-common.nix → ghosttyConfig
+    # Edit there + `just safe-switch` to apply. Do NOT hand-edit this file.
+    # Ghostty 1.3+ format. https://ghostty.org/docs/config
+    # ─────────────────────────────────────────────────────────────────────
+
+    # ── Fonts ──
+    font-family = Hack Nerd Font Mono
+    font-size = 12
+
+    # ── Theme (Tokyo Night, matches our Starship/Eza palette) ──
+    theme = tokyonight
+
+    # ── Window ──
+    window-padding-x = 8
+    window-padding-y = 8
+    window-padding-balance = true
+    background-opacity = 0.92
+    background-blur-radius = 10
+
+    # ── Cursor ──
+    cursor-style = bar
+    cursor-style-blink = true
+
+    # ── macOS Option key for special chars (Alt+7 = | etc.) ──
+    macos-option-as-alt = true
+
+    # ── Quality-of-life ──
+    confirm-close-surface = false
+    copy-on-select = false
+    mouse-hide-while-typing = true
+  '';
 
   # ============================================================================
   # Common macOS Packages

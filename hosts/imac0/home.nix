@@ -300,9 +300,12 @@ in
   };
 
   # ============================================================================
-  # Terminal: Ghostty (managed outside Nix — Homebrew install + manual config).
-  # WezTerm purged 2026-05-05; Ghostty is now the daily across the macOS fleet.
+  # Terminal: Ghostty (Homebrew-installed, Nix-config-managed since 2026-05-10).
+  # WezTerm was purged 2026-05-05; Ghostty config is the SSOT in macos-common.nix.
+  # Edit `ghosttyConfig` there + `just safe-switch` to apply across all macOS hosts.
   # ============================================================================
+  home.file."Library/Application Support/com.mitchellh.ghostty/config".text =
+    macosCommon.ghosttyConfig;
 
   # ============================================================================
   # Git Configuration
@@ -369,27 +372,25 @@ in
   # follows this pattern). Per-host extras listed below; if you add something
   # that ALL macOS hosts should have, prefer adding it to commonPackages
   # in modules/uzumaki/macos-common.nix instead.
-  home.packages =
-    macosCommon.commonPackages
-    ++ [
-      # System Tools (per-arch — can't live in commonPackages because agenix
-      # pkg comes from `inputs`, not `pkgs`)
-      inputs.agenix.packages.x86_64-darwin.default
+  home.packages = macosCommon.commonPackages ++ [
+    # System Tools (per-arch — can't live in commonPackages because agenix
+    # pkg comes from `inputs`, not `pkgs`)
+    inputs.agenix.packages.x86_64-darwin.default
 
-      # Per-host extras (NOT in commonPackages)
-      pkgs.paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
-      pkgs.speedtest-go # Speed test CLI
-      pkgs.esptool # ESP32/ESP8266 flashing tool
-      pkgs.image_optim # ImageOptim CLI
-      pkgs.tokstat # AI token quota monitor
-      # ── Notes:
-      # - inetutils excluded on macOS (Linux ping has timestamp overflow bug
-      #   on Darwin). Use macOS native /sbin/ping instead (aliased in fish).
-      # - evernote-backup not in nixpkgs, keeping in Homebrew for now.
-      # - AI coding agents installed via ai-clis-npm.nix (always-latest).
-      # - paimos-cli + speedtest-go are also on M5 + mba-mbp-work; safe to
-      #   promote to commonPackages in a future pass.
-    ];
+    # Per-host extras (NOT in commonPackages)
+    pkgs.paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
+    pkgs.speedtest-go # Speed test CLI
+    pkgs.esptool # ESP32/ESP8266 flashing tool
+    pkgs.image_optim # ImageOptim CLI
+    pkgs.tokstat # AI token quota monitor
+    # ── Notes:
+    # - inetutils excluded on macOS (Linux ping has timestamp overflow bug
+    #   on Darwin). Use macOS native /sbin/ping instead (aliased in fish).
+    # - evernote-backup not in nixpkgs, keeping in Homebrew for now.
+    # - AI coding agents installed via ai-clis-npm.nix (always-latest).
+    # - paimos-cli + speedtest-go are also on M5 + mba-mbp-work; safe to
+    #   promote to commonPackages in a future pass.
+  ];
 
   # Enable fontconfig for fonts to be recognized
   fonts.fontconfig.enable = true;
