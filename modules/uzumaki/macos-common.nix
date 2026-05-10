@@ -260,6 +260,79 @@ in
   '';
 
   # ============================================================================
+  # NIX-103: Login-shell parity check (companion to NIX-105 safe-switch)
+  # ============================================================================
+  #
+  # WHY: HM's `programs.<shell>.enable = true` installs + configures the shell,
+  # but DOES NOT change the macOS DirectoryService UserShell record. Drift is
+  # silent — your fish config is loaded, but `chsh` still says zsh, so terminal
+  # apps that respect login shell (Ghostty, Terminal.app) launch zsh first
+  # (which then exec's fish via .zshrc trampoline IF configured, else stays zsh).
+  # Surfaced 2026-05-05 on M5 (programs.fish.enable=true but login shell still
+  # /bin/zsh until manual `sudo chsh` ran).
+  #
+  # WHAT IT CHECKS (advisory — never auto-mutates):
+  #   1. macOS DirectoryService UserShell matches the expected path
+  #   2. The expected path is in /etc/shells (otherwise chsh refuses)
+  # If either fails, prints exact fix commands. Silent on the happy path.
+  #
+  # WHY ADVISORY-ONLY: chsh requires interactive auth (Touch ID or password);
+  # /etc/shells append requires sudo. Auto-mutating either from an activation
+  # script would either fail silently or hang waiting for input. Better to
+  # surface the gap + let the user run two commands once.
+  #
+  # WIRE-UP at consumer (per-host home.nix):
+  #   home.activation.checkLoginShell = macosCommon.loginShellCheckActivation
+  #     "${config.home.homeDirectory}/.nix-profile/bin/fish";
+  #
+  # The expected-path STRING is what you'd `chsh -s <path>` to. Stable form
+  # is the user-profile symlink (`~/.nix-profile/bin/<shell>`), NOT the
+  # Nix-store path (rotates with each generation).
+  loginShellCheckActivation =
+    expectedShellPath:
+    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      expected="${expectedShellPath}"
+      # Note: HM activation PATH doesn't include awk; use bash parameter
+      # expansion to extract the value after "UserShell: " from dscl output.
+      raw=$(/usr/bin/dscl . -read /Users/$USER UserShell 2>/dev/null)
+      actual="''${raw##* }"  # strip everything up to and including last space
+
+      shell_mismatch=0
+      etc_shells_missing=0
+
+      if [ "$actual" != "$expected" ]; then
+          shell_mismatch=1
+      fi
+
+      if ! grep -qFx "$expected" /etc/shells 2>/dev/null; then
+          etc_shells_missing=1
+      fi
+
+      if [ "$shell_mismatch" = "0" ] && [ "$etc_shells_missing" = "0" ]; then
+          # Happy path: silent.
+          true
+      else
+          echo ""
+          echo "⚠️  Login shell parity check (NIX-103):"
+          if [ "$etc_shells_missing" = "1" ]; then
+              echo "   • $expected is NOT in /etc/shells (chsh will refuse)."
+              echo "     Fix: echo \"$expected\" | sudo tee -a /etc/shells"
+          fi
+          if [ "$shell_mismatch" = "1" ]; then
+              echo "   • DirectoryService UserShell mismatch:"
+              echo "       expected (HM-configured): $expected"
+              echo "       actual (macOS):           $actual"
+              echo "     Fix: sudo chsh -s \"$expected\" $USER"
+              echo "     (Then open a NEW terminal session for the change to take effect."
+              echo "      Existing sessions stay on the old shell.)"
+          fi
+          echo ""
+          echo "   Both fixes are one-time; this check stays silent once aligned."
+          echo "   See NIX-103 for the rationale (HM doesn't touch chsh by design)."
+      fi
+    '';
+
+  # ============================================================================
   # Brewfile generation (NIX-107 Path A — declarative cask manifest)
   # ============================================================================
   #
