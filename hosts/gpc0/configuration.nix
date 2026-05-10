@@ -181,16 +181,18 @@
     };
   };
 
-  home-manager.users.mba = { config, ... }: {
-    imports = [
-      inputs.inspr-modules.homeManagerModules.ssh-authorized
-      ../../modules/shared/ssh-authorized.nix
-    ];
-    inspr.ssh.authorized = {
-      enable = true;
-      trust  = config._inspr.trustPresets.personalHosts;
+  home-manager.users.mba =
+    { config, ... }:
+    {
+      imports = [
+        inputs.inspr-modules.homeManagerModules.ssh-authorized
+        ../../modules/shared/ssh-authorized.nix
+      ];
+      inspr.ssh.authorized = {
+        enable = true;
+        trust = config._inspr.trustPresets.personalHosts;
+      };
     };
-  };
 
   hokage = {
     catppuccin.enable = false; # Use Tokyo Night theme instead
@@ -238,6 +240,31 @@
 
   # Passwordless sudo for wheel group (gaming PC - low risk, local access)
   security.sudo-rs.wheelNeedsPassword = false;
+
+  # ============================================================================
+  # NIX-102 (2026-05-10) — libvirtd cosmetic 'failed' status drop-in
+  # ============================================================================
+  # libvirtd on NixOS starts with `--timeout 120` (auto-shutdown after idle
+  # period). On certain idle-timeout exit paths libvirtd returns exit code 1
+  # instead of 0, which systemd interprets as a failure → unit shows
+  # `Active: failed` + journal logs `Failed with result 'exit-code'`.
+  #
+  # Functionality is intact (the daemon is socket-activated and re-spawns on
+  # next libvirt request via `Wants=libvirtd.socket`), but the cosmetic
+  # `failed` flap is noisy in `systemctl status` and FleetCom dashboards.
+  #
+  # Evidence on gpc0 (Apr 30 + May 3 2026 — intermittent; today's exit was 0):
+  #   libvirtd.service: Main process exited, code=exited, status=1/FAILURE
+  #   libvirtd.service: Failed with result 'exit-code'.
+  #
+  # Fix: tell systemd that exit code 1 from libvirtd is a success state.
+  # Standard systemd mechanism for "this exit code means the service shut
+  # down cleanly even though the convention says non-zero = failure."
+  # See: systemd.exec(5) → SuccessExitStatus=
+  #
+  # Scoped to gpc0 (the only host where libvirtd is currently exercised);
+  # promote to a shared module if/when other hosts gain libvirt.
+  systemd.services.libvirtd.serviceConfig.SuccessExitStatus = [ "1" ];
 
   # ============================================================================
   # NIXFLEET AGENT - Disabled (decommissioned, replaced by FleetCom DSC26-52)
