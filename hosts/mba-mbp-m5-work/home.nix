@@ -196,6 +196,30 @@ in
   home.activation.checkGhosttyInstall = macosCommon.ghosttyCheckActivation;
 
   # ============================================================================
+  # Brewfile — declarative cask manifest (NIX-107 Path A; apply with `just bundle`)
+  # M5 extras inventoried 2026-05-10; trim/add as your toolkit evolves.
+  # ============================================================================
+  home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile {
+    extraTaps = [ "ddev/ddev" ];
+    extraBrews = [
+      "ansible"
+      "cocoapods"
+      "ddev/ddev/ddev"
+      "openjdk@17"
+      "python-setuptools"
+      # NB: `gh` formerly here; now provided by Nix commonPackages (no double-install).
+    ];
+    extraCasks = [
+      "android-studio"
+      "chromium"
+      "github" # GitHub Desktop
+      "raycast"
+      "tailscale-app" # M5 uses GUI; other hosts use CLI/system Tailscale
+      "zed"
+    ];
+  };
+
+  # ============================================================================
   # Git Configuration
   # ============================================================================
   # Identity is managed by modules/shared/git-identity.nix (see above).

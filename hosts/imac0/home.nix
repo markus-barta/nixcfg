@@ -310,6 +310,54 @@ in
   home.activation.checkGhosttyInstall = macosCommon.ghosttyCheckActivation;
 
   # ============================================================================
+  # Brewfile — declarative cask manifest (NIX-107 Path A; apply with `just bundle`)
+  # imac0 extras inventoried 2026-05-10; reflects markus's power-user setup
+  # (hammerspoon/swiftbar for system automation, font-* for editor fonts, etc.)
+  # ============================================================================
+  home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile {
+    extraTaps = [
+      "anomalyco/tap"
+      "evcc-io/tap"
+      "jwbargsten/misc"
+      "marcus/tap"
+      "steipete/tap"
+      "tuist/tuist"
+      "tw93/tap"
+    ];
+    extraBrews = [
+      "aider"
+      "anomalyco/tap/opencode"
+      "cryptography"
+      "defaultbrowser"
+      "f3"
+      "ffmpeg"
+      "ghostscript"
+      "git-filter-repo"
+      "hcloud"
+      "imagemagick"
+      "librsvg"
+      "mosquitto"
+      "pipx"
+      "poppler"
+      "tw93/tap/mole"
+      # NB: cloc + watch formerly here; now provided by Nix commonPackages
+      # (cloc directly; watch via procps).
+    ];
+    extraCasks = [
+      "asset-catalog-tinkerer"
+      "cursor"
+      "font-geist"
+      "font-outfit"
+      "hammerspoon"
+      "karabiner-elements" # config wired in this same file (karabiner.json)
+      "knockknock"
+      "swiftbar"
+      "temurin" # Eclipse Temurin JDK
+      "zed"
+    ];
+  };
+
+  # ============================================================================
   # Git Configuration
   # ============================================================================
   # Identity is managed by modules/shared/git-identity.nix (see imports above).
