@@ -206,6 +206,8 @@ in
     window-padding-x = 8
     window-padding-y = 8
     window-padding-balance = true
+    window-height = 40
+    window-width = 120
     background-opacity = 0.92
     background-blur-radius = 10
 
@@ -220,6 +222,8 @@ in
     confirm-close-surface = false
     copy-on-select = false
     mouse-hide-while-typing = true
+    clipboard-read = allow
+    clipboard-write = allow
   '';
 
   # ── Install-state sanity check (companion to ghosttyConfig above) ──
