@@ -55,6 +55,17 @@ in
   inspr.git-identity.enable = true;
 
   # ============================================================================
+  # INSPR-170 — atelier Strategy B: per-host user SSH keys for fleet-wide
+  # federated git push/pull. Personal repos → m5-personal-userkey (registered
+  # on markus-barta GH account). BYTEPOETS repos → m5-bytepoets-userkey
+  # (registered on bytepoets-mba GH account, BYTEPOETS SSO authorized).
+  # Privkeys materialized by inspr.secrets.agents from secrets/agents/host/
+  # mba-mbp-m5-work/m5-{personal,bytepoets}-userkey.age.
+  # ============================================================================
+  inspr.git.atelier.personal.enable = true;
+  inspr.git.atelier.bytepoets.enable = true;
+
+  # ============================================================================
   # INSPR — paimos-cli auto-bootstrap (~/.paimos/config.yaml from PPMAPIKEY.env)
   # ============================================================================
   # See modules/shared/paimos-config.nix. After activation, `paimos auth whoami`
