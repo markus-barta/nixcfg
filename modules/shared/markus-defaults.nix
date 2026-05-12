@@ -170,6 +170,19 @@ in
       apiKeyEnvFile = "${config.home.homeDirectory}/Secrets/age/decrypted/agents/PPMAPIKEY.env";
       apiKeyVar = "PPMAPIKEY";
     };
+
+    # INSPR-174: PMO (BYTEPOETS Project Management Online) — declarative
+    # alongside PPM so a `paimos auth login --instance pmo` is never
+    # needed on any fleet host. URL lives in agenix-encrypted PMOURL.env
+    # rather than as a Nix literal, since it's a private BYTEPOETS host;
+    # consumed via inspr.paimos-cli.instances.<name>.urlEnvFile (added
+    # in inspr-modules 06431b2).
+    instances.pmo = {
+      urlEnvFile = "${config.home.homeDirectory}/Secrets/age/decrypted/agents/PMOURL.env";
+      urlVar = "PMOURL";
+      apiKeyEnvFile = "${config.home.homeDirectory}/Secrets/age/decrypted/agents/PMOAPIKEY.env";
+      apiKeyVar = "PMOAPIKEY";
+    };
   };
 
   # ── INSPR-170: fleet-wide federated git auth via atelier Strategy B ───
