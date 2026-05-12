@@ -426,6 +426,14 @@ in
     # Zsh integration is automatic
   };
 
+  # INSPR-175: imac0 uses devenv in 5 repos. Devenv's z-devenv.sh
+  # ships with a `_nix_direnv_preflight` function that shadows
+  # nix-direnv's properly-functioning one, breaking `use nix` with a
+  # cryptic `--no-warn-dirty: command not found`. This declarative
+  # rename of the colliding function (via `devenv direnvrc | sed`)
+  # makes both `use nix` and `use devenv` work side-by-side.
+  inspr.devenv.direnv-fix.enable = true;
+
   # ============================================================================
   # Global Packages
   # ============================================================================
