@@ -20,20 +20,86 @@
 #       BYTEPOETS context fires for github.com/{BYTEPOETS,bytepoets,bytepoets-mba}/*
 #       remotes (HTTPS + SSH form, both anchored).
 #
+#   - inspr.git.atelier.{personal,bytepoets} (INSPR-170)
+#       Strategy B SSH auth (per-host user keys) for fleet-wide federated
+#       git push/pull. Each host gets two keypairs (one per identity), both
+#       materialized via inspr.secrets.agents from the host's age/host/<h>/
+#       directory. github.com pubkeys are registered on the matching
+#       account (markus-barta / bytepoets-mba). The `hostKeys` lookup
+#       below maps `hostname` (extraSpecialArg) to the host-specific
+#       key filenames + pubkeys.
+#
 #   - inspr.paimos-cli.{instances, defaultInstance}
 #       PPM (https://pm.barta.cm) as default. PPMAPIKEY sourced from the
 #       agent-secrets-materialized PPMAPIKEY.env file.
 #
 # Note: this module DOESN'T enable anything by itself — it just declares
 # values. The host's home.nix still needs `inspr.git-identity.enable = true`
-# etc. to actually apply.
+# / `inspr.git.atelier.{personal,bytepoets}.enable = true` etc. to actually
+# apply.
 #
 {
   config,
   lib,
   inputs,
+  hostname ? null,
   ...
 }:
+
+let
+  # ── Per-host SSH key data for INSPR-170 (atelier Strategy B) ───────────
+  # Keyed by the extraSpecialArg hostname (matches the agent-secrets
+  # host directory and the .age basename). Pubkeys are PUBLIC — registered
+  # on github.com on the matching account, committed here for audit.
+  # To add a new host: generate a keypair, paste pubkey here, encrypt
+  # privkey to secrets/agents/host/<hostname>/<keyName>.age.
+  hostKeys = {
+    "mba-mbp-m5-work" = {
+      personal = {
+        keyName = "m5-personal-userkey";
+        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM4sg88Rp+eGESk20Wo+1KNbKkluZFsGiZ+u6vnd9Whb m5-personal-userkey 2026-05-12";
+      };
+      bytepoets = {
+        keyName = "m5-bytepoets-userkey";
+        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN26yvYncUoYvFUrAZNZrieSra4hE44jiTEcjEuIfaTr m5-bytepoets-userkey 2026-05-12";
+      };
+    };
+    "imac0" = {
+      personal = {
+        keyName = "imac0-personal-userkey";
+        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOO/vDa+dpUVei1XcfM/dNJbvVPK3rP4X19d8+UYzXFf imac0-personal-userkey 2026-05-12";
+      };
+      bytepoets = {
+        keyName = "imac0-bytepoets-userkey";
+        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK3n5/2PT3/QYI6GY5noySbbj7ssWMeK9bkhr4NWBdaV imac0-bytepoets-userkey 2026-05-12";
+      };
+    };
+    "mba-imac-work" = {
+      # imacw
+      personal = {
+        keyName = "imacw-personal-userkey";
+        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMB+Z+QHmlsy4rKIukPSzldZhKzhkkmiU8tD91D2XK44 imacw-personal-userkey 2026-05-12";
+      };
+      bytepoets = {
+        keyName = "imacw-bytepoets-userkey";
+        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDGAtpMf6jRFM+9y5DQZrRrfCBI34ZaGQ4UQa9LBQ0Jj imacw-bytepoets-userkey 2026-05-12";
+      };
+    };
+  };
+
+  # Lookup or null. Hosts not in the table get atelier-disabled-by-default
+  # (no keys, options exist but `.enable = false` means nothing renders).
+  thisHostKeys = if hostname == null then null else hostKeys.${hostname} or null;
+
+  # Helper: build a userKey option set pointing at the materialized .env
+  # file under ~/Secrets/age/decrypted/agents/ (where inspr.secrets.agents
+  # places them at HM activation). `.env` extension is an agent-secrets
+  # filename quirk; SSH does not care — file content is an ed25519 key.
+  mkUserKey = entry: {
+    privateKeyPath = "${config.home.homeDirectory}/Secrets/age/decrypted/agents/${entry.keyName}.env";
+    pubKey = entry.pubKey;
+  };
+in
 
 {
   # ── Bundle: import all three INSPR public modules so Markus's hosts
@@ -46,6 +112,7 @@
   imports = [
     inputs.inspr-modules.homeManagerModules.agent-secrets
     inputs.inspr-modules.homeManagerModules.git-identity
+    inputs.inspr-modules.homeManagerModules.git-atelier-credentials
     inputs.inspr-modules.homeManagerModules.paimos-config
   ];
 
@@ -64,7 +131,9 @@
         email = "markus@barta.com";
       };
       bytepoets = {
-        name = "mba";
+        # Name updated 2026-05-12 (INSPR-170): align with the GH username
+        # bytepoets-mba so `git log` attribution matches push attribution.
+        name = "bytepoets-mba";
         email = "markus.barta@bytepoets.com";
       };
     };
@@ -100,6 +169,39 @@
       url = "https://pm.barta.cm";
       apiKeyEnvFile = "${config.home.homeDirectory}/Secrets/age/decrypted/agents/PPMAPIKEY.env";
       apiKeyVar = "PPMAPIKEY";
+    };
+  };
+
+  # ── INSPR-170: fleet-wide federated git auth via atelier Strategy B ───
+  # Two ateliers per host, each carrying ONE user-level SSH key registered
+  # on the matching GitHub account. Owner-prefix URL rewrites pull every
+  # repo under markus-barta/* through the personal alias, and every repo
+  # under BYTEPOETS/* through the bytepoets alias. Per-atelier author
+  # identity stays owned by inspr.git-identity (path-/URL-includeIf already
+  # in place) — atelier.git.{userName,userEmail} intentionally left unset
+  # to avoid duplicate includeIf entries.
+  #
+  # Enable flags here are `mkDefault false` so a host that doesn't want
+  # both ateliers (or any) can opt out individually. Hosts in `hostKeys`
+  # set `.enable = true` from their home.nix.
+  inspr.git.atelier = lib.mkIf (thisHostKeys != null) {
+    personal = {
+      enable = lib.mkDefault false;
+      forge = {
+        kind = "github";
+        url = "https://github.com";
+        owner = "markus-barta";
+      };
+      credentials.userKey = mkUserKey thisHostKeys.personal;
+    };
+    bytepoets = {
+      enable = lib.mkDefault false;
+      forge = {
+        kind = "github";
+        url = "https://github.com";
+        owner = "BYTEPOETS";
+      };
+      credentials.userKey = mkUserKey thisHostKeys.bytepoets;
     };
   };
 }

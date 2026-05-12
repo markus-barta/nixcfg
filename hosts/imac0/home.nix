@@ -59,12 +59,23 @@ in
   inspr.git-identity.enable = true;
 
   # ============================================================================
+  # INSPR-170 — atelier Strategy B: per-host user SSH keys for fleet-wide
+  # federated git push/pull. Personal repos → imac0-personal-userkey
+  # (registered on markus-barta GH). BYTEPOETS repos → imac0-bytepoets-userkey
+  # (registered on bytepoets-mba GH, BYTEPOETS SSO authorized). Privkeys
+  # materialized by inspr.secrets.agents from secrets/agents/host/imac0/.
+  # ============================================================================
+  inspr.git.atelier.personal.enable = true;
+  inspr.git.atelier.bytepoets.enable = true;
+
+  # ============================================================================
   # INSPR — Agent-exception secrets materialization
   # ============================================================================
-  # Decrypts shared/* and host/imac0/* (none yet) age files at HM activation.
-  # Uses markus's ~/.ssh/id_rsa for decryption (the user-key path; HM-standalone
-  # can't use root-owned host keys). markus is in every shared secret's
-  # publicKeys, so all 9 shared secrets are accessible on imac0 too.
+  # Decrypts shared/* and host/imac0/* age files at HM activation. Uses
+  # markus's ~/.ssh/id_ed25519 (or id_rsa fallback) for decryption — the
+  # user-key path; HM-standalone can't use root-owned host keys. markus is
+  # in every shared secret's publicKeys.
+  # Host-specific (post INSPR-170): imac0-{personal,bytepoets}-userkey.
   inspr.secrets.agents.enable = true;
 
   # ============================================================================

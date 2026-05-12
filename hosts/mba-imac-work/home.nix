@@ -26,6 +26,24 @@ in
   inspr.git-identity.enable = true;
 
   # ============================================================================
+  # INSPR — Agent-exception secrets materialization (enabled INSPR-170)
+  # ============================================================================
+  # Decrypts shared/* and host/mba-imac-work/* age files at HM activation.
+  # On imacw, decryption falls back to ~/.ssh/id_rsa (markus_rsa_legacy)
+  # since this host has no id_ed25519 yet — id_rsa is still in the markus
+  # aggregate, so all markus-recipient files decrypt fine.
+  inspr.secrets.agents.enable = true;
+
+  # ============================================================================
+  # INSPR-170 — atelier Strategy B: per-host user SSH keys for fleet-wide
+  # federated git push/pull. Personal repos → imacw-personal-userkey
+  # (registered on markus-barta GH). BYTEPOETS repos → imacw-bytepoets-userkey
+  # (registered on bytepoets-mba GH, BYTEPOETS SSO authorized).
+  # ============================================================================
+  inspr.git.atelier.personal.enable = true;
+  inspr.git.atelier.bytepoets.enable = true;
+
+  # ============================================================================
   # SSH KEYS - Host-specific Git SSH config (preserved from manual ~/.ssh/config)
   # ============================================================================
   programs.ssh.matchBlocks = {
