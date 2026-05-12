@@ -111,6 +111,7 @@ in
   # consistent across the fleet.
   imports = [
     inputs.inspr-modules.homeManagerModules.agent-secrets
+    inputs.inspr-modules.homeManagerModules.devenv-direnv-fix
     inputs.inspr-modules.homeManagerModules.git-identity
     inputs.inspr-modules.homeManagerModules.git-atelier-credentials
     inputs.inspr-modules.homeManagerModules.paimos-config
