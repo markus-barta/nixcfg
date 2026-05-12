@@ -347,4 +347,34 @@ in
   # PPM = Personal Project Management (Markus's personal Paimos at pm.barta.cm)
   "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mba-mbp-m5-work;
 
+  # ────────────────────────────────────────────────────────────────────────
+  # INSPR-170: inspr.git.atelier Strategy B — per-host user SSH keys
+  # ────────────────────────────────────────────────────────────────────────
+  # One ed25519 keypair per (host × identity). Privkey is the contents of
+  # the .age file; pubkey is registered on the matching GitHub user account
+  # (markus-barta or bytepoets-mba). Generated 2026-05-12 with no expiry.
+  #
+  # Materialization: agent-secrets HM module decrypts at activation to
+  #   ~/Secrets/age/decrypted/agents/<host>-<atelier>-userkey.env (mode 0400)
+  # The `.env` extension is a quirk of agent-secrets's filename convention —
+  # SSH does not care; the file is a standard OpenSSH ed25519 private key.
+  #
+  # Recipients = markus aggregate only (HM-level agent-secrets decrypts via
+  # user SSH key, not host key). On imacw the markus_rsa_legacy fallback
+  # in identityFiles handles decryption since imacw has no id_ed25519.
+  #
+  # Edit (re-create) workflow: agenix -e secrets/agents/host/<host>/<name>.age
+
+  # m5 (mba-mbp-m5-work)
+  "agents/host/mba-mbp-m5-work/m5-personal-userkey.age".publicKeys = markus;
+  "agents/host/mba-mbp-m5-work/m5-bytepoets-userkey.age".publicKeys = markus;
+
+  # imac0
+  "agents/host/imac0/imac0-personal-userkey.age".publicKeys = markus;
+  "agents/host/imac0/imac0-bytepoets-userkey.age".publicKeys = markus;
+
+  # imacw (flake hostname: mba-imac-work)
+  "agents/host/mba-imac-work/imacw-personal-userkey.age".publicKeys = markus;
+  "agents/host/mba-imac-work/imacw-bytepoets-userkey.age".publicKeys = markus;
+
 }
