@@ -429,6 +429,7 @@ in
     jq # JSON processor
     just # Command runner
     lazygit # Git TUI
+    paimos-cli # Agent-facing CLI for PAIMOS (promoted from per-host 2026-05-12)
 
     # File Management & Utilities
     tree # Directory tree viewer
@@ -445,6 +446,7 @@ in
     netcat # Network utility
     wakeonlan # Wake-on-LAN utility
     websocat # WebSocket client
+    speedtest-go # Internet speed test CLI (promoted from per-host 2026-05-12 — present on all 3 macOS hosts)
 
     # Text Processing
     lynx # Text-based web browser

@@ -430,8 +430,6 @@ in
     inputs.agenix.packages.x86_64-darwin.default
 
     # Per-host extras (NOT in commonPackages)
-    pkgs.paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
-    pkgs.speedtest-go # Speed test CLI
     pkgs.esptool # ESP32/ESP8266 flashing tool
     pkgs.image_optim # ImageOptim CLI
     pkgs.tokstat # AI token quota monitor
@@ -440,8 +438,8 @@ in
     #   on Darwin). Use macOS native /sbin/ping instead (aliased in fish).
     # - evernote-backup not in nixpkgs, keeping in Homebrew for now.
     # - AI coding agents installed via ai-clis-npm.nix (always-latest).
-    # - paimos-cli + speedtest-go are also on M5 + mba-mbp-work; safe to
-    #   promote to commonPackages in a future pass.
+    # - paimos-cli + speedtest-go promoted to commonPackages 2026-05-12 —
+    #   reached via macosCommon.commonPackages above (used to be per-host).
   ];
 
   # Enable fontconfig for fonts to be recognized

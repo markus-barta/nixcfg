@@ -277,10 +277,8 @@ in
     inputs.agenix.packages.aarch64-darwin.default
 
     # Per-host extras (NOT in commonPackages)
-    pkgs.paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
-    pkgs.speedtest-go # Speed test CLI
-    # ── Promotion candidates: paimos-cli + speedtest-go are also on imac0 +
-    # mba-mbp-work; safe to promote to commonPackages in a future pass.
+    # (paimos-cli + speedtest-go promoted to commonPackages 2026-05-12 —
+    # they're now reached via macosCommon.commonPackages above.)
   ];
 
   # Enable fontconfig
