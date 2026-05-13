@@ -31,16 +31,22 @@ in
   '';
 
   home.activation.updateAiClis = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    # Reset umask. `inspr.secrets.agents` activation runs before us and sets
+    # `umask 0277` (so decrypted env files default to mode 0400 — see
+    # inspr-modules/modules/home-manager/agent-secrets.nix). That umask
+    # leaks into subsequent activation steps; without this reset, every
+    # file npm writes to ~/.npm/_cacache lands as mode 0400, which then
+    # blocks the NEXT `npm install` from updating the same cache index
+    # path with EACCES. Confirmed root cause 2026-05-13 (Day-11 wrap)
+    # after an evening of misdiagnosis as "root-owned cache files" per
+    # the misleading npm error message.
+    umask 022
     export PATH="${pkgs.nodejs}/bin:$PATH"
     export NPM_CONFIG_PREFIX="${npmPrefix}"
     mkdir -p "${npmPrefix}"
-    # Restore writability of npm's cache. cacache (npm's content-addressable
-    # store) writes index entries with mode 0400 by design — but the SAME
-    # index path gets re-opened for update on the next `npm install`, which
-    # then fails with EACCES. Pre-rewriting to mode u+w lets subsequent
-    # runs succeed. Idempotent + cheap (only touches files we own).
-    # Recurring annoyance documented in INSPR-173 + observed again on
-    # m5/imacw during the Day-11 wrap (2026-05-13).
+    # Belt-and-suspenders: pre-flip any existing read-only cache files
+    # to writable (covers state already corrupted by prior runs under
+    # the bad umask). Cheap + idempotent.
     chmod -R u+w "$HOME/.npm" 2>/dev/null || true
     echo "📦 ai-clis-npm: bumping to latest…"
     $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm i -g ${npmPkgsLatest} \
