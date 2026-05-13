@@ -99,17 +99,17 @@ emerged from real fleet use that AUGMENT (not replace) it.
 ### Implicit Tier 4 — macOS Keychain (`security` CLI)
 
 Per-tool secrets that scripts read via `security find-generic-password -s "<name>" -w`
-are an *implicit* fourth tier. The `.envrc` at the nixcfg repo root already uses
+are an _implicit_ fourth tier. The `.envrc` at the nixcfg repo root already uses
 this pattern for `gh-token-markus-barta`. On macOS this is the native, OS-managed
 secret store with the lowest activation friction.
 
-| | |
-|---|---|
-| Location | macOS Keychain |
-| Tool | `security` CLI |
-| Add | `security add-generic-password -a $USER -s "<name>" -w "<value>"` |
-| Read | `security find-generic-password -s "<name>" -w` |
-| Use for | Per-tool credentials a script needs to source ad-hoc on macOS |
+|          |                                                                   |
+| -------- | ----------------------------------------------------------------- |
+| Location | macOS Keychain                                                    |
+| Tool     | `security` CLI                                                    |
+| Add      | `security add-generic-password -a $USER -s "<name>" -w "<value>"` |
+| Read     | `security find-generic-password -s "<name>" -w`                   |
+| Use for  | Per-tool credentials a script needs to source ad-hoc on macOS     |
 
 **Caveat:** keychain entries are per-machine. Fresh machines start without them
 → tools that depend on them silently get empty values. **Not portable across
@@ -123,14 +123,14 @@ per machine). The new `inspr.secrets.agents.*` Home Manager module
 on top: encrypted `.age` files in the repo are decrypted by HM activation
 and placed at known paths with strict permissions.
 
-| | |
-|---|---|
-| Encrypted in repo | `secrets/agents/shared/<NAME>.age` (all hosts) |
-| | `secrets/agents/host/<hostname>/<NAME>.age` (one host) |
-| Materialized to | `/Users/mba/Secrets/age/decrypted/agents/<NAME>.env` |
-| Mode | `0400` files in `0500` dir — read-only, one-way |
-| Recipients required | the user (e.g. `markus`) — HM activation runs as user |
-| Daily interface | unchanged: `( set -a; source <file>; cmd; set +a )` |
+|                     |                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------- |
+| Encrypted in repo   | `secrets/agents/shared/<NAME>.age` (all hosts)                                  |
+|                     | `secrets/agents/host/<hostname>/<NAME>.age` (one host)                          |
+| Materialized to     | `/Users/mba/.inspr/secrets/agents/<NAME>.env` (canonical fleet-wide, INSPR-164) |
+| Mode                | `0400` files in `0500` dir — read-only, one-way                                 |
+| Recipients required | the user (e.g. `markus`) — HM activation runs as user                           |
+| Daily interface     | unchanged: `( set -a; source <file>; cmd; set +a )`                             |
 
 Architecture details (category × scope, future Paimos / FleetCom integration):
 see `~/Code/inspr/playbook.md → "Architecture — secrets / agent-exception design"`.

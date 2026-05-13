@@ -199,7 +199,7 @@ ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#hsb0"
 
 All task and backlog management is handled via **PPM** = **Personal Project Management** at `https://pm.barta.cm` (Markus says "ppm" or "PPM" interchangeably). Schema mirrors bp-pm (BYTEPOETS PMO).
 
-- **Auth**: `source ~/Secrets/ppm.env` → exposes `$PPMAPIKEY`. Never cat/read the file. Hostname is `pm.barta.cm` (no `$URL` var in this env file).
+- **Auth**: `set -a; source ~/.inspr/secrets/agents/PPMAPIKEY.env; set +a` → exposes `$PPMAPIKEY`. Materialized by `inspr.secrets.agents` HM module (file is `KEY=value`, no `export`; see `docs/SECRETS.md`). Canonical fleet-wide path (INSPR-164, 2026-05-13). Direnv already does this for shells in `~/Code/nixcfg`. Never cat/read the file. Hostname is `pm.barta.cm` (no `$URL` var in this env file).
 - **API**: `curl -s -H "Authorization: Bearer $PPMAPIKEY" https://pm.barta.cm/api/...`
 - **Project IDs**: NIX=1 (this repo), DSC26=2, GSC26=3, FLEET=4 (fleetcom), FKID=5 (funkeykid). User `mba` = `user_id=2`.
 - **Default for nixcfg work**: project NIX (1). Default for fleetcom work: FLEET (4), parent epic FLEET-1 (id=183).

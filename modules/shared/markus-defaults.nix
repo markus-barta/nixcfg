@@ -92,11 +92,11 @@ let
   thisHostKeys = if hostname == null then null else hostKeys.${hostname} or null;
 
   # Helper: build a userKey option set pointing at the materialized .env
-  # file under ~/Secrets/age/decrypted/agents/ (where inspr.secrets.agents
+  # file under ~/.inspr/secrets/agents/ (where inspr.secrets.agents
   # places them at HM activation). `.env` extension is an agent-secrets
   # filename quirk; SSH does not care — file content is an ed25519 key.
   mkUserKey = entry: {
-    privateKeyPath = "${config.home.homeDirectory}/Secrets/age/decrypted/agents/${entry.keyName}.env";
+    privateKeyPath = "${config.home.homeDirectory}/.inspr/secrets/agents/${entry.keyName}.env";
     pubKey = entry.pubKey;
   };
 in
@@ -168,7 +168,7 @@ in
 
     instances.ppm = {
       url = "https://pm.barta.cm";
-      apiKeyEnvFile = "${config.home.homeDirectory}/Secrets/age/decrypted/agents/PPMAPIKEY.env";
+      apiKeyEnvFile = "${config.home.homeDirectory}/.inspr/secrets/agents/PPMAPIKEY.env";
       apiKeyVar = "PPMAPIKEY";
     };
 
@@ -179,9 +179,9 @@ in
     # consumed via inspr.paimos-cli.instances.<name>.urlEnvFile (added
     # in inspr-modules 06431b2).
     instances.pmo = {
-      urlEnvFile = "${config.home.homeDirectory}/Secrets/age/decrypted/agents/PMOURL.env";
+      urlEnvFile = "${config.home.homeDirectory}/.inspr/secrets/agents/PMOURL.env";
       urlVar = "PMOURL";
-      apiKeyEnvFile = "${config.home.homeDirectory}/Secrets/age/decrypted/agents/PMOAPIKEY.env";
+      apiKeyEnvFile = "${config.home.homeDirectory}/.inspr/secrets/agents/PMOAPIKEY.env";
       apiKeyVar = "PMOAPIKEY";
     };
   };

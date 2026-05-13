@@ -307,7 +307,7 @@ in
   # AGENT-EXCEPTION SECRETS — inspr.secrets.agents.* module (Phase 1)
   # ============================================================================
   # Layout: secrets/agents/{shared,host/<hostname>}/<NAME>.age
-  # Materialized at activation to /Users/mba/Secrets/age/decrypted/agents/<NAME>.env
+  # Materialized at activation to /Users/mba/.inspr/secrets/agents/<NAME>.env (INSPR-164 canonical)
   # See ~/Code/inspr/proposals/agent-secrets/ for the architecture.
 
   # GitHub PAT for @markus-barta on this device (mba-mbp-m5-work).
@@ -355,7 +355,7 @@ in
   # (markus-barta or bytepoets-mba). Generated 2026-05-12 with no expiry.
   #
   # Materialization: agent-secrets HM module decrypts at activation to
-  #   ~/Secrets/age/decrypted/agents/<host>-<atelier>-userkey.env (mode 0400)
+  #   ~/.inspr/secrets/agents/<host>-<atelier>-userkey.env (mode 0400)
   # The `.env` extension is a quirk of agent-secrets's filename convention —
   # SSH does not care; the file is a standard OpenSSH ed25519 private key.
   #
