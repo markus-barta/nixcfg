@@ -34,6 +34,14 @@ in
     export PATH="${pkgs.nodejs}/bin:$PATH"
     export NPM_CONFIG_PREFIX="${npmPrefix}"
     mkdir -p "${npmPrefix}"
+    # Restore writability of npm's cache. cacache (npm's content-addressable
+    # store) writes index entries with mode 0400 by design — but the SAME
+    # index path gets re-opened for update on the next `npm install`, which
+    # then fails with EACCES. Pre-rewriting to mode u+w lets subsequent
+    # runs succeed. Idempotent + cheap (only touches files we own).
+    # Recurring annoyance documented in INSPR-173 + observed again on
+    # m5/imacw during the Day-11 wrap (2026-05-13).
+    chmod -R u+w "$HOME/.npm" 2>/dev/null || true
     echo "📦 ai-clis-npm: bumping to latest…"
     $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm i -g ${npmPkgsLatest} \
       || echo "⚠️  ai-clis-npm: npm update failed (offline?). Existing versions kept."
