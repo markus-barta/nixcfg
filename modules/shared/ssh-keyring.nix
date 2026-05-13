@@ -56,12 +56,14 @@
   # when bytepoets-mba ed25519 gets added, when family hosts get their
   # own subset, etc.).
   trustPresets = {
-    # All current Markus-personal admittance: legacy RSA + both new ed25519s.
-    # Use this on hosts where Markus actively SSHes in from M5 / imac0 today.
+    # All current Markus-personal admittance: legacy RSA + per-host ed25519s
+    # (m5, imac0, imacw). Use this on hosts where Markus actively SSHes in
+    # from any of his workstations today.
     personalHosts = [
       "markus-rsa-shared-pre-2026"
       "mba@mba-mbp-m5-work"
       "markus@imac0"
+      "markus@mba-imac-work"
     ];
 
     # Post-retirement state (INSPR-76 Phase D): per-host ed25519 only,
@@ -71,6 +73,7 @@
     ed25519Only = [
       "mba@mba-mbp-m5-work"
       "markus@imac0"
+      "markus@mba-imac-work"
     ];
 
     # Transitional / archival: legacy RSA only, no new ed25519s. Use on
@@ -173,6 +176,11 @@
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mba-mbp-m5-work (added 2026-05-03)";
     "markus@imac0" =
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOdow+y+02Ekej5q3JD+5SSCWDDW4Hmiwwbfe9fTYUBA markus@imac0 (added 2026-05-03)";
+    # Added 2026-05-13 (imacw RSA → ed25519 migration, INSPR-76 fleet rollout).
+    # imacw was the last shared-RSA-only host; ed25519 generated on-host;
+    # private key backed up in 1Password (Familie Barta / Private).
+    "markus@mba-imac-work" =
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOs5Sg9sqv/t3TIMfNQ2aP8a8ehEIQuFWuHVS2bX8oK3 markus@mba-imac-work (added 2026-05-13)";
 
     # ── Family ────────────────────────────────────────────────────────────
     # Gerhard Barta (Markus's father). Used for the `gb` user on hsb8

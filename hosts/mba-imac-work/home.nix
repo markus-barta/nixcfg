@@ -29,9 +29,11 @@ in
   # INSPR — Agent-exception secrets materialization (enabled INSPR-170)
   # ============================================================================
   # Decrypts shared/* and host/mba-imac-work/* age files at HM activation.
-  # On imacw, decryption falls back to ~/.ssh/id_rsa (markus_rsa_legacy)
-  # since this host has no id_ed25519 yet — id_rsa is still in the markus
-  # aggregate, so all markus-recipient files decrypt fine.
+  # Uses ~/.ssh/id_ed25519 (per-host ed25519 minted 2026-05-13 during
+  # INSPR-76 imacw migration — fingerprint markus@mba-imac-work in
+  # modules/shared/ssh-keyring.nix). Falls back to ~/.ssh/id_rsa
+  # (markus_rsa_legacy) if for some reason the ed25519 is missing — both
+  # are in the markus recipient aggregate, so either decrypts fine.
   inspr.secrets.agents.enable = true;
 
   # ============================================================================
