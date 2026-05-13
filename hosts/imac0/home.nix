@@ -32,25 +32,27 @@ in
   # ============================================================================
   # INSPR — declarative ~/.ssh/authorized_keys
   # ============================================================================
-  # Three trust dimensions concatenated (all sourced from the shared keyring
+  # Two trust dimensions concatenated (all sourced from the shared keyring
   # in modules/shared/ssh-keyring.nix):
   #
   #   - personalHosts:    legacy RSA + per-host ed25519s (M5 + imac0-itself)
   #                       — same-context inbound (Markus on Markus's hosts)
   #   - bytepoetsInbound: BYTEPOETS work-identity ed25519
   #                       — cross-context inbound (Markus from work hosts)
-  #   - imac0Specific:    grandfathered orphan `mba@miniserver` legacy RSA
-  #                       — INSPR-76 retirement candidate, see keyring note
   #
   # Migrated from manual ~/.ssh/authorized_keys 2026-05-05 (INSPR-73 follow-on).
   # Strict superset of pre-migration state — same 3 admittances + each new
   # ed25519 (M5, imac0-itself) added.
+  #
+  # INSPR-76 Phase 2 (2026-05-13): the third dimension `imac0Specific` was
+  # dropped after the orphan `mba@miniserver` RSA-3072 audit passed clean
+  # (no surviving private half on hsb1, 0 sshd-log hits on imac0 in 30d,
+  # provenance confirmed via ~/.ssh/authorized_keys.pre-inspr-2026-05-05).
+  # The keyring entry flipped to `status = "revoked"` in the same commit;
+  # declaration retained as historical record per INSPR-76 doctrine.
   inspr.ssh.authorized = {
     enable = true;
-    trust =
-      config._inspr.trustPresets.personalHosts
-      ++ config._inspr.trustPresets.bytepoetsInbound
-      ++ config._inspr.trustPresets.imac0Specific;
+    trust = config._inspr.trustPresets.personalHosts ++ config._inspr.trustPresets.bytepoetsInbound;
   };
 
   # ============================================================================
