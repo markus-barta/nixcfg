@@ -108,17 +108,63 @@ Work style: telegraph; noun-phrases ok; minimal grammar; min tokens.
 
 ## Secret Output Safety
 
-**NEVER run commands that print secrets to output.** Forbidden:
+**NEVER run commands that print secrets to output.**
 
-- `cat`, `less`, `head`, `tail`, `echo` on any `.env`, `.age`, `.gpg`, `/run/secrets/*`, `/run/agenix/*` files
-- `docker exec ... cat /home/node/.env` or any container env file
-- `printenv`, `env`, `export` without explicit filtering
-- Any command where secrets could appear in stdout/stderr captured by this tool
-- **Reading env-resolved deployed configs.** Tools that expand `${VAR}` placeholders write secrets in clear inside the running container. Never `cat`/`diff` the deployed copy — work from the git-source file (which keeps `${BRAVE_API_KEY}` etc. as placeholders). Examples to avoid: `docker exec <c> cat /home/node/.openclaw/openclaw.json`, `docker exec <c> openclaw doctor --fix` piped back to host, any `kubectl get cm/secret` resolved-output. Use the repo source-of-truth file instead.
+### The principle (read this, not just the list below)
 
-**If you need to verify a secret exists:** check file existence (`ls -la`) or check a non-secret property. Never print the value.
+Secrets must not appear in stdout, stderr, or any tool output the agent harness captures. Every "forbidden command" in the list below is a specific instance of this principle. When evaluating a new command, **apply the principle, not the list** — the list will never be exhaustive.
 
-**If secrets appear in tool output:** STOP. Do not reference, repeat, or quote the values. Inform the user immediately.
+### Forbidden commands (hard list — never run, no exceptions)
+
+These commands ALWAYS expose secret values when run against this repo's secret pipeline (m5, imac0, imacw materialize `~/.inspr/secrets/agents/*.env` containing API tokens + SSH private keys). NEVER invoke them, even "just to verify a fix":
+
+- `direnv export <shell>` — emits resolved env as `export VAR=$'<plaintext-value>'` to stdout. Functionally identical to `printenv` for any var .envrc loaded.
+- `direnv status` (when active) — may leak a subset
+- `env`, `printenv` (without naming a specific non-sensitive variable)
+- `set`, `declare -x`, `declare -p`, `compgen -e`, `export -p`
+- `cat`/`less`/`head`/`tail`/`bat`/`xxd`/`od`/`hexdump`/`strings` on:
+  - any file under `~/.inspr/secrets/`
+  - any file under `~/Secrets/` (legacy path, INSPR-164)
+  - any file under `/run/agenix/` or `/run/secrets/`
+  - any path matching `*.env`, `*.age`, `*.gpg`, `*.enc`, `*.key`, `id_*` (unless `.pub`), `*_rsa`, `*_ed25519`
+  - any `~/.ssh/` file lacking `.pub` extension
+- Container/k8s "resolved" config peek: `docker exec <c> cat /home/node/.env`, `kubectl get secret -o yaml`, `kubectl describe configmap` after env expansion. Work from the **git-source file** which keeps `${VAR}` placeholders intact.
+- Any pipe where a secret-bearing file is read, sourced, or env-expanded into a downstream-visible position (e.g. `source <env-file>; env`, `agenix -d <file>.age` to stdout).
+
+### Safe verification primitives
+
+When you need to verify the secret pipeline works, use these — they prove the property WITHOUT revealing values:
+
+| Goal                                            | Safe command                                                                                                                                                                                                                    |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Count materialized env files                    | `ls ~/.inspr/secrets/agents/*.env \| wc -l`                                                                                                                                                                                     |
+| Verify a specific var IS set                    | `[ -n "${VAR:-}" ] && echo "set"` (never `echo "$VAR"`)                                                                                                                                                                         |
+| Verify .envrc didn't error                      | `direnv reload 2>&1 \| grep -ciE "command not found\|begin (openssh\|rsa)"` (count only — never print matched lines)                                                                                                            |
+| Verify direnv exports the right NAMES           | `direnv export bash 2>/dev/null \| grep -oE "^export [A-Z_][A-Z0-9_]*=" \| sort -u` ← narrow exception: the `=` is the cut-point, the regex strips values by construction. **Don't mutate this without testing offline first.** |
+| Check file content TYPE without reading content | `file ~/.inspr/secrets/agents/SOMETHING.env`                                                                                                                                                                                    |
+| Confirm decrypt would work                      | `age -d -i ~/.ssh/id_ed25519 <file>.age > /dev/null` (redirect to /dev/null, check exit code)                                                                                                                                   |
+
+### Pre-flight checklist (run this in your head before EVERY Bash command)
+
+1. **Could this command's stdout/stderr contain a secret value?** If yes → use a safe primitive above, OR ask the user.
+2. **Does the command touch any of**: `~/Secrets/`, `~/.inspr/secrets/`, `~/.ssh/<not-pub>`, `/run/agenix/`, `*.env`, `*.age`, `*.gpg`?
+   If yes → re-verify #1 with extra scrutiny.
+3. **Does the command involve any of**: `env`, `printenv`, `set`, `export`, `declare`, `direnv export`, `direnv status`, `source`, `cat`, `head`, `tail`, `less`, `bat`?
+   If yes → STOP. Default-assume #1 = yes until proven otherwise.
+4. **Did a filtered command return empty unexpectedly?** Do NOT remove the filter and re-run. Diagnose the underlying state (the filter was probably correct; the state was wrong).
+
+### If secrets DO appear in output (incident response)
+
+1. **STOP** — do not run further commands that could touch the same secret pipeline
+2. **Inform the user immediately** — name the affected variables (NEVER the values)
+3. **Rotate** every exposed credential before continuing
+4. **Document** the incident path so the guardrail can be tightened
+
+### Past incidents (case studies)
+
+- **2026-05-13, Ghostty scrollback leak**: imacw's `.envrc` blindly sourced all `*.env` files in the agent-secrets dir, including SSH private keys with `.env` extension (per INSPR-170 atelier userkey naming convention). Bash printed each base64 line as `<bytes>: command not found` over SSH to imac0's Ghostty buffer. Mitigation: content-aware filter in `.envrc` (this repo, ship 2026-05-13). Architectural follow-up: separate paths per content-type (env vars vs SSH keys) — see INSPR backlog.
+
+- **2026-05-13, `direnv export bash` leak**: agent ran `direnv export bash` to verify the `.envrc` content-filter fix. That command dumps the resolved environment as `export VAR=$'value'` — every secret loaded by direnv (PPMAPIKEY, PMOAPIKEY, GH*TOKEN, CF*\*, …) hit stdout → agent context + user terminal. Root cause: agent treated `direnv export` as a "diagnostic" not as a `printenv` equivalent. Forbidden-commands list above tightened to enumerate `direnv export` explicitly. Safe alternative documented for this exact verify (count `command not found` matches, OR pipe through `grep -oE "^export [A-Z_]+="` to strip values).
 
 ## Encrypted Files
 
