@@ -17,8 +17,33 @@ in
     ../../modules/shared/ssh-fleet.nix
     # markus-defaults bundles all 3 INSPR public modules + Markus's values
     ../../modules/shared/markus-defaults.nix
+    # ssh-authorized: declarative ~/.ssh/authorized_keys via shared keyring.
+    # Two-import pattern (per modules/shared/ssh-authorized.nix header):
+    # the public inspr-modules HM module + this nixcfg's wrapper (which
+    # feeds the keyring + exposes `_inspr.trustPresets`).
+    inputs.inspr-modules.homeManagerModules.ssh-authorized
+    ../../modules/shared/ssh-authorized.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.homeManagerModules.nixfleet-agent)
   ];
+
+  # ============================================================================
+  # INSPR — declarative ~/.ssh/authorized_keys (added 2026-05-13 Day-11 wrap)
+  # ============================================================================
+  # Two trust dimensions concatenated (sourced from the shared keyring in
+  # modules/shared/ssh-keyring.nix):
+  #
+  #   - personalHosts:    legacy RSA + per-host ed25519s (M5 + imac0 + imacw
+  #                       itself) — same-context inbound (Markus on Markus's
+  #                       hosts; admits m5→imacw, imac0→imacw)
+  #   - bytepoetsInbound: BYTEPOETS work-identity ed25519 — cross-context
+  #                       inbound (Markus from any work-context machine)
+  #
+  # Mirrors imac0's wiring; promotes imacw from "ssh-in not declaratively
+  # managed" to fleet-trust-managed.
+  inspr.ssh.authorized = {
+    enable = true;
+    trust = config._inspr.trustPresets.personalHosts ++ config._inspr.trustPresets.bytepoetsInbound;
+  };
 
   # ============================================================================
   # INSPR — Git identity (personal default + BYTEPOETS via remote-URL match)
