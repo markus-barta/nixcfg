@@ -75,14 +75,16 @@ let
       };
     };
     "mba-imac-work" = {
-      # imacw
+      # imacw — rotated 2026-05-13 after Day-11 Ghostty scrollback incident
+      # (previous 2026-05-12 keypairs partially leaked to terminal scrollback
+      # via the pre-content-filter .envrc bug; conservative rotation chosen).
       personal = {
         keyName = "imacw-personal-userkey";
-        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMB+Z+QHmlsy4rKIukPSzldZhKzhkkmiU8tD91D2XK44 imacw-personal-userkey 2026-05-12";
+        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIApVrzQL/SPss8x6JK/8YNFvSZpYgj1TYGzc3b1cJnYJ imacw-personal-userkey (rotated 2026-05-13)";
       };
       bytepoets = {
         keyName = "imacw-bytepoets-userkey";
-        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDGAtpMf6jRFM+9y5DQZrRrfCBI34ZaGQ4UQa9LBQ0Jj imacw-bytepoets-userkey 2026-05-12";
+        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDEw7pDTz4ykaQUbeQlIgTVMaKAx1IwWBKwPDuDv9CVa imacw-bytepoets-userkey (rotated 2026-05-13)";
       };
     };
   };
