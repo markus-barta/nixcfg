@@ -546,11 +546,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1778696260,
-        "narHash": "sha256-5IbFDOuHhxoJlW8x/lChGfeoDvWHS6A6iUAqBerT5ZU=",
+        "lastModified": 1778696676,
+        "narHash": "sha256-UmiGf6nz242m2CF8u9zWX+whfGP6AZims8fFwovT4cs=",
         "owner": "markus-barta",
         "repo": "inspr-modules",
-        "rev": "2a38a6d951c8fd4f1282d737489b5ef226531ec5",
+        "rev": "5b4effff24c1593f90bf8582611902ab51d8356c",
         "type": "github"
       },
       "original": {

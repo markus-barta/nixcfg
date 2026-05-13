@@ -199,9 +199,9 @@ in
           if not __paimos_has_instance ppm
               echo "paimos: instance 'ppm' not configured on this machine." >&2
               echo "  One-time setup:" >&2
-              echo "    source ~/Secrets/ppm/PPMAPIKEY.env" >&2
+              echo "    source ~/.inspr/secrets/agents/PPMAPIKEY.env" >&2
               echo '    paimos auth login --url https://pm.barta.cm --api-key $PPMAPIKEY --name ppm' >&2
-              echo "  Secrets live in ~/Secrets/ppm/ (see README.md there if any .env file is missing)." >&2
+              echo "  Secrets live in ~/.inspr/secrets/agents/ (see README.md there if any .env file is missing)." >&2
               return 2
           end
           paimos --instance ppm $argv
@@ -213,10 +213,10 @@ in
           if not __paimos_has_instance pmo
               echo "paimos: instance 'pmo' not configured on this machine." >&2
               echo "  One-time setup:" >&2
-              echo "    source ~/Secrets/PMO/PMOAPIKEY.env" >&2
-              echo "    source ~/Secrets/PMO/PMOURL.env" >&2
+              echo "    source ~/.inspr/secrets/agents/PMOAPIKEY.env" >&2
+              echo "    source ~/.inspr/secrets/agents/PMOURL.env" >&2
               echo '    paimos auth login --url $PMOURL --api-key $PMOAPIKEY --name pmo' >&2
-              echo "  Secrets live in ~/Secrets/PMO/ (see README.md there if any .env file is missing)." >&2
+              echo "  Secrets live in ~/.inspr/secrets/agents/ (see README.md there if any .env file is missing)." >&2
               return 2
           end
           paimos --instance pmo $argv

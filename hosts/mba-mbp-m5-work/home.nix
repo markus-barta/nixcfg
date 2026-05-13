@@ -43,7 +43,7 @@ in
   # ============================================================================
   # See modules/shared/agent-secrets.nix for the full architecture.
   # Materializes encrypted secrets in secrets/agents/host/<this-host>/ to
-  # /Users/mba/Secrets/age/decrypted/agents/<NAME>.env at HM activation.
+  # /Users/mba/.inspr/secrets/agents/<NAME>.env at HM activation (INSPR-164 canonical).
   inspr.secrets.agents.enable = true;
 
   # ============================================================================
