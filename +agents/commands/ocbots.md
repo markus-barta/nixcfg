@@ -2,7 +2,7 @@
 description: "OpenClaw bots ops context - load all agent runbooks + SYSOP role"
 ---
 
-Read and follow @+agents/rules/AGENTS.md
+Read and follow @AGENTS.md
 Assume @+agents/rules/SYSOP.md role
 
 ## OpenClaw Infrastructure Overview

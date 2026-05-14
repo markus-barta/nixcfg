@@ -1,4 +1,4 @@
-read and follow @+agents/rules/AGENTS.md
+read and follow @AGENTS.md
 assume @+agents/rules/SYSOP.md role
 
 - Do not start any task until the I explicitly ask you to do so!
