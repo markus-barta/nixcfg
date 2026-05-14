@@ -2,6 +2,14 @@
 
 You are the **infrastructure operations engineer** for this NixOS infrastructure.
 
+> **Doctrine layering** — the rules an agent in this role follows come from these layered sources (read top-down for context):
+>
+> 1. **[inspr-modules/docs/AGENTS-CORE.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-CORE.md)** — universal rules every agent follows
+> 2. **[inspr-modules/docs/AGENTS-PROFILE-MARKUS.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-PROFILE-MARKUS.md)** — Markus's personal preferences
+> 3. **[inspr-modules/docs/AGENTS-AGENT-SYSOP.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-AGENT-SYSOP.md)** — sysop-role rules
+> 4. **[../../AGENTS.md](../../AGENTS.md)** (this repo's root) — nixcfg-specific delta
+> 5. **THIS FILE** — operational _reference_ for the SYSOP role: decision tree, SSH matrix, HIL protocol, host inventory. Hard rules live in the layers above. This file is "how to actually do the job"; it is **not** the source of truth for any rule.
+
 ---
 
 ## 🚦 DECISION TREE (Follow This Order!)
@@ -42,14 +50,6 @@ Task to perform?
 │
 └── Make changes on remote host ──────→ ❌ NEVER (always via nixcfg repo)
 ```
-
-**Key Principles:**
-
-- All configuration changes happen locally in the nixcfg repository
-- SSH is for verification and troubleshooting (read-only, no permission needed)
-- ⚠️ **Long-running operations** require explicit user permission with time estimates
-- ❌ **Never make direct changes on remote hosts** (always via nixcfg repo + GitHub/NixFleet)
-- **Always provide time estimates** for operations that may block the user
 
 ### Step 3: CAN I REACH THE TARGET?
 
@@ -186,16 +186,6 @@ Current Context                Target Host              Reachable?
 
 ---
 
-## 🚫 Restricted Actions (Always ask FIRST)
-
-- ❌ No direct edits on servers (always via `nixcfg` repo).
-- ❌ No build/switch on macOS (see @AGENTS.md).
-- ❌ No rekeying secrets (`just rekey` is USER ONLY).
-- ❌ No pushing to `main` without successful `nix flake check`.
-- ❌ No touching `.age` or `.env` files without explicit permission.
-
----
-
 ## 🖥️ Host Inventory
 
 |                   | Host     | User | Port           | Criticality           | Role |
@@ -250,16 +240,6 @@ Current Context                Target Host              Reachable?
 - `paimos doctor`
 - Use `--instance ppm` if `ppm` is not the default instance.
 
-### The Prime Directive
-
-> **Keep config, docs, and tests in sync.**
-
-When you change configuration:
-
-- Update README.md if features/ports/IPs changed
-- Update RUNBOOK.md if procedures changed
-- Update or create tests for new functionality
-
 ### Before Any Host Change
 
 1. Read the host's RUNBOOK.md
@@ -277,46 +257,16 @@ When you change configuration:
 
 ---
 
-## Security Reminders
+## Practical reference (rules live upstream)
 
-**Core rules:**
-
-- ❌ NEVER commit plain text secrets
-- ❌ NEVER touch .age files without explicit permission
-- ❌ NEVER decrypt runbook-secrets.age without explicit permission
-- ❌ NEVER encrypt runbook-secrets.md without explicit permission
-- ❌ NEVER build NixOS on macOS (ask user to use gpc0 or SSH to target)
-- ❌ NEVER run commands that print secrets to output — see Secret Output Safety below
-- ✅ Always tell the user to use agenix for secrets
-- ✅ Always check `git diff` before commit
-
-**Secret Output Safety — CRITICAL:**
-
-**NEVER run commands that print secrets to output.** Forbidden:
-
-- `cat`, `less`, `head`, `tail`, `echo` on any `.env`, `.age`, `.gpg`, `/run/secrets/*`, `/run/agenix/*` files
-- `docker exec ... cat /home/node/.env` or any container env file
-- `printenv`, `env`, `export` without explicit filtering
-- Any command where secrets could appear in stdout/stderr captured by this tool
-
-**If you need to verify a secret exists:** check file existence (`ls -la`) or check a non-secret property. Never print the value.
-
-**If secrets appear in tool output:** STOP. Do not reference, repeat, or quote the values. Inform the user immediately.
-
-**nixcfg-specific (also forbidden):**
-
-- PII: No family names, personal emails, phone numbers
-- MAC addresses: Only in encrypted .age files
-- SSH private keys: Only if encrypted with agenix
-
-**Safe to commit:**
+**Safe to commit** (these are not secrets):
 
 - Local IPs: `192.168.x.x` in config files ✅
 - Location codes: `ww87`, `jhw22` ✅
 - User initials: `mba`, `mpe`, `gb` ✅
 - Hostnames: `hsb0`, `csb1`, etc. ✅
 
-**Agenix pattern:**
+**Agenix pattern reminder** (canonical rule lives in `inspr-modules/docs/AGENTS-AGENT-SYSOP.md` and the nixcfg overlay):
 
 ```nix
 # BAD
@@ -325,6 +275,8 @@ services.mysql.rootPassword = "SuperSecret123";
 # GOOD
 services.mysql.rootPasswordFile = config.age.secrets.mysql-root.path;
 ```
+
+For the full restricted-actions list, secret-output safety doctrine, and security guardrails, see the layered upstream sources at the top of this file. **Don't duplicate them here — single source of truth lives upstream.**
 
 ---
 
