@@ -1,27 +1,406 @@
-# csb1 docker services running OUT-OF-BAND of the FleetCom server.
-# (FleetCom server itself stays at /home/mba/docker/fleetcom/ — separate
-# compose, separate deploy lifecycle. This file is for sibling sidecars.)
-# Migrated from /opt/fleetcom-agent/ on 2026-04-19 (NIX-82).
+# csb1 main docker stack — git-tracked (NIX-110 migration)
 #
-# Watchtower: csb1 has a host-wide watchtower in /home/mba/docker/ already.
-# We reuse it (HTTP API enabled there) instead of bundling a second one.
-# Bosun joins that compose's csb1_default network so http://watchtower:8080
-# resolves.
+# Previously at /home/mba/docker/docker-compose.yml; now lives in nixcfg
+# matching the csb0 pattern. Deploy with:
+#   cd ~/Code/nixcfg/hosts/csb1/docker && docker compose up -d
 #
-# /opt/fleetcom-agent/.env must contain:
-#   FLEETCOM_TOKEN=<host bearer token>
-#   WATCHTOWER_TOKEN=<random 20+ chars>   (must equal WATCHTOWER_HTTP_API_TOKEN
-#                                          in /home/mba/docker/watchtower.env)
+# Project name preserved as `csb1` so all named volumes (csb1_*) and
+# networks (csb1_*) survive the cutover without data migration.
+#
+# Secrets: ALL env_files now use /run/agenix/... paths (M4 migration of
+# the loose ~/secrets/ and ./xxx.env files into agenix). Container reads
+# at runtime via agenix-decrypted bind. No plaintext secrets in this file.
+name: csb1
 services:
-  # FleetCom Bosun — heartbeats + container lifecycle to https://fleet.barta.cm.
-  # FLEETCOM_TOKEN stays in /opt/fleetcom-agent/.env until a follow-up wires
-  # the agenix secret (fleetcom-token-csb1) directly.
+  docmost-db:
+    image: postgres:16-alpine
+    env_file:
+      - /run/agenix/csb1-docmost-postgres-env
+    volumes:
+      - docmost_db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - internal
+    labels:
+      - traefik.enable=false
+
+  docmost-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - docmost_redis_data:/data
+    networks:
+      - internal
+    labels:
+      - traefik.enable=false
+
+  docmost:
+    image: docmost/docmost:latest
+    restart: unless-stopped
+    depends_on:
+      - docmost-db
+      - docmost-redis
+    env_file:
+      - /run/agenix/csb1-docmost-config-env
+    volumes:
+      - docmost_data:/app/data/storage
+    networks:
+      - internal
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.docmost.rule=Host(`docmost.barta.cm`)
+      - traefik.http.routers.docmost.tls.certresolver=default
+      - traefik.http.routers.docmost.tls=true
+      - traefik.http.services.docmost.loadbalancer.server.port=3000
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.docmost.middlewares=cloudflarewarp@file
+
+  influxdb:
+    image: quay.io/influxdb/influxdb3-core:latest # pin on major version
+    volumes:
+      - influxdb_data:/var/lib/influxdb3
+    environment:
+      - TZ=Europe/Vienna
+    env_file:
+      - /run/agenix/csb1-influxdb3-env
+    command:
+      - serve
+      - --node-id=csb1-main-node
+      - --object-store=file
+      - --data-dir=/var/lib/influxdb3
+      - --log-filter=info
+      - --plugin-dir=/var/lib/influxdb3/plugins
+      - --http-bind=0.0.0.0:8086
+      - --query-file-limit=5000 # Increase query length by ~10x
+    networks:
+      - traefik
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.influxdb.rule=Host(`influxdb.barta.cm`)
+      - traefik.http.routers.influxdb.tls.certresolver=default
+      - traefik.http.routers.influxdb.tls=true
+      - traefik.http.services.influxdb.loadbalancer.server.port=8086 # Internal API port of InfluxDB
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.influxdb.middlewares=cloudflarewarp@file
+
+  grafana:
+    image: grafana/grafana-oss:latest # Recommendation: Pin a specific version
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - TZ=Europe/Vienna
+    networks:
+      - traefik
+    depends_on:
+      - influxdb # Ensure InfluxDB starts before Grafana
+    restart: unless-stopped
+    labels:
+      - traefik.http.routers.grafana.rule=Host(`grafana.barta.cm`)
+      - traefik.http.routers.grafana.tls.certresolver=default
+      - traefik.http.routers.grafana.tls=true
+      - traefik.http.services.grafana.loadbalancer.server.port=3000
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.grafana.middlewares=cloudflarewarp@file
+
+  # --- Paperless-ngx Services Begin ---
+  paperless-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - /run/agenix/csb1-paperless-postgres-env
+    volumes:
+      - paperless_db_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    labels:
+      - traefik.enable=false
+
+  paperless-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - paperless_redis_data:/data
+    networks:
+      - internal
+    labels:
+      - traefik.enable=false
+
+  paperless-tika:
+    image: apache/tika:latest # image no longer available here... ghcr.io/paperless-ngx/tika:latest
+    restart: unless-stopped
+    networks:
+      - internal
+    labels:
+      - traefik.enable=false
+
+  paperless-gotenberg:
+    image: gotenberg/gotenberg:8
+    restart: unless-stopped
+    command:
+      - "gotenberg"
+      - "--chromium-disable-routes=true"
+    networks:
+      - internal
+    labels:
+      - traefik.enable=false
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    restart: unless-stopped
+    depends_on:
+      - paperless-db
+      - paperless-redis
+      - paperless-tika
+      - paperless-gotenberg
+    env_file:
+      - /run/agenix/csb1-paperless-config-env
+    volumes:
+      - paperless_data:/usr/src/paperless/data
+      - paperless_media:/usr/src/paperless/media
+      - paperless_consume:/usr/src/paperless/consume
+    environment:
+      - TZ=Europe/Vienna
+      - PAPERLESS_TIKA_ENABLED=1
+      - PAPERLESS_TIKA_ENDPOINT=http://paperless-tika:9998
+      - PAPERLESS_GOTENBERG_ENDPOINT=http://paperless-gotenberg:3000
+    networks:
+      - internal
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.paperless.rule=Host(`paperless.barta.cm`)
+      - traefik.http.routers.paperless.tls.certresolver=default
+      - traefik.http.routers.paperless.tls=true
+      - traefik.http.services.paperless.loadbalancer.server.port=8000
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.paperless.middlewares=cloudflarewarp@file
+  # --- Paperless-ngx Services End ---
+
+  docker-proxy-traefik:
+    image: tecnativa/docker-socket-proxy
+    environment:
+      - CONTAINERS=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - docker-sock-traefik
+    restart: always
+    labels:
+      - traefik.enable=false
+
+  # https://docs.traefik.io/v2.5/providers/docker/
+  # acme.json stays at /var/lib/csb1-docker/traefik/acme.json on the host
+  # (mutable LE cert state — not in git, preserved across the migration).
+  traefik:
+    image: traefik
+    command: --providers.docker
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443/tcp"
+      - "443:443/udp"
+      # - "8883:8883" #todo: enable if mosquitto installed
+    networks:
+      - traefik
+      - docker-sock-traefik
+    volumes:
+      - ./traefik/static.yml:/etc/traefik/traefik.yml
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml
+      - /var/lib/csb1-docker/traefik/acme.json:/etc/traefik/acme/acme.json
+    labels:
+      - traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`)
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.routers.traefik.tls.certresolver=default
+      - traefik.http.routers.traefik.tls=true
+      # - traefik.http.routers.traefik.middlewares=authelia  # DISABLED 2026-03-06 - no authelia container
+    environment:
+      - TZ=Europe/Vienna
+    env_file:
+      - /run/agenix/traefik-variables
+
+  whoami:
+    image: containous/whoami
+    networks:
+      - traefik
+    labels:
+      - traefik.http.routers.whoami.rule=Host(`whoami1.barta.cm`)
+      - traefik.http.routers.whoami.tls.certresolver=default
+      - traefik.http.routers.whoami.tls=true
+      - traefik.http.routers.whoami.middlewares=cloudflarewarp@file
+
+  smtp:
+    image: namshi/smtp
+    restart: always
+    networks:
+      - traefik
+      - smtp
+    environment:
+      - TZ=Europe/Vienna
+      - SMARTHOST_ADDRESS=mail.hover.com
+      - SMARTHOST_PORT=587
+      - SMARTHOST_USER=markus@barta.com
+      - SMARTHOST_ALIASES=*
+      - RELAY_NETWORKS=:172.0.0.0/8
+    env_file:
+      - /run/agenix/csb1-smtp-env
+    labels:
+      - traefik.enable=false
+
+  restic-cron-hetzner:
+    build: ./restic-cron
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/lib/docker/volumes:/backup/var/lib/docker/volumes:ro
+      - /home:/backup/home:ro
+      - /root:/backup/root:ro
+      - /etc:/backup/etc:ro
+      # SSH private key now sourced from agenix (was: ./restic-cron/id_rsa)
+      - /run/agenix/csb1-restic-cron-id-rsa:/root/.ssh/id_rsa:ro
+      - ./restic-cron/id_rsa.pub:/root/.ssh/id_rsa.pub:ro
+      - ./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro
+      - ./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro
+      - ./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro
+      - ./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro
+      - ./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro
+    environment:
+      RESTIC_BACKUP_OPTIONS: "-r sftp:u387549-sub1@u387549.your-storagebox.de:/"
+      MAIL_SUBJECT: "💾 Restic Backup netcup csb1 (hetzner)"
+      CRON_BACKUP_EXPRESSION: "30 1 * * *" # 1:30am
+    env_file:
+      - /run/agenix/csb1-restic-cron-hetzner-env
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+      - traefik.enable=false
+    networks:
+      - smtp
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    command: --schedule "0 0 8 * * SAT" --cleanup
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - DOCKER_API_VERSION=1.44
+      - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      - WATCHTOWER_NOTIFICATIONS_HOSTNAME=csb1
+      - WATCHTOWER_NOTIFICATION_TITLE_TAG=🌐
+      - WATCHTOWER_HTTP_API_UPDATE=true
+      - WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
+    env_file:
+      - /run/agenix/csb1-watchtower-env
+    labels:
+      - traefik.enable=false
+
+  # ============================================
+  # Excalidraw - Self-hosted whiteboard
+  # ============================================
+  excalidraw:
+    image: excalidraw/excalidraw:latest
+    restart: unless-stopped
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.excalidraw.rule=Host(`draw.barta.cm`)
+      - traefik.http.routers.excalidraw.tls.certresolver=default
+      - traefik.http.routers.excalidraw.tls=true
+      - traefik.http.services.excalidraw.loadbalancer.server.port=80
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.excalidraw.middlewares=cloudflarewarp@file
+
+  # ============================================
+  # jobs-at - KI-Exposition des österreichischen Arbeitsmarkts
+  # ============================================
+  jobs-at:
+    image: ghcr.io/markus-barta/jobs-at:latest
+    restart: unless-stopped
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.jobs-at.rule=Host(`zukunftschance.ai.barta.cm`)"
+      - traefik.http.routers.jobs-at.tls.certresolver=default
+      - traefik.http.routers.jobs-at.tls=true
+      - traefik.http.services.jobs-at.loadbalancer.server.port=80
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.jobs-at.middlewares=cloudflarewarp@file
+
+  # ============================================
+  # PPM - Personal Project Management
+  # ============================================
+  ppm:
+    image: ghcr.io/markus-barta/paimos:3.4.1
+    container_name: ppm
+    restart: unless-stopped
+    environment:
+      - PORT=8888
+      - COOKIE_SECURE=true
+      - BRAND_PRODUCT_NAME=PPM
+      - BRAND_WEBSITE_URL=https://pm.barta.cm
+      - BRAND_PUBLIC_URL=https://pm.barta.cm
+      - BRAND_EMAIL_FROM=noreply@barta.cm
+      - BRAND_DB_FILENAME=ppm.db
+      - BRAND_MINIO_BUCKET=ppm-attachments
+      - BRAND_HEALTH_SERVICE_NAME=ppm
+      - BRAND_TOTP_ISSUER=PPM
+    env_file:
+      - /run/agenix/csb1-ppm-env
+    volumes:
+      - ppm_data:/app/data
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.ppm.rule=Host(`pm.barta.cm`)
+      - traefik.http.routers.ppm.tls.certresolver=default
+      - traefik.http.routers.ppm.tls=true
+      - traefik.http.services.ppm.loadbalancer.server.port=8888
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.ppm.middlewares=cloudflarewarp@file
+
+  # ============================================
+  # MinIO - Object storage (PPM attachments)
+  # ============================================
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    env_file:
+      - /run/agenix/csb1-minio-env
+    volumes:
+      - minio_data:/data
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.minio-console.rule=Host(`minio.barta.cm`)
+      - traefik.http.routers.minio-console.tls.certresolver=default
+      - traefik.http.routers.minio-console.tls=true
+      - traefik.http.services.minio-console.loadbalancer.server.port=9001
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.minio-console.middlewares=cloudflarewarp@file
+
+  # ============================================
+  # FleetCom Bosun — heartbeats + container lifecycle agent
+  # Absorbed from prior project=docker (NIX-110) into csb1 project.
+  # Container name + network attachment unchanged.
+  # ============================================
   fleetcom-agent:
     image: ghcr.io/markus-barta/fleetcom-bosun:latest
     container_name: fleetcom-agent
     restart: unless-stopped
     # mem_limit caps a known leak in bosun (FLEET-78, cs1 outage 2026-04-25).
-    # Baseline RSS ~13 MiB; 512m gives ~40× headroom and OOM-kills runaway.
     mem_limit: 512m
     memswap_limit: 512m
     env_file: [/opt/fleetcom-agent/.env]
@@ -33,16 +412,68 @@ services:
     environment:
       - FLEETCOM_URL=https://fleet.barta.cm
       - FLEETCOM_HOSTNAME=csb1
-      # Dashboard "Update now" → bosun calls watchtower's HTTP API
-      # (watchtower lives in the csb1_default network).
       - WATCHTOWER_URL=http://watchtower:8080
     networks:
-      - csb1_default
+      - default
+
+  # ============================================
+  # Vaultwarden — JANUS LLM-vault backend
+  # vault.barta.cm. Backend for the Janus-Warden MCP server.
+  # NIX-110 / INSPR-180.
+  # ============================================
+  vaultwarden:
+    image: vaultwarden/server:1.32.7-alpine
+    container_name: vaultwarden
+    restart: unless-stopped
+    mem_limit: 256m
+    memswap_limit: 256m
+    environment:
+      - DOMAIN=https://vault.barta.cm
+      - SIGNUPS_ALLOWED=false
+      - INVITATIONS_ALLOWED=true
+      - WEB_VAULT_ENABLED=true
+      - WEBSOCKET_ENABLED=true
+      - IP_HEADER=X-Forwarded-For
+      - LOG_LEVEL=info
+      - EXTENDED_LOGGING=true
+      - LOG_FILE=/data/vaultwarden.log
+      - ROCKET_PORT=8080
+      - TZ=Europe/Vienna
+    env_file:
+      - /run/agenix/csb1-vaultwarden-env
+    volumes:
+      - vaultwarden_data:/data
+    networks:
+      - traefik
     labels:
-      - traefik.enable=false
-      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.http.routers.vaultwarden.rule=Host(`vault.barta.cm`)
+      - traefik.http.routers.vaultwarden.tls.certresolver=default
+      - traefik.http.routers.vaultwarden.tls=true
+      - traefik.http.services.vaultwarden.loadbalancer.server.port=8080
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.vaultwarden.middlewares=cloudflarewarp@file
+      # Security-sensitive: never auto-update.
+      - com.centurylinklabs.watchtower.enable=false
+
+volumes:
+  docmost_db_data: {}
+  docmost_redis_data: {}
+  docmost_data: {}
+  influxdb_data: {}
+  grafana_data: {}
+  paperless_db_data: {}
+  paperless_redis_data: {}
+  paperless_data: {}
+  paperless_media: {}
+  paperless_consume: {}
+  ppm_data: {}
+  minio_data: {}
+  vaultwarden_data: {} # NIX-110
 
 networks:
-  # Owned by /home/mba/docker/docker-compose.yml (project: csb1).
-  csb1_default:
-    external: true
+  internal:
+  traefik:
+  smtp:
+  docker-sock-traefik:
+    internal: true

@@ -1,5 +1,17 @@
 # Vaultwarden on csb1
 
+> **Note (NIX-110):** Vaultwarden is now defined as a service inside the
+> main csb1 compose at `../docker-compose.yml`, NOT as a standalone
+> compose project. The standalone compose file that lived alongside this
+> README has been removed. **Deploy via the main compose:**
+>
+> ```sh
+> cd ~/Code/nixcfg/hosts/csb1/docker && docker compose up -d vaultwarden
+> ```
+>
+> This README is preserved for the **first-run admin + JANUS setup
+> instructions** below, which are still correct.
+
 Backend for the **JANUS** LLM-vault connector (Janus-Warden). Stores the
 small subset of personal credentials that may be read by an LLM under
 tag-based allowlist control.
@@ -8,7 +20,7 @@ tag-based allowlist control.
 - **Host:** csb1 (Netcup VPS 1000 G11, Vienna)
 - **Image:** `vaultwarden/server:1.32.7-alpine` (pinned)
 - **Database:** SQLite (built-in, in `vaultwarden_data` volume)
-- **Network:** external `csb1_traefik` (shared with main host compose)
+- **Network:** `csb1_traefik` (the main compose's network — vault joins it natively as a service in the same project)
 - **Updates:** manual via PR + redeploy. Watchtower opt-out.
 
 ## Why csb1 (not csb0)
