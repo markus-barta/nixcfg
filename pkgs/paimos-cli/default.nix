@@ -29,13 +29,13 @@ buildGoModule rec {
   pname = "paimos-cli";
   # VERSION file at pinned rev + short sha so `paimos --version` is unambiguous
   # for unreleased builds.
-  version = "2.4.8-86bc1a1";
+  version = "3.4.0-d01c4d5";
 
   src = fetchFromGitHub {
     owner = "markus-barta";
     repo = "paimos";
-    rev = "86bc1a1c1437d720b798d7200d94520c366acf69";
-    hash = "sha256-GpJz8Ygz2dHetc4pNQ19z03aF4Mz+mGksdey6C7mUr8=";
+    rev = "d01c4d5478b01a7c32408649aa4845d5f435fe7a";
+    hash = "sha256-bbHkLEdhK2XOmrEav5tlThBwn6Y2ypNyPnUOVaWd2KQ=";
   };
 
   # The repo is a polyglot monorepo; the Go module lives under backend/,
