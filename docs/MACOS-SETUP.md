@@ -17,7 +17,7 @@ Step-by-step guide for setting up a new Mac with Nix, Home Manager, and Uzumaki.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  1. Prepare Mac          → Set hostname, enable SSH            │
-│  2. Install Nix          → Determinate Systems installer       │
+│  2. Install Nix          → Official NixOS.org installer        │
 │  3. Create Host Config   → Copy template, customize            │
 │  4. Apply Configuration  → home-manager switch                 │
 │  5. Post-Install Setup   → Fish shell, verify                  │
@@ -134,9 +134,11 @@ nix --version
 ```
 
 > 💡 **Don't want to open a new terminal?** Source the profile script in the current shell:
+>
 > ```bash
 > . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
 > ```
+>
 > Useful for scripted / automation flows (e.g. Bosun) where opening a new terminal isn't an option.
 
 ### 2.3 Enable Flakes (Required)
@@ -444,6 +446,19 @@ helpfish
 # Check theme (starship prompt should have correct colors)
 ```
 
+**Comprehensive INSPR self-test** (after `home-manager switch` succeeds):
+
+```bash
+# Run the full INSPR-onboarding probe — checks toolchain, tailnet, SSH,
+# secrets pipeline, identity, drift, repos. Exits non-zero on failure.
+~/Code/inspr/scripts/inspr-doctor.sh
+
+# Or with diagnostic output for any failed check:
+~/Code/inspr/scripts/inspr-doctor.sh --verbose
+```
+
+This is the canonical "am I INSPR-onboarded?" probe. Fix what it flags before considering setup done.
+
 ### 5.3 Enable direnv + devenv (Required for nixcfg)
 
 The nixcfg repo uses **direnv** + **devenv** for development environment setup:
@@ -574,15 +589,15 @@ Brief description of this machine.
 
 ## Features
 
-| ID  | Feature           | Description                 |
-| --- | ----------------- | --------------------------- |
-| F00 | Nix Base System   | Reproducible package mgmt   |
-| F01 | Fish Shell        | Modern shell with functions |
-| F02 | Starship Prompt   | Beautiful themed prompt     |
+| ID  | Feature           | Description                                                  |
+| --- | ----------------- | ------------------------------------------------------------ |
+| F00 | Nix Base System   | Reproducible package mgmt                                    |
+| F01 | Fish Shell        | Modern shell with functions                                  |
+| F02 | Starship Prompt   | Beautiful themed prompt                                      |
 | F03 | Ghostty Terminal  | (managed via Homebrew, not Nix — was WezTerm pre-2026-05-05) |
-| F04 | Git Identity      | Personal/work auto-switch   |
-| F05 | CLI Tools         | bat, ripgrep, fd, fzf, etc. |
-| F06 | Uzumaki Functions | pingt, helpfish, sourcefish |
+| F04 | Git Identity      | Personal/work auto-switch                                    |
+| F05 | CLI Tools         | bat, ripgrep, fd, fzf, etc.                                  |
+| F06 | Uzumaki Functions | pingt, helpfish, sourcefish                                  |
 ```
 
 ### 6.2 Create RUNBOOK.md
@@ -660,7 +675,7 @@ home-manager generations
   - [ ] Note architecture (Intel/Apple Silicon)
 
 - [ ] **Phase 2: Install Nix**
-  - [ ] Run Determinate installer
+  - [ ] Run official NixOS.org installer (multi-user)
   - [ ] Verify `nix --version` in new terminal
 
 - [ ] **Phase 3: Create Config**
@@ -696,5 +711,5 @@ home-manager generations
 
 ---
 
-**Last Updated:** December 2025  
+**Last Updated:** 2026-05-14  
 **Maintainer:** Markus Barta
