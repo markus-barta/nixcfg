@@ -201,6 +201,12 @@ in
   # Edit: agenix -e secrets/csb1-ppm-env.age
   "csb1-ppm-env.age".publicKeys = markus ++ csb1;
 
+  # Vaultwarden environment variables for csb1 (vault.barta.cm)
+  # Backend for JANUS LLM-vault connector (INSPR-180).
+  # Format: KEY=VALUE lines (ADMIN_TOKEN, optional SMTP_*)
+  # Edit: agenix -e secrets/csb1-vaultwarden-env.age
+  "csb1-vaultwarden-env.age".publicKeys = markus ++ csb1;
+
   # MinIO environment variables for csb1 (PPM attachment storage)
   # Format: KEY=VALUE lines (MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, etc.)
   # Edit: agenix -e secrets/csb1-minio-env.age

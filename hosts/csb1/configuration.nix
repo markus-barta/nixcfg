@@ -312,16 +312,18 @@
     };
   };
 
-  home-manager.users.mba = { config, ... }: {
-    imports = [
-      inputs.inspr-modules.homeManagerModules.ssh-authorized
-      ../../modules/shared/ssh-authorized.nix
-    ];
-    inspr.ssh.authorized = {
-      enable = true;
-      trust  = config._inspr.trustPresets.personalHosts;
+  home-manager.users.mba =
+    { config, ... }:
+    {
+      imports = [
+        inputs.inspr-modules.homeManagerModules.ssh-authorized
+        ../../modules/shared/ssh-authorized.nix
+      ];
+      inspr.ssh.authorized = {
+        enable = true;
+        trust = config._inspr.trustPresets.personalHosts;
+      };
     };
-  };
 
   # ============================================================================
   # SSH CONFIGURATION
@@ -369,6 +371,17 @@
   age.secrets.csb1-ppm-env = {
     file = ../../secrets/csb1-ppm-env.age;
     path = "/run/agenix/csb1-ppm-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  # Vaultwarden Docker env (vault.barta.cm)
+  # Backend for JANUS LLM-vault connector (INSPR-180).
+  # Format: KEY=VALUE (ADMIN_TOKEN, optional SMTP_*)
+  age.secrets.csb1-vaultwarden-env = {
+    file = ../../secrets/csb1-vaultwarden-env.age;
+    path = "/run/agenix/csb1-vaultwarden-env";
     owner = "root";
     group = "root";
     mode = "0644";
