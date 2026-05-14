@@ -705,7 +705,8 @@ home-manager generations
 
 ## Related Documentation
 
-- [HOST-TEMPLATE.md](./HOST-TEMPLATE.md) - NixOS host structure
+- [MACOS-HOST-TEMPLATE.md](./MACOS-HOST-TEMPLATE.md) - macOS host structural reference (sister doc to this runbook)
+- [NIXOS-HOST-TEMPLATE.md](./NIXOS-HOST-TEMPLATE.md) - NixOS host structure (for completeness; not used on macOS)
 - [AGENT-WORKFLOW.md](./AGENT-WORKFLOW.md) - Keeping config/docs/tests in sync
 - [Uzumaki Module](../modules/uzumaki/README.md) - Fish functions and theming
 

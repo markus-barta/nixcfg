@@ -203,6 +203,7 @@ or has a fragment file.
 
 **This is NOT a bug — it's "wait, the previous one isn't finished yet".**
 The previous switch-to-configuration may be:
+
 - Mid-restart of services (some stopped, not yet re-started)
 - Reloading systemd after writing new unit files
 - Running activation scripts (HM, agenix, etc.)
@@ -333,7 +334,7 @@ just setup-git-drivers   # so it doesn't happen next time
 
 ## References
 
-- **Host structure requirements**: [HOST-TEMPLATE.md](./HOST-TEMPLATE.md)
+- **Host structure requirements**: [NIXOS-HOST-TEMPLATE.md](./NIXOS-HOST-TEMPLATE.md) (NixOS) · [MACOS-HOST-TEMPLATE.md](./MACOS-HOST-TEMPLATE.md) (macOS)
 - **Infrastructure inventory**: [INFRASTRUCTURE.md](./INFRASTRUCTURE.md)
 - **PM workflow**: PPM via `paimos` CLI (`pm.barta.cm`, project `NIX`)
 - **Test guidelines**: [tests/README.md](../tests/README.md)

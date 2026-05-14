@@ -339,7 +339,8 @@ hosts/hsb1/
 
 - **[INFRASTRUCTURE.md](./INFRASTRUCTURE.md)** - Host inventory, IPs, dependencies
 - **[AGENT-WORKFLOW.md](./AGENT-WORKFLOW.md)** - How to work with this codebase
-- **[HOST-TEMPLATE.md](./HOST-TEMPLATE.md)** - Required file structure per host (NixOS)
+- **[NIXOS-HOST-TEMPLATE.md](./NIXOS-HOST-TEMPLATE.md)** - Required file structure per host (NixOS)
+- **[MACOS-HOST-TEMPLATE.md](./MACOS-HOST-TEMPLATE.md)** - Required file structure per host (macOS, Home Manager)
 - **[MACOS-SETUP.md](./MACOS-SETUP.md)** - Step-by-step guide for new Macs
 - **Host READMEs**: `hosts/*/README.md` - Per-machine details
 
