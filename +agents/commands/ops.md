@@ -1,4 +1,5 @@
 read and follow @AGENTS.md
+@./doctrine/docs/AGENTS-AGENT-SYSOP.md
 assume @+agents/rules/SYSOP.md role
 
 - Do not start any task until the I explicitly ask you to do so!
