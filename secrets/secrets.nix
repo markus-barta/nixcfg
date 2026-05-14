@@ -207,6 +207,31 @@ in
   # Edit: agenix -e secrets/csb1-vaultwarden-env.age
   "csb1-vaultwarden-env.age".publicKeys = markus ++ csb1;
 
+  # === NIX-110: csb1 docker stack migration to git — bulk env file refactor ===
+  # The following secrets were previously plaintext in ~/secrets/ or
+  # ./xxx.env on csb1. Moved to agenix as part of the docker-in-git
+  # migration. Each is referenced by the corresponding service in
+  # hosts/csb1/docker/docker-compose.yml as env_file: /run/agenix/<name>.
+
+  # Docmost — Postgres credentials
+  "csb1-docmost-postgres-env.age".publicKeys = markus ++ csb1;
+  # Docmost — application config (API keys, S3 creds, etc.)
+  "csb1-docmost-config-env.age".publicKeys = markus ++ csb1;
+  # InfluxDB3 — bootstrap admin + tokens
+  "csb1-influxdb3-env.age".publicKeys = markus ++ csb1;
+  # Paperless-ngx — Postgres credentials
+  "csb1-paperless-postgres-env.age".publicKeys = markus ++ csb1;
+  # Paperless-ngx — application config (admin user, secret key)
+  "csb1-paperless-config-env.age".publicKeys = markus ++ csb1;
+  # SMTP relay (docker-smtp) — smarthost password
+  "csb1-smtp-env.age".publicKeys = markus ++ csb1;
+  # Restic cron (hetzner storagebox) — restic password + mail
+  "csb1-restic-cron-hetzner-env.age".publicKeys = markus ++ csb1;
+  # Restic SSH private key (was plaintext on disk pre-NIX-110)
+  "csb1-restic-cron-id-rsa.age".publicKeys = markus ++ csb1;
+  # Watchtower — HTTP API token + notifications URL
+  "csb1-watchtower-env.age".publicKeys = markus ++ csb1;
+
   # MinIO environment variables for csb1 (PPM attachment storage)
   # Format: KEY=VALUE lines (MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, etc.)
   # Edit: agenix -e secrets/csb1-minio-env.age

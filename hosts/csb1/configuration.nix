@@ -387,6 +387,84 @@
     mode = "0644";
   };
 
+  # === NIX-110: csb1 docker stack migration — bulk env file refactor ===
+  # All env files for services in /home/mba/docker/docker-compose.yml that
+  # previously lived in ~/secrets/ or ./xxx.env are now in agenix.
+
+  age.secrets.csb1-docmost-postgres-env = {
+    file = ../../secrets/csb1-docmost-postgres-env.age;
+    path = "/run/agenix/csb1-docmost-postgres-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  age.secrets.csb1-docmost-config-env = {
+    file = ../../secrets/csb1-docmost-config-env.age;
+    path = "/run/agenix/csb1-docmost-config-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  age.secrets.csb1-influxdb3-env = {
+    file = ../../secrets/csb1-influxdb3-env.age;
+    path = "/run/agenix/csb1-influxdb3-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  age.secrets.csb1-paperless-postgres-env = {
+    file = ../../secrets/csb1-paperless-postgres-env.age;
+    path = "/run/agenix/csb1-paperless-postgres-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  age.secrets.csb1-paperless-config-env = {
+    file = ../../secrets/csb1-paperless-config-env.age;
+    path = "/run/agenix/csb1-paperless-config-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  age.secrets.csb1-smtp-env = {
+    file = ../../secrets/csb1-smtp-env.age;
+    path = "/run/agenix/csb1-smtp-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  age.secrets.csb1-restic-cron-hetzner-env = {
+    file = ../../secrets/csb1-restic-cron-hetzner-env.age;
+    path = "/run/agenix/csb1-restic-cron-hetzner-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  # SSH private key for restic-cron (was plaintext on disk pre-NIX-110).
+  # Stricter mode (0400) since this is an SSH identity, not just env vars.
+  age.secrets.csb1-restic-cron-id-rsa = {
+    file = ../../secrets/csb1-restic-cron-id-rsa.age;
+    path = "/run/agenix/csb1-restic-cron-id-rsa";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+
+  age.secrets.csb1-watchtower-env = {
+    file = ../../secrets/csb1-watchtower-env.age;
+    path = "/run/agenix/csb1-watchtower-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
   # MinIO Docker env (PPM attachment storage)
   # Format: KEY=VALUE (MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)
   age.secrets.csb1-minio-env = {
