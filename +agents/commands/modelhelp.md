@@ -2,7 +2,7 @@
 description: "Show OpenClaw model cheat-sheet with tiers, aliases, keywords and task guidance"
 ---
 
-Read and follow @+agents/rules/AGENTS.md
+Read and follow @AGENTS.md
 
 # Model Help — Cheat Sheet
 

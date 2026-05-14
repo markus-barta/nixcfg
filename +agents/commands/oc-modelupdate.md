@@ -2,7 +2,7 @@
 description: "Research, validate and update OpenClaw model lists across all bots"
 ---
 
-Read and follow @+agents/rules/AGENTS.md
+Read and follow @AGENTS.md
 Assume @+agents/rules/SYSOP.md role
 
 # Task: `/oc-modelupdate`
