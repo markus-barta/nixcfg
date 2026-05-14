@@ -1,3 +1,14 @@
+# NIX-110 NOTE: this file is a pulled-from-csb1 copy for documentation
+# / future migration. The fleetcom server is intentionally OUT OF SCOPE
+# for the NIX-110 cutover (M6) — it stays running from
+# /home/mba/docker/fleetcom/ on csb1 until a separate migration epic
+# brings it in-git. The /etc/fleetcom-deploy.sh script (defined in
+# hosts/csb1/configuration.nix) still references the old path and
+# remains valid as long as that's true.
+#
+# Do NOT `docker compose up -d` from this directory unless you ALSO
+# stop the legacy /home/mba/docker/fleetcom/ stack first.
+
 services:
   fleetcom:
     image: ghcr.io/markus-barta/fleetcom:latest
