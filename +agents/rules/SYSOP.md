@@ -218,14 +218,14 @@ Current Context                Target Host              Reachable?
 
 **Read these, don't duplicate their content:**
 
-|                             | What                                                   | Where |
-| --------------------------- | ------------------------------------------------------ | ----- |
-| Agent workflow & checklists | [docs/AGENT-WORKFLOW.md](../../docs/AGENT-WORKFLOW.md) |
-| Host inventory & deps       | [docs/INFRASTRUCTURE.md](../../docs/INFRASTRUCTURE.md) |
-| Host structure requirements | [docs/HOST-TEMPLATE.md](../../docs/HOST-TEMPLATE.md)   |
-| Task management             | PPM via `paimos` CLI (`NIX` project in this repo)      |
-| Host-specific details       | `hosts/<hostname>/README.md`                           |
-| Host procedures             | `hosts/<hostname>/docs/RUNBOOK.md`                     |
+|                             | What                                                                                                                                                | Where |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| Agent workflow & checklists | [docs/AGENT-WORKFLOW.md](../../docs/AGENT-WORKFLOW.md)                                                                                              |
+| Host inventory & deps       | [docs/INFRASTRUCTURE.md](../../docs/INFRASTRUCTURE.md)                                                                                              |
+| Host structure requirements | [docs/NIXOS-HOST-TEMPLATE.md](../../docs/NIXOS-HOST-TEMPLATE.md) (NixOS) · [docs/MACOS-HOST-TEMPLATE.md](../../docs/MACOS-HOST-TEMPLATE.md) (macOS) |
+| Task management             | PPM via `paimos` CLI (`NIX` project in this repo)                                                                                                   |
+| Host-specific details       | `hosts/<hostname>/README.md`                                                                                                                        |
+| Host procedures             | `hosts/<hostname>/docs/RUNBOOK.md`                                                                                                                  |
 
 ---
 
