@@ -319,6 +319,18 @@ in
   # Edit: agenix -e secrets/agents/host/mba-mbp-m5-work/GH_TOKEN.age
   "agents/host/mba-mbp-m5-work/GH_TOKEN.age".publicKeys = markus ++ mba-mbp-m5-work;
 
+  # Onshape API credentials (key + secret) — paired Onshape developer
+  # access tokens; rotate together. imac0-only (CAD work happens on the
+  # iMac). Materialized to ~/.inspr/secrets/agents/ONSHAPE.env.
+  # Format inside the .age file (two lines):
+  #   ONSHAPE_API_KEY=<access key>
+  #   ONSHAPE_API_SECRET=<secret key>
+  # Recipient: markus aggregate only (agent-secrets is HM-level, decrypts
+  # with the user SSH key — no imac0 host key needed; see comment at the
+  # top of this file).
+  # Edit: agenix -e secrets/agents/host/imac0/ONSHAPE.age
+  "agents/host/imac0/ONSHAPE.age".publicKeys = markus;
+
   # ────────────────────────────────────────────────────────────────────────
   # Shared agent secrets (cross-machine)
   # Format inside each .age file: <VARNAME>=<value>
