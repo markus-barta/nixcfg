@@ -37,14 +37,15 @@ If you're authoring a NEW rule: add it upstream in inspr-modules at the right la
 
 Tool-discovery wrappers — IDE/LLM tools auto-load these names:
 
-| Symlink                           | Target                    | Tool(s)                 |
-| --------------------------------- | ------------------------- | ----------------------- |
-| `AGENTS.md`                       | _(real file, no symlink)_ | OpenCode, Cursor, Zed   |
-| `CLAUDE.md`                       | `AGENTS.md`               | Claude Code             |
-| `.rules`                          | `AGENTS.md`               | Zed (primary lookup)    |
-| `.github/copilot-instructions.md` | `../AGENTS.md`            | GitHub Copilot          |
-| `SYSOP.md` (root)                 | `+agents/rules/SYSOP.md`  | Discoverability         |
-| `.opencode/commands`              | `+agents/commands`        | OpenCode slash commands |
+| Symlink                           | Target                      | Tool(s)                          |
+| --------------------------------- | --------------------------- | -------------------------------- |
+| `AGENTS.md`                       | _(real file, no symlink)_   | OpenCode, Cursor, Zed            |
+| `CLAUDE.md`                       | `AGENTS.md`                 | Claude Code                      |
+| `.rules`                          | `AGENTS.md`                 | Zed (primary lookup)             |
+| `.github/copilot-instructions.md` | `../AGENTS.md`              | GitHub Copilot                   |
+| `SYSOP.md` (root)                 | `+agents/rules/SYSOP.md`    | Discoverability (Markus's role)  |
+| `SYSOP-GB.md` (root)              | `+agents/rules/SYSOP-GB.md` | Discoverability (Gerhard's role) |
+| `.opencode/commands`              | `+agents/commands`          | OpenCode slash commands          |
 
 `AGENTS.md` was made a real file (no longer a symlink) on 2026-05-14 (INSPR-179 Phase 5.2) so the modern AGENTS.md tooling convention finds the canonical file at the standard repo-root location.
 
