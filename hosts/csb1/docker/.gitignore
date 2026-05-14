@@ -1,0 +1,6 @@
+# ignores — match csb0 pattern (hosts/csb0/docker/.gitignore)
+# Mutable runtime state that must live in the docker dir (so relative
+# bind mounts in docker-compose.yml resolve) but must stay out of git.
+
+traefik/acme.json
+traefik/variables.env

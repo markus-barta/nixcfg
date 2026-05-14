@@ -195,8 +195,8 @@ services:
       - traefik.enable=false
 
   # https://docs.traefik.io/v2.5/providers/docker/
-  # acme.json stays at /var/lib/csb1-docker/traefik/acme.json on the host
-  # (mutable LE cert state — not in git, preserved across the migration).
+  # acme.json lives at ./traefik/acme.json (gitignored — mutable LE cert
+  # state). Matches csb0's pattern: relative path, file kept out of git.
   traefik:
     image: traefik
     command: --providers.docker
@@ -212,7 +212,7 @@ services:
     volumes:
       - ./traefik/static.yml:/etc/traefik/traefik.yml
       - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml
-      - /var/lib/csb1-docker/traefik/acme.json:/etc/traefik/acme/acme.json
+      - ./traefik/acme.json:/etc/traefik/acme/acme.json:rw
     labels:
       - traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`)
       - traefik.http.routers.traefik.service=api@internal
