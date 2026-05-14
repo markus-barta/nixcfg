@@ -193,7 +193,9 @@
     text = ''
       #!/bin/sh
       set -eu
-      cd /home/mba/docker
+      # NIX-110 / NIX-121: docker stack moved from /home/mba/docker to
+      # ~/Code/nixcfg/hosts/csb1/docker/ on 2026-05-14 cutover.
+      cd /home/mba/Code/nixcfg/hosts/csb1/docker
       docker compose pull ppm
       docker compose up -d ppm
       echo "ok: ppm updated"

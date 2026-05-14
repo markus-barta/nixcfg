@@ -339,7 +339,7 @@ services:
   # PPM - Personal Project Management
   # ============================================
   ppm:
-    image: ghcr.io/markus-barta/paimos:3.4.1
+    image: ghcr.io/markus-barta/paimos:3.4.3
     container_name: ppm
     restart: unless-stopped
     environment:
