@@ -13,8 +13,9 @@ Both configs must always be identical (in sync).
 
 ## Config files to update
 
-- `@hosts/hsb0/docker/openclaw-gateway/openclaw.json`
-- `@hosts/miniserver-bp/docker/openclaw-percaival/openclaw.json`
+- `@hosts/hsb0/docker/openclaw-gateway/openclaw.json` (this repo, nixcfg)
+- `~/Code/BYTEPOETS/bpnixcfg/hosts/miniserver-bp/docker/openclaw-percaival/openclaw.json`
+  (since 2026-05-02, msbp lives in BYTEPOETS/bpnixcfg — no auto-loaded @-ref; Read explicitly)
 
 ## Current OpenRouter model catalogue
 
@@ -127,8 +128,10 @@ cd ~/Code/oc-workspace-percy && git pull --ff-only && git add skills/modelhelp/S
 
 ```bash
 # Restart containers to pick up new openclaw.json (~30s each)
+# hsb0 lives in nixcfg
 ssh mba@hsb0.lan "cd ~/Code/nixcfg && gitpl && cd hosts/hsb0/docker && docker compose restart openclaw-gateway"
-ssh msbp "cd ~/Code/nixcfg && gitpl && cd hosts/miniserver-bp/docker && docker compose restart openclaw-percaival"
+# msbp lives in bpnixcfg (BYTEPOETS-owned, since 2026-05-02)
+ssh msbp "cd ~/Code/bpnixcfg && gitpl && cd hosts/miniserver-bp/docker && docker compose restart openclaw-percaival"
 
 # Pull updated modelhelp skill into running containers
 just oc-pull-workspace hsb0   # pulls merlin + nimue workspaces

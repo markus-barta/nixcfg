@@ -21,12 +21,17 @@ You are now operating in OpenClaw bot context. Two instances run across two host
 Read the following docs carefully before proceeding — they are the source of truth:
 
 @hosts/hsb0/docs/OPENCLAW-RUNBOOK.md
-@hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md
+
+> **msbp/Percy lives in BYTEPOETS/bpnixcfg** (since 2026-05-02, INSPR-24 Stage 2).
+> Auto-load via `@`-ref crosses repos and won't work — explicitly `Read` these
+> when you need them:
+>
+> - `~/Code/BYTEPOETS/bpnixcfg/hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md`
+> - `~/Code/BYTEPOETS/bpnixcfg/hosts/miniserver-bp/docs/RUNBOOK.md`
 
 For host-level context (NixOS config, SSH, agenix, Docker):
 
 @hosts/hsb0/docs/RUNBOOK.md
-@hosts/miniserver-bp/docs/RUNBOOK.md
 
 ## Agents — Quick Reference
 
