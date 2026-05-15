@@ -75,4 +75,7 @@ id_rsa.pub
 
 # Docker mutable state (Traefik ACME certificates)
 **/docker/traefik/acme.json
-.claude/
+# .claude/ holds per-machine session/log state (ignored), but the slash-command
+# subdir is tracked so Claude Code discovers /ops, /inspr, etc. on every clone.
+.claude/*
+!.claude/commands
