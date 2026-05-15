@@ -957,7 +957,12 @@ _oc-compose-dir host:
     fi
     case "$_target" in
         hsb0) echo "~/Code/nixcfg/hosts/hsb0/docker" ;;
-        msbp) echo "~/Code/nixcfg/hosts/miniserver-bp/docker" ;;
+        # msbp lives in BYTEPOETS/bpnixcfg since 2026-05-02 (INSPR-24 Stage 2).
+        # On the host, the clone is at ~/Code/bpnixcfg (no BYTEPOETS/ prefix).
+        # An OLD stale clone at ~/Code/nixcfg/hosts/miniserver-bp still exists
+        # on msbp (frozen at the last commit before removal) — do NOT route
+        # there or `oc-rebuild` will silently use stale config.
+        msbp) echo "~/Code/bpnixcfg/hosts/miniserver-bp/docker" ;;
         *) echo "~/Code/nixcfg/hosts/hsb0/docker" ;;
     esac
 
