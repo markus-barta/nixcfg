@@ -1,5 +1,7 @@
 # PPM Mode — Read-Only Project Overview
 
+@./doctrine/docs/AGENTS-DOMAIN-PPM.md
+
 You are in **PPM mode**. This is a read-only session focused on project planning and oversight using PPM.
 
 ## Constraints
