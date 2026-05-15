@@ -1,15 +1,19 @@
 # nixcfg — Agent Doctrine Overlay
 
-_This file is the THIN OVERLAY for nixcfg-specific rules. Universal rules and personal preferences live in [inspr-modules](https://github.com/markus-barta/inspr-modules/tree/main/docs); only the nixcfg-specific delta lives here._
+_This file is the THIN OVERLAY for **nixcfg-specific** rules. Universal rules + Markus profile live upstream in [inspr-modules](https://github.com/markus-barta/inspr-modules); the kernel (auto-loaded) carries the always-on subset, and slash commands (`/dev /secrets /nix /ops /ppm /style /incident /inspr`) load deeper context on demand._
 
-## Layered context (read in order)
+## Where to find what (post-Phase-6, 2026-05-15)
 
-1. **[AGENTS-CORE.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-CORE.md)** — universal rules
-2. **[AGENTS-PROFILE-MARKUS.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-PROFILE-MARKUS.md)** — Markus's preferences
-3. _(if applicable)_ role overlay for your agent identity (AGENTS-AGENT-\*.md)
-4. **THIS FILE** — nixcfg-specific delta
+| Need                                           | Where it lives                                                                           |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Auto-loaded hard safety + identity + router    | `doctrine/docs/AGENTS-KERNEL.md` (kernel)                                                |
+| Per-domain depth (secrets, nix, dev, ops, ppm) | `doctrine/docs/AGENTS-DOMAIN-*.md` (load via `/secrets`, `/nix`, `/dev`, `/ops`, `/ppm`) |
+| Markus full profile                            | `doctrine/docs/AGENTS-PROFILE-MARKUS.md` (load via `/style`)                             |
+| Per-role overlays                              | `doctrine/docs/AGENTS-AGENT-*.md` (loaded by slash commands)                             |
+| Exhaustive universal-rules reference           | `doctrine/docs/AGENTS-CORE.md` (rarely needed; `/style` etc. cover the practical subset) |
+| **This file**                                  | nixcfg-specific delta only                                                               |
 
-_Synthesized 2026-05-14 by INSPR-179 Phase 4 · This overlay holds 55 rules._
+_Phase 4 synthesized 55 nixcfg-specific rules from sources on 2026-05-14. Phase 6 (2026-05-15) made this file the only per-repo file auto-loaded alongside the kernel._
 
 ---
 
