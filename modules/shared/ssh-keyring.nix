@@ -92,7 +92,7 @@
 
     # Markus's BYTEPOETS work identity — `id_ed25519_bytepoets` private
     # key lives on every work-context macOS host (mba-imac-work,
-    # mba-mbp-work, mba-mbp-m5-work). Use this preset on hosts where
+    # mba-mbp-m5-work). Use this preset on hosts where
     # Markus should be able to SSH IN from any work-context machine
     # (cross-context inbound). Initially used on imac0 only; promote to
     # other personal hosts (hsb0, hsb1, csb0, …) as the need arises.
@@ -195,7 +195,7 @@
     # ── Cross-context (work) ──────────────────────────────────────────────
     # Markus's BYTEPOETS work identity. Public key of `id_ed25519_bytepoets`
     # — the private key lives on every work-context macOS host
-    # (mba-imac-work, mba-mbp-work, mba-mbp-m5-work). Currently admitted on
+    # (mba-imac-work, mba-mbp-m5-work). Currently admitted on
     # imac0 only via the `bytepoetsInbound` preset; promote to other personal
     # hosts as cross-context-inbound need arises. NOT in `personalHosts`
     # because it's a deliberately separate trust dimension (work → personal),

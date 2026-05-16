@@ -98,30 +98,6 @@
       User markus
 
     # === PORTABLE/WORK HOSTS ===
-    Host mba-mbp-work
-      HostName 192.168.1.197
-      User mba
-      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc mba-mbp-work.ts.barta.cm %p; fi'
-
-    Host mba-mbp-work-lan
-      HostName 192.168.1.197
-      User mba
-
-    Host mba-mbp-work-ts
-      HostName mba-mbp-work.ts.barta.cm
-      User mba
-
-    Host mbpw
-      HostName mba-mbp-work
-
-    Host mbpw-lan
-      HostName 192.168.1.197
-      User mba
-
-    Host mbpw-ts
-      HostName mba-mbp-work.ts.barta.cm
-      User mba
-
     Host mba-imac-work
       HostName 10.17.1.7
       User markus

@@ -493,7 +493,7 @@
     lightGray = {
       name = "Light Gray";
       category = "workstation";
-      description = "Work MacBook Pro (mba-mbp-work)";
+      description = "Work MacBook portable (mba-mbp-m5-work)";
 
       # Powerline gradient (light → dark)
       gradient = {
@@ -840,8 +840,7 @@
     imac0 = "warmGray";
     imac1 = "roseGold"; # Wife's iMac (future)
     "mba-imac-work" = "darkGray";
-    "mba-mbp-work" = "lightGray";
-    "mba-mbp-m5-work" = "lightGray"; # M5 work portable — same lightGray family as the predecessor it replaces
+    "mba-mbp-m5-work" = "lightGray";
     miniserver-bp = "veryDarkGray";
   };
 
@@ -867,7 +866,6 @@
     "imac0"
     "imac1"
     "mba-imac-work"
-    "mba-mbp-work"
     "mba-mbp-m5-work"
   ];
 

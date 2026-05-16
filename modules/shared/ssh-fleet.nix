@@ -7,14 +7,13 @@
 # Features:
 # - Auto-fallback: Try LAN first (2s timeout), fallback to Tailscale
 # - Explicit routes: Use -lan or -ts suffix to force specific route
-# - Nicknames: Short aliases for long hostnames (mbpw → mba-mbp-work)
+# - Nicknames: Short aliases for long hostnames
 # - Keep-alive: 60s ping to prevent connection timeout
 #
 # Usage:
 #   ssh hsb0         # Auto: Try LAN, fallback to Tailscale
 #   ssh hsb0-lan     # Force LAN only
 #   ssh hsb0-ts      # Force Tailscale only
-#   ssh mbpw         # Nickname → mba-mbp-work
 #
 {
   lib,
@@ -141,37 +140,6 @@
       "imac0-ts" = {
         hostname = "imac0.ts.barta.cm";
         user = "markus";
-      };
-
-      # ═══════════════════════════════════════════════════════════
-      # PORTABLE HOST - Location-dependent (home network when docked)
-      # ═══════════════════════════════════════════════════════════
-
-      "mba-mbp-work" = {
-        hostname = "192.168.1.197"; # When at home
-        user = "mba";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc mba-mbp-work.ts.barta.cm %p; fi'";
-      };
-      "mba-mbp-work-lan" = {
-        hostname = "192.168.1.197";
-        user = "mba";
-      };
-      "mba-mbp-work-ts" = {
-        hostname = "mba-mbp-work.ts.barta.cm";
-        user = "mba";
-      };
-
-      # Nickname: mbpw → mba-mbp-work
-      "mbpw" = {
-        hostname = "mba-mbp-work";
-      };
-      "mbpw-lan" = {
-        hostname = "192.168.1.197";
-        user = "mba";
-      };
-      "mbpw-ts" = {
-        hostname = "mba-mbp-work.ts.barta.cm";
-        user = "mba";
       };
 
       # ═══════════════════════════════════════════════════════════

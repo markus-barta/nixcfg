@@ -183,10 +183,8 @@
       homeConfigurations."markus@mba-imac-work" = mkDarwinHome "x86_64-darwin" "mba-imac-work";
       homeConfigurations."mba-imac-work" = self.homeConfigurations."markus@mba-imac-work";
 
-      homeConfigurations."mba@mba-mbp-work" = mkDarwinHome "x86_64-darwin" "mba-mbp-work";
-      homeConfigurations."mba-mbp-work" = self.homeConfigurations."mba@mba-mbp-work";
-
-      # NEW: first aarch64-darwin host (Apple Silicon M5)
+      # Apple Silicon M5 (mba-mbp-work was decommissioned 2026-05-16; m5 is the
+      # only macOS portable.)
       homeConfigurations."mba@mba-mbp-m5-work" = mkDarwinHome "aarch64-darwin" "mba-mbp-m5-work";
       homeConfigurations."mba-mbp-m5-work" = self.homeConfigurations."mba@mba-mbp-m5-work";
 
@@ -371,7 +369,7 @@
           docs.optionsCommonMark;
       };
 
-      # macOS packages (for imac0, mba-mbp-work, etc.)
+      # macOS packages (for imac0, mba-imac-work — x86_64 macOS hosts)
       packages.x86_64-darwin =
         let
           pkgsDarwin = import nixpkgs {

@@ -76,9 +76,6 @@ in
       imacw = "ssh imacw -t 'zellij attach imacw -c'";
       msbp = "ssh msbp -t 'zellij attach msbp -c'";
 
-      # Portable (nickname)
-      mbpw = "ssh mbpw -t 'zellij attach mbpw -c'";
-
       # Cloud
       csb0 = "ssh csb0 -t 'zellij attach csb0 -c'";
       csb1 = "ssh csb1 -t 'zellij attach csb1 -c'";
