@@ -204,7 +204,7 @@ fish --version
 
 ---
 
-## Step 7: Install Karabiner-Elements (Optional)
+## Step 7: Install Karabiner-Elements (Manual)
 
 For keyboard remapping (Caps Lock → Hyper key):
 
@@ -220,6 +220,7 @@ brew install --cask karabiner-elements
 3. You may need to restart Karabiner
 
 The configuration is already linked via home-manager at `~/.config/karabiner/karabiner.json`.
+The source of truth is `modules/config/karabiner.json`; the app and Input Monitoring approval stay manual because Karabiner is a system-level input-event tool.
 
 ---
 
@@ -395,10 +396,10 @@ The configuration is set for `x86_64-darwin`. No changes needed.
 After setup, you'll have:
 
 | Tool       | Purpose                            |
-| ---------- | ---------------------------------- |
+| ---------- | ---------------------------------- | ------------------------ | ------------------------------------------------------ |
 | Fish       | Modern shell                       |
 | Starship   | Beautiful prompt (warm gray)       |
-~~| WezTerm    | GPU-accelerated terminal           |~~ — purged 2026-05-05; Ghostty (Homebrew) replaces it
+| ~~         | WezTerm                            | GPU-accelerated terminal | ~~ — purged 2026-05-05; Ghostty (Homebrew) replaces it |
 | Git        | With dual identity (work/personal) |
 | bat        | Better cat                         |
 | ripgrep    | Fast grep (rg)                     |

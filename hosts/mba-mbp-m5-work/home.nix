@@ -122,6 +122,8 @@ in
       # Ensure Nix paths are prioritized
       fish_add_path --prepend --move ~/.nix-profile/bin
       fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
+      # Homebrew (Apple Silicon) before system /usr/bin — brew-doctor compliance
+      fish_add_path --prepend --move /opt/homebrew/bin
     '';
 
     interactiveShellInit = ''
@@ -224,7 +226,6 @@ in
     ];
     extraCasks = [
       "android-studio"
-      "chromium"
       "github" # GitHub Desktop
       "raycast"
       "tailscale-app" # M5 uses GUI; other hosts use CLI/system Tailscale

@@ -34,6 +34,10 @@ uzumaki = {
 };
 ```
 
+On macOS this import also links the shared Karabiner JSON config from
+`modules/config/karabiner.json`. The Karabiner-Elements app install and Input
+Monitoring approval stay manual per host.
+
 ---
 
 ## Module Options
@@ -117,16 +121,16 @@ hokage = {
 
 ### What We Override
 
-| Component    | Hokage Default            | Our Override (Tokyo Night) | File                 |
-| ------------ | ------------------------- | -------------------------- | -------------------- |
-| **Starship** | (disabled via catppuccin) | Per-host gradient colors   | `theme/theme-hm.nix` |
-| **Eza**      | (disabled via catppuccin) | Tokyo Night Uzumaki theme  | `theme/theme-hm.nix` |
-| **Zellij**   | ⚠️ **NOT disabled**       | Per-host accent colors     | `theme/theme-hm.nix` |
-| ~~**WezTerm**~~ | (purged 2026-05-05; replaced by Ghostty, themed via its own config outside Nix) | — | — |
-| **Helix**    | (no override needed)      | `tokyonight_storm`         | `common.nix`         |
-| **bat**      | (disabled via catppuccin) | `tokyonight_night`         | `theme/theme-hm.nix` |
-| **fzf**      | (disabled via catppuccin) | Tokyo Night colors         | `theme/theme-hm.nix` |
-| **lazygit**  | (disabled via catppuccin) | Tokyo Night theme          | `theme/theme-hm.nix` |
+| Component       | Hokage Default                                                                  | Our Override (Tokyo Night) | File                 |
+| --------------- | ------------------------------------------------------------------------------- | -------------------------- | -------------------- |
+| **Starship**    | (disabled via catppuccin)                                                       | Per-host gradient colors   | `theme/theme-hm.nix` |
+| **Eza**         | (disabled via catppuccin)                                                       | Tokyo Night Uzumaki theme  | `theme/theme-hm.nix` |
+| **Zellij**      | ⚠️ **NOT disabled**                                                             | Per-host accent colors     | `theme/theme-hm.nix` |
+| ~~**WezTerm**~~ | (purged 2026-05-05; replaced by Ghostty, themed via its own config outside Nix) | —                          | —                    |
+| **Helix**       | (no override needed)                                                            | `tokyonight_storm`         | `common.nix`         |
+| **bat**         | (disabled via catppuccin)                                                       | `tokyonight_night`         | `theme/theme-hm.nix` |
+| **fzf**         | (disabled via catppuccin)                                                       | Tokyo Night colors         | `theme/theme-hm.nix` |
+| **lazygit**     | (disabled via catppuccin)                                                       | Tokyo Night theme          | `theme/theme-hm.nix` |
 
 > **Note**: With `hokage.catppuccin.enable = false`, most workarounds are not needed.
 > **Exception: Zellij** - hokage provides zellij config regardless of catppuccin setting,

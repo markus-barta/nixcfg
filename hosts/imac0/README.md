@@ -39,7 +39,7 @@ Personal macOS development machine with Nix package management and home-manager.
 | --- | --------------------------- | ---------------------------------------- | ---- |
 | F00 | home-manager + Nix          | Declarative package & config management  | -    |
 | F01 | Fish Shell + Starship       | Modern shell with beautiful prompt       | -    |
-| F02 | Ghostty (Homebrew, not Nix)                     | GPU-accelerated terminal emulator        | -    |
+| F02 | Ghostty (Homebrew, not Nix) | GPU-accelerated terminal emulator        | -    |
 | F03 | Git Dual Identity           | Auto-switch personal/work git identity   | -    |
 | F04 | Karabiner-Elements          | Caps Lock → Hyper key, custom mappings   | -    |
 | F05 | Zellij Terminal Multiplexer | Modern tmux alternative with tabs/panes  | -    |
@@ -121,7 +121,7 @@ home-manager switch --flake ".#markus@imac0"
 brew install --cask karabiner-elements
 
 # Grant "Input Monitoring" permissions in System Preferences
-# Configuration is already linked via home-manager!
+# Configuration is already linked via home-manager from modules/config/karabiner.json
 ```
 
 ### 4. Terminal.app Fonts (Optional)
@@ -141,10 +141,6 @@ See [docs/manual-setup/terminal-app-fonts.md](docs/manual-setup/terminal-app-fon
 
 ```text
 hosts/imac0/
-├── config/                      # Configuration files
-│   ├── starship.toml            # Starship prompt config
-│   └── karabiner.json           # Keyboard remapping config
-│
 ├── docs/                        # Documentation
 │   ├── README.md                # Docs index
 │   ├── progress.md              # Migration history & status
@@ -360,6 +356,8 @@ Karabiner-Elements configuration (declarative):
 
 - **Caps Lock → Hyper** (Cmd+Ctrl+Opt+Shift)
 - **F1-F12** as regular function keys in terminals
+- Config source: `modules/config/karabiner.json`
+- App install and Input Monitoring approval stay manual
 
 ### Scripts Management
 
@@ -409,10 +407,10 @@ home-manager switch --flake ".#markus@imac0"
 
 ```bash
 # Edit configuration
-vim hosts/imac0/config/karabiner.json
+vim modules/config/karabiner.json
 
 # Commit changes
-git add hosts/imac0/config/karabiner.json
+git add modules/config/karabiner.json
 git commit -m "Update keyboard mappings"
 
 # Apply changes
@@ -580,7 +578,7 @@ brew update && brew upgrade && brew cleanup
 ### Configuration Files
 
 - [home.nix](./home.nix) - Main home-manager configuration
-- [config/karabiner.json](./config/karabiner.json) - Keyboard remapping
+- [../../modules/config/karabiner.json](../../modules/config/karabiner.json) - Shared macOS keyboard remapping
 
 ### Related Hosts
 

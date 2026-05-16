@@ -100,7 +100,7 @@ git config user.email
 ~/Scripts/                    # Symlinked from hosts/imac0/scripts/host-user/
 
 # Karabiner config
-~/.config/karabiner/karabiner.json  # Symlinked from hosts/imac0/config/
+~/.config/karabiner/karabiner.json  # Symlinked from modules/config/karabiner.json
 ```
 
 ---

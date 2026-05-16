@@ -372,12 +372,6 @@ in
   home.file.".nanorc".text = macosCommon.nanoConfig pkgs;
 
   # ============================================================================
-  # Karabiner-Elements Configuration (Declarative!)
-  # ============================================================================
-  # SSOT: modules/config/karabiner.json (shared across all macOS hosts)
-  home.file.".config/karabiner/karabiner.json".source = ../../modules/config/karabiner.json;
-
-  # ============================================================================
   # Starship Config - NOW MANAGED BY theme-hm.nix (auto-detected hostname)
   # ============================================================================
   # Theme: darkGray (workstation-work category)

@@ -6,22 +6,22 @@
 
 ## Quick Reference
 
-| Item                | Value                          |
-| ------------------- | ------------------------------ |
-| **Hostname**        | `imac0`                        |
-| **Model**           | iMac 27" 2019 (iMac19,1)       |
-| **CPU**             | Intel Core i9 8-core @ 3.6GHz  |
-| **RAM**             | 16 GB                          |
-| **Display**         | Retina 5K (5120 x 2880)        |
-| **Graphics**        | Radeon Pro Vega 48 (8 GB VRAM) |
-| **Storage**         | 1 TB Apple SSD (APFS)          |
-| **OS**              | macOS Sequoia 15.7.2           |
-| **Architecture**    | x86_64-darwin (Intel)          |
-| **User**            | `markus` (Markus Barta)        |
-| **Management**      | home-manager (NOT nix-darwin)  |
-| **Shell**           | Fish v4.1.2 (Nix)              |
-| **Terminal**        | ~~WezTerm (Nix)~~ Ghostty (Homebrew)                  |
-| **Config Location** | `~/Code/nixcfg/hosts/imac0/`   |
+| Item                | Value                                |
+| ------------------- | ------------------------------------ |
+| **Hostname**        | `imac0`                              |
+| **Model**           | iMac 27" 2019 (iMac19,1)             |
+| **CPU**             | Intel Core i9 8-core @ 3.6GHz        |
+| **RAM**             | 16 GB                                |
+| **Display**         | Retina 5K (5120 x 2880)              |
+| **Graphics**        | Radeon Pro Vega 48 (8 GB VRAM)       |
+| **Storage**         | 1 TB Apple SSD (APFS)                |
+| **OS**              | macOS Sequoia 15.7.2                 |
+| **Architecture**    | x86_64-darwin (Intel)                |
+| **User**            | `markus` (Markus Barta)              |
+| **Management**      | home-manager (NOT nix-darwin)        |
+| **Shell**           | Fish v4.1.2 (Nix)                    |
+| **Terminal**        | ~~WezTerm (Nix)~~ Ghostty (Homebrew) |
+| **Config Location** | `~/Code/nixcfg/hosts/imac0/`         |
 
 ---
 
@@ -32,7 +32,7 @@
 | F00 | Nix Base System      | Flakes, home-manager, platform detection          | ✅     |
 | F01 | Fish Shell           | Modern interactive shell with custom functions    | ✅     |
 | F02 | Starship Prompt      | Cross-shell prompt with git & language indicators | ✅     |
-| F03 | Ghostty Terminal     | GPU-accelerated terminal (Homebrew, not Nix)          | ✅     |
+| F03 | Ghostty Terminal     | GPU-accelerated terminal (Homebrew, not Nix)      | ✅     |
 | F04 | Git Dual Identity    | Auto-switch between personal & work identities    | ✅     |
 | F05 | Node.js (LTS)        | Global Node.js v22.20.0 + project-specific        | ✅     |
 | F06 | Python               | Global Python v3.13.8 + project-specific          | ✅     |
@@ -40,7 +40,7 @@
 | F08 | Hack Nerd Font       | Nerd Font for terminals & system-wide             | ✅     |
 | F09 | CLI Tools (45+)      | bat, btop, ripgrep, fd, fzf, zoxide, etc.         | ✅     |
 | F10 | Karabiner-Elements   | Caps Lock → Hyper, F1-F12 in terminals            | ✅     |
-| F11 | macOS GUI Apps (Nix) | Ghostty (managed via Homebrew, not Nix)                  | ✅     |
+| F11 | macOS GUI Apps (Nix) | Ghostty (managed via Homebrew, not Nix)           | ✅     |
 | F12 | Custom Scripts       | flushdns, pingt, stopAmphetamineAndSleep          | ✅     |
 | F13 | Homebrew Cleanup     | Reduced from 167 → 127 formulae (~700MB freed)    | ✅     |
 
@@ -111,7 +111,7 @@ vim ~/Code/nixcfg/hosts/imac0/home.nix
 vim ~/Code/nixcfg/hosts/imac0/config/starship.toml
 
 # Karabiner keyboard config
-vim ~/Code/nixcfg/hosts/imac0/config/karabiner.json
+vim ~/Code/nixcfg/modules/config/karabiner.json
 ```
 
 ---
@@ -374,10 +374,10 @@ git config user.email   # markus.barta@bytepoets.com
 ~/.config/karabiner/karabiner.json
 
 # Managed via Nix (home.nix)
-home.file.".config/karabiner/karabiner.json".source = ./config/karabiner.json;
+# modules/uzumaki/home-manager.nix links modules/config/karabiner.json
 
 # Edit configuration
-vim ~/Code/nixcfg/hosts/imac-mba-home/config/karabiner.json
+vim ~/Code/nixcfg/modules/config/karabiner.json
 
 # Apply changes
 home-manager switch --flake .#markus@imac0
@@ -677,7 +677,7 @@ ping -c 3 8.8.8.8
 
 - **[home.nix](../home.nix)** - Main configuration
 - **[starship.toml](../config/starship.toml)** - Prompt configuration
-- **[karabiner.json](../config/karabiner.json)** - Keyboard mappings
+- **[karabiner.json](../../../modules/config/karabiner.json)** - Shared macOS keyboard mappings
 
 ---
 

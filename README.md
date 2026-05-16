@@ -150,7 +150,7 @@ flake.nix
 | ---------------------------------------------- | -------------------------------------- |
 | `flake.nix`                                    | Entry point with `mkDarwinHome` helper |
 | `hosts/imac0/home.nix`                         | User config (packages, shell, git)     |
-| `hosts/imac0/config/karabiner.json`            | Keyboard remapping                     |
+| `modules/config/karabiner.json`                | Shared macOS Karabiner keyboard config |
 | `modules/uzumaki/home-manager.nix`             | Uzumaki HM module                      |
 | `modules/uzumaki/options.nix`                  | Shared uzumaki options                 |
 | `modules/uzumaki/fish/config.nix`              | Fish aliases & abbreviations           |

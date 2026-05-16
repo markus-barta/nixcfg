@@ -62,6 +62,7 @@ in
     ./stasysmo/home-manager.nix # StaSysMo for Home Manager (launchd on macOS)
     ./theme/theme-hm.nix # Per-host theming (starship, zellij, eza)
     ./ai-clis-npm.nix # Always-latest AI CLIs (claude-code, codex) via npm
+    ./codex-exit-alias.nix # Codex hook: exact "exit" prompt sends /exit on macOS
     ./claude-skills.nix # Pinned ~/.claude/skills/ (frontend-design, …)
   ];
 
@@ -123,6 +124,22 @@ in
     # The stasysmo/home-manager.nix module handles launchd service setup
 
     services.stasysmo.enable = cfg.stasysmo.enable;
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Karabiner-Elements configuration
+    # ══════════════════════════════════════════════════════════════════════════
+    # Config is declarative and fleet-wide. The Karabiner-Elements app itself
+    # stays a manual Homebrew install because it is a system-level input-event
+    # tool that also requires macOS Input Monitoring approval.
+    home.file.".config/karabiner/karabiner.json".source = ../config/karabiner.json;
+
+    home.activation.checkKarabinerInstall = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      if [ "$(uname -s)" = "Darwin" ] && [ ! -d "/Applications/Karabiner-Elements.app" ]; then
+        echo "WARN: Karabiner config is managed at ~/.config/karabiner/karabiner.json, but Karabiner-Elements.app is not installed."
+        echo "      Install manually: brew install --cask karabiner-elements"
+        echo "      Then grant Input Monitoring to karabiner_grabber and Karabiner-Elements."
+      fi
+    '';
 
     # ══════════════════════════════════════════════════════════════════════════
     # Nix Configuration (NCPS Binary Cache Proxy)
