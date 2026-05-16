@@ -40,6 +40,7 @@ let
   # See the doc comment block on `mkBrewfile` for the full rationale.
   commonCasks = [
     "ghostty" # Terminal — config wired in this same file (ghosttyConfig export)
+    "zen" # Zen Browser (Gecko-based, daily-driver)
     # Karabiner-Elements is intentionally NOT here: the JSON config is
     # Nix-managed in home-manager.nix, but the system-level app install and
     # Input Monitoring approval stay manual per host.
