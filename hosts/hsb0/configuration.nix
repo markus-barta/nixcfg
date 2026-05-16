@@ -781,16 +781,18 @@ in
     };
   };
 
-  home-manager.users.mba = { config, ... }: {
-    imports = [
-      inputs.inspr-modules.homeManagerModules.ssh-authorized
-      ../../modules/shared/ssh-authorized.nix
-    ];
-    inspr.ssh.authorized = {
-      enable = true;
-      trust  = config._inspr.trustPresets.personalHosts;
+  home-manager.users.mba =
+    { config, ... }:
+    {
+      imports = [
+        inputs.inspr-modules.homeManagerModules.ssh-authorized
+        ../../modules/shared/ssh-authorized.nix
+      ];
+      inspr.ssh.authorized = {
+        enable = true;
+        trust = config._inspr.trustPresets.personalHosts;
+      };
     };
-  };
 
   # ============================================================================
   # 🚨 PASSWORDLESS SUDO - Also lost when removing serverMba mixin
@@ -825,7 +827,8 @@ in
 
   # PPM (Personal Project Management) API key for Merlin/Nimue at pm.barta.cm.
   # Mounted into openclaw-gateway via docker-compose.yml; entrypoint.sh exports
-  # as PPMAPIKEY (variable name matches Markus's ~/Secrets/ppm.env convention).
+  # as PPMAPIKEY (variable name matches the inspr.secrets.agents convention:
+  # ~/Secrets/age/decrypted/agents/PPMAPIKEY.env on workstations).
   # mode = "444" matches sibling container-mounted secrets so node user (uid
   # 1000) inside openclaw-gateway can read it.
   age.secrets.hsb0-ppm-api-key = {
