@@ -122,16 +122,16 @@ Each host automatically gets a unique color palette via `theme-hm.nix`:
 
 ### Key Differences: NixOS vs macOS
 
-| Aspect                | NixOS Hosts                       | macOS Hosts                       |
-| --------------------- | --------------------------------- | --------------------------------- |
-| **Entry File**        | `configuration.nix`               | `home.nix`                        |
-| **System Type**       | Full NixOS system                 | Home Manager only                 |
-| **Hokage Module**     | ✅ Full import (external)         | ❌ Not imported                   |
-| **common.nix**        | ✅ Auto-imported via hokage       | ❌ Not imported (NixOS-specific)  |
-| **theme-hm.nix**      | ✅ Via common.nix                 | ✅ Direct import                  |
-| **fish-config.nix**   | ✅ Via common.nix                 | ✅ Direct import                  |
+| Aspect                | NixOS Hosts                       | macOS Hosts                                             |
+| --------------------- | --------------------------------- | ------------------------------------------------------- |
+| **Entry File**        | `configuration.nix`               | `home.nix`                                              |
+| **System Type**       | Full NixOS system                 | Home Manager only                                       |
+| **Hokage Module**     | ✅ Full import (external)         | ❌ Not imported                                         |
+| **common.nix**        | ✅ Auto-imported via hokage       | ❌ Not imported (NixOS-specific)                        |
+| **theme-hm.nix**      | ✅ Via common.nix                 | ✅ Direct import                                        |
+| **fish-config.nix**   | ✅ Via common.nix                 | ✅ Direct import                                        |
 | **Platform Specific** | ZFS, systemd, networking          | Karabiner, GUI app links (Ghostty managed via Homebrew) |
-| **Theming**           | Auto (hostname from NixOS config) | Auto (hostname from `$HOST`)      |
+| **Theming**           | Auto (hostname from NixOS config) | Auto (hostname from `$HOST`)                            |
 
 ### Why This Architecture?
 
@@ -213,7 +213,7 @@ chsh -s ~/.nix-profile/bin/fish
 exec fish
 ```
 
-### Step 6: Install Karabiner-Elements (Optional)
+### Step 6: Install Karabiner-Elements (Manual)
 
 ```bash
 # Install via Homebrew
@@ -224,7 +224,9 @@ brew install --cask karabiner-elements
 # Enable "karabiner_grabber" and "Karabiner-Elements"
 ```
 
-The Karabiner configuration is already managed by home-manager!
+The Karabiner JSON configuration is already managed by home-manager via
+`modules/config/karabiner.json`. The app stays manual because it is a
+system-level input-event tool that requires macOS permission approval.
 
 ### Updating Configuration
 

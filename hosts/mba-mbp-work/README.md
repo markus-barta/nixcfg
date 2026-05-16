@@ -13,27 +13,27 @@ Work macOS laptop with Nix package management.
 
 ## Quick Reference
 
-| Item               | Value                                            |
-| ------------------ | ------------------------------------------------ |
-| **Hostname**       | `mba-mbp-work`                                   |
-| **Model**          | MacBook Pro 15,2 (2018 13" Touch Bar)            |
-| **Model ID**       | MacBookPro15,2                                   |
-| **CPU**            | Quad-Core Intel Core i5 @ 2.3 GHz                |
-| **Cores**          | 4                                                |
-| **RAM**            | 16 GB                                            |
-| **Storage**        | 500 GB SSD (~235 GB free)                        |
-| **OS**             | macOS 15.7.2 Sequoia                             |
-| **Architecture**   | x86_64 (Intel)                                   |
-| **Serial**         | C02XV2U3JHD3                                     |
-| **User**           | `mba`                                            |
-| **Static IP**      | `192.168.1.197/24` (DHCP reservation via hsb0)   |
-| **MAC Address**    | `38:f9:d3:50:a7:0d`                              |
-| **Shell**          | Fish (via Nix)                                   |
-| **Terminal**       | ~~WezTerm (via Nix)~~ Ghostty (via Homebrew, since 2026-05-05)                                |
-| **Config Manager** | home-manager (standalone)                        |
-| **Git Default**    | Work identity (mba / markus.barta@bytepoets.com) |
-| **Apply Config**   | `just switch` or `home-manager switch --flake .` |
-| **Theme**          | Light Gray (`#a8aeb8`) - cool silver workstation |
+| Item               | Value                                                          |
+| ------------------ | -------------------------------------------------------------- |
+| **Hostname**       | `mba-mbp-work`                                                 |
+| **Model**          | MacBook Pro 15,2 (2018 13" Touch Bar)                          |
+| **Model ID**       | MacBookPro15,2                                                 |
+| **CPU**            | Quad-Core Intel Core i5 @ 2.3 GHz                              |
+| **Cores**          | 4                                                              |
+| **RAM**            | 16 GB                                                          |
+| **Storage**        | 500 GB SSD (~235 GB free)                                      |
+| **OS**             | macOS 15.7.2 Sequoia                                           |
+| **Architecture**   | x86_64 (Intel)                                                 |
+| **Serial**         | C02XV2U3JHD3                                                   |
+| **User**           | `mba`                                                          |
+| **Static IP**      | `192.168.1.197/24` (DHCP reservation via hsb0)                 |
+| **MAC Address**    | `38:f9:d3:50:a7:0d`                                            |
+| **Shell**          | Fish (via Nix)                                                 |
+| **Terminal**       | ~~WezTerm (via Nix)~~ Ghostty (via Homebrew, since 2026-05-05) |
+| **Config Manager** | home-manager (standalone)                                      |
+| **Git Default**    | Work identity (mba / markus.barta@bytepoets.com)               |
+| **Apply Config**   | `just switch` or `home-manager switch --flake .`               |
+| **Theme**          | Light Gray (`#a8aeb8`) - cool silver workstation               |
 
 ---
 
@@ -56,7 +56,6 @@ Work macOS laptop with Nix package management.
 
 ```
 hosts/mba-mbp-work/
-├── config/                      # Configuration files (karabiner, etc.)
 ├── docs/                        # Documentation
 │   └── INITIAL-SETUP.md         # First-time setup guide
 ├── scripts/

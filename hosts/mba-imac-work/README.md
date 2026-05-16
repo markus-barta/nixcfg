@@ -12,24 +12,24 @@ Work macOS development machine with Nix package management.
 
 ## Quick Reference
 
-| Item               | Value                                            |
-| ------------------ | ------------------------------------------------ |
-| **Hostname**       | `mba-imac-work`                                  |
-| **Model**          | iMac 27" (2019) - iMac19,1                       |
-| **CPU**            | Intel Core i9-9900K @ 3.6GHz (8C/16T)            |
-| **RAM**            | 16 GB DDR4                                       |
-| **Storage**        | 1 TB Apple SSD SM1024L (APFS)                    |
-| **Storage Used**   | ~10 GB system, ~10 GB Nix store (211 GB free)    |
-| **OS**             | macOS 15.7.2 Sequoia (24G325)                    |
-| **Architecture**   | x86_64 (Intel, Hyper-Threading enabled)          |
-| **User**           | `markus`                                         |
-| **Shell**          | Fish (via Nix)                                   |
-| **Terminal**       | ~~WezTerm (via Nix)~~ Ghostty (via Homebrew, since 2026-05-05)                                |
-| **Config Manager** | home-manager (standalone)                        |
-| **Nix Packages**   | ~37 packages (declarative)                       |
-| **Homebrew**       | ~110 formulae + 4 casks (5 explicit)             |
-| **Git Default**    | Work identity (mba / markus.barta@bytepoets.com) |
-| **Apply Config**   | `just switch` or `home-manager switch --flake .` |
+| Item               | Value                                                          |
+| ------------------ | -------------------------------------------------------------- |
+| **Hostname**       | `mba-imac-work`                                                |
+| **Model**          | iMac 27" (2019) - iMac19,1                                     |
+| **CPU**            | Intel Core i9-9900K @ 3.6GHz (8C/16T)                          |
+| **RAM**            | 16 GB DDR4                                                     |
+| **Storage**        | 1 TB Apple SSD SM1024L (APFS)                                  |
+| **Storage Used**   | ~10 GB system, ~10 GB Nix store (211 GB free)                  |
+| **OS**             | macOS 15.7.2 Sequoia (24G325)                                  |
+| **Architecture**   | x86_64 (Intel, Hyper-Threading enabled)                        |
+| **User**           | `markus`                                                       |
+| **Shell**          | Fish (via Nix)                                                 |
+| **Terminal**       | ~~WezTerm (via Nix)~~ Ghostty (via Homebrew, since 2026-05-05) |
+| **Config Manager** | home-manager (standalone)                                      |
+| **Nix Packages**   | ~37 packages (declarative)                                     |
+| **Homebrew**       | ~110 formulae + 4 casks (5 explicit)                           |
+| **Git Default**    | Work identity (mba / markus.barta@bytepoets.com)               |
+| **Apply Config**   | `just switch` or `home-manager switch --flake .`               |
 
 ---
 
@@ -140,7 +140,7 @@ sudo launchctl kickstart -k system/org.nixos.nix-daemon
 brew install --cask karabiner-elements
 
 # Grant "Input Monitoring" permissions in System Preferences
-# Configuration is already linked via home-manager!
+# Configuration is already linked via home-manager from modules/config/karabiner.json
 ```
 
 ---
@@ -149,9 +149,6 @@ brew install --cask karabiner-elements
 
 ```
 hosts/mba-imac-work/
-├── config/                      # Configuration files
-│   └── karabiner.json           # Keyboard remapping config (host-specific)
-│
 ├── docs/                        # Documentation
 │   └── manual-setup.md          # One-time setup guides
 │

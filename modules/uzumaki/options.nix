@@ -9,7 +9,7 @@
 #   - nixos.nix (NixOS systems)
 #   - darwin.nix (macOS via Home Manager)
 #
-{ lib, ... }:
+{ lib, pkgs, ... }:
 
 {
   options.uzumaki = {
@@ -126,6 +126,47 @@
           When enabled, uzumaki automatically imports and configures the
           stasysmo module (CPU, RAM, Load, Swap in Starship prompt).
         '';
+      };
+    };
+
+    codex = {
+      exitAlias = {
+        enable = lib.mkOption {
+          type = lib.types.bool;
+          default = pkgs.stdenv.isDarwin;
+          description = ''
+            Enable a Codex UserPromptSubmit hook that turns an exact `exit`
+            prompt into `/exit` via guarded macOS keystroke automation.
+          '';
+        };
+
+        trigger = lib.mkOption {
+          type = lib.types.str;
+          default = "exit";
+          description = "Exact prompt text that triggers the Codex exit alias.";
+        };
+
+        delaySeconds = lib.mkOption {
+          type = lib.types.ints.positive;
+          default = 1;
+          description = "Delay before sending `/exit` after the prompt hook blocks.";
+        };
+
+        allowedBundleIds = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [
+            "com.mitchellh.ghostty"
+            "com.apple.Terminal"
+            "com.googlecode.iterm2"
+            "com.github.wez.wezterm"
+            "net.kovidgoyal.kitty"
+            "dev.warp.Warp-Stable"
+          ];
+          description = ''
+            macOS frontmost application bundle identifiers allowed to receive
+            the automated `/exit` keystrokes.
+          '';
+        };
       };
     };
 

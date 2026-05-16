@@ -24,7 +24,7 @@ brew install --cask karabiner-elements
 2. **Configuration is Already Managed**:
    - ✅ Your config is already linked via home-manager
    - ✅ Located at: `~/.config/karabiner/karabiner.json` (symlink to Nix store)
-   - ✅ Version-controlled in git
+   - ✅ Version-controlled in git at `modules/config/karabiner.json`
 
 3. **Verify It Works**:
    - Test: Press **Caps Lock** → should act as Hyper (Cmd+Ctrl+Opt+Shift)
@@ -50,14 +50,14 @@ brew install --cask karabiner-elements
 
 ```bash
 # 1. Edit the config file
-vim ~/Code/nixcfg/hosts/imac-mba-home/config/karabiner.json
+vim ~/Code/nixcfg/modules/config/karabiner.json
 
 # 2. Commit to git
-git add hosts/imac-mba-home/config/karabiner.json
+git add modules/config/karabiner.json
 git commit -m "Update Karabiner mappings"
 
 # 3. Apply to system
-home-manager switch --flake ".#markus@imac-mba-home"
+home-manager switch --flake ".#markus@imac0"
 ```
 
 ### Method 2: Use Karabiner GUI (Not Recommended)
@@ -65,7 +65,7 @@ home-manager switch --flake ".#markus@imac-mba-home"
 If you use the GUI to make changes:
 
 1. Changes go to `~/.config/karabiner/karabiner.json` (will be a **broken symlink** after switch!)
-2. You need to manually copy changes back to `config/karabiner.json` in the repo
+2. You need to manually copy changes back to `modules/config/karabiner.json` in the repo
 3. Then commit and re-apply
 
 **Stick with Method 1** for a fully declarative workflow!
@@ -107,5 +107,5 @@ Open Karabiner-Elements → Quit (menu bar icon)
 
 ## Keep in Homebrew
 
-✅ **Keep**: `karabiner-elements` (cask)
-❌ **Don't manage in Nix**: Configuration is declarative, app stays in Homebrew
+✅ **Keep**: `karabiner-elements` as a manual Homebrew app install
+❌ **Don't add to commonCasks**: Configuration is declarative, app + permissions stay manual

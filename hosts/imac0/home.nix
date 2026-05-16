@@ -335,7 +335,6 @@ in
       "evcc-io/tap"
       "jwbargsten/misc"
       "marcus/tap"
-      "steipete/tap"
       "tuist/tuist"
       "tw93/tap"
     ];
@@ -364,7 +363,6 @@ in
       "font-geist"
       "font-outfit"
       "hammerspoon"
-      "karabiner-elements" # config wired in this same file (karabiner.json)
       "knockknock"
       "swiftbar"
       "temurin" # Eclipse Temurin JDK
@@ -587,20 +585,6 @@ in
     # Syntax highlighting for common files
     # (Nix includes: nix, yaml, markdown, python, shell, json, xml, etc.)
   '';
-
-  # ============================================================================
-  # Karabiner-Elements Configuration (Declarative!)
-  # ============================================================================
-  # Note: Karabiner-Elements app itself stays in Homebrew (system driver)
-  # But the configuration is fully declarative via home-manager
-  # SSOT: modules/config/karabiner.json (shared across all macOS hosts)
-  #
-  # Key mappings:
-  # - Caps Lock → Hyper (Cmd+Ctrl+Opt+Shift) - for powerful global shortcuts
-  # - Function keys work as regular F1-F12 in terminals (no media keys)
-  # - VSCodium: Shift+Enter → Ctrl+J
-  # - E → backtick in Pixelmator Pro (disabled by default)
-  home.file.".config/karabiner/karabiner.json".source = ../../modules/config/karabiner.json;
 
   # ============================================================================
   # Starship, Zellij, Eza Theming

@@ -34,17 +34,21 @@ let
   uzumakiFunctions = fishModule.functions;
 
   # ── NIX-107: declarative cask manifest baseline ─────────────────────
-  # commonCasks/Taps are scoped here (let-bindings) so mkBrewfile below
-  # can reference them. Not exported in the returned attrset because
+  # commonCasks/Brews/Taps are scoped here (let-bindings) so mkBrewfile
+  # below can reference them. Not exported in the returned attrset because
   # consumers wire only via `mkBrewfile { extraCasks = ...; ... }`.
   # See the doc comment block on `mkBrewfile` for the full rationale.
   commonCasks = [
     "ghostty" # Terminal — config wired in this same file (ghosttyConfig export)
+    # Karabiner-Elements is intentionally NOT here: the JSON config is
+    # Nix-managed in home-manager.nix, but the system-level app install and
+    # Input Monitoring approval stay manual per host.
   ];
   commonTaps = [
-    # (none currently universal — all observed taps are per-host:
-    # ddev/ddev on M5, 7 dev-tool taps on imac0. Keep empty until a true
-    # cross-host need emerges.)
+    "steipete/tap" # OpenClaw/Peekaboo (commonBrew below)
+  ];
+  commonBrews = [
+    "steipete/tap/peekaboo" # OpenClaw screenshots + AI vision (fleet-wide)
   ];
 in
 {
@@ -384,9 +388,10 @@ in
     }:
     let
       allTaps = commonTaps ++ extraTaps;
+      allBrews = commonBrews ++ extraBrews;
       allCasks = commonCasks ++ extraCasks;
       tapLines = builtins.concatStringsSep "\n" (map (t: ''tap "${t}"'') allTaps);
-      brewLines = builtins.concatStringsSep "\n" (map (b: ''brew "${b}"'') extraBrews);
+      brewLines = builtins.concatStringsSep "\n" (map (b: ''brew "${b}"'') allBrews);
       caskLines = builtins.concatStringsSep "\n" (map (c: ''cask "${c}"'') allCasks);
     in
     ''
@@ -403,7 +408,7 @@ in
       ${if allTaps == [ ] then "# (no taps)" else "# Taps\n${tapLines}"}
 
       ${
-        if extraBrews == [ ] then
+        if allBrews == [ ] then
           "# (no brew formulae — Nix commonPackages covers most CLI tools)"
         else
           "# Brew formulae (top-level)\n${brewLines}"

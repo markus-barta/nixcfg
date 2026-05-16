@@ -33,6 +33,11 @@ hosts/<hostname>/
 
 There is **no** `configuration.nix` or `hardware-configuration.nix` — those are NixOS-only. macOS hosts are managed entirely by Home Manager (and Homebrew for GUI apps that aren't nix-darwin-managed).
 
+Karabiner follows the macOS hybrid pattern: `modules/uzumaki/home-manager.nix`
+wires the shared JSON config from `modules/config/karabiner.json`, while the
+Karabiner-Elements app itself is installed manually with Homebrew and approved
+in System Settings → Privacy & Security → Input Monitoring.
+
 ---
 
 ## File Descriptions
