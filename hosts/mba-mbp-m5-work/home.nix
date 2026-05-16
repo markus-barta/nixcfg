@@ -261,7 +261,7 @@ in
   programs.zsh = {
     enable = true;
     dotDir = "${config.xdg.configHome}/zsh"; # XDG-compliant (keeps home directory clean)
-    initExtra = ''
+    initContent = ''
       export PATH="$HOME/.nix-profile/bin:/nix/var/nix/profiles/default/bin:$PATH"
     '';
   };
