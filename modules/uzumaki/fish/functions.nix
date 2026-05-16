@@ -328,7 +328,6 @@
       printf " $color_dim%-10s   %-30s %s$color_reset\n" "Explicit:" "hsb0-lan (Force LAN)" "hsb0-ts (Force Tailscale)"
       echo ""
       printf " $color_dim%-10s   Nicknames for long hostnames:$color_reset\n" ""
-      printf " $color_abbr%-10s$color_reset → %-30s $color_dim# → mba-mbp-work$color_reset\n" "mbpw" "Work MacBook Pro"
       printf " $color_abbr%-10s$color_reset → %-30s $color_dim# → mba-imac-work$color_reset\n" "imacw" "Work iMac"
       printf " $color_abbr%-10s$color_reset → %-30s $color_dim# → miniserver-bp$color_reset\n" "msbp" "Office Mac Mini"
       echo -e "$color_abbr└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
