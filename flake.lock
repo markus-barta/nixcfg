@@ -823,6 +823,22 @@
         "type": "github"
       }
     },
+    "paimos": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1779105794,
+        "narHash": "sha256-uYnEpq9cVd2LPAIqAP/0WuH1JVDQFIpmPLbHYClQTFc=",
+        "owner": "markus-barta",
+        "repo": "paimos",
+        "rev": "d52c436b8cabb85fff1e096765a4b08df6046e60",
+        "type": "github"
+      },
+      "original": {
+        "owner": "markus-barta",
+        "repo": "paimos",
+        "type": "github"
+      }
+    },
     "pia": {
       "flake": false,
       "locked": {
@@ -921,6 +937,7 @@
         "nixpkgs": "nixpkgs_4",
         "nixpkgs-stable": "nixpkgs-stable_2",
         "opus-stream": "opus-stream",
+        "paimos": "paimos",
         "pia": "pia_2",
         "plasma-manager": "plasma-manager_2"
       }
