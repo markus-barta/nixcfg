@@ -220,8 +220,10 @@ in
     cursor-style = bar
     cursor-style-blink = true
 
-    # ── macOS Option key for special chars (Alt+7 = | etc.) ──
-    macos-option-as-alt = true
+    # ── macOS Option key for special chars (Opt+L = @, Opt+7 = |, etc.) ──
+    # Must be `false` so macOS generates layout chars natively; `true` turns
+    # Option into the Alt modifier and fish's default Alt+L lists files.
+    macos-option-as-alt = false
 
     # ── Quality-of-life ──
     confirm-close-surface = false
