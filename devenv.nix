@@ -64,7 +64,11 @@ in
 
   git-hooks.hooks = {
     statix.settings = {
-      ignore = [ "hardware-configuration.nix" ];
+      ignore = [
+        "hardware-configuration.nix"
+        # Submodule (inspr-modules upstream) — has its own lint pipeline.
+        "doctrine"
+      ];
     };
   };
 

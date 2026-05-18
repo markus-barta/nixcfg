@@ -8,35 +8,35 @@
 # Upstream: https://github.com/markus-barta/paimos
 # Binary:   paimos (installed from backend/cmd/paimos)
 #
-# ── Bumping the pinned rev ────────────────────────────────────────────────────
-#  1. Set `rev` to the new commit SHA.
-#  2. Refresh `hash` (src):
-#        nix store prefetch-file --unpack --hash-type sha256 \
-#          https://github.com/markus-barta/paimos/archive/<rev>.tar.gz
-#     …or set `hash = lib.fakeHash;`, run `nix build`, copy "got:" back.
-#  3. Refresh `vendorHash` (go deps): only buildGoModule can compute this —
-#     set `vendorHash = lib.fakeHash;`, run `nix build`, copy "got:" back.
-#  4. Bump `version` to match the new VERSION + short sha.
+# ── How the pin works ────────────────────────────────────────────────────────
+# `src` is injected by flake.nix from `inputs.paimos` (a `flake = false` GitHub
+# input tracking `main`). `nix flake update paimos` — or the scheduled
+# `update-flake-lock` GitHub Action — bumps the rev+hash automatically.
+#
+# `vendorHash` still has to be refreshed manually when Go deps change, since
+# buildGoModule can't infer it from flake.lock:
+#   1. set `vendorHash = lib.fakeHash;`
+#   2. `nix build .#paimos-cli`
+#   3. copy the "got:" value back into `vendorHash`
 #
 {
   lib,
   buildGoModule,
-  fetchFromGitHub,
   installShellFiles,
+  src,
 }:
 
-buildGoModule rec {
+let
+  versionFromFile = lib.removeSuffix "\n" (builtins.readFile "${src}/VERSION");
+  shortRev = src.shortRev or "dirty";
+in
+buildGoModule {
   pname = "paimos-cli";
   # VERSION file at pinned rev + short sha so `paimos --version` is unambiguous
   # for unreleased builds.
-  version = "3.4.0-d01c4d5";
+  version = "${versionFromFile}-${shortRev}";
 
-  src = fetchFromGitHub {
-    owner = "markus-barta";
-    repo = "paimos";
-    rev = "d01c4d5478b01a7c32408649aa4845d5f435fe7a";
-    hash = "sha256-bbHkLEdhK2XOmrEav5tlThBwn6Y2ypNyPnUOVaWd2KQ=";
-  };
+  inherit src;
 
   # The repo is a polyglot monorepo; the Go module lives under backend/,
   # and we only want the CLI, not the server or paimos-mcp.
@@ -47,7 +47,7 @@ buildGoModule rec {
   # strips from the vendor tree — proxyVendor preserves the full module zips
   # from the Go proxy, so cgo can find the headers.
   proxyVendor = true;
-  vendorHash = "sha256-gA6Sfzl+PcnxdN1ZYVe2pdWyxB7F9X3MFEclaw7K+EI=";
+  vendorHash = "sha256-t7pv/Samo7KSDxwfEz93AQ+0Gup86AJyCEu/KJ+DZBo=";
 
   # Upstream CI runs `go test ./...` on every push; re-running inside the
   # Nix sandbox adds latency without catching anything new, and some tests
@@ -58,7 +58,7 @@ buildGoModule rec {
   ldflags = [
     "-s"
     "-w"
-    "-X main.Version=${version}"
+    "-X main.Version=${versionFromFile}-${shortRev}"
   ];
 
   nativeBuildInputs = [ installShellFiles ];

@@ -232,6 +232,17 @@
         user = "mba";
         port = 2222;
       };
+
+      # ═══════════════════════════════════════════════════════════
+      # BONELIO HETZNER HOSTS (public IPs, per-customer ed25519 key)
+      # Matches `just ssh-staging` in ~/Code/bpnixcfg
+      # ═══════════════════════════════════════════════════════════
+
+      "bonelio-staging" = {
+        hostname = "91.99.190.56";
+        user = "root";
+        identityFile = "~/.ssh/bp_bonelio_ed25519";
+      };
     };
   };
 }

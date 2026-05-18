@@ -48,6 +48,14 @@
       url = "github:markus-barta/opus-stream-to-mqtt";
       flake = false;
     };
+    # Paimos — agent-facing CLI. Tracking `main`, so `update-flake-lock`
+    # auto-bumps rev+hash on every scheduled run. `vendorHash` in
+    # pkgs/paimos-cli/default.nix still has to be refreshed manually when Go
+    # deps change (buildGoModule can't read it from flake.lock).
+    paimos = {
+      url = "github:markus-barta/paimos";
+      flake = false;
+    };
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.
@@ -91,7 +99,9 @@
       overlays-local = final: prev: {
         pingt = final.callPackage ./pkgs/pingt { };
         tokstat = final.callPackage ./pkgs/tokstat { };
-        paimos-cli = final.callPackage ./pkgs/paimos-cli { };
+        paimos-cli = final.callPackage ./pkgs/paimos-cli {
+          src = inputs.paimos;
+        };
         # Stub: hokage/desktop.nix references sonar but it doesn't exist in nixpkgs
         sonar = final.hello;
         # direnv 2.37.1's upstream test suite hangs in the Nix sandbox on
@@ -317,7 +327,9 @@
         pingt = pkgs.callPackage ./pkgs/pingt { };
 
         # paimos-cli - Agent-facing CLI for PAIMOS
-        paimos-cli = pkgs.callPackage ./pkgs/paimos-cli { };
+        paimos-cli = pkgs.callPackage ./pkgs/paimos-cli {
+          src = inputs.paimos;
+        };
 
         # Generate Markdown docs for hokage module options.
         # NOTE: hokage is consumed as a flake input (`inputs.nixcfg`) — pbek's
@@ -381,7 +393,9 @@
         in
         {
           pingt = pkgsDarwin.callPackage ./pkgs/pingt { };
-          paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli { };
+          paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli {
+            src = inputs.paimos;
+          };
         };
 
       packages.aarch64-darwin =
@@ -395,7 +409,9 @@
         in
         {
           pingt = pkgsDarwin.callPackage ./pkgs/pingt { };
-          paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli { };
+          paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli {
+            src = inputs.paimos;
+          };
         };
     };
 }
