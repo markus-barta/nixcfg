@@ -102,7 +102,7 @@ For full kernel + domain packs: see [`inspr-modules/docs/AGENTS-KERNEL.md`](http
   <!-- rule_ids: SECRETS.md:L74:rekey-danger-check-file-sizes | cluster: — -->
 
 - 🔴 **HARD** | `do` | In Nix configs reference passwords via _File path (config.age.secrets.foo.path), never inline plaintext
-  _<sub>src: ~/Code/nixcfg/+agents/rules/SYSOP.md L319-327</sub>\*
+  _<sub>src: ~/Code/nixcfg/+agents/rules/SYSOP.md L319-327</sub>\_
   <!-- rule_ids: SYSOP.md:L321:agenix-pattern-use-pwfile-not-inline | cluster: — -->
 
 - 🔴 **HARD** | `always` | Verify with `git diff --stat` BEFORE committing rekeyed secrets
@@ -157,8 +157,8 @@ For full kernel + domain packs: see [`inspr-modules/docs/AGENTS-KERNEL.md`](http
   _<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/AUTOMATIONS.md L112</sub>_
   <!-- rule_ids: AUTOMATIONS.md:L112:test-with-dry-run-first | cluster: — -->
 
-- 🟡 **STRONG** | `do` | Validate YAML after changes with python3 yaml.safe*load
-  *<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/SMARTHOME.md L357-360</sub>\_
+- 🟡 **STRONG** | `do` | Validate YAML after changes with python3 yaml.safe\*load
+  _<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/SMARTHOME.md L357-360</sub>_
   <!-- rule_ids: SMARTHOME.md:L358:validate-yaml-after-changes | cluster: — -->
 
 - 🟢 SOFT | `do` | For new stasysmo manual tests, include a "Cannot be automated" notice and add to the Test Matrix
@@ -245,12 +245,12 @@ For full kernel + domain packs: see [`inspr-modules/docs/AGENTS-KERNEL.md`](http
   _<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/AUTOMATIONS.md L11-17 · incident: 2026-03-20</sub>_
   <!-- rule_ids: AUTOMATIONS.md:L13:no-wifi-presence-destructive-trigger | cluster: — -->
 
-- 🔴 **HARD** | `never` | Never use entity*id: "all" or area-based targets without reviewing what entities exist in that scope
-  *<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/AUTOMATIONS.md L28</sub>\_
+- 🔴 **HARD** | `never` | Never use entity\*id: "all" or area-based targets without reviewing what entities exist in that scope
+  _<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/AUTOMATIONS.md L28</sub>_
   <!-- rule_ids: AUTOMATIONS.md:L29:no-broad-entity-area-targeting | cluster: — -->
 
-- 🔴 **HARD** | `never` | No automation should ever target entity*id: "all" for any domain
-  *<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/AUTOMATIONS.md L22 · incident: 2026-03-20</sub>\_
+- 🔴 **HARD** | `never` | No automation should ever target entity\*id: "all" for any domain
+  _<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/AUTOMATIONS.md L22 · incident: 2026-03-20</sub>_
   <!-- rule_ids: AUTOMATIONS.md:L22:no-entity-id-all-targeting | cluster: — -->
 
 - 🔴 **HARD** | `never` | No automation should use WiFi presence count as a trigger for device control
@@ -265,12 +265,12 @@ For full kernel + domain packs: see [`inspr-modules/docs/AGENTS-KERNEL.md`](http
   _<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/AUTOMATIONS.md L23</sub>_
   <!-- rule_ids: AUTOMATIONS.md:L24:presence-need-multiple-signals | cluster: — -->
 
-- 🟡 **STRONG** | `always` | In HA HomeKit entity*config, always prefix the literal room name to the entity name (e.g. "Terrasse D28")
-  *<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/SMARTHOME.md L321-331</sub>\_
+- 🟡 **STRONG** | `always` | In HA HomeKit entity\*config, always prefix the literal room name to the entity name (e.g. "Terrasse D28")
+  _<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/SMARTHOME.md L321-331</sub>_
   <!-- rule_ids: SMARTHOME.md:L325:homekit-prefix-room-name | cluster: — -->
 
-- 🟡 **STRONG** | `do` | Zigbee2MQTT naming convention: room/type/device*name (e.g. bz/light/mirror, ku/plug/coffee)
-  *<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/SMARTHOME.md L335</sub>\_
+- 🟡 **STRONG** | `do` | Zigbee2MQTT naming convention: room/type/device\*name (e.g. bz/light/mirror, ku/plug/coffee)
+  _<sub>src: ~/Code/nixcfg/hosts/hsb1/docs/SMARTHOME.md L335</sub>_
   <!-- rule_ids: SMARTHOME.md:L335:z2m-naming-room-type-name | cluster: — -->
 
 ## Topic: infra/mqtt
