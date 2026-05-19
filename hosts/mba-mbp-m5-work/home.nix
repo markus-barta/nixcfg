@@ -288,6 +288,12 @@ in
     # pkg comes from `inputs`, not `pkgs`)
     inputs.agenix.packages.aarch64-darwin.default
 
+    # INSPR CLI — agent-ready operating layer for builders (INSPR-196).
+    # Run `inspr --help` for sub-commands (check / heal / onboard) and
+    # `inspr --vision` for the mission. Replaces inspr-doctor.sh (which
+    # remains as a deprecation shim until 2026-05-30).
+    inputs.inspr-modules.packages.aarch64-darwin.inspr
+
     # Per-host extras (NOT in commonPackages)
     # (paimos-cli + speedtest-go promoted to commonPackages 2026-05-12 —
     # they're now reached via macosCommon.commonPackages above.)
