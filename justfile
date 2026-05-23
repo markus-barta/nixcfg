@@ -128,7 +128,9 @@ switch args='':
     if [[ "$OSTYPE" == "darwin"* ]]; then
         echo "$(printf '\xef\x85\xb9') Detected macOS - running 🏠 home-manager switch for {{ user }}@{{ hostname }}..."
         start_time=$(date +%s)
-        home-manager switch --flake ".#{{ user }}@{{ hostname }}" {{ args }}
+        # -b hm-backup: rename clashing pre-existing files to *.hm-backup instead of aborting.
+        # Matches the NixOS-module-side default in modules/common.nix. Override by passing your own -b.
+        home-manager switch --flake ".#{{ user }}@{{ hostname }}" -b hm-backup {{ args }}
         end_time=$(date +%s)
         exit_code=$?
         runtime=$((end_time - start_time))
@@ -230,7 +232,9 @@ safe-switch args='':
     # ── Actual switch ───────────────────────────────────────────────────
     echo "🚀 Running home-manager switch ..."
     start_time=$(date +%s)
-    home-manager switch --flake ".#{{ user }}@{{ hostname }}" {{ args }}
+    # -b hm-backup: rename clashing pre-existing files to *.hm-backup instead of aborting.
+    # Matches the NixOS-module-side default in modules/common.nix. Override by passing your own -b.
+    home-manager switch --flake ".#{{ user }}@{{ hostname }}" -b hm-backup {{ args }}
     exit_code=$?
     end_time=$(date +%s)
     runtime=$((end_time - start_time))
