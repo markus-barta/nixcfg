@@ -19,6 +19,11 @@
 
 "$schema" = 'https://starship.rs/config-schema.json'
 
+# Default is 500ms — too tight for `git rev-parse` on macOS when Spotlight
+# / FileVault / FS-level interceptors add latency. Raises ceiling without
+# silencing legitimate slowness. (Fix for the [custom.gitcount] `when` gate.)
+command_timeout = 1500
+
 # ════════════════════════════════════════════════════════════════════════════════
 # PROMPT FORMAT
 # ════════════════════════════════════════════════════════════════════════════════
