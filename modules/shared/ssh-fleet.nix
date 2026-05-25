@@ -27,7 +27,7 @@
     enable = true;
     enableDefaultConfig = false;
 
-    matchBlocks = {
+    settings = {
       # ═══════════════════════════════════════════════════════════
       # GLOBAL DEFAULTS
       # Replaces Home Manager's enableDefaultConfig with our own values
