@@ -25,6 +25,10 @@
     };
     nixcfg.url = "github:pbek/nixcfg";
     # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
+    # pbek's hokage module imports inputs.nixhostforge — external consumers
+    # (us) must expose it at top level so it resolves with our `inputs` set.
+    nixhostforge.url = "github:pbek/nixhostforge";
+    nixhostforge.inputs.nixpkgs.follows = "nixpkgs";
     # NixFleet - Disabled (decommissioned, replaced by FleetCom)
     # nixfleet.url = "github:markus-barta/nixfleet";
     # nixfleet.inputs.nixpkgs.follows = "nixpkgs";
