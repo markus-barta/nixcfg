@@ -1,0 +1,17 @@
+# webhook (adnanh/webhook) config for fritz-tripwire.
+#
+# Expected POST body (set in Uptime Kuma's "Custom Body" template):
+#   { "ip": "192.168.1.7", "monitor": "Fritz .7 (bz)", "msg": "ping failed" }
+#
+# Configure Kuma to fire only on Down events (Apply on Up: OFF).
+- id: fritz-down
+  execute-command: /usr/local/bin/run.sh
+  command-working-directory: /incidents
+  response-message: "snapshot triggered\n"
+  pass-arguments-to-command:
+    - source: payload
+      name: ip
+    - source: payload
+      name: monitor
+    - source: payload
+      name: msg

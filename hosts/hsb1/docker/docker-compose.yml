@@ -64,6 +64,34 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
 
+  # Reconciled from deployed host state on 2026-05-25 (was running on hsb1
+  # but missing from repo). See docs/FUNKEYKID.md.
+  funkeykid:
+    image: ghcr.io/markus-barta/funkeykid:latest
+    container_name: funkeykid
+    network_mode: host
+    restart: unless-stopped
+    privileged: true # Required for /dev/input access
+    environment:
+      - TZ=Europe/Vienna
+      - XDG_RUNTIME_DIR=/run/user/1001
+      - PULSE_SERVER=unix:/run/user/1001/pulse/native
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
+    env_file:
+      - /home/mba/secrets/smarthome.env # MQTT credentials
+      - /home/mba/secrets/funkeykid-api.env # ELEVENLABS_API_KEY + OPENROUTER_API_KEY
+    volumes:
+      - ./mounts/funkeykid/settings.json:/data/settings.json
+      - ./mounts/funkeykid/sounds:/data/sounds
+      - ./mounts/funkeykid/images:/data/images
+      - ./mounts/funkeykid/ai-generated:/data/ai-generated
+      - /dev/input:/dev/input
+      - /run/user/1001:/run/user/1001
+      - /run/dbus:/run/dbus
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
   homeassistant:
     container_name: homeassistant
     image: "ghcr.io/home-assistant/home-assistant:stable"
@@ -237,6 +265,8 @@ services:
       - "WATCHTOWER_CLEANUP=true"
       - "DOCKER_API_VERSION=1.44"
       - "WATCHTOWER_DEBUG=true"
+      # FLEET-1397: enable HTTP API so bosun can trigger updates.
+      - "WATCHTOWER_HTTP_API_UPDATE=true"
       #      - "WATCHTOWER_POLL_INTERVAL=7200" # https://github.com/containrrr/watchtower/issues/669
       - "WATCHTOWER_NOTIFICATIONS=shoutrrr"
       - "WATCHTOWER_NOTIFICATIONS_HOSTNAME=hsb1"
@@ -276,6 +306,33 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
+
+  # Reconciled from deployed host state on 2026-05-25 (was running on hsb1
+  # but missing from repo). Long-lived idle shell with claude-code CLI for
+  # ad-hoc agent runs on hsb1; secrets mounted read-only.
+  claude-code:
+    image: node:24-alpine
+    container_name: claude-code
+    network_mode: host
+    working_dir: /workspace
+    environment:
+      - TZ=Europe/Vienna
+    volumes:
+      - /home/mba/docker/mounts/claude-code/workspace:/workspace
+      - /home/mba/docker/mounts/claude-code/config:/root/.claude
+      - /home/merlin/secrets/github-pat-merlin:/run/secrets/github-pat-merlin:ro
+      - /home/mba/secrets/pmo.env:/run/secrets/pmo.env:ro
+      - /home/mba/secrets/ppm.env:/run/secrets/ppm.env:ro
+    command: >
+      sh -c "
+        if ! which claude > /dev/null 2>&1; then
+          npm install -g @anthropic-ai/claude-code;
+        fi;
+        sleep infinity
+      "
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
 
   plex:
     image: lscr.io/linuxserver/plex:latest
@@ -325,6 +382,22 @@ services:
       # --scope weekly) picks bosun up for both the Saturday auto-cycle
       # AND the on-demand HTTP API trigger.
       - com.centurylinklabs.watchtower.scope=weekly
+
+  # fritz-tripwire — webhook receiver that snapshots all Fritz mesh devices
+  # when one fails. Triggered by Uptime Kuma on hsb0 (POST to /hooks/fritz-down).
+  # Output lands in ./mounts/fritz-tripwire/incidents/fritz-<ip>-<ts>/.
+  # See hosts/hsb1/docs/RUNBOOK.md → "fritz-tripwire" for setup + Kuma wiring.
+  fritz-tripwire:
+    build: ./fritz-tripwire
+    container_name: fritz-tripwire
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./mounts/fritz-tripwire/incidents:/incidents
+      - /home/mba/secrets/fritz.env:/secrets/fritz.env:ro
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
 
 volumes:
   opus-stream-app: # Mutable runtime for opus-stream-to-mqtt (node_modules cached here)
