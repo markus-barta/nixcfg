@@ -702,6 +702,17 @@
         "type": "github"
       }
     },
+    "nixhostforge_2": {
+      "locked": {
+        "path": "./stubs/nixhostforge",
+        "type": "path"
+      },
+      "original": {
+        "path": "./stubs/nixhostforge",
+        "type": "path"
+      },
+      "parent": []
+    },
     "nixos-hardware": {
       "locked": {
         "lastModified": 1779258371,
@@ -956,6 +967,7 @@
         "inspr-modules": "inspr-modules",
         "ncps": "ncps",
         "nixcfg": "nixcfg",
+        "nixhostforge": "nixhostforge_2",
         "nixos-hardware": "nixos-hardware_2",
         "nixpkgs": "nixpkgs_4",
         "nixpkgs-stable": "nixpkgs-stable_2",
