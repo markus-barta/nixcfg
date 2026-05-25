@@ -1,0 +1,6 @@
+# Runtime snapshot dirs land here when fritz-tripwire is run from this
+# compose directory. Keep the directory tracked (.gitkeep) but ignore
+# the snapshot contents themselves.
+*
+!.gitkeep
+!.gitignore
