@@ -155,6 +155,13 @@ in
         "flakes"
       ];
 
+      # Defensive timeouts so a single sick substituter (e.g. hsb0 ncps
+      # stalling on a slow upstream stream) can't gate a rebuild for the
+      # default 5 minutes. `fallback = true` (system-level default) sends
+      # the build straight to the next substituter after the trigger.
+      connect-timeout = 5;
+      stalled-download-timeout = 30;
+
       substituters = lib.mkOverride 0 (
         [
           "https://cache.nixos.org"

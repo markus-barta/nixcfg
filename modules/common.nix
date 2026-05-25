@@ -172,6 +172,10 @@ in
 
       # Allow fallback from local caches
       connect-timeout = 5;
+      # Bail on a substituter that opens TCP but then trickles data — caps
+      # the worst-case per-narinfo wait at 30s instead of the 300s default.
+      # `fallback = true` then sends the request to the next substituter.
+      stalled-download-timeout = 30;
       fallback = true;
 
       # NOTE: substituters and trusted-public-keys are managed exclusively by
