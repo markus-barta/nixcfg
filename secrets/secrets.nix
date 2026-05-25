@@ -392,6 +392,14 @@ in
   # PPM = Personal Project Management (Markus's personal Paimos at pm.barta.cm)
   "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mba-mbp-m5-work;
 
+  # Home WiFi credentials — used by awtrix-rescue and any future
+  # device-provisioning helpers that drive a device through its AP-mode
+  # captive portal. Paired creds in one .env file:
+  #   HOMEWIFI_SSID=<ssid>
+  #   HOMEWIFI_PASS=<password>
+  # Edit: agenix -e secrets/agents/shared/HOMEWIFI.age
+  "agents/shared/HOMEWIFI.age".publicKeys = markus ++ mba-mbp-m5-work;
+
   # ────────────────────────────────────────────────────────────────────────
   # INSPR-170: inspr.git.atelier Strategy B — per-host user SSH keys
   # ────────────────────────────────────────────────────────────────────────
