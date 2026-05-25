@@ -25,10 +25,6 @@
     };
     nixcfg.url = "github:pbek/nixcfg";
     # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
-    # pbek's hokage module imports inputs.nixhostforge — external consumers
-    # (us) must expose it at top level so it resolves with our `inputs` set.
-    nixhostforge.url = "github:pbek/nixhostforge";
-    nixhostforge.inputs.nixpkgs.follows = "nixpkgs";
     # NixFleet - Disabled (decommissioned, replaced by FleetCom)
     # nixfleet.url = "github:markus-barta/nixfleet";
     # nixfleet.inputs.nixpkgs.follows = "nixpkgs";
@@ -132,6 +128,9 @@
         })
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age
+        # Skip pbek/hokage's nixhostforge.nix import — we don't use nixhostforge
+        # (overlaps with INSPR / FleetCom). Avoids needing a nixhostforge flake input.
+        { disabledModules = [ "${inputs.nixcfg}/modules/hokage/nixhostforge.nix" ]; }
         # NixFleet agent — disabled (decommissioned, replaced by FleetCom)
         # inputs.nixfleet.nixosModules.nixfleet-agent
         # FleetCom NixOS agent — disabled, now runs as Docker container (FLEET-12)
@@ -247,6 +246,9 @@
             agenix.nixosModules.age
             # espanso-fix removed - espanso is disabled and it pulls in rustc!
             inputs.nixcfg.nixosModules.hokage # External hokage module (loads first)
+            # Skip pbek/hokage's nixhostforge.nix import — we don't use nixhostforge
+            # (overlaps with INSPR / FleetCom). Mirrors the entry in commonServerModules.
+            { disabledModules = [ "${inputs.nixcfg}/modules/hokage/nixhostforge.nix" ]; }
             ./modules/common.nix # OUR config (loads AFTER hokage to override)
             ./hosts/gpc0/configuration.nix
             disko.nixosModules.disko
