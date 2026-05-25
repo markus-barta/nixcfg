@@ -73,6 +73,7 @@ in
   uzumaki = {
     enable = true;
     role = "server";
+    ncps.enable = false; # Offsite from hsb0 (lives at ww87, not on home LAN) — hsb0.lan unreachable
   };
 
   # NOTE: starship and atuin are configured in common.nix (via commonServerModules)
