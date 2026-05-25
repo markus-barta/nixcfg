@@ -326,6 +326,22 @@ services:
       # AND the on-demand HTTP API trigger.
       - com.centurylinklabs.watchtower.scope=weekly
 
+  # fritz-tripwire — webhook receiver that snapshots all Fritz mesh devices
+  # when one fails. Triggered by Uptime Kuma on hsb0 (POST to /hooks/fritz-down).
+  # Output lands in ./mounts/fritz-tripwire/incidents/fritz-<ip>-<ts>/.
+  # See hosts/hsb1/docs/RUNBOOK.md → "fritz-tripwire" for setup + Kuma wiring.
+  fritz-tripwire:
+    build: ./fritz-tripwire
+    container_name: fritz-tripwire
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./mounts/fritz-tripwire/incidents:/incidents
+      - /home/mba/secrets/fritz.env:/secrets/fritz.env:ro
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+
 volumes:
   opus-stream-app: # Mutable runtime for opus-stream-to-mqtt (node_modules cached here)
 
