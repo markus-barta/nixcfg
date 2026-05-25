@@ -168,6 +168,73 @@ ssh mba@192.168.1.101 "cd ~/docker && docker-compose down && docker-compose up -
 
 ---
 
+## fritz-tripwire (Diagnostic Snapshot for Fritz Mesh)
+
+Captures TR-064 state of all 5 Fritz devices when one fails. Triggered by webhook from the existing Uptime Kuma on hsb0. Built to catch the ~weekly Fritz repeater hang we can't otherwise reproduce.
+
+### Architecture
+
+- **Probe**: Uptime Kuma on `hsb0:3001` runs ICMP monitors against `192.168.1.5–9` every 60s.
+- **Trigger**: On a `down` event (3 retries failed), Kuma POSTs a JSON webhook to `http://hsb1.lan:9000/hooks/fritz-down`.
+- **Capture**: `fritz-tripwire` container (this host) runs `run.sh`, which writes a timestamped snapshot to `~/docker/mounts/fritz-tripwire/incidents/fritz-<ip>-<ts>/`.
+
+### Snapshot contents
+
+| File                        | Source                                                      |
+| --------------------------- | ----------------------------------------------------------- |
+| `meta.json`                 | trigger context (ip, monitor name, msg, timestamp)          |
+| `tcp-<ip>.txt`              | TCP probe to ports 80, 443, 49000 for each of the 5 devices |
+| `tr064-deviceinfo-<ip>.xml` | TR-064 `GetInfo` — uptime, fw version                       |
+| `tr064-devicelog-<ip>.xml`  | TR-064 `GetDeviceLog` — device-side event buffer            |
+
+### Kuma setup (one-time, on hsb0)
+
+1. Open http://hsb0.lan:3001
+2. Add 5 **Ping** monitors, interval 60s, retries 3:
+   - `Fritz .5 (fb7530)` → 192.168.1.5
+   - `Fritz .6 (wz-repeater)` → 192.168.1.6
+   - `Fritz .7 (bz-repeater)` → 192.168.1.7
+   - `Fritz .8 (dt-repeater)` → 192.168.1.8
+   - `Fritz .9 (kr-repeater)` → 192.168.1.9
+3. Add Notification: type **Webhook**, POST URL `http://hsb1.lan:9000/hooks/fritz-down`, Body Format **Custom**, body:
+   ```json
+   {
+     "ip": "{{ monitor.hostname }}",
+     "monitor": "{{ monitor.name }}",
+     "msg": "{{ msg }}"
+   }
+   ```
+   Apply on Down: ON · Apply on Up: OFF.
+4. Attach the notification to all 5 monitors.
+
+### Test the wiring
+
+```bash
+ssh mba@hsb1.lan "curl -sX POST -H 'Content-Type: application/json' \
+  -d '{\"ip\":\"192.168.1.7\",\"monitor\":\"manual-test\",\"msg\":\"test\"}' \
+  http://localhost:9000/hooks/fritz-down"
+# then check the newest incident dir:
+ssh mba@hsb1.lan "ls -t ~/docker/mounts/fritz-tripwire/incidents/ | head -1"
+```
+
+### Reading a snapshot
+
+```bash
+ssh mba@hsb1.lan "cd ~/docker/mounts/fritz-tripwire/incidents/<dir> && \
+  cat meta.json && \
+  for f in tcp-*.txt; do echo --- \$f; cat \$f; done && \
+  for f in tr064-deviceinfo-*.xml; do echo --- \$f; \
+    grep -oE '<New(UpTime|SoftwareVersion)>[^<]*</New[A-Za-z]+>' \$f; done"
+```
+
+`NewUpTime` on the victim device tells you whether it self-rebooted (low) or was wedged for a long time without rebooting (high).
+
+### Credentials
+
+TR-064 credentials are read from `/home/mba/secrets/fritz.env` (bind-mounted read-only). TODO: migrate to agenix in a follow-up.
+
+---
+
 ## Troubleshooting
 
 ### Node-RED Not Accessible
