@@ -125,6 +125,31 @@ in
   #   = nixcfg/secrets/agents
   inspr.secrets.agents.encryptedRoot = ../../secrets/agents;
 
+  # Eval-time validation: derive the expected secret list directly from
+  # secrets.nix so the agenix recipient declarations are the single source
+  # of truth. If a declared .age is untracked-in-git (invisible to the
+  # flake source closure), agent-secrets throws with a clear remediation
+  # hint instead of silently skipping (NIX-1861, 2026-05-25 root cause).
+  inspr.secrets.agents.requireFiles =
+    let
+      # Read the recipient map. Keys are paths like
+      # "agents/shared/X.age" or "agents/host/<host>/X.age".
+      secrets = import ../../secrets/secrets.nix;
+      keys = builtins.attrNames secrets;
+
+      # Which keys apply to THIS host:
+      #  - everything under agents/shared/ is always expected
+      #  - agents/host/<hostname>/* is expected only when hostname matches
+      isFor =
+        k:
+        lib.hasPrefix "agents/shared/" k
+        || (hostname != null && lib.hasPrefix "agents/host/${hostname}/" k);
+
+      # "agents/shared/HOMEWIFI.age" → "HOMEWIFI"
+      nameOf = k: lib.removeSuffix ".age" (lib.last (lib.splitString "/" k));
+    in
+    map nameOf (builtins.filter isFor keys);
+
   inspr.git-identity = {
     default = lib.mkDefault "personal";
 
