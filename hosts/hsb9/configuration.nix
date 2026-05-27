@@ -186,6 +186,20 @@ in
   console.keyMap = "us";
 
   security.sudo.wheelNeedsPassword = false;
+  # NixOS unstable defaults to sudo-rs (Rust rewrite). The classic sudo
+  # toggle above is a no-op when sudo-rs is the actual binary. Set both.
+  security.sudo-rs.wheelNeedsPassword = false;
+
+  # ==========================================================================
+  # TAILSCALE — joins the fleet's Headscale at hs.barta.cm
+  # ==========================================================================
+  # `tailscale up` after first rebuild:
+  #   sudo tailscale up --login-server=https://hs.barta.cm --authkey=<preauth>
+  # (preauth key generated on csb0 via headscale CLI)
+  services.tailscale = {
+    enable = true;
+    useRoutingFeatures = "client";
+  };
 
   zramSwap = {
     enable = true;
