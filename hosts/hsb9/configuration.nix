@@ -1,6 +1,7 @@
 # hsb9 server - Parents-in-law home automation server (Mac mini Late 2009)
 {
   pkgs,
+  lib,
   config,
   inputs,
   ...
@@ -216,5 +217,7 @@ in
     ethtool
   ];
 
-  system.stateVersion = "25.05";
+  # hsb9 was installed at NixOS 25.05; common.nix's "24.11" is the fleet
+  # baseline. mkForce keeps per-host stateVersion semantics correct.
+  system.stateVersion = lib.mkForce "25.05";
 }
