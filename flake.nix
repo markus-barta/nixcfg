@@ -276,6 +276,19 @@
           };
         };
 
+        # Home Server Barta 9 (Parents-in-law home automation server)
+        # Mac mini Late 2009, ext4 (no disko, no ZFS)
+        # NIX-138 (2026-05-27): forcedeth-DHCP-race workaround via static IP
+        hsb9 = nixpkgs.lib.nixosSystem {
+          modules = commonServerModules ++ [
+            inputs.nixcfg.nixosModules.hokage # External hokage module
+            ./hosts/hsb9/configuration.nix
+          ];
+          specialArgs = self.commonArgs // {
+            inherit inputs;
+          };
+        };
+
         # Cloud Server Barta 1 (Netcup VPS - Grafana, InfluxDB, Paperless, Docmost)
         # Hokage Migration: 2025-11-29
         # Using external hokage consumer pattern
