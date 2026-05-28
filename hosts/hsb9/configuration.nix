@@ -147,12 +147,12 @@ in
       enable = true;
       allowedTCPPorts = [
         22 # SSH
-        # Add later when services land:
-        # 1883 8883 # MQTT / MQTT-TLS
-        # 8123      # Home Assistant
+        1883 # MQTT (mosquitto)
+        8123 # Home Assistant
+        # 8080 # Zigbee2MQTT UI — open when the dongle lands (NIX-140)
       ];
       allowedUDPPorts = [
-        41641 # Tailscale (when enrolled)
+        41641 # Tailscale
       ];
     };
   };

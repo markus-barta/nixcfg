@@ -1,0 +1,63 @@
+# hsb9 docker services — parents-in-law home automation (NIX-139)
+#
+# Lightweight stack vs hsb1: just MQTT broker + Home Assistant for now.
+# Zigbee2MQTT is scaffolded below but DISABLED until the SONOFF Zigbee 3.0
+# dongle is migrated from the Pi 3 (NIX-140). HomeKit is NOT a separate
+# container — it's Home Assistant's built-in HomeKit Bridge integration,
+# configured in the HA UI once HA is up.
+#
+# Deploy (on hsb9): cd ~/Code/nixcfg/hosts/hsb9/docker && docker compose up -d
+services:
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mounts/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mounts/mosquitto/config/mosquitto_passwd:/mosquitto/config/mosquitto_passwd
+      - ./mounts/mosquitto/data:/mosquitto/data
+      - ./mounts/mosquitto/log:/mosquitto/log
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
+  homeassistant:
+    container_name: homeassistant
+    image: "ghcr.io/home-assistant/home-assistant:stable"
+    depends_on:
+      - mosquitto
+    volumes:
+      - ./mounts/homeassistant:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus:/run/dbus:ro
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    environment:
+      - TZ=Europe/Vienna
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
+  # ── Zigbee2MQTT — DISABLED until SONOFF dongle migrated (NIX-140) ──────────
+  # When the dongle is on hsb9:
+  #   1. `ls -l /dev/serial/by-id/` to find its stable path
+  #   2. fill in the device mapping below + uncomment
+  #   3. restore the coordinator backup from the Pi 3 (avoids re-pairing)
+  # zigbee2mqtt:
+  #   container_name: zigbee2mqtt
+  #   image: koenkk/zigbee2mqtt:latest
+  #   depends_on:
+  #     - mosquitto
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     - TZ=Europe/Vienna
+  #   volumes:
+  #     - ./mounts/zigbee2mqtt:/app/data
+  #     - /run/udev:/run/udev:ro
+  #   devices:
+  #     - /dev/serial/by-id/<SONOFF-DONGLE>:/dev/ttyACM0
