@@ -100,6 +100,22 @@
         user = "mba";
       };
 
+      # hsb9 = parents-in-law (Mac mini Late 2009). LAN .200 is the target at
+      # parents-in-law; while still at jhw22 (.203) the TS fallback wins.
+      "hsb9" = {
+        hostname = "192.168.1.200";
+        user = "mba";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb9.ts.barta.cm %p; fi'";
+      };
+      "hsb9-lan" = {
+        hostname = "192.168.1.200";
+        user = "mba";
+      };
+      "hsb9-ts" = {
+        hostname = "hsb9.ts.barta.cm";
+        user = "mba";
+      };
+
       "hsb2" = {
         hostname = "192.168.1.95";
         user = "mba";

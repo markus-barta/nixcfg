@@ -71,6 +71,21 @@
       HostName hsb8.ts.barta.cm
       User mba
 
+    # hsb9 = parents-in-law (Mac mini Late 2009). LAN .200 is target; while at
+    # jhw22 (.203) the TS fallback wins via the proxy command.
+    Host hsb9
+      HostName 192.168.1.200
+      User mba
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb9.ts.barta.cm %p; fi'
+
+    Host hsb9-lan
+      HostName 192.168.1.200
+      User mba
+
+    Host hsb9-ts
+      HostName hsb9.ts.barta.cm
+      User mba
+
     Host gpc0
       HostName 192.168.1.154
       User mba
