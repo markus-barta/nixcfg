@@ -322,6 +322,11 @@ in
 
   # Enable memory-safe implementation of the sudo command
   security.sudo-rs.enable = true;
+  # sudo-rs needs its OWN NOPASSWD toggle — the classic `security.sudo.
+  # wheelNeedsPassword` is a no-op once sudo-rs is the active binary. Without
+  # this, passwordless remote `nixos-rebuild` breaks on any host whose users
+  # have no password (the hsb9 onboarding catch-22, NIX-138 2026-05-27).
+  security.sudo-rs.wheelNeedsPassword = false;
 
   system = {
     # NOTE: nixpkgs symlink is created by external hokage's common.nix

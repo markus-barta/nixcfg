@@ -199,6 +199,14 @@ in
   services.tailscale = {
     enable = true;
     useRoutingFeatures = "client";
+    # hsb9 keeps its static resolver (.99 / 1.1.1.1) — do NOT let tailscaled
+    # take over resolvconf. With accept-dns left at the default (true), a
+    # logged-out tailscaled grabbed resolvconf and emptied /etc/resolv.conf,
+    # which then blocked it from reaching hs.barta.cm to log in (NIX-138
+    # chicken-and-egg). The live pref is already set via `tailscale up
+    # --accept-dns=false` (persisted in tailscaled.state); this documents it
+    # and covers any future authKeyFile-driven auto-up.
+    extraUpFlags = [ "--accept-dns=false" ];
   };
 
   zramSwap = {
