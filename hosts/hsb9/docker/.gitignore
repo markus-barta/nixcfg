@@ -1,0 +1,10 @@
+# Runtime data + secrets under mounts/ are NOT tracked; only mosquitto.conf is.
+# Level-by-level: a bare `mounts/` would exclude the dir so git can't recurse
+# to re-include anything inside it. Ignore contents at each level, then
+# re-include the path down to the one file we keep.
+mounts/*
+!mounts/mosquitto/
+mounts/mosquitto/*
+!mounts/mosquitto/config/
+mounts/mosquitto/config/*
+!mounts/mosquitto/config/mosquitto.conf
