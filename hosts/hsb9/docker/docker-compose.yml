@@ -18,7 +18,6 @@ services:
       - ./mounts/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./mounts/mosquitto/config/mosquitto_passwd:/mosquitto/config/mosquitto_passwd
       - ./mounts/mosquitto/data:/mosquitto/data
-      - ./mounts/mosquitto/log:/mosquitto/log
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
