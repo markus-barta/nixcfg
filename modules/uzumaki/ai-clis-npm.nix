@@ -1,4 +1,4 @@
-# Always-latest AI CLIs via npm (claude-code, codex)
+# Always-latest AI CLIs via npm (claude-code, codex, grok)
 #
 # nixpkgs lags upstream npm by days/weeks for fast-moving AI CLIs.
 # Node ships via uzumaki commonPackages; this module npm-installs the CLIs
@@ -17,6 +17,7 @@ let
   npmPkgs = [
     "@anthropic-ai/claude-code"
     "@openai/codex"
+    "@xai-official/grok" # xAI Grok Build CLI; armv6 unsupported (npm EBADPLATFORM, soft-fails)
   ];
   npmPkgsLatest = lib.concatMapStringsSep " " (p: "${p}@latest") npmPkgs;
 in
