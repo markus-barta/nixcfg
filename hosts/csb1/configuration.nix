@@ -378,6 +378,16 @@
     mode = "0644";
   };
 
+  # Janus Docker env (Zitadel OIDC client + cookie signing key)
+  # Format: KEY=VALUE lines (OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY)
+  age.secrets.csb1-janus-env = {
+    file = ../../secrets/csb1-janus-env.age;
+    path = "/run/agenix/csb1-janus-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
   # FleetCom Bosun agent (csb1 stack) — env. Folded in from the manually-placed
   # /opt/fleetcom-agent/.env on 2026-05-29 (was the last out-of-agenix secret).
   age.secrets.csb1-fleetcom-agent-env = {

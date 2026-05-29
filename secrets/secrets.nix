@@ -208,6 +208,11 @@ in
   # Edit: agenix -e secrets/csb1-ppm-env.age
   "csb1-ppm-env.age".publicKeys = markus ++ csb1;
 
+  # Janus environment variables for csb1
+  # Format: KEY=VALUE lines (OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY)
+  # Edit: agenix -e secrets/csb1-janus-env.age
+  "csb1-janus-env.age".publicKeys = markus ++ csb1;
+
   # === NIX-110: csb1 docker stack migration to git — bulk env file refactor ===
   # The following secrets were previously plaintext in ~/secrets/ or
   # ./xxx.env on csb1. Moved to agenix as part of the docker-in-git
