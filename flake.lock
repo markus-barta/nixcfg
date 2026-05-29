@@ -860,11 +860,11 @@
     "paimos": {
       "flake": false,
       "locked": {
-        "lastModified": 1779550162,
-        "narHash": "sha256-qn997Jc3xtSCv5Ixq64O2NP5h/zSi8FmuOfjnK0xmKw=",
+        "lastModified": 1780045701,
+        "narHash": "sha256-mMLdKn3BgMkRlsFE66Sv1x9sa0GhPiyE+caT5yJUYoE=",
         "owner": "markus-barta",
         "repo": "paimos",
-        "rev": "56b0e2fea5a8f16db860c7f6d866bd8dfd0c613d",
+        "rev": "76f8288a9259ba381b7a9df9bad4c8080b432247",
         "type": "github"
       },
       "original": {
