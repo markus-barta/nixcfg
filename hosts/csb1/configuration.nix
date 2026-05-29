@@ -378,6 +378,16 @@
     mode = "0644";
   };
 
+  # FleetCom Bosun agent (csb1 stack) — env. Folded in from the manually-placed
+  # /opt/fleetcom-agent/.env on 2026-05-29 (was the last out-of-agenix secret).
+  age.secrets.csb1-fleetcom-agent-env = {
+    file = ../../secrets/csb1-fleetcom-agent-env.age;
+    path = "/run/agenix/csb1-fleetcom-agent-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
   # === NIX-110: csb1 docker stack migration — bulk env file refactor ===
   # All env files for services in /home/mba/docker/docker-compose.yml that
   # previously lived in ~/secrets/ or ./xxx.env are now in agenix.
