@@ -243,6 +243,12 @@ in
   # Edit: agenix -e secrets/csb1-fleetcom-env.age
   "csb1-fleetcom-env.age".publicKeys = markus ++ csb1;
 
+  # FleetCom Bosun AGENT (csb1 docker stack) — env. Distinct from the
+  # fleetcom server's csb1-fleetcom-env above. Folded into agenix 2026-05-29
+  # from the manually-placed /opt/fleetcom-agent/.env (last out-of-agenix secret).
+  # Edit: agenix -e secrets/csb1-fleetcom-agent-env.age
+  "csb1-fleetcom-agent-env.age".publicKeys = markus ++ csb1;
+
   # Mosquitto broker configuration file
   # Edit: agenix -e secrets/mosquitto-conf.age
   # NOTE: This is for Mosquitto BROKER configuration (server-side)

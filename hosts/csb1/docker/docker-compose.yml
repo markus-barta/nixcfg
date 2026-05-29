@@ -403,7 +403,7 @@ services:
     # mem_limit caps a known leak in bosun (FLEET-78, cs1 outage 2026-04-25).
     mem_limit: 512m
     memswap_limit: 512m
-    env_file: [/opt/fleetcom-agent/.env]
+    env_file: [/run/agenix/csb1-fleetcom-agent-env]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc:/host/proc:ro
