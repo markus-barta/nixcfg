@@ -378,17 +378,6 @@
     mode = "0644";
   };
 
-  # Vaultwarden Docker env (vault.barta.cm)
-  # Backend for JANUS LLM-vault connector (INSPR-180).
-  # Format: KEY=VALUE (ADMIN_TOKEN, optional SMTP_*)
-  age.secrets.csb1-vaultwarden-env = {
-    file = ../../secrets/csb1-vaultwarden-env.age;
-    path = "/run/agenix/csb1-vaultwarden-env";
-    owner = "root";
-    group = "root";
-    mode = "0644";
-  };
-
   # === NIX-110: csb1 docker stack migration — bulk env file refactor ===
   # All env files for services in /home/mba/docker/docker-compose.yml that
   # previously lived in ~/secrets/ or ./xxx.env are now in agenix.
