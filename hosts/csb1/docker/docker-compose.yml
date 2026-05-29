@@ -416,46 +416,6 @@ services:
     networks:
       - default
 
-  # ============================================
-  # Vaultwarden — JANUS LLM-vault backend
-  # vault.barta.cm. Backend for the Janus-Warden MCP server.
-  # NIX-110 / INSPR-180.
-  # ============================================
-  vaultwarden:
-    image: vaultwarden/server:1.32.7-alpine
-    container_name: vaultwarden
-    restart: unless-stopped
-    mem_limit: 256m
-    memswap_limit: 256m
-    environment:
-      - DOMAIN=https://vault.barta.cm
-      - SIGNUPS_ALLOWED=false
-      - INVITATIONS_ALLOWED=true
-      - WEB_VAULT_ENABLED=true
-      - WEBSOCKET_ENABLED=true
-      - IP_HEADER=X-Forwarded-For
-      - LOG_LEVEL=info
-      - EXTENDED_LOGGING=true
-      - LOG_FILE=/data/vaultwarden.log
-      - ROCKET_PORT=8080
-      - TZ=Europe/Vienna
-    env_file:
-      - /run/agenix/csb1-vaultwarden-env
-    volumes:
-      - vaultwarden_data:/data
-    networks:
-      - traefik
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.vaultwarden.rule=Host(`vault.barta.cm`)
-      - traefik.http.routers.vaultwarden.tls.certresolver=default
-      - traefik.http.routers.vaultwarden.tls=true
-      - traefik.http.services.vaultwarden.loadbalancer.server.port=8080
-      - traefik.docker.network=csb1_traefik
-      - traefik.http.routers.vaultwarden.middlewares=cloudflarewarp@file
-      # Security-sensitive: never auto-update.
-      - com.centurylinklabs.watchtower.enable=false
-
 volumes:
   docmost_db_data: {}
   docmost_redis_data: {}
@@ -469,7 +429,6 @@ volumes:
   paperless_consume: {}
   ppm_data: {}
   minio_data: {}
-  vaultwarden_data: {} # NIX-110
 
 networks:
   internal:

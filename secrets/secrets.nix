@@ -208,12 +208,6 @@ in
   # Edit: agenix -e secrets/csb1-ppm-env.age
   "csb1-ppm-env.age".publicKeys = markus ++ csb1;
 
-  # Vaultwarden environment variables for csb1 (vault.barta.cm)
-  # Backend for JANUS LLM-vault connector (INSPR-180).
-  # Format: KEY=VALUE lines (ADMIN_TOKEN, optional SMTP_*)
-  # Edit: agenix -e secrets/csb1-vaultwarden-env.age
-  "csb1-vaultwarden-env.age".publicKeys = markus ++ csb1;
-
   # === NIX-110: csb1 docker stack migration to git — bulk env file refactor ===
   # The following secrets were previously plaintext in ~/secrets/ or
   # ./xxx.env on csb1. Moved to agenix as part of the docker-in-git
