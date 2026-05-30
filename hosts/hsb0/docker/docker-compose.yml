@@ -183,8 +183,8 @@ services:
       - --cache-temp-path=/tmp
       - --server-addr=0.0.0.0:8501
       - --cache-allow-put-verb
-      - --cache-max-size=50G
-      - --cache-lru-schedule=0 3 * * *
+      - --cache-max-size=42G
+      - --cache-lru-schedule=* * * * *
       - --cache-secret-key-path=/run/secrets/ncps-key
       - --cache-upstream-url=https://cache.nixos.org
       - --cache-upstream-url=https://nix-community.cachix.org
