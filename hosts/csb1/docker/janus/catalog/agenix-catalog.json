@@ -10,7 +10,7 @@
     "rotation_days": 180,
     "lifecycle": "active",
     "status": "managed",
-    "use_enabled": false,
+    "use_enabled": true,
     "consumer_count": 1,
     "egress_mode": "none",
     "tags": ["identity", "oidc", "janus"]
@@ -26,7 +26,7 @@
     "rotation_days": 180,
     "lifecycle": "active",
     "status": "managed",
-    "use_enabled": false,
+    "use_enabled": true,
     "consumer_count": 1,
     "egress_mode": "none",
     "tags": ["ppm", "app-env"]
@@ -42,7 +42,7 @@
     "rotation_days": 180,
     "lifecycle": "active",
     "status": "managed",
-    "use_enabled": false,
+    "use_enabled": true,
     "consumer_count": 1,
     "egress_mode": "none",
     "tags": ["storage", "ppm-attachments"]
@@ -58,7 +58,7 @@
     "rotation_days": 180,
     "lifecycle": "active",
     "status": "managed",
-    "use_enabled": false,
+    "use_enabled": true,
     "consumer_count": 1,
     "egress_mode": "connector-required",
     "tags": ["fleetcom", "agent"]
@@ -74,7 +74,7 @@
     "rotation_days": 180,
     "lifecycle": "active",
     "status": "managed",
-    "use_enabled": false,
+    "use_enabled": true,
     "consumer_count": 1,
     "egress_mode": "none",
     "tags": ["edge", "dns", "tls"]
@@ -90,7 +90,7 @@
     "rotation_days": 180,
     "lifecycle": "active",
     "status": "managed",
-    "use_enabled": false,
+    "use_enabled": true,
     "consumer_count": 1,
     "egress_mode": "connector-required",
     "tags": ["backup", "restic"]
