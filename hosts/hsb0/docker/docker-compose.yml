@@ -193,3 +193,9 @@ services:
     environment:
       - NCPS_LOG_LEVEL=info
       - ANALYTICS_REPORTING_ENABLED=false
+      # Force HTTP/1.1 to upstreams. ncps's Go http2 client stalls against
+      # Fastly (cache.nixos.org CDN): pooled h2 conns hang with "http2: timeout
+      # awaiting response headers", marking upstreams unhealthy -> HTTP 500 to
+      # clients on every cache miss, while fresh curl/h2 still works. Disabling
+      # the Go http2 client transport avoids the stall. (NIX, 2026-05-30)
+      - GODEBUG=http2client=0
