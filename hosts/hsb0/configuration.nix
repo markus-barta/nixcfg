@@ -652,36 +652,92 @@ in
   users.users.mba.initialHashedPassword = lib.mkForce null;
 
   # ============================================================================
-  # Cache Warmer (Nightly Pre-fetch)
+  # Cache Warmer — populate local NCPS with the LAN fleet's substitutable deps
   # ============================================================================
-  # Triggers NCPS to download updates during off-peak hours.
-  # Schedule: Sat 03:00 (Weekend) and Mon 03:00 (Work Week)
+  # NIX-155: the previous warmer used `nix build --dry-run`, which downloads
+  # NOTHING (it only evaluates) — so NCPS was never actually warmed (proven: a
+  # real run transferred 0 bytes). This rewrite does a REAL warm.
+  #
+  # How it works, per host config:
+  #   1. `nix build --dry-run` to split the closure into "will be built"
+  #      (host-specific, unwarmable) and "will be fetched" (substitutable deps).
+  #   2. Realise ONLY the substitutable set THROUGH ncps (substituters overridden
+  #      to ncps), so ncps proxies + caches each NAR from its upstreams. The
+  #      host toplevel itself is never on a public cache (built per-host), so we
+  #      deliberately warm the dependency closure, not the toplevel.
+  #   3. `--max-jobs 0` => never build, substitute only. This is what lets the
+  #      darwin (macOS) configs warm on this x86_64-linux host: their prebuilt
+  #      NARs are fetched, nothing is compiled.
+  #
+  # Host list is STATIC and LAN-only by design: offsite hosts (csb0/csb1/
+  # hsb8/hsb9) do not pull from this cache, so warming them is pointless.
+  # Future: define the "local fleet" set in FleetCom and generate this list
+  # (tracked in NIX-155).
+  #
+  # Schedule: Sat & Mon 04:00 — AFTER the 03:00 ncps LRU run, so freshly-warmed
+  # paths survive the day instead of being trimmed minutes later.
   # ============================================================================
   systemd.services.ncps-warmer = {
-    description = "Pre-fetch Nix updates into local NCPS cache";
+    description = "Warm local NCPS with LAN fleet substitutable closures";
     after = [
       "ncps.service"
       "network-online.target"
     ];
     wants = [ "network-online.target" ];
+    path = [
+      pkgs.nix
+      pkgs.git
+      pkgs.gawk
+      pkgs.findutils
+      pkgs.coreutils
+    ];
     script = ''
-      # Trigger dry-build of all fleet hosts to warm the local NCPS cache.
-      # --dry-run ensures derivations are evaluated and substituters are
-      # contacted (so NCPS pre-fetches binaries), without actually building.
-      # NIX-100 fix: `nix build` takes the flake-ref positionally, NOT
-      # `--flake` (that's a `nixos-rebuild` flag). Pre-fix this script had
-      # been failing weekly since deployment with `unrecognised flag '--flake'`.
-      ${pkgs.nix}/bin/nix build .#nixosConfigurations.hsb0.config.system.build.toplevel --dry-run
-      ${pkgs.nix}/bin/nix build .#nixosConfigurations.hsb1.config.system.build.toplevel --dry-run
-      ${pkgs.nix}/bin/nix build .#nixosConfigurations.gpc0.config.system.build.toplevel --dry-run
-      # imac0 is a darwin workstation — uses Home Manager standalone (no nix-darwin),
-      # so the closure to warm is the HM activation package.
-      ${pkgs.nix}/bin/nix build '.#homeConfigurations."markus@imac0".activationPackage' --dry-run
+      set -uo pipefail
+      NCPS="http://hsb0.lan:8501"
+      REPO="/home/mba/Code/nixcfg"
+
+      # Warm the latest committed fleet state, not just whatever was last
+      # switched. Read-only ff pull; never auto-update the flake lock.
+      git -C "$REPO" pull --ff-only || echo "warmer: git pull skipped (dirty/no-ff)"
+      cd "$REPO"
+
+      warm() {
+        name="$1"; ref="$2"
+        # Substitutable closure paths only ("will be fetched"); the
+        # "will be built" host-specific derivations are skipped.
+        paths="$(nix build "$ref" --dry-run 2>&1 \
+          | awk '/will be fetched/{f=1;next} /will be built/{f=0} f && /\/nix\/store\//{gsub(/^ +/,"");print}')"
+        if [ -z "$paths" ]; then
+          echo "warmer: $name — nothing to fetch (already cached)"; return 0
+        fi
+        n="$(printf '%s\n' "$paths" | wc -l)"
+        if printf '%s\n' "$paths" \
+          | xargs nix-store --realise --option substituters "$NCPS" --option max-jobs 0 >/dev/null 2>&1; then
+          echo "warmer: $name — warmed $n paths"
+        else
+          echo "warmer: $name — PARTIAL ($n paths attempted; some unsubstitutable)"
+        fi
+      }
+
+      # STATIC LAN list (NIX-155). NixOS hosts:
+      warm gpc0      ".#nixosConfigurations.gpc0.config.system.build.toplevel"
+      warm hsb1      ".#nixosConfigurations.hsb1.config.system.build.toplevel"
+      warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel"
+      # macOS Home-Manager hosts (warm their prebuilt deps; no darwin builder needed):
+      warm imac0     '.#homeConfigurations."markus@imac0".activationPackage'
+      warm imac-work '.#homeConfigurations."markus@mba-imac-work".activationPackage'
+      warm mbp-m5    '.#homeConfigurations."mba@mba-mbp-m5-work".activationPackage'
+      echo "warmer: done"
     '';
     serviceConfig = {
       Type = "oneshot";
       WorkingDirectory = "/home/mba/Code/nixcfg";
       User = "mba";
+      TimeoutStartSec = "3h";
+      # Be gentle on the family server during the warm.
+      Nice = 19;
+      IOSchedulingClass = "idle";
+      CPUWeight = 20;
     };
   };
 
@@ -689,10 +745,10 @@ in
     description = "Timer for NCPS Cache Warmer";
     wantedBy = [ "timers.target" ];
     timerConfig = {
-      # Sat 03:00 (Fri -> Sat) and Mon 03:00 (Sun -> Mon)
+      # Sat & Mon 04:00 — after the 03:00 LRU so warmed paths aren't trimmed.
       OnCalendar = [
-        "Sat 03:00:00"
-        "Mon 03:00:00"
+        "Sat 04:00:00"
+        "Mon 04:00:00"
       ];
       Persistent = true;
       Unit = "ncps-warmer.service";
