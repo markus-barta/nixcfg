@@ -379,12 +379,14 @@ services:
       - JANUS_PUBLIC_URL=https://vault.barta.cm
       - JANUS_PRODUCT_MODE=self_hosted
       - JANUS_DATA_DIR=/data
+      - JANUS_CATALOG_FILE=/catalog/agenix-catalog.json
       - JANUS_REQUIRE_AUTH=true
       - OIDC_ISSUER=https://auth.inspr.at
     env_file:
       - /run/agenix/csb1-janus-env
     volumes:
       - janus_data:/data
+      - ./janus/catalog:/catalog:ro
     networks:
       - traefik
     labels:
