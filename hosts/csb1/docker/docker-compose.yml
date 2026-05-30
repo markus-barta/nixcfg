@@ -381,6 +381,13 @@ services:
       - JANUS_DATA_DIR=/data
       - JANUS_CATALOG_FILE=/catalog/agenix-catalog.json
       - JANUS_REQUIRE_AUTH=true
+      - JANUS_BOOTSTRAP_OWNER=false
+      - JANUS_ADMIN_SUBJECTS=markus@barta.com
+      - JANUS_AUDITOR_SUBJECTS=markus@barta.com
+      - JANUS_OPERATOR_SUBJECTS=markus@barta.com
+      - JANUS_ADMIN_GROUPS=janus:admin
+      - JANUS_AUDITOR_GROUPS=janus:auditor
+      - JANUS_OPERATOR_GROUPS=janus:operator
       - OIDC_ISSUER=https://auth.inspr.at
     env_file:
       - /run/agenix/csb1-janus-env
