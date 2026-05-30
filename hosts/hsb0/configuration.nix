@@ -687,6 +687,7 @@ in
     path = [
       pkgs.nix
       pkgs.git
+      pkgs.openssh # git pull uses the ssh remote (git-personal:); without it: "cannot run ssh"
       pkgs.gawk
       pkgs.findutils
       pkgs.coreutils
