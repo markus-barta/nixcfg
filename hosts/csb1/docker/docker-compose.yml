@@ -372,7 +372,11 @@ services:
   # Janus - secret metadata control plane
   # ============================================
   janus:
-    build: ./janus
+    build:
+      context: ./janus
+      args:
+        JANUS_BUILD_COMMIT: ${JANUS_BUILD_COMMIT:-unknown}
+        JANUS_BUILD_TIME: ${JANUS_BUILD_TIME:-unknown}
     container_name: janus
     restart: unless-stopped
     environment:
