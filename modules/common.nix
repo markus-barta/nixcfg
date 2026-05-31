@@ -209,6 +209,12 @@ in
         less # Pager for viewing files
         gnumake # Build automation tool
 
+        # Terminfo: lets terminals we SSH IN from render correctly over the wire.
+        # Ghostty advertises TERM=xterm-ghostty; without this entry ncurses tools
+        # (clear/vim/htop) print "unknown terminal type" and tcell TUIs
+        # (lazygit/lazydocker) crash (infocmp exit 1 -> *exec.ExitError).
+        ghostty.terminfo # xterm-ghostty terminfo for remote SSH sessions
+
         # ══════════════════════════════════════════════════════════════════════
         # Git & Version Control
         # ══════════════════════════════════════════════════════════════════════
