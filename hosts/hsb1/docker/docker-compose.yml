@@ -182,8 +182,10 @@ services:
       - "1883:1883"
       - "9001:9001"
     volumes:
-      - ./mounts/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
-      - ./mounts/mosquitto/config/mosquitto_passwd:/mosquitto/config/mosquitto_passwd
+      # conf + passwd delivered encrypted via agenix (decrypted to /run/agenix at nixos switch).
+      # Server-side broker config incl. the vendor-locked OPUS bridge credential — never plaintext in git.
+      - /run/agenix/hsb1-mosquitto-conf:/mosquitto/config/mosquitto.conf:ro
+      - /run/agenix/hsb1-mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
       - ./mounts/mosquitto/var/run:/var/run # needed to fix "unable to write PID" error. https://github.com/eclipse/mosquitto/issues/2074#issuecomment-787135608
       - ./mounts/mosquitto/data:/mosquitto/data
       - ./mounts/mosquitto/log:/mosquitto/log

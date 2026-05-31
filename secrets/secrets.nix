@@ -203,6 +203,15 @@ in
   # Edit: agenix -e secrets/hsb1-pixdcon-env.age
   "hsb1-pixdcon-env.age".publicKeys = markus ++ hsb1;
 
+  # hsb1 Mosquitto broker (server-side). conf carries the inline OPUS greennet
+  # bridge connection (vendor-locked credential, LAN-only) + passwd holds broker
+  # auth hashes — both are secrets, never plaintext in git. Encrypt from the live
+  # host so no plaintext touches local disk:
+  #   ssh mba@hsb1.lan "docker exec mosquitto cat /mosquitto/config/mosquitto.conf"   | agenix -e secrets/hsb1-mosquitto-conf.age
+  #   ssh mba@hsb1.lan "docker exec mosquitto cat /mosquitto/config/mosquitto_passwd" | agenix -e secrets/hsb1-mosquitto-passwd.age
+  "hsb1-mosquitto-conf.age".publicKeys = markus ++ hsb1;
+  "hsb1-mosquitto-passwd.age".publicKeys = markus ++ hsb1;
+
   # PPM (Personal Project Management) environment variables for csb1
   # Format: KEY=VALUE lines (PPM_ADMIN_PASSWORD, COOKIE_SECURE, etc.)
   # Edit: agenix -e secrets/csb1-ppm-env.age

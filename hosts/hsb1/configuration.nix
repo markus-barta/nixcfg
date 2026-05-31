@@ -488,16 +488,18 @@
     };
   };
 
-  home-manager.users.mba = { config, ... }: {
-    imports = [
-      inputs.inspr-modules.homeManagerModules.ssh-authorized
-      ../../modules/shared/ssh-authorized.nix
-    ];
-    inspr.ssh.authorized = {
-      enable = true;
-      trust  = config._inspr.trustPresets.personalHosts;
+  home-manager.users.mba =
+    { config, ... }:
+    {
+      imports = [
+        inputs.inspr-modules.homeManagerModules.ssh-authorized
+        ../../modules/shared/ssh-authorized.nix
+      ];
+      inspr.ssh.authorized = {
+        enable = true;
+        trust = config._inspr.trustPresets.personalHosts;
+      };
     };
-  };
 
   # ============================================================================
   # MERLIN AI AGENT USER
@@ -566,6 +568,22 @@
     file = ../../secrets/hsb1-pixdcon-env.age;
     mode = "0400";
     owner = "mba";
+  };
+
+  # hsb1 Mosquitto broker config + passwd (server-side), delivered encrypted via
+  # agenix. conf carries the inline OPUS greennet bridge credential (vendor-locked,
+  # LAN-only). mode 644 + owner/group 1883 = mosquitto's in-container uid (csb0 pattern).
+  age.secrets.hsb1-mosquitto-conf = {
+    file = ../../secrets/hsb1-mosquitto-conf.age;
+    mode = "644";
+    owner = "1883";
+    group = "1883";
+  };
+  age.secrets.hsb1-mosquitto-passwd = {
+    file = ../../secrets/hsb1-mosquitto-passwd.age;
+    mode = "644";
+    owner = "1883";
+    group = "1883";
   };
 
   # ============================================================================
