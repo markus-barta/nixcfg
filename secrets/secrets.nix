@@ -212,6 +212,14 @@ in
   "hsb1-mosquitto-conf.age".publicKeys = markus ++ hsb1;
   "hsb1-mosquitto-passwd.age".publicKeys = markus ++ hsb1;
 
+  # hsb1 SMTP relay (namshi/smtp) credentials — env_file holding the hover.com
+  # SMARTHOST_PASSWORD. Read by the docker daemon at container start (not a volume
+  # mount). Encrypt from the live file so no plaintext touches local disk — a real
+  # file works with EDITOR=cp (a /dev/stdin pipe does not):
+  #   ssh mba@hsb1.lan
+  #   cd ~/Code/nixcfg && EDITOR='cp /home/mba/docker/smtp/variables.env' agenix -e secrets/hsb1-smtp-env.age
+  "hsb1-smtp-env.age".publicKeys = markus ++ hsb1;
+
   # PPM (Personal Project Management) environment variables for csb1
   # Format: KEY=VALUE lines (PPM_ADMIN_PASSWORD, COOKIE_SECURE, etc.)
   # Edit: agenix -e secrets/csb1-ppm-env.age
