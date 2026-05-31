@@ -14,7 +14,7 @@ let
   # - "jhw22"          = Markus' home (192.168.1.5 gateway, miniserver99 DNS)
   # - "parents-in-law" = Target (placeholder gateway/DNS — TODO confirm on-site)
   # ============================================================================
-  location = "jhw22"; # CHANGE WHEN PHYSICALLY MOVED
+  location = "parents-in-law"; # was "jhw22" — physically moved 2026-05-31 (NIX-138)
 
   gatewayIP =
     if location == "jhw22" then
@@ -131,7 +131,7 @@ in
     useDHCP = false;
     defaultGateway = gatewayIP;
     nameservers = dnsServers;
-    search = if location == "jhw22" then [ "lan" ] else [ "local" ];
+    search = [ "lan" ]; # both sites: ".local" collides with mDNS (RFC 6762)
 
     interfaces.enp0s10 = {
       useDHCP = false;
