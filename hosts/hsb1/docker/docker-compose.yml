@@ -6,7 +6,7 @@ services:
       - mosquitto
     image: koenkk/zigbee2mqtt:latest
     volumes:
-      - ./mounts/zigbee2mqtt:/app/data
+      - /home/mba/docker/mounts/zigbee2mqtt:/app/data
     restart: unless-stopped
     #restart: "no"
     ports:
@@ -56,10 +56,10 @@ services:
     env_file:
       - /run/agenix/hsb1-pixdcon-env # MOSQUITTO_HOST / MOSQUITTO_USER / MOSQUITTO_PASS / SONNEN_BATTERY_HOST / SONNEN_BATTERY_API_TOKEN
     volumes:
-      - ./mounts/pixdcon/config.json:/data/config.json # rw — web UI saves settings
-      - ./mounts/pixdcon/scenes:/data/scenes # rw — editable scene files
-      - ./mounts/pixdcon/generated-scenes:/data/generated-scenes # rw — cloned/detached scenes
-      - ./mounts/funkeykid/images:/app/assets/pixoo/funkeykid:ro # funkeykid v2 images (overrides baked-in v1)
+      - /home/mba/docker/mounts/pixdcon/config.json:/data/config.json # rw — web UI saves settings
+      - /home/mba/docker/mounts/pixdcon/scenes:/data/scenes # rw — editable scene files
+      - /home/mba/docker/mounts/pixdcon/generated-scenes:/data/generated-scenes # rw — cloned/detached scenes
+      - /home/mba/docker/mounts/funkeykid/images:/app/assets/pixoo/funkeykid:ro # funkeykid v2 images (overrides baked-in v1)
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
@@ -81,10 +81,10 @@ services:
       - /home/mba/secrets/smarthome.env # MQTT credentials
       - /home/mba/secrets/funkeykid-api.env # ELEVENLABS_API_KEY + OPENROUTER_API_KEY
     volumes:
-      - ./mounts/funkeykid/settings.json:/data/settings.json
-      - ./mounts/funkeykid/sounds:/data/sounds
-      - ./mounts/funkeykid/images:/data/images
-      - ./mounts/funkeykid/ai-generated:/data/ai-generated
+      - /home/mba/docker/mounts/funkeykid/settings.json:/data/settings.json
+      - /home/mba/docker/mounts/funkeykid/sounds:/data/sounds
+      - /home/mba/docker/mounts/funkeykid/images:/data/images
+      - /home/mba/docker/mounts/funkeykid/ai-generated:/data/ai-generated
       - /dev/input:/dev/input
       - /run/user/1001:/run/user/1001
       - /run/dbus:/run/dbus
@@ -96,7 +96,7 @@ services:
     container_name: homeassistant
     image: "ghcr.io/home-assistant/home-assistant:stable"
     volumes:
-      - ./mounts/homeassistant:/config
+      - /home/mba/docker/mounts/homeassistant:/config
       - /etc/localtime:/etc/localtime:ro
       - /run/dbus:/run/dbus:ro
     restart: unless-stopped
@@ -123,7 +123,7 @@ services:
       # Enable to try Avahi inside the container
       #- SCRYPTED_DOCKER_AVAHI=true
     volumes:
-      - ./mounts/scrypted/volume:/server/volume
+      - /home/mba/docker/mounts/scrypted/volume:/server/volume
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
@@ -146,7 +146,7 @@ services:
       - SMARTHOST_ALIASES=*
       - RELAY_NETWORKS=:172.0.0.0/8
     env_file:
-      - ./smtp/variables.env
+      - /run/agenix/hsb1-smtp-env
     labels:
       - traefik.enable=false
       - "com.centurylinklabs.watchtower.enable=true"
@@ -163,7 +163,7 @@ services:
       - apparmor:unconfined
     volumes:
       # Adjusted to match your mount pattern
-      - ./mounts/matter-server:/data
+      - /home/mba/docker/mounts/matter-server:/data
       # D-Bus access for Bluetooth (matches your Home Assistant config)
       - /run/dbus:/run/dbus:ro
     environment:
@@ -186,9 +186,9 @@ services:
       # Server-side broker config incl. the vendor-locked OPUS bridge credential — never plaintext in git.
       - /run/agenix/hsb1-mosquitto-conf:/mosquitto/config/mosquitto.conf:ro
       - /run/agenix/hsb1-mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
-      - ./mounts/mosquitto/var/run:/var/run # needed to fix "unable to write PID" error. https://github.com/eclipse/mosquitto/issues/2074#issuecomment-787135608
-      - ./mounts/mosquitto/data:/mosquitto/data
-      - ./mounts/mosquitto/log:/mosquitto/log
+      - /home/mba/docker/mounts/mosquitto/var/run:/var/run # needed to fix "unable to write PID" error. https://github.com/eclipse/mosquitto/issues/2074#issuecomment-787135608
+      - /home/mba/docker/mounts/mosquitto/data:/mosquitto/data
+      - /home/mba/docker/mounts/mosquitto/log:/mosquitto/log
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
@@ -200,8 +200,8 @@ services:
     ports:
       - "8001:8000"
     volumes:
-      - ./mounts/apprise/config:/config
-      - ./mounts/apprise/etc/nginx/sites-available/default:/etc/nginx/sites-available/default
+      - /home/mba/docker/mounts/apprise/config:/config
+      - /home/mba/docker/mounts/apprise/etc/nginx/sites-available/default:/etc/nginx/sites-available/default
       - /tmp:/tmp
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
@@ -210,7 +210,7 @@ services:
   #     - 1.1.1.1
 
   restic-cron-hetzner:
-    build: ./restic-cron
+    build: /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron
     container_name: restic-cron-hetzner
     restart: unless-stopped
     volumes:
@@ -220,12 +220,12 @@ services:
       - /etc:/backup/etc:ro
       # Use SSH key from agenix
       - /run/agenix/hsb1-restic-ssh-key:/root/.ssh/id_rsa:ro
-      - ./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro
+      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro
       # BIND MOUNTS: Local scripts override container defaults
-      - ./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro
-      - ./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro
-      - ./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro
-      - ./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro
+      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro
+      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro
+      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro
+      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro
     environment:
       RESTIC_BACKUP_OPTIONS: "-r sftp:u387549-sub2@u387549.your-storagebox.de:/"
       MAIL_SUBJECT: "💾 Restic backup report (hsb1)"
@@ -248,7 +248,7 @@ services:
     volumes:
       - /etc/opus-stream-to-mqtt:/source:ro
       - opus-stream-app:/app
-      - ./mounts/shared/tmp:/shared-tmp
+      - /home/mba/docker/mounts/shared/tmp:/shared-tmp
     working_dir: /app
     command: sh -c "cp /source/*.js /source/package*.json /app/ && npm install && npm start"
     labels:
@@ -288,12 +288,12 @@ services:
     environment:
       - TZ=Europe/Vienna
     volumes:
-      - ./mounts/nodered/data:/data
-      - ./mounts/shared/tmp:/shared-tmp
-      - ./mounts/nodered/scripts:/scripts
-      - ./mounts/nodered/pixoo-venv:/pixoo-venv
-      - ./mounts/nodered/webserver:/webserver
-      - ./mounts/nodered/pixoo-media:/pixoo-media
+      - /home/mba/docker/mounts/nodered/data:/data
+      - /home/mba/docker/mounts/shared/tmp:/shared-tmp
+      - /home/mba/docker/mounts/nodered/scripts:/scripts
+      - /home/mba/docker/mounts/nodered/pixoo-venv:/pixoo-venv
+      - /home/mba/docker/mounts/nodered/webserver:/webserver
+      - /home/mba/docker/mounts/nodered/pixoo-media:/pixoo-media
       - /home/mba/secrets:/secrets:r
     env_file:
       - /home/mba/secrets/smarthome.env
@@ -387,16 +387,16 @@ services:
 
   # fritz-tripwire — webhook receiver that snapshots all Fritz mesh devices
   # when one fails. Triggered by Uptime Kuma on hsb0 (POST to /hooks/fritz-down).
-  # Output lands in ./mounts/fritz-tripwire/incidents/fritz-<ip>-<ts>/.
+  # Output lands in /home/mba/docker/mounts/fritz-tripwire/incidents/fritz-<ip>-<ts>/.
   # See hosts/hsb1/docs/RUNBOOK.md → "fritz-tripwire" for setup + Kuma wiring.
   fritz-tripwire:
-    build: ./fritz-tripwire
+    build: /home/mba/Code/nixcfg/hosts/hsb1/docker/fritz-tripwire
     container_name: fritz-tripwire
     restart: unless-stopped
     ports:
       - "9000:9000"
     volumes:
-      - ./mounts/fritz-tripwire/incidents:/incidents
+      - /home/mba/docker/mounts/fritz-tripwire/incidents:/incidents
       - /home/mba/secrets/fritz.env:/secrets/fritz.env:ro
     labels:
       - com.centurylinklabs.watchtower.enable=false
