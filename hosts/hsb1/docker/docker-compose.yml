@@ -189,6 +189,11 @@ services:
       - /home/mba/docker/mounts/mosquitto/var/run:/var/run # needed to fix "unable to write PID" error. https://github.com/eclipse/mosquitto/issues/2074#issuecomment-787135608
       - /home/mba/docker/mounts/mosquitto/data:/mosquitto/data
       - /home/mba/docker/mounts/mosquitto/log:/mosquitto/log
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
