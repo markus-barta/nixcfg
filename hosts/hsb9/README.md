@@ -6,20 +6,20 @@
 
 ## Quick Reference
 
-| Item                   | Value                                                          |
-| ---------------------- | -------------------------------------------------------------- |
-| **Hostname**           | `hsb9`                                                         |
-| **Model**              | Mac mini "Late 2009" (Macmini3,1)                              |
-| **CPU**                | Intel Core 2 Duo P7550 @ 2.26 GHz (2 cores)                    |
-| **RAM**                | 4 GB DDR3                                                      |
-| **Storage**            | Crucial CT250MX200SSD1 — 250 GB SATA SSD (ext4)                |
-| **Static IP (jhw22)**  | `192.168.1.203`                                                |
-| **Static IP (target)** | `192.168.1.200`                                                |
-| **MAC**                | `00:25:00:d7:c0:b2`                                            |
-| **NIC**                | NVIDIA MCP79 onboard (`enp0s10`, `forcedeth` driver)           |
-| **SSH**                | `ssh mba@hsb9.lan` (or `ssh mba@192.168.1.203`)                |
-| **Location**           | jhw22 (Markus' home, migration prep) → parents-in-law (target) |
-| **PPM**                | NIX-138                                                        |
+| Item                 | Value                                                            |
+| -------------------- | ---------------------------------------------------------------- |
+| **Hostname**         | `hsb9`                                                           |
+| **Model**            | Mac mini "Late 2009" (Macmini3,1)                                |
+| **CPU**              | Intel Core 2 Duo P7550 @ 2.26 GHz (2 cores)                      |
+| **RAM**              | 4 GB DDR3                                                        |
+| **Storage**          | Crucial CT250MX200SSD1 — 250 GB SATA SSD (ext4)                  |
+| **Static IP**        | `192.168.1.200` (live at parents-in-law since 2026-05-31)        |
+| **Prior IP (jhw22)** | `192.168.1.203` (Markus' home migration-prep — retired)          |
+| **MAC**              | `00:25:00:d7:c0:b2`                                              |
+| **NIC**              | NVIDIA MCP79 onboard (`enp0s10`, `forcedeth` driver)             |
+| **SSH**              | `ssh mba@hsb9.ts.barta.cm` (tailnet) or `ssh mba@192.168.1.200`  |
+| **Location**         | parents-in-law (live since 2026-05-31; was jhw22 migration-prep) |
+| **PPM**              | NIX-138                                                          |
 
 ---
 
@@ -55,5 +55,6 @@ Edit `configuration.nix`:
 location = "parents-in-law"; # was "jhw22"
 ```
 
-Then deploy. At parents-in-law confirm gateway IP (configuration currently
-assumes `192.168.1.1`).
+Then deploy. Gateway at parents-in-law is confirmed `192.168.1.1` (Fritz!Box);
+DNS via Cloudflare (`1.1.1.1` / `1.0.0.1`). Live at `192.168.1.200` since
+2026-05-31 (NIX-138).
