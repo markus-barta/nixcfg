@@ -15,7 +15,7 @@
 | **Storage**          | Crucial CT250MX200SSD1 — 250 GB SATA SSD (ext4)                  |
 | **Static IP**        | `192.168.1.200` (live at parents-in-law since 2026-05-31)        |
 | **Prior IP (jhw22)** | `192.168.1.203` (Markus' home migration-prep — retired)          |
-| **MAC**              | `00:25:00:d7:c0:b2`                                              |
+| **MAC**              | _(not committed — `ip link show enp0s10` on host)_               |
 | **NIC**              | NVIDIA MCP79 onboard (`enp0s10`, `forcedeth` driver)             |
 | **SSH**              | `ssh mba@hsb9.ts.barta.cm` (tailnet) or `ssh mba@192.168.1.200`  |
 | **Location**         | parents-in-law (live since 2026-05-31; was jhw22 migration-prep) |
