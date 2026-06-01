@@ -264,6 +264,10 @@ in
   # Format: KEY=VALUE lines (FLEETCOM_PASSWORD_HASH, FLEETCOM_TOTP_SECRET)
   # Edit: agenix -e secrets/csb1-fleetcom-env.age
   "csb1-fleetcom-env.age".publicKeys = markus ++ csb1;
+  # FleetCom alerting environment for csb1 (Telegram token + backup hosts)
+  # Format: KEY=VALUE lines (FLEETCOM_TELEGRAM_BOT_TOKEN, FLEETCOM_TELEGRAM_CHAT_ID, FLEETCOM_BACKUP_EXPECTED_HOSTS)
+  # Edit: agenix -e secrets/csb1-fleetcom-alerts-env.age
+  "csb1-fleetcom-alerts-env.age".publicKeys = markus ++ csb1;
 
   # FleetCom Bosun AGENT (csb1 docker stack) — env. Distinct from the
   # fleetcom server's csb1-fleetcom-env above. Folded into agenix 2026-05-29
