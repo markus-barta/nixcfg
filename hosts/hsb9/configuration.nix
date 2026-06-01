@@ -12,7 +12,7 @@ let
   # ============================================================================
   # Set location before deploying:
   # - "jhw22"          = Markus' home (192.168.1.5 gateway, miniserver99 DNS)
-  # - "parents-in-law" = Target (placeholder gateway/DNS — TODO confirm on-site)
+  # - "parents-in-law" = Live since 2026-05-31: 192.168.1.1 gateway, Cloudflare DNS (confirmed on-site)
   # ============================================================================
   location = "parents-in-law"; # was "jhw22" — physically moved 2026-05-31 (NIX-138)
 
@@ -20,7 +20,7 @@ let
     if location == "jhw22" then
       "192.168.1.5" # Markus' home: Fritz!Box
     else
-      "192.168.1.1"; # Parents-in-law: assumed router IP (verify on-site)
+      "192.168.1.1"; # Parents-in-law: Fritz!Box (confirmed on-site 2026-05-31)
 
   dnsServers =
     if location == "jhw22" then
@@ -38,7 +38,7 @@ let
     if location == "jhw22" then
       "192.168.1.203" # Current DHCP-reserved address at Markus' home
     else
-      "192.168.1.200"; # Target static address at parents-in-law
+      "192.168.1.200"; # Live static address at parents-in-law (since 2026-05-31)
 in
 {
   imports = [
