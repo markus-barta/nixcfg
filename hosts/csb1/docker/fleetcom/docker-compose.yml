@@ -18,6 +18,7 @@ services:
       - fleetcom-data:/app/data
     env_file:
       - /run/agenix/csb1-fleetcom-env
+      - /run/agenix/csb1-fleetcom-alerts-env
     environment:
       - PORT=8090
       - DB_PATH=/app/data/fleetcom.db

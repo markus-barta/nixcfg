@@ -496,6 +496,16 @@
     mode = "0644";
   };
 
+  # FleetCom alerting env (Telegram notifier + expected backup hosts)
+  # Consumed as an additional Docker env_file by the FleetCom server.
+  age.secrets.csb1-fleetcom-alerts-env = {
+    file = ../../secrets/csb1-fleetcom-alerts-env.age;
+    path = "/run/agenix/csb1-fleetcom-alerts-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
   # services.nixfleet-agent = {
   #   enable = true;
   #   url = "wss://fleet.barta.cm/ws";
