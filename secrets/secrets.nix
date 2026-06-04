@@ -227,6 +227,17 @@ in
   # Edit: just edit-secret secrets/hsb1-apprise-speedtest-cfg.age
   "hsb1-apprise-speedtest-cfg.age".publicKeys = markus ++ hsb1;
 
+  # hsb1 Apprise LaMetric notification hub (NIX-172). ONE tagged config holding the
+  # Wohnzimmer LaMetric target per alert flavor (distinct sound). Loaded into Apprise
+  # as key `lametric`; sources select flavor via ?tag=:
+  #   internet  (Starlink dead, Kuma 1.1.1.1)       -> ?tag=internet   sound alarm10
+  #   speedtest (slow: <20Mbit or ping>100ms)       -> ?tag=speedtest  sound alarm5
+  #   fritz     (repeater down, auto power-cycling)  -> ?tag=fritz      sound notification2
+  # One credential, one secret, one rotation point — supersedes the per-purpose
+  # hsb1-apprise-speedtest-cfg (retired once speedtest-tracker is migrated).
+  # Edit: just edit-secret secrets/hsb1-apprise-lametric-cfg.age
+  "hsb1-apprise-lametric-cfg.age".publicKeys = markus ++ hsb1;
+
   # PPM (Personal Project Management) environment variables for csb1
   # Format: KEY=VALUE lines (PPM_ADMIN_PASSWORD, COOKIE_SECURE, etc.)
   # Edit: agenix -e secrets/csb1-ppm-env.age
