@@ -199,3 +199,29 @@ services:
       # clients on every cache miss, while fresh curl/h2 still works. Disabling
       # the Go http2 client transport avoids the stall. (NIX, 2026-05-30)
       - GODEBUG=http2client=0
+
+  # Speedtest Tracker — periodic Ookla speedtest + history UI (NIX-171 follow-up).
+  # Measures the home WAN (Starlink) from hsb0, the network-core/DNS box.
+  # Standalone: own SQLite DB + web dashboard, no Grafana/InfluxDB involved.
+  # UI: http://hsb0.lan:8765 (or tailnet 100.64.0.6:8765). Schedule: every 15 min.
+  # APP_KEY is a throwaway Laravel key (no real secrets stored) — inlined by
+  # explicit owner decision 2026-06-04; rotate via `echo "base64:$(openssl rand -base64 32)"`.
+  speedtest-tracker:
+    image: lscr.io/linuxserver/speedtest-tracker:latest
+    container_name: speedtest-tracker
+    restart: unless-stopped
+    ports:
+      - "8765:80"
+    volumes:
+      - /var/lib/speedtest-tracker:/config
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Vienna
+      - APP_KEY=base64:+Jp+KhEmmzRP35hDzwTiEP3jwBBkr6q7LnjWHDeqH6M=
+      - APP_URL=http://hsb0.lan:8765
+      - DB_CONNECTION=sqlite
+      - SPEEDTEST_SCHEDULE=*/15 * * * *
+    labels:
+      - traefik.enable=false
+      - com.centurylinklabs.watchtower.enable=true
