@@ -596,6 +596,16 @@
     owner = "mba";
   };
 
+  # Apprise persistent config for speedtest-tracker alerts (NIX-171). Holds the
+  # Wohnzimmer LaMetric apprise URL. owner mba so the host can POST it into Apprise
+  # via /add/speedtest (curl --data-urlencode config@/run/agenix/...). Not a container
+  # mount — Apprise stores it under its own key on load.
+  age.secrets.hsb1-apprise-speedtest-cfg = {
+    file = ../../secrets/hsb1-apprise-speedtest-cfg.age;
+    mode = "0400";
+    owner = "mba";
+  };
+
   # ============================================================================
   # NIXFLEET AGENT - Disabled (decommissioned, replaced by FleetCom DSC26-52)
   # ============================================================================
