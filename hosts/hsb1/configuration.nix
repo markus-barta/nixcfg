@@ -596,16 +596,6 @@
     owner = "mba";
   };
 
-  # Apprise persistent config for speedtest-tracker alerts (NIX-171). Holds the
-  # Wohnzimmer LaMetric apprise URL. owner mba so the host can POST it into Apprise
-  # via /add/speedtest (curl --data-urlencode config@/run/agenix/...). Not a container
-  # mount — Apprise stores it under its own key on load.
-  age.secrets.hsb1-apprise-speedtest-cfg = {
-    file = ../../secrets/hsb1-apprise-speedtest-cfg.age;
-    mode = "0400";
-    owner = "mba";
-  };
-
   # Apprise LaMetric notification hub (NIX-172) — ONE tagged config holding all
   # LaMetric alert flavors (speedtest, fritz, …). Loaded into Apprise as key
   # `lametric`; sources select sound via ?tag=. Supersedes the per-purpose

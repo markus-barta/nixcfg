@@ -220,21 +220,15 @@ in
   #   cd ~/Code/nixcfg && EDITOR='cp /home/mba/docker/smtp/variables.env' agenix -e secrets/hsb1-smtp-env.age
   "hsb1-smtp-env.age".publicKeys = markus ++ hsb1;
 
-  # hsb1 Apprise persistent config for speedtest-tracker alerts (NIX-171).
-  # One line: the Wohnzimmer LaMetric apprise URL (lametric://<key>@192.168.1.131/...).
-  # Loaded into Apprise as key `speedtest` via /add; speedtest-tracker (hsb0) posts to
-  # http://hsb1.lan:8001/notify/speedtest. Key never touches git or speedtest's DB.
-  # Edit: just edit-secret secrets/hsb1-apprise-speedtest-cfg.age
-  "hsb1-apprise-speedtest-cfg.age".publicKeys = markus ++ hsb1;
-
   # hsb1 Apprise LaMetric notification hub (NIX-172). ONE tagged config holding the
   # Wohnzimmer LaMetric target per alert flavor (distinct sound). Loaded into Apprise
   # as key `lametric`; sources select flavor via ?tag=:
   #   internet  (Starlink dead, Kuma 1.1.1.1)       -> ?tag=internet   sound alarm10
   #   speedtest (slow: <20Mbit or ping>100ms)       -> ?tag=speedtest  sound alarm5
   #   fritz     (repeater down, auto power-cycling)  -> ?tag=fritz      sound notification2
-  # One credential, one secret, one rotation point — supersedes the per-purpose
-  # hsb1-apprise-speedtest-cfg (retired once speedtest-tracker is migrated).
+  # One credential, one secret, one rotation point — superseded the per-purpose
+  # hsb1-apprise-speedtest-cfg (retired 2026-06-04, speedtest-tracker migrated).
+  # Loaded into Apprise as 3 keys (lametric-internet/speedtest/fritz) from this one file.
   # Edit: just edit-secret secrets/hsb1-apprise-lametric-cfg.age
   "hsb1-apprise-lametric-cfg.age".publicKeys = markus ++ hsb1;
 
