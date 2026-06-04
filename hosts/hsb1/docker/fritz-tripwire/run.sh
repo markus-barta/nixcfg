@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 # fritz-tripwire — capture diagnostic snapshot of all fritz mesh devices.
 # Invoked by adnanh/webhook on POST to /hooks/fritz-down.
-# Args (passed by webhook from JSON payload): $1=ip $2=monitor $3=msg
+# Args (passed by webhook from JSON payload): $1=ip $2=monitor $3=status
 set -uo pipefail
 
 IP="${1:-unknown}"
 MONITOR="${2:-unknown}"
-MSG="${3:-}"
+STATUS="${3:-}"
+
+# DOWN-only gate (NIX-146): Kuma fires the webhook on BOTH up and down
+# transitions. Snapshot only on DOWN. Fail-safe — skip only when status
+# clearly indicates UP; anything else (incl. empty/unknown) still captures.
+if printf '%s' "$STATUS" | grep -qiE 'up|✅|^1$|true'; then
+  echo "fritz-tripwire: skipping non-DOWN event (status='${STATUS}')" >&2
+  exit 0
+fi
+
 TS=$(date +%Y%m%d-%H%M%S)
 DIR="/incidents/fritz-${IP}-${TS}"
 mkdir -p "$DIR"
@@ -27,7 +36,7 @@ cat >"$DIR/meta.json" <<EOF
   "timestamp": "$(date -Iseconds)",
   "trigger_ip": "${IP}",
   "monitor": "${MONITOR}",
-  "msg": $(printf '%s' "$MSG" | jq -Rs .)
+  "status": $(printf '%s' "$STATUS" | jq -Rs .)
 }
 EOF
 
