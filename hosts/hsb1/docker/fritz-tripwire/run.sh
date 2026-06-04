@@ -16,6 +16,30 @@ if printf '%s' "$STATUS" | grep -qiE 'up|✅|^1$|true'; then
   exit 0
 fi
 
+# LaMetric alert routing (NIX-172). Monitor name picks the flavor (= sound,
+# via the central Apprise keyed config lametric-<flavor>):
+#   Internet/Starlink reachability down -> internet (alarm10), no snapshot
+#   Fritz mesh node down                -> fritz    (notification2) + snapshot
+APPRISE_BASE="${APPRISE_BASE:-http://apprise:8000}"
+case "$MONITOR" in
+*[Ii]nternet* | *[Ss]tarlink* | *WAN*)
+  FLAVOR=internet
+  SNAPSHOT=0
+  ;;
+*)
+  FLAVOR=fritz
+  SNAPSHOT=1
+  ;;
+esac
+curl -s -o /dev/null --max-time 5 -X POST "${APPRISE_BASE}/notify/lametric-${FLAVOR}" \
+  -d "body=⚠ ${MONITOR} DOWN" || echo "fritz-tripwire: LaMetric alert POST failed" >&2
+
+# Forensic mesh snapshot is Fritz-only; internet alerts just chime + exit.
+if [ "$SNAPSHOT" != "1" ]; then
+  echo "fritz-tripwire: ${FLAVOR} alert sent (no snapshot)" >&2
+  exit 0
+fi
+
 TS=$(date +%Y%m%d-%H%M%S)
 DIR="/incidents/fritz-${IP}-${TS}"
 mkdir -p "$DIR"

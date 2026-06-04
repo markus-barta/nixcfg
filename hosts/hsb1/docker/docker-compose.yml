@@ -398,6 +398,9 @@ services:
     build: /home/mba/Code/nixcfg/hosts/hsb1/docker/fritz-tripwire
     container_name: fritz-tripwire
     restart: unless-stopped
+    environment:
+      # Central Apprise hub (same compose network) for LaMetric alerts (NIX-172).
+      - APPRISE_BASE=http://apprise:8000
     ports:
       - "9000:9000"
     volumes:
