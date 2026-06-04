@@ -220,6 +220,13 @@ in
   #   cd ~/Code/nixcfg && EDITOR='cp /home/mba/docker/smtp/variables.env' agenix -e secrets/hsb1-smtp-env.age
   "hsb1-smtp-env.age".publicKeys = markus ++ hsb1;
 
+  # hsb1 Apprise persistent config for speedtest-tracker alerts (NIX-171).
+  # One line: the Wohnzimmer LaMetric apprise URL (lametric://<key>@192.168.1.131/...).
+  # Loaded into Apprise as key `speedtest` via /add; speedtest-tracker (hsb0) posts to
+  # http://hsb1.lan:8001/notify/speedtest. Key never touches git or speedtest's DB.
+  # Edit: just edit-secret secrets/hsb1-apprise-speedtest-cfg.age
+  "hsb1-apprise-speedtest-cfg.age".publicKeys = markus ++ hsb1;
+
   # PPM (Personal Project Management) environment variables for csb1
   # Format: KEY=VALUE lines (PPM_ADMIN_PASSWORD, COOKIE_SECURE, etc.)
   # Edit: agenix -e secrets/csb1-ppm-env.age
