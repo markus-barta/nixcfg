@@ -222,6 +222,9 @@ services:
       - APP_URL=http://hsb0.lan:8765
       - DB_CONNECTION=sqlite
       - SPEEDTEST_SCHEDULE=*/15 * * * *
+      # Pin to a fixed Ookla server (Timewarp IT Consulting GmbH, Graz) so
+      # results are comparable run-to-run instead of a roaming auto-pick.
+      - SPEEDTEST_SERVERS=45732
     labels:
       - traefik.enable=false
       - com.centurylinklabs.watchtower.enable=true
