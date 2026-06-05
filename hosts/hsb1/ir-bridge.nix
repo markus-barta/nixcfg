@@ -50,7 +50,7 @@ in
       PYTHONUNBUFFERED = "1";
       SONY_TV_IP = "192.168.1.137";
       FLIRC_DEVICE = "/dev/input/by-id/usb-flirc.tv_flirc-if01-event-kbd"; # stable by-id path
-      MQTT_BROKER = "localhost"; # debug only; non-fatal if unavailable
+      MQTT_BROKER = ""; # debug disabled (was rc=5 spam vs authed mosquitto); set broker+creds to re-enable
       MQTT_TOPIC = "home/hsb1/ir-bridge";
       LOG_LEVEL = "INFO";
     };
