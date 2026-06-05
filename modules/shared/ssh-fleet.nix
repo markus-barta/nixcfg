@@ -249,6 +249,24 @@
         port = 2222;
       };
 
+      # dsc0 (Ocean) lives in the dsccfg fleet, not nixcfg — tailnet-only,
+      # port 2222, and only authorizes the dedicated dsccfg deploy key.
+      # identitiesOnly avoids "too many auth failures" from the default keys.
+      "dsc0" = {
+        hostname = "dsc0.ts.barta.cm";
+        user = "mba";
+        port = 2222;
+        identityFile = "~/.ssh/dsccfg_deploy";
+        identitiesOnly = true;
+      };
+      "dsc0-ts" = {
+        hostname = "dsc0.ts.barta.cm";
+        user = "mba";
+        port = 2222;
+        identityFile = "~/.ssh/dsccfg_deploy";
+        identitiesOnly = true;
+      };
+
       # ═══════════════════════════════════════════════════════════
       # BONELIO HETZNER HOSTS (public IPs, per-customer ed25519 key)
       # Matches `just ssh-staging` in ~/Code/bpnixcfg
