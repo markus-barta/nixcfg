@@ -241,6 +241,9 @@ in
         kind = "github";
         url = "https://github.com";
         owner = "BYTEPOETS";
+        # bot-workspace repos (oc-workspace-percy, …) live under the
+        # bytepoets-mba account, not the BYTEPOETS org — same key/identity.
+        extraOwners = [ "bytepoets-mba" ];
       };
       credentials.userKey = mkUserKey thisHostKeys.bytepoets;
     };
