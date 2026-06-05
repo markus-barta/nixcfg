@@ -129,7 +129,7 @@
       "1.1.1.1" # Cloudflare fallback
     ];
     search = [ "lan" ];
-    defaultGateway = "192.168.1.5";
+    defaultGateway = "192.168.1.1";
     resolvconf.useLocalResolver = false;
     hosts = {
       # This DNS/DHCP server itself - local resolution for core services
