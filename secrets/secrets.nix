@@ -212,6 +212,11 @@ in
   "hsb1-mosquitto-conf.age".publicKeys = markus ++ hsb1;
   "hsb1-mosquitto-passwd.age".publicKeys = markus ++ hsb1;
 
+  # IR→Sony TV bridge: SONY_TV_PSK (+ optional MQTT creds) for the FLIRC receiver
+  # returned to hsb1. Contents: a single line `SONY_TV_PSK=<tv pre-shared key>`.
+  # Edit: cd ~/Code/nixcfg && just edit-secret hsb1-ir-bridge-env.age
+  "hsb1-ir-bridge-env.age".publicKeys = markus ++ hsb1;
+
   # hsb1 SMTP relay (namshi/smtp) credentials — env_file holding the hover.com
   # SMARTHOST_PASSWORD. Read by the docker daemon at container start (not a volume
   # mount). Encrypt from the live file so no plaintext touches local disk — a real

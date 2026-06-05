@@ -11,6 +11,7 @@
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
+    ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/funkeykid.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
@@ -218,8 +219,8 @@
   };
 
   # Enable FLIRC IR-USB-Module
-  # NOTE: receiver moved off hsb1.
-  hardware.flirc.enable = false;
+  # NOTE: receiver RETURNED to hsb1 (2026-06-05) — IR bridge in ./ir-bridge.nix.
+  hardware.flirc.enable = true;
 
   # Additional system packages
   environment.systemPackages = with pkgs; [
