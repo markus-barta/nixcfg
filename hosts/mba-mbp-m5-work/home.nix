@@ -253,6 +253,17 @@ in
       "https://github.com".helper = "!gh auth git-credential";
       "https://gist.github.com".helper = "!gh auth git-credential";
     };
+
+    # INSPR-170 atelier (markus-defaults.nix) rewrites URLs for the
+    # BYTEPOETS/ org owner only, not the bytepoets-mba/ account where bot
+    # workspaces (e.g. oc-workspace-percy) live. Route that owner through
+    # the live `git-bytepoets` alias so canonical GitHub URLs resolve via
+    # the m5-bytepoets-userkey (not default keys / markus-barta gh token).
+    # (NIX-176, 2026-06-05 — imac0 decommission prep)
+    settings.url."git@git-bytepoets:bytepoets-mba/".insteadOf = [
+      "git@github.com:bytepoets-mba/"
+      "https://github.com/bytepoets-mba/"
+    ];
   };
 
   # ============================================================================
