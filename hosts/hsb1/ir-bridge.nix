@@ -38,15 +38,9 @@ in
     mode = "0400";
   };
 
-  # Stable symlink for the FLIRC keyboard event device. hsb1 ALSO has the Apple
-  # built-in IR receiver as an input device, so /dev/input/event0 is ambiguous —
-  # match the FLIRC by USB VID:PID (20a0:0006) + its input name instead.
-  # (services.udev.extraRules is type `lines` → merges with the rule in
-  # configuration.nix, no conflict.)
-  services.udev.extraRules = ''
-    SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="20a0", ATTRS{idProduct}=="0006", ATTRS{name}=="flirc.tv flirc Keyboard", SYMLINK+="flirc"
-  '';
-
+  # The FLIRC keyboard event device is reached via its stable /dev/input/by-id
+  # path (udev creates it automatically) — see FLIRC_DEVICE below. hsb1 also has
+  # the built-in Apple IR receiver, so a bare event<N> path would be ambiguous.
   systemd.services.ir-bridge = {
     description = "IR to Sony TV Bridge (FLIRC -> Bravia IRCC over HTTP)";
     wantedBy = [ "multi-user.target" ];
@@ -55,7 +49,7 @@ in
     environment = {
       PYTHONUNBUFFERED = "1";
       SONY_TV_IP = "192.168.1.137";
-      FLIRC_DEVICE = "/dev/flirc"; # udev symlink above
+      FLIRC_DEVICE = "/dev/input/by-id/usb-flirc.tv_flirc-if01-event-kbd"; # stable by-id path
       MQTT_BROKER = "localhost"; # debug only; non-fatal if unavailable
       MQTT_TOPIC = "home/hsb1/ir-bridge";
       LOG_LEVEL = "INFO";
