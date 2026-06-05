@@ -17,7 +17,7 @@ Home Server Barta 2 - Lightweight Raspberry Pi server for future home automation
 | **Filesystem**   | ext4 (no ZFS - insufficient RAM)                          |
 | **Static IP**    | `192.168.1.95/24`                                         |
 | **Tailscale IP** | `100.64.0.5` (hsb2.ts.barta.cm)                           |
-| **Gateway**      | `192.168.1.5` (Fritz!Box)                                 |
+| **Gateway**      | `192.168.1.1` (ER605/Starlink, via DHCP)                  |
 | **SSH Access**   | `ssh hsb2` (auto LAN→Tailscale) or `ssh mba@192.168.1.95` |
 | **Session Mgmt** | `tmux` (zellij not available on ARMv6)                    |
 | **User**         | `mba` (Markus Barta)                                      |
@@ -155,6 +155,12 @@ NixOS migration for Pi Zero W (ARMv6l) abandoned due to:
 ---
 
 ## Changelog
+
+### 2026-06-05: Gateway → ER605/Starlink (NIX-174 cutover)
+
+- hsb2 auto-migrated to gateway `192.168.1.1` (ER605/Starlink) **via DHCP** on reboot during the Starlink cutover (NIX-174). No action needed — hsb2 is a DHCP client and hsb0 now hands out `.1`; the `.95` address is an AdGuard DHCP reservation (not host-static).
+- Updated README gateway fact (`.5` Fritz!Box → `.1` ER605).
+- Archived NixOS config (`configuration.nix` etc.) left **frozen at its 2026-01-31 state** (reference only, not maintained) — the brief `.1` edit during cutover triage was reverted.
 
 ### 2026-01-31: NixOS Migration Abandoned
 
