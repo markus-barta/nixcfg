@@ -95,6 +95,10 @@ dns:
       # and .lan hostnames fail to resolve
       lan:
         - 192.168.1.99
+      # Reverse (PTR) zone for 192.168.1.0/24 -> AdGuard, so LAN scanners
+      # resolve IPs back to hsb*.lan names fleet-wide (NIX-185)
+      "1.168.192.in-addr.arpa":
+        - 192.168.1.99
   search_domains:
     - lan
   extra_records: []
