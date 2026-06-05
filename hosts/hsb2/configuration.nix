@@ -41,7 +41,7 @@
     hostName = "hsb2";
     nameservers = [ "192.168.1.99" ]; # hsb0 DNS
     search = [ "lan" ];
-    defaultGateway = "192.168.1.1";
+    defaultGateway = "192.168.1.5";
 
     # WiFi configuration (Pi Zero W has no ethernet)
     wireless = {
