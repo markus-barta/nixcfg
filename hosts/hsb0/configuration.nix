@@ -207,7 +207,7 @@ in
         enabled = true;
         interface_name = "enp2s0f0";
         dhcpv4 = {
-          gateway_ip = "192.168.1.5";
+          gateway_ip = "192.168.1.1";
           subnet_mask = "255.255.255.0";
           range_start = "192.168.1.201";
           range_end = "192.168.1.254";
@@ -314,7 +314,7 @@ in
     # Use localhost for DNS since AdGuard Home runs locally
     nameservers = [ "127.0.0.1" ];
     search = [ "lan" ];
-    defaultGateway = "192.168.1.5";
+    defaultGateway = "192.168.1.1";
 
     # Critical infrastructure hosts - guaranteed resolution via /etc/hosts
     # Provides fallback when DNS server (AdGuard Home) is unavailable
