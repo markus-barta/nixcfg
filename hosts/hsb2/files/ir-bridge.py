@@ -53,6 +53,8 @@ CONFIG = {
     'mqtt_topic': os.getenv('MQTT_TOPIC', 'home/hsb2/ir-bridge'),
     'log_level': os.getenv('LOG_LEVEL', 'INFO'),
     'debounce_ms': int(os.getenv('DEBOUNCE_MS', '300')),
+    'repeat_delay_ms': int(os.getenv('REPEAT_DELAY_MS', '350')),
+    'repeat_rate_ms': int(os.getenv('REPEAT_RATE_MS', '120')),
     'retry_count': int(os.getenv('RETRY_COUNT', '3')),
     'retry_delay': float(os.getenv('RETRY_DELAY', '1.0')),
 }
@@ -84,8 +86,10 @@ IRCC_CODES = {
     
     # Volume
     113: ('mute', 'AAAAAQAAAAEAAAAUAw=='),
-    114: ('volumedown', 'AAAAAQAAAAEAAAASAw=='),
-    115: ('volumeup', 'AAAAAQAAAAEAAAATAw=='),
+    # This FLIRC maps the physical Vol+/Vol- buttons to the opposite evdev
+    # keycodes, so swap the IRCC: KEY_VOLUMEDOWN(114)->Vol-UP, KEY_VOLUMEUP(115)->Vol-DOWN.
+    114: ('volumeup', 'AAAAAQAAAAEAAAATAw=='),
+    115: ('volumedown', 'AAAAAQAAAAEAAAASAw=='),
     
     # Media
     164: ('play', 'AAAAAQAAAAEAAAANAw=='),
@@ -115,6 +119,10 @@ IRCC_CODES = {
     22: ('hdmi2', 'AAAAAQAAAAEAAABBAw=='),
 }
 
+# Keys that auto-repeat while held (volume, navigation, channel, seek). Everything
+# else (power, numbers, apps, colors, enter, mute) fires once per press only.
+REPEATABLE_KEYS = {114, 115, 103, 108, 105, 106, 20, 47, 168, 208}
+
 
 class IRBridge:
     """Main IR Bridge class handling input, TV control, and MQTT."""
@@ -125,6 +133,7 @@ class IRBridge:
         self.input_device: Optional[Any] = None
         self.running = False
         self.last_key_time: Dict[int, float] = {}
+        self.key_down_time: Dict[int, float] = {}
         self.stats = {
             'started_at': datetime.now().isoformat(),
             'keys_pressed': 0,
@@ -155,7 +164,10 @@ class IRBridge:
         return logger
     
     def _setup_mqtt(self) -> bool:
-        """Setup MQTT connection."""
+        """Setup MQTT connection (debug only; skipped when no broker is set)."""
+        if not CONFIG['mqtt_broker']:
+            self.logger.info("MQTT debug disabled (no broker configured)")
+            return False
         try:
             self.mqtt_client = mqtt.Client()
             
@@ -302,17 +314,27 @@ class IRBridge:
         
         return False
     
-    def _handle_key(self, key_code: int):
-        """Handle a key press event."""
+    def _handle_key(self, key_code: int, held: bool = False):
+        """Handle an initial press (held=False) or auto-repeat while held."""
         now = time.time() * 1000  # Current time in milliseconds
-        
-        # Check debounce
-        if key_code in self.last_key_time:
-            elapsed = now - self.last_key_time[key_code]
-            if elapsed < CONFIG['debounce_ms']:
-                self.logger.debug(f"Key {key_code} debounced ({elapsed:.0f}ms)")
+
+        if held:
+            # Auto-repeat: wait repeat_delay after the initial press, then fire at
+            # most every repeat_rate (keyboard-style delay + rate).
+            down = self.key_down_time.get(key_code, 0)
+            last = self.last_key_time.get(key_code, 0)
+            if (now - down) < CONFIG['repeat_delay_ms']:
                 return
-        
+            if (now - last) < CONFIG['repeat_rate_ms']:
+                return
+        else:
+            # Initial press: debounce to swallow the FLIRC's duplicate key-downs.
+            last = self.last_key_time.get(key_code, 0)
+            if (now - last) < CONFIG['debounce_ms']:
+                self.logger.debug(f"Key {key_code} debounced ({now - last:.0f}ms)")
+                return
+            self.key_down_time[key_code] = now
+
         self.last_key_time[key_code] = now
         
         # Lookup command
@@ -371,11 +393,15 @@ class IRBridge:
                 if not self.running:
                     break
                 
-                # Only process key press events (not release or hold)
+                # Initial press for all keys; auto-repeat (key_hold) only for the
+                # repeatable set so holding Vol/nav/channel keeps sending.
                 if event.type == ecodes.EV_KEY:
                     key_event = categorize(event)
-                    if key_event.keystate == key_event.key_down:
-                        self._handle_key(key_event.scancode)
+                    ks = key_event.keystate
+                    if ks == key_event.key_down:
+                        self._handle_key(key_event.scancode, held=False)
+                    elif ks == key_event.key_hold and key_event.scancode in REPEATABLE_KEYS:
+                        self._handle_key(key_event.scancode, held=True)
                         
         except Exception as e:
             self.logger.error(f"Input read error: {e}")
