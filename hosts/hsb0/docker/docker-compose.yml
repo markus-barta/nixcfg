@@ -121,8 +121,10 @@ services:
       - FLEETCOM_URL=https://fleet.barta.cm
       - FLEETCOM_HOSTNAME=hsb0
       - FLEETCOM_AGENTS=[{"name":"Merlin","agent_type":"personal-assistant","status":"online"},{"name":"Nimue","agent_type":"personal-assistant","status":"online"}]
-      # Bridge's snapshot endpoint — same compose project = DNS resolves.
-      - OPENCLAW_STATE_URL=http://fleetcom-agent-bridge:9180/v1/agent-state
+      # OPENCLAW_STATE_URL (legacy :9180 log-tailing scrape) retired FLEET-184:
+      # hsb0 migrated to the WS agent-bridge (v0.7.0), which pushes telemetry to
+      # FleetCom directly. The WS bridge runs --network host, so the old
+      # container-name scrape couldn't resolve it anyway (push-only now).
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc:/host/proc:ro
