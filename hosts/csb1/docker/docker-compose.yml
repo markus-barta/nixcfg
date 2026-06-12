@@ -56,57 +56,8 @@ services:
       - traefik.docker.network=csb1_traefik
       - traefik.http.routers.docmost.middlewares=cloudflarewarp@file
 
-  influxdb:
-    image: quay.io/influxdb/influxdb3-core:latest # pin on major version
-    volumes:
-      - influxdb_data:/var/lib/influxdb3
-    environment:
-      - TZ=Europe/Vienna
-    env_file:
-      - /run/agenix/csb1-influxdb3-env
-    command:
-      - serve
-      - --node-id=csb1-main-node
-      - --object-store=file
-      - --data-dir=/var/lib/influxdb3
-      - --log-filter=info
-      - --plugin-dir=/var/lib/influxdb3/plugins
-      - --http-bind=0.0.0.0:8086
-      - --query-file-limit=5000 # Increase query length by ~10x
-    networks:
-      - traefik
-    restart: unless-stopped
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.influxdb.rule=Host(`influxdb.barta.cm`)
-      - traefik.http.routers.influxdb.tls.certresolver=default
-      - traefik.http.routers.influxdb.tls=true
-      - traefik.http.services.influxdb.loadbalancer.server.port=8086 # Internal API port of InfluxDB
-      - traefik.docker.network=csb1_traefik
-      - traefik.http.routers.influxdb.middlewares=cloudflarewarp@file
-
-  grafana:
-    image: grafana/grafana-oss:latest # Recommendation: Pin a specific version
-    volumes:
-      - grafana_data:/var/lib/grafana
-    environment:
-      - TZ=Europe/Vienna
-    networks:
-      - traefik
-    depends_on:
-      - influxdb # Ensure InfluxDB starts before Grafana
-    restart: unless-stopped
-    labels:
-      - traefik.http.routers.grafana.rule=Host(`grafana.barta.cm`)
-      - traefik.http.routers.grafana.tls.certresolver=default
-      - traefik.http.routers.grafana.tls=true
-      - traefik.http.services.grafana.loadbalancer.server.port=3000
-      - traefik.docker.network=csb1_traefik
-      - traefik.http.routers.grafana.middlewares=cloudflarewarp@file
+  # influxdb + grafana removed 2026-06-12 (NIX-193) — data archived to
+  # hsb1:~/archive/NIX-193/ (parquet, DuckDB-readable); tracking now in HA.
 
   # --- Paperless-ngx Services Begin ---
   paperless-db:
@@ -461,8 +412,6 @@ volumes:
   docmost_db_data: {}
   docmost_redis_data: {}
   docmost_data: {}
-  influxdb_data: {}
-  grafana_data: {}
   paperless_db_data: {}
   paperless_redis_data: {}
   paperless_data: {}
