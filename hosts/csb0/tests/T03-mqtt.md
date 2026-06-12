@@ -2,16 +2,14 @@
 
 Test MQTT broker functionality.
 
-> ⚠️ **CRITICAL**: csb1's InfluxDB depends on this broker!
-
 ## Host Information
 
-| Property    | Value                       |
-| ----------- | --------------------------- |
-| **Host**    | csb0                        |
-| **Service** | Mosquitto MQTT Broker       |
-| **Port**    | 1883 (internal), 8883 (TLS) |
-| **Impact**  | Feeds data to csb1 InfluxDB |
+| Property    | Value                                     |
+| ----------- | ----------------------------------------- |
+| **Host**    | csb0                                      |
+| **Service** | Mosquitto MQTT Broker                     |
+| **Port**    | 1883 (internal), 8883 (TLS)               |
+| **Impact**  | Home/IoT consumers (hsb1 Node-RED bridge) |
 
 ## Prerequisites
 

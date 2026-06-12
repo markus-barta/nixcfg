@@ -24,15 +24,15 @@
 | Subdomain   | Target                 | Server | Service Type            |
 | ----------- | ---------------------- | ------ | ----------------------- |
 | `bitwarden` | cs0.barta.cm           | csb0   | Password manager        |
-| `grafana`   | cs1.barta.cm           | csb1   | Monitoring dashboards   |
 | `home`      | cs0.barta.cm           | csb0   | Home Assistant (likely) |
-| `influxdb`  | cs1.barta.cm           | csb1   | Time series database    |
 | `mosquitto` | cs0.barta.cm           | csb0   | MQTT broker             |
 | `wedding24` | markus-barta.github.io | GitHub | Static site             |
 | `whoami0`   | cs0.barta.cm           | csb0   | Test service            |
 | `whoami1`   | cs1.barta.cm           | csb1   | Test service            |
 
 **Note**: `hdoc.barta.cm` (Hedgedoc) - **DECOMMISSIONED** (scheduled for removal during csb1 migration)
+
+**Note**: `grafana.barta.cm` + `influxdb.barta.cm` - **RETIRED 2026-06-12** (NIX-193; Cloudflare records pending manual deletion)
 
 ---
 
@@ -52,8 +52,6 @@ Services accessible via subdomains:
 
 Services accessible via subdomains:
 
-- `grafana.barta.cm` - Monitoring
-- `influxdb.barta.cm` - Database
 - `docmost.barta.cm` - Documentation (Cloudflare proxied)
 - `paperless.barta.cm` - Document management (Cloudflare proxied)
 - `whoami1.barta.cm` - Test service
@@ -95,9 +93,9 @@ resource "cloudflare_record" "cs0" {
   proxied = false
 }
 
-resource "cloudflare_record" "grafana" {
+resource "cloudflare_record" "whoami1" {
   zone_id = var.cloudflare_zone_id
-  name    = "grafana"
+  name    = "whoami1"
   value   = "cs1.barta.cm"
   type    = "CNAME"
   proxied = false

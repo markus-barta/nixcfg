@@ -189,7 +189,7 @@ See `secrets/runbook-secrets.md` for credentials and restore procedures.
 
 ## Related
 
-- **csb1**: Grafana, InfluxDB (receives MQTT from csb0)
+- **csb1**: Docmost, Paperless, PPM (influx/grafana retired 2026-06-12, NIX-193)
 - **hsb1**: Monitors csb0/csb1 via Netcup API (daily at 19:00)
 
 ---

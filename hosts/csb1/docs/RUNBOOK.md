@@ -35,14 +35,11 @@ ssh mba@152.53.64.166 -p 2222
 ╠════════════════════════════════════════════════════════════╣
 ║ 🌐 SERVICES                                                ║
 ║ • PAIMOS (PM): https://pm.barta.cm                         ║
-║ • Grafana:     https://grafana.barta.cm                    ║
-║ • InfluxDB:    http://influxdb.barta.cm:8086               ║
 ║ • Paperless:   https://paperless.barta.cm                  ║
 ║ • Docmost:     https://docmost.barta.cm                    ║
 ║ • Excalidraw:  https://draw.barta.cm                       ║
 ╠════════════════════════════════════════════════════════════╣
 ║ ⚠️  CRITICAL DEPENDENCIES                                  ║
-║ • InfluxDB → Depends on csb0's MQTT!                       ║
 ║ • Cleanup → Managed by csb0 (not here!)                    ║
 ╠════════════════════════════════════════════════════════════╣
 ║ 🚨 IF DOWN                                                 ║
@@ -68,7 +65,6 @@ ssh mba@cs1.barta.cm -p 2222 "docker ps --filter 'status=exited'"
 # Should be empty (all running)
 
 # Check services responding
-curl -I https://grafana.barta.cm  # Grafana (expect 302 redirect)
 curl -I https://paperless.barta.cm  # Paperless (expect 200)
 curl -I https://docmost.barta.cm  # Docmost (expect 200)
 curl -I https://draw.barta.cm  # Excalidraw (expect 200)
@@ -125,8 +121,6 @@ ssh mba@cs1.barta.cm -p 2222 "cd ~/docker && docker compose stop nixfleet"
 
 | Container                   | Purpose                    |
 | --------------------------- | -------------------------- |
-| csb1-grafana-1              | Monitoring dashboards      |
-| csb1-influxdb-1             | Time-series database       |
 | csb1-docmost-1              | Documentation wiki         |
 | csb1-docmost-db-1           | PostgreSQL for Docmost     |
 | csb1-docmost-redis-1        | Redis cache                |
@@ -153,13 +147,9 @@ ssh mba@cs1.barta.cm -p 2222 "cd ~/docker && docker compose stop nixfleet"
 docker ps -a
 
 # Restart a container
-docker restart csb1-grafana-1
-docker restart csb1-influxdb-1
 docker restart csb1-paperless-1
 
 # View logs
-docker logs csb1-grafana-1 --tail 50
-docker logs csb1-influxdb-1 --tail 50
 
 # Restart all services
 cd ~/docker && docker-compose down && docker-compose up -d
@@ -216,16 +206,11 @@ Service Not Responding?
 │     │  └─ NO: Server down → Check Netcup panel
 │     └─ Last resort: VNC console (Netcup SCP)
 
-InfluxDB No Data?
-└─ Check csb0's MQTT broker → It feeds InfluxDB!
 ```
 
 ### Common Issues & Quick Fixes
 
 ```
-Grafana down → docker restart csb1-grafana-1
-InfluxDB down → docker restart csb1-influxdb-1
-InfluxDB no data → Check csb0's MQTT (dependency!)
 Paperless down → docker restart csb1-paperless-1
 Backup failed → docker logs csb1-restic-cron-hetzner-1
 High load → Check docker stats (find heavy container)
@@ -342,15 +327,15 @@ curl -X POST "https://servercontrolpanel.de/scp-core/api/v1/servers/646294/reset
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### Single Service Restore (Example: Grafana)
+### Single Service Restore (Example: Docmost)
 
 ```bash
-docker-compose down grafana
+docker-compose down docmost
 docker exec csb1-restic-cron-hetzner-1 restic restore latest \
-  --target /tmp/restore --path /backup/var/lib/docker/volumes/csb1_grafana_data
-sudo cp -a /tmp/restore/backup/var/lib/docker/volumes/csb1_grafana_data/* \
-  /var/lib/docker/volumes/csb1_grafana_data/
-docker-compose up -d grafana
+  --target /tmp/restore --path /backup/var/lib/docker/volumes/csb1_docmost_data
+sudo cp -a /tmp/restore/backup/var/lib/docker/volumes/csb1_docmost_data/* \
+  /var/lib/docker/volumes/csb1_docmost_data/
+docker-compose up -d docmost
 ```
 
 ---
@@ -375,7 +360,7 @@ docker-compose up -d grafana
 
 ```
 ✅ /var/lib/docker/volumes - ALL Docker volumes
-   └─ Grafana, InfluxDB, Docmost, Paperless data
+   └─ Docmost, Paperless data
 ✅ /home - All user home directories
 ✅ /root - Root user data
 ✅ /etc - System configuration
@@ -397,10 +382,8 @@ docker exec csb1-restic-cron-hetzner-1 restic snapshots
 ## Service Dependencies
 
 ```
-csb0 (MQTT) → csb1 (InfluxDB) → csb1 (Grafana)
+(influx/grafana retired 2026-06-12, NIX-193 — archive on hsb1)
 ```
-
-**⚠️ If csb0's MQTT is down, InfluxDB stops receiving IoT data!**
 
 ---
 
@@ -426,13 +409,11 @@ ssh mba@cs1.barta.cm -p 2222 "journalctl -f"
 
 ## Web Interfaces
 
-| Service    | URL                           | Auth                          |
-| ---------- | ----------------------------- | ----------------------------- |
-| Grafana    | https://grafana.barta.cm      | Grafana login                 |
-| InfluxDB   | http://influxdb.barta.cm:8086 | InfluxDB login                |
-| Paperless  | https://paperless.barta.cm    | Paperless login               |
-| Docmost    | https://docmost.barta.cm      | Docmost login                 |
-| Excalidraw | https://draw.barta.cm         | Cloudflare Access (email OTP) |
+| Service    | URL                        | Auth                          |
+| ---------- | -------------------------- | ----------------------------- |
+| Paperless  | https://paperless.barta.cm | Paperless login               |
+| Docmost    | https://docmost.barta.cm   | Docmost login                 |
+| Excalidraw | https://draw.barta.cm      | Cloudflare Access (email OTP) |
 
 ### Excalidraw Access Management
 

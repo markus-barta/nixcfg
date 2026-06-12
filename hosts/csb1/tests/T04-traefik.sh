@@ -55,15 +55,6 @@ else
   echo -e "${YELLOW}⚠️ HIGH RESTARTS${NC} ($RESTARTS)"
 fi
 
-# Test 3: HTTPS - Grafana
-echo -n "Test 3: Route to Grafana... "
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CURL_TIMEOUT" --max-time "$CMD_TIMEOUT" https://grafana.barta.cm/ 2>/dev/null || echo "000")
-if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "302" ]; then
-  echo -e "${GREEN}✅ PASS${NC} (HTTP $HTTP_CODE)"
-else
-  echo -e "${RED}❌ FAIL${NC} (HTTP $HTTP_CODE)"
-fi
-
 # Test 4: HTTPS - Docmost
 echo -n "Test 4: Route to Docmost... "
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CURL_TIMEOUT" --max-time "$CMD_TIMEOUT" https://docmost.barta.cm/ 2>/dev/null || echo "000")
@@ -75,7 +66,7 @@ fi
 
 # Test 5: SSL certificate valid
 echo -n "Test 5: SSL certificate... "
-CERT_DATES=$(echo | openssl s_client -connect grafana.barta.cm:443 2>/dev/null | openssl x509 -noout -dates 2>/dev/null || echo "error")
+CERT_DATES=$(echo | openssl s_client -connect docmost.barta.cm:443 2>/dev/null | openssl x509 -noout -dates 2>/dev/null || echo "error")
 if [[ "$CERT_DATES" == *"notAfter"* ]]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
