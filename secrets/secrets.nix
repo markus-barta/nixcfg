@@ -258,7 +258,6 @@ in
   # Docmost — application config (API keys, S3 creds, etc.)
   "csb1-docmost-config-env.age".publicKeys = markus ++ csb1;
   # InfluxDB3 — bootstrap admin + tokens
-  "csb1-influxdb3-env.age".publicKeys = markus ++ csb1;
   # Paperless-ngx — Postgres credentials
   "csb1-paperless-postgres-env.age".publicKeys = markus ++ csb1;
   # Paperless-ngx — application config (admin user, secret key)

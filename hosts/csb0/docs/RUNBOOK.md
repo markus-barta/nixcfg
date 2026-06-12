@@ -41,7 +41,6 @@ ssh mba@89.58.63.96 -p 2222
 ║ • Telegram:    t.me/csb0bot                                ║
 ╠════════════════════════════════════════════════════════════╣
 ║ ⚠️ CRITICAL SERVICES                                       ║
-║ • MQTT (mosquitto) → Feeds csb1 InfluxDB!                  ║
 ║ • Node-RED → Garage door control for family/neighbors!     ║
 ║ • Telegram bot → Smart home notifications & control        ║
 ║ • Backup cleanup → Manages BOTH csb0 and csb1!             ║
@@ -374,14 +373,12 @@ docker exec csb0-restic-cron-hetzner-1 restic snapshots
 ## Service Dependencies
 
 ```
-IoT Devices → MQTT (csb0) → InfluxDB (csb1) → Grafana (csb1)
+IoT Devices → MQTT (csb0) → hsb1 Node-RED consumers (influx path retired 2026-06-12, NIX-193)
             ↓
      Node-RED (csb0) → Telegram Bot → Users
             ↓
     Smart Home Controls
 ```
-
-**⚠️ If csb0 MQTT is down, csb1's InfluxDB stops receiving IoT data!**
 
 ---
 

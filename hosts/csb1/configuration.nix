@@ -418,14 +418,6 @@
     mode = "0644";
   };
 
-  age.secrets.csb1-influxdb3-env = {
-    file = ../../secrets/csb1-influxdb3-env.age;
-    path = "/run/agenix/csb1-influxdb3-env";
-    owner = "root";
-    group = "root";
-    mode = "0644";
-  };
-
   age.secrets.csb1-paperless-postgres-env = {
     file = ../../secrets/csb1-paperless-postgres-env.age;
     path = "/run/agenix/csb1-paperless-postgres-env";

@@ -302,7 +302,6 @@ services:
       - /home/mba/secrets:/secrets:r
     env_file:
       - /home/mba/secrets/smarthome.env
-      - /home/mba/secrets/influxdb3-csb1.env
     entrypoint: ["/bin/bash", "/scripts/startup.sh"]
     command: ["npm", "start", "--", "--userDir", "/data"]
     logging:

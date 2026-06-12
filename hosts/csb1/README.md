@@ -32,8 +32,6 @@
 | --- | ----------------- | ------------------------------------- | ---- |
 | F00 | NixOS Base System | Stable foundation with generations    | T00  |
 | F01 | Docker Services   | Container orchestration (15 services) | T01  |
-| F02 | Grafana           | Monitoring dashboards                 | T02  |
-| F03 | InfluxDB          | Time series database for IoT data     | T03  |
 | F04 | Traefik           | Reverse proxy with auto SSL           | T04  |
 | F05 | Backup System     | Restic to Hetzner (shared with csb0)  | T05  |
 | F06 | SSH Access        | Hardened SSH on port 2222             | T06  |
@@ -59,8 +57,6 @@ hosts/csb1/
 ├── tests/                 # ✅ Repeatable health checks (T00-T07)
 │   ├── T00-nixos-base.sh
 │   ├── T01-docker-services.sh
-│   ├── T02-grafana.sh
-│   ├── T03-influxdb.sh
 │   ├── T04-traefik.sh
 │   ├── T05-backup-system.sh
 │   ├── T06-ssh-access.sh
@@ -88,8 +84,6 @@ hosts/csb1/
 | Service       | Domain             | Purpose                          |
 | ------------- | ------------------ | -------------------------------- |
 | PAIMOS (ppm)  | pm.barta.cm        | Project management (paimos v1.x) |
-| Grafana       | grafana.barta.cm   | Monitoring dashboards            |
-| InfluxDB      | influxdb.barta.cm  | Time series database             |
 | Docmost       | docmost.barta.cm   | Documentation/wiki               |
 | Paperless-ngx | paperless.barta.cm | Document management              |
 | Hedgedoc      | hdoc.barta.cm      | Collaborative markdown           |
@@ -197,7 +191,7 @@ See `secrets/runbook-secrets.md` for credentials and restore procedures.
 
 ## Related
 
-- **csb0**: Node-RED, MQTT broker (feeds data to Grafana/InfluxDB)
+- **csb0**: Node-RED, MQTT broker
 - **hsb1**: Monitors csb0/csb1 via Netcup API (daily at 19:00)
 
 ---
