@@ -168,7 +168,11 @@ services:
       - traefik.enable=false
 
   ncps:
-    image: kalbasit/ncps:latest
+    # Pinned (was :latest). 2026-06-13: ':latest' silently jumped v0.6.1 ->
+    # v0.10.0-rc14, which crash-loops on the existing DB ("no such table:
+    # config" on serve) and also broke Cachix nar-URL parsing. Hold at the
+    # last-known-good release; bump deliberately + test before moving the pin.
+    image: kalbasit/ncps:v0.6.1
     container_name: ncps
     restart: unless-stopped
     ports:
@@ -189,9 +193,12 @@ services:
       - --cache-lru-schedule=0 3 * * *
       - --cache-secret-key-path=/run/secrets/ncps-key
       - --cache-upstream-url=https://cache.nixos.org
-      - --cache-upstream-url=https://nix-community.cachix.org
       - --cache-upstream-public-key=cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
-      - --cache-upstream-public-key=nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=
+      # nix-community.cachix.org dropped 2026-06-13: ncps v0.6.1 can't parse
+      # Cachix UUID-style nar URLs (nar/<uuid>.nar.zst) -> HTTP 500 on
+      # nix-community-only paths (surfaced during a home-manager switch).
+      # Clients keep it as a direct substituter, so those paths fall through
+      # cleanly (404 miss), just not LAN-cached. Re-add if a newer ncps fixes it.
     environment:
       - NCPS_LOG_LEVEL=info
       - ANALYTICS_REPORTING_ENABLED=false
