@@ -424,6 +424,10 @@ in
           theme = "tokyonight_storm";
         };
       };
+
+      # Fresh — terminal IDE / text editor (getfresh.dev). Upstream HM module,
+      # pkgs.fresh-editor (Hydra-cached). Enable only; helix stays $EDITOR.
+      fresh-editor.enable = true;
     };
   });
 

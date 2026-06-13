@@ -106,6 +106,14 @@ in
     };
 
     # ══════════════════════════════════════════════════════════════════════════
+    # Fresh — terminal IDE / text editor (getfresh.dev)
+    # ══════════════════════════════════════════════════════════════════════════
+    # Upstream home-manager module (programs.fresh-editor); package is
+    # pkgs.fresh-editor (Hydra-cached). Enable only — leave $EDITOR to
+    # cfg.fish.editor above; flip defaultEditor per-host if you want it global.
+    programs.fresh-editor.enable = true;
+
+    # ══════════════════════════════════════════════════════════════════════════
     # Packages
     # ══════════════════════════════════════════════════════════════════════════
 
