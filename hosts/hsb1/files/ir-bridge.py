@@ -230,13 +230,19 @@ class IRBridge:
         client.will_set(self.t_avail, "offline", qos=1, retain=True)
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
+        # Resilient connect: connect_async + loop_start keeps paho retrying if the
+        # broker is down at startup (e.g. mosquitto mid-restart during a nixos
+        # switch — Errno 111) and auto-reconnects on any later drop. A blocking
+        # connect() here would give up once and leave the smart path dead until a
+        # manual restart. The TV path never depends on MQTT either way.
+        client.reconnect_delay_set(min_delay=1, max_delay=30)
         try:
-            client.connect(CONFIG["mqtt_broker"], CONFIG["mqtt_port"], keepalive=60)
+            client.connect_async(CONFIG["mqtt_broker"], CONFIG["mqtt_port"], keepalive=60)
             client.loop_start()
             self.mqtt = client
-            self.log.info("MQTT connecting to %s:%s", CONFIG["mqtt_broker"], CONFIG["mqtt_port"])
+            self.log.info("MQTT loop started → %s:%s (async, auto-reconnect)", CONFIG["mqtt_broker"], CONFIG["mqtt_port"])
         except Exception as exc:  # noqa: BLE001 - never fatal
-            self.log.error("MQTT connect failed (TV path still works): %s", exc)
+            self.log.error("MQTT setup failed (TV path still works): %s", exc)
             self.mqtt = None
 
     def _on_connect(self, client, userdata, flags, rc, properties=None) -> None:
