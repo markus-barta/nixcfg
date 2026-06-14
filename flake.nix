@@ -325,20 +325,9 @@
         # BYTEPOETS studio. (msbp itself was retired 2026-05-05;
         # bonelio-staging + bonelio-live now carry the BYTEPOETS context.)
 
-        # Home Server Barta 2 - Raspberry Pi Zero W
-        # ARMv6l architecture, 512MB RAM
-        # INACTIVE: Running Raspbian instead of NixOS
-        # See hosts/hsb2/README.md for details
-        # hsb2 = nixpkgs.lib.nixosSystem {
-        #   modules = commonServerModules ++ [
-        #     inputs.nixcfg.nixosModules.hokage # External hokage module
-        #     ./hosts/hsb2/configuration.nix
-        #     disko.nixosModules.disko
-        #   ];
-        #   specialArgs = self.commonArgs // {
-        #     inherit inputs;
-        #   };
-        # };
+        # hsb2 (Raspberry Pi Zero W) retired 2026-06-14 (NIX-194): its only job —
+        # the FLIRC IR→Sony bridge — moved to hsb1; host config removed from repo.
+        # Pi-Zero powered off. SSH-fleet aliases + RPi3B fate tracked in NIX-187.
       };
 
       packages.x86_64-linux = {

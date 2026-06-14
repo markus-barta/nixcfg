@@ -447,26 +447,14 @@ See [Room Abbreviations](#🏠-room-abbreviations) for codes.
 ### Architecture
 
 ```
-Raspberry Pi Zero W ("FLIRC Bridge", MQTT id: flirc_bridge_hsb2, sw v0.3.0)
-  │  reads: physical IR remote via FLIRC USB dongle attached to Raspi
-  │  publishes: zigbee2mqtt-style MQTT sensor topics to mosquitto (hsb1)
+physical IR remote --IR--> FLIRC USB on hsb1 --evdev--> ir-bridge.py (native systemd)
+  │  TV keys   → Sony IRCC over HTTP → Bravia 192.168.1.137 (fast path, HA-independent)
+  │  EVERY key → MQTT home/hsb1/ir-bridge/action + HA MQTT-Discovery device `flirc_hsb1`
   ▼
-mosquitto (hsb1:1883)
-  │
-  ▼
-Home Assistant  ←── sensor.flirc_bridge_last_key (state = "blue" | "yellow" | …)
-  │
-  ├── 🟦 Blue key → automation "FLIRC - Blau - PS5 Sync"
-  │     1. remote.turn_on  (TV remote entity)
-  │     2. switch.turn_on  (Syncbox power)
-  │     3. select_option: PS5  (Syncbox hdmiSource → input4)
-  │     4. switch.turn_on  (Syncbox sync enable)
-  │
-  └── 🟨 Yellow key → automation "FLIRC - Gelb - PC Sync"
-        1. remote.turn_on  (TV remote entity)
-        2. switch.turn_on  (Syncbox power)
-        3. select_option: PC   (Syncbox hdmiSource → input2)
-        4. switch.turn_on  (Syncbox sync enable)
+Home Assistant — device triggers (domain mqtt, type button_short_press, subtype <key>)
+  ├── 🟦 blue   → automation "FLIRC - Blau - PS5 Sync" → Hue Sync Box PS5 input + sync
+  ├── 🟨 yellow → automation "FLIRC - Gelb - PC Sync"  → Hue Sync Box PC input + sync
+  └── tv_radio  → pixoo-189 scene toggle (see AUTOMATIONS.md)
 
 Node-RED Tab "🎛️ Syncbox [wz]"  (independent path, also active)
   ├── Polls Syncbox every 5s  GET https://192.168.1.111/api/v1/execution/
@@ -482,26 +470,20 @@ Node-RED Tab "🎛️ Syncbox [wz]"  (independent path, also active)
 
 ### Key Details
 
-| What                    | Value                                                       |
-| ----------------------- | ----------------------------------------------------------- |
-| Syncbox IP              | `192.168.1.111`                                             |
-| Syncbox API             | `https://192.168.1.111/api/v1/execution/` (self-signed TLS) |
-| Auth                    | Bearer token in Node-RED env `SYNCBOX_BEARER_TOKEN`         |
-| FLIRC Bridge device     | Raspberry Pi Zero W                                         |
-| FLIRC Bridge MQTT id    | `flirc_bridge_hsb2`                                         |
-| FLIRC Bridge sw version | `0.3.0`                                                     |
-| HA automations          | `automation.flirc_ps5_sync`, `automation.flirc_pc_sync`     |
-| Node-RED tab            | `🎛️ Syncbox [wz]`                                           |
-| Sony TV Node-RED node   | `bravia-tv` → `wz-sony-tv`                                  |
+| What                  | Value                                                        |
+| --------------------- | ------------------------------------------------------------ |
+| Syncbox IP            | `192.168.1.111`                                              |
+| Syncbox API           | `https://192.168.1.111/api/v1/execution/` (self-signed TLS)  |
+| Auth                  | Bearer token in Node-RED env `SYNCBOX_BEARER_TOKEN`          |
+| FLIRC bridge          | hsb1 native systemd `ir-bridge` (`hosts/hsb1/ir-bridge.nix`) |
+| HA MQTT device        | `flirc_hsb1` · action topic `home/hsb1/ir-bridge/action`     |
+| HA automations        | `automation.flirc_ps5_sync`, `automation.flirc_pc_sync`      |
+| Node-RED tab          | `🎛️ Syncbox [wz]`                                            |
+| Sony TV Node-RED node | `bravia-tv` → `wz-sony-tv`                                   |
 
-### Two FLIRC Paths (one active, one disabled)
+### FLIRC bridge (NIX-194)
 
-| Path                                    | Description                                                                                                  | Status                                            |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
-| **Path A — Raspi MQTT** (active)        | Raspberry Pi Zero W reads FLIRC USB, publishes key names to MQTT → HA sensor → HA automations                | ✅ Active                                         |
-| **Path B — hsb1 direct USB** (disabled) | Node-RED `GLOBAL_FLIRC_RECEIVER` reads `/dev/input/by-id/usb-flirc.tv_flirc-if01-event-kbd` directly on hsb1 | ❌ Disabled (all 3 nodes `d: true` in flows.json) |
-
-> Path B was the original implementation. Path A (Raspi bridge) is the current active path. Path B nodes remain in Node-RED but are disabled.
+The FLIRC is on **hsb1** via the native `ir-bridge` systemd service — IR → {Sony IRCC, MQTT}. Smart keys reach HA as **MQTT-Discovery device triggers** (device `flirc_hsb1`), not the old `sensor.flirc_bridge_last_key`. Full design + button map: PPM Knowledge `ir-sony-tv-bridge-hsb1`. (History: the FLIRC ran on a Pi-Zero "hsb2" Jan–Jun 2026; the old Node-RED `GLOBAL_FLIRC_RECEIVER` direct-USB path is obsolete.)
 
 ### Custom HA Component
 

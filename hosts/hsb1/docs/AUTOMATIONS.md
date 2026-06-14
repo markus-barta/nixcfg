@@ -65,12 +65,15 @@ Turning these off breaks pixdcon scene rendering silently (AWTRIX accepts HTTP c
 | Kinderzimmer Fensterbankheizung AUS | Schedule/condition | Turns off ki/ heater |
 | Master-Schalter Badezimmer          | Switch event       | Controls bz/ devices |
 
-### IR Remote / Syncbox
+### IR Remote / Syncbox / pixdcon (FLIRC on hsb1 — NIX-194)
 
-| Automation            | Trigger       | Action                    |
-| --------------------- | ------------- | ------------------------- |
-| FLIRC Blau → PS5 Sync | IR blue key   | TV on + Syncbox PS5 input |
-| FLIRC Gelb → PC Sync  | IR yellow key | TV on + Syncbox PC input  |
+Triggered by **HA MQTT device triggers** from device `flirc_hsb1` (the `ir-bridge` service on hsb1 publishes `home/hsb1/ir-bridge/action`). Full design + button map: PPM Knowledge `ir-sony-tv-bridge-hsb1`.
+
+| Automation                         | Trigger (`flirc_hsb1`) | Action                          |
+| ---------------------------------- | ---------------------- | ------------------------------- |
+| FLIRC - Blau - PS5 Sync            | `blue` button          | Hue Sync Box → PS5 input + sync |
+| FLIRC - Gelb - PC Sync             | `yellow` button        | Hue Sync Box → PC input + sync  |
+| FLIRC - TV/Radio - Pixoo189 Toggle | `tv_radio` button      | pixoo-189 scene toggle          |
 
 ### Misc
 
