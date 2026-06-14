@@ -1,21 +1,16 @@
-# IR → Sony TV bridge — FLIRC receiver returned to hsb1
+# IR → {Sony Bravia, Home Assistant} bridge — FLIRC receiver on hsb1
 #
-# The FLIRC USB IR receiver originally lived on hsb1 (the hsb2 Pi-Zero was an
-# experiment to move it off). It is coming back: this reuses the *proven*
-# ir-bridge.py VERBATIM (nix-store reference to the hsb2-era file) — it reads the
-# FLIRC's evdev keypresses and POSTs Sony IRCC commands over HTTP to the Bravia
-# (192.168.1.137). Hardware is enabled via `hardware.flirc.enable` in
-# configuration.nix.
+# The FLIRC USB IR receiver reads the physical remote; ir-bridge.py drives two
+# independent paths (see hosts/hsb1/files/ir-bridge.py for the full design):
+#   1. FAST PATH  — direct Sony IRCC over HTTP to the Bravia (192.168.1.137) for
+#      real TV keys; HA-independent, instant.
+#   2. SMART PATH — publishes every keypress to MQTT and advertises the remote to
+#      Home Assistant via MQTT Discovery (device triggers). HA owns the "smart"
+#      keys: Hue Sync Box input (blue/yellow) + pixdcon scene toggle (tv_radio).
 #
-# TEST PLAN (zero new hardware):
-#   1. `just switch` hsb1 — the service installs and retries every 5s, waiting
-#      for the FLIRC device (it is still on hsb2, so it just loops harmlessly).
-#   2. Physically move the FLIRC: unplug from hsb2 → plug into hsb1.
-#   3. Within ~5s the service opens /dev/flirc; press remote buttons → TV reacts.
-#   ROLLBACK: plug the FLIRC back into hsb2 (its service still runs). Zero risk.
-#
-# TODO (after the test passes + hsb2 is retired): `git mv` the script into
-# hosts/hsb1/files/ir-bridge.py and update the ExecStart path below.
+# Hardware enabled via `hardware.flirc.enable` in configuration.nix; device via
+# the stable /dev/input/by-id path (hsb1 also has the built-in Apple IR receiver,
+# so a bare event<N> would be ambiguous). Button map captured live → PPM NIX-194.
 {
   config,
   pkgs,
@@ -31,7 +26,7 @@ let
   ]);
 in
 {
-  # SONY_TV_PSK (+ optional MQTT creds) — decrypted to /run/agenix/hsb1-ir-bridge-env
+  # SONY_TV_PSK + MQTT_USER/MQTT_PASS — decrypted to /run/agenix/hsb1-ir-bridge-env
   age.secrets.hsb1-ir-bridge-env = {
     file = ../../secrets/hsb1-ir-bridge-env.age;
     owner = "mba";
@@ -50,8 +45,13 @@ in
       PYTHONUNBUFFERED = "1";
       SONY_TV_IP = "192.168.1.137";
       FLIRC_DEVICE = "/dev/input/by-id/usb-flirc.tv_flirc-if01-event-kbd"; # stable by-id path
-      MQTT_BROKER = ""; # debug disabled (was rc=5 spam vs authed mosquitto); set broker+creds to re-enable
-      MQTT_TOPIC = "home/hsb1/ir-bridge";
+      # Smart path → Home Assistant. Broker is localhost (never a hostname — HA
+      # MQTT rule); MQTT_USER / MQTT_PASS come from the agenix EnvironmentFile.
+      MQTT_BROKER = "127.0.0.1";
+      MQTT_PORT = "1883";
+      MQTT_BASE_TOPIC = "home/hsb1/ir-bridge";
+      HA_DISCOVERY_PREFIX = "homeassistant";
+      DEVICE_ID = "flirc_hsb1";
       LOG_LEVEL = "INFO";
     };
     serviceConfig = {
@@ -59,8 +59,8 @@ in
       User = "mba";
       SupplementaryGroups = [ "input" ]; # read /dev/input/*
       EnvironmentFile = config.age.secrets.hsb1-ir-bridge-env.path;
-      # Proven script, reused as-is from the hsb2 era (nix-store reference).
-      ExecStart = "${pythonEnv}/bin/python3 ${../hsb2/files/ir-bridge.py}";
+      # Bridge script lives with its host (git mv from hsb2 → hsb1, NIX-194).
+      ExecStart = "${pythonEnv}/bin/python3 ${./files/ir-bridge.py}";
       Restart = "always";
       RestartSec = 5;
       # Reactivity: pin above normal priority so a keypress is handled instantly
