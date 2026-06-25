@@ -405,13 +405,12 @@ services:
   janus-engine-staged:
     # Disabled by default. Initialize and verify with:
     #   just janus-engine-smoke
-    #   docker compose --profile janus-engine-staged config --quiet
-    #   docker compose --profile janus-engine-staged run --rm janus-engine-staged
     #
     # This is intentionally not on Traefik and does not replace the live
     # go-envelope service above. It uses the same non-prod Docker volumes and
     # manifests as the smoke harness; no production secret or host SSH key is
-    # mounted into the staged Rust engine.
+    # mounted into the staged Rust engine. Use the smoke harness, not manual
+    # project-wide compose lifecycle commands, when testing this profile.
     image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.0@sha256:99cfc52b9484fcd729bd02b2a6a685fd32d31d579e8c5ed903621fbcba1ce8a9
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]

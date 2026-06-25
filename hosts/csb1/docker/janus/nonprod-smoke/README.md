@@ -26,3 +26,24 @@ The script reads the signed, digest-pinned engine image from
 By default it uses Docker volumes named `janus_engine_smoke_age`,
 `janus_engine_smoke_secrets`, and `janus_engine_smoke_permits`; set
 `JANUS_SMOKE_VOLUME_PREFIX` to isolate another smoke state.
+
+## Safety Boundaries
+
+The smoke harness must never run project-wide Docker Compose lifecycle commands
+against the live `csb1` project. Do not use `docker compose down`, `rm`,
+`restart`, broad `up`, or `--remove-orphans` from this workflow.
+
+The script runs Compose with an isolated project name,
+`janus_engine_smoke` by default. Override with `JANUS_SMOKE_COMPOSE_PROJECT`
+only for another isolated smoke project; the script refuses `csb1`.
+
+The only Compose operations in the harness are:
+
+- `config --quiet --no-env-resolution`
+- `run --rm --no-deps` for `janus-engine-staged`
+
+After any compose-adjacent smoke on csb1, verify the routing path as well as the
+Janus result: all expected csb1 services are running, `docker-proxy-traefik`
+and Traefik are both up, `https://jhw22.hausv.org/healthz` is OK, WEG login and
+OIDC redirect work, and public services such as Docmost and Paperless return
+their expected statuses.
