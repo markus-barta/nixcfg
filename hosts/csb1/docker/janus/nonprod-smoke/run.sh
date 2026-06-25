@@ -5,6 +5,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 COMPOSE_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 IMAGE=${JANUS_ENGINE_IMAGE:-}
 SMOKE_ROOT=${JANUS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-engine-smoke"}
+VOLUME_PREFIX=${JANUS_SMOKE_VOLUME_PREFIX:-janus_engine_smoke}
 SECRET_REF="sec_9143cb19a04cc2dc154e"
 PROFILE_ID="profile.JANUS_SMOKE"
 DESTINATION="janus-engine-nonprod-smoke"
@@ -25,6 +26,13 @@ require_command docker
 require_command jq
 require_command sed
 
+case "$VOLUME_PREFIX" in
+"" | *[!A-Za-z0-9_.-]*)
+  printf 'invalid JANUS_SMOKE_VOLUME_PREFIX: %s\n' "$VOLUME_PREFIX" >&2
+  exit 1
+  ;;
+esac
+
 if [ -z "$IMAGE" ]; then
   IMAGE=$(
     awk '
@@ -41,20 +49,43 @@ if [ -z "$IMAGE" ]; then
 fi
 
 umask 077
-AGE_DIR="${SMOKE_ROOT}/age"
-STORE_DIR="${SMOKE_ROOT}/secrets"
-PERMIT_DIR="${SMOKE_ROOT}/permits"
+AGE_VOLUME="${VOLUME_PREFIX}_age"
+STORE_VOLUME="${VOLUME_PREFIX}_secrets"
+PERMIT_VOLUME="${VOLUME_PREFIX}_permits"
 TMP_DIR=$(mktemp -d)
 cleanup() {
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
 
-mkdir -p "${AGE_DIR}" "${STORE_DIR}/janus/csb1" "${PERMIT_DIR}"
-chmod 0700 "${SMOKE_ROOT}" "${AGE_DIR}" "${PERMIT_DIR}"
-find "${PERMIT_DIR}" -maxdepth 1 -type f \( -name 'use_*.json' -o -name '.use_*.claim' \) -delete
+mkdir -p "${SMOKE_ROOT}"
+chmod 0700 "${SMOKE_ROOT}"
 
-if [ ! -s "${AGE_DIR}/identity" ] || [ ! -s "${AGE_DIR}/recipient.pub" ]; then
+docker pull "$IMAGE" >/dev/null
+
+container_uid=$(docker run --rm --entrypoint id "$IMAGE" -u)
+container_gid=$(docker run --rm --entrypoint id "$IMAGE" -g)
+if [ "$container_uid" = "0" ]; then
+  printf 'janus smoke failed: image default user is root\n' >&2
+  exit 1
+fi
+
+docker volume create "$AGE_VOLUME" >/dev/null
+docker volume create "$STORE_VOLUME" >/dev/null
+docker volume create "$PERMIT_VOLUME" >/dev/null
+
+cat >"${SMOKE_ROOT}/volumes.env" <<EOF
+JANUS_ENGINE_IMAGE=${IMAGE}
+JANUS_SMOKE_VOLUME_PREFIX=${VOLUME_PREFIX}
+JANUS_SMOKE_AGE_VOLUME=${AGE_VOLUME}
+JANUS_SMOKE_STORE_VOLUME=${STORE_VOLUME}
+JANUS_SMOKE_PERMIT_VOLUME=${PERMIT_VOLUME}
+EOF
+
+if ! docker run --rm \
+  -v "${AGE_VOLUME}:/run/janus/age" \
+  --entrypoint sh "$IMAGE" \
+  -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub'; then
   keygen_out=$(age-keygen 2>&1)
   recipient=$(printf '%s\n' "$keygen_out" | sed -n 's/^Public key: //p' | head -n1)
   identity=$(printf '%s\n' "$keygen_out" | sed -n 's/.*\(AGE-SECRET-KEY-[A-Z0-9]*\).*/\1/p' | head -n1)
@@ -62,13 +93,48 @@ if [ ! -s "${AGE_DIR}/identity" ] || [ ! -s "${AGE_DIR}/recipient.pub" ]; then
     printf 'failed to generate non-prod age identity\n' >&2
     exit 1
   fi
-  printf '%s\n' "$identity" >"${AGE_DIR}/identity"
-  printf '%s\n' "$recipient" >"${AGE_DIR}/recipient.pub"
+  printf '%s\n%s\n' "$identity" "$recipient" |
+    docker run -i --rm \
+      -v "${AGE_VOLUME}:/run/janus/age" \
+      --entrypoint sh "$IMAGE" \
+      -c '
+        set -eu
+        umask 077
+        IFS= read -r identity
+        IFS= read -r recipient
+        printf "%s\n" "$identity" >/run/janus/age/identity
+        printf "%s\n" "$recipient" >/run/janus/age/recipient.pub
+        chmod 0400 /run/janus/age/identity
+        chmod 0444 /run/janus/age/recipient.pub
+      '
 fi
 
-recipient=$(cat "${AGE_DIR}/recipient.pub")
+recipient=$(
+  docker run --rm \
+    -v "${AGE_VOLUME}:/run/janus/age:ro" \
+    --entrypoint cat "$IMAGE" /run/janus/age/recipient.pub |
+    tr -d '\r\n'
+)
+printf '%s\n' "$recipient" >"${SMOKE_ROOT}/recipient.pub"
+
+docker run --rm \
+  -v "${PERMIT_VOLUME}:/run/janus/permits" \
+  --entrypoint sh "$IMAGE" \
+  -c 'find /run/janus/permits -maxdepth 1 -type f \( -name "use_*.json" -o -name ".use_*.claim" \) -delete'
+
 printf 'janus-nonprod-smoke-%s' "$(date +%s%N)" |
-  age -r "$recipient" -o "${STORE_DIR}/janus/csb1/JANUS_SMOKE.age"
+  age -r "$recipient" -o "${TMP_DIR}/JANUS_SMOKE.age"
+
+docker run -i --rm \
+  -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
+  --entrypoint sh "$IMAGE" \
+  -c '
+    set -eu
+    umask 077
+    mkdir -p /var/lib/janus/secrets/janus/csb1
+    cat >/var/lib/janus/secrets/janus/csb1/JANUS_SMOKE.age
+    chmod 0400 /var/lib/janus/secrets/janus/csb1/JANUS_SMOKE.age
+  ' <"${TMP_DIR}/JANUS_SMOKE.age"
 
 cat >"${TMP_DIR}/mcp.jsonl" <<EOF
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"janus-smoke","version":"0"}}}
@@ -76,8 +142,7 @@ cat >"${TMP_DIR}/mcp.jsonl" <<EOF
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_use","arguments":{"secret_ref":"${SECRET_REF}","profile_id":"${PROFILE_ID}","purpose":"csb1 staged non-prod smoke"}}}
 EOF
 
-docker pull "$IMAGE" >/dev/null
-docker run -i --rm --user 0 \
+docker run -i --rm \
   -e JANUS_WARDEN_BACKEND=age \
   -e JANUS_WARDEN_PERMIT_DIR=/run/janus/permits \
   -e JANUS_WARDEN_EXECUTOR="${EXECUTOR}" \
@@ -89,10 +154,9 @@ docker run -i --rm --user 0 \
   -e JANUS_WARDEN_AGE_IDENTITY_FILE=/run/janus/age/identity \
   -e JANUS_WARDEN_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub \
   -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
-  -v "${STORE_DIR}:/var/lib/janus/secrets" \
-  -v "${PERMIT_DIR}:/run/janus/permits" \
-  -v "${AGE_DIR}/identity:/run/janus/age/identity:ro" \
-  -v "${AGE_DIR}/recipient.pub:/run/janus/age/recipient.pub:ro" \
+  -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
+  -v "${PERMIT_VOLUME}:/run/janus/permits" \
+  -v "${AGE_VOLUME}:/run/janus/age:ro" \
   --entrypoint janus-warden "$IMAGE" <"${TMP_DIR}/mcp.jsonl" \
   >"${TMP_DIR}/warden.out" 2>"${TMP_DIR}/warden.err"
 
@@ -107,7 +171,7 @@ if [ -z "$permit" ]; then
   exit 1
 fi
 
-docker run --rm --user 0 \
+docker run --rm \
   -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
   -e JANUS_RUN_EXECUTOR="${EXECUTOR}" \
   -e JANUS_RUN_SCOPE="${SCOPE}" \
@@ -119,10 +183,9 @@ docker run --rm --user 0 \
   -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-commands.toml \
   -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
   -v "${SCRIPT_DIR}/managed-commands.toml:/etc/janus/managed-commands.toml:ro" \
-  -v "${STORE_DIR}:/var/lib/janus/secrets" \
-  -v "${PERMIT_DIR}:/run/janus/permits" \
-  -v "${AGE_DIR}/identity:/run/janus/age/identity:ro" \
-  -v "${AGE_DIR}/recipient.pub:/run/janus/age/recipient.pub:ro" \
+  -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
+  -v "${PERMIT_VOLUME}:/run/janus/permits" \
+  -v "${AGE_VOLUME}:/run/janus/age:ro" \
   "$IMAGE" run --profile "${PROFILE_ID}" --permit "$permit" -- \
   -c "printf 'smoke:%s' \"\$JANUS_SECRET_SMOKE\"" \
   >"${TMP_DIR}/run.out" 2>"${TMP_DIR}/run.err"
@@ -140,11 +203,16 @@ if ! grep -q 'reason_code=ok value_returned=false' "${TMP_DIR}/run.err"; then
   exit 1
 fi
 
-remaining_permits=$(find "${PERMIT_DIR}" -maxdepth 1 -type f | wc -l | tr -d ' ')
+remaining_permits=$(
+  docker run --rm \
+    -v "${PERMIT_VOLUME}:/run/janus/permits:ro" \
+    --entrypoint sh "$IMAGE" \
+    -c 'find /run/janus/permits -maxdepth 1 -type f | wc -l | tr -d " "'
+)
 if [ "$remaining_permits" != "0" ]; then
   printf 'janus smoke failed: permit registry not empty after run (%s files)\n' "$remaining_permits" >&2
   exit 1
 fi
 
-printf 'ok: janus non-prod permit smoke passed image=%s profile=%s value_returned=false output=redacted permit_consumed=true\n' \
-  "$IMAGE" "$PROFILE_ID"
+printf 'ok: janus non-prod permit smoke passed image=%s profile=%s user_uid=%s user_gid=%s value_returned=false output=redacted permit_consumed=true volumes=%s,%s,%s\n' \
+  "$IMAGE" "$PROFILE_ID" "$container_uid" "$container_gid" "$AGE_VOLUME" "$STORE_VOLUME" "$PERMIT_VOLUME"

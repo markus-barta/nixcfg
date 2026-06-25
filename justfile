@@ -111,6 +111,10 @@ check-host hostname:
 check:
     just check-host {{ hostname }}
 
+[group('ops')]
+janus-engine-smoke:
+    cd hosts/csb1/docker && ./janus/nonprod-smoke/run.sh
+
 [group('build')]
 nix-switch:
     sudo nixos-rebuild switch --flake .#{{ hostname }} -L
