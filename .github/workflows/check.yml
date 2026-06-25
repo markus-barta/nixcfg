@@ -38,4 +38,7 @@ jobs:
       - name: Run nix eval for ${{ matrix.host }}
         # We don't want to continue on error of the workflow will not fail if one host fails
         # continue-on-error: true
-        run: nix eval .#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel.drvPath
+        # CI must be read-only: the local nixhostforge stub is intentionally
+        # mutable in flake.lock, so newer Nix versions fail if eval tries to
+        # refresh the lock file.
+        run: nix eval --no-update-lock-file .#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel.drvPath
