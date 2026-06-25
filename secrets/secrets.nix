@@ -247,6 +247,11 @@ in
   # Edit: agenix -e secrets/csb1-janus-env.age
   "csb1-janus-env.age".publicKeys = markus ++ csb1;
 
+  # WEG Portal environment variables for csb1
+  # Format: KEY=VALUE lines (SESSION_KEY, tenant/user JSON, HA_TOKEN)
+  # Edit: agenix -e secrets/csb1-weg-portal-env.age
+  "csb1-weg-portal-env.age".publicKeys = markus ++ csb1;
+
   # === NIX-110: csb1 docker stack migration to git — bulk env file refactor ===
   # The following secrets were previously plaintext in ~/secrets/ or
   # ./xxx.env on csb1. Moved to agenix as part of the docker-in-git
