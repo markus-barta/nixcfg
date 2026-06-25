@@ -705,6 +705,8 @@
     },
     "nixhostforge_2": {
       "locked": {
+        "lastModified": 1779723880,
+        "narHash": "sha256-rJdb9R0KHmq21wwmq8fKbgxSVmATvRBtjoqnLkSSn28=",
         "path": "./stubs/nixhostforge",
         "type": "path"
       },
