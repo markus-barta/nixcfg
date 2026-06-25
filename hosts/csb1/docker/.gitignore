@@ -4,3 +4,4 @@
 
 traefik/acme.json
 traefik/variables.env
+docker-compose.yml.bak.*
