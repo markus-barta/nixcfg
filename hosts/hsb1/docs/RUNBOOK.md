@@ -299,6 +299,51 @@ docker exec mosquitto mosquitto_sub -h localhost -u smarthome -P '<password>' \
 
 **Prevention:** Always use `localhost` for MQTT broker in HA (not hostnames). Z2M already uses IP (`192.168.1.101`) which is correct.
 
+### Awattar Price Chart Broken ("Strompreis Unknown" / chart stuck "Loading…")
+
+**Symptom:** Dashboard "Awattar" tile (`sensor.current_power_price`) shows `Unknown`; the apexcharts price chart shows "Loading…".
+
+**Root cause:** The `epex_spot` HACS integration (mampfes/ha_epex_spot) **v4** retired the `Price`/`Net Price` sensors. `sensor.epex_spot_data_price` (+ `_net_price`) now report `unavailable` and lose their `data` forecast attribute; the widgets still referenced that dead sensor. (First broke 2026-06-02; the integration itself is fine — `_market_price`/`_total_price` keep updating hourly.)
+
+**Live price sensors (v4)** — both expose `attributes.data` = hourly array `[{start_time, end_time, price_per_kwh}]`:
+
+- `sensor.epex_spot_data_market_price` — raw EPEX spot price
+- `sensor.epex_spot_data_total_price` — all-in (spot + grid fees/taxes per config) ← **in use since 2026-06-06**
+
+**Fix (pure repoint, no logic change):**
+
+```bash
+cd ~/docker/mounts/homeassistant
+ts=$(date +%Y%m%d%H%M%S)
+cp configuration.yaml configuration.yaml.bak.$ts
+cp .storage/lovelace.dashboard_main .storage/lovelace.dashboard_main.bak.$ts
+# 1) template sensor current_power_price
+sed -i "s/'sensor\.epex_spot_data_price'/'sensor.epex_spot_data_total_price'/" configuration.yaml
+# 2) apexcharts series entity (data_generator keys start_time/price_per_kwh unchanged)
+sed -i 's/"sensor\.epex_spot_data_price"/"sensor.epex_spot_data_total_price"/' .storage/lovelace.dashboard_main
+# 3) validate
+python3 -m json.tool .storage/lovelace.dashboard_main >/dev/null && echo "dashboard JSON ok"
+docker exec homeassistant python3 -m homeassistant --script check_config -c /config 2>&1 | grep -iE "error|invalid|fail" || echo "config ok"
+# 4) restart (required — dashboard JSON loads only at startup; ~60s)
+docker restart homeassistant
+```
+
+**Future-proofing:** `watchtower-weekly` + HACS auto-update epex*spot, so a future major version may rename sensors again. If the chart breaks after an update, re-check which `sensor.epex_spot_data*\*`still carries`attributes.data` and repoint.
+
+**Reading live HA state without an API token** (recorder DB, read-only):
+
+```bash
+docker exec -i homeassistant python3 - <<'PY'
+import sqlite3
+c=sqlite3.connect("file:/config/home-assistant_v2.db?mode=ro",uri=True)
+for e in ("sensor.current_power_price","sensor.epex_spot_data_total_price"):
+    r=c.execute("SELECT s.state FROM states s JOIN states_meta m ON s.metadata_id=m.metadata_id WHERE m.entity_id=? ORDER BY s.last_updated_ts DESC LIMIT 1",(e,)).fetchone()
+    print(e, "=", r and r[0])
+PY
+```
+
+> Large attributes (the `data` forecast array) are excluded from the recorder — use Developer Tools → States to inspect those. Full write-up: PPM NIX knowledge `hsb1-awattar-epex-spot-price`.
+
 ### UPS Monitoring
 
 ```bash
