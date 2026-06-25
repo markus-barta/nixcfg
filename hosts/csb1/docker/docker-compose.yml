@@ -225,6 +225,10 @@ services:
       - PARKING_METER_ENERGY_ENTITY=sensor.kws_306wf_energy_meter_energy
       - PARKING_POWER_ENTITY=sensor.kws360_power
       - PARKING_PRICE_ENTITY=sensor.epex_spot_data_total_price
+      - PARKING_DATA_PATH=/data/parking.json
+      - PARKING_SAMPLE_INTERVAL=15m
+    volumes:
+      - /var/lib/csb1-docker/weg-portal:/data
     networks:
       - traefik
     labels:
