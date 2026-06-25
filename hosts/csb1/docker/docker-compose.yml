@@ -234,6 +234,13 @@ services:
       - /var/lib/csb1-docker/weg-portal:/data
     networks:
       - traefik
+    healthcheck:
+      test:
+        ["CMD", "/weg-portal", "healthcheck", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     labels:
       - traefik.enable=true
       - traefik.http.routers.weg-portal.rule=Host(`jhw22.hausv.org`)
