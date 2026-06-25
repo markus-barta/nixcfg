@@ -295,7 +295,7 @@ SERVERS:
 WORKSTATIONS:
   imac0                   ← iMac (Markus, home)
   imac1                   ← iMac (Mai, home)
-  mbp0                    ← MacBook Pro (Markus, personal - future)
+  mbp0                    ← MacBook Pro (Markus, personal)
 
 GAMING:
   gpc0                    ← PC Gaming (Markus, NixOS)
@@ -326,7 +326,7 @@ GAMING:
 | `imac0`         | imac-mba-home     | Markus | 192.168.1.150 | ⬜    | ✅ **Migrated** |
 | `imac1`         | -                 | Mai    | 192.168.1.152 | -     | ⏳ Future       |
 | `mba-imac-work` | -                 | Markus | -             | ⬛    | ✅ **Themed**   |
-| `mbp0`          | -                 | Markus | -             | -     | ⏳ Future       |
+| `mbp0`          | -                 | Markus | -             | ⬜    | ✅ **Active**   |
 
 #### Gaming Systems
 

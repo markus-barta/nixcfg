@@ -60,10 +60,13 @@ in
   # on markus-barta GH account). BYTEPOETS repos → m5-bytepoets-userkey
   # (registered on bytepoets-mba GH account, BYTEPOETS SSO authorized).
   # Privkeys materialized by inspr.secrets.agents from secrets/agents/host/
-  # mba-mbp-m5-work/m5-{personal,bytepoets}-userkey.age.
+  # mbp0/m5-{personal,bytepoets}-userkey.age. Key material was carried forward
+  # from the decommissioned M5 work portable by intent.
   # ============================================================================
   inspr.git.atelier.personal.enable = true;
-  inspr.git.atelier.bytepoets.enable = true;
+  # BYTEPOETS departure 2026-06-15 — private machine: work push-key disabled.
+  # m5-bytepoets-userkey.age is retained (archived) but intentionally not wired.
+  inspr.git.atelier.bytepoets.enable = false;
 
   # ============================================================================
   # INSPR — paimos-cli auto-bootstrap (~/.paimos/config.yaml from PPMAPIKEY.env)
@@ -86,7 +89,7 @@ in
   # THEME - Must match actual hostname
   # ============================================================================
   # Also add entry to: modules/uzumaki/theme/theme-palettes.nix
-  theme.hostname = "mba-mbp-m5-work";
+  theme.hostname = "mbp0";
 
   # ============================================================================
   # USER SETTINGS

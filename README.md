@@ -12,17 +12,17 @@ Personal NixOS configuration managing home servers, cloud infrastructure, and de
 
 **Manages 6 NixOS hosts + 3 macOS workstations:**
 
-| Host                | Role                                      | Location      |
-| ------------------- | ----------------------------------------- | ------------- |
-| **hsb0**            | DNS/DHCP (AdGuard Home)                   | Home          |
-| **hsb1**            | Smart Home Hub (Node-RED, MQTT, HomeKit)  | Home          |
-| **hsb8**            | Home Automation                           | Parents' Home |
-| **gpc0**            | Gaming Desktop (Steam, Plasma)            | Home          |
-| **csb0**            | IoT Hub (MQTT, Telegram Bot)              | Cloud         |
-| **csb1**            | Monitoring (Grafana, InfluxDB, Paperless) | Cloud         |
-| **imac0**           | Development Workstation                   | macOS (Home)  |
-| **mba-mbp-m5-work** | Work Laptop (Apple Silicon M5)            | macOS (Work)  |
-| **mba-imac-work**   | Work Desktop                              | macOS (Work)  |
+| Host              | Role                                       | Location      |
+| ----------------- | ------------------------------------------ | ------------- |
+| **hsb0**          | DNS/DHCP (AdGuard Home)                    | Home          |
+| **hsb1**          | Smart Home Hub (Node-RED, MQTT, HomeKit)   | Home          |
+| **hsb8**          | Home Automation                            | Parents' Home |
+| **gpc0**          | Gaming Desktop (Steam, Plasma)             | Home          |
+| **csb0**          | IoT Hub (MQTT, Telegram Bot)               | Cloud         |
+| **csb1**          | Monitoring (Grafana, InfluxDB, Paperless)  | Cloud         |
+| **imac0**         | Development Workstation                    | macOS (Home)  |
+| **mbp0**          | Private MacBook Pro (Apple Silicon M5 Max) | macOS (Home)  |
+| **mba-imac-work** | Work Desktop                               | macOS (Work)  |
 
 **Key Capabilities:**
 
@@ -111,7 +111,7 @@ flake.nix
 </details>
 
 <details>
-<summary><strong>🍎 macOS Host Load Order</strong> (imac0, mba-imac-work, mba-mbp-m5-work)</summary>
+<summary><strong>🍎 macOS Host Load Order</strong> (imac0, mba-imac-work, mbp0)</summary>
 
 ```
 flake.nix

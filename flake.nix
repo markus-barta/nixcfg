@@ -162,8 +162,8 @@
       #
       # First arg `system` is the Darwin system string ("x86_64-darwin" for
       # Intel, "aarch64-darwin" for Apple Silicon). Previously hard-coded to
-      # x86_64-darwin; widened to support Apple Silicon hosts (mba-mbp-m5-work
-      # is the first aarch64 macOS host in the fleet, 2026-05-01).
+      # x86_64-darwin; widened to support Apple Silicon hosts (the M5 portable
+      # line is aarch64-darwin).
       #
       # Note: NixOS hosts get hostname from config.networking.hostName (see common.nix)
       #
@@ -199,10 +199,12 @@
       homeConfigurations."markus@mba-imac-work" = mkDarwinHome "x86_64-darwin" "mba-imac-work";
       homeConfigurations."mba-imac-work" = self.homeConfigurations."markus@mba-imac-work";
 
-      # Apple Silicon M5 (mba-mbp-work was decommissioned 2026-05-16; m5 is the
-      # only macOS portable.)
-      homeConfigurations."mba@mba-mbp-m5-work" = mkDarwinHome "aarch64-darwin" "mba-mbp-m5-work";
-      homeConfigurations."mba-mbp-m5-work" = self.homeConfigurations."mba@mba-mbp-m5-work";
+      # Apple Silicon — private M5 Max (mbp0). New physical device, provisioned
+      # 2026-06-15 from the retired work host's config and key material
+      # (BYTEPOETS departure), so agenix access continues intentionally.
+      # Personal-only — BYTEPOETS push-atelier disabled in hosts/mbp0/home.nix.
+      homeConfigurations."mba@mbp0" = mkDarwinHome "aarch64-darwin" "mbp0";
+      homeConfigurations."mbp0" = self.homeConfigurations."mba@mbp0";
 
       # ========================================================================
       # NixOS Configurations

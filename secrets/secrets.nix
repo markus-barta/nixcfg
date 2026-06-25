@@ -20,7 +20,7 @@ let
   # Phase 2 retirement completes. See modules/shared/ssh-keyring.nix
   # for the canonical metadata on each key.
   markus_rsa_legacy = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt"; # markus@iMac-5k-MBA-home.local — shared pre-2026 RSA
-  markus_m5_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mba-mbp-m5-work"; # added INSPR-78 (2026-05-03)
+  markus_m5_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mbp0"; # added INSPR-78 (2026-05-03)
   markus_imac0_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOdow+y+02Ekej5q3JD+5SSCWDDW4Hmiwwbfe9fTYUBA markus@imac0"; # added INSPR-78 (2026-05-03)
   markus_imacw_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOs5Sg9sqv/t3TIMfNQ2aP8a8ehEIQuFWuHVS2bX8oK3 markus@mba-imac-work"; # added 2026-05-13 (imacw RSA→ed25519 migration; INSPR-76 fleet rollout)
 
@@ -82,7 +82,7 @@ let
   # ============================================================================
   # MACOS HOSTS
   # ============================================================================
-  # First macOS host as agenix recipient (mba-mbp-m5-work, added 2026-05-01).
+  # First macOS host as agenix recipient (mbp0, added 2026-05-01).
   # macOS does NOT auto-generate /etc/ssh/ssh_host_ed25519_key — manually
   # created via:
   #     sudo ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" \
@@ -91,8 +91,8 @@ let
   # configured to use it (Apple's CryptoTokenKit handles SSH service keys
   # separately on modern macOS). See playbook field notes for context.
 
-  "mba-mbp-m5-work" = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH6ene6+iB5I9brFPfFwuqNil7nbJpWguycyZqv67+LU root@mba-mbp-m5-work"
+  "mbp0" = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH6ene6+iB5I9brFPfFwuqNil7nbJpWguycyZqv67+LU root@mbp0"
   ];
 
   # imac0 host-key entry was removed 2026-05-10 (declared 2026-05-01,
@@ -392,12 +392,12 @@ in
   # Materialized at activation to /Users/mba/.inspr/secrets/agents/<NAME>.env (INSPR-164 canonical)
   # See ~/Code/inspr/proposals/agent-secrets/ for the architecture.
 
-  # GitHub PAT for @markus-barta on this device (mba-mbp-m5-work).
+  # GitHub PAT for @markus-barta on this device (mbp0).
   # Per-device for per-device revocability. Filename = GH_TOKEN.age so the
   # materialized env file is GH_TOKEN.env — gh CLI auto-picks up $GH_TOKEN.
   # Format inside the .age file: GH_TOKEN=ghp_xxxxxxxxxxxx
-  # Edit: agenix -e secrets/agents/host/mba-mbp-m5-work/GH_TOKEN.age
-  "agents/host/mba-mbp-m5-work/GH_TOKEN.age".publicKeys = markus ++ mba-mbp-m5-work;
+  # Edit: agenix -e secrets/agents/host/mbp0/GH_TOKEN.age
+  "agents/host/mbp0/GH_TOKEN.age".publicKeys = markus ++ mbp0;
 
   # Onshape API credentials (key + secret) — paired Onshape developer
   # access tokens; rotate together. imac0-only (CAD work happens on the
@@ -420,10 +420,10 @@ in
   # Add more hosts here as they join the pipeline (rekey afterwards).
 
   # Cloudflare DNS API token (AIA account)
-  "agents/shared/CF_DNS_TOKEN_AIA.age".publicKeys = markus ++ mba-mbp-m5-work;
+  "agents/shared/CF_DNS_TOKEN_AIA.age".publicKeys = markus ++ mbp0;
 
   # Cloudflare Zone API token (AIA account)
-  "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mba-mbp-m5-work;
+  "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp0;
 
   # PMO = BYTEPOETS Project Management Online (the company Paimos instance).
   # NOTE: BYTEPOETS-context credentials. Long-term these belong in the
@@ -431,15 +431,15 @@ in
   # Markus's personal nixcfg studio. Currently in shared/ as a transitional
   # layer until BYTEPOETS gets its own agent-secrets pipeline — flag for
   # migration when that happens.
-  "agents/shared/PMOAPIKEY.age".publicKeys = markus ++ mba-mbp-m5-work;
-  "agents/shared/PMOSERVERPASS.age".publicKeys = markus ++ mba-mbp-m5-work;
-  "agents/shared/PMOSERVERURL.age".publicKeys = markus ++ mba-mbp-m5-work;
-  "agents/shared/PMOSERVERUSER.age".publicKeys = markus ++ mba-mbp-m5-work;
-  "agents/shared/PMOSSHKEYFILELOCATION.age".publicKeys = markus ++ mba-mbp-m5-work;
-  "agents/shared/PMOURL.age".publicKeys = markus ++ mba-mbp-m5-work;
+  "agents/shared/PMOAPIKEY.age".publicKeys = markus ++ mbp0;
+  "agents/shared/PMOSERVERPASS.age".publicKeys = markus ++ mbp0;
+  "agents/shared/PMOSERVERURL.age".publicKeys = markus ++ mbp0;
+  "agents/shared/PMOSERVERUSER.age".publicKeys = markus ++ mbp0;
+  "agents/shared/PMOSSHKEYFILELOCATION.age".publicKeys = markus ++ mbp0;
+  "agents/shared/PMOURL.age".publicKeys = markus ++ mbp0;
 
   # PPM = Personal Project Management (Markus's personal Paimos at pm.barta.cm)
-  "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mba-mbp-m5-work;
+  "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mbp0;
 
   # Home WiFi credentials — used by awtrix-rescue and any future
   # device-provisioning helpers that drive a device through its AP-mode
@@ -447,7 +447,7 @@ in
   #   HOMEWIFI_SSID=<ssid>
   #   HOMEWIFI_PASS=<password>
   # Edit: agenix -e secrets/agents/shared/HOMEWIFI.age
-  "agents/shared/HOMEWIFI.age".publicKeys = markus ++ mba-mbp-m5-work;
+  "agents/shared/HOMEWIFI.age".publicKeys = markus ++ mbp0;
 
   # ────────────────────────────────────────────────────────────────────────
   # INSPR-170: inspr.git.atelier Strategy B — per-host user SSH keys
@@ -467,9 +467,9 @@ in
   #
   # Edit (re-create) workflow: agenix -e secrets/agents/host/<host>/<name>.age
 
-  # m5 (mba-mbp-m5-work)
-  "agents/host/mba-mbp-m5-work/m5-personal-userkey.age".publicKeys = markus;
-  "agents/host/mba-mbp-m5-work/m5-bytepoets-userkey.age".publicKeys = markus;
+  # m5 (mbp0)
+  "agents/host/mbp0/m5-personal-userkey.age".publicKeys = markus;
+  "agents/host/mbp0/m5-bytepoets-userkey.age".publicKeys = markus;
 
   # imac0
   "agents/host/imac0/imac0-personal-userkey.age".publicKeys = markus;
