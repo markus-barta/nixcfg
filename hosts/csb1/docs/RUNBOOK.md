@@ -159,8 +159,8 @@ cd ~/docker && docker-compose down && docker-compose up -d
 
 The `janus-engine-staged` compose profile stays disabled and non-Traefik. Its
 non-prod smoke uses the signed digest-pinned engine image, Docker-volume
-non-prod age material, and a permit-bound `janusd run`; no production secret or
-host SSH key is used.
+non-prod age material, and a permit-bound `janusd run` launched through the
+staged compose service; no production secret or host SSH key is used.
 
 ```bash
 cd ~/Code/nixcfg
