@@ -5,7 +5,7 @@ set -e
 echo 'Do backup...'
 MESSAGE="$(/usr/local/bin/restic ${RESTIC_BACKUP_OPTIONS} --host csb1 backup \
   --exclude '*/cache/*' --exclude '*.log*' \
-  /backup/var/lib/docker/volumes /backup/home /backup/root /backup/etc \
+  /backup/var/lib/docker/volumes /backup/var/lib/csb1-docker /backup/home /backup/root /backup/etc \
   2>&1 | tee /dev/tty)" || true
 
 {

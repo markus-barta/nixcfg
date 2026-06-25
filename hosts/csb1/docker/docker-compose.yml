@@ -249,6 +249,7 @@ services:
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - /var/lib/docker/volumes:/backup/var/lib/docker/volumes:ro
+      - /var/lib/csb1-docker:/backup/var/lib/csb1-docker:ro
       - /home:/backup/home:ro
       - /root:/backup/root:ro
       - /etc:/backup/etc:ro
