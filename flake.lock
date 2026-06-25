@@ -703,19 +703,6 @@
         "type": "github"
       }
     },
-    "nixhostforge_2": {
-      "locked": {
-        "lastModified": 1779723880,
-        "narHash": "sha256-rJdb9R0KHmq21wwmq8fKbgxSVmATvRBtjoqnLkSSn28=",
-        "path": "./stubs/nixhostforge",
-        "type": "path"
-      },
-      "original": {
-        "path": "./stubs/nixhostforge",
-        "type": "path"
-      },
-      "parent": []
-    },
     "nixos-hardware": {
       "inputs": {
         "nixpkgs": "nixpkgs_3"
@@ -999,7 +986,10 @@
         "inspr-modules": "inspr-modules",
         "ncps": "ncps",
         "nixcfg": "nixcfg",
-        "nixhostforge": "nixhostforge_2",
+        "nixhostforge": [
+          "nixcfg",
+          "nixhostforge"
+        ],
         "nixos-hardware": "nixos-hardware_2",
         "nixpkgs": "nixpkgs_6",
         "nixpkgs-stable": "nixpkgs-stable_2",
