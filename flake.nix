@@ -26,11 +26,10 @@
     nixcfg.url = "github:pbek/nixcfg";
     # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
     # pbek's hokage module unconditionally imports inputs.nixhostforge via
-    # modules/hokage/nixhostforge.nix. We don't want pbek/nixhostforge (overlaps
-    # with INSPR / FleetCom), so we point this input at a local empty stub.
-    # disabledModules can't help here because pbek loads files via
-    # `builtins.map import (listNixFiles ./.)` which strips path metadata.
-    nixhostforge.url = "path:./stubs/nixhostforge";
+    # modules/hokage/nixhostforge.nix. Follow pbek's own locked input so CI does
+    # not need a mutable relative-path stub in flake.lock; the service remains
+    # disabled unless a host explicitly enables it.
+    nixhostforge.follows = "nixcfg/nixhostforge";
     # NixFleet - Disabled (decommissioned, replaced by FleetCom)
     # nixfleet.url = "github:markus-barta/nixfleet";
     # nixfleet.inputs.nixpkgs.follows = "nixpkgs";
