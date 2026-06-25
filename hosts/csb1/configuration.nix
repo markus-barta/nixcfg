@@ -142,6 +142,7 @@
       # Create runtime directory structure
       "d ${dockerRoot} 0755 mba users -"
       "d ${dockerRoot}/traefik 0755 mba users -"
+      "d ${dockerRoot}/weg-portal 0755 root root -"
 
       # Create mutable files (Docker writes to these)
       "f ${dockerRoot}/traefik/acme.json 0600 root root -"
