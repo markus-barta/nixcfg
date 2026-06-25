@@ -218,8 +218,8 @@ services:
       - ROOT_DOMAIN=hausv.org
       - DEFAULT_TENANT=jhw22
       - LOCAL_DEV_LOGIN=false
-      - SMTP_HOST=smtp
-      - SMTP_PORT=25
+      - SMTP_HOST=smtp.resend.com
+      - SMTP_PORT=587
       - MAIL_FROM=WEG Portal <noreply@hausv.org>
       - HA_BASE_URL=http://100.64.0.7:8123
       - PARKING_METER_ENERGY_ENTITY=sensor.kws_306wf_energy_meter_energy
@@ -227,7 +227,6 @@ services:
       - PARKING_PRICE_ENTITY=sensor.epex_spot_data_total_price
     networks:
       - traefik
-      - smtp
     labels:
       - traefik.enable=true
       - traefik.http.routers.weg-portal.rule=Host(`jhw22.hausv.org`)
