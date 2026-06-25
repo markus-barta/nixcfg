@@ -152,6 +152,8 @@ services:
     image: traefik
     command: --providers.docker
     restart: always
+    depends_on:
+      - docker-proxy-traefik
     ports:
       - "80:80"
       - "443:443/tcp"
