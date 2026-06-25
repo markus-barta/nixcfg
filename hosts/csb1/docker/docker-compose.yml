@@ -360,6 +360,55 @@ services:
       - traefik.http.routers.janus.middlewares=cloudflarewarp@file
 
   # ============================================
+  # Janus Rust engine — staged approved-use runtime
+  # ============================================
+  janus-engine-staged:
+    # Disabled by default. Enable only for host-local dry smoke:
+    #   docker compose --profile janus-engine-staged config --quiet
+    #   docker compose --profile janus-engine-staged run --rm janus-engine-staged
+    #
+    # This is intentionally not on Traefik and does not replace the live
+    # go-envelope service above. The image tag is staged until the Rust engine
+    # release pipeline publishes a signed image.
+    image: ghcr.io/markus-barta/janus/janus-engine:staged
+    container_name: janus-engine-staged
+    profiles: ["janus-engine-staged"]
+    restart: "no"
+    entrypoint: ["janusd"]
+    command: ["--help"]
+    environment:
+      - JANUS_PERMIT_DIR=/run/janus/permits
+      - JANUS_WARDEN_PERMIT_DIR=/run/janus/permits
+      - JANUS_RUN_PERMIT_DIR=/run/janus/permits
+      - JANUS_WARDEN_BACKEND=age
+      - JANUS_WARDEN_DESTINATION=csb1-janus-env-dry-run
+      - JANUS_WARDEN_EXECUTOR=janus-run@csb1
+      - JANUS_RUN_EXECUTOR=janus-run@csb1
+      - JANUS_WARDEN_SCOPE=janus/csb1/staged
+      - JANUS_RUN_SCOPE=janus/csb1/staged
+      - JANUS_WARDEN_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml
+      - JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml
+      - JANUS_WARDEN_AGE_PROFILE=csb1
+      - JANUS_AGE_PROFILE=csb1
+      - JANUS_WARDEN_AGE_STORE_DIR=/var/lib/janus/secrets
+      - JANUS_AGE_STORE_DIR=/var/lib/janus/secrets
+      - JANUS_WARDEN_AGE_IDENTITY_FILE=/run/janus/age/identity
+      - JANUS_AGE_IDENTITY_FILE=/run/janus/age/identity
+      - JANUS_WARDEN_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub
+      - JANUS_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub
+      - JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-commands.toml
+      - JANUS_MANAGED_PROFILE_MANIFEST=/etc/janus/managed-commands.toml
+    volumes:
+      - ./janus/secretspec.toml:/etc/janus/secretspec.toml:ro
+      - ./janus/managed-commands.toml:/etc/janus/managed-commands.toml:ro
+      - janus_engine_age_store:/var/lib/janus/secrets
+      - janus_engine_permits:/run/janus/permits
+      - /etc/ssh/ssh_host_ed25519_key:/run/janus/age/identity:ro
+      - /etc/ssh/ssh_host_ed25519_key.pub:/run/janus/age/recipient.pub:ro
+    labels:
+      - traefik.enable=false
+
+  # ============================================
   # MinIO - Object storage (PPM attachments)
   # ============================================
   minio:
@@ -418,6 +467,8 @@ volumes:
   paperless_consume: {}
   ppm_data: {}
   janus_data: {}
+  janus_engine_age_store: {}
+  janus_engine_permits: {}
   minio_data: {}
 
 networks:
