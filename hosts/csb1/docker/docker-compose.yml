@@ -324,7 +324,7 @@ services:
   # PPM - Personal Project Management
   # ============================================
   ppm:
-    image: ghcr.io/markus-barta/paimos:3 # major pin: watchtower auto-pulls 3.x, never 4.x (NIX-193)
+    image: ghcr.io/markus-barta/paimos:4.3.0 # explicit live pin; bump deliberately with the PAIMOS release/deploy flow
     container_name: ppm
     restart: unless-stopped
     environment:

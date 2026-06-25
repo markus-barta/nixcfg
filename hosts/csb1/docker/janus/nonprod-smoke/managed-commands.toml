@@ -1,0 +1,21 @@
+[[profiles]]
+id = "profile.JANUS_SMOKE"
+secret_ref = "sec_9143cb19a04cc2dc154e"
+executor = "janus-run@csb1"
+destination = "janus-engine-nonprod-smoke"
+env = "JANUS_SECRET_SMOKE"
+binary = "/bin/sh"
+allowed_args = ["-c", "printf 'smoke:%s' \"$JANUS_SECRET_SMOKE\""]
+timeout_seconds = 30
+max_stdout_bytes = 65536
+max_stderr_bytes = 65536
+
+[profiles.consumer]
+consumer_ref = "consumer.janus_engine_nonprod_smoke"
+kind = "managed_command"
+owner = "janusd"
+environment = "csb1-staged"
+reload = "none"
+validation = ["janus-engine-nonprod-smoke"]
+supports_dual_value = false
+blast_radius = "non-prod local smoke only"
