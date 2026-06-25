@@ -368,9 +368,9 @@ services:
     #   docker compose --profile janus-engine-staged run --rm janus-engine-staged
     #
     # This is intentionally not on Traefik and does not replace the live
-    # go-envelope service above. The image tag is staged until the Rust engine
-    # release pipeline publishes a signed image.
-    image: ghcr.io/markus-barta/janus/janus-engine:staged
+    # go-envelope service above. The Rust engine image is cosign-signed and
+    # pinned by digest for host-local dry smoke only.
+    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.0@sha256:99cfc52b9484fcd729bd02b2a6a685fd32d31d579e8c5ed903621fbcba1ce8a9
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
     restart: "no"
