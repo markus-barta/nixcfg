@@ -388,6 +388,18 @@
     mode = "0644";
   };
 
+  # WEG Portal env is activated once secrets/csb1-weg-portal-env.age exists.
+  # This keeps csb1 evaluation green while the secret is intentionally absent.
+  age.secrets.csb1-weg-portal-env =
+    lib.mkIf (builtins.pathExists ../../secrets/csb1-weg-portal-env.age)
+      {
+        file = ../../secrets/csb1-weg-portal-env.age;
+        path = "/run/agenix/csb1-weg-portal-env";
+        owner = "root";
+        group = "root";
+        mode = "0644";
+      };
+
   # FleetCom Bosun agent (csb1 stack) — env. Folded in from the manually-placed
   # /opt/fleetcom-agent/.env on 2026-05-29 (was the last out-of-agenix secret).
   age.secrets.csb1-fleetcom-agent-env = {
