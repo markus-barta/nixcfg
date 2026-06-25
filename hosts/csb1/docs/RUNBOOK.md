@@ -155,6 +155,24 @@ docker restart csb1-paperless-1
 cd ~/docker && docker-compose down && docker-compose up -d
 ```
 
+### Janus Staged Engine Smoke
+
+The `janus-engine-staged` compose profile stays disabled and non-Traefik. Its
+non-prod smoke uses the signed digest-pinned engine image, Docker-volume
+non-prod age material, and a permit-bound `janusd run`; no production secret or
+host SSH key is used.
+
+```bash
+cd ~/Code/nixcfg
+just janus-engine-smoke
+```
+
+Expected evidence:
+
+```text
+value_returned=false output=redacted permit_consumed=true
+```
+
 ### Upgrade PAIMOS (pm.barta.cm)
 
 Image source: `ghcr.io/markus-barta/paimos:latest` (published by the
