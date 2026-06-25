@@ -401,13 +401,15 @@ services:
   # Janus Rust engine — staged approved-use runtime
   # ============================================
   janus-engine-staged:
-    # Disabled by default. Enable only for host-local dry smoke:
+    # Disabled by default. Initialize and verify with:
+    #   just janus-engine-smoke
     #   docker compose --profile janus-engine-staged config --quiet
     #   docker compose --profile janus-engine-staged run --rm janus-engine-staged
     #
     # This is intentionally not on Traefik and does not replace the live
-    # go-envelope service above. The Rust engine image is cosign-signed and
-    # pinned by digest for host-local dry smoke only.
+    # go-envelope service above. It uses the same non-prod Docker volumes and
+    # manifests as the smoke harness; no production secret or host SSH key is
+    # mounted into the staged Rust engine.
     image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.0@sha256:99cfc52b9484fcd729bd02b2a6a685fd32d31d579e8c5ed903621fbcba1ce8a9
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
@@ -419,7 +421,7 @@ services:
       - JANUS_WARDEN_PERMIT_DIR=/run/janus/permits
       - JANUS_RUN_PERMIT_DIR=/run/janus/permits
       - JANUS_WARDEN_BACKEND=age
-      - JANUS_WARDEN_DESTINATION=csb1-janus-env-dry-run
+      - JANUS_WARDEN_DESTINATION=janus-engine-nonprod-smoke
       - JANUS_WARDEN_EXECUTOR=janus-run@csb1
       - JANUS_RUN_EXECUTOR=janus-run@csb1
       - JANUS_WARDEN_SCOPE=janus/csb1/staged
@@ -437,12 +439,11 @@ services:
       - JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-commands.toml
       - JANUS_MANAGED_PROFILE_MANIFEST=/etc/janus/managed-commands.toml
     volumes:
-      - ./janus/secretspec.toml:/etc/janus/secretspec.toml:ro
-      - ./janus/managed-commands.toml:/etc/janus/managed-commands.toml:ro
-      - janus_engine_age_store:/var/lib/janus/secrets
-      - janus_engine_permits:/run/janus/permits
-      - /etc/ssh/ssh_host_ed25519_key:/run/janus/age/identity:ro
-      - /etc/ssh/ssh_host_ed25519_key.pub:/run/janus/age/recipient.pub:ro
+      - ./janus/nonprod-smoke/secretspec.toml:/etc/janus/secretspec.toml:ro
+      - ./janus/nonprod-smoke/managed-commands.toml:/etc/janus/managed-commands.toml:ro
+      - janus_engine_smoke_secrets:/var/lib/janus/secrets
+      - janus_engine_smoke_permits:/run/janus/permits
+      - janus_engine_smoke_age:/run/janus/age:ro
     labels:
       - traefik.enable=false
 
@@ -505,8 +506,12 @@ volumes:
   paperless_consume: {}
   ppm_data: {}
   janus_data: {}
-  janus_engine_age_store: {}
-  janus_engine_permits: {}
+  janus_engine_smoke_age:
+    name: ${JANUS_SMOKE_AGE_VOLUME:-janus_engine_smoke_age}
+  janus_engine_smoke_secrets:
+    name: ${JANUS_SMOKE_STORE_VOLUME:-janus_engine_smoke_secrets}
+  janus_engine_smoke_permits:
+    name: ${JANUS_SMOKE_PERMIT_VOLUME:-janus_engine_smoke_permits}
   minio_data: {}
 
 networks:

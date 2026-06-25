@@ -8,9 +8,6 @@ SMOKE_ROOT=${JANUS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-en
 VOLUME_PREFIX=${JANUS_SMOKE_VOLUME_PREFIX:-janus_engine_smoke}
 SECRET_REF="sec_9143cb19a04cc2dc154e"
 PROFILE_ID="profile.JANUS_SMOKE"
-DESTINATION="janus-engine-nonprod-smoke"
-EXECUTOR="janus-run@csb1"
-SCOPE="janus/csb1/staged"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -25,6 +22,13 @@ require_command awk
 require_command docker
 require_command jq
 require_command sed
+
+compose() {
+  docker compose \
+    --project-directory "$COMPOSE_DIR" \
+    -f "${COMPOSE_DIR}/docker-compose.yml" \
+    "$@"
+}
 
 case "$VOLUME_PREFIX" in
 "" | *[!A-Za-z0-9_.-]*)
@@ -52,6 +56,9 @@ umask 077
 AGE_VOLUME="${VOLUME_PREFIX}_age"
 STORE_VOLUME="${VOLUME_PREFIX}_secrets"
 PERMIT_VOLUME="${VOLUME_PREFIX}_permits"
+export JANUS_SMOKE_AGE_VOLUME="$AGE_VOLUME"
+export JANUS_SMOKE_STORE_VOLUME="$STORE_VOLUME"
+export JANUS_SMOKE_PERMIT_VOLUME="$PERMIT_VOLUME"
 TMP_DIR=$(mktemp -d)
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -73,6 +80,7 @@ fi
 docker volume create "$AGE_VOLUME" >/dev/null
 docker volume create "$STORE_VOLUME" >/dev/null
 docker volume create "$PERMIT_VOLUME" >/dev/null
+compose --profile janus-engine-staged config --quiet --no-env-resolution
 
 cat >"${SMOKE_ROOT}/volumes.env" <<EOF
 JANUS_ENGINE_IMAGE=${IMAGE}
@@ -142,22 +150,9 @@ cat >"${TMP_DIR}/mcp.jsonl" <<EOF
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_use","arguments":{"secret_ref":"${SECRET_REF}","profile_id":"${PROFILE_ID}","purpose":"csb1 staged non-prod smoke"}}}
 EOF
 
-docker run -i --rm \
-  -e JANUS_WARDEN_BACKEND=age \
-  -e JANUS_WARDEN_PERMIT_DIR=/run/janus/permits \
-  -e JANUS_WARDEN_EXECUTOR="${EXECUTOR}" \
-  -e JANUS_WARDEN_DESTINATION="${DESTINATION}" \
-  -e JANUS_WARDEN_SCOPE="${SCOPE}" \
-  -e JANUS_WARDEN_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
-  -e JANUS_WARDEN_AGE_PROFILE=csb1 \
-  -e JANUS_WARDEN_AGE_STORE_DIR=/var/lib/janus/secrets \
-  -e JANUS_WARDEN_AGE_IDENTITY_FILE=/run/janus/age/identity \
-  -e JANUS_WARDEN_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub \
-  -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
-  -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
-  -v "${PERMIT_VOLUME}:/run/janus/permits" \
-  -v "${AGE_VOLUME}:/run/janus/age:ro" \
-  --entrypoint janus-warden "$IMAGE" <"${TMP_DIR}/mcp.jsonl" \
+compose --profile janus-engine-staged run -i --rm --no-deps \
+  --entrypoint janus-warden \
+  janus-engine-staged <"${TMP_DIR}/mcp.jsonl" \
   >"${TMP_DIR}/warden.out" 2>"${TMP_DIR}/warden.err"
 
 permit=$(
@@ -171,22 +166,8 @@ if [ -z "$permit" ]; then
   exit 1
 fi
 
-docker run --rm \
-  -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
-  -e JANUS_RUN_EXECUTOR="${EXECUTOR}" \
-  -e JANUS_RUN_SCOPE="${SCOPE}" \
-  -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
-  -e JANUS_AGE_PROFILE=csb1 \
-  -e JANUS_AGE_STORE_DIR=/var/lib/janus/secrets \
-  -e JANUS_AGE_IDENTITY_FILE=/run/janus/age/identity \
-  -e JANUS_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub \
-  -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-commands.toml \
-  -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
-  -v "${SCRIPT_DIR}/managed-commands.toml:/etc/janus/managed-commands.toml:ro" \
-  -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
-  -v "${PERMIT_VOLUME}:/run/janus/permits" \
-  -v "${AGE_VOLUME}:/run/janus/age:ro" \
-  "$IMAGE" run --profile "${PROFILE_ID}" --permit "$permit" -- \
+compose --profile janus-engine-staged run --rm --no-deps \
+  janus-engine-staged run --profile "${PROFILE_ID}" --permit "$permit" -- \
   -c "printf 'smoke:%s' \"\$JANUS_SECRET_SMOKE\"" \
   >"${TMP_DIR}/run.out" 2>"${TMP_DIR}/run.err"
 

@@ -5,7 +5,8 @@ Host-local smoke for the disabled `janus-engine-staged` profile.
 This path uses only non-prod generated material. It creates a Docker-volume age
 identity and encrypted `JANUS_SMOKE` value, asks `janus-warden` for a
 `UsePermit`, then consumes that permit with `janusd run`. The Warden and runner
-containers use the engine image's default non-root `janus` user. The expected
+containers are launched through the disabled `janus-engine-staged` compose
+profile and use the engine image's default non-root `janus` user. The expected
 command output is redacted as `smoke:[REDACTED]`.
 
 Run on csb1 from `hosts/csb1/docker`:
