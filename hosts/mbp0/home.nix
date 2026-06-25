@@ -213,6 +213,10 @@ in
   # NIX-103: warn if macOS DirectoryService login shell doesn't match HM's fish.
   home.activation.checkLoginShell = macosCommon.loginShellCheckActivation "${config.home.homeDirectory}/.nix-profile/bin/fish";
 
+  # Compose v2 is packaged as `docker-compose`, while Docker CLI discovers
+  # subcommands through ~/.docker/cli-plugins/docker-compose.
+  home.file.".docker/cli-plugins/docker-compose".source = "${pkgs.docker-compose}/bin/docker-compose";
+
   # ============================================================================
   # Brewfile — declarative cask manifest (NIX-107 Path A; apply with `just bundle`)
   # M5 extras inventoried 2026-05-10; trim/add as your toolkit evolves.
@@ -298,6 +302,10 @@ in
     inputs.inspr-modules.packages.aarch64-darwin.inspr
 
     # Per-host extras (NOT in commonPackages)
+    pkgs.docker-client # Docker CLI only; engine is provided by Colima on macOS
+    pkgs.docker-compose # Compose v2 standalone binary; linked above as Docker CLI plugin
+    pkgs.colima # Lightweight Docker engine VM for macOS, no Docker Desktop
+    pkgs.lima # Colima's VM substrate; useful for limactl diagnostics
     # (paimos-cli + speedtest-go promoted to commonPackages 2026-05-12 —
     # they're now reached via macosCommon.commonPackages above.)
   ];
