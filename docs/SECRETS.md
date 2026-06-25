@@ -135,7 +135,7 @@ and placed at known paths with strict permissions.
 Architecture details (category × scope, future Paimos / FleetCom integration):
 see `~/Code/inspr/playbook.md → "Architecture — secrets / agent-exception design"`.
 
-**First user:** `mba-mbp-m5-work` (the M5 work portable, also the first
+**First user:** `mbp0` (the M5 portable, also the first
 aarch64-darwin host in the fleet). Adds GitHub PAT (`GH_TOKEN.env`) consumed
 by `gh` CLI auto-pickup. `git push` to github.com works via the declarative
 `!gh auth git-credential` helper in `home.nix`.
@@ -155,7 +155,7 @@ sudo ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" \
 Then add the resulting `.pub` to `secrets/secrets.nix` under HOST KEYS as that
 host's entry. sshd is NOT reconfigured to use this key — it exists purely as
 agenix's identity anchor. See the "MACOS HOSTS" section in `secrets/secrets.nix`
-for the canonical pattern (`mba-mbp-m5-work` was first; subsequent macOS hosts
+for the canonical pattern (`mbp0` was first; subsequent macOS hosts
 follow the same shape).
 
 ---

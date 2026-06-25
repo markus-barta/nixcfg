@@ -72,7 +72,7 @@ If the host needs to be a recipient of `.age` secrets:
    ```bash
    sudo cat /etc/ssh/ssh_host_ed25519_key.pub
    ```
-2. Add it to `secrets/secrets.nix` under the `MACOS HOSTS` section as a new var (see the `mba-mbp-m5-work` entry as a template).
+2. Add it to `secrets/secrets.nix` under the `MACOS HOSTS` section as a new var (see the `mbp0` entry as a template).
 3. Add the host to all relevant secret recipient lists (e.g. `agents/host/<hostname>/<NAME>.age` — see imac0/imacw entries for the user-key-only pattern, or m5 for the host-key-as-recipient pattern).
 4. `just rekey` if existing shared secrets need to admit this new host.
 
@@ -160,7 +160,7 @@ Use the `imac0` or `mba-imac-work` `home.nix` as a starting template — both ar
 | User     | Hosts using it                                           |
 | -------- | -------------------------------------------------------- |
 | `markus` | `imac0`, `mba-imac-work` _(work iMac, both users exist)_ |
-| `mba`    | `mba-mbp-m5-work` and other MacBooks                     |
+| `mba`    | `mbp0` and other MacBooks                                |
 
 The hostname pattern (`mba-{device}-work` for work machines) does **not** dictate the username — the work iMac uses `markus` despite the hostname. Always confirm with `whoami` on the target host before populating `home.username`.
 

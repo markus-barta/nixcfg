@@ -54,7 +54,7 @@ let
   # To add a new host: generate a keypair, paste pubkey here, encrypt
   # privkey to secrets/agents/host/<hostname>/<keyName>.age.
   hostKeys = {
-    "mba-mbp-m5-work" = {
+    "mbp0" = {
       personal = {
         keyName = "m5-personal-userkey";
         pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM4sg88Rp+eGESk20Wo+1KNbKkluZFsGiZ+u6vnd9Whb m5-personal-userkey 2026-05-12";

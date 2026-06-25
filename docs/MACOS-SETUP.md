@@ -56,11 +56,12 @@ hostname
 
 ### 1.2 Naming Conventions
 
-| Pattern             | Example                            | Use Case          |
-| ------------------- | ---------------------------------- | ----------------- |
-| `mba-{device}-work` | `mba-mbp-m5-work`, `mba-imac-work` | Work machines     |
-| `{device}{n}`       | `imac0`, `mbp1`                    | Personal machines |
-| `{family}-{device}` | `mom-imac`, `dad-mbp`              | Family machines   |
+| Pattern             | Example               | Use Case          |
+| ------------------- | --------------------- | ----------------- |
+| `mba-{device}-work` | `mba-imac-work`       | Work machines     |
+| `mbp{n}`            | `mbp0`                | Personal MacBooks |
+| `{device}{n}`       | `imac0`, `mbp1`       | Personal machines |
+| `{family}-{device}` | `mom-imac`, `dad-mbp` | Family machines   |
 
 ### 1.3 Enable SSH (Optional but Recommended)
 
@@ -202,13 +203,13 @@ cd nixcfg
 
 ```bash
 # Create host directory structure
-HOSTNAME="your-hostname"  # e.g., mba-mbp-m5-work
+HOSTNAME="your-hostname"  # e.g., mbp0
 mkdir -p hosts/$HOSTNAME/{docs,scripts/host-user,secrets,tests}
 ```
 
 ### 3.3 Copy Template Files
 
-Use imac0 or mba-mbp-m5-work as a template:
+Use imac0 or the macOS host template as a starting point:
 
 ```bash
 # Copy home.nix template
@@ -298,7 +299,7 @@ Edit `modules/uzumaki/theme/theme-palettes.nix`:
 
   # Existing hosts...
   "imac0" = "warmGray";
-  "mba-mbp-m5-work" = "lightGray";
+  "mbp0" = "lightGray";
 }
 ```
 
