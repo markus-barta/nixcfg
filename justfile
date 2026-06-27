@@ -529,6 +529,18 @@ secrets-audit *args='':
 edit-secret secret-file:
     agenix -e {{ secret-file }}
 
+# Edit AdGuard static DHCP leases with validation (naming, IP range, dup checks)
+# Usage: just leases-edit [hsb0|hsb8]   (default hsb0); re-encrypts only if valid
+[group('agenix')]
+leases-edit host='hsb0':
+    ./scripts/leases-edit.sh {{ host }}
+
+# Validate the encrypted static-lease file without editing (pre-switch / CI check)
+# Usage: just leases-check [hsb0|hsb8]
+[group('agenix')]
+leases-check host='hsb0':
+    ./scripts/leases-edit.sh --check {{ host }}
+
 # Encrypt runbook secrets (per-host sysop reference docs)
 
 # Usage: just encrypt-runbook-secrets [host]
