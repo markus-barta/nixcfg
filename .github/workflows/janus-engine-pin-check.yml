@@ -36,6 +36,4 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - name: Run staged engine pin drift check
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: scripts/janus-engine-pin-check.sh
