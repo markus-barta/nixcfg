@@ -167,6 +167,7 @@ The current staged Rust engine target is `rust-engine-v0.1.2` at digest
 
 ```bash
 cd ~/Code/nixcfg
+just janus-engine-pin-check
 just janus-engine-smoke
 ```
 

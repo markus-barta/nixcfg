@@ -98,6 +98,17 @@ By default it uses Docker volumes named `janus_engine_smoke_age`,
 `janus_engine_smoke_secrets`, and `janus_engine_smoke_permits`; set
 `JANUS_SMOKE_VOLUME_PREFIX` to isolate another smoke state.
 
+To check whether the staged compose pin has drifted behind the newest verified
+`rust-engine-v*` release, run:
+
+```bash
+just janus-engine-pin-check
+```
+
+This is read-only: it parses the compose image pin, resolves the latest
+published Janus engine release and GHCR digest, and reports drift without
+starting or recreating containers.
+
 ## Safety Boundaries
 
 The smoke harness must never run project-wide Docker Compose lifecycle commands

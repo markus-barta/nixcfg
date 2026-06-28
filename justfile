@@ -125,6 +125,10 @@ janus-engine-status:
     docker inspect --format 'status={{ "{{" }}.State.Status{{ "}}" }} health={{ "{{" }}if .State.Health{{ "}}" }}{{ "{{" }}.State.Health.Status{{ "}}" }}{{ "{{" }}else{{ "}}" }}none{{ "{{" }}end{{ "}}" }} image={{ "{{" }}.Config.Image{{ "}}" }}' janus-engine-staged
 
 [group('ops')]
+janus-engine-pin-check *args='':
+    ./scripts/janus-engine-pin-check.sh {{ args }}
+
+[group('ops')]
 janus-engine-mcp-smoke:
     just janus-engine-up
     hosts/csb1/docker/janus/nonprod-smoke/mcp-exec-smoke.sh
