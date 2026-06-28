@@ -38,6 +38,17 @@ health probe against the same mounted non-prod config. Stop it with:
 just janus-engine-down
 ```
 
+To prove a real local MCP client path into the running staged container, use:
+
+```bash
+just janus-engine-mcp-smoke
+```
+
+That recipe talks to `janus-engine-staged` through `docker exec -i` and MCP
+stdio. It checks `initialize`, `tools/list`, `health`, and `list_secrets`;
+asserts `value_returned=false`; and refuses any transcript containing the
+non-prod fixture value prefix.
+
 The script reads the signed, digest-pinned engine image from
 `docker-compose.yml`; the current staged promotion target is
 `rust-engine-v0.1.1@sha256:0117ac452992d510e8ad0cdd3b895f77492a77f7b0e860e155f54a680867125c`.
