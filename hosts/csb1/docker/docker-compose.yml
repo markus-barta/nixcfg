@@ -518,6 +518,20 @@ services:
     networks:
       - default
 
+  # Pharos dashboard (PHAROS-12) — INSPR-native FleetCom successor.
+  # Tailnet-only: bound to csb1's tailscale IP (100.64.0.4), NO public Traefik
+  # route until Zitadel auth (PHAROS-4). Runs side-by-side with FleetCom;
+  # the fleet.barta.cm cutover + FleetCom retirement is PHAROS-13.
+  pharosd:
+    image: ghcr.io/markus-barta/pharos/pharosd:latest
+    container_name: pharosd
+    restart: unless-stopped
+    environment:
+      - PHAROS_ADDR=0.0.0.0:8080
+      - RUST_LOG=info
+    ports:
+      - "100.64.0.4:8088:8080"
+
 volumes:
   docmost_db_data: {}
   docmost_redis_data: {}
