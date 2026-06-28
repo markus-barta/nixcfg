@@ -507,6 +507,23 @@ in
   # Add gb user to docker group for container management
   users.users.gb.extraGroups = [ "docker" ];
 
+  # ============================================================================
+  # CONSOLE RECOVERY PASSWORD (NIX-198 — parity with hsb0/csb0/csb1/hsb9)
+  # ============================================================================
+  # Declarative console password for mba so a network/SSH/Tailscale outage isn't
+  # a dead end at the physical console (or attached monitor/KVM login). SSH key
+  # auth is unaffected and PasswordAuthentication stays off — this only unlocks
+  # the local console. Same SHA-512 hash as the rest of the fleet → one recovery
+  # password unlocks all of them. Plaintext lives in 1Password vault
+  # "Familie Barta" (csb-shared "nix shell" entry).
+  #
+  # NOTE: mutableUsers=true (fleet default) means an existing *usable* password
+  # is preserved across activation. hsb8's mba already had an imperative password
+  # set 2025-11-22, so the switch won't overwrite the live value — this entry
+  # makes it reproducible (e.g. on reinstall). To realign the live password to
+  # the shared one, run `sudo passwd mba` once (skip if it's already the shared).
+  users.users.mba.hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
+
   # Docker containers will run under gb user account
   # Configuration expected at: /home/gb/docker/docker-compose.yml
   # Key services planned:

@@ -191,6 +191,18 @@ in
   security.sudo-rs.wheelNeedsPassword = false;
 
   # ==========================================================================
+  # CONSOLE RECOVERY PASSWORD (NIX-198 — parity with hsb8/hsb0/csb0/csb1)
+  # ==========================================================================
+  # hsb9 lives offsite at the parents-in-law behind a Fritz!Box, reachable only
+  # via Tailscale. Without a console password, a network/Tailscale outage leaves
+  # NO way in (the very gap this closes). Declarative password for mba lets
+  # Markus log in at the physical console / monitor if the tailnet is down. SSH
+  # key auth is unaffected and PasswordAuthentication stays off. Same SHA-512
+  # hash as the rest of the fleet → plaintext in 1Password "Familie Barta".
+  # mba is currently locked here, so `just switch` sets this on activation.
+  users.users.mba.hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
+
+  # ==========================================================================
   # TAILSCALE — joins the fleet's Headscale at hs.barta.cm
   # ==========================================================================
   # `tailscale up` after first rebuild:
