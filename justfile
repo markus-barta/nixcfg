@@ -140,6 +140,14 @@ janus-engine-run-negative-smoke:
     hosts/csb1/docker/janus/nonprod-smoke/run-negative-smoke.sh
 
 [group('ops')]
+janus-engine-assurance:
+    just janus-engine-up
+    hosts/csb1/docker/janus/nonprod-smoke/mcp-exec-smoke.sh
+    hosts/csb1/docker/janus/nonprod-smoke/mcp-negative-smoke.sh
+    hosts/csb1/docker/janus/nonprod-smoke/run-negative-smoke.sh
+    just janus-engine-status
+
+[group('ops')]
 janus-engine-down:
     cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged stop janus-engine-staged
     cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged rm -f janus-engine-staged
