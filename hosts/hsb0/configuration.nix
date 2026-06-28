@@ -794,17 +794,14 @@ in
   # ============================================================================
 
   users.users.mba = {
-    # 🚨 EMERGENCY RECOVERY PASSWORD - for console/Tailscale access if SSH keys fail
-    # Same hash as csb0/csb1/msbp → same csb-shared 1P entry password unlocks
-    # all four hosts. Plaintext stored in 1Password vault Familie Barta:
-    # entry "csb0 • cs0 • csb1 • cs1 • nix shell" (verified 2026-05-03).
-    #
-    # INSPR-79: previously hsb0 was the only RSA-only NixOS host with NO
-    # password fallback (single-point-of-failure for SSH access). Adding
-    # this provides a recovery path independent of the shared id_rsa key
-    # — important as we transition to per-host ed25519 (INSPR-78) and
-    # eventually retire the shared RSA (INSPR-76).
-    hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
+    # 🚨 EMERGENCY RECOVERY PASSWORD — console/Tailscale access if SSH keys fail.
+    # Per-host (NIX-198 standardisation, 2026-06-28): this hash mirrors the LIVE
+    # /etc/shadow value, so config == reality and a reinstall reproduces it.
+    # Plaintext in 1Password vault "Familie Barta", entry "hsb0 - system login".
+    # (Previously the shared $6$ csb hash, which had drifted: a per-host passwd-set
+    # password superseded it on the box. INSPR-79 first added a password fallback
+    # here; relates to INSPR-78 per-host ed25519 / INSPR-76 shared-RSA retirement.)
+    hashedPassword = "$y$j9T$lKd1UYhEZwHblUnAS6i7t/$U.xxpSqoo9AHR/ejnqsbKnH.KweMQdOeyYmutRCGjm/";
     # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
     # render is now declarative via inspr.ssh.authorized.users.mba below.
   };
