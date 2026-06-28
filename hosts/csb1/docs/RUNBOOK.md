@@ -188,6 +188,16 @@ on Traefik, and still uses only the non-prod smoke volumes. It is an MCP stdio
 process with a Docker healthcheck, not the public `vault.barta.cm` route. Stop
 it with `just janus-engine-down`.
 
+To prove a local MCP client path into the running staged container:
+
+```bash
+just janus-engine-mcp-smoke
+```
+
+This uses `docker exec -i janus-engine-staged janus-warden` over MCP stdio and
+checks `initialize`, `tools/list`, `health`, and `list_secrets` without exposing
+values or adding a network listener.
+
 ### Upgrade PAIMOS (pm.barta.cm)
 
 Image source: `ghcr.io/markus-barta/paimos:latest` (published by the
