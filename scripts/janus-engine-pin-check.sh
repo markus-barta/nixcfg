@@ -33,12 +33,28 @@ case "${1:-}" in
   ;;
 esac
 
-for cmd in gh docker awk grep; do
+for cmd in awk curl docker python3; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "${RED}error:${RESET} required command not found: $cmd" >&2
     exit 2
   fi
 done
+
+github_api() {
+  local path="$1"
+  local url="https://api.github.com/repos/${JANUS_REPO}${path}"
+  local args=(
+    -fsSL
+    -H "Accept: application/vnd.github+json"
+    -H "X-GitHub-Api-Version: 2022-11-28"
+  )
+
+  if [[ -n "${JANUS_ENGINE_GITHUB_TOKEN:-}" ]]; then
+    args+=(-H "Authorization: Bearer ${JANUS_ENGINE_GITHUB_TOKEN}")
+  fi
+
+  curl "${args[@]}" "$url"
+}
 
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "$REPO" || ! -f "$REPO/hosts/csb1/docker/docker-compose.yml" ]]; then
@@ -81,13 +97,41 @@ pinned_image_repo="${BASH_REMATCH[1]}"
 pinned_tag="${BASH_REMATCH[3]}"
 pinned_digest="${BASH_REMATCH[4]}"
 
-latest_tag="$(
-  gh release list \
-    --repo "$JANUS_REPO" \
-    --limit 50 \
-    --json tagName,isDraft,isPrerelease,publishedAt \
-    --jq '[.[] | select((.isDraft | not) and (.isPrerelease | not) and (.tagName | startswith("rust-engine-v"))) ] | sort_by(.publishedAt) | last | .tagName'
-)"
+release_json_file="$(mktemp)"
+trap 'rm -f "$release_json_file"' EXIT
+
+if ! github_api "/releases?per_page=50" >"$release_json_file"; then
+  echo "${RED}error:${RESET} could not read releases from $JANUS_REPO" >&2
+  exit 2
+fi
+
+if ! latest_tag="$(
+  python3 - "$release_json_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    releases = json.load(handle)
+
+if not isinstance(releases, list):
+    sys.exit(1)
+
+candidates = [
+    release
+    for release in releases
+    if not release.get("draft")
+    and not release.get("prerelease")
+    and release.get("tag_name", "").startswith("rust-engine-v")
+]
+candidates.sort(key=lambda release: release.get("published_at") or "")
+
+if candidates:
+    print(candidates[-1]["tag_name"])
+PY
+)"; then
+  echo "${RED}error:${RESET} could not parse releases from $JANUS_REPO" >&2
+  exit 2
+fi
 
 if [[ -z "$latest_tag" || "$latest_tag" == "null" ]]; then
   echo "${RED}error:${RESET} no published rust-engine-v* release found in $JANUS_REPO" >&2
@@ -105,8 +149,22 @@ if [[ -z "$latest_digest" || ! "$latest_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; the
 fi
 
 digest_hex="${latest_digest#sha256:}"
-if ! gh release view "$latest_tag" --repo "$JANUS_REPO" --json assets --jq '.assets[].name' |
-  grep -q "$digest_hex"; then
+if ! python3 - "$release_json_file" "$latest_tag" "$digest_hex" <<'PY'; then
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    releases = json.load(handle)
+
+tag = sys.argv[2]
+digest_hex = sys.argv[3]
+release = next((item for item in releases if item.get("tag_name") == tag), None)
+if not release:
+    sys.exit(1)
+
+asset_names = [asset.get("name", "") for asset in release.get("assets", [])]
+sys.exit(0 if any(digest_hex in name for name in asset_names) else 1)
+PY
   echo "${RED}error:${RESET} latest release $latest_tag has no SBOM asset naming digest $latest_digest" >&2
   exit 2
 fi
