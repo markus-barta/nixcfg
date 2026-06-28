@@ -174,9 +174,12 @@
     # Fix: P6400 - Remove evaluation warning by forcing null on initialHashedPassword
     initialHashedPassword = lib.mkForce null;
 
-    # 🚨 EMERGENCY RECOVERY PASSWORD - for VNC console access if SSH fails
-    # Enables login via Netcup VNC console during lockout scenarios
-    # Password stored in 1Password, rotate after migration complete
+    # 🚨 EMERGENCY RECOVERY PASSWORD — Netcup VNC console login if SSH fails.
+    # Per-host (NIX-198, verified 2026-06-28): committed hash == live /etc/shadow.
+    # Plaintext in 1Password vault "Familie Barta", entry "csb0 - system login".
+    # (This $6$ was the old csb-shared hash; csb0 is now its sole holder — the
+    # other hosts moved to their own per-host hashes. Same plaintext as the
+    # legacy "csb0 • cs0 • csb1 • cs1 • nix shell" entry.)
     hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
 
     # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
@@ -212,16 +215,18 @@
     };
   };
 
-  home-manager.users.mba = { config, ... }: {
-    imports = [
-      inputs.inspr-modules.homeManagerModules.ssh-authorized
-      ../../modules/shared/ssh-authorized.nix
-    ];
-    inspr.ssh.authorized = {
-      enable = true;
-      trust  = config._inspr.trustPresets.personalHosts;
+  home-manager.users.mba =
+    { config, ... }:
+    {
+      imports = [
+        inputs.inspr-modules.homeManagerModules.ssh-authorized
+        ../../modules/shared/ssh-authorized.nix
+      ];
+      inspr.ssh.authorized = {
+        enable = true;
+        trust = config._inspr.trustPresets.personalHosts;
+      };
     };
-  };
 
   # ============================================================================
   # SSH CONFIGURATION
