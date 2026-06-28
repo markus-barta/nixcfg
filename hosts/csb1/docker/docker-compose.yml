@@ -532,6 +532,29 @@ services:
     ports:
       - "100.64.0.4:8088:8080"
 
+  # Pharos beacon (PHAROS-6) — reports csb1's status + nix freshness to pharosd
+  # every 60s. Host network → reaches pharosd at the tailnet IP. Runs as mba
+  # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
+  # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
+  pharos-beacon:
+    image: ghcr.io/markus-barta/pharos/pharosd:latest
+    container_name: pharos-beacon
+    restart: unless-stopped
+    network_mode: host
+    user: "1000:1000"
+    entrypoint: ["/usr/local/bin/pharos-beacon"]
+    environment:
+      - PHAROS_URL=http://100.64.0.4:8088
+      - PHAROS_INTERVAL=60
+      - PHAROS_HOSTNAME=csb1
+      - NIXCFG_DIR=/nixcfg
+      - GIT_CONFIG_COUNT=1
+      - GIT_CONFIG_KEY_0=safe.directory
+      - GIT_CONFIG_VALUE_0=/nixcfg
+    volumes:
+      - /home/mba/Code/nixcfg:/nixcfg:ro
+      - /etc/NIXOS:/etc/NIXOS:ro
+
 volumes:
   docmost_db_data: {}
   docmost_redis_data: {}
