@@ -31,3 +31,24 @@ services:
       # --scope weekly under /home/gb/docker) picks bosun up for both the
       # Saturday auto-cycle AND the on-demand HTTP API trigger.
       - com.centurylinklabs.watchtower.scope=weekly
+
+  # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
+  # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
+  pharos-beacon:
+    image: ghcr.io/markus-barta/pharos/pharosd:latest
+    container_name: pharos-beacon
+    restart: unless-stopped
+    network_mode: host
+    user: "1000:1000"
+    entrypoint: ["/usr/local/bin/pharos-beacon"]
+    environment:
+      - PHAROS_URL=http://100.64.0.4:8088
+      - PHAROS_INTERVAL=60
+      - PHAROS_HOSTNAME=hsb8
+      - NIXCFG_DIR=/nixcfg
+      - GIT_CONFIG_COUNT=1
+      - GIT_CONFIG_KEY_0=safe.directory
+      - GIT_CONFIG_VALUE_0=/nixcfg
+    volumes:
+      - /home/mba/Code/nixcfg:/nixcfg:ro
+      - /etc/NIXOS:/etc/NIXOS:ro
