@@ -62,6 +62,18 @@ advertised, raw resolve/reveal tools are unavailable, raw `JANUS_SMOKE` secret
 names are denied, caller-supplied destination/executor/TTL fields are denied,
 and no negative response contains a fixture value or permit id.
 
+To prove `janusd run` rejects bad approved-use permits through the real
+file-backed handoff path, use:
+
+```bash
+just janus-engine-run-negative-smoke
+```
+
+That recipe issues real non-prod permits through Warden, then verifies malformed
+and unknown permit ids, consumed permit reuse, wrong executor binding, wrong
+destination binding, expired permit metadata, and unreviewed command args all
+fail before any secret-bearing command output is produced.
+
 The script reads the signed, digest-pinned engine image from
 `docker-compose.yml`; the current staged promotion target is
 `rust-engine-v0.1.1@sha256:0117ac452992d510e8ad0cdd3b895f77492a77f7b0e860e155f54a680867125c`.
