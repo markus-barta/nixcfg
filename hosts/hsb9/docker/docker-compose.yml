@@ -40,6 +40,30 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
 
+  # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
+  # pharosd (csb1) every 60s.
+  pharos-beacon:
+    image: ghcr.io/markus-barta/pharos/pharosd:latest
+    container_name: pharos-beacon
+    restart: unless-stopped
+    network_mode: host
+    user: "1000:1000"
+    entrypoint: ["/usr/local/bin/pharos-beacon"]
+    environment:
+      - PHAROS_URL=http://100.64.0.4:8088
+      - PHAROS_INTERVAL=60
+      - PHAROS_HOSTNAME=hsb9
+      - NIXCFG_DIR=/nixcfg
+      - GIT_CONFIG_COUNT=1
+      - GIT_CONFIG_KEY_0=safe.directory
+      - GIT_CONFIG_VALUE_0=/nixcfg
+    volumes:
+      - /home/mba/Code/nixcfg:/nixcfg:ro
+      - /etc/NIXOS:/etc/NIXOS:ro
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
   # ── Zigbee2MQTT — DISABLED until SONOFF dongle migrated (NIX-140) ──────────
   # When the dongle is on hsb9:
   #   1. `ls -l /dev/serial/by-id/` to find its stable path
