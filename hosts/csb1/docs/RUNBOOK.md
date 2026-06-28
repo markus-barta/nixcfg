@@ -177,6 +177,9 @@ Expected evidence:
 value_returned=false output=redacted permit_consumed=true
 ```
 
+`just janus-engine-pin-check` is read-only and also runs in GitHub Actions on a
+daily schedule plus relevant pin/workflow changes.
+
 To keep a staged Rust engine instance running internally after the smoke:
 
 ```bash
