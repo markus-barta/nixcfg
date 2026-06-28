@@ -259,10 +259,12 @@
     # Fix: Remove evaluation warning by forcing null on initialHashedPassword
     initialHashedPassword = lib.mkForce null;
 
-    # 🚨 EMERGENCY RECOVERY PASSWORD - for VNC console access if SSH fails
-    # Enables login via Netcup VNC console during lockout scenarios
-    # Password stored in 1Password, rotate after migration complete
-    hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
+    # 🚨 EMERGENCY RECOVERY PASSWORD — Netcup VNC console login if SSH fails.
+    # Per-host (NIX-198, 2026-06-28): mirrors the LIVE /etc/shadow value so
+    # config == reality and a reinstall reproduces it. Plaintext in 1Password
+    # vault "Familie Barta", entry "csb1 - system login". (Supersedes the
+    # INSPR-87 "converge to the shared $6$" plan — see note below.)
+    hashedPassword = "$y$j9T$4hK404plGnQ2Z.ucDYrxq/$9G6vTJFSDUDbC6DGDPAHzQcoIe0kyICRNTMNzwvzBr/";
 
     # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
     # render is now declarative via inspr.ssh.authorized.users.mba below.
@@ -292,13 +294,13 @@
   # The two command="..." CI keys are CRITICAL — the prefix is what enforces
   # the principle-of-least-authority. They are preserved verbatim here.
   #
-  # NOTE on csb1 password drift (INSPR-87): csb1's live system password
-  # (yescrypt $y$j9T$4hK404plGnQ2Z.ucDYrxq/...) differs from the SHA-512
-  # hash declared above (which would activate post-rebuild). After
-  # `nixos-rebuild switch` the live password switches to the shared
-  # csb-shared 1P entry (same hash as csb0/msbp). This is the convergence
-  # path agreed in INSPR-87 (option α). Verified: SSH key-auth (RSA + the
-  # ed25519s admitted here) keeps working throughout — no lockout risk.
+  # NOTE (NIX-198, 2026-06-28): csb1 is now PER-HOST — the hash declared above
+  # mirrors the live /etc/shadow value (config == reality, 1Password entry
+  # "csb1 - system login"). This SUPERSEDES the INSPR-87 "option α" plan to
+  # converge csb1 onto the shared $6$, which never took effect: under
+  # mutableUsers=true a passwd-set live password is preserved across
+  # `nixos-rebuild switch`, so the shared hash never activated. SSH key-auth
+  # (RSA + the ed25519s admitted here) is unaffected — no lockout risk.
   inspr.ssh.authorized = {
     enable = true;
     users.mba = {
