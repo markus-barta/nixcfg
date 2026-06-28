@@ -98,12 +98,22 @@ umask 077
 AGE_VOLUME="${VOLUME_PREFIX}_age"
 STORE_VOLUME="${VOLUME_PREFIX}_secrets"
 PERMIT_VOLUME="${VOLUME_PREFIX}_permits"
+SMOKE_NETWORK="${COMPOSE_PROJECT}_default"
 export JANUS_SMOKE_AGE_VOLUME="$AGE_VOLUME"
 export JANUS_SMOKE_STORE_VOLUME="$STORE_VOLUME"
 export JANUS_SMOKE_PERMIT_VOLUME="$PERMIT_VOLUME"
 TMP_DIR=$(mktemp -d)
 cleanup() {
   rm -rf "$TMP_DIR"
+  if docker network inspect "$SMOKE_NETWORK" >/dev/null 2>&1; then
+    network_containers=$(
+      docker network inspect "$SMOKE_NETWORK" \
+        --format '{{ len .Containers }}' 2>/dev/null || printf '1'
+    )
+    if [ "$network_containers" = "0" ]; then
+      docker network rm "$SMOKE_NETWORK" >/dev/null 2>&1 || true
+    fi
+  fi
 }
 trap cleanup EXIT
 
