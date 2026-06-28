@@ -33,7 +33,7 @@ case "${1:-}" in
   ;;
 esac
 
-for cmd in awk curl docker python3; do
+for cmd in awk curl python3; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "${RED}error:${RESET} required command not found: $cmd" >&2
     exit 2
@@ -54,6 +54,55 @@ github_api() {
   fi
 
   curl "${args[@]}" "$url"
+}
+
+ghcr_manifest_digest() {
+  local image_repo="$1"
+  local tag="$2"
+  local image_path token status digest
+  local headers_file="$tmpdir/manifest.headers"
+  local body_file="$tmpdir/manifest.body"
+
+  if [[ ! "$image_repo" =~ ^ghcr\.io/(.+)$ ]]; then
+    echo "${RED}error:${RESET} only ghcr.io image repos are supported: $image_repo" >&2
+    return 2
+  fi
+  image_path="${BASH_REMATCH[1]}"
+
+  if ! token="$(
+    curl -fsSL "https://ghcr.io/token?service=ghcr.io&scope=repository:${image_path}:pull" |
+      python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])'
+  )"; then
+    echo "${RED}error:${RESET} could not get GHCR pull token for $image_repo" >&2
+    return 2
+  fi
+
+  if ! status="$(
+    curl -sS -L \
+      -o "$body_file" \
+      -D "$headers_file" \
+      -w "%{http_code}" \
+      -H "Authorization: Bearer ${token}" \
+      -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+      "https://ghcr.io/v2/${image_path}/manifests/${tag}"
+  )"; then
+    echo "${RED}error:${RESET} could not read GHCR manifest for ${image_repo}:${tag}" >&2
+    return 2
+  fi
+
+  if [[ "$status" != "200" ]]; then
+    echo "${RED}error:${RESET} GHCR manifest request for ${image_repo}:${tag} returned HTTP $status" >&2
+    sed -n '1,12p' "$body_file" >&2
+    return 2
+  fi
+
+  digest="$(awk 'tolower($1) == "docker-content-digest:" { gsub("\r", "", $2); print $2; exit }' "$headers_file")"
+  if [[ -z "$digest" || ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "${RED}error:${RESET} GHCR manifest for ${image_repo}:${tag} did not return a valid digest" >&2
+    return 2
+  fi
+
+  echo "$digest"
 }
 
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -97,8 +146,9 @@ pinned_image_repo="${BASH_REMATCH[1]}"
 pinned_tag="${BASH_REMATCH[3]}"
 pinned_digest="${BASH_REMATCH[4]}"
 
-release_json_file="$(mktemp)"
-trap 'rm -f "$release_json_file"' EXIT
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+release_json_file="$tmpdir/releases.json"
 
 if ! github_api "/releases?per_page=50" >"$release_json_file"; then
   echo "${RED}error:${RESET} could not read releases from $JANUS_REPO" >&2
@@ -138,10 +188,7 @@ if [[ -z "$latest_tag" || "$latest_tag" == "null" ]]; then
   exit 2
 fi
 
-latest_digest="$(
-  docker buildx imagetools inspect "${IMAGE_REPO}:${latest_tag}" |
-    awk '/^Digest:/ { print $2; exit }'
-)"
+latest_digest="$(ghcr_manifest_digest "$IMAGE_REPO" "$latest_tag")"
 
 if [[ -z "$latest_digest" || ! "$latest_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
   echo "${RED}error:${RESET} could not resolve GHCR digest for ${IMAGE_REPO}:${latest_tag}" >&2
