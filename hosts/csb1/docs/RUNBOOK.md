@@ -209,6 +209,17 @@ tools are not advertised, raw `JANUS_SMOKE` names are denied, caller-supplied
 destination/executor/TTL overrides are denied, and no negative response exposes
 a value or permit id.
 
+To prove the approved-use execution boundary rejects bad permits:
+
+```bash
+just janus-engine-run-negative-smoke
+```
+
+This issues real non-prod permits through Warden, then uses `janusd run` to
+verify malformed and unknown permit ids, consumed permit reuse, wrong executor,
+wrong destination, expired permit metadata, and unreviewed command args all
+fail without secret-bearing command output.
+
 ### Upgrade PAIMOS (pm.barta.cm)
 
 Image source: `ghcr.io/markus-barta/paimos:latest` (published by the
