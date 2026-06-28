@@ -92,7 +92,7 @@ That recipe primes the non-prod smoke state once, keeps
 
 The script reads the signed, digest-pinned engine image from
 `docker-compose.yml`; the current staged promotion target is
-`rust-engine-v0.1.1@sha256:0117ac452992d510e8ad0cdd3b895f77492a77f7b0e860e155f54a680867125c`.
+`rust-engine-v0.1.2@sha256:c6e2924cd1a39eec92aabc3d690dd7bc9f6dfad2369ea967ba1fd1f6bbd9c204`.
 It does not use production secrets or the host SSH key.
 By default it uses Docker volumes named `janus_engine_smoke_age`,
 `janus_engine_smoke_secrets`, and `janus_engine_smoke_permits`; set
