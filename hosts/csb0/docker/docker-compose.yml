@@ -383,6 +383,34 @@ services:
       - /home/mba/Code/nixcfg:/nixcfg:ro
       - /etc/NIXOS:/etc/NIXOS:ro
 
+  # Tesla Fleet API public-key host (NIX-201 / runbook tesla-fleet-ha-migration).
+  # Serves ONLY the public key at Tesla's well-known path so Tesla can verify
+  # domain ownership for the Fleet API app (ev.barta.cm). DNS-only record
+  # (ev → csb0, grey cloud) + own LE cert + NO cloudflarewarp — Tesla rejects
+  # reverse-proxied / CDN origins. Mirrors the headscale direct-connection pattern.
+  tesla-fleet-key:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./tesla-fleet:/usr/share/nginx/html:ro
+    environment:
+      - TZ=Europe/Vienna
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.tesla-fleet.rule=Host(`ev.barta.cm`)
+      - traefik.http.routers.tesla-fleet.entrypoints=web-secure
+      - traefik.http.routers.tesla-fleet.tls=true
+      - traefik.http.routers.tesla-fleet.tls.certresolver=default
+      - traefik.http.services.tesla-fleet.loadbalancer.server.port=80
+      - traefik.docker.network=csb0_traefik
+      # HTTP→HTTPS redirect
+      - traefik.http.routers.tesla-fleet-http.rule=Host(`ev.barta.cm`)
+      - traefik.http.routers.tesla-fleet-http.entrypoints=web
+      - traefik.http.routers.tesla-fleet-http.middlewares=redirect-to-https@docker
+      # ⚠️ NO cloudflarewarp middleware — Tesla requires a direct origin (DNS-only record).
+
 volumes:
   mosquitto-data:
   mosquitto-log:
