@@ -463,6 +463,8 @@
     # Password can be changed with `passwd mba` - then update this hash
     # Fix: P6400 / P5012 - Force null on initialHashedPassword to avoid ambiguity
     initialHashedPassword = lib.mkForce null;
+    # Plaintext recovery password lives in 1Password — entry "hsb1" (renamed
+    # from "miniserver24"); verified against this hash 2026-06-28 (NIX-198).
     hashedPassword = "$y$j9T$bi9LmgTpnV.EleK4RduzQ/$eLkQ9o8n/Ix7YneRJBUNSdK6tCxAwwSYR.wL08wu1H/";
     # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
     # render is now declarative via inspr.ssh.authorized.users.mba below.
