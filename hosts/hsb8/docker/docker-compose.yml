@@ -52,3 +52,6 @@ services:
     volumes:
       - /home/mba/Code/nixcfg:/nixcfg:ro
       - /etc/NIXOS:/etc/NIXOS:ro
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=weekly

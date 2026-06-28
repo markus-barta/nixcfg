@@ -531,6 +531,8 @@ services:
       - RUST_LOG=info
     ports:
       - "100.64.0.4:8088:8080"
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
 
   # Pharos beacon (PHAROS-6) — reports csb1's status + nix freshness to pharosd
   # every 60s. Host network → reaches pharosd at the tailnet IP. Runs as mba
@@ -554,6 +556,8 @@ services:
     volumes:
       - /home/mba/Code/nixcfg:/nixcfg:ro
       - /etc/NIXOS:/etc/NIXOS:ro
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
 
 volumes:
   docmost_db_data: {}
