@@ -529,8 +529,11 @@ services:
     environment:
       - PHAROS_ADDR=0.0.0.0:8080
       - RUST_LOG=info
+      - PHAROS_DB=/data/pharos.json
     ports:
       - "100.64.0.4:8088:8080"
+    volumes:
+      - pharos_data:/data
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
@@ -560,6 +563,7 @@ services:
       - com.centurylinklabs.watchtower.enable=true
 
 volumes:
+  pharos_data: {}
   docmost_db_data: {}
   docmost_redis_data: {}
   docmost_data: {}
