@@ -74,6 +74,22 @@ and unknown permit ids, consumed permit reuse, wrong executor binding, wrong
 destination binding, expired permit metadata, and unreviewed command args all
 fail before any secret-bearing command output is produced.
 
+To run the current staged engine assurance gate:
+
+```bash
+just janus-engine-assurance
+```
+
+That recipe primes the non-prod smoke state once, keeps
+`janus-engine-staged` running, then runs the staged boundary matrix:
+
+| Boundary                        | Evidence                                                                                                     |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Permit-bound positive execution | `janus-engine-smoke` proves one reviewed `request_use` + `janusd run` path, redacted output, consumed permit |
+| Local MCP client path           | `mcp-exec-smoke.sh` proves `initialize`, exact `tools/list`, `health`, and `list_secrets` stay value-free    |
+| MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied         |
+| Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail |
+
 The script reads the signed, digest-pinned engine image from
 `docker-compose.yml`; the current staged promotion target is
 `rust-engine-v0.1.1@sha256:0117ac452992d510e8ad0cdd3b895f77492a77f7b0e860e155f54a680867125c`.
