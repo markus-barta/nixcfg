@@ -508,21 +508,14 @@ in
   users.users.gb.extraGroups = [ "docker" ];
 
   # ============================================================================
-  # CONSOLE RECOVERY PASSWORD (NIX-198 — parity with hsb0/csb0/csb1/hsb9)
+  # CONSOLE RECOVERY PASSWORD (NIX-198 per-host standardisation, 2026-06-28)
   # ============================================================================
-  # Declarative console password for mba so a network/SSH/Tailscale outage isn't
-  # a dead end at the physical console (or attached monitor/KVM login). SSH key
-  # auth is unaffected and PasswordAuthentication stays off — this only unlocks
-  # the local console. Same SHA-512 hash as the rest of the fleet → one recovery
-  # password unlocks all of them. Plaintext lives in 1Password vault
-  # "Familie Barta" (csb-shared "nix shell" entry).
-  #
-  # NOTE: mutableUsers=true (fleet default) means an existing *usable* password
-  # is preserved across activation. hsb8's mba already had an imperative password
-  # set 2025-11-22, so the switch won't overwrite the live value — this entry
-  # makes it reproducible (e.g. on reinstall). To realign the live password to
-  # the shared one, run `sudo passwd mba` once (skip if it's already the shared).
-  users.users.mba.hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
+  # Console/KVM login for mba if SSH/Tailscale fails. This hash mirrors the LIVE
+  # /etc/shadow value (set via `passwd`), so config == reality and a reinstall
+  # reproduces it. Plaintext in 1Password vault "Familie Barta", entry
+  # "hsb8 - system login". SSH key auth unaffected; PasswordAuthentication stays
+  # off. (Replaced an undocumented imperative password that was set 2025-11-22.)
+  users.users.mba.hashedPassword = "$y$j9T$5y0S3IQdE7oo54/JhHwkq/$pm0DRKeA3w.6vYbk4rUYgGg.Fat/cQyhSwvC2Zi5bi4";
 
   # Docker containers will run under gb user account
   # Configuration expected at: /home/gb/docker/docker-compose.yml
