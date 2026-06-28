@@ -49,6 +49,19 @@ stdio. It checks `initialize`, `tools/list`, `health`, and `list_secrets`;
 asserts `value_returned=false`; and refuses any transcript containing the
 non-prod fixture value prefix.
 
+To prove the value-free MCP boundary rejects raw secret paths and caller
+overrides, use:
+
+```bash
+just janus-engine-mcp-negative-smoke
+```
+
+That recipe also talks to the running `janus-engine-staged` container through
+`docker exec -i` and MCP stdio. It checks that only the approved catalog is
+advertised, raw resolve/reveal tools are unavailable, raw `JANUS_SMOKE` secret
+names are denied, caller-supplied destination/executor/TTL fields are denied,
+and no negative response contains a fixture value or permit id.
+
 The script reads the signed, digest-pinned engine image from
 `docker-compose.yml`; the current staged promotion target is
 `rust-engine-v0.1.1@sha256:0117ac452992d510e8ad0cdd3b895f77492a77f7b0e860e155f54a680867125c`.
