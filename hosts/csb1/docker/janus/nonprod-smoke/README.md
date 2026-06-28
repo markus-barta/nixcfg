@@ -107,7 +107,8 @@ just janus-engine-pin-check
 
 This is read-only: it parses the compose image pin, resolves the latest
 published Janus engine release and GHCR digest, and reports drift without
-starting or recreating containers.
+starting or recreating containers. The same check runs in GitHub Actions on a
+daily schedule and on relevant pin/workflow changes.
 
 ## Safety Boundaries
 
