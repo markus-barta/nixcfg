@@ -198,6 +198,17 @@ This uses `docker exec -i janus-engine-staged janus-warden` over MCP stdio and
 checks `initialize`, `tools/list`, `health`, and `list_secrets` without exposing
 values or adding a network listener.
 
+To prove the negative side of that boundary:
+
+```bash
+just janus-engine-mcp-negative-smoke
+```
+
+This uses the same local MCP stdio path and verifies that raw resolve/reveal
+tools are not advertised, raw `JANUS_SMOKE` names are denied, caller-supplied
+destination/executor/TTL overrides are denied, and no negative response exposes
+a value or permit id.
+
 ### Upgrade PAIMOS (pm.barta.cm)
 
 Image source: `ghcr.io/markus-barta/paimos:latest` (published by the
