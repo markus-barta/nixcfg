@@ -237,6 +237,7 @@ if [ -z "$permit" ]; then
 fi
 
 compose_run \
+  --entrypoint janusd \
   janus-engine-staged run --profile "${PROFILE_ID}" --permit "$permit" -- \
   -c "printf 'smoke:%s' \"\$JANUS_SECRET_SMOKE\"" \
   >"${TMP_DIR}/run.out" 2>"${TMP_DIR}/run.err"
