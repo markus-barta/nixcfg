@@ -176,6 +176,18 @@ Expected evidence:
 value_returned=false output=redacted permit_consumed=true
 ```
 
+To keep a staged Rust engine instance running internally after the smoke:
+
+```bash
+just janus-engine-up
+just janus-engine-status
+```
+
+The running container is profile-gated, networkless (`network_mode: none`), not
+on Traefik, and still uses only the non-prod smoke volumes. It is an MCP stdio
+process with a Docker healthcheck, not the public `vault.barta.cm` route. Stop
+it with `just janus-engine-down`.
+
 ### Upgrade PAIMOS (pm.barta.cm)
 
 Image source: `ghcr.io/markus-barta/paimos:latest` (published by the

@@ -115,6 +115,20 @@ check:
 janus-engine-smoke:
     cd hosts/csb1/docker && ./janus/nonprod-smoke/run.sh
 
+[group('ops')]
+janus-engine-up:
+    just janus-engine-smoke
+    cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged up -d --no-deps janus-engine-staged
+
+[group('ops')]
+janus-engine-status:
+    docker inspect --format 'status={{ "{{" }}.State.Status{{ "}}" }} health={{ "{{" }}if .State.Health{{ "}}" }}{{ "{{" }}.State.Health.Status{{ "}}" }}{{ "{{" }}else{{ "}}" }}none{{ "{{" }}end{{ "}}" }} image={{ "{{" }}.Config.Image{{ "}}" }}' janus-engine-staged
+
+[group('ops')]
+janus-engine-down:
+    cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged stop janus-engine-staged
+    cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged rm -f janus-engine-staged
+
 [group('build')]
 nix-switch:
     sudo nixos-rebuild switch --flake .#{{ hostname }} -L
