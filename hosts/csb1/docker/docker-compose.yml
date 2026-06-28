@@ -423,8 +423,9 @@ services:
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
     restart: "no"
-    entrypoint: ["janusd"]
-    command: ["--help"]
+    network_mode: "none"
+    stdin_open: true
+    entrypoint: ["janus-warden"]
     environment:
       - JANUS_PERMIT_DIR=/run/janus/permits
       - JANUS_WARDEN_PERMIT_DIR=/run/janus/permits
@@ -456,6 +457,16 @@ services:
       - janus_engine_smoke_secrets:/var/lib/janus/secrets
       - janus_engine_smoke_permits:/run/janus/permits
       - janus_engine_smoke_age:/run/janus/age:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "out=$$(printf '%s\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"janus-engine-health\",\"version\":\"0\"}}}' '{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}' '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"health\",\"arguments\":{}}}' | timeout 10s janus-warden) && printf '%s' \"$$out\" | grep -q '\"backend\":\"age\"' && printf '%s' \"$$out\" | grep -q '\"value_returned\":false'",
+        ]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 10s
     labels:
       - traefik.enable=false
 

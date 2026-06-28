@@ -22,6 +22,22 @@ Or from the repository root:
 just janus-engine-smoke
 ```
 
+To keep the staged Rust engine running as an internal, networkless MCP stdio
+process after the smoke has primed the non-prod volumes:
+
+```bash
+just janus-engine-up
+just janus-engine-status
+```
+
+The running container has no public ports, no Traefik route, and
+`network_mode: none`. Its Docker healthcheck launches a fresh value-free Warden
+health probe against the same mounted non-prod config. Stop it with:
+
+```bash
+just janus-engine-down
+```
+
 The script reads the signed, digest-pinned engine image from
 `docker-compose.yml`; the current staged promotion target is
 `rust-engine-v0.1.1@sha256:0117ac452992d510e8ad0cdd3b895f77492a77f7b0e860e155f54a680867125c`.
