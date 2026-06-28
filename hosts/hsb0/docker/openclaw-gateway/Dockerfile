@@ -5,9 +5,12 @@
 FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y git curl jq vdirsyncer khal mosquitto-clients python3 build-essential openssh-client cron sudo && rm -rf /var/lib/apt/lists/* \
     && ln -s /usr/bin/python3 /usr/bin/python
-# node-llama-cpp is openclaw's OPTIONAL embedding dep; npm skips optional native
-# builds silently on failure, leaving local memory-search broken (NIX-70). Force
-# it explicitly so a build failure surfaces at image-build time, not at runtime.
+# node-llama-cpp is the native runtime for local memory-search embeddings.
+# As of OpenClaw 6.10 the embedder is a PLUGIN (@openclaw/llama-cpp-provider,
+# installed at boot by entrypoint.sh §7.5 into the data volume); that plugin
+# depends on node-llama-cpp@3.18.1, the same global we force here. Keeping the
+# global guarantees the prebuilt native binary is present at image-build time
+# (npm skips optional native builds silently on failure). NIX-70 → NIX-203.
 RUN npm install -g openclaw@latest sharp node-llama-cpp@^3
 
 # Install gogcli (Google Suite CLI for Gmail, Calendar, Drive, etc.)

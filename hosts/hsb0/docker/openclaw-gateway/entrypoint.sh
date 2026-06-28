@@ -386,5 +386,24 @@ echo "[cron] Jobs registered: workspace push 22:00/22:05, shared sync 23:30/23:3
 sudo cron
 echo "[cron] Daemon started"
 
+# -----------------------------------------------------------------------------
+# 7.5 Local-memory embedder plugin (OpenClaw 6.10+)
+#     6.10 moved local GGUF embeddings out of core into the
+#     @openclaw/llama-cpp-provider plugin (it registers the "local" provider;
+#     memorySearch.provider stays "local"). The plugin must live in the
+#     PERSISTENT data volume (/home/node/.openclaw/plugins) — a Dockerfile
+#     install is shadowed by the runtime bind-mount. Idempotent (skip if
+#     present), non-fatal under `set -e`, version-pinned to the running release.
+#     (NIX-203; supersedes the NIX-70 bare-node-llama-cpp approach.)
+# -----------------------------------------------------------------------------
+if openclaw plugins list 2>/dev/null | grep -qiE 'llama[- ]?cpp'; then
+  echo "[memory] llama-cpp-provider already installed — skipping."
+else
+  OC_VER=$(openclaw --version 2>/dev/null | grep -oE '[0-9]{4}\.[0-9]+\.[0-9]+' | head -1)
+  echo "[memory] Installing @openclaw/llama-cpp-provider@${OC_VER:-latest} into data volume..."
+  openclaw plugins install "@openclaw/llama-cpp-provider${OC_VER:+@$OC_VER}" --pin ||
+    echo "[memory] WARNING: llama-cpp-provider install failed — local memory search degraded until next boot"
+fi
+
 echo "[gateway] All agents initialised. Starting openclaw gateway on port 18789..."
 exec openclaw gateway --port 18789
