@@ -3,11 +3,12 @@
 Host-local smoke for the disabled `janus-engine-staged` profile.
 
 This path uses only non-prod generated material. It creates a Docker-volume age
-identity and encrypted `JANUS_SMOKE` value, asks `janus-warden` for a
-`UsePermit`, then consumes that permit with `janusd run`. The Warden and runner
-containers are launched through the disabled `janus-engine-staged` compose
-profile and use the engine image's default non-root `janus` user. The expected
-command output is redacted as `smoke:[REDACTED]`.
+identity and encrypted `JANUS_SMOKE` value, mounts the non-prod metadata overlay,
+asks `janus-warden` for a `UsePermit`, then consumes that permit with
+`janusd run`. The Warden and runner containers are launched through the disabled
+`janus-engine-staged` compose profile and use the engine image's default
+non-root `janus` user. The expected command output is redacted as
+`smoke:[REDACTED]`.
 
 Run on csb1 from `hosts/csb1/docker`:
 
@@ -22,7 +23,9 @@ just janus-engine-smoke
 ```
 
 The script reads the signed, digest-pinned engine image from
-`docker-compose.yml`; it does not use production secrets or the host SSH key.
+`docker-compose.yml`; the current staged promotion target is
+`rust-engine-v0.1.1@sha256:0117ac452992d510e8ad0cdd3b895f77492a77f7b0e860e155f54a680867125c`.
+It does not use production secrets or the host SSH key.
 By default it uses Docker volumes named `janus_engine_smoke_age`,
 `janus_engine_smoke_secrets`, and `janus_engine_smoke_permits`; set
 `JANUS_SMOKE_VOLUME_PREFIX` to isolate another smoke state.

@@ -419,7 +419,7 @@ services:
     # manifests as the smoke harness; no production secret or host SSH key is
     # mounted into the staged Rust engine. Use the smoke harness, not manual
     # project-wide compose lifecycle commands, when testing this profile.
-    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.0@sha256:99cfc52b9484fcd729bd02b2a6a685fd32d31d579e8c5ed903621fbcba1ce8a9
+    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.1@sha256:0117ac452992d510e8ad0cdd3b895f77492a77f7b0e860e155f54a680867125c
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
     restart: "no"
@@ -437,6 +437,8 @@ services:
       - JANUS_RUN_SCOPE=janus/csb1/staged
       - JANUS_WARDEN_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml
       - JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml
+      - JANUS_WARDEN_AGE_METADATA_FILE=/etc/janus/metadata.toml
+      - JANUS_AGE_METADATA_FILE=/etc/janus/metadata.toml
       - JANUS_WARDEN_AGE_PROFILE=csb1
       - JANUS_AGE_PROFILE=csb1
       - JANUS_WARDEN_AGE_STORE_DIR=/var/lib/janus/secrets
@@ -449,6 +451,7 @@ services:
       - JANUS_MANAGED_PROFILE_MANIFEST=/etc/janus/managed-commands.toml
     volumes:
       - ./janus/nonprod-smoke/secretspec.toml:/etc/janus/secretspec.toml:ro
+      - ./janus/nonprod-smoke/metadata.toml:/etc/janus/metadata.toml:ro
       - ./janus/nonprod-smoke/managed-commands.toml:/etc/janus/managed-commands.toml:ro
       - janus_engine_smoke_secrets:/var/lib/janus/secrets
       - janus_engine_smoke_permits:/run/janus/permits
