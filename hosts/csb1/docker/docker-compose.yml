@@ -530,12 +530,27 @@ services:
       - PHAROS_ADDR=0.0.0.0:8080
       - RUST_LOG=info
       - PHAROS_DB=/data/pharos.json
+      # OIDC (PKCE) — public dashboard auth via Zitadel (PHAROS-4). Beacons hit
+      # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
+      - PHAROS_OIDC_ISSUER=https://auth.inspr.at
+      - PHAROS_OIDC_CLIENT_ID=379451733002223624@pharos
+      - PHAROS_OIDC_REDIRECT_URI=https://pharos.barta.cm/auth/callback
     ports:
+      # Tailnet bind kept for beacon ingestion (/report stays auth-exempt).
       - "100.64.0.4:8088:8080"
     volumes:
       - pharos_data:/data
+    networks:
+      - traefik
     labels:
       - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=true
+      - traefik.http.routers.pharos.rule=Host(`pharos.barta.cm`)
+      - traefik.http.routers.pharos.tls.certresolver=default
+      - traefik.http.routers.pharos.tls=true
+      - traefik.http.services.pharos.loadbalancer.server.port=8080
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.pharos.middlewares=cloudflarewarp@file
 
   # Pharos beacon (PHAROS-6) — reports csb1's status + nix freshness to pharosd
   # every 60s. Host network → reaches pharosd at the tailnet IP. Runs as mba
