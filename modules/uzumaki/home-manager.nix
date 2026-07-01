@@ -61,7 +61,7 @@ in
     ./options.nix
     ./stasysmo/home-manager.nix # StaSysMo for Home Manager (launchd on macOS)
     ./theme/theme-hm.nix # Per-host theming (starship, zellij, eza)
-    ./ai-clis-npm.nix # Always-latest AI CLIs (claude-code, codex, grok) via npm
+    ./ai-clis-npm.nix # Always-latest AI CLIs (claude-code, codex, grok, pi) via npm
     ./codex-exit-alias.nix # Codex hook: exact "exit" prompt sends /exit on macOS
     ./claude-skills.nix # Pinned ~/.claude/skills/ (frontend-design, …)
   ];

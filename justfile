@@ -1405,12 +1405,13 @@ pixoo-logs:
 
 # ── AI CLIs ───────────────────────────────────────────────────────────────────
 
-# Bump AI CLIs (claude-code, codex, grok) to npm latest — runs anywhere with node
+# Bump AI CLIs (claude-code, codex, grok, pi) to npm latest — runs anywhere with node
 [group('ai')]
 update-ai-clis:
     @date
-    npm i -g @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest
+    npm i -g @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
     @echo "---"
     @claude --version 2>/dev/null || echo "claude: not installed"
     @codex  --version 2>/dev/null || echo "codex:  not installed"
     @grok   --version 2>/dev/null || echo "grok:   not installed"
+    @pi     --version 2>/dev/null || echo "pi:     not installed"
