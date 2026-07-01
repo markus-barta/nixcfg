@@ -169,6 +169,25 @@ switch-simple:
 [group('build')]
 switch args='':
     #!/usr/bin/env bash
+    # ncps preflight (ROOT-CAUSE FIX 2026-07-01): a local binary cache is an
+    # OPTIMIZATION, never a hard dependency — but Nix treats a connection-REFUSED
+    # substituter as FATAL (retries every path, then errors), so a down hsb0 ncps
+    # used to block/cripple every LAN switch. Probe it; if unreachable, drop it
+    # from substituters for THIS run. The remaining public caches are exactly the
+    # ncps-disabled base list (modules force the list via mkOverride 0), so this
+    # is a correct, side-effect-free fallback on every host. When ncps is up the
+    # behaviour is 100% unchanged.
+    ncps_ok() {
+        if command -v curl >/dev/null 2>&1; then
+            curl -sf -m 2 http://hsb0.lan:8501/nix-cache-info >/dev/null 2>&1
+        else
+            timeout 2 bash -c 'echo > /dev/tcp/hsb0.lan/8501' 2>/dev/null
+        fi
+    }
+    if ! ncps_ok; then
+        echo "⚠️  ncps (hsb0.lan:8501) unreachable — switching WITHOUT the LAN cache (public caches only)."
+        export NIX_CONFIG="substituters = https://cache.nixos.org https://nix-community.cachix.org"
+    fi
     # Detect platform and route to appropriate command
     if [[ "$OSTYPE" == "darwin"* ]]; then
         echo "$(printf '\xef\x85\xb9') Detected macOS - running 🏠 home-manager switch for {{ user }}@{{ hostname }}..."

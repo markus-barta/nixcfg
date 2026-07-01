@@ -179,12 +179,25 @@ services:
       - "8501:8501"
     volumes:
       - /var/lib/ncps:/storage
+      # ROOT-CAUSE FIX (2026-07-01): the SQLite index lives on a SEPARATE fs
+      # (/var/lib/ncps-db on zroot/root) — NOT inside the quota'd /storage
+      # dataset. Before, a full /storage (at ZFS quota) meant SQLite couldn't
+      # write, so ncps crash-looped AND its own LRU eviction couldn't run to
+      # recover → permanent self-wedge needing manual intervention (happened
+      # twice). With the DB decoupled, /storage filling only fails NEW nar
+      # writes; the DB stays writable, LRU still runs on schedule, trims
+      # /storage, and ncps auto-recovers with zero human action. docker
+      # auto-creates this host dir on fresh installs; live hosts get the
+      # existing db.sqlite* moved here once.
+      - /var/lib/ncps-db:/dbstorage
       - /run/agenix/ncps-key:/run/secrets/ncps-key:ro
     entrypoint: ["/bin/ncps"]
     command:
       - serve
       - --cache-hostname=hsb0.lan
-      - --cache-database-url=sqlite:/storage/db.sqlite?_pragma=foreign_keys(1)
+      # DB on /dbstorage (own fs), decoupled from the quota'd /storage — see the
+      # volumes block above. This is what makes a full cache self-recover.
+      - --cache-database-url=sqlite:/dbstorage/db.sqlite?_pragma=foreign_keys(1)
       - --cache-storage-local=/storage
       - --cache-temp-path=/tmp
       - --server-addr=0.0.0.0:8501
