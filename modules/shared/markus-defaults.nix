@@ -74,19 +74,6 @@ let
         pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK3n5/2PT3/QYI6GY5noySbbj7ssWMeK9bkhr4NWBdaV imac0-bytepoets-userkey 2026-05-12";
       };
     };
-    "mba-imac-work" = {
-      # imacw — rotated 2026-05-13 after Day-11 Ghostty scrollback incident
-      # (previous 2026-05-12 keypairs partially leaked to terminal scrollback
-      # via the pre-content-filter .envrc bug; conservative rotation chosen).
-      personal = {
-        keyName = "imacw-personal-userkey";
-        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIApVrzQL/SPss8x6JK/8YNFvSZpYgj1TYGzc3b1cJnYJ imacw-personal-userkey (rotated 2026-05-13)";
-      };
-      bytepoets = {
-        keyName = "imacw-bytepoets-userkey";
-        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDEw7pDTz4ykaQUbeQlIgTVMaKAx1IwWBKwPDuDv9CVa imacw-bytepoets-userkey (rotated 2026-05-13)";
-      };
-    };
   };
 
   # Lookup or null. Hosts not in the table get atelier-disabled-by-default

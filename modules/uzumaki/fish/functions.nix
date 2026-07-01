@@ -225,41 +225,6 @@
   };
 
   # ════════════════════════════════════════════════════════════════════════════
-  # IMACW - Smart SSH to mba-imac-work (via BYTEPOETS VPN)
-  # ════════════════════════════════════════════════════════════════════════════
-  imacw = {
-    description = "SSH to mba-imac-work via BYTEPOETS VPN (with jump host)";
-    body = ''
-      set -l vpn_host "10.100.0.51"      # miniserver-bp (jump host)
-      set -l target_host "10.17.1.7"     # mba-imac-work
-      set -l target_user "markus"
-      set -l jump_user "mba"
-
-      # Check if VPN is connected (can reach miniserver-bp)
-      if ping -c1 -W2 $vpn_host >/dev/null 2>&1
-        set_color green
-        echo "✓ VPN connected - connecting to mba-imac-work..."
-        set_color normal
-        ssh -i ~/.ssh/id_ed25519_bytepoets -J "$jump_user@$vpn_host" "$target_user@$target_host" $argv
-      else
-        set_color yellow
-        echo "⚠ Cannot reach BYTEPOETS network (10.100.0.51)"
-        echo ""
-        set_color normal
-        echo "To connect to mba-imac-work from home:"
-        echo ""
-        set_color cyan
-        echo "  1. Open WireGuard app on macOS"
-        echo "  2. Select 'BYTEPOETS+' and activate"
-        echo "  3. Run 'imacw' again"
-        set_color normal
-        echo ""
-        return 1
-      end
-    '';
-  };
-
-  # ════════════════════════════════════════════════════════════════════════════
   # HELPFISH - Show custom functions & abbreviations
   # ════════════════════════════════════════════════════════════════════════════
   helpfish = {
@@ -328,7 +293,6 @@
       printf " $color_dim%-10s   %-30s %s$color_reset\n" "Explicit:" "hsb0-lan (Force LAN)" "hsb0-ts (Force Tailscale)"
       echo ""
       printf " $color_dim%-10s   Nicknames for long hostnames:$color_reset\n" ""
-      printf " $color_abbr%-10s$color_reset → %-30s $color_dim# → mba-imac-work$color_reset\n" "imacw" "Work iMac"
       printf " $color_abbr%-10s$color_reset → %-30s $color_dim# → miniserver-bp$color_reset\n" "msbp" "Office Mac Mini"
       echo -e "$color_abbr└────────────────────────────────────────────────────────────────────────┘$color_reset\n"
     '';

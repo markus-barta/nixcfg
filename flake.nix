@@ -195,9 +195,6 @@
       homeConfigurations."markus@imac0" = mkDarwinHome "x86_64-darwin" "imac0";
       homeConfigurations."imac0" = self.homeConfigurations."markus@imac0";
 
-      homeConfigurations."markus@mba-imac-work" = mkDarwinHome "x86_64-darwin" "mba-imac-work";
-      homeConfigurations."mba-imac-work" = self.homeConfigurations."markus@mba-imac-work";
-
       # Apple Silicon — private M5 Max (mbp0). New physical device, provisioned
       # 2026-06-15 from the retired work host's config and key material
       # (BYTEPOETS departure), so agenix access continues intentionally.
@@ -390,7 +387,7 @@
           docs.optionsCommonMark;
       };
 
-      # macOS packages (for imac0, mba-imac-work — x86_64 macOS hosts)
+      # macOS packages (for imac0 — x86_64 macOS hosts)
       packages.x86_64-darwin =
         let
           pkgsDarwin = import nixpkgs {

@@ -13,7 +13,7 @@
 #   };
 #
 # Features:
-#   - Fish functions: pingt, stress, helpfish, hostcolors, hostsecrets, sourcefish, imacw
+#   - Fish functions: pingt, stress, helpfish, hostcolors, hostsecrets, sourcefish
 #   - Zellij terminal multiplexer
 #   - StaSysMo system monitoring (launchd on macOS)
 #   - Per-host theming (starship, zellij, eza)
@@ -89,7 +89,6 @@ in
         // lib.optionalAttrs cfg.fish.functions.hostcolors { inherit (fishFunctions) hostcolors; }
         // lib.optionalAttrs cfg.fish.functions.hostsecrets { inherit (fishFunctions) hostsecrets; }
         // lib.optionalAttrs cfg.fish.functions.helpfish { helpfish = helpfishWithDynamicList; }
-        // lib.optionalAttrs cfg.fish.functions.imacw { inherit (fishFunctions) imacw; }
         // lib.optionalAttrs cfg.fish.functions.ccc { inherit (fishFunctions) ccc; };
 
       # Shell aliases from uzumaki/fish

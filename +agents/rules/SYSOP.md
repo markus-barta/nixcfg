@@ -22,11 +22,10 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 Run: hostname
      │
      ├── imac0 ────────────────→ You're at home on the home iMac
-     ├── mba-imac-work ────────→ You're at work on the work iMac
      ├── mbp0 ─────────────────→ You're on the private Apple Silicon M5 portable
-     ├── gpc0 ─────────────────→ You're at on the gaming PC via ssh
-     ├── hsb0/hsb1/hsb8 ───────→ You're at home on a home server via ssh
-     ├── csb0/csb1 ────────────→ You're at on a cloud server via ssh
+     ├── gpc0 ─────────────────→ You're on the gaming PC via ssh
+     ├── hsb0/hsb1/hsb8/hsb9 ─→ You're on a home/family server via ssh
+     ├── csb0/csb1 ────────────→ You're on a cloud server via ssh
      └── ip-192-168-*.internal → VPN active (AWS hostname pattern) likely home machine via ssh
 ```
 
@@ -60,13 +59,6 @@ Current Context                Target Host              Reachable?
 ─────────────────────────────────────────────────────────────────────
 🏠 HOME (imac0, gpc0)          *.lan hosts (home)       ✅ Direct
                                csb0, csb1               ✅ Internet
-                               miniserver-bp            ✅ Tailscale (ssh msbp)
-                               BYTEPOETS office (other) ❌ Need Tailscale
-
-🏢 WORK (mba-imac-work)        BYTEPOETS office hosts   ✅ Direct
-   Physical location: Office    miniserver-bp.local      ✅ Direct (10.17.1.40)
-   Network: 10.17.0.0/16       csb0, csb1               ✅ Internet
-                               *.lan hosts (home)       ❌ Not reachable
 
 🌐 REMOTE (Tailscale/Headscale - works from ANYWHERE)
    All hosts reachable via Tailscale VPN! See below.
@@ -74,46 +66,37 @@ Current Context                Target Host              Reachable?
 📱 PORTABLE (mbp0)
    Location unknown - test network first:
 
-   Test 1: ping -c1 -W3 hsb0.lan
+   Test: ping -c1 -W3 hsb0.lan
       ├── Success ──────→ 🏠 HOME context (*.lan reachable)
-      └── Fail ─────────→ Continue to Test 2
-
-   Test 2: ping -c1 -W3 miniserver-bp.local
-      ├── Success ──────→ 🏢 WORK context (office network)
       └── Fail ─────────→ 🌐 REMOTE (use Tailscale)
 
 🖥️ SERVER (hsb*, gpc0)        Other *.lan hosts        ✅ Direct
    Network: 192.168.1.0/24     csb0, csb1               ✅ Internet
-                               BYTEPOETS office         ❌ Need Tailscale
 
 ☁️ CLOUD (csb0, csb1)          Other cloud              ✅ Direct
                                *.lan hosts              ❌ Need Tailscale
-                               BYTEPOETS office         ❌ Need Tailscale
 ```
 
 ### Step 4: SSH COMMAND REFERENCE
 
 **Only use these when you've confirmed SSH is needed AND target is reachable:**
 
-|               | Host                              | SSH Command | User        | Network     | Notes               |
-| ------------- | --------------------------------- | ----------- | ----------- | ----------- | ------------------- |
-| hsb0          | `ssh mba@hsb0.lan`                | mba         | Home LAN    | Home LAN    | DNS/DHCP server     |
-| hsb1          | `ssh mba@hsb1.lan`                | mba         | Home LAN    | Home LAN    | Home automation     |
-| hsb8          | `ssh mba@hsb8.lan`                | mba         | Home LAN    | Home LAN    | Parents' server     |
-| gpc0          | `ssh mba@gpc0.lan`                | mba         | Home LAN    | Home LAN    | Gaming PC / builds  |
-| csb0          | `ssh mba@cs0.barta.cm -p 2222`    | mba         | Internet    | Internet    | Cloud - port 2222!  |
-| csb1          | `ssh mba@cs1.barta.cm -p 2222`    | mba         | Internet    | Internet    | Cloud - port 2222!  |
-| miniserver-bp | `ssh msbp` (Tailscale, preferred) | mba         | Anywhere    | Tailscale   | Office Mac Mini     |
-|               | `ssh msbp-lan` (office direct)    | mba         | BYTEPOETS   | BYTEPOETS   |                     |
-| mba-imac-work | `ssh markus@mba-imac-work.local`  | markus      | BYTEPOETS   | BYTEPOETS   | Work iMac (static)  |
-| mbp0          | `ssh mba@mbp0.lan`                | mba         | Home/Remote | Home/Remote | Private M5 portable |
-| imac0         | `ssh markus@imac0.lan`            | markus      | Home LAN    | Home LAN    | Home iMac           |
+|       | Host                           | SSH Command | User        | Network     | Notes               |
+| ----- | ------------------------------ | ----------- | ----------- | ----------- | ------------------- |
+| hsb0  | `ssh mba@hsb0.lan`             | mba         | Home LAN    | Home LAN    | DNS/DHCP server     |
+| hsb1  | `ssh mba@hsb1.lan`             | mba         | Home LAN    | Home LAN    | Home automation     |
+| hsb8  | `ssh mba@hsb8.lan`             | mba         | Home LAN    | Home LAN    | Parents' server     |
+| hsb9  | `ssh mba@hsb9.lan`             | mba         | Home LAN    | Home LAN    | In-laws' server     |
+| gpc0  | `ssh mba@gpc0.lan`             | mba         | Home LAN    | Home LAN    | Gaming PC / builds  |
+| csb0  | `ssh mba@cs0.barta.cm -p 2222` | mba         | Internet    | Internet    | Cloud - port 2222!  |
+| csb1  | `ssh mba@cs1.barta.cm -p 2222` | mba         | Internet    | Internet    | Cloud - port 2222!  |
+| mbp0  | `ssh mba@mbp0.lan`             | mba         | Home/Remote | Home/Remote | Private M5 portable |
+| imac0 | `ssh markus@imac0.lan`         | markus      | Home LAN    | Home LAN    | Home iMac           |
 
 **🌐 Tailscale SSH (from anywhere):** `ssh mba@<host>.ts.barta.cm`
 
 **Key Logic:**
 
-- `mba-imac-work` = **ALWAYS at BYTEPOETS office** (27" iMac, not portable)
 - `imac0` = **ALWAYS at home** (27" iMac, not portable)
 - `mbp0` = private portable, test network to determine location
 
@@ -125,7 +108,7 @@ Current Context                Target Host              Reachable?
 2. **Commit**: Ensure local changes are committed before remote ops.
 3. **Execute**:
    - **Local**: Edit files in `nixcfg` repo.
-   - **Remote**: Push to GitHub → Suggest [NixFleet Dashboard](https://fleet.barta.cm).
+   - **Remote**: Push to GitHub → Suggest current FleetCom / fleet status surface.
    - **Emergency**: Ask user → SSH → `git pull` → `just switch`.
 4. **Verify**: Verify changes; run host tests after big changes (`hosts/<host>/tests/T*.sh`).
 5. **Update**: Sync `README.md`, `RUNBOOK.md`, and `OPS-STATUS.md`.
@@ -175,8 +158,8 @@ Current Context                Target Host              Reachable?
 ## 🏠 Context Logic
 
 - **imac0**: Home LAN.
-- **mba-imac-work**: Work (Office).
 - **mbp0**: Private portable. **Test**: `ping -c1 hsb0.lan` first; otherwise use Tailscale.
+- **hsb9**: In-laws' automation server.
 
 **SSH Permissions**:
 
@@ -188,17 +171,17 @@ Current Context                Target Host              Reachable?
 
 ## 🖥️ Host Inventory
 
-|                   | Host     | User | Port           | Criticality           | Role |
-| ----------------- | -------- | ---- | -------------- | --------------------- | ---- |
-| **hsb0**          | `mba`    | 22   | 🏆 Crown Jewel | DNS/DHCP (AdGuard)    |
-| **hsb1**          | `mba`    | 22   | 🟡 Medium      | Home Automation       |
-| **hsb8**          | `mba`    | 22   | 🟡 Medium      | Parents' Server       |
-| **csb0**          | `mba`    | 2222 | 🔴 High        | Cloud Smart Home      |
-| **csb1**          | `mba`    | 2222 | 🟡 Medium      | Monitoring / NixFleet |
-| **gpc0**          | `mba`    | 22   | 🟢 Low         | Build Host / Gaming   |
-| **imac0**         | `markus` | 22   | 🟡 Medium      | Home Workstation      |
-| **mba-imac-work** | `markus` | 22   | 🟢 Low         | Work Workstation      |
-| **mbp0**          | `mba`    | 22   | 🟢 Low         | Private M5 portable   |
+|           | Host     | User | Port           | Criticality         | Role |
+| --------- | -------- | ---- | -------------- | ------------------- | ---- |
+| **hsb0**  | `mba`    | 22   | 🏆 Crown Jewel | DNS/DHCP (AdGuard)  |
+| **hsb1**  | `mba`    | 22   | 🟡 Medium      | Home Automation     |
+| **hsb8**  | `mba`    | 22   | 🟡 Medium      | Parents' Server     |
+| **hsb9**  | `mba`    | 22   | 🟡 Medium      | In-laws' Server     |
+| **csb0**  | `mba`    | 2222 | 🔴 High        | Cloud Smart Home    |
+| **csb1**  | `mba`    | 2222 | 🟡 Medium      | Monitoring / Apps   |
+| **gpc0**  | `mba`    | 22   | 🟢 Low         | Build Host / Gaming |
+| **imac0** | `markus` | 22   | 🟡 Medium      | Home Workstation    |
+| **mbp0**  | `mba`    | 22   | 🟢 Low         | Private M5 portable |
 
 > 📖 **Full Inventory & IPs**: See `docs/INFRASTRUCTURE.md`
 
@@ -327,9 +310,9 @@ ssh mba@<host> "systemctl status <service> 2>/dev/null || echo 'not found'"
 
 **Host criticality:**
 
-|                | Priority         | Hosts                          | Notes |
-| -------------- | ---------------- | ------------------------------ | ----- |
-| 🏆 Crown jewel | hsb0             | DNS/DHCP for all home hosts    |
-| 🔴 High        | hsb1, csb0, csb1 | Home automation, public-facing |
-| 🟡 Medium      | hsb8, imac0      | Parents, workstation           |
-| 🟢 Low         | gpc0, mba-\*     | Gaming, portable               |
+|                | Priority          | Hosts                          | Notes |
+| -------------- | ----------------- | ------------------------------ | ----- |
+| 🏆 Crown jewel | hsb0              | DNS/DHCP for all home hosts    |
+| 🔴 High        | hsb1, csb0, csb1  | Home automation, public-facing |
+| 🟡 Medium      | hsb8, hsb9, imac0 | Family automation, workstation |
+| 🟢 Low         | gpc0, mbp0        | Gaming, portable               |

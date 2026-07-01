@@ -106,19 +106,6 @@ in
       user = "mba";
       identityFile = "~/.ssh/dsccfg_deploy";
     };
-    # Work iMac - SSH key for passwordless access
-    "mba-imac-work" = {
-      identityFile = "~/.ssh/id_ed25519_bytepoets";
-    };
-    "mba-imac-work-ts" = {
-      identityFile = "~/.ssh/id_ed25519_bytepoets";
-    };
-    "imacw" = {
-      identityFile = "~/.ssh/id_ed25519_bytepoets";
-    };
-    "imacw-ts" = {
-      identityFile = "~/.ssh/id_ed25519_bytepoets";
-    };
   };
 
   # ============================================================================
@@ -439,8 +426,8 @@ in
   # ============================================================================
   # Refactored 2026-05-05 (NIX-104): use `macosCommon.commonPackages` as the
   # base — single source of truth for the default macOS dev toolkit. Anything
-  # added to commonPackages auto-reaches M5 + imac0 (mba-imac-work already
-  # follows this pattern). Per-host extras listed below; if you add something
+  # added to commonPackages auto-reaches mbp0 + imac0. Per-host extras
+  # listed below; if you add something
   # that ALL macOS hosts should have, prefer adding it to commonPackages
   # in modules/uzumaki/macos-common.nix instead.
   home.packages = macosCommon.commonPackages ++ [

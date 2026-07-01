@@ -83,7 +83,6 @@ let
       in
       mkFishFunction "helpfish" (fishFunctions.helpfish // { body = helpfishBodyWithFunctions; })
     )
-    ++ lib.optional cfg.fish.functions.imacw (mkFishFunction "imacw" fishFunctions.imacw)
     ++ lib.optional cfg.fish.functions.ccc (mkFishFunction "ccc" fishFunctions.ccc)
   );
 

@@ -58,7 +58,6 @@ hostname
 
 | Pattern             | Example               | Use Case          |
 | ------------------- | --------------------- | ----------------- |
-| `mba-{device}-work` | `mba-imac-work`       | Work machines     |
 | `mbp{n}`            | `mbp0`                | Personal MacBooks |
 | `{device}{n}`       | `imac0`, `mbp1`       | Personal machines |
 | `{family}-{device}` | `mom-imac`, `dad-mbp` | Family machines   |

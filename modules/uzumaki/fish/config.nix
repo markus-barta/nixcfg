@@ -85,7 +85,6 @@
     imac0 = "ssh imac0 -t 'zellij attach imac0 -c'";
 
     # Work network (nicknames)
-    imacw = "ssh imacw -t 'zellij attach imacw -c'"; # → mba-imac-work
     msbp = "ssh msbp -t 'zellij attach msbp -c'"; # → miniserver-bp
 
     # Cloud

@@ -113,30 +113,6 @@
       User markus
 
     # === PORTABLE/WORK HOSTS ===
-    Host mba-imac-work
-      HostName 10.17.1.7
-      User markus
-      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc mba-imac-work.ts.barta.cm %p; fi'
-
-    Host mba-imac-work-lan
-      HostName 10.17.1.7
-      User markus
-
-    Host mba-imac-work-ts
-      HostName mba-imac-work.ts.barta.cm
-      User markus
-
-    Host imacw
-      HostName mba-imac-work
-
-    Host imacw-lan
-      HostName 10.17.1.7
-      User markus
-
-    Host imacw-ts
-      HostName mba-imac-work.ts.barta.cm
-      User markus
-
     Host miniserver-bp
       HostName 10.17.1.40
       Port 2222

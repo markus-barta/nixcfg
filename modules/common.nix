@@ -73,7 +73,6 @@ in
       imac0 = "ssh imac0 -t 'zellij attach imac0 -c'";
 
       # Work network (nicknames)
-      imacw = "ssh imacw -t 'zellij attach imacw -c'";
       msbp = "ssh msbp -t 'zellij attach msbp -c'";
 
       # Cloud

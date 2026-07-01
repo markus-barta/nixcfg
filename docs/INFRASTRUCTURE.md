@@ -85,11 +85,10 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 
 ### macOS Machines (home-manager only)
 
-| Host              | Role                     | User   | Git Default |
-| ----------------- | ------------------------ | ------ | ----------- |
-| **imac0**         | Home Workstation         | markus | Personal    |
-| **mba-imac-work** | Work iMac                | markus | BYTEPOETS   |
-| **mbp0**          | Private MacBook (M5 Max) | mba    | Personal    |
+| Host      | Role                     | User   | Git Default |
+| --------- | ------------------------ | ------ | ----------- |
+| **imac0** | Home Workstation         | markus | Personal    |
+| **mbp0**  | Private MacBook (M5 Max) | mba    | Personal    |
 
 ---
 
@@ -99,7 +98,6 @@ Shorter aliases for commonly accessed hosts:
 
 | Nickname | Full Hostname | Purpose          | Tailscale Address |
 | -------- | ------------- | ---------------- | ----------------- |
-| `imacw`  | mba-imac-work | Work iMac        | imacw.ts.barta.cm |
 | `hsb0`   | hsb0          | Home DNS/DHCP    | hsb0.ts.barta.cm  |
 | `hsb1`   | hsb1          | Home Automation  | hsb1.ts.barta.cm  |
 | `csb0`   | csb0          | Cloud Smart Home | csb0.ts.barta.cm  |
@@ -111,14 +109,7 @@ Shorter aliases for commonly accessed hosts:
 ssh mba@hsb1.ts.barta.cm
 
 # Using nickname (for local machines)
-ssh imacw
-
-# Force specific route
-ssh imacw-lan    # LAN only (fail if unreachable)
-ssh imacw-ts     # Tailscale only
-
-# Auto-fallback (default)
-ssh imacw        # Try LAN first (2s timeout), fallback to Tailscale
+ssh hsb1
 ```
 
 ### How LAN→Tailscale Fallback Works
@@ -190,16 +181,15 @@ Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts
 
 ### Connected Nodes
 
-| Host              | Platform | Tailscale Address | Status    |
-| ----------------- | -------- | ----------------- | --------- |
-| **imac0**         | macOS    | imac0.ts.barta.cm | ✅ Active |
-| **mba-imac-work** | macOS    | imacw.ts.barta.cm | ✅ Active |
-| **mbp0**          | macOS    | mbp0.ts.barta.cm  | ✅ Active |
-| **hsb0**          | NixOS    | hsb0.ts.barta.cm  | ✅ Active |
-| **hsb1**          | NixOS    | hsb1.ts.barta.cm  | ✅ Active |
-| **gpc0**          | NixOS    | gpc0.ts.barta.cm  | ✅ Active |
-| **csb0**          | NixOS    | csb0.ts.barta.cm  | ✅ Active |
-| **csb1**          | NixOS    | csb1.ts.barta.cm  | ✅ Active |
+| Host      | Platform | Tailscale Address | Status    |
+| --------- | -------- | ----------------- | --------- |
+| **imac0** | macOS    | imac0.ts.barta.cm | ✅ Active |
+| **mbp0**  | macOS    | mbp0.ts.barta.cm  | ✅ Active |
+| **hsb0**  | NixOS    | hsb0.ts.barta.cm  | ✅ Active |
+| **hsb1**  | NixOS    | hsb1.ts.barta.cm  | ✅ Active |
+| **gpc0**  | NixOS    | gpc0.ts.barta.cm  | ✅ Active |
+| **csb0**  | NixOS    | csb0.ts.barta.cm  | ✅ Active |
+| **csb1**  | NixOS    | csb1.ts.barta.cm  | ✅ Active |
 
 <!-- miniserver-bp moved to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24) -->
 
@@ -243,14 +233,13 @@ ssh mba@cs0.barta.cm -p 2222 "docker exec headscale headscale nodes list"
 
 **NixOS configurations can only be built on NixOS hosts.**
 
-| Host              | Can Build NixOS? | Speed                            | Recommended For                |
-| ----------------- | ---------------- | -------------------------------- | ------------------------------ |
-| **gpc0**          | ✅ Yes           | ⚡ Fastest (8 threads, i7-7700K) | Complex builds, fast iteration |
-| **hsb1**          | ✅ Yes           | 🐢 Medium (4 threads)            | Remote deploys, CI             |
-| **hsb0**          | ✅ Yes           | 🐢 Slow (4 threads)              | Emergency only                 |
-| **imac0**         | ❌ No            | -                                | home-manager only              |
-| **mba-imac-work** | ❌ No            | -                                | home-manager only              |
-| **mbp0**          | ❌ No            | -                                | home-manager only              |
+| Host      | Can Build NixOS? | Speed                            | Recommended For                |
+| --------- | ---------------- | -------------------------------- | ------------------------------ |
+| **gpc0**  | ✅ Yes           | ⚡ Fastest (8 threads, i7-7700K) | Complex builds, fast iteration |
+| **hsb1**  | ✅ Yes           | 🐢 Medium (4 threads)            | Remote deploys, CI             |
+| **hsb0**  | ✅ Yes           | 🐢 Slow (4 threads)              | Emergency only                 |
+| **imac0** | ❌ No            | -                                | home-manager only              |
+| **mbp0**  | ❌ No            | -                                | home-manager only              |
 
 ### Quick Commands
 

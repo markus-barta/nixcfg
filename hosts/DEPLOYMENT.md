@@ -22,10 +22,9 @@ Note: This document is deprecated as of 2026-01-01. Nixfleet (fleet.barta.cm) is
 
 ## macOS Home Manager Status
 
-| Host          | Status | Commit     | HM Generation | Action | Checked          |
-| ------------- | ------ | ---------- | ------------- | ------ | ---------------- |
-| imac0         | 🌀✨   | `5f539fb1` | gen 75        | —      | 2025-12-06 13:54 |
-| mba-imac-work | ⚫     | —          | —             | —      | 2025-12-06 13:54 |
+| Host  | Status | Commit     | HM Generation | Action | Checked          |
+| ----- | ------ | ---------- | ------------- | ------ | ---------------- |
+| imac0 | 🌀✨   | `5f539fb1` | gen 75        | —      | 2025-12-06 13:54 |
 
 ### Status Legend
 
@@ -41,13 +40,12 @@ Note: This document is deprecated as of 2026-01-01. Nixfleet (fleet.barta.cm) is
 
 ### ✅ Migrated to New Pattern (Phase I)
 
-| Host          | Platform | Role        | 🌀 Import                          |
-| ------------- | -------- | ----------- | ---------------------------------- |
-| hsb1          | NixOS    | server      | `modules/uzumaki`                  |
-| hsb0          | NixOS    | server      | `modules/uzumaki`                  |
-| gpc0          | NixOS    | desktop     | `modules/uzumaki`                  |
-| imac0         | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
-| mba-imac-work | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
+| Host  | Platform | Role        | 🌀 Import                          |
+| ----- | -------- | ----------- | ---------------------------------- |
+| hsb1  | NixOS    | server      | `modules/uzumaki`                  |
+| hsb0  | NixOS    | server      | `modules/uzumaki`                  |
+| gpc0  | NixOS    | desktop     | `modules/uzumaki`                  |
+| imac0 | macOS    | workstation | `modules/uzumaki/home-manager.nix` |
 
 ### ⏳ Awaiting Deployment (Host Offline)
 

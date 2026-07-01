@@ -728,7 +728,6 @@ in
       warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel"
       # macOS Home-Manager hosts (warm their prebuilt deps; no darwin builder needed):
       warm imac0     '.#homeConfigurations."markus@imac0".activationPackage'
-      warm imac-work '.#homeConfigurations."markus@mba-imac-work".activationPackage'
       warm mbp0      '.#homeConfigurations."mba@mbp0".activationPackage'
       echo "warmer: done"
     '';
