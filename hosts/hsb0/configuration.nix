@@ -674,8 +674,10 @@ in
   # Future: define the "local fleet" set in FleetCom and generate this list
   # (tracked in NIX-155).
   #
-  # Schedule: Sat & Mon 04:00 — AFTER the 03:00 ncps LRU run, so freshly-warmed
-  # paths survive the day instead of being trimmed minutes later.
+  # Schedule: Sat & Mon 04:00. ncps LRU now runs every 6h (00/06/12/18) for
+  # deadlock safety (see docker-compose.yml), so a warm is trimmed within ~2h;
+  # acceptable trade — recently-USED paths survive LRU, and never wedging the
+  # cache matters more than a warmed-but-unused path surviving the full day.
   # ============================================================================
   systemd.services.ncps-warmer = {
     description = "Warm local NCPS with LAN fleet substitutable closures";
