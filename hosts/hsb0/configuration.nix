@@ -648,6 +648,16 @@ in
     after = [ "var-lib-ncps.mount" ];
   };
 
+  # Fresh-install ownership for ncps paths. ncps runs as uid 994 (kalbasit/ncps
+  # image). /storage (the ZFS mount) and the decoupled /dbstorage dir must be
+  # writable by 994 or the container crash-loops on first start — docker would
+  # otherwise auto-create /var/lib/ncps-db as root:root. tmpfiles is idempotent;
+  # live hosts already have these (set once, persisted on-disk).
+  systemd.tmpfiles.rules = [
+    "d /var/lib/ncps    0700 994 992 - -"
+    "d /var/lib/ncps-db 0755 994 992 - -"
+  ];
+
   # Fix: P6400 / P5012 - Remove evaluation warning by forcing null on initialHashedPassword
   users.users.mba.initialHashedPassword = lib.mkForce null;
 
