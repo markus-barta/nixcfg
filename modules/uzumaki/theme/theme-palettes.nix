@@ -530,7 +530,7 @@
     darkGray = {
       name = "Dark Gray";
       category = "workstation";
-      description = "Work workstation (mba-imac-work)";
+      description = "Dark gray workstation palette (retained for future hosts)";
 
       # Powerline gradient (light → dark) - starts darker
       gradient = {
@@ -543,7 +543,7 @@
         darkest = "#101214"; # Nix shell bg
       };
 
-      # Text colors (work iMac: white path, brighter muted)
+      # Text colors (white path, brighter muted)
       text = {
         onLightest = "#101214"; # Dark text on lightest bg
         onMedium = "#ffffff"; # White for path (work preference)
@@ -839,7 +839,6 @@
     # Workstations (home > work)
     imac0 = "warmGray";
     imac1 = "roseGold"; # Wife's iMac (future)
-    "mba-imac-work" = "darkGray";
     "mbp0" = "lightGray";
     miniserver-bp = "veryDarkGray";
   };
@@ -865,7 +864,6 @@
     # Workstations (home > work)
     "imac0"
     "imac1"
-    "mba-imac-work"
     "mbp0"
   ];
 

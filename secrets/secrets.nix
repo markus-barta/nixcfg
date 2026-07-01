@@ -22,13 +22,11 @@ let
   markus_rsa_legacy = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt"; # markus@iMac-5k-MBA-home.local — shared pre-2026 RSA
   markus_m5_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mbp0"; # added INSPR-78 (2026-05-03)
   markus_imac0_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOdow+y+02Ekej5q3JD+5SSCWDDW4Hmiwwbfe9fTYUBA markus@imac0"; # added INSPR-78 (2026-05-03)
-  markus_imacw_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOs5Sg9sqv/t3TIMfNQ2aP8a8ehEIQuFWuHVS2bX8oK3 markus@mba-imac-work"; # added 2026-05-13 (imacw RSA→ed25519 migration; INSPR-76 fleet rollout)
 
   markus = [
     markus_rsa_legacy
     markus_m5_ed25519
     markus_imac0_ed25519
-    markus_imacw_ed25519
   ];
 
   # gb's key (user on hsb8)
@@ -467,8 +465,7 @@ in
   # SSH does not care; the file is a standard OpenSSH ed25519 private key.
   #
   # Recipients = markus aggregate only (HM-level agent-secrets decrypts via
-  # user SSH key, not host key). On imacw the markus_rsa_legacy fallback
-  # in identityFiles handles decryption since imacw has no id_ed25519.
+  # user SSH key, not host key).
   #
   # Edit (re-create) workflow: agenix -e secrets/agents/host/<host>/<name>.age
 
@@ -479,9 +476,5 @@ in
   # imac0
   "agents/host/imac0/imac0-personal-userkey.age".publicKeys = markus;
   "agents/host/imac0/imac0-bytepoets-userkey.age".publicKeys = markus;
-
-  # imacw (flake hostname: mba-imac-work)
-  "agents/host/mba-imac-work/imacw-personal-userkey.age".publicKeys = markus;
-  "agents/host/mba-imac-work/imacw-bytepoets-userkey.age".publicKeys = markus;
 
 }

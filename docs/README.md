@@ -10,7 +10,7 @@ This repository is a **blueprint factory** for all your computers. Instead of ma
 
 See [INFRASTRUCTURE.md](./INFRASTRUCTURE.md) for the complete host inventory, IPs, dependencies, and build platforms.
 
-**Quick summary**: 5 NixOS servers (hsb0, hsb1, hsb8, csb0, csb1), 1 NixOS gaming PC (gpc0) and 3 macOS workstations (imac0, mba-imac-work, mbp0).
+**Quick summary**: 6 NixOS servers (hsb0, hsb1, hsb8, hsb9, csb0, csb1), 1 NixOS gaming PC (gpc0) and 2 macOS workstations (imac0, mbp0).
 
 ---
 

@@ -57,13 +57,12 @@
   # own subset, etc.).
   trustPresets = {
     # All current Markus-personal admittance: legacy RSA + per-host ed25519s
-    # (mbp0, imac0, imacw). Use this on hosts where Markus actively SSHes in
+    # (mbp0, imac0). Use this on hosts where Markus actively SSHes in
     # from any of his workstations today.
     personalHosts = [
       "markus-rsa-shared-pre-2026"
       "mba@mbp0"
       "markus@imac0"
-      "markus@mba-imac-work"
     ];
 
     # Post-retirement state (INSPR-76 Phase D): per-host ed25519 only,
@@ -73,7 +72,6 @@
     ed25519Only = [
       "mba@mbp0"
       "markus@imac0"
-      "markus@mba-imac-work"
     ];
 
     # Transitional / archival: legacy RSA only, no new ed25519s. Use on
@@ -91,8 +89,8 @@
     ];
 
     # Markus's BYTEPOETS work identity — `id_ed25519_bytepoets` private
-    # key lives on work-context macOS hosts (mba-imac-work; the old M5 work
-    # portable was decommissioned and mbp0 is now private). Use this preset on hosts where
+    # key lived on retired work-context macOS hosts; mbp0 is now private.
+    # Use this preset on hosts where
     # Markus should be able to SSH IN from any work-context machine
     # (cross-context inbound). Initially used on imac0 only; promote to
     # other personal hosts (hsb0, hsb1, csb0, …) as the need arises.
@@ -176,12 +174,6 @@
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mbp0 (added 2026-05-03; key material carried forward to new mbp0 device 2026-06-15)";
     "markus@imac0" =
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOdow+y+02Ekej5q3JD+5SSCWDDW4Hmiwwbfe9fTYUBA markus@imac0 (added 2026-05-03)";
-    # Added 2026-05-13 (imacw RSA → ed25519 migration, INSPR-76 fleet rollout).
-    # imacw was the last shared-RSA-only host; ed25519 generated on-host;
-    # private key backed up in 1Password (Familie Barta / Private).
-    "markus@mba-imac-work" =
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOs5Sg9sqv/t3TIMfNQ2aP8a8ehEIQuFWuHVS2bX8oK3 markus@mba-imac-work (added 2026-05-13)";
-
     # ── Family ────────────────────────────────────────────────────────────
     # Gerhard Barta (Markus's father). Used for the `gb` user on hsb8
     # (parents' home automation server). RSA-3072 modern key (NOT the
@@ -193,11 +185,10 @@
       "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAwgtI71qYnLJnq0PPs/PWR0O+0zvEQfT7QYaHbrPUdILnK5jqZTj6o02kyfce6JLk+xyYhI596T6DD9But943cKFY/cYG037EjlECq+LXdS7bRsb8wYdc8vjcyF21Ol6gSJdT3noAzkZnqnucnvd7D1lae2ZVw7km6GQvz5XQGS/LQ38JpPZ2JYb0ufT3Z1vgigq9GqhCU6C7NdUslJJJ1Lj4JfPqQTbS1ihZqMe3SQ+ctfmHNYniUkd5Potu7wLMG1OJDL13BXu/M5IihgerZ3QuPb2VPQkb37oxKfquMKveYL9bt4fmK+7+CRHJnzFB45HfG5PiTKsyjuPR5A1N3U5Os+9Wrav9YrqDHWjCaFI1EIY4HRM/kRufD+0ncvvXpsp4foS9DAhK5g3OObRlKgPEc4hkD7hC2KBXUt7Kyg6SLL89gD42qSXLxZlxaTD65UaqB28PuOt7+LtKEPhm1jfH65cKu5vGqUp3145hSJuHB4FuA0ieplfxO78psVM= gb@gerhard";
 
     # ── Cross-context (work) ──────────────────────────────────────────────
-    # Markus's BYTEPOETS work identity. Public key of `id_ed25519_bytepoets`
-    # — the private key lives on work-context macOS hosts
-    # (mba-imac-work; former M5 work portable retired). Currently admitted on
-    # imac0 only via the `bytepoetsInbound` preset; promote to other personal
-    # hosts as cross-context-inbound need arises. NOT in `personalHosts`
+    # Markus's BYTEPOETS work identity. Public key of `id_ed25519_bytepoets`.
+    # Retained for cross-context inbound access via the `bytepoetsInbound`
+    # preset; promote to other personal hosts as the need arises. NOT in
+    # `personalHosts`
     # because it's a deliberately separate trust dimension (work → personal),
     # not the same-context-inbound that personalHosts captures.
     "bytepoets-mba-ed25519" =

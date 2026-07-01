@@ -18,7 +18,7 @@ This repository uses a modular architecture where **NixOS servers** import the f
 
 **NixOS hosts** (hsb0, hsb1, hsb8, etc.) follow a layered approach: the flake defines the system, which loads the host's `configuration.nix`, imports the hokage module from an external repository (`github:pbek/nixcfg`), which then loads `common.nix` for system-wide settings. `common.nix` imports `theme-hm.nix` which auto-applies host-specific colors.
 
-**macOS hosts** (imac0, mba-imac-work) use a simpler path: the flake loads Home Manager with `home.nix`, which directly imports `theme-hm.nix` for theming and `fish-config.nix` for shell settings.
+**macOS hosts** (imac0, mbp0) use a simpler path: the flake loads Home Manager with `home.nix`, which directly imports `theme-hm.nix` for theming and `fish-config.nix` for shell settings.
 
 ### Configuration Flow Chart
 
@@ -30,8 +30,8 @@ This repository uses a modular architecture where **NixOS servers** import the f
              │                                        │
     ┌────────▼────────┐                    ┌──────────▼─────────┐
     │  NIXOS HOSTS    │                    │   MACOS HOSTS      │
-    │  (hsb0, hsb1,   │                    │   (imac0,          │
-    │   hsb8)         │                    │    mba-imac-work)  │
+    │  (hsb0, hsb1,   │                    │   (imac0, mbp0)    │
+    │   hsb8, hsb9)   │                    │                    │
     └────────┬────────┘                    └──────────┬─────────┘
              │                                        │
     ┌────────▼────────────────┐           ┌───────────▼──────────────┐
@@ -109,7 +109,6 @@ Each host automatically gets a unique color palette via `theme-hm.nix`:
 │    WORKSTATIONS              │   │      GAMING         │
 │                              │   │                     │
 │  imac0          🟫 warmGray  │   │  gpc0    💜 Purple  │
-│  mba-imac-work  ⬛ darkGray  │   │  stm*    💗 Pink    │
 └──────────────────────────────┘   └─────────────────────┘
 ```
 
@@ -193,9 +192,6 @@ cd ~/Code/nixcfg
 # First-time installation (bootstraps home-manager)
 nix run home-manager -- switch --flake ".#markus@<hostname>"
 
-# Example for work iMac:
-nix run home-manager -- switch --flake ".#markus@mba-imac-work"
-
 # Example for home iMac:
 nix run home-manager -- switch --flake ".#markus@imac0"
 ```
@@ -244,10 +240,9 @@ home-manager switch --flake ".#markus@<hostname>"
 
 ### Available macOS Hosts
 
-| Host            | Description                   | Command                                                |
-| --------------- | ----------------------------- | ------------------------------------------------------ |
-| `imac0`         | Home iMac (personal default)  | `home-manager switch --flake ".#markus@imac0"`         |
-| `mba-imac-work` | Work iMac (BYTEPOETS default) | `home-manager switch --flake ".#markus@mba-imac-work"` |
+| Host    | Description                  | Command                                        |
+| ------- | ---------------------------- | ---------------------------------------------- |
+| `imac0` | Home iMac (personal default) | `home-manager switch --flake ".#markus@imac0"` |
 
 ### Troubleshooting
 
@@ -321,12 +316,11 @@ GAMING:
 
 #### Workstations (Personal Machines)
 
-| Host            | Old Name (Config) | Owner  | IP            | Theme | Status          |
-| --------------- | ----------------- | ------ | ------------- | ----- | --------------- |
-| `imac0`         | imac-mba-home     | Markus | 192.168.1.150 | ⬜    | ✅ **Migrated** |
-| `imac1`         | -                 | Mai    | 192.168.1.152 | -     | ⏳ Future       |
-| `mba-imac-work` | -                 | Markus | -             | ⬛    | ✅ **Themed**   |
-| `mbp0`          | -                 | Markus | -             | ⬜    | ✅ **Active**   |
+| Host    | Old Name (Config) | Owner  | IP            | Theme | Status          |
+| ------- | ----------------- | ------ | ------------- | ----- | --------------- |
+| `imac0` | imac-mba-home     | Markus | 192.168.1.150 | ⬜    | ✅ **Migrated** |
+| `imac1` | -                 | Mai    | 192.168.1.152 | -     | ⏳ Future       |
+| `mbp0`  | -                 | Markus | -             | ⬜    | ✅ **Active**   |
 
 #### Gaming Systems
 
@@ -378,7 +372,7 @@ All hosts have been migrated to the new naming scheme:
 
 **Workstations**:
 
-- imac0, imac1, mba-imac-work, mbp0 - Personal development machines
+- imac0, imac1, mbp0 - Personal development machines
 
 **Gaming**:
 
@@ -446,7 +440,6 @@ hsb8          Parents (DNS/DHCP, 192.168.1.100) [was: msww87]
 ```text
 imac0         iMac 27" (Markus, home) [was: imac-mba-home]
 imac1         iMac (Mai, home) [was: wz-imac-mpe]
-mba-imac-work iMac (Markus, work/BYTEPOETS)
 gpc0          Gaming PC (Markus) [was: mba-gaming-pc]
 ```
 
@@ -516,7 +509,6 @@ See archived hosts for full list of Pbek's machines
 | 2     | hsb1 (was miniserver24)   | ✅ Done | ✅     | ✅      |
 | 3     | hsb0 (was miniserver99)   | ✅ Done | ✅     | ✅      |
 | 4     | imac0 (was imac-mba-home) | ✅ Done | ✅     | ✅      |
-| 5     | mba-imac-work             | ✅ Done | N/A    | ✅      |
 | 6     | gpc0 (was mba-gaming-pc)  | ✅ Done | ✅     | ✅      |
 
 **Includes**: Hostname rename, folder restructure, DHCP updates, external hokage pattern, per-host theming

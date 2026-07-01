@@ -20,7 +20,7 @@
 #                  + install-state check (ghosttyCheckActivation)
 #                  + declarative cask manifest via mkBrewfile (NIX-107 Path A)
 #
-# Usage in home.nix (for mba-imac-work style):
+# Usage in home.nix:
 #   let macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
 #   in { programs.fish = macosCommon.fishConfig; ... }
 #
@@ -110,7 +110,6 @@ in
         sourcefish
         stress
         helpfish
-        imacw
         ;
 
       # Custom cd function using zoxide

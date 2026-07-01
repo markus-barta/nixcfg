@@ -158,37 +158,6 @@
         user = "markus";
       };
 
-      # ═══════════════════════════════════════════════════════════
-      # WORK NETWORK HOSTS (10.17.0.0/16 BYTEPOETS) - LAN with TS fallback
-      # ═══════════════════════════════════════════════════════════
-
-      "mba-imac-work" = {
-        hostname = "10.17.1.7";
-        user = "markus"; # Note: user is markus, not mba!
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc mba-imac-work.ts.barta.cm %p; fi'";
-      };
-      "mba-imac-work-lan" = {
-        hostname = "10.17.1.7";
-        user = "markus";
-      };
-      "mba-imac-work-ts" = {
-        hostname = "mba-imac-work.ts.barta.cm";
-        user = "markus";
-      };
-
-      # Nickname: imacw → mba-imac-work
-      "imacw" = {
-        hostname = "mba-imac-work";
-      };
-      "imacw-lan" = {
-        hostname = "10.17.1.7";
-        user = "markus";
-      };
-      "imacw-ts" = {
-        hostname = "mba-imac-work.ts.barta.cm";
-        user = "markus";
-      };
-
       "miniserver-bp" = {
         hostname = "10.17.1.40";
         port = 2222;
