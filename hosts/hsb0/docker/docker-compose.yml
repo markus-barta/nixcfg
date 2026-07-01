@@ -189,8 +189,15 @@ services:
       - --cache-temp-path=/tmp
       - --server-addr=0.0.0.0:8501
       - --cache-allow-put-verb
+      # cache-max-size is enforced ONLY by the LRU cron below, not as a live cap.
+      # Must stay well under the ZFS quota (64G, disk-config.zfs.nix): between LRU
+      # runs ncps keeps caching with no ceiling, so headroom (quota - this) must
+      # exceed the largest inter-run burst (the fleet warmer). 8G was too thin and
+      # deadlocked twice; 22G + 6-hourly LRU is the durable margin. NIX (2026-07-01).
       - --cache-max-size=42G
-      - --cache-lru-schedule=0 3 * * *
+      # Every 6h (was daily 0 3 * * *): shrinks the max accumulation window 4x so a
+      # warmer/heavy-build burst can't sit until the next day and overflow the FS.
+      - --cache-lru-schedule=0 */6 * * *
       - --cache-secret-key-path=/run/secrets/ncps-key
       - --cache-upstream-url=https://cache.nixos.org
       - --cache-upstream-public-key=cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
