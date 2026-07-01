@@ -99,19 +99,6 @@
       HostName gpc0.ts.barta.cm
       User mba
 
-    Host imac0
-      HostName 192.168.1.150
-      User markus
-      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc imac0.ts.barta.cm %p; fi'
-
-    Host imac0-lan
-      HostName 192.168.1.150
-      User markus
-
-    Host imac0-ts
-      HostName imac0.ts.barta.cm
-      User markus
-
     # === PORTABLE/WORK HOSTS ===
     Host miniserver-bp
       HostName 10.17.1.40

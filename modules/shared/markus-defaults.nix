@@ -64,16 +64,6 @@ let
         pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN26yvYncUoYvFUrAZNZrieSra4hE44jiTEcjEuIfaTr m5-bytepoets-userkey 2026-05-12";
       };
     };
-    "imac0" = {
-      personal = {
-        keyName = "imac0-personal-userkey";
-        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOO/vDa+dpUVei1XcfM/dNJbvVPK3rP4X19d8+UYzXFf imac0-personal-userkey 2026-05-12";
-      };
-      bytepoets = {
-        keyName = "imac0-bytepoets-userkey";
-        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK3n5/2PT3/QYI6GY5noySbbj7ssWMeK9bkhr4NWBdaV imac0-bytepoets-userkey 2026-05-12";
-      };
-    };
   };
 
   # Lookup or null. Hosts not in the table get atelier-disabled-by-default

@@ -129,7 +129,7 @@ MY_KEY=$(cat /run/secrets/<name>)
 # then export / write to .env as needed
 ```
 
-**5. Encrypt (you do this on imac0):**
+**5. Encrypt (you do this on mbp0):**
 
 ```bash
 agenix -e secrets/hsb0-<name>.age

@@ -10,19 +10,18 @@ Personal NixOS configuration managing home servers, cloud infrastructure, and de
 
 ## What This Does
 
-**Manages 7 NixOS hosts + 2 macOS workstations:**
+**Manages 7 NixOS hosts + 1 macOS workstation:**
 
-| Host      | Role                                       | Location      |
-| --------- | ------------------------------------------ | ------------- |
-| **hsb0**  | DNS/DHCP (AdGuard Home)                    | Home          |
-| **hsb1**  | Smart Home Hub (Node-RED, MQTT, HomeKit)   | Home          |
-| **hsb8**  | Home Automation                            | Parents' Home |
-| **hsb9**  | Home Automation                            | In-laws' Home |
-| **gpc0**  | Gaming Desktop (Steam, Plasma)             | Home          |
-| **csb0**  | IoT Hub (MQTT, Telegram Bot)               | Cloud         |
-| **csb1**  | Monitoring (Grafana, InfluxDB, Paperless)  | Cloud         |
-| **imac0** | Development Workstation                    | macOS (Home)  |
-| **mbp0**  | Private MacBook Pro (Apple Silicon M5 Max) | macOS (Home)  |
+| Host     | Role                                       | Location      |
+| -------- | ------------------------------------------ | ------------- |
+| **hsb0** | DNS/DHCP (AdGuard Home)                    | Home          |
+| **hsb1** | Smart Home Hub (Node-RED, MQTT, HomeKit)   | Home          |
+| **hsb8** | Home Automation                            | Parents' Home |
+| **hsb9** | Home Automation                            | In-laws' Home |
+| **gpc0** | Gaming Desktop (Steam, Plasma)             | Home          |
+| **csb0** | IoT Hub (MQTT, Telegram Bot)               | Cloud         |
+| **csb1** | Monitoring (Grafana, InfluxDB, Paperless)  | Cloud         |
+| **mbp0** | Private MacBook Pro (Apple Silicon M5 Max) | macOS (Home)  |
 
 **Key Capabilities:**
 
@@ -111,7 +110,7 @@ flake.nix
 </details>
 
 <details>
-<summary><strong>🍎 macOS Host Load Order</strong> (imac0, mbp0)</summary>
+<summary><strong>🍎 macOS Host Load Order</strong> (mbp0)</summary>
 
 ```
 flake.nix
@@ -144,12 +143,12 @@ flake.nix
                     └── theme-palettes.nix
 ```
 
-**File paths loaded for a macOS workstation (e.g., imac0):**
+**File paths loaded for the macOS workstation (mbp0):**
 
 | Path                                           | Purpose                                |
 | ---------------------------------------------- | -------------------------------------- |
 | `flake.nix`                                    | Entry point with `mkDarwinHome` helper |
-| `hosts/imac0/home.nix`                         | User config (packages, shell, git)     |
+| `hosts/mbp0/home.nix`                          | User config (packages, shell, git)     |
 | `modules/config/karabiner.json`                | Shared macOS Karabiner keyboard config |
 | `modules/uzumaki/home-manager.nix`             | Uzumaki HM module                      |
 | `modules/uzumaki/options.nix`                  | Shared uzumaki options                 |

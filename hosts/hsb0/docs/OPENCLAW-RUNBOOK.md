@@ -172,7 +172,7 @@ just oc-rebuild
 ### Check Status
 
 ```bash
-just oc-status                          # from imac0 or hsb0
+just oc-status                          # from mbp0 or hsb0
 
 # Or directly on hsb0:
 docker ps | grep openclaw-gateway
@@ -724,7 +724,7 @@ Each agent has a separate private GitHub repo:
 
 **Combined VSCodium workspace**: `nixcfg+agents.code-workspace` (all repos as roots).
 
-### Just Recipes (from imac0 or hsb0)
+### Just Recipes (from mbp0 or hsb0)
 
 ```bash
 just oc-rebuild             # update + rebuild container (--no-cache, pulls latest openclaw)
@@ -745,7 +745,7 @@ The entrypoint handles both agents in a loop:
 - Writes per-agent gogcli env file (`/home/node/.config/<agent>/gogcli/gogcli.env`)
 - Starts daily auto-push background loop per agent; Merlin push is currently disabled until a replacement PAT is added
 
-### Local Setup (imac0)
+### Local Setup (mbp0)
 
 - All three workspace repos cloned under `~/Code/`
 - Open `nixcfg+agents.code-workspace` in VSCodium for all repos

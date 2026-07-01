@@ -21,7 +21,6 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 ```
 Run: hostname
      │
-     ├── imac0 ────────────────→ You're at home on the home iMac
      ├── mbp0 ─────────────────→ You're on the private Apple Silicon M5 portable
      ├── gpc0 ─────────────────→ You're on the gaming PC via ssh
      ├── hsb0/hsb1/hsb8/hsb9 ─→ You're on a home/family server via ssh
@@ -57,7 +56,7 @@ Task to perform?
 ```
 Current Context                Target Host              Reachable?
 ─────────────────────────────────────────────────────────────────────
-🏠 HOME (imac0, gpc0)          *.lan hosts (home)       ✅ Direct
+🏠 HOME (gpc0, mbp0)           *.lan hosts (home)       ✅ Direct
                                csb0, csb1               ✅ Internet
 
 🌐 REMOTE (Tailscale/Headscale - works from ANYWHERE)
@@ -81,23 +80,21 @@ Current Context                Target Host              Reachable?
 
 **Only use these when you've confirmed SSH is needed AND target is reachable:**
 
-|       | Host                           | SSH Command | User        | Network     | Notes               |
-| ----- | ------------------------------ | ----------- | ----------- | ----------- | ------------------- |
-| hsb0  | `ssh mba@hsb0.lan`             | mba         | Home LAN    | Home LAN    | DNS/DHCP server     |
-| hsb1  | `ssh mba@hsb1.lan`             | mba         | Home LAN    | Home LAN    | Home automation     |
-| hsb8  | `ssh mba@hsb8.lan`             | mba         | Home LAN    | Home LAN    | Parents' server     |
-| hsb9  | `ssh mba@hsb9.lan`             | mba         | Home LAN    | Home LAN    | In-laws' server     |
-| gpc0  | `ssh mba@gpc0.lan`             | mba         | Home LAN    | Home LAN    | Gaming PC / builds  |
-| csb0  | `ssh mba@cs0.barta.cm -p 2222` | mba         | Internet    | Internet    | Cloud - port 2222!  |
-| csb1  | `ssh mba@cs1.barta.cm -p 2222` | mba         | Internet    | Internet    | Cloud - port 2222!  |
-| mbp0  | `ssh mba@mbp0.lan`             | mba         | Home/Remote | Home/Remote | Private M5 portable |
-| imac0 | `ssh markus@imac0.lan`         | markus      | Home LAN    | Home LAN    | Home iMac           |
+|      | Host                           | SSH Command | User        | Network     | Notes               |
+| ---- | ------------------------------ | ----------- | ----------- | ----------- | ------------------- |
+| hsb0 | `ssh mba@hsb0.lan`             | mba         | Home LAN    | Home LAN    | DNS/DHCP server     |
+| hsb1 | `ssh mba@hsb1.lan`             | mba         | Home LAN    | Home LAN    | Home automation     |
+| hsb8 | `ssh mba@hsb8.lan`             | mba         | Home LAN    | Home LAN    | Parents' server     |
+| hsb9 | `ssh mba@hsb9.lan`             | mba         | Home LAN    | Home LAN    | In-laws' server     |
+| gpc0 | `ssh mba@gpc0.lan`             | mba         | Home LAN    | Home LAN    | Gaming PC / builds  |
+| csb0 | `ssh mba@cs0.barta.cm -p 2222` | mba         | Internet    | Internet    | Cloud - port 2222!  |
+| csb1 | `ssh mba@cs1.barta.cm -p 2222` | mba         | Internet    | Internet    | Cloud - port 2222!  |
+| mbp0 | `ssh mba@mbp0.lan`             | mba         | Home/Remote | Home/Remote | Private M5 portable |
 
 **🌐 Tailscale SSH (from anywhere):** `ssh mba@<host>.ts.barta.cm`
 
 **Key Logic:**
 
-- `imac0` = **ALWAYS at home** (27" iMac, not portable)
 - `mbp0` = private portable, test network to determine location
 
 ---
@@ -157,7 +154,6 @@ Current Context                Target Host              Reachable?
 
 ## 🏠 Context Logic
 
-- **imac0**: Home LAN.
 - **mbp0**: Private portable. **Test**: `ping -c1 hsb0.lan` first; otherwise use Tailscale.
 - **hsb9**: In-laws' automation server.
 
@@ -171,17 +167,16 @@ Current Context                Target Host              Reachable?
 
 ## 🖥️ Host Inventory
 
-|           | Host     | User | Port           | Criticality         | Role |
-| --------- | -------- | ---- | -------------- | ------------------- | ---- |
-| **hsb0**  | `mba`    | 22   | 🏆 Crown Jewel | DNS/DHCP (AdGuard)  |
-| **hsb1**  | `mba`    | 22   | 🟡 Medium      | Home Automation     |
-| **hsb8**  | `mba`    | 22   | 🟡 Medium      | Parents' Server     |
-| **hsb9**  | `mba`    | 22   | 🟡 Medium      | In-laws' Server     |
-| **csb0**  | `mba`    | 2222 | 🔴 High        | Cloud Smart Home    |
-| **csb1**  | `mba`    | 2222 | 🟡 Medium      | Monitoring / Apps   |
-| **gpc0**  | `mba`    | 22   | 🟢 Low         | Build Host / Gaming |
-| **imac0** | `markus` | 22   | 🟡 Medium      | Home Workstation    |
-| **mbp0**  | `mba`    | 22   | 🟢 Low         | Private M5 portable |
+|          | Host  | User | Port           | Criticality         | Role |
+| -------- | ----- | ---- | -------------- | ------------------- | ---- |
+| **hsb0** | `mba` | 22   | 🏆 Crown Jewel | DNS/DHCP (AdGuard)  |
+| **hsb1** | `mba` | 22   | 🟡 Medium      | Home Automation     |
+| **hsb8** | `mba` | 22   | 🟡 Medium      | Parents' Server     |
+| **hsb9** | `mba` | 22   | 🟡 Medium      | In-laws' Server     |
+| **csb0** | `mba` | 2222 | 🔴 High        | Cloud Smart Home    |
+| **csb1** | `mba` | 2222 | 🟡 Medium      | Monitoring / Apps   |
+| **gpc0** | `mba` | 22   | 🟢 Low         | Build Host / Gaming |
+| **mbp0** | `mba` | 22   | 🟢 Low         | Private M5 portable |
 
 > 📖 **Full Inventory & IPs**: See `docs/INFRASTRUCTURE.md`
 
@@ -310,9 +305,9 @@ ssh mba@<host> "systemctl status <service> 2>/dev/null || echo 'not found'"
 
 **Host criticality:**
 
-|                | Priority          | Hosts                          | Notes |
-| -------------- | ----------------- | ------------------------------ | ----- |
-| 🏆 Crown jewel | hsb0              | DNS/DHCP for all home hosts    |
-| 🔴 High        | hsb1, csb0, csb1  | Home automation, public-facing |
-| 🟡 Medium      | hsb8, hsb9, imac0 | Family automation, workstation |
-| 🟢 Low         | gpc0, mbp0        | Gaming, portable               |
+|                | Priority         | Hosts                          | Notes |
+| -------------- | ---------------- | ------------------------------ | ----- |
+| 🏆 Crown jewel | hsb0             | DNS/DHCP for all home hosts    |
+| 🔴 High        | hsb1, csb0, csb1 | Home automation, public-facing |
+| 🟡 Medium      | hsb8, hsb9       | Family automation              |
+| 🟢 Low         | gpc0, mbp0       | Gaming, portable               |

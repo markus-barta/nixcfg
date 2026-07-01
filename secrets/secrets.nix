@@ -21,12 +21,10 @@ let
   # for the canonical metadata on each key.
   markus_rsa_legacy = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt"; # markus@iMac-5k-MBA-home.local — shared pre-2026 RSA
   markus_m5_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mbp0"; # added INSPR-78 (2026-05-03)
-  markus_imac0_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOdow+y+02Ekej5q3JD+5SSCWDDW4Hmiwwbfe9fTYUBA markus@imac0"; # added INSPR-78 (2026-05-03)
 
   markus = [
     markus_rsa_legacy
     markus_m5_ed25519
-    markus_imac0_ed25519
   ];
 
   # gb's key (user on hsb8)
@@ -92,13 +90,6 @@ let
   "mbp0" = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH6ene6+iB5I9brFPfFwuqNil7nbJpWguycyZqv67+LU root@mbp0"
   ];
-
-  # imac0 host-key entry was removed 2026-05-10 (declared 2026-05-01,
-  # never wired as a recipient — agent-secrets uses USER keys via the
-  # `markus_*` aggregate, not HOST keys). Statix flagged it as an unused
-  # binding. If system-level agenix on imac0 ever materializes, restore
-  # via `git show <pre-2026-05-10>:secrets/secrets.nix` (the host pubkey
-  # is preserved in git history forever).
 
 in
 {
@@ -473,8 +464,10 @@ in
   "agents/host/mbp0/m5-personal-userkey.age".publicKeys = markus;
   "agents/host/mbp0/m5-bytepoets-userkey.age".publicKeys = markus;
 
-  # imac0
-  "agents/host/imac0/imac0-personal-userkey.age".publicKeys = markus;
-  "agents/host/imac0/imac0-bytepoets-userkey.age".publicKeys = markus;
+  # Archived imac0 user keys (host decommissioned). Kept encrypted for
+  # emergency recovery/audit only; archive paths are not materialized by
+  # inspr.secrets.agents on any active host.
+  "agents/archive/imac0/imac0-personal-userkey.age".publicKeys = markus;
+  "agents/archive/imac0/imac0-bytepoets-userkey.age".publicKeys = markus;
 
 }
