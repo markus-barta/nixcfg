@@ -59,7 +59,7 @@ hostname
 | Pattern             | Example               | Use Case          |
 | ------------------- | --------------------- | ----------------- |
 | `mbp{n}`            | `mbp0`                | Personal MacBooks |
-| `{device}{n}`       | `imac0`, `mbp1`       | Personal machines |
+| `{device}{n}`       | `mbp0`, `mbp1`        | Personal machines |
 | `{family}-{device}` | `mom-imac`, `dad-mbp` | Family machines   |
 
 ### 1.3 Enable SSH (Optional but Recommended)
@@ -208,14 +208,14 @@ mkdir -p hosts/$HOSTNAME/{docs,scripts/host-user,secrets,tests}
 
 ### 3.3 Copy Template Files
 
-Use imac0 or the macOS host template as a starting point:
+Use mbp0 or the macOS host template as a starting point:
 
 ```bash
 # Copy home.nix template
-cp hosts/imac0/home.nix hosts/$HOSTNAME/home.nix
+cp hosts/mbp0/home.nix hosts/$HOSTNAME/home.nix
 
 # Copy test README
-cp hosts/imac0/tests/README.md hosts/$HOSTNAME/tests/README.md
+cp hosts/_template-macos/README.md hosts/$HOSTNAME/tests/README.md
 ```
 
 ### 3.4 Customize home.nix
@@ -260,7 +260,7 @@ Edit `hosts/$HOSTNAME/home.nix`:
   home.enableNixpkgsReleaseCheck = false;
   programs.home-manager.enable = true;
 
-  # ... rest of configuration (copy from imac0/home.nix)
+  # ... rest of configuration (copy from hosts/mbp0/home.nix or the template)
 }
 ```
 
@@ -297,7 +297,6 @@ Edit `modules/uzumaki/theme/theme-palettes.nix`:
   "your-hostname" = "warmGray";  # or lightGray, darkGray, etc.
 
   # Existing hosts...
-  "imac0" = "warmGray";
   "mbp0" = "lightGray";
 }
 ```
@@ -311,7 +310,6 @@ Add to `flake.nix` in the `homeConfigurations` section:
 ```nix
 homeConfigurations = {
   # Existing hosts...
-  "markus@imac0" = home-manager.lib.homeManagerConfiguration { ... };
 
   # Add new host
   "YOUR-USERNAME@YOUR-HOSTNAME" = home-manager.lib.homeManagerConfiguration {

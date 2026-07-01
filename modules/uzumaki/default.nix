@@ -101,7 +101,7 @@ in
   # CONFIGURATION (NixOS only)
   # ══════════════════════════════════════════════════════════════════════════════
   # NOTE: This module is for NixOS system-level configuration only.
-  # Darwin/macOS uses a separate Home Manager pattern - see hosts/imac0/home.nix
+  # Darwin/macOS uses a separate Home Manager pattern - see hosts/mbp0/home.nix
 
   config = lib.mkIf cfg.enable {
     # Platform marker

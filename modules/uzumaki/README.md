@@ -184,15 +184,15 @@ sudo nixos-rebuild switch --flake .#hostname
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              DRY Architecture                               │
 │                                                                             │
-│    hosts/imac0/home.nix                                                     │
+│    hosts/mbp0/home.nix                                                     │
 │         │                                                                   │
 │         │ imports                                                           │
 │         ▼                                                                   │
-│    modules/uzumaki/theme/theme-hm.nix ──► theme.hostname = "imac0"          │
+│    modules/uzumaki/theme/theme-hm.nix ──► theme.hostname = "mbp0"          │
 │         │                                       │                           │
 │         │ reads                                 │ lookup                    │
 │         ▼                                       ▼                           │
-│    ┌────────────────────────┐          hostPalette.imac0 = "warmGray"       │
+│    ┌────────────────────────┐          hostPalette.mbp0 = "lightGray"       │
 │    │ starship-template.toml │                   │                           │
 │    │ (Unicode glyphs +      │                   │                           │
 │    │  color placeholders)   │                   │                           │
@@ -266,7 +266,7 @@ sudo nixos-rebuild switch --flake .#hostname
 │    theme-palettes.nix                                                       │
 │    ├── palettes.yellow = { gradient.primary = "#d4c060", ... }             │
 │    ├── hostPalette.hsb0 = "yellow"                                         │
-│    └── hostPalette.imac0 = "warmGray"                                      │
+│    └── hostPalette.mbp0 = "lightGray"                                      │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼

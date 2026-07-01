@@ -82,7 +82,6 @@
     hsb8 = "ssh hsb8 -t 'zellij attach hsb8 -c'";
     hsb9 = "ssh hsb9 -t 'zellij attach hsb9 -c'";
     gpc0 = "ssh gpc0 -t 'zellij attach gpc0 -c'";
-    imac0 = "ssh imac0 -t 'zellij attach imac0 -c'";
 
     # Work network (nicknames)
     msbp = "ssh msbp -t 'zellij attach msbp -c'"; # → miniserver-bp

@@ -206,10 +206,10 @@
 #
 #    GAMING                           WORKSTATIONS
 #    ┌─────────────────────┐          ┌─────────────────────┐
-#    │  gpc0    🟣 Purple  │          │  imac0   🟫 W-Gray  │
-#    │  stm0    🩷 Pink    │          │  imac1   🔘 M-Gray  │
+#    │  gpc0    🟣 Purple  │          │  imac1   🔘 M-Gray  │
+#    │  stm0    🩷 Pink    │          │  mbp     🩶 L-Gray  │
 #    │  stm1    🩷 Pink    │          │  work    ⚫ D-Gray  │
-#    └─────────────────────┘          │  mbp     🩶 L-Gray  │
+#    └─────────────────────┘          │                     │
 #                                     └─────────────────────┘
 #
 # ════════════════════════════════════════════════════════════════════════════════
@@ -603,7 +603,7 @@
     warmGray = {
       name = "Warm Gray";
       category = "workstation";
-      description = "Home workstation (imac0)";
+      description = "Warm gray workstation palette (retained for future hosts)";
 
       # Powerline gradient (light → dark) - warm/brownish tint
       gradient = {
@@ -837,7 +837,6 @@
     stm1 = "pink";
 
     # Workstations (home > work)
-    imac0 = "warmGray";
     imac1 = "roseGold"; # Wife's iMac (future)
     "mbp0" = "lightGray";
     miniserver-bp = "veryDarkGray";
@@ -862,7 +861,6 @@
     "stm0"
     "stm1"
     # Workstations (home > work)
-    "imac0"
     "imac1"
     "mbp0"
   ];

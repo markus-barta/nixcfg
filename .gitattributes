@@ -8,3 +8,6 @@
 # so "keep one side, regenerate if stale" is always safe.
 devenv.lock merge=ours
 flake.lock  merge=ours
+
+# Encrypted age payloads are opaque binary blobs for git purposes.
+*.age binary

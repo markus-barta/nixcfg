@@ -286,7 +286,7 @@ in
   # ============================================================================
   # Refactored 2026-05-05 (NIX-104): use `macosCommon.commonPackages` as the
   # base — single source of truth for the default macOS dev toolkit. Anything
-  # added to commonPackages auto-reaches mbp0 + imac0. Per-host extras
+  # added to commonPackages auto-reaches mbp0. Per-host extras
   # listed below; if you add something
   # that ALL macOS hosts should have, prefer adding it to commonPackages
   # in modules/uzumaki/macos-common.nix instead.

@@ -144,13 +144,12 @@ gpc0 is the **most powerful NixOS build machine** in the infrastructure, making 
 
 ### Build Time Comparison
 
-| Host     | CPU                | Threads | Typical Rebuild  |
-| -------- | ------------------ | ------- | ---------------- |
-| **gpc0** | i7-7700K @ 4.20GHz | 8       | **~2-5 min** ⚡  |
-| hsb1     | i7-4578U @ 3.00GHz | 4       | ~5-10 min        |
-| hsb0     | i5-2415M @ 2.30GHz | 4       | ~8-15 min        |
-| hsb8     | i5-2415M @ 2.30GHz | 4       | ~8-15 min        |
-| imac0    | Apple M1 (Rosetta) | 8       | Varies (HM only) |
+| Host     | CPU                | Threads | Typical Rebuild |
+| -------- | ------------------ | ------- | --------------- |
+| **gpc0** | i7-7700K @ 4.20GHz | 8       | **~2-5 min** ⚡ |
+| hsb1     | i7-4578U @ 3.00GHz | 4       | ~5-10 min       |
+| hsb0     | i5-2415M @ 2.30GHz | 4       | ~8-15 min       |
+| hsb8     | i5-2415M @ 2.30GHz | 4       | ~8-15 min       |
 
 **gpc0 is recommended** for building complex configurations or when iterating quickly on changes.
 

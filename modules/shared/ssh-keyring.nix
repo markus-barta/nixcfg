@@ -57,12 +57,11 @@
   # own subset, etc.).
   trustPresets = {
     # All current Markus-personal admittance: legacy RSA + per-host ed25519s
-    # (mbp0, imac0). Use this on hosts where Markus actively SSHes in
+    # (mbp0). Use this on hosts where Markus actively SSHes in
     # from any of his workstations today.
     personalHosts = [
       "markus-rsa-shared-pre-2026"
       "mba@mbp0"
-      "markus@imac0"
     ];
 
     # Post-retirement state (INSPR-76 Phase D): per-host ed25519 only,
@@ -71,7 +70,6 @@
     # successful daily use.
     ed25519Only = [
       "mba@mbp0"
-      "markus@imac0"
     ];
 
     # Transitional / archival: legacy RSA only, no new ed25519s. Use on
@@ -92,8 +90,7 @@
     # key lived on retired work-context macOS hosts; mbp0 is now private.
     # Use this preset on hosts where
     # Markus should be able to SSH IN from any work-context machine
-    # (cross-context inbound). Initially used on imac0 only; promote to
-    # other personal hosts (hsb0, hsb1, csb0, …) as the need arises.
+    # (cross-context inbound). Promote to personal hosts only as needed.
     bytepoetsInbound = [
       "bytepoets-mba-ed25519"
     ];
@@ -115,14 +112,14 @@
   keys = {
     # ── Legacy ────────────────────────────────────────────────────────────
     # Shared 2048-bit RSA key, originally generated on iMac 5k circa 2024
-    # or earlier. Currently propagated to M5, imac0, gpc0 (identical key
+    # or earlier. Currently propagated to M5 and gpc0 (identical key
     # material on all three). See INSPR-76 epic for the multi-stage
     # retirement plan + ~/Code/inspr/legacy-rsa-key-inventory.md for the
     # discovered admittance map.
     "markus-rsa-shared-pre-2026" = {
       key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt markus@iMac-5k-MBA-home.local";
       status = "legacy";
-      note = "shared pre-2026 RSA; carried across M5+imac0+gpc0; retire via INSPR-76 once per-host ed25519 deployment is fleet-validated (target: late 2026)";
+      note = "shared pre-2026 RSA; carried across M5+gpc0 and formerly imac0; retire via INSPR-76 once per-host ed25519 deployment is fleet-validated (target: late 2026)";
     };
 
     # Discovered on imac0 ~/.ssh/authorized_keys 2026-05-05 during the
@@ -172,8 +169,6 @@
     # under per-host entries.
     "mba@mbp0" =
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mbp0 (added 2026-05-03; key material carried forward to new mbp0 device 2026-06-15)";
-    "markus@imac0" =
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOdow+y+02Ekej5q3JD+5SSCWDDW4Hmiwwbfe9fTYUBA markus@imac0 (added 2026-05-03)";
     # ── Family ────────────────────────────────────────────────────────────
     # Gerhard Barta (Markus's father). Used for the `gb` user on hsb8
     # (parents' home automation server). RSA-3072 modern key (NOT the

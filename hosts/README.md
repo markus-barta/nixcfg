@@ -18,7 +18,7 @@ This repository uses a modular architecture where **NixOS servers** import the f
 
 **NixOS hosts** (hsb0, hsb1, hsb8, etc.) follow a layered approach: the flake defines the system, which loads the host's `configuration.nix`, imports the hokage module from an external repository (`github:pbek/nixcfg`), which then loads `common.nix` for system-wide settings. `common.nix` imports `theme-hm.nix` which auto-applies host-specific colors.
 
-**macOS hosts** (imac0, mbp0) use a simpler path: the flake loads Home Manager with `home.nix`, which directly imports `theme-hm.nix` for theming and `fish-config.nix` for shell settings.
+**macOS hosts** (mbp0) use a simpler path: the flake loads Home Manager with `home.nix`, which directly imports `theme-hm.nix` for theming and `fish-config.nix` for shell settings.
 
 ### Configuration Flow Chart
 
@@ -30,7 +30,7 @@ This repository uses a modular architecture where **NixOS servers** import the f
              │                                        │
     ┌────────▼────────┐                    ┌──────────▼─────────┐
     │  NIXOS HOSTS    │                    │   MACOS HOSTS      │
-    │  (hsb0, hsb1,   │                    │   (imac0, mbp0)    │
+    │  (hsb0, hsb1,   │                    │   (mbp0)           │
     │   hsb8, hsb9)   │                    │                    │
     └────────┬────────┘                    └──────────┬─────────┘
              │                                        │
@@ -108,7 +108,6 @@ Each host automatically gets a unique color palette via `theme-hm.nix`:
 ┌──────────────────────────────┐   ┌─────────────────────┐
 │    WORKSTATIONS              │   │      GAMING         │
 │                              │   │                     │
-│  imac0          🟫 warmGray  │   │  gpc0    💜 Purple  │
 └──────────────────────────────┘   └─────────────────────┘
 ```
 
@@ -192,8 +191,8 @@ cd ~/Code/nixcfg
 # First-time installation (bootstraps home-manager)
 nix run home-manager -- switch --flake ".#markus@<hostname>"
 
-# Example for home iMac:
-nix run home-manager -- switch --flake ".#markus@imac0"
+# Example for current MacBook:
+nix run home-manager -- switch --flake ".#mba@mbp0"
 ```
 
 ### Step 5: Set Fish as Default Shell
@@ -240,9 +239,8 @@ home-manager switch --flake ".#markus@<hostname>"
 
 ### Available macOS Hosts
 
-| Host    | Description                  | Command                                        |
-| ------- | ---------------------------- | ---------------------------------------------- |
-| `imac0` | Home iMac (personal default) | `home-manager switch --flake ".#markus@imac0"` |
+| Host | Description | Command |
+| ---- | ----------- | ------- |
 
 ### Troubleshooting
 
@@ -288,7 +286,6 @@ SERVERS:
   hsb0, hsb1, hsb8        ← Home Server Barta (local infrastructure)
 
 WORKSTATIONS:
-  imac0                   ← iMac (Markus, home)
   imac1                   ← iMac (Mai, home)
   mbp0                    ← MacBook Pro (Markus, personal)
 
@@ -316,11 +313,10 @@ GAMING:
 
 #### Workstations (Personal Machines)
 
-| Host    | Old Name (Config) | Owner  | IP            | Theme | Status          |
-| ------- | ----------------- | ------ | ------------- | ----- | --------------- |
-| `imac0` | imac-mba-home     | Markus | 192.168.1.150 | ⬜    | ✅ **Migrated** |
-| `imac1` | -                 | Mai    | 192.168.1.152 | -     | ⏳ Future       |
-| `mbp0`  | -                 | Markus | -             | ⬜    | ✅ **Active**   |
+| Host    | Old Name (Config) | Owner  | IP            | Theme | Status        |
+| ------- | ----------------- | ------ | ------------- | ----- | ------------- |
+| `imac1` | -                 | Mai    | 192.168.1.152 | -     | ⏳ Future     |
+| `mbp0`  | -                 | Markus | -             | ⬜    | ✅ **Active** |
 
 #### Gaming Systems
 
@@ -338,13 +334,12 @@ GAMING:
 
 **Guinea Pig Approach**: Start with lowest-risk systems, learn, then migrate critical infrastructure
 
-| Priority | Host    | Risk Level  | Reason                               | Status  |
-| -------- | ------- | ----------- | ------------------------------------ | ------- |
-| 1        | `hsb8`  | 🟢 Very Low | Fresh install, not in production     | ✅ Done |
-| 2        | `hsb1`  | 🟡 Medium   | Home automation, but less critical   | ✅ Done |
-| 3        | `hsb0`  | 🔴 High     | DNS/DHCP, 200+ days uptime, critical | ✅ Done |
-| 4        | `imac0` | 🟢 Low      | Workstation, DHCP+config rename      | ✅ Done |
-| 5        | `gpc0`  | 🟢 Low      | Gaming PC, non-critical              | ✅ Done |
+| Priority | Host   | Risk Level  | Reason                               | Status  |
+| -------- | ------ | ----------- | ------------------------------------ | ------- |
+| 1        | `hsb8` | 🟢 Very Low | Fresh install, not in production     | ✅ Done |
+| 2        | `hsb1` | 🟡 Medium   | Home automation, but less critical   | ✅ Done |
+| 3        | `hsb0` | 🔴 High     | DNS/DHCP, 200+ days uptime, critical | ✅ Done |
+| 5        | `gpc0` | 🟢 Low      | Gaming PC, non-critical              | ✅ Done |
 
 ### Migration Complete! 🎉
 
@@ -353,8 +348,7 @@ All hosts have been migrated to the new naming scheme:
 1. ✅ **hsb8** - Deployed at ww87
 2. ✅ **hsb1** - Production automation server running
 3. ✅ **hsb0** - DNS/DHCP server running
-4. ✅ **imac0** - Workstation config running
-5. ✅ **gpc0** - Gaming PC running (NixOS system label update pending)
+4. ✅ **gpc0** - Gaming PC running (NixOS system label update pending)
 
 ---
 
@@ -372,7 +366,7 @@ All hosts have been migrated to the new naming scheme:
 
 **Workstations**:
 
-- imac0, imac1, mbp0 - Personal development machines
+- imac1, mbp0 - Personal development machines
 
 **Gaming**:
 
@@ -403,7 +397,7 @@ All hosts have been migrated to the new naming scheme:
 
 **Pattern**: `{device}{n}` - Descriptive device type + number
 
-- `imac{n}` - iMac desktops (imac0, imac1)
+- `imac{n}` - iMac desktops (future/retired pattern)
 - `mbp{n}` - MacBook Pro (mbp0)
 - `mba{n}` - MacBook Air (mba0) - not to confuse with "mba" user!
 
@@ -414,7 +408,6 @@ All hosts have been migrated to the new naming scheme:
 
 ### Why This Scheme?
 
-✅ **Immediate clarity**: `imac0` > `imac-mba-home` (shorter, clearer)  
 ✅ **Scalable**: Easy to add imac2, hsb3, etc.  
 ✅ **Consistent pattern**: Servers use 3-letter codes, workstations use descriptive names  
 ✅ **No conflicts**: Clear separation between device types  
@@ -438,7 +431,6 @@ hsb8          Parents (DNS/DHCP, 192.168.1.100) [was: msww87]
 **Workstations**:
 
 ```text
-imac0         iMac 27" (Markus, home) [was: imac-mba-home]
 imac1         iMac (Mai, home) [was: wz-imac-mpe]
 gpc0          Gaming PC (Markus) [was: mba-gaming-pc]
 ```
@@ -503,13 +495,12 @@ See archived hosts for full list of Pbek's machines
 
 **Status**: ✅ Theming Complete for All Active Hosts
 
-| Phase | Hosts                     | Status  | Naming | Theming |
-| ----- | ------------------------- | ------- | ------ | ------- |
-| 1     | hsb8 (was msww87)         | ✅ Done | ✅     | ✅      |
-| 2     | hsb1 (was miniserver24)   | ✅ Done | ✅     | ✅      |
-| 3     | hsb0 (was miniserver99)   | ✅ Done | ✅     | ✅      |
-| 4     | imac0 (was imac-mba-home) | ✅ Done | ✅     | ✅      |
-| 6     | gpc0 (was mba-gaming-pc)  | ✅ Done | ✅     | ✅      |
+| Phase | Hosts                    | Status  | Naming | Theming |
+| ----- | ------------------------ | ------- | ------ | ------- |
+| 1     | hsb8 (was msww87)        | ✅ Done | ✅     | ✅      |
+| 2     | hsb1 (was miniserver24)  | ✅ Done | ✅     | ✅      |
+| 3     | hsb0 (was miniserver99)  | ✅ Done | ✅     | ✅      |
+| 6     | gpc0 (was mba-gaming-pc) | ✅ Done | ✅     | ✅      |
 
 **Includes**: Hostname rename, folder restructure, DHCP updates, external hokage pattern, per-host theming
 

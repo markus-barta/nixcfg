@@ -85,10 +85,9 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 
 ### macOS Machines (home-manager only)
 
-| Host      | Role                     | User   | Git Default |
-| --------- | ------------------------ | ------ | ----------- |
-| **imac0** | Home Workstation         | markus | Personal    |
-| **mbp0**  | Private MacBook (M5 Max) | mba    | Personal    |
+| Host     | Role                     | User | Git Default |
+| -------- | ------------------------ | ---- | ----------- |
+| **mbp0** | Private MacBook (M5 Max) | mba  | Personal    |
 
 ---
 
@@ -181,15 +180,14 @@ Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts
 
 ### Connected Nodes
 
-| Host      | Platform | Tailscale Address | Status    |
-| --------- | -------- | ----------------- | --------- |
-| **imac0** | macOS    | imac0.ts.barta.cm | ✅ Active |
-| **mbp0**  | macOS    | mbp0.ts.barta.cm  | ✅ Active |
-| **hsb0**  | NixOS    | hsb0.ts.barta.cm  | ✅ Active |
-| **hsb1**  | NixOS    | hsb1.ts.barta.cm  | ✅ Active |
-| **gpc0**  | NixOS    | gpc0.ts.barta.cm  | ✅ Active |
-| **csb0**  | NixOS    | csb0.ts.barta.cm  | ✅ Active |
-| **csb1**  | NixOS    | csb1.ts.barta.cm  | ✅ Active |
+| Host     | Platform | Tailscale Address | Status    |
+| -------- | -------- | ----------------- | --------- |
+| **mbp0** | macOS    | mbp0.ts.barta.cm  | ✅ Active |
+| **hsb0** | NixOS    | hsb0.ts.barta.cm  | ✅ Active |
+| **hsb1** | NixOS    | hsb1.ts.barta.cm  | ✅ Active |
+| **gpc0** | NixOS    | gpc0.ts.barta.cm  | ✅ Active |
+| **csb0** | NixOS    | csb0.ts.barta.cm  | ✅ Active |
+| **csb1** | NixOS    | csb1.ts.barta.cm  | ✅ Active |
 
 <!-- miniserver-bp moved to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24) -->
 
@@ -233,13 +231,12 @@ ssh mba@cs0.barta.cm -p 2222 "docker exec headscale headscale nodes list"
 
 **NixOS configurations can only be built on NixOS hosts.**
 
-| Host      | Can Build NixOS? | Speed                            | Recommended For                |
-| --------- | ---------------- | -------------------------------- | ------------------------------ |
-| **gpc0**  | ✅ Yes           | ⚡ Fastest (8 threads, i7-7700K) | Complex builds, fast iteration |
-| **hsb1**  | ✅ Yes           | 🐢 Medium (4 threads)            | Remote deploys, CI             |
-| **hsb0**  | ✅ Yes           | 🐢 Slow (4 threads)              | Emergency only                 |
-| **imac0** | ❌ No            | -                                | home-manager only              |
-| **mbp0**  | ❌ No            | -                                | home-manager only              |
+| Host     | Can Build NixOS? | Speed                            | Recommended For                |
+| -------- | ---------------- | -------------------------------- | ------------------------------ |
+| **gpc0** | ✅ Yes           | ⚡ Fastest (8 threads, i7-7700K) | Complex builds, fast iteration |
+| **hsb1** | ✅ Yes           | 🐢 Medium (4 threads)            | Remote deploys, CI             |
+| **hsb0** | ✅ Yes           | 🐢 Slow (4 threads)              | Emergency only                 |
+| **mbp0** | ❌ No            | -                                | home-manager only              |
 
 ### Quick Commands
 

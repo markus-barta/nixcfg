@@ -144,20 +144,6 @@
         user = "mba";
       };
 
-      "imac0" = {
-        hostname = "192.168.1.150";
-        user = "markus"; # Note: user is markus, not mba!
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc imac0.ts.barta.cm %p; fi'";
-      };
-      "imac0-lan" = {
-        hostname = "192.168.1.150";
-        user = "markus";
-      };
-      "imac0-ts" = {
-        hostname = "imac0.ts.barta.cm";
-        user = "markus";
-      };
-
       "miniserver-bp" = {
         hostname = "10.17.1.40";
         port = 2222;
