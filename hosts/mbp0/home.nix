@@ -233,9 +233,11 @@ in
     ];
     extraCasks = [
       "android-studio"
+      "crystalfetch" # Win11 ARM ISO builder (UUP dump) — feeds the UTM VM below (NIX-209/OPS-3)
       "github" # GitHub Desktop
       "raycast"
       "tailscale-app" # M5 uses GUI; other hosts use CLI/system Tailscale
+      "utm" # Windows VM for OPUS Config Tool + EnOcean USB-dongle passthrough (NIX-209/OPS-3)
       "zed"
     ];
   };
