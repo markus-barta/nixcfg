@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>hsb1 · home server</title>
+<style>
+  :root{
+    --canvas:#FBF6EC; --card:#FFFDF8; --sunk:#F6EFE0; --line:#E7DCC9;
+    --ink:#2A2620; --taupe:#6B6154;
+    --home:#C75D3A; --media:#A85686; --signals:#CC8B2A; --safety:#6F8C5A; --infra:#8A7E6B;
+    --up:#4E8D6B; --checking:#D69A2D; --down:#B23A2E; --passive:#B8AD98;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --sans:"Avenir Next",Avenir,"Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,"Cascadia Code",monospace;
+  }
+  *{box-sizing:border-box;margin:0}
+  html,body{overflow-x:hidden}
+  body{
+    background:var(--canvas); color:var(--ink); font-family:var(--sans); line-height:1.5;
+    -webkit-font-smoothing:antialiased; min-height:100vh;
+    background-image:
+      radial-gradient(120% 90% at 100% -10%, rgba(204,139,42,.14), rgba(199,93,58,.05) 32%, transparent 60%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    background-attachment:fixed;
+  }
+  .wrap{max-width:1240px; margin:0 auto; padding:0 clamp(20px,5vw,64px)}
+  a{color:inherit; text-decoration:none}
+
+  /* masthead */
+  .mast{background:var(--sunk); border-bottom:1px solid var(--line)}
+  .mast .wrap{display:flex; align-items:center; gap:24px; flex-wrap:wrap; padding:22px clamp(20px,5vw,64px)}
+  .brand{display:flex; align-items:center; gap:14px; margin-right:auto}
+  .brand .mark{width:40px;height:40px;color:var(--home);flex:none}
+  .brand h1{font-family:var(--serif); font-size:44px; letter-spacing:-.01em; font-weight:600; line-height:1}
+  .brand .sub{font-size:12.5px; color:var(--taupe); font-variant-numeric:tabular-nums; margin-top:3px}
+  .agg{text-align:right; font-variant-numeric:tabular-nums}
+  .agg .count{font-family:var(--serif); font-size:22px}
+  .agg .count b{color:var(--up)}
+  .agg .clock{font-size:12px; color:var(--taupe); font-family:var(--mono)}
+  .search{position:relative}
+  .search input{
+    font-family:var(--sans); font-size:14px; color:var(--ink); background:var(--card);
+    border:1px solid var(--line); border-radius:10px; padding:9px 34px 9px 13px; width:230px; outline:none;
+  }
+  .search input:focus{border-color:var(--home); box-shadow:0 0 0 3px rgba(199,93,58,.12)}
+  .search .kbd{position:absolute; right:10px; top:50%; transform:translateY(-50%); font-family:var(--mono);
+    font-size:11px; color:var(--taupe); border:1px solid var(--line); border-radius:5px; padding:0 5px; background:var(--sunk)}
+
+  /* filter rail */
+  .rail{position:sticky; top:0; z-index:20; background:rgba(251,246,236,.86); backdrop-filter:blur(8px); border-bottom:1px solid var(--line)}
+  .rail .wrap{display:flex; gap:8px; flex-wrap:wrap; padding:12px clamp(20px,5vw,64px)}
+  .chip{display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--ink);
+    background:var(--card); border:1px solid var(--line); border-radius:999px; padding:5px 13px; cursor:pointer; transition:.15s}
+  .chip .dot{width:8px;height:8px;border-radius:50%; background:var(--c,var(--taupe))}
+  .chip .n{font-variant-numeric:tabular-nums; color:var(--taupe); font-size:12px}
+  .chip[aria-pressed="true"]{background:var(--c,var(--ink)); border-color:var(--c,var(--ink)); color:#fff}
+  .chip[aria-pressed="true"] .n{color:rgba(255,255,255,.8)}
+  .chip[aria-pressed="true"] .dot{background:#fff}
+
+  /* wings */
+  main{padding:26px 0 60px}
+  .wing{position:relative; margin:0 0 30px; padding-left:18px}
+  .wing::before{content:""; position:absolute; left:0; top:4px; bottom:4px; width:3px; border-radius:3px; background:var(--c)}
+  .wing-h{display:flex; align-items:center; gap:10px; margin:0 0 14px}
+  .wing-h .wi{width:22px;height:22px;color:var(--c)}
+  .wing-h h2{font-family:var(--serif); font-size:15px; text-transform:uppercase; letter-spacing:.14em; font-weight:600}
+  .wing-h .n{font-size:12px; color:var(--taupe); font-variant-numeric:tabular-nums}
+  .deck{display:grid; grid-template-columns:repeat(auto-fill,minmax(268px,1fr)); gap:16px}
+
+  /* card */
+  .svc{position:relative; display:grid; grid-template-rows:auto 1fr auto; gap:10px; min-height:132px;
+    background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px;
+    box-shadow:0 1px 2px rgba(42,38,32,.05); transition:transform .16s cubic-bezier(.2,.7,.2,1),box-shadow .16s,border-color .16s}
+  .svc .top{display:flex; align-items:flex-start; justify-content:space-between}
+  .chipi{width:38px;height:38px;border-radius:11px; display:grid; place-items:center; color:var(--c);
+    background:color-mix(in srgb,var(--c) 12%,transparent); transition:.16s}
+  .chipi svg{width:20px;height:20px}
+  .svc h3{font-size:17px; font-weight:600; color:var(--ink); line-height:1.2}
+  .svc .purpose{font-size:13.5px; color:var(--taupe); line-height:1.45}
+  .svc .foot{display:flex; align-items:baseline; justify-content:space-between; gap:8px}
+  .svc .port{font-family:var(--mono); font-size:12px; color:var(--taupe); font-variant-numeric:tabular-nums}
+  .svc .open{font-size:12.5px; color:var(--c); display:inline-flex; align-items:center; gap:4px; opacity:0; transform:translateX(-4px); transition:.16s}
+  .svc .open svg{width:14px;height:14px}
+  a.svc:hover{transform:translateY(-3px); box-shadow:0 8px 24px rgba(42,38,32,.10); border-color:color-mix(in srgb,var(--c) 55%,var(--line))}
+  a.svc:hover .chipi{background:color-mix(in srgb,var(--c) 18%,transparent)}
+  a.svc:hover .open{opacity:1; transform:translateX(0)}
+  a.svc:active{transform:translateY(-1px) scale(.997)}
+  a.svc:focus-visible{outline:2px solid var(--c); outline-offset:3px}
+  /* status dot */
+  .dot2{width:9px;height:9px;border-radius:50%; position:relative; margin-top:4px}
+  .dot2[data-s="up"]{background:var(--up)}
+  .dot2[data-s="up"]::after{content:""; position:absolute; inset:-4px; border-radius:50%; background:var(--up); opacity:.35; animation:pulse 2.4s ease infinite}
+  .dot2[data-s="checking"]{background:var(--checking); animation:blink 1.4s ease infinite}
+  .dot2[data-s="down"]{background:var(--down)}
+  .dot2[data-s="passive"]{background:transparent; box-shadow:inset 0 0 0 1.5px var(--passive)}
+  @keyframes pulse{0%{transform:scale(.6);opacity:.5}100%{transform:scale(1.6);opacity:0}}
+  @keyframes blink{50%{opacity:.35}}
+  /* passive card */
+  .svc.passive{background:var(--sunk); border-style:dotted; cursor:default}
+  .svc.passive h3{font-weight:600}
+  .svc.passive .port{color:var(--taupe)}
+  .hidden{display:none !important}
+  footer{border-top:1px solid var(--line); color:var(--taupe); font-size:12px}
+  footer .wrap{padding:16px clamp(20px,5vw,64px); display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap}
+  footer code{font-family:var(--mono); font-size:11px}
+  @media (prefers-reduced-motion:reduce){*{animation:none !important; transition:none !important}}
+  @media (max-width:520px){.brand h1{font-size:34px}.search input{width:150px}}
+</style>
+</head>
+<body>
+<!-- lucide sprite -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-house" viewBox="0 0 24 24"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+<symbol id="i-workflow" viewBox="0 0 24 24"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></symbol>
+<symbol id="i-radio-tower" viewBox="0 0 24 24"><path d="M4.9 16.1C1 12.2 1 5.8 4.9 1.9"/><path d="M7.8 4.7a6.14 6.14 0 0 0-.8 7.5"/><circle cx="12" cy="9" r="2"/><path d="M16.2 4.8c2 2 2.26 5.11.8 7.47"/><path d="M19.1 1.9a9.96 9.96 0 0 1 0 14.1"/><path d="M9.5 18h5"/><path d="m8 22 4-11 4 11"/></symbol>
+<symbol id="i-hexagon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></symbol>
+<symbol id="i-clapperboard" viewBox="0 0 24 24"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+<symbol id="i-grid-3x3" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></symbol>
+<symbol id="i-toy-brick" viewBox="0 0 24 24"><rect width="18" height="12" x="3" y="8" rx="1"/><path d="M10 8V5c0-.6-.4-1-1-1H6a1 1 0 0 0-1 1v3"/><path d="M19 8V5c0-.6-.4-1-1-1h-3a1 1 0 0 0-1 1v3"/></symbol>
+<symbol id="i-radio" viewBox="0 0 24 24"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></symbol>
+<symbol id="i-bell-ring" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/><path d="M4 2C2.8 3.7 2 5.7 2 8"/></symbol>
+<symbol id="i-audio-waveform" viewBox="0 0 24 24"><path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2"/></symbol>
+<symbol id="i-mail" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/></symbol>
+<symbol id="i-shield-alert" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M12 8v4"/><path d="M12 16h.01"/></symbol>
+<symbol id="i-refresh-cw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+<symbol id="i-hard-drive-download" viewBox="0 0 24 24"><path d="M12 2v8"/><path d="m16 6-4 4-4-4"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 18h.01"/><path d="M10 18h.01"/></symbol>
+<symbol id="i-satellite-dish" viewBox="0 0 24 24"><path d="M4 10a7.31 7.31 0 0 0 10 10Z"/><path d="m9 15 3-3"/><path d="M17 13a6 6 0 0 0-6-6"/><path d="M21 13A10 10 0 0 0 11 3"/></symbol>
+<symbol id="i-radar" viewBox="0 0 24 24"><path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/><path d="M4 6h.01"/><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/><path d="M12 18h.01"/><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/><circle cx="12" cy="12" r="2"/><path d="m13.41 10.59 5.66-5.66"/></symbol>
+<symbol id="i-terminal" viewBox="0 0 24 24"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></symbol>
+<symbol id="i-sunrise" viewBox="0 0 24 24"><path d="M12 2v8"/><path d="m4.93 10.93 1.41 1.41"/><path d="M2 18h2"/><path d="M20 18h2"/><path d="m19.07 10.93-1.41 1.41"/><path d="M22 22H2"/><path d="m8 6 4-4 4 4"/><path d="M16 18a4 4 0 0 0-8 0"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></symbol>
+</defs></svg>
+
+<header class="mast"><div class="wrap">
+  <div class="brand">
+    <svg class="mark"><use href="#i-sunrise"/></svg>
+    <div><h1>hsb1</h1><div class="sub">home server · hsb1.lan · 192.168.1.101 · NixOS</div></div>
+  </div>
+  <div class="agg">
+    <div class="count"><b id="onCount">–</b> / <span id="totCount">–</span> online</div>
+    <div class="clock" id="clock"></div>
+  </div>
+  <div class="search"><input id="q" type="search" placeholder="Jump to a service…" autocomplete="off" aria-label="Search services"><span class="kbd">/</span></div>
+</div></header>
+
+<div class="rail"><div class="wrap" id="chips"></div></div>
+
+<main class="wrap" id="wings"></main>
+
+<footer><div class="wrap">
+  <span>docker-compose SSOT · edit local → commit → push → pull → <code>up -d</code> · never edit on host</span>
+  <span>hosts/hsb1/docker · nixcfg</span>
+</div></footer>
+
+<script>
+const WINGS = [
+  {id:"home",    name:"Home &amp; Automation", color:"var(--home)",    icon:"house"},
+  {id:"media",   name:"Media &amp; Play",      color:"var(--media)",   icon:"clapperboard"},
+  {id:"signals", name:"Signals &amp; Messaging",color:"var(--signals)", icon:"radio"},
+  {id:"safety",  name:"Cameras &amp; Safety",  color:"var(--safety)",  icon:"camera"},
+  {id:"infra",   name:"Housekeeping",          color:"var(--infra)",   icon:"refresh-cw"},
+];
+// active:true = clickable + probed; passive:true = background service, not a link
+const SVC = [
+  {wing:"home", name:"Home Assistant", purpose:"Smart-home hub &amp; automations", icon:"house",       url:"http://hsb1.lan:8123/",  port:":8123"},
+  {wing:"home", name:"Node-RED",       purpose:"Visual flow automation",           icon:"workflow",    url:"http://hsb1.lan:1880/",  port:":1880"},
+  {wing:"home", name:"Zigbee2MQTT",    purpose:"Zigbee ↔ MQTT bridge",             icon:"radio-tower", url:"http://hsb1.lan:8888/",  port:":8888"},
+  {wing:"home", name:"Matter Server",  purpose:"Matter/Thread controller for HA",  icon:"hexagon",     passive:true, foot:":5580 api · no UI"},
+
+  {wing:"media", name:"Plex",     purpose:"Media library &amp; streaming",  icon:"clapperboard", url:"http://hsb1.lan:32400/web", port:":32400"},
+  {wing:"media", name:"pixdcon",  purpose:"Pixoo pixel-display controller", icon:"grid-3x3",     url:"http://hsb1.lan:8080/",     port:":8080"},
+  {wing:"media", name:"funkeykid",purpose:"Kids audio/voice toy console",   icon:"toy-brick",    url:"http://hsb1.lan:8081/",     port:":8081"},
+
+  {wing:"signals", name:"Apprise",              purpose:"Unified notification gateway",  icon:"bell-ring",       url:"http://hsb1.lan:8001/", port:":8001"},
+  {wing:"signals", name:"Mosquitto",            purpose:"MQTT broker · the message bus", icon:"radio",           passive:true, foot:":1883 · :9001 ws · broker"},
+  {wing:"signals", name:"opus-stream-to-mqtt",  purpose:"OPUS gateway → MQTT bridge",    icon:"audio-waveform",  passive:true, foot:"agent · no UI"},
+  {wing:"signals", name:"SMTP relay",           purpose:"Outbound container mail",       icon:"mail",            passive:true, foot:":25 internal · relay"},
+
+  {wing:"safety", name:"Scrypted",       purpose:"Camera/NVR hub → HomeKit/HA", icon:"camera",       url:"https://hsb1.lan:10443/", port:":10443", https:true, note:"self-signed HTTPS"},
+  {wing:"safety", name:"fritz-tripwire", purpose:"Snapshots mesh on device drop",icon:"shield-alert", url:"http://hsb1.lan:9000/",  port:":9000",  note:"plain-text status endpoint"},
+
+  {wing:"infra", name:"Watchtower",   purpose:"Weekly container auto-updates",   icon:"refresh-cw",         passive:true, foot:"Sat 05:00 · scheduled"},
+  {wing:"infra", name:"restic",       purpose:"Nightly backup → Hetzner",        icon:"hard-drive-download",passive:true, foot:"01:30 daily · backup"},
+  {wing:"infra", name:"FleetCom",     purpose:"Heartbeats → fleet.barta.cm",     icon:"satellite-dish",     passive:true, foot:"agent · no UI"},
+  {wing:"infra", name:"pharos-beacon",purpose:"Host status → pharosd (csb1)",    icon:"radar",              passive:true, foot:"beacon · outbound only"},
+  {wing:"infra", name:"claude-code",  purpose:"Idle Claude Code shell",          icon:"terminal",           passive:true, foot:"shell · no UI"},
+];
+
+const el = (t,c)=>{const e=document.createElement(t); if(c)e.className=c; return e};
+const wingsEl = document.getElementById("wings");
+const chipsEl = document.getElementById("chips");
+let filter = localStorage.getItem("hsb1.wing") || "all";
+
+// build chips
+function chip(id,label,color){
+  const b=el("button","chip"); b.dataset.wing=id; b.setAttribute("aria-pressed", id===filter);
+  if(color) b.style.setProperty("--c",color);
+  b.innerHTML = (id==="all"?"":'<span class="dot"></span>')+`<span>${label}</span> <span class="n" data-n="${id}"></span>`;
+  b.onclick=()=>{ filter=id; localStorage.setItem("hsb1.wing",id); applyFilter(); };
+  return b;
+}
+chipsEl.appendChild(chip("all","All","var(--ink)"));
+WINGS.forEach(w=>chipsEl.appendChild(chip(w.id,w.name,w.color)));
+
+// build wings + cards
+const cardIndex=[];
+WINGS.forEach(w=>{
+  const sec=el("section","wing"); sec.style.setProperty("--c",w.color); sec.dataset.wing=w.id;
+  const list=SVC.filter(s=>s.wing===w.id);
+  const h=el("div","wing-h");
+  h.innerHTML=`<svg class="wi"><use href="#i-${w.icon}"/></svg><h2>${w.name}</h2><span class="n">${list.length}</span>`;
+  sec.appendChild(h);
+  const deck=el("div","deck");
+  list.forEach(s=>{
+    const active = !s.passive;
+    const card = active ? el("a","svc") : el("div","svc passive");
+    card.style.setProperty("--c",w.color);
+    if(active){ card.href=s.url; card.target="_blank"; card.rel="noopener"; card.dataset.probe=s.url; }
+    if(s.note) card.title=s.note;
+    card.dataset.name=(s.name+" "+s.purpose+" "+(s.port||s.foot||"")).toLowerCase();
+    const foot = active
+      ? `<span class="port">${s.port}</span><span class="open">Open <svg><use href="#i-arrow"/></svg></span>`
+      : `<span class="port">${s.foot||""}</span>`;
+    card.innerHTML =
+      `<div class="top"><span class="chipi"><svg><use href="#i-${s.icon}"/></svg></span>`+
+      `<span class="dot2" data-s="${active?'checking':'passive'}"></span></div>`+
+      `<div><h3>${s.name}</h3><div class="purpose">${s.purpose}</div></div>`+
+      `<div class="foot">${foot}</div>`;
+    deck.appendChild(card);
+    if(active) cardIndex.push(card);
+  });
+  sec.appendChild(deck);
+  wingsEl.appendChild(sec);
+});
+
+// counts + filter
+function counts(){
+  const per={}; WINGS.forEach(w=>per[w.id]=0); let on=0;
+  cardIndex.forEach(c=>{ if(c.querySelector(".dot2").dataset.s==="up"){ on++; per[c.closest(".wing").dataset.wing]++; }});
+  document.getElementById("onCount").textContent=on;
+  document.getElementById("totCount").textContent=cardIndex.length;
+  document.querySelectorAll(".chip .n").forEach(n=>{
+    const id=n.dataset.n;
+    n.textContent = id==="all" ? `${on}/${cardIndex.length}` : (per[id]||0);
+  });
+}
+function applyFilter(){
+  document.querySelectorAll(".chip").forEach(c=>c.setAttribute("aria-pressed", c.dataset.wing===filter));
+  document.querySelectorAll(".wing").forEach(s=> s.classList.toggle("hidden", filter!=="all" && s.dataset.wing!==filter));
+  runSearch();
+}
+applyFilter();
+
+// search
+const q=document.getElementById("q");
+function runSearch(){
+  const t=q.value.trim().toLowerCase();
+  document.querySelectorAll(".wing").forEach(sec=>{
+    if(filter!=="all" && sec.dataset.wing!==filter){ return; }
+    let shown=0;
+    sec.querySelectorAll(".svc").forEach(card=>{
+      const hit = !t || card.dataset.name.includes(t);
+      card.classList.toggle("hidden", !hit); if(hit) shown++;
+    });
+    sec.classList.toggle("hidden", shown===0);
+  });
+}
+q.addEventListener("input", runSearch);
+document.addEventListener("keydown", e=>{
+  if(e.key==="/" && document.activeElement!==q){ e.preventDefault(); q.focus(); }
+  if(e.key==="Escape"){ q.value=""; q.blur(); runSearch(); }
+});
+
+// status probing — client-side, opaque responses count as reachable
+function probe(card){
+  const url=card.dataset.probe, dot=card.querySelector(".dot2");
+  const ac=new AbortController(); const to=setTimeout(()=>ac.abort(),4000);
+  fetch(url,{mode:"no-cors",signal:ac.signal})
+    .then(()=>{ dot.dataset.s="up"; })
+    .catch(()=>{ dot.dataset.s="down"; })
+    .finally(()=>{ clearTimeout(to); counts(); });
+}
+function sweep(){
+  let i=0; const q=[...cardIndex];
+  (function next(){ if(i>=q.length) return; const batch=q.slice(i,i+5); i+=5; batch.forEach(probe); setTimeout(next,300); })();
+}
+sweep();
+setInterval(sweep, 25000 + Math.random()*10000);
+
+// clock
+function tick(){ const d=new Date(); document.getElementById("clock").textContent =
+  d.toLocaleDateString("de-AT",{weekday:"short",day:"2-digit",month:"2-digit"})+" · "+
+  d.toLocaleTimeString("de-AT",{hour:"2-digit",minute:"2-digit"}); }
+tick(); setInterval(tick,60000);
+counts();
+</script>
+</body>
+</html>
