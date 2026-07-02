@@ -432,6 +432,41 @@ services:
       - com.centurylinklabs.watchtower.enable=true
       - com.centurylinklabs.watchtower.scope=weekly
 
+  # hsb1-home (NIX-211) — warm "Hearth" service landing page for this host: every
+  # container at a glimpse, one click away, live status dots. Static single file,
+  # served by nginx on :80. Self-contained (inline CSS/JS/SVG, no secrets, no CDN).
+  hsb1-home:
+    image: nginx:alpine
+    container_name: hsb1-home
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - TZ=Europe/Vienna
+    volumes:
+      - /home/mba/docker/mounts/hsb1-home/index.html:/usr/share/nginx/html/index.html:ro
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=weekly
+
+  # opusweb (OPUSW-8) — OPUS greenNet dashboard/config editor over the gateway
+  # REST API. COMMENTED until its agenix secret (hsb1-opusweb-env) + a NixOS
+  # switch land it at /run/agenix; uncomment together with the config.nix decl.
+  # opusweb:
+  #   image: ghcr.io/markus-barta/opusweb:latest
+  #   container_name: opusweb
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3102:3102"
+  #   environment:
+  #     - TZ=Europe/Vienna
+  #     - OPUSWEB_GW=http://192.168.1.102:8080
+  #   env_file:
+  #     - /run/agenix/hsb1-opusweb-env # OPUS_ADMIN_USER_PASS
+  #   labels:
+  #     - com.centurylinklabs.watchtower.enable=true
+  #     - com.centurylinklabs.watchtower.scope=weekly
+
 volumes:
   opus-stream-app: # Mutable runtime for opus-stream-to-mqtt (node_modules cached here)
 
