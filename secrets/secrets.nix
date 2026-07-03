@@ -131,6 +131,12 @@ in
   "fleetcom-token-gpc0.age".publicKeys = markus ++ gpc0;
   # fleetcom-token-miniserver-bp.age moved to BYTEPOETS/bpnixcfg with msbp (2026-05-02)
 
+  # hsb1 FleetCom agent env (NIX-158 phase 3) — KEY=VALUE for the bosun docker
+  # container: FLEETCOM_TOKEN + WATCHTOWER_TOKEN. The bare fleetcom-token-hsb1.age
+  # above is a single bearer token, NOT usable as a docker env_file. Mirrors
+  # csb1-fleetcom-agent-env. Edit: agenix -e secrets/hsb1-fleetcom-agent-env.age
+  "hsb1-fleetcom-agent-env.age".publicKeys = markus ++ hsb1;
+
   # FleetCom ↔ OpenClaw per-gateway operator identity (FLEET-51/52).
   # FleetCom connects to each gateway's WS RPC with a gateway-scoped
   # Ed25519 keypair + operator token. Pre-seeded into OpenClaw's
