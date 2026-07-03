@@ -117,11 +117,11 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 ### Secrets
 
 ```
-~/secrets/
-├── smarthome.env       # Main credentials (HASS_TOKEN, etc.)
-├── zigbee2mqtt.env     # Z2M MQTT credentials
-├── mqtt.env            # MQTT broker credentials
-└── tapoC210-00.env     # Camera passwords
+/run/agenix/  (decrypted at boot by agenix; no plaintext on disk)
+├── hsb1-smarthome-env    # Main credentials (HASS_TOKEN, etc.)
+├── hsb1-zigbee2mqtt-env  # Z2M MQTT credentials
+├── hsb1-mqtt-client-env  # MQTT broker credentials
+└── hsb1-tapo-c210-env    # Camera passwords
 ```
 
 ---
@@ -404,9 +404,9 @@ See [Room Abbreviations](#🏠-room-abbreviations) for codes.
 
 ## 🔐 Security Notes
 
-- **MQTT credentials**: Stored in `~/secrets/mqtt.env`
-- **HASS token**: Stored in `~/secrets/smarthome.env`
-- **Camera passwords**: Stored in `/etc/secrets/` (agenix managed)
+- **MQTT credentials**: Stored in `/run/agenix/hsb1-mqtt-client-env` (agenix managed)
+- **HASS token**: Stored in `/run/agenix/hsb1-smarthome-env` (agenix managed)
+- **Camera passwords**: Stored in `/run/agenix/hsb1-tapo-c210-env` (agenix managed)
 - **Never commit secrets to git**
 
 ---
@@ -512,7 +512,7 @@ The FLIRC is on **hsb1** via the native `ir-bridge` systemd service — IR → {
                         ┌────────────────────────────────▼─────────────────┐
                         │  VLC (kiosk user, fullscreen)                    │
                         │  - Telnet interface on localhost:4212            │
-                        │  - Password from /etc/secrets/tapoC210-00.env    │
+                        │  - Password from /run/agenix/hsb1-tapo-c210-env  │
                         │  - Shows RTSP camera stream                      │
                         └──────────────────────────────────────────────────┘
 ```
@@ -543,12 +543,12 @@ mosquitto_pub -h hsb1 -u USER -P PASS -t "home/hsb1/kiosk-vlc-volume" -m "256"
 
 ### Files Involved
 
-| File                           | Purpose                                            |
-| ------------------------------ | -------------------------------------------------- |
-| `/etc/secrets/mqtt.env`        | MQTT credentials (MQTT_HOST, MQTT_USER, MQTT_PASS) |
-| `/etc/secrets/tapoC210-00.env` | VLC telnet password                                |
-| `configuration.nix`            | systemd service definition                         |
-| `flows.json`                   | Node-RED automation                                |
+| File                               | Purpose                                            |
+| ---------------------------------- | -------------------------------------------------- |
+| `/run/agenix/hsb1-mqtt-client-env` | MQTT credentials (MQTT_HOST, MQTT_USER, MQTT_PASS) |
+| `/run/agenix/hsb1-tapo-c210-env`   | VLC telnet password                                |
+| `configuration.nix`                | systemd service definition                         |
+| `flows.json`                       | Node-RED automation                                |
 
 ### Troubleshooting
 
@@ -605,10 +605,10 @@ The default shell is **fish**. When sourcing `.env` files:
 
 ```bash
 # ❌ Won't work in fish
-source /etc/secrets/mqtt.env
+source /run/agenix/hsb1-mqtt-client-env
 
 # ✅ Use bash instead
-bash -c 'source /etc/secrets/mqtt.env && echo $MQTT_HOST'
+bash -c 'source /run/agenix/hsb1-mqtt-client-env && echo $MQTT_HOST'
 ```
 
 ---

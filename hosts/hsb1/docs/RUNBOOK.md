@@ -92,12 +92,12 @@ ssh mba@hsb1.lan "ls ~/docker/mounts/homeassistant/.storage/lovelace.*"
 
 Managed files point back to the `nixcfg` repository to ensure version control. Runtime data is stored in unmanaged directories.
 
-| Symlink Path                            | Repo Target                                | Purpose                          |
-| --------------------------------------- | ------------------------------------------ | -------------------------------- |
-| `~/docker`                              | `hosts/hsb1/docker/`                       | Docker Compose & service configs |
-| `~/scripts`                             | `hosts/hsb1/users/mba/scripts/`            | User maintenance scripts         |
-| `/home/kiosk/.config/openbox/autostart` | `hosts/hsb1/users/kiosk/openbox/autostart` | Kiosk startup sequence           |
-| `/home/kiosk/scripts/`                  | `hosts/hsb1/users/kiosk/scripts/`          | Kiosk control scripts            |
+| Symlink Path                            | Repo Target                                          | Purpose                          |
+| --------------------------------------- | ---------------------------------------------------- | -------------------------------- |
+| `~/docker`                              | `hosts/hsb1/docker/`                                 | Docker Compose & service configs |
+| `~/scripts`                             | `hosts/hsb1/users/mba/scripts/`                      | User maintenance scripts         |
+| `/home/kiosk/.config/openbox/autostart` | `hosts/hsb1/files/kiosk-autostart.sh` (Home-Manager) | Kiosk babycam launcher           |
+| `/home/kiosk/scripts/`                  | `hosts/hsb1/users/kiosk/scripts/`                    | Kiosk control scripts            |
 
 **Data Storage:**
 
@@ -162,8 +162,10 @@ ssh mba@192.168.1.101 "docker logs -f mosquitto --tail 100"
 
 ### Restart All Docker Services
 
+The stack is declarative (systemd unit `hsb1-stack`, compose at `hosts/hsb1/docker/docker-compose.yml`). Restart via the unit — do NOT `docker-compose down/up` from the retired `~/docker` dir:
+
 ```bash
-ssh mba@192.168.1.101 "cd ~/docker && docker-compose down && docker-compose up -d"
+ssh mba@hsb1.lan "sudo systemctl restart hsb1-stack"
 ```
 
 ---
@@ -231,7 +233,7 @@ ssh mba@hsb1.lan "cd ~/docker/mounts/fritz-tripwire/incidents/<dir> && \
 
 ### Credentials
 
-TR-064 credentials are read from `/home/mba/secrets/fritz.env` (bind-mounted read-only). TODO: migrate to agenix in a follow-up.
+TR-064 credentials materialize from agenix at `/run/agenix/hsb1-fritz-tripwire-env` (bind-mounted read-only).
 
 ---
 
@@ -435,8 +437,8 @@ docker start nodered
 
 **Backup repository location:**
 
-- Hetzner StorageBox (credentials in `~/secrets/` and 1Password)
-- Repository password: See `runbook-secrets.md` or 1Password
+- Hetzner StorageBox — SSH key + repo password now via agenix (`/run/agenix/hsb1-restic-ssh-key`, `/run/agenix/hsb1-restic-env`); also in 1Password
+- Repository password: `RESTIC_PASSWORD` in `/run/agenix/hsb1-restic-env` (or 1Password)
 
 ---
 
@@ -520,14 +522,16 @@ ssh mba@192.168.1.101 "journalctl -f"
 ~/docker/mounts/pixdcon/data/      # Pixoo scenes/media
 ~/docker/mounts/matter-server/     # Matter credentials
 
-# Secrets (env files) - passwords in secrets/SECRETS.md
-~/secrets/smarthome.env            # Shared HA/NR secrets
-~/secrets/zigbee2mqtt.env          # Z2M network key
-~/secrets/watchtower.env           # Notification URLs
-~/secrets/pixdcon.env              # Pixoo API keys
-~/secrets/github.env               # GHCR token
-~/secrets/influxdb3-csb1.env       # InfluxDB connection
-/etc/secrets/tapoC210-00.env       # Camera credentials
+# Secrets — all materialize from agenix at /run/agenix/hsb1-* on boot.
+# ~/secrets and /etc/secrets are EMPTY (all plaintext shredded, NIX-158).
+/run/agenix/hsb1-smarthome-env      # Shared HA/NR secrets
+/run/agenix/hsb1-zigbee2mqtt-env    # Z2M network key
+/run/agenix/hsb1-watchtower-env     # Notification URLs
+/run/agenix/hsb1-mqtt-client-env    # MQTT broker/client credentials
+/run/agenix/hsb1-tapo-c210-env      # Camera credentials
+/run/agenix/hsb1-fritz-tripwire-env # Fritz!Box TR-064 credentials
+/run/agenix/hsb1-funkeykid-api-env  # funkeykid API
+/run/agenix/hsb1-opusweb-env        # opusweb
 ```
 
 ### Quick Debug Commands
@@ -547,8 +551,8 @@ docker exec zigbee2mqtt cat /app/data/configuration.yaml | grep -A5 serial
 # MQTT test (subscribe to all topics)
 docker exec mosquitto mosquitto_sub -h localhost -t '#' -v
 
-# Restart entire stack
-cd ~/docker && docker compose down && docker compose up -d
+# Restart entire stack (declarative — systemd unit, NOT a ~/docker compose)
+sudo systemctl restart hsb1-stack
 
 # Restart single container
 docker restart homeassistant
@@ -589,19 +593,19 @@ If hostname changes, HA MQTT will break. Always use `localhost`.
 
 ## 🔐 Secrets Inventory
 
-| File              | Purpose                     | Service                    |
-| ----------------- | --------------------------- | -------------------------- |
-| `smarthome.env`   | Main smart home credentials | HA, Node-RED, health-pixoo |
-| `zigbee2mqtt.env` | Z2M MQTT credentials        | zigbee2mqtt                |
-| `mqtt.env`        | MQTT broker credentials     | mosquitto                  |
-| `watchtower.env`  | Notification URLs           | watchtower                 |
-| `fritz.env`       | Fritz!Box credentials       | maintenance scripts        |
+All secrets now materialize from agenix at `/run/agenix/hsb1-*` on boot. `/etc/secrets` and `/home/mba/secrets` are EMPTY — all plaintext was shredded (NIX-158).
 
-| `pixdcon.env` | Pixoo display config | pixdcon (disabled) |
-| `github.env` | GitHub container registry | watchtower |
-| `ghcr.env` | GHCR login token | docker login |
-| `/etc/secrets/mqtt.env` | System-wide MQTT credentials | agenix managed |
-| `/etc/secrets/tapoC210-00.env` | Camera/VLC credentials | agenix managed |
+| agenix path (`/run/agenix/…`) | Purpose                        | Service                      |
+| ----------------------------- | ------------------------------ | ---------------------------- |
+| `hsb1-smarthome-env`          | Main smart home credentials    | HA, Node-RED, health-pixoo   |
+| `hsb1-zigbee2mqtt-env`        | Z2M MQTT credentials           | zigbee2mqtt                  |
+| `hsb1-mqtt-client-env`        | MQTT broker/client credentials | mosquitto                    |
+| `hsb1-watchtower-env`         | Notification URLs              | watchtower                   |
+| `hsb1-fritz-tripwire-env`     | Fritz!Box credentials          | fritz-tripwire               |
+| `hsb1-tapo-c210-env`          | Camera/VLC credentials         | scrypted, kiosk babycam      |
+| `hsb1-funkeykid-api-env`      | funkeykid API                  | funkeykid                    |
+| `hsb1-opusweb-env`            | opusweb                        | opusweb                      |
+| `hsb1-pixdcon-env`            | Pixoo display control          | pixdcon (container disabled) |
 
 ---
 
