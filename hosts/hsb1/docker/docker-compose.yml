@@ -299,7 +299,10 @@ services:
       - /home/mba/docker/mounts/nodered/pixoo-venv:/pixoo-venv
       - /home/mba/docker/mounts/nodered/webserver:/webserver
       - /home/mba/docker/mounts/nodered/pixoo-media:/pixoo-media
-      - /home/mba/secrets:/secrets:r
+    # NIX-158 P4: blanket /home/mba/secrets:/secrets mount removed — it exposed
+    # the ENTIRE plaintext secrets dir to nodered but had NO live consumer (the
+    # only /secrets reader was the retired win10pc shutdown script). Secrets now
+    # arrive via env_file (agenix hsb1-smarthome-env) only.
     env_file:
       - /run/agenix/hsb1-smarthome-env
     entrypoint: ["/bin/bash", "/scripts/startup.sh"]
