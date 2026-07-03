@@ -78,7 +78,7 @@ services:
       - PULSE_SERVER=unix:/run/user/1001/pulse/native
       - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
     env_file:
-      - /home/mba/secrets/smarthome.env # MQTT credentials
+      - /run/agenix/hsb1-smarthome-env # MQTT credentials
       - /run/agenix/hsb1-funkeykid-api-env # ELEVENLABS_API_KEY + OPENROUTER_API_KEY
     volumes:
       - /home/mba/docker/mounts/funkeykid/settings.json:/data/settings.json
@@ -103,7 +103,7 @@ services:
     privileged: true
     network_mode: host
     env_file:
-      - /home/mba/secrets/smarthome.env
+      - /run/agenix/hsb1-smarthome-env
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
@@ -301,7 +301,7 @@ services:
       - /home/mba/docker/mounts/nodered/pixoo-media:/pixoo-media
       - /home/mba/secrets:/secrets:r
     env_file:
-      - /home/mba/secrets/smarthome.env
+      - /run/agenix/hsb1-smarthome-env
     entrypoint: ["/bin/bash", "/scripts/startup.sh"]
     command: ["npm", "start", "--", "--userDir", "/data"]
     logging:

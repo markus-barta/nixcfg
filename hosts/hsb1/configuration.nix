@@ -703,4 +703,12 @@
     mode = "0400";
     owner = "mba";
   };
+
+  # NIX-158 phase 3 P3 — shared smarthome env (HA + funkeykid + nodered).
+  age.secrets.hsb1-smarthome-env = {
+    file = ../../secrets/hsb1-smarthome-env.age;
+    path = "/run/agenix/hsb1-smarthome-env";
+    mode = "0400";
+    owner = "mba";
+  };
 }
