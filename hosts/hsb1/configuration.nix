@@ -348,8 +348,8 @@
     wantedBy = [ "multi-user.target" ];
 
     environment = {
-      MQTT_ENV_FILE = "/etc/secrets/mqtt.env";
-      TAPO_ENV_FILE = "/etc/secrets/tapoC210-00.env";
+      MQTT_ENV_FILE = "/run/agenix/hsb1-mqtt-client-env";
+      TAPO_ENV_FILE = "/run/agenix/hsb1-tapo-c210-env";
     };
 
     serviceConfig = {
@@ -710,5 +710,20 @@
     path = "/run/agenix/hsb1-smarthome-env";
     mode = "0400";
     owner = "mba";
+  };
+
+  # NIX-158 phase 3 P3b — /etc/secrets pair. owner=root mode=0644 so BOTH the
+  # kiosk mqtt-volume-control systemd unit AND the scrypted container can read.
+  age.secrets.hsb1-mqtt-client-env = {
+    file = ../../secrets/hsb1-mqtt-client-env.age;
+    path = "/run/agenix/hsb1-mqtt-client-env";
+    mode = "0644";
+    owner = "root";
+  };
+  age.secrets.hsb1-tapo-c210-env = {
+    file = ../../secrets/hsb1-tapo-c210-env.age;
+    path = "/run/agenix/hsb1-tapo-c210-env";
+    mode = "0644";
+    owner = "root";
   };
 }
