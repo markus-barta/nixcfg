@@ -234,6 +234,10 @@
       ]
     ))
 
+    # agenix CLI — makes `agenix -e` / `just edit-secret` work natively on this
+    # NixOS host (was Mac-only via home-manager before). NIX-158 phase 3.
+    inputs.agenix.packages.x86_64-linux.default
+
     # Network-related packages
     samba # Enables remote shutdown of Windows PC via Node-RED and HomeKit voice command
     wol # Facilitates wake-on-LAN for Windows 10 PC in Node-RED, triggered by HomeKit voice command
@@ -656,4 +660,14 @@
   # FleetCom agent — now runs as Docker container (FLEET-12)
   # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-hsb1
   age.secrets.fleetcom-token-hsb1.file = ../../secrets/fleetcom-token-hsb1.age;
+
+  # NIX-158 phase 3 — fleetcom-agent Docker env (KEY=VALUE: FLEETCOM_TOKEN +
+  # WATCHTOWER_TOKEN). Replaces plaintext /opt/fleetcom-agent/.env. The bare
+  # fleetcom-token-hsb1 above is a single bearer token, not usable as an env_file.
+  age.secrets.hsb1-fleetcom-agent-env = {
+    file = ../../secrets/hsb1-fleetcom-agent-env.age;
+    path = "/run/agenix/hsb1-fleetcom-agent-env";
+    mode = "0400";
+    owner = "mba";
+  };
 }
