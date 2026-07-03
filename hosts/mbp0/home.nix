@@ -262,6 +262,16 @@ in
       "https://github.com".helper = "!gh auth git-credential";
       "https://gist.github.com".helper = "!gh auth git-credential";
     };
+
+    # NIX-216 prep (2026-07-03): m5-personal-userkey retired from GitHub —
+    # it was minted on BYTEPOETS hardware (INSPR-170 carry-forward) and
+    # mbp2607 took over SSH pushes. Rewrite all git-personal alias remotes
+    # to HTTPS so this host keeps fetch+push (via GH_TOKEN helper above)
+    # for its remaining life, without touching 31 repos' remote URLs.
+    settings.url."https://github.com/markus-barta/".insteadOf = [
+      "git@git-personal:markus-barta/"
+      "git-personal:markus-barta/"
+    ];
   };
 
   # ============================================================================
