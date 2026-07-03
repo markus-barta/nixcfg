@@ -137,6 +137,14 @@ in
   # csb1-fleetcom-agent-env. Edit: agenix -e secrets/hsb1-fleetcom-agent-env.age
   "hsb1-fleetcom-agent-env.age".publicKeys = markus ++ hsb1;
 
+  # NIX-158 phase 3 P2 — hsb1 single-consumer service secrets, migrated from
+  # /home/mba/secrets/*.env plaintext. Edit: agenix -e secrets/<name>.age
+  "hsb1-zigbee2mqtt-env.age".publicKeys = markus ++ hsb1;
+  "hsb1-funkeykid-api-env.age".publicKeys = markus ++ hsb1;
+  "hsb1-watchtower-env.age".publicKeys = markus ++ hsb1;
+  "hsb1-opusweb-env.age".publicKeys = markus ++ hsb1;
+  "hsb1-fritz-tripwire-env.age".publicKeys = markus ++ hsb1;
+
   # FleetCom ↔ OpenClaw per-gateway operator identity (FLEET-51/52).
   # FleetCom connects to each gateway's WS RPC with a gateway-scoped
   # Ed25519 keypair + operator token. Pre-seeded into OpenClaw's
