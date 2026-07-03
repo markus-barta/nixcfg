@@ -21,10 +21,12 @@ let
   # for the canonical metadata on each key.
   markus_rsa_legacy = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt"; # markus@iMac-5k-MBA-home.local — shared pre-2026 RSA
   markus_m5_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mbp0"; # added INSPR-78 (2026-05-03)
+  markus_mbp2607_ed25519 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFCX8hTsA5FHr+6Z/vCSq/HQI9DLpaF63XbN5YXEsch8 markus@mbp2607"; # added NIX-215 (2026-07-03) — fresh key, no carry-over
 
   markus = [
     markus_rsa_legacy
     markus_m5_ed25519
+    markus_mbp2607_ed25519
   ];
 
   # gb's key (user on hsb8)
@@ -89,6 +91,12 @@ let
 
   "mbp0" = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH6ene6+iB5I9brFPfFwuqNil7nbJpWguycyZqv67+LU root@mbp0"
+  ];
+
+  # mbp2607 (NIX-215, 2026-07-03). Unlike mbp0's era, macOS 26 auto-generated
+  # the host key when Remote Login was enabled — no manual ssh-keygen needed.
+  "mbp2607" = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJVoAPf5vx/GYpIeeHRLdViG3igF041fs/GL7l1AQzo root@mbp2607"
   ];
 
 in
@@ -436,10 +444,10 @@ in
   # Add more hosts here as they join the pipeline (rekey afterwards).
 
   # Cloudflare DNS API token (AIA account)
-  "agents/shared/CF_DNS_TOKEN_AIA.age".publicKeys = markus ++ mbp0;
+  "agents/shared/CF_DNS_TOKEN_AIA.age".publicKeys = markus ++ mbp0 ++ mbp2607;
 
   # Cloudflare Zone API token (AIA account)
-  "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp0;
+  "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp0 ++ mbp2607;
 
   # PMO = BYTEPOETS Project Management Online (the company Paimos instance).
   # NOTE: BYTEPOETS-context credentials. Long-term these belong in the
@@ -447,15 +455,15 @@ in
   # Markus's personal nixcfg studio. Currently in shared/ as a transitional
   # layer until BYTEPOETS gets its own agent-secrets pipeline — flag for
   # migration when that happens.
-  "agents/shared/PMOAPIKEY.age".publicKeys = markus ++ mbp0;
-  "agents/shared/PMOSERVERPASS.age".publicKeys = markus ++ mbp0;
-  "agents/shared/PMOSERVERURL.age".publicKeys = markus ++ mbp0;
-  "agents/shared/PMOSERVERUSER.age".publicKeys = markus ++ mbp0;
-  "agents/shared/PMOSSHKEYFILELOCATION.age".publicKeys = markus ++ mbp0;
-  "agents/shared/PMOURL.age".publicKeys = markus ++ mbp0;
+  "agents/shared/PMOAPIKEY.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/PMOSERVERPASS.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/PMOSERVERURL.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/PMOSERVERUSER.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/PMOSSHKEYFILELOCATION.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/PMOURL.age".publicKeys = markus ++ mbp0 ++ mbp2607;
 
   # PPM = Personal Project Management (Markus's personal Paimos at pm.barta.cm)
-  "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mbp0;
+  "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mbp0 ++ mbp2607;
 
   # Home WiFi credentials — used by awtrix-rescue and any future
   # device-provisioning helpers that drive a device through its AP-mode
@@ -463,7 +471,7 @@ in
   #   HOMEWIFI_SSID=<ssid>
   #   HOMEWIFI_PASS=<password>
   # Edit: agenix -e secrets/agents/shared/HOMEWIFI.age
-  "agents/shared/HOMEWIFI.age".publicKeys = markus ++ mbp0;
+  "agents/shared/HOMEWIFI.age".publicKeys = markus ++ mbp0 ++ mbp2607;
 
   # ────────────────────────────────────────────────────────────────────────
   # INSPR-170: inspr.git.atelier Strategy B — per-host user SSH keys
