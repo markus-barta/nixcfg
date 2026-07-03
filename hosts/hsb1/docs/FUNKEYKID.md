@@ -594,7 +594,7 @@ sudo nixos-rebuild switch --flake .#hsb1
 
 - **Service runs as `kiosk` user** (direct PipeWire access, no sudo needed)
 - **Supplementary groups**: `input` (for keyboard), `audio` (for sound)
-- **EnvironmentFile**: `/home/mba/secrets/smarthome.env` for MQTT credentials
+- **EnvironmentFile**: `/run/agenix/hsb1-smarthome-env` for MQTT credentials
 - **Sound files**: World-readable in `/var/lib/funkeykid-sounds/`
 - **Config file**: Root-owned, world-readable
 - **udev rules**: Block system access to ACME BK03
