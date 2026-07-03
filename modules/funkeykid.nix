@@ -145,7 +145,8 @@ in
             "FUNKEYKID_CONFIG=/etc/funkeykid.env"
             "XDG_RUNTIME_DIR=/run/user/1001"
           ];
-          EnvironmentFile = [ "/home/mba/secrets/smarthome.env" ];
+          # NIX-158: agenix-materialized smarthome env (was plaintext /home/mba/secrets/smarthome.env, now shredded).
+          EnvironmentFile = [ "/run/agenix/hsb1-smarthome-env" ];
           ProtectHome = "read-only";
         };
       };

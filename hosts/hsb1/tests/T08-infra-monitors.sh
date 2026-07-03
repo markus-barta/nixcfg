@@ -103,7 +103,8 @@ check_file_exists "/home/mba/bin/netcup-monitor.sh"
 print_test "T08.2 - APC UPS Service"
 check_service_active "apcupsd.service"
 check_timer_active "apc-to-mqtt.timer"
-check_file_exists "/home/mba/scripts/apc-to-mqtt.sh"
+# NIX-158: apc-to-mqtt is now inlined into the declarative systemd unit (14f67bf8) — no standalone script.
+check_service_active "apc-to-mqtt.service" || true # oneshot: inactive between timer runs is normal
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T08.3 - Nixfleet Agent (Dashboard)
