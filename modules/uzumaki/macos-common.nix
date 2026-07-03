@@ -45,12 +45,10 @@ let
     # Nix-managed in home-manager.nix, but the system-level app install and
     # Input Monitoring approval stay manual per host.
   ];
-  commonTaps = [
-    "steipete/tap" # OpenClaw/Peekaboo (commonBrew below)
-  ];
-  commonBrews = [
-    "steipete/tap/peekaboo" # OpenClaw screenshots + AI vision (fleet-wide)
-  ];
+  # peekaboo + steipete/tap removed 2026-07-03 (NIX-215): unused, and brew 6
+  # refuses untrusted taps by default. Baseline is casks-only again.
+  commonTaps = [ ];
+  commonBrews = [ ];
 in
 {
   # ============================================================================
