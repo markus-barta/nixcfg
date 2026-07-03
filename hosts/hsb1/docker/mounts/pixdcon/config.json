@@ -4,51 +4,60 @@
       "name": "ulanzi-56",
       "type": "ulanzi",
       "ip": "192.168.1.56",
-      "scenes": ["clock_with_homestats"],
       "minFrameMs": 500,
       "displayName": "Ulanzi Badezimmer",
       "comment": "TC001 awtrix_58197c",
-      "preview": { "showGrid": true, "pollMs": 1000 },
+      "preview": {
+        "showGrid": true,
+        "pollMs": 1000
+      },
       "sceneSettings": {
         "clock_with_homestats": {
           "day_start_hour": 7,
           "night_start_hour": 19,
           "bri_day": 30,
-          "bri_night": 8,
-          "show_seconds": true,
+          "bri_night": 2,
+          "show_seconds_day": true,
+          "show_seconds_night": true,
           "sonnen_poll_ms": 3000,
           "timezone": "Europe/Vienna",
           "locale": "de-AT"
         }
-      }
+      },
+      "scene": "clock_with_homestats",
+      "cleanupLegacyApps": true
     },
     {
       "name": "ulanzi-57",
       "type": "ulanzi",
       "ip": "192.168.1.57",
-      "scenes": ["clock_with_homestats"],
       "minFrameMs": 500,
       "displayName": "Ulanzi Kinderzimmer",
       "comment": "TC002 - awtrix_5807d0",
-      "preview": { "showGrid": true, "pollMs": 1000 },
+      "preview": {
+        "showGrid": true,
+        "pollMs": 1000
+      },
       "sceneSettings": {
         "clock_with_homestats": {
           "day_start_hour": 7,
           "night_start_hour": 19,
-          "bri_day": 20,
-          "bri_night": 1,
-          "show_seconds": false,
+          "bri_day": 22,
+          "bri_night": 2,
+          "show_seconds_day": false,
+          "show_seconds_night": false,
           "sonnen_poll_ms": 3000,
           "timezone": "Europe/Vienna",
           "locale": "de-AT"
         }
-      }
+      },
+      "scene": "clock_with_homestats",
+      "cleanupLegacyApps": true
     },
     {
       "name": "pixoo-159",
       "type": "pixoo",
       "ip": "192.168.1.159",
-      "scenes": ["home"],
       "minFrameMs": 500,
       "maxPowerCycles": 10,
       "powerCyclePlugin": {
@@ -60,33 +69,46 @@
       },
       "displayName": "Pixoo Wohnzimmer (U)",
       "comment": "Im Medienschrank unten",
-      "preview": { "showGrid": true, "pollMs": 2000 },
-      "sceneSettings": {}
+      "preview": {
+        "showGrid": false,
+        "pollMs": 2000
+      },
+      "sceneSettings": {},
+      "scene": "home"
     },
     {
       "name": "pixoo-189",
       "type": "pixoo",
       "ip": "192.168.1.189",
-      "scenes": ["funkeykid"],
       "minFrameMs": 500,
-      "displayName": "Pixoo Wohnzimmer (FunKeyKid)",
+      "displayName": "Pixoo Wohnzimmer (O)",
       "comment": "Dedicated to funkeykid educational keyboard",
-      "preview": { "showGrid": true, "pollMs": 2000 },
+      "preview": {
+        "showGrid": true,
+        "pollMs": 2000
+      },
       "sceneSettings": {
         "funkeykid": {
           "idle_timeout_ms": 5000,
           "brightness": 75,
           "letter_scale": 3
         }
-      }
+      },
+      "scene": "builtin:clock"
     }
   ],
   "scenes": {
     "clock_with_homestats": {
       "path": "./scenes/ulanzi/clock_with_homestats.js"
     },
-    "health": { "path": "./scenes/pixoo/health.js" },
-    "home": { "path": "./scenes/pixoo/home.js" },
-    "funkeykid": { "path": "./scenes/pixoo/funkeykid.js" }
+    "health": {
+      "path": "./scenes/pixoo/health.js"
+    },
+    "home": {
+      "path": "./scenes/pixoo/home.js"
+    },
+    "funkeykid": {
+      "path": "./scenes/pixoo/funkeykid.js"
+    }
   }
 }
