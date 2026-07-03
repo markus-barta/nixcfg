@@ -64,6 +64,13 @@ let
         pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN26yvYncUoYvFUrAZNZrieSra4hE44jiTEcjEuIfaTr m5-bytepoets-userkey 2026-05-12";
       };
     };
+    # NIX-215: personal only — no BYTEPOETS key on this host (post-exit).
+    "mbp2607" = {
+      personal = {
+        keyName = "mbp2607-personal-userkey";
+        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDSreCb3wozn5fCvBkwDD9XHcwz0+ktpFhEQJixOA3zw mbp2607-personal-userkey 2026-07-03";
+      };
+    };
   };
 
   # Lookup or null. Hosts not in the table get atelier-disabled-by-default

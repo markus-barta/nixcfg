@@ -40,10 +40,9 @@ in
   # aggregate + host key on agents/shared/* — rekeyed in 31e3d1a8.
   inspr.secrets.agents.enable = true;
   inspr.paimos-cli.enable = true;
-  # TODO(NIX-215): enable after a NEW per-host userkey is generated and
-  # encrypted to secrets/agents/host/mbp2607/ (do NOT reuse mbp0's
-  # m5-personal-userkey — fresh keys are the point).
-  inspr.git.atelier.personal.enable = false;
+  # mbp2607-personal-userkey minted 2026-07-03, registered on markus-barta
+  # GitHub account; privkey in secrets/agents/host/mbp2607/.
+  inspr.git.atelier.personal.enable = true;
   # BYTEPOETS history — never enable on this host.
   inspr.git.atelier.bytepoets.enable = false;
 

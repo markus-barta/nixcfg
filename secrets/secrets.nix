@@ -494,6 +494,10 @@ in
   "agents/host/mbp0/m5-personal-userkey.age".publicKeys = markus;
   "agents/host/mbp0/m5-bytepoets-userkey.age".publicKeys = markus;
 
+  # mbp2607 (NIX-215, 2026-07-03) — personal only; no BYTEPOETS key on this
+  # host by design (post-exit fresh start).
+  "agents/host/mbp2607/mbp2607-personal-userkey.age".publicKeys = markus;
+
   # Archived imac0 user keys (host decommissioned). Kept encrypted for
   # emergency recovery/audit only; archive paths are not materialized by
   # inspr.secrets.agents on any active host.
