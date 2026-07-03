@@ -409,8 +409,12 @@ in
         enable = true;
         enableFishIntegration = true;
         enableBashIntegration = true;
-        # Use mkForce to prevent duplication with external hokage
-        options = lib.mkForce [ "--cmd cd" ];
+        # NIX-158: `--cmd cd` conflicted with hokage's own `cd` history function
+        # (fish `embedded:functions/cd.fish`) — zoxide aborted its init with an
+        # "infinite loop detected" error, leaving NO working `z` and a broken `cd`.
+        # Default init instead: `z`/`zi` for zoxide jumps, `cd` stays hokage's
+        # dir-history function. mkForce still overrides hokage's own options.
+        options = lib.mkForce [ ];
       };
 
       # Post-modern editor (like vim)
