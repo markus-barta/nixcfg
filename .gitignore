@@ -73,6 +73,9 @@ id_rsa.pub
 !*.example.env
 !*.env.exam
 
+# Stray logs — never track logs (e.g. reboot-all-fritz.log)
+*.log
+
 # Docker mutable state (Traefik ACME certificates)
 **/docker/traefik/acme.json
 # .claude/ holds per-machine session/log state (ignored), but the slash-command

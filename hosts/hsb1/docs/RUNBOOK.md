@@ -84,25 +84,20 @@ ssh mba@hsb1.lan "ls ~/docker/mounts/homeassistant/.storage/lovelace.*"
 
 ---
 
-## 📂 File Management & Symlinks
+## 📂 File Management
 
-### The Prime Directive
+hsb1 is **declarative** — configuration is driven by `nixos-rebuild switch` from `~/Code/nixcfg` (this repo), not a "symlink everything to the repo" layer. The moving parts:
 
-**Every managed file is a symlink. If it's not a symlink, it's not managed.**
+| What                   | How it's managed                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| Docker stack           | compose at `hosts/hsb1/docker/docker-compose.yml`, launched by the `hsb1-stack` systemd unit            |
+| Kiosk babycam launcher | Home-Manager: `hosts/hsb1/files/kiosk-autostart.sh` → `~/.config/openbox/autostart` (nix-store symlink) |
+| Secrets                | agenix → `/run/agenix/hsb1-*` (no plaintext on disk)                                                    |
+| System / services      | NixOS modules in `hosts/hsb1/` + shared `modules/`                                                      |
 
-Managed files point back to the `nixcfg` repository to ensure version control. Runtime data is stored in unmanaged directories.
+**Runtime data (unmanaged, not in git):** container mounts under `~/docker/mounts/` (HA config, Node-RED data, etc.).
 
-| Symlink Path                            | Repo Target                                          | Purpose                          |
-| --------------------------------------- | ---------------------------------------------------- | -------------------------------- |
-| `~/docker`                              | `hosts/hsb1/docker/`                                 | Docker Compose & service configs |
-| `~/scripts`                             | `hosts/hsb1/users/mba/scripts/`                      | User maintenance scripts         |
-| `/home/kiosk/.config/openbox/autostart` | `hosts/hsb1/files/kiosk-autostart.sh` (Home-Manager) | Kiosk babycam launcher           |
-| `/home/kiosk/scripts/`                  | `hosts/hsb1/users/kiosk/scripts/`                    | Kiosk control scripts            |
-
-**Data Storage:**
-
-- Runtime data (unmanaged): `~/docker-data/`
-- Configuration (managed): `~/Code/nixcfg/hosts/hsb1/`
+**Golden rule:** never edit config on the host — edit in `~/Code/nixcfg`, commit, `git pull`, `sudo nixos-rebuild switch`.
 
 ---
 
@@ -697,7 +692,7 @@ Merlin (openclaw-gateway on hsb0) has SSH access to this host as the `merlin` us
 
 ```bash
 # From openclaw-gateway container on hsb0:
-docker exec openclaw-gateway ssh hsb1.lan "sudo docker compose -f /home/mba/docker/docker-compose.yml restart homeassistant"
+docker exec openclaw-gateway ssh hsb1.lan "sudo docker restart homeassistant"
 docker exec openclaw-gateway ssh hsb1.lan "sudo nano /home/mba/docker/mounts/homeassistant/configuration.yaml"
 ```
 
