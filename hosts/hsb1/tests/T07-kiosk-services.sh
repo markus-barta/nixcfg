@@ -111,16 +111,17 @@ check_service_active "mqtt-volume-control.service"
 
 # Check secrets for volume control
 print_test "T07.5 - Media Secrets"
-if [[ -f "/etc/secrets/mqtt.env" ]]; then
-  pass "MQTT secrets file exists"
+# NIX-158: media secrets moved from plaintext /etc/secrets/* to agenix /run/agenix/*.
+if [[ -f "/run/agenix/hsb1-mqtt-client-env" ]]; then
+  pass "MQTT secrets file exists (agenix)"
 else
-  fail "MQTT secrets file missing (/etc/secrets/mqtt.env)"
+  fail "MQTT secrets file missing (/run/agenix/hsb1-mqtt-client-env)"
 fi
 
-if [[ -f "/etc/secrets/tapoC210-00.env" ]]; then
-  pass "Tapo camera secrets file exists"
+if [[ -f "/run/agenix/hsb1-tapo-c210-env" ]]; then
+  pass "Tapo camera secrets file exists (agenix)"
 else
-  fail "Tapo camera secrets file missing (/etc/secrets/tapoC210-00.env)"
+  fail "Tapo camera secrets file missing (/run/agenix/hsb1-tapo-c210-env)"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────────

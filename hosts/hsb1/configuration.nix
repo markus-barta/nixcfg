@@ -258,7 +258,7 @@
   ];
 
   # +X11 and VLC kiosk mode configuration
-  # Note: For start script go to: /home/kiosk/.config/openbox/autostart
+  # Note: kiosk launcher is HM-managed — hosts/hsb1/files/kiosk-autostart.sh (NIX-158).
   services.xserver = {
     enable = true;
     displayManager.lightdm.enable = true;
@@ -293,6 +293,13 @@
       vlc
       xorg.xset
     ];
+    # NIX-158: babycam kiosk launcher, now declarative (was the host-only,
+    # hand-maintained /home/kiosk/.config/openbox/autostart). Sources camera
+    # creds from agenix (/run/agenix/hsb1-tapo-c210-env), not shredded plaintext.
+    home.file.".config/openbox/autostart" = {
+      source = ./files/kiosk-autostart.sh;
+      executable = true;
+    };
   };
 
   # APC UPS MQTT periodic publishing (NIX-158: inlined declaratively, was the
