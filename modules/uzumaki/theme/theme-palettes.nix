@@ -487,8 +487,44 @@
     };
 
     # --------------------------------------------------------------------------
-    # WORKSTATIONS: Gray spectrum (bright → dark)
+    # WORKSTATIONS: Gray spectrum (bright → dark) + teal accent
     # --------------------------------------------------------------------------
+
+    teal = {
+      name = "Teal";
+      category = "workstation";
+      description = "MacBook portable (mbp2607, Markus) — greenish but distinct from hsb1 green";
+
+      # Powerline gradient (light → dark)
+      gradient = {
+        lightest = "#b0e0d8"; # OS icon bg - soft seafoam
+        primary = "#48b8a8"; # Directory bg - teal
+        secondary = "#309888"; # User/host bg
+        midDark = "#1c4840"; # Git section bg
+        dark = "#123028"; # Languages bg
+        darker = "#0e2620"; # Time bg
+        darkest = "#081814"; # Nix shell bg
+      };
+
+      # Text colors
+      text = {
+        onLightest = "#082018"; # Dark text on lightest bg
+        onMedium = "#000000"; # Black for path (high contrast)
+        accent = "#70e0cc"; # Accent fg on dark bg
+        muted = "#142822"; # Git count, subtle
+        mutedLight = "#88a8a0"; # Time text
+      };
+
+      # Zellij theme colors
+      zellij = {
+        bg = "#48b8a8";
+        fg = "#309888";
+        frame = "#48b8a8";
+        black = "#081814";
+        white = "#f0f8f6";
+        highlight = "#b0e0d8";
+      };
+    };
 
     lightGray = {
       name = "Light Gray";
@@ -839,6 +875,7 @@
     # Workstations (home > work)
     imac1 = "roseGold"; # Wife's iMac (future)
     "mbp0" = "lightGray";
+    "mbp2607" = "teal"; # Markus's MBP (commissioned 2026-07) — greenish per request, distinct from hsb1/mbp0
     miniserver-bp = "veryDarkGray";
   };
 
@@ -863,6 +900,7 @@
     # Workstations (home > work)
     "imac1"
     "mbp0"
+    "mbp2607"
   ];
 
   # ============================================================================
