@@ -670,4 +670,37 @@
     mode = "0400";
     owner = "mba";
   };
+
+  # NIX-158 phase 3 P2 — single-consumer service secrets migrated from
+  # /home/mba/secrets/*.env. env_file consumers, except fritz (file-mount).
+  age.secrets.hsb1-zigbee2mqtt-env = {
+    file = ../../secrets/hsb1-zigbee2mqtt-env.age;
+    path = "/run/agenix/hsb1-zigbee2mqtt-env";
+    mode = "0400";
+    owner = "mba";
+  };
+  age.secrets.hsb1-funkeykid-api-env = {
+    file = ../../secrets/hsb1-funkeykid-api-env.age;
+    path = "/run/agenix/hsb1-funkeykid-api-env";
+    mode = "0400";
+    owner = "mba";
+  };
+  age.secrets.hsb1-watchtower-env = {
+    file = ../../secrets/hsb1-watchtower-env.age;
+    path = "/run/agenix/hsb1-watchtower-env";
+    mode = "0400";
+    owner = "mba";
+  };
+  age.secrets.hsb1-opusweb-env = {
+    file = ../../secrets/hsb1-opusweb-env.age;
+    path = "/run/agenix/hsb1-opusweb-env";
+    mode = "0400";
+    owner = "mba";
+  };
+  age.secrets.hsb1-fritz-tripwire-env = {
+    file = ../../secrets/hsb1-fritz-tripwire-env.age;
+    path = "/run/agenix/hsb1-fritz-tripwire-env";
+    mode = "0400";
+    owner = "mba";
+  };
 }
