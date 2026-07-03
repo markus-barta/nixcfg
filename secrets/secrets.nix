@@ -148,6 +148,10 @@ in
   # NIX-158 phase 3 P3 — shared smarthome env (MQTT logins + many API keys),
   # consumed by homeassistant + funkeykid + nodered. Edit: agenix -e secrets/hsb1-smarthome-env.age
   "hsb1-smarthome-env.age".publicKeys = markus ++ hsb1;
+  # NIX-158 phase 3 P3b — host-level /etc/secrets pair (read by BOTH the kiosk
+  # mqtt-volume-control systemd unit AND containers) -> agenix owner root 0644.
+  "hsb1-mqtt-client-env.age".publicKeys = markus ++ hsb1;
+  "hsb1-tapo-c210-env.age".publicKeys = markus ++ hsb1;
 
   # FleetCom ↔ OpenClaw per-gateway operator identity (FLEET-51/52).
   # FleetCom connects to each gateway's WS RPC with a gateway-scoped
