@@ -14,7 +14,7 @@ services:
     environment:
       - TZ=Europe/Vienna
     env_file:
-      - /home/mba/secrets/zigbee2mqtt.env
+      - /run/agenix/hsb1-zigbee2mqtt-env
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
@@ -79,7 +79,7 @@ services:
       - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
     env_file:
       - /home/mba/secrets/smarthome.env # MQTT credentials
-      - /home/mba/secrets/funkeykid-api.env # ELEVENLABS_API_KEY + OPENROUTER_API_KEY
+      - /run/agenix/hsb1-funkeykid-api-env # ELEVENLABS_API_KEY + OPENROUTER_API_KEY
     volumes:
       - /home/mba/docker/mounts/funkeykid/settings.json:/data/settings.json
       - /home/mba/docker/mounts/funkeykid/sounds:/data/sounds
@@ -280,7 +280,7 @@ services:
       - "WATCHTOWER_NOTIFICATION_TITLE_TAG=🏠"
       - 'WATCHTOWER_NOTIFICATION_TEMPLATE={{range .}}{{.Time.Format "2006-01-02 15:04:05"}} ({{.Level}}): {{.Message}}{{println}}{{end}}'
     env_file:
-      - /home/mba/secrets/watchtower.env
+      - /run/agenix/hsb1-watchtower-env
   #  dns:
   #     - 1.1.1.1
 
@@ -376,7 +376,7 @@ services:
       - "9000:9000"
     volumes:
       - /home/mba/docker/mounts/fritz-tripwire/incidents:/incidents
-      - /home/mba/secrets/fritz.env:/secrets/fritz.env:ro
+      - /run/agenix/hsb1-fritz-tripwire-env:/secrets/fritz.env:ro
     labels:
       - com.centurylinklabs.watchtower.enable=false
 
@@ -436,7 +436,7 @@ services:
       - TZ=Europe/Vienna
       - OPUSWEB_GW=http://192.168.1.102:8080
     env_file:
-      - /home/mba/secrets/opusweb.env
+      - /run/agenix/hsb1-opusweb-env
     volumes:
       - /home/mba/docker/mounts/opusweb:/app:ro
     labels:
