@@ -63,7 +63,12 @@ in
   # mbp0/m5-{personal,bytepoets}-userkey.age. Key material was carried forward
   # from the decommissioned M5 work portable by intent.
   # ============================================================================
-  inspr.git.atelier.personal.enable = true;
+  # NIX-216: disabled 2026-07-03 — m5-personal-userkey retired (minted on
+  # BYTEPOETS hardware; mbp2607 took over SSH pushes). Disabling also drops
+  # the module's HTTPS→alias insteadOf rewrite, which would otherwise route
+  # repos onto the dead key. The alias→HTTPS rewrite below (programs.git)
+  # keeps existing git-personal remotes working via GH_TOKEN.
+  inspr.git.atelier.personal.enable = false;
   # BYTEPOETS departure 2026-06-15 — private machine: work push-key disabled.
   # m5-bytepoets-userkey.age is retained (archived) but intentionally not wired.
   inspr.git.atelier.bytepoets.enable = false;
