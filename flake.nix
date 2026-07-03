@@ -199,6 +199,14 @@
       homeConfigurations."mba@mbp0" = mkDarwinHome "aarch64-darwin" "mbp0";
       homeConfigurations."mbp0" = self.homeConfigurations."mba@mbp0";
 
+      # Apple Silicon — MacBook Pro, commissioned 2026-07 (NIX-215). First host
+      # on the YYMM naming scheme (PPM KB: NIX/guideline/host-naming-scheme) and
+      # first with user `markus` (mba retired for new hosts). Fresh start — no
+      # key material or config carried over from mbp0 by design; secret-dependent
+      # modules gated off in home.nix until agenix recipient registration.
+      homeConfigurations."markus@mbp2607" = mkDarwinHome "aarch64-darwin" "mbp2607";
+      homeConfigurations."mbp2607" = self.homeConfigurations."markus@mbp2607";
+
       # ========================================================================
       # NixOS Configurations
       # ========================================================================
