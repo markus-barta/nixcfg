@@ -98,6 +98,27 @@ echo "Home: $HOME"
 
 **Save these values - you'll need them for configuration.**
 
+### 1.5 Enable Touch ID for sudo (recommended)
+
+Do this BEFORE the Nix installer — it turns the installer's ~6 sudo prompts
+into fingerprint taps. macOS ships an update-persistent template for it:
+
+```bash
+sudo cp /etc/pam.d/sudo_local.template /etc/pam.d/sudo_local
+sudo sed -i '' 's/^#auth/auth/' /etc/pam.d/sudo_local
+
+# Verify — should show the Touch ID dialog instead of a password prompt:
+sudo -k && sudo true
+```
+
+> ⚠️ Never edit `/etc/pam.d/sudo` directly — OS updates reset it.
+> `sudo_local` is Apple's supported survives-updates include (macOS 13+).
+
+Notes:
+
+- Touch ID triggers on local terminals only; SSH sessions still use password (correct).
+- Inside tmux/zellij panes the dialog needs `pam_reattach` (Homebrew) — optional, add later if needed.
+
 ---
 
 ## Phase 2: Install Nix
