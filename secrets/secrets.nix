@@ -145,6 +145,10 @@ in
   "hsb1-opusweb-env.age".publicKeys = markus ++ hsb1;
   "hsb1-fritz-tripwire-env.age".publicKeys = markus ++ hsb1;
 
+  # NIX-158 phase 3 P3 — shared smarthome env (MQTT logins + many API keys),
+  # consumed by homeassistant + funkeykid + nodered. Edit: agenix -e secrets/hsb1-smarthome-env.age
+  "hsb1-smarthome-env.age".publicKeys = markus ++ hsb1;
+
   # FleetCom ↔ OpenClaw per-gateway operator identity (FLEET-51/52).
   # FleetCom connects to each gateway's WS RPC with a gateway-scoped
   # Ed25519 keypair + operator token. Pre-seeded into OpenClaw's
