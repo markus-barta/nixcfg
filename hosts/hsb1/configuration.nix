@@ -295,14 +295,69 @@
     ];
   };
 
-  # APC UPS MQTT periodic publishing
+  # APC UPS MQTT periodic publishing (NIX-158: inlined declaratively, was the
+  # unmanaged /home/mba/scripts/apc-to-mqtt.sh; creds now from agenix, not the
+  # retired /home/mba/secrets/smarthome.env plaintext). Modeled on hsb0.
   systemd.services.apc-to-mqtt = {
     description = "Publish APC UPS status to MQTT";
-    script = "/home/mba/scripts/apc-to-mqtt.sh";
+    path = [
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.coreutils
+      pkgs.util-linux # logger
+    ];
+    script = ''
+      set -euo pipefail
+
+      # Called by systemd timer (polling) or apcupsd NOTIFYCMD (event-driven)
+      EVENT="''${1:-timer}"
+      logger -t apc-to-mqtt "Triggered by: $EVENT"
+
+      # Source MQTT credentials from agenix (was /home/mba/secrets/smarthome.env)
+      source ${config.age.secrets.hsb1-smarthome-env.path}
+
+      # Query UPS status
+      apc_status=$(${pkgs.apcupsd}/bin/apcaccess status)
+
+      # Current timestamp in milliseconds
+      current_timestamp=$(date +%s%3N)
+
+      # Convert APC status to JSON
+      json_status=$(echo "$apc_status" | awk -v timestamp="$current_timestamp" -v event="$EVENT" '
+      BEGIN { print "{" }
+      NF > 1 {
+          gsub(/^[ \t]+|[ \t]+$/, "", $0)
+          key = tolower($1)
+          $1 = ""
+          gsub(/^[ \t]*: /, "", $0)
+          gsub(/^[ \t]+|[ \t]+$/, "", $0)
+          value = $0
+          gsub(/"/, "\\\"", value)
+          printf "  \"%s\": \"%s\",\n", key, value
+      }
+      END {
+          printf "  \"__published\": %s,\n", timestamp
+          printf "  \"__event\": \"%s\"\n", event
+      }
+      ' | sed '$ s/,$//')
+
+      # Add closing brace
+      json_status="$json_status
+      }"
+
+      logger -t apc-to-mqtt "Publishing to MQTT: $json_status"
+
+      # Publish to MQTT for Back-UPS ES 550
+      ${pkgs.mosquitto}/bin/mosquitto_pub \
+        --topic home/wz/battery/ups550 \
+        -u "$MOSQITTO_USER_MS24" \
+        -P "$MOSQITTO_PASS_MS24" \
+        -h "$MOSQITTO_HOST_MS24" \
+        -m "$json_status"
+    '';
     serviceConfig = {
       Type = "oneshot";
       User = "mba";
-      Environment = "PATH=/run/current-system/sw/bin";
     };
   };
 
