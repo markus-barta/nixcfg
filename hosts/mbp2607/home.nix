@@ -36,11 +36,10 @@ in
   # ============================================================================
   # INSPR — secret-dependent modules (GATED — see header; NIX-215)
   # ============================================================================
-  # TODO(NIX-215): flip to true after mbp2607 host key is an agenix recipient
-  # and secrets/agents/{host/mbp2607,shared}/*.age are rekeyed for it.
-  inspr.secrets.agents.enable = false;
-  # TODO(NIX-215): enable after PPMAPIKEY.env materializes (needs the above).
-  inspr.paimos-cli.enable = false;
+  # Enabled 2026-07-03 (NIX-215): markus@mbp2607 user key in the markus
+  # aggregate + host key on agents/shared/* — rekeyed in 31e3d1a8.
+  inspr.secrets.agents.enable = true;
+  inspr.paimos-cli.enable = true;
   # TODO(NIX-215): enable after a NEW per-host userkey is generated and
   # encrypted to secrets/agents/host/mbp2607/ (do NOT reuse mbp0's
   # m5-personal-userkey — fresh keys are the point).
