@@ -421,7 +421,15 @@ in
   # materialized env file is GH_TOKEN.env — gh CLI auto-picks up $GH_TOKEN.
   # Format inside the .age file: GH_TOKEN=ghp_xxxxxxxxxxxx
   # Edit: agenix -e secrets/agents/host/mbp0/GH_TOKEN.age
+  # NOTE 2026-07-03 (NIX-216): content rotated to mbp2607-gh-token — the
+  # BP-era mba-mbp-m5-work PAT is deleted. mbp0 shares the mbp2607 token
+  # for its final days before the mbp2606 rehome (Markus's call: interim
+  # per-device token would be overkill).
   "agents/host/mbp0/GH_TOKEN.age".publicKeys = markus ++ mbp0;
+
+  # GitHub PAT for @markus-barta on mbp2607 (NIX-215). Same format.
+  # Edit: agenix -e secrets/agents/host/mbp2607/GH_TOKEN.age
+  "agents/host/mbp2607/GH_TOKEN.age".publicKeys = markus ++ mbp2607;
 
   # Onshape API credentials (key + secret) — paired Onshape developer
   # access tokens; rotate together. Migrated from retired imac0 to current
