@@ -106,13 +106,8 @@ check_timer_active "apc-to-mqtt.timer"
 # NIX-158: apc-to-mqtt is now inlined into the declarative systemd unit (14f67bf8) — no standalone script.
 check_service_active "apc-to-mqtt.service" || true # oneshot: inactive between timer runs is normal
 
-# ────────────────────────────────────────────────────────────────────────────────
-# T08.3 - Nixfleet Agent (Dashboard)
-# ────────────────────────────────────────────────────────────────────────────────
-
-print_test "T08.3 - Nixfleet Agent"
-check_service_active "nixfleet-agent.service"
-check_file_exists "/run/agenix/nixfleet-token"
+# T08.3 (Nixfleet Agent) removed — NixFleet decommissioned, replaced by FleetCom
+# (fleetcom-agent container). A FleetCom health check could live here if desired.
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T08.4 - Networking (Fleet Hosts)
