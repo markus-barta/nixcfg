@@ -215,7 +215,7 @@ services:
   #     - 1.1.1.1
 
   restic-cron-hetzner:
-    build: /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron
+    build: /home/mba/docker/restic-cron
     container_name: restic-cron-hetzner
     restart: unless-stopped
     volumes:
@@ -225,12 +225,12 @@ services:
       - /etc:/backup/etc:ro
       # Use SSH key from agenix
       - /run/agenix/hsb1-restic-ssh-key:/root/.ssh/id_rsa:ro
-      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro
+      - /home/mba/docker/restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro
       # BIND MOUNTS: Local scripts override container defaults
-      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro
-      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro
-      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro
-      - /home/mba/Code/nixcfg/hosts/hsb1/docker/restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro
+      - /home/mba/docker/restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro
+      - /home/mba/docker/restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro
+      - /home/mba/docker/restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro
+      - /home/mba/docker/restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro
     environment:
       RESTIC_BACKUP_OPTIONS: "-r sftp:u387549-sub2@u387549.your-storagebox.de:/"
       MAIL_SUBJECT: "💾 Restic backup report (hsb1)"
@@ -312,33 +312,6 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
-
-  # Reconciled from deployed host state on 2026-05-25 (was running on hsb1
-  # but missing from repo). Long-lived idle shell with claude-code CLI for
-  # ad-hoc agent runs on hsb1; secrets mounted read-only.
-  claude-code:
-    image: node:24-alpine
-    container_name: claude-code
-    network_mode: host
-    working_dir: /workspace
-    environment:
-      - TZ=Europe/Vienna
-    volumes:
-      - /home/mba/docker/mounts/claude-code/workspace:/workspace
-      - /home/mba/docker/mounts/claude-code/config:/root/.claude
-      - /home/merlin/secrets/github-pat-merlin:/run/secrets/github-pat-merlin:ro
-      - /home/mba/secrets/pmo.env:/run/secrets/pmo.env:ro
-      - /home/mba/secrets/ppm.env:/run/secrets/ppm.env:ro
-    command: >
-      sh -c "
-        if ! which claude > /dev/null 2>&1; then
-          npm install -g @anthropic-ai/claude-code;
-        fi;
-        sleep infinity
-      "
-    restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=false"
 
   plex:
     image: lscr.io/linuxserver/plex:latest
@@ -449,23 +422,26 @@ services:
       - com.centurylinklabs.watchtower.enable=true
       - com.centurylinklabs.watchtower.scope=weekly
 
-  # opusweb (OPUSW-8) — OPUS greenNet dashboard/config editor over the gateway
-  # REST API. COMMENTED until its agenix secret (hsb1-opusweb-env) + a NixOS
-  # switch land it at /run/agenix; uncomment together with the config.nix decl.
-  # opusweb:
-  #   image: ghcr.io/markus-barta/opusweb:latest
-  #   container_name: opusweb
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3102:3102"
-  #   environment:
-  #     - TZ=Europe/Vienna
-  #     - OPUSWEB_GW=http://192.168.1.102:8080
-  #   env_file:
-  #     - /run/agenix/hsb1-opusweb-env # OPUS_ADMIN_USER_PASS
-  #   labels:
-  #     - com.centurylinklabs.watchtower.enable=true
-  #     - com.centurylinklabs.watchtower.scope=weekly
+  # opusweb (OPUSW-8) — OPUS greenNet dashboard/config editor over the gateway REST
+  # API (192.168.1.102:8080). Zero-dep Node run from bind-mounted code; gateway
+  # password from a host env-file (not in git). github.com/markus-barta/opusweb.
+  opusweb:
+    image: node:22-alpine
+    container_name: opusweb
+    restart: unless-stopped
+    working_dir: /app
+    command: node server.js
+    ports:
+      - "3102:3102"
+    environment:
+      - TZ=Europe/Vienna
+      - OPUSWEB_GW=http://192.168.1.102:8080
+    env_file:
+      - /home/mba/secrets/opusweb.env
+    volumes:
+      - /home/mba/docker/mounts/opusweb:/app:ro
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
 
 volumes:
   opus-stream-app: # Mutable runtime for opus-stream-to-mqtt (node_modules cached here)
