@@ -554,6 +554,33 @@
   };
 
   # ============================================================================
+  # NIX-158 — Declarative docker-compose stack launcher
+  # ============================================================================
+  # NixOS owns the docker DAEMON (hokage server-home); this oneshot makes the
+  # container SET declarative too: `docker compose up -d` on boot and whenever the
+  # canonical compose file changes (restartTriggers) via `nixos-rebuild switch`.
+  # Idempotent reconcile against hosts/hsb1/docker/docker-compose.yml (single
+  # source of truth since NIX-158 phase 1). Purely additive — no destructive
+  # teardown; containers keep their own restart:unless-stopped as a second layer.
+  systemd.services.hsb1-stack = {
+    description = "hsb1 docker-compose stack (declarative reconcile)";
+    after = [
+      "docker.service"
+      "network-online.target"
+    ];
+    requires = [ "docker.service" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [ (builtins.readFile ./docker/docker-compose.yml) ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb1/docker/docker-compose.yml up -d";
+      TimeoutStartSec = "600";
+    };
+  };
+
+  # ============================================================================
   # OPUS SmartHome Stream to MQTT Bridge
   # ============================================================================
   # Install source code directly from GitHub input
