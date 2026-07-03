@@ -128,7 +128,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
     env_file:
-      - /etc/secrets/tapoC210-00.env # note: not in default user's secrets as it is used by other users (eg. kiosk user)
+      - /run/agenix/hsb1-tapo-c210-env # agenix owner=root 0644 (shared: scrypted + kiosk mqtt-volume-control systemd unit)
 
   # https://github.com/namshi/docker-smtp
   smtp:
