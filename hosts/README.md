@@ -276,23 +276,22 @@ ls ~/Library/Fonts/ | grep -i hack
 
 ## 🏗️ Infrastructure Overview
 
-### Unified Naming Scheme (2025)
+### Naming Scheme (two tiers, 2026)
 
-**Pattern**: Consistent 3-4 letter codes with numbers for scalability
+**Servers** keep stable serials; **personal devices** carry their commission date. Canonical spec: PPM Knowledge `NIX / guideline / host-naming-scheme`.
 
 ```text
-SERVERS:
-  csb0, csb1              ← Cloud Server Barta (Hetzner VPS)
-  hsb0, hsb1, hsb8        ← Home Server Barta (local infrastructure)
+SERVERS — {type}{n} (2025 scheme, unchanged):
+  csb0, csb1              ← Cloud Server Barta (VPS)
+  hsb0, hsb1, hsb8, hsb9  ← Home Server Barta (local + family sites)
 
-WORKSTATIONS:
-  imac1                   ← iMac (Mai, home)
-  mbp0                    ← MacBook Pro (Markus, personal)
-
-GAMING:
-  gpc0                    ← PC Gaming (Markus, NixOS)
-  stm0, stm1              ← Steam Machines (family - future)
+PERSONAL DEVICES — {type}{YYMM} (2026 scheme, YYMM = commission date):
+  mbp2607                 ← MacBook Pro (Markus, commissioned 2026-07)
+  mbp2606                 ← MacBook Pro (family hand-down; was mbp0)
+  gpc2607                 ← Gaming PC (rebuild recommission; was gpc0)
 ```
+
+Device renames roll out via NIX-214 (epic); tables below show pre-rename names until each ticket lands.
 
 ### Active Hosts
 
@@ -315,7 +314,7 @@ GAMING:
 
 | Host    | Old Name (Config) | Owner  | IP            | Theme | Status        |
 | ------- | ----------------- | ------ | ------------- | ----- | ------------- |
-| `imac1` | -                 | Mai    | 192.168.1.152 | -     | ⏳ Future     |
+| `imac1` | -                 | Family | 192.168.1.152 | -     | ⏳ Future     |
 | `mbp0`  | -                 | Markus | -             | ⬜    | ✅ **Active** |
 
 #### Gaming Systems
@@ -374,44 +373,25 @@ All hosts have been migrated to the new naming scheme:
 
 ---
 
-## Naming Conventions (2025 Scheme)
+## Naming Conventions
 
-### Principle: Consistent, Scalable, Three-Letter Codes
+> **Canonical spec** (full rules + rationale): PPM Knowledge `NIX / guideline / host-naming-scheme`. This section is the short local summary.
 
-**Pattern**: `{type-code}{number}`
+### Servers — `{type}{n}` (2025 scheme)
 
-### Server Naming
+- `csb{n}` — Cloud Server Barta (VPS: Hetzner, Netcup, …): `csb0`, `csb1`
+- `hsb{n}` — Home Server Barta (local + family sites): `hsb0`, `hsb1`, `hsb8`, `hsb9` — number gaps allowed for logical grouping (8/9 = family sites)
+- Stable identities; renaming live servers is expensive and not planned.
 
-**Cloud Servers**: `csb{n}` - Cloud Server Barta
+### Personal devices — `{type}{YYMM}` (2026 scheme)
 
-- Examples: `csb0`, `csb1`, `csb2`
-- Location: Remote VPS (Hetzner, Netcup, etc.)
+Type prefix + zero-padded commission date: `mbp2607`, `gpc2607`.
 
-**Home Servers**: `hsb{n}` - Home Server Barta
-
-- Examples: `hsb0`, `hsb1`, `hsb8`
-- Location: Local infrastructure
-- Number gaps allowed for logical grouping (hsb8 = parents' location)
-
-### Workstation Naming
-
-**Pattern**: `{device}{n}` - Descriptive device type + number
-
-- `imac{n}` - iMac desktops (future/retired pattern)
-- `mbp{n}` - MacBook Pro (mbp0)
-- `mba{n}` - MacBook Air (mba0) - not to confuse with "mba" user!
-
-### Gaming Naming
-
-- `pcg{n}` - PC Gaming (gpc0)
-- `stm{n}` - Steam Machines (stm0, stm1)
-
-### Why This Scheme?
-
-✅ **Scalable**: Easy to add imac2, hsb3, etc.  
-✅ **Consistent pattern**: Servers use 3-letter codes, workstations use descriptive names  
-✅ **No conflicts**: Clear separation between device types  
-✅ **Future-proof**: Room for expansion (hsb2-7, imac2-9, etc.)
+- **YYMM = commission date into the fleet** (new buy = arrival month; rebuild = recommission month), not hardware age.
+- **Immutable after christening** — owner change does not rename (hand-me-downs keep their name).
+- **Same-type same-month collision**: pick the adjacent month; no suffix scheme.
+- Hardware specs (chip, RAM) belong in the host README, never the hostname.
+- Type prefixes: `mbp` MacBook Pro · `mba` MacBook Air (careful — collides with the `mba` user!) · `gpc` Gaming PC · `imac` iMac · `stm` Steam Machine.
 
 ---
 
@@ -431,7 +411,7 @@ hsb8          Parents (DNS/DHCP, 192.168.1.100) [was: msww87]
 **Workstations**:
 
 ```text
-imac1         iMac (Mai, home) [was: wz-imac-mpe]
+imac1         iMac (family, home) [was: wz-imac-mpe]
 gpc0          Gaming PC (Markus) [was: mba-gaming-pc]
 ```
 
