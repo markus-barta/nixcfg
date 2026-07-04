@@ -54,7 +54,10 @@ fi
 
 # Test 3: No ZFS errors
 echo -n "Test 3: No ZFS errors... "
-ZFS_ERRORS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo zpool status 2>/dev/null | grep -c "DEGRADED\|FAULTED\|OFFLINE\|UNAVAIL" || echo 0' 2>/dev/null)
+# grep -c prints the count even on no-match (exit 1) — the old `|| echo 0`
+# appended a second line and broke the arithmetic test (NIX-231).
+ZFS_ERRORS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo zpool status 2>/dev/null | grep -c "DEGRADED\|FAULTED\|OFFLINE\|UNAVAIL"' 2>/dev/null | tail -1)
+ZFS_ERRORS=${ZFS_ERRORS:-999}
 if [[ "$ZFS_ERRORS" -eq 0 ]]; then
   echo -e "${GREEN}✅ PASS${NC}"
 else

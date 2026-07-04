@@ -57,11 +57,18 @@ fi
 
 # Test 3: HTTPS reachable
 echo -n "Test 3: https://draw.barta.cm reachable... "
+# draw.barta.cm sits behind Cloudflare Access: an unauthenticated probe is
+# CORRECTLY answered with a 302 to the barta-cm.cloudflareaccess.com login
+# (NIX-231). A plain 200 would mean the auth wall is gone.
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout "$CURL_TIMEOUT" --max-time "$CMD_TIMEOUT" https://draw.barta.cm/ 2>/dev/null || echo "000")
-if [ "$HTTP_CODE" = "200" ]; then
-  echo -e "${GREEN}✅ PASS${NC} (HTTP $HTTP_CODE)"
+REDIRECT_TARGET=$(curl -s -o /dev/null -w "%{redirect_url}" --connect-timeout "$CURL_TIMEOUT" --max-time "$CMD_TIMEOUT" https://draw.barta.cm/ 2>/dev/null || echo "")
+if [ "$HTTP_CODE" = "302" ] && echo "$REDIRECT_TARGET" | grep -q "cloudflareaccess.com"; then
+  echo -e "${GREEN}✅ PASS${NC} (HTTP 302 → Cloudflare Access login)"
+elif [ "$HTTP_CODE" = "200" ]; then
+  echo -e "${RED}❌ FAIL${NC} (HTTP 200 — Cloudflare Access wall MISSING?)"
+  exit 1
 else
-  echo -e "${RED}❌ FAIL${NC} (HTTP $HTTP_CODE)"
+  echo -e "${RED}❌ FAIL${NC} (HTTP $HTTP_CODE, redirect: ${REDIRECT_TARGET:-none})"
   exit 1
 fi
 

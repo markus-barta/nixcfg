@@ -46,7 +46,7 @@ fi
 
 # Test 2: Configuration directory exists
 echo -n "Test 2: Configuration directory... "
-if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'test -d ~/nixcfg/hosts/csb1' &>/dev/null; then
+if $TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'test -d ~/Code/nixcfg/hosts/csb1' &>/dev/null; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
