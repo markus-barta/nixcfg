@@ -692,40 +692,12 @@
     owner = "mba";
   };
 
-  # Apprise LaMetric notification hub (NIX-172) — ONE tagged config holding all
-  # LaMetric alert flavors (speedtest, fritz, …). Loaded into Apprise as key
-  # `lametric`; sources select sound via ?tag=. Supersedes the per-purpose
-  # hsb1-apprise-speedtest-cfg (one credential for all LaMetric alerts).
-  age.secrets.hsb1-apprise-lametric-cfg = {
-    file = ../../secrets/hsb1-apprise-lametric-cfg.age;
-    mode = "0400";
-    owner = "mba";
-  };
-
-  # ============================================================================
-  # NIXFLEET AGENT - Disabled (decommissioned, replaced by FleetCom DSC26-52)
-  # ============================================================================
-  # age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
-
-  # services.nixfleet-agent = {
-  #   enable = true;
-  #   url = "wss://fleet.barta.cm/ws";
-  #   interval = 5;
-  #   tokenFile = "/run/agenix/nixfleet-token";
-  #   repoUrl = "https://github.com/markus-barta/nixcfg.git";
-  #   user = "mba";
-  #   logLevel = "info";
-  #   location = "home";
-  #   deviceType = "server";
-  # };
-
-  # FleetCom agent — now runs as Docker container (FLEET-12)
-  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-hsb1
-  age.secrets.fleetcom-token-hsb1.file = ../../secrets/fleetcom-token-hsb1.age;
-
-  # NIX-158 phase 3 — fleetcom-agent Docker env (KEY=VALUE: FLEETCOM_TOKEN +
-  # WATCHTOWER_TOKEN). Replaces plaintext /opt/fleetcom-agent/.env. The bare
-  # fleetcom-token-hsb1 above is a single bearer token, not usable as an env_file.
+  # FleetCom agent — runs as a Docker container (FLEET-12); its env (below)
+  # supersedes the retired bare fleetcom-token-hsb1 and the decommissioned NixFleet
+  # agent (DSC26-52). NIX-158 also retired the unused hsb1-apprise-lametric-cfg
+  # secret (apprise LaMetric config lives in the apprise config store, not agenix).
+  # fleetcom-agent Docker env (KEY=VALUE: FLEETCOM_TOKEN + WATCHTOWER_TOKEN);
+  # replaces plaintext /opt/fleetcom-agent/.env.
   age.secrets.hsb1-fleetcom-agent-env = {
     file = ../../secrets/hsb1-fleetcom-agent-env.age;
     path = "/run/agenix/hsb1-fleetcom-agent-env";

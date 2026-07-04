@@ -123,15 +123,11 @@ in
   # TODO: Rename to hsb0-mqtt-client.age
   "mqtt-hsb0.age".publicKeys = markus ++ hsb0;
 
-  # NixFleet agent API token — DEPRECATED (replaced by FleetCom per-host tokens)
-  # TODO: Remove after FleetCom is fully deployed
-  "nixfleet-token.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ hsb8 ++ csb0 ++ csb1 ++ gpc0;
-
   # FleetCom agent tokens — one per host, plain text bearer token
   # Generate in FleetCom UI (Hosts → Add Host), paste token into .age file
   # Edit: agenix -e secrets/fleetcom-token-<host>.age
   "fleetcom-token-hsb0.age".publicKeys = markus ++ hsb0;
-  "fleetcom-token-hsb1.age".publicKeys = markus ++ hsb1;
+  # hsb1: uses hsb1-fleetcom-agent-env (KEY=VALUE, below); bare token retired (NIX-158)
   # hsb2: no host key in agenix (Raspberry Pi, Raspbian — not NixOS)
   "fleetcom-token-hsb8.age".publicKeys = markus ++ hsb8;
   "fleetcom-token-csb0.age".publicKeys = markus ++ csb0;
@@ -243,18 +239,6 @@ in
   #   ssh mba@hsb1.lan
   #   cd ~/Code/nixcfg && EDITOR='cp /home/mba/docker/smtp/variables.env' agenix -e secrets/hsb1-smtp-env.age
   "hsb1-smtp-env.age".publicKeys = markus ++ hsb1;
-
-  # hsb1 Apprise LaMetric notification hub (NIX-172). ONE tagged config holding the
-  # Wohnzimmer LaMetric target per alert flavor (distinct sound). Loaded into Apprise
-  # as key `lametric`; sources select flavor via ?tag=:
-  #   internet  (Starlink dead, Kuma 1.1.1.1)       -> ?tag=internet   sound alarm10
-  #   speedtest (slow: <20Mbit or ping>100ms)       -> ?tag=speedtest  sound alarm5
-  #   fritz     (repeater down, auto power-cycling)  -> ?tag=fritz      sound notification2
-  # One credential, one secret, one rotation point — superseded the per-purpose
-  # hsb1-apprise-speedtest-cfg (retired 2026-06-04, speedtest-tracker migrated).
-  # Loaded into Apprise as 3 keys (lametric-internet/speedtest/fritz) from this one file.
-  # Edit: just edit-secret secrets/hsb1-apprise-lametric-cfg.age
-  "hsb1-apprise-lametric-cfg.age".publicKeys = markus ++ hsb1;
 
   # PPM (Personal Project Management) environment variables for csb1
   # Format: KEY=VALUE lines (PPM_ADMIN_PASSWORD, COOKIE_SECURE, etc.)
