@@ -1,10 +1,11 @@
 # claude-statusline.nix — declarative Claude Code statusline
 #
 # Ships ~/.claude/statusline.sh as a read-only symlink into /nix/store:
-# two-line floating catppuccin-mocha pills (truecolor, nerd-font glyphs)
-# rendering session · repo · git · PR · model · effort │ context battery
-# with auto-compact notch · € cost (cached ECB rate) + burn rate · 5h/7d
-# Anthropic rate limits · duration · diff · clock.
+# single-line transparent typographic footer (truecolor, nerd-font glyphs,
+# catppuccin-mocha accents, no backgrounds) rendering session · repo · git ·
+# PR · model · effort · context battery with auto-compact notch · € cost
+# (cached ECB rate) + burn rate · 5h/7d Anthropic rate limits · duration ·
+# diff · clock, joined by dim · separators.
 #
 # The companion script (claude-statusline.sh, same directory) is plain bash
 # and directly executable for local iteration; at build time the imperative
