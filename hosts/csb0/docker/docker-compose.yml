@@ -261,6 +261,10 @@ services:
       # (the dashboard's "Update agent" button). Without this, the button
       # silently no-ops — watchtower only auto-pulls on its 24h schedule.
       - WATCHTOWER_HTTP_API_UPDATE=true
+      # HTTP_API_UPDATE alone disables --schedule runs ("Periodic runs are
+      # not enabled") — this re-enables them alongside the API. Same silent
+      # outage as hsb1 (NIX-228, found 2026-07-04).
+      - WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
     env_file:
       # Provides WATCHTOWER_HTTP_API_TOKEN — must match the WATCHTOWER_TOKEN
       # set in /opt/fleetcom-agent/.env on this host. File is gitignored;
