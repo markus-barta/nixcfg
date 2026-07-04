@@ -64,6 +64,7 @@ in
     ./ai-clis-npm.nix # Always-latest AI CLIs (claude-code, codex, grok, pi) via npm
     ./codex-exit-alias.nix # Codex hook: exact "exit" prompt sends /exit on macOS
     ./claude-skills.nix # Pinned ~/.claude/skills/ (frontend-design, …)
+    ./claude-statusline.nix # ~/.claude/statusline.sh — catppuccin pill footer (jq nix-pinned)
   ];
 
   # ══════════════════════════════════════════════════════════════════════════════
