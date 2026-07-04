@@ -36,7 +36,19 @@ in
     # markus-defaults bundles all 3 INSPR public modules + Markus's values
     # (identities, contexts, instances, encrypted-secrets root)
     ../../modules/shared/markus-defaults.nix
+    # Inbound SSH trust — declarative ~/.ssh/authorized_keys from the shared
+    # keyring (NIX-215: admit markus@mbp2607; additive, mba@mbp0 stays).
+    inputs.inspr-modules.homeManagerModules.ssh-authorized
+    ../../modules/shared/ssh-authorized.nix
   ];
+
+  # ============================================================================
+  # Inbound SSH trust (HM owns ~/.ssh/authorized_keys from here on)
+  # ============================================================================
+  inspr.ssh.authorized = {
+    enable = true;
+    trust = config._inspr.trustPresets.personalHosts;
+  };
 
   # ============================================================================
   # INSPR — Agent-exception secrets materialization

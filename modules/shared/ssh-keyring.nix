@@ -62,6 +62,7 @@
     personalHosts = [
       "markus-rsa-shared-pre-2026"
       "mba@mbp0"
+      "markus@mbp2607"
     ];
 
     # Post-retirement state (INSPR-76 Phase D): per-host ed25519 only,
@@ -70,6 +71,7 @@
     # successful daily use.
     ed25519Only = [
       "mba@mbp0"
+      "markus@mbp2607"
     ];
 
     # Transitional / archival: legacy RSA only, no new ed25519s. Use on
@@ -169,6 +171,12 @@
     # under per-host entries.
     "mba@mbp0" =
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mbp0 (added 2026-05-03; key material carried forward to new mbp0 device 2026-06-15)";
+    # mbp2607's default identity (~/.ssh/id_ed25519). NOTE: same key material
+    # as the atelier `mbp2607-personal-userkey` (markus-defaults.nix hostKeys)
+    # — dual-use by choice (NIX-215, 2026-07-04); mint a separate fleet key
+    # here if the trust dimensions ever need to diverge.
+    "markus@mbp2607" =
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDSreCb3wozn5fCvBkwDD9XHcwz0+ktpFhEQJixOA3zw mbp2607-personal-userkey 2026-07-03";
     # ── Family ────────────────────────────────────────────────────────────
     # Gerhard Barta (Markus's father). Used for the `gb` user on hsb8
     # (parents' home automation server). RSA-3072 modern key (NOT the
