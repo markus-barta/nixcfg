@@ -564,23 +564,19 @@ nix.settings = {
 
 Already applied where this matters (was first set on miniserver-bp 2026-03-12; that host moved to BYTEPOETS/bpnixcfg on 2026-05-02 — see commit history).
 
-### 5.4 Install Karabiner-Elements (Manual)
+### 5.4 Karabiner-Elements permissions
 
-For keyboard remapping (Caps Lock → Hyper key):
-
-```bash
-brew install --cask karabiner-elements
-```
-
-Then grant permissions:
+The `karabiner-elements` cask is part of the shared Brewfile baseline since
+2026-07-04 (NIX-215; previously a deliberate manual install) — `just bundle`
+installs it. For keyboard remapping (Caps Lock → Hyper key), grant permissions
+after the first install:
 
 1. **System Settings** → **Privacy & Security** → **Input Monitoring**
 2. Enable **karabiner_grabber** and **Karabiner-Elements**
 
 Configuration is already linked via home-manager from
-`modules/config/karabiner.json`. Karabiner-Elements itself stays out of the
-shared Brewfile baseline because it is a system-level input-event tool with
-manual macOS permission approval.
+`modules/config/karabiner.json`. Only the Input Monitoring approval remains a
+manual per-host step (macOS requires the interactive grant).
 
 ---
 
@@ -716,7 +712,7 @@ home-manager generations
   - [ ] Set fish as default shell
   - [ ] Verify all tools from Nix
   - [ ] Test pingt and helpfish
-  - [ ] Install Karabiner manually if keyboard remapping is wanted
+  - [ ] Grant Karabiner Input Monitoring permissions (app comes via `just bundle`)
 
 - [ ] **Phase 6: Documentation**
   - [ ] Create README.md

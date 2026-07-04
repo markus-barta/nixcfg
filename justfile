@@ -393,8 +393,8 @@ bundle-cleanup:
     fi
     echo "⚠️  DESTRUCTIVE: this will uninstall casks/formulae/taps NOT in the Brewfile."
     echo "   Brewfile: $BREWFILE"
-    echo "   Manual system-level apps intentionally kept outside the Brewfile"
-    echo "   (for example Karabiner-Elements) may be removed by this."
+    echo "   Hand-installed casks not (yet) adopted into the Brewfile"
+    echo "   will be removed by this."
     echo ""
     echo "   Preview with \`brew bundle cleanup --file=\"$BREWFILE\"\` (no flags = dry-run)."
     echo "   Continue with actual cleanup? [y/N]"

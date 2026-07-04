@@ -135,15 +135,15 @@ in
     # ══════════════════════════════════════════════════════════════════════════
     # Karabiner-Elements configuration
     # ══════════════════════════════════════════════════════════════════════════
-    # Config is declarative and fleet-wide. The Karabiner-Elements app itself
-    # stays a manual Homebrew install because it is a system-level input-event
-    # tool that also requires macOS Input Monitoring approval.
+    # Config is declarative and fleet-wide. The Karabiner-Elements app installs
+    # via the Brewfile baseline (macos-common.nix commonCasks, since 2026-07-04
+    # NIX-215); only the macOS Input Monitoring approval remains manual per host.
     home.file.".config/karabiner/karabiner.json".source = ../config/karabiner.json;
 
     home.activation.checkKarabinerInstall = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       if [ "$(uname -s)" = "Darwin" ] && [ ! -d "/Applications/Karabiner-Elements.app" ]; then
         echo "WARN: Karabiner config is managed at ~/.config/karabiner/karabiner.json, but Karabiner-Elements.app is not installed."
-        echo "      Install manually: brew install --cask karabiner-elements"
+        echo "      Install via: just bundle (cask is in the Brewfile baseline)"
         echo "      Then grant Input Monitoring to karabiner_grabber and Karabiner-Elements."
       fi
     '';

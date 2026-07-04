@@ -35,8 +35,9 @@ There is **no** `configuration.nix` or `hardware-configuration.nix` — those ar
 
 Karabiner follows the macOS hybrid pattern: `modules/uzumaki/home-manager.nix`
 wires the shared JSON config from `modules/config/karabiner.json`, while the
-Karabiner-Elements app itself is installed manually with Homebrew and approved
-in System Settings → Privacy & Security → Input Monitoring.
+Karabiner-Elements app installs via the shared Brewfile baseline (`just
+bundle`, since 2026-07-04 NIX-215) and is approved manually in System
+Settings → Privacy & Security → Input Monitoring.
 
 ---
 
