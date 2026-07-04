@@ -40,10 +40,11 @@ let
   # See the doc comment block on `mkBrewfile` for the full rationale.
   commonCasks = [
     "ghostty" # Terminal — config wired in this same file (ghosttyConfig export)
+    # Karabiner: JSON config is Nix-managed in home-manager.nix; the cask joined
+    # the baseline 2026-07-04 (NIX-215 — was manual-install pre-change). The
+    # Input Monitoring approval remains manual per host (macOS requires it).
+    "karabiner-elements"
     "zen" # Zen Browser (Gecko-based, daily-driver)
-    # Karabiner-Elements is intentionally NOT here: the JSON config is
-    # Nix-managed in home-manager.nix, but the system-level app install and
-    # Input Monitoring approval stay manual per host.
   ];
   # peekaboo + steipete/tap removed 2026-07-03 (NIX-215): unused, and brew 6
   # refuses untrusted taps by default. Baseline is casks-only again.

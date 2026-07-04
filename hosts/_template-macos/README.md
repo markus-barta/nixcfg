@@ -39,6 +39,6 @@ cp -r hosts/_template-macos hosts/YOUR-HOSTNAME
 See **[docs/MACOS-SETUP.md](../../docs/MACOS-SETUP.md)** for complete step-by-step instructions.
 
 Karabiner note: importing `modules/uzumaki/home-manager.nix` links the shared
-`modules/config/karabiner.json` config automatically. Install the
-Karabiner-Elements app manually with Homebrew only on hosts that should use the
-keyboard remaps, then grant Input Monitoring permissions in System Settings.
+`modules/config/karabiner.json` config automatically, and the app itself comes
+with the Brewfile baseline (`just bundle`). Grant Input Monitoring permissions
+in System Settings on hosts that should use the keyboard remaps.
