@@ -213,8 +213,8 @@ For full kernel + domain packs: see [`inspr-modules/docs/AGENTS-KERNEL.md`](http
   _<sub>src: ~/Code/nixcfg/hosts/gpc0/docs/RUNBOOK.md L64-68</sub>_
   <!-- rule_ids: gpc0-RUNBOOK.md:L65:systemd-inhibit-on-heavy-rebuilds | cluster: — -->
 
-- 🟡 **STRONG** | `do` | On hsb8, DHCP is disabled by default for safety; only enable when ready to take over from old router/Pi-hole
-  _<sub>src: ~/Code/nixcfg/hosts/hsb8/docs/RUNBOOK.md L363-365</sub>_
+- 🟡 **STRONG** | `do` | hsb8 IS the ww87 DHCP server (takeover completed 2026, confirmed 2026-07-04); set dhcp.enabled = false BEFORE relocating to a site with an existing DHCP server
+  _<sub>src: ~/Code/nixcfg/hosts/hsb8/docs/RUNBOOK.md (Phase 2: DHCP state)</sub>_
   <!-- rule_ids: hsb8-RUNBOOK.md:L362:dhcp-disabled-by-default | cluster: — -->
 
 ## Topic: nixos/host-template
