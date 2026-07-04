@@ -1,5 +1,14 @@
-# hsb8 docker services (currently: just FleetCom Bosun).
-# Migrated from /opt/fleetcom-agent/ on 2026-04-19 (NIX-82).
+# hsb8 docker services.
+# fleetcom-agent migrated from /opt/fleetcom-agent/ on 2026-04-19 (NIX-82).
+# homeassistant/mosquitto/watchtower migrated from /home/gb/docker/ (NIX-230,
+# NIX-234) — same container names + project so bosun wiring keeps working.
+#
+# ⚠️ CUTOVER GUARD (until NIX-237 closes): do NOT `docker compose up -d` the
+# ha/mosquitto/watchtower services from this file before (a) NIX-236 moved the
+# data mounts to /srv/hsb8 and (b) NIX-235 created /run/agenix/hsb8-watchtower-env.
+# The live containers still run from /home/gb/docker/docker-compose.yml (same
+# project + names) — a premature `up -d` here RECREATES homeassistant/mosquitto
+# with EMPTY /srv mounts. fleetcom-agent + pharos-beacon are safe to reconcile.
 services:
   # FleetCom Bosun — heartbeats + container lifecycle to https://fleet.barta.cm.
   # FLEETCOM_TOKEN stays in /opt/fleetcom-agent/.env until a follow-up wires
@@ -55,3 +64,69 @@ services:
     labels:
       - com.centurylinklabs.watchtower.enable=true
       - com.centurylinklabs.watchtower.scope=weekly
+
+  # ── Migrated from /home/gb/docker/docker-compose.yml (NIX-234) ────────────
+  # Data lives under /srv/hsb8/mounts (neutral path, no user home — NIX-236
+  # moves it there before cutover, NIX-237 does the cutover).
+
+  homeassistant:
+    container_name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - TZ=Europe/Vienna
+    volumes:
+      - /srv/hsb8/mounts/homeassistant:/config
+      - /run/dbus:/run/dbus:rw
+      - /sys/class/bluetooth:/sys/class/bluetooth:ro
+    depends_on:
+      - mosquitto
+    labels:
+      - com.centurylinklabs.watchtower.scope=weekly
+
+  mosquitto:
+    container_name: mosquitto
+    image: eclipse-mosquitto:latest
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - /srv/hsb8/mounts/mosquitto/config:/mosquitto/config
+      - /srv/hsb8/mounts/mosquitto/data:/mosquitto/data
+      - /srv/hsb8/mounts/mosquitto/log:/mosquitto/log
+    labels:
+      - com.centurylinklabs.watchtower.scope=weekly
+
+  # Weekly Watchtower — updates all scope=weekly containers Saturday 05:00
+  # local. Deliberately NO --label-enable: homeassistant/mosquitto carry only
+  # the scope label (matches the pre-migration gb-stack behavior).
+  watchtower:
+    container_name: watchtower
+    image: beatkind/watchtower:latest
+    restart: unless-stopped
+    command: --schedule "0 0 5 * * 6" --cleanup --scope weekly
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    environment:
+      - TZ=Europe/Vienna
+      - WATCHTOWER_CLEANUP=true
+      - DOCKER_API_VERSION=1.44
+      - WATCHTOWER_SCOPE=weekly
+      - WATCHTOWER_NOTIFICATIONS=shoutrrr
+      - WATCHTOWER_NOTIFICATIONS_HOSTNAME=hsb8
+      - WATCHTOWER_NOTIFICATION_TITLE_TAG=🏡
+      # FLEET-1397: HTTP API so bosun's "Update agent" button works.
+      - WATCHTOWER_HTTP_API_UPDATE=true
+      # HTTP_API_UPDATE alone disables --schedule runs ("Periodic runs are
+      # not enabled") — this re-enables them alongside the API (NIX-228).
+      - WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
+    env_file:
+      # agenix (NIX-235): provides WATCHTOWER_HTTP_API_TOKEN (must match
+      # WATCHTOWER_TOKEN in fleetcom-agent's env) + WATCHTOWER_NOTIFICATION_URL
+      # (telegram shoutrrr). Replaces /home/gb/secrets/watchtower.env.
+      - /run/agenix/hsb8-watchtower-env
