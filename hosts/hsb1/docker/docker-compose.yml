@@ -274,6 +274,11 @@ services:
       - "WATCHTOWER_DEBUG=true"
       # FLEET-1397: enable HTTP API so bosun can trigger updates.
       - "WATCHTOWER_HTTP_API_UPDATE=true"
+      # HTTP_API_UPDATE alone disables --schedule runs ("Periodic runs are
+      # not enabled") — this re-enables them alongside the API. Without it
+      # the weekly Saturday 05:00 updates silently stop (found 2026-07-04,
+      # HA was stuck on 2026.5.1).
+      - "WATCHTOWER_HTTP_API_PERIODIC_POLLS=true"
       #      - "WATCHTOWER_POLL_INTERVAL=7200" # https://github.com/containrrr/watchtower/issues/669
       - "WATCHTOWER_NOTIFICATIONS=shoutrrr"
       - "WATCHTOWER_NOTIFICATIONS_HOSTNAME=hsb1"
