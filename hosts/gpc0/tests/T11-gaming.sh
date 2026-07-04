@@ -94,15 +94,20 @@ else
   fail "amdgpu kernel module not loaded"
 fi
 
-# Check for Vulkan support
+# Check for Vulkan support. vulkaninfo is not installed on gpc0 (verified
+# absent in all generations, NIX-231) — probe the driver ICD manifests
+# instead; use vulkaninfo only if it happens to be present.
 if command -v vulkaninfo &>/dev/null; then
   if vulkaninfo 2>/dev/null | grep -q "GPU"; then
     pass "Vulkan GPU detected"
   else
     fail "Vulkan available but no GPU detected"
   fi
+elif compgen -G "/run/opengl-driver/share/vulkan/icd.d/*.json" >/dev/null; then
+  icds=$(cd /run/opengl-driver/share/vulkan/icd.d/ && echo ./*.json)
+  pass "Vulkan ICD manifests present: ${icds//.\//}"
 else
-  fail "vulkaninfo not available"
+  fail "No Vulkan support (no vulkaninfo, no ICD manifests in /run/opengl-driver)"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -129,7 +134,9 @@ fi
 
 print_test "T11.5 - Graphics Acceleration"
 
-# Check OpenGL renderer
+# Check OpenGL stack. glxinfo is not installed on gpc0 (verified absent in
+# all generations, NIX-231) — probe the Mesa DRI driver dir and render
+# nodes instead; use glxinfo only if it happens to be present.
 if command -v glxinfo &>/dev/null; then
   RENDERER=$(glxinfo 2>/dev/null | grep "OpenGL renderer" | head -1 || echo "unknown")
   if [[ -n "$RENDERER" ]] && [[ "$RENDERER" != "unknown" ]]; then
@@ -137,8 +144,11 @@ if command -v glxinfo &>/dev/null; then
   else
     fail "Could not detect OpenGL renderer"
   fi
+elif [[ -d /run/opengl-driver/lib/dri ]] && compgen -G "/dev/dri/renderD*" >/dev/null; then
+  nodes=$(cd /dev/dri && echo ./*)
+  pass "Mesa DRI drivers + render node present (/run/opengl-driver/lib/dri, ${nodes//.\//})"
 else
-  fail "glxinfo not available"
+  fail "No OpenGL stack (no glxinfo, no /run/opengl-driver/lib/dri or render node)"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────────

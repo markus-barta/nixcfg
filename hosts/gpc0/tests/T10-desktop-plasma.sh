@@ -75,12 +75,18 @@ fi
 
 print_test "T10.2 - Display Server"
 
+# Env vars only exist inside a graphical session; over SSH probe the
+# session sockets instead (NIX-231).
 if [[ -n "${DISPLAY:-}" ]]; then
   pass "X11 DISPLAY is set: $DISPLAY"
 elif [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
   pass "Wayland DISPLAY is set: $WAYLAND_DISPLAY"
+elif compgen -G "/run/user/$(id -u)/wayland-*" >/dev/null; then
+  pass "Wayland socket present in /run/user/$(id -u)"
+elif [[ -S /tmp/.X11-unix/X0 ]]; then
+  pass "X11 socket present (/tmp/.X11-unix/X0)"
 else
-  fail "No display server detected (DISPLAY and WAYLAND_DISPLAY both unset)"
+  fail "No display server detected (no env vars, no session sockets)"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -89,7 +95,9 @@ fi
 
 print_test "T10.3 - Plasma Session"
 
-if pgrep -x plasmashell &>/dev/null; then
+# NixOS wraps the binary as .plasmashell-wrapped — pgrep -x on the plain
+# name misses it (NIX-231).
+if pgrep -x plasmashell &>/dev/null || pgrep -x .plasmashell-wrapped &>/dev/null || pgrep -f plasmashell &>/dev/null; then
   pass "plasmashell is running"
 else
   fail "plasmashell is not running (Plasma desktop not loaded?)"
