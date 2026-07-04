@@ -69,16 +69,6 @@ check_timer_active() {
   fi
 }
 
-check_file_exists() {
-  if [[ -f "$1" ]]; then
-    pass "File exists: $1"
-    return 0
-  else
-    fail "File missing: $1"
-    return 1
-  fi
-}
-
 # ════════════════════════════════════════════════════════════════════════════════
 # Test Suite
 # ════════════════════════════════════════════════════════════════════════════════
@@ -88,13 +78,9 @@ print_header "T08 - Infrastructure Monitors Tests (hsb1)"
 echo "Host: $(hostname)"
 echo "Date: $(date)"
 
-# ────────────────────────────────────────────────────────────────────────────────
-# T08.1 - Netcup Monitor (Cloud Fleet Health)
-# ────────────────────────────────────────────────────────────────────────────────
-
-print_test "T08.1 - Netcup Monitor"
-check_timer_active "netcup-monitor.timer"
-check_file_exists "/home/mba/bin/netcup-monitor.sh"
+# T08.1 (Netcup Monitor) removed — retired in 48637c14, replaced by Uptime
+# Kuma on hsb0 (NIX-231). A leftover ~/bin/netcup-monitor.sh may still sit
+# on the host; it is unmanaged and unused.
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T08.2 - APC UPS Monitor

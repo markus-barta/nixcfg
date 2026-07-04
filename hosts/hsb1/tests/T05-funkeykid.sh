@@ -49,16 +49,6 @@ fail() {
   ((FAILED++)) || true
 }
 
-check_service_active() {
-  if systemctl is-active --quiet "$1"; then
-    pass "Service $1 is active"
-    return 0
-  else
-    fail "Service $1 is NOT active"
-    return 1
-  fi
-}
-
 check_file_exists() {
   if [[ -f "$1" ]]; then
     pass "File exists: $1"
@@ -92,8 +82,14 @@ echo "Date: $(date)"
 # T05.1 - Core Service
 # ────────────────────────────────────────────────────────────────────────────────
 
-print_test "T05.1 - Systemd Service"
-check_service_active "funkeykid.service"
+print_test "T05.1 - Container"
+# funkeykid runs as a Docker container in the hsb1 compose stack since
+# 9e657c57 — there is no funkeykid.service systemd unit anymore (NIX-231).
+if docker ps --format '{{.Names}}' | grep -qx funkeykid; then
+  pass "funkeykid container is running"
+else
+  fail "funkeykid container is NOT running"
+fi
 
 # ────────────────────────────────────────────────────────────────────────────────
 # T05.2 - Python Script & Config
