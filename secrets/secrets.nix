@@ -157,6 +157,12 @@ in
   "hsb1-mqtt-client-env.age".publicKeys = markus ++ hsb1;
   "hsb1-tapo-c210-env.age".publicKeys = markus ++ hsb1;
 
+  # NIX-230/235 — hsb8 watchtower env: WATCHTOWER_HTTP_API_TOKEN (must match
+  # WATCHTOWER_TOKEN in fleetcom-agent's /opt/fleetcom-agent/.env) +
+  # WATCHTOWER_NOTIFICATION_URL (telegram shoutrrr). Replaces the unmanaged
+  # /home/gb/secrets/watchtower.env. Edit: agenix -e secrets/hsb8-watchtower-env.age
+  "hsb8-watchtower-env.age".publicKeys = markus ++ hsb8;
+
   # FleetCom ↔ OpenClaw per-gateway operator identity (FLEET-51/52).
   # FleetCom connects to each gateway's WS RPC with a gateway-scoped
   # Ed25519 keypair + operator token. Pre-seeded into OpenClaw's
