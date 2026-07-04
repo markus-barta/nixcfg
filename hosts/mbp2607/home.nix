@@ -196,6 +196,8 @@ in
   # utm, zed). Browser cask: add here once chosen (NIX-215 log).
   home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile {
     extraCasks = [
+      "bettertouchtool" # trackpad/gestures — settings + license migrated from mbp0 (NIX-215); config stays BTT-managed, not Nix
+      "cmux" # was hand-installed pre-Brewfile; adopted into the manifest so bundle-cleanup keeps it
       "helium-browser" # daily-driver browser; profile rsynced from mbp0 2026-07-03 (NIX-215) — hand-installed there, cask-managed here
       "tailscale-app" # GUI variant (standalone, not App Store) — fleet convention for Markus's portables
     ];
