@@ -198,8 +198,13 @@ in
     extraCasks = [
       "bettertouchtool" # trackpad/gestures — settings + license migrated from mbp0 (NIX-215); config stays BTT-managed, not Nix
       "cmux" # was hand-installed pre-Brewfile; adopted into the manifest so bundle-cleanup keeps it
+      "crystalfetch" # from mbp0's list (pulled on demand 2026-07-04, NIX-215)
+      "github" # GitHub Desktop — from mbp0's list (2026-07-04)
       "helium-browser" # daily-driver browser; profile rsynced from mbp0 2026-07-03 (NIX-215) — hand-installed there, cask-managed here
+      "raycast" # launcher — from mbp0's list (2026-07-04)
       "tailscale-app" # GUI variant (standalone, not App Store) — fleet convention for Markus's portables
+      "utm" # VMs — from mbp0's list (2026-07-04)
+      "zed" # editor — from mbp0's list (2026-07-04)
     ];
   };
 

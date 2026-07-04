@@ -172,6 +172,7 @@
     "mba@mbp0" =
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mbp0 (added 2026-05-03; key material carried forward to new mbp0 device 2026-06-15)";
     # mbp2607's default identity (~/.ssh/id_ed25519), fresh per NIX-215.
+    # Backed up in 1Password as "mbp2607 id_ed25519" (2026-07-04).
     # Dedicated fleet key — deliberately NOT the atelier
     # `mbp2607-personal-userkey` (markus-defaults.nix hostKeys), which is a
     # separate key for git only. Same separation as mba@mbp0 vs

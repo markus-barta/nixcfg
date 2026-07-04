@@ -19,7 +19,21 @@ Items get pulled from mbp0 individually when actually missed, never wholesale.
 
 ## State of secret-dependent modules
 
-`inspr.secrets.agents`, `inspr.paimos-cli`, and `inspr.git.atelier.*` are gated
-**off** in `home.nix` until this host's SSH keys exist and are registered as
-agenix recipients (NIX-215 checklist). Flip them on in a follow-up commit after
-the rekey. `atelier.bytepoets` stays off permanently (BYTEPOETS history).
+`inspr.secrets.agents`, `inspr.paimos-cli`, and `inspr.git.atelier.personal`
+are **on** since 2026-07-03 (host keys registered as agenix recipients,
+`mbp2607-personal-userkey` minted — NIX-215). `atelier.bytepoets` stays off
+permanently (BYTEPOETS history).
+
+## Keyboard & input tools (2026-07-04, NIX-215)
+
+- **Karabiner-Elements**: app via Brewfile baseline (`just bundle`); JSON
+  config Nix-managed fleet-wide (`modules/config/karabiner.json` →
+  `~/.config/karabiner/`). Input Monitoring granted manually.
+- **BetterTouchTool**: cask in `extraCasks`; settings + license are **not**
+  Nix-managed. One-shot migration from mbp0 (2026-07-04): rsync of
+  `~/Library/Application Support/BetterTouchTool/` (incl.
+  `bettertouchtool.bttlicense`) + `defaults export/import` of the prefs
+  domain. Changes since then live only in BTT's own data store.
+- **SSH identity**: `~/.ssh/id_ed25519` (`markus@mbp2607`, in ssh-keyring
+  `personalHosts`; 1Password backup "mbp2607 id_ed25519"). Distinct from the
+  atelier `mbp2607-personal-userkey` (git only) — deliberate separation.
