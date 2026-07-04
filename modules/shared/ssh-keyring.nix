@@ -171,12 +171,14 @@
     # under per-host entries.
     "mba@mbp0" =
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP9FWi8t5l5fA4ps3+Qos2U4VbVY712kxQeIOczHaXs6 mba@mbp0 (added 2026-05-03; key material carried forward to new mbp0 device 2026-06-15)";
-    # mbp2607's default identity (~/.ssh/id_ed25519). NOTE: same key material
-    # as the atelier `mbp2607-personal-userkey` (markus-defaults.nix hostKeys)
-    # — dual-use by choice (NIX-215, 2026-07-04); mint a separate fleet key
-    # here if the trust dimensions ever need to diverge.
+    # mbp2607's default identity (~/.ssh/id_ed25519), fresh per NIX-215.
+    # Dedicated fleet key — deliberately NOT the atelier
+    # `mbp2607-personal-userkey` (markus-defaults.nix hostKeys), which is a
+    # separate key for git only. Same separation as mba@mbp0 vs
+    # m5-personal-userkey. (First commit dbdcc87f wrongly listed the atelier
+    # pubkey here — fixed 2026-07-04, never admitted anywhere in between.)
     "markus@mbp2607" =
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDSreCb3wozn5fCvBkwDD9XHcwz0+ktpFhEQJixOA3zw mbp2607-personal-userkey 2026-07-03";
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFCX8hTsA5FHr+6Z/vCSq/HQI9DLpaF63XbN5YXEsch8 markus@mbp2607";
     # ── Family ────────────────────────────────────────────────────────────
     # Gerhard Barta (Markus's father). Used for the `gb` user on hsb8
     # (parents' home automation server). RSA-3072 modern key (NOT the
