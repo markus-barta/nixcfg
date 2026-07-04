@@ -338,7 +338,7 @@ services:
   # PPM - Personal Project Management
   # ============================================
   ppm:
-    image: ghcr.io/markus-barta/paimos:4.4.0 # explicit live pin; bump deliberately with the PAIMOS release/deploy flow
+    image: ghcr.io/markus-barta/paimos:sha-e08cdbe # explicit live pin; bump deliberately with the PAIMOS release/deploy flow (sha-e08cdbe deployed by janus, declared here 2026-07-04)
     container_name: ppm
     restart: unless-stopped
     environment:

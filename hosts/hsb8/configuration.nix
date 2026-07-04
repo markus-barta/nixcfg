@@ -347,11 +347,12 @@ in
       # - Changes search domain from "lan" → "local"
       # - Switches DNS from miniserver99 → local AdGuard
       #
-      # DHCP is DISABLED by default for safety. To enable DHCP:
-      # 1. Edit ~/nixcfg/hosts/hsb8/configuration.nix
-      # 2. Find: dhcp.enabled = false
-      # 3. Change to: dhcp.enabled = true
-      # 4. Run: nixos-rebuild switch --flake ~/nixcfg#hsb8
+      # DHCP: ENABLED since the ww87 takeover (2026 — hsb8 is the ww87
+      # DHCP server; confirmed live 2026-07-04). If relocating to a site
+      # with an existing DHCP server, set dhcp.enabled = false FIRST:
+      # 1. Edit ~/Code/nixcfg/hosts/hsb8/configuration.nix
+      # 2. Change: dhcp.enabled = true → false
+      # 3. Run: nixos-rebuild switch --flake ~/Code/nixcfg#hsb8
       # ============================================================================
 
       NIXCFG_DIR="$HOME/nixcfg"
@@ -372,9 +373,8 @@ in
         echo
         systemctl is-active adguardhome >/dev/null 2>&1 && echo "  - AdGuard Home: ✅ Running" || echo "  - AdGuard Home: ⚠️  Not running"
         echo
-        echo "To enable DHCP, edit:"
-        echo "  $CONFIG_FILE"
-        echo "  (Change 'dhcp.enabled = false' to 'true')"
+        echo "DHCP: enabled (ww87 takeover, 2026). To disable, edit:"
+        echo "  $CONFIG_FILE  (dhcp.enabled = true → false)"
         exit 0
       fi
 
@@ -453,11 +453,11 @@ in
       echo "   http://192.168.1.100:3000"
       echo "   User: admin / Pass: admin"
       echo
-      echo "⚠️  DHCP is DISABLED by default for safety!"
-      echo "To enable DHCP server:"
+      echo "DHCP server: ENABLED (ww87 takeover, 2026)."
+      echo "To disable (e.g. before relocating):"
       echo "  1. Edit: $CONFIG_FILE"
-      echo "  2. Change: dhcp.enabled = false → true"
-      echo "  3. Run: nixos-rebuild switch --flake ~/nixcfg#hsb8"
+      echo "  2. Change: dhcp.enabled = true → false"
+      echo "  3. Run: nixos-rebuild switch --flake ~/Code/nixcfg#hsb8"
       echo
       echo "✨ Done! The server is now configured for parents' home."
     '')

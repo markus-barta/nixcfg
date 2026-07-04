@@ -359,15 +359,18 @@ If moving the server between locations:
 3. Wait for configuration to apply (~2-3 minutes).
 4. Network will reconfigure (may lose console connection briefly).
 
-### Phase 2: DHCP Activation
+### Phase 2: DHCP state
 
-⚠️ **DHCP is disabled by default for safety.**
-When ready to take over DHCP from an old router/Pi-hole:
+✅ **hsb8 IS the ww87 DHCP server** — takeover from the old router
+completed months ago (declared `dhcp.enabled = true` in
+`configuration.nix`; confirmed live 2026-07-04, NIX-215 fleet rebuild).
+
+If relocating to a site with an existing DHCP server, disable FIRST:
 
 1. Edit `hosts/hsb8/configuration.nix`.
-2. Set `services.adguardhome.settings.dhcp.enabled = true;`.
+2. Set `services.adguardhome.settings.dhcp.enabled = false;`.
 3. `just switch`.
-4. Verify with `ss -ulnp | grep :67`.
+4. Verify DHCP is gone: `ss -ulnp | grep :67` (no listener).
 
 ---
 
