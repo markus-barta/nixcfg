@@ -54,9 +54,11 @@ fi
 
 # Test 3: No ZFS errors
 echo -n "Test 3: No ZFS errors... "
-# grep -c prints the count even on no-match (exit 1) — the old `|| echo 0`
-# appended a second line and broke the arithmetic test (NIX-231).
-ZFS_ERRORS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo zpool status 2>/dev/null | grep -c "DEGRADED\|FAULTED\|OFFLINE\|UNAVAIL"' 2>/dev/null | tail -1)
+# grep -c prints the count even on no-match but exits 1 then — under this
+# script's `set -euo pipefail` that killed the capture. The old `|| echo 0`
+# fought that by appending a SECOND zero line, breaking the arithmetic
+# compare. Keep the count, neutralize the status, default 999 (NIX-231).
+ZFS_ERRORS=$($TIMEOUT_CMD ssh -p "$SSH_PORT" $SSH_OPTS "$SSH_USER@$HOST" 'sudo zpool status 2>/dev/null | grep -c "DEGRADED\|FAULTED\|OFFLINE\|UNAVAIL"' 2>/dev/null | tail -1) || true
 ZFS_ERRORS=${ZFS_ERRORS:-999}
 if [[ "$ZFS_ERRORS" -eq 0 ]]; then
   echo -e "${GREEN}✅ PASS${NC}"
