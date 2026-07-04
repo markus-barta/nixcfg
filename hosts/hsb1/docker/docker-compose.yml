@@ -269,6 +269,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:rw
     environment:
+      # Without TZ the schedule runs in UTC (05:00 UTC = 07:00 CEST);
+      # pin local time so it fires 05:00 Vienna as the comment above says.
+      - "TZ=Europe/Vienna"
       - "WATCHTOWER_CLEANUP=true"
       - "DOCKER_API_VERSION=1.44"
       - "WATCHTOWER_DEBUG=true"
