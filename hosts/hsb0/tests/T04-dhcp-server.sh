@@ -69,9 +69,11 @@ else
   exit 1
 fi
 
-# Test 5: Gateway configuration (check actual AdGuard config)
-echo -n "Test 5: Gateway (192.168.1.5)... "
-if run 'sudo grep -q "gateway_ip: 192.168.1.5" /var/lib/private/AdGuardHome/AdGuardHome.yaml'; then
+# Test 5: Gateway configuration (check actual AdGuard config).
+# DHCP-announced gateway is the router at .1 — the old .5 expectation
+# predated that network change (NIX-231).
+echo -n "Test 5: Gateway (192.168.1.1)... "
+if run 'sudo grep -q "gateway_ip: 192.168.1.1" /var/lib/private/AdGuardHome/AdGuardHome.yaml'; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"

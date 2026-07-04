@@ -41,9 +41,11 @@ else
   exit 1
 fi
 
-# Test 2: 90-day retention configured (check actual AdGuard config)
-echo -n "Test 2: 90-day retention (2160h)... "
-if run 'sudo grep -A10 "^querylog:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -q "interval: 2160h"'; then
+# Test 2: 90-day retention configured (check actual AdGuard config).
+# Newer AdGuard rewrites the value as "90d" (== 2160h) — accept both
+# spellings (NIX-231).
+echo -n "Test 2: 90-day retention (90d/2160h)... "
+if run 'sudo grep -A10 "^querylog:" /var/lib/private/AdGuardHome/AdGuardHome.yaml | grep -qE "interval: (2160h|90d)"'; then
   echo -e "${GREEN}✅ PASS${NC}"
 else
   echo -e "${RED}❌ FAIL${NC}"
