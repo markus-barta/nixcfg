@@ -90,7 +90,15 @@ print_test "T08.2 - APC UPS Service"
 check_service_active "apcupsd.service"
 check_timer_active "apc-to-mqtt.timer"
 # NIX-158: apc-to-mqtt is now inlined into the declarative systemd unit (14f67bf8) — no standalone script.
-check_service_active "apc-to-mqtt.service" || true # oneshot: inactive between timer runs is normal
+# Oneshot fired by the timer: is-active is normally "inactive" between runs
+# (the old `|| true` still counted a FAIL) — assert the last run result
+# instead (NIX-231).
+APC_RESULT=$(systemctl show apc-to-mqtt.service -p Result --value)
+if [[ "$APC_RESULT" == "success" ]]; then
+  pass "apc-to-mqtt oneshot last run: success"
+else
+  fail "apc-to-mqtt oneshot last run result: $APC_RESULT"
+fi
 
 # T08.3 (Nixfleet Agent) removed — NixFleet decommissioned, replaced by FleetCom
 # (fleetcom-agent container). A FleetCom health check could live here if desired.
