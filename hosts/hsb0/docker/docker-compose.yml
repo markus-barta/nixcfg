@@ -280,3 +280,19 @@ services:
       - /etc/NIXOS:/etc/NIXOS:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
+
+  # Weekly Watchtower — updates all watchtower.enable=true containers
+  # Saturday 05:00 local (containers labeled enable=false are skipped).
+  # Added 2026-07-04 (NIX-228 follow-up): enable labels existed but no
+  # watchtower ran on this host, so nothing ever updated.
+  watchtower:
+    image: beatkind/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    command: --schedule "0 0 5 * * 6" --label-enable
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    environment:
+      - TZ=Europe/Vienna
+      - WATCHTOWER_CLEANUP=true
+      - DOCKER_API_VERSION=1.44
