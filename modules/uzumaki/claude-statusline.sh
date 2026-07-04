@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # ╭────────────────────────────────────────────────────────────────────────────╮
-# │  Claude Code statusline · floating catppuccin-mocha pills · truecolor      │
+# │  Claude Code statusline · single-line transparent typographic · truecolor  │
 # │                                                                            │
-# │  L1  session ▸ repo ▸ branch(±⇡⇣) ▸ PR ▸ model ▸ effort/thinking          │
-# │  L2  context battery+bar(compact-notch@80%) ▸ €cost+burn ▸ 5h/7d limits   │
-# │      ▸ duration+diff ▸ clock                                               │
+# │   session · repo · branch(±⇡⇣) · PR · ✳model · effort/thinking ·          │
+# │   context battery+bar(compact-notch@80%) · €cost+burn · 5h/7d limits ·     │
+# │   duration+diff · clock                                                    │
+# │                                                                            │
+# │  No backgrounds — accent-colored nerd-font glyphs + text on terminal bg,   │
+# │  dim · separators (catppuccin-mocha accents).                              │
 # │                                                                            │
 # │  data: statusline stdin JSON · git (5s cache) · ECB EUR rate (12h cache)   │
-# │  requires: jq, nerd font · designed for ≥80 cols, best ≥130                │
+# │  requires: jq, nerd font · responsive ≥80 cols, full ≥140                  │
 # ╰────────────────────────────────────────────────────────────────────────────╯
 export LC_ALL=C
 JQ=/Users/markus/.nix-profile/bin/jq
@@ -16,8 +19,7 @@ NOW=${EPOCHSECONDS:-$(date +%s)}
 COLS=${COLUMNS:-999} # unknown width → render everything (no flicker between refresh paths)
 
 # ── palette · catppuccin mocha (truecolor r;g;b) ────────────────────────────
-CRUST="17;17;27" SURF="49;50;68" TEXT="205;214;244"
-SUBTX="166;173;200" OVERLAY="108;112;134"
+TEXT="205;214;244" SUBTX="166;173;200" OVERLAY="108;112;134"
 LAVENDER="180;190;254" BLUE="137;180;250" SAPPHIRE="116;199;236"
 SKY="137;220;235" TEAL="148;226;213" GREEN="166;227;161"
 YELLOW="249;226;175" PEACH="250;179;135" RED="243;139;168"
@@ -25,14 +27,11 @@ MAUVE="203;166;247" PINK="245;194;231" CLAUDE="217;119;87" # anthropic terracott
 
 R="\033[0m"
 fg() { printf '\033[38;2;%sm' "$1"; }
-bg() { printf '\033[48;2;%sm' "$1"; }
 
-# floating pill (catppuccin tmux formula):  cap ▸ accent icon head ▸ dark body ▸ cap
-# pill <accent-rgb> <icon> <body-text>
-pill() {
-  printf '%b%b%b %b %b%b %b \033[49m%b%b' \
-    "$(fg "$1")" "" "$(bg "$1")$(fg "$CRUST")" "$2" \
-    "$(bg "$SURF")" "$(fg "$TEXT")" "$3" "$(fg "$SURF")" "$R"
+# transparent segment: accent-colored icon + text (text may embed own colors)
+# seg <accent-rgb> <icon> <text>
+seg() {
+  printf '%b%b %b%b%b' "$(fg "$1")" "$2" "$(fg "$TEXT")" "$3" "$R"
 }
 
 # ── payload → vars (one jq pass, \u001f-joined so empties survive) ──────────
@@ -179,7 +178,7 @@ if [ -n "$BRANCH" ]; then
   ((${DIRTY:-0} > 0)) && GTXT+=" $(fg "$YELLOW")✚${DIRTY}$(fg "$TEXT")"
   [ -n "$AHEAD" ] && ((AHEAD > 0)) && GTXT+=" $(fg "$SKY")⇡${AHEAD}$(fg "$TEXT")"
   [ -n "$BEHIND" ] && ((BEHIND > 0)) && GTXT+=" $(fg "$PEACH")⇣${BEHIND}$(fg "$TEXT")"
-  GIT_SEG=$(pill "$MAUVE" "" "$GTXT")
+  GIT_SEG=$(seg "$MAUVE" "" "$GTXT")
 fi
 
 # ── repo / dir ──────────────────────────────────────────────────────────────
@@ -192,7 +191,7 @@ else
   RICO="󰉋"
 fi
 [ -n "$WORKTREE" ] && RTXT+=" $(fg "$SUBTX")󰘬 $WORKTREE$(fg "$TEXT")"
-REPO_SEG=$(pill "$BLUE" "$RICO" "$RTXT")
+REPO_SEG=$(seg "$BLUE" "$RICO" "$RTXT")
 
 # ── PR badge (color = review state) ─────────────────────────────────────────
 PR_SEG=""
@@ -201,13 +200,13 @@ if [ -n "$PR_NUM" ]; then
   approved) PC="$GREEN" ;; changes_requested) PC="$RED" ;;
   draft) PC="$OVERLAY" ;; *) PC="$YELLOW" ;;
   esac
-  PR_SEG=$(pill "$PC" "" "#$PR_NUM")
+  PR_SEG=$(seg "$PC" "" "$(fg "$PC")#$PR_NUM")
 fi
 
 # ── model (claude ✳) + effort/thinking ──────────────────────────────────────
 MTXT="$MODEL"
-[ "$FAST" = "true" ] && MTXT+=" $(fg "$YELLOW")󱐋$(fg "$TEXT")"
-MODEL_SEG=$(pill "$CLAUDE" "✳" "$MTXT")
+[ "$FAST" = "true" ] && MTXT+=" $(fg "$YELLOW")󱐋"
+MODEL_SEG=$(seg "$CLAUDE" "✳" "$MTXT")
 
 EFFORT_SEG=""
 if [ "$EFFORT" != "-" ]; then
@@ -215,16 +214,17 @@ if [ "$EFFORT" != "-" ]; then
   low) EC="$SKY" ;; medium) EC="$TEAL" ;; high) EC="$YELLOW" ;;
   xhigh) EC="$PEACH" ;; max) EC="$RED" ;; *) EC="$SUBTX" ;;
   esac
-  ETXT="$EFFORT"
-  [ "$THINK" = "true" ] && ETXT+=" $(fg "$LAVENDER")󰧑$(fg "$TEXT")"
-  EFFORT_SEG=$(pill "$EC" "󰈸" "$ETXT")
+  ETXT="$(fg "$EC")$EFFORT"
+  [ "$THINK" = "true" ] && ETXT+=" $(fg "$LAVENDER")󰧑"
+  EFFORT_SEG=$(seg "$EC" "󰈸" "$ETXT")
 fi
 
 # ── context: battery icon + notched bar (┃ = auto-compact ≈80%) ─────────────
 CTX_P=${CTX_PCT%.*}
-CTX_TXT="$(bar "$CTX_P" 10 8) ${CTX_P}%"
-((COLS >= 100)) && CTX_TXT+=" $(fg "$SUBTX")$(human_tok "$CTX_TOK")/$(human_tok "$CTX_SIZE")$(fg "$TEXT")"
-CTX_SEG=$(pill "$(ctx_color "$CTX_P")" "$(battery_icon $((100 - CTX_P)))" "$CTX_TXT")
+CC=$(ctx_color "$CTX_P")
+CTX_TXT="$(bar "$CTX_P" 10 8) $(fg "$CC")${CTX_P}%$(fg "$TEXT")"
+((COLS >= 100)) && CTX_TXT+=" $(fg "$SUBTX")$(human_tok "$CTX_TOK")/$(human_tok "$CTX_SIZE")"
+CTX_SEG=$(seg "$CC" "$(battery_icon $((100 - CTX_P)))" "$CTX_TXT")
 
 # ── cost in € (ECB rate, 12h cache, async refresh — never blocks) ───────────
 RATE_F=~/.claude/cache/usd_eur.rate
@@ -244,44 +244,47 @@ fi
 read -r EUR RATE_H < <(awk -v c="$COST" -v r="$RATE" -v ms="$DUR_MS" \
   'BEGIN { printf "%.2f %.2f", c*r, (ms>60000 ? c*r/(ms/3600000) : 0) }')
 CTXT="${EUR}"
-((COLS >= 110)) && [ "$RATE_H" != "0.00" ] && CTXT+=" $(fg "$SUBTX")󱐋 ${RATE_H}/h$(fg "$TEXT")"
-COST_SEG=$(pill "$GREEN" "󰇈" "$CTXT")
+((COLS >= 110)) && [ "$RATE_H" != "0.00" ] && CTXT+=" $(fg "$SUBTX")󱐋 ${RATE_H}/h"
+COST_SEG=$(seg "$GREEN" "󰇈" "$CTXT")
 
 # ── anthropic rate limits: 5h + 7d ──────────────────────────────────────────
 RL_SEG=""
 if [ -n "$RL5_PCT" ]; then
-  RLTXT="$(bar "$RL5_PCT" 5) ${RL5_PCT%.*}%"
+  RLC=$(gauge_color "$RL5_PCT")
+  RLTXT="$(bar "$RL5_PCT" 5) $(fg "$RLC")${RL5_PCT%.*}%$(fg "$TEXT")"
   ((COLS >= 90)) && [ -n "$RL5_RESET" ] && RLTXT+=" $(fg "$SUBTX")󰦖 $(until_ts "$RL5_RESET")$(fg "$TEXT")"
   if ((COLS >= 100)) && [ -n "$RL7_PCT" ]; then
-    RLTXT+="  $(fg "$OVERLAY")│$(fg "$TEXT")  7d $(bar "$RL7_PCT" 5) ${RL7_PCT%.*}%"
+    RLTXT+=" $(fg "$SUBTX")7d$(fg "$TEXT") $(bar "$RL7_PCT" 5) $(fg "$(gauge_color "$RL7_PCT")")${RL7_PCT%.*}%"
   fi
-  RL_SEG=$(pill "$(gauge_color "$RL5_PCT")" "󰓅" "$RLTXT")
+  RL_SEG=$(seg "$RLC" "󰓅" "$RLTXT")
 fi
 
 # ── session: duration + diff ────────────────────────────────────────────────
 STXT="$(fmt_dur "$DUR_MS")"
 if ((COLS >= 100)); then
-  STXT+="  $(fg "$GREEN") ${ADDED%.*}$(fg "$TEXT") $(fg "$RED") ${REMOVED%.*}$(fg "$TEXT")"
+  STXT+=" $(fg "$GREEN") ${ADDED%.*} $(fg "$RED") ${REMOVED%.*}"
 fi
-SESS_SEG=$(pill "$SAPPHIRE" "󰔛" "$STXT")
+SESS_SEG=$(seg "$SAPPHIRE" "󰔛" "$STXT")
 
-# ── assemble ────────────────────────────────────────────────────────────────
-HDR_SEG=$(pill "$PINK" "" "$SESSION")
-L1="$HDR_SEG $REPO_SEG"
-[ -n "$GIT_SEG" ] && L1+=" $GIT_SEG"
-[ -n "$PR_SEG" ] && L1+=" $PR_SEG"
-L1+=" $MODEL_SEG"
-[ -n "$EFFORT_SEG" ] && L1+=" $EFFORT_SEG"
-
-L2="$CTX_SEG $COST_SEG"
-[ -n "$RL_SEG" ] && L2+=" $RL_SEG"
-L2+=" $SESS_SEG"
+# ── assemble: one line, dim · separators ────────────────────────────────────
+HDR_SEG=$(seg "$PINK" "" "\033[1m${SESSION}\033[22m")
+PARTS=("$HDR_SEG" "$REPO_SEG")
+[ -n "$GIT_SEG" ] && PARTS+=("$GIT_SEG")
+[ -n "$PR_SEG" ] && PARTS+=("$PR_SEG")
+PARTS+=("$MODEL_SEG")
+[ -n "$EFFORT_SEG" ] && PARTS+=("$EFFORT_SEG")
+PARTS+=("$CTX_SEG" "$COST_SEG")
+[ -n "$RL_SEG" ] && PARTS+=("$RL_SEG")
+PARTS+=("$SESS_SEG")
 if ((COLS >= 120)); then
   CLOCK=$(printf '%(%H:%M)T' -1 2>/dev/null)
   [ -z "$CLOCK" ] && CLOCK=$(date +%H:%M)
-  L2+=" $(fg "$OVERLAY")󰅐 $CLOCK"
-  ((COLS >= 140)) && [ -n "$VERSION" ] && L2+=" · v$VERSION"
-  L2+="$R"
+  TAIL="$(fg "$OVERLAY")󰅐 $CLOCK"
+  ((COLS >= 140)) && [ -n "$VERSION" ] && TAIL+=" · v$VERSION"
+  PARTS+=("$TAIL$R")
 fi
 
-printf '%b\n%b\n' "$L1" "$L2"
+SEP=" $(fg "$OVERLAY")·$R "
+OUT="${PARTS[0]}"
+for p in "${PARTS[@]:1}"; do OUT+="$SEP$p"; done
+printf '%b\n' "$OUT"
