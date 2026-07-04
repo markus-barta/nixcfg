@@ -517,13 +517,11 @@ in
   # off. (Replaced an undocumented imperative password that was set 2025-11-22.)
   users.users.mba.hashedPassword = "$y$j9T$5y0S3IQdE7oo54/JhHwkq/$pm0DRKeA3w.6vYbk4rUYgGg.Fat/cQyhSwvC2Zi5bi4";
 
-  # Docker containers will run under gb user account
-  # Configuration expected at: /home/gb/docker/docker-compose.yml
-  # Key services planned:
-  # - Home Assistant (ghcr.io/home-assistant/home-assistant:stable)
-  # - Zigbee2MQTT (koenkk/zigbee2mqtt:latest)
-  # - Mosquitto MQTT broker (eclipse-mosquitto:latest)
-  # - Matter Server (ghcr.io/home-assistant-libs/python-matter-server:stable)
+  # Docker stack (NIX-230): migrating from gb-user-owned
+  # /home/gb/docker/docker-compose.yml to the managed
+  # hosts/hsb8/docker/docker-compose.yml (homeassistant, mosquitto,
+  # watchtower + fleetcom-agent, pharos-beacon). Data at /srv/hsb8/mounts.
+  # See hsb8-stack.service below (gated on the NIX-237 cutover marker).
   # - Watchtower for automatic updates
   #
   # Note: Docker Compose setup must be configured manually by gb user
@@ -630,4 +628,36 @@ in
   # FleetCom agent — now runs as Docker container (FLEET-12)
   # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-hsb8
   age.secrets.fleetcom-token-hsb8.file = ../../secrets/fleetcom-token-hsb8.age;
+
+  # NIX-235: watchtower env (HTTP API token + telegram notification URL),
+  # consumed by the watchtower container via env_file. Root-only: the stack
+  # is reconciled by the root hsb8-stack service / sudo docker compose.
+  age.secrets.hsb8-watchtower-env = {
+    file = ../../secrets/hsb8-watchtower-env.age;
+    path = "/run/agenix/hsb8-watchtower-env";
+    mode = "0400";
+  };
+
+  # NIX-236/237: declarative stack reconcile (hsb1 pattern). Gated on the
+  # cutover marker so pre-cutover rebuilds can NOT recreate homeassistant/
+  # mosquitto with empty /srv mounts while they still run from the gb stack.
+  # bin/nix230-cutover.sh creates /srv/hsb8/.cutover-done as its final step.
+  systemd.services.hsb8-stack = {
+    description = "hsb8 docker-compose stack (declarative reconcile)";
+    after = [
+      "docker.service"
+      "network-online.target"
+    ];
+    requires = [ "docker.service" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    unitConfig.ConditionPathExists = "/srv/hsb8/.cutover-done";
+    restartTriggers = [ (builtins.readFile ./docker/docker-compose.yml) ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb8/docker/docker-compose.yml up -d";
+      TimeoutStartSec = "600";
+    };
+  };
 }
