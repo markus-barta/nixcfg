@@ -188,6 +188,44 @@ services:
 
   # HostDash — static service dashboard for this host. Built by Nix from
   # markus-barta/hostdash and mounted read-only from /etc/hostdash.
+  hostdash-auth:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
+    restart: unless-stopped
+    env_file:
+      - /run/agenix/csb-hostdash-oauth2-proxy-env
+    command:
+      - --http-address=0.0.0.0:4180
+      - --provider=oidc
+      - --oidc-issuer-url=https://auth.inspr.at
+      - --redirect-url=https://cs0.barta.cm/oauth2/callback
+      - --email-domain=*
+      - --cookie-domain=.barta.cm
+      - --whitelist-domain=.barta.cm
+      - --cookie-secure=true
+      - --cookie-samesite=lax
+      - --cookie-expire=8h
+      - --cookie-refresh=1h
+      - --reverse-proxy=true
+      - --trusted-proxy-ip=172.16.0.0/12
+      - --set-xauthrequest=true
+      - --pass-access-token=false
+      - --pass-authorization-header=false
+      - --skip-provider-button=true
+      - --upstream=static://202
+      - --silence-ping-logging=true
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.hostdash-auth-csb0.rule=Host(`cs0.barta.cm`) && PathPrefix(`/oauth2`)
+      - traefik.http.routers.hostdash-auth-csb0.entrypoints=web-secure
+      - traefik.http.routers.hostdash-auth-csb0.tls=true
+      - traefik.http.routers.hostdash-auth-csb0.tls.certresolver=default
+      - traefik.http.routers.hostdash-auth-csb0.priority=250
+      - traefik.http.services.hostdash-auth-csb0.loadbalancer.server.port=4180
+      - traefik.docker.network=csb0_traefik
+      - com.centurylinklabs.watchtower.enable=false
+
   hostdash:
     image: nginx:alpine
     restart: unless-stopped
@@ -204,6 +242,10 @@ services:
       - traefik.http.routers.hostdash-csb0.tls=true
       - traefik.http.routers.hostdash-csb0.tls.certresolver=default
       - traefik.http.routers.hostdash-csb0.priority=10
+      - traefik.http.routers.hostdash-csb0.middlewares=hostdash-auth-csb0@docker
+      - traefik.http.middlewares.hostdash-auth-csb0.forwardauth.address=http://hostdash-auth:4180/
+      - traefik.http.middlewares.hostdash-auth-csb0.forwardauth.trustForwardHeader=true
+      - traefik.http.middlewares.hostdash-auth-csb0.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email
       - traefik.http.services.hostdash-csb0.loadbalancer.server.port=80
       - traefik.docker.network=csb0_traefik
       - traefik.http.routers.hostdash-csb0-http.rule=Host(`cs0.barta.cm`)
@@ -214,7 +256,11 @@ services:
       - traefik.http.routers.hostdash-csb0-ip.rule=Host(`89.58.63.96`) || Host(`100.64.0.8`)
       - traefik.http.routers.hostdash-csb0-ip.entrypoints=web
       - traefik.http.routers.hostdash-csb0-ip.priority=200
+      - traefik.http.routers.hostdash-csb0-ip.middlewares=hostdash-csb0-ip-canonical@docker
       - traefik.http.routers.hostdash-csb0-ip.service=hostdash-csb0
+      - traefik.http.middlewares.hostdash-csb0-ip-canonical.redirectregex.regex=^http://[^/]+/(.*)
+      - traefik.http.middlewares.hostdash-csb0-ip-canonical.redirectregex.replacement=https://cs0.barta.cm/$${1}
+      - traefik.http.middlewares.hostdash-csb0-ip-canonical.redirectregex.permanent=true
       - com.centurylinklabs.watchtower.enable=true
 
   # https://github.com/containous/whoami
