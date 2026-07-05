@@ -48,6 +48,7 @@ fi
 
 MANIFEST_JSON="$(nix eval '.#nixosConfigurations.hsb8.config.services.hostdash.manifest.generated' --json 2>/dev/null)"
 OUTPUT_PATH="$(nix eval '.#nixosConfigurations.hsb8.config.services.hostdash.manifest.effectiveOutputPath' --raw 2>/dev/null)"
+SOURCE_PATH="$(nix eval '.#nixosConfigurations.hsb8.config.services.hostdash.manifest.source' --raw 2>/dev/null)"
 ETC_SOURCE="$(nix eval '.#nixosConfigurations.hsb8.config.environment.etc."hostdash-config/hsb8.json".source' --raw 2>/dev/null)"
 
 check_jq "schema is versioned" '.schema == "inspr.hostdash.config.v1" and .version == 1'
@@ -62,6 +63,12 @@ if [[ "$OUTPUT_PATH" == "hostdash-config/hsb8.json" ]]; then
   pass "effective output path is stable"
 else
   fail "effective output path is stable: got $OUTPUT_PATH"
+fi
+
+if [[ "$SOURCE_PATH" == /nix/store/*hostdash-hsb8-config.json ]]; then
+  pass "manifest source points to generated JSON"
+else
+  fail "manifest source points to generated JSON: got $SOURCE_PATH"
 fi
 
 if [[ "$ETC_SOURCE" == /nix/store/*hostdash-hsb8-config.json ]]; then
