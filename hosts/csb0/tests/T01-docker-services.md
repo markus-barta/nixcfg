@@ -7,7 +7,7 @@ Test Docker and container health on the cloud smart home hub.
 | Property | Value                                |
 | -------- | ------------------------------------ |
 | **Host** | csb0                                 |
-| **IP**   | 85.235.65.226                        |
+| **IP**   | 89.58.63.96                          |
 | **SSH**  | `ssh mba@cs0.barta.cm -p 2222`       |
 | **Role** | Smart Home Hub (🔴 HIGH criticality) |
 

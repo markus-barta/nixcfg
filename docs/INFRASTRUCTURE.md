@@ -74,7 +74,7 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 | **hsb1** | Home Automation                     | 192.168.1.101 | `ssh mba@hsb1.lan`             | 🟡 MEDIUM   |
 | **hsb8** | Parents' Server (offsite)           | 192.168.1.100 | `ssh mba@hsb8.lan`             | 🟡 MEDIUM   |
 | **hsb9** | Parents-in-law Server (offsite)     | 192.168.1.200 | `ssh mba@hsb9.lan`             | 🟡 MEDIUM   |
-| **csb0** | Cloud Smart Home                    | 85.235.65.226 | `ssh mba@cs0.barta.cm -p 2222` | 🔴 HIGH     |
+| **csb0** | Cloud Smart Home                    | 89.58.63.96   | `ssh mba@cs0.barta.cm -p 2222` | 🔴 HIGH     |
 | **csb1** | Cloud Apps (Docmost/Paperless/PPM)  | 152.53.64.166 | `ssh mba@cs1.barta.cm -p 2222` | 🟡 MEDIUM   |
 
 ### NixOS Desktops
@@ -82,6 +82,17 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 | Host     | Role      | IP            | SSH Command        | Criticality |
 | -------- | --------- | ------------- | ------------------ | ----------- |
 | **gpc0** | Gaming PC | 192.168.1.154 | `ssh mba@gpc0.lan` | 🟢 LOW      |
+
+### Additive `markus` SSH Routes
+
+Existing bare aliases and documented recovery commands remain `mba` during the
+additive phase. Use explicit `markus` aliases when testing or using the new
+login:
+
+- LAN-style hosts: `<host>-markus`, `<host>-markus-lan`, `<host>-markus-ip`,
+  and `<host>-markus-ts` for `hsb0`, `hsb1`, `hsb8`, `hsb9`, and `gpc0`.
+- Cloud hosts: `csb0-markus`, `csb0-markus-ip`, `csb0-markus-ts`,
+  `csb1-markus`, `csb1-markus-ip`, and `csb1-markus-ts` on port 2222.
 
 ### macOS Machines (home-manager only)
 
@@ -254,15 +265,15 @@ nixos-rebuild switch --flake .#<host> --target-host <host> --use-remote-sudo
 
 ### VPS Details
 
-| Item           | csb0             | csb1             |
-| -------------- | ---------------- | ---------------- |
-| **IP**         | 85.235.65.226/22 | 152.53.64.166/24 |
-| **Gateway**    | 85.235.64.1      | 152.53.64.1      |
-| **SSH Port**   | 2222             | 2222             |
-| **VNC Access** | Netcup SCP       | Netcup SCP       |
-| **Customer #** | 227044           | 227044           |
+| Item           | csb0           | csb1             |
+| -------------- | -------------- | ---------------- |
+| **IP**         | 89.58.63.96/22 | 152.53.64.166/24 |
+| **Gateway**    | 89.58.60.1     | 152.53.64.1      |
+| **SSH Port**   | 2222           | 2222             |
+| **VNC Access** | Netcup SCP     | Netcup SCP       |
+| **Customer #** | 227044         | 227044           |
 
-⚠️ **csb0 subnet is /22** (not /24) — gateway is at .64.1, not .65.1
+⚠️ **csb0 subnet is /22** (not /24) — gateway is at .60.1, not .63.1
 
 ### VNC Recovery
 
