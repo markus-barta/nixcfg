@@ -281,6 +281,23 @@ services:
     labels:
       - com.centurylinklabs.watchtower.enable=true
 
+  # hsb0-home — HostDash service landing page for this host. Static HTML/CSS/JS
+  # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
+  # read-only from /etc.
+  hsb0-home:
+    image: nginx:alpine
+    container_name: hsb0-home
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - TZ=Europe/Vienna
+    volumes:
+      - /etc/hostdash/hsb0/share/hostdash-hsb0:/usr/share/nginx/html:ro
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=false
+
   # Weekly Watchtower — updates all watchtower.enable=true containers
   # Saturday 05:00 local (containers labeled enable=false are skipped).
   # Added 2026-07-04 (NIX-228 follow-up): enable labels existed but no

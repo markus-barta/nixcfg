@@ -415,10 +415,10 @@ services:
       - com.centurylinklabs.watchtower.enable=true
       - com.centurylinklabs.watchtower.scope=weekly
 
-  # hsb1-home (NIX-211) — warm "Hearth" service landing page for this host: every
+  # hsb1-home (NIX-211) — HostDash service landing page for this host: every
   # container at a glimpse, one click away, live status dots. Static single file,
-  # served by nginx on :80. Built from markus-barta/hsb1-home-dashboard via Nix,
-  # then mounted read-only from /etc.
+  # served by nginx on :80. Built from markus-barta/hostdash via Nix, then
+  # mounted read-only from /etc.
   hsb1-home:
     image: nginx:alpine
     container_name: hsb1-home
@@ -428,7 +428,7 @@ services:
     environment:
       - TZ=Europe/Vienna
     volumes:
-      - /etc/hsb1-home-dashboard/share/hsb1-home-dashboard:/usr/share/nginx/html:ro
+      - /etc/hostdash/hsb1/share/hostdash-hsb1:/usr/share/nginx/html:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
       - com.centurylinklabs.watchtower.scope=weekly

@@ -16,6 +16,20 @@ ssh mba@hsb0.lan
 
 ---
 
+## HostDash
+
+**URL**: http://hsb0/ or http://hsb0.lan/
+**Container**: `hsb0-home` | **Unit**: `hsb0-home-dashboard` | **Source**: `github.com/markus-barta/hostdash`
+
+The dashboard is mounted from `/etc/hostdash/hsb0/share/hostdash-hsb0` and
+reconciled by NixOS. Restart it without touching the rest of the compose stack:
+
+```bash
+sudo systemctl restart hsb0-home-dashboard
+```
+
+---
+
 ## OpenClaw Gateway (Merlin + Nimue)
 
 **Container**: `openclaw-gateway` | **Port**: 18789 | **Data**: `/var/lib/openclaw-gateway/data`

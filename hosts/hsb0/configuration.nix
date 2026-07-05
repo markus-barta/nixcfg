@@ -8,6 +8,8 @@
   ...
 }:
 let
+  hostdashHsb0 = inputs.hostdash.packages.${pkgs.system}.hsb0;
+
   # ============================================================================
   # DNS ALLOWLIST - Domains that bypass ad-blocking
   # ============================================================================
@@ -629,6 +631,35 @@ in
     mkdir -p /var/lib/openclaw-gateway/nimue-gogcli
     chown -R 1000:1000 /var/lib/openclaw-gateway/
   '';
+
+  # ============================================================================
+  # HostDash — static LAN service dashboard for hsb0
+  # ============================================================================
+  # hsb0's existing compose stack is not fully systemd-owned yet; at least one
+  # live bridge container predates compose labels. Keep this unit narrow and
+  # reconcile only the dashboard service instead of adopting the whole stack.
+  systemd.services.hsb0-home-dashboard = {
+    description = "hsb0 HostDash nginx dashboard";
+    after = [
+      "docker.service"
+      "network-online.target"
+    ];
+    requires = [ "docker.service" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [
+      (builtins.readFile ./docker/docker-compose.yml)
+      hostdashHsb0
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb0/docker/docker-compose.yml up -d --force-recreate --no-deps hsb0-home";
+      TimeoutStartSec = "180";
+    };
+  };
+
+  environment.etc."hostdash/hsb0".source = hostdashHsb0;
 
   # ============================================================================
   # NCPS - Nix binary Cache Proxy Service
