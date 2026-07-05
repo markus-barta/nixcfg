@@ -195,9 +195,13 @@ in
   # actually missed (its list: android-studio, crystalfetch, github, raycast,
   # utm, zed). Browser cask: add here once chosen (NIX-215 log).
   home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile {
+    extraTaps = [
+      "steipete/tap" # codexbar's tap. brew 6 gates loading behind trust (tapped != trusted): one-time `brew trust steipete/tap` per host before `just bundle`
+    ];
     extraCasks = [
       "bettertouchtool" # trackpad/gestures — settings + license migrated from mbp0 (NIX-215); config stays BTT-managed, not Nix
       "cmux" # was hand-installed pre-Brewfile; adopted into the manifest so bundle-cleanup keeps it
+      "codexbar" # menu-bar Codex/Claude status app (steipete/tap)
       "crystalfetch" # from mbp0's list (pulled on demand 2026-07-04, NIX-215)
       "github" # GitHub Desktop — from mbp0's list (2026-07-04)
       "helium-browser" # daily-driver browser; profile rsynced from mbp0 2026-07-03 (NIX-215) — hand-installed there, cask-managed here
