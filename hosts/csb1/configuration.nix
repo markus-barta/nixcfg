@@ -1,12 +1,23 @@
 # csb1 - Cloud Server Barta 1 (Netcup VPS)
 # Hokage Migration: 2025-11-29
 {
+  pkgs,
   lib,
   config,
   inputs,
   ...
 }:
 
+let
+  hostdashCsb1 = inputs.hostdash.packages.${pkgs.system}.csb1;
+  csb1ComposeFile = "/home/mba/Code/nixcfg/hosts/csb1/docker/docker-compose.yml";
+  csb1Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${csb1ComposeFile}";
+  csb1HostdashReconcile = pkgs.writeShellScript "csb1-hostdash-reconcile" ''
+    set -eu
+    ${csb1Compose} up -d --no-deps traefik
+    ${csb1Compose} up -d --force-recreate --no-deps hostdash
+  '';
+in
 {
   imports = [
     ./hardware-configuration.nix
@@ -150,6 +161,35 @@
       # Legacy compatibility: keep /home/mba/docker as primary location for now
       # Will migrate to /var/lib/csb1-docker in future task
     ];
+
+  # ============================================================================
+  # HostDash — static public service dashboard for csb1
+  # ============================================================================
+  # Traefik already owns public 80/443 on the cloud hosts. Keep this narrow:
+  # reconcile Traefik labels when the compose file changes, then force-recreate
+  # only HostDash so Nix store package updates behind /etc/hostdash are picked up.
+  systemd.services.csb1-hostdash = {
+    description = "csb1 HostDash nginx dashboard";
+    after = [
+      "docker.service"
+      "network-online.target"
+    ];
+    requires = [ "docker.service" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [
+      (builtins.readFile ./docker/docker-compose.yml)
+      hostdashCsb1
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${csb1HostdashReconcile}";
+      TimeoutStartSec = "240";
+    };
+  };
+
+  environment.etc."hostdash/csb1".source = hostdashCsb1;
 
   # ============================================================================
   # MOSQUITTO MQTT BROKER PERMISSIONS

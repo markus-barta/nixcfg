@@ -127,6 +127,7 @@ docker-upf  # Custom fish abbreviation for force-recreate
 | csb0-mosquitto-1           | MQTT broker (CRITICAL)           | `/var/lib/csb0-docker/mosquitto`   |
 | csb0-nodered-1             | Smart home automation (CRITICAL) | `/var/lib/csb0-docker/nodered`     |
 | csb0-traefik-1             | Reverse proxy                    | `/var/lib/csb0-docker/traefik`     |
+| csb0-hostdash-1            | HostDash service dashboard       | `/etc/hostdash/csb0`               |
 | csb0-uptime-kuma-1         | Monitoring                       | `/var/lib/csb0-docker/uptime-kuma` |
 | headscale                  | VPN control server (Tailscale)   | Docker volume `headscale-data`     |
 | csb0-restic-cron-hetzner-1 | Backup manager                   | -                                  |

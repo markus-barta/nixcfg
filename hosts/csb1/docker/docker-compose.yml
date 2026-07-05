@@ -167,15 +167,46 @@ services:
       - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml
       - ./traefik/acme.json:/etc/traefik/acme/acme.json:rw
     labels:
-      - traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`)
+      # HostDash owns / on cs1.barta.cm; keep Traefik's API on /api and
+      # /dashboard if the dashboard is enabled later.
+      - "traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      - traefik.http.routers.traefik.entrypoints=web-secure
       - traefik.http.routers.traefik.service=api@internal
       - traefik.http.routers.traefik.tls.certresolver=default
       - traefik.http.routers.traefik.tls=true
+      - traefik.http.routers.traefik.priority=100
       # - traefik.http.routers.traefik.middlewares=authelia  # DISABLED 2026-03-06 - no authelia container
     environment:
       - TZ=Europe/Vienna
     env_file:
       - /run/agenix/traefik-variables
+
+  # HostDash — static service dashboard for this host. Built by Nix from
+  # markus-barta/hostdash and mounted read-only from /etc/hostdash.
+  hostdash:
+    image: nginx:alpine
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Vienna
+    volumes:
+      - /etc/hostdash/csb1/share/hostdash-csb1:/usr/share/nginx/html:ro
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.hostdash-csb1.rule=Host(`cs1.barta.cm`)
+      - traefik.http.routers.hostdash-csb1.entrypoints=web-secure
+      - traefik.http.routers.hostdash-csb1.tls=true
+      - traefik.http.routers.hostdash-csb1.tls.certresolver=default
+      - traefik.http.routers.hostdash-csb1.priority=10
+      - traefik.http.services.hostdash-csb1.loadbalancer.server.port=80
+      - traefik.docker.network=csb1_traefik
+      - traefik.http.routers.hostdash-csb1-http.rule=Host(`cs1.barta.cm`)
+      - traefik.http.routers.hostdash-csb1-http.entrypoints=web
+      - traefik.http.routers.hostdash-csb1-http.middlewares=hostdash-csb1-https@docker
+      - traefik.http.middlewares.hostdash-csb1-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.hostdash-csb1-https.redirectscheme.permanent=true
+      - com.centurylinklabs.watchtower.enable=true
 
   whoami:
     image: containous/whoami

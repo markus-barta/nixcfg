@@ -169,11 +169,14 @@ services:
       - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
       - ./traefik/acme.json:/etc/traefik/acme/acme.json:rw
     labels:
-      #changed to cs0 #- traefik.http.routers.traefik.rule=Host(`traefik.barta.cm`)
-      - traefik.http.routers.traefik.rule=Host(`cs0.barta.cm`)
+      # HostDash owns / on cs0.barta.cm; keep Traefik's API on /api and
+      # /dashboard if the dashboard is enabled later.
+      - "traefik.http.routers.traefik.rule=Host(`cs0.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      - traefik.http.routers.traefik.entrypoints=web-secure
       - traefik.http.routers.traefik.service=api@internal
       - traefik.http.routers.traefik.tls.certresolver=default
       - traefik.http.routers.traefik.tls=true
+      - traefik.http.routers.traefik.priority=100
       - com.centurylinklabs.watchtower.enable=false
       # - traefik.http.routers.traefik.middlewares=authelia
       # fixes error: middleware "authelia@docker" does not exist
@@ -182,6 +185,33 @@ services:
       - TZ=Europe/Vienna
     env_file:
       - ./traefik/variables.env
+
+  # HostDash — static service dashboard for this host. Built by Nix from
+  # markus-barta/hostdash and mounted read-only from /etc/hostdash.
+  hostdash:
+    image: nginx:alpine
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Vienna
+    volumes:
+      - /etc/hostdash/csb0/share/hostdash-csb0:/usr/share/nginx/html:ro
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.hostdash-csb0.rule=Host(`cs0.barta.cm`)
+      - traefik.http.routers.hostdash-csb0.entrypoints=web-secure
+      - traefik.http.routers.hostdash-csb0.tls=true
+      - traefik.http.routers.hostdash-csb0.tls.certresolver=default
+      - traefik.http.routers.hostdash-csb0.priority=10
+      - traefik.http.services.hostdash-csb0.loadbalancer.server.port=80
+      - traefik.docker.network=csb0_traefik
+      - traefik.http.routers.hostdash-csb0-http.rule=Host(`cs0.barta.cm`)
+      - traefik.http.routers.hostdash-csb0-http.entrypoints=web
+      - traefik.http.routers.hostdash-csb0-http.middlewares=hostdash-csb0-https@docker
+      - traefik.http.middlewares.hostdash-csb0-https.redirectscheme.scheme=https
+      - traefik.http.middlewares.hostdash-csb0-https.redirectscheme.permanent=true
+      - com.centurylinklabs.watchtower.enable=true
 
   # https://github.com/containous/whoami
   whoami:
