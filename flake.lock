@@ -419,11 +419,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1782992164,
-        "narHash": "sha256-DuKHywguEb3GI/tKEnD6BSUEvZ4/CmO0hSx1VEoQwKc=",
+        "lastModified": 1783166907,
+        "narHash": "sha256-trTk5/QYhH6DKqlUGF1kdkKiRWwv1r/PAUWPIcUAJK4=",
         "owner": "AlvaroParker",
         "repo": "helium-nix",
-        "rev": "5df7522721a025aa1ba2624040db76e7b042f756",
+        "rev": "eff7c9c8b52e226c3b37d46995189403afa31115",
         "type": "github"
       },
       "original": {
@@ -460,11 +460,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1783134515,
-        "narHash": "sha256-qMoZazubXlXUD9k/syJ/aiWC4X4g73mwVmZ7Z4+rdpM=",
+        "lastModified": 1783222121,
+        "narHash": "sha256-E/ElL373TO8lQ2aMvYyzN+k4xkVaUGoRqoa8AtM71tI=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "b885baad531fa3d3beae2ba9a0712d22974d8016",
+        "rev": "a1645f40777620c4bd2b6d854b290c2fc354a266",
         "type": "github"
       },
       "original": {
@@ -646,11 +646,11 @@
         "zfsguard": "zfsguard"
       },
       "locked": {
-        "lastModified": 1783016698,
-        "narHash": "sha256-7ewVocIGul3HYifnp4WiLav9jVMPgp1Qw9O49sCxKJA=",
+        "lastModified": 1783190441,
+        "narHash": "sha256-/cs5L//CcVQIZQzC2d/hXaYqrNYpM4/nCpeH+H4Fl7c=",
         "owner": "pbek",
         "repo": "nixcfg",
-        "rev": "351c7d5d1712f9ba7b52cd8dc3ff805ecc22bf2e",
+        "rev": "a1b494b16255911cce908e376d475a5952c6c37e",
         "type": "github"
       },
       "original": {
