@@ -50,6 +50,7 @@ MANIFEST_JSON="$(nix eval '.#nixosConfigurations.hsb8.config.services.hostdash.m
 OUTPUT_PATH="$(nix eval '.#nixosConfigurations.hsb8.config.services.hostdash.manifest.effectiveOutputPath' --raw 2>/dev/null)"
 SOURCE_PATH="$(nix eval '.#nixosConfigurations.hsb8.config.services.hostdash.manifest.source' --raw 2>/dev/null)"
 ETC_SOURCE="$(nix eval '.#nixosConfigurations.hsb8.config.environment.etc."hostdash-config/hsb8.json".source' --raw 2>/dev/null)"
+CSB1_PHAROS_MANIFEST="$REPO_ROOT/hosts/csb1/docker/pharos/manifests/hsb8.json"
 
 check_jq "schema is versioned" '.schema == "inspr.hostdash.config.v1" and .version == 1'
 check_jq "host metadata is hsb8" '.host.name == "hsb8" and .host.fqdn == "hsb8.lan" and .host.ip == "192.168.1.100"'
@@ -75,6 +76,12 @@ if [[ "$ETC_SOURCE" == /nix/store/*hostdash-hsb8-config.json ]]; then
   pass "environment.etc points to generated JSON"
 else
   fail "environment.etc points to generated JSON: got $ETC_SOURCE"
+fi
+
+if [[ -f "$CSB1_PHAROS_MANIFEST" ]] && diff -u <(jq -S . <<<"$MANIFEST_JSON") <(jq -S . "$CSB1_PHAROS_MANIFEST") >/dev/null; then
+  pass "csb1 pharosd manifest copy matches generated hsb8 manifest"
+else
+  fail "csb1 pharosd manifest copy matches generated hsb8 manifest"
 fi
 
 echo ""

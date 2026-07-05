@@ -1,0 +1,208 @@
+{
+  "generatedBy": "nixcfg",
+  "host": {
+    "access": {
+      "lanHostname": "hsb8.lan",
+      "lanIp": "192.168.1.100",
+      "tailnet": "hsb8"
+    },
+    "eyebrow": null,
+    "fqdn": "hsb8.lan",
+    "heading": "Services",
+    "ip": "192.168.1.100",
+    "name": "hsb8",
+    "os": "NixOS",
+    "role": "parents' home",
+    "site": "ww87",
+    "subtitle": null,
+    "title": "hsb8 · parents' home"
+  },
+  "meta": [
+    {
+      "code": true,
+      "text": "hosts/hsb8/docker"
+    },
+    {
+      "code": true,
+      "text": "hsb8-home"
+    },
+    "Europe/Vienna"
+  ],
+  "palette": {
+    "accent": "#e09051",
+    "category": "custom",
+    "description": "User-defined color for hsb8",
+    "displayName": "Custom (hsb8)",
+    "gradient": {
+      "dark": "#341c09",
+      "darker": "#231306",
+      "darkest": "#160c04",
+      "lightest": "#ecba93",
+      "midDark": "#572f0f",
+      "primary": "#e09051",
+      "secondary": "#c26923"
+    },
+    "name": "custom-hsb8",
+    "text": {
+      "accent": "#e8ac7d",
+      "muted": "#341c09",
+      "mutedLight": "#dc833c",
+      "onLightest": "#2b1708",
+      "onMedium": "#000000"
+    },
+    "zellij": {
+      "bg": "#e09051",
+      "black": "#160c04",
+      "fg": "#c26923",
+      "frame": "#e09051",
+      "highlight": "#ecba93",
+      "white": "#fbf1e9"
+    }
+  },
+  "policy": {
+    "declaredOnly": true,
+    "privilegedActions": {
+      "janusRequired": false,
+      "mode": "none"
+    },
+    "runtimeStateOwner": "pharos"
+  },
+  "schema": "inspr.hostdash.config.v1",
+  "services": [
+    {
+      "certIssue": false,
+      "icon": "logo-adguard",
+      "name": "AdGuard Home",
+      "passive": false,
+      "port": ":3000",
+      "privilegedAction": false,
+      "purpose": "Local DNS, DHCP, filtering, and leases",
+      "sameHost": true,
+      "statusPolicy": {
+        "source": "hostdash-probe",
+        "staticState": null
+      },
+      "url": "http://hsb8.lan:3000/",
+      "urls": {
+        "lanHostname": "http://hsb8.lan:3000/",
+        "lanIp": "http://192.168.1.100:3000/",
+        "tailnet": "http://hsb8:3000/"
+      },
+      "wing": "network"
+    },
+    {
+      "certIssue": false,
+      "icon": "logo-ha",
+      "name": "Home Assistant",
+      "passive": false,
+      "port": ":8123",
+      "privilegedAction": false,
+      "purpose": "Parents' home automation hub",
+      "sameHost": true,
+      "statusPolicy": {
+        "source": "hostdash-probe",
+        "staticState": null
+      },
+      "url": "http://hsb8.lan:8123/",
+      "urls": {
+        "lanHostname": "http://hsb8.lan:8123/",
+        "lanIp": "http://192.168.1.100:8123/",
+        "tailnet": "http://hsb8:8123/"
+      },
+      "wing": "home"
+    },
+    {
+      "certIssue": false,
+      "foot": ":1883 · broker",
+      "icon": "logo-mqtt",
+      "name": "Mosquitto",
+      "passive": true,
+      "privilegedAction": false,
+      "purpose": "MQTT broker for local automations",
+      "sameHost": false,
+      "statusPolicy": {
+        "source": "passive",
+        "staticState": null
+      },
+      "urls": {},
+      "wing": "home"
+    },
+    {
+      "certIssue": false,
+      "foot": "agent · outbound only",
+      "icon": "satellite-dish",
+      "name": "FleetCom Bosun",
+      "passive": true,
+      "privilegedAction": false,
+      "purpose": "Heartbeats and lifecycle events to fleet.barta.cm",
+      "sameHost": false,
+      "statusPolicy": {
+        "source": "passive",
+        "staticState": null
+      },
+      "urls": {},
+      "wing": "ops"
+    },
+    {
+      "certIssue": false,
+      "foot": "beacon · outbound only",
+      "icon": "radar",
+      "name": "pharos-beacon",
+      "passive": true,
+      "privilegedAction": false,
+      "purpose": "Host status to pharosd on csb1",
+      "sameHost": false,
+      "statusPolicy": {
+        "source": "pharos-runtime",
+        "staticState": null
+      },
+      "urls": {},
+      "wing": "ops"
+    },
+    {
+      "certIssue": false,
+      "foot": "Sat 05:00 · scheduled",
+      "icon": "refresh-cw",
+      "name": "Watchtower",
+      "passive": true,
+      "privilegedAction": false,
+      "purpose": "Weekly updates for scoped containers",
+      "sameHost": false,
+      "statusPolicy": {
+        "source": "passive",
+        "staticState": null
+      },
+      "urls": {},
+      "wing": "housekeeping"
+    }
+  ],
+  "slug": "hsb8",
+  "storageKey": "hostdash.hsb8",
+  "version": 1,
+  "wings": [
+    {
+      "color": "var(--home)",
+      "icon": "radio-tower",
+      "id": "network",
+      "name": "Network Core"
+    },
+    {
+      "color": "var(--media)",
+      "icon": "house",
+      "id": "home",
+      "name": "Home Automation"
+    },
+    {
+      "color": "var(--signals)",
+      "icon": "radar",
+      "id": "ops",
+      "name": "Fleet & Ops"
+    },
+    {
+      "color": "var(--infra)",
+      "icon": "refresh-cw",
+      "id": "housekeeping",
+      "name": "Housekeeping"
+    }
+  ]
+}

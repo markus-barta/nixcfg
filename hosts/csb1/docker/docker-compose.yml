@@ -611,6 +611,7 @@ services:
       - PHAROS_ADDR=0.0.0.0:8080
       - RUST_LOG=info
       - PHAROS_DB=/data/pharos.json
+      - PHAROS_MANIFEST_PATHS=/manifests/hsb8.json
       # OIDC (PKCE) — public dashboard auth via Zitadel (PHAROS-4). Beacons hit
       # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
       - PHAROS_OIDC_ISSUER=https://auth.inspr.at
@@ -621,6 +622,7 @@ services:
       - "100.64.0.4:8088:8080"
     volumes:
       - pharos_data:/data
+      - ./pharos/manifests:/manifests:ro
     networks:
       - traefik
     labels:
