@@ -8,7 +8,7 @@
 }:
 
 let
-  hsb1HomeDashboard = inputs.hsb1-home-dashboard.packages.${pkgs.system}.hsb1;
+  hostdashHsb1 = inputs.hostdash.packages.${pkgs.system}.hsb1;
 in
 {
   imports = [
@@ -642,7 +642,7 @@ in
     wantedBy = [ "multi-user.target" ];
     restartTriggers = [
       (builtins.readFile ./docker/docker-compose.yml)
-      hsb1HomeDashboard
+      hostdashHsb1
     ];
     serviceConfig = {
       Type = "oneshot";
@@ -653,7 +653,7 @@ in
     };
   };
 
-  environment.etc."hsb1-home-dashboard".source = hsb1HomeDashboard;
+  environment.etc."hostdash/hsb1".source = hostdashHsb1;
 
   # ============================================================================
   # OPUS SmartHome Stream to MQTT Bridge

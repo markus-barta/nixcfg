@@ -53,8 +53,8 @@
       url = "github:markus-barta/opus-stream-to-mqtt";
       flake = false;
     };
-    hsb1-home-dashboard = {
-      url = "github:markus-barta/hsb1-home-dashboard";
+    hostdash = {
+      url = "github:markus-barta/hostdash";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # Paimos — agent-facing CLI. Tracking `main`, so `update-flake-lock`
