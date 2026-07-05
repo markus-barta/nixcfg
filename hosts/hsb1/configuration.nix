@@ -648,6 +648,7 @@ in
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb1/docker/docker-compose.yml up -d";
+      ExecStartPost = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb1/docker/docker-compose.yml up -d --force-recreate --no-deps hsb1-home";
       TimeoutStartSec = "600";
     };
   };
