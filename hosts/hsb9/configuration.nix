@@ -7,6 +7,8 @@
   ...
 }:
 let
+  hostdashHsb9 = inputs.hostdash.packages.${pkgs.system}.hsb9;
+
   # ============================================================================
   # LOCATION CONFIGURATION
   # ============================================================================
@@ -147,6 +149,7 @@ in
       enable = true;
       allowedTCPPorts = [
         22 # SSH
+        80 # HostDash
         1883 # MQTT (mosquitto)
         8123 # Home Assistant
         # 8080 # Zigbee2MQTT UI — open when the dongle lands (NIX-140)
@@ -249,6 +252,32 @@ in
     usbutils
     ethtool
   ];
+
+  # ==========================================================================
+  # HostDash — static LAN service dashboard for hsb9
+  # ==========================================================================
+  systemd.services.hsb9-home-dashboard = {
+    description = "hsb9 HostDash nginx dashboard";
+    after = [
+      "docker.service"
+      "network-online.target"
+    ];
+    requires = [ "docker.service" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [
+      (builtins.readFile ./docker/docker-compose.yml)
+      hostdashHsb9
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb9/docker/docker-compose.yml up -d --force-recreate --no-deps hsb9-home";
+      TimeoutStartSec = "180";
+    };
+  };
+
+  environment.etc."hostdash/hsb9".source = hostdashHsb9;
 
   # hsb9 was installed at NixOS 25.05; common.nix's "24.11" is the fleet
   # baseline. mkForce keeps per-host stateVersion semantics correct.

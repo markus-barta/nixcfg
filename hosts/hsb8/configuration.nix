@@ -7,6 +7,8 @@
   ...
 }:
 let
+  hostdashHsb8 = inputs.hostdash.packages.${pkgs.system}.hsb8;
+
   # ============================================================================
   # DNS ALLOWLIST - Domains that bypass ad-blocking
   # ============================================================================
@@ -637,6 +639,35 @@ in
     path = "/run/agenix/hsb8-watchtower-env";
     mode = "0400";
   };
+
+  # ============================================================================
+  # HostDash — static LAN service dashboard for hsb8
+  # ============================================================================
+  # Keep this separate from the cutover-gated hsb8-stack unit: the dashboard is
+  # safe to reconcile on its own and must not force Home Assistant/Mosquitto
+  # ownership changes before the stack cutover marker exists.
+  systemd.services.hsb8-home-dashboard = {
+    description = "hsb8 HostDash nginx dashboard";
+    after = [
+      "docker.service"
+      "network-online.target"
+    ];
+    requires = [ "docker.service" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [
+      (builtins.readFile ./docker/docker-compose.yml)
+      hostdashHsb8
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb8/docker/docker-compose.yml up -d --force-recreate --no-deps hsb8-home";
+      TimeoutStartSec = "180";
+    };
+  };
+
+  environment.etc."hostdash/hsb8".source = hostdashHsb8;
 
   # NIX-236/237: declarative stack reconcile (hsb1 pattern). Gated on the
   # cutover marker so pre-cutover rebuilds can NOT recreate homeassistant/

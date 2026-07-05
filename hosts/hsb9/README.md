@@ -18,6 +18,7 @@
 | **MAC**              | _(not committed — `ip link show enp0s10` on host)_               |
 | **NIC**              | NVIDIA MCP79 onboard (`enp0s10`, `forcedeth` driver)             |
 | **SSH**              | `ssh mba@hsb9.ts.barta.cm` (tailnet) or `ssh mba@192.168.1.200`  |
+| **HostDash**         | `http://hsb9.lan/` or `http://192.168.1.200/`                    |
 | **Location**         | parents-in-law (live since 2026-05-31; was jhw22 migration-prep) |
 | **PPM**              | NIX-138                                                          |
 
@@ -30,6 +31,7 @@ Lighter than hsb8. Just home automation, no DNS/DHCP for the host network:
 - MQTT broker (mosquitto)
 - Zigbee2MQTT (SONOFF Zigbee 3.0 USB dongle migrated from existing Pi 3 setup)
 - Home Assistant (Docker)
+- HostDash (`hsb9-home` nginx container on port 80)
 - HomeKit bridge
 - A handful of light automations
 
