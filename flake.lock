@@ -524,11 +524,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1783257554,
-        "narHash": "sha256-57AJ/f3pTqswwCFHqUZMqWyAykyYpFdpLApKI3qIiHU=",
+        "lastModified": 1783258185,
+        "narHash": "sha256-oHNgu17jJPHt9Kbk5vDaTmTIuiABfKTBSkY/+HHC70g=",
         "owner": "markus-barta",
         "repo": "hsb1-home-dashboard",
-        "rev": "da1bd4f5f4ef1e7cbaebbd302f3c7d74718c087d",
+        "rev": "a013cdfa47da25a8cf907529d1acd7c72706ea54",
         "type": "github"
       },
       "original": {
