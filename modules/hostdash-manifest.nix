@@ -338,6 +338,7 @@ let
       privilegedActions = cfg.privilegedActions;
     };
   };
+  manifestFile = jsonFormat.generate "hostdash-${effectiveSlug}-config.json" manifest;
 
   wingIds = map (wing: wing.id) cfg.wings;
   missingWingIds = lib.unique (
@@ -570,6 +571,12 @@ in
       readOnly = true;
       description = "Generated HostDash/Pharos manifest value.";
     };
+
+    source = mkOption {
+      type = types.path;
+      readOnly = true;
+      description = "Generated HostDash/Pharos manifest JSON store path.";
+    };
   };
 
   config = mkIf cfg.enable {
@@ -591,9 +598,9 @@ in
     services.hostdash.manifest = {
       generated = manifest;
       effectiveOutputPath = effectiveOutputPath;
+      source = manifestFile;
     };
 
-    environment.etc.${effectiveOutputPath}.source =
-      jsonFormat.generate "hostdash-${effectiveSlug}-config.json" manifest;
+    environment.etc.${effectiveOutputPath}.source = manifestFile;
   };
 }

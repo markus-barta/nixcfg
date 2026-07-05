@@ -7,7 +7,12 @@
   ...
 }:
 let
-  hostdashHsb8 = inputs.hostdash.packages.${pkgs.system}.hsb8;
+  hostdashBaseHsb8 = inputs.hostdash.packages.${pkgs.system}.hsb8;
+  hostdashHsb8 = pkgs.runCommand "hostdash-hsb8-with-manifest" { } ''
+    mkdir -p "$out/share/hostdash-hsb8"
+    cp -R ${hostdashBaseHsb8}/share/hostdash-hsb8/. "$out/share/hostdash-hsb8/"
+    cp ${config.services.hostdash.manifest.source} "$out/share/hostdash-hsb8/manifest.json"
+  '';
 
   # ============================================================================
   # DNS ALLOWLIST - Domains that bypass ad-blocking
