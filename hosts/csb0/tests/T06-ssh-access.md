@@ -4,12 +4,12 @@ Test SSH access and security hardening.
 
 ## Host Information
 
-| Property     | Value         |
-| ------------ | ------------- |
-| **Host**     | csb0          |
-| **IP**       | 85.235.65.226 |
-| **SSH Port** | 2222          |
-| **User**     | mba           |
+| Property     | Value       |
+| ------------ | ----------- |
+| **Host**     | csb0        |
+| **IP**       | 89.58.63.96 |
+| **SSH Port** | 2222        |
+| **User**     | mba         |
 
 ## Prerequisites
 

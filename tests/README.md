@@ -42,6 +42,9 @@ Shell scripts for repository-wide verification:
 ```bash
 # Run all general tests
 for t in tests/T*.sh; do bash "$t"; done
+
+# Verify explicit markus SSH route declarations while preserving mba defaults
+bash tests/T04-markus-ssh-routes.sh
 ```
 
 ## Test Philosophy

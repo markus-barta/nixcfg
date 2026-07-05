@@ -13,11 +13,11 @@
 
 | Subdomain   | IP Address    | Proxy Status | Target Server | Notes                   |
 | ----------- | ------------- | ------------ | ------------- | ----------------------- |
-| `cs0`       | 85.235.65.226 | DNS only     | csb0          | Direct server access    |
+| `cs0`       | 89.58.63.96   | DNS only     | csb0          | Direct server access    |
 | `cs1`       | 152.53.64.166 | DNS only     | csb1          | Direct server access    |
 | `docmost`   | 152.53.64.166 | ⚠️ Proxied   | csb1          | Via Cloudflare proxy    |
 | `paperless` | 152.53.64.166 | ⚠️ Proxied   | csb1          | Via Cloudflare proxy    |
-| `traefik`   | 85.235.65.226 | DNS only     | csb0          | Reverse proxy dashboard |
+| `traefik`   | 89.58.63.96   | DNS only     | csb0          | Reverse proxy dashboard |
 
 ### CNAME Records (Aliases)
 
@@ -38,7 +38,7 @@
 
 ## Server Service Distribution
 
-### csb0 (85.235.65.226)
+### csb0 (89.58.63.96)
 
 Services accessible via subdomains:
 
@@ -88,7 +88,7 @@ Use Terraform/OpenTofu with Cloudflare provider to manage DNS declaratively:
 resource "cloudflare_record" "cs0" {
   zone_id = var.cloudflare_zone_id
   name    = "cs0"
-  value   = "85.235.65.226"
+  value   = "89.58.63.96"
   type    = "A"
   proxied = false
 }

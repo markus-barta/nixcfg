@@ -71,7 +71,7 @@ Create an empty file named after the IP address for quick identification:
 touch hosts/hsb0/ip-99.md           # 192.168.1.99
 
 # Cloud servers (full IP)
-touch hosts/csb0/ip-85.235.65.226.md
+touch hosts/csb0/ip-89.58.63.96.md
 ```
 
 **Why**: Instantly see IP addresses when listing directories.
