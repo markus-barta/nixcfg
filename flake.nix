@@ -131,6 +131,7 @@
       commonServerModules = [
         home-manager.nixosModules.home-manager
         ./modules/common.nix # Shared config for ALL servers (fish, starship, packages, etc.)
+        ./modules/hostdash-manifest.nix # Declarative HostDash/Pharos manifest schema
         { nixpkgs.hostPlatform = linuxSystem; }
         (_: {
           nixpkgs.overlays = allOverlays;
