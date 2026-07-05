@@ -53,6 +53,10 @@
       url = "github:markus-barta/opus-stream-to-mqtt";
       flake = false;
     };
+    hsb1-home-dashboard = {
+      url = "github:markus-barta/hsb1-home-dashboard";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # Paimos — agent-facing CLI. Tracking `main`, so `update-flake-lock`
     # auto-bumps rev+hash on every scheduled run. `vendorHash` in
     # pkgs/paimos-cli/default.nix still has to be refreshed manually when Go

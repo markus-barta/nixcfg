@@ -7,6 +7,9 @@
   ...
 }:
 
+let
+  hsb1HomeDashboard = inputs.hsb1-home-dashboard.packages.${pkgs.system}.hsb1;
+in
 {
   imports = [
     ./hardware-configuration.nix
@@ -637,7 +640,10 @@
     requires = [ "docker.service" ];
     wants = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
-    restartTriggers = [ (builtins.readFile ./docker/docker-compose.yml) ];
+    restartTriggers = [
+      (builtins.readFile ./docker/docker-compose.yml)
+      hsb1HomeDashboard
+    ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -645,6 +651,8 @@
       TimeoutStartSec = "600";
     };
   };
+
+  environment.etc."hsb1-home-dashboard".source = hsb1HomeDashboard;
 
   # ============================================================================
   # OPUS SmartHome Stream to MQTT Bridge

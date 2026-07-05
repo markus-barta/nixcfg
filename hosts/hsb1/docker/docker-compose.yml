@@ -417,7 +417,8 @@ services:
 
   # hsb1-home (NIX-211) — warm "Hearth" service landing page for this host: every
   # container at a glimpse, one click away, live status dots. Static single file,
-  # served by nginx on :80. Self-contained (inline CSS/JS/SVG, no secrets, no CDN).
+  # served by nginx on :80. Built from markus-barta/hsb1-home-dashboard via Nix,
+  # then mounted read-only from /etc.
   hsb1-home:
     image: nginx:alpine
     container_name: hsb1-home
@@ -427,7 +428,7 @@ services:
     environment:
       - TZ=Europe/Vienna
     volumes:
-      - /home/mba/docker/mounts/hsb1-home/index.html:/usr/share/nginx/html/index.html:ro
+      - /etc/hsb1-home-dashboard/share/hsb1-home-dashboard:/usr/share/nginx/html:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
       - com.centurylinklabs.watchtower.scope=weekly
