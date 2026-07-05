@@ -1,10 +1,13 @@
 http:
   routers:
     https-redirect:
-      rule: "HostRegexp(`{any:.*}`)"
+      rule: "HostRegexp(`{subdomain:.+}.barta.cm`)"
+      entryPoints:
+        - web
       middlewares:
         - https-redirect
       service: redirect-all
+      priority: 1
   middlewares:
     https-redirect:
       redirectScheme:

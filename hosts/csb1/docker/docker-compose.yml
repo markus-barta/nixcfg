@@ -206,6 +206,10 @@ services:
       - traefik.http.routers.hostdash-csb1-http.middlewares=hostdash-csb1-https@docker
       - traefik.http.middlewares.hostdash-csb1-https.redirectscheme.scheme=https
       - traefik.http.middlewares.hostdash-csb1-https.redirectscheme.permanent=true
+      - traefik.http.routers.hostdash-csb1-ip.rule=Host(`152.53.64.166`) || Host(`100.64.0.4`)
+      - traefik.http.routers.hostdash-csb1-ip.entrypoints=web
+      - traefik.http.routers.hostdash-csb1-ip.priority=200
+      - traefik.http.routers.hostdash-csb1-ip.service=hostdash-csb1
       - com.centurylinklabs.watchtower.enable=true
 
   whoami:

@@ -7,10 +7,6 @@ experimental:
 entryPoints:
   web:
     address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: web-secure
   web-secure:
     address: ":443"
     http3: {}
