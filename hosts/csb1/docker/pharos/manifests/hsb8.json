@@ -29,7 +29,7 @@
     "Europe/Vienna"
   ],
   "palette": {
-    "accent": "#e09051",
+    "accent": "#e7a05f",
     "category": "custom",
     "description": "User-defined color for hsb8",
     "displayName": "Custom (hsb8)",
@@ -39,7 +39,7 @@
       "darkest": "#160c04",
       "lightest": "#ecba93",
       "midDark": "#572f0f",
-      "primary": "#e09051",
+      "primary": "#e7a05f",
       "secondary": "#c26923"
     },
     "name": "custom-hsb8",
@@ -51,10 +51,10 @@
       "onMedium": "#000000"
     },
     "zellij": {
-      "bg": "#e09051",
+      "bg": "#e7a05f",
       "black": "#160c04",
       "fg": "#c26923",
-      "frame": "#e09051",
+      "frame": "#e7a05f",
       "highlight": "#ecba93",
       "white": "#fbf1e9"
     }

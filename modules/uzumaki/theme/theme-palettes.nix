@@ -759,7 +759,7 @@
 
       gradient = {
         lightest = "#ecba93";
-        primary = "#e09051";
+        primary = "#e7a05f";
         secondary = "#c26923";
         midDark = "#572f0f";
         dark = "#341c09";
@@ -776,9 +776,9 @@
       };
 
       zellij = {
-        bg = "#e09051";
+        bg = "#e7a05f";
         fg = "#c26923";
-        frame = "#e09051";
+        frame = "#e7a05f";
         black = "#160c04";
         white = "#fbf1e9";
         highlight = "#ecba93";
