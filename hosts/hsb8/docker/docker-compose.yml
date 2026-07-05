@@ -8,7 +8,8 @@
 # data mounts to /srv/hsb8 and (b) NIX-235 created /run/agenix/hsb8-watchtower-env.
 # The live containers still run from /home/gb/docker/docker-compose.yml (same
 # project + names) — a premature `up -d` here RECREATES homeassistant/mosquitto
-# with EMPTY /srv mounts. fleetcom-agent + pharos-beacon are safe to reconcile.
+# with EMPTY /srv mounts. fleetcom-agent, pharos-beacon, and HostDash are safe
+# to reconcile.
 services:
   # FleetCom Bosun — heartbeats + container lifecycle to https://fleet.barta.cm.
   # FLEETCOM_TOKEN stays in /opt/fleetcom-agent/.env until a follow-up wires
@@ -61,6 +62,23 @@ services:
     volumes:
       - /home/mba/Code/nixcfg:/nixcfg:ro
       - /etc/NIXOS:/etc/NIXOS:ro
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.scope=weekly
+
+  # hsb8-home — HostDash service landing page for this host. Static HTML/CSS/JS
+  # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
+  # read-only from /etc.
+  hsb8-home:
+    image: nginx:alpine
+    container_name: hsb8-home
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - TZ=Europe/Vienna
+    volumes:
+      - /etc/hostdash/hsb8/share/hostdash-hsb8:/usr/share/nginx/html:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
       - com.centurylinklabs.watchtower.scope=weekly

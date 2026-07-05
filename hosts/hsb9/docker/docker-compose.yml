@@ -64,6 +64,23 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
 
+  # hsb9-home — HostDash service landing page for this host. Static HTML/CSS/JS
+  # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
+  # read-only from /etc.
+  hsb9-home:
+    image: nginx:alpine
+    container_name: hsb9-home
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - TZ=Europe/Vienna
+    volumes:
+      - /etc/hostdash/hsb9/share/hostdash-hsb9:/usr/share/nginx/html:ro
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=weekly"
+
   # Weekly Watchtower — updates all scope=weekly containers Saturday 05:00
   # local. Added 2026-07-04 (NIX-228 follow-up): the weekly labels above
   # existed but no watchtower ran on this host, so nothing ever updated

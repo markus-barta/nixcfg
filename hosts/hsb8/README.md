@@ -18,6 +18,7 @@
 | **MAC Address**       | `40:6c:8f:18:dd:24`                                                        |
 | **Network Interface** | `enp2s0f0`                                                                 |
 | **SSH Access**        | `ssh mba@192.168.1.100` or `ssh mba@hsb8.lan`                              |
+| **HostDash**          | `http://hsb8.lan/` or `http://192.168.1.100/`                              |
 | **Location**          | Currently at jhw22 (Markus' home), deployment target: ww87 (parents' home) |
 | **Users**             | `mba` (admin), `gb` (Gerhard)                                              |
 | **ZFS Host ID**       | `cdbc4e20`                                                                 |

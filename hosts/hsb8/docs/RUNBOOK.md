@@ -34,6 +34,7 @@ ssh gb@hsb8.lan
 ║ Location:  ww87 (parents' home)                            ║
 ╠════════════════════════════════════════════════════════════╣
 ║ 🌐 SERVICES (when at ww87)                                 ║
+║ • HostDash:       http://192.168.1.100                     ║
 ║ • Home Assistant: http://192.168.1.100:8123                ║
 ║ • AdGuard Home:   http://192.168.1.100:3000                ║
 ║ • DNS Server:     192.168.1.100:53                         ║
