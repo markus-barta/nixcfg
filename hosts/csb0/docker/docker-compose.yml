@@ -211,6 +211,10 @@ services:
       - traefik.http.routers.hostdash-csb0-http.middlewares=hostdash-csb0-https@docker
       - traefik.http.middlewares.hostdash-csb0-https.redirectscheme.scheme=https
       - traefik.http.middlewares.hostdash-csb0-https.redirectscheme.permanent=true
+      - traefik.http.routers.hostdash-csb0-ip.rule=Host(`89.58.63.96`) || Host(`100.64.0.8`)
+      - traefik.http.routers.hostdash-csb0-ip.entrypoints=web
+      - traefik.http.routers.hostdash-csb0-ip.priority=200
+      - traefik.http.routers.hostdash-csb0-ip.service=hostdash-csb0
       - com.centurylinklabs.watchtower.enable=true
 
   # https://github.com/containous/whoami

@@ -1,5 +1,17 @@
 http:
+  routers:
+    https-redirect:
+      rule: "HostRegexp(`{subdomain:.+}.barta.cm`) || Host(`jhw22.hausv.org`)"
+      entryPoints:
+        - web
+      middlewares:
+        - https-redirect
+      service: redirect-all
+      priority: 1
   middlewares:
+    https-redirect:
+      redirectScheme:
+        scheme: https
     cloudflarewarp:
       plugin:
         cloudflarewarp:
