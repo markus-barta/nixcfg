@@ -160,6 +160,15 @@ in
     };
   };
 
+  # Local fallback for site DNS: hsb9 runs with Cloudflare resolvers at the
+  # parents-in-law site, so declare its own LAN names explicitly.
+  networking.hosts = {
+    "${staticIP}" = [
+      "hsb9"
+      "hsb9.lan"
+    ];
+  };
+
   # ==========================================================================
   # SSH — family-server lockdown (mba only)
   # ==========================================================================
