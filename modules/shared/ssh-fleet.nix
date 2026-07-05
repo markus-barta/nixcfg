@@ -283,7 +283,7 @@
         port = 2222;
       };
       "csb0-markus-ip" = {
-        hostname = "85.235.65.226";
+        hostname = "89.58.63.96";
         user = "markus";
         port = 2222;
       };
