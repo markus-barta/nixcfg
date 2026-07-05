@@ -32,6 +32,23 @@
       HostName hsb0.ts.barta.cm
       User mba
 
+    Host hsb0-markus
+      HostName 192.168.1.99
+      User markus
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb0.ts.barta.cm %p; fi'
+
+    Host hsb0-markus-lan
+      HostName hsb0.lan
+      User markus
+
+    Host hsb0-markus-ip
+      HostName 192.168.1.99
+      User markus
+
+    Host hsb0-markus-ts
+      HostName hsb0.ts.barta.cm
+      User markus
+
     Host hsb1
       HostName 192.168.1.101
       User mba
@@ -44,6 +61,23 @@
     Host hsb1-ts
       HostName hsb1.ts.barta.cm
       User mba
+
+    Host hsb1-markus
+      HostName 192.168.1.101
+      User markus
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb1.ts.barta.cm %p; fi'
+
+    Host hsb1-markus-lan
+      HostName hsb1.lan
+      User markus
+
+    Host hsb1-markus-ip
+      HostName 192.168.1.101
+      User markus
+
+    Host hsb1-markus-ts
+      HostName hsb1.ts.barta.cm
+      User markus
 
     Host hsb2
       HostName 192.168.1.95
@@ -71,6 +105,23 @@
       HostName hsb8.ts.barta.cm
       User mba
 
+    Host hsb8-markus
+      HostName 192.168.1.100
+      User markus
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb8.ts.barta.cm %p; fi'
+
+    Host hsb8-markus-lan
+      HostName hsb8.lan
+      User markus
+
+    Host hsb8-markus-ip
+      HostName 192.168.1.100
+      User markus
+
+    Host hsb8-markus-ts
+      HostName hsb8.ts.barta.cm
+      User markus
+
     # hsb9 = parents-in-law (Mac mini Late 2009). LAN .200 is target; while at
     # jhw22 (.203) the TS fallback wins via the proxy command.
     Host hsb9
@@ -86,6 +137,23 @@
       HostName hsb9.ts.barta.cm
       User mba
 
+    Host hsb9-markus
+      HostName 192.168.1.200
+      User markus
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb9.ts.barta.cm %p; fi'
+
+    Host hsb9-markus-lan
+      HostName hsb9.lan
+      User markus
+
+    Host hsb9-markus-ip
+      HostName 192.168.1.200
+      User markus
+
+    Host hsb9-markus-ts
+      HostName hsb9.ts.barta.cm
+      User markus
+
     Host gpc0
       HostName 192.168.1.154
       User mba
@@ -98,6 +166,23 @@
     Host gpc0-ts
       HostName gpc0.ts.barta.cm
       User mba
+
+    Host gpc0-markus
+      HostName 192.168.1.154
+      User markus
+      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc gpc0.ts.barta.cm %p; fi'
+
+    Host gpc0-markus-lan
+      HostName gpc0.lan
+      User markus
+
+    Host gpc0-markus-ip
+      HostName 192.168.1.154
+      User markus
+
+    Host gpc0-markus-ts
+      HostName gpc0.ts.barta.cm
+      User markus
 
     # === PORTABLE/WORK HOSTS ===
     Host miniserver-bp
@@ -142,6 +227,21 @@
       User mba
       Port 2222
 
+    Host csb0-markus
+      HostName cs0.barta.cm
+      User markus
+      Port 2222
+
+    Host csb0-markus-ip
+      HostName 85.235.65.226
+      User markus
+      Port 2222
+
+    Host csb0-markus-ts
+      HostName csb0.ts.barta.cm
+      User markus
+      Port 2222
+
     Host csb1
       HostName csb1.ts.barta.cm
       User mba
@@ -150,6 +250,21 @@
     Host csb1-ts
       HostName csb1.ts.barta.cm
       User mba
+      Port 2222
+
+    Host csb1-markus
+      HostName cs1.barta.cm
+      User markus
+      Port 2222
+
+    Host csb1-markus-ip
+      HostName 152.53.64.166
+      User markus
+      Port 2222
+
+    Host csb1-markus-ts
+      HostName csb1.ts.barta.cm
+      User markus
       Port 2222
   '';
 }

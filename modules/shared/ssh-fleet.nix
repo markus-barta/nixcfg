@@ -71,6 +71,23 @@
         hostname = "hsb0.ts.barta.cm";
         user = "mba";
       };
+      "hsb0-markus" = {
+        hostname = "192.168.1.99";
+        user = "markus";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb0.ts.barta.cm %p; fi'";
+      };
+      "hsb0-markus-lan" = {
+        hostname = "hsb0.lan";
+        user = "markus";
+      };
+      "hsb0-markus-ip" = {
+        hostname = "192.168.1.99";
+        user = "markus";
+      };
+      "hsb0-markus-ts" = {
+        hostname = "hsb0.ts.barta.cm";
+        user = "markus";
+      };
 
       "hsb1" = {
         hostname = "192.168.1.101";
@@ -85,6 +102,23 @@
         hostname = "hsb1.ts.barta.cm";
         user = "mba";
       };
+      "hsb1-markus" = {
+        hostname = "192.168.1.101";
+        user = "markus";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb1.ts.barta.cm %p; fi'";
+      };
+      "hsb1-markus-lan" = {
+        hostname = "hsb1.lan";
+        user = "markus";
+      };
+      "hsb1-markus-ip" = {
+        hostname = "192.168.1.101";
+        user = "markus";
+      };
+      "hsb1-markus-ts" = {
+        hostname = "hsb1.ts.barta.cm";
+        user = "markus";
+      };
 
       "hsb8" = {
         hostname = "192.168.1.100";
@@ -98,6 +132,23 @@
       "hsb8-ts" = {
         hostname = "hsb8.ts.barta.cm";
         user = "mba";
+      };
+      "hsb8-markus" = {
+        hostname = "192.168.1.100";
+        user = "markus";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb8.ts.barta.cm %p; fi'";
+      };
+      "hsb8-markus-lan" = {
+        hostname = "hsb8.lan";
+        user = "markus";
+      };
+      "hsb8-markus-ip" = {
+        hostname = "192.168.1.100";
+        user = "markus";
+      };
+      "hsb8-markus-ts" = {
+        hostname = "hsb8.ts.barta.cm";
+        user = "markus";
       };
 
       # hsb9 = parents-in-law (Mac mini Late 2009). LAN .200 is the target at
@@ -114,6 +165,23 @@
       "hsb9-ts" = {
         hostname = "hsb9.ts.barta.cm";
         user = "mba";
+      };
+      "hsb9-markus" = {
+        hostname = "192.168.1.200";
+        user = "markus";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb9.ts.barta.cm %p; fi'";
+      };
+      "hsb9-markus-lan" = {
+        hostname = "hsb9.lan";
+        user = "markus";
+      };
+      "hsb9-markus-ip" = {
+        hostname = "192.168.1.200";
+        user = "markus";
+      };
+      "hsb9-markus-ts" = {
+        hostname = "hsb9.ts.barta.cm";
+        user = "markus";
       };
 
       "hsb2" = {
@@ -142,6 +210,23 @@
       "gpc0-ts" = {
         hostname = "gpc0.ts.barta.cm";
         user = "mba";
+      };
+      "gpc0-markus" = {
+        hostname = "192.168.1.154";
+        user = "markus";
+        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc gpc0.ts.barta.cm %p; fi'";
+      };
+      "gpc0-markus-lan" = {
+        hostname = "gpc0.lan";
+        user = "markus";
+      };
+      "gpc0-markus-ip" = {
+        hostname = "192.168.1.154";
+        user = "markus";
+      };
+      "gpc0-markus-ts" = {
+        hostname = "gpc0.ts.barta.cm";
+        user = "markus";
       };
 
       "miniserver-bp" = {
@@ -192,6 +277,21 @@
         user = "mba";
         port = 2222;
       };
+      "csb0-markus" = {
+        hostname = "cs0.barta.cm";
+        user = "markus";
+        port = 2222;
+      };
+      "csb0-markus-ip" = {
+        hostname = "85.235.65.226";
+        user = "markus";
+        port = 2222;
+      };
+      "csb0-markus-ts" = {
+        hostname = "csb0.ts.barta.cm";
+        user = "markus";
+        port = 2222;
+      };
 
       "csb1" = {
         hostname = "csb1.ts.barta.cm";
@@ -201,6 +301,21 @@
       "csb1-ts" = {
         hostname = "csb1.ts.barta.cm";
         user = "mba";
+        port = 2222;
+      };
+      "csb1-markus" = {
+        hostname = "cs1.barta.cm";
+        user = "markus";
+        port = 2222;
+      };
+      "csb1-markus-ip" = {
+        hostname = "152.53.64.166";
+        user = "markus";
+        port = 2222;
+      };
+      "csb1-markus-ts" = {
+        hostname = "csb1.ts.barta.cm";
+        user = "markus";
         port = 2222;
       };
 
