@@ -15,8 +15,8 @@ let
   csb0Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb0 -f ${csb0ComposeFile}";
   csb0HostdashReconcile = pkgs.writeShellScript "csb0-hostdash-reconcile" ''
     set -eu
-    ${csb0Compose} up -d --no-deps traefik
     ${csb0Compose} up -d --force-recreate --no-deps hostdash
+    ${csb0Compose} up -d --force-recreate --no-deps traefik
   '';
 in
 {
@@ -257,9 +257,9 @@ in
   # ============================================================================
   # HostDash — static public service dashboard for csb0
   # ============================================================================
-  # Traefik already owns public 80/443 on the cloud hosts. Keep this narrow:
-  # reconcile Traefik labels when the compose file changes, then force-recreate
-  # only HostDash so Nix store package updates behind /etc/hostdash are picked up.
+  # Traefik owns public 80/443 on the cloud hosts. Recreate HostDash first so
+  # the Nix store mount is current, then recreate Traefik so its Docker provider
+  # initial scan always includes the dashboard container.
   systemd.services.csb0-hostdash = {
     description = "csb0 HostDash nginx dashboard";
     after = [
