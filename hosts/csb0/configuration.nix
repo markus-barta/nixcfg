@@ -2,12 +2,23 @@
 # Smart Home Hub: Node-RED, MQTT, Telegram Bot
 # Hokage Migration: 2025-11-29
 {
+  pkgs,
   lib,
   config,
   inputs,
   ...
 }:
 
+let
+  hostdashCsb0 = inputs.hostdash.packages.${pkgs.system}.csb0;
+  csb0ComposeFile = "/home/mba/Code/nixcfg/hosts/csb0/docker/docker-compose.yml";
+  csb0Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb0 -f ${csb0ComposeFile}";
+  csb0HostdashReconcile = pkgs.writeShellScript "csb0-hostdash-reconcile" ''
+    set -eu
+    ${csb0Compose} up -d --no-deps traefik
+    ${csb0Compose} up -d --force-recreate --no-deps hostdash
+  '';
+in
 {
   imports = [
     ./hardware-configuration.nix
@@ -242,6 +253,35 @@
   # PASSWORDLESS SUDO
   # ============================================================================
   security.sudo-rs.wheelNeedsPassword = false;
+
+  # ============================================================================
+  # HostDash — static public service dashboard for csb0
+  # ============================================================================
+  # Traefik already owns public 80/443 on the cloud hosts. Keep this narrow:
+  # reconcile Traefik labels when the compose file changes, then force-recreate
+  # only HostDash so Nix store package updates behind /etc/hostdash are picked up.
+  systemd.services.csb0-hostdash = {
+    description = "csb0 HostDash nginx dashboard";
+    after = [
+      "docker.service"
+      "network-online.target"
+    ];
+    requires = [ "docker.service" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [
+      (builtins.readFile ./docker/docker-compose.yml)
+      hostdashCsb0
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${csb0HostdashReconcile}";
+      TimeoutStartSec = "240";
+    };
+  };
+
+  environment.etc."hostdash/csb0".source = hostdashCsb0;
 
   # ============================================================================
   # THEMING - Managed via theme-hm.nix

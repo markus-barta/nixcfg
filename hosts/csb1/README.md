@@ -15,6 +15,7 @@
 | ------------- | --------------------------------------- |
 | **Hostname**  | csb1                                    |
 | **Domain**    | cs1.barta.cm                            |
+| **Dashboard** | https://cs1.barta.cm/                   |
 | **IP (v4)**   | 152.53.64.166                           |
 | **IP (v6)**   | 2a0a:4cc0:80:2d5:e8e8:c7ff:fe68:03c7    |
 | **SSH**       | `ssh -p 2222 mba@cs1.barta.cm` or `qc1` |
@@ -87,7 +88,8 @@ hosts/csb1/
 | Docmost       | docmost.barta.cm   | Documentation/wiki               |
 | Paperless-ngx | paperless.barta.cm | Document management              |
 | Hedgedoc      | hdoc.barta.cm      | Collaborative markdown           |
-| Traefik       | -                  | Reverse proxy & SSL              |
+| HostDash      | cs1.barta.cm       | Service dashboard                |
+| Traefik       | cs1.barta.cm/api   | Reverse proxy & SSL              |
 
 All services run via Docker Compose with Traefik handling SSL (15 containers).
 

@@ -15,6 +15,7 @@
 | ------------- | --------------------------------------- |
 | **Hostname**  | csb0                                    |
 | **Domain**    | cs0.barta.cm                            |
+| **Dashboard** | https://cs0.barta.cm/                   |
 | **IP (v4)**   | 89.58.63.96                             |
 | **SSH**       | `ssh -p 2222 mba@cs0.barta.cm` or `qc0` |
 | **Provider**  | Netcup VPS 1000 G11                     |
@@ -31,7 +32,8 @@
 | **MQTT**     | -                | 🔴 IoT devices disconnect + csb1! |
 | **Telegram** | -                | 🔴 Garage door control BROKEN     |
 | **Backup**   | -                | 🔴 BOTH servers lose backups      |
-| Traefik      | traefik.barta.cm | SSL/routing                       |
+| HostDash     | cs0.barta.cm     | Service dashboard                 |
+| Traefik      | cs0.barta.cm/api | SSL/routing                       |
 | Headscale    | hs.barta.cm      | VPN control server (mesh network) |
 | Cypress      | -                | Solar scraping                    |
 
@@ -81,7 +83,8 @@ hosts/csb0/
 | Node-RED     | home.barta.cm    | Smart home automation      |
 | Mosquitto    | -                | MQTT broker (IoT + csb1)   |
 | Telegram Bot | -                | Garage door, notifications |
-| Traefik      | traefik.barta.cm | Reverse proxy & SSL        |
+| HostDash     | cs0.barta.cm     | Service dashboard          |
+| Traefik      | cs0.barta.cm/api | Reverse proxy & SSL        |
 | Headscale    | hs.barta.cm      | Self-hosted Tailscale VPN  |
 | Cypress      | -                | Solar data scraping        |
 | Restic       | -                | Backup (BOTH servers!)     |

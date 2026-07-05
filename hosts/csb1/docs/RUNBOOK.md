@@ -130,6 +130,7 @@ ssh mba@cs1.barta.cm -p 2222 "cd ~/docker && docker compose stop nixfleet"
 | csb1-paperless-tika-1       | Document parsing           |
 | csb1-paperless-gotenberg-1  | PDF conversion             |
 | csb1-traefik-1              | Reverse proxy              |
+| csb1-hostdash-1             | HostDash service dashboard |
 | csb1-docker-proxy-traefik-1 | Traefik proxy              |
 | csb1-restic-cron-hetzner-1  | Backup (cleanup on csb0!)  |
 | csb1-smtp-1                 | Mail relay                 |
