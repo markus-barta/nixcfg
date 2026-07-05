@@ -517,6 +517,26 @@
         "type": "github"
       }
     },
+    "hsb1-home-dashboard": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783254487,
+        "narHash": "sha256-mawgCaFzwiQXe30M3KcDnunL5Fp+3tc0iy1DZMY3Rfk=",
+        "owner": "markus-barta",
+        "repo": "hsb1-home-dashboard",
+        "rev": "4225b9de47fd039874f66b1251df4b1d1a4ff3c6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "markus-barta",
+        "repo": "hsb1-home-dashboard",
+        "type": "github"
+      }
+    },
     "inspr-modules": {
       "inputs": {
         "flake-utils": "flake-utils_2",
@@ -961,6 +981,7 @@
         "git-hooks": "git-hooks",
         "helium-nix": "helium-nix",
         "home-manager": "home-manager_2",
+        "hsb1-home-dashboard": "hsb1-home-dashboard",
         "inspr-modules": "inspr-modules",
         "ncps": "ncps",
         "nixcfg": "nixcfg",
