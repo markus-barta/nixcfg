@@ -651,6 +651,7 @@ in
     after = [
       "docker.service"
       "network-online.target"
+      "hsb8-stack.service"
     ];
     requires = [ "docker.service" ];
     wants = [ "network-online.target" ];
