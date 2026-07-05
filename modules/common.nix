@@ -25,7 +25,13 @@ in
   # ════════════════════════════════════════════════════════════════════════════
   imports = [
     ./shared/ssh-fleet-nixos.nix # Fleet SSH config (NixOS system-level)
+    ./shared/markus-login-nixos.nix # Additive markus login; mba remains primary
   ];
+
+  # Add `markus` everywhere without changing hokage.userLogin, /home/mba
+  # service paths, or existing recovery users. Hosts can mkForce-disable this
+  # during rollout if a host-specific blocker appears.
+  nixcfg.markusLogin.enable = mkDefault true;
 
   # Disable hokage's starship (we configure our own with shared TOML file)
   hokage.programs.starship.enable = false;
