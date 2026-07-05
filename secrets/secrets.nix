@@ -256,6 +256,12 @@ in
   # Edit: agenix -e secrets/csb1-janus-env.age
   "csb1-janus-env.age".publicKeys = markus ++ csb1;
 
+  # HostDash OAuth2 Proxy env for csb0/csb1.
+  # Format: KEY=VALUE lines (OAUTH2_PROXY_CLIENT_ID,
+  # OAUTH2_PROXY_CLIENT_SECRET, OAUTH2_PROXY_COOKIE_SECRET)
+  # Zitadel app allows both cloud dashboard callback URLs.
+  "csb-hostdash-oauth2-proxy-env.age".publicKeys = markus ++ csb0 ++ csb1;
+
   # WEG Portal environment variables for csb1
   # Format: KEY=VALUE lines (SESSION_KEY, tenant/user JSON, HA_TOKEN)
   # Edit: agenix -e secrets/csb1-weg-portal-env.age

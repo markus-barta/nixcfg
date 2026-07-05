@@ -14,6 +14,7 @@ let
   csb1Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${csb1ComposeFile}";
   csb1HostdashReconcile = pkgs.writeShellScript "csb1-hostdash-reconcile" ''
     set -eu
+    ${csb1Compose} up -d --force-recreate --no-deps hostdash-auth
     ${csb1Compose} up -d --force-recreate --no-deps hostdash
     ${csb1Compose} up -d --force-recreate --no-deps traefik
   '';
@@ -426,6 +427,14 @@ in
   age.secrets.csb1-janus-env = {
     file = ../../secrets/csb1-janus-env.age;
     path = "/run/agenix/csb1-janus-env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  age.secrets.csb-hostdash-oauth2-proxy-env = {
+    file = ../../secrets/csb-hostdash-oauth2-proxy-env.age;
+    path = "/run/agenix/csb-hostdash-oauth2-proxy-env";
     owner = "root";
     group = "root";
     mode = "0644";

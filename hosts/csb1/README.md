@@ -11,21 +11,21 @@
 
 ## Quick Reference
 
-| Item              | Value                                      |
-| ----------------- | ------------------------------------------ |
-| **Hostname**      | csb1                                       |
-| **Domain**        | cs1.barta.cm                               |
-| **Dashboard**     | https://cs1.barta.cm/                      |
-| **Dashboard IPs** | http://152.53.64.166/ / http://100.64.0.4/ |
-| **IP (v4)**       | 152.53.64.166                              |
-| **Tailscale**     | 100.64.0.4                                 |
-| **IP (v6)**       | 2a0a:4cc0:80:2d5:e8e8:c7ff:fe68:03c7       |
-| **SSH**           | `ssh -p 2222 mba@cs1.barta.cm` or `qc1`    |
-| **Provider**      | Netcup VPS 1000 G11                        |
-| **Location**      | Vienna (VIE)                               |
-| **Server ID**     | 646294                                     |
-| **FQDN**          | v2202407214994279426.bestsrv.de            |
-| **Exposure**      | Internet-exposed (ports 80, 443, 2222)     |
+| Item              | Value                                   |
+| ----------------- | --------------------------------------- |
+| **Hostname**      | csb1                                    |
+| **Domain**        | cs1.barta.cm                            |
+| **Dashboard**     | https://cs1.barta.cm/ (Zitadel-gated)   |
+| **Dashboard IPs** | Redirect to canonical HTTPS dashboard   |
+| **IP (v4)**       | 152.53.64.166                           |
+| **Tailscale**     | 100.64.0.4                              |
+| **IP (v6)**       | 2a0a:4cc0:80:2d5:e8e8:c7ff:fe68:03c7    |
+| **SSH**           | `ssh -p 2222 mba@cs1.barta.cm` or `qc1` |
+| **Provider**      | Netcup VPS 1000 G11                     |
+| **Location**      | Vienna (VIE)                            |
+| **Server ID**     | 646294                                  |
+| **FQDN**          | v2202407214994279426.bestsrv.de         |
+| **Exposure**      | Internet-exposed (ports 80, 443, 2222)  |
 
 ---
 
@@ -84,14 +84,14 @@ hosts/csb1/
 
 ## Services (Docker)
 
-| Service       | Domain                                    | Purpose                          |
-| ------------- | ----------------------------------------- | -------------------------------- |
-| PAIMOS (ppm)  | pm.barta.cm                               | Project management (paimos v1.x) |
-| Docmost       | docmost.barta.cm                          | Documentation/wiki               |
-| Paperless-ngx | paperless.barta.cm                        | Document management              |
-| Hedgedoc      | hdoc.barta.cm                             | Collaborative markdown           |
-| HostDash      | cs1.barta.cm / 152.53.64.166 / 100.64.0.4 | Service dashboard                |
-| Traefik       | cs1.barta.cm/api                          | Reverse proxy & SSL              |
+| Service       | Domain             | Purpose                          |
+| ------------- | ------------------ | -------------------------------- |
+| PAIMOS (ppm)  | pm.barta.cm        | Project management (paimos v1.x) |
+| Docmost       | docmost.barta.cm   | Documentation/wiki               |
+| Paperless-ngx | paperless.barta.cm | Document management              |
+| Hedgedoc      | hdoc.barta.cm      | Collaborative markdown           |
+| HostDash      | cs1.barta.cm       | Zitadel-gated service dashboard  |
+| Traefik       | cs1.barta.cm/api   | Reverse proxy & SSL              |
 
 All services run via Docker Compose with Traefik handling SSL (15 containers).
 

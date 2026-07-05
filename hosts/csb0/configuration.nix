@@ -15,6 +15,7 @@ let
   csb0Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb0 -f ${csb0ComposeFile}";
   csb0HostdashReconcile = pkgs.writeShellScript "csb0-hostdash-reconcile" ''
     set -eu
+    ${csb0Compose} up -d --force-recreate --no-deps hostdash-auth
     ${csb0Compose} up -d --force-recreate --no-deps hostdash
     ${csb0Compose} up -d --force-recreate --no-deps traefik
   '';
@@ -329,6 +330,14 @@ in
   age.secrets.traefik-variables = {
     file = ../../secrets/traefik-variables.age;
     path = "/var/lib/csb0-docker/traefik/variables.env";
+    owner = "root";
+    group = "root";
+    mode = "0644";
+  };
+
+  age.secrets.csb-hostdash-oauth2-proxy-env = {
+    file = ../../secrets/csb-hostdash-oauth2-proxy-env.age;
+    path = "/run/agenix/csb-hostdash-oauth2-proxy-env";
     owner = "root";
     group = "root";
     mode = "0644";
