@@ -318,6 +318,7 @@ services:
       - TENANT_HERO_DIR=/data/tenant-heroes
       - INVITE_DATA_PATH=/data/invites.json
       - ACTIVITY_DATA_PATH=/data/activity.json
+      - AUDIT_DATA_PATH=/data/audit.jsonl
       - UNIT_DATA_PATH=/data/units.json
       - ISSUE_DATA_PATH=/data/issues.json
       - ISSUE_ATTACHMENT_DIR=/data/issue-attachments
