@@ -310,6 +310,7 @@ services:
       - PARKING_PRICE_ENTITY=sensor.epex_spot_data_total_price
       - PARKING_DATA_PATH=/data/parking.json
       - INVITE_DATA_PATH=/data/invites.json
+      - ACTIVITY_DATA_PATH=/data/activity.json
       - PARKING_SAMPLE_INTERVAL=15m
       - PARKING_HISTORY_START=2026-01-01
     volumes:
