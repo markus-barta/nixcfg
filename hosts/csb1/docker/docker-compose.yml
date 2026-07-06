@@ -313,6 +313,7 @@ services:
       - ANNOUNCE_READ_DATA_PATH=/data/announcement_reads.json
       - INVITE_DATA_PATH=/data/invites.json
       - ACTIVITY_DATA_PATH=/data/activity.json
+      - UNIT_DATA_PATH=/data/units.json
       - PARKING_SAMPLE_INTERVAL=15m
       - PARKING_HISTORY_START=2026-01-01
     volumes:
