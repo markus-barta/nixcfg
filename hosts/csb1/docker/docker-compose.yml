@@ -314,6 +314,7 @@ services:
       - EVENT_DATA_PATH=/data/events.json
       - DOC_DATA_PATH=/data/documents.json
       - DOC_FILE_DIR=/data/documents
+      - VOTE_DATA_PATH=/data/votes.json
       - NOTIFICATION_PREF_DATA_PATH=/data/notification_prefs.json
       - PROFILE_DATA_PATH=/data/profile_overlays.json
       - TENANT_DATA_PATH=/data/tenant_overrides.json
