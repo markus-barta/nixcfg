@@ -311,6 +311,7 @@ services:
       - PARKING_DATA_PATH=/data/parking.json
       - ANNOUNCE_DATA_PATH=/data/announcements.json
       - ANNOUNCE_READ_DATA_PATH=/data/announcement_reads.json
+      - EVENT_DATA_PATH=/data/events.json
       - NOTIFICATION_PREF_DATA_PATH=/data/notification_prefs.json
       - INVITE_DATA_PATH=/data/invites.json
       - ACTIVITY_DATA_PATH=/data/activity.json
