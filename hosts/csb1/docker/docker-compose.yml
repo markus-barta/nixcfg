@@ -314,6 +314,8 @@ services:
       - EVENT_DATA_PATH=/data/events.json
       - NOTIFICATION_PREF_DATA_PATH=/data/notification_prefs.json
       - PROFILE_DATA_PATH=/data/profile_overlays.json
+      - TENANT_DATA_PATH=/data/tenant_overrides.json
+      - TENANT_HERO_DIR=/data/tenant-heroes
       - INVITE_DATA_PATH=/data/invites.json
       - ACTIVITY_DATA_PATH=/data/activity.json
       - UNIT_DATA_PATH=/data/units.json
