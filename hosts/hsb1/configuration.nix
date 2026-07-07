@@ -714,6 +714,15 @@ in
     owner = "mba";
   };
 
+  # Pharos beacon per-host token. Docker Compose reads it as an env_file.
+  age.secrets.pharos-beacon-hsb1-env = {
+    file = ../../secrets/pharos-beacon-hsb1-env.age;
+    path = "/run/agenix/pharos-beacon-hsb1-env";
+    owner = "mba";
+    group = "users";
+    mode = "0400";
+  };
+
   # NIX-158 phase 3 P2 — single-consumer service secrets migrated from
   # /home/mba/secrets/*.env. env_file consumers, except fritz (file-mount).
   age.secrets.hsb1-zigbee2mqtt-env = {
