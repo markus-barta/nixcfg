@@ -920,6 +920,15 @@ in
   # Agents: FLEETCOM_AGENTS='[{"name":"Merlin","agent_type":"personal-assistant","status":"online"},{"name":"Nimue","agent_type":"personal-assistant","status":"online"}]'
   age.secrets.fleetcom-token-hsb0.file = ../../secrets/fleetcom-token-hsb0.age;
 
+  # Pharos beacon per-host token. Docker Compose reads it as an env_file.
+  age.secrets.pharos-beacon-hsb0-env = {
+    file = ../../secrets/pharos-beacon-hsb0-env.age;
+    path = "/run/agenix/pharos-beacon-hsb0-env";
+    owner = "mba";
+    group = "users";
+    mode = "0400";
+  };
+
   # PPM (Personal Project Management) API key for Merlin/Nimue at pm.barta.cm.
   # Mounted into openclaw-gateway via docker-compose.yml; entrypoint.sh exports
   # as PPMAPIKEY (variable name matches the inspr.secrets.agents convention:
