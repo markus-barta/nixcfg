@@ -432,6 +432,16 @@ in
     mode = "0644";
   };
 
+  # Pharos /register bootstrap token. Docker Compose reads this env_file as mba
+  # during deploys; strict report auth is enabled only after beacon tokens exist.
+  age.secrets.csb1-pharos-registration-env = {
+    file = ../../secrets/csb1-pharos-registration-env.age;
+    path = "/run/agenix/csb1-pharos-registration-env";
+    owner = "mba";
+    group = "users";
+    mode = "0400";
+  };
+
   age.secrets.csb-hostdash-oauth2-proxy-env = {
     file = ../../secrets/csb-hostdash-oauth2-proxy-env.age;
     path = "/run/agenix/csb-hostdash-oauth2-proxy-env";

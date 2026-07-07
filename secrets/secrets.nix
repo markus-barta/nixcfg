@@ -256,6 +256,12 @@ in
   # Edit: agenix -e secrets/csb1-janus-env.age
   "csb1-janus-env.age".publicKeys = markus ++ csb1;
 
+  # Pharos registration bootstrap env for csb1 pharosd.
+  # Format: KEY=VALUE line with PHAROS_REGISTRATION_TOKEN only. This enables
+  # /register token issuance; strict /report enforcement is flipped separately
+  # after all deployed beacons have per-host tokens.
+  "csb1-pharos-registration-env.age".publicKeys = markus ++ csb1;
+
   # HostDash OAuth2 Proxy env for csb0/csb1.
   # Format: KEY=VALUE lines (OAUTH2_PROXY_CLIENT_ID,
   # OAUTH2_PROXY_CLIENT_SECRET, OAUTH2_PROXY_COOKIE_SECRET)
