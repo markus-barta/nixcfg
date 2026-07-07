@@ -340,7 +340,7 @@ services:
       start_period: 20s
     labels:
       - traefik.enable=true
-      - traefik.http.routers.weg-portal.rule=Host(`jhw22.hausv.org`)
+      - traefik.http.routers.weg-portal.rule=Host(`jhw22.hausv.org`) || Host(`hausv.org`) || Host(`www.hausv.org`)
       - traefik.http.routers.weg-portal.tls.certresolver=default
       - traefik.http.routers.weg-portal.tls=true
       - traefik.http.services.weg-portal.loadbalancer.server.port=8080
@@ -623,11 +623,14 @@ services:
     image: ghcr.io/markus-barta/pharos/pharosd:latest
     container_name: pharosd
     restart: unless-stopped
+    env_file:
+      - /run/agenix/csb1-pharos-registration-env
     environment:
       - PHAROS_ADDR=0.0.0.0:8080
       - RUST_LOG=info
       - PHAROS_DB=/data/pharos.json
       - PHAROS_MANIFEST_PATHS=/manifests/hsb8.json
+      - PHAROS_REQUIRE_BEACON_TOKEN=0
       # OIDC (PKCE) — public dashboard auth via Zitadel (PHAROS-4). Beacons hit
       # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
       - PHAROS_OIDC_ISSUER=https://auth.inspr.at
