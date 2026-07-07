@@ -366,6 +366,15 @@ in
   # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-csb0
   age.secrets.fleetcom-token-csb0.file = ../../secrets/fleetcom-token-csb0.age;
 
+  # Pharos beacon per-host token. Docker Compose reads it as an env_file.
+  age.secrets.pharos-beacon-csb0-env = {
+    file = ../../secrets/pharos-beacon-csb0-env.age;
+    path = "/run/agenix/pharos-beacon-csb0-env";
+    owner = "mba";
+    group = "users";
+    mode = "0400";
+  };
+
   # ============================================================================
   # UPTIME KUMA - Cloud services monitoring
   # ============================================================================

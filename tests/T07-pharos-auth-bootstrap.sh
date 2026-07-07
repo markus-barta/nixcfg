@@ -21,6 +21,7 @@ need_line() {
 }
 
 need_line '  "csb1-pharos-registration-env.age".publicKeys = markus ++ csb1;' "$SECRETS_NIX"
+need_line '  "pharos-beacon-csb0-env.age".publicKeys = markus ++ csb0;' "$SECRETS_NIX"
 need_line '  "pharos-beacon-csb1-env.age".publicKeys = markus ++ csb1;' "$SECRETS_NIX"
 need_line '  age.secrets.csb1-pharos-registration-env = {' "$CSB1_CONFIG"
 need_line '    path = "/run/agenix/csb1-pharos-registration-env";' "$CSB1_CONFIG"
