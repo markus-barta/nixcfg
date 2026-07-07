@@ -442,6 +442,15 @@ in
     mode = "0400";
   };
 
+  # Pharos beacon per-host token. Docker Compose reads it as an env_file.
+  age.secrets.pharos-beacon-csb1-env = {
+    file = ../../secrets/pharos-beacon-csb1-env.age;
+    path = "/run/agenix/pharos-beacon-csb1-env";
+    owner = "mba";
+    group = "users";
+    mode = "0400";
+  };
+
   age.secrets.csb-hostdash-oauth2-proxy-env = {
     file = ../../secrets/csb-hostdash-oauth2-proxy-env.age;
     path = "/run/agenix/csb-hostdash-oauth2-proxy-env";

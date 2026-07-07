@@ -666,6 +666,8 @@ services:
     network_mode: host
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/pharos-beacon"]
+    env_file:
+      - /run/agenix/pharos-beacon-csb1-env
     environment:
       - PHAROS_URL=http://100.64.0.4:8088
       - PHAROS_INTERVAL=60

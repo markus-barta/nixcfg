@@ -47,12 +47,9 @@ let
     "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDeDdND1TRTYc6rnn/xMMhNHe6I8DJ5bQxZWT3GI2wHUcd4RpkkSUhtIhjYwbwtdi3nRYlsRKPeqZ8sERNAORkThdMy9ueMq3oDwrTlMbs6jlS8atbZPiozkOji2g00+xrb2tTp0480+M2kKIYv8gSN7lHzjnA3i128YN1NNsbqanU/pZVaEe0M10G9TMWifdZqQnGxFjWrMxlSCOwhvC7OixCLbKi4YPiVQ/LkeF67su1i68qZQgJRftx9te7AJm19P4gIz2Tn+OI0a4iESnLzA4PD2Zu7eBo63B35u0ardlH1AZK7GZIa4DFAcaCp3xpRQ1N5RKEjAfYi1LhSWh2UvsVp2vFTc7NvOcSCdR6BjumcGk2k/3b71YGfAWxI+7VY74eeugVIpsAWY3ewGikn2qYQrv8Op374dLVBpmtrBZG7mXayk2uqQIdybXNFm7drsXVPDenD/Dl/mewYRmzb2vcSyLDS5sevBBgNmvMdNNyrbdjXZEo8j0IkExrYkng5p/AMgC4pUV6X/tcGTk//QnknWESmtcNeYjJy17kBiSOwZ4+WjEltqQMqMyf6elIjhN56ZhdCSTUVGe8d4t4NcCj4aS2K3rLJIR7cMFpmXTr+Bo9g/Oj3Lnoj0i8R82CjTY/0fuZSOsqpFdOAhgXGyEIHmglxC2fcyxcMZJAFaQ=="
   ];
 
-  # hsb9 host pubkey captured 2026-05-27 during NIX-138 onboard, but the
-  # binding lives in *git history* until there's an actual agenix recipient
-  # to attach it to (useSecrets=false on hsb9 right now). When MQTT/HA
-  # secrets land, re-add the binding here exactly like the other hosts:
-  #   hsb9 = [ "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIITMRyVS7w+i+WRK5Djy1NnxJkhu3ZYpkHHTgNqKvXU root@hsb9" ];
-  # (deadnix prunes unreferenced let-bindings on commit, hence this approach.)
+  hsb9 = [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIITMRyVS7w+i+WRK5Djy1NnxJkhu3ZYpkHHTgNqKvXU root@hsb9"
+  ];
 
   hsb1 = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIU0cAsXtdYPO5W4ns6utAEkVvzcmOx5Xl/nVF/fvAVz"
@@ -261,6 +258,16 @@ in
   # /register token issuance; strict /report enforcement is flipped separately
   # after all deployed beacons have per-host tokens.
   "csb1-pharos-registration-env.age".publicKeys = markus ++ csb1;
+
+  # Pharos beacon env files. Format: KEY=VALUE with PHAROS_TOKEN only.
+  # Issued via pharosd /register, then consumed by pharos-beacon Docker env_file.
+  "pharos-beacon-hsb0-env.age".publicKeys = markus ++ hsb0;
+  "pharos-beacon-hsb1-env.age".publicKeys = markus ++ hsb1;
+  "pharos-beacon-hsb8-env.age".publicKeys = markus ++ hsb8;
+  "pharos-beacon-hsb9-env.age".publicKeys = markus ++ hsb9;
+  "pharos-beacon-csb0-env.age".publicKeys = markus ++ csb0;
+  "pharos-beacon-csb1-env.age".publicKeys = markus ++ csb1;
+  "pharos-beacon-gpc0-env.age".publicKeys = markus ++ gpc0;
 
   # HostDash OAuth2 Proxy env for csb0/csb1.
   # Format: KEY=VALUE lines (OAUTH2_PROXY_CLIENT_ID,
