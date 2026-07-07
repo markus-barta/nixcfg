@@ -1,0 +1,22 @@
+# Staged profile for PHAROS-40 / JANUS-261.
+# This is a reviewed env-file handoff contract only. It does not contain a
+# secret literal and is not mounted into production pharosd until explicitly
+# reviewed and deployed.
+
+[[env_files]]
+id = "profile.PHAROS_NONPROD_REGISTRATION"
+secret_ref = "sec_9f185b1f6d794e0aa63c"
+executor = "janus-run@csb1"
+destination = "pharos-nonprod"
+env = "PHAROS_REGISTRATION_TOKEN"
+output = "/run/janus/env/pharos/pharos.env"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_nonprod"
+kind = "service"
+owner = "pharos"
+environment = "nonprod"
+reload = "none"
+validation = ["pharos-registration-preflight"]
+supports_dual_value = false
+blast_radius = "non-production Pharos host registration only"
