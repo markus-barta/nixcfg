@@ -636,6 +636,15 @@ in
   # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-hsb8
   age.secrets.fleetcom-token-hsb8.file = ../../secrets/fleetcom-token-hsb8.age;
 
+  # Pharos beacon per-host token. Docker Compose reads it as an env_file.
+  age.secrets.pharos-beacon-hsb8-env = {
+    file = ../../secrets/pharos-beacon-hsb8-env.age;
+    path = "/run/agenix/pharos-beacon-hsb8-env";
+    owner = "mba";
+    group = "users";
+    mode = "0400";
+  };
+
   # NIX-235: watchtower env (HTTP API token + telegram notification URL),
   # consumed by the watchtower container via env_file. Root-only: the stack
   # is reconciled by the root hsb8-stack service / sudo docker compose.
