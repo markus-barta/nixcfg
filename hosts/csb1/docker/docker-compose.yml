@@ -615,10 +615,10 @@ services:
     networks:
       - default
 
-  # Pharos dashboard (PHAROS-12) — INSPR-native FleetCom successor.
-  # Tailnet-only: bound to csb1's tailscale IP (100.64.0.4), NO public Traefik
-  # route until Zitadel auth (PHAROS-4). Runs side-by-side with FleetCom;
-  # the fleet.barta.cm cutover + FleetCom retirement is PHAROS-13.
+  # Pharos dashboard (PHAROS-12/39) — INSPR-native FleetCom successor.
+  # Public human routes are protected by Zitadel OIDC plus the Pharos operator
+  # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
+  # Runs side-by-side with FleetCom until PHAROS-13 cutover/decommission.
   pharosd:
     image: ghcr.io/markus-barta/pharos/pharosd:latest
     container_name: pharosd
@@ -633,6 +633,7 @@ services:
       - PHAROS_OIDC_ISSUER=https://auth.inspr.at
       - PHAROS_OIDC_CLIENT_ID=379451733002223624@pharos
       - PHAROS_OIDC_REDIRECT_URI=https://pharos.barta.cm/auth/callback
+      - PHAROS_ALLOWED_OPERATORS=markus
     ports:
       # Tailnet bind kept for beacon ingestion (/report stays auth-exempt).
       - "100.64.0.4:8088:8080"
