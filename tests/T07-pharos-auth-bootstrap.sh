@@ -34,7 +34,7 @@ need_line '  age.secrets.pharos-beacon-csb1-env = {' "$CSB1_CONFIG"
 need_line '    path = "/run/agenix/pharos-beacon-csb1-env";' "$CSB1_CONFIG"
 need_line '      - /run/agenix/csb1-pharos-registration-env' "$CSB1_COMPOSE"
 need_line '      - /run/agenix/pharos-beacon-csb1-env' "$CSB1_COMPOSE"
-need_line '      - PHAROS_REQUIRE_BEACON_TOKEN=0' "$CSB1_COMPOSE"
+need_line '      - PHAROS_REQUIRE_BEACON_TOKEN=1' "$CSB1_COMPOSE"
 
 if grep -Eq 'PHAROS_REGISTRATION_TOKEN=|Bearer |BEGIN |PRIVATE KEY|pharos_[0-9A-Fa-f]{16,}' \
   "$SECRETS_NIX" "$CSB1_CONFIG" "$CSB1_COMPOSE"; then
@@ -42,4 +42,4 @@ if grep -Eq 'PHAROS_REGISTRATION_TOKEN=|Bearer |BEGIN |PRIVATE KEY|pharos_[0-9A-
   exit 1
 fi
 
-echo "ok: Pharos auth bootstrap wiring is value-free and legacy reports stay allowed"
+echo "ok: Pharos auth bootstrap wiring is value-free and strict report auth is enabled"
