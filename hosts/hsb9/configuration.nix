@@ -288,6 +288,15 @@ in
 
   environment.etc."hostdash/hsb9".source = hostdashHsb9;
 
+  # Pharos beacon per-host token. Docker Compose reads it as an env_file.
+  age.secrets.pharos-beacon-hsb9-env = {
+    file = ../../secrets/pharos-beacon-hsb9-env.age;
+    path = "/run/agenix/pharos-beacon-hsb9-env";
+    owner = "mba";
+    group = "users";
+    mode = "0400";
+  };
+
   # hsb9 was installed at NixOS 25.05; common.nix's "24.11" is the fleet
   # baseline. mkForce keeps per-host stateVersion semantics correct.
   system.stateVersion = lib.mkForce "25.05";

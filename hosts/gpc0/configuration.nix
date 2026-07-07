@@ -286,4 +286,13 @@
   # FleetCom agent — now runs as Docker container (FLEET-12)
   # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-gpc0
   age.secrets.fleetcom-token-gpc0.file = ../../secrets/fleetcom-token-gpc0.age;
+
+  # Pharos beacon per-host token. Docker Compose reads it as an env_file.
+  age.secrets.pharos-beacon-gpc0-env = {
+    file = ../../secrets/pharos-beacon-gpc0-env.age;
+    path = "/run/agenix/pharos-beacon-gpc0-env";
+    owner = "mba";
+    group = "users";
+    mode = "0400";
+  };
 }
