@@ -30,12 +30,6 @@
     # not need a mutable relative-path stub in flake.lock; the service remains
     # disabled unless a host explicitly enables it.
     nixhostforge.follows = "nixcfg/nixhostforge";
-    # NixFleet - Disabled (decommissioned, replaced by FleetCom)
-    # nixfleet.url = "github:markus-barta/nixfleet";
-    # nixfleet.inputs.nixpkgs.follows = "nixpkgs";
-    # FleetCom — fleet management & agent monitoring
-    # NixOS module removed — agent now runs as Docker container (FLEET-12)
-    # fleetcom.url = "github:markus-barta/fleetcom";
     # NCPS - Nix binary Cache Proxy Service
     ncps.url = "github:kalbasit/ncps/ff083aff";
     ncps.inputs.nixpkgs.follows = "nixpkgs";
@@ -122,7 +116,6 @@
           doInstallCheck = false;
         });
         # ncps = inputs.ncps.packages.${final.stdenv.hostPlatform.system}.default;
-        # nixfleet-agent = inputs.nixfleet.packages.${final.stdenv.hostPlatform.system}.default; # Disabled (FleetCom DSC26-52)
       };
       allOverlays = [
         overlays-nixpkgs
@@ -138,10 +131,6 @@
         })
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age
-        # NixFleet agent — disabled (decommissioned, replaced by FleetCom)
-        # inputs.nixfleet.nixosModules.nixfleet-agent
-        # FleetCom NixOS agent — disabled, now runs as Docker container (FLEET-12)
-        # inputs.fleetcom.nixosModules.fleetcom-agent
       ];
       pkgs = import nixpkgs {
         localSystem = {
@@ -183,8 +172,6 @@
           };
           modules = [
             ./hosts/${hostname}/home.nix
-            # NixFleet agent — disabled (decommissioned, replaced by FleetCom DSC26-52)
-            # inputs.nixfleet.homeManagerModules.nixfleet-agent
           ];
           extraSpecialArgs = commonArgs // {
             inherit inputs hostname;
@@ -260,10 +247,6 @@
             ./modules/common.nix # OUR config (loads AFTER hokage to override)
             ./hosts/gpc0/configuration.nix
             disko.nixosModules.disko
-            # NixFleet agent — disabled (decommissioned, replaced by FleetCom)
-            # inputs.nixfleet.nixosModules.nixfleet-agent
-            # FleetCom NixOS agent — disabled, now runs as Docker container (FLEET-12)
-            # inputs.fleetcom.nixosModules.fleetcom-agent
           ];
           specialArgs = self.commonArgs // {
             inherit inputs;
