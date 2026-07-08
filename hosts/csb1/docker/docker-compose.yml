@@ -471,7 +471,7 @@ services:
     # Source extracted to github.com/markus-barta/janus (go-envelope/). Deployed
     # from a cosign-signed image with SPDX SBOM + SLSA build provenance, pinned
     # by digest. To bump: cut a go-envelope-v* release, verify, update digest.
-    image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.147@sha256:eae4c95838cfcd29a9cd16101e866e9ae68a058c3a8ad243cd8baf43b55ad3aa
+    image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.148@sha256:0f26923e953f2adfb7825e2d027fc48b01ef8892158a68a8f136d1f653dd732e
     container_name: janus
     restart: unless-stopped
     environment:
