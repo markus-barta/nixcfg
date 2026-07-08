@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+on_error() {
+  local status=$?
+  local line=${1:-unknown}
+  printf 'janus pharos sidecar smoke failed near line %s status=%s\n' "$line" "$status" >&2
+}
+trap 'on_error "$LINENO"' ERR
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 COMPOSE_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
