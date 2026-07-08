@@ -45,13 +45,38 @@ let
     # Input Monitoring approval remains manual per host (macOS requires it).
     "karabiner-elements"
     "zen" # Zen Browser (Gecko-based, daily-driver)
+    # NIX-288: Google Chrome for agent headless-browser QA. nixpkgs#chromium is
+    # Linux-only (won't eval on aarch64-darwin). The FOSS `chromium` cask was
+    # tried first but is unsigned → fails macOS Gatekeeper ("damaged", disabled
+    # 2026-09-01); Chrome is signed+notarized and Playwright drives it headless
+    # via executablePath (see chromiumAppPath export below).
+    "google-chrome"
   ];
   # peekaboo + steipete/tap removed 2026-07-03 (NIX-215): unused, and brew 6
   # refuses untrusted taps by default. Baseline is casks-only again.
   commonTaps = [ ];
   commonBrews = [ ];
+
+  # ── NIX-288: declarative macOS headless-browser QA path ─────────────
+  # Binary inside the `google-chrome` cask (added to commonCasks above). Agents
+  # point Playwright's `executablePath` here for headless screenshots / smoke
+  # tests, sidestepping nixpkgs#chromium (Linux-only on Darwin). Named
+  # `chromiumAppPath` (Chrome is Chromium-family) to keep the QA env var stable.
+  chromiumAppPath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 in
 {
+  # ============================================================================
+  # NIX-288: headless-browser QA exports (declarative agent screenshots)
+  # ============================================================================
+  # `chromiumAppPath`        — binary inside the `chromium` cask (commonCasks).
+  # `playwrightSessionVars`  — merge into a host's `home.sessionVariables` to
+  #                            give agents a stable PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.
+  # Reusable devenv snippet for consuming repos: templates/playwright-qa/.
+  inherit chromiumAppPath;
+  playwrightSessionVars = {
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = chromiumAppPath;
+  };
+
   # ============================================================================
   # Fish Shell Configuration (macOS-specific)
   # ============================================================================

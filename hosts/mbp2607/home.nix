@@ -314,5 +314,8 @@ in
 
   home.sessionVariables = {
     EDITOR = "nano";
-  };
+  }
+  # NIX-288: PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH → Chromium cask binary, so
+  # agents get a stable declarative browser path for headless Playwright QA.
+  // macosCommon.playwrightSessionVars;
 }

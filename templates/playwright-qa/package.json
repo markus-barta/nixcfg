@@ -1,0 +1,12 @@
+{
+  "name": "playwright-qa",
+  "private": true,
+  "type": "module",
+  "description": "Reusable declarative headless-browser QA (nixcfg NIX-288)",
+  "scripts": {
+    "shot": "node screenshot.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}
