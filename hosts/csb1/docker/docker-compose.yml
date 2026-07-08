@@ -658,6 +658,7 @@ services:
       - /etc/NIXOS:/etc/NIXOS:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=false
 
 volumes:
   pharos_data: {}

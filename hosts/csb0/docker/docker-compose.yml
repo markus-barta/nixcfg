@@ -440,6 +440,7 @@ services:
       - /etc/NIXOS:/etc/NIXOS:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
+      - traefik.enable=false
 
   # Tesla Fleet API public-key host (NIX-201 / runbook tesla-fleet-ha-migration).
   # Serves ONLY the public key at Tesla's well-known path so Tesla can verify
