@@ -416,36 +416,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # FleetCom Bosun — heartbeats + container lifecycle to https://fleet.barta.cm.
-  # Migrated from /opt/fleetcom-agent/ on 2026-04-19 (NIX-82). FLEETCOM_TOKEN
-  # stays in /opt/fleetcom-agent/.env until a follow-up wires the agenix
-  # secret (fleetcom-token-csb0) directly. traefik.enable=false because bosun
-  # is push-only (no HTTP surface) — Traefik on this host would otherwise log
-  # "service ... error: port is missing".
-  fleetcom-agent:
-    image: ghcr.io/markus-barta/fleetcom-bosun:latest
-    container_name: fleetcom-agent
-    restart: unless-stopped
-    # mem_limit caps a known leak in bosun (FLEET-78, cs1 outage 2026-04-25).
-    # Baseline RSS ~13 MiB; 512m gives ~40× headroom and OOM-kills runaway.
-    mem_limit: 512m
-    memswap_limit: 512m
-    env_file: [/opt/fleetcom-agent/.env]
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
-    environment:
-      - FLEETCOM_URL=https://fleet.barta.cm
-      - FLEETCOM_HOSTNAME=csb0
-      # FLEET-1397: dashboard "Update agent" → bosun calls watchtower's
-      # HTTP API. WATCHTOWER_TOKEN is provided via /opt/fleetcom-agent/.env.
-      - WATCHTOWER_URL=http://watchtower:8080
-    labels:
-      - traefik.enable=false
-      - com.centurylinklabs.watchtower.enable=true
-
   # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
   # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
   pharos-beacon:
