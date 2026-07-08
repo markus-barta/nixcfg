@@ -245,23 +245,6 @@ in
   };
 
   # ============================================================================
-  # FLEETCOM CI DEPLOY — pull latest image and restart container
-  # ============================================================================
-  # GitHub Actions: ssh -p 2222 mba@csb1 fleetcom-deploy
-  # The command= restriction in authorized_keys ensures this key can ONLY run this script.
-  environment.etc."fleetcom-deploy.sh" = {
-    mode = "0755";
-    text = ''
-      #!/bin/sh
-      set -eu
-      cd /home/mba/docker/fleetcom
-      docker compose pull
-      docker compose up -d
-      echo "ok: fleetcom deployed"
-    '';
-  };
-
-  # ============================================================================
   # HOKAGE MODULE CONFIGURATION
   # ============================================================================
   hokage = {
@@ -352,8 +335,6 @@ in
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAhUleyXsqtdA4LC17BshpLAw0X1vMLNKp+lOLpf2bw1 mba@miniserver24"
         # PPM CI deploy key — command-restricted to test report uploads only
         "command=\"/etc/ppm-deploy-reports.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN2B8Ya6hnF5nxhZ7uBtN/YfChRRHIjsv+GIa01XdiI1 ppm-ci-deploy"
-        # FleetCom CI deploy key — command-restricted to docker pull + restart
-        "command=\"/etc/fleetcom-deploy.sh\",no-port-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbe5h6FEOzyrh4f7I9RS84KOD9hKiVaBgjizcX3ztxS fleetcom-ci-deploy"
       ];
     };
   };
@@ -471,16 +452,6 @@ in
         mode = "0644";
       };
 
-  # FleetCom Bosun agent (csb1 stack) — env. Folded in from the manually-placed
-  # /opt/fleetcom-agent/.env on 2026-05-29 (was the last out-of-agenix secret).
-  age.secrets.csb1-fleetcom-agent-env = {
-    file = ../../secrets/csb1-fleetcom-agent-env.age;
-    path = "/run/agenix/csb1-fleetcom-agent-env";
-    owner = "root";
-    group = "root";
-    mode = "0644";
-  };
-
   # === NIX-110: csb1 docker stack migration — bulk env file refactor ===
   # All env files for services in /home/mba/docker/docker-compose.yml that
   # previously lived in ~/secrets/ or ./xxx.env are now in agenix.
@@ -561,54 +532,4 @@ in
     mode = "0644";
   };
 
-  # FleetCom Docker env (password hash + TOTP secret)
-  # Format: KEY=VALUE (FLEETCOM_PASSWORD_HASH, FLEETCOM_TOTP_SECRET)
-  age.secrets.csb1-fleetcom-env = {
-    file = ../../secrets/csb1-fleetcom-env.age;
-    path = "/run/agenix/csb1-fleetcom-env";
-    owner = "root";
-    group = "root";
-    mode = "0644";
-  };
-
-  # FleetCom alerting env (Telegram notifier + expected backup hosts)
-  # Consumed as an additional Docker env_file by the FleetCom server.
-  age.secrets.csb1-fleetcom-alerts-env = {
-    file = ../../secrets/csb1-fleetcom-alerts-env.age;
-    path = "/run/agenix/csb1-fleetcom-alerts-env";
-    owner = "root";
-    group = "root";
-    mode = "0644";
-  };
-
-  # services.nixfleet-agent = {
-  #   enable = true;
-  #   url = "wss://fleet.barta.cm/ws";
-  #   interval = 5;
-  #   tokenFile = "/run/agenix/nixfleet-token";
-  #   repoUrl = "https://github.com/markus-barta/nixcfg.git";
-  #   user = "mba";
-  #   logLevel = "info";
-  #   location = "cloud";
-  #   deviceType = "server";
-  # };
-
-  # FleetCom agent — now runs as Docker container (FLEET-12)
-  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-csb1
-  age.secrets.fleetcom-token-csb1.file = ../../secrets/fleetcom-token-csb1.age;
-
-  # FLEET-51/52: per-gateway operator identity FleetCom uses to connect
-  # to each OpenClaw gateway via WS. Mounted into the fleetcom container
-  # at /run/agenix/fleetcom-openclaw-<host>-{key,tok}; the manager picks
-  # them up on reconcile and starts auto-approving bridge pairings.
-  age.secrets.fleetcom-openclaw-hsb0-key = {
-    file = ../../secrets/fleetcom-openclaw-hsb0-key.age;
-    path = "/run/agenix/fleetcom-openclaw-hsb0-key";
-    mode = "0400";
-  };
-  age.secrets.fleetcom-openclaw-hsb0-tok = {
-    file = ../../secrets/fleetcom-openclaw-hsb0-tok.age;
-    path = "/run/agenix/fleetcom-openclaw-hsb0-tok";
-    mode = "0400";
-  };
 }

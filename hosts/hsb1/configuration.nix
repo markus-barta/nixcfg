@@ -701,19 +701,6 @@ in
     owner = "mba";
   };
 
-  # FleetCom agent — runs as a Docker container (FLEET-12); its env (below)
-  # supersedes the retired bare fleetcom-token-hsb1 and the decommissioned NixFleet
-  # agent (DSC26-52). NIX-158 also retired the unused hsb1-apprise-lametric-cfg
-  # secret (apprise LaMetric config lives in the apprise config store, not agenix).
-  # fleetcom-agent Docker env (KEY=VALUE: FLEETCOM_TOKEN + WATCHTOWER_TOKEN);
-  # replaces plaintext /opt/fleetcom-agent/.env.
-  age.secrets.hsb1-fleetcom-agent-env = {
-    file = ../../secrets/hsb1-fleetcom-agent-env.age;
-    path = "/run/agenix/hsb1-fleetcom-agent-env";
-    mode = "0400";
-    owner = "mba";
-  };
-
   # Pharos beacon per-host token. Docker Compose reads it as an env_file.
   age.secrets.pharos-beacon-hsb1-env = {
     file = ../../secrets/pharos-beacon-hsb1-env.age;

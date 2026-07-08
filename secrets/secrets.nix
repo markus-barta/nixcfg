@@ -120,24 +120,6 @@ in
   # TODO: Rename to hsb0-mqtt-client.age
   "mqtt-hsb0.age".publicKeys = markus ++ hsb0;
 
-  # FleetCom agent tokens — one per host, plain text bearer token
-  # Generate in FleetCom UI (Hosts → Add Host), paste token into .age file
-  # Edit: agenix -e secrets/fleetcom-token-<host>.age
-  "fleetcom-token-hsb0.age".publicKeys = markus ++ hsb0;
-  # hsb1: uses hsb1-fleetcom-agent-env (KEY=VALUE, below); bare token retired (NIX-158)
-  # hsb2: no host key in agenix (Raspberry Pi, Raspbian — not NixOS)
-  "fleetcom-token-hsb8.age".publicKeys = markus ++ hsb8;
-  "fleetcom-token-csb0.age".publicKeys = markus ++ csb0;
-  "fleetcom-token-csb1.age".publicKeys = markus ++ csb1;
-  "fleetcom-token-gpc0.age".publicKeys = markus ++ gpc0;
-  # fleetcom-token-miniserver-bp.age moved to BYTEPOETS/bpnixcfg with msbp (2026-05-02)
-
-  # hsb1 FleetCom agent env (NIX-158 phase 3) — KEY=VALUE for the bosun docker
-  # container: FLEETCOM_TOKEN + WATCHTOWER_TOKEN. The bare fleetcom-token-hsb1.age
-  # above is a single bearer token, NOT usable as a docker env_file. Mirrors
-  # csb1-fleetcom-agent-env. Edit: agenix -e secrets/hsb1-fleetcom-agent-env.age
-  "hsb1-fleetcom-agent-env.age".publicKeys = markus ++ hsb1;
-
   # NIX-158 phase 3 P2 — hsb1 single-consumer service secrets, migrated from
   # /home/mba/secrets/*.env plaintext. Edit: agenix -e secrets/<name>.age
   "hsb1-zigbee2mqtt-env.age".publicKeys = markus ++ hsb1;
@@ -159,16 +141,6 @@ in
   # WATCHTOWER_NOTIFICATION_URL (telegram shoutrrr). Replaces the unmanaged
   # /home/gb/secrets/watchtower.env. Edit: agenix -e secrets/hsb8-watchtower-env.age
   "hsb8-watchtower-env.age".publicKeys = markus ++ hsb8;
-
-  # FleetCom ↔ OpenClaw per-gateway operator identity (FLEET-51/52).
-  # FleetCom connects to each gateway's WS RPC with a gateway-scoped
-  # Ed25519 keypair + operator token. Pre-seeded into OpenClaw's
-  # paired.json at container boot so the first handshake is zero-touch.
-  #   -key.age : PKCS#8 Ed25519 private PEM (fleetcom container only)
-  #   -tok.age : shared operator token (both fleetcom + gateway hosts)
-  # Public half lives alongside the compose as a plain PEM (non-secret).
-  "fleetcom-openclaw-hsb0-key.age".publicKeys = markus ++ csb1;
-  "fleetcom-openclaw-hsb0-tok.age".publicKeys = markus ++ csb1 ++ hsb0;
 
   # Uptime Kuma environment variables (for Apprise tokens)
   # Format: KEY=VALUE lines
@@ -308,21 +280,6 @@ in
   # Format: KEY=VALUE lines (MINIO_ROOT_USER, MINIO_ROOT_PASSWORD, etc.)
   # Edit: agenix -e secrets/csb1-minio-env.age
   "csb1-minio-env.age".publicKeys = markus ++ csb1;
-
-  # FleetCom environment variables for csb1
-  # Format: KEY=VALUE lines (FLEETCOM_PASSWORD_HASH, FLEETCOM_TOTP_SECRET)
-  # Edit: agenix -e secrets/csb1-fleetcom-env.age
-  "csb1-fleetcom-env.age".publicKeys = markus ++ csb1;
-  # FleetCom alerting environment for csb1 (Telegram token + backup hosts)
-  # Format: KEY=VALUE lines (FLEETCOM_TELEGRAM_BOT_TOKEN, FLEETCOM_TELEGRAM_CHAT_ID, FLEETCOM_BACKUP_EXPECTED_HOSTS)
-  # Edit: agenix -e secrets/csb1-fleetcom-alerts-env.age
-  "csb1-fleetcom-alerts-env.age".publicKeys = markus ++ csb1;
-
-  # FleetCom Bosun AGENT (csb1 docker stack) — env. Distinct from the
-  # fleetcom server's csb1-fleetcom-env above. Folded into agenix 2026-05-29
-  # from the manually-placed /opt/fleetcom-agent/.env (last out-of-agenix secret).
-  # Edit: agenix -e secrets/csb1-fleetcom-agent-env.age
-  "csb1-fleetcom-agent-env.age".publicKeys = markus ++ csb1;
 
   # Mosquitto broker configuration file
   # Edit: agenix -e secrets/mosquitto-conf.age

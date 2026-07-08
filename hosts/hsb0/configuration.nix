@@ -519,12 +519,6 @@ in
     file = ../../secrets/hsb0-openclaw-gateway-token.age;
     mode = "444";
   };
-  # FLEET-52: FleetCom operator token, pre-seeded into OpenClaw's
-  # paired.json at entrypoint so FleetCom can pair zero-touch.
-  age.secrets.fleetcom-openclaw-hsb0-tok = {
-    file = ../../secrets/fleetcom-openclaw-hsb0-tok.age;
-    mode = "444";
-  };
   age.secrets.hsb0-openclaw-telegram-token = {
     file = ../../secrets/hsb0-openclaw-telegram-token.age;
     mode = "444";
@@ -914,11 +908,6 @@ in
   #   location = "home";
   #   deviceType = "server";
   # };
-
-  # FleetCom agent — now runs as Docker container (FLEET-12)
-  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-hsb0
-  # Agents: FLEETCOM_AGENTS='[{"name":"Merlin","agent_type":"personal-assistant","status":"online"},{"name":"Nimue","agent_type":"personal-assistant","status":"online"}]'
-  age.secrets.fleetcom-token-hsb0.file = ../../secrets/fleetcom-token-hsb0.age;
 
   # Pharos beacon per-host token. Docker Compose reads it as an env_file.
   age.secrets.pharos-beacon-hsb0-env = {
