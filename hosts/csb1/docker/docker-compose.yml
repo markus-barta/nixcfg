@@ -593,7 +593,7 @@ services:
   # Pharos dashboard (PHAROS-12/39) — INSPR-native FleetCom successor.
   # Public human routes are protected by Zitadel OIDC plus the Pharos operator
   # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
-  # Runs side-by-side with FleetCom until PHAROS-13 cutover/decommission.
+  # FleetCom is decommissioned; Pharos is the live fleet dashboard.
   pharosd:
     image: ghcr.io/markus-barta/pharos/pharosd:latest
     container_name: pharosd

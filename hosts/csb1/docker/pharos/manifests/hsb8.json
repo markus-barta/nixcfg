@@ -129,22 +129,6 @@
     },
     {
       "certIssue": false,
-      "foot": "agent · outbound only",
-      "icon": "satellite-dish",
-      "name": "FleetCom Bosun",
-      "passive": true,
-      "privilegedAction": false,
-      "purpose": "Heartbeats and lifecycle events to fleet.barta.cm",
-      "sameHost": false,
-      "statusPolicy": {
-        "source": "passive",
-        "staticState": null
-      },
-      "urls": {},
-      "wing": "ops"
-    },
-    {
-      "certIssue": false,
       "foot": "beacon · outbound only",
       "icon": "radar",
       "name": "pharos-beacon",
