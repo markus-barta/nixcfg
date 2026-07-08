@@ -439,6 +439,12 @@ in
   # PPM = Personal Project Management (Markus's personal Paimos at pm.barta.cm)
   "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mbp0 ++ mbp2607;
 
+  # Zitadel machine-user JWT profile for inspr-services OpenTofu (INSPR-198).
+  # Content: JSON key of inspr-services-tf (ORG_OWNER @ auth.inspr.at),
+  # minted on csb1 by inspr-services/scripts/bootstrap-tf-sa.sh.
+  # Edit: agenix -e secrets/agents/shared/ZITADEL_TF_KEY.age
+  "agents/shared/ZITADEL_TF_KEY.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+
   # Home WiFi credentials — used by awtrix-rescue and any future
   # device-provisioning helpers that drive a device through its AP-mode
   # captive portal. Paired creds in one .env file:
