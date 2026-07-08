@@ -341,37 +341,6 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
 
-  # FleetCom Bosun — heartbeats + container lifecycle to https://fleet.barta.cm.
-  # Migrated from /opt/fleetcom-agent/ on 2026-04-19 (NIX-82). Secrets on agenix
-  # since NIX-158 phase 3 (hsb1-fleetcom-agent-env: FLEETCOM_TOKEN + WATCHTOWER_TOKEN).
-  fleetcom-agent:
-    image: ghcr.io/markus-barta/fleetcom-bosun:latest
-    container_name: fleetcom-agent
-    restart: unless-stopped
-    # mem_limit caps a known leak in bosun (FLEET-78, cs1 outage 2026-04-25).
-    # Baseline RSS ~13 MiB; 512m gives ~40× headroom and OOM-kills runaway.
-    mem_limit: 512m
-    memswap_limit: 512m
-    env_file: [/run/agenix/hsb1-fleetcom-agent-env]
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
-    environment:
-      - FLEETCOM_URL=https://fleet.barta.cm
-      - FLEETCOM_HOSTNAME=hsb1
-      # FLEET-1397: dashboard "Update agent" → bosun calls watchtower-weekly's
-      # HTTP API. WATCHTOWER_TOKEN comes from agenix hsb1-fleetcom-agent-env.
-      - WATCHTOWER_URL=http://watchtower-weekly:8080
-    labels:
-      - traefik.enable=false
-      - com.centurylinklabs.watchtower.enable=true
-      # FLEET-1397: scope=weekly so watchtower-weekly (which runs with
-      # --scope weekly) picks bosun up for both the Saturday auto-cycle
-      # AND the on-demand HTTP API trigger.
-      - com.centurylinklabs.watchtower.scope=weekly
-
   # fritz-tripwire — webhook receiver that snapshots all Fritz mesh devices
   # when one fails. Triggered by Uptime Kuma on hsb0 (POST to /hooks/fritz-down).
   # Output lands in /home/mba/docker/mounts/fritz-tripwire/incidents/fritz-<ip>-<ts>/.
