@@ -270,6 +270,8 @@ render_env_file() {
   if ! docker run --rm \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
+    -e JANUS_RUN_EXECUTOR=janus-run@csb1 \
+    -e JANUS_RUN_SCOPE=pharos/csb1/nonprod \
     -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
     -e JANUS_AGE_METADATA_FILE=/etc/janus/metadata.toml \
     -e "JANUS_AGE_PROFILE=${host}" \
