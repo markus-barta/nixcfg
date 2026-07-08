@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=https://devenv.sh/devenv.schema.json
+# Minimal inputs for the playwright-qa template (nixcfg NIX-288).
+# Mirrors nixcfg's own devenv pin (cachix rolling) so behaviour matches.
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
