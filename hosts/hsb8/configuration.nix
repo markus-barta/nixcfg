@@ -632,10 +632,6 @@ in
   #   deviceType = "server";
   # };
 
-  # FleetCom agent — now runs as Docker container (FLEET-12)
-  # Token kept for Docker agent .env: cat /run/agenix/fleetcom-token-hsb8
-  age.secrets.fleetcom-token-hsb8.file = ../../secrets/fleetcom-token-hsb8.age;
-
   # Pharos beacon per-host token. Docker Compose reads it as an env_file.
   age.secrets.pharos-beacon-hsb8-env = {
     file = ../../secrets/pharos-beacon-hsb8-env.age;
