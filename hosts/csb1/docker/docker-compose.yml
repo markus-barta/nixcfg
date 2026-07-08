@@ -590,31 +590,6 @@ services:
       - traefik.docker.network=csb1_traefik
       - traefik.http.routers.minio-console.middlewares=cloudflarewarp@file
 
-  # ============================================
-  # FleetCom Bosun — heartbeats + container lifecycle agent
-  # Absorbed from prior project=docker (NIX-110) into csb1 project.
-  # Container name + network attachment unchanged.
-  # ============================================
-  fleetcom-agent:
-    image: ghcr.io/markus-barta/fleetcom-bosun:latest
-    container_name: fleetcom-agent
-    restart: unless-stopped
-    # mem_limit caps a known leak in bosun (FLEET-78, cs1 outage 2026-04-25).
-    mem_limit: 512m
-    memswap_limit: 512m
-    env_file: [/run/agenix/csb1-fleetcom-agent-env]
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /etc/os-release:/host/etc/os-release:ro
-    environment:
-      - FLEETCOM_URL=https://fleet.barta.cm
-      - FLEETCOM_HOSTNAME=csb1
-      - WATCHTOWER_URL=http://watchtower:8080
-    networks:
-      - default
-
   # Pharos dashboard (PHAROS-12/39) — INSPR-native FleetCom successor.
   # Public human routes are protected by Zitadel OIDC plus the Pharos operator
   # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
