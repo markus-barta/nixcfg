@@ -93,7 +93,7 @@ docker run --rm --user 0 \
   -v "${PERMIT_VOLUME}:/run/janus/permits" \
   -v "${OUT_VOLUME}:/run/janus/env" \
   --entrypoint sh "$IMAGE" \
-  -s -- "$container_uid" "$container_gid" <<'EOF'
+  -c '
 set -eu
 uid=$1
 gid=$2
@@ -116,7 +116,7 @@ chmod 0700 \
   /run/janus/env/pharos/beacon-token-hashes \
   /var/lib/janus/secrets \
   /var/lib/janus/secrets/pharos
-EOF
+' sh "$container_uid" "$container_gid"
 
 if ! docker run --rm \
   -v "${AGE_VOLUME}:/run/janus/age" \
@@ -179,7 +179,7 @@ seed_secret() {
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${encrypted_file}:/tmp/input.age:ro" \
     --entrypoint sh "$IMAGE" \
-    -s -- "$host" "$secret_name" <<'EOF'
+    -c '
 set -eu
 host=$1
 secret_name=$2
@@ -189,7 +189,7 @@ mkdir -p "$dir"
 cat /tmp/input.age >"$tmp"
 chmod 0400 "$tmp"
 mv "$tmp" "${dir}/${secret_name}.age"
-EOF
+' sh "$host" "$secret_name"
 }
 
 run_warden_permit() {
@@ -311,11 +311,11 @@ validate_outputs() {
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
     --entrypoint sh "$IMAGE" \
-    -s -- "$host" >"$sidecar_file" <<'EOF'
+    -c '
 set -eu
 host=$1
 cat "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
-EOF
+' sh "$host" >"$sidecar_file"
 
   jq -e \
     --arg host "$host" \
@@ -329,13 +329,13 @@ EOF
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
     --entrypoint sh "$IMAGE" \
-    -s -- "$host" >"$mode_file" <<'EOF'
+    -c '
 set -eu
 host=$1
-stat -c '%a %n' \
+stat -c "%a %n" \
   "/run/janus/env/pharos/beacons/${host}.env" \
   "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
-EOF
+' sh "$host" >"$mode_file"
 
   if [ "$(awk 'NR == 1 { print $1 }' "$mode_file")" != "600" ]; then
     printf 'janus pharos sidecar smoke failed: env file is not mode 600 for %s\n' "$host" >&2
