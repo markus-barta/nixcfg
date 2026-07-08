@@ -251,15 +251,20 @@ render_env_file() {
   run_out="${TMP_DIR}/${host}.env-file.out"
   run_err="${TMP_DIR}/${host}.env-file.err"
 
-  docker run --rm \
+  if ! docker run --rm \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
     -v "${OUT_VOLUME}:/run/janus/env/pharos" \
     --entrypoint janusd "$IMAGE" \
     env-file preflight --profile "$profile_id" \
-    >"$preflight_out" 2>"$preflight_err"
+    >"$preflight_out" 2>"$preflight_err"; then
+    printf 'janus pharos sidecar smoke failed: env-file preflight failed for %s\n' "$host" >&2
+    sed -n '1,80p' "$preflight_out" >&2
+    sed -n '1,120p' "$preflight_err" >&2
+    exit 1
+  fi
 
-  docker run --rm \
+  if ! docker run --rm \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
@@ -277,7 +282,12 @@ render_env_file() {
     -v "${OUT_VOLUME}:/run/janus/env/pharos" \
     --entrypoint janusd "$IMAGE" \
     env-file --profile "$profile_id" --permit "$permit" \
-    >"$run_out" 2>"$run_err"
+    >"$run_out" 2>"$run_err"; then
+    printf 'janus pharos sidecar smoke failed: env-file render failed for %s\n' "$host" >&2
+    sed -n '1,80p' "$run_out" >&2
+    sed -n '1,120p' "$run_err" >&2
+    exit 1
+  fi
 
   if ! grep -q 'value_returned=false' "$run_out"; then
     printf 'janus pharos sidecar smoke failed: env-file output missing value_returned=false for %s\n' "$host" >&2
