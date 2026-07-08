@@ -116,6 +116,10 @@ janus-engine-smoke:
     cd hosts/csb1/docker && ./janus/nonprod-smoke/run.sh
 
 [group('ops')]
+janus-pharos-sidecar-smoke:
+    cd hosts/csb1/docker && ./janus/pharos-nonprod/run-sidecar-smoke.sh
+
+[group('ops')]
 janus-engine-up:
     just janus-engine-smoke
     cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged up -d --no-deps janus-engine-staged
