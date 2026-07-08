@@ -188,6 +188,8 @@ gid=$4
 dir="/var/lib/janus/secrets/pharos/${host}"
 tmp="${dir}/.${secret_name}.age.tmp"
 mkdir -p "$dir"
+chown "${uid}:${gid}" "$dir"
+chmod 0700 "$dir"
 cat /tmp/input.age >"$tmp"
 chown "${uid}:${gid}" "$tmp"
 chmod 0400 "$tmp"
