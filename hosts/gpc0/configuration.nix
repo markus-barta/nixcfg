@@ -295,4 +295,20 @@
     group = "users";
     mode = "0400";
   };
+
+  # ============================================================================
+  # TAILSCALE — joins the fleet's Headscale at hs.barta.cm (FLEET-195)
+  # ============================================================================
+  # gpc0 had NO tailnet, so its pharos-beacon could never reach pharosd on csb1
+  # (cloud host, tailnet-only at 100.64.0.4) — the beacon failed since PHAROS-6.
+  # Enrol once after the first rebuild that ships this:
+  #   sudo tailscale up --login-server=https://hs.barta.cm --authkey=<preauth> --accept-dns=false
+  # (preauth from csb0: `docker exec headscale headscale preauthkeys create --user markus`)
+  # --accept-dns=false keeps gpc0's systemd-resolved DNS; without it a logged-out
+  # tailscaled can grab resolvconf and break hs.barta.cm login (NIX-138 pattern).
+  services.tailscale = {
+    enable = true;
+    useRoutingFeatures = "client";
+    extraUpFlags = [ "--accept-dns=false" ];
+  };
 }
