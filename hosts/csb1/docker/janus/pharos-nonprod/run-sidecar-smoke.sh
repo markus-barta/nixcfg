@@ -91,7 +91,7 @@ docker run --rm --user 0 \
   -v "${AGE_VOLUME}:/run/janus/age" \
   -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
   -v "${PERMIT_VOLUME}:/run/janus/permits" \
-  -v "${OUT_VOLUME}:/run/janus/env/pharos" \
+  -v "${OUT_VOLUME}:/run/janus/env" \
   --entrypoint sh "$IMAGE" \
   -s -- "$container_uid" "$container_gid" <<'EOF'
 set -eu
@@ -254,7 +254,7 @@ render_env_file() {
   if ! docker run --rm \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
-    -v "${OUT_VOLUME}:/run/janus/env/pharos" \
+    -v "${OUT_VOLUME}:/run/janus/env" \
     --entrypoint janusd "$IMAGE" \
     env-file preflight --profile "$profile_id" \
     >"$preflight_out" 2>"$preflight_err"; then
@@ -279,7 +279,7 @@ render_env_file() {
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
-    -v "${OUT_VOLUME}:/run/janus/env/pharos" \
+    -v "${OUT_VOLUME}:/run/janus/env" \
     --entrypoint janusd "$IMAGE" \
     env-file --profile "$profile_id" --permit "$permit" \
     >"$run_out" 2>"$run_err"; then
@@ -309,7 +309,7 @@ validate_outputs() {
   mode_file="${TMP_DIR}/${host}.modes"
 
   docker run --rm \
-    -v "${OUT_VOLUME}:/run/janus/env/pharos:ro" \
+    -v "${OUT_VOLUME}:/run/janus/env:ro" \
     --entrypoint sh "$IMAGE" \
     -s -- "$host" >"$sidecar_file" <<'EOF'
 set -eu
@@ -327,7 +327,7 @@ EOF
     "$sidecar_file" >/dev/null
 
   docker run --rm \
-    -v "${OUT_VOLUME}:/run/janus/env/pharos:ro" \
+    -v "${OUT_VOLUME}:/run/janus/env:ro" \
     --entrypoint sh "$IMAGE" \
     -s -- "$host" >"$mode_file" <<'EOF'
 set -eu
