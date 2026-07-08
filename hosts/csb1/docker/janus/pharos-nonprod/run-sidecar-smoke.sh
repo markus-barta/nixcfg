@@ -216,7 +216,7 @@ EOF
     -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
     -v "${SCRIPT_DIR}/metadata.toml:/etc/janus/metadata.toml:ro" \
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
-    -v "${STORE_VOLUME}:/var/lib/janus/secrets:ro" \
+    -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
     --entrypoint janus-warden "$IMAGE" \
     <"$request_file" >"$warden_out" 2>"$warden_err"
@@ -265,7 +265,7 @@ render_env_file() {
     -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
     -v "${SCRIPT_DIR}/metadata.toml:/etc/janus/metadata.toml:ro" \
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
-    -v "${STORE_VOLUME}:/var/lib/janus/secrets:ro" \
+    -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
     -v "${OUT_VOLUME}:/run/janus/env/pharos" \
     --entrypoint janusd "$IMAGE" \
