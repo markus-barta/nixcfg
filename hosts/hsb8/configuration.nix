@@ -764,15 +764,6 @@ in
       }
       {
         wing = "ops";
-        name = "FleetCom Bosun";
-        purpose = "Heartbeats and lifecycle events to fleet.barta.cm";
-        icon = "satellite-dish";
-        passive = true;
-        foot = "agent · outbound only";
-        statusPolicy.source = "passive";
-      }
-      {
-        wing = "ops";
         name = "pharos-beacon";
         purpose = "Host status to pharosd on csb1";
         icon = "radar";

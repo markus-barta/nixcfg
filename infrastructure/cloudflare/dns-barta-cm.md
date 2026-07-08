@@ -34,6 +34,14 @@
 
 **Note**: `grafana.barta.cm` + `influxdb.barta.cm` - **RETIRED 2026-06-12** (NIX-193; Cloudflare records pending manual deletion)
 
+### Redirects (Cloudflare Page Rules)
+
+| Source           | Target                       | Code | Rule ID (Cloudflare)               | Notes                                                               |
+| ---------------- | ---------------------------- | ---- | ---------------------------------- | ------------------------------------------------------------------- |
+| `fleet.barta.cm` | `https://pharos.barta.cm/$1` | 301  | `f81a85b0e4f5e544a855d957d0118699` | FleetCom decommissioned (FLEET-202); path-preserving forwarding URL |
+
+`fleet.barta.cm` stays proxied (orange) so Cloudflare serves the 301 at the edge; the CNAME still points at `cs1` but the origin FleetCom server was removed (FLEET-199). Created via API with the barta.cm-scoped `CF_ZONE_TOKEN` (Page Rules permission; the token lacks Rulesets/Redirect-Rules perm). Manage in the dashboard until DNS goes declarative.
+
 ---
 
 ## Server Service Distribution
