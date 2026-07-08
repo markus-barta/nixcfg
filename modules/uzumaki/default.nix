@@ -124,7 +124,6 @@ in
     environment.systemPackages = [
       pkgs.pingt # Timestamped ping with color-coded output
       pkgs.age # Modern encryption tool (reference implementation)
-      # pkgs.nixfleet-agent # Disabled (decommissioned, replaced by FleetCom DSC26-52)
     ]
     ++ lib.optionals cfg.zellij.enable [ pkgs.zellij ];
 
@@ -153,16 +152,5 @@ in
         ++ lib.optionals cfg.ncps.enable [ "hsb0.lan-1:jKVnVnEwJPaevI5NyBKBtk7mJGPQ3EMlIoPb7VmPcD0=" ]
       );
     };
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # NIXFLEET AGENT - Disabled (decommissioned, replaced by FleetCom DSC26-52)
-    # ══════════════════════════════════════════════════════════════════════════
-    # services.nixfleet-agent.themeColor =
-    #   let
-    #     hostname = config.networking.hostName;
-    #     paletteName = themePalettes.hostPalette.${hostname} or themePalettes.defaultPalette;
-    #     palette = themePalettes.palettes.${paletteName};
-    #   in
-    #   lib.mkIf (config.services.nixfleet-agent.enable or false) palette.gradient.primary;
   };
 }
