@@ -175,7 +175,7 @@ seed_secret() {
   sha256sum "$token_file" | awk '{ print $1 }' >"$hash_file"
   age -r "$recipient" -o "$encrypted_file" <"$token_file"
 
-  docker run --rm \
+  docker run --rm --user 0 \
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${encrypted_file}:/tmp/input.age:ro" \
     --entrypoint sh "$IMAGE" \
@@ -183,13 +183,16 @@ seed_secret() {
 set -eu
 host=$1
 secret_name=$2
+uid=$3
+gid=$4
 dir="/var/lib/janus/secrets/pharos/${host}"
 tmp="${dir}/.${secret_name}.age.tmp"
 mkdir -p "$dir"
 cat /tmp/input.age >"$tmp"
+chown "${uid}:${gid}" "$tmp"
 chmod 0400 "$tmp"
 mv "$tmp" "${dir}/${secret_name}.age"
-' sh "$host" "$secret_name"
+' sh "$host" "$secret_name" "$container_uid" "$container_gid"
 }
 
 run_warden_permit() {
