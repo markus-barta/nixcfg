@@ -292,6 +292,26 @@
     mode = "0400";
   };
 
+  # PHAROS-90 — reconcile the minimal gpc0 Docker stack declaratively so the
+  # beacon and its updater are restored on boot and after config switches.
+  systemd.services.gpc0-stack = {
+    description = "gpc0 docker-compose stack (Pharos beacon)";
+    after = [
+      "docker.service"
+      "network-online.target"
+    ];
+    requires = [ "docker.service" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [ (builtins.readFile ./docker/docker-compose.yml) ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/gpc0/docker/docker-compose.yml up -d";
+      TimeoutStartSec = "300";
+    };
+  };
+
   # ============================================================================
   # TAILSCALE — joins the fleet's Headscale at hs.barta.cm (FLEET-195)
   # ============================================================================

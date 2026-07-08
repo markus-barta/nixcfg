@@ -24,3 +24,18 @@ services:
       - /etc/NIXOS:/etc/NIXOS:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
+
+  # Watchtower keeps the beacon image current while gpc0 is online. Use interval
+  # polling instead of a fixed wall-clock schedule because this desktop can be
+  # asleep or powered off during a weekly maintenance window.
+  watchtower:
+    image: beatkind/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    command: --interval 21600 --label-enable
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+    environment:
+      - TZ=Europe/Vienna
+      - WATCHTOWER_CLEANUP=true
+      - DOCKER_API_VERSION=1.44
