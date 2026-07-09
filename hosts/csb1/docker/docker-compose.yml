@@ -606,6 +606,8 @@ services:
       - PHAROS_DB=/data/pharos.json
       - PHAROS_MANIFEST_PATHS=/manifests/hsb8.json
       - PHAROS_REQUIRE_BEACON_TOKEN=1
+      - PHAROS_BEACON_TOKEN_MODE=dual
+      - PHAROS_BEACON_TOKEN_HASH_DIR=/run/janus/env/pharos/beacon-token-hashes
       - PHAROS_ALERT_WEBHOOK_ENV_FILE=/run/pharos/alert-webhook.env
       # OIDC (PKCE) — public dashboard auth via Zitadel (PHAROS-4). Beacons hit
       # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
@@ -619,6 +621,7 @@ services:
     volumes:
       - pharos_data:/data
       - ./pharos/manifests:/manifests:ro
+      - janus_pharos_production_out:/run/janus/env/pharos:ro
       - /run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro
     networks:
       - traefik
@@ -662,6 +665,8 @@ services:
 
 volumes:
   pharos_data: {}
+  janus_pharos_production_out:
+    name: ${JANUS_PHAROS_OUT_VOLUME:-janus_pharos_production_out}
   docmost_db_data: {}
   docmost_redis_data: {}
   docmost_data: {}
