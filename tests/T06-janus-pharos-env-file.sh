@@ -163,7 +163,7 @@ validate_beacon_contract(
     profile_path=prod_profile_path,
     secretspec_path=prod_secretspec_path,
     environment="production",
-    reload="manual",
+    reload="none",
     validations=["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"],
     supports_dual_value=True,
     blast_radius_prefix="production Pharos beacon token for",
