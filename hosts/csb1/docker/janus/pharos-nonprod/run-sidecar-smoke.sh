@@ -16,7 +16,7 @@ IMAGE=${JANUS_ENGINE_IMAGE:-}
 SMOKE_ROOT=${JANUS_PHAROS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-pharos-sidecar-smoke/${CONTRACT_NAME}"}
 VOLUME_PREFIX=${JANUS_PHAROS_SMOKE_VOLUME_PREFIX:-janus_pharos_sidecar_smoke_${CONTRACT_NAME}}
 RUN_SCOPE=${JANUS_PHAROS_SMOKE_SCOPE:-pharos/csb1/${CONTRACT_NAME}}
-HOSTS=(csb0 csb1 gpc0 hsb0 hsb1 hsb8 hsb9)
+HOSTS=(csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9)
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {

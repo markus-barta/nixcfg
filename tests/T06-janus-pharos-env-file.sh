@@ -31,7 +31,7 @@ nonprod_secretspec_path = pathlib.Path(sys.argv[2])
 prod_profile_path = pathlib.Path(sys.argv[3])
 prod_secretspec_path = pathlib.Path(sys.argv[4])
 prod_metadata_path = pathlib.Path(sys.argv[5])
-hosts = ["csb0", "csb1", "gpc0", "hsb0", "hsb1", "hsb8", "hsb9"]
+hosts = ["csb0", "csb1", "dsc0", "gpc0", "hsb0", "hsb1", "hsb8", "hsb9"]
 
 for path in [
     nonprod_profile_path,

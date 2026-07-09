@@ -13,7 +13,7 @@ COMPOSE_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 IMAGE=${JANUS_ENGINE_IMAGE:-}
 VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
 RUN_SCOPE=${JANUS_PHAROS_SCOPE:-pharos/csb1/production}
-HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 gpc0 hsb0 hsb1 hsb8 hsb9"}
+HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9"}
 PREPARE_ONLY=${JANUS_PHAROS_PREPARE_ONLY:-0}
 
 read -r -a HOSTS <<<"$HOSTS_TEXT"
