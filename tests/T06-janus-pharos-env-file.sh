@@ -12,6 +12,11 @@ NONPROD_SECRETSPEC="$REPO_ROOT/hosts/csb1/docker/janus/pharos-nonprod/secretspec
 PROD_PROFILE="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/managed-env-files.toml"
 PROD_SECRETSPEC="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/secretspec.toml"
 PROD_METADATA="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/metadata.toml"
+PROD_IMPORT="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/import-existing-agenix-beacons.sh"
+PROD_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/render-sidecars.sh"
+
+bash -n "$PROD_IMPORT"
+bash -n "$PROD_RENDER"
 
 python3 - "$NONPROD_PROFILE" "$NONPROD_SECRETSPEC" "$PROD_PROFILE" "$PROD_SECRETSPEC" "$PROD_METADATA" <<'PY'
 import hashlib
