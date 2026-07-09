@@ -8,11 +8,14 @@ on_error() {
 }
 trap 'on_error "$LINENO"' ERR
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+DEFAULT_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd -- "${JANUS_PHAROS_CONTRACT_DIR:-$DEFAULT_SCRIPT_DIR}" && pwd)
+CONTRACT_NAME=${JANUS_PHAROS_CONTRACT_NAME:-$(basename "$SCRIPT_DIR")}
 COMPOSE_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 IMAGE=${JANUS_ENGINE_IMAGE:-}
-SMOKE_ROOT=${JANUS_PHAROS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-pharos-sidecar-smoke"}
-VOLUME_PREFIX=${JANUS_PHAROS_SMOKE_VOLUME_PREFIX:-janus_pharos_sidecar_smoke}
+SMOKE_ROOT=${JANUS_PHAROS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-pharos-sidecar-smoke/${CONTRACT_NAME}"}
+VOLUME_PREFIX=${JANUS_PHAROS_SMOKE_VOLUME_PREFIX:-janus_pharos_sidecar_smoke_${CONTRACT_NAME}}
+RUN_SCOPE=${JANUS_PHAROS_SMOKE_SCOPE:-pharos/csb1/${CONTRACT_NAME}}
 HOSTS=(csb0 csb1 gpc0 hsb0 hsb1 hsb8 hsb9)
 
 require_command() {
@@ -126,7 +129,7 @@ if ! docker run --rm \
   recipient=$(printf '%s\n' "$keygen_out" | sed -n 's/^Public key: //p' | head -n1)
   identity=$(printf '%s\n' "$keygen_out" | sed -n 's/.*\(AGE-SECRET-KEY-[A-Z0-9]*\).*/\1/p' | head -n1)
   if [ -z "$recipient" ] || [ -z "$identity" ]; then
-    printf 'failed to generate non-prod age identity\n' >&2
+    printf 'failed to generate smoke age identity\n' >&2
     exit 1
   fi
   printf '%s\n%s\n' "$identity" "$recipient" |
@@ -209,7 +212,7 @@ run_warden_permit() {
   cat >"$request_file" <<EOF
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"janus-pharos-sidecar-smoke","version":"0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_use","arguments":{"secret_ref":"${secret_ref}","profile_id":"${profile_id}","purpose":"Pharos non-prod beacon sidecar smoke for ${host}"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_use","arguments":{"secret_ref":"${secret_ref}","profile_id":"${profile_id}","purpose":"Pharos ${CONTRACT_NAME} beacon sidecar smoke for ${host}"}}}
 EOF
 
   docker run -i --rm \
@@ -218,7 +221,7 @@ EOF
     -e JANUS_WARDEN_BACKEND=age \
     -e "JANUS_WARDEN_DESTINATION=pharos-beacon-${host}" \
     -e JANUS_WARDEN_EXECUTOR=janus-run@csb1 \
-    -e JANUS_WARDEN_SCOPE=pharos/csb1/nonprod \
+    -e "JANUS_WARDEN_SCOPE=${RUN_SCOPE}" \
     -e JANUS_WARDEN_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
     -e JANUS_WARDEN_AGE_METADATA_FILE=/etc/janus/metadata.toml \
     -e "JANUS_WARDEN_AGE_PROFILE=${host}" \
@@ -273,7 +276,7 @@ render_env_file() {
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_RUN_EXECUTOR=janus-run@csb1 \
-    -e JANUS_RUN_SCOPE=pharos/csb1/nonprod \
+    -e "JANUS_RUN_SCOPE=${RUN_SCOPE}" \
     -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
     -e JANUS_AGE_METADATA_FILE=/etc/janus/metadata.toml \
     -e "JANUS_AGE_PROFILE=${host}" \
@@ -375,5 +378,5 @@ if [ "$remaining_permits" != "0" ]; then
   exit 1
 fi
 
-printf 'ok: janus pharos sidecar smoke passed hosts=%s value_returned=false sidecars=validated permits_consumed=true volumes=%s,%s,%s,%s\n' \
-  "${#HOSTS[@]}" "$AGE_VOLUME" "$STORE_VOLUME" "$PERMIT_VOLUME" "$OUT_VOLUME"
+printf 'ok: janus pharos sidecar smoke passed contract=%s hosts=%s value_returned=false sidecars=validated permits_consumed=true volumes=%s,%s,%s,%s\n' \
+  "$CONTRACT_NAME" "${#HOSTS[@]}" "$AGE_VOLUME" "$STORE_VOLUME" "$PERMIT_VOLUME" "$OUT_VOLUME"

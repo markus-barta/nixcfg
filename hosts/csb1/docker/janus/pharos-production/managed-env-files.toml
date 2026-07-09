@@ -1,0 +1,165 @@
+# Production-reviewed Janus env-file handoff contract for PHAROS-40/94.
+# This file is value-free: it defines per-host outputs and hash sidecars only.
+# Live pharosd should consume the sidecar directory in dual mode first, then
+# janus mode after every active host reports successfully.
+
+[[env_files]]
+id = "profile.PHAROS_BEACON_CSB0_TOKEN"
+secret_ref = "sec_c7451fd4aa135086d6dc"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-csb0"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/csb0.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-hashes-v1"
+subject = "csb0"
+output = "/run/janus/env/pharos/beacon-token-hashes/csb0.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_csb0"
+kind = "service"
+owner = "pharos"
+environment = "production"
+reload = "manual"
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
+supports_dual_value = true
+blast_radius = "production Pharos beacon token for csb0"
+
+[[env_files]]
+id = "profile.PHAROS_BEACON_CSB1_TOKEN"
+secret_ref = "sec_fc83b121bf11b9ae3515"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-csb1"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/csb1.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-hashes-v1"
+subject = "csb1"
+output = "/run/janus/env/pharos/beacon-token-hashes/csb1.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_csb1"
+kind = "service"
+owner = "pharos"
+environment = "production"
+reload = "manual"
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
+supports_dual_value = true
+blast_radius = "production Pharos beacon token for csb1"
+
+[[env_files]]
+id = "profile.PHAROS_BEACON_GPC0_TOKEN"
+secret_ref = "sec_f7a27226065aeec4566d"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-gpc0"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/gpc0.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-hashes-v1"
+subject = "gpc0"
+output = "/run/janus/env/pharos/beacon-token-hashes/gpc0.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_gpc0"
+kind = "service"
+owner = "pharos"
+environment = "production"
+reload = "manual"
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
+supports_dual_value = true
+blast_radius = "production Pharos beacon token for gpc0"
+
+[[env_files]]
+id = "profile.PHAROS_BEACON_HSB0_TOKEN"
+secret_ref = "sec_5a9c9e6dda80c3102c11"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-hsb0"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/hsb0.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-hashes-v1"
+subject = "hsb0"
+output = "/run/janus/env/pharos/beacon-token-hashes/hsb0.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_hsb0"
+kind = "service"
+owner = "pharos"
+environment = "production"
+reload = "manual"
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
+supports_dual_value = true
+blast_radius = "production Pharos beacon token for hsb0"
+
+[[env_files]]
+id = "profile.PHAROS_BEACON_HSB1_TOKEN"
+secret_ref = "sec_9cc2c84787171c05c02f"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-hsb1"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/hsb1.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-hashes-v1"
+subject = "hsb1"
+output = "/run/janus/env/pharos/beacon-token-hashes/hsb1.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_hsb1"
+kind = "service"
+owner = "pharos"
+environment = "production"
+reload = "manual"
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
+supports_dual_value = true
+blast_radius = "production Pharos beacon token for hsb1"
+
+[[env_files]]
+id = "profile.PHAROS_BEACON_HSB8_TOKEN"
+secret_ref = "sec_09b3066462547377641d"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-hsb8"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/hsb8.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-hashes-v1"
+subject = "hsb8"
+output = "/run/janus/env/pharos/beacon-token-hashes/hsb8.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_hsb8"
+kind = "service"
+owner = "pharos"
+environment = "production"
+reload = "manual"
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
+supports_dual_value = true
+blast_radius = "production Pharos beacon token for hsb8"
+
+[[env_files]]
+id = "profile.PHAROS_BEACON_HSB9_TOKEN"
+secret_ref = "sec_54402cc771dec8ffc725"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-hsb9"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/hsb9.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-hashes-v1"
+subject = "hsb9"
+output = "/run/janus/env/pharos/beacon-token-hashes/hsb9.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_hsb9"
+kind = "service"
+owner = "pharos"
+environment = "production"
+reload = "manual"
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
+supports_dual_value = true
+blast_radius = "production Pharos beacon token for hsb9"
