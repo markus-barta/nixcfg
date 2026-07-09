@@ -171,8 +171,8 @@ validate_beacon_contract(
     secretspec_path=prod_secretspec_path,
     environment="production",
     reload="none",
-    validations=["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"],
-    supports_dual_value=True,
+    validations=["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"],
+    supports_dual_value=False,
     blast_radius_prefix="production Pharos beacon token for",
 )
 
@@ -184,6 +184,10 @@ if defaults.get("owner") != "pharos" or defaults.get("classification") != "high_
 compose_text = compose_path.read_text(encoding="utf-8")
 if "PHAROS_BEACON_TOKEN_HASH_DIR=/run/janus/env/pharos/beacon-token-hashes" not in compose_text:
     raise SystemExit("pharosd compose hash-dir env does not match Janus production output")
+if "PHAROS_BEACON_TOKEN_MODE=janus" not in compose_text:
+    raise SystemExit("pharosd compose must run in Janus-only token mode")
+if "PHAROS_BEACON_TOKEN_MODE=dual" in compose_text:
+    raise SystemExit("pharosd compose must not keep dual token mode after PHAROS-40 cutover")
 if "janus_pharos_production_out:/run/janus/env:ro" not in compose_text:
     raise SystemExit("pharosd compose must mount Janus output at /run/janus/env")
 if "janus_pharos_production_out:/run/janus/env/pharos:ro" in compose_text:
