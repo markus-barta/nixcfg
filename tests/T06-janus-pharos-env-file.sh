@@ -14,11 +14,12 @@ PROD_SECRETSPEC="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/secretspec
 PROD_METADATA="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/metadata.toml"
 PROD_IMPORT="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/import-existing-agenix-beacons.sh"
 PROD_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/render-sidecars.sh"
+COMPOSE_FILE="$REPO_ROOT/hosts/csb1/docker/docker-compose.yml"
 
 bash -n "$PROD_IMPORT"
 bash -n "$PROD_RENDER"
 
-python3 - "$NONPROD_PROFILE" "$NONPROD_SECRETSPEC" "$PROD_PROFILE" "$PROD_SECRETSPEC" "$PROD_METADATA" <<'PY'
+python3 - "$NONPROD_PROFILE" "$NONPROD_SECRETSPEC" "$PROD_PROFILE" "$PROD_SECRETSPEC" "$PROD_METADATA" "$COMPOSE_FILE" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -31,6 +32,7 @@ nonprod_secretspec_path = pathlib.Path(sys.argv[2])
 prod_profile_path = pathlib.Path(sys.argv[3])
 prod_secretspec_path = pathlib.Path(sys.argv[4])
 prod_metadata_path = pathlib.Path(sys.argv[5])
+compose_path = pathlib.Path(sys.argv[6])
 hosts = ["csb0", "csb1", "dsc0", "gpc0", "hsb0", "hsb1", "hsb8", "hsb9"]
 
 for path in [
@@ -178,6 +180,14 @@ prod_metadata = nix_from_toml(prod_metadata_path)
 defaults = prod_metadata.get("defaults", {})
 if defaults.get("owner") != "pharos" or defaults.get("classification") != "high_value":
     raise SystemExit("production metadata defaults mismatch")
+
+compose_text = compose_path.read_text(encoding="utf-8")
+if "PHAROS_BEACON_TOKEN_HASH_DIR=/run/janus/env/pharos/beacon-token-hashes" not in compose_text:
+    raise SystemExit("pharosd compose hash-dir env does not match Janus production output")
+if "janus_pharos_production_out:/run/janus/env:ro" not in compose_text:
+    raise SystemExit("pharosd compose must mount Janus output at /run/janus/env")
+if "janus_pharos_production_out:/run/janus/env/pharos:ro" in compose_text:
+    raise SystemExit("pharosd compose has an extra nested pharos path in Janus mount")
 PY
 
 echo "ok: Pharos Janus env-file and sidecar profiles are value-free"
