@@ -1,0 +1,9 @@
+{
+  "grants": [
+    {
+      "identifiers": ["markus", "markus@barta.com"],
+      "hosts": ["*"],
+      "agora": true
+    }
+  ]
+}
