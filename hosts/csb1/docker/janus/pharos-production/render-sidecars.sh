@@ -112,12 +112,11 @@ chown -R "${uid}:${gid}" \
 chmod 0700 \
   /run/janus/age \
   /run/janus/permits \
+  /run/janus/env/pharos \
   /run/janus/env/pharos/beacons \
+  /run/janus/env/pharos/beacon-token-hashes \
   /var/lib/janus/secrets \
   /var/lib/janus/secrets/pharos
-chmod 0750 \
-  /run/janus/env/pharos \
-  /run/janus/env/pharos/beacon-token-hashes
 ' sh "$container_uid" "$container_gid"
 
 if ! docker run --rm \
@@ -281,17 +280,20 @@ render_env_file() {
     sed -n '1,80p' "$run_out" >&2
     exit 1
   fi
+}
 
+relax_sidecar_permissions() {
   docker run --rm --user 0 \
     -v "${OUT_VOLUME}:/run/janus/env" \
     --entrypoint sh "$IMAGE" \
     -c '
 set -eu
-host=$1
 chmod 0750 /run/janus/env/pharos /run/janus/env/pharos/beacon-token-hashes
-chmod 0600 "/run/janus/env/pharos/beacons/${host}.env"
-chmod 0640 "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
-' sh "$host"
+for host do
+  chmod 0600 "/run/janus/env/pharos/beacons/${host}.env"
+  chmod 0640 "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
+done
+' sh "${HOSTS[@]}"
 }
 
 validate_outputs() {
@@ -343,6 +345,11 @@ for host in "${HOSTS[@]}"; do
   secret_ref=$(secret_ref_for "$secret_name")
   permit=$(run_warden_permit "$host" "$secret_name" "$secret_ref")
   render_env_file "$host" "$secret_name" "$permit"
+done
+
+relax_sidecar_permissions
+
+for host in "${HOSTS[@]}"; do
   validate_outputs "$host"
 done
 
