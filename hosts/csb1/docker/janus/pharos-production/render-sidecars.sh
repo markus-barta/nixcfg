@@ -112,11 +112,12 @@ chown -R "${uid}:${gid}" \
 chmod 0700 \
   /run/janus/age \
   /run/janus/permits \
-  /run/janus/env/pharos \
   /run/janus/env/pharos/beacons \
-  /run/janus/env/pharos/beacon-token-hashes \
   /var/lib/janus/secrets \
   /var/lib/janus/secrets/pharos
+chmod 0750 \
+  /run/janus/env/pharos \
+  /run/janus/env/pharos/beacon-token-hashes
 ' sh "$container_uid" "$container_gid"
 
 if ! docker run --rm \
@@ -280,6 +281,17 @@ render_env_file() {
     sed -n '1,80p' "$run_out" >&2
     exit 1
   fi
+
+  docker run --rm --user 0 \
+    -v "${OUT_VOLUME}:/run/janus/env" \
+    --entrypoint sh "$IMAGE" \
+    -c '
+set -eu
+host=$1
+chmod 0750 /run/janus/env/pharos /run/janus/env/pharos/beacon-token-hashes
+chmod 0600 "/run/janus/env/pharos/beacons/${host}.env"
+chmod 0640 "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
+' sh "$host"
 }
 
 validate_outputs() {
@@ -319,8 +331,8 @@ stat -c "%a %n" \
     printf 'janus pharos production render failed: env file is not mode 600 for %s\n' "$host" >&2
     exit 1
   fi
-  if [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" != "600" ]; then
-    printf 'janus pharos production render failed: sidecar file is not mode 600 for %s\n' "$host" >&2
+  if [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" != "640" ]; then
+    printf 'janus pharos production render failed: sidecar file is not mode 640 for %s\n' "$host" >&2
     exit 1
   fi
 }
