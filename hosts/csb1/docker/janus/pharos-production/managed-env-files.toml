@@ -1,7 +1,7 @@
 # Production-reviewed Janus env-file handoff contract for PHAROS-40/94.
 # This file is value-free: it defines per-host outputs and hash sidecars only.
-# Live pharosd should consume the sidecar directory in dual mode first, then
-# janus mode after every active host reports successfully.
+# Live pharosd consumes the Janus sidecar directory in janus mode after the
+# active-host dual-mode migration window completed successfully.
 
 [[env_files]]
 id = "profile.PHAROS_BEACON_CSB0_TOKEN"
@@ -22,8 +22,8 @@ kind = "service"
 owner = "pharos"
 environment = "production"
 reload = "none"
-validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
-supports_dual_value = true
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
+supports_dual_value = false
 blast_radius = "production Pharos beacon token for csb0"
 
 [[env_files]]
@@ -45,8 +45,8 @@ kind = "service"
 owner = "pharos"
 environment = "production"
 reload = "none"
-validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
-supports_dual_value = true
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
+supports_dual_value = false
 blast_radius = "production Pharos beacon token for csb1"
 
 [[env_files]]
@@ -68,8 +68,8 @@ kind = "service"
 owner = "pharos"
 environment = "production"
 reload = "none"
-validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
-supports_dual_value = true
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
+supports_dual_value = false
 blast_radius = "production Pharos beacon token for dsc0"
 
 [[env_files]]
@@ -91,8 +91,8 @@ kind = "service"
 owner = "pharos"
 environment = "production"
 reload = "none"
-validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
-supports_dual_value = true
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
+supports_dual_value = false
 blast_radius = "production Pharos beacon token for gpc0"
 
 [[env_files]]
@@ -114,8 +114,8 @@ kind = "service"
 owner = "pharos"
 environment = "production"
 reload = "none"
-validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
-supports_dual_value = true
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
+supports_dual_value = false
 blast_radius = "production Pharos beacon token for hsb0"
 
 [[env_files]]
@@ -137,8 +137,8 @@ kind = "service"
 owner = "pharos"
 environment = "production"
 reload = "none"
-validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
-supports_dual_value = true
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
+supports_dual_value = false
 blast_radius = "production Pharos beacon token for hsb1"
 
 [[env_files]]
@@ -160,8 +160,8 @@ kind = "service"
 owner = "pharos"
 environment = "production"
 reload = "none"
-validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
-supports_dual_value = true
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
+supports_dual_value = false
 blast_radius = "production Pharos beacon token for hsb8"
 
 [[env_files]]
@@ -183,6 +183,6 @@ kind = "service"
 owner = "pharos"
 environment = "production"
 reload = "none"
-validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-dual-mode-smoke"]
-supports_dual_value = true
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
+supports_dual_value = false
 blast_radius = "production Pharos beacon token for hsb9"
