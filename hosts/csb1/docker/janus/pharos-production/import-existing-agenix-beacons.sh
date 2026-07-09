@@ -16,7 +16,10 @@ ALLOW_MISSING_TEXT=${JANUS_PHAROS_ALLOW_MISSING_HOSTS:-}
 SSH_OPTS=${JANUS_PHAROS_SSH_OPTS:-"-o BatchMode=yes -o ConnectTimeout=8"}
 
 read -r -a HOSTS <<<"$HOSTS_TEXT"
-read -r -a ALLOW_MISSING <<<"$ALLOW_MISSING_TEXT"
+ALLOW_MISSING=()
+if [ -n "$ALLOW_MISSING_TEXT" ]; then
+  read -r -a ALLOW_MISSING <<<"$ALLOW_MISSING_TEXT"
+fi
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -39,6 +42,9 @@ validate_identifier() {
 is_allowed_missing() {
   local needle=$1
   local item
+  if [ "${#ALLOW_MISSING[@]}" -eq 0 ]; then
+    return 1
+  fi
   for item in "${ALLOW_MISSING[@]}"; do
     if [ "$item" = "$needle" ]; then
       return 0
@@ -78,9 +84,11 @@ validate_identifier JANUS_PHAROS_VOLUME_PREFIX "$VOLUME_PREFIX"
 for host in "${HOSTS[@]}"; do
   validate_identifier host "$host"
 done
-for host in "${ALLOW_MISSING[@]}"; do
-  validate_identifier allow_missing_host "$host"
-done
+if [ "${#ALLOW_MISSING[@]}" -gt 0 ]; then
+  for host in "${ALLOW_MISSING[@]}"; do
+    validate_identifier allow_missing_host "$host"
+  done
+fi
 
 AGE_VOLUME="${VOLUME_PREFIX}_age"
 STORE_VOLUME="${VOLUME_PREFIX}_secrets"
