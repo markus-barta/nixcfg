@@ -666,6 +666,7 @@ services:
 volumes:
   pharos_data: {}
   janus_pharos_production_out:
+    external: true
     name: ${JANUS_PHAROS_OUT_VOLUME:-janus_pharos_production_out}
   docmost_db_data: {}
   docmost_redis_data: {}
