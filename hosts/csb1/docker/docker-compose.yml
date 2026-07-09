@@ -370,10 +370,12 @@ services:
       - ./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro
       - ./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro
       - ./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro
+      - /var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status
     environment:
       RESTIC_BACKUP_OPTIONS: "-r sftp:u387549-sub1@u387549.your-storagebox.de:/"
       MAIL_SUBJECT: "💾 Restic Backup netcup csb1 (hetzner)"
       CRON_BACKUP_EXPRESSION: "30 1 * * *" # 1:30am
+      PHAROS_BACKUP_STATUS_FILE: "/pharos-backup-status/restic-cron-hetzner.json"
     env_file:
       - /run/agenix/csb1-restic-cron-hetzner-env
     labels:
@@ -657,6 +659,8 @@ services:
       - PHAROS_URL=http://100.64.0.4:8088
       - PHAROS_INTERVAL=60
       - PHAROS_HOSTNAME=csb1
+      - PHAROS_BACKUP_MODE=status-file
+      - PHAROS_BACKUP_STATUS_FILE=/pharos-backup-status/restic-cron-hetzner.json
       - NIXCFG_DIR=/nixcfg
       - GIT_CONFIG_COUNT=1
       - GIT_CONFIG_KEY_0=safe.directory
@@ -664,6 +668,7 @@ services:
     volumes:
       - /home/mba/Code/nixcfg:/nixcfg:ro
       - /etc/NIXOS:/etc/NIXOS:ro
+      - /var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
       - traefik.enable=false
