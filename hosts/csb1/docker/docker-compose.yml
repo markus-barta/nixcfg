@@ -630,7 +630,7 @@ services:
       - pharos_data:/data
       - ./pharos/access-policy.json:/etc/pharos/access-policy.json:ro
       - ./pharos/manifests:/manifests:ro
-      - janus_pharos_production_out:/run/janus/env/pharos:ro
+      - janus_pharos_production_out:/run/janus/env:ro
       - /run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro
     networks:
       - traefik
