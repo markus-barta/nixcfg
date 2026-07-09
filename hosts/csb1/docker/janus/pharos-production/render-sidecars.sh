@@ -127,8 +127,15 @@ if ! docker run --rm \
   mkdir -p "$key_dir"
   age-keygen -o "${key_dir}/identity" >"${key_dir}/age-keygen.out" 2>&1
   sed -n 's/^Public key: //p' "${key_dir}/age-keygen.out" | head -n1 >"${key_dir}/recipient.pub"
+  sed -n 's/.*\(AGE-SECRET-KEY-[A-Z0-9]*\).*/\1/p' "${key_dir}/identity" |
+    head -n1 >"${key_dir}/identity.plain"
+  mv "${key_dir}/identity.plain" "${key_dir}/identity"
   if [ ! -s "${key_dir}/recipient.pub" ]; then
     printf 'failed to generate production age recipient\n' >&2
+    exit 1
+  fi
+  if [ ! -s "${key_dir}/identity" ]; then
+    printf 'failed to generate production age identity\n' >&2
     exit 1
   fi
   tar -C "$key_dir" -cf - identity recipient.pub |

@@ -47,19 +47,29 @@ is_allowed_missing() {
   return 1
 }
 
-remote_quote() {
+bash_quote() {
   printf '%q' "$1"
+}
+
+run_remote_script() {
+  local host=$1
+  local script=$2
+  local encoded
+  encoded=$(printf '%s' "$script" | base64 | tr -d '\n')
+  # The encoded script is assembled locally from reviewed constants.
+  # shellcheck disable=SC2029
+  # shellcheck disable=SC2086
+  ssh $SSH_OPTS "$host" "printf '%s' '$encoded' | base64 -d | bash"
 }
 
 remote_csb1() {
   local script=$1
-  # The command is assembled locally from reviewed constants and validated ids.
-  # shellcheck disable=SC2029
-  # shellcheck disable=SC2086
-  ssh $SSH_OPTS "$JANUS_HOST" "bash -lc $(remote_quote "$script")"
+  run_remote_script "$JANUS_HOST" "$script"
 }
 
 require_command age
+require_command base64
+require_command scp
 require_command ssh
 require_command tr
 
@@ -120,18 +130,18 @@ test -n "\${PHAROS_TOKEN:-}"
 printf '%s' "\$PHAROS_TOKEN"
 EOF
   )
-  # The remote script is built locally so the env-file path stays reviewed.
-  # shellcheck disable=SC2029
-  # shellcheck disable=SC2086
-  ssh $SSH_OPTS "$host" "bash -lc $(remote_quote "$remote_script")"
+  run_remote_script "$host" "$remote_script"
 }
 
 store_encrypted() {
   local host=$1
   local secret_name=$2
   local encrypted_file=$3
+  local remote_tmp
+  local docker_script
   local remote_script
-  remote_script=$(
+  remote_tmp="/tmp/janus-pharos-${host}-$(date +%s%N).age"
+  docker_script=$(
     cat <<'EOF'
 set -eu
 host=$1
@@ -143,24 +153,34 @@ tmp="${dir}/.${secret_name}.age.tmp"
 mkdir -p "$dir"
 chown "${uid}:${gid}" "$dir"
 chmod 0700 "$dir"
-cat >"$tmp"
+cat /tmp/input.age >"$tmp"
 chown "${uid}:${gid}" "$tmp"
 chmod 0400 "$tmp"
 mv "$tmp" "${dir}/${secret_name}.age"
 EOF
   )
-  # The Docker invocation is built locally from validated ids and reviewed paths.
-  # shellcheck disable=SC2029
+
   # shellcheck disable=SC2086
-  ssh $SSH_OPTS "$JANUS_HOST" \
-    "docker run -i --rm --user 0 -v '${STORE_VOLUME}:/var/lib/janus/secrets' --entrypoint sh '$IMAGE' -c $(remote_quote "$remote_script") sh '$host' '$secret_name' '$container_uid' '$container_gid'" \
-    <"$encrypted_file"
+  scp $SSH_OPTS "$encrypted_file" "${JANUS_HOST}:${remote_tmp}" >/dev/null
+  remote_script=$(
+    cat <<EOF
+set -euo pipefail
+trap 'rm -f $(bash_quote "$remote_tmp")' EXIT
+docker run --rm --user 0 \\
+  -v $(bash_quote "${STORE_VOLUME}:/var/lib/janus/secrets") \\
+  -v $(bash_quote "${remote_tmp}:/tmp/input.age:ro") \\
+  --entrypoint sh $(bash_quote "$IMAGE") \\
+  -c $(bash_quote "$docker_script") \\
+  sh $(bash_quote "$host") $(bash_quote "$secret_name") $(bash_quote "$container_uid") $(bash_quote "$container_gid")
+EOF
+  )
+  run_remote_script "$JANUS_HOST" "$remote_script"
 }
 
 imported=()
 missing=()
 for host in "${HOSTS[@]}"; do
-  upper=${host^^}
+  upper=$(printf '%s' "$host" | tr '[:lower:]' '[:upper:]')
   secret_name="PHAROS_BEACON_${upper}_TOKEN"
   encrypted_file="${TMP_DIR}/${host}.age"
 
