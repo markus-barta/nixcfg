@@ -622,11 +622,13 @@ services:
       - PHAROS_OIDC_CLIENT_ID=379451733002223624@pharos
       - PHAROS_OIDC_REDIRECT_URI=https://pharos.barta.cm/auth/callback
       - PHAROS_ALLOWED_OPERATORS=markus
+      - PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json
     ports:
       # Tailnet bind kept for beacon ingestion (/report stays auth-exempt).
       - "100.64.0.4:8088:8080"
     volumes:
       - pharos_data:/data
+      - ./pharos/access-policy.json:/etc/pharos/access-policy.json:ro
       - ./pharos/manifests:/manifests:ro
       - janus_pharos_production_out:/run/janus/env/pharos:ro
       - /run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro
