@@ -12,6 +12,15 @@
     "ip": "192.168.1.100",
     "name": "hsb8",
     "os": "NixOS",
+    "preferences": {
+      "accent": "#e7a05f",
+      "alerts": {
+        "suppress_backup": false,
+        "suppress_down": false,
+        "suppress_nix_freshness": false
+      },
+      "kind": "server"
+    },
     "role": "parents' home",
     "site": "ww87",
     "subtitle": null,

@@ -15,6 +15,7 @@ let
   cfg = config.services.hostdash.manifest;
   jsonFormat = pkgs.formats.json { };
   palettes = import ./uzumaki/theme/theme-palettes.nix;
+  pharosHostPreferences = builtins.fromJSON (builtins.readFile ./pharos-host-preferences.json);
 
   hostName = config.networking.hostName;
   defaultPaletteName =
@@ -24,7 +25,7 @@ let
       palettes.defaultPalette;
   effectivePaletteName = if cfg.paletteName != null then cfg.paletteName else defaultPaletteName;
   paletteExists = builtins.hasAttr effectivePaletteName palettes.palettes;
-  selectedPalette =
+  basePalette =
     if paletteExists then
       palettes.palettes.${effectivePaletteName}
     else
@@ -36,6 +37,25 @@ let
         text = { };
         zellij = { };
       };
+  declaredPreferences =
+    pharosHostPreferences.hosts.${hostName} or {
+      accent = basePalette.gradient.primary;
+      kind = "server";
+      alerts = {
+        suppress_down = false;
+        suppress_backup = false;
+        suppress_nix_freshness = false;
+      };
+    };
+  selectedPalette = basePalette // {
+    gradient = basePalette.gradient // {
+      primary = declaredPreferences.accent;
+    };
+    zellij = basePalette.zellij // {
+      bg = declaredPreferences.accent;
+      frame = declaredPreferences.accent;
+    };
+  };
 
   effectiveSlug = if cfg.slug != null then cfg.slug else cfg.host.name;
   effectiveStorageKey =
@@ -318,7 +338,9 @@ let
     generatedBy = "nixcfg";
     slug = effectiveSlug;
     storageKey = effectiveStorageKey;
-    host = cfg.host;
+    host = cfg.host // {
+      preferences = declaredPreferences;
+    };
     meta = cfg.meta;
     palette = {
       name = effectivePaletteName;

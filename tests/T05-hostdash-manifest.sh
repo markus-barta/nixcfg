@@ -55,6 +55,7 @@ CSB1_PHAROS_MANIFEST="$REPO_ROOT/hosts/csb1/docker/pharos/manifests/hsb8.json"
 check_jq "schema is versioned" '.schema == "inspr.hostdash.config.v1" and .version == 1'
 check_jq "host metadata is hsb8" '.host.name == "hsb8" and .host.fqdn == "hsb8.lan" and .host.ip == "192.168.1.100"'
 check_jq "palette is exported from theme-palettes.nix" '.palette.name == "custom-hsb8" and (.palette.accent | test("^#[0-9a-fA-F]{6}$"))'
+check_jq "Pharos host preferences are declared" '.host.preferences == {"accent":"#e7a05f","alerts":{"suppress_backup":false,"suppress_down":false,"suppress_nix_freshness":false},"kind":"server"}'
 check_jq "all hsb8 service cards are declared" '.services | length == 5'
 check_jq "AdGuard URL variants are present" '.services[] | select(.name == "AdGuard Home") | .urls.lanHostname == "http://hsb8.lan:3000/" and .urls.lanIp == "http://192.168.1.100:3000/" and .urls.tailnet == "http://hsb8:3000/"'
 check_jq "Pharos owns runtime state" '.policy.declaredOnly == true and .policy.runtimeStateOwner == "pharos"'
