@@ -291,6 +291,22 @@ German keyboard layout issues in Netcup VNC:
 
 NixFleet previously provided centralized monitoring and push-button deployment via an agent-based pull model. All agents have been disabled across hosts. The NixFleet codebase remains at `~/Code/nixfleet` for reference.
 
+### Pharos Host Settings
+
+Safe host display preferences live in the versioned
+`modules/pharos-host-preferences.json` registry. The
+`pharos-host-settings.yml` workflow accepts only an existing registry host, a
+six-digit accent color, `server` or `workstation`, and three boolean alert
+preferences. It updates the registry with `jq`, regenerates the declared hsb8
+manifest, evaluates the target NixOS configuration, opens a pull request, waits
+for the repository pull-request checks, and merges without an admin bypass.
+
+This workflow changes declared git state only. It does not run
+`nixos-rebuild`, restart a beacon, or otherwise deploy to a host. Pharos must
+continue to show merged settings as declared but not applied until a later host
+rebuild and beacon report prove the runtime value. Fleet-wide automatic
+pull/rebuild remains a separate, currently unsolved deployment concern.
+
 ---
 
 ## 🏠 Smart Home Naming Convention

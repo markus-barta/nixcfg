@@ -1,0 +1,69 @@
+{
+  "hosts": {
+    "csb0": {
+      "accent": "#98b8d8",
+      "alerts": {
+        "suppress_backup": false,
+        "suppress_down": false,
+        "suppress_nix_freshness": false
+      },
+      "kind": "server"
+    },
+    "csb1": {
+      "accent": "#769ff0",
+      "alerts": {
+        "suppress_backup": false,
+        "suppress_down": false,
+        "suppress_nix_freshness": false
+      },
+      "kind": "server"
+    },
+    "gpc0": {
+      "accent": "#9868d0",
+      "alerts": {
+        "suppress_backup": false,
+        "suppress_down": false,
+        "suppress_nix_freshness": false
+      },
+      "kind": "server"
+    },
+    "hsb0": {
+      "accent": "#d4c060",
+      "alerts": {
+        "suppress_backup": false,
+        "suppress_down": false,
+        "suppress_nix_freshness": false
+      },
+      "kind": "server"
+    },
+    "hsb1": {
+      "accent": "#68c878",
+      "alerts": {
+        "suppress_backup": false,
+        "suppress_down": false,
+        "suppress_nix_freshness": false
+      },
+      "kind": "server"
+    },
+    "hsb8": {
+      "accent": "#e7a05f",
+      "alerts": {
+        "suppress_backup": false,
+        "suppress_down": false,
+        "suppress_nix_freshness": false
+      },
+      "kind": "server"
+    },
+    "hsb9": {
+      "accent": "#769ff0",
+      "alerts": {
+        "suppress_backup": false,
+        "suppress_down": false,
+        "suppress_nix_freshness": false
+      },
+      "kind": "server"
+    }
+  },
+  "schema": "inspr.pharos.host-preferences.v1",
+  "version": 1
+}

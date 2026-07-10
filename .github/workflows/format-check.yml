@@ -1,9 +1,8 @@
-name: 📄 Check formatting (DISABLED)
+name: 📄 Check formatting
 
-# DISABLED: The 'prek' command doesn't exist. Local pre-commit hooks handle formatting.
-# To re-enable: set up .pre-commit-config.yaml and fix the 'just format' command.
 on:
-  workflow_dispatch: # Manual trigger only
+  workflow_dispatch:
+  pull_request:
 
 jobs:
   format-check:
@@ -26,5 +25,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
       - name: 🔧 Install devenv.sh
         run: nix profile add nixpkgs#devenv
-      - name: 🌳 Format code
-        run: devenv shell "just format"
+      - name: 🌳 Check formatting
+        run: |
+          devenv shell "just format"
+          git diff --exit-code

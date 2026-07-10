@@ -46,6 +46,7 @@ in
 let
   # Import the palette definitions
   themePalettes = import ./theme-palettes.nix;
+  pharosHostPreferences = builtins.fromJSON (builtins.readFile ../../pharos-host-preferences.json);
 
   # Import StaSysMo config for consistent color references
   stasysmoConfig = import ../stasysmo/config.nix;
@@ -55,7 +56,22 @@ let
 
   # Look up the palette for this host (fallback to default)
   paletteName = themePalettes.hostPalette.${resolvedHostname} or themePalettes.defaultPalette;
-  palette = themePalettes.palettes.${paletteName};
+  basePalette = themePalettes.palettes.${paletteName};
+  declaredPreferences = pharosHostPreferences.hosts.${resolvedHostname} or null;
+  palette =
+    if declaredPreferences == null then
+      basePalette
+    else
+      basePalette
+      // {
+        gradient = basePalette.gradient // {
+          primary = declaredPreferences.accent;
+        };
+        zellij = basePalette.zellij // {
+          bg = declaredPreferences.accent;
+          frame = declaredPreferences.accent;
+        };
+      };
 
   # Status colors (universal across all palettes)
   status = themePalettes.statusColors;
