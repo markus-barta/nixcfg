@@ -10,6 +10,11 @@ jq -e '
   (.hosts | keys) == ["csb0", "csb1", "gpc0", "hsb0", "hsb1", "hsb8", "hsb9"]
 ' "$fixture" >/dev/null
 
+compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
+[[ "$(grep -Fc 'image: ghcr.io/markus-barta/pharos/pharosd:0.1.22' "$compose")" == 2 ]]
+[[ "$(grep -Fc 'PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json' "$compose")" == 1 ]]
+[[ "$(grep -Fc '/home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro' "$compose")" == 1 ]]
+
 run_update() {
   PHAROS_SETTINGS_FILE="$fixture" \
     "$repo_root/scripts/update-pharos-host-settings.sh" "$@" >/dev/null

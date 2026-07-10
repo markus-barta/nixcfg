@@ -602,7 +602,7 @@ services:
   # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
   # FleetCom is decommissioned; Pharos is the live fleet dashboard.
   pharosd:
-    image: ghcr.io/markus-barta/pharos/pharosd:latest
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.22
     container_name: pharosd
     restart: unless-stopped
     env_file:
@@ -612,6 +612,7 @@ services:
       - RUST_LOG=info
       - PHAROS_DB=/data/pharos.json
       - PHAROS_MANIFEST_PATHS=/manifests/hsb8.json
+      - PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json
       - PHAROS_REQUIRE_BEACON_TOKEN=1
       - PHAROS_BEACON_TOKEN_MODE=janus
       - PHAROS_BEACON_TOKEN_HASH_DIR=/run/janus/env/pharos/beacon-token-hashes
@@ -630,6 +631,7 @@ services:
       - pharos_data:/data
       - ./pharos/access-policy.json:/etc/pharos/access-policy.json:ro
       - ./pharos/manifests:/manifests:ro
+      - /home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro
       - janus_pharos_production_out:/run/janus/env:ro
       - /run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro
     networks:
@@ -649,7 +651,7 @@ services:
   # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
   # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:latest
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.22
     container_name: pharos-beacon
     restart: unless-stopped
     network_mode: host
