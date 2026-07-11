@@ -162,8 +162,8 @@ non-prod smoke uses the signed digest-pinned engine image, Docker-volume
 non-prod age material, a non-prod metadata overlay, and a permit-bound
 `janusd run` launched through the staged compose service; no production secret
 or host SSH key is used.
-The current staged Rust engine target is `rust-engine-v0.1.2` at digest
-`sha256:c6e2924cd1a39eec92aabc3d690dd7bc9f6dfad2369ea967ba1fd1f6bbd9c204`.
+The staged image pin in `docker-compose.yml` is the source of truth; do not
+duplicate its release or digest here.
 
 ```bash
 cd ~/Code/nixcfg
