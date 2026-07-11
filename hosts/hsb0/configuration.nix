@@ -500,6 +500,13 @@ in
     mode = "444";
   };
 
+  age.secrets.hsb0-speedtest-tracker-app-key = {
+    file = ../../secrets/hsb0-speedtest-tracker-app-key.age;
+    mode = "400";
+    owner = "root";
+    group = "root";
+  };
+
   # ============================================================================
   # OpenClaw Merlin - AI assistant via Telegram
   # ============================================================================
