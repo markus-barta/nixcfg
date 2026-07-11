@@ -311,6 +311,11 @@ in
   # Edit: agenix -e secrets/hsb0-uptime-kuma-api-key.age
   "hsb0-uptime-kuma-api-key.age".publicKeys = markus ++ hsb0;
 
+  # Speedtest Tracker application encryption key
+  # Format: Plain text Laravel key (no KEY=VALUE)
+  # Edit: agenix -e secrets/hsb0-speedtest-tracker-app-key.age
+  "hsb0-speedtest-tracker-app-key.age".publicKeys = markus ++ hsb0;
+
   # ElevenLabs API key for TTS (shared: Merlin + Nimue on hsb0)
   # Format: Plain text API key (no KEY=VALUE)
   # Edit: agenix -e secrets/hsb0-elevenlabs-api-key.age
