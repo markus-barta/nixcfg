@@ -231,6 +231,10 @@ in
   # after all deployed beacons have per-host tokens.
   "csb1-pharos-registration-env.age".publicKeys = markus ++ csb1;
 
+  # Dedicated GitHub PAT (classic) used only by pharosd to dispatch nixcfg's
+  # fixed pharos-host-settings workflow. Contents: raw token, no KEY= prefix.
+  "csb1-pharos-nixcfg-dispatch-token.age".publicKeys = markus ++ csb1;
+
   # Pharos beacon env files. Format: KEY=VALUE with PHAROS_TOKEN only.
   # Issued via pharosd /register, then consumed by pharos-beacon Docker env_file.
   "pharos-beacon-hsb0-env.age".publicKeys = markus ++ hsb0;

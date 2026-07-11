@@ -423,6 +423,16 @@ in
     mode = "0400";
   };
 
+  # Raw GitHub token consumed through pharosd's file-only dispatcher setting.
+  # Numeric ownership matches the non-root pharos user in the container image.
+  age.secrets.csb1-pharos-nixcfg-dispatch-token = {
+    file = ../../secrets/csb1-pharos-nixcfg-dispatch-token.age;
+    path = "/run/agenix/csb1-pharos-nixcfg-dispatch-token";
+    owner = "10001";
+    group = "999";
+    mode = "0400";
+  };
+
   # Pharos beacon per-host token. Docker Compose reads it as an env_file.
   age.secrets.pharos-beacon-csb1-env = {
     file = ../../secrets/pharos-beacon-csb1-env.age;

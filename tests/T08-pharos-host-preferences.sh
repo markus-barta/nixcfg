@@ -11,9 +11,18 @@ jq -e '
 ' "$fixture" >/dev/null
 
 compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
+host_config="$repo_root/hosts/csb1/configuration.nix"
 [[ "$(grep -Fc 'image: ghcr.io/markus-barta/pharos/pharosd:0.1.22' "$compose")" == 2 ]]
 [[ "$(grep -Fc 'PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json' "$compose")" == 1 ]]
 [[ "$(grep -Fc '/home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro' "$compose")" == 1 ]]
+[[ "$(grep -Fc 'PHAROS_NIXCFG_DISPATCH_ENABLED=1' "$compose")" == 1 ]]
+[[ "$(grep -Fc 'PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token' "$compose")" == 1 ]]
+[[ "$(grep -Fc '/run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro' "$compose")" == 1 ]]
+if grep -Eq 'PHAROS_NIXCFG_DISPATCH_TOKEN=' "$compose"; then
+  exit 1
+fi
+grep -Fq 'age.secrets.csb1-pharos-nixcfg-dispatch-token' "$host_config"
+grep -Fq 'file = ../../secrets/csb1-pharos-nixcfg-dispatch-token.age;' "$host_config"
 
 run_update() {
   PHAROS_SETTINGS_FILE="$fixture" \
