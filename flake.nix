@@ -51,6 +51,10 @@
       url = "github:markus-barta/hostdash";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    janus = {
+      url = "github:markus-barta/janus/rust-engine-v0.1.5";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # Paimos — agent-facing CLI. Tracking `main`, so `update-flake-lock`
     # auto-bumps rev+hash on every scheduled run. `vendorHash` in
     # pkgs/paimos-cli/default.nix still has to be refreshed manually when Go
@@ -128,6 +132,9 @@
         { nixpkgs.hostPlatform = linuxSystem; }
         (_: {
           nixpkgs.overlays = allOverlays;
+        })
+        (_: {
+          system.configurationRevision = self.rev or null;
         })
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age

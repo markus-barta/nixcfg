@@ -26,6 +26,7 @@ services:
       - PHAROS_URL=http://100.64.0.4:8088
       - PHAROS_INTERVAL=60
       - PHAROS_HOSTNAME=hsb8
+      - PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json
       - PHAROS_CURRENT_KERNEL_MODULES_DIR=/host/run/current-system/kernel-modules/lib/modules
       - NIXCFG_DIR=/nixcfg
       - GIT_CONFIG_COUNT=1
@@ -34,6 +35,7 @@ services:
     volumes:
       - /home/mba/Code/nixcfg:/nixcfg:ro
       - /etc/NIXOS:/etc/NIXOS:ro
+      - /etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro
       - /run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
