@@ -20,6 +20,13 @@ let
   sharedFishConfig = import ./uzumaki/fish/config.nix;
 in
 {
+  environment.etc."pharos/host-preferences.json".source = ./pharos-host-preferences.json;
+  environment.etc."pharos/deployed-revision".text =
+    if config.system.configurationRevision != null then
+      config.system.configurationRevision
+    else
+      "unavailable";
+
   # ════════════════════════════════════════════════════════════════════════════
   # IMPORTS - Shared modules
   # ════════════════════════════════════════════════════════════════════════════

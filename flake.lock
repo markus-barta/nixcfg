@@ -558,6 +558,27 @@
         "type": "github"
       }
     },
+    "janus": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1783796463,
+        "narHash": "sha256-5cAoTRxcGXVL6W4FxkGC7xDtIVSiCKD2SOy4C1bffmI=",
+        "owner": "markus-barta",
+        "repo": "janus",
+        "rev": "8323d37fc7a6aabec72f144747eff270553c8c75",
+        "type": "github"
+      },
+      "original": {
+        "owner": "markus-barta",
+        "ref": "rust-engine-v0.1.5",
+        "repo": "janus",
+        "type": "github"
+      }
+    },
     "kanboard-cli": {
       "inputs": {
         "nixpkgs": [
@@ -983,6 +1004,7 @@
         "home-manager": "home-manager_2",
         "hostdash": "hostdash",
         "inspr-modules": "inspr-modules",
+        "janus": "janus",
         "ncps": "ncps",
         "nixcfg": "nixcfg",
         "nixhostforge": [

@@ -72,6 +72,7 @@ in
     # gerhardOnly preset (Gerhard's RSA-3072 personal key).
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
+    ../../modules/pharos-guarded-deploy
   ];
 
   # ============================================================================
@@ -92,6 +93,12 @@ in
       message = "location must be either 'jhw22' (Markus home) or 'ww87' (Parents home). Current: ${location}";
     }
   ];
+
+  inspr.pharosGuardedDeploy = {
+    enable = true;
+    applySecretRef = "sec_1dea981613b3ba82213e";
+    rollbackSecretRef = "sec_cbd0bd3a2fa2d7fd4382";
+  };
 
   # Network configuration with location-specific settings
   networking = {
