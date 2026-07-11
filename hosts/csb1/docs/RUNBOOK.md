@@ -134,7 +134,6 @@ ssh mba@cs1.barta.cm -p 2222 "cd ~/docker && docker compose stop nixfleet"
 | csb1-docker-proxy-traefik-1 | Traefik proxy              |
 | csb1-restic-cron-hetzner-1  | Backup (cleanup on csb0!)  |
 | csb1-smtp-1                 | Mail relay                 |
-| csb1-whoami-1               | Test service               |
 | csb1-excalidraw-1           | Whiteboard (draw.barta.cm) |
 | ppm                         | PAIMOS PM (pm.barta.cm)    |
 | minio                       | S3 for ppm attachments     |

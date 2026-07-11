@@ -263,17 +263,6 @@ services:
       - traefik.http.middlewares.hostdash-csb0-ip-canonical.redirectregex.permanent=true
       - com.centurylinklabs.watchtower.enable=true
 
-  # https://github.com/containous/whoami
-  whoami:
-    image: containous/whoami
-    networks:
-      - traefik
-    labels:
-      - traefik.http.routers.whoami.rule=Host(`whoami0.barta.cm`)
-      - traefik.http.routers.whoami.tls.certresolver=default
-      - traefik.http.routers.whoami.tls=true
-      - traefik.http.routers.whoami.middlewares=cloudflarewarp@file
-
   # https://github.com/namshi/docker-smtp
   smtp:
     image: namshi/smtp

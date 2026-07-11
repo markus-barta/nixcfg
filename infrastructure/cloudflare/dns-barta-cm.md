@@ -27,8 +27,6 @@
 | `home`      | cs0.barta.cm           | csb0   | Home Assistant (likely) |
 | `mosquitto` | cs0.barta.cm           | csb0   | MQTT broker             |
 | `wedding24` | markus-barta.github.io | GitHub | Static site             |
-| `whoami0`   | cs0.barta.cm           | csb0   | Test service            |
-| `whoami1`   | cs1.barta.cm           | csb1   | Test service            |
 
 **Note**: `hdoc.barta.cm` (Hedgedoc) - **DECOMMISSIONED** (scheduled for removal during csb1 migration)
 
@@ -54,7 +52,6 @@ Services accessible via subdomains:
 - `home.barta.cm` - Home Assistant
 - `mosquitto.barta.cm` - MQTT broker
 - `traefik.barta.cm` - Reverse proxy dashboard
-- `whoami0.barta.cm` - Test service
 
 ### csb1 (152.53.64.166)
 
@@ -62,7 +59,6 @@ Services accessible via subdomains:
 
 - `docmost.barta.cm` - Documentation (Cloudflare proxied)
 - `paperless.barta.cm` - Document management (Cloudflare proxied)
-- `whoami1.barta.cm` - Test service
 
 ---
 
@@ -101,13 +97,6 @@ resource "cloudflare_record" "cs0" {
   proxied = false
 }
 
-resource "cloudflare_record" "whoami1" {
-  zone_id = var.cloudflare_zone_id
-  name    = "whoami1"
-  value   = "cs1.barta.cm"
-  type    = "CNAME"
-  proxied = false
-}
 ```
 
 **Benefits**:
@@ -155,13 +144,13 @@ resource "cloudflare_record" "whoami1" {
 
 **csb0 (Traefik)**:
 
-- Routes: bitwarden, home, mosquitto, whoami0
+- Routes: bitwarden, home, mosquitto
 - SSL termination for HTTP services
 - Dashboard at traefik.barta.cm
 
 **csb1 (Likely Traefik or Caddy)**:
 
-- Routes: grafana, influxdb, docmost, paperless, whoami1
+- Routes: grafana, influxdb, docmost, paperless
 - Cloudflare proxy for docmost/paperless
 - Direct connections for grafana/influxdb
 
