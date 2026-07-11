@@ -19,7 +19,7 @@
       "kind": "server"
     },
     "gpc0": {
-      "accent": "#9868d1",
+      "accent": "#9868d0",
       "alerts": {
         "suppress_backup": false,
         "suppress_down": false,
