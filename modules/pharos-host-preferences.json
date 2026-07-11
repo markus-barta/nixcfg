@@ -19,10 +19,10 @@
       "kind": "server"
     },
     "gpc0": {
-      "accent": "#9868d0",
+      "accent": "#821fb7",
       "alerts": {
-        "suppress_backup": false,
-        "suppress_down": false,
+        "suppress_backup": true,
+        "suppress_down": true,
         "suppress_nix_freshness": false
       },
       "kind": "workstation"
