@@ -613,6 +613,8 @@ services:
       - PHAROS_DB=/data/pharos.json
       - PHAROS_MANIFEST_PATHS=/manifests/hsb8.json
       - PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json
+      - PHAROS_NIXCFG_DISPATCH_ENABLED=1
+      - PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token
       - PHAROS_REQUIRE_BEACON_TOKEN=1
       - PHAROS_BEACON_TOKEN_MODE=janus
       - PHAROS_BEACON_TOKEN_HASH_DIR=/run/janus/env/pharos/beacon-token-hashes
@@ -632,6 +634,7 @@ services:
       - ./pharos/access-policy.json:/etc/pharos/access-policy.json:ro
       - ./pharos/manifests:/manifests:ro
       - /home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro
+      - /run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro
       - janus_pharos_production_out:/run/janus/env:ro
       - /run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro
     networks:
