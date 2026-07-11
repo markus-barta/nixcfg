@@ -95,7 +95,7 @@ send_report() {
     printf 'From: %s\n' "${MAIL_FROM:-$MAIL_TO}"
     printf 'Subject: %s\n\n' "${MAIL_SUBJECT:-Restic backup report}"
     printf '%s\n' "$result"
-  } | "$SSMTP_BIN" -v "$MAIL_TO"
+  } | "$SSMTP_BIN" "$MAIL_TO"
 }
 
 message_file="$(mktemp)" || exit 70
