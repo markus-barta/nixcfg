@@ -55,7 +55,7 @@ curl_json() {
 jq -n --arg host "$HOST" '{host:$host}' >"$claim_request"
 if ! claim_code=$(curl_json POST /agent/actions/claim "$claim_request" "$claim_response"); then
   printf 'pharos_action_agent=deferred reason=claim_unreachable\n' >&2
-  exit 1
+  exit 0
 fi
 
 case "$claim_code" in
@@ -70,7 +70,7 @@ case "$claim_code" in
 200) ;;
 *)
   printf 'pharos_action_agent=deferred reason=claim_rejected status=%s\n' "$claim_code" >&2
-  exit 1
+  exit 0
   ;;
 esac
 
@@ -164,7 +164,7 @@ done
 if [ "$accepted" != true ]; then
   printf 'pharos_action_agent=deferred phase=%s outcome=%s reason=result_not_accepted\n' \
     "$phase" "$outcome" >&2
-  exit 1
+  exit 0
 fi
 
 shred -u "$REQUEST_FILE" 2>/dev/null || true

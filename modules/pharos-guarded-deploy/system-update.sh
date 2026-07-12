@@ -86,10 +86,14 @@ on_error() {
   trap - ERR
   set +e
   if [ "$switch_attempted" -eq 1 ] && [ -n "$old_system" ] && [ -x "$old_system/bin/switch-to-configuration" ]; then
-    rollback='failed'
-    if "$old_system/bin/switch-to-configuration" switch >>"$detail_log" 2>&1 &&
-      [ "$(readlink -f /run/current-system)" = "$old_system" ]; then
-      rollback='succeeded'
+    if [ "$(readlink -f /run/current-system)" = "$old_system" ]; then
+      rollback='not_required'
+    else
+      rollback='failed'
+      if "$old_system/bin/switch-to-configuration" switch >>"$detail_log" 2>&1 &&
+        [ "$(readlink -f /run/current-system)" = "$old_system" ]; then
+        rollback='succeeded'
+      fi
     fi
   fi
   write_failure
