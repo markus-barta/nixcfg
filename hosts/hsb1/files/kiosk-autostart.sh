@@ -24,11 +24,26 @@
 
 ### --- SAFETY: CLEANUP OLD PROCESSES --------------------------------------
 
-# Kill any existing VLC instances to avoid duplicates when re-running script
-if pgrep -x vlc >/dev/null; then
+# Kill any existing VLC instances to avoid duplicates when re-running script.
+#
+# Match on the --telnet-password= flag (unique to this script's own vlc
+# invocation), not on process name: NixOS wraps vlc so its comm/argv0 shows
+# as ".vlc-wrapped", which `pgrep -x vlc` never matches — this cleanup was a
+# silent no-op, and a re-run left the old (audio-dead) instance running
+# while a second one failed to start (port 4212 already bound, GPU/X
+# contention). Matching on process name substring "vlc" (e.g. `pkill -f
+# vlc`) is unsafe here too: the mqtt-volume-control listener's own cmdline
+# contains "kiosk-vlc-volume" and would get killed as collateral damage.
+if pgrep -f -- '--telnet-password=' >/dev/null; then
   echo "[INFO] Killing old VLC process(es)..."
-  pkill -9 vlc
-  sleep 1
+  pkill -9 -f -- '--telnet-password='
+  # Wait for the port/GPU to actually free up rather than a flat sleep —
+  # starting a new vlc before the old one fully exits recreates the same
+  # duplicate-instance failure this cleanup exists to prevent.
+  for _ in $(seq 1 20); do
+    pgrep -f -- '--telnet-password=' >/dev/null || break
+    sleep 0.2
+  done
 fi
 
 ### --- DISPLAY / POWER MANAGEMENT -----------------------------------------
