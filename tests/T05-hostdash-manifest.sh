@@ -59,7 +59,7 @@ check_jq "Pharos host preferences are declared" '.host.preferences == {"accent":
 check_jq "all hsb8 service cards are declared" '.services | length == 5'
 check_jq "AdGuard URL variants are present" '.services[] | select(.name == "AdGuard Home") | .urls.lanHostname == "http://hsb8.lan:3000/" and .urls.lanIp == "http://192.168.1.100:3000/" and .urls.tailnet == "http://hsb8:3000/"'
 check_jq "Pharos owns runtime state" '.policy.declaredOnly == true and .policy.runtimeStateOwner == "pharos"'
-check_jq "privileged actions are explicitly classified" '.policy.privilegedActions.mode == "none" and .policy.privilegedActions.janusRequired == false'
+check_jq "privileged actions are explicitly Janus-guarded" '.policy.privilegedActions.mode == "janus" and .policy.privilegedActions.janusRequired == true'
 
 if [[ "$OUTPUT_PATH" == "hostdash-config/hsb8.json" ]]; then
   pass "effective output path is stable"
