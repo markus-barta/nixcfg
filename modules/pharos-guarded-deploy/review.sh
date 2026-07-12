@@ -10,6 +10,7 @@ readonly METADATA='/etc/janus/pharos-deploy/metadata.toml'
 
 action=${1:-}
 ticket=${2:-}
+stage='input'
 case "$action" in
 apply)
   profile='profile.@APPLY_SECRET_NAME@'
@@ -58,6 +59,14 @@ cleanup() {
   rmdir "$tmp" 2>/dev/null || true
 }
 trap cleanup EXIT
+on_error() {
+  local status=$?
+  trap - ERR
+  printf 'pharos_guarded_deploy=failed action=%s stage=%s value_returned=false\n' \
+    "$action" "$stage" >&2
+  exit "$status"
+}
+trap on_error ERR
 
 request_file="$STATE_DIR/requests/$(date -u +%Y%m%dT%H%M%SZ)-$action.json"
 jq -n \
@@ -69,9 +78,11 @@ jq -n \
   >"$request_file"
 chmod 0600 "$request_file"
 
+stage='preflight'
 "$JANUSD" run preflight --profile "$profile" -- >"$tmp/preflight.out" 2>"$tmp/preflight.err"
 grep -q 'reason_code=ok value_returned=false' "$tmp/preflight.out"
 
+stage='approval'
 "$JANUSD" approve issue \
   --secret-ref "$secret_ref" \
   --profile "$profile" \
@@ -83,6 +94,7 @@ grep -q 'reason_code=ok value_returned=false' "$tmp/preflight.out"
 approval_id=$(sed -n 's/.*approval_id=\([^ ]*\).*/\1/p' "$tmp/approval.out" | head -n1)
 [[ "$approval_id" = appr_* ]]
 
+stage='permit'
 "$JANUSD" approve permit \
   --approval "$approval_id" \
   --permit-ttl-seconds 240 \
@@ -91,14 +103,24 @@ approval_id=$(sed -n 's/.*approval_id=\([^ ]*\).*/\1/p' "$tmp/approval.out" | he
 permit_id=$(sed -n 's/.*permit_id=\([^ ]*\).*/\1/p' "$tmp/permit.out" | head -n1)
 [[ "$permit_id" = use_* ]]
 
+stage='managed_run'
 if ! "$JANUSD" run --profile "$profile" --permit "$permit_id" -- \
   >"$tmp/run.out" 2>"$tmp/run.err"; then
-  printf 'host=%s action=%s status=failed ticket=%s review=recorded value_returned=false\n' \
-    "$HOST" "$action" "$ticket" >&2
+  runner_stage='managed_command'
+  runner_line=$(grep -E \
+    '^pharos_system_update=failed phase=(review|apply|resume) stage=[a-z0-9_]+ rollback=(not_required|succeeded|failed) value_returned=false$' \
+    "$tmp/run.err" | tail -n1 || true)
+  if [[ "$runner_line" =~ stage=([a-z0-9_]+) ]]; then
+    runner_stage=${BASH_REMATCH[1]}
+  fi
+  printf 'pharos_guarded_deploy=failed action=%s stage=managed_run runner_stage=%s value_returned=false\n' \
+    "$action" "$runner_stage" >&2
   exit 1
 fi
+stage='validation'
 grep -q 'value_returned=false' "$tmp/run.out"
 grep -q 'reason_code=ok value_returned=false' "$tmp/run.err"
 cat "$tmp/run.out"
+stage='completed'
 printf 'host=%s action=%s status=completed ticket=%s review=recorded permit=consumed value_returned=false\n' \
   "$HOST" "$action" "$ticket"

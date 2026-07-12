@@ -24,9 +24,13 @@ digest() {
 
 apply_ref="sec_$(printf 'pharos-deploy\0PHAROS_APPLY_HSB8' | digest | cut -c1-20)"
 rollback_ref="sec_$(printf 'pharos-deploy\0PHAROS_ROLLBACK_HSB8' | digest | cut -c1-20)"
+update_ref="sec_$(printf 'pharos-deploy\0PHAROS_UPDATE_HSB8' | digest | cut -c1-20)"
 [ "$apply_ref" != "$rollback_ref" ]
+[ "$apply_ref" != "$update_ref" ]
+[ "$rollback_ref" != "$update_ref" ]
 grep -Fq "applySecretRef = \"$apply_ref\";" "$host_config"
 grep -Fq "rollbackSecretRef = \"$rollback_ref\";" "$host_config"
+grep -Fq "updateSecretRef = \"$update_ref\";" "$host_config"
 
 grep -Fq 'classification = "high_value"' "$module"
 grep -Fq 'allowed_args = []' "$module"
@@ -40,6 +44,8 @@ grep -Fq -- '--egress hook_guarded' "$review"
 grep -Fq -- '--revoke-approval' "$review"
 grep -Fq -- '--permit-ttl-seconds 240' "$review"
 grep -Fq 'profile.@UPDATE_SECRET_NAME@' "$review"
+grep -Fq "stage='approval'" "$review"
+grep -Fq 'pharos_guarded_deploy=failed action=%s stage=%s value_returned=false' "$review"
 grep -Fq 'pharos-host-action-agent' "$module"
 grep -Fq 'pharos-guarded-system-update' "$module"
 

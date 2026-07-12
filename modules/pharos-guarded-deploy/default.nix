@@ -210,9 +210,6 @@ in
     };
     updateSecretRef = lib.mkOption {
       type = lib.types.str;
-      default = "sec_${
-        builtins.substring 0 20 (builtins.hashString "sha256" "pharos-deploy:${updateSecretName}")
-      }";
       description = "Deterministic Janus secret reference for the guarded system-update capability.";
     };
     zfsPool = lib.mkOption {
