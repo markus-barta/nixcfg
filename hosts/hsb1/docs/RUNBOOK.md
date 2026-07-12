@@ -165,6 +165,79 @@ ssh mba@hsb1.lan "sudo systemctl restart hsb1-stack"
 
 ---
 
+## Media & Time Machine Storage
+
+Two external USB ZFS pools, both on hsb1, both imported best-effort at boot
+(`boot.zfs.extraPools` in `media-pool.nix` — an absent/asleep drive never
+blocks `nixos-rebuild switch`). Config lives in `hosts/hsb1/media-pool.nix`,
+`tm-pool.nix`, `tm-samba.nix`.
+
+### `media` pool (4TB drive) — Plex library
+
+Pool root mounted `/srv/media`, with one dataset per library:
+`Movies`, `Videos`, `Fotos`, `Audio`, `Games`, `E-Books`. Pool-wide:
+`compression=lz4`, `recordsize=1M` (large sequential media files),
+`atime=off`, `copies=1`.
+
+`copies=1` is deliberate. ZFS checksums still **detect** bit-rot; the second
+copy of the non-movie folders lives on the archived 2026-06 backup disk, and
+Movies are re-rippable. `copies=2` would only guard against localised rot on
+an otherwise-healthy disk — it is no defence against whole-disk failure, since
+both copies sit on the same drive. Detection + an offline copy beats it.
+This makes the monthly scrub load-bearing: it is what turns "ZFS has
+checksums" into an actual guarantee.
+
+Plex reads it read-only (`docker-compose.yml` plex service,
+`/srv/media:/media:ro`) — this replaced the previous Fritz!Box CIFS source
+(`/mnt/fritzbox-media`, still declared in `configuration.nix` but no longer
+mounted into Plex; safe to re-add as a second library path later if wanted).
+
+> ⚠️ Never repoint Plex at an **empty** `/srv/media`. It will scan, mark every
+> item missing, and — with "empty trash after every scan" — purge the library,
+> taking watch history, ratings and collections with it.
+
+```bash
+# Pool health
+ssh mba@192.168.1.101 "zpool status media"
+ssh mba@192.168.1.101 "zfs list media"
+
+# Trigger a Plex library rescan after adding files
+ssh mba@192.168.1.101 "docker exec plex curl -s 'http://localhost:32400/library/sections/all/refresh'"
+```
+
+### `tm` pool (6TB drive) — Time Machine target
+
+Two quota'd datasets, `tm/markus` and `tm/mailina`, `quota=2.5T` each (50:50
+split of ~5.45TiB usable — the remaining ~450GB is deliberate headroom for
+sanoid's daily snapshots, not unallocated waste). Quotas are **imperative**,
+not disko-declared — changing the numbers requires a live `zfs set
+quota=<new size> tm/<user>` to match whatever the nix comments say.
+
+Samba (`tm-samba.nix`) exposes each dataset as its own share
+(`tm-markus`, `tm-mailina`) via `vfs_fruit`, discoverable natively in each
+Mac's System Settings → Time Machine (Avahi mDNS, no manual `smb://` entry
+needed). Credentials: `hsb1-tm-smb-env` (see Secrets Inventory below).
+
+```bash
+# Pool + quota health
+ssh mba@192.168.1.101 "zpool status tm"
+ssh mba@192.168.1.101 "zfs list -o name,used,avail,quota,mountpoint tm/markus tm/mailina"
+
+# Snapshot retention (sanoid — daily, 14-day)
+ssh mba@192.168.1.101 "systemctl status sanoid.timer"
+ssh mba@192.168.1.101 "zfs list -t snapshot -r tm"
+
+# Confirm shares are visible
+ssh mba@192.168.1.101 "smbclient -L localhost -U markus"
+```
+
+**Setup was imperative, one-time, outside of disko** (both pools are
+external/removable drives, not the boot disk) — see the header comments in
+`media-pool.nix` / `tm-pool.nix` for the exact `zpool create` / `zfs create`
+/ `zfs set quota` commands used, if the pool ever needs rebuilding.
+
+---
+
 ## fritz-tripwire (Diagnostic Snapshot for Fritz Mesh)
 
 Captures TR-064 state of all 5 Fritz devices when one fails. Triggered by webhook from the existing Uptime Kuma on hsb0. Built to catch the ~weekly Fritz repeater hang we can't otherwise reproduce.
@@ -590,17 +663,18 @@ If hostname changes, HA MQTT will break. Always use `localhost`.
 
 All secrets now materialize from agenix at `/run/agenix/hsb1-*` on boot. `/etc/secrets` and `/home/mba/secrets` are EMPTY — all plaintext was shredded (NIX-158).
 
-| agenix path (`/run/agenix/…`) | Purpose                        | Service                      |
-| ----------------------------- | ------------------------------ | ---------------------------- |
-| `hsb1-smarthome-env`          | Main smart home credentials    | HA, Node-RED, health-pixoo   |
-| `hsb1-zigbee2mqtt-env`        | Z2M MQTT credentials           | zigbee2mqtt                  |
-| `hsb1-mqtt-client-env`        | MQTT broker/client credentials | mosquitto                    |
-| `hsb1-watchtower-env`         | Notification URLs              | watchtower                   |
-| `hsb1-fritz-tripwire-env`     | Fritz!Box credentials          | fritz-tripwire               |
-| `hsb1-tapo-c210-env`          | Camera/VLC credentials         | scrypted, kiosk babycam      |
-| `hsb1-funkeykid-api-env`      | funkeykid API                  | funkeykid                    |
-| `hsb1-opusweb-env`            | opusweb                        | opusweb                      |
-| `hsb1-pixdcon-env`            | Pixoo display control          | pixdcon (container disabled) |
+| agenix path (`/run/agenix/…`) | Purpose                                                     | Service                        |
+| ----------------------------- | ----------------------------------------------------------- | ------------------------------ |
+| `hsb1-smarthome-env`          | Main smart home credentials                                 | HA, Node-RED, health-pixoo     |
+| `hsb1-zigbee2mqtt-env`        | Z2M MQTT credentials                                        | zigbee2mqtt                    |
+| `hsb1-mqtt-client-env`        | MQTT broker/client credentials                              | mosquitto                      |
+| `hsb1-watchtower-env`         | Notification URLs                                           | watchtower                     |
+| `hsb1-fritz-tripwire-env`     | Fritz!Box credentials                                       | fritz-tripwire                 |
+| `hsb1-tapo-c210-env`          | Camera/VLC credentials                                      | scrypted, kiosk babycam        |
+| `hsb1-funkeykid-api-env`      | funkeykid API                                               | funkeykid                      |
+| `hsb1-opusweb-env`            | opusweb                                                     | opusweb                        |
+| `hsb1-pixdcon-env`            | Pixoo display control                                       | pixdcon (container disabled)   |
+| `hsb1-tm-smb-env`             | TM Samba passwords (2 lines: `markus <pw>`, `mailina <pw>`) | tm-samba.nix activation script |
 
 ---
 

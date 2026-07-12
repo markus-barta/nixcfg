@@ -136,6 +136,10 @@ in
   "hsb1-mqtt-client-env.age".publicKeys = markus ++ hsb1;
   "hsb1-tapo-c210-env.age".publicKeys = markus ++ hsb1;
 
+  # Time Machine Samba credentials (tm-markus/tm-mailina shares) — two lines,
+  # "markus <password>" and "mailina <password>". Edit: agenix -e secrets/hsb1-tm-smb-env.age
+  "hsb1-tm-smb-env.age".publicKeys = markus ++ hsb1;
+
   # NIX-230/235 — hsb8 watchtower env: WATCHTOWER_HTTP_API_TOKEN (must match
   # WATCHTOWER_TOKEN in fleetcom-agent's /opt/fleetcom-agent/.env) +
   # WATCHTOWER_NOTIFICATION_URL (telegram shoutrrr). Replaces the unmanaged

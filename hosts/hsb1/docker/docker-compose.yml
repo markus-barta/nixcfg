@@ -335,6 +335,10 @@ services:
       - VERSION=docker
     volumes:
       - /var/lib/docker/volumes/plex-config:/config
+      # NIX-295 step 7 — swap to /srv/media:/media:ro only AFTER the media has
+      # finished copying into the ZFS pool. Repointing Plex at an empty /srv/media
+      # makes it scan, mark every item missing, and (with "empty trash after scan")
+      # purge the library — taking watch history, ratings and collections with it.
       - /mnt/fritzbox-media:/media:ro
     restart: unless-stopped
     labels:
