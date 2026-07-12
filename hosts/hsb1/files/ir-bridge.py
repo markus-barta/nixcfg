@@ -67,7 +67,7 @@ try:
 except ImportError:  # pragma: no cover
     MQTT_AVAILABLE = False
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 CONFIG = {
     "sony_tv_ip": os.getenv("SONY_TV_IP", "192.168.1.137"),
@@ -86,6 +86,11 @@ CONFIG = {
     "repeat_rate_ms": int(os.getenv("REPEAT_RATE_MS", "120")),
     "retry_count": int(os.getenv("RETRY_COUNT", "3")),
     "retry_delay": float(os.getenv("RETRY_DELAY", "1.0")),
+    # Input-device reconnect backoff. The FLIRC can vanish at any time (USB
+    # replug, hub power-cycle, boot race where the hub enumerates after us);
+    # the bridge waits it out rather than dying or spinning on a dead handle.
+    "reopen_delay_min": float(os.getenv("REOPEN_DELAY_MIN", "1.0")),
+    "reopen_delay_max": float(os.getenv("REOPEN_DELAY_MAX", "30.0")),
 }
 
 # ── Button map ──────────────────────────────────────────────────────────────
@@ -169,6 +174,9 @@ class IRBridge:
         self.mqtt: Optional[Any] = None
         self.mqtt_connected = False
         self.input_device: Optional[Any] = None
+        # Availability tracks the INPUT DEVICE, not the broker: a bridge with a
+        # live MQTT session but no FLIRC is deaf, and HA must not see it as up.
+        self.input_ok = False
         self.running = False
         self.last_scancode: Optional[str] = None
         self.last_key_time: Dict[int, float] = {}
@@ -252,7 +260,10 @@ class IRBridge:
             return
         self.mqtt_connected = True
         self.log.info("MQTT connected")
-        client.publish(self.t_avail, "online", qos=1, retain=True)
+        # Reflect real input state on (re)connect — "online" only if we can
+        # actually hear the remote, otherwise HA shows a device that is deaf.
+        state = "online" if self.input_ok else "offline"
+        client.publish(self.t_avail, state, qos=1, retain=True)
         # Use the callback's client (on_connect can fire on the network thread
         # before `self.mqtt = client` is assigned in _setup_mqtt).
         self._publish_discovery(client)
@@ -386,17 +397,42 @@ class IRBridge:
             self._publish_press(name, code, self.last_scancode, ircc_sent)
 
     # ── input loop ───────────────────────────────────────────────────────
+    def _set_availability(self, state: str) -> None:
+        """Publish input-device health to HA. Never fatal."""
+        if not self.mqtt:
+            return
+        try:
+            self.mqtt.publish(self.t_avail, state, qos=1, retain=True)
+        except Exception:  # noqa: BLE001 - availability must never kill the bridge
+            pass
+
     def _open_input(self) -> bool:
         if not EVDEV_AVAILABLE:
             self.log.error("evdev not available")
             return False
         try:
             self.input_device = InputDevice(CONFIG["flirc_device"])
-            self.log.info("Opened input %s (%s)", CONFIG["flirc_device"], self.input_device.name)
-            return True
         except Exception as exc:  # noqa: BLE001
-            self.log.error("Cannot open %s: %s", CONFIG["flirc_device"], exc)
+            # Expected while the FLIRC is unplugged / its hub is still settling.
+            self.input_device = None
+            self.log.debug("Cannot open %s: %s", CONFIG["flirc_device"], exc)
             return False
+        self.log.info("Opened input %s (%s)", CONFIG["flirc_device"], self.input_device.name)
+        self.input_ok = True
+        self._set_availability("online")
+        return True
+
+    def _close_input(self) -> None:
+        """Drop the (possibly stale) handle so the next open re-resolves by-id."""
+        if self.input_device is not None:
+            try:
+                self.input_device.close()
+            except Exception:  # noqa: BLE001 - already gone is fine
+                pass
+        self.input_device = None
+        if self.input_ok:
+            self.input_ok = False
+            self._set_availability("offline")
 
     def _read_loop(self) -> None:
         for event in self.input_device.read_loop():
@@ -417,17 +453,39 @@ class IRBridge:
         signal.signal(signal.SIGTERM, self._signal)
         signal.signal(signal.SIGINT, self._signal)
         self._setup_mqtt()
-        if not self._open_input():
-            sys.exit(1)
         self.running = True
         self.log.info("Bridge ready")
+        # Supervise the input device for the whole lifetime of the process. The
+        # device is re-OPENED (not just re-read) after any loss: on USB replug
+        # udev rebuilds the by-id symlink to a NEW event node, so the old fd is
+        # dead forever and reusing it spins on ENODEV. Startup with no FLIRC is
+        # not fatal either — we wait for it, which covers a boot that races the
+        # USB hub's enumeration.
+        delay = CONFIG["reopen_delay_min"]
         while self.running:
+            if self.input_device is None:
+                if not self._open_input():
+                    if not self.running:
+                        break
+                    self.log.warning(
+                        "FLIRC %s unavailable — retrying in %.0fs",
+                        CONFIG["flirc_device"],
+                        delay,
+                    )
+                    time.sleep(delay)
+                    delay = min(delay * 2, CONFIG["reopen_delay_max"])
+                    continue
+                delay = CONFIG["reopen_delay_min"]  # reacquired → reset backoff
             try:
                 self._read_loop()
+            except OSError as exc:  # ENODEV etc. — device yanked mid-read
+                self.log.warning("FLIRC lost (%s) — will reopen", exc)
+                self._close_input()
             except Exception as exc:  # noqa: BLE001
                 self.log.error("Input loop error: %s", exc)
+                self._close_input()
                 if self.running:
-                    time.sleep(5)
+                    time.sleep(delay)
 
     def _signal(self, signum, frame) -> None:
         self.log.info("Signal %s — shutting down", signum)
