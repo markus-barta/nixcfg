@@ -1,0 +1,81 @@
+name: Pharos system update proposal
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_host:
+        description: Existing nixcfg host requesting the fleet update review
+        required: true
+        type: string
+      request_id:
+        description: Pharos request correlation id
+        required: true
+        type: string
+
+concurrency:
+  group: pharos-system-update-proposal
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    name: Validate and open review-only pull request
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      PHAROS_SOURCE_HOST: ${{ inputs.source_host }}
+      PHAROS_REQUEST_ID: ${{ inputs.request_id }}
+    steps:
+      - name: Checkout nixcfg
+        uses: actions/checkout@v4
+
+      - name: Validate workflow contract
+        run: tests/T14-pharos-system-update.sh
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Prepare and validate update proposal
+        id: prepare
+        run: |
+          scripts/prepare-pharos-system-update.sh \
+            "$PHAROS_SOURCE_HOST" \
+            "$PHAROS_REQUEST_ID"
+
+      - name: Create review-only pull request
+        id: create-pr
+        if: steps.prepare.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
+          add-paths: flake.lock
+          branch: automation/pharos-system-update
+          delete-branch: true
+          commit-message: "flake: propose reviewed system update"
+          title: "Pharos: review system input updates"
+          body: |
+            Pharos prepared this review-only nixcfg proposal.
+
+            Requested by host: `${{ inputs.source_host }}`
+            Changed inputs: `${{ steps.prepare.outputs.changed_inputs }}`
+            Validated NixOS hosts (${{ steps.prepare.outputs.validated_host_count }}): `${{ steps.prepare.outputs.validated_hosts }}`
+
+            Every active NixOS configuration evaluated successfully. This workflow does not merge, deploy, switch, or reboot any host. Deployment remains a separate, attended action after review.
+          labels: |
+            automated
+            dependencies
+
+      - name: Record safe outcome
+        run: |
+          if [[ "${{ steps.prepare.outputs.changed }}" == "true" ]]; then
+            echo "proposal=open_for_review" >>"$GITHUB_STEP_SUMMARY"
+            echo "changed_inputs=${{ steps.prepare.outputs.changed_inputs }}" >>"$GITHUB_STEP_SUMMARY"
+            echo "validated_hosts=${{ steps.prepare.outputs.validated_hosts }}" >>"$GITHUB_STEP_SUMMARY"
+          else
+            echo "proposal=not_required" >>"$GITHUB_STEP_SUMMARY"
+            echo "validated_hosts=${{ steps.prepare.outputs.validated_hosts }}" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          echo "deployment=not_performed" >>"$GITHUB_STEP_SUMMARY"
