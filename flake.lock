@@ -1031,6 +1031,10 @@
         "nixos-hardware": "nixos-hardware_2",
         "nixpkgs": "nixpkgs_6",
         "nixpkgs-stable": "nixpkgs-stable_2",
+        "nixpkgs-zfs": [
+          "nixcfg",
+          "nixpkgs-zfs"
+        ],
         "opus-stream": "opus-stream",
         "paimos": "paimos",
         "pia": "pia_2",
