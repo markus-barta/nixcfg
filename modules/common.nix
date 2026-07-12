@@ -1,5 +1,6 @@
 {
   config,
+  inputs,
   pkgs,
   lib,
   utils,
@@ -20,6 +21,8 @@ let
   sharedFishConfig = import ./uzumaki/fish/config.nix;
 in
 {
+  system.configurationRevision = inputs.self.rev or null;
+
   environment.etc."pharos/host-preferences.json".source = ./pharos-host-preferences.json;
   environment.etc."pharos/deployed-revision".text =
     if config.system.configurationRevision != null then

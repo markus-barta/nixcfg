@@ -12,7 +12,7 @@ chmod 0700 "$STATE_DIR" "$STATE_DIR/approvals" "$STATE_DIR/evidence" "$STATE_DIR
   "$STATE_DIR/requests" "$STATE_DIR/results" "$STATE_DIR/runs" \
   /var/lib/janus /var/lib/janus/secrets /var/lib/janus/secrets/pharos-deploy "$STORE_DIR"
 
-for name in @APPLY_SECRET_NAME@ @ROLLBACK_SECRET_NAME@; do
+for name in @APPLY_SECRET_NAME@ @ROLLBACK_SECRET_NAME@ @UPDATE_SECRET_NAME@; do
   target="$STORE_DIR/$name.age"
   if [ ! -s "$target" ]; then
     tmp=$(mktemp "$STATE_DIR/.capability.XXXXXX")

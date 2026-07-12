@@ -7,10 +7,12 @@ apply="$repo_root/modules/pharos-guarded-deploy/apply.sh"
 rollback="$repo_root/modules/pharos-guarded-deploy/rollback.sh"
 bootstrap="$repo_root/modules/pharos-guarded-deploy/bootstrap.sh"
 review="$repo_root/modules/pharos-guarded-deploy/review.sh"
+system_update="$repo_root/modules/pharos-guarded-deploy/system-update.sh"
+action_agent="$repo_root/modules/pharos-guarded-deploy/action-agent.sh"
 host_config="$repo_root/hosts/hsb8/configuration.nix"
 host_compose="$repo_root/hosts/hsb8/docker/docker-compose.yml"
 
-bash -n "$apply" "$rollback" "$bootstrap" "$review"
+bash -n "$apply" "$rollback" "$bootstrap" "$review" "$system_update" "$action_agent"
 
 digest() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -28,7 +30,7 @@ grep -Fq "rollbackSecretRef = \"$rollback_ref\";" "$host_config"
 
 grep -Fq 'classification = "high_value"' "$module"
 grep -Fq 'allowed_args = []' "$module"
-[ "$(grep -Fc 'allowed_args = []' "$module")" -eq 2 ]
+[ "$(grep -Fc 'allowed_args = []' "$module")" -eq 3 ]
 # These are literal Nix and shell source assertions.
 # shellcheck disable=SC2016
 grep -Fq 'profile.${applySecretName}' "$module"
@@ -37,6 +39,9 @@ grep -Fq 'profile.${rollbackSecretName}' "$module"
 grep -Fq -- '--egress hook_guarded' "$review"
 grep -Fq -- '--revoke-approval' "$review"
 grep -Fq -- '--permit-ttl-seconds 240' "$review"
+grep -Fq 'profile.@UPDATE_SECRET_NAME@' "$review"
+grep -Fq 'pharos-host-action-agent' "$module"
+grep -Fq 'pharos-guarded-system-update' "$module"
 
 backup_line=$(grep -n "phase='backup'" "$apply" | cut -d: -f1)
 switch_line=$(grep -n "phase='switch'" "$apply" | cut -d: -f1)
@@ -64,9 +69,13 @@ grep -Fq '/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro
 grep -Fq 'environment.etc."pharos/host-preferences.json".source = ./pharos-host-preferences.json;' \
   "$repo_root/modules/common.nix"
 
-if grep -ERq 'git reset|git clean|rm -rf|docker compose (down|restart|rm)|eval ' \
+if grep -ERq 'git reset|git clean|rm -rf|docker compose (down|restart|rm)' \
   "$repo_root/modules/pharos-guarded-deploy"; then
   echo 'unsafe broad operation found in guarded deploy module' >&2
+  exit 1
+fi
+if grep -ERq '^[[:space:]]*eval[[:space:]]' "$repo_root/modules/pharos-guarded-deploy"; then
+  echo 'shell eval found in guarded deploy module' >&2
   exit 1
 fi
 

@@ -19,8 +19,12 @@ rollback)
   profile='profile.@ROLLBACK_SECRET_NAME@'
   secret_ref='@ROLLBACK_SECRET_REF@'
   ;;
+update)
+  profile='profile.@UPDATE_SECRET_NAME@'
+  secret_ref='@UPDATE_SECRET_REF@'
+  ;;
 *)
-  printf 'usage: sudo pharos-guarded-deploy apply|rollback TICKET\n' >&2
+  printf 'usage: sudo pharos-guarded-deploy apply|rollback|update TICKET\n' >&2
   exit 2
   ;;
 esac

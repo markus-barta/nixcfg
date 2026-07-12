@@ -789,8 +789,8 @@ in
       }
     ];
     privilegedActions = {
-      mode = "none";
-      janusRequired = false;
+      mode = "janus";
+      janusRequired = true;
     };
   };
 

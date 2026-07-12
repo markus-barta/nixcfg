@@ -13,7 +13,7 @@ jq -e '
 compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 hsb8_compose="$repo_root/hosts/hsb8/docker/docker-compose.yml"
-[[ "$(grep -Fc 'image: ghcr.io/markus-barta/pharos/pharosd:0.1.23' "$compose")" == 2 ]]
+[[ "$(grep -Fc 'image: ghcr.io/markus-barta/pharos/pharosd:0.1.27' "$compose")" == 2 ]]
 [[ "$(grep -Fc 'PHAROS_CURRENT_KERNEL_MODULES_DIR=/host/run/current-system/kernel-modules/lib/modules' "$compose")" == 1 ]]
 [[ "$(grep -Fc '/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro' "$compose")" == 1 ]]
 [[ "$(grep -Fc 'PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json' "$compose")" == 1 ]]
@@ -27,6 +27,7 @@ fi
 grep -Fq 'age.secrets.csb1-pharos-nixcfg-dispatch-token' "$host_config"
 grep -Fq 'file = ../../secrets/csb1-pharos-nixcfg-dispatch-token.age;' "$host_config"
 [[ "$(grep -Fc 'PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json' "$hsb8_compose")" == 1 ]]
+[[ "$(grep -Fc 'image: ghcr.io/markus-barta/pharos/pharosd:0.1.27' "$hsb8_compose")" == 1 ]]
 [[ "$(grep -Fc '/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro' "$hsb8_compose")" == 1 ]]
 grep -Fq 'environment.etc."pharos/host-preferences.json".source = ./pharos-host-preferences.json;' \
   "$repo_root/modules/common.nix"

@@ -71,8 +71,8 @@
   "policy": {
     "declaredOnly": true,
     "privilegedActions": {
-      "janusRequired": false,
-      "mode": "none"
+      "janusRequired": true,
+      "mode": "janus"
     },
     "runtimeStateOwner": "pharos"
   },
