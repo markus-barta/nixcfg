@@ -26,6 +26,14 @@ grep -Fq -- '--config "$auth_config"' "$agent_source"
 grep -Fq 'system.configurationRevision = inputs.self.rev or null;' "$common"
 grep -Fq 'mode = "janus";' "$host_config"
 grep -Fq 'janusRequired = true;' "$host_config"
+grep -Fq 'hsb8DockerCompose = pkgs.writeText' "$host_config"
+grep -Fq 'restartTriggers = [ hsb8DockerCompose ];' "$host_config"
+# shellcheck disable=SC2016
+grep -Fq '${hsb8DockerCompose} up -d' "$host_config"
+if grep -Fq '/home/mba/Code/nixcfg/hosts/hsb8/docker/docker-compose.yml up -d' "$host_config"; then
+  echo 'hsb8 stack still reads compose from a mutable checkout' >&2
+  exit 1
+fi
 
 if grep -Eq 'curl .*PHAROS_TOKEN|Authorization: Bearer.*--header|PHAROS_TOKEN=.*curl' "$agent_source"; then
   echo 'beacon token can reach curl arguments' >&2
@@ -122,6 +130,10 @@ done
 grep -Fq "$FAKE_TOKEN" "$config"
 printf '%s\n' "$args" >>"$FAKE_ARG_LOG"
 
+if [ "${FAKE_CURL_UNREACHABLE:-0}" = 1 ]; then
+  exit 28
+fi
+
 case "$url" in
 */agent/actions/claim)
   cat >"$output" <<'JSON'
@@ -203,6 +215,25 @@ jq -e '
 [ ! -e "$leak_log" ]
 if grep -Fq "$token" "$arg_log" || grep -Fq "$token" <<<"$output" || grep -Fq "$token" "$post_body"; then
   echo 'beacon token escaped the private curl config' >&2
+  exit 1
+fi
+
+deferred_output=$(
+  PATH="$fake_bin:$PATH" \
+    PHAROS_TOKEN="$token" \
+    FAKE_TOKEN="$token" \
+    FAKE_ARG_LOG="$arg_log" \
+    FAKE_LEAK_LOG="$leak_log" \
+    FAKE_POST_BODY="$post_body" \
+    FAKE_GUARD_LOG="$guard_log" \
+    FAKE_STATE_DIR="$state_dir" \
+    FAKE_CURL_UNREACHABLE=1 \
+    "$agent" 2>&1
+)
+grep -Fq 'pharos_action_agent=deferred reason=claim_unreachable' <<<"$deferred_output"
+[ ! -e "$leak_log" ]
+if grep -Fq "$token" <<<"$deferred_output"; then
+  echo 'beacon token escaped the deferred path' >&2
   exit 1
 fi
 

@@ -13,6 +13,9 @@ let
     cp -R ${hostdashBaseHsb8}/share/hostdash-hsb8/. "$out/share/hostdash-hsb8/"
     cp ${config.services.hostdash.manifest.source} "$out/share/hostdash-hsb8/manifest.json"
   '';
+  hsb8DockerCompose = pkgs.writeText "hsb8-docker-compose.yml" (
+    builtins.readFile ./docker/docker-compose.yml
+  );
 
   # ============================================================================
   # DNS ALLOWLIST - Domains that bypass ad-blocking
@@ -674,13 +677,13 @@ in
     wants = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
     restartTriggers = [
-      (builtins.readFile ./docker/docker-compose.yml)
+      hsb8DockerCompose
       hostdashHsb8
     ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb8/docker/docker-compose.yml up -d --force-recreate --no-deps hsb8-home";
+      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f ${hsb8DockerCompose} up -d --force-recreate --no-deps hsb8-home";
       TimeoutStartSec = "180";
     };
   };
@@ -808,11 +811,11 @@ in
     wants = [ "network-online.target" ];
     wantedBy = [ "multi-user.target" ];
     unitConfig.ConditionPathExists = "/srv/hsb8/.cutover-done";
-    restartTriggers = [ (builtins.readFile ./docker/docker-compose.yml) ];
+    restartTriggers = [ hsb8DockerCompose ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb8/docker/docker-compose.yml up -d";
+      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f ${hsb8DockerCompose} up -d";
       TimeoutStartSec = "600";
     };
   };
