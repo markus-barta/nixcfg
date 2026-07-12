@@ -28,7 +28,7 @@ jobs:
       PHAROS_REQUEST_ID: ${{ inputs.request_id }}
     steps:
       - name: Checkout nixcfg
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Validate workflow contract
         run: tests/T14-pharos-system-update.sh
