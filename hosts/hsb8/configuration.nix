@@ -101,6 +101,7 @@ in
     enable = true;
     applySecretRef = "sec_1dea981613b3ba82213e";
     rollbackSecretRef = "sec_cbd0bd3a2fa2d7fd4382";
+    updateSecretRef = "sec_5486faf22bc4e9086253";
   };
 
   # Network configuration with location-specific settings

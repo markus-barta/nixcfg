@@ -106,6 +106,14 @@ if "$GUARDED_DEPLOY" update "$ticket" >"$run_dir/runner.out" 2>"$run_dir/runner.
 else
   runner_status=$?
 fi
+if [ "$runner_status" -ne 0 ]; then
+  safe_runner_diagnostic=$(grep -E \
+    '^pharos_guarded_deploy=failed action=update stage=(input|preflight|approval|permit|managed_run|validation)( runner_stage=[a-z0-9_]+)? value_returned=false$' \
+    "$run_dir/runner.err" | tail -n1 || true)
+  if [ -n "$safe_runner_diagnostic" ]; then
+    printf '%s\n' "$safe_runner_diagnostic" >&2
+  fi
+fi
 
 if ! jq -e --arg host "$HOST" --arg phase "$phase" '
   .schema == "inspr.pharos.host-action-agent-result.v1"

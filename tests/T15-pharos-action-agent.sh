@@ -157,6 +157,10 @@ set -euo pipefail
 [ "$1" = update ]
 [ "$2" = PHAROS-126 ]
 [ -z "${PHAROS_TOKEN:-}" ] || printf '%s\n' token-env-leak >"$FAKE_LEAK_LOG"
+if [ "${FAKE_GUARD_FAIL:-0}" = 1 ]; then
+  printf 'pharos_guarded_deploy=failed action=update stage=approval value_returned=false\n' >&2
+  exit 1
+fi
 printf '%s %s\n' "$1" "$2" >"$FAKE_GUARD_LOG"
 request="$FAKE_STATE_DIR/active-agent-request.json"
 action_id=$(jq -r '.id' "$request")
@@ -234,6 +238,42 @@ grep -Fq 'pharos_action_agent=deferred reason=claim_unreachable' <<<"$deferred_o
 [ ! -e "$leak_log" ]
 if grep -Fq "$token" <<<"$deferred_output"; then
   echo 'beacon token escaped the deferred path' >&2
+  exit 1
+fi
+
+failure_state_dir="$fixture_root/failure-state"
+failure_post_body="$fixture_root/failure-post-body.json"
+failure_agent="$fixture_root/pharos-host-action-agent-failure"
+mkdir -p "$failure_state_dir"
+sed \
+  -e 's|@HOST@|hsb8|g' \
+  -e 's|@PHAROS_URL@|http://100.64.0.4:8088|g' \
+  -e "s|@GUARDED_DEPLOY@|$fake_guard|g" \
+  -e "s|@STATE_DIR@|$failure_state_dir|g" \
+  "$agent_source" >"$failure_agent"
+chmod +x "$failure_agent"
+failure_output=$(
+  PATH="$fake_bin:$PATH" \
+    PHAROS_TOKEN="$token" \
+    FAKE_TOKEN="$token" \
+    FAKE_ARG_LOG="$arg_log" \
+    FAKE_LEAK_LOG="$leak_log" \
+    FAKE_POST_BODY="$failure_post_body" \
+    FAKE_GUARD_LOG="$guard_log" \
+    FAKE_STATE_DIR="$failure_state_dir" \
+    FAKE_GUARD_FAIL=1 \
+    "$failure_agent" 2>&1
+)
+grep -Fq \
+  'pharos_guarded_deploy=failed action=update stage=approval value_returned=false' \
+  <<<"$failure_output"
+grep -Fq 'pharos_action_agent=reported phase=review outcome=failed runner_ok=false' \
+  <<<"$failure_output"
+jq -e '.phase == "review" and .outcome == "failed" and .plan == null and .result == null' \
+  "$failure_post_body" >/dev/null
+[ ! -e "$leak_log" ]
+if grep -Fq "$token" <<<"$failure_output" || grep -Fq "$token" "$failure_post_body"; then
+  echo 'beacon token escaped the guarded failure path' >&2
   exit 1
 fi
 
