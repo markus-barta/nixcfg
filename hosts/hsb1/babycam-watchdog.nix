@@ -130,8 +130,19 @@ let
       # Each argument is one telnet command. The password is piped in from a
       # subshell via printf — a bash BUILTIN, so it never appears in any
       # process's argv (/proc/<pid>/cmdline) and never reaches the journal.
-      # `quit` is appended so VLC closes the connection itself and nc exits at
-      # once, whichever netcat flavour is on PATH.
+      #
+      # DO NOT APPEND `quit`, however tempting it looks.
+      #
+      # VLC reads the whole burst at once, QUEUES the output of `status`/`stats`,
+      # and then executes `quit` — which closes the connection before that output
+      # is ever flushed. You get the login banner, "Bye-bye!", and nothing in
+      # between. The watchdog read that silence as VLC_UNRESPONSIVE and restarted
+      # a perfectly healthy VLC, whose replacement it then also declared dead.
+      # It cost a deploy and an hour to find, because every interactive test
+      # passed: they were all typed WITHOUT a trailing `quit`.
+      #
+      # Instead: send only the queries, and let `nc -q 2` linger 2s after EOF so
+      # VLC's reply actually arrives. `timeout` remains as a hard backstop.
       vlc_q() {
         local cmds="" c
         for c in "$@"; do
@@ -142,8 +153,8 @@ let
           # shellcheck source=/dev/null  # agenix-materialized, absent at lint time
           . /run/agenix/hsb1-tapo-c210-env
           set +a
-          printf '%s\n%squit\n' "$TAPO_C210_PASSWORD" "$cmds" \
-            | timeout 8 nc localhost 4212 2>/dev/null
+          printf '%s\n%s' "$TAPO_C210_PASSWORD" "$cmds" \
+            | timeout 10 nc -q 2 localhost 4212 2>/dev/null
         )
       }
 
