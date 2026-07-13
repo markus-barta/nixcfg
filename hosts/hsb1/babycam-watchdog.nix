@@ -193,10 +193,28 @@ let
           SINK_STATE="absent"
         fi
 
+        # Did the telnet interface actually TALK to us? This must be judged on
+        # the login banner, not on whether `status` produced output.
+        #
+        # A VLC that is alive and answering but has NO INPUT — because it is
+        # still opening the RTSP stream, or failed to — replies to `status`,
+        # `stats` and `is_playing` with complete SILENCE. Reading that emptiness
+        # as "telnet is dead" is wrong, and it is not a harmless mistake: it
+        # made the watchdog restart a VLC that merely needed a few more seconds,
+        # whereupon the fresh VLC had no input either, and it restarted that
+        # one too. That is a self-perpetuating restart loop, and it is a
+        # LOUDER failure than the bug being fixed.
+        TELNET_OK=false
+        if grep -q 'Welcome' <<<"$FIRST"; then
+          TELNET_OK=true
+        fi
+
         # Order matters: a dead process cannot have a stale decoder, and a
         # frozen decoder makes the volume question moot.
-        if [ -z "$VLC_STATE" ]; then
-          HEALTH=VLC_UNRESPONSIVE            # process up, telnet not answering
+        if [ "$TELNET_OK" != true ]; then
+          HEALTH=VLC_UNRESPONSIVE            # process up, telnet genuinely not answering
+        elif [ -z "$VLC_STATE" ]; then
+          HEALTH=VIDEO_STALE                 # answering, but holding no input at all
         elif [ "$VLC_STATE" != "playing" ]; then
           HEALTH=VIDEO_STALE
         elif [ -z "$VDEC1" ] || [ "$VDEC1" = "$VDEC2" ]; then
@@ -266,6 +284,24 @@ let
 
         if [ $((NOW - LAST_HEAL)) -ge "$BACKOFF" ]; then
           log "UNHEALTHY: $HEALTH (desired=$DESIRED actual=''${ACTUAL:-?}) — attempting self-heal"
+
+          # Record the ATTEMPT *before* making it — never on the success path.
+          #
+          # These three lines used to sit after the heal, and that was a real
+          # bug: when the heal hung and systemd killed the unit at its start
+          # timeout, the back-off was never written, so the next tick saw
+          # BACKOFF=0 and healed again. VLC was restarted every two minutes,
+          # for as long as it took to notice (2026-07-13).
+          #
+          # A heal that dies must still cost its back-off, or "back-off" only
+          # protects against the failures that were never dangerous.
+          HEALED=true
+          echo "$NOW" > ${stateDir}/last-heal-epoch
+          NEXT=$((BACKOFF * 2))
+          if [ "$NEXT" -lt 60 ]; then NEXT=60; fi
+          if [ "$NEXT" -gt 1800 ]; then NEXT=1800; fi
+          echo "$NEXT" > ${stateDir}/heal-backoff
+
           case "$HEALTH" in
             VOLUME_DRIFT)
               # Cheap fix: the pipeline is fine, only the number drifted. Do NOT
@@ -274,15 +310,9 @@ let
               vlc_q "volume $DESIRED" >/dev/null 2>&1 || true
               ;;
             *)
-              # Everything else needs the pipeline rebuilt. The launcher now
-              # genuinely kills the old VLC (commit 945a7be1) instead of
-              # silently no-op'ing and leaving a second, broken instance behind.
-              #
-              # Its output is LOGGED, not discarded. A heal that fails silently
-              # is the very disease this ticket exists to cure — on the first
-              # deploy the launcher failed here and `>/dev/null 2>&1 || true`
-              # hid it completely, leaving "healed=true" in the journal next to
-              # a VLC whose PID had plainly never changed.
+              # Everything else needs the pipeline rebuilt by re-running the
+              # launcher, which genuinely kills the old VLC (commit 945a7be1)
+              # rather than silently no-op'ing as it once did.
               #
               # Three non-obvious things are load-bearing here:
               #
@@ -290,39 +320,54 @@ let
               #    `#!/bin/bash` and NIXOS HAS NO /bin/bash. Openbox runs the
               #    autostart through a shell at session start, so the bogus
               #    shebang never mattered there — but exec'ing it directly dies
-              #    instantly with ENOENT. This was the real first-deploy failure.
+              #    instantly with ENOENT, which is how the first deploy's heal
+              #    managed to do precisely nothing while logging healed=true.
               #
               # 2. systemd-run --user --scope. VLC must NOT be spawned inside
-              #    this oneshot's cgroup: systemd tears that cgroup down when
-              #    the unit finishes, so it would kill the very VLC it just
-              #    started. A transient scope under the kiosk's own user manager
-              #    outlives us — that is where the X session's processes belong.
+              #    this oneshot's cgroup: systemd tears that cgroup down when the
+              #    unit finishes, so it would kill the very VLC it just started.
+              #    A transient scope under the kiosk's own user manager outlives
+              #    us — that is where the X session's processes belong.
               #
-              # 3. An explicit PATH. The launcher calls `vlc`, `xset`, `pgrep`
-              #    and `pkill` bare, expecting a login shell's PATH. A systemd
-              #    service has no such thing.
+              # 3. NO $(command substitution), and stdio to /dev/null. Capturing
+              #    the launcher's output DEADLOCKS: the backgrounded VLC inherits
+              #    the write end of the substitution's pipe, so it never reaches
+              #    EOF and `$(...)` blocks forever — the unit then sat until its
+              #    start timeout and was killed mid-heal.
               heal_rc=0
-              heal_out="$(systemd-run --user --scope --collect --quiet \
+              systemd-run --user --scope --collect --quiet \
                 --setenv=DISPLAY=:0 \
                 --setenv=PATH=/run/current-system/sw/bin \
-                ${bashBin} ${launcher} 2>&1)" || heal_rc=$?
-              if [ "$heal_rc" -eq 0 ]; then
-                log "launcher ok: $(echo "$heal_out" | tr '\n' ' ')"
-              else
-                log "ERROR: launcher FAILED (exit $heal_rc): $(echo "$heal_out" | tr '\n' ' ')"
+                ${bashBin} ${launcher} </dev/null >/dev/null 2>&1 || heal_rc=$?
+              if [ "$heal_rc" -ne 0 ]; then
+                log "ERROR: launcher exited $heal_rc"
               fi
-              sleep 8
-              # A FRESH VLC COMES UP AT VOLUME 0. Without this line the "fix"
-              # would merely convert one silent failure into another.
+
+              # A fresh VLC needs time to negotiate RTSP and pull its first
+              # frames; until then it answers telnet but holds NO input. Poll for
+              # it rather than guessing a sleep — judging too early is what
+              # turned a restart into a restart LOOP.
+              for _ in $(seq 1 12); do
+                sleep 2
+                if [ -n "$(vlc_q status | sed -n 's/.*( state \([a-z]*\) ).*/\1/p')" ]; then
+                  break
+                fi
+              done
+
+              # A FRESH VLC COMES UP AT VOLUME 0. Without this the "fix" would
+              # merely convert one silent failure into another.
               vlc_q "volume $DESIRED" >/dev/null 2>&1 || true
+
+              # Verify by OBSERVATION and say plainly whether it worked. A heal
+              # that reports a success it cannot demonstrate is exactly how this
+              # class of bug survives for months.
+              if [ -n "$(vlc_q status | sed -n 's/.*( state \([a-z]*\) ).*/\1/p')" ]; then
+                log "heal: VLC is back, playing, volume re-applied ($DESIRED)"
+              else
+                log "ERROR: heal did NOT restore playback — VLC has no input"
+              fi
               ;;
           esac
-          HEALED=true
-          echo "$NOW" > ${stateDir}/last-heal-epoch
-          NEXT=$((BACKOFF * 2))
-          if [ "$NEXT" -lt 60 ]; then NEXT=60; fi
-          if [ "$NEXT" -gt 1800 ]; then NEXT=1800; fi
-          echo "$NEXT" > ${stateDir}/heal-backoff
         else
           log "UNHEALTHY: $HEALTH — in back-off (''${BACKOFF}s), not healing this cycle"
         fi
@@ -395,9 +440,10 @@ in
       ExecStart = lib.getExe watchdog;
       User = "kiosk";
       # Bounded so a hung telnet or a wedged launcher can never leave the unit
-      # running into the next tick. Worst realistic case is ~30s (two 8s telnet
-      # timeouts + a 4s sample gap + an 8s post-heal settle).
-      TimeoutStartSec = "120s";
+      # running indefinitely. Worst realistic case is ~65s: the probe (two 8s
+      # telnet timeouts + a 4s sample gap) plus a heal (up to 24s polling for
+      # the stream to come up, then re-applying volume and verifying).
+      TimeoutStartSec = "180s";
       # Shared with mqtt-volume-control, which records the user's intent here.
       StateDirectory = "babycam-watchdog";
       StateDirectoryMode = "0750";
