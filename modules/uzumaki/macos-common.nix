@@ -9,6 +9,8 @@
 #   - mkBrewfile { ... }           Renders ~/.config/homebrew/Brewfile from
 #                                   commonCasks/Taps + per-host extras (NIX-107)
 #   - commonPackages               Default macOS Nix packages (CLI tools)
+#   - darwinDefaults               `targets.darwin.defaults` — macOS `defaults`
+#                                  written declaratively by Home Manager
 #   - nanoConfig                   ~/.nanorc text
 #   - fontActivation               Hack Nerd Font installer (HM activation)
 #   - appLinkActivation            Empty since WezTerm purge 2026-05-05
@@ -639,4 +641,29 @@ in
 
     echo "✅ macOS GUI applications aliased"
   '';
+
+  # macOS `defaults`, written declaratively by Home Manager
+  # (consume in a host's home.nix: `targets.darwin.defaults = macosCommon.darwinDefaults;`)
+  #
+  # DSDontWrite*Stores stops Finder scattering `.DS_Store` turds over network
+  # shares and USB drives. Motivated by hsb1's /srv/media SMB share (2026-07-13):
+  # Finder relics had to be swept off the ZFS media pool three separate times in
+  # one day, and one of them — a stray `._Joker.mkv` AppleDouble sidecar — was
+  # picked up by Plex's scanner as if it were a film.
+  #
+  # This is only HALF the fix, and only the client half:
+  #   - `DSDontWriteNetworkStores` suppresses `.DS_Store` on network volumes.
+  #   - It does NOT suppress `._*` AppleDouble sidecars (those carry xattrs /
+  #     resource forks and are emitted whenever macOS copies a file with
+  #     metadata onto a filesystem that can't store it natively).
+  # The server half — a Samba `veto files` rule that refuses BOTH patterns
+  # outright — lives in nixcfg's hosts/hsb1/media-samba.nix. Defence in depth:
+  # the veto catches every client (including non-Nix Macs and guests), this
+  # stops our own Macs from even trying.
+  darwinDefaults = {
+    "com.apple.desktopservices" = {
+      DSDontWriteNetworkStores = true;
+      DSDontWriteUSBStores = true;
+    };
+  };
 }

@@ -188,6 +188,10 @@ in
   # NIX-103: warn if macOS DirectoryService login shell doesn't match HM's fish.
   home.activation.checkLoginShell = macosCommon.loginShellCheckActivation "${config.home.homeDirectory}/.nix-profile/bin/fish";
 
+  # macOS `defaults` (SSOT: macos-common.nix). Stops Finder writing .DS_Store to
+  # network shares + USB drives — see the comment there for why.
+  targets.darwin.defaults = macosCommon.darwinDefaults;
+
   # ============================================================================
   # Brewfile — declarative cask manifest (apply with `just bundle`)
   # ============================================================================
