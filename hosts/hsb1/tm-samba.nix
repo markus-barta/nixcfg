@@ -97,6 +97,6 @@
         printf '%s\n%s\n' "$smbpass" "$smbpass" | ${pkgs.samba}/bin/smbpasswd -s -a "$smbuser" || true
       done < ${config.age.secrets.hsb1-tm-smb-env.path}
     '';
-    deps = [ "agenixDecrypt" ];
+    deps = [ "agenix" ];
   };
 }
