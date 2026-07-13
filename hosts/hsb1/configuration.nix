@@ -16,10 +16,8 @@ in
     ./disk-config.zfs.nix
     ./media-pool.nix # external 4TB USB — Plex media ZFS pool
     ./media-samba.nix # SMB share for /srv/media (Finder access) — independent of tm-*.nix
-    # NIX-295 step 6/7 — enable together once the 6TB is wiped, moved to hsb1 and
-    # `zpool create tm` has run. Enabling earlier leaves dead units (no tm pool).
-    # ./tm-pool.nix # external 6TB USB — Time Machine ZFS pool (markus/mailina quotas + sanoid)
-    # ./tm-samba.nix # Samba + vfs_fruit + Avahi for the tm pool's two shares
+    ./tm-pool.nix # external 6TB USB — Time Machine ZFS pool (markus/mailina quotas + sanoid)
+    ./tm-samba.nix # Samba + vfs_fruit + Avahi for the tm pool's two shares
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/funkeykid.nix
