@@ -15,9 +15,9 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ./media-pool.nix # external 4TB USB — Plex media ZFS pool
+    ./media-samba.nix # SMB share for /srv/media (Finder access) — independent of tm-*.nix
     # NIX-295 step 6/7 — enable together once the 6TB is wiped, moved to hsb1 and
-    # `zpool create tm` has run, and secrets/hsb1-tm-smb-env.age exists. Enabling
-    # them earlier fails eval (missing .age) and leaves dead units (no tm pool).
+    # `zpool create tm` has run. Enabling earlier leaves dead units (no tm pool).
     # ./tm-pool.nix # external 6TB USB — Time Machine ZFS pool (markus/mailina quotas + sanoid)
     # ./tm-samba.nix # Samba + vfs_fruit + Avahi for the tm pool's two shares
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
@@ -616,15 +616,13 @@ in
     owner = "root";
   };
 
-  # Time Machine Samba credentials (tm-markus/tm-mailina) — see tm-samba.nix.
-  # NIX-295 step 6/7 — uncomment together with the ./tm-*.nix imports above, once
-  # `agenix -e secrets/hsb1-tm-smb-env.age` has been run. The path literal below
-  # fails eval while the .age file does not exist.
-  # age.secrets.hsb1-tm-smb-env = {
-  #   file = ../../secrets/hsb1-tm-smb-env.age;
-  #   mode = "400";
-  #   owner = "root";
-  # };
+  # Samba credentials — used by media-samba.nix now (markus's line), and by
+  # tm-samba.nix (markus + mailina) once that's enabled in NIX-295 step 6/7.
+  age.secrets.hsb1-tm-smb-env = {
+    file = ../../secrets/hsb1-tm-smb-env.age;
+    mode = "400";
+    owner = "root";
+  };
 
   # Restic Hetzner secrets (isolated sub2)
   age.secrets.hsb1-restic-env = {
