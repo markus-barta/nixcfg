@@ -8,6 +8,7 @@ readonly GUARDED_DEPLOY='@GUARDED_DEPLOY@'
 readonly BOOT_ID_FILE='@BOOT_ID_FILE@'
 readonly REBOOT_TIMEOUT_SECONDS='@REBOOT_TIMEOUT_SECONDS@'
 readonly REQUEST_FILE="$STATE_DIR/active-agent-request.json"
+pending_reboot_action_id=''
 
 [ "$(id -u)" -eq 0 ]
 [[ "$PHAROS_URL" =~ ^http://[0-9.]+:[0-9]+$ ]]
@@ -56,6 +57,7 @@ reboot_wait_gate() {
       and .host == $host
       and .ticket == "PHAROS-126"
       and .status == "rebooting"
+      and (.id | type == "string" and test("^[a-z0-9][a-z0-9._-]{0,159}$"))
       and (.boot_id_before | type == "string" and length > 0 and length <= 128)
       and ((.reboot_deadline_epoch == null) or (.reboot_deadline_epoch | type == "number" and floor == . and . > 0))
     ' "$candidate" >/dev/null 2>&1; then
@@ -69,6 +71,7 @@ reboot_wait_gate() {
   done < <(find "$STATE_DIR/actions" -mindepth 2 -maxdepth 2 -name internal.json -type f -print0)
 
   [ -n "$pending" ] || return 0
+  pending_reboot_action_id=$(jq -r '.id' "$pending")
   current_boot=$(tr -d '\r\n' <"$BOOT_ID_FILE")
   previous_boot=$(jq -r '.boot_id_before' "$pending")
   [ -n "$current_boot" ]
@@ -189,6 +192,11 @@ fi
 action_id=$(jq -r '.id' "$claim_response")
 phase=$(jq -r '.phase' "$claim_response")
 ticket=$(jq -r '.ticket' "$claim_response")
+if [ -n "$pending_reboot_action_id" ] &&
+  { [ "$phase" != resume ] || [ "$action_id" != "$pending_reboot_action_id" ]; }; then
+  printf 'pharos_action_agent=blocked reason=invalid_reboot_resume_lease\n' >&2
+  exit 1
+fi
 action_dir="$STATE_DIR/actions/$action_id"
 result_file="$action_dir/result.json"
 invocation_file="$action_dir/last-invocation"
