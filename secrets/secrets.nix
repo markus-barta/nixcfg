@@ -436,18 +436,12 @@ in
   # Cloudflare Zone API token (AIA account)
   "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp0 ++ mbp2607;
 
-  # PMO = BYTEPOETS Project Management Online (the company Paimos instance).
-  # NOTE: BYTEPOETS-context credentials. Long-term these belong in the
-  # BYTEPOETS studio (per the atelier pattern — formerly "Pattern β"), not
-  # Markus's personal nixcfg studio. Currently in shared/ as a transitional
-  # layer until BYTEPOETS gets its own agent-secrets pipeline — flag for
-  # migration when that happens.
-  "agents/shared/PMOAPIKEY.age".publicKeys = markus ++ mbp0 ++ mbp2607;
-  "agents/shared/PMOSERVERPASS.age".publicKeys = markus ++ mbp0 ++ mbp2607;
-  "agents/shared/PMOSERVERURL.age".publicKeys = markus ++ mbp0 ++ mbp2607;
-  "agents/shared/PMOSERVERUSER.age".publicKeys = markus ++ mbp0 ++ mbp2607;
-  "agents/shared/PMOSSHKEYFILELOCATION.age".publicKeys = markus ++ mbp0 ++ mbp2607;
-  "agents/shared/PMOURL.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  # PMO (BYTEPOETS Project Management Online) secrets REMOVED 2026-07-13.
+  # The instance (pm.bytepoets.com) was decommissioned with the BYTEPOETS
+  # departure (2026-06-15). PMOAPIKEY / PMOURL / PMOSERVER{PASS,URL,USER} /
+  # PMOSSHKEYFILELOCATION are gone from secrets/agents/shared/, and the
+  # matching `instances.pmo` block is gone from markus-defaults.nix.
+  # PPM (pm.barta.cm) is now the only Paimos instance.
 
   # PPM = Personal Project Management (Markus's personal Paimos at pm.barta.cm)
   "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mbp0 ++ mbp2607;
