@@ -59,41 +59,11 @@ cleanup() {
   rmdir "$tmp" 2>/dev/null || true
 }
 trap cleanup EXIT
-failure_gate_for_stage() {
-  case "$1" in
-  input) printf '%s\n' input ;;
-  preflight) printf '%s\n' preflight ;;
-  approval) printf '%s\n' approval ;;
-  permit) printf '%s\n' permit ;;
-  managed_run) printf '%s\n' managed_run ;;
-  managed_run_contract | validation) printf '%s\n' managed_run_contract ;;
-  review_binding) printf '%s\n' review_binding ;;
-  all_host_eval | all_host_evaluation) printf '%s\n' all_host_evaluation ;;
-  target_build) printf '%s\n' target_build ;;
-  backup_readiness) printf '%s\n' backup_readiness ;;
-  fresh_backup) printf '%s\n' fresh_backup ;;
-  switch) printf '%s\n' switch ;;
-  schedule_reboot | reboot_schedule) printf '%s\n' reboot_schedule ;;
-  post_reboot_validation | reboot_timeout | boot_change) printf '%s\n' boot_change ;;
-  system_identity) printf '%s\n' system_identity ;;
-  revision_identity) printf '%s\n' revision_identity ;;
-  kernel) printf '%s\n' kernel ;;
-  rollback) printf '%s\n' rollback ;;
-  storage) printf '%s\n' storage ;;
-  failed_units) printf '%s\n' failed_units ;;
-  required_services) printf '%s\n' required_services ;;
-  heartbeat) printf '%s\n' heartbeat ;;
-  *) printf '%s\n' managed_run ;;
-  esac
-}
-
 on_error() {
   local status=$?
-  local failure_gate
   trap - ERR
-  failure_gate=$(failure_gate_for_stage "$stage")
-  printf 'pharos_guarded_deploy=failed action=%s stage=%s failure_gate=%s value_returned=false\n' \
-    "$action" "$stage" "$failure_gate" >&2
+  printf 'pharos_guarded_deploy=failed action=%s stage=%s value_returned=false\n' \
+    "$action" "$stage" >&2
   exit "$status"
 }
 trap on_error ERR
@@ -134,38 +104,22 @@ permit_id=$(sed -n 's/.*permit_id=\([^ ]*\).*/\1/p' "$tmp/permit.out" | head -n1
 [[ "$permit_id" = use_* ]]
 
 stage='managed_run'
-run_status=0
-if "$JANUSD" run --profile "$profile" --permit "$permit_id" -- \
+if ! "$JANUSD" run --profile "$profile" --permit "$permit_id" -- \
   >"$tmp/run.out" 2>"$tmp/run.err"; then
-  run_status=0
-else
-  run_status=$?
-fi
-
-if [ "$run_status" -ne 0 ] ||
-  ! grep -Eq \
-    '^janusd run completed exit_success=true exit_code=Some\(0\) reason_code=ok value_returned=false$' \
-    "$tmp/run.err"; then
-  runner_failure_gate='managed_run'
+  runner_stage='managed_command'
   runner_line=$(grep -E \
-    '^pharos_system_update=failed( phase=(review|apply|resume))? failure_gate=(input|preflight|approval|permit|managed_run|managed_run_contract|review_binding|all_host_evaluation|target_build|backup_readiness|fresh_backup|switch|reboot_schedule|boot_change|system_identity|revision_identity|kernel|rollback|storage|failed_units|required_services|heartbeat) rollback=(not_required|succeeded|failed) value_returned=false$' \
+    '^pharos_system_update=failed phase=(review|apply|resume) stage=[a-z0-9_]+ rollback=(not_required|succeeded|failed) value_returned=false$' \
     "$tmp/run.err" | tail -n1 || true)
-  if [[ "$runner_line" =~ failure_gate=([a-z0-9_]+) ]]; then
-    runner_failure_gate=${BASH_REMATCH[1]}
-  else
-    legacy_runner_line=$(grep -E \
-      '^pharos_system_update=failed phase=(review|apply|resume) stage=[a-z0-9_]+ rollback=(not_required|succeeded|failed) value_returned=false$' \
-      "$tmp/run.err" | tail -n1 || true)
-    if [[ "$legacy_runner_line" =~ stage=([a-z0-9_]+) ]]; then
-      runner_failure_gate=$(failure_gate_for_stage "${BASH_REMATCH[1]}")
-    fi
+  if [[ "$runner_line" =~ stage=([a-z0-9_]+) ]]; then
+    runner_stage=${BASH_REMATCH[1]}
   fi
-  printf 'pharos_guarded_deploy=failed action=%s stage=managed_run failure_gate=%s value_returned=false\n' \
-    "$action" "$runner_failure_gate" >&2
+  printf 'pharos_guarded_deploy=failed action=%s stage=managed_run runner_stage=%s value_returned=false\n' \
+    "$action" "$runner_stage" >&2
   exit 1
 fi
-stage='managed_run_contract'
+stage='validation'
 grep -q 'value_returned=false' "$tmp/run.out"
+grep -q 'reason_code=ok value_returned=false' "$tmp/run.err"
 cat "$tmp/run.out"
 stage='completed'
 printf 'host=%s action=%s status=completed ticket=%s review=recorded permit=consumed value_returned=false\n' \
