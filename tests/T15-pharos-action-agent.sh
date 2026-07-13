@@ -157,9 +157,31 @@ fi
 
 case "$url" in
 */agent/actions/claim)
-  cat >"$output" <<'JSON'
-{"schema":"inspr.pharos.host-action-lease.v1","version":1,"id":"action-update-restart-hsb8-100-1","host":"hsb8","ticket":"PHAROS-126","phase":"review"}
-JSON
+  if [ "${FAKE_CLAIM_ONCE:-0}" = 1 ]; then
+    [ -n "${FAKE_CLAIM_COUNT_FILE:-}" ]
+    claim_count=0
+    if [ -r "$FAKE_CLAIM_COUNT_FILE" ]; then
+      claim_count=$(<"$FAKE_CLAIM_COUNT_FILE")
+    fi
+    claim_count=$((claim_count + 1))
+    printf '%s\n' "$claim_count" >"$FAKE_CLAIM_COUNT_FILE"
+    if [ "$claim_count" -gt 1 ]; then
+      : >"$output"
+      printf '204'
+      exit 0
+    fi
+  fi
+  jq -n \
+    --arg id "${FAKE_CLAIM_ID:-action-update-restart-hsb8-100-1}" \
+    --arg phase "${FAKE_CLAIM_PHASE:-review}" \
+    '{
+      schema:"inspr.pharos.host-action-lease.v1",
+      version:1,
+      id:$id,
+      host:"hsb8",
+      ticket:"PHAROS-126",
+      phase:$phase
+    }' >"$output"
   printf '200'
   ;;
 */result)
@@ -182,25 +204,26 @@ if [ "${FAKE_GUARD_FAIL:-0}" = 1 ]; then
   printf 'pharos_guarded_deploy=failed action=update stage=approval failure_gate=approval value_returned=false\n' >&2
   exit 1
 fi
-printf '%s %s\n' "$1" "$2" >"$FAKE_GUARD_LOG"
 request="$FAKE_STATE_DIR/active-agent-request.json"
 action_id=$(jq -r '.id' "$request")
+phase=$(jq -r '.phase' "$request")
+printf '%s %s %s\n' "$1" "$2" "$phase" >>"$FAKE_GUARD_LOG"
 action_dir="$FAKE_STATE_DIR/actions/$action_id"
 mkdir -p "$action_dir"
 if [ "${FAKE_GUARD_IDEMPOTENT:-0}" = 1 ]; then
-  printf 'phase=review invoked_at=fixture\n' >"$action_dir/last-invocation.tmp"
+  printf 'phase=%s invoked_at=fixture\n' "$phase" >"$action_dir/last-invocation.tmp"
   mv "$action_dir/last-invocation.tmp" "$action_dir/last-invocation"
-  printf 'pharos_system_update=idempotent phase=review value_returned=false\n'
+  printf 'pharos_system_update=idempotent phase=%s value_returned=false\n' "$phase"
   exit 0
 fi
 if [ "${FAKE_GUARD_TYPED_FAIL:-0}" = 1 ]; then
-  printf 'phase=review invoked_at=fixture\n' >"$action_dir/last-invocation.tmp"
+  printf 'phase=%s invoked_at=fixture\n' "$phase" >"$action_dir/last-invocation.tmp"
   mv "$action_dir/last-invocation.tmp" "$action_dir/last-invocation"
-  jq -n '{
+  jq -n --arg phase "$phase" '{
     schema:"inspr.pharos.host-action-agent-result.v1",
     version:1,
     host:"hsb8",
-    phase:"review",
+    phase:$phase,
     outcome:"failed",
     plan:null,
     result:{
@@ -217,11 +240,60 @@ if [ "${FAKE_GUARD_TYPED_FAIL:-0}" = 1 ]; then
   printf 'pharos_guarded_deploy=failed action=update stage=managed_run failure_gate=heartbeat value_returned=false\n' >&2
   exit 1
 fi
-jq -n '{
+if [ "$phase" = resume ]; then
+  printf 'phase=resume invoked_at=fixture\n' >"$action_dir/last-invocation.tmp"
+  mv "$action_dir/last-invocation.tmp" "$action_dir/last-invocation"
+  if [ "${FAKE_GUARD_RESUME_TIMEOUT:-0}" = 1 ]; then
+    jq -n '{
+      schema:"inspr.pharos.host-action-agent-result.v1",
+      version:1,
+      host:"hsb8",
+      phase:"resume",
+      outcome:"failed",
+      plan:null,
+      result:{
+        backup_validated:true,
+        switch_passed:true,
+        reboot_observed:false,
+        kernel_verified:false,
+        rollback_available:false,
+        failure_gate:"boot_change",
+        recovery_mode:null
+      }
+    }' >"$action_dir/result.json.tmp"
+    mv "$action_dir/result.json.tmp" "$action_dir/result.json"
+    printf 'pharos_guarded_deploy=failed action=update stage=managed_run failure_gate=boot_change value_returned=false\n' >&2
+    exit 1
+  fi
+  if [ -f "$action_dir/internal.json" ]; then
+    jq '.status = "succeeded"' "$action_dir/internal.json" >"$action_dir/internal.json.tmp"
+    mv "$action_dir/internal.json.tmp" "$action_dir/internal.json"
+  fi
+  jq -n '{
+    schema:"inspr.pharos.host-action-agent-result.v1",
+    version:1,
+    host:"hsb8",
+    phase:"resume",
+    outcome:"succeeded",
+    plan:null,
+    result:{
+      backup_validated:true,
+      switch_passed:true,
+      reboot_observed:true,
+      kernel_verified:true,
+      rollback_available:true,
+      failure_gate:null,
+      recovery_mode:null
+    }
+  }' >"$action_dir/result.json"
+  chmod 0600 "$action_dir/result.json"
+  exit 0
+fi
+jq -n --arg phase "$phase" '{
   schema:"inspr.pharos.host-action-agent-result.v1",
   version:1,
   host:"hsb8",
-  phase:"review",
+  phase:$phase,
   outcome:"succeeded",
   plan:{
     changed_file_count:1,
@@ -258,7 +330,7 @@ output=$(
 )
 
 grep -Fq 'pharos_action_agent=reported phase=review outcome=succeeded runner_ok=true' <<<"$output"
-grep -Fxq 'update PHAROS-126' "$guard_log"
+grep -Fxq 'update PHAROS-126 review' "$guard_log"
 jq -e '
   .host == "hsb8"
   and .phase == "review"
@@ -451,6 +523,9 @@ fi
 waiting_state_dir="$fixture_root/waiting-state"
 waiting_agent="$fixture_root/pharos-host-action-agent-waiting"
 waiting_arg_log="$fixture_root/waiting-curl-args"
+waiting_post_body="$fixture_root/waiting-post-body.json"
+waiting_guard_log="$fixture_root/waiting-guard-log"
+waiting_claim_count="$fixture_root/waiting-claim-count"
 waiting_action_dir="$waiting_state_dir/actions/action-update-restart-hsb8-waiting"
 mkdir -p "$waiting_action_dir"
 cat >"$waiting_action_dir/internal.json" <<'JSON'
@@ -476,19 +551,25 @@ sed \
   "$agent_source" >"$waiting_agent"
 chmod +x "$waiting_agent"
 
-waiting_output=$(
-  PATH="$fake_bin:$PATH" \
-    PHAROS_TOKEN="$token" \
-    FAKE_TOKEN="$token" \
-    FAKE_ARG_LOG="$waiting_arg_log" \
-    FAKE_LEAK_LOG="$leak_log" \
-    FAKE_POST_BODY="$post_body" \
-    FAKE_GUARD_LOG="$guard_log" \
-    FAKE_STATE_DIR="$waiting_state_dir" \
-    "$waiting_agent" 2>&1
-)
-grep -Fxq 'pharos_action_agent=deferred reason=waiting_for_reboot' <<<"$waiting_output"
+# Each invocation is a fresh process. Reusing the state directory exercises
+# timer/service restart persistence without relying on process memory.
+for _ in 1 2; do
+  waiting_output=$(
+    PATH="$fake_bin:$PATH" \
+      PHAROS_TOKEN="$token" \
+      FAKE_TOKEN="$token" \
+      FAKE_ARG_LOG="$waiting_arg_log" \
+      FAKE_LEAK_LOG="$leak_log" \
+      FAKE_POST_BODY="$waiting_post_body" \
+      FAKE_GUARD_LOG="$waiting_guard_log" \
+      FAKE_STATE_DIR="$waiting_state_dir" \
+      "$waiting_agent" 2>&1
+  )
+  grep -Fxq 'pharos_action_agent=deferred reason=waiting_for_reboot' <<<"$waiting_output"
+done
 [ ! -e "$waiting_arg_log" ]
+jq -e '.status == "rebooting" and .boot_id_before == "boot-current"' \
+  "$waiting_action_dir/internal.json" >/dev/null
 
 printf 'boot-new\n' >"$boot_id_file"
 post_boot_output=$(
@@ -497,33 +578,186 @@ post_boot_output=$(
     FAKE_TOKEN="$token" \
     FAKE_ARG_LOG="$waiting_arg_log" \
     FAKE_LEAK_LOG="$leak_log" \
-    FAKE_POST_BODY="$post_body" \
-    FAKE_GUARD_LOG="$guard_log" \
+    FAKE_POST_BODY="$waiting_post_body" \
+    FAKE_GUARD_LOG="$waiting_guard_log" \
     FAKE_STATE_DIR="$waiting_state_dir" \
-    FAKE_CURL_UNREACHABLE=1 \
+    FAKE_CLAIM_PHASE=resume \
+    FAKE_CLAIM_ID=action-update-restart-hsb8-waiting \
+    FAKE_CLAIM_ONCE=1 \
+    FAKE_CLAIM_COUNT_FILE="$waiting_claim_count" \
     "$waiting_agent" 2>&1
 )
-grep -Fxq 'pharos_action_agent=deferred reason=claim_unreachable' <<<"$post_boot_output"
+grep -Fxq 'pharos_action_agent=reported phase=resume outcome=succeeded runner_ok=true' \
+  <<<"$post_boot_output"
 [ -s "$waiting_arg_log" ]
+jq -e '
+  .phase == "resume"
+  and .outcome == "succeeded"
+  and .plan == null
+  and .result.backup_validated == true
+  and .result.switch_passed == true
+  and .result.reboot_observed == true
+  and .result.kernel_verified == true
+  and .result.rollback_available == true
+  and .result.failure_gate == null
+' "$waiting_post_body" >/dev/null
+jq -e '.status == "succeeded"' "$waiting_action_dir/internal.json" >/dev/null
+[ "$(grep -Fc 'update PHAROS-126 resume' "$waiting_guard_log")" -eq 1 ]
 
-printf 'boot-current\n' >"$boot_id_file"
-jq '.reboot_deadline_epoch = 1' "$waiting_action_dir/internal.json" \
-  >"$waiting_action_dir/internal.json.tmp"
-mv "$waiting_action_dir/internal.json.tmp" "$waiting_action_dir/internal.json"
-timeout_output=$(
+duplicate_output=$(
   PATH="$fake_bin:$PATH" \
     PHAROS_TOKEN="$token" \
     FAKE_TOKEN="$token" \
     FAKE_ARG_LOG="$waiting_arg_log" \
     FAKE_LEAK_LOG="$leak_log" \
-    FAKE_POST_BODY="$post_body" \
-    FAKE_GUARD_LOG="$guard_log" \
+    FAKE_POST_BODY="$waiting_post_body" \
+    FAKE_GUARD_LOG="$waiting_guard_log" \
     FAKE_STATE_DIR="$waiting_state_dir" \
-    FAKE_CURL_UNREACHABLE=1 \
+    FAKE_CLAIM_PHASE=resume \
+    FAKE_CLAIM_ID=action-update-restart-hsb8-waiting \
+    FAKE_CLAIM_ONCE=1 \
+    FAKE_CLAIM_COUNT_FILE="$waiting_claim_count" \
     "$waiting_agent" 2>&1
 )
+grep -Fxq 'pharos_action_agent=idle' <<<"$duplicate_output"
+[ "$(<"$waiting_claim_count")" -eq 2 ]
+[ "$(grep -Fc 'update PHAROS-126 resume' "$waiting_guard_log")" -eq 1 ]
+
+printf 'boot-current\n' >"$boot_id_file"
+timeout_state_dir="$fixture_root/timeout-state"
+timeout_agent="$fixture_root/pharos-host-action-agent-timeout"
+timeout_arg_log="$fixture_root/timeout-curl-args"
+timeout_post_body="$fixture_root/timeout-post-body.json"
+timeout_guard_log="$fixture_root/timeout-guard-log"
+timeout_claim_count="$fixture_root/timeout-claim-count"
+timeout_action_dir="$timeout_state_dir/actions/action-update-restart-hsb8-timeout"
+mkdir -p "$timeout_action_dir"
+cat >"$timeout_action_dir/internal.json" <<'JSON'
+{
+  "schema": "inspr.pharos.system-update-local.v1",
+  "version": 1,
+  "id": "action-update-restart-hsb8-timeout",
+  "host": "hsb8",
+  "ticket": "PHAROS-126",
+  "status": "rebooting",
+  "boot_id_before": "boot-current",
+  "switched_at": "2026-07-13T05:04:32Z",
+  "reboot_deadline_epoch": 1
+}
+JSON
+sed \
+  -e 's|@HOST@|hsb8|g' \
+  -e 's|@PHAROS_URL@|http://100.64.0.4:8088|g' \
+  -e "s|@GUARDED_DEPLOY@|$fake_guard|g" \
+  -e "s|@STATE_DIR@|$timeout_state_dir|g" \
+  -e "s|@BOOT_ID_FILE@|$boot_id_file|g" \
+  -e 's|@REBOOT_TIMEOUT_SECONDS@|600|g' \
+  "$agent_source" >"$timeout_agent"
+chmod +x "$timeout_agent"
+timeout_output=$(
+  PATH="$fake_bin:$PATH" \
+    PHAROS_TOKEN="$token" \
+    FAKE_TOKEN="$token" \
+    FAKE_ARG_LOG="$timeout_arg_log" \
+    FAKE_LEAK_LOG="$leak_log" \
+    FAKE_POST_BODY="$timeout_post_body" \
+    FAKE_GUARD_LOG="$timeout_guard_log" \
+    FAKE_STATE_DIR="$timeout_state_dir" \
+    FAKE_CLAIM_PHASE=resume \
+    FAKE_CLAIM_ID=action-update-restart-hsb8-timeout \
+    FAKE_CLAIM_ONCE=1 \
+    FAKE_CLAIM_COUNT_FILE="$timeout_claim_count" \
+    FAKE_GUARD_RESUME_TIMEOUT=1 \
+    "$timeout_agent" 2>&1
+)
 grep -Fq 'pharos_action_agent=timeout reason=reboot_not_observed' <<<"$timeout_output"
-grep -Fq 'pharos_action_agent=deferred reason=claim_unreachable' <<<"$timeout_output"
+grep -Fq 'pharos_action_agent=reported phase=resume outcome=failed runner_ok=false' \
+  <<<"$timeout_output"
+jq -e '
+  .phase == "resume"
+  and .outcome == "failed"
+  and .plan == null
+  and .result.backup_validated == true
+  and .result.switch_passed == true
+  and .result.reboot_observed == false
+  and .result.kernel_verified == false
+  and .result.rollback_available == false
+  and .result.failure_gate == "boot_change"
+' "$timeout_post_body" >/dev/null
+[ "$(grep -Fc 'update PHAROS-126 resume' "$timeout_guard_log")" -eq 1 ]
+
+timeout_duplicate_output=$(
+  PATH="$fake_bin:$PATH" \
+    PHAROS_TOKEN="$token" \
+    FAKE_TOKEN="$token" \
+    FAKE_ARG_LOG="$timeout_arg_log" \
+    FAKE_LEAK_LOG="$leak_log" \
+    FAKE_POST_BODY="$timeout_post_body" \
+    FAKE_GUARD_LOG="$timeout_guard_log" \
+    FAKE_STATE_DIR="$timeout_state_dir" \
+    FAKE_CLAIM_PHASE=resume \
+    FAKE_CLAIM_ID=action-update-restart-hsb8-timeout \
+    FAKE_CLAIM_ONCE=1 \
+    FAKE_CLAIM_COUNT_FILE="$timeout_claim_count" \
+    FAKE_GUARD_RESUME_TIMEOUT=1 \
+    "$timeout_agent" 2>&1
+)
+grep -Fq 'pharos_action_agent=timeout reason=reboot_not_observed' \
+  <<<"$timeout_duplicate_output"
+grep -Fq 'pharos_action_agent=idle' <<<"$timeout_duplicate_output"
+[ "$(<"$timeout_claim_count")" -eq 2 ]
+[ "$(grep -Fc 'update PHAROS-126 resume' "$timeout_guard_log")" -eq 1 ]
+
+printf 'boot-new\n' >"$boot_id_file"
+mismatch_state_dir="$fixture_root/mismatch-state"
+mismatch_agent="$fixture_root/pharos-host-action-agent-mismatch"
+mismatch_arg_log="$fixture_root/mismatch-curl-args"
+mismatch_guard_log="$fixture_root/mismatch-guard-log"
+mismatch_action_dir="$mismatch_state_dir/actions/action-update-restart-hsb8-pending"
+mkdir -p "$mismatch_action_dir"
+cat >"$mismatch_action_dir/internal.json" <<'JSON'
+{
+  "schema": "inspr.pharos.system-update-local.v1",
+  "version": 1,
+  "id": "action-update-restart-hsb8-pending",
+  "host": "hsb8",
+  "ticket": "PHAROS-126",
+  "status": "rebooting",
+  "boot_id_before": "boot-current",
+  "switched_at": "2026-07-13T05:04:32Z",
+  "reboot_deadline_epoch": 4102444800
+}
+JSON
+sed \
+  -e 's|@HOST@|hsb8|g' \
+  -e 's|@PHAROS_URL@|http://100.64.0.4:8088|g' \
+  -e "s|@GUARDED_DEPLOY@|$fake_guard|g" \
+  -e "s|@STATE_DIR@|$mismatch_state_dir|g" \
+  -e "s|@BOOT_ID_FILE@|$boot_id_file|g" \
+  -e 's|@REBOOT_TIMEOUT_SECONDS@|600|g' \
+  "$agent_source" >"$mismatch_agent"
+chmod +x "$mismatch_agent"
+set +e
+mismatch_output=$(
+  PATH="$fake_bin:$PATH" \
+    PHAROS_TOKEN="$token" \
+    FAKE_TOKEN="$token" \
+    FAKE_ARG_LOG="$mismatch_arg_log" \
+    FAKE_LEAK_LOG="$leak_log" \
+    FAKE_POST_BODY="$post_body" \
+    FAKE_GUARD_LOG="$mismatch_guard_log" \
+    FAKE_STATE_DIR="$mismatch_state_dir" \
+    FAKE_CLAIM_PHASE=resume \
+    FAKE_CLAIM_ID=action-update-restart-hsb8-other \
+    "$mismatch_agent" 2>&1
+)
+mismatch_status=$?
+set -e
+[ "$mismatch_status" -ne 0 ]
+grep -Fxq 'pharos_action_agent=blocked reason=invalid_reboot_resume_lease' \
+  <<<"$mismatch_output"
+[ ! -e "$mismatch_guard_log" ]
+[ ! -e "$mismatch_state_dir/active-agent-request.json" ]
 [ ! -e "$leak_log" ]
 
 echo 'pharos_action_agent=passed'
