@@ -279,12 +279,12 @@ services:
   # ============================================
   # WEG Portal - multi-tenant house portal
   # ============================================
-  weg-portal:
-    image: ghcr.io/markus-barta/weg-portal:latest
-    container_name: weg-portal
+  hausv-org:
+    image: ghcr.io/markus-barta/hausv-org:latest
+    container_name: hausv-org
     restart: unless-stopped
     env_file:
-      - /run/agenix/csb1-weg-portal-env
+      - /run/agenix/csb1-hausv-org-env
     environment:
       - ADDR=:8080
       - BASE_URL=https://jhw22.hausv.org
@@ -323,24 +323,24 @@ services:
       - PARKING_SAMPLE_INTERVAL=15m
       - PARKING_HISTORY_START=2026-01-01
     volumes:
-      - /var/lib/csb1-docker/weg-portal:/data
+      - /var/lib/csb1-docker/hausv-org:/data
     networks:
       - traefik
     healthcheck:
       test:
-        ["CMD", "/weg-portal", "healthcheck", "http://127.0.0.1:8080/healthz"]
+        ["CMD", "/hausv-org", "healthcheck", "http://127.0.0.1:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
     labels:
       - traefik.enable=true
-      - traefik.http.routers.weg-portal.rule=Host(`jhw22.hausv.org`) || Host(`hausv.org`) || Host(`www.hausv.org`)
-      - traefik.http.routers.weg-portal.tls.certresolver=default
-      - traefik.http.routers.weg-portal.tls=true
-      - traefik.http.services.weg-portal.loadbalancer.server.port=8080
+      - traefik.http.routers.hausv-org.rule=Host(`jhw22.hausv.org`) || Host(`hausv.org`) || Host(`www.hausv.org`)
+      - traefik.http.routers.hausv-org.tls.certresolver=default
+      - traefik.http.routers.hausv-org.tls=true
+      - traefik.http.services.hausv-org.loadbalancer.server.port=8080
       - traefik.docker.network=csb1_traefik
-      - traefik.http.routers.weg-portal.middlewares=cloudflarewarp@file
+      - traefik.http.routers.hausv-org.middlewares=cloudflarewarp@file
 
   restic-cron-hetzner:
     build: ./restic-cron

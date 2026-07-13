@@ -257,8 +257,8 @@ in
 
   # WEG Portal environment variables for csb1
   # Format: KEY=VALUE lines (SESSION_KEY, tenant/user JSON, HA_TOKEN)
-  # Edit: agenix -e secrets/csb1-weg-portal-env.age
-  "csb1-weg-portal-env.age".publicKeys = markus ++ csb1;
+  # Edit: agenix -e secrets/csb1-hausv-org-env.age
+  "csb1-hausv-org-env.age".publicKeys = markus ++ csb1;
 
   # === NIX-110: csb1 docker stack migration to git — bulk env file refactor ===
   # The following secrets were previously plaintext in ~/secrets/ or

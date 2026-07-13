@@ -154,7 +154,7 @@ in
       # Create runtime directory structure
       "d ${dockerRoot} 0755 mba users -"
       "d ${dockerRoot}/traefik 0755 mba users -"
-      "d ${dockerRoot}/weg-portal 0750 65532 65532 -"
+      "d ${dockerRoot}/hausv-org 0750 65532 65532 -"
 
       # Create mutable files (Docker writes to these)
       "f ${dockerRoot}/traefik/acme.json 0600 root root -"
@@ -450,13 +450,13 @@ in
     mode = "0644";
   };
 
-  # WEG Portal env is activated once secrets/csb1-weg-portal-env.age exists.
+  # WEG Portal env is activated once secrets/csb1-hausv-org-env.age exists.
   # This keeps csb1 evaluation green while the secret is intentionally absent.
-  age.secrets.csb1-weg-portal-env =
-    lib.mkIf (builtins.pathExists ../../secrets/csb1-weg-portal-env.age)
+  age.secrets.csb1-hausv-org-env =
+    lib.mkIf (builtins.pathExists ../../secrets/csb1-hausv-org-env.age)
       {
-        file = ../../secrets/csb1-weg-portal-env.age;
-        path = "/run/agenix/csb1-weg-portal-env";
+        file = ../../secrets/csb1-hausv-org-env.age;
+        path = "/run/agenix/csb1-hausv-org-env";
         owner = "root";
         group = "root";
         mode = "0644";
