@@ -230,6 +230,10 @@ in
   # NIX-103: warn if macOS DirectoryService login shell doesn't match HM's fish.
   home.activation.checkLoginShell = macosCommon.loginShellCheckActivation "${config.home.homeDirectory}/.nix-profile/bin/fish";
 
+  # macOS `defaults` (SSOT: macos-common.nix). Stops Finder writing .DS_Store to
+  # network shares + USB drives — see the comment there for why.
+  targets.darwin.defaults = macosCommon.darwinDefaults;
+
   # Compose v2 is packaged as `docker-compose`, while Docker CLI discovers
   # subcommands through ~/.docker/cli-plugins/docker-compose.
   home.file.".docker/cli-plugins/docker-compose".source = "${pkgs.docker-compose}/bin/docker-compose";
