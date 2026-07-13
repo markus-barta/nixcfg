@@ -115,6 +115,49 @@ vlc \
   --telnet-password="${TAPO_C210_PASSWORD}" \
   "rtsp://${MINISERVER24_IP}:35067/9726ad778d503184" &
 
+### --- RESTORE THE USER'S VOLUME (NIX-151) --------------------------------
+#
+# A FRESH VLC ALWAYS COMES UP AT VOLUME 0. The `pactl set-sink-volume` above
+# sets the SINK to 100%, which is a different thing entirely: VLC's own audio
+# stream still starts silent, and nothing else re-pushes it.
+#
+# Without this block the babycam is SILENT after every boot until the watchdog
+# notices the drift — a ~4 minute window (3min boot grace + a 60s tick). It does
+# self-correct, but a baby monitor that comes up mute and stays mute for four
+# minutes is precisely the class of failure NIX-151 exists to eliminate. Fix it
+# at the source instead of relying on the safety net.
+#
+# `desired-volume` is the user's INTENT, written by mqtt-volume-control every
+# time the button is pressed. Honour it: if he deliberately muted the babycam
+# (door open, boy audible directly), a reboot must NOT un-mute the house. Only
+# when there is no record at all do we default to audible, because with nothing
+# to go on a silent baby monitor is the dangerous default.
+DESIRED_VOLUME=512
+if [ -r /var/lib/babycam-watchdog/desired-volume ]; then
+  d=$(tr -cd '0-9' </var/lib/babycam-watchdog/desired-volume)
+  [ -n "$d" ] && DESIRED_VOLUME="$d"
+fi
+
+# Wait for VLC to actually hold an input before pushing volume — a VLC that is
+# still negotiating RTSP answers telnet but reports nothing, and a volume set
+# on a not-yet-loaded input does not stick.
+#
+# NOTE: never send `quit` here. VLC reads the whole burst at once, QUEUES the
+# reply, then closes on `quit` before flushing it — you get the banner and
+# nothing else. `nc -q 2` lingers after EOF so the reply actually arrives.
+for _ in $(seq 1 30); do
+  sleep 1
+  if printf '%s\nstatus\n' "${TAPO_C210_PASSWORD}" |
+    nc -q 2 localhost 4212 2>/dev/null | grep -q '( state '; then
+    break
+  fi
+done
+
+printf '%s\nvolume %s\n' "${TAPO_C210_PASSWORD}" "${DESIRED_VOLUME}" |
+  nc -q 2 localhost 4212 >/dev/null 2>&1 &&
+  echo "[INFO] Restored VLC volume to ${DESIRED_VOLUME} (user intent)" ||
+  echo "[WARN] Could not restore VLC volume — watchdog will reconcile within ~60s"
+
 ### --- END OF SCRIPT ------------------------------------------------------
 
 # Optional: log startup success
