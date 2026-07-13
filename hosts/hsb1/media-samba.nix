@@ -40,11 +40,37 @@
   # line — same secret tm-samba.nix will later use for both users; markus's
   # password is the same person either way. smbpasswd -a is idempotent —
   # safe to re-run on every activation.
+  #
+  # Observed 2026-07-13: on the very first activation of this module,
+  # smbpasswd -a failed silently (swallowed by `|| true`) even though
+  # /var/lib/samba/private already existed by then — exact cause unclear,
+  # possibly the minimal activation-script environment racing something in
+  # smbd's own first-start init. Re-running the identical command manually
+  # moments later succeeded on the first try. Rather than chase an
+  # intermittent race, retry briefly and — the actual fix — stop hiding
+  # failures: log to the journal via `logger` so a future silent failure is
+  # visible in `journalctl -t media-samba-passwd` instead of only
+  # discoverable as "wrong password" at the Finder login prompt.
   system.activationScripts.mediaSambaPasswd = {
     text = ''
       pw=$(${pkgs.gnugrep}/bin/grep -m1 '^markus ' ${config.age.secrets.hsb1-tm-smb-env.path} | ${pkgs.coreutils}/bin/cut -d' ' -f2-)
-      if [ -n "$pw" ]; then
-        printf '%s\n%s\n' "$pw" "$pw" | ${pkgs.samba}/bin/smbpasswd -s -a markus || true
+      if [ -z "$pw" ]; then
+        ${pkgs.util-linux}/bin/logger -t media-samba-passwd "ERROR: markus line not found/empty in ${config.age.secrets.hsb1-tm-smb-env.path}"
+        exit 0
+      fi
+      ok=0
+      for attempt in 1 2 3; do
+        if printf '%s\n%s\n' "$pw" "$pw" | ${pkgs.samba}/bin/smbpasswd -s -a markus; then
+          ok=1
+          break
+        fi
+        ${pkgs.util-linux}/bin/logger -t media-samba-passwd "WARN: smbpasswd -a markus failed (attempt $attempt/3), retrying"
+        sleep 2
+      done
+      if [ "$ok" -eq 1 ]; then
+        ${pkgs.util-linux}/bin/logger -t media-samba-passwd "OK: markus smbpasswd seeded"
+      else
+        ${pkgs.util-linux}/bin/logger -t media-samba-passwd "ERROR: smbpasswd -a markus failed after 3 attempts — SMB auth for markus will not work until this is re-run"
       fi
     '';
     deps = [ "agenix" ];
