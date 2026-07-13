@@ -114,6 +114,43 @@ curl_json() {
     "$PHAROS_URL$path"
 }
 
+failure_gate_for_runner_stage() {
+  case "$1" in
+  input) printf '%s\n' input ;;
+  preflight | source) printf '%s\n' preflight ;;
+  approval) printf '%s\n' approval ;;
+  permit) printf '%s\n' permit ;;
+  managed_run) printf '%s\n' managed_run ;;
+  managed_run_contract | validation) printf '%s\n' managed_run_contract ;;
+  review_binding) printf '%s\n' review_binding ;;
+  all_host_eval | all_host_evaluation) printf '%s\n' all_host_evaluation ;;
+  target_build) printf '%s\n' target_build ;;
+  backup_readiness) printf '%s\n' backup_readiness ;;
+  fresh_backup) printf '%s\n' fresh_backup ;;
+  switch) printf '%s\n' switch ;;
+  schedule_reboot | reboot_schedule) printf '%s\n' reboot_schedule ;;
+  post_reboot_validation | reboot_timeout | boot_change) printf '%s\n' boot_change ;;
+  system_identity) printf '%s\n' system_identity ;;
+  revision_identity) printf '%s\n' revision_identity ;;
+  kernel) printf '%s\n' kernel ;;
+  rollback) printf '%s\n' rollback ;;
+  storage) printf '%s\n' storage ;;
+  failed_units) printf '%s\n' failed_units ;;
+  required_services) printf '%s\n' required_services ;;
+  heartbeat) printf '%s\n' heartbeat ;;
+  *) printf '%s\n' managed_run_contract ;;
+  esac
+}
+
+result_file_identity() {
+  local path=$1
+
+  if stat -c '%d:%i:%Y:%s' "$path" 2>/dev/null; then
+    return 0
+  fi
+  stat -f '%d:%i:%m:%z' "$path"
+}
+
 jq -n --arg host "$HOST" '{host:$host}' >"$claim_request"
 if ! claim_code=$(curl_json POST /agent/actions/claim "$claim_request" "$claim_response"); then
   printf 'pharos_action_agent=deferred reason=claim_unreachable\n' >&2
@@ -154,6 +191,7 @@ phase=$(jq -r '.phase' "$claim_response")
 ticket=$(jq -r '.ticket' "$claim_response")
 action_dir="$STATE_DIR/actions/$action_id"
 result_file="$action_dir/result.json"
+invocation_file="$action_dir/last-invocation"
 mkdir -p "$action_dir"
 chmod 0700 "$action_dir"
 
@@ -162,32 +200,108 @@ jq -S '{schema,version,id,host,ticket,phase}' "$claim_response" >"$request_tmp"
 chmod 0600 "$request_tmp"
 mv "$request_tmp" "$REQUEST_FILE"
 
+result_before='absent'
+if [ -e "$result_file" ]; then
+  result_before=$(result_file_identity "$result_file")
+fi
+invocation_before='absent'
+if [ -e "$invocation_file" ]; then
+  invocation_before=$(result_file_identity "$invocation_file")
+fi
+
 runner_status=0
 if "$GUARDED_DEPLOY" update "$ticket" >"$run_dir/runner.out" 2>"$run_dir/runner.err"; then
   runner_status=0
 else
   runner_status=$?
 fi
-if [ "$runner_status" -ne 0 ]; then
+
+result_updated=false
+if [ -e "$result_file" ]; then
+  result_after=$(result_file_identity "$result_file")
+  if [ "$result_after" != "$result_before" ]; then
+    result_updated=true
+  fi
+fi
+invocation_updated=false
+if [ -e "$invocation_file" ]; then
+  invocation_after=$(result_file_identity "$invocation_file")
+  if [ "$invocation_after" != "$invocation_before" ]; then
+    invocation_updated=true
+  fi
+fi
+idempotent_result_reused=false
+if [ "$invocation_updated" = true ] && grep -Fxq \
+  "pharos_system_update=idempotent phase=$phase value_returned=false" \
+  "$run_dir/runner.out"; then
+  idempotent_result_reused=true
+fi
+result_fresh=false
+if [ "$result_updated" = true ] || [ "$idempotent_result_reused" = true ]; then
+  result_fresh=true
+fi
+
+runner_failure_gate=''
+safe_runner_diagnostic=$(grep -E \
+  '^pharos_guarded_deploy=failed action=update stage=(input|preflight|approval|permit|managed_run|managed_run_contract|validation) failure_gate=(input|preflight|approval|permit|managed_run|managed_run_contract|review_binding|all_host_evaluation|target_build|backup_readiness|fresh_backup|switch|reboot_schedule|boot_change|system_identity|revision_identity|kernel|rollback|storage|failed_units|required_services|heartbeat) value_returned=false$' \
+  "$run_dir/runner.err" | tail -n1 || true)
+if [[ "$safe_runner_diagnostic" =~ failure_gate=([a-z0-9_]+) ]]; then
+  runner_failure_gate=${BASH_REMATCH[1]}
+else
   safe_runner_diagnostic=$(grep -E \
     '^pharos_guarded_deploy=failed action=update stage=(input|preflight|approval|permit|managed_run|validation)( runner_stage=[a-z0-9_]+)? value_returned=false$' \
     "$run_dir/runner.err" | tail -n1 || true)
+  if [[ "$safe_runner_diagnostic" =~ runner_stage=([a-z0-9_]+) ]]; then
+    runner_failure_gate=$(failure_gate_for_runner_stage "${BASH_REMATCH[1]}")
+  elif [[ "$safe_runner_diagnostic" =~ stage=([a-z0-9_]+) ]]; then
+    runner_failure_gate=$(failure_gate_for_runner_stage "${BASH_REMATCH[1]}")
+  fi
+fi
+if [ "$runner_status" -ne 0 ]; then
   if [ -n "$safe_runner_diagnostic" ]; then
     printf '%s\n' "$safe_runner_diagnostic" >&2
   fi
 fi
 
-if ! jq -e --arg host "$HOST" --arg phase "$phase" '
+result_valid=false
+if [ "$result_fresh" = true ] && jq -e --arg host "$HOST" --arg phase "$phase" '
   .schema == "inspr.pharos.host-action-agent-result.v1"
   and .version == 1
   and .host == $host
   and .phase == $phase
   and (.outcome == "succeeded" or .outcome == "rebooting" or .outcome == "failed")
   and ((.plan == null) or (.plan | type == "object"))
-  and ((.result == null) or (.result | type == "object"))
+  and ((.result == null) or (
+    (.result | type == "object")
+    and (.result.backup_validated | type == "boolean")
+    and (.result.switch_passed | type == "boolean")
+    and (.result.reboot_observed | type == "boolean")
+    and (.result.kernel_verified | type == "boolean")
+    and (.result.rollback_available | type == "boolean")
+    and ((.result.failure_gate == null) or (
+      .result.failure_gate | type == "string" and test("^(input|preflight|approval|permit|managed_run|managed_run_contract|review_binding|all_host_evaluation|target_build|backup_readiness|fresh_backup|switch|reboot_schedule|boot_change|system_identity|revision_identity|kernel|rollback|storage|failed_units|required_services|heartbeat)$")
+    ))
+    and ((.result.recovery_mode == null) or (
+      .result.recovery_mode | type == "string" and test("^(exact_reviewed_system|trusted_descendant)$")
+    ))
+    and (((.result | keys) - ["backup_validated", "failure_gate", "kernel_verified", "reboot_observed", "recovery_mode", "rollback_available", "switch_passed"]) | length == 0)
+  ))
   and (keys | sort == ["host", "outcome", "phase", "plan", "result", "schema", "version"])
 ' "$result_file" >/dev/null 2>&1; then
-  jq -n --arg host "$HOST" --arg phase "$phase" '
+  result_valid=true
+fi
+
+if [ "$result_valid" = true ] && [ "$runner_status" -ne 0 ] &&
+  [ "$(jq -r '.outcome' "$result_file")" != failed ]; then
+  result_valid=false
+fi
+
+if [ "$result_valid" != true ] ||
+  { [ "$(jq -r '.outcome // empty' "$result_file" 2>/dev/null || true)" = failed ] &&
+    ! jq -e '.result != null and .result.failure_gate != null' "$result_file" >/dev/null 2>&1; }; then
+  synthetic_failure_gate=${runner_failure_gate:-managed_run_contract}
+  result_tmp="${result_file}.tmp"
+  jq -n --arg host "$HOST" --arg phase "$phase" --arg failure_gate "$synthetic_failure_gate" '
     {
       schema:"inspr.pharos.host-action-agent-result.v1",
       version:1,
@@ -195,10 +309,19 @@ if ! jq -e --arg host "$HOST" --arg phase "$phase" '
       phase:$phase,
       outcome:"failed",
       plan:null,
-      result:null
+      result:{
+        backup_validated:false,
+        switch_passed:false,
+        reboot_observed:false,
+        kernel_verified:false,
+        rollback_available:false,
+        failure_gate:$failure_gate,
+        recovery_mode:null
+      }
     }
-  ' >"$result_file"
-  chmod 0600 "$result_file"
+  ' >"$result_tmp"
+  chmod 0600 "$result_tmp"
+  mv "$result_tmp" "$result_file"
 fi
 
 jq -n --arg host "$HOST" --slurpfile local "$result_file" '
