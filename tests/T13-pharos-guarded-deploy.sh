@@ -45,7 +45,7 @@ grep -Fq -- '--revoke-approval' "$review"
 grep -Fq -- '--permit-ttl-seconds 240' "$review"
 grep -Fq 'profile.@UPDATE_SECRET_NAME@' "$review"
 grep -Fq "stage='approval'" "$review"
-grep -Fq 'pharos_guarded_deploy=failed action=%s stage=%s value_returned=false' "$review"
+grep -Fq 'pharos_guarded_deploy=failed action=%s stage=%s failure_gate=%s value_returned=false' "$review"
 grep -Fq 'pharos-host-action-agent' "$module"
 grep -Fq 'pharos-guarded-system-update' "$module"
 
