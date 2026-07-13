@@ -53,6 +53,36 @@
         "force create mode" = "0664";
         "directory mask" = "0775";
         "force directory mode" = "0775";
+
+        # Refuse macOS/Finder droppings outright — they never reach the pool.
+        #
+        # Two distinct relics, and they need different handling:
+        #   .DS_Store  Finder's per-folder view settings, written on mere BROWSING.
+        #   ._<name>   AppleDouble sidecars carrying xattrs / resource forks,
+        #              emitted when copying a file whose metadata the target FS
+        #              cannot store natively.
+        #
+        # Both are worthless on a media share, and they are not merely untidy:
+        # on 2026-07-13 a stray `._Joker.mkv` sidecar was picked up by Plex's
+        # scanner as if it were a film, and relics had to be swept off the pool
+        # three separate times in one day.
+        #
+        # `veto files` makes Samba refuse to create or show them at all.
+        # `delete veto files` lets a directory still be removed even when it
+        # contains vetoed entries (otherwise rmdir fails on invisible files).
+        #
+        # This is the SERVER half and it catches every client — including
+        # non-Nix Macs and guests. The CLIENT half (DSDontWriteNetworkStores,
+        # so our own Macs don't even try) is declared in
+        # modules/uzumaki/macos-common.nix -> darwinDefaults.
+        #
+        # NOTE: the vfs_fruit route (fruit:metadata=stream, which folds `._`
+        # sidecars into xattrs) is the "Apple-approved" alternative, but it is
+        # deliberately NOT used here — it mangles rsync writes into the share.
+        # See ./tm-samba.nix, where fruit is correctly scoped to the TM shares.
+        "veto files" =
+          "/._*/.DS_Store/.Trashes/.Spotlight-V100/.TemporaryItems/.fseventsd/Network Trash Folder/Temporary Items/";
+        "delete veto files" = "yes";
       };
     };
   };
