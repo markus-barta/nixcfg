@@ -31,6 +31,28 @@
         "valid users" = "markus";
         "read only" = "no";
         browseable = "yes";
+
+        # The pool is written by TWO paths: rsync-over-SSH (as `mba`) and Finder/
+        # SMB (as `markus`). Samba's DEFAULTS are create mask 0744 / directory
+        # mask 0755 — i.e. everything arriving over SMB lands WITHOUT group write.
+        # Mixed ownership + no group write = the two paths lock each other out,
+        # which is exactly what happened on 2026-07-13: a storm of
+        # "mkstemp/mkdir ... Permission denied (13)" on an rsync into the share.
+        #
+        # force user/group makes every SMB write land as mba:users regardless of
+        # who authenticated, and the masks keep group-write on. Both paths then
+        # produce identical ownership and can freely overwrite each other.
+        #
+        # NOTE: deliberately NO `vfs objects` here — the media share must stay
+        # plain SMB. vfs_fruit's `fruit:metadata = stream` mangles macOS `._*`
+        # AppleDouble sidecars and breaks rsync into the share (see ./tm-samba.nix,
+        # where fruit is correctly scoped to the TM shares only).
+        "force user" = "mba";
+        "force group" = "users";
+        "create mask" = "0664";
+        "force create mode" = "0664";
+        "directory mask" = "0775";
+        "force directory mode" = "0775";
       };
     };
   };

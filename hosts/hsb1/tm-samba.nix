@@ -26,17 +26,32 @@
         "netbios name" = "hsb1";
         security = "user";
         "map to guest" = "never";
-        "vfs objects" = "catia fruit streams_xattr";
-        "fruit:time machine" = "yes";
-        "fruit:metadata" = "stream";
-        "fruit:zero_file_id" = "yes";
+        # fruit:aapl is a GLOBAL-only knob and is what enables Apple's SMB2
+        # extensions (needed for TM discovery). Harmless for non-fruit shares:
+        # the fruit VFS module is only loaded where `vfs objects` says so.
+        "fruit:aapl" = "yes";
       };
 
+      # vfs_fruit is scoped to the TM shares ONLY — deliberately NOT global.
+      #
+      # It used to live in `global`, which silently applied it to the media share
+      # too (see ./media-samba.nix), with two bad consequences (found 2026-07-13):
+      #   1. `fruit:metadata = stream` converts macOS AppleDouble `._*` sidecars
+      #      into alternate data streams. rsync writes a literal `._x.TMP` and
+      #      renames it, which fruit then mangles -> a storm of
+      #      "mkstemp ... Permission denied (13)" / "rename ... No such file" on
+      #      every `._*` and `.DS_Store` while the real payload copied fine.
+      #   2. `fruit:time machine = yes` advertised /srv/media as a Time Machine
+      #      target, which it very much is not.
+      # Keep these per-share. The media share must stay plain SMB.
       tm-markus = {
         path = "/srv/tm/markus";
         "valid users" = "markus";
         "read only" = "no";
         browseable = "yes";
+        "vfs objects" = "catia fruit streams_xattr";
+        "fruit:time machine" = "yes";
+        "fruit:metadata" = "stream";
         "fruit:time machine max size" = "2500G"; # belt-and-suspenders alongside the ZFS quota
       };
 
@@ -45,6 +60,9 @@
         "valid users" = "mailina";
         "read only" = "no";
         browseable = "yes";
+        "vfs objects" = "catia fruit streams_xattr";
+        "fruit:time machine" = "yes";
+        "fruit:metadata" = "stream";
         "fruit:time machine max size" = "2500G";
       };
     };
