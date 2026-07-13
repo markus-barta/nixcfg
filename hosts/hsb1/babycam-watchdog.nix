@@ -73,6 +73,16 @@ let
   # The kiosk session's PipeWire/PulseAudio lives here (uid 1001 = kiosk).
   kioskRuntimeDir = "/run/user/1001";
 
+  # The canonical kiosk launcher, Home-Manager-managed from
+  # hosts/hsb1/files/kiosk-autostart.sh. Re-running it IS the recovery: it kills
+  # the old VLC and starts a fresh one. Deliberately reused rather than
+  # reimplemented, so there is exactly one definition of how the babycam starts.
+  launcher = "/home/kiosk/.config/openbox/autostart";
+
+  # The launcher's shebang is `#!/bin/bash`, which does not exist on NixOS, so
+  # it must be invoked as an ARGUMENT to a real bash rather than executed.
+  bashBin = lib.getExe pkgs.bash;
+
   # Fail toward AUDIBLE. If we have never seen a command (fresh state dir),
   # assume the monitor is meant to make noise. A wrong "loud" is an annoyance;
   # a wrong "silent" is the entire reason this ticket exists.
@@ -90,8 +100,17 @@ let
     runtimeInputs = with pkgs; [
       procps # pgrep
       pulseaudio # pactl
-      netcat # VLC telnet
+      # netcat-openbsd, NOT `pkgs.netcat` (= libressl's nc). Both connect and
+      # both SEND fine — which is why mqtt-volume-control has used pkgs.netcat
+      # happily for years; it never reads a reply. But libressl's nc tears the
+      # socket down on stdin EOF instead of half-closing, so VLC's RESPONSE is
+      # never read back. This probe is the first code here that needs the reply,
+      # and with libressl's nc it saw silence and mis-reported a perfectly
+      # healthy VLC as VLC_UNRESPONSIVE — then "healed" it. (Caught 2026-07-13
+      # on the first deploy.)
+      netcat-openbsd # VLC telnet
       mosquitto # mosquitto_pub
+      systemd # systemd-run, for launching VLC outside our own cgroup
       gawk
       gnused
       gnugrep
@@ -100,6 +119,10 @@ let
     ];
     text = ''
       export XDG_RUNTIME_DIR="${kioskRuntimeDir}"
+      # Needed by `pactl` to find the kiosk's PipeWire, and by `systemd-run
+      # --user` to reach the kiosk's user manager. A system service started with
+      # User=kiosk gets neither of these for free.
+      export DBUS_SESSION_BUS_ADDRESS="unix:path=${kioskRuntimeDir}/bus"
 
       log() { logger -t babycam-watchdog "$*"; }
 
@@ -254,7 +277,40 @@ let
               # Everything else needs the pipeline rebuilt. The launcher now
               # genuinely kills the old VLC (commit 945a7be1) instead of
               # silently no-op'ing and leaving a second, broken instance behind.
-              DISPLAY=:0 /home/kiosk/.config/openbox/autostart >/dev/null 2>&1 || true
+              #
+              # Its output is LOGGED, not discarded. A heal that fails silently
+              # is the very disease this ticket exists to cure — on the first
+              # deploy the launcher failed here and `>/dev/null 2>&1 || true`
+              # hid it completely, leaving "healed=true" in the journal next to
+              # a VLC whose PID had plainly never changed.
+              #
+              # Three non-obvious things are load-bearing here:
+              #
+              # 1. `bash <script>`, NOT `<script>`. The launcher's shebang is
+              #    `#!/bin/bash` and NIXOS HAS NO /bin/bash. Openbox runs the
+              #    autostart through a shell at session start, so the bogus
+              #    shebang never mattered there — but exec'ing it directly dies
+              #    instantly with ENOENT. This was the real first-deploy failure.
+              #
+              # 2. systemd-run --user --scope. VLC must NOT be spawned inside
+              #    this oneshot's cgroup: systemd tears that cgroup down when
+              #    the unit finishes, so it would kill the very VLC it just
+              #    started. A transient scope under the kiosk's own user manager
+              #    outlives us — that is where the X session's processes belong.
+              #
+              # 3. An explicit PATH. The launcher calls `vlc`, `xset`, `pgrep`
+              #    and `pkill` bare, expecting a login shell's PATH. A systemd
+              #    service has no such thing.
+              heal_rc=0
+              heal_out="$(systemd-run --user --scope --collect --quiet \
+                --setenv=DISPLAY=:0 \
+                --setenv=PATH=/run/current-system/sw/bin \
+                ${bashBin} ${launcher} 2>&1)" || heal_rc=$?
+              if [ "$heal_rc" -eq 0 ]; then
+                log "launcher ok: $(echo "$heal_out" | tr '\n' ' ')"
+              else
+                log "ERROR: launcher FAILED (exit $heal_rc): $(echo "$heal_out" | tr '\n' ' ')"
+              fi
               sleep 8
               # A FRESH VLC COMES UP AT VOLUME 0. Without this line the "fix"
               # would merely convert one silent failure into another.
@@ -338,6 +394,10 @@ in
       Type = "oneshot";
       ExecStart = lib.getExe watchdog;
       User = "kiosk";
+      # Bounded so a hung telnet or a wedged launcher can never leave the unit
+      # running into the next tick. Worst realistic case is ~30s (two 8s telnet
+      # timeouts + a 4s sample gap + an 8s post-heal settle).
+      TimeoutStartSec = "120s";
       # Shared with mqtt-volume-control, which records the user's intent here.
       StateDirectory = "babycam-watchdog";
       StateDirectoryMode = "0750";
