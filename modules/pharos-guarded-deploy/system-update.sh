@@ -25,7 +25,7 @@ if ! jq -e --arg host "$HOST" '
   and (.id | type == "string" and test("^[a-z0-9][a-z0-9._-]{0,159}$"))
   and (keys | sort == ["host", "id", "phase", "schema", "ticket", "version"])
 ' "$REQUEST_FILE" >/dev/null; then
-  printf 'pharos_system_update=failed reason=invalid_local_request value_returned=false\n' >&2
+  printf 'pharos_system_update=failed failure_gate=input rollback=not_required value_returned=false\n' >&2
   exit 1
 fi
 
@@ -37,12 +37,23 @@ repo_dir="$action_dir/nixcfg"
 internal_file="$action_dir/internal.json"
 result_file="$action_dir/result.json"
 detail_log="$action_dir/detail.log"
+invocation_file="$action_dir/last-invocation"
 stage='preflight'
 switch_attempted=0
 old_system=''
+backup_validated=false
+switch_passed=false
+reboot_observed=false
+kernel_verified=false
+rollback_available=false
+recovery_retry=false
 
 mkdir -p "$action_dir"
 chmod 0700 "$action_dir"
+invocation_tmp="${invocation_file}.tmp"
+printf 'phase=%s invoked_at=%s\n' "$request_phase" "$(date -u +%FT%T.%NZ)" >"$invocation_tmp"
+chmod 0600 "$invocation_tmp"
+mv "$invocation_tmp" "$invocation_file"
 touch "$detail_log"
 chmod 0600 "$detail_log"
 exec 9>"$STATE_DIR/deploy.lock"
@@ -76,18 +87,72 @@ write_public_result() {
   mv "$tmp" "$result_file"
 }
 
+write_action_result() {
+  local failure_gate=${1:-}
+  local recovery_mode=${2:-}
+  local output_path=$3
+
+  jq -n \
+    --argjson backup_validated "$backup_validated" \
+    --argjson switch_passed "$switch_passed" \
+    --argjson reboot_observed "$reboot_observed" \
+    --argjson kernel_verified "$kernel_verified" \
+    --argjson rollback_available "$rollback_available" \
+    --arg failure_gate "$failure_gate" \
+    --arg recovery_mode "$recovery_mode" \
+    '{
+      backup_validated:$backup_validated,
+      switch_passed:$switch_passed,
+      reboot_observed:$reboot_observed,
+      kernel_verified:$kernel_verified,
+      rollback_available:$rollback_available,
+      failure_gate:(if $failure_gate == "" then null else $failure_gate end),
+      recovery_mode:(if $recovery_mode == "" then null else $recovery_mode end)
+    }' >"$output_path"
+  chmod 0600 "$output_path"
+}
+
+failure_gate_for_stage() {
+  case "$1" in
+  input) printf '%s\n' input ;;
+  preflight | source) printf '%s\n' preflight ;;
+  all_host_eval | all_host_evaluation) printf '%s\n' all_host_evaluation ;;
+  target_build) printf '%s\n' target_build ;;
+  backup_readiness) printf '%s\n' backup_readiness ;;
+  review_binding) printf '%s\n' review_binding ;;
+  fresh_backup) printf '%s\n' fresh_backup ;;
+  switch) printf '%s\n' switch ;;
+  schedule_reboot | reboot_schedule) printf '%s\n' reboot_schedule ;;
+  post_reboot_validation | reboot_timeout | boot_change) printf '%s\n' boot_change ;;
+  system_identity) printf '%s\n' system_identity ;;
+  revision_identity) printf '%s\n' revision_identity ;;
+  kernel) printf '%s\n' kernel ;;
+  rollback) printf '%s\n' rollback ;;
+  storage) printf '%s\n' storage ;;
+  failed_units) printf '%s\n' failed_units ;;
+  required_services) printf '%s\n' required_services ;;
+  heartbeat) printf '%s\n' heartbeat ;;
+  *) printf '%s\n' managed_run ;;
+  esac
+}
+
 write_failure() {
+  local failure_gate=$1
   local null_file="$action_dir/null.json"
+  local action_result_file="$action_dir/action-result.json"
   printf 'null\n' >"$null_file"
   chmod 0600 "$null_file"
-  write_public_result failed "$null_file" "$null_file"
+  write_action_result "$failure_gate" '' "$action_result_file"
+  write_public_result failed "$null_file" "$action_result_file"
 }
 
 on_error() {
   local status=$?
   local rollback='not_required'
+  local failure_gate
   trap - ERR
   set +e
+  failure_gate=$(failure_gate_for_stage "$stage")
   if [ "$switch_attempted" -eq 1 ] && [ -n "$old_system" ] && [ -x "$old_system/bin/switch-to-configuration" ]; then
     if [ "$(readlink -f /run/current-system)" = "$old_system" ]; then
       rollback='not_required'
@@ -99,9 +164,9 @@ on_error() {
       fi
     fi
   fi
-  write_failure
-  printf 'pharos_system_update=failed phase=%s stage=%s rollback=%s value_returned=false\n' \
-    "$request_phase" "$stage" "$rollback" >&2
+  write_failure "$failure_gate"
+  printf 'pharos_system_update=failed phase=%s failure_gate=%s rollback=%s value_returned=false\n' \
+    "$request_phase" "$failure_gate" "$rollback" >&2
   exit "$status"
 }
 trap on_error ERR
@@ -120,6 +185,7 @@ if [ -f "$result_file" ] && jq -e --arg phase "$request_phase" '
   and .phase == $phase
   and .outcome == "failed"
 ' "$result_file" >/dev/null 2>&1; then
+  recovery_retry=true
   printf 'pharos_system_update=recovery_retry phase=%s value_returned=false\n' "$request_phase"
 fi
 
@@ -147,9 +213,13 @@ safe_kernel() {
   [[ "$1" =~ ^[A-Za-z0-9._+-]{1,80}$ ]]
 }
 
+safe_revision() {
+  [[ "$1" =~ ^[0-9a-f]{40,64}$ ]]
+}
+
 case "$request_phase" in
 review)
-  stage='source'
+  stage='preflight'
   [ ! -e "$repo_dir" ]
   git clone --quiet --branch main --single-branch "$REPO_URL" "$repo_dir" >>"$detail_log" 2>&1
   target_revision=$(git -C "$repo_dir" rev-parse HEAD)
@@ -187,7 +257,7 @@ review)
   [ "$(wc -l <"$changed_areas" | tr -d ' ')" -le 24 ]
   grep -Eq '^[a-z0-9._-]+$' "$changed_areas" || [ ! -s "$changed_areas" ]
 
-  stage='all_host_eval'
+  stage='all_host_evaluation'
   nix eval --no-update-lock-file --json \
     "$repo_dir#nixosConfigurations" \
     --apply 'configs: builtins.attrNames configs' \
@@ -294,6 +364,7 @@ apply)
 
   stage='fresh_backup'
   apply_snapshot=$(validated_snapshot preswitch)
+  backup_validated=true
   old_system=$(readlink -f /run/current-system)
   boot_id=$(tr -d '\r\n' </proc/sys/kernel/random/boot_id)
   printf '%s\n' "$old_system" >"$STATE_DIR/rollback-system.tmp"
@@ -304,15 +375,19 @@ apply)
   switch_attempted=1
   "$target_system/bin/switch-to-configuration" switch >>"$detail_log" 2>&1
   [ "$(readlink -f /run/current-system)" = "$target_system" ]
+  stage='revision_identity'
   [ "$(tr -d '\r\n' </etc/pharos/deployed-revision)" = "$target_revision" ]
+  switch_passed=true
+  stage='kernel'
   mapfile -t configured_kernels < <(
     find -L /run/current-system/kernel-modules/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
   )
   [ "${#configured_kernels[@]}" -eq 1 ]
   [ "${configured_kernels[0]}" = "$expected_kernel" ]
+  stage='failed_units'
   [ "$(systemctl --failed --no-legend | wc -l | tr -d ' ')" -eq 0 ]
 
-  stage='schedule_reboot'
+  stage='reboot_schedule'
   switched_at=$(date -u +%FT%TZ)
   reboot_deadline_epoch=$(($(date -u +%s) + REBOOT_TIMEOUT_SECONDS))
   internal_tmp="${internal_file}.tmp"
@@ -339,7 +414,7 @@ apply)
   ;;
 
 resume)
-  stage='post_reboot_validation'
+  stage='boot_change'
   jq -e --arg id "$action_id" --arg host "$HOST" '
     .schema == "inspr.pharos.system-update-local.v1"
     and .version == 1
@@ -347,33 +422,97 @@ resume)
     and .host == $host
     and .ticket == "PHAROS-126"
     and .status == "rebooting"
+    and (.target_revision | type == "string" and test("^[0-9a-f]{40,64}$"))
+    and (.target_system | type == "string" and startswith("/nix/store/"))
+    and (.expected_kernel | type == "string" and length > 0 and length <= 80)
+    and (.apply_snapshot | type == "string" and length > 0)
   ' "$internal_file" >/dev/null
+  backup_validated=true
+  switch_passed=true
   target_revision=$(jq -r '.target_revision' "$internal_file")
   target_system=$(jq -r '.target_system' "$internal_file")
   expected_kernel=$(jq -r '.expected_kernel' "$internal_file")
   previous_boot_id=$(jq -r '.boot_id_before' "$internal_file")
   current_boot_id=$(tr -d '\r\n' </proc/sys/kernel/random/boot_id)
   if [ "$current_boot_id" = "$previous_boot_id" ]; then
-    stage='reboot_timeout'
     false
   fi
-  [ "$(readlink -f /run/current-system)" = "$target_system" ]
-  [ "$(tr -d '\r\n' </etc/pharos/deployed-revision)" = "$target_revision" ]
-  [ "$(uname -r)" = "$expected_kernel" ]
-  [ -x "$STATE_DIR/rollback-system/bin/switch-to-configuration" ] ||
-    [ -x "$(tr -d '\r\n' <"$STATE_DIR/rollback-system")/bin/switch-to-configuration" ]
+  reboot_observed=true
+
+  stage='system_identity'
+  current_system=$(readlink -f /run/current-system)
+  [[ "$current_system" = /nix/store/* ]]
+  [ -x "$current_system/bin/switch-to-configuration" ]
+  revision_marker=$(readlink -f /etc/pharos/deployed-revision)
+  [[ "$revision_marker" = /nix/store/* ]]
+  [ -f "$revision_marker" ]
+  nix-store --query --requisites "$current_system" >"$action_dir/current-system-requisites"
+  chmod 0600 "$action_dir/current-system-requisites"
+  grep -Fxq -- "$revision_marker" "$action_dir/current-system-requisites"
+
+  stage='revision_identity'
+  current_revision=$(tr -d '\r\n' </etc/pharos/deployed-revision)
+  safe_revision "$current_revision"
+  safe_revision "$target_revision"
+  if [ "$current_system" = "$target_system" ]; then
+    [ "$current_revision" = "$target_revision" ]
+    recovery_mode='exact_reviewed_system'
+  else
+    [ "$current_revision" != "$target_revision" ]
+    git -C "$repo_dir" fetch --quiet origin \
+      main:refs/remotes/origin/main >>"$detail_log" 2>&1
+    git -C "$repo_dir" cat-file -e "${target_revision}^{commit}"
+    git -C "$repo_dir" cat-file -e "${current_revision}^{commit}"
+    git -C "$repo_dir" merge-base --is-ancestor "$target_revision" "$current_revision"
+    git -C "$repo_dir" merge-base --is-ancestor \
+      "$current_revision" refs/remotes/origin/main
+    recovery_mode='trusted_descendant'
+  fi
+
+  stage='kernel'
+  mapfile -t current_kernels < <(
+    find -L "$current_system/kernel-modules/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
+  )
+  [ "${#current_kernels[@]}" -eq 1 ]
+  current_expected_kernel=${current_kernels[0]}
+  safe_kernel "$expected_kernel"
+  safe_kernel "$current_expected_kernel"
+  [ "$(uname -r)" = "$current_expected_kernel" ]
+  if [ "$recovery_mode" = exact_reviewed_system ]; then
+    [ "$current_expected_kernel" = "$expected_kernel" ]
+  fi
+  kernel_verified=true
+
+  stage='rollback'
+  rollback_system=''
+  if [ -d "$STATE_DIR/rollback-system" ]; then
+    rollback_system=$(readlink -f "$STATE_DIR/rollback-system")
+  elif [ -r "$STATE_DIR/rollback-system" ]; then
+    rollback_system=$(tr -d '\r\n' <"$STATE_DIR/rollback-system")
+  fi
+  [[ "$rollback_system" = /nix/store/* ]]
+  [ -x "$rollback_system/bin/switch-to-configuration" ]
+  rollback_available=true
+
+  stage='storage'
   zpool status -x "$ZFS_POOL" >"$action_dir/zpool-resume.log" 2>&1
   grep -Eq "pool '$ZFS_POOL' is healthy" "$action_dir/zpool-resume.log"
-  [ "$(systemctl --failed --no-legend | wc -l | tr -d ' ')" -eq 0 ]
-  curl --fail --silent --show-error --max-time 10 http://127.0.0.1/ >/dev/null
 
-  boot_epoch=$(awk '$1 == "btime" { print $2 }' /proc/stat)
-  boot_time=$(date -u -d "@$boot_epoch" +%FT%TZ)
+  stage='failed_units'
+  [ "$(systemctl --failed --no-legend | wc -l | tr -d ' ')" -eq 0 ]
+
+  verification_started_at=$(date -u +%FT%TZ)
+  stage='required_services'
+  curl --fail --silent --show-error --max-time 10 http://127.0.0.1/ >/dev/null
+  [ "$(docker inspect --format '{{.State.Running}}' "$BEACON_CONTAINER" 2>/dev/null || true)" = true ]
+  [ "$(docker inspect --format '{{.State.Running}}' "$HOSTDASH_CONTAINER" 2>/dev/null || true)" = true ]
+
+  stage='heartbeat'
   beacon_ok=false
   for _ in $(seq 1 60); do
     if [ "$(docker inspect --format '{{.State.Running}}' "$BEACON_CONTAINER" 2>/dev/null || true)" = true ] &&
       [ "$(docker inspect --format '{{.State.Running}}' "$HOSTDASH_CONTAINER" 2>/dev/null || true)" = true ] &&
-      docker logs --since "$boot_time" "$BEACON_CONTAINER" 2>&1 |
+      docker logs --since "$verification_started_at" "$BEACON_CONTAINER" 2>&1 |
       grep -Eq "reported $HOST .*HTTP (200|204)"; then
       beacon_ok=true
       break
@@ -387,15 +526,13 @@ resume)
     '.status=$status | .completed_at=$completed_at' "$internal_file" >"$internal_tmp"
   chmod 0600 "$internal_tmp"
   mv "$internal_tmp" "$internal_file"
-  jq -n '{
-    backup_validated:true,
-    switch_passed:true,
-    reboot_observed:true,
-    kernel_verified:true,
-    rollback_available:true
-  }' >"$action_dir/action-result.json"
+  result_recovery_mode=''
+  if [ "$recovery_retry" = true ]; then
+    result_recovery_mode=$recovery_mode
+  fi
+  write_action_result '' "$result_recovery_mode" "$action_dir/action-result.json"
   printf 'null\n' >"$action_dir/null.json"
-  chmod 0600 "$action_dir/action-result.json" "$action_dir/null.json"
+  chmod 0600 "$action_dir/null.json"
   write_public_result succeeded "$action_dir/null.json" "$action_dir/action-result.json"
   ;;
 esac
