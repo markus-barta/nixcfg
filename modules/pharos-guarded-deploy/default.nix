@@ -106,6 +106,7 @@ let
           "@BEACON_CONTAINER@"
           "@HOSTDASH_CONTAINER@"
           "@STATE_DIR@"
+          "@REBOOT_TIMEOUT_SECONDS@"
         ]
         [
           host
@@ -114,6 +115,7 @@ let
           cfg.beaconContainer
           cfg.hostdashContainer
           "/var/lib/pharos-guarded-deploy"
+          (toString cfg.rebootTimeoutSeconds)
         ];
   };
 
@@ -188,12 +190,16 @@ let
           "@PHAROS_URL@"
           "@GUARDED_DEPLOY@"
           "@STATE_DIR@"
+          "@BOOT_ID_FILE@"
+          "@REBOOT_TIMEOUT_SECONDS@"
         ]
         [
           host
           cfg.pharosUrl
           "${review}/bin/pharos-guarded-deploy"
           "/var/lib/pharos-guarded-deploy"
+          "/proc/sys/kernel/random/boot_id"
+          (toString cfg.rebootTimeoutSeconds)
         ];
   };
 in
@@ -242,6 +248,11 @@ in
       type = lib.types.ints.between 10 300;
       default = 15;
       description = "Polling cadence for target-local guarded action leases.";
+    };
+    rebootTimeoutSeconds = lib.mkOption {
+      type = lib.types.ints.between 120 3600;
+      default = 600;
+      description = "Maximum time to await the scheduled reboot before resume becomes action-required.";
     };
   };
 

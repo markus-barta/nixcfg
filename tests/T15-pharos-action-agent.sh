@@ -54,6 +54,10 @@ grep -Fq 'write_public_result rebooting' "$runner"
 grep -Fq 'reboot_observed:true' "$runner"
 grep -Fq 'kernel_verified:true' "$runner"
 grep -Fq 'rollback_available:true' "$runner"
+grep -Fq 'pharos_action_agent=deferred reason=waiting_for_reboot' "$agent_source"
+grep -Fq 'pharos_action_agent=timeout reason=reboot_not_observed' "$agent_source"
+grep -Fq 'pharos_system_update=recovery_retry phase=%s value_returned=false' "$runner"
+grep -Fq '(.outcome == "succeeded" or .outcome == "rebooting")' "$runner"
 
 fixture_root=$(mktemp -d)
 trap 'rm -r "$fixture_root"' EXIT
@@ -61,13 +65,17 @@ state_dir="$fixture_root/state"
 fake_bin="$fixture_root/bin"
 fake_guard="$fixture_root/pharos-guarded-deploy"
 agent="$fixture_root/pharos-host-action-agent"
+boot_id_file="$fixture_root/boot-id"
 mkdir -p "$state_dir" "$fake_bin"
+printf 'boot-current\n' >"$boot_id_file"
 
 sed \
   -e 's|@HOST@|hsb8|g' \
   -e 's|@PHAROS_URL@|http://100.64.0.4:8088|g' \
   -e "s|@GUARDED_DEPLOY@|$fake_guard|g" \
   -e "s|@STATE_DIR@|$state_dir|g" \
+  -e "s|@BOOT_ID_FILE@|$boot_id_file|g" \
+  -e 's|@REBOOT_TIMEOUT_SECONDS@|600|g' \
   "$agent_source" >"$agent"
 chmod +x "$agent"
 
@@ -250,6 +258,8 @@ sed \
   -e 's|@PHAROS_URL@|http://100.64.0.4:8088|g' \
   -e "s|@GUARDED_DEPLOY@|$fake_guard|g" \
   -e "s|@STATE_DIR@|$failure_state_dir|g" \
+  -e "s|@BOOT_ID_FILE@|$boot_id_file|g" \
+  -e 's|@REBOOT_TIMEOUT_SECONDS@|600|g' \
   "$agent_source" >"$failure_agent"
 chmod +x "$failure_agent"
 failure_output=$(
@@ -276,5 +286,83 @@ if grep -Fq "$token" <<<"$failure_output" || grep -Fq "$token" "$failure_post_bo
   echo 'beacon token escaped the guarded failure path' >&2
   exit 1
 fi
+
+waiting_state_dir="$fixture_root/waiting-state"
+waiting_agent="$fixture_root/pharos-host-action-agent-waiting"
+waiting_arg_log="$fixture_root/waiting-curl-args"
+waiting_action_dir="$waiting_state_dir/actions/action-update-restart-hsb8-waiting"
+mkdir -p "$waiting_action_dir"
+cat >"$waiting_action_dir/internal.json" <<'JSON'
+{
+  "schema": "inspr.pharos.system-update-local.v1",
+  "version": 1,
+  "id": "action-update-restart-hsb8-waiting",
+  "host": "hsb8",
+  "ticket": "PHAROS-126",
+  "status": "rebooting",
+  "boot_id_before": "boot-current",
+  "switched_at": "2026-07-13T05:04:32Z",
+  "reboot_deadline_epoch": 4102444800
+}
+JSON
+sed \
+  -e 's|@HOST@|hsb8|g' \
+  -e 's|@PHAROS_URL@|http://100.64.0.4:8088|g' \
+  -e "s|@GUARDED_DEPLOY@|$fake_guard|g" \
+  -e "s|@STATE_DIR@|$waiting_state_dir|g" \
+  -e "s|@BOOT_ID_FILE@|$boot_id_file|g" \
+  -e 's|@REBOOT_TIMEOUT_SECONDS@|600|g' \
+  "$agent_source" >"$waiting_agent"
+chmod +x "$waiting_agent"
+
+waiting_output=$(
+  PATH="$fake_bin:$PATH" \
+    PHAROS_TOKEN="$token" \
+    FAKE_TOKEN="$token" \
+    FAKE_ARG_LOG="$waiting_arg_log" \
+    FAKE_LEAK_LOG="$leak_log" \
+    FAKE_POST_BODY="$post_body" \
+    FAKE_GUARD_LOG="$guard_log" \
+    FAKE_STATE_DIR="$waiting_state_dir" \
+    "$waiting_agent" 2>&1
+)
+grep -Fxq 'pharos_action_agent=deferred reason=waiting_for_reboot' <<<"$waiting_output"
+[ ! -e "$waiting_arg_log" ]
+
+printf 'boot-new\n' >"$boot_id_file"
+post_boot_output=$(
+  PATH="$fake_bin:$PATH" \
+    PHAROS_TOKEN="$token" \
+    FAKE_TOKEN="$token" \
+    FAKE_ARG_LOG="$waiting_arg_log" \
+    FAKE_LEAK_LOG="$leak_log" \
+    FAKE_POST_BODY="$post_body" \
+    FAKE_GUARD_LOG="$guard_log" \
+    FAKE_STATE_DIR="$waiting_state_dir" \
+    FAKE_CURL_UNREACHABLE=1 \
+    "$waiting_agent" 2>&1
+)
+grep -Fxq 'pharos_action_agent=deferred reason=claim_unreachable' <<<"$post_boot_output"
+[ -s "$waiting_arg_log" ]
+
+printf 'boot-current\n' >"$boot_id_file"
+jq '.reboot_deadline_epoch = 1' "$waiting_action_dir/internal.json" \
+  >"$waiting_action_dir/internal.json.tmp"
+mv "$waiting_action_dir/internal.json.tmp" "$waiting_action_dir/internal.json"
+timeout_output=$(
+  PATH="$fake_bin:$PATH" \
+    PHAROS_TOKEN="$token" \
+    FAKE_TOKEN="$token" \
+    FAKE_ARG_LOG="$waiting_arg_log" \
+    FAKE_LEAK_LOG="$leak_log" \
+    FAKE_POST_BODY="$post_body" \
+    FAKE_GUARD_LOG="$guard_log" \
+    FAKE_STATE_DIR="$waiting_state_dir" \
+    FAKE_CURL_UNREACHABLE=1 \
+    "$waiting_agent" 2>&1
+)
+grep -Fq 'pharos_action_agent=timeout reason=reboot_not_observed' <<<"$timeout_output"
+grep -Fq 'pharos_action_agent=deferred reason=claim_unreachable' <<<"$timeout_output"
+[ ! -e "$leak_log" ]
 
 echo 'pharos_action_agent=passed'
