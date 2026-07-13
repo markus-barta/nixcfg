@@ -18,6 +18,7 @@ in
     ./media-samba.nix # SMB share for /srv/media (Finder access) — independent of tm-*.nix
     ./tm-pool.nix # external 6TB USB — Time Machine ZFS pool (markus/mailina quotas + sanoid)
     ./tm-samba.nix # Samba + vfs_fruit + Avahi for the tm pool's two shares
+    ./babycam-watchdog.nix # NIX-151 — probe + self-heal + MQTT telemetry for the kiosk babycam
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/funkeykid.nix
@@ -468,6 +469,22 @@ in
             if [[ "$volume" =~ ^[0-9]+$ ]] && (( volume >= 0 && volume <= 512 )); then
               log "Valid volume received: $volume"
 
+              # NIX-151: record the user's INTENT the moment it is expressed.
+              #
+              # This file is the reference the babycam watchdog reconciles
+              # against, and it is why the watchdog can tell a DELIBERATE mute
+              # (volume 0 at bedtime, with the bedroom door open — a nightly
+              # habit) apart from an ACCIDENTAL one (a restarted VLC coming up
+              # at 0 and silently staying there, which is the NIX-151 bug).
+              # Without it, any watchdog would have to guess, and guessing wrong
+              # in either direction is unacceptable: un-muting the house at 3am,
+              # or leaving a baby monitor mute.
+              #
+              # Written BEFORE the telnet push, on purpose: this records what
+              # was ASKED FOR, not what succeeded. If the push below fails, the
+              # watchdog sees the mismatch and re-applies it within a minute.
+              echo "$volume" > /var/lib/babycam-watchdog/desired-volume
+
               # Get Tapo camera password (used for VLC authentication)
               if [ -f "$TAPO_ENV_FILE" ]; then
                 tapo_password=$(${pkgs.gnused}/bin/sed -n "s/TAPO_C210_PASSWORD=//p" "$TAPO_ENV_FILE")
@@ -498,6 +515,10 @@ in
       Restart = "always";
       RestartSec = "5s";
       User = "kiosk";
+      # NIX-151: shared with babycam-watchdog.service (also User=kiosk), which
+      # reads desired-volume from here. systemd creates it as kiosk:kiosk.
+      StateDirectory = "babycam-watchdog";
+      StateDirectoryMode = "0750";
     };
   };
 
