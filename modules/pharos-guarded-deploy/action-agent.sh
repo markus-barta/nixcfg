@@ -5,12 +5,17 @@ readonly HOST='@HOST@'
 readonly PHAROS_URL='@PHAROS_URL@'
 readonly STATE_DIR='@STATE_DIR@'
 readonly GUARDED_DEPLOY='@GUARDED_DEPLOY@'
+readonly BOOT_ID_FILE='@BOOT_ID_FILE@'
+readonly REBOOT_TIMEOUT_SECONDS='@REBOOT_TIMEOUT_SECONDS@'
 readonly REQUEST_FILE="$STATE_DIR/active-agent-request.json"
 
 [ "$(id -u)" -eq 0 ]
 [[ "$PHAROS_URL" =~ ^http://[0-9.]+:[0-9]+$ ]]
 [[ -n "${PHAROS_TOKEN:-}" ]]
 [[ "$PHAROS_TOKEN" =~ ^[A-Za-z0-9._~+/=-]{16,512}$ ]]
+[[ "$REBOOT_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]
+[ "$REBOOT_TIMEOUT_SECONDS" -ge 120 ]
+[ -r "$BOOT_ID_FILE" ]
 
 mkdir -p "$STATE_DIR" "$STATE_DIR/actions" "$STATE_DIR/agent-runs"
 chmod 0700 "$STATE_DIR" "$STATE_DIR/actions" "$STATE_DIR/agent-runs"
@@ -33,6 +38,63 @@ trap cleanup EXIT
 printf 'header = "Authorization: Bearer %s"\n' "$PHAROS_TOKEN" >"$auth_config"
 chmod 0600 "$auth_config"
 unset PHAROS_TOKEN
+
+reboot_wait_gate() {
+  local candidate
+  local pending=''
+  local current_boot
+  local previous_boot
+  local deadline
+  local switched_at
+  local switched_epoch
+  local now
+
+  while IFS= read -r -d '' candidate; do
+    if ! jq -e --arg host "$HOST" '
+      .schema == "inspr.pharos.system-update-local.v1"
+      and .version == 1
+      and .host == $host
+      and .ticket == "PHAROS-126"
+      and .status == "rebooting"
+      and (.boot_id_before | type == "string" and length > 0 and length <= 128)
+      and ((.reboot_deadline_epoch == null) or (.reboot_deadline_epoch | type == "number" and floor == . and . > 0))
+    ' "$candidate" >/dev/null 2>&1; then
+      continue
+    fi
+    if [ -n "$pending" ]; then
+      printf 'pharos_action_agent=blocked reason=ambiguous_reboot_state\n' >&2
+      exit 1
+    fi
+    pending=$candidate
+  done < <(find "$STATE_DIR/actions" -mindepth 2 -maxdepth 2 -name internal.json -type f -print0)
+
+  [ -n "$pending" ] || return 0
+  current_boot=$(tr -d '\r\n' <"$BOOT_ID_FILE")
+  previous_boot=$(jq -r '.boot_id_before' "$pending")
+  [ -n "$current_boot" ]
+  if [ "$current_boot" != "$previous_boot" ]; then
+    return 0
+  fi
+
+  deadline=$(jq -r '.reboot_deadline_epoch // 0' "$pending")
+  if [ "$deadline" -le 0 ]; then
+    switched_at=$(jq -r '.switched_at // empty' "$pending")
+    if [ -z "$switched_at" ] || ! switched_epoch=$(date -u -d "$switched_at" +%s 2>/dev/null); then
+      printf 'pharos_action_agent=blocked reason=invalid_reboot_state\n' >&2
+      exit 1
+    fi
+    deadline=$((switched_epoch + REBOOT_TIMEOUT_SECONDS))
+  fi
+  now=$(date -u +%s)
+  if [ "$now" -lt "$deadline" ]; then
+    printf 'pharos_action_agent=deferred reason=waiting_for_reboot\n'
+    exit 0
+  fi
+
+  printf 'pharos_action_agent=timeout reason=reboot_not_observed\n' >&2
+}
+
+reboot_wait_gate
 
 curl_json() {
   local method=$1

@@ -7,10 +7,13 @@ readonly REPO_URL='@REPO_URL@'
 readonly BEACON_CONTAINER='@BEACON_CONTAINER@'
 readonly HOSTDASH_CONTAINER='@HOSTDASH_CONTAINER@'
 readonly STATE_DIR='@STATE_DIR@'
+readonly REBOOT_TIMEOUT_SECONDS='@REBOOT_TIMEOUT_SECONDS@'
 readonly REQUEST_FILE="$STATE_DIR/active-agent-request.json"
 
 [ "$(id -u)" -eq 0 ]
 [ -n "${PHAROS_DEPLOY_CAPABILITY:-}" ]
+[[ "$REBOOT_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]
+[ "$REBOOT_TIMEOUT_SECONDS" -ge 120 ]
 unset PHAROS_DEPLOY_CAPABILITY
 
 if ! jq -e --arg host "$HOST" '
@@ -103,11 +106,21 @@ on_error() {
 }
 trap on_error ERR
 
-if [ -f "$result_file" ] && jq -e --arg phase "$request_phase" \
-  '.schema == "inspr.pharos.host-action-agent-result.v1" and .phase == $phase' \
+if [ -f "$result_file" ] && jq -e --arg phase "$request_phase" '
+  .schema == "inspr.pharos.host-action-agent-result.v1"
+  and .phase == $phase
+  and (.outcome == "succeeded" or .outcome == "rebooting")
+' \
   "$result_file" >/dev/null 2>&1; then
   printf 'pharos_system_update=idempotent phase=%s value_returned=false\n' "$request_phase"
   exit 0
+fi
+if [ -f "$result_file" ] && jq -e --arg phase "$request_phase" '
+  .schema == "inspr.pharos.host-action-agent-result.v1"
+  and .phase == $phase
+  and .outcome == "failed"
+' "$result_file" >/dev/null 2>&1; then
+  printf 'pharos_system_update=recovery_retry phase=%s value_returned=false\n' "$request_phase"
 fi
 
 validated_snapshot() {
@@ -301,6 +314,7 @@ apply)
 
   stage='schedule_reboot'
   switched_at=$(date -u +%FT%TZ)
+  reboot_deadline_epoch=$(($(date -u +%s) + REBOOT_TIMEOUT_SECONDS))
   internal_tmp="${internal_file}.tmp"
   jq \
     --arg status rebooting \
@@ -308,7 +322,8 @@ apply)
     --arg apply_snapshot "$apply_snapshot" \
     --arg boot_id "$boot_id" \
     --arg switched_at "$switched_at" \
-    '.status=$status | .old_system=$old_system | .apply_snapshot=$apply_snapshot | .boot_id_before=$boot_id | .switched_at=$switched_at' \
+    --argjson reboot_deadline_epoch "$reboot_deadline_epoch" \
+    '.status=$status | .old_system=$old_system | .apply_snapshot=$apply_snapshot | .boot_id_before=$boot_id | .switched_at=$switched_at | .reboot_deadline_epoch=$reboot_deadline_epoch' \
     "$internal_file" >"$internal_tmp"
   chmod 0600 "$internal_tmp"
   mv "$internal_tmp" "$internal_file"
@@ -337,7 +352,11 @@ resume)
   target_system=$(jq -r '.target_system' "$internal_file")
   expected_kernel=$(jq -r '.expected_kernel' "$internal_file")
   previous_boot_id=$(jq -r '.boot_id_before' "$internal_file")
-  [ "$(tr -d '\r\n' </proc/sys/kernel/random/boot_id)" != "$previous_boot_id" ]
+  current_boot_id=$(tr -d '\r\n' </proc/sys/kernel/random/boot_id)
+  if [ "$current_boot_id" = "$previous_boot_id" ]; then
+    stage='reboot_timeout'
+    false
+  fi
   [ "$(readlink -f /run/current-system)" = "$target_system" ]
   [ "$(tr -d '\r\n' </etc/pharos/deployed-revision)" = "$target_revision" ]
   [ "$(uname -r)" = "$expected_kernel" ]
