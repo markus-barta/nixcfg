@@ -23,4 +23,17 @@
     fsType = "zfs";
     options = [ "nofail" ];
   };
+
+  # Pool root is mba:users (rsync target); markus needs group write to
+  # add/remove files over the SMB share (see ./media-samba.nix) — both are in
+  # group `users`. Only the pool root is asserted here: `z` (not `Z`) so this
+  # never recurses over ~2TB of media on every switch. Nested dirs/files were
+  # normalised once by hand (dirs 0775, files 0664); content arriving later via
+  # rsync inherits the source's modes, so if a fresh import ever lands
+  # group-unwritable dirs again, re-run:
+  #   sudo find /srv/media -type d -exec chmod 775 {} +
+  #   sudo find /srv/media -type f -exec chmod 664 {} +
+  systemd.tmpfiles.rules = [
+    "z /srv/media 0775 mba users -"
+  ];
 }
