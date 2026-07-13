@@ -90,11 +90,31 @@
   # "mailina <password>". Seeded into smbpasswd idempotently on every
   # activation (smbpasswd -a is safe to re-run — it just resets the password
   # to the same value if the account already exists).
+  #
+  # Retries + logs failure (see media-samba.nix for why): on this same
+  # secret's first consumer (the media share), smbpasswd -a failed silently
+  # on the very first activation for a still-unclear reason, and a bare
+  # retry moments later succeeded immediately. `|| true` alone hides that
+  # failure until someone can't authenticate; logger makes it visible in
+  # `journalctl -t tm-samba-passwd`.
   system.activationScripts.tmSambaPasswd = {
     text = ''
       while read -r smbuser smbpass; do
         [ -z "$smbuser" ] && continue
-        printf '%s\n%s\n' "$smbpass" "$smbpass" | ${pkgs.samba}/bin/smbpasswd -s -a "$smbuser" || true
+        ok=0
+        for attempt in 1 2 3; do
+          if printf '%s\n%s\n' "$smbpass" "$smbpass" | ${pkgs.samba}/bin/smbpasswd -s -a "$smbuser"; then
+            ok=1
+            break
+          fi
+          ${pkgs.util-linux}/bin/logger -t tm-samba-passwd "WARN: smbpasswd -a $smbuser failed (attempt $attempt/3), retrying"
+          sleep 2
+        done
+        if [ "$ok" -eq 1 ]; then
+          ${pkgs.util-linux}/bin/logger -t tm-samba-passwd "OK: $smbuser smbpasswd seeded"
+        else
+          ${pkgs.util-linux}/bin/logger -t tm-samba-passwd "ERROR: smbpasswd -a $smbuser failed after 3 attempts — SMB auth for $smbuser will not work until this is re-run"
+        fi
       done < ${config.age.secrets.hsb1-tm-smb-env.path}
     '';
     deps = [ "agenix" ];
