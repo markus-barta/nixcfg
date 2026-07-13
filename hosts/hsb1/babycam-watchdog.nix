@@ -369,13 +369,23 @@ let
               # merely convert one silent failure into another.
               vlc_q "volume $DESIRED" >/dev/null 2>&1 || true
 
-              # Verify by OBSERVATION and say plainly whether it worked. A heal
-              # that reports a success it cannot demonstrate is exactly how this
-              # class of bug survives for months.
-              if [ -n "$(vlc_q status | sed -n 's/.*( state \([a-z]*\) ).*/\1/p')" ]; then
-                log "heal: VLC is back, playing, volume re-applied ($DESIRED)"
+              # Verify by OBSERVATION, and hold the verification to the same
+              # standard as the probe: FRAMES MUST BE MOVING.
+              #
+              # `state playing` is not proof. With the RTSP source gone, a fresh
+              # VLC still reports `( state playing )` — so an earlier version of
+              # this check cheerfully logged "VLC is back, playing" while the
+              # camera was down and the screen showed an error dialog (observed
+              # 2026-07-13, scrypted stopped). A heal that reports a success it
+              # cannot demonstrate is the very disease this ticket exists to
+              # cure; the log must not be the thing that lies.
+              v1="$(vlc_q stats | sed -n 's/.*video decoded *: *\([0-9]*\).*/\1/p' | head -1)"
+              sleep 3
+              v2="$(vlc_q stats | sed -n 's/.*video decoded *: *\([0-9]*\).*/\1/p' | head -1)"
+              if [ -n "$v1" ] && [ -n "$v2" ] && [ "$v1" != "$v2" ]; then
+                log "heal: VLC is back, frames advancing, volume re-applied ($DESIRED)"
               else
-                log "ERROR: heal did NOT restore playback — VLC has no input"
+                log "ERROR: heal did NOT restore playback — VLC decodes nothing (source down?)"
               fi
               ;;
           esac
