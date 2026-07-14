@@ -135,6 +135,91 @@ else
   echo -e "${YELLOW}  ⚠️ INFO: PulseAudio is NOT detected (required for HomePod audio)${NC}"
 fi
 
+# ────────────────────────────────────────────────────────────────────────────────
+# T07.7 - Babycam health watchdog (NIX-151)
+# ────────────────────────────────────────────────────────────────────────────────
+#
+# The babycam went silent twice with a perfect picture and nothing noticed. These
+# tests exist so that can never again be true without something failing loudly.
+
+print_test "T07.7 - Babycam watchdog timer"
+if systemctl is-active --quiet babycam-watchdog.timer; then
+  pass "babycam-watchdog.timer is active"
+else
+  fail "babycam-watchdog.timer is NOT active — nothing is watching the babycam"
+fi
+
+print_test "T07.8 - Watchdog last run did not fail"
+if systemctl is-failed --quiet babycam-watchdog.service; then
+  fail "babycam-watchdog.service is in a failed state"
+else
+  pass "babycam-watchdog.service is not failed"
+fi
+
+print_test "T07.9 - Recorded user intent (desired volume)"
+DESIRED_FILE=/var/lib/babycam-watchdog/desired-volume
+if [[ -r "$DESIRED_FILE" ]]; then
+  DESIRED=$(tr -cd '0-9' <"$DESIRED_FILE")
+  pass "desired-volume recorded: ${DESIRED:-<empty>}"
+else
+  # Not fatal: it is seeded on the watchdog's first run, adopting whatever
+  # volume VLC is already at.
+  echo -e "${YELLOW}  ⚠️ INFO: $DESIRED_FILE absent (seeded on first watchdog run)${NC}"
+  DESIRED=""
+fi
+
+# THE CORE INVARIANT. Everything else is scaffolding around this one line:
+# what the user ASKED FOR must be what VLC is ACTUALLY doing.
+#
+# desired 0 / actual 0     -> healthy. The babycam is muted ON PURPOSE (door open,
+#                             the boy is audible directly). This is a nightly habit
+#                             and must NEVER be reported as a fault.
+# desired 512 / actual 0   -> the NIX-151 bug: a restarted VLC came up silently mute.
+print_test "T07.10 - VLC volume matches the user's intent"
+if ! pgrep -f -- '--telnet-password=' >/dev/null 2>&1; then
+  fail "VLC is not running — babycam is down"
+elif [[ -z "$DESIRED" ]]; then
+  echo -e "${YELLOW}  ⚠️ SKIP: no recorded intent to compare against${NC}"
+elif [[ ! -r /run/agenix/hsb1-tapo-c210-env ]]; then
+  echo -e "${YELLOW}  ⚠️ SKIP: cannot read telnet credentials (run as root)${NC}"
+else
+  # Sourced in a subshell and piped via printf (a bash BUILTIN) so the password
+  # never reaches argv or the journal. And NO trailing `quit`: VLC would close
+  # the connection before flushing its reply, and `nc -q 2` is what lets the
+  # answer actually arrive.
+  ACTUAL=$(
+    set -a
+    # shellcheck source=/dev/null
+    . /run/agenix/hsb1-tapo-c210-env
+    set +a
+    printf '%s\nstatus\n' "$TAPO_C210_PASSWORD" |
+      timeout 10 nc -q 2 localhost 4212 2>/dev/null |
+      sed -n 's/.*( audio volume: \([0-9]*\) ).*/\1/p' | head -1
+  )
+  if [[ -z "$ACTUAL" ]]; then
+    fail "VLC telnet gave no volume — is it holding an input?"
+  elif ((ACTUAL >= DESIRED - 5 && ACTUAL <= DESIRED + 5)); then
+    if ((DESIRED == 0)); then
+      pass "volume $ACTUAL == intent $DESIRED (deliberately MUTED — correct, not a fault)"
+    else
+      pass "volume $ACTUAL == intent $DESIRED (audible)"
+    fi
+  else
+    fail "SILENT-FAILURE: user wants $DESIRED but VLC is at $ACTUAL"
+  fi
+fi
+
+print_test "T07.11 - Babycam audio path is intact"
+# Runs regardless of mute state, ON PURPOSE. The dangerous failure is not a quiet
+# monitor at night; it is the path being broken so that when the volume IS turned
+# up, no sound comes out anyway — while VLC cheerfully reports a healthy volume.
+if sudo -u kiosk XDG_RUNTIME_DIR=/run/user/1001 pactl list sink-inputs 2>/dev/null |
+  grep -q 'application.id = "org.VideoLAN.VLC"'; then
+  pass "VLC has a live PipeWire sink-input (audio can actually reach the speakers)"
+else
+  fail "VLC has NO sink-input — audio is orphaned; volume commands would be a LIE"
+fi
+
 # ════════════════════════════════════════════════════════════════════════════════
 # Summary
 # ════════════════════════════════════════════════════════════════════════════════
