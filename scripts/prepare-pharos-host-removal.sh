@@ -69,15 +69,27 @@ if jq -e --arg host "$host" '.retirements[] | select(.host == $host)' "$retireme
   fail host_already_retired
 fi
 
+preference_declared=false
+if jq -e --arg host "$host" '.hosts[$host] != null' "$preferences_file" >/dev/null; then
+  preference_declared=true
+fi
+
 matching_manifests=()
 while IFS= read -r candidate; do
   if jq -e --arg host "$host" '.host.name == $host' "$candidate" >/dev/null 2>&1; then
     matching_manifests+=("$candidate")
   fi
 done < <(find "$manifest_dir" -maxdepth 1 -type f -name '*.json' -print)
-[[ ${#matching_manifests[@]} -eq 1 ]] || fail declared_manifest_not_unique
-manifest_file=${matching_manifests[0]}
-manifest_name=$(basename -- "$manifest_file")
+[[ ${#matching_manifests[@]} -le 1 ]] || fail declared_manifest_not_unique
+if [[ "$preference_declared" != true && ${#matching_manifests[@]} -eq 0 ]]; then
+  fail host_not_declared
+fi
+manifest_file=
+manifest_name=
+if [[ ${#matching_manifests[@]} -eq 1 ]]; then
+  manifest_file=${matching_manifests[0]}
+  manifest_name=$(basename -- "$manifest_file")
+fi
 
 work_dir=$(mktemp -d)
 cleanup() {
@@ -85,7 +97,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-python3 - "$compose_file" "$manifest_name" <<'PY'
+if [[ -n "$manifest_file" ]]; then
+  python3 - "$compose_file" "$manifest_name" <<'PY'
 import pathlib
 import sys
 
@@ -117,6 +130,7 @@ temporary = path.with_suffix(path.suffix + ".tmp")
 temporary.write_text("".join(updated), encoding="utf-8")
 temporary.replace(path)
 PY
+fi
 
 jq --arg host "$host" 'del(.hosts[$host])' "$preferences_file" >"$work_dir/preferences.json"
 jq -S . "$work_dir/preferences.json" >"$preferences_file"
@@ -139,7 +153,8 @@ jq \
   "$retirements_file" >"$work_dir/retirements.json"
 jq -S . "$work_dir/retirements.json" >"$retirements_file"
 
-python3 - "$manifest_file" <<'PY'
+if [[ -n "$manifest_file" ]]; then
+  python3 - "$manifest_file" <<'PY'
 import pathlib
 import sys
 
@@ -148,6 +163,7 @@ if not path.is_file():
     raise SystemExit("manifest disappeared before removal")
 path.unlink()
 PY
+fi
 
 jq -e --arg host "$host" '.hosts[$host] == null' "$preferences_file" >/dev/null || fail preference_cleanup_failed
 jq -e \
@@ -162,9 +178,11 @@ jq -e \
     and .server_deletion == false
   )] | length == 1' \
   "$retirements_file" >/dev/null || fail retirement_record_failed
-[[ ! -e "$manifest_file" ]] || fail manifest_cleanup_failed
-if grep -Fq "/manifests/$manifest_name" "$compose_file"; then
-  fail compose_manifest_cleanup_failed
+if [[ -n "$manifest_file" ]]; then
+  [[ ! -e "$manifest_file" ]] || fail manifest_cleanup_failed
+  if grep -Fq "/manifests/$manifest_name" "$compose_file"; then
+    fail compose_manifest_cleanup_failed
+  fi
 fi
 
 if [[ ${PHAROS_REMOVAL_FIXTURE:-0} != 1 ]]; then
@@ -176,12 +194,15 @@ if [[ ${PHAROS_REMOVAL_FIXTURE:-0} != 1 ]]; then
       sed -E 's/^.. //' |
       LC_ALL=C sort
   )
-  allowed_paths=(
-    "hosts/csb1/docker/docker-compose.yml"
-    "hosts/csb1/docker/janus/pharos-production/retired-hosts.json"
-    "hosts/csb1/docker/pharos/manifests/$manifest_name"
-    "modules/pharos-host-preferences.json"
-  )
+  allowed_paths=()
+  if [[ -n "$manifest_file" ]]; then
+    allowed_paths+=("hosts/csb1/docker/docker-compose.yml")
+  fi
+  allowed_paths+=("hosts/csb1/docker/janus/pharos-production/retired-hosts.json")
+  if [[ -n "$manifest_file" ]]; then
+    allowed_paths+=("hosts/csb1/docker/pharos/manifests/$manifest_name")
+  fi
+  allowed_paths+=("modules/pharos-host-preferences.json")
   [[ ${#changed_paths[@]} -eq ${#allowed_paths[@]} ]] || fail unexpected_changed_paths
   for index in "${!allowed_paths[@]}"; do
     [[ "${changed_paths[$index]}" == "${allowed_paths[$index]}" ]] || fail unexpected_changed_paths

@@ -62,6 +62,15 @@ make_fixture() {
           suppress_backup: false,
           suppress_nix_freshness: false
         }
+      },
+      gpc0: {
+        accent: "#9868d0",
+        kind: "workstation",
+        alerts: {
+          suppress_down: false,
+          suppress_backup: false,
+          suppress_nix_freshness: false
+        }
       }
     }
   }' >"$destination/preferences.json"
@@ -108,6 +117,23 @@ rebuilt_fixture="$fixture_root/rebuilt"
 make_fixture "$rebuilt_fixture"
 run_prepare "$rebuilt_fixture" hsb8 rebuilt hsb9 pharos-host-removal-hsb8-101-1
 jq -e '.retirements[0].successor == "hsb9"' "$rebuilt_fixture/retired-hosts.json" >/dev/null
+
+preference_only_fixture="$fixture_root/preference-only"
+make_fixture "$preference_only_fixture"
+compose_before=$(shasum "$preference_only_fixture/docker-compose.yml")
+run_prepare "$preference_only_fixture" gpc0 destroyed '' pharos-host-removal-gpc0-101-1
+[[ "$compose_before" == "$(shasum "$preference_only_fixture/docker-compose.yml")" ]]
+[[ -e "$preference_only_fixture/manifests/hsb8.json" ]]
+jq -e '.hosts.gpc0 == null and .hosts.hsb8 != null' "$preference_only_fixture/preferences.json" >/dev/null
+jq -e '
+  .retirements == [{
+    credential_retirement_required: true,
+    disposition: "destroyed",
+    host: "gpc0",
+    server_deletion: false,
+    successor: null
+  }]
+' "$preference_only_fixture/retired-hosts.json" >/dev/null
 
 for case_name in invalid-host invalid-disposition missing-successor unexpected-successor invalid-request unknown-host; do
   fixture="$fixture_root/$case_name"
