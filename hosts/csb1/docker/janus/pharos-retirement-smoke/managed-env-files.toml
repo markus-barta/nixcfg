@@ -1,0 +1,22 @@
+[[env_files]]
+id = "profile.PHAROS_BEACON_RETIREMENTSMOKE_TOKEN"
+secret_ref = "sec_fe71c096f3ac750e42cc"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-retirementsmoke"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/retirementsmoke.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-hashes-v1"
+subject = "retirementsmoke"
+output = "/run/janus/env/pharos/beacon-token-hashes/retirementsmoke.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_retirementsmoke"
+kind = "service"
+owner = "pharos"
+environment = "nonprod"
+reload = "none"
+validation = ["pharos-beacon-retirement-smoke"]
+supports_dual_value = false
+blast_radius = "isolated non-production Pharos retirement smoke"

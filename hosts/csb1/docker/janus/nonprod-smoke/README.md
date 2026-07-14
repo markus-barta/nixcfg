@@ -109,6 +109,19 @@ published Janus engine release and GHCR digest, and reports drift without
 starting or recreating containers. The same check runs in GitHub Actions on a
 daily schedule and on relevant pin/workflow changes.
 
+To prove the reviewed Pharos host-retirement contract against an isolated
+synthetic host, run on csb1:
+
+```bash
+just janus-pharos-retirement-smoke
+```
+
+The smoke renders a non-production beacon sidecar, applies the exact reviewed
+retirement intent, verifies durable metadata/progress/tombstone state, confirms
+the encrypted provider artifact is unchanged, replays idempotently, and proves
+a future render cannot recreate the retired host. Its uniquely named Docker
+volumes are removed when the smoke exits.
+
 ## Safety Boundaries
 
 The smoke harness must never run project-wide Docker Compose lifecycle commands
