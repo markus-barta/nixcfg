@@ -8,6 +8,7 @@ retirements="$repo_root/hosts/csb1/docker/janus/pharos-production/retired-hosts.
 production_compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
 
 bash -n "$prepare"
+"$repo_root/tests/T17-janus-pharos-retirement.sh" >/dev/null
 grep -Fq 'scripts/prepare-pharos-host-removal.sh' "$workflow"
 grep -Fq 'uses: peter-evans/create-pull-request@v8' "$workflow"
 grep -Fq 'Validate and open review-only removal' "$workflow"

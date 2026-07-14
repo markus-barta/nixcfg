@@ -16,7 +16,9 @@ IMAGE=${JANUS_ENGINE_IMAGE:-}
 SMOKE_ROOT=${JANUS_PHAROS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-pharos-sidecar-smoke/${CONTRACT_NAME}"}
 VOLUME_PREFIX=${JANUS_PHAROS_SMOKE_VOLUME_PREFIX:-janus_pharos_sidecar_smoke_${CONTRACT_NAME}}
 RUN_SCOPE=${JANUS_PHAROS_SMOKE_SCOPE:-pharos/csb1/${CONTRACT_NAME}}
-HOSTS=(csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9)
+HOSTS_TEXT=${JANUS_PHAROS_SMOKE_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9"}
+
+read -r -a HOSTS <<<"$HOSTS_TEXT"
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -46,6 +48,13 @@ require_command sed
 require_command sha256sum
 
 validate_identifier JANUS_PHAROS_SMOKE_VOLUME_PREFIX "$VOLUME_PREFIX"
+if [ "${#HOSTS[@]}" -eq 0 ]; then
+  printf 'janus pharos sidecar smoke failed: no hosts requested\n' >&2
+  exit 1
+fi
+for host in "${HOSTS[@]}"; do
+  validate_identifier host "$host"
+done
 
 if [ -z "$IMAGE" ]; then
   IMAGE=$(
