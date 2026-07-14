@@ -41,6 +41,7 @@ in
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
+    ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
@@ -796,6 +797,33 @@ in
       Persistent = true;
       Unit = "ncps-warmer.service";
     };
+  };
+
+  # NIX-280 — the host answers for its own services, because a browser cannot.
+  # Same rationale as hsb1: HostDash's browser probe returns an OPAQUE response and
+  # can neither read a status code nor see a service that has no HTTP endpoint at all.
+  services.hostdash.status = {
+    enable = true;
+    host = "hsb0";
+    units = [
+      # The LAN's DNS. Everything `.lan` resolves through this one service — if it is
+      # down, every hostname on the network dies with it, and a dashboard that could
+      # not see that would be worse than useless.
+      "adguardhome.service"
+      # The UPS daemon (NIX-135: the APC unit itself is faulty and is being replaced
+      # by an Eaton, at which point this becomes NUT — see NIX-297).
+      #
+      # CAVEAT worth knowing: `apcupsd.service` being "running" does NOT mean the UPS
+      # is being monitored. As of 2026-07-14 it is `active` while apcaccess reports
+      # STATUS: COMMLOST — the daemon is up and talking to nothing. The unit state is
+      # the truth about the DAEMON, not about the UPS. Reporting UPS health properly
+      # belongs with the NUT migration (NIX-297), where it can be published as real
+      # telemetry rather than inferred from a process being alive.
+      "apcupsd.service"
+      "ups-mqtt-publish.timer" # publishes UPS state to MQTT
+      "docker.service"
+      "sshd.service"
+    ];
   };
 
   hokage = {
