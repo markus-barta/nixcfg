@@ -135,11 +135,33 @@ in
       # would be security theatre with a rotation burden attached.
       passwordFile = "/var/lib/nut/upsmon.pass";
       upsmon = "primary";
+      # Needed so nut-beeper-off.service below can actually silence the thing.
+      instcmds = [ "beeper.disable" ];
     };
 
+    # powerValue = 1: this UPS really does feed hsb0, so upsmon may shut it down.
+    #
+    # ⚠️ THIS IS ONLY TRUE WHILE hsb0 IS PLUGGED INTO THE EATON. It is stated explicitly
+    # rather than left to the default, because getting it wrong cost us the host:
+    #
+    # On 2026-07-14, with the Eaton on mains + USB but carrying NO LOAD, it reported
+    #     ups.status: OL CHRG OFF
+    # and to upsmon an OFF output means "not supplying power". Its count of live supplies
+    # fell below MINSUPPLIES (1), so it did exactly what it is built to do — SHUTDOWNCMD.
+    # It shut hsb0 down BECAUSE THE UPS WAS NOT POWERING IT. hsb0 is the LAN's DNS, so
+    # the whole house lost name resolution, and the box needed a physical power button.
+    #
+    # With the load actually on the Eaton the status is `OL CHRG`, the OFF flag is gone,
+    # and ups.load reads 8% — so this setting now describes reality and upsmon is a real
+    # shutdown guard at the 30% / 15min thresholds above.
+    #
+    # IF THE LOAD IS EVER TAKEN OFF THE EATON (bench testing, a swap, an RMA), set
+    # powerValue = 0 AND upsmon.settings.MINSUPPLIES = 0 first, or upsmon will shut this
+    # host down the moment the UPS output goes idle.
     upsmon.monitor.eaton = {
       system = "eaton@localhost";
       user = "upsmon";
+      powerValue = 1;
     };
   };
 
@@ -182,6 +204,49 @@ in
   };
 
   # Systemd service: Publish UPS status to MQTT as JSON
+  # 🔇 SILENCE THE BEEPER. This is a hard requirement, not a preference.
+  #
+  # The Eaton ships with `ups.beeper.status: enabled`. Markus's son sleeps in the room
+  # next door, and the old APC's alarm woke him at every power blip — which is why that
+  # unit's beeper was deliberately disabled and why "the alarm stays off" is a standing
+  # rule. A UPS that screams at 3am gets unplugged, and then it protects nothing.
+  #
+  # Telemetry is the alarm now: MQTT -> Node-RED -> Telegram/Pushover. The box itself
+  # stays quiet.
+  #
+  # Runs on every boot rather than once by hand: the setting lives in the UPS's own
+  # NVRAM, and a firmware reset or a swapped unit would silently bring the noise back.
+  # Idempotent — disabling an already-disabled beeper is a no-op.
+  systemd.services.nut-beeper-off = {
+    description = "Disable the UPS beeper (sleeping child — see NIX-135)";
+    after = [ "upsd.service" ];
+    requires = [ "upsd.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      # upsd needs a moment after start before it will answer.
+      for _ in $(seq 1 10); do
+        ${config.power.ups.package}/bin/upsc eaton >/dev/null 2>&1 && break
+        sleep 1
+      done
+
+      # NOTE: upscmd takes the password as an argv parameter — there is no file/stdin
+      # option — so it is briefly visible in /proc. Accepted: this credential only
+      # authenticates to a loopback-only upsd, it is host-generated, and it guards
+      # nothing beyond "may silence a beeper".
+      pass="$(cat /var/lib/nut/upsmon.pass)"
+      if ${config.power.ups.package}/bin/upscmd -u upsmon -p "$pass" eaton beeper.disable 2>/dev/null; then
+        ${pkgs.util-linux}/bin/logger -t nut-beeper-off "OK: UPS beeper disabled"
+      else
+        # Loud in the journal, because the failure mode here is a 3am scream.
+        ${pkgs.util-linux}/bin/logger -t nut-beeper-off "ERROR: could not disable the UPS beeper — it may still sound"
+      fi
+    '';
+  };
+
   # Publish UPS status to MQTT — ported from apcaccess to NUT's `upsc` (NIX-297).
   #
   # THE TOPIC AND THE PAYLOAD KEYS ARE A CONTRACT. Node-RED's UPS alerting (Telegram +
