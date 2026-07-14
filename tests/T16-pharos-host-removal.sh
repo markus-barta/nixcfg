@@ -12,9 +12,16 @@ bash -n "$prepare"
 "$repo_root/tests/T18-pharos-retirement-executor.sh" >/dev/null
 grep -Fq 'scripts/prepare-pharos-host-removal.sh' "$workflow"
 grep -Fq 'uses: peter-evans/create-pull-request@v8' "$workflow"
+grep -Fq 'uses: actions/checkout@v5' "$workflow"
 grep -Fq 'Validate and open review-only removal' "$workflow"
 grep -Fq 'credential_retirement=pending_janus_owner' "$workflow"
 grep -Fq 'server_deletion=false' "$workflow"
+install_nix_line=$(grep -n -m1 -- '- name: Install Nix' "$workflow" | cut -d: -f1)
+validate_line=$(grep -n -m1 -- '- name: Validate removal contract' "$workflow" | cut -d: -f1)
+if [[ -z "$install_nix_line" || -z "$validate_line" || "$install_nix_line" -ge "$validate_line" ]]; then
+  printf 'host removal workflow must install Nix before its contract validation\n' >&2
+  exit 1
+fi
 if grep -Eq 'gh pr merge|merge validated|docker compose|nixos-rebuild|provider-delete' "$workflow"; then
   printf 'host removal workflow contains a forbidden apply or delete action\n' >&2
   exit 1

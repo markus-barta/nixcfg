@@ -43,7 +43,12 @@ jobs:
       PHAROS_REQUEST_ID: ${{ inputs.request_id }}
     steps:
       - name: Checkout nixcfg
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Validate removal contract
         run: tests/T16-pharos-host-removal.sh
@@ -56,11 +61,6 @@ jobs:
             "$PHAROS_DISPOSITION" \
             "$PHAROS_SUCCESSOR" \
             "$PHAROS_REQUEST_ID"
-
-      - name: Install Nix
-        uses: cachix/install-nix-action@v31
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Evaluate every configured NixOS host
         run: |
