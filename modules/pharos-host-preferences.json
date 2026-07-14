@@ -18,15 +18,6 @@
       },
       "kind": "server"
     },
-    "gpc0": {
-      "accent": "#821fb7",
-      "alerts": {
-        "suppress_backup": true,
-        "suppress_down": true,
-        "suppress_nix_freshness": false
-      },
-      "kind": "workstation"
-    },
     "hsb0": {
       "accent": "#d4c060",
       "alerts": {
