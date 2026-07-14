@@ -227,23 +227,32 @@ in
       RemainAfterExit = true;
     };
     script = ''
-      # upsd needs a moment after start before it will answer.
-      for _ in $(seq 1 10); do
-        ${config.power.ups.package}/bin/upsc eaton >/dev/null 2>&1 && break
-        sleep 1
-      done
-
-      # NOTE: upscmd takes the password as an argv parameter — there is no file/stdin
+      # NOTE: upscmd takes the password as an argv parameter — there is no file or stdin
       # option — so it is briefly visible in /proc. Accepted: this credential only
       # authenticates to a loopback-only upsd, it is host-generated, and it guards
       # nothing beyond "may silence a beeper".
       pass="$(cat /var/lib/nut/upsmon.pass)"
-      if ${config.power.ups.package}/bin/upscmd -u upsmon -p "$pass" eaton beeper.disable 2>/dev/null; then
-        ${pkgs.util-linux}/bin/logger -t nut-beeper-off "OK: UPS beeper disabled"
-      else
-        # Loud in the journal, because the failure mode here is a 3am scream.
-        ${pkgs.util-linux}/bin/logger -t nut-beeper-off "ERROR: could not disable the UPS beeper — it may still sound"
-      fi
+
+      # RETRY, and verify the OUTCOME rather than the exit code.
+      #
+      # `upsc eaton` answering does NOT mean upsd is ready to authenticate an instcmd:
+      # on the very first deploy this service ran the instant upsd restarted, upsc
+      # succeeded, upscmd failed, and the beeper stayed ON — while the journal happily
+      # recorded that we had tried. The identical command run by hand ten seconds later
+      # returned OK. A beeper that is silent by luck is not silent.
+      for attempt in $(seq 1 15); do
+        ${config.power.ups.package}/bin/upscmd -u upsmon -p "$pass" eaton beeper.disable >/dev/null 2>&1 || true
+        sleep 1
+        state="$(${config.power.ups.package}/bin/upsc eaton ups.beeper.status 2>/dev/null || true)"
+        if [ "$state" = "disabled" ]; then
+          ${pkgs.util-linux}/bin/logger -t nut-beeper-off "OK: UPS beeper disabled (attempt $attempt)"
+          exit 0
+        fi
+        sleep 2
+      done
+
+      # Loud, because the failure mode here is a 3am scream next to a sleeping child.
+      ${pkgs.util-linux}/bin/logger -t nut-beeper-off "ERROR: UPS beeper is still '$state' after 15 attempts — IT MAY SOUND"
     '';
   };
 
