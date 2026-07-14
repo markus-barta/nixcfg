@@ -54,6 +54,17 @@ let
     "sshd.service"
     "zfs-scrub-media.timer"
     "zfs-scrub-tm.timer"
+
+    # Declared on the HostDash board as "FleetCom — Heartbeats to fleet.barta.cm",
+    # but there is no such unit on hsb1 and the nixfleet-agent import in
+    # configuration.nix is commented out. It is NOT running, and nobody noticed —
+    # because a `passive: true` card never claims a state, it is merely drawn.
+    #
+    # Reported deliberately, so the board has to answer for its own claim: the card
+    # will read "Stopped" until the agent is actually deployed here or the card is
+    # removed. A dashboard that lists services which do not exist is the same lie in
+    # a different costume. (Found 2026-07-14 while wiring up host truth.)
+    "nixfleet-agent.service"
   ];
 
   generator = pkgs.writeShellApplication {
