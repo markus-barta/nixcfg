@@ -8,13 +8,18 @@ on_error() {
 }
 trap 'on_error "$LINENO"' ERR
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-COMPOSE_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+DEFAULT_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd -- "${JANUS_PHAROS_CONTRACT_DIR:-$DEFAULT_SCRIPT_DIR}" && pwd)
+COMPOSE_DIR=$(cd -- "${DEFAULT_SCRIPT_DIR}/../.." && pwd)
+RETIREMENTS_FILE=${JANUS_PHAROS_RETIREMENTS_FILE:-${SCRIPT_DIR}/retired-hosts.json}
 IMAGE=${JANUS_ENGINE_IMAGE:-}
 VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
 RUN_SCOPE=${JANUS_PHAROS_SCOPE:-pharos/csb1/production}
 HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9"}
 PREPARE_ONLY=${JANUS_PHAROS_PREPARE_ONLY:-0}
+
+# shellcheck disable=SC1091
+source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
 
 read -r -a HOSTS <<<"$HOSTS_TEXT"
 
@@ -45,9 +50,40 @@ require_command sha256sum
 
 validate_identifier JANUS_PHAROS_VOLUME_PREFIX "$VOLUME_PREFIX"
 
+jq -e '
+  ((keys | sort) == ["retirements", "schema", "version"])
+  and .schema == "inspr.pharos.janus-retirements.v1"
+  and .version == 1
+  and (.retirements | type == "array")
+  and all(.retirements[];
+    ((keys | sort) == [
+      "credential_retirement_required",
+      "disposition",
+      "host",
+      "server_deletion",
+      "successor"
+    ])
+    and (.host | type == "string" and test("^[a-z0-9][a-z0-9-]{0,62}$"))
+    and (.disposition == "destroyed" or .disposition == "unmanaged" or .disposition == "rebuilt")
+    and (.successor == null or (.successor | type == "string" and test("^[a-z0-9][a-z0-9-]{0,62}$")))
+    and .credential_retirement_required == true
+    and .server_deletion == false
+  )
+' "$RETIREMENTS_FILE" >/dev/null || {
+  printf 'janus pharos production render failed: invalid retirement intent\n' >&2
+  exit 1
+}
+
+ACTIVE_HOSTS=()
 for host in "${HOSTS[@]}"; do
   validate_identifier host "$host"
+  if jq -e --arg host "$host" '.retirements[] | select(.host == $host)' \
+    "$RETIREMENTS_FILE" >/dev/null; then
+    continue
+  fi
+  ACTIVE_HOSTS+=("$host")
 done
+HOSTS=("${ACTIVE_HOSTS[@]}")
 
 if [ -z "$IMAGE" ]; then
   IMAGE=$(
@@ -64,10 +100,6 @@ if [ -z "$IMAGE" ]; then
   exit 1
 fi
 
-AGE_VOLUME="${VOLUME_PREFIX}_age"
-STORE_VOLUME="${VOLUME_PREFIX}_secrets"
-PERMIT_VOLUME="${VOLUME_PREFIX}_permits"
-OUT_VOLUME="${VOLUME_PREFIX}_out"
 TMP_DIR=$(mktemp -d)
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -75,49 +107,14 @@ cleanup() {
 trap cleanup EXIT
 
 docker pull "$IMAGE" >/dev/null
-
-container_uid=$(docker run --rm --entrypoint id "$IMAGE" -u)
-container_gid=$(docker run --rm --entrypoint id "$IMAGE" -g)
-if [ "$container_uid" = "0" ]; then
-  printf 'janus pharos production render failed: image default user is root\n' >&2
-  exit 1
-fi
-
-docker volume create "$AGE_VOLUME" >/dev/null
-docker volume create "$STORE_VOLUME" >/dev/null
-docker volume create "$PERMIT_VOLUME" >/dev/null
-docker volume create "$OUT_VOLUME" >/dev/null
-
-docker run --rm --user 0 \
-  -v "${AGE_VOLUME}:/run/janus/age" \
-  -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
-  -v "${PERMIT_VOLUME}:/run/janus/permits" \
-  -v "${OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$IMAGE" \
-  -c '
-set -eu
-uid=$1
-gid=$2
-mkdir -p \
-  /run/janus/age \
-  /run/janus/permits \
-  /run/janus/env/pharos/beacons \
-  /run/janus/env/pharos/beacon-token-hashes \
-  /var/lib/janus/secrets/pharos
-chown -R "${uid}:${gid}" \
-  /run/janus/age \
-  /run/janus/permits \
-  /run/janus/env/pharos \
-  /var/lib/janus/secrets
-chmod 0700 \
-  /run/janus/age \
-  /run/janus/permits \
-  /run/janus/env/pharos \
-  /run/janus/env/pharos/beacons \
-  /run/janus/env/pharos/beacon-token-hashes \
-  /var/lib/janus/secrets \
-  /var/lib/janus/secrets/pharos
-' sh "$container_uid" "$container_gid"
+janus_pharos_prepare_runtime "$IMAGE" "$SCRIPT_DIR" "$VOLUME_PREFIX"
+AGE_VOLUME=$JANUS_PHAROS_AGE_VOLUME
+STORE_VOLUME=$JANUS_PHAROS_STORE_VOLUME
+PERMIT_VOLUME=$JANUS_PHAROS_PERMIT_VOLUME
+OUT_VOLUME=$JANUS_PHAROS_OUT_VOLUME
+METADATA_VOLUME=$JANUS_PHAROS_METADATA_VOLUME
+container_uid=$JANUS_PHAROS_CONTAINER_UID
+container_gid=$JANUS_PHAROS_CONTAINER_GID
 
 if ! docker run --rm \
   -v "${AGE_VOLUME}:/run/janus/age" \
@@ -193,13 +190,13 @@ EOF
     -e JANUS_WARDEN_EXECUTOR=janus-run@csb1 \
     -e "JANUS_WARDEN_SCOPE=${RUN_SCOPE}" \
     -e JANUS_WARDEN_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
-    -e JANUS_WARDEN_AGE_METADATA_FILE=/etc/janus/metadata.toml \
+    -e JANUS_WARDEN_AGE_METADATA_FILE=/var/lib/janus/metadata/metadata.toml \
     -e "JANUS_WARDEN_AGE_PROFILE=${host}" \
     -e JANUS_WARDEN_AGE_STORE_DIR=/var/lib/janus/secrets \
     -e JANUS_WARDEN_AGE_IDENTITY_FILE=/run/janus/age/identity \
     -e JANUS_WARDEN_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub \
     -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
-    -v "${SCRIPT_DIR}/metadata.toml:/etc/janus/metadata.toml:ro" \
+    -v "${METADATA_VOLUME}:/var/lib/janus/metadata" \
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
@@ -248,14 +245,14 @@ render_env_file() {
     -e JANUS_RUN_EXECUTOR=janus-run@csb1 \
     -e "JANUS_RUN_SCOPE=${RUN_SCOPE}" \
     -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
-    -e JANUS_AGE_METADATA_FILE=/etc/janus/metadata.toml \
+    -e JANUS_AGE_METADATA_FILE=/var/lib/janus/metadata/metadata.toml \
     -e "JANUS_AGE_PROFILE=${host}" \
     -e JANUS_AGE_STORE_DIR=/var/lib/janus/secrets \
     -e JANUS_AGE_IDENTITY_FILE=/run/janus/age/identity \
     -e JANUS_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub \
     -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
     -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
-    -v "${SCRIPT_DIR}/metadata.toml:/etc/janus/metadata.toml:ro" \
+    -v "${METADATA_VOLUME}:/var/lib/janus/metadata" \
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \

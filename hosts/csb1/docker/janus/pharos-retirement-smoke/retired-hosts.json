@@ -1,0 +1,13 @@
+{
+  "retirements": [
+    {
+      "credential_retirement_required": true,
+      "disposition": "destroyed",
+      "host": "retirementsmoke",
+      "server_deletion": false,
+      "successor": null
+    }
+  ],
+  "schema": "inspr.pharos.janus-retirements.v1",
+  "version": 1
+}
