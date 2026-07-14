@@ -19,7 +19,7 @@ in
     ./tm-pool.nix # external 6TB USB — Time Machine ZFS pool (markus/mailina quotas + sanoid)
     ./tm-samba.nix # Samba + vfs_fruit + Avahi for the tm pool's two shares
     ./babycam-watchdog.nix # NIX-151 — probe + self-heal + MQTT telemetry for the kiosk babycam
-    ./hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
+    ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/funkeykid.nix
@@ -521,6 +521,26 @@ in
       StateDirectory = "babycam-watchdog";
       StateDirectoryMode = "0750";
     };
+  };
+
+  # NIX-280 — the host answers for its own services, because a browser cannot.
+  services.hostdash.status = {
+    enable = true;
+    host = "hsb1";
+    units = [
+      "babycam-watchdog.timer" # NIX-151 — the babycam's guardian
+      "mqtt-volume-control.service"
+      "apc-to-mqtt.timer"
+      "docker.service"
+      "sshd.service"
+      "zfs-scrub-media.timer"
+      "zfs-scrub-tm.timer"
+    ];
+    # The babycam's health is the richest signal on this host — decoder counters that
+    # prove frames and audio are actually MOVING, not a socket poke. Carried through to
+    # the dashboard verbatim (HOSTD-10).
+    mqttEnvFile = config.age.secrets.hsb1-mqtt-client-env.path;
+    mqttExtras.babycam = "home/hsb1/babycam/health";
   };
 
   hokage = {
