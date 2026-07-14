@@ -14,6 +14,8 @@ VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
 HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9"}
 ALLOW_MISSING_TEXT=${JANUS_PHAROS_ALLOW_MISSING_HOSTS:-}
 SSH_OPTS=${JANUS_PHAROS_SSH_OPTS:-"-o BatchMode=yes -o ConnectTimeout=8"}
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+RETIREMENTS_FILE=${JANUS_PHAROS_RETIREMENTS_FILE:-${SCRIPT_DIR}/retired-hosts.json}
 
 read -r -a HOSTS <<<"$HOSTS_TEXT"
 ALLOW_MISSING=()
@@ -75,6 +77,7 @@ remote_csb1() {
 
 require_command age
 require_command base64
+require_command jq
 require_command scp
 require_command ssh
 require_command tr
@@ -84,6 +87,40 @@ validate_identifier JANUS_PHAROS_VOLUME_PREFIX "$VOLUME_PREFIX"
 for host in "${HOSTS[@]}"; do
   validate_identifier host "$host"
 done
+
+jq -e '
+  ((keys | sort) == ["retirements", "schema", "version"])
+  and .schema == "inspr.pharos.janus-retirements.v1"
+  and .version == 1
+  and (.retirements | type == "array")
+  and all(.retirements[];
+    ((keys | sort) == [
+      "credential_retirement_required",
+      "disposition",
+      "host",
+      "server_deletion",
+      "successor"
+    ])
+    and (.host | type == "string" and test("^[a-z0-9][a-z0-9-]{0,62}$"))
+    and (.disposition == "destroyed" or .disposition == "unmanaged" or .disposition == "rebuilt")
+    and (.successor == null or (.successor | type == "string" and test("^[a-z0-9][a-z0-9-]{0,62}$")))
+    and .credential_retirement_required == true
+    and .server_deletion == false
+  )
+' "$RETIREMENTS_FILE" >/dev/null || {
+  printf 'invalid Pharos retirement intent\n' >&2
+  exit 1
+}
+
+ACTIVE_HOSTS=()
+for host in "${HOSTS[@]}"; do
+  if jq -e --arg host "$host" '.retirements[] | select(.host == $host)' \
+    "$RETIREMENTS_FILE" >/dev/null; then
+    continue
+  fi
+  ACTIVE_HOSTS+=("$host")
+done
+HOSTS=("${ACTIVE_HOSTS[@]}")
 if [ "${#ALLOW_MISSING[@]}" -gt 0 ]; then
   for host in "${ALLOW_MISSING[@]}"; do
     validate_identifier allow_missing_host "$host"

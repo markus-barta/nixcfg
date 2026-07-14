@@ -240,6 +240,31 @@ then runs the current value-free boundary matrix:
 | MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied         |
 | Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail |
 
+To validate Pharos credential retirement without touching production material:
+
+```bash
+just janus-pharos-retirement-smoke
+```
+
+The smoke uses one synthetic host and isolated volumes. It must report a
+complete retirement, idempotent replay, renderer exclusion, unchanged provider
+material, `value_returned=false`, and `provider_deleted=false`.
+
+Production retirement is target-local and derives its disposition from the
+reviewed `retired-hosts.json` entry. The checkout must be clean `main` at the
+reviewed remote revision. Reconcile first; apply only after the corresponding
+host-removal proposal is merged and deployed:
+
+```bash
+just janus-pharos-retirement-reconcile <host>
+just janus-pharos-retirement-apply <host>
+```
+
+Mutable lifecycle metadata, progress records, and tombstones live in dedicated
+Janus Docker volumes. The encrypted provider artifact is retained. The renderer
+excludes every reviewed retired host, so a later sidecar render cannot silently
+recreate its runtime access.
+
 ### Upgrade PAIMOS (pm.barta.cm)
 
 Image source: `ghcr.io/markus-barta/paimos:latest` (published by the

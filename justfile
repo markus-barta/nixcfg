@@ -120,6 +120,18 @@ janus-pharos-sidecar-smoke:
     cd hosts/csb1/docker && ./janus/pharos-nonprod/run-sidecar-smoke.sh
 
 [group('ops')]
+janus-pharos-retirement-smoke:
+    cd hosts/csb1/docker && ./janus/pharos-retirement-smoke/run.sh
+
+[group('ops')]
+janus-pharos-retirement-reconcile host:
+    cd hosts/csb1/docker && ./janus/pharos-production/retire-host.sh reconcile {{ host }}
+
+[group('ops')]
+janus-pharos-retirement-apply host:
+    cd hosts/csb1/docker && ./janus/pharos-production/retire-host.sh apply {{ host }}
+
+[group('ops')]
 janus-engine-up:
     just janus-engine-smoke
     cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged up -d --no-deps janus-engine-staged
