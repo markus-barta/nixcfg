@@ -24,6 +24,7 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
+    ../../modules/pharos-retirement-executor
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
     # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
@@ -45,6 +46,10 @@ in
     role = "server";
     ncps.enable = false; # Cloud server: Never sees hsb0
   };
+
+  # csb1 executes credential retirement for other hosts after their reviewed
+  # removal proposal is deployed. The executor rejects csb1 as its own target.
+  inspr.pharosRetirementExecutor.enable = true;
 
   # ============================================================================
   # BOOTLOADER CONFIGURATION
