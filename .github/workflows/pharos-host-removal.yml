@@ -1,0 +1,114 @@
+name: Pharos host removal proposal
+
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: Existing declared Pharos host
+        required: true
+        type: string
+      disposition:
+        description: Recorded host lifecycle outcome
+        required: true
+        type: choice
+        options:
+          - destroyed
+          - unmanaged
+          - rebuilt
+      successor:
+        description: Existing successor host when disposition is rebuilt
+        required: false
+        default: ""
+        type: string
+      request_id:
+        description: Private Pharos correlation identifier
+        required: true
+        type: string
+
+concurrency:
+  group: pharos-host-removal-${{ inputs.host }}
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    name: Validate and open review-only removal
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      PHAROS_HOST: ${{ inputs.host }}
+      PHAROS_DISPOSITION: ${{ inputs.disposition }}
+      PHAROS_SUCCESSOR: ${{ inputs.successor }}
+      PHAROS_REQUEST_ID: ${{ inputs.request_id }}
+    steps:
+      - name: Checkout nixcfg
+        uses: actions/checkout@v4
+
+      - name: Validate removal contract
+        run: tests/T16-pharos-host-removal.sh
+
+      - name: Prepare narrow removal proposal
+        id: prepare
+        run: |
+          scripts/prepare-pharos-host-removal.sh \
+            "$PHAROS_HOST" \
+            "$PHAROS_DISPOSITION" \
+            "$PHAROS_SUCCESSOR" \
+            "$PHAROS_REQUEST_ID"
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Evaluate every configured NixOS host
+        run: |
+          nix eval --no-update-lock-file --json \
+            .#nixosConfigurations \
+            --apply 'configs: builtins.attrNames configs' |
+            jq -er '.[]' |
+            while IFS= read -r configured_host; do
+              nix eval --no-update-lock-file \
+                ".#nixosConfigurations.${configured_host}.config.system.build.toplevel.drvPath" \
+                >/dev/null
+            done
+
+      - name: Create review-only pull request
+        id: create-pr
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
+          add-paths: |
+            hosts/csb1/docker/docker-compose.yml
+            hosts/csb1/docker/janus/pharos-production/retired-hosts.json
+            hosts/csb1/docker/pharos/manifests
+            modules/pharos-host-preferences.json
+          branch: automation/pharos-host-removal-${{ inputs.host }}
+          delete-branch: true
+          commit-message: "pharos: propose retiring ${{ inputs.host }}"
+          title: "Pharos: review removal of ${{ inputs.host }}"
+          body: |
+            Pharos prepared this review-only host retirement proposal.
+
+            Host: `${{ inputs.host }}`
+            Recorded outcome: `${{ inputs.disposition }}`
+
+            This proposal removes only Pharos declaration and preference state and records a value-free Janus credential-retirement request. It does not merge itself, deploy, stop the host, contact a provider, or delete any server, disk, service, or application data.
+
+            Keep the Pharos workflow pending until this pull request is reviewed, merged, applied on csb1, and JANUS-276 reports owner-side credential retirement complete.
+          labels: |
+            automated
+
+      - name: Record safe outcome
+        run: |
+          {
+            if [[ -n "${{ steps.create-pr.outputs.pull-request-number }}" ]]; then
+              echo "proposal=open_for_review"
+            else
+              echo "proposal=already_prepared"
+            fi
+            echo "deployment=not_performed"
+            echo "server_deletion=false"
+            echo "credential_retirement=pending_janus_owner"
+          } >>"$GITHUB_STEP_SUMMARY"
