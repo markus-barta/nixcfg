@@ -69,19 +69,105 @@ in
   services.zfs.autoScrub.enable = true;
 
   # ============================================================================
-  # APC UPS Monitoring (Back-UPS ES 350)
+  # UPS Monitoring — Eaton Ellipse PRO 650 DIN via NUT (NIX-297 / NIX-135)
   # ============================================================================
-  # USB-connected UPS provides power protection and status monitoring.
-  # Status is published to MQTT every minute for home automation integration.
-  # ============================================================================
+  # WAS: services.apcupsd (APC Back-UPS BX500MI). That unit is FAULTY — it falsely
+  # rejects healthy mains as "high line voltage" and cuts to battery for no reason
+  # (LINEV 230-234 V against a HITRANS of 295 V, independently confirmed against the
+  # Sonnen powermeter). It has been replaced by an Eaton, so apcupsd has to go: it is
+  # APC-only.
+  #
+  # apcupsd DOES half-talk to the Eaton over generic USB HID, which is a trap worth
+  # naming: it reports model/serial/charge/runtime, but `OUTPUTV` and `LINEFREQ` come
+  # back as 0.0 and `LINEV` is MISSING ENTIRELY. The failure that started NIX-135 was a
+  # UPS lying about line voltage — running it on a stack that cannot read line voltage
+  # at all would be a poor joke. Partial telemetry that looks complete is exactly the
+  # class of bug this fleet keeps getting bitten by.
+  #
+  # NUT is vendor-neutral, fully local, no cloud. `nut-scanner -U` identified the device
+  # unprompted and picked the driver itself:
+  #     driver "usbhid-ups" | vendorid 0463 | productid FFFF
+  #     vendor "EATON"      | product "Ellipse PRO" | serial "G355V01095"
+  # which is the HCL "support level 5" claim holding up in practice.
+  services.apcupsd.enable = false;
 
-  services.apcupsd = {
+  power.ups = {
     enable = true;
-    configText = ''
-      UPSCABLE usb
-      UPSTYPE usb
-      DEVICE
-      UPSNAME ups350vr
+    mode = "standalone"; # driver + upsd + upsmon, all on this host. No network exposure.
+
+    ups.eaton = {
+      driver = "usbhid-ups";
+      port = "auto";
+      description = "Eaton Ellipse PRO 650 DIN (hsb0)";
+      directives = [
+        # Pin the device explicitly. `auto` alone would happily bind whatever HID power
+        # device turns up, which on a host that has already had one UPS swapped under it
+        # is not a theoretical concern.
+        "vendorid = 0463"
+        "productid = FFFF"
+
+        # THRESHOLDS — the point of this migration, not a detail.
+        #
+        # apcupsd ran on its defaults: MBATTCHG 10%, MINTIMEL 5 min. On 2026-07-13 that
+        # produced the near-deadlock Markus hit — the UPS kept flipping to battery on
+        # phantom "high line voltage", and 5 minutes is not enough margin to shut a ZFS
+        # host down calmly, especially with a battery whose true runtime we now know is
+        # ~35 min under load.
+        #
+        # `ignorelb` tells NUT to DISREGARD the UPS's own low-battery flag and use these
+        # thresholds instead. That is deliberate: this whole ticket exists because a UPS
+        # lied about its own state. We decide when to shut down, from charge and runtime
+        # we can actually see — not from a flag the hardware raises when it feels like it.
+        "ignorelb"
+        "override.battery.charge.low = 30" # %
+        "override.battery.runtime.low = 900" # seconds = 15 min
+      ];
+    };
+
+    # upsd listens on loopback only. Nothing off-host needs to talk to it, and an open
+    # UPS control port is a way to be shut down by a stranger.
+    upsd.listen = [ { address = "127.0.0.1"; } ];
+
+    users.upsmon = {
+      # Password is GENERATED ON THE HOST (see nut-upsmon-password.service below) and
+      # never enters git. It authenticates upsmon to upsd across a loopback socket —
+      # there is no meaningful attacker here, and inventing an agenix ceremony for it
+      # would be security theatre with a rotation burden attached.
+      passwordFile = "/var/lib/nut/upsmon.pass";
+      upsmon = "primary";
+    };
+
+    upsmon.monitor.eaton = {
+      system = "eaton@localhost";
+      user = "upsmon";
+    };
+  };
+
+  # Generate upsd's local password once, on the host. Must exist BEFORE upsd/upsmon
+  # start: the NixOS module passes it via systemd LoadCredential, and a missing file
+  # makes those units fail outright rather than degrade.
+  systemd.services.nut-upsmon-password = {
+    description = "Generate the local upsd password for upsmon (NIX-297)";
+    wantedBy = [ "multi-user.target" ];
+    before = [
+      "upsd.service"
+      "upsmon.service"
+    ];
+    requiredBy = [
+      "upsd.service"
+      "upsmon.service"
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      install -d -m 0750 /var/lib/nut
+      if [ ! -s /var/lib/nut/upsmon.pass ]; then
+        umask 077
+        ${pkgs.openssl}/bin/openssl rand -base64 24 | tr -d '\n' > /var/lib/nut/upsmon.pass
+        chmod 0400 /var/lib/nut/upsmon.pass
+      fi
     '';
   };
 
@@ -96,60 +182,103 @@ in
   };
 
   # Systemd service: Publish UPS status to MQTT as JSON
+  # Publish UPS status to MQTT — ported from apcaccess to NUT's `upsc` (NIX-297).
+  #
+  # THE TOPIC AND THE PAYLOAD KEYS ARE A CONTRACT. Node-RED's UPS alerting (Telegram +
+  # Pushover) reads exactly `upsname`, `model`, `status`, `bcharge` and `timeleft`, and
+  # routes on `upsname`. Swapping apcupsd for NUT must be INVISIBLE downstream, so this
+  # translates NUT's variable names back into the established shape rather than making
+  # every consumer chase the rename.
+  #
+  # Fixed on the way past: the old awk emitted values WITH THEIR UNITS ("84.0 Percent",
+  # "65.6 Minutes"), while the alert template does `bcharge & " % (" & timeleft & " min)"`
+  # — so a real alert would have read "84.0 Percent % (65.6 Minutes min)". The flow's own
+  # `testvalues` node uses plain numbers (bcharge: 85, timeleft: 120); that is the shape
+  # it was always meant to receive. bcharge is now a number, and timeleft is a number in
+  # MINUTES (NUT reports runtime in seconds).
   systemd.services.ups-mqtt-publish = {
-    description = "Publish APC UPS status to MQTT";
+    description = "Publish UPS status (NUT) to MQTT";
     after = [
-      "apcupsd.service"
+      "upsd.service"
       "network-online.target"
     ];
     wants = [ "network-online.target" ];
     path = [
-      pkgs.gawk
-      pkgs.gnused
       pkgs.coreutils
+      pkgs.jq
+      pkgs.gnugrep
+      pkgs.gawk
     ];
     script = ''
       set -euo pipefail
 
-      # Source MQTT credentials from agenix secret
+      # shellcheck source=/dev/null  # agenix-materialized, absent at lint time
       source ${config.age.secrets.mqtt-hsb0.path}
 
-      # Query UPS status
-      apc_status=$(${pkgs.apcupsd}/bin/apcaccess status)
+      # `upsc` prints "var: value" lines. If the driver is not talking to the UPS this
+      # fails outright — which is correct: publishing a cheerful stale payload while the
+      # UPS is unreachable is exactly how a dead UPS goes unnoticed for seven weeks.
+      raw="$(${config.power.ups.package}/bin/upsc eaton 2>/dev/null || true)"
 
-      # Get current timestamp in milliseconds
-      current_timestamp=$(date +%s%3N)
+      get() { printf '%s\n' "$raw" | ${pkgs.gnugrep}/bin/grep -m1 "^$1:" | ${pkgs.gnused}/bin/sed "s|^$1: ||" || true; }
 
-      # Convert APC status to JSON
-      json_status=$(echo "$apc_status" | awk -v timestamp="$current_timestamp" '
-      BEGIN { print "{" }
-      NF > 1 {
-          gsub(/^[ \t]+|[ \t]+$/, "", $0)
-          key = tolower($1)
-          $1 = ""
-          gsub(/^[ \t]*: /, "", $0)
-          gsub(/^[ \t]+|[ \t]+$/, "", $0)
-          value = $0
-          gsub(/"/, "\\\"", value)
-          printf "  \"%s\": \"%s\",\n", key, value
-      }
-      END { printf "  \"__published\": %s\n", timestamp }
-      ' | sed '$ s/,$//')
+      if [ -z "$raw" ]; then
+        # Say so, loudly and in-band, instead of going quiet. A consumer that stops
+        # hearing from us cannot tell "all is well" from "the publisher died".
+        status="COMMLOST"
+        model=""; bcharge=0; timeleft=0; linev=0; battv=0; loadpct=0; serial=""
+      else
+        model="$(get 'device.model')"; [ -n "$model" ] || model="$(get 'ups.model')"
+        serial="$(get 'device.serial')"; [ -n "$serial" ] || serial="$(get 'ups.serial')"
+        bcharge="$(get 'battery.charge')"; bcharge="''${bcharge:-0}"
+        runtime="$(get 'battery.runtime')"; runtime="''${runtime:-0}"
+        timeleft="$(${pkgs.gawk}/bin/awk -v s="$runtime" 'BEGIN{printf "%.1f", s/60}')"
+        linev="$(get 'input.voltage')"; linev="''${linev:-0}"
+        battv="$(get 'battery.voltage')"; battv="''${battv:-0}"
+        loadpct="$(get 'ups.load')"; loadpct="''${loadpct:-0}"
 
-      json_status="$json_status
-      }"
+        # NUT's ups.status is a terse flag string (OL, OB, OB LB, OL CHRG ...). The alert
+        # message says "<model> is now <status>", so it must read like something a human
+        # wrote. Mapped to the apcupsd vocabulary the consumers already know.
+        nutstat="$(get 'ups.status')"
+        case "$nutstat" in
+          *LB*)   status="LOWBATT" ;;
+          *OB*)   status="ONBATT" ;;
+          *OL*)   status="ONLINE" ;;
+          "")     status="UNKNOWN" ;;
+          *)      status="$nutstat" ;;
+        esac
+      fi
 
-      # Publish to MQTT
+      # `upsname` is the ROUTING KEY: Node-RED sets msg.topic from it and switches on
+      # "ups350vr". Keep it, or the alerts silently stop matching — which is precisely
+      # the bug that left this UPS unwatched for seven weeks.
+      payload="$(${pkgs.jq}/bin/jq -n \
+        --arg upsname "ups350vr" \
+        --arg hostname "hsb0" \
+        --arg model    "''${model:-Eaton Ellipse PRO 650 DIN}" \
+        --arg status   "$status" \
+        --arg serialno "$serial" \
+        --arg nutstat  "''${nutstat:-}" \
+        --argjson bcharge  "''${bcharge:-0}" \
+        --argjson timeleft "''${timeleft:-0}" \
+        --argjson linev    "''${linev:-0}" \
+        --argjson battv    "''${battv:-0}" \
+        --argjson loadpct  "''${loadpct:-0}" \
+        --argjson published "$(date +%s%3N)" \
+        '{upsname:$upsname, hostname:$hostname, model:$model, status:$status,
+          bcharge:$bcharge, timeleft:$timeleft, linev:$linev, battv:$battv,
+          loadpct:$loadpct, serialno:$serialno, nut_status:$nutstat,
+          driver:"usbhid-ups", __published:$published}')"
+
       ${pkgs.mosquitto}/bin/mosquitto_pub \
         --topic home/vr/battery/ups350 \
-        -u "$MQTT_USER" \
-        -P "$MQTT_PASS" \
-        -h "$MQTT_HOST" \
-        -m "$json_status"
+        -u "$MQTT_USER" -P "$MQTT_PASS" -h "$MQTT_HOST" \
+        -m "$payload"
     '';
     serviceConfig = {
       Type = "oneshot";
-      # Run as root to access agenix secrets
+      # root: reads the agenix MQTT secret
     };
   };
 
