@@ -165,6 +165,11 @@ in
     };
   };
 
+  # Serving config for the hsb1-home nginx container. Lives here (not baked into the
+  # HostDash package) because it is deployment topology, not app content: it is what
+  # aliases the status artifact back under the app's own origin.
+  environment.etc."hostdash-nginx.conf".source = ./files/hostdash-nginx.conf;
+
   systemd.timers.hostdash-status = {
     description = "Refresh the HostDash status artifact every minute";
     wantedBy = [ "timers.target" ];

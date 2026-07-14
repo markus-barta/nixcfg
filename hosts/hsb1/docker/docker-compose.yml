@@ -409,13 +409,19 @@ services:
       # code cannot be read, so an HTTP 500 registers as "up" and a self-signed cert
       # registers as "down". A cross-origin status endpoint would inherit exactly that
       # blindness. Served from the same origin as index.html, the JSON is fully
-      # readable, and `running` / `reachable` become knowable for the first time —
-      # including for the 9-of-19 services that have no HTTP endpoint at all and could
-      # never be probed by a browser even in principle.
+      # readable, and `running` becomes knowable for the first time — including for the
+      # 9-of-19 services with no HTTP endpoint, which no browser could ever probe.
       #
-      # The app's own directory is an immutable /nix/store path, hence a second mount.
+      # NOTE the mount path: NOT /usr/share/nginx/html/status. That directory is an
+      # immutable /nix/store bind mount, and Docker cannot create a mountpoint inside a
+      # read-only mount — it fails with "mkdirat .../status: read-only file system" and
+      # leaves the container stuck in `Created` (learned the hard way, 2026-07-14).
+      # So it is mounted outside the app root, and nginx aliases it back under the same
+      # origin — see files/hostdash-nginx.conf.
+      #
       # Written atomically every 60s by hostdash-status.service (../hostdash-status.nix).
-      - /var/lib/hostdash-status:/usr/share/nginx/html/status:ro
+      - /var/lib/hostdash-status:/srv/hostdash-status:ro
+      - /etc/hostdash-nginx.conf:/etc/nginx/conf.d/default.conf:ro
     labels:
       - com.centurylinklabs.watchtower.enable=true
       - com.centurylinklabs.watchtower.scope=weekly
