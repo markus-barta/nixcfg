@@ -9,6 +9,7 @@ production_compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
 
 bash -n "$prepare"
 "$repo_root/tests/T17-janus-pharos-retirement.sh" >/dev/null
+"$repo_root/tests/T18-pharos-retirement-executor.sh" >/dev/null
 grep -Fq 'scripts/prepare-pharos-host-removal.sh' "$workflow"
 grep -Fq 'uses: peter-evans/create-pull-request@v8' "$workflow"
 grep -Fq 'Validate and open review-only removal' "$workflow"
@@ -18,10 +19,8 @@ if grep -Eq 'gh pr merge|merge validated|docker compose|nixos-rebuild|provider-d
   printf 'host removal workflow contains a forbidden apply or delete action\n' >&2
   exit 1
 fi
-if grep -Eq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=(1|true|yes|on)' "$production_compose"; then
-  printf 'production host removal must remain disabled until Janus retirement is available\n' >&2
-  exit 1
-fi
+grep -Fq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1' "$production_compose"
+grep -Fq 'PHAROS_RETIREMENT_OWNER_HOST=csb1' "$production_compose"
 
 jq -e '
   .schema == "inspr.pharos.janus-retirements.v1"

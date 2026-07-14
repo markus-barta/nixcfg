@@ -260,6 +260,17 @@ just janus-pharos-retirement-reconcile <host>
 just janus-pharos-retirement-apply <host>
 ```
 
+In normal operation, `pharos-retirement-executor.timer` performs the apply on
+csb1 after Pharos observes the reviewed declaration removal. It authenticates
+with csb1's existing machine identity, rejects csb1 as a target, and persists
+only a value-free result for retry if Pharos is temporarily unavailable. Check
+its posture without exposing credentials:
+
+```bash
+systemctl status pharos-retirement-executor.timer
+journalctl -u pharos-retirement-executor.service -n 30 --no-pager
+```
+
 Mutable lifecycle metadata, progress records, and tombstones live in dedicated
 Janus Docker volumes. The encrypted provider artifact is retained. The renderer
 excludes every reviewed retired host, so a later sidecar render cannot silently
