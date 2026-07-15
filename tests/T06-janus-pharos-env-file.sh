@@ -192,6 +192,10 @@ if "janus_pharos_production_out:/run/janus/env:ro" not in compose_text:
     raise SystemExit("pharosd compose must mount Janus output at /run/janus/env")
 if "janus_pharos_production_out:/run/janus/env/pharos:ro" in compose_text:
     raise SystemExit("pharosd compose has an extra nested pharos path in Janus mount")
+if "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/janus/env/pharos/providers/hetzner-cloud.env" not in compose_text:
+    raise SystemExit("pharosd Hetzner credential must use the Janus env-file boundary")
+if "PHAROS_HCLOUD_EXECUTE=1" not in compose_text:
+    raise SystemExit("pharosd guarded Hetzner execution must be enabled explicitly")
 PY
 
 echo "ok: Pharos Janus env-file and sidecar profiles are value-free"
