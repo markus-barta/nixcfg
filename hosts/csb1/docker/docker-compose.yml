@@ -592,7 +592,7 @@ services:
   # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
   # FleetCom is decommissioned; Pharos is the live fleet dashboard.
   pharosd:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.40
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.41
     container_name: pharosd
     restart: unless-stopped
     env_file:
@@ -650,7 +650,7 @@ services:
   # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
   # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.40
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.41
     container_name: pharos-beacon
     restart: unless-stopped
     network_mode: host
