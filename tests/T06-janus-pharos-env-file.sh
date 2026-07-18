@@ -315,6 +315,8 @@ if "PROVIDER_OUT_VOLUME" not in provider_render_text:
     raise SystemExit("production Hetzner renderer lacks an isolated output volume")
 if "janus_pharos_prepare_provider_runtime" not in provider_render_text:
     raise SystemExit("production Hetzner renderer does not use the isolated runtime preparer")
+if "janus_pharos_prepare_provider_mountpoint" not in provider_render_text:
+    raise SystemExit("production Hetzner renderer does not prepare its nested read-only mountpoint")
 if 'janus_pharos_prepare_runtime "$IMAGE"' in provider_render_text:
     raise SystemExit("production Hetzner renderer must not re-own shared beacon volumes")
 if "--network none" not in provider_render_text:
@@ -325,8 +327,13 @@ if "janus_pharos_production_provider_out:/run/janus/env/pharos/providers:ro" not
     raise SystemExit("pharosd does not mount the isolated provider output read-only")
 if "JANUS_PHAROS_PROVIDER_OUT_VOLUME:-janus_pharos_production_provider_out" not in compose_text:
     raise SystemExit("compose does not declare the reviewed external provider output volume")
-if "/run/janus/env/pharos/providers" in prod_runtime_text:
-    raise SystemExit("beacon runtime must not re-own the isolated provider output")
+provider_runtime_body = prod_runtime_text.split(
+    "janus_pharos_prepare_provider_runtime()", 1
+)[1].split("janus_pharos_prepare_provider_mountpoint()", 1)[0]
+if "/run/janus/env" in provider_runtime_body:
+    raise SystemExit("provider runtime preparer must not re-own shared beacon output")
+if 'if ! first_entry=$(find "$mountpoint"' not in prod_runtime_text:
+    raise SystemExit("provider mountpoint preparer must reject hidden shared-volume content")
 
 if agenix_source not in provider_import_text:
     raise SystemExit("production Hetzner importer does not use the reviewed agenix source")
