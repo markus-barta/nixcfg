@@ -240,6 +240,35 @@ then runs the current value-free boundary matrix:
 | MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied         |
 | Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail |
 
+### Pharos Hetzner Provider Credential Handoff
+
+Pharos consumes the Hetzner project token only from the isolated external
+volume `janus_pharos_production_provider_out`. The agenix enrollment source is
+root-only and is never mounted into `pharosd`; the reviewed importer extracts
+the one expected key as data, re-encrypts it into the Janus age store, consumes
+one provider-only permit with networking disabled, and restores the rendered
+file to Pharos UID `10001` with mode `0600`.
+
+Enrollment is an attended human step. From the workstation, edit
+`secrets/csb1-hetzner-cloud-provider-env.age` with agenix and enter exactly one
+`PHAROS_HCLOUD_API_TOKEN=...` assignment. Never paste the value into a shell
+argument, agent chat, PPM, Git plaintext, or command output. After the encrypted
+artifact is reviewed and deployed with `just switch`, run on csb1:
+
+```bash
+cd ~/Code/nixcfg
+sudo bash hosts/csb1/docker/janus/pharos-production/import-agenix-hetzner-provider.sh
+cd hosts/csb1/docker
+docker compose up -d --no-deps pharosd
+```
+
+Expected value-free evidence includes `value_returned=false`,
+`hash_format=none`, `mode=600`, and `permits_consumed=true`. Keep
+`PHAROS_HCLOUD_EXECUTE=0` while using the authenticated **Test connection**
+action. The one-time `pharosd` recreation installs the isolated nested volume
+mount; later credential re-renders are read per operation and need no restart.
+Enabling paid execution is a separate reviewed and attended change.
+
 To validate Pharos credential retirement without touching production material:
 
 ```bash
