@@ -235,6 +235,12 @@ in
   # after all deployed beacons have per-host tokens.
   "csb1-pharos-registration-env.age".publicKeys = markus ++ csb1;
 
+  # Janus enrollment source for the Pharos Hetzner provider connection.
+  # Format: one PHAROS_HCLOUD_API_TOKEN=VALUE line. The reviewed importer
+  # extracts only that key and re-encrypts it into Janus's production store.
+  # Edit interactively only: agenix -e secrets/csb1-hetzner-cloud-provider-env.age
+  "csb1-hetzner-cloud-provider-env.age".publicKeys = markus ++ csb1;
+
   # Dedicated GitHub PAT (classic) used only by pharosd to dispatch nixcfg's
   # fixed pharos-host-settings workflow. Contents: raw token, no KEY= prefix.
   "csb1-pharos-nixcfg-dispatch-token.age".publicKeys = markus ++ csb1;
