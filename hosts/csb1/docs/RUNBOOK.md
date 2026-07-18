@@ -248,6 +248,9 @@ root-only and is never mounted into `pharosd`; the reviewed importer extracts
 the one expected key as data, re-encrypts it into the Janus age store, consumes
 one provider-only permit with networking disabled, and restores the rendered
 file to Pharos UID `10001` with mode `0600`.
+The renderer also prepares the empty nested target required to mount the
+provider volume beneath the shared read-only Janus output; do not create or
+populate that target by hand.
 
 Enrollment is an attended human step. From the workstation, edit
 `secrets/csb1-hetzner-cloud-provider-env.age` with agenix and enter exactly one

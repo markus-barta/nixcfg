@@ -102,9 +102,9 @@ chmod 0400 /var/lib/janus/metadata/baseline.toml
 ' sh "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID"
 }
 
-# Provider rendering deliberately avoids the shared beacon output and permit
-# volumes. Re-owning either during a provider refresh would break live beacon
-# hash reads or interfere with an independent beacon permit run.
+# Provider rendering deliberately avoids re-owning the shared beacon output and
+# permit volumes. Re-owning either during a provider refresh would break live
+# beacon hash reads or interfere with an independent beacon permit run.
 janus_pharos_prepare_provider_runtime() {
   local image=$1
   local contract_dir=$2
@@ -180,7 +180,41 @@ chmod 0700 \
   /var/lib/janus/metadata
 chmod 0600 /var/lib/janus/metadata/metadata.toml
 chmod 0400 /var/lib/janus/metadata/baseline.toml
-' sh "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID"
+  ' sh "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID"
+}
+
+# Docker cannot create a nested volume target beneath a read-only parent mount.
+# Prepare only the empty target directory that Compose needs; never inspect or
+# mutate the sibling beacon output directories.
+janus_pharos_prepare_provider_mountpoint() {
+  local image=$1
+  local shared_out_volume=$2
+
+  docker volume create "$shared_out_volume" >/dev/null
+  docker run --rm --network none --user 0 \
+    -v "${shared_out_volume}:/run/janus/env" \
+    --entrypoint sh "$image" \
+    -c '
+set -eu
+parent=/run/janus/env/pharos
+mountpoint=$parent/providers
+test -d "$parent"
+[ ! -L "$parent" ]
+if [ -e "$mountpoint" ] || [ -L "$mountpoint" ]; then
+  test -d "$mountpoint"
+  [ ! -L "$mountpoint" ]
+else
+  mkdir "$mountpoint"
+fi
+first_entry=
+if ! first_entry=$(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit); then
+  printf "failed to inspect the provider mountpoint\n" >&2
+  exit 1
+fi
+[ -z "$first_entry" ]
+chown 0:0 "$mountpoint"
+chmod 0700 "$mountpoint"
+'
 }
 
 janus_pharos_prepare_age_identity() {

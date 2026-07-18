@@ -60,7 +60,7 @@ docker run --rm --network none --user 0 \
   --entrypoint sh "$IMAGE" \
   -c '
 set -eu
-install -d -o 4242 -g 4343 -m 0751 /run/janus/env/pharos
+install -d -o 999 -g 999 -m 0750 /run/janus/env/pharos
 install -d -o 4242 -g 4343 -m 0711 /run/janus/env/pharos/beacon-token-hashes
 printf "%s" "provider-smoke-shared-output-sentinel" > \
   /run/janus/env/pharos/beacon-token-hashes/sentinel
@@ -72,6 +72,65 @@ stat -c "%a %u %g" /run/janus/env/pharos/beacon-token-hashes/sentinel
 sha256sum /run/janus/env/pharos/beacon-token-hashes/sentinel
 ' >"$shared_before"
 
+absent_mountpoint_out="${TMP_DIR}/absent-mountpoint.out"
+if docker run --rm --network none --user 10001:999 \
+  -v "${SHARED_OUT_VOLUME}:/run/janus/env:ro" \
+  -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers:ro" \
+  --entrypoint sh "$IMAGE" \
+  -c 'exit 0' >"$absent_mountpoint_out" 2>&1; then
+  printf 'isolated Pharos provider smoke expected an absent nested mountpoint to fail\n' >&2
+  exit 1
+fi
+
+JANUS_PHAROS_CONTRACT_DIR="$CONTRACT_DIR" \
+  JANUS_PHAROS_VOLUME_PREFIX="$VOLUME_PREFIX" \
+  JANUS_PHAROS_PREPARE_ONLY=1 \
+  JANUS_ENGINE_IMAGE="$IMAGE" \
+  bash "$RENDER_SCRIPT" >/dev/null
+
+docker run --rm --network none --user 0 \
+  -v "${SHARED_OUT_VOLUME}:/run/janus/env" \
+  --entrypoint sh "$IMAGE" \
+  -c 'printf "%s" "unexpected" > /run/janus/env/pharos/providers/unexpected'
+mountpoint_failure_out="${TMP_DIR}/mountpoint-failure.out"
+if JANUS_PHAROS_CONTRACT_DIR="$CONTRACT_DIR" \
+  JANUS_PHAROS_VOLUME_PREFIX="$VOLUME_PREFIX" \
+  JANUS_PHAROS_PREPARE_ONLY=1 \
+  JANUS_ENGINE_IMAGE="$IMAGE" \
+  bash "$RENDER_SCRIPT" >"$mountpoint_failure_out" 2>&1; then
+  printf 'isolated Pharos provider smoke accepted a nonempty nested mountpoint\n' >&2
+  exit 1
+fi
+docker run --rm --network none --user 0 \
+  -v "${SHARED_OUT_VOLUME}:/run/janus/env" \
+  --entrypoint sh "$IMAGE" \
+  -c 'rm /run/janus/env/pharos/providers/unexpected'
+
+docker run --rm --network none --user 0 \
+  -v "${SHARED_OUT_VOLUME}:/run/janus/env" \
+  --entrypoint sh "$IMAGE" \
+  -c '
+set -eu
+rmdir /run/janus/env/pharos/providers
+ln -s beacon-token-hashes /run/janus/env/pharos/providers
+'
+symlink_failure_out="${TMP_DIR}/symlink-failure.out"
+if JANUS_PHAROS_CONTRACT_DIR="$CONTRACT_DIR" \
+  JANUS_PHAROS_VOLUME_PREFIX="$VOLUME_PREFIX" \
+  JANUS_PHAROS_PREPARE_ONLY=1 \
+  JANUS_ENGINE_IMAGE="$IMAGE" \
+  bash "$RENDER_SCRIPT" >"$symlink_failure_out" 2>&1; then
+  printf 'isolated Pharos provider smoke accepted a symlink nested mountpoint\n' >&2
+  exit 1
+fi
+docker run --rm --network none --user 0 \
+  -v "${SHARED_OUT_VOLUME}:/run/janus/env" \
+  --entrypoint sh "$IMAGE" \
+  -c '
+set -eu
+test -L /run/janus/env/pharos/providers
+rm /run/janus/env/pharos/providers
+'
 JANUS_PHAROS_CONTRACT_DIR="$CONTRACT_DIR" \
   JANUS_PHAROS_VOLUME_PREFIX="$VOLUME_PREFIX" \
   JANUS_PHAROS_PREPARE_ONLY=1 \
@@ -202,6 +261,30 @@ if ! cmp -s "$shared_before" "$shared_after"; then
   printf 'isolated Pharos provider smoke changed the shared beacon output volume\n' >&2
   exit 1
 fi
+
+docker run --rm --network none --user 0 \
+  -v "${SHARED_OUT_VOLUME}:/run/janus/env:ro" \
+  --entrypoint sh "$IMAGE" \
+  -c '
+set -eu
+mountpoint=/run/janus/env/pharos/providers
+test -d "$mountpoint"
+[ ! -L "$mountpoint" ]
+[ "$(stat -c "%a" "$mountpoint")" = 700 ]
+first_entry=
+if ! first_entry=$(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit); then
+  exit 1
+fi
+[ -z "$first_entry" ]
+'
+
+# Reproduce Compose's exact nested read-only mount topology. Docker refuses to
+# start this container when the target is absent from the read-only parent.
+docker run --rm --network none --user 10001:999 \
+  -v "${SHARED_OUT_VOLUME}:/run/janus/env:ro" \
+  -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers:ro" \
+  --entrypoint sh "$IMAGE" \
+  -c 'test -r /run/janus/env/pharos/providers/hetzner-cloud.env'
 
 fixture=
 unset fixture fixture_sha recipient
