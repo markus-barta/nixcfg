@@ -289,7 +289,9 @@ git commit -m "refactor(miniserver99): rename directory miniserver99 → hsb0 (s
 - [ ] All files moved correctly
 - [ ] Git commit successful
 
-**Rollback**: `git reset --hard HEAD~1`
+**Rollback**: Stop and inspect the exact commit and affected paths. With
+explicit user approval, create a targeted revert commit; never rewrite the
+whole worktree.
 
 ---
 
@@ -341,7 +343,9 @@ git commit -m "refactor(miniserver99): update flake.nix miniserver99 → hsb0 (s
 - [ ] Comment added for clarity
 - [ ] Git commit successful
 
-**Rollback**: `git reset --hard HEAD~1`
+**Rollback**: Stop and inspect the exact commit and affected paths. With
+explicit user approval, create a targeted revert commit; never rewrite the
+whole worktree.
 
 ---
 
@@ -399,7 +403,9 @@ git commit -m "refactor(miniserver99): update hostname miniserver99 → hsb0 (st
 - [ ] No other unintended changes
 - [ ] Git commit successful
 
-**Rollback**: `git reset --hard HEAD~1`
+**Rollback**: Stop and inspect the exact commit and affected paths. With
+explicit user approval, create a targeted revert commit; never rewrite the
+whole worktree.
 
 ---
 
@@ -456,7 +462,9 @@ git commit -m "refactor(miniserver99): update /etc/hosts references hsb0 (step 4
 - [ ] No `"miniserver99"` references in networking.hosts
 - [ ] Git commit successful
 
-**Rollback**: `git reset --hard HEAD~1`
+**Rollback**: Stop and inspect the exact commit and affected paths. With
+explicit user approval, create a targeted revert commit; never rewrite the
+whole worktree.
 
 ---
 
@@ -616,7 +624,9 @@ echo "✓ Phase 5 complete - secret files renamed and re-encrypted"
 
 🔒 **Why re-encrypt?** agenix encrypts secrets using SSH public keys. After the hostname change, the server will identify as `hsb0`, so it needs the secret to be encrypted for `hsb0`'s SSH keys. Without re-encrypting, hsb0 cannot decrypt the secret and DHCP will fail to start!
 
-**Rollback**: `git reset --hard HEAD~1`
+**Rollback**: Stop and inspect the exact commit and affected paths. With
+explicit user approval, create a targeted revert commit; never rewrite the
+whole worktree.
 
 ---
 
@@ -748,7 +758,9 @@ echo "✓ Phase 6 complete - all references updated"
 - Any `static-leases-miniserver99` in configs or agenix instructions
 - Any operator-facing documentation that references old filenames
 
-**Rollback**: `git reset --hard HEAD~1`
+**Rollback**: Stop and inspect the exact commit and affected paths. With
+explicit user approval, create a targeted revert commit; never rewrite the
+whole worktree.
 
 ---
 

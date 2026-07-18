@@ -53,10 +53,16 @@ ssh -p 2222 mba@cs0.barta.cm 'docker exec csb0-restic-cron-hetzner-1 /usr/local/
 
 ### Execute Migration
 
+Run only from a clean `main` worktree. If `git status --short` reports any
+change, stop and get explicit approval; never discard the worktree to match the
+remote.
+
 ```bash
 ssh -p 2222 mba@cs0.barta.cm
 cd ~/nixcfg
-git fetch origin && git reset --hard origin/main
+git status --short
+git fetch origin
+git merge --ff-only origin/main
 sudo nixos-rebuild switch --flake .#csb0
 ```
 

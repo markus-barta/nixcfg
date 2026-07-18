@@ -86,10 +86,11 @@ in
   inspr.git.atelier.bytepoets.enable = false;
 
   # ============================================================================
-  # INSPR — paimos-cli auto-bootstrap (~/.paimos/config.yaml from PPMAPIKEY.env)
+  # INSPR — paimos-cli non-secret instance routing
   # ============================================================================
-  # See modules/shared/paimos-config.nix. After activation, `paimos auth whoami`
-  # works immediately — no manual `paimos auth login` step on fresh hosts.
+  # Home Manager writes only the PPM URL/default. Authenticate once at the
+  # keyboard with the hidden `paimos auth login` prompt; the credential stays
+  # in the OS keyring.
   inspr.paimos-cli.enable = true;
 
   # ============================================================================

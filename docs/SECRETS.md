@@ -711,10 +711,21 @@ just private-pull-decrypt
 
 If you ran `just rekey` and your secrets suddenly dropped to ~578 bytes:
 
-1. **STOP**: Do not commit or push.
-2. **RESTORE**: `git reset --hard HEAD` (or `HEAD~1` if already committed).
-3. **DEBUG**: Ensure your SSH key is added to the agent (`ssh-add ~/.ssh/id_rsa`).
-4. **RETRY**: Try decrypting one file first: `agenix -d secrets/foo.age`.
+1. **STOP**: Do not commit, push, run `just rekey` again, or alter the
+   suspected files.
+2. **PRESERVE EVIDENCE**: Record `git status --short`, the file sizes, and the
+   exact affected paths. Do not inspect or print decrypted contents.
+3. **VALIDATE THE SOURCE**: For every affected path, identify a known-good
+   source such as a confirmed backup or a specific pre-incident commit. Verify
+   that the source contains that exact path before recovery.
+4. **ASK FIRST**: Show the user the exact path list and proposed recovery
+   source, then wait for explicit approval.
+5. **RECOVER NARROWLY**: Recover only the approved exact paths from the
+   validated source. Never reset, restore, or check out the whole worktree;
+   preserve every unrelated local change.
+6. **VERIFY SAFELY**: Confirm the recovered files no longer have the
+   header-only size and validate decryption without printing plaintext before
+   retrying the rekey workflow.
 
 ### "Command not found"
 

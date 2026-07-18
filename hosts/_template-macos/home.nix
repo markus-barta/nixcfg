@@ -42,11 +42,13 @@
   inspr.git-identity.enable = true;
 
   # ============================================================================
-  # INSPR — Secrets pipeline (agent-secrets + paimos-cli config)
+  # INSPR — Secrets pipeline + non-secret Paimos routing
   # ============================================================================
-  # Uncomment after this host has been added as an agenix recipient in
-  # secrets/secrets.nix (see playbook step 3 + docs/SECRETS.md).
+  # Enable agent secrets only after this host has been added as an agenix
+  # recipient in secrets/secrets.nix (see playbook step 3 + docs/SECRETS.md).
   # inspr.secrets.agents.enable = true;
+  # Paimos routing is independent of agent secrets. After activation,
+  # authenticate interactively via `paimos auth login`.
   # inspr.paimos-cli.enable = true;
 
   # ============================================================================

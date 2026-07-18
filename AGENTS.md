@@ -73,8 +73,8 @@ For full kernel + domain packs: see [`inspr-modules/docs/AGENTS-KERNEL.md`](http
 
 ## Topic: incident-response/secret-leak
 
-- 🔴 **HARD** | `always` | If just rekey wiped secrets to ~578 bytes, STOP — do not commit or push; restore via git reset --hard
-  _<sub>src: ~/Code/nixcfg/docs/SECRETS.md L713-716</sub>_
+- 🔴 **HARD** | `always` | If `just rekey` produces ~578-byte files, STOP: do not commit, push, rekey again, or alter the affected files. Preserve evidence, identify the exact affected paths and a validated known-good recovery source, then obtain explicit user approval before recovering only those paths; never reset or restore the whole worktree.
+  _<sub>src: ~/Code/nixcfg/docs/SECRETS.md L714-728</sub>_
   <!-- rule_ids: SECRETS.md:L713:after-wipe-do-not-commit-or-push | cluster: — -->
 
 ## Topic: secrets/access-pattern
