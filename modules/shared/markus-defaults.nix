@@ -30,8 +30,9 @@
 #       key filenames + pubkeys.
 #
 #   - inspr.paimos-cli.{instances, defaultInstance}
-#       PPM (https://pm.barta.cm) as default. PPMAPIKEY sourced from the
-#       agent-secrets-materialized PPMAPIKEY.env file.
+#       PPM (https://pm.barta.cm) as default non-secret routing. Workstations
+#       authenticate interactively with `paimos auth login`; credentials stay
+#       in the OS keyring and are never rendered by Home Manager.
 #
 # Note: this module DOESN'T enable anything by itself — it just declares
 # values. The host's home.nix still needs `inspr.git-identity.enable = true`
@@ -179,8 +180,6 @@ in
 
     instances.ppm = {
       url = "https://pm.barta.cm";
-      apiKeyEnvFile = "${config.home.homeDirectory}/.inspr/secrets/agents/PPMAPIKEY.env";
-      apiKeyVar = "PPMAPIKEY";
     };
 
     # PMO (INSPR-174) removed 2026-07-13: the BYTEPOETS Paimos instance was

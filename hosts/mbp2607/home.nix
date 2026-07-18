@@ -39,6 +39,7 @@ in
   # Enabled 2026-07-03 (NIX-215): markus@mbp2607 user key in the markus
   # aggregate + host key on agents/shared/* — rekeyed in 31e3d1a8.
   inspr.secrets.agents.enable = true;
+  # Non-secret routing only; workstation auth is interactive via OS keyring.
   inspr.paimos-cli.enable = true;
   # mbp2607-personal-userkey minted 2026-07-03, registered on markus-barta
   # GitHub account; privkey in secrets/agents/host/mbp2607/.

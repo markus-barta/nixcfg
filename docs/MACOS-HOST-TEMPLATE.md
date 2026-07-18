@@ -109,7 +109,7 @@ Module surface (defined in [inspr-modules](https://github.com/markus-barta/inspr
 | Module                                   | What it does                                                                                            |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `inspr.secrets.agents`                   | Decrypts agenix `.age` files at HM activation → `~/.inspr/secrets/agents/*.env` (mode 0400)             |
-| `inspr.paimos-cli`                       | Auto-bootstraps `~/.paimos/config.yaml` from the configured PPM / PMO instances                         |
+| `inspr.paimos-cli`                       | Writes non-secret PPM instance routing; workstation authentication is interactive via the OS keyring    |
 | `inspr.ssh.authorized`                   | Declarative `~/.ssh/authorized_keys` from trust presets (personalHosts, bytepoetsInbound, etc.)         |
 | `inspr.git.atelier.{personal,bytepoets}` | Federated git auth via per-host SSH userkeys (INSPR-170 Strategy B)                                     |
 | `inspr.git-identity`                     | Context-aware `[user]` and `includeIf` git config (personal default, BYTEPOETS override on org remotes) |
