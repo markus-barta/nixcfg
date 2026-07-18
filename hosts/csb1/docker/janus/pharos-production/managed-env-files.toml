@@ -186,3 +186,21 @@ reload = "none"
 validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
 supports_dual_value = false
 blast_radius = "production Pharos beacon token for hsb9"
+
+[[env_files]]
+id = "profile.PHAROS_HCLOUD_API_TOKEN"
+secret_ref = "sec_c4feea3327dd8c9c1bda"
+executor = "janus-run@csb1"
+destination = "pharos-provider-hetzner-cloud"
+env = "PHAROS_HCLOUD_API_TOKEN"
+output = "/run/janus/env/pharos/providers/hetzner-cloud.env"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_provider_hetzner_cloud"
+kind = "service"
+owner = "pharos"
+environment = "production"
+reload = "none"
+validation = ["pharos-provider-credential-preflight", "pharos-provider-read-only-test"]
+supports_dual_value = false
+blast_radius = "production Pharos Hetzner Cloud provider access"

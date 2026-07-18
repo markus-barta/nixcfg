@@ -116,40 +116,8 @@ METADATA_VOLUME=$JANUS_PHAROS_METADATA_VOLUME
 container_uid=$JANUS_PHAROS_CONTAINER_UID
 container_gid=$JANUS_PHAROS_CONTAINER_GID
 
-if ! docker run --rm \
-  -v "${AGE_VOLUME}:/run/janus/age" \
-  --entrypoint sh "$IMAGE" \
-  -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub'; then
-  key_dir="${TMP_DIR}/age"
-  mkdir -p "$key_dir"
-  age-keygen -o "${key_dir}/identity" >"${key_dir}/age-keygen.out" 2>&1
-  sed -n 's/^Public key: //p' "${key_dir}/age-keygen.out" | head -n1 >"${key_dir}/recipient.pub"
-  sed -n 's/.*\(AGE-SECRET-KEY-[A-Z0-9]*\).*/\1/p' "${key_dir}/identity" |
-    head -n1 >"${key_dir}/identity.plain"
-  mv "${key_dir}/identity.plain" "${key_dir}/identity"
-  if [ ! -s "${key_dir}/recipient.pub" ]; then
-    printf 'failed to generate production age recipient\n' >&2
-    exit 1
-  fi
-  if [ ! -s "${key_dir}/identity" ]; then
-    printf 'failed to generate production age identity\n' >&2
-    exit 1
-  fi
-  tar -C "$key_dir" -cf - identity recipient.pub |
-    docker run -i --rm --user 0 \
-      -v "${AGE_VOLUME}:/run/janus/age" \
-      --entrypoint sh "$IMAGE" \
-      -c '
-set -eu
-uid=$1
-gid=$2
-tmp=$(mktemp -d)
-trap "rm -rf \"$tmp\"" EXIT
-tar -C "$tmp" -xf -
-install -o "$uid" -g "$gid" -m 0400 "$tmp/identity" /run/janus/age/identity
-install -o "$uid" -g "$gid" -m 0444 "$tmp/recipient.pub" /run/janus/age/recipient.pub
-' sh "$container_uid" "$container_gid"
-fi
+janus_pharos_prepare_age_identity \
+  "$IMAGE" "$AGE_VOLUME" "$container_uid" "$container_gid"
 
 if [ "$PREPARE_ONLY" = "1" ]; then
   printf 'ok: janus pharos production runtime prepared volume_prefix=%s value_returned=false\n' "$VOLUME_PREFIX"

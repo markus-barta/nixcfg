@@ -78,5 +78,21 @@
     "consumer_count": 1,
     "egress_mode": "connector-required",
     "tags": ["backup", "restic"]
+  },
+  {
+    "id": "csb1-hetzner-cloud-provider-env",
+    "display_name": "Hetzner Cloud API token for Pharos",
+    "provider": "agenix",
+    "classification": "high",
+    "owner": "platform",
+    "scope": "csb1",
+    "source": "secrets/csb1-hetzner-cloud-provider-env.age",
+    "rotation_days": 180,
+    "lifecycle": "active",
+    "status": "managed",
+    "use_enabled": true,
+    "consumer_count": 1,
+    "egress_mode": "connector-required",
+    "tags": ["pharos", "provider", "hetzner"]
   }
 ]

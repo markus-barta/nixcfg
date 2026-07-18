@@ -36,13 +36,13 @@ case "${1:-}" in
 --quiet) MODE="quiet" ;;
 --json) MODE="json" ;;
 -h | --help)
-    sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
-    exit 0
-    ;;
+  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+  exit 0
+  ;;
 *)
-    echo "${RED}error:${RESET} unknown arg '$1' (try --help)" >&2
-    exit 2
-    ;;
+  echo "${RED}error:${RESET} unknown arg '$1' (try --help)" >&2
+  exit 2
+  ;;
 esac
 
 # Resolve nixcfg root. Try in order:
@@ -51,24 +51,21 @@ esac
 #      inspr-doctor invoke the audit by absolute path from any cwd)
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "$REPO" || ! -f "$REPO/secrets/secrets.nix" ]]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
 if [[ ! -f "$REPO/secrets/secrets.nix" ]]; then
-    echo "${RED}error:${RESET} cannot locate nixcfg repo (no secrets/secrets.nix found)" >&2
-    exit 2
+  echo "${RED}error:${RESET} cannot locate nixcfg repo (no secrets/secrets.nix found)" >&2
+  exit 2
 fi
 
 SECRETS_DIR="$REPO/secrets"
 SECRETS_NIX="$SECRETS_DIR/secrets.nix"
 
-# Build the two sets
-disk_list="$(find "$SECRETS_DIR" -name '*.age' -type f -print0 |
-    xargs -0 -n1 basename | sort -u)"
-# Some declarations include path prefix (e.g. "agents/shared/FOO.age"),
-# so also extract the full declared path.
+# Build the two sets. Some declarations include a path prefix (for example,
+# "agents/shared/FOO.age"), so retain each file's path below secrets/.
 disk_paths="$(find "$SECRETS_DIR" -name '*.age' -type f -printf '%P\n' 2>/dev/null ||
-    find "$SECRETS_DIR" -name '*.age' -type f | sed "s|^$SECRETS_DIR/||")"
+  find "$SECRETS_DIR" -name '*.age' -type f | sed "s|^$SECRETS_DIR/||")"
 disk_paths="$(echo "$disk_paths" | sort -u)"
 
 # Declared: anything in quoted form `"...age"` in secrets.nix.
@@ -76,19 +73,20 @@ disk_paths="$(echo "$disk_paths" | sort -u)"
 # declarations (TODO/staged-but-disabled) don't show up as false drift.
 # Block comments (/* … */) aren't used in this file — bail loudly if they
 # appear so we know to extend this stripper.
-if grep -q '/\*' "$SECRETS_NIX"; then
-    echo "${RED}error:${RESET} secrets.nix uses block comments — audit script only handles line comments. Extend before trusting output." >&2
-    exit 2
+declarations_source="$(sed 's|#.*||' "$SECRETS_NIX")"
+if grep -qF '/*' <<<"$declarations_source"; then
+  echo "${RED}error:${RESET} secrets.nix uses block comments — audit script only handles line comments. Extend before trusting output." >&2
+  exit 2
 fi
-declared="$(sed 's|#.*||' "$SECRETS_NIX" | grep -oE '"[^"]+\.age"' | tr -d '"' | sort -u)"
+declared="$(grep -oE '"[^"]+\.age"' <<<"$declarations_source" | tr -d '"' | sort -u)"
 
 # Compute deltas
 declared_missing="$(comm -23 \
-    <(echo "$declared") \
-    <(echo "$disk_paths"))"
+  <(echo "$declared") \
+  <(echo "$disk_paths"))"
 disk_undeclared="$(comm -13 \
-    <(echo "$declared") \
-    <(echo "$disk_paths"))"
+  <(echo "$declared") \
+  <(echo "$disk_paths"))"
 
 n_disk=$(echo "$disk_paths" | grep -c . || true)
 n_decl=$(echo "$declared" | grep -c . || true)
@@ -98,45 +96,45 @@ total_drift=$((n_dm + n_du))
 
 # Output
 if [[ "$MODE" == "json" ]]; then
-    if ! command -v jq >/dev/null; then
-        echo "${RED}error:${RESET} --json mode requires jq" >&2
-        exit 2
-    fi
-    jq -n \
-        --argjson n_disk "$n_disk" \
-        --argjson n_decl "$n_decl" \
-        --arg dm "$declared_missing" \
-        --arg du "$disk_undeclared" \
-        '{
+  if ! command -v jq >/dev/null; then
+    echo "${RED}error:${RESET} --json mode requires jq" >&2
+    exit 2
+  fi
+  jq -n \
+    --argjson n_disk "$n_disk" \
+    --argjson n_decl "$n_decl" \
+    --arg dm "$declared_missing" \
+    --arg du "$disk_undeclared" \
+    '{
           counts: { disk: $n_disk, declared: $n_decl, drift: (($dm|split("\n")|map(select(length>0))|length) + ($du|split("\n")|map(select(length>0))|length)) },
           declared_but_missing: ($dm|split("\n")|map(select(length>0))),
           on_disk_but_undeclared: ($du|split("\n")|map(select(length>0)))
         }'
-    [[ $total_drift -eq 0 ]] && exit 0 || exit 1
+  [[ $total_drift -eq 0 ]] && exit 0 || exit 1
 fi
 
 if [[ $total_drift -eq 0 ]]; then
-    if [[ "$MODE" != "quiet" ]]; then
-        echo "${GREEN}✓ secrets-audit: no drift${RESET} (${n_disk} on disk, ${n_decl} declared)"
-    fi
-    exit 0
+  if [[ "$MODE" != "quiet" ]]; then
+    echo "${GREEN}✓ secrets-audit: no drift${RESET} (${n_disk} on disk, ${n_decl} declared)"
+  fi
+  exit 0
 fi
 
 echo "${YELLOW}⚠ secrets-audit: drift detected${RESET} (${n_disk} on disk, ${n_decl} declared, ${total_drift} mismatches)"
 echo ""
 
 if [[ $n_dm -gt 0 ]]; then
-    echo "${CYAN}Declared but missing on disk${RESET} ($n_dm):"
-    echo "  ${YELLOW}probably:${RESET} planned secret not yet \`agenix -e\`'d, OR stale declaration after delete"
-    echo "$declared_missing" | sed 's/^/  - /'
-    echo ""
+  echo "${CYAN}Declared but missing on disk${RESET} ($n_dm):"
+  echo "  ${YELLOW}probably:${RESET} planned secret not yet \`agenix -e\`'d, OR stale declaration after delete"
+  printf '  - %s\n' "${declared_missing//$'\n'/$'\n  - '}"
+  echo ""
 fi
 
 if [[ $n_du -gt 0 ]]; then
-    echo "${CYAN}On disk but undeclared in secrets.nix${RESET} ($n_du):"
-    echo "  ${YELLOW}implication:${RESET} orphan — unreachable by \`agenix --rekey\`, won't decrypt to any host"
-    echo "$disk_undeclared" | sed 's/^/  - /'
-    echo ""
+  echo "${CYAN}On disk but undeclared in secrets.nix${RESET} ($n_du):"
+  echo "  ${YELLOW}implication:${RESET} orphan — unreachable by \`agenix --rekey\`, won't decrypt to any host"
+  printf '  - %s\n' "${disk_undeclared//$'\n'/$'\n  - '}"
+  echo ""
 fi
 
 exit 1

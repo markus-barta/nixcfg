@@ -428,6 +428,17 @@ in
     mode = "0400";
   };
 
+  # Human-enrolled Hetzner project token. This root-only agenix source is never
+  # mounted into pharosd; the reviewed Janus importer re-encrypts only the
+  # PHAROS_HCLOUD_API_TOKEN value into the production Janus store.
+  age.secrets.csb1-hetzner-cloud-provider-env = {
+    file = ../../secrets/csb1-hetzner-cloud-provider-env.age;
+    path = "/run/agenix/csb1-hetzner-cloud-provider-env";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+
   # Raw GitHub token consumed through pharosd's file-only dispatcher setting.
   # Numeric ownership matches the non-root pharos user in the container image.
   age.secrets.csb1-pharos-nixcfg-dispatch-token = {
