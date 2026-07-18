@@ -120,6 +120,10 @@ janus-pharos-sidecar-smoke:
     cd hosts/csb1/docker && ./janus/pharos-nonprod/run-sidecar-smoke.sh
 
 [group('ops')]
+janus-pharos-provider-smoke:
+    sudo bash hosts/csb1/docker/janus/pharos-provider-smoke/run.sh
+
+[group('ops')]
 janus-pharos-retirement-smoke:
     cd hosts/csb1/docker && ./janus/pharos-retirement-smoke/run.sh
 
