@@ -112,6 +112,10 @@
         };
         # Stub: hokage/desktop.nix references sonar but it doesn't exist in nixpkgs
         sonar = final.hello;
+        # Compatibility for pbek/nixcfg c0385905: its desktop module still
+        # requests the removed cryfs alias. Nixpkgs recommends gocryptfs until
+        # CryFS 2.x stabilises; keep the substitution local and explicit.
+        cryfs = final.gocryptfs;
         # direnv 2.37.1's upstream test suite hangs in the Nix sandbox on
         # x86_64-darwin (one of the zsh integration tests blocks indefinitely
         # with no CPU). Upstream CI runs the same suite on every release, so
