@@ -333,7 +333,10 @@ services:
       - CHARGING_BATTERY_SOC_ENTITY=sensor.sonnenbatterie_state_battery_percentage_user
       - CHARGING_GRID_FEEDIN_ENTITY=sensor.grid_export_power
       - CHARGING_TICK_INTERVAL=30s
-      - CHARGING_STALE_AFTER=10m
+      # 0 = staleness check off: HA bumps last_updated only on CHANGE, so a
+      # stable value (0 W export all evening) is not stale. Unavailability is
+      # signalled via state "unavailable", which the app already rejects.
+      - CHARGING_STALE_AFTER=0s
       - CHARGING_CONFIRM_TIMEOUT=2m
       - CHARGING_HA_FAIL_LIMIT=5
       - TELEGRAM_DATA_PATH=/data/telegram.json
