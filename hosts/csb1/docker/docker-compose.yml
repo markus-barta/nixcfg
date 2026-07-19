@@ -322,6 +322,19 @@ services:
       - ISSUE_ATTACHMENT_DIR=/data/issue-attachments
       - PARKING_SAMPLE_INTERVAL=15m
       - PARKING_HISTORY_START=2026-01-01
+      # PP20 Überschussladen (charging controller + Telegram bot, hausv 0.12).
+      # Controller enable/shadow lives in the app settings, NOT here — flip and
+      # rollback must be a settings save, never a redeploy. The bot token is
+      # the only secret and stays in the agenix env file.
+      - CHARGING_PLUG_SWITCH_ENTITY=switch.kws_306wf_energy_meter
+      - CHARGING_BATTERY_SOC_ENTITY=sensor.sonnenbatterie_260365_state_charge_user
+      - CHARGING_GRID_FEEDIN_ENTITY=sensor.sonnenbatterie_260365_state_grid_output
+      - CHARGING_TICK_INTERVAL=30s
+      - CHARGING_STALE_AFTER=10m
+      - CHARGING_CONFIRM_TIMEOUT=2m
+      - CHARGING_HA_FAIL_LIMIT=5
+      - TELEGRAM_DATA_PATH=/data/telegram.json
+      - TELEGRAM_POLL_TIMEOUT=50s
     volumes:
       - /var/lib/csb1-docker/hausv-org:/data
     networks:
