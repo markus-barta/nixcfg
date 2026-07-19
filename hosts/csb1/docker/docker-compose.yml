@@ -327,8 +327,11 @@ services:
       # rollback must be a settings save, never a redeploy. The bot token is
       # the only secret and stays in the agenix env file.
       - CHARGING_PLUG_SWITCH_ENTITY=switch.kws_306wf_energy_meter
-      - CHARGING_BATTERY_SOC_ENTITY=sensor.sonnenbatterie_260365_state_charge_user
-      - CHARGING_GRID_FEEDIN_ENTITY=sensor.sonnenbatterie_260365_state_grid_output
+      # Verified live 2026-07-19: the 260365-prefixed registry entries are stale.
+      # grid_export_power is the HA template split of the signed grid_inout —
+      # always >= 0 W, availability-guarded, so no sign convention in the app.
+      - CHARGING_BATTERY_SOC_ENTITY=sensor.sonnenbatterie_state_battery_percentage_user
+      - CHARGING_GRID_FEEDIN_ENTITY=sensor.grid_export_power
       - CHARGING_TICK_INTERVAL=30s
       - CHARGING_STALE_AFTER=10m
       - CHARGING_CONFIRM_TIMEOUT=2m
