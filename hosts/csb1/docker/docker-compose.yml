@@ -631,6 +631,7 @@ services:
       - PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/janus/env/pharos/providers/hetzner-cloud.env
       # PHAROS-146 preflight: keep paid provider mutation disabled until the
       # attended review has verified the exact project, resources, and price.
+      - PHAROS_HCLOUD_PROJECT_LABEL=Pharos production
       - PHAROS_HCLOUD_EXECUTE=0
       # csb1 is the trusted executor for other hosts; it cannot retire itself.
       - PHAROS_RETIREMENT_OWNER_HOST=csb1
