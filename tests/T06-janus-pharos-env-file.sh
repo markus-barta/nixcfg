@@ -287,6 +287,8 @@ if "janus_pharos_production_out:/run/janus/env/pharos:ro" in compose_text:
     raise SystemExit("pharosd compose has an extra nested pharos path in Janus mount")
 if "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/janus/env/pharos/providers/hetzner-cloud.env" not in compose_text:
     raise SystemExit("pharosd Hetzner credential must use the Janus env-file boundary")
+if "PHAROS_HCLOUD_PROJECT_LABEL=Pharos production" not in compose_text:
+    raise SystemExit("pharosd Hetzner project label must identify the attended production scope")
 if "PHAROS_HCLOUD_EXECUTE=0" not in compose_text:
     raise SystemExit("pharosd Hetzner execution must remain disabled during PHAROS-146 preflight")
 if "PHAROS_HCLOUD_EXECUTE=1" in compose_text:
