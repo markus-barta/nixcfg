@@ -613,7 +613,7 @@ services:
   pharosd:
     # Keep the readable release tag, but bind it to the verified immutable
     # linux/amd64 manifest used by both server and bundled beacon.
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.46@sha256:557eab61af577ea556cc546a6fadf0dad834b4c5e90a9c51dfc262d57cd5f87f
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.47@sha256:d401c1ed02e75832c2759f791190e514b95c60057196b0617fe5f137f9bfcaf7
     container_name: pharosd
     restart: unless-stopped
     env_file:
@@ -675,7 +675,7 @@ services:
   # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
   # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.46@sha256:557eab61af577ea556cc546a6fadf0dad834b4c5e90a9c51dfc262d57cd5f87f
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.47@sha256:d401c1ed02e75832c2759f791190e514b95c60057196b0617fe5f137f9bfcaf7
     container_name: pharos-beacon
     restart: unless-stopped
     network_mode: host
