@@ -83,6 +83,7 @@
           },
           {
             "description": "Use regular function keys in terminal",
+            "enabled": false,
             "manipulators": [
               {
                 "type": "basic",
