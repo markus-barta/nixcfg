@@ -265,8 +265,6 @@ in
   # `macosCommon.commonPackages` is the single source of truth for the default
   # macOS dev toolkit. Per-host extras below — keep this list lean; if ALL
   # macOS hosts need it, add to commonPackages in macos-common.nix instead.
-  # NOTE: mbp0's docker/colima/lima stack intentionally NOT copied — add the
-  # day local containers are actually needed.
   home.packages = macosCommon.commonPackages ++ [
     # System Tools (per-arch — agenix pkg comes from `inputs`, not `pkgs`)
     inputs.agenix.packages.aarch64-darwin.default
@@ -278,6 +276,15 @@ in
     # 2026-07-19; brew copies removed via `just bundle-cleanup` after switch)
     pkgs.f3 # Fight Flash Fraud — flash-drive capacity tester
     pkgs.ffmpeg # transcoding CLI (brew install pulled 14 dep formulae; Nix build is self-contained)
+
+    # Container stack — ported from mbp0 (2026-07-20; local containers now
+    # needed for Janus Docker smoke). Colima owns the long-lived VM at host
+    # level; devenv/direnv do not manage the daemon. `colima start` once after
+    # switch to bring up the engine.
+    pkgs.docker-client # Docker CLI only; engine provided by Colima on macOS
+    pkgs.docker-compose # Compose v2 standalone binary; linked as Docker CLI plugin
+    pkgs.colima # Lightweight Docker engine VM for macOS, no Docker Desktop
+    pkgs.lima # Colima's VM substrate; useful for limactl diagnostics
   ];
 
   # Enable fontconfig
