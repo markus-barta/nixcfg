@@ -1299,6 +1299,73 @@ setup-git-drivers:
     echo "✅ Registered 'ours' merge driver. devenv.lock/flake.lock conflicts now auto-resolve on pull/rebase."
     echo "   See docs/AGENT-WORKFLOW.md → 'Lockfile Merge Conflicts' for details."
 
+# Capture a GUI app's in-place config edit back into the declarative source.
+# Some apps (e.g. Karabiner-Elements) rewrite their config as a REAL file,
+# clobbering the home-manager symlink and blocking the next switch at
+# checkLinkTargets. This round-trips the live file into modules/config/ so
+# declarative == live. REGISTRY maps each app to (repo-source, $HOME-target,
+# type); add a line when a new app joins the pattern. No arg → drift status.
+[group('config')]
+config-capture app='':
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # app | repo-source (from repo root) | $HOME-relative target | type(json|text)
+    REGISTRY=(
+      "karabiner|modules/config/karabiner.json|.config/karabiner/karabiner.json|json"
+    )
+
+    status_of() {  # $1 = absolute target path
+      if [ -L "$1" ]; then echo "clean (symlink)"
+      elif [ -e "$1" ]; then echo "DRIFTED (real file — capturable)"
+      else echo "missing"; fi
+    }
+
+    APP="{{ app }}"
+    if [ -z "$APP" ]; then
+      echo "📋 Nix-managed configs that a GUI app can clobber (registry):"
+      printf "   %-14s %-8s %s\n" "APP" "TYPE" "STATUS"
+      for entry in "${REGISTRY[@]}"; do
+        IFS='|' read -r a _src tgt typ <<< "$entry"
+        printf "   %-14s %-8s %s\n" "$a" "$typ" "$(status_of "$HOME/$tgt")"
+      done
+      echo ""
+      echo "Usage: just config-capture <app>   (capture a DRIFTED file into the repo)"
+      exit 0
+    fi
+
+    SRC="" TGT="" TYP=""
+    for entry in "${REGISTRY[@]}"; do
+      IFS='|' read -r a src tgt typ <<< "$entry"
+      if [ "$a" = "$APP" ]; then SRC="$src"; TGT="$tgt"; TYP="$typ"; break; fi
+    done
+    if [ -z "$SRC" ]; then
+      echo "❌ Unknown app '$APP'. Known: $(printf '%s ' "${REGISTRY[@]%%|*}")"
+      exit 2
+    fi
+    TGT_ABS="$HOME/$TGT"
+
+    if [ -L "$TGT_ABS" ]; then
+      echo "✅ $APP: still the home-manager symlink — no GUI drift to capture."
+      exit 0
+    fi
+    [ -e "$TGT_ABS" ] || { echo "❌ $APP: $TGT_ABS does not exist."; exit 1; }
+
+    echo "🔎 $APP: capturing live edits  $TGT_ABS → $SRC"
+    echo "--- semantic diff (repo → live; this is the real change) ---"
+    if [ "$TYP" = "json" ]; then
+      jq empty "$TGT_ABS" || { echo "❌ live file is not valid JSON — aborting."; exit 1; }
+      diff <(jq -S . "$SRC") <(jq -S . "$TGT_ABS") || true
+      tmp="$(mktemp)"
+      jq . "$TGT_ABS" > "$tmp" && jq empty "$tmp" && mv "$tmp" "$SRC"
+    else
+      diff "$SRC" "$TGT_ABS" || true
+      cp "$TGT_ABS" "$SRC"
+    fi
+
+    echo ""
+    echo "✅ Captured into $SRC (first capture may reformat; the semantic diff above is the real change)."
+    echo "   Next:  git diff -- $SRC   →   commit   →   just home-switch \"-b backup\""
+
 # Generate aider configuration file with GitHub Copilot oauth token
 [group('config')]
 @generate-aider-config:
