@@ -1,13 +1,13 @@
 [[env_files]]
 id = "profile.PHAROS_BEACON_RETIREMENTSMOKE_TOKEN"
-secret_ref = "sec_fe71c096f3ac750e42cc"
+secret_ref = "sec_d9eabd17aba1268c7410"
 executor = "janus-run@csb1"
 destination = "pharos-beacon-retirementsmoke"
 env = "PHAROS_TOKEN"
 output = "/run/janus/env/pharos/beacons/retirementsmoke.env"
 
 [env_files.hash_sidecar]
-format = "pharos-beacon-token-hashes-v1"
+format = "pharos-beacon-token-generation-v2"
 subject = "retirementsmoke"
 output = "/run/janus/env/pharos/beacon-token-hashes/retirementsmoke.json"
 

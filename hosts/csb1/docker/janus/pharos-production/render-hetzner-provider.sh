@@ -18,12 +18,15 @@ SHARED_OUT_VOLUME=${VOLUME_PREFIX}_out
 PROVIDER_OUT_VOLUME=${JANUS_PHAROS_PROVIDER_OUT_VOLUME:-${VOLUME_PREFIX}_provider_out}
 PROVIDER_PERMIT_VOLUME=${JANUS_PHAROS_PROVIDER_PERMIT_VOLUME:-${VOLUME_PREFIX}_provider_permits}
 RUN_SCOPE=${JANUS_PHAROS_SCOPE:-pharos/csb1/production}
+SCOPE_ORGANIZATION=${JANUS_PHAROS_SCOPE_ORGANIZATION:-inspr}
+SCOPE_PROJECT=${JANUS_PHAROS_SCOPE_PROJECT:-pharos}
+SCOPE_REPOSITORY=${JANUS_PHAROS_SCOPE_REPOSITORY:-nixcfg}
+SCOPE_ENVIRONMENT=${JANUS_PHAROS_SCOPE_ENVIRONMENT:-production}
 PREPARE_ONLY=${JANUS_PHAROS_PREPARE_ONLY:-0}
 EXPECTED_HOST=${JANUS_PHAROS_PROVIDER_HOST:-csb1}
 LOCK_FILE=${JANUS_PHAROS_PROVIDER_LOCK_FILE:-/run/lock/janus-pharos-hetzner-provider.lock}
 CONSUMER_UID=${JANUS_PHAROS_PROVIDER_CONSUMER_UID:-10001}
 CONSUMER_GID=${JANUS_PHAROS_PROVIDER_CONSUMER_GID:-999}
-SECRET_NAME=PHAROS_HCLOUD_API_TOKEN
 AGE_PROFILE=hetzner-cloud
 PROFILE_ID=profile.PHAROS_HCLOUD_API_TOKEN
 DESTINATION=pharos-provider-hetzner-cloud
@@ -73,12 +76,15 @@ require_command hostname
 require_command id
 require_command jq
 require_command sed
-require_command sha256sum
 
 validate_identifier JANUS_PHAROS_VOLUME_PREFIX "$VOLUME_PREFIX"
 validate_identifier JANUS_PHAROS_PROVIDER_OUT_VOLUME "$PROVIDER_OUT_VOLUME"
 validate_identifier JANUS_PHAROS_PROVIDER_PERMIT_VOLUME "$PROVIDER_PERMIT_VOLUME"
 validate_identifier JANUS_PHAROS_PROVIDER_HOST "$EXPECTED_HOST"
+validate_identifier JANUS_PHAROS_SCOPE_ORGANIZATION "$SCOPE_ORGANIZATION"
+validate_identifier JANUS_PHAROS_SCOPE_PROJECT "$SCOPE_PROJECT"
+validate_identifier JANUS_PHAROS_SCOPE_REPOSITORY "$SCOPE_REPOSITORY"
+validate_identifier JANUS_PHAROS_SCOPE_ENVIRONMENT "$SCOPE_ENVIRONMENT"
 validate_numeric_id JANUS_PHAROS_PROVIDER_CONSUMER_UID "$CONSUMER_UID"
 validate_numeric_id JANUS_PHAROS_PROVIDER_CONSUMER_GID "$CONSUMER_GID"
 
@@ -222,9 +228,13 @@ preflight_out="${TMP_DIR}/provider.preflight.out"
 preflight_err="${TMP_DIR}/provider.preflight.err"
 if ! docker run --rm --network none \
   -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
+  -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
+  -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
+  -e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
+  -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
   -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
   -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers" \
-  --entrypoint janusd "$IMAGE" \
+  --entrypoint janusd-use "$IMAGE" \
   env-file preflight --profile "$PROFILE_ID" \
   >"$preflight_out" 2>"$preflight_err"; then
   printf 'janus pharos Hetzner provider render failed: env-file preflight failed\n' >&2
@@ -236,9 +246,21 @@ fi
 purge_provider_permits
 
 secret_ref=$(
-  printf 'pharos\0%s' "$SECRET_NAME" | sha256sum | awk '{ print $1 }'
+  awk -v profile_id="$PROFILE_ID" '
+    $0 == "id = \"" profile_id "\"" { found = 1; next }
+    found && /^secret_ref = "/ {
+      sub(/^secret_ref = "/, "")
+      sub(/".*$/, "")
+      print
+      exit
+    }
+    found && /^\[\[env_files\]\]/ { exit }
+  ' "${SCRIPT_DIR}/managed-env-files.toml"
 )
-secret_ref="sec_${secret_ref:0:20}"
+if [ -z "$secret_ref" ]; then
+  printf 'janus pharos Hetzner provider render failed: missing reviewed secret ref\n' >&2
+  exit 1
+fi
 request_file="${TMP_DIR}/provider.request.jsonl"
 warden_out="${TMP_DIR}/provider.warden.out"
 warden_err="${TMP_DIR}/provider.warden.err"
@@ -256,6 +278,10 @@ docker run -i --rm --network none \
   -e "JANUS_WARDEN_DESTINATION=${DESTINATION}" \
   -e JANUS_WARDEN_EXECUTOR=janus-run@csb1 \
   -e "JANUS_WARDEN_SCOPE=${RUN_SCOPE}" \
+  -e "JANUS_WARDEN_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
+  -e "JANUS_WARDEN_SCOPE_PROJECT=${SCOPE_PROJECT}" \
+  -e "JANUS_WARDEN_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
+  -e "JANUS_WARDEN_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
   -e JANUS_WARDEN_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
   -e JANUS_WARDEN_AGE_METADATA_FILE=/var/lib/janus/metadata/metadata.toml \
   -e "JANUS_WARDEN_AGE_PROFILE=${AGE_PROFILE}" \
@@ -288,6 +314,10 @@ if ! docker run --rm --network none \
   -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
   -e JANUS_RUN_EXECUTOR=janus-run@csb1 \
   -e "JANUS_RUN_SCOPE=${RUN_SCOPE}" \
+  -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
+  -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
+  -e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
+  -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
   -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
   -e JANUS_AGE_METADATA_FILE=/var/lib/janus/metadata/metadata.toml \
   -e "JANUS_AGE_PROFILE=${AGE_PROFILE}" \
@@ -301,7 +331,7 @@ if ! docker run --rm --network none \
   -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
   -v "${PROVIDER_PERMIT_VOLUME}:/run/janus/permits" \
   -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers" \
-  --entrypoint janusd "$IMAGE" \
+  --entrypoint janusd-use "$IMAGE" \
   env-file --profile "$PROFILE_ID" --permit "$permit" \
   >"$run_out" 2>"$run_err"; then
   printf 'janus pharos Hetzner provider render failed: env-file render failed\n' >&2

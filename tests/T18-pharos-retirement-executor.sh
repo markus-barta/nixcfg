@@ -14,7 +14,13 @@ grep -Fq 'EnvironmentFile = cfg.tokenEnvironmentFile;' "$module"
 grep -Fq 'restartIfChanged = false;' "$module"
 grep -Fq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1' "$compose"
 grep -Fq 'PHAROS_RETIREMENT_OWNER_HOST=csb1' "$compose"
-[ "$(grep -Fc 'ghcr.io/markus-barta/pharos/pharosd:0.1.53' "$compose")" -eq 2 ]
+pharos_images=$(sed -n \
+  's|^[[:space:]]*image: \(ghcr.io/markus-barta/pharos/pharosd:[^[:space:]]*\)$|\1|p' \
+  "$compose")
+[ "$(printf '%s\n' "$pharos_images" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 2 ]
+[ "$(printf '%s\n' "$pharos_images" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')" -eq 1 ]
+printf '%s\n' "$pharos_images" | grep -Eq \
+  '^ghcr\.io/markus-barta/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
 grep -Fq 'PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm' "$compose"
 grep -Fq 'unset PHAROS_TOKEN' "$executor_source"
 # shellcheck disable=SC2016
@@ -152,7 +158,7 @@ set -euo pipefail
 printf '%s\n' "$*" >>"$FAKE_HELPER_LOG"
 case "${FAKE_HELPER_MODE:-success}" in
 success)
-  printf 'janusd pharos-beacon retire host=%s state=complete reason_code=retired value_returned=false provider_deleted=false\n' "$2"
+  printf 'janusd-admin pharos-beacon retire host=%s state=complete reason_code=retired value_returned=false provider_deleted=false\n' "$2"
   ;;
 checkout)
   printf 'janus_pharos_retirement=failed reason=checkout_not_clean value_returned=false provider_deleted=false\n' >&2
