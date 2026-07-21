@@ -7,7 +7,7 @@ IMAGE=${JANUS_ENGINE_IMAGE:-}
 SMOKE_ROOT=${JANUS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-engine-smoke"}
 VOLUME_PREFIX=${JANUS_SMOKE_VOLUME_PREFIX:-janus_engine_smoke}
 COMPOSE_PROJECT=${JANUS_SMOKE_COMPOSE_PROJECT:-janus_engine_smoke}
-SECRET_REF="sec_9143cb19a04cc2dc154e"
+SECRET_REF="sec_5b4032741aeaeb486a64"
 PROFILE_ID="profile.JANUS_SMOKE"
 
 require_command() {
@@ -237,7 +237,7 @@ if [ -z "$permit" ]; then
 fi
 
 compose_run \
-  --entrypoint janusd \
+  --entrypoint janusd-use \
   janus-engine-staged run --profile "${PROFILE_ID}" --permit "$permit" -- \
   -c "printf 'smoke:%s' \"\$JANUS_SECRET_SMOKE\"" \
   >"${TMP_DIR}/run.out" 2>"${TMP_DIR}/run.err"

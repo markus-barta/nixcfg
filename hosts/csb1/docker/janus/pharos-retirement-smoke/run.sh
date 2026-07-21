@@ -68,6 +68,7 @@ provider_digest() {
 JANUS_ENGINE_IMAGE="$IMAGE" \
   JANUS_PHAROS_CONTRACT_DIR="$SCRIPT_DIR" \
   JANUS_PHAROS_CONTRACT_NAME=retirement-smoke \
+  JANUS_PHAROS_SCOPE_ENVIRONMENT=retirement-smoke \
   JANUS_PHAROS_SMOKE_HOSTS="$HOST" \
   JANUS_PHAROS_SMOKE_ROOT="${TMP_DIR}/sidecar-state" \
   JANUS_PHAROS_SMOKE_VOLUME_PREFIX="$VOLUME_PREFIX" \
@@ -82,10 +83,11 @@ JANUS_ENGINE_IMAGE="$IMAGE" \
   JANUS_PHAROS_RETIREMENTS_FILE="${SCRIPT_DIR}/retired-hosts.json" \
   JANUS_PHAROS_VOLUME_PREFIX="$VOLUME_PREFIX" \
   JANUS_PHAROS_SCOPE=pharos/csb1/nonprod-retirement-smoke \
+  JANUS_PHAROS_SCOPE_ENVIRONMENT=retirement-smoke \
   JANUS_PHAROS_LOCK_ROOT="${TMP_DIR}/locks" \
   JANUS_PHAROS_RETIREMENT_FIXTURE=1 \
   "$RETIRE_HOST" apply "$HOST" >"${TMP_DIR}/apply.out"
-grep -Eq '^janusd pharos-beacon retire host=retirementsmoke state=complete .* value_returned=false provider_deleted=false$' \
+grep -Eq '^janusd-admin pharos-beacon retire host=retirementsmoke state=complete .* value_returned=false provider_deleted=false$' \
   "${TMP_DIR}/apply.out"
 
 docker run --rm \
@@ -109,10 +111,11 @@ JANUS_ENGINE_IMAGE="$IMAGE" \
   JANUS_PHAROS_RETIREMENTS_FILE="${SCRIPT_DIR}/retired-hosts.json" \
   JANUS_PHAROS_VOLUME_PREFIX="$VOLUME_PREFIX" \
   JANUS_PHAROS_SCOPE=pharos/csb1/nonprod-retirement-smoke \
+  JANUS_PHAROS_SCOPE_ENVIRONMENT=retirement-smoke \
   JANUS_PHAROS_LOCK_ROOT="${TMP_DIR}/locks" \
   JANUS_PHAROS_RETIREMENT_FIXTURE=1 \
   "$RETIRE_HOST" reconcile "$HOST" >"${TMP_DIR}/reconcile.out"
-grep -Eq '^janusd pharos-beacon reconcile host=retirementsmoke state=complete .* value_returned=false provider_deleted=false$' \
+grep -Eq '^janusd-admin pharos-beacon reconcile host=retirementsmoke state=complete .* value_returned=false provider_deleted=false$' \
   "${TMP_DIR}/reconcile.out"
 
 JANUS_ENGINE_IMAGE="$IMAGE" \
@@ -120,10 +123,11 @@ JANUS_ENGINE_IMAGE="$IMAGE" \
   JANUS_PHAROS_RETIREMENTS_FILE="${SCRIPT_DIR}/retired-hosts.json" \
   JANUS_PHAROS_VOLUME_PREFIX="$VOLUME_PREFIX" \
   JANUS_PHAROS_SCOPE=pharos/csb1/nonprod-retirement-smoke \
+  JANUS_PHAROS_SCOPE_ENVIRONMENT=retirement-smoke \
   JANUS_PHAROS_LOCK_ROOT="${TMP_DIR}/locks" \
   JANUS_PHAROS_RETIREMENT_FIXTURE=1 \
   "$RETIRE_HOST" apply "$HOST" >"${TMP_DIR}/replay.out"
-grep -Eq '^janusd pharos-beacon retire host=retirementsmoke state=complete .* value_returned=false provider_deleted=false$' \
+grep -Eq '^janusd-admin pharos-beacon retire host=retirementsmoke state=complete .* value_returned=false provider_deleted=false$' \
   "${TMP_DIR}/replay.out"
 
 JANUS_ENGINE_IMAGE="$IMAGE" \
@@ -132,6 +136,7 @@ JANUS_ENGINE_IMAGE="$IMAGE" \
   JANUS_PHAROS_HOSTS="$HOST" \
   JANUS_PHAROS_VOLUME_PREFIX="$VOLUME_PREFIX" \
   JANUS_PHAROS_SCOPE=pharos/csb1/nonprod-retirement-smoke \
+  JANUS_PHAROS_SCOPE_ENVIRONMENT=retirement-smoke \
   "$RENDER_SIDECARS" >"${TMP_DIR}/rerender.out"
 grep -Fq 'sidecars rendered hosts=0 value_returned=false' "${TMP_DIR}/rerender.out"
 
