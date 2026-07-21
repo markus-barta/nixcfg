@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CONTAINER=${JANUS_ENGINE_CONTAINER:-janus-engine-staged}
-SECRET_REF=${JANUS_SMOKE_SECRET_REF:-sec_9143cb19a04cc2dc154e}
+SECRET_REF=${JANUS_SMOKE_SECRET_REF:-sec_5b4032741aeaeb486a64}
 RAW_SECRET_NAME=${JANUS_SMOKE_RAW_SECRET_NAME:-JANUS_SMOKE}
 PROFILE_ID=${JANUS_SMOKE_PROFILE_ID:-profile.JANUS_SMOKE}
 FORBIDDEN_VALUE_PREFIX=${JANUS_SMOKE_FORBIDDEN_VALUE_PREFIX:-janus-nonprod-smoke-}
@@ -63,21 +63,45 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cat >"${tmp_dir}/mcp.jsonl" <<EOF
+cat >"${tmp_dir}/catalog.jsonl" <<EOF
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"janus-engine-negative-smoke","version":"0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"resolve_secret","arguments":{"secret_ref":"${SECRET_REF}"}}}
-{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"reveal","arguments":{"secret_ref":"${SECRET_REF}"}}}
-{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"describe_secret","arguments":{"secret_ref":"${RAW_SECRET_NAME}"}}}
-{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"request_use","arguments":{"secret_ref":"${RAW_SECRET_NAME}","profile_id":"${PROFILE_ID}","purpose":"negative raw secret name smoke"}}}
-{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"request_use","arguments":{"secret_ref":"${SECRET_REF}","profile_id":"${PROFILE_ID}","purpose":"negative caller override smoke","destination":"attacker.example","executor":"unapproved","ttl_seconds":9999}}}
 EOF
 
+run_case() {
+  case_id=$1
+  case_name=$2
+  tool_name=$3
+  arguments=$4
+  request_file="${tmp_dir}/${case_name}.jsonl"
+  output_file="${tmp_dir}/${case_name}.out"
+  error_file="${tmp_dir}/${case_name}.err"
+
+  cat >"$request_file" <<EOF
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"janus-engine-negative-smoke-${case_name}","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
+{"jsonrpc":"2.0","id":${case_id},"method":"tools/call","params":{"name":"${tool_name}","arguments":${arguments}}}
+EOF
+  docker exec -i "$CONTAINER" janus-warden <"$request_file" >"$output_file" 2>"$error_file"
+}
+
 docker exec -i "$CONTAINER" janus-warden \
-  <"${tmp_dir}/mcp.jsonl" \
-  >"${tmp_dir}/mcp.out" \
-  2>"${tmp_dir}/mcp.err"
+  <"${tmp_dir}/catalog.jsonl" \
+  >"${tmp_dir}/catalog.out" \
+  2>"${tmp_dir}/catalog.err"
+run_case 3 resolve resolve_secret "{\"secret_ref\":\"${SECRET_REF}\"}"
+run_case 4 reveal reveal "{\"secret_ref\":\"${SECRET_REF}\"}"
+run_case 5 raw_describe describe_secret "{\"secret_ref\":\"${RAW_SECRET_NAME}\"}"
+run_case 6 raw_request request_use "{\"secret_ref\":\"${RAW_SECRET_NAME}\",\"profile_id\":\"${PROFILE_ID}\",\"purpose\":\"negative raw secret name smoke\"}"
+run_case 7 caller_override request_use "{\"secret_ref\":\"${SECRET_REF}\",\"profile_id\":\"${PROFILE_ID}\",\"purpose\":\"negative caller override smoke\",\"destination\":\"attacker.example\",\"executor\":\"unapproved\",\"ttl_seconds\":9999}"
+
+cat "${tmp_dir}/catalog.out" "${tmp_dir}"/resolve.out "${tmp_dir}"/reveal.out \
+  "${tmp_dir}"/raw_describe.out "${tmp_dir}"/raw_request.out \
+  "${tmp_dir}"/caller_override.out >"${tmp_dir}/mcp.out"
+cat "${tmp_dir}/catalog.err" "${tmp_dir}"/resolve.err "${tmp_dir}"/reveal.err \
+  "${tmp_dir}"/raw_describe.err "${tmp_dir}"/raw_request.err \
+  "${tmp_dir}"/caller_override.err >"${tmp_dir}/mcp.err"
 
 if grep -q "$FORBIDDEN_VALUE_PREFIX" "${tmp_dir}/mcp.out" "${tmp_dir}/mcp.err"; then
   printf 'janus negative MCP smoke failed: transcript exposed fixture value prefix\n' >&2

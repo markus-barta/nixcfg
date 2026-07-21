@@ -1,7 +1,9 @@
 {
   "grants": [
     {
-      "identifiers": ["markus", "markus@barta.com"],
+      "identifiers": [
+        "verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27"
+      ],
       "hosts": ["*"],
       "agora": true
     }

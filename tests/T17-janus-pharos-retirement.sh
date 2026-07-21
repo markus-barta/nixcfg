@@ -52,7 +52,16 @@ smoke = pathlib.Path(sys.argv[1])
 compose = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 host = "retirementsmoke"
 secret_name = "PHAROS_BEACON_RETIREMENTSMOKE_TOKEN"
-expected_ref = "sec_" + hashlib.sha256(b"pharos\0" + secret_name.encode()).hexdigest()[:20]
+
+canonical = b""
+for component in ("janus-scope-v1", "inspr", "pharos", "nixcfg", "retirement-smoke"):
+    encoded = component.encode()
+    canonical += len(encoded).to_bytes(8, "big") + encoded
+canonical += b"\0\0"
+scope_ref = "scp_" + hashlib.sha256(canonical).hexdigest()[:40]
+expected_ref = "sec_" + hashlib.sha256(
+    b"janus-secret-ref-v2\0" + scope_ref.encode() + b"\0" + secret_name.encode()
+).hexdigest()[:20]
 
 def nix_from_toml(path: pathlib.Path) -> dict:
     expression = f'builtins.fromTOML (builtins.readFile "{path}")'

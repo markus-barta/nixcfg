@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CONTAINER=${JANUS_ENGINE_CONTAINER:-janus-engine-staged}
-SECRET_REF=${JANUS_SMOKE_SECRET_REF:-sec_9143cb19a04cc2dc154e}
+SECRET_REF=${JANUS_SMOKE_SECRET_REF:-sec_5b4032741aeaeb486a64}
 PROFILE_ID=${JANUS_SMOKE_PROFILE_ID:-profile.JANUS_SMOKE}
 FORBIDDEN_VALUE_PREFIX=${JANUS_SMOKE_FORBIDDEN_VALUE_PREFIX:-janus-nonprod-smoke-}
 HEALTH_WAIT_SECONDS=${JANUS_MCP_HEALTH_WAIT_SECONDS:-30}
@@ -63,8 +63,7 @@ trap cleanup EXIT
 
 validate_permit_id() {
   case "$1" in
-  use_[A-Za-z0-9_]*)
-    ;;
+  use_[A-Za-z0-9_]*) ;;
   *)
     printf 'janus run negative smoke failed: malformed issued permit id: %s\n' "$1" >&2
     exit 1
@@ -81,7 +80,7 @@ issue_permit() {
   cat >"$req" <<EOF
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"janus-run-negative-smoke","version":"0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_use","arguments":{"secret_ref":"${SECRET_REF}","profile_id":"${PROFILE_ID}","purpose":"negative janusd run ${purpose}"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"request_use","arguments":{"secret_ref":"${SECRET_REF}","profile_id":"${PROFILE_ID}","purpose":"negative janusd-use run ${purpose}"}}}
 EOF
 
   docker exec -i "$CONTAINER" janus-warden <"$req" >"$out" 2>"$err"
@@ -131,7 +130,7 @@ run_janusd() {
   err="${tmp_dir}/${name}.err"
 
   set +e
-  docker exec "$CONTAINER" janusd run \
+  docker exec "$CONTAINER" janusd-use run \
     --profile "$PROFILE_ID" \
     --permit "$permit" \
     -- -c "$arg" >"$out" 2>"$err"
@@ -208,15 +207,15 @@ expect_denial consumed_reuse "$reuse_permit" 'denied_unknown_permit'
 
 wrong_executor_permit=$(issue_permit wrong_executor)
 rewrite_permit "$wrong_executor_permit" '.executor = "janus-run@other-host"'
-expect_denial wrong_executor "$wrong_executor_permit" 'denied_wrong_executor'
+expect_denial wrong_executor "$wrong_executor_permit" 'denied_permit_binding_mismatch'
 
 wrong_destination_permit=$(issue_permit wrong_destination)
 rewrite_permit "$wrong_destination_permit" '.destination = "attacker.example"'
-expect_denial wrong_destination "$wrong_destination_permit" 'denied_unapproved_destination'
+expect_denial wrong_destination "$wrong_destination_permit" 'denied_permit_binding_mismatch'
 
 expired_permit=$(issue_permit expired_permit)
 rewrite_permit "$expired_permit" '.expires_at_unix_secs = 1'
-expect_denial expired_permit "$expired_permit" 'denied_expired_permit'
+expect_denial expired_permit "$expired_permit" 'denied_permit_binding_mismatch'
 
 unreviewed_args_permit=$(issue_permit unreviewed_args)
 expect_denial unreviewed_args "$unreviewed_args_permit" 'reviewed profile' "printf 'evil:%s' \"\$JANUS_SECRET_SMOKE\""
@@ -231,5 +230,5 @@ if [ "$remaining_permits" != "0" ]; then
   exit 1
 fi
 
-printf 'ok: janus staged run negative smoke passed container=%s health=%s network_mode=%s ports=%s traefik=%s denials=malformed:invalid_token,unknown:denied_unknown_permit,consumed_reuse:denied_unknown_permit,wrong_executor:denied_wrong_executor,wrong_destination:denied_unapproved_destination,expired:denied_expired_permit,unreviewed_args:reviewed_profile value_returned=false no_literal=true permits_remaining=0\n' \
+printf 'ok: janus staged run negative smoke passed container=%s health=%s network_mode=%s ports=%s traefik=%s denials=malformed:invalid_token,unknown:denied_unknown_permit,consumed_reuse:denied_unknown_permit,wrong_executor:denied_permit_binding_mismatch,wrong_destination:denied_permit_binding_mismatch,expired:denied_permit_binding_mismatch,unreviewed_args:reviewed_profile value_returned=false no_literal=true permits_remaining=0\n' \
   "$CONTAINER" "$health" "$network_mode" "$ports" "$traefik"

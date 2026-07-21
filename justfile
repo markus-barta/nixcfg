@@ -119,6 +119,11 @@ janus-engine-smoke:
 janus-pharos-sidecar-smoke:
     cd hosts/csb1/docker && ./janus/pharos-nonprod/run-sidecar-smoke.sh
 
+# Publish and validate the production Pharos beacon-token generation.
+[group('ops')]
+janus-pharos-production-render:
+    cd hosts/csb1/docker && ./janus/pharos-production/render-sidecars.sh
+
 [group('ops')]
 janus-pharos-provider-smoke:
     sudo bash hosts/csb1/docker/janus/pharos-provider-smoke/run.sh
