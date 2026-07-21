@@ -153,6 +153,8 @@ trap cleanup EXIT
 
 if ! command_output=$(
   docker run --rm \
+    -e JANUS_PRODUCT_MODE=self_hosted \
+    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
     -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
     -e "JANUS_AGE_PROFILE=${host}" \
     -e JANUS_AGE_STORE_DIR=/var/lib/janus/secrets \

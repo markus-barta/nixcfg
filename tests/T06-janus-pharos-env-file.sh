@@ -64,6 +64,13 @@ for renderer in "$NONPROD_RENDER" "$PROD_RENDER" "$PROVIDER_RENDER"; do
   # shellcheck disable=SC2016
   require_occurrences 2 '-e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}"' "$renderer"
 done
+
+require_occurrences 1 \
+  'find /run/janus/env/pharos/beacon-token-hashes -maxdepth 1 -type f -exec chmod 0600 {} +' \
+  "$NONPROD_RENDER"
+require_occurrences 1 \
+  'find /run/janus/env/pharos/beacon-token-hashes -maxdepth 1 -type f -exec chmod 0600 {} +' \
+  "$PROD_RUNTIME"
 # shellcheck disable=SC2016
 require_occurrences 1 '-e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}"' "$RETIRE_HOST"
 # shellcheck disable=SC2016
