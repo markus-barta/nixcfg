@@ -160,7 +160,7 @@ cd ~/docker && docker-compose down && docker-compose up -d
 The `janus-engine-staged` compose profile stays disabled and non-Traefik. Its
 non-prod smoke uses the signed digest-pinned engine image, Docker-volume
 non-prod age material, a non-prod metadata overlay, and a permit-bound
-`janusd run` launched through the staged compose service; no production secret
+`janusd-use run` launched through the staged compose service; no production secret
 or host SSH key is used.
 The staged image pin in `docker-compose.yml` is the source of truth; do not
 duplicate its release or digest here.
@@ -219,7 +219,7 @@ To prove the approved-use execution boundary rejects bad permits:
 just janus-engine-run-negative-smoke
 ```
 
-This issues real non-prod permits through Warden, then uses `janusd run` to
+This issues real non-prod permits through Warden, then uses `janusd-use run` to
 verify malformed and unknown permit ids, consumed permit reuse, wrong executor,
 wrong destination, expired permit metadata, and unreviewed command args all
 fail without secret-bearing command output.
@@ -233,12 +233,40 @@ just janus-engine-assurance
 This primes the non-prod smoke state once, keeps `janus-engine-staged` running,
 then runs the current value-free boundary matrix:
 
-| Boundary                        | Evidence                                                                                                     |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Permit-bound positive execution | `janus-engine-smoke` proves one reviewed `request_use` + `janusd run` path, redacted output, consumed permit |
-| Local MCP client path           | `mcp-exec-smoke.sh` proves `initialize`, exact `tools/list`, `health`, and `list_secrets` stay value-free    |
-| MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied         |
-| Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail |
+| Boundary                        | Evidence                                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Permit-bound positive execution | `janus-engine-smoke` proves one reviewed `request_use` + `janusd-use run` path, redacted output, consumed permit |
+| Local MCP client path           | `mcp-exec-smoke.sh` proves `initialize`, exact `tools/list`, `health`, and `list_secrets` stay value-free        |
+| MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied             |
+| Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail     |
+
+### Pharos Janus Generation Cutover
+
+Deploy a new Janus producer before restarting a Pharos release that consumes a
+new sidecar schema. The production renderer publishes and validates one
+immutable generation, then atomically advances `current`. Its success output is
+value-free.
+
+After the reviewed nixcfg change is merged and `just switch` has completed on
+csb1, run the cutover in this order:
+
+```bash
+cd ~/Code/nixcfg
+just janus-engine-pin-check
+just janus-pharos-production-render
+cd hosts/csb1/docker
+docker compose pull pharosd pharos-beacon
+docker compose up -d --no-deps --force-recreate pharosd pharos-beacon
+docker compose ps pharosd pharos-beacon
+curl -fsS http://100.64.0.4:8088/healthz
+```
+
+Do not recreate `pharosd` if the production render fails. The existing
+generation and running Pharos container remain the rollback boundary. If a
+recreated container fails its health check, restore the previous reviewed image
+pins in Git, merge and pull that rollback, render with the matching Janus
+profile, and recreate the two Pharos services again. Never edit the compose file
+or generated sidecars directly on csb1.
 
 ### Pharos Hetzner Provider Credential Handoff
 

@@ -5,14 +5,14 @@
 
 [[env_files]]
 id = "profile.PHAROS_BEACON_CSB0_TOKEN"
-secret_ref = "sec_c7451fd4aa135086d6dc"
+secret_ref = "sec_15072a6f998d5d42effc"
 executor = "janus-run@csb1"
 destination = "pharos-beacon-csb0"
 env = "PHAROS_TOKEN"
 output = "/run/janus/env/pharos/beacons/csb0.env"
 
 [env_files.hash_sidecar]
-format = "pharos-beacon-token-hashes-v1"
+format = "pharos-beacon-token-generation-v2"
 subject = "csb0"
 output = "/run/janus/env/pharos/beacon-token-hashes/csb0.json"
 
@@ -28,14 +28,14 @@ blast_radius = "production Pharos beacon token for csb0"
 
 [[env_files]]
 id = "profile.PHAROS_BEACON_CSB1_TOKEN"
-secret_ref = "sec_fc83b121bf11b9ae3515"
+secret_ref = "sec_75712315f376dfe2a79c"
 executor = "janus-run@csb1"
 destination = "pharos-beacon-csb1"
 env = "PHAROS_TOKEN"
 output = "/run/janus/env/pharos/beacons/csb1.env"
 
 [env_files.hash_sidecar]
-format = "pharos-beacon-token-hashes-v1"
+format = "pharos-beacon-token-generation-v2"
 subject = "csb1"
 output = "/run/janus/env/pharos/beacon-token-hashes/csb1.json"
 
@@ -51,14 +51,14 @@ blast_radius = "production Pharos beacon token for csb1"
 
 [[env_files]]
 id = "profile.PHAROS_BEACON_DSC0_TOKEN"
-secret_ref = "sec_dd6b059750b385233417"
+secret_ref = "sec_e0524284ab7f8416de76"
 executor = "janus-run@csb1"
 destination = "pharos-beacon-dsc0"
 env = "PHAROS_TOKEN"
 output = "/run/janus/env/pharos/beacons/dsc0.env"
 
 [env_files.hash_sidecar]
-format = "pharos-beacon-token-hashes-v1"
+format = "pharos-beacon-token-generation-v2"
 subject = "dsc0"
 output = "/run/janus/env/pharos/beacon-token-hashes/dsc0.json"
 
@@ -74,14 +74,14 @@ blast_radius = "production Pharos beacon token for dsc0"
 
 [[env_files]]
 id = "profile.PHAROS_BEACON_GPC0_TOKEN"
-secret_ref = "sec_f7a27226065aeec4566d"
+secret_ref = "sec_d4ee7e72b62f58680a3c"
 executor = "janus-run@csb1"
 destination = "pharos-beacon-gpc0"
 env = "PHAROS_TOKEN"
 output = "/run/janus/env/pharos/beacons/gpc0.env"
 
 [env_files.hash_sidecar]
-format = "pharos-beacon-token-hashes-v1"
+format = "pharos-beacon-token-generation-v2"
 subject = "gpc0"
 output = "/run/janus/env/pharos/beacon-token-hashes/gpc0.json"
 
@@ -97,14 +97,14 @@ blast_radius = "production Pharos beacon token for gpc0"
 
 [[env_files]]
 id = "profile.PHAROS_BEACON_HSB0_TOKEN"
-secret_ref = "sec_5a9c9e6dda80c3102c11"
+secret_ref = "sec_765d47aa71a4505bcb27"
 executor = "janus-run@csb1"
 destination = "pharos-beacon-hsb0"
 env = "PHAROS_TOKEN"
 output = "/run/janus/env/pharos/beacons/hsb0.env"
 
 [env_files.hash_sidecar]
-format = "pharos-beacon-token-hashes-v1"
+format = "pharos-beacon-token-generation-v2"
 subject = "hsb0"
 output = "/run/janus/env/pharos/beacon-token-hashes/hsb0.json"
 
@@ -120,14 +120,14 @@ blast_radius = "production Pharos beacon token for hsb0"
 
 [[env_files]]
 id = "profile.PHAROS_BEACON_HSB1_TOKEN"
-secret_ref = "sec_9cc2c84787171c05c02f"
+secret_ref = "sec_d6d749666ceeac1beedd"
 executor = "janus-run@csb1"
 destination = "pharos-beacon-hsb1"
 env = "PHAROS_TOKEN"
 output = "/run/janus/env/pharos/beacons/hsb1.env"
 
 [env_files.hash_sidecar]
-format = "pharos-beacon-token-hashes-v1"
+format = "pharos-beacon-token-generation-v2"
 subject = "hsb1"
 output = "/run/janus/env/pharos/beacon-token-hashes/hsb1.json"
 
@@ -143,14 +143,14 @@ blast_radius = "production Pharos beacon token for hsb1"
 
 [[env_files]]
 id = "profile.PHAROS_BEACON_HSB8_TOKEN"
-secret_ref = "sec_09b3066462547377641d"
+secret_ref = "sec_e25d0329caf7e82a9996"
 executor = "janus-run@csb1"
 destination = "pharos-beacon-hsb8"
 env = "PHAROS_TOKEN"
 output = "/run/janus/env/pharos/beacons/hsb8.env"
 
 [env_files.hash_sidecar]
-format = "pharos-beacon-token-hashes-v1"
+format = "pharos-beacon-token-generation-v2"
 subject = "hsb8"
 output = "/run/janus/env/pharos/beacon-token-hashes/hsb8.json"
 
@@ -166,14 +166,14 @@ blast_radius = "production Pharos beacon token for hsb8"
 
 [[env_files]]
 id = "profile.PHAROS_BEACON_HSB9_TOKEN"
-secret_ref = "sec_54402cc771dec8ffc725"
+secret_ref = "sec_0e44dc67edd151e334f5"
 executor = "janus-run@csb1"
 destination = "pharos-beacon-hsb9"
 env = "PHAROS_TOKEN"
 output = "/run/janus/env/pharos/beacons/hsb9.env"
 
 [env_files.hash_sidecar]
-format = "pharos-beacon-token-hashes-v1"
+format = "pharos-beacon-token-generation-v2"
 subject = "hsb9"
 output = "/run/janus/env/pharos/beacon-token-hashes/hsb9.json"
 
@@ -189,7 +189,7 @@ blast_radius = "production Pharos beacon token for hsb9"
 
 [[env_files]]
 id = "profile.PHAROS_HCLOUD_API_TOKEN"
-secret_ref = "sec_c4feea3327dd8c9c1bda"
+secret_ref = "sec_a5d7b31e58879f38691f"
 executor = "janus-run@csb1"
 destination = "pharos-provider-hetzner-cloud"
 env = "PHAROS_HCLOUD_API_TOKEN"

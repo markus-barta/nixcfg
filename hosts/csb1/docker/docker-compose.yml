@@ -532,7 +532,7 @@ services:
     # manifests as the smoke harness; no production secret or host SSH key is
     # mounted into the staged Rust engine. Use the smoke harness, not manual
     # project-wide compose lifecycle commands, when testing this profile.
-    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.6@sha256:a087727044c3e6aa05efa4315d933cbe0a84f3083967d6e3470a8ee020e11d2c
+    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.8@sha256:8934f2e6651665692efa032745a627d61b399d9e64f07f13cc99abc5b192a070
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
     restart: "no"
@@ -549,6 +549,14 @@ services:
       - JANUS_RUN_EXECUTOR=janus-run@csb1
       - JANUS_WARDEN_SCOPE=janus/csb1/staged
       - JANUS_RUN_SCOPE=janus/csb1/staged
+      - JANUS_WARDEN_SCOPE_ORGANIZATION=inspr
+      - JANUS_WARDEN_SCOPE_PROJECT=janus
+      - JANUS_WARDEN_SCOPE_REPOSITORY=nixcfg
+      - JANUS_WARDEN_SCOPE_ENVIRONMENT=staged
+      - JANUS_SCOPE_ORGANIZATION=inspr
+      - JANUS_SCOPE_PROJECT=janus
+      - JANUS_SCOPE_REPOSITORY=nixcfg
+      - JANUS_SCOPE_ENVIRONMENT=staged
       - JANUS_WARDEN_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml
       - JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml
       - JANUS_WARDEN_AGE_METADATA_FILE=/etc/janus/metadata.toml
@@ -613,11 +621,26 @@ services:
   pharosd:
     # Keep the readable release tag, but bind it to the verified immutable
     # linux/amd64 manifest used by both server and bundled beacon.
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.53@sha256:657741787195a60154d5e016cc42c76030441310d0a218306c7ac45939931338
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.56@sha256:5f91050cf2d1210dac0e6df3cf52266cf68ef358ca9e4fdc1812236576d0d2d0
     container_name: pharosd
     restart: unless-stopped
-    env_file:
-      - /run/agenix/csb1-pharos-registration-env
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: "1.0"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/pharosd", "healthcheck"]
+      interval: 30s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
     environment:
       - PHAROS_ADDR=0.0.0.0:8080
       - RUST_LOG=info
@@ -644,7 +667,9 @@ services:
       - PHAROS_OIDC_ISSUER=https://auth.inspr.at
       - PHAROS_OIDC_CLIENT_ID=379451733002223624@pharos
       - PHAROS_OIDC_REDIRECT_URI=https://pharos.barta.cm/auth/callback
-      - PHAROS_ALLOWED_OPERATORS=markus
+      # Authorization identifiers are explicit and value-free. This migration
+      # reference is derived only from an OIDC email_verified=true claim.
+      - PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27
       - PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json
     ports:
       # Tailnet bind kept for beacon ingestion (/report stays auth-exempt).
@@ -675,9 +700,20 @@ services:
   # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
   # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.53@sha256:657741787195a60154d5e016cc42c76030441310d0a218306c7ac45939931338
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.56@sha256:5f91050cf2d1210dac0e6df3cf52266cf68ef358ca9e4fdc1812236576d0d2d0
     container_name: pharos-beacon
     restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: "0.5"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
     network_mode: host
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/pharos-beacon"]
