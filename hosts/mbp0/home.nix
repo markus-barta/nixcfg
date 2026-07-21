@@ -81,9 +81,6 @@ in
   # repos onto the dead key. The alias→HTTPS rewrite below (programs.git)
   # keeps existing git-personal remotes working via GH_TOKEN.
   inspr.git.atelier.personal.enable = false;
-  # BYTEPOETS departure 2026-06-15 — private machine: work push-key disabled.
-  # m5-bytepoets-userkey.age is retained (archived) but intentionally not wired.
-  inspr.git.atelier.bytepoets.enable = false;
 
   # ============================================================================
   # INSPR — paimos-cli non-secret instance routing

@@ -44,8 +44,6 @@ in
   # mbp2607-personal-userkey minted 2026-07-03, registered on markus-barta
   # GitHub account; privkey in secrets/agents/host/mbp2607/.
   inspr.git.atelier.personal.enable = true;
-  # BYTEPOETS history — never enable on this host.
-  inspr.git.atelier.bytepoets.enable = false;
 
   # Git identity is pure config (no secret material) — safe from day 1.
   inspr.git-identity.enable = true;
