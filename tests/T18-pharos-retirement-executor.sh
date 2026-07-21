@@ -14,7 +14,7 @@ grep -Fq 'EnvironmentFile = cfg.tokenEnvironmentFile;' "$module"
 grep -Fq 'restartIfChanged = false;' "$module"
 grep -Fq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1' "$compose"
 grep -Fq 'PHAROS_RETIREMENT_OWNER_HOST=csb1' "$compose"
-[ "$(grep -Fc 'ghcr.io/markus-barta/pharos/pharosd:0.1.50' "$compose")" -eq 2 ]
+[ "$(grep -Fc 'ghcr.io/markus-barta/pharos/pharosd:0.1.51' "$compose")" -eq 2 ]
 grep -Fq 'PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm' "$compose"
 grep -Fq 'unset PHAROS_TOKEN' "$executor_source"
 # shellcheck disable=SC2016
