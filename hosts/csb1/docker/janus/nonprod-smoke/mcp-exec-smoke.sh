@@ -61,29 +61,46 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cat >"${tmp_dir}/mcp.jsonl" <<EOF
+cat >"${tmp_dir}/mcp-health.jsonl" <<EOF
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"janus-engine-exec-smoke","version":"0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"health","arguments":{}}}
+EOF
+
+cat >"${tmp_dir}/mcp-list.jsonl" <<EOF
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"janus-engine-exec-smoke","version":"0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}
 {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_secrets","arguments":{}}}
 EOF
 
 docker exec -i "$CONTAINER" janus-warden \
-  <"${tmp_dir}/mcp.jsonl" \
-  >"${tmp_dir}/mcp.out" \
-  2>"${tmp_dir}/mcp.err"
+  <"${tmp_dir}/mcp-health.jsonl" \
+  >"${tmp_dir}/mcp-health.out" \
+  2>"${tmp_dir}/mcp-health.err"
 
-if grep -q "$FORBIDDEN_VALUE_PREFIX" "${tmp_dir}/mcp.out" "${tmp_dir}/mcp.err"; then
+# Warden deliberately allows only one active backend call. Keep the metadata
+# call in a second MCP session so this smoke does not race health against
+# list_secrets and mistake the expected denied_busy guard for a release fault.
+docker exec -i "$CONTAINER" janus-warden \
+  <"${tmp_dir}/mcp-list.jsonl" \
+  >"${tmp_dir}/mcp-list.out" \
+  2>"${tmp_dir}/mcp-list.err"
+
+if grep -q "$FORBIDDEN_VALUE_PREFIX" \
+  "${tmp_dir}/mcp-health.out" \
+  "${tmp_dir}/mcp-health.err" \
+  "${tmp_dir}/mcp-list.out" \
+  "${tmp_dir}/mcp-list.err"; then
   printf 'janus MCP smoke failed: transcript exposed fixture value prefix\n' >&2
   exit 1
 fi
 
 jq -e 'select(.id == 1) | .result.serverInfo.name == "janus-warden"' \
-  <"${tmp_dir}/mcp.out" >/dev/null
+  <"${tmp_dir}/mcp-health.out" >/dev/null
 
 tools=$(
-  jq -r 'select(.id == 2) | .result.tools[].name' <"${tmp_dir}/mcp.out" |
+  jq -r 'select(.id == 2) | .result.tools[].name' <"${tmp_dir}/mcp-health.out" |
     sort |
     paste -sd, -
 )
@@ -100,7 +117,7 @@ jq -e '
   and .result.structuredContent.result.ok == true
   and .result.structuredContent.result.backend == "age"
   and .result.structuredContent.result.value_returned == false
-' <"${tmp_dir}/mcp.out" >/dev/null
+' <"${tmp_dir}/mcp-health.out" >/dev/null
 
 jq -e --arg secret_ref "$SECRET_REF" '
   select(.id == 4)
@@ -116,7 +133,7 @@ jq -e --arg secret_ref "$SECRET_REF" '
       and .normal_use_allowed == true
       and .value_returned == false
   )
-' <"${tmp_dir}/mcp.out" >/dev/null
+' <"${tmp_dir}/mcp-list.out" >/dev/null
 
 printf 'ok: janus staged MCP exec smoke passed container=%s health=%s network_mode=%s ports=%s traefik=%s tools=%s secret_ref=%s value_returned=false\n' \
   "$CONTAINER" "$health" "$network_mode" "$ports" "$traefik" "$tools" "$SECRET_REF"
