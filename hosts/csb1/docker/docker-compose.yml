@@ -746,7 +746,7 @@ services:
       - /run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro
       - /var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro
     labels:
-      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.enable=false
       - traefik.enable=false
 
 volumes:

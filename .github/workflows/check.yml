@@ -15,6 +15,20 @@ on:
       - "docker/**"
 
 jobs:
+  pharos-rollout:
+    name: Pharos fleet release compatibility
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Pharos beacon healthcheck contract
+        run: tests/T20-pharos-beacon-healthcheck.sh
+
+      - name: Reject mixed or mutable Pharos fleet pins
+        run: tests/T21-pharos-release-rollout.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest

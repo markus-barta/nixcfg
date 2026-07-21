@@ -14,12 +14,25 @@ services:
   # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
   # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.27
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.56@sha256:5f91050cf2d1210dac0e6df3cf52266cf68ef358ca9e4fdc1812236576d0d2d0
     container_name: pharos-beacon
     restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: "0.5"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
     network_mode: host
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/pharos-beacon"]
+    healthcheck:
+      disable: true
     env_file:
       - /run/agenix/pharos-beacon-hsb8-env
     environment:
@@ -38,7 +51,7 @@ services:
       - /etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro
       - /run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro
     labels:
-      - com.centurylinklabs.watchtower.enable=true
+      - com.centurylinklabs.watchtower.enable=false
       - com.centurylinklabs.watchtower.scope=weekly
 
   # hsb8-home — HostDash service landing page for this host. Static HTML/CSS/JS
