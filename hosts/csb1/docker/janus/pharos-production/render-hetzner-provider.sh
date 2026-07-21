@@ -227,6 +227,8 @@ chmod 0700 /run/janus/env/pharos/providers
 preflight_out="${TMP_DIR}/provider.preflight.out"
 preflight_err="${TMP_DIR}/provider.preflight.err"
 if ! docker run --rm --network none \
+  -e JANUS_PRODUCT_MODE=self_hosted \
+  -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
   -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
   -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
   -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
@@ -272,6 +274,8 @@ cat >"$request_file" <<EOF
 EOF
 
 docker run -i --rm --network none \
+  -e JANUS_PRODUCT_MODE=self_hosted \
+  -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
   -e JANUS_PERMIT_DIR=/run/janus/permits \
   -e JANUS_WARDEN_PERMIT_DIR=/run/janus/permits \
   -e JANUS_WARDEN_BACKEND=age \
@@ -310,6 +314,8 @@ fi
 run_out="${TMP_DIR}/provider.env-file.out"
 run_err="${TMP_DIR}/provider.env-file.err"
 if ! docker run --rm --network none \
+  -e JANUS_PRODUCT_MODE=self_hosted \
+  -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
   -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
   -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
   -e JANUS_RUN_EXECUTOR=janus-run@csb1 \
