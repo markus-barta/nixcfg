@@ -7,13 +7,28 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 compose="${repo_root}/hosts/csb1/docker/docker-compose.yml"
+nonprod_renderer="${repo_root}/hosts/csb1/docker/janus/pharos-nonprod/run-sidecar-smoke.sh"
+production_renderer="${repo_root}/hosts/csb1/docker/janus/pharos-production/render-sidecars.sh"
+provider_renderer="${repo_root}/hosts/csb1/docker/janus/pharos-production/render-hetzner-provider.sh"
+retirement_executor="${repo_root}/hosts/csb1/docker/janus/pharos-production/retire-host.sh"
 
-python3 - "${compose}" <<'PY'
+python3 - \
+  "${compose}" \
+  "${nonprod_renderer}" \
+  "${production_renderer}" \
+  "${provider_renderer}" \
+  "${retirement_executor}" <<'PY'
 import pathlib
 import re
 import sys
 
 compose = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+renderers = {
+    "non-production renderer": (pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"), 3),
+    "production renderer": (pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"), 3),
+    "provider renderer": (pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"), 3),
+    "retirement executor": (pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"), 1),
+}
 
 def service_block(name: str) -> str:
     match = re.search(
@@ -61,6 +76,12 @@ if "- JANUS_PRODUCT_MODE=self_hosted" not in engine_service:
 if "- JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev" not in engine_service:
     raise SystemExit("staged Janus engine lacks explicit unsafe development posture")
 
+for name, (script, launch_count) in renderers.items():
+    if script.count("-e JANUS_PRODUCT_MODE=self_hosted") != launch_count:
+        raise SystemExit(f"{name} lacks explicit self-hosted posture on each privileged launch")
+    if script.count("-e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev") != launch_count:
+        raise SystemExit(f"{name} lacks explicit unsafe development posture on each privileged launch")
+
 for service, prefix, block in [
     ("janus", "go-envelope-v", go_service),
     ("janus-engine-staged", "rust-engine-v", engine_service),
@@ -69,5 +90,5 @@ for service, prefix, block in [
     if not re.search(pattern, block, re.MULTILINE):
         raise SystemExit(f"{service} is not pinned to an immutable Janus release digest")
 
-print("ok: Janus deployment uses exact shared role mappings and explicit staged posture")
+print("ok: Janus deployment uses exact shared role mappings and explicit runtime posture")
 PY

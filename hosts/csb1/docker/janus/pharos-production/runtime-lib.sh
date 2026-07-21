@@ -99,6 +99,7 @@ chmod 0700 \
   /var/lib/janus/lifecycle/tombstones
 chmod 0600 /var/lib/janus/metadata/metadata.toml
 chmod 0400 /var/lib/janus/metadata/baseline.toml
+find /run/janus/env/pharos/beacon-token-hashes -maxdepth 1 -type f -exec chmod 0600 {} +
 ' sh "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID"
 }
 

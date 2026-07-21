@@ -182,6 +182,8 @@ run_warden_permit() {
 EOF
 
   docker run -i --rm \
+    -e JANUS_PRODUCT_MODE=self_hosted \
+    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
     -e JANUS_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_BACKEND=age \
@@ -230,6 +232,8 @@ render_env_file() {
   run_err="${TMP_DIR}/${host}.env-file.err"
 
   if ! docker run --rm \
+    -e JANUS_PRODUCT_MODE=self_hosted \
+    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
     -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
@@ -247,6 +251,8 @@ render_env_file() {
   fi
 
   if ! docker run --rm \
+    -e JANUS_PRODUCT_MODE=self_hosted \
+    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_RUN_EXECUTOR=janus-run@csb1 \
