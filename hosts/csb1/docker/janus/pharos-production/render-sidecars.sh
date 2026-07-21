@@ -15,6 +15,10 @@ RETIREMENTS_FILE=${JANUS_PHAROS_RETIREMENTS_FILE:-${SCRIPT_DIR}/retired-hosts.js
 IMAGE=${JANUS_ENGINE_IMAGE:-}
 VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
 RUN_SCOPE=${JANUS_PHAROS_SCOPE:-pharos/csb1/production}
+SCOPE_ORGANIZATION=${JANUS_PHAROS_SCOPE_ORGANIZATION:-inspr}
+SCOPE_PROJECT=${JANUS_PHAROS_SCOPE_PROJECT:-pharos}
+SCOPE_REPOSITORY=${JANUS_PHAROS_SCOPE_REPOSITORY:-nixcfg}
+SCOPE_ENVIRONMENT=${JANUS_PHAROS_SCOPE_ENVIRONMENT:-production}
 HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9"}
 PREPARE_ONLY=${JANUS_PHAROS_PREPARE_ONLY:-0}
 
@@ -46,9 +50,13 @@ require_command awk
 require_command docker
 require_command jq
 require_command sed
-require_command sha256sum
+require_command tr
 
 validate_identifier JANUS_PHAROS_VOLUME_PREFIX "$VOLUME_PREFIX"
+validate_identifier JANUS_PHAROS_SCOPE_ORGANIZATION "$SCOPE_ORGANIZATION"
+validate_identifier JANUS_PHAROS_SCOPE_PROJECT "$SCOPE_PROJECT"
+validate_identifier JANUS_PHAROS_SCOPE_REPOSITORY "$SCOPE_REPOSITORY"
+validate_identifier JANUS_PHAROS_SCOPE_ENVIRONMENT "$SCOPE_ENVIRONMENT"
 
 jq -e '
   ((keys | sort) == ["retirements", "schema", "version"])
@@ -75,6 +83,7 @@ jq -e '
 }
 
 ACTIVE_HOSTS=()
+ACTIVE_HOST_COUNT=0
 for host in "${HOSTS[@]}"; do
   validate_identifier host "$host"
   if jq -e --arg host "$host" '.retirements[] | select(.host == $host)' \
@@ -82,7 +91,13 @@ for host in "${HOSTS[@]}"; do
     continue
   fi
   ACTIVE_HOSTS+=("$host")
+  ACTIVE_HOST_COUNT=$((ACTIVE_HOST_COUNT + 1))
 done
+if [ "$ACTIVE_HOST_COUNT" -eq 0 ]; then
+  printf 'ok: janus pharos production sidecars rendered hosts=0 value_returned=false sidecars=validated permits_consumed=true volume_prefix=%s\n' \
+    "$VOLUME_PREFIX"
+  exit 0
+fi
 HOSTS=("${ACTIVE_HOSTS[@]}")
 
 if [ -z "$IMAGE" ]; then
@@ -131,8 +146,24 @@ docker run --rm \
 
 secret_ref_for() {
   secret_name=$1
-  digest=$(printf 'pharos\0%s' "$secret_name" | sha256sum | awk '{ print $1 }')
-  printf 'sec_%s\n' "${digest:0:20}"
+  profile_id="profile.${secret_name}"
+  secret_ref=$(
+    awk -v profile_id="$profile_id" '
+      $0 == "id = \"" profile_id "\"" { found = 1; next }
+      found && /^secret_ref = "/ {
+        sub(/^secret_ref = "/, "")
+        sub(/".*$/, "")
+        print
+        exit
+      }
+      found && /^\[\[env_files\]\]/ { exit }
+    ' "${SCRIPT_DIR}/managed-env-files.toml"
+  )
+  if [ -z "$secret_ref" ]; then
+    printf 'janus pharos production render failed: missing reviewed secret ref for %s\n' "$profile_id" >&2
+    return 1
+  fi
+  printf '%s\n' "$secret_ref"
 }
 
 run_warden_permit() {
@@ -157,6 +188,10 @@ EOF
     -e "JANUS_WARDEN_DESTINATION=pharos-beacon-${host}" \
     -e JANUS_WARDEN_EXECUTOR=janus-run@csb1 \
     -e "JANUS_WARDEN_SCOPE=${RUN_SCOPE}" \
+    -e "JANUS_WARDEN_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
+    -e "JANUS_WARDEN_SCOPE_PROJECT=${SCOPE_PROJECT}" \
+    -e "JANUS_WARDEN_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
+    -e "JANUS_WARDEN_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
     -e JANUS_WARDEN_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
     -e JANUS_WARDEN_AGE_METADATA_FILE=/var/lib/janus/metadata/metadata.toml \
     -e "JANUS_WARDEN_AGE_PROFILE=${host}" \
@@ -196,9 +231,13 @@ render_env_file() {
 
   if ! docker run --rm \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
+    -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
+    -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
+    -e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
+    -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
     -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
     -v "${OUT_VOLUME}:/run/janus/env" \
-    --entrypoint janusd "$IMAGE" \
+    --entrypoint janusd-use "$IMAGE" \
     env-file preflight --profile "$profile_id" \
     >"$preflight_out" 2>"$preflight_err"; then
     printf 'janus pharos production render failed: env-file preflight failed for %s\n' "$host" >&2
@@ -212,6 +251,10 @@ render_env_file() {
     -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_RUN_EXECUTOR=janus-run@csb1 \
     -e "JANUS_RUN_SCOPE=${RUN_SCOPE}" \
+    -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
+    -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
+    -e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
+    -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
     -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
     -e JANUS_AGE_METADATA_FILE=/var/lib/janus/metadata/metadata.toml \
     -e "JANUS_AGE_PROFILE=${host}" \
@@ -225,7 +268,7 @@ render_env_file() {
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
     -v "${OUT_VOLUME}:/run/janus/env" \
-    --entrypoint janusd "$IMAGE" \
+    --entrypoint janusd-use "$IMAGE" \
     env-file --profile "$profile_id" --permit "$permit" \
     >"$run_out" 2>"$run_err"; then
     printf 'janus pharos production render failed: env-file render failed for %s\n' "$host" >&2
@@ -240,7 +283,7 @@ render_env_file() {
     sed -n '1,80p' "$run_err" >&2
     exit 1
   fi
-  if ! grep -q 'hash_format=pharos-beacon-token-hashes-v1' "$run_out"; then
+  if ! grep -q 'hash_format=pharos-beacon-token-generation-v2' "$run_out"; then
     printf 'janus pharos production render failed: env-file output missing sidecar format for %s\n' "$host" >&2
     sed -n '1,80p' "$run_out" >&2
     exit 1
@@ -254,6 +297,9 @@ relax_sidecar_permissions() {
     -c '
 set -eu
 chmod 0750 /run/janus/env/pharos /run/janus/env/pharos/beacon-token-hashes
+chmod 0640 \
+  /run/janus/env/pharos/beacon-token-hashes/current \
+  /run/janus/env/pharos/beacon-token-hashes/generation-*.json
 for host do
   chmod 0600 "/run/janus/env/pharos/beacons/${host}.env"
   chmod 0640 "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
@@ -277,10 +323,9 @@ cat "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
 
   jq -e \
     --arg host "$host" \
-    '.schema == "inspr.pharos.beacon-token-hashes.v1"
-      and (.hosts | length == 1)
-      and .hosts[0].name == $host
-      and (.hosts[0].token_sha256 | test("^[0-9a-f]{64}$"))' \
+    '.schema == "inspr.pharos.beacon-token-entry.v2"
+      and .host.name == $host
+      and (.host.token_sha256 | test("^[0-9a-f]{64}$"))' \
     "$sidecar_file" >/dev/null
 
   docker run --rm \
@@ -304,8 +349,48 @@ stat -c "%a %n" \
   fi
 }
 
+validate_generation() {
+  local generation_file="${TMP_DIR}/generation.id"
+  local payload_file="${TMP_DIR}/generation.json"
+  local mode_file="${TMP_DIR}/generation.modes"
+  local generation
+
+  docker run --rm \
+    -v "${OUT_VOLUME}:/run/janus/env:ro" \
+    --entrypoint sh "$IMAGE" \
+    -c '
+set -eu
+root=/run/janus/env/pharos/beacon-token-hashes
+IFS= read -r generation <"${root}/current"
+printf "%s" "$generation" | grep -Eq "^[0-9a-f]{64}$"
+printf "%s\n" "$generation"
+' >"$generation_file"
+
+  IFS= read -r generation <"$generation_file"
+  docker run --rm \
+    -v "${OUT_VOLUME}:/run/janus/env:ro" \
+    --entrypoint sh "$IMAGE" \
+    -c 'set -eu; cat "/run/janus/env/pharos/beacon-token-hashes/generation-${1}.json"' sh "$generation" \
+    >"$payload_file"
+  docker run --rm \
+    -v "${OUT_VOLUME}:/run/janus/env:ro" \
+    --entrypoint sh "$IMAGE" \
+    -c 'set -eu; root=/run/janus/env/pharos/beacon-token-hashes; stat -c %a "${root}/current" "${root}/generation-${1}.json"' sh "$generation" \
+    >"$mode_file"
+
+  jq -e --arg generation "$generation" --argjson expected_count "${#HOSTS[@]}" \
+    '.schema == "inspr.pharos.beacon-token-generation.v2"
+      and .generation == $generation
+      and (.hosts | length) == $expected_count
+      and ([.hosts[].name] | unique | length) == $expected_count
+      and all(.hosts[]; (.name | test("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")) and (.token_sha256 | test("^[0-9a-f]{64}$")))' \
+    "$payload_file" >/dev/null
+  [ "$(awk 'NR == 1 { print $1 }' "$mode_file")" = 640 ]
+  [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" = 640 ]
+}
+
 for host in "${HOSTS[@]}"; do
-  upper=${host^^}
+  upper=$(printf '%s' "$host" | tr '[:lower:]' '[:upper:]')
   secret_name="PHAROS_BEACON_${upper}_TOKEN"
   secret_ref=$(secret_ref_for "$secret_name")
   permit=$(run_warden_permit "$host" "$secret_name" "$secret_ref")
@@ -317,6 +402,7 @@ relax_sidecar_permissions
 for host in "${HOSTS[@]}"; do
   validate_outputs "$host"
 done
+validate_generation
 
 remaining_permits=$(
   docker run --rm \

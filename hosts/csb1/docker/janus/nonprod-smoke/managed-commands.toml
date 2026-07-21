@@ -1,6 +1,6 @@
 [[profiles]]
 id = "profile.JANUS_SMOKE"
-secret_ref = "sec_9143cb19a04cc2dc154e"
+secret_ref = "sec_5b4032741aeaeb486a64"
 executor = "janus-run@csb1"
 destination = "janus-engine-nonprod-smoke"
 env = "JANUS_SECRET_SMOKE"

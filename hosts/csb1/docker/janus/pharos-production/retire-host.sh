@@ -16,6 +16,10 @@ RETIREMENTS_FILE=${JANUS_PHAROS_RETIREMENTS_FILE:-${SCRIPT_DIR}/retired-hosts.js
 IMAGE=${JANUS_ENGINE_IMAGE:-}
 VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
 RUN_SCOPE=${JANUS_PHAROS_SCOPE:-pharos/csb1/production}
+SCOPE_ORGANIZATION=${JANUS_PHAROS_SCOPE_ORGANIZATION:-inspr}
+SCOPE_PROJECT=${JANUS_PHAROS_SCOPE_PROJECT:-pharos}
+SCOPE_REPOSITORY=${JANUS_PHAROS_SCOPE_REPOSITORY:-nixcfg}
+SCOPE_ENVIRONMENT=${JANUS_PHAROS_SCOPE_ENVIRONMENT:-production}
 RETENTION_DAYS=${JANUS_PHAROS_RETENTION_DAYS:-365}
 FIXTURE=${JANUS_PHAROS_RETIREMENT_FIXTURE:-0}
 mode=${1:-}
@@ -45,6 +49,10 @@ esac
 
 [[ "$host" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] || fail invalid_host
 valid_identifier "$VOLUME_PREFIX" || fail invalid_volume_prefix
+valid_identifier "$SCOPE_ORGANIZATION" || fail invalid_scope_organization
+valid_identifier "$SCOPE_PROJECT" || fail invalid_scope_project
+valid_identifier "$SCOPE_REPOSITORY" || fail invalid_scope_repository
+valid_identifier "$SCOPE_ENVIRONMENT" || fail invalid_scope_environment
 [[ "$RETENTION_DAYS" =~ ^[1-9][0-9]*$ ]] || fail invalid_retention
 
 for dependency in awk docker flock git jq; do
@@ -152,6 +160,10 @@ if ! command_output=$(
     -e JANUS_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub \
     -e JANUS_LIFECYCLE_EXECUTOR=janus-pharos-retirement@csb1 \
     -e "JANUS_LIFECYCLE_SCOPE=${RUN_SCOPE}" \
+    -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
+    -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
+    -e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
+    -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
     -e JANUS_LIFECYCLE_TOMBSTONE_DIR=/var/lib/janus/lifecycle/tombstones \
     -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
     -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
@@ -161,7 +173,7 @@ if ! command_output=$(
     -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
     -v "${JANUS_PHAROS_METADATA_VOLUME}:/var/lib/janus/metadata" \
     -v "${JANUS_PHAROS_LIFECYCLE_VOLUME}:/var/lib/janus/lifecycle" \
-    --entrypoint janusd "$IMAGE" \
+    --entrypoint janusd-admin "$IMAGE" \
     "${args[@]}" 2>"$error_file"
 ); then
   sed -n '1,20p' "$error_file" >&2
@@ -169,12 +181,29 @@ if ! command_output=$(
 fi
 
 if ! grep -Eq \
-  "^janusd pharos-beacon ${command} host=${host} state=(complete|needs_finalize|drift|action_required) reason_code=[a-z0-9_]+ value_returned=false provider_deleted=false$" \
+  "^janusd-admin pharos-beacon ${command} host=${host} state=(complete|needs_finalize|drift|action_required) reason_code=[a-z0-9_]+ value_returned=false provider_deleted=false$" \
   <<<"$command_output"; then
   fail invalid_engine_result
 fi
 if [ "$mode" = apply ] && ! grep -Fq ' state=complete ' <<<"$command_output"; then
   fail retirement_not_complete
 fi
+
+# The admin runtime temporarily makes the shared output private for mutation.
+# Restore the read-only group boundary Pharos uses after the atomic generation
+# pointer has revoked the retired host.
+docker run --rm --user 0 \
+  -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
+  --entrypoint sh "$IMAGE" \
+  -c '
+set -eu
+root=/run/janus/env/pharos/beacon-token-hashes
+chmod 0750 /run/janus/env/pharos "$root"
+chmod 0640 "$root/current" "$root"/generation-*.json
+for entry in "$root"/*.json; do
+  [ -e "$entry" ] || continue
+  chmod 0640 "$entry"
+done
+'
 
 printf '%s\n' "$command_output"

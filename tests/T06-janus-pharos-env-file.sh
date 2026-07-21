@@ -14,6 +14,8 @@ PROD_SECRETSPEC="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/secretspec
 PROD_METADATA="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/metadata.toml"
 PROD_IMPORT="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/import-existing-agenix-beacons.sh"
 PROD_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/render-sidecars.sh"
+NONPROD_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-nonprod/run-sidecar-smoke.sh"
+RETIRE_HOST="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/retire-host.sh"
 PROVIDER_IMPORT="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/import-agenix-hetzner-provider.sh"
 PROVIDER_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/render-hetzner-provider.sh"
 PROVIDER_SMOKE="$REPO_ROOT/hosts/csb1/docker/janus/pharos-provider-smoke/run.sh"
@@ -26,9 +28,54 @@ AGENIX_CATALOG="$REPO_ROOT/hosts/csb1/docker/janus/catalog/agenix-catalog.json"
 
 bash -n "$PROD_IMPORT"
 bash -n "$PROD_RENDER"
+bash -n "$NONPROD_RENDER"
+bash -n "$RETIRE_HOST"
 bash -n "$PROVIDER_IMPORT"
 bash -n "$PROVIDER_RENDER"
 bash -n "$PROVIDER_SMOKE"
+
+require_occurrences() {
+  local expected_count=$1
+  local expected_text=$2
+  local file=$3
+  local actual_count
+  actual_count=$(grep -Fc -- "$expected_text" "$file" || true)
+  if [ "$actual_count" -lt "$expected_count" ]; then
+    echo "missing structured Janus scope wiring in ${file#"$REPO_ROOT"/}: $expected_text" >&2
+    exit 1
+  fi
+}
+
+for renderer in "$NONPROD_RENDER" "$PROD_RENDER" "$PROVIDER_RENDER"; do
+  # shellcheck disable=SC2016
+  require_occurrences 1 '-e "JANUS_WARDEN_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}"' "$renderer"
+  # shellcheck disable=SC2016
+  require_occurrences 1 '-e "JANUS_WARDEN_SCOPE_PROJECT=${SCOPE_PROJECT}"' "$renderer"
+  # shellcheck disable=SC2016
+  require_occurrences 1 '-e "JANUS_WARDEN_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}"' "$renderer"
+  # shellcheck disable=SC2016
+  require_occurrences 1 '-e "JANUS_WARDEN_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}"' "$renderer"
+  # shellcheck disable=SC2016
+  require_occurrences 2 '-e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}"' "$renderer"
+  # shellcheck disable=SC2016
+  require_occurrences 2 '-e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}"' "$renderer"
+  # shellcheck disable=SC2016
+  require_occurrences 2 '-e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}"' "$renderer"
+  # shellcheck disable=SC2016
+  require_occurrences 2 '-e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}"' "$renderer"
+done
+# shellcheck disable=SC2016
+require_occurrences 1 '-e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}"' "$RETIRE_HOST"
+# shellcheck disable=SC2016
+require_occurrences 1 '-e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}"' "$RETIRE_HOST"
+# shellcheck disable=SC2016
+require_occurrences 1 '-e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}"' "$RETIRE_HOST"
+# shellcheck disable=SC2016
+require_occurrences 1 '-e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}"' "$RETIRE_HOST"
+require_occurrences 1 '      - JANUS_WARDEN_SCOPE_ORGANIZATION=inspr' "$COMPOSE_FILE"
+require_occurrences 1 '      - JANUS_WARDEN_SCOPE_ENVIRONMENT=staged' "$COMPOSE_FILE"
+require_occurrences 1 '      - JANUS_SCOPE_ORGANIZATION=inspr' "$COMPOSE_FILE"
+require_occurrences 1 '      - JANUS_SCOPE_ENVIRONMENT=staged' "$COMPOSE_FILE"
 
 if [ ! -s "$PROVIDER_AGENIX_ARTIFACT" ]; then
   echo "missing or empty encrypted Hetzner provider artifact" >&2
@@ -105,6 +152,18 @@ def expect_subset(actual: dict, expected: dict, label: str) -> None:
         if actual.get(key) != value:
             raise SystemExit(f"{label} {key} mismatch")
 
+def scoped_secret_ref(*, project: str, environment: str, name: str) -> str:
+    canonical = b""
+    for component in ("janus-scope-v1", "inspr", project, "nixcfg", environment):
+        encoded = component.encode()
+        canonical += len(encoded).to_bytes(8, "big") + encoded
+    canonical += b"\0\0"
+    scope_ref = "scp_" + hashlib.sha256(canonical).hexdigest()[:40]
+    digest = hashlib.sha256(
+        b"janus-secret-ref-v2\0" + scope_ref.encode() + b"\0" + name.encode()
+    ).hexdigest()
+    return "sec_" + digest[:20]
+
 def validate_registration(profile: dict) -> None:
     env_files = profile.get("env_files", [])
     by_id = {entry["id"]: entry for entry in env_files}
@@ -112,6 +171,11 @@ def validate_registration(profile: dict) -> None:
     if not registration:
         raise SystemExit("missing Pharos nonprod registration profile")
     expected_registration = {
+        "secret_ref": scoped_secret_ref(
+            project="pharos",
+            environment="pharos-nonprod",
+            name="PHAROS_NONPROD_REGISTRATION",
+        ),
         "executor": "janus-run@csb1",
         "destination": "pharos-nonprod",
         "env": "PHAROS_REGISTRATION_TOKEN",
@@ -139,6 +203,7 @@ def validate_beacon_contract(
     profile_path: pathlib.Path,
     secretspec_path: pathlib.Path,
     environment: str,
+    scope_environment: str,
     reload: str,
     validations: list[str],
     supports_dual_value: bool,
@@ -166,7 +231,11 @@ def validate_beacon_contract(
         host_secrets = secretspec.get("profiles", {}).get(host, {})
         if secret_name not in host_secrets:
             raise SystemExit(f"{label} missing secretspec entry for {host}")
-        ref = "sec_" + hashlib.sha256(b"pharos\0" + secret_name.encode()).hexdigest()[:20]
+        ref = scoped_secret_ref(
+            project="pharos",
+            environment=scope_environment,
+            name=secret_name,
+        )
         profile_id = f"profile.PHAROS_BEACON_{upper}_TOKEN"
         entry = by_id.get(profile_id)
         if not entry:
@@ -181,7 +250,7 @@ def validate_beacon_contract(
         expect_subset(entry, expected_entry, f"{label} {profile_id}")
 
         expected_sidecar = {
-            "format": "pharos-beacon-token-hashes-v1",
+            "format": "pharos-beacon-token-generation-v2",
             "subject": host,
             "output": f"/run/janus/env/pharos/beacon-token-hashes/{host}.json",
         }
@@ -206,6 +275,7 @@ validate_beacon_contract(
     profile_path=nonprod_profile_path,
     secretspec_path=nonprod_secretspec_path,
     environment="nonprod",
+    scope_environment="pharos-nonprod",
     reload="none",
     validations=["pharos-beacon-token-sidecar-preflight"],
     supports_dual_value=False,
@@ -217,6 +287,7 @@ validate_beacon_contract(
     profile_path=prod_profile_path,
     secretspec_path=prod_secretspec_path,
     environment="production",
+    scope_environment="production",
     reload="none",
     validations=["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"],
     supports_dual_value=False,
@@ -228,9 +299,11 @@ prod_profile = nix_from_toml(prod_profile_path)
 prod_secretspec = nix_from_toml(prod_secretspec_path)
 provider_secret_name = "PHAROS_HCLOUD_API_TOKEN"
 provider_profile_id = f"profile.{provider_secret_name}"
-provider_ref = "sec_" + hashlib.sha256(
-    b"pharos\0" + provider_secret_name.encode()
-).hexdigest()[:20]
+provider_ref = scoped_secret_ref(
+    project="pharos",
+    environment="production",
+    name=provider_secret_name,
+)
 provider_entries = {
     entry["id"]: entry for entry in prod_profile.get("env_files", [])
 }
