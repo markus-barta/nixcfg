@@ -676,6 +676,9 @@ services:
       - PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27
       - PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json
     ports:
+      # The beacon image inherits pharosd's loopback readiness probe. Publish
+      # the same listener locally so that role-specific health stays truthful.
+      - "127.0.0.1:8088:8080"
       # Tailnet bind kept for beacon ingestion (/report stays auth-exempt).
       - "100.64.0.4:8088:8080"
     volumes:
@@ -724,6 +727,9 @@ services:
     env_file:
       - /run/agenix/pharos-beacon-csb1-env
     environment:
+      # Used only by the inherited image healthcheck; pharos-beacon uses
+      # PHAROS_URL below for reports.
+      - PHAROS_ADDR=0.0.0.0:8088
       - PHAROS_URL=http://100.64.0.4:8088
       - PHAROS_INTERVAL=60
       - PHAROS_HOSTNAME=csb1
