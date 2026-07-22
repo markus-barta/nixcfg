@@ -32,10 +32,6 @@ jobs:
       #        run: nix-channel --update
       - name: Checkout code
         uses: actions/checkout@v4
-      - name: Log-in into attic
-        run: nix-shell -p attic-client --run "attic login server https://nix-cache.qownnotes.org $ATTIC_SECRET_KEY"
-        env:
-          ATTIC_SECRET_KEY: ${{ secrets.ATTIC_SECRET_KEY }}
       #      - name: Build qc package
       #        run: |
       #          cd pkgs/qc && \
@@ -44,5 +40,4 @@ jobs:
       - name: Build nixbit package
         run: |
           cd pkgs/nixbit && \
-          nix-build -E '((import <nixpkgs> {}).callPackage (import ./package.nix) { })' && \
-          nix-shell -p attic-client --run "attic push qownnotes ./result"
+          nix-build -E '((import <nixpkgs> {}).callPackage (import ./package.nix) { })'
