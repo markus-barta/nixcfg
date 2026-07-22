@@ -68,6 +68,10 @@ except ImportError:  # pragma: no cover
     MQTT_AVAILABLE = False
 
 VERSION = "1.1.0"
+# The bridge is an appliance, not a general HTTP proxy. A TV move requires a
+# reviewed source change here and in the matching NixOS unit value.
+SONY_TV_HOST = "192.168.1.137"
+SONY_IRCC_URL = "http://192.168.1.137/sony/IRCC"
 
 CONFIG = {
     "sony_tv_ip": os.getenv("SONY_TV_IP", "192.168.1.137"),
@@ -158,6 +162,18 @@ BUTTONS: Dict[int, tuple] = {
 REPEATABLE_KEYS = {114, 115, 103, 108, 105, 106, 20, 47, 168, 208}
 
 
+def _sony_ircc_url(host: str) -> str:
+    """Return the constant IRCC endpoint for an explicitly reviewed TV host."""
+    if host != SONY_TV_HOST:
+        raise ValueError("SONY_TV_IP is outside the reviewed TV allowlist")
+    return SONY_IRCC_URL
+
+
+def _single_line(value: object) -> str:
+    """Render external values without allowing forged multiline log records."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
 def _now_ms() -> float:
     return time.time() * 1000.0
 
@@ -189,6 +205,11 @@ class IRBridge:
             "mqtt_published": 0,
             "last_key": None,
         }
+        try:
+            self.sony_ircc_url = _sony_ircc_url(CONFIG["sony_tv_ip"])
+        except ValueError:
+            self.log.error("SONY_TV_IP is outside the reviewed TV allowlist — refusing to start")
+            sys.exit(1)
         if not CONFIG["sony_tv_psk"]:
             self.log.error("SONY_TV_PSK not set — refusing to start")
             sys.exit(1)
@@ -248,7 +269,11 @@ class IRBridge:
             client.connect_async(CONFIG["mqtt_broker"], CONFIG["mqtt_port"], keepalive=60)
             client.loop_start()
             self.mqtt = client
-            self.log.info("MQTT loop started → %s:%s (async, auto-reconnect)", CONFIG["mqtt_broker"], CONFIG["mqtt_port"])
+            self.log.info(
+                "MQTT loop started → %s:%s (async, auto-reconnect)",
+                _single_line(CONFIG["mqtt_broker"]),
+                _single_line(CONFIG["mqtt_port"]),
+            )
         except Exception as exc:  # noqa: BLE001 - never fatal
             self.log.error("MQTT setup failed (TV path still works): %s", exc)
             self.mqtt = None
@@ -338,7 +363,6 @@ class IRBridge:
 
     # ── TV / IRCC ────────────────────────────────────────────────────────
     def _send_ircc(self, ircc: str, name: str) -> bool:
-        url = f"http://{CONFIG['sony_tv_ip']}/sony/IRCC"
         headers = {
             "Content-Type": "text/xml; charset=UTF-8",
             "SOAPACTION": '"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC"',
@@ -353,7 +377,7 @@ class IRBridge:
         )
         for attempt in range(CONFIG["retry_count"]):
             try:
-                r = requests.post(url, headers=headers, data=body, timeout=5)
+                r = requests.post(self.sony_ircc_url, headers=headers, data=body, timeout=5)
                 if r.status_code == 200:
                     return True
                 self.log.warning("IRCC %s failed: HTTP %s", name, r.status_code)
@@ -415,9 +439,17 @@ class IRBridge:
         except Exception as exc:  # noqa: BLE001
             # Expected while the FLIRC is unplugged / its hub is still settling.
             self.input_device = None
-            self.log.debug("Cannot open %s: %s", CONFIG["flirc_device"], exc)
+            self.log.debug(
+                "Cannot open %s: %s",
+                _single_line(CONFIG["flirc_device"]),
+                _single_line(exc),
+            )
             return False
-        self.log.info("Opened input %s (%s)", CONFIG["flirc_device"], self.input_device.name)
+        self.log.info(
+            "Opened input %s (%s)",
+            _single_line(CONFIG["flirc_device"]),
+            _single_line(self.input_device.name),
+        )
         self.input_ok = True
         self._set_availability("online")
         return True
@@ -469,7 +501,7 @@ class IRBridge:
                         break
                     self.log.warning(
                         "FLIRC %s unavailable — retrying in %.0fs",
-                        CONFIG["flirc_device"],
+                        _single_line(CONFIG["flirc_device"]),
                         delay,
                     )
                     time.sleep(delay)
