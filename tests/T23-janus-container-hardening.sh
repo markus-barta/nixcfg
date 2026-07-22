@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 janus_root="$repo_root/hosts/csb1/docker/janus"
 compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
 policy="$janus_root/runtime-image-policy.sh"
+run_negative="$janus_root/nonprod-smoke/run-negative-smoke.sh"
 
 grep -Fq 'JANUS_RUNTIME_UID=65532' "$policy"
 grep -Fq 'JANUS_RUNTIME_GID=65532' "$policy"
@@ -18,6 +19,17 @@ if grep -ERq -- '--entrypoint (sh|cat|id|sha256sum) ("\$IMAGE"|"\$image"|\$IMAGE
 fi
 if grep -Rq 'binary = "/bin/sh"' "$janus_root"; then
   printf 'Janus managed-command policy still depends on a runtime shell\n' >&2
+  exit 1
+fi
+grep -Fq 'APPROVED_ARGS=("--help")' "$run_negative"
+# The assertions intentionally match literal shell variable references.
+# shellcheck disable=SC2016
+grep -Fq 'source "${SCRIPT_DIR}/../runtime-image-policy.sh"' "$run_negative"
+# shellcheck disable=SC2016
+grep -Fq '"$JANUS_VOLUME_HELPER_IMAGE"' "$run_negative"
+# shellcheck disable=SC2016
+if grep -Fq 'docker exec "$CONTAINER" sh' "$run_negative"; then
+  printf 'Janus negative smoke still expects a shell in the scratch runtime image\n' >&2
   exit 1
 fi
 

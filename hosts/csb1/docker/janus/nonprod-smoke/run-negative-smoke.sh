@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR=${JANUS_SMOKE_SCRIPT_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)}
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../runtime-image-policy.sh"
+
 CONTAINER=${JANUS_ENGINE_CONTAINER:-janus-engine-staged}
+PERMIT_VOLUME=${JANUS_SMOKE_PERMIT_VOLUME:-janus_engine_smoke_permits}
 SECRET_REF=${JANUS_SMOKE_SECRET_REF:-sec_5b4032741aeaeb486a64}
 PROFILE_ID=${JANUS_SMOKE_PROFILE_ID:-profile.JANUS_SMOKE}
 FORBIDDEN_VALUE_PREFIX=${JANUS_SMOKE_FORBIDDEN_VALUE_PREFIX:-janus-nonprod-smoke-}
 HEALTH_WAIT_SECONDS=${JANUS_MCP_HEALTH_WAIT_SECONDS:-30}
-APPROVED_ARGS=("printf 'smoke:%s' \"\$JANUS_SECRET_SMOKE\"")
+APPROVED_ARGS=("--help")
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -19,6 +24,13 @@ require_command docker
 require_command grep
 require_command jq
 require_command mktemp
+
+case "$PERMIT_VOLUME" in
+"" | *[!A-Za-z0-9_.-]*)
+  printf 'janus run negative smoke failed: invalid permit volume: %s\n' "$PERMIT_VOLUME" >&2
+  exit 1
+  ;;
+esac
 
 status=$(docker inspect --format '{{.State.Status}}' "$CONTAINER" 2>/dev/null || true)
 if [ "$status" != "running" ]; then
@@ -48,6 +60,15 @@ done
 network_mode=$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$CONTAINER")
 ports=$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$CONTAINER")
 traefik=$(docker inspect --format '{{index .Config.Labels "traefik.enable"}}' "$CONTAINER")
+container_user=$(docker inspect --format '{{.Config.User}}' "$CONTAINER")
+
+case "$container_user" in
+[0-9]*:[0-9]*) ;;
+*)
+  printf 'janus run negative smoke failed: expected numeric container uid:gid, got %s\n' "$container_user" >&2
+  exit 1
+  ;;
+esac
 
 if [ "$network_mode" != "none" ] || [ "$ports" != "{}" ] || [ "$traefik" != "false" ]; then
   printf 'janus run negative smoke failed: expected internal-only container, got network_mode=%s ports=%s traefik=%s\n' \
@@ -133,7 +154,7 @@ run_janusd() {
   docker exec "$CONTAINER" janusd-use run \
     --profile "$PROFILE_ID" \
     --permit "$permit" \
-    -- -c "$arg" >"$out" 2>"$err"
+    -- "$arg" >"$out" 2>"$err"
   rc=$?
   set -e
 
@@ -153,7 +174,11 @@ expect_successful_consume() {
     exit 1
   fi
   assert_no_value_material "${tmp_dir}/${name}.out" "${tmp_dir}/${name}.err"
-  grep -qx 'smoke:\[REDACTED\]' "${tmp_dir}/${name}.out"
+  if [ -s "${tmp_dir}/${name}.out" ]; then
+    printf 'janus run negative smoke failed: successful consume returned unexpected stdout\n' >&2
+    sed -n '1,80p' "${tmp_dir}/${name}.out" >&2
+    exit 1
+  fi
   grep -q 'reason_code=ok value_returned=false' "${tmp_dir}/${name}.err"
 }
 
@@ -187,15 +212,27 @@ rewrite_permit() {
   dst="${tmp_dir}/${permit}.mutated.json"
 
   validate_permit_id "$permit"
-  docker exec "$CONTAINER" sh -c "cat /run/janus/permits/${permit}.json" >"$src"
+  docker run --rm \
+    -v "${PERMIT_VOLUME}:/run/janus/permits:ro" \
+    --entrypoint cat "$JANUS_VOLUME_HELPER_IMAGE" \
+    "/run/janus/permits/${permit}.json" >"$src"
   jq "$filter" "$src" >"$dst"
-  docker exec -i "$CONTAINER" sh -c "cat >/run/janus/permits/${permit}.json && chmod 600 /run/janus/permits/${permit}.json" <"$dst"
+  docker run -i --rm \
+    --user "$container_user" \
+    -v "${PERMIT_VOLUME}:/run/janus/permits" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+    -c 'umask 077; cat >"$1"; chmod 0600 "$1"' sh \
+    "/run/janus/permits/${permit}.json" <"$dst"
 }
 
 remove_permit() {
   permit=$1
   validate_permit_id "$permit"
-  docker exec "$CONTAINER" sh -c "rm -f /run/janus/permits/${permit}.json"
+  docker run --rm \
+    --user "$container_user" \
+    -v "${PERMIT_VOLUME}:/run/janus/permits" \
+    --entrypoint rm "$JANUS_VOLUME_HELPER_IMAGE" \
+    -f "/run/janus/permits/${permit}.json"
 }
 
 expect_denial malformed_permit not_a_permit 'invalid --permit token'
@@ -218,12 +255,14 @@ rewrite_permit "$expired_permit" '.expires_at_unix_secs = 1'
 expect_denial expired_permit "$expired_permit" 'denied_permit_binding_mismatch'
 
 unreviewed_args_permit=$(issue_permit unreviewed_args)
-expect_denial unreviewed_args "$unreviewed_args_permit" 'reviewed profile' "printf 'evil:%s' \"\$JANUS_SECRET_SMOKE\""
+expect_denial unreviewed_args "$unreviewed_args_permit" 'reviewed profile' '--version'
 remove_permit "$unreviewed_args_permit"
 
 remaining_permits=$(
-  docker exec "$CONTAINER" sh -c \
-    'find /run/janus/permits -maxdepth 1 -type f \( -name "use_*.json" -o -name ".use_*.claim" \) | wc -l | tr -d " "'
+  docker run --rm \
+    -v "${PERMIT_VOLUME}:/run/janus/permits:ro" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+    -c 'find /run/janus/permits -maxdepth 1 -type f \( -name "use_*.json" -o -name ".use_*.claim" \) | wc -l | tr -d " "'
 )
 if [ "$remaining_permits" != "0" ]; then
   printf 'janus run negative smoke failed: permit registry not empty after negative run (%s files)\n' "$remaining_permits" >&2
