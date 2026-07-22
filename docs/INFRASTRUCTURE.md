@@ -307,6 +307,16 @@ continue to show merged settings as declared but not applied until a later host
 rebuild and beacon report prove the runtime value. Fleet-wide automatic
 pull/rebuild remains a separate, currently unsolved deployment concern.
 
+### Pharos Release Coordination
+
+`pharos-release-rollout.yml` checks the newest annotated Pharos release every
+hour. It resolves the semantic image to one immutable digest, verifies the
+GitHub OIDC cosign signature, and applies that exact release to both `nixcfg`
+and `dsccfg`. If either repository needs an update, it opens paired pull
+requests after both repositories' compatibility tests pass. The workflow never
+deploys, restarts a host, or merges its own proposals; runtime rollout remains
+an attended operation after both declared states are reviewed and aligned.
+
 ---
 
 ## 🏠 Smart Home Naming Convention
