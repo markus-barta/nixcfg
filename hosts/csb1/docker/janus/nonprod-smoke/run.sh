@@ -242,8 +242,8 @@ compose_run \
   janus-engine-staged run --profile "${PROFILE_ID}" --permit "$permit" -- --help \
   >"${TMP_DIR}/run.out" 2>"${TMP_DIR}/run.err"
 
-if ! grep -q 'Permit-bound use commands:' "${TMP_DIR}/run.out"; then
-  printf 'janus smoke failed: expected the reviewed shell-free consumer output\n' >&2
+if [ -s "${TMP_DIR}/run.out" ]; then
+  printf 'janus smoke failed: supervised consumer returned unexpected stdout\n' >&2
   sed -n '1,40p' "${TMP_DIR}/run.out" >&2
   sed -n '1,80p' "${TMP_DIR}/run.err" >&2
   exit 1
@@ -270,5 +270,5 @@ if [ "$remaining_permits" != "0" ]; then
   exit 1
 fi
 
-printf 'ok: janus non-prod permit smoke passed image=%s profile=%s user_uid=%s user_gid=%s value_returned=false output=shell_free_non_secret permit_consumed=true volumes=%s,%s,%s\n' \
+printf 'ok: janus non-prod permit smoke passed image=%s profile=%s user_uid=%s user_gid=%s value_returned=false output=suppressed permit_consumed=true volumes=%s,%s,%s\n' \
   "$IMAGE" "$PROFILE_ID" "$container_uid" "$container_gid" "$AGE_VOLUME" "$STORE_VOLUME" "$PERMIT_VOLUME"
