@@ -29,6 +29,9 @@ jobs:
       - name: Reject mixed or mutable Pharos fleet pins
         run: tests/T21-pharos-release-rollout.sh
 
+      - name: Verify deterministic Pharos fleet release updates
+        run: tests/T22-pharos-release-update.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest

@@ -1,0 +1,245 @@
+name: Propose coordinated Pharos fleet release
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Optional annotated Pharos release tag (latest when empty)
+        required: false
+        type: string
+      dry_run:
+        description: Verify resolution, signature, updates, and tests without opening pull requests
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: pharos-release-rollout
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: read
+  pull-requests: write
+
+jobs:
+  propose:
+    if: github.repository == 'markus-barta/nixcfg'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
+    steps:
+      - name: Require the reviewed cross-repository credential
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo 'error: GH_TOKEN_FOR_UPDATES is not configured' >&2
+            exit 1
+          fi
+
+      - name: Checkout nixcfg
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          token: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
+          fetch-depth: 0
+
+      - name: Checkout dsccfg
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: markus-barta/dsccfg
+          ref: main
+          path: _release-dsccfg
+          token: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
+          fetch-depth: 0
+
+      - name: Resolve one annotated Pharos release
+        id: release
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          tag=$REQUESTED_TAG
+          if [[ -z "$tag" ]]; then
+            tag=$(
+              gh api --paginate repos/markus-barta/pharos/git/matching-refs/tags/v \
+                --jq '.[].ref' |
+                sed 's#^refs/tags/##' |
+                grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
+                sort -V |
+                tail -n 1
+            )
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'error: no valid semantic Pharos release tag resolved' >&2
+            exit 1
+          fi
+          object_type=$(gh api "repos/markus-barta/pharos/git/ref/tags/${tag}" --jq '.object.type')
+          if [[ "$object_type" != tag ]]; then
+            echo 'error: Pharos release tag is not annotated' >&2
+            exit 1
+          fi
+          tag_object=$(gh api "repos/markus-barta/pharos/git/ref/tags/${tag}" --jq '.object.sha')
+          commit_sha=$(gh api "repos/markus-barta/pharos/git/tags/${tag_object}" --jq '.object.sha')
+          ancestry=$(gh api "repos/markus-barta/pharos/compare/${commit_sha}...main" --jq '.status')
+          if [[ "$ancestry" != ahead && "$ancestry" != identical ]]; then
+            echo 'error: Pharos release tag is not on the main lineage' >&2
+            exit 1
+          fi
+          version=${tag#v}
+          printf 'tag=%s\nversion=%s\n' "$tag" "$version" >>"$GITHUB_OUTPUT"
+
+      - name: Authenticate to the private Pharos package
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: markus-barta
+          password: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
+
+      - name: Resolve the immutable image digest
+        id: image
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          image=ghcr.io/markus-barta/pharos/pharosd
+          digest=$(
+            docker buildx imagetools inspect "${image}:${VERSION}" |
+              awk '$1 == "Digest:" { print $2; exit }'
+          )
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo 'error: published Pharos image has no immutable sha256 digest' >&2
+            exit 1
+          fi
+          printf 'digest=%s\nreference=%s\n' "$digest" "${image}:${VERSION}@${digest}" >>"$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        with:
+          cosign-release: v2.5.2
+
+      - name: Verify the release signature and workflow identity
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          cosign verify "ghcr.io/markus-barta/pharos/pharosd@${DIGEST}" \
+            --certificate-identity "https://github.com/markus-barta/pharos/.github/workflows/release.yml@refs/tags/${TAG}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" >/dev/null
+
+      - name: Prepare both repositories from the same digest
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          scripts/update-pharos-release.sh "$VERSION" "$DIGEST"
+          _release-dsccfg/scripts/update-pharos-release.sh --root _release-dsccfg "$VERSION" "$DIGEST"
+          tests/T20-pharos-beacon-healthcheck.sh
+          tests/T21-pharos-release-rollout.sh
+          tests/T22-pharos-release-update.sh
+          _release-dsccfg/tests/pharos-release-rollout.sh
+          _release-dsccfg/tests/pharos-release-update.sh
+          nix_ref=$(jq -r '.reference' pharos-release.json)
+          dsc_ref=$(jq -r '.reference' _release-dsccfg/pharos-release.json)
+          if [[ "$nix_ref" != "$dsc_ref" ]]; then
+            echo 'error: paired Pharos release manifests diverged' >&2
+            exit 1
+          fi
+
+      - name: Record dry-run evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: echo "pharos_release_rollout=dry_run_passed version=${VERSION} digest=${DIGEST}"
+
+      - name: Open or reuse the dsccfg release proposal
+        if: github.event_name != 'workflow_dispatch' || inputs.dry_run != true
+        id: dsc_pr
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          cd _release-dsccfg
+          title="PHAROS-90: roll fleet to Pharos ${VERSION}"
+          existing=$(
+            gh pr list --repo markus-barta/dsccfg --state open --json title,url |
+              jq -r --arg title "$title" '.[] | select(.title == $title) | .url' |
+              head -n 1
+          )
+          if [[ -n "$existing" ]]; then
+            printf 'url=%s\n' "$existing" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --quiet; then
+            echo 'url=' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          branch="automation/pharos-release-${VERSION}-${GITHUB_RUN_ID}"
+          git config user.name 'Markus Barta'
+          git config user.email 'markus@barta.com'
+          git switch -c "$branch"
+          git add pharos-release.json hosts/dsc0/docker/docker-compose.yml
+          git diff --cached --check
+          git commit -m "PHAROS-90: roll dsc0 beacon to Pharos ${VERSION}"
+          git push --set-upstream origin "$branch"
+          url=$(
+            gh pr create --repo markus-barta/dsccfg --base main --head "$branch" \
+              --title "$title" \
+              --body "Paired immutable Pharos ${VERSION} fleet release proposal. The nixcfg proposal is produced by the same workflow run and digest. This change does not deploy or restart dsc0."
+          )
+          printf 'url=%s\n' "$url" >>"$GITHUB_OUTPUT"
+
+      - name: Open or reuse the nixcfg release proposal
+        if: github.event_name != 'workflow_dispatch' || inputs.dry_run != true
+        id: nix_pr
+        env:
+          DSC_PR: ${{ steps.dsc_pr.outputs.url }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          title="PHAROS-90: roll fleet to Pharos ${VERSION}"
+          existing=$(
+            gh pr list --repo markus-barta/nixcfg --state open --json title,url |
+              jq -r --arg title "$title" '.[] | select(.title == $title) | .url' |
+              head -n 1
+          )
+          if [[ -n "$existing" ]]; then
+            printf 'url=%s\n' "$existing" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --quiet; then
+            echo 'url=' >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          branch="automation/pharos-release-${VERSION}-${GITHUB_RUN_ID}"
+          git config user.name 'Markus Barta'
+          git config user.email 'markus@barta.com'
+          git switch -c "$branch"
+          git add \
+            pharos-release.json \
+            hosts/csb0/docker/docker-compose.yml \
+            hosts/csb1/docker/docker-compose.yml \
+            hosts/gpc0/docker/docker-compose.yml \
+            hosts/hsb0/docker/docker-compose.yml \
+            hosts/hsb1/docker/docker-compose.yml \
+            hosts/hsb8/docker/docker-compose.yml \
+            hosts/hsb9/docker/docker-compose.yml
+          git diff --cached --check
+          git commit -m "PHAROS-90: roll fleet to Pharos ${VERSION}"
+          git push --set-upstream origin "$branch"
+          body="Paired immutable Pharos ${VERSION} fleet release proposal. This change does not deploy or restart any host."
+          if [[ -n "$DSC_PR" ]]; then
+            body="${body}"$'\n\n'"Paired dsccfg proposal: ${DSC_PR}"
+          else
+            body="${body}"$'\n\n'"dsccfg main is already aligned to this release."
+          fi
+          url=$(
+            gh pr create --repo markus-barta/nixcfg --base main --head "$branch" \
+              --title "$title" --body "$body"
+          )
+          printf 'url=%s\n' "$url" >>"$GITHUB_OUTPUT"
+
+      - name: Cross-link paired proposals
+        if: (github.event_name != 'workflow_dispatch' || inputs.dry_run != true) && steps.dsc_pr.outputs.url != '' && steps.nix_pr.outputs.url != ''
+        env:
+          DSC_PR: ${{ steps.dsc_pr.outputs.url }}
+          NIX_PR: ${{ steps.nix_pr.outputs.url }}
+        run: |
+          gh pr comment "$DSC_PR" --body "Paired nixcfg proposal: ${NIX_PR}"
