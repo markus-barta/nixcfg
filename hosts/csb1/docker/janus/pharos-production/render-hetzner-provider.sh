@@ -125,7 +125,7 @@ provider_permit_ready=0
 restore_provider_ownership() {
   docker run --rm --network none --user 0 \
     -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 uid=$1
@@ -144,7 +144,7 @@ fi
 purge_provider_permits() {
   docker run --rm --network none \
     -v "${PROVIDER_PERMIT_VOLUME}:/run/janus/permits" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'find /run/janus/permits -maxdepth 1 -type f \( -name "use_*.json" -o -name ".use_*.claim" \) -delete' \
     >/dev/null
 }
@@ -190,7 +190,7 @@ restore_provider_ownership
 
 docker run --rm --network none --user 0 \
   -v "${PROVIDER_PERMIT_VOLUME}:/run/janus/permits" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 uid=$1
@@ -208,7 +208,7 @@ fi
 provider_ownership_staged=1
 docker run --rm --network none --user 0 \
   -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 uid=$1
@@ -363,7 +363,7 @@ provider_ownership_staged=0
 mode_file="${TMP_DIR}/provider.mode"
 docker run --rm --network none --user 0 \
   -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 output=$1
@@ -395,7 +395,7 @@ fi
 remaining_permits=$(
   docker run --rm --network none \
     -v "${PROVIDER_PERMIT_VOLUME}:/run/janus/permits:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'find /run/janus/permits -maxdepth 1 -type f | wc -l | tr -d " "'
 )
 if [ "$remaining_permits" != 0 ]; then

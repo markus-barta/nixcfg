@@ -7,7 +7,7 @@
   ...
 }:
 let
-  hostdashBaseHsb8 = inputs.hostdash.packages.${pkgs.system}.hsb8;
+  hostdashBaseHsb8 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb8;
   hostdashHsb8 = pkgs.runCommand "hostdash-hsb8-with-manifest" { } ''
     mkdir -p "$out/share/hostdash-hsb8"
     cp -R ${hostdashBaseHsb8}/share/hostdash-hsb8/. "$out/share/hostdash-hsb8/"
@@ -533,6 +533,7 @@ in
   # reproduces it. Plaintext in 1Password vault "Familie Barta", entry
   # "hsb8 - system login". SSH key auth unaffected; PasswordAuthentication stays
   # off. (Replaced an undocumented imperative password that was set 2025-11-22.)
+  users.users.mba.initialHashedPassword = lib.mkForce null;
   users.users.mba.hashedPassword = "$y$j9T$5y0S3IQdE7oo54/JhHwkq/$pm0DRKeA3w.6vYbk4rUYgGg.Fat/cQyhSwvC2Zi5bi4";
 
   # Docker stack (NIX-230): migrating from gb-user-owned

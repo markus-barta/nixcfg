@@ -16,6 +16,8 @@ SOURCE_FILE=${JANUS_PHAROS_PROVIDER_AGENIX_FILE:-/run/agenix/csb1-hetzner-cloud-
 EXPECTED_HOST=${JANUS_PHAROS_PROVIDER_HOST:-csb1}
 VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
 IMAGE=${JANUS_ENGINE_IMAGE:-}
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../runtime-image-policy.sh"
 SECRET_NAME=PHAROS_HCLOUD_API_TOKEN
 AGE_PROFILE=hetzner-cloud
 
@@ -93,7 +95,7 @@ STORE_VOLUME="${VOLUME_PREFIX}_secrets"
 recipient=$(
   docker run --rm --network none \
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'test -s /run/janus/age/recipient.pub; cat /run/janus/age/recipient.pub'
 )
 if [ -z "$recipient" ]; then
@@ -101,12 +103,9 @@ if [ -z "$recipient" ]; then
   exit 1
 fi
 
-container_uid=$(docker run --rm --network none --entrypoint id "$IMAGE" -u)
-container_gid=$(docker run --rm --network none --entrypoint id "$IMAGE" -g)
-if [ "$container_uid" = 0 ]; then
-  printf 'refusing to import into a root-owned Janus runtime\n' >&2
-  exit 1
-fi
+janus_assert_static_runtime_image "$IMAGE"
+container_uid=$JANUS_RUNTIME_UID
+container_gid=$JANUS_RUNTIME_GID
 
 TMP_DIR=$(mktemp -d)
 cleanup() {
@@ -152,7 +151,7 @@ fi
 docker run --rm --network none --user 0 \
   -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
   -v "${encrypted_file}:/tmp/provider.age:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 profile=$1

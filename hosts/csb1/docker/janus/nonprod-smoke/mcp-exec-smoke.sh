@@ -48,10 +48,16 @@ done
 network_mode=$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$CONTAINER")
 ports=$(docker inspect --format '{{json .NetworkSettings.Ports}}' "$CONTAINER")
 traefik=$(docker inspect --format '{{index .Config.Labels "traefik.enable"}}' "$CONTAINER")
+read_only=$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$CONTAINER")
+user=$(docker inspect --format '{{.Config.User}}' "$CONTAINER")
+cap_drop=$(docker inspect --format '{{json .HostConfig.CapDrop}}' "$CONTAINER")
+security_opt=$(docker inspect --format '{{json .HostConfig.SecurityOpt}}' "$CONTAINER")
 
-if [ "$network_mode" != "none" ] || [ "$ports" != "{}" ] || [ "$traefik" != "false" ]; then
-  printf 'janus MCP smoke failed: expected internal-only container, got network_mode=%s ports=%s traefik=%s\n' \
-    "$network_mode" "$ports" "$traefik" >&2
+if [ "$network_mode" != "none" ] || [ "$ports" != "{}" ] || [ "$traefik" != "false" ] ||
+  [ "$read_only" != "true" ] || [ "$user" != "65532:65532" ] ||
+  [ "$cap_drop" != '["ALL"]' ] || [ "$security_opt" != '["no-new-privileges:true"]' ]; then
+  printf 'janus MCP smoke failed: hardened posture mismatch network=%s ports=%s traefik=%s read_only=%s user=%s cap_drop=%s security_opt=%s\n' \
+    "$network_mode" "$ports" "$traefik" "$read_only" "$user" "$cap_drop" "$security_opt" >&2
   exit 1
 fi
 
