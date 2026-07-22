@@ -13,6 +13,8 @@ SCRIPT_DIR=$(cd -- "${JANUS_PHAROS_CONTRACT_DIR:-$DEFAULT_SCRIPT_DIR}" && pwd)
 CONTRACT_NAME=${JANUS_PHAROS_CONTRACT_NAME:-$(basename "$SCRIPT_DIR")}
 COMPOSE_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 IMAGE=${JANUS_ENGINE_IMAGE:-}
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../runtime-image-policy.sh"
 SMOKE_ROOT=${JANUS_PHAROS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-pharos-sidecar-smoke/${CONTRACT_NAME}"}
 VOLUME_PREFIX=${JANUS_PHAROS_SMOKE_VOLUME_PREFIX:-janus_pharos_sidecar_smoke_${CONTRACT_NAME}}
 RUN_SCOPE=${JANUS_PHAROS_SMOKE_SCOPE:-pharos/csb1/${CONTRACT_NAME}}
@@ -96,12 +98,9 @@ chmod 0700 "$SMOKE_ROOT"
 
 docker pull "$IMAGE" >/dev/null
 
-container_uid=$(docker run --rm --entrypoint id "$IMAGE" -u)
-container_gid=$(docker run --rm --entrypoint id "$IMAGE" -g)
-if [ "$container_uid" = "0" ]; then
-  printf 'janus pharos sidecar smoke failed: image default user is root\n' >&2
-  exit 1
-fi
+janus_assert_static_runtime_image "$IMAGE"
+container_uid=$JANUS_RUNTIME_UID
+container_gid=$JANUS_RUNTIME_GID
 
 docker volume create "$AGE_VOLUME" >/dev/null
 docker volume create "$STORE_VOLUME" >/dev/null
@@ -113,7 +112,7 @@ docker run --rm --user 0 \
   -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
   -v "${PERMIT_VOLUME}:/run/janus/permits" \
   -v "${OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 uid=$1
@@ -142,7 +141,7 @@ find /run/janus/env/pharos/beacon-token-hashes -maxdepth 1 -type f -exec chmod 0
 
 if ! docker run --rm \
   -v "${AGE_VOLUME}:/run/janus/age" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub'; then
   keygen_out=$(age-keygen 2>&1)
   recipient=$(printf '%s\n' "$keygen_out" | sed -n 's/^Public key: //p' | head -n1)
@@ -154,7 +153,7 @@ if ! docker run --rm \
   printf '%s\n%s\n' "$identity" "$recipient" |
     docker run -i --rm \
       -v "${AGE_VOLUME}:/run/janus/age" \
-      --entrypoint sh "$IMAGE" \
+      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
       -c '
         set -eu
         umask 077
@@ -170,14 +169,14 @@ fi
 recipient=$(
   docker run --rm \
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
-    --entrypoint cat "$IMAGE" /run/janus/age/recipient.pub |
+    --entrypoint cat "$JANUS_VOLUME_HELPER_IMAGE" /run/janus/age/recipient.pub |
     tr -d '\r\n'
 )
 printf '%s\n' "$recipient" >"${SMOKE_ROOT}/recipient.pub"
 
 docker run --rm \
   -v "${PERMIT_VOLUME}:/run/janus/permits" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'find /run/janus/permits -maxdepth 1 -type f \( -name "use_*.json" -o -name ".use_*.claim" \) -delete'
 
 secret_ref_for() {
@@ -215,7 +214,7 @@ seed_secret() {
 
   docker run -i --rm --user 0 \
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 host=$1
@@ -367,7 +366,7 @@ render_env_file() {
 relax_sidecar_permissions() {
   docker run --rm --user 0 \
     -v "${OUT_VOLUME}:/run/janus/env" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 chmod 0750 /run/janus/env/pharos /run/janus/env/pharos/beacon-token-hashes
@@ -389,7 +388,7 @@ validate_outputs() {
 
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 host=$1
@@ -406,7 +405,7 @@ cat "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
 
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 host=$1
@@ -433,7 +432,7 @@ validate_generation() {
 
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 root=/run/janus/env/pharos/beacon-token-hashes
@@ -445,12 +444,12 @@ printf "%s\n" "$generation"
   IFS= read -r generation <"$generation_file"
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'set -eu; cat "/run/janus/env/pharos/beacon-token-hashes/generation-${1}.json"' sh "$generation" \
     >"$payload_file"
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'set -eu; root=/run/janus/env/pharos/beacon-token-hashes; stat -c %a "${root}/current" "${root}/generation-${1}.json"' sh "$generation" \
     >"$mode_file"
 
@@ -484,7 +483,7 @@ validate_generation
 remaining_permits=$(
   docker run --rm \
     -v "${PERMIT_VOLUME}:/run/janus/permits:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'find /run/janus/permits -maxdepth 1 -type f | wc -l | tr -d " "'
 )
 if [ "$remaining_permits" != "0" ]; then

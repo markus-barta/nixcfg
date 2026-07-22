@@ -32,6 +32,12 @@ jobs:
       - name: Verify deterministic Pharos fleet release updates
         run: tests/T22-pharos-release-update.sh
 
+      - name: Verify Janus container least privilege and shell-free runtime
+        run: tests/T23-janus-container-hardening.sh
+
+      - name: Reject deprecated NixOS host-platform and scripted-initrd options
+        run: tests/T24-nixos-deprecation-cleanup.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest

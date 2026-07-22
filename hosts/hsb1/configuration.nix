@@ -8,7 +8,7 @@
 }:
 
 let
-  hostdashHsb1 = inputs.hostdash.packages.${pkgs.system}.hsb1;
+  hostdashHsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb1;
 in
 {
   imports = [
@@ -257,13 +257,13 @@ in
     evtest # For testing input device events
     ## --------------------------------------
     # Packages for kiosk-mode-vlc-cam viewer
-    # Note: Packages vlc, openbox, xorg.xset
+    # Note: Packages vlc, openbox, xset
     #   work together to create a kiosk-mode
     #   camera viewer
     ## --------------------------------------
     vlc # Video playback software
     openbox # Lightweight window manager
-    xorg.xset # X11 user preference utility tool
+    xset # X11 user preference utility tool
     pulseaudio # To enable audio forwarding to a homepod
   ];
 
@@ -301,7 +301,7 @@ in
     # Ensure necessary packages are available to the kiosk user
     home.packages = with pkgs; [
       vlc
-      xorg.xset
+      xset
     ];
     # NIX-158: babycam kiosk launcher, now declarative (was the host-only,
     # hand-maintained /home/kiosk/.config/openbox/autostart). Sources camera

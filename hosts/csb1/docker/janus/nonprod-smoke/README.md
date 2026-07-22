@@ -8,7 +8,10 @@ asks `janus-warden` for a `UsePermit`, then consumes that permit with
 `janusd-use run`. The Warden and runner containers are launched through the disabled
 `janus-engine-staged` compose profile and use the engine image's default
 non-root `janus` user. The expected command output is redacted as
-`smoke:[REDACTED]`.
+the reviewed shell-free `janusd-use --help` consumer output without exposing the
+injected fixture value. Redaction behavior remains covered by the engine's
+workspace assurance tests; the deployed-image smoke proves permit-bound
+execution without adding a shell to the runtime.
 
 Run on csb1 from `hosts/csb1/docker`:
 

@@ -7,7 +7,7 @@
   ...
 }:
 let
-  hostdashHsb9 = inputs.hostdash.packages.${pkgs.system}.hsb9;
+  hostdashHsb9 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb9;
 
   # ============================================================================
   # LOCATION CONFIGURATION
