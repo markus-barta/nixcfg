@@ -38,6 +38,9 @@ jobs:
       - name: Reject deprecated NixOS host-platform and scripted-initrd options
         run: tests/T24-nixos-deprecation-cleanup.sh
 
+      - name: Enforce IR bridge destination and log boundaries
+        run: tests/T25-ir-bridge-boundaries.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
