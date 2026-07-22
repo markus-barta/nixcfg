@@ -136,7 +136,7 @@ docker volume create "$PERMIT_VOLUME" >/dev/null
 
 # New Docker volumes are root-owned until primed. Only this setup container
 # runs as root; Warden and janusd still run as the image's default user.
-docker run --rm --user 0 \
+docker run -i --rm --user 0 \
   -v "${AGE_VOLUME}:/run/janus/age" \
   -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
   -v "${PERMIT_VOLUME}:/run/janus/permits" \
@@ -171,6 +171,7 @@ if ! docker run --rm \
   fi
   printf '%s\n%s\n' "$identity" "$recipient" |
     docker run -i --rm \
+      --user "${container_uid}:${container_gid}" \
       -v "${AGE_VOLUME}:/run/janus/age" \
       --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
       -c '
@@ -202,6 +203,7 @@ printf 'janus-nonprod-smoke-%s' "$(date +%s%N)" |
   age -r "$recipient" -o "${TMP_DIR}/JANUS_SMOKE.age"
 
 docker run -i --rm \
+  --user "${container_uid}:${container_gid}" \
   -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
   --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
