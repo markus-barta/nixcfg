@@ -211,6 +211,7 @@ in
   # so config == reality and a reinstall reproduces it. Plaintext in 1Password
   # vault "Familie Barta", entry "hsb9 - system login". SSH key auth unaffected;
   # PasswordAuthentication stays off. (Already live — no switch required.)
+  users.users.mba.initialHashedPassword = lib.mkForce null;
   users.users.mba.hashedPassword = "$y$j9T$Kd0VTmZ4AjlUNXFJhMU/N.$RHQ22ipCdJHqQt.qTQPkI0EHrDxZHB1ns2DRc5x5ikA";
 
   # ==========================================================================
