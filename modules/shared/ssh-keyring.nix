@@ -88,15 +88,6 @@
       "gerhard-rsa"
     ];
 
-    # Markus's BYTEPOETS work identity — `id_ed25519_bytepoets` private
-    # key lived on retired work-context macOS hosts; mbp0 is now private.
-    # Use this preset on hosts where
-    # Markus should be able to SSH IN from any work-context machine
-    # (cross-context inbound). Promote to personal hosts only as needed.
-    bytepoetsInbound = [
-      "bytepoets-mba-ed25519"
-    ];
-
     # ── Retired presets ──────────────────────────────────────────────────
     # `imac0Specific` dropped 2026-05-13 (INSPR-76 Phase 2) after the
     # `mba@miniserver` RSA-3072 audit passed clean. Keyring entry
@@ -190,14 +181,15 @@
     "gerhard-rsa" =
       "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAwgtI71qYnLJnq0PPs/PWR0O+0zvEQfT7QYaHbrPUdILnK5jqZTj6o02kyfce6JLk+xyYhI596T6DD9But943cKFY/cYG037EjlECq+LXdS7bRsb8wYdc8vjcyF21Ol6gSJdT3noAzkZnqnucnvd7D1lae2ZVw7km6GQvz5XQGS/LQ38JpPZ2JYb0ufT3Z1vgigq9GqhCU6C7NdUslJJJ1Lj4JfPqQTbS1ihZqMe3SQ+ctfmHNYniUkd5Potu7wLMG1OJDL13BXu/M5IihgerZ3QuPb2VPQkb37oxKfquMKveYL9bt4fmK+7+CRHJnzFB45HfG5PiTKsyjuPR5A1N3U5Os+9Wrav9YrqDHWjCaFI1EIY4HRM/kRufD+0ncvvXpsp4foS9DAhK5g3OObRlKgPEc4hkD7hC2KBXUt7Kyg6SLL89gD42qSXLxZlxaTD65UaqB28PuOt7+LtKEPhm1jfH65cKu5vGqUp3145hSJuHB4FuA0ieplfxO78psVM= gb@gerhard";
 
-    # ── Cross-context (work) ──────────────────────────────────────────────
-    # Markus's BYTEPOETS work identity. Public key of `id_ed25519_bytepoets`.
-    # Retained for cross-context inbound access via the `bytepoetsInbound`
-    # preset; promote to other personal hosts as the need arises. NOT in
-    # `personalHosts`
-    # because it's a deliberately separate trust dimension (work → personal),
-    # not the same-context-inbound that personalHosts captures.
-    "bytepoets-mba-ed25519" =
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGd32Z80au6Tz7qrBFcpcF5AvMY0/p3KraFlytZpjiER markus.barta@bytepoets.com";
+    # ── Cross-context (work) — RETIRED ────────────────────────────────────
+    # Markus's former BYTEPOETS work identity (`id_ed25519_bytepoets`).
+    # Revoked post-exit (BYTEPOETS departure June 2026; INSPR-241). Kept as a
+    # historical record per the "Retiring a key" doctrine above — NOT admitted;
+    # the `bytepoetsInbound` preset was removed in the same change.
+    "bytepoets-mba-ed25519" = {
+      key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGd32Z80au6Tz7qrBFcpcF5AvMY0/p3KraFlytZpjiER markus.barta@bytepoets.com";
+      status = "revoked";
+      note = "BYTEPOETS work identity; revoked post-exit (June 2026, INSPR-241). Declaration retained as historical record; bytepoetsInbound preset removed.";
+    };
   };
 }
