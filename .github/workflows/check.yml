@@ -41,6 +41,9 @@ jobs:
       - name: Enforce IR bridge destination and log boundaries
         run: tests/T25-ir-bridge-boundaries.sh
 
+      - name: Enforce funkeykid config and sound path boundaries
+        run: tests/T26-funkeykid-path-boundaries.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
