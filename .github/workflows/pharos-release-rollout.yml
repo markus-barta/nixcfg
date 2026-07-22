@@ -39,13 +39,13 @@ jobs:
           fi
 
       - name: Checkout nixcfg
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           token: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
           fetch-depth: 0
 
       - name: Checkout dsccfg
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: markus-barta/dsccfg
           ref: main
@@ -89,7 +89,7 @@ jobs:
           printf 'tag=%s\nversion=%s\n' "$tag" "$version" >>"$GITHUB_OUTPUT"
 
       - name: Authenticate to the private Pharos package
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: markus-barta
