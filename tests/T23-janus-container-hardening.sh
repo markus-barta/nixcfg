@@ -73,6 +73,15 @@ for expected in (
         raise SystemExit(f"staged engine missing {expected}")
 if "CMD-SHELL" in engine:
     raise SystemExit("staged engine healthcheck uses a shell")
+
+for name in (
+    "janus_engine_smoke_age",
+    "janus_engine_smoke_secrets",
+    "janus_engine_smoke_permits",
+):
+    volume = block(name)
+    if "external: true" not in volume:
+        raise SystemExit(f"staged smoke volume {name} must be externally owned")
 PY
 
-printf 'ok: Janus containers are non-root, read-only, capability-free, no-new-privileges; Rust is networkless and shell-free\n'
+printf 'ok: Janus containers are non-root, read-only, capability-free, no-new-privileges; Rust is networkless, shell-free, and uses externally owned smoke volumes\n'
