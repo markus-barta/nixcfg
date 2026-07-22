@@ -245,6 +245,12 @@ in
   # fixed pharos-host-settings workflow. Contents: raw token, no KEY= prefix.
   "csb1-pharos-nixcfg-dispatch-token.age".publicKeys = markus ++ csb1;
 
+  # Dedicated unencrypted-at-runtime SSH identity used only by csb1's Pharos
+  # provisioning executor. Contents: an OpenSSH Ed25519 private key. The public
+  # half is registered in the matching Hetzner project under the exact provider
+  # key name configured on csb1.
+  "csb1-pharos-provisioning-executor-ssh-key.age".publicKeys = markus ++ csb1;
+
   # Pharos beacon env files. Format: KEY=VALUE with PHAROS_TOKEN only.
   # Issued via pharosd /register, then consumed by pharos-beacon Docker env_file.
   "pharos-beacon-hsb0-env.age".publicKeys = markus ++ hsb0;
