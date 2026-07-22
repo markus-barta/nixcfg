@@ -210,6 +210,10 @@ class IRBridge:
         except ValueError:
             self.log.error("SONY_TV_IP is outside the reviewed TV allowlist — refusing to start")
             sys.exit(1)
+        self.http = requests.Session()
+        # Never inherit HTTP(S)_PROXY/NO_PROXY from ambient service state. The
+        # reviewed TV endpoint is the only permitted outbound destination.
+        self.http.trust_env = False
         if not CONFIG["sony_tv_psk"]:
             self.log.error("SONY_TV_PSK not set — refusing to start")
             sys.exit(1)
@@ -377,7 +381,13 @@ class IRBridge:
         )
         for attempt in range(CONFIG["retry_count"]):
             try:
-                r = requests.post(self.sony_ircc_url, headers=headers, data=body, timeout=5)
+                r = self.http.post(
+                    self.sony_ircc_url,
+                    headers=headers,
+                    data=body,
+                    timeout=5,
+                    allow_redirects=False,
+                )
                 if r.status_code == 200:
                     return True
                 self.log.warning("IRCC %s failed: HTTP %s", name, r.status_code)
