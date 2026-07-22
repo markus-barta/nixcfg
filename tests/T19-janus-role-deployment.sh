@@ -76,6 +76,25 @@ if "- JANUS_PRODUCT_MODE=self_hosted" not in engine_service:
 if "- JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev" not in engine_service:
     raise SystemExit("staged Janus engine lacks explicit unsafe development posture")
 
+for service, block in [("janus", go_service), ("janus-engine-staged", engine_service)]:
+    for requirement in (
+        "read_only: true",
+        'cap_drop: ["ALL"]',
+        'security_opt: ["no-new-privileges:true"]',
+    ):
+        if requirement not in block:
+            raise SystemExit(f"{service} lacks container hardening: {requirement}")
+if 'user: "65532:65532"' not in engine_service:
+    raise SystemExit("staged Janus engine lacks exact non-root uid/gid")
+if 'network_mode: "none"' not in engine_service:
+    raise SystemExit("staged Janus engine must remain networkless")
+if 'entrypoint: ["/usr/local/bin/janus-warden"]' not in engine_service:
+    raise SystemExit("staged Janus engine entrypoint must be absolute and shell-free")
+if 'test: ["CMD", "/usr/local/bin/janusd-use", "--help"]' not in engine_service:
+    raise SystemExit("staged Janus engine lacks an exec-form healthcheck")
+if "CMD-SHELL" in engine_service:
+    raise SystemExit("staged Janus engine healthcheck reintroduced a shell")
+
 for name, (script, launch_count) in renderers.items():
     if script.count("-e JANUS_PRODUCT_MODE=self_hosted") != launch_count:
         raise SystemExit(f"{name} lacks explicit self-hosted posture on each privileged launch")

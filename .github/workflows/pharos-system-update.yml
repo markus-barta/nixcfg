@@ -70,12 +70,14 @@ jobs:
 
       - name: Record safe outcome
         run: |
-          if [[ "${{ steps.prepare.outputs.changed }}" == "true" ]]; then
-            echo "proposal=open_for_review" >>"$GITHUB_STEP_SUMMARY"
-            echo "changed_inputs=${{ steps.prepare.outputs.changed_inputs }}" >>"$GITHUB_STEP_SUMMARY"
-            echo "validated_hosts=${{ steps.prepare.outputs.validated_hosts }}" >>"$GITHUB_STEP_SUMMARY"
-          else
-            echo "proposal=not_required" >>"$GITHUB_STEP_SUMMARY"
-            echo "validated_hosts=${{ steps.prepare.outputs.validated_hosts }}" >>"$GITHUB_STEP_SUMMARY"
-          fi
-          echo "deployment=not_performed" >>"$GITHUB_STEP_SUMMARY"
+          {
+            if [[ "${{ steps.prepare.outputs.changed }}" == "true" ]]; then
+              echo "proposal=open_for_review"
+              echo "changed_inputs=${{ steps.prepare.outputs.changed_inputs }}"
+              echo "validated_hosts=${{ steps.prepare.outputs.validated_hosts }}"
+            else
+              echo "proposal=not_required"
+              echo "validated_hosts=${{ steps.prepare.outputs.validated_hosts }}"
+            fi
+            echo "deployment=not_performed"
+          } >>"$GITHUB_STEP_SUMMARY"

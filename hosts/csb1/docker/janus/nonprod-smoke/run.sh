@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 COMPOSE_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 IMAGE=${JANUS_ENGINE_IMAGE:-}
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../runtime-image-policy.sh"
 SMOKE_ROOT=${JANUS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-engine-smoke"}
 VOLUME_PREFIX=${JANUS_SMOKE_VOLUME_PREFIX:-janus_engine_smoke}
 COMPOSE_PROJECT=${JANUS_SMOKE_COMPOSE_PROJECT:-janus_engine_smoke}
@@ -124,12 +126,9 @@ compose_config
 
 docker pull "$IMAGE" >/dev/null
 
-container_uid=$(docker run --rm --entrypoint id "$IMAGE" -u)
-container_gid=$(docker run --rm --entrypoint id "$IMAGE" -g)
-if [ "$container_uid" = "0" ]; then
-  printf 'janus smoke failed: image default user is root\n' >&2
-  exit 1
-fi
+janus_assert_static_runtime_image "$IMAGE"
+container_uid=$JANUS_RUNTIME_UID
+container_gid=$JANUS_RUNTIME_GID
 
 docker volume create "$AGE_VOLUME" >/dev/null
 docker volume create "$STORE_VOLUME" >/dev/null
@@ -141,7 +140,7 @@ docker run --rm --user 0 \
   -v "${AGE_VOLUME}:/run/janus/age" \
   -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
   -v "${PERMIT_VOLUME}:/run/janus/permits" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -s -- "$container_uid" "$container_gid" <<'EOF'
 set -eu
 uid=$1
@@ -161,7 +160,7 @@ EOF
 
 if ! docker run --rm \
   -v "${AGE_VOLUME}:/run/janus/age" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub'; then
   keygen_out=$(age-keygen 2>&1)
   recipient=$(printf '%s\n' "$keygen_out" | sed -n 's/^Public key: //p' | head -n1)
@@ -173,7 +172,7 @@ if ! docker run --rm \
   printf '%s\n%s\n' "$identity" "$recipient" |
     docker run -i --rm \
       -v "${AGE_VOLUME}:/run/janus/age" \
-      --entrypoint sh "$IMAGE" \
+      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
       -c '
         set -eu
         umask 077
@@ -189,14 +188,14 @@ fi
 recipient=$(
   docker run --rm \
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
-    --entrypoint cat "$IMAGE" /run/janus/age/recipient.pub |
+    --entrypoint cat "$JANUS_VOLUME_HELPER_IMAGE" /run/janus/age/recipient.pub |
     tr -d '\r\n'
 )
 printf '%s\n' "$recipient" >"${SMOKE_ROOT}/recipient.pub"
 
 docker run --rm \
   -v "${PERMIT_VOLUME}:/run/janus/permits" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'find /run/janus/permits -maxdepth 1 -type f \( -name "use_*.json" -o -name ".use_*.claim" \) -delete'
 
 printf 'janus-nonprod-smoke-%s' "$(date +%s%N)" |
@@ -204,7 +203,7 @@ printf 'janus-nonprod-smoke-%s' "$(date +%s%N)" |
 
 docker run -i --rm \
   -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
     set -eu
     umask 077
@@ -238,14 +237,17 @@ fi
 
 compose_run \
   --entrypoint janusd-use \
-  janus-engine-staged run --profile "${PROFILE_ID}" --permit "$permit" -- \
-  -c "printf 'smoke:%s' \"\$JANUS_SECRET_SMOKE\"" \
+  janus-engine-staged run --profile "${PROFILE_ID}" --permit "$permit" -- --help \
   >"${TMP_DIR}/run.out" 2>"${TMP_DIR}/run.err"
 
-if ! grep -qx 'smoke:\[REDACTED\]' "${TMP_DIR}/run.out"; then
-  printf 'janus smoke failed: expected redacted stdout\n' >&2
+if ! grep -q 'Permit-bound use commands:' "${TMP_DIR}/run.out"; then
+  printf 'janus smoke failed: expected the reviewed shell-free consumer output\n' >&2
   sed -n '1,40p' "${TMP_DIR}/run.out" >&2
   sed -n '1,80p' "${TMP_DIR}/run.err" >&2
+  exit 1
+fi
+if grep -q 'janus-nonprod-smoke-' "${TMP_DIR}/run.out" "${TMP_DIR}/run.err"; then
+  printf 'janus smoke failed: consumer output exposed fixture material\n' >&2
   exit 1
 fi
 
@@ -258,7 +260,7 @@ fi
 remaining_permits=$(
   docker run --rm \
     -v "${PERMIT_VOLUME}:/run/janus/permits:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'find /run/janus/permits -maxdepth 1 -type f | wc -l | tr -d " "'
 )
 if [ "$remaining_permits" != "0" ]; then
@@ -266,5 +268,5 @@ if [ "$remaining_permits" != "0" ]; then
   exit 1
 fi
 
-printf 'ok: janus non-prod permit smoke passed image=%s profile=%s user_uid=%s user_gid=%s value_returned=false output=redacted permit_consumed=true volumes=%s,%s,%s\n' \
+printf 'ok: janus non-prod permit smoke passed image=%s profile=%s user_uid=%s user_gid=%s value_returned=false output=shell_free_non_secret permit_consumed=true volumes=%s,%s,%s\n' \
   "$IMAGE" "$PROFILE_ID" "$container_uid" "$container_gid" "$AGE_VOLUME" "$STORE_VOLUME" "$PERMIT_VOLUME"
