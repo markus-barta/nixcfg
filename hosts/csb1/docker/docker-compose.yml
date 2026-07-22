@@ -777,10 +777,13 @@ volumes:
   ppm_data: {}
   janus_data: {}
   janus_engine_smoke_age:
+    external: true
     name: ${JANUS_SMOKE_AGE_VOLUME:-janus_engine_smoke_age}
   janus_engine_smoke_secrets:
+    external: true
     name: ${JANUS_SMOKE_STORE_VOLUME:-janus_engine_smoke_secrets}
   janus_engine_smoke_permits:
+    external: true
     name: ${JANUS_SMOKE_PERMIT_VOLUME:-janus_engine_smoke_permits}
   minio_data: {}
 
