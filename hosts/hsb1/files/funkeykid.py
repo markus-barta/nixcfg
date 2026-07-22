@@ -5,6 +5,7 @@ import evdev
 import subprocess
 import os
 import random
+import re
 import sys
 import time
 import threading
@@ -27,6 +28,9 @@ DEBOUNCE_SECONDS = 1.0  # 1 second debounce
 mqtt_client = None  # MQTT client for debug logging
 last_key_pressed = None  # Track last key for status updates
 current_volume = 100  # Volume percentage (0-100), paplay maps to 0-65536
+CONFIG_PATH = Path('/etc/funkeykid.env')
+SOUND_ROOT = Path('/var/lib/funkeykid-sounds')
+AUDIO_FILENAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]*\.(?:mp3|wav)')
 
 
 def get_battery_level(device):
@@ -124,11 +128,14 @@ def mqtt_publish_keyboard_info(device):
 def load_env(env_file):
     """Simple .env file parser"""
     config = {}
-    if not os.path.exists(env_file):
-        print(f"Error: Config file {env_file} not found")
+    reviewed_config_path(env_file)
+    # Keep the filesystem sink visibly constant for both humans and CodeQL.
+    config_path = CONFIG_PATH
+    if not config_path.is_file():
+        print(f"Error: Config file {config_path} not found")
         sys.exit(1)
 
-    with open(env_file, 'r') as f:
+    with config_path.open('r') as f:
         for line in f:
             line = line.strip()
             if line and not line.startswith('#') and '=' in line:
@@ -137,14 +144,53 @@ def load_env(env_file):
     return config
 
 
+def reviewed_config_path(candidate):
+    """Return the one NixOS-managed configuration path."""
+    if candidate != str(CONFIG_PATH):
+        raise ValueError('FUNKEYKID_CONFIG is outside the reviewed allowlist')
+    # Return the constant, never the environment-derived object.
+    return CONFIG_PATH
+
+
+def reviewed_sound_root(candidate):
+    """Return the fixed sound root when it is a real directory, not a link."""
+    if candidate != str(SOUND_ROOT):
+        raise ValueError('SOUND_DIR is outside the reviewed allowlist')
+    if SOUND_ROOT.is_symlink() or not SOUND_ROOT.is_dir():
+        raise ValueError('reviewed sound root must be a real directory')
+    return SOUND_ROOT.resolve(strict=True)
+
+
+def resolve_audio_file(sound_root, filename):
+    """Resolve one flat audio filename without permitting root escape."""
+    if not isinstance(filename, str) or not AUDIO_FILENAME.fullmatch(filename):
+        raise ValueError('sound mapping is not a reviewed flat audio filename')
+    root = Path(sound_root)
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError('sound root must be a real directory')
+    resolved_root = root.resolve(strict=True)
+    candidate = (resolved_root / filename).resolve(strict=True)
+    if candidate.parent != resolved_root or not candidate.is_file():
+        raise ValueError('sound mapping escapes the reviewed root')
+    return candidate
+
+
 def get_sound_files(sound_dir):
     """Get list of audio files in directory"""
-    if not os.path.exists(sound_dir):
-        print(f"Warning: Sound directory {sound_dir} not found")
+    try:
+        root = reviewed_sound_root(sound_dir)
+    except (FileNotFoundError, ValueError):
+        print(f"Warning: Reviewed sound directory {SOUND_ROOT} not found")
         return []
-    wav_files = list(Path(sound_dir).glob('*.wav'))
-    mp3_files = list(Path(sound_dir).glob('*.mp3'))
-    return wav_files + mp3_files
+    sound_files = []
+    for entry in root.iterdir():
+        if not AUDIO_FILENAME.fullmatch(entry.name):
+            continue
+        try:
+            sound_files.append(resolve_audio_file(root, entry.name))
+        except (FileNotFoundError, ValueError):
+            continue
+    return sorted(sound_files)
 
 
 def stop_all_sounds():
@@ -329,7 +375,11 @@ def main():
 
     # Load configuration
     env_file = os.getenv('FUNKEYKID_CONFIG', '/etc/funkeykid.env')
-    config = load_env(env_file)
+    try:
+        config = load_env(env_file)
+    except ValueError as error:
+        print(f"Error: {error}")
+        sys.exit(1)
 
     device_name_or_path = config.get('KEYBOARD_DEVICE')
     sound_dir = config.get('SOUND_DIR')
@@ -344,8 +394,13 @@ def main():
 
     # Get available sound files
     sound_files = get_sound_files(sound_dir)
+    try:
+        sound_root = reviewed_sound_root(sound_dir)
+    except (FileNotFoundError, ValueError) as error:
+        print(f"Error: {error}")
+        sys.exit(1)
     if not sound_files:
-        print(f"Warning: No audio files found in {sound_dir}")
+        print(f"Warning: No audio files found in {sound_root}")
 
     # Build key mapping from config
     key_mappings = {}
@@ -356,7 +411,7 @@ def main():
 
     print("Child Keyboard Fun starting...", flush=True)
     print(f"Target Device: {device_name_or_path}", flush=True)
-    print(f"Sound directory: {sound_dir}", flush=True)
+    print(f"Sound directory: {sound_root}", flush=True)
     print(f"Available sounds: {len(sound_files)}", flush=True)
 
     # Connect to MQTT for debug logging (non-blocking)
@@ -477,7 +532,11 @@ def main():
                             if action == 'toggle_babycam':
                                 toggle_babycam()
                             elif action.startswith('sound:'):
-                                sound_file = os.path.join(sound_dir, action[6:])
+                                try:
+                                    sound_file = resolve_audio_file(sound_root, action[6:])
+                                except (FileNotFoundError, ValueError) as error:
+                                    mqtt_log(f"Rejected sound mapping for {key_name}: {error}", "error")
+                                    continue
                                 play_sound(sound_file, device)
                             elif action == 'random':
                                 if sound_files:
@@ -508,4 +567,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
