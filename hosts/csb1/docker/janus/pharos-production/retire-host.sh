@@ -127,7 +127,7 @@ janus_pharos_prepare_runtime "$IMAGE" "$SCRIPT_DIR" "$VOLUME_PREFIX"
 
 docker run --rm \
   -v "${JANUS_PHAROS_AGE_VOLUME}:/run/janus/age:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub' ||
   fail runtime_identity_missing
 
@@ -196,7 +196,7 @@ fi
 # pointer has revoked the retired host.
 docker run --rm --user 0 \
   -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 root=/run/janus/env/pharos/beacon-token-hashes

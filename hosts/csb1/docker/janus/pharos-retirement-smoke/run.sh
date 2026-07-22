@@ -9,6 +9,8 @@ RENDER_SIDECARS="${SCRIPT_DIR}/../pharos-production/render-sidecars.sh"
 HOST=retirementsmoke
 VOLUME_PREFIX=${JANUS_PHAROS_RETIREMENT_SMOKE_VOLUME_PREFIX:-"janus_pharos_retirement_smoke_$(date +%s)_$$"}
 IMAGE=${JANUS_ENGINE_IMAGE:-}
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../runtime-image-policy.sh"
 
 for dependency in awk docker grep jq sha256sum; do
   command -v "$dependency" >/dev/null 2>&1 || {
@@ -60,7 +62,7 @@ trap cleanup EXIT
 provider_digest() {
   docker run --rm \
     -v "${STORE_VOLUME}:/var/lib/janus/secrets:ro" \
-    --entrypoint sha256sum "$IMAGE" \
+    --entrypoint sha256sum "$JANUS_VOLUME_HELPER_IMAGE" \
     "/var/lib/janus/secrets/pharos/${HOST}/PHAROS_BEACON_RETIREMENTSMOKE_TOKEN.age" |
     awk '{ print $1 }'
 }
@@ -92,7 +94,7 @@ grep -Eq '^janusd-admin pharos-beacon retire host=retirementsmoke state=complete
 
 docker run --rm \
   -v "${OUT_VOLUME}:/run/janus/env:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test ! -e /run/janus/env/pharos/beacons/retirementsmoke.env
       test ! -e /run/janus/env/pharos/beacon-token-hashes/retirementsmoke.json'
 
@@ -101,7 +103,7 @@ after_provider=$(provider_digest)
 
 docker run --rm \
   -v "${LIFECYCLE_VOLUME}:/var/lib/janus/lifecycle:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'set -eu
       test -f /var/lib/janus/lifecycle/pharos-retirements/retirementsmoke.json
       test "$(find /var/lib/janus/lifecycle/tombstones -maxdepth 1 -type f | wc -l | tr -d " ")" = 1'
@@ -142,7 +144,7 @@ grep -Fq 'sidecars rendered hosts=0 value_returned=false' "${TMP_DIR}/rerender.o
 
 docker run --rm \
   -v "${OUT_VOLUME}:/run/janus/env:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test ! -e /run/janus/env/pharos/beacons/retirementsmoke.env
       test ! -e /run/janus/env/pharos/beacon-token-hashes/retirementsmoke.json'
 [ "$before_provider" = "$(provider_digest)" ]

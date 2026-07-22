@@ -8,7 +8,7 @@
   ...
 }:
 let
-  hostdashHsb0 = inputs.hostdash.packages.${pkgs.system}.hsb0;
+  hostdashHsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0;
 
   # ============================================================================
   # DNS ALLOWLIST - Domains that bypass ad-blocking

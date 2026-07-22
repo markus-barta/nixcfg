@@ -12,7 +12,7 @@ let
   applySecretName = "PHAROS_APPLY_${hostUpper}";
   rollbackSecretName = "PHAROS_ROLLBACK_${hostUpper}";
   updateSecretName = "PHAROS_UPDATE_${hostUpper}";
-  janusPackage = inputs.janus.packages.${pkgs.system}.janus-engine;
+  janusPackage = inputs.janus.packages.${pkgs.stdenv.hostPlatform.system}.janus-engine;
   replace =
     file: from: to:
     builtins.replaceStrings from to (builtins.readFile file);

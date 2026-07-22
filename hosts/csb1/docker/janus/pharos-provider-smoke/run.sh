@@ -16,6 +16,8 @@ IMAGE=$(
     in_service && /^  [A-Za-z0-9_-]+:/ { exit }
   ' "${DOCKER_DIR}/docker-compose.yml"
 )
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../runtime-image-policy.sh"
 
 if [ "$(id -u)" != 0 ]; then
   printf 'run the isolated Pharos provider smoke as root on csb1\n' >&2
@@ -57,7 +59,7 @@ docker volume create "$SHARED_OUT_VOLUME" >/dev/null
 shared_before="${TMP_DIR}/shared-before"
 docker run --rm --network none --user 0 \
   -v "${SHARED_OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 install -d -o 999 -g 999 -m 0750 /run/janus/env/pharos
@@ -76,7 +78,7 @@ absent_mountpoint_out="${TMP_DIR}/absent-mountpoint.out"
 if docker run --rm --network none --user 10001:999 \
   -v "${SHARED_OUT_VOLUME}:/run/janus/env:ro" \
   -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'exit 0' >"$absent_mountpoint_out" 2>&1; then
   printf 'isolated Pharos provider smoke expected an absent nested mountpoint to fail\n' >&2
   exit 1
@@ -90,7 +92,7 @@ JANUS_PHAROS_CONTRACT_DIR="$CONTRACT_DIR" \
 
 docker run --rm --network none --user 0 \
   -v "${SHARED_OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'printf "%s" "unexpected" > /run/janus/env/pharos/providers/unexpected'
 mountpoint_failure_out="${TMP_DIR}/mountpoint-failure.out"
 if JANUS_PHAROS_CONTRACT_DIR="$CONTRACT_DIR" \
@@ -103,12 +105,12 @@ if JANUS_PHAROS_CONTRACT_DIR="$CONTRACT_DIR" \
 fi
 docker run --rm --network none --user 0 \
   -v "${SHARED_OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'rm /run/janus/env/pharos/providers/unexpected'
 
 docker run --rm --network none --user 0 \
   -v "${SHARED_OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 rmdir /run/janus/env/pharos/providers
@@ -125,7 +127,7 @@ if JANUS_PHAROS_CONTRACT_DIR="$CONTRACT_DIR" \
 fi
 docker run --rm --network none --user 0 \
   -v "${SHARED_OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 test -L /run/janus/env/pharos/providers
@@ -142,11 +144,12 @@ STORE_VOLUME="${VOLUME_PREFIX}_secrets"
 recipient=$(
   docker run --rm --network none \
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'test -s /run/janus/age/recipient.pub; cat /run/janus/age/recipient.pub'
 )
-container_uid=$(docker run --rm --network none --entrypoint id "$IMAGE" -u)
-container_gid=$(docker run --rm --network none --entrypoint id "$IMAGE" -g)
+janus_assert_static_runtime_image "$IMAGE"
+container_uid=$JANUS_RUNTIME_UID
+container_gid=$JANUS_RUNTIME_GID
 
 fixture="pharos-provider-smoke-fixture-${VOLUME_PREFIX}"
 fixture_sha=$(printf '%s' "$fixture" | sha256sum | awk '{ print $1 }')
@@ -157,7 +160,7 @@ printf '%s' "$fixture" | age -r "$recipient" -o "$encrypted_file"
 docker run --rm --network none --user 0 \
   -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
   -v "${encrypted_file}:/tmp/provider.age:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 uid=$1
@@ -201,7 +204,7 @@ fi
 
 docker run --rm --network none --user 0 \
   -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 expected_sha=$1
@@ -224,7 +227,7 @@ actual_sha=${actual_sha%% *}
 
 docker run --rm --network none --user 10001:999 \
   -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 expected_sha=$1
@@ -243,13 +246,13 @@ actual_sha=${actual_sha%% *}
 
 docker run --rm --network none --user 10002:10002 \
   -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test ! -r /run/janus/env/pharos/providers/hetzner-cloud.env'
 
 shared_after="${TMP_DIR}/shared-after"
 docker run --rm --network none --user 0 \
   -v "${SHARED_OUT_VOLUME}:/run/janus/env:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 stat -c "%a %u %g" /run/janus/env/pharos
@@ -264,7 +267,7 @@ fi
 
 docker run --rm --network none --user 0 \
   -v "${SHARED_OUT_VOLUME}:/run/janus/env:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 mountpoint=/run/janus/env/pharos/providers
@@ -283,7 +286,7 @@ fi
 docker run --rm --network none --user 10001:999 \
   -v "${SHARED_OUT_VOLUME}:/run/janus/env:ro" \
   -v "${PROVIDER_OUT_VOLUME}:/run/janus/env/pharos/providers:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test -r /run/janus/env/pharos/providers/hetzner-cloud.env'
 
 fixture=

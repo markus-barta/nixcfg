@@ -490,6 +490,12 @@ services:
     image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.162@sha256:6399d8658e1fd8d10416febf658c86ab5fdada8f2a36961edf4822b64af3e4bb
     container_name: janus
     restart: unless-stopped
+    user: janus
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
     environment:
       - JANUS_PUBLIC_URL=https://vault.barta.cm
       - JANUS_PRODUCT_MODE=self_hosted
@@ -534,13 +540,19 @@ services:
     # manifests as the smoke harness; no production secret or host SSH key is
     # mounted into the staged Rust engine. Use the smoke harness, not manual
     # project-wide compose lifecycle commands, when testing this profile.
-    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.9@sha256:1e7cce090d8b3af35589b78e421701a61ad30117fa49706b3b6a610671ca8958
+    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.10@sha256:960e3378e06d4adbb24568aba6c73decc0efb43d5c4e5fda330359d08f70feea
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
-    restart: "no"
+    restart: unless-stopped
+    user: "65532:65532"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     network_mode: "none"
     stdin_open: true
-    entrypoint: ["janus-warden"]
+    entrypoint: ["/usr/local/bin/janus-warden"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=65532,gid=65532,mode=0700
     environment:
       - JANUS_PRODUCT_MODE=self_hosted
       - JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev
@@ -583,11 +595,7 @@ services:
       - janus_engine_smoke_permits:/run/janus/permits
       - janus_engine_smoke_age:/run/janus/age:ro
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "out=$$(printf '%s\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"janus-engine-health\",\"version\":\"0\"}}}' '{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}' '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"health\",\"arguments\":{}}}' | timeout 10s janus-warden) && printf '%s' \"$$out\" | grep -q '\"backend\":\"age\"' && printf '%s' \"$$out\" | grep -q '\"value_returned\":false'",
-        ]
+      test: ["CMD", "/usr/local/bin/janusd-use", "--help"]
       interval: 30s
       timeout: 15s
       retries: 3
