@@ -656,10 +656,11 @@ services:
       - PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1
       - PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm
       - PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/janus/env/pharos/providers/hetzner-cloud.env
-      # PHAROS-146 preflight: keep paid provider mutation disabled until the
-      # attended review has verified the exact project, resources, and price.
+      # PHAROS-146 activation: the provider capability is enabled only after
+      # the authenticated catalog preflight. Every create and cleanup remains
+      # behind Pharos' durable exact-plan and fresh attended-confirmation gates.
       - PHAROS_HCLOUD_PROJECT_LABEL=Pharos production
-      - PHAROS_HCLOUD_EXECUTE=0
+      - PHAROS_HCLOUD_EXECUTE=1
       # csb1 is the trusted executor for other hosts; it cannot retire itself.
       - PHAROS_RETIREMENT_OWNER_HOST=csb1
       - PHAROS_REQUIRE_BEACON_TOKEN=1

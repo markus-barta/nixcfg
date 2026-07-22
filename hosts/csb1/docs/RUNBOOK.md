@@ -298,7 +298,13 @@ Expected value-free evidence includes `value_returned=false`,
 `PHAROS_HCLOUD_EXECUTE=0` while using the authenticated **Test connection**
 action. The one-time `pharosd` recreation installs the isolated nested volume
 mount; later credential re-renders are read per operation and need no restart.
-Enabling paid execution is a separate reviewed and attended change.
+Enabling paid execution is a separate reviewed and attended change. After that
+preflight has passed, set `PHAROS_HCLOUD_EXECUTE=1` through review and recreate
+only `pharosd`. This flag unlocks the capability; it does not itself contact a
+paid mutation endpoint. Pharos still requires a durable job, an exact current
+provider/region/type/price plan, a fresh attended create confirmation, and a
+separate explicit cleanup confirmation. To emergency-disable provider mutation,
+review a change back to `PHAROS_HCLOUD_EXECUTE=0` and recreate only `pharosd`.
 
 To validate Pharos credential retirement without touching production material:
 
