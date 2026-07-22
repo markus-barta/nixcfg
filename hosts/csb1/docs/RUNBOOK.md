@@ -174,7 +174,7 @@ just janus-engine-smoke
 Expected evidence:
 
 ```text
-value_returned=false output=redacted permit_consumed=true
+value_returned=false output=suppressed permit_consumed=true
 ```
 
 `just janus-engine-pin-check` is read-only and also runs in GitHub Actions on a
@@ -233,12 +233,12 @@ just janus-engine-assurance
 This primes the non-prod smoke state once, keeps `janus-engine-staged` running,
 then runs the current value-free boundary matrix:
 
-| Boundary                        | Evidence                                                                                                         |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Permit-bound positive execution | `janus-engine-smoke` proves one reviewed `request_use` + `janusd-use run` path, redacted output, consumed permit |
-| Local MCP client path           | `mcp-exec-smoke.sh` proves `initialize`, exact `tools/list`, `health`, and `list_secrets` stay value-free        |
-| MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied             |
-| Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail     |
+| Boundary                        | Evidence                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Permit-bound positive execution | `janus-engine-smoke` proves one reviewed `request_use` + `janusd-use run` path, suppressed output, consumed permit |
+| Local MCP client path           | `mcp-exec-smoke.sh` proves `initialize`, exact `tools/list`, `health`, and `list_secrets` stay value-free          |
+| MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied               |
+| Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail       |
 
 ### Pharos Janus Generation Cutover
 
