@@ -55,6 +55,7 @@ for expected in (
     'network_mode: "none"',
     'entrypoint: ["/usr/local/bin/janus-warden"]',
     'test: ["CMD", "/usr/local/bin/janusd-use", "--help"]',
+    "JANUS_LIFECYCLE_EVIDENCE_DIR=/var/lib/janus/secrets/.lifecycle-evidence",
 ):
     if expected not in engine:
         raise SystemExit(f"staged engine missing {expected}")

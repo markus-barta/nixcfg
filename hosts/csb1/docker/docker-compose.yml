@@ -581,6 +581,7 @@ services:
       - JANUS_AGE_PROFILE=csb1
       - JANUS_WARDEN_AGE_STORE_DIR=/var/lib/janus/secrets
       - JANUS_AGE_STORE_DIR=/var/lib/janus/secrets
+      - JANUS_LIFECYCLE_EVIDENCE_DIR=/var/lib/janus/secrets/.lifecycle-evidence
       - JANUS_WARDEN_AGE_IDENTITY_FILE=/run/janus/age/identity
       - JANUS_AGE_IDENTITY_FILE=/run/janus/age/identity
       - JANUS_WARDEN_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub
