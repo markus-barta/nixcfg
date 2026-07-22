@@ -483,9 +483,8 @@ in
   #
   # Edit (re-create) workflow: agenix -e secrets/agents/host/<host>/<name>.age
 
-  # m5 (mbp0)
+  # m5 (mbp0) — personal only; BYTEPOETS push-key removed post-exit (INSPR-241).
   "agents/host/mbp0/m5-personal-userkey.age".publicKeys = markus;
-  "agents/host/mbp0/m5-bytepoets-userkey.age".publicKeys = markus;
 
   # mbp2607 (NIX-215, 2026-07-03) — personal only; no BYTEPOETS key on this
   # host by design (post-exit fresh start).
