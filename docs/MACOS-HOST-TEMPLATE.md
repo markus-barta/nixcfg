@@ -96,23 +96,21 @@ inspr.secrets.agents.enable        = true;
 inspr.paimos-cli.enable            = true;
 inspr.git-identity.enable          = true;
 inspr.git.atelier.personal.enable  = true;
-inspr.git.atelier.bytepoets.enable = true;  # only on hosts that touch BYTEPOETS work
 inspr.ssh.authorized = {
   enable = true;
-  trust  = config._inspr.trustPresets.personalHosts
-        ++ config._inspr.trustPresets.bytepoetsInbound;  # adjust per host
+  trust  = config._inspr.trustPresets.personalHosts;  # adjust per host
 };
 ```
 
 Module surface (defined in [inspr-modules](https://github.com/markus-barta/inspr-modules)):
 
-| Module                                   | What it does                                                                                            |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `inspr.secrets.agents`                   | Decrypts agenix `.age` files at HM activation → `~/.inspr/secrets/agents/*.env` (mode 0400)             |
-| `inspr.paimos-cli`                       | Writes non-secret PPM instance routing; workstation authentication is interactive via the OS keyring    |
-| `inspr.ssh.authorized`                   | Declarative `~/.ssh/authorized_keys` from trust presets (personalHosts, bytepoetsInbound, etc.)         |
-| `inspr.git.atelier.{personal,bytepoets}` | Federated git auth via per-host SSH userkeys (INSPR-170 Strategy B)                                     |
-| `inspr.git-identity`                     | Context-aware `[user]` and `includeIf` git config (personal default, BYTEPOETS override on org remotes) |
+| Module                        | What it does                                                                                              |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `inspr.secrets.agents`        | Decrypts agenix `.age` files at HM activation → `~/.inspr/secrets/agents/*.env` (mode 0400)               |
+| `inspr.paimos-cli`            | Writes non-secret PPM instance routing; workstation authentication is interactive via the OS keyring      |
+| `inspr.ssh.authorized`        | Declarative `~/.ssh/authorized_keys` from trust presets (personalHosts, etc.)                             |
+| `inspr.git.atelier.<context>` | Federated git auth via per-host SSH userkeys (INSPR-170 Strategy B)                                       |
+| `inspr.git-identity`          | Context-aware `[user]` and `includeIf` git config (personal default, per-context override on org remotes) |
 
 ---
 
@@ -204,7 +202,7 @@ Brief description of this machine.
 ## Setup History
 
 - YYYY-MM-DD — initial home-manager apply
-- YYYY-MM-DD — added to atelier (personal + BYTEPOETS as applicable)
+- YYYY-MM-DD — added to atelier (per context as applicable)
 - YYYY-MM-DD — admitted as agenix recipient (if applicable)
 ```
 

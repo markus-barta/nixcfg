@@ -1046,7 +1046,6 @@ _oc-container host:
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
             *) echo "openclaw-gateway" ;; # fallback
         esac
     fi
@@ -1070,12 +1069,8 @@ _oc-compose-dir host:
     fi
     case "$_target" in
         hsb0) echo "~/Code/nixcfg/hosts/hsb0/docker" ;;
-        # msbp lives in BYTEPOETS/bpnixcfg since 2026-05-02 (INSPR-24 Stage 2).
-        # On the host, the clone is at ~/Code/bpnixcfg (no BYTEPOETS/ prefix).
-        # An OLD stale clone at ~/Code/nixcfg/hosts/miniserver-bp still exists
-        # on msbp (frozen at the last commit before removal) — do NOT route
-        # there or `oc-rebuild` will silently use stale config.
-        msbp) echo "~/Code/bpnixcfg/hosts/miniserver-bp/docker" ;;
+        # msbp routing removed 2026-07-23: host left this repo 2026-05-02
+        # (INSPR-24) and the external context ended with the June 2026 exit.
         *) echo "~/Code/nixcfg/hosts/hsb0/docker" ;;
     esac
 
