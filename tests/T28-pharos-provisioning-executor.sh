@@ -12,11 +12,13 @@ trap 'report_failure "$LINENO"' ERR
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 module="$repo_root/modules/pharos-provisioning-executor/default.nix"
 executor_source="$repo_root/modules/pharos-provisioning-executor/executor.sh"
+public_key_source="$repo_root/modules/pharos-provisioning-executor/public-key.sh"
 janus_source="$repo_root/modules/pharos-provisioning-executor/janus-credential.sh"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
 
 bash -n "$executor_source"
+bash -n "$public_key_source"
 bash -n "$janus_source"
 nix-instantiate --parse "$module" >/dev/null
 grep -Fq 'runtimeDir = "/run/pharos-provisioning-executor";' "$module"
@@ -62,6 +64,7 @@ grep -Fq -- '--copy-host-keys' "$executor_source"
 grep -Fq -- '--extra-files "$extra_files"' "$executor_source"
 grep -Fq -- '--ssh-option StrictHostKeyChecking=yes' "$executor_source"
 grep -Fq 'host_key_fingerprint' "$executor_source"
+grep -Fq "source '@PUBLIC_KEY_HELPER@'" "$executor_source"
 # shellcheck disable=SC2016
 grep -Fq 'and .ssh_key_ref == $ssh_key_ref' "$executor_source"
 grep -Fq 'flock -n 9' "$janus_source"
@@ -84,6 +87,29 @@ cleanup() {
   rm -r "$fixture_root"
 }
 trap cleanup EXIT
+
+# shellcheck disable=SC1090,SC1091
+source "$public_key_source"
+commented_public_key="$fixture_root/commented.pub"
+canonical_public_key="$fixture_root/canonical.pub"
+printf 'ssh-ed25519 QUJDRA== csb1 provisioning executor\n' >"$commented_public_key"
+canonicalize_ed25519_public_key "$commented_public_key" "$canonical_public_key"
+grep -Fxq 'ssh-ed25519 QUJDRA==' "$canonical_public_key"
+printf 'ssh-rsa QUJDRA== legacy key\n' >"$commented_public_key"
+if canonicalize_ed25519_public_key "$commented_public_key" "$canonical_public_key"; then
+  printf 'public-key canonicalizer accepted a non-ED25519 key\n' >&2
+  exit 1
+fi
+printf 'ssh-ed25519 invalid_payload executor\n' >"$commented_public_key"
+if canonicalize_ed25519_public_key "$commented_public_key" "$canonical_public_key"; then
+  printf 'public-key canonicalizer accepted malformed key material\n' >&2
+  exit 1
+fi
+printf 'ssh-ed25519 QUJDRA== executor\nssh-ed25519 QUJDRA== duplicate\n' >"$commented_public_key"
+if canonicalize_ed25519_public_key "$commented_public_key" "$canonical_public_key"; then
+  printf 'public-key canonicalizer accepted multiple keys\n' >&2
+  exit 1
+fi
 
 fake_bin="$fixture_root/bin"
 fake_repo="$fixture_root/repo"
@@ -197,6 +223,7 @@ sed \
   -e 's|@IDENTITY_FILE@|/run/fixture-identity|g' \
   -e 's|@SSH_KEY_REF@|pharos-executor|g' \
   -e "s|@BOOTSTRAP_TEMPLATE@|$fake_template|g" \
+  -e "s|@PUBLIC_KEY_HELPER@|$public_key_source|g" \
   -e "s|@JANUS_HELPER@|$fake_janus|g" \
   "$executor_source" >"$agent"
 chmod +x "$agent"
