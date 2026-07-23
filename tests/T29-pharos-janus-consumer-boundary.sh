@@ -96,6 +96,11 @@ for renderer_name, renderer in [
     if "janus_pharos_load_consumer_identity" not in renderer:
         raise SystemExit(f"{renderer_name} does not use the declared Pharos identity")
 
+if "janus_pharos_prepare_age_identity" not in nonprod_render:
+    raise SystemExit("non-production smoke does not use the shared identity owner contract")
+if "keygen_out=" in nonprod_render:
+    raise SystemExit("non-production smoke retains a duplicate root-owned identity generator")
+
 compose_required = [
     '    user: "10001:999"',
     "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes",

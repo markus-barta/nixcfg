@@ -145,32 +145,8 @@ chmod 0700 \
 find /run/janus/env/pharos/beacon-token-hashes -maxdepth 1 -type f -exec chmod 0600 {} +
 ' sh "$container_uid" "$container_gid"
 
-if ! docker run --rm \
-  -v "${AGE_VOLUME}:/run/janus/age" \
-  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-  -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub'; then
-  keygen_out=$(age-keygen 2>&1)
-  recipient=$(printf '%s\n' "$keygen_out" | sed -n 's/^Public key: //p' | head -n1)
-  identity=$(printf '%s\n' "$keygen_out" | sed -n 's/.*\(AGE-SECRET-KEY-[A-Z0-9]*\).*/\1/p' | head -n1)
-  if [ -z "$recipient" ] || [ -z "$identity" ]; then
-    printf 'failed to generate smoke age identity\n' >&2
-    exit 1
-  fi
-  printf '%s\n%s\n' "$identity" "$recipient" |
-    docker run -i --rm \
-      -v "${AGE_VOLUME}:/run/janus/age" \
-      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-      -c '
-        set -eu
-        umask 077
-        IFS= read -r identity
-        IFS= read -r recipient
-        printf "%s\n" "$identity" >/run/janus/age/identity
-        printf "%s\n" "$recipient" >/run/janus/age/recipient.pub
-        chmod 0400 /run/janus/age/identity
-        chmod 0444 /run/janus/age/recipient.pub
-      '
-fi
+janus_pharos_prepare_age_identity \
+  "$IMAGE" "$AGE_VOLUME" "$container_uid" "$container_gid"
 
 recipient=$(
   docker run --rm \
