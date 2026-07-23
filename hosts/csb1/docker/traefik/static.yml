@@ -39,6 +39,12 @@ certificatesResolvers:
       dnsChallenge:
         provider: cloudflare
         delayBeforeCheck: 0
+  public-http:
+    acme:
+      email: markus@barta.com
+      storage: /etc/traefik/acme/acme-http.json
+      httpChallenge:
+        entryPoint: web
 
 api:
   dashboard: false
