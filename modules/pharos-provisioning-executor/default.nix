@@ -77,7 +77,7 @@ let
       pkgs.openssh
       pkgs.python3
       pkgs.util-linux
-      inputs.nixos-anywhere.packages.${pkgs.system}.default
+      inputs.nixos-anywhere.packages.${pkgs.stdenv.hostPlatform.system}.default
       janusCredential
     ];
     text =
@@ -143,7 +143,7 @@ in
     };
     beaconImage = lib.mkOption {
       type = lib.types.str;
-      default = "ghcr.io/markus-barta/pharos/pharosd:0.1.57@sha256:5d3f66b29bfb0cbe36471bdfa6d3adb650d0cd07c67e8533ac538332eaff58fa";
+      default = "ghcr.io/markus-barta/pharos/pharosd:0.1.58@sha256:8eb6bdecddce5951c696e35afacdf5acd70acde0ff08e947e413dbc2e4474666";
       description = "Immutable Pharos image used for the managed host beacon.";
     };
     pollSeconds = lib.mkOption {

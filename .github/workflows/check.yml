@@ -44,6 +44,9 @@ jobs:
       - name: Enforce funkeykid config and sound path boundaries
         run: tests/T26-funkeykid-path-boundaries.sh
 
+      - name: Verify the Pharos provisioning executor boundary
+        run: tests/T27-pharos-provisioning-executor.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
