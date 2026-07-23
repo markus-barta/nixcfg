@@ -503,6 +503,7 @@ services:
       - JANUS_CATALOG_FILE=/catalog/agenix-catalog.json
       - JANUS_REQUIRE_AUTH=true
       - JANUS_UNSAFE_BOOTSTRAP_OWNER=false
+      - JANUS_VIEWER_GROUPS=janus:viewer
       - JANUS_OWNER_GROUPS=janus:admin
       - JANUS_APPROVER_GROUPS=janus:approver
       - JANUS_AUDITOR_GROUPS=janus:auditor
@@ -512,6 +513,7 @@ services:
       - JANUS_SERVICE_ADMIN_GROUPS=janus:service_admin
       - JANUS_WORKLOAD_ADMIN_GROUPS=janus:workload_admin
       - OIDC_ISSUER=https://auth.inspr.at
+      - OIDC_PROJECT_ID=375139131258306571
     env_file:
       - /run/agenix/csb1-janus-env
     volumes:
