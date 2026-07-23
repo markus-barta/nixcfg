@@ -1,8 +1,8 @@
 # ─────────────────────────────────────────────────────────────────────────
 # Reusable devenv snippet: declarative headless-browser QA (Playwright)
-# Origin: nixcfg NIX-288. Copy this dir (devenv.nix + devenv.yaml + .envrc +
-# screenshot.mjs + package.json) into any repo whose agents need headless
-# browser screenshots / Playwright smoke tests across macOS AND Linux shells.
+# Origin: nixcfg NIX-288. Copy this entire directory into any repo whose agents
+# need headless browser screenshots / Playwright smoke tests across macOS AND
+# Linux shells.
 #
 # WHY THIS SHAPE: nixpkgs#chromium is Linux-only — it fails to *evaluate* on
 # aarch64-darwin. So on macOS we drive native Google Chrome (installed
@@ -23,6 +23,10 @@
 # APPLY:  direnv allow            # loads this devenv
 #         npm install            # installs playwright JS API (no browser dl)
 #         node screenshot.mjs https://www.hausv.org/ out.png
+#
+# TARGET POLICY: screenshot.mjs accepts only http(s) origins listed in the
+# source-controlled target-policy.mjs allowlist. Update that allowlist when
+# copying the template for another service; never make it a CLI/env override.
 # ─────────────────────────────────────────────────────────────────────────
 { pkgs, lib, ... }:
 
