@@ -666,13 +666,13 @@ services:
       - PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1
       - PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm
       - PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env
-      # PHAROS-146 preflight: keep paid provider mutation disabled until the
-      # attended review has verified the exact project, resources, and price.
+      # Execution is available only through the attended plan/review/confirm
+      # flow. No provider mutation occurs from connection tests or plan review.
       - PHAROS_HCLOUD_PROJECT_LABEL=Pharos production
-      - PHAROS_HCLOUD_EXECUTE=0
-      # Managed creation stays unavailable until the reviewed csb1 executor
-      # identity is installed and its exact public key is selected in Hetzner.
-      - PHAROS_PROVISIONING_EXECUTOR_READY=0
+      - PHAROS_HCLOUD_EXECUTE=1
+      # The dedicated root-only csb1 identity and its exact selected public key
+      # were verified before activating the managed provisioning assistant.
+      - PHAROS_PROVISIONING_EXECUTOR_READY=1
       - PHAROS_PROVISIONING_OWNER_HOST=csb1
       - PHAROS_PROVISIONING_SCOPE_ORGANIZATION=inspr
       - PHAROS_PROVISIONING_SCOPE_PROJECT=pharos

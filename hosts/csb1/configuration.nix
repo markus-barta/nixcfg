@@ -52,11 +52,12 @@ in
   # removal proposal is deployed. The executor rejects csb1 as its own target.
   inspr.pharosRetirementExecutor.enable = true;
 
-  # Managed paid provisioning remains fail-closed until a dedicated csb1
-  # executor key is present in both agenix and the selected Hetzner project.
-  # The module and its full bootstrap contract are deployed before activation.
+  # Managed provisioning uses the dedicated csb1 executor identity. Its public
+  # key is registered and selected in the attended Hetzner project; the private
+  # key remains root-only in agenix. Paid creation still requires a separate
+  # attended review and confirmation in Pharos.
   inspr.pharosProvisioningExecutor = {
-    enable = false;
+    enable = true;
     sshKeyRef = "pharos-csb1-executor";
     identityFile = config.age.secrets.csb1-pharos-provisioning-executor-ssh-key.path;
   };
