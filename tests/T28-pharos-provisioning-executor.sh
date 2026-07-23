@@ -21,8 +21,40 @@ bash -n "$janus_source"
 nix-instantiate --parse "$module" >/dev/null
 grep -Fq 'runtimeDir = "/run/pharos-provisioning-executor";' "$module"
 grep -Fq '../../modules/pharos-provisioning-executor' "$host_config"
-grep -Fq 'enable = false;' "$host_config"
-grep -Fq 'PHAROS_PROVISIONING_EXECUTOR_READY=0' "$compose"
+python3 - "$host_config" "$compose" <<'PY'
+import pathlib
+import re
+import sys
+
+host_config = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+compose = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+match = re.search(
+    r"inspr\.pharosProvisioningExecutor\s*=\s*\{(?P<body>.*?)^\s*\};",
+    host_config,
+    flags=re.MULTILINE | re.DOTALL,
+)
+if match is None:
+    raise SystemExit("csb1 provisioning executor block is missing")
+body = match.group("body")
+if not re.search(r"^\s*enable\s*=\s*true;\s*$", body, flags=re.MULTILINE):
+    raise SystemExit("csb1 provisioning executor must be enabled")
+if re.search(r"^\s*enable\s*=\s*false;\s*$", body, flags=re.MULTILINE):
+    raise SystemExit("csb1 provisioning executor retains the disabled preflight gate")
+
+required = (
+    "PHAROS_HCLOUD_EXECUTE=1",
+    "PHAROS_PROVISIONING_EXECUTOR_READY=1",
+)
+for setting in required:
+    if setting not in compose:
+        raise SystemExit(f"activated compose setting is missing: {setting}")
+for setting in (
+    "PHAROS_HCLOUD_EXECUTE=0",
+    "PHAROS_PROVISIONING_EXECUTOR_READY=0",
+):
+    if setting in compose:
+        raise SystemExit(f"disabled preflight setting remains: {setting}")
+PY
 grep -Fq 'PHAROS_PROVISIONING_OWNER_HOST=csb1' "$compose"
 grep -Fq 'unset PHAROS_TOKEN' "$executor_source"
 grep -Fq -- '--copy-host-keys' "$executor_source"
