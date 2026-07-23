@@ -634,7 +634,7 @@ services:
   pharosd:
     # Keep the readable release tag, but bind it to the verified immutable
     # linux/amd64 manifest used by both server and bundled beacon.
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.57@sha256:5d3f66b29bfb0cbe36471bdfa6d3adb650d0cd07c67e8533ac538332eaff58fa
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.58@sha256:8eb6bdecddce5951c696e35afacdf5acd70acde0ff08e947e413dbc2e4474666
     container_name: pharosd
     restart: unless-stopped
     init: true
@@ -669,6 +669,14 @@ services:
       # attended review has verified the exact project, resources, and price.
       - PHAROS_HCLOUD_PROJECT_LABEL=Pharos production
       - PHAROS_HCLOUD_EXECUTE=0
+      # Managed creation stays unavailable until the reviewed csb1 executor
+      # identity is installed and its exact public key is selected in Hetzner.
+      - PHAROS_PROVISIONING_EXECUTOR_READY=0
+      - PHAROS_PROVISIONING_OWNER_HOST=csb1
+      - PHAROS_PROVISIONING_SCOPE_ORGANIZATION=inspr
+      - PHAROS_PROVISIONING_SCOPE_PROJECT=pharos
+      - PHAROS_PROVISIONING_SCOPE_REPOSITORY=nixcfg
+      - PHAROS_PROVISIONING_SCOPE_ENVIRONMENT=production
       # csb1 is the trusted executor for other hosts; it cannot retire itself.
       - PHAROS_RETIREMENT_OWNER_HOST=csb1
       - PHAROS_REQUIRE_BEACON_TOKEN=1
@@ -716,7 +724,7 @@ services:
   # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
   # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.57@sha256:5d3f66b29bfb0cbe36471bdfa6d3adb650d0cd07c67e8533ac538332eaff58fa
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.58@sha256:8eb6bdecddce5951c696e35afacdf5acd70acde0ff08e947e413dbc2e4474666
     container_name: pharos-beacon
     restart: unless-stopped
     init: true

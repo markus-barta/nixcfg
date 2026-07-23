@@ -116,10 +116,10 @@ if [ -z "$IMAGE" ]; then
 fi
 [[ -n "$IMAGE" ]] || fail missing_engine_image
 
-LOCK_ROOT=${JANUS_PHAROS_LOCK_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-pharos-retirement"}
+LOCK_ROOT=${JANUS_PHAROS_LOCK_ROOT:-/run/lock}
 mkdir -p "$LOCK_ROOT"
 chmod 0700 "$LOCK_ROOT"
-exec 9>"${LOCK_ROOT}/${VOLUME_PREFIX}.lock"
+exec 9>"${LOCK_ROOT}/janus-pharos-production.lock"
 flock -n 9 || fail retirement_in_progress
 
 docker pull "$IMAGE" >/dev/null

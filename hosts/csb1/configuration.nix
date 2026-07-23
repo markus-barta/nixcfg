@@ -24,6 +24,7 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
+    ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
@@ -50,6 +51,15 @@ in
   # csb1 executes credential retirement for other hosts after their reviewed
   # removal proposal is deployed. The executor rejects csb1 as its own target.
   inspr.pharosRetirementExecutor.enable = true;
+
+  # Managed paid provisioning remains fail-closed until a dedicated csb1
+  # executor key is present in both agenix and the selected Hetzner project.
+  # The module and its full bootstrap contract are deployed before activation.
+  inspr.pharosProvisioningExecutor = {
+    enable = false;
+    sshKeyRef = "pharos-csb1-executor";
+    identityFile = config.age.secrets.csb1-pharos-provisioning-executor-ssh-key.path;
+  };
 
   # ============================================================================
   # BOOTLOADER CONFIGURATION
@@ -167,6 +177,9 @@ in
 
       # Create mutable files (Docker writes to these)
       "f ${dockerRoot}/traefik/acme.json 0600 root root -"
+      # One shared lock serializes every writer to the production Janus store,
+      # metadata, beacon outputs, and atomic token-hash generation.
+      "f /run/lock/janus-pharos-production.lock 0660 root users -"
 
       # Legacy compatibility: keep /home/mba/docker as primary location for now
       # Will migrate to /var/lib/csb1-docker in future task
@@ -440,6 +453,15 @@ in
     path = "/run/agenix/csb1-pharos-nixcfg-dispatch-token";
     owner = "10001";
     group = "999";
+    mode = "0400";
+  };
+
+  # Dedicated private key for the root-only managed provisioning executor.
+  age.secrets.csb1-pharos-provisioning-executor-ssh-key = {
+    file = ../../secrets/csb1-pharos-provisioning-executor-ssh-key.age;
+    path = "/run/agenix/csb1-pharos-provisioning-executor-ssh-key";
+    owner = "root";
+    group = "root";
     mode = "0400";
   };
 

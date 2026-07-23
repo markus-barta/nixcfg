@@ -17,6 +17,11 @@
     catppuccin.follows = "nixcfg/catppuccin";
     disko.url = "github:nix-community/disko";
     disko.inputs.nixpkgs.follows = "nixpkgs";
+    nixos-anywhere = {
+      url = "github:nix-community/nixos-anywhere";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.disko.follows = "disko";
+    };
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
     plasma-manager = {
       url = "github:nix-community/plasma-manager";

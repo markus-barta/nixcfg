@@ -21,6 +21,7 @@ SCOPE_REPOSITORY=${JANUS_PHAROS_SCOPE_REPOSITORY:-nixcfg}
 SCOPE_ENVIRONMENT=${JANUS_PHAROS_SCOPE_ENVIRONMENT:-production}
 HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9"}
 PREPARE_ONLY=${JANUS_PHAROS_PREPARE_ONLY:-0}
+LOCK_FILE=${JANUS_PHAROS_LOCK_FILE:-/run/lock/janus-pharos-production.lock}
 
 # shellcheck disable=SC1091
 source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
@@ -48,6 +49,7 @@ validate_identifier() {
 require_command age-keygen
 require_command awk
 require_command docker
+require_command flock
 require_command jq
 require_command sed
 require_command tr
@@ -57,6 +59,13 @@ validate_identifier JANUS_PHAROS_SCOPE_ORGANIZATION "$SCOPE_ORGANIZATION"
 validate_identifier JANUS_PHAROS_SCOPE_PROJECT "$SCOPE_PROJECT"
 validate_identifier JANUS_PHAROS_SCOPE_REPOSITORY "$SCOPE_REPOSITORY"
 validate_identifier JANUS_PHAROS_SCOPE_ENVIRONMENT "$SCOPE_ENVIRONMENT"
+
+mkdir -p "$(dirname "$LOCK_FILE")"
+exec 9>"$LOCK_FILE"
+flock -n 9 || {
+  printf 'janus pharos production render deferred: another production lifecycle operation is active\n' >&2
+  exit 1
+}
 
 jq -e '
   ((keys | sort) == ["retirements", "schema", "version"])
