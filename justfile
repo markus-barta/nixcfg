@@ -119,6 +119,12 @@ janus-engine-smoke:
 janus-pharos-sidecar-smoke:
     cd hosts/csb1/docker && ./janus/pharos-nonprod/run-sidecar-smoke.sh
 
+# Seed the isolated Pharos projection from an already-reviewed generation
+# without changing the private Janus producer volume.
+[group('ops')]
+janus-pharos-production-seed-projection:
+    cd hosts/csb1/docker && JANUS_PHAROS_PROJECTION_ONLY=1 ./janus/pharos-production/render-sidecars.sh
+
 # Publish and validate the production Pharos beacon-token generation.
 [group('ops')]
 janus-pharos-production-render:
