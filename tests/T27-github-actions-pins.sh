@@ -85,7 +85,7 @@ end
 
 validate = lambda do |path, text|
   failures = []
-  stream = Psych.parse_stream(text, path.to_s)
+  stream = Psych.parse_stream(text)
   walk.call(stream, [], path, text.lines, failures)
   failures
 rescue Psych::SyntaxError => error
