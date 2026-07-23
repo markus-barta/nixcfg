@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+report_failure() {
+  local exit_code=$?
+  local line=$1
+  printf 'pharos provisioning executor test failed at line %s (exit %s)\n' \
+    "$line" "$exit_code" >&2
+}
+trap 'report_failure "$LINENO"' ERR
+
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 module="$repo_root/modules/pharos-provisioning-executor/default.nix"
 executor_source="$repo_root/modules/pharos-provisioning-executor/executor.sh"
@@ -11,6 +19,7 @@ compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
 bash -n "$executor_source"
 bash -n "$janus_source"
 nix-instantiate --parse "$module" >/dev/null
+grep -Fq 'runtimeDir = "/run/pharos-provisioning-executor";' "$module"
 grep -Fq '../../modules/pharos-provisioning-executor' "$host_config"
 grep -Fq 'enable = false;' "$host_config"
 grep -Fq 'PHAROS_PROVISIONING_EXECUTOR_READY=0' "$compose"
@@ -165,8 +174,15 @@ export FAKE_CURL_ARGS="$fixture_root/curl-args.log"
 export FAKE_LEAK_LOG="$fixture_root/leak.log"
 export FAKE_RESULT_BODY="$fixture_root/result.json"
 
-PATH="$fake_bin:$PATH" PHAROS_TOKEN="$FAKE_TOKEN" "$agent" \
-  >"$fixture_root/agent.out" 2>"$fixture_root/agent.err"
+if ! PATH="$fake_bin:$PATH" PHAROS_TOKEN="$FAKE_TOKEN" "$agent" \
+  >"$fixture_root/agent.out" 2>"$fixture_root/agent.err"; then
+  if grep -Fq "$FAKE_TOKEN" "$fixture_root/agent.err"; then
+    printf 'fixture agent failed; diagnostic suppressed because it contained fixture credentials\n' >&2
+  else
+    sed -n '1,20p' "$fixture_root/agent.err" >&2
+  fi
+  exit 1
+fi
 jq -e '{owner,host,action,outcome,credential_created} == {
   owner:"csb1",
   host:"fixturehost",
