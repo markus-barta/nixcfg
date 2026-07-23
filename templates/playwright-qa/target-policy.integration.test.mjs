@@ -7,7 +7,7 @@ import { chromium } from "playwright";
 
 import {
   createRequestStageNavigationGuard,
-  resolveBrowserExecutable,
+  selectBrowserExecutable,
 } from "./target-policy.mjs";
 
 test("blocks a redirect escape before the destination receives a request", async () => {
@@ -25,7 +25,7 @@ test("blocks a redirect escape before the destination receives a request", async
     assert(address && typeof address === "object");
     const hostileTarget = `http://127.0.0.1:${address.port}/admin`;
     const fixtureTarget = "https://www.hausv.org/__nix315_redirect_fixture__";
-    const executablePath = await resolveBrowserExecutable(
+    const executablePath = selectBrowserExecutable(
       process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
     );
 

@@ -1,6 +1,3 @@
-import { constants as fsConstants } from "node:fs";
-import { access, realpath } from "node:fs/promises";
-
 // This template intentionally uses a source-controlled allowlist. Consumers
 // should replace these origins when copying the template into another repo;
 // do not derive the boundary from CLI arguments or environment variables.
@@ -12,6 +9,8 @@ export const ALLOWED_TARGET_ORIGINS = Object.freeze([
 const ALLOWED_TARGET_SCHEMES = new Set(["http:", "https:"]);
 const DARWIN_CHROME =
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// Nix store objects are immutable. Keep selection lexical and let Playwright
+// report a missing executable instead of probing an environment-derived path.
 const NIX_CHROMIUM =
   /^(\/nix\/store\/[0-9abcdfghijklmnpqrsvwxyz]{32}-[^/]+)\/bin\/(?:chromium|chromium-browser)$/;
 
@@ -48,7 +47,7 @@ export function validateTarget(rawTarget) {
   return target;
 }
 
-export function validateBrowserExecutableCandidate(rawPath) {
+export function selectBrowserExecutable(rawPath) {
   if (typeof rawPath !== "string" || rawPath.length === 0) {
     throw new Error(
       "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH is not set — enter the devenv shell first (direnv allow).",
@@ -56,40 +55,16 @@ export function validateBrowserExecutableCandidate(rawPath) {
   }
 
   if (rawPath === DARWIN_CHROME) {
-    return {
-      candidate: rawPath,
-      trustedRoot: "/Applications/Google Chrome.app",
-    };
+    return DARWIN_CHROME;
   }
 
-  const nixMatch = rawPath.match(NIX_CHROMIUM);
-  if (!nixMatch) {
+  if (!NIX_CHROMIUM.test(rawPath)) {
     throw new Error(
       "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH must be the declarative macOS Chrome path or a nix-store Chromium executable.",
     );
   }
 
-  return { candidate: rawPath, trustedRoot: nixMatch[1] };
-}
-
-export async function resolveBrowserExecutable(rawPath) {
-  const { candidate, trustedRoot } =
-    validateBrowserExecutableCandidate(rawPath);
-
-  await access(candidate, fsConstants.X_OK);
-  const resolved = await realpath(candidate);
-
-  if (
-    trustedRoot &&
-    resolved !== candidate &&
-    !resolved.startsWith(`${trustedRoot}/`)
-  ) {
-    throw new Error(
-      "The configured Chromium executable resolves outside its trusted root.",
-    );
-  }
-
-  return candidate;
+  return rawPath;
 }
 
 export function createRequestStageNavigationGuard(send, onBlocked) {
