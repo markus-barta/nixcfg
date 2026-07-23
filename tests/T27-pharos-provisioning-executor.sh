@@ -2,10 +2,10 @@
 set -euo pipefail
 
 report_failure() {
-  local exit_code=$?
-  local line=$1
-  printf 'pharos provisioning executor test failed at line %s (exit %s)\n' \
-    "$line" "$exit_code" >&2
+	local exit_code=$?
+	local line=$1
+	printf 'pharos provisioning executor test failed at line %s (exit %s)\n' \
+		"$line" "$exit_code" >&2
 }
 trap 'report_failure "$LINENO"' ERR
 
@@ -37,19 +37,19 @@ grep -Fq 'janus-secret-ref-v2\0' "$janus_source"
 grep -Fq 'value_returned=false' "$janus_source"
 
 if grep -Eq 'curl .*PHAROS_TOKEN|Authorization: Bearer.*--header|PHAROS_TOKEN=.*curl' \
-  "$executor_source"; then
-  printf 'provisioning executor can expose the owner token in process arguments\n' >&2
-  exit 1
+	"$executor_source"; then
+	printf 'provisioning executor can expose the owner token in process arguments\n' >&2
+	exit 1
 fi
 if grep -Eq -- '--(secret-value|token-value|private-key)([=[:space:]]|$)' \
-  "$executor_source" "$janus_source"; then
-  printf 'managed provisioning contains a forbidden secret-value argument\n' >&2
-  exit 1
+	"$executor_source" "$janus_source"; then
+	printf 'managed provisioning contains a forbidden secret-value argument\n' >&2
+	exit 1
 fi
 
 fixture_root=$(mktemp -d)
 cleanup() {
-  rm -r "$fixture_root"
+	rm -r "$fixture_root"
 }
 trap cleanup EXIT
 
@@ -156,17 +156,17 @@ EOF
 
 chmod +x "$fake_bin"/* "$fake_janus"
 sed \
-  -e 's|@OWNER@|csb1|g' \
-  -e 's|@PHAROS_AGENT_URL@|http://100.64.0.4:8088|g' \
-  -e 's|@PHAROS_PUBLIC_URL@|https://pharos.example.invalid|g' \
-  -e "s|@STATE_DIR@|$fake_state|g" \
-  -e "s|@RUNTIME_DIR@|$fake_runtime|g" \
-  -e "s|@REPO_PATH@|$fake_repo|g" \
-  -e 's|@IDENTITY_FILE@|/run/fixture-identity|g' \
-  -e 's|@SSH_KEY_REF@|pharos-executor|g' \
-  -e "s|@BOOTSTRAP_TEMPLATE@|$fake_template|g" \
-  -e "s|@JANUS_HELPER@|$fake_janus|g" \
-  "$executor_source" >"$agent"
+	-e 's|@OWNER@|csb1|g' \
+	-e 's|@PHAROS_AGENT_URL@|http://100.64.0.4:8088|g' \
+	-e 's|@PHAROS_PUBLIC_URL@|https://pharos.example.invalid|g' \
+	-e "s|@STATE_DIR@|$fake_state|g" \
+	-e "s|@RUNTIME_DIR@|$fake_runtime|g" \
+	-e "s|@REPO_PATH@|$fake_repo|g" \
+	-e 's|@IDENTITY_FILE@|/run/fixture-identity|g' \
+	-e 's|@SSH_KEY_REF@|pharos-executor|g' \
+	-e "s|@BOOTSTRAP_TEMPLATE@|$fake_template|g" \
+	-e "s|@JANUS_HELPER@|$fake_janus|g" \
+	"$executor_source" >"$agent"
 chmod +x "$agent"
 
 export FAKE_TOKEN='fixture-owner-token-1234567890'
@@ -175,13 +175,13 @@ export FAKE_LEAK_LOG="$fixture_root/leak.log"
 export FAKE_RESULT_BODY="$fixture_root/result.json"
 
 if ! PATH="$fake_bin:$PATH" PHAROS_TOKEN="$FAKE_TOKEN" "$agent" \
-  >"$fixture_root/agent.out" 2>"$fixture_root/agent.err"; then
-  if grep -Fq "$FAKE_TOKEN" "$fixture_root/agent.err"; then
-    printf 'fixture agent failed; diagnostic suppressed because it contained fixture credentials\n' >&2
-  else
-    sed -n '1,20p' "$fixture_root/agent.err" >&2
-  fi
-  exit 1
+	>"$fixture_root/agent.out" 2>"$fixture_root/agent.err"; then
+	if grep -Fq "$FAKE_TOKEN" "$fixture_root/agent.err"; then
+		printf 'fixture agent failed; diagnostic suppressed because it contained fixture credentials\n' >&2
+	else
+		sed -n '1,20p' "$fixture_root/agent.err" >&2
+	fi
+	exit 1
 fi
 jq -e '{owner,host,action,outcome,credential_created} == {
   owner:"csb1",
@@ -193,8 +193,8 @@ jq -e '{owner,host,action,outcome,credential_created} == {
 [ ! -e "$fake_state/pending-result.json" ]
 [ ! -e "$FAKE_LEAK_LOG" ]
 if grep -Fq "$FAKE_TOKEN" "$FAKE_CURL_ARGS"; then
-  printf 'provisioning executor exposed the owner token in curl arguments\n' >&2
-  exit 1
+	printf 'provisioning executor exposed the owner token in curl arguments\n' >&2
+	exit 1
 fi
 
 printf 'pharos_provisioning_executor=passed\n'

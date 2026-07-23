@@ -41,8 +41,8 @@ result_response="$run_dir/result-response.json"
 # Invoked by the EXIT trap.
 # shellcheck disable=SC2329
 cleanup() {
-  find "$run_dir" -type f -exec shred -u {} + 2>/dev/null || true
-  find "$run_dir" -depth -type d -empty -delete 2>/dev/null || true
+	find "$run_dir" -type f -exec shred -u {} + 2>/dev/null || true
+	find "$run_dir" -depth -type d -empty -delete 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -51,25 +51,25 @@ chmod 0600 "$auth_config"
 unset PHAROS_TOKEN
 
 curl_json() {
-  local method=$1
-  local path=$2
-  local body=$3
-  local response=$4
+	local method=$1
+	local path=$2
+	local body=$3
+	local response=$4
 
-  curl --silent --show-error \
-    --connect-timeout 10 \
-    --max-time 30 \
-    --config "$auth_config" \
-    --request "$method" \
-    --header 'Content-Type: application/json' \
-    --data-binary "@$body" \
-    --output "$response" \
-    --write-out '%{http_code}' \
-    "$PHAROS_AGENT_URL$path"
+	curl --silent --show-error \
+		--connect-timeout 10 \
+		--max-time 30 \
+		--config "$auth_config" \
+		--request "$method" \
+		--header 'Content-Type: application/json' \
+		--data-binary "@$body" \
+		--output "$response" \
+		--write-out '%{http_code}' \
+		"$PHAROS_AGENT_URL$path"
 }
 
 valid_pending_result() {
-  jq -e --arg owner "$OWNER" '
+	jq -e --arg owner "$OWNER" '
     .schema == "inspr.pharos.provisioning-executor-result.v1"
     and .version == 1
     and .owner == $owner
@@ -100,62 +100,62 @@ valid_pending_result() {
 }
 
 report_pending_result() {
-  local action_id outcome result_code
+	local action_id outcome result_code
 
-  [ -f "$PENDING_RESULT" ] && [ ! -L "$PENDING_RESULT" ] || {
-    printf 'pharos_provisioning_executor=blocked reason=invalid_pending_result\n' >&2
-    return 1
-  }
-  valid_pending_result || {
-    printf 'pharos_provisioning_executor=blocked reason=invalid_pending_result\n' >&2
-    return 1
-  }
-  action_id=$(jq -r '.id' "$PENDING_RESULT")
-  outcome=$(jq -r '.outcome' "$PENDING_RESULT")
-  jq '{owner,host,action,outcome,credential_created} + if .reason == null then {} else {reason} end' \
-    "$PENDING_RESULT" >"$result_request"
-  if ! result_code=$(curl_json POST "/agent/provisioning/$action_id/result" \
-    "$result_request" "$result_response"); then
-    printf 'pharos_provisioning_executor=deferred reason=result_unreachable\n' >&2
-    return 0
-  fi
-  if [ "$result_code" != 204 ]; then
-    printf 'pharos_provisioning_executor=deferred reason=result_rejected status=%s\n' \
-      "$result_code" >&2
-    return 0
-  fi
-  shred -u "$PENDING_RESULT"
-  printf 'pharos_provisioning_executor=reported outcome=%s\n' "$outcome"
+	[ -f "$PENDING_RESULT" ] && [ ! -L "$PENDING_RESULT" ] || {
+		printf 'pharos_provisioning_executor=blocked reason=invalid_pending_result\n' >&2
+		return 1
+	}
+	valid_pending_result || {
+		printf 'pharos_provisioning_executor=blocked reason=invalid_pending_result\n' >&2
+		return 1
+	}
+	action_id=$(jq -r '.id' "$PENDING_RESULT")
+	outcome=$(jq -r '.outcome' "$PENDING_RESULT")
+	jq '{owner,host,action,outcome,credential_created} + if .reason == null then {} else {reason} end' \
+		"$PENDING_RESULT" >"$result_request"
+	if ! result_code=$(curl_json POST "/agent/provisioning/$action_id/result" \
+		"$result_request" "$result_response"); then
+		printf 'pharos_provisioning_executor=deferred reason=result_unreachable\n' >&2
+		return 0
+	fi
+	if [ "$result_code" != 204 ]; then
+		printf 'pharos_provisioning_executor=deferred reason=result_rejected status=%s\n' \
+			"$result_code" >&2
+		return 0
+	fi
+	shred -u "$PENDING_RESULT"
+	printf 'pharos_provisioning_executor=reported outcome=%s\n' "$outcome"
 }
 
 if [ -e "$PENDING_RESULT" ]; then
-  report_pending_result
-  exit $?
+	report_pending_result
+	exit $?
 fi
 
 jq -n --arg owner "$OWNER" '{owner:$owner}' >"$claim_request"
 if ! claim_code=$(curl_json POST /agent/provisioning/claim "$claim_request" "$claim_response"); then
-  printf 'pharos_provisioning_executor=deferred reason=claim_unreachable\n' >&2
-  exit 0
+	printf 'pharos_provisioning_executor=deferred reason=claim_unreachable\n' >&2
+	exit 0
 fi
 case "$claim_code" in
 204)
-  printf 'pharos_provisioning_executor=idle\n'
-  exit 0
-  ;;
+	printf 'pharos_provisioning_executor=idle\n'
+	exit 0
+	;;
 200) ;;
 *)
-  printf 'pharos_provisioning_executor=deferred reason=claim_rejected status=%s\n' \
-    "$claim_code" >&2
-  exit 0
-  ;;
+	printf 'pharos_provisioning_executor=deferred reason=claim_rejected status=%s\n' \
+		"$claim_code" >&2
+	exit 0
+	;;
 esac
 
 now=$(date +%s)
 if ! jq -e \
-  --arg owner "$OWNER" \
-  --arg ssh_key_ref "$SSH_KEY_REF" \
-  --argjson now "$now" '
+	--arg owner "$OWNER" \
+	--arg ssh_key_ref "$SSH_KEY_REF" \
+	--argjson now "$now" '
   .schema == "inspr.pharos.provisioning-agent-lease.v1"
   and .version == 1
   and .ticket == "PHAROS-175"
@@ -179,8 +179,8 @@ if ! jq -e \
       and (keys | sort == ["action","credential_ref","heartbeat_interval_secs","host","id","lease_until","provider_id","role","schema","ssh_key_ref","ticket","version"]))
   )
 ' "$claim_response" >/dev/null; then
-  printf 'pharos_provisioning_executor=blocked reason=invalid_lease\n' >&2
-  exit 1
+	printf 'pharos_provisioning_executor=blocked reason=invalid_lease\n' >&2
+	exit 1
 fi
 
 action_id=$(jq -r '.id' "$claim_response")
@@ -193,16 +193,16 @@ outcome=failed
 reason=checkout_not_ready
 
 save_result() {
-  local pending_tmp
-  pending_tmp=$(mktemp "$STATE_DIR/.pending-result.XXXXXX")
-  jq -n \
-    --arg id "$action_id" \
-    --arg owner "$OWNER" \
-    --arg host "$target_host" \
-    --arg action "$action" \
-    --arg outcome "$outcome" \
-    --arg reason "$reason" \
-    --argjson credential_created "$credential_created" '
+	local pending_tmp
+	pending_tmp=$(mktemp "$STATE_DIR/.pending-result.XXXXXX")
+	jq -n \
+		--arg id "$action_id" \
+		--arg owner "$OWNER" \
+		--arg host "$target_host" \
+		--arg action "$action" \
+		--arg outcome "$outcome" \
+		--arg reason "$reason" \
+		--argjson credential_created "$credential_created" '
     {
       schema:"inspr.pharos.provisioning-executor-result.v1",
       version:1,
@@ -215,31 +215,31 @@ save_result() {
       credential_created:$credential_created,
       reason:(if $reason == "" then null else $reason end)
     }' >"$pending_tmp"
-  chmod 0600 "$pending_tmp"
-  mv "$pending_tmp" "$PENDING_RESULT"
+	chmod 0600 "$pending_tmp"
+	mv "$pending_tmp" "$PENDING_RESULT"
 }
 
 finish() {
-  save_result
-  if ! report_pending_result; then
-    exit 1
-  fi
-  exit 0
+	save_result
+	if ! report_pending_result; then
+		exit 1
+	fi
+	exit 0
 }
 
 # Invoked by the ERR trap after a lease has been claimed.
 # shellcheck disable=SC2329
 unexpected_failure() {
-  local failure_status=$?
-  trap - ERR
-  outcome=uncertain
-  reason=uncertain_execution
-  if [ ! -e "$PENDING_RESULT" ] && ! save_result; then
-    printf 'pharos_provisioning_executor=blocked reason=result_persistence_failed\n' >&2
-    exit "$failure_status"
-  fi
-  report_pending_result || true
-  exit "$failure_status"
+	local failure_status=$?
+	trap - ERR
+	outcome=uncertain
+	reason=uncertain_execution
+	if [ ! -e "$PENDING_RESULT" ] && ! save_result; then
+		printf 'pharos_provisioning_executor=blocked reason=result_persistence_failed\n' >&2
+		exit "$failure_status"
+	fi
+	report_pending_result || true
+	exit "$failure_status"
 }
 trap unexpected_failure ERR
 
@@ -247,57 +247,57 @@ export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0=safe.directory
 export GIT_CONFIG_VALUE_0="$REPO_PATH"
 if ! git -C "$REPO_PATH" fetch --quiet --prune origin \
-  >"$run_dir/fetch.out" 2>"$run_dir/fetch.err"; then
-  finish
+	>"$run_dir/fetch.out" 2>"$run_dir/fetch.err"; then
+	finish
 fi
-if [ "$(git -C "$REPO_PATH" branch --show-current)" != main ] \
-  || [ -n "$(git -C "$REPO_PATH" status --porcelain=v1 --untracked-files=all)" ] \
-  || [ "$(git -C "$REPO_PATH" rev-parse HEAD)" != "$(git -C "$REPO_PATH" rev-parse origin/main)" ] \
-  || [ ! -x "$JANUS_HELPER" ]; then
-  finish
+if [ "$(git -C "$REPO_PATH" branch --show-current)" != main ] ||
+	[ -n "$(git -C "$REPO_PATH" status --porcelain=v1 --untracked-files=all)" ] ||
+	[ "$(git -C "$REPO_PATH" rev-parse HEAD)" != "$(git -C "$REPO_PATH" rev-parse origin/main)" ] ||
+	[ ! -x "$JANUS_HELPER" ]; then
+	finish
 fi
 
 janus_output="$run_dir/janus.out"
 janus_error="$run_dir/janus.err"
 if [ "$action" = retire ]; then
-  if "$JANUS_HELPER" retire "$action_id" "$target_host" "$credential_ref" \
-    >"$janus_output" 2>"$janus_error"; then
-    if grep -Fx 'janus_managed_beacon=retired value_returned=false credential_created=false' \
-      "$janus_output" >/dev/null; then
-      outcome=succeeded
-      reason=''
-    else
-      outcome=uncertain
-      reason=result_contract_invalid
-    fi
-  else
-    safe_failure=$(grep -E \
-      '^janus_managed_beacon=failed reason=[a-z_]+ value_returned=false credential_created=(true|false)$' \
-      "$janus_error" | tail -n1 || true)
-    if [[ "$safe_failure" =~ credential_created=(true|false) ]]; then
-      credential_created=${BASH_REMATCH[1]}
-    fi
-    if [[ "$safe_failure" =~ reason=([a-z_]+) ]]; then
-      case "${BASH_REMATCH[1]}" in
-      checkout_not_ready | janus_unavailable | janus_rejected | result_contract_invalid)
-        reason=${BASH_REMATCH[1]}
-        ;;
-      uncertain_execution)
-        outcome=uncertain
-        reason=uncertain_execution
-        ;;
-      *)
-        outcome=uncertain
-        reason=result_contract_invalid
-        ;;
-      esac
-    else
-      outcome=uncertain
-      reason=result_contract_invalid
-    fi
-  fi
-  credential_created=false
-  finish
+	if "$JANUS_HELPER" retire "$action_id" "$target_host" "$credential_ref" \
+		>"$janus_output" 2>"$janus_error"; then
+		if grep -Fx 'janus_managed_beacon=retired value_returned=false credential_created=false' \
+			"$janus_output" >/dev/null; then
+			outcome=succeeded
+			reason=''
+		else
+			outcome=uncertain
+			reason=result_contract_invalid
+		fi
+	else
+		safe_failure=$(grep -E \
+			'^janus_managed_beacon=failed reason=[a-z_]+ value_returned=false credential_created=(true|false)$' \
+			"$janus_error" | tail -n1 || true)
+		if [[ "$safe_failure" =~ credential_created=(true|false) ]]; then
+			credential_created=${BASH_REMATCH[1]}
+		fi
+		if [[ "$safe_failure" =~ reason=([a-z_]+) ]]; then
+			case "${BASH_REMATCH[1]}" in
+			checkout_not_ready | janus_unavailable | janus_rejected | result_contract_invalid)
+				reason=${BASH_REMATCH[1]}
+				;;
+			uncertain_execution)
+				outcome=uncertain
+				reason=uncertain_execution
+				;;
+			*)
+				outcome=uncertain
+				reason=result_contract_invalid
+				;;
+			esac
+		else
+			outcome=uncertain
+			reason=result_contract_invalid
+		fi
+	fi
+	credential_created=false
+	finish
 fi
 
 ssh_host=$(jq -r '.ssh_host' "$claim_response")
@@ -313,88 +313,88 @@ address = ipaddress.ip_address(sys.argv[1])
 if str(address) != sys.argv[1]:
     raise SystemExit(1)
 PY
-  reason=result_contract_invalid
-  finish
+	reason=result_contract_invalid
+	finish
 }
 
 identity_metadata=$(stat -Lc '%F %u %a' "$IDENTITY_FILE" 2>/dev/null || true)
 if [ "$identity_metadata" != "regular file 0 600" ] && [ "$identity_metadata" != "regular file 0 400" ]; then
-  reason=ssh_identity_unavailable
-  finish
+	reason=ssh_identity_unavailable
+	finish
 fi
 [ ! -L "$IDENTITY_FILE" ] || {
-  reason=ssh_identity_unavailable
-  finish
+	reason=ssh_identity_unavailable
+	finish
 }
 
 public_key_file="$run_dir/executor.pub"
 if ! ssh-keygen -y -P '' -f "$IDENTITY_FILE" >"$public_key_file" 2>"$run_dir/keygen.err"; then
-  reason=ssh_identity_unavailable
-  finish
+	reason=ssh_identity_unavailable
+	finish
 fi
 chmod 0600 "$public_key_file"
 if ! grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+={0,3}$' "$public_key_file"; then
-  reason=ssh_identity_unavailable
-  finish
+	reason=ssh_identity_unavailable
+	finish
 fi
 
 known_hosts="$run_dir/known_hosts"
 if ! ssh-keyscan -T 10 -p "$ssh_port" -t ed25519 "$ssh_host" \
-  >"$known_hosts" 2>"$run_dir/keyscan.err"; then
-  reason=ssh_unreachable
-  finish
+	>"$known_hosts" 2>"$run_dir/keyscan.err"; then
+	reason=ssh_unreachable
+	finish
 fi
 chmod 0600 "$known_hosts"
 key_line_count=$(grep -c ' ssh-ed25519 ' "$known_hosts" || true)
 if [ "$key_line_count" != 1 ]; then
-  reason=host_key_mismatch
-  finish
+	reason=host_key_mismatch
+	finish
 fi
 observed_fingerprint=$(ssh-keygen -lf "$known_hosts" -E sha256 2>/dev/null | awk 'NR == 1 { print $2 }')
 if [ "$observed_fingerprint" != "$host_key_fingerprint" ]; then
-  reason=host_key_mismatch
-  finish
+	reason=host_key_mismatch
+	finish
 fi
 
 ssh_options=(
-  -F /dev/null
-  -i "$IDENTITY_FILE"
-  -o IdentitiesOnly=yes
-  -o BatchMode=yes
-  -o "UserKnownHostsFile=$known_hosts"
-  -o StrictHostKeyChecking=yes
-  -o GlobalKnownHostsFile=/dev/null
-  -o ConnectTimeout=10
-  -p "$ssh_port"
-  "root@$ssh_host"
+	-F /dev/null
+	-i "$IDENTITY_FILE"
+	-o IdentitiesOnly=yes
+	-o BatchMode=yes
+	-o "UserKnownHostsFile=$known_hosts"
+	-o StrictHostKeyChecking=yes
+	-o GlobalKnownHostsFile=/dev/null
+	-o ConnectTimeout=10
+	-p "$ssh_port"
+	"root@$ssh_host"
 )
 authorized_keys="$run_dir/authorized_keys"
 if ! ssh "${ssh_options[@]}" \
-  'test -f /root/.ssh/authorized_keys && test ! -L /root/.ssh/authorized_keys && cat /root/.ssh/authorized_keys' \
-  >"$authorized_keys" 2>"$run_dir/ssh.err"; then
-  reason=ssh_unreachable
-  finish
+	'test -f /root/.ssh/authorized_keys && test ! -L /root/.ssh/authorized_keys && cat /root/.ssh/authorized_keys' \
+	>"$authorized_keys" 2>"$run_dir/ssh.err"; then
+	reason=ssh_unreachable
+	finish
 fi
 local_key=$(awk 'NR == 1 { print $1 " " $2 }' "$public_key_file")
 if ! awk -v expected="$local_key" '
   $1 == "ssh-ed25519" && ($1 " " $2) == expected { found = 1 }
   END { exit(found ? 0 : 1) }
 ' "$authorized_keys"; then
-  reason=ssh_identity_unavailable
-  finish
+	reason=ssh_identity_unavailable
+	finish
 fi
 
 remote_arch="$run_dir/arch"
 remote_disks="$run_dir/disks.json"
-if ! ssh "${ssh_options[@]}" 'uname -m' >"$remote_arch" 2>"$run_dir/arch.err" \
-  || [ "$(tr -d '\r\n' <"$remote_arch")" != x86_64 ]; then
-  reason=bootstrap_failed
-  finish
+if ! ssh "${ssh_options[@]}" 'uname -m' >"$remote_arch" 2>"$run_dir/arch.err" ||
+	[ "$(tr -d '\r\n' <"$remote_arch")" != x86_64 ]; then
+	reason=bootstrap_failed
+	finish
 fi
 if ! ssh "${ssh_options[@]}" 'lsblk --json --bytes --output PATH,TYPE,RM,RO' \
-  >"$remote_disks" 2>"$run_dir/disks.err"; then
-  reason=ssh_unreachable
-  finish
+	>"$remote_disks" 2>"$run_dir/disks.err"; then
+	reason=ssh_unreachable
+	finish
 fi
 if ! jq -e '
   (.blockdevices | type == "array")
@@ -405,8 +405,8 @@ if ! jq -e '
     and (.path | type == "string" and test("^/dev/[A-Za-z0-9._/-]+$"))
   )] | length) == 1
 ' "$remote_disks" >/dev/null; then
-  reason=bootstrap_failed
-  finish
+	reason=bootstrap_failed
+	finish
 fi
 install_disk=$(jq -r '[.blockdevices[] | select(
   .type == "disk"
@@ -414,8 +414,8 @@ install_disk=$(jq -r '[.blockdevices[] | select(
   and (.ro == false or .ro == 0)
 )] | .[0].path' "$remote_disks")
 [[ "$install_disk" =~ ^/dev/[A-Za-z0-9._/-]+$ ]] || {
-  reason=result_contract_invalid
-  finish
+	reason=result_contract_invalid
+	finish
 }
 
 bootstrap_dir="$run_dir/bootstrap"
@@ -423,12 +423,12 @@ extra_files="$run_dir/extra-files"
 mkdir -p "$bootstrap_dir" "$extra_files"
 cp -R "$BOOTSTRAP_TEMPLATE"/. "$bootstrap_dir"/
 jq -n \
-  --arg host "$target_host" \
-  --arg role "$role" \
-  --arg disk "$install_disk" \
-  --arg pharos_url "$PHAROS_PUBLIC_URL" \
-  --arg ssh_public_key "$local_key" \
-  --argjson heartbeat_interval_secs "$heartbeat_interval" '
+	--arg host "$target_host" \
+	--arg role "$role" \
+	--arg disk "$install_disk" \
+	--arg pharos_url "$PHAROS_PUBLIC_URL" \
+	--arg ssh_public_key "$local_key" \
+	--argjson heartbeat_interval_secs "$heartbeat_interval" '
   {
     host:$host,
     role:$role,
@@ -440,84 +440,84 @@ jq -n \
 chmod 0600 "$bootstrap_dir/runtime.json"
 
 if "$JANUS_HELPER" issue "$action_id" "$target_host" "$credential_ref" "$extra_files" \
-  >"$janus_output" 2>"$janus_error"; then
-  if ! grep -Fx 'janus_managed_beacon=issued value_returned=false credential_created=true' \
-    "$janus_output" >/dev/null; then
-    outcome=uncertain
-    reason=result_contract_invalid
-    credential_created=true
-    finish
-  fi
-  credential_created=true
+	>"$janus_output" 2>"$janus_error"; then
+	if ! grep -Fx 'janus_managed_beacon=issued value_returned=false credential_created=true' \
+		"$janus_output" >/dev/null; then
+		outcome=uncertain
+		reason=result_contract_invalid
+		credential_created=true
+		finish
+	fi
+	credential_created=true
 else
-  safe_failure=$(grep -E \
-    '^janus_managed_beacon=failed reason=[a-z_]+ value_returned=false credential_created=(true|false)$' \
-    "$janus_error" | tail -n1 || true)
-  if [[ "$safe_failure" =~ credential_created=(true|false) ]]; then
-    credential_created=${BASH_REMATCH[1]}
-  fi
-  if [[ "$safe_failure" =~ reason=([a-z_]+) ]]; then
-    case "${BASH_REMATCH[1]}" in
-    checkout_not_ready | janus_unavailable | janus_rejected | result_contract_invalid)
-      reason=${BASH_REMATCH[1]}
-      ;;
-    uncertain_execution)
-      outcome=uncertain
-      reason=uncertain_execution
-      ;;
-    *)
-      outcome=uncertain
-      reason=result_contract_invalid
-      ;;
-    esac
-  else
-    outcome=uncertain
-    reason=result_contract_invalid
-  fi
-  finish
+	safe_failure=$(grep -E \
+		'^janus_managed_beacon=failed reason=[a-z_]+ value_returned=false credential_created=(true|false)$' \
+		"$janus_error" | tail -n1 || true)
+	if [[ "$safe_failure" =~ credential_created=(true|false) ]]; then
+		credential_created=${BASH_REMATCH[1]}
+	fi
+	if [[ "$safe_failure" =~ reason=([a-z_]+) ]]; then
+		case "${BASH_REMATCH[1]}" in
+		checkout_not_ready | janus_unavailable | janus_rejected | result_contract_invalid)
+			reason=${BASH_REMATCH[1]}
+			;;
+		uncertain_execution)
+			outcome=uncertain
+			reason=uncertain_execution
+			;;
+		*)
+			outcome=uncertain
+			reason=result_contract_invalid
+			;;
+		esac
+	else
+		outcome=uncertain
+		reason=result_contract_invalid
+	fi
+	finish
 fi
 
 now=$(date +%s)
 if [ "$lease_until" -le "$((now + 300))" ]; then
-  reason=bootstrap_failed
-  finish
+	reason=bootstrap_failed
+	finish
 fi
 
 if ! timeout --signal=TERM --kill-after=30s 6600s \
-  nixos-anywhere \
-  --flake "path:${bootstrap_dir}#managed" \
-  --target-host "root@$ssh_host" \
-  -i "$IDENTITY_FILE" \
-  --ssh-port "$ssh_port" \
-  --ssh-option IdentitiesOnly=yes \
-  --ssh-option BatchMode=yes \
-  --ssh-option "UserKnownHostsFile=$known_hosts" \
-  --ssh-option StrictHostKeyChecking=yes \
-  --ssh-option GlobalKnownHostsFile=/dev/null \
-  --ssh-option ConnectTimeout=10 \
-  --copy-host-keys \
-  --extra-files "$extra_files" \
-  --build-on local \
-  >"$run_dir/bootstrap.out" 2>"$run_dir/bootstrap.err"; then
-  outcome=uncertain
-  reason=bootstrap_failed
-  finish
+	nixos-anywhere \
+	--flake "path:${bootstrap_dir}#managed" \
+	--target-host "root@$ssh_host" \
+	-i "$IDENTITY_FILE" \
+	--ssh-port "$ssh_port" \
+	--ssh-option IdentitiesOnly=yes \
+	--ssh-option BatchMode=yes \
+	--ssh-option "UserKnownHostsFile=$known_hosts" \
+	--ssh-option StrictHostKeyChecking=yes \
+	--ssh-option GlobalKnownHostsFile=/dev/null \
+	--ssh-option ConnectTimeout=10 \
+	--copy-host-keys \
+	--extra-files "$extra_files" \
+	--build-on local \
+	>"$run_dir/bootstrap.out" 2>"$run_dir/bootstrap.err"; then
+	outcome=uncertain
+	reason=bootstrap_failed
+	finish
 fi
 
 verified=false
 for _attempt in $(seq 1 12); do
-  if ssh "${ssh_options[@]}" \
-    'test -e /run/current-system && systemctl is-enabled --quiet podman-pharos-beacon.service && systemctl is-active --quiet podman-pharos-beacon.service' \
-    >"$run_dir/verify.out" 2>"$run_dir/verify.err"; then
-    verified=true
-    break
-  fi
-  sleep 10
+	if ssh "${ssh_options[@]}" \
+		'test -e /run/current-system && systemctl is-enabled --quiet podman-pharos-beacon.service && systemctl is-active --quiet podman-pharos-beacon.service' \
+		>"$run_dir/verify.out" 2>"$run_dir/verify.err"; then
+		verified=true
+		break
+	fi
+	sleep 10
 done
 if [ "$verified" != true ]; then
-  outcome=uncertain
-  reason=uncertain_execution
-  finish
+	outcome=uncertain
+	reason=uncertain_execution
+	finish
 fi
 
 outcome=succeeded
