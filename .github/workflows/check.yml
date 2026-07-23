@@ -2,11 +2,8 @@ name: 🔎️ Check flake for all systems
 
 on:
   push:
-    branches-ignore:
-      # Ignore changes to the flake update workflow, it is handled by the pull_request event
-      - update_flake_lock_action
-      # Pharos settings branches are evaluated through their pull request.
-      - "automation/pharos-settings-*"
+    branches:
+      - main
     paths-ignore:
       - "docker/**"
   workflow_dispatch:
