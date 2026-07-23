@@ -26,6 +26,7 @@ in
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
+    ../../modules/janus-host-secrets
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
     # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
@@ -87,6 +88,12 @@ in
       }
     ];
   };
+
+  # Host-bound ciphertext restore is intentionally present but disabled until
+  # JANUS-365 pins a release containing janus-host-executor and provisions the
+  # public Janus signing key. Enabling it without a valid cache would correctly
+  # block Docker rather than start the declared service without its secret.
+  inspr.janusHostSecrets.enable = false;
 
   # ============================================================================
   # BOOTLOADER CONFIGURATION
