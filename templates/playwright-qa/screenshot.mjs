@@ -9,13 +9,13 @@
 import { chromium } from "playwright";
 import {
   createRequestStageNavigationGuard,
-  resolveBrowserExecutable,
+  selectBrowserExecutable,
   validateTarget,
 } from "./target-policy.mjs";
 
 const target = validateTarget(process.argv[2] ?? "https://www.hausv.org/");
 const out = process.argv[3] ?? "screenshot.png";
-const executablePath = await resolveBrowserExecutable(
+const executablePath = selectBrowserExecutable(
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
 );
 

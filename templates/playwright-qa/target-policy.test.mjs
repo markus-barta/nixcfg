@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   createRequestStageNavigationGuard,
-  validateBrowserExecutableCandidate,
+  selectBrowserExecutable,
   validateTarget,
 } from "./target-policy.mjs";
 
@@ -46,8 +46,8 @@ test("accepts only declarative browser executable shapes", () => {
   const nix =
     "/nix/store/0123456789abcdfghijklmnpqrsvwxyz-chromium-130.0/bin/chromium";
 
-  assert.equal(validateBrowserExecutableCandidate(darwin).candidate, darwin);
-  assert.equal(validateBrowserExecutableCandidate(nix).candidate, nix);
+  assert.equal(selectBrowserExecutable(darwin), darwin);
+  assert.equal(selectBrowserExecutable(nix), nix);
 });
 
 test("rejects browser executable path escapes and lookalikes", () => {
@@ -59,7 +59,7 @@ test("rejects browser executable path escapes and lookalikes", () => {
     "/nix/store/0123456789abcdfghijklmnpqrsvwxyz-chromium/bin/chromium/../../evil",
     "/Applications/Google Chrome Evil.app/Contents/MacOS/Google Chrome",
   ]) {
-    assert.throws(() => validateBrowserExecutableCandidate(executable));
+    assert.throws(() => selectBrowserExecutable(executable));
   }
 });
 
