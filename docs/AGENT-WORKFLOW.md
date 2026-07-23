@@ -100,7 +100,7 @@ Before modifying any host configuration:
 □ Review current RUNBOOK.md for the host
 □ For bigger tasks: Search/create PPM issue
 □ Identify which docs/tests need updating
-□ For NixOS: Confirm build platform (gpc0 or hsb1, NOT macOS)
+□ For NixOS: Confirm build platform (hsb1 or target host via ssh, NOT macOS; gpc0 retired — fast builder TBD, OPS-26)
 ```
 
 ---
