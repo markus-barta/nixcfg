@@ -3,6 +3,187 @@
 # shellcheck disable=SC1091
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/runtime-image-policy.sh"
 
+janus_pharos_load_consumer_identity() {
+  local compose_dir=$1
+  local compose_file="${compose_dir}/docker-compose.yml"
+  local configured_user
+
+  if ! configured_user=$(
+    docker compose \
+      --project-directory "$compose_dir" \
+      -f "$compose_file" \
+      config \
+      --no-env-resolution \
+      --no-path-resolution \
+      --format json |
+      jq -er '.services.pharosd.user | select(type == "string" and length > 0)'
+  ); then
+    printf 'pharosd must declare an explicit numeric runtime user\n' >&2
+    return 1
+  fi
+  if [[ ! "$configured_user" =~ ^[1-9][0-9]*:[1-9][0-9]*$ ]]; then
+    printf 'pharosd runtime user must be an explicit non-root uid:gid\n' >&2
+    return 1
+  fi
+
+  # Globals are the library return contract consumed by each renderer.
+  # shellcheck disable=SC2034
+  JANUS_PHAROS_CONSUMER_UID=${configured_user%%:*}
+  # shellcheck disable=SC2034
+  JANUS_PHAROS_CONSUMER_GID=${configured_user#*:}
+}
+
+janus_pharos_publish_hash_projection() {
+  local source_volume=$1
+  local projection_volume=$2
+  local consumer_uid=$3
+  local consumer_gid=$4
+
+  [ "$source_volume" != "$projection_volume" ] || {
+    printf 'janus pharos hash projection must use a dedicated volume\n' >&2
+    return 1
+  }
+  [[ "$consumer_uid" =~ ^[1-9][0-9]*$ ]] || {
+    printf 'janus pharos hash projection consumer uid is invalid\n' >&2
+    return 1
+  }
+  [[ "$consumer_gid" =~ ^[1-9][0-9]*$ ]] || {
+    printf 'janus pharos hash projection consumer gid is invalid\n' >&2
+    return 1
+  }
+  docker volume inspect "$source_volume" >/dev/null 2>&1 || {
+    printf 'janus pharos private source volume is unavailable\n' >&2
+    return 1
+  }
+
+  docker volume create "$projection_volume" >/dev/null
+  docker run --rm --network none --user 0 \
+    -v "${source_volume}:/source:ro" \
+    -v "${projection_volume}:/projection" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+    -c '
+set -eu
+uid=$1
+gid=$2
+source_root=/source/pharos/beacon-token-hashes
+projection_root=/projection
+
+test -d "$source_root"
+[ ! -L "$source_root" ]
+test -f "$source_root/current"
+[ ! -L "$source_root/current" ]
+IFS= read -r generation <"$source_root/current"
+printf "%s" "$generation" | grep -Eq "^[0-9a-f]{64}$"
+source_generation="$source_root/generation-${generation}.json"
+test -s "$source_generation"
+[ ! -L "$source_generation" ]
+
+test -d "$projection_root"
+[ ! -L "$projection_root" ]
+find "$projection_root" -mindepth 1 -maxdepth 1 -type f \
+  -name ".janus-pharos-publish-*.tmp" -delete
+valid_projection_name() {
+  name=$1
+  [ "$name" = current ] && return 0
+  case "$name" in
+  generation-*.json)
+    id=${name#generation-}
+    id=${id%.json}
+    printf "%s" "$id" | grep -Eq "^[0-9a-f]{64}$"
+    ;;
+  *) return 1 ;;
+  esac
+}
+for entry in "$projection_root"/* "$projection_root"/.[!.]* "$projection_root"/..?*; do
+  [ -e "$entry" ] || [ -L "$entry" ] || continue
+  name=${entry##*/}
+  if ! valid_projection_name "$name"; then
+    printf "janus pharos hash projection contains an unexpected entry\n" >&2
+    exit 1
+  fi
+  test -f "$entry"
+  [ ! -L "$entry" ]
+done
+
+generation_target="$projection_root/generation-${generation}.json"
+generation_tmp="$projection_root/.janus-pharos-publish-generation.$$.tmp"
+current_tmp="$projection_root/.janus-pharos-publish-current.$$.tmp"
+cleanup() {
+  rm -f "$generation_tmp" "$current_tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
+cp "$source_generation" "$generation_tmp"
+chown "$uid:$gid" "$generation_tmp"
+chmod 0640 "$generation_tmp"
+if [ -e "$generation_target" ]; then
+  test -f "$generation_target"
+  [ ! -L "$generation_target" ]
+  cmp -s "$generation_tmp" "$generation_target"
+  rm -f "$generation_tmp"
+else
+  mv "$generation_tmp" "$generation_target"
+fi
+
+printf "%s\n" "$generation" >"$current_tmp"
+chown "$uid:$gid" "$current_tmp"
+chmod 0640 "$current_tmp"
+sync
+mv "$current_tmp" "$projection_root/current"
+chown "$uid:$gid" "$projection_root"
+chmod 0750 "$projection_root"
+find "$projection_root" -maxdepth 1 -type f -name "generation-*.json" \
+  -exec chown "$uid:$gid" {} + \
+  -exec chmod 0640 {} +
+sync
+' sh "$consumer_uid" "$consumer_gid"
+
+  docker run --rm --network none --user "${consumer_uid}:${consumer_gid}" \
+    -v "${projection_volume}:/run/pharos/beacon-token-hashes:ro" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+    -c '
+set -eu
+uid=$1
+gid=$2
+root=/run/pharos/beacon-token-hashes
+test -d "$root"
+[ ! -L "$root" ]
+[ "$(stat -c "%u:%g:%a" "$root")" = "${uid}:${gid}:750" ]
+test -r "$root/current"
+[ ! -L "$root/current" ]
+[ "$(stat -c "%u:%g:%a" "$root/current")" = "${uid}:${gid}:640" ]
+IFS= read -r generation <"$root/current"
+printf "%s" "$generation" | grep -Eq "^[0-9a-f]{64}$"
+generation_file="$root/generation-${generation}.json"
+test -s "$generation_file"
+test -r "$generation_file"
+[ ! -L "$generation_file" ]
+[ "$(stat -c "%u:%g:%a" "$generation_file")" = "${uid}:${gid}:640" ]
+cat "$generation_file" >/dev/null
+valid_projection_name() {
+  name=$1
+  [ "$name" = current ] && return 0
+  case "$name" in
+  generation-*.json)
+    id=${name#generation-}
+    id=${id%.json}
+    printf "%s" "$id" | grep -Eq "^[0-9a-f]{64}$"
+    ;;
+  *) return 1 ;;
+  esac
+}
+for entry in "$root"/* "$root"/.[!.]* "$root"/..?*; do
+  [ -e "$entry" ] || [ -L "$entry" ] || continue
+  name=${entry##*/}
+  valid_projection_name "$name"
+  test -f "$entry"
+  [ ! -L "$entry" ]
+  [ "$(stat -c "%u:%g:%a" "$entry")" = "${uid}:${gid}:640" ]
+  test -r "$entry"
+done
+' sh "$consumer_uid" "$consumer_gid"
+}
+
 janus_pharos_prepare_runtime() {
   local image=$1
   local contract_dir=$2
@@ -18,6 +199,7 @@ janus_pharos_prepare_runtime() {
   JANUS_PHAROS_STORE_VOLUME="${volume_prefix}_secrets"
   JANUS_PHAROS_PERMIT_VOLUME="${volume_prefix}_permits"
   JANUS_PHAROS_OUT_VOLUME="${volume_prefix}_out"
+  JANUS_PHAROS_HASH_OUT_VOLUME=${JANUS_PHAROS_HASH_OUT_VOLUME:-"${volume_prefix}_hash_out"}
   JANUS_PHAROS_METADATA_VOLUME="${volume_prefix}_metadata"
   JANUS_PHAROS_LIFECYCLE_VOLUME="${volume_prefix}_lifecycle"
 
@@ -27,6 +209,7 @@ janus_pharos_prepare_runtime() {
     "$JANUS_PHAROS_STORE_VOLUME" \
     "$JANUS_PHAROS_PERMIT_VOLUME" \
     "$JANUS_PHAROS_OUT_VOLUME" \
+    "$JANUS_PHAROS_HASH_OUT_VOLUME" \
     "$JANUS_PHAROS_METADATA_VOLUME" \
     "$JANUS_PHAROS_LIFECYCLE_VOLUME"; do
     docker volume create "$volume" >/dev/null
@@ -179,40 +362,6 @@ chmod 0700 \
 chmod 0600 /var/lib/janus/metadata/metadata.toml
 chmod 0400 /var/lib/janus/metadata/baseline.toml
   ' sh "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID"
-}
-
-# Docker cannot create a nested volume target beneath a read-only parent mount.
-# Prepare only the empty target directory that Compose needs; never inspect or
-# mutate the sibling beacon output directories.
-janus_pharos_prepare_provider_mountpoint() {
-  local image=$1
-  local shared_out_volume=$2
-
-  docker volume create "$shared_out_volume" >/dev/null
-  docker run --rm --network none --user 0 \
-    -v "${shared_out_volume}:/run/janus/env" \
-    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-    -c '
-set -eu
-parent=/run/janus/env/pharos
-mountpoint=$parent/providers
-test -d "$parent"
-[ ! -L "$parent" ]
-if [ -e "$mountpoint" ] || [ -L "$mountpoint" ]; then
-  test -d "$mountpoint"
-  [ ! -L "$mountpoint" ]
-else
-  mkdir "$mountpoint"
-fi
-first_entry=
-if ! first_entry=$(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit); then
-  printf "failed to inspect the provider mountpoint\n" >&2
-  exit 1
-fi
-[ -z "$first_entry" ]
-chown 0:0 "$mountpoint"
-chmod 0700 "$mountpoint"
-'
 }
 
 janus_pharos_prepare_age_identity() {

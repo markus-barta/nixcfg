@@ -243,9 +243,12 @@ then runs the current value-free boundary matrix:
 ### Pharos Janus Generation Cutover
 
 Deploy a new Janus producer before restarting a Pharos release that consumes a
-new sidecar schema. The production renderer publishes and validates one
-immutable generation, then atomically advances `current`. Its success output is
-value-free.
+new sidecar schema. Janus keeps its complete output private. The production
+renderer validates the immutable generation, copies only that value-free
+generation into the dedicated Pharos projection, and atomically advances the
+projection's `current` pointer. It then proves the projection is readable as
+the exact non-root identity declared by the `pharosd` Compose service. Its
+success output is value-free.
 
 After the reviewed nixcfg change is merged and `just switch` has completed on
 csb1, run the cutover in this order:
@@ -253,20 +256,30 @@ csb1, run the cutover in this order:
 ```bash
 cd ~/Code/nixcfg
 just janus-engine-pin-check
-just janus-pharos-production-render
 cd hosts/csb1/docker
 docker compose pull pharosd pharos-beacon
-docker compose up -d --no-deps --force-recreate pharosd pharos-beacon
+cd ../../..
+just janus-pharos-production-seed-projection
+cd hosts/csb1/docker
+docker compose up -d --no-deps --force-recreate pharosd
+cd ../../..
+just janus-pharos-production-render
+cd hosts/csb1/docker
 docker compose ps pharosd pharos-beacon
 curl -fsS http://100.64.0.4:8088/healthz
 ```
 
+The seed step is the no-downtime migration from the legacy shared-volume mount:
+it copies the already-reviewed current generation into the isolated projection
+without changing the private producer volume. On a new installation with no
+existing generation, run the production render before starting `pharosd`.
+
 Do not recreate `pharosd` if the production render fails. The existing
-generation and running Pharos container remain the rollback boundary. If a
-recreated container fails its health check, restore the previous reviewed image
-pins in Git, merge and pull that rollback, render with the matching Janus
-profile, and recreate the two Pharos services again. Never edit the compose file
-or generated sidecars directly on csb1.
+consumer projection and running Pharos container remain the rollback boundary.
+If a recreated container fails its health check, restore the previous reviewed
+image pins in Git, merge and pull that rollback, render with the matching Janus
+profile, and recreate the two Pharos services again. Never edit the compose
+file, private Janus output, or projected generation directly on csb1.
 
 ### Pharos Hetzner Provider Credential Handoff
 
@@ -275,10 +288,9 @@ volume `janus_pharos_production_provider_out`. The agenix enrollment source is
 root-only and is never mounted into `pharosd`; the reviewed importer extracts
 the one expected key as data, re-encrypts it into the Janus age store, consumes
 one provider-only permit with networking disabled, and restores the rendered
-file to Pharos UID `10001` with mode `0600`.
-The renderer also prepares the empty nested target required to mount the
-provider volume beneath the shared read-only Janus output; do not create or
-populate that target by hand.
+file to the exact non-root identity declared by `pharosd` with mode `0600`.
+The provider volume and value-free hash projection are mounted independently;
+`pharosd` never mounts Janus's private producer volume.
 
 Enrollment is an attended human step. From the workstation, edit
 `secrets/csb1-hetzner-cloud-provider-env.age` with agenix and enter exactly one

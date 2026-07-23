@@ -638,6 +638,7 @@ services:
     container_name: pharosd
     restart: unless-stopped
     init: true
+    user: "10001:999"
     read_only: true
     cap_drop:
       - ALL
@@ -664,7 +665,7 @@ services:
       - PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token
       - PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1
       - PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm
-      - PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/janus/env/pharos/providers/hetzner-cloud.env
+      - PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env
       # PHAROS-146 preflight: keep paid provider mutation disabled until the
       # attended review has verified the exact project, resources, and price.
       - PHAROS_HCLOUD_PROJECT_LABEL=Pharos production
@@ -681,7 +682,7 @@ services:
       - PHAROS_RETIREMENT_OWNER_HOST=csb1
       - PHAROS_REQUIRE_BEACON_TOKEN=1
       - PHAROS_BEACON_TOKEN_MODE=janus
-      - PHAROS_BEACON_TOKEN_HASH_DIR=/run/janus/env/pharos/beacon-token-hashes
+      - PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes
       - PHAROS_ALERT_WEBHOOK_ENV_FILE=/run/pharos/alert-webhook.env
       # OIDC (PKCE) — public dashboard auth via Zitadel (PHAROS-4). Beacons hit
       # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
@@ -704,8 +705,8 @@ services:
       - ./pharos/manifests:/manifests:ro
       - /home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro
       - /run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro
-      - janus_pharos_production_out:/run/janus/env:ro
-      - janus_pharos_production_provider_out:/run/janus/env/pharos/providers:ro
+      - janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro
+      - janus_pharos_production_provider_out:/run/pharos/providers:ro
       - /run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro
     networks:
       - traefik
@@ -768,9 +769,9 @@ services:
 
 volumes:
   pharos_data: {}
-  janus_pharos_production_out:
+  janus_pharos_production_hash_out:
     external: true
-    name: ${JANUS_PHAROS_OUT_VOLUME:-janus_pharos_production_out}
+    name: ${JANUS_PHAROS_HASH_OUT_VOLUME:-janus_pharos_production_hash_out}
   janus_pharos_production_provider_out:
     external: true
     name: ${JANUS_PHAROS_PROVIDER_OUT_VOLUME:-janus_pharos_production_provider_out}

@@ -116,6 +116,10 @@ if [ -z "$IMAGE" ]; then
 fi
 [[ -n "$IMAGE" ]] || fail missing_engine_image
 
+janus_pharos_load_consumer_identity "$COMPOSE_DIR" || fail invalid_consumer_identity
+consumer_uid=$JANUS_PHAROS_CONSUMER_UID
+consumer_gid=$JANUS_PHAROS_CONSUMER_GID
+
 LOCK_ROOT=${JANUS_PHAROS_LOCK_ROOT:-/run/lock}
 mkdir -p "$LOCK_ROOT"
 chmod 0700 "$LOCK_ROOT"
@@ -191,21 +195,13 @@ if [ "$mode" = apply ] && ! grep -Fq ' state=complete ' <<<"$command_output"; th
   fail retirement_not_complete
 fi
 
-# The admin runtime temporarily makes the shared output private for mutation.
-# Restore the read-only group boundary Pharos uses after the atomic generation
-# pointer has revoked the retired host.
-docker run --rm --user 0 \
-  -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-  -c '
-set -eu
-root=/run/janus/env/pharos/beacon-token-hashes
-chmod 0750 /run/janus/env/pharos "$root"
-chmod 0640 "$root/current" "$root"/generation-*.json
-for entry in "$root"/*.json; do
-  [ -e "$entry" ] || continue
-  chmod 0640 "$entry"
-done
-'
+# Publish only the value-free immutable generation after Janus has completed
+# the private retirement transaction. Pharos never mounts the producer volume.
+janus_pharos_publish_hash_projection \
+  "$JANUS_PHAROS_OUT_VOLUME" \
+  "$JANUS_PHAROS_HASH_OUT_VOLUME" \
+  "$consumer_uid" \
+  "$consumer_gid" ||
+  fail consumer_projection_failed
 
 printf '%s\n' "$command_output"

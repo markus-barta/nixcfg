@@ -355,17 +355,19 @@ if defaults.get("owner") != "pharos" or defaults.get("classification") != "high_
     raise SystemExit("production metadata defaults mismatch")
 
 compose_text = compose_path.read_text(encoding="utf-8")
-if "PHAROS_BEACON_TOKEN_HASH_DIR=/run/janus/env/pharos/beacon-token-hashes" not in compose_text:
-    raise SystemExit("pharosd compose hash-dir env does not match Janus production output")
+if "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes" not in compose_text:
+    raise SystemExit("pharosd compose hash-dir env does not match the consumer projection")
 if "PHAROS_BEACON_TOKEN_MODE=janus" not in compose_text:
     raise SystemExit("pharosd compose must run in Janus-only token mode")
 if "PHAROS_BEACON_TOKEN_MODE=dual" in compose_text:
     raise SystemExit("pharosd compose must not keep dual token mode after PHAROS-40 cutover")
-if "janus_pharos_production_out:/run/janus/env:ro" not in compose_text:
-    raise SystemExit("pharosd compose must mount Janus output at /run/janus/env")
-if "janus_pharos_production_out:/run/janus/env/pharos:ro" in compose_text:
-    raise SystemExit("pharosd compose has an extra nested pharos path in Janus mount")
-if "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/janus/env/pharos/providers/hetzner-cloud.env" not in compose_text:
+if '    user: "10001:999"' not in compose_text:
+    raise SystemExit("pharosd compose must declare its exact non-root runtime identity")
+if "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro" not in compose_text:
+    raise SystemExit("pharosd compose must mount only the value-free hash projection")
+if "janus_pharos_production_out:" in compose_text:
+    raise SystemExit("pharosd compose must not mount or declare the private Janus output")
+if "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env" not in compose_text:
     raise SystemExit("pharosd Hetzner credential must use the Janus env-file boundary")
 if "PHAROS_HCLOUD_PROJECT_LABEL=Pharos production" not in compose_text:
     raise SystemExit("pharosd Hetzner project label must identify the attended production scope")
@@ -391,31 +393,31 @@ if "value_returned=false" not in provider_render_text:
     raise SystemExit("production Hetzner renderer lacks value-free result evidence")
 if "chmod 0600 \"$output\"" not in provider_render_text:
     raise SystemExit("production Hetzner renderer does not enforce mode 600")
-if "JANUS_PHAROS_PROVIDER_CONSUMER_UID:-10001" not in provider_render_text:
-    raise SystemExit("production Hetzner renderer lacks the reviewed Pharos uid")
+if "janus_pharos_load_consumer_identity" not in provider_render_text:
+    raise SystemExit("production Hetzner renderer does not load the declared Pharos identity")
 if "PROVIDER_OUT_VOLUME" not in provider_render_text:
     raise SystemExit("production Hetzner renderer lacks an isolated output volume")
 if "janus_pharos_prepare_provider_runtime" not in provider_render_text:
     raise SystemExit("production Hetzner renderer does not use the isolated runtime preparer")
-if "janus_pharos_prepare_provider_mountpoint" not in provider_render_text:
-    raise SystemExit("production Hetzner renderer does not prepare its nested read-only mountpoint")
+if "janus_pharos_prepare_provider_mountpoint" in provider_render_text:
+    raise SystemExit("production Hetzner renderer retains the obsolete nested mountpoint")
 if 'janus_pharos_prepare_runtime "$IMAGE"' in provider_render_text:
     raise SystemExit("production Hetzner renderer must not re-own shared beacon volumes")
 if "--network none" not in provider_render_text:
     raise SystemExit("production Hetzner renderer does not deny secret-bearing network access")
 if provider_render_text.index("env-file preflight") > provider_render_text.index("request_use"):
     raise SystemExit("production Hetzner renderer must preflight before issuing a permit")
-if "janus_pharos_production_provider_out:/run/janus/env/pharos/providers:ro" not in compose_text:
+if "janus_pharos_production_provider_out:/run/pharos/providers:ro" not in compose_text:
     raise SystemExit("pharosd does not mount the isolated provider output read-only")
 if "JANUS_PHAROS_PROVIDER_OUT_VOLUME:-janus_pharos_production_provider_out" not in compose_text:
     raise SystemExit("compose does not declare the reviewed external provider output volume")
 provider_runtime_body = prod_runtime_text.split(
     "janus_pharos_prepare_provider_runtime()", 1
-)[1].split("janus_pharos_prepare_provider_mountpoint()", 1)[0]
+)[1].split("janus_pharos_prepare_age_identity()", 1)[0]
 if "/run/janus/env" in provider_runtime_body:
     raise SystemExit("provider runtime preparer must not re-own shared beacon output")
-if 'if ! first_entry=$(find "$mountpoint"' not in prod_runtime_text:
-    raise SystemExit("provider mountpoint preparer must reject hidden shared-volume content")
+if "janus_pharos_prepare_provider_mountpoint()" in prod_runtime_text:
+    raise SystemExit("runtime library retains the obsolete nested provider mountpoint")
 
 if agenix_source not in provider_import_text:
     raise SystemExit("production Hetzner importer does not use the reviewed agenix source")
