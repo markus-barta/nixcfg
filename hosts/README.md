@@ -288,7 +288,7 @@ SERVERS — {type}{n} (2025 scheme, unchanged):
 PERSONAL DEVICES — {type}{YYMM} (2026 scheme, YYMM = commission date):
   mbp2607                 ← MacBook Pro (Markus, commissioned 2026-07)
   mbp2606                 ← MacBook Pro (family hand-down; was mbp0)
-  gpc2607                 ← Gaming PC (rebuild recommission; was gpc0)
+  stm2607                 ← Steam Machine (SteamOS, built from gpc0's parts) — NOT a nixcfg host; OPS/Pharos appliance (gpc0 retired, teardown → OPS-21/22)
 ```
 
 Device renames roll out via NIX-214 (epic); tables below show pre-rename names until each ticket lands.
@@ -319,11 +319,13 @@ Device renames roll out via NIX-214 (epic); tables below show pre-rename names u
 
 #### Gaming Systems
 
-| Host   | Old Name      | Owner  | IP            | Theme | Status          |
-| ------ | ------------- | ------ | ------------- | ----- | --------------- |
-| `gpc0` | mba-gaming-pc | Markus | 192.168.1.154 | 💜    | ✅ **Migrated** |
-| `stm0` | -             | Family | -             | 💗    | ⏳ Future       |
-| `stm1` | -             | Family | -             | 💗    | ⏳ Future       |
+| Host      | Old Name       | Owner  | IP            | Theme | Status                                                   |
+| --------- | -------------- | ------ | ------------- | ----- | -------------------------------------------------------- |
+| `stm2607` | gpc0 (retired) | Markus | 192.168.1.154 | 💗    | 🎮 SteamOS appliance — **OPS/Pharos, not a nixcfg host** |
+| `stm0`    | -              | Family | -             | 💗    | ⏳ Future                                                |
+| `stm1`    | -              | Family | -             | 💗    | ⏳ Future                                                |
+
+> **gpc0 retired 2026-07** — hardware cannibalized to build **`stm2607`** (SteamOS gaming appliance, OPS/Pharos-managed; tracked in OPS-17). It is **no longer a nixcfg host**; removal of its nixcfg config + agenix recipient is pending under OPS-21/22.
 
 ---
 
@@ -369,7 +371,7 @@ All hosts have been migrated to the new naming scheme:
 
 **Gaming**:
 
-- gpc0, stm0, stm1 - Gaming systems
+- stm2607 (SteamOS, OPS/Pharos — was gpc0), stm0, stm1 - Gaming systems
 
 ---
 
@@ -385,7 +387,7 @@ All hosts have been migrated to the new naming scheme:
 
 ### Personal devices — `{type}{YYMM}` (2026 scheme)
 
-Type prefix + zero-padded commission date: `mbp2607`, `gpc2607`.
+Type prefix + zero-padded commission date: `mbp2607`, `stm2607`.
 
 - **YYMM = commission date into the fleet** (new buy = arrival month; rebuild = recommission month), not hardware age.
 - **Immutable after christening** — owner change does not rename (hand-me-downs keep their name).
@@ -412,7 +414,7 @@ hsb8          Parents (DNS/DHCP, 192.168.1.100) [was: msww87]
 
 ```text
 imac1         iMac (family, home) [was: wz-imac-mpe]
-gpc0          Gaming PC (Markus) [was: mba-gaming-pc]
+stm2607       Steam Machine (Markus, SteamOS) — OPS/Pharos, not a nixcfg host [was: gpc0]
 ```
 
 ### Pbek Hosts (Repository Owner/Friend)
