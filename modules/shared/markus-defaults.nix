@@ -9,7 +9,7 @@
 # personal studio (his context).
 #
 # Imported by every macOS host home.nix in this nixcfg. Future studios
-# (BYTEPOETS, family, paid-product context flakes) will define their own
+# (family, paid-product context flakes) will define their own
 # equivalent defaults file with their own identities / instances /
 # patterns — each studio consumes the same atelier and provides its own
 # private values.
@@ -17,15 +17,14 @@
 # What this provides:
 #   - inspr.git-identity.{identities, default, contexts}
 #       Personal (Markus Barta <markus@barta.com>) as default.
-#       BYTEPOETS context fires for github.com/{BYTEPOETS,bytepoets,bytepoets-mba}/*
-#       remotes (HTTPS + SSH form, both anchored).
+#       (BYTEPOETS context retired post-exit — INSPR-241.)
 #
-#   - inspr.git.atelier.{personal,bytepoets} (INSPR-170)
+#   - inspr.git.atelier.personal (INSPR-170)
 #       Strategy B SSH auth (per-host user keys) for fleet-wide federated
-#       git push/pull. Each host gets two keypairs (one per identity), both
+#       git push/pull. Each host gets a personal keypair,
 #       materialized via inspr.secrets.agents from the host's age/host/<h>/
 #       directory. github.com pubkeys are registered on the matching
-#       account (markus-barta / bytepoets-mba). The `hostKeys` lookup
+#       account (markus-barta). The `hostKeys` lookup
 #       below maps `hostname` (extraSpecialArg) to the host-specific
 #       key filenames + pubkeys.
 #
@@ -36,7 +35,7 @@
 #
 # Note: this module DOESN'T enable anything by itself — it just declares
 # values. The host's home.nix still needs `inspr.git-identity.enable = true`
-# / `inspr.git.atelier.{personal,bytepoets}.enable = true` etc. to actually
+# / `inspr.git.atelier.personal.enable = true` etc. to actually
 # apply.
 #
 {
@@ -60,12 +59,8 @@ let
         keyName = "m5-personal-userkey";
         pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM4sg88Rp+eGESk20Wo+1KNbKkluZFsGiZ+u6vnd9Whb m5-personal-userkey 2026-05-12";
       };
-      bytepoets = {
-        keyName = "m5-bytepoets-userkey";
-        pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN26yvYncUoYvFUrAZNZrieSra4hE44jiTEcjEuIfaTr m5-bytepoets-userkey 2026-05-12";
-      };
     };
-    # NIX-215: personal only — no BYTEPOETS key on this host (post-exit).
+    # mbp2607: personal only. (mbp0's BYTEPOETS push key removed post-exit — INSPR-241.)
     "mbp2607" = {
       personal = {
         keyName = "mbp2607-personal-userkey";
@@ -143,35 +138,6 @@ in
         name = "Markus Barta";
         email = "markus@barta.com";
       };
-      bytepoets = {
-        # Name updated 2026-05-12 (INSPR-170): align with the GH username
-        # bytepoets-mba so `git log` attribution matches push attribution.
-        name = "bytepoets-mba";
-        email = "markus.barta@bytepoets.com";
-      };
-    };
-
-    contexts.bytepoets = {
-      identity = "bytepoets";
-      gitdirs = [
-        "~/Code/BP/"
-        "~/Code/bytepoets/"
-      ];
-      # Pattern semantics (empirically verified): * and ** in
-      # hasconfig:remote.*.url do NOT cross URL-component boundaries
-      # (the / after scheme://host blocks the match). So each remote
-      # context needs both an HTTPS-anchored AND an SSH-anchored pattern.
-      remoteUrlPatterns = [
-        # github.com/BYTEPOETS/* (company org, exact case)
-        "https://github.com/BYTEPOETS/**"
-        "**:BYTEPOETS/**"
-        # github.com/bytepoets/* (lowercase safety net)
-        "https://github.com/bytepoets/**"
-        "**:bytepoets/**"
-        # github.com/bytepoets-mba/* (work user)
-        "https://github.com/bytepoets-mba/**"
-        "**:bytepoets-mba/**"
-      ];
     };
   };
 
@@ -187,17 +153,17 @@ in
   };
 
   # ── INSPR-170: fleet-wide federated git auth via atelier Strategy B ───
-  # Two ateliers per host, each carrying ONE user-level SSH key registered
-  # on the matching GitHub account. Owner-prefix URL rewrites pull every
-  # repo under markus-barta/* through the personal alias, and every repo
-  # under BYTEPOETS/* through the bytepoets alias. Per-atelier author
+  # One personal atelier per host, carrying ONE user-level SSH key registered
+  # on the markus-barta GitHub account. Owner-prefix URL rewrites pull every
+  # repo under markus-barta/* through the personal alias. Per-atelier author
   # identity stays owned by inspr.git-identity (path-/URL-includeIf already
-  # in place) — atelier.git.{userName,userEmail} intentionally left unset
-  # to avoid duplicate includeIf entries.
+  # in place) — atelier.git.{userName,userEmail} intentionally left unset to
+  # avoid duplicate includeIf entries. (BYTEPOETS atelier retired post-exit,
+  # INSPR-241.)
   #
-  # Enable flags here are `mkDefault false` so a host that doesn't want
-  # both ateliers (or any) can opt out individually. Hosts in `hostKeys`
-  # set `.enable = true` from their home.nix.
+  # Enable flag here is `mkDefault false` so a host that doesn't want the
+  # atelier can opt out. Hosts in `hostKeys` set `.enable = true` from
+  # their home.nix.
   inspr.git.atelier = lib.mkIf (thisHostKeys != null) {
     personal = {
       enable = lib.mkDefault false;
@@ -207,18 +173,6 @@ in
         owner = "markus-barta";
       };
       credentials.userKey = mkUserKey thisHostKeys.personal;
-    };
-    bytepoets = {
-      enable = lib.mkDefault false;
-      forge = {
-        kind = "github";
-        url = "https://github.com";
-        owner = "BYTEPOETS";
-        # bot-workspace repos (oc-workspace-percy, …) live under the
-        # bytepoets-mba account, not the BYTEPOETS org — same key/identity.
-        extraOwners = [ "bytepoets-mba" ];
-      };
-      credentials.userKey = mkUserKey thisHostKeys.bytepoets;
     };
   };
 }

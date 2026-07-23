@@ -150,7 +150,7 @@ fi
 
 docker run --rm \
   -v "${PERMIT_VOLUME}:/run/janus/permits" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'find /run/janus/permits -maxdepth 1 -type f \( -name "use_*.json" -o -name ".use_*.claim" \) -delete'
 
 secret_ref_for() {
@@ -308,7 +308,7 @@ render_env_file() {
 relax_sidecar_permissions() {
   docker run --rm --user 0 \
     -v "${OUT_VOLUME}:/run/janus/env" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 chmod 0750 /run/janus/env/pharos /run/janus/env/pharos/beacon-token-hashes
@@ -329,7 +329,7 @@ validate_outputs() {
 
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 host=$1
@@ -345,7 +345,7 @@ cat "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
 
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 host=$1
@@ -372,7 +372,7 @@ validate_generation() {
 
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 root=/run/janus/env/pharos/beacon-token-hashes
@@ -384,12 +384,12 @@ printf "%s\n" "$generation"
   IFS= read -r generation <"$generation_file"
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'set -eu; cat "/run/janus/env/pharos/beacon-token-hashes/generation-${1}.json"' sh "$generation" \
     >"$payload_file"
   docker run --rm \
     -v "${OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'set -eu; root=/run/janus/env/pharos/beacon-token-hashes; stat -c %a "${root}/current" "${root}/generation-${1}.json"' sh "$generation" \
     >"$mode_file"
 
@@ -422,7 +422,7 @@ validate_generation
 remaining_permits=$(
   docker run --rm \
     -v "${PERMIT_VOLUME}:/run/janus/permits:ro" \
-    --entrypoint sh "$IMAGE" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'find /run/janus/permits -maxdepth 1 -type f | wc -l | tr -d " "'
 )
 if [ "$remaining_permits" != "0" ]; then

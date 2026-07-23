@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck disable=SC1091
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/runtime-image-policy.sh"
+
 janus_pharos_prepare_runtime() {
   local image=$1
   local contract_dir=$2
@@ -29,12 +32,9 @@ janus_pharos_prepare_runtime() {
     docker volume create "$volume" >/dev/null
   done
 
-  JANUS_PHAROS_CONTAINER_UID=$(docker run --rm --network none --entrypoint id "$image" -u)
-  JANUS_PHAROS_CONTAINER_GID=$(docker run --rm --network none --entrypoint id "$image" -g)
-  if [ "$JANUS_PHAROS_CONTAINER_UID" = 0 ]; then
-    printf 'janus pharos runtime refused an image whose default user is root\n' >&2
-    return 1
-  fi
+  janus_assert_static_runtime_image "$image"
+  JANUS_PHAROS_CONTAINER_UID=$JANUS_RUNTIME_UID
+  JANUS_PHAROS_CONTAINER_GID=$JANUS_RUNTIME_GID
 
   docker run --rm --network none --user 0 \
     -v "${JANUS_PHAROS_AGE_VOLUME}:/run/janus/age" \
@@ -44,7 +44,7 @@ janus_pharos_prepare_runtime() {
     -v "${JANUS_PHAROS_METADATA_VOLUME}:/var/lib/janus/metadata" \
     -v "${JANUS_PHAROS_LIFECYCLE_VOLUME}:/var/lib/janus/lifecycle" \
     -v "${metadata_source}:/bootstrap/metadata.toml:ro" \
-    --entrypoint sh "$image" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 uid=$1
@@ -129,19 +129,16 @@ janus_pharos_prepare_provider_runtime() {
     docker volume create "$volume" >/dev/null
   done
 
-  JANUS_PHAROS_CONTAINER_UID=$(docker run --rm --network none --entrypoint id "$image" -u)
-  JANUS_PHAROS_CONTAINER_GID=$(docker run --rm --network none --entrypoint id "$image" -g)
-  if [ "$JANUS_PHAROS_CONTAINER_UID" = 0 ]; then
-    printf 'janus pharos provider runtime refused an image whose default user is root\n' >&2
-    return 1
-  fi
+  janus_assert_static_runtime_image "$image"
+  JANUS_PHAROS_CONTAINER_UID=$JANUS_RUNTIME_UID
+  JANUS_PHAROS_CONTAINER_GID=$JANUS_RUNTIME_GID
 
   docker run --rm --network none --user 0 \
     -v "${JANUS_PHAROS_AGE_VOLUME}:/run/janus/age" \
     -v "${JANUS_PHAROS_STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${JANUS_PHAROS_METADATA_VOLUME}:/var/lib/janus/metadata" \
     -v "${metadata_source}:/bootstrap/metadata.toml:ro" \
-    --entrypoint sh "$image" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 uid=$1
@@ -194,7 +191,7 @@ janus_pharos_prepare_provider_mountpoint() {
   docker volume create "$shared_out_volume" >/dev/null
   docker run --rm --network none --user 0 \
     -v "${shared_out_volume}:/run/janus/env" \
-    --entrypoint sh "$image" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c '
 set -eu
 parent=/run/janus/env/pharos
@@ -226,7 +223,7 @@ janus_pharos_prepare_age_identity() {
 
   if docker run --rm --network none \
     -v "${age_volume}:/run/janus/age" \
-    --entrypoint sh "$image" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub'; then
     return 0
   fi
@@ -255,7 +252,7 @@ janus_pharos_prepare_age_identity() {
     tar -C "$key_dir" -cf - identity recipient.pub |
       docker run -i --rm --network none --user 0 \
         -v "${age_volume}:/run/janus/age" \
-        --entrypoint sh "$image" \
+        --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
         -c '
 set -eu
 uid=$1

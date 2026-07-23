@@ -32,6 +32,18 @@ jobs:
       - name: Verify deterministic Pharos fleet release updates
         run: tests/T22-pharos-release-update.sh
 
+      - name: Verify Janus container least privilege and shell-free runtime
+        run: tests/T23-janus-container-hardening.sh
+
+      - name: Reject deprecated NixOS host-platform and scripted-initrd options
+        run: tests/T24-nixos-deprecation-cleanup.sh
+
+      - name: Enforce IR bridge destination and log boundaries
+        run: tests/T25-ir-bridge-boundaries.sh
+
+      - name: Enforce funkeykid config and sound path boundaries
+        run: tests/T26-funkeykid-path-boundaries.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
@@ -44,6 +56,7 @@ jobs:
           - hsb0
           - hsb1
           - hsb8
+          - hsb9
           - gpc0
           - csb0
           - csb1

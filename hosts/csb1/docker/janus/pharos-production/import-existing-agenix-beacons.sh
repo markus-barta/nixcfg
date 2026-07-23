@@ -16,6 +16,8 @@ ALLOW_MISSING_TEXT=${JANUS_PHAROS_ALLOW_MISSING_HOSTS:-}
 SSH_OPTS=${JANUS_PHAROS_SSH_OPTS:-"-o BatchMode=yes -o ConnectTimeout=8"}
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 RETIREMENTS_FILE=${JANUS_PHAROS_RETIREMENTS_FILE:-${SCRIPT_DIR}/retired-hosts.json}
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../runtime-image-policy.sh"
 
 read -r -a HOSTS <<<"$HOSTS_TEXT"
 ALLOW_MISSING=()
@@ -149,11 +151,11 @@ if [ -z "$IMAGE" ]; then
   exit 1
 fi
 
-container_uid=$(remote_csb1 "docker run --rm --entrypoint id '$IMAGE' -u")
-container_gid=$(remote_csb1 "docker run --rm --entrypoint id '$IMAGE' -g")
+container_uid=$JANUS_RUNTIME_UID
+container_gid=$JANUS_RUNTIME_GID
 
 recipient=$(
-  remote_csb1 "docker run --rm -v '${AGE_VOLUME}:/run/janus/age:ro' --entrypoint cat '$IMAGE' /run/janus/age/recipient.pub" |
+  remote_csb1 "docker run --rm -v '${AGE_VOLUME}:/run/janus/age:ro' --entrypoint cat '$JANUS_VOLUME_HELPER_IMAGE' /run/janus/age/recipient.pub" |
     tr -d '\r\n'
 )
 if [ -z "$recipient" ]; then
@@ -219,7 +221,7 @@ trap 'rm -f $(bash_quote "$remote_tmp")' EXIT
 docker run --rm --user 0 \\
   -v $(bash_quote "${STORE_VOLUME}:/var/lib/janus/secrets") \\
   -v $(bash_quote "${remote_tmp}:/tmp/input.age:ro") \\
-  --entrypoint sh $(bash_quote "$IMAGE") \\
+  --entrypoint sh $(bash_quote "$JANUS_VOLUME_HELPER_IMAGE") \\
   -c $(bash_quote "$docker_script") \\
   sh $(bash_quote "$host") $(bash_quote "$secret_name") $(bash_quote "$container_uid") $(bash_quote "$container_gid")
 EOF
