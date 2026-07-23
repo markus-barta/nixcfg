@@ -14,7 +14,7 @@ CONTRACT_NAME=${JANUS_PHAROS_CONTRACT_NAME:-$(basename "$SCRIPT_DIR")}
 COMPOSE_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 IMAGE=${JANUS_ENGINE_IMAGE:-}
 # shellcheck disable=SC1091
-source "${SCRIPT_DIR}/../runtime-image-policy.sh"
+source "${SCRIPT_DIR}/../pharos-production/runtime-lib.sh"
 SMOKE_ROOT=${JANUS_PHAROS_SMOKE_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-pharos-sidecar-smoke/${CONTRACT_NAME}"}
 VOLUME_PREFIX=${JANUS_PHAROS_SMOKE_VOLUME_PREFIX:-janus_pharos_sidecar_smoke_${CONTRACT_NAME}}
 RUN_SCOPE=${JANUS_PHAROS_SMOKE_SCOPE:-pharos/csb1/${CONTRACT_NAME}}
@@ -82,11 +82,16 @@ if [ -z "$IMAGE" ]; then
   exit 1
 fi
 
+janus_pharos_load_consumer_identity "$COMPOSE_DIR"
+consumer_uid=$JANUS_PHAROS_CONSUMER_UID
+consumer_gid=$JANUS_PHAROS_CONSUMER_GID
+
 umask 077
 AGE_VOLUME="${VOLUME_PREFIX}_age"
 STORE_VOLUME="${VOLUME_PREFIX}_secrets"
 PERMIT_VOLUME="${VOLUME_PREFIX}_permits"
 OUT_VOLUME="${VOLUME_PREFIX}_out"
+HASH_OUT_VOLUME="${VOLUME_PREFIX}_hash_out"
 TMP_DIR=$(mktemp -d)
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -106,6 +111,7 @@ docker volume create "$AGE_VOLUME" >/dev/null
 docker volume create "$STORE_VOLUME" >/dev/null
 docker volume create "$PERMIT_VOLUME" >/dev/null
 docker volume create "$OUT_VOLUME" >/dev/null
+docker volume create "$HASH_OUT_VOLUME" >/dev/null
 
 docker run --rm --user 0 \
   -v "${AGE_VOLUME}:/run/janus/age" \
@@ -139,32 +145,8 @@ chmod 0700 \
 find /run/janus/env/pharos/beacon-token-hashes -maxdepth 1 -type f -exec chmod 0600 {} +
 ' sh "$container_uid" "$container_gid"
 
-if ! docker run --rm \
-  -v "${AGE_VOLUME}:/run/janus/age" \
-  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-  -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub'; then
-  keygen_out=$(age-keygen 2>&1)
-  recipient=$(printf '%s\n' "$keygen_out" | sed -n 's/^Public key: //p' | head -n1)
-  identity=$(printf '%s\n' "$keygen_out" | sed -n 's/.*\(AGE-SECRET-KEY-[A-Z0-9]*\).*/\1/p' | head -n1)
-  if [ -z "$recipient" ] || [ -z "$identity" ]; then
-    printf 'failed to generate smoke age identity\n' >&2
-    exit 1
-  fi
-  printf '%s\n%s\n' "$identity" "$recipient" |
-    docker run -i --rm \
-      -v "${AGE_VOLUME}:/run/janus/age" \
-      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-      -c '
-        set -eu
-        umask 077
-        IFS= read -r identity
-        IFS= read -r recipient
-        printf "%s\n" "$identity" >/run/janus/age/identity
-        printf "%s\n" "$recipient" >/run/janus/age/recipient.pub
-        chmod 0400 /run/janus/age/identity
-        chmod 0444 /run/janus/age/recipient.pub
-      '
-fi
+janus_pharos_prepare_age_identity \
+  "$IMAGE" "$AGE_VOLUME" "$container_uid" "$container_gid"
 
 recipient=$(
   docker run --rm \
@@ -363,23 +345,6 @@ render_env_file() {
   fi
 }
 
-relax_sidecar_permissions() {
-  docker run --rm --user 0 \
-    -v "${OUT_VOLUME}:/run/janus/env" \
-    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-    -c '
-set -eu
-chmod 0750 /run/janus/env/pharos /run/janus/env/pharos/beacon-token-hashes
-chmod 0640 \
-  /run/janus/env/pharos/beacon-token-hashes/current \
-  /run/janus/env/pharos/beacon-token-hashes/generation-*.json
-for host do
-  chmod 0600 "/run/janus/env/pharos/beacons/${host}.env"
-  chmod 0640 "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
-done
-' sh "${HOSTS[@]}"
-}
-
 validate_outputs() {
   host=$1
   expected_hash=$(<"${TMP_DIR}/${host}.sha256")
@@ -418,8 +383,8 @@ stat -c "%a %n" \
     printf 'janus pharos sidecar smoke failed: env file is not mode 600 for %s\n' "$host" >&2
     exit 1
   fi
-  if [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" != "640" ]; then
-    printf 'janus pharos sidecar smoke failed: sidecar file is not mode 640 for %s\n' "$host" >&2
+  if [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" != "600" ]; then
+    printf 'janus pharos sidecar smoke failed: private sidecar file is not mode 600 for %s\n' "$host" >&2
     exit 1
   fi
 }
@@ -460,8 +425,8 @@ printf "%s\n" "$generation"
       and ([.hosts[].name] | unique | length) == $expected_count
       and all(.hosts[]; (.name | test("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")) and (.token_sha256 | test("^[0-9a-f]{64}$")))' \
     "$payload_file" >/dev/null
-  [ "$(awk 'NR == 1 { print $1 }' "$mode_file")" = 640 ]
-  [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" = 640 ]
+  [ "$(awk 'NR == 1 { print $1 }' "$mode_file")" = 600 ]
+  [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" = 600 ]
 }
 
 for host in "${HOSTS[@]}"; do
@@ -473,12 +438,12 @@ for host in "${HOSTS[@]}"; do
   render_env_file "$host" "$secret_name" "$permit"
 done
 
-relax_sidecar_permissions
-
 for host in "${HOSTS[@]}"; do
   validate_outputs "$host"
 done
 validate_generation
+janus_pharos_publish_hash_projection \
+  "$OUT_VOLUME" "$HASH_OUT_VOLUME" "$consumer_uid" "$consumer_gid"
 
 remaining_permits=$(
   docker run --rm \
@@ -491,5 +456,5 @@ if [ "$remaining_permits" != "0" ]; then
   exit 1
 fi
 
-printf 'ok: janus pharos sidecar smoke passed contract=%s hosts=%s value_returned=false sidecars=validated permits_consumed=true volumes=%s,%s,%s,%s\n' \
-  "$CONTRACT_NAME" "${#HOSTS[@]}" "$AGE_VOLUME" "$STORE_VOLUME" "$PERMIT_VOLUME" "$OUT_VOLUME"
+printf 'ok: janus pharos sidecar smoke passed contract=%s hosts=%s value_returned=false sidecars=validated consumer_projection=validated permits_consumed=true volumes=%s,%s,%s,%s,%s\n' \
+  "$CONTRACT_NAME" "${#HOSTS[@]}" "$AGE_VOLUME" "$STORE_VOLUME" "$PERMIT_VOLUME" "$OUT_VOLUME" "$HASH_OUT_VOLUME"

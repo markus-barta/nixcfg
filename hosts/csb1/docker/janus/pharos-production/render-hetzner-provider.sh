@@ -14,7 +14,6 @@ SCRIPT_DIR=$(cd -- "${JANUS_PHAROS_CONTRACT_DIR:-$DEFAULT_SCRIPT_DIR}" && pwd)
 COMPOSE_DIR=$(cd -- "${DEFAULT_SCRIPT_DIR}/../.." && pwd)
 IMAGE=${JANUS_ENGINE_IMAGE:-}
 VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
-SHARED_OUT_VOLUME=${VOLUME_PREFIX}_out
 PROVIDER_OUT_VOLUME=${JANUS_PHAROS_PROVIDER_OUT_VOLUME:-${VOLUME_PREFIX}_provider_out}
 PROVIDER_PERMIT_VOLUME=${JANUS_PHAROS_PROVIDER_PERMIT_VOLUME:-${VOLUME_PREFIX}_provider_permits}
 RUN_SCOPE=${JANUS_PHAROS_SCOPE:-pharos/csb1/production}
@@ -25,8 +24,6 @@ SCOPE_ENVIRONMENT=${JANUS_PHAROS_SCOPE_ENVIRONMENT:-production}
 PREPARE_ONLY=${JANUS_PHAROS_PREPARE_ONLY:-0}
 EXPECTED_HOST=${JANUS_PHAROS_PROVIDER_HOST:-csb1}
 LOCK_FILE=${JANUS_PHAROS_PROVIDER_LOCK_FILE:-/run/lock/janus-pharos-production.lock}
-CONSUMER_UID=${JANUS_PHAROS_PROVIDER_CONSUMER_UID:-10001}
-CONSUMER_GID=${JANUS_PHAROS_PROVIDER_CONSUMER_GID:-999}
 AGE_PROFILE=hetzner-cloud
 PROFILE_ID=profile.PHAROS_HCLOUD_API_TOKEN
 DESTINATION=pharos-provider-hetzner-cloud
@@ -53,21 +50,6 @@ validate_identifier() {
   esac
 }
 
-validate_numeric_id() {
-  local name=$1
-  local value=$2
-  case "$value" in
-  "" | *[!0-9]*)
-    printf 'invalid %s\n' "$name" >&2
-    exit 1
-    ;;
-  esac
-  if [ "$value" = 0 ]; then
-    printf '%s must be non-root\n' "$name" >&2
-    exit 1
-  fi
-}
-
 require_command awk
 require_command docker
 require_command flock
@@ -85,9 +67,6 @@ validate_identifier JANUS_PHAROS_SCOPE_ORGANIZATION "$SCOPE_ORGANIZATION"
 validate_identifier JANUS_PHAROS_SCOPE_PROJECT "$SCOPE_PROJECT"
 validate_identifier JANUS_PHAROS_SCOPE_REPOSITORY "$SCOPE_REPOSITORY"
 validate_identifier JANUS_PHAROS_SCOPE_ENVIRONMENT "$SCOPE_ENVIRONMENT"
-validate_numeric_id JANUS_PHAROS_PROVIDER_CONSUMER_UID "$CONSUMER_UID"
-validate_numeric_id JANUS_PHAROS_PROVIDER_CONSUMER_GID "$CONSUMER_GID"
-
 if [ "$(id -u)" != 0 ]; then
   printf 'run the Hetzner provider renderer as root on csb1\n' >&2
   exit 1
@@ -117,6 +96,10 @@ if [ -z "$IMAGE" ]; then
   printf 'could not resolve janus-engine-staged image from docker-compose.yml\n' >&2
   exit 1
 fi
+
+janus_pharos_load_consumer_identity "$COMPOSE_DIR"
+CONSUMER_UID=$JANUS_PHAROS_CONSUMER_UID
+CONSUMER_GID=$JANUS_PHAROS_CONSUMER_GID
 
 TMP_DIR=$(mktemp -d)
 provider_ownership_staged=0
@@ -176,8 +159,6 @@ STORE_VOLUME=$JANUS_PHAROS_STORE_VOLUME
 METADATA_VOLUME=$JANUS_PHAROS_METADATA_VOLUME
 container_uid=$JANUS_PHAROS_CONTAINER_UID
 container_gid=$JANUS_PHAROS_CONTAINER_GID
-
-janus_pharos_prepare_provider_mountpoint "$IMAGE" "$SHARED_OUT_VOLUME"
 
 janus_pharos_prepare_age_identity \
   "$IMAGE" "$AGE_VOLUME" "$container_uid" "$container_gid"
