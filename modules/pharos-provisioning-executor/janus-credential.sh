@@ -18,6 +18,7 @@ job_id=${2:-}
 host=${3:-}
 credential_ref=${4:-}
 output_root=${5:-}
+credential_may_exist=false
 
 fail() {
   local reason=$1
@@ -27,12 +28,28 @@ fail() {
   exit 1
 }
 
-for dependency in awk docker flock git jq python3 sed tr; do
+# Invoked only for an unexpected shell failure; explicit contract failures use
+# fail() above and retain their reviewed reason.
+# shellcheck disable=SC2329
+unexpected_failure() {
+  local failure_status=$?
+  local failure_reason=janus_unavailable
+  trap - ERR
+  if [ "$credential_may_exist" = true ]; then
+    failure_reason=uncertain_execution
+  fi
+  printf 'janus_managed_beacon=failed reason=%s value_returned=false credential_created=%s\n' \
+    "$failure_reason" "$credential_may_exist" >&2
+  exit "$failure_status"
+}
+trap unexpected_failure ERR
+
+for dependency in awk docker flock git grep jq python3 sed stat tr; do
   command -v "$dependency" >/dev/null 2>&1 || fail janus_unavailable false
 done
 
 case "$mode" in
-issue | retire) ;;
+issue | prove-absent | retire) ;;
 *) fail result_contract_invalid false ;;
 esac
 [[ "$job_id" =~ ^[a-z0-9][a-z0-9._-]{0,159}$ ]] || fail result_contract_invalid false
@@ -112,6 +129,119 @@ image=$(
 )
 [ -n "$image" ] || fail janus_unavailable false
 
+job_dir="$STATE_DIR/janus/$job_id"
+if [ "$mode" = prove-absent ]; then
+  docker image inspect "$image" >/dev/null 2>&1 || fail janus_unavailable false
+  [ -d /run/lock ] && [ ! -L /run/lock ] || fail janus_unavailable false
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || fail janus_unavailable false
+
+  if [ -e "$job_dir" ] || [ -L "$job_dir" ]; then
+    [ -d "$job_dir" ] && [ ! -L "$job_dir" ] ||
+      fail uncertain_execution false
+    [ "$(stat -c '%u %a' "$job_dir" 2>/dev/null)" = "0 700" ] ||
+      fail uncertain_execution false
+    jq -e \
+      --arg job "$job_id" \
+      --arg host "$host" \
+      --arg credential_ref "$credential_ref" '
+      .schema == "inspr.pharos.managed-janus-contract.v1"
+      and .version == 1
+      and .job == $job
+      and .host == $host
+      and .credential_ref == $credential_ref
+      and (keys | sort == ["credential_ref","host","job","schema","version"])
+    ' "$job_dir/contract.json" >/dev/null 2>&1 ||
+      fail uncertain_execution false
+  fi
+
+  volume_present() {
+    local volume=$1
+    local matches
+    if ! matches=$(docker volume ls --quiet --filter "name=^${volume}$" 2>/dev/null); then
+      return 2
+    fi
+    if [ -z "$matches" ]; then
+      return 1
+    fi
+    [ "$matches" = "$volume" ] || return 2
+    docker volume inspect "$volume" >/dev/null 2>&1 || return 2
+  }
+
+  volume_path_absent() {
+    local volume=$1
+    local path=$2
+    local presence
+    if volume_present "$volume"; then
+      presence=0
+    else
+      presence=$?
+    fi
+    case "$presence" in
+    0) ;;
+    1) return 0 ;;
+    *) return 1 ;;
+    esac
+    docker run --rm --network none --read-only \
+      -v "${volume}:/proof:ro" \
+      --entrypoint sh "$image" -c '
+set -eu
+path=$1
+test ! -e "/proof/${path}"
+test ! -L "/proof/${path}"
+' sh "$path" >/dev/null 2>&1
+  }
+
+  volume_metadata_absent() {
+    local volume=$1
+    local name=$2
+    local presence
+    if volume_present "$volume"; then
+      presence=0
+    else
+      presence=$?
+    fi
+    case "$presence" in
+    0) ;;
+    1) return 0 ;;
+    *) return 1 ;;
+    esac
+    docker run --rm --network none --read-only \
+      -v "${volume}:/proof:ro" \
+      --entrypoint sh "$image" -c '
+set -eu
+name=$1
+path=/proof/metadata.toml
+test -f "$path"
+test ! -L "$path"
+! grep -Eq "^[[:space:]]*name[[:space:]]*=[[:space:]]*\"${name}\"[[:space:]]*$" "$path"
+' sh "$name" >/dev/null 2>&1
+  }
+
+  volume_path_absent \
+    "${VOLUME_PREFIX}_lifecycle" \
+    "provisioning-entries/${operation_id}.json" ||
+    fail uncertain_execution false
+  volume_path_absent \
+    "${VOLUME_PREFIX}_secrets" \
+    "pharos/${host}/${secret_name}.age" ||
+    fail uncertain_execution false
+  volume_path_absent \
+    "${VOLUME_PREFIX}_out" \
+    "pharos/beacons/${host}.env" ||
+    fail uncertain_execution false
+  volume_path_absent \
+    "${VOLUME_PREFIX}_out" \
+    "pharos/beacon-token-hashes/${host}.json" ||
+    fail uncertain_execution false
+  volume_metadata_absent \
+    "${VOLUME_PREFIX}_metadata" \
+    "$secret_name" ||
+    fail uncertain_execution false
+  printf 'janus_managed_beacon=absent value_returned=false credential_created=false\n'
+  exit 0
+fi
+
 mkdir -p "$STATE_DIR/janus" /run/lock
 chmod 0700 "$STATE_DIR" "$STATE_DIR/janus"
 exec 9>"$LOCK_FILE"
@@ -128,7 +258,6 @@ janus_pharos_prepare_age_identity \
   "$JANUS_PHAROS_CONTAINER_UID" \
   "$JANUS_PHAROS_CONTAINER_GID" >/dev/null 2>&1 || fail janus_unavailable false
 
-job_dir="$STATE_DIR/janus/$job_id"
 ensure_contract() {
   local temporary reviewed_at scope_ref
   if [ -d "$job_dir" ] && [ ! -L "$job_dir" ]; then
@@ -358,6 +487,9 @@ test ! -e "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
 
 if [ "$mode" = retire ]; then
   phase=$(entry_phase)
+  if [ "$phase" = completed ]; then
+    credential_may_exist=true
+  fi
   case "$phase" in
   absent | rolled_back)
     verify_absent || fail uncertain_execution true
@@ -406,8 +538,12 @@ invalid) fail result_contract_invalid false ;;
 applying | stored | activating | rolling_back | failed) fail uncertain_execution true ;;
 rolled_back) fail janus_rejected false ;;
 esac
+if [ "$phase" = validated ] || [ "$phase" = completed ]; then
+  credential_may_exist=true
+fi
 if [ "$phase" = preflighted ]; then
   run_entry apply validated || fail uncertain_execution true
+  credential_may_exist=true
   phase=validated
 fi
 if [ "$phase" = validated ]; then
