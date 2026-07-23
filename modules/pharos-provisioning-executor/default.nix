@@ -92,6 +92,7 @@ let
           "@IDENTITY_FILE@"
           "@SSH_KEY_REF@"
           "@BOOTSTRAP_TEMPLATE@"
+          "@PUBLIC_KEY_HELPER@"
           "@JANUS_HELPER@"
         ]
         [
@@ -104,6 +105,7 @@ let
           cfg.identityFile
           cfg.sshKeyRef
           "${bootstrapTemplate}"
+          "${./public-key.sh}"
           "${janusCredential}/bin/pharos-managed-janus-credential"
         ];
   };

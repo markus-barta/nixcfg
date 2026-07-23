@@ -13,6 +13,9 @@ readonly BOOTSTRAP_TEMPLATE='@BOOTSTRAP_TEMPLATE@'
 readonly JANUS_HELPER='@JANUS_HELPER@'
 readonly PENDING_RESULT="$STATE_DIR/pending-result.json"
 
+# shellcheck disable=SC1091
+source '@PUBLIC_KEY_HELPER@'
+
 [ "$(id -u)" -eq 0 ]
 [[ "$OWNER" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]
 [[ "$PHAROS_AGENT_URL" =~ ^http://[0-9.]+:[0-9]+$ ]]
@@ -327,8 +330,14 @@ fi
   finish
 }
 
+raw_public_key_file="$run_dir/executor.raw.pub"
 public_key_file="$run_dir/executor.pub"
-if ! ssh-keygen -y -P '' -f "$IDENTITY_FILE" >"$public_key_file" 2>"$run_dir/keygen.err"; then
+if ! ssh-keygen -y -P '' -f "$IDENTITY_FILE" >"$raw_public_key_file" 2>"$run_dir/keygen.err"; then
+  reason=ssh_identity_unavailable
+  finish
+fi
+chmod 0600 "$raw_public_key_file"
+if ! canonicalize_ed25519_public_key "$raw_public_key_file" "$public_key_file"; then
   reason=ssh_identity_unavailable
   finish
 fi
