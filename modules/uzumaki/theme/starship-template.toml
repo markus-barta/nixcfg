@@ -21,7 +21,7 @@
 
 # Default is 500ms — too tight for `git rev-parse` on macOS when Spotlight
 # / FileVault / FS-level interceptors add latency. Raises ceiling without
-# silencing legitimate slowness. (Fix for the [custom.gitcount] `when` gate.)
+# silencing legitimate slowness. (Fix for the [custom.githash] `when` gate.)
 command_timeout = 1500
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -45,7 +45,7 @@ $hostname\
 $jobs\
 $git_branch\
 $git_status\
-${custom.gitcount}\
+${custom.githash}\
 [__PL_RIGHT_SOFT__](fg:__MIDDARK__ bg:__DARK__)\
 $nodejs\
 $python\
@@ -146,8 +146,8 @@ format = '[[ $symbol $branch ](fg:__TEXT_ACCENT__ bg:__MIDDARK__)]($style)'
 style = "bg:__MIDDARK__"
 format = '[[($all_status$ahead_behind )](fg:__TEXT_ACCENT__ bg:__MIDDARK__)]($style)'
 
-[custom.gitcount]
-command = "git rev-list --count HEAD 2>/dev/null"
+[custom.githash]
+command = "git rev-parse --short HEAD 2>/dev/null"
 when = "git rev-parse --is-inside-work-tree 2>/dev/null"
 style = "bg:__MIDDARK__"
 format = "[[#$output ](fg:__TEXT_MUTED__ bg:__MIDDARK__)]($style)"
