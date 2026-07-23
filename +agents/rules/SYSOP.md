@@ -102,7 +102,7 @@ Current Context                Target Host              Reachable?
 ## 📋 Operation Loop (MANDATORY)
 
 1. **Plan**: State what, why, risk (🔴/🟡/🟢).
-2. **Commit**: Ensure local changes are committed before remote ops.
+2. **Commit**: Run `just format` (and let pre-commit hooks run — never `--no-verify`) so formatting is clean, THEN commit local changes before remote ops. Push only formatted, hook-passing commits — an unformatted push fails the `📄 Check formatting` / flake CI, and GitHub emails the repo owner once per failed run. Iterate locally until green before pushing.
 3. **Execute**:
    - **Local**: Edit files in `nixcfg` repo.
    - **Remote**: Push to GitHub → Suggest current FleetCom / fleet status surface.
