@@ -306,11 +306,69 @@ docker compose up -d --no-deps pharosd
 ```
 
 Expected value-free evidence includes `value_returned=false`,
-`hash_format=none`, `mode=600`, and `permits_consumed=true`. Keep
-`PHAROS_HCLOUD_EXECUTE=0` while using the authenticated **Test connection**
-action. The one-time `pharosd` recreation installs the isolated nested volume
-mount; later credential re-renders are read per operation and need no restart.
-Enabling paid execution is a separate reviewed and attended change.
+`hash_format=none`, `mode=600`, and `permits_consumed=true`. The one-time
+`pharosd` recreation installs the isolated nested volume mount; later
+credential re-renders are read per operation and need no restart.
+
+Managed creation is activated only after the dedicated executor identity is
+deployed root-only, its derived public key exactly matches the
+`pharos-csb1-executor` key selected in the attended Hetzner project, and the
+three reviewed gates agree:
+
+- `inspr.pharosProvisioningExecutor.enable = true`
+- `PHAROS_PROVISIONING_EXECUTOR_READY=1`
+- `PHAROS_HCLOUD_EXECUTE=1`
+
+Deploy the host executor before exposing managed creation in `pharosd`. From a
+clean `main` checkout at the reviewed remote revision on csb1:
+
+```bash
+bash -c '
+set -euo pipefail
+cd ~/Code/nixcfg
+pharos_container_before=$(docker inspect --format "{{.Id}}" pharosd)
+just switch
+pharos_container_after=$(docker inspect --format "{{.Id}}" pharosd)
+if [ "$pharos_container_before" != "$pharos_container_after" ]; then
+  printf "pharosd was unexpectedly recreated during just switch; stop here\n" >&2
+  exit 1
+fi
+systemctl is-enabled pharos-provisioning-executor.timer
+systemctl is-active pharos-provisioning-executor.timer
+sudo systemctl start pharos-provisioning-executor.service
+systemctl show pharos-provisioning-executor.service \
+  --property=ConditionResult --property=Result --property=ExecMainStatus --no-pager
+cd hosts/csb1/docker
+docker compose up -d --no-deps --force-recreate pharosd
+curl --fail --silent --show-error http://127.0.0.1:8088/readyz >/dev/null
+'
+```
+
+The container identity comparison is a mandatory guard: the NixOS switch must
+not recreate `pharosd` before the executor check. Both timer checks must
+succeed and the pre-activation one-shot service must report `Result=success`
+and `ExecMainStatus=0`, with `ConditionResult=yes`, before recreating
+`pharosd`. Because the still-running Pharos instance has managed creation
+disabled, this poll cannot claim paid work; it validates the executor's local
+runtime conditions and safe deferral path. The readiness request must then
+return success. Do not inspect secret files, process environments, or raw
+request output.
+
+After deployment, open the Pharos Hetzner connection and run **Test
+connection** once. This is an authenticated read-only catalog refresh and must
+show the dedicated executor key, selected firewall, and location as ready.
+Opening the server assistant and reviewing a plan do not mutate the provider.
+Stop before the final create confirmation: the first paid server remains a
+separate attended PHAROS-146 action after its exact server type, location,
+image, and displayed price are reviewed.
+
+If the timer, readiness request, or no-job executor check fails, do not attempt
+server creation. Restore all three gates to their disabled values in one
+reviewed rollback, and restore the corresponding disabled-state assertions in
+T06 and T28 so the rollback remains CI-green. After pulling that rollback on
+csb1, recreate `pharosd` first so `PHAROS_HCLOUD_EXECUTE=0` removes the
+paid-provider capability, verify its readiness, and only then run `just switch`
+to disable the executor timer.
 
 To validate Pharos credential retirement without touching production material:
 
