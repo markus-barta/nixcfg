@@ -2,9 +2,9 @@
 set -Eeuo pipefail
 
 on_error() {
-	local status=$?
-	local line=${1:-unknown}
-	printf 'janus pharos retirement failed near line %s status=%s\n' "$line" "$status" >&2
+  local status=$?
+  local line=${1:-unknown}
+  printf 'janus pharos retirement failed near line %s status=%s\n' "$line" "$status" >&2
 }
 trap 'on_error "$LINENO"' ERR
 
@@ -29,16 +29,16 @@ host=${2:-}
 source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
 
 fail() {
-	printf 'janus_pharos_retirement=failed reason=%s value_returned=false provider_deleted=false\n' "$1" >&2
-	exit 1
+  printf 'janus_pharos_retirement=failed reason=%s value_returned=false provider_deleted=false\n' "$1" >&2
+  exit 1
 }
 
 require_command() {
-	command -v "$1" >/dev/null 2>&1 || fail missing_dependency
+  command -v "$1" >/dev/null 2>&1 || fail missing_dependency
 }
 
 valid_identifier() {
-	[[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]]
 }
 
 case "$mode" in
@@ -56,7 +56,7 @@ valid_identifier "$SCOPE_ENVIRONMENT" || fail invalid_scope_environment
 [[ "$RETENTION_DAYS" =~ ^[1-9][0-9]*$ ]] || fail invalid_retention
 
 for dependency in awk docker flock git jq; do
-	require_command "$dependency"
+  require_command "$dependency"
 done
 
 [[ -f "$SCRIPT_DIR/secretspec.toml" ]] || fail missing_contract
@@ -91,28 +91,28 @@ disposition=$(jq -r --arg host "$host" '.retirements[] | select(.host == $host) 
 successor=$(jq -r --arg host "$host" '.retirements[] | select(.host == $host) | .successor // empty' "$RETIREMENTS_FILE")
 
 if [ "$FIXTURE" != 1 ]; then
-	[[ "$SCRIPT_DIR" = "$DEFAULT_SCRIPT_DIR" ]] || fail unreviewed_contract_path
-	[[ "$RETIREMENTS_FILE" = "$DEFAULT_SCRIPT_DIR/retired-hosts.json" ]] || fail unreviewed_intent_path
-	[[ "$(git -C "$REPO_ROOT" branch --show-current)" = main ]] || fail checkout_not_main
-	[[ -z "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ]] || fail checkout_not_clean
-	local_revision=$(git -C "$REPO_ROOT" rev-parse HEAD)
-	reviewed_revision=$(git -C "$REPO_ROOT" rev-parse origin/main)
-	[[ "$local_revision" = "$reviewed_revision" ]] || fail checkout_not_reviewed
+  [[ "$SCRIPT_DIR" = "$DEFAULT_SCRIPT_DIR" ]] || fail unreviewed_contract_path
+  [[ "$RETIREMENTS_FILE" = "$DEFAULT_SCRIPT_DIR/retired-hosts.json" ]] || fail unreviewed_intent_path
+  [[ "$(git -C "$REPO_ROOT" branch --show-current)" = main ]] || fail checkout_not_main
+  [[ -z "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ]] || fail checkout_not_clean
+  local_revision=$(git -C "$REPO_ROOT" rev-parse HEAD)
+  reviewed_revision=$(git -C "$REPO_ROOT" rev-parse origin/main)
+  [[ "$local_revision" = "$reviewed_revision" ]] || fail checkout_not_reviewed
 else
-	[[ "$SCRIPT_DIR" != "$DEFAULT_SCRIPT_DIR" ]] || fail fixture_uses_production_contract
-	[[ "$RETIREMENTS_FILE" = "$SCRIPT_DIR/retired-hosts.json" ]] || fail fixture_intent_mismatch
-	[[ "$VOLUME_PREFIX" != janus_pharos_production ]] || fail fixture_uses_production_volumes
-	[[ "$RUN_SCOPE" = pharos/csb1/nonprod-retirement-smoke ]] || fail fixture_uses_production_scope
+  [[ "$SCRIPT_DIR" != "$DEFAULT_SCRIPT_DIR" ]] || fail fixture_uses_production_contract
+  [[ "$RETIREMENTS_FILE" = "$SCRIPT_DIR/retired-hosts.json" ]] || fail fixture_intent_mismatch
+  [[ "$VOLUME_PREFIX" != janus_pharos_production ]] || fail fixture_uses_production_volumes
+  [[ "$RUN_SCOPE" = pharos/csb1/nonprod-retirement-smoke ]] || fail fixture_uses_production_scope
 fi
 
 if [ -z "$IMAGE" ]; then
-	IMAGE=$(
-		awk '
+  IMAGE=$(
+    awk '
       /^[[:space:]]+janus-engine-staged:/ { in_service = 1; next }
       in_service && /^    image:/ { print $2; exit }
       in_service && /^  [A-Za-z0-9_-]+:/ { exit }
     ' "${COMPOSE_DIR}/docker-compose.yml"
-	)
+  )
 fi
 [[ -n "$IMAGE" ]] || fail missing_engine_image
 
@@ -126,78 +126,78 @@ docker pull "$IMAGE" >/dev/null
 janus_pharos_prepare_runtime "$IMAGE" "$SCRIPT_DIR" "$VOLUME_PREFIX"
 
 docker run --rm \
-	-v "${JANUS_PHAROS_AGE_VOLUME}:/run/janus/age:ro" \
-	--entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-	-c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub' ||
-	fail runtime_identity_missing
+  -v "${JANUS_PHAROS_AGE_VOLUME}:/run/janus/age:ro" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+  -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub' ||
+  fail runtime_identity_missing
 
 args=(
-	pharos-beacon "$command"
-	--host "$host"
-	--disposition "$disposition"
-	--intent-file /etc/janus/retired-hosts.json
-	--metadata-file /var/lib/janus/metadata/metadata.toml
-	--profile-manifest /etc/janus/managed-env-files.toml
-	--state-dir /var/lib/janus/lifecycle/pharos-retirements
-	--retain-for-days "$RETENTION_DAYS"
+  pharos-beacon "$command"
+  --host "$host"
+  --disposition "$disposition"
+  --intent-file /etc/janus/retired-hosts.json
+  --metadata-file /var/lib/janus/metadata/metadata.toml
+  --profile-manifest /etc/janus/managed-env-files.toml
+  --state-dir /var/lib/janus/lifecycle/pharos-retirements
+  --retain-for-days "$RETENTION_DAYS"
 )
 if [ -n "$successor" ]; then
-	args+=(--successor "$successor")
+  args+=(--successor "$successor")
 fi
 
 error_file=$(mktemp)
 cleanup() {
-	rm -f "$error_file"
+  rm -f "$error_file"
 }
 trap cleanup EXIT
 
 if ! command_output=$(
-	docker run --rm \
-		-e JANUS_PRODUCT_MODE=self_hosted \
-		-e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
-		-e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
-		-e "JANUS_AGE_PROFILE=${host}" \
-		-e JANUS_AGE_STORE_DIR=/var/lib/janus/secrets \
-		-e JANUS_AGE_IDENTITY_FILE=/run/janus/age/identity \
-		-e JANUS_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub \
-		-e JANUS_LIFECYCLE_EXECUTOR=janus-pharos-retirement@csb1 \
-		-e "JANUS_LIFECYCLE_SCOPE=${RUN_SCOPE}" \
-		-e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
-		-e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
-		-e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
-		-e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
-		-e JANUS_LIFECYCLE_TOMBSTONE_DIR=/var/lib/janus/lifecycle/tombstones \
-		-v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
-		-v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
-		-v "${RETIREMENTS_FILE}:/etc/janus/retired-hosts.json:ro" \
-		-v "${JANUS_PHAROS_AGE_VOLUME}:/run/janus/age:ro" \
-		-v "${JANUS_PHAROS_STORE_VOLUME}:/var/lib/janus/secrets" \
-		-v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
-		-v "${JANUS_PHAROS_METADATA_VOLUME}:/var/lib/janus/metadata" \
-		-v "${JANUS_PHAROS_LIFECYCLE_VOLUME}:/var/lib/janus/lifecycle" \
-		--entrypoint janusd-admin "$IMAGE" \
-		"${args[@]}" 2>"$error_file"
+  docker run --rm \
+    -e JANUS_PRODUCT_MODE=self_hosted \
+    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+    -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
+    -e "JANUS_AGE_PROFILE=${host}" \
+    -e JANUS_AGE_STORE_DIR=/var/lib/janus/secrets \
+    -e JANUS_AGE_IDENTITY_FILE=/run/janus/age/identity \
+    -e JANUS_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub \
+    -e JANUS_LIFECYCLE_EXECUTOR=janus-pharos-retirement@csb1 \
+    -e "JANUS_LIFECYCLE_SCOPE=${RUN_SCOPE}" \
+    -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
+    -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
+    -e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
+    -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
+    -e JANUS_LIFECYCLE_TOMBSTONE_DIR=/var/lib/janus/lifecycle/tombstones \
+    -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
+    -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
+    -v "${RETIREMENTS_FILE}:/etc/janus/retired-hosts.json:ro" \
+    -v "${JANUS_PHAROS_AGE_VOLUME}:/run/janus/age:ro" \
+    -v "${JANUS_PHAROS_STORE_VOLUME}:/var/lib/janus/secrets" \
+    -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
+    -v "${JANUS_PHAROS_METADATA_VOLUME}:/var/lib/janus/metadata" \
+    -v "${JANUS_PHAROS_LIFECYCLE_VOLUME}:/var/lib/janus/lifecycle" \
+    --entrypoint janusd-admin "$IMAGE" \
+    "${args[@]}" 2>"$error_file"
 ); then
-	sed -n '1,20p' "$error_file" >&2
-	fail engine_rejected_retirement
+  sed -n '1,20p' "$error_file" >&2
+  fail engine_rejected_retirement
 fi
 
 if ! grep -Eq \
-	"^janusd-admin pharos-beacon ${command} host=${host} state=(complete|needs_finalize|drift|action_required) reason_code=[a-z0-9_]+ value_returned=false provider_deleted=false$" \
-	<<<"$command_output"; then
-	fail invalid_engine_result
+  "^janusd-admin pharos-beacon ${command} host=${host} state=(complete|needs_finalize|drift|action_required) reason_code=[a-z0-9_]+ value_returned=false provider_deleted=false$" \
+  <<<"$command_output"; then
+  fail invalid_engine_result
 fi
 if [ "$mode" = apply ] && ! grep -Fq ' state=complete ' <<<"$command_output"; then
-	fail retirement_not_complete
+  fail retirement_not_complete
 fi
 
 # The admin runtime temporarily makes the shared output private for mutation.
 # Restore the read-only group boundary Pharos uses after the atomic generation
 # pointer has revoked the retired host.
 docker run --rm --user 0 \
-	-v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
-	--entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-	-c '
+  -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+  -c '
 set -eu
 root=/run/janus/env/pharos/beacon-token-hashes
 chmod 0750 /run/janus/env/pharos "$root"
