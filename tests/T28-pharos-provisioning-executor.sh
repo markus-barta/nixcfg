@@ -70,6 +70,16 @@ grep -Fq 'and .ssh_key_ref == $ssh_key_ref' "$executor_source"
 grep -Fq 'flock -n 9' "$janus_source"
 grep -Fq 'janus-secret-ref-v2\0' "$janus_source"
 grep -Fq 'value_returned=false' "$janus_source"
+grep -Fq 'issue | prove-absent | retire' "$janus_source"
+grep -Fq 'janus_managed_beacon=absent value_returned=false credential_created=false' \
+  "$janus_source"
+grep -Fq "provisioning-entries/\${operation_id}.json" "$janus_source"
+grep -Fq "pharos/\${host}/\${secret_name}.age" "$janus_source"
+grep -Fq "pharos/beacons/\${host}.env" "$janus_source"
+grep -Fq "pharos/beacon-token-hashes/\${host}.json" "$janus_source"
+grep -Fq 'volume_metadata_absent' "$janus_source"
+grep -Fq -- "volume ls --quiet --filter \"name=^\${volume}$\"" "$janus_source"
+grep -Fq -- 'docker run --rm --network none --read-only' "$janus_source"
 
 if grep -Eq 'curl .*PHAROS_TOKEN|Authorization: Bearer.*--header|PHAROS_TOKEN=.*curl' \
   "$executor_source"; then
@@ -175,20 +185,42 @@ printf '%s\n' "$args" >>"$FAKE_CURL_ARGS"
 case "$url" in
 */agent/provisioning/claim)
   lease_until=$(( $(date +%s) + 3600 ))
-  jq -n --argjson lease_until "$lease_until" '{
-    schema:"inspr.pharos.provisioning-agent-lease.v1",
-    version:1,
-    id:"managed-fixture-1",
-    host:"fixturehost",
-    ticket:"PHAROS-175",
-    action:"retire",
-    credential_ref:"sec_0123456789abcdefabcd",
-    provider_id:"1234",
-    lease_until:$lease_until,
-    ssh_key_ref:"pharos-executor",
-    role:"server",
-    heartbeat_interval_secs:60
-  }' >"$output"
+  if [ "$FAKE_ACTION" = reconcile_bootstrap ]; then
+    jq -n \
+      --argjson lease_until "$lease_until" \
+      --arg fingerprint "$FAKE_FINGERPRINT" '{
+        schema:"inspr.pharos.provisioning-agent-lease.v1",
+        version:1,
+        id:"managed-fixture-1",
+        host:"fixturehost",
+        ticket:"PHAROS-175",
+        action:"reconcile_bootstrap",
+        credential_ref:"sec_0123456789abcdefabcd",
+        provider_id:"1234",
+        lease_until:$lease_until,
+        ssh_host:"192.0.2.1",
+        ssh_port:22,
+        host_key_fingerprint:$fingerprint,
+        ssh_key_ref:"pharos-executor",
+        role:"server",
+        heartbeat_interval_secs:60
+      }' >"$output"
+  else
+    jq -n --argjson lease_until "$lease_until" '{
+      schema:"inspr.pharos.provisioning-agent-lease.v1",
+      version:1,
+      id:"managed-fixture-1",
+      host:"fixturehost",
+      ticket:"PHAROS-175",
+      action:"retire",
+      credential_ref:"sec_0123456789abcdefabcd",
+      provider_id:"1234",
+      lease_until:$lease_until,
+      ssh_key_ref:"pharos-executor",
+      role:"server",
+      heartbeat_interval_secs:60
+    }' >"$output"
+  fi
   printf '200'
   ;;
 */agent/provisioning/*/result)
@@ -200,16 +232,67 @@ case "$url" in
 esac
 EOF
 
+cat >"$fake_bin/stat" <<'EOF'
+#!/usr/bin/env bash
+if [ "${*: -1}" = /run/fixture-identity ]; then
+  printf 'regular file 0 600\n'
+  exit 0
+fi
+exec /usr/bin/stat "$@"
+EOF
+
+cat >"$fake_bin/ssh-keygen" <<'EOF'
+#!/usr/bin/env bash
+case " $* " in
+*' -y '*) printf 'ssh-ed25519 QUJDRA==\n' ;;
+*' -lf '*) printf '256 %s fixture (ED25519)\n' "$FAKE_FINGERPRINT" ;;
+*) exit 1 ;;
+esac
+EOF
+
+cat >"$fake_bin/ssh-keyscan" <<'EOF'
+#!/usr/bin/env bash
+printf '[192.0.2.1]:22 ssh-ed25519 QUJDRA==\n'
+EOF
+
+cat >"$fake_bin/ssh" <<'EOF'
+#!/usr/bin/env bash
+remote_command=${*: -1}
+case "$remote_command" in
+*authorized_keys*) printf 'ssh-ed25519 QUJDRA== fixture\n' ;;
+'uname -m') printf 'x86_64\n' ;;
+'lsblk --json --bytes --output PATH,TYPE,RM,RO')
+  printf '{"blockdevices":[{"path":"/dev/sda","type":"disk","rm":false,"ro":false}]}\n'
+  ;;
+'test -f /etc/debian_version && test ! -e /run/current-system') ;;
+*) exit 1 ;;
+esac
+EOF
+
+cat >"$fake_bin/nixos-anywhere" <<'EOF'
+#!/usr/bin/env bash
+: >"$FAKE_NIXOS_ANYWHERE_CALLED"
+exit 1
+EOF
+
 cat >"$fake_janus" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-[ "$1" = retire ]
 [ "$2" = managed-fixture-1 ]
 [ "$3" = fixturehost ]
 [ "$4" = sec_0123456789abcdefabcd ]
 [ "$#" -eq 4 ]
 [ -z "${PHAROS_TOKEN:-}" ] || printf 'token-env-leak\n' >"$FAKE_LEAK_LOG"
-printf 'janus_managed_beacon=retired value_returned=false credential_created=false\n'
+printf '%s\n' "$1" >>"$FAKE_JANUS_CALLS"
+case "$1" in
+retire)
+  printf 'janus_managed_beacon=retired value_returned=false credential_created=false\n'
+  ;;
+prove-absent)
+  printf 'janus_managed_beacon=absent value_returned=false credential_created=false\n'
+  ;;
+*) exit 1 ;;
+esac
 EOF
 
 chmod +x "$fake_bin"/* "$fake_janus"
@@ -232,16 +315,26 @@ export FAKE_TOKEN='fixture-owner-token-1234567890'
 export FAKE_CURL_ARGS="$fixture_root/curl-args.log"
 export FAKE_LEAK_LOG="$fixture_root/leak.log"
 export FAKE_RESULT_BODY="$fixture_root/result.json"
+export FAKE_JANUS_CALLS="$fixture_root/janus-calls.log"
+export FAKE_NIXOS_ANYWHERE_CALLED="$fixture_root/nixos-anywhere-called"
+FAKE_FINGERPRINT="SHA256:$(printf 'A%.0s' {1..43})"
+export FAKE_FINGERPRINT
 
-if ! PATH="$fake_bin:$PATH" PHAROS_TOKEN="$FAKE_TOKEN" "$agent" \
-  >"$fixture_root/agent.out" 2>"$fixture_root/agent.err"; then
-  if grep -Fq "$FAKE_TOKEN" "$fixture_root/agent.err"; then
-    printf 'fixture agent failed; diagnostic suppressed because it contained fixture credentials\n' >&2
-  else
-    sed -n '1,20p' "$fixture_root/agent.err" >&2
+run_agent() {
+  local scenario=$1
+  export FAKE_ACTION=$scenario
+  if ! PATH="$fake_bin:$PATH" PHAROS_TOKEN="$FAKE_TOKEN" "$agent" \
+    >"$fixture_root/agent.out" 2>"$fixture_root/agent.err"; then
+    if grep -Fq "$FAKE_TOKEN" "$fixture_root/agent.err"; then
+      printf 'fixture agent failed; diagnostic suppressed because it contained fixture credentials\n' >&2
+    else
+      sed -n '1,20p' "$fixture_root/agent.err" >&2
+    fi
+    exit 1
   fi
-  exit 1
-fi
+}
+
+run_agent retire
 jq -e '{owner,host,action,outcome,credential_created} == {
   owner:"csb1",
   host:"fixturehost",
@@ -249,6 +342,18 @@ jq -e '{owner,host,action,outcome,credential_created} == {
   outcome:"succeeded",
   credential_created:false
 } and (.reason == null)' "$FAKE_RESULT_BODY" >/dev/null
+[ ! -e "$fake_state/pending-result.json" ]
+
+run_agent reconcile_bootstrap
+jq -e '{owner,host,action,outcome,credential_created} == {
+  owner:"csb1",
+  host:"fixturehost",
+  action:"reconcile_bootstrap",
+  outcome:"succeeded",
+  credential_created:false
+} and (.reason == null)' "$FAKE_RESULT_BODY" >/dev/null
+[ "$(tail -n1 "$FAKE_JANUS_CALLS")" = prove-absent ]
+[ ! -e "$FAKE_NIXOS_ANYWHERE_CALLED" ]
 [ ! -e "$fake_state/pending-result.json" ]
 [ ! -e "$FAKE_LEAK_LOG" ]
 if grep -Fq "$FAKE_TOKEN" "$FAKE_CURL_ARGS"; then
