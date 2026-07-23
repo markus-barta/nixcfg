@@ -4,7 +4,9 @@
   "type": "module",
   "description": "Reusable declarative headless-browser QA (nixcfg NIX-288)",
   "scripts": {
-    "shot": "node screenshot.mjs"
+    "shot": "node screenshot.mjs",
+    "test": "node --test target-policy.test.mjs",
+    "test:integration": "node --test target-policy.integration.test.mjs"
   },
   "devDependencies": {
     "playwright": "^1.48.0"
