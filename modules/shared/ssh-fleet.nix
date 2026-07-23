@@ -339,7 +339,7 @@
 
       # ═══════════════════════════════════════════════════════════
       # BONELIO HETZNER HOSTS (public IPs, per-customer ed25519 key)
-      # Matches `just ssh-staging` in ~/Code/bpnixcfg
+      # Matched the former work repo's staging helper (context retired June 2026)
       # ═══════════════════════════════════════════════════════════
 
       "bonelio-staging" = {

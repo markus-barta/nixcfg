@@ -17,7 +17,7 @@
 # What this provides:
 #   - inspr.git-identity.{identities, default, contexts}
 #       Personal (Markus Barta <markus@barta.com>) as default.
-#       (BYTEPOETS context retired post-exit — INSPR-241.)
+#       (former work context retired post-exit — INSPR-241.)
 #
 #   - inspr.git.atelier.personal (INSPR-170)
 #       Strategy B SSH auth (per-host user keys) for fleet-wide federated
@@ -60,7 +60,7 @@ let
         pubKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIM4sg88Rp+eGESk20Wo+1KNbKkluZFsGiZ+u6vnd9Whb m5-personal-userkey 2026-05-12";
       };
     };
-    # mbp2607: personal only. (mbp0's BYTEPOETS push key removed post-exit — INSPR-241.)
+    # mbp2607: personal only. (mbp0's former work push key removed post-exit — INSPR-241.)
     "mbp2607" = {
       personal = {
         keyName = "mbp2607-personal-userkey";
@@ -148,7 +148,7 @@ in
       url = "https://pm.barta.cm";
     };
 
-    # PMO (INSPR-174) removed 2026-07-13: the BYTEPOETS Paimos instance was
+    # PMO (INSPR-174) removed 2026-07-13: the former second Paimos instance was
     # decommissioned with the departure (2026-06-15). PPM is the only instance.
   };
 
@@ -158,7 +158,7 @@ in
   # repo under markus-barta/* through the personal alias. Per-atelier author
   # identity stays owned by inspr.git-identity (path-/URL-includeIf already
   # in place) — atelier.git.{userName,userEmail} intentionally left unset to
-  # avoid duplicate includeIf entries. (BYTEPOETS atelier retired post-exit,
+  # avoid duplicate includeIf entries. (former work atelier retired post-exit,
   # INSPR-241.)
   #
   # Enable flag here is `mkDefault false` so a host that doesn't want the

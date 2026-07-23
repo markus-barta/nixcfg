@@ -496,7 +496,7 @@ just switch
 - RSA, created June 2019
 - ✅ Configured in `secrets/secrets.nix` for private-only access
 
-**Company (BYTEPOETS):**
+**Former employer (retired June 2026 — keys pending removal from host):**
 
 - `~/.ssh/id_ed25519_bytepoets` + `.pub`
 - ED25519, for work only

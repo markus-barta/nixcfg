@@ -4,7 +4,6 @@ Step-by-step guide for setting up a new Mac with Nix, Home Manager, and Uzumaki.
 
 **Use cases:**
 
-- New work machines (BYTEPOETS)
 - Family machines
 - Personal machines
 
@@ -360,35 +359,7 @@ programs.git = {
 };
 ```
 
-**For work machines (BYTEPOETS style):**
-
-```nix
-programs.git = {
-  enable = true;
-  settings.user = {
-    name = "mba";  # Work identity default
-    email = "markus.barta@bytepoets.com";
-  };
-
-  # Personal identity for personal projects
-  includes = [
-    {
-      condition = "gitdir:~/Code/personal/";
-      contents.user = {
-        name = "Markus Barta";
-        email = "markus@barta.com";
-      };
-    }
-    {
-      condition = "gitdir:~/Code/nixcfg/";
-      contents.user = {
-        name = "Markus Barta";
-        email = "markus@barta.com";
-      };
-    }
-  ];
-};
-```
+**For dual-identity machines** (a second work/client identity), use `includes` with `gitdir:`/`hasconfig:` conditions — see `inspr.git-identity` in inspr-modules for the managed pattern.
 
 ---
 
@@ -562,7 +533,7 @@ nix.settings = {
 };
 ```
 
-Already applied where this matters (was first set on miniserver-bp 2026-03-12; that host moved to BYTEPOETS/bpnixcfg on 2026-05-02 — see commit history).
+Already applied where this matters (was first set on miniserver-bp 2026-03-12; that host moved out of this repo on 2026-05-02 — see commit history).
 
 ### 5.4 Karabiner-Elements permissions
 
