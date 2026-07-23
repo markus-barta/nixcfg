@@ -16,7 +16,7 @@ jobs:
       contents: read
     steps:
       - name: Install Nix
-        uses: cachix/install-nix-action@v20
+        uses: cachix/install-nix-action@29bd9290ef037a3ecbdafe83cbd2185e9dd0fa0a # v20
         with:
           nix_path: nixpkgs=channel:nixos-unstable
           extra_nix_config: |
@@ -31,7 +31,7 @@ jobs:
       #      - name: Update Nix channels
       #        run: nix-channel --update
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       #      - name: Build qc package
       #        run: |
       #          cd pkgs/qc && \
