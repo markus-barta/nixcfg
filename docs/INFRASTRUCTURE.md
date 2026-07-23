@@ -198,7 +198,7 @@ Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts
 | **csb0** | NixOS    | csb0.ts.barta.cm           | ✅ Active  |
 | **csb1** | NixOS    | csb1.ts.barta.cm           | ✅ Active  |
 
-<!-- miniserver-bp moved to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24) -->
+<!-- miniserver-bp moved out of this repo on 2026-05-02 (INSPR-24) -->
 
 ### Adding a New Node
 
