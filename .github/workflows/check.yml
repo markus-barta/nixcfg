@@ -2,11 +2,8 @@ name: 🔎️ Check flake for all systems
 
 on:
   push:
-    branches-ignore:
-      # Ignore changes to the flake update workflow, it is handled by the pull_request event
-      - update_flake_lock_action
-      # Pharos settings branches are evaluated through their pull request.
-      - "automation/pharos-settings-*"
+    branches:
+      - main
     paths-ignore:
       - "docker/**"
   workflow_dispatch:
@@ -60,6 +57,9 @@ jobs:
 
       - name: Verify the Pharos provisioning executor boundary
         run: tests/T28-pharos-provisioning-executor.sh
+
+      - name: Verify the Pharos Janus consumer projection boundary
+        run: tests/T29-pharos-janus-consumer-boundary.sh
 
   check:
     name: 🔎️ Eval flake
