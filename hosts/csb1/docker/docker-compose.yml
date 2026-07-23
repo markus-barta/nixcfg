@@ -146,8 +146,9 @@ services:
       - traefik.enable=false
 
   # https://docs.traefik.io/v2.5/providers/docker/
-  # acme.json lives at ./traefik/acme.json (gitignored — mutable LE cert
-  # state). Matches csb0's pattern: relative path, file kept out of git.
+  # ACME state lives below ./traefik/ (gitignored, mutable LE cert state).
+  # The dedicated HTTP-challenge store serves public DNS zones that are not
+  # managed through the Cloudflare credentials used by the default resolver.
   traefik:
     image: traefik
     command: --providers.docker
@@ -166,6 +167,7 @@ services:
       - ./traefik/static.yml:/etc/traefik/traefik.yml
       - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml
       - ./traefik/acme.json:/etc/traefik/acme/acme.json:rw
+      - ./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw
     labels:
       # HostDash owns / on cs1.barta.cm; keep Traefik's API on /api and
       # /dashboard if the dashboard is enabled later.
