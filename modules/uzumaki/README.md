@@ -84,7 +84,6 @@ modules/uzumaki/
 │   ├── theme-hm.nix           # Home Manager theme module
 │   ├── theme-palettes.nix     # Color palette definitions per host
 │   ├── starship-template.toml # Template with color placeholders
-│   ├── starship.toml          # Legacy starship config
 │   └── eza-themes/
 │       └── tokyonight-uzumaki.yml  # Tokyo Night Uzumaki eza theme
 └── stasysmo/
