@@ -42,6 +42,7 @@ AGE_VOLUME="${VOLUME_PREFIX}_age"
 STORE_VOLUME="${VOLUME_PREFIX}_secrets"
 PERMIT_VOLUME="${VOLUME_PREFIX}_permits"
 OUT_VOLUME="${VOLUME_PREFIX}_out"
+HASH_OUT_VOLUME="${VOLUME_PREFIX}_hash_out"
 METADATA_VOLUME="${VOLUME_PREFIX}_metadata"
 LIFECYCLE_VOLUME="${VOLUME_PREFIX}_lifecycle"
 TMP_DIR=$(mktemp -d)
@@ -53,6 +54,7 @@ cleanup() {
     "$STORE_VOLUME" \
     "$PERMIT_VOLUME" \
     "$OUT_VOLUME" \
+    "$HASH_OUT_VOLUME" \
     "$METADATA_VOLUME" \
     "$LIFECYCLE_VOLUME" \
     >/dev/null 2>&1 || true
@@ -75,7 +77,34 @@ JANUS_ENGINE_IMAGE="$IMAGE" \
   JANUS_PHAROS_SMOKE_ROOT="${TMP_DIR}/sidecar-state" \
   JANUS_PHAROS_SMOKE_VOLUME_PREFIX="$VOLUME_PREFIX" \
   "$SIDECAR_SMOKE" >"${TMP_DIR}/sidecar.out"
-grep -Fq 'value_returned=false sidecars=validated permits_consumed=true' "${TMP_DIR}/sidecar.out"
+grep -Fq 'value_returned=false sidecars=validated consumer_projection=validated permits_consumed=true' \
+  "${TMP_DIR}/sidecar.out"
+
+# Repeat against the same private and projection volumes. This proves a normal
+# rerender can restage Janus ownership without breaking the Pharos projection.
+JANUS_ENGINE_IMAGE="$IMAGE" \
+  JANUS_PHAROS_CONTRACT_DIR="$SCRIPT_DIR" \
+  JANUS_PHAROS_CONTRACT_NAME=retirement-smoke \
+  JANUS_PHAROS_SCOPE_ENVIRONMENT=retirement-smoke \
+  JANUS_PHAROS_SMOKE_HOSTS="$HOST" \
+  JANUS_PHAROS_SMOKE_ROOT="${TMP_DIR}/sidecar-state" \
+  JANUS_PHAROS_SMOKE_VOLUME_PREFIX="$VOLUME_PREFIX" \
+  "$SIDECAR_SMOKE" >"${TMP_DIR}/sidecar-rerender.out"
+grep -Fq 'value_returned=false sidecars=validated consumer_projection=validated permits_consumed=true' \
+  "${TMP_DIR}/sidecar-rerender.out"
+
+docker run --rm --network none --user 10001:999 \
+  -v "${OUT_VOLUME}:/private:ro" \
+  -v "${HASH_OUT_VOLUME}:/projection:ro" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+  -c '
+set -eu
+test ! -r /private/pharos/beacon-token-hashes/current
+test -r /projection/current
+IFS= read -r generation </projection/current
+printf "%s" "$generation" | grep -Eq "^[0-9a-f]{64}$"
+test -r "/projection/generation-${generation}.json"
+'
 
 before_provider=$(provider_digest)
 [[ "$before_provider" =~ ^[0-9a-f]{64}$ ]]
@@ -97,6 +126,17 @@ docker run --rm \
   --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test ! -e /run/janus/env/pharos/beacons/retirementsmoke.env
       test ! -e /run/janus/env/pharos/beacon-token-hashes/retirementsmoke.json'
+
+docker run --rm --network none --user 10001:999 \
+  -v "${HASH_OUT_VOLUME}:/projection:ro" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+  -c '
+set -eu
+IFS= read -r generation </projection/current
+generation_file="/projection/generation-${generation}.json"
+test -r "$generation_file"
+! grep -q "\"name\":\"retirementsmoke\"" "$generation_file"
+'
 
 after_provider=$(provider_digest)
 [ "$before_provider" = "$after_provider" ]
@@ -147,6 +187,16 @@ docker run --rm \
   --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test ! -e /run/janus/env/pharos/beacons/retirementsmoke.env
       test ! -e /run/janus/env/pharos/beacon-token-hashes/retirementsmoke.json'
+docker run --rm --network none --user 10001:999 \
+  -v "${HASH_OUT_VOLUME}:/projection:ro" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+  -c '
+set -eu
+IFS= read -r generation </projection/current
+generation_file="/projection/generation-${generation}.json"
+test -r "$generation_file"
+! grep -q "\"name\":\"retirementsmoke\"" "$generation_file"
+'
 [ "$before_provider" = "$(provider_digest)" ]
 
 printf 'ok: janus pharos retirement smoke passed host=%s state=complete replay=idempotent rerender=excluded value_returned=false provider_deleted=false\n' "$HOST"

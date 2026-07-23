@@ -21,6 +21,7 @@ SCOPE_REPOSITORY=${JANUS_PHAROS_SCOPE_REPOSITORY:-nixcfg}
 SCOPE_ENVIRONMENT=${JANUS_PHAROS_SCOPE_ENVIRONMENT:-production}
 HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9"}
 PREPARE_ONLY=${JANUS_PHAROS_PREPARE_ONLY:-0}
+PROJECTION_ONLY=${JANUS_PHAROS_PROJECTION_ONLY:-0}
 LOCK_FILE=${JANUS_PHAROS_LOCK_FILE:-/run/lock/janus-pharos-production.lock}
 
 # shellcheck disable=SC1091
@@ -59,6 +60,13 @@ validate_identifier JANUS_PHAROS_SCOPE_ORGANIZATION "$SCOPE_ORGANIZATION"
 validate_identifier JANUS_PHAROS_SCOPE_PROJECT "$SCOPE_PROJECT"
 validate_identifier JANUS_PHAROS_SCOPE_REPOSITORY "$SCOPE_REPOSITORY"
 validate_identifier JANUS_PHAROS_SCOPE_ENVIRONMENT "$SCOPE_ENVIRONMENT"
+case "$PREPARE_ONLY:$PROJECTION_ONLY" in
+0:0 | 0:1 | 1:0) ;;
+*)
+  printf 'invalid or conflicting Janus Pharos render mode\n' >&2
+  exit 1
+  ;;
+esac
 
 mkdir -p "$(dirname "$LOCK_FILE")"
 exec 9>"$LOCK_FILE"
@@ -124,6 +132,20 @@ if [ -z "$IMAGE" ]; then
   exit 1
 fi
 
+janus_pharos_load_consumer_identity "$COMPOSE_DIR"
+consumer_uid=$JANUS_PHAROS_CONSUMER_UID
+consumer_gid=$JANUS_PHAROS_CONSUMER_GID
+
+if [ "$PROJECTION_ONLY" = 1 ]; then
+  private_out_volume="${VOLUME_PREFIX}_out"
+  hash_out_volume=${JANUS_PHAROS_HASH_OUT_VOLUME:-"${VOLUME_PREFIX}_hash_out"}
+  janus_pharos_publish_hash_projection \
+    "$private_out_volume" "$hash_out_volume" "$consumer_uid" "$consumer_gid"
+  printf 'ok: janus pharos existing generation projected value_returned=false consumer_projection=validated volume_prefix=%s\n' \
+    "$VOLUME_PREFIX"
+  exit 0
+fi
+
 TMP_DIR=$(mktemp -d)
 cleanup() {
   rm -rf "$TMP_DIR"
@@ -136,6 +158,7 @@ AGE_VOLUME=$JANUS_PHAROS_AGE_VOLUME
 STORE_VOLUME=$JANUS_PHAROS_STORE_VOLUME
 PERMIT_VOLUME=$JANUS_PHAROS_PERMIT_VOLUME
 OUT_VOLUME=$JANUS_PHAROS_OUT_VOLUME
+HASH_OUT_VOLUME=$JANUS_PHAROS_HASH_OUT_VOLUME
 METADATA_VOLUME=$JANUS_PHAROS_METADATA_VOLUME
 container_uid=$JANUS_PHAROS_CONTAINER_UID
 container_gid=$JANUS_PHAROS_CONTAINER_GID
@@ -305,23 +328,6 @@ render_env_file() {
   fi
 }
 
-relax_sidecar_permissions() {
-  docker run --rm --user 0 \
-    -v "${OUT_VOLUME}:/run/janus/env" \
-    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-    -c '
-set -eu
-chmod 0750 /run/janus/env/pharos /run/janus/env/pharos/beacon-token-hashes
-chmod 0640 \
-  /run/janus/env/pharos/beacon-token-hashes/current \
-  /run/janus/env/pharos/beacon-token-hashes/generation-*.json
-for host do
-  chmod 0600 "/run/janus/env/pharos/beacons/${host}.env"
-  chmod 0640 "/run/janus/env/pharos/beacon-token-hashes/${host}.json"
-done
-' sh "${HOSTS[@]}"
-}
-
 validate_outputs() {
   host=$1
   sidecar_file="${TMP_DIR}/${host}.sidecar.json"
@@ -358,8 +364,8 @@ stat -c "%a %n" \
     printf 'janus pharos production render failed: env file is not mode 600 for %s\n' "$host" >&2
     exit 1
   fi
-  if [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" != "640" ]; then
-    printf 'janus pharos production render failed: sidecar file is not mode 640 for %s\n' "$host" >&2
+  if [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" != "600" ]; then
+    printf 'janus pharos production render failed: private sidecar file is not mode 600 for %s\n' "$host" >&2
     exit 1
   fi
 }
@@ -400,8 +406,8 @@ printf "%s\n" "$generation"
       and ([.hosts[].name] | unique | length) == $expected_count
       and all(.hosts[]; (.name | test("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")) and (.token_sha256 | test("^[0-9a-f]{64}$")))' \
     "$payload_file" >/dev/null
-  [ "$(awk 'NR == 1 { print $1 }' "$mode_file")" = 640 ]
-  [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" = 640 ]
+  [ "$(awk 'NR == 1 { print $1 }' "$mode_file")" = 600 ]
+  [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" = 600 ]
 }
 
 for host in "${HOSTS[@]}"; do
@@ -412,12 +418,12 @@ for host in "${HOSTS[@]}"; do
   render_env_file "$host" "$secret_name" "$permit"
 done
 
-relax_sidecar_permissions
-
 for host in "${HOSTS[@]}"; do
   validate_outputs "$host"
 done
 validate_generation
+janus_pharos_publish_hash_projection \
+  "$OUT_VOLUME" "$HASH_OUT_VOLUME" "$consumer_uid" "$consumer_gid"
 
 remaining_permits=$(
   docker run --rm \
