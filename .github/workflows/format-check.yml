@@ -3,6 +3,12 @@ name: 📄 Check formatting
 on:
   pull_request:
 
+# Cancel superseded runs for the same PR (rapid re-pushes) so obsolete runs are
+# cancelled instead of running to a failure that emails the repo owner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
+
 jobs:
   format-check:
     name: 📄 Check code formatting with "just format"
