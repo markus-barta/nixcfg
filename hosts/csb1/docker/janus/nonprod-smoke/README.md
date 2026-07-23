@@ -7,8 +7,10 @@ identity and encrypted `JANUS_SMOKE` value, mounts the non-prod metadata overlay
 asks `janus-warden` for a `UsePermit`, then consumes that permit with
 `janusd-use run`. The Warden and runner containers are launched through the disabled
 `janus-engine-staged` compose profile and use the engine image's default
-non-root `janus` user. The expected command output is redacted as
-`smoke:[REDACTED]`.
+non-root `janus` user. The reviewed shell-free `janusd-use --help` consumer output
+is suppressed without exposing the injected fixture value. Redaction behavior remains covered by the engine's
+workspace assurance tests; the deployed-image smoke proves permit-bound
+execution without adding a shell to the runtime.
 
 Run on csb1 from `hosts/csb1/docker`:
 
@@ -83,12 +85,12 @@ just janus-engine-assurance
 That recipe primes the non-prod smoke state once, keeps
 `janus-engine-staged` running, then runs the staged boundary matrix:
 
-| Boundary                        | Evidence                                                                                                         |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Permit-bound positive execution | `janus-engine-smoke` proves one reviewed `request_use` + `janusd-use run` path, redacted output, consumed permit |
-| Local MCP client path           | `mcp-exec-smoke.sh` proves `initialize`, exact `tools/list`, `health`, and `list_secrets` stay value-free        |
-| MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied             |
-| Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail     |
+| Boundary                        | Evidence                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Permit-bound positive execution | `janus-engine-smoke` proves one reviewed `request_use` + `janusd-use run` path, suppressed output, consumed permit |
+| Local MCP client path           | `mcp-exec-smoke.sh` proves `initialize`, exact `tools/list`, `health`, and `list_secrets` stay value-free          |
+| MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied               |
+| Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail       |
 
 The script reads the signed, digest-pinned engine image from
 `docker-compose.yml`, which is the single source of truth for the staged

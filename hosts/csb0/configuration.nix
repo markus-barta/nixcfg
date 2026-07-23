@@ -10,7 +10,7 @@
 }:
 
 let
-  hostdashCsb0 = inputs.hostdash.packages.${pkgs.system}.csb0;
+  hostdashCsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb0;
   csb0ComposeFile = "/home/mba/Code/nixcfg/hosts/csb0/docker/docker-compose.yml";
   csb0Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb0 -f ${csb0ComposeFile}";
   csb0HostdashReconcile = pkgs.writeShellScript "csb0-hostdash-reconcile" ''
@@ -64,18 +64,21 @@ in
     ];
   };
 
-  # Keep scripted stage 1 initrd: `boot.initrd.network.postCommands` below is
-  # not supported under systemd stage 1 (nixpkgs default flipped). Revisit
-  # migration to `boot.initrd.systemd.services.*` when console-testable.
-  boot.initrd.systemd.enable = lib.mkForce false;
-
-  # Network settings for the initial RAM disk (initrd)
-  boot.initrd.network = {
-    enable = true;
-    postCommands = ''
-      sleep 2
-      zpool import -a;
-    '';
+  # Keep the historical post-network ZFS import, now as a supported systemd
+  # initrd unit rather than the deprecated scripted stage 1.
+  boot.initrd.network.enable = true;
+  boot.initrd.systemd.services.csb0-zpool-import-after-network = {
+    description = "Import csb0 ZFS pools after initrd networking";
+    wantedBy = [ "initrd.target" ];
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ];
+    before = [ "sysroot.mount" ];
+    unitConfig.DefaultDependencies = false;
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.zfs}/bin/zpool import -a";
+    };
   };
 
   # ============================================================================

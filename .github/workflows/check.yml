@@ -21,7 +21,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Verify Pharos beacon healthcheck contract
         run: tests/T20-pharos-beacon-healthcheck.sh
@@ -31,6 +35,24 @@ jobs:
 
       - name: Verify deterministic Pharos fleet release updates
         run: tests/T22-pharos-release-update.sh
+
+      - name: Verify Janus container least privilege and shell-free runtime
+        run: tests/T23-janus-container-hardening.sh
+
+      - name: Reject deprecated NixOS host-platform and scripted-initrd options
+        run: tests/T24-nixos-deprecation-cleanup.sh
+
+      - name: Enforce IR bridge destination and log boundaries
+        run: tests/T25-ir-bridge-boundaries.sh
+
+      - name: Enforce funkeykid config and sound path boundaries
+        run: tests/T26-funkeykid-path-boundaries.sh
+
+      - name: Reject mutable GitHub Actions references
+        run: tests/T27-github-actions-pins.sh
+
+      - name: Verify the Pharos provisioning executor boundary
+        run: tests/T28-pharos-provisioning-executor.sh
 
   check:
     name: 🔎️ Eval flake
@@ -44,13 +66,14 @@ jobs:
           - hsb0
           - hsb1
           - hsb8
+          - hsb9
           - gpc0
           - csb0
           - csb1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: cachix/install-nix-action@v24
+      - uses: cachix/install-nix-action@7ac1ec25491415c381d9b62f0657c7a028df52a7 # v24
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 

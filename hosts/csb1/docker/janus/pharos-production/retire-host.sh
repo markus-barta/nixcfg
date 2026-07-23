@@ -116,10 +116,10 @@ if [ -z "$IMAGE" ]; then
 fi
 [[ -n "$IMAGE" ]] || fail missing_engine_image
 
-LOCK_ROOT=${JANUS_PHAROS_LOCK_ROOT:-"${XDG_STATE_HOME:-${HOME}/.local/state}/janus-pharos-retirement"}
+LOCK_ROOT=${JANUS_PHAROS_LOCK_ROOT:-/run/lock}
 mkdir -p "$LOCK_ROOT"
 chmod 0700 "$LOCK_ROOT"
-exec 9>"${LOCK_ROOT}/${VOLUME_PREFIX}.lock"
+exec 9>"${LOCK_ROOT}/janus-pharos-production.lock"
 flock -n 9 || fail retirement_in_progress
 
 docker pull "$IMAGE" >/dev/null
@@ -127,7 +127,7 @@ janus_pharos_prepare_runtime "$IMAGE" "$SCRIPT_DIR" "$VOLUME_PREFIX"
 
 docker run --rm \
   -v "${JANUS_PHAROS_AGE_VOLUME}:/run/janus/age:ro" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c 'test -s /run/janus/age/identity && test -s /run/janus/age/recipient.pub' ||
   fail runtime_identity_missing
 
@@ -196,7 +196,7 @@ fi
 # pointer has revoked the retired host.
 docker run --rm --user 0 \
   -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
-  --entrypoint sh "$IMAGE" \
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
   -c '
 set -eu
 root=/run/janus/env/pharos/beacon-token-hashes

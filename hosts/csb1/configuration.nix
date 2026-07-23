@@ -9,7 +9,7 @@
 }:
 
 let
-  hostdashCsb1 = inputs.hostdash.packages.${pkgs.system}.csb1;
+  hostdashCsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb1;
   csb1ComposeFile = "/home/mba/Code/nixcfg/hosts/csb1/docker/docker-compose.yml";
   csb1Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${csb1ComposeFile}";
   csb1HostdashReconcile = pkgs.writeShellScript "csb1-hostdash-reconcile" ''
@@ -24,6 +24,7 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
+    ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
@@ -51,6 +52,15 @@ in
   # removal proposal is deployed. The executor rejects csb1 as its own target.
   inspr.pharosRetirementExecutor.enable = true;
 
+  # Managed paid provisioning remains fail-closed until a dedicated csb1
+  # executor key is present in both agenix and the selected Hetzner project.
+  # The module and its full bootstrap contract are deployed before activation.
+  inspr.pharosProvisioningExecutor = {
+    enable = false;
+    sshKeyRef = "pharos-csb1-executor";
+    identityFile = config.age.secrets.csb1-pharos-provisioning-executor-ssh-key.path;
+  };
+
   # ============================================================================
   # BOOTLOADER CONFIGURATION
   # ============================================================================
@@ -69,18 +79,22 @@ in
     ];
   };
 
-  # Keep scripted stage 1 initrd: `boot.initrd.network.postCommands` below is
-  # not supported under systemd stage 1 (nixpkgs default flipped). Revisit
-  # migration to `boot.initrd.systemd.services.*` when console-testable.
-  boot.initrd.systemd.enable = lib.mkForce false;
-
-  # Network settings for the initial RAM disk (initrd)
-  boot.initrd.network = {
-    enable = true;
-    postCommands = ''
-      sleep 2
-      zpool import -a;
-    '';
+  # Keep the historical post-network ZFS import, now as a supported systemd
+  # initrd unit. The explicit ordering preserves the cloud-host boot contract
+  # without opting back into the deprecated scripted stage 1.
+  boot.initrd.network.enable = true;
+  boot.initrd.systemd.services.csb1-zpool-import-after-network = {
+    description = "Import csb1 ZFS pools after initrd networking";
+    wantedBy = [ "initrd.target" ];
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ];
+    before = [ "sysroot.mount" ];
+    unitConfig.DefaultDependencies = false;
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${pkgs.zfs}/bin/zpool import -a";
+    };
   };
 
   # ============================================================================
@@ -163,6 +177,9 @@ in
 
       # Create mutable files (Docker writes to these)
       "f ${dockerRoot}/traefik/acme.json 0600 root root -"
+      # One shared lock serializes every writer to the production Janus store,
+      # metadata, beacon outputs, and atomic token-hash generation.
+      "f /run/lock/janus-pharos-production.lock 0660 root users -"
 
       # Legacy compatibility: keep /home/mba/docker as primary location for now
       # Will migrate to /var/lib/csb1-docker in future task
@@ -436,6 +453,15 @@ in
     path = "/run/agenix/csb1-pharos-nixcfg-dispatch-token";
     owner = "10001";
     group = "999";
+    mode = "0400";
+  };
+
+  # Dedicated private key for the root-only managed provisioning executor.
+  age.secrets.csb1-pharos-provisioning-executor-ssh-key = {
+    file = ../../secrets/csb1-pharos-provisioning-executor-ssh-key.age;
+    path = "/run/agenix/csb1-pharos-provisioning-executor-ssh-key";
+    owner = "root";
+    group = "root";
     mode = "0400";
   };
 
