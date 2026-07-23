@@ -82,6 +82,31 @@ ssh mba@hsb1.lan "docker logs -f homeassistant --tail 50"
 ssh mba@hsb1.lan "ls ~/docker/mounts/homeassistant/.storage/lovelace.*"
 ```
 
+### Tesla Fleet / Model X integration (diagnostics)
+
+- **Integration**: `tesla_fleet` (official Tesla Fleet API). Setup/migration playbook → **PPM NIX-206**.
+- **Vehicles**: Tesla **Model X** + Model Y (one shared Fleet app on `ev.barta.cm`).
+- **Private key**: `~/docker/mounts/homeassistant/tesla_fleet.key` (mode 600).
+
+Fast "is it alive?" check — all read-only; never dump `core.config_entries` raw (it holds OAuth tokens):
+
+```bash
+# Integration present? (project domain/title only)
+ssh mba@hsb1.lan 'docker exec homeassistant python3 -c "
+import json;d=json.load(open(\"/config/.storage/core.config_entries\"))
+[print(e[\"domain\"],\"|\",e.get(\"title\")) for e in d[\"data\"][\"entries\"] if e[\"domain\"]==\"tesla_fleet\"]"'
+
+# Which vehicles are registered? (device registry — no secrets)
+ssh mba@hsb1.lan 'docker exec homeassistant python3 -c "
+import json;d=json.load(open(\"/config/.storage/core.device_registry\"))
+[print(x.get(\"manufacturer\"),\"|\",x.get(\"model\")) for x in d[\"data\"][\"devices\"] if (x.get(\"manufacturer\") or \"\").lower()==\"tesla\"]"'
+
+# Recent integration errors
+ssh mba@hsb1.lan "docker logs homeassistant 2>&1 | grep -i tesla_fleet | tail -20"
+```
+
+**Benign noise:** intermittent `tesla_fleet … Cannot connect to host fleet-api.prd.eu.vn.cloud.tesla.com … [Timeout while contacting DNS servers]` = transient DNS/network blip on the EU vehicle-data endpoint. **NOT** an auth failure — no action unless continuous. Setup/auth failures look different: OAuth `400` / `invalid_grant` / `invalid_client` (see NIX-206).
+
 ---
 
 ## 📂 File Management
