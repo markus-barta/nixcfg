@@ -487,9 +487,15 @@ services:
     # Source extracted to github.com/markus-barta/janus (go-envelope/). Deployed
     # from a cosign-signed image with SPDX SBOM + SLSA build provenance, pinned
     # by digest. To bump: cut a go-envelope-v* release, verify, update digest.
-    image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.161@sha256:80e31f152df25b772c4a81b5a17b4acf563c0eeaaf9cd170e6d0f02d3a74646b
+    image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.162@sha256:6399d8658e1fd8d10416febf658c86ab5fdada8f2a36961edf4822b64af3e4bb
     container_name: janus
     restart: unless-stopped
+    user: janus
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
     environment:
       - JANUS_PUBLIC_URL=https://vault.barta.cm
       - JANUS_PRODUCT_MODE=self_hosted
@@ -534,13 +540,19 @@ services:
     # manifests as the smoke harness; no production secret or host SSH key is
     # mounted into the staged Rust engine. Use the smoke harness, not manual
     # project-wide compose lifecycle commands, when testing this profile.
-    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.9@sha256:1e7cce090d8b3af35589b78e421701a61ad30117fa49706b3b6a610671ca8958
+    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.10@sha256:960e3378e06d4adbb24568aba6c73decc0efb43d5c4e5fda330359d08f70feea
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
-    restart: "no"
+    restart: unless-stopped
+    user: "65532:65532"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
     network_mode: "none"
     stdin_open: true
-    entrypoint: ["janus-warden"]
+    entrypoint: ["/usr/local/bin/janus-warden"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=65532,gid=65532,mode=0700
     environment:
       - JANUS_PRODUCT_MODE=self_hosted
       - JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev
@@ -569,6 +581,7 @@ services:
       - JANUS_AGE_PROFILE=csb1
       - JANUS_WARDEN_AGE_STORE_DIR=/var/lib/janus/secrets
       - JANUS_AGE_STORE_DIR=/var/lib/janus/secrets
+      - JANUS_LIFECYCLE_EVIDENCE_DIR=/var/lib/janus/secrets/.lifecycle-evidence
       - JANUS_WARDEN_AGE_IDENTITY_FILE=/run/janus/age/identity
       - JANUS_AGE_IDENTITY_FILE=/run/janus/age/identity
       - JANUS_WARDEN_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub
@@ -583,11 +596,7 @@ services:
       - janus_engine_smoke_permits:/run/janus/permits
       - janus_engine_smoke_age:/run/janus/age:ro
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "out=$$(printf '%s\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\"clientInfo\":{\"name\":\"janus-engine-health\",\"version\":\"0\"}}}' '{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}' '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"health\",\"arguments\":{}}}' | timeout 10s janus-warden) && printf '%s' \"$$out\" | grep -q '\"backend\":\"age\"' && printf '%s' \"$$out\" | grep -q '\"value_returned\":false'",
-        ]
+      test: ["CMD", "/usr/local/bin/janusd-use", "--help"]
       interval: 30s
       timeout: 15s
       retries: 3
@@ -625,7 +634,7 @@ services:
   pharosd:
     # Keep the readable release tag, but bind it to the verified immutable
     # linux/amd64 manifest used by both server and bundled beacon.
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.57@sha256:5d3f66b29bfb0cbe36471bdfa6d3adb650d0cd07c67e8533ac538332eaff58fa
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.58@sha256:8eb6bdecddce5951c696e35afacdf5acd70acde0ff08e947e413dbc2e4474666
     container_name: pharosd
     restart: unless-stopped
     init: true
@@ -660,6 +669,14 @@ services:
       # attended review has verified the exact project, resources, and price.
       - PHAROS_HCLOUD_PROJECT_LABEL=Pharos production
       - PHAROS_HCLOUD_EXECUTE=0
+      # Managed creation stays unavailable until the reviewed csb1 executor
+      # identity is installed and its exact public key is selected in Hetzner.
+      - PHAROS_PROVISIONING_EXECUTOR_READY=0
+      - PHAROS_PROVISIONING_OWNER_HOST=csb1
+      - PHAROS_PROVISIONING_SCOPE_ORGANIZATION=inspr
+      - PHAROS_PROVISIONING_SCOPE_PROJECT=pharos
+      - PHAROS_PROVISIONING_SCOPE_REPOSITORY=nixcfg
+      - PHAROS_PROVISIONING_SCOPE_ENVIRONMENT=production
       # csb1 is the trusted executor for other hosts; it cannot retire itself.
       - PHAROS_RETIREMENT_OWNER_HOST=csb1
       - PHAROS_REQUIRE_BEACON_TOKEN=1
@@ -707,7 +724,7 @@ services:
   # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
   # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.57@sha256:5d3f66b29bfb0cbe36471bdfa6d3adb650d0cd07c67e8533ac538332eaff58fa
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.58@sha256:8eb6bdecddce5951c696e35afacdf5acd70acde0ff08e947e413dbc2e4474666
     container_name: pharos-beacon
     restart: unless-stopped
     init: true
@@ -768,10 +785,13 @@ volumes:
   ppm_data: {}
   janus_data: {}
   janus_engine_smoke_age:
+    external: true
     name: ${JANUS_SMOKE_AGE_VOLUME:-janus_engine_smoke_age}
   janus_engine_smoke_secrets:
+    external: true
     name: ${JANUS_SMOKE_STORE_VOLUME:-janus_engine_smoke_secrets}
   janus_engine_smoke_permits:
+    external: true
     name: ${JANUS_SMOKE_PERMIT_VOLUME:-janus_engine_smoke_permits}
   minio_data: {}
 

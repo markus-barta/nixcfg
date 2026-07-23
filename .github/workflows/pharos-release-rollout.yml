@@ -112,7 +112,7 @@ jobs:
           printf 'digest=%s\nreference=%s\n' "$digest" "${image}:${VERSION}@${digest}" >>"$GITHUB_OUTPUT"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
         with:
           cosign-release: v2.5.2
 
