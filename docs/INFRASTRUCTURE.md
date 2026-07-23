@@ -242,18 +242,21 @@ ssh mba@cs0.barta.cm -p 2222 "docker exec headscale headscale nodes list"
 
 **NixOS configurations can only be built on NixOS hosts.**
 
-| Host     | Can Build NixOS? | Speed                            | Recommended For                |
-| -------- | ---------------- | -------------------------------- | ------------------------------ |
-| **gpc0** | ✅ Yes           | ⚡ Fastest (8 threads, i7-7700K) | Complex builds, fast iteration |
-| **hsb1** | ✅ Yes           | 🐢 Medium (4 threads)            | Remote deploys, CI             |
-| **hsb0** | ✅ Yes           | 🐢 Slow (4 threads)              | Emergency only                 |
-| **mbp0** | ❌ No            | -                                | home-manager only              |
+| Host             | Can Build NixOS?                                     | Speed                   | Recommended For                            |
+| ---------------- | ---------------------------------------------------- | ----------------------- | ------------------------------------------ |
+| **hsb1**         | ✅ Yes                                               | 🐢 Medium (4 threads)   | **Default builder** / remote deploys / CI  |
+| **hsb0**         | ✅ Yes                                               | 🐢 Slow (4 threads)     | Emergency only                             |
+| **mbp2607/mbp0** | ⚠️ Only via nix `linux-builder` (not wired — OPS-26) | —                       | home-manager native; NixOS needs a builder |
+| **stm2607**      | ⚠️ SteamOS — needs persistent Nix (OPS-25/26)        | (fast x86_64 if set up) | opportunistic fast builder (future)        |
+| ~~gpc0~~         | 🗑️ Retired 2026-07 → stm2607                         | —                       | —                                          |
+
+> **No dedicated fast builder right now** (gpc0 retired 2026-07). Default: build on **hsb1** or on the **target host via ssh**. A fast replacement (mbp2607 `linux-builder` / stm2607) is tracked in **OPS-26**.
 
 ### Quick Commands
 
 ```bash
-# Build on gpc0 (fastest)
-ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#<target>"
+# Build on hsb1 (default NixOS builder; gpc0 retired — fast builder TBD, OPS-26)
+ssh mba@hsb1.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#<target>"
 
 # Remote deploy from any machine
 nixos-rebuild switch --flake .#<host> --target-host <host> --use-remote-sudo
