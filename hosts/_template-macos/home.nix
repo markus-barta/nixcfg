@@ -35,10 +35,10 @@
   ];
 
   # ============================================================================
-  # INSPR — Git identity (personal default + BYTEPOETS via remote-URL match)
+  # INSPR — Git identity (personal default + former-work override via remote-URL match)
   # ============================================================================
   # See modules/shared/git-identity.nix. Default = Markus Barta <markus@barta.com>.
-  # Repos in BYTEPOETS GitHub orgs auto-switch via includeIf hasconfig:remote.*.url.
+  # Repos in the former work GitHub orgs auto-switch via includeIf hasconfig:remote.*.url.
   inspr.git-identity.enable = true;
 
   # ============================================================================

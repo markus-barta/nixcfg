@@ -11,10 +11,9 @@ Assume @+agents/rules/SYSOP.md role
 
 You are now operating in OpenClaw bot context. Two instances run across two hosts:
 
-| Host          | Instance           | Agents                  | Port  | Telegram                      |
-| ------------- | ------------------ | ----------------------- | ----- | ----------------------------- |
-| hsb0          | openclaw-gateway   | Merlin + Nimue          | 18789 | @merlin_oc_bot, @nimue_oc_bot |
-| miniserver-bp | openclaw-percaival | Percy (+ James planned) | 18789 | @percaival_bot                |
+| Host | Instance         | Agents         | Port  | Telegram                      |
+| ---- | ---------------- | -------------- | ----- | ----------------------------- |
+| hsb0 | openclaw-gateway | Merlin + Nimue | 18789 | @merlin_oc_bot, @nimue_oc_bot |
 
 ## Load All Runbooks
 
@@ -22,12 +21,8 @@ Read the following docs carefully before proceeding — they are the source of t
 
 @hosts/hsb0/docs/OPENCLAW-RUNBOOK.md
 
-> **msbp/Percy lives in BYTEPOETS/bpnixcfg** (since 2026-05-02, INSPR-24 Stage 2).
-> Auto-load via `@`-ref crosses repos and won't work — explicitly `Read` these
-> when you need them:
->
-> - `~/Code/BYTEPOETS/bpnixcfg/hosts/miniserver-bp/docs/OPENCLAW-RUNBOOK.md`
-> - `~/Code/BYTEPOETS/bpnixcfg/hosts/miniserver-bp/docs/RUNBOOK.md`
+> **msbp/Percy retired from this doctrine** — the host and bot moved out of
+> this repo 2026-05-02 (INSPR-24) and the work context ended June 2026.
 
 For host-level context (NixOS config, SSH, agenix, Docker):
 
@@ -51,20 +46,10 @@ For host-level context (NixOS config, SSH, agenix, Docker):
 - Key skills: bundled (gog, weather, skill-creator, healthcheck)
 - Status: iCloud Calendar and Google not yet configured
 
-### Percy / Percaival (miniserver-bp, work)
+### Percy / Percaival — RETIRED (former work bot)
 
-- Role: Work assistant, BYTEPOETS office context
-- Identity: @bytepoets-percyai (GitHub), @percaival_bot (Telegram)
-- Workspace repo: `bytepoets-mba/oc-workspace-percy`
-- Key skills: gog (Google Workspace), m365-email (Exchange), openrouter-free-models, weather, healthcheck
-- Google: percy.ai@bytepoets.com — Gmail, Calendar, Drive, Contacts, Sheets, Docs
-- M365: percy.ai@bytepoets.com — restricted to @bytepoets.com internal only (Exchange transport rule)
-
-### James (planned, miniserver-bp)
-
-- Role: Future second agent on miniserver-bp multi-agent gateway
-- Status: Not yet configured — backlog item `P40--6b8803b--percy-multi-agent-gateway-james.md`
-- Activation: config-only change to `openclaw.json` + new bot token via agenix
+Moved out of this repo 2026-05-02 (INSPR-24); the work context ended with
+the June 2026 exit. No routing, rebuild, or workspace commands here apply.
 
 ## Current Deployment State
 
@@ -74,13 +59,11 @@ Check live status via SSH (read-only, no approval needed):
 # hsb0 (Merlin + Nimue)
 ssh mba@hsb0.lan "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw"
 
-# miniserver-bp (Percy) — reachable via Tailscale (ssh msbp) or office LAN (ssh msbp-lan)
-ssh msbp "docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | grep openclaw"
 ```
 
 ## Last Known Version: 2026.3.2 — Breaking Changes Summary
 
-Before any `just oc-rebuild` or `just percy-rebuild`, check the changelog:
+Before any `just oc-rebuild`, check the changelog:
 
 | Breaking change                                                                                   | Fix applied                                                            |
 | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -94,10 +77,9 @@ Before any `just oc-rebuild` or `just percy-rebuild`, check the changelog:
 
 **Control UI access (HTTPS — TLS enabled, cert warning on first visit is expected):**
 
-| Instance              | LAN URL                     | Tailscale URL              |
-| --------------------- | --------------------------- | -------------------------- |
-| hsb0 (Merlin+Nimue)   | https://192.168.1.99:18789/ | https://100.64.0.6:18789/  |
-| miniserver-bp (Percy) | https://10.17.1.40:18789/   | https://100.64.0.10:18789/ |
+| Instance            | LAN URL                     | Tailscale URL             |
+| ------------------- | --------------------------- | ------------------------- |
+| hsb0 (Merlin+Nimue) | https://192.168.1.99:18789/ | https://100.64.0.6:18789/ |
 
 > ⚠️ **TLS setup in progress**: `gateway.tls.enabled: true` is in config. Awaiting `--force-recreate` on both hosts to generate self-signed certs. After first boot, read SHA-256 fingerprint from logs and add `gateway.remote.tlsFingerprint` to config. See TLS setup procedure in each host's OPENCLAW-RUNBOOK.md.
 

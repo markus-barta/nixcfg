@@ -216,7 +216,7 @@ in
   # chars. Defaults inherited where Ghostty's defaults already do the right thing
   # (cmd+c/v copy/paste, cmd+plus/minus font-size, cmd+t tabs — no custom keybinds).
   # Login shell intentionally NOT set — Ghostty inherits from chsh, which respects
-  # each user's per-host shell choice (fish on mbp0; whatever on BYTEPOETS Macs).
+  # each user's per-host shell choice (fish on mbp0; whatever elsewhere).
   ghosttyConfig = ''
     # ─────────────────────────────────────────────────────────────────────
     # INSPR-managed Ghostty config
