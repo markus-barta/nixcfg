@@ -22,7 +22,7 @@ Items get pulled from mbp0 individually when actually missed, never wholesale.
 `inspr.secrets.agents`, `inspr.paimos-cli`, and `inspr.git.atelier.personal`
 are **on** since 2026-07-03 (host keys registered as agenix recipients,
 `mbp2607-personal-userkey` minted — NIX-215). `atelier.bytepoets` stays off
-permanently (BYTEPOETS history). `inspr.paimos-cli` manages non-secret routing
+permanently (former-work history). `inspr.paimos-cli` manages non-secret routing
 only; authentication is an interactive OS-keyring login.
 
 ## Keyboard & input tools (2026-07-04, NIX-215)

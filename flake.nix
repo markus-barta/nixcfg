@@ -72,7 +72,7 @@
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.
-    # Studios (this nixcfg + BYTEPOETS bpnixcfg + future family/paid-product
+    # Studios (this nixcfg + former-employer studio + future family/paid-product
     # context flakes) provide identity-specific values; the atelier stays
     # opinionated only about mechanics. (Older docs: "Pattern β".)
     inspr-modules.url = "github:markus-barta/inspr-modules";
@@ -209,8 +209,8 @@
       # ========================================================================
       # Apple Silicon — private M5 Max (mbp0). New physical device, provisioned
       # 2026-06-15 from the retired work host's config and key material
-      # (BYTEPOETS departure), so agenix access continues intentionally.
-      # Personal-only — BYTEPOETS push-atelier disabled in hosts/mbp0/home.nix.
+      # (June 2026 employer exit), so agenix access continues intentionally.
+      # Personal-only — the former work push-atelier is disabled in hosts/mbp0/home.nix.
       homeConfigurations."mba@mbp0" = mkDarwinHome "aarch64-darwin" "mbp0";
       homeConfigurations."mbp0" = self.homeConfigurations."mba@mbp0";
 
@@ -333,11 +333,11 @@
           };
         };
 
-        # miniserver-bp moved to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24
+        # miniserver-bp moved out of this repo on 2026-05-02 (INSPR-24
         # atelier-pattern graduation; "Pattern β" in older docs). It was a
-        # BYTEPOETS internal-ops host, not a personal one — belonged in the
-        # BYTEPOETS studio. (msbp itself was retired 2026-05-05;
-        # bonelio-staging + bonelio-live now carry the BYTEPOETS context.)
+        # former-employer internal-ops host, not a personal one — belonged in
+        # that studio. (msbp itself was retired 2026-05-05;
+        # successor hosts in the former studio carry that context.)
 
         # hsb2 (Raspberry Pi Zero W) retired 2026-06-14 (NIX-194): its only job —
         # the FLIRC IR→Sony bridge — moved to hsb1; host config removed from repo.
