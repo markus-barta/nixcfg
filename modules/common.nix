@@ -34,6 +34,7 @@ in
   # IMPORTS - Shared modules
   # ════════════════════════════════════════════════════════════════════════════
   imports = [
+    ./managed-service-declarations.nix
     ./shared/ssh-fleet-nixos.nix # Fleet SSH config (NixOS system-level)
     ./shared/markus-login-nixos.nix # Additive markus login; mba remains primary
   ];

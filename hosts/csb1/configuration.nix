@@ -61,6 +61,33 @@ in
     identityFile = config.age.secrets.csb1-pharos-provisioning-executor-ssh-key.path;
   };
 
+  # Value-free declaration consumed read-only by Pharos. The profile refs are
+  # reviewed capabilities, not runtime paths or commands; Janus owns delivery.
+  services.janus.managedServiceManifest = {
+    enable = true;
+    hostRef = "host_58f36c72a91e";
+    services = [
+      {
+        serviceRef = "svc_0bca8d31f7e2";
+        safeLabel = "Managed service canary";
+        runtimeKind = "compose";
+        slots = [
+          {
+            slotRef = "slot_49c0e8a17d63";
+            safeLabel = "Canary API token";
+            deliveryProfileRef = "delivery_2d7a0f63c951";
+            reloadProfileRef = "reload_65bc19f3a087";
+            healthProfileRef = "health_918d0ce7b4a2";
+            allowedSources = [
+              "generated"
+              "import"
+            ];
+          }
+        ];
+      }
+    ];
+  };
+
   # ============================================================================
   # BOOTLOADER CONFIGURATION
   # ============================================================================
