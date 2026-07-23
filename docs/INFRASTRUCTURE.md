@@ -79,9 +79,7 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 
 ### NixOS Desktops
 
-| Host     | Role      | IP            | SSH Command        | Criticality |
-| -------- | --------- | ------------- | ------------------ | ----------- |
-| **gpc0** | Gaming PC | 192.168.1.154 | `ssh mba@gpc0.lan` | 🟢 LOW      |
+_None._ gpc0 (the only NixOS desktop) was retired 2026-07 → **stm2607**, a SteamOS gaming appliance managed under **OPS/Pharos** — no longer a nixcfg NixOS host (see OPS-17).
 
 ### Additive `markus` SSH Routes
 
@@ -90,7 +88,7 @@ additive phase. Use explicit `markus` aliases when testing or using the new
 login:
 
 - LAN-style hosts: `<host>-markus`, `<host>-markus-lan`, `<host>-markus-ip`,
-  and `<host>-markus-ts` for `hsb0`, `hsb1`, `hsb8`, `hsb9`, and `gpc0`.
+  and `<host>-markus-ts` for `hsb0`, `hsb1`, `hsb8`, and `hsb9`.
 - Cloud hosts: `csb0-markus`, `csb0-markus-ip`, `csb0-markus-ts`,
   `csb1-markus`, `csb1-markus-ip`, and `csb1-markus-ts` on port 2222.
 
@@ -145,8 +143,8 @@ ssh hsb1
         ┌────────────────┼────────────────┐
         ▼                ▼                ▼
    ┌─────────┐      ┌─────────┐      ┌─────────┐
-   │  hsb1   │      │  gpc0   │      │  hsb8   │
-   │ (Auto)  │      │ (Game)  │      │(Parents)│
+   │  hsb1   │      │ stm2607 │      │  hsb8   │
+   │ (Auto)  │      │ (Steam) │      │(Parents)│
    └─────────┘      └─────────┘      └─────────┘
 
 
@@ -191,14 +189,14 @@ Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts
 
 ### Connected Nodes
 
-| Host     | Platform | Tailscale Address | Status    |
-| -------- | -------- | ----------------- | --------- |
-| **mbp0** | macOS    | mbp0.ts.barta.cm  | ✅ Active |
-| **hsb0** | NixOS    | hsb0.ts.barta.cm  | ✅ Active |
-| **hsb1** | NixOS    | hsb1.ts.barta.cm  | ✅ Active |
-| **gpc0** | NixOS    | gpc0.ts.barta.cm  | ✅ Active |
-| **csb0** | NixOS    | csb0.ts.barta.cm  | ✅ Active |
-| **csb1** | NixOS    | csb1.ts.barta.cm  | ✅ Active |
+| Host     | Platform | Tailscale Address          | Status     |
+| -------- | -------- | -------------------------- | ---------- |
+| **mbp0** | macOS    | mbp0.ts.barta.cm           | ✅ Active  |
+| **hsb0** | NixOS    | hsb0.ts.barta.cm           | ✅ Active  |
+| **hsb1** | NixOS    | hsb1.ts.barta.cm           | ✅ Active  |
+| ~~gpc0~~ | —        | retired → stm2607 (OPS-17) | 🗑️ Retired |
+| **csb0** | NixOS    | csb0.ts.barta.cm           | ✅ Active  |
+| **csb1** | NixOS    | csb1.ts.barta.cm           | ✅ Active  |
 
 <!-- miniserver-bp moved out of this repo on 2026-05-02 (INSPR-24) -->
 
@@ -242,18 +240,21 @@ ssh mba@cs0.barta.cm -p 2222 "docker exec headscale headscale nodes list"
 
 **NixOS configurations can only be built on NixOS hosts.**
 
-| Host     | Can Build NixOS? | Speed                            | Recommended For                |
-| -------- | ---------------- | -------------------------------- | ------------------------------ |
-| **gpc0** | ✅ Yes           | ⚡ Fastest (8 threads, i7-7700K) | Complex builds, fast iteration |
-| **hsb1** | ✅ Yes           | 🐢 Medium (4 threads)            | Remote deploys, CI             |
-| **hsb0** | ✅ Yes           | 🐢 Slow (4 threads)              | Emergency only                 |
-| **mbp0** | ❌ No            | -                                | home-manager only              |
+| Host             | Can Build NixOS?                                     | Speed                   | Recommended For                            |
+| ---------------- | ---------------------------------------------------- | ----------------------- | ------------------------------------------ |
+| **hsb1**         | ✅ Yes                                               | 🐢 Medium (4 threads)   | **Default builder** / remote deploys / CI  |
+| **hsb0**         | ✅ Yes                                               | 🐢 Slow (4 threads)     | Emergency only                             |
+| **mbp2607/mbp0** | ⚠️ Only via nix `linux-builder` (not wired — OPS-26) | —                       | home-manager native; NixOS needs a builder |
+| **stm2607**      | ⚠️ SteamOS — needs persistent Nix (OPS-25/26)        | (fast x86_64 if set up) | opportunistic fast builder (future)        |
+| ~~gpc0~~         | 🗑️ Retired 2026-07 → stm2607                         | —                       | —                                          |
+
+> **No dedicated fast builder right now** (gpc0 retired 2026-07). Default: build on **hsb1** or on the **target host via ssh**. A fast replacement (mbp2607 `linux-builder` / stm2607) is tracked in **OPS-26**.
 
 ### Quick Commands
 
 ```bash
-# Build on gpc0 (fastest)
-ssh mba@gpc0.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#<target>"
+# Build on hsb1 (default NixOS builder; gpc0 retired — fast builder TBD, OPS-26)
+ssh mba@hsb1.lan "cd ~/Code/nixcfg && sudo nixos-rebuild test --flake .#<target>"
 
 # Remote deploy from any machine
 nixos-rebuild switch --flake .#<host> --target-host <host> --use-remote-sudo
