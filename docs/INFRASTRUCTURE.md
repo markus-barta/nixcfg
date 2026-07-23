@@ -79,9 +79,7 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 
 ### NixOS Desktops
 
-| Host     | Role      | IP            | SSH Command        | Criticality |
-| -------- | --------- | ------------- | ------------------ | ----------- |
-| **gpc0** | Gaming PC | 192.168.1.154 | `ssh mba@gpc0.lan` | 🟢 LOW      |
+_None._ gpc0 (the only NixOS desktop) was retired 2026-07 → **stm2607**, a SteamOS gaming appliance managed under **OPS/Pharos** — no longer a nixcfg NixOS host (see OPS-17).
 
 ### Additive `markus` SSH Routes
 
@@ -90,7 +88,7 @@ additive phase. Use explicit `markus` aliases when testing or using the new
 login:
 
 - LAN-style hosts: `<host>-markus`, `<host>-markus-lan`, `<host>-markus-ip`,
-  and `<host>-markus-ts` for `hsb0`, `hsb1`, `hsb8`, `hsb9`, and `gpc0`.
+  and `<host>-markus-ts` for `hsb0`, `hsb1`, `hsb8`, and `hsb9`.
 - Cloud hosts: `csb0-markus`, `csb0-markus-ip`, `csb0-markus-ts`,
   `csb1-markus`, `csb1-markus-ip`, and `csb1-markus-ts` on port 2222.
 
@@ -145,8 +143,8 @@ ssh hsb1
         ┌────────────────┼────────────────┐
         ▼                ▼                ▼
    ┌─────────┐      ┌─────────┐      ┌─────────┐
-   │  hsb1   │      │  gpc0   │      │  hsb8   │
-   │ (Auto)  │      │ (Game)  │      │(Parents)│
+   │  hsb1   │      │ stm2607 │      │  hsb8   │
+   │ (Auto)  │      │ (Steam) │      │(Parents)│
    └─────────┘      └─────────┘      └─────────┘
 
 
@@ -191,14 +189,14 @@ Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts
 
 ### Connected Nodes
 
-| Host     | Platform | Tailscale Address | Status    |
-| -------- | -------- | ----------------- | --------- |
-| **mbp0** | macOS    | mbp0.ts.barta.cm  | ✅ Active |
-| **hsb0** | NixOS    | hsb0.ts.barta.cm  | ✅ Active |
-| **hsb1** | NixOS    | hsb1.ts.barta.cm  | ✅ Active |
-| **gpc0** | NixOS    | gpc0.ts.barta.cm  | ✅ Active |
-| **csb0** | NixOS    | csb0.ts.barta.cm  | ✅ Active |
-| **csb1** | NixOS    | csb1.ts.barta.cm  | ✅ Active |
+| Host     | Platform | Tailscale Address          | Status     |
+| -------- | -------- | -------------------------- | ---------- |
+| **mbp0** | macOS    | mbp0.ts.barta.cm           | ✅ Active  |
+| **hsb0** | NixOS    | hsb0.ts.barta.cm           | ✅ Active  |
+| **hsb1** | NixOS    | hsb1.ts.barta.cm           | ✅ Active  |
+| ~~gpc0~~ | —        | retired → stm2607 (OPS-17) | 🗑️ Retired |
+| **csb0** | NixOS    | csb0.ts.barta.cm           | ✅ Active  |
+| **csb1** | NixOS    | csb1.ts.barta.cm           | ✅ Active  |
 
 <!-- miniserver-bp moved to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24) -->
 
