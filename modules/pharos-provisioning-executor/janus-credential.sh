@@ -139,10 +139,16 @@ image=$(
 )
 [ -n "$image" ] || fail janus_unavailable false
 
+# shellcheck disable=SC1091
+source "$CONTRACT_DIR/runtime-lib.sh"
+
 job_dir="$STATE_DIR/janus/$job_id"
 if [ "$mode" = prove-absent ]; then
   docker image inspect "$image" >/dev/null 2>&1 || fail janus_unavailable false
-  [ -d /run/lock ] && [ ! -L /run/lock ] || fail janus_unavailable false
+  docker image inspect "$JANUS_VOLUME_HELPER_IMAGE" >/dev/null 2>&1 ||
+    fail janus_unavailable false
+  lock_dir=${LOCK_FILE%/*}
+  [ -d "$lock_dir" ] && [ ! -L "$lock_dir" ] || fail janus_unavailable false
   exec 9>"$LOCK_FILE"
   flock -n 9 || fail janus_unavailable false
 
@@ -194,7 +200,7 @@ if [ "$mode" = prove-absent ]; then
     esac
     docker run --rm --network none --read-only \
       -v "${volume}:/proof:ro" \
-      --entrypoint sh "$image" -c '
+      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 path=$1
 test ! -e "/proof/${path}"
@@ -218,7 +224,7 @@ test ! -L "/proof/${path}"
     esac
     docker run --rm --network none --read-only \
       -v "${volume}:/proof:ro" \
-      --entrypoint sh "$image" -c '
+      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 name=$1
 path=/proof/metadata.toml
@@ -257,8 +263,6 @@ chmod 0700 "$STATE_DIR" "$STATE_DIR/janus"
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail janus_unavailable false
 
-# shellcheck disable=SC1091
-source "$CONTRACT_DIR/runtime-lib.sh"
 docker image inspect "$image" >/dev/null 2>&1 || fail janus_unavailable false
 janus_pharos_prepare_runtime "$image" "$CONTRACT_DIR" "$VOLUME_PREFIX" \
   >/dev/null 2>&1 || fail janus_unavailable false
@@ -413,7 +417,7 @@ entry_phase() {
   local journal_posture output
   if ! journal_posture=$(docker run --rm --network none \
     -v "${JANUS_PHAROS_LIFECYCLE_VOLUME}:/var/lib/janus/lifecycle:ro" \
-    --entrypoint sh "$image" -c '
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 path="/var/lib/janus/lifecycle/provisioning-entries/${1}.json"
 if [ -f "$path" ] && [ ! -L "$path" ]; then
@@ -461,7 +465,7 @@ verify_absent() {
   docker run --rm --network none \
     -v "${JANUS_PHAROS_STORE_VOLUME}:/var/lib/janus/secrets:ro" \
     -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$image" -c '
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 host=$1
 name=$2
@@ -646,7 +650,7 @@ install -d -m 0700 "$output_root/etc" "$output_root/etc/pharos"
 docker run --rm --network none --user 0 \
   -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env:ro" \
   -v "${output_root}:/handoff" \
-  --entrypoint sh "$image" -c '
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 host=$1
 source_file="/run/janus/env/pharos/beacons/${host}.env"
