@@ -348,6 +348,108 @@ Janus Docker volumes. The encrypted provider artifact is retained. The renderer
 excludes every reviewed retired host, so a later sidecar render cannot silently
 recreate its runtime access.
 
+### Managed-Service Secret CRUD Canary
+
+The first production consumer is deliberately boring: one networkless canary,
+one declared secret slot, and no reveal path. The browser can create, replace,
+or remove the slot. Janus keeps central custody encrypted, delivers a
+host-bound signed envelope, and the root-only host agent recreates only the
+declared Compose service. The canary itself runs as uid `65534` with no
+capabilities and proves that it loaded the current generation by comparing
+hashes in private tmpfs; neither the hash nor the value is exposed in UI or
+operator output.
+
+Before any activation, upgrade, or recovery action:
+
+```bash
+cd ~/Code/nixcfg
+just janus-managed-secret-readiness declarative
+sudo just janus-managed-secret-readiness live
+```
+
+Both modes print stable reason codes and `value_returned=false`. Declarative
+readiness verifies the exact release pins, catalog, declaration fingerprint,
+closed host profile, Nix unit wiring, and container hardening. Live readiness
+also verifies private file metadata, the admitted transaction daemon and Unix
+socket, the active host restore/agent units, the Pharos host-token generation,
+and the healthy canary.
+
+Normal status checks:
+
+```bash
+systemctl status \
+  janus-managed-central-seed.service \
+  janus-host-secret-restore.service \
+  janus-managed-host-agent.service \
+  janus-managed-canary.service
+docker inspect --format \
+  'name={{.Name}} state={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+  janus-managed-transactiond janus-managed-canary
+```
+
+Do not inspect environment variables, print `/run/agenix` files, open the host
+ciphertext cache, or copy the runtime file. The UI and readiness command are
+the supported operator surfaces.
+
+#### Janus or Pharos unavailable
+
+An already-running service continues with its installed generation. The host
+cache also permits reboot restore without central Janus, but no create,
+replace, or remove operation may be started or declared successful. Leave the
+cache, runtime file, outbox, and transaction journal untouched. Restore the
+failed control plane, then rerun live readiness; the idempotent workers resume
+the exact recorded phase.
+
+#### Canary health failure
+
+Do not repeatedly recreate the service by hand. A failed create stops without
+claiming success. A failed replacement automatically restores the previous
+encrypted generation and must prove that generation healthy. Check only the
+value-free unit/container states and the Pharos operation reason code. If
+automatic rollback cannot prove health, stop new operations and preserve the
+transaction, host cache, and audit directories for review.
+
+#### Stuck or interrupted operation
+
+Stop new browser submissions. Confirm that the current catalog still contains
+the exact host/service/slot/kind/source entry and that both control planes are
+on the reviewed release. Never delete a `webtx_` journal or synthesize a
+completion result. Restart `janus-managed-transactiond`, then the host agent,
+and rerun live readiness. Startup reconciliation either resumes the exact
+removal or rolls back an interrupted create/replace; an incompatible or stale
+catalog fails closed.
+
+#### Lost or retired host
+
+Disable its agent token, mark the host retired declaratively, increase the
+minimum revocation epoch, and add any known envelope reference to the revoked
+set before deleting provider resources. Rotate every secret that host could
+consume. Keep tombstones and audit evidence. Never reassign the old host ref,
+SSH host key, cache, or agent token to a replacement host.
+
+#### Signing key, Age identity, or agent-token compromise
+
+Stop new operations and disable the host agent. Rotate the affected agenix
+material through the normal reviewed Git flow. For a host-envelope signing-key
+incident, remove the old verification key and raise the revocation epoch. For
+an Age identity incident, generate a new identity/recipient and replace every
+active secret through the UI. For an agent-token incident, rotate the token,
+republish the Pharos Janus hash generation, and recreate Pharos before
+re-enabling the agent. Rerun both readiness modes before resuming.
+
+#### Release rollback and break glass
+
+Rollback is a reviewed Nix generation or Git revert, never an on-host compose
+edit. First confirm there is no nonterminal managed operation. Keep schema-v2
+readers in place while any removal journal or tombstone exists. If a release
+must be rolled back, pin its exact signed digest and matching admission receipt,
+switch NixOS, recreate only `janus`, `pharosd`, and
+`janus-managed-transactiond`, then run live readiness.
+
+Break glass does not enable reveal. Its only supported outcome is restoring the
+last healthy declared generation or leaving the canary stopped. Record the
+reason and exact reviewed revision in PPM before resuming normal operations.
+
 ### Upgrade PAIMOS (pm.barta.cm)
 
 Image source: `ghcr.io/markus-barta/paimos:latest` (published by the

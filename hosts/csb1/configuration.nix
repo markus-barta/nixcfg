@@ -152,7 +152,7 @@ in
           reloadProfileRef = "reload_65bc19f3a087";
           healthProfileRef = "health_918d0ce7b4a2";
           detachProfileRef = "detach_8a0f4e271c93";
-          composeFile = csb1ComposeFile;
+          composeFile = "/etc/janus/managed/docker-compose.yml";
           composeService = "janus-managed-canary";
           containerName = "janus-managed-canary";
         }
@@ -332,6 +332,7 @@ in
       ./docker/janus/managed-service-production/pharos-verification-keys.json;
     "janus/managed/web-transaction-catalog.json".source =
       ./docker/janus/managed-service-production/web-transaction-catalog.json;
+    "janus/managed/docker-compose.yml".source = ./docker/docker-compose.yml;
   };
 
   users.groups.janus-managed-runtime.gid = 991;
@@ -367,6 +368,7 @@ in
       MemoryDenyWriteExecute = true;
       CapabilityBoundingSet = [
         "CAP_CHOWN"
+        "CAP_DAC_OVERRIDE"
         "CAP_FOWNER"
       ];
       SystemCallArchitectures = "native";
