@@ -51,6 +51,7 @@ let
         delivery_profile_ref = profile.deliveryProfileRef;
         reload_profile_ref = profile.reloadProfileRef;
         health_profile_ref = profile.healthProfileRef;
+        detach_profile_ref = profile.detachProfileRef;
         compose_file = profile.composeFile;
         compose_service = profile.composeService;
         container_name = profile.containerName;
@@ -208,6 +209,7 @@ in
               deliveryProfileRef = lib.mkOption { type = lib.types.str; };
               reloadProfileRef = lib.mkOption { type = lib.types.str; };
               healthProfileRef = lib.mkOption { type = lib.types.str; };
+              detachProfileRef = lib.mkOption { type = lib.types.str; };
               composeFile = lib.mkOption { type = lib.types.str; };
               composeService = lib.mkOption { type = lib.types.str; };
               containerName = lib.mkOption { type = lib.types.str; };
@@ -275,6 +277,7 @@ in
               && validRef "delivery" profile.deliveryProfileRef
               && validRef "reload" profile.reloadProfileRef
               && validRef "health" profile.healthProfileRef
+              && validRef "detach" profile.detachProfileRef
               && lib.hasPrefix "/" profile.composeFile
               && builtins.match "[a-z0-9_.-]{1,96}" profile.composeService != null
               && builtins.match "[a-z0-9_.-]{1,96}" profile.containerName != null

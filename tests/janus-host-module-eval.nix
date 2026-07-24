@@ -49,6 +49,7 @@ let
                   deliveryProfileRef = "delivery_2d7a0f63c951";
                   reloadProfileRef = "reload_65bc19f3a087";
                   healthProfileRef = "health_918d0ce7b4a2";
+                  detachProfileRef = "detach_8a0f4e271c93";
                   composeFile = "/home/mba/Code/nixcfg/hosts/csb1/docker/docker-compose.yml";
                   composeService = "janus-managed-secret-canary";
                   containerName = "janus-managed-secret-canary";

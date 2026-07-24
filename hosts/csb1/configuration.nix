@@ -79,6 +79,7 @@ in
             deliveryProfileRef = "delivery_2d7a0f63c951";
             reloadProfileRef = "reload_65bc19f3a087";
             healthProfileRef = "health_918d0ce7b4a2";
+            detachProfileRef = "detach_8a0f4e271c93";
             allowedSources = [
               "generated"
               "import"

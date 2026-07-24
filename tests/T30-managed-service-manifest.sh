@@ -63,9 +63,9 @@ PUBLISHER_BEFORE="$(nix eval '.#nixosConfigurations.csb1.config.systemd.services
 PUBLISHER_EXEC="$(nix eval '.#nixosConfigurations.csb1.config.systemd.services.pharos-managed-service-declarations.serviceConfig.ExecStart' --raw)"
 COMPOSE_FILE="$REPO_ROOT/hosts/csb1/docker/docker-compose.yml"
 
-check_jq "schema and producer are exact v1 values" '
+check_jq "schema and producer are exact v2 values" '
   .schema == "inspr.pharos.managed-service-declarations.v1"
-  and .schema_version == 1
+  and .schema_version == 2
   and .generated_by == "nixcfg"
 '
 check_jq "host and declaration use opaque references" '
@@ -79,8 +79,10 @@ check_jq "one reviewed Compose service and slot are declared" '
     "service_ref":"svc_0bca8d31f7e2",
     "slots":[{
       "allowed_sources":["generated","import"],
+      "binding_state":"required",
       "consumer_kind":"managed_service",
       "delivery":{"kind":"private_env_file","profile_ref":"delivery_2d7a0f63c951"},
+      "detach":{"method":"compose_stop_and_verify","profile_ref":"detach_8a0f4e271c93"},
       "health":{"probe":"compose_healthcheck","profile_ref":"health_918d0ce7b4a2"},
       "reload":{"method":"compose_recreate","profile_ref":"reload_65bc19f3a087"},
       "safe_label":"Canary API token",
@@ -100,6 +102,48 @@ check_jq "manifest fields are closed and value-free" '
       and . != "command"
       and . != "path"))
 '
+
+DETACHED_MANIFEST_JSON="$(nix eval --impure --json --expr '
+  let
+    flake = builtins.getFlake (toString ./.);
+    base = flake.nixosConfigurations.csb1;
+    detached = base.extendModules {
+      modules = [
+        ({ lib, ... }: {
+          services.janus.managedServiceManifest.services = lib.mkForce [
+            {
+              serviceRef = "svc_0bca8d31f7e2";
+              safeLabel = "Canary service";
+              runtimeKind = "compose";
+              slots = [
+                {
+                  slotRef = "slot_49c0e8a17d63";
+                  safeLabel = "Canary API token";
+                  deliveryProfileRef = "delivery_2d7a0f63c951";
+                  reloadProfileRef = "reload_65bc19f3a087";
+                  healthProfileRef = "health_918d0ce7b4a2";
+                  detachProfileRef = "detach_8a0f4e271c93";
+                  bindingState = "detached";
+                  allowedSources = [ ];
+                }
+              ];
+            }
+          ];
+        })
+      ];
+    };
+  in
+  detached.config.services.janus.managedServiceManifest.generated
+')"
+if jq -e '
+  .services[0].slots[0].binding_state == "detached"
+  and .services[0].slots[0].allowed_sources == []
+  and .services[0].slots[0].detach.method == "compose_stop_and_verify"
+' <<<"$DETACHED_MANIFEST_JSON" >/dev/null; then
+  pass "reviewed detach is explicit and removes all creation sources"
+else
+  fail "reviewed detach is explicit and removes all creation sources"
+fi
 
 if nix eval --impure --expr '
   let
@@ -121,6 +165,7 @@ if nix eval --impure --expr '
                   deliveryProfileRef = "delivery_2d7a0f63c951";
                   reloadProfileRef = "reload_65bc19f3a087";
                   healthProfileRef = "health_918d0ce7b4a2";
+                  detachProfileRef = "detach_8a0f4e271c93";
                   allowedSources = [ "generated" "import" ];
                 }
               ];

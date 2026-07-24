@@ -105,6 +105,10 @@ let
     "generated"
     "import"
   ];
+  bindingStateType = types.enum [
+    "required"
+    "detached"
+  ];
 
   slotType = types.submodule {
     options = {
@@ -132,6 +136,16 @@ let
         type = types.str;
         example = "health_918d0ce7b4a2";
         description = "Opaque reviewed post-reload health profile.";
+      };
+      bindingState = mkOption {
+        type = bindingStateType;
+        default = "required";
+        description = "Reviewed dependency state. Removal is admitted only after this is deployed as detached.";
+      };
+      detachProfileRef = mkOption {
+        type = types.str;
+        example = "detach_8a0f4e271c93";
+        description = "Opaque reviewed Compose stop-and-verify profile used before runtime material is removed.";
       };
       allowedSources = mkOption {
         type = types.listOf sourceType;
@@ -186,6 +200,11 @@ let
       probe = "compose_healthcheck";
       profile_ref = slot.healthProfileRef;
     };
+    binding_state = slot.bindingState;
+    detach = {
+      method = "compose_stop_and_verify";
+      profile_ref = slot.detachProfileRef;
+    };
     allowed_sources = lib.sort builtins.lessThan slot.allowedSources;
   };
 
@@ -206,7 +225,7 @@ let
   declarationFingerprint = "decl_${builtins.hashString "sha256" (builtins.toJSON fingerprintBody)}";
   manifest = {
     schema = "inspr.pharos.managed-service-declarations.v1";
-    schema_version = 1;
+    schema_version = 2;
     generated_by = "nixcfg";
     host_ref = cfg.hostRef;
     declaration_fingerprint = declarationFingerprint;
@@ -309,7 +328,10 @@ in
             validRef "delivery_" slot.deliveryProfileRef
             && validRef "reload_" slot.reloadProfileRef
             && validRef "health_" slot.healthProfileRef
-            && slot.allowedSources != [ ]
+            && validRef "detach_" slot.detachProfileRef
+            && (
+              if slot.bindingState == "required" then slot.allowedSources != [ ] else slot.allowedSources == [ ]
+            )
             && builtins.length slot.allowedSources <= 2
             && unique slot.allowedSources
           ) service.slots
