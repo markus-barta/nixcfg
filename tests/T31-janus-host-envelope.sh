@@ -20,13 +20,16 @@ grep -Fq 'janus-managed-host-agent' "${module}"
 grep -Fq 'managed-host-agent-config.v1' "${module}"
 grep -Fq '"AF_INET"' "${module}"
 grep -Fq 'compose_file = profile.composeFile' "${module}"
+grep -Fq 'owner_uid = cfg.ownerUid' "${module}"
 grep -Fq 'runtime paths are derived, not configurable' "${module}"
 grep -Fq '../../modules/janus-host-secrets' "${host}"
-grep -Fq 'inspr.janusHostSecrets.enable = false' "${host}"
+grep -Fq 'inspr.janusHostSecrets = {' "${host}"
+grep -Fq 'ownerUid = 65534' "${host}"
+grep -Fq 'enable = false;' "${host}"
 
 if grep -Eq '(secret_value|private_key|ciphertext)[[:space:]]*=' "${host}"; then
   printf 'janus host declaration contains a forbidden value-bearing field\n' >&2
   exit 1
 fi
 
-printf 'janus_host_envelope_module=ok enabled=false boot_gate=docker value_returned=false\n'
+printf 'janus_host_envelope_module=ok enabled=false boot_gate=canary value_returned=false\n'

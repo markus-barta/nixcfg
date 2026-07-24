@@ -16,7 +16,7 @@ let
       schema_version = 1;
       host_ref = cfg.hostRef;
       scope_ref = cfg.scopeRef;
-      owner_uid = 0;
+      owner_uid = cfg.ownerUid;
       minimum_revocation_epoch = cfg.minimumRevocationEpoch;
       retired = cfg.retired;
       producer_keys = map (key: {
@@ -79,6 +79,12 @@ in
       type = lib.types.str;
       default = "";
       description = "Exact opaque Janus scope reference.";
+    };
+
+    ownerUid = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 0;
+      description = "Exact uid that owns materialized runtime files for this host.";
     };
 
     minimumRevocationEpoch = lib.mkOption {

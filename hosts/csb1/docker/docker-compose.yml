@@ -607,6 +607,51 @@ services:
       - traefik.enable=false
 
   # ============================================
+  # Janus managed-secret production canary
+  # ============================================
+  janus-managed-canary:
+    image: alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+    container_name: janus-managed-canary
+    profiles: ["janus-managed-service"]
+    restart: unless-stopped
+    init: true
+    user: "65534:65534"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    mem_limit: 32m
+    cpus: "0.10"
+    network_mode: "none"
+    tmpfs:
+      - /run/canary:rw,noexec,nosuid,nodev,size=1m,uid=65534,gid=65534,mode=0700
+    volumes:
+      - /run/janus-managed/svc_0bca8d31f7e2/slot_49c0e8a17d63.env:/run/secrets/canary-api-token:ro
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        test -s /run/secrets/canary-api-token
+        sha256sum /run/secrets/canary-api-token | cut -d' ' -f1 > /run/canary/loaded.sha256
+        exec sleep 2147483647
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          test -s /run/secrets/canary-api-token &&
+          test -s /run/canary/loaded.sha256 &&
+          test "$$(sha256sum /run/secrets/canary-api-token | cut -d' ' -f1)" =
+          "$$(cat /run/canary/loaded.sha256)"
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+      - traefik.enable=false
+
+  # ============================================
   # MinIO - Object storage (PPM attachments)
   # ============================================
   minio:

@@ -12,6 +12,25 @@ let
   hostdashCsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb1;
   csb1ComposeFile = "/home/mba/Code/nixcfg/hosts/csb1/docker/docker-compose.yml";
   csb1Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${csb1ComposeFile}";
+  janusManagedCentralSeed = pkgs.writeShellScript "janus-managed-central-seed" ''
+    set -eu
+    ${pkgs.coreutils}/bin/install -d -m 0700 -o 100 -g 101 \
+      /var/lib/janus-managed-central \
+      /var/lib/janus-managed-central/age-store \
+      /var/lib/janus-managed-central/audit \
+      /var/lib/janus-managed-central/outbox \
+      /var/lib/janus-managed-central/state \
+      /var/lib/janus-managed-central/tombstones
+    if [ ! -e /var/lib/janus-managed-central/metadata.toml ]; then
+      ${pkgs.coreutils}/bin/install -m 0600 -o 100 -g 101 \
+        /etc/janus/managed/metadata-baseline.toml \
+        /var/lib/janus-managed-central/metadata.toml
+    fi
+    [ ! -L /var/lib/janus-managed-central/metadata.toml ]
+    [ -f /var/lib/janus-managed-central/metadata.toml ]
+    [ "$(${pkgs.coreutils}/bin/stat -c %u:%g /var/lib/janus-managed-central/metadata.toml)" = "100:101" ]
+    [ "$(${pkgs.coreutils}/bin/stat -c %a /var/lib/janus-managed-central/metadata.toml)" = "600" ]
+  '';
   csb1HostdashReconcile = pkgs.writeShellScript "csb1-hostdash-reconcile" ''
     set -eu
     ${csb1Compose} up -d --force-recreate --no-deps hostdash-auth
@@ -44,7 +63,7 @@ in
   # UZUMAKI MODULE CONFIGURATION
   # ============================================================================
   uzumaki = {
-    enable = true;
+    enable = false;
     role = "server";
     ncps.enable = false; # Cloud server: Never sees hsb0
   };
@@ -57,7 +76,7 @@ in
   # executor key is present in both agenix and the selected Hetzner project.
   # The module and its full bootstrap contract are deployed before activation.
   inspr.pharosProvisioningExecutor = {
-    enable = false;
+    enable = true;
     sshKeyRef = "pharos-csb1-executor";
     identityFile = config.age.secrets.csb1-pharos-provisioning-executor-ssh-key.path;
   };
@@ -90,11 +109,56 @@ in
     ];
   };
 
-  # Host-bound ciphertext restore is intentionally present but disabled until
-  # JANUS-365 pins a release containing janus-host-executor and provisions the
-  # public Janus signing key. Enabling it without a valid cache would correctly
-  # block Docker rather than start the declared service without its secret.
-  inspr.janusHostSecrets.enable = false;
+  # Activation remains false until JANUS-365 records and pins the signed
+  # v0.1.11 release. Every authority and Compose target is already closed so
+  # the activation diff is a single reviewed boolean plus immutable release pin.
+  inspr.janusHostSecrets = {
+    enable = false;
+    hostRef = "host_58f36c72a91e";
+    scopeRef = "scp_e3b09b6f7b8b2377d8c0e8b904043ef025b68d6b";
+    ownerUid = 65534;
+    minimumRevocationEpoch = 1;
+    retired = false;
+    producerKeys = [
+      {
+        keyId = "key_managedhost0001";
+        publicKey = "ocgXZ4hZ+nKoELlv6dDXJDDggCUSFtdYAqo5CBVxCsw";
+      }
+    ];
+    revokedEnvelopeRefs = [ ];
+    slots = [
+      {
+        serviceRef = "svc_0bca8d31f7e2";
+        slotRef = "slot_49c0e8a17d63";
+        secretRef = "sec_4e32300270e0dda2d11a";
+        declarationFingerprint = "decl_d962b7d42f75d59e53bf94ee39ee3ec467bf507e99178c17f05b3c8205c82a2a";
+        minimumGeneration = 1;
+        rollbackWindowSeconds = 900;
+      }
+    ];
+    beforeUnits = [ "janus-managed-canary.service" ];
+    agent = {
+      enable = true;
+      pharosOrigin = "https://pharos.barta.cm";
+      janusOrigin = "https://vault.barta.cm";
+      tokenFile = config.age.secrets.csb1-janus-managed-host-agent-token.path;
+      composeProject = "csb1";
+      pollIntervalSeconds = 5;
+      profiles = [
+        {
+          serviceRef = "svc_0bca8d31f7e2";
+          slotRef = "slot_49c0e8a17d63";
+          deliveryProfileRef = "delivery_2d7a0f63c951";
+          reloadProfileRef = "reload_65bc19f3a087";
+          healthProfileRef = "health_918d0ce7b4a2";
+          detachProfileRef = "detach_8a0f4e271c93";
+          composeFile = csb1ComposeFile;
+          composeService = "janus-managed-canary";
+          containerName = "janus-managed-canary";
+        }
+      ];
+    };
+  };
 
   # ============================================================================
   # BOOTLOADER CONFIGURATION
@@ -215,6 +279,15 @@ in
       # One shared lock serializes every writer to the production Janus store,
       # metadata, beacon outputs, and atomic token-hash generation.
       "f /run/lock/janus-pharos-production.lock 0660 root users -"
+      # Central managed-secret custody is private to the exact uid/gid shared
+      # by the two isolated Janus containers. Plaintext is never stored here.
+      "d /var/lib/janus-managed-central 0700 100 101 -"
+      "d /var/lib/janus-managed-central/age-store 0700 100 101 -"
+      "d /var/lib/janus-managed-central/audit 0700 100 101 -"
+      "d /var/lib/janus-managed-central/outbox 0700 100 101 -"
+      "d /var/lib/janus-managed-central/state 0700 100 101 -"
+      "d /var/lib/janus-managed-central/tombstones 0700 100 101 -"
+      "d /run/janus-managed-central 0700 100 101 -"
 
       # Legacy compatibility: keep /home/mba/docker as primary location for now
       # Will migrate to /var/lib/csb1-docker in future task
@@ -247,7 +320,80 @@ in
     };
   };
 
-  environment.etc."hostdash/csb1".source = hostdashCsb1;
+  environment.etc = {
+    "hostdash/csb1".source = hostdashCsb1;
+    "janus/managed/secretspec.toml".source = ./docker/janus/managed-service-production/secretspec.toml;
+    "janus/managed/metadata-baseline.toml".source =
+      ./docker/janus/managed-service-production/metadata-baseline.toml;
+    "janus/managed/managed-env-files.toml".source =
+      ./docker/janus/managed-service-production/managed-env-files.toml;
+    "janus/managed/hooks.toml".source = ./docker/janus/managed-service-production/hooks.toml;
+    "janus/managed/pharos-verification-keys.json".source =
+      ./docker/janus/managed-service-production/pharos-verification-keys.json;
+    "janus/managed/web-transaction-catalog.json".source =
+      ./docker/janus/managed-service-production/web-transaction-catalog.json;
+  };
+
+  users.groups.janus-managed-runtime.gid = 991;
+
+  systemd.services.janus-managed-central-seed = {
+    description = "Seed and validate the Janus managed-secret custody store";
+    wantedBy = [ "multi-user.target" ];
+    before = [
+      "janus-managed-canary.service"
+      "janus-managed-host-agent.service"
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      User = "root";
+      Group = "root";
+      UMask = "0077";
+      ExecStart = janusManagedCentralSeed;
+      ReadOnlyPaths = [ "/etc/janus/managed/metadata-baseline.toml" ];
+      ReadWritePaths = [ "/var/lib/janus-managed-central" ];
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectClock = true;
+      ProtectControlGroups = true;
+      ProtectHome = true;
+      ProtectKernelLogs = true;
+      ProtectKernelModules = true;
+      ProtectKernelTunables = true;
+      ProtectSystem = "strict";
+      RestrictAddressFamilies = [ "AF_UNIX" ];
+      RestrictNamespaces = true;
+      LockPersonality = true;
+      MemoryDenyWriteExecute = true;
+      CapabilityBoundingSet = [
+        "CAP_CHOWN"
+        "CAP_FOWNER"
+      ];
+      SystemCallArchitectures = "native";
+    };
+  };
+
+  systemd.services.janus-managed-canary = lib.mkIf config.inspr.janusHostSecrets.enable {
+    description = "Start the networkless Janus managed-secret canary";
+    wantedBy = [ "multi-user.target" ];
+    requires = [
+      "docker.service"
+      "janus-host-secret-restore.service"
+    ];
+    after = [
+      "docker.service"
+      "janus-host-secret-restore.service"
+    ];
+    unitConfig.ConditionPathExists = "/run/janus-managed/svc_0bca8d31f7e2/slot_49c0e8a17d63.env";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = "${csb1Compose} up -d --no-deps --force-recreate janus-managed-canary";
+      ExecStop = "${csb1Compose} stop -t 10 janus-managed-canary";
+      TimeoutStartSec = "120";
+      TimeoutStopSec = "30";
+    };
+  };
 
   # ============================================================================
   # MOSQUITTO MQTT BROKER PERMISSIONS
@@ -468,6 +614,48 @@ in
     owner = "root";
     group = "root";
     mode = "0644";
+  };
+
+  # Exact shared server-to-server token. Containers gain read access only
+  # through the dedicated supplemental group; host agents cannot read it.
+  age.secrets.csb1-janus-managed-internal-token = {
+    file = ../../secrets/csb1-janus-managed-internal-token.age;
+    path = "/run/agenix/csb1-janus-managed-internal-token";
+    owner = "root";
+    group = "janus-managed-runtime";
+    mode = "0440";
+  };
+
+  age.secrets.csb1-janus-managed-pharos-signing-key = {
+    file = ../../secrets/csb1-janus-managed-pharos-signing-key.age;
+    path = "/run/agenix/csb1-janus-managed-pharos-signing-key";
+    owner = "10001";
+    group = "999";
+    mode = "0400";
+  };
+
+  age.secrets.csb1-janus-managed-host-signing-key = {
+    file = ../../secrets/csb1-janus-managed-host-signing-key.age;
+    path = "/run/agenix/csb1-janus-managed-host-signing-key";
+    owner = "100";
+    group = "101";
+    mode = "0400";
+  };
+
+  age.secrets.csb1-janus-managed-age-identity = {
+    file = ../../secrets/csb1-janus-managed-age-identity.age;
+    path = "/run/agenix/csb1-janus-managed-age-identity";
+    owner = "100";
+    group = "101";
+    mode = "0400";
+  };
+
+  age.secrets.csb1-janus-managed-host-agent-token = {
+    file = ../../secrets/csb1-janus-managed-host-agent-token.age;
+    path = "/run/agenix/csb1-janus-managed-host-agent-token";
+    owner = "root";
+    group = "root";
+    mode = "0400";
   };
 
   # Human-enrolled Hetzner project token. This root-only agenix source is never
