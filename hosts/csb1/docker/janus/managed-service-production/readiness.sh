@@ -40,19 +40,96 @@ check_image_pin() {
   local service=$2
   local pattern=$3
   local image
+  local zero_digest
   image=$(service_image "$service")
-  if [[ "$image" =~ $pattern ]]; then
+  zero_digest="sha256:$(printf '0%.0s' {1..64})"
+  if [[ "$image" =~ $pattern ]] && [[ "$image" != *"@${zero_digest}" ]]; then
     pass "$id"
   else
     fail "$id"
   fi
 }
 
+check_runtime_hardening() {
+  docker compose \
+    -f "${compose}" \
+    config \
+    --no-interpolate \
+    --no-env-resolution \
+    --no-path-resolution \
+    --format json |
+    jq -e '
+      def closed_bind($target; $read_only):
+        any(.volumes[];
+          .type == "bind"
+          and .target == $target
+          and ((.read_only // false) == $read_only)
+          and .bind.create_host_path == false
+        );
+      .services["janus-managed-transactiond"] as $transaction
+      | .services.janus as $janus
+      | .services.pharosd as $pharos
+      | .services["janus-managed-canary"] as $canary
+      | $transaction.profiles == ["janus-managed-service"]
+      and $transaction.restart == "no"
+      and $transaction.init == true
+      and $transaction.user == "100:993"
+      and $transaction.read_only == true
+      and $transaction.network_mode == "none"
+      and $transaction.cap_drop == ["ALL"]
+      and ($transaction.security_opt | index("no-new-privileges:true") != null)
+      and $transaction.pids_limit == 64
+      and $transaction.mem_limit == "128m"
+      and $transaction.cpus == "0.50"
+      and $transaction.healthcheck.test == ["CMD", "/usr/local/bin/janusd-use", "--help"]
+      and ($transaction.environment | index("JANUS_PRODUCT_MODE=production") != null)
+      and ($transaction.environment | index("JANUS_MANAGED_WEB_TRANSACTION_ALLOWED_UID=100") != null)
+      and ($transaction | closed_bind("/var/lib/janus-managed-central"; false))
+      and ($transaction | closed_bind("/run/janus-managed-central"; false))
+      and ($transaction | closed_bind("/run/agenix/csb1-janus-managed-host-signing-key"; true))
+      and ($transaction | closed_bind("/run/agenix/csb1-janus-managed-age-identity"; true))
+      and ($transaction | closed_bind("/etc/janus/managed/release-channels-v1.json"; true))
+      and ($transaction | closed_bind("/etc/janus/managed/release-admission.json"; true))
+      and $janus.user == "100:101"
+      and ($janus.group_add | index("991") != null)
+      and any($janus.volumes[];
+        .source == "/run/agenix/csb1-janus-managed-internal-token"
+        and .target == "/run/janus/managed/internal-token"
+        and .read_only == true
+        and .bind.create_host_path == false
+      )
+      and ($janus | closed_bind("/run/janus-managed-central"; true))
+      and ($janus | closed_bind("/var/lib/janus-managed-central/outbox"; true))
+      and $pharos.user == "10001:992"
+      and ($pharos.group_add | index("991") != null)
+      and any($pharos.volumes[];
+        .source == "/run/agenix/csb1-janus-managed-internal-token-pharos"
+        and .target == "/run/pharos/managed-setup-internal-token"
+        and .read_only == true
+        and .bind.create_host_path == false
+      )
+      and ($pharos | closed_bind("/run/pharos/managed-setup-signing-key"; true))
+      and ($pharos | closed_bind("/run/pharos/managed-setup-internal-token"; true))
+      and $canary.init == true
+      and $canary.user == "65534:65534"
+      and $canary.read_only == true
+      and $canary.network_mode == "none"
+      and $canary.cap_drop == ["ALL"]
+      and ($canary.security_opt | index("no-new-privileges:true") != null)
+      and $canary.pids_limit == 32
+      and $canary.mem_limit == "32m"
+      and $canary.cpus == "0.10"
+      and ($canary | closed_bind("/run/secrets/canary-api-token"; true))
+    ' >/dev/null
+}
+
 declarative() {
   check_command command_jq command -v jq
   check_command command_nix command -v nix
   check_command command_docker command -v docker
-  check_command compose_contract docker compose -f "${compose}" config --quiet --no-interpolate
+  check_command \
+    compose_contract \
+    docker compose -f "${compose}" config --quiet --no-interpolate --no-env-resolution
   check_command csb1_eval nix eval "${repo}#nixosConfigurations.csb1.config.system.build.toplevel.drvPath"
   check_command manifest_contract bash "${repo}/tests/T30-managed-service-manifest.sh"
   check_command host_envelope_contract bash "${repo}/tests/T31-janus-host-envelope.sh"
@@ -68,7 +145,7 @@ declarative() {
   check_image_pin \
     pharos_release_pin \
     pharosd \
-    '^ghcr\.io/markus-barta/pharos/pharosd:0\.1\.62@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/pharos/pharosd:0\.1\.62@sha256:[0-9a-f]{64}$'
 
   if [ "$(service_image pharosd)" = "$(service_image pharos-beacon)" ]; then
     pass pharos_fleet_single_pin
@@ -76,38 +153,43 @@ declarative() {
     fail pharos_fleet_single_pin
   fi
 
+  # $digest is a jq variable supplied by --arg, not a shell expansion.
+  # shellcheck disable=SC2016
   check_command \
     admission_receipt \
-    jq -e \
+    jq -e --arg digest "$(service_image janus-managed-transactiond | sed 's/.*@//')" \
     '.schema_version == 1
      and .policy_id == "janus-engine-release-v1"
+     and .policy_version == 1
      and .channel == "stable"
      and .mode == "production"
      and .previous_mode == "production"
+     and .artifact.image == "ghcr.io/markus-barta/janus/janus-engine"
      and .artifact.tag == "rust-engine-v0.1.11"
-     and (.artifact.digest | test("^sha256:[0-9a-f]{64}$"))
+     and .artifact.digest == $digest
      and .artifact.development == false
      and .signature.verified == true
+     and .signature.identity == "https://github.com/markus-barta/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.11"
+     and .signature.oidc_issuer == "https://token.actions.githubusercontent.com"
      and .provenance.verified == true
-     and .sbom.verified == true' \
+     and .provenance.repository == "markus-barta/janus"
+     and .provenance.signer_workflow == "markus-barta/janus/.github/workflows/rust.yml"
+     and .provenance.source_ref == "refs/tags/rust-engine-v0.1.11"
+     and .provenance.predicate_type == "https://slsa.dev/provenance/v1"
+     and .sbom.verified == true
+     and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"' \
     "${script_dir}/release-admission.json"
 
   local activation
   activation=$(nix eval \
     "${repo}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable" \
     --json 2>/dev/null || true)
-  if [ "$activation" = "true" ] &&
-    grep -Fq 'JANUS_PRODUCT_MODE=production' "${compose}" &&
-    grep -Fq 'user: "100:993"' "${compose}" &&
-    grep -Fq 'user: "65534:65534"' "${compose}" &&
-    grep -Fq 'JANUS_MANAGED_WEB_TRANSACTION_ALLOWED_UID=100' "${compose}" &&
-    grep -Fq 'network_mode: "none"' "${compose}" &&
-    grep -Fq 'cap_drop: ["ALL"]' "${compose}" &&
-    grep -Fq 'no-new-privileges:true' "${compose}"; then
-    pass activation_and_hardening
+  if [ "$activation" = "true" ]; then
+    pass activation
   else
-    fail activation_and_hardening
+    fail activation
   fi
+  check_command runtime_hardening check_runtime_hardening
 
   if [ "$failures" -eq 0 ]; then
     printf 'managed_secret_readiness=ready mode=declarative value_returned=false\n'
@@ -186,6 +268,19 @@ expect_healthy_container() {
   fi
 }
 
+expect_exact_container_image() {
+  local name=$1
+  local service=$2
+  local actual expected
+  actual=$(docker inspect --format '{{.Config.Image}}' "$name" 2>/dev/null || true)
+  expected=$(service_image "$service")
+  if [ -n "$expected" ] && [ "$actual" = "$expected" ]; then
+    pass "image_${name}"
+  else
+    fail "image_${name}"
+  fi
+}
+
 live() {
   if [ "$(id -u)" != "0" ]; then
     fail live_requires_root
@@ -195,10 +290,15 @@ live() {
   fi
 
   expect_metadata \
-    internal_token_metadata \
+    internal_token_janus_metadata \
     /run/agenix/csb1-janus-managed-internal-token \
-    0:991 \
-    440
+    100:993 \
+    400
+  expect_metadata \
+    internal_token_pharos_metadata \
+    /run/agenix/csb1-janus-managed-internal-token-pharos \
+    10001:992 \
+    400
   expect_metadata \
     pharos_signing_key_metadata \
     /run/agenix/csb1-janus-managed-pharos-signing-key \
@@ -237,14 +337,22 @@ live() {
     600
 
   expect_unit janus-managed-central-seed.service
+  expect_unit janus-managed-transactiond.service
   expect_unit janus-host-secret-restore.service
   expect_unit janus-managed-host-agent.service
   expect_unit janus-managed-canary.service
 
   expect_container janus-managed-transactiond 100:993 none true
   expect_container janus-managed-canary 65534:65534 none true
+  expect_exact_container_image janus janus
+  expect_exact_container_image pharosd pharosd
+  expect_exact_container_image pharos-beacon pharos-beacon
+  expect_exact_container_image janus-managed-transactiond janus-managed-transactiond
+  expect_exact_container_image janus-managed-canary janus-managed-canary
   expect_healthy_container janus
   expect_healthy_container pharosd
+  expect_healthy_container pharos-beacon
+  expect_healthy_container janus-managed-transactiond
   expect_healthy_container janus-managed-canary
 
   local socket=/run/janus-managed-central/transaction.sock
@@ -263,7 +371,7 @@ live() {
     600
   expect_metadata \
     runtime_audit \
-    /var/lib/janus-managed-central/audit/runtime.jsonl \
+    /var/lib/janus-managed-central/audit/events.jsonl \
     100:993 \
     600
 

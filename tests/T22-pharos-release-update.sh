@@ -26,7 +26,7 @@ for relative in "${compose_files[@]}"; do
 done
 
 new_digest="sha256:$(printf 'b%.0s' {1..64})"
-expected="ghcr.io/markus-barta/pharos/pharosd:9.8.7@${new_digest}"
+expected="ghcr.io/inspr-at/pharos/pharosd:9.8.7@${new_digest}"
 
 "$repo_root/scripts/update-pharos-release.sh" --root "$fixture" 9.8.7 "$new_digest" >/dev/null
 [[ "$(jq -r '.reference' "$fixture/pharos-release.json")" == "$expected" ]]

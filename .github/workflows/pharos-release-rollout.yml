@@ -61,7 +61,7 @@ jobs:
           tag=$REQUESTED_TAG
           if [[ -z "$tag" ]]; then
             tag=$(
-              gh api --paginate repos/markus-barta/pharos/git/matching-refs/tags/v \
+              gh api --paginate repos/inspr-at/pharos/git/matching-refs/tags/v \
                 --jq '.[].ref' |
                 sed 's#^refs/tags/##' |
                 grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
@@ -73,14 +73,14 @@ jobs:
             echo 'error: no valid semantic Pharos release tag resolved' >&2
             exit 1
           fi
-          object_type=$(gh api "repos/markus-barta/pharos/git/ref/tags/${tag}" --jq '.object.type')
+          object_type=$(gh api "repos/inspr-at/pharos/git/ref/tags/${tag}" --jq '.object.type')
           if [[ "$object_type" != tag ]]; then
             echo 'error: Pharos release tag is not annotated' >&2
             exit 1
           fi
-          tag_object=$(gh api "repos/markus-barta/pharos/git/ref/tags/${tag}" --jq '.object.sha')
-          commit_sha=$(gh api "repos/markus-barta/pharos/git/tags/${tag_object}" --jq '.object.sha')
-          ancestry=$(gh api "repos/markus-barta/pharos/compare/${commit_sha}...main" --jq '.status')
+          tag_object=$(gh api "repos/inspr-at/pharos/git/ref/tags/${tag}" --jq '.object.sha')
+          commit_sha=$(gh api "repos/inspr-at/pharos/git/tags/${tag_object}" --jq '.object.sha')
+          ancestry=$(gh api "repos/inspr-at/pharos/compare/${commit_sha}...main" --jq '.status')
           if [[ "$ancestry" != ahead && "$ancestry" != identical ]]; then
             echo 'error: Pharos release tag is not on the main lineage' >&2
             exit 1
@@ -100,7 +100,7 @@ jobs:
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
-          image=ghcr.io/markus-barta/pharos/pharosd
+          image=ghcr.io/inspr-at/pharos/pharosd
           digest=$(
             docker buildx imagetools inspect "${image}:${VERSION}" |
               awk '$1 == "Digest:" { print $2; exit }'
@@ -121,8 +121,8 @@ jobs:
           DIGEST: ${{ steps.image.outputs.digest }}
           TAG: ${{ steps.release.outputs.tag }}
         run: |
-          cosign verify "ghcr.io/markus-barta/pharos/pharosd@${DIGEST}" \
-            --certificate-identity "https://github.com/markus-barta/pharos/.github/workflows/release.yml@refs/tags/${TAG}" \
+          cosign verify "ghcr.io/inspr-at/pharos/pharosd@${DIGEST}" \
+            --certificate-identity "https://github.com/inspr-at/pharos/.github/workflows/release.yml@refs/tags/${TAG}" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" >/dev/null
 
       - name: Prepare both repositories from the same digest

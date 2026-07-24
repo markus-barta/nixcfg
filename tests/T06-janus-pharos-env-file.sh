@@ -103,6 +103,8 @@ python3 - \
   "$SECRETS_DECLARATIONS" \
   "$AGENIX_CATALOG" \
   "$PROVIDER_SMOKE" <<'PY'
+from __future__ import annotations
+
 import hashlib
 import json
 import pathlib
@@ -216,23 +218,25 @@ def validate_beacon_contract(
     supports_dual_value: bool,
     blast_radius_prefix: str,
     extra_profiles: set[str] | None = None,
+    extra_beacon_hosts: set[str] | None = None,
 ) -> None:
     profile = nix_from_toml(profile_path)
     secretspec = nix_from_toml(secretspec_path)
 
     if secretspec.get("project", {}).get("name") != "pharos":
         raise SystemExit(f"{label} secretspec project name mismatch")
-    expected_profiles = set(hosts) | (extra_profiles or set())
+    expected_profiles = set(hosts) | (extra_profiles or set()) | (extra_beacon_hosts or set())
     if set(secretspec.get("profiles", {}).keys()) != expected_profiles:
         raise SystemExit(f"{label} secretspec host coverage mismatch")
 
     env_files = profile.get("env_files", [])
     by_id = {entry["id"]: entry for entry in env_files}
     beacon_entries = [entry for entry in env_files if entry["id"].startswith("profile.PHAROS_BEACON_")]
-    if len(beacon_entries) != len(hosts):
+    beacon_hosts = hosts + sorted(extra_beacon_hosts or set())
+    if len(beacon_entries) != len(beacon_hosts):
         raise SystemExit(f"{label} unexpected number of Pharos beacon env-file profiles")
 
-    for host in hosts:
+    for host in beacon_hosts:
         upper = host.upper()
         secret_name = f"PHAROS_BEACON_{upper}_TOKEN"
         host_secrets = secretspec.get("profiles", {}).get(host, {})
@@ -247,10 +251,15 @@ def validate_beacon_contract(
         entry = by_id.get(profile_id)
         if not entry:
             raise SystemExit(f"{label} missing env-file profile for {host}")
+        is_managed_host_agent = host in (extra_beacon_hosts or set())
         expected_entry = {
             "secret_ref": ref,
             "executor": "janus-run@csb1",
-            "destination": f"pharos-beacon-{host}",
+            "destination": (
+                "pharos-managed-host-agent-csb1"
+                if is_managed_host_agent
+                else f"pharos-beacon-{host}"
+            ),
             "env": "PHAROS_TOKEN",
             "output": f"/run/janus/env/pharos/beacons/{host}.env",
         }
@@ -264,14 +273,22 @@ def validate_beacon_contract(
         expect_subset(entry.get("hash_sidecar", {}), expected_sidecar, f"{label} {profile_id} hash_sidecar")
 
         expected_consumer = {
-            "consumer_ref": f"consumer.pharos_beacon_{host}",
+            "consumer_ref": (
+                "consumer.pharos_managed_host_agent_csb1"
+                if is_managed_host_agent
+                else f"consumer.pharos_beacon_{host}"
+            ),
             "kind": "service",
             "owner": "pharos",
             "environment": environment,
             "reload": reload,
             "validation": validations,
             "supports_dual_value": supports_dual_value,
-            "blast_radius": f"{blast_radius_prefix} {host}",
+            "blast_radius": (
+                "production Pharos managed-service agent token for csb1"
+                if is_managed_host_agent
+                else f"{blast_radius_prefix} {host}"
+            ),
         }
         expect_subset(entry.get("consumer", {}), expected_consumer, f"{label} {profile_id} consumer")
 
@@ -288,6 +305,7 @@ validate_beacon_contract(
     supports_dual_value=False,
     blast_radius_prefix="non-production Pharos beacon token for",
     extra_profiles=set(),
+    extra_beacon_hosts=set(),
 )
 validate_beacon_contract(
     label="production",
@@ -300,6 +318,7 @@ validate_beacon_contract(
     supports_dual_value=False,
     blast_radius_prefix="production Pharos beacon token for",
     extra_profiles={"hetzner-cloud"},
+    extra_beacon_hosts={"host_58f36c72a91e"},
 )
 
 prod_profile = nix_from_toml(prod_profile_path)
@@ -361,8 +380,10 @@ if "PHAROS_BEACON_TOKEN_MODE=janus" not in compose_text:
     raise SystemExit("pharosd compose must run in Janus-only token mode")
 if "PHAROS_BEACON_TOKEN_MODE=dual" in compose_text:
     raise SystemExit("pharosd compose must not keep dual token mode after PHAROS-40 cutover")
-if '    user: "10001:999"' not in compose_text:
+if '    user: "10001:992"' not in compose_text:
     raise SystemExit("pharosd compose must declare its exact non-root runtime identity")
+if '    group_add: ["991"]' not in compose_text:
+    raise SystemExit("pharosd compose must retain access to the value-free hash projection group")
 if "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro" not in compose_text:
     raise SystemExit("pharosd compose must mount only the value-free hash projection")
 if "janus_pharos_production_out:" in compose_text:

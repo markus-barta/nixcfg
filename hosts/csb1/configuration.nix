@@ -333,10 +333,20 @@ in
     "janus/managed/hooks.toml".source = ./docker/janus/managed-service-production/hooks.toml;
     "janus/managed/pharos-verification-keys.json".source =
       ./docker/janus/managed-service-production/pharos-verification-keys.json;
-    "janus/managed/web-transaction-catalog.json".source =
-      ./docker/janus/managed-service-production/web-transaction-catalog.json;
+    "janus/managed/web-transaction-catalog.json" = {
+      source = ./docker/janus/managed-service-production/web-transaction-catalog.json;
+      user = "janus-managed-central";
+      group = "janus-managed-central";
+      mode = "0400";
+    };
     "janus/managed/release-channels-v1.json".source =
       ./docker/janus/managed-service-production/release-channels-v1.json;
+    "janus/managed/release-admission.json" = {
+      source = ./docker/janus/managed-service-production/release-admission.json;
+      user = "janus-managed-central";
+      group = "janus-managed-central";
+      mode = "0400";
+    };
     "janus/managed/docker-compose.yml".source = ./docker/docker-compose.yml;
   };
 
@@ -393,6 +403,40 @@ in
         "CAP_FOWNER"
       ];
       SystemCallArchitectures = "native";
+    };
+  };
+
+  systemd.services.janus-managed-transactiond = {
+    description = "Run the private Janus managed-service transaction boundary";
+    wantedBy = [ "multi-user.target" ];
+    # The daemon loads these contracts only at startup. Content triggers ensure
+    # a reviewed image, catalog, policy, or profile change recreates the exact
+    # networkless container even though the stable /etc paths do not change.
+    restartTriggers = [
+      (builtins.readFile ./docker/docker-compose.yml)
+      (builtins.readFile ./docker/janus/managed-service-production/secretspec.toml)
+      (builtins.readFile ./docker/janus/managed-service-production/managed-env-files.toml)
+      (builtins.readFile ./docker/janus/managed-service-production/hooks.toml)
+      (builtins.readFile ./docker/janus/managed-service-production/web-transaction-catalog.json)
+      (builtins.readFile ./docker/janus/managed-service-production/release-channels-v1.json)
+      (builtins.readFile ./docker/janus/managed-service-production/release-admission.json)
+    ];
+    requires = [
+      "docker.service"
+      "janus-managed-central-seed.service"
+    ];
+    after = [
+      "docker.service"
+      "janus-managed-central-seed.service"
+    ];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = "${janusManagedCompose} up --no-deps --force-recreate --no-color janus-managed-transactiond";
+      ExecStop = "${janusManagedCompose} stop -t 10 janus-managed-transactiond";
+      Restart = "always";
+      RestartSec = "5s";
+      TimeoutStartSec = "180";
+      TimeoutStopSec = "30";
     };
   };
 
@@ -646,14 +690,23 @@ in
     mode = "0440";
   };
 
-  # Exact shared server-to-server token. Containers gain read access only
-  # through the dedicated supplemental group; host agents cannot read it.
+  # Exact shared server-to-server value projected twice because both runtimes
+  # enforce an owner-only private-file contract. The encrypted source remains
+  # singular; neither container can read the other's runtime projection.
   age.secrets.csb1-janus-managed-internal-token = {
     file = ../../secrets/csb1-janus-managed-internal-token.age;
     path = "/run/agenix/csb1-janus-managed-internal-token";
-    owner = "root";
-    group = "janus-managed-runtime";
-    mode = "0440";
+    owner = "janus-managed-central";
+    group = "janus-managed-central";
+    mode = "0400";
+  };
+
+  age.secrets.csb1-janus-managed-internal-token-pharos = {
+    file = ../../secrets/csb1-janus-managed-internal-token.age;
+    path = "/run/agenix/csb1-janus-managed-internal-token-pharos";
+    owner = "pharos-container";
+    group = "pharos-container";
+    mode = "0400";
   };
 
   age.secrets.csb1-janus-managed-pharos-signing-key = {

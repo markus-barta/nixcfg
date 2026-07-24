@@ -7,6 +7,12 @@ compose="${repo}/hosts/csb1/docker/docker-compose.yml"
 contract="${repo}/hosts/csb1/docker/janus/managed-service-production"
 pharos_contract="${repo}/hosts/csb1/docker/janus/pharos-production"
 secrets_nix="${repo}/secrets/secrets.nix"
+zero_digest="sha256:$(printf '0%.0s' {1..64})"
+
+if grep -Fq "${zero_digest}" "${compose}"; then
+  printf 'managed-service declaration still contains the release digest sentinel\n' >&2
+  exit 1
+fi
 
 for file in "${contract}"/*.json; do
   jq -e . "${file}" >/dev/null
@@ -150,13 +156,30 @@ for name in \
     "${secrets_nix}"
 done
 
-grep -Fq 'group = "janus-managed-runtime";' "${host}"
-grep -Fq 'mode = "0440";' "${host}"
+grep -Fq 'age.secrets.csb1-janus-managed-internal-token-pharos' "${host}"
+grep -Fq 'path = "/run/agenix/csb1-janus-managed-internal-token-pharos";' "${host}"
+test "$(grep -Fc 'file = ../../secrets/csb1-janus-managed-internal-token.age;' "${host}")" -eq 2
 grep -Fq 'ownerUid = 65534;' "${host}"
 grep -Fq 'beforeUnits = [ "janus-managed-canary.service" ];' "${host}"
 grep -Fq 'composeFile = janusManagedComposeFile;' "${host}"
 grep -Fq 'janus-managed-central.gid = 993;' "${host}"
 grep -Fq 'pharos-container.gid = 992;' "${host}"
+grep -Fq '"janus/managed/web-transaction-catalog.json" = {' "${host}"
+test "$(
+  nix eval \
+    "${repo}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".mode" \
+    --raw
+)" = "0400"
+test "$(
+  nix eval \
+    "${repo}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".user" \
+    --raw
+)" = "janus-managed-central"
+test "$(
+  nix eval \
+    "${repo}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".group" \
+    --raw
+)" = "janus-managed-central"
 projection_default="HASH_PROJECTION_GID=\${JANUS_PHAROS_HASH_PROJECTION_GID:-991}"
 projection_call="\"\$consumer_uid\" \"\$HASH_PROJECTION_GID\""
 grep -Fq "${projection_default}" \
@@ -165,8 +188,16 @@ grep -Fq "${projection_call}" \
   "${pharos_contract}/render-sidecars.sh"
 grep -Fq 'ConditionPathExists' "${host}"
 grep -Fq 'janus-managed-central-seed' "${host}"
+grep -Fq 'systemd.services.janus-managed-transactiond' "${host}"
+test "$(
+  nix eval \
+    "${repo}#nixosConfigurations.csb1.config.systemd.services.janus-managed-transactiond.restartTriggers" \
+    --json | jq 'length'
+)" = "7"
+grep -Fq 'Restart = "always";' "${host}"
 grep -Fq 'profiles: ["janus-managed-service"]' "${compose}"
 grep -Fq 'user: "100:101"' "${compose}"
+grep -Fq 'user: "100:993"' "${compose}"
 grep -Fq 'user: "65534:65534"' "${compose}"
 test "$(grep -Fc 'group_add: ["991"]' "${compose}")" -eq 2
 grep -Fq 'network_mode: "none"' "${compose}"
@@ -188,6 +219,78 @@ for binding in \
   'PHAROS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/pharos/managed-setup-internal-token'; do
   grep -Fq "${binding}" "${compose}"
 done
+
+compose_json=$(
+  docker compose \
+    -f "${compose}" \
+    config \
+    --no-interpolate \
+    --no-env-resolution \
+    --no-path-resolution \
+    --format json
+)
+jq -e '
+  def closed_bind($target; $read_only):
+    any(.volumes[];
+      .type == "bind"
+      and .target == $target
+      and ((.read_only // false) == $read_only)
+      and .bind.create_host_path == false
+    );
+  .services["janus-managed-transactiond"] as $transaction
+  | .services.janus as $janus
+  | .services.pharosd as $pharos
+  | .services["janus-managed-canary"] as $canary
+  | $transaction.profiles == ["janus-managed-service"]
+  and $transaction.restart == "no"
+  and $transaction.init == true
+  and $transaction.user == "100:993"
+  and $transaction.read_only == true
+  and $transaction.network_mode == "none"
+  and $transaction.cap_drop == ["ALL"]
+  and ($transaction.security_opt | index("no-new-privileges:true") != null)
+  and $transaction.pids_limit == 64
+  and $transaction.mem_limit == "128m"
+  and $transaction.cpus == "0.50"
+  and $transaction.healthcheck.test == ["CMD", "/usr/local/bin/janusd-use", "--help"]
+  and ($transaction | closed_bind("/var/lib/janus-managed-central"; false))
+  and ($transaction | closed_bind("/run/janus-managed-central"; false))
+  and ($transaction | closed_bind("/run/agenix/csb1-janus-managed-host-signing-key"; true))
+  and ($transaction | closed_bind("/run/agenix/csb1-janus-managed-age-identity"; true))
+  and ($transaction | closed_bind("/etc/janus/managed/release-channels-v1.json"; true))
+  and ($transaction | closed_bind("/etc/janus/managed/release-admission.json"; true))
+  and $janus.user == "100:101"
+  and ($janus.group_add | index("991") != null)
+  and any($janus.volumes[];
+    .source == "/run/agenix/csb1-janus-managed-internal-token"
+    and .target == "/run/janus/managed/internal-token"
+    and .read_only == true
+    and .bind.create_host_path == false
+  )
+  and ($janus | closed_bind("/run/janus-managed-central"; true))
+  and ($janus | closed_bind("/var/lib/janus-managed-central/outbox"; true))
+  and $pharos.user == "10001:992"
+  and ($pharos.group_add | index("991") != null)
+  and any($pharos.volumes[];
+    .source == "/run/agenix/csb1-janus-managed-internal-token-pharos"
+    and .target == "/run/pharos/managed-setup-internal-token"
+    and .read_only == true
+    and .bind.create_host_path == false
+  )
+  and ($pharos | closed_bind("/run/pharos/managed-setup-signing-key"; true))
+  and ($pharos | closed_bind("/run/pharos/managed-setup-internal-token"; true))
+  and $canary.init == true
+  and $canary.user == "65534:65534"
+  and $canary.read_only == true
+  and $canary.network_mode == "none"
+  and $canary.cap_drop == ["ALL"]
+  and ($canary.security_opt | index("no-new-privileges:true") != null)
+  and $canary.pids_limit == 32
+  and $canary.mem_limit == "32m"
+  and $canary.cpus == "0.10"
+  and ($canary | closed_bind("/run/secrets/canary-api-token"; true))
+' <<<"${compose_json}" >/dev/null
+
 grep -Fq 'host_58f36c72a91e' "${pharos_contract}/render-sidecars.sh"
 grep -Fq 'sudo -n cat /run/agenix/csb1-janus-managed-host-agent-token' \
   "${pharos_contract}/import-existing-agenix-beacons.sh"

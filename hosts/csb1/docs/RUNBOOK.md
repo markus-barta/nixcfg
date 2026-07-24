@@ -437,6 +437,7 @@ Normal status checks:
 ```bash
 systemctl status \
   janus-managed-central-seed.service \
+  janus-managed-transactiond.service \
   janus-host-secret-restore.service \
   janus-managed-host-agent.service \
   janus-managed-canary.service
