@@ -13,6 +13,9 @@ readonly BOOTSTRAP_TEMPLATE='@BOOTSTRAP_TEMPLATE@'
 readonly JANUS_HELPER='@JANUS_HELPER@'
 readonly PENDING_RESULT="$STATE_DIR/pending-result.json"
 
+# shellcheck disable=SC1091
+source '@PUBLIC_KEY_HELPER@'
+
 [ "$(id -u)" -eq 0 ]
 [[ "$OWNER" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]]
 [[ "$PHAROS_AGENT_URL" =~ ^http://[0-9.]+:[0-9]+$ ]]
@@ -76,11 +79,13 @@ valid_pending_result() {
     and .ticket == "PHAROS-175"
     and (.id | type == "string" and test("^[a-z0-9][a-z0-9._-]{0,159}$"))
     and (.host | type == "string" and test("^[a-z0-9][a-z0-9-]{0,62}$"))
-    and (.action == "bootstrap" or .action == "retire")
+    and (.action == "bootstrap" or .action == "reconcile_bootstrap" or .action == "retire")
     and (.credential_created | type == "boolean")
+    and (.action != "reconcile_bootstrap" or .credential_created == false)
     and (
       (.outcome == "succeeded" and .reason == null
         and ((.action == "bootstrap" and .credential_created == true)
+          or (.action == "reconcile_bootstrap" and .credential_created == false)
           or (.action == "retire" and .credential_created == false)))
       or
       ((.outcome == "failed" or .outcome == "uncertain") and (
@@ -100,7 +105,7 @@ valid_pending_result() {
 }
 
 report_pending_result() {
-  local action_id outcome result_code
+  local action_id outcome reason_label result_code
 
   [ -f "$PENDING_RESULT" ] && [ ! -L "$PENDING_RESULT" ] || {
     printf 'pharos_provisioning_executor=blocked reason=invalid_pending_result\n' >&2
@@ -112,6 +117,7 @@ report_pending_result() {
   }
   action_id=$(jq -r '.id' "$PENDING_RESULT")
   outcome=$(jq -r '.outcome' "$PENDING_RESULT")
+  reason_label=$(jq -r '.reason // "none"' "$PENDING_RESULT")
   jq '{owner,host,action,outcome,credential_created} + if .reason == null then {} else {reason} end' \
     "$PENDING_RESULT" >"$result_request"
   if ! result_code=$(curl_json POST "/agent/provisioning/$action_id/result" \
@@ -125,7 +131,8 @@ report_pending_result() {
     return 0
   fi
   shred -u "$PENDING_RESULT"
-  printf 'pharos_provisioning_executor=reported outcome=%s\n' "$outcome"
+  printf 'pharos_provisioning_executor=reported outcome=%s reason=%s\n' \
+    "$outcome" "$reason_label"
 }
 
 if [ -e "$PENDING_RESULT" ]; then
@@ -169,7 +176,7 @@ if ! jq -e \
   and (.role | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$"))
   and (.heartbeat_interval_secs | type == "number" and floor == . and . >= 10 and . <= 3600)
   and (
-    (.action == "bootstrap"
+    ((.action == "bootstrap" or .action == "reconcile_bootstrap")
       and (.ssh_host | type == "string" and length >= 2 and length <= 64)
       and .ssh_port == 22
       and (.host_key_fingerprint | type == "string" and test("^SHA256:[A-Za-z0-9+/]{43}$"))
@@ -327,8 +334,14 @@ fi
   finish
 }
 
+raw_public_key_file="$run_dir/executor.raw.pub"
 public_key_file="$run_dir/executor.pub"
-if ! ssh-keygen -y -P '' -f "$IDENTITY_FILE" >"$public_key_file" 2>"$run_dir/keygen.err"; then
+if ! ssh-keygen -y -P '' -f "$IDENTITY_FILE" >"$raw_public_key_file" 2>"$run_dir/keygen.err"; then
+  reason=ssh_identity_unavailable
+  finish
+fi
+chmod 0600 "$raw_public_key_file"
+if ! canonicalize_ed25519_public_key "$raw_public_key_file" "$public_key_file"; then
   reason=ssh_identity_unavailable
   finish
 fi
@@ -417,6 +430,44 @@ install_disk=$(jq -r '[.blockdevices[] | select(
   reason=result_contract_invalid
   finish
 }
+
+if [ "$action" = reconcile_bootstrap ]; then
+  outcome=uncertain
+  reason=uncertain_execution
+  if ! ssh "${ssh_options[@]}" \
+    'test -f /etc/debian_version && test ! -e /run/current-system' \
+    >"$run_dir/reconcile-os.out" 2>"$run_dir/reconcile-os.err"; then
+    finish
+  fi
+  if "$JANUS_HELPER" prove-absent "$action_id" "$target_host" "$credential_ref" \
+    >"$janus_output" 2>"$janus_error"; then
+    if grep -Fx 'janus_managed_beacon=absent value_returned=false credential_created=false' \
+      "$janus_output" >/dev/null; then
+      outcome=succeeded
+      reason=''
+    else
+      reason=result_contract_invalid
+    fi
+  else
+    safe_failure=$(grep -E \
+      '^janus_managed_beacon=failed reason=[a-z_]+ value_returned=false credential_created=false$' \
+      "$janus_error" | tail -n1 || true)
+    if [[ "$safe_failure" =~ reason=([a-z_]+) ]]; then
+      case "${BASH_REMATCH[1]}" in
+      checkout_not_ready | janus_unavailable | janus_rejected | result_contract_invalid | uncertain_execution)
+        reason=${BASH_REMATCH[1]}
+        ;;
+      *)
+        reason=result_contract_invalid
+        ;;
+      esac
+    else
+      reason=result_contract_invalid
+    fi
+  fi
+  credential_created=false
+  finish
+fi
 
 bootstrap_dir="$run_dir/bootstrap"
 extra_files="$run_dir/extra-files"

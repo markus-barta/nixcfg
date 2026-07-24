@@ -69,7 +69,7 @@ let
   ];
 
   # miniserver-bp host key removed 2026-05-02 (INSPR-24): host migrated
-  # to BYTEPOETS/bpnixcfg. Its host key now lives in that flake's
+  # to the former work flake. Its host key now lives in that flake's
   # secrets/secrets.nix. The deprecated `nixfleet-token.age` below loses
   # msbp as a recipient — rekey deferred (file is on the deprecation
   # path; will be removed entirely once FleetCom Phase 2 lands).
@@ -396,14 +396,14 @@ in
   # "hsb0-openclaw-m365-cal-client-secret.age".publicKeys = markus ++ hsb0;
 
   # ============================================================================
-  # MINISERVER-BP secrets — MOVED to BYTEPOETS/bpnixcfg on 2026-05-02 (INSPR-24)
+  # MINISERVER-BP secrets — MOVED out of this repo on 2026-05-02 (INSPR-24)
   # ============================================================================
   # 14 secrets (wireguard-key + 4 openclaw + gogcli + 3 m365 + github-pat +
   # percy-nextcloud-share + mattermost-bot-token + openclaw-pmo-token, plus
   # fleetcom-token-miniserver-bp moved separately above) live in
-  # bpnixcfg/secrets/. Recipients: markus_personal + miniserver-bp host
+  # the former work flake's secrets/. Recipients: markus_personal + miniserver-bp host
   # (transitional; INSPR-24 Stage 3 will re-encrypt to a dedicated
-  # BYTEPOETS internal-ops keypair). See INSPR-24 commit history.
+  # former-employer internal-ops keypair). See INSPR-24 commit history.
 
   # Merlin AI SSH key to access hsb1
   "hsb0-merlin-ssh-key.age".publicKeys = markus ++ hsb0;
@@ -456,8 +456,8 @@ in
   # Cloudflare Zone API token (AIA account)
   "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp0 ++ mbp2607;
 
-  # PMO (BYTEPOETS Project Management Online) secrets REMOVED 2026-07-13.
-  # The instance (pm.bytepoets.com) was decommissioned with the BYTEPOETS
+  # PMO (former second Paimos instance) secrets REMOVED 2026-07-13.
+  # That instance was decommissioned with the June 2026 employer
   # departure (2026-06-15). PMOAPIKEY / PMOURL / PMOSERVER{PASS,URL,USER} /
   # PMOSSHKEYFILELOCATION are gone from secrets/agents/shared/, and the
   # matching `instances.pmo` block is gone from markus-defaults.nix.
@@ -485,7 +485,7 @@ in
   # ────────────────────────────────────────────────────────────────────────
   # One ed25519 keypair per (host × identity). Privkey is the contents of
   # the .age file; pubkey is registered on the matching GitHub user account
-  # (markus-barta or bytepoets-mba). Generated 2026-05-12 with no expiry.
+  # (personal or former-work account). Generated 2026-05-12 with no expiry.
   #
   # Materialization: agent-secrets HM module decrypts at activation to
   #   ~/.inspr/secrets/agents/<host>-<atelier>-userkey.env (mode 0400)
@@ -497,10 +497,10 @@ in
   #
   # Edit (re-create) workflow: agenix -e secrets/agents/host/<host>/<name>.age
 
-  # m5 (mbp0) — personal only; BYTEPOETS push-key removed post-exit (INSPR-241).
+  # m5 (mbp0) — personal only; former work push-key removed post-exit (INSPR-241).
   "agents/host/mbp0/m5-personal-userkey.age".publicKeys = markus;
 
-  # mbp2607 (NIX-215, 2026-07-03) — personal only; no BYTEPOETS key on this
+  # mbp2607 (NIX-215, 2026-07-03) — personal only; no former-work key on this
   # host by design (post-exit fresh start).
   "agents/host/mbp2607/mbp2607-personal-userkey.age".publicKeys = markus;
 

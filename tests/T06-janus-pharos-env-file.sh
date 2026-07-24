@@ -371,10 +371,14 @@ if "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env" no
     raise SystemExit("pharosd Hetzner credential must use the Janus env-file boundary")
 if "PHAROS_HCLOUD_PROJECT_LABEL=Pharos production" not in compose_text:
     raise SystemExit("pharosd Hetzner project label must identify the attended production scope")
-if "PHAROS_HCLOUD_EXECUTE=0" not in compose_text:
-    raise SystemExit("pharosd Hetzner execution must remain disabled during PHAROS-146 preflight")
-if "PHAROS_HCLOUD_EXECUTE=1" in compose_text:
-    raise SystemExit("pharosd Hetzner execution must not be enabled before attended approval")
+if "PHAROS_HCLOUD_EXECUTE=1" not in compose_text:
+    raise SystemExit("pharosd Hetzner execution gate must be enabled after attended activation")
+if "PHAROS_HCLOUD_EXECUTE=0" in compose_text:
+    raise SystemExit("pharosd Hetzner execution gate must not retain the preflight value")
+if "PHAROS_PROVISIONING_EXECUTOR_READY=1" not in compose_text:
+    raise SystemExit("pharosd provisioning readiness must match the activated csb1 executor")
+if "PHAROS_PROVISIONING_EXECUTOR_READY=0" in compose_text:
+    raise SystemExit("pharosd provisioning readiness must not retain the preflight value")
 
 provider_import_text = provider_import_path.read_text(encoding="utf-8")
 provider_render_text = provider_render_path.read_text(encoding="utf-8")

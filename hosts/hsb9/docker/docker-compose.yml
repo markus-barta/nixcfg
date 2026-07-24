@@ -43,7 +43,7 @@ services:
   # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
   # pharosd (csb1) every 60s.
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.58@sha256:8eb6bdecddce5951c696e35afacdf5acd70acde0ff08e947e413dbc2e4474666
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.61@sha256:db13986d1fbdc48d4b4eab005f4dd5d069a864160bda3ef1fb3903777120f6d6
     container_name: pharos-beacon
     restart: unless-stopped
     init: true

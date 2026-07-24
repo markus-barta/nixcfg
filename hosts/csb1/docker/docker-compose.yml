@@ -489,7 +489,7 @@ services:
     # Source extracted to github.com/markus-barta/janus (go-envelope/). Deployed
     # from a cosign-signed image with SPDX SBOM + SLSA build provenance, pinned
     # by digest. To bump: cut a go-envelope-v* release, verify, update digest.
-    image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.163@sha256:60377dc0399f7b7d410d48f5520b2fbb1253da1461caf574db60f522c9fe2372
+    image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.164@sha256:ab5997d5051c178d677a1a6305422af9eaba816c626f662d2292a020c2a20655
     container_name: janus
     restart: unless-stopped
     user: janus
@@ -505,6 +505,7 @@ services:
       - JANUS_CATALOG_FILE=/catalog/agenix-catalog.json
       - JANUS_REQUIRE_AUTH=true
       - JANUS_UNSAFE_BOOTSTRAP_OWNER=false
+      - JANUS_VIEWER_GROUPS=janus:viewer
       - JANUS_OWNER_GROUPS=janus:admin
       - JANUS_APPROVER_GROUPS=janus:approver
       - JANUS_AUDITOR_GROUPS=janus:auditor
@@ -514,6 +515,7 @@ services:
       - JANUS_SERVICE_ADMIN_GROUPS=janus:service_admin
       - JANUS_WORKLOAD_ADMIN_GROUPS=janus:workload_admin
       - OIDC_ISSUER=https://auth.inspr.at
+      - OIDC_PROJECT_ID=375139131258306571
     env_file:
       - /run/agenix/csb1-janus-env
     volumes:
@@ -681,7 +683,7 @@ services:
   pharosd:
     # Keep the readable release tag, but bind it to the verified immutable
     # linux/amd64 manifest used by both server and bundled beacon.
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.58@sha256:8eb6bdecddce5951c696e35afacdf5acd70acde0ff08e947e413dbc2e4474666
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.61@sha256:db13986d1fbdc48d4b4eab005f4dd5d069a864160bda3ef1fb3903777120f6d6
     container_name: pharosd
     restart: unless-stopped
     init: true
@@ -714,13 +716,13 @@ services:
       - PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1
       - PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm
       - PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env
-      # PHAROS-146 preflight: keep paid provider mutation disabled until the
-      # attended review has verified the exact project, resources, and price.
+      # Execution is available only through the attended plan/review/confirm
+      # flow. No provider mutation occurs from connection tests or plan review.
       - PHAROS_HCLOUD_PROJECT_LABEL=Pharos production
-      - PHAROS_HCLOUD_EXECUTE=0
-      # Managed creation stays unavailable until the reviewed csb1 executor
-      # identity is installed and its exact public key is selected in Hetzner.
-      - PHAROS_PROVISIONING_EXECUTOR_READY=0
+      - PHAROS_HCLOUD_EXECUTE=1
+      # The dedicated root-only csb1 identity and its exact selected public key
+      # were verified before activating the managed provisioning assistant.
+      - PHAROS_PROVISIONING_EXECUTOR_READY=1
       - PHAROS_PROVISIONING_OWNER_HOST=csb1
       - PHAROS_PROVISIONING_SCOPE_ORGANIZATION=inspr
       - PHAROS_PROVISIONING_SCOPE_PROJECT=pharos
@@ -774,7 +776,7 @@ services:
   # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
   # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.58@sha256:8eb6bdecddce5951c696e35afacdf5acd70acde0ff08e947e413dbc2e4474666
+    image: ghcr.io/markus-barta/pharos/pharosd:0.1.61@sha256:db13986d1fbdc48d4b4eab005f4dd5d069a864160bda3ef1fb3903777120f6d6
     container_name: pharos-beacon
     restart: unless-stopped
     init: true

@@ -3,7 +3,7 @@
 Private Apple Silicon M5 Max MacBook Pro for Markus.
 
 This is a new physical device, provisioned from the retired M5 portable
-profile with carried-forward key material by intent. It is not a BYTEPOETS
+profile with carried-forward key material by intent. It is not a former-work
 work host.
 
 ## Profile
@@ -18,7 +18,7 @@ work host.
 
 - `inspr.git.atelier.personal` is **disabled** since NIX-216 (m5 userkey
   retired 2026-07; remotes rewritten to HTTPS).
-- `inspr.git.atelier.bytepoets` is disabled for this private machine.
+- `inspr.git.atelier.bytepoets` (former work context) is disabled for this private machine.
 - The `m5-*` key names are retained because the material was deliberately
   carried forward.
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # T19-janus-role-deployment.sh
 # Description: Keep the deployed Janus role projection exact and explicit.
-# Related PPM issues: JANUS-297, JANUS-308, JANUS-309, JANUS-298
+# Related PPM issues: JANUS-267, JANUS-297, JANUS-308, JANUS-309, JANUS-298
 
 set -euo pipefail
 
@@ -53,6 +53,7 @@ for key in legacy:
         raise SystemExit(f"legacy Janus authorization lane remains: {key}")
 
 expected = {
+    "JANUS_VIEWER_GROUPS": "janus:viewer",
     "JANUS_OWNER_GROUPS": "janus:admin",
     "JANUS_APPROVER_GROUPS": "janus:approver",
     "JANUS_AUDITOR_GROUPS": "janus:auditor",
@@ -61,6 +62,7 @@ expected = {
     "JANUS_BREAK_GLASS_ADMIN_GROUPS": "janus:break_glass_admin",
     "JANUS_SERVICE_ADMIN_GROUPS": "janus:service_admin",
     "JANUS_WORKLOAD_ADMIN_GROUPS": "janus:workload_admin",
+    "OIDC_PROJECT_ID": "375139131258306571",
 }
 values = []
 for key, value in expected.items():
