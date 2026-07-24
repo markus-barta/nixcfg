@@ -7,7 +7,10 @@ compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
 ignore="$repo_root/hosts/csb1/docker/.gitignore"
 
 grep -Fq 'composeRoot = "/home/mba/Code/nixcfg/hosts/csb1/docker";' "$config"
+# These patterns intentionally match literal Nix interpolation.
+# shellcheck disable=SC2016
 grep -Fq '"f ${composeRoot}/traefik/acme.json 0600 root root -"' "$config"
+# shellcheck disable=SC2016
 grep -Fq '"f ${composeRoot}/traefik/acme-http.json 0600 root root -"' "$config"
 
 grep -Fq './traefik/acme.json:/etc/traefik/acme/acme.json:rw' "$compose"
