@@ -169,6 +169,7 @@ in
   systemd.tmpfiles.rules =
     let
       dockerRoot = "/var/lib/csb1-docker";
+      composeRoot = "/home/mba/Code/nixcfg/hosts/csb1/docker";
     in
     [
       # Create runtime directory structure
@@ -178,6 +179,11 @@ in
 
       # Create mutable files (Docker writes to these)
       "f ${dockerRoot}/traefik/acme.json 0600 root root -"
+      # Compose still mounts Traefik state relative to the checked-out stack.
+      # Pre-create both bind sources so Docker can never replace a missing
+      # source with a directory during an automated stack recreation.
+      "f ${composeRoot}/traefik/acme.json 0600 root root -"
+      "f ${composeRoot}/traefik/acme-http.json 0600 root root -"
       # One shared lock serializes every writer to the production Janus store,
       # metadata, beacon outputs, and atomic token-hash generation.
       "f /run/lock/janus-pharos-production.lock 0660 root users -"
