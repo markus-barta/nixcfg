@@ -25,7 +25,10 @@ grep -Fq 'runtime paths are derived, not configurable' "${module}"
 grep -Fq '../../modules/janus-host-secrets' "${host}"
 grep -Fq 'inspr.janusHostSecrets = {' "${host}"
 grep -Fq 'ownerUid = 65534' "${host}"
-grep -Fq 'enable = false;' "${host}"
+test "$(
+  nix eval --json \
+    "${repo}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
+)" = "false"
 
 if grep -Eq '(secret_value|private_key|ciphertext)[[:space:]]*=' "${host}"; then
   printf 'janus host declaration contains a forbidden value-bearing field\n' >&2

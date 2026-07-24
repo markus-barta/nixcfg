@@ -12,9 +12,11 @@ let
   hostdashCsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb1;
   csb1ComposeFile = "/home/mba/Code/nixcfg/hosts/csb1/docker/docker-compose.yml";
   csb1Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${csb1ComposeFile}";
+  janusManagedComposeFile = "/etc/janus/managed/docker-compose.yml";
+  janusManagedCompose = "${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${janusManagedComposeFile}";
   janusManagedCentralSeed = pkgs.writeShellScript "janus-managed-central-seed" ''
     set -eu
-    ${pkgs.coreutils}/bin/install -d -m 0700 -o 100 -g 101 \
+    ${pkgs.coreutils}/bin/install -d -m 0700 -o 100 -g 993 \
       /var/lib/janus-managed-central \
       /var/lib/janus-managed-central/age-store \
       /var/lib/janus-managed-central/audit \
@@ -22,13 +24,13 @@ let
       /var/lib/janus-managed-central/state \
       /var/lib/janus-managed-central/tombstones
     if [ ! -e /var/lib/janus-managed-central/metadata.toml ]; then
-      ${pkgs.coreutils}/bin/install -m 0600 -o 100 -g 101 \
+      ${pkgs.coreutils}/bin/install -m 0600 -o 100 -g 993 \
         /etc/janus/managed/metadata-baseline.toml \
         /var/lib/janus-managed-central/metadata.toml
     fi
     [ ! -L /var/lib/janus-managed-central/metadata.toml ]
     [ -f /var/lib/janus-managed-central/metadata.toml ]
-    [ "$(${pkgs.coreutils}/bin/stat -c %u:%g /var/lib/janus-managed-central/metadata.toml)" = "100:101" ]
+    [ "$(${pkgs.coreutils}/bin/stat -c %u:%g /var/lib/janus-managed-central/metadata.toml)" = "100:993" ]
     [ "$(${pkgs.coreutils}/bin/stat -c %a /var/lib/janus-managed-central/metadata.toml)" = "600" ]
   '';
   csb1HostdashReconcile = pkgs.writeShellScript "csb1-hostdash-reconcile" ''
@@ -63,7 +65,7 @@ in
   # UZUMAKI MODULE CONFIGURATION
   # ============================================================================
   uzumaki = {
-    enable = false;
+    enable = true;
     role = "server";
     ncps.enable = false; # Cloud server: Never sees hsb0
   };
@@ -153,7 +155,7 @@ in
           reloadProfileRef = "reload_65bc19f3a087";
           healthProfileRef = "health_918d0ce7b4a2";
           detachProfileRef = "detach_8a0f4e271c93";
-          composeFile = "/etc/janus/managed/docker-compose.yml";
+          composeFile = janusManagedComposeFile;
           composeService = "janus-managed-canary";
           containerName = "janus-managed-canary";
         }
@@ -282,13 +284,13 @@ in
       "f /run/lock/janus-pharos-production.lock 0660 root users -"
       # Central managed-secret custody is private to the exact uid/gid shared
       # by the two isolated Janus containers. Plaintext is never stored here.
-      "d /var/lib/janus-managed-central 0700 100 101 -"
-      "d /var/lib/janus-managed-central/age-store 0700 100 101 -"
-      "d /var/lib/janus-managed-central/audit 0700 100 101 -"
-      "d /var/lib/janus-managed-central/outbox 0700 100 101 -"
-      "d /var/lib/janus-managed-central/state 0700 100 101 -"
-      "d /var/lib/janus-managed-central/tombstones 0700 100 101 -"
-      "d /run/janus-managed-central 0700 100 101 -"
+      "d /var/lib/janus-managed-central 0700 janus-managed-central janus-managed-central -"
+      "d /var/lib/janus-managed-central/age-store 0700 janus-managed-central janus-managed-central -"
+      "d /var/lib/janus-managed-central/audit 0700 janus-managed-central janus-managed-central -"
+      "d /var/lib/janus-managed-central/outbox 0700 janus-managed-central janus-managed-central -"
+      "d /var/lib/janus-managed-central/state 0700 janus-managed-central janus-managed-central -"
+      "d /var/lib/janus-managed-central/tombstones 0700 janus-managed-central janus-managed-central -"
+      "d /run/janus-managed-central 0700 janus-managed-central janus-managed-central -"
 
       # Legacy compatibility: keep /home/mba/docker as primary location for now
       # Will migrate to /var/lib/csb1-docker in future task
@@ -336,7 +338,23 @@ in
     "janus/managed/docker-compose.yml".source = ./docker/docker-compose.yml;
   };
 
-  users.groups.janus-managed-runtime.gid = 991;
+  users.groups = {
+    janus-managed-runtime.gid = 991;
+    pharos-container.gid = 992;
+    janus-managed-central.gid = 993;
+  };
+  users.users = {
+    pharos-container = {
+      uid = 10001;
+      group = "pharos-container";
+      isSystemUser = true;
+    };
+    janus-managed-central = {
+      uid = 100;
+      group = "janus-managed-central";
+      isSystemUser = true;
+    };
+  };
 
   systemd.services.janus-managed-central-seed = {
     description = "Seed and validate the Janus managed-secret custody store";
@@ -376,23 +394,30 @@ in
     };
   };
 
+  systemd.services.janus-managed-host-agent = lib.mkIf config.inspr.janusHostSecrets.enable {
+    requires = lib.mkAfter [ "janus-managed-central-seed.service" ];
+    after = lib.mkAfter [ "janus-managed-central-seed.service" ];
+  };
+
   systemd.services.janus-managed-canary = lib.mkIf config.inspr.janusHostSecrets.enable {
     description = "Start the networkless Janus managed-secret canary";
     wantedBy = [ "multi-user.target" ];
     requires = [
       "docker.service"
       "janus-host-secret-restore.service"
+      "janus-managed-central-seed.service"
     ];
     after = [
       "docker.service"
       "janus-host-secret-restore.service"
+      "janus-managed-central-seed.service"
     ];
     unitConfig.ConditionPathExists = "/run/janus-managed/svc_0bca8d31f7e2/slot_49c0e8a17d63.env";
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${csb1Compose} up -d --no-deps --force-recreate janus-managed-canary";
-      ExecStop = "${csb1Compose} stop -t 10 janus-managed-canary";
+      ExecStart = "${janusManagedCompose} up -d --no-deps --force-recreate janus-managed-canary";
+      ExecStop = "${janusManagedCompose} stop -t 10 janus-managed-canary";
       TimeoutStartSec = "120";
       TimeoutStopSec = "30";
     };
@@ -633,7 +658,7 @@ in
     file = ../../secrets/csb1-janus-managed-pharos-signing-key.age;
     path = "/run/agenix/csb1-janus-managed-pharos-signing-key";
     owner = "10001";
-    group = "999";
+    group = "pharos-container";
     mode = "0400";
   };
 
@@ -641,7 +666,7 @@ in
     file = ../../secrets/csb1-janus-managed-host-signing-key.age;
     path = "/run/agenix/csb1-janus-managed-host-signing-key";
     owner = "100";
-    group = "101";
+    group = "janus-managed-central";
     mode = "0400";
   };
 
@@ -649,7 +674,7 @@ in
     file = ../../secrets/csb1-janus-managed-age-identity.age;
     path = "/run/agenix/csb1-janus-managed-age-identity";
     owner = "100";
-    group = "101";
+    group = "janus-managed-central";
     mode = "0400";
   };
 
@@ -678,7 +703,7 @@ in
     file = ../../secrets/csb1-pharos-nixcfg-dispatch-token.age;
     path = "/run/agenix/csb1-pharos-nixcfg-dispatch-token";
     owner = "10001";
-    group = "999";
+    group = "pharos-container";
     mode = "0400";
   };
 

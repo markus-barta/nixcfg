@@ -615,7 +615,7 @@ services:
     image: alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
     container_name: janus-managed-canary
     profiles: ["janus-managed-service"]
-    restart: unless-stopped
+    restart: "no"
     init: true
     user: "65534:65534"
     read_only: true
@@ -687,7 +687,7 @@ services:
     container_name: pharosd
     restart: unless-stopped
     init: true
-    user: "10001:999"
+    user: "10001:992"
     read_only: true
     cap_drop:
       - ALL

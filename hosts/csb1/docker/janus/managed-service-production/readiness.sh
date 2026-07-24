@@ -92,9 +92,13 @@ declarative() {
      and .sbom.verified == true' \
     "${script_dir}/release-admission.json"
 
-  if grep -Fq 'enable = true;' "${repo}/hosts/csb1/configuration.nix" &&
+  local activation
+  activation=$(nix eval \
+    "${repo}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable" \
+    --json 2>/dev/null || true)
+  if [ "$activation" = "true" ] &&
     grep -Fq 'JANUS_PRODUCT_MODE=production' "${compose}" &&
-    grep -Fq 'user: "100:101"' "${compose}" &&
+    grep -Fq 'user: "100:993"' "${compose}" &&
     grep -Fq 'user: "65534:65534"' "${compose}" &&
     grep -Fq 'JANUS_MANAGED_WEB_TRANSACTION_ALLOWED_UID=100' "${compose}" &&
     grep -Fq 'network_mode: "none"' "${compose}" &&
@@ -139,7 +143,7 @@ expect_private_directory() {
   actual_owner=$(stat -c %u:%g "$path" 2>/dev/null || true)
   actual_mode=$(stat -c %a "$path" 2>/dev/null || true)
   if [ -d "$path" ] && [ ! -L "$path" ] &&
-    [ "$actual_owner" = "100:101" ] && [ "$actual_mode" = "700" ]; then
+    [ "$actual_owner" = "100:993" ] && [ "$actual_mode" = "700" ]; then
     pass "$id"
   else
     fail "$id"
@@ -198,17 +202,17 @@ live() {
   expect_metadata \
     pharos_signing_key_metadata \
     /run/agenix/csb1-janus-managed-pharos-signing-key \
-    10001:999 \
+    10001:992 \
     400
   expect_metadata \
     host_signing_key_metadata \
     /run/agenix/csb1-janus-managed-host-signing-key \
-    100:101 \
+    100:993 \
     400
   expect_metadata \
     age_identity_metadata \
     /run/agenix/csb1-janus-managed-age-identity \
-    100:101 \
+    100:993 \
     400
   expect_metadata \
     host_agent_token_metadata \
@@ -229,7 +233,7 @@ live() {
   expect_metadata \
     metadata_store \
     /var/lib/janus-managed-central/metadata.toml \
-    100:101 \
+    100:993 \
     600
 
   expect_unit janus-managed-central-seed.service
@@ -237,7 +241,7 @@ live() {
   expect_unit janus-managed-host-agent.service
   expect_unit janus-managed-canary.service
 
-  expect_container janus-managed-transactiond 100:101 none true
+  expect_container janus-managed-transactiond 100:993 none true
   expect_container janus-managed-canary 65534:65534 none true
   expect_healthy_container janus
   expect_healthy_container pharosd
@@ -245,7 +249,7 @@ live() {
 
   local socket=/run/janus-managed-central/transaction.sock
   if [ -S "$socket" ] &&
-    [ "$(stat -c %u:%g "$socket" 2>/dev/null)" = "100:101" ] &&
+    [ "$(stat -c %u:%g "$socket" 2>/dev/null)" = "100:993" ] &&
     [ "$(stat -c %a "$socket" 2>/dev/null)" = "600" ]; then
     pass transaction_socket
   else
@@ -255,12 +259,12 @@ live() {
   expect_metadata \
     release_audit \
     /var/lib/janus-managed-central/audit/release-admission.jsonl \
-    100:101 \
+    100:993 \
     600
   expect_metadata \
     runtime_audit \
     /var/lib/janus-managed-central/audit/runtime.jsonl \
-    100:101 \
+    100:993 \
     600
 
   if find /var/lib/janus-managed-central/state -maxdepth 2 \
