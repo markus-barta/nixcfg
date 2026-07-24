@@ -88,12 +88,14 @@ operation_id="pharos-managed-${job_id}"
 description="Managed Pharos beacon for ${host}"
 validation_probe='pharos-managed-bootstrap-ready'
 
-expected_ref=$(
-  SCOPE_ORGANIZATION="$SCOPE_ORGANIZATION" \
-    SCOPE_PROJECT="$SCOPE_PROJECT" \
-    SCOPE_REPOSITORY="$SCOPE_REPOSITORY" \
-    SCOPE_ENVIRONMENT="$SCOPE_ENVIRONMENT" \
-    SECRET_NAME="$secret_name" \
+# Use distinct subprocess names: Bash rejects command-prefix assignments that
+# reuse the readonly scope variable names declared above.
+if ! derived_refs=$(
+  PHAROS_SCOPE_ORGANIZATION="$SCOPE_ORGANIZATION" \
+    PHAROS_SCOPE_PROJECT="$SCOPE_PROJECT" \
+    PHAROS_SCOPE_REPOSITORY="$SCOPE_REPOSITORY" \
+    PHAROS_SCOPE_ENVIRONMENT="$SCOPE_ENVIRONMENT" \
+    PHAROS_SECRET_NAME="$secret_name" \
     python3 - <<'PY'
 import hashlib
 import os
@@ -105,19 +107,27 @@ def field(value: str) -> bytes:
 
 canonical = b"".join(field(value) for value in (
     "janus-scope-v1",
-    os.environ["SCOPE_ORGANIZATION"],
-    os.environ["SCOPE_PROJECT"],
-    os.environ["SCOPE_REPOSITORY"],
-    os.environ["SCOPE_ENVIRONMENT"],
+    os.environ["PHAROS_SCOPE_ORGANIZATION"],
+    os.environ["PHAROS_SCOPE_PROJECT"],
+    os.environ["PHAROS_SCOPE_REPOSITORY"],
+    os.environ["PHAROS_SCOPE_ENVIRONMENT"],
 )) + b"\0\0"
 scope_ref = "scp_" + hashlib.sha256(canonical).digest()[:20].hex()
 digest = hashlib.sha256(
     b"janus-secret-ref-v2\0" + scope_ref.encode("ascii") + b"\0" +
-    os.environ["SECRET_NAME"].encode("ascii")
+    os.environ["PHAROS_SECRET_NAME"].encode("ascii")
 ).digest()
-print("sec_" + digest[:10].hex())
+print(scope_ref, "sec_" + digest[:10].hex())
 PY
-)
+); then
+  fail janus_unavailable false
+fi
+read -r expected_scope_ref expected_ref extra_ref <<<"$derived_refs"
+[[ "$expected_scope_ref" =~ ^scp_[0-9a-f]{40}$ ]] ||
+  fail result_contract_invalid false
+[[ "$expected_ref" =~ ^sec_[0-9a-f]{20}$ ]] ||
+  fail result_contract_invalid false
+[ -z "${extra_ref:-}" ] || fail result_contract_invalid false
 [ "$expected_ref" = "$credential_ref" ] || fail result_contract_invalid false
 
 image=$(
@@ -129,10 +139,16 @@ image=$(
 )
 [ -n "$image" ] || fail janus_unavailable false
 
+# shellcheck disable=SC1091
+source "$CONTRACT_DIR/runtime-lib.sh"
+
 job_dir="$STATE_DIR/janus/$job_id"
 if [ "$mode" = prove-absent ]; then
   docker image inspect "$image" >/dev/null 2>&1 || fail janus_unavailable false
-  [ -d /run/lock ] && [ ! -L /run/lock ] || fail janus_unavailable false
+  docker image inspect "$JANUS_VOLUME_HELPER_IMAGE" >/dev/null 2>&1 ||
+    fail janus_unavailable false
+  lock_dir=${LOCK_FILE%/*}
+  [ -d "$lock_dir" ] && [ ! -L "$lock_dir" ] || fail janus_unavailable false
   exec 9>"$LOCK_FILE"
   flock -n 9 || fail janus_unavailable false
 
@@ -184,7 +200,7 @@ if [ "$mode" = prove-absent ]; then
     esac
     docker run --rm --network none --read-only \
       -v "${volume}:/proof:ro" \
-      --entrypoint sh "$image" -c '
+      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 path=$1
 test ! -e "/proof/${path}"
@@ -208,7 +224,7 @@ test ! -L "/proof/${path}"
     esac
     docker run --rm --network none --read-only \
       -v "${volume}:/proof:ro" \
-      --entrypoint sh "$image" -c '
+      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 name=$1
 path=/proof/metadata.toml
@@ -247,8 +263,6 @@ chmod 0700 "$STATE_DIR" "$STATE_DIR/janus"
 exec 9>"$LOCK_FILE"
 flock -n 9 || fail janus_unavailable false
 
-# shellcheck disable=SC1091
-source "$CONTRACT_DIR/runtime-lib.sh"
 docker image inspect "$image" >/dev/null 2>&1 || fail janus_unavailable false
 janus_pharos_prepare_runtime "$image" "$CONTRACT_DIR" "$VOLUME_PREFIX" \
   >/dev/null 2>&1 || fail janus_unavailable false
@@ -281,31 +295,7 @@ ensure_contract() {
   temporary=$(mktemp -d "$STATE_DIR/janus/.contract.XXXXXX")
   chmod 0700 "$temporary"
   reviewed_at=$(date +%s)
-  scope_ref=${expected_ref#sec_}
-  scope_ref=$(
-    SCOPE_ORGANIZATION="$SCOPE_ORGANIZATION" \
-      SCOPE_PROJECT="$SCOPE_PROJECT" \
-      SCOPE_REPOSITORY="$SCOPE_REPOSITORY" \
-      SCOPE_ENVIRONMENT="$SCOPE_ENVIRONMENT" \
-      python3 - <<'PY'
-import hashlib
-import os
-import struct
-
-def field(value: str) -> bytes:
-    encoded = value.encode("utf-8")
-    return struct.pack(">Q", len(encoded)) + encoded
-
-canonical = b"".join(field(value) for value in (
-    "janus-scope-v1",
-    os.environ["SCOPE_ORGANIZATION"],
-    os.environ["SCOPE_PROJECT"],
-    os.environ["SCOPE_REPOSITORY"],
-    os.environ["SCOPE_ENVIRONMENT"],
-)) + b"\0\0"
-print("scp_" + hashlib.sha256(canonical).digest()[:20].hex())
-PY
-  )
+  scope_ref=$expected_scope_ref
 
   jq -n \
     --arg job "$job_id" \
@@ -427,7 +417,7 @@ entry_phase() {
   local journal_posture output
   if ! journal_posture=$(docker run --rm --network none \
     -v "${JANUS_PHAROS_LIFECYCLE_VOLUME}:/var/lib/janus/lifecycle:ro" \
-    --entrypoint sh "$image" -c '
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 path="/var/lib/janus/lifecycle/provisioning-entries/${1}.json"
 if [ -f "$path" ] && [ ! -L "$path" ]; then
@@ -475,7 +465,7 @@ verify_absent() {
   docker run --rm --network none \
     -v "${JANUS_PHAROS_STORE_VOLUME}:/var/lib/janus/secrets:ro" \
     -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env:ro" \
-    --entrypoint sh "$image" -c '
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 host=$1
 name=$2
@@ -660,7 +650,7 @@ install -d -m 0700 "$output_root/etc" "$output_root/etc/pharos"
 docker run --rm --network none --user 0 \
   -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env:ro" \
   -v "${output_root}:/handoff" \
-  --entrypoint sh "$image" -c '
+  --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" -c '
 set -eu
 host=$1
 source_file="/run/janus/env/pharos/beacons/${host}.env"

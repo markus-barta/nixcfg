@@ -80,6 +80,13 @@ grep -Fq "pharos/beacon-token-hashes/\${host}.json" "$janus_source"
 grep -Fq 'volume_metadata_absent' "$janus_source"
 grep -Fq -- "volume ls --quiet --filter \"name=^\${volume}$\"" "$janus_source"
 grep -Fq -- 'docker run --rm --network none --read-only' "$janus_source"
+# shellcheck disable=SC2016
+if grep -Fq -- '--entrypoint sh "$image"' "$janus_source"; then
+  printf 'managed provisioning uses the shell-free Janus runtime for volume work\n' >&2
+  exit 1
+fi
+# shellcheck disable=SC2016
+grep -Fq -- '--entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE"' "$janus_source"
 
 if grep -Eq 'curl .*PHAROS_TOKEN|Authorization: Bearer.*--header|PHAROS_TOKEN=.*curl' \
   "$executor_source"; then
@@ -127,8 +134,25 @@ fake_state="$fixture_root/state"
 fake_runtime="$fixture_root/run"
 fake_template="$fixture_root/template"
 fake_janus="$fixture_root/janus-helper"
+real_janus_fixture="$fixture_root/janus-credential"
 agent="$fixture_root/executor"
-mkdir -p "$fake_bin" "$fake_repo" "$fake_state" "$fake_runtime" "$fake_template"
+fake_contract="$fake_repo/hosts/csb1/docker/janus/pharos-production"
+fake_compose="$fake_repo/hosts/csb1/docker/docker-compose.yml"
+mkdir -p \
+  "$fake_bin" \
+  "$fake_contract" \
+  "$fake_state" \
+  "$fake_runtime" \
+  "$fake_template"
+touch "$fake_contract/metadata.toml"
+cat >"$fake_contract/runtime-lib.sh" <<'EOF'
+readonly JANUS_VOLUME_HELPER_IMAGE='ghcr.io/example/volume-helper:fixture'
+EOF
+cat >"$fake_compose" <<'EOF'
+services:
+  janus-engine-staged:
+    image: ghcr.io/example/janus:fixture@sha256:0000000000000000000000000000000000000000000000000000000000000000
+EOF
 
 cat >"$fake_bin/id" <<'EOF'
 #!/usr/bin/env bash
@@ -158,6 +182,37 @@ case "$*" in
 *' branch --show-current') printf 'main\n' ;;
 *' status --porcelain=v1 --untracked-files=all') ;;
 *' rev-parse HEAD' | *' rev-parse origin/main') printf 'reviewed-revision\n' ;;
+*) exit 1 ;;
+esac
+EOF
+
+cat >"$fake_bin/docker" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+'image inspect')
+  : >"$FAKE_JANUS_DERIVATION_REACHED"
+  exit 0
+  ;;
+'volume ls')
+  filter=${5#name=^}
+  printf '%s\n' "${filter%\$}"
+  ;;
+'volume inspect')
+  exit 0
+  ;;
+'run --rm')
+  case " $* " in
+  *' ghcr.io/example/volume-helper:fixture '*)
+    printf 'helper\n' >>"$FAKE_VOLUME_HELPER_RUNS"
+    exit 0
+    ;;
+  *' ghcr.io/example/janus:fixture@sha256:0000000000000000000000000000000000000000000000000000000000000000 '*)
+    : >"$FAKE_SHELL_FREE_RUNTIME_USED"
+    exit 1
+    ;;
+  *) exit 1 ;;
+  esac
+  ;;
 *) exit 1 ;;
 esac
 EOF
@@ -298,6 +353,17 @@ EOF
 chmod +x "$fake_bin"/* "$fake_janus"
 sed \
   -e 's|@OWNER@|csb1|g' \
+  -e "s|@REPO_PATH@|$fake_repo|g" \
+  -e "s|@CONTRACT_DIR@|$fake_contract|g" \
+  -e 's|@SCOPE_ORGANIZATION@|inspr|g' \
+  -e 's|@SCOPE_PROJECT@|pharos|g' \
+  -e 's|@SCOPE_REPOSITORY@|nixcfg|g' \
+  -e 's|@SCOPE_ENVIRONMENT@|production|g' \
+  -e "s|readonly LOCK_FILE='/run/lock/janus-pharos-production.lock'|readonly LOCK_FILE='$fake_runtime/janus-pharos-production.lock'|" \
+  "$janus_source" >"$real_janus_fixture"
+chmod +x "$real_janus_fixture"
+sed \
+  -e 's|@OWNER@|csb1|g' \
   -e 's|@PHAROS_AGENT_URL@|http://100.64.0.4:8088|g' \
   -e 's|@PHAROS_PUBLIC_URL@|https://pharos.example.invalid|g' \
   -e "s|@STATE_DIR@|$fake_state|g" \
@@ -317,8 +383,24 @@ export FAKE_LEAK_LOG="$fixture_root/leak.log"
 export FAKE_RESULT_BODY="$fixture_root/result.json"
 export FAKE_JANUS_CALLS="$fixture_root/janus-calls.log"
 export FAKE_NIXOS_ANYWHERE_CALLED="$fixture_root/nixos-anywhere-called"
+export FAKE_JANUS_DERIVATION_REACHED="$fixture_root/janus-derivation-reached"
+export FAKE_VOLUME_HELPER_RUNS="$fixture_root/volume-helper-runs"
+export FAKE_SHELL_FREE_RUNTIME_USED="$fixture_root/shell-free-runtime-used"
 FAKE_FINGERPRINT="SHA256:$(printf 'A%.0s' {1..43})"
 export FAKE_FINGERPRINT
+
+fixture_credential_ref=sec_990e153f0f4b26b16962
+if ! PATH="$fake_bin:$PATH" "$real_janus_fixture" \
+  prove-absent managed-fixture-1 fixturehost "$fixture_credential_ref" \
+  >"$fixture_root/real-janus.out" 2>"$fixture_root/real-janus.err"; then
+  printf 'real Janus absence proof failed with a shell-capable volume helper\n' >&2
+  exit 1
+fi
+[ -e "$FAKE_JANUS_DERIVATION_REACHED" ]
+grep -Fxq 'janus_managed_beacon=absent value_returned=false credential_created=false' \
+  "$fixture_root/real-janus.out"
+[ ! -e "$FAKE_SHELL_FREE_RUNTIME_USED" ]
+[ "$(wc -l <"$FAKE_VOLUME_HELPER_RUNS" | tr -d ' ')" = 5 ]
 
 run_agent() {
   local scenario=$1

@@ -70,6 +70,9 @@ jobs:
       - name: Verify managed-secret production preflight
         run: nix-shell -p ripgrep --run tests/T32-managed-secret-production-preflight.sh
 
+      - name: Keep Traefik ACME bind sources boot-safe
+        run: tests/T30-traefik-acme-storage.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
