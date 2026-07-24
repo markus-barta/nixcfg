@@ -34,6 +34,29 @@ let
       }) cfg.slots;
     }
   );
+  agentConfigFile = pkgs.writeText "janus-managed-host-agent-config.json" (
+    builtins.toJSON {
+      schema = "inspr.janus.managed-host-agent-config.v1";
+      schema_version = 1;
+      host_ref = cfg.hostRef;
+      pharos_origin = cfg.agent.pharosOrigin;
+      janus_origin = cfg.agent.janusOrigin;
+      token_file = cfg.agent.tokenFile;
+      docker_executable = "${cfg.agent.dockerPackage}/bin/docker";
+      compose_project = cfg.agent.composeProject;
+      poll_interval_seconds = cfg.agent.pollIntervalSeconds;
+      profiles = map (profile: {
+        service_ref = profile.serviceRef;
+        slot_ref = profile.slotRef;
+        delivery_profile_ref = profile.deliveryProfileRef;
+        reload_profile_ref = profile.reloadProfileRef;
+        health_profile_ref = profile.healthProfileRef;
+        compose_file = profile.composeFile;
+        compose_service = profile.composeService;
+        container_name = profile.containerName;
+      }) cfg.agent.profiles;
+    }
+  );
 in
 {
   options.inspr.janusHostSecrets = {
@@ -136,6 +159,65 @@ in
       default = [ "docker.service" ];
       description = "Exact service managers blocked until private runtime materialization succeeds.";
     };
+
+    agent = {
+      enable = lib.mkEnableOption "fixed managed-service install, reload, and health agent";
+
+      pharosOrigin = lib.mkOption {
+        type = lib.types.str;
+        default = "https://pharos.barta.cm";
+        description = "Exact Pharos HTTPS origin.";
+      };
+
+      janusOrigin = lib.mkOption {
+        type = lib.types.str;
+        default = "https://vault.barta.cm";
+        description = "Exact Janus HTTPS origin.";
+      };
+
+      tokenFile = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        description = "Root-readable host-ref agent bearer-token file.";
+      };
+
+      dockerPackage = lib.mkOption {
+        type = lib.types.package;
+        default = pkgs.docker;
+        description = "Pinned Docker CLI used for fixed Compose and inspect actions.";
+      };
+
+      composeProject = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        description = "Fixed Compose project containing every declared managed profile.";
+      };
+
+      pollIntervalSeconds = lib.mkOption {
+        type = lib.types.ints.between 2 300;
+        default = 5;
+        description = "Bounded interval for value-free Pharos leases.";
+      };
+
+      profiles = lib.mkOption {
+        type = lib.types.listOf (
+          lib.types.submodule {
+            options = {
+              serviceRef = lib.mkOption { type = lib.types.str; };
+              slotRef = lib.mkOption { type = lib.types.str; };
+              deliveryProfileRef = lib.mkOption { type = lib.types.str; };
+              reloadProfileRef = lib.mkOption { type = lib.types.str; };
+              healthProfileRef = lib.mkOption { type = lib.types.str; };
+              composeFile = lib.mkOption { type = lib.types.str; };
+              composeService = lib.mkOption { type = lib.types.str; };
+              containerName = lib.mkOption { type = lib.types.str; };
+            };
+          }
+        );
+        default = [ ];
+        description = "Closed value-free mapping from reviewed profile refs to fixed Compose targets.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -175,6 +257,34 @@ in
       {
         assertion = lib.all (validRef "env") cfg.revokedEnvelopeRefs;
         message = "inspr.janusHostSecrets.revokedEnvelopeRefs must contain only opaque envelope references";
+      }
+      {
+        assertion =
+          !cfg.agent.enable
+          || (
+            builtins.match "https://[^/?#]+" cfg.agent.pharosOrigin != null
+            && builtins.match "https://[^/?#]+" cfg.agent.janusOrigin != null
+            && lib.hasPrefix "/" cfg.agent.tokenFile
+            && builtins.match "[a-z0-9_.-]{1,96}" cfg.agent.composeProject != null
+            && cfg.agent.profiles != [ ]
+            && lib.length cfg.agent.profiles <= 128
+            && lib.all (
+              profile:
+              validRef "svc" profile.serviceRef
+              && validRef "slot" profile.slotRef
+              && validRef "delivery" profile.deliveryProfileRef
+              && validRef "reload" profile.reloadProfileRef
+              && validRef "health" profile.healthProfileRef
+              && lib.hasPrefix "/" profile.composeFile
+              && builtins.match "[a-z0-9_.-]{1,96}" profile.composeService != null
+              && builtins.match "[a-z0-9_.-]{1,96}" profile.containerName != null
+            ) cfg.agent.profiles
+          );
+        message = "inspr.janusHostSecrets.agent requires exact HTTPS origins, a private token file, and closed Compose profiles";
+      }
+      {
+        assertion = !cfg.agent.enable || !(lib.elem "docker.service" cfg.beforeUnits);
+        message = "inspr.janusHostSecrets.agent requires Docker to start independently; gate exact consumer units instead of docker.service";
       }
     ];
 
@@ -216,6 +326,65 @@ in
         ProtectKernelTunables = true;
         ProtectSystem = "strict";
         RestrictAddressFamilies = [ "AF_UNIX" ];
+        RestrictNamespaces = true;
+        LockPersonality = true;
+        MemoryDenyWriteExecute = true;
+        CapabilityBoundingSet = "";
+        SystemCallArchitectures = "native";
+      };
+    };
+
+    systemd.services.janus-managed-host-agent = lib.mkIf cfg.agent.enable {
+      description = "Install and verify declared Janus managed-service secrets";
+      wantedBy = [ "multi-user.target" ];
+      requires = [
+        "docker.service"
+        "janus-host-secret-restore.service"
+      ];
+      after = [
+        "docker.service"
+        "janus-host-secret-restore.service"
+        "network-online.target"
+      ];
+      wants = [ "network-online.target" ];
+
+      serviceConfig = {
+        Type = "simple";
+        User = "root";
+        Group = "root";
+        UMask = "0077";
+        RuntimeDirectory = "janus-managed-agent";
+        RuntimeDirectoryMode = "0700";
+        ExecStartPre = "${pkgs.coreutils}/bin/install -m 0400 -o root -g root ${agentConfigFile} /run/janus-managed-agent/config.json";
+        ExecStart = "${cfg.package}/bin/janus-managed-host-agent";
+        Restart = "on-failure";
+        RestartSec = "5s";
+        ReadOnlyPaths = [
+          "/etc/ssh/ssh_host_ed25519_key"
+          cfg.agent.tokenFile
+        ]
+        ++ map (profile: profile.composeFile) cfg.agent.profiles;
+        ReadWritePaths = [
+          "/var/lib/janus-host-executor"
+          "/run/janus-host-executor"
+          "/run/janus-managed"
+          "/run/janus-managed-agent"
+          "/run/docker.sock"
+        ];
+        NoNewPrivileges = true;
+        PrivateTmp = true;
+        ProtectClock = true;
+        ProtectControlGroups = true;
+        ProtectHome = true;
+        ProtectKernelLogs = true;
+        ProtectKernelModules = true;
+        ProtectKernelTunables = true;
+        ProtectSystem = "strict";
+        RestrictAddressFamilies = [
+          "AF_INET"
+          "AF_INET6"
+          "AF_UNIX"
+        ];
         RestrictNamespaces = true;
         LockPersonality = true;
         MemoryDenyWriteExecute = true;
