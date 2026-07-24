@@ -20,13 +20,13 @@ service_image() {
 control_plane="$repo_root/hosts/csb1/docker/docker-compose.yml"
 release_file="$repo_root/pharos-release.json"
 expected_image=$(service_image "$control_plane" pharosd)
-immutable_pattern='^ghcr\.io/markus-barta/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
+immutable_pattern='^ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
 
 jq -e '
   .schema == "inspr.pharos.fleet-release.v1"
   and (.version | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
   and .tag == ("v" + .version)
-  and .image == "ghcr.io/markus-barta/pharos/pharosd"
+  and .image == "ghcr.io/inspr-at/pharos/pharosd"
   and (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
   and .reference == (.image + ":" + .version + "@" + .digest)
 ' "$release_file" >/dev/null || {

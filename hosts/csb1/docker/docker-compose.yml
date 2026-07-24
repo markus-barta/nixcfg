@@ -489,10 +489,13 @@ services:
     # Source extracted to github.com/markus-barta/janus (go-envelope/). Deployed
     # from a cosign-signed image with SPDX SBOM + SLSA build provenance, pinned
     # by digest. To bump: cut a go-envelope-v* release, verify, update digest.
-    image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.164@sha256:ab5997d5051c178d677a1a6305422af9eaba816c626f662d2292a020c2a20655
+    image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.165@sha256:77e5d8e0754f9c3e5111802bff5f46ea6ef24614147cf530505c03077650369f
     container_name: janus
     restart: unless-stopped
-    user: janus
+    # The image's named janus account is uid 100/gid 101. Pin the numeric
+    # identity because uid 100 is the reviewed read-only custody bridge.
+    user: "100:101"
+    group_add: ["991"]
     read_only: true
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
@@ -516,11 +519,50 @@ services:
       - JANUS_WORKLOAD_ADMIN_GROUPS=janus:workload_admin
       - OIDC_ISSUER=https://auth.inspr.at
       - OIDC_PROJECT_ID=375139131258306571
+      - JANUS_MANAGED_SETUP_PHAROS_ORIGIN=https://pharos.barta.cm
+      - JANUS_MANAGED_SETUP_PHAROS_RETURN_ORIGIN=https://pharos.barta.cm
+      - JANUS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/janus/managed/internal-token
+      - JANUS_MANAGED_SETUP_VERIFICATION_KEYS_FILE=/etc/janus/managed/pharos-verification-keys.json
+      - JANUS_MANAGED_SETUP_MANIFEST_PATHS=/managed-services/manifest.json
+      - JANUS_MANAGED_WEB_TRANSACTION_SOCKET=/run/janus-managed-central/transaction.sock
+      - JANUS_MANAGED_HOST_TOKEN_GENERATION_DIR=/run/pharos/beacon-token-hashes
+      - JANUS_MANAGED_HOST_ENVELOPE_OUTBOX_DIR=/var/lib/janus-managed-central/outbox
     env_file:
       - /run/agenix/csb1-janus-env
     volumes:
       - janus_data:/data
       - ./janus/catalog:/catalog:ro
+      - type: bind
+        source: /run/agenix/csb1-janus-managed-internal-token
+        target: /run/janus/managed/internal-token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/janus/managed/pharos-verification-keys.json
+        target: /etc/janus/managed/pharos-verification-keys.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/pharos/managed-service-declarations
+        target: /managed-services
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/janus-managed-central
+        target: /run/janus-managed-central
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /var/lib/janus-managed-central/outbox
+        target: /var/lib/janus-managed-central/outbox
+        read_only: true
+        bind:
+          create_host_path: false
+      - janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro
     networks:
       - traefik
     labels:
@@ -544,7 +586,7 @@ services:
     # manifests as the smoke harness; no production secret or host SSH key is
     # mounted into the staged Rust engine. Use the smoke harness, not manual
     # project-wide compose lifecycle commands, when testing this profile.
-    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.10@sha256:960e3378e06d4adbb24568aba6c73decc0efb43d5c4e5fda330359d08f70feea
+    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.11@sha256:d2e6d2f80f3dc560c8a896d54e992cbdbef4a6b110fb2fc55efbeaeb6120c94e
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
     restart: unless-stopped
@@ -609,6 +651,173 @@ services:
       - traefik.enable=false
 
   # ============================================
+  # Janus managed-service transaction boundary
+  # ============================================
+  janus-managed-transactiond:
+    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.11@sha256:d2e6d2f80f3dc560c8a896d54e992cbdbef4a6b110fb2fc55efbeaeb6120c94e
+    container_name: janus-managed-transactiond
+    profiles: ["janus-managed-service"]
+    restart: "no"
+    init: true
+    user: "100:993"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: "0.50"
+    network_mode: "none"
+    entrypoint: ["/usr/local/bin/janusd-web-transactiond"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=100,gid=993,mode=0700
+    environment:
+      - JANUS_PRODUCT_MODE=production
+      - JANUS_RELEASE_CHANNEL_POLICY=/etc/janus/managed/release-channels-v1.json
+      - JANUS_RELEASE_ADMISSION_RECEIPT=/etc/janus/managed/release-admission.json
+      - JANUS_RELEASE_ARTIFACT_DIGEST=sha256:d2e6d2f80f3dc560c8a896d54e992cbdbef4a6b110fb2fc55efbeaeb6120c94e
+      - JANUS_RELEASE_AUDIT_FILE=/var/lib/janus-managed-central/audit/release-admission.jsonl
+      - JANUS_RELEASE_EXECUTOR=janusd-web-transactiond
+      - JANUS_RUNTIME_AUDIT_FILE=/var/lib/janus-managed-central/audit/runtime.jsonl
+      - JANUS_SCOPE_ORGANIZATION=inspr
+      - JANUS_SCOPE_PROJECT=janus
+      - JANUS_SCOPE_REPOSITORY=nixcfg
+      - JANUS_SCOPE_ENVIRONMENT=production
+      - JANUS_LIFECYCLE_ENTRY_EXECUTOR=janusd-web-transactiond
+      - JANUS_LIFECYCLE_TOMBSTONE_DIR=/var/lib/janus-managed-central/tombstones
+      - JANUS_AGE_MANIFEST_FILE=/etc/janus/managed/secretspec.toml
+      - JANUS_AGE_METADATA_FILE=/var/lib/janus-managed-central/metadata.toml
+      - JANUS_AGE_PROFILE=production
+      - JANUS_AGE_STORE_DIR=/var/lib/janus-managed-central/age-store
+      - JANUS_AGE_IDENTITY_FILE=/run/agenix/csb1-janus-managed-age-identity
+      - JANUS_AGE_RECIPIENT=age12njev59mvt5vyxghh43w9gvxkurdhatkj2y30k25uttg7swphuqsj6vyku
+      - JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed/managed-env-files.toml
+      - JANUS_MANAGED_PROFILE_MANIFEST=/etc/janus/managed/managed-env-files.toml
+      - JANUS_MANAGED_WEB_TRANSACTION_SOCKET=/run/janus-managed-central/transaction.sock
+      - JANUS_MANAGED_WEB_TRANSACTION_CATALOG_FILE=/etc/janus/managed/web-transaction-catalog.json
+      - JANUS_MANAGED_WEB_TRANSACTION_ALLOWED_UID=100
+    volumes:
+      - type: bind
+        source: /var/lib/janus-managed-central
+        target: /var/lib/janus-managed-central
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/janus-managed-central
+        target: /run/janus-managed-central
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/agenix/csb1-janus-managed-host-signing-key
+        target: /run/agenix/csb1-janus-managed-host-signing-key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/agenix/csb1-janus-managed-age-identity
+        target: /run/agenix/csb1-janus-managed-age-identity
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/janus/managed/secretspec.toml
+        target: /etc/janus/managed/secretspec.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/janus/managed/managed-env-files.toml
+        target: /etc/janus/managed/managed-env-files.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/janus/managed/hooks.toml
+        target: /etc/janus/managed/hooks.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/janus/managed/web-transaction-catalog.json
+        target: /etc/janus/managed/web-transaction-catalog.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/janus/managed/release-channels-v1.json
+        target: /etc/janus/managed/release-channels-v1.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/janus/managed/release-admission.json
+        target: /etc/janus/managed/release-admission.json
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      # The release image is FROM scratch and has no shell. Container process
+      # liveness plus this exec-form binary probe is complemented by the
+      # host-side readiness check for the exact private socket.
+      test: ["CMD", "/usr/local/bin/janusd-use", "--help"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+      - traefik.enable=false
+
+  # ============================================
+  # Janus managed-secret production canary
+  # ============================================
+  janus-managed-canary:
+    image: alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+    container_name: janus-managed-canary
+    profiles: ["janus-managed-service"]
+    restart: "no"
+    init: true
+    user: "65534:65534"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 32
+    mem_limit: 32m
+    cpus: "0.10"
+    network_mode: "none"
+    tmpfs:
+      - /run/canary:rw,noexec,nosuid,nodev,size=1m,uid=65534,gid=65534,mode=0700
+    volumes:
+      - type: bind
+        source: /run/janus-managed/svc_0bca8d31f7e2/slot_49c0e8a17d63.env
+        target: /run/secrets/canary-api-token
+        read_only: true
+        bind:
+          create_host_path: false
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        test -s /run/secrets/canary-api-token
+        sha256sum /run/secrets/canary-api-token | cut -d' ' -f1 > /run/canary/loaded.sha256
+        exec sleep 2147483647
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          test -s /run/secrets/canary-api-token &&
+          test -s /run/canary/loaded.sha256 &&
+          test "$$(sha256sum /run/secrets/canary-api-token | cut -d' ' -f1)" =
+          "$$(cat /run/canary/loaded.sha256)"
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
+      - traefik.enable=false
+
+  # ============================================
   # MinIO - Object storage (PPM attachments)
   # ============================================
   minio:
@@ -638,11 +847,12 @@ services:
   pharosd:
     # Keep the readable release tag, but bind it to the verified immutable
     # linux/amd64 manifest used by both server and bundled beacon.
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.61@sha256:db13986d1fbdc48d4b4eab005f4dd5d069a864160bda3ef1fb3903777120f6d6
+    image: ghcr.io/inspr-at/pharos/pharosd:0.1.62@sha256:6da3b687e112e3c31177a423fbe0581446ad7a8d2b5a32f2a1084b930b8bf2c6
     container_name: pharosd
     restart: unless-stopped
     init: true
-    user: "10001:999"
+    user: "10001:992"
+    group_add: ["991"]
     read_only: true
     cap_drop:
       - ALL
@@ -664,6 +874,10 @@ services:
       - RUST_LOG=info
       - PHAROS_DB=/data/pharos.json
       - PHAROS_MANIFEST_PATHS=/manifests/hsb8.json
+      - PHAROS_MANAGED_SERVICE_MANIFEST_PATHS=/managed-services/manifest.json
+      - PHAROS_MANAGED_SETUP_SIGNING_KEY_FILE=/run/pharos/managed-setup-signing-key
+      - PHAROS_MANAGED_SETUP_JANUS_ORIGIN=https://vault.barta.cm
+      - PHAROS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/pharos/managed-setup-internal-token
       - PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json
       - PHAROS_NIXCFG_DISPATCH_ENABLED=1
       - PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token
@@ -707,8 +921,21 @@ services:
       - pharos_data:/data
       - ./pharos/access-policy.json:/etc/pharos/access-policy.json:ro
       - ./pharos/manifests:/manifests:ro
+      - /run/pharos/managed-service-declarations:/managed-services:ro
       - /home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro
       - /run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro
+      - type: bind
+        source: /run/agenix/csb1-janus-managed-pharos-signing-key
+        target: /run/pharos/managed-setup-signing-key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/agenix/csb1-janus-managed-internal-token-pharos
+        target: /run/pharos/managed-setup-internal-token
+        read_only: true
+        bind:
+          create_host_path: false
       - janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro
       - janus_pharos_production_provider_out:/run/pharos/providers:ro
       - /run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro
@@ -729,7 +956,7 @@ services:
   # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
   # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
   pharos-beacon:
-    image: ghcr.io/markus-barta/pharos/pharosd:0.1.61@sha256:db13986d1fbdc48d4b4eab005f4dd5d069a864160bda3ef1fb3903777120f6d6
+    image: ghcr.io/inspr-at/pharos/pharosd:0.1.62@sha256:6da3b687e112e3c31177a423fbe0581446ad7a8d2b5a32f2a1084b930b8bf2c6
     container_name: pharos-beacon
     restart: unless-stopped
     init: true

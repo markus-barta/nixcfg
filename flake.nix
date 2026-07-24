@@ -58,7 +58,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
-      url = "github:markus-barta/janus/rust-engine-v0.1.5";
+      url = "github:markus-barta/janus/rust-engine-v0.1.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # Paimos — agent-facing CLI. Tracking `main`, so `update-flake-lock`

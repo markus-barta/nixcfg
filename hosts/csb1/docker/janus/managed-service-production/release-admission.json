@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "policy_id": "janus-engine-release-v1",
+  "policy_version": 1,
+  "channel": "stable",
+  "mode": "production",
+  "previous_mode": "production",
+  "artifact": {
+    "image": "ghcr.io/markus-barta/janus/janus-engine",
+    "tag": "rust-engine-v0.1.11",
+    "digest": "sha256:d2e6d2f80f3dc560c8a896d54e992cbdbef4a6b110fb2fc55efbeaeb6120c94e",
+    "development": false
+  },
+  "signature": {
+    "verified": true,
+    "identity": "https://github.com/markus-barta/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.11",
+    "oidc_issuer": "https://token.actions.githubusercontent.com"
+  },
+  "provenance": {
+    "verified": true,
+    "repository": "markus-barta/janus",
+    "signer_workflow": "markus-barta/janus/.github/workflows/rust.yml",
+    "source_ref": "refs/tags/rust-engine-v0.1.11",
+    "predicate_type": "https://slsa.dev/provenance/v1"
+  },
+  "sbom": {
+    "verified": true,
+    "predicate_type": "https://spdx.dev/Document/v2.3"
+  }
+}

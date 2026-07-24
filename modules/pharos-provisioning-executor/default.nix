@@ -145,7 +145,7 @@ in
     };
     beaconImage = lib.mkOption {
       type = lib.types.str;
-      default = "ghcr.io/markus-barta/pharos/pharosd:0.1.58@sha256:8eb6bdecddce5951c696e35afacdf5acd70acde0ff08e947e413dbc2e4474666";
+      default = "ghcr.io/inspr-at/pharos/pharosd:0.1.62@sha256:6da3b687e112e3c31177a423fbe0581446ad7a8d2b5a32f2a1084b930b8bf2c6";
       description = "Immutable Pharos image used for the managed host beacon.";
     };
     pollSeconds = lib.mkOption {
