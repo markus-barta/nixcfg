@@ -62,13 +62,13 @@ jobs:
         run: tests/T29-pharos-janus-consumer-boundary.sh
 
       - name: Verify managed-service declaration generation
-        run: tests/T30-managed-service-manifest.sh
+        run: nix-shell -p ripgrep --run tests/T30-managed-service-manifest.sh
 
       - name: Verify Janus host-envelope module
         run: tests/T31-janus-host-envelope.sh
 
       - name: Verify managed-secret production preflight
-        run: tests/T32-managed-secret-production-preflight.sh
+        run: nix-shell -p ripgrep --run tests/T32-managed-secret-production-preflight.sh
 
   check:
     name: 🔎️ Eval flake
