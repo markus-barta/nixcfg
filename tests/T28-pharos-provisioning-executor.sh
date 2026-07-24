@@ -127,8 +127,22 @@ fake_state="$fixture_root/state"
 fake_runtime="$fixture_root/run"
 fake_template="$fixture_root/template"
 fake_janus="$fixture_root/janus-helper"
+real_janus_fixture="$fixture_root/janus-credential"
 agent="$fixture_root/executor"
-mkdir -p "$fake_bin" "$fake_repo" "$fake_state" "$fake_runtime" "$fake_template"
+fake_contract="$fake_repo/hosts/csb1/docker/janus/pharos-production"
+fake_compose="$fake_repo/hosts/csb1/docker/docker-compose.yml"
+mkdir -p \
+  "$fake_bin" \
+  "$fake_contract" \
+  "$fake_state" \
+  "$fake_runtime" \
+  "$fake_template"
+touch "$fake_contract/metadata.toml" "$fake_contract/runtime-lib.sh"
+cat >"$fake_compose" <<'EOF'
+services:
+  janus-engine-staged:
+    image: ghcr.io/example/janus:fixture@sha256:0000000000000000000000000000000000000000000000000000000000000000
+EOF
 
 cat >"$fake_bin/id" <<'EOF'
 #!/usr/bin/env bash
@@ -158,6 +172,17 @@ case "$*" in
 *' branch --show-current') printf 'main\n' ;;
 *' status --porcelain=v1 --untracked-files=all') ;;
 *' rev-parse HEAD' | *' rev-parse origin/main') printf 'reviewed-revision\n' ;;
+*) exit 1 ;;
+esac
+EOF
+
+cat >"$fake_bin/docker" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+'image inspect')
+  : >"$FAKE_JANUS_DERIVATION_REACHED"
+  exit 1
+  ;;
 *) exit 1 ;;
 esac
 EOF
@@ -298,6 +323,16 @@ EOF
 chmod +x "$fake_bin"/* "$fake_janus"
 sed \
   -e 's|@OWNER@|csb1|g' \
+  -e "s|@REPO_PATH@|$fake_repo|g" \
+  -e "s|@CONTRACT_DIR@|$fake_contract|g" \
+  -e 's|@SCOPE_ORGANIZATION@|inspr|g' \
+  -e 's|@SCOPE_PROJECT@|pharos|g' \
+  -e 's|@SCOPE_REPOSITORY@|nixcfg|g' \
+  -e 's|@SCOPE_ENVIRONMENT@|production|g' \
+  "$janus_source" >"$real_janus_fixture"
+chmod +x "$real_janus_fixture"
+sed \
+  -e 's|@OWNER@|csb1|g' \
   -e 's|@PHAROS_AGENT_URL@|http://100.64.0.4:8088|g' \
   -e 's|@PHAROS_PUBLIC_URL@|https://pharos.example.invalid|g' \
   -e "s|@STATE_DIR@|$fake_state|g" \
@@ -317,8 +352,21 @@ export FAKE_LEAK_LOG="$fixture_root/leak.log"
 export FAKE_RESULT_BODY="$fixture_root/result.json"
 export FAKE_JANUS_CALLS="$fixture_root/janus-calls.log"
 export FAKE_NIXOS_ANYWHERE_CALLED="$fixture_root/nixos-anywhere-called"
+export FAKE_JANUS_DERIVATION_REACHED="$fixture_root/janus-derivation-reached"
 FAKE_FINGERPRINT="SHA256:$(printf 'A%.0s' {1..43})"
 export FAKE_FINGERPRINT
+
+fixture_credential_ref=sec_990e153f0f4b26b16962
+if PATH="$fake_bin:$PATH" "$real_janus_fixture" \
+  prove-absent managed-fixture-1 fixturehost "$fixture_credential_ref" \
+  >"$fixture_root/real-janus.out" 2>"$fixture_root/real-janus.err"; then
+  printf 'real Janus fixture unexpectedly passed its intentional image boundary\n' >&2
+  exit 1
+fi
+[ -e "$FAKE_JANUS_DERIVATION_REACHED" ]
+grep -Fxq \
+  'janus_managed_beacon=failed reason=janus_unavailable value_returned=false credential_created=false' \
+  "$fixture_root/real-janus.err"
 
 run_agent() {
   local scenario=$1
