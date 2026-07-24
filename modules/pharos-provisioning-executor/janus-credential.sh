@@ -88,12 +88,14 @@ operation_id="pharos-managed-${job_id}"
 description="Managed Pharos beacon for ${host}"
 validation_probe='pharos-managed-bootstrap-ready'
 
-expected_ref=$(
-  SCOPE_ORGANIZATION="$SCOPE_ORGANIZATION" \
-    SCOPE_PROJECT="$SCOPE_PROJECT" \
-    SCOPE_REPOSITORY="$SCOPE_REPOSITORY" \
-    SCOPE_ENVIRONMENT="$SCOPE_ENVIRONMENT" \
-    SECRET_NAME="$secret_name" \
+# Use distinct subprocess names: Bash rejects command-prefix assignments that
+# reuse the readonly scope variable names declared above.
+if ! derived_refs=$(
+  PHAROS_SCOPE_ORGANIZATION="$SCOPE_ORGANIZATION" \
+    PHAROS_SCOPE_PROJECT="$SCOPE_PROJECT" \
+    PHAROS_SCOPE_REPOSITORY="$SCOPE_REPOSITORY" \
+    PHAROS_SCOPE_ENVIRONMENT="$SCOPE_ENVIRONMENT" \
+    PHAROS_SECRET_NAME="$secret_name" \
     python3 - <<'PY'
 import hashlib
 import os
@@ -105,19 +107,27 @@ def field(value: str) -> bytes:
 
 canonical = b"".join(field(value) for value in (
     "janus-scope-v1",
-    os.environ["SCOPE_ORGANIZATION"],
-    os.environ["SCOPE_PROJECT"],
-    os.environ["SCOPE_REPOSITORY"],
-    os.environ["SCOPE_ENVIRONMENT"],
+    os.environ["PHAROS_SCOPE_ORGANIZATION"],
+    os.environ["PHAROS_SCOPE_PROJECT"],
+    os.environ["PHAROS_SCOPE_REPOSITORY"],
+    os.environ["PHAROS_SCOPE_ENVIRONMENT"],
 )) + b"\0\0"
 scope_ref = "scp_" + hashlib.sha256(canonical).digest()[:20].hex()
 digest = hashlib.sha256(
     b"janus-secret-ref-v2\0" + scope_ref.encode("ascii") + b"\0" +
-    os.environ["SECRET_NAME"].encode("ascii")
+    os.environ["PHAROS_SECRET_NAME"].encode("ascii")
 ).digest()
-print("sec_" + digest[:10].hex())
+print(scope_ref, "sec_" + digest[:10].hex())
 PY
-)
+); then
+  fail janus_unavailable false
+fi
+read -r expected_scope_ref expected_ref extra_ref <<<"$derived_refs"
+[[ "$expected_scope_ref" =~ ^scp_[0-9a-f]{40}$ ]] ||
+  fail result_contract_invalid false
+[[ "$expected_ref" =~ ^sec_[0-9a-f]{20}$ ]] ||
+  fail result_contract_invalid false
+[ -z "${extra_ref:-}" ] || fail result_contract_invalid false
 [ "$expected_ref" = "$credential_ref" ] || fail result_contract_invalid false
 
 image=$(
@@ -281,31 +291,7 @@ ensure_contract() {
   temporary=$(mktemp -d "$STATE_DIR/janus/.contract.XXXXXX")
   chmod 0700 "$temporary"
   reviewed_at=$(date +%s)
-  scope_ref=${expected_ref#sec_}
-  scope_ref=$(
-    SCOPE_ORGANIZATION="$SCOPE_ORGANIZATION" \
-      SCOPE_PROJECT="$SCOPE_PROJECT" \
-      SCOPE_REPOSITORY="$SCOPE_REPOSITORY" \
-      SCOPE_ENVIRONMENT="$SCOPE_ENVIRONMENT" \
-      python3 - <<'PY'
-import hashlib
-import os
-import struct
-
-def field(value: str) -> bytes:
-    encoded = value.encode("utf-8")
-    return struct.pack(">Q", len(encoded)) + encoded
-
-canonical = b"".join(field(value) for value in (
-    "janus-scope-v1",
-    os.environ["SCOPE_ORGANIZATION"],
-    os.environ["SCOPE_PROJECT"],
-    os.environ["SCOPE_REPOSITORY"],
-    os.environ["SCOPE_ENVIRONMENT"],
-)) + b"\0\0"
-print("scp_" + hashlib.sha256(canonical).digest()[:20].hex())
-PY
-  )
+  scope_ref=$expected_scope_ref
 
   jq -n \
     --arg job "$job_id" \
