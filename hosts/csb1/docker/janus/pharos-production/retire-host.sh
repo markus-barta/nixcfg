@@ -15,6 +15,7 @@ REPO_ROOT=$(cd -- "${DEFAULT_SCRIPT_DIR}/../../../../.." && pwd)
 RETIREMENTS_FILE=${JANUS_PHAROS_RETIREMENTS_FILE:-${SCRIPT_DIR}/retired-hosts.json}
 IMAGE=${JANUS_ENGINE_IMAGE:-}
 VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
+HASH_PROJECTION_GID=${JANUS_PHAROS_HASH_PROJECTION_GID:-991}
 RUN_SCOPE=${JANUS_PHAROS_SCOPE:-pharos/csb1/production}
 SCOPE_ORGANIZATION=${JANUS_PHAROS_SCOPE_ORGANIZATION:-inspr}
 SCOPE_PROJECT=${JANUS_PHAROS_SCOPE_PROJECT:-pharos}
@@ -118,7 +119,7 @@ fi
 
 janus_pharos_load_consumer_identity "$COMPOSE_DIR" || fail invalid_consumer_identity
 consumer_uid=$JANUS_PHAROS_CONSUMER_UID
-consumer_gid=$JANUS_PHAROS_CONSUMER_GID
+[[ "$HASH_PROJECTION_GID" =~ ^[1-9][0-9]*$ ]] || fail invalid_hash_projection_gid
 
 LOCK_ROOT=${JANUS_PHAROS_LOCK_ROOT:-/run/lock}
 mkdir -p "$LOCK_ROOT"
@@ -201,7 +202,7 @@ janus_pharos_publish_hash_projection \
   "$JANUS_PHAROS_OUT_VOLUME" \
   "$JANUS_PHAROS_HASH_OUT_VOLUME" \
   "$consumer_uid" \
-  "$consumer_gid" ||
+  "$HASH_PROJECTION_GID" ||
   fail consumer_projection_failed
 
 printf '%s\n' "$command_output"

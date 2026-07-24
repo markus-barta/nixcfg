@@ -106,6 +106,35 @@ if (
     or agent["hash_sidecar"]["subject"] != "host_58f36c72a91e"
 ):
     raise SystemExit("managed host agent token contract drift")
+
+policy = json.loads((contract / "release-channels-v1.json").read_text())
+expected_policy = {
+    "schema_version": 1,
+    "policy_id": "janus-engine-release-v1",
+    "policy_version": 1,
+    "required_modes": ["production", "enterprise"],
+    "deny_mode_downgrade": True,
+    "channels": [
+        {
+            "name": "stable",
+            "image": "ghcr.io/markus-barta/janus/janus-engine",
+            "tag_prefix": "rust-engine-v",
+            "repository": "markus-barta/janus",
+            "signer_workflow": "markus-barta/janus/.github/workflows/rust.yml",
+            "certificate_identity_prefix": (
+                "https://github.com/markus-barta/janus/"
+                ".github/workflows/rust.yml@refs/tags/"
+            ),
+            "oidc_issuer": "https://token.actions.githubusercontent.com",
+            "provenance_predicate_type": "https://slsa.dev/provenance/v1",
+            "sbom_predicate_type": "https://spdx.dev/Document/v2.3",
+        }
+    ],
+    # This impossible digest is the policy's permanent revocation canary.
+    "revoked_digests": ["sha256:" + ("d" * 64)],
+}
+if policy != expected_policy:
+    raise SystemExit("managed release policy drift")
 PY
 
 for name in \
@@ -128,15 +157,37 @@ grep -Fq 'beforeUnits = [ "janus-managed-canary.service" ];' "${host}"
 grep -Fq 'composeFile = janusManagedComposeFile;' "${host}"
 grep -Fq 'janus-managed-central.gid = 993;' "${host}"
 grep -Fq 'pharos-container.gid = 992;' "${host}"
+projection_default="HASH_PROJECTION_GID=\${JANUS_PHAROS_HASH_PROJECTION_GID:-991}"
+projection_call="\"\$consumer_uid\" \"\$HASH_PROJECTION_GID\""
+grep -Fq "${projection_default}" \
+  "${pharos_contract}/render-sidecars.sh"
+grep -Fq "${projection_call}" \
+  "${pharos_contract}/render-sidecars.sh"
 grep -Fq 'ConditionPathExists' "${host}"
 grep -Fq 'janus-managed-central-seed' "${host}"
 grep -Fq 'profiles: ["janus-managed-service"]' "${compose}"
+grep -Fq 'user: "100:101"' "${compose}"
 grep -Fq 'user: "65534:65534"' "${compose}"
+test "$(grep -Fc 'group_add: ["991"]' "${compose}")" -eq 2
 grep -Fq 'network_mode: "none"' "${compose}"
 grep -Fq 'read_only: true' "${compose}"
 grep -Fq 'cap_drop: ["ALL"]' "${compose}"
 grep -Fq 'no-new-privileges:true' "${compose}"
 grep -Fq 'traefik.enable=false' "${compose}"
+for binding in \
+  'JANUS_MANAGED_SETUP_PHAROS_ORIGIN=https://pharos.barta.cm' \
+  'JANUS_MANAGED_SETUP_PHAROS_RETURN_ORIGIN=https://pharos.barta.cm' \
+  'JANUS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/janus/managed/internal-token' \
+  'JANUS_MANAGED_SETUP_VERIFICATION_KEYS_FILE=/etc/janus/managed/pharos-verification-keys.json' \
+  'JANUS_MANAGED_SETUP_MANIFEST_PATHS=/managed-services/manifest.json' \
+  'JANUS_MANAGED_WEB_TRANSACTION_SOCKET=/run/janus-managed-central/transaction.sock' \
+  'JANUS_MANAGED_HOST_TOKEN_GENERATION_DIR=/run/pharos/beacon-token-hashes' \
+  'JANUS_MANAGED_HOST_ENVELOPE_OUTBOX_DIR=/var/lib/janus-managed-central/outbox' \
+  'PHAROS_MANAGED_SETUP_SIGNING_KEY_FILE=/run/pharos/managed-setup-signing-key' \
+  'PHAROS_MANAGED_SETUP_JANUS_ORIGIN=https://vault.barta.cm' \
+  'PHAROS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/pharos/managed-setup-internal-token'; do
+  grep -Fq "${binding}" "${compose}"
+done
 grep -Fq 'host_58f36c72a91e' "${pharos_contract}/render-sidecars.sh"
 grep -Fq 'sudo -n cat /run/agenix/csb1-janus-managed-host-agent-token' \
   "${pharos_contract}/import-existing-agenix-beacons.sh"

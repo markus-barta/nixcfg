@@ -492,7 +492,10 @@ services:
     image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.164@sha256:ab5997d5051c178d677a1a6305422af9eaba816c626f662d2292a020c2a20655
     container_name: janus
     restart: unless-stopped
-    user: janus
+    # The image's named janus account is uid 100/gid 101. Pin the numeric
+    # identity because uid 100 is the reviewed read-only custody bridge.
+    user: "100:101"
+    group_add: ["991"]
     read_only: true
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
@@ -516,11 +519,25 @@ services:
       - JANUS_WORKLOAD_ADMIN_GROUPS=janus:workload_admin
       - OIDC_ISSUER=https://auth.inspr.at
       - OIDC_PROJECT_ID=375139131258306571
+      - JANUS_MANAGED_SETUP_PHAROS_ORIGIN=https://pharos.barta.cm
+      - JANUS_MANAGED_SETUP_PHAROS_RETURN_ORIGIN=https://pharos.barta.cm
+      - JANUS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/janus/managed/internal-token
+      - JANUS_MANAGED_SETUP_VERIFICATION_KEYS_FILE=/etc/janus/managed/pharos-verification-keys.json
+      - JANUS_MANAGED_SETUP_MANIFEST_PATHS=/managed-services/manifest.json
+      - JANUS_MANAGED_WEB_TRANSACTION_SOCKET=/run/janus-managed-central/transaction.sock
+      - JANUS_MANAGED_HOST_TOKEN_GENERATION_DIR=/run/pharos/beacon-token-hashes
+      - JANUS_MANAGED_HOST_ENVELOPE_OUTBOX_DIR=/var/lib/janus-managed-central/outbox
     env_file:
       - /run/agenix/csb1-janus-env
     volumes:
       - janus_data:/data
       - ./janus/catalog:/catalog:ro
+      - /run/agenix/csb1-janus-managed-internal-token:/run/janus/managed/internal-token:ro
+      - /etc/janus/managed/pharos-verification-keys.json:/etc/janus/managed/pharos-verification-keys.json:ro
+      - /run/pharos/managed-service-declarations:/managed-services:ro
+      - /run/janus-managed-central:/run/janus-managed-central:ro
+      - /var/lib/janus-managed-central/outbox:/var/lib/janus-managed-central/outbox:ro
+      - janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro
     networks:
       - traefik
     labels:
@@ -688,6 +705,7 @@ services:
     restart: unless-stopped
     init: true
     user: "10001:992"
+    group_add: ["991"]
     read_only: true
     cap_drop:
       - ALL
@@ -710,6 +728,9 @@ services:
       - PHAROS_DB=/data/pharos.json
       - PHAROS_MANIFEST_PATHS=/manifests/hsb8.json
       - PHAROS_MANAGED_SERVICE_MANIFEST_PATHS=/managed-services/manifest.json
+      - PHAROS_MANAGED_SETUP_SIGNING_KEY_FILE=/run/pharos/managed-setup-signing-key
+      - PHAROS_MANAGED_SETUP_JANUS_ORIGIN=https://vault.barta.cm
+      - PHAROS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/pharos/managed-setup-internal-token
       - PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json
       - PHAROS_NIXCFG_DISPATCH_ENABLED=1
       - PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token
@@ -756,6 +777,8 @@ services:
       - /run/pharos/managed-service-declarations:/managed-services:ro
       - /home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro
       - /run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro
+      - /run/agenix/csb1-janus-managed-pharos-signing-key:/run/pharos/managed-setup-signing-key:ro
+      - /run/agenix/csb1-janus-managed-internal-token:/run/pharos/managed-setup-internal-token:ro
       - janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro
       - janus_pharos_production_provider_out:/run/pharos/providers:ro
       - /run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro

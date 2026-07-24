@@ -282,8 +282,8 @@ in
       # One shared lock serializes every writer to the production Janus store,
       # metadata, beacon outputs, and atomic token-hash generation.
       "f /run/lock/janus-pharos-production.lock 0660 root users -"
-      # Central managed-secret custody is private to the exact uid/gid shared
-      # by the two isolated Janus containers. Plaintext is never stored here.
+      # Central managed-secret custody is private to the exact uid used by the
+      # two isolated Janus containers. Plaintext is never stored here.
       "d /var/lib/janus-managed-central 0700 janus-managed-central janus-managed-central -"
       "d /var/lib/janus-managed-central/age-store 0700 janus-managed-central janus-managed-central -"
       "d /var/lib/janus-managed-central/audit 0700 janus-managed-central janus-managed-central -"
@@ -335,6 +335,8 @@ in
       ./docker/janus/managed-service-production/pharos-verification-keys.json;
     "janus/managed/web-transaction-catalog.json".source =
       ./docker/janus/managed-service-production/web-transaction-catalog.json;
+    "janus/managed/release-channels-v1.json".source =
+      ./docker/janus/managed-service-production/release-channels-v1.json;
     "janus/managed/docker-compose.yml".source = ./docker/docker-compose.yml;
   };
 
@@ -640,8 +642,8 @@ in
     file = ../../secrets/csb1-janus-env.age;
     path = "/run/agenix/csb1-janus-env";
     owner = "root";
-    group = "root";
-    mode = "0644";
+    group = "users";
+    mode = "0440";
   };
 
   # Exact shared server-to-server token. Containers gain read access only
