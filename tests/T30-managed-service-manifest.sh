@@ -7,6 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+export JANUS_TEST_FLAKE_REF="git+file://${REPO_ROOT}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -54,13 +55,13 @@ for dependency in jq rg; do
   fi
 done
 
-MANIFEST_JSON="$(nix eval '.#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.generated' --json)"
-SECOND_MANIFEST_JSON="$(nix eval '.#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.generated' --json)"
-FINGERPRINT="$(nix eval '.#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.declarationFingerprint' --raw)"
-SOURCE_PATH="$(nix eval '.#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.source' --raw)"
-ETC_SOURCE="$(nix eval '.#nixosConfigurations.csb1.config.environment.etc."pharos/managed-service-declarations.json".source' --raw)"
-PUBLISHER_BEFORE="$(nix eval '.#nixosConfigurations.csb1.config.systemd.services.pharos-managed-service-declarations.before' --json)"
-PUBLISHER_EXEC="$(nix eval '.#nixosConfigurations.csb1.config.systemd.services.pharos-managed-service-declarations.serviceConfig.ExecStart' --raw)"
+MANIFEST_JSON="$(nix eval "${JANUS_TEST_FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.generated" --json)"
+SECOND_MANIFEST_JSON="$(nix eval "${JANUS_TEST_FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.generated" --json)"
+FINGERPRINT="$(nix eval "${JANUS_TEST_FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.declarationFingerprint" --raw)"
+SOURCE_PATH="$(nix eval "${JANUS_TEST_FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.source" --raw)"
+ETC_SOURCE="$(nix eval "${JANUS_TEST_FLAKE_REF}#nixosConfigurations.csb1.config.environment.etc.\"pharos/managed-service-declarations.json\".source" --raw)"
+PUBLISHER_BEFORE="$(nix eval "${JANUS_TEST_FLAKE_REF}#nixosConfigurations.csb1.config.systemd.services.pharos-managed-service-declarations.before" --json)"
+PUBLISHER_EXEC="$(nix eval "${JANUS_TEST_FLAKE_REF}#nixosConfigurations.csb1.config.systemd.services.pharos-managed-service-declarations.serviceConfig.ExecStart" --raw)"
 COMPOSE_FILE="$REPO_ROOT/hosts/csb1/docker/docker-compose.yml"
 
 check_jq "schema and producer are exact v2 values" '
@@ -105,7 +106,7 @@ check_jq "manifest fields are closed and value-free" '
 
 DETACHED_MANIFEST_JSON="$(nix eval --impure --json --expr '
   let
-    flake = builtins.getFlake (toString ./.);
+    flake = builtins.getFlake (builtins.getEnv "JANUS_TEST_FLAKE_REF");
     base = flake.nixosConfigurations.csb1;
     detached = base.extendModules {
       modules = [
@@ -147,7 +148,7 @@ fi
 
 if nix eval --impure --expr '
   let
-    flake = builtins.getFlake (toString ./.);
+    flake = builtins.getFlake (builtins.getEnv "JANUS_TEST_FLAKE_REF");
     base = flake.nixosConfigurations.csb1;
     badLabel = "bad" + builtins.fromJSON "\"\\u0085\"" + "label";
     invalid = base.extendModules {

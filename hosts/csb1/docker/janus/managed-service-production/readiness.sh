@@ -3,6 +3,7 @@ set -uo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd -- "${script_dir}/../../../../.." && pwd)
+flake_ref="git+file://${repo}"
 compose="${repo}/hosts/csb1/docker/docker-compose.yml"
 mode=${1:-declarative}
 failures=0
@@ -130,7 +131,7 @@ declarative() {
   check_command \
     compose_contract \
     docker compose -f "${compose}" config --quiet --no-interpolate --no-env-resolution
-  check_command csb1_eval nix eval "${repo}#nixosConfigurations.csb1.config.system.build.toplevel.drvPath"
+  check_command csb1_eval nix eval "${flake_ref}#nixosConfigurations.csb1.config.system.build.toplevel.drvPath"
   check_command manifest_contract bash "${repo}/tests/T30-managed-service-manifest.sh"
   check_command host_envelope_contract bash "${repo}/tests/T31-janus-host-envelope.sh"
 
@@ -182,7 +183,7 @@ declarative() {
 
   local activation
   activation=$(nix eval \
-    "${repo}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable" \
+    "${flake_ref}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable" \
     --json 2>/dev/null || true)
   if [ "$activation" = "true" ]; then
     pass activation

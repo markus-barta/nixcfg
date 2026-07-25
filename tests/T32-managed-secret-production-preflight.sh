@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+flake_ref="git+file://${repo}"
 host="${repo}/hosts/csb1/configuration.nix"
 compose="${repo}/hosts/csb1/docker/docker-compose.yml"
 contract="${repo}/hosts/csb1/docker/janus/managed-service-production"
@@ -167,17 +168,17 @@ grep -Fq 'pharos-container.gid = 992;' "${host}"
 grep -Fq '"janus/managed/web-transaction-catalog.json" = {' "${host}"
 test "$(
   nix eval \
-    "${repo}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".mode" \
+    "${flake_ref}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".mode" \
     --raw
 )" = "0400"
 test "$(
   nix eval \
-    "${repo}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".user" \
+    "${flake_ref}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".user" \
     --raw
 )" = "janus-managed-central"
 test "$(
   nix eval \
-    "${repo}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".group" \
+    "${flake_ref}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".group" \
     --raw
 )" = "janus-managed-central"
 projection_default="HASH_PROJECTION_GID=\${JANUS_PHAROS_HASH_PROJECTION_GID:-991}"
@@ -191,7 +192,7 @@ grep -Fq 'janus-managed-central-seed' "${host}"
 grep -Fq 'systemd.services.janus-managed-transactiond' "${host}"
 test "$(
   nix eval \
-    "${repo}#nixosConfigurations.csb1.config.systemd.services.janus-managed-transactiond.restartTriggers" \
+    "${flake_ref}#nixosConfigurations.csb1.config.systemd.services.janus-managed-transactiond.restartTriggers" \
     --json | jq 'length'
 )" = "7"
 grep -Fq 'Restart = "always";' "${host}"
@@ -307,4 +308,4 @@ if rg -n '(private_key_base64url|AGE-SECRET-KEY|CANARY_API_TOKEN=|PHAROS_TOKEN=)
   exit 1
 fi
 
-printf 'managed_secret_production_preflight=ok activation=false value_returned=false\n'
+printf 'managed_secret_production_preflight=ok activation=true value_returned=false\n'

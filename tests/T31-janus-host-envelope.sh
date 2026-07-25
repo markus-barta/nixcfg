@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export JANUS_TEST_FLAKE_REF="git+file://${repo}"
 module="${repo}/modules/janus-host-secrets/default.nix"
 host="${repo}/hosts/csb1/configuration.nix"
 
@@ -27,12 +28,12 @@ grep -Fq 'inspr.janusHostSecrets = {' "${host}"
 grep -Fq 'ownerUid = 65534' "${host}"
 test "$(
   nix eval --json \
-    "${repo}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
-)" = "false"
+    "${JANUS_TEST_FLAKE_REF}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
+)" = "true"
 
 if grep -Eq '(secret_value|private_key|ciphertext)[[:space:]]*=' "${host}"; then
   printf 'janus host declaration contains a forbidden value-bearing field\n' >&2
   exit 1
 fi
 
-printf 'janus_host_envelope_module=ok enabled=false boot_gate=canary value_returned=false\n'
+printf 'janus_host_envelope_module=ok enabled=true boot_gate=canary value_returned=false\n'
