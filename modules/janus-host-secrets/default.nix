@@ -338,7 +338,9 @@ in
         RestrictNamespaces = true;
         LockPersonality = true;
         MemoryDenyWriteExecute = true;
-        CapabilityBoundingSet = "";
+        # Cache, identity, locks, and directories remain root-owned. This sole
+        # capability assigns only the already-open final runtime file to ownerUid.
+        CapabilityBoundingSet = [ "CAP_CHOWN" ];
         SystemCallArchitectures = "native";
       };
     };
@@ -397,7 +399,9 @@ in
         RestrictNamespaces = true;
         LockPersonality = true;
         MemoryDenyWriteExecute = true;
-        CapabilityBoundingSet = "";
+        # Cache, identity, locks, and directories remain root-owned. This sole
+        # capability assigns only the already-open final runtime file to ownerUid.
+        CapabilityBoundingSet = [ "CAP_CHOWN" ];
         SystemCallArchitectures = "native";
       };
     };

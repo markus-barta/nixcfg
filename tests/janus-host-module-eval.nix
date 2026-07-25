@@ -73,7 +73,7 @@ assert failedAssertions == [ ];
 assert service.before == [ ];
 assert service.requiredBy == [ ];
 assert service.serviceConfig.ReadOnlyPaths == [ "/etc/ssh/ssh_host_ed25519_key" ];
-assert service.serviceConfig.CapabilityBoundingSet == "";
+assert service.serviceConfig.CapabilityBoundingSet == [ "CAP_CHOWN" ];
 assert
   agent.requires == [
     "docker.service"
@@ -86,5 +86,5 @@ assert
     "AF_INET6"
     "AF_UNIX"
   ];
-assert agent.serviceConfig.CapabilityBoundingSet == "";
+assert agent.serviceConfig.CapabilityBoundingSet == [ "CAP_CHOWN" ];
 "janus_host_module_eval=ok"

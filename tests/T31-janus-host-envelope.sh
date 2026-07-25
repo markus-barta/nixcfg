@@ -22,7 +22,7 @@ grep -Fq 'RuntimeDirectoryMode = "0700"' "${module}"
 grep -Fq 'requiredBy = cfg.beforeUnits' "${module}"
 grep -Fq 'before = cfg.beforeUnits' "${module}"
 grep -Fq 'ReadOnlyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ]' "${module}"
-grep -Fq 'CapabilityBoundingSet = ""' "${module}"
+test "$(grep -Fc 'CapabilityBoundingSet = [ "CAP_CHOWN" ];' "${module}")" -eq 2
 grep -Fq 'janus-managed-host-agent' "${module}"
 grep -Fq 'managed-host-agent-config.v1' "${module}"
 grep -Fq '"AF_INET"' "${module}"
