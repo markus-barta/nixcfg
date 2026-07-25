@@ -24,9 +24,14 @@ grep -Fq 'before = cfg.beforeUnits' "${module}"
 grep -Fq 'ReadOnlyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ]' "${module}"
 test "$(grep -Fc 'CapabilityBoundingSet = [ "CAP_CHOWN" ];' "${module}")" -eq 2
 grep -Fq 'janus-managed-host-agent' "${module}"
-grep -Fq 'managed-host-agent-config.v1' "${module}"
+grep -Fq 'managed-host-agent-config.v2' "${module}"
+grep -Fq 'schema_version = 2;' "${module}"
 grep -Fq '"AF_INET"' "${module}"
 grep -Fq 'compose_file = profile.composeFile' "${module}"
+# The dollar expression is intentionally matched as literal Nix source.
+# shellcheck disable=SC2016
+grep -Fq 'compose_executable = "${cfg.agent.dockerComposePackage}/bin/docker-compose"' "${module}"
+grep -Fq 'default = pkgs.docker-compose;' "${module}"
 grep -Fq 'owner_uid = cfg.ownerUid' "${module}"
 grep -Fq 'runtime paths are derived, not configurable' "${module}"
 grep -Fq '../../modules/janus-host-secrets' "${host}"

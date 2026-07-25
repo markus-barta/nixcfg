@@ -110,7 +110,7 @@ if intent != {
     raise SystemExit("retirement smoke intent mismatch")
 
 image_match = re.search(
-    r"^\s+image: ghcr\.io/markus-barta/janus/janus-engine:(rust-engine-v[^@\s]+)@(sha256:[0-9a-f]{64})$",
+    r"^\s+image: ghcr\.io/inspr-at/janus/janus-engine:(rust-engine-v[^@\s]+)@(sha256:[0-9a-f]{64})$",
     compose,
     re.MULTILINE,
 )

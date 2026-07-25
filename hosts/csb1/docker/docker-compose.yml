@@ -486,7 +486,9 @@ services:
   # Janus - secret metadata control plane
   # ============================================
   janus:
-    # Source extracted to github.com/markus-barta/janus (go-envelope/). Deployed
+    # Source lives at github.com/inspr-at/janus (go-envelope/). This deployed
+    # Go release still uses its verified pre-transfer personal GHCR artifact,
+    # while new Rust releases use the organization namespace. Deployed
     # from a cosign-signed image with SPDX SBOM + SLSA build provenance, pinned
     # by digest. To bump: cut a go-envelope-v* release, verify, update digest.
     image: ghcr.io/markus-barta/janus/janus-envelope:go-envelope-v1.167@sha256:9af88cb13fdbf6a8ce98b8fb1c64ae3bb04c854520d6f83da38503b7725ba037
@@ -586,7 +588,7 @@ services:
     # manifests as the smoke harness; no production secret or host SSH key is
     # mounted into the staged Rust engine. Use the smoke harness, not manual
     # project-wide compose lifecycle commands, when testing this profile.
-    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.12@sha256:d2f95f3d1945898e02c49ddbbcbfee436092fe9bf40bb604f5292cee99601249
+    image: ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.13@sha256:b257109a5e157fcb039c075535b11f15cace1017135d67cdeb3741b9f568cb1e
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
     restart: unless-stopped
@@ -654,7 +656,7 @@ services:
   # Janus managed-service transaction boundary
   # ============================================
   janus-managed-transactiond:
-    image: ghcr.io/markus-barta/janus/janus-engine:rust-engine-v0.1.12@sha256:d2f95f3d1945898e02c49ddbbcbfee436092fe9bf40bb604f5292cee99601249
+    image: ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.13@sha256:b257109a5e157fcb039c075535b11f15cace1017135d67cdeb3741b9f568cb1e
     container_name: janus-managed-transactiond
     profiles: ["janus-managed-service"]
     restart: "no"
@@ -674,7 +676,7 @@ services:
       - JANUS_PRODUCT_MODE=production
       - JANUS_RELEASE_CHANNEL_POLICY=/etc/janus/managed/release-channels-v1.json
       - JANUS_RELEASE_ADMISSION_RECEIPT=/etc/janus/managed/release-admission.json
-      - JANUS_RELEASE_ARTIFACT_DIGEST=sha256:d2f95f3d1945898e02c49ddbbcbfee436092fe9bf40bb604f5292cee99601249
+      - JANUS_RELEASE_ARTIFACT_DIGEST=sha256:b257109a5e157fcb039c075535b11f15cace1017135d67cdeb3741b9f568cb1e
       - JANUS_RELEASE_AUDIT_FILE=/var/lib/janus-managed-central/audit/release-admission.jsonl
       - JANUS_RELEASE_EXECUTOR=janusd-web-transactiond
       - JANUS_RUNTIME_AUDIT_FILE=/var/lib/janus-managed-central/audit/runtime.jsonl
