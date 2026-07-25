@@ -11,7 +11,7 @@ trap 'on_error "$LINENO"' ERR
 JANUS_HOST=${JANUS_PHAROS_JANUS_HOST:-csb1}
 REMOTE_REPO=${JANUS_PHAROS_REMOTE_REPO:-/home/mba/Code/nixcfg}
 VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
-HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9"}
+HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9 host_58f36c72a91e"}
 ALLOW_MISSING_TEXT=${JANUS_PHAROS_ALLOW_MISSING_HOSTS:-}
 SSH_OPTS=${JANUS_PHAROS_SSH_OPTS:-"-o BatchMode=yes -o ConnectTimeout=8"}
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -166,10 +166,22 @@ fi
 fetch_token() {
   local host=$1
   local env_file="/run/agenix/pharos-beacon-${host}-env"
+  local remote_host=$host
   local remote_script
   case "$host" in
   dsc0)
     env_file="${JANUS_PHAROS_DSC0_ENV_FILE:-/run/agenix/dsc0-pharos-beacon-env}"
+    ;;
+  host_58f36c72a91e)
+    remote_host=$JANUS_HOST
+    remote_script=$(
+      cat <<'EOF'
+set -euo pipefail
+exec sudo -n cat /run/agenix/csb1-janus-managed-host-agent-token
+EOF
+    )
+    run_remote_script "$remote_host" "$remote_script"
+    return
     ;;
   esac
   remote_script=$(
@@ -182,7 +194,7 @@ test -n "\${PHAROS_TOKEN:-}"
 printf '%s' "\$PHAROS_TOKEN"
 EOF
   )
-  run_remote_script "$host" "$remote_script"
+  run_remote_script "$remote_host" "$remote_script"
 }
 
 store_encrypted() {

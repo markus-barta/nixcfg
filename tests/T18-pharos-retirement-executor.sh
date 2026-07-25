@@ -15,12 +15,12 @@ grep -Fq 'restartIfChanged = false;' "$module"
 grep -Fq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1' "$compose"
 grep -Fq 'PHAROS_RETIREMENT_OWNER_HOST=csb1' "$compose"
 pharos_images=$(sed -n \
-  's|^[[:space:]]*image: \(ghcr.io/markus-barta/pharos/pharosd:[^[:space:]]*\)$|\1|p' \
+  's|^[[:space:]]*image: \(ghcr.io/inspr-at/pharos/pharosd:[^[:space:]]*\)$|\1|p' \
   "$compose")
 [ "$(printf '%s\n' "$pharos_images" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 2 ]
 [ "$(printf '%s\n' "$pharos_images" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')" -eq 1 ]
 printf '%s\n' "$pharos_images" | grep -Eq \
-  '^ghcr\.io/markus-barta/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
+  '^ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
 grep -Fq 'PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm' "$compose"
 grep -Fq 'unset PHAROS_TOKEN' "$executor_source"
 # shellcheck disable=SC2016

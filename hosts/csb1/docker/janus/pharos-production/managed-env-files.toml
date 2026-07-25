@@ -204,3 +204,26 @@ reload = "none"
 validation = ["pharos-provider-credential-preflight", "pharos-provider-read-only-test"]
 supports_dual_value = false
 blast_radius = "production Pharos Hetzner Cloud provider access"
+
+[[env_files]]
+id = "profile.PHAROS_BEACON_HOST_58F36C72A91E_TOKEN"
+secret_ref = "sec_f919b383ebe6a09dc87c"
+executor = "janus-run@csb1"
+destination = "pharos-managed-host-agent-csb1"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/host_58f36c72a91e.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-generation-v2"
+subject = "host_58f36c72a91e"
+output = "/run/janus/env/pharos/beacon-token-hashes/host_58f36c72a91e.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_managed_host_agent_csb1"
+kind = "service"
+owner = "pharos"
+environment = "production"
+reload = "none"
+validation = ["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"]
+supports_dual_value = false
+blast_radius = "production Pharos managed-service agent token for csb1"

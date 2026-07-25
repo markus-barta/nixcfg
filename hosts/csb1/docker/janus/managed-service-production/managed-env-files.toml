@@ -1,0 +1,17 @@
+[[env_files]]
+id = "profile.MANAGED_SERVICE_CANARY_API_TOKEN"
+secret_ref = "sec_4e32300270e0dda2d11a"
+executor = "janusd-web-transactiond@csb1"
+destination = "janus-managed-service-canary"
+env = "CANARY_API_TOKEN"
+output = "/run/janus-managed-central/canary.env"
+
+[env_files.consumer]
+consumer_ref = "consumer.managed_service_canary"
+kind = "service"
+owner = "janus-managed"
+environment = "production"
+reload = "none"
+validation = ["managed-service-canary-contract"]
+supports_dual_value = true
+blast_radius = "isolated networkless managed-service canary"
