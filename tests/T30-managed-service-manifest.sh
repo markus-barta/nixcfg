@@ -54,8 +54,13 @@ for dependency in git jq rg; do
   fi
 done
 
+if [[ "${REPO_ROOT}" =~ [[:space:]#?] ]]; then
+  printf 'repository path is not safe for a local Git flake URL\n' >&2
+  exit 1
+fi
 REPO_REVISION="$(git rev-parse HEAD)"
 FLAKE_REF="git+file://${REPO_ROOT}?rev=${REPO_REVISION}&shallow=1"
+export JANUS_PINNED_FLAKE_REF="${FLAKE_REF}"
 MANIFEST_JSON="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.generated" --json)"
 SECOND_MANIFEST_JSON="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.generated" --json)"
 FINGERPRINT="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.services.janus.managedServiceManifest.declarationFingerprint" --raw)"
@@ -107,7 +112,7 @@ check_jq "manifest fields are closed and value-free" '
 
 DETACHED_MANIFEST_JSON="$(nix eval --impure --json --expr '
   let
-    flake = builtins.getFlake ("git+file://" + toString ./. + "?shallow=1");
+    flake = builtins.getFlake (builtins.getEnv "JANUS_PINNED_FLAKE_REF");
     base = flake.nixosConfigurations.csb1;
     detached = base.extendModules {
       modules = [
@@ -149,7 +154,7 @@ fi
 
 if nix eval --impure --expr '
   let
-    flake = builtins.getFlake ("git+file://" + toString ./. + "?shallow=1");
+    flake = builtins.getFlake (builtins.getEnv "JANUS_PINNED_FLAKE_REF");
     base = flake.nixosConfigurations.csb1;
     badLabel = "bad" + builtins.fromJSON "\"\\u0085\"" + "label";
     invalid = base.extendModules {

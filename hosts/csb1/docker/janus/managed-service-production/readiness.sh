@@ -3,7 +3,10 @@ set -uo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd -- "${script_dir}/../../../../.." && pwd)
-repo_revision=$(git -C "${repo}" rev-parse HEAD 2>/dev/null || true)
+if ! repo_revision=$(git -C "${repo}" rev-parse HEAD 2>/dev/null); then
+  printf 'managed_secret_readiness=blocked reason=git_revision value_returned=false\n' >&2
+  exit 1
+fi
 flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
 compose="${repo}/hosts/csb1/docker/docker-compose.yml"
 mode=${1:-declarative}

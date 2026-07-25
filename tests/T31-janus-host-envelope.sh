@@ -2,8 +2,13 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "${repo}" =~ [[:space:]#?] ]]; then
+  printf 'repository path is not safe for a local Git flake URL\n' >&2
+  exit 1
+fi
 repo_revision="$(git -C "${repo}" rev-parse HEAD)"
 flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
+export JANUS_PINNED_FLAKE_REF="${flake_ref}"
 module="${repo}/modules/janus-host-secrets/default.nix"
 host="${repo}/hosts/csb1/configuration.nix"
 
