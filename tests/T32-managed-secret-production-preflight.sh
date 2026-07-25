@@ -2,12 +2,26 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "${repo}" =~ [[:space:]#?] ]]; then
+  printf 'repository path is not safe for a local Git flake URL\n' >&2
+  exit 1
+fi
+repo_revision="$(git -C "${repo}" rev-parse HEAD)"
+flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
 host="${repo}/hosts/csb1/configuration.nix"
 compose="${repo}/hosts/csb1/docker/docker-compose.yml"
 contract="${repo}/hosts/csb1/docker/janus/managed-service-production"
 pharos_contract="${repo}/hosts/csb1/docker/janus/pharos-production"
 secrets_nix="${repo}/secrets/secrets.nix"
 zero_digest="sha256:$(printf '0%.0s' {1..64})"
+activation="$(
+  nix eval --json \
+    "${flake_ref}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
+)"
+if [ "${activation}" != "true" ]; then
+  printf 'managed-service production activation is not enabled\n' >&2
+  exit 1
+fi
 
 if grep -Fq "${zero_digest}" "${compose}"; then
   printf 'managed-service declaration still contains the release digest sentinel\n' >&2
@@ -167,17 +181,17 @@ grep -Fq 'pharos-container.gid = 992;' "${host}"
 grep -Fq '"janus/managed/web-transaction-catalog.json" = {' "${host}"
 test "$(
   nix eval \
-    "${repo}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".mode" \
+    "${flake_ref}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".mode" \
     --raw
 )" = "0400"
 test "$(
   nix eval \
-    "${repo}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".user" \
+    "${flake_ref}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".user" \
     --raw
 )" = "janus-managed-central"
 test "$(
   nix eval \
-    "${repo}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".group" \
+    "${flake_ref}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".group" \
     --raw
 )" = "janus-managed-central"
 projection_default="HASH_PROJECTION_GID=\${JANUS_PHAROS_HASH_PROJECTION_GID:-991}"
@@ -191,7 +205,7 @@ grep -Fq 'janus-managed-central-seed' "${host}"
 grep -Fq 'systemd.services.janus-managed-transactiond' "${host}"
 test "$(
   nix eval \
-    "${repo}#nixosConfigurations.csb1.config.systemd.services.janus-managed-transactiond.restartTriggers" \
+    "${flake_ref}#nixosConfigurations.csb1.config.systemd.services.janus-managed-transactiond.restartTriggers" \
     --json | jq 'length'
 )" = "7"
 grep -Fq 'Restart = "always";' "${host}"
@@ -307,4 +321,5 @@ if rg -n '(private_key_base64url|AGE-SECRET-KEY|CANARY_API_TOKEN=|PHAROS_TOKEN=)
   exit 1
 fi
 
-printf 'managed_secret_production_preflight=ok activation=false value_returned=false\n'
+printf 'managed_secret_production_preflight=ok activation=%s value_returned=false\n' \
+  "${activation}"

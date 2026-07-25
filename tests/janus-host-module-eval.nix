@@ -1,5 +1,9 @@
 let
-  flake = builtins.getFlake (toString ../.);
+  flakeRef = builtins.getEnv "JANUS_PINNED_FLAKE_REF";
+  validFlakeRef = builtins.match "git\\+file://[^?]+\\?rev=[0-9a-f]{40}&shallow=1" flakeRef != null;
+  flake =
+    assert validFlakeRef;
+    builtins.getFlake flakeRef;
   system = "x86_64-linux";
   pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
   evaluated = flake.inputs.nixpkgs.lib.nixosSystem {

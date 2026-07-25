@@ -3,6 +3,11 @@ set -uo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo=$(cd -- "${script_dir}/../../../../.." && pwd)
+if ! repo_revision=$(git -C "${repo}" rev-parse HEAD 2>/dev/null); then
+  printf 'managed_secret_readiness=blocked reason=git_revision value_returned=false\n' >&2
+  exit 1
+fi
+flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
 compose="${repo}/hosts/csb1/docker/docker-compose.yml"
 mode=${1:-declarative}
 failures=0
@@ -123,14 +128,26 @@ check_runtime_hardening() {
     ' >/dev/null
 }
 
+check_reviewed_checkout() {
+  if [[ "${repo}" =~ [[:space:]#?] ]] ||
+    [[ ! "${repo_revision}" =~ ^[0-9a-f]{40}$ ]]; then
+    return 1
+  fi
+  git -C "${repo}" diff --quiet --no-ext-diff -- &&
+    git -C "${repo}" diff --cached --quiet --no-ext-diff -- &&
+    ! git -C "${repo}" ls-files --others --exclude-standard | grep -q .
+}
+
 declarative() {
   check_command command_jq command -v jq
   check_command command_nix command -v nix
   check_command command_docker command -v docker
+  check_command command_git command -v git
+  check_command reviewed_checkout check_reviewed_checkout
   check_command \
     compose_contract \
     docker compose -f "${compose}" config --quiet --no-interpolate --no-env-resolution
-  check_command csb1_eval nix eval "${repo}#nixosConfigurations.csb1.config.system.build.toplevel.drvPath"
+  check_command csb1_eval nix eval "${flake_ref}#nixosConfigurations.csb1.config.system.build.toplevel.drvPath"
   check_command manifest_contract bash "${repo}/tests/T30-managed-service-manifest.sh"
   check_command host_envelope_contract bash "${repo}/tests/T31-janus-host-envelope.sh"
 
@@ -182,7 +199,7 @@ declarative() {
 
   local activation
   activation=$(nix eval \
-    "${repo}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable" \
+    "${flake_ref}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable" \
     --json 2>/dev/null || true)
   if [ "$activation" = "true" ]; then
     pass activation
@@ -287,6 +304,11 @@ live() {
   fi
   if [ "$(hostname -s)" != "csb1" ]; then
     fail live_requires_csb1
+  fi
+  if [ "$(git -C "${repo}" branch --show-current 2>/dev/null)" = "main" ]; then
+    pass live_reviewed_main
+  else
+    fail live_reviewed_main
   fi
 
   expect_metadata \
