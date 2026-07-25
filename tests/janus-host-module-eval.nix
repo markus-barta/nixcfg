@@ -1,5 +1,5 @@
 let
-  flake = builtins.getFlake (builtins.getEnv "JANUS_TEST_FLAKE_REF");
+  flake = builtins.getFlake ("git+file://" + toString ../. + "?shallow=1");
   system = "x86_64-linux";
   pkgs = flake.inputs.nixpkgs.legacyPackages.${system};
   evaluated = flake.inputs.nixpkgs.lib.nixosSystem {
