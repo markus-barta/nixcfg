@@ -183,6 +183,28 @@ secret_ref_for() {
   printf '%s\n' "$secret_ref"
 }
 
+destination_for() {
+  secret_name=$1
+  profile_id="profile.${secret_name}"
+  destination=$(
+    awk -v profile_id="$profile_id" '
+      $0 == "id = \"" profile_id "\"" { found = 1; next }
+      found && /^destination = "/ {
+        sub(/^destination = "/, "")
+        sub(/".*$/, "")
+        print
+        exit
+      }
+      found && /^\[\[env_files\]\]/ { exit }
+    ' "${SCRIPT_DIR}/managed-env-files.toml"
+  )
+  if [ -z "$destination" ]; then
+    printf 'janus pharos sidecar smoke failed: missing reviewed destination for %s\n' "$profile_id" >&2
+    return 1
+  fi
+  printf '%s\n' "$destination"
+}
+
 seed_secret() {
   host=$1
   secret_name=$2
@@ -219,6 +241,7 @@ run_warden_permit() {
   host=$1
   secret_name=$2
   secret_ref=$3
+  destination=$(destination_for "$secret_name")
   profile_id="profile.${secret_name}"
   request_file="${TMP_DIR}/${host}.request.jsonl"
   warden_out="${TMP_DIR}/${host}.warden.out"
@@ -236,7 +259,7 @@ EOF
     -e JANUS_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_BACKEND=age \
-    -e "JANUS_WARDEN_DESTINATION=pharos-beacon-${host}" \
+    -e "JANUS_WARDEN_DESTINATION=${destination}" \
     -e JANUS_WARDEN_EXECUTOR=janus-run@csb1 \
     -e "JANUS_WARDEN_SCOPE=${RUN_SCOPE}" \
     -e "JANUS_WARDEN_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \

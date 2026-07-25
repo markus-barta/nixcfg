@@ -65,6 +65,19 @@ for renderer in "$NONPROD_RENDER" "$PROD_RENDER" "$PROVIDER_RENDER"; do
   require_occurrences 2 '-e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}"' "$renderer"
 done
 
+for renderer in "$NONPROD_RENDER" "$PROD_RENDER"; do
+  require_occurrences 1 'destination_for() {' "$renderer"
+  # shellcheck disable=SC2016
+  require_occurrences 1 'destination=$(destination_for "$secret_name")' "$renderer"
+  # shellcheck disable=SC2016
+  require_occurrences 1 '-e "JANUS_WARDEN_DESTINATION=${destination}"' "$renderer"
+  # shellcheck disable=SC2016
+  if grep -Fq -- 'JANUS_WARDEN_DESTINATION=pharos-beacon-${host}' "$renderer"; then
+    echo "renderer derives a permit destination instead of using its reviewed profile: ${renderer#"$REPO_ROOT"/}" >&2
+    exit 1
+  fi
+done
+
 require_occurrences 1 \
   'find /run/janus/env/pharos/beacon-token-hashes -maxdepth 1 -type f -exec chmod 0600 {} +' \
   "$NONPROD_RENDER"
