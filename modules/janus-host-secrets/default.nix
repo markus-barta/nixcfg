@@ -36,13 +36,14 @@ let
   );
   agentConfigFile = pkgs.writeText "janus-managed-host-agent-config.json" (
     builtins.toJSON {
-      schema = "inspr.janus.managed-host-agent-config.v1";
-      schema_version = 1;
+      schema = "inspr.janus.managed-host-agent-config.v2";
+      schema_version = 2;
       host_ref = cfg.hostRef;
       pharos_origin = cfg.agent.pharosOrigin;
       janus_origin = cfg.agent.janusOrigin;
       token_file = cfg.agent.tokenFile;
       docker_executable = "${cfg.agent.dockerPackage}/bin/docker";
+      compose_executable = "${cfg.agent.dockerComposePackage}/bin/docker-compose";
       compose_project = cfg.agent.composeProject;
       poll_interval_seconds = cfg.agent.pollIntervalSeconds;
       profiles = map (profile: {
@@ -191,7 +192,13 @@ in
       dockerPackage = lib.mkOption {
         type = lib.types.package;
         default = pkgs.docker;
-        description = "Pinned Docker CLI used for fixed Compose and inspect actions.";
+        description = "Pinned Docker CLI used for fixed inspect actions.";
+      };
+
+      dockerComposePackage = lib.mkOption {
+        type = lib.types.package;
+        default = pkgs.docker-compose;
+        description = "Pinned standalone Docker Compose CLI used without home-directory plugin discovery.";
       };
 
       composeProject = lib.mkOption {

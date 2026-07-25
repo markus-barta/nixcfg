@@ -103,11 +103,21 @@ for name, (script, launch_count) in renderers.items():
     if script.count("-e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev") != launch_count:
         raise SystemExit(f"{name} lacks explicit unsafe development posture on each privileged launch")
 
-for service, prefix, block in [
-    ("janus", "go-envelope-v", go_service),
-    ("janus-engine-staged", "rust-engine-v", engine_service),
+for service, image, prefix, block in [
+    (
+        "janus",
+        r"ghcr\.io/markus-barta/janus/janus-envelope",
+        "go-envelope-v",
+        go_service,
+    ),
+    (
+        "janus-engine-staged",
+        r"ghcr\.io/inspr-at/janus/janus-engine",
+        "rust-engine-v",
+        engine_service,
+    ),
 ]:
-    pattern = rf"^    image: ghcr\.io/markus-barta/janus/[^\s]+:{prefix}[^@\s]+@sha256:[0-9a-f]{{64}}$"
+    pattern = rf"^    image: {image}:{prefix}[^@\s]+@sha256:[0-9a-f]{{64}}$"
     if not re.search(pattern, block, re.MULTILINE):
         raise SystemExit(f"{service} is not pinned to an immutable Janus release digest")
 

@@ -131,18 +131,18 @@ policy = json.loads((contract / "release-channels-v1.json").read_text())
 expected_policy = {
     "schema_version": 1,
     "policy_id": "janus-engine-release-v1",
-    "policy_version": 1,
+    "policy_version": 2,
     "required_modes": ["production", "enterprise"],
     "deny_mode_downgrade": True,
     "channels": [
         {
             "name": "stable",
-            "image": "ghcr.io/markus-barta/janus/janus-engine",
+            "image": "ghcr.io/inspr-at/janus/janus-engine",
             "tag_prefix": "rust-engine-v",
-            "repository": "markus-barta/janus",
-            "signer_workflow": "markus-barta/janus/.github/workflows/rust.yml",
+            "repository": "inspr-at/janus",
+            "signer_workflow": "inspr-at/janus/.github/workflows/rust.yml",
             "certificate_identity_prefix": (
-                "https://github.com/markus-barta/janus/"
+                "https://github.com/inspr-at/janus/"
                 ".github/workflows/rust.yml@refs/tags/"
             ),
             "oidc_issuer": "https://token.actions.githubusercontent.com",
