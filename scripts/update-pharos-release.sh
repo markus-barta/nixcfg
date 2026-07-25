@@ -27,7 +27,7 @@ digest=$2
   exit 1
 }
 
-image=ghcr.io/markus-barta/pharos/pharosd
+image=ghcr.io/inspr-at/pharos/pharosd
 reference="${image}:${version}@${digest}"
 release_file="$repo_root/pharos-release.json"
 
@@ -53,7 +53,7 @@ targets = (
     ("hosts/hsb9/docker/docker-compose.yml", ("pharos-beacon",)),
 )
 immutable = re.compile(
-    r"ghcr\.io/markus-barta/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}"
+    r"ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}"
 )
 pending = []
 
@@ -78,7 +78,7 @@ for relative, services in targets:
         image_lines = [
             i
             for i in range(start + 1, end)
-            if re.match(r"^    image: ghcr\.io/markus-barta/pharos/pharosd:", lines[i])
+            if re.match(r"^    image: ghcr\.io/inspr-at/pharos/pharosd:", lines[i])
         ]
         if len(image_lines) != 1:
             raise SystemExit(

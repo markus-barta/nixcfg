@@ -19,10 +19,11 @@ SCOPE_ORGANIZATION=${JANUS_PHAROS_SCOPE_ORGANIZATION:-inspr}
 SCOPE_PROJECT=${JANUS_PHAROS_SCOPE_PROJECT:-pharos}
 SCOPE_REPOSITORY=${JANUS_PHAROS_SCOPE_REPOSITORY:-nixcfg}
 SCOPE_ENVIRONMENT=${JANUS_PHAROS_SCOPE_ENVIRONMENT:-production}
-HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9"}
+HOSTS_TEXT=${JANUS_PHAROS_HOSTS:-"csb0 csb1 dsc0 gpc0 hsb0 hsb1 hsb8 hsb9 host_58f36c72a91e"}
 PREPARE_ONLY=${JANUS_PHAROS_PREPARE_ONLY:-0}
 PROJECTION_ONLY=${JANUS_PHAROS_PROJECTION_ONLY:-0}
 LOCK_FILE=${JANUS_PHAROS_LOCK_FILE:-/run/lock/janus-pharos-production.lock}
+HASH_PROJECTION_GID=${JANUS_PHAROS_HASH_PROJECTION_GID:-991}
 
 # shellcheck disable=SC1091
 source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
@@ -60,6 +61,10 @@ validate_identifier JANUS_PHAROS_SCOPE_ORGANIZATION "$SCOPE_ORGANIZATION"
 validate_identifier JANUS_PHAROS_SCOPE_PROJECT "$SCOPE_PROJECT"
 validate_identifier JANUS_PHAROS_SCOPE_REPOSITORY "$SCOPE_REPOSITORY"
 validate_identifier JANUS_PHAROS_SCOPE_ENVIRONMENT "$SCOPE_ENVIRONMENT"
+if [[ ! "$HASH_PROJECTION_GID" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'invalid JANUS_PHAROS_HASH_PROJECTION_GID\n' >&2
+  exit 1
+fi
 case "$PREPARE_ONLY:$PROJECTION_ONLY" in
 0:0 | 0:1 | 1:0) ;;
 *)
@@ -134,13 +139,12 @@ fi
 
 janus_pharos_load_consumer_identity "$COMPOSE_DIR"
 consumer_uid=$JANUS_PHAROS_CONSUMER_UID
-consumer_gid=$JANUS_PHAROS_CONSUMER_GID
 
 if [ "$PROJECTION_ONLY" = 1 ]; then
   private_out_volume="${VOLUME_PREFIX}_out"
   hash_out_volume=${JANUS_PHAROS_HASH_OUT_VOLUME:-"${VOLUME_PREFIX}_hash_out"}
   janus_pharos_publish_hash_projection \
-    "$private_out_volume" "$hash_out_volume" "$consumer_uid" "$consumer_gid"
+    "$private_out_volume" "$hash_out_volume" "$consumer_uid" "$HASH_PROJECTION_GID"
   printf 'ok: janus pharos existing generation projected value_returned=false consumer_projection=validated volume_prefix=%s\n' \
     "$VOLUME_PREFIX"
   exit 0
@@ -404,7 +408,13 @@ printf "%s\n" "$generation"
       and .generation == $generation
       and (.hosts | length) == $expected_count
       and ([.hosts[].name] | unique | length) == $expected_count
-      and all(.hosts[]; (.name | test("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")) and (.token_sha256 | test("^[0-9a-f]{64}$")))' \
+      and all(.hosts[];
+        (
+          (.name | test("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"))
+          or (.name | test("^host_[a-z0-9_]{8,91}$"))
+        )
+        and (.token_sha256 | test("^[0-9a-f]{64}$"))
+      )' \
     "$payload_file" >/dev/null
   [ "$(awk 'NR == 1 { print $1 }' "$mode_file")" = 600 ]
   [ "$(awk 'NR == 2 { print $1 }' "$mode_file")" = 600 ]
@@ -423,7 +433,7 @@ for host in "${HOSTS[@]}"; do
 done
 validate_generation
 janus_pharos_publish_hash_projection \
-  "$OUT_VOLUME" "$HASH_OUT_VOLUME" "$consumer_uid" "$consumer_gid"
+  "$OUT_VOLUME" "$HASH_OUT_VOLUME" "$consumer_uid" "$HASH_PROJECTION_GID"
 
 remaining_permits=$(
   docker run --rm \

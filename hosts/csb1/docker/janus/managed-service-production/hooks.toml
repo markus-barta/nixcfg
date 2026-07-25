@@ -1,0 +1,2 @@
+[validation]
+managed-service-canary-contract = { program = "/usr/local/bin/janusd-use", args = ["--help"] }

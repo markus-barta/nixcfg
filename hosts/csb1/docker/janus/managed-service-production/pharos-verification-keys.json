@@ -1,0 +1,10 @@
+{
+  "schema": "inspr.janus.managed-service-setup-verification-keys.v1",
+  "schema_version": 1,
+  "keys": [
+    {
+      "key_id": "key_managedsetup0001",
+      "public_key_base64url": "JdPbE4o1bVDc-8fVMxKHF_F8nw7w0ND3Dvql6WlDDIs"
+    }
+  ]
+}

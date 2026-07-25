@@ -102,7 +102,7 @@ if "keygen_out=" in nonprod_render:
     raise SystemExit("non-production smoke retains a duplicate root-owned identity generator")
 
 compose_required = [
-    '    user: "10001:999"',
+    '    user: "10001:992"',
     "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes",
     "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env",
     "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro",

@@ -116,6 +116,10 @@ janus-engine-smoke:
     cd hosts/csb1/docker && ./janus/nonprod-smoke/run.sh
 
 [group('ops')]
+janus-managed-secret-readiness mode='declarative':
+    hosts/csb1/docker/janus/managed-service-production/readiness.sh {{ mode }}
+
+[group('ops')]
 janus-pharos-sidecar-smoke:
     cd hosts/csb1/docker && ./janus/pharos-nonprod/run-sidecar-smoke.sh
 

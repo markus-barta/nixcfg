@@ -229,6 +229,14 @@ in
   # Edit: agenix -e secrets/csb1-janus-env.age
   "csb1-janus-env.age".publicKeys = markus ++ csb1;
 
+  # JANUS-365 managed-service secret runtime. Each encrypted artifact has one
+  # exact consumer at runtime; the internal token is the only shared value.
+  "csb1-janus-managed-internal-token.age".publicKeys = markus ++ csb1;
+  "csb1-janus-managed-pharos-signing-key.age".publicKeys = markus ++ csb1;
+  "csb1-janus-managed-host-signing-key.age".publicKeys = markus ++ csb1;
+  "csb1-janus-managed-age-identity.age".publicKeys = markus ++ csb1;
+  "csb1-janus-managed-host-agent-token.age".publicKeys = markus ++ csb1;
+
   # Pharos registration bootstrap env for csb1 pharosd.
   # Format: KEY=VALUE line with PHAROS_REGISTRATION_TOKEN only. This enables
   # /register token issuance; strict /report enforcement is flipped separately
