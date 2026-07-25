@@ -2,6 +2,13 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "${repo}" =~ [[:space:]#?] ]]; then
+  printf 'repository path is not safe for a local Git flake URL\n' >&2
+  exit 1
+fi
+repo_revision="$(git -C "${repo}" rev-parse HEAD)"
+flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
+export JANUS_PINNED_FLAKE_REF="${flake_ref}"
 module="${repo}/modules/janus-host-secrets/default.nix"
 host="${repo}/hosts/csb1/configuration.nix"
 
@@ -25,14 +32,16 @@ grep -Fq 'runtime paths are derived, not configurable' "${module}"
 grep -Fq '../../modules/janus-host-secrets' "${host}"
 grep -Fq 'inspr.janusHostSecrets = {' "${host}"
 grep -Fq 'ownerUid = 65534' "${host}"
-test "$(
+activation="$(
   nix eval --json \
-    "${repo}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
-)" = "false"
+    "${flake_ref}#nixosConfigurations.csb1.config.inspr.janusHostSecrets.enable"
+)"
+test "${activation}" = "true"
 
 if grep -Eq '(secret_value|private_key|ciphertext)[[:space:]]*=' "${host}"; then
   printf 'janus host declaration contains a forbidden value-bearing field\n' >&2
   exit 1
 fi
 
-printf 'janus_host_envelope_module=ok enabled=false boot_gate=canary value_returned=false\n'
+printf 'janus_host_envelope_module=ok enabled=%s boot_gate=canary value_returned=false\n' \
+  "${activation}"

@@ -112,11 +112,10 @@ in
     ];
   };
 
-  # Activation remains false until JANUS-365 records and pins the signed
-  # v0.1.11 release. Every authority and Compose target is already closed so
-  # the activation diff is a single reviewed boolean plus immutable release pin.
+  # JANUS-365 activation follows the signed v0.1.11 release, closed runtime
+  # authorities, immutable release pins, and production readiness review.
   inspr.janusHostSecrets = {
-    enable = false;
+    enable = true;
     hostRef = "host_58f36c72a91e";
     scopeRef = "scp_e3b09b6f7b8b2377d8c0e8b904043ef025b68d6b";
     ownerUid = 65534;
