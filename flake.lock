@@ -565,16 +565,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1784961244,
-        "narHash": "sha256-+1qWsZO39aNsWABhCQau8RTxVxm7iFK4gsszib8urGg=",
-        "owner": "markus-barta",
+        "lastModified": 1785001600,
+        "narHash": "sha256-1SfXi/k+3CXf+A/LdmnDOpY7wEtPy/IoaxM0e+B9b2Q=",
+        "owner": "inspr-at",
         "repo": "janus",
-        "rev": "c92b33a70c068f7e359509712c16455d0790d863",
+        "rev": "d774617c69638b2668e62c95dfbf4ec48e0ce777",
         "type": "github"
       },
       "original": {
-        "owner": "markus-barta",
-        "ref": "rust-engine-v0.1.12",
+        "owner": "inspr-at",
+        "ref": "rust-engine-v0.1.13",
         "repo": "janus",
         "type": "github"
       }

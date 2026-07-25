@@ -112,8 +112,8 @@ if [[ -z "$REPO" || ! -f "$REPO/hosts/csb1/docker/docker-compose.yml" ]]; then
 fi
 
 COMPOSE_FILE="${JANUS_ENGINE_STAGED_COMPOSE_FILE:-$REPO/hosts/csb1/docker/docker-compose.yml}"
-JANUS_REPO="${JANUS_ENGINE_RELEASE_REPO:-markus-barta/janus}"
-IMAGE_REPO="${JANUS_ENGINE_IMAGE_REPO:-ghcr.io/markus-barta/janus/janus-engine}"
+JANUS_REPO="${JANUS_ENGINE_RELEASE_REPO:-inspr-at/janus}"
+IMAGE_REPO="${JANUS_ENGINE_IMAGE_REPO:-ghcr.io/inspr-at/janus/janus-engine}"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   echo "${RED}error:${RESET} compose file not found: $COMPOSE_FILE" >&2
