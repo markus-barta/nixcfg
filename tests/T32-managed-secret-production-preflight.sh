@@ -219,6 +219,21 @@ grep -Fq 'read_only: true' "${compose}"
 grep -Fq 'cap_drop: ["ALL"]' "${compose}"
 grep -Fq 'no-new-privileges:true' "${compose}"
 grep -Fq 'traefik.enable=false' "${compose}"
+pharos_tag="$(
+  awk '
+    /^  pharosd:/ { in_service = 1; next }
+    in_service && /^  [A-Za-z0-9_.-]+:/ { exit }
+    in_service && /^[[:space:]]+image:/ {
+      sub(/^.*pharosd:/, "")
+      sub(/@sha256:.*$/, "")
+      print
+      exit
+    }
+  ' "${compose}"
+)"
+[[ "${pharos_tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+pharos_tag_pattern="${pharos_tag//./\\.}"
+grep -Fq "pharos/pharosd:${pharos_tag_pattern}@sha256" "${contract}/readiness.sh"
 for binding in \
   'JANUS_MANAGED_SETUP_PHAROS_ORIGIN=https://pharos.barta.cm' \
   'JANUS_MANAGED_SETUP_PHAROS_RETURN_ORIGIN=https://pharos.barta.cm' \
