@@ -19,8 +19,17 @@ service_image() {
 
 control_plane="$repo_root/hosts/csb1/docker/docker-compose.yml"
 release_file="$repo_root/pharos-release.json"
+rollout_workflow="$repo_root/.github/workflows/pharos-release-rollout.yml"
 expected_image=$(service_image "$control_plane" pharosd)
 immutable_pattern='^ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
+
+grep -Fq 'name: Resolve the public immutable image digest' "$rollout_workflow"
+grep -Fq 'image=ghcr.io/inspr-at/pharos/pharosd' "$rollout_workflow"
+if grep -Fq 'Authenticate to the private Pharos package' "$rollout_workflow" ||
+  grep -Fq "password: \${{ secrets.GH_TOKEN_FOR_UPDATES }}" "$rollout_workflow"; then
+  printf 'pharos_rollout=failed reason=public_registry_uses_private_credential\n' >&2
+  exit 1
+fi
 
 jq -e '
   .schema == "inspr.pharos.fleet-release.v1"
