@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   propose:
-    if: github.repository == 'markus-barta/nixcfg'
+    if: github.repository == 'markus-barta/nixcfg' || github.repository == 'inspr-at/nixcfg'
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
@@ -189,7 +189,7 @@ jobs:
         run: |
           title="PHAROS-90: roll fleet to Pharos ${VERSION}"
           existing=$(
-            gh pr list --repo markus-barta/nixcfg --state open --json title,url |
+            gh pr list --repo "$GITHUB_REPOSITORY" --state open --json title,url |
               jq -r --arg title "$title" '.[] | select(.title == $title) | .url' |
               head -n 1
           )
@@ -224,7 +224,7 @@ jobs:
             body="${body}"$'\n\n'"dsccfg main is already aligned to this release."
           fi
           url=$(
-            gh pr create --repo markus-barta/nixcfg --base main --head "$branch" \
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" \
               --title "$title" --body "$body"
           )
           printf 'url=%s\n' "$url" >>"$GITHUB_OUTPUT"
