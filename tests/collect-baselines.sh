@@ -34,7 +34,6 @@ get_ssh_target() {
   hsb0) echo "mba@192.168.1.99" ;;
   hsb1) echo "mba@192.168.1.101" ;;
   hsb8) echo "mba@192.168.1.100" ;;
-  gpc0) echo "mba@192.168.1.154" ;;
   *) echo "" ;;
   esac
 }
@@ -135,7 +134,7 @@ echo ""
 if [[ $# -gt 0 ]]; then
   TARGETS=("$@")
 else
-  TARGETS=("hsb1" "hsb0" "hsb8" "gpc0" "mbp0")
+  TARGETS=("hsb1" "hsb0" "hsb8" "mbp0")
 fi
 
 # Results tracking

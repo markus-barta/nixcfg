@@ -46,7 +46,6 @@ root, replacement = sys.argv[1:]
 targets = (
     ("hosts/csb0/docker/docker-compose.yml", ("pharos-beacon",)),
     ("hosts/csb1/docker/docker-compose.yml", ("pharosd", "pharos-beacon")),
-    ("hosts/gpc0/docker/docker-compose.yml", ("pharos-beacon",)),
     ("hosts/hsb0/docker/docker-compose.yml", ("pharos-beacon",)),
     ("hosts/hsb1/docker/docker-compose.yml", ("pharos-beacon",)),
     ("hosts/hsb8/docker/docker-compose.yml", ("pharos-beacon",)),

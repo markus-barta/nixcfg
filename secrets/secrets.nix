@@ -64,10 +64,6 @@ let
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHWQjoKsgp+4m8M2ztlDSYtiW80loYfYMeYYJCfhIh7g"
   ];
 
-  gpc0 = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFpykoFcMPeCtWH3aColM4fzCsslUxaHwW9DHSTi2Fr3"
-  ];
-
   # miniserver-bp host key removed 2026-05-02 (INSPR-24): host migrated
   # to the former work flake. Its host key now lives in that flake's
   # secrets/secrets.nix. The deprecated `nixfleet-token.age` below loses
@@ -267,7 +263,6 @@ in
   "pharos-beacon-hsb9-env.age".publicKeys = markus ++ hsb9;
   "pharos-beacon-csb0-env.age".publicKeys = markus ++ csb0;
   "pharos-beacon-csb1-env.age".publicKeys = markus ++ csb1;
-  "pharos-beacon-gpc0-env.age".publicKeys = markus ++ gpc0;
 
   # HostDash OAuth2 Proxy env for csb0/csb1.
   # Format: KEY=VALUE lines (OAUTH2_PROXY_CLIENT_ID,

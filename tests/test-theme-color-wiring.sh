@@ -75,7 +75,6 @@ test_host "csb1" "nixos" "$HEX_PATTERN"
 test_host "hsb0" "nixos" "$HEX_PATTERN"
 test_host "hsb1" "nixos" "$HEX_PATTERN"
 test_host "hsb8" "nixos" "$HEX_PATTERN"
-test_host "gpc0" "nixos" "$HEX_PATTERN"
 
 echo ""
 echo "─────────────────────────────────────────────────────────────────────────────"

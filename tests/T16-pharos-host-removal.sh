@@ -63,7 +63,7 @@ make_fixture() {
           suppress_nix_freshness: false
         }
       },
-      gpc0: {
+      retiredhost0: {
         accent: "#9868d0",
         kind: "workstation",
         alerts: {
@@ -121,15 +121,15 @@ jq -e '.retirements[0].successor == "hsb9"' "$rebuilt_fixture/retired-hosts.json
 preference_only_fixture="$fixture_root/preference-only"
 make_fixture "$preference_only_fixture"
 compose_before=$(shasum "$preference_only_fixture/docker-compose.yml")
-run_prepare "$preference_only_fixture" gpc0 destroyed '' pharos-host-removal-gpc0-101-1
+run_prepare "$preference_only_fixture" retiredhost0 destroyed '' pharos-host-removal-retiredhost0-101-1
 [[ "$compose_before" == "$(shasum "$preference_only_fixture/docker-compose.yml")" ]]
 [[ -e "$preference_only_fixture/manifests/hsb8.json" ]]
-jq -e '.hosts.gpc0 == null and .hosts.hsb8 != null' "$preference_only_fixture/preferences.json" >/dev/null
+jq -e '.hosts.retiredhost0 == null and .hosts.hsb8 != null' "$preference_only_fixture/preferences.json" >/dev/null
 jq -e '
   .retirements == [{
     credential_retirement_required: true,
     disposition: "destroyed",
-    host: "gpc0",
+    host: "retiredhost0",
     server_deletion: false,
     successor: null
   }]

@@ -133,6 +133,6 @@ gitpl && just switch && just percy-rebuild  # miniserver-bp
 
 - All config changes → nixcfg repo only. Never direct edits on hosts.
 - Secrets → agenix only. Never plaintext in configs.
-- NixOS builds → never on macOS. Use `ssh mba@gpc0.lan` or build on target host.
+- NixOS builds → never on macOS. Build on the target host via ssh (no dedicated fast builder since gpc0 was retired — OPS-26).
 - Long ops (rebuilds) → provide commands only; Markus runs them. State time estimate.
 - HIL protocol → PROPOSE before any state change. Risk: hsb0 = Crown Jewel (DNS/DHCP).

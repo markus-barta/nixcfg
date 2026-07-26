@@ -154,36 +154,6 @@
       HostName hsb9.ts.barta.cm
       User markus
 
-    Host gpc0
-      HostName 192.168.1.154
-      User mba
-      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc gpc0.ts.barta.cm %p; fi'
-
-    Host gpc0-lan
-      HostName 192.168.1.154
-      User mba
-
-    Host gpc0-ts
-      HostName gpc0.ts.barta.cm
-      User mba
-
-    Host gpc0-markus
-      HostName 192.168.1.154
-      User markus
-      ProxyCommand sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc gpc0.ts.barta.cm %p; fi'
-
-    Host gpc0-markus-lan
-      HostName gpc0.lan
-      User markus
-
-    Host gpc0-markus-ip
-      HostName 192.168.1.154
-      User markus
-
-    Host gpc0-markus-ts
-      HostName gpc0.ts.barta.cm
-      User markus
-
     # === PORTABLE/WORK HOSTS ===
     Host miniserver-bp
       HostName 10.17.1.40

@@ -969,7 +969,6 @@ in
       }
 
       # STATIC LAN list (NIX-155). NixOS hosts:
-      warm gpc0      ".#nixosConfigurations.gpc0.config.system.build.toplevel"
       warm hsb1      ".#nixosConfigurations.hsb1.config.system.build.toplevel"
       warm hsb0      ".#nixosConfigurations.hsb0.config.system.build.toplevel"
       # macOS Home-Manager hosts (warm their prebuilt deps; no darwin builder needed):

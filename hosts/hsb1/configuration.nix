@@ -152,11 +152,6 @@ in
         "hsb1"
         "hsb1.lan"
       ];
-      # Gaming PC
-      "192.168.1.154" = [
-        "gpc0"
-        "gpc0.lan"
-      ];
       "192.168.1.32" = [
         "kr-sonnen-batteriespeicher"
         "kr-sonnen-batteriespeicher.lan"

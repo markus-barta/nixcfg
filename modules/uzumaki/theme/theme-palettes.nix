@@ -206,9 +206,9 @@
 #
 #    GAMING                           WORKSTATIONS
 #    ┌─────────────────────┐          ┌─────────────────────┐
-#    │  gpc0    🟣 Purple  │          │  imac1   🔘 M-Gray  │
-#    │  stm0    🩷 Pink    │          │  mbp     🩶 L-Gray  │
-#    │  stm1    🩷 Pink    │          │  work    ⚫ D-Gray  │
+#    │  stm0    🩷 Pink    │          │  imac1   🔘 M-Gray  │
+#    │  stm1    🩷 Pink    │          │  mbp     🩶 L-Gray  │
+#    │                     │          │  work    ⚫ D-Gray  │
 #    └─────────────────────┘          │                     │
 #                                     └─────────────────────┘
 #
@@ -416,7 +416,7 @@
     purple = {
       name = "Purple";
       category = "gaming";
-      description = "Gaming PC (gpc0)";
+      description = "Gaming rigs";
 
       # Powerline gradient (light → dark)
       gradient = {
@@ -868,7 +868,6 @@
     hsb8 = "custom-hsb8";
 
     # Gaming
-    gpc0 = "purple";
     stm0 = "pink";
     stm1 = "pink";
 
@@ -894,7 +893,6 @@
     # Office servers
     "miniserver-bp"
     # Gaming
-    "gpc0"
     "stm0"
     "stm1"
     # Workstations (home > work)
@@ -927,7 +925,6 @@
   portableHosts = [
     "stm0" # Steam Deck / Steam Machine
     "stm1" # Steam Deck / Steam Machine
-    # Note: gpc0 (gaming PC) is not portable, even though it's in gaming category
   ];
 
   # Battery indicator colors (universal, like status colors)

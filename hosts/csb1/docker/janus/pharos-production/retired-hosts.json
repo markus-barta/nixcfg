@@ -2,10 +2,10 @@
   "retirements": [
     {
       "credential_retirement_required": true,
-      "disposition": "destroyed",
+      "disposition": "rebuilt",
       "host": "gpc0",
       "server_deletion": false,
-      "successor": null
+      "successor": "stm2607"
     }
   ],
   "schema": "inspr.pharos.janus-retirements.v1",

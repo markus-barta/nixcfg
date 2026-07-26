@@ -15,7 +15,6 @@ Note: This document is deprecated as of 2026-01-01. Nixfleet (fleet.barta.cm) is
 | ---- | ------ | ---------- | --------------------------- | ------- | ---------------- |
 | hsb1 | 🔄     | `57a2b0cc` | hsb1-26.05.20251130.2d293cb | rebuild | 2025-12-06 13:54 |
 | hsb0 | 🔄     | `57a2b0cc` | hsb0-26.05.20251127.2fad6ea | rebuild | 2025-12-06 13:54 |
-| gpc0 | ⚫     | —          | —                           | —       | 2025-12-06 13:54 |
 | hsb8 | ⚫     | —          | —                           | migrate | 2025-12-06 13:54 |
 | csb0 | 🔄     | `5f539fb1` | csb0-26.05.20251127.2fad6ea | rebuild | 2025-12-06 13:54 |
 | csb1 | 🔄     | `838951c6` | csb1-26.05.20251127.2fad6ea | rebuild | 2025-12-06 13:54 |
@@ -39,11 +38,10 @@ Note: This document is deprecated as of 2026-01-01. Nixfleet (fleet.barta.cm) is
 
 ### ✅ Migrated to New Pattern (Phase I)
 
-| Host | Platform | Role    | 🌀 Import         |
-| ---- | -------- | ------- | ----------------- |
-| hsb1 | NixOS    | server  | `modules/uzumaki` |
-| hsb0 | NixOS    | server  | `modules/uzumaki` |
-| gpc0 | NixOS    | desktop | `modules/uzumaki` |
+| Host | Platform | Role   | 🌀 Import         |
+| ---- | -------- | ------ | ----------------- |
+| hsb1 | NixOS    | server | `modules/uzumaki` |
+| hsb0 | NixOS    | server | `modules/uzumaki` |
 
 ### ⏳ Awaiting Deployment (Host Offline)
 
@@ -65,7 +63,6 @@ Note: This document is deprecated as of 2026-01-01. Nixfleet (fleet.barta.cm) is
 ssh mba@192.168.1.99   # hsb0 → cd ~/Code/nixcfg
 ssh mba@192.168.1.101  # hsb1 → cd ~/Code/nixcfg
 ssh mba@192.168.1.100  # hsb8 → cd ~/Code/nixcfg
-ssh mba@192.168.1.154  # gpc0 → cd ~/Code/nixcfg
 
 # Cloud servers (port 2222)
 ssh -p 2222 mba@cs0.barta.cm  # csb0 → cd ~/nixcfg (TODO: migrate to ~/Code/nixcfg)
