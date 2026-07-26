@@ -23,11 +23,6 @@
       inputs.disko.follows = "disko";
     };
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
-    plasma-manager = {
-      url = "github:nix-community/plasma-manager";
-      inputs.nixpkgs.follows = "nixpkgs";
-      inputs.home-manager.follows = "home-manager";
-    };
     nixcfg.url = "github:pbek/nixcfg";
     nixpkgs-zfs.follows = "nixcfg/nixpkgs-zfs";
     # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
@@ -87,7 +82,6 @@
       nixpkgs-stable,
       agenix,
       disko,
-      plasma-manager,
       ...
     }@inputs:
 
@@ -252,27 +246,6 @@
           specialArgs = self.commonArgs // {
             inherit inputs;
             # lib-utils already provided by self.commonArgs
-          };
-        };
-
-        # Gaming PC 0 (formerly mba-gaming-pc)
-        # Using external hokage consumer pattern
-        # NOTE: common.nix must load AFTER hokage to override its settings (fish, zellij, theme)
-        gpc0 = nixpkgs.lib.nixosSystem {
-          modules = [
-            { nixpkgs.hostPlatform = linuxSystem; }
-            home-manager.nixosModules.home-manager
-            { home-manager.sharedModules = [ plasma-manager.homeModules.plasma-manager ]; }
-            (_: { nixpkgs.overlays = allOverlays; })
-            agenix.nixosModules.age
-            # espanso-fix removed - espanso is disabled and it pulls in rustc!
-            inputs.nixcfg.nixosModules.hokage # External hokage module (loads first)
-            ./modules/common.nix # OUR config (loads AFTER hokage to override)
-            ./hosts/gpc0/configuration.nix
-            disko.nixosModules.disko
-          ];
-          specialArgs = self.commonArgs // {
-            inherit inputs;
           };
         };
 

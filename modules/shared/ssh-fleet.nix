@@ -198,37 +198,6 @@
         user = "mba";
       };
 
-      "gpc0" = {
-        hostname = "192.168.1.154";
-        user = "mba";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc gpc0.ts.barta.cm %p; fi'";
-      };
-      "gpc0-lan" = {
-        hostname = "192.168.1.154";
-        user = "mba";
-      };
-      "gpc0-ts" = {
-        hostname = "gpc0.ts.barta.cm";
-        user = "mba";
-      };
-      "gpc0-markus" = {
-        hostname = "192.168.1.154";
-        user = "markus";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc gpc0.ts.barta.cm %p; fi'";
-      };
-      "gpc0-markus-lan" = {
-        hostname = "gpc0.lan";
-        user = "markus";
-      };
-      "gpc0-markus-ip" = {
-        hostname = "192.168.1.154";
-        user = "markus";
-      };
-      "gpc0-markus-ts" = {
-        hostname = "gpc0.ts.barta.cm";
-        user = "markus";
-      };
-
       "miniserver-bp" = {
         hostname = "10.17.1.40";
         port = 2222;

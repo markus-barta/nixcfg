@@ -1074,29 +1074,6 @@
         "type": "github"
       }
     },
-    "plasma-manager_2": {
-      "inputs": {
-        "home-manager": [
-          "home-manager"
-        ],
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1783574839,
-        "narHash": "sha256-ICof1tV4/9XheBLBGf7dhMhfMq4dOs1zwTHrr7zGFlA=",
-        "owner": "nix-community",
-        "repo": "plasma-manager",
-        "rev": "c551f0687658e4bb699cfff6015436ad7ee57a0d",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-community",
-        "repo": "plasma-manager",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
         "agenix": "agenix",
@@ -1127,8 +1104,7 @@
         ],
         "opus-stream": "opus-stream",
         "paimos": "paimos",
-        "pia": "pia_2",
-        "plasma-manager": "plasma-manager_2"
+        "pia": "pia_2"
       }
     },
     "systems": {

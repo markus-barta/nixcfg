@@ -102,7 +102,6 @@ expect_alias hsb0 192.168.1.99 mba
 expect_alias hsb1 192.168.1.101 mba
 expect_alias hsb8 192.168.1.100 mba
 expect_alias hsb9 192.168.1.200 mba
-expect_alias gpc0 192.168.1.154 mba
 expect_cloud_alias csb0 csb0.ts.barta.cm mba
 expect_cloud_alias csb1 csb1.ts.barta.cm mba
 
@@ -111,7 +110,6 @@ expect_lan_markus_routes hsb0 192.168.1.99 hsb0.lan hsb0.ts.barta.cm
 expect_lan_markus_routes hsb1 192.168.1.101 hsb1.lan hsb1.ts.barta.cm
 expect_lan_markus_routes hsb8 192.168.1.100 hsb8.lan hsb8.ts.barta.cm
 expect_lan_markus_routes hsb9 192.168.1.200 hsb9.lan hsb9.ts.barta.cm
-expect_lan_markus_routes gpc0 192.168.1.154 gpc0.lan gpc0.ts.barta.cm
 
 expect_cloud_alias csb0-markus cs0.barta.cm markus
 expect_cloud_alias csb0-markus-ip 89.58.63.96 markus

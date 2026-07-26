@@ -6,7 +6,6 @@ fixture=$(mktemp -d)
 compose_files=(
   hosts/csb0/docker/docker-compose.yml
   hosts/csb1/docker/docker-compose.yml
-  hosts/gpc0/docker/docker-compose.yml
   hosts/hsb0/docker/docker-compose.yml
   hosts/hsb1/docker/docker-compose.yml
   hosts/hsb8/docker/docker-compose.yml

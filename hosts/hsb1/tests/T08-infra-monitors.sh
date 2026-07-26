@@ -109,7 +109,7 @@ fi
 
 print_test "T08.4 - Fleet Connectivity"
 # Check if core fleet hosts are resolvable (from /etc/hosts)
-for h in hsb0 csb0 csb1 gpc0; do
+for h in hsb0 csb0 csb1; do
   if getent hosts "$h" >/dev/null; then
     pass "Host $h is resolvable via /etc/hosts"
   else

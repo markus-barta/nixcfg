@@ -1014,7 +1014,7 @@ _oc-run host cmd:
             if [ "$_hostname" = "hsb0" ]; then
                 bash -c "{{ cmd }}"
             else
-                # From home LAN (imac0, gpc0): use .lan
+                # From home LAN: use .lan
                 # From office/remote: fall back to Tailscale
                 if ping -c1 -W3 hsb0.lan &>/dev/null; then
                     ssh mba@hsb0.lan "{{ cmd }}"

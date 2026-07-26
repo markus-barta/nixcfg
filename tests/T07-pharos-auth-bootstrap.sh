@@ -36,7 +36,6 @@ need_line '  "pharos-beacon-hsb8-env.age".publicKeys = markus ++ hsb8;' "$SECRET
 need_line '  "pharos-beacon-hsb9-env.age".publicKeys = markus ++ hsb9;' "$SECRETS_NIX"
 need_line '  "pharos-beacon-csb0-env.age".publicKeys = markus ++ csb0;' "$SECRETS_NIX"
 need_line '  "pharos-beacon-csb1-env.age".publicKeys = markus ++ csb1;' "$SECRETS_NIX"
-need_line '  "pharos-beacon-gpc0-env.age".publicKeys = markus ++ gpc0;' "$SECRETS_NIX"
 need_line '  age.secrets.pharos-beacon-csb1-env = {' "$CSB1_CONFIG"
 need_line '    path = "/run/agenix/pharos-beacon-csb1-env";' "$CSB1_CONFIG"
 need_line '      - /run/agenix/pharos-beacon-csb1-env' "$CSB1_COMPOSE"
