@@ -18,7 +18,6 @@ Personal NixOS configuration managing home servers, cloud infrastructure, and de
 | **hsb1** | Smart Home Hub (Node-RED, MQTT, HomeKit)   | Home          |
 | **hsb8** | Home Automation                            | Parents' Home |
 | **hsb9** | Home Automation                            | In-laws' Home |
-| **gpc0** | Gaming Desktop (Steam, Plasma)             | Home          |
 | **csb0** | IoT Hub (MQTT, Telegram Bot)               | Cloud         |
 | **csb1** | Monitoring (Grafana, InfluxDB, Paperless)  | Cloud         |
 | **mbp0** | Private MacBook Pro (Apple Silicon M5 Max) | macOS (Home)  |
@@ -37,7 +36,7 @@ Personal NixOS configuration managing home servers, cloud infrastructure, and de
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Host Configuration                           │
-│              (hsb0, hsb1, gpc0, csb0, etc.)                     │
+│              (hsb0, hsb1, csb0, etc.)                     │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
         ┌──────────────────┼─────────────────────┐
@@ -59,7 +58,7 @@ Personal NixOS configuration managing home servers, cloud infrastructure, and de
 The configuration uses different module loading patterns for NixOS and macOS:
 
 <details>
-<summary><strong>🐧 NixOS Host Load Order</strong> (hsb0, hsb1, hsb8, gpc0, csb0, csb1)</summary>
+<summary><strong>🐧 NixOS Host Load Order</strong> (hsb0, hsb1, hsb8, csb0, csb1)</summary>
 
 ```
 flake.nix
@@ -226,7 +225,6 @@ nixcfg/
 ├── hosts/                 # Per-machine configurations
 │   ├── hsb0/             # DNS/DHCP server
 │   ├── hsb1/             # Smart home hub
-│   ├── gpc0/             # Gaming desktop
 │   └── ...
 ├── modules/
 │   ├── common.nix        # Shared NixOS config

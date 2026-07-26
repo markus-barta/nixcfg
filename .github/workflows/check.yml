@@ -86,7 +86,6 @@ jobs:
           - hsb1
           - hsb8
           - hsb9
-          - gpc0
           - csb0
           - csb1
     steps:

@@ -34,7 +34,6 @@ hsb0="$repo_root/hosts/hsb0/docker/docker-compose.yml"
 hsb1="$repo_root/hosts/hsb1/docker/docker-compose.yml"
 hsb8="$repo_root/hosts/hsb8/docker/docker-compose.yml"
 hsb9="$repo_root/hosts/hsb9/docker/docker-compose.yml"
-gpc0="$repo_root/hosts/gpc0/docker/docker-compose.yml"
 
 assert_exact_image_count 1 "$csb0"
 assert_digest_image_count 1 "$csb0"
@@ -65,8 +64,5 @@ assert_exact_image_count 1 "$hsb9"
 assert_digest_image_count 1 "$hsb9"
 assert_count 1 "$collector_path" "$hsb9"
 assert_count 1 "$collector_mount" "$hsb9"
-
-assert_exact_image_count 1 "$gpc0"
-assert_digest_image_count 1 "$gpc0"
 
 echo "pharos_kernel_posture=passed"

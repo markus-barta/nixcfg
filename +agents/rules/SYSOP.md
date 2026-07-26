@@ -22,7 +22,6 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 Run: hostname
      │
      ├── mbp0 ─────────────────→ You're on the private Apple Silicon M5 portable
-     ├── gpc0 ─────────────────→ You're on the gaming PC via ssh
      ├── hsb0/hsb1/hsb8/hsb9 ─→ You're on a home/family server via ssh
      ├── csb0/csb1 ────────────→ You're on a cloud server via ssh
      └── ip-192-168-*.internal → VPN active (AWS hostname pattern) likely home machine via ssh
@@ -56,7 +55,7 @@ Task to perform?
 ```
 Current Context                Target Host              Reachable?
 ─────────────────────────────────────────────────────────────────────
-🏠 HOME (gpc0, mbp0)           *.lan hosts (home)       ✅ Direct
+🏠 HOME (mbp0)                 *.lan hosts (home)       ✅ Direct
                                csb0, csb1               ✅ Internet
 
 🌐 REMOTE (Tailscale/Headscale - works from ANYWHERE)
@@ -69,7 +68,7 @@ Current Context                Target Host              Reachable?
       ├── Success ──────→ 🏠 HOME context (*.lan reachable)
       └── Fail ─────────→ 🌐 REMOTE (use Tailscale)
 
-🖥️ SERVER (hsb*, gpc0)        Other *.lan hosts        ✅ Direct
+🖥️ SERVER (hsb*)              Other *.lan hosts        ✅ Direct
    Network: 192.168.1.0/24     csb0, csb1               ✅ Internet
 
 ☁️ CLOUD (csb0, csb1)          Other cloud              ✅ Direct
@@ -86,7 +85,6 @@ Current Context                Target Host              Reachable?
 | hsb1 | `ssh mba@hsb1.lan`             | mba         | Home LAN    | Home LAN    | Home automation     |
 | hsb8 | `ssh mba@hsb8.lan`             | mba         | Home LAN    | Home LAN    | Parents' server     |
 | hsb9 | `ssh mba@hsb9.lan`             | mba         | Home LAN    | Home LAN    | In-laws' server     |
-| gpc0 | `ssh mba@gpc0.lan`             | mba         | Home LAN    | Home LAN    | Gaming PC / builds  |
 | csb0 | `ssh mba@cs0.barta.cm -p 2222` | mba         | Internet    | Internet    | Cloud - port 2222!  |
 | csb1 | `ssh mba@cs1.barta.cm -p 2222` | mba         | Internet    | Internet    | Cloud - port 2222!  |
 | mbp0 | `ssh mba@mbp0.lan`             | mba         | Home/Remote | Home/Remote | Private M5 portable |
@@ -175,7 +173,6 @@ Current Context                Target Host              Reachable?
 | **hsb9** | `mba` | 22   | 🟡 Medium      | In-laws' Server     |
 | **csb0** | `mba` | 2222 | 🔴 High        | Cloud Smart Home    |
 | **csb1** | `mba` | 2222 | 🟡 Medium      | Monitoring / Apps   |
-| **gpc0** | `mba` | 22   | 🟢 Low         | Build Host / Gaming |
 | **mbp0** | `mba` | 22   | 🟢 Low         | Private M5 portable |
 
 > 📖 **Full Inventory & IPs**: See `docs/INFRASTRUCTURE.md`
@@ -222,7 +219,7 @@ Current Context                Target Host              Reachable?
 
 1. Read the host's RUNBOOK.md
 2. Check INFRASTRUCTURE.md for dependencies
-3. Verify build platform (NixOS configs need Linux - use gpc0, not macOS!)
+3. Verify build platform (NixOS configs need Linux - build on the target host via ssh, not macOS!)
 4. Ensure all is committed and pushed to the remote repository.
 5. Then pull the changes to the on the target host.
 6. Then switch the host to the new configuration.
@@ -310,4 +307,4 @@ ssh mba@<host> "systemctl status <service> 2>/dev/null || echo 'not found'"
 | 🏆 Crown jewel | hsb0             | DNS/DHCP for all home hosts    |
 | 🔴 High        | hsb1, csb0, csb1 | Home automation, public-facing |
 | 🟡 Medium      | hsb8, hsb9       | Family automation              |
-| 🟢 Low         | gpc0, mbp0       | Gaming, portable               |
+| 🟢 Low         | mbp0             | Portable                       |

@@ -81,7 +81,6 @@
     hsb2 = "ssh hsb2 -t 'tmux new-session -A -s hsb2'"; # tmux (ARMv6, no zellij)
     hsb8 = "ssh hsb8 -t 'zellij attach hsb8 -c'";
     hsb9 = "ssh hsb9 -t 'zellij attach hsb9 -c'";
-    gpc0 = "ssh gpc0 -t 'zellij attach gpc0 -c'";
 
     # Work network (nicknames)
     msbp = "ssh msbp -t 'zellij attach msbp -c'"; # → miniserver-bp

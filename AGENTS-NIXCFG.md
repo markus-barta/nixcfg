@@ -42,6 +42,6 @@ Incident-derived (2026-03-20), so they stay visible while editing `hosts/hsb1/`.
 
 ## Host behaviour → OPS
 
-Not here. PAIMOS **OPS** runbooks `host:{hsb1,csb0,csb1,hsb8,hsb2,gpc0}` + guideline `cloudflare-dns-proxy-policy`. Rekey depth: NIX runbook `agenix-rekey-safety`.
+Not here. PAIMOS **OPS** runbooks `host:{hsb1,csb0,csb1,hsb8,hsb2}` + guideline `cloudflare-dns-proxy-policy`. Rekey depth: NIX runbook `agenix-rekey-safety`.
 
 _Provenance: `git log -S'<rule text>'` and the source docs under `docs/`, `hosts/*/docs/`, `+agents/rules/`._

@@ -105,14 +105,14 @@
   keys = {
     # ── Legacy ────────────────────────────────────────────────────────────
     # Shared 2048-bit RSA key, originally generated on iMac 5k circa 2024
-    # or earlier. Currently propagated to M5 and gpc0 (identical key
+    # or earlier. Currently propagated to M5 (formerly also gpc0/imac0;
     # material on all three). See INSPR-76 epic for the multi-stage
     # retirement plan + ~/Code/inspr/legacy-rsa-key-inventory.md for the
     # discovered admittance map.
     "markus-rsa-shared-pre-2026" = {
       key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGIQIkx1H1iVXWYKnHkxQsS7tGsZq3SoHxlVccd+kroMC/DhC4MWwVnJInWwDpo/bz7LiLuh+1Bmq04PswD78EiHVVQ+O7Ckk32heWrywD2vufihukhKRTy5zl6uodb5+oa8PBholTnw09d3M0gbsVKfLEi4NDlgPJiiQsIU00ct/y42nI0s1wXhYn/Oudfqh0yRfGvv2DZowN+XGkxQQ5LSCBYYabBK/W9imvqrxizttw02h2/u3knXcsUpOEhcWJYHHn/0mw33tl6a093bT2IfFPFb3LE2KxUjVqwIYz8jou8cb0F/1+QJVKtqOVLMvDBMqyXAhCkvwtEz13KEyt markus@iMac-5k-MBA-home.local";
       status = "legacy";
-      note = "shared pre-2026 RSA; carried across M5+gpc0 and formerly imac0; retire via INSPR-76 once per-host ed25519 deployment is fleet-validated (target: late 2026)";
+      note = "shared pre-2026 RSA; carried across M5, formerly gpc0+imac0; retire via INSPR-76 once per-host ed25519 deployment is fleet-validated (target: late 2026)";
     };
 
     # Discovered on imac0 ~/.ssh/authorized_keys 2026-05-05 during the

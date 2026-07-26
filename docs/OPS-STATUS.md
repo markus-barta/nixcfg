@@ -29,7 +29,7 @@ Previously provided:
 | 💻  | mbp2607 | macOS   | Portable  | TBD              |   🔴   | (commissioning NIX-215) | 2026-07-03 15:38 |
 
 <!-- 🏢  miniserver-bp moved out of this repo on 2026-05-02 (INSPR-24) -->
-<!-- 🎮  gpc0 retired 2026-07 → stm2607 (SteamOS appliance, OPS/Pharos, OPS-17). nixcfg teardown pending OPS-21/22. -->
+<!-- 🎮  gpc0 retired 2026-07 → stm2607 (SteamOS appliance, OPS/Pharos, OPS-17). nixcfg teardown COMPLETED 2026-07-26 (OPS-22) — do not re-add. -->
 
 **Legend:** 🏠 Home | 🌐 Cloud | 🏢 Office | 🎮 Gaming | 🖥️ iMac | 💻 MacBook
 **Status:** 🔴 Snapshot/None | 🟡 Restic (Unverified) | 🟢 Restic (Verified) | ⚪ Time Machine (Ext)

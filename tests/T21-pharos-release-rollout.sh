@@ -58,7 +58,6 @@ fi
 compose_files=(
   "$repo_root/hosts/csb0/docker/docker-compose.yml"
   "$repo_root/hosts/csb1/docker/docker-compose.yml"
-  "$repo_root/hosts/gpc0/docker/docker-compose.yml"
   "$repo_root/hosts/hsb0/docker/docker-compose.yml"
   "$repo_root/hosts/hsb1/docker/docker-compose.yml"
   "$repo_root/hosts/hsb8/docker/docker-compose.yml"

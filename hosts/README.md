@@ -288,7 +288,7 @@ SERVERS — {type}{n} (2025 scheme, unchanged):
 PERSONAL DEVICES — {type}{YYMM} (2026 scheme, YYMM = commission date):
   mbp2607                 ← MacBook Pro (Markus, commissioned 2026-07)
   mbp2606                 ← MacBook Pro (family hand-down; was mbp0)
-  stm2607                 ← Steam Machine (SteamOS, built from gpc0's parts) — NOT a nixcfg host; OPS/Pharos appliance (gpc0 retired, teardown → OPS-21/22)
+  stm2607                 ← Steam Machine (SteamOS, built from gpc0's parts) — NOT a nixcfg host; OPS/Pharos appliance (gpc0 retired + torn out of nixcfg 2026-07-26)
 ```
 
 Device renames roll out via NIX-214 (epic); tables below show pre-rename names until each ticket lands.
@@ -325,7 +325,7 @@ Device renames roll out via NIX-214 (epic); tables below show pre-rename names u
 | `stm0`    | -              | Family | -             | 💗    | ⏳ Future                                                |
 | `stm1`    | -              | Family | -             | 💗    | ⏳ Future                                                |
 
-> **gpc0 retired 2026-07** — hardware cannibalized to build **`stm2607`** (SteamOS gaming appliance, OPS/Pharos-managed; tracked in OPS-17). It is **no longer a nixcfg host**; removal of its nixcfg config + agenix recipient is pending under OPS-21/22.
+> **gpc0 retired 2026-07** — hardware cannibalized to build **`stm2607`** (SteamOS gaming appliance, OPS/Pharos-managed; tracked in OPS-17). It is **no longer a nixcfg host** — its nixcfg config, SSH routes and agenix recipient were removed 2026-07-26 (OPS-22). Do not re-add.
 
 ---
 
