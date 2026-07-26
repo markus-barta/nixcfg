@@ -25,9 +25,9 @@ IDE/LLM-agnostic agent configuration for nixcfg. Holds the slash-command definit
 
 Every agent reading nixcfg follows these layers, top-down:
 
-1. **[inspr-modules/docs/AGENTS-CORE.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-CORE.md)** — universal rules every agent follows (199 rules)
-2. **[inspr-modules/docs/AGENTS-PROFILE-MARKUS.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-PROFILE-MARKUS.md)** — Markus's personal preferences (153 rules)
-3. **[inspr-modules/docs/AGENTS-AGENT-SYSOP.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-AGENT-SYSOP.md)** (or `AGENTS-AGENT-SYSOP-GB.md`) — sysop-role rules
+1. **[inspr-modules/docs/AGENTS-CORE.md](https://github.com/inspr-at/inspr-modules/blob/main/docs/AGENTS-CORE.md)** — universal rules every agent follows (199 rules)
+2. **[inspr-modules/docs/AGENTS-PROFILE-MARKUS.md](https://github.com/inspr-at/inspr-modules/blob/main/docs/AGENTS-PROFILE-MARKUS.md)** — Markus's personal preferences (153 rules)
+3. **[inspr-modules/docs/AGENTS-AGENT-SYSOP.md](https://github.com/inspr-at/inspr-modules/blob/main/docs/AGENTS-AGENT-SYSOP.md)** (or `AGENTS-AGENT-SYSOP-GB.md`) — sysop-role rules
 4. **[../AGENTS.md](../AGENTS.md)** (this repo's root) — nixcfg-specific delta (55 rules)
 5. **`+agents/rules/SYSOP.md`** (or `SYSOP-GB.md`) — operational reference for the role: where am I, how to SSH, audit checklist. _Not a rule source._
 

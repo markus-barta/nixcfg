@@ -6,9 +6,9 @@ Gerhard is not a NixOS expert. His workstation is a **2017 27" iMac** running **
 
 > **Doctrine layering** — the rules an agent in this role follows come from these layered sources (read top-down for context):
 >
-> 1. **[inspr-modules/docs/AGENTS-CORE.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-CORE.md)** — universal rules every agent follows
-> 2. **[inspr-modules/docs/AGENTS-PROFILE-MARKUS.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-PROFILE-MARKUS.md)** — Markus's personal preferences (apply because nixcfg is Markus's repo even when serving Gerhard)
-> 3. **[inspr-modules/docs/AGENTS-AGENT-SYSOP-GB.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-AGENT-SYSOP-GB.md)** — sysop-gb-role rules
+> 1. **[inspr-modules/docs/AGENTS-CORE.md](https://github.com/inspr-at/inspr-modules/blob/main/docs/AGENTS-CORE.md)** — universal rules every agent follows
+> 2. **[inspr-modules/docs/AGENTS-PROFILE-MARKUS.md](https://github.com/inspr-at/inspr-modules/blob/main/docs/AGENTS-PROFILE-MARKUS.md)** — Markus's personal preferences (apply because nixcfg is Markus's repo even when serving Gerhard)
+> 3. **[inspr-modules/docs/AGENTS-AGENT-SYSOP-GB.md](https://github.com/inspr-at/inspr-modules/blob/main/docs/AGENTS-AGENT-SYSOP-GB.md)** — sysop-gb-role rules
 > 4. **[../../AGENTS.md](../../AGENTS.md)** (this repo's root) — nixcfg-specific delta
 > 5. **THIS FILE** — operational _reference_ for the SYSOP-GB role: decision tree, SSH connectivity, HIL protocol tuned to Gerhard, host inventory. Hard rules live in the layers above. This file is "how to actually do the job for Gerhard"; it is **not** the source of truth for any rule.
 

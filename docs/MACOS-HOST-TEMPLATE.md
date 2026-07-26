@@ -102,7 +102,7 @@ inspr.ssh.authorized = {
 };
 ```
 
-Module surface (defined in [inspr-modules](https://github.com/markus-barta/inspr-modules)):
+Module surface (defined in [inspr-modules](https://github.com/inspr-at/inspr-modules)):
 
 | Module                        | What it does                                                                                              |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -295,7 +295,7 @@ Smoke / verification scripts.
 - [NIXOS-HOST-TEMPLATE.md](./NIXOS-HOST-TEMPLATE.md) — sister doc, NixOS hosts only
 - [AGENT-WORKFLOW.md](./AGENT-WORKFLOW.md) — keeping config / docs / tests in sync
 - [Uzumaki module](../modules/uzumaki/README.md) — fish functions, theming, role/profile flags
-- [inspr-modules](https://github.com/markus-barta/inspr-modules) — public flake providing the inspr.\* HM modules
+- [inspr-modules](https://github.com/inspr-at/inspr-modules) — public flake providing the inspr.\* HM modules
 - [inspr/playbook.md](../../inspr/playbook.md) (private) — narrative field notes from real onboardings; the “why” behind the canonical patterns
 
 ---
