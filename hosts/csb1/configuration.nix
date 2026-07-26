@@ -39,6 +39,64 @@ let
     ${csb1Compose} up -d --force-recreate --no-deps hostdash
     ${csb1Compose} up -d --force-recreate --no-deps traefik
   '';
+  hausvBackupSnapshot = pkgs.writeShellScript "hausv-backup-snapshot" ''
+    set -eu
+
+    source_dir=/var/lib/csb1-docker/hausv-org
+    snapshot_dir=/var/lib/csb1-docker/hausv-org-backup-snapshot
+    staging_dir=/var/lib/csb1-docker/.hausv-org-backup-snapshot.staging
+    previous_dir=/var/lib/csb1-docker/.hausv-org-backup-snapshot.previous
+    stopped=0
+
+    restart_hausv() {
+      if [ "$stopped" -eq 1 ]; then
+        ${csb1Compose} start hausv-org
+      fi
+    }
+    trap restart_hausv EXIT HUP INT TERM
+
+    running="$(${pkgs.docker}/bin/docker inspect --format '{{.State.Running}}' hausv-org 2>/dev/null || true)"
+    if [ "$running" != true ]; then
+      echo "hausv-org is not running; refusing to publish a stale backup snapshot" >&2
+      exit 1
+    fi
+
+    # Quiesce the application so SQLite, its WAL, and filesystem blobs are one
+    # recovery point. The data set is small, so this normally takes <1 second.
+    ${csb1Compose} stop -t 30 hausv-org
+    stopped=1
+
+    ${pkgs.coreutils}/bin/install -d -m 0700 "$staging_dir"
+    ${pkgs.rsync}/bin/rsync --archive --delete "$source_dir/" "$staging_dir/"
+    if [ "$(${pkgs.sqlite}/bin/sqlite3 "$staging_dir/hausv.db" "PRAGMA integrity_check;")" != ok ]; then
+      echo "hausv-org SQLite integrity check failed; keeping the previous snapshot" >&2
+      exit 1
+    fi
+    ${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ >"$staging_dir/SNAPSHOT-CREATED-UTC"
+    ${pkgs.coreutils}/bin/sync "$staging_dir"
+
+    ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
+    if [ -e "$snapshot_dir" ]; then
+      ${pkgs.coreutils}/bin/mv "$snapshot_dir" "$previous_dir"
+    fi
+    ${pkgs.coreutils}/bin/mv "$staging_dir" "$snapshot_dir"
+    ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
+
+    ${csb1Compose} start hausv-org
+    stopped=0
+
+    # A published snapshot is useful only if the service also came back.
+    for attempt in $(${pkgs.coreutils}/bin/seq 1 18); do
+      health="$(${pkgs.docker}/bin/docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' hausv-org 2>/dev/null || true)"
+      if [ "$health" = healthy ]; then
+        echo "hausv-org backup snapshot published and service is healthy"
+        exit 0
+      fi
+      ${pkgs.coreutils}/bin/sleep 5
+    done
+    echo "hausv-org did not become healthy after snapshot" >&2
+    exit 1
+  '';
 in
 {
   imports = [
@@ -276,6 +334,7 @@ in
       "d ${dockerRoot} 0755 mba users -"
       "d ${dockerRoot}/traefik 0755 mba users -"
       "d ${dockerRoot}/hausv-org 0750 65532 65532 -"
+      "d ${dockerRoot}/hausv-org-backup-snapshot 0700 root root -"
 
       # Create mutable files (Docker writes to these)
       "f ${dockerRoot}/traefik/acme.json 0600 root root -"
@@ -325,6 +384,33 @@ in
       RemainAfterExit = true;
       ExecStart = "${csb1HostdashReconcile}";
       TimeoutStartSec = "240";
+    };
+  };
+
+  # Restic must never live-walk the SQLite database and its blob directories.
+  # This timer briefly quiesces HAUSV and atomically publishes one coherent
+  # recovery point before the container's 01:30 off-site backup.
+  systemd.services.hausv-backup-snapshot = {
+    description = "Publish a consistent HAUSV SQLite and blob backup snapshot";
+    requires = [ "docker.service" ];
+    after = [
+      "docker.service"
+      "network-online.target"
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = hausvBackupSnapshot;
+      TimeoutStartSec = "180";
+    };
+  };
+
+  systemd.timers.hausv-backup-snapshot = {
+    description = "Snapshot HAUSV before the daily restic backup";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "*-*-* 01:20:00";
+      Persistent = true;
+      Unit = "hausv-backup-snapshot.service";
     };
   };
 

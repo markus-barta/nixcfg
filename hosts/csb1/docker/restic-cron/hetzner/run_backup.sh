@@ -62,6 +62,7 @@ message_file="$(mktemp)"
 set +e
 /usr/local/bin/restic ${RESTIC_BACKUP_OPTIONS} --host csb1 backup \
   --exclude '*/cache/*' --exclude '*.log*' \
+  --exclude '/backup/var/lib/csb1-docker/hausv-org' \
   /backup/var/lib/docker/volumes /backup/var/lib/csb1-docker /backup/home /backup/root /backup/etc \
   >"$message_file" 2>&1
 RESTIC_STATUS="$?"

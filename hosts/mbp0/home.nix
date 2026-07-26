@@ -59,21 +59,16 @@ in
   inspr.secrets.agents.enable = true;
 
   # ============================================================================
-  # INSPR — Git identity (personal default + former-work override via remote-URL match)
+  # INSPR — Git identity (personal only)
   # ============================================================================
   # See modules/shared/git-identity.nix for the full architecture.
-  # Default = Markus Barta <markus@barta.com>. Repos in the former work orgs
-  # auto-switch via includeIf hasconfig:remote.*.url.
+  # Default = Markus Barta <markus@barta.com>. Former-work overrides are retired.
   inspr.git-identity.enable = true;
 
   # ============================================================================
   # INSPR-170 — atelier Strategy B: per-host user SSH keys for fleet-wide
-  # federated git push/pull. Personal repos → m5-personal-userkey (registered
-  # on markus-barta GH account). Former work repos → m5-bytepoets-userkey
-  # (registered on the former work GH account).
-  # Privkeys materialized by inspr.secrets.agents from secrets/agents/host/
-  # mbp0/m5-{personal,bytepoets}-userkey.age. Key material was carried forward
-  # from the decommissioned M5 work portable by intent.
+  # federated git push/pull. The personal key was registered on the
+  # markus-barta GitHub account; all former-work routing is retired.
   # ============================================================================
   # NIX-216: disabled 2026-07-03 — m5-personal-userkey retired (minted on
   # former work hardware; mbp2607 took over SSH pushes). Disabling also drops
