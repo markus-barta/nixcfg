@@ -293,22 +293,7 @@ sudo nixos-rebuild switch --flake .#hostname
             └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
 ```
 
-**Everything works without NixFleet** — the dashboard integration is optional.
-
-### NixFleet Dashboard Integration
-
-When NixFleet agent is enabled, the theme color is automatically wired:
-
-```nix
-# In theme-hm.nix (Home Manager) and default.nix (NixOS):
-services.nixfleet-agent.themeColor = palette.gradient.primary;
-```
-
-This means:
-
-- **No manual configuration** — colors flow automatically from `theme-palettes.nix`
-- **Visual consistency** — terminal prompt and dashboard show the same color
-- **Single source of truth** — change color once, updates everywhere on rebuild
+> **The dashboard column above is historical.** It described `services.nixfleet-agent.themeColor`, which was removed when **NixFleet was decommissioned** (`cefa8fa4`, 2026-04-02). The lineage is NixFleet → FleetCom → **Pharos**; Pharos does not consume `themeColor`. Everything else in this diagram is live — colours still flow from `theme-palettes.nix` to starship, zellij and eza.
 
 ---
 
