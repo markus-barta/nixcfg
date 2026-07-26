@@ -70,7 +70,7 @@
     # Studios (this nixcfg + former-employer studio + future family/paid-product
     # context flakes) provide identity-specific values; the atelier stays
     # opinionated only about mechanics. (Older docs: "Pattern β".)
-    inspr-modules.url = "github:markus-barta/inspr-modules";
+    inspr-modules.url = "github:inspr-at/inspr-modules";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 
