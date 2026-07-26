@@ -704,11 +704,12 @@ docker-compose up -d docmost
 
 ### Schedule
 
-| Task    | Time                   | Container                  |
-| ------- | ---------------------- | -------------------------- |
-| Backup  | 01:30 AM daily         | csb1-restic-cron-hetzner-1 |
-| Cleanup | N/A (done on csb0)     | -                          |
-| Check   | 05:30 AM monthly (1st) | csb1-restic-cron-hetzner-1 |
+| Task                      | Time                   | Container                     |
+| ------------------------- | ---------------------- | ----------------------------- |
+| HAUSV consistent snapshot | 01:20 AM daily         | `hausv-backup-snapshot.timer` |
+| Backup                    | 01:30 AM daily         | csb1-restic-cron-hetzner-1    |
+| Cleanup                   | N/A (done on csb0)     | -                             |
+| Check                     | 05:30 AM monthly (1st) | csb1-restic-cron-hetzner-1    |
 
 ### What Gets Backed Up
 
@@ -718,6 +719,10 @@ docker-compose up -d docmost
 ✅ /home - All user home directories
 ✅ /root - Root user data
 ✅ /etc - System configuration
+✅ /var/lib/csb1-docker/hausv-org-backup-snapshot
+   └─ Quiesced SQLite + blob recovery point; use this for HAUSV restores
+❌ /var/lib/csb1-docker/hausv-org live directory
+   └─ Deliberately excluded to avoid a mixed SQLite/blob recovery point
 ❌ Exclusions: */cache/*, *.log*
 ```
 
@@ -730,6 +735,35 @@ docker logs csb1-restic-cron-hetzner-1 | tail -50
 # List snapshots
 docker exec csb1-restic-cron-hetzner-1 restic snapshots
 ```
+
+### HAUSV Snapshot And Restore
+
+The host timer stops only `hausv-org`, copies the complete data directory,
+checks `hausv.db`, atomically publishes the snapshot, and starts the service
+again. A failed copy or integrity check leaves the previous snapshot intact.
+
+```bash
+# Create and verify a fresh local recovery point.
+sudo systemctl start hausv-backup-snapshot.service
+systemctl status hausv-backup-snapshot.service --no-pager
+sudo sqlite3 /var/lib/csb1-docker/hausv-org-backup-snapshot/hausv.db \
+  'PRAGMA integrity_check;'
+
+# Restore drill into the restic container; never overwrite production directly.
+docker exec csb1-restic-cron-hetzner-1 sh -c \
+  'restic restore latest --target /tmp/hausv-restore-test \
+   --include /backup/var/lib/csb1-docker/hausv-org-backup-snapshot'
+docker cp \
+  csb1-restic-cron-hetzner-1:/tmp/hausv-restore-test/backup/var/lib/csb1-docker/hausv-org-backup-snapshot/hausv.db \
+  /tmp/hausv-restore-test.db
+sqlite3 /tmp/hausv-restore-test.db 'PRAGMA integrity_check;'
+```
+
+For a real restore, stop `hausv-org`, preserve the current data directory,
+copy the _contents_ of the restored `hausv-org-backup-snapshot` directory to
+`/var/lib/csb1-docker/hausv-org`, restore ownership `65532:65532`, then start
+the service and require a healthy `/healthz` before removing the preserved
+directory.
 
 ---
 
