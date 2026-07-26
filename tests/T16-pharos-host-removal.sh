@@ -11,8 +11,8 @@ bash -n "$prepare"
 "$repo_root/tests/T17-janus-pharos-retirement.sh" >/dev/null
 "$repo_root/tests/T18-pharos-retirement-executor.sh" >/dev/null
 grep -Fq 'scripts/prepare-pharos-host-removal.sh' "$workflow"
-grep -Fq 'uses: peter-evans/create-pull-request@v8' "$workflow"
-grep -Fq 'uses: actions/checkout@v5' "$workflow"
+grep -Eq 'uses: peter-evans/create-pull-request@[0-9a-f]{40} # v8' "$workflow"
+grep -Eq 'uses: actions/checkout@[0-9a-f]{40} # v5' "$workflow"
 grep -Fq 'Validate and open review-only removal' "$workflow"
 grep -Fq 'credential_retirement=pending_janus_owner' "$workflow"
 grep -Fq 'server_deletion=false' "$workflow"
