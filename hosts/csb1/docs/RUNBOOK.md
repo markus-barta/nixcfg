@@ -704,12 +704,12 @@ docker-compose up -d docmost
 
 ### Schedule
 
-| Task    | Time                   | Container                  |
-| ------- | ---------------------- | -------------------------- |
-| HAUSV consistent snapshot | 01:20 AM daily | `hausv-backup-snapshot.timer` |
-| Backup  | 01:30 AM daily         | csb1-restic-cron-hetzner-1 |
-| Cleanup | N/A (done on csb0)     | -                          |
-| Check   | 05:30 AM monthly (1st) | csb1-restic-cron-hetzner-1 |
+| Task                      | Time                   | Container                     |
+| ------------------------- | ---------------------- | ----------------------------- |
+| HAUSV consistent snapshot | 01:20 AM daily         | `hausv-backup-snapshot.timer` |
+| Backup                    | 01:30 AM daily         | csb1-restic-cron-hetzner-1    |
+| Cleanup                   | N/A (done on csb0)     | -                             |
+| Check                     | 05:30 AM monthly (1st) | csb1-restic-cron-hetzner-1    |
 
 ### What Gets Backed Up
 
@@ -760,7 +760,7 @@ sqlite3 /tmp/hausv-restore-test.db 'PRAGMA integrity_check;'
 ```
 
 For a real restore, stop `hausv-org`, preserve the current data directory,
-copy the *contents* of the restored `hausv-org-backup-snapshot` directory to
+copy the _contents_ of the restored `hausv-org-backup-snapshot` directory to
 `/var/lib/csb1-docker/hausv-org`, restore ownership `65532:65532`, then start
 the service and require a healthy `/healthz` before removing the preserved
 directory.
