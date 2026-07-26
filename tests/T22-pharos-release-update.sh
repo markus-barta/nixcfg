@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Guard: macOS ships bash 3.2, where `set -e` does NOT abort on a failing
+# bare `[[ ]]` — this script would report a FALSE PASS. CI runs bash 5.
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  printf '%s: bash %s is too old -- set -e does not abort on a failing [[ ]], so this test would FALSELY PASS. Run under bash 5: nix run nixpkgs#bash -- %s\n' \
+    "${0##*/}" "$BASH_VERSION" "$0" >&2
+  exit 2
+fi
+
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 fixture=$(mktemp -d)
 compose_files=(
