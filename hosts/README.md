@@ -312,10 +312,9 @@ Device renames roll out via NIX-214 (epic); tables below show pre-rename names u
 
 #### Workstations (Personal Machines)
 
-| Host    | Old Name (Config) | Owner  | IP            | Theme | Status        |
-| ------- | ----------------- | ------ | ------------- | ----- | ------------- |
-| `imac1` | -                 | Family | 192.168.1.152 | -     | ⏳ Future     |
-| `mbp0`  | -                 | Markus | -             | ⬜    | ✅ **Active** |
+| Host   | Old Name (Config) | Owner  | IP  | Theme | Status        |
+| ------ | ----------------- | ------ | --- | ----- | ------------- |
+| `mbp0` | -                 | Markus | -   | ⬜    | ✅ **Active** |
 
 #### Gaming Systems
 
@@ -367,7 +366,7 @@ All hosts have been migrated to the new naming scheme:
 
 **Workstations**:
 
-- imac1, mbp0 - Personal development machines
+- mbp0, mbp2607 - Personal development machines
 
 **Gaming**:
 
@@ -413,7 +412,6 @@ hsb8          Parents (DNS/DHCP, 192.168.1.100) [was: msww87]
 **Workstations**:
 
 ```text
-imac1         iMac (family, home) [was: wz-imac-mpe]
 stm2607       Steam Machine (Markus, SteamOS) — OPS/Pharos, not a nixcfg host [was: gpc0]
 ```
 
