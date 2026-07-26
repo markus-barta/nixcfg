@@ -73,6 +73,9 @@ jobs:
       - name: Keep Traefik ACME bind sources boot-safe
         run: tests/T30-traefik-acme-storage.sh
 
+      - name: Verify tests guard against bash 3.2 false passes
+        run: tests/T33-bash-version-guards.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
