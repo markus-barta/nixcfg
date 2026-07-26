@@ -393,10 +393,7 @@ in
   systemd.services.hausv-backup-snapshot = {
     description = "Publish a consistent HAUSV SQLite and blob backup snapshot";
     requires = [ "docker.service" ];
-    after = [
-      "docker.service"
-      "network-online.target"
-    ];
+    after = [ "docker.service" ];
     serviceConfig = {
       Type = "oneshot";
       ExecStart = hausvBackupSnapshot;
