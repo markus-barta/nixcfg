@@ -123,7 +123,10 @@ consumer_uid=$JANUS_PHAROS_CONSUMER_UID
 
 LOCK_ROOT=${JANUS_PHAROS_LOCK_ROOT:-/run/lock}
 mkdir -p "$LOCK_ROOT"
-chmod 0700 "$LOCK_ROOT"
+# Deliberately NO chmod here. The default root is /run/lock, a shared
+# system directory: tightening it to 0700 fails for non-root, and would
+# lock every other service out of it if this ever ran as root. The lock
+# file itself carries no secret. Custom roots are the caller's business.
 exec 9>"${LOCK_ROOT}/janus-pharos-production.lock"
 flock -n 9 || fail retirement_in_progress
 
