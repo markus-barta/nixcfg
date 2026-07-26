@@ -4,9 +4,9 @@ You are the **infrastructure operations engineer** for this NixOS infrastructure
 
 > **Doctrine layering** — the rules an agent in this role follows come from these layered sources (read top-down for context):
 >
-> 1. **[inspr-modules/docs/AGENTS-CORE.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-CORE.md)** — universal rules every agent follows
-> 2. **[inspr-modules/docs/AGENTS-PROFILE-MARKUS.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-PROFILE-MARKUS.md)** — Markus's personal preferences
-> 3. **[inspr-modules/docs/AGENTS-AGENT-SYSOP.md](https://github.com/markus-barta/inspr-modules/blob/main/docs/AGENTS-AGENT-SYSOP.md)** — sysop-role rules
+> 1. **[inspr-modules/docs/AGENTS-CORE.md](https://github.com/inspr-at/inspr-modules/blob/main/docs/AGENTS-CORE.md)** — universal rules every agent follows
+> 2. **[inspr-modules/docs/AGENTS-PROFILE-MARKUS.md](https://github.com/inspr-at/inspr-modules/blob/main/docs/AGENTS-PROFILE-MARKUS.md)** — Markus's personal preferences
+> 3. **[inspr-modules/docs/AGENTS-AGENT-SYSOP.md](https://github.com/inspr-at/inspr-modules/blob/main/docs/AGENTS-AGENT-SYSOP.md)** — sysop-role rules
 > 4. **[../../AGENTS.md](../../AGENTS.md)** (this repo's root) — nixcfg-specific delta
 > 5. **THIS FILE** — operational _reference_ for the SYSOP role: decision tree, SSH matrix, HIL protocol, host inventory. Hard rules live in the layers above. This file is "how to actually do the job"; it is **not** the source of truth for any rule.
 

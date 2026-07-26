@@ -4,7 +4,7 @@
 #
 # Studio-side defaults (per the atelier pattern; "Pattern β" in older docs).
 # The shared atelier — public inspr-modules library at
-# github.com/markus-barta/inspr-modules — provides only mechanics. This
+# github.com/inspr-at/inspr-modules — provides only mechanics. This
 # module provides the values that make those mechanics specific to Markus's
 # personal studio (his context).
 #
