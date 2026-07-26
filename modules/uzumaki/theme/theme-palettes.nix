@@ -206,9 +206,9 @@
 #
 #    GAMING                           WORKSTATIONS
 #    ┌─────────────────────┐          ┌─────────────────────┐
-#    │  stm0    🩷 Pink    │          │  imac1   🔘 M-Gray  │
-#    │  stm1    🩷 Pink    │          │  mbp     🩶 L-Gray  │
-#    │                     │          │  work    ⚫ D-Gray  │
+#    │  stm0    🩷 Pink    │          │  mbp     🩶 L-Gray  │
+#    │  stm1    🩷 Pink    │          │  work    ⚫ D-Gray  │
+#    │                     │          │                     │
 #    └─────────────────────┘          │                     │
 #                                     └─────────────────────┘
 #
@@ -603,7 +603,7 @@
     mediumGray = {
       name = "Medium Gray";
       category = "workstation";
-      description = "Secondary workstation (imac1)";
+      description = "Secondary workstation";
 
       # Powerline gradient (light → dark) - between light and dark
       gradient = {
@@ -675,7 +675,7 @@
     roseGold = {
       name = "Rose Gold";
       category = "workstation";
-      description = "Wife's iMac (imac1)";
+      description = "Secondary workstation (rose tint)";
 
       # Powerline gradient (light → dark) - subtle pink/copper tint
       gradient = {
@@ -872,7 +872,6 @@
     stm1 = "pink";
 
     # Workstations (home > work)
-    imac1 = "roseGold"; # Wife's iMac (future)
     "mbp0" = "lightGray";
     "mbp2607" = "teal"; # Markus's MBP (commissioned 2026-07) — greenish per request, distinct from hsb1/mbp0
     miniserver-bp = "veryDarkGray";
@@ -896,7 +895,6 @@
     "stm0"
     "stm1"
     # Workstations (home > work)
-    "imac1"
     "mbp0"
     "mbp2607"
   ];

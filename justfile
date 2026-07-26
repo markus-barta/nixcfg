@@ -17,10 +17,12 @@ set shell := ["bash", "-c"]
 [private]
 _raw_hostname := `hostname -s`
 
-# Hostname mapping: normalize WiFi/DHCP variants to flake config names
-# imac0w → imac0, imac1w → imac1
+# Hostname mapping: normalize WiFi/DHCP variants to flake config names.
+# The imac0w/imac1w mappings were dropped 2026-07-26 — the whole iMac
+# fleet is decommissioned. Re-add a branch here if a host ever reports a
+# WiFi-suffixed hostname again.
 
-hostname := if _raw_hostname == "imac0w" { "imac0" } else if _raw_hostname == "imac1w" { "imac1" } else { _raw_hostname }
+hostname := _raw_hostname
 user := `whoami`
 
 # Aliases
