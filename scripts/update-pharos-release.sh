@@ -36,13 +36,13 @@ release_file="$repo_root/pharos-release.json"
   exit 1
 }
 
-python3 - "$repo_root" "$reference" <<'PY'
+python3 - "$repo_root" "$reference" "$version" <<'PY'
 import os
 import re
 import sys
 import tempfile
 
-root, replacement = sys.argv[1:]
+root, replacement, version = sys.argv[1:]
 targets = (
     ("hosts/csb0/docker/docker-compose.yml", ("pharos-beacon",)),
     ("hosts/csb1/docker/docker-compose.yml", ("pharosd", "pharos-beacon")),
@@ -91,6 +91,30 @@ for relative, services in targets:
             )
         lines[index] = f"    image: {replacement}\n"
     pending.append((path, lines))
+
+readiness_relative = "hosts/csb1/docker/janus/managed-service-production/readiness.sh"
+readiness_path = os.path.join(root, readiness_relative)
+if not os.path.isfile(readiness_path):
+    raise SystemExit(
+        f"pharos_release_update=failed reason=readiness_missing path={readiness_relative}"
+    )
+with open(readiness_path, encoding="utf-8") as handle:
+    readiness = handle.read()
+readiness_pattern = re.compile(
+    r"\^ghcr\\\.io/inspr-at/pharos/pharosd:[0-9]+\\\.[0-9]+\\\.[0-9]+"
+    r"@sha256:\[0-9a-f\]\{64\}\$"
+)
+escaped_version = version.replace(".", r"\.")
+expected_readiness = (
+    rf"^ghcr\.io/inspr-at/pharos/pharosd:{escaped_version}"
+    r"@sha256:[0-9a-f]{64}$"
+)
+readiness, count = readiness_pattern.subn(lambda _: expected_readiness, readiness)
+if count != 1:
+    raise SystemExit(
+        f"pharos_release_update=failed reason=unexpected_readiness_pin_count path={readiness_relative}"
+    )
+pending.append((readiness_path, readiness.splitlines(keepends=True)))
 
 for path, lines in pending:
     mode = os.stat(path).st_mode
