@@ -162,7 +162,7 @@ declarative() {
   check_image_pin \
     pharos_release_pin \
     pharosd \
-    '^ghcr\.io/inspr-at/pharos/pharosd:0\.1\.63@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/pharos/pharosd:0\.1\.64@sha256:[0-9a-f]{64}$'
 
   if [ "$(service_image pharosd)" = "$(service_image pharos-beacon)" ]; then
     pass pharos_fleet_single_pin

@@ -19,6 +19,7 @@ compose_files=(
   hosts/hsb8/docker/docker-compose.yml
   hosts/hsb9/docker/docker-compose.yml
 )
+readiness=hosts/csb1/docker/janus/managed-service-production/readiness.sh
 
 cleanup() {
   find "$fixture" -type f -delete
@@ -31,6 +32,8 @@ for relative in "${compose_files[@]}"; do
   mkdir -p "$fixture/$(dirname "$relative")"
   cp "$repo_root/$relative" "$fixture/$relative"
 done
+mkdir -p "$fixture/$(dirname "$readiness")"
+cp "$repo_root/$readiness" "$fixture/$readiness"
 
 new_digest="sha256:$(printf 'b%.0s' {1..64})"
 expected="ghcr.io/inspr-at/pharos/pharosd:9.8.7@${new_digest}"
@@ -39,6 +42,9 @@ expected="ghcr.io/inspr-at/pharos/pharosd:9.8.7@${new_digest}"
 [[ "$(jq -r '.reference' "$fixture/pharos-release.json")" == "$expected" ]]
 [[ "$(grep -rlF "image: $expected" "$fixture/hosts" | wc -l | tr -d ' ')" == 6 ]]
 [[ "$(grep -rF "image: $expected" "$fixture/hosts" | wc -l | tr -d ' ')" == 7 ]]
+grep -Fq \
+  "'^ghcr\\.io/inspr-at/pharos/pharosd:9\\.8\\.7@sha256:[0-9a-f]{64}$'" \
+  "$fixture/$readiness"
 
 before=$(find "$fixture" -type f -print | LC_ALL=C sort | xargs sha256sum)
 "$repo_root/scripts/update-pharos-release.sh" --root "$fixture" 9.8.7 "$new_digest" >/dev/null

@@ -25,6 +25,10 @@ immutable_pattern='^ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha2
 
 grep -Fq 'name: Resolve the public immutable image digest' "$rollout_workflow"
 grep -Fq 'image=ghcr.io/inspr-at/pharos/pharosd' "$rollout_workflow"
+grep -Fq 'tests/T32-managed-secret-production-preflight.sh' "$rollout_workflow"
+grep -Fq \
+  'hosts/csb1/docker/janus/managed-service-production/readiness.sh' \
+  "$rollout_workflow"
 if grep -Fq 'Authenticate to the private Pharos package' "$rollout_workflow" ||
   grep -Fq "password: \${{ secrets.GH_TOKEN_FOR_UPDATES }}" "$rollout_workflow"; then
   printf 'pharos_rollout=failed reason=public_registry_uses_private_credential\n' >&2

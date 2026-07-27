@@ -128,6 +128,7 @@ jobs:
           tests/T20-pharos-beacon-healthcheck.sh
           tests/T21-pharos-release-rollout.sh
           tests/T22-pharos-release-update.sh
+          nix-shell -p ripgrep --run tests/T32-managed-secret-production-preflight.sh
           _release-dsccfg/tests/pharos-release-rollout.sh
           _release-dsccfg/tests/pharos-release-update.sh
           nix_ref=$(jq -r '.reference' pharos-release.json)
@@ -209,6 +210,7 @@ jobs:
             pharos-release.json \
             hosts/csb0/docker/docker-compose.yml \
             hosts/csb1/docker/docker-compose.yml \
+            hosts/csb1/docker/janus/managed-service-production/readiness.sh \
             hosts/hsb0/docker/docker-compose.yml \
             hosts/hsb1/docker/docker-compose.yml \
             hosts/hsb8/docker/docker-compose.yml \
