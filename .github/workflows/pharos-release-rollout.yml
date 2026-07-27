@@ -109,6 +109,9 @@ jobs:
         with:
           cosign-release: v2.5.2
 
+      - name: Install Nix for production preflight
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+
       - name: Verify the release signature and workflow identity
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
@@ -128,7 +131,7 @@ jobs:
           tests/T20-pharos-beacon-healthcheck.sh
           tests/T21-pharos-release-rollout.sh
           tests/T22-pharos-release-update.sh
-          nix-shell -p ripgrep --run tests/T32-managed-secret-production-preflight.sh
+          tests/T32-managed-secret-production-preflight.sh
           _release-dsccfg/tests/pharos-release-rollout.sh
           _release-dsccfg/tests/pharos-release-update.sh
           nix_ref=$(jq -r '.reference' pharos-release.json)
