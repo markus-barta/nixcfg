@@ -7,20 +7,20 @@
   "previous_mode": "production",
   "artifact": {
     "image": "ghcr.io/inspr-at/janus/janus-engine",
-    "tag": "rust-engine-v0.1.14",
-    "digest": "sha256:83bdeeb913a2515bc349b8e74d023b36f785b7c78d3b3d3c98b2a0167eaeb83e",
+    "tag": "rust-engine-v0.1.15",
+    "digest": "sha256:a4a0de3b27a35cc4223a7cfbdf51c6de1a5d347aa360f610efb1512a0533315d",
     "development": false
   },
   "signature": {
     "verified": true,
-    "identity": "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.14",
+    "identity": "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.15",
     "oidc_issuer": "https://token.actions.githubusercontent.com"
   },
   "provenance": {
     "verified": true,
     "repository": "inspr-at/janus",
     "signer_workflow": "inspr-at/janus/.github/workflows/rust.yml",
-    "source_ref": "refs/tags/rust-engine-v0.1.14",
+    "source_ref": "refs/tags/rust-engine-v0.1.15",
     "predicate_type": "https://slsa.dev/provenance/v1"
   },
   "sbom": {

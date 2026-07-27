@@ -170,7 +170,7 @@ in
     ];
   };
 
-  # JANUS-365 activation follows the signed v0.1.14 release, closed runtime
+  # JANUS-365 activation follows the signed v0.1.15 release, closed runtime
   # authorities, immutable release pins, and production readiness review.
   inspr.janusHostSecrets = {
     enable = true;
