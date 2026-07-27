@@ -106,7 +106,7 @@ for name, (script, launch_count) in renderers.items():
 for service, image, prefix, block in [
     (
         "janus",
-        r"ghcr\.io/markus-barta/janus/janus-envelope",
+        r"ghcr\.io/inspr-at/janus/janus-envelope",
         "go-envelope-v",
         go_service,
     ),
