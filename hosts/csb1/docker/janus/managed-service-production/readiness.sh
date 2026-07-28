@@ -154,7 +154,7 @@ declarative() {
   check_image_pin \
     go_release_pin \
     janus \
-    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v1\.169@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v1\.170@sha256:[0-9a-f]{64}$'
   check_image_pin \
     rust_release_pin \
     janus-managed-transactiond \
