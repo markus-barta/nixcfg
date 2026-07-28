@@ -292,6 +292,9 @@ services:
       - BASE_URL=https://jhw22.hausv.org
       - ROOT_DOMAIN=hausv.org
       - DEFAULT_TENANT=jhw22
+      # Initializes the real JHW22 energy pilot without skipping the guided
+      # owner onboarding. Existing profiles are never overwritten.
+      - HOME_PROFILE_SEEDS_JSON=[{"tenant_slug":"jhw22","household_name":"Mein Zuhause","home_type":"apartment","assets":["ev","wallbox"]}]
       - LOCAL_DEV_LOGIN=false
       - SMTP_HOST=smtp.resend.com
       - SMTP_PORT=587
