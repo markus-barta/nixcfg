@@ -232,8 +232,10 @@ switch args='':
         # -b hm-backup: rename clashing pre-existing files to *.hm-backup instead of aborting.
         # Matches the NixOS-module-side default in modules/common.nix. Override by passing your own -b.
         home-manager switch --flake ".#{{ user }}@{{ hostname }}" -b hm-backup {{ args }}
-        end_time=$(date +%s)
+        # NIX-325: capture BEFORE anything else runs — an intervening `date` would
+        # overwrite $? and make every failed switch report success.
         exit_code=$?
+        end_time=$(date +%s)
         runtime=$((end_time - start_time))
         if [ $runtime -gt 10 ]; then
           just _notify "home-manager switch finished for {{ user }}@{{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
@@ -243,13 +245,17 @@ switch args='':
         sudo true
         start_time=$(date +%s)
         nh os switch -H {{ hostname }} . -- {{ args }}
-        end_time=$(date +%s)
+        # NIX-325: see above — capture $? immediately, before `date`.
         exit_code=$?
+        end_time=$(date +%s)
         runtime=$((end_time - start_time))
         if [ $runtime -gt 10 ]; then
           just _notify "switch finished on {{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
         fi
     fi
+    # NIX-325: propagate the real status so callers and CI can tell a failed
+    # switch from a good one. Previously this recipe always exited 0.
+    exit $exit_code
 
 # NIX-105: Defensive `home-manager switch` wrapper for macOS hosts.
 # Catches the conflict pattern that brick'd imac0 on 2026-05-05:
@@ -467,12 +473,14 @@ home-switch args='':
     echo "🏠 Running home-manager switch for {{ user }}@{{ hostname }}..."
     start_time=$(date +%s)
     home-manager switch --flake ".#{{ user }}@{{ hostname }}" {{ args }}
-    end_time=$(date +%s)
+    # NIX-325: capture $? immediately — an intervening `date` would clobber it.
     exit_code=$?
+    end_time=$(date +%s)
     runtime=$((end_time - start_time))
     if [ $runtime -gt 10 ]; then
       just _notify "home-manager switch finished for {{ user }}@{{ hostname }}, exit code: $exit_code (runtime: ${runtime}s)"
     fi
+    exit $exit_code
 
 # Build the current host with nix-rebuild
 [group('build')]
