@@ -354,6 +354,13 @@ runtime conditions and safe deferral path. The readiness request must then
 return success. Do not inspect secret files, process environments, or raw
 request output.
 
+Each claimed bootstrap lease lasts two hours. The executor admits only a
+bounded future lease, caps `nixos-anywhere` at 110 minutes, and shortens that
+timeout when necessary so at least five minutes remain for verification and
+result reporting. A lease that cannot preserve this reserve fails closed
+before installation starts; do not extend a lease or replay a pending result
+by hand.
+
 After deployment, open the Pharos Hetzner connection and run **Test
 connection** once. This is an authenticated read-only catalog refresh and must
 show the dedicated executor key, selected firewall, and location as ready.

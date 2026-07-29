@@ -12,6 +12,9 @@ readonly SSH_KEY_REF='@SSH_KEY_REF@'
 readonly BOOTSTRAP_TEMPLATE='@BOOTSTRAP_TEMPLATE@'
 readonly JANUS_HELPER='@JANUS_HELPER@'
 readonly PENDING_RESULT="$STATE_DIR/pending-result.json"
+readonly MAX_LEASE_FUTURE_SECS=7500
+readonly MAX_BOOTSTRAP_SECS=6600
+readonly RESULT_RESERVE_SECS=300
 
 # shellcheck disable=SC1091
 source '@PUBLIC_KEY_HELPER@'
@@ -162,7 +165,8 @@ now=$(date +%s)
 if ! jq -e \
   --arg owner "$OWNER" \
   --arg ssh_key_ref "$SSH_KEY_REF" \
-  --argjson now "$now" '
+  --argjson now "$now" \
+  --argjson max_lease_future_secs "$MAX_LEASE_FUTURE_SECS" '
   .schema == "inspr.pharos.provisioning-agent-lease.v1"
   and .version == 1
   and .ticket == "PHAROS-175"
@@ -171,7 +175,7 @@ if ! jq -e \
   and .host != $owner
   and (.credential_ref | type == "string" and test("^sec_[0-9a-f]{20}$"))
   and (.provider_id | type == "string" and test("^[1-9][0-9]{0,19}$"))
-  and (.lease_until | type == "number" and floor == . and . > $now and . <= ($now + 3900))
+  and (.lease_until | type == "number" and floor == . and . > $now and . <= ($now + $max_lease_future_secs))
   and .ssh_key_ref == $ssh_key_ref
   and (.role | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$"))
   and (.heartbeat_interval_secs | type == "number" and floor == . and . >= 10 and . <= 3600)
@@ -529,12 +533,17 @@ else
 fi
 
 now=$(date +%s)
-if [ "$lease_until" -le "$((now + 300))" ]; then
+lease_remaining_secs=$((lease_until - now))
+if [ "$lease_remaining_secs" -le "$RESULT_RESERVE_SECS" ]; then
   reason=bootstrap_failed
   finish
 fi
+bootstrap_timeout_secs=$((lease_remaining_secs - RESULT_RESERVE_SECS))
+if [ "$bootstrap_timeout_secs" -gt "$MAX_BOOTSTRAP_SECS" ]; then
+  bootstrap_timeout_secs=$MAX_BOOTSTRAP_SECS
+fi
 
-if ! timeout --signal=TERM --kill-after=30s 6600s \
+if ! timeout --signal=TERM --kill-after=30s "${bootstrap_timeout_secs}s" \
   nixos-anywhere \
   --flake "path:${bootstrap_dir}#managed" \
   --target-host "root@$ssh_host" \

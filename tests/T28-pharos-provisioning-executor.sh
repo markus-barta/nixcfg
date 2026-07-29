@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  printf '%s: bash %s is too old -- set -e does not abort on a failing [[ ]], so this test would FALSELY PASS. Run under bash 5: nix run nixpkgs#bash -- %s\n' \
+    "${0##*/}" "$BASH_VERSION" "$0" >&2
+  exit 2
+fi
+
 report_failure() {
   local exit_code=$?
   local line=$1
@@ -64,6 +70,12 @@ grep -Fq -- '--copy-host-keys' "$executor_source"
 grep -Fq -- '--extra-files "$extra_files"' "$executor_source"
 grep -Fq -- '--ssh-option StrictHostKeyChecking=yes' "$executor_source"
 grep -Fq 'host_key_fingerprint' "$executor_source"
+grep -Fq 'readonly MAX_LEASE_FUTURE_SECS=7500' "$executor_source"
+grep -Fq 'readonly MAX_BOOTSTRAP_SECS=6600' "$executor_source"
+grep -Fq 'readonly RESULT_RESERVE_SECS=300' "$executor_source"
+# shellcheck disable=SC2016
+grep -Fq 'bootstrap_timeout_secs=$((lease_remaining_secs - RESULT_RESERVE_SECS))' \
+  "$executor_source"
 grep -Fq "source '@PUBLIC_KEY_HELPER@'" "$executor_source"
 # shellcheck disable=SC2016
 grep -Fq 'and .ssh_key_ref == $ssh_key_ref' "$executor_source"
@@ -239,7 +251,7 @@ grep -Fq "$FAKE_TOKEN" "$config"
 printf '%s\n' "$args" >>"$FAKE_CURL_ARGS"
 case "$url" in
 */agent/provisioning/claim)
-  lease_until=$(( $(date +%s) + 3600 ))
+  lease_until=$(( $(date +%s) + FAKE_LEASE_SECS ))
   if [ "$FAKE_ACTION" = reconcile_bootstrap ]; then
     jq -n \
       --argjson lease_until "$lease_until" \
@@ -250,6 +262,26 @@ case "$url" in
         host:"fixturehost",
         ticket:"PHAROS-175",
         action:"reconcile_bootstrap",
+        credential_ref:"sec_0123456789abcdefabcd",
+        provider_id:"1234",
+        lease_until:$lease_until,
+        ssh_host:"192.0.2.1",
+        ssh_port:22,
+        host_key_fingerprint:$fingerprint,
+        ssh_key_ref:"pharos-executor",
+        role:"server",
+        heartbeat_interval_secs:60
+      }' >"$output"
+  elif [ "$FAKE_ACTION" = bootstrap ]; then
+    jq -n \
+      --argjson lease_until "$lease_until" \
+      --arg fingerprint "$FAKE_FINGERPRINT" '{
+        schema:"inspr.pharos.provisioning-agent-lease.v1",
+        version:1,
+        id:"managed-fixture-1",
+        host:"fixturehost",
+        ticket:"PHAROS-175",
+        action:"bootstrap",
         credential_ref:"sec_0123456789abcdefabcd",
         provider_id:"1234",
         lease_until:$lease_until,
@@ -320,6 +352,7 @@ case "$remote_command" in
   printf '{"blockdevices":[{"path":"/dev/sda","type":"disk","rm":false,"ro":false}]}\n'
   ;;
 'test -f /etc/debian_version && test ! -e /run/current-system') ;;
+'test -e /run/current-system && systemctl is-enabled --quiet podman-pharos-beacon.service && systemctl is-active --quiet podman-pharos-beacon.service') ;;
 *) exit 1 ;;
 esac
 EOF
@@ -327,7 +360,37 @@ EOF
 cat >"$fake_bin/nixos-anywhere" <<'EOF'
 #!/usr/bin/env bash
 : >"$FAKE_NIXOS_ANYWHERE_CALLED"
-exit 1
+printf '%s\n' "$*" >"$FAKE_NIXOS_ANYWHERE_ARGS"
+copy_host_keys=false
+extra_files=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+  --copy-host-keys)
+    copy_host_keys=true
+    shift
+    ;;
+  --extra-files)
+    extra_files=$2
+    shift 2
+    ;;
+  *)
+    shift
+    ;;
+  esac
+done
+[ "$copy_host_keys" = true ]
+[ -n "$extra_files" ]
+[ -f "$extra_files/etc/pharos/beacon.env" ]
+EOF
+
+cat >"$fake_bin/timeout" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = --signal=TERM ]
+[ "$2" = --kill-after=30s ]
+printf '%s\n' "$3" >"$FAKE_TIMEOUT_SECS"
+shift 3
+exec "$@"
 EOF
 
 cat >"$fake_janus" <<'EOF'
@@ -336,14 +399,22 @@ set -euo pipefail
 [ "$2" = managed-fixture-1 ]
 [ "$3" = fixturehost ]
 [ "$4" = sec_0123456789abcdefabcd ]
-[ "$#" -eq 4 ]
 [ -z "${PHAROS_TOKEN:-}" ] || printf 'token-env-leak\n' >"$FAKE_LEAK_LOG"
 printf '%s\n' "$1" >>"$FAKE_JANUS_CALLS"
 case "$1" in
+issue)
+  [ "$#" -eq 5 ]
+  mkdir -p "$5/etc/pharos"
+  printf 'PHAROS_BEACON_TOKEN=fixture-value-not-a-secret\n' >"$5/etc/pharos/beacon.env"
+  chmod 0600 "$5/etc/pharos/beacon.env"
+  printf 'janus_managed_beacon=issued value_returned=false credential_created=true\n'
+  ;;
 retire)
+  [ "$#" -eq 4 ]
   printf 'janus_managed_beacon=retired value_returned=false credential_created=false\n'
   ;;
 prove-absent)
+  [ "$#" -eq 4 ]
   printf 'janus_managed_beacon=absent value_returned=false credential_created=false\n'
   ;;
 *) exit 1 ;;
@@ -383,6 +454,8 @@ export FAKE_LEAK_LOG="$fixture_root/leak.log"
 export FAKE_RESULT_BODY="$fixture_root/result.json"
 export FAKE_JANUS_CALLS="$fixture_root/janus-calls.log"
 export FAKE_NIXOS_ANYWHERE_CALLED="$fixture_root/nixos-anywhere-called"
+export FAKE_NIXOS_ANYWHERE_ARGS="$fixture_root/nixos-anywhere-args"
+export FAKE_TIMEOUT_SECS="$fixture_root/timeout-secs"
 export FAKE_JANUS_DERIVATION_REACHED="$fixture_root/janus-derivation-reached"
 export FAKE_VOLUME_HELPER_RUNS="$fixture_root/volume-helper-runs"
 export FAKE_SHELL_FREE_RUNTIME_USED="$fixture_root/shell-free-runtime-used"
@@ -405,6 +478,10 @@ grep -Fxq 'janus_managed_beacon=absent value_returned=false credential_created=f
 run_agent() {
   local scenario=$1
   export FAKE_ACTION=$scenario
+  export FAKE_LEASE_SECS=3600
+  if [ "$scenario" = bootstrap ]; then
+    FAKE_LEASE_SECS=900
+  fi
   if ! PATH="$fake_bin:$PATH" PHAROS_TOKEN="$FAKE_TOKEN" "$agent" \
     >"$fixture_root/agent.out" 2>"$fixture_root/agent.err"; then
     if grep -Fq "$FAKE_TOKEN" "$fixture_root/agent.err"; then
@@ -436,6 +513,24 @@ jq -e '{owner,host,action,outcome,credential_created} == {
 } and (.reason == null)' "$FAKE_RESULT_BODY" >/dev/null
 [ "$(tail -n1 "$FAKE_JANUS_CALLS")" = prove-absent ]
 [ ! -e "$FAKE_NIXOS_ANYWHERE_CALLED" ]
+[ ! -e "$fake_state/pending-result.json" ]
+
+run_agent bootstrap
+jq -e '{owner,host,action,outcome,credential_created} == {
+  owner:"csb1",
+  host:"fixturehost",
+  action:"bootstrap",
+  outcome:"succeeded",
+  credential_created:true
+} and (.reason == null)' "$FAKE_RESULT_BODY" >/dev/null
+[ "$(tail -n1 "$FAKE_JANUS_CALLS")" = issue ]
+[ -e "$FAKE_NIXOS_ANYWHERE_CALLED" ]
+grep -Fq -- '--copy-host-keys' "$FAKE_NIXOS_ANYWHERE_ARGS"
+grep -Fq -- '--extra-files' "$FAKE_NIXOS_ANYWHERE_ARGS"
+bootstrap_timeout_secs=$(sed 's/s$//' "$FAKE_TIMEOUT_SECS")
+[[ "$bootstrap_timeout_secs" =~ ^[0-9]+$ ]]
+[ "$bootstrap_timeout_secs" -gt 0 ]
+[ "$bootstrap_timeout_secs" -le 600 ]
 [ ! -e "$fake_state/pending-result.json" ]
 [ ! -e "$FAKE_LEAK_LOG" ]
 if grep -Fq "$FAKE_TOKEN" "$FAKE_CURL_ARGS"; then
