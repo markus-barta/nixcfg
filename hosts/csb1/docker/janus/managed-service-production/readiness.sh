@@ -182,7 +182,7 @@ declarative() {
   check_image_pin \
     go_release_pin \
     janus \
-    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v1\.172@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v1\.173@sha256:[0-9a-f]{64}$'
   check_image_pin \
     rust_release_pin \
     janus-managed-transactiond \
@@ -247,21 +247,21 @@ declarative() {
      and .mode == "production"
      and .previous_mode == "production"
      and .artifact.image == "ghcr.io/inspr-at/janus/janus-envelope"
-     and .artifact.tag == "go-envelope-v1.172"
+     and .artifact.tag == "go-envelope-v1.173"
      and .artifact.digest == $digest
      and .artifact.development == false
      and .signature.verified == true
-     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.172"
+     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.173"
      and .signature.oidc_issuer == "https://token.actions.githubusercontent.com"
      and .provenance.verified == true
      and .provenance.repository == "inspr-at/janus"
      and .provenance.signer_workflow == "inspr-at/janus/.github/workflows/go-envelope.yml"
-     and .provenance.source_ref == "refs/tags/go-envelope-v1.172"
+     and .provenance.source_ref == "refs/tags/go-envelope-v1.173"
      and .provenance.predicate_type == "https://slsa.dev/provenance/v1"
      and .sbom.verified == true
      and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"
      and .source.verified == true
-     and .source.commit == "fb24d99d226d06cd5f092321c3483082a0473e44"
+     and .source.commit == "8f2b9a19e9a638127deaab73dd093b678628d609"
      and (.source.manifest_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and (.source.bundle_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and .scanner.verified == true
