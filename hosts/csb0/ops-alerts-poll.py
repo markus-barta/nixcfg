@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Fleet alert poller (OPS-104). See ops-alerts.nix for why this exists.
+
+Reads every Home Assistant instance over its REST API and reports problems to
+Telegram. Announces transitions only — a problem when it starts, a recovery when
+it clears — because a message every 15 minutes for something you already know
+about is a message you learn to ignore.
+
+Credentials arrive as environment variables from an agenix secret via systemd's
+EnvironmentFile: HA_TOKEN_<HOST>, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID. They are
+never logged, never passed as arguments, and never written to the state file.
+"""
+
+import json
+import os
+import ssl
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+STATE_PATH = "/var/lib/ops-alerts/state.json"
+TIMEOUT = 15
+
+
+def ha_get(base, token, path):
+    req = urllib.request.Request(
+        f"{base}{path}", headers={"Authorization": f"Bearer {token}"}
+    )
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return json.loads(r.read().decode())
+
+
+def check(target):
+    """Return a dict of problem_key -> human message for one instance."""
+    name = target["name"]
+    token = os.environ.get(target["tokenVar"], "")
+    problems = {}
+
+    if not token:
+        return {f"{name}:token": f"{name}: no API token in the environment"}
+
+    # 1. Is Home Assistant answering at all? This is the check that no in-HA
+    #    automation can ever perform on itself.
+    try:
+        ha_get(target["url"], token, "/api/")
+    except urllib.error.HTTPError as e:
+        return {f"{name}:api": f"{name}: HA API returned HTTP {e.code}"}
+    except Exception as e:  # noqa: BLE001 - any failure here means "unreachable"
+        return {f"{name}:api": f"{name}: HA unreachable ({type(e).__name__})"}
+
+    # 2. Did a config entry fail to load? 'unavailable' means the entry is not
+    #    loaded. 'unknown' is a healthy-but-sleeping car and must NOT alert.
+    witness = target.get("witness")
+    if witness:
+        try:
+            state = ha_get(target["url"], token, f"/api/states/{witness}").get("state")
+            if state == "unavailable":
+                problems[f"{name}:entry"] = (
+                    f"{name}: Tesla integration not loaded ({witness} is unavailable). "
+                    f"The self-heal automation should reload it within the hour."
+                )
+        except Exception as e:  # noqa: BLE001
+            problems[f"{name}:entry"] = f"{name}: cannot read {witness} ({type(e).__name__})"
+
+    # 3. Is the Fleet API budget being burned faster than planned?
+    budget = target.get("budgetEntity")
+    if budget:
+        try:
+            raw = ha_get(target["url"], token, f"/api/states/{budget}").get("state")
+            used = int(float(raw))
+            if used > target.get("budgetLimit", 0):
+                problems[f"{name}:budget"] = (
+                    f"{name}: Tesla API budget at {used} billed polls this month "
+                    f"(threshold {target['budgetLimit']}). Check that built-in polling "
+                    f"was not re-enabled and that no new vehicle joined the account."
+                )
+        except Exception:  # noqa: BLE001 - a missing counter is not an outage
+            pass
+
+    return problems
+
+
+def telegram(text):
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat = os.environ.get("TELEGRAM_CHAT_ID")
+    if not token or not chat:
+        print("telegram credentials missing; message not sent", file=sys.stderr)
+        return False
+    data = urllib.parse.urlencode(
+        {"chat_id": chat, "text": text, "disable_web_page_preview": "true"}
+    ).encode()
+    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data)
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=ssl.create_default_context()):
+            return True
+    except Exception as e:  # noqa: BLE001
+        print(f"telegram send failed: {type(e).__name__}", file=sys.stderr)
+        return False
+
+
+def main():
+    targets = json.load(open(sys.argv[1]))
+
+    current = {}
+    for t in targets:
+        current.update(check(t))
+
+    try:
+        previous = json.load(open(STATE_PATH))
+    except Exception:  # noqa: BLE001 - first run, or unreadable state
+        previous = {}
+
+    new = {k: v for k, v in current.items() if k not in previous}
+    cleared = [k for k in previous if k not in current]
+
+    lines = []
+    if new:
+        lines += ["\U0001f534 Fleet problem:"] + [f"• {v}" for v in new.values()]
+    if cleared:
+        lines += ["✅ Recovered:"] + [f"• {previous[k]}" for k in cleared]
+
+    if lines:
+        telegram("\n".join(lines))
+        for line in lines:
+            print(line)
+    else:
+        print(f"ok — {len(current)} active problem(s), no change")
+
+    os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+    with open(STATE_PATH, "w") as f:
+        json.dump(current, f, indent=2)
+
+    # Non-zero when something is wrong, so `systemctl --failed` and the
+    # OPS-102-style journal both reflect it even if Telegram is down.
+    return 1 if current else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
