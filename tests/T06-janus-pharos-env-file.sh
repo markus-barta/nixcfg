@@ -138,7 +138,7 @@ csb1_config_path = pathlib.Path(sys.argv[10])
 secrets_declarations_path = pathlib.Path(sys.argv[11])
 agenix_catalog_path = pathlib.Path(sys.argv[12])
 provider_smoke_path = pathlib.Path(sys.argv[13])
-hosts = ["csb0", "csb1", "dsc0", "gpc0", "hsb0", "hsb1", "hsb8", "hsb9"]
+hosts = ["csb0", "csb1", "dsc0", "hsb0", "hsb1", "hsb8", "hsb9"]
 
 for path in [
     nonprod_profile_path,
