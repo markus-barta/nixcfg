@@ -495,7 +495,7 @@ services:
     # organization release is deployed from a cosign-signed image with SPDX
     # SBOM + SLSA build provenance, pinned by digest.
     # To bump: cut a go-envelope-v* release, verify, then update the digest.
-    image: ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v1.170@sha256:8c6f353f933d7d0e1c1a555f296925df20b11965ac6ef49c33b3345d8c74917c
+    image: ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v1.171@sha256:430d3e0fdc6d9f96ffae9405099db6397c10060e00a0d8923957893f9479b0ef
     container_name: janus
     restart: unless-stopped
     # The image's named janus account is uid 100/gid 101. Pin the numeric
@@ -592,7 +592,7 @@ services:
     # manifests as the smoke harness; no production secret or host SSH key is
     # mounted into the staged Rust engine. Use the smoke harness, not manual
     # project-wide compose lifecycle commands, when testing this profile.
-    image: ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.17@sha256:27535905e2cb0e2ae67b903c53e07aa47eaa2fdaa52d73327470f3d030c70c08
+    image: ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.19@sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32
     container_name: janus-engine-staged
     profiles: ["janus-engine-staged"]
     restart: unless-stopped
@@ -660,7 +660,7 @@ services:
   # Janus managed-service transaction boundary
   # ============================================
   janus-managed-transactiond:
-    image: ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.17@sha256:27535905e2cb0e2ae67b903c53e07aa47eaa2fdaa52d73327470f3d030c70c08
+    image: ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.19@sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32
     container_name: janus-managed-transactiond
     profiles: ["janus-managed-service"]
     restart: "no"

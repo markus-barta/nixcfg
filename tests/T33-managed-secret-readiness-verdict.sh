@@ -10,6 +10,23 @@ if [ "${output}" != "managed_secret_readiness_self_test=passed value_returned=fa
   exit 1
 fi
 
+set +e
+invalid_output=$(bash "${readiness}" unsupported 2>&1)
+invalid_status=$?
+set -e
+if [ "${invalid_status}" -ne 2 ]; then
+  printf 'invalid readiness mode did not exit 2\n' >&2
+  exit 1
+fi
+if grep -Fq 'managed_secret_readiness=' <<<"${invalid_output}"; then
+  printf 'invalid readiness mode emitted a terminal verdict\n' >&2
+  exit 1
+fi
+if [ "${invalid_output}" != "usage: ${readiness} declarative|live|self-test" ]; then
+  printf 'invalid readiness mode emitted unexpected diagnostics\n' >&2
+  exit 1
+fi
+
 python3 - "${readiness}" <<'PY'
 import pathlib
 import re

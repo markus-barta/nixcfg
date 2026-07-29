@@ -48,6 +48,7 @@ python3 - "${contract}" "${pharos_contract}" <<'PY'
 import hashlib
 import json
 import pathlib
+import re
 import struct
 import sys
 import tomllib
@@ -182,40 +183,61 @@ expected_policy = {
 if policy != expected_policy:
     raise SystemExit("managed release policy drift")
 
-for filename, channel, image, tag in (
+for filename, channel, image, tag, expected_commit in (
     (
         "release-admission.json",
         "stable",
         "ghcr.io/inspr-at/janus/janus-engine",
-        "rust-engine-v0.1.17",
+        "rust-engine-v0.1.19",
+        "546dc08789b85314e4dd3820e73f878b20540b70",
     ),
     (
         "go-envelope-admission.json",
         "envelope-stable",
         "ghcr.io/inspr-at/janus/janus-envelope",
-        "go-envelope-v1.170",
+        "go-envelope-v1.171",
+        "96bd199c3a57cbfd56feacb68148a42f900faeb3",
     ),
 ):
     receipt = json.loads((contract / filename).read_text())
     if (
-        receipt["policy_version"] != 3
+        receipt["schema_version"] != 1
+        or receipt["policy_id"] != "janus-engine-release-v1"
+        or receipt["policy_version"] != 3
         or receipt["channel"] != channel
+        or receipt["mode"] != "production"
+        or receipt["previous_mode"] != "production"
         or receipt["artifact"]["image"] != image
         or receipt["artifact"]["tag"] != tag
-        or not receipt["source"]["verified"]
-        or len(receipt["source"]["commit"]) != 40
-        or not receipt["source"]["manifest_sha256"].startswith("sha256:")
-        or not receipt["source"]["bundle_sha256"].startswith("sha256:")
-        or receipt["scanner"]
-        != {
-            "verified": True,
-            "name": "trivy",
-            "policy": "candidate_container_critical_high",
-            "summary_sha256": "sha256:"
-            + "9a860114dde293574d69eb108759d1716be2de2ae18f4e1e3a8015d76576c4f5",
-            "critical": 0,
-            "high": 0,
-        }
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", receipt["artifact"]["digest"])
+        is None
+        or receipt["artifact"]["development"] is not False
+        or receipt["signature"]["verified"] is not True
+        or receipt["provenance"]["verified"] is not True
+        or receipt["sbom"]["verified"] is not True
+        or receipt["source"]["verified"] is not True
+        or receipt["source"]["commit"] != expected_commit
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", receipt["source"]["manifest_sha256"]
+        )
+        is None
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", receipt["source"]["bundle_sha256"]
+        )
+        is None
+        or receipt["scanner"]["verified"] is not True
+        or receipt["scanner"]["name"] != "trivy"
+        or receipt["scanner"]["policy"] != "candidate_container_critical_high"
+        or receipt["scanner"]["subject"]
+        != f'{image}@{receipt["artifact"]["digest"]}'
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", receipt["scanner"]["summary_sha256"]
+        )
+        is None
+        or type(receipt["scanner"]["critical"]) is not int
+        or receipt["scanner"]["critical"] != 0
+        or type(receipt["scanner"]["high"]) is not int
+        or receipt["scanner"]["high"] != 0
     ):
         raise SystemExit(f"{filename} evidence drift")
 PY

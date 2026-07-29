@@ -7,20 +7,20 @@
   "previous_mode": "production",
   "artifact": {
     "image": "ghcr.io/inspr-at/janus/janus-engine",
-    "tag": "rust-engine-v0.1.17",
-    "digest": "sha256:27535905e2cb0e2ae67b903c53e07aa47eaa2fdaa52d73327470f3d030c70c08",
+    "tag": "rust-engine-v0.1.19",
+    "digest": "sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32",
     "development": false
   },
   "signature": {
     "verified": true,
-    "identity": "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.17",
+    "identity": "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.19",
     "oidc_issuer": "https://token.actions.githubusercontent.com"
   },
   "provenance": {
     "verified": true,
     "repository": "inspr-at/janus",
     "signer_workflow": "inspr-at/janus/.github/workflows/rust.yml",
-    "source_ref": "refs/tags/rust-engine-v0.1.17",
+    "source_ref": "refs/tags/rust-engine-v0.1.19",
     "predicate_type": "https://slsa.dev/provenance/v1"
   },
   "sbom": {
@@ -29,15 +29,16 @@
   },
   "source": {
     "verified": true,
-    "commit": "77698a29c4a569c1390b965ce1cd191ea3ece979",
-    "manifest_sha256": "sha256:ff343abad1d5da08014cfbb002103dc19d5f4eb526d5d8727b80eed9169ca7d8",
-    "bundle_sha256": "sha256:d3540d4b9c7c23e17b45449803aad1d55609980f8b1ecc3d574813570f4176f1"
+    "commit": "546dc08789b85314e4dd3820e73f878b20540b70",
+    "manifest_sha256": "sha256:2462faa43d18cd4e3564100650b86f4ad5f8f522d602e2b49c32d05004c8c365",
+    "bundle_sha256": "sha256:a6f5d979d607d09c2067d0743f5d28fd18450053238cc0e32d6b76b3832e6497"
   },
   "scanner": {
     "verified": true,
     "name": "trivy",
     "policy": "candidate_container_critical_high",
-    "summary_sha256": "sha256:9a860114dde293574d69eb108759d1716be2de2ae18f4e1e3a8015d76576c4f5",
+    "subject": "ghcr.io/inspr-at/janus/janus-engine@sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32",
+    "summary_sha256": "sha256:8b978025063a1419ac0ac22662ab0b0c2d483542437b3c6d4aeb70e9190a40dd",
     "critical": 0,
     "high": 0
   }
