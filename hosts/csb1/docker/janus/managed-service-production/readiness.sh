@@ -21,6 +21,18 @@ fail() {
   failures=$((failures + 1))
 }
 
+emit_terminal_verdict() {
+  local requested_mode=$1
+  local failure_count=$2
+  if [ "$failure_count" -eq 0 ]; then
+    printf 'managed_secret_readiness=ready mode=%s value_returned=false\n' \
+      "$requested_mode"
+  else
+    printf 'managed_secret_readiness=blocked mode=%s failures=%s value_returned=false\n' \
+      "$requested_mode" "$failure_count" >&2
+  fi
+}
+
 check_command() {
   local id=$1
   shift
@@ -154,11 +166,11 @@ declarative() {
   check_image_pin \
     go_release_pin \
     janus \
-    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v1\.170@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v1\.171@sha256:[0-9a-f]{64}$'
   check_image_pin \
     rust_release_pin \
     janus-managed-transactiond \
-    '^ghcr\.io/inspr-at/janus/janus-engine:rust-engine-v0\.1\.17@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/janus/janus-engine:rust-engine-v0\.1\.19@sha256:[0-9a-f]{64}$'
   check_image_pin \
     pharos_release_pin \
     pharosd \
@@ -173,29 +185,77 @@ declarative() {
   # $digest is a jq variable supplied by --arg, not a shell expansion.
   # shellcheck disable=SC2016
   check_command \
-    admission_receipt \
+    rust_admission_receipt \
     jq -e --arg digest "$(service_image janus-managed-transactiond | sed 's/.*@//')" \
     '.schema_version == 1
      and .policy_id == "janus-engine-release-v1"
-     and .policy_version == 2
+     and .policy_version == 3
      and .channel == "stable"
      and .mode == "production"
      and .previous_mode == "production"
      and .artifact.image == "ghcr.io/inspr-at/janus/janus-engine"
-     and .artifact.tag == "rust-engine-v0.1.17"
+     and .artifact.tag == "rust-engine-v0.1.19"
      and .artifact.digest == $digest
      and .artifact.development == false
      and .signature.verified == true
-     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.17"
+     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.19"
      and .signature.oidc_issuer == "https://token.actions.githubusercontent.com"
      and .provenance.verified == true
      and .provenance.repository == "inspr-at/janus"
      and .provenance.signer_workflow == "inspr-at/janus/.github/workflows/rust.yml"
-     and .provenance.source_ref == "refs/tags/rust-engine-v0.1.17"
+     and .provenance.source_ref == "refs/tags/rust-engine-v0.1.19"
      and .provenance.predicate_type == "https://slsa.dev/provenance/v1"
      and .sbom.verified == true
-     and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"' \
+     and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"
+     and .source.verified == true
+     and .source.commit == "546dc08789b85314e4dd3820e73f878b20540b70"
+     and (.source.manifest_sha256 | test("^sha256:[0-9a-f]{64}$"))
+     and (.source.bundle_sha256 | test("^sha256:[0-9a-f]{64}$"))
+     and .scanner.verified == true
+     and .scanner.name == "trivy"
+     and .scanner.policy == "candidate_container_critical_high"
+     and .scanner.subject == ("ghcr.io/inspr-at/janus/janus-engine@" + $digest)
+     and (.scanner.summary_sha256 | test("^sha256:[0-9a-f]{64}$"))
+     and .scanner.critical == 0
+     and .scanner.high == 0' \
     "${script_dir}/release-admission.json"
+
+  # shellcheck disable=SC2016
+  check_command \
+    go_admission_receipt \
+    jq -e --arg digest "$(service_image janus | sed 's/.*@//')" \
+    '.schema_version == 1
+     and .policy_id == "janus-engine-release-v1"
+     and .policy_version == 3
+     and .channel == "envelope-stable"
+     and .mode == "production"
+     and .previous_mode == "production"
+     and .artifact.image == "ghcr.io/inspr-at/janus/janus-envelope"
+     and .artifact.tag == "go-envelope-v1.171"
+     and .artifact.digest == $digest
+     and .artifact.development == false
+     and .signature.verified == true
+     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.171"
+     and .signature.oidc_issuer == "https://token.actions.githubusercontent.com"
+     and .provenance.verified == true
+     and .provenance.repository == "inspr-at/janus"
+     and .provenance.signer_workflow == "inspr-at/janus/.github/workflows/go-envelope.yml"
+     and .provenance.source_ref == "refs/tags/go-envelope-v1.171"
+     and .provenance.predicate_type == "https://slsa.dev/provenance/v1"
+     and .sbom.verified == true
+     and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"
+     and .source.verified == true
+     and .source.commit == "96bd199c3a57cbfd56feacb68148a42f900faeb3"
+     and (.source.manifest_sha256 | test("^sha256:[0-9a-f]{64}$"))
+     and (.source.bundle_sha256 | test("^sha256:[0-9a-f]{64}$"))
+     and .scanner.verified == true
+     and .scanner.name == "trivy"
+     and .scanner.policy == "candidate_container_critical_high"
+     and .scanner.subject == ("ghcr.io/inspr-at/janus/janus-envelope@" + $digest)
+     and (.scanner.summary_sha256 | test("^sha256:[0-9a-f]{64}$"))
+     and .scanner.critical == 0
+     and .scanner.high == 0' \
+    "${script_dir}/go-envelope-admission.json"
 
   local activation
   activation=$(nix eval \
@@ -208,12 +268,6 @@ declarative() {
   fi
   check_command runtime_hardening check_runtime_hardening
 
-  if [ "$failures" -eq 0 ]; then
-    printf 'managed_secret_readiness=ready mode=declarative value_returned=false\n'
-  else
-    printf 'managed_secret_readiness=blocked mode=declarative failures=%s value_returned=false\n' \
-      "$failures" >&2
-  fi
 }
 
 expect_metadata() {
@@ -433,12 +487,6 @@ live() {
     fi
   done
 
-  if [ "$failures" -eq 0 ]; then
-    printf 'managed_secret_readiness=ready mode=live value_returned=false\n'
-  else
-    printf 'managed_secret_readiness=blocked mode=live failures=%s value_returned=false\n' \
-      "$failures" >&2
-  fi
 }
 
 case "$mode" in
@@ -451,12 +499,24 @@ live)
     live
   fi
   ;;
+self-test)
+  blocked_output=$(emit_terminal_verdict live 2 2>&1)
+  ready_output=$(emit_terminal_verdict declarative 0 2>&1)
+  if [ "$blocked_output" != "managed_secret_readiness=blocked mode=live failures=2 value_returned=false" ] ||
+    [ "$ready_output" != "managed_secret_readiness=ready mode=declarative value_returned=false" ]; then
+    printf 'managed_secret_readiness_self_test=failed value_returned=false\n' >&2
+    exit 1
+  fi
+  printf 'managed_secret_readiness_self_test=passed value_returned=false\n'
+  exit 0
+  ;;
 *)
-  printf 'usage: %s declarative|live\n' "$0" >&2
+  printf 'usage: %s declarative|live|self-test\n' "$0" >&2
   exit 2
   ;;
 esac
 
+emit_terminal_verdict "$mode" "$failures"
 if [ "$failures" -ne 0 ]; then
   exit 1
 fi

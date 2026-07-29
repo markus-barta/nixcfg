@@ -1,30 +1,45 @@
 {
   "schema_version": 1,
   "policy_id": "janus-engine-release-v1",
-  "policy_version": 2,
+  "policy_version": 3,
   "channel": "stable",
   "mode": "production",
   "previous_mode": "production",
   "artifact": {
     "image": "ghcr.io/inspr-at/janus/janus-engine",
-    "tag": "rust-engine-v0.1.17",
-    "digest": "sha256:27535905e2cb0e2ae67b903c53e07aa47eaa2fdaa52d73327470f3d030c70c08",
+    "tag": "rust-engine-v0.1.19",
+    "digest": "sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32",
     "development": false
   },
   "signature": {
     "verified": true,
-    "identity": "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.17",
+    "identity": "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.19",
     "oidc_issuer": "https://token.actions.githubusercontent.com"
   },
   "provenance": {
     "verified": true,
     "repository": "inspr-at/janus",
     "signer_workflow": "inspr-at/janus/.github/workflows/rust.yml",
-    "source_ref": "refs/tags/rust-engine-v0.1.17",
+    "source_ref": "refs/tags/rust-engine-v0.1.19",
     "predicate_type": "https://slsa.dev/provenance/v1"
   },
   "sbom": {
     "verified": true,
     "predicate_type": "https://spdx.dev/Document/v2.3"
+  },
+  "source": {
+    "verified": true,
+    "commit": "546dc08789b85314e4dd3820e73f878b20540b70",
+    "manifest_sha256": "sha256:2462faa43d18cd4e3564100650b86f4ad5f8f522d602e2b49c32d05004c8c365",
+    "bundle_sha256": "sha256:a6f5d979d607d09c2067d0743f5d28fd18450053238cc0e32d6b76b3832e6497"
+  },
+  "scanner": {
+    "verified": true,
+    "name": "trivy",
+    "policy": "candidate_container_critical_high",
+    "subject": "ghcr.io/inspr-at/janus/janus-engine@sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32",
+    "summary_sha256": "sha256:8b978025063a1419ac0ac22662ab0b0c2d483542437b3c6d4aeb70e9190a40dd",
+    "critical": 0,
+    "high": 0
   }
 }
