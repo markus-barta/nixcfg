@@ -344,6 +344,20 @@ compose_json=$(
     --no-path-resolution \
     --format json
 )
+go_artifact_tag=$(
+  jq -er '.artifact.tag | select(test("^go-envelope-v[1-9][0-9]*\\.[0-9]+$"))' \
+    "${contract}/go-envelope-admission.json"
+)
+go_artifact_digest=$(
+  jq -er '.artifact.digest | select(test("^sha256:[0-9a-f]{64}$"))' \
+    "${contract}/go-envelope-admission.json"
+)
+go_image="$(jq -er '.services.janus.image' <<<"${compose_json}")"
+test "${go_image}" = \
+  "ghcr.io/inspr-at/janus/janus-envelope:${go_artifact_tag}@${go_artifact_digest}"
+go_tag_pattern="${go_artifact_tag//./\\.}"
+grep -Fq "janus-envelope:${go_tag_pattern}@sha256" \
+  "${contract}/readiness.sh"
 rust_artifact_digest=$(
   jq -er '.artifact.digest | select(test("^sha256:[0-9a-f]{64}$"))' \
     "${contract}/release-admission.json"
