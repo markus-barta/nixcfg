@@ -344,7 +344,17 @@ compose_json=$(
     --no-path-resolution \
     --format json
 )
-jq -e '
+rust_artifact_digest=$(
+  jq -er '.artifact.digest | select(test("^sha256:[0-9a-f]{64}$"))' \
+    "${contract}/release-admission.json"
+)
+rust_transaction_image="$(
+  jq -er '.services["janus-managed-transactiond"].image' <<<"${compose_json}"
+)"
+jq -e \
+  --arg artifact_digest "${rust_artifact_digest}" \
+  --arg transaction_image "${rust_transaction_image}" \
+  '
   def closed_bind($target; $read_only):
     any(.volumes[];
       .type == "bind"
@@ -368,6 +378,12 @@ jq -e '
   and $transaction.mem_limit == "128m"
   and $transaction.cpus == "0.50"
   and $transaction.healthcheck.test == ["CMD", "/usr/local/bin/janusd-use", "--help"]
+  and $transaction.image == $transaction_image
+  and ($transaction_image | endswith("@" + $artifact_digest))
+  and (
+    $transaction.environment
+    | index("JANUS_RELEASE_ARTIFACT_DIGEST=" + $artifact_digest) != null
+  )
   and ($transaction | closed_bind("/var/lib/janus-managed-central"; false))
   and ($transaction | closed_bind("/run/janus-managed-central"; false))
   and ($transaction | closed_bind("/run/agenix/csb1-janus-managed-host-signing-key"; true))
