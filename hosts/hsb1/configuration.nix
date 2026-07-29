@@ -221,6 +221,17 @@ in
   services.tailscale = {
     enable = true;
     useRoutingFeatures = "client"; # Client mode only
+    # Keep the static resolvers (192.168.1.99 AdGuard + 1.1.1.1). With
+    # accept-dns at its default (true), tailscaled REPLACES the whole
+    # nameserver list with 100.100.100.100 — the Cloudflare fallback is gone
+    # and every lookup depends on tailscaled answering. At boot that races the
+    # docker stack: on hsb8 (2026-07-25) Home Assistant started first, its
+    # tesla_fleet setup died on a DNS timeout, and a failed setup is never
+    # retried — the integration stayed dead for four days (OPS-101).
+    # Same pref as hsb9. NOTE: extraUpFlags only applies at `tailscale up`;
+    # on an already-authenticated host run `sudo tailscale set
+    # --accept-dns=false` once (persists in tailscaled.state).
+    extraUpFlags = [ "--accept-dns=false" ];
   };
 
   # Enable FLIRC IR-USB-Module
