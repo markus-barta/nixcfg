@@ -139,7 +139,7 @@ policy = json.loads((contract / "release-channels-v1.json").read_text())
 expected_policy = {
     "schema_version": 1,
     "policy_id": "janus-engine-release-v1",
-    "policy_version": 2,
+    "policy_version": 3,
     "required_modes": ["production", "enterprise"],
     "deny_mode_downgrade": True,
     "channels": [
@@ -147,11 +147,29 @@ expected_policy = {
             "name": "stable",
             "image": "ghcr.io/inspr-at/janus/janus-engine",
             "tag_prefix": "rust-engine-v",
+            "tag_pattern": r"rust-engine-v[0-9]+\.[0-9]+\.[0-9]+",
             "repository": "inspr-at/janus",
             "signer_workflow": "inspr-at/janus/.github/workflows/rust.yml",
+            "source_manifest_workflow": ".github/workflows/rust.yml",
             "certificate_identity_prefix": (
                 "https://github.com/inspr-at/janus/"
                 ".github/workflows/rust.yml@refs/tags/"
+            ),
+            "oidc_issuer": "https://token.actions.githubusercontent.com",
+            "provenance_predicate_type": "https://slsa.dev/provenance/v1",
+            "sbom_predicate_type": "https://spdx.dev/Document/v2.3",
+        },
+        {
+            "name": "envelope-stable",
+            "image": "ghcr.io/inspr-at/janus/janus-envelope",
+            "tag_prefix": "go-envelope-v",
+            "tag_pattern": r"go-envelope-v[1-9][0-9]*\.[0-9]+",
+            "repository": "inspr-at/janus",
+            "signer_workflow": "inspr-at/janus/.github/workflows/go-envelope.yml",
+            "source_manifest_workflow": ".github/workflows/go-envelope.yml",
+            "certificate_identity_prefix": (
+                "https://github.com/inspr-at/janus/"
+                ".github/workflows/go-envelope.yml@refs/tags/"
             ),
             "oidc_issuer": "https://token.actions.githubusercontent.com",
             "provenance_predicate_type": "https://slsa.dev/provenance/v1",
@@ -163,6 +181,43 @@ expected_policy = {
 }
 if policy != expected_policy:
     raise SystemExit("managed release policy drift")
+
+for filename, channel, image, tag in (
+    (
+        "release-admission.json",
+        "stable",
+        "ghcr.io/inspr-at/janus/janus-engine",
+        "rust-engine-v0.1.17",
+    ),
+    (
+        "go-envelope-admission.json",
+        "envelope-stable",
+        "ghcr.io/inspr-at/janus/janus-envelope",
+        "go-envelope-v1.170",
+    ),
+):
+    receipt = json.loads((contract / filename).read_text())
+    if (
+        receipt["policy_version"] != 3
+        or receipt["channel"] != channel
+        or receipt["artifact"]["image"] != image
+        or receipt["artifact"]["tag"] != tag
+        or not receipt["source"]["verified"]
+        or len(receipt["source"]["commit"]) != 40
+        or not receipt["source"]["manifest_sha256"].startswith("sha256:")
+        or not receipt["source"]["bundle_sha256"].startswith("sha256:")
+        or receipt["scanner"]
+        != {
+            "verified": True,
+            "name": "trivy",
+            "policy": "candidate_container_critical_high",
+            "summary_sha256": "sha256:"
+            + "9a860114dde293574d69eb108759d1716be2de2ae18f4e1e3a8015d76576c4f5",
+            "critical": 0,
+            "high": 0,
+        }
+    ):
+        raise SystemExit(f"{filename} evidence drift")
 PY
 
 for name in \
@@ -187,6 +242,7 @@ grep -Fq 'composeFile = janusManagedComposeFile;' "${host}"
 grep -Fq 'janus-managed-central.gid = 993;' "${host}"
 grep -Fq 'pharos-container.gid = 992;' "${host}"
 grep -Fq '"janus/managed/web-transaction-catalog.json" = {' "${host}"
+grep -Fq '"janus/managed/go-envelope-admission.json" = {' "${host}"
 test "$(
   nix eval \
     "${flake_ref}#nixosConfigurations.csb1.config.environment.etc.\"janus/managed/web-transaction-catalog.json\".mode" \

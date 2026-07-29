@@ -435,6 +435,12 @@ in
       group = "janus-managed-central";
       mode = "0400";
     };
+    "janus/managed/go-envelope-admission.json" = {
+      source = ./docker/janus/managed-service-production/go-envelope-admission.json;
+      user = "root";
+      group = "root";
+      mode = "0400";
+    };
     "janus/managed/docker-compose.yml".source = ./docker/docker-compose.yml;
   };
 

@@ -2,25 +2,25 @@
   "schema_version": 1,
   "policy_id": "janus-engine-release-v1",
   "policy_version": 3,
-  "channel": "stable",
+  "channel": "envelope-stable",
   "mode": "production",
   "previous_mode": "production",
   "artifact": {
-    "image": "ghcr.io/inspr-at/janus/janus-engine",
-    "tag": "rust-engine-v0.1.17",
-    "digest": "sha256:27535905e2cb0e2ae67b903c53e07aa47eaa2fdaa52d73327470f3d030c70c08",
+    "image": "ghcr.io/inspr-at/janus/janus-envelope",
+    "tag": "go-envelope-v1.170",
+    "digest": "sha256:8c6f353f933d7d0e1c1a555f296925df20b11965ac6ef49c33b3345d8c74917c",
     "development": false
   },
   "signature": {
     "verified": true,
-    "identity": "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.17",
+    "identity": "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.170",
     "oidc_issuer": "https://token.actions.githubusercontent.com"
   },
   "provenance": {
     "verified": true,
     "repository": "inspr-at/janus",
-    "signer_workflow": "inspr-at/janus/.github/workflows/rust.yml",
-    "source_ref": "refs/tags/rust-engine-v0.1.17",
+    "signer_workflow": "inspr-at/janus/.github/workflows/go-envelope.yml",
+    "source_ref": "refs/tags/go-envelope-v1.170",
     "predicate_type": "https://slsa.dev/provenance/v1"
   },
   "sbom": {
@@ -29,9 +29,9 @@
   },
   "source": {
     "verified": true,
-    "commit": "77698a29c4a569c1390b965ce1cd191ea3ece979",
-    "manifest_sha256": "sha256:ff343abad1d5da08014cfbb002103dc19d5f4eb526d5d8727b80eed9169ca7d8",
-    "bundle_sha256": "sha256:d3540d4b9c7c23e17b45449803aad1d55609980f8b1ecc3d574813570f4176f1"
+    "commit": "01f05482d9a9680b5b426cd03b420563bea5aabe",
+    "manifest_sha256": "sha256:c52117fc6bd28098f36381933ec9b0e3a75f1d830e3cb21cc3b9701ad295b8c6",
+    "bundle_sha256": "sha256:ab79e8f67cce8290ee67a8c17ea4b9fec9d6215af9f781d1e1d7705ed68fc8b0"
   },
   "scanner": {
     "verified": true,
