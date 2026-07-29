@@ -853,7 +853,7 @@ services:
   pharosd:
     # Keep the readable release tag, but bind it to the verified immutable
     # linux/amd64 manifest used by both server and bundled beacon.
-    image: ghcr.io/inspr-at/pharos/pharosd:0.1.64@sha256:e33f900cc41600ac3605ead12884507923c13dc05a3fa30ddbd33cb52a975e6f
+    image: ghcr.io/inspr-at/pharos/pharosd:0.1.65@sha256:2c67cb46bfd6ff850f0ffa2b944de52d93e0b7001c13863ddb182395353e149c
     container_name: pharosd
     restart: unless-stopped
     init: true
@@ -962,7 +962,7 @@ services:
   # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
   # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
   pharos-beacon:
-    image: ghcr.io/inspr-at/pharos/pharosd:0.1.64@sha256:e33f900cc41600ac3605ead12884507923c13dc05a3fa30ddbd33cb52a975e6f
+    image: ghcr.io/inspr-at/pharos/pharosd:0.1.65@sha256:2c67cb46bfd6ff850f0ffa2b944de52d93e0b7001c13863ddb182395353e149c
     container_name: pharos-beacon
     restart: unless-stopped
     init: true
