@@ -680,7 +680,7 @@ services:
       - JANUS_PRODUCT_MODE=production
       - JANUS_RELEASE_CHANNEL_POLICY=/etc/janus/managed/release-channels-v1.json
       - JANUS_RELEASE_ADMISSION_RECEIPT=/etc/janus/managed/release-admission.json
-      - JANUS_RELEASE_ARTIFACT_DIGEST=sha256:27535905e2cb0e2ae67b903c53e07aa47eaa2fdaa52d73327470f3d030c70c08
+      - JANUS_RELEASE_ARTIFACT_DIGEST=sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32
       - JANUS_RELEASE_AUDIT_FILE=/var/lib/janus-managed-central/audit/release-admission.jsonl
       - JANUS_RELEASE_EXECUTOR=janusd-web-transactiond
       - JANUS_RUNTIME_AUDIT_FILE=/var/lib/janus-managed-central/audit/runtime.jsonl
