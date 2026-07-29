@@ -110,6 +110,16 @@ in
     nameservers = dnsServers;
     search = if location == "ww87" then [ "local" ] else [ "lan" ];
 
+    # openresolv defaults to resolv_conf_local_only=YES: as soon as ONE
+    # nameserver is on loopback it writes only that one and silently drops the
+    # rest. At ww87 that made the 1.1.1.1 fallback in dnsServers dead weight —
+    # /etc/resolv.conf held 127.0.0.1 alone, so every lookup on this host
+    # depended on the local AdGuard being up. Keep both entries so a
+    # not-yet-started (or broken) AdGuard degrades to Cloudflare instead of
+    # failing resolution outright — see the tailscale accept-dns note below
+    # and OPS-101 for the boot race this class of failure caused.
+    resolvconf.extraConfig = "resolv_conf_local_only=NO";
+
     # Static IP: 192.168.1.100 (same at both locations)
     interfaces.enp2s0f0 = {
       ipv4.addresses = [
@@ -501,6 +511,17 @@ in
   services.tailscale = {
     enable = true;
     useRoutingFeatures = "client"; # Client mode only
+    # Keep the static resolvers (127.0.0.1 local AdGuard + 1.1.1.1). With
+    # accept-dns at its default (true), tailscaled REPLACES the whole
+    # nameserver list with 100.100.100.100 — the Cloudflare fallback is gone
+    # and every lookup depends on tailscaled answering. At boot that races the
+    # docker stack: 2026-07-25 this host rebooted, Home Assistant started
+    # before the resolver answered, tesla_fleet setup died on a DNS timeout,
+    # and a failed setup is never retried — dead for four days (OPS-101).
+    # Same pref as hsb9. NOTE: extraUpFlags only applies at `tailscale up`;
+    # on an already-authenticated host run `sudo tailscale set
+    # --accept-dns=false` once (persists in tailscaled.state).
+    extraUpFlags = [ "--accept-dns=false" ];
   };
 
   # Passwordless sudo for wheel group (required for remote deployment)
