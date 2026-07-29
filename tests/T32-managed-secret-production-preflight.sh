@@ -195,8 +195,8 @@ for filename, channel, image, tag, expected_commit in (
         "go-envelope-admission.json",
         "envelope-stable",
         "ghcr.io/inspr-at/janus/janus-envelope",
-        "go-envelope-v1.172",
-        "fb24d99d226d06cd5f092321c3483082a0473e44",
+        "go-envelope-v1.173",
+        "8f2b9a19e9a638127deaab73dd093b678628d609",
     ),
 ):
     receipt = json.loads((contract / filename).read_text())
