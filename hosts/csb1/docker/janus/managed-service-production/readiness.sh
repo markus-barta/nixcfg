@@ -68,6 +68,13 @@ check_image_pin() {
 }
 
 check_runtime_hardening() {
+  local artifact_digest transaction_image
+  artifact_digest=$(
+    jq -er '.artifact.digest | select(test("^sha256:[0-9a-f]{64}$"))' \
+      "${script_dir}/release-admission.json"
+  ) || return 1
+  transaction_image=$(service_image janus-managed-transactiond)
+
   docker compose \
     -f "${compose}" \
     config \
@@ -75,7 +82,10 @@ check_runtime_hardening() {
     --no-env-resolution \
     --no-path-resolution \
     --format json |
-    jq -e '
+    jq -e \
+      --arg artifact_digest "$artifact_digest" \
+      --arg transaction_image "$transaction_image" \
+      '
       def closed_bind($target; $read_only):
         any(.volumes[];
           .type == "bind"
@@ -99,7 +109,13 @@ check_runtime_hardening() {
       and $transaction.mem_limit == "128m"
       and $transaction.cpus == "0.50"
       and $transaction.healthcheck.test == ["CMD", "/usr/local/bin/janusd-use", "--help"]
+      and $transaction.image == $transaction_image
+      and ($transaction_image | endswith("@" + $artifact_digest))
       and ($transaction.environment | index("JANUS_PRODUCT_MODE=production") != null)
+      and (
+        $transaction.environment
+        | index("JANUS_RELEASE_ARTIFACT_DIGEST=" + $artifact_digest) != null
+      )
       and ($transaction.environment | index("JANUS_MANAGED_WEB_TRANSACTION_ALLOWED_UID=100") != null)
       and ($transaction | closed_bind("/var/lib/janus-managed-central"; false))
       and ($transaction | closed_bind("/run/janus-managed-central"; false))
