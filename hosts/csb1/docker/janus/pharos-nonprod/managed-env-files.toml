@@ -96,6 +96,29 @@ supports_dual_value = false
 blast_radius = "non-production Pharos beacon token for dsc0"
 
 [[env_files]]
+id = "profile.PHAROS_BEACON_GPC0_TOKEN"
+secret_ref = "sec_aef2fecb0111e75f1190"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-gpc0"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/gpc0.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-generation-v2"
+subject = "gpc0"
+output = "/run/janus/env/pharos/beacon-token-hashes/gpc0.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_gpc0"
+kind = "service"
+owner = "pharos"
+environment = "nonprod"
+reload = "none"
+validation = ["pharos-beacon-token-sidecar-preflight"]
+supports_dual_value = false
+blast_radius = "non-production Pharos beacon token for gpc0"
+
+[[env_files]]
 id = "profile.PHAROS_BEACON_HSB0_TOKEN"
 secret_ref = "sec_9533d313010bed78a49c"
 executor = "janus-run@csb1"
