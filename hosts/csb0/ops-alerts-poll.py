@@ -23,6 +23,15 @@ import urllib.request
 STATE_PATH = "/var/lib/ops-alerts/state.json"
 TIMEOUT = 15
 
+# A problem must be seen on this many CONSECUTIVE runs before it is announced.
+# 2026-07-30: the csb0 switch restarted tailscaled, so one run saw all three
+# instances "unreachable" and fired a false alarm, followed by a "recovered"
+# message 15 minutes later. Nothing was ever wrong with the houses. Requiring
+# confirmation costs one interval of delay on a real outage (15 min, against the
+# four DAYS this poller exists to prevent) and removes the whole class of blip:
+# a tailnet restart, a brief WAN drop, an HA reload.
+CONFIRM_RUNS = 2
+
 # Substituted by ops-alerts.nix at build time, so the target list is a literal in
 # the built script rather than data read at runtime. Two reasons: the config is
 # genuinely declarative (changing a target means a rebuild, which is correct), and
@@ -128,35 +137,65 @@ def telegram(text):
         return False
 
 
+def load_previous():
+    """Previous state, tolerating the pre-CONFIRM_RUNS format ({key: message})."""
+    try:
+        with open(STATE_PATH) as f:
+            raw = json.load(f)
+    except Exception:  # noqa: BLE001 - first run, or unreadable state
+        return {}
+    out = {}
+    for k, v in raw.items():
+        if isinstance(v, str):
+            out[k] = {"msg": v, "count": CONFIRM_RUNS, "alerted": True}
+        elif isinstance(v, dict):
+            out[k] = v
+    return out
+
+
 def main():
     current = {}
     for t in TARGETS:
         current.update(check(t))
 
-    try:
-        previous = json.load(open(STATE_PATH))
-    except Exception:  # noqa: BLE001 - first run, or unreadable state
-        previous = {}
+    previous = load_previous()
 
-    new = {k: v for k, v in current.items() if k not in previous}
-    cleared = [k for k in previous if k not in current]
+    state = {}
+    to_alert = []
+    for key, msg in current.items():
+        prev = previous.get(key, {})
+        count = int(prev.get("count", 0)) + 1
+        alerted = bool(prev.get("alerted", False))
+        if count >= CONFIRM_RUNS and not alerted:
+            to_alert.append(msg)
+            alerted = True
+        state[key] = {"msg": msg, "count": count, "alerted": alerted}
+
+    # Only announce clearing for problems that were actually announced — otherwise
+    # a single blip produces a "cleared" message for something never reported.
+    cleared = [
+        prev["msg"]
+        for key, prev in previous.items()
+        if key not in current and prev.get("alerted")
+    ]
 
     lines = []
-    if new:
-        lines += ["\U0001f534 Fleet problem:"] + [f"• {v}" for v in new.values()]
+    if to_alert:
+        lines += ["\U0001f534 Fleet problem:"] + [f"• {v}" for v in to_alert]
     if cleared:
-        lines += ["✅ Recovered:"] + [f"• {previous[k]}" for k in cleared]
+        lines += ["✅ Cleared — no longer failing:"] + [f"• {v}" for v in cleared]
 
     if lines:
         telegram("\n".join(lines))
         for line in lines:
             print(line)
     else:
-        print(f"ok — {len(current)} active problem(s), no change")
+        pend = sum(1 for v in state.values() if not v["alerted"])
+        print(f"ok — {len(current)} active problem(s), {pend} awaiting confirmation, nothing to announce")
 
     os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
     with open(STATE_PATH, "w") as f:
-        json.dump(current, f, indent=2)
+        json.dump(state, f, indent=2)
 
     # Non-zero when something is wrong, so `systemctl --failed` and the
     # OPS-102-style journal both reflect it even if Telegram is down.
