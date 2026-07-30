@@ -24,6 +24,7 @@ in
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
+    ./ops-alerts.nix # OPS-104: watch all three HA instances, report to Telegram
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
@@ -306,6 +307,11 @@ in
     file = ../../secrets/nodered-env.age;
     owner = "mba";
   };
+
+  # OPS-104: HA tokens + Telegram credentials for the fleet alert poller
+  # (units and targets live in ./ops-alerts.nix). Root-owned — the poller runs
+  # as root and nothing else needs to read it.
+  age.secrets.csb0-ops-alerts-env.file = ../../secrets/csb0-ops-alerts-env.age;
   age.secrets.mosquitto-passwd = {
     file = ../../secrets/mosquitto-passwd.age;
     mode = "644";
