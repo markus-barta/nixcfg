@@ -517,8 +517,21 @@ in
   # 3. DNS server (AdGuard Home): Full DNS resolution with blocking/filtering
   # Critical devices get guaranteed resolution even if DNS server fails
   networking = {
-    # Use localhost for DNS since AdGuard Home runs locally
-    nameservers = [ "127.0.0.1" ];
+    # Use localhost for DNS since AdGuard Home runs locally, with a public
+    # fallback behind it. OPS-109: taking tailscaled out of the resolver path
+    # (see services.tailscale below) leaves this host resolving solely through
+    # its own AdGuard, and a loopback-only list means a stopped AdGuard leaves
+    # hsb0 with no DNS at all beyond the /etc/hosts entries below -- on the very
+    # host the rest of the LAN resolves through.
+    nameservers = [
+      "127.0.0.1" # AdGuard Home (local) — normal path, keeps filtering + .lan
+      "1.1.1.1" # fallback, only reached if AdGuard does not answer
+    ];
+    # openresolv defaults to resolv_conf_local_only=YES: with a loopback entry
+    # present it writes ONLY that one and silently discards the rest, which is
+    # how hsb8's 1.1.1.1 fallback sat unused for months (nixcfg #153). Without
+    # this the fallback above would be decorative.
+    resolvconf.extraConfig = "resolv_conf_local_only=NO";
     search = [ "lan" ];
     defaultGateway = "192.168.1.1";
 
@@ -642,6 +655,14 @@ in
   services.tailscale = {
     enable = true;
     useRoutingFeatures = "client"; # Client mode only
+    # hsb0 IS the LAN's DNS server (AdGuard Home), yet its own queries were going
+    # out through tailscaled at 100.100.100.100 rather than through AdGuard --
+    # tailscaled replaces the nameserver list instead of adding to it. That also
+    # means a boot where tailscaled is not ready leaves the host that everything
+    # else resolves through unable to resolve (OPS-109; hsb8 lost four days to
+    # this shape). extraUpFlags only applies at `tailscale up`; live hosts also
+    # need `sudo tailscale set --accept-dns=false`.
+    extraUpFlags = [ "--accept-dns=false" ];
   };
 
   # Additional system packages for DNS/DHCP server

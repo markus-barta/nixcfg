@@ -313,6 +313,12 @@ in
   services.tailscale = {
     enable = true;
     useRoutingFeatures = "client"; # Client mode only
+    # See csb0: tailscaled replaces the nameserver list rather than adding to it,
+    # leaving no fallback if it is not answering. csb1 runs the NIX-332 HAUSV
+    # alert poller, which needs api.telegram.org to deliver anything (OPS-109).
+    # extraUpFlags only applies at `tailscale up`; live hosts also need
+    # `sudo tailscale set --accept-dns=false`.
+    extraUpFlags = [ "--accept-dns=false" ];
   };
 
   # ============================================================================

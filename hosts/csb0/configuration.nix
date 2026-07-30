@@ -142,6 +142,17 @@ in
   services.tailscale = {
     enable = true;
     useRoutingFeatures = "client"; # Client mode only
+    # Keep the static Netcup resolvers. With accept-dns at its default (true),
+    # tailscaled REPLACES the whole nameserver list with 100.100.100.100, so both
+    # configured resolvers disappear and every lookup depends on tailscaled
+    # answering. On this host that is acute: csb0 runs the OPS-104 fleet alert
+    # poller, which must resolve api.telegram.org to report anything at all, and
+    # it runs headscale itself -- so the resolver would depend on tailscaled,
+    # which depends on the control plane running in a container here. hsb8 lost
+    # its Tesla integration for four days to exactly this at boot (OPS-109,
+    # nixcfg #153). NOTE: extraUpFlags only applies at `tailscale up`; on an
+    # already-authenticated host run `sudo tailscale set --accept-dns=false`.
+    extraUpFlags = [ "--accept-dns=false" ];
   };
 
   # ============================================================================
