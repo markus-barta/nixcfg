@@ -264,6 +264,16 @@ in
   "pharos-beacon-csb0-env.age".publicKeys = markus ++ csb0;
   "pharos-beacon-csb1-env.age".publicKeys = markus ++ csb1;
 
+  # OPS-104: fleet alert poller on csb0. Reads all three Home Assistant
+  # instances over their REST APIs and reports to Telegram via the existing bot.
+  # Deliberately self-contained rather than sourcing nodered-env, so the poller
+  # cannot be broken by an unrelated Node-RED env change; the cost is that a bot
+  # rotation touches two secrets.
+  # Format: KEY=VALUE lines — HA_TOKEN_HSB1, HA_TOKEN_HSB8, HA_TOKEN_HSB9,
+  # TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+  # Edit: agenix -e secrets/csb0-ops-alerts-env.age
+  "csb0-ops-alerts-env.age".publicKeys = markus ++ csb0;
+
   # HostDash OAuth2 Proxy env for csb0/csb1.
   # Format: KEY=VALUE lines (OAUTH2_PROXY_CLIENT_ID,
   # OAUTH2_PROXY_CLIENT_SECRET, OAUTH2_PROXY_COOKIE_SECRET)
