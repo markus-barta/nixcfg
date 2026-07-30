@@ -182,7 +182,7 @@ declarative() {
   check_image_pin \
     go_release_pin \
     janus \
-    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v1\.171@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v1\.174@sha256:[0-9a-f]{64}$'
   check_image_pin \
     rust_release_pin \
     janus-managed-transactiond \
@@ -190,7 +190,7 @@ declarative() {
   check_image_pin \
     pharos_release_pin \
     pharosd \
-    '^ghcr\.io/inspr-at/pharos/pharosd:0\.1\.64@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/pharos/pharosd:0\.1\.67@sha256:[0-9a-f]{64}$'
 
   if [ "$(service_image pharosd)" = "$(service_image pharos-beacon)" ]; then
     pass pharos_fleet_single_pin
@@ -247,21 +247,21 @@ declarative() {
      and .mode == "production"
      and .previous_mode == "production"
      and .artifact.image == "ghcr.io/inspr-at/janus/janus-envelope"
-     and .artifact.tag == "go-envelope-v1.171"
+     and .artifact.tag == "go-envelope-v1.174"
      and .artifact.digest == $digest
      and .artifact.development == false
      and .signature.verified == true
-     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.171"
+     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.174"
      and .signature.oidc_issuer == "https://token.actions.githubusercontent.com"
      and .provenance.verified == true
      and .provenance.repository == "inspr-at/janus"
      and .provenance.signer_workflow == "inspr-at/janus/.github/workflows/go-envelope.yml"
-     and .provenance.source_ref == "refs/tags/go-envelope-v1.171"
+     and .provenance.source_ref == "refs/tags/go-envelope-v1.174"
      and .provenance.predicate_type == "https://slsa.dev/provenance/v1"
      and .sbom.verified == true
      and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"
      and .source.verified == true
-     and .source.commit == "96bd199c3a57cbfd56feacb68148a42f900faeb3"
+     and .source.commit == "cae57f53ac0a2ff437aef3a3d5f691be4d06c999"
      and (.source.manifest_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and (.source.bundle_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and .scanner.verified == true

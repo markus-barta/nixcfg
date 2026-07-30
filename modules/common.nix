@@ -37,6 +37,7 @@ in
     ./managed-service-declarations.nix
     ./shared/ssh-fleet-nixos.nix # Fleet SSH config (NixOS system-level)
     ./shared/markus-login-nixos.nix # Additive markus login; mba remains primary
+    ./shared/nix-store-health.nix # OPS-102: catch a wedged Nix store before a deploy does
   ];
 
   # Add `markus` everywhere without changing hokage.userLogin, /home/mba

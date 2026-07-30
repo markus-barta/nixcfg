@@ -12,6 +12,13 @@ http:
     https-redirect:
       redirectScheme:
         scheme: https
+    # HAUSV owns application-level cache/CSP headers. HSTS belongs at the
+    # outer service router so Traefik-generated responses receive it too.
+    # Keep includeSubDomains/preload off until every hausv.org hostname has
+    # been reviewed explicitly (HAUSV-407).
+    hausv-hsts:
+      headers:
+        stsSeconds: 31536000
     cloudflarewarp:
       plugin:
         cloudflarewarp:
