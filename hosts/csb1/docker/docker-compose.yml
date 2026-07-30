@@ -287,6 +287,9 @@ services:
     image: ghcr.io/markus-barta/hausv-org:latest
     container_name: hausv-org
     restart: unless-stopped
+    # HAUSV allows 15s for HTTP, 5s for queued login mail, 1s for transport
+    # cancellation, and keeps 9s margin before Docker may force termination.
+    stop_grace_period: 30s
     env_file:
       - /run/agenix/csb1-hausv-org-env
     environment:

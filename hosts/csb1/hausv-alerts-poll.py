@@ -47,6 +47,7 @@ CRITICAL_WARNINGS = {
     "magic link delivery not queued",
     "magic link delivery panicked",
     "magic link delivery failed",
+    "magic link delivery shutdown deadline reached",
     "Telegram bot disabled",
     "Telegram charging notifications throttled",
 }
