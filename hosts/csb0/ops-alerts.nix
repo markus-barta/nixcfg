@@ -73,16 +73,19 @@ let
     }
   ];
 
-  targetsJson = pkgs.writeText "ops-alerts-targets.json" (builtins.toJSON targets);
 in
 {
+  # Fixed location rather than an argv-supplied path: there is exactly one
+  # config, and a caller-supplied path is an injection shape for no benefit.
+  environment.etc."ops-alerts/targets.json".text = builtins.toJSON targets;
+
   systemd.services.ops-alerts = {
     description = "Fleet alert poller — watch all HA instances, report to Telegram (OPS-104)";
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${pkgs.python3}/bin/python3 ${./ops-alerts-poll.py} ${targetsJson}";
+      ExecStart = "${pkgs.python3}/bin/python3 ${./ops-alerts-poll.py}";
       # HA tokens + Telegram bot credentials. systemd reads this directly, so the
       # values never pass through a shell or a command line.
       EnvironmentFile = config.age.secrets.csb0-ops-alerts-env.path;
