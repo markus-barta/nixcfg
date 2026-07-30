@@ -73,19 +73,24 @@ let
     }
   ];
 
+  # The target list is substituted into the script at build time, so the built
+  # poller contains literals rather than reading config at runtime. Changing a
+  # target is then a rebuild, which is the correct shape for declarative config —
+  # and it leaves no runtime data flowing into a request URL.
+  pollerPy = pkgs.writeText "ops-alerts-poll.py" (
+    builtins.replaceStrings [ "@TARGETS_JSON@" ] [ (builtins.toJSON targets) ] (
+      builtins.readFile ./ops-alerts-poll.py
+    )
+  );
 in
 {
-  # Fixed location rather than an argv-supplied path: there is exactly one
-  # config, and a caller-supplied path is an injection shape for no benefit.
-  environment.etc."ops-alerts/targets.json".text = builtins.toJSON targets;
-
   systemd.services.ops-alerts = {
     description = "Fleet alert poller — watch all HA instances, report to Telegram (OPS-104)";
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${pkgs.python3}/bin/python3 ${./ops-alerts-poll.py}";
+      ExecStart = "${pkgs.python3}/bin/python3 ${pollerPy}";
       # HA tokens + Telegram bot credentials. systemd reads this directly, so the
       # values never pass through a shell or a command line.
       EnvironmentFile = config.age.secrets.csb0-ops-alerts-env.path;

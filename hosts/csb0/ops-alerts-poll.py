@@ -21,11 +21,14 @@ import urllib.parse
 import urllib.request
 
 STATE_PATH = "/var/lib/ops-alerts/state.json"
-# Fixed path written by the Nix module (environment.etc). Deliberately NOT taken
-# from argv: a caller-supplied path is both an injection shape CodeQL rightly
-# flags and pointless here, since there is exactly one config.
-TARGETS_PATH = "/etc/ops-alerts/targets.json"
 TIMEOUT = 15
+
+# Substituted by ops-alerts.nix at build time, so the target list is a literal in
+# the built script rather than data read at runtime. Two reasons: the config is
+# genuinely declarative (changing a target means a rebuild, which is correct), and
+# it removes the taint source behind CodeQL's partial-SSRF finding instead of
+# arguing about whether a root-owned file counts as untrusted.
+TARGETS = json.loads(r"""@TARGETS_JSON@""")
 
 # The poller may only ever talk to Home Assistant on the tailnet. Anchored, and
 # narrow on purpose: it makes the SSRF shape unreachable rather than merely
@@ -126,11 +129,8 @@ def telegram(text):
 
 
 def main():
-    with open(TARGETS_PATH) as f:
-        targets = json.load(f)
-
     current = {}
-    for t in targets:
+    for t in TARGETS:
         current.update(check(t))
 
     try:
