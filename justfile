@@ -225,6 +225,15 @@ switch args='':
         echo "⚠️  ncps (hsb0.lan:8501) unreachable — switching WITHOUT the LAN cache (public caches only)."
         export NIX_CONFIG="substituters = https://cache.nixos.org https://nix-community.cachix.org"
     fi
+    # OPS-106: say what is about to be deployed. A dirty tree yields a generation
+    # with NO configurationRevision, so the fleet cannot later tell what that host
+    # is running — csb0 sat like that long enough that nothing could say when.
+    # Legitimate while iterating, but it must not be silent.
+    if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+        echo "⚠️  deploying a DIRTY tree — this generation will report no revision (OPS-106)"
+    else
+        echo "🔖 deploying $(git rev-parse --short HEAD) ($(git rev-parse --abbrev-ref HEAD))"
+    fi
     # Detect platform and route to appropriate command
     if [[ "$OSTYPE" == "darwin"* ]]; then
         echo "$(printf '\xef\x85\xb9') Detected macOS - running 🏠 home-manager switch for {{ user }}@{{ hostname }}..."
