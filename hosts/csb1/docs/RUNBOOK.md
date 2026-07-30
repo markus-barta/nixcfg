@@ -753,8 +753,22 @@ again. A failed copy or integrity check leaves the previous snapshot intact.
 # Create and verify a fresh local recovery point.
 sudo systemctl start hausv-backup-snapshot.service
 systemctl status hausv-backup-snapshot.service --no-pager
-sudo sqlite3 /var/lib/csb1-docker/hausv-org-backup-snapshot/hausv.db \
-  'PRAGMA integrity_check;'
+sudo /run/current-system/sw/bin/python3 - \
+  /var/lib/csb1-docker/hausv-org-backup-snapshot/hausv.db <<'PY'
+import sqlite3
+import sys
+
+try:
+    database = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    result = database.execute("PRAGMA integrity_check").fetchone()
+except sqlite3.Error:
+    print("integrity check failed", file=sys.stderr)
+    raise SystemExit(1)
+if result != ("ok",):
+    print("integrity check failed", file=sys.stderr)
+    raise SystemExit(1)
+print("ok")
+PY
 
 # Restore drill into the restic container; never overwrite production directly.
 docker exec csb1-restic-cron-hetzner-1 sh -c \
@@ -763,8 +777,26 @@ docker exec csb1-restic-cron-hetzner-1 sh -c \
 docker cp \
   csb1-restic-cron-hetzner-1:/tmp/hausv-restore-test/backup/var/lib/csb1-docker/hausv-org-backup-snapshot/hausv.db \
   /tmp/hausv-restore-test.db
-sqlite3 /tmp/hausv-restore-test.db 'PRAGMA integrity_check;'
+/run/current-system/sw/bin/python3 - /tmp/hausv-restore-test.db <<'PY'
+import sqlite3
+import sys
+
+try:
+    database = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    result = database.execute("PRAGMA integrity_check").fetchone()
+except sqlite3.Error:
+    print("integrity check failed", file=sys.stderr)
+    raise SystemExit(1)
+if result != ("ok",):
+    print("integrity check failed", file=sys.stderr)
+    raise SystemExit(1)
+print("ok")
+PY
 ```
+
+Both integrity checks must print only `ok` and exit successfully. Any other
+output or a non-zero exit stops the drill or restore; do not touch the live
+data directory.
 
 For a real restore, stop `hausv-org`, preserve the current data directory,
 copy the _contents_ of the restored `hausv-org-backup-snapshot` directory to
