@@ -79,6 +79,9 @@ jobs:
       - name: Verify HAUSV snapshot and application alerts
         run: tests/T34-hausv-alerts.sh
 
+      - name: Verify HAUSV graceful-stop budget
+        run: tests/T36-hausv-stop-grace.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
