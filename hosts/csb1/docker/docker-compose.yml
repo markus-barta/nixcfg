@@ -161,8 +161,10 @@ services:
       - "443:443/udp"
       # - "8883:8883" #todo: enable if mosquitto installed
     networks:
-      - traefik
-      - docker-sock-traefik
+      traefik:
+      docker-sock-traefik:
+      hausv-proxy:
+        ipv4_address: 10.253.254.2
     volumes:
       - ./traefik/static.yml:/etc/traefik/traefik.yml
       - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml
@@ -292,6 +294,9 @@ services:
       - BASE_URL=https://jhw22.hausv.org
       - ROOT_DOMAIN=hausv.org
       - DEFAULT_TENANT=jhw22
+      # Only the dedicated Traefik peer may supply X-Real-IP/X-Forwarded-Proto.
+      # HAUSV is deliberately no longer reachable from the shared proxy net.
+      - TRUSTED_PROXY_CIDRS=10.253.254.2/32
       # Initializes the real JHW22 energy pilot without skipping the guided
       # owner onboarding. Existing profiles are never overwritten.
       - HOME_PROFILE_SEEDS_JSON=[{"tenant_slug":"jhw22","household_name":"Mein Zuhause","home_type":"apartment","assets":["ev","wallbox"]}]
@@ -349,7 +354,9 @@ services:
     volumes:
       - /var/lib/csb1-docker/hausv-org:/data
     networks:
-      - traefik
+      hausv-proxy:
+        ipv4_address: 10.253.254.3
+      hausv-egress:
     healthcheck:
       test:
         ["CMD", "/hausv-org", "healthcheck", "http://127.0.0.1:8080/healthz"]
@@ -365,8 +372,8 @@ services:
       - traefik.http.routers.hausv-org.tls.certresolver=default
       - traefik.http.routers.hausv-org.tls=true
       - traefik.http.services.hausv-org.loadbalancer.server.port=8080
-      - traefik.docker.network=csb1_traefik
-      - traefik.http.routers.hausv-org.middlewares=cloudflarewarp@file
+      - traefik.docker.network=csb1_hausv-proxy
+      - traefik.http.routers.hausv-org.middlewares=cloudflarewarp@file,hausv-hsts@file
 
   restic-cron-hetzner:
     build: ./restic-cron
@@ -1037,5 +1044,15 @@ networks:
   internal:
   traefik:
   smtp:
+  # HAUSV has a two-member ingress network: Traefik and the application.
+  # Static addresses make the application's proxy allowlist exact and stable.
+  hausv-proxy:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.253.254.0/29
+  # Separate single-service NAT network preserves SMTP/Home Assistant egress
+  # without exposing HAUSV to unrelated containers on the shared proxy net.
+  hausv-egress:
   docker-sock-traefik:
     internal: true
