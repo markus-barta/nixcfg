@@ -11,6 +11,10 @@ concurrency:
 
 jobs:
   format-check:
+    # NOTE: this name is a REQUIRED STATUS CHECK in branch protection, so it is
+    # kept verbatim even though the job no longer shells out to `just format`
+    # (NIX-334). Renaming it would leave protection waiting forever for a check
+    # that never reports. Rename only together with the branch-protection rule.
     name: 📄 Check code formatting with "just format"
     runs-on: ubuntu-latest
     permissions:
@@ -24,20 +28,37 @@ jobs:
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
         with:
           nix_path: nixpkgs=channel:nixos-unstable
-      - name: 🔒 Cache dependencies
-        uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
-        with:
-          # https://app.cachix.org/cache/pbek-nixcfg-devenv
-          name: pbek-nixcfg-devenv
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-      - name: 🔧 Install devenv.sh
-        run: nix profile add nixpkgs#devenv
+
+      # NIX-334: this step used to be `devenv shell --quiet -- prek run …`, taking
+      # ~7 minutes per PR -- 403 of 436 seconds spent realising a devenv
+      # environment rather than formatting. Two compounding causes:
+      #
+      #   * the generated .pre-commit-config.yaml pins ABSOLUTE STORE PATHS for
+      #     every hook entry, so it cannot be used without building that closure
+      #   * devenv.yaml pins nixpkgs to cachix/devenv-nixpkgs/rolling, a different
+      #     nixpkgs from the flake's, so those paths are NOT in cache.nixos.org.
+      #     The only substituter that had them was cachix://pbek-nixcfg-devenv --
+      #     inherited with this repo's lineage, with pushing DISABLED -- so any
+      #     divergence from that closure was a permanent cache miss which could
+      #     never heal. On 2026-07-30 it made this required check fail outright on
+      #     devenv-2.2.0.drv, blocking a merge for reasons unrelated to the code
+      #     under review.
+      #
+      # These tools come straight from nixpkgs, where they are cached upstream, so
+      # the gate finishes in seconds and depends on nobody else's cache. devenv
+      # still provides the local pre-commit hooks; scripts/format-check.sh mirrors
+      # their exact invocations (read out of the generated config, not guessed)
+      # and is runnable locally with this same command.
       - name: 🌳 Check changed-file formatting
         env:
           BASE_REVISION: ${{ github.event.pull_request.base.sha }}
-          HEAD_REVISION: ${{ github.event.pull_request.head.sha }}
         run: |
-          devenv shell --quiet -- prek run \
-            --from-ref "$BASE_REVISION" \
-            --to-ref "$HEAD_REVISION"
-          git diff --exit-code
+          nix shell \
+            nixpkgs#nixfmt \
+            nixpkgs#deadnix \
+            nixpkgs#statix \
+            nixpkgs#shfmt \
+            nixpkgs#shellcheck \
+            nixpkgs#prettier \
+            nixpkgs#just \
+            --command bash ./scripts/format-check.sh
