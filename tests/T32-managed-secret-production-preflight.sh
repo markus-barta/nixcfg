@@ -195,8 +195,8 @@ for filename, channel, image, tag, expected_commit in (
         "go-envelope-admission.json",
         "envelope-stable",
         "ghcr.io/inspr-at/janus/janus-envelope",
-        "go-envelope-v1.171",
-        "96bd199c3a57cbfd56feacb68148a42f900faeb3",
+        "go-envelope-v1.174",
+        "cae57f53ac0a2ff437aef3a3d5f691be4d06c999",
     ),
 ):
     receipt = json.loads((contract / filename).read_text())
@@ -344,6 +344,20 @@ compose_json=$(
     --no-path-resolution \
     --format json
 )
+go_artifact_tag=$(
+  jq -er '.artifact.tag | select(test("^go-envelope-v[1-9][0-9]*\\.[0-9]+$"))' \
+    "${contract}/go-envelope-admission.json"
+)
+go_artifact_digest=$(
+  jq -er '.artifact.digest | select(test("^sha256:[0-9a-f]{64}$"))' \
+    "${contract}/go-envelope-admission.json"
+)
+go_image="$(jq -er '.services.janus.image' <<<"${compose_json}")"
+test "${go_image}" = \
+  "ghcr.io/inspr-at/janus/janus-envelope:${go_artifact_tag}@${go_artifact_digest}"
+go_tag_pattern="${go_artifact_tag//./\\.}"
+grep -Fq "janus-envelope:${go_tag_pattern}@sha256" \
+  "${contract}/readiness.sh"
 rust_artifact_digest=$(
   jq -er '.artifact.digest | select(test("^sha256:[0-9a-f]{64}$"))' \
     "${contract}/release-admission.json"

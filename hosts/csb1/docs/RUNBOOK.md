@@ -354,6 +354,13 @@ runtime conditions and safe deferral path. The readiness request must then
 return success. Do not inspect secret files, process environments, or raw
 request output.
 
+Each claimed bootstrap lease lasts two hours. The executor admits only a
+bounded future lease, caps `nixos-anywhere` at 110 minutes, and shortens that
+timeout when necessary so at least five minutes remain for verification and
+result reporting. A lease that cannot preserve this reserve fails closed
+before installation starts; do not extend a lease or replay a pending result
+by hand.
+
 After deployment, open the Pharos Hetzner connection and run **Test
 connection** once. This is an authenticated read-only catalog refresh and must
 show the dedicated executor key, selected firewall, and location as ready.
@@ -746,8 +753,22 @@ again. A failed copy or integrity check leaves the previous snapshot intact.
 # Create and verify a fresh local recovery point.
 sudo systemctl start hausv-backup-snapshot.service
 systemctl status hausv-backup-snapshot.service --no-pager
-sudo sqlite3 /var/lib/csb1-docker/hausv-org-backup-snapshot/hausv.db \
-  'PRAGMA integrity_check;'
+sudo /run/current-system/sw/bin/python3 - \
+  /var/lib/csb1-docker/hausv-org-backup-snapshot/hausv.db <<'PY'
+import sqlite3
+import sys
+
+try:
+    database = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    result = database.execute("PRAGMA integrity_check").fetchone()
+except sqlite3.Error:
+    print("integrity check failed", file=sys.stderr)
+    raise SystemExit(1)
+if result != ("ok",):
+    print("integrity check failed", file=sys.stderr)
+    raise SystemExit(1)
+print("ok")
+PY
 
 # Restore drill into the restic container; never overwrite production directly.
 docker exec csb1-restic-cron-hetzner-1 sh -c \
@@ -756,14 +777,70 @@ docker exec csb1-restic-cron-hetzner-1 sh -c \
 docker cp \
   csb1-restic-cron-hetzner-1:/tmp/hausv-restore-test/backup/var/lib/csb1-docker/hausv-org-backup-snapshot/hausv.db \
   /tmp/hausv-restore-test.db
-sqlite3 /tmp/hausv-restore-test.db 'PRAGMA integrity_check;'
+/run/current-system/sw/bin/python3 - /tmp/hausv-restore-test.db <<'PY'
+import sqlite3
+import sys
+
+try:
+    database = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+    result = database.execute("PRAGMA integrity_check").fetchone()
+except sqlite3.Error:
+    print("integrity check failed", file=sys.stderr)
+    raise SystemExit(1)
+if result != ("ok",):
+    print("integrity check failed", file=sys.stderr)
+    raise SystemExit(1)
+print("ok")
+PY
 ```
+
+Both integrity checks must print only `ok` and exit successfully. Any other
+output or a non-zero exit stops the drill or restore; do not touch the live
+data directory.
 
 For a real restore, stop `hausv-org`, preserve the current data directory,
 copy the _contents_ of the restored `hausv-org-backup-snapshot` directory to
 `/var/lib/csb1-docker/hausv-org`, restore ownership `65532:65532`, then start
 the service and require a healthy `/healthz` before removing the preserved
 directory.
+
+### HAUSV Snapshot, Health And Application Alerts
+
+`hausv-alerts.timer` checks every five minutes that the snapshot timer is
+enabled and active, its last service result succeeded, and both the coherent
+local snapshot marker and the existing sanitized Restic success are no more
+than 30 hours old. It also checks the container, the exact public `/healthz`
+contract, unexpected restarts, and privacy-safe categories of new critical
+structured logs. Container and public-health failures need two consecutive
+checks; snapshot-chain and critical-log failures alert immediately.
+
+The monitor consumes existing signals only. It neither creates another backup
+nor duplicates HAUSV retention. It reads only `WATCHTOWER_NOTIFICATION_URL`
+from the existing `csb1-watchtower-env` agenix file and never writes raw logs,
+URLs, recipient identifiers, object data, or secret values to its state,
+journal, or alert. A transition is persisted before delivery; a failed
+delivery is retried, and one recovery is sent when the signal becomes healthy.
+
+```bash
+# Timer and last monitor result.
+systemctl status hausv-alerts.timer --no-pager
+sudo systemctl start hausv-alerts.service
+systemctl status hausv-alerts.service --no-pager
+journalctl -u hausv-alerts.service --since "1 hour ago" --no-pager
+
+# Manual end-to-end delivery proof. This sends one clearly labelled test alarm
+# and one test recovery; it does not change production or monitor state.
+sudo systemctl start hausv-alerts-delivery-probe.service
+systemctl status hausv-alerts-delivery-probe.service --no-pager
+```
+
+Successful monitor output contains counters only. Diagnose a named category
+with the relevant service/container journal; never print the notification env
+file. Restore capability itself is already proven by the isolated
+26 July 2026 drill of Restic snapshot `05bafbd5`, including SQLite
+`PRAGMA integrity_check = ok`. The canonical evidence is PPM Knowledge
+`persistence-store-pattern`; do not repeat that restore drill merely to accept
+an alerting change.
 
 ---
 
