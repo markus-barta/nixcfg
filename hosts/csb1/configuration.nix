@@ -100,6 +100,8 @@ let
 in
 {
   imports = [
+    ./peer-watch.nix # OPS-107: watch csb0's poller so its silence is noticed
+    ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb0 see this poller is alive
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ./hausv-alerts.nix

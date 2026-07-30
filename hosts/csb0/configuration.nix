@@ -25,6 +25,7 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ./ops-alerts.nix # OPS-104: watch all three HA instances, report to Telegram
+    ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb1 see this poller is alive
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
