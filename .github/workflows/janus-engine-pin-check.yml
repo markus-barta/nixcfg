@@ -33,4 +33,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Run staged engine pin drift check
+        env:
+          # The Janus repository is private. Use the existing cross-repository
+          # read token; the current-repository GITHUB_TOKEN cannot read it.
+          JANUS_ENGINE_GITHUB_TOKEN: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
         run: scripts/janus-engine-pin-check.sh
