@@ -804,6 +804,44 @@ copy the _contents_ of the restored `hausv-org-backup-snapshot` directory to
 the service and require a healthy `/healthz` before removing the preserved
 directory.
 
+### HAUSV Snapshot, Health And Application Alerts
+
+`hausv-alerts.timer` checks every five minutes that the snapshot timer is
+enabled and active, its last service result succeeded, and both the coherent
+local snapshot marker and the existing sanitized Restic success are no more
+than 30 hours old. It also checks the container, the exact public `/healthz`
+contract, unexpected restarts, and privacy-safe categories of new critical
+structured logs. Container and public-health failures need two consecutive
+checks; snapshot-chain and critical-log failures alert immediately.
+
+The monitor consumes existing signals only. It neither creates another backup
+nor duplicates HAUSV retention. It reads only `WATCHTOWER_NOTIFICATION_URL`
+from the existing `csb1-watchtower-env` agenix file and never writes raw logs,
+URLs, recipient identifiers, object data, or secret values to its state,
+journal, or alert. A transition is persisted before delivery; a failed
+delivery is retried, and one recovery is sent when the signal becomes healthy.
+
+```bash
+# Timer and last monitor result.
+systemctl status hausv-alerts.timer --no-pager
+sudo systemctl start hausv-alerts.service
+systemctl status hausv-alerts.service --no-pager
+journalctl -u hausv-alerts.service --since "1 hour ago" --no-pager
+
+# Manual end-to-end delivery proof. This sends one clearly labelled test alarm
+# and one test recovery; it does not change production or monitor state.
+sudo systemctl start hausv-alerts-delivery-probe.service
+systemctl status hausv-alerts-delivery-probe.service --no-pager
+```
+
+Successful monitor output contains counters only. Diagnose a named category
+with the relevant service/container journal; never print the notification env
+file. Restore capability itself is already proven by the isolated
+26 July 2026 drill of Restic snapshot `05bafbd5`, including SQLite
+`PRAGMA integrity_check = ok`. The canonical evidence is PPM Knowledge
+`persistence-store-pattern`; do not repeat that restore drill merely to accept
+an alerting change.
+
 ---
 
 ## Service Dependencies

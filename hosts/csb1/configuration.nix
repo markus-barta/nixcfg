@@ -102,6 +102,7 @@ in
   imports = [
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
+    ./hausv-alerts.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
