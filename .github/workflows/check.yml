@@ -76,6 +76,9 @@ jobs:
       - name: Verify tests guard against bash 3.2 false passes
         run: tests/T33-bash-version-guards.sh
 
+      - name: Verify HAUSV snapshot and application alerts
+        run: tests/T34-hausv-alerts.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
