@@ -193,6 +193,17 @@ class HausvAlertTests(unittest.TestCase):
         for sentinel in ("sentinel@example.test", "sentinel-token", "-123456"):
             self.assertNotIn(sentinel, rendered)
 
+    def test_magic_link_shutdown_deadline_warning_is_critical(self) -> None:
+        fixture = Fixture()
+        fixture.logs = (
+            "2027-01-15T08:00:00Z "
+            '{"level":"WARN","msg":"magic link delivery shutdown deadline reached"}'
+        )
+
+        problems, _ = fixture.evaluate()
+
+        self.assertIn("runtime:mail", problems)
+
     def test_alarm_is_deduplicated_and_recovery_is_sent_once(self) -> None:
         fixture = Fixture()
         sent: list[tuple[str, str]] = []
