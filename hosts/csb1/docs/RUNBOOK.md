@@ -842,6 +842,28 @@ file. Restore capability itself is already proven by the isolated
 `persistence-store-pattern`; do not repeat that restore drill merely to accept
 an alerting change.
 
+### HAUSV Graceful Stop Budget
+
+The HAUSV Compose service declares `stop_grace_period: 30s`. This covers the
+application's 15-second HTTP shutdown, the five-second login-mail queue drain,
+one second for canceling an in-flight SMTP transport, and nine seconds of host
+margin. The snapshot service's explicit `docker compose stop -t 30 hausv-org`
+uses the same budget. Do not reduce either boundary without first reducing and
+testing the application limits.
+
+After a recreate, verify only the non-secret lifecycle field and the
+application journal:
+
+```bash
+docker inspect --format '{{.Config.StopTimeout}}' hausv-org
+journalctl --since "10 minutes ago" --no-pager \
+  | grep -E 'shutting down|magic link delivery shutdown|hausv-org'
+```
+
+The expected stop timeout is `30`. A normal restart may log `shutting down`;
+it must not log `magic link delivery shutdown deadline reached`, a forced
+termination, or an unhealthy replacement.
+
 ---
 
 ## Service Dependencies
