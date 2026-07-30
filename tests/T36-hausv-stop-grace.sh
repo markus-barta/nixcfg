@@ -31,7 +31,7 @@ for explanation in (
         raise SystemExit(f"missing shutdown-budget explanation: {explanation}")
 PY
 
-grep -Fq 'The HAUSV Compose service declares `stop_grace_period: 30s`.' "${runbook}"
+grep -Fq "The HAUSV Compose service declares \`stop_grace_period: 30s\`." "${runbook}"
 grep -Fq "The expected stop timeout is \`30\`." "${runbook}"
 grep -Fq '"magic link delivery shutdown deadline reached",' "${poller}"
 
