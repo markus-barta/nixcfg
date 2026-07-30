@@ -252,7 +252,10 @@ in
 
     # ── Quality-of-life ──
     confirm-close-surface = false
-    copy-on-select = false
+    # `clipboard`, not `true`: on macOS there is no X11-style selection buffer,
+    # so `true` would copy somewhere nothing can paste from. This puts selected
+    # text straight into the system clipboard (⌘V-able, and pasteable into chat).
+    copy-on-select = clipboard
     mouse-hide-while-typing = true
     clipboard-read = allow
     clipboard-write = allow
