@@ -11,6 +11,26 @@
 # the loose ~/secrets/ and ./xxx.env files into agenix). Container reads
 # at runtime via agenix-decrypted bind. No plaintext secrets in this file.
 name: csb1
+
+# Docker copies the host's /etc/resolv.conf into a container ONCE, at container
+# start, and never refreshes it, so a resolver-policy change silently strands
+# every container already running. OPS-109 did exactly that fleet-wide on
+# 2026-07-29; hsb1 lost the access gate for two days and hsb0's pharos-beacon
+# was still stranded when it was found (OPS-113). csb1 escaped only because it
+# happened to be restarted afterwards — pinning here removes the luck.
+#
+# Only for `network_mode: host` services. Bridge-network containers must keep
+# Docker's embedded resolver (127.0.0.11), which forwards to the host file at
+# query time and is never stranded. janus-managed-canary is network_mode: none
+# and has no resolution to lose.
+#
+# Mirrors networking.nameservers in hosts/csb1/configuration.nix.
+# Hand-duplicated — keep the two in step. No dns_search: this host declares no
+# search domain.
+x-host-dns: &host-dns
+  - 8.8.8.8
+  - 8.8.4.4
+
 services:
   docmost-db:
     image: postgres:16-alpine
@@ -987,6 +1007,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
     network_mode: host
+    dns: *host-dns
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/pharos-beacon"]
     env_file:
