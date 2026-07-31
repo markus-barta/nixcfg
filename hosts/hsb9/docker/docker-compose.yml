@@ -7,6 +7,31 @@
 # configured in the HA UI once HA is up.
 #
 # Deploy (on hsb9): cd ~/Code/nixcfg/hosts/hsb9/docker && docker compose up -d
+# Docker copies the host's /etc/resolv.conf into a container ONCE, at container
+# start, and never refreshes it, so a resolver-policy change silently strands
+# every container already running. OPS-109 did that fleet-wide on 2026-07-29:
+# hsb1 lost the access gate for two days and hsb0's pharos-beacon was still
+# stranded when it was found (OPS-113). This host escaped only because it
+# happened to restart afterwards. Home Assistant is host-network here, and a
+# stranded HA is exactly how the Tesla integration died for four days
+# (OPS-101) — so pinning matters more here than the current clean state suggests.
+#
+# Only for `network_mode: host` services. Bridge-network containers must keep
+# Docker's embedded resolver (127.0.0.11), which forwards to the host file at
+# query time and is never stranded.
+#
+# 🔴 hosts/hsb9/configuration.nix picks `dnsServers` CONDITIONALLY on
+# `location`. These values are the parents-in-law branch, which is where this
+# host lives (no local AdGuard there, hence public resolvers). Compose cannot
+# express that conditional, so if hsb9 ever moves back to jhw22 these lines must
+# change with it — see OPS-114 for generating them from Nix instead of
+# hand-duplicating.
+x-host-dns: &host-dns
+  - 1.1.1.1 # parents-in-law: Cloudflare (no local AdGuard on site)
+  - 1.0.0.1
+x-host-dns-search: &host-dns-search
+  - lan # both sites: ".local" collides with mDNS (RFC 6762)
+
 services:
   mosquitto:
     image: eclipse-mosquitto:latest
@@ -34,6 +59,8 @@ services:
     restart: unless-stopped
     privileged: true
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     environment:
       - TZ=Europe/Vienna
     labels:
@@ -58,6 +85,8 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/pharos-beacon"]
     healthcheck:
