@@ -93,18 +93,107 @@ Triggered by **HA MQTT device triggers** from device `flirc_hsb1` (the `ir-bridg
 
 ---
 
+## 🚘 Access gate (Zufahrtstor) — the one to read first
+
+The most consequential automation on this host, and the least obvious: **there is
+no single place that "the gate" lives.** It is a chain across two hosts, and it
+broke silently for two days in July 2026 because nothing documented it and
+nothing watched it (OPS-113).
+
+### The chain
+
+| #   | Hop                                                                                                                      | Where                                                                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| 1   | Telegram bot receives `/zufahrt` (pulse) or `/zufahrt5` (hold open 5 min), checks the sender against the permission list | Node-RED on **csb0**                                                                          |
+| 2   | Publishes the whole message to `scom/jhw22/smarthome`                                                                    | mosquitto on **csb0**, reached at `mosquitto.barta.cm:8883` (TLS, Traefik `HostSNI`)          |
+| 3   | Subscribes to that topic on the csb0 broker (`csb0+`), plus a second subscriber on the local broker                      | Node-RED on **hsb1**, tab `🏠 Smarthome`, group _Telegram bot and (local) smarthome commands_ |
+| 4   | `/zufahrt` → `link out 133` → `link in 57 (open accessgate)`                                                             | hsb1, tab `🚘 Zufahrt`                                                                        |
+| 5   | `do open` → `send Shelly command` → rate limiter (1 per 10 s, excess dropped)                                            | same tab                                                                                      |
+| 6   | Publishes `{"method":"Switch.Set","params":{"id":0,"on":true}}` to `home/gz/zufahrt/rpc`                                 | mosquitto on **hsb1** (localhost)                                                             |
+| 7   | Relay pulses; `auto_off` returns it after 2 s                                                                            | Shelly Plus 1 `wz-shp1-zufahrt`, `192.168.1.175`, topic prefix `home/gz/zufahrt`              |
+
+Two other sources feed step 4 — the HomeKit accessory `n2h2n accessgate`
+(a `GarageDoorOpener` on the Node-RED HomeKit bridge `nrhkb ms24`), and a long
+press of the Vorraum Shelly button (`shellies/home/vr/shelly-button1`, which
+holds the gate open for 5 minutes by re-sending open on a timer).
+
+### 🔴 What this means when it breaks
+
+- **The wall buttons are hardwired to the gate controller and bypass every hop
+  above.** If someone reports "the gate works from inside but not from Telegram
+  or HomeKit", nothing in this chain is implicated by the buttons still working.
+  That is the single most misleading symptom here.
+- **`Garage Door State Machine v8` only logs when `msg.__notify` is true.**
+  HomeKit opens set it; Telegram `/zufahrt` does not. An absence of state-machine
+  lines in the Node-RED log therefore means "no HomeKit open", **not** "no open".
+- The state machine is a **model, not a sensor** — there is no position feedback
+  from the gate. Its timings (40 s opening, 35 s open, 45 s closing) are
+  assumptions.
+- `mqtt out` must stay at **`retain: false`**. A retained `Switch.Set on:true`
+  is re-delivered to the Shelly every time it reconnects to the broker, opening
+  the gate on reboot, broker restart or a WiFi blip. This was live until
+  2026-07-31.
+
+### Diagnosing it
+
+```sh
+# Did the command reach hsb1 at all? (csb0 side logs every accepted command)
+ssh -p 2222 mba@cs0.barta.cm 'docker logs csb0-nodered-1 --tail 20'
+
+# Is hsb1's subscriber to the csb0 broker actually connected?
+ssh mba@hsb1.lan 'docker logs nodered 2>&1 | grep "mqtt-broker:csb0+" | tail -3'
+
+# Watch the last two hops live (a real open shows rpc -> ack -> output true -> timer false)
+ssh mba@hsb1.lan 'bash -c "( set -a; source /run/agenix/hsb1-mqtt-client-env; set +a; \
+  mosquitto_sub -h localhost -u \$MQTT_USER -P \$MQTT_PASS -v -t home/gz/zufahrt/# -t nodered-hsb1/# )"'
+
+# Is the Shelly itself healthy? (read-only)
+ssh mba@hsb1.lan 'curl -s http://192.168.1.175/rpc/MQTT.GetStatus; curl -s http://192.168.1.175/rpc/Switch.GetConfig?id=0'
+```
+
+---
+
 ## Node-RED Automations
 
-### Active tabs
+The flow inventory below is generated from `flows.json`, not maintained by hand —
+it drifted from 4 documented tabs to 32 real ones before anyone noticed, which is
+part of why the gate outage took so long to trace. Regenerate with:
 
-- **Syncbox [wz]** — Polls Syncbox API, exposes HomeKit switches for inputs
-- **Smartlock VR** — Nuki status → hue bulb color indicator + AWTRIX indicator
-- **Boiler** — Hot water state machine (heat when energy cheap, complete by 06:00)
-- **Heat chain integrity** — Monitors Tado→Shelly→Pro4PM chain, publishes to MQTT
+```sh
+ssh mba@hsb1.lan 'python3 -c "
+import json
+f=json.load(open(\"/home/mba/docker/mounts/nodered/data/flows.json\"))
+for n in f:
+    if n[\"type\"]==\"tab\": print((\"[off] \" if n.get(\"disabled\") else \"\") + n[\"label\"])
+"'
+```
 
-### Disabled tabs
+### Active tabs (28, as of 2026-07-31)
 
-- **Awtrix Ulanzi** — Old Node-RED AWTRIX control (replaced by pixdcon)
+`📎 Global functions` · `⚙️ Tests` · `⚙️ Webserver` · `🏠 Smarthome` ·
+`💾 mqtt:home/` · `💡 Lights` · `🪟 Blinds` · `🚪 Doors` · **`🚘 Zufahrt`** ·
+`💡 Sternenhimmel [ki]` · `🌈💡 Lametric Sky` · `🖥️ Windows PC [wz]` ·
+`🎛️ Syncbox [wz]` · `🎚️ Couchtisch [wz]` · `🔘 Button, Switch, Contact` ·
+`☀️⚡️PV0 - Attika` · `☀️ PV1-Data, Estimate` · `⚡️ awattar` · `♨️ Boiler 24 [bz]` ·
+`🌦️ Wetter, Sensor` · `🪟 Windows` · `🏃🏻‍➡️ Motion | Presence` · `🔑 Nuki, TXU /vr` ·
+`📺 TV` · `❤️‍🩹 Network Health` · `💾 InfluxDB3` · `👶 Babycam Watchdog [NIX-151]` ·
+`☀️🔋 USV, Sonnen-Akku`
+
+Notable ones:
+
+- **`🚘 Zufahrt`** — the access gate. See the section above before touching it.
+- **`🏠 Smarthome`** — Telegram command ingress from csb0; also the smartlock and
+  plug commands.
+- **`🎛️ Syncbox [wz]`** — polls the Syncbox API, exposes HomeKit switches for inputs
+- **`🔑 Nuki, TXU /vr`** — Nuki status → hue bulb colour indicator + AWTRIX indicator
+- **`♨️ Boiler 24 [bz]`** — hot water state machine (heat when energy cheap, done by 06:00)
+- **`❤️‍🩹 Network Health`** — Tado→Shelly→Pro4PM chain integrity, publishes to MQTT
+
+### Disabled tabs (4)
+
+`🚘 Tesla state` · `🚘 TG Charging` · `Disabled` · `⬛️ Pixoo [wz]`
+
+`⬛️ Pixoo [wz]` and the old Awtrix Ulanzi control are both superseded by pixdcon.
 
 ---
 
