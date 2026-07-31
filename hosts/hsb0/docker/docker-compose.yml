@@ -1,3 +1,25 @@
+# Docker copies the host's /etc/resolv.conf into a container ONCE, at container
+# start, and never refreshes it. A host-network container therefore pins
+# whatever resolver the host happened to have that day. OPS-109 rewrote this
+# host's resolver policy while pharos-beacon was already running, stranding it
+# on the now permanently dead MagicDNS resolver 100.100.100.100 — that is the
+# Pharos login break OPS-113 was opened for, and it was still stranded on
+# 2026-07-31. Pinning here makes container DNS declarative and independent of
+# whatever tailscaled does to the host file.
+#
+# 127.0.0.1 is only correct because these are `network_mode: host` services —
+# it is the HOST's loopback, i.e. AdGuard Home. Never copy this block onto a
+# bridge-network service: there 127.0.0.1 is the container's own loopback, and
+# bridge services must keep Docker's embedded resolver (127.0.0.11) anyway.
+#
+# Mirrors networking.nameservers / networking.search in
+# hosts/hsb0/configuration.nix. Duplicated by hand — keep the two in step.
+x-host-dns: &host-dns
+  - 127.0.0.1 # AdGuard Home on this host — normal path, keeps filtering + .lan
+  - 1.1.1.1 # fallback, only reached if AdGuard does not answer
+x-host-dns-search: &host-dns-search
+  - lan
+
 services:
   restic-cron-hetzner:
     build: ./restic-cron
@@ -47,6 +69,8 @@ services:
     container_name: openclaw-gateway
     restart: unless-stopped
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     volumes:
       # Shared OpenClaw state (all agents live under here)
       - /var/lib/openclaw-gateway/data:/home/node/.openclaw:rw
@@ -207,6 +231,8 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/pharos-beacon"]
     healthcheck:
