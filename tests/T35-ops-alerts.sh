@@ -14,9 +14,24 @@ secrets="${repo}/secrets/secrets.nix"
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
   discover -s "${repo}/tests" -p 'test_fleet_alerts_engine.py' -v
+# OPS-115: the smart-home link check that would have caught the two-day
+# access-gate outage. Discovered separately so a rename of either file is a
+# loud failure rather than a silently skipped suite.
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
+  discover -s "${repo}/tests" -p 'test_ops_alerts_smarthome_link.py' -v
 for module in "${heartbeat}" "${fleetlib}" "${csb0mod}" "${csb1mod}"; do
   nix-instantiate --parse "${module}" >/dev/null
 done
+
+# OPS-115 wiring: the heartbeat probe must stay pointed at loopback, and the
+# broker credential must reach the unit. Both are easy to lose in a refactor and
+# neither fails loudly at build time.
+grep -Fq 'SMARTHOME_LINKS_JSON' "${csb0mod}"
+grep -Fq 'SMARTHOME_LINKS_JSON' "${csb0checks}"
+grep -Fq 'check_smarthome_link' "${csb0checks}"
+grep -Fq 'paho-mqtt' "${csb0mod}"
+grep -Fq 'age.secrets.mqtt-csb0.path' "${csb0mod}"
+grep -Fq '127.0.0.1:1883:1883' "${repo}/hosts/csb0/docker/docker-compose.yml"
 
 # Wiring
 grep -Fq './ops-alerts.nix' "${repo}/hosts/csb0/configuration.nix"

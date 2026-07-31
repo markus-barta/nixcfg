@@ -38,6 +38,13 @@ services:
 
   mosquitto:
     image: eclipse-mosquitto:latest
+    # Loopback only (OPS-115). The ops-alerts poller runs on this host as a
+    # systemd unit, outside the docker network, and needs to read the retained
+    # smart-home heartbeat that hsb1 publishes through this broker. Bound to
+    # 127.0.0.1 so this adds no external surface: the public MQTT endpoint stays
+    # Traefik on :8883 with TLS + HostSNI, unchanged.
+    ports:
+      - "127.0.0.1:1883:1883"
     volumes:
       - /run/agenix/mosquitto-passwd:/mosquitto/config/mosquitto_passwd:ro
       - /run/agenix/mosquitto-conf:/mosquitto/config/mosquitto.conf:ro

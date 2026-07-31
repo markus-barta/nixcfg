@@ -91,12 +91,40 @@ let
     }
   ];
 
+  # OPS-115. hsb1's Node-RED publishes a retained timestamp every 60s THROUGH the
+  # csb0 broker, so this heartbeat traverses exactly the hop a Telegram /zufahrt
+  # takes and goes stale for the same reasons a real command would be dropped.
+  #
+  # 127.0.0.1 because the broker is a container on this host, published on
+  # loopback for precisely this (see hosts/csb0/docker/docker-compose.yml). No
+  # DNS, no TLS, no tailscaled -- the check must not share a dependency with the
+  # failure it is meant to catch.
+  #
+  # 10 min = ten missed publishes. Long enough that a Node-RED redeploy or a
+  # brief broker restart does not page anyone; short enough that the two-day
+  # silence of 2026-07-29 becomes a 10-minute one.
+  smarthomeLinks = [
+    {
+      name = "hsb1 smart-home link";
+      host = "127.0.0.1";
+      port = 1883;
+      topic = "scom/jhw22/heartbeat/hsb1";
+      maxAgeSeconds = 10 * 60;
+    }
+  ];
+
+  # paho-mqtt only for the OPS-115 probe. Everything else here is stdlib on
+  # purpose; a protocol implementation is the one place where hand-rolling the
+  # bytes would be worse than the dependency.
+  pollerPython = pkgs.python3.withPackages (ps: [ ps.paho-mqtt ]);
+
   poller = fleetLib.mkPoller {
     name = "ops-alerts";
     checks = ./ops-alerts-checks.py;
     substitutions = {
       TARGETS_JSON = builtins.toJSON targets;
       PEERS_JSON = builtins.toJSON peers;
+      SMARTHOME_LINKS_JSON = builtins.toJSON smarthomeLinks;
     };
   };
 in
@@ -113,10 +141,17 @@ in
     wants = [ "network-online.target" ];
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${pkgs.python3}/bin/python3 ${poller}/checks.py";
+      ExecStart = "${pollerPython}/bin/python3 ${poller}/checks.py";
       # HA tokens + Telegram credentials. systemd reads this directly, so the
       # values never pass through a shell or a command line.
-      EnvironmentFile = config.age.secrets.csb0-ops-alerts-env.path;
+      # Second file adds MQTT_USER / MQTT_PASS for the OPS-115 broker probe. Kept
+      # as a separate agenix secret rather than merged into the poller's own env
+      # so the broker credential kicks around in exactly one place and can be
+      # rotated without touching the HA tokens.
+      EnvironmentFile = [
+        config.age.secrets.csb0-ops-alerts-env.path
+        config.age.secrets.mqtt-csb0.path
+      ];
       StateDirectory = "ops-alerts";
       StateDirectoryMode = "0700";
       # 0 = clean, 1 = problems found (both are a successful RUN); 2 = could not
