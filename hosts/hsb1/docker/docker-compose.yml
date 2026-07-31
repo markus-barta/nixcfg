@@ -1,4 +1,27 @@
 # name: miniserver24
+
+# Docker copies the host's /etc/resolv.conf into a container ONCE, at container
+# start, and never refreshes it. A host-network container therefore pins
+# whatever resolver the host happened to have that day. When OPS-109 took
+# tailscaled out of the resolver path (hsb1 /etc/resolv.conf rewritten
+# 2026-07-29 13:27), every already-running container kept pointing at the now
+# permanently dead MagicDNS resolver 100.100.100.100 and lost DNS entirely —
+# which is how the access gate lost its Telegram path for two days. Same class
+# of failure as the Pharos login break the day before; tracked as OPS-113.
+#
+# Pinning the resolvers here makes container DNS declarative and independent of
+# whatever tailscaled does to the host. Only for `network_mode: host` services:
+# bridge-network containers must keep Docker's embedded resolver (127.0.0.11)
+# or they lose service-name resolution, and they were never affected anyway
+# because the embedded resolver forwards to the host file at query time.
+x-host-dns: &host-dns
+  - 192.168.1.99 # hsb0 AdGuard Home
+  - 1.1.1.1 # fallback if AdGuard is down
+# Must be pinned alongside `dns:` — Node-RED reaches several devices by bare
+# hostname (wz-lametric, ez-lametric, vr-lametric-sky, wz-hue-bridge).
+x-host-dns-search: &host-dns-search
+  - lan
+
 services:
   zigbee2mqtt:
     container_name: zigbee2mqtt
@@ -47,6 +70,8 @@ services:
     image: ghcr.io/markus-barta/pixdcon:latest
     container_name: pixdcon
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     restart: unless-stopped
     environment:
       - TZ=Europe/Vienna
@@ -70,6 +95,8 @@ services:
     image: ghcr.io/markus-barta/funkeykid:latest
     container_name: funkeykid
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     restart: unless-stopped
     privileged: true # Required for /dev/input access
     environment:
@@ -102,6 +129,8 @@ services:
     restart: unless-stopped
     privileged: true
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     env_file:
       - /run/agenix/hsb1-smarthome-env
     labels:
@@ -114,6 +143,8 @@ services:
     container_name: scrypted
     restart: unless-stopped
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     environment:
       - TZ=Europe/Vienna
       #- SCRYPTED_WEBHOOK_UPDATE_AUTHORIZATION=${SCRYPTED_WEBHOOK_UPDATE_AUTHORIZATION}
@@ -158,6 +189,8 @@ services:
     restart: unless-stopped
     # Using host network like your Home Assistant container for proper mDNS
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     security_opt:
       # Required for Bluetooth via dbus
       - apparmor:unconfined
@@ -245,6 +278,8 @@ services:
     image: node:alpine
     container_name: opus-stream-to-mqtt
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     restart: unless-stopped
     env_file:
       - /run/agenix/opus-stream-hsb1
@@ -297,6 +332,23 @@ services:
     image: ghcr.io/markus-barta/node-red-miniserver24:main
     container_name: nodered
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
+    # The access gate's Telegram path runs csb0 Node-RED -> csb0 mosquitto ->
+    # this container's `csb0+` MQTT subscriber. Resolving that name was the
+    # single point of failure that broke the gate for two days, so take DNS out
+    # of the loop entirely: /etc/hosts wins over any resolver.
+    #
+    # Pinned by IP, NOT switched to an IP in the broker node — csb0 routes this
+    # through Traefik on `HostSNI(mosquitto.barta.cm)` with a Let's Encrypt cert,
+    # so the hostname must survive for both SNI routing and cert validation.
+    # Keeping the name and fixing the address gives us both.
+    #
+    # 89.58.63.96 is csb0's static Netcup v4 address (hosts/csb0/README.md).
+    # Deliberately the public address, not the tailnet one: this path must not
+    # depend on tailscaled being up. If csb0 is ever re-addressed, update here.
+    extra_hosts:
+      - "mosquitto.barta.cm:89.58.63.96"
     restart: unless-stopped
     environment:
       - TZ=Europe/Vienna
@@ -328,6 +380,8 @@ services:
     image: lscr.io/linuxserver/plex:latest
     container_name: plex
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     environment:
       - PUID=1000
       - PGID=100
@@ -378,6 +432,8 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/pharos-beacon"]
     healthcheck:
