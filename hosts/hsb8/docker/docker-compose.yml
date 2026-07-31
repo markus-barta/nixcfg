@@ -3,18 +3,13 @@
 # homeassistant/mosquitto/watchtower migrated from /home/gb/docker/ (NIX-230,
 # NIX-234) — same container names + project so bosun wiring keeps working.
 #
-# ⚠️ CUTOVER GUARD (until NIX-237 closes): do NOT `docker compose up -d` the
-# ha/mosquitto/watchtower services from this file before (a) NIX-236 moved the
-# data mounts to /srv/hsb8 and (b) NIX-235 created /run/agenix/hsb8-watchtower-env.
-# The live containers still run from /home/gb/docker/docker-compose.yml (same
-# project + names) — a premature `up -d` here RECREATES homeassistant/mosquitto
-# with EMPTY /srv mounts. fleetcom-agent, pharos-beacon, and HostDash are safe
-# to reconcile.
-
-# ⚠️ Because of that guard, the `dns:` pin on `homeassistant` below is INERT
-# today — the live HA container is created from /home/gb/docker/docker-compose.yml,
-# which this repo does not own. It takes effect at the NIX-237 cutover. Only
-# pharos-beacon's pin is live on this host right now.
+# The NIX-237 cutover is DONE: the live homeassistant/mosquitto containers are
+# created from THIS file, with the /srv/hsb8 mounts NIX-236 moved them to.
+# Verified on the host 2026-07-31 (compose project_dir + config_files labels).
+# The former cutover guard is removed rather than kept as history — it outlived
+# the condition it described by long enough to mislead: reading it during the
+# OPS-113 sweep caused homeassistant to be skipped on this host, leaving it the
+# only host-network container in the fleet still on an inherited resolver.
 #
 # Docker copies the host's /etc/resolv.conf into a container ONCE, at container
 # start, and never refreshes it, so a resolver-policy change silently strands
