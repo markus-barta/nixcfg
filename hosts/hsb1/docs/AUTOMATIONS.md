@@ -81,7 +81,7 @@ Triggered by **HA MQTT device triggers** from device `flirc_hsb1` (the `ir-bridg
 | ------------------------------ | ----------------- | --------------------- |
 | Set mba JHW22 theme at startup | HA start          | Sets UI theme         |
 | Nuki aufladen Start/Stop       | Battery threshold | Nuki charging control |
-| Gästezimmer D15↔D16           | Light state       | Sync paired lights    |
+| Gästezimmer D15<->D16          | Light state       | Sync paired lights    |
 
 ---
 
