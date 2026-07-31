@@ -10,6 +10,37 @@
 # project + names) — a premature `up -d` here RECREATES homeassistant/mosquitto
 # with EMPTY /srv mounts. fleetcom-agent, pharos-beacon, and HostDash are safe
 # to reconcile.
+
+# ⚠️ Because of that guard, the `dns:` pin on `homeassistant` below is INERT
+# today — the live HA container is created from /home/gb/docker/docker-compose.yml,
+# which this repo does not own. It takes effect at the NIX-237 cutover. Only
+# pharos-beacon's pin is live on this host right now.
+#
+# Docker copies the host's /etc/resolv.conf into a container ONCE, at container
+# start, and never refreshes it, so a resolver-policy change silently strands
+# every container already running. OPS-109 did that fleet-wide on 2026-07-29:
+# hsb1 lost the access gate for two days and hsb0's pharos-beacon was still
+# stranded when it was found (OPS-113). This host escaped only because it
+# happened to restart afterwards. Home Assistant is host-network here, and a
+# stranded HA is exactly how the Tesla integration died for four days
+# (OPS-101) — so pinning matters more here than the current clean state suggests.
+#
+# Only for `network_mode: host` services. Bridge-network containers must keep
+# Docker's embedded resolver (127.0.0.11), which forwards to the host file at
+# query time and is never stranded. 127.0.0.1 is correct ONLY because these are
+# host-network: it is the HOST's loopback, i.e. the local AdGuard Home.
+#
+# 🔴 hosts/hsb8/configuration.nix picks `dnsServers` and `search` CONDITIONALLY
+# on `location`. These values are the ww87 (parents' home) branch, which is
+# where this host lives. Compose cannot express that conditional, so if hsb8
+# ever moves back to jhw22 these two lines must change with it — see OPS-114
+# for generating them from Nix instead of hand-duplicating.
+x-host-dns: &host-dns
+  - 127.0.0.1 # ww87: local AdGuard Home on this host
+  - 1.1.1.1 # Cloudflare fallback
+x-host-dns-search: &host-dns-search
+  - local # ww87 branch; jhw22 would be "lan"
+
 services:
   # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
   # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
@@ -29,6 +60,8 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/pharos-beacon"]
     healthcheck:
@@ -80,6 +113,8 @@ services:
     image: ghcr.io/home-assistant/home-assistant:stable
     restart: unless-stopped
     network_mode: host
+    dns: *host-dns
+    dns_search: *host-dns-search
     privileged: true
     cap_add:
       - NET_ADMIN
