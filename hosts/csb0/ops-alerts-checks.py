@@ -21,11 +21,16 @@ from engine import Problem
 
 STATE_PATH = "/var/lib/ops-alerts/state.json"
 TIMEOUT = 15
+# The broker probe is a loopback read of an already-published retained value, so
+# it either answers at once or the broker is not there. Kept well under the
+# unit's TimeoutStartSec so a wedged broker cannot stall the whole cycle.
+BROKER_TIMEOUT = 8
 
 # Substituted by ops-alerts.nix at build time, so the built script holds literals
 # and no runtime data reaches a request URL (CodeQL partial-SSRF, 2026-07-30).
 TARGETS = json.loads(r"""@TARGETS_JSON@""")
 PEERS = json.loads(r"""@PEERS_JSON@""")
+SMARTHOME_LINKS = json.loads(r"""@SMARTHOME_LINKS_JSON@""")
 
 # Only tailnet Home Assistant addresses may ever be requested. Anchored and
 # narrow so the SSRF shape is unreachable rather than merely unlikely, and so a
@@ -142,12 +147,117 @@ def check_peer(peer: dict) -> list[Problem]:
     return []
 
 
+def read_retained(host: str, port: int, user: str, password: str, topic: str, timeout: int):
+    """Return the retained payload on `topic`, or None if none is set.
+
+    A retained message is delivered the instant we subscribe, so this is a
+    bounded read, not a wait for the next publish. Returning None means the
+    broker answered and has nothing retained there -- a different fact from the
+    broker being unreachable, and the caller reports them differently.
+    """
+    import paho.mqtt.client as mqtt
+
+    received: dict[str, bytes] = {}
+
+    def on_connect(client, userdata, flags, reason_code, properties=None):
+        client.subscribe(topic, qos=0)
+
+    def on_message(client, userdata, message):
+        received["payload"] = message.payload
+
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="ops-alerts-probe")
+    client.username_pw_set(user, password)
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.connect(host, port, keepalive=30)
+    deadline = time.time() + timeout
+    try:
+        while time.time() < deadline and "payload" not in received:
+            client.loop(timeout=0.5)
+    finally:
+        try:
+            client.disconnect()
+        except Exception:  # noqa: BLE001 - teardown must not mask the result
+            pass
+    return received.get("payload")
+
+
+def check_smarthome_link(link: dict) -> list[Problem]:
+    """Is the smart-home command path from this host to hsb1 still carrying traffic?
+
+    hsb1's Node-RED publishes a retained timestamp every 60s THROUGH this broker.
+    That is the same hop every Telegram /zufahrt takes, so the heartbeat goes
+    stale for the same reasons a real command would be dropped.
+
+    Why this check exists: on 2026-07-29 hsb1's container lost DNS and could no
+    longer re-resolve mosquitto.barta.cm to reconnect here. Every access-gate
+    command was accepted, permission-checked, logged as success on this host, and
+    published to a broker with no subscriber -- for two days, with every existing
+    check green (OPS-113/OPS-115). A check that only proved 'Node-RED is up'
+    would have stayed green throughout; this one would not.
+    """
+    name = link["name"]
+    user = os.environ.get("MQTT_USER", "")
+    password = os.environ.get("MQTT_PASS", "")
+    if not user or not password:
+        return [Problem(f"link:{name}", f"{name}: no broker credentials in the environment")]
+
+    try:
+        payload = read_retained(
+            link["host"], link["port"], user, password, link["topic"], BROKER_TIMEOUT
+        )
+    except Exception as error:  # noqa: BLE001 - any failure here means we cannot tell
+        return [
+            Problem(
+                f"link:{name}",
+                f"{name}: cannot read the local MQTT broker ({type(error).__name__}). "
+                f"Smart-home command delivery is unverifiable, not necessarily broken.",
+            )
+        ]
+
+    if payload is None:
+        return [
+            Problem(
+                f"link:{name}",
+                f"{name}: nothing retained on {link['topic']}. Either hsb1 has never "
+                f"published since the broker last lost its retained set, or its "
+                f"heartbeat flow is gone. Access-gate commands from Telegram would "
+                f"be silently dropped.",
+            )
+        ]
+
+    try:
+        stamp = float(payload.decode().strip())
+    except (ValueError, UnicodeDecodeError):
+        return [Problem(f"link:{name}", f"{name}: heartbeat on {link['topic']} is not a timestamp")]
+
+    # Node-RED's inject emits epoch milliseconds; tolerate seconds too so a
+    # future publisher change cannot silently read as 55 years stale.
+    if stamp > 1e12:
+        stamp /= 1000.0
+
+    age = int(time.time() - stamp)
+    if age > link["maxAgeSeconds"]:
+        return [
+            Problem(
+                f"link:{name}",
+                f"{name}: last heartbeat {age // 60} min ago (limit "
+                f"{link['maxAgeSeconds'] // 60} min). hsb1 is no longer reaching this "
+                f"broker, so Telegram commands to the access gate are being dropped "
+                f"even though the bot still reports success.",
+            )
+        ]
+    return []
+
+
 def collect() -> list[Problem]:
     found: list[Problem] = []
     for target in TARGETS:
         found.extend(check_home_assistant(target))
     for peer in PEERS:
         found.extend(check_peer(peer))
+    for link in SMARTHOME_LINKS:
+        found.extend(check_smarthome_link(link))
     return found
 
 
