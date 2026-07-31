@@ -1,0 +1,19 @@
+CORRECTION to this commit message.
+
+The body states 'hsb0 has two and csb1 has ten' stranded containers. That is wrong.
+It came from a scan bug: containers without a shell returned empty output from
+'docker exec ... cat /etc/resolv.conf' and the test treated empty as stale.
+
+Verified counts at 2026-07-31:
+  hsb1  6  nodered, scrypted, plex, funkeykid, matter-server, opus-stream-to-mqtt
+  hsb0  1  pharos-beacon
+  csb1  0  janus-managed-canary reports the stale resolver but is network_mode: none
+  csb0  0
+  hsb8  0
+  hsb9  0
+
+This commit also carries an unrelated change: 'fix(nix): make dirty-tree builds
+say so (OPS-106)'. PR #180 was branched from a local main that still held that
+work as an unpushed commit, so the squash merge folded it in. Content is
+byte-identical to PR #178, which was closed as superseded. Not rewritten,
+because hsb0 and hsb1 had already pulled this commit.
