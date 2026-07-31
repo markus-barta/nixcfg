@@ -82,3 +82,9 @@ id_rsa.pub
 # subdir is tracked so Claude Code discovers /ops, /inspr, etc. on every clone.
 .claude/*
 !.claude/commands
+
+# Python bytecode caches. The alert pollers and their tests run in-place on the
+# hosts (csb0/csb1), so these appear in the working tree of a live checkout and
+# make `git status` look dirty on a host that is actually clean.
+__pycache__/
+*.py[cod]
