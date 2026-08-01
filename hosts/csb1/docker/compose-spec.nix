@@ -14,13 +14,24 @@
 #
 # Verify any change with:
 #   nix shell nixpkgs#yq-go -c ./tests/compose_stack_gate.py csb1
-# Comments from the source file are NOT carried across by this tool; re-attach
-# them by hand. They hold real incident history.
+# Incident-history comments carried over from the retired yml (OPS-127).
 
-# Comments from the source file are NOT carried across by this tool; re-attach
-# them by hand. They hold real incident history.
+# Incident-history comments carried over from the retired yml (OPS-127).
 # Compose project name: csb1 — named volumes depend on it.
 
+# ── carried from the retired docker-compose.yml ──
+# csb1 main docker stack — git-tracked (NIX-110 migration)
+#
+# Previously at /home/mba/docker/docker-compose.yml; now lives in nixcfg
+# matching the csb0 pattern. Deploy with:
+#   cd ~/Code/nixcfg/hosts/csb1/docker && docker compose up -d
+#
+# Project name preserved as `csb1` so all named volumes (csb1_*) and
+# networks (csb1_*) survive the cutover without data migration.
+#
+# Secrets: ALL env_files now use /run/agenix/... paths (M4 migration of
+# the loose ~/secrets/ and ./xxx.env files into agenix). Container reads
+# at runtime via agenix-decrypted bind. No plaintext secrets in this file.
 {
   name = "csb1";
   services = {
@@ -37,7 +48,7 @@
         "internal"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=false"
       ];
     };
@@ -51,7 +62,7 @@
         "internal"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=false"
       ];
     };
@@ -73,7 +84,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.docmost.rule=Host(`docmost.barta.cm`)"
         "traefik.http.routers.docmost.tls.certresolver=default"
@@ -83,6 +94,7 @@
         "traefik.http.routers.docmost.middlewares=cloudflarewarp@file"
       ];
     };
+    # --- Paperless-ngx Services Begin ---
     paperless-db = {
       image = "postgres:16-alpine";
       restart = "unless-stopped";
@@ -96,7 +108,7 @@
         "internal"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=false"
       ];
     };
@@ -110,18 +122,18 @@
         "internal"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=false"
       ];
     };
     paperless-tika = {
-      image = "apache/tika:latest";
+      image = "apache/tika:latest"; # image no longer available here... ghcr.io/paperless-ngx/tika:latest
       restart = "unless-stopped";
       networks = [
         "internal"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=false"
       ];
     };
@@ -136,7 +148,7 @@
         "internal"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=false"
       ];
     };
@@ -168,7 +180,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.paperless.rule=Host(`paperless.barta.cm`)"
         "traefik.http.routers.paperless.tls.certresolver=default"
@@ -191,10 +203,14 @@
       ];
       restart = "always";
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=false"
       ];
     };
+    # https://docs.traefik.io/v2.5/providers/docker/
+    # ACME state lives below ./traefik/ (gitignored, mutable LE cert state).
+    # The dedicated HTTP-challenge store serves public DNS zones that are not
+    # managed through the Cloudflare credentials used by the default resolver.
     traefik = {
       image = "traefik";
       command = "--providers.docker";
@@ -207,6 +223,7 @@
         "443:443/tcp"
         "443:443/udp"
       ];
+      # - "8883:8883" #todo: enable if mosquitto installed
       networks = {
         traefik = null;
         docker-sock-traefik = null;
@@ -221,7 +238,7 @@
         "./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
         "traefik.http.routers.traefik.entrypoints=web-secure"
         "traefik.http.routers.traefik.service=api@internal"
@@ -229,6 +246,7 @@
         "traefik.http.routers.traefik.tls=true"
         "traefik.http.routers.traefik.priority=100"
       ];
+      # - traefik.http.routers.traefik.middlewares=authelia  # DISABLED 2026-03-06 - no authelia container
       environment = [
         "TZ=Europe/Vienna"
       ];
@@ -236,6 +254,8 @@
         "/run/agenix/traefik-variables"
       ];
     };
+    # HostDash — static service dashboard for this host. Built by Nix from
+    # markus-barta/hostdash and mounted read-only from /etc/hostdash.
     hostdash-auth = {
       image = "quay.io/oauth2-proxy/oauth2-proxy:v7.15.3";
       restart = "unless-stopped";
@@ -267,7 +287,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.hostdash-auth-csb1.rule=Host(`cs1.barta.cm`) && PathPrefix(`/oauth2`)"
         "traefik.http.routers.hostdash-auth-csb1.entrypoints=web-secure"
@@ -292,7 +312,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.hostdash-csb1.rule=Host(`cs1.barta.cm`)"
         "traefik.http.routers.hostdash-csb1.entrypoints=web-secure"
@@ -340,14 +360,19 @@
         "/run/agenix/csb1-smtp-env"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=false"
       ];
     };
+    # ============================================
+    # WEG Portal - multi-tenant house portal
+    # ============================================
     hausv-org = {
       image = "ghcr.io/markus-barta/hausv-org:latest";
       container_name = "hausv-org";
       restart = "unless-stopped";
+      # HAUSV allows 15s for HTTP, 5s for queued login mail, 1s for transport
+      # cancellation, and keeps 9s margin before Docker may force termination.
       stop_grace_period = "30s";
       env_file = [
         "/run/agenix/csb1-hausv-org-env"
@@ -357,7 +382,11 @@
         "BASE_URL=https://jhw22.hausv.org"
         "ROOT_DOMAIN=hausv.org"
         "DEFAULT_TENANT=jhw22"
+        # Only the dedicated Traefik peer may supply X-Real-IP/X-Forwarded-Proto.
+        # HAUSV is deliberately no longer reachable from the shared proxy net.
         "TRUSTED_PROXY_CIDRS=10.253.254.2/32"
+        # Initializes the real JHW22 energy pilot without skipping the guided
+        # owner onboarding. Existing profiles are never overwritten.
         "HOME_PROFILE_SEEDS_JSON=[{\"tenant_slug\":\"jhw22\",\"household_name\":\"Mein Zuhause\",\"home_type\":\"apartment\",\"assets\":[\"ev\",\"wallbox\"]}]"
         "LOCAL_DEV_LOGIN=false"
         "SMTP_HOST=smtp.resend.com"
@@ -391,10 +420,20 @@
         "ISSUE_ATTACHMENT_DIR=/data/issue-attachments"
         "PARKING_SAMPLE_INTERVAL=15m"
         "PARKING_HISTORY_START=2026-01-01"
+        # PP20 Überschussladen (charging controller + Telegram bot, hausv 0.12).
+        # Controller enable/shadow lives in the app settings, NOT here — flip and
+        # rollback must be a settings save, never a redeploy. The bot token is
+        # the only secret and stays in the agenix env file.
         "CHARGING_PLUG_SWITCH_ENTITY=switch.kws_306wf_energy_meter"
+        # Verified live 2026-07-19: the 260365-prefixed registry entries are stale.
+        # grid_export_power is the HA template split of the signed grid_inout —
+        # always >= 0 W, availability-guarded, so no sign convention in the app.
         "CHARGING_BATTERY_SOC_ENTITY=sensor.sonnenbatterie_state_battery_percentage_user"
         "CHARGING_GRID_FEEDIN_ENTITY=sensor.grid_export_power"
         "CHARGING_TICK_INTERVAL=30s"
+        # 0 = staleness check off: HA bumps last_updated only on CHANGE, so a
+        # stable value (0 W export all evening) is not stale. Unavailability is
+        # signalled via state "unavailable", which the app already rejects.
         "CHARGING_STALE_AFTER=0s"
         "CHARGING_CONFIRM_TIMEOUT=2m"
         "CHARGING_HA_FAIL_LIMIT=5"
@@ -423,7 +462,8 @@
         start_period = "20s";
       };
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        # This image is built and deployed manually by hausv-org/scripts/deploy.fish.
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.hausv-org.rule=Host(`jhw22.hausv.org`) || Host(`hausv.org`) || Host(`www.hausv.org`)"
@@ -444,6 +484,7 @@
         "/home:/backup/home:ro"
         "/root:/backup/root:ro"
         "/etc:/backup/etc:ro"
+        # SSH private key now sourced from agenix (was: ./restic-cron/id_rsa)
         "/run/agenix/csb1-restic-cron-id-rsa:/root/.ssh/id_rsa:ro"
         "./restic-cron/id_rsa.pub:/root/.ssh/id_rsa.pub:ro"
         "./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro"
@@ -463,7 +504,7 @@
         "/run/agenix/csb1-restic-cron-hetzner-env"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
@@ -495,6 +536,9 @@
         "traefik.enable=false"
       ];
     };
+    # ============================================
+    # Excalidraw - Self-hosted whiteboard
+    # ============================================
     excalidraw = {
       image = "excalidraw/excalidraw:latest";
       restart = "unless-stopped";
@@ -502,7 +546,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.excalidraw.rule=Host(`draw.barta.cm`)"
         "traefik.http.routers.excalidraw.tls.certresolver=default"
@@ -512,6 +556,9 @@
         "traefik.http.routers.excalidraw.middlewares=cloudflarewarp@file"
       ];
     };
+    # ============================================
+    # jobs-at - KI-Exposition des österreichischen Arbeitsmarkts
+    # ============================================
     jobs-at = {
       image = "ghcr.io/markus-barta/jobs-at:latest";
       restart = "unless-stopped";
@@ -519,7 +566,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.jobs-at.rule=Host(`zukunftschance.ai.barta.cm`)"
         "traefik.http.routers.jobs-at.tls.certresolver=default"
@@ -529,8 +576,11 @@
         "traefik.http.routers.jobs-at.middlewares=cloudflarewarp@file"
       ];
     };
+    # ============================================
+    # PPM - Personal Project Management
+    # ============================================
     ppm = {
-      image = "ghcr.io/markus-barta/paimos:5.0.0";
+      image = "ghcr.io/markus-barta/paimos:5.0.0"; # explicit live pin; bump deliberately with the PAIMOS release/deploy flow. 4.8.0 sat here while live ran 5.0.0 (deploy flow sed-edits the yml, git restore reverted it) — a reconcile would have DOWNGRADED ppm over a 5.0.0-migrated DB. Caught in the OPS-116 QA, 2026-08-01.
       container_name = "ppm";
       restart = "unless-stopped";
       environment = [
@@ -555,7 +605,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.ppm.rule=Host(`pm.barta.cm`)"
         "traefik.http.routers.ppm.tls.certresolver=default"
@@ -565,10 +615,19 @@
         "traefik.http.routers.ppm.middlewares=cloudflarewarp@file"
       ];
     };
+    # ============================================
+    # Janus - secret metadata control plane
+    # ============================================
     janus = {
+      # Source lives at github.com/inspr-at/janus (go-envelope/). This canonical
+      # organization release is deployed from a cosign-signed image with SPDX
+      # SBOM + SLSA build provenance, pinned by digest.
+      # To bump: cut a go-envelope-v* release, verify, then update the digest.
       image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v1.174@sha256:f12c3554a55e968c3e96e56d2e9eec4d3785daa96dd39a9eb5fe7d59137e6d4c";
       container_name = "janus";
       restart = "unless-stopped";
+      # The image's named janus account is uid 100/gid 101. Pin the numeric
+      # identity because uid 100 is the reviewed read-only custody bridge.
       user = "100:101";
       group_add = [
         "991"
@@ -667,7 +726,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.janus.rule=Host(`vault.barta.cm`)"
         "traefik.http.routers.janus.tls.certresolver=default"
@@ -677,7 +736,18 @@
         "traefik.http.routers.janus.middlewares=cloudflarewarp@file"
       ];
     };
+    # ============================================
+    # Janus Rust engine — staged approved-use runtime
+    # ============================================
     janus-engine-staged = {
+      # Disabled by default. Initialize and verify with:
+      #   just janus-engine-smoke
+      #
+      # This is intentionally not on Traefik and does not replace the live
+      # go-envelope service above. It uses the same non-prod Docker volumes and
+      # manifests as the smoke harness; no production secret or host SSH key is
+      # mounted into the staged Rust engine. Use the smoke harness, not manual
+      # project-wide compose lifecycle commands, when testing this profile.
       image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.19@sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32";
       container_name = "janus-engine-staged";
       profiles = [
@@ -756,10 +826,13 @@
         start_period = "10s";
       };
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=false"
       ];
     };
+    # ============================================
+    # Janus managed-service transaction boundary
+    # ============================================
     janus-managed-transactiond = {
       image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.19@sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32";
       container_name = "janus-managed-transactiond";
@@ -903,6 +976,9 @@
         }
       ];
       healthcheck = {
+        # The release image is FROM scratch and has no shell. Container process
+        # liveness plus this exec-form binary probe is complemented by the
+        # host-side readiness check for the exact private socket.
         test = [
           "CMD"
           "/usr/local/bin/janusd-use"
@@ -914,11 +990,14 @@
         start_period = "5s";
       };
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
+    # ============================================
+    # Janus managed-secret production canary
+    # ============================================
     janus-managed-canary = {
       image = "alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce";
       container_name = "janus-managed-canary";
@@ -969,11 +1048,14 @@
         start_period = "5s";
       };
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
+    # ============================================
+    # MinIO - Object storage (PPM attachments)
+    # ============================================
     minio = {
       image = "minio/minio:RELEASE.2025-01-20T14-49-07Z";
       container_name = "minio";
@@ -989,7 +1071,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.minio-console.rule=Host(`minio.barta.cm`)"
         "traefik.http.routers.minio-console.tls.certresolver=default"
@@ -999,7 +1081,13 @@
         "traefik.http.routers.minio-console.middlewares=cloudflarewarp@file"
       ];
     };
+    # Pharos dashboard (PHAROS-12/39) — INSPR-native FleetCom successor.
+    # Public human routes are protected by Zitadel OIDC plus the Pharos operator
+    # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
+    # FleetCom is decommissioned; Pharos is the live fleet dashboard.
     pharosd = {
+      # Keep the readable release tag, but bind it to the verified immutable
+      # linux/amd64 manifest used by both server and bundled beacon.
       image = "ghcr.io/inspr-at/pharos/pharosd:0.1.67@sha256:f1e9f37b1b989109f66c5fe00f8371ca49e00d0ccf5f0dede4b4b49abfad0c26";
       container_name = "pharosd";
       restart = "unless-stopped";
@@ -1047,22 +1135,31 @@
         "PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1"
         "PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm"
         "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env"
+        # Execution is available only through the attended plan/review/confirm
+        # flow. No provider mutation occurs from connection tests or plan review.
         "PHAROS_HCLOUD_PROJECT_LABEL=Pharos production"
         "PHAROS_HCLOUD_EXECUTE=1"
+        # The dedicated root-only csb1 identity and its exact selected public key
+        # were verified before activating the managed provisioning assistant.
         "PHAROS_PROVISIONING_EXECUTOR_READY=1"
         "PHAROS_PROVISIONING_OWNER_HOST=csb1"
         "PHAROS_PROVISIONING_SCOPE_ORGANIZATION=inspr"
         "PHAROS_PROVISIONING_SCOPE_PROJECT=pharos"
         "PHAROS_PROVISIONING_SCOPE_REPOSITORY=nixcfg"
         "PHAROS_PROVISIONING_SCOPE_ENVIRONMENT=production"
+        # csb1 is the trusted executor for other hosts; it cannot retire itself.
         "PHAROS_RETIREMENT_OWNER_HOST=csb1"
         "PHAROS_REQUIRE_BEACON_TOKEN=1"
         "PHAROS_BEACON_TOKEN_MODE=janus"
         "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes"
         "PHAROS_ALERT_WEBHOOK_ENV_FILE=/run/pharos/alert-webhook.env"
+        # OIDC (PKCE) — public dashboard auth via Zitadel (PHAROS-4). Beacons hit
+        # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
         "PHAROS_OIDC_ISSUER=https://auth.inspr.at"
         "PHAROS_OIDC_CLIENT_ID=379451733002223624@pharos"
         "PHAROS_OIDC_REDIRECT_URI=https://pharos.barta.cm/auth/callback"
+        # Authorization identifiers are explicit and value-free. This migration
+        # reference is derived only from an OIDC email_verified=true claim.
         "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27"
         "PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json"
       ];
@@ -1103,7 +1200,7 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=true"
         "traefik.enable=true"
         "traefik.http.routers.pharos.rule=Host(`pharos.barta.cm`)"
@@ -1114,6 +1211,10 @@
         "traefik.http.routers.pharos.middlewares=cloudflarewarp@file"
       ];
     };
+    # Pharos beacon (PHAROS-6) — reports csb1's status + nix freshness to pharosd
+    # every 60s. Host network → reaches pharosd at the tailnet IP. Runs as mba
+    # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
+    # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
     pharos-beacon = {
       image = "ghcr.io/inspr-at/pharos/pharosd:0.1.67@sha256:f1e9f37b1b989109f66c5fe00f8371ca49e00d0ccf5f0dede4b4b49abfad0c26";
       container_name = "pharos-beacon";
@@ -1141,6 +1242,8 @@
         "/run/agenix/pharos-beacon-csb1-env"
       ];
       environment = [
+        # Used only by the inherited image healthcheck; pharos-beacon uses
+        # PHAROS_URL below for reports.
         "PHAROS_ADDR=0.0.0.0:8088"
         "PHAROS_URL=http://100.64.0.4:8088"
         "PHAROS_INTERVAL=60"
@@ -1160,7 +1263,7 @@
         "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
@@ -1220,3 +1323,11 @@
     };
   };
 }
+
+# ── comments from the retired yml that could not be auto-anchored ──
+# [traefik]       # HostDash owns / on cs1.barta.cm; keep Traefik's API on /api and
+# [traefik]       # /dashboard if the dashboard is enabled later.
+# [pharosd]       # The beacon image inherits pharosd's loopback readiness probe. Publish
+# [pharosd]       # the same listener locally so that role-specific health stays truthful.
+# [pharosd]       # Tailnet bind kept for beacon ingestion (/report stays auth-exempt).
+# [restic-cron-hetzner] # 1:30am (was on: CRON_BACKUP_EXPRESSION: "30 1 * * *")

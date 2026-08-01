@@ -1528,10 +1528,8 @@ pixoo-start:
 pixoo-stop:
     just _hsb1 "mosquitto_pub -h localhost -u smarthome -P \$(grep MQTT_PASSWORD ~/secrets/health-pixoo.env | cut -d= -f2) -t 'jhw2211/health/control' -m 'stop'"
 
-# Rebuild and redeploy health-pixoo on hsb1
-[group('smarthome')]
-pixoo-deploy:
-    just _hsb1 "cd ~/Code/health-pixoo && git pull && docker build -t ghcr.io/markus-barta/health-pixoo:latest . && cd ~/docker && docker compose up -d health-pixoo"
+# pixoo-deploy recipe removed 2026-08-01 (OPS-127): it targeted ~/docker on
+# hsb1, a compose root deleted with NIX-110; the recipe has been dead since.
 
 # Tail health-pixoo logs from hsb1
 [group('smarthome')]
