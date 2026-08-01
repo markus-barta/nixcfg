@@ -62,6 +62,7 @@ let
 in
 {
   imports = [
+    ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
@@ -77,6 +78,22 @@ in
     ../../modules/shared/ssh-authorized-nixos.nix
     ../../modules/pharos-guarded-deploy
   ];
+
+  # OPS-116 — the container stack, rendered from Nix into the closure.
+  #
+  # 🟡 reconcile = false while this host is prepared: the spec lands in /etc and
+  # can be diffed against the running stack, but switch does NOT run
+  # `compose up -d`. Flip to true only when the cutover is intended.
+  #
+  # 🔴 project must stay "docker" — named volumes are prefixed with it.
+  nixcfg.composeStack = {
+    enable = true;
+    project = "docker";
+    stackName = "hsb8";
+    reconcile = false;
+    # No projectDirectory: this stack has zero relative paths.
+    spec = import ./docker/compose-spec.nix;
+  };
 
   # ============================================================================
   # UZUMAKI MODULE CONFIGURATION

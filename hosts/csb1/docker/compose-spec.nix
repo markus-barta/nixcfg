@@ -1,0 +1,1198 @@
+# csb1 container stack — the compose spec, authored in Nix (OPS-116).
+#
+# Replaces hosts/csb1/docker/docker-compose.yml. Rendered into the closure and
+# reconciled at switch by modules/shared/compose-stack, so a resolver-policy
+# change can no longer strand a running container (OPS-113).
+#
+# 🔴 `dns` / `dns_search` MUST NOT appear here — the module injects them from
+# config.networking.nameservers into every network_mode: host service.
+#
+# Largest stack. Live data in paperless/docmost/postgres/minio on csb1_* named
+# volumes — the project name is load-bearing above all other hosts.
+# janus-managed-canary is network_mode: none and gets no DNS injection.
+# traefik holds a STATIC IP on hausv-proxy (10.253.254.2).
+#
+# Verify any change with:
+#   nix shell nixpkgs#yq-go -c ./tests/compose_stack_gate.py csb1
+# Comments from the source file are NOT carried across by this tool; re-attach
+# them by hand. They hold real incident history.
+# Compose project name: csb1 — named volumes depend on it.
+#
+# Dropped (now supplied by the composeStack module):
+#   pharos-beacon.dns = ['8.8.8.8', '8.8.4.4']
+#   x-host-dns (anchor)
+
+{
+  name = "csb1";
+  services = {
+    docmost-db = {
+      image = "postgres:16-alpine";
+      env_file = [
+        "/run/agenix/csb1-docmost-postgres-env"
+      ];
+      volumes = [
+        "docmost_db_data:/var/lib/postgresql/data"
+      ];
+      restart = "unless-stopped";
+      networks = [
+        "internal"
+      ];
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    docmost-redis = {
+      image = "redis:7-alpine";
+      restart = "unless-stopped";
+      volumes = [
+        "docmost_redis_data:/data"
+      ];
+      networks = [
+        "internal"
+      ];
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    docmost = {
+      image = "docmost/docmost:latest";
+      restart = "unless-stopped";
+      depends_on = [
+        "docmost-db"
+        "docmost-redis"
+      ];
+      env_file = [
+        "/run/agenix/csb1-docmost-config-env"
+      ];
+      volumes = [
+        "docmost_data:/app/data/storage"
+      ];
+      networks = [
+        "internal"
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.http.routers.docmost.rule=Host(`docmost.barta.cm`)"
+        "traefik.http.routers.docmost.tls.certresolver=default"
+        "traefik.http.routers.docmost.tls=true"
+        "traefik.http.services.docmost.loadbalancer.server.port=3000"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.docmost.middlewares=cloudflarewarp@file"
+      ];
+    };
+    paperless-db = {
+      image = "postgres:16-alpine";
+      restart = "unless-stopped";
+      env_file = [
+        "/run/agenix/csb1-paperless-postgres-env"
+      ];
+      volumes = [
+        "paperless_db_data:/var/lib/postgresql/data"
+      ];
+      networks = [
+        "internal"
+      ];
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    paperless-redis = {
+      image = "redis:7-alpine";
+      restart = "unless-stopped";
+      volumes = [
+        "paperless_redis_data:/data"
+      ];
+      networks = [
+        "internal"
+      ];
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    paperless-tika = {
+      image = "apache/tika:latest";
+      restart = "unless-stopped";
+      networks = [
+        "internal"
+      ];
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    paperless-gotenberg = {
+      image = "gotenberg/gotenberg:8";
+      restart = "unless-stopped";
+      command = [
+        "gotenberg"
+        "--chromium-disable-routes=true"
+      ];
+      networks = [
+        "internal"
+      ];
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    paperless = {
+      image = "ghcr.io/paperless-ngx/paperless-ngx:latest";
+      restart = "unless-stopped";
+      depends_on = [
+        "paperless-db"
+        "paperless-redis"
+        "paperless-tika"
+        "paperless-gotenberg"
+      ];
+      env_file = [
+        "/run/agenix/csb1-paperless-config-env"
+      ];
+      volumes = [
+        "paperless_data:/usr/src/paperless/data"
+        "paperless_media:/usr/src/paperless/media"
+        "paperless_consume:/usr/src/paperless/consume"
+      ];
+      environment = [
+        "TZ=Europe/Vienna"
+        "PAPERLESS_TIKA_ENABLED=1"
+        "PAPERLESS_TIKA_ENDPOINT=http://paperless-tika:9998"
+        "PAPERLESS_GOTENBERG_ENDPOINT=http://paperless-gotenberg:3000"
+      ];
+      networks = [
+        "internal"
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.http.routers.paperless.rule=Host(`paperless.barta.cm`)"
+        "traefik.http.routers.paperless.tls.certresolver=default"
+        "traefik.http.routers.paperless.tls=true"
+        "traefik.http.services.paperless.loadbalancer.server.port=8000"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.paperless.middlewares=cloudflarewarp@file"
+      ];
+    };
+    docker-proxy-traefik = {
+      image = "tecnativa/docker-socket-proxy";
+      environment = [
+        "CONTAINERS=1"
+      ];
+      volumes = [
+        "/var/run/docker.sock:/var/run/docker.sock:ro"
+      ];
+      networks = [
+        "docker-sock-traefik"
+      ];
+      restart = "always";
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    traefik = {
+      image = "traefik";
+      command = "--providers.docker";
+      restart = "always";
+      depends_on = [
+        "docker-proxy-traefik"
+      ];
+      ports = [
+        "80:80"
+        "443:443/tcp"
+        "443:443/udp"
+      ];
+      networks = {
+        traefik = null;
+        docker-sock-traefik = null;
+        hausv-proxy = {
+          ipv4_address = "10.253.254.2";
+        };
+      };
+      volumes = [
+        "./traefik/static.yml:/etc/traefik/traefik.yml"
+        "./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml"
+        "./traefik/acme.json:/etc/traefik/acme/acme.json:rw"
+        "./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw"
+      ];
+      labels = [
+        "traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+        "traefik.http.routers.traefik.entrypoints=web-secure"
+        "traefik.http.routers.traefik.service=api@internal"
+        "traefik.http.routers.traefik.tls.certresolver=default"
+        "traefik.http.routers.traefik.tls=true"
+        "traefik.http.routers.traefik.priority=100"
+      ];
+      environment = [
+        "TZ=Europe/Vienna"
+      ];
+      env_file = [
+        "/run/agenix/traefik-variables"
+      ];
+    };
+    hostdash-auth = {
+      image = "quay.io/oauth2-proxy/oauth2-proxy:v7.15.3";
+      restart = "unless-stopped";
+      env_file = [
+        "/run/agenix/csb-hostdash-oauth2-proxy-env"
+      ];
+      command = [
+        "--http-address=0.0.0.0:4180"
+        "--provider=oidc"
+        "--oidc-issuer-url=https://auth.inspr.at"
+        "--redirect-url=https://cs1.barta.cm/oauth2/callback"
+        "--email-domain=*"
+        "--cookie-domain=.barta.cm"
+        "--whitelist-domain=.barta.cm"
+        "--cookie-secure=true"
+        "--cookie-samesite=lax"
+        "--cookie-expire=8h"
+        "--cookie-refresh=1h"
+        "--reverse-proxy=true"
+        "--trusted-proxy-ip=172.16.0.0/12"
+        "--set-xauthrequest=true"
+        "--pass-access-token=false"
+        "--pass-authorization-header=false"
+        "--skip-provider-button=true"
+        "--upstream=static://202"
+        "--silence-ping-logging=true"
+      ];
+      networks = [
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.http.routers.hostdash-auth-csb1.rule=Host(`cs1.barta.cm`) && PathPrefix(`/oauth2`)"
+        "traefik.http.routers.hostdash-auth-csb1.entrypoints=web-secure"
+        "traefik.http.routers.hostdash-auth-csb1.tls=true"
+        "traefik.http.routers.hostdash-auth-csb1.tls.certresolver=default"
+        "traefik.http.routers.hostdash-auth-csb1.priority=250"
+        "traefik.http.services.hostdash-auth-csb1.loadbalancer.server.port=4180"
+        "traefik.docker.network=csb1_traefik"
+        "com.centurylinklabs.watchtower.enable=false"
+      ];
+    };
+    hostdash = {
+      image = "nginx:alpine";
+      restart = "unless-stopped";
+      environment = [
+        "TZ=Europe/Vienna"
+      ];
+      volumes = [
+        "/etc/hostdash/csb1/share/hostdash-csb1:/usr/share/nginx/html:ro"
+      ];
+      networks = [
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.http.routers.hostdash-csb1.rule=Host(`cs1.barta.cm`)"
+        "traefik.http.routers.hostdash-csb1.entrypoints=web-secure"
+        "traefik.http.routers.hostdash-csb1.tls=true"
+        "traefik.http.routers.hostdash-csb1.tls.certresolver=default"
+        "traefik.http.routers.hostdash-csb1.priority=10"
+        "traefik.http.routers.hostdash-csb1.middlewares=hostdash-auth-csb1@docker"
+        "traefik.http.middlewares.hostdash-auth-csb1.forwardauth.address=http://hostdash-auth:4180/"
+        "traefik.http.middlewares.hostdash-auth-csb1.forwardauth.trustForwardHeader=true"
+        "traefik.http.middlewares.hostdash-auth-csb1.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email"
+        "traefik.http.services.hostdash-csb1.loadbalancer.server.port=80"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.hostdash-csb1-http.rule=Host(`cs1.barta.cm`)"
+        "traefik.http.routers.hostdash-csb1-http.entrypoints=web"
+        "traefik.http.routers.hostdash-csb1-http.middlewares=hostdash-csb1-https@docker"
+        "traefik.http.middlewares.hostdash-csb1-https.redirectscheme.scheme=https"
+        "traefik.http.middlewares.hostdash-csb1-https.redirectscheme.permanent=true"
+        "traefik.http.routers.hostdash-csb1-ip.rule=Host(`152.53.64.166`) || Host(`100.64.0.4`)"
+        "traefik.http.routers.hostdash-csb1-ip.entrypoints=web"
+        "traefik.http.routers.hostdash-csb1-ip.priority=200"
+        "traefik.http.routers.hostdash-csb1-ip.middlewares=hostdash-csb1-ip-canonical@docker"
+        "traefik.http.routers.hostdash-csb1-ip.service=hostdash-csb1"
+        "traefik.http.middlewares.hostdash-csb1-ip-canonical.redirectregex.regex=^http://[^/]+/(.*)"
+        "traefik.http.middlewares.hostdash-csb1-ip-canonical.redirectregex.replacement=https://cs1.barta.cm/$\${1}"
+        "traefik.http.middlewares.hostdash-csb1-ip-canonical.redirectregex.permanent=true"
+        "com.centurylinklabs.watchtower.enable=true"
+      ];
+    };
+    smtp = {
+      image = "namshi/smtp";
+      restart = "always";
+      networks = [
+        "traefik"
+        "smtp"
+      ];
+      environment = [
+        "TZ=Europe/Vienna"
+        "SMARTHOST_ADDRESS=mail.hover.com"
+        "SMARTHOST_PORT=587"
+        "SMARTHOST_USER=markus@barta.com"
+        "SMARTHOST_ALIASES=*"
+        "RELAY_NETWORKS=:172.0.0.0/8"
+      ];
+      env_file = [
+        "/run/agenix/csb1-smtp-env"
+      ];
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    hausv-org = {
+      image = "ghcr.io/markus-barta/hausv-org:latest";
+      container_name = "hausv-org";
+      restart = "unless-stopped";
+      stop_grace_period = "30s";
+      env_file = [
+        "/run/agenix/csb1-hausv-org-env"
+      ];
+      environment = [
+        "ADDR=:8080"
+        "BASE_URL=https://jhw22.hausv.org"
+        "ROOT_DOMAIN=hausv.org"
+        "DEFAULT_TENANT=jhw22"
+        "TRUSTED_PROXY_CIDRS=10.253.254.2/32"
+        "HOME_PROFILE_SEEDS_JSON=[{\"tenant_slug\":\"jhw22\",\"household_name\":\"Mein Zuhause\",\"home_type\":\"apartment\",\"assets\":[\"ev\",\"wallbox\"]}]"
+        "LOCAL_DEV_LOGIN=false"
+        "SMTP_HOST=smtp.resend.com"
+        "SMTP_PORT=587"
+        "MAIL_FROM=hausv.org <noreply@notify.hausv.org>"
+        "HA_BASE_URL=http://100.64.0.7:8123"
+        "PARKING_METER_ENERGY_ENTITY=sensor.kws_306wf_energy_meter_energy"
+        "PARKING_POWER_ENTITY=sensor.kws360_power"
+        "PARKING_PRICE_ENTITY=sensor.epex_spot_data_total_price"
+        "PARKING_DATA_PATH=/data/parking.json"
+        "ANNOUNCE_DATA_PATH=/data/announcements.json"
+        "ANNOUNCE_READ_DATA_PATH=/data/announcement_reads.json"
+        "EVENT_DATA_PATH=/data/events.json"
+        "DOC_DATA_PATH=/data/documents.json"
+        "DOC_FILE_DIR=/data/documents"
+        "VOTE_DATA_PATH=/data/votes.json"
+        "HANDOVER_DATA_PATH=/data/handovers.json"
+        "NOTIFICATION_PREF_DATA_PATH=/data/notification_prefs.json"
+        "PROFILE_DATA_PATH=/data/profile_overlays.json"
+        "TENANT_DATA_PATH=/data/tenant_overrides.json"
+        "TENANT_HERO_DIR=/data/tenant-heroes"
+        "INVITE_DATA_PATH=/data/invites.json"
+        "ACTIVITY_DATA_PATH=/data/activity.json"
+        "AUDIT_DATA_PATH=/data/audit.jsonl"
+        "UNIT_DATA_PATH=/data/units.json"
+        "UNIT_PAYMENT_STATUS_DATA_PATH=/data/unit_payment_status.json"
+        "CONTACT_DATA_PATH=/data/contacts.json"
+        "ATTACHMENT_DATA_PATH=/data/attachments.json"
+        "ATTACHMENT_FILE_DIR=/data/attachments"
+        "ISSUE_DATA_PATH=/data/issues.json"
+        "ISSUE_ATTACHMENT_DIR=/data/issue-attachments"
+        "PARKING_SAMPLE_INTERVAL=15m"
+        "PARKING_HISTORY_START=2026-01-01"
+        "CHARGING_PLUG_SWITCH_ENTITY=switch.kws_306wf_energy_meter"
+        "CHARGING_BATTERY_SOC_ENTITY=sensor.sonnenbatterie_state_battery_percentage_user"
+        "CHARGING_GRID_FEEDIN_ENTITY=sensor.grid_export_power"
+        "CHARGING_TICK_INTERVAL=30s"
+        "CHARGING_STALE_AFTER=0s"
+        "CHARGING_CONFIRM_TIMEOUT=2m"
+        "CHARGING_HA_FAIL_LIMIT=5"
+        "TELEGRAM_DATA_PATH=/data/telegram.json"
+        "TELEGRAM_POLL_TIMEOUT=50s"
+      ];
+      volumes = [
+        "/var/lib/csb1-docker/hausv-org:/data"
+      ];
+      networks = {
+        hausv-proxy = {
+          ipv4_address = "10.253.254.3";
+        };
+        hausv-egress = null;
+      };
+      healthcheck = {
+        test = [
+          "CMD"
+          "/hausv-org"
+          "healthcheck"
+          "http://127.0.0.1:8080/healthz"
+        ];
+        interval = "30s";
+        timeout = "5s";
+        retries = 3;
+        start_period = "20s";
+      };
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=true"
+        "traefik.http.routers.hausv-org.rule=Host(`jhw22.hausv.org`) || Host(`hausv.org`) || Host(`www.hausv.org`)"
+        "traefik.http.routers.hausv-org.tls.certresolver=default"
+        "traefik.http.routers.hausv-org.tls=true"
+        "traefik.http.services.hausv-org.loadbalancer.server.port=8080"
+        "traefik.docker.network=csb1_hausv-proxy"
+        "traefik.http.routers.hausv-org.middlewares=cloudflarewarp@file,hausv-hsts@file"
+      ];
+    };
+    restic-cron-hetzner = {
+      build = "./restic-cron";
+      restart = "unless-stopped";
+      volumes = [
+        "/etc/localtime:/etc/localtime:ro"
+        "/var/lib/docker/volumes:/backup/var/lib/docker/volumes:ro"
+        "/var/lib/csb1-docker:/backup/var/lib/csb1-docker:ro"
+        "/home:/backup/home:ro"
+        "/root:/backup/root:ro"
+        "/etc:/backup/etc:ro"
+        "/run/agenix/csb1-restic-cron-id-rsa:/root/.ssh/id_rsa:ro"
+        "./restic-cron/id_rsa.pub:/root/.ssh/id_rsa.pub:ro"
+        "./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro"
+        "./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro"
+        "./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro"
+        "./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro"
+        "./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro"
+        "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status"
+      ];
+      environment = {
+        RESTIC_BACKUP_OPTIONS = "-r sftp:u387549-sub1@u387549.your-storagebox.de:/";
+        MAIL_SUBJECT = "💾 Restic Backup netcup csb1 (hetzner)";
+        CRON_BACKUP_EXPRESSION = "30 1 * * *";
+        PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";
+      };
+      env_file = [
+        "/run/agenix/csb1-restic-cron-hetzner-env"
+      ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=false"
+      ];
+      networks = [
+        "smtp"
+      ];
+    };
+    watchtower = {
+      image = "containrrr/watchtower:latest";
+      container_name = "watchtower";
+      restart = "unless-stopped";
+      command = "--schedule \"0 0 8 * * SAT\" --cleanup";
+      volumes = [
+        "/var/run/docker.sock:/var/run/docker.sock:rw"
+      ];
+      environment = [
+        "WATCHTOWER_CLEANUP=true"
+        "DOCKER_API_VERSION=1.44"
+        "WATCHTOWER_NOTIFICATIONS=shoutrrr"
+        "WATCHTOWER_NOTIFICATIONS_HOSTNAME=csb1"
+        "WATCHTOWER_NOTIFICATION_TITLE_TAG=🌐"
+        "WATCHTOWER_HTTP_API_UPDATE=true"
+        "WATCHTOWER_HTTP_API_PERIODIC_POLLS=true"
+      ];
+      env_file = [
+        "/run/agenix/csb1-watchtower-env"
+      ];
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    excalidraw = {
+      image = "excalidraw/excalidraw:latest";
+      restart = "unless-stopped";
+      networks = [
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.http.routers.excalidraw.rule=Host(`draw.barta.cm`)"
+        "traefik.http.routers.excalidraw.tls.certresolver=default"
+        "traefik.http.routers.excalidraw.tls=true"
+        "traefik.http.services.excalidraw.loadbalancer.server.port=80"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.excalidraw.middlewares=cloudflarewarp@file"
+      ];
+    };
+    jobs-at = {
+      image = "ghcr.io/markus-barta/jobs-at:latest";
+      restart = "unless-stopped";
+      networks = [
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.http.routers.jobs-at.rule=Host(`zukunftschance.ai.barta.cm`)"
+        "traefik.http.routers.jobs-at.tls.certresolver=default"
+        "traefik.http.routers.jobs-at.tls=true"
+        "traefik.http.services.jobs-at.loadbalancer.server.port=80"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.jobs-at.middlewares=cloudflarewarp@file"
+      ];
+    };
+    ppm = {
+      image = "ghcr.io/markus-barta/paimos:4.8.0";
+      container_name = "ppm";
+      restart = "unless-stopped";
+      environment = [
+        "PORT=8888"
+        "COOKIE_SECURE=true"
+        "BRAND_PRODUCT_NAME=PPM"
+        "BRAND_WEBSITE_URL=https://pm.barta.cm"
+        "BRAND_PUBLIC_URL=https://pm.barta.cm"
+        "BRAND_EMAIL_FROM=noreply@barta.cm"
+        "BRAND_DB_FILENAME=ppm.db"
+        "BRAND_MINIO_BUCKET=ppm-attachments"
+        "BRAND_HEALTH_SERVICE_NAME=ppm"
+        "BRAND_TOTP_ISSUER=PPM"
+      ];
+      env_file = [
+        "/run/agenix/csb1-ppm-env"
+      ];
+      volumes = [
+        "ppm_data:/app/data"
+      ];
+      networks = [
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.http.routers.ppm.rule=Host(`pm.barta.cm`)"
+        "traefik.http.routers.ppm.tls.certresolver=default"
+        "traefik.http.routers.ppm.tls=true"
+        "traefik.http.services.ppm.loadbalancer.server.port=8888"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.ppm.middlewares=cloudflarewarp@file"
+      ];
+    };
+    janus = {
+      image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v1.174@sha256:f12c3554a55e968c3e96e56d2e9eec4d3785daa96dd39a9eb5fe7d59137e6d4c";
+      container_name = "janus";
+      restart = "unless-stopped";
+      user = "100:101";
+      group_add = [
+        "991"
+      ];
+      read_only = true;
+      cap_drop = [
+        "ALL"
+      ];
+      security_opt = [
+        "no-new-privileges:true"
+      ];
+      tmpfs = [
+        "/tmp:rw,noexec,nosuid,nodev,size=16m"
+      ];
+      environment = [
+        "JANUS_PUBLIC_URL=https://vault.barta.cm"
+        "JANUS_PRODUCT_MODE=self_hosted"
+        "JANUS_DATA_DIR=/data"
+        "JANUS_CATALOG_FILE=/catalog/agenix-catalog.json"
+        "JANUS_REQUIRE_AUTH=true"
+        "JANUS_UNSAFE_BOOTSTRAP_OWNER=false"
+        "JANUS_VIEWER_GROUPS=janus:viewer"
+        "JANUS_OWNER_GROUPS=janus:admin"
+        "JANUS_APPROVER_GROUPS=janus:approver"
+        "JANUS_AUDITOR_GROUPS=janus:auditor"
+        "JANUS_OPERATOR_GROUPS=janus:operator"
+        "JANUS_SECURITY_ADMIN_GROUPS=janus:security_admin"
+        "JANUS_BREAK_GLASS_ADMIN_GROUPS=janus:break_glass_admin"
+        "JANUS_SERVICE_ADMIN_GROUPS=janus:service_admin"
+        "JANUS_WORKLOAD_ADMIN_GROUPS=janus:workload_admin"
+        "OIDC_ISSUER=https://auth.inspr.at"
+        "OIDC_PROJECT_ID=375139131258306571"
+        "JANUS_MANAGED_SETUP_PHAROS_ORIGIN=https://pharos.barta.cm"
+        "JANUS_MANAGED_SETUP_PHAROS_RETURN_ORIGIN=https://pharos.barta.cm"
+        "JANUS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/janus/managed/internal-token"
+        "JANUS_MANAGED_SETUP_VERIFICATION_KEYS_FILE=/etc/janus/managed/pharos-verification-keys.json"
+        "JANUS_MANAGED_SETUP_MANIFEST_PATHS=/managed-services/manifest.json"
+        "JANUS_MANAGED_WEB_TRANSACTION_SOCKET=/run/janus-managed-central/transaction.sock"
+        "JANUS_MANAGED_HOST_TOKEN_GENERATION_DIR=/run/pharos/beacon-token-hashes"
+        "JANUS_MANAGED_HOST_ENVELOPE_OUTBOX_DIR=/var/lib/janus-managed-central/outbox"
+      ];
+      env_file = [
+        "/run/agenix/csb1-janus-env"
+      ];
+      volumes = [
+        "janus_data:/data"
+        "./janus/catalog:/catalog:ro"
+        {
+          type = "bind";
+          source = "/run/agenix/csb1-janus-managed-internal-token";
+          target = "/run/janus/managed/internal-token";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/etc/janus/managed/pharos-verification-keys.json";
+          target = "/etc/janus/managed/pharos-verification-keys.json";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/run/pharos/managed-service-declarations";
+          target = "/managed-services";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/run/janus-managed-central";
+          target = "/run/janus-managed-central";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/var/lib/janus-managed-central/outbox";
+          target = "/var/lib/janus-managed-central/outbox";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro"
+      ];
+      networks = [
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.http.routers.janus.rule=Host(`vault.barta.cm`)"
+        "traefik.http.routers.janus.tls.certresolver=default"
+        "traefik.http.routers.janus.tls=true"
+        "traefik.http.services.janus.loadbalancer.server.port=8080"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.janus.middlewares=cloudflarewarp@file"
+      ];
+    };
+    janus-engine-staged = {
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.19@sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32";
+      container_name = "janus-engine-staged";
+      profiles = [
+        "janus-engine-staged"
+      ];
+      restart = "unless-stopped";
+      user = "65532:65532";
+      read_only = true;
+      cap_drop = [
+        "ALL"
+      ];
+      security_opt = [
+        "no-new-privileges:true"
+      ];
+      network_mode = "none";
+      stdin_open = true;
+      entrypoint = [
+        "/usr/local/bin/janus-warden"
+      ];
+      tmpfs = [
+        "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=65532,gid=65532,mode=0700"
+      ];
+      environment = [
+        "JANUS_PRODUCT_MODE=self_hosted"
+        "JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev"
+        "JANUS_PERMIT_DIR=/run/janus/permits"
+        "JANUS_WARDEN_PERMIT_DIR=/run/janus/permits"
+        "JANUS_RUN_PERMIT_DIR=/run/janus/permits"
+        "JANUS_WARDEN_BACKEND=age"
+        "JANUS_WARDEN_DESTINATION=janus-engine-nonprod-smoke"
+        "JANUS_WARDEN_EXECUTOR=janus-run@csb1"
+        "JANUS_RUN_EXECUTOR=janus-run@csb1"
+        "JANUS_WARDEN_SCOPE=janus/csb1/staged"
+        "JANUS_RUN_SCOPE=janus/csb1/staged"
+        "JANUS_WARDEN_SCOPE_ORGANIZATION=inspr"
+        "JANUS_WARDEN_SCOPE_PROJECT=janus"
+        "JANUS_WARDEN_SCOPE_REPOSITORY=nixcfg"
+        "JANUS_WARDEN_SCOPE_ENVIRONMENT=staged"
+        "JANUS_SCOPE_ORGANIZATION=inspr"
+        "JANUS_SCOPE_PROJECT=janus"
+        "JANUS_SCOPE_REPOSITORY=nixcfg"
+        "JANUS_SCOPE_ENVIRONMENT=staged"
+        "JANUS_WARDEN_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml"
+        "JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml"
+        "JANUS_WARDEN_AGE_METADATA_FILE=/etc/janus/metadata.toml"
+        "JANUS_AGE_METADATA_FILE=/etc/janus/metadata.toml"
+        "JANUS_WARDEN_AGE_PROFILE=csb1"
+        "JANUS_AGE_PROFILE=csb1"
+        "JANUS_WARDEN_AGE_STORE_DIR=/var/lib/janus/secrets"
+        "JANUS_AGE_STORE_DIR=/var/lib/janus/secrets"
+        "JANUS_LIFECYCLE_EVIDENCE_DIR=/var/lib/janus/secrets/.lifecycle-evidence"
+        "JANUS_WARDEN_AGE_IDENTITY_FILE=/run/janus/age/identity"
+        "JANUS_AGE_IDENTITY_FILE=/run/janus/age/identity"
+        "JANUS_WARDEN_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub"
+        "JANUS_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub"
+        "JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-commands.toml"
+        "JANUS_MANAGED_PROFILE_MANIFEST=/etc/janus/managed-commands.toml"
+      ];
+      volumes = [
+        "./janus/nonprod-smoke/secretspec.toml:/etc/janus/secretspec.toml:ro"
+        "./janus/nonprod-smoke/metadata.toml:/etc/janus/metadata.toml:ro"
+        "./janus/nonprod-smoke/managed-commands.toml:/etc/janus/managed-commands.toml:ro"
+        "janus_engine_smoke_secrets:/var/lib/janus/secrets"
+        "janus_engine_smoke_permits:/run/janus/permits"
+        "janus_engine_smoke_age:/run/janus/age:ro"
+      ];
+      healthcheck = {
+        test = [
+          "CMD"
+          "/usr/local/bin/janusd-use"
+          "--help"
+        ];
+        interval = "30s";
+        timeout = "15s";
+        retries = 3;
+        start_period = "10s";
+      };
+      labels = [
+        "traefik.enable=false"
+      ];
+    };
+    janus-managed-transactiond = {
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.19@sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32";
+      container_name = "janus-managed-transactiond";
+      profiles = [
+        "janus-managed-service"
+      ];
+      restart = "no";
+      init = true;
+      user = "100:993";
+      read_only = true;
+      cap_drop = [
+        "ALL"
+      ];
+      security_opt = [
+        "no-new-privileges:true"
+      ];
+      pids_limit = 64;
+      mem_limit = "128m";
+      cpus = "0.50";
+      network_mode = "none";
+      entrypoint = [
+        "/usr/local/bin/janusd-web-transactiond"
+      ];
+      tmpfs = [
+        "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=100,gid=993,mode=0700"
+      ];
+      environment = [
+        "JANUS_PRODUCT_MODE=production"
+        "JANUS_RELEASE_CHANNEL_POLICY=/etc/janus/managed/release-channels-v1.json"
+        "JANUS_RELEASE_ADMISSION_RECEIPT=/etc/janus/managed/release-admission.json"
+        "JANUS_RELEASE_ARTIFACT_DIGEST=sha256:d43239f09883b1d4dce9aeca10e1232ef84138d89e7d7e099270b8ce7e787c32"
+        "JANUS_RELEASE_AUDIT_FILE=/var/lib/janus-managed-central/audit/release-admission.jsonl"
+        "JANUS_RELEASE_EXECUTOR=janusd-web-transactiond"
+        "JANUS_RUNTIME_AUDIT_FILE=/var/lib/janus-managed-central/audit/runtime.jsonl"
+        "JANUS_SCOPE_ORGANIZATION=inspr"
+        "JANUS_SCOPE_PROJECT=janus"
+        "JANUS_SCOPE_REPOSITORY=nixcfg"
+        "JANUS_SCOPE_ENVIRONMENT=production"
+        "JANUS_LIFECYCLE_ENTRY_EXECUTOR=janusd-web-transactiond"
+        "JANUS_LIFECYCLE_TOMBSTONE_DIR=/var/lib/janus-managed-central/tombstones"
+        "JANUS_AGE_MANIFEST_FILE=/etc/janus/managed/secretspec.toml"
+        "JANUS_AGE_METADATA_FILE=/var/lib/janus-managed-central/metadata.toml"
+        "JANUS_AGE_PROFILE=production"
+        "JANUS_AGE_STORE_DIR=/var/lib/janus-managed-central/age-store"
+        "JANUS_AGE_IDENTITY_FILE=/run/agenix/csb1-janus-managed-age-identity"
+        "JANUS_AGE_RECIPIENT=age12njev59mvt5vyxghh43w9gvxkurdhatkj2y30k25uttg7swphuqsj6vyku"
+        "JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed/managed-env-files.toml"
+        "JANUS_MANAGED_PROFILE_MANIFEST=/etc/janus/managed/managed-env-files.toml"
+        "JANUS_MANAGED_WEB_TRANSACTION_SOCKET=/run/janus-managed-central/transaction.sock"
+        "JANUS_MANAGED_WEB_TRANSACTION_CATALOG_FILE=/etc/janus/managed/web-transaction-catalog.json"
+        "JANUS_MANAGED_WEB_TRANSACTION_ALLOWED_UID=100"
+      ];
+      volumes = [
+        {
+          type = "bind";
+          source = "/var/lib/janus-managed-central";
+          target = "/var/lib/janus-managed-central";
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/run/janus-managed-central";
+          target = "/run/janus-managed-central";
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/run/agenix/csb1-janus-managed-host-signing-key";
+          target = "/run/agenix/csb1-janus-managed-host-signing-key";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/run/agenix/csb1-janus-managed-age-identity";
+          target = "/run/agenix/csb1-janus-managed-age-identity";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/etc/janus/managed/secretspec.toml";
+          target = "/etc/janus/managed/secretspec.toml";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/etc/janus/managed/managed-env-files.toml";
+          target = "/etc/janus/managed/managed-env-files.toml";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/etc/janus/managed/hooks.toml";
+          target = "/etc/janus/managed/hooks.toml";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/etc/janus/managed/web-transaction-catalog.json";
+          target = "/etc/janus/managed/web-transaction-catalog.json";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/etc/janus/managed/release-channels-v1.json";
+          target = "/etc/janus/managed/release-channels-v1.json";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/etc/janus/managed/release-admission.json";
+          target = "/etc/janus/managed/release-admission.json";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+      ];
+      healthcheck = {
+        test = [
+          "CMD"
+          "/usr/local/bin/janusd-use"
+          "--help"
+        ];
+        interval = "5s";
+        timeout = "3s";
+        retries = 3;
+        start_period = "5s";
+      };
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=false"
+      ];
+    };
+    janus-managed-canary = {
+      image = "alpine:3.22.5@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce";
+      container_name = "janus-managed-canary";
+      profiles = [
+        "janus-managed-service"
+      ];
+      restart = "no";
+      init = true;
+      user = "65534:65534";
+      read_only = true;
+      cap_drop = [
+        "ALL"
+      ];
+      security_opt = [
+        "no-new-privileges:true"
+      ];
+      pids_limit = 32;
+      mem_limit = "32m";
+      cpus = "0.10";
+      network_mode = "none";
+      tmpfs = [
+        "/run/canary:rw,noexec,nosuid,nodev,size=1m,uid=65534,gid=65534,mode=0700"
+      ];
+      volumes = [
+        {
+          type = "bind";
+          source = "/run/janus-managed/svc_0bca8d31f7e2/slot_49c0e8a17d63.env";
+          target = "/run/secrets/canary-api-token";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+      ];
+      command = [
+        "/bin/sh"
+        "-ec"
+        "umask 077\ntest -s /run/secrets/canary-api-token\nsha256sum /run/secrets/canary-api-token | cut -d' ' -f1 > /run/canary/loaded.sha256\nexec sleep 2147483647\n"
+      ];
+      healthcheck = {
+        test = [
+          "CMD-SHELL"
+          "test -s /run/secrets/canary-api-token && test -s /run/canary/loaded.sha256 && test \"$$(sha256sum /run/secrets/canary-api-token | cut -d' ' -f1)\" = \"$$(cat /run/canary/loaded.sha256)\""
+        ];
+        interval = "5s";
+        timeout = "3s";
+        retries = 3;
+        start_period = "5s";
+      };
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=false"
+      ];
+    };
+    minio = {
+      image = "minio/minio:RELEASE.2025-01-20T14-49-07Z";
+      container_name = "minio";
+      restart = "unless-stopped";
+      command = "server /data --console-address \":9001\"";
+      env_file = [
+        "/run/agenix/csb1-minio-env"
+      ];
+      volumes = [
+        "minio_data:/data"
+      ];
+      networks = [
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.http.routers.minio-console.rule=Host(`minio.barta.cm`)"
+        "traefik.http.routers.minio-console.tls.certresolver=default"
+        "traefik.http.routers.minio-console.tls=true"
+        "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.minio-console.middlewares=cloudflarewarp@file"
+      ];
+    };
+    pharosd = {
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.67@sha256:f1e9f37b1b989109f66c5fe00f8371ca49e00d0ccf5f0dede4b4b49abfad0c26";
+      container_name = "pharosd";
+      restart = "unless-stopped";
+      init = true;
+      user = "10001:992";
+      group_add = [
+        "991"
+      ];
+      read_only = true;
+      cap_drop = [
+        "ALL"
+      ];
+      security_opt = [
+        "no-new-privileges:true"
+      ];
+      pids_limit = 128;
+      mem_limit = "512m";
+      cpus = "1.0";
+      tmpfs = [
+        "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777"
+      ];
+      healthcheck = {
+        test = [
+          "CMD"
+          "/usr/local/bin/pharosd"
+          "healthcheck"
+        ];
+        interval = "30s";
+        timeout = "3s";
+        start_period = "15s";
+        retries = 3;
+      };
+      environment = [
+        "PHAROS_ADDR=0.0.0.0:8080"
+        "RUST_LOG=info"
+        "PHAROS_DB=/data/pharos.json"
+        "PHAROS_MANIFEST_PATHS=/manifests/hsb8.json"
+        "PHAROS_MANAGED_SERVICE_MANIFEST_PATHS=/managed-services/manifest.json"
+        "PHAROS_MANAGED_SETUP_SIGNING_KEY_FILE=/run/pharos/managed-setup-signing-key"
+        "PHAROS_MANAGED_SETUP_JANUS_ORIGIN=https://vault.barta.cm"
+        "PHAROS_MANAGED_SETUP_INTERNAL_TOKEN_FILE=/run/pharos/managed-setup-internal-token"
+        "PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json"
+        "PHAROS_NIXCFG_DISPATCH_ENABLED=1"
+        "PHAROS_NIXCFG_DISPATCH_TOKEN_FILE=/run/pharos/nixcfg-dispatch-token"
+        "PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1"
+        "PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm"
+        "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env"
+        "PHAROS_HCLOUD_PROJECT_LABEL=Pharos production"
+        "PHAROS_HCLOUD_EXECUTE=1"
+        "PHAROS_PROVISIONING_EXECUTOR_READY=1"
+        "PHAROS_PROVISIONING_OWNER_HOST=csb1"
+        "PHAROS_PROVISIONING_SCOPE_ORGANIZATION=inspr"
+        "PHAROS_PROVISIONING_SCOPE_PROJECT=pharos"
+        "PHAROS_PROVISIONING_SCOPE_REPOSITORY=nixcfg"
+        "PHAROS_PROVISIONING_SCOPE_ENVIRONMENT=production"
+        "PHAROS_RETIREMENT_OWNER_HOST=csb1"
+        "PHAROS_REQUIRE_BEACON_TOKEN=1"
+        "PHAROS_BEACON_TOKEN_MODE=janus"
+        "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes"
+        "PHAROS_ALERT_WEBHOOK_ENV_FILE=/run/pharos/alert-webhook.env"
+        "PHAROS_OIDC_ISSUER=https://auth.inspr.at"
+        "PHAROS_OIDC_CLIENT_ID=379451733002223624@pharos"
+        "PHAROS_OIDC_REDIRECT_URI=https://pharos.barta.cm/auth/callback"
+        "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27"
+        "PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json"
+      ];
+      ports = [
+        "127.0.0.1:8088:8080"
+        "100.64.0.4:8088:8080"
+      ];
+      volumes = [
+        "pharos_data:/data"
+        "./pharos/access-policy.json:/etc/pharos/access-policy.json:ro"
+        "./pharos/manifests:/manifests:ro"
+        "/run/pharos/managed-service-declarations:/managed-services:ro"
+        "/home/mba/Code/nixcfg/modules/pharos-host-preferences.json:/config/pharos-host-preferences.json:ro"
+        "/run/agenix/csb1-pharos-nixcfg-dispatch-token:/run/pharos/nixcfg-dispatch-token:ro"
+        {
+          type = "bind";
+          source = "/run/agenix/csb1-janus-managed-pharos-signing-key";
+          target = "/run/pharos/managed-setup-signing-key";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        {
+          type = "bind";
+          source = "/run/agenix/csb1-janus-managed-internal-token-pharos";
+          target = "/run/pharos/managed-setup-internal-token";
+          read_only = true;
+          bind = {
+            create_host_path = false;
+          };
+        }
+        "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro"
+        "janus_pharos_production_provider_out:/run/pharos/providers:ro"
+        "/run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro"
+      ];
+      networks = [
+        "traefik"
+      ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=true"
+        "traefik.enable=true"
+        "traefik.http.routers.pharos.rule=Host(`pharos.barta.cm`)"
+        "traefik.http.routers.pharos.tls.certresolver=default"
+        "traefik.http.routers.pharos.tls=true"
+        "traefik.http.services.pharos.loadbalancer.server.port=8080"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.pharos.middlewares=cloudflarewarp@file"
+      ];
+    };
+    pharos-beacon = {
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.67@sha256:f1e9f37b1b989109f66c5fe00f8371ca49e00d0ccf5f0dede4b4b49abfad0c26";
+      container_name = "pharos-beacon";
+      restart = "unless-stopped";
+      init = true;
+      read_only = true;
+      cap_drop = [
+        "ALL"
+      ];
+      security_opt = [
+        "no-new-privileges:true"
+      ];
+      pids_limit = 64;
+      mem_limit = "256m";
+      cpus = "0.5";
+      tmpfs = [
+        "/tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777"
+      ];
+      network_mode = "host";
+      user = "1000:1000";
+      entrypoint = [
+        "/usr/local/bin/pharos-beacon"
+      ];
+      env_file = [
+        "/run/agenix/pharos-beacon-csb1-env"
+      ];
+      environment = [
+        "PHAROS_ADDR=0.0.0.0:8088"
+        "PHAROS_URL=http://100.64.0.4:8088"
+        "PHAROS_INTERVAL=60"
+        "PHAROS_HOSTNAME=csb1"
+        "PHAROS_BACKUP_MODE=status-file"
+        "PHAROS_BACKUP_STATUS_FILE=/pharos-backup-status/restic-cron-hetzner.json"
+        "PHAROS_CURRENT_KERNEL_MODULES_DIR=/host/run/current-system/kernel-modules/lib/modules"
+        "NIXCFG_DIR=/nixcfg"
+        "GIT_CONFIG_COUNT=1"
+        "GIT_CONFIG_KEY_0=safe.directory"
+        "GIT_CONFIG_VALUE_0=/nixcfg"
+      ];
+      volumes = [
+        "/home/mba/Code/nixcfg:/nixcfg:ro"
+        "/etc/NIXOS:/etc/NIXOS:ro"
+        "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
+        "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro"
+      ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=false"
+      ];
+    };
+  };
+  volumes = {
+    pharos_data = { };
+    janus_pharos_production_hash_out = {
+      external = true;
+      name = "\${JANUS_PHAROS_HASH_OUT_VOLUME:-janus_pharos_production_hash_out}";
+    };
+    janus_pharos_production_provider_out = {
+      external = true;
+      name = "\${JANUS_PHAROS_PROVIDER_OUT_VOLUME:-janus_pharos_production_provider_out}";
+    };
+    docmost_db_data = { };
+    docmost_redis_data = { };
+    docmost_data = { };
+    paperless_db_data = { };
+    paperless_redis_data = { };
+    paperless_data = { };
+    paperless_media = { };
+    paperless_consume = { };
+    ppm_data = { };
+    janus_data = { };
+    janus_engine_smoke_age = {
+      external = true;
+      name = "\${JANUS_SMOKE_AGE_VOLUME:-janus_engine_smoke_age}";
+    };
+    janus_engine_smoke_secrets = {
+      external = true;
+      name = "\${JANUS_SMOKE_STORE_VOLUME:-janus_engine_smoke_secrets}";
+    };
+    janus_engine_smoke_permits = {
+      external = true;
+      name = "\${JANUS_SMOKE_PERMIT_VOLUME:-janus_engine_smoke_permits}";
+    };
+    minio_data = { };
+  };
+  networks = {
+    internal = null;
+    traefik = null;
+    smtp = null;
+    hausv-proxy = {
+      internal = true;
+      ipam = {
+        config = [
+          {
+            subnet = "10.253.254.0/29";
+          }
+        ];
+      };
+    };
+    hausv-egress = null;
+    docker-sock-traefik = {
+      internal = true;
+    };
+  };
+}

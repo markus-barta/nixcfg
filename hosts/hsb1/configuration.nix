@@ -21,6 +21,7 @@ in
     ./babycam-watchdog.nix # NIX-151 — probe + self-heal + MQTT telemetry for the kiosk babycam
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
+    ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/funkeykid.nix
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
@@ -232,6 +233,21 @@ in
     # on an already-authenticated host run `sudo tailscale set
     # --accept-dns=false` once (persists in tailscaled.state).
     extraUpFlags = [ "--accept-dns=false" ];
+  };
+
+  # OPS-116 — the container stack, rendered from Nix into the closure.
+  #
+  # 🟡 reconcile = false while this host is being prepared: the spec lands in
+  # /etc and can be diffed against the running stack, but switch does NOT run
+  # `compose up -d`. Flip to true only when OPS-118's cutover is intended.
+  #
+  # 🔴 project = "docker" is not a typo. See hosts/hsb1/docker/compose-spec.nix.
+  nixcfg.composeStack = {
+    enable = true;
+    project = "docker";
+    stackName = "hsb1";
+    reconcile = false;
+    spec = import ./docker/compose-spec.nix;
   };
 
   # Enable FLIRC IR-USB-Module
