@@ -138,31 +138,9 @@ services:
     labels:
       - com.centurylinklabs.watchtower.scope=weekly
 
-  # Weekly Watchtower — updates all scope=weekly containers Saturday 05:00
-  # local. Deliberately NO --label-enable: homeassistant/mosquitto carry only
-  # the scope label (matches the pre-migration gb-stack behavior).
-  watchtower:
-    container_name: watchtower
-    image: beatkind/watchtower:latest
-    restart: unless-stopped
-    command: --schedule "0 0 5 * * 6" --cleanup --scope weekly
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-    environment:
-      - TZ=Europe/Vienna
-      - WATCHTOWER_CLEANUP=true
-      - DOCKER_API_VERSION=1.44
-      - WATCHTOWER_SCOPE=weekly
-      - WATCHTOWER_NOTIFICATIONS=shoutrrr
-      - WATCHTOWER_NOTIFICATIONS_HOSTNAME=hsb8
-      - WATCHTOWER_NOTIFICATION_TITLE_TAG=🏡
-      # FLEET-1397: HTTP API so bosun's "Update agent" button works.
-      - WATCHTOWER_HTTP_API_UPDATE=true
-      # HTTP_API_UPDATE alone disables --schedule runs ("Periodic runs are
-      # not enabled") — this re-enables them alongside the API (NIX-228).
-      - WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
-    env_file:
-      # agenix (NIX-235): provides WATCHTOWER_HTTP_API_TOKEN (must match
-      # WATCHTOWER_TOKEN in fleetcom-agent's env) + WATCHTOWER_NOTIFICATION_URL
-      # (telegram shoutrrr). Replaces /home/gb/secrets/watchtower.env.
-      - /run/agenix/hsb8-watchtower-env
+  # Watchtower REMOVED 2026-08-01 (OPS-125): image updates now come from the
+  # composeStack autoUpdate timer — compose pull + up -d, Sat 05:00, through
+  # compose itself. Its HTTP update API went with it: the token's consumer
+  # (fleetcom-agent / bosun, FLEET-1397) is archived, so the API was an
+  # orphaned write-channel into the docker socket. The scope=weekly labels on
+  # services stay — inert, and removing them would force-recreate everything.
