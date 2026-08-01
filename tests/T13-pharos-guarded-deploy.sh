@@ -10,7 +10,7 @@ review="$repo_root/modules/pharos-guarded-deploy/review.sh"
 system_update="$repo_root/modules/pharos-guarded-deploy/system-update.sh"
 action_agent="$repo_root/modules/pharos-guarded-deploy/action-agent.sh"
 host_config="$repo_root/hosts/hsb8/configuration.nix"
-host_compose="$repo_root/hosts/hsb8/docker/docker-compose.yml"
+host_compose="$repo_root/hosts/hsb8/docker/compose-spec.nix"
 
 bash -n "$apply" "$rollback" "$bootstrap" "$review" "$system_update" "$action_agent"
 

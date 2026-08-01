@@ -23,7 +23,7 @@ assert_count() {
 assert_exact_image_count() {
   local expected=$1
   local file=$2
-  local image_pattern='^[[:space:]]*image:[[:space:]]+ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+(@sha256:[0-9a-f]{64})?[[:space:]]*$'
+  local image_pattern='^[[:space:]]*image = "ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+(@sha256:[0-9a-f]{64})?";[[:space:]]*$'
 
   [[ "$(grep -Ec -- "$image_pattern" "$file")" == "$expected" ]]
 }
@@ -31,17 +31,17 @@ assert_exact_image_count() {
 assert_digest_image_count() {
   local expected=$1
   local file=$2
-  local image_pattern='^[[:space:]]*image:[[:space:]]+ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}[[:space:]]*$'
+  local image_pattern='^[[:space:]]*image = "ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}";[[:space:]]*$'
 
   [[ "$(grep -Ec -- "$image_pattern" "$file")" == "$expected" ]]
 }
 
-csb0="$repo_root/hosts/csb0/docker/docker-compose.yml"
-csb1="$repo_root/hosts/csb1/docker/docker-compose.yml"
-hsb0="$repo_root/hosts/hsb0/docker/docker-compose.yml"
-hsb1="$repo_root/hosts/hsb1/docker/docker-compose.yml"
-hsb8="$repo_root/hosts/hsb8/docker/docker-compose.yml"
-hsb9="$repo_root/hosts/hsb9/docker/docker-compose.yml"
+csb0="$repo_root/hosts/csb0/docker/compose-spec.nix"
+csb1="$repo_root/hosts/csb1/docker/compose-spec.nix"
+hsb0="$repo_root/hosts/hsb0/docker/compose-spec.nix"
+hsb1="$repo_root/hosts/hsb1/docker/compose-spec.nix"
+hsb8="$repo_root/hosts/hsb8/docker/compose-spec.nix"
+hsb9="$repo_root/hosts/hsb9/docker/compose-spec.nix"
 
 assert_exact_image_count 1 "$csb0"
 assert_digest_image_count 1 "$csb0"

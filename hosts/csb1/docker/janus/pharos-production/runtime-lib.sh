@@ -5,7 +5,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/runtime-image-pol
 
 janus_pharos_load_consumer_identity() {
   local compose_dir=$1
-  local compose_file="${compose_dir}/docker-compose.yml"
+  local compose_file=/etc/compose/csb1/docker-compose.yml # OPS-127: rendered spec
   local configured_user
 
   if ! configured_user=$(

@@ -18,9 +18,9 @@ jq -e '
   (.hosts | keys) == ["csb0", "csb1", "hsb0", "hsb1", "hsb8", "hsb9"]
 ' "$fixture" >/dev/null
 
-compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
+compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 host_config="$repo_root/hosts/csb1/configuration.nix"
-hsb8_compose="$repo_root/hosts/hsb8/docker/docker-compose.yml"
+hsb8_compose="$repo_root/hosts/hsb8/docker/compose-spec.nix"
 [[ "$(grep -Fc 'PHAROS_CURRENT_KERNEL_MODULES_DIR=/host/run/current-system/kernel-modules/lib/modules' "$compose")" == 1 ]]
 [[ "$(grep -Fc '/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro' "$compose")" == 1 ]]
 [[ "$(grep -Fc 'PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json' "$compose")" == 1 ]]

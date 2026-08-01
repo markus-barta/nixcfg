@@ -13,7 +13,7 @@ repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 prepare="$repo_root/scripts/prepare-pharos-host-removal.sh"
 workflow="$repo_root/.github/workflows/pharos-host-removal.yml"
 retirements="$repo_root/hosts/csb1/docker/janus/pharos-production/retired-hosts.json"
-production_compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
+production_compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 
 bash -n "$prepare"
 "$repo_root/tests/T17-janus-pharos-retirement.sh" >/dev/null
@@ -52,11 +52,17 @@ trap cleanup EXIT
 make_fixture() {
   destination=$1
   mkdir -p "$destination/manifests"
+  # OPS-127: fixtures mirror the nix spec format the removal editor now parses
   printf '%s\n' \
-    'services:' \
-    '  pharosd:' \
-    '    environment:' \
-    '      - PHAROS_MANIFEST_PATHS=/manifests/hsb8.json' \
+    '{' \
+    '  services = {' \
+    '    pharosd = {' \
+    '      environment = [' \
+    '        "PHAROS_MANIFEST_PATHS=/manifests/hsb8.json"' \
+    '      ];' \
+    '    };' \
+    '  };' \
+    '}' \
     >"$destination/docker-compose.yml"
   jq -n '{
     schema: "inspr.pharos.host-preferences.v1",

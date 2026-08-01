@@ -10,7 +10,7 @@ request_id=${4-}
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=${PHAROS_REMOVAL_REPO_ROOT:-$(cd -- "$script_dir/.." && pwd)}
-compose_file=${PHAROS_REMOVAL_COMPOSE_FILE:-$repo_root/hosts/csb1/docker/docker-compose.yml}
+compose_file=${PHAROS_REMOVAL_COMPOSE_FILE:-$repo_root/hosts/csb1/docker/compose-spec.nix} # OPS-127: spec is the source of truth
 preferences_file=${PHAROS_REMOVAL_PREFERENCES_FILE:-$repo_root/modules/pharos-host-preferences.json}
 manifest_dir=${PHAROS_REMOVAL_MANIFEST_DIR:-$repo_root/hosts/csb1/docker/pharos/manifests}
 retirements_file=${PHAROS_REMOVAL_RETIREMENTS_FILE:-$repo_root/hosts/csb1/docker/janus/pharos-production/retired-hosts.json}
@@ -110,18 +110,19 @@ updated = []
 
 for line in lines:
     stripped = line.strip()
-    prefix = "- PHAROS_MANIFEST_PATHS="
+    prefix = '"PHAROS_MANIFEST_PATHS='  # OPS-127: nix list-item form
     if not stripped.startswith(prefix):
         updated.append(line)
         continue
     matches.append(line)
-    paths = [item.strip() for item in stripped[len(prefix):].split(",") if item.strip()]
+    value = stripped[len(prefix):].rstrip('"')
+    paths = [item.strip() for item in value.split(",") if item.strip()]
     if target not in paths:
         raise SystemExit("declared manifest is not present in PHAROS_MANIFEST_PATHS")
     remaining = [item for item in paths if item != target]
     if remaining:
         indent = line[: len(line) - len(line.lstrip())]
-        updated.append(f"{indent}{prefix}{','.join(remaining)}\n")
+        updated.append(f"{indent}{prefix}{','.join(remaining)}\"\n")
 
 if len(matches) != 1:
     raise SystemExit("PHAROS_MANIFEST_PATHS must appear exactly once")
@@ -196,7 +197,7 @@ if [[ ${PHAROS_REMOVAL_FIXTURE:-0} != 1 ]]; then
   )
   allowed_paths=()
   if [[ -n "$manifest_file" ]]; then
-    allowed_paths+=("hosts/csb1/docker/docker-compose.yml")
+    allowed_paths+=("hosts/csb1/docker/compose-spec.nix")
   fi
   allowed_paths+=("hosts/csb1/docker/janus/pharos-production/retired-hosts.json")
   if [[ -n "$manifest_file" ]]; then

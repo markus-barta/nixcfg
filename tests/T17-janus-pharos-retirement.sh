@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 production="$repo_root/hosts/csb1/docker/janus/pharos-production"
 smoke="$repo_root/hosts/csb1/docker/janus/pharos-retirement-smoke"
-compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
+compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 
 bash -n "$production/runtime-lib.sh"
 bash -n "$production/render-sidecars.sh"
@@ -110,7 +110,7 @@ if intent != {
     raise SystemExit("retirement smoke intent mismatch")
 
 image_match = re.search(
-    r"^\s+image: ghcr\.io/inspr-at/janus/janus-engine:(rust-engine-v[^@\s]+)@(sha256:[0-9a-f]{64})$",
+    r"^\s+image = \"ghcr\.io/inspr-at/janus/janus-engine:(rust-engine-v[^@\s]+)@(sha256:[0-9a-f]{64})\";$",
     compose,
     re.MULTILINE,
 )

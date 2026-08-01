@@ -3,21 +3,28 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
+# OPS-127: reads the pin from the compose SPEC (ymls retired). Single awk over
+# the file -- no producer pipe, so the NIX-337 SIGPIPE race is structurally
+# impossible here (the old service_block|awk-exit pattern died with the yml).
 service_block() {
-  local file=$1
-  local service=$2
-  awk -v heading="  ${service}:" '
+  awk -v heading="    ${2} = {" '
     $0 == heading { found = 1 }
-    found && $0 != heading && /^  [^ ]/ { exit }
     found { print }
-  ' "$file"
+    found && $0 == "    };" { found = 0 }
+  ' "$1"
 }
 
 service_image() {
-  service_block "$1" "$2" | awk '$1 == "image:" { print $2; exit }'
+  awk -v heading="    ${2} = {" '
+    $0 == heading { found = 1 }
+    found && /^      image = "/ {
+      gsub(/^      image = "|";$/, ""); print; found = 0
+    }
+    found && $0 == "    };" { found = 0 }
+  ' "$1"
 }
 
-control_plane="$repo_root/hosts/csb1/docker/docker-compose.yml"
+control_plane="$repo_root/hosts/csb1/docker/compose-spec.nix"
 release_file="$repo_root/pharos-release.json"
 rollout_workflow="$repo_root/.github/workflows/pharos-release-rollout.yml"
 expected_image=$(service_image "$control_plane" pharosd)
@@ -65,17 +72,17 @@ if [[ "$expected_image" != "$manifest_image" ]]; then
 fi
 
 compose_files=(
-  "$repo_root/hosts/csb0/docker/docker-compose.yml"
-  "$repo_root/hosts/csb1/docker/docker-compose.yml"
-  "$repo_root/hosts/hsb0/docker/docker-compose.yml"
-  "$repo_root/hosts/hsb1/docker/docker-compose.yml"
-  "$repo_root/hosts/hsb8/docker/docker-compose.yml"
-  "$repo_root/hosts/hsb9/docker/docker-compose.yml"
+  "$repo_root/hosts/csb0/docker/compose-spec.nix"
+  "$repo_root/hosts/csb1/docker/compose-spec.nix"
+  "$repo_root/hosts/hsb0/docker/compose-spec.nix"
+  "$repo_root/hosts/hsb1/docker/compose-spec.nix"
+  "$repo_root/hosts/hsb8/docker/compose-spec.nix"
+  "$repo_root/hosts/hsb9/docker/compose-spec.nix"
 )
 
 for compose_file in "${compose_files[@]}"; do
   beacon_block=$(service_block "$compose_file" pharos-beacon)
-  beacon_image=$(awk '$1 == "image:" { print $2; exit }' <<<"$beacon_block")
+  beacon_image=$(awk '/^      image = "/ { gsub(/^      image = "|";$/, ""); print; exit }' <<<"$beacon_block")
 
   if [[ "$beacon_image" != "$expected_image" ]]; then
     printf 'pharos_rollout=failed reason=mixed_release path=%s\n' \
@@ -84,13 +91,13 @@ for compose_file in "${compose_files[@]}"; do
   fi
 
   for required in \
-    '    init: true' \
-    '    read_only: true' \
-    '      - ALL' \
-    '      - no-new-privileges:true' \
-    '    pids_limit: 64' \
-    '    mem_limit: 256m' \
-    '    cpus: "0.5"'; do
+    '      init = true;' \
+    '      read_only = true;' \
+    '        "ALL"' \
+    '        "no-new-privileges:true"' \
+    '      pids_limit = 64;' \
+    '      mem_limit = "256m";' \
+    '      cpus = "0.5";'; do
     if ! grep -Fqx -- "$required" <<<"$beacon_block"; then
       printf 'pharos_rollout=failed reason=runtime_guard_missing path=%s\n' \
         "${compose_file#"$repo_root/"}" >&2
@@ -98,7 +105,7 @@ for compose_file in "${compose_files[@]}"; do
     fi
   done
 
-  if ! grep -Eq '^[[:space:]]+- "?com\.centurylinklabs\.watchtower\.enable=false"?$' \
+  if ! grep -Eq '^[[:space:]]+"com\.centurylinklabs\.watchtower\.enable=false"' \
     <<<"$beacon_block"; then
     printf 'pharos_rollout=failed reason=mutable_updater_enabled path=%s\n' \
       "${compose_file#"$repo_root/"}" >&2
@@ -106,15 +113,15 @@ for compose_file in "${compose_files[@]}"; do
   fi
 
   if [[ "$compose_file" == "$control_plane" ]]; then
-    grep -Fqx '      - PHAROS_ADDR=0.0.0.0:8088' <<<"$beacon_block" || {
+    grep -Fq '"PHAROS_ADDR=0.0.0.0:8088"' <<<"$beacon_block" || {
       printf 'pharos_rollout=failed reason=local_healthcheck_target_missing\n' >&2
       exit 1
     }
-    if grep -Fq 'disable: true' <<<"$beacon_block"; then
+    if grep -Fq 'disable = true;' <<<"$beacon_block"; then
       printf 'pharos_rollout=failed reason=control_plane_healthcheck_disabled\n' >&2
       exit 1
     fi
-  elif ! grep -Fq $'    healthcheck:\n      disable: true' <<<"$beacon_block"; then
+  elif ! grep -Fq $'      healthcheck = {\n        disable = true;' <<<"$beacon_block"; then
     printf 'pharos_rollout=failed reason=remote_healthcheck_not_disabled path=%s\n' \
       "${compose_file#"$repo_root/"}" >&2
     exit 1

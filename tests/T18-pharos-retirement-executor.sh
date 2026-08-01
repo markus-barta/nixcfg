@@ -5,7 +5,7 @@ repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 module="$repo_root/modules/pharos-retirement-executor/default.nix"
 executor_source="$repo_root/modules/pharos-retirement-executor/executor.sh"
 host_config="$repo_root/hosts/csb1/configuration.nix"
-compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
+compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 
 bash -n "$executor_source"
 grep -Fq '../../modules/pharos-retirement-executor' "$host_config"
@@ -15,7 +15,7 @@ grep -Fq 'restartIfChanged = false;' "$module"
 grep -Fq 'PHAROS_HOST_REMOVAL_DISPATCH_ENABLED=1' "$compose"
 grep -Fq 'PHAROS_RETIREMENT_OWNER_HOST=csb1' "$compose"
 pharos_images=$(sed -n \
-  's|^[[:space:]]*image: \(ghcr.io/inspr-at/pharos/pharosd:[^[:space:]]*\)$|\1|p' \
+  's|^[[:space:]]*image = \"\(ghcr.io/inspr-at/pharos/pharosd:[^\"]*\)\";$|\1|p' \
   "$compose")
 [ "$(printf '%s\n' "$pharos_images" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 2 ]
 [ "$(printf '%s\n' "$pharos_images" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')" -eq 1 ]

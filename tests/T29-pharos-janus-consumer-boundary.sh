@@ -13,7 +13,7 @@ RETIRE_HOST="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/retire-host.sh
 PROVIDER_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/render-hetzner-provider.sh"
 PROVIDER_SMOKE="$REPO_ROOT/hosts/csb1/docker/janus/pharos-provider-smoke/run.sh"
 RETIREMENT_SMOKE="$REPO_ROOT/hosts/csb1/docker/janus/pharos-retirement-smoke/run.sh"
-COMPOSE="$REPO_ROOT/hosts/csb1/docker/docker-compose.yml"
+COMPOSE="$REPO_ROOT/hosts/csb1/docker/compose-spec.nix"
 JUSTFILE="$REPO_ROOT/justfile"
 
 for script in \
@@ -102,7 +102,7 @@ if "keygen_out=" in nonprod_render:
     raise SystemExit("non-production smoke retains a duplicate root-owned identity generator")
 
 compose_required = [
-    '    user: "10001:992"',
+    '      user = "10001:992";',
     "PHAROS_BEACON_TOKEN_HASH_DIR=/run/pharos/beacon-token-hashes",
     "PHAROS_HCLOUD_API_TOKEN_ENV_FILE=/run/pharos/providers/hetzner-cloud.env",
     "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro",

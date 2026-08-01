@@ -31,7 +31,7 @@ grep -Fq 'SMARTHOME_LINKS_JSON' "${csb0checks}"
 grep -Fq 'check_smarthome_link' "${csb0checks}"
 grep -Fq 'paho-mqtt' "${csb0mod}"
 grep -Fq 'age.secrets.mqtt-csb0.path' "${csb0mod}"
-grep -Fq '127.0.0.1:1883:1883' "${repo}/hosts/csb0/docker/docker-compose.yml"
+grep -Fq '127.0.0.1:1883:1883' "${repo}/hosts/csb0/docker/compose-spec.nix"
 
 # Wiring
 grep -Fq './ops-alerts.nix' "${repo}/hosts/csb0/configuration.nix"

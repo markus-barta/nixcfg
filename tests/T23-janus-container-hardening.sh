@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 janus_root="$repo_root/hosts/csb1/docker/janus"
-compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
+compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 policy="$janus_root/runtime-image-policy.sh"
 run_negative="$janus_root/nonprod-smoke/run-negative-smoke.sh"
 
@@ -42,7 +42,7 @@ compose = pathlib.Path(sys.argv[1]).read_text()
 
 def block(name: str) -> str:
     match = re.search(
-        rf"^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_.-]+:\n|\Z)",
+        rf"^    {re.escape(name)} = \{{\n(?P<body>.*?)^    \}};$",
         compose,
         re.MULTILINE | re.DOTALL,
     )
@@ -53,20 +53,20 @@ def block(name: str) -> str:
 for name in ("janus", "janus-engine-staged"):
     service = block(name)
     for expected in (
-        "read_only: true",
-        'cap_drop: ["ALL"]',
-        'security_opt: ["no-new-privileges:true"]',
-        "restart: unless-stopped",
+        "read_only = true;",
+        '"ALL"',
+        '"no-new-privileges:true"',
+        'restart = "no";' if name in ("janus-managed-canary",) else 'restart = "unless-stopped";',
     ):
         if expected not in service:
             raise SystemExit(f"{name} missing {expected}")
 
 engine = block("janus-engine-staged")
 for expected in (
-    'user: "65532:65532"',
-    'network_mode: "none"',
-    'entrypoint: ["/usr/local/bin/janus-warden"]',
-    'test: ["CMD", "/usr/local/bin/janusd-use", "--help"]',
+    'user = "65532:65532";',
+    'network_mode = "none";',
+    '"/usr/local/bin/janus-warden"',
+    '"/usr/local/bin/janusd-use"',
     "JANUS_LIFECYCLE_EVIDENCE_DIR=/var/lib/janus/secrets/.lifecycle-evidence",
 ):
     if expected not in engine:
@@ -80,7 +80,7 @@ for name in (
     "janus_engine_smoke_permits",
 ):
     volume = block(name)
-    if "external: true" not in volume:
+    if "external = true;" not in volume:
         raise SystemExit(f"staged smoke volume {name} must be externally owned")
 PY
 

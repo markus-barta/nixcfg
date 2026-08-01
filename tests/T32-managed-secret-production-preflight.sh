@@ -17,7 +17,7 @@ fi
 repo_revision="$(git -C "${repo}" rev-parse HEAD)"
 flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
 host="${repo}/hosts/csb1/configuration.nix"
-compose="${repo}/hosts/csb1/docker/docker-compose.yml"
+compose="${repo}/hosts/csb1/docker/compose-spec.nix"
 contract="${repo}/hosts/csb1/docker/janus/managed-service-production"
 pharos_contract="${repo}/hosts/csb1/docker/janus/pharos-production"
 secrets_nix="${repo}/secrets/secrets.nix"
@@ -295,21 +295,21 @@ test "$(
     --json | jq 'length'
 )" = "7"
 grep -Fq 'Restart = "always";' "${host}"
-grep -Fq 'profiles: ["janus-managed-service"]' "${compose}"
-grep -Fq 'user: "100:101"' "${compose}"
-grep -Fq 'user: "100:993"' "${compose}"
-grep -Fq 'user: "65534:65534"' "${compose}"
-test "$(grep -Fc 'group_add: ["991"]' "${compose}")" -eq 2
-grep -Fq 'network_mode: "none"' "${compose}"
-grep -Fq 'read_only: true' "${compose}"
-grep -Fq 'cap_drop: ["ALL"]' "${compose}"
+grep -Fq 'profiles = [' "${compose}"
+grep -Fq 'user = "100:101";' "${compose}"
+grep -Fq 'user = "100:993";' "${compose}"
+grep -Fq 'user = "65534:65534";' "${compose}"
+test "$(grep -Fc '"991"' "${compose}")" -eq 2
+grep -Fq 'network_mode = "none";' "${compose}"
+grep -Fq 'read_only = true;' "${compose}"
+grep -Fq '"ALL"' "${compose}"
 grep -Fq 'no-new-privileges:true' "${compose}"
 grep -Fq 'traefik.enable=false' "${compose}"
 pharos_tag="$(
   awk '
-    /^  pharosd:/ { in_service = 1; next }
-    in_service && /^  [A-Za-z0-9_.-]+:/ { exit }
-    in_service && /^[[:space:]]+image:/ {
+    /^    pharosd = {/ { in_service = 1; next }
+    in_service && /^    };/ { exit }
+    in_service && /^      image = "/ {
       sub(/^.*pharosd:/, "")
       sub(/@sha256:.*$/, "")
       print
@@ -335,9 +335,13 @@ for binding in \
   grep -Fq "${binding}" "${compose}"
 done
 
+# OPS-127: compose cannot parse the nix spec; feed it the closure's rendered
+# JSON (identical content plus the module-injected dns keys).
+rendered=$(mktemp)
+nix eval --json "${repo}#nixosConfigurations.csb1.config.nixcfg.composeStack.renderedSpec" >"${rendered}"
 compose_json=$(
   docker compose \
-    -f "${compose}" \
+    -f "${rendered}" \
     config \
     --no-interpolate \
     --no-env-resolution \

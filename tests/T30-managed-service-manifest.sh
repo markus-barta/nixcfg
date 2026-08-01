@@ -76,7 +76,7 @@ SOURCE_PATH="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.services.j
 ETC_SOURCE="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.environment.etc.\"pharos/managed-service-declarations.json\".source" --raw)"
 PUBLISHER_BEFORE="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.systemd.services.pharos-managed-service-declarations.before" --json)"
 PUBLISHER_EXEC="$(nix eval "${FLAKE_REF}#nixosConfigurations.csb1.config.systemd.services.pharos-managed-service-declarations.serviceConfig.ExecStart" --raw)"
-COMPOSE_FILE="$REPO_ROOT/hosts/csb1/docker/docker-compose.yml"
+COMPOSE_FILE="$REPO_ROOT/hosts/csb1/docker/compose-spec.nix"
 
 check_jq "schema and producer are exact v2 values" '
   .schema == "inspr.pharos.managed-service-declarations.v1"

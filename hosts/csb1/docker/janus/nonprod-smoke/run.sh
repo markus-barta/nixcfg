@@ -69,7 +69,7 @@ docker_compose_safe() {
   docker compose \
     --project-name "$COMPOSE_PROJECT" \
     --project-directory "$COMPOSE_DIR" \
-    -f "${COMPOSE_DIR}/docker-compose.yml" \
+    -f /etc/compose/csb1/docker-compose.yml \
     "$@"
 }
 
@@ -84,15 +84,15 @@ compose_run() {
 if [ -z "$IMAGE" ]; then
   IMAGE=$(
     awk '
-      /^[[:space:]]+janus-engine-staged:/ { in_service = 1; next }
-      in_service && /^    image:/ { print $2; exit }
-      in_service && /^  [A-Za-z0-9_-]+:/ { exit }
-    ' "${COMPOSE_DIR}/docker-compose.yml"
+      /^    janus-engine-staged = {/ { in_service = 1; next }
+      in_service && /^      image = "/ { gsub(/^      image = "|";$/, ""); print; exit }
+      in_service && /^    };/ { exit }
+    ' "${COMPOSE_DIR}/compose-spec.nix"
   )
 fi
 
 if [ -z "$IMAGE" ]; then
-  printf 'could not resolve janus-engine-staged image from docker-compose.yml\n' >&2
+  printf 'could not resolve janus-engine-staged image from compose-spec.nix\n' >&2
   exit 1
 fi
 

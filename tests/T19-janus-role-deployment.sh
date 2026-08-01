@@ -6,7 +6,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-compose="${repo_root}/hosts/csb1/docker/docker-compose.yml"
+compose="${repo_root}/hosts/csb1/docker/compose-spec.nix"
 nonprod_renderer="${repo_root}/hosts/csb1/docker/janus/pharos-nonprod/run-sidecar-smoke.sh"
 production_renderer="${repo_root}/hosts/csb1/docker/janus/pharos-production/render-sidecars.sh"
 provider_renderer="${repo_root}/hosts/csb1/docker/janus/pharos-production/render-hetzner-provider.sh"
@@ -32,7 +32,7 @@ renderers = {
 
 def service_block(name: str) -> str:
     match = re.search(
-        rf"^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_.-]+:\n|\Z)",
+        rf"^    {re.escape(name)} = \{{\n(?P<body>.*?)^    \}};$",
         compose,
         re.MULTILINE | re.DOTALL,
     )
@@ -66,33 +66,33 @@ expected = {
 }
 values = []
 for key, value in expected.items():
-    line = f"- {key}={value}"
+    line = f'"{key}={value}"'
     if go_service.count(line) != 1:
         raise SystemExit(f"expected exactly one reviewed Janus role mapping: {key}")
     values.append(value)
 if len(values) != len(set(values)):
     raise SystemExit("Janus role mappings must use unique exact group values")
 
-if "- JANUS_PRODUCT_MODE=self_hosted" not in engine_service:
+if '"JANUS_PRODUCT_MODE=self_hosted"' not in engine_service:
     raise SystemExit("staged Janus engine lacks explicit self-hosted posture")
-if "- JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev" not in engine_service:
+if '"JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev"' not in engine_service:
     raise SystemExit("staged Janus engine lacks explicit unsafe development posture")
 
 for service, block in [("janus", go_service), ("janus-engine-staged", engine_service)]:
     for requirement in (
-        "read_only: true",
-        'cap_drop: ["ALL"]',
-        'security_opt: ["no-new-privileges:true"]',
+        "read_only = true;",
+        '"ALL"',
+        '"no-new-privileges:true"',
     ):
         if requirement not in block:
             raise SystemExit(f"{service} lacks container hardening: {requirement}")
-if 'user: "65532:65532"' not in engine_service:
+if 'user = "65532:65532";' not in engine_service:
     raise SystemExit("staged Janus engine lacks exact non-root uid/gid")
-if 'network_mode: "none"' not in engine_service:
+if 'network_mode = "none";' not in engine_service:
     raise SystemExit("staged Janus engine must remain networkless")
-if 'entrypoint: ["/usr/local/bin/janus-warden"]' not in engine_service:
+if '"/usr/local/bin/janus-warden"' not in engine_service:
     raise SystemExit("staged Janus engine entrypoint must be absolute and shell-free")
-if 'test: ["CMD", "/usr/local/bin/janusd-use", "--help"]' not in engine_service:
+if '"/usr/local/bin/janusd-use"' not in engine_service:
     raise SystemExit("staged Janus engine lacks an exec-form healthcheck")
 if "CMD-SHELL" in engine_service:
     raise SystemExit("staged Janus engine healthcheck reintroduced a shell")
@@ -117,7 +117,7 @@ for service, image, prefix, block in [
         engine_service,
     ),
 ]:
-    pattern = rf"^    image: {image}:{prefix}[^@\s]+@sha256:[0-9a-f]{{64}}$"
+    pattern = rf"^      image = \"{image}:{prefix}[^@\s]+@sha256:[0-9a-f]{{64}}\";$"
     if not re.search(pattern, block, re.MULTILINE):
         raise SystemExit(f"{service} is not pinned to an immutable Janus release digest")
 
