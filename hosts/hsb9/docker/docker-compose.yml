@@ -127,21 +127,13 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
       - "com.centurylinklabs.watchtower.scope=weekly"
 
-  # Weekly Watchtower — updates all scope=weekly containers Saturday 05:00
-  # local. Added 2026-07-04 (NIX-228 follow-up): the weekly labels above
-  # existed but no watchtower ran on this host, so nothing ever updated
-  # (HA had drifted to 2026.5.4).
-  watchtower-weekly:
-    image: beatkind/watchtower:latest
-    container_name: watchtower-weekly
-    restart: unless-stopped
-    command: --schedule "0 0 5 * * 6" --label-enable --scope weekly
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-    environment:
-      - "TZ=Europe/Vienna"
-      - "WATCHTOWER_CLEANUP=true"
-      - "DOCKER_API_VERSION=1.44"
+  # Watchtower REMOVED 2026-08-01 (OPS-125): image updates now come from the
+  # composeStack autoUpdate timer (compose pull + up -d, Sat 05:00) — same
+  # cadence, but through compose, so no stale labels / pseudo-drift and no
+  # second writer racing the reconcile. History: added 2026-07-04 (NIX-228)
+  # because the weekly labels existed with no watchtower running (HA had
+  # drifted to 2026.5.4). The scope=weekly labels above stay: inert without
+  # watchtower, and removing them would force-recreate every labelled service.
 
   # ── Zigbee2MQTT — DISABLED until SONOFF dongle migrated (NIX-140) ──────────
   # When the dongle is on hsb9:

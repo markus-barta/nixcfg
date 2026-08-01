@@ -191,6 +191,18 @@ in
       '';
     };
 
+    autoUpdate = {
+      enable = lib.mkEnableOption "weekly compose pull + up, replacing watchtower (OPS-125)";
+      schedule = lib.mkOption {
+        type = lib.types.str;
+        default = "Sat *-*-* 05:00:00";
+        description = ''
+          OnCalendar for the update timer. Default keeps watchtower's old
+          Saturday-early-morning cadence so update behaviour stays familiar.
+        '';
+      };
+    };
+
     reconcile = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -282,16 +294,66 @@ in
       # janus-managed-canary unit already uses. `docker compose` as a CLI plugin
       # depends on the plugin path resolving inside the unit's environment;
       # this does not.
+      #
+      # flock: compose takes NO project-level lock (verified in the OPS-116 QA),
+      # so the reconcile and the autoUpdate timer — and anything else that adopts
+      # this lock — serialize here instead of racing on transitional container
+      # names, which is exactly how the hsb1 cutover failed its first attempt.
       script =
         let
           compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
+          locked = "${pkgs.util-linux}/bin/flock -w 570 /run/lock/compose-${cfg.stackName}.lock";
         in
         ''
-          ${compose} up -d${lib.optionalString cfg.removeOrphans " --remove-orphans"}
+          ${locked} ${compose} up -d${lib.optionalString cfg.removeOrphans " --remove-orphans"}
         ''
         + lib.concatMapStrings (svc: ''
-          ${compose} up -d --force-recreate --no-deps ${lib.escapeShellArg svc}
+          ${locked} ${compose} up -d --force-recreate --no-deps ${lib.escapeShellArg svc}
         '') cfg.postRecreate;
     };
+
+    # OPS-125 — the one updater. Weekly `pull` + `up -d` through the SAME
+    # rendered file, project and lock as the reconcile: exactly watchtower's
+    # job, done through compose instead of behind its back. No stale
+    # com.docker.compose.image labels, no pseudo-drift, no Saturday race —
+    # and a failed update lands in `systemctl --failed` instead of nowhere.
+    systemd.services."compose-${cfg.stackName}-update" =
+      lib.mkIf (cfg.reconcile && cfg.autoUpdate.enable)
+        {
+          description = "Pull newer images and converge the ${cfg.stackName} stack (OPS-125)";
+          after = [
+            "docker.service"
+            "network-online.target"
+            "compose-${cfg.stackName}.service"
+          ];
+          requires = [ "docker.service" ];
+          wants = [ "network-online.target" ];
+          serviceConfig = {
+            Type = "oneshot";
+            # Pulls across a whole stack on a slow uplink can take a while.
+            TimeoutStartSec = "1800";
+          };
+          script =
+            let
+              compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
+              locked = "${pkgs.util-linux}/bin/flock -w 1770 /run/lock/compose-${cfg.stackName}.lock";
+            in
+            ''
+              ${locked} ${compose} pull --quiet
+              ${locked} ${compose} up -d
+            '';
+        };
+
+    systemd.timers."compose-${cfg.stackName}-update" =
+      lib.mkIf (cfg.reconcile && cfg.autoUpdate.enable)
+        {
+          description = "Weekly image update for the ${cfg.stackName} stack (OPS-125)";
+          wantedBy = [ "timers.target" ];
+          timerConfig = {
+            OnCalendar = cfg.autoUpdate.schedule;
+            RandomizedDelaySec = "15m";
+            Persistent = true;
+          };
+        };
   };
 }
