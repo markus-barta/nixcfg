@@ -237,16 +237,16 @@ in
 
   # OPS-116 — the container stack, rendered from Nix into the closure.
   #
-  # 🟡 reconcile = false while this host is being prepared: the spec lands in
-  # /etc and can be diffed against the running stack, but switch does NOT run
-  # `compose up -d`. Flip to true only when OPS-118's cutover is intended.
+  # 🟢 CUT OVER 2026-08-01 (OPS-118). switch now reconciles this host's
+  # containers: a change to the spec -- or to networking.nameservers, which the
+  # spec derives from -- recreates exactly the affected services.
   #
   # 🔴 project = "docker" is not a typo. See hosts/hsb1/docker/compose-spec.nix.
   nixcfg.composeStack = {
     enable = true;
     project = "docker";
     stackName = "hsb1";
-    reconcile = false;
+    reconcile = true;
     spec = import ./docker/compose-spec.nix;
   };
 
