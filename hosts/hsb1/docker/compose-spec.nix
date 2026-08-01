@@ -298,30 +298,6 @@
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
     };
-    watchtower-weekly = {
-      image = "beatkind/watchtower:latest";
-      container_name = "watchtower-weekly";
-      restart = "unless-stopped";
-      command = "--schedule \"0 0 5 * * 6\" --label-enable --scope weekly";
-      volumes = [
-        "/var/run/docker.sock:/var/run/docker.sock:rw"
-      ];
-      environment = [
-        "TZ=Europe/Vienna"
-        "WATCHTOWER_CLEANUP=true"
-        "DOCKER_API_VERSION=1.44"
-        "WATCHTOWER_DEBUG=true"
-        "WATCHTOWER_HTTP_API_UPDATE=true"
-        "WATCHTOWER_HTTP_API_PERIODIC_POLLS=true"
-        "WATCHTOWER_NOTIFICATIONS=shoutrrr"
-        "WATCHTOWER_NOTIFICATIONS_HOSTNAME=hsb1"
-        "WATCHTOWER_NOTIFICATION_TITLE_TAG=🏠"
-        "WATCHTOWER_NOTIFICATION_TEMPLATE={{range .}}{{.Time.Format \"2006-01-02 15:04:05\"}} ({{.Level}}): {{.Message}}{{println}}{{end}}"
-      ];
-      env_file = [
-        "/run/agenix/hsb1-watchtower-env"
-      ];
-    };
     nodered = {
       image = "ghcr.io/markus-barta/node-red-miniserver24:main";
       container_name = "nodered";
