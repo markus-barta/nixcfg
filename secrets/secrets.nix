@@ -120,7 +120,6 @@ in
   # /home/mba/secrets/*.env plaintext. Edit: agenix -e secrets/<name>.age
   "hsb1-zigbee2mqtt-env.age".publicKeys = markus ++ hsb1;
   "hsb1-funkeykid-api-env.age".publicKeys = markus ++ hsb1;
-  "hsb1-watchtower-env.age".publicKeys = markus ++ hsb1;
   "hsb1-opusweb-env.age".publicKeys = markus ++ hsb1;
   "hsb1-fritz-tripwire-env.age".publicKeys = markus ++ hsb1;
 
@@ -140,7 +139,6 @@ in
   # WATCHTOWER_TOKEN in fleetcom-agent's /opt/fleetcom-agent/.env) +
   # WATCHTOWER_NOTIFICATION_URL (telegram shoutrrr). Replaces the unmanaged
   # /home/gb/secrets/watchtower.env. Edit: agenix -e secrets/hsb8-watchtower-env.age
-  "hsb8-watchtower-env.age".publicKeys = markus ++ hsb8;
 
   # Uptime Kuma environment variables (for Apprise tokens)
   # Format: KEY=VALUE lines

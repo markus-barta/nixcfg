@@ -791,12 +791,6 @@ in
     mode = "0400";
     owner = "mba";
   };
-  age.secrets.hsb1-watchtower-env = {
-    file = ../../secrets/hsb1-watchtower-env.age;
-    path = "/run/agenix/hsb1-watchtower-env";
-    mode = "0400";
-    owner = "mba";
-  };
   age.secrets.hsb1-opusweb-env = {
     file = ../../secrets/hsb1-opusweb-env.age;
     path = "/run/agenix/hsb1-opusweb-env";

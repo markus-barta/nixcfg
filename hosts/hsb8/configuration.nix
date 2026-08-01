@@ -696,13 +696,6 @@ in
   };
 
   # NIX-235: watchtower env (HTTP API token + telegram notification URL),
-  # consumed by the watchtower container via env_file. Root-only: the stack
-  # is reconciled by the root hsb8-stack service / sudo docker compose.
-  age.secrets.hsb8-watchtower-env = {
-    file = ../../secrets/hsb8-watchtower-env.age;
-    path = "/run/agenix/hsb8-watchtower-env";
-    mode = "0400";
-  };
 
   # ============================================================================
   # HostDash — static LAN service dashboard for hsb8
