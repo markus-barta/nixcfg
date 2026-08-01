@@ -514,7 +514,7 @@
       ];
     };
     ppm = {
-      image = "ghcr.io/markus-barta/paimos:4.8.0";
+      image = "ghcr.io/markus-barta/paimos:5.0.0";
       container_name = "ppm";
       restart = "unless-stopped";
       environment = [

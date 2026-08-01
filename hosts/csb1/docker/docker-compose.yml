@@ -488,7 +488,7 @@ services:
   # PPM - Personal Project Management
   # ============================================
   ppm:
-    image: ghcr.io/markus-barta/paimos:4.8.0 # explicit live pin; bump deliberately with the PAIMOS release/deploy flow (declared 2026-07-08)
+    image: ghcr.io/markus-barta/paimos:5.0.0 # explicit live pin; bump deliberately with the PAIMOS release/deploy flow. 4.8.0 sat here while live ran 5.0.0 (deploy flow sed-edits the yml, git restore reverted it) — a reconcile would have DOWNGRADED ppm over a 5.0.0-migrated DB. Caught in the OPS-116 QA, 2026-08-01.
     container_name: ppm
     restart: unless-stopped
     environment:
