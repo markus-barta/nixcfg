@@ -33,6 +33,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -40,10 +41,27 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 MODULE_OWNED = ("dns", "dns_search")
 
+# Belt and braces: even a directory name from the repo must look like a host
+# before it is interpolated into a Nix attribute path.
+HOSTNAME_OK = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+
 RED = "\033[31m"
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
 OFF = "\033[0m"
+
+
+def known_hosts() -> list[str]:
+    """Host names discovered from the repo layout — a closed set, not user input.
+
+    Everything that reaches a command line below is taken from THIS list, never
+    from argv. A caller's argument is only ever used to filter it. That is what
+    keeps an arbitrary string out of `nix eval` and `yq` (CodeQL
+    py/command-line-injection), and it also turns a typo into a clear error
+    instead of an obscure Nix failure.
+    """
+    found = sorted(p.parent.parent.name for p in REPO.glob("hosts/*/docker/docker-compose.yml"))
+    return [h for h in found if HOSTNAME_OK.match(h)]
 
 
 def run(cmd: list[str]) -> str:
@@ -172,13 +190,18 @@ def main() -> int:
         print(__doc__, file=sys.stderr)
         return 2
 
+    available = known_hosts()
     if args == ["--all"]:
-        hosts = sorted(
-            p.parent.parent.name
-            for p in REPO.glob("hosts/*/docker/docker-compose.yml")
-        )
+        hosts = available
     else:
-        hosts = args
+        # Filter the discovered set by the request; never pass argv through.
+        requested = set(args)
+        hosts = [h for h in available if h in requested]
+        unknown = sorted(requested - set(available))
+        if unknown:
+            print(f"{RED}ERR{OFF}  unknown host(s): {', '.join(unknown)}", file=sys.stderr)
+            print(f"      known: {', '.join(available)}", file=sys.stderr)
+            return 2
 
     ok = True
     for host in hosts:
