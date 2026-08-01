@@ -165,7 +165,7 @@ Service Not Responding?
 │  ├─ YES: Docker/service issue
 │  │  ├─ docker ps → container running?
 │  │  │  ├─ YES: Check logs: docker logs <container>
-│  │  │  └─ NO: Start it: cd ~/Code/nixcfg/hosts/csb0/docker && docker compose up -d
+│  │  │  └─ NO: Start it: `sudo systemctl start compose-csb0` (OPS-116 — never raw `compose up`)
 │  │  └─ Docker down? systemctl status docker
 │  └─ NO: Server/network issue
 │     ├─ Can ping 89.58.63.96?
