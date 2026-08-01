@@ -136,28 +136,5 @@
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
     };
-    watchtower = {
-      container_name = "watchtower";
-      image = "beatkind/watchtower:latest";
-      restart = "unless-stopped";
-      command = "--schedule \"0 0 5 * * 6\" --cleanup --scope weekly";
-      volumes = [
-        "/var/run/docker.sock:/var/run/docker.sock:rw"
-      ];
-      environment = [
-        "TZ=Europe/Vienna"
-        "WATCHTOWER_CLEANUP=true"
-        "DOCKER_API_VERSION=1.44"
-        "WATCHTOWER_SCOPE=weekly"
-        "WATCHTOWER_NOTIFICATIONS=shoutrrr"
-        "WATCHTOWER_NOTIFICATIONS_HOSTNAME=hsb8"
-        "WATCHTOWER_NOTIFICATION_TITLE_TAG=🏡"
-        "WATCHTOWER_HTTP_API_UPDATE=true"
-        "WATCHTOWER_HTTP_API_PERIODIC_POLLS=true"
-      ];
-      env_file = [
-        "/run/agenix/hsb8-watchtower-env"
-      ];
-    };
   };
 }

@@ -13,9 +13,6 @@ let
     cp -R ${hostdashBaseHsb8}/share/hostdash-hsb8/. "$out/share/hostdash-hsb8/"
     cp ${config.services.hostdash.manifest.source} "$out/share/hostdash-hsb8/manifest.json"
   '';
-  hsb8DockerCompose = pkgs.writeText "hsb8-docker-compose.yml" (
-    builtins.readFile ./docker/docker-compose.yml
-  );
 
   # ============================================================================
   # DNS ALLOWLIST - Domains that bypass ad-blocking
@@ -90,8 +87,15 @@ in
     enable = true;
     project = "docker";
     stackName = "hsb8";
-    reconcile = false;
+    # 🟢 CUT OVER 2026-08-01 (OPS-123).
+    reconcile = true;
     # No projectDirectory: this stack has zero relative paths.
+    postRecreate = [ "hsb8-home" ];
+    extraRestartTriggers = [ hostdashHsb8 ];
+    # Safe HERE: all 5 project-docker containers are declared in the spec
+    # (verified live) — reaps the retired watchtower container.
+    removeOrphans = true;
+    autoUpdate.enable = true;
     spec = import ./docker/compose-spec.nix;
   };
 
@@ -703,30 +707,8 @@ in
   # ============================================================================
   # HostDash — static LAN service dashboard for hsb8
   # ============================================================================
-  # Keep this separate from the cutover-gated hsb8-stack unit: the dashboard is
-  # safe to reconcile on its own and must not force Home Assistant/Mosquitto
-  # ownership changes before the stack cutover marker exists.
-  systemd.services.hsb8-home-dashboard = {
-    description = "hsb8 HostDash nginx dashboard";
-    after = [
-      "docker.service"
-      "network-online.target"
-      "hsb8-stack.service"
-    ];
-    requires = [ "docker.service" ];
-    wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-    restartTriggers = [
-      hsb8DockerCompose
-      hostdashHsb8
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f ${hsb8DockerCompose} up -d --force-recreate --no-deps hsb8-home";
-      TimeoutStartSec = "180";
-    };
-  };
+  # hsb8-home-dashboard lived here — SUPERSEDED by composeStack postRecreate
+  # (OPS-116/123), same pattern as hsb1/hsb9/hsb0.
 
   environment.etc."hostdash/hsb8".source = hostdashHsb8;
 
@@ -837,26 +819,8 @@ in
     };
   };
 
-  # NIX-236/237: declarative stack reconcile (hsb1 pattern). Gated on the
-  # cutover marker so pre-cutover rebuilds can NOT recreate homeassistant/
-  # mosquitto with empty /srv mounts while they still run from the gb stack.
-  # bin/nix230-cutover.sh creates /srv/hsb8/.cutover-done as its final step.
-  systemd.services.hsb8-stack = {
-    description = "hsb8 docker-compose stack (declarative reconcile)";
-    after = [
-      "docker.service"
-      "network-online.target"
-    ];
-    requires = [ "docker.service" ];
-    wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-    unitConfig.ConditionPathExists = "/srv/hsb8/.cutover-done";
-    restartTriggers = [ hsb8DockerCompose ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f ${hsb8DockerCompose} up -d";
-      TimeoutStartSec = "600";
-    };
-  };
+  # hsb8-stack (NIX-236/237) lived here — SUPERSEDED by composeStack
+  # (OPS-116/123). It was the twin of hsb1's NIX-158 unit and would have raced
+  # compose-hsb8 on the same switch, exactly as hsb1's first cutover attempt
+  # did. Its /srv/hsb8/.cutover-done condition retires with it.
 }
