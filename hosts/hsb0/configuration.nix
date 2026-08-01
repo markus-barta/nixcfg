@@ -39,6 +39,7 @@ let
 in
 {
   imports = [
+    ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
@@ -52,6 +53,22 @@ in
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
   ];
+
+  # OPS-116 — the container stack, rendered from Nix into the closure.
+  #
+  # 🟡 reconcile = false while this host is prepared: the spec lands in /etc and
+  # can be diffed against the running stack, but switch does NOT run
+  # `compose up -d`. Flip to true only when the cutover is intended.
+  #
+  # 🔴 project must stay "docker" — named volumes are prefixed with it.
+  nixcfg.composeStack = {
+    enable = true;
+    project = "docker";
+    stackName = "hsb0";
+    reconcile = false;
+    projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb0/docker";
+    spec = import ./docker/compose-spec.nix;
+  };
 
   # ============================================================================
   # UZUMAKI MODULE - Fish functions, zellij, stasysmo (all-in-one)

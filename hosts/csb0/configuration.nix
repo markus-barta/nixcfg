@@ -22,6 +22,7 @@ let
 in
 {
   imports = [
+    ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ./ops-alerts.nix # OPS-104: watch all three HA instances, report to Telegram
@@ -38,6 +39,22 @@ in
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
   ];
+
+  # OPS-116 — the container stack, rendered from Nix into the closure.
+  #
+  # 🟡 reconcile = false while this host is prepared: the spec lands in /etc and
+  # can be diffed against the running stack, but switch does NOT run
+  # `compose up -d`. Flip to true only when the cutover is intended.
+  #
+  # 🔴 project must stay "csb0" — named volumes are prefixed with it.
+  nixcfg.composeStack = {
+    enable = true;
+    project = "csb0";
+    stackName = "csb0";
+    reconcile = false;
+    projectDirectory = "/home/mba/Code/nixcfg/hosts/csb0/docker";
+    spec = import ./docker/compose-spec.nix;
+  };
 
   # ============================================================================
   # UZUMAKI MODULE CONFIGURATION
