@@ -11,9 +11,20 @@
 let
   hostdashCsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb1;
   csb1ComposeFile = "/home/mba/Code/nixcfg/hosts/csb1/docker/docker-compose.yml";
-  csb1Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${csb1ComposeFile}";
+  # Every -p csb1 compose invocation serializes on the composeStack lock
+  # (OPS-116 QA: compose takes NO project-level lock of its own; concurrent
+  # runs race on transitional container names — that is how hsb1's first
+  # cutover attempt failed). flock -w 300, not blocking forever: a stuck
+  # holder must surface as a failure, not a hang.
+  composeLock = "${pkgs.util-linux}/bin/flock -w 300 /run/lock/compose-csb1.lock";
+  csb1Compose = "${composeLock} ${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${csb1ComposeFile}";
   janusManagedComposeFile = "/etc/janus/managed/docker-compose.yml";
+  # NOTE: transactiond's ExecStart is a LONG-RUNNING attached `up`, so it must
+  # NOT hold the lock (it would starve every other writer forever). It gets
+  # start-ordering (after compose-csb1) instead; only the short-lived canary
+  # oneshot takes the lock.
   janusManagedCompose = "${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${janusManagedComposeFile}";
+  janusManagedComposeLocked = "${composeLock} ${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${janusManagedComposeFile}";
   janusManagedCentralSeed = pkgs.writeShellScript "janus-managed-central-seed" ''
     set -eu
     ${pkgs.coreutils}/bin/install -d -m 0700 -o 100 -g 993 \
@@ -32,12 +43,6 @@ let
     [ -f /var/lib/janus-managed-central/metadata.toml ]
     [ "$(${pkgs.coreutils}/bin/stat -c %u:%g /var/lib/janus-managed-central/metadata.toml)" = "100:993" ]
     [ "$(${pkgs.coreutils}/bin/stat -c %a /var/lib/janus-managed-central/metadata.toml)" = "600" ]
-  '';
-  csb1HostdashReconcile = pkgs.writeShellScript "csb1-hostdash-reconcile" ''
-    set -eu
-    ${csb1Compose} up -d --force-recreate --no-deps hostdash-auth
-    ${csb1Compose} up -d --force-recreate --no-deps hostdash
-    ${csb1Compose} up -d --force-recreate --no-deps traefik
   '';
   hausvBackupSnapshot = pkgs.writeShellScript "hausv-backup-snapshot" ''
     set -eu
@@ -134,8 +139,25 @@ in
     enable = true;
     project = "csb1";
     stackName = "csb1";
-    reconcile = false;
+    # 🟢 CUT OVER 2026-08-01 (OPS-122).
+    reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/csb1/docker";
+    postRecreate = [
+      "hostdash-auth"
+      "hostdash"
+      "traefik"
+    ];
+    extraRestartTriggers = [ hostdashCsb1 ];
+    # 🔴 removeOrphans stays FALSE on csb1, permanently-until-audited: project
+    # csb1 contains Janus-managed containers driven from a second compose file
+    # plus smoke-test leftovers. Profile-gated services are exempt from orphan
+    # handling (QA-2 verified), but false is the only safe default here.
+    #
+    # autoUpdate deliberately NOT enabled yet: watchtower stays on this host
+    # for now because it also updates the foreign projects (/home/mba/docker/*:
+    # inspr-at, paimos, amt-*) that the closure does not own. Scoping it away
+    # from the csb1 stack means enable=false labels on every service — a
+    # one-time full-stack recreate that wants its own window. OPS-125 tracks it.
     spec = import ./docker/compose-spec.nix;
   };
 
@@ -386,32 +408,8 @@ in
       # Will migrate to /var/lib/csb1-docker in future task
     ];
 
-  # ============================================================================
-  # HostDash — static public service dashboard for csb1
-  # ============================================================================
-  # Traefik owns public 80/443 on the cloud hosts. Recreate HostDash first so
-  # the Nix store mount is current, then recreate Traefik so its Docker provider
-  # initial scan always includes the dashboard container.
-  systemd.services.csb1-hostdash = {
-    description = "csb1 HostDash nginx dashboard";
-    after = [
-      "docker.service"
-      "network-online.target"
-    ];
-    requires = [ "docker.service" ];
-    wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-    restartTriggers = [
-      (builtins.readFile ./docker/docker-compose.yml)
-      hostdashCsb1
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${csb1HostdashReconcile}";
-      TimeoutStartSec = "240";
-    };
-  };
+  # csb1-hostdash lived here — SUPERSEDED by composeStack postRecreate
+  # (OPS-116/122): hostdash-auth → hostdash → traefik, same order.
 
   # Restic must never live-walk the SQLite database and its blob directories.
   # This timer briefly quiesces HAUSV and atomically publishes one coherent
@@ -548,6 +546,11 @@ in
     after = [
       "docker.service"
       "janus-managed-central-seed.service"
+      # OPS-122: start-ordering behind the stack reconcile so the cutover
+      # switch cannot run this force-recreate concurrently with compose-csb1.
+      # Deliberately NOT requires: the Janus plane must not die with a failed
+      # reconcile.
+      "compose-csb1.service"
     ];
     serviceConfig = {
       Type = "simple";
@@ -577,13 +580,14 @@ in
       "docker.service"
       "janus-host-secret-restore.service"
       "janus-managed-central-seed.service"
+      "compose-csb1.service" # OPS-122: same ordering rationale as transactiond
     ];
     unitConfig.ConditionPathExists = "/run/janus-managed/svc_0bca8d31f7e2/slot_49c0e8a17d63.env";
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${janusManagedCompose} up -d --no-deps --force-recreate janus-managed-canary";
-      ExecStop = "${janusManagedCompose} stop -t 10 janus-managed-canary";
+      ExecStart = "${janusManagedComposeLocked} up -d --no-deps --force-recreate janus-managed-canary";
+      ExecStop = "${janusManagedComposeLocked} stop -t 10 janus-managed-canary";
       TimeoutStartSec = "120";
       TimeoutStopSec = "30";
     };
@@ -635,8 +639,9 @@ in
       # NIX-110 / NIX-121: docker stack moved from /home/mba/docker to
       # ~/Code/nixcfg/hosts/csb1/docker/ on 2026-05-14 cutover.
       cd /home/mba/Code/nixcfg/hosts/csb1/docker
-      docker compose pull ppm
-      docker compose up -d ppm
+      # OPS-122: serialize with the stack reconcile (see composeLock above).
+      flock -w 300 /run/lock/compose-csb1.lock docker compose pull ppm
+      flock -w 300 /run/lock/compose-csb1.lock docker compose up -d ppm
       echo "ok: ppm updated"
     '';
   };
