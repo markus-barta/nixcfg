@@ -11,13 +11,14 @@ fi
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 fixture=$(mktemp -d)
+# OPS-127: the specs are the release-pin source of truth (ymls retired)
 compose_files=(
-  hosts/csb0/docker/docker-compose.yml
-  hosts/csb1/docker/docker-compose.yml
-  hosts/hsb0/docker/docker-compose.yml
-  hosts/hsb1/docker/docker-compose.yml
-  hosts/hsb8/docker/docker-compose.yml
-  hosts/hsb9/docker/docker-compose.yml
+  hosts/csb0/docker/compose-spec.nix
+  hosts/csb1/docker/compose-spec.nix
+  hosts/hsb0/docker/compose-spec.nix
+  hosts/hsb1/docker/compose-spec.nix
+  hosts/hsb8/docker/compose-spec.nix
+  hosts/hsb9/docker/compose-spec.nix
 )
 readiness=hosts/csb1/docker/janus/managed-service-production/readiness.sh
 
@@ -40,8 +41,8 @@ expected="ghcr.io/inspr-at/pharos/pharosd:9.8.7@${new_digest}"
 
 "$repo_root/scripts/update-pharos-release.sh" --root "$fixture" 9.8.7 "$new_digest" >/dev/null
 [[ "$(jq -r '.reference' "$fixture/pharos-release.json")" == "$expected" ]]
-[[ "$(grep -rlF "image: $expected" "$fixture/hosts" | wc -l | tr -d ' ')" == 6 ]]
-[[ "$(grep -rF "image: $expected" "$fixture/hosts" | wc -l | tr -d ' ')" == 7 ]]
+[[ "$(grep -rlF "image = \"$expected\";" "$fixture/hosts" | wc -l | tr -d ' ')" == 6 ]]
+[[ "$(grep -rF "image = \"$expected\";" "$fixture/hosts" | wc -l | tr -d ' ')" == 7 ]]
 grep -Fq \
   "'^ghcr\\.io/inspr-at/pharos/pharosd:9\\.8\\.7@sha256:[0-9a-f]{64}$'" \
   "$fixture/$readiness"

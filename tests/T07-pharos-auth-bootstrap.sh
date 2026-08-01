@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SECRETS_NIX="$REPO_ROOT/secrets/secrets.nix"
 CSB1_CONFIG="$REPO_ROOT/hosts/csb1/configuration.nix"
-CSB1_COMPOSE="$REPO_ROOT/hosts/csb1/docker/docker-compose.yml"
+CSB1_COMPOSE="$REPO_ROOT/hosts/csb1/docker/compose-spec.nix"
 ACCESS_POLICY="$REPO_ROOT/hosts/csb1/docker/pharos/access-policy.json"
 
 need_line() {
@@ -38,10 +38,10 @@ need_line '  "pharos-beacon-csb0-env.age".publicKeys = markus ++ csb0;' "$SECRET
 need_line '  "pharos-beacon-csb1-env.age".publicKeys = markus ++ csb1;' "$SECRETS_NIX"
 need_line '  age.secrets.pharos-beacon-csb1-env = {' "$CSB1_CONFIG"
 need_line '    path = "/run/agenix/pharos-beacon-csb1-env";' "$CSB1_CONFIG"
-need_line '      - /run/agenix/pharos-beacon-csb1-env' "$CSB1_COMPOSE"
-need_line '      - PHAROS_REQUIRE_BEACON_TOKEN=1' "$CSB1_COMPOSE"
-need_line '      - PHAROS_BEACON_TOKEN_MODE=janus' "$CSB1_COMPOSE"
-operator_ref="$(sed -n 's/^[[:space:]]*- PHAROS_ALLOWED_OPERATORS=\(verified-email-ref:[0-9a-f]\{64\}\)$/\1/p' "$CSB1_COMPOSE")"
+need_line '        "/run/agenix/pharos-beacon-csb1-env"' "$CSB1_COMPOSE"
+need_line '        "PHAROS_REQUIRE_BEACON_TOKEN=1"' "$CSB1_COMPOSE"
+need_line '        "PHAROS_BEACON_TOKEN_MODE=janus"' "$CSB1_COMPOSE"
+operator_ref="$(sed -n 's/^[[:space:]]*"PHAROS_ALLOWED_OPERATORS=\(verified-email-ref:[0-9a-f]\{64\}\)"$/\1/p' "$CSB1_COMPOSE")"
 if [[ ! "$operator_ref" =~ ^verified-email-ref:[0-9a-f]{64}$ ]]; then
   echo "Pharos operator allowlist must use one value-free verified-email reference" >&2
   exit 1

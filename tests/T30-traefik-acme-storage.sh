@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 config="$repo_root/hosts/csb1/configuration.nix"
-compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
+compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 ignore="$repo_root/hosts/csb1/docker/.gitignore"
 
 grep -Fq 'composeRoot = "/home/mba/Code/nixcfg/hosts/csb1/docker";' "$config"

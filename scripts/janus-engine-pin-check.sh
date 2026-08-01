@@ -106,12 +106,12 @@ ghcr_manifest_digest() {
 }
 
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-if [[ -z "$REPO" || ! -f "$REPO/hosts/csb1/docker/docker-compose.yml" ]]; then
+if [[ -z "$REPO" || ! -f "$REPO/hosts/csb1/docker/compose-spec.nix" ]]; then
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
 
-COMPOSE_FILE="${JANUS_ENGINE_STAGED_COMPOSE_FILE:-$REPO/hosts/csb1/docker/docker-compose.yml}"
+COMPOSE_FILE="${JANUS_ENGINE_STAGED_COMPOSE_FILE:-$REPO/hosts/csb1/docker/compose-spec.nix}" # OPS-127
 JANUS_REPO="${JANUS_ENGINE_RELEASE_REPO:-inspr-at/janus}"
 IMAGE_REPO="${JANUS_ENGINE_IMAGE_REPO:-ghcr.io/inspr-at/janus/janus-engine}"
 
@@ -122,10 +122,10 @@ fi
 
 compose_image="$(
   awk '
-      /^  janus-engine-staged:/ { in_service = 1; next }
-      in_service && /^  [A-Za-z0-9_.-]+:/ { exit }
-      in_service && /^[[:space:]]+image:/ {
-        sub(/^[[:space:]]+image:[[:space:]]*/, "")
+      /^    janus-engine-staged = {/ { in_service = 1; next }
+      in_service && /^    };/ { exit }
+      in_service && /^      image = "/ {
+        gsub(/^      image = "|";$/, "")
         print
         exit
       }

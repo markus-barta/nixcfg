@@ -8,7 +8,8 @@ if ! repo_revision=$(git -C "${repo}" rev-parse HEAD 2>/dev/null); then
   exit 1
 fi
 flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
-compose="${repo}/hosts/csb1/docker/docker-compose.yml"
+# OPS-127: the compose spec is the source of truth (the yml is retired).
+compose="${repo}/hosts/csb1/docker/compose-spec.nix"
 mode=${1:-declarative}
 failures=0
 
@@ -46,9 +47,9 @@ check_command() {
 service_image() {
   local service=$1
   awk -v service="$service" '
-    $0 == "  " service ":" { inside = 1; next }
-    inside && /^    image:/ { print $2; exit }
-    inside && /^  [A-Za-z0-9_.-]+:/ { exit }
+    $0 == "    " service " = {" { inside = 1; next }
+    inside && /^      image = "/ { gsub(/^      image = "|";$/, ""); print; exit }
+    inside && $0 == "    };" { exit }
   ' "${compose}"
 }
 

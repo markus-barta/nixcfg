@@ -21,7 +21,7 @@ executor_source="$repo_root/modules/pharos-provisioning-executor/executor.sh"
 public_key_source="$repo_root/modules/pharos-provisioning-executor/public-key.sh"
 janus_source="$repo_root/modules/pharos-provisioning-executor/janus-credential.sh"
 host_config="$repo_root/hosts/csb1/configuration.nix"
-compose="$repo_root/hosts/csb1/docker/docker-compose.yml"
+compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 
 bash -n "$executor_source"
 bash -n "$public_key_source"

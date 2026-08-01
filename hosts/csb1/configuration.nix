@@ -10,7 +10,9 @@
 
 let
   hostdashCsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb1;
-  csb1ComposeFile = "/home/mba/Code/nixcfg/hosts/csb1/docker/docker-compose.yml";
+  # OPS-127: the runtime compose file is the closure's rendered spec (the yml is
+  # retired). /etc/compose/csb1/... is the environment.etc symlink to it.
+  csb1ComposeFile = "/etc/compose/csb1/docker-compose.yml";
   # Every -p csb1 compose invocation serializes on the composeStack lock
   # (OPS-116 QA: compose takes NO project-level lock of its own; concurrent
   # runs race on transitional container names — that is how hsb1's first
@@ -466,7 +468,7 @@ in
       group = "root";
       mode = "0400";
     };
-    "janus/managed/docker-compose.yml".source = ./docker/docker-compose.yml;
+    "janus/managed/docker-compose.yml".source = config.nixcfg.composeStack.renderedFile; # OPS-127: was ./docker/docker-compose.yml
   };
 
   users.groups = {
@@ -532,7 +534,7 @@ in
     # a reviewed image, catalog, policy, or profile change recreates the exact
     # networkless container even though the stable /etc paths do not change.
     restartTriggers = [
-      (builtins.readFile ./docker/docker-compose.yml)
+      config.nixcfg.composeStack.renderedFile # OPS-127: was readFile of the yml
       (builtins.readFile ./docker/janus/managed-service-production/secretspec.toml)
       (builtins.readFile ./docker/janus/managed-service-production/managed-env-files.toml)
       (builtins.readFile ./docker/janus/managed-service-production/hooks.toml)
@@ -641,8 +643,8 @@ in
       # ~/Code/nixcfg/hosts/csb1/docker/ on 2026-05-14 cutover.
       cd /home/mba/Code/nixcfg/hosts/csb1/docker
       # OPS-122: serialize with the stack reconcile (see composeLock above).
-      flock -w 300 /run/lock/compose-csb1.lock docker compose pull ppm
-      flock -w 300 /run/lock/compose-csb1.lock docker compose up -d ppm
+      flock -w 300 /run/lock/compose-csb1.lock docker compose -p csb1 -f /etc/compose/csb1/docker-compose.yml pull ppm
+      flock -w 300 /run/lock/compose-csb1.lock docker compose -p csb1 -f /etc/compose/csb1/docker-compose.yml up -d ppm
       echo "ok: ppm updated"
     '';
   };

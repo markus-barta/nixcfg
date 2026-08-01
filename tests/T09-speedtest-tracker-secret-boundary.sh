@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SECRETS_NIX="$REPO_ROOT/secrets/secrets.nix"
 SECRET_FILE="$REPO_ROOT/secrets/hsb0-speedtest-tracker-app-key.age"
 HSB0_CONFIG="$REPO_ROOT/hosts/hsb0/configuration.nix"
-HSB0_COMPOSE="$REPO_ROOT/hosts/hsb0/docker/docker-compose.yml"
+HSB0_COMPOSE="$REPO_ROOT/hosts/hsb0/docker/compose-spec.nix"
 
 need_line() {
   local expected="$1"
@@ -25,12 +25,12 @@ need_line '  "hsb0-speedtest-tracker-app-key.age".publicKeys = markus ++ hsb0;' 
 need_line '  age.secrets.hsb0-speedtest-tracker-app-key = {' "$HSB0_CONFIG"
 need_line '    file = ../../secrets/hsb0-speedtest-tracker-app-key.age;' "$HSB0_CONFIG"
 need_line '    mode = "400";' "$HSB0_CONFIG"
-need_line '      - FILE__APP_KEY=/run/secrets/speedtest-tracker-app-key' "$HSB0_COMPOSE"
-need_line '      - /run/agenix/hsb0-speedtest-tracker-app-key:/run/secrets/speedtest-tracker-app-key:ro' "$HSB0_COMPOSE"
+need_line '        "FILE__APP_KEY=/run/secrets/speedtest-tracker-app-key"' "$HSB0_COMPOSE"
+need_line '        "/run/agenix/hsb0-speedtest-tracker-app-key:/run/secrets/speedtest-tracker-app-key:ro"' "$HSB0_COMPOSE"
 
 test -s "$SECRET_FILE"
 
-if grep -Eq '(^|[[:space:]-])APP_KEY=' "$HSB0_COMPOSE"; then
+if grep -Eq '["[:space:]]APP_KEY=' "$HSB0_COMPOSE"; then
   echo "Speedtest Tracker APP_KEY must not be stored inline" >&2
   exit 1
 fi

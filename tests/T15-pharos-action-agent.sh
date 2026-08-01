@@ -26,10 +26,12 @@ grep -Fq -- '--config "$auth_config"' "$agent_source"
 grep -Fq 'system.configurationRevision = inputs.self.rev or null;' "$common"
 grep -Fq 'mode = "janus";' "$host_config"
 grep -Fq 'janusRequired = true;' "$host_config"
-grep -Fq 'hsb8DockerCompose = pkgs.writeText' "$host_config"
-grep -Fq 'restartTriggers = [ hsb8DockerCompose ];' "$host_config"
-# shellcheck disable=SC2016
-grep -Fq '${hsb8DockerCompose} up -d' "$host_config"
+# OPS-116/127: hsb8-stack (writeText yml) was superseded by composeStack, which
+# reconciles from the closure's rendered spec -- the same store-not-checkout
+# guarantee this test always enforced, now via the shared module.
+grep -Fq 'nixcfg.composeStack' "$host_config"
+grep -Fq 'reconcile = true;' "$host_config"
+grep -Fq 'spec = import ./docker/compose-spec.nix;' "$host_config"
 if grep -Fq '/home/mba/Code/nixcfg/hosts/hsb8/docker/docker-compose.yml up -d' "$host_config"; then
   echo 'hsb8 stack still reads compose from a mutable checkout' >&2
   exit 1
