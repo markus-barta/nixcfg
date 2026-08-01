@@ -32,16 +32,14 @@ Trigger: a PR has been merged to `main` in the paimos repo. CI has finished
 and published a fresh `:latest` to GHCR. You want csb1 to run it.
 
 ```bash
-ssh mba@csb1
-cd ~/docker
-docker compose pull ppm
-docker compose up -d ppm
+ssh -p 2222 mba@cs1.barta.cm
+/etc/paimos-deploy.sh   # pulls + up -d ppm, serialized on the compose lock (OPS-122)
 ```
 
 Or as a one-liner from your laptop:
 
 ```bash
-ssh mba@csb1 "cd ~/docker && docker compose pull ppm && docker compose up -d ppm"
+ssh -p 2222 mba@cs1.barta.cm /etc/paimos-deploy.sh
 ```
 
 Or via the just recipe:
@@ -84,7 +82,7 @@ ppm:
 Then pull + up as normal:
 
 ```bash
-docker compose pull ppm && docker compose up -d ppm
+/etc/paimos-deploy.sh
 ```
 
 **Rollback recipe.** If a `:latest` deploy broke something and you need to
@@ -154,12 +152,12 @@ To change a secret:
 1. Edit the nix/agenix source in `~/docker/nixfleet/` (the agenix secret
    entry for `csb1-ppm-env`).
 2. Rebuild the host config, which refreshes `/run/agenix/csb1-ppm-env`.
-3. Restart the container: `docker compose up -d ppm` (compose picks up the
-   updated `env_file` on next container creation — for an unchanged image
-   you may need `--force-recreate`).
+3. Recreate the container: `sudo docker compose -p csb1 -f /etc/compose/csb1/docker-compose.yml up -d --force-recreate --no-deps ppm`
+   (OPS-116: the stack is closure-owned; the /etc file is what compose runs).
 
-To change a public env var (brand, port, etc.): edit the `environment:`
-block in `~/docker/docker-compose.yml`, then `docker compose up -d ppm`.
+To change a public env var (brand, port, etc.): edit the `ppm` service in
+`hosts/csb1/docker/compose-spec.nix` (the source of truth since OPS-116),
+merge, then `just switch` on csb1 — the reconcile applies it.
 
 ---
 

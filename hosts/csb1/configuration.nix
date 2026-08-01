@@ -153,11 +153,12 @@ in
     # plus smoke-test leftovers. Profile-gated services are exempt from orphan
     # handling (QA-2 verified), but false is the only safe default here.
     #
-    # autoUpdate deliberately NOT enabled yet: watchtower stays on this host
-    # for now because it also updates the foreign projects (/home/mba/docker/*:
-    # inspr-at, paimos, amt-*) that the closure does not own. Scoping it away
-    # from the csb1 stack means enable=false labels on every service — a
-    # one-time full-stack recreate that wants its own window. OPS-125 tracks it.
+    # OPS-125 completed 2026-08-01: every csb1 service carries the watchtower
+    # enable=false label, so the composeStack autoUpdate timer below owns their
+    # images. Watchtower REMAINS on this host, deliberately, scoped by those
+    # labels to itself + the foreign projects (/home/mba/docker/*: inspr-at,
+    # paimos, amt-*) that the closure does not own.
+    autoUpdate.enable = true;
     spec = import ./docker/compose-spec.nix;
   };
 

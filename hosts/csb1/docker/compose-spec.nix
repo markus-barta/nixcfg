@@ -16,11 +16,10 @@
 #   nix shell nixpkgs#yq-go -c ./tests/compose_stack_gate.py csb1
 # Comments from the source file are NOT carried across by this tool; re-attach
 # them by hand. They hold real incident history.
+
+# Comments from the source file are NOT carried across by this tool; re-attach
+# them by hand. They hold real incident history.
 # Compose project name: csb1 — named volumes depend on it.
-#
-# Dropped (now supplied by the composeStack module):
-#   pharos-beacon.dns = ['8.8.8.8', '8.8.4.4']
-#   x-host-dns (anchor)
 
 {
   name = "csb1";
@@ -38,6 +37,7 @@
         "internal"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -51,6 +51,7 @@
         "internal"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -72,6 +73,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.docmost.rule=Host(`docmost.barta.cm`)"
         "traefik.http.routers.docmost.tls.certresolver=default"
@@ -94,6 +96,7 @@
         "internal"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -107,6 +110,7 @@
         "internal"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -117,6 +121,7 @@
         "internal"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -131,6 +136,7 @@
         "internal"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -162,6 +168,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.paperless.rule=Host(`paperless.barta.cm`)"
         "traefik.http.routers.paperless.tls.certresolver=default"
@@ -184,6 +191,7 @@
       ];
       restart = "always";
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -213,6 +221,7 @@
         "./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
         "traefik.http.routers.traefik.entrypoints=web-secure"
         "traefik.http.routers.traefik.service=api@internal"
@@ -258,6 +267,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.hostdash-auth-csb1.rule=Host(`cs1.barta.cm`) && PathPrefix(`/oauth2`)"
         "traefik.http.routers.hostdash-auth-csb1.entrypoints=web-secure"
@@ -282,6 +292,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.hostdash-csb1.rule=Host(`cs1.barta.cm`)"
         "traefik.http.routers.hostdash-csb1.entrypoints=web-secure"
@@ -329,6 +340,7 @@
         "/run/agenix/csb1-smtp-env"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -412,6 +424,7 @@
       };
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.hausv-org.rule=Host(`jhw22.hausv.org`) || Host(`hausv.org`) || Host(`www.hausv.org`)"
         "traefik.http.routers.hausv-org.tls.certresolver=default"
@@ -451,6 +464,7 @@
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
       networks = [
@@ -488,6 +502,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.excalidraw.rule=Host(`draw.barta.cm`)"
         "traefik.http.routers.excalidraw.tls.certresolver=default"
@@ -504,6 +519,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.jobs-at.rule=Host(`zukunftschance.ai.barta.cm`)"
         "traefik.http.routers.jobs-at.tls.certresolver=default"
@@ -539,6 +555,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.ppm.rule=Host(`pm.barta.cm`)"
         "traefik.http.routers.ppm.tls.certresolver=default"
@@ -650,6 +667,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.janus.rule=Host(`vault.barta.cm`)"
         "traefik.http.routers.janus.tls.certresolver=default"
@@ -738,6 +756,7 @@
         start_period = "10s";
       };
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -896,6 +915,7 @@
       };
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -950,6 +970,7 @@
       };
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
     };
@@ -968,6 +989,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.minio-console.rule=Host(`minio.barta.cm`)"
         "traefik.http.routers.minio-console.tls.certresolver=default"
@@ -1081,6 +1103,7 @@
         "traefik"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "com.centurylinklabs.watchtower.enable=true"
         "traefik.enable=true"
         "traefik.http.routers.pharos.rule=Host(`pharos.barta.cm`)"
@@ -1137,6 +1160,7 @@
         "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [
+        "com.centurylinklabs.watchtower.enable=false"
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];

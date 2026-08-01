@@ -12,25 +12,9 @@
 # at runtime via agenix-decrypted bind. No plaintext secrets in this file.
 name: csb1
 
-# Docker copies the host's /etc/resolv.conf into a container ONCE, at container
-# start, and never refreshes it, so a resolver-policy change silently strands
-# every container already running. OPS-109 did exactly that fleet-wide on
-# 2026-07-29; hsb1 lost the access gate for two days and hsb0's pharos-beacon
-# was still stranded when it was found (OPS-113). csb1 escaped only because it
-# happened to be restarted afterwards — pinning here removes the luck.
-#
-# Only for `network_mode: host` services. Bridge-network containers must keep
-# Docker's embedded resolver (127.0.0.11), which forwards to the host file at
-# query time and is never stranded. janus-managed-canary is network_mode: none
-# and has no resolution to lose.
-#
-# Mirrors networking.nameservers in hosts/csb1/configuration.nix.
-# Hand-duplicated — keep the two in step. No dns_search: this host declares no
-# search domain.
-x-host-dns: &host-dns
-  - 8.8.8.8
-  - 8.8.4.4
-
+# DNS for host-network services is INJECTED by modules/shared/compose-stack
+# from config.networking.nameservers (OPS-113 -> OPS-114 -> OPS-116).
+# This yml is a reference copy; the spec is the source of truth (OPS-127).
 services:
   docmost-db:
     image: postgres:16-alpine
@@ -42,6 +26,7 @@ services:
     networks:
       - internal
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=false
 
   docmost-redis:
@@ -52,6 +37,7 @@ services:
     networks:
       - internal
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=false
 
   docmost:
@@ -68,6 +54,7 @@ services:
       - internal
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=true
       - traefik.http.routers.docmost.rule=Host(`docmost.barta.cm`)
       - traefik.http.routers.docmost.tls.certresolver=default
@@ -90,6 +77,7 @@ services:
     networks:
       - internal
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=false
 
   paperless-redis:
@@ -100,6 +88,7 @@ services:
     networks:
       - internal
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=false
 
   paperless-tika:
@@ -108,6 +97,7 @@ services:
     networks:
       - internal
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=false
 
   paperless-gotenberg:
@@ -119,6 +109,7 @@ services:
     networks:
       - internal
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=false
 
   paperless:
@@ -144,6 +135,7 @@ services:
       - internal
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=true
       - traefik.http.routers.paperless.rule=Host(`paperless.barta.cm`)
       - traefik.http.routers.paperless.tls.certresolver=default
@@ -163,6 +155,7 @@ services:
       - docker-sock-traefik
     restart: always
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=false
 
   # https://docs.traefik.io/v2.5/providers/docker/
@@ -191,6 +184,7 @@ services:
       - ./traefik/acme.json:/etc/traefik/acme/acme.json:rw
       - ./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       # HostDash owns / on cs1.barta.cm; keep Traefik's API on /api and
       # /dashboard if the dashboard is enabled later.
       - "traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
@@ -235,6 +229,7 @@ services:
     networks:
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=true
       - traefik.http.routers.hostdash-auth-csb1.rule=Host(`cs1.barta.cm`) && PathPrefix(`/oauth2`)
       - traefik.http.routers.hostdash-auth-csb1.entrypoints=web-secure
@@ -255,6 +250,7 @@ services:
     networks:
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=true
       - traefik.http.routers.hostdash-csb1.rule=Host(`cs1.barta.cm`)
       - traefik.http.routers.hostdash-csb1.entrypoints=web-secure
@@ -298,6 +294,7 @@ services:
     env_file:
       - /run/agenix/csb1-smtp-env
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=false
 
   # ============================================
@@ -388,6 +385,7 @@ services:
       retries: 3
       start_period: 20s
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       # This image is built and deployed manually by hausv-org/scripts/deploy.fish.
       - com.centurylinklabs.watchtower.enable=false
       - traefik.enable=true
@@ -425,6 +423,7 @@ services:
     env_file:
       - /run/agenix/csb1-restic-cron-hetzner-env
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - com.centurylinklabs.watchtower.enable=false
       - traefik.enable=false
     networks:
@@ -459,6 +458,7 @@ services:
     networks:
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=true
       - traefik.http.routers.excalidraw.rule=Host(`draw.barta.cm`)
       - traefik.http.routers.excalidraw.tls.certresolver=default
@@ -476,6 +476,7 @@ services:
     networks:
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=true
       - "traefik.http.routers.jobs-at.rule=Host(`zukunftschance.ai.barta.cm`)"
       - traefik.http.routers.jobs-at.tls.certresolver=default
@@ -509,6 +510,7 @@ services:
     networks:
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=true
       - traefik.http.routers.ppm.rule=Host(`pm.barta.cm`)
       - traefik.http.routers.ppm.tls.certresolver=default
@@ -602,6 +604,7 @@ services:
     networks:
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=true
       - traefik.http.routers.janus.rule=Host(`vault.barta.cm`)
       - traefik.http.routers.janus.tls.certresolver=default
@@ -684,6 +687,7 @@ services:
       retries: 3
       start_period: 10s
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=false
 
   # ============================================
@@ -800,6 +804,7 @@ services:
       retries: 3
       start_period: 5s
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - com.centurylinklabs.watchtower.enable=false
       - traefik.enable=false
 
@@ -850,6 +855,7 @@ services:
       retries: 3
       start_period: 5s
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - com.centurylinklabs.watchtower.enable=false
       - traefik.enable=false
 
@@ -868,6 +874,7 @@ services:
     networks:
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - traefik.enable=true
       - traefik.http.routers.minio-console.rule=Host(`minio.barta.cm`)
       - traefik.http.routers.minio-console.tls.certresolver=default
@@ -978,6 +985,7 @@ services:
     networks:
       - traefik
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - com.centurylinklabs.watchtower.enable=true
       - traefik.enable=true
       - traefik.http.routers.pharos.rule=Host(`pharos.barta.cm`)
@@ -1007,7 +1015,6 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
     network_mode: host
-    dns: *host-dns
     user: "1000:1000"
     entrypoint: ["/usr/local/bin/pharos-beacon"]
     env_file:
@@ -1032,6 +1039,7 @@ services:
       - /run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro
       - /var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro
     labels:
+      - com.centurylinklabs.watchtower.enable=false # OPS-125: composeStack owns this service's image
       - com.centurylinklabs.watchtower.enable=false
       - traefik.enable=false
 
