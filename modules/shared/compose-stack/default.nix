@@ -165,6 +165,21 @@ in
       '';
     };
 
+    extraAfter = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = ''
+        Extra units to order the reconcile after (with Wants, not Requires —
+        the whole stack must not fail because one dependency did).
+
+        Exists for hsb0's var-lib-ncps.mount: the repo carried ordering on a
+        `docker-ncps.service` that never existed (oci-containers naming, never
+        used here), so the guarantee was a phantom — the QA-2 sweep found the
+        ncps container could start on an empty /var/lib/ncps. Stack-level
+        ordering is the closest compose can express to per-service ordering.
+      '';
+    };
+
     extraRestartTriggers = lib.mkOption {
       type = lib.types.listOf lib.types.anything;
       default = [ ];
@@ -257,9 +272,10 @@ in
       after = [
         "docker.service"
         "network-online.target"
-      ];
+      ]
+      ++ cfg.extraAfter;
       requires = [ "docker.service" ];
-      wants = [ "network-online.target" ];
+      wants = [ "network-online.target" ] ++ cfg.extraAfter;
 
       # The whole point: a changed spec changes this store path, so switch
       # restarts the unit and compose recreates exactly the affected services.
