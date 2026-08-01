@@ -143,7 +143,7 @@
         "TZ=Europe/Vienna"
       ];
       env_file = [
-        "./traefik/variables.env"
+        "/run/agenix/traefik-variables"
       ];
     };
     hostdash-auth = {
@@ -280,29 +280,6 @@
       ];
       networks = [
         "smtp"
-      ];
-    };
-    watchtower = {
-      image = "containrrr/watchtower:latest";
-      restart = "unless-stopped";
-      command = "--schedule \"0 0 8 * * SAT\" --cleanup";
-      volumes = [
-        "/var/run/docker.sock:/var/run/docker.sock:rw"
-      ];
-      environment = [
-        "WATCHTOWER_CLEANUP=true"
-        "DOCKER_API_VERSION=1.44"
-        "WATCHTOWER_NOTIFICATIONS=shoutrrr"
-        "WATCHTOWER_NOTIFICATIONS_HOSTNAME=csb0"
-        "WATCHTOWER_NOTIFICATION_TITLE_TAG=🌐"
-        "WATCHTOWER_HTTP_API_UPDATE=true"
-        "WATCHTOWER_HTTP_API_PERIODIC_POLLS=true"
-      ];
-      env_file = [
-        "./watchtower.env"
-      ];
-      labels = [
-        "traefik.enable=false"
       ];
     };
     uptime-kuma = {

@@ -210,7 +210,12 @@ services:
     environment:
       - TZ=Europe/Vienna
     env_file:
-      - ./traefik/variables.env
+      # Was ./traefik/variables.env — a GITIGNORED working-tree file that
+      # existed only on this one checkout (QA-2 fragility: a fresh clone would
+      # kill the whole `up` at parse time). traefik-variables.age has been
+      # decryptable by csb0 all along (shared with csb1, which already uses
+      # this path). Swapped 2026-08-01 (OPS-121).
+      - /run/agenix/traefik-variables
 
   # HostDash — static service dashboard for this host. Built by Nix from
   # markus-barta/hostdash and mounted read-only from /etc/hostdash.
@@ -342,33 +347,11 @@ services:
     networks:
       - smtp
 
-  watchtower:
-    image: containrrr/watchtower:latest
-    restart: unless-stopped
-    command: --schedule "0 0 8 * * SAT" --cleanup
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:rw
-    environment:
-      - WATCHTOWER_CLEANUP=true
-      - DOCKER_API_VERSION=1.44
-      - WATCHTOWER_NOTIFICATIONS=shoutrrr
-      - WATCHTOWER_NOTIFICATIONS_HOSTNAME=csb0
-      - WATCHTOWER_NOTIFICATION_TITLE_TAG=🌐
-      # FLEET-1397: enable HTTP API so bosun can trigger updates on demand
-      # (the dashboard's "Update agent" button). Without this, the button
-      # silently no-ops — watchtower only auto-pulls on its 24h schedule.
-      - WATCHTOWER_HTTP_API_UPDATE=true
-      # HTTP_API_UPDATE alone disables --schedule runs ("Periodic runs are
-      # not enabled") — this re-enables them alongside the API. Same silent
-      # outage as hsb1 (NIX-228, found 2026-07-04).
-      - WATCHTOWER_HTTP_API_PERIODIC_POLLS=true
-    env_file:
-      # Provides WATCHTOWER_HTTP_API_TOKEN — must match the WATCHTOWER_TOKEN
-      # set in /opt/fleetcom-agent/.env on this host. File is gitignored;
-      # provision per-host with `openssl rand -hex 24`.
-      - ./watchtower.env
-    labels:
-      - traefik.enable=false
+  # Watchtower REMOVED 2026-08-01 (OPS-125): image updates now come from the
+  # composeStack autoUpdate timer — compose pull + up -d through compose
+  # itself. This one had NO label filter (updated every container) and the
+  # HTTP update API enabled for the archived fleetcom-agent; both retire with
+  # it, as does the gitignored ./watchtower.env (QA-2 fragility #2).
 
   # Uptime Kuma - Docker service (consistent with other services)
   uptime-kuma:
