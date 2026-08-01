@@ -241,19 +241,5 @@
         "traefik.enable=false"
       ];
     };
-    watchtower = {
-      image = "beatkind/watchtower:latest";
-      container_name = "watchtower";
-      restart = "unless-stopped";
-      command = "--schedule \"0 0 5 * * 6\" --label-enable";
-      volumes = [
-        "/var/run/docker.sock:/var/run/docker.sock:rw"
-      ];
-      environment = [
-        "TZ=Europe/Vienna"
-        "WATCHTOWER_CLEANUP=true"
-        "DOCKER_API_VERSION=1.44"
-      ];
-    };
   };
 }

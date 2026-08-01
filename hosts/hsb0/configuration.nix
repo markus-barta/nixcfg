@@ -65,8 +65,19 @@ in
     enable = true;
     project = "docker";
     stackName = "hsb0";
-    reconcile = false;
+    # 🟢 CUT OVER 2026-08-01 (OPS-120).
+    reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb0/docker";
+    postRecreate = [ "hsb0-home" ];
+    extraRestartTriggers = [ hostdashHsb0 ];
+    # ncps must not start on an empty /var/lib/ncps — the old docker-ncps
+    # ordering unit was a phantom (QA-2). Wants+After, not Requires: the stack
+    # must not fail outright if the cache mount does.
+    extraAfter = [ "var-lib-ncps.mount" ];
+    # Safe HERE: all project-docker containers are declared in the spec
+    # (verified live 2026-08-01) — reaps the retired watchtower container.
+    removeOrphans = true;
+    autoUpdate.enable = true;
     spec = import ./docker/compose-spec.nix;
   };
 
@@ -878,29 +889,10 @@ in
   # ============================================================================
   # HostDash — static LAN service dashboard for hsb0
   # ============================================================================
-  # hsb0's existing compose stack is not fully systemd-owned yet; at least one
-  # live bridge container predates compose labels. Keep this unit narrow and
-  # reconcile only the dashboard service instead of adopting the whole stack.
-  systemd.services.hsb0-home-dashboard = {
-    description = "hsb0 HostDash nginx dashboard";
-    after = [
-      "docker.service"
-      "network-online.target"
-    ];
-    requires = [ "docker.service" ];
-    wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-    restartTriggers = [
-      (builtins.readFile ./docker/docker-compose.yml)
-      hostdashHsb0
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb0/docker/docker-compose.yml up -d --force-recreate --no-deps hsb0-home";
-      TimeoutStartSec = "180";
-    };
-  };
+  # hsb0-home-dashboard lived here — SUPERSEDED by composeStack postRecreate
+  # (OPS-116/120), same pattern as hsb1/hsb9. Its "not fully systemd-owned"
+  # caveat was stale: all 8 project containers carry compose labels matching
+  # the spec (verified live 2026-08-01).
 
   environment.etc."hostdash/hsb0".source = hostdashHsb0;
 
@@ -917,10 +909,10 @@ in
 
   # RESILIENCE: NCPS container data must depend on its ZFS mount.
   # We keep the mount defined here so systemd manages it.
-  systemd.services.docker-ncps = {
-    requires = [ "var-lib-ncps.mount" ];
-    after = [ "var-lib-ncps.mount" ];
-  };
+  # A `systemd.services.docker-ncps` ordering block lived here — a PHANTOM:
+  # that unit name is oci-containers naming, never used in this repo, so the
+  # ordering guaranteed nothing (QA-2). The real ordering now lives on
+  # compose-hsb0.service via composeStack.extraAfter.
 
   # Fresh-install ownership for ncps paths. ncps runs as uid 994 (kalbasit/ncps
   # image). /storage (the ZFS mount) and the decoupled /dbstorage dir must be
@@ -966,7 +958,9 @@ in
   systemd.services.ncps-warmer = {
     description = "Warm local NCPS with LAN fleet substitutable closures";
     after = [
-      "ncps.service"
+      # was "ncps.service" — another phantom (no such unit ever existed);
+      # the ncps container is brought up by the stack reconcile.
+      "compose-hsb0.service"
       "network-online.target"
     ];
     wants = [ "network-online.target" ];
