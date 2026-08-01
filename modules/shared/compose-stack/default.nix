@@ -147,6 +147,36 @@ in
       '';
     };
 
+    postRecreate = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      description = ''
+        Services to force-recreate after the main reconcile.
+
+        For containers whose content comes from a path that changes per
+        generation but whose compose definition does not — the HostDash landing
+        pages mount /etc/hostdash/<host>, so a new generation changes what is
+        behind that mount while compose sees an unchanged service and correctly
+        does nothing. Without this they serve the previous generation's page
+        indefinitely.
+
+        This reproduces the ExecStartPost that the per-host <host>-stack units
+        carried before composeStack superseded them (NIX-158).
+      '';
+    };
+
+    extraRestartTriggers = lib.mkOption {
+      type = lib.types.listOf lib.types.anything;
+      default = [ ];
+      description = ''
+        Additional restart triggers beyond the rendered spec.
+
+        Needed for exactly the same reason as postRecreate: the HostDash
+        artifact changing must re-run the reconcile, and it is not part of the
+        compose spec.
+      '';
+    };
+
     removeOrphans = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -221,7 +251,7 @@ in
 
       # The whole point: a changed spec changes this store path, so switch
       # restarts the unit and compose recreates exactly the affected services.
-      restartTriggers = [ composeFile ];
+      restartTriggers = [ composeFile ] ++ cfg.extraRestartTriggers;
 
       serviceConfig = {
         Type = "oneshot";
@@ -252,13 +282,16 @@ in
       # janus-managed-canary unit already uses. `docker compose` as a CLI plugin
       # depends on the plugin path resolving inside the unit's environment;
       # this does not.
-      script = ''
-        exec ${pkgs.docker-compose}/bin/docker-compose \
-          -p ${lib.escapeShellArg cfg.project} \
-          -f ${composeFile} \
-          ${projectDirFlag} \
-          up -d${lib.optionalString cfg.removeOrphans " --remove-orphans"}
-      '';
+      script =
+        let
+          compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
+        in
+        ''
+          ${compose} up -d${lib.optionalString cfg.removeOrphans " --remove-orphans"}
+        ''
+        + lib.concatMapStrings (svc: ''
+          ${compose} up -d --force-recreate --no-deps ${lib.escapeShellArg svc}
+        '') cfg.postRecreate;
     };
   };
 }
