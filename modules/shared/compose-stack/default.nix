@@ -229,7 +229,24 @@ in
         # Pulling a moved tag can take a while on a slow uplink; a stuck
         # reconcile must fail the unit rather than hang activation forever.
         TimeoutStartSec = "600";
+
+        # Without this a failed reconcile is STICKY: the unit stays failed, and
+        # because switch only restarts it when restartTriggers changes, the next
+        # unrelated switch does NOT retry. A host could then sit with an
+        # unreconciled stack indefinitely while every rebuild reports success.
+        # Three spaced attempts absorb the transients that actually happen here
+        # (a registry blip, a slow uplink) and then give up loudly, so a genuinely
+        # bad spec still lands in `systemctl --failed` instead of looping.
+        Restart = "on-failure";
+        RestartSec = "30s";
       };
+      # After 3 failures in 300s systemd refuses to start the unit until
+      # `systemctl reset-failed compose-<stackName>` — including on a later
+      # switch. That is deliberate (a bad spec should stop, not loop) but it is
+      # the one recovery step that is not obvious from the error, so:
+      #   systemctl reset-failed compose-<stackName> && systemctl start compose-<stackName>
+      startLimitIntervalSec = 300;
+      startLimitBurst = 3;
 
       # docker-compose v2 standalone, matching the binary csb1's existing
       # janus-managed-canary unit already uses. `docker compose` as a CLI plugin
