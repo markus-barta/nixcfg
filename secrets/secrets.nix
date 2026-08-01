@@ -287,7 +287,7 @@ in
   # The following secrets were previously plaintext in ~/secrets/ or
   # ./xxx.env on csb1. Moved to agenix as part of the docker-in-git
   # migration. Each is referenced by the corresponding service in
-  # hosts/csb1/docker/docker-compose.yml as env_file: /run/agenix/<name>.
+  # hosts/csb1/docker/compose-spec.nix as env_file: /run/agenix/<name>.
 
   # Docmost — Postgres credentials
   "csb1-docmost-postgres-env.age".publicKeys = markus ++ csb1;

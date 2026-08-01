@@ -20,7 +20,7 @@ PROVIDER_IMPORT="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/import-age
 PROVIDER_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/render-hetzner-provider.sh"
 PROVIDER_SMOKE="$REPO_ROOT/hosts/csb1/docker/janus/pharos-provider-smoke/run.sh"
 PROD_RUNTIME="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/runtime-lib.sh"
-COMPOSE_FILE="$REPO_ROOT/hosts/csb1/docker/docker-compose.yml"
+COMPOSE_FILE="$REPO_ROOT/hosts/csb1/docker/compose-spec.nix"
 CSB1_CONFIG="$REPO_ROOT/hosts/csb1/configuration.nix"
 SECRETS_DECLARATIONS="$REPO_ROOT/secrets/secrets.nix"
 PROVIDER_AGENIX_ARTIFACT="$REPO_ROOT/secrets/csb1-hetzner-cloud-provider-env.age"
@@ -92,10 +92,10 @@ require_occurrences 1 '-e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}"' "$RETIRE_HOST"
 require_occurrences 1 '-e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}"' "$RETIRE_HOST"
 # shellcheck disable=SC2016
 require_occurrences 1 '-e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}"' "$RETIRE_HOST"
-require_occurrences 1 '      - JANUS_WARDEN_SCOPE_ORGANIZATION=inspr' "$COMPOSE_FILE"
-require_occurrences 1 '      - JANUS_WARDEN_SCOPE_ENVIRONMENT=staged' "$COMPOSE_FILE"
-require_occurrences 1 '      - JANUS_SCOPE_ORGANIZATION=inspr' "$COMPOSE_FILE"
-require_occurrences 1 '      - JANUS_SCOPE_ENVIRONMENT=staged' "$COMPOSE_FILE"
+require_occurrences 1 '        "JANUS_WARDEN_SCOPE_ORGANIZATION=inspr"' "$COMPOSE_FILE"
+require_occurrences 1 '        "JANUS_WARDEN_SCOPE_ENVIRONMENT=staged"' "$COMPOSE_FILE"
+require_occurrences 1 '        "JANUS_SCOPE_ORGANIZATION=inspr"' "$COMPOSE_FILE"
+require_occurrences 1 '        "JANUS_SCOPE_ENVIRONMENT=staged"' "$COMPOSE_FILE"
 
 if [ ! -s "$PROVIDER_AGENIX_ARTIFACT" ]; then
   echo "missing or empty encrypted Hetzner provider artifact" >&2
@@ -393,9 +393,9 @@ if "PHAROS_BEACON_TOKEN_MODE=janus" not in compose_text:
     raise SystemExit("pharosd compose must run in Janus-only token mode")
 if "PHAROS_BEACON_TOKEN_MODE=dual" in compose_text:
     raise SystemExit("pharosd compose must not keep dual token mode after PHAROS-40 cutover")
-if '    user: "10001:992"' not in compose_text:
+if '      user = "10001:992";' not in compose_text:
     raise SystemExit("pharosd compose must declare its exact non-root runtime identity")
-if '    group_add: ["991"]' not in compose_text:
+if 'group_add' not in compose_text or '"991"' not in compose_text:
     raise SystemExit("pharosd compose must retain access to the value-free hash projection group")
 if "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro" not in compose_text:
     raise SystemExit("pharosd compose must mount only the value-free hash projection")

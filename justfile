@@ -1114,7 +1114,7 @@ oc-rebuild host='':
     fi
     _container="$(just _oc-container $_target)"
     _dir="$(just _oc-compose-dir $_target)"
-    just _oc-run "$_target" "cd $_dir && docker compose build --no-cache $_container && docker compose up -d --force-recreate $_container"
+    just _oc-run "$_target" "cd $_dir && docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml --project-directory ~/Code/nixcfg/hosts/hsb0/docker build --no-cache $_container && docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml --project-directory ~/Code/nixcfg/hosts/hsb0/docker up -d --force-recreate $_container"
 
 # Fast rebuild — uses Docker cache (for config/entrypoint changes, not npm updates)
 
@@ -1133,7 +1133,7 @@ oc-rebuild-fast host='':
     fi
     _container="$(just _oc-container $_target)"
     _dir="$(just _oc-compose-dir $_target)"
-    just _oc-run "$_target" "cd $_dir && docker compose up -d --build --force-recreate $_container"
+    just _oc-run "$_target" "cd $_dir && docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml --project-directory ~/Code/nixcfg/hosts/hsb0/docker up -d --build --force-recreate $_container"
 
 # Show container status and recent logs
 
@@ -1170,7 +1170,7 @@ oc-stop host='':
     fi
     _container="$(just _oc-container $_target)"
     _dir="$(just _oc-compose-dir $_target)"
-    just _oc-run "$_target" "cd $_dir && docker compose stop $_container"
+    just _oc-run "$_target" "cd $_dir && docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml --project-directory ~/Code/nixcfg/hosts/hsb0/docker stop $_container"
 
 # Start the OpenClaw container
 
@@ -1189,7 +1189,7 @@ oc-start host='':
     fi
     _container="$(just _oc-container $_target)"
     _dir="$(just _oc-compose-dir $_target)"
-    just _oc-run "$_target" "cd $_dir && docker compose start $_container"
+    just _oc-run "$_target" "cd $_dir && docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml --project-directory ~/Code/nixcfg/hosts/hsb0/docker start $_container"
 
 # Stop then start the container (no rebuild — picks up new openclaw.json on boot)
 
@@ -1208,7 +1208,7 @@ oc-restart host='':
     fi
     _container="$(just _oc-container $_target)"
     _dir="$(just _oc-compose-dir $_target)"
-    just _oc-run "$_target" "cd $_dir && docker compose stop $_container && docker compose start $_container"
+    just _oc-run "$_target" "cd $_dir && docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml --project-directory ~/Code/nixcfg/hosts/hsb0/docker stop $_container && docker compose -p docker -f /etc/compose/hsb0/docker-compose.yml --project-directory ~/Code/nixcfg/hosts/hsb0/docker start $_container"
 
 # Pull all agent workspace repos into running container
 

@@ -13,13 +13,13 @@ if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
 fi
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-compose="$repo_root/hosts/csb0/docker/docker-compose.yml"
+compose="$repo_root/hosts/csb0/docker/compose-spec.nix"
 backup_script="$repo_root/hosts/csb0/docker/restic-cron/hetzner/run_backup.sh"
 check_script="$repo_root/hosts/csb0/docker/restic-cron/hetzner/run_check.sh"
 cleanup_script="$repo_root/hosts/csb0/docker/restic-cron/hetzner/run_cleanup.sh"
 supervisor="$repo_root/hosts/csb0/docker/restic-cron/hetzner/supervisor_restic.ini"
 
-grep -Eq '^[[:space:]]+RESTIC_REPOSITORY:' "$compose"
+grep -Eq '^[[:space:]]+RESTIC_REPOSITORY =' "$compose"
 if grep -q 'RESTIC_BACKUP_OPTIONS' "$compose" "$backup_script" "$check_script" "$cleanup_script"; then
   echo "packed Restic option strings are not allowed" >&2
   exit 1

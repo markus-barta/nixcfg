@@ -43,13 +43,16 @@ import sys
 import tempfile
 
 root, replacement, version = sys.argv[1:]
+# OPS-127: the compose specs are the source of truth (the ymls are retired);
+# service blocks are nix attrsets closing at indent-4 "};", image lines are
+#   image = "ghcr.io/inspr-at/pharos/pharosd:VERSION@sha256:...";
 targets = (
-    ("hosts/csb0/docker/docker-compose.yml", ("pharos-beacon",)),
-    ("hosts/csb1/docker/docker-compose.yml", ("pharosd", "pharos-beacon")),
-    ("hosts/hsb0/docker/docker-compose.yml", ("pharos-beacon",)),
-    ("hosts/hsb1/docker/docker-compose.yml", ("pharos-beacon",)),
-    ("hosts/hsb8/docker/docker-compose.yml", ("pharos-beacon",)),
-    ("hosts/hsb9/docker/docker-compose.yml", ("pharos-beacon",)),
+    ("hosts/csb0/docker/compose-spec.nix", ("pharos-beacon",)),
+    ("hosts/csb1/docker/compose-spec.nix", ("pharosd", "pharos-beacon")),
+    ("hosts/hsb0/docker/compose-spec.nix", ("pharos-beacon",)),
+    ("hosts/hsb1/docker/compose-spec.nix", ("pharos-beacon",)),
+    ("hosts/hsb8/docker/compose-spec.nix", ("pharos-beacon",)),
+    ("hosts/hsb9/docker/compose-spec.nix", ("pharos-beacon",)),
 )
 immutable = re.compile(
     r"ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}"
@@ -63,7 +66,7 @@ for relative, services in targets:
     with open(path, encoding="utf-8") as handle:
         lines = handle.readlines()
     for service in services:
-        heading = f"  {service}:"
+        heading = f"    {service} = {{"
         starts = [i for i, line in enumerate(lines) if line.rstrip("\n") == heading]
         if len(starts) != 1:
             raise SystemExit(
@@ -71,25 +74,25 @@ for relative, services in targets:
             )
         start = starts[0]
         end = next(
-            (i for i in range(start + 1, len(lines)) if re.match(r"^  [^ ]", lines[i])),
+            (i for i in range(start + 1, len(lines)) if lines[i].rstrip("\n") == "    };"),
             len(lines),
         )
         image_lines = [
             i
             for i in range(start + 1, end)
-            if re.match(r"^    image: ghcr\.io/inspr-at/pharos/pharosd:", lines[i])
+            if re.match(r"^      image = \"ghcr\.io/inspr-at/pharos/pharosd:", lines[i])
         ]
         if len(image_lines) != 1:
             raise SystemExit(
                 f"pharos_release_update=failed reason=unexpected_image_count path={relative} service={service}"
             )
         index = image_lines[0]
-        old = lines[index].split("image:", 1)[1].strip()
+        old = lines[index].split("=", 1)[1].strip().strip(';').strip('"')
         if not immutable.fullmatch(old):
             raise SystemExit(
                 f"pharos_release_update=failed reason=existing_pin_not_immutable path={relative} service={service}"
             )
-        lines[index] = f"    image: {replacement}\n"
+        lines[index] = f'      image = "{replacement}";\n'
     pending.append((path, lines))
 
 readiness_relative = "hosts/csb1/docker/janus/managed-service-production/readiness.sh"
