@@ -14,8 +14,7 @@
 #
 # Verify any change with:
 #   nix shell nixpkgs#yq-go -c ./tests/compose_stack_gate.py csb0
-# Comments from the source file are NOT carried across by this tool; re-attach
-# them by hand. They hold real incident history.
+# Incident-history comments carried over from the retired yml (OPS-127).
 # Compose project name: csb0 — named volumes depend on it.
 #
 # Dropped (now supplied by the composeStack module):
@@ -27,6 +26,11 @@
   services = {
     mosquitto = {
       image = "eclipse-mosquitto:latest";
+      # Loopback only (OPS-115). The ops-alerts poller runs on this host as a
+      # systemd unit, outside the docker network, and needs to read the retained
+      # smart-home heartbeat that hsb1 publishes through this broker. Bound to
+      # 127.0.0.1 so this adds no external surface: the public MQTT endpoint stays
+      # Traefik on :8883 with TLS + HostSNI, unchanged.
       ports = [
         "127.0.0.1:1883:1883"
       ];
@@ -78,18 +82,25 @@
         "/scripts/startup.sh"
       ];
       labels = [
+        # Traefik config
         "traefik.http.routers.nodered.rule=Host(`home.barta.cm`)"
         "traefik.http.routers.nodered.tls.certresolver=default"
         "traefik.http.routers.nodered.tls=true"
         "traefik.http.services.nodered.loadbalancer.server.port=1880"
         "traefik.docker.network=csb0_traefik"
         "traefik.http.routers.nodered.middlewares=cloudflarewarp@file"
+        # HTTP to HTTPS redirection
         "traefik.http.routers.nodered-http.rule=Host(`home.barta.cm`)"
         "traefik.http.routers.nodered-http.entrypoints=web"
         "traefik.http.routers.nodered-http.middlewares=redirect-to-https@docker"
         "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
         "traefik.http.middlewares.redirect-to-https.redirectscheme.permanent=true"
       ];
+      #       # Telegram webhook config
+      #       - traefik.http.routers.nodered-telegram.rule=Host(`home.barta.cm`) && PathPrefix(`/telegram`)
+      #       - traefik.http.routers.nodered-telegram.tls=true
+      #       - traefik.http.routers.nodered-telegram.service=nodered-telegram
+      #       - traefik.http.services.nodered-telegram.loadbalancer.server.port=1880
       networks = [
         "traefik"
       ];
@@ -111,6 +122,7 @@
         "traefik.enable=false"
       ];
     };
+    # https://docs.traefik.io/v2.5/providers/docker/
     traefik = {
       image = "traefik";
       command = "--providers.docker";
@@ -139,13 +151,23 @@
         "traefik.http.routers.traefik.priority=100"
         "com.centurylinklabs.watchtower.enable=false"
       ];
+      # - traefik.http.routers.traefik.middlewares=authelia
+      # fixes error: middleware "authelia@docker" does not exist
+      # - traefik.http.middlewares.authelia.forwardAuth.address=http://authelia:9091/api/verify?rd=https://login.barta.cm/
       environment = [
         "TZ=Europe/Vienna"
       ];
       env_file = [
+        # Was ./traefik/variables.env — a GITIGNORED working-tree file that
+        # existed only on this one checkout (QA-2 fragility: a fresh clone would
+        # kill the whole `up` at parse time). traefik-variables.age has been
+        # decryptable by csb0 all along (shared with csb1, which already uses
+        # this path). Swapped 2026-08-01 (OPS-121).
         "/run/agenix/traefik-variables"
       ];
     };
+    # HostDash — static service dashboard for this host. Built by Nix from
+    # markus-barta/hostdash and mounted read-only from /etc/hostdash.
     hostdash-auth = {
       image = "quay.io/oauth2-proxy/oauth2-proxy:v7.15.3";
       restart = "unless-stopped";
@@ -229,6 +251,7 @@
         "com.centurylinklabs.watchtower.enable=true"
       ];
     };
+    # https://github.com/namshi/docker-smtp
     smtp = {
       image = "namshi/smtp";
       restart = "always";
@@ -240,10 +263,13 @@
         "TZ=Europe/Vienna"
         "SMARTHOST_ADDRESS=mail.hover.com"
         "SMARTHOST_PORT=587"
+        #      - SMARTHOST_PORT=465
         "SMARTHOST_USER=markus@barta.com"
         "SMARTHOST_ALIASES=*"
         "RELAY_NETWORKS=:172.0.0.0/8"
       ];
+      # env_file:
+      #   - ./smtp/variables.env
       labels = [
         "traefik.enable=false"
       ];
@@ -257,8 +283,11 @@
         "/home:/backup/home:ro"
         "/root:/backup/root:ro"
         "/etc:/backup/etc:ro"
+        # Use SSH key from agenix
         "/run/agenix/restic-hetzner-ssh-key:/root/.ssh/id_rsa:ro"
+        # Recovered known_hosts
         "./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro"
+        # BIND MOUNTS: Local scripts override container defaults
         "./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro"
         "./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro"
         "./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro"
@@ -272,6 +301,7 @@
         PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";
       };
       env_file = [
+        # Load RESTIC_PASSWORD from agenix
         "/run/agenix/restic-hetzner-env"
       ];
       labels = [
@@ -282,6 +312,7 @@
         "smtp"
       ];
     };
+    # Uptime Kuma - Docker service (consistent with other services)
     uptime-kuma = {
       image = "louislam/uptime-kuma:latest";
       volumes = [
@@ -301,6 +332,7 @@
         "traefik.http.routers.uptime-kuma.tls.certresolver=default"
         "traefik.http.routers.uptime-kuma.middlewares=cloudflarewarp@file"
         "traefik.http.services.uptime-kuma.loadbalancer.server.port=3001"
+        # HTTP to HTTPS redirection
         "traefik.http.routers.uptime-kuma-http.rule=Host(`uptime.barta.cm`)"
         "traefik.http.routers.uptime-kuma-http.entrypoints=web"
         "traefik.http.routers.uptime-kuma-http.middlewares=redirect-to-https@docker"
@@ -310,6 +342,9 @@
       ];
       restart = "unless-stopped";
     };
+    # Headscale - self-hosted Tailscale control server
+    # https://headscale.net/stable/
+    # ⚠️ DNS record MUST be DNS-only (gray cloud) in Cloudflare - proxy breaks WebSocket POSTs
     headscale = {
       image = "headscale/headscale:0.25";
       container_name = "headscale";
@@ -330,6 +365,7 @@
         "traefik"
       ];
       labels = [
+        # Traefik HTTP routing
         "traefik.enable=true"
         "traefik.http.routers.headscale.rule=Host(`hs.barta.cm`)"
         "traefik.http.routers.headscale.entrypoints=web-secure"
@@ -337,6 +373,8 @@
         "traefik.http.routers.headscale.tls.certresolver=default"
         "traefik.http.services.headscale.loadbalancer.server.port=8080"
         "traefik.docker.network=csb0_traefik"
+        # ⚠️ NO cloudflarewarp middleware! Headscale requires direct connection.
+        # HTTP to HTTPS redirect
         "traefik.http.routers.headscale-http.rule=Host(`hs.barta.cm`)"
         "traefik.http.routers.headscale-http.entrypoints=web"
         "traefik.http.routers.headscale-http.middlewares=redirect-to-https@docker"
@@ -352,6 +390,8 @@
         retries = 3;
       };
     };
+    # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
+    # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {
       image = "ghcr.io/inspr-at/pharos/pharosd:0.1.67@sha256:f1e9f37b1b989109f66c5fe00f8371ca49e00d0ccf5f0dede4b4b49abfad0c26";
       container_name = "pharos-beacon";
@@ -404,6 +444,11 @@
         "traefik.enable=false"
       ];
     };
+    # Tesla Fleet API public-key host (NIX-201 / runbook tesla-fleet-ha-migration).
+    # Serves ONLY the public key at Tesla's well-known path so Tesla can verify
+    # domain ownership for the Fleet API app (ev.barta.cm). DNS-only record
+    # (ev → csb0, grey cloud) + own LE cert + NO cloudflarewarp — Tesla rejects
+    # reverse-proxied / CDN origins. Mirrors the headscale direct-connection pattern.
     tesla-fleet-key = {
       image = "nginx:alpine";
       restart = "unless-stopped";
@@ -424,6 +469,7 @@
         "traefik.http.routers.tesla-fleet.tls.certresolver=default"
         "traefik.http.services.tesla-fleet.loadbalancer.server.port=80"
         "traefik.docker.network=csb0_traefik"
+        # HTTP→HTTPS redirect
         "traefik.http.routers.tesla-fleet-http.rule=Host(`ev.barta.cm`)"
         "traefik.http.routers.tesla-fleet-http.entrypoints=web"
         "traefik.http.routers.tesla-fleet-http.middlewares=redirect-to-https@docker"
@@ -452,3 +498,9 @@
     };
   };
 }
+
+# ── comments from the retired yml that could not be auto-anchored ──
+# [traefik]       # mqtt
+# [traefik]       # HostDash owns / on cs0.barta.cm; keep Traefik's API on /api and
+# [traefik]       # /dashboard if the dashboard is enabled later.
+# [restic-cron-hetzner] # 1:30am (was on: CRON_BACKUP_EXPRESSION: "30 1 * * *")

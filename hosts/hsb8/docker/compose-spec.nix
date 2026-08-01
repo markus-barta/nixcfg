@@ -13,8 +13,7 @@
 #
 # Verify any change with:
 #   nix shell nixpkgs#yq-go -c ./tests/compose_stack_gate.py hsb8
-# Comments from the source file are NOT carried across by this tool; re-attach
-# them by hand. They hold real incident history.
+# Incident-history comments carried over from the retired yml (OPS-127).
 #
 # Dropped (now supplied by the composeStack module):
 #   pharos-beacon.dns = ['127.0.0.1', '1.1.1.1']
@@ -24,8 +23,24 @@
 #   x-host-dns (anchor)
 #   x-host-dns-search (anchor)
 
+# ── carried from the retired docker-compose.yml ──
+# hsb8 docker services.
+# fleetcom-agent migrated from /opt/fleetcom-agent/ on 2026-04-19 (NIX-82).
+# homeassistant/mosquitto/watchtower migrated from /home/gb/docker/ (NIX-230,
+# NIX-234) — same container names + project so bosun wiring keeps working.
+#
+# The NIX-237 cutover is DONE: the live homeassistant/mosquitto containers are
+# created from THIS file, with the /srv/hsb8 mounts NIX-236 moved them to.
+# Verified on the host 2026-07-31 (compose project_dir + config_files labels).
+# The former cutover guard is removed rather than kept as history — it outlived
+# the condition it described by long enough to mislead: reading it during the
+# OPS-113 sweep caused homeassistant to be skipped on this host, leaving it the
+# only host-network container in the fleet still on an inherited resolver.
+#
 {
   services = {
+    # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
+    # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {
       image = "ghcr.io/inspr-at/pharos/pharosd:0.1.67@sha256:f1e9f37b1b989109f66c5fe00f8371ca49e00d0ccf5f0dede4b4b49abfad0c26";
       container_name = "pharos-beacon";
@@ -77,6 +92,9 @@
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
     };
+    # hsb8-home — HostDash service landing page for this host. Static HTML/CSS/JS
+    # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
+    # read-only from /etc.
     hsb8-home = {
       image = "nginx:alpine";
       container_name = "hsb8-home";
