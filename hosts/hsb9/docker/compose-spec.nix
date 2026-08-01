@@ -13,8 +13,7 @@
 #
 # Verify any change with:
 #   nix shell nixpkgs#yq-go -c ./tests/compose_stack_gate.py hsb9
-# Comments from the source file are NOT carried across by this tool; re-attach
-# them by hand. They hold real incident history.
+# Incident-history comments carried over from the retired yml (OPS-127).
 #
 # Dropped (now supplied by the composeStack module):
 #   homeassistant.dns = ['1.1.1.1', '1.0.0.1']
@@ -24,6 +23,18 @@
 #   x-host-dns (anchor)
 #   x-host-dns-search (anchor)
 
+# ── carried from the retired docker-compose.yml ──
+# hsb9 docker services — parents-in-law home automation (NIX-139)
+#
+# Lightweight stack vs hsb1: just MQTT broker + Home Assistant for now.
+# Zigbee2MQTT is scaffolded below but DISABLED until the SONOFF Zigbee 3.0
+# dongle is migrated from the Pi 3 (NIX-140). HomeKit is NOT a separate
+# container — it's Home Assistant's built-in HomeKit Bridge integration,
+# configured in the HA UI once HA is up.
+#
+# DEPLOY VERB (OPS-124): `just switch`. The stack is rendered into the closure
+# and reconciled by compose-hsb9.service — never `docker compose up` by hand;
+# the file compose actually runs is /etc/compose/hsb9/docker-compose.yml.
 {
   services = {
     mosquitto = {
@@ -65,6 +76,8 @@
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
     };
+    # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
+    # pharosd (csb1) every 60s.
     pharos-beacon = {
       image = "ghcr.io/inspr-at/pharos/pharosd:0.1.67@sha256:f1e9f37b1b989109f66c5fe00f8371ca49e00d0ccf5f0dede4b4b49abfad0c26";
       container_name = "pharos-beacon";
@@ -114,6 +127,9 @@
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
     };
+    # hsb9-home — HostDash service landing page for this host. Static HTML/CSS/JS
+    # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
+    # read-only from /etc.
     hsb9-home = {
       image = "nginx:alpine";
       container_name = "hsb9-home";

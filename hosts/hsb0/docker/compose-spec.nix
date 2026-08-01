@@ -15,8 +15,7 @@
 #
 # Verify any change with:
 #   nix shell nixpkgs#yq-go -c ./tests/compose_stack_gate.py hsb0
-# Comments from the source file are NOT carried across by this tool; re-attach
-# them by hand. They hold real incident history.
+# Incident-history comments carried over from the retired yml (OPS-127).
 #
 # Dropped (now supplied by the composeStack module):
 #   openclaw-gateway.dns = ['127.0.0.1', '1.1.1.1']
@@ -37,19 +36,23 @@
         "/var/lib/AdGuardHome:/backup/var/lib/AdGuardHome:ro"
         "/var/lib/ncps:/backup/var/lib/ncps:ro"
         "/etc:/backup/etc:ro"
+        # Use SSH key from agenix (shared with csb0)
         "/run/agenix/restic-hetzner-ssh-key:/root/.ssh/id_rsa:ro"
         "./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro"
+        # BIND MOUNTS: Local scripts override container defaults
         "./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro"
         "./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro"
         "./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro"
         "./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro"
       ];
       environment = {
+        # Target shared sub1 but in a dedicated folder /hsb0
         RESTIC_REPOSITORY = "sftp:u387549-sub1@u387549.your-storagebox.de:23/hsb0";
         MAIL_SUBJECT = "💾 Restic backup report (hsb0)";
         CRON_BACKUP_EXPRESSION = "0 2 * * *";
       };
       env_file = [
+        # Load RESTIC_PASSWORD from agenix (shared with csb0)
         "/run/agenix/restic-hetzner-env"
       ];
       labels = [
@@ -79,27 +82,41 @@
       restart = "unless-stopped";
       network_mode = "host";
       volumes = [
+        # Shared OpenClaw state (all agents live under here)
         "/var/lib/openclaw-gateway/data:/home/node/.openclaw:rw"
+        # Git-managed config (read-only source, copied to data volume at boot)
         "./openclaw-gateway/openclaw.json:/home/node/.openclaw-config/openclaw.json:ro"
+        # SHARED secrets (both agents use these)
         "/run/agenix/hsb0-elevenlabs-api-key:/run/secrets/elevenlabs-api-key:ro"
         "/run/agenix/hsb0-groq-api-key:/run/secrets/groq-api-key:ro"
         "/run/agenix/hsb0-uptime-kuma-api-key:/run/secrets/uptime-kuma-api-key:ro"
         "/run/agenix/hsb0-openclaw-gateway-token:/run/secrets/gateway-token:ro"
+        # FleetCom operator-token + pubkey mounts removed (FLEET-198): FleetCom
+        # decommissioned. The entrypoint's FLEET-52 pre-seed now no-ops (guarded);
+        # entrypoint block + fleetcom-pubkey.pem cleanup tracked in FLEET-200.
         "/run/agenix/hsb0-openclaw-openrouter-key:/run/secrets/openrouter-key:ro"
         "/run/agenix/hsb0-openclaw-brave-key:/run/secrets/brave-key:ro"
         "/run/agenix/hsb0-openclaw-hass-token:/run/secrets/hass-token:ro"
         "/run/agenix/hsb0-openclaw-opus-gateway:/home/node/.openclaw/credentials/opus-gateway.env:ro"
+        # PPM API key (pm.barta.cm) — shared by Merlin + Nimue (NIX-80).
         "/run/agenix/hsb0-ppm-api-key:/run/secrets/ppm-api-key:ro"
+        # MERLIN-specific secrets
         "/run/agenix/hsb0-openclaw-telegram-token:/run/secrets/telegram-token-merlin:ro"
         "/run/agenix/hsb0-openclaw-github-pat:/run/secrets/github-pat-merlin:ro"
         "/run/agenix/hsb0-gogcli-keyring-password:/run/secrets/gogcli-keyring-password:ro"
         "/run/agenix/hsb0-merlin-ssh-key:/run/secrets/merlin-ssh-key:ro"
         "./openclaw-gateway/ssh_config:/home/node/.ssh/config:ro"
+        # NIMUE-specific secrets
         "/run/agenix/hsb0-nimue-telegram-token:/run/secrets/telegram-token-nimue:ro"
         "/run/agenix/hsb0-nimue-github-pat:/run/secrets/github-pat-nimue:ro"
         "/run/agenix/hsb0-nimue-gogcli-keyring-password:/run/secrets/gogcli-keyring-password-nimue:ro"
         "/run/agenix/hsb0-nimue-gogcli-credentials:/run/secrets/nimue-gogcli-credentials:ro"
         "/run/agenix/hsb0-nimue-icloud-password:/run/secrets/icloud-password-nimue:ro"
+        # TODO: Uncomment when Azure AD app (Merlin-AI-hsb0-cal) is created
+        # - /run/agenix/hsb0-openclaw-m365-cal-client-id:/run/secrets/m365-cal-client-id:ro
+        # - /run/agenix/hsb0-openclaw-m365-cal-tenant-id:/run/secrets/m365-cal-tenant-id:ro
+        # - /run/agenix/hsb0-openclaw-m365-cal-client-secret:/run/secrets/m365-cal-client-secret:ro
+        # Per-agent external tool configs (isolated paths, NOT shared)
         "/var/lib/openclaw-gateway/merlin-vdirsyncer:/home/node/.config/merlin/vdirsyncer:rw"
         "/var/lib/openclaw-gateway/merlin-khal:/home/node/.config/merlin/khal:rw"
         "/var/lib/openclaw-gateway/merlin-gogcli:/home/node/.config/merlin/gogcli:rw"
@@ -107,12 +124,21 @@
         "/var/lib/openclaw-gateway/nimue-khal:/home/node/.config/nimue/khal:rw"
         "/var/lib/openclaw-gateway/nimue-gogcli:/home/node/.config/nimue/gogcli:rw"
       ];
+      # GOG_ACCOUNT and GOG_KEYRING_BACKEND are intentionally NOT here —
+      # they differ per agent and are injected by entrypoint.sh per-agent.
+      # bind=lan (0.0.0.0) means gateway listens on loopback + LAN + tailnet.
+      # CLI inside container defaults to ws://127.0.0.1 — no URL override needed,
+      # no TLS fingerprint issues. Browser uses https://100.64.0.6:18789.
       user = "node";
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
       ];
     };
     ncps = {
+      # Pinned (was :latest). 2026-06-13: ':latest' silently jumped v0.6.1 ->
+      # v0.10.0-rc14, which crash-loops on the existing DB ("no such table:
+      # config" on serve) and also broke Cachix nar-URL parsing. Hold at the
+      # last-known-good release; bump deliberately + test before moving the pin.
       image = "kalbasit/ncps:v0.6.1";
       container_name = "ncps";
       restart = "unless-stopped";
@@ -121,6 +147,16 @@
       ];
       volumes = [
         "/var/lib/ncps:/storage"
+        # ROOT-CAUSE FIX (2026-07-01): the SQLite index lives on a SEPARATE fs
+        # (/var/lib/ncps-db on zroot/root) — NOT inside the quota'd /storage
+        # dataset. Before, a full /storage (at ZFS quota) meant SQLite couldn't
+        # write, so ncps crash-looped AND its own LRU eviction couldn't run to
+        # recover → permanent self-wedge needing manual intervention (happened
+        # twice). With the DB decoupled, /storage filling only fails NEW nar
+        # writes; the DB stays writable, LRU still runs on schedule, trims
+        # /storage, and ncps auto-recovers with zero human action. docker
+        # auto-creates this host dir on fresh installs; live hosts get the
+        # existing db.sqlite* moved here once.
         "/var/lib/ncps-db:/dbstorage"
         "/run/agenix/ncps-key:/run/secrets/ncps-key:ro"
       ];
@@ -141,12 +177,27 @@
         "--cache-upstream-url=https://cache.nixos.org"
         "--cache-upstream-public-key=cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
       ];
+      # nix-community.cachix.org dropped 2026-06-13: ncps v0.6.1 can't parse
+      # Cachix UUID-style nar URLs (nar/<uuid>.nar.zst) -> HTTP 500 on
+      # nix-community-only paths (surfaced during a home-manager switch).
+      # Clients keep it as a direct substituter, so those paths fall through
+      # cleanly (404 miss), just not LAN-cached. Re-add if a newer ncps fixes it.
       environment = [
         "NCPS_LOG_LEVEL=info"
         "ANALYTICS_REPORTING_ENABLED=false"
+        # Force HTTP/1.1 to upstreams. ncps's Go http2 client stalls against
+        # Fastly (cache.nixos.org CDN): pooled h2 conns hang with "http2: timeout
+        # awaiting response headers", marking upstreams unhealthy -> HTTP 500 to
+        # clients on every cache miss, while fresh curl/h2 still works. Disabling
+        # the Go http2 client transport avoids the stall. (NIX, 2026-05-30)
         "GODEBUG=http2client=0"
       ];
     };
+    # Speedtest Tracker — periodic Ookla speedtest + history UI (NIX-171 follow-up).
+    # Measures the home WAN (Starlink) from hsb0, the network-core/DNS box.
+    # Standalone: own SQLite DB + web dashboard, no Grafana/InfluxDB involved.
+    # UI: http://hsb0.lan:8765 (or tailnet 100.64.0.6:8765). Schedule: every 15 min.
+    # APP_KEY is root-only agenix material consumed through LinuxServer FILE__.
     speedtest-tracker = {
       image = "lscr.io/linuxserver/speedtest-tracker:latest";
       container_name = "speedtest-tracker";
@@ -166,6 +217,8 @@
         "APP_URL=http://hsb0.lan:8765"
         "DB_CONNECTION=sqlite"
         "SPEEDTEST_SCHEDULE=*/15 * * * *"
+        # Pin to a fixed Ookla server (Timewarp IT Consulting GmbH, Graz) so
+        # results are comparable run-to-run instead of a roaming auto-pick.
         "SPEEDTEST_SERVERS=45732"
       ];
       labels = [
@@ -173,6 +226,8 @@
         "com.centurylinklabs.watchtower.enable=true"
       ];
     };
+    # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
+    # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {
       image = "ghcr.io/inspr-at/pharos/pharosd:0.1.67@sha256:f1e9f37b1b989109f66c5fe00f8371ca49e00d0ccf5f0dede4b4b49abfad0c26";
       container_name = "pharos-beacon";
@@ -221,6 +276,9 @@
         "com.centurylinklabs.watchtower.enable=false"
       ];
     };
+    # hsb0-home — HostDash service landing page for this host. Static HTML/CSS/JS
+    # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
+    # read-only from /etc.
     hsb0-home = {
       image = "nginx:alpine";
       container_name = "hsb0-home";
@@ -233,6 +291,21 @@
       ];
       volumes = [
         "/etc/hostdash/hsb0/share/hostdash-hsb0:/usr/share/nginx/html:ro"
+        # NIX-280: runtime status artifact, served SAME-ORIGIN at ./status/status.json.
+        #
+        # Same-origin is the whole point: HostDash's browser probe uses no-cors, whose
+        # response is OPAQUE (an HTTP 500 reads as "up", a self-signed cert reads as
+        # "down"), and a cross-origin status endpoint would inherit exactly that
+        # blindness. Served beside index.html, the JSON is fully readable and `running`
+        # becomes knowable — including for services with no HTTP endpoint at all, which
+        # no browser could ever probe.
+        #
+        # NOTE the mount path: NOT /usr/share/nginx/html/status. That parent is an
+        # immutable /nix/store bind mount, and Docker cannot create a mountpoint inside a
+        # read-only mount — it fails with "mkdirat .../status: read-only file system" and
+        # leaves the container stuck in `Created`, taking the dashboard offline (learned
+        # the hard way on hsb1, 2026-07-14). Mounted outside the app root; nginx aliases
+        # it back under the same origin.
         "/var/lib/hostdash-status:/srv/hostdash-status:ro"
         "/etc/hostdash-nginx.conf:/etc/nginx/conf.d/default.conf:ro"
       ];
@@ -243,3 +316,15 @@
     };
   };
 }
+
+# ── comments from the retired yml that could not be auto-anchored ──
+# [ncps]       # DB on /dbstorage (own fs), decoupled from the quota'd /storage — see the
+# [ncps]       # volumes block above. This is what makes a full cache self-recover.
+# [ncps]       # cache-max-size is enforced ONLY by the LRU cron below, not as a live cap.
+# [ncps]       # Must stay well under the ZFS quota (64G, disk-config.zfs.nix): between LRU
+# [ncps]       # runs ncps keeps caching with no ceiling, so headroom (quota - this) must
+# [ncps]       # exceed the largest inter-run burst (the fleet warmer). 8G was too thin and
+# [ncps]       # deadlocked twice; 22G + 6-hourly LRU is the durable margin. NIX (2026-07-01).
+# [ncps]       # Every 6h (was daily 0 3 * * *): shrinks the max accumulation window 4x so a
+# [ncps]       # warmer/heavy-build burst can't sit until the next day and overflow the FS.
+# [restic-cron-hetzner] # 2:00am (was on: CRON_BACKUP_EXPRESSION: "0 2 * * *")
