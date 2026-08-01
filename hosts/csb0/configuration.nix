@@ -11,14 +11,6 @@
 
 let
   hostdashCsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb0;
-  csb0ComposeFile = "/home/mba/Code/nixcfg/hosts/csb0/docker/docker-compose.yml";
-  csb0Compose = "${pkgs.docker-compose}/bin/docker-compose -p csb0 -f ${csb0ComposeFile}";
-  csb0HostdashReconcile = pkgs.writeShellScript "csb0-hostdash-reconcile" ''
-    set -eu
-    ${csb0Compose} up -d --force-recreate --no-deps hostdash-auth
-    ${csb0Compose} up -d --force-recreate --no-deps hostdash
-    ${csb0Compose} up -d --force-recreate --no-deps traefik
-  '';
 in
 {
   imports = [
@@ -51,8 +43,21 @@ in
     enable = true;
     project = "csb0";
     stackName = "csb0";
-    reconcile = false;
+    # 🟢 CUT OVER 2026-08-01 (OPS-121).
+    reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/csb0/docker";
+    # Order matters: auth before dashboard before the edge (was the
+    # csb0-hostdash unit's documented sequence).
+    postRecreate = [
+      "hostdash-auth"
+      "hostdash"
+      "traefik"
+    ];
+    extraRestartTriggers = [ hostdashCsb0 ];
+    # Safe HERE: all project-csb0 containers are declared in the spec
+    # (verified live) — reaps the retired watchtower container.
+    removeOrphans = true;
+    autoUpdate.enable = true;
     spec = import ./docker/compose-spec.nix;
   };
 
@@ -288,32 +293,8 @@ in
   # ============================================================================
   security.sudo-rs.wheelNeedsPassword = false;
 
-  # ============================================================================
-  # HostDash — static public service dashboard for csb0
-  # ============================================================================
-  # Traefik owns public 80/443 on the cloud hosts. Recreate HostDash first so
-  # the Nix store mount is current, then recreate Traefik so its Docker provider
-  # initial scan always includes the dashboard container.
-  systemd.services.csb0-hostdash = {
-    description = "csb0 HostDash nginx dashboard";
-    after = [
-      "docker.service"
-      "network-online.target"
-    ];
-    requires = [ "docker.service" ];
-    wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-    restartTriggers = [
-      (builtins.readFile ./docker/docker-compose.yml)
-      hostdashCsb0
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${csb0HostdashReconcile}";
-      TimeoutStartSec = "240";
-    };
-  };
+  # csb0-hostdash lived here — SUPERSEDED by composeStack postRecreate
+  # (OPS-116/121): hostdash-auth → hostdash → traefik, same order.
 
   environment.etc."hostdash/csb0".source = hostdashCsb0;
 
