@@ -66,8 +66,21 @@ in
     enable = true;
     project = "docker";
     stackName = "hsb9";
-    reconcile = false;
+    # 🟢 CUT OVER 2026-08-01 (OPS-119): switch reconciles this host's containers.
+    reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb9/docker";
+    # Carried over from hsb9-home-dashboard: hsb9-home mounts /etc/hostdash/hsb9,
+    # whose target changes per generation while its compose definition does not.
+    postRecreate = [ "hsb9-home" ];
+    extraRestartTriggers = [ hostdashHsb9 ];
+    # Safe HERE because every project-docker container on hsb9 is declared in
+    # the spec (verified live 2026-08-01) — this is what removes the retired
+    # watchtower container at first reconcile. Do NOT copy to hsb1 (health-pixoo
+    # legacy) or csb1 (Janus-managed containers) without their own audits.
+    removeOrphans = true;
+    # OPS-125: the one updater — weekly pull+up through compose replaces
+    # watchtower. Same Saturday cadence.
+    autoUpdate.enable = true;
     spec = import ./docker/compose-spec.nix;
   };
 
@@ -280,29 +293,9 @@ in
     ethtool
   ];
 
-  # ==========================================================================
-  # HostDash — static LAN service dashboard for hsb9
-  # ==========================================================================
-  systemd.services.hsb9-home-dashboard = {
-    description = "hsb9 HostDash nginx dashboard";
-    after = [
-      "docker.service"
-      "network-online.target"
-    ];
-    requires = [ "docker.service" ];
-    wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-    restartTriggers = [
-      (builtins.readFile ./docker/docker-compose.yml)
-      hostdashHsb9
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb9/docker/docker-compose.yml up -d --force-recreate --no-deps hsb9-home";
-      TimeoutStartSec = "180";
-    };
-  };
+  # hsb9-home-dashboard lived here — SUPERSEDED by composeStack postRecreate
+  # (OPS-116/119), same pattern as hsb1 (#190): it force-recreated hsb9-home
+  # against the git WORKING TREE and would have raced compose-hsb9 at switch.
 
   environment.etc."hostdash/hsb9".source = hostdashHsb9;
 
