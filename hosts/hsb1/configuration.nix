@@ -252,6 +252,11 @@ in
     # compose correctly sees no change and it would serve a stale page forever.
     postRecreate = [ "hsb1-home" ];
     extraRestartTriggers = [ hostdashHsb1 ];
+    # Safe HERE as of 2026-08-01: all 18 project-docker containers are declared
+    # in the spec (verified live; the legacy /home/mba/docker compose root is
+    # gone and health-pixoo never ran here) — reaps the retired watchtower.
+    removeOrphans = true;
+    autoUpdate.enable = true;
     spec = import ./docker/compose-spec.nix;
   };
 
