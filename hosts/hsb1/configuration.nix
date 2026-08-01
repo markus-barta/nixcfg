@@ -247,6 +247,11 @@ in
     project = "docker";
     stackName = "hsb1";
     reconcile = true;
+    # Carried over from hsb1-stack: hsb1-home mounts /etc/hostdash/hsb1, whose
+    # target changes every generation while its compose definition does not, so
+    # compose correctly sees no change and it would serve a stale page forever.
+    postRecreate = [ "hsb1-home" ];
+    extraRestartTriggers = [ hostdashHsb1 ];
     spec = import ./docker/compose-spec.nix;
   };
 
@@ -700,35 +705,15 @@ in
   };
 
   # ============================================================================
-  # NIX-158 — Declarative docker-compose stack launcher
-  # ============================================================================
-  # NixOS owns the docker DAEMON (hokage server-home); this oneshot makes the
-  # container SET declarative too: `docker compose up -d` on boot and whenever the
-  # canonical compose file changes (restartTriggers) via `nixos-rebuild switch`.
-  # Idempotent reconcile against hosts/hsb1/docker/docker-compose.yml (single
-  # source of truth since NIX-158 phase 1). Purely additive — no destructive
-  # teardown; containers keep their own restart:unless-stopped as a second layer.
-  systemd.services.hsb1-stack = {
-    description = "hsb1 docker-compose stack (declarative reconcile)";
-    after = [
-      "docker.service"
-      "network-online.target"
-    ];
-    requires = [ "docker.service" ];
-    wants = [ "network-online.target" ];
-    wantedBy = [ "multi-user.target" ];
-    restartTriggers = [
-      (builtins.readFile ./docker/docker-compose.yml)
-      hostdashHsb1
-    ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb1/docker/docker-compose.yml up -d";
-      ExecStartPost = "${pkgs.docker-compose}/bin/docker-compose -p docker -f /home/mba/Code/nixcfg/hosts/hsb1/docker/docker-compose.yml up -d --force-recreate --no-deps hsb1-home";
-      TimeoutStartSec = "600";
-    };
-  };
+  # NIX-158's hsb1-stack unit lived here. SUPERSEDED by nixcfg.composeStack
+  # (OPS-116) below, which does the same reconcile but against a store path in
+  # the closure rather than the git working tree — so it cannot be changed by a
+  # checkout being dirty or on another branch — and derives container DNS from
+  # networking.nameservers instead of the file repeating it.
+  #
+  # Both ran concurrently for one switch on 2026-08-01 and raced on the same
+  # compose project, which is why postRecreate/extraRestartTriggers exist: they
+  # carry over hsb1-stack's ExecStartPost and its hostdash trigger verbatim.
 
   environment.etc."hostdash/hsb1".source = hostdashHsb1;
 
