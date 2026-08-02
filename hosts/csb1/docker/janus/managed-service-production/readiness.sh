@@ -10,6 +10,10 @@ fi
 flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
 # OPS-127: the compose spec is the source of truth (the yml is retired).
 compose="${repo}/hosts/csb1/docker/compose-spec.nix"
+# Compose cannot parse the nix spec; checks that shell out to docker compose
+# read the closure's rendered JSON instead (identical content plus the
+# module-injected dns keys), exactly like T32.
+rendered_spec=""
 mode=${1:-declarative}
 failures=0
 
@@ -77,7 +81,7 @@ check_runtime_hardening() {
   transaction_image=$(service_image janus-managed-transactiond)
 
   docker compose \
-    -f "${compose}" \
+    -f "${rendered_spec}" \
     config \
     --no-interpolate \
     --no-env-resolution \
@@ -173,12 +177,20 @@ declarative() {
   check_command command_docker command -v docker
   check_command command_git command -v git
   check_command reviewed_checkout check_reviewed_checkout
+  rendered_spec=$(mktemp)
+  if nix eval --json \
+    "${flake_ref}#nixosConfigurations.csb1.config.nixcfg.composeStack.renderedSpec" \
+    >"${rendered_spec}" 2>/dev/null; then
+    pass rendered_spec_eval
+  else
+    fail rendered_spec_eval
+  fi
   check_command \
     compose_contract \
-    docker compose -f "${compose}" config --quiet --no-interpolate --no-env-resolution
+    docker compose -f "${rendered_spec}" config --quiet --no-interpolate --no-env-resolution --no-path-resolution
   check_command csb1_eval nix eval "${flake_ref}#nixosConfigurations.csb1.config.system.build.toplevel.drvPath"
-  check_command manifest_contract bash "${repo}/tests/T30-managed-service-manifest.sh"
-  check_command host_envelope_contract bash "${repo}/tests/T31-janus-host-envelope.sh"
+  check_command manifest_contract "${BASH}" "${repo}/tests/T30-managed-service-manifest.sh"
+  check_command host_envelope_contract "${BASH}" "${repo}/tests/T31-janus-host-envelope.sh"
 
   check_image_pin \
     go_release_pin \
