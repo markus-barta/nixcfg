@@ -1,7 +1,7 @@
 # Nuki Smart Lock Integration
 
 **Server**: hsb1  
-**Last Updated**: 2026-02-14
+**Last Updated**: 2026-08-02
 
 ---
 
@@ -50,8 +50,10 @@ Nuki Ultra (VR)
 
 ### State Topics (Read by Node-RED)
 
-- **VR**: `homeassistant/lock/nuki_vr/state` ( LOCK / UNLOCK / undefined )
-- **KE**: `homeassistant/lock/nuki_ke/state` ( LOCK / UNLOCK / undefined )
+- **VR**: `homeassistant/lock/nuki_vr/state` ( `locked` / `unlocked` / `locking` / `unlocking` / `unavailable` )
+- **KE**: `homeassistant/lock/nuki_ke/state` ( same payloads )
+
+These are published by HA statestream (retained, lowercase HA states). The Nuki Ultra's own raw topics live under `nuki/<ID>/…` (e.g. `nuki/463F8F47/state`, numeric).
 
 ### Command Topics (Write)
 
@@ -72,17 +74,26 @@ Nuki Ultra (VR)
 **Flow ID**: `d1b80e2d5f08edaf`
 
 ```
-Input:  homeassistant/lock/nuki_vr/state
+Input:  homeassistant/lock/nuki_vr/state (statestream, retained)
+        │  VR tab: mqtt in → global.set "home/vr/smartlock/state"
         │
-        ├─► Hue Bulb (ez/light/hue-bulb-smartlock)
-        │   - LOCK   → Red (#FF0000)
-        │   - UNLOCK → Green (#00FF00)
-        │   - undefined → Yellow (#FFFF00)
+        ├─► Hue Bulb (💡 Lights tab → z2m/ez/light/hue-bulb-smartlock/set)
+        │   - locked   → Red (#FF0000)
+        │   - unlocked → Green (#00FF00)
+        │   - else     → Yellow (#FFFF00)
         │
-        └─► Shellie LEDs (sz/statusled-smartlock)
-            - green led  → relay/0 (UNLOCK)
-            - red led    → relay/1 (LOCK)
+        └─► Shellie LEDs (💡 Lights tab, group "Statusled sz":
+            3s inject polls the global var → switch → rbe →
+            shellies/home/sz/statusled-smartlock/relay/N/command)
+            - locked   → red on  (relay/1), green off (relay/0)
+            - unlocked → green on (relay/0), red off  (relay/1)
+            - else (unavailable/unknown) → BOTH OFF   (since 2026-08-02)
 ```
+
+**Note**: the `rbe` (report-by-exception) nodes only publish on _change_. After a
+Shelly reboot or MQTT outage the LEDs stay stale until the next lock state change —
+force a resync by publishing the relay commands manually (see below) or via the
+inject buttons in group "VR-Lock-Status-LEDs /sz".
 
 ### Access Node-RED
 
@@ -157,19 +168,20 @@ http://192.168.1.101:1880/#flow/d1b80e2d5f08edaf
 **If WiFi is good and still issues**:
 
 ```bash
-# Subscribe to Nuki MQTT topics
+# Subscribe to Nuki MQTT topics (broker requires auth — creds via agenix)
 ssh mba@hsb1.lan
-docker exec mosquitto mosquitto_sub -t 'homeassistant/lock/nuki_vr/#' -v
+sudo bash -c 'set -a; source /run/agenix/hsb1-mqtt-client-env; set +a
+  docker exec mosquitto mosquitto_sub -u "$MQTT_USER" -P "$MQTT_PASS" \
+    -t "homeassistant/lock/nuki_vr/#" -v'
 ```
 
 ### Test MQTT Publishing
 
 ```bash
-# Manually publish test state
-docker exec mosquitto mosquitto_pub \
-  -t 'homeassistant/lock/nuki_vr/state' \
-  -m 'LOCK' \
-  -u smarthome -P $(grep MQTT_PASS ~/secrets/mqtt.env | cut -d= -f2)
+# Manually publish test state (payloads are lowercase HA states)
+sudo bash -c 'set -a; source /run/agenix/hsb1-mqtt-client-env; set +a
+  docker exec mosquitto mosquitto_pub -u "$MQTT_USER" -P "$MQTT_PASS" \
+    -t "homeassistant/lock/nuki_vr/state" -m locked'
 ```
 
 ### Check Nuki Ultra MQTT Config
@@ -178,30 +190,70 @@ The Nuki Ultra should be configured in the Nuki App to publish to:
 
 - Broker: `192.168.1.101:1883` (hsb1)
 - Username: `smarthome`
-- Password: (see `~/secrets/mqtt.env`)
+- Password: (agenix `/run/agenix/hsb1-mqtt-client-env`, `$MQTT_PASS` — never cat)
 - Topic prefix: `homeassistant/lock/`
 
 ---
 
 ## Files Reference
 
-| File           | Location                                                   |
-| -------------- | ---------------------------------------------------------- |
-| Node-RED Flows | `~/docker/mounts/nodered/data/flows.json`                  |
-| HA Config      | `~/docker/mounts/homeassistant/configuration.yaml`         |
-| HA Automations | `~/docker/mounts/homeassistant/automations.yaml`           |
-| MQTT Config    | HA Integration (Settings → Devices → MQTT)                 |
-| Secrets        | `~/secrets/smarthome.env` (HA_TOKEN), `~/secrets/mqtt.env` |
+| File           | Location                                                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Node-RED Flows | `~/docker/mounts/nodered/data/flows.json`                                                                                   |
+| HA Config      | `~/docker/mounts/homeassistant/configuration.yaml`                                                                          |
+| HA Automations | `~/docker/mounts/homeassistant/automations.yaml`                                                                            |
+| MQTT Config    | HA Integration (Settings → Devices → MQTT)                                                                                  |
+| Secrets        | agenix: `/run/agenix/hsb1-smarthome-env` (HA_TOKEN), `/run/agenix/hsb1-mqtt-client-env` (MQTT_USER / MQTT_PASS / MQTT_HOST) |
 
 ---
 
 ## Hue Bulb Status (Visual Indicator)
 
-| Nuki State    | Hue Bulb Color       | Shellie Green LED | Shellie Red LED |
-| ------------- | -------------------- | ----------------- | --------------- |
-| LOCKED        | Red (#FF0000)        | OFF               | ON              |
-| UNLOCKED      | Green (#00FF00)      | ON                | OFF             |
-| **undefined** | **Yellow (#FFFF00)** | ?                 | ?               |
+| Nuki State      | Hue Bulb Color       | Shellie Green LED | Shellie Red LED |
+| --------------- | -------------------- | ----------------- | --------------- |
+| locked          | Red (#FF0000)        | OFF               | ON              |
+| unlocked        | Green (#00FF00)      | ON                | OFF             |
+| **unavailable** | **Yellow (#FFFF00)** | **OFF**           | **OFF**         |
+
+_Unavailable → both LEDs off since 2026-08-02 (previously the else-branch lit green)._
+
+---
+
+## Shelly Uni Status LEDs (SZ)
+
+Custom-built indicator in the bedroom: Shelly Uni (Gen1, `SHUNI-1`) in an encasing
+with a green and a red LED on the relay outputs.
+
+| Item     | Value                                                                    |
+| -------- | ------------------------------------------------------------------------ |
+| IP       | `192.168.1.181` (WiFi)                                                   |
+| MQTT id  | `home/sz/statusled-smartlock`                                            |
+| relay/0  | green LED — "Unlocked"                                                   |
+| relay/1  | red LED — "Locked"                                                       |
+| Commands | `shellies/home/sz/statusled-smartlock/relay/{0,1}/command` (`on`/`off`)  |
+| Power-on | both relays default **off** (LEDs dark until next state change / resync) |
+
+### 🔴 Gotcha: Shelly Cloud kills MQTT (2026-08-02 incident)
+
+Gen1 firmware runs **either** Shelly Cloud **or** MQTT — never both. Enabling
+cloud (e.g. via the Shelly app) silently disables MQTT; the LEDs then freeze at
+their last state while Node-RED publishes into the void. Check with:
+
+```bash
+curl -s http://192.168.1.181/status | jq '.mqtt, .cloud'
+```
+
+Fix: disable cloud / re-enable MQTT, then force a resync (rbe won't resend an
+unchanged state):
+
+```bash
+sudo bash -c 'set -a; source /run/agenix/hsb1-mqtt-client-env; set +a
+  docker exec mosquitto mosquitto_pub -u "$MQTT_USER" -P "$MQTT_PASS" \
+    -t "shellies/home/sz/statusled-smartlock/relay/1/command" -m on   # red (locked)
+  docker exec mosquitto mosquitto_pub -u "$MQTT_USER" -P "$MQTT_PASS" \
+    -t "shellies/home/sz/statusled-smartlock/relay/0/command" -m off  # green
+'
+```
 
 ---
 

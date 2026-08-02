@@ -10,6 +10,10 @@ fi
 flake_ref="git+file://${repo}?rev=${repo_revision}&shallow=1"
 # OPS-127: the compose spec is the source of truth (the yml is retired).
 compose="${repo}/hosts/csb1/docker/compose-spec.nix"
+# Compose cannot parse the nix spec; checks that shell out to docker compose
+# read the closure's rendered JSON instead (identical content plus the
+# module-injected dns keys), exactly like T32.
+rendered_spec=""
 mode=${1:-declarative}
 failures=0
 
@@ -77,7 +81,7 @@ check_runtime_hardening() {
   transaction_image=$(service_image janus-managed-transactiond)
 
   docker compose \
-    -f "${compose}" \
+    -f "${rendered_spec}" \
     config \
     --no-interpolate \
     --no-env-resolution \
@@ -173,12 +177,20 @@ declarative() {
   check_command command_docker command -v docker
   check_command command_git command -v git
   check_command reviewed_checkout check_reviewed_checkout
+  rendered_spec=$(mktemp)
+  if nix eval --json \
+    "${flake_ref}#nixosConfigurations.csb1.config.nixcfg.composeStack.renderedSpec" \
+    >"${rendered_spec}" 2>/dev/null; then
+    pass rendered_spec_eval
+  else
+    fail rendered_spec_eval
+  fi
   check_command \
     compose_contract \
-    docker compose -f "${compose}" config --quiet --no-interpolate --no-env-resolution
+    docker compose -f "${rendered_spec}" config --quiet --no-interpolate --no-env-resolution --no-path-resolution
   check_command csb1_eval nix eval "${flake_ref}#nixosConfigurations.csb1.config.system.build.toplevel.drvPath"
-  check_command manifest_contract bash "${repo}/tests/T30-managed-service-manifest.sh"
-  check_command host_envelope_contract bash "${repo}/tests/T31-janus-host-envelope.sh"
+  check_command manifest_contract "${BASH}" "${repo}/tests/T30-managed-service-manifest.sh"
+  check_command host_envelope_contract "${BASH}" "${repo}/tests/T31-janus-host-envelope.sh"
 
   check_image_pin \
     go_release_pin \
@@ -187,7 +199,7 @@ declarative() {
   check_image_pin \
     rust_release_pin \
     janus-managed-transactiond \
-    '^ghcr\.io/inspr-at/janus/janus-engine:rust-engine-v0\.1\.19@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/janus/janus-engine:rust-engine-v0\.1\.20@sha256:[0-9a-f]{64}$'
   check_image_pin \
     pharos_release_pin \
     pharosd \
@@ -211,21 +223,21 @@ declarative() {
      and .mode == "production"
      and .previous_mode == "production"
      and .artifact.image == "ghcr.io/inspr-at/janus/janus-engine"
-     and .artifact.tag == "rust-engine-v0.1.19"
+     and .artifact.tag == "rust-engine-v0.1.20"
      and .artifact.digest == $digest
      and .artifact.development == false
      and .signature.verified == true
-     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.19"
+     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.20"
      and .signature.oidc_issuer == "https://token.actions.githubusercontent.com"
      and .provenance.verified == true
      and .provenance.repository == "inspr-at/janus"
      and .provenance.signer_workflow == "inspr-at/janus/.github/workflows/rust.yml"
-     and .provenance.source_ref == "refs/tags/rust-engine-v0.1.19"
+     and .provenance.source_ref == "refs/tags/rust-engine-v0.1.20"
      and .provenance.predicate_type == "https://slsa.dev/provenance/v1"
      and .sbom.verified == true
      and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"
      and .source.verified == true
-     and .source.commit == "546dc08789b85314e4dd3820e73f878b20540b70"
+     and .source.commit == "65f64b187e398c472671bec9bd2f919ef20eb131"
      and (.source.manifest_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and (.source.bundle_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and .scanner.verified == true
