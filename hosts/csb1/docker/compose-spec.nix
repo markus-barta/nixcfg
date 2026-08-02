@@ -509,30 +509,6 @@
         "smtp"
       ];
     };
-    watchtower = {
-      image = "containrrr/watchtower:latest";
-      container_name = "watchtower";
-      restart = "unless-stopped";
-      command = "--schedule \"0 0 8 * * SAT\" --cleanup";
-      volumes = [
-        "/var/run/docker.sock:/var/run/docker.sock:rw"
-      ];
-      environment = [
-        "WATCHTOWER_CLEANUP=true"
-        "DOCKER_API_VERSION=1.44"
-        "WATCHTOWER_NOTIFICATIONS=shoutrrr"
-        "WATCHTOWER_NOTIFICATIONS_HOSTNAME=csb1"
-        "WATCHTOWER_NOTIFICATION_TITLE_TAG=🌐"
-        "WATCHTOWER_HTTP_API_UPDATE=true"
-        "WATCHTOWER_HTTP_API_PERIODIC_POLLS=true"
-      ];
-      env_file = [
-        "/run/agenix/csb1-watchtower-env"
-      ];
-      labels = [
-        "traefik.enable=false"
-      ];
-    };
     # ============================================
     # Excalidraw - Self-hosted whiteboard
     # ============================================

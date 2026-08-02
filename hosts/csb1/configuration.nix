@@ -157,9 +157,12 @@ in
     #
     # OPS-125 completed 2026-08-01: every csb1 service carries the watchtower
     # enable=false label, so the composeStack autoUpdate timer below owns their
-    # images. Watchtower REMAINS on this host, deliberately, scoped by those
-    # labels to itself + the foreign projects (/home/mba/docker/*: inspr-at,
-    # paimos, amt-*) that the closure does not own.
+    # images. Watchtower itself was REMOVED 2026-08-02 (OPS-129 ⑥): its last
+    # real job was Saturday-polling the foreign containers the closure does not
+    # own (zitadel, inspr-*, paimos-www, amt-*) — those get adopted into this
+    # spec via OPS-136. The enable=false labels STAY: inert without watchtower,
+    # and dropping them would force-recreate every container for zero
+    # behavioural change. Remove opportunistically per-service.
     autoUpdate.enable = true;
     spec = import ./docker/compose-spec.nix;
   };
@@ -990,6 +993,9 @@ in
     mode = "0400";
   };
 
+  # Despite the name: watchtower is gone (OPS-129 ⑥, 2026-08-02). This env
+  # feeds the pharosd alert webhook and the hausv alert poller (T34 asserts
+  # both). Rename only together with a deliberate secret rotation.
   age.secrets.csb1-watchtower-env = {
     file = ../../secrets/csb1-watchtower-env.age;
     path = "/run/agenix/csb1-watchtower-env";
