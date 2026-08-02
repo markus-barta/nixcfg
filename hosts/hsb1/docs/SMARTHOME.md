@@ -206,6 +206,40 @@ docker logs homeassistant --tail 50 2>&1 | grep -i homekit
 
 ---
 
+## 🔥 Heating — tado (LOCAL via HomeKit, no cloud)
+
+**Since 2026-08-02 (OPS-131)** the tado system is fully local. The cloud
+integration was removed (device-code re-auth PITA + 100 req/day rate limit since
+2026-01); the IB01 bridge is HomeKit-paired **directly to HA**
+(`homekit_controller`), and the thermostats are re-exposed to Apple Home through
+the HASS Bridge (`homekit:` block in `configuration.yaml`).
+
+```
+RU02 thermostats ──(868 MHz)── IB01 bridge ──(HomeKit/IP, local)── HA
+                                                                    │
+                                              Apple Home ──(HASS Bridge)──┘
+```
+
+- **Entities**: `climate.wohnzimmer`, `climate.schlafzimmer`, `climate.badezimmer`,
+  `climate.kinderzimmer`, `climate.gastezimmer`, `climate.gastebad`,
+  `climate.vorkuche`, `climate.wc` — same IDs as the old cloud entities, so
+  dashboards + statestream topics (`homeassistant/climate/<room>/…`) are unchanged.
+- **Devices** named `<Room> Tado` (room repeated on purpose — survives Apple
+  room-loss). Bridge = `Vorraum Tado Bridge` (`IB3250129664`).
+- Room ↔ Heizkreis ↔ RU02-serial mapping: Markus's heating spreadsheet
+  (Heizkreis-Doku); wiring side is Pro4PM-Heizkreise (see OPS-31).
+- 🔴 **HomeKit setup code**: sticker on the IB01 side, saved in 1Password.
+  tado cannot regenerate it — losing it means a new bridge.
+- 🔴 The bridge pairs to exactly **ONE** controller. It is paired to **HA** —
+  never pair it to Apple Home directly again; Apple gets the thermostats via the
+  HASS Bridge.
+- The tado app/cloud is unused and unauthenticated. The cloud integration's
+  rediscovery card in HA is set to "Ignore".
+- Migration backup: `/home/mba/ha-config-backup-20260802-ops131.tgz`
+  (pre-rename `.storage` + `configuration.yaml`; delete after the 30-day soak).
+
+---
+
 ## 🏠 Room Abbreviations
 
 | Code | German       | English            |
