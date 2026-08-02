@@ -132,7 +132,8 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ```bash
 # Enable pairing mode (via Z2M web UI or MQTT)
-docker exec mosquitto mosquitto_pub -t "zigbee2mqtt/bridge/request/permit_join" -m '{"value": true}'
+# ⚠️ base_topic is `z2m` (NOT the default `zigbee2mqtt`) — and the broker requires auth
+docker exec mosquitto mosquitto_pub -t "z2m/bridge/request/permit_join" -m '{"value": true}'
 
 # Watch for new devices
 docker logs -f zigbee2mqtt | grep -i "interview"
@@ -265,11 +266,11 @@ RU02 thermostats ──(868 MHz)── IB01 bridge ──(HomeKit/IP, local)─�
 ### Check Device State (MQTT)
 
 ```bash
-# Get current state of a device
-docker exec mosquitto mosquitto_sub -t "zigbee2mqtt/DEVICE_NAME" -C 1 -W 5
+# Get current state of a device (base_topic is z2m)
+docker exec mosquitto mosquitto_sub -t "z2m/DEVICE_NAME" -C 1 -W 5
 
 # Subscribe to all messages from a device
-docker exec mosquitto mosquitto_sub -v -t "zigbee2mqtt/DEVICE_NAME/#"
+docker exec mosquitto mosquitto_sub -v -t "z2m/DEVICE_NAME/#"
 ```
 
 ### Check Device in Z2M Database
@@ -663,7 +664,7 @@ bash -c 'source /run/agenix/hsb1-mqtt-client-env && echo $MQTT_HOST'
 1. Check Z2M logs: `docker logs zigbee2mqtt | grep ADDRESS`
 2. Check database: `grep ADDRESS ~/docker/mounts/zigbee2mqtt/database.db`
 3. Check state: `cat state.json | jq '."0xADDRESS"'`
-4. Check MQTT: `mosquitto_sub -t "zigbee2mqtt/DEVICE/#"`
+4. Check MQTT: `mosquitto_sub -t "z2m/DEVICE/#"`
 
 ### Update Device Configuration
 
