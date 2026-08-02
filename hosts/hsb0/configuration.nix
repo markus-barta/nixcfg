@@ -81,6 +81,15 @@ in
     spec = import ./docker/compose-spec.nix;
   };
 
+  # OPS-128: hsb0 was the one host with the prune SERVICE but no TIMER — docker
+  # had never pruned and reached 108 G (dangling images + openclaw build cache)
+  # before the 2026-08-02 cleanup. Same weekly safe-tier prune hsb8 runs;
+  # dangling-only, never `-a`.
+  virtualisation.docker.autoPrune = {
+    enable = true;
+    dates = "weekly";
+  };
+
   # ============================================================================
   # UZUMAKI MODULE - Fish functions, zellij, stasysmo (all-in-one)
   # ============================================================================
