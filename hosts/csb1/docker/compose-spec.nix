@@ -287,7 +287,6 @@
         "traefik"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
         "traefik.http.routers.hostdash-auth-csb1.rule=Host(`cs1.barta.cm`) && PathPrefix(`/oauth2`)"
         "traefik.http.routers.hostdash-auth-csb1.entrypoints=web-secure"
@@ -463,7 +462,6 @@
       };
       labels = [
         # This image is built and deployed manually by hausv-org/scripts/deploy.fish.
-        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.hausv-org.rule=Host(`jhw22.hausv.org`) || Host(`hausv.org`) || Host(`www.hausv.org`)"
@@ -504,7 +502,6 @@
         "/run/agenix/csb1-restic-cron-hetzner-env"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
@@ -990,7 +987,6 @@
         start_period = "5s";
       };
       labels = [
-        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
@@ -1048,7 +1044,6 @@
         start_period = "5s";
       };
       labels = [
-        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
@@ -1263,7 +1258,6 @@
         "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [
-        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
