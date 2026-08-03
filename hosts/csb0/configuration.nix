@@ -318,16 +318,6 @@ in
     owner = "mba";
   };
 
-  # NIX-6: hover.com SMARTHOST_PASSWORD for the namshi/smtp relay container
-  # (env_file /run/agenix/csb0-smtp-env in the compose spec — the old
-  # ./smtp/variables.env reference was carried over commented-out, so the relay
-  # ran unauthenticated; found 2026-08-02). Mirrors hsb1-smtp-env.
-  age.secrets.csb0-smtp-env = {
-    file = ../../secrets/csb0-smtp-env.age;
-    mode = "400";
-    owner = "mba";
-  };
-
   # OPS-104: HA tokens + Telegram credentials for the fleet alert poller
   # (units and targets live in ./ops-alerts.nix). Root-owned — the poller runs
   # as root and nothing else needs to read it.

@@ -251,32 +251,11 @@
         "com.centurylinklabs.watchtower.enable=true"
       ];
     };
-    # https://github.com/namshi/docker-smtp
-    smtp = {
-      image = "namshi/smtp";
-      restart = "always";
-      networks = [
-        "traefik"
-        "smtp"
-      ];
-      environment = [
-        "TZ=Europe/Vienna"
-        "SMARTHOST_ADDRESS=mail.hover.com"
-        "SMARTHOST_PORT=587"
-        #      - SMARTHOST_PORT=465
-        "SMARTHOST_USER=markus@barta.com"
-        "SMARTHOST_ALIASES=*"
-        "RELAY_NETWORKS=:172.0.0.0/8"
-      ];
-      env_file = [
-        # NIX-6: SMARTHOST_PASSWORD (replaces the pre-spec ./smtp/variables.env
-        # that was carried over commented-out — relay ran unauthenticated)
-        "/run/agenix/csb0-smtp-env"
-      ];
-      labels = [
-        "traefik.enable=false"
-      ];
-    };
+    # smtp relay RETIRED 2026-08-03 (OPS-139): netcup blocks outbound mail
+    # ports host-wide, its only consumer was the restic report mail, and backup
+    # reporting moved to the Pharos status-file dead-man's-switch (see
+    # restic-cron-hetzner PHAROS_BACKUP_STATUS_FILE + pharos-beacon). Do not
+    # re-add mail infrastructure on cloud hosts (OPS-137 architecture decision).
     restic-cron-hetzner = {
       build = "./restic-cron";
       restart = "unless-stopped";
@@ -299,7 +278,8 @@
       ];
       environment = {
         RESTIC_REPOSITORY = "sftp:u387549-sub1@u387549.your-storagebox.de:/";
-        MAIL_SUBJECT = "💾 Restic Backup netcup csb0 (hetzner)";
+        # MAIL_SUBJECT removed (OPS-139): reporting is the Pharos status file
+        # below; the mail path is retired on cloud hosts.
         CRON_BACKUP_EXPRESSION = "30 1 * * *";
         PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";
       };
@@ -310,9 +290,6 @@
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
-      ];
-      networks = [
-        "smtp"
       ];
     };
     # Uptime Kuma - Docker service (consistent with other services)
@@ -494,7 +471,6 @@
   };
   networks = {
     traefik = null;
-    smtp = null;
     bitwarden = null;
     docker-sock-traefik = {
       internal = true;
