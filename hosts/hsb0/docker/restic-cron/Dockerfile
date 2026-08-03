@@ -23,7 +23,7 @@ ENV CRON_CLEANUP_EXPRESSION="15  3  *   *   *"
 # Fire at 05:30 every month
 ENV CRON_CHECK_EXPRESSION="30  5  1   *   *"
 
-RUN apk add --no-cache ca-certificates fuse bzip2 gnupg openssh-client supervisor ssmtp curl && \
+RUN apk add --no-cache ca-certificates fuse bzip2 gnupg openssh-client supervisor ssmtp curl jq && \
     mkdir -p /var/log/supervisor
 
 RUN curl -L https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_amd64.bz2 | \
