@@ -21,7 +21,7 @@ Previously provided:
 | 🌐  | csb0    | NixOS   | Server    | `restic-cron`    |   🟢   | Hetzner Storage Box  | 2026-01-11 13:55 |
 | 🌐  | csb1    | NixOS   | Server    | `restic-cron`    |   🟢   | Hetzner (Shared)     | 2026-01-11 13:55 |
 | 🎮  | stm2607 | SteamOS | Appliance | TBD (OPS/Pharos) |   🔴   | (OPS-17)             | 2026-07-23       |
-| 🏠  | hsb0    | NixOS   | Server    | `restic-cron`    |   🟡   | Hetzner (Shared)     | 2026-01-11 15:55 |
+| 🏠  | hsb0    | NixOS   | Server    | `restic-cron`    |   🟢   | Hetzner (Shared)     | 2026-08-03 14:35 |
 | 🏠  | hsb1    | NixOS   | Server    | `restic-cron`    |   🟡   | Hetzner (Shared)     | 2026-01-11 15:55 |
 | 🏠  | hsb8    | NixOS   | Server    | ZFS Snapshots    |   🔴   | Local Pool (`zroot`) | 2026-01-11 11:45 |
 | 🏠  | hsb9    | NixOS   | Server    | TBD              |   🔴   | (onboarding NIX-138) | 2026-05-26 18:40 |
