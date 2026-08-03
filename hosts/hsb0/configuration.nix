@@ -764,7 +764,9 @@ in
 
   age.secrets.restic-hetzner-ssh-key = {
     file = ../../secrets/restic-hetzner-ssh-key.age;
-    mode = "444";
+    # No explicit mode — agenix default 0400 (csb0's proven-working state).
+    # The 2026-02-13 mode="444" made OpenSSH REFUSE the key inside the restic
+    # container ("bad permissions") — private keys must not be world-readable.
   };
 
   # Uptime Kuma API key for Merlin (read monitors, create incidents)
