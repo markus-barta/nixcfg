@@ -240,6 +240,17 @@ in
     group = "root";
   };
 
+  # NIX-6: hover.com SMARTHOST_PASSWORD for the namshi/smtp relay container.
+  # The compose spec reads it as env_file /run/agenix/hsb0-smtp-env — without it
+  # the relay ran unauthenticated and hover 554-rejected all outbound mail
+  # (restic + cron alerts silently lost; found 2026-08-02). Owner mba so the
+  # compose launcher can read it (mirrors hsb1-smtp-env).
+  age.secrets.hsb0-smtp-env = {
+    file = ../../secrets/hsb0-smtp-env.age;
+    mode = "400";
+    owner = "mba";
+  };
+
   # Systemd service: Publish UPS status to MQTT as JSON
   # 🔇 SILENCE THE BEEPER. This is a hard requirement, not a preference.
   #
