@@ -89,7 +89,10 @@ in
     stackName = "hsb8";
     # 🟢 CUT OVER 2026-08-01 (OPS-123).
     reconcile = true;
-    # No projectDirectory: this stack has zero relative paths.
+    # OPS-53: the restic-cron service builds from ./restic-cron and binds its
+    # scripts relatively — without this the build context resolves against the
+    # /nix/store compose-file dir ("path /nix/store/restic-cron not found").
+    projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb8/docker";
     postRecreate = [ "hsb8-home" ];
     extraRestartTriggers = [ hostdashHsb8 ];
     # Safe HERE: all 5 project-docker containers are declared in the spec
