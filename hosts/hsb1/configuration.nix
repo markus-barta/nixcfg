@@ -247,6 +247,10 @@ in
     project = "docker";
     stackName = "hsb1";
     reconcile = true;
+    # OPS-141: restic-cron builds from ./restic-cron and binds its scripts
+    # relatively (repo is truth per hsb1 doctrine) — without this the build
+    # context resolves against the /nix/store compose-file dir (hsb8 lesson).
+    projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb1/docker";
     # Carried over from hsb1-stack: hsb1-home mounts /etc/hostdash/hsb1, whose
     # target changes every generation while its compose definition does not, so
     # compose correctly sees no change and it would serve a stale page forever.
