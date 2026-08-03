@@ -8,8 +8,6 @@ Repeatable health checks for csb1. These tests can be run **anytime** and should
 | ---- | --------------- | --------------------------------- |
 | T00  | NixOS Base      | Version, generations, systemd     |
 | T01  | Docker Services | Containers running, healthy       |
-| T02  | Grafana         | Dashboard accessible              |
-| T03  | InfluxDB        | Database healthy, buckets exist   |
 | T04  | Traefik         | Reverse proxy, SSL certs          |
 | T05  | Backup System   | Restic configured, recent backups |
 | T06  | SSH Access      | Key auth, sudo, hardening         |
