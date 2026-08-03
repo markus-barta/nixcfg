@@ -44,12 +44,15 @@
         "./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro"
         "./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro"
         "./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro"
+        # OPS-140: Pharos dead-man's-switch status file (csb0/csb1 pattern)
+        "/var/lib/hsb0-docker/pharos-backup-status:/pharos-backup-status"
       ];
       environment = {
         # Target shared sub1 but in a dedicated folder /hsb0
         RESTIC_REPOSITORY = "sftp:u387549-sub1@u387549.your-storagebox.de:23/hsb0";
         MAIL_SUBJECT = "💾 Restic backup report (hsb0)";
         CRON_BACKUP_EXPRESSION = "0 2 * * *";
+        PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";
       };
       env_file = [
         # Load RESTIC_PASSWORD from agenix (shared with csb0)
@@ -271,11 +274,15 @@
         "GIT_CONFIG_COUNT=1"
         "GIT_CONFIG_KEY_0=safe.directory"
         "GIT_CONFIG_VALUE_0=/nixcfg"
+        # OPS-140: read the restic status file for backup posture reporting
+        "PHAROS_BACKUP_MODE=status-file"
+        "PHAROS_BACKUP_STATUS_FILE=/pharos-backup-status/restic-cron-hetzner.json"
       ];
       volumes = [
         "/home/mba/Code/nixcfg:/nixcfg:ro"
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
+        "/var/lib/hsb0-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
