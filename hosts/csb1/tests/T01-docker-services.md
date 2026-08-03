@@ -47,7 +47,7 @@ ssh -p 2222 mba@cs1.barta.cm
 docker ps -q | wc -l
 ```
 
-**Expected**: Should show ~15 containers (Grafana, InfluxDB, Docmost, Paperless, Traefik, backup, etc.)
+**Expected**: Should show ~20 containers (Docmost, Paperless, Traefik, Janus, HostDash, backup, etc. — influx/grafana retired 2026-06, NIX-193/OPS-60)
 
 ### Step 5: Check for Unhealthy Containers
 
@@ -106,8 +106,6 @@ Run the automated test script:
 
 | Container            | Service       | Purpose                    |
 | -------------------- | ------------- | -------------------------- |
-| csb1-grafana-1       | Grafana       | Monitoring dashboards      |
-| csb1-influxdb-1      | InfluxDB      | Time series database       |
 | csb1-docmost-1       | Docmost       | Documentation platform     |
 | csb1-docmost-db-1    | PostgreSQL    | Docmost database           |
 | csb1-docmost-redis-1 | Redis         | Docmost cache              |

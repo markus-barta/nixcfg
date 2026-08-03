@@ -106,12 +106,11 @@ sudo nixos-rebuild switch --rollback
 
 NixFleet has been decommissioned (DSC26-53). Successor: **FleetCom** (DSC26-52).
 
-**To fully remove**: stop the nixfleet container on csb1 and comment out in docker-compose.yml:
-
-```bash
-ssh mba@cs1.barta.cm -p 2222 "cd ~/docker && docker compose stop nixfleet"
-# Then comment out nixfleet service in ~/docker/docker-compose.yml
-```
+The container is stopped and absent from the running stack (verified 2026-08-02).
+Final teardown (residual files, `~/secrets/nixfleet.env` was removed with
+NIX-118) is tracked in **OPS-61** — the compose spec
+(`hosts/csb1/docker/compose-spec.nix`) is the sole source of truth; there is no
+`~/docker/docker-compose.yml` anymore (OPS-127).
 
 ---
 
@@ -162,8 +161,9 @@ non-prod smoke uses the signed digest-pinned engine image, Docker-volume
 non-prod age material, a non-prod metadata overlay, and a permit-bound
 `janusd-use run` launched through the staged compose service; no production secret
 or host SSH key is used.
-The staged image pin in `docker-compose.yml` is the source of truth; do not
-duplicate its release or digest here.
+The staged image pin in `hosts/csb1/docker/compose-spec.nix` is the source of
+truth; do not duplicate its release or digest here. (The retired
+`docker-compose.yml` reference in `just janus-engine-up` is NIX-338.)
 
 ```bash
 cd ~/Code/nixcfg

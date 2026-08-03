@@ -56,9 +56,8 @@ Run: `./T03-mqtt.sh`
 
 If MQTT is down:
 
-1. csb1 InfluxDB stops receiving IoT data
-2. Grafana dashboards show no new data
-3. Check: `docker logs csb0-mosquitto-1`
+1. hsb1 Node-RED / Home Assistant consumers stop receiving IoT data
+2. Check: `docker logs csb0-mosquitto-1`
 
 ## Test Results Summary
 
@@ -72,5 +71,5 @@ If MQTT is down:
 
 ## Notes
 
-- IoT devices → MQTT (csb0) → InfluxDB (csb1) → Grafana
+- IoT devices → MQTT (csb0) → Node-RED / HA (hsb1) — influx path retired 2026-06-12 (NIX-193)
 - If MQTT down, restart: `docker restart csb0-mosquitto-1`
