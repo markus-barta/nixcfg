@@ -269,8 +269,13 @@
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
     };
+    # OPS-141: modernized 2026-08-03 — csb0-generation scripts from the REPO
+    # (was /home/mba/docker/restic-cron, 2024-vintage, --host miniserver24),
+    # Pharos status-file dead-man's-switch, snapshots now labeled hsb1.
+    # Same sub2 repository = history continuity; the legacy miniserver24
+    # snapshot group gets an explicit forget after the retention window.
     restic-cron-hetzner = {
-      build = "/home/mba/docker/restic-cron";
+      build = "./restic-cron";
       container_name = "restic-cron-hetzner";
       restart = "unless-stopped";
       volumes = [
@@ -280,20 +285,23 @@
         "/etc:/backup/etc:ro"
         # Use SSH key from agenix
         "/run/agenix/hsb1-restic-ssh-key:/root/.ssh/id_rsa:ro"
-        "/home/mba/docker/restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro"
+        "./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro"
         # BIND MOUNTS: Local scripts override container defaults
-        "/home/mba/docker/restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro"
-        "/home/mba/docker/restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro"
-        "/home/mba/docker/restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro"
-        "/home/mba/docker/restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro"
+        "./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro"
+        "./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro"
+        "./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro"
+        "./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro"
+        "/var/lib/hsb1-docker/pharos-backup-status:/pharos-backup-status"
       ];
       environment = {
-        RESTIC_BACKUP_OPTIONS = "-r sftp:u387549-sub2@u387549.your-storagebox.de:/";
-        MAIL_SUBJECT = "💾 Restic backup report (hsb1)";
+        RESTIC_REPOSITORY = "sftp:u387549-sub2@u387549.your-storagebox.de:/";
+        # MAIL_SUBJECT removed (OPS-137): reporting is the status file; the
+        # agenix env's MAIL_TO still triggers the (working) mail as a bonus.
         CRON_BACKUP_EXPRESSION = "30 1 * * *";
+        PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";
       };
       env_file = [
-        # Load RESTIC_PASSWORD from agenix
+        # Load RESTIC_PASSWORD (+ MAIL_TO) from agenix
         "/run/agenix/hsb1-restic-env"
       ];
       labels = [
@@ -469,11 +477,15 @@
         "GIT_CONFIG_COUNT=1"
         "GIT_CONFIG_KEY_0=safe.directory"
         "GIT_CONFIG_VALUE_0=/nixcfg"
+        # OPS-141: read the restic status file for backup posture reporting
+        "PHAROS_BACKUP_MODE=status-file"
+        "PHAROS_BACKUP_STATUS_FILE=/pharos-backup-status/restic-cron-hetzner.json"
       ];
       volumes = [
         "/home/mba/Code/nixcfg:/nixcfg:ro"
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
+        "/var/lib/hsb1-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
