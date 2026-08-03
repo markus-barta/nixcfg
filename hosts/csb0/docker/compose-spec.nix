@@ -268,8 +268,11 @@
         "SMARTHOST_ALIASES=*"
         "RELAY_NETWORKS=:172.0.0.0/8"
       ];
-      # env_file:
-      #   - ./smtp/variables.env
+      env_file = [
+        # NIX-6: SMARTHOST_PASSWORD (replaces the pre-spec ./smtp/variables.env
+        # that was carried over commented-out — relay ran unauthenticated)
+        "/run/agenix/csb0-smtp-env"
+      ];
       labels = [
         "traefik.enable=false"
       ];
