@@ -71,6 +71,11 @@
         "SMARTHOST_ALIASES=*"
         "RELAY_NETWORKS=:172.0.0.0/8"
       ];
+      env_file = [
+        # NIX-6: SMARTHOST_PASSWORD — without it the relay is unauthenticated
+        # and hover 554-rejects everything (restic/cron mail silently lost)
+        "/run/agenix/hsb0-smtp-env"
+      ];
       labels = [
         "traefik.enable=false"
         "com.centurylinklabs.watchtower.enable=false"

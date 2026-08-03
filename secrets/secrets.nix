@@ -213,6 +213,13 @@ in
   #   cd ~/Code/nixcfg && EDITOR='cp /home/mba/docker/smtp/variables.env' agenix -e secrets/hsb1-smtp-env.age
   "hsb1-smtp-env.age".publicKeys = markus ++ hsb1;
 
+  # NIX-6 — same relay credentials for hsb0 + csb0 (their compose specs carried
+  # the env_file commented out; relays ran unauthenticated → hover 554-rejected
+  # all mail, found 2026-08-02). Both files created ON hsb0 (has agenix CLI +
+  # the plaintext source; csb0 has neither) with the same EDITOR=cp trick.
+  "hsb0-smtp-env.age".publicKeys = markus ++ hsb0;
+  "csb0-smtp-env.age".publicKeys = markus ++ csb0;
+
   # PPM (Personal Project Management) environment variables for csb1
   # Format: KEY=VALUE lines (PPM_ADMIN_PASSWORD, COOKIE_SECURE, etc.)
   # Edit: agenix -e secrets/csb1-ppm-env.age
