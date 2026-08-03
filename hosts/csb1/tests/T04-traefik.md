@@ -41,10 +41,10 @@ curl -s http://localhost:8080/api/overview
 
 **Expected**: Returns JSON with router/service info
 
-### Step 4: Test HTTPS Routing - Grafana
+### Step 4: Test HTTPS Routing - Paperless
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" https://grafana.barta.cm/
+curl -s -o /dev/null -w "%{http_code}" https://paperless.barta.cm/
 ```
 
 **Expected**: Returns `200` or `302`
@@ -60,7 +60,7 @@ curl -s -o /dev/null -w "%{http_code}" https://docmost.barta.cm/
 ### Step 6: Test SSL Certificates
 
 ```bash
-echo | openssl s_client -connect grafana.barta.cm:443 2>/dev/null | openssl x509 -noout -dates
+echo | openssl s_client -connect docmost.barta.cm:443 2>/dev/null | openssl x509 -noout -dates
 ```
 
 **Expected**: Shows valid certificate dates
@@ -68,7 +68,7 @@ echo | openssl s_client -connect grafana.barta.cm:443 2>/dev/null | openssl x509
 ### Step 7: Test HTTP to HTTPS Redirect
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" -L http://grafana.barta.cm/
+curl -s -o /dev/null -w "%{http_code}" -L http://docmost.barta.cm/
 ```
 
 **Expected**: Redirects to HTTPS (returns `200` after redirect)
@@ -90,12 +90,12 @@ Run the automated test script:
 
 ## Domains Routed
 
-| Domain             | Backend Service | Purpose               |
-| ------------------ | --------------- | --------------------- |
-| grafana.barta.cm   | Grafana         | Monitoring dashboards |
-| docmost.barta.cm   | Docmost         | Documentation         |
-| paperless.barta.cm | Paperless-ngx   | Document management   |
-| influxdb.barta.cm  | InfluxDB        | Time series database  |
+| Domain             | Backend Service | Purpose             |
+| ------------------ | --------------- | ------------------- |
+| docmost.barta.cm   | Docmost         | Documentation       |
+| paperless.barta.cm | Paperless-ngx   | Document management |
+
+_(grafana/influxdb.barta.cm retired 2026-06/08 — NIX-193, OPS-60)_
 
 ## Troubleshooting
 
@@ -124,7 +124,7 @@ docker exec csb1-traefik-1 ls -la /letsencrypt/
 docker exec csb1-traefik-1 traefik show routers
 
 # Check labels on target container
-docker inspect csb1-grafana-1 --format='{{json .Config.Labels}}' | jq
+docker inspect csb1-docmost-1 --format='{{json .Config.Labels}}' | jq
 ```
 
 ## Test Log
