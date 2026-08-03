@@ -171,11 +171,14 @@ in
 
   # Restic Hetzner SSH key
   # TODO: Rename to shared-restic-hetzner-ssh.age
-  "restic-hetzner-ssh-key.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ csb0 ++ csb1;
+  # hsb8 + hsb9 added 2026-08-03 (OPS-53 family-server backups, per-host
+  # subpaths /hsb8 + /hsb9 on the same storagebox).
+  "restic-hetzner-ssh-key.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ csb0 ++ csb1 ++ hsb8 ++ hsb9;
 
   # Restic Hetzner environment variables
   # TODO: Rename to shared-restic-hetzner-env.age
-  "restic-hetzner-env.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ csb0 ++ csb1;
+  # hsb8 + hsb9 added 2026-08-03 (OPS-53).
+  "restic-hetzner-env.age".publicKeys = markus ++ hsb0 ++ hsb1 ++ csb0 ++ csb1 ++ hsb8 ++ hsb9;
 
   # hsb1 specific restic secrets (sub2)
   "hsb1-restic-ssh-key.age".publicKeys = markus ++ hsb1;

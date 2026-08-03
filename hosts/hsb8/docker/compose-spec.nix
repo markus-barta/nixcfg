@@ -80,12 +80,16 @@
         "GIT_CONFIG_COUNT=1"
         "GIT_CONFIG_KEY_0=safe.directory"
         "GIT_CONFIG_VALUE_0=/nixcfg"
+        # OPS-53: read the restic status file for backup posture reporting
+        "PHAROS_BACKUP_MODE=status-file"
+        "PHAROS_BACKUP_STATUS_FILE=/pharos-backup-status/restic-cron-hetzner.json"
       ];
       volumes = [
         "/home/mba/Code/nixcfg:/nixcfg:ro"
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
+        "/var/lib/hsb8-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
@@ -152,6 +156,39 @@
       ];
       labels = [
         "com.centurylinklabs.watchtower.scope=weekly"
+      ];
+    };
+    # OPS-53: off-box restic backups (HA config + mosquitto + /etc) to the
+    # shared Hetzner storagebox, per-host subpath /hsb8. Reporting is the
+    # Pharos status-file dead-man's-switch — NO mail on family servers
+    # (OPS-137 architecture decision). Mirrors hsb0 (PR #213/#214 generation).
+    restic-cron-hetzner = {
+      build = "./restic-cron";
+      container_name = "restic-cron-hetzner";
+      restart = "unless-stopped";
+      volumes = [
+        "/etc/localtime:/etc/localtime:ro"
+        "/srv/hsb8/mounts/homeassistant:/backup/srv/hsb8/mounts/homeassistant:ro"
+        "/srv/hsb8/mounts/mosquitto:/backup/srv/hsb8/mounts/mosquitto:ro"
+        "/etc:/backup/etc:ro"
+        "/run/agenix/restic-hetzner-ssh-key:/root/.ssh/id_rsa:ro"
+        "./restic-cron/ssh_known_hosts:/root/.ssh/known_hosts:ro"
+        "./restic-cron/hetzner/run_backup.sh:/usr/local/bin/run_backup.sh:ro"
+        "./restic-cron/hetzner/run_check.sh:/usr/local/bin/run_check.sh:ro"
+        "./restic-cron/hetzner/run_cleanup.sh:/usr/local/bin/run_cleanup.sh:ro"
+        "./restic-cron/hetzner/start_cron.sh:/usr/local/bin/start_cron.sh:ro"
+        "/var/lib/hsb8-docker/pharos-backup-status:/pharos-backup-status"
+      ];
+      environment = {
+        RESTIC_REPOSITORY = "sftp:u387549-sub1@u387549.your-storagebox.de:23/hsb8";
+        CRON_BACKUP_EXPRESSION = "30 2 * * *";
+        PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";
+      };
+      env_file = [
+        "/run/agenix/restic-hetzner-env"
+      ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
       ];
     };
   };

@@ -695,6 +695,16 @@ in
     mode = "0400";
   };
 
+  # OPS-53: off-box restic backups — shared Hetzner key + password (agenix
+  # default 0400 root; the container reads via bind. csb0/hsb0 pattern; the
+  # explicit mode=444 that broke hsb0 for 7 months is deliberately absent).
+  age.secrets.restic-hetzner-ssh-key = {
+    file = ../../secrets/restic-hetzner-ssh-key.age;
+  };
+  age.secrets.restic-hetzner-env = {
+    file = ../../secrets/restic-hetzner-env.age;
+  };
+
   # NIX-235: watchtower env (HTTP API token + telegram notification URL),
 
   # ============================================================================
