@@ -1,0 +1,28 @@
+# OPS-136 rollback override — legacy project `inspr-at` (4 services).
+#
+# Purpose: make rollback DETERMINISTIC. The legacy base file references
+# mutable tags (caddy:2-alpine, postgres:16-alpine, zitadel:stable) whose
+# local resolution may have moved since the containers were created. This
+# override pins every service to the exact image observed live 2026-08-04.
+#
+# Usage (root, under the held campaign flock — see RUNBOOK "OPS-136"):
+#   docker-compose --project-directory /home/mba/docker/inspr-at \
+#     -f /home/mba/docker/inspr-at/docker-compose.yml \
+#     -f /home/mba/Code/nixcfg/hosts/csb1/docker/ops136/rollback-inspr-at.override.yml \
+#     -p inspr-at up -d --no-build --pull never
+#
+# NEVER use with `down -v`. NEVER run while the csb1-project copies of these
+# services exist (single-postgres invariant).
+services:
+  inspr-www:
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+  inspr-auth:
+    # build removed: rollback must restore the recorded image, never rebuild
+    # the unversioned source. Image ID is preserved by docker save/load.
+    build: !reset null
+    image: sha256:88feff29ac779e7551f28914a30aaab5338fb03e45e253194bd6c9739ea7edc8
+    pull_policy: never
+  zitadel-postgres:
+    image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:stable@sha256:5fb493fdb73204667cdd05715ef5f140049bf2781e10fd8ca407ce5aaa29f3df

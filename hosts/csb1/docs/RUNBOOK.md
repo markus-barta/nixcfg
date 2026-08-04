@@ -118,26 +118,29 @@ NIX-118) is tracked in **OPS-61** — the compose spec
 
 ### All Containers (15 running)
 
-| Container                   | Purpose                    |
-| --------------------------- | -------------------------- |
-| csb1-docmost-1              | Documentation wiki         |
-| csb1-docmost-db-1           | PostgreSQL for Docmost     |
-| csb1-docmost-redis-1        | Redis cache                |
-| csb1-paperless-1            | Document management        |
-| csb1-paperless-db-1         | PostgreSQL for Paperless   |
-| csb1-paperless-redis-1      | Redis                      |
-| csb1-paperless-tika-1       | Document parsing           |
-| csb1-paperless-gotenberg-1  | PDF conversion             |
-| csb1-traefik-1              | Reverse proxy              |
-| csb1-hostdash-1             | HostDash service dashboard |
-| csb1-docker-proxy-traefik-1 | Traefik proxy              |
-| csb1-restic-cron-hetzner-1  | Backup (cleanup on csb0!)  |
-| csb1-smtp-1                 | Mail relay                 |
-| csb1-excalidraw-1           | Whiteboard (draw.barta.cm) |
-| ppm                         | PAIMOS PM (pm.barta.cm)    |
-| minio                       | S3 for ppm attachments     |
-| paimos-www                  | paimos.com static (caddy)  |
-| inspr-www                   | inspr.at static (caddy)    |
+| Container                   | Purpose                                                      |
+| --------------------------- | ------------------------------------------------------------ |
+| csb1-docmost-1              | Documentation wiki                                           |
+| csb1-docmost-db-1           | PostgreSQL for Docmost                                       |
+| csb1-docmost-redis-1        | Redis cache                                                  |
+| csb1-paperless-1            | Document management                                          |
+| csb1-paperless-db-1         | PostgreSQL for Paperless                                     |
+| csb1-paperless-redis-1      | Redis                                                        |
+| csb1-paperless-tika-1       | Document parsing                                             |
+| csb1-paperless-gotenberg-1  | PDF conversion                                               |
+| csb1-traefik-1              | Reverse proxy                                                |
+| csb1-hostdash-1             | HostDash service dashboard                                   |
+| csb1-docker-proxy-traefik-1 | Traefik proxy                                                |
+| csb1-restic-cron-hetzner-1  | Backup (cleanup on csb0!)                                    |
+| csb1-smtp-1                 | Mail relay                                                   |
+| csb1-excalidraw-1           | Whiteboard (draw.barta.cm)                                   |
+| ppm                         | PAIMOS PM (pm.barta.cm)                                      |
+| minio                       | S3 for ppm attachments                                       |
+| paimos-www                  | paimos.com static (caddy)                                    |
+| inspr-www                   | inspr.at family edge (caddy: www/janus/paimos/pharos/v1)     |
+| inspr-auth                  | OIDC session backend (inspr.at/{enter,login,welcome,logout}) |
+| zitadel                     | 🔴 Identity provider (auth.inspr.at)                         |
+| zitadel-postgres            | 🔴 IdP database (volume inspr-at_zitadel_postgres_data)      |
 
 ### Quick Commands
 
@@ -149,10 +152,49 @@ docker ps -a
 docker restart csb1-paperless-1
 
 # View logs
-
-# Restart all services
-cd ~/docker && docker-compose down && docker-compose up -d
+docker logs --tail 100 <container>
 ```
+
+🔴 There is NO `~/docker/docker-compose.yml` anymore (OPS-127) and there is
+never a reason to `down` the whole csb1 project — that would stop every
+service including Traefik, Janus and the IdP. Reconcile a single service:
+
+```bash
+sudo /nix/store/f5qch8f2b3hch9ar5nvvadxxgnssxz6c-docker-compose-5.3.1/bin/docker-compose \
+  -p csb1 -f /etc/compose/csb1/docker-compose.yml \
+  --project-directory /home/mba/Code/nixcfg/hosts/csb1/docker \
+  up -d --no-deps <service>
+```
+
+(While OPS-136 staging has `reconcile = false`, this scoped command is also
+the ONLY sanctioned substitute for the absent reconcile unit — restart
+policies survive crashes, but a REMOVED container is not recreated until
+PR-2 restores reconciliation.)
+
+### OPS-136 — who owns the 5 (zitadel, zitadel-postgres, inspr-auth, inspr-www, paimos-www)
+
+Identify the current phase by the compose project label:
+
+```bash
+for c in zitadel zitadel-postgres inspr-auth inspr-www paimos-www; do
+  printf '%s\t%s\n' "$c" "$(docker inspect "$c" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null || echo ABSENT)"
+done
+```
+
+| Observed state (per service) | Meaning                      | Recovery command                                                                                                      |
+| ---------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `inspr-at` / `paimos`        | legacy phase (pre-cutover)   | `ops136/rollback.sh` semantics: legacy compose files + pinned overrides                                               |
+| `csb1`                       | adopted phase (post-cutover) | scoped `up -d --no-deps <svc>` against the rendered file (above)                                                      |
+| `ABSENT`                     | removed, not recreated       | start under the CURRENT owner phase only — never both                                                                 |
+| mixed across the 5           | interrupted transition       | 🔴 postgres first; run `ops136/rollback.sh` OR finish the cutover — never leave two postgres candidates able to start |
+
+🔴 Invariant: at most ONE container may ever reference volume
+`inspr-at_zitadel_postgres_data` (`docker ps -a --filter volume=inspr-at_zitadel_postgres_data`).
+All OPS-136 commands run as root under the campaign flock
+(`/run/lock/compose-csb1.lock`); the scripts in
+`hosts/csb1/docker/ops136/` take it themselves. Campaign evidence + journal:
+`/root/ops136-backups/`. Disaster recovery from image archives:
+`ops136/dr-image-id.override.yml` (read its STEP 0 first).
 
 ### Janus Staged Engine Smoke
 

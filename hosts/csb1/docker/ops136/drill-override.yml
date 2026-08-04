@@ -1,0 +1,94 @@
+# OPS-136 P1 drill override — starts the CANDIDATE services from the
+# rendered spec in a fully isolated shadow project, with every production
+# touchpoint reset:
+#   - container_name reset  → no clash with the live containers
+#   - networks → ops136-drill only (created with --internal: no egress —
+#     a restored production zitadel clone must not send notifications)
+#   - traefik labels reset  → exposedByDefault is ON in this traefik; a
+#     drill container with production labels would register duplicate LIVE
+#     routers. labels are overridden to a single explicit disable.
+#   - restart "no", writable state on fresh drill volumes/tmpfs
+#   - read-only binds to real Caddyfiles/site dirs are KEPT (safe, needed
+#     for content assertions)
+#
+# drill.sh asserts all of this on the CREATED containers before starting
+# anything — this file is the mechanism, the assertions are the gate.
+#
+# Usage: only via drill.sh (shadow project ops136drill, rendered file base).
+services:
+  inspr-www:
+    container_name: !reset null
+    restart: !override "no"
+    labels: !override
+      - traefik.enable=false
+      - ops136.drill=true
+    networks: !override
+      - drill
+    volumes: !override
+      - /home/mba/docker/inspr-at/releases:/srv/releases:ro
+      - /home/mba/docker/inspr-at/site:/srv/v1:ro
+      - /home/mba/docker/inspr-at/Caddyfile:/etc/caddy/Caddyfile:ro
+      - drill_inspr_caddy_data:/data
+      - drill_inspr_caddy_config:/config
+  inspr-auth:
+    container_name: !reset null
+    restart: !override "no"
+    labels: !override
+      - traefik.enable=false
+      - ops136.drill=true
+    networks: !override
+      - drill
+  zitadel-postgres:
+    container_name: !reset null
+    restart: !override "no"
+    labels: !override
+      - traefik.enable=false
+      - ops136.drill=true
+    networks: !override
+      - drill
+    # Bootstrap superuser deliberately `postgres` (NOT zitadel) so the
+    # pg_dumpall restore can CREATE ROLE zitadel cleanly — the candidate
+    # zitadel then authenticates against the RESTORED role password, which
+    # functionally proves the agenix DB-password transcription.
+    environment:
+      POSTGRES_USER: !override postgres
+      POSTGRES_DB: !override postgres
+    volumes: !override
+      - drill_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: !override ["CMD", "pg_isready", "-U", "postgres"]
+  zitadel:
+    container_name: !reset null
+    restart: !override "no"
+    labels: !override
+      - traefik.enable=false
+      - ops136.drill=true
+    networks: !override
+      - drill
+    volumes: !override
+      # tmpfs copy prepared by drill.sh (chown 1000, mode 700); the real
+      # machinekey dir is never mounted into the drill.
+      - /dev/shm/ops136-drill/machinekey:/machinekey
+  paimos-www:
+    container_name: !reset null
+    restart: !override "no"
+    labels: !override
+      - traefik.enable=false
+      - ops136.drill=true
+    networks: !override
+      - drill
+    volumes: !override
+      - /home/mba/docker/paimos/site:/srv:ro
+      - /home/mba/docker/paimos/Caddyfile:/etc/caddy/Caddyfile:ro
+      - drill_paimos_caddy_data:/data
+      - drill_paimos_caddy_config:/config
+networks:
+  drill:
+    external: true
+    name: ops136-drill
+volumes:
+  drill_pgdata: {}
+  drill_inspr_caddy_data: {}
+  drill_inspr_caddy_config: {}
+  drill_paimos_caddy_data: {}
+  drill_paimos_caddy_config: {}
