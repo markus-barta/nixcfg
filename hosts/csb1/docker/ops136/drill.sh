@@ -43,8 +43,10 @@ for svc in "${SERVICES[@]}"; do
   c="$DP-$svc-1"
   [ "$(container_project "$c")" = "$DP" ] || die "$c: wrong project"
   [ "$(docker inspect "$c" --format '{{.HostConfig.RestartPolicy.Name}}')" = no ] || die "$c: restart policy not 'no'"
-  nets=$(docker inspect "$c" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}')
-  [ "$(echo "$nets" | xargs)" = "$NET" ] || die "$c: networks '$nets' != $NET"
+  # No separator in the template: with exactly one network this equals $NET;
+  # any extra network breaks the equality. No external trimming tools needed.
+  nets=$(docker inspect "$c" --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')
+  [ "$nets" = "$NET" ] || die "$c: networks '$nets' != $NET"
   [ "$(docker inspect "$c" --format '{{len .HostConfig.PortBindings}}')" = 0 ] || die "$c: has published ports"
   docker inspect "$c" --format '{{range $k,$v := .Config.Labels}}{{$k}}={{$v}}{{"\n"}}{{end}}' | grep -q '^traefik.enable=false$' || die "$c: traefik.enable=false missing"
   docker inspect "$c" --format '{{range $k,$v := .Config.Labels}}{{$k}}{{"\n"}}{{end}}' | grep -q '^traefik\.http' && die "$c: carries production traefik.http.* labels"
