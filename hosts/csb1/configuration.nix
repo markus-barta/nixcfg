@@ -142,7 +142,16 @@ in
     project = "csb1";
     stackName = "csb1";
     # 🟢 CUT OVER 2026-08-01 (OPS-122).
-    reconcile = true;
+    # 🟡 OPS-136 STAGING (2026-08-04): reconcile=false while the legacy
+    # inspr-at/paimos projects are adopted. The spec + agenix secrets land in
+    # the closure, but NO compose up runs at switch and the Saturday
+    # autoUpdate timer is absent (both are mkIf reconcile). The legacy
+    # projects keep owning the 5 containers until the attended cutover
+    # (OPS-136 P2); scoped manual reconcile commands for the EXISTING csb1
+    # estate during this window are in the RUNBOOK ("staging phase").
+    # 🔴 Flip back to true = OPS-136 PR-2, attended, with the zero-change
+    # --dry-run gate. Staging bound: ≤7 days (one skipped Saturday max).
+    reconcile = false;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/csb1/docker";
     postRecreate = [
       "hostdash-auth"
@@ -934,6 +943,34 @@ in
   # === NIX-110: csb1 docker stack migration — bulk env file refactor ===
   # All env files for services in /home/mba/docker/docker-compose.yml that
   # previously lived in ~/secrets/ or ./xxx.env are now in agenix.
+
+  # OPS-136 — identity-provider stack secrets (adopted inspr-at/paimos
+  # projects). 🔴 mode 0400 deliberately (NOT the 0644 some older entries
+  # carry): these hold the zitadel masterkey and IdP DB credentials. Compose
+  # reads env_file client-side, and the reconcile/update units run as root.
+  age.secrets.csb1-zitadel-env = {
+    file = ../../secrets/csb1-zitadel-env.age;
+    path = "/run/agenix/csb1-zitadel-env";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+
+  age.secrets.csb1-zitadel-postgres-env = {
+    file = ../../secrets/csb1-zitadel-postgres-env.age;
+    path = "/run/agenix/csb1-zitadel-postgres-env";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+
+  age.secrets.csb1-inspr-auth-env = {
+    file = ../../secrets/csb1-inspr-auth-env.age;
+    path = "/run/agenix/csb1-inspr-auth-env";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
 
   age.secrets.csb1-docmost-postgres-env = {
     file = ../../secrets/csb1-docmost-postgres-env.age;

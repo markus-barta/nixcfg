@@ -1,0 +1,39 @@
+# OPS-136 DISASTER-RECOVERY override — image-ID pins for all five adopted
+# services. FOR DR ONLY, never for routine operation.
+#
+# When: a pinned registry digest has become unpullable (registry GC, account
+# loss) AND the images must be restored from the tagless archives under
+# /root/ops136-backups/ (docker load → untagged images addressed by ID).
+#
+# 🔴 STEP 0 (mandatory): stop compose-csb1-update.timer, wait for any active
+# compose-csb1[-update].service run to finish ON ITS OWN (never signal it),
+# and prevent re-activation before using this file — otherwise the next
+# reconcile/Saturday run converges back to the dead registry references.
+# (A declarative inhibitor option lands with OPS-136 PR-3; until then this
+# is an attended-only procedure.)
+#
+# Usage (root, under the held campaign flock):
+#   docker-compose -p csb1 \
+#     -f /etc/compose/csb1/docker-compose.yml \
+#     -f /home/mba/Code/nixcfg/hosts/csb1/docker/ops136/dr-image-id.override.yml \
+#     --project-directory /home/mba/Code/nixcfg/hosts/csb1/docker \
+#     up -d --no-build --pull never inspr-www inspr-auth zitadel-postgres zitadel paimos-www
+#
+# Exit criteria: a surgical spec PR installs durable references (image-ID or
+# re-pushed mirror digests) — the recovered state is TEMPORARY.
+services:
+  inspr-www:
+    image: sha256:af555904a0961945f16bb323a501457b13a4f7e9bde969b145b97da80b38ecbe
+    pull_policy: never
+  inspr-auth:
+    image: sha256:88feff29ac779e7551f28914a30aaab5338fb03e45e253194bd6c9739ea7edc8
+    pull_policy: never
+  zitadel-postgres:
+    image: sha256:667495ca2ac33180ad3690178da1bf274f481d0c43849d4c1941f0176983bd2e
+    pull_policy: never
+  zitadel:
+    image: sha256:447b552fcf142a5aedba2f8b22f36c3a86c372bc13d78c5e147b3a64fc5c4c49
+    pull_policy: never
+  paimos-www:
+    image: sha256:af555904a0961945f16bb323a501457b13a4f7e9bde969b145b97da80b38ecbe
+    pull_policy: never

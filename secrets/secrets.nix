@@ -299,6 +299,25 @@ in
   # migration. Each is referenced by the corresponding service in
   # hosts/csb1/docker/compose-spec.nix as env_file: /run/agenix/<name>.
 
+  # === OPS-136: adoption of the legacy inspr-at/paimos compose projects ===
+  # Values are transcribed by the human from /home/mba/docker/inspr-at/.env on
+  # csb1 (var-name MAPPING differs — see the templates on ticket OPS-136).
+  # Verified byte-equal against the live containers by the P1 drill before
+  # cutover. Edit: agenix -e secrets/<name>.age
+
+  # zitadel — ZITADEL_MASTERKEY, ZITADEL_DATABASE_POSTGRES_USER_PASSWORD,
+  # ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD (both = old
+  # ZITADEL_POSTGRES_PASSWORD), ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD
+  # (= old ZITADEL_ADMIN_PASSWORD, init-only recovery material)
+  "csb1-zitadel-env.age".publicKeys = markus ++ csb1;
+  # zitadel-postgres — POSTGRES_PASSWORD (= old ZITADEL_POSTGRES_PASSWORD;
+  # init-only on the existing volume, recovery material)
+  "csb1-zitadel-postgres-env.age".publicKeys = markus ++ csb1;
+  # inspr-auth — OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY,
+  # INSPR_AUTH_SA_PAT, ZITADEL_API_PAT (same names as the legacy .env; copy
+  # verbatim including empty values)
+  "csb1-inspr-auth-env.age".publicKeys = markus ++ csb1;
+
   # Docmost — Postgres credentials
   "csb1-docmost-postgres-env.age".publicKeys = markus ++ csb1;
   # Docmost — application config (API keys, S3 creds, etc.)

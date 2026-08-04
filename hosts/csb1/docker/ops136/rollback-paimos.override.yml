@@ -1,0 +1,11 @@
+# OPS-136 rollback override — legacy project `paimos` (1 service).
+# See rollback-inspr-at.override.yml header for rationale and rules.
+#
+# Usage (root, under the held campaign flock):
+#   docker-compose --project-directory /home/mba/docker/paimos \
+#     -f /home/mba/docker/paimos/docker-compose.yml \
+#     -f /home/mba/Code/nixcfg/hosts/csb1/docker/ops136/rollback-paimos.override.yml \
+#     -p paimos up -d --no-build --pull never
+services:
+  paimos-www:
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648

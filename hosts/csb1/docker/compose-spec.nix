@@ -1238,6 +1238,275 @@
         "traefik.enable=false"
       ];
     };
+    # ============================================
+    # OPS-136 — adopted from legacy project `inspr-at`
+    # (/home/mba/docker/inspr-at/docker-compose.yml) on the SAME volumes and
+    # network. All images pinned at the digests observed live 2026-08-04 —
+    # adoption day moves ZERO software versions. The zitadel upgrade (image is
+    # from 2024-07-31, ~2 years behind) is its own deliberate ticket.
+    # Volumes keep their inspr-at_/paimos_ prefixes via external+name below —
+    # renaming them would strand the IdP database.
+    # ============================================
+    inspr-www = {
+      # inspr.at edge: serves www + paimos/pharos/janus/v1 subdomains. Its
+      # routers carry ALL inspr.at web properties — downtime here takes the
+      # whole family including the Pharos UI.
+      image = "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"; # OPS-136: pinned at adoption; floating policy is a later reviewed change
+      container_name = "inspr-www";
+      restart = "unless-stopped";
+      networks = [
+        "traefik"
+      ];
+      volumes = [
+        # deploy.sh (INSPR-side) writes immutable builds under releases/ and
+        # atomically flips releases/current; site/ is the frozen v1 archive.
+        # Paths stay byte-identical to the legacy project on purpose.
+        "/home/mba/docker/inspr-at/releases:/srv/releases:ro"
+        "/home/mba/docker/inspr-at/site:/srv/v1:ro"
+        "/home/mba/docker/inspr-at/Caddyfile:/etc/caddy/Caddyfile:ro"
+        "inspr_at_caddy_data:/data"
+        "inspr_at_caddy_config:/config"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.docker.network=csb1_traefik"
+        # One router per public hostname keeps certificate issuance isolated.
+        "traefik.http.routers.inspr-www.rule=Host(`www.inspr.at`)"
+        "traefik.http.routers.inspr-www.tls=true"
+        "traefik.http.routers.inspr-www.tls.certresolver=default"
+        "traefik.http.routers.inspr-www.middlewares=cloudflarewarp@file"
+        "traefik.http.routers.inspr-www.service=inspr-sites"
+        "traefik.http.routers.inspr-paimos.rule=Host(`paimos.inspr.at`)"
+        "traefik.http.routers.inspr-paimos.tls=true"
+        "traefik.http.routers.inspr-paimos.tls.certresolver=default"
+        "traefik.http.routers.inspr-paimos.middlewares=cloudflarewarp@file"
+        "traefik.http.routers.inspr-paimos.service=inspr-sites"
+        "traefik.http.routers.inspr-pharos.rule=Host(`pharos.inspr.at`)"
+        "traefik.http.routers.inspr-pharos.tls=true"
+        "traefik.http.routers.inspr-pharos.tls.certresolver=default"
+        "traefik.http.routers.inspr-pharos.middlewares=cloudflarewarp@file"
+        "traefik.http.routers.inspr-pharos.service=inspr-sites"
+        "traefik.http.routers.inspr-janus.rule=Host(`janus.inspr.at`)"
+        "traefik.http.routers.inspr-janus.tls=true"
+        "traefik.http.routers.inspr-janus.tls.certresolver=default"
+        "traefik.http.routers.inspr-janus.middlewares=cloudflarewarp@file"
+        "traefik.http.routers.inspr-janus.service=inspr-sites"
+        "traefik.http.routers.inspr-v1.rule=Host(`v1.inspr.at`)"
+        "traefik.http.routers.inspr-v1.tls=true"
+        "traefik.http.routers.inspr-v1.tls.certresolver=default"
+        "traefik.http.routers.inspr-v1.middlewares=cloudflarewarp@file"
+        "traefik.http.routers.inspr-v1.service=inspr-sites"
+        # Catch first-time plain-HTTP visits before HSTS can apply.
+        "traefik.http.routers.inspr-sites-http.rule=Host(`inspr.at`) || Host(`www.inspr.at`) || Host(`paimos.inspr.at`) || Host(`pharos.inspr.at`) || Host(`janus.inspr.at`) || Host(`v1.inspr.at`)"
+        "traefik.http.routers.inspr-sites-http.entrypoints=web"
+        "traefik.http.routers.inspr-sites-http.middlewares=inspr-sites-https@docker"
+        "traefik.http.routers.inspr-sites-http.service=inspr-sites"
+        "traefik.http.middlewares.inspr-sites-https.redirectscheme.scheme=https"
+        "traefik.http.middlewares.inspr-sites-https.redirectscheme.permanent=true"
+        "traefik.http.middlewares.inspr-edge-hsts.headers.stsSeconds=31536000"
+        "traefik.http.middlewares.inspr-edge-hsts.headers.stsIncludeSubdomains=true"
+        "traefik.http.middlewares.inspr-edge-hsts.headers.stsPreload=true"
+        # Apex stays routable for identity paths; www is canonical otherwise.
+        "traefik.http.routers.inspr-apex.rule=Host(`inspr.at`)"
+        "traefik.http.routers.inspr-apex.tls=true"
+        "traefik.http.routers.inspr-apex.tls.certresolver=default"
+        "traefik.http.routers.inspr-apex.middlewares=inspr-edge-hsts@docker,inspr-canonical-redirect@docker,cloudflarewarp@file"
+        "traefik.http.routers.inspr-apex.service=inspr-sites"
+        "traefik.http.middlewares.inspr-canonical-redirect.redirectregex.regex=^https?://inspr\\.at/(.*)"
+        "traefik.http.middlewares.inspr-canonical-redirect.redirectregex.replacement=https://www.inspr.at/$\${1}"
+        "traefik.http.middlewares.inspr-canonical-redirect.redirectregex.permanent=true"
+        "traefik.http.services.inspr-sites.loadbalancer.server.port=80"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-136: composeStack owns this service now (was =true under watchtower)
+      ];
+    };
+    inspr-auth = {
+      # Go OIDC session backend for inspr.at/{enter,login,welcome,logout}.
+      # 🔴 Image exists ONLY locally (built 2026-05-11 from the unversioned
+      # source in /home/mba/docker/inspr-at/auth). Pinned by immutable image
+      # ID; pull_policy never keeps the Saturday autoUpdate pull from failing
+      # on it. OPS-136 closes only when this has a GHCR home + digest pin.
+      image = "sha256:88feff29ac779e7551f28914a30aaab5338fb03e45e253194bd6c9739ea7edc8";
+      pull_policy = "never";
+      container_name = "inspr-auth";
+      restart = "unless-stopped";
+      networks = [
+        "traefik"
+      ];
+      environment = {
+        OIDC_ISSUER = "https://auth.inspr.at";
+        BASE_URL = "https://inspr.at";
+        LISTEN = ":8080";
+      };
+      env_file = [
+        # OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY, INSPR_AUTH_SA_PAT,
+        # ZITADEL_API_PAT — see secrets/csb1-inspr-auth-env.age
+        "/run/agenix/csb1-inspr-auth-env"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.docker.network=csb1_traefik"
+        # Priority 100 > inspr-www's default so these paths win on the apex.
+        "traefik.http.routers.inspr-auth.rule=Host(`inspr.at`) && (PathPrefix(`/enter`) || PathPrefix(`/login`) || PathPrefix(`/welcome`) || PathPrefix(`/logout`))"
+        "traefik.http.routers.inspr-auth.priority=100"
+        "traefik.http.routers.inspr-auth.tls=true"
+        "traefik.http.routers.inspr-auth.tls.certresolver=default"
+        "traefik.http.routers.inspr-auth.middlewares=cloudflarewarp@file,inspr-edge-hsts@docker"
+        "traefik.http.services.inspr-auth.loadbalancer.server.port=8080"
+        "com.centurylinklabs.watchtower.enable=false"
+      ];
+    };
+    zitadel-postgres = {
+      # 🔴 THE identity database. external+name volume below — a project-
+      # prefixed volume here would start the IdP on an empty database.
+      image = "postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50"; # OPS-136: pinned — never float a database engine
+      container_name = "zitadel-postgres";
+      restart = "unless-stopped";
+      stop_grace_period = "120s";
+      networks = [
+        "traefik"
+      ];
+      environment = {
+        POSTGRES_USER = "zitadel";
+        POSTGRES_DB = "zitadel";
+      };
+      env_file = [
+        # POSTGRES_PASSWORD — init-only on an existing volume (recovery
+        # material); see secrets/csb1-zitadel-postgres-env.age
+        "/run/agenix/csb1-zitadel-postgres-env"
+      ];
+      volumes = [
+        "zitadel_postgres_data:/var/lib/postgresql/data"
+      ];
+      healthcheck = {
+        test = [
+          "CMD"
+          "pg_isready"
+          "-U"
+          "zitadel"
+        ];
+        interval = "10s";
+        timeout = "5s";
+        retries = 6;
+      };
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=false"
+      ];
+    };
+    zitadel = {
+      # IdP at auth.inspr.at. Digest = the image observed live 2026-08-04
+      # (created 2024-07-31; `:stable` had never been re-pulled). Upgrading
+      # is a separate ticket with its own DB-migration plan.
+      image = "ghcr.io/zitadel/zitadel:stable@sha256:5fb493fdb73204667cdd05715ef5f140049bf2781e10fd8ca407ce5aaa29f3df";
+      container_name = "zitadel";
+      restart = "unless-stopped";
+      depends_on = {
+        zitadel-postgres = {
+          condition = "service_healthy";
+        };
+      };
+      networks = [
+        "traefik"
+      ];
+      # OPS-136: was `--masterkey <value>` via .env interpolation — the key
+      # rode the container command line (visible in inspect/proc). Now read
+      # from ZITADEL_MASTERKEY env (agenix). Flag verified on this exact
+      # image (P0, 2026-08-04).
+      command = [
+        "start-from-init"
+        "--masterkeyFromEnv"
+        "--tlsMode"
+        "external"
+      ];
+      environment = {
+        ZITADEL_DATABASE_POSTGRES_HOST = "zitadel-postgres";
+        ZITADEL_DATABASE_POSTGRES_PORT = "5432";
+        ZITADEL_DATABASE_POSTGRES_DATABASE = "zitadel";
+        ZITADEL_DATABASE_POSTGRES_USER_USERNAME = "zitadel";
+        ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE = "disable";
+        ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME = "zitadel";
+        ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE = "disable";
+        # NOTE: changing ExternalDomain after first init requires reset.
+        ZITADEL_EXTERNALDOMAIN = "auth.inspr.at";
+        ZITADEL_EXTERNALPORT = "443";
+        ZITADEL_EXTERNALSECURE = "true";
+        # Traefik terminates TLS; zitadel listens HTTP on the docker net.
+        ZITADEL_TLS_ENABLED = "false";
+        ZITADEL_PORT = "8080";
+        # First-instance bootstrap — inert on the existing database, kept
+        # for empty-volume disaster recovery fidelity. Password via agenix.
+        ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME = "zitadel-admin";
+        ZITADEL_FIRSTINSTANCE_ORG_HUMAN_FIRSTNAME = "Zitadel";
+        ZITADEL_FIRSTINSTANCE_ORG_HUMAN_LASTNAME = "Admin";
+        ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS = "admin@auth.inspr.at";
+        ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED = "true";
+        ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED = "false";
+        ZITADEL_FIRSTINSTANCE_ORG_NAME = "INSPR";
+        ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME = "bootstrap-sa";
+        ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME = "Bootstrap";
+        ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE = "2099-12-31T23:59:59Z";
+        ZITADEL_FIRSTINSTANCE_PATPATH = "/machinekey/pat.txt";
+      };
+      env_file = [
+        # ZITADEL_MASTERKEY, ZITADEL_DATABASE_POSTGRES_USER_PASSWORD,
+        # ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD,
+        # ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD — csb1-zitadel-env.age
+        "/run/agenix/csb1-zitadel-env"
+      ];
+      volumes = [
+        # Bind (not named volume): host dir is chowned to UID 1000 so
+        # zitadel's non-root user can write the bootstrap PAT (legacy fix).
+        "/home/mba/docker/inspr-at/.machinekey:/machinekey"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.zitadel.rule=Host(`auth.inspr.at`)"
+        "traefik.http.routers.zitadel.tls=true"
+        "traefik.http.routers.zitadel.tls.certresolver=default"
+        "traefik.http.routers.zitadel.middlewares=cloudflarewarp@file,inspr-edge-hsts@docker"
+        "traefik.http.routers.zitadel-http.rule=Host(`auth.inspr.at`)"
+        "traefik.http.routers.zitadel-http.entrypoints=web"
+        "traefik.http.routers.zitadel-http.middlewares=inspr-sites-https@docker"
+        "traefik.http.routers.zitadel-http.service=zitadel"
+        "traefik.http.services.zitadel.loadbalancer.server.port=8080"
+        # zitadel speaks h2c on the backend for its gRPC services; without
+        # this the console breaks while /oauth/v2/* still works.
+        "traefik.http.services.zitadel.loadbalancer.server.scheme=h2c"
+        "com.centurylinklabs.watchtower.enable=false"
+      ];
+    };
+    # ============================================
+    # OPS-136 — adopted from legacy project `paimos`
+    # (/home/mba/docker/paimos/docker-compose.yml)
+    # ============================================
+    paimos-www = {
+      image = "caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648"; # OPS-136: pinned at adoption; floating policy is a later reviewed change
+      container_name = "paimos-www";
+      restart = "unless-stopped";
+      networks = [
+        "traefik"
+      ];
+      volumes = [
+        "/home/mba/docker/paimos/site:/srv:ro"
+        "/home/mba/docker/paimos/Caddyfile:/etc/caddy/Caddyfile:ro"
+        "paimos_caddy_data:/data"
+        "paimos_caddy_config:/config"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.docker.network=csb1_traefik"
+        "traefik.http.routers.paimos.rule=Host(`paimos.com`) || Host(`www.paimos.com`)"
+        "traefik.http.routers.paimos.tls=true"
+        "traefik.http.routers.paimos.tls.certresolver=default"
+        "traefik.http.routers.paimos.middlewares=paimos-www-redirect@docker,cloudflarewarp@file"
+        "traefik.http.middlewares.paimos-www-redirect.redirectregex.regex=^https?://www\\.paimos\\.com/(.*)"
+        "traefik.http.middlewares.paimos-www-redirect.redirectregex.replacement=https://paimos.com/$\${1}"
+        "traefik.http.middlewares.paimos-www-redirect.redirectregex.permanent=true"
+        "traefik.http.services.paimos.loadbalancer.server.port=80"
+        "com.centurylinklabs.watchtower.enable=false" # OPS-136: composeStack owns this service now (was =true under watchtower)
+      ];
+    };
   };
   volumes = {
     pharos_data = { };
@@ -1272,6 +1541,30 @@
       name = "\${JANUS_SMOKE_PERMIT_VOLUME:-janus_engine_smoke_permits}";
     };
     minio_data = { };
+    # OPS-136 — volumes adopted from the legacy inspr-at/paimos projects.
+    # 🔴 external + name is load-bearing: without it, project csb1 would
+    # create fresh empty `csb1_*` volumes and the IdP would boot on a blank
+    # database. Names must stay byte-identical to the legacy prefixes.
+    inspr_at_caddy_data = {
+      external = true;
+      name = "inspr-at_caddy_data";
+    };
+    inspr_at_caddy_config = {
+      external = true;
+      name = "inspr-at_caddy_config";
+    };
+    zitadel_postgres_data = {
+      external = true;
+      name = "inspr-at_zitadel_postgres_data";
+    };
+    paimos_caddy_data = {
+      external = true;
+      name = "paimos_caddy_data";
+    };
+    paimos_caddy_config = {
+      external = true;
+      name = "paimos_caddy_config";
+    };
   };
   networks = {
     internal = null;
