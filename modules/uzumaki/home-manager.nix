@@ -63,7 +63,7 @@ in
     ./theme/theme-hm.nix # Per-host theming (starship, zellij, eza)
     ./ai-clis-npm.nix # Always-latest AI CLIs (claude-code, codex, grok, pi) via npm
     ./codex-exit-alias.nix # Codex hook: exact "exit" prompt sends /exit on macOS
-    ./claude-skills.nix # Pinned ~/.claude/skills/ (frontend-design, …)
+    ./agent-skills.nix # Skills for ALL harnesses (~/.claude + ~/.codex): inspr-modules bundled + pinned upstream
     ./claude-statusline.nix # ~/.claude/statusline.sh — catppuccin pill footer (jq nix-pinned)
   ];
 
