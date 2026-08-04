@@ -66,11 +66,17 @@ POST_IMG=$(snapshot_images)
 journal "image archives: tagless gate + engine load test PASS (image table byte-identical)"
 
 # ── 3. OCI exact-manifest custody for the registry images ────────────────
+# NixOS ships no /etc/containers/policy.json and skopeo refuses to run
+# without one. Signature policy is NOT part of our custody guarantee — the
+# exact-digest raw-hash assertion below is — so a minimal accept-anything
+# policy scoped to this run is correct here.
+POLICY="$DIR/oci/policy.json"
+printf '{"default":[{"type":"insecureAcceptAnything"}]}\n' >"$POLICY"
 for svc in zitadel zitadel-postgres inspr-www; do
   ref=${REGISTRY_DIGEST[$svc]}
   hex=${ref##*sha256:}
   journal "OCI custody: $ref"
-  nix run nixpkgs#skopeo -- copy --all --preserve-digests "docker://$ref" "oci:$DIR/oci/$svc" >/dev/null
+  nix run nixpkgs#skopeo -- copy --policy "$POLICY" --all --preserve-digests "docker://$ref" "oci:$DIR/oci/$svc" >/dev/null
   grep -q "$hex" "$DIR/oci/$svc/index.json" || die "OCI custody: index.json for $svc does not reference the recorded digest"
   [ -f "$DIR/oci/$svc/blobs/sha256/$hex" ] || die "OCI custody: top-level blob for $svc missing"
   [ "$(sha256sum "$DIR/oci/$svc/blobs/sha256/$hex" | cut -d' ' -f1)" = "$hex" ] || die "OCI custody: blob hash mismatch for $svc"
