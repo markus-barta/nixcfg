@@ -212,13 +212,13 @@ jobs:
           git switch -c "$branch"
           git add \
             pharos-release.json \
-            hosts/csb0/docker/docker-compose.yml \
-            hosts/csb1/docker/docker-compose.yml \
+            hosts/csb0/docker/compose-spec.nix \
+            hosts/csb1/docker/compose-spec.nix \
             hosts/csb1/docker/janus/managed-service-production/readiness.sh \
-            hosts/hsb0/docker/docker-compose.yml \
-            hosts/hsb1/docker/docker-compose.yml \
-            hosts/hsb8/docker/docker-compose.yml \
-            hosts/hsb9/docker/docker-compose.yml
+            hosts/hsb0/docker/compose-spec.nix \
+            hosts/hsb1/docker/compose-spec.nix \
+            hosts/hsb8/docker/compose-spec.nix \
+            hosts/hsb9/docker/compose-spec.nix
           git diff --cached --check
           git commit -m "PHAROS-90: roll fleet to Pharos ${VERSION}"
           git push --set-upstream origin "$branch"
