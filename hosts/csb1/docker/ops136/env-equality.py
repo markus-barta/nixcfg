@@ -35,14 +35,6 @@ EXPECTED_DIFF = {
         "POSTGRES_DB": "drill bootstraps as postgres",
         "POSTGRES_PASSWORD": "live value is init-only recovery material; candidate correctness is proven functionally by the zitadel clone authenticating against the RESTORED role",
     },
-    "zitadel": {
-        # 2026-08-04: the value was removed from .env after bootstrap and
-        # exists in no credential store (1P checked) — only baked into the
-        # live container env and hashed in the DB. Candidate carries it
-        # EMPTY. Init-only on the existing database; an empty-volume DR
-        # re-init must set a fresh console-admin password first (ticket).
-        "ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD": "unrecoverable post-bootstrap value; candidate empty by decision, inert on existing DB",
-    },
 }
 
 
