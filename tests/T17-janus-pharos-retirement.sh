@@ -25,6 +25,13 @@ grep -Fq 'JANUS_PHAROS_LIFECYCLE_VOLUME' "$production/runtime-lib.sh"
 grep -Fq '/var/lib/janus/metadata/baseline.toml' "$production/runtime-lib.sh"
 grep -Fq 'RETIREMENTS_FILE' "$production/render-sidecars.sh"
 grep -Fq 'METADATA_VOLUME' "$production/render-sidecars.sh"
+expected_compose_spec="COMPOSE_SPEC=\${JANUS_ENGINE_STAGED_COMPOSE_FILE:-\${COMPOSE_DIR}/compose-spec.nix}"
+retired_compose_ref="\"\${COMPOSE_DIR}/docker-compose.yml\""
+grep -Fq "$expected_compose_spec" "$production/render-sidecars.sh"
+if grep -Fq "$retired_compose_ref" "$production/render-sidecars.sh"; then
+  printf 'production renderer still resolves Janus from the retired Compose file\n' >&2
+  exit 1
+fi
 grep -Fq 'fixture_uses_production_contract' "$production/retire-host.sh"
 grep -Fq 'fixture_uses_production_volumes' "$production/retire-host.sh"
 grep -Fq 'fixture_uses_production_scope' "$production/retire-host.sh"
