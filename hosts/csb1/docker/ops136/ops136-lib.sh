@@ -141,8 +141,10 @@ route_smoke() {
     journal "SMOKE FAIL: www.inspr.at"
     rc=1
   }
-  curl -sS --max-time 15 -o /dev/null -w '%{http_code}' --resolve paimos.com:443:127.0.0.1 https://paimos.com/ | grep -qE '^(200|304)$' || {
-    journal "SMOKE FAIL: paimos.com"
+  # Since 2026-07-25 paimos.com deliberately 301s into the inspr.at family
+  # (Caddyfile redirect). Assert the exact redirect — stronger than a 200.
+  curl -sS --max-time 15 -o /dev/null -w '%{http_code} %{redirect_url}' --resolve paimos.com:443:127.0.0.1 https://paimos.com/ | grep -qE '^301 https://paimos\.inspr\.at/$' || {
+    journal "SMOKE FAIL: paimos.com (expected 301 -> https://paimos.inspr.at/)"
     rc=1
   }
   curl -sS --max-time 15 -o /dev/null -w '%{http_code}' --resolve pharos.inspr.at:443:127.0.0.1 https://pharos.inspr.at/ | grep -qE '^(200|30[1-4])$' || {
