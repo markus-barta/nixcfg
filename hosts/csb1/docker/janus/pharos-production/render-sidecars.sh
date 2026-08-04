@@ -11,6 +11,7 @@ trap 'on_error "$LINENO"' ERR
 DEFAULT_SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 SCRIPT_DIR=$(cd -- "${JANUS_PHAROS_CONTRACT_DIR:-$DEFAULT_SCRIPT_DIR}" && pwd)
 COMPOSE_DIR=$(cd -- "${DEFAULT_SCRIPT_DIR}/../.." && pwd)
+COMPOSE_SPEC=${JANUS_ENGINE_STAGED_COMPOSE_FILE:-${COMPOSE_DIR}/compose-spec.nix}
 RETIREMENTS_FILE=${JANUS_PHAROS_RETIREMENTS_FILE:-${SCRIPT_DIR}/retired-hosts.json}
 IMAGE=${JANUS_ENGINE_IMAGE:-}
 VOLUME_PREFIX=${JANUS_PHAROS_VOLUME_PREFIX:-janus_pharos_production}
@@ -125,15 +126,19 @@ HOSTS=("${ACTIVE_HOSTS[@]}")
 if [ -z "$IMAGE" ]; then
   IMAGE=$(
     awk '
-      /^[[:space:]]+janus-engine-staged:/ { in_service = 1; next }
-      in_service && /^    image:/ { print $2; exit }
-      in_service && /^  [A-Za-z0-9_-]+:/ { exit }
-    ' "${COMPOSE_DIR}/docker-compose.yml"
+      /^    janus-engine-staged = \{/ { in_service = 1; next }
+      in_service && /^    \};/ { exit }
+      in_service && /^      image = "/ {
+        gsub(/^      image = "|";$/, "")
+        print
+        exit
+      }
+    ' "$COMPOSE_SPEC"
   )
 fi
 
 if [ -z "$IMAGE" ]; then
-  printf 'could not resolve janus-engine-staged image from docker-compose.yml\n' >&2
+  printf 'could not resolve janus-engine-staged image from %s\n' "$COMPOSE_SPEC" >&2
   exit 1
 fi
 
