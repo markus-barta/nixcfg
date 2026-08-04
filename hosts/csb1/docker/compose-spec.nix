@@ -1321,12 +1321,11 @@
     };
     inspr-auth = {
       # Go OIDC session backend for inspr.at/{enter,login,welcome,logout}.
-      # 🔴 Image exists ONLY locally (built 2026-05-11 from the unversioned
-      # source in /home/mba/docker/inspr-at/auth). Pinned by immutable image
-      # ID; pull_policy never keeps the Saturday autoUpdate pull from failing
-      # on it. OPS-136 closes only when this has a GHCR home + digest pin.
-      image = "sha256:88feff29ac779e7551f28914a30aaab5338fb03e45e253194bd6c9739ea7edc8";
-      pull_policy = "never";
+      # Published to GHCR 2026-08-04 (OPS-136 closure): the 2026-05-11 local
+      # build, tag = provenance date. Same image ID 88feff29… as the adopted
+      # container. Source control + CI for future builds: INSPR follow-up
+      # (the source in /home/mba/docker/inspr-at/auth is still unversioned).
+      image = "ghcr.io/inspr-at/inspr-auth:legacy-20260511@sha256:090c82cff2dd3c5efddfb73c445f22c34898d8e9653abd9cbb746ca26125d59f";
       container_name = "inspr-auth";
       restart = "unless-stopped";
       networks = [
