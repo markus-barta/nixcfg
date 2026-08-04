@@ -37,6 +37,24 @@ grep -Fq 'tests/T32-managed-secret-production-preflight.sh' "$rollout_workflow"
 grep -Fq \
   'hosts/csb1/docker/janus/managed-service-production/readiness.sh' \
   "$rollout_workflow"
+for compose_spec in \
+  hosts/csb0/docker/compose-spec.nix \
+  hosts/csb1/docker/compose-spec.nix \
+  hosts/hsb0/docker/compose-spec.nix \
+  hosts/hsb1/docker/compose-spec.nix \
+  hosts/hsb8/docker/compose-spec.nix \
+  hosts/hsb9/docker/compose-spec.nix; do
+  grep -Fq "$compose_spec" "$rollout_workflow" || {
+    printf 'pharos_rollout=failed reason=workflow_missing_compose_spec path=%s\n' \
+      "$compose_spec" >&2
+    exit 1
+  }
+done
+if grep -Eq 'hosts/(csb0|csb1|hsb0|hsb1|hsb8|hsb9)/docker/docker-compose\.yml' \
+  "$rollout_workflow"; then
+  printf 'pharos_rollout=failed reason=workflow_stages_retired_compose_yml\n' >&2
+  exit 1
+fi
 if grep -Fq 'markus-barta/dsccfg' "$rollout_workflow"; then
   printf 'pharos_rollout=failed reason=legacy_dsccfg_owner\n' >&2
   exit 1
