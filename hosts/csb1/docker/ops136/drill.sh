@@ -65,6 +65,15 @@ for svc in "${SERVICES[@]}"; do
 done
 journal "isolation assertions PASS on all 5 created candidates"
 
+# ── 1.5 in-process env/cmd equality (the transcription proof) ────────────
+# Runs on the CREATED containers before anything starts: .Config is fixed
+# at create time, so the proof lands even if a later integration step
+# fails, and it covers services (inspr-auth) that cannot fully run inside
+# the no-egress drill network.
+python3 "$OPSDIR/env-equality.py" | tee "$DIR/env-equality.txt" >&2
+grep -q '^RESULT: PASS$' "$DIR/env-equality.txt" || die "env equality FAILED — fix the agenix transcription before any cutover"
+journal "env/cmd equality PASS (transcription proven byte-exact)"
+
 # ── 2. clone DB: start drill postgres, restore live dump (fatal on error) ─
 compose_drill start zitadel-postgres
 for _ in $(seq 1 30); do
@@ -117,12 +126,26 @@ probe_hdr http://inspr-www:80/ www.inspr.at | grep -qi 'html' || die "inspr-www 
 paimos_hdrs=$(docker run --rm --network "$NET" "$CADDY_PROBE_IMAGE" sh -c 'wget -q -S -O /dev/null --timeout=5 --header "Host: paimos.com" http://paimos-www:80/ 2>&1 || true')
 echo "$paimos_hdrs" | grep -q ' 301 ' || die "paimos-www drill: expected 301 redirect, headers: $(echo "$paimos_hdrs" | head -2 | tr '\n' ' ')"
 echo "$paimos_hdrs" | grep -qi 'Location: https://paimos\.inspr\.at/' || die "paimos-www drill: wrong redirect target"
+# inspr-auth performs OIDC discovery against its issuer at startup and
+# FAIL-FAST-EXITS when unreachable — and the drill network is --internal
+# precisely so a clone holding production PATs can never reach the real
+# IdP. Two acceptable outcomes, both proving the binary ran with the
+# candidate env: (a) it serves /login (a future version that lazy-inits),
+# or (b) it exited 1 with the discovery-failure line naming the candidate
+# OIDC_ISSUER — env delivery proven, runtime behavior identical to what
+# the live binary would do in isolation. Live /login behavior is verified
+# in P3 post-cutover.
+sleep 3
+ia_state=$(docker inspect "$DP-inspr-auth-1" --format '{{.State.Status}} {{.State.ExitCode}}')
 code=$(docker run --rm --network "$NET" "$CADDY_PROBE_IMAGE" sh -c 'wget -q -S -O /dev/null --timeout=5 http://inspr-auth:8080/login 2>&1 | awk "/HTTP\//{print \$2}" | tail -1' || true)
-echo "$code" | grep -qE '^(200|30[1-3]|405)$' || die "inspr-auth drill /login returned '$code'"
-journal "web candidates serve content (inspr-www, paimos-www, inspr-auth:$code)"
-
-# ── 5. in-process env/cmd equality (the transcription proof) ─────────────
-python3 "$OPSDIR/env-equality.py" | tee "$DIR/env-equality.txt" >&2
-grep -q '^RESULT: PASS$' "$DIR/env-equality.txt" || die "env equality FAILED — fix the agenix transcription before any cutover"
+if echo "$code" | grep -qE '^(200|30[1-3]|405)$'; then
+  journal "inspr-auth drill: serving /login ($code)"
+elif [ "$ia_state" = "exited 1" ] && docker logs "$DP-inspr-auth-1" 2>&1 | grep -q 'oidc: discovery failed for https://auth\.inspr\.at'; then
+  journal "inspr-auth drill: expected no-egress fail-fast (discovery against candidate OIDC_ISSUER proven; live behavior verified in P3)"
+else
+  docker logs --tail 20 "$DP-inspr-auth-1" >&2 || true
+  die "inspr-auth drill: state '$ia_state', /login '$code' — neither serving nor the documented fail-fast"
+fi
+journal "web candidates verified (inspr-www content, paimos-www 301, inspr-auth)"
 
 journal "P1-DRILL COMPLETE: isolation, restore, candidate-IdP readiness, content, env equality — ALL PASS (evidence: $DIR)"
