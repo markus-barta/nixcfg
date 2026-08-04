@@ -110,7 +110,13 @@ compose_drill start inspr-www paimos-www inspr-auth
 sleep 3
 probe_hdr() { docker run --rm --network "$NET" "$CADDY_PROBE_IMAGE" wget -q -O- --timeout=5 --header "Host: $2" "$1" 2>/dev/null; }
 probe_hdr http://inspr-www:80/ www.inspr.at | grep -qi 'html' || die "inspr-www drill serves no content for www.inspr.at"
-probe_hdr http://paimos-www:80/ paimos.com | grep -qi 'html' || die "paimos-www drill serves no content for paimos.com"
+# paimos-www is a pure whole-host 301 to paimos.inspr.at since 2026-07-25
+# (Caddyfile: "paimos.com is deprecated"). Assert the exact redirect; wget
+# would try to FOLLOW it (unresolvable on the --internal net), so capture
+# the first response's headers and ignore the follow-up failure.
+paimos_hdrs=$(docker run --rm --network "$NET" "$CADDY_PROBE_IMAGE" sh -c 'wget -q -S -O /dev/null --timeout=5 --header "Host: paimos.com" http://paimos-www:80/ 2>&1 || true')
+echo "$paimos_hdrs" | grep -q ' 301 ' || die "paimos-www drill: expected 301 redirect, headers: $(echo "$paimos_hdrs" | head -2 | tr '\n' ' ')"
+echo "$paimos_hdrs" | grep -qi 'Location: https://paimos\.inspr\.at/' || die "paimos-www drill: wrong redirect target"
 code=$(docker run --rm --network "$NET" "$CADDY_PROBE_IMAGE" sh -c 'wget -q -S -O /dev/null --timeout=5 http://inspr-auth:8080/login 2>&1 | awk "/HTTP\//{print \$2}" | tail -1' || true)
 echo "$code" | grep -qE '^(200|30[1-3]|405)$' || die "inspr-auth drill /login returned '$code'"
 journal "web candidates serve content (inspr-www, paimos-www, inspr-auth:$code)"
