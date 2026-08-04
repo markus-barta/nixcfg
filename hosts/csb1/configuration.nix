@@ -142,16 +142,14 @@ in
     project = "csb1";
     stackName = "csb1";
     # 🟢 CUT OVER 2026-08-01 (OPS-122).
-    # 🟡 OPS-136 STAGING (2026-08-04): reconcile=false while the legacy
-    # inspr-at/paimos projects are adopted. The spec + agenix secrets land in
-    # the closure, but NO compose up runs at switch and the Saturday
-    # autoUpdate timer is absent (both are mkIf reconcile). The legacy
-    # projects keep owning the 5 containers until the attended cutover
-    # (OPS-136 P2); scoped manual reconcile commands for the EXISTING csb1
-    # estate during this window are in the RUNBOOK ("staging phase").
-    # 🔴 Flip back to true = OPS-136 PR-2, attended, with the zero-change
-    # --dry-run gate. Staging bound: ≤7 days (one skipped Saturday max).
-    reconcile = false;
+    # 🟢 OPS-136 COMPLETE (2026-08-04): the former inspr-at/paimos legacy
+    # projects (zitadel, zitadel-postgres, inspr-auth, inspr-www, paimos-www)
+    # are adopted into this spec — all digest/ID-pinned, on their original
+    # volumes via external+name. Cutover took 24 s of downtime; the
+    # zero-change --dry-run gate passed before this flip. The legacy compose
+    # files under /home/mba/docker/{inspr-at,paimos} remain as documented
+    # rollback until the soak ends (see OPS-136 P4).
+    reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/csb1/docker";
     postRecreate = [
       "hostdash-auth"
