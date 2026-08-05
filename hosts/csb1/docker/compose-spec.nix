@@ -553,7 +553,7 @@
     # PPM - Personal Project Management
     # ============================================
     ppm = {
-      image = "ghcr.io/inspr-at/paimos:5.3.2"; # explicit live pin; bump deliberately with the PAIMOS release/deploy flow. 5.3.2 = voice lifecycle fixes (PAI-719); 5.3.1 was the mic Permissions-Policy fix (PAI-717); 5.3.0 was voice UX polish (PAI-715); 5.2.0 was ElevenLabs speech input (PAI-710); 5.1.0 was the Voice Intake epic (PAI-703). History: 4.8.0 sat here while live ran 5.0.0 (deploy flow sed-edits the yml, git restore reverted it) — a reconcile would have DOWNGRADED ppm over a 5.0.0-migrated DB. Caught in the OPS-116 QA, 2026-08-01.
+      image = "ghcr.io/inspr-at/paimos:5.3.3"; # explicit live pin; bump deliberately with the PAIMOS release/deploy flow. 5.3.3 = intake polish (PAI-721); 5.3.2 was voice lifecycle fixes (PAI-719); 5.3.1 was the mic Permissions-Policy fix (PAI-717); 5.3.0 was voice UX polish (PAI-715); 5.2.0 was ElevenLabs speech input (PAI-710); 5.1.0 was the Voice Intake epic (PAI-703). History: 4.8.0 sat here while live ran 5.0.0 (deploy flow sed-edits the yml, git restore reverted it) — a reconcile would have DOWNGRADED ppm over a 5.0.0-migrated DB. Caught in the OPS-116 QA, 2026-08-01.
       container_name = "ppm";
       restart = "unless-stopped";
       environment = [
