@@ -7,20 +7,20 @@
   "previous_mode": "production",
   "artifact": {
     "image": "ghcr.io/inspr-at/janus/janus-envelope",
-    "tag": "go-envelope-v1.174",
-    "digest": "sha256:f12c3554a55e968c3e96e56d2e9eec4d3785daa96dd39a9eb5fe7d59137e6d4c",
+    "tag": "go-envelope-v1.175",
+    "digest": "sha256:7a151692732f579ff7d2b974f7a2cba413e3eb8d9ec9fe59f26e44c02405db48",
     "development": false
   },
   "signature": {
     "verified": true,
-    "identity": "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.174",
+    "identity": "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.175",
     "oidc_issuer": "https://token.actions.githubusercontent.com"
   },
   "provenance": {
     "verified": true,
     "repository": "inspr-at/janus",
     "signer_workflow": "inspr-at/janus/.github/workflows/go-envelope.yml",
-    "source_ref": "refs/tags/go-envelope-v1.174",
+    "source_ref": "refs/tags/go-envelope-v1.175",
     "predicate_type": "https://slsa.dev/provenance/v1"
   },
   "sbom": {
@@ -29,16 +29,16 @@
   },
   "source": {
     "verified": true,
-    "commit": "cae57f53ac0a2ff437aef3a3d5f691be4d06c999",
-    "manifest_sha256": "sha256:2fe3af1b3011b4d0fe35d22e0a5c550f5ad28d34693125d87fb6c96a6720fa7f",
-    "bundle_sha256": "sha256:2a2667498087930b37e02d3ff1259ddb058aa006ba3d2c6607d5f7f9018deb9c"
+    "commit": "d1a5c86dba4e14462c8e9148eb4b665eda053396",
+    "manifest_sha256": "sha256:18deecdffa6e73bbaeaa76938c1d30d580ec6bf1460363a34342446fe38cb468",
+    "bundle_sha256": "sha256:709c3db86182025fcd3463801dd33f03875bf7ded6f540bcc017de9b1ab92d96"
   },
   "scanner": {
     "verified": true,
     "name": "trivy",
     "policy": "candidate_container_critical_high",
-    "subject": "ghcr.io/inspr-at/janus/janus-envelope@sha256:f12c3554a55e968c3e96e56d2e9eec4d3785daa96dd39a9eb5fe7d59137e6d4c",
-    "summary_sha256": "sha256:86ebf0899c3c76e63e6fab46aece70d722609b4e4e8b8fc35a970979da1b63a2",
+    "subject": "ghcr.io/inspr-at/janus/janus-envelope@sha256:7a151692732f579ff7d2b974f7a2cba413e3eb8d9ec9fe59f26e44c02405db48",
+    "summary_sha256": "sha256:ae146cd65fce73c2684974cd969c0ba01d959bcdaa62df0da7b8577527e8a2e5",
     "critical": 0,
     "high": 0
   }
