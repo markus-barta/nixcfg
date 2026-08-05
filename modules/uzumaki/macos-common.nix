@@ -53,6 +53,7 @@ let
     # 2026-09-01); Chrome is signed+notarized and Playwright drives it headless
     # via executablePath (see chromiumAppPath export below).
     "google-chrome"
+    "stats" # Stats (mac-stats.com / exelban) — menu-bar system monitor; auto-updates itself
   ];
   # peekaboo + steipete/tap removed 2026-07-03 (NIX-215): unused, and brew 6
   # refuses untrusted taps by default. Baseline is casks-only again.
