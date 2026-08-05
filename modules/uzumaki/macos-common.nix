@@ -54,6 +54,7 @@ let
     # via executablePath (see chromiumAppPath export below).
     "google-chrome"
     "stats" # Stats (mac-stats.com / exelban) — menu-bar system monitor; auto-updates itself
+    "rustdesk" # RustDesk — open-source remote desktop (both ends of a session; screen-recording + accessibility approvals stay manual per host)
   ];
   # peekaboo + steipete/tap removed 2026-07-03 (NIX-215): unused, and brew 6
   # refuses untrusted taps by default. Baseline is casks-only again.
