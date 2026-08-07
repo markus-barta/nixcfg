@@ -67,14 +67,14 @@ in
   # ============================================================================
   # Git — her own identity
   # ============================================================================
-  # userEmail is deliberately NOT set here: Mailina's address was never stated,
-  # and inventing an identity is forbidden. Markus supplies it, then this line
-  # gets uncommented. Until then git works for reading; a commit will ask for
-  # an email rather than silently attributing it to the wrong person.
+  # Address supplied by Markus 2026-08-07 (NIX-216). Commit attribution only —
+  # it needs no GitHub account to work. She does have one (`mailina-barta`,
+  # created 2026-03-12) but it is unused: 0 repos, untouched since the day it
+  # was made. Pushing to GitHub would need auth set up separately.
   programs.git = {
     enable = true;
     userName = "Mailina Barta";
-    # userEmail = "…";   # ← Markus to fill in (NIX-216)
+    userEmail = "mailina@barta.com";
     extraConfig = {
       init.defaultBranch = "main";
       pull.rebase = true;
