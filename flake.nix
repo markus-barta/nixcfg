@@ -177,8 +177,11 @@
       #
       # Note: NixOS hosts get hostname from config.networking.hostName (see common.nix)
       #
-      mkDarwinHome =
-        system: hostname:
+      # Loads an explicit home module so ONE host can carry SEVERAL users.
+      # mbp2606 has two (mba + mailina); Home Manager standalone is per-user, so
+      # each gets its own profile and generations (NIX-216).
+      mkDarwinHomeModule =
+        system: hostname: module:
         home-manager.lib.homeManagerConfiguration {
           pkgs = import nixpkgs {
             localSystem = {
@@ -188,12 +191,15 @@
             overlays = allOverlays;
           };
           modules = [
-            ./hosts/${hostname}/home.nix
+            module
           ];
           extraSpecialArgs = commonArgs // {
             inherit inputs hostname;
           };
         };
+
+      # Default: hosts/<hostname>/home.nix
+      mkDarwinHome = system: hostname: mkDarwinHomeModule system hostname ./hosts/${hostname}/home.nix;
     in
     {
       inherit commonArgs;
@@ -201,12 +207,21 @@
       # ========================================================================
       # macOS Home Manager Configurations
       # ========================================================================
-      # Apple Silicon — private M5 Max (mbp0). New physical device, provisioned
+      # Apple Silicon — private M5 Max (was mbp0, now mbp2606). Provisioned
       # 2026-06-15 from the retired work host's config and key material
       # (June 2026 employer exit), so agenix access continues intentionally.
-      # Personal-only — the former work push-atelier is disabled in hosts/mbp0/home.nix.
-      homeConfigurations."mba@mbp0" = mkDarwinHome "aarch64-darwin" "mbp0";
-      homeConfigurations."mbp0" = self.homeConfigurations."mba@mbp0";
+      # Personal-only — the former work push-atelier is disabled in hosts/mbp2606/home.nix.
+      # Renamed mbp0 -> mbp2606 (2026-08-07, NIX-216): handed to Mailina, name
+      # follows the YYMM commission-month scheme and is immutable thereafter.
+      # `mba` stays as Markus's backup/admin account on the machine by design.
+      homeConfigurations."mba@mbp2606" = mkDarwinHome "aarch64-darwin" "mbp2606";
+      homeConfigurations."mbp2606" = self.homeConfigurations."mba@mbp2606";
+
+      # Second user on the same host — her own identity + tooling, none of
+      # Markus's agent/secret plumbing (see hosts/mbp2606/home-mailina.nix).
+      homeConfigurations."mailina@mbp2606" =
+        mkDarwinHomeModule "aarch64-darwin" "mbp2606"
+          ./hosts/mbp2606/home-mailina.nix;
 
       # Apple Silicon — MacBook Pro, commissioned 2026-07 (NIX-215). First host
       # on the YYMM naming scheme (PPM KB: NIX/guideline/host-naming-scheme) and

@@ -529,7 +529,7 @@
     lightGray = {
       name = "Light Gray";
       category = "workstation";
-      description = "MacBook portable (mbp0, private M5 Max)";
+      description = "MacBook portable (mbp2606, ex-mbp0 M5 Max — Mailina)";
 
       # Powerline gradient (light → dark)
       gradient = {
@@ -872,8 +872,8 @@
     stm1 = "pink";
 
     # Workstations (home > work)
-    "mbp0" = "lightGray";
-    "mbp2607" = "teal"; # Markus's MBP (commissioned 2026-07) — greenish per request, distinct from hsb1/mbp0
+    "mbp2606" = "lightGray";
+    "mbp2607" = "teal"; # Markus's MBP (commissioned 2026-07) — greenish per request, distinct from hsb1/mbp2606
     miniserver-bp = "veryDarkGray";
   };
 
@@ -895,7 +895,7 @@
     "stm0"
     "stm1"
     # Workstations (home > work)
-    "mbp0"
+    "mbp2606"
     "mbp2607"
   ];
 
