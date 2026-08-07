@@ -64,6 +64,7 @@ in
       # ── INSPR-bundled (source defaults to the inspr-modules copy) ─────
       ship-next = { }; # propose + deliver the single right next change
       housekeeping = { }; # hygiene sweep → codesweep → challenge → PPM → report
+      tidyrepo = { }; # cheap state-only pass below housekeeping (no codesweep, no challenge)
 
       # ── Pinned upstream: anthropics/skills ────────────────────────────
       frontend-design = {
