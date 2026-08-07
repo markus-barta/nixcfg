@@ -78,7 +78,6 @@
     # Home network
     hsb0 = "ssh hsb0 -t 'zellij attach hsb0 -c'";
     hsb1 = "ssh hsb1 -t 'zellij attach hsb1 -c'";
-    hsb2 = "ssh hsb2 -t 'tmux new-session -A -s hsb2'"; # tmux (ARMv6, no zellij)
     hsb8 = "ssh hsb8 -t 'zellij attach hsb8 -c'";
     hsb9 = "ssh hsb9 -t 'zellij attach hsb9 -c'";
 

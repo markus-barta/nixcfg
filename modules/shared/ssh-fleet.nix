@@ -150,14 +150,8 @@
         user = "markus";
       };
 
-      "hsb2" = {
-        hostname = "192.168.1.95";
-        user = "mba";
-      };
-      "hsb2-lan" = {
-        hostname = "192.168.1.95";
-        user = "mba";
-      };
+      # hsb2 (Pi Zero W, .95) retired 2026-06-14 — aliases removed 2026-08-07
+      # with its Headscale node (OPS-59). History: flake.nix + hsb1/ir-bridge.nix.
 
       # ═══════════════════════════════════════════════════════════
       # CLOUD HOSTS - public DNS on :2222 (no LAN); works from anywhere

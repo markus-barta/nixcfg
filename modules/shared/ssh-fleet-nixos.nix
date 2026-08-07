@@ -63,13 +63,8 @@
       HostName 192.168.1.101
       User markus
 
-    Host hsb2
-      HostName 192.168.1.95
-      User mba
-
-    Host hsb2-lan
-      HostName 192.168.1.95
-      User mba
+    # hsb2 (Pi Zero W, .95) retired 2026-06-14; aliases + Headscale node
+    # removed 2026-08-07 (OPS-59).
 
     Host hsb8
       HostName 192.168.1.100
