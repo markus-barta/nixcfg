@@ -148,8 +148,21 @@ in
       url = "https://pm.barta.cm";
     };
 
+    # Business-side instance (INSPR-287). Routing only — the credential is
+    # seeded interactively with `paimos auth login --name pma` and lives in
+    # the OS keyring, never here.
+    #
+    # This MUST be declared: ~/.paimos/config.yaml is rendered by Home
+    # Manager, so an instance added only by `paimos auth login` is erased by
+    # the next `just switch` — the keyring credential survives, but the CLI
+    # can no longer route to it ("instance not found"). Learned the hard way
+    # on 2026-08-07, minutes after seeding it.
+    instances.pma = {
+      url = "https://paimos.agm.ng";
+    };
+
     # PMO (INSPR-174) removed 2026-07-13: the former second Paimos instance was
-    # decommissioned with the departure (2026-06-15). PPM is the only instance.
+    # decommissioned with the departure (2026-06-15).
   };
 
   # ── INSPR-170: fleet-wide federated git auth via atelier Strategy B ───
