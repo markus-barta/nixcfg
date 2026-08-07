@@ -1,4 +1,5 @@
 # Always-latest AI CLIs via npm (claude-code, codex, grok, pi)
+# + exact-pinned npm tools (bird) — see npmPkgsPinned below.
 #
 # nixpkgs lags upstream npm by days/weeks for fast-moving AI CLIs.
 # Node ships via uzumaki commonPackages; this module npm-installs the CLIs
@@ -20,7 +21,14 @@ let
     "@xai-official/grok" # xAI Grok Build CLI; armv6 unsupported (npm EBADPLATFORM, soft-fails)
     "@earendil-works/pi-coding-agent" # pi.dev coding agent (bin: pi); pure-JS, no install scripts — vendor suggests --ignore-scripts but it's a no-op here
   ];
+  # Exact-pinned npm tools — NEVER @latest. For frozen/withdrawn upstreams or
+  # credential-holding tools where a hijacked release would be catastrophic.
+  # `just update-ai-clis` does not touch these; bump the pin here deliberately.
+  npmPkgsPinned = [
+    "@steipete/bird@0.8.0" # X cookie-transport CLI (birdclaw live sync, 2026-08-06). Upstream frozen, repo withdrawn; holds full X session cookies → pin exact version
+  ];
   npmPkgsLatest = lib.concatMapStringsSep " " (p: "${p}@latest") npmPkgs;
+  npmPkgsPinnedStr = lib.concatStringsSep " " npmPkgsPinned;
 in
 {
   home.sessionVariables.NPM_CONFIG_PREFIX = npmPrefix;
@@ -51,7 +59,7 @@ in
     # the bad umask). Cheap + idempotent.
     chmod -R u+w "$HOME/.npm" 2>/dev/null || true
     echo "📦 ai-clis-npm: bumping to latest…"
-    $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm i -g ${npmPkgsLatest} \
+    $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm i -g ${npmPkgsLatest} ${npmPkgsPinnedStr} \
       || echo "⚠️  ai-clis-npm: npm update failed (offline?). Existing versions kept."
   '';
 }
