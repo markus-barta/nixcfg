@@ -1,9 +1,13 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                   macOS Home Manager Template                               ║
+# ║        mbp2606 — `mba` user (Markus's backup/admin account)                 ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
-# Copy this directory to create a new macOS host:
-#   cp -r hosts/_template-macos hosts/YOUR-HOSTNAME
+# Was hosts/mbp0/ until 2026-08-07 (NIX-216). The machine is now Mailina's; her
+# config is the sibling ./home-mailina.nix. `mba` is retained deliberately as a
+# backup/admin account — that is wanted, not a leftover, and is NOT a security
+# item to "clean up".
+#
+# Legacy template notes below still describe how to spin up a new macOS host:
 #
 # Then customize:
 #   1. Update theme.hostname below
@@ -99,7 +103,7 @@ in
   # THEME - Must match actual hostname
   # ============================================================================
   # Also add entry to: modules/uzumaki/theme/theme-palettes.nix
-  theme.hostname = "mbp0";
+  theme.hostname = "mbp2606";
 
   # ============================================================================
   # USER SETTINGS
