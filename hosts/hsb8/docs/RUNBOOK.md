@@ -147,7 +147,7 @@ journalctl -u adguardhome | grep -i "static"
 grep "location =" ~/nixcfg/hosts/hsb8/configuration.nix
 
 # ww87 = parents' home (gateway 192.168.1.1)
-# jhw22 = Markus' home (gateway 192.168.1.5)
+# jhw22 = Markus' home (gateway 192.168.1.1 since the Starlink/Omada migration)
 ```
 
 ---
@@ -344,7 +344,8 @@ ssh mba@hsb8.lan "sudo cat /home/gb/secrets/watchtower.env"
 **Cause:** Gateway and DNS settings differ between locations.
 
 - **ww87 (Parents)**: Gateway `192.168.1.1`
-- **jhw22 (Markus)**: Gateway `192.168.1.5`
+- **jhw22 (Markus)**: Gateway `192.168.1.1` (was `.5` pre-Starlink) — DNS/AdGuard
+  still differ between locations, which is what makes the switch necessary
   **Fix:** Run `enable-ww87` at the physical console after transport to apply location-specific networking.
 
 ---

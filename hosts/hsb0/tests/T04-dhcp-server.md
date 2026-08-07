@@ -58,7 +58,7 @@ ip route show default
 netstat -rn | grep default
 ```
 
-**Expected**: Gateway is 192.168.1.5 (Fritz!Box)
+**Expected**: Gateway is 192.168.1.1 (TP-Link Omada router)
 
 ## Automated Test
 
@@ -74,7 +74,7 @@ Run the automated test script:
 - ✅ Correct IP range (192.168.1.201-254)
 - ✅ 24-hour lease duration
 - ✅ Listening on UDP port 67
-- ✅ Gateway set to 192.168.1.5
+- ✅ Gateway set to 192.168.1.1
 
 ## Troubleshooting
 
@@ -113,7 +113,7 @@ Ensure no static IPs are assigned in the DHCP range (192.168.1.201-254)
 
 - DHCP range: 192.168.1.201-254 (54 addresses)
 - Lease duration: 86400 seconds (24 hours)
-- Gateway: 192.168.1.5 (Fritz!Box router)
+- Gateway: 192.168.1.1 (TP-Link Omada router; the Fritz!Box at `.5` is mesh/Wi-Fi only)
 - DNS: 192.168.1.99 (hsb0 itself)
 - Domain: lan (via DHCP Option 15)
 - Static leases managed separately (see T05)
