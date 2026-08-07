@@ -25,12 +25,19 @@ test -f /run/agenix/static-leases-hsb0 && echo "✅ Secret decrypted" || echo "�
 
 ### Step 2: Check Static Leases JSON Format
 
+> 🔴 Do **not** print the decrypted file — it is the full MAC↔IP map of the home
+> LAN. Validate its shape and size instead.
+
 ```bash
 ssh mba@192.168.1.99
-cat /run/agenix/static-leases-hsb0 | jq .
+# Structure valid + how many leases (no lease contents printed)
+sudo jq -e 'length' /run/agenix/static-leases-hsb0
+# Required fields present on every entry -> prints true/false only
+sudo jq -e 'all(has("mac") and has("ip") and has("hostname"))' /run/agenix/static-leases-hsb0
 ```
 
-**Expected**: Valid JSON array with `mac`, `ip`, `hostname` fields
+**Expected**: a lease count, then `true` — a valid JSON array whose entries all
+carry `mac`, `ip` and `hostname`.
 
 ### Step 3: Verify Leases are Merged
 
