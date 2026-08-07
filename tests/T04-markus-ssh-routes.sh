@@ -78,12 +78,10 @@ expect_lan_markus_routes() {
   local host="$1"
   local ip="$2"
   local lan_name="$3"
-  local ts_name="$4"
 
   expect_alias "${host}-markus" "$ip" markus
   expect_alias "${host}-markus-lan" "$lan_name" markus
   expect_alias "${host}-markus-ip" "$ip" markus
-  expect_alias "${host}-markus-ts" "$ts_name" markus
 }
 
 cd "$REPO_ROOT"
@@ -102,21 +100,44 @@ expect_alias hsb0 192.168.1.99 mba
 expect_alias hsb1 192.168.1.101 mba
 expect_alias hsb8 192.168.1.100 mba
 expect_alias hsb9 192.168.1.200 mba
-expect_cloud_alias csb0 csb0.ts.barta.cm mba
-expect_cloud_alias csb1 csb1.ts.barta.cm mba
+expect_cloud_alias csb0 cs0.barta.cm mba
+expect_cloud_alias csb1 cs1.barta.cm mba
 
 # Explicit markus routes.
-expect_lan_markus_routes hsb0 192.168.1.99 hsb0.lan hsb0.ts.barta.cm
-expect_lan_markus_routes hsb1 192.168.1.101 hsb1.lan hsb1.ts.barta.cm
-expect_lan_markus_routes hsb8 192.168.1.100 hsb8.lan hsb8.ts.barta.cm
-expect_lan_markus_routes hsb9 192.168.1.200 hsb9.lan hsb9.ts.barta.cm
+expect_lan_markus_routes hsb0 192.168.1.99 hsb0.lan
+expect_lan_markus_routes hsb1 192.168.1.101 hsb1.lan
+expect_lan_markus_routes hsb8 192.168.1.100 hsb8.lan
+expect_lan_markus_routes hsb9 192.168.1.200 hsb9.lan
 
 expect_cloud_alias csb0-markus cs0.barta.cm markus
 expect_cloud_alias csb0-markus-ip 89.58.63.96 markus
-expect_cloud_alias csb0-markus-ts csb0.ts.barta.cm markus
 expect_cloud_alias csb1-markus cs1.barta.cm markus
 expect_cloud_alias csb1-markus-ip 152.53.64.166 markus
-expect_cloud_alias csb1-markus-ts csb1.ts.barta.cm markus
+
+# ── Regression guard (OPS-146) ────────────────────────────────────────────────
+# MagicDNS is OFF by permanent decision, so *.ts.barta.cm resolves to nothing.
+# Aliases pointing there fail confusingly and hid for a long time because the
+# assertions above used to encode the broken values. Fail loudly if any come back.
+#
+# dsc0 is deliberately exempt: it belongs to the dsccfg (augmentoring) fleet, is
+# tailnet-only with no public DNS, and is tracked separately — see OPS-146.
+guard_no_magicdns() {
+  local attr=".#homeConfigurations.\"${HOME_CONFIG}\".config.programs.ssh.settings"
+  local offenders
+  offenders="$(nix eval "${NIX_FLAGS[@]}" "$attr" --json |
+    jq -r 'to_entries
+           | map(select(.key != "dsc0"))
+           | map(select((.value.data // {}) | tostring | test("ts\\.barta\\.cm")))
+           | .[].key')"
+
+  if [[ -n "$offenders" ]]; then
+    fail "aliases still resolve dead MagicDNS names: $(echo "$offenders" | tr '\n' ' ')"
+  else
+    pass "no alias depends on *.ts.barta.cm (MagicDNS is off)"
+  fi
+}
+
+guard_no_magicdns
 
 printf '\nSummary: %s passed, %s failed\n' "$PASSED" "$FAILED"
 
