@@ -251,6 +251,10 @@ in
     ];
     extraCasks = [
       "android-studio"
+      # Menu-bar calendar. Hand-installed 2026-05-28, undeclared until NIX-216
+      # found it as the host's only untracked cask — which made it the one app
+      # `bundle-cleanup` would have silently uninstalled from either account.
+      "calendr"
       "crystalfetch" # Win11 ARM ISO builder (UUP dump) — feeds the UTM VM below (NIX-209/OPS-3)
       "github" # GitHub Desktop
       "raycast"
