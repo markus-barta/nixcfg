@@ -1,19 +1,25 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║                   Fleet SSH Configuration with Tailscale Fallback           ║
+# ║                        Fleet SSH Configuration                              ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
-# Declarative SSH config for all fleet hosts with automatic LAN→Tailscale fallback.
+# Declarative SSH config for all fleet hosts.
 #
-# Features:
-# - Auto-fallback: Try LAN first (2s timeout), fallback to Tailscale
-# - Explicit routes: Use -lan or -ts suffix to force specific route
-# - Nicknames: Short aliases for long hostnames
-# - Keep-alive: 60s ping to prevent connection timeout
+# 🔴 MagicDNS is OFF by deliberate, permanent decision — its DNS interception was
+# breaking agent/API sessions. `*.ts.barta.cm` resolves to NOTHING. This file used
+# to lean on those names for every "fallback" and every `-ts` alias, so `ssh csb0`
+# failed outright and every LAN alias died the moment you left the LAN (OPS-146).
+# Do not reintroduce them.
+#
+# Routes that actually work:
+# - Home hosts     -> LAN address (on-LAN only)
+# - Cloud hosts    -> cs0/cs1.barta.cm over public DNS, port 2222 (works anywhere)
+# - Anything, off-LAN -> tailnet IP: `tailscale status`, then `ssh mba@100.64.x.y`
+#   (cloud keeps -p 2222). IPs are deliberately NOT hardcoded here — read them live.
 #
 # Usage:
-#   ssh hsb0         # Auto: Try LAN, fallback to Tailscale
-#   ssh hsb0-lan     # Force LAN only
-#   ssh hsb0-ts      # Force Tailscale only
+#   ssh hsb0         # LAN
+#   ssh hsb0-lan     # LAN, explicit
+#   ssh csb0         # cloud via public DNS, from anywhere
 #
 {
   lib,
@@ -55,26 +61,20 @@
       };
 
       # ═══════════════════════════════════════════════════════════
-      # HOME NETWORK HOSTS (192.168.1.0/24) - LAN with TS fallback
+      # HOME NETWORK HOSTS (192.168.1.0/24) - LAN only; off-LAN use tailnet IP
       # ═══════════════════════════════════════════════════════════
 
       "hsb0" = {
         hostname = "192.168.1.99";
         user = "mba";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb0.ts.barta.cm %p; fi'";
       };
       "hsb0-lan" = {
         hostname = "192.168.1.99";
         user = "mba";
       };
-      "hsb0-ts" = {
-        hostname = "hsb0.ts.barta.cm";
-        user = "mba";
-      };
       "hsb0-markus" = {
         hostname = "192.168.1.99";
         user = "markus";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb0.ts.barta.cm %p; fi'";
       };
       "hsb0-markus-lan" = {
         hostname = "hsb0.lan";
@@ -84,28 +84,18 @@
         hostname = "192.168.1.99";
         user = "markus";
       };
-      "hsb0-markus-ts" = {
-        hostname = "hsb0.ts.barta.cm";
-        user = "markus";
-      };
 
       "hsb1" = {
         hostname = "192.168.1.101";
         user = "mba";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb1.ts.barta.cm %p; fi'";
       };
       "hsb1-lan" = {
         hostname = "192.168.1.101";
         user = "mba";
       };
-      "hsb1-ts" = {
-        hostname = "hsb1.ts.barta.cm";
-        user = "mba";
-      };
       "hsb1-markus" = {
         hostname = "192.168.1.101";
         user = "markus";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb1.ts.barta.cm %p; fi'";
       };
       "hsb1-markus-lan" = {
         hostname = "hsb1.lan";
@@ -115,28 +105,18 @@
         hostname = "192.168.1.101";
         user = "markus";
       };
-      "hsb1-markus-ts" = {
-        hostname = "hsb1.ts.barta.cm";
-        user = "markus";
-      };
 
       "hsb8" = {
         hostname = "192.168.1.100";
         user = "mba";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb8.ts.barta.cm %p; fi'";
       };
       "hsb8-lan" = {
         hostname = "192.168.1.100";
         user = "mba";
       };
-      "hsb8-ts" = {
-        hostname = "hsb8.ts.barta.cm";
-        user = "mba";
-      };
       "hsb8-markus" = {
         hostname = "192.168.1.100";
         user = "markus";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb8.ts.barta.cm %p; fi'";
       };
       "hsb8-markus-lan" = {
         hostname = "hsb8.lan";
@@ -146,30 +126,20 @@
         hostname = "192.168.1.100";
         user = "markus";
       };
-      "hsb8-markus-ts" = {
-        hostname = "hsb8.ts.barta.cm";
-        user = "markus";
-      };
 
-      # hsb9 = parents-in-law (Mac mini Late 2009). LAN .200 is the target at
-      # parents-in-law; while still at jhw22 (.203) the TS fallback wins.
+      # hsb9 = parents-in-law (Mac mini Late 2009), live at .200 since 2026-05-31.
+      # Reachable on that LAN only; from here use its tailnet IP.
       "hsb9" = {
         hostname = "192.168.1.200";
         user = "mba";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb9.ts.barta.cm %p; fi'";
       };
       "hsb9-lan" = {
         hostname = "192.168.1.200";
         user = "mba";
       };
-      "hsb9-ts" = {
-        hostname = "hsb9.ts.barta.cm";
-        user = "mba";
-      };
       "hsb9-markus" = {
         hostname = "192.168.1.200";
         user = "markus";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb9.ts.barta.cm %p; fi'";
       };
       "hsb9-markus-lan" = {
         hostname = "hsb9.lan";
@@ -179,72 +149,24 @@
         hostname = "192.168.1.200";
         user = "markus";
       };
-      "hsb9-markus-ts" = {
-        hostname = "hsb9.ts.barta.cm";
-        user = "markus";
-      };
 
       "hsb2" = {
         hostname = "192.168.1.95";
         user = "mba";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc hsb2.ts.barta.cm %p; fi'";
       };
       "hsb2-lan" = {
         hostname = "192.168.1.95";
         user = "mba";
       };
-      "hsb2-ts" = {
-        hostname = "hsb2.ts.barta.cm";
-        user = "mba";
-      };
-
-      "miniserver-bp" = {
-        hostname = "10.17.1.40";
-        port = 2222;
-        user = "mba";
-        proxyCommand = "sh -c 'if nc -z -w2 %h %p 2>/dev/null; then nc %h %p; else nc miniserver-bp.ts.barta.cm %p; fi'";
-      };
-      "miniserver-bp-lan" = {
-        hostname = "10.17.1.40";
-        port = 2222;
-        user = "mba";
-      };
-      "miniserver-bp-ts" = {
-        hostname = "miniserver-bp.ts.barta.cm";
-        port = 2222;
-        user = "mba";
-      };
-
-      # Nickname: msbp → miniserver-bp (Tailscale: works from anywhere)
-      "msbp" = {
-        hostname = "miniserver-bp.ts.barta.cm";
-        port = 2222;
-        user = "mba";
-      };
-      "msbp-lan" = {
-        hostname = "10.17.1.40";
-        port = 2222;
-        user = "mba";
-      };
-      "msbp-ts" = {
-        hostname = "miniserver-bp.ts.barta.cm";
-        port = 2222;
-        user = "mba";
-      };
 
       # ═══════════════════════════════════════════════════════════
-      # CLOUD HOSTS - Tailscale only (no LAN)
+      # CLOUD HOSTS - public DNS on :2222 (no LAN); works from anywhere
       # ═══════════════════════════════════════════════════════════
 
       "csb0" = {
-        hostname = "csb0.ts.barta.cm";
+        hostname = "cs0.barta.cm";
         user = "mba";
         port = 2222; # Non-standard SSH port
-      };
-      "csb0-ts" = {
-        hostname = "csb0.ts.barta.cm";
-        user = "mba";
-        port = 2222;
       };
       "csb0-markus" = {
         hostname = "cs0.barta.cm";
@@ -256,21 +178,11 @@
         user = "markus";
         port = 2222;
       };
-      "csb0-markus-ts" = {
-        hostname = "csb0.ts.barta.cm";
-        user = "markus";
-        port = 2222;
-      };
 
       "csb1" = {
-        hostname = "csb1.ts.barta.cm";
+        hostname = "cs1.barta.cm";
         user = "mba";
         port = 2222; # Non-standard SSH port
-      };
-      "csb1-ts" = {
-        hostname = "csb1.ts.barta.cm";
-        user = "mba";
-        port = 2222;
       };
       "csb1-markus" = {
         hostname = "cs1.barta.cm";
@@ -282,23 +194,11 @@
         user = "markus";
         port = 2222;
       };
-      "csb1-markus-ts" = {
-        hostname = "csb1.ts.barta.cm";
-        user = "markus";
-        port = 2222;
-      };
 
       # dsc0 (Ocean) lives in the dsccfg fleet, not nixcfg — tailnet-only,
       # port 2222, and only authorizes the dedicated dsccfg deploy key.
       # identitiesOnly avoids "too many auth failures" from the default keys.
       "dsc0" = {
-        hostname = "dsc0.ts.barta.cm";
-        user = "mba";
-        port = 2222;
-        identityFile = "~/.ssh/dsccfg_deploy";
-        identitiesOnly = true;
-      };
-      "dsc0-ts" = {
         hostname = "dsc0.ts.barta.cm";
         user = "mba";
         port = 2222;
