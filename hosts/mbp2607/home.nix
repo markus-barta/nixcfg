@@ -200,7 +200,10 @@ in
   home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile {
     extraTaps = [
       "darrylmorley/whatcable" # whatcable's tap. brew 6: one-time `brew trust darrylmorley/whatcable` per host before `just bundle`
-      "steipete/tap" # codexbar's tap. brew 6 gates loading behind trust (tapped != trusted): one-time `brew trust steipete/tap` per host before `just bundle`
+      "steipete/tap" # codexbar + birdclaw's tap. brew 6 gates loading behind trust (tapped != trusted): one-time `brew trust steipete/tap` per host before `just bundle`
+    ];
+    extraBrews = [
+      "steipete/tap/birdclaw" # local-first X workspace (CLI/web/read-only MCP) — agent-facing X access for Codex+Claude (2026-08-06); formula ships its own Node 26.x dep, hence brew not ai-clis-npm
     ];
     extraCasks = [
       "bettertouchtool" # trackpad/gestures — settings + license migrated from mbp0 (NIX-215); config stays BTT-managed, not Nix
@@ -216,6 +219,20 @@ in
       "zed" # editor — from mbp0's list (2026-07-04)
     ];
   };
+
+  # ============================================================================
+  # bird (X CLI) — cookie transport for birdclaw agent X access (2026-08-06)
+  # ============================================================================
+  # Cookies read live from stock Chrome profile "Profile 2" (the x.com login);
+  # Helium (daily driver) is unreadable — sweet-cookie hardcodes Chrome's
+  # keychain service name. Keychain ACL pre-authorized once via
+  # `security find-generic-password -w -s "Chrome Safe Storage" >/dev/null`.
+  home.file.".config/bird/config.json5".text = ''
+    {
+      cookieSource: "chrome",
+      chromeProfile: "Profile 2",
+    }
+  '';
 
   # ============================================================================
   # Git Configuration
