@@ -591,6 +591,9 @@ in
     useSharedKey = false;
     zfs.enable = true;
     zfs.hostId = "dabfdb01";
+    # hokage default (1.5G) starves the dnode cache under 17 containers:
+    # arc_dnode_limit 161MB < ~229MB working set -> arc_prune spins (OPS outage 2026-08-07)
+    zfs.arcMax = 4 * 1024 * 1024 * 1024; # 4 GiB
     audio.enable = true; # Required for VLC kiosk
     programs.git.enableUrlRewriting = false;
     # Point nixbit to Markus' repository (not pbek's default)
