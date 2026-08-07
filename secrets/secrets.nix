@@ -73,7 +73,11 @@ let
   # ============================================================================
   # MACOS HOSTS
   # ============================================================================
-  # First macOS host as agenix recipient (mbp0, added 2026-05-01).
+  # First macOS host as agenix recipient (added 2026-05-01 as mbp0; renamed
+  # mbp2606 on 2026-08-07, NIX-216). The key's own comment still reads
+  # `root@mbp0` — macOS does not regenerate a host key on rename, and the
+  # comment is not part of the key material, so it stays as-is rather than
+  # forcing a rekey of every secret this host can decrypt.
   # macOS does NOT auto-generate /etc/ssh/ssh_host_ed25519_key — manually
   # created via:
   #     sudo ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N "" \
@@ -82,7 +86,7 @@ let
   # configured to use it (Apple's CryptoTokenKit handles SSH service keys
   # separately on modern macOS). See playbook field notes for context.
 
-  "mbp0" = [
+  "mbp2606" = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH6ene6+iB5I9brFPfFwuqNil7nbJpWguycyZqv67+LU root@mbp0"
   ];
 
@@ -446,16 +450,22 @@ in
   # Materialized at activation to /Users/mba/.inspr/secrets/agents/<NAME>.env (INSPR-164 canonical)
   # See ~/Code/inspr/proposals/agent-secrets/ for the architecture.
 
-  # GitHub PAT for @markus-barta on this device (mbp0).
+  # GitHub PAT for @markus-barta on this device (mbp2606).
   # Per-device for per-device revocability. Filename = GH_TOKEN.age so the
   # materialized env file is GH_TOKEN.env — gh CLI auto-picks up $GH_TOKEN.
   # Format inside the .age file: GH_TOKEN=ghp_xxxxxxxxxxxx
-  # Edit: agenix -e secrets/agents/host/mbp0/GH_TOKEN.age
+  # Edit: agenix -e secrets/agents/host/mbp2606/GH_TOKEN.age
   # NOTE 2026-07-03 (NIX-216): content rotated to mbp2607-gh-token — the
-  # BP-era mba-mbp-m5-work PAT is deleted. mbp0 shares the mbp2607 token
-  # for its final days before the mbp2606 rehome (Markus's call: interim
-  # per-device token would be overkill).
-  "agents/host/mbp0/GH_TOKEN.age".publicKeys = markus ++ mbp0;
+  # BP-era mba-mbp-m5-work PAT is deleted. This host shares the mbp2607
+  # token (Markus's call: an interim per-device token would be overkill).
+  # NOTE 2026-08-07 (NIX-216): path moved mbp0 -> mbp2606. The host rename
+  # missed it, and since agent-secrets selects on `agents/host/${hostname}/`
+  # (modules/shared/markus-defaults.nix), nothing under the old path matched
+  # any more — HM dropped GH_TOKEN.env, ONSHAPE.env and
+  # m5-personal-userkey.env as orphans on the next switch. That is what broke
+  # `gh auth` on this host. Recipients are unchanged, so the .age files did
+  # NOT need re-encrypting; only the rule keys and directory moved.
+  "agents/host/mbp2606/GH_TOKEN.age".publicKeys = markus ++ mbp2606;
 
   # GitHub PAT for @markus-barta on mbp2607 (NIX-215). Same format.
   # Edit: agenix -e secrets/agents/host/mbp2607/GH_TOKEN.age
@@ -463,15 +473,16 @@ in
 
   # Onshape API credentials (key + secret) — paired Onshape developer
   # access tokens; rotate together. Migrated from retired imac0 to current
-  # mbp0/M5 Max workstation during imac0 decommission prep (NIX-176).
+  # M5 Max workstation (then mbp0, now mbp2606) during imac0 decommission
+  # prep (NIX-176).
   # Materialized to ~/.inspr/secrets/agents/ONSHAPE.env.
   # Format inside the .age file (two lines):
   #   ONSHAPE_API_KEY=<access key>
   #   ONSHAPE_API_SECRET=<secret key>
   # Recipients: markus aggregate (agent-secrets is HM-level and decrypts with
-  # the user SSH key) plus mbp0 host key for recovery/rekey flexibility.
-  # Edit: agenix -e secrets/agents/host/mbp0/ONSHAPE.age
-  "agents/host/mbp0/ONSHAPE.age".publicKeys = markus ++ mbp0;
+  # the user SSH key) plus this host's key for recovery/rekey flexibility.
+  # Edit: agenix -e secrets/agents/host/mbp2606/ONSHAPE.age
+  "agents/host/mbp2606/ONSHAPE.age".publicKeys = markus ++ mbp2606;
 
   # ────────────────────────────────────────────────────────────────────────
   # Shared agent secrets (cross-machine)
@@ -482,10 +493,10 @@ in
   # Add more hosts here as they join the pipeline (rekey afterwards).
 
   # Cloudflare DNS API token (AIA account)
-  "agents/shared/CF_DNS_TOKEN_AIA.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/CF_DNS_TOKEN_AIA.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
   # Cloudflare Zone API token (AIA account)
-  "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
   # PMO (former second Paimos instance) secrets REMOVED 2026-07-13.
   # That instance was decommissioned with the June 2026 employer
@@ -495,13 +506,13 @@ in
   # PPM (pm.barta.cm) is now the only Paimos instance.
 
   # PPM = Personal Project Management (Markus's personal Paimos at pm.barta.cm)
-  "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/PPMAPIKEY.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
   # Zitadel machine-user JWT profile for inspr-services OpenTofu (INSPR-198).
   # Content: JSON key of inspr-services-tf (ORG_OWNER @ auth.inspr.at),
   # minted on csb1 by inspr-services/scripts/bootstrap-tf-sa.sh.
   # Edit: agenix -e secrets/agents/shared/ZITADEL_TF_KEY.age
-  "agents/shared/ZITADEL_TF_KEY.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/ZITADEL_TF_KEY.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
   # Home WiFi credentials — used by awtrix-rescue and any future
   # device-provisioning helpers that drive a device through its AP-mode
@@ -509,7 +520,7 @@ in
   #   HOMEWIFI_SSID=<ssid>
   #   HOMEWIFI_PASS=<password>
   # Edit: agenix -e secrets/agents/shared/HOMEWIFI.age
-  "agents/shared/HOMEWIFI.age".publicKeys = markus ++ mbp0 ++ mbp2607;
+  "agents/shared/HOMEWIFI.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
   # ────────────────────────────────────────────────────────────────────────
   # INSPR-170: inspr.git.atelier Strategy B — per-host user SSH keys
@@ -528,8 +539,10 @@ in
   #
   # Edit (re-create) workflow: agenix -e secrets/agents/host/<host>/<name>.age
 
-  # m5 (mbp0) — personal only; former work push-key removed post-exit (INSPR-241).
-  "agents/host/mbp0/m5-personal-userkey.age".publicKeys = markus;
+  # m5 (mbp0, now mbp2606) — personal only; former work push-key removed
+  # post-exit (INSPR-241). The `m5-` filename is retained by intent, like the
+  # key names; only the host directory followed the rename.
+  "agents/host/mbp2606/m5-personal-userkey.age".publicKeys = markus;
 
   # mbp2607 (NIX-215, 2026-07-03) — personal only; no former-work key on this
   # host by design (post-exit fresh start).

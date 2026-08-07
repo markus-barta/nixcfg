@@ -40,9 +40,17 @@ work runs from the `mba` account.
 - Architecture: `aarch64-darwin`
 - Theme: `lightGray` — per-HOST, so both users see the same machine colour
   (palette entry in `modules/uzumaki/theme/theme-palettes.nix`)
-- Agent secrets root: `secrets/agents/host/mbp0` — **still to be renamed to
-  `mbp2606`**, tracked as a follow-up to NIX-216. Unlike the `m5-*` key names
-  below, this path is not retained by intent.
+- Agent secrets root: `secrets/agents/host/mbp2606`
+
+`agent-secrets` selects host secrets with `agents/host/${hostname}/`, so this
+directory MUST track the hostname. It was missed during the 2026-08-07 rename
+and sat at `mbp0` for a day — nothing matched, and the next `home-manager
+switch` dropped `GH_TOKEN.env`, `ONSHAPE.env` and `m5-personal-userkey.env` as
+orphans, which is what broke `gh auth` on the host. Renaming the directory and
+its keys in `secrets/secrets.nix` restores them; recipients are unchanged, so
+no re-encryption is involved. The `m5-*` filename and the `root@mbp0` /
+`mba@mbp0` key comments are retained by intent — a key comment is not key
+material, and rewriting it would force a pointless rekey.
 
 ## Notes
 
