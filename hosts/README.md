@@ -18,7 +18,7 @@ This repository uses a modular architecture where **NixOS servers** import the f
 
 **NixOS hosts** (hsb0, hsb1, hsb8, etc.) follow a layered approach: the flake defines the system, which loads the host's `configuration.nix`, imports the hokage module from an external repository (`github:pbek/nixcfg`), which then loads `common.nix` for system-wide settings. `common.nix` imports `theme-hm.nix` which auto-applies host-specific colors.
 
-**macOS hosts** (mbp0) use a simpler path: the flake loads Home Manager with `home.nix`, which directly imports `theme-hm.nix` for theming and `fish-config.nix` for shell settings.
+**macOS hosts** (mbp2606, mbp2607) use a simpler path: the flake loads Home Manager with `home.nix`, which directly imports `theme-hm.nix` for theming and `fish-config.nix` for shell settings.
 
 ### Configuration Flow Chart
 
@@ -30,7 +30,7 @@ This repository uses a modular architecture where **NixOS servers** import the f
              │                                        │
     ┌────────▼────────┐                    ┌──────────▼─────────┐
     │  NIXOS HOSTS    │                    │   MACOS HOSTS      │
-    │  (hsb0, hsb1,   │                    │   (mbp0)           │
+    │  (hsb0, hsb1,   │                    │  (mbp2606/2607)    │
     │   hsb8, hsb9)   │                    │                    │
     └────────┬────────┘                    └──────────┬─────────┘
              │                                        │
@@ -192,7 +192,7 @@ cd ~/Code/nixcfg
 nix run home-manager -- switch --flake ".#markus@<hostname>"
 
 # Example for current MacBook:
-nix run home-manager -- switch --flake ".#mba@mbp0"
+nix run home-manager -- switch --flake ".#mba@mbp2606"   # or .#mailina@mbp2606
 ```
 
 ### Step 5: Set Fish as Default Shell
@@ -312,9 +312,9 @@ Device renames roll out via NIX-214 (epic); tables below show pre-rename names u
 
 #### Workstations (Personal Machines)
 
-| Host   | Old Name (Config) | Owner  | IP  | Theme | Status        |
-| ------ | ----------------- | ------ | --- | ----- | ------------- |
-| `mbp0` | -                 | Markus | -   | ⬜    | ✅ **Active** |
+| Host      | Old Name (Config) | Owner                          | IP  | Theme | Status        |
+| --------- | ----------------- | ------------------------------ | --- | ----- | ------------- |
+| `mbp2606` | -                 | Mailina (+ `mba` backup admin) | -   | ⬜    | ✅ **Active** |
 
 #### Gaming Systems
 
