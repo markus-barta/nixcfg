@@ -358,8 +358,8 @@ cat /proc/bus/input/devices | grep -A 5 "ACME BK03"
 ls /var/lib/funkeykid-sounds/ | wc -l
 # Should show: 28 (or your sound count)
 
-# 7. Config uses device name
-cat /etc/funkeykid.env | grep KEYBOARD_DEVICE
+# 7. Config uses device name (read only this key; never dump the whole .env)
+grep '^KEYBOARD_DEVICE=' /etc/funkeykid.env
 # Should show: KEYBOARD_DEVICE=ACME BK03
 ```
 
