@@ -104,20 +104,26 @@ login:
 
 Shorter aliases for commonly accessed hosts:
 
-| Nickname | Full Hostname | Purpose          | Tailscale Address |
-| -------- | ------------- | ---------------- | ----------------- |
-| `hsb0`   | hsb0          | Home DNS/DHCP    | hsb0.ts.barta.cm  |
-| `hsb1`   | hsb1          | Home Automation  | hsb1.ts.barta.cm  |
-| `csb0`   | csb0          | Cloud Smart Home | csb0.ts.barta.cm  |
+| Nickname | Full Hostname | Purpose          | LAN address    |
+| -------- | ------------- | ---------------- | -------------- |
+| `hsb0`   | hsb0          | Home DNS/DHCP    | `hsb0.lan`     |
+| `hsb1`   | hsb1          | Home Automation  | `hsb1.lan`     |
+| `csb0`   | csb0          | Cloud Smart Home | `cs0.barta.cm` |
 
 ### SSH Connection Examples
 
-```bash
-# 🌐 From ANYWHERE (recommended - works from home, work, coffee shop)
-ssh mba@hsb1.ts.barta.cm
+> 🔴 **MagicDNS is permanently OFF** — `*.ts.barta.cm` does **not** resolve and never
+> will (it broke agent sessions). Reach tailnet hosts by **IP**, read live from
+> `tailscale status`. Never hardcode a tailnet IP — they are not guaranteed stable.
 
-# Using nickname (for local machines)
-ssh hsb1
+```bash
+# On the LAN
+ssh mba@hsb1.lan
+
+# From anywhere, over the tailnet — look the IP up first
+tailscale status                # macOS: /Applications/Tailscale.app/Contents/MacOS/Tailscale status
+ssh mba@100.64.0.7              # example only — use the IP that `tailscale status` prints
+ssh -p 2222 mba@<csb0-or-csb1-ip>   # cloud servers keep :2222 on the tailnet too
 ```
 
 ### How LAN→Tailscale Fallback Works
@@ -126,7 +132,8 @@ ssh hsb1
 2. **Remote/coffee shop:** Auto-fallbacks to Tailscale after 2s
 3. **Zellij integration:** All aliases include `zellij attach` for session persistence
 
-**🌐 Pro tip:** Always use Tailscale addresses (`*.ts.barta.cm`) when away from home/office network.
+**🌐 Pro tip:** Away from the LAN, go over the tailnet **by IP** (`tailscale status` →
+copy the address). `*.ts.barta.cm` names are dead — see the MagicDNS note above.
 
 **Note:** SSH config is declaratively managed in `modules/shared/ssh-fleet.nix`.
 
@@ -172,31 +179,34 @@ ssh hsb1
 Self-hosted Tailscale control server on csb0. Provides mesh VPN across all hosts - **reachable from anywhere with internet**.
 
 - **Control server**: `https://hs.barta.cm` (csb0, Docker)
-- **MagicDNS domain**: `ts.barta.cm` (hosts addressable as `<hostname>.ts.barta.cm`)
+- **MagicDNS**: 🔴 **permanently disabled** — it broke agent sessions. `*.ts.barta.cm`
+  does not resolve. Address tailnet hosts by **IP**, read live from `tailscale status`.
 - **IP range**: `100.64.0.0/10`
 - **Server docs**: See `hosts/csb0/docs/RUNBOOK.md` → Headscale section
 
 ### Why Use Tailscale?
 
-| From Location  | LAN (.lan)       | Internet (barta.cm) | Tailscale (ts.barta.cm) |
-| -------------- | ---------------- | ------------------- | ----------------------- |
-| 🏠 Home        | ✅ Works         | ✅ Works            | ✅ Works                |
-| 🏢 Office      | ❌ Not reachable | ✅ Works            | ✅ Works                |
-| ☕ Coffee shop | ❌ Not reachable | ❌ Not reachable    | ✅ Works                |
-| 📱 Mobile      | ❌ Not reachable | ❌ Not reachable    | ✅ Works                |
+| From Location  | LAN (.lan)       | Internet (barta.cm) | Tailscale (by IP) |
+| -------------- | ---------------- | ------------------- | ----------------- |
+| 🏠 Home        | ✅ Works         | ✅ Works            | ✅ Works          |
+| 🏢 Office      | ❌ Not reachable | ✅ Works            | ✅ Works          |
+| ☕ Coffee shop | ❌ Not reachable | ❌ Not reachable    | ✅ Works          |
+| 📱 Mobile      | ❌ Not reachable | ❌ Not reachable    | ✅ Works          |
 
-**Always use Tailscale when LAN doesn't work** - it works from everywhere.
+**Always use Tailscale when LAN doesn't work** — by IP, never by `*.ts.barta.cm`.
 
 ### Connected Nodes
 
-| Host     | Platform | Tailscale Address          | Status     |
-| -------- | -------- | -------------------------- | ---------- |
-| **mbp0** | macOS    | mbp0.ts.barta.cm           | ✅ Active  |
-| **hsb0** | NixOS    | hsb0.ts.barta.cm           | ✅ Active  |
-| **hsb1** | NixOS    | hsb1.ts.barta.cm           | ✅ Active  |
-| ~~gpc0~~ | —        | retired → stm2607 (OPS-17) | 🗑️ Retired |
-| **csb0** | NixOS    | csb0.ts.barta.cm           | ✅ Active  |
-| **csb1** | NixOS    | csb1.ts.barta.cm           | ✅ Active  |
+🔴 **No static node list here — it goes stale and there is no MagicDNS name to fall
+back on.** Query the live sources instead:
+
+```bash
+tailscale status   # macOS: /Applications/Tailscale.app/Contents/MacOS/Tailscale status
+```
+
+`tailscale status` prints each node's tailnet IP and flags dead ones as
+`offline, last seen …`. **Pharos** (<https://pharos.barta.cm>) is the canonical
+fleet inventory. Note that gpc0 was retired → `stm2607` (OPS-17).
 
 <!-- miniserver-bp moved out of this repo on 2026-05-02 (INSPR-24) -->
 

@@ -592,7 +592,9 @@ in
         "vr-netgear-gs724"
         "vr-netgear-gs724.lan"
       ];
-      # Router/gateway - internet access, must work even during DNS outages
+      # Fritz!Box — mesh/Wi-Fi only, NOT the default gateway. Routing moved to
+      # the TP-Link Omada at 192.168.1.1 in the Starlink migration; see
+      # networking.defaultGateway above. (Stale "gateway" label fixed 2026-08-07.)
       "192.168.1.5" = [
         "vr-fritz-box"
         "vr-fritz-box.lan"

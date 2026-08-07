@@ -31,16 +31,19 @@ let
   # LOCATION CONFIGURATION
   # ============================================================================
   # Set location before deploying:
-  # - "jhw22" = Markus' home (192.168.1.5 gateway, uses miniserver99 DNS)
+  # - "jhw22" = Markus' home (192.168.1.1 gateway, uses hsb0 DNS)
   # - "ww87"  = Parents' home (192.168.1.1 gateway, runs local AdGuard DNS)
   location = "ww87"; # Deployed to parents' home
 
   # Location-specific network settings
   gatewayIP =
+    # Both sites route via .1 today. jhw22 was the Fritz!Box at .5 until the
+    # Starlink/Omada migration; returning hsb8 home on .5 would have left it
+    # without a route (fixed 2026-08-07, dormant branch — hsb8 is at ww87).
     if location == "jhw22" then
-      "192.168.1.5" # Markus' home: Fritz!Box
+      "192.168.1.1" # Markus' home: TP-Link Omada
     else
-      "192.168.1.1"; # Parents' home: Router
+      "192.168.1.1"; # Parents' home: Fritz!Box
 
   dnsServers =
     if location == "jhw22" then

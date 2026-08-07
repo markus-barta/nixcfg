@@ -13,14 +13,17 @@ let
   # LOCATION CONFIGURATION
   # ============================================================================
   # Set location before deploying:
-  # - "jhw22"          = Markus' home (192.168.1.5 gateway, miniserver99 DNS)
+  # - "jhw22"          = Markus' home (192.168.1.1 gateway, hsb0 DNS)
   # - "parents-in-law" = Live since 2026-05-31: 192.168.1.1 gateway, Cloudflare DNS (confirmed on-site)
   # ============================================================================
   location = "parents-in-law"; # was "jhw22" — physically moved 2026-05-31 (NIX-138)
 
   gatewayIP =
+    # Both sites route via .1 today. jhw22 was the Fritz!Box at .5 until the
+    # Starlink/Omada migration; coming home on .5 would leave hsb9 without a
+    # route (fixed 2026-08-07, dormant branch — hsb9 is at parents-in-law).
     if location == "jhw22" then
-      "192.168.1.5" # Markus' home: Fritz!Box
+      "192.168.1.1" # Markus' home: TP-Link Omada
     else
       "192.168.1.1"; # Parents-in-law: Fritz!Box (confirmed on-site 2026-05-31)
 

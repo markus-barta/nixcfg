@@ -6,21 +6,21 @@
 
 ## Quick Reference
 
-| Item                 | Value                                                            |
-| -------------------- | ---------------------------------------------------------------- |
-| **Hostname**         | `hsb9`                                                           |
-| **Model**            | Mac mini "Late 2009" (Macmini3,1)                                |
-| **CPU**              | Intel Core 2 Duo P7550 @ 2.26 GHz (2 cores)                      |
-| **RAM**              | 4 GB DDR3                                                        |
-| **Storage**          | Crucial CT250MX200SSD1 — 250 GB SATA SSD (ext4)                  |
-| **Static IP**        | `192.168.1.200` (live at parents-in-law since 2026-05-31)        |
-| **Prior IP (jhw22)** | `192.168.1.203` (Markus' home migration-prep — retired)          |
-| **MAC**              | _(not committed — `ip link show enp0s10` on host)_               |
-| **NIC**              | NVIDIA MCP79 onboard (`enp0s10`, `forcedeth` driver)             |
-| **SSH**              | `ssh mba@hsb9.ts.barta.cm` (tailnet) or `ssh mba@192.168.1.200`  |
-| **HostDash**         | `http://hsb9.lan/` or `http://192.168.1.200/`                    |
-| **Location**         | parents-in-law (live since 2026-05-31; was jhw22 migration-prep) |
-| **PPM**              | NIX-138                                                          |
+| Item                 | Value                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Hostname**         | `hsb9`                                                                                                                     |
+| **Model**            | Mac mini "Late 2009" (Macmini3,1)                                                                                          |
+| **CPU**              | Intel Core 2 Duo P7550 @ 2.26 GHz (2 cores)                                                                                |
+| **RAM**              | 4 GB DDR3                                                                                                                  |
+| **Storage**          | Crucial CT250MX200SSD1 — 250 GB SATA SSD (ext4)                                                                            |
+| **Static IP**        | `192.168.1.200` (live at parents-in-law since 2026-05-31)                                                                  |
+| **Prior IP (jhw22)** | `192.168.1.203` (Markus' home migration-prep — retired)                                                                    |
+| **MAC**              | _(not committed — `ip link show enp0s10` on host)_                                                                         |
+| **NIC**              | NVIDIA MCP79 onboard (`enp0s10`, `forcedeth` driver)                                                                       |
+| **SSH**              | `ssh mba@192.168.1.200` on-site, or by tailnet IP (`tailscale status`) — MagicDNS is off, `*.ts.barta.cm` does not resolve |
+| **HostDash**         | `http://hsb9.lan/` or `http://192.168.1.200/`                                                                              |
+| **Location**         | parents-in-law (live since 2026-05-31; was jhw22 migration-prep)                                                           |
+| **PPM**              | NIX-138                                                                                                                    |
 
 ---
 

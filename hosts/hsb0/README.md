@@ -15,7 +15,7 @@ Primary DNS and DHCP server running **AdGuard Home** as a native NixOS service, 
 | **Storage**           | 250 GB Samsung SSD 840 Series (232.9 GB)             |
 | **Filesystem**        | ZFS (zroot pool, 3% used)                            |
 | **Static IP**         | `192.168.1.99/24`                                    |
-| **Gateway**           | `192.168.1.5` (Fritz!Box)                            |
+| **Gateway**           | `192.168.1.1` (TP-Link Omada router)                 |
 | **DNS**               | `127.0.0.1` (local AdGuard Home)                     |
 | **DHCP Range**        | `192.168.1.201` - `192.168.1.254`                    |
 | **Web Interface**     | [http://192.168.1.99:3000](http://192.168.1.99:3000) |
@@ -836,7 +836,7 @@ With 24-hour DHCP leases, clients automatically pick up the restored service wit
 ### Completed
 
 - ✅ Initial deployment via nixos-anywhere
-- ✅ Network configuration (interface: enp2s0f0, gateway: 192.168.1.5)
+- ✅ Network configuration (interface: enp2s0f0, gateway: 192.168.1.1)
 - ✅ AdGuard Home configured and running
 - ✅ DHCP enabled with 107 static leases (encrypted with agenix)
 - ✅ DNS rewrites for internal hosts
@@ -847,7 +847,8 @@ With 24-hour DHCP leases, clients automatically pick up the restored service wit
 
 - All configuration is declarative (`mutableSettings = false`)
 - Static leases are encrypted in git using agenix (dual-key: personal + host key)
-- Gateway IP 192.168.1.5 verified from actual network
+- Gateway IP 192.168.1.1 verified live 2026-08-07 (was `192.168.1.5` / Fritz!Box at
+  deploy time; the Fritz!Box is still at `.5` but serves mesh/Wi-Fi only, not routing)
 - Network interface enp2s0f0 verified from hardware
 
 ---

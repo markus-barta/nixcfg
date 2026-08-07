@@ -89,7 +89,9 @@ Current Context                Target Host              Reachable?
 | csb1 | `ssh mba@cs1.barta.cm -p 2222` | mba         | Internet    | Internet    | Cloud - port 2222!  |
 | mbp0 | `ssh mba@mbp0.lan`             | mba         | Home/Remote | Home/Remote | Private M5 portable |
 
-**🌐 Tailscale SSH (from anywhere):** `ssh mba@<host>.ts.barta.cm`
+**🌐 Tailscale SSH (from anywhere):** by **IP** — `tailscale status` to read it, then
+`ssh mba@100.64.x.y` (cloud hosts keep `-p 2222`). 🔴 MagicDNS is permanently OFF;
+`<host>.ts.barta.cm` does **not** resolve and never will.
 
 **Key Logic:**
 

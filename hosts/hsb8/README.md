@@ -83,7 +83,9 @@ nixos-rebuild switch --flake .#hsb8
 # OR run: enable-ww87
 ```
 
-**Note**: Network gateway mismatch (expects 192.168.1.5, parents have 192.168.1.1) means SSH won't work until configuration is switched. Console access required for first boot.
+**Note**: Historical — both sites route via `192.168.1.1` since the Starlink/Omada
+migration at jhw22 (2026-08), so there is no longer a gateway mismatch on first boot.
+Console access is still the safe path if DNS/AdGuard differs between locations.
 
 ---
 
@@ -110,7 +112,7 @@ The hsb8 server uses a **location-based configuration** that adapts network sett
 
 | Location | Name          | Gateway     | DNS               | Search Domain | AdGuard Home |
 | -------- | ------------- | ----------- | ----------------- | ------------- | ------------ |
-| `jhw22`  | Markus' home  | 192.168.1.5 | 192.168.1.99      | lan           | Disabled     |
+| `jhw22`  | Markus' home  | 192.168.1.1 | 192.168.1.99      | lan           | Disabled     |
 | `ww87`   | Parents' home | 192.168.1.1 | 127.0.0.1 (local) | local         | Enabled      |
 
 ### How It Works
@@ -297,13 +299,13 @@ Filesystems:
 
 ## Network Configuration
 
-### Current Configuration (jhw22)
+### Markus' home configuration (jhw22 — dormant; hsb8 runs at ww87)
 
 ```
 Interface: enp2s0f0
 IP Address: 192.168.1.100/24 (static)
-Gateway: 192.168.1.5 (vr-fritz-box)
-DNS: 192.168.1.99 (miniserver99 / AdGuard Home)
+Gateway: 192.168.1.1 (TP-Link Omada; was vr-fritz-box .5 pre-Starlink)
+DNS: 192.168.1.99 (hsb0 / AdGuard Home)
 Search Domain: lan
 Status: UP, RUNNING
 ```
