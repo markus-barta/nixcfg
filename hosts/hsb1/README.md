@@ -15,7 +15,7 @@ Home automation hub running Node-RED, Zigbee2MQTT, MQTT broker, and related serv
 | **Storage**                        | 512 GB Apple SSD (465.9 GB usable)                       |
 | **Filesystem**                     | ZFS (zroot pool, 12% used)                               |
 | **Static IP**                      | `192.168.1.101/24`                                       |
-| **Gateway**                        | `192.168.1.5` (Fritz!Box)                                |
+| **Gateway**                        | `192.168.1.1` (TP-Link Omada)                            |
 | **DNS**                            | `192.168.1.99` (hsb0) + `1.1.1.1` (fallback)             |
 | **Web Interface - Node-RED**       | [http://192.168.1.101:1880](http://192.168.1.101:1880)   |
 | **Web Interface - Zigbee2MQTT**    | [http://192.168.1.101:8888](http://192.168.1.101:8888)   |

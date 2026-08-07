@@ -20,7 +20,8 @@ The `enable-ww87` script is a one-command solution for switching the hsb8 server
 4. ✅ Commits and pushes the change to Git (after network is working)
 5. ✅ Enables AdGuard Home (DNS server + web interface)
 6. ✅ Updates network settings:
-   - Gateway: 192.168.1.5 → 192.168.1.1
+   - Gateway: 192.168.1.1 (unchanged — both sites route via `.1` since the
+     Starlink/Omada migration; jhw22 was `192.168.1.5` before that)
    - DNS: miniserver99 → local AdGuard (127.0.0.1)
    - Search domain: lan → local
 7. ✅ Opens firewall ports for DNS (53) and AdGuard UI (3000)
@@ -42,7 +43,10 @@ The `enable-ww87` script is a one-command solution for switching the hsb8 server
 2. ✅ Server is connected to parents' network (ethernet cable plugged in)
 3. ✅ You have physical/console access to the server
 
-**Why physical access?** The server is currently configured for Markus' home network (gateway 192.168.1.5). At parents' home, this gateway doesn't exist, so remote SSH won't work until after running the script.
+**Why physical access?** DNS, search domain and AdGuard differ between the two
+locations, so remote SSH is not guaranteed until the script has run. (The gateway
+itself is `192.168.1.1` at both sites since the Starlink/Omada migration; it was
+`192.168.1.5` at jhw22 before that, which is where this warning originated.)
 
 **Steps:**
 
@@ -52,7 +56,7 @@ The `enable-ww87` script is a one-command solution for switching the hsb8 server
 enable-ww87
 
 # 3. Follow prompts, then press Enter to apply configuration
-# 4. Network will reconfigure (gateway 192.168.1.5 → 192.168.1.1)
+# 4. Network will reconfigure (DNS/search domain; gateway stays 192.168.1.1)
 # 5. AdGuard Home will start
 # 6. Changes will be committed and pushed to Git
 ```
