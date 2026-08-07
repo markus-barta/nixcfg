@@ -308,12 +308,25 @@ curl -s "https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=873192422&text=
 
 Watchtower env file: `/home/gb/secrets/watchtower.env`
 
-```bash
-# View current config
-ssh mba@hsb8.lan "sudo cat /home/gb/secrets/watchtower.env"
+> 🔴 **Never print this file.** It holds a live Telegram bot token. `cat`/`less`/
+> `grep`-with-output puts it in scrollback, shell history and agent transcripts.
+> Verify without disclosing; edit in place.
 
-# Add/remove recipients: edit the channels= parameter (comma-separated chat IDs)
+```bash
+# Confirm it exists and is root-only (prints metadata, never contents)
+ssh mba@hsb8.lan "sudo stat -c '%n %a %U:%G' /home/gb/secrets/watchtower.env"
+
+# Confirm the notification URL is configured (prints a count, not the value)
+ssh mba@hsb8.lan "sudo grep -c '^WATCHTOWER_NOTIFICATION_URL=' /home/gb/secrets/watchtower.env"
+
+# Add/remove recipients: edit the channels= parameter (comma-separated chat IDs).
+# Edit in place — do not copy the file out or echo it.
+ssh -t mba@hsb8.lan "sudo -e /home/gb/secrets/watchtower.env"
 ```
+
+If the token itself ever needs replacing, rotate it in BotFather and write the new
+value straight into the file with `sudo -e` — never via a command line that would
+land in history.
 
 ---
 
