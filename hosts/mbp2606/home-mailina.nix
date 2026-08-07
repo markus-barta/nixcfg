@@ -78,6 +78,12 @@ in
     extraConfig = {
       init.defaultBranch = "main";
       pull.rebase = true;
+      # The shared flake checkout at /Users/Shared/nixcfg is owned by `mba`, so
+      # git's dubious-ownership guard would refuse every command she runs there
+      # — including the git invocation Nix makes to read the flake. Declared
+      # here rather than via `git config --global`, which would create a legacy
+      # ~/.gitconfig that shadows this HM-managed ~/.config/git/config (NIX-216).
+      safe.directory = "/Users/Shared/nixcfg";
     };
   };
 
