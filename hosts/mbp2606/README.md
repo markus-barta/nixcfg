@@ -14,10 +14,10 @@ Two Home Manager users share this machine. HM standalone is per-user, so each
 account has its own `$HOME`, profile and generations, and neither can clobber
 the other.
 
-| user      | role                     | config               | flake output                            |
-| --------- | ------------------------ | -------------------- | --------------------------------------- |
-| `mailina` | primary (Mailina Barta)  | `./home-mailina.nix` | `homeConfigurations."mailina@mbp2606"`  |
-| `mba`     | backup/admin (Markus)    | `./home.nix`         | `homeConfigurations."mba@mbp2606"` (alias `"mbp2606"`) |
+| user      | role                    | config               | flake output                                           |
+| --------- | ----------------------- | -------------------- | ------------------------------------------------------ |
+| `mailina` | primary (Mailina Barta) | `./home-mailina.nix` | `homeConfigurations."mailina@mbp2606"`                 |
+| `mba`     | backup/admin (Markus)   | `./home.nix`         | `homeConfigurations."mba@mbp2606"` (alias `"mbp2606"`) |
 
 `home-mailina.nix` deliberately omits `modules/shared/markus-defaults.nix` and
 `ssh-fleet.nix` — Markus's identity, agent-secret roots and fleet SSH matrix
@@ -28,7 +28,7 @@ are not hers.
 `/opt/homebrew` and `/Applications` are machine-wide, not per-user, and the
 prefix is owned by `mba`. `just bundle` is additive and safe from either
 account. **`just bundle-cleanup` is not** — it uninstalls every cask absent
-from the *invoking* user's Brewfile, so running it from either account removes
+from the _invoking_ user's Brewfile, so running it from either account removes
 the other user's apps. Do not run it on this host (NIX-216).
 
 Homebrew is single-user by design: `mailina` cannot complete cask installs
@@ -84,7 +84,7 @@ error: … while fetching the input 'git+file:///Users/Shared/nixcfg'
 ```
 
 `programs.git.extraConfig.safe.directory` in `home-mailina.nix` exists to fix
-exactly this — but it is *delivered by* the activation, so the activation
+exactly this — but it is _delivered by_ the activation, so the activation
 cannot read the flake in order to deliver it. Nix uses libgit2, which ignores
 `GIT_CONFIG_GLOBAL` and reads global config from XDG. Break the loop by
 building the activation package under a scoped `XDG_CONFIG_HOME`, then
