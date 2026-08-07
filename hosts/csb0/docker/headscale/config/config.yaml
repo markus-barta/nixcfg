@@ -77,10 +77,19 @@ disable_check_updates: true
 ephemeral_node_inactivity_timeout: 30m
 
 # DNS / MagicDNS configuration
+#
+# 🔴 magic_dns is OFF by deliberate, permanent decision (OPS-146): MagicDNS
+# rewrote clients' resolvers and that was breaking agent/API sessions. It had
+# been left `true` here while clients simply declined the tailnet resolver, so
+# the decision rested on per-client prefs — one re-enrolled or re-enabled client
+# could have silently brought the breakage back. Enforce it at the source.
+#
+# base_domain stays set because Headscale requires it, and it is what the
+# now-disabled names would have used. Reach tailnet hosts by IP (`tailscale
+# status`); see modules/shared/ssh-fleet.nix. Do not flip this back to true.
 dns:
-  magic_dns: true
-  # Base domain for MagicDNS
-  # Hosts will be: <hostname>.ts.barta.cm
+  magic_dns: false
+  # Base domain that MagicDNS *would* use — retained for schema validity only.
   # NOTE: Must differ from server_url domain
   base_domain: ts.barta.cm
   nameservers:
