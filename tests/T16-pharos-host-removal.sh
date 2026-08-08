@@ -23,6 +23,13 @@ grep -Eq 'uses: peter-evans/create-pull-request@[0-9a-f]{40} # v8' "$workflow"
 grep -Eq 'uses: actions/checkout@[0-9a-f]{40} # v5' "$workflow"
 grep -Fq 'Validate and open review-only removal' "$workflow"
 grep -Fq 'credential_retirement=pending_janus_owner' "$workflow"
+# PHAROS-197: the proposal must be able to record a retirement intent for a host
+# Janus manages but nixcfg does not declare.
+grep -Fq 'credential_retirement_required:' "$workflow"
+# shellcheck disable=SC2016 # matching literal workflow text, not expanding it
+grep -Fq 'PHAROS_CREDENTIAL_RETIREMENT: ${{ inputs.credential_retirement_required }}' "$workflow"
+# shellcheck disable=SC2016 # matching the literal shell argument in the workflow
+grep -Fq '"$PHAROS_CREDENTIAL_RETIREMENT"' "$workflow"
 grep -Fq 'server_deletion=false' "$workflow"
 install_nix_line=$(grep -n -m1 -- '- name: Install Nix' "$workflow" | cut -d: -f1)
 validate_line=$(grep -n -m1 -- '- name: Validate removal contract' "$workflow" | cut -d: -f1)
@@ -148,6 +155,46 @@ jq -e '
     successor: null
   }]
 ' "$preference_only_fixture/retired-hosts.json" >/dev/null
+
+# PHAROS-197: a Janus-managed host that nixcfg does not declare still needs a
+# retirement intent, or its removal strands with the credential live.
+undeclared_fixture="$fixture_root/undeclared"
+make_fixture "$undeclared_fixture"
+compose_before=$(shasum "$undeclared_fixture/docker-compose.yml")
+run_prepare "$undeclared_fixture" undeclared0 unmanaged '' pharos-host-removal-undeclared0-103-1 true
+[[ "$compose_before" == "$(shasum "$undeclared_fixture/docker-compose.yml")" ]]
+[[ -e "$undeclared_fixture/manifests/hsb8.json" ]]
+jq -e '.hosts.hsb8 != null' "$undeclared_fixture/preferences.json" >/dev/null
+jq -e '
+  .retirements == [{
+    credential_retirement_required: true,
+    disposition: "unmanaged",
+    host: "undeclared0",
+    server_deletion: false,
+    successor: null
+  }]
+' "$undeclared_fixture/retired-hosts.json" >/dev/null
+
+# Without that explicit intent an undeclared host is still an unknown host, and
+# a malformed flag is refused rather than treated as false.
+for case_name in undeclared-without-intent undeclared-invalid-flag; do
+  fixture="$fixture_root/$case_name"
+  make_fixture "$fixture"
+  before=$(find "$fixture" -type f -print0 | sort -z | xargs -0 shasum)
+  case "$case_name" in
+  undeclared-without-intent) args=(undeclared0 unmanaged '' pharos-host-removal-undeclared0-104-1 false) ;;
+  undeclared-invalid-flag) args=(undeclared0 unmanaged '' pharos-host-removal-undeclared0-104-1 maybe) ;;
+  esac
+  if run_prepare "$fixture" "${args[@]}" 2>/dev/null; then
+    printf '%s case was accepted\n' "$case_name" >&2
+    exit 1
+  fi
+  after=$(find "$fixture" -type f -print0 | sort -z | xargs -0 shasum)
+  [[ "$before" == "$after" ]] || {
+    printf '%s failure changed the fixture\n' "$case_name" >&2
+    exit 1
+  }
+done
 
 for case_name in invalid-host invalid-disposition missing-successor unexpected-successor invalid-request unknown-host; do
   fixture="$fixture_root/$case_name"

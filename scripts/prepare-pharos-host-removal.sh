@@ -7,6 +7,11 @@ host=${1-}
 disposition=${2-}
 successor=${3-}
 request_id=${4-}
+# PHAROS-197: a Janus-managed host need not be declared here. When Pharos says
+# credential retirement is required, an undeclared host still needs a retirement
+# intent recorded, or its removal strands with the credential live. Defaults to
+# false so an older Pharos that does not send it keeps the stricter behaviour.
+credential_retirement_required=${5-false}
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_root=${PHAROS_REMOVAL_REPO_ROOT:-$(cd -- "$script_dir/.." && pwd)}
@@ -28,6 +33,8 @@ valid_host() {
 valid_host "$host" || fail invalid_host
 [[ "$disposition" == destroyed || "$disposition" == unmanaged || "$disposition" == rebuilt ]] || fail invalid_disposition
 [[ "$request_id" =~ ^pharos-host-removal-${host}-[0-9]+-[0-9]+$ ]] || fail invalid_request_id
+[[ "$credential_retirement_required" == true || "$credential_retirement_required" == false ]] ||
+  fail invalid_credential_retirement
 
 if [[ "$disposition" == rebuilt ]]; then
   valid_host "$successor" || fail invalid_successor
@@ -82,7 +89,9 @@ while IFS= read -r candidate; do
 done < <(find "$manifest_dir" -maxdepth 1 -type f -name '*.json' -print)
 [[ ${#matching_manifests[@]} -le 1 ]] || fail declared_manifest_not_unique
 if [[ "$preference_declared" != true && ${#matching_manifests[@]} -eq 0 ]]; then
-  fail host_not_declared
+  # Undeclared is legitimate only when the point of the proposal is to record a
+  # credential retirement; otherwise it still means an unknown host.
+  [[ "$credential_retirement_required" == true ]] || fail host_not_declared
 fi
 manifest_file=
 manifest_name=
@@ -203,7 +212,11 @@ if [[ ${PHAROS_REMOVAL_FIXTURE:-0} != 1 ]]; then
   if [[ -n "$manifest_file" ]]; then
     allowed_paths+=("hosts/csb1/docker/pharos/manifests/$manifest_name")
   fi
-  allowed_paths+=("modules/pharos-host-preferences.json")
+  # PHAROS-197: an undeclared host has no preference entry to delete, so the
+  # file is rewritten identically and git reports no change for it.
+  if [[ "$preference_declared" == true ]]; then
+    allowed_paths+=("modules/pharos-host-preferences.json")
+  fi
   [[ ${#changed_paths[@]} -eq ${#allowed_paths[@]} ]] || fail unexpected_changed_paths
   for index in "${!allowed_paths[@]}"; do
     [[ "${changed_paths[$index]}" == "${allowed_paths[$index]}" ]] || fail unexpected_changed_paths
