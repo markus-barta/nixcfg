@@ -67,15 +67,20 @@ in
   # ============================================================================
   # Git — her own identity
   # ============================================================================
-  # Address supplied by Markus 2026-08-07 (NIX-216). Commit attribution only —
-  # it needs no GitHub account to work. She does have one (`mailina-barta`,
-  # created 2026-03-12) but it is unused: 0 repos, untouched since the day it
-  # was made. Pushing to GitHub would need auth set up separately.
+  # Address supplied by Markus 2026-08-07 (NIX-216). Her GitHub account is
+  # `mailina-barta` (created 2026-03-12). It was unused until 2026-08-07, when
+  # it was granted collaborator access on markus-barta/nixcfg and authenticated
+  # here with `gh auth login`, so she now pushes as herself — no account
+  # switching for git work on this host.
   programs.git = {
     enable = true;
-    userName = "Mailina Barta";
-    userEmail = "mailina@barta.com";
-    extraConfig = {
+    # `settings` (not the old userName/userEmail/extraConfig): Home Manager
+    # renamed those, and the pre-rename spelling emitted a deprecation warning
+    # on every activation. Behaviour is unchanged — the rendered
+    # ~/.config/git/config is byte-identical (NIX-216).
+    settings = {
+      user.name = "Mailina Barta";
+      user.email = "mailina@barta.com";
       init.defaultBranch = "main";
       pull.rebase = true;
       # The shared flake checkout at /Users/Shared/nixcfg is owned by `mba`, so
