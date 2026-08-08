@@ -24,6 +24,11 @@ on:
         description: Private Pharos correlation identifier
         required: true
         type: string
+      credential_retirement_required:
+        description: Record a retirement intent for a host Janus manages but nixcfg does not declare
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: pharos-host-removal-${{ inputs.host }}
@@ -41,6 +46,7 @@ jobs:
       PHAROS_DISPOSITION: ${{ inputs.disposition }}
       PHAROS_SUCCESSOR: ${{ inputs.successor }}
       PHAROS_REQUEST_ID: ${{ inputs.request_id }}
+      PHAROS_CREDENTIAL_RETIREMENT: ${{ inputs.credential_retirement_required }}
     steps:
       - name: Checkout nixcfg
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -60,7 +66,8 @@ jobs:
             "$PHAROS_HOST" \
             "$PHAROS_DISPOSITION" \
             "$PHAROS_SUCCESSOR" \
-            "$PHAROS_REQUEST_ID"
+            "$PHAROS_REQUEST_ID" \
+            "$PHAROS_CREDENTIAL_RETIREMENT"
 
       - name: Evaluate every configured NixOS host
         run: |
