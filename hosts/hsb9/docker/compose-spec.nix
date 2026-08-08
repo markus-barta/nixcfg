@@ -79,7 +79,7 @@
     # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
     # pharosd (csb1) every 60s.
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.75@sha256:0f13880761de977758a31da0bdbd3997eca3b78a987ba16cdb833c1ac86a5501";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.76@sha256:5d6c1ad7ca2447265bc4efd775a872d7fd92f574f2541e40b6ad7908d5c5f99b";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
