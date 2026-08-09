@@ -3,9 +3,17 @@
 # Expected POST body (set in Uptime Kuma's "Custom Body" template):
 #   { "ip": "192.168.1.7", "monitor": "Fritz.7 bz-repeater", "status": "Down" }
 #
-# msg dropped from the body 2026-06-04 (NIX-146): free-text {{ msg }} broke the
-# JSON on DOWN events (chars in the failure detail) → whole body unparseable →
-# every down logged as fritz-unknown. run.sh now gates DOWN-only via $3=status.
+# msg must NOT appear in that body. Free-text {{ msg }} breaks the JSON on DOWN
+# events — a ping failure expands to multi-line output, and raw newlines inside a
+# JSON string value make the whole body unparseable, so no arguments reach run.sh
+# and every DOWN lands as fritz-unknown-<ts>. UP events have an empty msg, which
+# is why only they ever worked. run.sh gates DOWN-only via $3=status.
+#
+# 🔴 Was diagnosed 2026-06-04 (NIX-146) and this comment claimed it fixed, but the
+# removal was never applied to the live Kuma notification — every DOWN stayed
+# broken until 2026-08-09 (OPS-161). The body lives in Kuma's own DB on hsb0, not
+# in nixcfg, so this file cannot enforce it: treat the comment as documentation of
+# intent, and verify the real thing in Kuma → Settings → Notifications.
 - id: fritz-down
   execute-command: /usr/local/bin/run.sh
   command-working-directory: /incidents
