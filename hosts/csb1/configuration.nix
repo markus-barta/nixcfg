@@ -186,6 +186,12 @@ in
   # csb1 executes credential retirement for other hosts after their reviewed
   # removal proposal is deployed. The executor rejects csb1 as its own target.
   inspr.pharosRetirementExecutor.enable = true;
+  # PHAROS-199: take the engine image from the same attribute that pins the
+  # container, not from a parsed docker-compose.yml — OPS-122 deleted that file
+  # on 2026-08-01, and every retirement since failed `missing_engine_image`,
+  # reported to the operator as the misleading "Janus unavailable".
+  inspr.pharosRetirementExecutor.janusEngineImage =
+    config.nixcfg.composeStack.spec.services.janus-engine-staged.image;
 
   # Managed provisioning uses the dedicated csb1 executor identity. Its public
   # key is registered and selected in the attended Hetzner project; the private
