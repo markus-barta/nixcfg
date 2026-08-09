@@ -63,6 +63,21 @@ in
       default = "/run/agenix/pharos-beacon-${owner}-env";
       description = "Root-readable environment file containing the owner's existing PHAROS_TOKEN.";
     };
+    janusEngineImage = lib.mkOption {
+      type = lib.types.str;
+      example = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.20@sha256:e1daef…";
+      description = ''
+        Pinned Janus engine image passed to the retirement helper as
+        JANUS_ENGINE_IMAGE.
+
+        PHAROS-199: the helper's fallback resolves this by parsing
+        `hosts/<host>/docker/docker-compose.yml`, which OPS-122 deleted on
+        2026-08-01 when the stack became Nix-rendered. With no file to read the
+        helper failed `missing_engine_image` on every run, surfaced to the
+        operator as the misleading "Janus unavailable". Set this from the same
+        attribute that pins the container so the two can never drift.
+      '';
+    };
     pollSeconds = lib.mkOption {
       type = lib.types.ints.between 15 300;
       default = 30;
@@ -83,6 +98,21 @@ in
       {
         assertion = builtins.match "/[A-Za-z0-9._/-]+" cfg.repoPath != null;
         message = "inspr.pharosRetirementExecutor.repoPath must be an absolute path";
+      }
+      {
+        # PHAROS-199: an unset image silently falls back to parsing a
+        # docker-compose.yml that no longer exists, which fails every
+        # retirement as "Janus unavailable". Fail at eval instead.
+        assertion = cfg.janusEngineImage != "";
+        message =
+          "inspr.pharosRetirementExecutor.janusEngineImage must be set to the pinned "
+          + "Janus engine image (see hosts/<host>/docker/compose-spec.nix)";
+      }
+      {
+        assertion = builtins.match "[^[:space:]]+@sha256:[0-9a-f]{64}" cfg.janusEngineImage != null;
+        message =
+          "inspr.pharosRetirementExecutor.janusEngineImage must be digest-pinned "
+          + "(…@sha256:<64 hex>), so a moved tag cannot change what retires a credential";
       }
     ];
 
@@ -112,6 +142,9 @@ in
         Type = "oneshot";
         ExecStart = "${executor}/bin/pharos-retirement-executor";
         EnvironmentFile = cfg.tokenEnvironmentFile;
+        # PHAROS-199: inherited by retire-host.sh, which otherwise falls back to
+        # parsing a compose file the OPS-122 cutover removed.
+        Environment = [ "JANUS_ENGINE_IMAGE=${cfg.janusEngineImage}" ];
         UMask = "0077";
         PrivateTmp = true;
         TimeoutStartSec = "1800";

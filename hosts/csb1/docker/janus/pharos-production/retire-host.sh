@@ -106,13 +106,19 @@ else
   [[ "$RUN_SCOPE" = pharos/csb1/nonprod-retirement-smoke ]] || fail fixture_uses_production_scope
 fi
 
+# PHAROS-199: JANUS_ENGINE_IMAGE is the supported input — the retirement
+# executor sets it from the same Nix attribute that pins the container. The awk
+# fallback below only works on hosts that still keep a checked-in
+# docker-compose.yml; csb1 stopped doing so at the OPS-122 cutover (2026-08-01),
+# where it silently produced an empty IMAGE and failed every retirement as
+# `missing_engine_image` — which the executor reports as "Janus unavailable".
 if [ -z "$IMAGE" ]; then
   IMAGE=$(
     awk '
       /^[[:space:]]+janus-engine-staged:/ { in_service = 1; next }
       in_service && /^    image:/ { print $2; exit }
       in_service && /^  [A-Za-z0-9_-]+:/ { exit }
-    ' "${COMPOSE_DIR}/docker-compose.yml"
+    ' "${COMPOSE_DIR}/docker-compose.yml" 2>/dev/null
   )
 fi
 [[ -n "$IMAGE" ]] || fail missing_engine_image
@@ -130,7 +136,11 @@ mkdir -p "$LOCK_ROOT"
 exec 9>"${LOCK_ROOT}/janus-pharos-production.lock"
 flock -n 9 || fail retirement_in_progress
 
-docker pull "$IMAGE" >/dev/null
+# PHAROS-199: without the guard a failed pull exits before any verdict line is
+# emitted, and the executor's pre-assigned default reason leaks out unexamined.
+# `missing_engine_image` is the honest code — it maps to janus_unavailable,
+# which is accurate when the engine image genuinely cannot be obtained.
+docker pull "$IMAGE" >/dev/null || fail missing_engine_image
 janus_pharos_prepare_runtime "$IMAGE" "$SCRIPT_DIR" "$VOLUME_PREFIX"
 
 docker run --rm \
