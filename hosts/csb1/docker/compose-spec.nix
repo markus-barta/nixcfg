@@ -1233,6 +1233,10 @@
         "PHAROS_BACKUP_MODE=status-file"
         "PHAROS_BACKUP_STATUS_FILE=/pharos-backup-status/restic-cron-hetzner.json"
         "PHAROS_CURRENT_KERNEL_MODULES_DIR=/host/run/current-system/kernel-modules/lib/modules"
+        "PHAROS_NIX_DEPLOYMENT_EVIDENCE_FILE=/host/pharos-deployment/evidence.json"
+        "PHAROS_NIXCFG_REMOTE_URL=https://github.com/markus-barta/nixcfg.git"
+        "PHAROS_NIXCFG_REMOTE_REF=refs/heads/main"
+        "PHAROS_NIXPKGS_REMOTE_URL=https://github.com/NixOS/nixpkgs.git"
         "NIXCFG_DIR=/nixcfg"
         "GIT_CONFIG_COUNT=1"
         "GIT_CONFIG_KEY_0=safe.directory"
@@ -1240,6 +1244,7 @@
       ];
       volumes = [
         "/home/mba/Code/nixcfg:/nixcfg:ro"
+        "/etc/pharos-deployment:/host/pharos-deployment:ro"
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
         "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro"
