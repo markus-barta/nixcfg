@@ -87,6 +87,11 @@
 
     let
       linuxSystem = "x86_64-linux";
+      nixDeploymentEvidence = import ./lib/pharos-deployment-evidence.nix {
+        inherit self;
+        nixpkgs = inputs.nixpkgs;
+        lockFile = ./flake.lock;
+      };
       # Overlay providing pkgs.stable and pkgs.unstable attributes
       overlays-nixpkgs = _final: _prev: {
         stable = import nixpkgs-stable {
@@ -138,7 +143,8 @@
           nixpkgs.overlays = allOverlays;
         })
         (_: {
-          system.configurationRevision = self.rev or null;
+          system.configurationRevision = nixDeploymentEvidence.source_revision;
+          environment.etc."pharos-deployment/evidence.json".text = builtins.toJSON nixDeploymentEvidence;
         })
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age
@@ -234,7 +240,10 @@
       # ========================================================================
       # NixOS Configurations
       # ========================================================================
-      nixosConfigurations = {
+      # Deployment evidence is deliberately strict for the NixOS surface: even
+      # selecting a server configuration must fail when self.rev or the primary
+      # nixpkgs lock facts cannot be proven.
+      nixosConfigurations = builtins.deepSeq nixDeploymentEvidence {
         # Home Automation Server - Home Server Barta 1 (formerly miniserver24)
         # Using external hokage consumer pattern
         hsb1 = nixpkgs.lib.nixosSystem {
@@ -331,6 +340,10 @@
         # the FLIRC IR→Sony bridge — moved to hsb1; host config removed from repo.
         # Pi-Zero powered off. SSH-fleet aliases + RPi3B fate tracked in NIX-187.
       };
+
+      # Value-free public evaluation surface used by the NIX-348 contract test
+      # and by reviewers inspecting a clean revision.
+      inherit nixDeploymentEvidence;
 
       packages.x86_64-linux = {
         # pingt - Timestamped ping with color-coded output

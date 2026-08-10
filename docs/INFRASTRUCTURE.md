@@ -328,6 +328,22 @@ requests after both repositories' compatibility tests pass. The workflow never
 deploys, restarts a host, or merges its own proposals; runtime rollout remains
 an attended operation after both declared states are reviewed and aligned.
 
+### Pharos Nix Deployment Evidence
+
+Every clean NixOS server evaluation embeds a value-free
+`inspr.pharos.nix-deployment-evidence.v1` document at
+`/etc/pharos-deployment/evidence.json`. It records the exact nixcfg revision,
+the evaluated `flake.lock` SHA-256, and the primary nixpkgs revision, timestamp,
+and declared channel. The dedicated directory belongs to the active generation,
+so both a switch and a rollback move the evidence atomically with the system.
+
+The six Pharos beacons mount that directory read-only and compare it with the
+credential-free public nixcfg `main` branch and declared nixpkgs channel. The
+legacy `/nixcfg` mount stays read-only and is context only: a checkout lock is
+accepted only when its digest matches the active-generation evidence. A dirty or
+revisionless NixOS evaluation fails closed rather than producing evidence that
+could make mutable checkout state look current.
+
 ---
 
 ## 🏠 Smart Home Naming Convention

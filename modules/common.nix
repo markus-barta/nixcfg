@@ -1,6 +1,5 @@
 {
   config,
-  inputs,
   pkgs,
   lib,
   utils,
@@ -21,34 +20,12 @@ let
   sharedFishConfig = import ./uzumaki/fish/config.nix;
 in
 {
-  system.configurationRevision = inputs.self.rev or null;
-
-  # OPS-106: `inputs.self.rev` is null whenever the flake tree is DIRTY, and the
-  # only signal Nix gives is `warning: Git tree ... is dirty`, which appears on
-  # every ordinary evaluation and is trivially missed. A host built that way then
-  # looks completely normal while being untraceable: you cannot tell what config
-  # it runs, and Pharos cannot report its drift.
-  #
-  # Found on csb0 (2026-07-30): no configurationRevision at all, and /etc/pharos
-  # did not exist, on the host running headscale, traefik and the fleet alert
-  # poller. It had been that way long enough that nothing could say when.
-  #
-  # Deliberately a warning, not an assertion: building from a dirty tree is
-  # legitimate and routine while iterating. It just must not be SILENT when it
-  # ships. This makes it say so at the moment it happens.
-  warnings = lib.optional (config.system.configurationRevision == null) ''
-    Building ${config.networking.hostName} from a DIRTY git tree: this generation
-    will report no configurationRevision and /etc/pharos/deployed-revision will
-    read "unavailable", so the fleet cannot tell what config this host is running
-    (OPS-106). Fine while iterating — commit before a switch you intend to keep.
-  '';
-
+  # NIX-348 makes the NixOS flake surface fail closed before this module can be
+  # evaluated without an exact source revision. This legacy single-value file
+  # remains for the guarded deploy executor; the richer evidence document lives
+  # at /etc/pharos-deployment/evidence.json in the same active generation.
   environment.etc."pharos/host-preferences.json".source = ./pharos-host-preferences.json;
-  environment.etc."pharos/deployed-revision".text =
-    if config.system.configurationRevision != null then
-      config.system.configurationRevision
-    else
-      "unavailable";
+  environment.etc."pharos/deployed-revision".text = config.system.configurationRevision;
 
   # ════════════════════════════════════════════════════════════════════════════
   # IMPORTS - Shared modules
