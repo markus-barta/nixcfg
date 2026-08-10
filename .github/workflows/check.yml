@@ -43,6 +43,9 @@ jobs:
       - name: Verify Janus container least privilege and shell-free runtime
         run: tests/T23-janus-container-hardening.sh
 
+      - name: Verify Janus production role authorization deployment
+        run: tests/T19-janus-role-deployment.sh
+
       - name: Reject deprecated NixOS host-platform and scripted-initrd options
         run: tests/T24-nixos-deprecation-cleanup.sh
 

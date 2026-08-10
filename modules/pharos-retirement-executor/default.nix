@@ -65,7 +65,7 @@ in
     };
     janusEngineImage = lib.mkOption {
       type = lib.types.str;
-      example = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.20@sha256:e1daef…";
+      example = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.21@sha256:de1d69…";
       description = ''
         Pinned Janus engine image passed to the retirement helper as
         JANUS_ENGINE_IMAGE.

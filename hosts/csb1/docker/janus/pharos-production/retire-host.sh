@@ -28,6 +28,8 @@ host=${2:-}
 
 # shellcheck disable=SC1091
 source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
+# shellcheck disable=SC1091
+source "${DEFAULT_SCRIPT_DIR}/runtime-role-authorization.sh"
 
 fail() {
   printf 'janus_pharos_retirement=failed reason=%s value_returned=false provider_deleted=false\n' "$1" >&2
@@ -172,7 +174,8 @@ trap cleanup EXIT
 if ! command_output=$(
   docker run --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
-    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+    "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+    -e JANUS_RELEASE_EXECUTOR=janus-pharos-retirement@csb1 \
     -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
     -e "JANUS_AGE_PROFILE=${host}" \
     -e JANUS_AGE_STORE_DIR=/var/lib/janus/secrets \

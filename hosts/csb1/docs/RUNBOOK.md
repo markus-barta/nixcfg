@@ -282,6 +282,50 @@ then runs the current value-free boundary matrix:
 | MCP default-deny boundary       | `mcp-negative-smoke.sh` proves raw resolve/reveal, raw names, and caller policy overrides are denied               |
 | Approved-use execution boundary | `run-negative-smoke.sh` proves malformed, unknown, reused, wrong-bound, expired, and unreviewed permits fail       |
 
+### Janus Production Role Authorization
+
+The continuously running staged engine and every production Pharos credential
+or lifecycle subprocess use `JANUS_ROLE_AUTHORIZATION_MODE=enforced`.
+Their different scopes have separate private durable registries under
+`/var/lib/janus-role-authorization-csb1/{staged,production}`. NixOS owns the
+directories, binding registries, and value-free audit files at modes
+`0700`/`0600`; do not edit their contents by hand. One-off non-production
+renderer fixtures remain isolated and explicitly unsafe.
+
+After deploying a release that adds the first-binding bootstrap, initialize an
+empty production registry exactly once:
+
+```bash
+cd ~/Code/nixcfg
+just janus-role-bootstrap
+just janus-role-status
+```
+
+The first command bootstraps each empty scope separately. Each requires the
+explicit one-shot acknowledgement internally, mints a 15-minute
+`unsafe_bootstrap` `security_admin`, switches to a reviewed admin, revokes the
+bootstrap grant, and proves an unbound actor is denied. Production receives
+six reviewed one-year bindings under `NIX-345`; staged receives three. Expected
+terminal evidence is:
+
+```text
+janus_role_bootstrap=ready posture=production source_reference=NIX-345 value_returned=false
+janus_role_bootstrap=ready posture=staged source_reference=NIX-345 value_returned=false
+```
+
+`just janus-role-status` must then show one revoked `unsafe_bootstrap` row in
+each scope, six active production `local_reviewed` rows, and three active staged
+rows. Two reviewed security-admin identities per scope let each renew the other
+without bypassing the self-grant rule. The command is value-free. If bootstrap
+stops after the reviewed security-admin binding was written, do not empty the
+registry or rerun it blindly: use that reviewed admin identity to finish the
+remaining grants, then revoke the bootstrap binding.
+
+Rollback is the reviewed previous engine pin plus the previous explicit
+`unsafe_disabled_dev` production arguments. Keep the role directory intact
+during rollback so evidence and reviewed bindings survive; the old posture
+ignores them. Never remove binding state merely to make authorization pass.
+
 ### Pharos Janus Generation Cutover
 
 Deploy a new Janus producer before restarting a Pharos release that consumes a
