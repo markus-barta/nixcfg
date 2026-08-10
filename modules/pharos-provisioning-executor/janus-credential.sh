@@ -70,6 +70,7 @@ done
 [[ "$CONTRACT_DIR" == "$REPO_PATH"/* ]] || fail checkout_not_ready false
 [ -f "$CONTRACT_DIR/metadata.toml" ] || fail checkout_not_ready false
 [ -f "$CONTRACT_DIR/runtime-lib.sh" ] || fail checkout_not_ready false
+[ -f "$CONTRACT_DIR/runtime-role-authorization.sh" ] || fail checkout_not_ready false
 [ -f "$REPO_PATH/hosts/csb1/docker/docker-compose.yml" ] || fail checkout_not_ready false
 
 export GIT_CONFIG_COUNT=1
@@ -141,6 +142,8 @@ image=$(
 
 # shellcheck disable=SC1091
 source "$CONTRACT_DIR/runtime-lib.sh"
+# shellcheck disable=SC1091
+source "$CONTRACT_DIR/runtime-role-authorization.sh"
 
 job_dir="$STATE_DIR/janus/$job_id"
 if [ "$mode" = prove-absent ]; then
@@ -311,7 +314,7 @@ ensure_contract() {
     '[[env_files]]' \
     "id = \"${profile_id}\"" \
     "secret_ref = \"${credential_ref}\"" \
-    "executor = \"pharos-managed@${OWNER}\"" \
+    "executor = \"pharos-managed-use@${OWNER}\"" \
     "destination = \"pharos-beacon-${host}\"" \
     'env = "PHAROS_TOKEN"' \
     "output = \"/run/janus/env/pharos/beacons/${host}.env\"" \
@@ -390,7 +393,8 @@ ensure_contract
 admin_container() {
   docker run --rm --network none \
     -e JANUS_PRODUCT_MODE=self_hosted \
-    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+    "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+    -e "JANUS_RELEASE_EXECUTOR=pharos-managed@${OWNER}" \
     -e JANUS_AGE_MANIFEST_FILE=/work/secretspec.toml \
     -e "JANUS_AGE_PROFILE=${host}" \
     -e JANUS_AGE_STORE_DIR=/var/lib/janus/secrets \
@@ -561,12 +565,12 @@ printf '%s\n' \
 
 if ! docker run -i --rm --network none \
   -e JANUS_PRODUCT_MODE=self_hosted \
-  -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+  "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
   -e JANUS_PERMIT_DIR=/run/janus/permits \
   -e JANUS_WARDEN_PERMIT_DIR=/run/janus/permits \
   -e JANUS_WARDEN_BACKEND=age \
   -e "JANUS_WARDEN_DESTINATION=pharos-beacon-${host}" \
-  -e "JANUS_WARDEN_EXECUTOR=pharos-managed@${OWNER}" \
+  -e "JANUS_WARDEN_EXECUTOR=pharos-managed-use@${OWNER}" \
   -e "JANUS_WARDEN_SCOPE=${RUN_SCOPE}" \
   -e "JANUS_WARDEN_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
   -e "JANUS_WARDEN_SCOPE_PROJECT=${SCOPE_PROJECT}" \
@@ -595,7 +599,8 @@ preflight_output="$work_dir/preflight.out"
 preflight_error="$work_dir/preflight.err"
 if ! docker run --rm --network none \
   -e JANUS_PRODUCT_MODE=self_hosted \
-  -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+  "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+  -e "JANUS_RELEASE_EXECUTOR=pharos-managed-use@${OWNER}" \
   -e JANUS_RUN_PROFILE_MANIFEST=/work/managed-env-files.toml \
   -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
   -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
@@ -615,10 +620,11 @@ render_output="$work_dir/render.out"
 render_error="$work_dir/render.err"
 if ! docker run --rm --network none \
   -e JANUS_PRODUCT_MODE=self_hosted \
-  -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+  "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+  -e "JANUS_RELEASE_EXECUTOR=pharos-managed-use@${OWNER}" \
   -e JANUS_RUN_PROFILE_MANIFEST=/work/managed-env-files.toml \
   -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
-  -e "JANUS_RUN_EXECUTOR=pharos-managed@${OWNER}" \
+  -e "JANUS_RUN_EXECUTOR=pharos-managed-use@${OWNER}" \
   -e "JANUS_RUN_SCOPE=${RUN_SCOPE}" \
   -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
   -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \

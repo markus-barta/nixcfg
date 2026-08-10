@@ -28,6 +28,8 @@ HASH_PROJECTION_GID=${JANUS_PHAROS_HASH_PROJECTION_GID:-991}
 
 # shellcheck disable=SC1091
 source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
+# shellcheck disable=SC1091
+source "${DEFAULT_SCRIPT_DIR}/runtime-role-authorization.sh"
 
 read -r -a HOSTS <<<"$HOSTS_TEXT"
 
@@ -247,7 +249,7 @@ EOF
 
   docker run -i --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
-    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+    "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
     -e JANUS_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_BACKEND=age \
@@ -297,7 +299,8 @@ render_env_file() {
 
   if ! docker run --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
-    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+    "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+    -e JANUS_RELEASE_EXECUTOR=janus-run@csb1 \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
     -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
@@ -316,7 +319,8 @@ render_env_file() {
 
   if ! docker run --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
-    -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+    "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+    -e JANUS_RELEASE_EXECUTOR=janus-run@csb1 \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_RUN_EXECUTOR=janus-run@csb1 \
