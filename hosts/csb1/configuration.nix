@@ -56,19 +56,21 @@ let
       /var/lib/janus-role-authorization-csb1/staged \
       /var/lib/janus-role-authorization-csb1/staged/bindings
     for posture in production staged; do
-      if [ ! -e "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl" ]; then
-        ${pkgs.coreutils}/bin/install -m 0600 -o 65532 -g 65532 \
-          /dev/null "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl"
-      fi
+      for audit_name in audit.jsonl warden-audit.jsonl; do
+        if [ ! -e "/var/lib/janus-role-authorization-csb1/$posture/$audit_name" ]; then
+          ${pkgs.coreutils}/bin/install -m 0600 -o 65532 -g 65532 \
+            /dev/null "/var/lib/janus-role-authorization-csb1/$posture/$audit_name"
+        fi
+        [ ! -L "/var/lib/janus-role-authorization-csb1/$posture/$audit_name" ]
+        [ "$(${pkgs.coreutils}/bin/stat -c %u:%g "/var/lib/janus-role-authorization-csb1/$posture/$audit_name")" = "65532:65532" ]
+        [ "$(${pkgs.coreutils}/bin/stat -c %a "/var/lib/janus-role-authorization-csb1/$posture/$audit_name")" = "600" ]
+      done
       [ ! -L "/var/lib/janus-role-authorization-csb1/$posture" ]
       [ ! -L "/var/lib/janus-role-authorization-csb1/$posture/bindings" ]
-      [ ! -L "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl" ]
       [ "$(${pkgs.coreutils}/bin/stat -c %u:%g "/var/lib/janus-role-authorization-csb1/$posture")" = "65532:65532" ]
       [ "$(${pkgs.coreutils}/bin/stat -c %a "/var/lib/janus-role-authorization-csb1/$posture")" = "700" ]
       [ "$(${pkgs.coreutils}/bin/stat -c %u:%g "/var/lib/janus-role-authorization-csb1/$posture/bindings")" = "65532:65532" ]
       [ "$(${pkgs.coreutils}/bin/stat -c %a "/var/lib/janus-role-authorization-csb1/$posture/bindings")" = "700" ]
-      [ "$(${pkgs.coreutils}/bin/stat -c %u:%g "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl")" = "65532:65532" ]
-      [ "$(${pkgs.coreutils}/bin/stat -c %a "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl")" = "600" ]
     done
     [ ! -L /var/lib/janus-role-authorization-csb1 ]
     [ "$(${pkgs.coreutils}/bin/stat -c %u:%g /var/lib/janus-role-authorization-csb1)" = "65532:65532" ]
@@ -454,9 +456,11 @@ in
       "d /var/lib/janus-role-authorization-csb1/production 0700 65532 65532 -"
       "d /var/lib/janus-role-authorization-csb1/production/bindings 0700 65532 65532 -"
       "f /var/lib/janus-role-authorization-csb1/production/audit.jsonl 0600 65532 65532 -"
+      "f /var/lib/janus-role-authorization-csb1/production/warden-audit.jsonl 0600 65532 65532 -"
       "d /var/lib/janus-role-authorization-csb1/staged 0700 65532 65532 -"
       "d /var/lib/janus-role-authorization-csb1/staged/bindings 0700 65532 65532 -"
       "f /var/lib/janus-role-authorization-csb1/staged/audit.jsonl 0600 65532 65532 -"
+      "f /var/lib/janus-role-authorization-csb1/staged/warden-audit.jsonl 0600 65532 65532 -"
 
       # Legacy compatibility: keep /home/mba/docker as primary location for now
       # Will migrate to /var/lib/csb1-docker in future task

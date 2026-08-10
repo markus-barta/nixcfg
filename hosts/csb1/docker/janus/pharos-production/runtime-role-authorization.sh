@@ -7,6 +7,7 @@ JANUS_ROLE_HOST_ROOT=${JANUS_ROLE_HOST_ROOT:-/var/lib/janus-role-authorization-c
 readonly JANUS_ROLE_CONTAINER_ROOT=/var/lib/janus/role-authorization
 readonly JANUS_ROLE_BINDINGS_ROOT=${JANUS_ROLE_CONTAINER_ROOT}/bindings
 readonly JANUS_ROLE_AUDIT_FILE=${JANUS_ROLE_CONTAINER_ROOT}/audit.jsonl
+readonly JANUS_WARDEN_AUDIT_FILE=${JANUS_ROLE_CONTAINER_ROOT}/warden-audit.jsonl
 
 # Consumed by scripts that source this contract.
 # shellcheck disable=SC2034
@@ -14,5 +15,6 @@ readonly -a JANUS_ROLE_AUTHORIZATION_ARGS=(
   -e JANUS_ROLE_AUTHORIZATION_MODE=enforced
   -e "JANUS_ROLE_BINDINGS_ROOT=${JANUS_ROLE_BINDINGS_ROOT}"
   -e "JANUS_ROLE_AUDIT_FILE=${JANUS_ROLE_AUDIT_FILE}"
+  -e "JANUS_WARDEN_AUDIT_FILE=${JANUS_WARDEN_AUDIT_FILE}"
   -v "${JANUS_ROLE_HOST_ROOT}:${JANUS_ROLE_CONTAINER_ROOT}"
 )

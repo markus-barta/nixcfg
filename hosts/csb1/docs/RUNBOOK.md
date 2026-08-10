@@ -289,8 +289,11 @@ or lifecycle subprocess use `JANUS_ROLE_AUTHORIZATION_MODE=enforced`.
 Their different scopes have separate private durable registries under
 `/var/lib/janus-role-authorization-csb1/{staged,production}`. NixOS owns the
 directories, binding registries, and value-free audit files at modes
-`0700`/`0600`; do not edit their contents by hand. One-off non-production
-renderer fixtures remain isolated and explicitly unsafe.
+`0700`/`0600`; do not edit their contents by hand. Each posture keeps role-admin
+decisions in `audit.jsonl` and the potentially long-running Warden sink in
+`warden-audit.jsonl`. The split preserves each hash chain's exclusive writer
+while keeping status and renewal available. One-off non-production renderer
+fixtures remain isolated and explicitly unsafe.
 
 After deploying a release that adds the first-binding bootstrap, initialize an
 empty production registry exactly once:
