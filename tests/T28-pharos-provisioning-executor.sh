@@ -160,6 +160,14 @@ touch "$fake_contract/metadata.toml"
 cat >"$fake_contract/runtime-lib.sh" <<'EOF'
 readonly JANUS_VOLUME_HELPER_IMAGE='ghcr.io/example/volume-helper:fixture'
 EOF
+cat >"$fake_contract/runtime-role-authorization.sh" <<'EOF'
+readonly -a JANUS_ROLE_AUTHORIZATION_ARGS=(
+  -e JANUS_ROLE_AUTHORIZATION_MODE=enforced
+  -e JANUS_ROLE_BINDINGS_ROOT=/var/lib/janus/role-authorization/bindings
+  -e JANUS_ROLE_AUDIT_FILE=/var/lib/janus/role-authorization/audit.jsonl
+  -v /var/lib/janus-role-authorization-csb1/production:/var/lib/janus/role-authorization
+)
+EOF
 cat >"$fake_compose" <<'EOF'
 services:
   janus-engine-staged:

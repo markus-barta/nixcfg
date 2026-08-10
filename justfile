@@ -149,6 +149,19 @@ janus-engine-smoke:
 janus-managed-secret-readiness mode='declarative':
     hosts/csb1/docker/janus/managed-service-production/readiness.sh {{ mode }}
 
+# One-shot production bootstrap. The script rejects a non-empty registry,
+# creates reviewed durable bindings, revokes the short-lived bootstrap grant,
+# and proves an unbound actor remains denied.
+[group('ops')]
+janus-role-bootstrap:
+    sudo hosts/csb1/docker/janus/role-authorization/bootstrap.sh bootstrap production
+    sudo hosts/csb1/docker/janus/role-authorization/bootstrap.sh bootstrap staged
+
+[group('ops')]
+janus-role-status:
+    sudo hosts/csb1/docker/janus/role-authorization/bootstrap.sh status production
+    sudo hosts/csb1/docker/janus/role-authorization/bootstrap.sh status staged
+
 [group('ops')]
 janus-pharos-sidecar-smoke:
     cd hosts/csb1/docker && ./janus/pharos-nonprod/run-sidecar-smoke.sh

@@ -45,6 +45,34 @@ let
     [ -f /var/lib/janus-managed-central/metadata.toml ]
     [ "$(${pkgs.coreutils}/bin/stat -c %u:%g /var/lib/janus-managed-central/metadata.toml)" = "100:993" ]
     [ "$(${pkgs.coreutils}/bin/stat -c %a /var/lib/janus-managed-central/metadata.toml)" = "600" ]
+
+    # Production role authorization is shared by the short-lived Janus
+    # subprocesses. It contains only opaque bindings and value-free audit
+    # evidence, but remains private to the engine image's fixed uid/gid.
+    ${pkgs.coreutils}/bin/install -d -m 0700 -o 65532 -g 65532 \
+      /var/lib/janus-role-authorization-csb1 \
+      /var/lib/janus-role-authorization-csb1/production \
+      /var/lib/janus-role-authorization-csb1/production/bindings \
+      /var/lib/janus-role-authorization-csb1/staged \
+      /var/lib/janus-role-authorization-csb1/staged/bindings
+    for posture in production staged; do
+      if [ ! -e "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl" ]; then
+        ${pkgs.coreutils}/bin/install -m 0600 -o 65532 -g 65532 \
+          /dev/null "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl"
+      fi
+      [ ! -L "/var/lib/janus-role-authorization-csb1/$posture" ]
+      [ ! -L "/var/lib/janus-role-authorization-csb1/$posture/bindings" ]
+      [ ! -L "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl" ]
+      [ "$(${pkgs.coreutils}/bin/stat -c %u:%g "/var/lib/janus-role-authorization-csb1/$posture")" = "65532:65532" ]
+      [ "$(${pkgs.coreutils}/bin/stat -c %a "/var/lib/janus-role-authorization-csb1/$posture")" = "700" ]
+      [ "$(${pkgs.coreutils}/bin/stat -c %u:%g "/var/lib/janus-role-authorization-csb1/$posture/bindings")" = "65532:65532" ]
+      [ "$(${pkgs.coreutils}/bin/stat -c %a "/var/lib/janus-role-authorization-csb1/$posture/bindings")" = "700" ]
+      [ "$(${pkgs.coreutils}/bin/stat -c %u:%g "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl")" = "65532:65532" ]
+      [ "$(${pkgs.coreutils}/bin/stat -c %a "/var/lib/janus-role-authorization-csb1/$posture/audit.jsonl")" = "600" ]
+    done
+    [ ! -L /var/lib/janus-role-authorization-csb1 ]
+    [ "$(${pkgs.coreutils}/bin/stat -c %u:%g /var/lib/janus-role-authorization-csb1)" = "65532:65532" ]
+    [ "$(${pkgs.coreutils}/bin/stat -c %a /var/lib/janus-role-authorization-csb1)" = "700" ]
   '';
   hausvBackupSnapshot = pkgs.writeShellScript "hausv-backup-snapshot" ''
     set -eu
@@ -422,6 +450,13 @@ in
       "d /var/lib/janus-managed-central/state 0700 janus-managed-central janus-managed-central -"
       "d /var/lib/janus-managed-central/tombstones 0700 janus-managed-central janus-managed-central -"
       "d /run/janus-managed-central 0700 janus-managed-central janus-managed-central -"
+      "d /var/lib/janus-role-authorization-csb1 0700 65532 65532 -"
+      "d /var/lib/janus-role-authorization-csb1/production 0700 65532 65532 -"
+      "d /var/lib/janus-role-authorization-csb1/production/bindings 0700 65532 65532 -"
+      "f /var/lib/janus-role-authorization-csb1/production/audit.jsonl 0600 65532 65532 -"
+      "d /var/lib/janus-role-authorization-csb1/staged 0700 65532 65532 -"
+      "d /var/lib/janus-role-authorization-csb1/staged/bindings 0700 65532 65532 -"
+      "f /var/lib/janus-role-authorization-csb1/staged/audit.jsonl 0600 65532 65532 -"
 
       # Legacy compatibility: keep /home/mba/docker as primary location for now
       # Will migrate to /var/lib/csb1-docker in future task
@@ -520,7 +555,10 @@ in
       UMask = "0077";
       ExecStart = janusManagedCentralSeed;
       ReadOnlyPaths = [ "/etc/janus/managed/metadata-baseline.toml" ];
-      ReadWritePaths = [ "/var/lib/janus-managed-central" ];
+      ReadWritePaths = [
+        "/var/lib/janus-managed-central"
+        "/var/lib/janus-role-authorization-csb1"
+      ];
       NoNewPrivileges = true;
       PrivateTmp = true;
       ProtectClock = true;

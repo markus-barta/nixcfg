@@ -721,7 +721,7 @@
       # manifests as the smoke harness; no production secret or host SSH key is
       # mounted into the staged Rust engine. Use the smoke harness, not manual
       # project-wide compose lifecycle commands, when testing this profile.
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.20@sha256:e1daef694c12e80a34dc5ce62189e79c951cfca1473073a238a1edf4ad3b5d2b";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.21@sha256:de1d6929769bf73578897919122cac48b67aaed95f7449332a0bf111ec951dfd";
       container_name = "janus-engine-staged";
       profiles = [
         "janus-engine-staged"
@@ -745,7 +745,9 @@
       ];
       environment = [
         "JANUS_PRODUCT_MODE=self_hosted"
-        "JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev"
+        "JANUS_ROLE_AUTHORIZATION_MODE=enforced"
+        "JANUS_ROLE_BINDINGS_ROOT=/var/lib/janus/role-authorization/bindings"
+        "JANUS_ROLE_AUDIT_FILE=/var/lib/janus/role-authorization/audit.jsonl"
         "JANUS_PERMIT_DIR=/run/janus/permits"
         "JANUS_WARDEN_PERMIT_DIR=/run/janus/permits"
         "JANUS_RUN_PERMIT_DIR=/run/janus/permits"
@@ -786,6 +788,14 @@
         "janus_engine_smoke_secrets:/var/lib/janus/secrets"
         "janus_engine_smoke_permits:/run/janus/permits"
         "janus_engine_smoke_age:/run/janus/age:ro"
+        {
+          type = "bind";
+          source = "/var/lib/janus-role-authorization-csb1/staged";
+          target = "/var/lib/janus/role-authorization";
+          bind = {
+            create_host_path = false;
+          };
+        }
       ];
       healthcheck = {
         test = [
@@ -807,7 +817,7 @@
     # Janus managed-service transaction boundary
     # ============================================
     janus-managed-transactiond = {
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.20@sha256:e1daef694c12e80a34dc5ce62189e79c951cfca1473073a238a1edf4ad3b5d2b";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.21@sha256:de1d6929769bf73578897919122cac48b67aaed95f7449332a0bf111ec951dfd";
       container_name = "janus-managed-transactiond";
       profiles = [
         "janus-managed-service"
@@ -836,7 +846,7 @@
         "JANUS_PRODUCT_MODE=production"
         "JANUS_RELEASE_CHANNEL_POLICY=/etc/janus/managed/release-channels-v1.json"
         "JANUS_RELEASE_ADMISSION_RECEIPT=/etc/janus/managed/release-admission.json"
-        "JANUS_RELEASE_ARTIFACT_DIGEST=sha256:e1daef694c12e80a34dc5ce62189e79c951cfca1473073a238a1edf4ad3b5d2b"
+        "JANUS_RELEASE_ARTIFACT_DIGEST=sha256:de1d6929769bf73578897919122cac48b67aaed95f7449332a0bf111ec951dfd"
         "JANUS_RELEASE_AUDIT_FILE=/var/lib/janus-managed-central/audit/release-admission.jsonl"
         "JANUS_RELEASE_EXECUTOR=janusd-web-transactiond"
         "JANUS_RUNTIME_AUDIT_FILE=/var/lib/janus-managed-central/audit/runtime.jsonl"
