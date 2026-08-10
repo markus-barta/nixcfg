@@ -92,6 +92,7 @@ for requirement in (
     '"JANUS_ROLE_AUTHORIZATION_MODE=enforced"',
     '"JANUS_ROLE_BINDINGS_ROOT=/var/lib/janus/role-authorization/bindings"',
     '"JANUS_ROLE_AUDIT_FILE=/var/lib/janus/role-authorization/audit.jsonl"',
+    '"JANUS_WARDEN_AUDIT_FILE=/var/lib/janus/role-authorization/warden-audit.jsonl"',
     'source = "/var/lib/janus-role-authorization-csb1/staged";',
     'target = "/var/lib/janus/role-authorization";',
     "create_host_path = false;",
@@ -139,6 +140,7 @@ for requirement in (
     "JANUS_ROLE_AUTHORIZATION_MODE=enforced",
     "JANUS_ROLE_BINDINGS_ROOT=",
     "JANUS_ROLE_AUDIT_FILE=",
+    "JANUS_WARDEN_AUDIT_FILE=",
     "/var/lib/janus-role-authorization-csb1",
 ):
     if requirement not in role_runtime:
@@ -162,9 +164,11 @@ for requirement in (
     '"d /var/lib/janus-role-authorization-csb1/production 0700 65532 65532 -"',
     '"d /var/lib/janus-role-authorization-csb1/production/bindings 0700 65532 65532 -"',
     '"f /var/lib/janus-role-authorization-csb1/production/audit.jsonl 0600 65532 65532 -"',
+    '"f /var/lib/janus-role-authorization-csb1/production/warden-audit.jsonl 0600 65532 65532 -"',
     '"d /var/lib/janus-role-authorization-csb1/staged 0700 65532 65532 -"',
     '"d /var/lib/janus-role-authorization-csb1/staged/bindings 0700 65532 65532 -"',
     '"f /var/lib/janus-role-authorization-csb1/staged/audit.jsonl 0600 65532 65532 -"',
+    '"f /var/lib/janus-role-authorization-csb1/staged/warden-audit.jsonl 0600 65532 65532 -"',
 ):
     if configuration.count(requirement) != 1:
         raise SystemExit(f"declarative role state drift: {requirement}")
