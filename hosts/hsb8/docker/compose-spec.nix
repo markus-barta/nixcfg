@@ -90,7 +90,7 @@
       ];
       volumes = [
         "/home/mba/Code/nixcfg:/nixcfg:ro"
-        "/etc/pharos-deployment:/host/pharos-deployment:ro"
+        "/etc/pharos-deployment/evidence.json:/host/pharos-deployment/evidence.json:ro"
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"

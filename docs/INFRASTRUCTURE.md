@@ -337,7 +337,8 @@ the evaluated `flake.lock` SHA-256, and the primary nixpkgs revision, timestamp,
 and declared channel. The dedicated directory belongs to the active generation,
 so both a switch and a rollback move the evidence atomically with the system.
 
-The six Pharos beacons mount that directory read-only and compare it with the
+The six Pharos beacons mount the evidence file read-only (so Docker resolves the
+NixOS `/etc` symlink on the host) and compare it with the
 credential-free public nixcfg `main` branch and declared nixpkgs channel. The
 legacy `/nixcfg` mount stays read-only and is context only: a checkout lock is
 accepted only when its digest matches the active-generation evidence. A dirty or
