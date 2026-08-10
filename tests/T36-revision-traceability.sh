@@ -4,17 +4,19 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 common="${repo}/modules/common.nix"
+flake="${repo}/flake.nix"
 
 # The revision is what the fleet uses to tell what a host is running; without it
-# /etc/pharos/deployed-revision reads "unavailable" and drift is unmeasurable.
-grep -Fq 'system.configurationRevision = inputs.self.rev or null;' "${common}"
+# both the legacy revision file and the NIX-348 evidence would be untrustworthy.
+grep -Fq 'system.configurationRevision = nixDeploymentEvidence.source_revision;' "${flake}"
 grep -Fq 'environment.etc."pharos/deployed-revision"' "${common}"
 
-# A dirty build must WARN. Deliberately a warning and not an assertion: building
-# from a dirty tree is legitimate while iterating, it just must not be silent.
-grep -Fq 'warnings = lib.optional (config.system.configurationRevision == null)' "${common}"
-if grep -Eq 'assertions.*configurationRevision == null' "${common}"; then
-  printf 'dirty-tree builds must warn, not fail — iterating locally has to stay possible\n' >&2
+# NIX-348 supersedes the warning-only OPS-106 boundary for NixOS generations:
+# revisionless production evaluation must now fail before it can emit evidence.
+grep -Fq 'source_revision = requireGitRevision "self.rev" (self.rev or null);' \
+  "${repo}/lib/pharos-deployment-evidence.nix"
+if grep -Fq 'configurationRevision == null' "${common}"; then
+  printf 'revisionless NixOS generations must fail closed, not emit unavailable\n' >&2
   exit 1
 fi
 
@@ -23,5 +25,6 @@ grep -Fq 'deploying a DIRTY tree' "${repo}/justfile"
 grep -Fq 'git rev-parse --short HEAD' "${repo}/justfile"
 
 nix-instantiate --parse "${common}" >/dev/null
+nix-instantiate --parse "${flake}" >/dev/null
 
-printf 'OPS-106 revision-traceability contract: OK\n'
+printf 'OPS-106/NIX-348 revision-traceability contract: OK\n'
