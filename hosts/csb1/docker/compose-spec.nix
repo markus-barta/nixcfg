@@ -748,6 +748,7 @@
         "JANUS_ROLE_AUTHORIZATION_MODE=enforced"
         "JANUS_ROLE_BINDINGS_ROOT=/var/lib/janus/role-authorization/bindings"
         "JANUS_ROLE_AUDIT_FILE=/var/lib/janus/role-authorization/audit.jsonl"
+        "JANUS_WARDEN_AUDIT_FILE=/var/lib/janus/role-authorization/warden-audit.jsonl"
         "JANUS_PERMIT_DIR=/run/janus/permits"
         "JANUS_WARDEN_PERMIT_DIR=/run/janus/permits"
         "JANUS_RUN_PERMIT_DIR=/run/janus/permits"
