@@ -48,7 +48,7 @@ for host in "${hosts[@]}"; do
     '        "PHAROS_NIXCFG_REMOTE_URL=https://github.com/markus-barta/nixcfg.git"' \
     '        "PHAROS_NIXCFG_REMOTE_REF=refs/heads/main"' \
     '        "PHAROS_NIXPKGS_REMOTE_URL=https://github.com/NixOS/nixpkgs.git"' \
-    '        "/etc/pharos-deployment:/host/pharos-deployment:ro"' \
+    '        "/etc/pharos-deployment/evidence.json:/host/pharos-deployment/evidence.json:ro"' \
     '        "/home/mba/Code/nixcfg:/nixcfg:ro"'; do
     if [[ "$(grep -Fxc -- "$exact" <<<"$beacon")" != 1 ]]; then
       printf 'pharos_evidence=failed reason=missing_or_duplicate host=%s line=%s\n' \
@@ -57,12 +57,16 @@ for host in "${hosts[@]}"; do
     fi
   done
 
-  if grep -Eq -- ':/host/pharos-deployment:(rw|ro,rw)|:/nixcfg:(rw|ro,rw)' <<<"$beacon"; then
+  if grep -Eq -- ':/host/pharos-deployment/evidence.json:(rw|ro,rw)|:/nixcfg:(rw|ro,rw)' <<<"$beacon"; then
     printf 'pharos_evidence=failed reason=writable_source_mount host=%s\n' "$host" >&2
     exit 1
   fi
   if grep -Eq -- '^[[:space:]]+"/(etc|run|nix/store):' <<<"$beacon"; then
     printf 'pharos_evidence=failed reason=broad_host_mount host=%s\n' "$host" >&2
+    exit 1
+  fi
+  if grep -Fq -- '"/etc/pharos-deployment:/host/pharos-deployment:' <<<"$beacon"; then
+    printf 'pharos_evidence=failed reason=symlink_preserving_directory_mount host=%s\n' "$host" >&2
     exit 1
   fi
   if grep -Eq -- 'PHAROS_NIX(CFG|PKGS)_REMOTE_URL=https://[^/]*@' <<<"$beacon"; then

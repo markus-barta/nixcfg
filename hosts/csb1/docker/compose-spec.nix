@@ -1244,7 +1244,7 @@
       ];
       volumes = [
         "/home/mba/Code/nixcfg:/nixcfg:ro"
-        "/etc/pharos-deployment:/host/pharos-deployment:ro"
+        "/etc/pharos-deployment/evidence.json:/host/pharos-deployment/evidence.json:ro"
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
         "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro"
