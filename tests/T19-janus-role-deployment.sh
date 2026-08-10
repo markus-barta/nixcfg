@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # T19-janus-role-deployment.sh
 # Description: Keep the deployed Janus role projection exact and explicit.
-# Related PPM issues: JANUS-267, JANUS-297, JANUS-308, JANUS-309, JANUS-298
+# Related PPM issues: JANUS-267, JANUS-297, JANUS-308, JANUS-309, JANUS-298,
+# JANUS-416, NIX-345
 
 set -euo pipefail
 
@@ -11,24 +12,36 @@ nonprod_renderer="${repo_root}/hosts/csb1/docker/janus/pharos-nonprod/run-sideca
 production_renderer="${repo_root}/hosts/csb1/docker/janus/pharos-production/render-sidecars.sh"
 provider_renderer="${repo_root}/hosts/csb1/docker/janus/pharos-production/render-hetzner-provider.sh"
 retirement_executor="${repo_root}/hosts/csb1/docker/janus/pharos-production/retire-host.sh"
+provisioning_executor="${repo_root}/modules/pharos-provisioning-executor/janus-credential.sh"
+role_runtime="${repo_root}/hosts/csb1/docker/janus/pharos-production/runtime-role-authorization.sh"
+role_bootstrap="${repo_root}/hosts/csb1/docker/janus/role-authorization/bootstrap.sh"
+configuration="${repo_root}/hosts/csb1/configuration.nix"
 
 python3 - \
   "${compose}" \
   "${nonprod_renderer}" \
   "${production_renderer}" \
   "${provider_renderer}" \
-  "${retirement_executor}" <<'PY'
+  "${retirement_executor}" \
+  "${provisioning_executor}" \
+  "${role_runtime}" \
+  "${role_bootstrap}" \
+  "${configuration}" <<'PY'
 import pathlib
 import re
 import sys
 
 compose = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-renderers = {
-    "non-production renderer": (pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"), 3),
+nonprod_renderer = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+production_renderers = {
     "production renderer": (pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"), 3),
     "provider renderer": (pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"), 3),
     "retirement executor": (pathlib.Path(sys.argv[5]).read_text(encoding="utf-8"), 1),
+    "provisioning executor": (pathlib.Path(sys.argv[6]).read_text(encoding="utf-8"), 4),
 }
+role_runtime = pathlib.Path(sys.argv[7]).read_text(encoding="utf-8")
+role_bootstrap = pathlib.Path(sys.argv[8]).read_text(encoding="utf-8")
+configuration = pathlib.Path(sys.argv[9]).read_text(encoding="utf-8")
 
 def service_block(name: str) -> str:
     match = re.search(
@@ -75,8 +88,18 @@ if len(values) != len(set(values)):
 
 if '"JANUS_PRODUCT_MODE=self_hosted"' not in engine_service:
     raise SystemExit("staged Janus engine lacks explicit self-hosted posture")
-if '"JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev"' not in engine_service:
-    raise SystemExit("staged Janus engine lacks explicit unsafe development posture")
+for requirement in (
+    '"JANUS_ROLE_AUTHORIZATION_MODE=enforced"',
+    '"JANUS_ROLE_BINDINGS_ROOT=/var/lib/janus/role-authorization/bindings"',
+    '"JANUS_ROLE_AUDIT_FILE=/var/lib/janus/role-authorization/audit.jsonl"',
+    'source = "/var/lib/janus-role-authorization-csb1/staged";',
+    'target = "/var/lib/janus/role-authorization";',
+    "create_host_path = false;",
+):
+    if requirement not in engine_service:
+        raise SystemExit(f"staged Janus engine role posture drift: {requirement}")
+if "JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev" in engine_service:
+    raise SystemExit("continuously running staged Janus engine still disables authorization")
 
 for service, block in [("janus", go_service), ("janus-engine-staged", engine_service)]:
     for requirement in (
@@ -97,11 +120,54 @@ if '"/usr/local/bin/janusd-use"' not in engine_service:
 if "CMD-SHELL" in engine_service:
     raise SystemExit("staged Janus engine healthcheck reintroduced a shell")
 
-for name, (script, launch_count) in renderers.items():
+if nonprod_renderer.count("-e JANUS_PRODUCT_MODE=self_hosted") != 3:
+    raise SystemExit("non-production renderer lacks explicit self-hosted posture")
+if nonprod_renderer.count("-e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev") != 3:
+    raise SystemExit("non-production renderer must retain its isolated unsafe fixture")
+
+for name, (script, launch_count) in production_renderers.items():
     if script.count("-e JANUS_PRODUCT_MODE=self_hosted") != launch_count:
         raise SystemExit(f"{name} lacks explicit self-hosted posture on each privileged launch")
-    if script.count("-e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev") != launch_count:
-        raise SystemExit(f"{name} lacks explicit unsafe development posture on each privileged launch")
+    if "JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev" in script:
+        raise SystemExit(f"{name} still disables production role authorization")
+    if script.count('${JANUS_ROLE_AUTHORIZATION_ARGS[@]}') != launch_count:
+        raise SystemExit(f"{name} does not apply enforced role state to every privileged launch")
+    if "runtime-role-authorization.sh" not in script:
+        raise SystemExit(f"{name} does not load the shared production role contract")
+
+for requirement in (
+    "JANUS_ROLE_AUTHORIZATION_MODE=enforced",
+    "JANUS_ROLE_BINDINGS_ROOT=",
+    "JANUS_ROLE_AUDIT_FILE=",
+    "/var/lib/janus-role-authorization-csb1",
+):
+    if requirement not in role_runtime:
+        raise SystemExit(f"shared production role contract drift: {requirement}")
+
+for requirement in (
+    "JANUS_ROLE_BOOTSTRAP_ACK=bootstrap-role-authorization",
+    "--role security_admin",
+    "registry_not_empty",
+    "unsafe_bootstrap",
+    "local_reviewed",
+    "unauthorized_actor_allowed",
+    "--network none",
+    "--cap-drop ALL",
+    "--security-opt no-new-privileges",
+):
+    if requirement not in role_bootstrap:
+        raise SystemExit(f"role bootstrap guard drift: {requirement}")
+
+for requirement in (
+    '"d /var/lib/janus-role-authorization-csb1/production 0700 65532 65532 -"',
+    '"d /var/lib/janus-role-authorization-csb1/production/bindings 0700 65532 65532 -"',
+    '"f /var/lib/janus-role-authorization-csb1/production/audit.jsonl 0600 65532 65532 -"',
+    '"d /var/lib/janus-role-authorization-csb1/staged 0700 65532 65532 -"',
+    '"d /var/lib/janus-role-authorization-csb1/staged/bindings 0700 65532 65532 -"',
+    '"f /var/lib/janus-role-authorization-csb1/staged/audit.jsonl 0600 65532 65532 -"',
+):
+    if configuration.count(requirement) != 1:
+        raise SystemExit(f"declarative role state drift: {requirement}")
 
 for service, image, prefix, block in [
     (
