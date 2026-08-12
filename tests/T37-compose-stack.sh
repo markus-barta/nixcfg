@@ -111,7 +111,7 @@ fi
 # --- NIX-351/NIX-353: no world-readable agenix env files on csb1 ------------
 # Every compose env_file is read client-side by the root-run units; the two
 # non-0400 exceptions (csb1-hausv-org-env 0440 root:users for the mba-run
-# deploy path, csb1-watchtower-env 0440 root:pharos-container for pharosd's
+# deploy path, csb1-watchtower-env 0440 owner-10001 for pharosd's
 # in-container read) are justified in configuration.nix. 0644 means every
 # local account can read the secret — that class was closed by NIX-353.
 if grep -n 'mode = "0644"' "${repo}/hosts/csb1/configuration.nix"; then
