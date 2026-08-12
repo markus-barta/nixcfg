@@ -199,7 +199,7 @@ declarative() {
   check_image_pin \
     rust_release_pin \
     janus-managed-transactiond \
-    '^ghcr\.io/inspr-at/janus/janus-engine:rust-engine-v0\.1\.21@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/janus/janus-engine:rust-engine-v0\.1\.28@sha256:[0-9a-f]{64}$'
   check_image_pin \
     pharos_release_pin \
     pharosd \
