@@ -461,7 +461,7 @@
         start_period = "20s";
       };
       labels = [
-        # This image is built and deployed manually by hausv-org/scripts/deploy.fish.
+        # This image is built and deployed manually by hausv-org/scripts/deploy.sh.
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=true"
         "traefik.http.routers.hausv-org.rule=Host(`jhw22.hausv.org`) || Host(`hausv.org`) || Host(`www.hausv.org`)"
