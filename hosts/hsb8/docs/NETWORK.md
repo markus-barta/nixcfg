@@ -8,7 +8,7 @@
 **DHCP layout:**
 
 - Statics: `192.168.1.2 – 192.168.1.221` (27 entries, managed via agenix)
-- Buffer:  `192.168.1.222 – 192.168.1.224` (reserved for future statics)
+- Buffer: `192.168.1.222 – 192.168.1.224` (reserved for future statics)
 - Dynamic: `192.168.1.225 – 192.168.1.254` (30 slots, handed out by hsb8 AdGuard)
 
 > ⚠️ **MAC addresses live only in `secrets/static-leases-hsb8.age`** (agenix-encrypted). Never paste MACs into this file. Reference devices by IP + hostname + location.
@@ -56,25 +56,25 @@ The device comments in LanScan / AdGuard follow a `FLOOR-ROOM name` pattern.
 
 ### Floors
 
-| Code | German          | English      |
-| ---- | --------------- | ------------ |
-| EG   | Erdgeschoss     | Ground floor |
-| DG   | Dachgeschoss    | Top floor    |
-| KG   | Kellergeschoss  | Basement     |
+| Code | German         | English      |
+| ---- | -------------- | ------------ |
+| EG   | Erdgeschoss    | Ground floor |
+| DG   | Dachgeschoss   | Top floor    |
+| KG   | Kellergeschoss | Basement     |
 
 ### Rooms (seen in current inventory)
 
-| Code | Likely meaning        | Status          |
-| ---- | --------------------- | --------------- |
-| VR   | Vorraum (entry hall)  | confirmed       |
-| WR   | Wohnraum (living)     | confirmed       |
-| SZG  | Schlafzimmer (bedroom)| confirmed       |
-| GA   | Garage                | confirmed       |
-| KÜ   | Küche (kitchen)       | confirmed       |
-| BZ   | Badezimmer (bath)     | confirmed       |
-| BR   | ? (Bastelraum?)       | **TBD — Gerhard to fill in** |
-| DI   | ? (Diele?)            | **TBD — Gerhard to fill in** |
-| DB   | ? (Dachboden?)        | **TBD — Gerhard to fill in** |
+| Code | Likely meaning         | Status                       |
+| ---- | ---------------------- | ---------------------------- |
+| VR   | Vorraum (entry hall)   | confirmed                    |
+| WR   | Wohnraum (living)      | confirmed                    |
+| SZG  | Schlafzimmer (bedroom) | confirmed                    |
+| GA   | Garage                 | confirmed                    |
+| KÜ   | Küche (kitchen)        | confirmed                    |
+| BZ   | Badezimmer (bath)      | confirmed                    |
+| BR   | ? (Bastelraum?)        | **TBD — Gerhard to fill in** |
+| DI   | ? (Diele?)             | **TBD — Gerhard to fill in** |
+| DB   | ? (Dachboden?)         | **TBD — Gerhard to fill in** |
 
 > 📝 When you confirm `BR`/`DI`/`DB`, update this table.
 
@@ -85,29 +85,30 @@ The device comments in LanScan / AdGuard follow a `FLOOR-ROOM name` pattern.
 **Source of truth for MACs:** `secrets/static-leases-hsb8.age` (edit via `agenix -e`).
 This table is derived from the AdGuard lease list + LanScan comments — **IPs and labels only**.
 
-| IP             | Hostname / Label         | Location  | Role                                |
-| -------------- | ------------------------ | --------- | ----------------------------------- |
-| 192.168.1.1    | `fritz.box`              | EG-VR     | **WAN gateway** (FRITZ!Box)         |
-| 192.168.1.2    | `orbi-rbr`               | EG-VR     | Orbi Router (mesh backbone)         |
-| 192.168.1.3    | `orbi-rbs1`              | DG-WR     | Orbi Satellit1 (top floor)          |
-| 192.168.1.4    | `orbi-rbs2`              | EG-WR     | Orbi Satellit2 (ground floor)       |
-| 192.168.1.11   | `p4-2.fritz.box`         | DG-WR     | Raspberry Pi — Zigbee2MQTT, MQTT    |
-| 192.168.1.20   | `pva-wr.fritz.box`       | EG-GA     | Kostal Piko PV inverter             |
-| 192.168.1.100  | `hsb8`                   | —         | **DHCP + DNS + Home Assistant**     |
-| 192.168.1.104  | `gs4-esp32`              | KG-WR     | ESP32 sensor node                   |
-| 192.168.1.105  | `bz-rasierer-zb`         | DG-BZ     | Shaver + ZB (Zigbee)                |
-| 192.168.1.106  | `kg-waschmaschine`       | KG-WR     | Washing machine sensor              |
-| 192.168.1.107  | `snapmaker-u1`           | KG-KÜ?    | Snapmaker U1 3D printer (network)   |
-| 192.168.1.134  | `kg-br-akku-lader`       | KG-BR     | Battery chargers                    |
-| 192.168.1.159  | `dg-di-pixxoo`           | DG-DI     | Pixxoo display                      |
-| 192.168.1.240  | `dg-db-esp32-1`          | DG-DB     | ESP32 sensor node                   |
-| 192.168.1.241  | `p4-1-eth`               | DG-WR     | Raspberry Pi (wired)                |
+| IP            | Hostname / Label   | Location | Role                              |
+| ------------- | ------------------ | -------- | --------------------------------- |
+| 192.168.1.1   | `fritz.box`        | EG-VR    | **WAN gateway** (FRITZ!Box)       |
+| 192.168.1.2   | `orbi-rbr`         | EG-VR    | Orbi Router (mesh backbone)       |
+| 192.168.1.3   | `orbi-rbs1`        | DG-WR    | Orbi Satellit1 (top floor)        |
+| 192.168.1.4   | `orbi-rbs2`        | EG-WR    | Orbi Satellit2 (ground floor)     |
+| 192.168.1.11  | `p4-2.fritz.box`   | DG-WR    | Raspberry Pi — Zigbee2MQTT, MQTT  |
+| 192.168.1.20  | `pva-wr.fritz.box` | EG-GA    | Kostal Piko PV inverter           |
+| 192.168.1.100 | `hsb8`             | —        | **DHCP + DNS + Home Assistant**   |
+| 192.168.1.104 | `gs4-esp32`        | KG-WR    | ESP32 sensor node                 |
+| 192.168.1.105 | `bz-rasierer-zb`   | DG-BZ    | Shaver + ZB (Zigbee)              |
+| 192.168.1.106 | `kg-waschmaschine` | KG-WR    | Washing machine sensor            |
+| 192.168.1.107 | `snapmaker-u1`     | KG-KÜ?   | Snapmaker U1 3D printer (network) |
+| 192.168.1.134 | `kg-br-akku-lader` | KG-BR    | Battery chargers                  |
+| 192.168.1.159 | `dg-di-pixxoo`     | DG-DI    | Pixxoo display                    |
+| 192.168.1.240 | `dg-db-esp32-1`    | DG-DB    | ESP32 sensor node                 |
+| 192.168.1.241 | `p4-1-eth`         | DG-WR    | Raspberry Pi (wired)              |
 
 **Dynamic range `192.168.1.225–254`** is handed out to phones, tablets, laptops, visitors, and any device without a static lease. Actual addresses rotate — check LanScan or hsb8 AdGuard UI for the current mapping.
 
 Full static list lives in `secrets/static-leases-hsb8.age` (27 entries). Edit with `agenix -e secrets/static-leases-hsb8.age` (Gerhard only — requires SSH key + editor).
 
 > ⚠️ Known stale statics (MACs no longer match the real device — device currently gets a dynamic lease instead):
+>
 > - `.168` `imac-gb` — iMac's current MAC isn't in the agenix file
 > - `.88` `iPad-Air-GB` — same
 >
@@ -117,11 +118,11 @@ Full static list lives in `secrets/static-leases-hsb8.age` (27 entries). Edit wi
 
 ## Orbi Wi-Fi Mesh
 
-| Node         | Location | IP (static)   | Notes                                         |
-| ------------ | -------- | ------------- | --------------------------------------------- |
-| Orbi Router  | EG-VR    | 192.168.1.2   | **Mesh backbone — everything else depends**   |
-| Orbi Sat1    | DG-WR    | 192.168.1.3   | Top floor coverage                            |
-| Orbi Sat2    | EG-WR    | 192.168.1.4   | Ground floor living room coverage             |
+| Node        | Location | IP (static) | Notes                                       |
+| ----------- | -------- | ----------- | ------------------------------------------- |
+| Orbi Router | EG-VR    | 192.168.1.2 | **Mesh backbone — everything else depends** |
+| Orbi Sat1   | DG-WR    | 192.168.1.3 | Top floor coverage                          |
+| Orbi Sat2   | EG-WR    | 192.168.1.4 | Ground floor living room coverage           |
 
 **Dependency rule:** if the **Orbi Router (EG-VR)** goes offline, both satellites lose their mesh backhaul and Wi-Fi coverage collapses on ground + attic floors. Wired devices on hsb8 / FRITZ!Box keep working.
 
