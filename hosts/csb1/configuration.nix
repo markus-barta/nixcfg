@@ -388,6 +388,14 @@ in
     # Tell NetworkManager NOT to manage ens3 (we configure it statically)
     networkmanager.unmanaged = [ "ens3" ];
 
+    # NIX-354: NM force-enables wpa_supplicant for its default wifi backend —
+    # on this wifi-less VPS the daemon does nothing, and its dynamically
+    # allocated group had squatted gid 993, colliding with the statically
+    # declared janus-managed-central (the static-id gate caught it on its
+    # first run, 2026-08-12). Dropping wireless removes service and group
+    # declaratively; NM keeps managing nothing, as before.
+    wireless.enable = lib.mkForce false;
+
     # Disable DHCP globally (static IP server)
     useDHCP = false;
 
