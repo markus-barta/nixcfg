@@ -35,7 +35,18 @@ in
     ./shared/ssh-fleet-nixos.nix # Fleet SSH config (NixOS system-level)
     ./shared/markus-login-nixos.nix # Additive markus login; mba remains primary
     ./shared/nix-store-health.nix # OPS-102: catch a wedged Nix store before a deploy does
+    ./shared/static-id-gate.nix # NIX-354: refuse to ship two names on one uid/gid
   ];
+
+  # NIX-354: fish flips on a RUNTIME man-cache service ("Required for man
+  # completions", both mkDefault in nixpkgs programs/fish.nix since 26.11).
+  # That service brings a dynamically allocated mandb user+group — on csb1 the
+  # allocator handed mandb gid 992 three weeks before pharos-container declared
+  # the same gid statically, leaving two names on one id (found 2026-08-12).
+  # Fleet servers need neither apropos nor fish man-page completion
+  # descriptions; with both caches off no mandb user exists at all.
+  documentation.man.cache.enable = false;
+  documentation.man.cache.generateAtRuntime = false;
 
   # Add `markus` everywhere without changing hokage.userLogin, /home/mba
   # service paths, or existing recovery users. Hosts can mkForce-disable this
