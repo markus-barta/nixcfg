@@ -169,7 +169,7 @@
         "com.centurylinklabs.watchtower.scope=weekly"
       ];
       env_file = [
-        "/run/agenix/hsb1-tapo-c210-env" # agenix owner=root 0644 (shared: scrypted + kiosk mqtt-volume-control systemd unit)
+        "/run/agenix/hsb1-tapo-c210-env" # agenix owner=kiosk 0400 (NIX-356) — env_file is read CLIENT-side by the root compose units; the kiosk units source the same file in-process
       ];
     };
     # https://github.com/namshi/docker-smtp

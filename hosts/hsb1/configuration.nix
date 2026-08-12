@@ -751,16 +751,19 @@ in
 
   # hsb1 Mosquitto broker config + passwd (server-side), delivered encrypted via
   # agenix. conf carries the inline OPUS greennet bridge credential (vendor-locked,
-  # LAN-only). mode 644 + owner/group 1883 = mosquitto's in-container uid (csb0 pattern).
+  # LAN-only). owner/group 1883 = mosquitto's uid after its privilege drop
+  # (csb0 pins the whole container to 1883; hsb1's image starts as in-container
+  # root and drops). NIX-356: 0400 — owner-read covers the dropped broker,
+  # in-container root reads via DAC either way; no host principal needs the file.
   age.secrets.hsb1-mosquitto-conf = {
     file = ../../secrets/hsb1-mosquitto-conf.age;
-    mode = "644";
+    mode = "0400";
     owner = "1883";
     group = "1883";
   };
   age.secrets.hsb1-mosquitto-passwd = {
     file = ../../secrets/hsb1-mosquitto-passwd.age;
-    mode = "644";
+    mode = "0400";
     owner = "1883";
     group = "1883";
   };
@@ -819,18 +822,28 @@ in
     owner = "mba";
   };
 
-  # NIX-158 phase 3 P3b — /etc/secrets pair. owner=root mode=0644 so BOTH the
-  # kiosk mqtt-volume-control systemd unit AND the scrypted container can read.
+  # NIX-158 phase 3 P3b — the kiosk secret pair.
+  #
+  # NIX-356: 0400 owner kiosk (kiosk is an isNormalUser with no dedicated
+  # group, so owner-read is the clean shape — same pattern as csb1's pharosd
+  # fix in NIX-353). Actual readers, audited 2026-08-12:
+  #   - mqtt-client-env: mqtt-volume-control + babycam-watchdog (both
+  #     User=kiosk, source it in-process) and hostdash-status (root).
+  #   - tapo-c210-env: the same kiosk units plus kiosk-autostart.sh (kiosk
+  #     session), and scrypted's env_file — which is read CLIENT-side by the
+  #     root-run compose units, never by the container itself (the old
+  #     "scrypted container reads it" claim was wrong).
+  # The mba diagnostic in docs/AUTOMATIONS.md now uses sudo.
   age.secrets.hsb1-mqtt-client-env = {
     file = ../../secrets/hsb1-mqtt-client-env.age;
     path = "/run/agenix/hsb1-mqtt-client-env";
-    mode = "0644";
-    owner = "root";
+    mode = "0400";
+    owner = "kiosk";
   };
   age.secrets.hsb1-tapo-c210-env = {
     file = ../../secrets/hsb1-tapo-c210-env.age;
     path = "/run/agenix/hsb1-tapo-c210-env";
-    mode = "0644";
-    owner = "root";
+    mode = "0400";
+    owner = "kiosk";
   };
 }
