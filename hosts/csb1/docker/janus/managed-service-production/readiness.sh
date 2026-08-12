@@ -223,21 +223,21 @@ declarative() {
      and .mode == "production"
      and .previous_mode == "production"
      and .artifact.image == "ghcr.io/inspr-at/janus/janus-engine"
-     and .artifact.tag == "rust-engine-v0.1.21"
+     and .artifact.tag == "rust-engine-v0.1.28"
      and .artifact.digest == $digest
      and .artifact.development == false
      and .signature.verified == true
-     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.21"
+     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.28"
      and .signature.oidc_issuer == "https://token.actions.githubusercontent.com"
      and .provenance.verified == true
      and .provenance.repository == "inspr-at/janus"
      and .provenance.signer_workflow == "inspr-at/janus/.github/workflows/rust.yml"
-     and .provenance.source_ref == "refs/tags/rust-engine-v0.1.21"
+     and .provenance.source_ref == "refs/tags/rust-engine-v0.1.28"
      and .provenance.predicate_type == "https://slsa.dev/provenance/v1"
      and .sbom.verified == true
      and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"
      and .source.verified == true
-     and .source.commit == "3000c9f875e906d733085c3a60950e94693fc33a"
+     and .source.commit == "217bd67eb9003497cd74282aeecc2f4bf4348916"
      and (.source.manifest_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and (.source.bundle_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and .scanner.verified == true
