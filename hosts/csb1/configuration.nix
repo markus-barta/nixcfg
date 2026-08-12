@@ -177,8 +177,9 @@ in
     # are adopted into this spec — all digest/ID-pinned, on their original
     # volumes via external+name. Cutover took 24 s of downtime; the
     # zero-change --dry-run gate passed before this flip. The legacy compose
-    # files under /home/mba/docker/{inspr-at,paimos} remain as documented
-    # rollback until the soak ends (see OPS-136 P4).
+    # files (former rollback, OPS-136 P4) live in the NIX-116 archive at
+    # /home/mba/docker.archived-pre-NIX110-* since 2026-08-12; the soak ended
+    # with the stack digest-pinned and stable since the 2026-08-01 cutover.
     reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/csb1/docker";
     postRecreate = [
@@ -428,11 +429,11 @@ in
   # DOCKER COMPOSE SETUP - Declarative directory structure
   # ============================================================================
   # Separation of concerns:
-  # - /home/mba/docker/ = current location (real files, not in git yet)
-  # - /var/lib/csb1-docker/ = future runtime directory (mutable state)
+  # - hosts/csb1/docker/ (this repo) = the compose stack, rendered into /etc
+  # - /var/lib/csb1-docker/ = runtime directory (mutable state)
   # - /run/agenix/ = decrypted secrets (ephemeral)
-  #
-  # TODO: Move docker files to git repo like csb0 (separate task)
+  # - /home/mba/docker.archived-pre-NIX110-* = the pre-migration tree,
+  #   archived 2026-08-12 (NIX-116); scheduled for deletion after 30 days.
 
   systemd.tmpfiles.rules =
     let
@@ -475,8 +476,7 @@ in
       "f /var/lib/janus-role-authorization-csb1/staged/audit.jsonl 0600 65532 65532 -"
       "f /var/lib/janus-role-authorization-csb1/staged/warden-audit.jsonl 0600 65532 65532 -"
 
-      # Legacy compatibility: keep /home/mba/docker as primary location for now
-      # Will migrate to /var/lib/csb1-docker in future task
+      # /home/mba/docker was archived in NIX-116 (2026-08-12).
     ];
 
   # csb1-hostdash lived here — SUPERSEDED by composeStack postRecreate
@@ -674,12 +674,10 @@ in
     gid = 1883;
   };
 
-  system.activationScripts.mosquittoPermissions = ''
-    if [ -d /home/mba/docker/mosquitto ]; then
-      chown -R mba:mosquitto /home/mba/docker/mosquitto
-      chmod -R 775 /home/mba/docker/mosquitto
-    fi
-  '';
+  # The mosquittoPermissions activation script lived here — removed in
+  # NIX-116: it only chowned /home/mba/docker/mosquitto, which was archived
+  # to /home/mba/docker.archived-pre-NIX110-* (csb1 runs no mosquitto; the
+  # brokers live on csb0 and hsb1).
 
   # ============================================================================
   # PPM CI DEPLOY — restricted script for test report uploads
@@ -847,13 +845,13 @@ in
   # age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
 
   # Traefik Cloudflare API token (for DNS-01 ACME challenge).
-  # The declared path is a compatibility symlink for the pre-OPS-122 rollback
-  # compose under /home/mba/docker; the real file — and what the spec's
-  # env_file reads — is /run/agenix/traefik-variables (verified live 2026-08-12).
   # NIX-353: 0400 — read client-side by the root-run compose units only.
+  # NIX-116: default path — the compatibility symlink into /home/mba/docker
+  # died with the archive of that tree (the spec's env_file has read
+  # /run/agenix/traefik-variables since OPS-121).
   age.secrets.traefik-variables = {
     file = ../../secrets/traefik-variables.age;
-    path = "/home/mba/docker/traefik/variables.env";
+    path = "/run/agenix/traefik-variables";
     owner = "root";
     group = "root";
     mode = "0400";
