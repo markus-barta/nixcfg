@@ -322,15 +322,18 @@ in
   # (units and targets live in ./ops-alerts.nix). Root-owned — the poller runs
   # as root and nothing else needs to read it.
   age.secrets.csb0-ops-alerts-env.file = ../../secrets/csb0-ops-alerts-env.age;
+  # NIX-356: 0400 — the compose service pins `user: 1883:1883`, so mosquitto
+  # reads both ro bind mounts as their owner; nothing on the host side needs
+  # group or world bits.
   age.secrets.mosquitto-passwd = {
     file = ../../secrets/mosquitto-passwd.age;
-    mode = "644";
+    mode = "0400";
     owner = "1883";
     group = "1883";
   };
   age.secrets.mosquitto-conf = {
     file = ../../secrets/mosquitto-conf.age;
-    mode = "644";
+    mode = "0400";
     owner = "1883";
     group = "1883";
   };
@@ -346,27 +349,35 @@ in
     file = ../../secrets/uptime-kuma-env.age;
     owner = "mba";
   };
+  # NIX-356: 0400 — the spec's env_file reads /run/agenix/traefik-variables
+  # client-side via the root-run composeStack units (OPS-121); the declared
+  # path is only the compatibility symlink. Mirrors the csb1 flip (NIX-353).
   age.secrets.traefik-variables = {
     file = ../../secrets/traefik-variables.age;
     path = "/var/lib/csb0-docker/traefik/variables.env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
+  # NIX-356: 0400 — read client-side by the root-run compose units only.
   age.secrets.csb-hostdash-oauth2-proxy-env = {
     file = ../../secrets/csb-hostdash-oauth2-proxy-env.age;
     path = "/run/agenix/csb-hostdash-oauth2-proxy-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
+  # NIX-356: 0400 root:root — the only reader is ops-alerts.service via
+  # EnvironmentFile (read by the root manager). Matches the documented
+  # mqtt-hsb0 pattern in docs/SECRETS.md; no interactive mba workflow exists
+  # for this file (the former mba ownership was historical).
   age.secrets.mqtt-csb0 = {
     file = ../../secrets/mqtt-csb0.age;
-    owner = "mba";
-    group = "users";
-    mode = "0644";
+    owner = "root";
+    group = "root";
+    mode = "0400";
   };
 
   # services.nixfleet-agent = {

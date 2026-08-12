@@ -144,7 +144,8 @@ ssh -p 2222 mba@cs0.barta.cm 'docker logs csb0-nodered-1 --tail 20'
 ssh mba@hsb1.lan 'docker logs nodered 2>&1 | grep "mqtt-broker:csb0+" | tail -3'
 
 # Watch the last two hops live (a real open shows rpc -> ack -> output true -> timer false)
-ssh mba@hsb1.lan 'bash -c "( set -a; source /run/agenix/hsb1-mqtt-client-env; set +a; \
+# sudo: the env file is 0400 owner=kiosk since NIX-356 (same shape as NUKI-RUNBOOK)
+ssh mba@hsb1.lan 'sudo bash -c "( set -a; source /run/agenix/hsb1-mqtt-client-env; set +a; \
   mosquitto_sub -h localhost -u \$MQTT_USER -P \$MQTT_PASS -v -t home/gz/zufahrt/# -t nodered-hsb1/# )"'
 
 # Is the Shelly itself healthy? (read-only)
