@@ -607,30 +607,27 @@ reason and exact reviewed revision in PPM before resuming normal operations.
 
 ### Upgrade PAIMOS (pm.barta.cm)
 
-Image source: `ghcr.io/markus-barta/paimos:latest` (published by the
-`ci.yml` workflow on every push to main).
+Image source: `ghcr.io/inspr-at/paimos:<version>` — an explicit pin in
+`hosts/csb1/docker/compose-spec.nix`. Deploys are a pin bump + PR +
+`nixos-rebuild switch` on csb1 (PAI-732; `/etc/paimos-deploy.sh` was removed
+in NIX-359). Full flow + rollback: `docs/PPM-RUNBOOK.md` §2/§3.
 
 ```bash
-# On csb1 — safety backup first, then pull + swap:
+# Optional safety backup before a risky bump (data volume snapshot):
 ssh mba@cs1.barta.cm -p 2222
 TS=$(date +%Y-%m-%d-%H%M)
 mkdir -p ~/backups/paimos-$TS
-docker save ghcr.io/markus-barta/paimos:latest | gzip > ~/backups/paimos-$TS/paimos-latest.tar.gz
 docker run --rm -v ppm_data:/data -v ~/backups/paimos-$TS:/backup alpine \
   tar czf /backup/ppm_data.tar.gz -C /data .
 
-# Pull + recreate:
-/etc/paimos-deploy.sh
-# Equivalent: (cd ~/docker && docker compose pull ppm && docker compose up -d ppm)
-
-# Verify:
+# Verify after the switch:
 docker ps --filter name=ppm --format '{{.Image}} {{.Status}}'
 curl -fsSI https://pm.barta.cm/ | head -1
 docker logs ppm --tail 50
 ```
 
-Rollback on failure: `docker load -i ~/backups/paimos-<TS>/paimos-latest.tar.gz`,
-pin the compose `image:` line back to the saved tag, `docker compose up -d ppm`.
+Rollback on failure: set the pin in `compose-spec.nix` back to the previous
+version and switch again (PPM-RUNBOOK §3 — mind DB migrations).
 
 Data rollback (only on migration corruption — additive-only schema, very rare):
 `docker compose stop ppm && docker run --rm -v ppm_data:/data -v ~/backups/paimos-<TS>:/backup alpine sh -c "rm -rf /data/* && tar xzf /backup/ppm_data.tar.gz -C /data" && docker compose up -d ppm`.

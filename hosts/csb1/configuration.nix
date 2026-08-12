@@ -700,25 +700,12 @@ in
     '';
   };
 
-  # ============================================================================
-  # PAIMOS DEPLOY — pull latest GHCR image and restart ppm container
-  # ============================================================================
-  # Image: ghcr.io/markus-barta/paimos (tag pinned in ~/docker/docker-compose.yml,
-  # typically `:latest`). Assumes that file already points at the GHCR image.
-  environment.etc."paimos-deploy.sh" = {
-    mode = "0755";
-    text = ''
-      #!/bin/sh
-      set -eu
-      # NIX-110 / NIX-121: docker stack moved from /home/mba/docker to
-      # ~/Code/nixcfg/hosts/csb1/docker/ on 2026-05-14 cutover.
-      cd /home/mba/Code/nixcfg/hosts/csb1/docker
-      # OPS-122: serialize with the stack reconcile (see composeLock above).
-      flock -w 300 /run/lock/compose-csb1.lock docker compose -p csb1 -f /etc/compose/csb1/docker-compose.yml pull ppm
-      flock -w 300 /run/lock/compose-csb1.lock docker compose -p csb1 -f /etc/compose/csb1/docker-compose.yml up -d ppm
-      echo "ok: ppm updated"
-    '';
-  };
+  # /etc/paimos-deploy.sh lived here — REMOVED (NIX-359, 2026-08-12). PPM
+  # deploys are a version pin bump in ./docker/compose-spec.nix + PR +
+  # nixos-rebuild since OPS-116 (PAI-732); the script's CI key was already
+  # gone, and csb1-ppm-env is 0400 root:root since NIX-353, so an mba run
+  # would fail at the env_file read anyway. Emergency-converge equivalent is
+  # documented in docs/PPM-RUNBOOK.md.
 
   # ============================================================================
   # HOKAGE MODULE CONFIGURATION
@@ -876,8 +863,7 @@ in
   # Format: KEY=VALUE (ADMIN_PASSWORD for first-run seed)
   # NIX-353: 0400 — PPM deploys are pin-bump + nixos-rebuild since OPS-116
   # (PAI-732); the root-run compose units are the only readers. The legacy
-  # /etc/paimos-deploy.sh path would now fail loudly at the env_file read if
-  # run as mba — it is deprecated, not load-bearing (its CI key is gone).
+  # /etc/paimos-deploy.sh was removed entirely (NIX-359).
   age.secrets.csb1-ppm-env = {
     file = ../../secrets/csb1-ppm-env.age;
     path = "/run/agenix/csb1-ppm-env";
