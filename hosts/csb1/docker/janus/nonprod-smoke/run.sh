@@ -308,6 +308,10 @@ authority_env_flags=(
   -e "JANUS_SCOPE_PROJECT=janus"
   -e "JANUS_SCOPE_REPOSITORY=nixcfg"
   -e "JANUS_SCOPE_ENVIRONMENT=staged"
+  # Since JANUS-429 the CLI's role principal is JANUS_RELEASE_EXECUTOR
+  # (default janus-split-runtime); align it with the reviewed staged operator
+  # binding for executor:janus-run@csb1 (NIX-345) instead of minting bindings.
+  -e "JANUS_RELEASE_EXECUTOR=janus-run@csb1"
   -e "JANUS_IDENTITY_SOCKET=${AUTHORITY_ROOT}/run/identity.sock"
   -e "JANUS_DUTY_SURFACE_MANIFEST=/etc/janus/authority/duty-surface-manifest-v1.json"
   -e "JANUS_ACCOUNTABILITY_POSTURE=accountability_legacy"
