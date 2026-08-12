@@ -48,7 +48,6 @@
 # own contribution, which would conflict with the existing mkForce —
 # nixos-rebuild surfaces this as a definition-conflict error.)
 {
-  config,
   lib,
   ...
 }:
