@@ -1,0 +1,4 @@
+# Vendored byte-exact from the pinned janus release tag (NIX-361): the
+# duty-surface manifest embeds a fingerprint over the transport manifest's
+# raw bytes, so ANY reformatting breaks the runtime-authority binding.
+hosts/csb1/docker/janus/nonprod-smoke/authority/

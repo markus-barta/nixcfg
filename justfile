@@ -196,7 +196,10 @@ janus-pharos-retirement-apply host:
 [group('ops')]
 janus-engine-up:
     just janus-engine-smoke
-    cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged up -d --no-deps janus-engine-staged
+    # NIX-361: the rendered closure file is the only compose source since
+    # OPS-127 (the repo-level docker-compose.yml is retired); force-recreate
+    # replaces a stopped or stale-image staged container in place.
+    cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f /etc/compose/csb1/docker-compose.yml --profile janus-engine-staged up -d --no-deps --force-recreate janus-engine-staged
 
 [group('ops')]
 janus-engine-status:
