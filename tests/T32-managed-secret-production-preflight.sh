@@ -188,8 +188,8 @@ for filename, channel, image, tag, expected_commit in (
         "release-admission.json",
         "stable",
         "ghcr.io/inspr-at/janus/janus-engine",
-        "rust-engine-v0.1.21",
-        "3000c9f875e906d733085c3a60950e94693fc33a",
+        "rust-engine-v0.1.28",
+        "217bd67eb9003497cd74282aeecc2f4bf4348916",
     ),
     (
         "go-envelope-admission.json",
