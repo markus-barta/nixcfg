@@ -204,8 +204,8 @@ non-prod age material, a non-prod metadata overlay, and a permit-bound
 `janusd-use run` launched through the staged compose service; no production secret
 or host SSH key is used.
 The staged image pin in `hosts/csb1/docker/compose-spec.nix` is the source of
-truth; do not duplicate its release or digest here. (The retired
-`docker-compose.yml` reference in `just janus-engine-up` is NIX-338.)
+truth; do not duplicate its release or digest here. (`just janus-engine-up`
+uses the rendered /etc closure file since NIX-361; NIX-338 is closed.)
 
 ```bash
 cd ~/Code/nixcfg
