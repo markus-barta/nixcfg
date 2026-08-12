@@ -216,6 +216,21 @@ in
           Saturday-early-morning cadence so update behaviour stays familiar.
         '';
       };
+      excludeFromPull = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        description = ''
+          Services the weekly updater must never `pull` (NIX-352).
+
+          For images that exist only on this host — built and tagged locally
+          by a manual release path, never published to a registry — the
+          stack-wide pull dies on the registry's denial BEFORE `up -d`, so one
+          unpullable image starves every other service of its scheduled update
+          (csb1's hausv-org, observed live 2026-08-08). Excluded services keep
+          their compose definition and are still converged by `up -d`; only
+          the registry pull is skipped.
+        '';
+      };
     };
 
     reconcile = lib.mkOption {
@@ -259,6 +274,16 @@ in
           lib.attrValues (cfg.spec.services or { })
         );
         message = "composeStack: a service declares dns/dns_search by hand. Remove it — the module injects those from networking.nameservers, and a literal here is the OPS-114 duplication returning.";
+      }
+      {
+        assertion = lib.all (
+          svc: lib.hasAttr svc (cfg.spec.services or { })
+        ) cfg.autoUpdate.excludeFromPull;
+        message = "composeStack: autoUpdate.excludeFromPull names services absent from the spec: ${
+          lib.concatStringsSep ", " (
+            lib.filter (svc: !(lib.hasAttr svc (cfg.spec.services or { }))) cfg.autoUpdate.excludeFromPull
+          )
+        } — a typo here would silently keep pulling the service it meant to protect.";
       }
     ];
 
@@ -353,9 +378,25 @@ in
             let
               compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
               locked = "${pkgs.util-linux}/bin/flock -w 1770 /run/lock/compose-${cfg.stackName}.lock";
+              # NIX-352: with exclusions, pull an explicit service list instead of
+              # the whole stack — a stack-wide pull aborts on the first denied
+              # image and starves everything else of its update. Only image-
+              # bearing services are listed (compose skips build-only services
+              # in a stack-wide pull too, so the set is identical); excluded
+              # services are still converged by `up -d` below.
+              pullTargets = lib.filter (svc: !(lib.elem svc cfg.autoUpdate.excludeFromPull)) (
+                lib.attrNames (lib.filterAttrs (_: service: service ? image) (cfg.spec.services or { }))
+              );
+              pullCommand =
+                if cfg.autoUpdate.excludeFromPull == [ ] then
+                  "${locked} ${compose} pull --quiet"
+                else if pullTargets == [ ] then
+                  ": # every image-bearing service is excluded from pull"
+                else
+                  "${locked} ${compose} pull --quiet ${lib.escapeShellArgs pullTargets}";
             in
             ''
-              ${locked} ${compose} pull --quiet
+              ${pullCommand}
               ${locked} ${compose} up -d
             '';
         };

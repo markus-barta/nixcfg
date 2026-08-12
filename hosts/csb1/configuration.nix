@@ -201,6 +201,11 @@ in
     # and dropping them would force-recreate every container for zero
     # behavioural change. Remove opportunistically per-service.
     autoUpdate.enable = true;
+    # NIX-352: hausv-org's image is built ON csb1 by hausv-org/scripts/deploy.sh
+    # and never exists in GHCR — the stack-wide weekly pull died on its "denied"
+    # BEFORE `up -d` and starved every other service of the update (observed
+    # live 2026-08-08). `up -d` still converges it; only the pull is skipped.
+    autoUpdate.excludeFromPull = [ "hausv-org" ];
     spec = import ./docker/compose-spec.nix;
   };
 
@@ -846,24 +851,31 @@ in
   # ============================================================================
   # age.secrets.nixfleet-token.file = ../../secrets/nixfleet-token.age;
 
-  # Traefik Cloudflare API token (for DNS-01 ACME challenge)
-  # TODO: Move to /var/lib/csb1-docker when docker files are in repo
+  # Traefik Cloudflare API token (for DNS-01 ACME challenge).
+  # The declared path is a compatibility symlink for the pre-OPS-122 rollback
+  # compose under /home/mba/docker; the real file — and what the spec's
+  # env_file reads — is /run/agenix/traefik-variables (verified live 2026-08-12).
+  # NIX-353: 0400 — read client-side by the root-run compose units only.
   age.secrets.traefik-variables = {
     file = ../../secrets/traefik-variables.age;
     path = "/home/mba/docker/traefik/variables.env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
   # PPM (Personal Project Management) Docker env
   # Format: KEY=VALUE (ADMIN_PASSWORD for first-run seed)
+  # NIX-353: 0400 — PPM deploys are pin-bump + nixos-rebuild since OPS-116
+  # (PAI-732); the root-run compose units are the only readers. The legacy
+  # /etc/paimos-deploy.sh path would now fail loudly at the env_file read if
+  # run as mba — it is deprecated, not load-bearing (its CI key is gone).
   age.secrets.csb1-ppm-env = {
     file = ../../secrets/csb1-ppm-env.age;
     path = "/run/agenix/csb1-ppm-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
   # Janus Docker env (Zitadel OIDC client + cookie signing key)
@@ -966,34 +978,49 @@ in
     mode = "0400";
   };
 
+  # NIX-353: 0400 — read client-side by the root-run compose units only.
   age.secrets.csb-hostdash-oauth2-proxy-env = {
     file = ../../secrets/csb-hostdash-oauth2-proxy-env.age;
     path = "/run/agenix/csb-hostdash-oauth2-proxy-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
   # WEG Portal env is activated once secrets/csb1-hausv-org-env.age exists.
   # This keeps csb1 evaluation green while the secret is intentionally absent.
+  #
+  # NIX-351: 0440 root:users, deliberately NOT 0400 root:root — compose reads
+  # env_file client-side, and next to the root-run reconcile/update units the
+  # manual release path (hausv-org/scripts/deploy.sh) runs `docker compose up`
+  # as mba. Group `users` on csb1 holds only the two human logins (mba,
+  # markus); the janus/pharos system users are excluded.
   age.secrets.csb1-hausv-org-env =
     lib.mkIf (builtins.pathExists ../../secrets/csb1-hausv-org-env.age)
       {
         file = ../../secrets/csb1-hausv-org-env.age;
         path = "/run/agenix/csb1-hausv-org-env";
         owner = "root";
-        group = "root";
-        mode = "0644";
+        group = "users";
+        mode = "0440";
       };
 
   # === NIX-110: csb1 docker stack migration — bulk env file refactor ===
   # All env files for services in /home/mba/docker/docker-compose.yml that
   # previously lived in ~/secrets/ or ./xxx.env are now in agenix.
+  #
+  # NIX-353 (2026-08-12): every env_file below is read CLIENT-side by the
+  # root-run compose units (reconcile / weekly update), so 0400 root:root is
+  # the correct default — the former 0644 entries are aligned to it. The two
+  # deliberate exceptions carry their own justification: csb1-hausv-org-env
+  # (0440 root:users, NIX-351) and csb1-watchtower-env (0440
+  # root:pharos-container, in-container reader).
 
   # OPS-136 — identity-provider stack secrets (adopted inspr-at/paimos
-  # projects). 🔴 mode 0400 deliberately (NOT the 0644 some older entries
-  # carry): these hold the zitadel masterkey and IdP DB credentials. Compose
-  # reads env_file client-side, and the reconcile/update units run as root.
+  # projects). 🔴 mode 0400 deliberately: these hold the zitadel masterkey and
+  # IdP DB credentials. Compose reads env_file client-side, and the
+  # reconcile/update units run as root. (The older 0644 entries this comment
+  # once contrasted against were aligned by NIX-353.)
   age.secrets.csb1-zitadel-env = {
     file = ../../secrets/csb1-zitadel-env.age;
     path = "/run/agenix/csb1-zitadel-env";
@@ -1023,7 +1050,7 @@ in
     path = "/run/agenix/csb1-docmost-postgres-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
   age.secrets.csb1-docmost-config-env = {
@@ -1031,7 +1058,7 @@ in
     path = "/run/agenix/csb1-docmost-config-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
   age.secrets.csb1-paperless-postgres-env = {
@@ -1039,7 +1066,7 @@ in
     path = "/run/agenix/csb1-paperless-postgres-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
   age.secrets.csb1-paperless-config-env = {
@@ -1047,7 +1074,7 @@ in
     path = "/run/agenix/csb1-paperless-config-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
   age.secrets.csb1-smtp-env = {
@@ -1055,7 +1082,7 @@ in
     path = "/run/agenix/csb1-smtp-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
   age.secrets.csb1-restic-cron-hetzner-env = {
@@ -1063,7 +1090,7 @@ in
     path = "/run/agenix/csb1-restic-cron-hetzner-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
   # SSH private key for restic-cron (was plaintext on disk pre-NIX-110).
@@ -1079,12 +1106,16 @@ in
   # Despite the name: watchtower is gone (OPS-129 ⑥, 2026-08-02). This env
   # feeds the pharosd alert webhook and the hausv alert poller (T34 asserts
   # both). Rename only together with a deliberate secret rotation.
+  # NIX-353: 0440 root:pharos-container, deliberately NOT 0400 root:root —
+  # pharosd reads its ro bind mount IN-container as uid 10001 gid 992
+  # (pharos-container), so it needs the group bit; the hausv-alerts and
+  # peer-watch pollers run as root and read it either way.
   age.secrets.csb1-watchtower-env = {
     file = ../../secrets/csb1-watchtower-env.age;
     path = "/run/agenix/csb1-watchtower-env";
     owner = "root";
-    group = "root";
-    mode = "0644";
+    group = "pharos-container";
+    mode = "0440";
   };
 
   # MinIO Docker env (PPM attachment storage)
@@ -1094,7 +1125,7 @@ in
     path = "/run/agenix/csb1-minio-env";
     owner = "root";
     group = "root";
-    mode = "0644";
+    mode = "0400";
   };
 
 }
