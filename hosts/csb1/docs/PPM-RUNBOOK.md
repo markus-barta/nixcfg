@@ -4,52 +4,50 @@ PPM (the `paimos` codebase, branded as PPM for `pm.barta.cm`) runs as a
 single container on csb1, behind Traefik. This runbook covers the day-to-day
 operations: deploy, verify, roll back, inspect logs, back up.
 
-**Nothing is built here.** CI (GitHub Actions on `markus-barta/paimos`)
-publishes the image to GHCR; csb1 just pulls and runs it.
+**Nothing is built here.** CI (GitHub Actions on `inspr-at/paimos`)
+publishes the image to GHCR; csb1 runs the version pinned in the closure.
 
 ---
 
 ## 1. Facts at a glance
 
-|                                               |                                                                         |
-| --------------------------------------------- | ----------------------------------------------------------------------- |
-| Service name in `~/docker/docker-compose.yml` | `ppm`                                                                   |
-| Container name                                | `ppm`                                                                   |
-| Image                                         | `ghcr.io/markus-barta/paimos:latest`                                    |
-| Public URL                                    | https://pm.barta.cm                                                     |
-| Health endpoint                               | `GET /api/health` → `{"service":"ppm","status":"ok"}`                   |
-| Data volume                                   | `csb1_ppm_data` (mounted at `/app/data` — contains SQLite DB `ppm.db`)  |
-| Attachment bucket                             | MinIO bucket `ppm-attachments` (separate `minio` service, same compose) |
-| TLS + routing                                 | Traefik label `Host(\`pm.barta.cm\`)`, cert via `default` resolver      |
-| Secrets                                       | `/run/agenix/csb1-ppm-env` (managed via nix/agenix — see `nixfleet/`)   |
-| Source repo                                   | https://github.com/markus-barta/paimos                                  |
+|                                                     |                                                                            |
+| --------------------------------------------------- | -------------------------------------------------------------------------- |
+| Service name (`hosts/csb1/docker/compose-spec.nix`) | `ppm`                                                                      |
+| Container name                                      | `ppm`                                                                      |
+| Image                                               | `ghcr.io/inspr-at/paimos:<pinned version>` (explicit pin, never `:latest`) |
+| Public URL                                          | https://pm.barta.cm                                                        |
+| Health endpoint                                     | `GET /api/health` → `{"service":"ppm","status":"ok"}`                      |
+| Data volume                                         | `csb1_ppm_data` (mounted at `/app/data` — contains SQLite DB `ppm.db`)     |
+| Attachment bucket                                   | MinIO bucket `ppm-attachments` (separate `minio` service, same compose)    |
+| TLS + routing                                       | Traefik label `Host(\`pm.barta.cm\`)`, cert via `default` resolver         |
+| Secrets                                             | `/run/agenix/csb1-ppm-env` (managed via nix/agenix — see `nixfleet/`)      |
+| Source repo                                         | https://github.com/inspr-at/paimos (moved from markus-barta, OPS-90)       |
 
 ---
 
-## 2. Deploy flow — routine
+## 2. Deploy flow — routine (pin bump, since OPS-116 — see PAI-732)
 
-Trigger: a PR has been merged to `main` in the paimos repo. CI has finished
-and published a fresh `:latest` to GHCR. You want csb1 to run it.
+Trigger: a PAIMOS release is published to GHCR and you want csb1 to run it.
+The image is an **explicit version pin** in the closure — never `:latest` —
+so a deploy is a one-line nixcfg change:
 
-```bash
-ssh -p 2222 mba@cs1.barta.cm
-/etc/paimos-deploy.sh   # pulls + up -d ppm, serialized on the compose lock (OPS-122)
-```
+1. Edit `hosts/csb1/docker/compose-spec.nix`, bump the `ppm` service's
+   `image = "ghcr.io/inspr-at/paimos:<version>"` pin (keep the comment trail).
+2. PR → checks → merge (e.g. `chore(ppm): pin PAIMOS 5.8.18 (#341)`).
+3. On csb1: `cd ~/Code/nixcfg && git pull && sudo nixos-rebuild switch --flake .#csb1`
+   — the composeStack reconcile recreates exactly the `ppm` service.
 
-Or as a one-liner from your laptop:
+Existing data stays (named volume `csb1_ppm_data` survives replacement).
 
-```bash
-ssh -p 2222 mba@cs1.barta.cm /etc/paimos-deploy.sh
-```
-
-Or via the just recipe:
-
-```bash
-ssh mba@csb1 "cd ~/docker && just deploy-ppm"
-```
-
-Compose will recreate the `ppm` container with the new image. Existing data
-stays (named volume `csb1_ppm_data` survives container replacement).
+> Why not a pull script? The old `/etc/paimos-deploy.sh` (removed, NIX-359)
+> sed-pulled outside the closure; the OPS-116 QA caught a state where a
+> routine reconcile would have DOWNGRADED ppm over a migrated DB because the
+> checkout and the running container disagreed. The pin is the only truth.
+>
+> Emergency converge without a rebuild (rarely needed — the reconcile does
+> this): `flock -w 300 /run/lock/compose-csb1.lock docker-compose -p csb1 -f
+/etc/compose/csb1/docker-compose.yml up -d ppm` (as root).
 
 ### Verify after deploy
 
@@ -69,35 +67,23 @@ ssh mba@csb1 "docker ps --filter name=ppm --format '{{.Names}}\t{{.Status}}\t{{.
 
 ---
 
-## 3. Pinning to a specific version (rollback or explicit version)
+## 3. Rollback (pin to the previous version)
 
-`:latest` always follows `main`. If you need a known version, edit
-`~/docker/docker-compose.yml` and change the `image:` line under `ppm:`:
+Rollback is the same pin-bump flow in reverse:
 
-```yaml
-ppm:
-  image: ghcr.io/markus-barta/paimos:1.2.0 # was :latest
-```
+1. Check what versions exist: https://github.com/inspr-at/paimos/pkgs/container/paimos
+2. Edit `hosts/csb1/docker/compose-spec.nix`, set the `ppm` pin back to the
+   last known-good tag (the pin's comment trail documents what each version
+   changed — pick from there).
+3. PR → merge → `git pull && sudo nixos-rebuild switch --flake .#csb1` on csb1.
 
-Then pull + up as normal:
-
-```bash
-/etc/paimos-deploy.sh
-```
-
-**Rollback recipe.** If a `:latest` deploy broke something and you need to
-go back to a known-good version:
-
-1. Check what versions exist: https://github.com/markus-barta/paimos/pkgs/container/paimos
-2. Pin to the previous release tag, e.g. `:1.1.2` (or the exact SHA-tag
-   like `:sha-abc1234` from an older main build).
-3. Pull + up.
-4. Open a PR to revert the offending change on `main`, then switch back to
-   `:latest` once a new known-good image is published.
+⚠️ Mind DB migrations: a version that migrated `ppm.db` may not run under an
+older binary. Check the release notes before downgrading past a migration;
+the daily restic backup (01:30) plus `~/backups/` snapshots are the recovery
+path if a downgrade is impossible.
 
 **Don't** use `docker compose up -d --force-recreate ppm` as a rollback
-— it would just restart the same (broken) image. You need a different tag
-or image SHA.
+— it would just restart the same (broken) image. You need a different pin.
 
 ---
 
