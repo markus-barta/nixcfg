@@ -176,10 +176,11 @@ in
     # projects (zitadel, zitadel-postgres, inspr-auth, inspr-www, paimos-www)
     # are adopted into this spec — all digest/ID-pinned, on their original
     # volumes via external+name. Cutover took 24 s of downtime; the
-    # zero-change --dry-run gate passed before this flip. The legacy compose
-    # files (former rollback, OPS-136 P4) live in the NIX-116 archive at
-    # /home/mba/docker.archived-pre-NIX110-* since 2026-08-12; the soak ended
-    # with the stack digest-pinned and stable since the 2026-08-01 cutover.
+    # zero-change --dry-run gate passed before this flip. 🔴 The legacy tree
+    # /home/mba/docker is STILL LIVE: the 2026-08-12 NIX-116 archive attempt
+    # was reverted the same evening — five running containers bind-mount it
+    # (zitadel .machinekey, inspr-www, paimos-www, amt-start, amtweb-preview).
+    # Re-archive only after those mounts migrate (reopened NIX-116, OPS-144).
     reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/csb1/docker";
     postRecreate = [
@@ -432,8 +433,10 @@ in
   # - hosts/csb1/docker/ (this repo) = the compose stack, rendered into /etc
   # - /var/lib/csb1-docker/ = runtime directory (mutable state)
   # - /run/agenix/ = decrypted secrets (ephemeral)
-  # - /home/mba/docker.archived-pre-NIX110-* = the pre-migration tree,
-  #   archived 2026-08-12 (NIX-116); scheduled for deletion after 30 days.
+  # - /home/mba/docker = 🔴 STILL LIVE legacy tree — the 2026-08-12 NIX-116
+  #   archive attempt was reverted: five running containers bind-mount it
+  #   (zitadel .machinekey, inspr-www, paimos-www, amt-start, amtweb-preview).
+  #   Blocked on OPS-144 + mount migration; see reopened NIX-116.
 
   systemd.tmpfiles.rules =
     let
@@ -476,7 +479,7 @@ in
       "f /var/lib/janus-role-authorization-csb1/staged/audit.jsonl 0600 65532 65532 -"
       "f /var/lib/janus-role-authorization-csb1/staged/warden-audit.jsonl 0600 65532 65532 -"
 
-      # /home/mba/docker was archived in NIX-116 (2026-08-12).
+      # /home/mba/docker is still live — NIX-116 archive reverted (see above).
     ];
 
   # csb1-hostdash lived here — SUPERSEDED by composeStack postRecreate
@@ -675,9 +678,9 @@ in
   };
 
   # The mosquittoPermissions activation script lived here — removed in
-  # NIX-116: it only chowned /home/mba/docker/mosquitto, which was archived
-  # to /home/mba/docker.archived-pre-NIX110-* (csb1 runs no mosquitto; the
-  # brokers live on csb0 and hsb1).
+  # NIX-116: it only chowned /home/mba/docker/mosquitto, a directory that no
+  # longer exists in the (still live) legacy tree; csb1 runs no mosquitto —
+  # the brokers live on csb0 and hsb1.
 
   # ============================================================================
   # PPM CI DEPLOY — restricted script for test report uploads
@@ -846,9 +849,10 @@ in
 
   # Traefik Cloudflare API token (for DNS-01 ACME challenge).
   # NIX-353: 0400 — read client-side by the root-run compose units only.
-  # NIX-116: default path — the compatibility symlink into /home/mba/docker
-  # died with the archive of that tree (the spec's env_file has read
-  # /run/agenix/traefik-variables since OPS-121).
+  # NIX-116: default path — the old custom path was only a compatibility
+  # symlink into the legacy tree; the spec's env_file has read
+  # /run/agenix/traefik-variables since OPS-121. (Valid regardless of the
+  # legacy tree's fate — the NIX-116 archive itself was reverted.)
   age.secrets.traefik-variables = {
     file = ../../secrets/traefik-variables.age;
     path = "/run/agenix/traefik-variables";
