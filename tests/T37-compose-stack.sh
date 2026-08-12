@@ -108,14 +108,19 @@ else
   echo "SKIP: dirty tree — NIX-348 evidence guard blocks csb1 eval; commit first"
 fi
 
-# --- NIX-351/NIX-353: no world-readable agenix env files on csb1 ------------
-# Every compose env_file is read client-side by the root-run units; the two
+# --- NIX-351/NIX-353/NIX-356: no world-readable agenix secrets, fleet-wide --
+# Every compose env_file is read client-side by the root-run units; the
 # non-0400 exceptions (csb1-hausv-org-env 0440 root:users for the mba-run
 # deploy path, csb1-watchtower-env 0440 owner-10001 for pharosd's
-# in-container read) are justified in configuration.nix. 0644 means every
-# local account can read the secret — that class was closed by NIX-353.
-if grep -n 'mode = "0644"' "${repo}/hosts/csb1/configuration.nix"; then
-  echo "FAIL: csb1 declares a world-readable agenix secret (NIX-353)"
+# in-container read) are justified in configuration.nix. World-readable means
+# every local account can read the secret — csb1 was closed by NIX-353,
+# csb0+hsb1 by NIX-356. Both spellings count: NIX-356 found four mosquitto
+# files written as "644" that an exact "0644" grep missed. Today every match
+# under hosts/ is an age.secrets block; if a legitimate non-secret 644 mode
+# ever lands here, replace this with an evaluated octal check + allowlist
+# instead of weakening the grep.
+if grep -rnE 'mode = "0?644"' "${repo}/hosts/" --include='*.nix'; then
+  echo "FAIL: world-readable agenix secret mode under hosts/ (NIX-353/NIX-356)"
   exit 1
 fi
 
