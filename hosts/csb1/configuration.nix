@@ -1013,8 +1013,8 @@ in
   # root-run compose units (reconcile / weekly update), so 0400 root:root is
   # the correct default — the former 0644 entries are aligned to it. The two
   # deliberate exceptions carry their own justification: csb1-hausv-org-env
-  # (0440 root:users, NIX-351) and csb1-watchtower-env (0440
-  # root:pharos-container, in-container reader).
+  # (0440 root:users, NIX-351) and csb1-watchtower-env (0440 owner-10001,
+  # in-container reader).
 
   # OPS-136 — identity-provider stack secrets (adopted inspr-at/paimos
   # projects). 🔴 mode 0400 deliberately: these hold the zitadel masterkey and
@@ -1106,15 +1106,19 @@ in
   # Despite the name: watchtower is gone (OPS-129 ⑥, 2026-08-02). This env
   # feeds the pharosd alert webhook and the hausv alert poller (T34 asserts
   # both). Rename only together with a deliberate secret rotation.
-  # NIX-353: 0440 root:pharos-container, deliberately NOT 0400 root:root —
-  # pharosd reads its ro bind mount IN-container as uid 10001 gid 992
-  # (pharos-container), so it needs the group bit; the hausv-alerts and
-  # peer-watch pollers run as root and read it either way.
+  # NIX-353: 0440 with pharosd's container uid as OWNER (the signing-key
+  # pattern below), deliberately NOT group pharos-container — gid 992 is
+  # ALSO held by the dynamically allocated mandb group on live csb1, so a
+  # group-992 read bit would admit the mandb user (found live 2026-08-12).
+  # pharosd (uid 10001 in-container) reads its ro bind mount as owner; the
+  # hausv-alerts (User=root Group=root) and peer-watch (root) pollers read
+  # via the group bit. NOT 0400: that would break the root-group readers if
+  # caps ever drop DAC_OVERRIDE, and the owner is not root here.
   age.secrets.csb1-watchtower-env = {
     file = ../../secrets/csb1-watchtower-env.age;
     path = "/run/agenix/csb1-watchtower-env";
-    owner = "root";
-    group = "pharos-container";
+    owner = "10001";
+    group = "root";
     mode = "0440";
   };
 
