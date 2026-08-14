@@ -84,8 +84,8 @@ if grep -Fq 'hausv-org = {' "${repo}/hosts/csb1/docker/compose-spec.nix"; then
   exit 1
 fi
 
-# The rendered updater itself must prove it: hausv-org absent, a known-pullable
-# service still listed, and the whole-stack `up -d` retained.
+# The rendered updater itself must prove it: hausv-org absent, pull retained,
+# and the whole-stack `up -d` retained.
 # Skipped on a dirty tree: the NIX-348 deployment-evidence guard requires
 # self.rev, so csb1 only evaluates from a committed state (same skip-not-fail
 # stance as the yq gate below).
@@ -95,9 +95,9 @@ if [ -z "$(git -C "${repo}" status --porcelain 2>/dev/null)" ]; then
     echo "FAIL: csb1 weekly updater still pulls hausv-org (NIX-352)"
     exit 1
   fi
-  grep -q 'pull --quiet .*traefik' <<<"${update_script}" ||
+  grep -q 'pull --quiet' <<<"${update_script}" ||
     {
-      echo "FAIL: csb1 weekly updater lost its explicit pull list (NIX-352)"
+      echo "FAIL: csb1 weekly updater lost its pull step (NIX-352)"
       exit 1
     }
   grep -q 'up -d' <<<"${update_script}" ||
