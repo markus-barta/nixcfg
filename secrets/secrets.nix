@@ -276,6 +276,10 @@ in
   "pharos-beacon-csb0-env.age".publicKeys = markus ++ csb0;
   "pharos-beacon-csb1-env.age".publicKeys = markus ++ csb1;
 
+  # hsb9 site-watchdog Kuma push URL (OPS-165) — heartbeats GX + repeater
+  # reachability to uptime.barta.cm. Token can only push monitor status.
+  "hsb9-kuma-push-env.age".publicKeys = markus ++ hsb9;
+
   # OPS-104: fleet alert poller on csb0. Reads all three Home Assistant
   # instances over their REST APIs and reports to Telegram via the existing bot.
   # Deliberately self-contained rather than sourcing nodered-env, so the poller
