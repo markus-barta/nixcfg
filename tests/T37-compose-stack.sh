@@ -74,17 +74,18 @@ for host in hsb0 hsb9 csb0 csb1; do
     }
 done
 
-# --- NIX-352: locally built images are excluded from the weekly pull --------
-# hausv-org is built ON csb1 by hausv-org/scripts/deploy.sh and never exists
-# in GHCR. A stack-wide `pull` dies on the registry denial BEFORE `up -d`, so
-# one unpullable image starves every other service of its weekly update
-# (observed live 2026-08-08). The updater must pull an explicit service list
-# that honors autoUpdate.excludeFromPull.
+# --- NIX-352: locally built images can be excluded from weekly pull ----------
+# The module retains the explicit exclusion mechanism for other local images.
+# HAUSV now belongs to its private instance project and must not remain in the
+# host's monolithic compose specification or updater.
 grep -Fq 'excludeFromPull' "${module}"
-grep -Fq 'autoUpdate.excludeFromPull = [ "hausv-org" ]' "${repo}/hosts/csb1/configuration.nix"
+if grep -Fq 'hausv-org = {' "${repo}/hosts/csb1/docker/compose-spec.nix"; then
+  echo "FAIL: HAUSV must be owned by the private hausv-jhw22 compose project"
+  exit 1
+fi
 
-# The rendered updater itself must prove it: hausv-org absent from the pull,
-# a known-pullable service still listed, and the whole-stack `up -d` retained.
+# The rendered updater itself must prove it: hausv-org absent, pull retained,
+# and the whole-stack `up -d` retained.
 # Skipped on a dirty tree: the NIX-348 deployment-evidence guard requires
 # self.rev, so csb1 only evaluates from a committed state (same skip-not-fail
 # stance as the yq gate below).
@@ -94,9 +95,9 @@ if [ -z "$(git -C "${repo}" status --porcelain 2>/dev/null)" ]; then
     echo "FAIL: csb1 weekly updater still pulls hausv-org (NIX-352)"
     exit 1
   fi
-  grep -q 'pull --quiet .*traefik' <<<"${update_script}" ||
+  grep -q 'pull --quiet' <<<"${update_script}" ||
     {
-      echo "FAIL: csb1 weekly updater lost its explicit pull list (NIX-352)"
+      echo "FAIL: csb1 weekly updater lost its pull step (NIX-352)"
       exit 1
     }
   grep -q 'up -d' <<<"${update_script}" ||

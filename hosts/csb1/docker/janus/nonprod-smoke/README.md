@@ -141,6 +141,6 @@ The only Compose operations in the harness are:
 
 After any compose-adjacent smoke on csb1, verify the routing path as well as the
 Janus result: all expected csb1 services are running, `docker-proxy-traefik`
-and Traefik are both up, `https://jhw22.hausv.org/healthz` is OK, WEG login and
+and Traefik are both up, `https://hausv.org/healthz` is OK, WEG login and
 OIDC redirect work, and public services such as Docmost and Paperless return
 their expected statuses.

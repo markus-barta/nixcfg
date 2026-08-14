@@ -831,7 +831,8 @@ docker exec csb1-restic-cron-hetzner-1 restic snapshots
 
 ### HAUSV Snapshot And Restore
 
-The host timer stops only `hausv-org`, copies the complete data directory,
+The host timer stops only `hausv-org` through the private
+`~/Code/hausv-jhw22/compose.yml` project, copies the complete data directory,
 checks `hausv.db`, atomically publishes the snapshot, and starts the service
 again. A failed copy or integrity check leaves the previous snapshot intact.
 
@@ -884,11 +885,19 @@ Both integrity checks must print only `ok` and exit successfully. Any other
 output or a non-zero exit stops the drill or restore; do not touch the live
 data directory.
 
-For a real restore, stop `hausv-org`, preserve the current data directory,
-copy the _contents_ of the restored `hausv-org-backup-snapshot` directory to
-`/var/lib/csb1-docker/hausv-org`, restore ownership `65532:65532`, then start
-the service and require a healthy `/healthz` before removing the preserved
-directory.
+For a real restore, run the following stop and start commands from the private
+instance checkout, preserve the current data directory, copy the _contents_ of
+the restored `hausv-org-backup-snapshot` directory to
+`/var/lib/csb1-docker/hausv-org`, restore ownership `65532:65532`, then require
+a healthy `https://hausv.org/healthz` before removing the preserved directory.
+
+```bash
+cd ~/Code/hausv-jhw22
+docker compose -p hausv-jhw22 -f compose.yml stop -t 30 hausv-org
+# Restore the reviewed snapshot contents and ownership here.
+docker compose -p hausv-jhw22 -f compose.yml start hausv-org
+curl --fail --silent --show-error https://hausv.org/healthz
+```
 
 ### HAUSV Snapshot, Health And Application Alerts
 
@@ -930,12 +939,14 @@ an alerting change.
 
 ### HAUSV Graceful Stop Budget
 
-The HAUSV Compose service declares `stop_grace_period: 30s`. This covers the
+The private `hausv-jhw22` Compose service declares `stop_grace_period: 30s`.
+This covers the
 application's 15-second HTTP shutdown, the five-second login-mail queue drain,
 one second for canceling an in-flight SMTP transport, and nine seconds of host
-margin. The snapshot service's explicit `docker compose stop -t 30 hausv-org`
-uses the same budget. Do not reduce either boundary without first reducing and
-testing the application limits.
+margin. The snapshot service's explicit
+`docker compose -p hausv-jhw22 stop -t 30 hausv-org` uses the same budget. Do
+not reduce either boundary without first reducing and testing the application
+limits.
 
 After a recreate, verify only the non-secret lifecycle field and the
 application journal:
