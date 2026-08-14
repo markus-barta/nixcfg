@@ -457,6 +457,8 @@ in
       # source with a directory during an automated stack recreation.
       "f ${composeRoot}/traefik/acme.json 0600 root root -"
       "f ${composeRoot}/traefik/acme-http.json 0600 root root -"
+      # Shared by the root-run snapshot unit and mba-run product deploys.
+      "f /run/lock/compose-hausv.lock 0660 root users -"
       # One shared lock serializes every writer to the production Janus store,
       # metadata, beacon outputs, and atomic token-hash generation.
       "f /run/lock/janus-pharos-production.lock 0660 root users -"
