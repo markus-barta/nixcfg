@@ -8,6 +8,7 @@ poller="${repo}/hosts/csb1/hausv-alerts-poll.py"
 
 grep -Fq 'hausvComposeDir = "/home/mba/Code/hausv-jhw22";' "${host}"
 grep -Fq '/run/lock/compose-hausv.lock' "${host}"
+grep -Fq '"f /run/lock/compose-hausv.lock 0660 root users -"' "${host}"
 # The following single-quoted values are literal Nix and Markdown contracts.
 # shellcheck disable=SC2016
 grep -Fq '${hausvCompose} stop -t 30 hausv-org' "${host}"
