@@ -12,14 +12,19 @@ let
   hostdashCsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb1;
   # OPS-127: the runtime compose file is the closure's rendered spec (the yml is
   # retired). /etc/compose/csb1/... is the environment.etc symlink to it.
-  csb1ComposeFile = "/etc/compose/csb1/docker-compose.yml";
   # Every -p csb1 compose invocation serializes on the composeStack lock
   # (OPS-116 QA: compose takes NO project-level lock of its own; concurrent
   # runs race on transitional container names — that is how hsb1's first
   # cutover attempt failed). flock -w 300, not blocking forever: a stuck
   # holder must surface as a failure, not a hang.
   composeLock = "${pkgs.util-linux}/bin/flock -w 300 /run/lock/compose-csb1.lock";
-  csb1Compose = "${composeLock} ${pkgs.docker-compose}/bin/docker-compose -p csb1 -f ${csb1ComposeFile}";
+  # HAUSV is reconciled from its private per-instance repository. Keep its
+  # independent project lock aligned with the product release script so a
+  # snapshot and a release can never transition the container concurrently.
+  hausvComposeDir = "/home/mba/Code/hausv-jhw22";
+  hausvComposeFile = "${hausvComposeDir}/compose.yml";
+  hausvComposeLock = "${pkgs.util-linux}/bin/flock -w 300 /run/lock/compose-hausv.lock";
+  hausvCompose = "${hausvComposeLock} ${pkgs.docker}/bin/docker compose --project-directory ${hausvComposeDir} -p hausv-jhw22 -f ${hausvComposeFile}";
   janusManagedComposeFile = "/etc/janus/managed/docker-compose.yml";
   # NOTE: transactiond's ExecStart is a LONG-RUNNING attached `up`, so it must
   # NOT hold the lock (it would starve every other writer forever). It gets
@@ -87,7 +92,7 @@ let
 
     restart_hausv() {
       if [ "$stopped" -eq 1 ]; then
-        ${csb1Compose} start hausv-org
+        ${hausvCompose} start hausv-org
       fi
     }
     trap restart_hausv EXIT HUP INT TERM
@@ -100,7 +105,7 @@ let
 
     # Quiesce the application so SQLite, its WAL, and filesystem blobs are one
     # recovery point. The data set is small, so this normally takes <1 second.
-    ${csb1Compose} stop -t 30 hausv-org
+    ${hausvCompose} stop -t 30 hausv-org
     stopped=1
 
     ${pkgs.coreutils}/bin/install -d -m 0700 "$staging_dir"
@@ -119,7 +124,7 @@ let
     ${pkgs.coreutils}/bin/mv "$staging_dir" "$snapshot_dir"
     ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
 
-    ${csb1Compose} start hausv-org
+    ${hausvCompose} start hausv-org
     stopped=0
 
     # A published snapshot is useful only if the service also came back.
@@ -203,11 +208,6 @@ in
     # and dropping them would force-recreate every container for zero
     # behavioural change. Remove opportunistically per-service.
     autoUpdate.enable = true;
-    # NIX-352: hausv-org's image is built ON csb1 by hausv-org/scripts/deploy.sh
-    # and never exists in GHCR — the stack-wide weekly pull died on its "denied"
-    # BEFORE `up -d` and starved every other service of the update (observed
-    # live 2026-08-08). `up -d` still converges it; only the pull is skipped.
-    autoUpdate.excludeFromPull = [ "hausv-org" ];
     spec = import ./docker/compose-spec.nix;
   };
 

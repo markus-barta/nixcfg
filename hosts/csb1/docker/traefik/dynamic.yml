@@ -1,7 +1,7 @@
 http:
   routers:
     https-redirect:
-      rule: "HostRegexp(`{subdomain:.+}.barta.cm`) || Host(`jhw22.hausv.org`)"
+      rule: "HostRegexp(`{subdomain:.+}.barta.cm`) || Host(`hausv.org`) || Host(`www.hausv.org`) || Host(`jhw22.hausv.org`)"
       entryPoints:
         - web
       middlewares:
