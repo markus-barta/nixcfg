@@ -832,6 +832,20 @@ docker logs csb1-restic-cron-hetzner-1 | tail -50
 docker exec csb1-restic-cron-hetzner-1 restic snapshots
 ```
 
+### HAUSV Tailnet Preview Slot
+
+From a clean `hausv-org` worktree on an operator machine with repository access,
+stream the selected tree to the isolated fixture-only preview slot:
+
+```bash
+git archive --format=tar <ref> | ssh csb1 sudo hausv-next deploy <ref>
+```
+
+The final argument is only the displayed release label; csb1 never fetches it.
+The slot is tailnet-only at `http://100.64.0.4:8099` and has no production data,
+volume, secret, network, or Traefik route. To discard its fixture data while
+keeping the same archived release, run `ssh csb1 sudo hausv-next reset`.
+
 ### HAUSV Snapshot And Restore
 
 The host timer stops only `hausv-org` through the private

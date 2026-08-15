@@ -5,11 +5,9 @@ readonly root=/var/lib/hausv-next
 readonly data_dir="${root}/data"
 readonly releases_dir="${root}/releases"
 readonly quarantine_dir="${root}/quarantine"
-readonly mirror="${root}/hausv-org.git"
 readonly current_file="${root}/CURRENT"
 readonly compose_file=/etc/hausv-next/compose.yml
 readonly trusted_dockerfile=/etc/hausv-next/Dockerfile
-readonly remote=https://github.com/inspr-at/hausv-org.git
 readonly tailnet_ip=100.64.0.4
 readonly port=8099
 
@@ -21,13 +19,14 @@ blocked() {
 usage() {
   cat <<'EOF'
 Usage:
-  sudo hausv-next deploy <branch-or-commit>
+  git archive --format=tar <ref> | ssh csb1 sudo hausv-next deploy <label>
   sudo hausv-next reset
 
 The slot is available only at http://100.64.0.4:8099 over the tailnet.
-Deploy accepts refs from the public inspr-at/hausv-org repository. Reset keeps
-the previous fixture directory under /var/lib/hausv-next/quarantine and starts
-the same commit with a fresh fixture directory.
+Deploy reads a HAUSV source tar archive from stdin. The label is informational
+only and is never fetched. Reset keeps the previous fixture directory under
+/var/lib/hausv-next/quarantine and starts the same release with a fresh fixture
+directory.
 EOF
 }
 
@@ -47,70 +46,77 @@ require_preconditions() {
     blocked 'preview data path did not resolve exactly'
 }
 
-validate_ref() {
-  local ref=$1
-  [ -n "${ref}" ] || blocked 'a branch or commit is required'
-  [[ "${ref}" =~ ^[A-Za-z0-9][A-Za-z0-9._/@+-]*$ ]] ||
-    blocked 'the ref contains unsupported characters'
-  [[ "${ref}" != *..* && "${ref}" != *@\{* ]] ||
-    blocked 'the ref contains unsafe revision syntax'
+validate_label() {
+  local label=$1
+  [ -n "${label}" ] || blocked 'a display label is required'
+  [ "${#label}" -le 128 ] || blocked 'the display label is longer than 128 characters'
+  [[ "${label}" =~ ^[A-Za-z0-9][A-Za-z0-9._/@:+-]*$ ]] ||
+    blocked 'the display label contains unsupported characters'
 }
 
-refresh_mirror() {
-  if [ ! -e "${mirror}" ]; then
-    local staging
-    staging=$(mktemp -d "${root}/.mirror.XXXXXX")
-    git clone --mirror "${remote}" "${staging}/repo.git"
-    mv "${staging}/repo.git" "${mirror}"
-    rmdir "${staging}"
-  fi
-  [ -d "${mirror}" ] && [ ! -L "${mirror}" ] ||
-    blocked 'the HAUSV source mirror is not a real directory'
-  [ "$(git -C "${mirror}" config --get remote.origin.url)" = "${remote}" ] ||
-    blocked 'the HAUSV source mirror points at an unexpected remote'
-  git -C "${mirror}" fetch --prune --tags origin \
-    '+refs/heads/*:refs/remotes/origin/*'
-}
+validate_archive() {
+  local archive=$1
+  [ -s "${archive}" ] || blocked 'stdin did not contain a tar archive'
 
-resolve_commit() {
-  local ref=$1
-  local commit
-  if commit=$(git -C "${mirror}" rev-parse --verify "${ref}^{commit}" 2>/dev/null); then
-    :
-  elif commit=$(git -C "${mirror}" rev-parse --verify "origin/${ref}^{commit}" 2>/dev/null); then
-    :
-  else
-    blocked "${ref} is not a fetched hausv-org branch or commit"
-  fi
-  [[ "${commit}" =~ ^[0-9a-f]{40}$ ]] || blocked 'resolved commit is not a full SHA-1'
-  printf '%s\n' "${commit}"
+  # Reject absolute paths and parent traversal before extraction. Only regular
+  # files and directories are accepted, which also prevents link-based escape.
+  tar --list --file "${archive}" --quoting-style=literal |
+    awk '
+      function unsafe(path, count, parts, i) {
+        if (path == "" || substr(path, 1, 1) == "/") return 1
+        count = split(path, parts, "/")
+        for (i = 1; i <= count; i++) if (parts[i] == "..") return 1
+        return 0
+      }
+      unsafe($0) { bad = 1 }
+      END { exit bad }
+    ' || blocked 'the archive contains an unsafe path'
+
+  tar --list --verbose --file "${archive}" |
+    awk '
+      substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" { bad = 1 }
+      END { exit bad }
+    ' || blocked 'the archive contains a link or special file'
 }
 
 prepare_release() {
-  local commit=$1
-  local release="${releases_dir}/${commit}"
-  if [ ! -e "${release}" ]; then
-    local staging
-    staging=$(mktemp -d "${root}/.release-${commit}.XXXXXX")
-    git -C "${mirror}" archive "${commit}" | tar -x -C "${staging}"
-    [ -f "${staging}/go.mod" ] || blocked 'selected commit has no go.mod'
-    [ -f "${staging}/cmd/hausv-org/main.go" ] || blocked 'selected commit has no HAUSV main package'
-    [ -f "${staging}/scripts/snapshot/fake-ha.mjs" ] ||
-      blocked 'selected commit has no deterministic Home Assistant fixture'
-    install -m 0444 "${trusted_dockerfile}" "${staging}/Dockerfile.preview"
-    chmod 0755 "${staging}"
-    mv "${staging}" "${release}"
-  fi
-  [ -d "${release}" ] && [ ! -L "${release}" ] ||
+  local staging archive context archive_hash staging_suffix release_id release
+  staging=$(mktemp -d "${root}/.release.XXXXXX")
+  archive="${staging}/source.tar"
+  context="${staging}/context"
+  cat >"${archive}"
+  validate_archive "${archive}"
+  install -d -m 0755 "${context}"
+  tar --extract --file "${archive}" --directory "${context}" \
+    --no-same-owner --no-same-permissions --delay-directory-restore
+
+  [ -f "${context}/go.mod" ] || blocked 'the archive has no go.mod'
+  [ -f "${context}/cmd/hausv-org/main.go" ] || blocked 'the archive has no HAUSV main package'
+  [ -f "${context}/scripts/snapshot/fake-ha.mjs" ] ||
+    blocked 'the archive has no deterministic Home Assistant fixture'
+  install -m 0444 "${trusted_dockerfile}" "${context}/Dockerfile.preview"
+
+  archive_hash=$(sha256sum "${archive}" | awk '{print $1}')
+  [[ "${archive_hash}" =~ ^[0-9a-f]{64}$ ]] || blocked 'could not identify the archive'
+  staging_suffix=${staging##*.release.}
+  [[ "${staging_suffix}" =~ ^[A-Za-z0-9]+$ ]] || blocked 'invalid staging directory suffix'
+  release_id="${archive_hash}-${staging_suffix}"
+  release="${releases_dir}/${release_id}"
+  [ ! -e "${release}" ] || blocked 'release target already exists'
+  mv "${staging}" "${release}"
+  context="${release}/context"
+  [ -d "${context}" ] && [ ! -L "${context}" ] ||
     blocked 'release context is not a real directory'
-  printf '%s\n' "${release}"
+  printf '%s\t%s\n' "${release_id}" "${context}"
 }
 
 compose() {
   local context=$1
-  local commit=$2
-  shift 2
-  HAUSV_NEXT_CONTEXT="${context}" HAUSV_NEXT_COMMIT="${commit}" \
+  local release_id=$2
+  local label=$3
+  shift 3
+  HAUSV_NEXT_CONTEXT="${context}" HAUSV_NEXT_RELEASE_ID="${release_id}" \
+    HAUSV_NEXT_LABEL="${label}" \
     docker compose --project-name hausv-next --file "${compose_file}" "$@"
 }
 
@@ -126,13 +132,14 @@ port_is_ours_or_free() {
 }
 
 deploy_context() {
-  local commit=$1
-  local context=$2
+  local release_id=$1
+  local label=$2
+  local context=$3
   port_is_ours_or_free
 
-  compose "${context}" "${commit}" pull fixture
-  compose "${context}" "${commit}" build --pull app
-  compose "${context}" "${commit}" up -d --remove-orphans --force-recreate app fixture
+  compose "${context}" "${release_id}" "${label}" pull fixture
+  compose "${context}" "${release_id}" "${label}" build --pull app
+  compose "${context}" "${release_id}" "${label}" up -d --remove-orphans --force-recreate app fixture
 
   local ready=0
   for _ in $(seq 1 24); do
@@ -144,38 +151,40 @@ deploy_context() {
     sleep 5
   done
   [ "${ready}" -eq 1 ] || blocked 'the preview did not become healthy'
-  printf '%s\n' "${commit}" >"${current_file}"
+  printf '%s\t%s\n' "${release_id}" "${label}" >"${current_file}"
   chmod 0600 "${current_file}"
-  printf 'HAUSV next deployed %s at http://%s:%s\n' "${commit}" "${tailnet_ip}" "${port}"
+  printf 'HAUSV next deployed %s at http://%s:%s\n' "${label}" "${tailnet_ip}" "${port}"
 }
 
-deploy_ref() {
-  local ref=$1
-  local commit context
-  validate_ref "${ref}"
-  refresh_mirror
-  commit=$(resolve_commit "${ref}")
-  context=$(prepare_release "${commit}")
-  deploy_context "${commit}" "${context}"
+deploy_archive() {
+  local label=$1
+  local release_id context prepared
+  validate_label "${label}"
+  [ ! -t 0 ] || blocked 'deploy requires a tar archive on stdin'
+  prepared=$(prepare_release)
+  IFS=$'\t' read -r release_id context <<<"${prepared}"
+  deploy_context "${release_id}" "${label}" "${context}"
 }
 
 reset_slot() {
   [ -f "${current_file}" ] && [ ! -L "${current_file}" ] ||
-    blocked 'no deployed preview commit is recorded'
-  local commit context timestamp previous_data
-  commit=$(<"${current_file}")
-  [[ "${commit}" =~ ^[0-9a-f]{40}$ ]] || blocked 'recorded preview commit is invalid'
-  context="${releases_dir}/${commit}"
+    blocked 'no deployed preview release is recorded'
+  local release_id label context timestamp previous_data
+  IFS=$'\t' read -r release_id label <"${current_file}"
+  [[ "${release_id}" =~ ^[0-9a-f]{64}-[A-Za-z0-9]+$ ]] ||
+    blocked 'recorded preview release is invalid'
+  validate_label "${label}"
+  context="${releases_dir}/${release_id}/context"
   [ -d "${context}" ] && [ ! -L "${context}" ] ||
     blocked 'recorded preview release is missing'
 
-  compose "${context}" "${commit}" down --remove-orphans --volumes
+  compose "${context}" "${release_id}" "${label}" down --remove-orphans --volumes
   timestamp=$(date -u +%Y%m%dT%H%M%SZ)
   previous_data="${quarantine_dir}/data-${timestamp}"
   [ ! -e "${previous_data}" ] || blocked 'reset quarantine target already exists'
   mv "${data_dir}" "${previous_data}"
   install -d -m 0750 -o 65532 -g 65532 "${data_dir}"
-  deploy_context "${commit}" "${context}"
+  deploy_context "${release_id}" "${label}" "${context}"
 }
 
 main() {
@@ -194,8 +203,8 @@ main() {
   flock -w 300 9 || blocked 'another HAUSV preview operation still holds the lock'
   case "$1" in
   deploy)
-    [ "$#" -eq 2 ] || blocked 'deploy requires exactly one branch or commit'
-    deploy_ref "$2"
+    [ "$#" -eq 2 ] || blocked 'deploy requires exactly one display label'
+    deploy_archive "$2"
     ;;
   reset)
     [ "$#" -eq 1 ] || blocked 'reset takes no arguments'
