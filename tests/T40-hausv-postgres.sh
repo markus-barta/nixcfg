@@ -18,7 +18,19 @@ sh -n "${init_role}"
 grep -Fq 'hausv-postgres = {' "${compose}"
 grep -Fq '"hausv_postgres_data:/var/lib/postgresql/data"' "${compose}"
 grep -Fq '"POSTGRES_PASSWORD_FILE=/run/secrets/hausv-postgres-admin-password"' "${compose}"
-grep -Fq '"994"' "${compose}"
+# The secrets gid is declared once in configuration.nix and consumed by the
+# container as a supplementary group. Derive it and assert the two agree rather
+# than pinning the number twice — they drifted once (NIX-367) and the container
+# would have been unable to read its own password projections.
+secrets_gid=$(sed -n 's/^[[:space:]]*hausv-postgres-secrets\.gid = \([0-9]\+\);.*/\1/p' "${host}")
+if [ -z "${secrets_gid}" ]; then
+  echo 'FAIL: could not read hausv-postgres-secrets.gid from the host configuration' >&2
+  exit 1
+fi
+if ! grep -Fq "\"${secrets_gid}\"" "${compose}"; then
+  echo "FAIL: compose group_add does not carry the declared secrets gid ${secrets_gid}" >&2
+  exit 1
+fi
 grep -Fq '"hausv-egress"' "${compose}"
 grep -Fq 'hausv_postgres_data = { };' "${compose}"
 grep -Fq 'NOT rolsuper AND NOT rolbypassrls' "${compose}"
@@ -37,7 +49,7 @@ if grep -E 'hausv_app.*(SUPERUSER|BYPASSRLS)' "${init_role}" | grep -Ev 'NOSUPER
   exit 1
 fi
 
-grep -Fq 'hausv-postgres-secrets.gid = 994;' "${host}"
+grep -Eq 'hausv-postgres-secrets\.gid = [0-9]+;' "${host}"
 grep -Fq 'age.secrets.csb1-hausv-postgres-admin-password' "${host}"
 grep -Fq 'age.secrets.csb1-hausv-postgres-app-password' "${host}"
 grep -Fq '"csb1-hausv-postgres-admin-password.age".publicKeys = markus ++ csb1;' "${secrets}"
