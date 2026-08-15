@@ -205,12 +205,6 @@
         "POSTGRES_DB=hausv"
         "POSTGRES_PASSWORD_FILE=/run/secrets/hausv-postgres-admin-password"
       ];
-      # Must equal users.groups.hausv-postgres-secrets.gid in configuration.nix.
-      # T40 asserts the two agree; they drifted once (NIX-367) and the container
-      # would have been unable to read its own password projections.
-      group_add = [
-        "990"
-      ];
       volumes = [
         "hausv_postgres_data:/var/lib/postgresql/data"
         "./hausv-postgres/init-application-role.sh:/docker-entrypoint-initdb.d/10-application-role.sh:ro"
