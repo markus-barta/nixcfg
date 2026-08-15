@@ -190,6 +190,60 @@
         "traefik.http.routers.paperless.middlewares=cloudflarewarp@file"
       ];
     };
+    # NIX-367 / HAUSV-495: Phase-0 PostgreSQL target. HAUSV deliberately has
+    # no dependency on this service and receives no database configuration;
+    # SQLite remains the live source of truth. The existing external
+    # hausv-egress network only makes this service reachable for a future,
+    # separately reviewed cutover without publishing port 5432 on the host.
+    hausv-postgres = {
+      image = "postgres:17-alpine";
+      container_name = "hausv-postgres";
+      restart = "unless-stopped";
+      stop_grace_period = "1m";
+      environment = [
+        "POSTGRES_USER=postgres"
+        "POSTGRES_DB=hausv"
+        "POSTGRES_PASSWORD_FILE=/run/secrets/hausv-postgres-admin-password"
+      ];
+      group_add = [
+        "994"
+      ];
+      volumes = [
+        "hausv_postgres_data:/var/lib/postgresql/data"
+        "./hausv-postgres/init-application-role.sh:/docker-entrypoint-initdb.d/10-application-role.sh:ro"
+        {
+          type = "bind";
+          source = "/run/agenix/csb1-hausv-postgres-admin-password";
+          target = "/run/secrets/hausv-postgres-admin-password";
+          read_only = true;
+          bind.create_host_path = false;
+        }
+        {
+          type = "bind";
+          source = "/run/agenix/csb1-hausv-postgres-app-password";
+          target = "/run/secrets/hausv-postgres-app-password";
+          read_only = true;
+          bind.create_host_path = false;
+        }
+      ];
+      networks = [
+        "hausv-egress"
+      ];
+      healthcheck = {
+        test = [
+          "CMD-SHELL"
+          ''pg_isready -U postgres -d hausv && test "$(psql -U postgres -d hausv -Atqc "SELECT NOT rolsuper AND NOT rolbypassrls FROM pg_roles WHERE rolname='hausv_app'")" = t''
+        ];
+        interval = "30s";
+        timeout = "5s";
+        retries = 5;
+        start_period = "20s";
+      };
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=false"
+      ];
+    };
     docker-proxy-traefik = {
       image = "tecnativa/docker-socket-proxy";
       environment = [
@@ -1433,6 +1487,7 @@
     paperless_data = { };
     paperless_media = { };
     paperless_consume = { };
+    hausv_postgres_data = { };
     ppm_data = { };
     janus_data = { };
     janus_engine_smoke_age = {
