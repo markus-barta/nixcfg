@@ -88,6 +88,9 @@ jobs:
       - name: Verify HAUSV PostgreSQL Phase-0 contract
         run: tests/T40-hausv-postgres.sh
 
+      - name: Verify HAUSV tailnet fixture preview contract
+        run: tests/T41-hausv-next.sh
+
   check:
     name: 🔎️ Eval flake
     runs-on: ubuntu-latest
