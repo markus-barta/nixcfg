@@ -65,6 +65,7 @@ in
       ship-next = { }; # propose + deliver the single right next change
       housekeeping = { }; # hygiene sweep → codesweep → challenge → PPM → report
       tidyrepo = { }; # cheap state-only pass below housekeeping (no codesweep, no challenge)
+      product-gauntlet = { }; # multi-agent delivery: decompose → route → worktree → QA on parity
 
       # ── Pinned upstream: anthropics/skills ────────────────────────────
       frontend-design = {
