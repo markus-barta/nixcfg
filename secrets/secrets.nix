@@ -297,6 +297,12 @@ in
   # Edit: agenix -e secrets/csb1-hausv-org-env.age
   "csb1-hausv-org-env.age".publicKeys = markus ++ csb1;
 
+  # NIX-367 / HAUSV-495: Phase-0 PostgreSQL credentials. These are separate
+  # files so the future application projection can never expose the bootstrap
+  # administrator password. Each file contains exactly one password line.
+  "csb1-hausv-postgres-admin-password.age".publicKeys = markus ++ csb1;
+  "csb1-hausv-postgres-app-password.age".publicKeys = markus ++ csb1;
+
   # === NIX-110: csb1 docker stack migration to git — bulk env file refactor ===
   # The following secrets were previously plaintext in ~/secrets/ or
   # ./xxx.env on csb1. Moved to agenix as part of the docker-in-git

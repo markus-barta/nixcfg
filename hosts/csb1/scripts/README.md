@@ -4,10 +4,11 @@ Operational utilities and helper scripts for csb1. These are **not tests** - the
 
 ## Scripts
 
-| Script              | Purpose                      | When to Use               |
-| ------------------- | ---------------------------- | ------------------------- |
-| `netcup-api.sh`     | Test Netcup API connectivity | Verify API token works    |
-| `restart-safety.sh` | Pre-restart checklist        | Before any server restart |
+| Script                            | Purpose                           | When to Use               |
+| --------------------------------- | --------------------------------- | ------------------------- |
+| `hausv-postgres-restore-drill.sh` | Isolated PostgreSQL restore proof | After a Phase-0 dump      |
+| `netcup-api.sh`                   | Test Netcup API connectivity      | Verify API token works    |
+| `restart-safety.sh`               | Pre-restart checklist             | Before any server restart |
 
 ## Usage
 
@@ -17,6 +18,9 @@ Operational utilities and helper scripts for csb1. These are **not tests** - the
 
 # Run pre-restart safety checks
 ./restart-safety.sh
+
+# Restore the latest HAUSV PostgreSQL dump into a disposable database
+sudo ./hausv-postgres-restore-drill.sh
 ```
 
 ## Netcup API Setup
