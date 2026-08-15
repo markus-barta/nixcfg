@@ -105,4 +105,12 @@ if grep -E '^TRUSTED_PROXY_CIDRS=' "${fixture}" | grep -qE '0\.0\.0\.0/0|::/0'; 
   exit 1
 fi
 
+# An internal Docker network silently disables host port publishing: the binding
+# is accepted, never established, and the container still reports healthy. The
+# slot is useless in that state and nothing surfaces the cause (NIX-370).
+if grep -Eq '^[[:space:]]*internal:[[:space:]]*true' "${compose}"; then
+  echo 'FAIL: the preview network must not be internal; that disables port publishing' >&2
+  exit 1
+fi
+
 echo 'T41 HAUSV tailnet fixture preview contract OK'
