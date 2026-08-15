@@ -92,4 +92,17 @@ if grep -Fq '/var/lib/hausv-next' "${backup}"; then
   exit 1
 fi
 
+# The slot binds directly with no proxy, so BASE_URL is public by the
+# application's own test and TRUSTED_PROXY_CIDRS becomes mandatory. Without it
+# the container crash-loops on "TRUSTED_PROXY_CIDRS is required when BASE_URL is
+# public" and the slot silently never serves anything (NIX-370).
+grep -Eq '^TRUSTED_PROXY_CIDRS=.+' "${fixture}" || {
+  echo 'FAIL: the preview fixture must set TRUSTED_PROXY_CIDRS; its BASE_URL is public' >&2
+  exit 1
+}
+if grep -E '^TRUSTED_PROXY_CIDRS=' "${fixture}" | grep -qE '0\.0\.0\.0/0|::/0'; then
+  echo 'FAIL: the preview slot must not trust the entire address space' >&2
+  exit 1
+fi
+
 echo 'T41 HAUSV tailnet fixture preview contract OK'
