@@ -8,6 +8,7 @@ compose="${repo}/hosts/csb1/docker/hausv-next/compose.yml"
 fixture="${repo}/hosts/csb1/docker/hausv-next/fixture.conf"
 dockerfile="${repo}/hosts/csb1/docker/hausv-next/Dockerfile"
 command="${repo}/hosts/csb1/scripts/hausv-next.sh"
+runbook="${repo}/hosts/csb1/docs/RUNBOOK.md"
 backup="${repo}/hosts/csb1/docker/restic-cron/hetzner/run_backup.sh"
 
 nix-instantiate --parse "${host}" >/dev/null
@@ -43,21 +44,43 @@ if grep -Eq '/run/agenix|/var/lib/csb1-docker/hausv-org|postgres|hausv\.org/heal
   exit 1
 fi
 
-grep -Fq 'trusted build recipe for unreviewed preview refs' "${dockerfile}"
-grep -Fq 'readonly remote=https://github.com/inspr-at/hausv-org.git' "${command}"
+grep -Fq 'trusted build recipe for operator-supplied preview archives' "${dockerfile}"
 grep -Fq "readonly tailnet_ip=100.64.0.4" "${command}"
 grep -Fq "readonly port=8099" "${command}"
 grep -Fq 'tailscale0 does not own' "${command}"
+grep -Fq 'validate_label()' "${command}"
+grep -Fq 'deploy requires a tar archive on stdin' "${command}"
+# shellcheck disable=SC2016
+grep -Fq 'cat >"${archive}"' "${command}"
+# shellcheck disable=SC2016
+grep -Fq 'validate_archive "${archive}"' "${command}"
+grep -Fq 'the archive contains an unsafe path' "${command}"
+grep -Fq 'the archive contains a link or special file' "${command}"
+# shellcheck disable=SC2016
+grep -Fq 'tar --extract --file "${archive}" --directory "${context}"' "${command}"
+grep -Fq -- '--no-same-owner --no-same-permissions --delay-directory-restore' "${command}"
 # The next strings are literal shell-source contracts.
 # shellcheck disable=SC2016
 grep -Fq 'tailnet port ${port} is already owned by another process' "${command}"
 # shellcheck disable=SC2016
-grep -Fq 'install -m 0444 "${trusted_dockerfile}" "${staging}/Dockerfile.preview"' "${command}"
+grep -Fq 'install -m 0444 "${trusted_dockerfile}" "${context}/Dockerfile.preview"' "${command}"
 grep -Fq 'down --remove-orphans --volumes' "${command}"
 # shellcheck disable=SC2016
 grep -Fq 'mv "${data_dir}" "${previous_data}"' "${command}"
-grep -Fq "sudo hausv-next deploy <branch-or-commit>" "${command}"
+grep -Fq "git archive --format=tar <ref> | ssh csb1 sudo hausv-next deploy <label>" "${command}"
 grep -Fq "sudo hausv-next reset" "${command}"
+grep -Fq 'http://100.64.0.4:8099' "${command}"
+grep -Fq 'git archive --format=tar <ref> | ssh csb1 sudo hausv-next deploy <ref>' "${runbook}"
+grep -Fq 'http://100.64.0.4:8099' "${runbook}"
+
+if grep -Eq 'git clone|clone --mirror|refresh_mirror|github\.com/inspr-at/hausv-org|git -C|git fetch|rev-parse|validate_ref' "${command}"; then
+  echo 'FAIL: preview deploy must consume stdin and never clone or fetch' >&2
+  exit 1
+fi
+if grep -Fq 'git' "${module}"; then
+  echo 'FAIL: hausv-next must not retain a git runtime dependency' >&2
+  exit 1
+fi
 
 # Production remains on its original private project and original paths. The
 # preview is outside the Restic source tree, so no backup rule changes are due.
@@ -66,6 +89,27 @@ grep -Fq 'source_dir=/var/lib/csb1-docker/hausv-org' "${host}"
 grep -Fq -- "--exclude '/backup/var/lib/csb1-docker/hausv-org'" "${backup}"
 if grep -Fq '/var/lib/hausv-next' "${backup}"; then
   echo 'FAIL: fixture preview must not join the production backup set' >&2
+  exit 1
+fi
+
+# The slot binds directly with no proxy, so BASE_URL is public by the
+# application's own test and TRUSTED_PROXY_CIDRS becomes mandatory. Without it
+# the container crash-loops on "TRUSTED_PROXY_CIDRS is required when BASE_URL is
+# public" and the slot silently never serves anything (NIX-370).
+grep -Eq '^TRUSTED_PROXY_CIDRS=.+' "${fixture}" || {
+  echo 'FAIL: the preview fixture must set TRUSTED_PROXY_CIDRS; its BASE_URL is public' >&2
+  exit 1
+}
+if grep -E '^TRUSTED_PROXY_CIDRS=' "${fixture}" | grep -qE '0\.0\.0\.0/0|::/0'; then
+  echo 'FAIL: the preview slot must not trust the entire address space' >&2
+  exit 1
+fi
+
+# An internal Docker network silently disables host port publishing: the binding
+# is accepted, never established, and the container still reports healthy. The
+# slot is useless in that state and nothing surfaces the cause (NIX-370).
+if grep -Eq '^[[:space:]]*internal:[[:space:]]*true' "${compose}"; then
+  echo 'FAIL: the preview network must not be internal; that disables port publishing' >&2
   exit 1
 fi
 
