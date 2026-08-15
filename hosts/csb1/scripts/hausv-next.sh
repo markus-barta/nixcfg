@@ -72,11 +72,42 @@ validate_archive() {
       END { exit bad }
     ' || blocked 'the archive contains an unsafe path'
 
+  # Reject block/char devices, fifos, sockets and hard links outright. Symlinks
+  # are checked below rather than banned: the source repository legitimately
+  # contains them — .claude/commands/*.md point into the vendored doctrine
+  # submodule — and a blanket ban made every deploy fail once that landed.
   tar --list --verbose --file "${archive}" |
     awk '
-      substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" { bad = 1 }
+      substr($0, 1, 1) != "-" && substr($0, 1, 1) != "d" && substr($0, 1, 1) != "l" { bad = 1 }
       END { exit bad }
-    ' || blocked 'the archive contains a link or special file'
+    ' || blocked 'the archive contains a device, fifo or hard link'
+
+  # A symlink is safe when it is relative and still resolves inside the archive
+  # root. Absolute targets, and relative ones that climb out, are how an archive
+  # reaches the host filesystem — those stay rejected.
+  tar --list --verbose --file "${archive}" |
+    awk '
+      substr($0, 1, 1) != "l" { next }
+      {
+        arrow = index($0, " -> ")
+        if (arrow == 0) { bad = 1; next }
+        link = substr($0, 1, arrow - 1)
+        sub(/.*[0-9][0-9]:[0-9][0-9] /, "", link)
+        target = substr($0, arrow + 4)
+        if (substr(target, 1, 1) == "/") { bad = 1; next }
+
+        depth = 0
+        n = split(link, parts, "/")
+        depth = n - 1          # directories the link itself sits under
+
+        m = split(target, seg, "/")
+        for (i = 1; i <= m; i++) {
+          if (seg[i] == "..") { depth--; if (depth < 0) { bad = 1 } }
+          else if (seg[i] != "." && seg[i] != "") { depth++ }
+        }
+      }
+      END { exit bad }
+    ' || blocked 'the archive contains a symlink pointing outside it'
 }
 
 prepare_release() {
