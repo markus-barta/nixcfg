@@ -55,7 +55,7 @@ grep -Fq 'cat >"${archive}"' "${command}"
 # shellcheck disable=SC2016
 grep -Fq 'validate_archive "${archive}"' "${command}"
 grep -Fq 'the archive contains an unsafe path' "${command}"
-grep -Fq 'the archive contains a link or special file' "${command}"
+grep -Fq 'the archive contains a device, fifo or hard link' "${command}"
 # shellcheck disable=SC2016
 grep -Fq 'tar --extract --file "${archive}" --directory "${context}"' "${command}"
 grep -Fq -- '--no-same-owner --no-same-permissions --delay-directory-restore' "${command}"
