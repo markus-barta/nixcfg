@@ -63,6 +63,30 @@ services:
       - traefik.enable=false
       - com.centurylinklabs.watchtower.enable=false
 
+  # BASE_URL is public by the application's test, so it refuses to start without
+  # SMTP or OIDC (server.go:1364). The slot has neither and must not gain a real
+  # one. This fixture accepts and discards mail on loopback inside the app's own
+  # network namespace, which satisfies the contract without any path off the
+  # host (NIX-370).
+  fixture-smtp:
+    image: node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+    command: ["node", "/src/scripts/snapshot/fake-smtp.mjs", "8123", "8124"]
+    user: "65532:65532"
+    restart: unless-stopped
+    network_mode: service:app
+    volumes:
+      - ${HAUSV_NEXT_CONTEXT:?set by hausv-next}:/src:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - traefik.enable=false
+      - com.centurylinklabs.watchtower.enable=false
+
 volumes:
   hausv-next-data:
     name: hausv-next-data
