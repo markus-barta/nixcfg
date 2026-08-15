@@ -113,4 +113,17 @@ if grep -Eq '^[[:space:]]*internal:[[:space:]]*true' "${compose}"; then
   exit 1
 fi
 
+# Symlinks must be judged, not banned. The source repository legitimately
+# contains them (.claude/commands/*.md point into the vendored doctrine
+# submodule) and a blanket ban made every deploy fail the moment that landed.
+# The property that matters is that a link cannot reach outside the archive.
+grep -Fq 'the archive contains a symlink pointing outside it' "${command}" || {
+  echo 'FAIL: the archive validator must reject escaping symlinks specifically' >&2
+  exit 1
+}
+if grep -Fq 'the archive contains a link or special file' "${command}"; then
+  echo 'FAIL: blanket symlink ban reintroduced; it breaks every deploy of this repo' >&2
+  exit 1
+fi
+
 echo 'T41 HAUSV tailnet fixture preview contract OK'
