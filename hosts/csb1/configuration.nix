@@ -190,7 +190,6 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ./hausv-alerts.nix
-    ./hausv-next.nix # NIX-368 / HAUSV-513: isolated tailnet fixture preview
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
