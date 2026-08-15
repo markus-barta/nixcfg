@@ -1,0 +1,78 @@
+# NIX-368 / HAUSV-513: intentionally separate from both the csb1 stack and
+# the private production HAUSV project. This file must not gain external
+# networks, Traefik labels, public binds, secrets or production mounts.
+name: hausv-next
+
+services:
+  app:
+    build:
+      context: ${HAUSV_NEXT_CONTEXT:?set by hausv-next}
+      dockerfile: Dockerfile.preview
+      args:
+        APP_VERSION: next-${HAUSV_NEXT_COMMIT:?set by hausv-next}
+        GIT_COMMIT: ${HAUSV_NEXT_COMMIT:?set by hausv-next}
+    image: hausv-next:${HAUSV_NEXT_COMMIT:?set by hausv-next}
+    container_name: hausv-next
+    restart: unless-stopped
+    stop_grace_period: 30s
+    env_file:
+      - /etc/hausv-next/fixture.conf
+    volumes:
+      - hausv-next-data:/data
+    ports:
+      - target: 8080
+        published: "8099"
+        host_ip: 100.64.0.4
+        protocol: tcp
+    networks:
+      - fixture-only
+    healthcheck:
+      test:
+        ["CMD", "/hausv-org", "healthcheck", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - traefik.enable=false
+      - com.centurylinklabs.watchtower.enable=false
+
+  fixture:
+    image: node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+    command: ["node", "/src/scripts/snapshot/fake-ha.mjs", "8102"]
+    user: "65532:65532"
+    restart: unless-stopped
+    network_mode: service:app
+    volumes:
+      - ${HAUSV_NEXT_CONTEXT:?set by hausv-next}:/src:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - traefik.enable=false
+      - com.centurylinklabs.watchtower.enable=false
+
+volumes:
+  hausv-next-data:
+    name: hausv-next-data
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/hausv-next/data
+
+networks:
+  fixture-only:
+    name: hausv-next-fixture-only
+    internal: true
