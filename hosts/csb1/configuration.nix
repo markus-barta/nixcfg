@@ -190,6 +190,7 @@ in
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ./hausv-alerts.nix
+    ./hausv-next.nix # NIX-368 / HAUSV-513: isolated tailnet fixture preview
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
@@ -619,7 +620,15 @@ in
     janus-managed-central.gid = 993;
     # Grants only the PostgreSQL container supplementary group read access to
     # its agenix password projections. Static-id-gate aborts on any collision.
-    hausv-postgres-secrets.gid = 994;
+    #
+    # 990, not 994: 994 is already held by NixOS's own `resolvconf` group on
+    # csb1. The eval-time assertion only compares groups declared HERE, so it
+    # cannot see distribution-allocated ids and happily accepted 994 — the
+    # collision only surfaced at activation, where the live-database gate
+    # refused to finish (NIX-354). Continuing the 991/992/993 run upward looked
+    # right and was wrong. Check `getent group` on the target host before
+    # picking a gid; do not just take the next free-looking number.
+    hausv-postgres-secrets.gid = 990;
   };
   users.users = {
     pharos-container = {
