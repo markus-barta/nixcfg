@@ -618,17 +618,6 @@ in
     janus-managed-runtime.gid = 991;
     pharos-container.gid = 992;
     janus-managed-central.gid = 993;
-    # Grants only the PostgreSQL container supplementary group read access to
-    # its agenix password projections. Static-id-gate aborts on any collision.
-    #
-    # 990, not 994: 994 is already held by NixOS's own `resolvconf` group on
-    # csb1. The eval-time assertion only compares groups declared HERE, so it
-    # cannot see distribution-allocated ids and happily accepted 994 — the
-    # collision only surfaced at activation, where the live-database gate
-    # refused to finish (NIX-354). Continuing the 991/992/993 run upward looked
-    # right and was wrong. Check `getent group` on the target host before
-    # picking a gid; do not just take the next free-looking number.
-    hausv-postgres-secrets.gid = 990;
   };
   users.users = {
     pharos-container = {
@@ -1087,20 +1076,25 @@ in
   # NIX-367 / HAUSV-495: separate bootstrap and application credentials. The
   # service receives both through read-only bind mounts; HAUSV receives neither
   # in Phase 0, so SQLite remains the source of truth.
+  # Owned by the numeric uid the postgres image runs as (70), not by a
+  # supplementary group. The entrypoint drops privileges with gosu, which
+  # re-initialises supplementary groups from the image's /etc/group and
+  # therefore discards anything added via compose `group_add` — so a
+  # group-readable projection is unreadable by the actual server process
+  # (NIX-369). Owning the file by uid 70 removes the interaction entirely and
+  # is narrower than the previous root:group form.
   age.secrets.csb1-hausv-postgres-admin-password = {
     file = ../../secrets/csb1-hausv-postgres-admin-password.age;
     path = "/run/agenix/csb1-hausv-postgres-admin-password";
-    owner = "root";
-    group = "hausv-postgres-secrets";
-    mode = "0440";
+    owner = "70";
+    mode = "0400";
   };
 
   age.secrets.csb1-hausv-postgres-app-password = {
     file = ../../secrets/csb1-hausv-postgres-app-password.age;
     path = "/run/agenix/csb1-hausv-postgres-app-password";
-    owner = "root";
-    group = "hausv-postgres-secrets";
-    mode = "0440";
+    owner = "70";
+    mode = "0400";
   };
 
   # === NIX-110: csb1 docker stack migration — bulk env file refactor ===
