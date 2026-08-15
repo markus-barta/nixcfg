@@ -97,6 +97,17 @@ volumes:
       device: /var/lib/hausv-next/data
 
 networks:
+  # NOT internal. Docker's `internal: true` gives a network no external
+  # connectivity, and that also disables host port publishing — the binding is
+  # accepted, silently never established, and the container still reports
+  # healthy. That is exactly how this slot spent its first deploys: healthy,
+  # serving /healthz inside, unreachable from the tailnet (NIX-370).
+  #
+  # Egress isolation was a nice-to-have; reachability is the slot's entire
+  # purpose. The protections that actually matter are unchanged: the port is
+  # bound only to the tailnet address, the data is fixtures, no production path
+  # or secret is mounted, and Traefik is disabled. The application is also
+  # configured with no external endpoints — HA, Telegram and OIDC are blank and
+  # SMTP and map tiles point at loopback fixtures.
   fixture-only:
     name: hausv-next-fixture-only
-    internal: true
