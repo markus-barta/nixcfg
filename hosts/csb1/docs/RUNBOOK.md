@@ -797,12 +797,13 @@ docker-compose up -d docmost
 
 ### Schedule
 
-| Task                      | Time                   | Container                     |
-| ------------------------- | ---------------------- | ----------------------------- |
-| HAUSV consistent snapshot | 01:20 AM daily         | `hausv-backup-snapshot.timer` |
-| Backup                    | 01:30 AM daily         | csb1-restic-cron-hetzner-1    |
-| Cleanup                   | N/A (done on csb0)     | -                             |
-| Check                     | 05:30 AM monthly (1st) | csb1-restic-cron-hetzner-1    |
+| Task                      | Time                   | Container                              |
+| ------------------------- | ---------------------- | -------------------------------------- |
+| HAUSV PostgreSQL dump     | 01:10 AM daily         | `hausv-postgres-backup-snapshot.timer` |
+| HAUSV consistent snapshot | 01:20 AM daily         | `hausv-backup-snapshot.timer`          |
+| Backup                    | 01:30 AM daily         | csb1-restic-cron-hetzner-1             |
+| Cleanup                   | N/A (done on csb0)     | -                                      |
+| Check                     | 05:30 AM monthly (1st) | csb1-restic-cron-hetzner-1             |
 
 ### What Gets Backed Up
 
@@ -814,6 +815,8 @@ docker-compose up -d docmost
 ✅ /etc - System configuration
 ✅ /var/lib/csb1-docker/hausv-org-backup-snapshot
    └─ Quiesced SQLite + blob recovery point; use this for HAUSV restores
+✅ /var/lib/csb1-docker/hausv-postgres-backup-snapshot
+   └─ Atomic, validated logical dump of the unused Phase-0 PostgreSQL database
 ❌ /var/lib/csb1-docker/hausv-org live directory
    └─ Deliberately excluded to avoid a mixed SQLite/blob recovery point
 ❌ Exclusions: */cache/*, *.log*
@@ -898,6 +901,69 @@ docker compose -p hausv-jhw22 -f compose.yml stop -t 30 hausv-org
 docker compose -p hausv-jhw22 -f compose.yml start hausv-org
 curl --fail --silent --show-error https://hausv.org/healthz
 ```
+
+### HAUSV PostgreSQL Phase-0 Recovery Point
+
+`hausv-postgres` is an unused Phase-0 service. It has its own
+`hausv_postgres_data` volume, publishes no host port, and shares only the
+existing `csb1_hausv-egress` network with the application. HAUSV has no
+dependency, backend selector, DSN, password mount or other runtime reference to
+it; SQLite remains the only source of truth.
+
+The PostgreSQL bootstrap administrator and `hausv_app` passwords are separate
+agenix files. The application role is created with `NOSUPERUSER NOBYPASSRLS`,
+and the container health check fails unless both flags remain false. Never give
+the application the bootstrap administrator credential: PostgreSQL superusers
+silently bypass Row Level Security.
+
+At 01:10 the host runs `pg_dump --format=custom` against a transactionally
+consistent PostgreSQL snapshot, validates the archive catalog with
+`pg_restore --list`, and atomically publishes `hausv.dump` plus
+`SNAPSHOT-CREATED-UTC`. Failure preserves the preceding recovery point. The
+existing Restic job includes this directory through its existing
+`/var/lib/csb1-docker` mount; its command and the live-HAUSV exclusion are
+unchanged.
+
+Create and test a recovery point without exposing any credential:
+
+```bash
+sudo systemctl start hausv-postgres-backup-snapshot.service
+systemctl status hausv-postgres-backup-snapshot.service --no-pager
+sudo hosts/csb1/scripts/hausv-postgres-restore-drill.sh
+```
+
+The drill creates a uniquely named isolated database in the same container,
+restores with `--exit-on-error --single-transaction --role=hausv_app`, verifies
+that every restored application relation is owned by that non-superuser,
+confirms it is not `BYPASSRLS`, connects as the role, and always drops the drill
+database. It never replaces `hausv` and never touches SQLite or the blob tree.
+Record the Restic snapshot ID and drill date in PPM Knowledge
+`persistence-store-pattern`; do not put secret values or tenant data there.
+
+#### Phase-2 migration gate — CLOSED
+
+The Phase-0 logical dump is a database recovery proof, not yet a PostgreSQL +
+blob recovery proof. Before PostgreSQL may become a production source of truth,
+the established HAUSV snapshot service must be extended in one quiesced window:
+
+1. Take the same compose lock used by deploys and stop only `hausv-org` with
+   the reviewed 30-second budget.
+2. Run a custom-format `pg_dump` and copy the complete blob/audit/parking tree
+   into one staging directory while application writes are stopped.
+3. Validate the dump catalog, restore it as `hausv_app` into an isolated
+   database, run the application schema/RLS checks, and validate the copied
+   files.
+4. Atomically publish the combined directory, restart HAUSV, and require a
+   healthy exact `/healthz` response. Any failure keeps the preceding recovery
+   point and restarts the application.
+5. Let the unchanged Restic job carry that combined recovery point off site,
+   restore the exact new Restic snapshot into isolation, and repeat the
+   database, RLS, file and application-health checks.
+
+Migration remains forbidden until that combined off-site drill is recorded in
+PPM Knowledge. Do not remove the SQLite quiesce path or its live-path exclusion
+before the migrated service has passed the combined drill and its rollback
+window has explicitly closed.
 
 ### HAUSV Snapshot, Health And Application Alerts
 

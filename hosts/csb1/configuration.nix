@@ -139,6 +139,48 @@ let
     echo "hausv-org did not become healthy after snapshot" >&2
     exit 1
   '';
+  # NIX-367 / HAUSV-495: PostgreSQL is unused in Phase 0, so its transactionally
+  # consistent logical recovery point is additive and independent of the live
+  # SQLite/blob quiesce above. Restic already walks /var/lib/csb1-docker and
+  # therefore picks up this atomically published directory without any backup
+  # include/exclude change.
+  hausvPostgresBackupSnapshot = pkgs.writeShellScript "hausv-postgres-backup-snapshot" ''
+    set -eu
+    umask 077
+
+    container=hausv-postgres
+    snapshot_dir=/var/lib/csb1-docker/hausv-postgres-backup-snapshot
+    staging_dir=/var/lib/csb1-docker/.hausv-postgres-backup-snapshot.staging
+    previous_dir=/var/lib/csb1-docker/.hausv-postgres-backup-snapshot.previous
+
+    running="$(${pkgs.docker}/bin/docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)"
+    health="$(${pkgs.docker}/bin/docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || true)"
+    if [ "$running" != true ] || [ "$health" != healthy ]; then
+      echo "hausv-postgres is not healthy; keeping the previous recovery point" >&2
+      exit 1
+    fi
+
+    ${pkgs.coreutils}/bin/rm -rf "$staging_dir"
+    ${pkgs.coreutils}/bin/install -d -m 0700 "$staging_dir"
+    if ! ${pkgs.docker}/bin/docker exec --user postgres "$container" \
+      pg_dump --username=postgres --dbname=hausv --format=custom \
+        --compress=9 --no-owner --no-privileges >"$staging_dir/hausv.dump"; then
+      echo "hausv-postgres pg_dump failed; keeping the previous recovery point" >&2
+      exit 1
+    fi
+    [ -s "$staging_dir/hausv.dump" ]
+    ${pkgs.postgresql_17}/bin/pg_restore --list "$staging_dir/hausv.dump" >/dev/null
+    ${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ >"$staging_dir/SNAPSHOT-CREATED-UTC"
+    ${pkgs.coreutils}/bin/sync "$staging_dir"
+
+    ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
+    if [ -e "$snapshot_dir" ]; then
+      ${pkgs.coreutils}/bin/mv "$snapshot_dir" "$previous_dir"
+    fi
+    ${pkgs.coreutils}/bin/mv "$staging_dir" "$snapshot_dir"
+    ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
+    echo "hausv-postgres recovery point published"
+  '';
 in
 {
   imports = [
@@ -449,6 +491,7 @@ in
       "d ${dockerRoot}/traefik 0755 mba users -"
       "d ${dockerRoot}/hausv-org 0750 65532 65532 -"
       "d ${dockerRoot}/hausv-org-backup-snapshot 0700 root root -"
+      "d ${dockerRoot}/hausv-postgres-backup-snapshot 0700 root root -"
 
       # Create mutable files (Docker writes to these)
       "f ${dockerRoot}/traefik/acme.json 0600 root root -"
@@ -511,6 +554,32 @@ in
     };
   };
 
+  # PostgreSQL is not yet an application dependency. Its logical dump runs
+  # before the unchanged SQLite/blob snapshot and the unchanged Restic job.
+  systemd.services.hausv-postgres-backup-snapshot = {
+    description = "Publish a consistent HAUSV PostgreSQL recovery point";
+    requires = [ "docker.service" ];
+    after = [
+      "docker.service"
+      "compose-csb1.service"
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = hausvPostgresBackupSnapshot;
+      TimeoutStartSec = "180";
+    };
+  };
+
+  systemd.timers.hausv-postgres-backup-snapshot = {
+    description = "Dump HAUSV PostgreSQL before the daily restic backup";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "*-*-* 01:10:00";
+      Persistent = true;
+      Unit = "hausv-postgres-backup-snapshot.service";
+    };
+  };
+
   environment.etc = {
     "hostdash/csb1".source = hostdashCsb1;
     "janus/managed/secretspec.toml".source = ./docker/janus/managed-service-production/secretspec.toml;
@@ -548,6 +617,9 @@ in
     janus-managed-runtime.gid = 991;
     pharos-container.gid = 992;
     janus-managed-central.gid = 993;
+    # Grants only the PostgreSQL container supplementary group read access to
+    # its agenix password projections. Static-id-gate aborts on any collision.
+    hausv-postgres-secrets.gid = 994;
   };
   users.users = {
     pharos-container = {
@@ -1002,6 +1074,25 @@ in
         group = "users";
         mode = "0440";
       };
+
+  # NIX-367 / HAUSV-495: separate bootstrap and application credentials. The
+  # service receives both through read-only bind mounts; HAUSV receives neither
+  # in Phase 0, so SQLite remains the source of truth.
+  age.secrets.csb1-hausv-postgres-admin-password = {
+    file = ../../secrets/csb1-hausv-postgres-admin-password.age;
+    path = "/run/agenix/csb1-hausv-postgres-admin-password";
+    owner = "root";
+    group = "hausv-postgres-secrets";
+    mode = "0440";
+  };
+
+  age.secrets.csb1-hausv-postgres-app-password = {
+    file = ../../secrets/csb1-hausv-postgres-app-password.age;
+    path = "/run/agenix/csb1-hausv-postgres-app-password";
+    owner = "root";
+    group = "hausv-postgres-secrets";
+    mode = "0440";
+  };
 
   # === NIX-110: csb1 docker stack migration — bulk env file refactor ===
   # All env files for services in /home/mba/docker/docker-compose.yml that
