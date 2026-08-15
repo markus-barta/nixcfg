@@ -9,9 +9,9 @@ services:
       context: ${HAUSV_NEXT_CONTEXT:?set by hausv-next}
       dockerfile: Dockerfile.preview
       args:
-        APP_VERSION: next-${HAUSV_NEXT_COMMIT:?set by hausv-next}
-        GIT_COMMIT: ${HAUSV_NEXT_COMMIT:?set by hausv-next}
-    image: hausv-next:${HAUSV_NEXT_COMMIT:?set by hausv-next}
+        APP_VERSION: next-${HAUSV_NEXT_LABEL:?set by hausv-next}
+        GIT_COMMIT: ${HAUSV_NEXT_LABEL:?set by hausv-next}
+    image: hausv-next:${HAUSV_NEXT_RELEASE_ID:?set by hausv-next}
     container_name: hausv-next
     restart: unless-stopped
     stop_grace_period: 30s
@@ -63,6 +63,30 @@ services:
       - traefik.enable=false
       - com.centurylinklabs.watchtower.enable=false
 
+  # BASE_URL is public by the application's test, so it refuses to start without
+  # SMTP or OIDC (server.go:1364). The slot has neither and must not gain a real
+  # one. This fixture accepts and discards mail on loopback inside the app's own
+  # network namespace, which satisfies the contract without any path off the
+  # host (NIX-370).
+  fixture-smtp:
+    image: node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+    command: ["node", "/src/scripts/snapshot/fake-smtp.mjs", "8123", "8124"]
+    user: "65532:65532"
+    restart: unless-stopped
+    network_mode: service:app
+    volumes:
+      - ${HAUSV_NEXT_CONTEXT:?set by hausv-next}:/src:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - traefik.enable=false
+      - com.centurylinklabs.watchtower.enable=false
+
 volumes:
   hausv-next-data:
     name: hausv-next-data
@@ -73,6 +97,17 @@ volumes:
       device: /var/lib/hausv-next/data
 
 networks:
+  # NOT internal. Docker's `internal: true` gives a network no external
+  # connectivity, and that also disables host port publishing — the binding is
+  # accepted, silently never established, and the container still reports
+  # healthy. That is exactly how this slot spent its first deploys: healthy,
+  # serving /healthz inside, unreachable from the tailnet (NIX-370).
+  #
+  # Egress isolation was a nice-to-have; reachability is the slot's entire
+  # purpose. The protections that actually matter are unchanged: the port is
+  # bound only to the tailnet address, the data is fixtures, no production path
+  # or secret is mounted, and Traefik is disabled. The application is also
+  # configured with no external endpoints — HA, Telegram and OIDC are blank and
+  # SMTP and map tiles point at loopback fixtures.
   fixture-only:
     name: hausv-next-fixture-only
-    internal: true

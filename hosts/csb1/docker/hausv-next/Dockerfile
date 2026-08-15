@@ -1,5 +1,5 @@
-# NIX-368 / HAUSV-513: trusted build recipe for unreviewed preview refs.
-# Never use a Dockerfile supplied by the selected branch.
+# NIX-368 / HAUSV-513: trusted build recipe for operator-supplied preview archives.
+# Never use a Dockerfile supplied by the archive.
 FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df AS build
 WORKDIR /src
 ARG APP_VERSION

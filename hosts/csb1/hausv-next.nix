@@ -10,7 +10,6 @@ let
       curl
       docker
       gawk
-      git
       gnugrep
       gnutar
       iproute2
