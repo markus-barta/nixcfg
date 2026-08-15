@@ -12,7 +12,6 @@ IDE/LLM-agnostic agent configuration for nixcfg. Holds the slash-command definit
 │   ├── modelhelp.md           # /modelhelp — OpenClaw model cheat-sheet
 │   ├── oc-modelupdate.md      # /oc-modelupdate — research + update model lists
 │   ├── push.md                # /push — single-repo commit+push helper
-│   ├── pushall.md             # /pushall — multi-repo dispatch
 │   └── …                      # add more here
 └── rules/                     # Per-role operational reference docs (NOT the canonical rule source)
     ├── SYSOP.md               # Infrastructure ops role — decision tree, SSH matrix, HIL protocol
