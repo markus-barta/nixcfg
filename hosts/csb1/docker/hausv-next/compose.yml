@@ -9,9 +9,9 @@ services:
       context: ${HAUSV_NEXT_CONTEXT:?set by hausv-next}
       dockerfile: Dockerfile.preview
       args:
-        APP_VERSION: next-${HAUSV_NEXT_COMMIT:?set by hausv-next}
-        GIT_COMMIT: ${HAUSV_NEXT_COMMIT:?set by hausv-next}
-    image: hausv-next:${HAUSV_NEXT_COMMIT:?set by hausv-next}
+        APP_VERSION: next-${HAUSV_NEXT_LABEL:?set by hausv-next}
+        GIT_COMMIT: ${HAUSV_NEXT_LABEL:?set by hausv-next}
+    image: hausv-next:${HAUSV_NEXT_RELEASE_ID:?set by hausv-next}
     container_name: hausv-next
     restart: unless-stopped
     stop_grace_period: 30s
