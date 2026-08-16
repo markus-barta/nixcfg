@@ -170,7 +170,11 @@ deploy_context() {
 
   compose "${context}" "${release_id}" "${label}" pull fixture
   compose "${context}" "${release_id}" "${label}" build --pull app
-  compose "${context}" "${release_id}" "${label}" up -d --remove-orphans --force-recreate app fixture
+  # fixture-smtp belongs in this list: the app refuses to hand out magic links
+  # without a mail transport, so leaving it out makes the slot healthy but
+  # impossible to log into — and --remove-orphans would reap it if anyone
+  # started it by hand (NIX-371).
+  compose "${context}" "${release_id}" "${label}" up -d --remove-orphans --force-recreate app fixture fixture-smtp
 
   local ready=0
   for _ in $(seq 1 24); do
