@@ -88,3 +88,6 @@ id_rsa.pub
 # make `git status` look dirty on a host that is actually clean.
 __pycache__/
 *.py[cod]
+
+# The doctrine-private submodule is shared wiring, not local private state.
+!doctrine-private/
