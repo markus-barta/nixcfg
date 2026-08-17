@@ -824,7 +824,7 @@ in
     # config == reality and a reinstall reproduces it. Plaintext in 1Password
     # vault "Familie Barta", entry "csb1 - system login". (Supersedes the
     # INSPR-87 "converge to the shared $6$" plan — see note below.)
-    hashedPassword = "$y$j9T$4hK404plGnQ2Z.ucDYrxq/$9G6vTJFSDUDbC6DGDPAHzQcoIe0kyICRNTMNzwvzBr/";
+    hashedPasswordFile = config.age.secrets.csb1-recovery-password.path;
 
     # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
     # render is now declarative via inspr.ssh.authorized.users.mba below.
@@ -928,6 +928,18 @@ in
   age.secrets.traefik-variables = {
     file = ../../secrets/traefik-variables.age;
     path = "/run/agenix/traefik-variables";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+
+  # Emergency recovery password verifier for users.users.mba.hashedPasswordFile.
+  # Root-owned by design: the consumer is the `users` activation script running
+  # as root, not a user-level service, so mba has no reason to read its own
+  # verifier. Ordering is safe — agenixInstall precedes users in the activation
+  # script (verified per host: csb0 60/411, csb1 60/951).
+  age.secrets.csb1-recovery-password = {
+    file = ../../secrets/csb1-recovery-password.age;
     owner = "root";
     group = "root";
     mode = "0400";

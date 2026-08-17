@@ -350,6 +350,24 @@ in
   # Edit: agenix -e secrets/csb1-minio-env.age
   "csb1-minio-env.age".publicKeys = markus ++ csb1;
 
+  # csb0/csb1 emergency recovery passwords — yescrypt VERIFIERS, not plaintext.
+  # Format: single line, `$y$...`, captured from the host's own /etc/shadow
+  # after `passwd`, so the stored hash and the confirmed password cannot drift.
+  # Edit: agenix -e secrets/csb{0,1}-recovery-password.age
+  # Runtime: /run/agenix/csb{0,1}-recovery-password (root:root 0400)
+  # Consumed by users.users.mba.hashedPasswordFile — read by the `users`
+  # activation script as root, which runs after agenixInstall (verified per
+  # host: csb0 agenix 60 / users 411, csb1 agenix 60 / users 951).
+  #
+  # 🔴 These replace inline `hashedPassword = "$y$..."` values committed to this
+  # PUBLIC repository. Both hosts are internet-facing on port 2222 with
+  # PasswordAuthentication enabled, so a published verifier was directly
+  # attackable offline. Passwords were rotated, not merely relocated — the old
+  # verifiers remain in this repository's git history.
+  # Separate passwords per host; plaintext in 1Password.
+  "csb0-recovery-password.age".publicKeys = markus ++ csb0;
+  "csb1-recovery-password.age".publicKeys = markus ++ csb1;
+
   # Mosquitto broker configuration file
   # Edit: agenix -e secrets/mosquitto-conf.age
   # NOTE: This is for Mosquitto BROKER configuration (server-side)
