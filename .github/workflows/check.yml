@@ -111,8 +111,6 @@ jobs:
           - hsb9
           - csb0
           - csb1
-          # NIX-373 PROOF: nonexistent host, reverted in the next commit
-          - nix373-proof-nonexistent
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
