@@ -230,7 +230,7 @@ in
     # (This $6$ was the old csb-shared hash; csb0 is now its sole holder — the
     # other hosts moved to their own per-host hashes. Same plaintext as the
     # legacy "csb0 • cs0 • csb1 • cs1 • nix shell" entry.)
-    hashedPassword = "$6$ee9NiRR00Ev9wlEZ$kFD53waKDKf5YHC.Tzwm68Iwhjey7om9Yld4i9cUBLa40HdpL8.umjtIpWnjCmzKzgsGUgS3y.Tx2UQOUp5AN.";
+    hashedPasswordFile = config.age.secrets.csb0-recovery-password.path;
 
     # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
     # render is now declarative via inspr.ssh.authorized.users.mba below.
@@ -316,6 +316,18 @@ in
   age.secrets.nodered-env = {
     file = ../../secrets/nodered-env.age;
     owner = "mba";
+  };
+
+  # Emergency recovery password verifier for users.users.mba.hashedPasswordFile.
+  # Root-owned by design: the consumer is the `users` activation script running
+  # as root, not a user-level service, so mba has no reason to read its own
+  # verifier. Ordering is safe — agenixInstall precedes users in the activation
+  # script (verified per host: csb0 60/411, csb1 60/951).
+  age.secrets.csb0-recovery-password = {
+    file = ../../secrets/csb0-recovery-password.age;
+    owner = "root";
+    group = "root";
+    mode = "0400";
   };
 
   # OPS-104: HA tokens + Telegram credentials for the fleet alert poller
