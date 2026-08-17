@@ -408,6 +408,18 @@ in
   "hsb0-openclaw-icloud-password.age".publicKeys = markus ++ hsb0;
   "hsb0-openclaw-opus-gateway.age".publicKeys = markus ++ hsb0;
   "hsb0-gogcli-keyring-password.age".publicKeys = markus ++ hsb0;
+
+  # hsb0 emergency recovery password — the yescrypt VERIFIER, not plaintext.
+  # Format: single line, `$y$...`, exactly as `mkpasswd -m yescrypt` emits.
+  # Edit: agenix -e secrets/hsb0-recovery-password.age
+  # Runtime: /run/agenix/hsb0-recovery-password (root:root 0400)
+  # Consumed by users.users.mba.hashedPasswordFile — read by the `users`
+  # activation script as root, which runs AFTER agenixInstall (verified on the
+  # live activation script: agenix line 60, users line 921), so the file exists
+  # before the account is built.
+  # Replaces an inline `hashedPassword = "$y$..."` that was committed to this
+  # PUBLIC repository. Plaintext stays in 1Password ("hsb0 - system login").
+  "hsb0-recovery-password.age".publicKeys = markus ++ hsb0;
   # GitHub PAT for @merlin-ai-markus (1Password: hsb0-openclaw-merlin-workspace)
   # Edit: agenix -e secrets/hsb0-openclaw-github-pat.age
   "hsb0-openclaw-github-pat.age".publicKeys = markus ++ hsb0;

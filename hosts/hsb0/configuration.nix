@@ -251,6 +251,16 @@ in
     owner = "mba";
   };
 
+  # Emergency recovery password verifier for users.users.mba.hashedPasswordFile.
+  # Deliberately root-owned, unlike the sibling secrets above: the consumer is
+  # the `users` activation script running as root, not a user-level service.
+  # Giving it owner = "mba" would hand the account holder its own verifier for
+  # no reason.
+  age.secrets.hsb0-recovery-password = {
+    file = ../../secrets/hsb0-recovery-password.age;
+    mode = "400";
+  };
+
   # Systemd service: Publish UPS status to MQTT as JSON
   # 🔇 SILENCE THE BEEPER. This is a hard requirement, not a preference.
   #
@@ -1123,13 +1133,26 @@ in
 
   users.users.mba = {
     # 🚨 EMERGENCY RECOVERY PASSWORD — console/Tailscale access if SSH keys fail.
-    # Per-host (NIX-198 standardisation, 2026-06-28): this hash mirrors the LIVE
-    # /etc/shadow value, so config == reality and a reinstall reproduces it.
     # Plaintext in 1Password vault "Familie Barta", entry "hsb0 - system login".
-    # (Previously the shared $6$ csb hash, which had drifted: a per-host passwd-set
-    # password superseded it on the box. INSPR-79 first added a password fallback
-    # here; relates to INSPR-78 per-host ed25519 / INSPR-76 shared-RSA retirement.)
-    hashedPassword = "$y$j9T$lKd1UYhEZwHblUnAS6i7t/$U.xxpSqoo9AHR/ejnqsbKnH.KweMQdOeyYmutRCGjm/";
+    #
+    # 🔴 The verifier is agenix-managed and MUST NOT be inlined here again.
+    # This repository is PUBLIC. Until 2026-08-17 the yescrypt hash sat in this
+    # file as `hashedPassword = "$y$..."`, and a committed verifier permits
+    # unlimited offline guessing by anyone, with no fail2ban and no logs. The
+    # password was rotated and the verifier moved to
+    # secrets/hsb0-recovery-password.age. The superseded hash remains in this
+    # repository's git history, which is why the password itself was changed
+    # rather than merely relocated.
+    #
+    # Ordering is safe: `hashedPasswordFile` is read by the `users` activation
+    # script as root, which runs after agenixInstall — verified on the live
+    # activation script (agenix line 60, users line 921).
+    #
+    # NIX-198 previously required config to mirror the live /etc/shadow value so
+    # a reinstall reproduced it; that property is preserved, the hash just lives
+    # encrypted now. (INSPR-79 added the password fallback; relates to INSPR-78
+    # per-host ed25519 / INSPR-76 shared-RSA retirement.)
+    hashedPasswordFile = config.age.secrets.hsb0-recovery-password.path;
     # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
     # render is now declarative via inspr.ssh.authorized.users.mba below.
   };
