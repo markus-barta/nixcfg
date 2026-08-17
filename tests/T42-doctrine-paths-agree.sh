@@ -21,10 +21,22 @@
 # owned by the doctrine side: it will enumerate every consumption path a repo
 # declares (submodule pins, flake inputs resolving to inspr-modules, vendored
 # copies) and assert they agree, so single-path repos stay unaffected and the
-# rule lives in one place. When that lands, DELETE this file and call the
-# upstream check instead — do not keep both. Two checks asserting one invariant
-# with slightly different logic is worse than either alone. Agreed with the
-# doctrine/OPS side 2026-08-17; tracked on INSPR-296.
+# rule lives in one place. When that lands, delete the LOGIC below but KEEP the
+# CI wiring, calling the upstream check from here — so nixcfg is never left with
+# no assertion at all, and there is never a moment with two checks asserting one
+# invariant through slightly different logic (worse than either alone). Same
+# shape as T41 calling hausv-org's verify-preview.sh.
+#
+# 🔴 Successor ticket: INSPR-300 (owned by the doctrine side). INSPR-296 is the
+# broader "no per-repo wiring assertion exists" work that 300 hangs off. Agreed
+# with the doctrine/OPS session 2026-08-17.
+#
+# Two properties the successor must keep, learned from writing this one:
+#   * read every path at the SAME staging level (see the index note below) —
+#     otherwise it compares two points in time and false-fails the one person
+#     it exists to help, the operator mid-bump, while passing in CI;
+#   * equality applies PER UPSTREAM: a repo legitimately vendoring two
+#     different upstreams must not be failed for that.
 #
 # Note: this runs as an informational job. nixcfg's required checks are the
 # formatting gate and CodeQL only, so a red result here reports but does not
