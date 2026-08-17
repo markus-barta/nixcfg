@@ -245,7 +245,7 @@ in
   # vault "Familie Barta", entry "hsb9 - system login". SSH key auth unaffected;
   # PasswordAuthentication stays off. (Already live — no switch required.)
   users.users.mba.initialHashedPassword = lib.mkForce null;
-  users.users.mba.hashedPassword = "$y$j9T$Kd0VTmZ4AjlUNXFJhMU/N.$RHQ22ipCdJHqQt.qTQPkI0EHrDxZHB1ns2DRc5x5ikA";
+  users.users.mba.hashedPasswordFile = config.age.secrets.hsb9-recovery-password.path;
 
   # ==========================================================================
   # TAILSCALE — joins the fleet's Headscale at hs.barta.cm
@@ -308,6 +308,18 @@ in
     path = "/run/agenix/pharos-beacon-hsb9-env";
     owner = "mba";
     group = "users";
+    mode = "0400";
+  };
+
+  # Emergency recovery password verifier for users.users.mba.hashedPasswordFile.
+  # Root-owned: the consumer is the `users` activation script as root, not a
+  # user-level service, so mba has no reason to read its own verifier.
+  # MOVE ONLY — password unchanged; the encrypted value is byte-identical to the
+  # live /etc/shadow entry, verified before encrypting.
+  age.secrets.hsb9-recovery-password = {
+    file = ../../secrets/hsb9-recovery-password.age;
+    owner = "root";
+    group = "root";
     mode = "0400";
   };
 

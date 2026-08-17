@@ -582,7 +582,7 @@ in
   # "hsb8 - system login". SSH key auth unaffected; PasswordAuthentication stays
   # off. (Replaced an undocumented imperative password that was set 2025-11-22.)
   users.users.mba.initialHashedPassword = lib.mkForce null;
-  users.users.mba.hashedPassword = "$y$j9T$5y0S3IQdE7oo54/JhHwkq/$pm0DRKeA3w.6vYbk4rUYgGg.Fat/cQyhSwvC2Zi5bi4";
+  users.users.mba.hashedPasswordFile = config.age.secrets.hsb8-recovery-password.path;
 
   # Docker stack (NIX-230): migrating from gb-user-owned
   # /home/gb/docker/docker-compose.yml to the managed
@@ -698,6 +698,18 @@ in
     path = "/run/agenix/pharos-beacon-hsb8-env";
     owner = "mba";
     group = "users";
+    mode = "0400";
+  };
+
+  # Emergency recovery password verifier for users.users.mba.hashedPasswordFile.
+  # Root-owned: the consumer is the `users` activation script as root, not a
+  # user-level service, so mba has no reason to read its own verifier.
+  # MOVE ONLY — password unchanged; the encrypted value is byte-identical to the
+  # live /etc/shadow entry, verified before encrypting.
+  age.secrets.hsb8-recovery-password = {
+    file = ../../secrets/hsb8-recovery-password.age;
+    owner = "root";
+    group = "root";
     mode = "0400";
   };
 
