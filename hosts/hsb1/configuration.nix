@@ -620,7 +620,7 @@ in
     initialHashedPassword = lib.mkForce null;
     # Plaintext recovery password lives in 1Password — entry "hsb1" (renamed
     # from "miniserver24"); verified against this hash 2026-06-28 (NIX-198).
-    hashedPassword = "$y$j9T$bi9LmgTpnV.EleK4RduzQ/$eLkQ9o8n/Ix7YneRJBUNSdK6tCxAwwSYR.wL08wu1H/";
+    hashedPasswordFile = config.age.secrets.hsb1-recovery-password.path;
     # NOTE: openssh.authorizedKeys.keys removed in INSPR-73 — the system-side
     # render is now declarative via inspr.ssh.authorized.users.mba below.
   };
@@ -693,6 +693,18 @@ in
     file = ../../secrets/fritzbox-smb-credentials.age;
     mode = "400";
     owner = "root";
+  };
+
+  # Emergency recovery password verifier for users.users.mba.hashedPasswordFile.
+  # Root-owned: the consumer is the `users` activation script as root, not a
+  # user-level service, so mba has no reason to read its own verifier.
+  # MOVE ONLY — password unchanged; the encrypted value is byte-identical to the
+  # live /etc/shadow entry, verified before encrypting.
+  age.secrets.hsb1-recovery-password = {
+    file = ../../secrets/hsb1-recovery-password.age;
+    owner = "root";
+    group = "root";
+    mode = "0400";
   };
 
   # Samba credentials — used by media-samba.nix now (markus's line), and by

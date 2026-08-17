@@ -409,6 +409,28 @@ in
   # Edit: agenix -e secrets/hsb1-funkeykid-elevenlabs-api-key.age
   "hsb1-funkeykid-elevenlabs-api-key.age".publicKeys = markus ++ hsb1;
 
+  # hsb1/hsb8/hsb9 emergency recovery password verifiers for `mba`.
+  # Format: single line `$y$...`, exactly one trailing LF and no CR — NixOS
+  # reads hashedPasswordFile whole and chomps once, so a CRLF would leave a
+  # stray CR and silently break the verifier.
+  # Edit: agenix -e secrets/<host>-recovery-password.age
+  # Runtime: /run/agenix/<host>-recovery-password (root:root 0400)
+  #
+  # 🔴 MOVE ONLY — the passwords were deliberately NOT rotated. These verifiers
+  # are yescrypt `$y$j9T$` (N=4096, r=32, 16 MiB/guess) over strong random
+  # passwords; measured offline cost puts recovery astronomically out of reach,
+  # and NIST SP 800-63B advises against rotation absent evidence of compromise.
+  # Rotating these was assessed net-negative: hsb8 and hsb9 are offsite (other
+  # households) where a lockout costs a physical visit.
+  # The captured value equals the live /etc/shadow entry byte-for-byte, verified
+  # per host before encrypting, so the migration is a behavioural no-op.
+  #
+  # Containment, not remediation: the superseded verifiers remain in this
+  # PUBLIC repository's git history.
+  "hsb1-recovery-password.age".publicKeys = markus ++ hsb1;
+  "hsb8-recovery-password.age".publicKeys = markus ++ hsb8;
+  "hsb9-recovery-password.age".publicKeys = markus ++ hsb9;
+
   # Groq API key for STT — Whisper Large v3 (shared: Merlin + Nimue on hsb0)
   # Format: Plain text API key (no KEY=VALUE)
   # Edit: agenix -e secrets/hsb0-groq-api-key.age
