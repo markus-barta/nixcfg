@@ -125,3 +125,45 @@ jobs:
         # mutable in flake.lock, so newer Nix versions fail if eval tries to
         # refresh the lock file.
         run: nix eval --no-update-lock-file .#nixosConfigurations.${{ matrix.host }}.config.system.build.toplevel.drvPath
+
+  # ============================================================================
+  # NIX-373 — a single stable required check for the whole eval matrix
+  # ============================================================================
+  # Why this exists: `🔎️ Eval flake` is a matrix, so it produces six check
+  # names that encode the host (`🔎️ Eval flake (hsb0)` …). Requiring those
+  # six in branch protection couples flake.nix's nixosConfigurations list to
+  # repository settings — remove or rename a host and the required name never
+  # reports again, blocking every PR with no obvious cause; add a host and its
+  # check is silently not required. This job is one stable name instead.
+  #
+  # 🔴 `if: always()` is load-bearing, not decoration. Without it this job is
+  # SKIPPED when the matrix fails — and on this repository a skipped required
+  # check does NOT block a merge (proven: PR #354 merged with CodeQL NEUTRAL).
+  # A naive `needs:` gate would therefore report "skipped" on precisely the
+  # failure it exists to catch, and let the merge through. That is strictly
+  # worse than six volatile names, because it looks like protection.
+  #
+  # It must also fail closed on `cancelled`, which is a live state here: this
+  # workflow sets cancel-in-progress for non-main refs, so a rapid re-push
+  # cancels the matrix. Asserting `= success` handles success/failure/skipped/
+  # cancelled in one comparison.
+  #
+  # The six per-host checks still report individually, so per-host failure
+  # detail is unchanged; only the *required* name is consolidated.
+  eval-gate:
+    name: 🔎️ Eval flake — all hosts
+    needs: [check]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Assert every host evaluated
+        run: |
+          result='${{ needs.check.result }}'
+          echo "eval matrix result: ${result}"
+          if [ "${result}" != "success" ]; then
+            echo "::error::flake eval did not succeed for all hosts (result: ${result})"
+            exit 1
+          fi
+          echo "all hosts evaluated successfully"
