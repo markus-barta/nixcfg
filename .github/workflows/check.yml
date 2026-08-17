@@ -85,6 +85,11 @@ jobs:
       - name: Verify HAUSV graceful-stop budget
         run: tests/T36-hausv-stop-grace.sh
 
+      # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
+      # doctrine-check.sh (INSPR-300); this step then calls that instead.
+      - name: Verify both doctrine consumption paths agree
+        run: tests/T42-doctrine-paths-agree.sh
+
       - name: Verify HAUSV PostgreSQL Phase-0 contract
         run: tests/T40-hausv-postgres.sh
 
