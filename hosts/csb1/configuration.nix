@@ -893,9 +893,23 @@ in
   # ============================================================================
   services.openssh.ports = [ 2222 ];
 
-  # 🚨 TEMPORARY: Enable password auth during external hokage migration
-  # This provides a fallback if SSH keys fail (learned from hsb1 lockout)
-  # TODO: Remove after successful migration verification!
+  # SSH password auth: DELIBERATE, not temporary (INSPR-80, decided 2026-08-18).
+  #
+  # This was once a migration fallback with a TODO to remove it. That TODO is
+  # resolved: it stays, as the recovery path if key auth fails. The hsb1 lockout
+  # is why it exists — a host with only key auth and a broken key is a host you
+  # visit in person, and these two are in a datacentre.
+  #
+  # The risk was reassessed when the /etc/shadow verifiers were moved out of this
+  # PUBLIC repo. Offline attack on the verifier is not the concern: yescrypt
+  # $y$j9T$ is N=4096, r=32, 16 MiB per guess, which against a strong random
+  # password is astronomically infeasible. Online guessing is bounded by
+  # fail2ban, PermitRootLogin no, and a nonstandard port; 0 failed attempts in
+  # the 24h sampled.
+  #
+  # What makes this acceptable is the credential, not the setting: the password
+  # is 1Password-generated and unique per host. If that ever stops being true,
+  # this decision must be revisited.
   services.openssh.settings.PasswordAuthentication = lib.mkForce true;
 
   # ============================================================================
