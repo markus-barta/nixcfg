@@ -1098,6 +1098,22 @@ in
         mode = "0440";
       };
 
+  # GHCR pull token for hausv-org private image. Used by hausv-org/scripts/deploy.sh
+  # and deploy-from-ci-image.sh for `docker login ghcr.io --username x-access-token
+  # --password-stdin`. Contents: raw GitHub fine-grained token (single line). Janus
+  # capability name (when enrolled): ghcr.pull.inspr-at/hausv-org.
+  # 0440 root:users so mba (the SSH deploy user) can read it; docker runs as root but
+  # the deployment SSH session is mba, which sources this via password-stdin.
+  age.secrets.csb1-hausv-ghcr-pull =
+    lib.mkIf (builtins.pathExists ../../secrets/csb1-hausv-ghcr-pull.age)
+      {
+        file = ../../secrets/csb1-hausv-ghcr-pull.age;
+        path = "/run/agenix/csb1-hausv-ghcr-pull";
+        owner = "root";
+        group = "users";
+        mode = "0440";
+      };
+
   # NIX-367 / HAUSV-495: separate bootstrap and application credentials. The
   # service receives both through read-only bind mounts; HAUSV receives neither
   # in Phase 0, so SQLite remains the source of truth.
