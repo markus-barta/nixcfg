@@ -297,6 +297,14 @@ in
   # Edit: agenix -e secrets/csb1-hausv-org-env.age
   "csb1-hausv-org-env.age".publicKeys = markus ++ csb1;
 
+  # GHCR pull token for hausv-org private image on csb1. Contents: raw GitHub
+  # fine-grained token (single line, no KEY= prefix), consumed by deploy.sh /
+  # deploy-from-ci-image.sh via `docker login --password-stdin` with username
+  # x-access-token. Janus capability name (when enrolled): ghcr.pull.inspr-at/hausv-org.
+  # Format: bare token text (one line)
+  # Edit: agenix -e secrets/csb1-hausv-ghcr-pull.age
+  "csb1-hausv-ghcr-pull.age".publicKeys = markus ++ csb1;
+
   # NIX-367 / HAUSV-495: Phase-0 PostgreSQL credentials. These are separate
   # files so the future application projection can never expose the bootstrap
   # administrator password. Each file contains exactly one password line.
