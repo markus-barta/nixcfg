@@ -139,11 +139,11 @@ let
     echo "hausv-org did not become healthy after snapshot" >&2
     exit 1
   '';
-  # NIX-367 / HAUSV-495: PostgreSQL is unused in Phase 0, so its transactionally
-  # consistent logical recovery point is additive and independent of the live
-  # SQLite/blob quiesce above. Restic already walks /var/lib/csb1-docker and
-  # therefore picks up this atomically published directory without any backup
-  # include/exclude change.
+  # NIX-367 / HAUSV-495 / HAUSV-559: transactionally consistent logical dump.
+  # Runs as hausv_backup (BYPASSRLS, not superuser) because FORCE ROW LEVEL
+  # SECURITY makes pg_dump fail as hausv_app. Restic already walks
+  # /var/lib/csb1-docker and picks up this atomically published directory
+  # without any backup include/exclude change.
   hausvPostgresBackupSnapshot = pkgs.writeShellScript "hausv-postgres-backup-snapshot" ''
     set -eu
     umask 077
@@ -163,8 +163,7 @@ let
     ${pkgs.coreutils}/bin/rm -rf "$staging_dir"
     ${pkgs.coreutils}/bin/install -d -m 0700 "$staging_dir"
     if ! ${pkgs.docker}/bin/docker exec --user postgres "$container" \
-      pg_dump --username=postgres --dbname=hausv --format=custom \
-        --compress=9 --no-owner --no-privileges >"$staging_dir/hausv.dump"; then
+      /usr/local/bin/hausv-dump-as-backup-role >"$staging_dir/hausv.dump"; then
       echo "hausv-postgres pg_dump failed; keeping the previous recovery point" >&2
       exit 1
     fi
@@ -1119,6 +1118,15 @@ in
   age.secrets.csb1-hausv-postgres-app-password = {
     file = ../../secrets/csb1-hausv-postgres-app-password.age;
     path = "/run/agenix/csb1-hausv-postgres-app-password";
+    owner = "70";
+    mode = "0400";
+  };
+
+  # HAUSV-559: dump role password. Same uid-70 projection as the other
+  # hausv-postgres secrets — gosu discards supplementary groups (NIX-369).
+  age.secrets.csb1-hausv-postgres-backup-password = {
+    file = ../../secrets/csb1-hausv-postgres-backup-password.age;
+    path = "/run/agenix/csb1-hausv-postgres-backup-password";
     owner = "70";
     mode = "0400";
   };

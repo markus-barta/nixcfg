@@ -5,6 +5,8 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 host="${repo}/hosts/csb1/configuration.nix"
 compose="${repo}/hosts/csb1/docker/compose-spec.nix"
 init_role="${repo}/hosts/csb1/docker/hausv-postgres/init-application-role.sh"
+init_backup_role="${repo}/hosts/csb1/docker/hausv-postgres/init-backup-role.sh"
+dump_as_backup="${repo}/hosts/csb1/docker/hausv-postgres/dump-as-backup-role.sh"
 backup="${repo}/hosts/csb1/docker/restic-cron/hetzner/run_backup.sh"
 drill="${repo}/hosts/csb1/scripts/hausv-postgres-restore-drill.sh"
 runbook="${repo}/hosts/csb1/docs/RUNBOOK.md"
@@ -14,6 +16,8 @@ nix-instantiate --parse "${host}" >/dev/null
 nix-instantiate --parse "${compose}" >/dev/null
 bash -n "${drill}"
 sh -n "${init_role}"
+sh -n "${init_backup_role}"
+sh -n "${dump_as_backup}"
 
 grep -Fq 'hausv-postgres = {' "${compose}"
 grep -Fq '"hausv_postgres_data:/var/lib/postgresql/data"' "${compose}"
@@ -23,8 +27,8 @@ grep -Fq '"POSTGRES_PASSWORD_FILE=/run/secrets/hausv-postgres-admin-password"' "
 # privilege drop, so a group-readable secret is unreadable by the server
 # process — which is exactly how this broke the first time. Assert the
 # ownership form directly, and assert the discarded mechanism has not returned.
-if [ "$(grep -c 'owner = "70";' "${host}")" -lt 2 ]; then
-  echo 'FAIL: both hausv-postgres secret projections must be owned by uid 70' >&2
+if [ "$(grep -c 'owner = "70";' "${host}")" -lt 3 ]; then
+  echo 'FAIL: admin, app and backup hausv-postgres secret projections must be owned by uid 70' >&2
   exit 1
 fi
 if sed -n '/hausv-postgres = {/,/^    };/p' "${compose}" | grep -Fq 'group_add'; then
@@ -55,12 +59,30 @@ fi
 
 grep -Fq 'age.secrets.csb1-hausv-postgres-admin-password' "${host}"
 grep -Fq 'age.secrets.csb1-hausv-postgres-app-password' "${host}"
+grep -Fq 'age.secrets.csb1-hausv-postgres-backup-password' "${host}"
 grep -Fq '"csb1-hausv-postgres-admin-password.age".publicKeys = markus ++ csb1;' "${secrets}"
 grep -Fq '"csb1-hausv-postgres-app-password.age".publicKeys = markus ++ csb1;' "${secrets}"
+grep -Fq '"csb1-hausv-postgres-backup-password.age".publicKeys = markus ++ csb1;' "${secrets}"
+
+grep -Fq 'NOSUPERUSER' "${init_backup_role}"
+grep -Fq 'BYPASSRLS' "${init_backup_role}"
+grep -Fq "pg_read_file('/run/secrets/hausv-postgres-backup-password')" "${init_backup_role}"
+if grep -E 'hausv_backup.*SUPERUSER' "${init_backup_role}" | grep -Ev 'NOSUPERUSER'; then
+  echo 'FAIL: HAUSV backup role may not be superuser' >&2
+  exit 1
+fi
+if grep -Fq 'NOBYPASSRLS' "${init_backup_role}"; then
+  echo 'FAIL: HAUSV backup role must BYPASSRLS so FORCE ROW LEVEL SECURITY does not break dumps' >&2
+  exit 1
+fi
+grep -Fq 'GRANT CONNECT ON DATABASE hausv TO hausv_backup' "${init_backup_role}"
+grep -Fq 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO hausv_backup' "${init_backup_role}"
+grep -Fq -- '--username=hausv_backup' "${dump_as_backup}"
+grep -Fq 'PGPASSFILE' "${dump_as_backup}"
 
 grep -Fq 'systemd.services.hausv-postgres-backup-snapshot = {' "${host}"
 grep -Fq 'OnCalendar = "*-*-* 01:10:00";' "${host}"
-grep -Fq 'pg_dump --username=postgres --dbname=hausv --format=custom' "${host}"
+grep -Fq '/usr/local/bin/hausv-dump-as-backup-role' "${host}"
 grep -Fq 'pg_restore --list' "${host}"
 grep -Fq '/var/lib/csb1-docker/hausv-postgres-backup-snapshot' "${host}"
 grep -Fq -- "--exclude '/backup/var/lib/csb1-docker/hausv-org'" "${backup}"
