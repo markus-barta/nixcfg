@@ -208,6 +208,8 @@
       volumes = [
         "hausv_postgres_data:/var/lib/postgresql/data"
         "./hausv-postgres/init-application-role.sh:/docker-entrypoint-initdb.d/10-application-role.sh:ro"
+        "./hausv-postgres/init-backup-role.sh:/docker-entrypoint-initdb.d/20-backup-role.sh:ro"
+        "./hausv-postgres/dump-as-backup-role.sh:/usr/local/bin/hausv-dump-as-backup-role:ro"
         {
           type = "bind";
           source = "/run/agenix/csb1-hausv-postgres-admin-password";
@@ -219,6 +221,13 @@
           type = "bind";
           source = "/run/agenix/csb1-hausv-postgres-app-password";
           target = "/run/secrets/hausv-postgres-app-password";
+          read_only = true;
+          bind.create_host_path = false;
+        }
+        {
+          type = "bind";
+          source = "/run/agenix/csb1-hausv-postgres-backup-password";
+          target = "/run/secrets/hausv-postgres-backup-password";
           read_only = true;
           bind.create_host_path = false;
         }

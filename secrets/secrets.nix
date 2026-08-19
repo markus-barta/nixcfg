@@ -302,6 +302,9 @@ in
   # administrator password. Each file contains exactly one password line.
   "csb1-hausv-postgres-admin-password.age".publicKeys = markus ++ csb1;
   "csb1-hausv-postgres-app-password.age".publicKeys = markus ++ csb1;
+  # HAUSV-559: dedicated read-only dump role. BYPASSRLS so FORCE ROW LEVEL
+  # SECURITY does not break pg_dump; never superuser. One password line.
+  "csb1-hausv-postgres-backup-password.age".publicKeys = markus ++ csb1;
 
   # === NIX-110: csb1 docker stack migration to git — bulk env file refactor ===
   # The following secrets were previously plaintext in ~/secrets/ or
