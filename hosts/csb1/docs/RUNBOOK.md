@@ -930,7 +930,8 @@ and the container health check fails unless both flags remain false. Never give
 the application the bootstrap administrator credential: PostgreSQL superusers
 silently bypass Row Level Security.
 
-At 01:10 the host runs `pg_dump --format=custom` against a transactionally
+At 01:10 the host runs `pg_dump --format=custom` as `hausv_backup`
+(`BYPASSRLS`, not superuser; HAUSV-559) against a transactionally
 consistent PostgreSQL snapshot, validates the archive catalog with
 `pg_restore --list`, and atomically publishes `hausv.dump` plus
 `SNAPSHOT-CREATED-UTC`. Failure preserves the preceding recovery point. The
