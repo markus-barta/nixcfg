@@ -277,8 +277,8 @@ EOF
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
-    ${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT} \
-    ${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT} \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janus-warden "$IMAGE" \
     <"$request_file" >"$warden_out" 2>"$warden_err"
 
@@ -317,8 +317,8 @@ render_env_file() {
     -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
     -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
     -v "${OUT_VOLUME}:/run/janus/env" \
-    ${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT} \
-    ${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT} \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janusd-use "$IMAGE" \
     env-file preflight --profile "$profile_id" \
     >"$preflight_out" 2>"$preflight_err"; then
@@ -354,8 +354,8 @@ render_env_file() {
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
     -v "${OUT_VOLUME}:/run/janus/env" \
-    ${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT} \
-    ${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT} \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janusd-use "$IMAGE" \
     env-file --profile "$profile_id" --permit "$permit" \
     >"$run_out" 2>"$run_err"; then

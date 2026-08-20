@@ -525,9 +525,9 @@ EOF
   # shellcheck disable=SC2034
   JANUS_PHAROS_AUTHORITY_ENV_FLAGS=("${authority_env_flags[@]}")
   # shellcheck disable=SC2034
-  JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT="-v ${authority_host_root}:${authority_container_root}"
+  JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT=(-v "${authority_host_root}:${authority_container_root}")
   # shellcheck disable=SC2034
-  JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT="-v ${contract_dir}/authority:/etc/janus/authority:ro"
+  JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT=(-v "${contract_dir}/authority:/etc/janus/authority:ro")
   # shellcheck disable=SC2034
   JANUS_PHAROS_IDENTITYD_CONTAINER="$identityd_container"
 }
