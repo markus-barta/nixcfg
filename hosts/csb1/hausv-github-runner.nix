@@ -29,6 +29,7 @@
           gnugrep
           coreutils
           bash
+          curl
           docker
           docker-compose
         ];
