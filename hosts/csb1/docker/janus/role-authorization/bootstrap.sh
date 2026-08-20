@@ -85,7 +85,7 @@ done
 run_admin() {
   local actor=$1
   shift
-  
+
   # NIX-377: production posture requires runtime authority socket for janusd-admin
   local -a authority_env=()
   if [ "$posture" = "production" ]; then
@@ -103,7 +103,7 @@ run_admin() {
       -v /etc/janus/pharos-production-authority:/etc/janus/pharos-production-authority:ro
     )
   fi
-  
+
   docker run --rm --network none --read-only \
     --user 65532:65532 \
     --cap-drop ALL \
