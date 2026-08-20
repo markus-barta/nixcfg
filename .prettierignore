@@ -2,3 +2,6 @@
 # duty-surface manifest embeds a fingerprint over the transport manifest's
 # raw bytes, so ANY reformatting breaks the runtime-authority binding.
 hosts/csb1/docker/janus/nonprod-smoke/authority/
+
+# Same rationale as nonprod-smoke (NIX-377).
+hosts/csb1/docker/janus/pharos-production/authority/
