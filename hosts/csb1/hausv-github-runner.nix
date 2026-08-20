@@ -49,23 +49,20 @@
           InaccessiblePaths = lib.mkForce [ "/var/lib/github-runner/csb1-hausv/.current-token" ];
 
           # This runner executes the same root-only pre-deploy SQLite snapshot helper
-          # as scripts/deploy.sh (creates /var/backups/hausv-predeploy, reads
-          # /var/lib/csb1-docker/hausv-org). The helper requires passwordless sudo to
-          # /run/current-system/sw/bin/python3. nixpkgs github-runner defaults block
-          # sudo in three ways:
+          # as scripts/deploy.sh (creates /var/backups/hausv-predeploy root:root 0700,
+          # reads /var/lib/csb1-docker/hausv-org 65532:65532 0750). The helper requires
+          # passwordless sudo to /run/current-system/sw/bin/python3. nixpkgs github-runner
+          # defaults block sudo in three ways:
           #   - NoNewPrivileges=yes: prevents capability elevation (makes sudo a no-op)
           #   - PrivateUsers=yes: hides real host UIDs (sudo sees nobody:nogroup)
-          #   - CapabilityBoundingSet="": drops CAP_SETUID/CAP_SETGID (even setuid
-          #     binaries cannot change UIDs/GIDs)
-          # Disable NoNewPrivileges and PrivateUsers, and restore the two capabilities
-          # sudo requires. This gives the runner the same sudo privileges mba already
-          # has over SSH, for this specific Python command only.
+          #   - CapabilityBoundingSet=[""]: empty bounding set (drops all capabilities,
+          #     including CAP_DAC_OVERRIDE needed to read the 0750 data dir as root)
+          # Disable NoNewPrivileges and PrivateUsers, and reset CapabilityBoundingSet to
+          # unbounded (systemd default) so the sudo'd root process has the same capabilities
+          # mba has over SSH. The empty string resets to the full default set per systemd.exec(5).
           NoNewPrivileges = lib.mkForce false;
           PrivateUsers = lib.mkForce false;
-          CapabilityBoundingSet = [
-            "CAP_SETUID"
-            "CAP_SETGID"
-          ];
+          CapabilityBoundingSet = lib.mkForce [ "" ];
         };
       };
 }
