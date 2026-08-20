@@ -43,6 +43,10 @@
             "docker"
             "users"
           ];
+          # nixpkgs github-runners hides tokenFile from job processes by default.
+          # This host reuses that file for GHCR pull, so the agenix path must stay
+          # reachable. Only hide the runner's copied token.
+          InaccessiblePaths = lib.mkForce [ "/var/lib/github-runner/csb1-hausv/.current-token" ];
         };
       };
 }
