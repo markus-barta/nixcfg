@@ -47,6 +47,24 @@
           # This host reuses that file for GHCR pull, so the agenix path must stay
           # reachable. Only hide the runner's copied token.
           InaccessiblePaths = lib.mkForce [ "/var/lib/github-runner/csb1-hausv/.current-token" ];
+
+          # This runner executes the same root-only pre-deploy SQLite snapshot helper
+          # as scripts/deploy.sh (creates /var/backups/hausv-predeploy root:root 0700,
+          # reads /var/lib/csb1-docker/hausv-org 65532:65532 0750). The helper requires
+          # passwordless sudo to /run/current-system/sw/bin/python3. nixpkgs github-runner
+          # defaults block sudo in three ways:
+          #   - NoNewPrivileges=yes: prevents capability elevation (makes sudo a no-op)
+          #   - PrivateUsers=yes: hides real host UIDs (sudo sees nobody:nogroup)
+          #   - CapabilityBoundingSet=[""]: empty bounding set (drops all capabilities,
+          #     including CAP_DAC_OVERRIDE needed to read the 0750 data dir as root)
+          # Disable NoNewPrivileges and PrivateUsers, and reset CapabilityBoundingSet to
+          # the full set with "~". Per systemd.exec(5) on systemd 261: "~ with no further
+          # argument: the bounding set is reset to the full set of available capabilities,
+          # also undoing any previous settings." This gives the sudo'd root process the
+          # same capabilities mba has over SSH.
+          NoNewPrivileges = lib.mkForce false;
+          PrivateUsers = lib.mkForce false;
+          CapabilityBoundingSet = lib.mkForce [ "~" ];
         };
       };
 }
