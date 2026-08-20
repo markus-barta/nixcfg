@@ -419,7 +419,7 @@ install -o "$uid" -g "$gid" -m 0444 "$tmp/recipient.pub" /run/janus/age/recipien
 # Production Pharos render and janusd-use require signed value-free admission
 # from janusd-identityd (JANUS-429). This manages the production identityd
 # sidecar lifecycle and exports authority environment flags for callers.
-# The broker runs in identity_shadow_only posture (rust-engine v0.1.29+).
+# The broker runs in accountability_legacy posture (rust-engine v0.1.29+).
 # The subject registry is NixOS-managed durable state at
 # /var/lib/janus-identity-csb1/production with an empty-deny initial posture;
 # production subject enrollment is gated on a reviewed control plane.
@@ -471,7 +471,7 @@ EOF
     -e "JANUS_RELEASE_EXECUTOR=janus-run@csb1"
     -e "JANUS_IDENTITY_SOCKET=${authority_container_root}/run/identity.sock"
     -e "JANUS_DUTY_SURFACE_MANIFEST=/etc/janus/authority/duty-surface-manifest-v1.json"
-    -e "JANUS_ACCOUNTABILITY_POSTURE=identity_shadow_only"
+    -e "JANUS_ACCOUNTABILITY_POSTURE=accountability_legacy"
     -e "JANUS_RUNTIME_AUTHORITY_AUDIENCE=janus-runtime-pharos-production"
     -e "JANUS_RUNTIME_AUTHORITY_VERIFYING_KEY_FILE=${authority_container_root}/state/runtime-authority.pub"
     -e "JANUS_RELEASE_DIGEST=${release_digest}"

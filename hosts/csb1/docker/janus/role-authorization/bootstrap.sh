@@ -95,7 +95,7 @@ run_admin() {
     authority_env=(
       -e "JANUS_IDENTITY_SOCKET=${identity_socket}"
       -e "JANUS_DUTY_SURFACE_MANIFEST=/etc/janus/pharos-production-authority/duty-surface-manifest-v1.json"
-      -e "JANUS_ACCOUNTABILITY_POSTURE=identity_shadow_only"
+      -e "JANUS_ACCOUNTABILITY_POSTURE=accountability_legacy"
       -e "JANUS_RUNTIME_AUTHORITY_AUDIENCE=janus-runtime-pharos-production"
       -e "JANUS_RUNTIME_AUTHORITY_VERIFYING_KEY_FILE=${identity_root}/state/runtime-authority.pub"
       -e "JANUS_RELEASE_DIGEST=${release_digest}"
