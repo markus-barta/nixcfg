@@ -183,7 +183,7 @@ janus_pharos_production_identityd_start \
   "$IMAGE" "$SCRIPT_DIR" "$container_uid" "$container_gid"
 
 if [ "$PREPARE_ONLY" = "1" ]; then
-  printf 'ok: janus pharos production runtime prepared volume_returned=false\n' "$VOLUME_PREFIX"
+  printf 'ok: janus pharos production runtime prepared volume_returned=false\n'
   exit 0
 fi
 
