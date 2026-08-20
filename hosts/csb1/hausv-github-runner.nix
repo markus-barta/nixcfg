@@ -5,7 +5,9 @@
 {
   # Gate enable on the same secret existence check as the token itself, so eval
   # does not break if the .age file is missing.
-  services.github-runners.csb1-hausv = lib.mkIf (builtins.pathExists ../../secrets/csb1-hausv-ghcr-pull.age) {
+  services.github-runners.csb1-hausv =
+    lib.mkIf (builtins.pathExists ../../secrets/csb1-hausv-ghcr-pull.age)
+    {
     enable = true;
     url = "https://github.com/inspr-at/hausv-org";
     name = "csb1-hausv";
@@ -31,7 +33,10 @@
       # docker.sock, the compose dir, /run/lock/compose-hausv.lock, and the
       # GHCR token readable.
       ProtectHome = false;
-      SupplementaryGroups = [ "docker" "users" ];
+      SupplementaryGroups = [
+        "docker"
+        "users"
+      ];
     };
   };
 }
