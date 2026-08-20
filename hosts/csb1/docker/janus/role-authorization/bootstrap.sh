@@ -85,6 +85,25 @@ done
 run_admin() {
   local actor=$1
   shift
+  
+  # NIX-377: production posture requires runtime authority socket for janusd-admin
+  local -a authority_env=()
+  if [ "$posture" = "production" ]; then
+    local identity_root=/var/lib/janus-identity-csb1/production
+    local identity_socket="${identity_root}/run/identity.sock"
+    local release_digest="${IMAGE##*@}"
+    authority_env=(
+      -e "JANUS_IDENTITY_SOCKET=${identity_socket}"
+      -e "JANUS_DUTY_SURFACE_MANIFEST=/etc/janus/pharos-production-authority/duty-surface-manifest-v1.json"
+      -e "JANUS_ACCOUNTABILITY_POSTURE=identity_shadow_only"
+      -e "JANUS_RUNTIME_AUTHORITY_AUDIENCE=janus-runtime-pharos-production"
+      -e "JANUS_RUNTIME_AUTHORITY_VERIFYING_KEY_FILE=${identity_root}/state/runtime-authority.pub"
+      -e "JANUS_RELEASE_DIGEST=${release_digest}"
+      -v "${identity_root}:/var/lib/janus/identity:ro"
+      -v /etc/janus/pharos-production-authority:/etc/janus/pharos-production-authority:ro
+    )
+  fi
+  
   docker run --rm --network none --read-only \
     --user 65532:65532 \
     --cap-drop ALL \
@@ -99,6 +118,7 @@ run_admin() {
     -e JANUS_SCOPE_REPOSITORY=nixcfg \
     -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
     -v "${ROLE_HOST_ROOT}:${ROLE_CONTAINER_ROOT}" \
+    "${authority_env[@]}" \
     --entrypoint /usr/local/bin/janusd-admin \
     "$IMAGE" "$@"
 }

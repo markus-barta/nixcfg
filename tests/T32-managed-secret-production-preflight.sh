@@ -320,6 +320,23 @@ pharos_tag="$(
 [[ "${pharos_tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 pharos_tag_pattern="${pharos_tag//./\\.}"
 grep -Fq "pharos/pharosd:${pharos_tag_pattern}@sha256" "${contract}/readiness.sh"
+
+# NIX-377: production runtime accountability manifests and state directories
+authority_dir="${pharos_contract}/authority"
+[ -f "${authority_dir}/duty-surface-manifest-v1.json" ] ||
+  { printf 'pharos-production authority duty-surface manifest is missing\n' >&2; exit 1; }
+[ -f "${authority_dir}/transport-manifest-v1.json" ] ||
+  { printf 'pharos-production authority transport manifest is missing\n' >&2; exit 1; }
+jq -e '.schema_version == 1 and .posture == "identity_shadow_only"' \
+  "${authority_dir}/transport-manifest-v1.json" >/dev/null ||
+  { printf 'pharos-production transport manifest must have identity_shadow_only posture\n' >&2; exit 1; }
+grep -Fq '/var/lib/janus-identity-csb1/production' "${host}" ||
+  { printf 'NixOS configuration must declare identity state directories\n' >&2; exit 1; }
+grep -Fq 'janus/pharos-production-authority/duty-surface-manifest-v1.json' "${host}" ||
+  { printf 'NixOS configuration must symlink duty-surface manifest to /etc\n' >&2; exit 1; }
+grep -Fq 'janus/pharos-production-authority/transport-manifest-v1.json' "${host}" ||
+  { printf 'NixOS configuration must symlink transport manifest to /etc\n' >&2; exit 1; }
+
 for binding in \
   'JANUS_MANAGED_SETUP_PHAROS_ORIGIN=https://pharos.barta.cm' \
   'JANUS_MANAGED_SETUP_PHAROS_RETURN_ORIGIN=https://pharos.barta.cm' \

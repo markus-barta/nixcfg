@@ -414,3 +414,127 @@ install -o "$uid" -g "$gid" -m 0444 "$tmp/recipient.pub" /run/janus/age/recipien
 ' sh "$container_uid" "$container_gid"
   )
 }
+
+# --- NIX-377: runtime accountability broker (production) ----------------------
+# Production Pharos render and janusd-use require signed value-free admission
+# from janusd-identityd (JANUS-429). This manages the production identityd
+# sidecar lifecycle and exports authority environment flags for callers.
+# The broker runs in identity_shadow_only posture (rust-engine v0.1.29+).
+# The subject registry is NixOS-managed durable state at
+# /var/lib/janus-identity-csb1/production with an empty-deny initial posture;
+# production subject enrollment is gated on a reviewed control plane.
+# NIX-377 implements the wiring only; enrollment is the remaining gate.
+
+janus_pharos_production_identityd_start() {
+  local image=$1
+  local contract_dir=$2
+  local container_uid=$3
+  local container_gid=$4
+  local compose_project=${5:-csb1}
+
+  local authority_host_root=/var/lib/janus-identity-csb1/production
+  local authority_container_root=/var/lib/janus/identity
+  local trust_domain="janus-pharos-production"
+  local release_digest="${image##*@}"
+  local identityd_container="${compose_project}-pharos-production-identityd"
+
+  [ -d "$authority_host_root" ] || {
+    printf 'janus pharos production identityd: NixOS authority root is missing\n' >&2
+    return 1
+  }
+
+  docker rm -f "$identityd_container" >/dev/null 2>&1 || true
+
+  docker run -i --rm --user 0 \
+    -v "${authority_host_root}:${authority_container_root}" \
+    --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+    -s -- "$container_uid" "$container_gid" "$authority_container_root" <<'EOF'
+set -eu
+uid=$1
+gid=$2
+root=$3
+mkdir -p "$root/registry" "$root/run" "$root/state" "$root/audit"
+rm -f "$root/run/identity.sock"
+chown -R "${uid}:${gid}" "$root"
+chmod 0700 "$root" "$root/registry" "$root/run" "$root/state" "$root/audit"
+EOF
+
+  # NIX-377: the registry starts empty; production subject enrollment is gated.
+  # janusd-identityd with an empty registry denies all runtime authority
+  # requests until a reviewed enrollment control plane populates it.
+
+  local -a authority_env_flags=(
+    -e "JANUS_SCOPE_ORGANIZATION=inspr"
+    -e "JANUS_SCOPE_PROJECT=pharos"
+    -e "JANUS_SCOPE_REPOSITORY=nixcfg"
+    -e "JANUS_SCOPE_ENVIRONMENT=production"
+    -e "JANUS_RELEASE_EXECUTOR=janus-run@csb1"
+    -e "JANUS_IDENTITY_SOCKET=${authority_container_root}/run/identity.sock"
+    -e "JANUS_DUTY_SURFACE_MANIFEST=/etc/janus/authority/duty-surface-manifest-v1.json"
+    -e "JANUS_ACCOUNTABILITY_POSTURE=identity_shadow_only"
+    -e "JANUS_RUNTIME_AUTHORITY_AUDIENCE=janus-runtime-pharos-production"
+    -e "JANUS_RUNTIME_AUTHORITY_VERIFYING_KEY_FILE=${authority_container_root}/state/runtime-authority.pub"
+    -e "JANUS_RELEASE_DIGEST=${release_digest}"
+  )
+
+  local -a identityd_env_flags=(
+    "${authority_env_flags[@]}"
+    -e "JANUS_IDENTITY_REGISTRY_ROOT=${authority_container_root}/registry"
+    -e "JANUS_IDENTITY_SIGNING_KEY_FILE=${authority_container_root}/state/identity-signing.key"
+    -e "JANUS_IDENTITY_TRANSPORT_MANIFEST=/etc/janus/authority/transport-manifest-v1.json"
+    -e "JANUS_IDENTITY_TRUST_DOMAIN=${trust_domain}"
+    -e "JANUS_IDENTITY_AUDIENCE=janus-identity-pharos-production"
+    -e "JANUS_IDENTITY_ASSERTION_TTL_SECONDS=60"
+    -e "JANUS_OPERATION_VERIFYING_KEY_FILE=${authority_container_root}/state/runtime-authority.pub"
+    -e "JANUS_OPERATION_DOMAIN_SERVICE=${trust_domain}"
+    -e "JANUS_OPERATION_AUDIENCE=janus-runtime-pharos-production"
+    -e "JANUS_RUNTIME_AUTHORITY_AUDIT_FILE=${authority_container_root}/audit/runtime-authority.jsonl"
+  )
+
+  docker run -d --name "$identityd_container" \
+    --user "${container_uid}:${container_gid}" \
+    --read-only --network none --cap-drop ALL \
+    --security-opt no-new-privileges:true \
+    --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=${container_uid},gid=${container_gid},mode=0700" \
+    -v "${authority_host_root}:${authority_container_root}" \
+    -v "${contract_dir}/authority:/etc/janus/authority:ro" \
+    "${identityd_env_flags[@]}" \
+    --entrypoint /usr/local/bin/janusd-identityd \
+    "$image" >/dev/null
+
+  local identityd_ready=0
+  for _ in $(seq 1 100); do
+    if docker run --rm -v "${authority_host_root}:${authority_container_root}:ro" \
+      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+      -c "test -S ${authority_container_root}/run/identity.sock" 2>/dev/null; then
+      identityd_ready=1
+      break
+    fi
+    if [ "$(docker inspect --format '{{.State.Running}}' "$identityd_container" 2>/dev/null)" != "true" ]; then
+      break
+    fi
+    sleep 0.2
+  done
+  if [ "$identityd_ready" != "1" ]; then
+    printf 'janus pharos production identityd failed: runtime authority broker did not come up\n' >&2
+    docker logs "$identityd_container" 2>&1 | sed -n '1,40p' >&2 || true
+    return 1
+  fi
+
+  # Export authority flags for render and role-status callers
+  # shellcheck disable=SC2034
+  JANUS_PHAROS_AUTHORITY_ENV_FLAGS=("${authority_env_flags[@]}")
+  # shellcheck disable=SC2034
+  JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT="-v ${authority_host_root}:${authority_container_root}"
+  # shellcheck disable=SC2034
+  JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT="-v ${contract_dir}/authority:/etc/janus/authority:ro"
+  # shellcheck disable=SC2034
+  JANUS_PHAROS_IDENTITYD_CONTAINER="$identityd_container"
+}
+
+janus_pharos_production_identityd_stop() {
+  local identityd_container=${JANUS_PHAROS_IDENTITYD_CONTAINER:-}
+  [ -n "$identityd_container" ] || return 0
+  docker rm -f "$identityd_container" >/dev/null 2>&1 || true
+}
+# --- end runtime accountability broker -----------------------------------------
