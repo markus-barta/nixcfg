@@ -51,12 +51,21 @@
           # This runner executes the same root-only pre-deploy SQLite snapshot helper
           # as scripts/deploy.sh (creates /var/backups/hausv-predeploy, reads
           # /var/lib/csb1-docker/hausv-org). The helper requires passwordless sudo to
-          # /run/current-system/sw/bin/python3. nixpkgs github-runner defaults include
-          # NoNewPrivileges=yes and PrivateUsers=yes, which make sudo a no-op and hide
-          # real host UIDs respectively. Disable those hardening features so the runner
-          # job can invoke sudo with the same privileges mba already has over SSH.
+          # /run/current-system/sw/bin/python3. nixpkgs github-runner defaults block
+          # sudo in three ways:
+          #   - NoNewPrivileges=yes: prevents capability elevation (makes sudo a no-op)
+          #   - PrivateUsers=yes: hides real host UIDs (sudo sees nobody:nogroup)
+          #   - CapabilityBoundingSet="": drops CAP_SETUID/CAP_SETGID (even setuid
+          #     binaries cannot change UIDs/GIDs)
+          # Disable NoNewPrivileges and PrivateUsers, and restore the two capabilities
+          # sudo requires. This gives the runner the same sudo privileges mba already
+          # has over SSH, for this specific Python command only.
           NoNewPrivileges = lib.mkForce false;
           PrivateUsers = lib.mkForce false;
+          CapabilityBoundingSet = [
+            "CAP_SETUID"
+            "CAP_SETGID"
+          ];
         };
       };
 }
