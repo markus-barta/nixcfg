@@ -116,6 +116,20 @@ NIX-118) is tracked in **OPS-61** — the compose spec
 
 ## Docker Services
 
+### GitHub Actions Runner
+
+csb1 runs a declarative GitHub Actions runner for `hausv-org` deployments via NixOS `services.github-runners`. The runner is configured in `hosts/csb1/hausv-github-runner.nix` and uses the existing GHCR token (`csb1-hausv-ghcr-pull`) for repo-scoped registration.
+
+**Legacy tarball cleanup:** The previous tarball+patchelf+user-unit installation at `/home/mba/actions-runner` is leftover and should be removed after `just switch` applies the declarative configuration. The declarative runner takes over the same runner name (`csb1-hausv`) via the `replace = true` setting.
+
+```bash
+# Check runner status
+systemctl status github-runner-csb1-hausv.service
+
+# View runner logs
+journalctl -u github-runner-csb1-hausv.service --since today
+```
+
 ### All Containers (15 running)
 
 | Container                   | Purpose                                                      |
