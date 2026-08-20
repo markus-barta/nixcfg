@@ -47,6 +47,16 @@
           # This host reuses that file for GHCR pull, so the agenix path must stay
           # reachable. Only hide the runner's copied token.
           InaccessiblePaths = lib.mkForce [ "/var/lib/github-runner/csb1-hausv/.current-token" ];
+
+          # This runner executes the same root-only pre-deploy SQLite snapshot helper
+          # as scripts/deploy.sh (creates /var/backups/hausv-predeploy, reads
+          # /var/lib/csb1-docker/hausv-org). The helper requires passwordless sudo to
+          # /run/current-system/sw/bin/python3. nixpkgs github-runner defaults include
+          # NoNewPrivileges=yes and PrivateUsers=yes, which make sudo a no-op and hide
+          # real host UIDs respectively. Disable those hardening features so the runner
+          # job can invoke sudo with the same privileges mba already has over SSH.
+          NoNewPrivileges = lib.mkForce false;
+          PrivateUsers = lib.mkForce false;
         };
       };
 }
