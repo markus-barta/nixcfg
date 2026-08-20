@@ -50,6 +50,8 @@
       environment = {
         # Target shared sub1 but in a dedicated folder /hsb0
         RESTIC_REPOSITORY = "sftp:u387549-sub1@u387549.your-storagebox.de:23/hsb0";
+        # OPS-175: Resend accepts From only on the verified barta.cm domain.
+        MAIL_FROM = "fleet@barta.cm";
         MAIL_SUBJECT = "💾 Restic backup report (hsb0)";
         CRON_BACKUP_EXPRESSION = "0 2 * * *";
         PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";
@@ -68,16 +70,16 @@
       restart = "unless-stopped";
       environment = [
         "TZ=Europe/Vienna"
-        "SMARTHOST_ADDRESS=mail.hover.com"
+        "SMARTHOST_ADDRESS=smtp.resend.com" # OPS-175: Resend, per-host key, sender domain barta.cm
         "SMARTHOST_PORT=587"
-        "SMARTHOST_USER=markus@barta.com"
+        "SMARTHOST_USER=resend"
         "SMARTHOST_ALIASES=*"
         "RELAY_NETWORKS=:172.0.0.0/8"
       ];
       env_file = [
-        # NIX-6: SMARTHOST_PASSWORD — without it the relay is unauthenticated
-        # and hover 554-rejects everything (restic/cron mail silently lost)
-        "/run/agenix/hsb0-smtp-env"
+        # NIX-6 / OPS-175: authenticated relay; SMARTHOST_PASSWORD is now a
+        # per-host Resend key rather than the Hover mailbox credential.
+        "/run/agenix/hsb0-mailrelay-env"
       ];
       labels = [
         "traefik.enable=false"
