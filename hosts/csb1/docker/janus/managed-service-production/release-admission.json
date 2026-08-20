@@ -7,20 +7,20 @@
   "previous_mode": "production",
   "artifact": {
     "image": "ghcr.io/inspr-at/janus/janus-engine",
-    "tag": "rust-engine-v0.1.28",
-    "digest": "sha256:664961f837382e4041640122ea708bc62620700d457034ec2cd299fa6a5c8522",
+    "tag": "rust-engine-v0.1.29",
+    "digest": "sha256:8f772975072e66bd02e0ef5c6df9f432c0b73ff1827346ade8da7fa73ab54a6a",
     "development": false
   },
   "signature": {
     "verified": true,
-    "identity": "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.28",
+    "identity": "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.29",
     "oidc_issuer": "https://token.actions.githubusercontent.com"
   },
   "provenance": {
     "verified": true,
     "repository": "inspr-at/janus",
     "signer_workflow": "inspr-at/janus/.github/workflows/rust.yml",
-    "source_ref": "refs/tags/rust-engine-v0.1.28",
+    "source_ref": "refs/tags/rust-engine-v0.1.29",
     "predicate_type": "https://slsa.dev/provenance/v1"
   },
   "sbom": {
@@ -29,16 +29,16 @@
   },
   "source": {
     "verified": true,
-    "commit": "217bd67eb9003497cd74282aeecc2f4bf4348916",
-    "manifest_sha256": "sha256:ef8228ef4b86a248d204afb6a39fffd78b2f151e57c2829261ae06891e867e64",
-    "bundle_sha256": "sha256:250957ebe5901630c8cc854033fc6c959b0f2a66a4d677b5b6680d8e8c256832"
+    "commit": "6776ceb0e36bbfc02d2f73747c08d81db5329a19",
+    "manifest_sha256": "sha256:9ad91946f3ca3c41f3952275e97e4e33c9f00c816feb6d5d165469e74df1c64f",
+    "bundle_sha256": "sha256:db945d623d057e887fd906136ca10b6a7f92dd3803f9dffa3cb4b250858d243b"
   },
   "scanner": {
     "verified": true,
     "name": "trivy",
     "policy": "candidate_container_critical_high",
-    "subject": "ghcr.io/inspr-at/janus/janus-engine@sha256:664961f837382e4041640122ea708bc62620700d457034ec2cd299fa6a5c8522",
-    "summary_sha256": "sha256:448db7afae0640a7db221f37209caee574b8a637dd7525f728d06e0578f6a908",
+    "subject": "ghcr.io/inspr-at/janus/janus-engine@sha256:8f772975072e66bd02e0ef5c6df9f432c0b73ff1827346ade8da7fa73ab54a6a",
+    "summary_sha256": "sha256:d773c0654c25b01634ad8f305d7dd11c4a6d767424684194f69c2017c8d36507",
     "critical": 0,
     "high": 0
   }
