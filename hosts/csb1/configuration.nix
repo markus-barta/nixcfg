@@ -524,6 +524,15 @@ in
       "d /var/lib/janus-role-authorization-csb1/staged/bindings 0700 65532 65532 -"
       "f /var/lib/janus-role-authorization-csb1/staged/audit.jsonl 0600 65532 65532 -"
       "f /var/lib/janus-role-authorization-csb1/staged/warden-audit.jsonl 0600 65532 65532 -"
+      # NIX-377: production runtime accountability broker state (janusd-identityd).
+      # The registry starts empty; production subject enrollment is gated on a
+      # reviewed control plane. Pharos render and role-status require the socket.
+      "d /var/lib/janus-identity-csb1 0700 65532 65532 -"
+      "d /var/lib/janus-identity-csb1/production 0700 65532 65532 -"
+      "d /var/lib/janus-identity-csb1/production/registry 0700 65532 65532 -"
+      "d /var/lib/janus-identity-csb1/production/run 0700 65532 65532 -"
+      "d /var/lib/janus-identity-csb1/production/state 0700 65532 65532 -"
+      "d /var/lib/janus-identity-csb1/production/audit 0700 65532 65532 -"
 
       # /home/mba/docker is still live — NIX-116 archive reverted (see above).
     ];
@@ -597,6 +606,12 @@ in
       group = "janus-managed-central";
       mode = "0400";
     };
+    # NIX-377: production runtime accountability manifests for Pharos render
+    # and role-status. Vendored tag-exact from rust-engine-v0.1.29.
+    "janus/pharos-production-authority/duty-surface-manifest-v1.json".source =
+      ./docker/janus/pharos-production/authority/duty-surface-manifest-v1.json;
+    "janus/pharos-production-authority/transport-manifest-v1.json".source =
+      ./docker/janus/pharos-production/authority/transport-manifest-v1.json;
     "janus/managed/release-channels-v1.json".source =
       ./docker/janus/managed-service-production/release-channels-v1.json;
     "janus/managed/release-admission.json" = {
