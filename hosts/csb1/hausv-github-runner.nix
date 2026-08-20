@@ -58,11 +58,13 @@
           #   - CapabilityBoundingSet=[""]: empty bounding set (drops all capabilities,
           #     including CAP_DAC_OVERRIDE needed to read the 0750 data dir as root)
           # Disable NoNewPrivileges and PrivateUsers, and reset CapabilityBoundingSet to
-          # unbounded (systemd default) so the sudo'd root process has the same capabilities
-          # mba has over SSH. The empty string resets to the full default set per systemd.exec(5).
+          # the full set with "~". Per systemd.exec(5) on systemd 261: "~ with no further
+          # argument: the bounding set is reset to the full set of available capabilities,
+          # also undoing any previous settings." This gives the sudo'd root process the
+          # same capabilities mba has over SSH.
           NoNewPrivileges = lib.mkForce false;
           PrivateUsers = lib.mkForce false;
-          CapabilityBoundingSet = lib.mkForce [ "" ];
+          CapabilityBoundingSet = lib.mkForce [ "~" ];
         };
       };
 }
