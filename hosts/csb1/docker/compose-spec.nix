@@ -676,7 +676,7 @@
       # manifests as the smoke harness; no production secret or host SSH key is
       # mounted into the staged Rust engine. Use the smoke harness, not manual
       # project-wide compose lifecycle commands, when testing this profile.
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.28@sha256:664961f837382e4041640122ea708bc62620700d457034ec2cd299fa6a5c8522";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.29@sha256:8f772975072e66bd02e0ef5c6df9f432c0b73ff1827346ade8da7fa73ab54a6a";
       container_name = "janus-engine-staged";
       profiles = [
         "janus-engine-staged"
@@ -773,7 +773,7 @@
     # Janus managed-service transaction boundary
     # ============================================
     janus-managed-transactiond = {
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.28@sha256:664961f837382e4041640122ea708bc62620700d457034ec2cd299fa6a5c8522";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.29@sha256:8f772975072e66bd02e0ef5c6df9f432c0b73ff1827346ade8da7fa73ab54a6a";
       container_name = "janus-managed-transactiond";
       profiles = [
         "janus-managed-service"
@@ -802,7 +802,7 @@
         "JANUS_PRODUCT_MODE=production"
         "JANUS_RELEASE_CHANNEL_POLICY=/etc/janus/managed/release-channels-v1.json"
         "JANUS_RELEASE_ADMISSION_RECEIPT=/etc/janus/managed/release-admission.json"
-        "JANUS_RELEASE_ARTIFACT_DIGEST=sha256:664961f837382e4041640122ea708bc62620700d457034ec2cd299fa6a5c8522"
+        "JANUS_RELEASE_ARTIFACT_DIGEST=sha256:8f772975072e66bd02e0ef5c6df9f432c0b73ff1827346ade8da7fa73ab54a6a"
         "JANUS_RELEASE_AUDIT_FILE=/var/lib/janus-managed-central/audit/release-admission.jsonl"
         "JANUS_RELEASE_EXECUTOR=janusd-web-transactiond"
         "JANUS_RUNTIME_AUDIT_FILE=/var/lib/janus-managed-central/audit/runtime.jsonl"
@@ -1025,7 +1025,7 @@
     pharosd = {
       # Keep the readable release tag, but bind it to the verified immutable
       # linux/amd64 manifest used by both server and bundled beacon.
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.81@sha256:497e1e5466e87492502971b4d6d9c806ed94f7da02c487e7e11a5bca56263f2c";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.82@sha256:5579fe07c05d2bd17375564b2bbe93b2ecf1a75d9a2957034921597f2da64188";
       container_name = "pharosd";
       restart = "unless-stopped";
       init = true;
@@ -1153,7 +1153,7 @@
     # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
     # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.81@sha256:497e1e5466e87492502971b4d6d9c806ed94f7da02c487e7e11a5bca56263f2c";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.82@sha256:5579fe07c05d2bd17375564b2bbe93b2ecf1a75d9a2957034921597f2da64188";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;

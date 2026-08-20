@@ -190,6 +190,7 @@ in
     ./disk-config.zfs.nix
     ./hausv-alerts.nix
     ./hausv-next.nix # NIX-368 / HAUSV-513: isolated tailnet fixture preview
+    ./hausv-github-runner.nix # Declarative GitHub Actions runner for hausv-org
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
@@ -1100,8 +1101,9 @@ in
 
   # GHCR pull token for hausv-org private image. Used by hausv-org/scripts/deploy.sh
   # and deploy-from-ci-image.sh for `docker login ghcr.io --username x-access-token
-  # --password-stdin`. Contents: raw GitHub fine-grained token (single line). Janus
-  # capability name (when enrolled): ghcr.pull.inspr-at/hausv-org.
+  # --password-stdin`. Also used as github-runners tokenFile (repo-scoped registration).
+  # Contents: raw GitHub fine-grained token (single line). Janus capability name
+  # (when enrolled): ghcr.pull.inspr-at/hausv-org.
   # 0440 root:users so mba (the SSH deploy user) can read it; docker runs as root but
   # the deployment SSH session is mba, which sources this via password-stdin.
   age.secrets.csb1-hausv-ghcr-pull =

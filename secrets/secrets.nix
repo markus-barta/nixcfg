@@ -316,7 +316,8 @@ in
   # GHCR pull token for hausv-org private image on csb1. Contents: raw GitHub
   # fine-grained token (single line, no KEY= prefix), consumed by deploy.sh /
   # deploy-from-ci-image.sh via `docker login --password-stdin` with username
-  # x-access-token. Janus capability name (when enrolled): ghcr.pull.inspr-at/hausv-org.
+  # x-access-token. Also used as github-runners tokenFile (repo-scoped registration).
+  # Janus capability name (when enrolled): ghcr.pull.inspr-at/hausv-org.
   # Format: bare token text (one line)
   # Edit: agenix -e secrets/csb1-hausv-ghcr-pull.age
   "csb1-hausv-ghcr-pull.age".publicKeys = markus ++ csb1;
