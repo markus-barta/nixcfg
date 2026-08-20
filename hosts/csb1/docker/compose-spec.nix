@@ -409,14 +409,14 @@
       ];
       environment = [
         "TZ=Europe/Vienna"
-        "SMARTHOST_ADDRESS=mail.hover.com"
+        "SMARTHOST_ADDRESS=smtp.resend.com" # OPS-175: Resend, per-host key, sender domain barta.cm
         "SMARTHOST_PORT=587"
-        "SMARTHOST_USER=markus@barta.com"
+        "SMARTHOST_USER=resend"
         "SMARTHOST_ALIASES=*"
         "RELAY_NETWORKS=:172.0.0.0/8"
       ];
       env_file = [
-        "/run/agenix/csb1-smtp-env"
+        "/run/agenix/csb1-mailrelay-env" # SMARTHOST_PASSWORD=<Resend key>
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
@@ -445,6 +445,8 @@
       ];
       environment = {
         RESTIC_BACKUP_OPTIONS = "-r sftp:u387549-sub1@u387549.your-storagebox.de:/";
+        # OPS-175: Resend accepts From only on the verified barta.cm domain.
+        MAIL_FROM = "fleet@barta.cm";
         MAIL_SUBJECT = "💾 Restic Backup netcup csb1 (hetzner)";
         CRON_BACKUP_EXPRESSION = "30 1 * * *";
         PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";

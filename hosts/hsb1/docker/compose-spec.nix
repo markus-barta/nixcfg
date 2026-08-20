@@ -181,15 +181,14 @@
       #       - smtp
       environment = [
         "TZ=Europe/Vienna"
-        "SMARTHOST_ADDRESS=mail.hover.com"
+        "SMARTHOST_ADDRESS=smtp.resend.com" # OPS-175: Resend, per-host key, sender domain barta.cm
         "SMARTHOST_PORT=587"
-        #      - SMARTHOST_PORT=465
-        "SMARTHOST_USER=markus@barta.com"
+        "SMARTHOST_USER=resend"
         "SMARTHOST_ALIASES=*"
         "RELAY_NETWORKS=:172.0.0.0/8"
       ];
       env_file = [
-        "/run/agenix/hsb1-smtp-env"
+        "/run/agenix/hsb1-mailrelay-env" # SMARTHOST_PASSWORD=<Resend key>
       ];
       labels = [
         "traefik.enable=false"
@@ -297,6 +296,8 @@
         RESTIC_REPOSITORY = "sftp:u387549-sub2@u387549.your-storagebox.de:/";
         # MAIL_SUBJECT removed (OPS-137): reporting is the status file; the
         # agenix env's MAIL_TO still triggers the (working) mail as a bonus.
+        # OPS-175: Resend accepts From only on the verified barta.cm domain.
+        MAIL_FROM = "fleet@barta.cm";
         CRON_BACKUP_EXPRESSION = "30 1 * * *";
         PHAROS_BACKUP_STATUS_FILE = "/pharos-backup-status/restic-cron-hetzner.json";
       };

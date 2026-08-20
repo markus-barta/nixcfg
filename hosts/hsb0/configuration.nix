@@ -251,6 +251,13 @@ in
     owner = "mba";
   };
 
+  # OPS-175: Resend API key for the smtp relay (replaces the Hover mailbox password).
+  age.secrets.hsb0-mailrelay-env = {
+    file = ../../secrets/hsb0-mailrelay-env.age;
+    mode = "400";
+    owner = "mba";
+  };
+
   # Emergency recovery password verifier for users.users.mba.hashedPasswordFile.
   # Deliberately root-owned, unlike the sibling secrets above: the consumer is
   # the `users` activation script running as root, not a user-level service.

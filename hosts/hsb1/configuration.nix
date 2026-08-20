@@ -790,6 +790,13 @@ in
     owner = "mba";
   };
 
+  # OPS-175: Resend API key for the smtp relay (replaces the Hover mailbox password).
+  age.secrets.hsb1-mailrelay-env = {
+    file = ../../secrets/hsb1-mailrelay-env.age;
+    mode = "400";
+    owner = "mba";
+  };
+
   # Pharos beacon per-host token. Docker Compose reads it as an env_file.
   age.secrets.pharos-beacon-hsb1-env = {
     file = ../../secrets/pharos-beacon-hsb1-env.age;
