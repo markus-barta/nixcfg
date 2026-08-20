@@ -159,6 +159,7 @@ fi
 
 TMP_DIR=$(mktemp -d)
 cleanup() {
+  janus_pharos_production_identityd_stop
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -177,8 +178,12 @@ container_gid=$JANUS_PHAROS_CONTAINER_GID
 janus_pharos_prepare_age_identity \
   "$IMAGE" "$AGE_VOLUME" "$container_uid" "$container_gid"
 
+# NIX-377: start production runtime accountability broker
+janus_pharos_production_identityd_start \
+  "$IMAGE" "$SCRIPT_DIR" "$container_uid" "$container_gid"
+
 if [ "$PREPARE_ONLY" = "1" ]; then
-  printf 'ok: janus pharos production runtime prepared volume_prefix=%s value_returned=false\n' "$VOLUME_PREFIX"
+  printf 'ok: janus pharos production runtime prepared volume_returned=false\n'
   exit 0
 fi
 
@@ -250,6 +255,7 @@ EOF
   docker run -i --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
     "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_ENV_FLAGS[@]}" \
     -e JANUS_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_BACKEND=age \
@@ -271,6 +277,8 @@ EOF
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janus-warden "$IMAGE" \
     <"$request_file" >"$warden_out" 2>"$warden_err"
 
@@ -300,6 +308,7 @@ render_env_file() {
   if ! docker run --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
     "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_ENV_FLAGS[@]}" \
     -e JANUS_RELEASE_EXECUTOR=janus-run@csb1 \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
@@ -308,6 +317,8 @@ render_env_file() {
     -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
     -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
     -v "${OUT_VOLUME}:/run/janus/env" \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janusd-use "$IMAGE" \
     env-file preflight --profile "$profile_id" \
     >"$preflight_out" 2>"$preflight_err"; then
@@ -320,6 +331,7 @@ render_env_file() {
   if ! docker run --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
     "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_ENV_FLAGS[@]}" \
     -e JANUS_RELEASE_EXECUTOR=janus-run@csb1 \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
@@ -342,6 +354,8 @@ render_env_file() {
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
     -v "${OUT_VOLUME}:/run/janus/env" \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janusd-use "$IMAGE" \
     env-file --profile "$profile_id" --permit "$permit" \
     >"$run_out" 2>"$run_err"; then
