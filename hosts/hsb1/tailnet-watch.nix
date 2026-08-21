@@ -1,15 +1,10 @@
-# csb1's tailnet witness — OPS-181.
+# hsb1's tailnet witness — OPS-185 (second witness, home failure domain).
 #
-# 2026-08-21: headscale on csb0 served an EMPTY DERP map after a failed scheduled
-# refresh; every node lost its relay and nothing paged for ~57 minutes. The
-# existing pollers watch services, not the mesh underneath them. This unit reads
-# csb1's own `tailscale status --json` / `tailscale debug derp-map` and pages
-# Telegram when that view is persistently broken.
-#
-# DELIBERATELY SEPARATE from hausv-alerts and peer-watch (mature, test-pinned).
-# Same engine, same hardening, same reused WATCHTOWER_NOTIFICATION_URL — no new
-# secret. Scope is this host's view only; the check file is shared with hsb1
-# (modules/shared/fleet-alerts/tailnet-watch-checks.py, OPS-185).
+# csb1's witness (OPS-181) shares headscale's netcup failure domain: it catches
+# the poisoned-map aftermath of 2026-08-21 but cannot page while that whole site
+# is dark. hsb1 sits at home on a different provider, so this copy can. Same
+# shared check file, same OPS-107 engine and hardening; its own agenix env
+# (hsb1-tailnet-watch-env: WATCHTOWER_NOTIFICATION_URL, same Telegram target).
 {
   config,
   pkgs,
@@ -23,16 +18,23 @@ let
     name = "tailnet-watch";
     checks = ../../modules/shared/fleet-alerts/tailnet-watch-checks.py;
     substitutions = {
-      HOSTNAME = "csb1";
+      HOSTNAME = "hsb1";
       # The same binary tailscaled runs from, so CLI and daemon never disagree.
       TAILSCALE_BIN = "${config.services.tailscale.package}/bin/tailscale";
-      NOTIFICATION_ENV = config.age.secrets.csb1-watchtower-env.path;
+      NOTIFICATION_ENV = config.age.secrets.hsb1-tailnet-watch-env.path;
     };
   };
 in
 {
+  age.secrets.hsb1-tailnet-watch-env = {
+    file = ../../secrets/hsb1-tailnet-watch-env.age;
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
+
   systemd.services.tailnet-watch = {
-    description = "Page when csb1's tailnet view is persistently broken (OPS-181)";
+    description = "Page when hsb1's tailnet view is persistently broken (OPS-185)";
     after = [
       "network-online.target"
       "tailscaled.service"
@@ -72,7 +74,7 @@ in
   };
 
   systemd.timers.tailnet-watch = {
-    description = "Recurring tailnet witness (OPS-181)";
+    description = "Recurring tailnet witness (OPS-185)";
     wantedBy = [ "timers.target" ];
     timerConfig = {
       OnBootSec = "10m";
