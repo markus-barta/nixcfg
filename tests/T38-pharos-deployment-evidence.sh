@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 # NIX-348: active-generation evidence and exact Pharos freshness wiring.
+#
+# OPS-186 (2026-08-21): the beacon must reach the evidence through the tmpfs
+# DIRECTORY /run/pharos-deployment, refreshed by flake.nix's activation script.
+# Bind-mounting /etc/pharos-deployment/evidence.json (a symlink into the active
+# generation) pinned the inode at container start, so every later switch was
+# invisible to Pharos; mounting /etc/pharos-deployment as a directory has the
+# same defect one level up. Both shapes are rejected below.
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -48,7 +55,7 @@ for host in "${hosts[@]}"; do
     '        "PHAROS_NIXCFG_REMOTE_URL=https://github.com/markus-barta/nixcfg.git"' \
     '        "PHAROS_NIXCFG_REMOTE_REF=refs/heads/main"' \
     '        "PHAROS_NIXPKGS_REMOTE_URL=https://github.com/NixOS/nixpkgs.git"' \
-    '        "/etc/pharos-deployment/evidence.json:/host/pharos-deployment/evidence.json:ro"' \
+    '        "/run/pharos-deployment:/host/pharos-deployment:ro" # OPS-186: directory, not the file — see flake.nix activation script' \
     '        "/home/mba/Code/nixcfg:/nixcfg:ro"'; do
     if [[ "$(grep -Fxc -- "$exact" <<<"$beacon")" != 1 ]]; then
       printf 'pharos_evidence=failed reason=missing_or_duplicate host=%s line=%s\n' \
@@ -67,6 +74,11 @@ for host in "${hosts[@]}"; do
   fi
   if grep -Fq -- '"/etc/pharos-deployment:/host/pharos-deployment:' <<<"$beacon"; then
     printf 'pharos_evidence=failed reason=symlink_preserving_directory_mount host=%s\n' "$host" >&2
+    exit 1
+  fi
+  # OPS-186: the file mount pins the generation active when the container started.
+  if grep -Fq -- 'pharos-deployment/evidence.json:/host/' <<<"$beacon"; then
+    printf 'pharos_evidence=failed reason=generation_pinning_file_mount host=%s\n' "$host" >&2
     exit 1
   fi
   if grep -Eq -- 'PHAROS_NIX(CFG|PKGS)_REMOTE_URL=https://[^/]*@' <<<"$beacon"; then

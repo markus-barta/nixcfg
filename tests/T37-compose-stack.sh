@@ -126,12 +126,14 @@ if grep -rnE 'mode = "0?644"' "${repo}/hosts/" --include='*.nix'; then
 fi
 
 # --- equivalence gate ------------------------------------------------------
-# Needs yq for the YAML side. Skipped rather than failed when unavailable, so a
-# machine without it does not turn a real regression into an unrelated error.
-if command -v yq >/dev/null 2>&1; then
-  python3 "${gate}" --all
-else
-  echo "SKIP: yq not on PATH — run: nix shell nixpkgs#yq-go -c ${0}"
+# Needs yq for the YAML side. OPS-188: this used to print SKIP and exit 0, so on
+# any machine without yq the equivalence gate -- the entire safety property of
+# this test -- silently did not run while the test still reported success.
+# A missing dependency is now exit 2 (unrunnable), never a pass.
+if ! command -v yq >/dev/null 2>&1; then
+  echo "T37: yq is required for the equivalence gate — run: nix shell nixpkgs#yq-go -c ${0}" >&2
+  exit 2
 fi
+python3 "${gate}" --all
 
 echo "T37 compose-stack contract OK"
