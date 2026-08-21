@@ -51,7 +51,10 @@ derp:
     # ipv4: 89.58.63.96
   urls:
     - https://controlplane.tailscale.com/derpmap/default
-  paths: []
+  # OPS-180: local snapshot so a failed URL refresh cannot empty the map (headscale <=0.26).
+  # REMOVE at 0.27 (OPS-182) — load order flips there and paths would shadow the live map.
+  paths:
+    - /etc/headscale/derp-fallback.yaml
   auto_update_enabled: true
   update_frequency: 3h
 
