@@ -327,10 +327,10 @@
     # https://headscale.net/stable/
     # ⚠️ DNS record MUST be DNS-only (gray cloud) in Cloudflare - proxy breaks WebSocket POSTs
     headscale = {
-      # OPS-182 stage 1 — exact patch, one minor per reviewed stage (0.25.1 → 0.26.1 → 0.27.1).
-      # Stage 2 (0.27.1) also removes ./headscale/config/derp-fallback.yaml + derp.paths (OPS-180);
-      # tests/T43 fails loudly if the tag reaches 0.27 with the fallback still wired.
-      image = "headscale/headscale:0.26.1";
+      # OPS-182/183 — exact patch, one minor per reviewed stage (headscale enforces the order).
+      # >= 0.27 keeps the previous DERP map when the scheduled refresh fails (#2741), so the
+      # OPS-180 derp.paths fallback is gone; tests/T43 fails loudly if it ever comes back.
+      image = "headscale/headscale:0.27.1";
       container_name = "headscale";
       restart = "unless-stopped";
       read_only = true;

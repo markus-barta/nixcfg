@@ -422,7 +422,7 @@ Self-hosted Tailscale control server. Manages mesh VPN for all infrastructure ho
 - **Config**: `~/Code/nixcfg/hosts/csb0/docker/headscale/config/config.yaml`
 - **Data**: Docker volume `headscale-data` (SQLite DB + private keys)
 - **DNS**: `hs.barta.cm` must be **DNS-only** in Cloudflare (NOT proxied - breaks WebSocket POSTs)
-- **DERP fallback** (OPS-180): `config/derp-fallback.yaml` is a vendored snapshot of Tailscale's public DERP map wired via `derp.paths`. headscale ≤0.26 replaces the map with an _empty_ one when the 3-hourly `derp.urls` refresh fails (2026-08-21 netcup outage → fleet-wide "no relay", `tailscale status` health "could not connect to relay server"). Symptom check from any Linux node: `sudo tailscale debug derp-map` → `{"Regions": {}}`. Quick fix: `docker restart headscale`. **Remove the fallback at the 0.27 upgrade** (OPS-182) — load order flips there. Config-dir edits are NOT applied by `just switch` (live bind mount from this checkout): `git pull` → `docker exec headscale headscale configtest` → `docker restart headscale`.
+- **DERP map** (OPS-180/182): headscale ≤0.26 replaced the map with an _empty_ one when the 3-hourly `derp.urls` refresh failed (2026-08-21 netcup outage → fleet-wide "no relay"; symptom: `sudo tailscale debug derp-map` → `{"Regions": {}}`, health "could not connect to relay server"; quick fix `docker restart headscale`). Since 0.27 a failed refresh keeps the previous map, so the temporary `derp.paths` snapshot is gone — do not re-add one on ≥0.27 (paths overwrite the live map there; T43 guards it).
 
 ### Common Commands
 
