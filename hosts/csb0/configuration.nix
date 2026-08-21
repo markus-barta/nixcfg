@@ -157,6 +157,24 @@ in
       allowedUDPPorts = [
         41641 # Tailscale WireGuard
       ];
+      # OPS-184: drop an orphaned ex-employer Tailscale client (85.125.96.34, UPC-business
+      # static, RIPE MarineXChange Software GmbH, Graz). Its headscale node record was deleted
+      # at the June 2026 exit, but the device still long-polls hs.barta.cm every ~15 s and
+      # fills the headscale log with 'node not found' 404s (~5760/day since 2026-06-15,
+      # attribution confirmed 2026-08-21 via socket byte counters). There is nothing left
+      # to revoke server-side, so the block lives here. Docker-published ports (443 → traefik
+      # → headscale) traverse DOCKER-USER, host ports traverse nixos-fw; both get the rule.
+      # Docker creates DOCKER-USER itself; creating it first keeps this order-independent.
+      # Trade-off accepted by the operator: a shared business NAT could catch a bystander.
+      extraCommands = ''
+        iptables -w -N DOCKER-USER 2>/dev/null || true
+        iptables -w -D DOCKER-USER -s 85.125.96.34 -j DROP 2>/dev/null || true
+        iptables -w -I DOCKER-USER 1 -s 85.125.96.34 -j DROP
+        iptables -w -I nixos-fw 1 -s 85.125.96.34 -j DROP
+      '';
+      extraStopCommands = ''
+        iptables -w -D DOCKER-USER -s 85.125.96.34 -j DROP 2>/dev/null || true
+      '';
     };
   };
 
