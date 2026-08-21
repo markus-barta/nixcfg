@@ -88,6 +88,12 @@ jobs:
       - name: Verify csb1 tailnet witness contract (OPS-181)
         run: tests/T44-tailnet-watch.sh
 
+      - name: Verify Pharos deployment evidence reaches beacons through a directory (OPS-186)
+        run: tests/T45-pharos-evidence-mount.sh
+
+      - name: Verify csb1 fleet drift watch contract (OPS-187)
+        run: tests/T46-fleet-drift.sh
+
       # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
       # doctrine-check.sh (INSPR-300); this step then calls that instead.
       - name: Verify both doctrine consumption paths agree
