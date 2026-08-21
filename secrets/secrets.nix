@@ -138,6 +138,9 @@ in
   # Time Machine Samba credentials (tm-markus/tm-mailina shares) — two lines,
   # "markus <password>" and "mailina <password>". Edit: agenix -e secrets/hsb1-tm-smb-env.age
   "hsb1-tm-smb-env.age".publicKeys = markus ++ hsb1;
+  # OPS-185: tailnet-watch Telegram target (WATCHTOWER_NOTIFICATION_URL=telegram://…, same
+  # channel as csb1-watchtower-env). Edit: agenix -e secrets/hsb1-tailnet-watch-env.age
+  "hsb1-tailnet-watch-env.age".publicKeys = markus ++ hsb1;
 
   # NIX-230/235 — hsb8 watchtower env: WATCHTOWER_HTTP_API_TOKEN (must match
   # WATCHTOWER_TOKEN in fleetcom-agent's /opt/fleetcom-agent/.env) +
