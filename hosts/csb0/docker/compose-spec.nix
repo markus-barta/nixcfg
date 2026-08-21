@@ -12,8 +12,9 @@
 # path depends on. ./traefik/acme*.json is MUTABLE Let's Encrypt state and must
 # stay a writable bind mount — never let it into the store.
 #
-# Verify any change with:
-#   nix shell nixpkgs#yq-go -c ./tests/compose_stack_gate.py csb0
+# Verify any change with (tests/compose_stack_gate.py no longer applies to csb0 — OPS-127):
+#   nix eval --no-update-lock-file .#nixosConfigurations.csb0.config.system.build.toplevel.drvPath
+#   scripts/format-check.sh · tests/T43-headscale-derp-fallback.sh
 # Incident-history comments carried over from the retired yml (OPS-127).
 # Compose project name: csb0 — named volumes depend on it.
 #
@@ -326,7 +327,10 @@
     # https://headscale.net/stable/
     # ⚠️ DNS record MUST be DNS-only (gray cloud) in Cloudflare - proxy breaks WebSocket POSTs
     headscale = {
-      image = "headscale/headscale:0.25";
+      # OPS-182 stage 1 — exact patch, one minor per reviewed stage (0.25.1 → 0.26.1 → 0.27.1).
+      # Stage 2 (0.27.1) also removes ./headscale/config/derp-fallback.yaml + derp.paths (OPS-180);
+      # tests/T43 fails loudly if the tag reaches 0.27 with the fallback still wired.
+      image = "headscale/headscale:0.26.1";
       container_name = "headscale";
       restart = "unless-stopped";
       read_only = true;
