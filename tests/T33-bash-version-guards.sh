@@ -51,4 +51,37 @@ SNIPPET
   exit 1
 fi
 
-printf 'bash_version_guards=passed\n'
+# --- OPS-188: a test that cannot run is not a guard ------------------------
+# Two ways a test silently stops guarding anything, both found on 2026-08-21:
+# it loses its executable bit (CI's `run: tests/Tnn.sh` then exits 126), or it
+# is never referenced by a workflow at all. 18 of 47 tests were in the second
+# state; three of those had been incapable of failing for months.
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+not_executable=()
+unwired=()
+checked=()
+for test_file in "$repo_root"/tests/T*.sh; do
+  name="$(basename "$test_file")"
+  checked+=("$name")
+  [ -x "$test_file" ] || not_executable+=("$name")
+  if ! grep -rqF "$name" "$repo_root"/.github/workflows/ 2>/dev/null; then
+    unwired+=("$name")
+  fi
+done
+
+if [ ${#not_executable[@]} -gt 0 ] || [ ${#unwired[@]} -gt 0 ]; then
+  printf 'suite_runnability=failed\n' >&2
+  if [ ${#not_executable[@]} -gt 0 ]; then
+    printf '\nNot executable (CI would exit 126 without running a single assertion):\n' >&2
+    printf '  %s\n' "${not_executable[@]}" >&2
+    printf '\nFix: chmod +x tests/<name> && git update-index --chmod=+x tests/<name>\n' >&2
+  fi
+  if [ ${#unwired[@]} -gt 0 ]; then
+    printf '\nReferenced by no workflow -- these are prose, not gates:\n' >&2
+    printf '  %s\n' "${unwired[@]}" >&2
+    printf '\nFix: add a step to .github/workflows/check.yml, or delete the test.\n' >&2
+  fi
+  exit 1
+fi
+
+printf 'bash_version_guards=passed suite_runnable=%s\n' "${#checked[@]}"
