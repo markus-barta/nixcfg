@@ -1032,6 +1032,29 @@ file. Restore capability itself is already proven by the isolated
 `persistence-store-pattern`; do not repeat that restore drill merely to accept
 an alerting change.
 
+### Tailnet Witness (tailnet-watch, OPS-181)
+
+`tailnet-watch.timer` runs every ten minutes and reads **this host's** view of
+the mesh: `tailscale status --json` (must parse, `BackendState` = `Running`,
+every `.Health` entry is a problem of its own) and `tailscale debug derp-map`
+(zero regions = the 2026-08-21 empty-DERP-map outage, which went unpaged for
+~57 minutes). Same OPS-107 engine as peer-watch: a problem must be seen on two
+consecutive runs before it pages, recovery announces a clear, and delivery
+reuses `csb1-watchtower-env` — no new secret. Scope is csb1's view, not the
+fleet; csb1 shares the netcup failure domain with headscale, so it catches the
+post-outage poisoned map, not the site outage itself.
+
+```bash
+systemctl status tailnet-watch.timer --no-pager
+sudo systemctl start tailnet-watch.service
+journalctl -u tailnet-watch.service --since "1 hour ago" --no-pager
+sudo cat /var/lib/tailnet-watch/state.json   # counters + pending only, never secrets
+```
+
+Intentional baseline advisories go into `SUPPRESSED_HEALTH` in
+`tailnet-watch-checks.py` with a comment and a pinned test; the baseline on
+2026-08-21 was empty.
+
 ### HAUSV Graceful Stop Budget
 
 The private `hausv-jhw22` Compose service declares `stop_grace_period: 30s`.
