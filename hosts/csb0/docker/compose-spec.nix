@@ -330,7 +330,7 @@
       # OPS-182/183 — exact patch, one minor per reviewed stage (headscale enforces the order).
       # >= 0.27 keeps the previous DERP map when the scheduled refresh fails (#2741), so the
       # OPS-180 derp.paths fallback is gone; tests/T43 fails loudly if it ever comes back.
-      image = "headscale/headscale:0.27.1";
+      image = "headscale/headscale:0.28.0";
       container_name = "headscale";
       restart = "unless-stopped";
       read_only = true;
