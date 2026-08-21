@@ -16,6 +16,23 @@ ssh mba@hsb1.lan
 
 ---
 
+## Tailnet Witness (tailnet-watch, OPS-185)
+
+`tailnet-watch.timer` runs every ten minutes and reads **this host's** view of
+the mesh: `tailscale status --json` (must parse, `BackendState` = `Running`,
+every `.Health` entry is a problem) and `tailscale debug derp-map` (zero regions
+= the 2026-08-21 empty-DERP-map outage). Second witness next to csb1's: hsb1 sits
+at home on a different provider, so it can still page while netcup is dark.
+Shared OPS-107 engine (two consecutive runs before paging, recovery clears);
+Telegram target from agenix `hsb1-tailnet-watch-env` (`WATCHTOWER_NOTIFICATION_URL`,
+same channel as csb1). Edit the secret with `agenix -e secrets/hsb1-tailnet-watch-env.age`.
+
+```bash
+systemctl status tailnet-watch.timer --no-pager
+sudo systemctl start tailnet-watch.service
+journalctl -u tailnet-watch.service --since "1 hour ago" --no-pager
+```
+
 ## Common Tasks
 
 ### Update & Switch Configuration

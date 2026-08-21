@@ -1051,9 +1051,9 @@ journalctl -u tailnet-watch.service --since "1 hour ago" --no-pager
 sudo cat /var/lib/tailnet-watch/state.json   # counters + pending only, never secrets
 ```
 
-Intentional baseline advisories go into `SUPPRESSED_HEALTH` in
-`tailnet-watch-checks.py` with a comment and a pinned test; the baseline on
-2026-08-21 was empty.
+Intentional baseline advisories go into `SUPPRESSED_HEALTH` in the shared
+`modules/shared/fleet-alerts/tailnet-watch-checks.py` (also used by hsb1,
+OPS-185) with a comment and a pinned test; the baseline on 2026-08-21 was empty.
 
 ### HAUSV Graceful Stop Budget
 

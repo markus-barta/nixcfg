@@ -8,7 +8,8 @@
 #
 # DELIBERATELY SEPARATE from hausv-alerts and peer-watch (mature, test-pinned).
 # Same engine, same hardening, same reused WATCHTOWER_NOTIFICATION_URL — no new
-# secret. Scope is this host's view only; see tailnet-watch-checks.py.
+# secret. Scope is this host's view only; the check file is shared with hsb1
+# (modules/shared/fleet-alerts/tailnet-watch-checks.py, OPS-185).
 {
   config,
   pkgs,
@@ -20,8 +21,9 @@ let
 
   poller = fleetLib.mkPoller {
     name = "tailnet-watch";
-    checks = ./tailnet-watch-checks.py;
+    checks = ../../modules/shared/fleet-alerts/tailnet-watch-checks.py;
     substitutions = {
+      HOSTNAME = "csb1";
       # The same binary tailscaled runs from, so CLI and daemon never disagree.
       TAILSCALE_BIN = "${config.services.tailscale.package}/bin/tailscale";
       NOTIFICATION_ENV = config.age.secrets.csb1-watchtower-env.path;

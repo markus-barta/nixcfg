@@ -1,4 +1,4 @@
-"""Unit + engine-integration tests for csb1's tailnet witness (OPS-181).
+"""Unit + engine-integration tests for the shared tailnet witness (OPS-181 csb1, OPS-185 hsb1).
 
 Why this poller exists: on 2026-08-21 headscale served an EMPTY DERP map after a
 failed scheduled refresh, every node lost its relay, and nothing paged for ~57
@@ -27,7 +27,7 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-CHECKS = REPO / "hosts" / "csb1" / "tailnet-watch-checks.py"
+CHECKS = REPO / "modules" / "shared" / "fleet-alerts" / "tailnet-watch-checks.py"
 ENGINE = REPO / "modules" / "shared" / "fleet-alerts" / "engine.py"
 
 SPEC = importlib.util.spec_from_file_location("engine", ENGINE)
@@ -42,7 +42,9 @@ def load_checks():
     source = CHECKS.read_text()
     source = source.replace("@NOTIFICATION_ENV@", "/nonexistent/notify.env")
     source = source.replace("@TAILSCALE_BIN@", "/nonexistent/tailscale")
+    source = source.replace("@HOSTNAME@", "csb1")
     assert "@NOTIFICATION_ENV@" not in source and "@TAILSCALE_BIN@" not in source
+    assert "@HOSTNAME@" not in source
     module = types.ModuleType("tailnet_watch_checks")
     module.__dict__["__file__"] = str(CHECKS)
     exec(compile(source, str(CHECKS), "exec"), module.__dict__)  # noqa: S102
@@ -169,7 +171,7 @@ class EngineIntegrationTest(unittest.TestCase):
         self.assertEqual(self.sent, [], "first sighting must not page")
         self.assertEqual(self.run_once(1600, RUNNING, EMPTY_MAP), engine.EXIT_PROBLEMS)
         self.assertEqual(len(self.sent), 1, "second consecutive sighting pages")
-        self.assertIn("Tailnet (csb1 view)", self.sent[0])
+        self.assertIn("Tailnet (csb1 view)", self.sent[0])  # HOSTNAME substitution reaches the page text
         self.assertIn("DERP map is EMPTY", self.sent[0])
         self.assertEqual(self.run_once(2200, RUNNING, FULL_MAP), engine.EXIT_CLEAN)
         self.assertEqual(len(self.sent), 2, "recovery announces a clear")
