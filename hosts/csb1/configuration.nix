@@ -185,6 +185,7 @@ in
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./peer-watch.nix # OPS-107: watch csb0's poller so its silence is noticed
+    ./tailnet-watch.nix # OPS-181: page when this host's tailnet view is persistently broken
     ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb0 see this poller is alive
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
