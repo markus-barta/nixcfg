@@ -199,7 +199,7 @@ declarative() {
   check_image_pin \
     rust_release_pin \
     janus-managed-transactiond \
-    '^ghcr\.io/inspr-at/janus/janus-engine:rust-engine-v0\.1\.29@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/janus/janus-engine:rust-engine-v0\.1\.30@sha256:[0-9a-f]{64}$'
   check_image_pin \
     pharos_release_pin \
     pharosd \
@@ -223,21 +223,21 @@ declarative() {
      and .mode == "production"
      and .previous_mode == "production"
      and .artifact.image == "ghcr.io/inspr-at/janus/janus-engine"
-     and .artifact.tag == "rust-engine-v0.1.29"
+     and .artifact.tag == "rust-engine-v0.1.30"
      and .artifact.digest == $digest
      and .artifact.development == false
      and .signature.verified == true
-     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.29"
+     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/rust.yml@refs/tags/rust-engine-v0.1.30"
      and .signature.oidc_issuer == "https://token.actions.githubusercontent.com"
      and .provenance.verified == true
      and .provenance.repository == "inspr-at/janus"
      and .provenance.signer_workflow == "inspr-at/janus/.github/workflows/rust.yml"
-     and .provenance.source_ref == "refs/tags/rust-engine-v0.1.29"
+     and .provenance.source_ref == "refs/tags/rust-engine-v0.1.30"
      and .provenance.predicate_type == "https://slsa.dev/provenance/v1"
      and .sbom.verified == true
      and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"
      and .source.verified == true
-     and .source.commit == "6776ceb0e36bbfc02d2f73747c08d81db5329a19"
+     and .source.commit == "26c8dfa34c011cd12f0a18a19093e9abb2458bf0"
      and (.source.manifest_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and (.source.bundle_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and .scanner.verified == true
