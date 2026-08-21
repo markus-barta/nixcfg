@@ -452,6 +452,30 @@ docker exec headscale headscale configtest
 docker logs headscale --tail 50
 ```
 
+### Upgrades (staged, OPS-182 / OPS-183)
+
+One minor per reviewed stage at its latest patch (0.25.1 → 0.26.1 → 0.27.1 → 0.28.0 → 0.29.3);
+the image tag is pinned in `docker/compose-spec.nix` (in the closure → `just switch` recreates
+the container). The SQLite volume migrates forward only — never run an older image against a
+migrated database; roll back by restoring the pre-stage backup together with the old tag.
+
+```bash
+# 1. inventory (record in the stage ticket)
+docker exec headscale headscale version; docker exec headscale headscale users list
+docker exec headscale headscale nodes list; docker exec headscale headscale routes list
+# 2. cold backup of the data volume (stops the control plane; the data plane keeps running)
+docker stop headscale
+sudo mkdir -p /var/lib/csb0-docker/headscale-backups   # inside the nightly restic path
+sudo tar -C /var/lib/docker/volumes/csb0_headscale-data/_data -czf \
+  /var/lib/csb0-docker/headscale-backups/headscale-data-pre-<tag>-$(date +%Y%m%dT%H%M%S).tgz .
+# 3. merge the pin PR, then on csb0:
+cd ~/Code/nixcfg && git pull && just switch        # recreates headscale with the new image
+docker logs headscale --tail 60                    # migration lines, 'listening and serving'
+docker exec headscale headscale nodes list         # all nodes still there
+# 4. from another node: sudo tailscale debug derp-map | jq '.Regions|length'  (28) and health clean
+# rollback: docker stop headscale; restore the tgz into the volume; re-pin the old tag; switch
+```
+
 ### Connect a New Device
 
 > **Note:** The `--authkey` does NOT need a `--user` flag on the client side.
