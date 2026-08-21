@@ -85,6 +85,9 @@ jobs:
       - name: Verify HAUSV graceful-stop budget
         run: tests/T36-hausv-stop-grace.sh
 
+      - name: Verify csb1 tailnet witness contract (OPS-181)
+        run: tests/T44-tailnet-watch.sh
+
       # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
       # doctrine-check.sh (INSPR-300); this step then calls that instead.
       - name: Verify both doctrine consumption paths agree
