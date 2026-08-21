@@ -186,6 +186,7 @@ in
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./peer-watch.nix # OPS-107: watch csb0's poller so its silence is noticed
     ./tailnet-watch.nix # OPS-181: page when this host's tailnet view is persistently broken
+    ./fleet-drift.nix # OPS-187: page when a fleet host's deployed nixcfg is persistently behind main (reads pharosd's store)
     ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb0 see this poller is alive
     ./hardware-configuration.nix
     ./disk-config.zfs.nix

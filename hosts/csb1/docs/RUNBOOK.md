@@ -1055,6 +1055,25 @@ Intentional baseline advisories go into `SUPPRESSED_HEALTH` in the shared
 `modules/shared/fleet-alerts/tailnet-watch-checks.py` (also used by hsb1,
 OPS-185) with a comment and a pinned test; the baseline on 2026-08-21 was empty.
 
+### Fleet Drift Watch (fleet-drift, OPS-187)
+
+`fleet-drift.timer` runs hourly and reads pharosd's persisted store on this host
+(`/var/lib/docker/volumes/csb1_pharos_data/_data/pharos.json`, root read-only —
+`/hosts.json` needs an OIDC session even on localhost). It pages when a fleet
+host's beacon says its deployed nixcfg is `behind` main and the deployed commit
+is ≥ 7 days old (commit date from `~mba/Code/nixcfg`, best effort) or ≥ 25
+commits behind; `diverged`/`ahead` page as their own problem; hosts silent for
+
+> 30 min are skipped (Pharos HostDown owns silence). Same OPS-107 engine: two
+> consecutive runs before paging, recovery clears, `csb1-watchtower-env` target.
+> Truthful only with OPS-186 in place (beacons must see the current evidence).
+
+```bash
+systemctl status fleet-drift.timer --no-pager
+sudo systemctl start fleet-drift.service
+journalctl -u fleet-drift.service --since "1 day ago" --no-pager
+```
+
 ### HAUSV Graceful Stop Budget
 
 The private `hausv-jhw22` Compose service declares `stop_grace_period: 30s`.
