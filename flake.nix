@@ -145,6 +145,18 @@
         (_: {
           system.configurationRevision = nixDeploymentEvidence.source_revision;
           environment.etc."pharos-deployment/evidence.json".text = builtins.toJSON nixDeploymentEvidence;
+          # OPS-186: /etc/pharos-deployment/evidence.json is a symlink into the active
+          # generation. A container that bind-mounts that FILE pins the inode from its
+          # start and never sees a later switch. Copy the document into a tmpfs
+          # directory at every activation; beacons mount the DIRECTORY.
+          system.activationScripts.pharosDeploymentEvidence = {
+            deps = [ "etc" ];
+            text = ''
+              mkdir -p /run/pharos-deployment
+              install -m 0644 /etc/pharos-deployment/evidence.json /run/pharos-deployment/.evidence.json.tmp
+              mv -f /run/pharos-deployment/.evidence.json.tmp /run/pharos-deployment/evidence.json
+            '';
+          };
         })
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age
