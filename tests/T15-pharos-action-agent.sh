@@ -23,7 +23,12 @@ grep -Fq 'OnUnitActiveSec = "${toString cfg.actionPollSeconds}s";' "$module"
 grep -Fq 'unset PHAROS_TOKEN' "$agent_source"
 # shellcheck disable=SC2016
 grep -Fq -- '--config "$auth_config"' "$agent_source"
-grep -Fq 'system.configurationRevision = inputs.self.rev or null;' "$common"
+# NIX-348 moved the revision binding out of common.nix: the flake now derives it
+# from the generation evidence document (which requires self.rev), and common.nix
+# only publishes it. Assert both halves so traceability cannot silently detach.
+grep -Fq 'system.configurationRevision = nixDeploymentEvidence.source_revision;' "$repo_root/flake.nix"
+grep -Fq 'requireGitRevision "self.rev"' "$repo_root/lib/pharos-deployment-evidence.nix"
+grep -Fq 'environment.etc."pharos/deployed-revision".text = config.system.configurationRevision;' "$common"
 grep -Fq 'mode = "janus";' "$host_config"
 grep -Fq 'janusRequired = true;' "$host_config"
 # OPS-116/127: hsb8-stack (writeText yml) was superseded by composeStack, which
