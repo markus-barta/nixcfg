@@ -504,9 +504,15 @@ EOF
 
   local identityd_ready=0
   for _ in $(seq 1 100); do
-    if docker run --rm -v "${authority_host_root}:${authority_container_root}:ro" \
+    # Readiness requires that the socket accepts a Unix connection, not merely that
+    # the path is -S. A leftover sock file can be -S with no listener (rust-engine
+    # v0.1.29+ bind_private_identity_socket fails closed if the path exists).
+    # Connect+close as uid 65532 is enough to prove the listener is up.
+    if docker run --rm --user "${container_uid}:${container_gid}" \
+      -v "${authority_host_root}:${authority_container_root}" \
       --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-      -c "test -S ${authority_container_root}/run/identity.sock" 2>/dev/null; then
+      -c 'timeout 1 sh -c "exec 3<> \"$1\" && exec 3>&-" sh "${1}/run/identity.sock"' \
+      sh "$authority_container_root" 2>/dev/null; then
       identityd_ready=1
       break
     fi
@@ -534,7 +540,11 @@ EOF
 
 janus_pharos_production_identityd_stop() {
   local identityd_container=${JANUS_PHAROS_IDENTITYD_CONTAINER:-}
+  local authority_host_root=/var/lib/janus-identity-csb1/production
   [ -n "$identityd_container" ] || return 0
   docker rm -f "$identityd_container" >/dev/null 2>&1 || true
+  # Unlink the socket after container removal so the next start is not blocked by
+  # a leftover path. bind_private_identity_socket fails closed if the path exists.
+  rm -f "${authority_host_root}/run/identity.sock"
 }
 # --- end runtime accountability broker -----------------------------------------
