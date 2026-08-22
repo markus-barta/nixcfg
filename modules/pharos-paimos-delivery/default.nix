@@ -202,7 +202,7 @@ in
 
     paimosOrigin = lib.mkOption {
       type = lib.types.str;
-      example = "https://paimos.barta.cm";
+      example = "https://pm.barta.cm";
       description = "Credential-free https Paimos origin with no path, query or fragment.";
     };
 

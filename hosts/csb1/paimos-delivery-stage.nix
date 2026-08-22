@@ -33,9 +33,20 @@
   # csb1. Flipping it with `intents = [ ]` fails the build, not the host.
   active = false;
 
-  # Real production Paimos origin. https, no userinfo, query, fragment or
-  # path — both adapters reject anything else before the first request.
-  paimosOrigin = "https://paimos.barta.cm";
+  # 🔴 The CANONICAL production Paimos origin, and the single value both
+  # adapters dial. It must stay identical to the default instance declared in
+  # modules/shared/markus-defaults.nix (`inspr.paimos-cli.instances.ppm.url`);
+  # tests/T48 reads that file and fails the build on any divergence.
+  #
+  # This is PPM — the personal-context Paimos this very host serves behind
+  # Traefik (compose-spec.nix router rule Host(pm.barta.cm), image paimos:5.12.0)
+  # and the instance that owns NIX-381 / PAI-810 / PHAROS-206 / JANUS-441. It is
+  # NOT `paimos.agm.ng`: that is the augmentoring business-context instance
+  # (INSPR-287), a different trust context, and it serves an older release.
+  # https, no userinfo, query, fragment or path — both adapters reject
+  # anything else before the first request (`parse_origin` / `normalized_origin`
+  # require `url.path() == "/"`).
+  paimosOrigin = "https://pm.barta.cm";
 
   # ── Pharos owner adapter (PHAROS-206) ────────────────────────────────────
   pharos = {

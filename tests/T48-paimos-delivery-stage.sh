@@ -36,6 +36,8 @@ compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 pharos_module="$repo_root/modules/pharos-paimos-delivery/default.nix"
 janus_module="$repo_root/modules/janus-paimos-dependency-reporter/default.nix"
+# The one place this repo already declares the canonical Paimos instances.
+paimos_defaults="$repo_root/modules/shared/markus-defaults.nix"
 
 for file in "$stage" "$compose" "$host_config" "$pharos_module" "$janus_module"; do
   nix-instantiate --parse "$file" >/dev/null
@@ -76,12 +78,22 @@ on_env="$(nix eval --impure --json --expr "(import $workdir/on/docker/compose-sp
 on_volumes="$(nix eval --impure --json --expr "(import $workdir/on/docker/compose-spec.nix).services.pharosd.volumes")"
 
 PYTHONDONTWRITEBYTECODE=1 python3 - \
-  "$off_env" "$off_volumes" "$on_env" "$on_volumes" "$stage" <<'PY'
+  "$off_env" "$off_volumes" "$on_env" "$on_volumes" "$stage" \
+  "$paimos_defaults" "$pharos_module" "$janus_module" <<'PY'
 import json
 import re
 import sys
 
-off_env, off_volumes, on_env, on_volumes, stage_path = sys.argv[1:6]
+(
+    off_env,
+    off_volumes,
+    on_env,
+    on_volumes,
+    stage_path,
+    defaults_path,
+    pharos_module_path,
+    janus_module_path,
+) = sys.argv[1:9]
 off_env, on_env = json.loads(off_env), json.loads(on_env)
 off_volumes, on_volumes = json.loads(off_volumes), json.loads(on_volumes)
 stage = open(stage_path, encoding="utf-8").read()
@@ -144,12 +156,67 @@ for source in credential_sources:
     if not source.startswith("/run/agenix/"):
         failures.append(f"credential mount must come from agenix, got {source!r}")
 
-# The origin is real, https, and value-free.
-origin = re.search(r'paimosOrigin\s*=\s*"([^"]+)"', stage)
-if not origin:
-    failures.append("paimos-delivery-stage.nix declares no paimosOrigin")
-elif not re.fullmatch(r"https://[A-Za-z0-9.-]+", origin.group(1)):
-    failures.append(f"paimosOrigin must be a credential-free https origin, got {origin.group(1)!r}")
+# --- the origin is the EXACT canonical instance, not merely https-shaped ----
+# 🔴 A plausible-but-wrong origin (a subdomain that does not resolve, or the
+# other-trust-context instance) is invisible to a shape check and only shows up
+# as `paimos_reporter_*`/`contract_refused` after activation. So the canonical
+# value is DERIVED from the single place this repo already declares it —
+# modules/shared/markus-defaults.nix, `inspr.paimos-cli` — and every copy in the
+# adapter tree must equal it. Moving the instance therefore moves this test.
+defaults = open(defaults_path, encoding="utf-8").read()
+instance = re.search(
+    r"defaultInstance\s*=\s*(?:lib\.mkDefault\s*)?\"([A-Za-z0-9_-]+)\"", defaults
+)
+canonical = None
+if not instance:
+    failures.append("markus-defaults.nix declares no inspr.paimos-cli.defaultInstance")
+else:
+    url = re.search(
+        r"instances\.%s\s*=\s*\{.*?url\s*=\s*\"([^\"]+)\"" % re.escape(instance.group(1)),
+        defaults,
+        re.S,
+    )
+    if not url:
+        failures.append(
+            f"markus-defaults.nix declares no url for the default Paimos instance "
+            f"{instance.group(1)!r}"
+        )
+    else:
+        canonical = url.group(1).rstrip("/")
+
+if canonical is not None and not re.fullmatch(r"https://[A-Za-z0-9.-]+", canonical):
+    failures.append(f"canonical Paimos instance url is not a bare https origin: {canonical!r}")
+
+declared = {
+    stage_path: re.search(r'paimosOrigin\s*=\s*"([^"]+)"', stage),
+    # The module `example =` values are what the next author copies. A stale one
+    # is how a dead origin gets reintroduced, so they are checked, not ignored.
+    pharos_module_path: re.search(
+        r'paimosOrigin\s*=\s*lib\.mkOption\s*\{.*?example\s*=\s*"([^"]+)"',
+        open(pharos_module_path, encoding="utf-8").read(),
+        re.S,
+    ),
+    janus_module_path: re.search(
+        r'paimosOrigin\s*=\s*lib\.mkOption\s*\{.*?example\s*=\s*"([^"]+)"',
+        open(janus_module_path, encoding="utf-8").read(),
+        re.S,
+    ),
+}
+for path, match in declared.items():
+    if not match:
+        failures.append(f"{path}: no paimosOrigin value found")
+        continue
+    value = match.group(1)
+    if not re.fullmatch(r"https://[A-Za-z0-9.-]+", value):
+        failures.append(
+            f"{path}: paimosOrigin must be a credential-free https origin with no path, "
+            f"query or fragment, got {value!r}"
+        )
+    elif canonical is not None and value != canonical:
+        failures.append(
+            f"{path}: paimosOrigin is {value!r} but the canonical Paimos instance "
+            f"declared in markus-defaults.nix is {canonical!r}"
+        )
 
 if failures:
     print(f"T48: {len(failures)} compose/switch failure(s):", file=sys.stderr)
