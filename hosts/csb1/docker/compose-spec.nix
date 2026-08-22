@@ -1026,7 +1026,7 @@
       # 0.1.83 = Paimos delivery-stage owner adapter with pinned v1 contract and fail-closed replay/media checks (PHAROS-206).
       # Keep the readable release tag, but bind it to the verified immutable
       # linux/amd64 manifest used by both server and bundled beacon.
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.83@sha256:16f4438b8a9e22f52449dd2a80cc1715faaa70c95c4119f9c641620c4aabf0a2";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.83@sha256:2d880515627656322876eda1bb07462866d1ac57829fd3d72dc6418fb222a0fa";
       container_name = "pharosd";
       restart = "unless-stopped";
       init = true;
@@ -1154,7 +1154,7 @@
     # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
     # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.83@sha256:16f4438b8a9e22f52449dd2a80cc1715faaa70c95c4119f9c641620c4aabf0a2";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.83@sha256:2d880515627656322876eda1bb07462866d1ac57829fd3d72dc6418fb222a0fa";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
