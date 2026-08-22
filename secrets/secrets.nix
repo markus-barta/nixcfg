@@ -325,6 +325,12 @@ in
   # Edit: agenix -e secrets/csb1-hausv-ghcr-pull.age
   "csb1-hausv-ghcr-pull.age".publicKeys = markus ++ csb1;
 
+  # NIX-378: GitHub Actions runner token for augmentoring-team/start-agm-com.
+  # Contents: raw GitHub PAT (single line, no KEY= prefix).
+  # Janus capability name: github.runner.augmentoring-team/start-agm-com
+  # Edit hint: agenix -e secrets/csb1-start-github-runner.age
+  "csb1-start-github-runner.age".publicKeys = markus ++ csb1;
+
   # NIX-367 / HAUSV-495: Phase-0 PostgreSQL credentials. These are separate
   # files so the future application projection can never expose the bootstrap
   # administrator password. Each file contains exactly one password line.
