@@ -32,6 +32,42 @@
 # Secrets: ALL env_files now use /run/agenix/... paths (M4 migration of
 # the loose ~/secrets/ and ./xxx.env files into agenix). Container reads
 # at runtime via agenix-decrypted bind. No plaintext secrets in this file.
+let
+  # NIX-381 — the same file hosts/csb1/configuration.nix wires the two adapter
+  # modules from, so the compose side and the module side share one switch.
+  #
+  # 🔴 Why this is conditional and not simply present: pharosd v0.1.83 PANICS
+  # when PHAROS_PAIMOS_DELIVERY_CONFIG_FILE is set and the config, the API key
+  # or any 32-byte handoff secret is missing or has the wrong owner/mode. An
+  # unconditional env var would therefore crash-loop the live fleet dashboard
+  # from the moment this lands until credentials exist. Absent = adapter off,
+  # which is exactly the pre-NIX-381 behaviour.
+  paimos = import ../paimos-delivery-stage.nix;
+  paimosDeliveryEnvironment =
+    if paimos.active then [ "PHAROS_PAIMOS_DELIVERY_CONFIG_FILE=${paimos.pharos.configFile}" ] else [ ];
+  # Each credential is its own inode: pharosd compares (device, inode) and
+  # refuses a shared API-key/handoff file. Read-only, create_host_path false, so
+  # a missing source fails the container start instead of silently binding an
+  # empty directory over the mount point.
+  privateBind = source: target: {
+    type = "bind";
+    inherit source target;
+    read_only = true;
+    bind = {
+      create_host_path = false;
+    };
+  };
+  paimosDeliveryVolumes =
+    if paimos.active then
+      [
+        (privateBind paimos.pharos.configFile paimos.pharos.configFile)
+        (privateBind paimos.pharos.hostApiKeyFile paimos.pharos.apiKeyFile)
+        (privateBind paimos.pharos.hostDeploymentHandoffSecretFile paimos.pharos.deploymentHandoffSecretFile)
+        (privateBind paimos.pharos.hostVerificationHandoffSecretFile paimos.pharos.verificationHandoffSecretFile)
+      ]
+    else
+      [ ];
+in
 {
   name = "csb1";
   services = {
@@ -1100,7 +1136,13 @@
         # reference is derived only from an OIDC email_verified=true claim.
         "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27"
         "PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json"
-      ];
+      ]
+      # NIX-381 / PHAROS-206 — reporter-only Paimos delivery-stage adapter. It
+      # can observe and report; it cannot create, confirm, claim or execute a
+      # host action. The consequential UpdateRestart stays an attended operator
+      # decision: the adapter refuses to report success unless that job already
+      # carries an operator confirmation.
+      ++ paimosDeliveryEnvironment;
       ports = [
         "127.0.0.1:8088:8080"
         "100.64.0.4:8088:8080"
@@ -1133,7 +1175,12 @@
         "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro"
         "janus_pharos_production_provider_out:/run/pharos/providers:ro"
         "/run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro"
-      ];
+      ]
+      # NIX-381 — the adapter config plus one inode per credential. The derived
+      # exact-replay journal needs no mount: pharosd writes it beside PHAROS_DB
+      # as /data/pharos.json.paimos-delivery-journal.json, already durable in
+      # the csb1_pharos_data volume above.
+      ++ paimosDeliveryVolumes;
       networks = [
         "traefik"
       ];

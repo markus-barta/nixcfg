@@ -648,6 +648,114 @@ Data rollback (only on migration corruption — additive-only schema, very rare)
 
 ---
 
+## Paimos external-stage activation (NIX-381 / PAI-810)
+
+The Pharos owner adapter (PHAROS-206) and the Janus dependency reporter
+(JANUS-441) are wired declaratively and land **inert**. Everything below is the
+activation procedure. Do one step at a time.
+
+### Why this is not just a rebuild
+
+`pharosd` **panics at startup** when `PHAROS_PAIMOS_DELIVERY_CONFIG_FILE` is set
+but the config, the API key or any 32-byte handoff secret is missing, malformed,
+or not owned by uid 10001 with mode `0400`. Activating before the credentials
+exist does not degrade the dashboard — it crash-loops it. That is why one
+boolean, `active` in `hosts/csb1/paimos-delivery-stage.nix`, gates both the
+compose environment and the module wiring, and why `tests/T48` fails the build if
+the two ever disagree.
+
+### Prerequisites, in order
+
+1. **Mint in Paimos** (not on this host): the owner API key, the Janus machine
+   API key, one deployment handoff, one verification handoff, one Janus
+   dependency handoff. Each handoff mint returns its 32 raw bytes **once**. A
+   lost response requires a rotation, not a retry.
+
+2. **Enrol five agenix secrets.** Add to `secrets/secrets.nix` (recipients
+   `markus ++ csb1`), then `agenix -e secrets/<name>.age` for each:
+
+   | Secret                                               | Content                          | Owner / mode     |
+   | ---------------------------------------------------- | -------------------------------- | ---------------- |
+   | `csb1-paimos-pharos-owner-api-key.age`               | API key, **no trailing newline** | `10001` / `0400` |
+   | `csb1-paimos-pharos-deployment-handoff-secret.age`   | exactly 32 raw bytes             | `10001` / `0400` |
+   | `csb1-paimos-pharos-verification-handoff-secret.age` | exactly 32 raw bytes             | `10001` / `0400` |
+   | `csb1-paimos-janus-dependency-api-key.age`           | API key, **no trailing newline** | `root` / `0400`  |
+   | `csb1-paimos-janus-dependency-handoff-secret.age`    | exactly 32 raw bytes             | `root` / `0400`  |
+
+   🔴 The trailing-newline rule is not cosmetic: pharosd requires every API-key
+   byte in `0x21..0x7e`, and `0x0a` is not. A handoff secret file whose size is
+   not exactly 32 is refused outright.
+
+   Then add the five `age.secrets.<name>` blocks to
+   `hosts/csb1/configuration.nix` with the owner and mode from the table.
+   `tests/T47` requires the ciphertext to exist before the declaration, so the
+   `.age` files and their declarations land in the same change.
+
+3. **Fill in the intents.** In `hosts/csb1/configuration.nix`, set
+   `inspr.pharosPaimosDelivery.intents` (one `deployment`, one `verification`)
+   and the `inspr.janusPaimosDependencyReporter` `handoffId` / `expected` /
+   `evidence` from exactly what Paimos returned. The modules reject any other
+   shape at eval time — handoff ids must be Paimos-minted 26-character Crockford
+   base32, digests must be `sha256:` plus 64 lowercase hex, and a verification
+   intent must pair with a distinct deployment intent for the same host,
+   environment and artifact.
+
+4. **Preflight on the host, before flipping the switch.** Sizes and modes only —
+   never print a value:
+
+   ```bash
+   # Present, correct owner, mode 0400, exactly one link, and the right size.
+   stat -c '%n %U %a %h %s' /run/agenix/csb1-paimos-*
+   ```
+
+   Expect uid `10001` on the three pharos files, `root` on the two janus files,
+   `0400` and link count `1` everywhere, and size `32` on every
+   `*-handoff-secret`.
+
+5. **Flip one boolean.** Set `active = true;` in
+   `hosts/csb1/paimos-delivery-stage.nix`, open a PR, let protected CI run, merge,
+   then `just switch` on csb1 followed by the compose reconcile.
+
+### After activation
+
+```bash
+# Adapter came up (the log line is value-free: release, commit, schema, digest).
+docker logs pharosd --tail 50 | grep -i 'paimos reporter-only'
+# The reporter is a one-shot; before activation it is SKIPPED, not failed.
+systemctl status janus-paimos-dependency-reporter.service
+systemctl list-timers janus-paimos-dependency-reporter.timer
+```
+
+Journals: pharosd derives its exact-replay journal beside `PHAROS_DB` as
+`/data/pharos.json.paimos-delivery-journal.json` inside the `csb1_pharos_data`
+volume; the reporter writes to `/var/lib/janus-paimos-dependency-reporter/journal`
+(root, exactly `0700`). PAI-810 acceptance criterion 7 retains both until the
+evidence is accepted — revoke the handoffs, registrations and dedicated API keys
+first, delete journals only afterwards.
+
+### What activation deliberately does not grant
+
+The deployment intent names an **existing** Pharos `UpdateRestart` job and the
+adapter only observes it. It refuses to report success unless that job already
+carries an operator confirmation, so the consequential restart stays an attended
+decision in the Pharos UI. Deployment alone reaches `deployed_unverified`;
+`verified` needs a separate, later, fresh beacon for the exact artifact.
+
+### Contract pin — no foreign-repo change needed
+
+Pharos v0.1.83 and Janus v0.1.33 record Paimos `v5.11.0` / `e5f4c86…` as
+provenance, while production runs `v5.12.0` / `ee669d0`. This is **not** drift.
+Both adapters compare only `contract_major` and `fixture_digest` taken from the
+wire, and v5.12.0 still serves the same digest,
+`sha256:0318f4025902c9d5dd790384950cc9daebb16e02e79a4a90ce7dddc673e68bed`.
+Paimos states the reason in `backend/contracts/external_stage.go`: _"The manifest
+is deliberately excluded so release-pin metadata can change without changing the
+adapter contract."_ The release strings are logged, never compared. If a future
+Paimos release does change the fixture bytes, both adapters fail closed
+(`contract_refused` / a `paimos_reporter_*` reason code) rather than misreport.
+
+---
+
 ## Troubleshooting
 
 ### Decision Tree

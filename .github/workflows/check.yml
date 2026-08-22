@@ -152,6 +152,9 @@ jobs:
       - name: Verify agenix declarations match ciphertext recipients (OPS-188)
         run: tests/T47-agenix-recipient-integrity.sh
 
+      - name: Verify Paimos external-stage adapter contract (NIX-381 / PAI-810)
+        run: tests/T48-paimos-delivery-stage.sh
+
       # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
       # doctrine-check.sh (INSPR-300); this step then calls that instead.
       - name: Verify both doctrine consumption paths agree
