@@ -676,7 +676,7 @@
       # manifests as the smoke harness; no production secret or host SSH key is
       # mounted into the staged Rust engine. Use the smoke harness, not manual
       # project-wide compose lifecycle commands, when testing this profile.
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.31@sha256:92dd563b6457545a3eb3e639d094696b3dc42e8bdb8c576f450b7e7a8d620559";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.33@sha256:5b14100e0601810116e210b0b9eabe6b8d1a833792d0bc29fba239641c0a3752";
       container_name = "janus-engine-staged";
       profiles = [
         "janus-engine-staged"
@@ -773,7 +773,7 @@
     # Janus managed-service transaction boundary
     # ============================================
     janus-managed-transactiond = {
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.31@sha256:92dd563b6457545a3eb3e639d094696b3dc42e8bdb8c576f450b7e7a8d620559";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.33@sha256:5b14100e0601810116e210b0b9eabe6b8d1a833792d0bc29fba239641c0a3752";
       container_name = "janus-managed-transactiond";
       profiles = [
         "janus-managed-service"
@@ -802,7 +802,7 @@
         "JANUS_PRODUCT_MODE=production"
         "JANUS_RELEASE_CHANNEL_POLICY=/etc/janus/managed/release-channels-v1.json"
         "JANUS_RELEASE_ADMISSION_RECEIPT=/etc/janus/managed/release-admission.json"
-        "JANUS_RELEASE_ARTIFACT_DIGEST=sha256:92dd563b6457545a3eb3e639d094696b3dc42e8bdb8c576f450b7e7a8d620559"
+        "JANUS_RELEASE_ARTIFACT_DIGEST=sha256:5b14100e0601810116e210b0b9eabe6b8d1a833792d0bc29fba239641c0a3752"
         "JANUS_RELEASE_AUDIT_FILE=/var/lib/janus-managed-central/audit/release-admission.jsonl"
         "JANUS_RELEASE_EXECUTOR=janusd-web-transactiond"
         "JANUS_RUNTIME_AUDIT_FILE=/var/lib/janus-managed-central/audit/runtime.jsonl"
