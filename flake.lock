@@ -579,6 +579,27 @@
         "type": "github"
       }
     },
+    "janus-paimos-reporter": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1787371547,
+        "narHash": "sha256-bnvJmZDxFB3hRZN+5rsH8H7pr9c1YtkFAClraHfCP5w=",
+        "owner": "inspr-at",
+        "repo": "janus",
+        "rev": "f83a5b651e0eaebd5a9779bf5331891803d984a9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "inspr-at",
+        "ref": "rust-engine-v0.1.33",
+        "repo": "janus",
+        "type": "github"
+      }
+    },
     "kanboard-cli": {
       "inputs": {
         "nixpkgs": [
@@ -1088,6 +1109,7 @@
         "hostdash": "hostdash",
         "inspr-modules": "inspr-modules",
         "janus": "janus",
+        "janus-paimos-reporter": "janus-paimos-reporter",
         "ncps": "ncps",
         "nixcfg": "nixcfg",
         "nixhostforge": [
