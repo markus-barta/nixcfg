@@ -174,7 +174,7 @@ in
 
     paimosOrigin = lib.mkOption {
       type = lib.types.str;
-      example = "https://paimos.barta.cm";
+      example = "https://pm.barta.cm";
       description = "Credential-free https Paimos origin with no path, query or fragment.";
     };
 
@@ -325,7 +325,13 @@ in
         ProtectHome = true;
         ProtectSystem = "strict";
         ReadWritePaths = [ cfg.journalDirectory ];
+        # AF_UNIX is required, not a widening: glibc's getaddrinfo opens a
+        # unix socket for NSS (nscd, and nss-resolve if resolved is ever
+        # enabled on this host), so without it the reporter cannot resolve the
+        # Paimos origin and fails closed forever. Every other network-capable
+        # hardened unit in this repo lists the same three families.
         RestrictAddressFamilies = [
+          "AF_UNIX"
           "AF_INET"
           "AF_INET6"
         ];
