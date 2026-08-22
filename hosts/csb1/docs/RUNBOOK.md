@@ -705,12 +705,14 @@ the two ever disagree.
 
    ```bash
    # Present, correct owner, mode 0400, exactly one link, and the right size.
-   stat -c '%n %U %a %h %s' /run/agenix/csb1-paimos-*
+   # %u is the numeric uid pharosd actually compares against its own euid; %U
+   # is only its name, and a missing user would silently print a bare number.
+   stat -c '%n %u %U %a %h %s' /run/agenix/csb1-paimos-*
    ```
 
-   Expect uid `10001` on the three pharos files, `root` on the two janus files,
-   `0400` and link count `1` everywhere, and size `32` on every
-   `*-handoff-secret`.
+   Expect uid `10001` (`pharos-container`) on the three pharos files, `0`
+   (`root`) on the two janus files, `0400` and link count `1` everywhere, and
+   size `32` on every `*-handoff-secret`.
 
 5. **Flip one boolean.** Set `active = true;` in
    `hosts/csb1/paimos-delivery-stage.nix`, open a PR, let protected CI run, merge,
