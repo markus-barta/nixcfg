@@ -1,8 +1,8 @@
 {
   "schema": "inspr.pharos.fleet-release.v1",
-  "version": "0.1.85",
-  "tag": "v0.1.85",
+  "version": "0.1.86",
+  "tag": "v0.1.86",
   "image": "ghcr.io/inspr-at/pharos/pharosd",
-  "digest": "sha256:6db10ca3c2d4898f9e269a9f6532e4ac2a6e46eaa144ba4f251789912effd77e",
-  "reference": "ghcr.io/inspr-at/pharos/pharosd:0.1.85@sha256:6db10ca3c2d4898f9e269a9f6532e4ac2a6e46eaa144ba4f251789912effd77e"
+  "digest": "sha256:aaa3fb27d9d00f9b426f0d9bd3609322b558af43ac7e9355af8f76df2c9d12ed",
+  "reference": "ghcr.io/inspr-at/pharos/pharosd:0.1.86@sha256:aaa3fb27d9d00f9b426f0d9bd3609322b558af43ac7e9355af8f76df2c9d12ed"
 }
