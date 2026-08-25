@@ -85,6 +85,35 @@ let
   projectDirFlag = lib.optionalString (
     cfg.projectDirectory != null
   ) "--project-directory ${lib.escapeShellArg cfg.projectDirectory}";
+
+  # NIX-384: registry logins for private images. Both units run as root with no
+  # docker client config, so a private image fails to pull even when an
+  # operator's SSH session holds a login. The login lands in a per-unit
+  # RuntimeDirectory (tmpfs, 0700) selected through DOCKER_CONFIG and is removed
+  # again once the unit's work is done: no reusable auth blob is ever written
+  # under /root and root's credential helpers are never consulted. The docker
+  # CLI is the host's own daemon package, not a second closure.
+  registryAuth =
+    suffix:
+    let
+      dir = "compose-${cfg.stackName}${suffix}-docker-auth";
+      docker = "${config.virtualisation.docker.package}/bin/docker";
+    in
+    lib.mkIf (cfg.registryLogins != [ ]) {
+      environment.DOCKER_CONFIG = "/run/${dir}";
+      serviceConfig.RuntimeDirectory = dir;
+      serviceConfig.RuntimeDirectoryMode = "0700";
+      preStart = ''
+        umask 077
+      ''
+      + lib.concatMapStrings (login: ''
+        test -r ${lib.escapeShellArg login.passwordFile}
+        ${docker} login ${lib.escapeShellArg login.registry} \
+          --username ${lib.escapeShellArg login.username} --password-stdin \
+          < ${lib.escapeShellArg login.passwordFile}
+      '') cfg.registryLogins;
+      postStart = "${pkgs.coreutils}/bin/rm -f /run/${dir}/config.json";
+    };
 in
 {
   options.nixcfg.composeStack = {
@@ -192,6 +221,40 @@ in
       '';
     };
 
+    registryLogins = lib.mkOption {
+      type = lib.types.listOf (
+        lib.types.submodule {
+          options = {
+            registry = lib.mkOption {
+              type = lib.types.str;
+              example = "ghcr.io";
+              description = "Registry host to log in to before compose runs.";
+            };
+            username = lib.mkOption {
+              type = lib.types.str;
+              description = "Login user; for GHCR with a classic PAT this is the GitHub login.";
+            };
+            passwordFile = lib.mkOption {
+              type = lib.types.str;
+              description = ''
+                Path to the token file (an agenix path, root-readable, one line).
+                Read with --password-stdin; never placed on a command line.
+              '';
+            };
+          };
+        }
+      );
+      default = [ ];
+      description = ''
+        Registry logins performed by the reconcile and the weekly update unit
+        before compose runs (NIX-384). Needed for private images: the units run
+        as root with no docker client config, so a login held by an operator's
+        SSH user never applies to them. The login lives in a per-unit
+        RuntimeDirectory through DOCKER_CONFIG and is removed after the unit's
+        work; nothing is written under /root.
+      '';
+    };
+
     removeOrphans = lib.mkOption {
       type = lib.types.bool;
       default = false;
@@ -291,67 +354,72 @@ in
 
     environment.etc."compose/${cfg.stackName}/docker-compose.yml".source = composeFile;
 
-    systemd.services."compose-${cfg.stackName}" = lib.mkIf cfg.reconcile {
-      description = "Reconcile the ${cfg.stackName} container stack with the system closure (OPS-116)";
-      wantedBy = [ "multi-user.target" ];
-      after = [
-        "docker.service"
-        "network-online.target"
+    systemd.services."compose-${cfg.stackName}" = lib.mkIf cfg.reconcile (
+      lib.mkMerge [
+        {
+          description = "Reconcile the ${cfg.stackName} container stack with the system closure (OPS-116)";
+          wantedBy = [ "multi-user.target" ];
+          after = [
+            "docker.service"
+            "network-online.target"
+          ]
+          ++ cfg.extraAfter;
+          requires = [ "docker.service" ];
+          wants = [ "network-online.target" ] ++ cfg.extraAfter;
+
+          # The whole point: a changed spec changes this store path, so switch
+          # restarts the unit and compose recreates exactly the affected services.
+          restartTriggers = [ composeFile ] ++ cfg.extraRestartTriggers;
+
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            # Pulling a moved tag can take a while on a slow uplink; a stuck
+            # reconcile must fail the unit rather than hang activation forever.
+            TimeoutStartSec = "600";
+
+            # Without this a failed reconcile is STICKY: the unit stays failed, and
+            # because switch only restarts it when restartTriggers changes, the next
+            # unrelated switch does NOT retry. A host could then sit with an
+            # unreconciled stack indefinitely while every rebuild reports success.
+            # Three spaced attempts absorb the transients that actually happen here
+            # (a registry blip, a slow uplink) and then give up loudly, so a genuinely
+            # bad spec still lands in `systemctl --failed` instead of looping.
+            Restart = "on-failure";
+            RestartSec = "30s";
+          };
+          # After 3 failures in 300s systemd refuses to start the unit until
+          # `systemctl reset-failed compose-<stackName>` — including on a later
+          # switch. That is deliberate (a bad spec should stop, not loop) but it is
+          # the one recovery step that is not obvious from the error, so:
+          #   systemctl reset-failed compose-<stackName> && systemctl start compose-<stackName>
+          startLimitIntervalSec = 300;
+          startLimitBurst = 3;
+
+          # docker-compose v2 standalone, matching the binary csb1's existing
+          # janus-managed-canary unit already uses. `docker compose` as a CLI plugin
+          # depends on the plugin path resolving inside the unit's environment;
+          # this does not.
+          #
+          # flock: compose takes NO project-level lock (verified in the OPS-116 QA),
+          # so the reconcile and the autoUpdate timer — and anything else that adopts
+          # this lock — serialize here instead of racing on transitional container
+          # names, which is exactly how the hsb1 cutover failed its first attempt.
+          script =
+            let
+              compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
+              locked = "${pkgs.util-linux}/bin/flock -w 570 /run/lock/compose-${cfg.stackName}.lock";
+            in
+            ''
+              ${locked} ${compose} up -d${lib.optionalString cfg.removeOrphans " --remove-orphans"}
+            ''
+            + lib.concatMapStrings (svc: ''
+              ${locked} ${compose} up -d --force-recreate --no-deps ${lib.escapeShellArg svc}
+            '') cfg.postRecreate;
+        }
+        (registryAuth "")
       ]
-      ++ cfg.extraAfter;
-      requires = [ "docker.service" ];
-      wants = [ "network-online.target" ] ++ cfg.extraAfter;
-
-      # The whole point: a changed spec changes this store path, so switch
-      # restarts the unit and compose recreates exactly the affected services.
-      restartTriggers = [ composeFile ] ++ cfg.extraRestartTriggers;
-
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        # Pulling a moved tag can take a while on a slow uplink; a stuck
-        # reconcile must fail the unit rather than hang activation forever.
-        TimeoutStartSec = "600";
-
-        # Without this a failed reconcile is STICKY: the unit stays failed, and
-        # because switch only restarts it when restartTriggers changes, the next
-        # unrelated switch does NOT retry. A host could then sit with an
-        # unreconciled stack indefinitely while every rebuild reports success.
-        # Three spaced attempts absorb the transients that actually happen here
-        # (a registry blip, a slow uplink) and then give up loudly, so a genuinely
-        # bad spec still lands in `systemctl --failed` instead of looping.
-        Restart = "on-failure";
-        RestartSec = "30s";
-      };
-      # After 3 failures in 300s systemd refuses to start the unit until
-      # `systemctl reset-failed compose-<stackName>` — including on a later
-      # switch. That is deliberate (a bad spec should stop, not loop) but it is
-      # the one recovery step that is not obvious from the error, so:
-      #   systemctl reset-failed compose-<stackName> && systemctl start compose-<stackName>
-      startLimitIntervalSec = 300;
-      startLimitBurst = 3;
-
-      # docker-compose v2 standalone, matching the binary csb1's existing
-      # janus-managed-canary unit already uses. `docker compose` as a CLI plugin
-      # depends on the plugin path resolving inside the unit's environment;
-      # this does not.
-      #
-      # flock: compose takes NO project-level lock (verified in the OPS-116 QA),
-      # so the reconcile and the autoUpdate timer — and anything else that adopts
-      # this lock — serialize here instead of racing on transitional container
-      # names, which is exactly how the hsb1 cutover failed its first attempt.
-      script =
-        let
-          compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
-          locked = "${pkgs.util-linux}/bin/flock -w 570 /run/lock/compose-${cfg.stackName}.lock";
-        in
-        ''
-          ${locked} ${compose} up -d${lib.optionalString cfg.removeOrphans " --remove-orphans"}
-        ''
-        + lib.concatMapStrings (svc: ''
-          ${locked} ${compose} up -d --force-recreate --no-deps ${lib.escapeShellArg svc}
-        '') cfg.postRecreate;
-    };
+    );
 
     # OPS-125 — the one updater. Weekly `pull` + `up -d` through the SAME
     # rendered file, project and lock as the reconcile: exactly watchtower's
@@ -360,46 +428,51 @@ in
     # and a failed update lands in `systemctl --failed` instead of nowhere.
     systemd.services."compose-${cfg.stackName}-update" =
       lib.mkIf (cfg.reconcile && cfg.autoUpdate.enable)
-        {
-          description = "Pull newer images and converge the ${cfg.stackName} stack (OPS-125)";
-          after = [
-            "docker.service"
-            "network-online.target"
-            "compose-${cfg.stackName}.service"
-          ];
-          requires = [ "docker.service" ];
-          wants = [ "network-online.target" ];
-          serviceConfig = {
-            Type = "oneshot";
-            # Pulls across a whole stack on a slow uplink can take a while.
-            TimeoutStartSec = "1800";
-          };
-          script =
-            let
-              compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
-              locked = "${pkgs.util-linux}/bin/flock -w 1770 /run/lock/compose-${cfg.stackName}.lock";
-              # NIX-352: with exclusions, pull an explicit service list instead of
-              # the whole stack — a stack-wide pull aborts on the first denied
-              # image and starves everything else of its update. Only image-
-              # bearing services are listed (compose skips build-only services
-              # in a stack-wide pull too, so the set is identical); excluded
-              # services are still converged by `up -d` below.
-              pullTargets = lib.filter (svc: !(lib.elem svc cfg.autoUpdate.excludeFromPull)) (
-                lib.attrNames (lib.filterAttrs (_: service: service ? image) (cfg.spec.services or { }))
-              );
-              pullCommand =
-                if cfg.autoUpdate.excludeFromPull == [ ] then
-                  "${locked} ${compose} pull --quiet"
-                else if pullTargets == [ ] then
-                  ": # every image-bearing service is excluded from pull"
-                else
-                  "${locked} ${compose} pull --quiet ${lib.escapeShellArgs pullTargets}";
-            in
-            ''
-              ${pullCommand}
-              ${locked} ${compose} up -d
-            '';
-        };
+        (
+          lib.mkMerge [
+            {
+              description = "Pull newer images and converge the ${cfg.stackName} stack (OPS-125)";
+              after = [
+                "docker.service"
+                "network-online.target"
+                "compose-${cfg.stackName}.service"
+              ];
+              requires = [ "docker.service" ];
+              wants = [ "network-online.target" ];
+              serviceConfig = {
+                Type = "oneshot";
+                # Pulls across a whole stack on a slow uplink can take a while.
+                TimeoutStartSec = "1800";
+              };
+              script =
+                let
+                  compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
+                  locked = "${pkgs.util-linux}/bin/flock -w 1770 /run/lock/compose-${cfg.stackName}.lock";
+                  # NIX-352: with exclusions, pull an explicit service list instead of
+                  # the whole stack — a stack-wide pull aborts on the first denied
+                  # image and starves everything else of its update. Only image-
+                  # bearing services are listed (compose skips build-only services
+                  # in a stack-wide pull too, so the set is identical); excluded
+                  # services are still converged by `up -d` below.
+                  pullTargets = lib.filter (svc: !(lib.elem svc cfg.autoUpdate.excludeFromPull)) (
+                    lib.attrNames (lib.filterAttrs (_: service: service ? image) (cfg.spec.services or { }))
+                  );
+                  pullCommand =
+                    if cfg.autoUpdate.excludeFromPull == [ ] then
+                      "${locked} ${compose} pull --quiet"
+                    else if pullTargets == [ ] then
+                      ": # every image-bearing service is excluded from pull"
+                    else
+                      "${locked} ${compose} pull --quiet ${lib.escapeShellArgs pullTargets}";
+                in
+                ''
+                  ${pullCommand}
+                  ${locked} ${compose} up -d
+                '';
+            }
+            (registryAuth "-update")
+          ]
+        );
 
     systemd.timers."compose-${cfg.stackName}-update" =
       lib.mkIf (cfg.reconcile && cfg.autoUpdate.enable)

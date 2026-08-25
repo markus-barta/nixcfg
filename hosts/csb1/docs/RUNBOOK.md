@@ -204,6 +204,20 @@ done
 
 🔴 Invariant: at most ONE container may ever reference volume
 `inspr-at_zitadel_postgres_data` (`docker ps -a --filter volume=inspr-at_zitadel_postgres_data`).
+
+### NIX-384 — private GHCR images (inspr-auth)
+
+`inspr-auth` is pinned from the **private** package
+`ghcr.io/inspr-at/inspr-site/inspr-auth` (INSPR-253). The root-run
+`compose-csb1` and `compose-csb1-update` units log in to ghcr.io in their
+`ExecStartPre` with `composeStack.registryLogins` (token: agenix
+`csb1-inspr-site-ghcr-pull`, classic PAT `read:packages`, 1Password
+`ghcr.pull.inspr-at/inspr-site`). The login lives in
+`/run/compose-csb1[-update]-docker-auth` (tmpfs, 0700) and is removed after
+the unit's work; `/root/.docker` stays untouched. `mba`'s own docker login is
+irrelevant to the units. Diagnose a pull denial with
+`journalctl -u compose-csb1 | grep -iE 'login|denied|unauthorized'`; a revoked
+or expired token shows up as the reconcile failing, never as a silent skip.
 All OPS-136 commands run as root under the campaign flock
 (`/run/lock/compose-csb1.lock`); the scripts in
 `hosts/csb1/docker/ops136/` take it themselves. Campaign evidence + journal:

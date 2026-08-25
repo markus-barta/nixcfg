@@ -260,6 +260,17 @@ in
     # and dropping them would force-recreate every container for zero
     # behavioural change. Remove opportunistically per-service.
     autoUpdate.enable = true;
+    # NIX-384: inspr-auth comes from the PRIVATE inspr-site GHCR package, so the
+    # root-run reconcile and update units log in to ghcr.io first (see the
+    # module option). Guarded on the ciphertext like the secret above; until
+    # the operator has created it the units behave exactly as before.
+    registryLogins = lib.mkIf (builtins.pathExists ../../secrets/csb1-inspr-site-ghcr-pull.age) [
+      {
+        registry = "ghcr.io";
+        username = "markus-barta";
+        passwordFile = "/run/agenix/csb1-inspr-site-ghcr-pull";
+      }
+    ];
     spec = import ./docker/compose-spec.nix;
   };
 
@@ -1181,6 +1192,22 @@ in
         owner = "root";
         group = "users";
         mode = "0440";
+      };
+
+  # NIX-384: GHCR pull token for the private inspr-site packages
+  # (ghcr.io/inspr-at/inspr-site/inspr-auth, INSPR-253). Classic PAT, scope
+  # read:packages only, no expiration; 1Password ghcr.pull.inspr-at/inspr-site.
+  # Read CLIENT-side by the root-run compose units only, so the NIX-353 default
+  # applies: 0400 root:root. Contents: raw token (single line). Guarded on the
+  # ciphertext so the branch evaluates before the operator has run `agenix -e`.
+  age.secrets.csb1-inspr-site-ghcr-pull =
+    lib.mkIf (builtins.pathExists ../../secrets/csb1-inspr-site-ghcr-pull.age)
+      {
+        file = ../../secrets/csb1-inspr-site-ghcr-pull.age;
+        path = "/run/agenix/csb1-inspr-site-ghcr-pull";
+        owner = "root";
+        group = "root";
+        mode = "0400";
       };
 
   # NIX-367 / HAUSV-495: separate bootstrap and application credentials. The
