@@ -325,6 +325,15 @@ in
   # Edit: agenix -e secrets/csb1-hausv-ghcr-pull.age
   "csb1-hausv-ghcr-pull.age".publicKeys = markus ++ csb1;
 
+  # NIX-384: GHCR pull token for the private inspr-site packages
+  # (ghcr.io/inspr-at/inspr-site/inspr-auth, INSPR-253). Classic PAT of
+  # markus-barta, scope read:packages only, no expiration; 1Password item
+  # ghcr.pull.inspr-at/inspr-site. Consumed only by the root-run compose units
+  # through composeStack.registryLogins (docker login --password-stdin).
+  # Format: bare token text (one line)
+  # Edit: agenix -e secrets/csb1-inspr-site-ghcr-pull.age
+  "csb1-inspr-site-ghcr-pull.age".publicKeys = markus ++ csb1;
+
   # NIX-367 / HAUSV-495: Phase-0 PostgreSQL credentials. These are separate
   # files so the future application projection can never expose the bootstrap
   # administrator password. Each file contains exactly one password line.
