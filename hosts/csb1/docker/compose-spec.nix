@@ -1340,11 +1340,17 @@ in
     };
     inspr-auth = {
       # Go OIDC session backend for inspr.at/{enter,login,welcome,logout}.
-      # Published to GHCR 2026-08-04 (OPS-136 closure): the 2026-05-11 local
-      # build, tag = provenance date. Same image ID 88feff29… as the adopted
-      # container. Source control + CI for future builds: INSPR follow-up
-      # (the source in /home/mba/docker/inspr-at/auth is still unversioned).
-      image = "ghcr.io/inspr-at/inspr-auth:legacy-20260511@sha256:090c82cff2dd3c5efddfb73c445f22c34898d8e9653abd9cbb746ca26125d59f";
+      # Source: inspr-at/inspr-site `auth/`, built and published by its
+      # auth-image workflow (INSPR-253): BuildKit provenance + SPDX SBOM,
+      # cosign-signed with the workflow OIDC identity, Trivy-gated since 0.2.0.
+      # 0.2.0 = Go 1.26 + current go-oidc/oauth2/go-jose (INSPR-307). Replaces
+      # the 2026-05-11 rescue build. Rollback target (same manifest digest,
+      # re-homed into this private package, cosign custody-signed):
+      #   ghcr.io/inspr-at/inspr-site/inspr-auth:legacy-20260511@sha256:090c82cff2dd3c5efddfb73c445f22c34898d8e9653abd9cbb746ca26125d59f
+      # The units pull this private package through composeStack.registryLogins
+      # (NIX-384); the old public ghcr.io/inspr-at/inspr-auth package is being
+      # deleted (INSPR-253).
+      image = "ghcr.io/inspr-at/inspr-site/inspr-auth:0.2.0@sha256:d1fc446ff49f03617d574b775fc9435f035f24ad7b280b9024f1b6b53560838f";
       container_name = "inspr-auth";
       restart = "unless-stopped";
       networks = [
