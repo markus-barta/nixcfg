@@ -401,7 +401,7 @@ in
   #
   #   home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile {
   #     extraCasks = [ "raycast" "zed" "..." ];  # this host's GUI apps
-  #     extraTaps  = [ ];                         # custom taps (rare)
+  #     extraTaps  = [ ];                         # custom taps (rare; trust-bearing form below)
   #     extraBrews = [ ];                         # CLI tools NOT covered by Nix
   #   };
   #
@@ -412,6 +412,8 @@ in
 
   # mkBrewfile : { extraCasks ? [], extraTaps ? [], extraBrews ? [] } -> string
   # Renders a Brewfile combining commonCasks/Taps with the host's extras.
+  # `extraTaps` entries are strings, or attrsets carrying declarative trust
+  # (see `renderTrusted` below — required for non-official taps under brew 6).
   # Brewfile syntax docs: https://github.com/Homebrew/homebrew-bundle
   mkBrewfile =
     {
@@ -423,7 +425,38 @@ in
       allTaps = commonTaps ++ extraTaps;
       allBrews = commonBrews ++ extraBrews;
       allCasks = commonCasks ++ extraCasks;
-      tapLines = builtins.concatStringsSep "\n" (map (t: ''tap "${t}"'') allTaps);
+
+      # Tap trust MUST be declared in the Brewfile, not granted once per host.
+      # Homebrew 6 gates loading of non-official taps behind trust, AND
+      # `brew bundle cleanup` RESETS the global trust store to exactly what the
+      # Brewfile declares — `Homebrew::Trust.replace!(...)` in
+      # Homebrew/bundle/subcommand/cleanup.rb. So a one-off `brew trust` is
+      # silently REVOKED by `just bundle-cleanup`, after which the next
+      # `just bundle` can no longer load that tap's formulae/casks.
+      # Accepted keys (Homebrew/bundle/trust.rb → TRUSTED_ITEM_KEYS):
+      #   formula/formulae, cask/casks, command/commands.
+      # A tap entry is either a plain string (no trust) or:
+      #   { name = "steipete/tap"; trusted.formulae = [ "birdclaw" ]; }
+      # Prefer naming the exact items over blanket `trusted: true` — trust the
+      # two things we consume, not everything the tap may ship later.
+      renderTrusted =
+        trusted:
+        let
+          mkItems = items: "[${builtins.concatStringsSep ", " (map (i: ''"${i}"'') items)}]";
+          parts = lib.mapAttrsToList (key: items: "${key}: ${mkItems items}") (
+            lib.filterAttrs (_: items: items != [ ]) trusted
+          );
+        in
+        lib.optionalString (parts != [ ]) ", trusted: { ${builtins.concatStringsSep ", " parts} }";
+
+      renderTap =
+        t:
+        if builtins.isString t then
+          ''tap "${t}"''
+        else
+          ''tap "${t.name}"${renderTrusted (t.trusted or { })}'';
+
+      tapLines = builtins.concatStringsSep "\n" (map renderTap allTaps);
       brewLines = builtins.concatStringsSep "\n" (map (b: ''brew "${b}"'') allBrews);
       caskLines = builtins.concatStringsSep "\n" (map (c: ''cask "${c}"'') allCasks);
     in

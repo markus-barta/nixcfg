@@ -198,9 +198,21 @@ in
   # actually missed (its list: android-studio, crystalfetch, github, raycast,
   # utm, zed). Browser cask: add here once chosen (NIX-215 log).
   home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile {
+    # Trust is DECLARED here, never granted with a one-off `brew trust`: brew 6
+    # gates loading of non-official taps behind trust, and `just bundle-cleanup`
+    # resets the trust store to whatever this Brewfile says — so a manual grant
+    # is silently revoked and the next `just bundle` can no longer load the tap.
+    # Narrow on purpose (named items, not `trusted: true`). See mkBrewfile.
     extraTaps = [
-      "darrylmorley/whatcable" # whatcable's tap. brew 6: one-time `brew trust darrylmorley/whatcable` per host before `just bundle`
-      "steipete/tap" # codexbar + birdclaw's tap. brew 6 gates loading behind trust (tapped != trusted): one-time `brew trust steipete/tap` per host before `just bundle`
+      {
+        name = "darrylmorley/whatcable"; # whatcable's tap
+        trusted.casks = [ "whatcable" ];
+      }
+      {
+        name = "steipete/tap"; # codexbar + birdclaw's tap (tapped != trusted)
+        trusted.casks = [ "codexbar" ];
+        trusted.formulae = [ "birdclaw" ];
+      }
     ];
     extraBrews = [
       "steipete/tap/birdclaw" # local-first X workspace (CLI/web/read-only MCP) — agent-facing X access for Codex+Claude (2026-08-06); formula ships its own Node 26.x dep, hence brew not ai-clis-npm

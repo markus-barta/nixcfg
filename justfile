@@ -1583,10 +1583,17 @@ pixoo-logs:
 # ── AI CLIs ───────────────────────────────────────────────────────────────────
 
 # Bump AI CLIs (claude-code, codex, grok, pi) to npm latest — runs anywhere with node
+# --prefix is REQUIRED, not cosmetic: without it npm falls back to whichever npm
+# wins PATH. Run this in a shell where NPM_CONFIG_PREFIX is unset and brew's npm
+# resolves first, and the CLIs land in /opt/homebrew/lib/node_modules — an
+# undeclared install that then SHADOWS the ai-clis-npm.nix copy in ~/.npm-global
+# (found 2026-08-25: a stray @xai-official/grok did exactly that). The CLI flag
+# overrides both npm config and the environment, so this always targets the
+# Home-Manager-declared prefix.
 [group('ai')]
 update-ai-clis:
     @date
-    npm i -g @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
+    npm install --global --prefix "$HOME/.npm-global" @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
     @echo "---"
     @claude --version 2>/dev/null || echo "claude: not installed"
     @codex  --version 2>/dev/null || echo "codex:  not installed"
