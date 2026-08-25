@@ -186,12 +186,12 @@
     },
     {
       "certIssue": false,
-      "foot": "Sat 05:00 · scheduled",
+      "foot": "Sat 05:05 · silent, no notification",
       "icon": "refresh-cw",
-      "name": "Watchtower",
+      "name": "Container updates",
       "passive": true,
       "privilegedAction": false,
-      "purpose": "Weekly updates for scoped containers",
+      "purpose": "Weekly image pull + stack converge (compose-hsb8-update)",
       "sameHost": false,
       "statusPolicy": {
         "source": "passive",
