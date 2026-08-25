@@ -30,6 +30,7 @@ _Loaded by `CLAUDE.md` alongside the kernel. nixcfg-specific rules only — univ
 - 🔴 Edit the canonical files in `+agents/rules/`, never the symlink targets — and only when explicitly permitted to touch `+agents/`.
 - 🔴 Never hand-edit `modules/uzumaki/stasysmo/icons.sh` — regenerate with the Python helper to preserve Unicode.
 - 🔴 No markdown backlog files — the backlog lives in PPM.
+- 🔴 **Never start a PPM timer.** Agents do not time-track: no `paimos time start`, and no starting a timer as part of any workflow, skill or ship-next loop — even when PPM writes are otherwise authorized. Markus does not use agent-booked time, so the numbers are noise that has to be cleaned up later. Ticket status updates, comments and close-notes stay allowed. If a timer you started is running, stop it; leave anyone else's alone unless asked. _(2026-08-25, operator instruction.)_ This **overrides** the domain packs, which still say to start one — precedence is `public kernel < private kernel < repository delta`, and those packs live in the `doctrine` / `doctrine-private` submodules, so they are corrected there by ticket, not edited from here.
 - 🟡 Default PPM project **NIX** (id 1). Routing between NIX / OPS / AIA: OPS guideline `nix-ops-aia-boundary`.
 - 🟡 `just --list` at session start. Check the host RUNBOOK before SSH.
 
