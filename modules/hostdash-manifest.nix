@@ -16,6 +16,8 @@ let
   jsonFormat = pkgs.formats.json { };
   palettes = import ./uzumaki/theme/theme-palettes.nix;
   pharosHostPreferences = builtins.fromJSON (builtins.readFile ./pharos-host-preferences.json);
+  stasysmoConfig = import ./uzumaki/stasysmo/config.nix;
+  mkHealthThresholds = import ../lib/host-health-thresholds.nix;
 
   hostName = config.networking.hostName;
   defaultPaletteName =
@@ -332,6 +334,27 @@ let
     // optionalNonNull "probe" service.probe
     // optionalNonNull "note" service.note;
 
+  # NIX-281: strip the null placeholders the submodule inserts for bounds the
+  # host did not override, so the library sees only real overrides and the
+  # class default survives for everything else.
+  declaredThresholdOverrides = lib.mapAttrs (
+    _: band: lib.filterAttrs (_: value: value != null) band
+  ) cfg.thresholds;
+
+  effectiveHealthClass =
+    if cfg.healthClass != null then
+      cfg.healthClass
+    else if (declaredPreferences.kind or "server") == "workstation" then
+      "workstation"
+    else
+      "server";
+
+  healthThresholds = mkHealthThresholds {
+    stasysmo = stasysmoConfig;
+    class = effectiveHealthClass;
+    overrides = declaredThresholdOverrides;
+  };
+
   manifest = {
     schema = "inspr.hostdash.config.v1";
     version = 1;
@@ -354,6 +377,7 @@ let
     };
     wings = cfg.wings;
     services = map renderService cfg.services;
+    health = healthThresholds;
     policy = {
       declaredOnly = true;
       runtimeStateOwner = cfg.runtimeStateOwner;
@@ -395,6 +419,63 @@ in
       default = null;
       example = "hostdash-config/hsb8.json";
       description = "Path under /etc for the generated JSON artifact.";
+    };
+
+    healthClass = mkOption {
+      type = types.nullOr (
+        types.enum [
+          "server"
+          "workstation"
+        ]
+      );
+      default = null;
+      example = "workstation";
+      description = ''
+        Host class selecting the declared health threshold defaults (NIX-281).
+        Defaults to the `kind` declared for this host in
+        pharos-host-preferences.json, so a host normally needs no override.
+        Servers take StaSysMo's bands unchanged; workstations get relaxed CPU
+        and RAM bands plus the macOS swap profile, because interactive
+        machines spike by design.
+      '';
+    };
+
+    thresholds = mkOption {
+      type = types.attrsOf (
+        types.submodule {
+          options = {
+            elevated = mkOption {
+              type = types.nullOr types.number;
+              default = null;
+              example = 65;
+              description = "Value at which this metric is considered elevated. Null keeps the class default.";
+            };
+            critical = mkOption {
+              type = types.nullOr types.number;
+              default = null;
+              example = 92;
+              description = "Value at which this metric is considered critical. Null keeps the class default.";
+            };
+          };
+        }
+      );
+      default = { };
+      example = literalExpression ''
+        {
+          cpu.critical = 95;
+          ram = {
+            elevated = 75;
+            critical = 92;
+          };
+        }
+      '';
+      description = ''
+        Per-host overrides of the declared health thresholds, keyed by metric
+        (cpu, ram, load, swap). Only the bounds you set are overridden; the
+        rest keep the class default. An unknown metric, a non-numeric bound or
+        an elevated value that is not strictly below its critical value fails
+        the evaluation rather than shipping a misleading threshold set.
+      '';
     };
 
     effectiveOutputPath = mkOption {

@@ -155,6 +155,9 @@ jobs:
       - name: Verify Paimos external-stage adapter contract (NIX-381 / PAI-810)
         run: tests/T48-paimos-delivery-stage.sh
 
+      - name: Verify declared host health thresholds (NIX-281)
+        run: tests/T49-host-health-thresholds.sh
+
       # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
       # doctrine-check.sh (INSPR-300); this step then calls that instead.
       - name: Verify both doctrine consumption paths agree
