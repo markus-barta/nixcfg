@@ -38,9 +38,18 @@
 #   * equality applies PER UPSTREAM: a repo legitimately vendoring two
 #     different upstreams must not be failed for that.
 #
-# Note: this runs as an informational job. nixcfg's required checks are the
-# formatting gate and CodeQL only, so a red result here reports but does not
-# block a merge — see NIX Knowledge runbook `nixcfg-main-branch-protection`.
+# Note: this is a REQUIRED gate, not informational. It runs as a step of the
+# `Pharos fleet release compatibility` job, and that job is one of main's
+# required contexts (with the formatting gate, CodeQL, and `Eval flake — all
+# hosts`), so a red result here blocks the merge. Verify with:
+#   gh api repos/markus-barta/nixcfg/branches/main/protection \
+#     --jq .required_status_checks.contexts
+# This comment previously claimed the opposite — that required checks were "the
+# formatting gate and CodeQL only". That went stale when protection was widened,
+# and on 2026-08-25 it misled a reviewing agent into recommending work to make
+# this test required when it already was. A stale note about a control is worse
+# than no note: it is read as current. Re-check the API output above before
+# editing this paragraph.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
