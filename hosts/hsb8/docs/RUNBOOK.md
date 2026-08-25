@@ -16,7 +16,7 @@ ssh gb@192.168.1.100
 ssh gb@hsb8.lan
 
 # Accessing Home Assistant Config (on hsb8)
-# Path: /home/gb/docker/mounts/homeassistant/configuration.yaml
+# Path: /srv/hsb8/mounts/homeassistant/configuration.yaml
 # Note: File is owned by root, use 'sudo' for edits.
 # Backups: ./Archive/
 ```
@@ -188,7 +188,11 @@ sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch
 ### Docker
 
 - Gerhard (`gb`) user has Docker access
-- Configuration: `/home/gb/docker/docker-compose.yml`
+- Configuration: **declarative** — `hosts/hsb8/docker/compose-spec.nix` in nixcfg,
+  rendered into the system closure and reconciled by `compose-hsb8.service`.
+  Never hand-edit compose on the host.
+- Data lives under `/srv/hsb8/mounts/` (NIX-236 moved it off `/home/gb`).
+  `/home/gb/docker/` is **retired and gone** — if a doc still points there, it is stale.
 
 ### Home Assistant (Deployed 2025-12-21)
 
@@ -209,7 +213,13 @@ ssh mba@192.168.1.100 "docker ps --format 'table {{.Names}}\t{{.Status}}'"
 # Expected containers:
 # - homeassistant (HA core)
 # - mosquitto (local MQTT, may be unused)
-# - watchtower (auto-updates, Saturdays 08:00)
+# - hsb8-home (HostDash nginx)
+# - pharos-beacon (fleet reporting, outbound only)
+# - restic-cron-hetzner (backups)
+#
+# NOT watchtower. It was retired and is actively reaped by
+# composeStack removeOrphans = true. If it ever reappears, something
+# is running an unmanaged compose file.
 ```
 
 #### Integrations Configured
@@ -237,7 +247,7 @@ ssh mba@192.168.1.100 "docker restart homeassistant"
 
 #### HACS
 
-Installed custom integrations are in `/home/gb/docker/mounts/homeassistant/custom_components/`:
+Installed custom integrations are in `/srv/hsb8/mounts/homeassistant/custom_components/`:
 
 - `hacs` - Home Assistant Community Store
 - `kostal` - Kostal Piko solar inverter
@@ -284,45 +294,35 @@ Both users have passwordless sudo.
 
 ---
 
-## Telegram Notifications
+## Container updates — and the notification gap
 
-Watchtower sends container update notifications to both users via the `janischhofweg22bot`.
+Watchtower is **retired**. It is gone from the host (no container, not even
+stopped) and its env file `/home/gb/secrets/watchtower.env` no longer exists.
+`composeStack.removeOrphans = true` actively reaps it, so it cannot drift back.
 
-**Bot**: @janischhofweg22bot (managed from csb0 Node-RED)
+Updates now run declaratively:
 
-| Recipient | Chat ID   | Receives                    |
-| --------- | --------- | --------------------------- |
-| Gerhard   | 873192422 | Watchtower updates (owner)  |
-| Markus    | 855566964 | Watchtower updates (backup) |
-
-### Manual Test Notification
-
-To verify notifications work:
-
-```bash
-# From csb0 (where the bot runs)
-curl -s "https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=873192422&text=Test%20from%20hsb8"
-```
-
-### Configuration
-
-Watchtower env file: `/home/gb/secrets/watchtower.env`
-
-> 🔴 **Never print this file.** It holds a live Telegram bot token. `cat`/`less`/
-> `grep`-with-output puts it in scrollback, shell history and agent transcripts.
-> Verify without disclosing; edit in place.
+|             |                                                                                   |
+| ----------- | --------------------------------------------------------------------------------- |
+| Unit        | `compose-hsb8-update.service` (OPS-125) — pulls newer images, converges the stack |
+| Schedule    | `compose-hsb8-update.timer`, weekly (Sat ~05:05)                                  |
+| Declared in | `hosts/hsb8/configuration.nix` → `composeStack.autoUpdate.enable = true`          |
 
 ```bash
-# Confirm it exists and is root-only (prints metadata, never contents)
-ssh mba@hsb8.lan "sudo stat -c '%n %a %U:%G' /home/gb/secrets/watchtower.env"
-
-# Confirm the notification URL is configured (prints a count, not the value)
-ssh mba@hsb8.lan "sudo grep -c '^WATCHTOWER_NOTIFICATION_URL=' /home/gb/secrets/watchtower.env"
-
-# Add/remove recipients: edit the channels= parameter (comma-separated chat IDs).
-# Edit in place — do not copy the file out or echo it.
-ssh -t mba@hsb8.lan "sudo -e /home/gb/secrets/watchtower.env"
+systemctl list-timers compose-hsb8-update.timer --no-pager
+systemctl status compose-hsb8-update.service --no-pager | tail -20
+journalctl -u compose-hsb8-update.service --since '2 weeks ago' | tail -40
 ```
+
+> 🟡 **These updates are silent.** `autoUpdate` sends no Telegram, mail or ntfy
+> notification — that capability left with Watchtower and was not replaced. A
+> weekly unattended image pull on a family server currently reports success or
+> failure to nobody. Check `journalctl` after a Saturday run, or raise a ticket
+> to wire the timer into the existing alerting path.
+
+The `@janischhofweg22bot` Telegram bot still exists and is managed from csb0
+Node-RED, but it is no longer fed by container updates. Treat any doc claiming
+"Watchtower sends update notifications" as stale.
 
 If the token itself ever needs replacing, rotate it in BotFather and write the new
 value straight into the file with `sudo -e` — never via a command line that would

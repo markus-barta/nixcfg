@@ -585,7 +585,7 @@ in
   users.users.mba.hashedPasswordFile = config.age.secrets.hsb8-recovery-password.path;
 
   # Docker stack (NIX-230): migrating from gb-user-owned
-  # /home/gb/docker/docker-compose.yml to the managed
+  # the retired /home/gb/docker/docker-compose.yml (now gone) to the managed
   # hosts/hsb8/docker/docker-compose.yml (homeassistant, mosquitto,
   # watchtower + fleetcom-agent, pharos-beacon). Data at /srv/hsb8/mounts.
   # See hsb8-stack.service below (gated on the NIX-237 cutover marker).
@@ -723,8 +723,6 @@ in
     file = ../../secrets/restic-hetzner-env.age;
   };
 
-  # NIX-235: watchtower env (HTTP API token + telegram notification URL),
-
   # ============================================================================
   # HostDash — static LAN service dashboard for hsb8
   # ============================================================================
@@ -825,12 +823,15 @@ in
         statusPolicy.source = "pharos-runtime";
       }
       {
+        # Watchtower was retired and is reaped by removeOrphans; the card
+        # outlived it and kept advertising a container that does not exist.
+        # The real updater is compose-hsb8-update.timer (OPS-125).
         wing = "housekeeping";
-        name = "Watchtower";
-        purpose = "Weekly updates for scoped containers";
+        name = "Container updates";
+        purpose = "Weekly image pull + stack converge (compose-hsb8-update)";
         icon = "refresh-cw";
         passive = true;
-        foot = "Sat 05:00 · scheduled";
+        foot = "Sat 05:05 · silent, no notification";
         statusPolicy.source = "passive";
       }
     ];
