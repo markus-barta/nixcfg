@@ -24,10 +24,15 @@
 const USAGE_URL = "https://cursor.com/api/dashboard/get-sand-usage-status";
 const COOKIE_DOMAIN = "cursor.com";
 const SESSION_COOKIE = "WorkosCursorSessionToken";
-// Fallback for when CodexBar cannot read the browser cookie jar. Helium stores
-// its Chromium key under the Keychain service "Helium Storage Key", which is not
-// one of the "<Browser> Safe Storage" names CodexBar looks for, so browser-cookie
-// access can fail on this host even though the session exists.
+// Fallback for when CodexBar cannot read the browser cookie jar. On mbp2607 it
+// cannot read Helium (the daily driver) — and this is NOT the Keychain service
+// name: CodexBar's binary contains both "Helium Storage Key" (the name Helium
+// actually uses) and "Helium Safe Storage", so it knows the right one and still
+// comes up empty. Proof it is not plugin-specific: CodexBar's own built-in
+// Cursor provider fails the same way with `--source web`, while `--source auto`
+// succeeds off a Cursor account added inside CodexBar. Sign in to cursor.com in
+// Chrome (whose Safe Storage ACL is pre-authorized on this host) and the browser
+// path works; this setting is the escape hatch when it does not.
 const COOKIE_SETTING = "GROKBOT_CURSOR_COOKIE";
 // Grok Bot's included allowance runs on a ~weekly window (8766 minutes is what
 // Cursor itself reports for this pool). Kept explicit so the dropdown labels it.
@@ -169,10 +174,14 @@ defineProvider({
     };
     if (resetsAt) primary.resetsAt = resetsAt;
 
-    const details = [];
+    // `details` is an array of SECTIONS, each carrying its own `rows` array —
+    // NOT a flat array of rows. Getting this wrong is not a soft failure: the
+    // whole snapshot is rejected with "details[0].rows must be an array" and
+    // the provider shows an error instead of the percentage it already fetched.
+    const rows = [];
     if (data.currentPeriodStart) {
       try {
-        details.push({
+        rows.push({
           label: "Period start",
           value: ctx.format.monthDay(ctx.date.iso(data.currentPeriodStart)),
         });
@@ -181,7 +190,7 @@ defineProvider({
       }
     }
     if (data.hasAvailableUsage === false) {
-      details.push({ label: "Included allowance", value: "exhausted" });
+      rows.push({ label: "Included allowance", value: "exhausted" });
     }
 
     const result = {
@@ -193,7 +202,7 @@ defineProvider({
             : "Grok Bot",
       },
     };
-    if (details.length > 0) result.details = details;
+    if (rows.length > 0) result.details = [{ title: "Grok Bot", rows }];
     return result;
   },
 });
