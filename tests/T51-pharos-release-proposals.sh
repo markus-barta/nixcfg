@@ -30,6 +30,13 @@ grep -Fq 'scripts/prepare-pharos-release-candidates.sh' "$workflow"
 grep -Fq 'scripts/publish-pharos-release-candidates.sh' "$workflow"
 grep -Fq 'tests/T32-managed-secret-production-preflight.sh' "$workflow"
 grep -Fq 'Verify the release signature and workflow identity' "$workflow"
+awk '
+  /- name: Checkout nixcfg/ { in_checkout = 1 }
+  in_checkout && /ref: main/ { found = 1 }
+  in_checkout && /- name: Checkout dsccfg/ { exit }
+  END { exit !found }
+' "$workflow"
+grep -Fq 'refs/remotes/origin/main' "$prepare"
 if grep -Eq 'git push|gh pr create' "$workflow"; then
   printf 'pharos_release_proposals=failed reason=untransactional_publish_in_workflow\n' >&2
   exit 1
@@ -247,6 +254,27 @@ grep -Fq 'pr create --repo example/dsccfg' "$success_pair/gh-log"
 grep -Fq 'pr comment https://example.invalid/example/dsccfg/pull/1' "$success_pair/gh-log"
 grep -Fxq 'nix_url=https://example.invalid/example/nixcfg/pull/1' "$success_pair/publish-output"
 grep -Fxq 'dsc_url=https://example.invalid/example/dsccfg/pull/1' "$success_pair/publish-output"
+
+divergent_pair=$(make_pair divergent-base)
+printf 'unrelated non-main commit\n' >"$divergent_pair/nix/unrelated.txt"
+git -C "$divergent_pair/nix" add unrelated.txt
+git -C "$divergent_pair/nix" commit -qm divergent-base
+divergent_branch=automation/pharos-release-9.8.7-1008
+if GITHUB_RUN_ID=1008 GITHUB_OUTPUT="$divergent_pair/prepare-output" \
+  "$prepare" 9.8.7 "$divergent_pair/nix" "$divergent_pair/dsc" \
+  >"$divergent_pair/stdout" 2>"$divergent_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=divergent_base_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_candidates=failed reason=base_not_origin_main repo=nix' \
+  "$divergent_pair/stderr"
+if git -C "$divergent_pair/nix" show-ref --verify --quiet "refs/heads/$divergent_branch" ||
+  git -C "$divergent_pair/dsc" show-ref --verify --quiet "refs/heads/$divergent_branch" ||
+  git --git-dir="$divergent_pair/nix.git" show-ref --verify --quiet "refs/heads/$divergent_branch" ||
+  git --git-dir="$divergent_pair/dsc.git" show-ref --verify --quiet "refs/heads/$divergent_branch"; then
+  printf 'pharos_release_proposals=failed reason=divergent_base_left_candidate\n' >&2
+  exit 1
+fi
 
 validation_pair=$(make_pair validation-failure)
 prepare_pair "$validation_pair" 1002

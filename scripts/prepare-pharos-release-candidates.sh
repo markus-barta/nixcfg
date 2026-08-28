@@ -40,6 +40,20 @@ dsccfg_paths=(
   hosts/dsc0/docker/docker-compose.yml
 )
 
+validate_main_base() {
+  local label=$1
+  local root=$2
+  local head
+  local main
+
+  head=$(git -C "$root" rev-parse HEAD)
+  main=$(git -C "$root" rev-parse --verify refs/remotes/origin/main)
+  if [[ "$head" != "$main" ]]; then
+    printf 'pharos_release_candidates=failed reason=base_not_origin_main repo=%s\n' "$label" >&2
+    exit 1
+  fi
+}
+
 prepare_candidate() {
   local label=$1
   local root=$2
@@ -91,6 +105,8 @@ prepare_candidate() {
 }
 
 branch="automation/pharos-release-${version}-${run_id}"
+validate_main_base dsc "$dsccfg_root"
+validate_main_base nix "$nixcfg_root"
 prepare_candidate \
   dsc \
   "$dsccfg_root" \
