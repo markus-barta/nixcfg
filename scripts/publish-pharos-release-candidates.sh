@@ -28,8 +28,8 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   printf 'pharos_release_publish=failed reason=invalid_input\n' >&2
   exit 1
 fi
-if [[ "$NIX_BRANCH" != "$DSC_BRANCH" ]] ||
-  [[ ! "$NIX_BRANCH" =~ ^automation/pharos-release-[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]; then
+if [[ "$NIX_BRANCH" != "automation/pharos-release-${VERSION}" ]] ||
+  [[ "$DSC_BRANCH" != "$NIX_BRANCH" ]]; then
   printf 'pharos_release_publish=failed reason=branch_mismatch\n' >&2
   exit 1
 fi
@@ -144,14 +144,23 @@ published=false
 cleanup_partial_pair() {
   local exit_code=$?
   local cleanup_failed=false
+  local branch
+  local changed
   local proposals
   local discovered
+  local expected_sha
+  local label
   local known_pr
   local pr
+  local repository
+  local root
   local seen
+  local state
   local remote_ref
   local remote_sha
   local status
+  local tuple
+  trap - EXIT
   if [[ "$published" == true ]]; then
     return 0
   fi
@@ -226,10 +235,10 @@ cleanup_partial_pair() {
   set -e
   if [[ "$cleanup_failed" == true ]]; then
     printf 'pharos_release_publish=failed reason=cleanup_incomplete\n' >&2
-    return 1
+    exit 70
   fi
   printf 'pharos_release_publish=failed reason=partial_pair_cleaned\n' >&2
-  return "$exit_code"
+  exit "$exit_code"
 }
 trap cleanup_partial_pair EXIT
 

@@ -9,15 +9,10 @@ fi
 version=$1
 nixcfg_root=$2
 dsccfg_root=$3
-run_id=${GITHUB_RUN_ID:-}
 output=${GITHUB_OUTPUT:-}
 
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   printf 'pharos_release_candidates=failed reason=invalid_version\n' >&2
-  exit 1
-fi
-if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
-  printf 'pharos_release_candidates=failed reason=invalid_run_id\n' >&2
   exit 1
 fi
 if [[ -z "$output" ]]; then
@@ -64,6 +59,7 @@ prepare_candidate() {
   local changed=false
   local path
   local sha
+  local commit_date
 
   git -C "$root" rev-parse --is-inside-work-tree >/dev/null
   if [[ -n "$(git -C "$root" diff --cached --name-only)" ]]; then
@@ -87,7 +83,9 @@ prepare_candidate() {
     git -C "$root" switch -c "$branch"
     git -C "$root" add -- "${allowed[@]}"
     git -C "$root" diff --cached --check
-    git -C "$root" commit -m "$message"
+    commit_date=$(git -C "$root" show -s --format=%cI HEAD)
+    GIT_AUTHOR_DATE="$commit_date" GIT_COMMITTER_DATE="$commit_date" \
+      git -C "$root" -c commit.gpgSign=false commit -m "$message"
   fi
 
   if [[ -n "$(git -C "$root" status --porcelain --untracked-files=no)" ]]; then
@@ -104,7 +102,7 @@ prepare_candidate() {
     "$label" "$changed" "$label" "$branch" "$label" "$sha" >>"$output"
 }
 
-branch="automation/pharos-release-${version}-${run_id}"
+branch="automation/pharos-release-${version}"
 validate_main_base dsc "$dsccfg_root"
 validate_main_base nix "$nixcfg_root"
 prepare_candidate \

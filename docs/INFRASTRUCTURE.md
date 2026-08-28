@@ -327,6 +327,12 @@ and `dsccfg`. If either repository needs an update, it opens paired pull
 requests after both repositories' compatibility tests pass. The workflow never
 deploys, restarts a host, or merges its own proposals; runtime rollout remains
 an attended operation after both declared states are reviewed and aligned.
+Each release uses a stable version-named branch and deterministic candidate
+commit metadata. An hourly rerun discovers the exact open proposal heads before
+making new candidates, revalidates their identities, allowed-path diffs,
+immutable references, and full compatibility gates, and then reuses them even
+if `main` has advanced independently. It never force-moves an open proposal;
+an incoherent or out-of-scope proposal pair fails closed.
 
 ### Pharos Nix Deployment Evidence
 

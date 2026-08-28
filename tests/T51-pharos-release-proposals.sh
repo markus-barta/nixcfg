@@ -7,10 +7,12 @@ if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
 fi
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+select_existing="$repo_root/scripts/select-pharos-release-candidates.sh"
 prepare="$repo_root/scripts/prepare-pharos-release-candidates.sh"
 publish="$repo_root/scripts/publish-pharos-release-candidates.sh"
 workflow="$repo_root/.github/workflows/pharos-release-rollout.yml"
 
+bash -n "$select_existing"
 bash -n "$prepare"
 bash -n "$publish"
 
@@ -18,16 +20,19 @@ prepare_line=$(grep -n -m1 'Prepare clean local release candidates' "$workflow" 
 validate_line=$(grep -n -m1 'Validate the exact committed candidates' "$workflow" | cut -d: -f1)
 publish_line=$(grep -n -m1 'Publish both validated proposals transactionally' "$workflow" | cut -d: -f1)
 signature_line=$(grep -n -m1 'Verify the release signature and workflow identity' "$workflow" | cut -d: -f1)
+select_line=$(grep -n -m1 'Select an exact existing proposal pair' "$workflow" | cut -d: -f1)
 update_line=$(grep -n -m1 'Prepare both repositories from the same digest' "$workflow" | cut -d: -f1)
-if [[ -z "$signature_line" || -z "$update_line" || -z "$prepare_line" ||
+if [[ -z "$signature_line" || -z "$select_line" || -z "$update_line" || -z "$prepare_line" ||
   -z "$validate_line" || -z "$publish_line" ]] ||
-  [[ "$signature_line" -ge "$update_line" || "$update_line" -ge "$prepare_line" ||
+  [[ "$signature_line" -ge "$select_line" || "$select_line" -ge "$update_line" ||
+    "$update_line" -ge "$prepare_line" ||
     "$prepare_line" -ge "$validate_line" || "$validate_line" -ge "$publish_line" ]]; then
   printf 'pharos_release_proposals=failed reason=workflow_order\n' >&2
   exit 1
 fi
 grep -Fq 'scripts/prepare-pharos-release-candidates.sh' "$workflow"
 grep -Fq 'scripts/publish-pharos-release-candidates.sh' "$workflow"
+grep -Fq 'scripts/select-pharos-release-candidates.sh' "$workflow"
 grep -Fq 'tests/T32-managed-secret-production-preflight.sh' "$workflow"
 grep -Fq 'Verify the release signature and workflow identity' "$workflow"
 awk '
@@ -56,6 +61,8 @@ nix_branch=""
 dsc_branch=""
 nix_sha=""
 dsc_sha=""
+reused=""
+fixture_reference='ghcr.io/inspr-at/pharos/pharosd:9.8.7@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 fake_bin="$fixture_root/bin"
 mkdir -p "$fake_bin"
@@ -100,6 +107,14 @@ if [[ "$1 $2" == 'pr list' ]]; then
       printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/9","headRefName":"%s","headRefOid":"%s","baseRefName":"main"}]\n' \
         "$repo" "$FAKE_BRANCH" "$sha"
       ;;
+    nix-exact)
+      if [[ "$repo" == example/nixcfg ]]; then
+        printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/9","headRefName":"%s","headRefOid":"%s","baseRefName":"main"}]\n' \
+          "$repo" "$FAKE_BRANCH" "$FAKE_NIX_SHA"
+      else
+        printf '[]\n'
+      fi
+      ;;
     stale)
       printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/8","headRefName":"stale-branch","headRefOid":"0000000000000000000000000000000000000000","baseRefName":"main"}]\n' \
         "$repo"
@@ -123,6 +138,14 @@ if [[ "$1 $2" == 'pr create' ]]; then
     exit 42
   fi
   printf '%s\n' "$repo" >>"$FAKE_GH_STATE"
+  if [[ -n "${FAKE_GH_MUTATE_BRANCH_REPO:-}" && "$repo" == "$FAKE_GH_MUTATE_BRANCH_REPO" ]]; then
+    if [[ "$repo" == example/nixcfg ]]; then
+      root=$NIXCFG_ROOT
+    else
+      root=$DSCCFG_ROOT
+    fi
+    git -C "$root" push -q --force origin "main:refs/heads/$FAKE_BRANCH"
+  fi
   if [[ -n "${FAKE_GH_CREATE_THEN_FAIL_REPO:-}" && "$repo" == "$FAKE_GH_CREATE_THEN_FAIL_REPO" ]]; then
     exit 44
   fi
@@ -167,12 +190,16 @@ write_nixcfg_files() {
     mkdir -p "$root/$(dirname "$path")"
     printf 'old\n' >"$root/$path"
   done
+  printf '{"reference":"ghcr.io/inspr-at/pharos/pharosd:1.0.0@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}\n' \
+    >"$root/pharos-release.json"
+  printf 'base\n' >"$root/unrelated.txt"
 }
 
 write_dsccfg_files() {
   local root=$1
   mkdir -p "$root/hosts/dsc0/docker"
-  printf 'old\n' >"$root/pharos-release.json"
+  printf '{"reference":"ghcr.io/inspr-at/pharos/pharosd:1.0.0@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}\n' \
+    >"$root/pharos-release.json"
   printf 'old\n' >"$root/hosts/dsc0/docker/docker-compose.yml"
 }
 
@@ -192,6 +219,11 @@ make_pair() {
   done
   write_nixcfg_files "$pair/nix"
   write_dsccfg_files "$pair/dsc"
+  if [[ "$changed" == nix ]]; then
+    printf '{"reference":"%s"}\n' "$fixture_reference" >"$pair/dsc/pharos-release.json"
+  elif [[ "$changed" == dsc ]]; then
+    printf '{"reference":"%s"}\n' "$fixture_reference" >"$pair/nix/pharos-release.json"
+  fi
   git -C "$pair/nix" add .
   git -C "$pair/nix" commit -qm base
   git -C "$pair/dsc" add .
@@ -199,10 +231,10 @@ make_pair() {
   git -C "$pair/nix" push -q -u origin main
   git -C "$pair/dsc" push -q -u origin main
   if [[ "$changed" == both || "$changed" == nix ]]; then
-    printf 'new\n' >"$pair/nix/pharos-release.json"
+    printf '{"reference":"%s"}\n' "$fixture_reference" >"$pair/nix/pharos-release.json"
   fi
   if [[ "$changed" == both || "$changed" == dsc ]]; then
-    printf 'new\n' >"$pair/dsc/pharos-release.json"
+    printf '{"reference":"%s"}\n' "$fixture_reference" >"$pair/dsc/pharos-release.json"
   fi
   printf '%s\n' "$pair"
 }
@@ -213,13 +245,14 @@ prepare_pair() {
   local expected_nix_changed=${3:-true}
   local expected_dsc_changed=${4:-true}
   local output="$pair/prepare-output"
+  : >"$output"
   GITHUB_RUN_ID="$run_id" GITHUB_OUTPUT="$output" \
     "$prepare" 9.8.7 "$pair/nix" "$pair/dsc" >/dev/null
   # shellcheck disable=SC1090
   source "$output"
   [[ "$nix_changed" == "$expected_nix_changed" ]]
   [[ "$dsc_changed" == "$expected_dsc_changed" ]]
-  [[ "$nix_branch" == "automation/pharos-release-9.8.7-${run_id}" ]]
+  [[ "$nix_branch" == 'automation/pharos-release-9.8.7' ]]
   [[ "$dsc_branch" == "$nix_branch" ]]
   [[ "$nix_sha" == "$(git -C "$pair/nix" rev-parse HEAD)" ]]
   [[ "$dsc_sha" == "$(git -C "$pair/dsc" rev-parse HEAD)" ]]
@@ -245,6 +278,7 @@ publish_pair() {
   local list_mode=${3:-empty}
   local fail_close_url=${4:-}
   local create_then_fail_repo=${5:-}
+  local mutate_branch_repo=${6:-}
   local output="$pair/publish-output"
   : >"$output"
   : >"$pair/gh-state"
@@ -254,6 +288,7 @@ publish_pair() {
     FAKE_GH_FAIL_CLOSE_URL="$fail_close_url" \
     FAKE_GH_CREATE_THEN_FAIL_REPO="$create_then_fail_repo" \
     FAKE_GH_LIST_MODE="$list_mode" \
+    FAKE_GH_MUTATE_BRANCH_REPO="$mutate_branch_repo" \
     FAKE_GH_STATE="$pair/gh-state" \
     FAKE_NIX_SHA="$nix_sha" \
     FAKE_DSC_SHA="$dsc_sha" \
@@ -271,6 +306,33 @@ publish_pair() {
     DSC_SHA="$dsc_sha" \
     GITHUB_OUTPUT="$output" \
     "$publish" >/dev/null
+}
+
+select_pair() {
+  local pair=$1
+  local list_mode=${2:-exact}
+  local requested_reference=${3:-$fixture_reference}
+  local output="$pair/select-output"
+  : >"$output"
+  if ! PATH="$fake_bin:$PATH" \
+    FAKE_GH_LOG="$pair/gh-log" \
+    FAKE_GH_LIST_MODE="$list_mode" \
+    FAKE_GH_STATE="$pair/gh-state" \
+    FAKE_NIX_SHA="$nix_sha" \
+    FAKE_DSC_SHA="$dsc_sha" \
+    FAKE_BRANCH="$nix_branch" \
+    NIXCFG_REPOSITORY=example/nixcfg \
+    DSCCFG_REPOSITORY=example/dsccfg \
+    "$select_existing" \
+    9.8.7 \
+    "$requested_reference" \
+    "$pair/nix" \
+    "$pair/dsc" \
+    "$output" >/dev/null; then
+    return 1
+  fi
+  # shellcheck disable=SC1090
+  source "$output"
 }
 
 success_pair=$(make_pair success)
@@ -291,11 +353,72 @@ grep -Fq 'pr comment https://example.invalid/example/dsccfg/pull/1' "$success_pa
 grep -Fxq 'nix_url=https://example.invalid/example/nixcfg/pull/1' "$success_pair/publish-output"
 grep -Fxq 'dsc_url=https://example.invalid/example/dsccfg/pull/1' "$success_pair/publish-output"
 
+first_nix_sha=$nix_sha
+first_dsc_sha=$dsc_sha
+first_branch=$nix_branch
+for repo in nix dsc; do
+  git -C "$success_pair/$repo" switch -q main
+  git -C "$success_pair/$repo" branch -D "$first_branch" >/dev/null
+  printf 'main advanced after proposal\n' >"$success_pair/$repo/main-advanced.txt"
+  git -C "$success_pair/$repo" add main-advanced.txt
+  git -C "$success_pair/$repo" commit -qm main-advanced
+  git -C "$success_pair/$repo" push -q origin main
+done
+: >"$success_pair/gh-log"
+select_pair "$success_pair" exact
+[[ "$reused" == true ]]
+[[ "$nix_changed" == true && "$dsc_changed" == true ]]
+[[ "$nix_branch" == "$first_branch" && "$dsc_branch" == "$first_branch" ]]
+[[ "$nix_sha" == "$first_nix_sha" && "$dsc_sha" == "$first_dsc_sha" ]]
+publish_pair "$success_pair" '' exact
+if grep -Fq 'pr create' "$success_pair/gh-log"; then
+  printf 'pharos_release_proposals=failed reason=advanced_main_recreated_proposals\n' >&2
+  exit 1
+fi
+[[ "$(git --git-dir="$success_pair/nix.git" rev-parse "refs/heads/$first_branch")" == "$first_nix_sha" ]]
+[[ "$(git --git-dir="$success_pair/dsc.git" rev-parse "refs/heads/$first_branch")" == "$first_dsc_sha" ]]
+
+selector_scope_pair=$(make_pair selector-out-of-scope)
+prepare_pair "$selector_scope_pair" 1015
+printf 'out of proposal scope\n' >"$selector_scope_pair/nix/unrelated.txt"
+git -C "$selector_scope_pair/nix" add unrelated.txt
+git -C "$selector_scope_pair/nix" commit -qm out-of-scope
+nix_sha=$(git -C "$selector_scope_pair/nix" rev-parse HEAD)
+git -C "$selector_scope_pair/nix" push -q origin "$nix_branch"
+git -C "$selector_scope_pair/dsc" push -q origin "$dsc_branch"
+git -C "$selector_scope_pair/nix" switch -q main
+git -C "$selector_scope_pair/dsc" switch -q main
+if select_pair "$selector_scope_pair" exact \
+  >"$selector_scope_pair/stdout" 2>"$selector_scope_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=out_of_scope_existing_selected\n' >&2
+  exit 1
+fi
+if ! grep -Fxq 'pharos_release_existing=failed reason=proposal_path_out_of_scope repo=nix path=unrelated.txt' \
+  "$selector_scope_pair/stderr"; then
+  cat "$selector_scope_pair/stderr" >&2
+  exit 1
+fi
+
+selector_reference_pair=$(make_pair selector-reference)
+prepare_pair "$selector_reference_pair" 1016
+git -C "$selector_reference_pair/nix" push -q origin "$nix_branch"
+git -C "$selector_reference_pair/dsc" push -q origin "$dsc_branch"
+git -C "$selector_reference_pair/nix" switch -q main
+git -C "$selector_reference_pair/dsc" switch -q main
+other_reference='ghcr.io/inspr-at/pharos/pharosd:9.8.7@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+if select_pair "$selector_reference_pair" exact "$other_reference" \
+  >"$selector_reference_pair/stdout" 2>"$selector_reference_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=wrong_reference_existing_selected\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_existing=failed reason=proposal_reference_mismatch repo=nix' \
+  "$selector_reference_pair/stderr"
+
 divergent_pair=$(make_pair divergent-base)
 printf 'unrelated non-main commit\n' >"$divergent_pair/nix/unrelated.txt"
 git -C "$divergent_pair/nix" add unrelated.txt
 git -C "$divergent_pair/nix" commit -qm divergent-base
-divergent_branch=automation/pharos-release-9.8.7-1008
+divergent_branch=automation/pharos-release-9.8.7
 if GITHUB_RUN_ID=1008 GITHUB_OUTPUT="$divergent_pair/prepare-output" \
   "$prepare" 9.8.7 "$divergent_pair/nix" "$divergent_pair/dsc" \
   >"$divergent_pair/stdout" 2>"$divergent_pair/stderr"; then
@@ -312,10 +435,58 @@ if git -C "$divergent_pair/nix" show-ref --verify --quiet "refs/heads/$divergent
   exit 1
 fi
 
+unexpected_pair=$(make_pair unexpected-path nix)
+printf 'changed outside allow-list\n' >"$unexpected_pair/nix/unrelated.txt"
+if GITHUB_OUTPUT="$unexpected_pair/prepare-output" \
+  "$prepare" 9.8.7 "$unexpected_pair/nix" "$unexpected_pair/dsc" \
+  >"$unexpected_pair/stdout" 2>"$unexpected_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=unexpected_path_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_candidates=failed reason=unexpected_change repo=nix path=unrelated.txt' \
+  "$unexpected_pair/stderr"
+
+prestaged_pair=$(make_pair prestaged nix)
+git -C "$prestaged_pair/nix" add pharos-release.json
+if GITHUB_OUTPUT="$prestaged_pair/prepare-output" \
+  "$prepare" 9.8.7 "$prestaged_pair/nix" "$prestaged_pair/dsc" \
+  >"$prestaged_pair/stdout" 2>"$prestaged_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=prestaged_change_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_candidates=failed reason=pre_staged_changes repo=nix' \
+  "$prestaged_pair/stderr"
+
+tracked_dirty_pair=$(make_pair tracked-dirty nix)
+rm "$tracked_dirty_pair/nix/unrelated.txt"
+if GITHUB_OUTPUT="$tracked_dirty_pair/prepare-output" \
+  "$prepare" 9.8.7 "$tracked_dirty_pair/nix" "$tracked_dirty_pair/dsc" \
+  >"$tracked_dirty_pair/stdout" 2>"$tracked_dirty_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=tracked_dirty_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_candidates=failed reason=tracked_tree_not_clean repo=nix' \
+  "$tracked_dirty_pair/stderr"
+
 validation_pair=$(make_pair validation-failure)
 prepare_pair "$validation_pair" 1002
 if validate_pair_fixture "$validation_pair" "$nix_sha" "$dsc_sha" true; then
   publish_pair "$validation_pair"
+fi
+
+publish_dirty_pair=$(make_pair publish-dirty)
+prepare_pair "$publish_dirty_pair" 1012
+printf 'dirty after validation\n' >"$publish_dirty_pair/nix/unrelated.txt"
+if publish_pair "$publish_dirty_pair" >"$publish_dirty_pair/stdout" 2>"$publish_dirty_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=publish_dirty_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_publish=failed reason=unvalidated_commit repo=nix' \
+  "$publish_dirty_pair/stderr"
+if git --git-dir="$publish_dirty_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
+  git --git-dir="$publish_dirty_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch"; then
+  printf 'pharos_release_proposals=failed reason=publish_dirty_left_branch\n' >&2
+  exit 1
 fi
 if git --git-dir="$validation_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
   git --git-dir="$validation_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch"; then
@@ -363,12 +534,16 @@ fi
 
 cleanup_failure_pair=$(make_pair cleanup-failure)
 prepare_pair "$cleanup_failure_pair" 1009
-if publish_pair \
+set +e
+publish_pair \
   "$cleanup_failure_pair" \
   example/nixcfg \
   empty \
   https://example.invalid/example/dsccfg/pull/1 \
-  >"$cleanup_failure_pair/stdout" 2>"$cleanup_failure_pair/stderr"; then
+  >"$cleanup_failure_pair/stdout" 2>"$cleanup_failure_pair/stderr"
+cleanup_status=$?
+set -e
+if [[ $cleanup_status -ne 70 ]]; then
   printf 'pharos_release_proposals=failed reason=cleanup_failure_accepted\n' >&2
   exit 1
 fi
@@ -390,6 +565,31 @@ fi
 grep -Fq 'pr close https://example.invalid/example/dsccfg/pull/1' "$cleanup_failure_pair/gh-log"
 grep -Fq 'pr view https://example.invalid/example/dsccfg/pull/1' "$cleanup_failure_pair/gh-log"
 
+mismatch_pair=$(make_pair cleanup-head-mismatch)
+prepare_pair "$mismatch_pair" 1013
+mismatch_main=$(git -C "$mismatch_pair/dsc" rev-parse main)
+set +e
+publish_pair \
+  "$mismatch_pair" \
+  '' \
+  empty \
+  '' \
+  example/dsccfg \
+  example/dsccfg \
+  >"$mismatch_pair/stdout" 2>"$mismatch_pair/stderr"
+mismatch_status=$?
+set -e
+[[ $mismatch_status -eq 70 ]]
+grep -Fxq 'pharos_release_cleanup=failed action=branch_head_mismatch repo=dsc' \
+  "$mismatch_pair/stderr"
+grep -Fxq 'pharos_release_publish=failed reason=cleanup_incomplete' \
+  "$mismatch_pair/stderr"
+[[ "$(git --git-dir="$mismatch_pair/dsc.git" rev-parse "refs/heads/$dsc_branch")" == "$mismatch_main" ]]
+if git --git-dir="$mismatch_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch"; then
+  printf 'pharos_release_proposals=failed reason=mismatch_cleanup_left_exact_branch\n' >&2
+  exit 1
+fi
+
 collision_pair=$(make_pair branch-collision)
 prepare_pair "$collision_pair" 1010
 git -C "$collision_pair/nix" push -q origin \
@@ -404,6 +604,21 @@ grep -Fxq 'pharos_release_publish=failed reason=branch_collision repo=nix' \
 if git --git-dir="$collision_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch" ||
   grep -Fq 'pr create' "$collision_pair/gh-log"; then
   printf 'pharos_release_proposals=failed reason=branch_collision_mutated_other_repo\n' >&2
+  exit 1
+fi
+
+incomplete_pair=$(make_pair incomplete-existing)
+prepare_pair "$incomplete_pair" 1014
+if publish_pair "$incomplete_pair" '' nix-exact \
+  >"$incomplete_pair/stdout" 2>"$incomplete_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=incomplete_existing_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_publish=failed reason=existing_pair_incomplete' \
+  "$incomplete_pair/stderr"
+if git --git-dir="$incomplete_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
+  git --git-dir="$incomplete_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch"; then
+  printf 'pharos_release_proposals=failed reason=incomplete_existing_published\n' >&2
   exit 1
 fi
 
@@ -451,6 +666,11 @@ fi
 grep -Fq 'The validated dsccfg main commit is already aligned to this release.' "$nix_only_pair/gh-log"
 grep -Fxq 'nix_url=https://example.invalid/example/nixcfg/pull/1' "$nix_only_pair/publish-output"
 grep -Fxq 'dsc_url=' "$nix_only_pair/publish-output"
+git -C "$nix_only_pair/nix" switch -q main
+select_pair "$nix_only_pair" empty
+[[ "$reused" == true && "$nix_changed" == true && "$dsc_changed" == false ]]
+[[ "$nix_sha" == "$(git --git-dir="$nix_only_pair/nix.git" rev-parse "refs/heads/$nix_branch")" ]]
+[[ "$dsc_sha" == "$(git -C "$nix_only_pair/dsc" rev-parse main)" ]]
 
 dsc_only_pair=$(make_pair dsc-only dsc)
 prepare_pair "$dsc_only_pair" 1007 false true
@@ -468,5 +688,10 @@ fi
 grep -Fq 'The validated nixcfg main commit is already aligned to this release.' "$dsc_only_pair/gh-log"
 grep -Fxq 'nix_url=' "$dsc_only_pair/publish-output"
 grep -Fxq 'dsc_url=https://example.invalid/example/dsccfg/pull/1' "$dsc_only_pair/publish-output"
+git -C "$dsc_only_pair/dsc" switch -q main
+select_pair "$dsc_only_pair" empty
+[[ "$reused" == true && "$nix_changed" == false && "$dsc_changed" == true ]]
+[[ "$nix_sha" == "$(git -C "$dsc_only_pair/nix" rev-parse main)" ]]
+[[ "$dsc_sha" == "$(git --git-dir="$dsc_only_pair/dsc.git" rev-parse "refs/heads/$dsc_branch")" ]]
 
 printf 'pharos_release_proposals=passed\n'

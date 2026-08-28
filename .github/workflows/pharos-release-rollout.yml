@@ -123,7 +123,22 @@ jobs:
             --certificate-identity "https://github.com/inspr-at/pharos/.github/workflows/release.yml@refs/tags/${TAG}" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" >/dev/null
 
+      - name: Select an exact existing proposal pair
+        id: existing
+        env:
+          NIXCFG_REPOSITORY: ${{ github.repository }}
+          REFERENCE: ${{ steps.image.outputs.reference }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          scripts/select-pharos-release-candidates.sh \
+            "$VERSION" \
+            "$REFERENCE" \
+            "$GITHUB_WORKSPACE" \
+            "$GITHUB_WORKSPACE/_release-dsccfg" \
+            "$GITHUB_OUTPUT"
+
       - name: Prepare both repositories from the same digest
+        if: steps.existing.outputs.reused != 'true'
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
           VERSION: ${{ steps.release.outputs.version }}
@@ -138,7 +153,8 @@ jobs:
           fi
 
       - name: Prepare clean local release candidates
-        id: candidates
+        if: steps.existing.outputs.reused != 'true'
+        id: prepared
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
@@ -149,8 +165,8 @@ jobs:
 
       - name: Validate the exact committed candidates
         env:
-          DSC_SHA: ${{ steps.candidates.outputs.dsc_sha }}
-          NIX_SHA: ${{ steps.candidates.outputs.nix_sha }}
+          DSC_SHA: ${{ steps.existing.outputs.dsc_sha || steps.prepared.outputs.dsc_sha }}
+          NIX_SHA: ${{ steps.existing.outputs.nix_sha || steps.prepared.outputs.nix_sha }}
         run: |
           [[ "$(git rev-parse HEAD)" == "$NIX_SHA" ]]
           [[ "$(git -C _release-dsccfg rev-parse HEAD)" == "$DSC_SHA" ]]
@@ -174,13 +190,13 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || inputs.dry_run != true
         id: proposals
         env:
-          DSC_BRANCH: ${{ steps.candidates.outputs.dsc_branch }}
-          DSC_CHANGED: ${{ steps.candidates.outputs.dsc_changed }}
-          DSC_SHA: ${{ steps.candidates.outputs.dsc_sha }}
+          DSC_BRANCH: ${{ steps.existing.outputs.dsc_branch || steps.prepared.outputs.dsc_branch }}
+          DSC_CHANGED: ${{ steps.existing.outputs.dsc_changed || steps.prepared.outputs.dsc_changed }}
+          DSC_SHA: ${{ steps.existing.outputs.dsc_sha || steps.prepared.outputs.dsc_sha }}
           DSCCFG_ROOT: ${{ github.workspace }}/_release-dsccfg
-          NIX_BRANCH: ${{ steps.candidates.outputs.nix_branch }}
-          NIX_CHANGED: ${{ steps.candidates.outputs.nix_changed }}
-          NIX_SHA: ${{ steps.candidates.outputs.nix_sha }}
+          NIX_BRANCH: ${{ steps.existing.outputs.nix_branch || steps.prepared.outputs.nix_branch }}
+          NIX_CHANGED: ${{ steps.existing.outputs.nix_changed || steps.prepared.outputs.nix_changed }}
+          NIX_SHA: ${{ steps.existing.outputs.nix_sha || steps.prepared.outputs.nix_sha }}
           NIXCFG_REPOSITORY: ${{ github.repository }}
           NIXCFG_ROOT: ${{ github.workspace }}
           VERSION: ${{ steps.release.outputs.version }}
