@@ -73,6 +73,18 @@ if [[ "$1 $2" == 'pr list' ]]; then
     fi
     shift
   done
+  if grep -Fxq "$repo" "$FAKE_GH_STATE"; then
+    if [[ "$repo" == example/nixcfg ]]; then
+      sha=$FAKE_NIX_SHA
+    elif [[ "$repo" == example/dsccfg ]]; then
+      sha=$FAKE_DSC_SHA
+    else
+      exit 2
+    fi
+    printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/1","headRefName":"%s","headRefOid":"%s","baseRefName":"main"}]\n' \
+      "$repo" "$FAKE_BRANCH" "$sha"
+    exit 0
+  fi
   case "${FAKE_GH_LIST_MODE:-empty}" in
     empty)
       printf '[]\n'
@@ -110,10 +122,28 @@ if [[ "$1 $2" == 'pr create' ]]; then
   if [[ -n "${FAKE_GH_FAIL_REPO:-}" && "$repo" == "$FAKE_GH_FAIL_REPO" ]]; then
     exit 42
   fi
+  printf '%s\n' "$repo" >>"$FAKE_GH_STATE"
+  if [[ -n "${FAKE_GH_CREATE_THEN_FAIL_REPO:-}" && "$repo" == "$FAKE_GH_CREATE_THEN_FAIL_REPO" ]]; then
+    exit 44
+  fi
   printf 'https://example.invalid/%s/pull/1\n' "$repo"
   exit 0
 fi
-if [[ "$1 $2" == 'pr comment' || "$1 $2" == 'pr close' ]]; then
+if [[ "$1 $2" == 'pr close' ]]; then
+  if [[ -n "${FAKE_GH_FAIL_CLOSE_URL:-}" && "$3" == "$FAKE_GH_FAIL_CLOSE_URL" ]]; then
+    exit 43
+  fi
+  exit 0
+fi
+if [[ "$1 $2" == 'pr view' ]]; then
+  if [[ -n "${FAKE_GH_FAIL_CLOSE_URL:-}" && "$3" == "$FAKE_GH_FAIL_CLOSE_URL" ]]; then
+    printf 'OPEN\n'
+  else
+    printf 'CLOSED\n'
+  fi
+  exit 0
+fi
+if [[ "$1 $2" == 'pr comment' ]]; then
   exit 0
 fi
 exit 1
@@ -213,12 +243,18 @@ publish_pair() {
   local pair=$1
   local fail_repo=${2:-}
   local list_mode=${3:-empty}
+  local fail_close_url=${4:-}
+  local create_then_fail_repo=${5:-}
   local output="$pair/publish-output"
   : >"$output"
+  : >"$pair/gh-state"
   PATH="$fake_bin:$PATH" \
     FAKE_GH_LOG="$pair/gh-log" \
     FAKE_GH_FAIL_REPO="$fail_repo" \
+    FAKE_GH_FAIL_CLOSE_URL="$fail_close_url" \
+    FAKE_GH_CREATE_THEN_FAIL_REPO="$create_then_fail_repo" \
     FAKE_GH_LIST_MODE="$list_mode" \
+    FAKE_GH_STATE="$pair/gh-state" \
     FAKE_NIX_SHA="$nix_sha" \
     FAKE_DSC_SHA="$dsc_sha" \
     FAKE_BRANCH="$nix_branch" \
@@ -299,6 +335,77 @@ if git --git-dir="$partial_pair/nix.git" show-ref --verify --quiet "refs/heads/$
   exit 1
 fi
 grep -Fq 'pr close https://example.invalid/example/dsccfg/pull/1' "$partial_pair/gh-log"
+grep -Fq 'pr view https://example.invalid/example/dsccfg/pull/1' "$partial_pair/gh-log"
+
+create_then_fail_pair=$(make_pair create-then-fail)
+prepare_pair "$create_then_fail_pair" 1011
+if publish_pair \
+  "$create_then_fail_pair" \
+  '' \
+  empty \
+  '' \
+  example/dsccfg \
+  >"$create_then_fail_pair/stdout" 2>"$create_then_fail_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=create_then_fail_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_publish=failed reason=partial_pair_cleaned' \
+  "$create_then_fail_pair/stderr"
+grep -Fq 'pr close https://example.invalid/example/dsccfg/pull/1' \
+  "$create_then_fail_pair/gh-log"
+grep -Fq 'pr view https://example.invalid/example/dsccfg/pull/1' \
+  "$create_then_fail_pair/gh-log"
+if git --git-dir="$create_then_fail_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
+  git --git-dir="$create_then_fail_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch"; then
+  printf 'pharos_release_proposals=failed reason=create_then_fail_left_branch\n' >&2
+  exit 1
+fi
+
+cleanup_failure_pair=$(make_pair cleanup-failure)
+prepare_pair "$cleanup_failure_pair" 1009
+if publish_pair \
+  "$cleanup_failure_pair" \
+  example/nixcfg \
+  empty \
+  https://example.invalid/example/dsccfg/pull/1 \
+  >"$cleanup_failure_pair/stdout" 2>"$cleanup_failure_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=cleanup_failure_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_cleanup=failed action=close_pr repo=dsc' \
+  "$cleanup_failure_pair/stderr"
+grep -Fxq 'pharos_release_cleanup=failed action=verify_pr_closed repo=dsc' \
+  "$cleanup_failure_pair/stderr"
+grep -Fxq 'pharos_release_publish=failed reason=cleanup_incomplete' \
+  "$cleanup_failure_pair/stderr"
+if grep -Fq 'reason=partial_pair_cleaned' "$cleanup_failure_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=cleanup_failure_claimed_clean\n' >&2
+  exit 1
+fi
+if git --git-dir="$cleanup_failure_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
+  git --git-dir="$cleanup_failure_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch"; then
+  printf 'pharos_release_proposals=failed reason=cleanup_failure_left_remote_branch\n' >&2
+  exit 1
+fi
+grep -Fq 'pr close https://example.invalid/example/dsccfg/pull/1' "$cleanup_failure_pair/gh-log"
+grep -Fq 'pr view https://example.invalid/example/dsccfg/pull/1' "$cleanup_failure_pair/gh-log"
+
+collision_pair=$(make_pair branch-collision)
+prepare_pair "$collision_pair" 1010
+git -C "$collision_pair/nix" push -q origin \
+  "$nix_sha:refs/heads/$nix_branch"
+if publish_pair "$collision_pair" >"$collision_pair/stdout" 2>"$collision_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=branch_collision_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_publish=failed reason=branch_collision repo=nix' \
+  "$collision_pair/stderr"
+[[ "$(git --git-dir="$collision_pair/nix.git" rev-parse "refs/heads/$nix_branch")" == "$nix_sha" ]]
+if git --git-dir="$collision_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch" ||
+  grep -Fq 'pr create' "$collision_pair/gh-log"; then
+  printf 'pharos_release_proposals=failed reason=branch_collision_mutated_other_repo\n' >&2
+  exit 1
+fi
 
 stale_pair=$(make_pair stale-reuse)
 prepare_pair "$stale_pair" 1004

@@ -116,23 +116,118 @@ if { [[ "$NIX_CHANGED" == false || -n "$nix_existing" ]] &&
   exit 0
 fi
 
-nix_pushed=false
-dsc_pushed=false
+preflight_branch_absent() {
+  local label=$1
+  local root=$2
+  local changed=$3
+  local branch=$4
+  local remote_ref
+
+  [[ "$changed" == true ]] || return 0
+  remote_ref=$(git -C "$root" ls-remote --heads origin "refs/heads/$branch") || {
+    printf 'pharos_release_publish=failed reason=branch_preflight_unavailable repo=%s\n' "$label" >&2
+    return 1
+  }
+  if [[ -n "$remote_ref" ]]; then
+    printf 'pharos_release_publish=failed reason=branch_collision repo=%s\n' "$label" >&2
+    return 1
+  fi
+}
+
+preflight_branch_absent nix "$NIXCFG_ROOT" "$NIX_CHANGED" "$NIX_BRANCH"
+preflight_branch_absent dsc "$DSCCFG_ROOT" "$DSC_CHANGED" "$DSC_BRANCH"
+
 nix_pr=""
 dsc_pr=""
 published=false
 
 cleanup_partial_pair() {
   local exit_code=$?
+  local cleanup_failed=false
+  local proposals
+  local discovered
+  local known_pr
+  local pr
+  local seen
+  local remote_ref
+  local remote_sha
+  local status
   if [[ "$published" == true ]]; then
     return 0
   fi
   set +e
-  [[ -z "$nix_pr" ]] || gh pr close "$nix_pr" --comment 'Closing incomplete paired release proposal; the transaction did not finish.'
-  [[ -z "$dsc_pr" ]] || gh pr close "$dsc_pr" --comment 'Closing incomplete paired release proposal; the transaction did not finish.'
-  [[ "$nix_pushed" != true ]] || git -C "$NIXCFG_ROOT" push origin --delete "$NIX_BRANCH"
-  [[ "$dsc_pushed" != true ]] || git -C "$DSCCFG_ROOT" push origin --delete "$DSC_BRANCH"
+  for tuple in \
+    "nix|$NIX_CHANGED|$NIXCFG_ROOT|$NIXCFG_REPOSITORY|$NIX_BRANCH|$NIX_SHA|$nix_pr" \
+    "dsc|$DSC_CHANGED|$DSCCFG_ROOT|$DSCCFG_REPOSITORY|$DSC_BRANCH|$DSC_SHA|$dsc_pr"; do
+    IFS='|' read -r label changed root repository branch expected_sha known_pr <<<"$tuple"
+    [[ "$changed" == true ]] || continue
+
+    proposals=$(gh pr list \
+      --repo "$repository" \
+      --state open \
+      --limit 100 \
+      --json title,url,headRefName,headRefOid,baseRefName)
+    status=$?
+    if [[ $status -ne 0 ]]; then
+      printf 'pharos_release_cleanup=failed action=discover_pr repo=%s\n' "$label" >&2
+      cleanup_failed=true
+      discovered=""
+    else
+      discovered=$(jq -r \
+        --arg title "$title" \
+        --arg branch "$branch" \
+        --arg sha "$expected_sha" \
+        '.[] | select(.title == $title and .headRefName == $branch and .headRefOid == $sha and .baseRefName == "main") | .url' \
+        <<<"$proposals")
+    fi
+    [[ -z "$known_pr" ]] || discovered="${discovered:+${discovered}$'\n'}${known_pr}"
+    seen=$'\n'
+    while IFS= read -r pr; do
+      [[ -n "$pr" ]] || continue
+      [[ "$seen" != *$'\n'"$pr"$'\n'* ]] || continue
+      seen+="$pr"$'\n'
+      if ! gh pr close "$pr" --comment 'Closing incomplete paired release proposal; the transaction did not finish.'; then
+        printf 'pharos_release_cleanup=failed action=close_pr repo=%s\n' "$label" >&2
+        cleanup_failed=true
+      fi
+      state=$(gh pr view "$pr" --json state --jq .state)
+      status=$?
+      if [[ $status -ne 0 || "$state" != CLOSED ]]; then
+        printf 'pharos_release_cleanup=failed action=verify_pr_closed repo=%s\n' "$label" >&2
+        cleanup_failed=true
+      fi
+    done <<<"$discovered"
+
+    remote_ref=$(git -C "$root" ls-remote --heads origin "refs/heads/$branch")
+    status=$?
+    if [[ $status -ne 0 ]]; then
+      printf 'pharos_release_cleanup=failed action=discover_branch repo=%s\n' "$label" >&2
+      cleanup_failed=true
+      continue
+    fi
+    remote_sha=$(awk 'NR == 1 { print $1 }' <<<"$remote_ref")
+    [[ -n "$remote_sha" ]] || continue
+    if [[ "$remote_sha" != "$expected_sha" ]]; then
+      printf 'pharos_release_cleanup=failed action=branch_head_mismatch repo=%s\n' "$label" >&2
+      cleanup_failed=true
+      continue
+    fi
+    if ! git -C "$root" push origin --delete "$branch"; then
+      printf 'pharos_release_cleanup=failed action=delete_branch repo=%s\n' "$label" >&2
+      cleanup_failed=true
+    fi
+    git -C "$root" ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null
+    status=$?
+    if [[ $status -ne 2 ]]; then
+      printf 'pharos_release_cleanup=failed action=verify_branch_absent repo=%s\n' "$label" >&2
+      cleanup_failed=true
+    fi
+  done
   set -e
+  if [[ "$cleanup_failed" == true ]]; then
+    printf 'pharos_release_publish=failed reason=cleanup_incomplete\n' >&2
+    return 1
+  fi
   printf 'pharos_release_publish=failed reason=partial_pair_cleaned\n' >&2
   return "$exit_code"
 }
@@ -140,11 +235,9 @@ trap cleanup_partial_pair EXIT
 
 if [[ "$DSC_CHANGED" == true ]]; then
   git -C "$DSCCFG_ROOT" push --set-upstream origin "$DSC_BRANCH"
-  dsc_pushed=true
 fi
 if [[ "$NIX_CHANGED" == true ]]; then
   git -C "$NIXCFG_ROOT" push --set-upstream origin "$NIX_BRANCH"
-  nix_pushed=true
 fi
 
 if [[ "$DSC_CHANGED" == true ]]; then
