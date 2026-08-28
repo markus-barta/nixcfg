@@ -235,6 +235,17 @@
         "traefik.http.middlewares.hostdash-auth-csb0.forwardauth.trustForwardHeader=true"
         "traefik.http.middlewares.hostdash-auth-csb0.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email"
         "traefik.http.services.hostdash-csb0.loadbalancer.server.port=80"
+        # Joe is a static paper-drill card with no account data or controls.
+        # Keep the dashboard authenticated; publish only this exact path.
+        "traefik.http.routers.joe-csb0.rule=Host(`cs0.barta.cm`) && (Path(`/joe`) || PathPrefix(`/joe/`))"
+        "traefik.http.routers.joe-csb0.entrypoints=web-secure"
+        "traefik.http.routers.joe-csb0.tls=true"
+        "traefik.http.routers.joe-csb0.tls.certresolver=default"
+        "traefik.http.routers.joe-csb0.priority=300"
+        "traefik.http.routers.joe-csb0.service=hostdash-csb0"
+        "traefik.http.routers.joe-csb0.middlewares=joe-csb0-path@docker"
+        "traefik.http.middlewares.joe-csb0-path.replacepathregex.regex=^/joe$$"
+        "traefik.http.middlewares.joe-csb0-path.replacepathregex.replacement=/joe/"
         "traefik.docker.network=csb0_traefik"
         "traefik.http.routers.hostdash-csb0-http.rule=Host(`cs0.barta.cm`)"
         "traefik.http.routers.hostdash-csb0-http.entrypoints=web"
@@ -377,7 +388,7 @@
     # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
     # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.88@sha256:9efdfca523ab2f2209a242ae6b4581b10d78dc90a4a0ac83f91aa8b60e3fbb66";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.91@sha256:65f8494f313f18d63880e74d5f2eded4b98b8f383797643edf02a7ff47f69af2";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
