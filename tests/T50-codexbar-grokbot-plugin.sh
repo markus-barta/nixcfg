@@ -75,6 +75,78 @@ function makeCtx({ cookie, secret, http }) {
   };
 }
 
+// --- snapshot schema validator ------------------------------------------
+// Mirrors CodexBar's own "Invalid provider plugin snapshot: ..." rules, taken
+// verbatim from the app binary's validation strings. A plugin can fetch the
+// right number and still be rejected wholesale for a malformed container —
+// which is exactly what shipped once: `details` was built as a flat array of
+// {label,value} rows instead of an array of {title,rows} SECTIONS, and the
+// provider showed "details[0].rows must be an array" instead of the usage.
+function validateSnapshot(s) {
+  const errs = [];
+  if (!s || typeof s !== "object" || Array.isArray(s)) {
+    return ["fetchUsage must resolve to an object"];
+  }
+  const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
+
+  for (const key of ["primary", "secondary", "tertiary"]) {
+    if (s[key] === undefined) continue;
+    if (!isObj(s[key])) { errs.push(`${key} must be an object`); continue; }
+    const p = s[key];
+    if (typeof p.usedPercent !== "number" || !Number.isFinite(p.usedPercent)) {
+      errs.push(`${key}.usedPercent must be a finite number`);
+    }
+    if (p.windowMinutes !== undefined && typeof p.windowMinutes !== "number") {
+      errs.push(`${key}.windowMinutes must be a number`);
+    }
+    if (p.resetsAt !== undefined && !(p.resetsAt instanceof Date)) {
+      errs.push(`${key}.resetsAt must be a Date`);
+    }
+    if (p.resetDescription !== undefined && typeof p.resetDescription !== "string") {
+      errs.push(`${key}.resetDescription must be a string`);
+    }
+  }
+
+  if (s.identity !== undefined && !isObj(s.identity)) errs.push("identity must be an object");
+  if (s.cost !== undefined && !isObj(s.cost)) errs.push("cost must be an object");
+  if (s.costUsage !== undefined) {
+    if (!isObj(s.costUsage)) errs.push("costUsage must be an object");
+    else if (s.costUsage.entries !== undefined && !Array.isArray(s.costUsage.entries)) {
+      errs.push("costUsage.entries must be an array");
+    }
+  }
+  if (s.extraWindows !== undefined && !Array.isArray(s.extraWindows)) {
+    errs.push("extraWindows must be an array");
+  }
+
+  if (s.details !== undefined) {
+    if (!Array.isArray(s.details)) {
+      errs.push("details must be an array");
+    } else {
+      s.details.forEach((section, i) => {
+        if (!isObj(section)) { errs.push(`details[${i}] must be an object`); return; }
+        if (!Array.isArray(section.rows)) { errs.push(`details[${i}].rows must be an array`); return; }
+        section.rows.forEach((row, j) => {
+          if (!isObj(row)) { errs.push(`details[${i}].rows[${j}] must be an object`); return; }
+          if (typeof row.label !== "string") errs.push(`details[${i}].rows[${j}].label must be a string`);
+          if (typeof row.value !== "string") errs.push(`details[${i}].rows[${j}].value must be a string`);
+        });
+        if (section.chart !== undefined) {
+          if (!isObj(section.chart)) errs.push(`details[${i}].chart must be an object`);
+          else if (!Array.isArray(section.chart.points)) errs.push(`details[${i}].chart.points must be an array`);
+        }
+      });
+    }
+  }
+
+  const hasWindow = ["primary", "secondary", "tertiary"].some((k) => s[k] !== undefined);
+  const hasDetailSection = Array.isArray(s.details) && s.details.length > 0;
+  if (!hasWindow && !s.cost && !hasDetailSection && !s.identity) {
+    errs.push("snapshot must contain at least one rate window, cost, detail section, or identity field");
+  }
+  return errs;
+}
+
 const OK_BODY = {
   currentPeriodStart: "2026-08-26T17:22:03.913Z",
   nextResetTimestampUtc: "2026-09-01T19:28:16.957Z",
@@ -106,6 +178,8 @@ const CASES = [
   { name: "usagePercent GENUINELY ZERO",     cookie: GOOD_COOKIE, http: ok({ ...OK_BODY, usagePercent: 0 }),       expect: "ok" },
   { name: "reset timestamp missing",         cookie: GOOD_COOKIE, http: ok({ usagePercent: 42 }),                  expect: "ok" },
   { name: "reset timestamp malformed",       cookie: GOOD_COOKIE, http: ok({ ...OK_BODY, nextResetTimestampUtc: "not-a-date" }), expect: "ok" },
+  { name: "details section populated",       cookie: GOOD_COOKIE, http: ok({ ...OK_BODY, hasAvailableUsage: false }),            expect: "ok" },
+  { name: "no detail rows at all",           cookie: GOOD_COOKIE, http: ok({ usagePercent: 5 }),                                 expect: "ok" },
 ];
 
 new Function(readFileSync(PLUGIN, "utf8"))();
@@ -117,8 +191,14 @@ for (const c of CASES) {
   let got, detail = "";
   try {
     const r = await provider.fetchUsage(ctx);
-    got = "ok";
-    detail = `usedPercent=${r.primary.usedPercent} resetsAt=${r.primary.resetsAt ? r.primary.resetsAt.toISOString() : "—"} plan="${r.identity.loginMethod}"`;
+    const schemaErrs = validateSnapshot(r);
+    if (schemaErrs.length > 0) {
+      got = "SCHEMA-INVALID";
+      detail = schemaErrs.join("; ").slice(0, 88);
+    } else {
+      got = "ok";
+      detail = `usedPercent=${r.primary.usedPercent} resetsAt=${r.primary.resetsAt ? r.primary.resetsAt.toISOString() : "—"} plan="${r.identity.loginMethod}" details=${r.details ? r.details.length + " section(s)" : "none"}`;
+    }
   } catch (e) {
     const m = String(e.message);
     got = m.startsWith(MARK) ? m.split(":")[1] : `UNCLASSIFIED(${m.slice(0, 40)})`;
