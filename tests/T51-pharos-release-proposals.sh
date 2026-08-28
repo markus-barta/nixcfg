@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # GitHub expressions and shell assertions are matched literally.
 set -euo pipefail
 
 if [[ ${BASH_VERSINFO[0]} -lt 4 ]]; then
@@ -16,24 +17,95 @@ bash -n "$select_existing"
 bash -n "$prepare"
 bash -n "$publish"
 
-prepare_line=$(grep -n -m1 'Prepare clean local release candidates' "$workflow" | cut -d: -f1)
-validate_line=$(grep -n -m1 'Validate the exact committed candidates' "$workflow" | cut -d: -f1)
-publish_line=$(grep -n -m1 'Publish both validated proposals transactionally' "$workflow" | cut -d: -f1)
-signature_line=$(grep -n -m1 'Verify the release signature and workflow identity' "$workflow" | cut -d: -f1)
-select_line=$(grep -n -m1 'Select an exact existing proposal pair' "$workflow" | cut -d: -f1)
-update_line=$(grep -n -m1 'Prepare both repositories from the same digest' "$workflow" | cut -d: -f1)
-if [[ -z "$signature_line" || -z "$select_line" || -z "$update_line" || -z "$prepare_line" ||
-  -z "$validate_line" || -z "$publish_line" ]] ||
-  [[ "$signature_line" -ge "$select_line" || "$select_line" -ge "$update_line" ||
-    "$update_line" -ge "$prepare_line" ||
-    "$prepare_line" -ge "$validate_line" || "$validate_line" -ge "$publish_line" ]]; then
-  printf 'pharos_release_proposals=failed reason=workflow_order\n' >&2
+fixture_root=$(mktemp -d)
+cleanup() {
+  find "$fixture_root" -type f -delete
+  find "$fixture_root" -type l -delete
+  find "$fixture_root" -depth -type d -exec rmdir '{}' \;
+}
+trap cleanup EXIT
+
+validate_workflow_contract() {
+  local candidate=$1
+  local prepare_line
+  local validate_line
+  local publish_line
+  local signature_line
+  local select_line
+  local update_line
+  local validate_block
+
+  prepare_line=$(grep -n -m1 'Prepare clean local release candidates' "$candidate" | cut -d: -f1)
+  validate_line=$(grep -n -m1 'Validate the exact committed candidates' "$candidate" | cut -d: -f1)
+  publish_line=$(grep -n -m1 'Publish both validated proposals transactionally' "$candidate" | cut -d: -f1)
+  signature_line=$(grep -n -m1 'Verify the release signature and workflow identity' "$candidate" | cut -d: -f1)
+  select_line=$(grep -n -m1 'Select an exact existing proposal pair' "$candidate" | cut -d: -f1)
+  update_line=$(grep -n -m1 'Prepare both repositories from the same digest' "$candidate" | cut -d: -f1)
+  [[ -n "$signature_line" && -n "$select_line" && -n "$update_line" && -n "$prepare_line" &&
+    -n "$validate_line" && -n "$publish_line" ]] || return 1
+  [[ "$signature_line" -lt "$select_line" && "$select_line" -lt "$update_line" &&
+    "$update_line" -lt "$prepare_line" && "$prepare_line" -lt "$validate_line" &&
+    "$validate_line" -lt "$publish_line" ]] || return 1
+
+  validate_block=$(awk '
+    /- name: Validate the exact committed candidates/ { found = 1 }
+    found && /^      - name:/ && !/Validate the exact committed candidates/ { exit }
+    found { print }
+  ' "$candidate")
+  ! grep -Eq '^        if:' <<<"$validate_block" || return 1
+  grep -Fq 'DSC_SHA: ${{ steps.existing.outputs.dsc_sha || steps.prepared.outputs.dsc_sha }}' \
+    <<<"$validate_block" || return 1
+  grep -Fq 'NIX_SHA: ${{ steps.existing.outputs.nix_sha || steps.prepared.outputs.nix_sha }}' \
+    <<<"$validate_block" || return 1
+  grep -Fq '[[ "$(git rev-parse HEAD)" == "$NIX_SHA" ]]' <<<"$validate_block" || return 1
+  grep -Fq '[[ "$(git -C _release-dsccfg rev-parse HEAD)" == "$DSC_SHA" ]]' \
+    <<<"$validate_block" || return 1
+  grep -Fq '[[ -z "$(git status --porcelain --untracked-files=no)" ]]' \
+    <<<"$validate_block" || return 1
+  grep -Fq '[[ -z "$(git -C _release-dsccfg status --porcelain --untracked-files=no)" ]]' \
+    <<<"$validate_block" || return 1
+  grep -Fq 'tests/T20-pharos-beacon-healthcheck.sh' <<<"$validate_block" || return 1
+  grep -Fq 'tests/T21-pharos-release-rollout.sh' <<<"$validate_block" || return 1
+  grep -Fq 'tests/T22-pharos-release-update.sh' <<<"$validate_block" || return 1
+  grep -Fq 'tests/T32-managed-secret-production-preflight.sh' <<<"$validate_block" || return 1
+  grep -Fq '_release-dsccfg/tests/pharos-release-rollout.sh' <<<"$validate_block" || return 1
+  grep -Fq '_release-dsccfg/tests/pharos-release-update.sh' <<<"$validate_block" || return 1
+}
+
+validate_workflow_contract "$workflow" || {
+  printf 'pharos_release_proposals=failed reason=workflow_contract\n' >&2
+  exit 1
+}
+workflow_if_mutant="$fixture_root/workflow-if-mutant.yml"
+while IFS= read -r line; do
+  printf '%s\n' "$line"
+  if [[ "$line" == *'- name: Validate the exact committed candidates' ]]; then
+    printf "        if: steps.existing.outputs.reused != 'true'\n"
+  fi
+done <"$workflow" >"$workflow_if_mutant"
+if validate_workflow_contract "$workflow_if_mutant"; then
+  printf 'pharos_release_proposals=failed reason=conditional_validation_mutant_survived\n' >&2
   exit 1
 fi
+workflow_assert_mutant="$fixture_root/workflow-assert-mutant.yml"
+while IFS= read -r line; do
+  case "$line" in
+  *'git rev-parse HEAD'*NIX_SHA* | *'_release-dsccfg rev-parse HEAD'*DSC_SHA* | \
+    *'git status --porcelain --untracked-files=no'* | \
+    *'_release-dsccfg status --porcelain --untracked-files=no'*)
+    printf '          true\n'
+    ;;
+  *) printf '%s\n' "$line" ;;
+  esac
+done <"$workflow" >"$workflow_assert_mutant"
+if validate_workflow_contract "$workflow_assert_mutant"; then
+  printf 'pharos_release_proposals=failed reason=exact_validation_mutant_survived\n' >&2
+  exit 1
+fi
+
 grep -Fq 'scripts/prepare-pharos-release-candidates.sh' "$workflow"
 grep -Fq 'scripts/publish-pharos-release-candidates.sh' "$workflow"
 grep -Fq 'scripts/select-pharos-release-candidates.sh' "$workflow"
-grep -Fq 'tests/T32-managed-secret-production-preflight.sh' "$workflow"
 grep -Fq 'Verify the release signature and workflow identity' "$workflow"
 awk '
   /- name: Checkout nixcfg/ { in_checkout = 1 }
@@ -46,14 +118,6 @@ if grep -Eq 'git push|gh pr create' "$workflow"; then
   printf 'pharos_release_proposals=failed reason=untransactional_publish_in_workflow\n' >&2
   exit 1
 fi
-
-fixture_root=$(mktemp -d)
-cleanup() {
-  find "$fixture_root" -type f -delete
-  find "$fixture_root" -type l -delete
-  find "$fixture_root" -depth -type d -exec rmdir '{}' \;
-}
-trap cleanup EXIT
 
 nix_changed=""
 dsc_changed=""
@@ -88,8 +152,13 @@ if [[ "$1 $2" == 'pr list' ]]; then
     else
       exit 2
     fi
-    printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/1","headRefName":"%s","headRefOid":"%s","baseRefName":"main"}]\n' \
-      "$repo" "$FAKE_BRANCH" "$sha"
+    if [[ "${FAKE_GH_INCLUDE_FOREIGN:-false}" == true ]]; then
+      printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/1","headRefName":"%s","headRefOid":"%s","baseRefName":"main"},{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/foreign","headRefName":"foreign-branch","headRefOid":"0000000000000000000000000000000000000000","baseRefName":"other"}]\n' \
+        "$repo" "$FAKE_BRANCH" "$sha" "$repo"
+    else
+      printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/1","headRefName":"%s","headRefOid":"%s","baseRefName":"main"}]\n' \
+        "$repo" "$FAKE_BRANCH" "$sha"
+    fi
     exit 0
   fi
   case "${FAKE_GH_LIST_MODE:-empty}" in
@@ -115,9 +184,29 @@ if [[ "$1 $2" == 'pr list' ]]; then
         printf '[]\n'
       fi
       ;;
-    stale)
-      printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/8","headRefName":"stale-branch","headRefOid":"0000000000000000000000000000000000000000","baseRefName":"main"}]\n' \
-        "$repo"
+    wrong-title)
+      if [[ "$repo" == example/nixcfg ]]; then sha=$FAKE_NIX_SHA; else sha=$FAKE_DSC_SHA; fi
+      printf '[{"title":"PHAROS-90: unrelated title","url":"https://example.invalid/%s/pull/8","headRefName":"%s","headRefOid":"%s","baseRefName":"main"}]\n' \
+        "$repo" "$FAKE_BRANCH" "$sha"
+      ;;
+    wrong-base)
+      if [[ "$repo" == example/nixcfg ]]; then sha=$FAKE_NIX_SHA; else sha=$FAKE_DSC_SHA; fi
+      printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/8","headRefName":"%s","headRefOid":"%s","baseRefName":"other"}]\n' \
+        "$repo" "$FAKE_BRANCH" "$sha"
+      ;;
+    wrong-branch)
+      if [[ "$repo" == example/nixcfg ]]; then sha=$FAKE_NIX_SHA; else sha=$FAKE_DSC_SHA; fi
+      printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/8","headRefName":"stale-branch","headRefOid":"%s","baseRefName":"main"}]\n' \
+        "$repo" "$sha"
+      ;;
+    wrong-head)
+      printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/8","headRefName":"%s","headRefOid":"0000000000000000000000000000000000000000","baseRefName":"main"}]\n' \
+        "$repo" "$FAKE_BRANCH"
+      ;;
+    duplicate)
+      if [[ "$repo" == example/nixcfg ]]; then sha=$FAKE_NIX_SHA; else sha=$FAKE_DSC_SHA; fi
+      printf '[{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/8","headRefName":"%s","headRefOid":"%s","baseRefName":"main"},{"title":"PHAROS-90: roll fleet to Pharos 9.8.7","url":"https://example.invalid/%s/pull/9","headRefName":"%s","headRefOid":"%s","baseRefName":"main"}]\n' \
+        "$repo" "$FAKE_BRANCH" "$sha" "$repo" "$FAKE_BRANCH" "$sha"
       ;;
     *)
       exit 2
@@ -172,6 +261,24 @@ fi
 exit 1
 EOF
 chmod +x "$fake_bin/gh"
+real_git=$(command -v git)
+cat >"$fake_bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=''
+if [[ ${1:-} == -C ]]; then
+  root=$2
+fi
+if [[ -n "${FAKE_GIT_DELETE_NOOP_REPO:-}" && "$*" == *' push origin --delete '* ]]; then
+  if [[ "$FAKE_GIT_DELETE_NOOP_REPO" == example/nixcfg && "$root" == "$NIXCFG_ROOT" ]] ||
+    [[ "$FAKE_GIT_DELETE_NOOP_REPO" == example/dsccfg && "$root" == "$DSCCFG_ROOT" ]]; then
+    exit 0
+  fi
+fi
+exec "$FAKE_REAL_GIT" "$@"
+EOF
+chmod +x "$fake_bin/git"
 
 write_nixcfg_files() {
   local root=$1
@@ -279,6 +386,8 @@ publish_pair() {
   local fail_close_url=${4:-}
   local create_then_fail_repo=${5:-}
   local mutate_branch_repo=${6:-}
+  local include_foreign=${7:-false}
+  local delete_noop_repo=${8:-}
   local output="$pair/publish-output"
   : >"$output"
   : >"$pair/gh-state"
@@ -289,7 +398,10 @@ publish_pair() {
     FAKE_GH_CREATE_THEN_FAIL_REPO="$create_then_fail_repo" \
     FAKE_GH_LIST_MODE="$list_mode" \
     FAKE_GH_MUTATE_BRANCH_REPO="$mutate_branch_repo" \
+    FAKE_GH_INCLUDE_FOREIGN="$include_foreign" \
     FAKE_GH_STATE="$pair/gh-state" \
+    FAKE_GIT_DELETE_NOOP_REPO="$delete_noop_repo" \
+    FAKE_REAL_GIT="$real_git" \
     FAKE_NIX_SHA="$nix_sha" \
     FAKE_DSC_SHA="$dsc_sha" \
     FAKE_BRANCH="$nix_branch" \
@@ -314,6 +426,7 @@ select_pair() {
   local requested_reference=${3:-$fixture_reference}
   local output="$pair/select-output"
   : >"$output"
+  [[ -e "$pair/gh-state" ]] || : >"$pair/gh-state"
   if ! PATH="$fake_bin:$PATH" \
     FAKE_GH_LOG="$pair/gh-log" \
     FAKE_GH_LIST_MODE="$list_mode" \
@@ -321,6 +434,7 @@ select_pair() {
     FAKE_NIX_SHA="$nix_sha" \
     FAKE_DSC_SHA="$dsc_sha" \
     FAKE_BRANCH="$nix_branch" \
+    FAKE_REAL_GIT="$real_git" \
     NIXCFG_REPOSITORY=example/nixcfg \
     DSCCFG_REPOSITORY=example/dsccfg \
     "$select_existing" \
@@ -414,6 +528,108 @@ fi
 grep -Fxq 'pharos_release_existing=failed reason=proposal_reference_mismatch repo=nix' \
   "$selector_reference_pair/stderr"
 
+selector_identity_pair=$(make_pair selector-identity)
+prepare_pair "$selector_identity_pair" 1017
+git -C "$selector_identity_pair/nix" push -q origin "$nix_branch"
+git -C "$selector_identity_pair/dsc" push -q origin "$dsc_branch"
+git -C "$selector_identity_pair/nix" switch -q main
+git -C "$selector_identity_pair/dsc" switch -q main
+select_pair "$selector_identity_pair" wrong-title
+[[ "$reused" == false ]]
+for mutation in \
+  'wrong-base:proposal_identity_mismatch' \
+  'wrong-branch:proposal_identity_mismatch' \
+  'wrong-head:proposal_head_mismatch' \
+  'duplicate:duplicate_proposals'; do
+  IFS=: read -r mode reason <<<"$mutation"
+  if select_pair "$selector_identity_pair" "$mode" \
+    >"$selector_identity_pair/$mode.stdout" 2>"$selector_identity_pair/$mode.stderr"; then
+    printf 'pharos_release_proposals=failed reason=selector_identity_mutant mode=%s\n' "$mode" >&2
+    exit 1
+  fi
+  grep -Fq "pharos_release_existing=failed reason=$reason repo=nix" \
+    "$selector_identity_pair/$mode.stderr"
+done
+
+selector_missing_pair=$(make_pair selector-missing-release)
+prepare_pair "$selector_missing_pair" 1018
+git -C "$selector_missing_pair/nix" checkout -q main -- pharos-release.json
+printf 'allowed non-release change\n' >"$selector_missing_pair/nix/hosts/csb0/docker/compose-spec.nix"
+git -C "$selector_missing_pair/nix" add pharos-release.json hosts/csb0/docker/compose-spec.nix
+git -C "$selector_missing_pair/nix" commit -qm missing-release-change
+nix_sha=$(git -C "$selector_missing_pair/nix" rev-parse HEAD)
+git -C "$selector_missing_pair/nix" push -q origin "$nix_branch"
+git -C "$selector_missing_pair/dsc" push -q origin "$dsc_branch"
+git -C "$selector_missing_pair/nix" switch -q main
+git -C "$selector_missing_pair/dsc" switch -q main
+if select_pair "$selector_missing_pair" exact \
+  >"$selector_missing_pair/stdout" 2>"$selector_missing_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=missing_release_change_selected\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_existing=failed reason=proposal_missing_release_change repo=nix' \
+  "$selector_missing_pair/stderr"
+
+selector_incomplete_pair=$(make_pair selector-incomplete)
+prepare_pair "$selector_incomplete_pair" 1019
+git -C "$selector_incomplete_pair/nix" push -q origin "$nix_branch"
+git -C "$selector_incomplete_pair/nix" switch -q main
+git -C "$selector_incomplete_pair/dsc" switch -q main
+if select_pair "$selector_incomplete_pair" nix-exact \
+  >"$selector_incomplete_pair/stdout" 2>"$selector_incomplete_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=selector_incomplete_pair_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_existing=failed reason=existing_pair_incomplete repo=dsc' \
+  "$selector_incomplete_pair/stderr"
+
+selector_dirty_pair=$(make_pair selector-dirty-aligned nix)
+prepare_pair "$selector_dirty_pair" 1020 true false
+git -C "$selector_dirty_pair/nix" push -q origin "$nix_branch"
+git -C "$selector_dirty_pair/nix" switch -q main
+printf 'dirty aligned main\n' >"$selector_dirty_pair/dsc/hosts/dsc0/docker/docker-compose.yml"
+if select_pair "$selector_dirty_pair" nix-exact \
+  >"$selector_dirty_pair/stdout" 2>"$selector_dirty_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=dirty_aligned_main_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_existing=failed reason=main_checkout_not_clean repo=dsc' \
+  "$selector_dirty_pair/stderr"
+
+selector_divergent_pair=$(make_pair selector-divergent-aligned nix)
+prepare_pair "$selector_divergent_pair" 1021 true false
+git -C "$selector_divergent_pair/nix" push -q origin "$nix_branch"
+git -C "$selector_divergent_pair/nix" switch -q main
+printf 'divergent aligned main\n' >"$selector_divergent_pair/dsc/divergent.txt"
+git -C "$selector_divergent_pair/dsc" add divergent.txt
+git -C "$selector_divergent_pair/dsc" commit -qm divergent-aligned
+if select_pair "$selector_divergent_pair" nix-exact \
+  >"$selector_divergent_pair/stdout" 2>"$selector_divergent_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=divergent_aligned_main_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_existing=failed reason=main_checkout_not_clean repo=dsc' \
+  "$selector_divergent_pair/stderr"
+
+selector_type_pair=$(make_pair selector-type-change)
+prepare_pair "$selector_type_pair" 1022
+rm "$selector_type_pair/nix/unrelated.txt"
+ln -s pharos-release.json "$selector_type_pair/nix/unrelated.txt"
+git -C "$selector_type_pair/nix" add unrelated.txt
+git -C "$selector_type_pair/nix" commit -qm type-change-out-of-scope
+nix_sha=$(git -C "$selector_type_pair/nix" rev-parse HEAD)
+git -C "$selector_type_pair/nix" push -q origin "$nix_branch"
+git -C "$selector_type_pair/dsc" push -q origin "$dsc_branch"
+git -C "$selector_type_pair/nix" switch -q main
+git -C "$selector_type_pair/dsc" switch -q main
+if select_pair "$selector_type_pair" exact \
+  >"$selector_type_pair/stdout" 2>"$selector_type_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=type_change_out_of_scope_selected\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_existing=failed reason=proposal_path_out_of_scope repo=nix path=unrelated.txt' \
+  "$selector_type_pair/stderr"
+
 divergent_pair=$(make_pair divergent-base)
 printf 'unrelated non-main commit\n' >"$divergent_pair/nix/unrelated.txt"
 git -C "$divergent_pair/nix" add unrelated.txt
@@ -486,6 +702,23 @@ grep -Fxq 'pharos_release_publish=failed reason=unvalidated_commit repo=nix' \
 if git --git-dir="$publish_dirty_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
   git --git-dir="$publish_dirty_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch"; then
   printf 'pharos_release_proposals=failed reason=publish_dirty_left_branch\n' >&2
+  exit 1
+fi
+
+publish_head_pair=$(make_pair publish-head-mismatch)
+prepare_pair "$publish_head_pair" 1023
+expected_nix_sha=$nix_sha
+git -C "$publish_head_pair/nix" switch -q main
+if publish_pair "$publish_head_pair" >"$publish_head_pair/stdout" 2>"$publish_head_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=publish_head_mismatch_accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'pharos_release_publish=failed reason=unvalidated_commit repo=nix' \
+  "$publish_head_pair/stderr"
+[[ "$expected_nix_sha" != "$(git -C "$publish_head_pair/nix" rev-parse HEAD)" ]]
+if git --git-dir="$publish_head_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
+  git --git-dir="$publish_head_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch"; then
+  printf 'pharos_release_proposals=failed reason=publish_head_mismatch_left_branch\n' >&2
   exit 1
 fi
 if git --git-dir="$validation_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
@@ -565,6 +798,48 @@ fi
 grep -Fq 'pr close https://example.invalid/example/dsccfg/pull/1' "$cleanup_failure_pair/gh-log"
 grep -Fq 'pr view https://example.invalid/example/dsccfg/pull/1' "$cleanup_failure_pair/gh-log"
 
+foreign_pair=$(make_pair cleanup-foreign-pr)
+prepare_pair "$foreign_pair" 1024
+if publish_pair \
+  "$foreign_pair" \
+  example/nixcfg \
+  empty \
+  '' \
+  '' \
+  '' \
+  true \
+  >"$foreign_pair/stdout" 2>"$foreign_pair/stderr"; then
+  printf 'pharos_release_proposals=failed reason=foreign_cleanup_failure_accepted\n' >&2
+  exit 1
+fi
+grep -Fq 'pr close https://example.invalid/example/dsccfg/pull/1' "$foreign_pair/gh-log"
+if grep -Fq 'pull/foreign' "$foreign_pair/gh-log"; then
+  printf 'pharos_release_proposals=failed reason=foreign_pr_touched\n' >&2
+  exit 1
+fi
+
+delete_noop_pair=$(make_pair cleanup-delete-noop)
+prepare_pair "$delete_noop_pair" 1025
+set +e
+publish_pair \
+  "$delete_noop_pair" \
+  example/nixcfg \
+  empty \
+  '' \
+  '' \
+  '' \
+  false \
+  example/dsccfg \
+  >"$delete_noop_pair/stdout" 2>"$delete_noop_pair/stderr"
+delete_noop_status=$?
+set -e
+[[ $delete_noop_status -eq 70 ]]
+grep -Fxq 'pharos_release_cleanup=failed action=verify_branch_absent repo=dsc' \
+  "$delete_noop_pair/stderr"
+grep -Fxq 'pharos_release_publish=failed reason=cleanup_incomplete' \
+  "$delete_noop_pair/stderr"
+git --git-dir="$delete_noop_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch"
+
 mismatch_pair=$(make_pair cleanup-head-mismatch)
 prepare_pair "$mismatch_pair" 1013
 mismatch_main=$(git -C "$mismatch_pair/dsc" rev-parse main)
@@ -622,21 +897,33 @@ if git --git-dir="$incomplete_pair/nix.git" show-ref --verify --quiet "refs/head
   exit 1
 fi
 
-stale_pair=$(make_pair stale-reuse)
-prepare_pair "$stale_pair" 1004
-if publish_pair "$stale_pair" '' stale; then
-  printf 'pharos_release_proposals=failed reason=stale_proposal_reused\n' >&2
-  exit 1
-fi
-if git --git-dir="$stale_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
-  git --git-dir="$stale_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch"; then
-  printf 'pharos_release_proposals=failed reason=stale_reuse_published\n' >&2
-  exit 1
-fi
-if grep -Fq 'pr create' "$stale_pair/gh-log"; then
-  printf 'pharos_release_proposals=failed reason=stale_reuse_created_pr\n' >&2
-  exit 1
-fi
+for mutation in \
+  'wrong-base:stale_existing_proposal' \
+  'wrong-branch:stale_existing_proposal' \
+  'wrong-head:stale_existing_proposal' \
+  'duplicate:duplicate_existing_proposals'; do
+  IFS=: read -r mode reason <<<"$mutation"
+  stale_pair=$(make_pair "publish-$mode")
+  prepare_pair "$stale_pair" 1004
+  if publish_pair "$stale_pair" '' "$mode" \
+    >"$stale_pair/stdout" 2>"$stale_pair/stderr"; then
+    printf 'pharos_release_proposals=failed reason=publisher_identity_mutant mode=%s\n' "$mode" >&2
+    exit 1
+  fi
+  grep -Fq "pharos_release_publish=failed reason=$reason repo=nix" "$stale_pair/stderr"
+  if git --git-dir="$stale_pair/nix.git" show-ref --verify --quiet "refs/heads/$nix_branch" ||
+    git --git-dir="$stale_pair/dsc.git" show-ref --verify --quiet "refs/heads/$dsc_branch" ||
+    grep -Fq 'pr create' "$stale_pair/gh-log"; then
+    printf 'pharos_release_proposals=failed reason=publisher_identity_mutated mode=%s\n' "$mode" >&2
+    exit 1
+  fi
+done
+
+wrong_title_pair=$(make_pair publish-wrong-title)
+prepare_pair "$wrong_title_pair" 1026
+publish_pair "$wrong_title_pair" '' wrong-title
+grep -Fq 'pr create --repo example/nixcfg' "$wrong_title_pair/gh-log"
+grep -Fq 'pr create --repo example/dsccfg' "$wrong_title_pair/gh-log"
 
 existing_pair=$(make_pair exact-reuse)
 prepare_pair "$existing_pair" 1005

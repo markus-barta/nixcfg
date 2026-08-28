@@ -112,7 +112,7 @@ validate_proposal() {
         "$label" "$path" >&2
       exit 1
     fi
-  done < <(git -C "$root" diff --name-only --diff-filter=ACMRD "refs/remotes/origin/main...$sha")
+  done < <(git -C "$root" diff --name-only "refs/remotes/origin/main...$sha")
   if [[ "$changed" != true ]] ||
     ! git -C "$root" diff --name-only "refs/remotes/origin/main...$sha" | grep -Fxq pharos-release.json; then
     printf 'pharos_release_existing=failed reason=proposal_missing_release_change repo=%s\n' "$label" >&2

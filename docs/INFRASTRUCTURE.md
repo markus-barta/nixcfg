@@ -333,6 +333,9 @@ making new candidates, revalidates their identities, allowed-path diffs,
 immutable references, and full compatibility gates, and then reuses them even
 if `main` has advanced independently. It never force-moves an open proposal;
 an incoherent or out-of-scope proposal pair fails closed.
+Reused candidates execute these gates from the historical proposal tree. A
+gate added only to a later `main` revision therefore does not retroactively run
+until the proposal is updated or replaced through an attended review.
 
 ### Pharos Nix Deployment Evidence
 
