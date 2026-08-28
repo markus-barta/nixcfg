@@ -119,16 +119,21 @@ expect_cloud_alias csb1-markus-ip 152.53.64.166 markus
 # Aliases pointing there fail confusingly and hid for a long time because the
 # assertions above used to encode the broken values. Fail loudly if any come back.
 #
-# dsc0 is deliberately exempt: it belongs to the dsccfg (augmentoring) fleet, is
-# tailnet-only with no public DNS, and is tracked separately — see OPS-146.
 guard_no_magicdns() {
   local attr=".#homeConfigurations.\"${HOME_CONFIG}\".config.programs.ssh.settings"
   local offenders
-  offenders="$(nix eval "${NIX_FLAGS[@]}" "$attr" --json |
-    jq -r 'to_entries
-           | map(select(.key != "dsc0"))
+  local settings_json
+  settings_json="$(nix eval "${NIX_FLAGS[@]}" "$attr" --json)"
+
+  if jq -e 'has("dsc0") | not' >/dev/null <<<"$settings_json"; then
+    pass "dsccfg-owned dsc0 has no personal-fleet SSH alias"
+  else
+    fail "dsccfg-owned dsc0 must not be declared in the personal-fleet SSH config"
+  fi
+
+  offenders="$(jq -r 'to_entries
            | map(select((.value.data // {}) | tostring | test("ts\\.barta\\.cm")))
-           | .[].key')"
+           | .[].key' <<<"$settings_json")"
 
   if [[ -n "$offenders" ]]; then
     fail "aliases still resolve dead MagicDNS names: $(echo "$offenders" | tr '\n' ' ')"
