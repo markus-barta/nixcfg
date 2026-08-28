@@ -247,6 +247,25 @@ in
   '';
 
   # ============================================================================
+  # CodexBar — Grok Bot weekly usage provider plugin (2026-08-28, OPS)
+  # ============================================================================
+  # Grok Bot's "Weekly usage" meter is NOT served by xAI: the app is a rebranded
+  # Cursor client, so the number comes from Cursor's dashboard API and is keyed
+  # to the cursor.com browser session. CodexBar's built-in `grok` provider talks
+  # to xAI billing instead and therefore reports no percentage at all; its
+  # `cursor` provider does fetch this window, but only as a dropdown row that
+  # cannot be pinned to the menu bar. This plugin promotes that one window to a
+  # first-class provider so it can drive a menu-bar item.
+  #
+  # CodexBar mandates this path (it is the only plugins directory it scans) even
+  # though it lives under Caches. Plugins requesting network + cookie access must
+  # be approved once by hand in Settings > Provider Plugins; the approval is
+  # recorded in "Application Support/CodexBar/plugin-approvals.json" and is NOT
+  # managed here.
+  home.file."Library/Caches/CodexBar/plugins/grokbot.js".source =
+    ./files/codexbar-grokbot.js;
+
+  # ============================================================================
   # Git Configuration
   # ============================================================================
   # Identity is managed by modules/shared/git-identity.nix (see above).
