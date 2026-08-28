@@ -262,8 +262,7 @@ in
   # be approved once by hand in Settings > Provider Plugins; the approval is
   # recorded in "Application Support/CodexBar/plugin-approvals.json" and is NOT
   # managed here.
-  home.file."Library/Caches/CodexBar/plugins/grokbot.js".source =
-    ./files/codexbar-grokbot.js;
+  home.file."Library/Caches/CodexBar/plugins/grokbot.js".source = ./files/codexbar-grokbot.js;
 
   # ============================================================================
   # Git Configuration

@@ -37,7 +37,13 @@ defineProvider({
   id: "grokbot",
   name: "Grok Bot",
   endpoints: ["https://cursor.com"],
-  settings: [{ key: COOKIE_SETTING, title: "cursor.com Cookie header (fallback)", type: "secure" }],
+  settings: [
+    {
+      key: COOKIE_SETTING,
+      title: "cursor.com Cookie header (fallback)",
+      type: "secure",
+    },
+  ],
   capabilities: ["browser-cookies"],
   cookieDomains: [COOKIE_DOMAIN],
 
@@ -102,19 +108,28 @@ defineProvider({
       );
     }
     if (status === 429) {
-      throw ctx.fail.rateLimited("cursor.com rate limited the usage request.", { retryAfterSeconds: 120 });
+      throw ctx.fail.rateLimited("cursor.com rate limited the usage request.", {
+        retryAfterSeconds: 120,
+      });
     }
     if (status >= 500) {
-      throw ctx.fail.providerUnavailable(`cursor.com returned HTTP ${status}.`, { retryAfterSeconds: 120 });
+      throw ctx.fail.providerUnavailable(
+        `cursor.com returned HTTP ${status}.`,
+        { retryAfterSeconds: 120 },
+      );
     }
     if (status !== 200) {
-      throw ctx.fail.apiFailure(`cursor.com returned HTTP ${status}.`, { retryAfterSeconds: 60 });
+      throw ctx.fail.apiFailure(`cursor.com returned HTTP ${status}.`, {
+        retryAfterSeconds: 60,
+      });
     }
 
     // --- parse -----------------------------------------------------------
     const data = response.json;
     if (!data || typeof data !== "object" || Array.isArray(data)) {
-      throw ctx.fail.parseFailure(`Usage response was not a JSON object (HTTP ${status}).`);
+      throw ctx.fail.parseFailure(
+        `Usage response was not a JSON object (HTTP ${status}).`,
+      );
     }
 
     // Absent is NOT zero. Distinguish the two explicitly.
@@ -125,11 +140,15 @@ defineProvider({
     }
     const rawPercent = data.usagePercent;
     if (rawPercent === null) {
-      throw ctx.fail.parseFailure(`"usagePercent" was null (HTTP ${status}) — usage is unknown, not zero.`);
+      throw ctx.fail.parseFailure(
+        `"usagePercent" was null (HTTP ${status}) — usage is unknown, not zero.`,
+      );
     }
     const usedPercent = Number(rawPercent);
     if (!Number.isFinite(usedPercent)) {
-      throw ctx.fail.parseFailure(`"usagePercent" was not a finite number: ${JSON.stringify(rawPercent)}.`);
+      throw ctx.fail.parseFailure(
+        `"usagePercent" was not a finite number: ${JSON.stringify(rawPercent)}.`,
+      );
     }
 
     // Reset timestamp is best-effort: a missing one degrades the label, it does
@@ -153,7 +172,10 @@ defineProvider({
     const details = [];
     if (data.currentPeriodStart) {
       try {
-        details.push({ label: "Period start", value: ctx.format.monthDay(ctx.date.iso(data.currentPeriodStart)) });
+        details.push({
+          label: "Period start",
+          value: ctx.format.monthDay(ctx.date.iso(data.currentPeriodStart)),
+        });
       } catch {
         /* a malformed start date is cosmetic — skip the row */
       }
@@ -164,7 +186,12 @@ defineProvider({
 
     const result = {
       primary,
-      identity: { loginMethod: typeof data.grokPlanLabel === "string" ? data.grokPlanLabel : "Grok Bot" },
+      identity: {
+        loginMethod:
+          typeof data.grokPlanLabel === "string"
+            ? data.grokPlanLabel
+            : "Grok Bot",
+      },
     };
     if (details.length > 0) result.details = details;
     return result;
