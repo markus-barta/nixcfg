@@ -141,6 +141,12 @@ grep -Fq 'foot = "Sat 05:05 · intentionally silent; check journal";' \
     echo "FAIL: hsb8 HostDash no longer states the compose-update notification decision (NIX-385)"
     exit 1
   }
+grep -Fq '"foot": "Sat 05:05 · intentionally silent; check journal"' \
+  "${repo}/hosts/csb1/docker/pharos/manifests/hsb8.json" ||
+  {
+    echo "FAIL: csb1 Pharos manifest no longer carries the hsb8 notification decision (NIX-385)"
+    exit 1
+  }
 grep -Fq '**Decision (NIX-385): keep this updater intentionally silent for now.**' \
   "${repo}/hosts/hsb8/docs/RUNBOOK.md" ||
   {

@@ -186,7 +186,7 @@
     },
     {
       "certIssue": false,
-      "foot": "Sat 05:05 · silent, no notification",
+      "foot": "Sat 05:05 · intentionally silent; check journal",
       "icon": "refresh-cw",
       "name": "Container updates",
       "passive": true,
