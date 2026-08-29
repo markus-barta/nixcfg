@@ -22,6 +22,8 @@
 {
   lib,
   buildGoModule,
+  fetchurl,
+  go_1_26,
   installShellFiles,
   src,
 }:
@@ -29,8 +31,19 @@
 let
   versionFromFile = lib.removeSuffix "\n" (builtins.readFile "${src}/VERSION");
   shortRev = src.shortRev or "dirty";
+  # Paimos 5.20.1 requires Go 1.26.6 or newer. The repository's currently
+  # pinned nixpkgs still carries 1.26.4, so keep the CLI package on the latest
+  # 1.26 patch without moving the workstation's system-wide nixpkgs input.
+  go1267 = go_1_26.overrideAttrs (_old: {
+    version = "1.26.7";
+    src = fetchurl {
+      url = "https://go.dev/dl/go1.26.7.src.tar.gz";
+      hash = "sha256-DtJOrHVRBQhbif6cq8J0K5GgrXuUtZ0602SRjryJVq0=";
+    };
+  });
+  buildGo1267Module = buildGoModule.override { go = go1267; };
 in
-buildGoModule {
+buildGo1267Module {
   pname = "paimos-cli";
   # VERSION file at pinned rev + short sha so `paimos --version` is unambiguous
   # for unreleased builds.
@@ -47,7 +60,7 @@ buildGoModule {
   # strips from the vendor tree — proxyVendor preserves the full module zips
   # from the Go proxy, so cgo can find the headers.
   proxyVendor = true;
-  vendorHash = "sha256-t7pv/Samo7KSDxwfEz93AQ+0Gup86AJyCEu/KJ+DZBo=";
+  vendorHash = "sha256-g7Q6pfUPXoZ3THZsQhnAA+F7JCR6T7rCwQBmXhXZzWc=";
 
   # Upstream CI runs `go test ./...` on every push; re-running inside the
   # Nix sandbox adds latency without catching anything new, and some tests
