@@ -4,10 +4,14 @@
   pkgs,
   lib,
   config,
-  startRunnerSecretExists ? builtins.pathExists ../../secrets/csb1-start-github-runner.age,
   ...
 }:
 
+let
+  startRunnerSecretExists =
+    config._module.args.startRunnerSecretExists
+      or (builtins.pathExists ../../secrets/csb1-start-github-runner.age);
+in
 {
   # Gate enable on the same secret existence check as the token itself, so eval
   # does not break if the .age file is missing.

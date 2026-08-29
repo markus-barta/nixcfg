@@ -90,7 +90,13 @@ require_exact(
 require_exact(module, "services.github-runners.csb1-start =", 1, "runner_definition")
 require_exact(
     module,
-    "startRunnerSecretExists ? builtins.pathExists ../../secrets/csb1-start-github-runner.age,",
+    "config._module.args.startRunnerSecretExists",
+    1,
+    "runner_secret_test_hook",
+)
+require_exact(
+    module,
+    "builtins.pathExists ../../secrets/csb1-start-github-runner.age",
     1,
     "runner_secret_default",
 )
