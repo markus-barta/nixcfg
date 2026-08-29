@@ -47,6 +47,15 @@ let
   cfg = config.services.hostdash.status;
   statusDir = "/var/lib/hostdash-status";
 
+  httpProbe = pkgs.writeShellApplication {
+    name = "hostdash-http-probe";
+    runtimeInputs = with pkgs; [
+      curl
+      jq
+    ];
+    text = builtins.readFile ./files/hostdash-http-probe.sh;
+  };
+
   generator = pkgs.writeShellApplication {
     name = "hostdash-status";
     runtimeInputs = with pkgs; [
@@ -56,6 +65,7 @@ let
       jq
       mosquitto
       gnugrep
+      httpProbe
     ];
     text = ''
       OUT="${statusDir}/status.json"
@@ -124,14 +134,30 @@ let
         )}
       ''}
 
+      # --- host-side HTTP checks (NIX-343) -----------------------------------
+      # Browser no-cors probes cannot read status codes. Probe the service over
+      # loopback so this measures application health rather than the viewer's
+      # network path; the helper is bounded and maps no response to code 0.
+      http_json="{}"
+      ${lib.concatStringsSep "\n" (
+        lib.mapAttrsToList (key: url: ''
+          probe="$(hostdash-http-probe ${lib.escapeShellArg url})"
+          http_json="$(
+            jq -c --arg key ${lib.escapeShellArg key} --argjson probe "$probe" \
+              '. + {($key): $probe}' <<<"$http_json"
+          )"
+        '') cfg.httpProbes
+      )}
+
       # --- assemble -----------------------------------------------------------
       jq -n \
         --argjson containers "$containers" \
         --argjson units "$units_json" \
         --argjson extras "$extras" \
+        --argjson http "$http_json" \
         --arg host "${cfg.host}" \
         --argjson generated "$(date +%s)" \
-        '{
+        '({
            schema: "inspr.hostdash.status.v1",
            version: 1,
            host: $host,
@@ -139,7 +165,7 @@ let
            containers: $containers,
            units: $units,
            extras: $extras
-         }' > "$TMP"
+         } + (if ($http | length) > 0 then { http: $http } else { } end))' > "$TMP"
 
       # Atomic swap — nginx must never serve a half-written file.
       chmod 0644 "$TMP"
@@ -187,9 +213,36 @@ in
         babycam = "home/hsb1/babycam/health";
       };
     };
+
+    httpProbes = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      description = ''
+        Services to check over HTTP from the host, as container or unit name to
+        loopback URL. URLs must use 127.0.0.1: the probe measures the service,
+        not the viewer's network path. Self-signed loopback TLS is accepted.
+      '';
+      example = {
+        scrypted = "https://127.0.0.1:10443/";
+        homeassistant = "http://127.0.0.1:8123/";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = lib.concatLists (
+      lib.mapAttrsToList (key: url: [
+        {
+          assertion = builtins.match "^[A-Za-z0-9_.-]+$" key != null;
+          message = "services.hostdash.status.httpProbes keys must be container or unit names";
+        }
+        {
+          assertion = builtins.match "^https?://127\\.0\\.0\\.1(:[0-9]+)?(/.*)?$" url != null;
+          message = "services.hostdash.status.httpProbes.${key} must use an http://127.0.0.1 or https://127.0.0.1 URL";
+        }
+      ]) cfg.httpProbes
+    );
+
     systemd.services.hostdash-status = {
       description = "Generate the HostDash runtime status artifact (NIX-280)";
       after = [ "docker.service" ];

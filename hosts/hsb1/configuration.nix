@@ -564,6 +564,18 @@ in
   services.hostdash.status = {
     enable = true;
     host = "hsb1";
+    httpProbes = {
+      scrypted = "https://127.0.0.1:10443/";
+      homeassistant = "http://127.0.0.1:8123/";
+      nodered = "http://127.0.0.1:1880/";
+      zigbee2mqtt = "http://127.0.0.1:8888/";
+      opusweb = "http://127.0.0.1:3102/";
+      plex = "http://127.0.0.1:32400/web";
+      pixdcon = "http://127.0.0.1:8080/";
+      funkeykid = "http://127.0.0.1:8081/";
+      apprise = "http://127.0.0.1:8001/";
+      fritz-tripwire = "http://127.0.0.1:9000/";
+    };
     units = [
       "babycam-watchdog.timer" # NIX-151 — the babycam's guardian
       "mqtt-volume-control.service"

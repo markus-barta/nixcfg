@@ -161,6 +161,9 @@ jobs:
       - name: Verify Grok Bot plugin never renders absent usage as 0% (OPS-192)
         run: tests/T50-codexbar-grokbot-plugin.sh
 
+      - name: Verify HostDash host-side HTTP status evidence (NIX-343)
+        run: tests/T52-hostdash-http-status.sh
+
       # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
       # doctrine-check.sh (INSPR-300); this step then calls that instead.
       - name: Verify both doctrine consumption paths agree
