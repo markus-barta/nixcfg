@@ -1515,7 +1515,6 @@ in
         "traefik"
       ];
       volumes = [
-        "/home/mba/docker/paimos/site:/srv:ro"
         "/home/mba/docker/paimos/Caddyfile:/etc/caddy/Caddyfile:ro"
         "paimos_caddy_data:/data"
         "paimos_caddy_config:/config"

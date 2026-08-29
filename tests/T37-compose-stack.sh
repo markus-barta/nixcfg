@@ -147,6 +147,23 @@ if grep -rnE 'mode = "0?644"' "${repo}/hosts/" --include='*.nix'; then
   exit 1
 fi
 
+# --- NIX-383: paimos.com is redirect-only -------------------------------
+# Both the production spec and the OPS-136 drill must keep the Caddyfile that
+# implements the redirect, while never reviving the unused legacy site mount.
+for spec in \
+  "${repo}/hosts/csb1/docker/compose-spec.nix" \
+  "${repo}/hosts/csb1/docker/ops136/drill-override.yml"; do
+  grep -Fq '/home/mba/docker/paimos/Caddyfile:/etc/caddy/Caddyfile:ro' "${spec}" ||
+    {
+      echo "FAIL: ${spec#"${repo}/"} lost the paimos.com redirect Caddyfile (NIX-383)"
+      exit 1
+    }
+  if grep -Fq '/home/mba/docker/paimos/site' "${spec}"; then
+    echo "FAIL: ${spec#"${repo}/"} revived the unused paimos.com site bind (NIX-383)"
+    exit 1
+  fi
+done
+
 # --- equivalence gate ------------------------------------------------------
 # Needs yq for the YAML side. OPS-188: this used to print SKIP and exit 0, so on
 # any machine without yq the equivalence gate -- the entire safety property of
