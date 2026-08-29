@@ -74,18 +74,28 @@ printf 'fixture\n' >"$fixture_root/super/hosts/README"
 git -C "$fixture_root/super" add hosts/README
 git -C "$fixture_root/super" commit -qam 'seed consumer'
 
+git init -q "$fixture_root/generic-super"
+git -C "$fixture_root/generic-super" config user.name fixture
+git -C "$fixture_root/generic-super" config user.email fixture@example.invalid
+git -C "$fixture_root/generic-super" -c protocol.file.allow=always submodule add -q \
+  "$fixture_root/doctrine-src" vendor
+mkdir "$fixture_root/generic-super/hosts"
+printf 'fixture\n' >"$fixture_root/generic-super/hosts/README"
+git -C "$fixture_root/generic-super" add hosts/README
+git -C "$fixture_root/generic-super" commit -qam 'seed generic consumer'
+
 run_alias() {
-  local checkout=$1 shell_name=$2 alias_name=$3 alias_text=$4
+  local checkout=$1 shell_name=$2 alias_name=$3 alias_text=$4 invocation_arg=${5:-}
   (
     cd "$checkout/hosts"
     case "$shell_name" in
     fish)
       env GIT_ALLOW_PROTOCOL=file ALIAS_TEXT="$alias_text" \
-        fish -c "alias $alias_name \"\$ALIAS_TEXT\"; type -q $alias_name; $alias_name"
+        fish -c "alias $alias_name \"\$ALIAS_TEXT\"; type -q $alias_name; $alias_name $invocation_arg"
       ;;
     bash)
       env GIT_ALLOW_PROTOCOL=file ALIAS_TEXT="$alias_text" \
-        bash -c "shopt -s expand_aliases; alias $alias_name=\"\$ALIAS_TEXT\"; test \"\$(type -t $alias_name)\" = alias; eval $alias_name"
+        bash -c "shopt -s expand_aliases; alias $alias_name=\"\$ALIAS_TEXT\"; test \"\$(type -t $alias_name)\" = alias; eval '$alias_name $invocation_arg'"
       ;;
     *) fail "unknown-shell-$shell_name" ;;
     esac
@@ -104,6 +114,25 @@ for shell_name in fish bash; do
     [[ ! -e "$checkout/doctrine-private/.git" ]] || fail "$shell_name-$alias_name-private-initialized-on-fleet"
     [[ "$(git -C "$checkout" submodule status doctrine-private)" == -* ]] ||
       fail "$shell_name-$alias_name-private-not-left-uninitialized"
+    if run_alias "$checkout" "$shell_name" "$alias_name" "$alias_text" unexpected >/dev/null 2>&1; then
+      fail "$shell_name-$alias_name-argument-silently-accepted"
+    else
+      alias_status=$?
+      [[ "$alias_status" == 2 ]] || fail "$shell_name-$alias_name-argument-wrong-status-$alias_status"
+    fi
+  done
+done
+
+# Outside nixcfg's public/private doctrine shape, retain the old generic
+# submodule-helper behavior instead of failing on a missing `doctrine` path.
+for shell_name in fish bash; do
+  for alias_name in gitpl gitplr gitsub; do
+    checkout="$fixture_root/generic-$shell_name-$alias_name"
+    git clone -q "$fixture_root/generic-super" "$checkout"
+    alias_text=$(alias_value "$alias_name")
+    run_alias "$checkout" "$shell_name" "$alias_name" "$alias_text"
+    [[ -e "$checkout/vendor/.git" ]] || fail "$shell_name-$alias_name-generic-submodule-not-initialized"
+    [[ ! -e "$checkout/doctrine" ]] || fail "$shell_name-$alias_name-invented-doctrine-path"
   done
 done
 
@@ -149,7 +178,9 @@ grep -Fq 'private operator rules are not loaded' "$rules" || fail missing_rules_
 grep -Fq 'git submodule status doctrine' "$switch_recipe" || fail switch_checks_all_submodules
 grep -Fq '[ -e doctrine-private/.git ]' "$switch_recipe" || fail operator_private_drift_not_checked
 grep -Fq "grep -E '^[+-]'" "$switch_recipe" || fail missing_public_checkout_not_reported
+grep -Fq 'Reconcile each listed path with: git submodule update --init <path>' "$switch_recipe" ||
+  fail drift_recovery_names_wrong_path
 [[ "$(grep -Fc 'run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"' "$workflow")" == 1 ]] ||
   fail ci_wiring_count
 
-printf 'doctrine_private_fleet_boundary=ok hosts=6 aliases=6 fleet_private=uninitialized operator_private=updated\n'
+printf 'doctrine_private_fleet_boundary=ok hosts=6 aliases=6 fleet_private=uninitialized operator_private=updated generic_repo=preserved args=rejected\n'

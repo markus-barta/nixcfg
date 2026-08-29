@@ -299,9 +299,9 @@ switch args='':
         fi
     )"
     if [ -n "$submodule_drift" ]; then
-        echo "⚠️  public doctrine checkout is missing or differs from the pinned commit — the BUILD is unaffected,"
-        echo "    but public agent doctrine on this host is stale. Reconcile with: git submodule update --init doctrine"
+        echo "⚠️  agent doctrine checkout(s) below are missing or differ from their pinned commits; the BUILD is unaffected:"
         echo "$submodule_drift" | sed 's/^/      /'
+        echo "    Reconcile each listed path with: git submodule update --init <path>"
     fi
     # Detect platform and route to appropriate command
     if [[ "$OSTYPE" == "darwin"* ]]; then
