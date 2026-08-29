@@ -13,6 +13,9 @@
 # Note: Consolidated from modules/shared/fish-config.nix as part of
 # the uzumaki module restructure (Phase 3).
 #
+let
+  updateDoctrine = "sh -c 'root=$(git rev-parse --show-toplevel) || exit; git -C \"$root\" submodule update --init doctrine || exit; if test -e \"$root/doctrine-private/.git\"; then git -C \"$root\" submodule update --init doctrine-private; fi'";
+in
 {
   # ════════════════════════════════════════════════════════════════════════════
   # ALIASES - Direct command replacements
@@ -22,8 +25,8 @@
     gitc = "git commit";
     gitps = "git push";
     gitplr = "git pull --rec";
-    gitpl = "git pull --ff-only && git submodule update --init doctrine && if test -e doctrine-private/.git; git submodule update --init doctrine-private; end";
-    gitsub = "git submodule update --init doctrine && if test -e doctrine-private/.git; git submodule update --init doctrine-private; end";
+    gitpl = "git pull --ff-only && ${updateDoctrine}";
+    gitsub = updateDoctrine;
     gitpls = "git pull";
     gita = "git add -A";
     gitst = "git status";

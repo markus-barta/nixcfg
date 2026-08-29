@@ -49,28 +49,43 @@ git -C "$fixture_root/super" -c protocol.file.allow=always submodule add -q \
   "$fixture_root/doctrine-src" doctrine
 git -C "$fixture_root/super" -c protocol.file.allow=always submodule add -q \
   "$fixture_root/doctrine-private-src" doctrine-private
+mkdir "$fixture_root/super/hosts"
+printf 'fixture\n' >"$fixture_root/super/hosts/README"
+git -C "$fixture_root/super" add hosts/README
 git -C "$fixture_root/super" commit -qam 'seed consumer'
 
 run_alias() {
-  local checkout=$1 alias_text=$2
+  local checkout=$1 shell_name=$2 alias_name=$3 alias_text=$4
   (
-    cd "$checkout"
-    env GIT_ALLOW_PROTOCOL=file fish -c "$alias_text"
+    cd "$checkout/hosts"
+    case "$shell_name" in
+    fish)
+      env GIT_ALLOW_PROTOCOL=file ALIAS_TEXT="$alias_text" \
+        fish -c "alias $alias_name \"\$ALIAS_TEXT\"; type -q $alias_name; $alias_name"
+      ;;
+    bash)
+      env GIT_ALLOW_PROTOCOL=file ALIAS_TEXT="$alias_text" \
+        bash -c "shopt -s expand_aliases; alias $alias_name=\"\$ALIAS_TEXT\"; test \"\$(type -t $alias_name)\" = alias; eval $alias_name"
+      ;;
+    *) fail "unknown-shell-$shell_name" ;;
+    esac
   )
 }
 
-# A fresh fleet checkout gets the public doctrine only. An unconditional
-# `git submodule update --init` fails this assertion by initializing private.
-for alias_name in gitpl gitsub; do
-  checkout="$fixture_root/fleet-$alias_name"
-  git clone -q "$fixture_root/super" "$checkout"
-  alias_text=$gitpl
-  [[ "$alias_name" == gitsub ]] && alias_text=$gitsub
-  run_alias "$checkout" "$alias_text"
-  [[ -e "$checkout/doctrine/.git" ]] || fail "$alias_name-public-not-initialized"
-  [[ ! -e "$checkout/doctrine-private/.git" ]] || fail "$alias_name-private-initialized-on-fleet"
-  [[ "$(git -C "$checkout" submodule status doctrine-private)" == -* ]] ||
-    fail "$alias_name-private-not-left-uninitialized"
+# A fresh fleet checkout gets the public doctrine only. Exercise the actual
+# alias renderer in both deployed shells and invoke from a repository subdir.
+for shell_name in fish bash; do
+  for alias_name in gitpl gitsub; do
+    checkout="$fixture_root/fleet-$shell_name-$alias_name"
+    git clone -q "$fixture_root/super" "$checkout"
+    alias_text=$gitpl
+    [[ "$alias_name" == gitsub ]] && alias_text=$gitsub
+    run_alias "$checkout" "$shell_name" "$alias_name" "$alias_text"
+    [[ -e "$checkout/doctrine/.git" ]] || fail "$shell_name-$alias_name-public-not-initialized"
+    [[ ! -e "$checkout/doctrine-private/.git" ]] || fail "$shell_name-$alias_name-private-initialized-on-fleet"
+    [[ "$(git -C "$checkout" submodule status doctrine-private)" == -* ]] ||
+      fail "$shell_name-$alias_name-private-not-left-uninitialized"
+  done
 done
 
 # An operator checkout that has explicitly initialized private doctrine keeps
@@ -78,8 +93,10 @@ done
 git clone -q "$fixture_root/super" "$fixture_root/operator"
 git -C "$fixture_root/operator" -c protocol.file.allow=always submodule update -q --init \
   doctrine doctrine-private
-run_alias "$fixture_root/operator" "$gitpl"
-run_alias "$fixture_root/operator" "$gitsub"
+for shell_name in fish bash; do
+  run_alias "$fixture_root/operator" "$shell_name" gitpl "$gitpl"
+  run_alias "$fixture_root/operator" "$shell_name" gitsub "$gitsub"
+done
 [[ -e "$fixture_root/operator/doctrine/.git" ]] || fail operator-public-lost
 [[ -e "$fixture_root/operator/doctrine-private/.git" ]] || fail operator-private-lost
 
@@ -94,4 +111,4 @@ grep -Fq "grep -E '^[+-]'" "$switch_recipe" || fail missing_public_checkout_not_
 [[ "$(grep -Fc 'run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"' "$workflow")" == 1 ]] ||
   fail ci_wiring_count
 
-printf 'doctrine_private_fleet_boundary=ok aliases=2 fleet_private=uninitialized operator_private=retained\n'
+printf 'doctrine_private_fleet_boundary=ok aliases=4 fleet_private=uninitialized operator_private=retained\n'

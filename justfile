@@ -283,8 +283,9 @@ switch args='':
     # present, so lib/pharos-deployment-evidence.nix does NOT throw. `just
     # switch` passes `.` without `?submodules=1`, so the submodule checkout is
     # not part of what Nix hashes. Ignoring submodules here keeps the warning
-    # truthful; drift is still surfaced below, because it means the agent
-    # doctrine on this host is out of sync even though the build is fine.
+    # truthful; drift is still surfaced below for the public doctrine consumed
+    # on every host. doctrine-private is intentionally absent on fleet hosts;
+    # the auto-loaded repo rules make that reduced operator surface explicit.
     if [ -n "$(git status --porcelain --ignore-submodules=all 2>/dev/null)" ]; then
         echo "⚠️  deploying a DIRTY tree — this generation will report no revision (OPS-106)"
     else
