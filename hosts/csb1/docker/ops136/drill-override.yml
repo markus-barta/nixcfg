@@ -8,8 +8,8 @@
 #     drill container with production labels would register duplicate LIVE
 #     routers. labels are overridden to a single explicit disable.
 #   - restart "no", writable state on fresh drill volumes/tmpfs
-#   - read-only binds to real Caddyfiles/site dirs are KEPT (safe, needed
-#     for content assertions)
+#   - read-only binds to required Caddyfiles/site dirs are KEPT (safe, needed
+#     for content assertions); the unused paimos-www site bind stays absent
 #
 # drill.sh asserts all of this on the CREATED containers before starting
 # anything — this file is the mechanism, the assertions are the gate.
@@ -78,7 +78,6 @@ services:
     networks: !override
       - drill
     volumes: !override
-      - /home/mba/docker/paimos/site:/srv:ro
       - /home/mba/docker/paimos/Caddyfile:/etc/caddy/Caddyfile:ro
       - drill_paimos_caddy_data:/data
       - drill_paimos_caddy_config:/config
