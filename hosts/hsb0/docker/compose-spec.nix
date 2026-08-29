@@ -239,7 +239,7 @@
     # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
     # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.82@sha256:5579fe07c05d2bd17375564b2bbe93b2ecf1a75d9a2957034921597f2da64188";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.91@sha256:65f8494f313f18d63880e74d5f2eded4b98b8f383797643edf02a7ff47f69af2";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
@@ -261,9 +261,6 @@
       entrypoint = [
         "/usr/local/bin/pharos-beacon"
       ];
-      healthcheck = {
-        disable = true;
-      };
       env_file = [
         "/run/agenix/pharos-beacon-hsb0-env"
       ];
@@ -286,7 +283,7 @@
       ];
       volumes = [
         "/home/mba/Code/nixcfg:/nixcfg:ro"
-        "/etc/pharos-deployment/evidence.json:/host/pharos-deployment/evidence.json:ro"
+        "/run/pharos-deployment:/host/pharos-deployment:ro" # OPS-186: directory, not the file — see flake.nix activation script
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
         "/var/lib/hsb0-docker/pharos-backup-status:/pharos-backup-status:ro"

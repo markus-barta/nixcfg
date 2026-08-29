@@ -46,10 +46,8 @@
             "docker"
             "users"
           ];
-          # nixpkgs github-runners hides tokenFile from job processes by default.
-          # Only hide the runner's copied token; the agenix source stays reachable
-          # for manual operations if needed.
-          InaccessiblePaths = lib.mkForce [ "/var/lib/github-runner/csb1-start/.current-token" ];
+          # Do not override nixpkgs' InaccessiblePaths default: it hides both
+          # the agenix tokenFile and the runner's copied token from job processes.
 
           # START deployment does NOT require root snapshots (unlike hausv's
           # SQLite/blob snapshot), so we keep the default restrictive capability

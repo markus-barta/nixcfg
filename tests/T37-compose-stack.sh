@@ -38,6 +38,16 @@ grep -Fq 'restartTriggers' "${module}"
 
 # Guards that protect live data and catch the duplication coming back.
 grep -Fq 'orphans named volumes' "${module}"
+
+# NIX-384: private registries. The login must be scoped to a per-unit runtime
+# docker config (never root's ~/.docker), fed by --password-stdin, and removed
+# again after the unit's work.
+grep -Fq 'registryLogins' "${module}"
+# shellcheck disable=SC2016 # literal Nix interpolation, matched verbatim in the module source
+grep -Fq 'environment.DOCKER_CONFIG = "/run/${dir}"' "${module}"
+grep -Fq -- '--password-stdin' "${module}"
+# shellcheck disable=SC2016 # literal Nix interpolation, matched verbatim in the module source
+grep -Fq 'rm -f /run/${dir}/config.json' "${module}"
 grep -Fq 'duplication returning' "${module}"
 
 # --- per-host wiring -------------------------------------------------------
@@ -105,6 +115,18 @@ if [ -z "$(git -C "${repo}" status --porcelain 2>/dev/null)" ]; then
       echo "FAIL: csb1 weekly updater lost its up -d (NIX-352)"
       exit 1
     }
+  # NIX-384: once the pull token exists, both root-run units must log in to
+  # ghcr.io before compose touches the private inspr-auth image.
+  if [ -f "${repo}/secrets/csb1-inspr-site-ghcr-pull.age" ]; then
+    for unit in compose-csb1 compose-csb1-update; do
+      pre_start="$(nix eval --raw "${repo}#nixosConfigurations.csb1.config.systemd.services.\"${unit}\".preStart")"
+      grep -q 'docker login ghcr.io' <<<"${pre_start}" ||
+        {
+          echo "FAIL: ${unit} does not log in to ghcr.io before compose (NIX-384)"
+          exit 1
+        }
+    done
+  fi
 else
   echo "SKIP: dirty tree — NIX-348 evidence guard blocks csb1 eval; commit first"
 fi
@@ -126,12 +148,14 @@ if grep -rnE 'mode = "0?644"' "${repo}/hosts/" --include='*.nix'; then
 fi
 
 # --- equivalence gate ------------------------------------------------------
-# Needs yq for the YAML side. Skipped rather than failed when unavailable, so a
-# machine without it does not turn a real regression into an unrelated error.
-if command -v yq >/dev/null 2>&1; then
-  python3 "${gate}" --all
-else
-  echo "SKIP: yq not on PATH — run: nix shell nixpkgs#yq-go -c ${0}"
+# Needs yq for the YAML side. OPS-188: this used to print SKIP and exit 0, so on
+# any machine without yq the equivalence gate -- the entire safety property of
+# this test -- silently did not run while the test still reported success.
+# A missing dependency is now exit 2 (unrunnable), never a pass.
+if ! command -v yq >/dev/null 2>&1; then
+  echo "T37: yq is required for the equivalence gate — run: nix shell nixpkgs#yq-go -c ${0}" >&2
+  exit 2
 fi
+python3 "${gate}" --all
 
 echo "T37 compose-stack contract OK"

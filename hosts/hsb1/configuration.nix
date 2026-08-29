@@ -21,6 +21,7 @@ in
     ./babycam-watchdog.nix # NIX-151 — probe + self-heal + MQTT telemetry for the kiosk babycam
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
+    ./tailnet-watch.nix # OPS-185: second tailnet witness (home failure domain) — pages when this host's tailnet view is broken
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/funkeykid.nix
@@ -563,6 +564,18 @@ in
   services.hostdash.status = {
     enable = true;
     host = "hsb1";
+    httpProbes = {
+      scrypted = "https://127.0.0.1:10443/";
+      homeassistant = "http://127.0.0.1:8123/";
+      nodered = "http://127.0.0.1:1880/";
+      zigbee2mqtt = "http://127.0.0.1:8888/";
+      opusweb = "http://127.0.0.1:3102/";
+      plex = "http://127.0.0.1:32400/web";
+      pixdcon = "http://127.0.0.1:8080/";
+      funkeykid = "http://127.0.0.1:8081/";
+      apprise = "http://127.0.0.1:8001/";
+      fritz-tripwire = "http://127.0.0.1:9000/";
+    };
     units = [
       "babycam-watchdog.timer" # NIX-151 — the babycam's guardian
       "mqtt-volume-control.service"

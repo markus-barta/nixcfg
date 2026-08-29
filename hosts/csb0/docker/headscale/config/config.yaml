@@ -51,6 +51,8 @@ derp:
     # ipv4: 89.58.63.96
   urls:
     - https://controlplane.tailscale.com/derpmap/default
+  # >= 0.27: URLs load first and paths OVERWRITE them, and a failed refresh keeps the old
+  # map (#2741) — so no local snapshot here (OPS-180 fallback removed in OPS-182 stage 2).
   paths: []
   auto_update_enabled: true
   update_frequency: 3h
@@ -73,8 +75,10 @@ database:
 # Disable update checks (managed via Docker image updates)
 disable_check_updates: true
 
-# Ephemeral node cleanup
-ephemeral_node_inactivity_timeout: 30m
+# Ephemeral node cleanup (0.29: ephemeral_node_inactivity_timeout moved under node.ephemeral)
+node:
+  ephemeral:
+    inactivity_timeout: 30m
 
 # DNS / MagicDNS configuration
 #
@@ -127,8 +131,8 @@ policy:
 logtail:
   enabled: false
 
-# Randomize client WireGuard port (optional workaround for strict firewalls)
-randomize_client_port: false
+# randomize_client_port was removed from the server config in 0.29 (default false stays);
+# if ever needed, set top-level randomizeClientPort in a policy file instead.
 
 # Taildrop (file sharing between nodes)
 taildrop:

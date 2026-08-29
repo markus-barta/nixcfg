@@ -40,6 +40,9 @@ jobs:
       - name: Verify deterministic Pharos fleet release updates
         run: tests/T22-pharos-release-update.sh
 
+      - name: Verify clean transactional Pharos release proposals
+        run: tests/T51-pharos-release-proposals.sh
+
       - name: Verify Janus container least privilege and shell-free runtime
         run: tests/T23-janus-container-hardening.sh
 
@@ -85,10 +88,95 @@ jobs:
       - name: Verify HAUSV graceful-stop budget
         run: tests/T36-hausv-stop-grace.sh
 
+      - name: Verify csb1 tailnet witness contract (OPS-181)
+        run: tests/T44-tailnet-watch.sh
+
+      - name: Verify Pharos deployment evidence reaches beacons through a directory (OPS-186)
+        run: tests/T45-pharos-evidence-mount.sh
+
+      - name: Verify csb1 fleet drift watch contract (OPS-187)
+        run: tests/T46-fleet-drift.sh
+
+      # OPS-188: contract tests that existed but ran nowhere. An unwired test is
+      # prose: T10 had been passing on deleted files, T38 still asserted the
+      # pre-OPS-186 evidence mount, and T41 asserted the opposite of its own
+      # rule — none of it visible because none of it ran.
+      - name: Verify SSH route matrix (OPS-146)
+        run: tests/T04-markus-ssh-routes.sh
+
+      - name: Verify Janus/Pharos env-file boundary
+        run: tests/T06-janus-pharos-env-file.sh
+
+      - name: Verify Pharos auth bootstrap
+        run: tests/T07-pharos-auth-bootstrap.sh
+
+      - name: Verify speedtest-tracker secret boundary (NIX-290)
+        run: tests/T09-speedtest-tracker-secret-boundary.sh
+
+      - name: Verify no legacy whoami in production (NIX-292)
+        run: tests/T10-no-production-whoami.sh
+
+      - name: Verify Pharos kernel posture
+        run: tests/T11-pharos-kernel-posture.sh
+
+      - name: Verify csb0 restic wrapper behaviour (NIX-294)
+        run: tests/T12-csb0-restic-wrapper.sh
+
+      - name: Verify Pharos guarded deploy wiring
+        run: tests/T13-pharos-guarded-deploy.sh
+
+      - name: Verify Pharos action agent behaviour
+        run: tests/T15-pharos-action-agent.sh
+
+      - name: Verify Janus/Pharos retirement wiring
+        run: tests/T17-janus-pharos-retirement.sh
+
+      - name: Verify Pharos retirement executor behaviour
+        run: tests/T18-pharos-retirement-executor.sh
+
+      - name: Verify managed-secret readiness verdict discipline
+        run: tests/T33-managed-secret-readiness-verdict.sh
+
+      - name: Verify csb0 ops-alerts poller contract (OPS-104/107/115)
+        run: tests/T35-ops-alerts.sh
+
+      - name: Verify revision traceability (OPS-106 / NIX-348)
+        run: tests/T36-revision-traceability.sh
+
+      - name: Verify compose-stack contract and YAML equivalence (OPS-116/117)
+        run: nix-shell -p yq-go --run tests/T37-compose-stack.sh
+
+      - name: Verify Pharos deployment evidence wiring (NIX-348 / OPS-186)
+        run: tests/T38-pharos-deployment-evidence.sh
+
+      - name: Verify static uid/gid collision gate (NIX-354)
+        run: tests/T39-static-id-gate.sh
+
+      - name: Verify agenix declarations match ciphertext recipients (OPS-188)
+        run: tests/T47-agenix-recipient-integrity.sh
+
+      - name: Verify Paimos external-stage adapter contract (NIX-381 / PAI-810)
+        run: tests/T48-paimos-delivery-stage.sh
+
+      - name: Verify declared host health thresholds (NIX-281)
+        run: tests/T49-host-health-thresholds.sh
+
+      - name: Verify Grok Bot plugin never renders absent usage as 0% (OPS-192)
+        run: tests/T50-codexbar-grokbot-plugin.sh
+
+      - name: Verify HostDash host-side HTTP status evidence (NIX-343)
+        run: tests/T52-hostdash-http-status.sh
+
+      - name: Verify START runner registration and token boundary (NIX-378)
+        run: tests/T53-start-github-runner.sh
+
       # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
       # doctrine-check.sh (INSPR-300); this step then calls that instead.
       - name: Verify both doctrine consumption paths agree
         run: tests/T42-doctrine-paths-agree.sh
+
+      - name: Verify headscale DERP-map fallback contract (OPS-180)
+        run: nix-shell -p python3Packages.pyyaml --run tests/T43-headscale-derp-fallback.sh
 
       - name: Verify HAUSV PostgreSQL Phase-0 contract
         run: tests/T40-hausv-postgres.sh

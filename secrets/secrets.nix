@@ -138,6 +138,9 @@ in
   # Time Machine Samba credentials (tm-markus/tm-mailina shares) — two lines,
   # "markus <password>" and "mailina <password>". Edit: agenix -e secrets/hsb1-tm-smb-env.age
   "hsb1-tm-smb-env.age".publicKeys = markus ++ hsb1;
+  # OPS-185: tailnet-watch Telegram target (WATCHTOWER_NOTIFICATION_URL=telegram://…, same
+  # channel as csb1-watchtower-env). Edit: agenix -e secrets/hsb1-tailnet-watch-env.age
+  "hsb1-tailnet-watch-env.age".publicKeys = markus ++ hsb1;
 
   # NIX-230/235 — hsb8 watchtower env: WATCHTOWER_HTTP_API_TOKEN (must match
   # WATCHTOWER_TOKEN in fleetcom-agent's /opt/fleetcom-agent/.env) +
@@ -327,6 +330,15 @@ in
   # Janus capability name: github.runner.augmentoring-team/start-agm-com
   # Edit hint: agenix -e secrets/csb1-start-github-runner.age
   "csb1-start-github-runner.age".publicKeys = markus ++ csb1;
+
+  # NIX-384: GHCR pull token for the private inspr-site packages
+  # (ghcr.io/inspr-at/inspr-site/inspr-auth, INSPR-253). Classic PAT of
+  # markus-barta, scope read:packages only, no expiration; 1Password item
+  # ghcr.pull.inspr-at/inspr-site. Consumed only by the root-run compose units
+  # through composeStack.registryLogins (docker login --password-stdin).
+  # Format: bare token text (one line)
+  # Edit: agenix -e secrets/csb1-inspr-site-ghcr-pull.age
+  "csb1-inspr-site-ghcr-pull.age".publicKeys = markus ++ csb1;
 
   # NIX-367 / HAUSV-495: Phase-0 PostgreSQL credentials. These are separate
   # files so the future application projection can never expose the bootstrap

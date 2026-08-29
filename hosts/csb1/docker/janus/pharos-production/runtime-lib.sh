@@ -504,9 +504,17 @@ EOF
 
   local identityd_ready=0
   for _ in $(seq 1 100); do
-    if docker run --rm -v "${authority_host_root}:${authority_container_root}:ro" \
-      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-      -c "test -S ${authority_container_root}/run/identity.sock" 2>/dev/null; then
+    # NIX-379: Readiness requires that the socket accepts a Unix connection, not
+    # merely that the path is -S. A leftover sock file can be -S with no listener
+    # (rust-engine v0.1.29+ bind_private_identity_socket fails closed if the path
+    # exists). The busybox exec 3<> probe returns "No such device or address" on
+    # csb1 while the sidecar is running. Connect+close as uid 65532:65532 with a
+    # real AF_UNIX socket operation is enough to prove the listener is up.
+    if docker run --rm --user "${container_uid}:${container_gid}" \
+      -v "${authority_host_root}:${authority_container_root}" \
+      --entrypoint python python:3-alpine \
+      -c 'import socket,sys;s=socket.socket(socket.AF_UNIX);s.settimeout(1);s.connect(sys.argv[1]);s.close()' \
+      "${authority_container_root}/run/identity.sock" 2>/dev/null; then
       identityd_ready=1
       break
     fi
@@ -534,7 +542,11 @@ EOF
 
 janus_pharos_production_identityd_stop() {
   local identityd_container=${JANUS_PHAROS_IDENTITYD_CONTAINER:-}
+  local authority_host_root=/var/lib/janus-identity-csb1/production
   [ -n "$identityd_container" ] || return 0
   docker rm -f "$identityd_container" >/dev/null 2>&1 || true
+  # Unlink the socket after container removal so the next start is not blocked by
+  # a leftover path. bind_private_identity_socket fails closed if the path exists.
+  rm -f "${authority_host_root}/run/identity.sock"
 }
 # --- end runtime accountability broker -----------------------------------------

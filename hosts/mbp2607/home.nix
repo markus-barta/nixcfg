@@ -198,9 +198,21 @@ in
   # actually missed (its list: android-studio, crystalfetch, github, raycast,
   # utm, zed). Browser cask: add here once chosen (NIX-215 log).
   home.file.".config/homebrew/Brewfile".text = macosCommon.mkBrewfile {
+    # Trust is DECLARED here, never granted with a one-off `brew trust`: brew 6
+    # gates loading of non-official taps behind trust, and `just bundle-cleanup`
+    # resets the trust store to whatever this Brewfile says — so a manual grant
+    # is silently revoked and the next `just bundle` can no longer load the tap.
+    # Narrow on purpose (named items, not `trusted: true`). See mkBrewfile.
     extraTaps = [
-      "darrylmorley/whatcable" # whatcable's tap. brew 6: one-time `brew trust darrylmorley/whatcable` per host before `just bundle`
-      "steipete/tap" # codexbar + birdclaw's tap. brew 6 gates loading behind trust (tapped != trusted): one-time `brew trust steipete/tap` per host before `just bundle`
+      {
+        name = "darrylmorley/whatcable"; # whatcable's tap
+        trusted.casks = [ "whatcable" ];
+      }
+      {
+        name = "steipete/tap"; # codexbar + birdclaw's tap (tapped != trusted)
+        trusted.casks = [ "codexbar" ];
+        trusted.formulae = [ "birdclaw" ];
+      }
     ];
     extraBrews = [
       "steipete/tap/birdclaw" # local-first X workspace (CLI/web/read-only MCP) — agent-facing X access for Codex+Claude (2026-08-06); formula ships its own Node 26.x dep, hence brew not ai-clis-npm
@@ -232,6 +244,66 @@ in
       cookieSource: "chrome",
       chromeProfile: "Profile 2",
     }
+  '';
+
+  # ============================================================================
+  # CodexBar — Grok Bot weekly usage provider plugin (2026-08-28, OPS)
+  # ============================================================================
+  # Grok Bot's "Weekly usage" meter is NOT served by xAI: the app is a rebranded
+  # Cursor client, so the number comes from Cursor's dashboard API and is keyed
+  # to the cursor.com browser session. CodexBar's built-in `grok` provider talks
+  # to xAI billing instead and therefore reports no percentage at all; its
+  # `cursor` provider does fetch this window, but only as a dropdown row that
+  # cannot be pinned to the menu bar. This plugin promotes that one window to a
+  # first-class provider so it can drive a menu-bar item.
+  #
+  # CodexBar mandates this path (it is the only plugins directory it scans) even
+  # though it lives under Caches. Plugins requesting network + cookie access must
+  # be approved once by hand in Settings > Provider Plugins; the approval is
+  # recorded in "Application Support/CodexBar/plugin-approvals.json" and is NOT
+  # managed here.
+  home.file."Library/Caches/CodexBar/plugins/grokbot.js".source = ./files/codexbar-grokbot.js;
+
+  # CodexBar does not run the file above. On approval it takes a private COPY
+  # into ~/.config/codexbar/providers/<codexbar-hash>-hm_codexbargrokbot.js and
+  # keeps executing that copy forever — a later `switch` updates the drop-in
+  # while the running plugin stays frozen, and the only documented way to
+  # re-import is clicking "Refresh" in Settings > Provider Plugins. That makes
+  # every plugin edit a manual step, which defeats managing it declaratively.
+  #
+  # So: after each switch, push the current source into whatever approved copy
+  # exists. The filename prefix is assigned by CodexBar, so match it by glob
+  # rather than hardcoding a hash that is not ours to predict. Copy (not
+  # symlink) because CodexBar rewrites the file mode and expects a real file —
+  # same reason fontActivation copies into ~/Library/Fonts.
+  #
+  # Deliberately does nothing when no approved copy exists: approval is a
+  # security gate (network + cookie access) and is the operator's to give.
+  home.activation.codexbarGrokbotPlugin = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    src="${./files/codexbar-grokbot.js}"
+    providers="$HOME/.config/codexbar/providers"
+
+    if [ ! -d "$providers" ]; then
+      echo "codexbar: no providers dir — approve the Grok Bot plugin once in Settings > Provider Plugins"
+    else
+      found=0
+      for approved in "$providers"/*hm_codexbargrokbot.js; do
+        [ -e "$approved" ] || continue
+        found=1
+        if ${pkgs.diffutils}/bin/cmp -s "$src" "$approved"; then
+          echo "codexbar: Grok Bot plugin already current"
+        else
+          chmod u+w "$approved"
+          cat "$src" >"$approved"
+          chmod 444 "$approved"
+          echo "codexbar: refreshed approved Grok Bot plugin ($(basename "$approved"))"
+          echo "codexbar: restart CodexBar to pick it up"
+        fi
+      done
+      if [ "$found" = 0 ]; then
+        echo "codexbar: Grok Bot plugin not approved yet — approve it once in Settings > Provider Plugins"
+      fi
+    fi
   '';
 
   # ============================================================================

@@ -1,5 +1,37 @@
 {
   "generatedBy": "nixcfg",
+  "health": {
+    "class": "server",
+    "metrics": {
+      "cpu": {
+        "critical": 80,
+        "elevated": 50,
+        "priority": 100,
+        "suffix": "%"
+      },
+      "load": {
+        "critical": 4.0,
+        "elevated": 2.0,
+        "priority": 70,
+        "suffix": ""
+      },
+      "ram": {
+        "critical": 90,
+        "elevated": 70,
+        "priority": 90,
+        "suffix": "%"
+      },
+      "swap": {
+        "critical": 66,
+        "elevated": 33,
+        "priority": 60,
+        "suffix": "%"
+      }
+    },
+    "schema": "inspr.hostdash.health-thresholds.v1",
+    "source": "stasysmo",
+    "version": 1
+  },
   "host": {
     "access": {
       "lanHostname": "hsb8.lan",
@@ -154,12 +186,12 @@
     },
     {
       "certIssue": false,
-      "foot": "Sat 05:00 · scheduled",
+      "foot": "Sat 05:05 · silent, no notification",
       "icon": "refresh-cw",
-      "name": "Watchtower",
+      "name": "Container updates",
       "passive": true,
       "privilegedAction": false,
-      "purpose": "Weekly updates for scoped containers",
+      "purpose": "Weekly image pull + stack converge (compose-hsb8-update)",
       "sameHost": false,
       "statusPolicy": {
         "source": "passive",

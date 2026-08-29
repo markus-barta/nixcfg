@@ -269,14 +269,32 @@ switch args='':
         echo "⚠️  ncps (hsb0.lan:8501) unreachable — switching WITHOUT the LAN cache (public caches only)."
         export NIX_CONFIG="substituters = https://cache.nixos.org https://nix-community.cachix.org"
     fi
-    # OPS-106: say what is about to be deployed. A dirty tree yields a generation
-    # with NO configurationRevision, so the fleet cannot later tell what that host
-    # is running — csb0 sat like that long enough that nothing could say when.
-    # Legitimate while iterating, but it must not be silent.
-    if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    # OPS-106: say what is about to be deployed. Dirty TRACKED FILES yield a
+    # generation with NO configurationRevision, so the fleet cannot later tell
+    # what that host is running — csb0 sat like that long enough that nothing
+    # could say when. Legitimate while iterating, but it must not be silent.
+    #
+    # 2026-08-25: this test used to be a bare `git status --porcelain`, which
+    # also counts a submodule whose CHECKOUT differs from the indexed gitlink —
+    # and then claimed the generation would carry no revision. That is false.
+    # Reproduced against Nix 2.34.7: with only a submodule pointer moved,
+    # `git status` says ` M doctrine`, but flake metadata keeps the clean
+    # superproject `revision`, `dirtyRevision` is null, and `self.rev` is
+    # present, so lib/pharos-deployment-evidence.nix does NOT throw. `just
+    # switch` passes `.` without `?submodules=1`, so the submodule checkout is
+    # not part of what Nix hashes. Ignoring submodules here keeps the warning
+    # truthful; drift is still surfaced below, because it means the agent
+    # doctrine on this host is out of sync even though the build is fine.
+    if [ -n "$(git status --porcelain --ignore-submodules=all 2>/dev/null)" ]; then
         echo "⚠️  deploying a DIRTY tree — this generation will report no revision (OPS-106)"
     else
         echo "🔖 deploying $(git rev-parse --short HEAD) ($(git rev-parse --abbrev-ref HEAD))"
+    fi
+    submodule_drift="$(git submodule status 2>/dev/null | grep -E '^\+' || true)"
+    if [ -n "$submodule_drift" ]; then
+        echo "⚠️  submodule checkout differs from the pinned commit — the BUILD is unaffected,"
+        echo "    but agent doctrine on this host is stale. Reconcile with: git submodule update"
+        echo "$submodule_drift" | sed 's/^/      /'
     fi
     # Detect platform and route to appropriate command
     if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -1583,10 +1601,17 @@ pixoo-logs:
 # ── AI CLIs ───────────────────────────────────────────────────────────────────
 
 # Bump AI CLIs (claude-code, codex, grok, pi) to npm latest — runs anywhere with node
+# --prefix is REQUIRED, not cosmetic: without it npm falls back to whichever npm
+# wins PATH. Run this in a shell where NPM_CONFIG_PREFIX is unset and brew's npm
+# resolves first, and the CLIs land in /opt/homebrew/lib/node_modules — an
+# undeclared install that then SHADOWS the ai-clis-npm.nix copy in ~/.npm-global
+# (found 2026-08-25: a stray @xai-official/grok did exactly that). The CLI flag
+# overrides both npm config and the environment, so this always targets the
+# Home-Manager-declared prefix.
 [group('ai')]
 update-ai-clis:
     @date
-    npm i -g @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
+    npm install --global --prefix "$HOME/.npm-global" @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
     @echo "---"
     @claude --version 2>/dev/null || echo "claude: not installed"
     @codex  --version 2>/dev/null || echo "codex:  not installed"

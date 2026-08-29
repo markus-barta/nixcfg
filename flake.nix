@@ -56,6 +56,25 @@
       url = "github:inspr-at/janus/rust-engine-v0.1.17";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # NIX-381 — a SECOND, deliberately separate Janus pin.
+    #
+    # `janus-paimos-dependency-reporter` is the JANUS-441 external-stage
+    # reporter. It does not exist in the pinned v0.1.17 engine, and — audited
+    # 2026-08-22 — it is also absent from the release container image: the
+    # rust-engine-v0.1.33 `Dockerfile.engine` copies eleven binaries and not
+    # this one. The upstream *flake* does install it, so nixcfg can package it
+    # from source without editing the Janus repository.
+    #
+    # It is a separate input rather than a bump of `janus` above because that
+    # attribute feeds two live csb1 paths — modules/pharos-guarded-deploy
+    # (`janusd`) and modules/janus-host-secrets — and moving them sixteen
+    # releases sideways is a far larger blast radius than the single root-only
+    # one-shot unit this reporter needs. Retire this input once `janus` itself
+    # reaches v0.1.33 or later.
+    janus-paimos-reporter = {
+      url = "github:inspr-at/janus/rust-engine-v0.1.33";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # Paimos — agent-facing CLI. Tracking `main`, so `update-flake-lock`
     # auto-bumps rev+hash on every scheduled run. `vendorHash` in
     # pkgs/paimos-cli/default.nix still has to be refreshed manually when Go
@@ -145,6 +164,18 @@
         (_: {
           system.configurationRevision = nixDeploymentEvidence.source_revision;
           environment.etc."pharos-deployment/evidence.json".text = builtins.toJSON nixDeploymentEvidence;
+          # OPS-186: /etc/pharos-deployment/evidence.json is a symlink into the active
+          # generation. A container that bind-mounts that FILE pins the inode from its
+          # start and never sees a later switch. Copy the document into a tmpfs
+          # directory at every activation; beacons mount the DIRECTORY.
+          system.activationScripts.pharosDeploymentEvidence = {
+            deps = [ "etc" ];
+            text = ''
+              mkdir -p /run/pharos-deployment
+              install -m 0644 /etc/pharos-deployment/evidence.json /run/pharos-deployment/.evidence.json.tmp
+              mv -f /run/pharos-deployment/.evidence.json.tmp /run/pharos-deployment/evidence.json
+            '';
+          };
         })
         # We still need the age module for servers, because it needs to evaluate "age" in the services
         agenix.nixosModules.age

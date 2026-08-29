@@ -204,6 +204,20 @@ done
 
 🔴 Invariant: at most ONE container may ever reference volume
 `inspr-at_zitadel_postgres_data` (`docker ps -a --filter volume=inspr-at_zitadel_postgres_data`).
+
+### NIX-384 — private GHCR images (inspr-auth)
+
+`inspr-auth` is pinned from the **private** package
+`ghcr.io/inspr-at/inspr-site/inspr-auth` (INSPR-253). The root-run
+`compose-csb1` and `compose-csb1-update` units log in to ghcr.io in their
+`ExecStartPre` with `composeStack.registryLogins` (token: agenix
+`csb1-inspr-site-ghcr-pull`, classic PAT `read:packages`, 1Password
+`ghcr.pull.inspr-at/inspr-site`). The login lives in
+`/run/compose-csb1[-update]-docker-auth` (tmpfs, 0700) and is removed after
+the unit's work; `/root/.docker` stays untouched. `mba`'s own docker login is
+irrelevant to the units. Diagnose a pull denial with
+`journalctl -u compose-csb1 | grep -iE 'login|denied|unauthorized'`; a revoked
+or expired token shows up as the reconcile failing, never as a silent skip.
 All OPS-136 commands run as root under the campaign flock
 (`/run/lock/compose-csb1.lock`); the scripts in
 `hosts/csb1/docker/ops136/` take it themselves. Campaign evidence + journal:
@@ -648,6 +662,116 @@ Data rollback (only on migration corruption — additive-only schema, very rare)
 
 ---
 
+## Paimos external-stage activation (NIX-381 / PAI-810)
+
+The Pharos owner adapter (PHAROS-206) and the Janus dependency reporter
+(JANUS-441) are wired declaratively and land **inert**. Everything below is the
+activation procedure. Do one step at a time.
+
+### Why this is not just a rebuild
+
+`pharosd` **panics at startup** when `PHAROS_PAIMOS_DELIVERY_CONFIG_FILE` is set
+but the config, the API key or any 32-byte handoff secret is missing, malformed,
+or not owned by uid 10001 with mode `0400`. Activating before the credentials
+exist does not degrade the dashboard — it crash-loops it. That is why one
+boolean, `active` in `hosts/csb1/paimos-delivery-stage.nix`, gates both the
+compose environment and the module wiring, and why `tests/T48` fails the build if
+the two ever disagree.
+
+### Prerequisites, in order
+
+1. **Mint in Paimos** (not on this host): the owner API key, the Janus machine
+   API key, one deployment handoff, one verification handoff, one Janus
+   dependency handoff. Each handoff mint returns its 32 raw bytes **once**. A
+   lost response requires a rotation, not a retry.
+
+2. **Enrol five agenix secrets.** Add to `secrets/secrets.nix` (recipients
+   `markus ++ csb1`), then `agenix -e secrets/<name>.age` for each:
+
+   | Secret                                               | Content                          | Owner / mode     |
+   | ---------------------------------------------------- | -------------------------------- | ---------------- |
+   | `csb1-paimos-pharos-owner-api-key.age`               | API key, **no trailing newline** | `10001` / `0400` |
+   | `csb1-paimos-pharos-deployment-handoff-secret.age`   | exactly 32 raw bytes             | `10001` / `0400` |
+   | `csb1-paimos-pharos-verification-handoff-secret.age` | exactly 32 raw bytes             | `10001` / `0400` |
+   | `csb1-paimos-janus-dependency-api-key.age`           | API key, **no trailing newline** | `root` / `0400`  |
+   | `csb1-paimos-janus-dependency-handoff-secret.age`    | exactly 32 raw bytes             | `root` / `0400`  |
+
+   🔴 The trailing-newline rule is not cosmetic: pharosd requires every API-key
+   byte in `0x21..0x7e`, and `0x0a` is not. A handoff secret file whose size is
+   not exactly 32 is refused outright.
+
+   Then add the five `age.secrets.<name>` blocks to
+   `hosts/csb1/configuration.nix` with the owner and mode from the table.
+   `tests/T47` requires the ciphertext to exist before the declaration, so the
+   `.age` files and their declarations land in the same change.
+
+3. **Fill in the intents.** In `hosts/csb1/configuration.nix`, set
+   `inspr.pharosPaimosDelivery.intents` (one `deployment`, one `verification`)
+   and the `inspr.janusPaimosDependencyReporter` `handoffId` / `expected` /
+   `evidence` from exactly what Paimos returned. The modules reject any other
+   shape at eval time — handoff ids must be Paimos-minted 26-character Crockford
+   base32, digests must be `sha256:` plus 64 lowercase hex, and a verification
+   intent must pair with a distinct deployment intent for the same host,
+   environment and artifact.
+
+4. **Preflight on the host, before flipping the switch.** Sizes and modes only —
+   never print a value:
+
+   ```bash
+   # Present, correct owner, mode 0400, exactly one link, and the right size.
+   # %u is the numeric uid pharosd actually compares against its own euid; %U
+   # is only its name, and a missing user would silently print a bare number.
+   stat -c '%n %u %U %a %h %s' /run/agenix/csb1-paimos-*
+   ```
+
+   Expect uid `10001` (`pharos-container`) on the three pharos files, `0`
+   (`root`) on the two janus files, `0400` and link count `1` everywhere, and
+   size `32` on every `*-handoff-secret`.
+
+5. **Flip one boolean.** Set `active = true;` in
+   `hosts/csb1/paimos-delivery-stage.nix`, open a PR, let protected CI run, merge,
+   then `just switch` on csb1 followed by the compose reconcile.
+
+### After activation
+
+```bash
+# Adapter came up (the log line is value-free: release, commit, schema, digest).
+docker logs pharosd --tail 50 | grep -i 'paimos reporter-only'
+# The reporter is a one-shot; before activation it is SKIPPED, not failed.
+systemctl status janus-paimos-dependency-reporter.service
+systemctl list-timers janus-paimos-dependency-reporter.timer
+```
+
+Journals: pharosd derives its exact-replay journal beside `PHAROS_DB` as
+`/data/pharos.json.paimos-delivery-journal.json` inside the `csb1_pharos_data`
+volume; the reporter writes to `/var/lib/janus-paimos-dependency-reporter/journal`
+(root, exactly `0700`). PAI-810 acceptance criterion 7 retains both until the
+evidence is accepted — revoke the handoffs, registrations and dedicated API keys
+first, delete journals only afterwards.
+
+### What activation deliberately does not grant
+
+The deployment intent names an **existing** Pharos `UpdateRestart` job and the
+adapter only observes it. It refuses to report success unless that job already
+carries an operator confirmation, so the consequential restart stays an attended
+decision in the Pharos UI. Deployment alone reaches `deployed_unverified`;
+`verified` needs a separate, later, fresh beacon for the exact artifact.
+
+### Contract pin — no foreign-repo change needed
+
+Pharos v0.1.83 and Janus v0.1.33 record Paimos `v5.11.0` / `e5f4c86…` as
+provenance, while production runs `v5.12.0` / `ee669d0`. This is **not** drift.
+Both adapters compare only `contract_major` and `fixture_digest` taken from the
+wire, and v5.12.0 still serves the same digest,
+`sha256:0318f4025902c9d5dd790384950cc9daebb16e02e79a4a90ce7dddc673e68bed`.
+Paimos states the reason in `backend/contracts/external_stage.go`: _"The manifest
+is deliberately excluded so release-pin metadata can change without changing the
+adapter contract."_ The release strings are logged, never compared. If a future
+Paimos release does change the fixture bytes, both adapters fail closed
+(`contract_refused` / a `paimos_reporter_*` reason code) rather than misreport.
+
+---
+
 ## Troubleshooting
 
 ### Decision Tree
@@ -1031,6 +1155,48 @@ file. Restore capability itself is already proven by the isolated
 `PRAGMA integrity_check = ok`. The canonical evidence is PPM Knowledge
 `persistence-store-pattern`; do not repeat that restore drill merely to accept
 an alerting change.
+
+### Tailnet Witness (tailnet-watch, OPS-181)
+
+`tailnet-watch.timer` runs every ten minutes and reads **this host's** view of
+the mesh: `tailscale status --json` (must parse, `BackendState` = `Running`,
+every `.Health` entry is a problem of its own) and `tailscale debug derp-map`
+(zero regions = the 2026-08-21 empty-DERP-map outage, which went unpaged for
+~57 minutes). Same OPS-107 engine as peer-watch: a problem must be seen on two
+consecutive runs before it pages, recovery announces a clear, and delivery
+reuses `csb1-watchtower-env` — no new secret. Scope is csb1's view, not the
+fleet; csb1 shares the netcup failure domain with headscale, so it catches the
+post-outage poisoned map, not the site outage itself.
+
+```bash
+systemctl status tailnet-watch.timer --no-pager
+sudo systemctl start tailnet-watch.service
+journalctl -u tailnet-watch.service --since "1 hour ago" --no-pager
+sudo cat /var/lib/tailnet-watch/state.json   # counters + pending only, never secrets
+```
+
+Intentional baseline advisories go into `SUPPRESSED_HEALTH` in the shared
+`modules/shared/fleet-alerts/tailnet-watch-checks.py` (also used by hsb1,
+OPS-185) with a comment and a pinned test; the baseline on 2026-08-21 was empty.
+
+### Fleet Drift Watch (fleet-drift, OPS-187)
+
+`fleet-drift.timer` runs hourly and reads pharosd's persisted store on this host
+(`/var/lib/docker/volumes/csb1_pharos_data/_data/pharos.json`, root read-only —
+`/hosts.json` needs an OIDC session even on localhost). It pages when a fleet
+host's beacon says its deployed nixcfg is `behind` main and the deployed commit
+is ≥ 7 days old (commit date from `~mba/Code/nixcfg`, best effort) or ≥ 25
+commits behind; `diverged`/`ahead` page as their own problem; hosts silent for
+
+> 30 min are skipped (Pharos HostDown owns silence). Same OPS-107 engine: two
+> consecutive runs before paging, recovery clears, `csb1-watchtower-env` target.
+> Truthful only with OPS-186 in place (beacons must see the current evidence).
+
+```bash
+systemctl status fleet-drift.timer --no-pager
+sudo systemctl start fleet-drift.service
+journalctl -u fleet-drift.service --since "1 day ago" --no-pager
+```
 
 ### HAUSV Graceful Stop Budget
 

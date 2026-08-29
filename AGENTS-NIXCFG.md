@@ -30,6 +30,7 @@ _Loaded by `CLAUDE.md` alongside the kernel. nixcfg-specific rules only — univ
 - 🔴 Edit the canonical files in `+agents/rules/`, never the symlink targets — and only when explicitly permitted to touch `+agents/`.
 - 🔴 Never hand-edit `modules/uzumaki/stasysmo/icons.sh` — regenerate with the Python helper to preserve Unicode.
 - 🔴 No markdown backlog files — the backlog lives in PPM.
+- 🔴 **Never start a PPM timer.** No `paimos time start`, and no starting one inside a workflow, skill or ship-next loop — even when PPM writes are otherwise authorized. Stop a timer _you_ started; leave anyone else's alone (it usually means another live session). Ticket status updates, comments and close-notes stay allowed. Restated here because it is not in the auto-loaded kernel — the full rule lives in `/ops` and `/ppm`. _(2026-08-25, INSPR-308.)_
 - 🟡 Default PPM project **NIX** (id 1). Routing between NIX / OPS / AIA: OPS guideline `nix-ops-aia-boundary`.
 - 🟡 `just --list` at session start. Check the host RUNBOOK before SSH.
 

@@ -32,6 +32,42 @@
 # Secrets: ALL env_files now use /run/agenix/... paths (M4 migration of
 # the loose ~/secrets/ and ./xxx.env files into agenix). Container reads
 # at runtime via agenix-decrypted bind. No plaintext secrets in this file.
+let
+  # NIX-381 — the same file hosts/csb1/configuration.nix wires the two adapter
+  # modules from, so the compose side and the module side share one switch.
+  #
+  # 🔴 Why this is conditional and not simply present: pharosd v0.1.83 PANICS
+  # when PHAROS_PAIMOS_DELIVERY_CONFIG_FILE is set and the config, the API key
+  # or any 32-byte handoff secret is missing or has the wrong owner/mode. An
+  # unconditional env var would therefore crash-loop the live fleet dashboard
+  # from the moment this lands until credentials exist. Absent = adapter off,
+  # which is exactly the pre-NIX-381 behaviour.
+  paimos = import ../paimos-delivery-stage.nix;
+  paimosDeliveryEnvironment =
+    if paimos.active then [ "PHAROS_PAIMOS_DELIVERY_CONFIG_FILE=${paimos.pharos.configFile}" ] else [ ];
+  # Each credential is its own inode: pharosd compares (device, inode) and
+  # refuses a shared API-key/handoff file. Read-only, create_host_path false, so
+  # a missing source fails the container start instead of silently binding an
+  # empty directory over the mount point.
+  privateBind = source: target: {
+    type = "bind";
+    inherit source target;
+    read_only = true;
+    bind = {
+      create_host_path = false;
+    };
+  };
+  paimosDeliveryVolumes =
+    if paimos.active then
+      [
+        (privateBind paimos.pharos.configFile paimos.pharos.configFile)
+        (privateBind paimos.pharos.hostApiKeyFile paimos.pharos.apiKeyFile)
+        (privateBind paimos.pharos.hostDeploymentHandoffSecretFile paimos.pharos.deploymentHandoffSecretFile)
+        (privateBind paimos.pharos.hostVerificationHandoffSecretFile paimos.pharos.verificationHandoffSecretFile)
+      ]
+    else
+      [ ];
+in
 {
   name = "csb1";
   services = {
@@ -506,12 +542,15 @@
     # PPM - Personal Project Management
     # ============================================
     ppm = {
-      # 5.10.1 = synthetic human demo avatar plus natural two-letter fallbacks (PAI-697). 5.10.0 = optional OIDC account chooser with runtime-safe prompt forwarding (PAI-740). 5.9.2 = CLI issue create/update safely assigns existing tags without replacement (PAI-791).
-      image = "ghcr.io/inspr-at/paimos:5.10.1"; # explicit live pin; bump deliberately with the PAIMOS release/deploy flow. 5.9.1 = releases use a DCO-signed protected PR and tag its exact validated squash merge (PAI-790). 5.9.0 = explicit CLI issue IDs prevent ambiguous writes; Go security/toolchain advisories are patched (PAI-792, PAI-794). 5.8.18 = reproducible product captures use a complete, placeholder-free seeded PAI-1 walkthrough (PAI-696); 5.8.15 = frontend dev toolchain resolves patched Vite, Vitest, and brace-expansion with zero audit findings (PAI-758); 5.8.14 = knowledge list rejects ignored positional type arguments before any API call (PAI-760); 5.8.13 = admins choose one shared login/sidebar texture, triangle by default (PAI-738); 5.8.12 = unbranded instances use neutral gray defaults while instance overrides remain intact (PAI-737); 5.8.11 = Voice Intake exposes every accessible active project in a candidate-first searchable picker (PAI-757); 5.8.10 = Voice Intake ranks every accessible project by charter and rarity-weighted, size-normalized evidence (PAI-756); 5.8.9 = Voice Intake impact resolution caps candidates at 20, uses one project-scoped bulk lookup, and stores deterministic arrays (PAI-727); 5.8.8 = Voice Intake history slider debounces revision fetches, rejects stale responses, and bounds nested transcript restores (PAI-726); 5.8.7 = Voice Intake prevents TTS self-transcription, cancels late mic starts, revokes audio blobs, and permits blob media in CSP (PAI-731); 5.8.6 = Voice Intake reconnect healing preserves replayed events and rejects stale hydration responses (PAI-729); 5.8.5 = Voice Intake credentials and audio stay on canonical ElevenLabs HTTPS endpoints (PAI-730); 5.8.4 = Voice Intake relations are bound to the analyzed project and transactionally reject stale, moved, deleted, or cross-project targets (PAI-728); 5.8.3 = one-command, provenance-safe marketing captures with hotspot verification (PAI-695); 5.8.2 = public claims, trust links, release hygiene, and doc sync follow the canonical shipped site (PAI-689); 5.8.1 = live knowledge freshness derives the API schema and is Bash 3.2-safe (PAI-687); 5.8.0 = agent runs carry inspectable repository/branch/base→head commit evidence (PAI-702); 5.7.1 = sidebar shows the configured brand name, PPM here (PAI-736); 5.7.0 was identifier-first login, OIDC_SSO_DOMAINS unset here so behaviour is unchanged (PAI-743); 5.6.4 was SSO sessions skip the local-2FA nag (PAI-742); 5.6.3 was super-admin bootstrap fix (PAI-739, M138 no-op here); 5.6.2 was CLI credential hygiene (PAI-685); 5.6.1 was orchestrator lost-wakeup fix (PAI-725); 5.6.0 was per-language spec cache + header consolidation (PAI-734/735); 5.5.0 was voice cost gates + metering (PAI-724); 5.4.0 was ELI speak-back + configurable session budget (PAI-714); 5.3.3 was intake polish (PAI-721); 5.3.2 was voice lifecycle fixes (PAI-719); 5.3.1 was the mic Permissions-Policy fix (PAI-717); 5.3.0 was voice UX polish (PAI-715); 5.2.0 was ElevenLabs speech input (PAI-710); 5.1.0 was the Voice Intake epic (PAI-703). History: 4.8.0 sat here while live ran 5.0.0 (deploy flow sed-edits the yml, git restore reverted it) — a reconcile would have DOWNGRADED ppm over a 5.0.0-migrated DB. Caught in the OPS-116 QA, 2026-08-01.
+      # 5.15.0 = project-scoped agent-message security controls plus the durable A2A-shaped ledger, canonical tell/read APIs and CLI, and issue-visible non-comment messages (PAI-817, PAI-815). 5.14.0 = production Paimos release with verified release artifacts and exact-state deployment evidence (PAI-818). 5.13.1 = protected unsupported-platform fail-closed runner proof plus exact-build browser proof of deployed-unverified to verified Agent Mode transitions (PAI-809, PAI-811). 5.13.0 = authority-safe Agent Mode, standalone external-stage schema, and durable provider-neutral runner control with lease-expiry/race proofs (PAI-809–811). 5.12.0 = production-safe delivery reachability, exact tested-state evidence, and authenticated Pharos owner activation (PAI-810). 5.10.1 = synthetic human demo avatar plus natural two-letter fallbacks (PAI-697). 5.10.0 = optional OIDC account chooser with runtime-safe prompt forwarding (PAI-740). 5.9.2 = CLI issue create/update safely assigns existing tags without replacement (PAI-791).
+      image = "ghcr.io/inspr-at/paimos:5.20.1"; # explicit live pin; bump deliberately with the PAIMOS release/deploy flow. 5.20.1 = bounded cold-start retention batches, a mutation-log parent index, and nonblocking API-key usage stamping (PAI-843). 5.20.0 = Pharos request links (PAI-812), SQLite writer-starvation removal (PAI-835), release-note correction (PAI-838), and stable fail-closed Codex steer discovery/fallback (PAI-840). 5.19.0 = repaired Codex steer transport (PAI-825, PAI-831) plus Amy webhook sender-key delivery (PAI-828). 5.18.0 = instant bidirectional agent bus with durable simple/steer delivery intent, encrypted receiver targets, Grok Bot HTTPS wake, and exact Codex queue/steer delivery (PAI-826). 5.17.2 = exact-build Agent Mode multi-project/multi-delivery navigation acceptance coverage plus relay publication sync (PAI-806, PAI-820). 5.17.1 = explicit action-request typing, a trusted body boundary, human-only held-action visibility, and canonical-ledger security regression proof (PAI-817). 5.17.0 = flag-gated Grok Build delivery with a fixed no-shell, tools-off boundary; Grok Bot remains human-delivered (PAI-816). 5.16.0 = durable agent inbox cursors plus native Claude and Codex delivery adapters (PAI-816); 5.9.1 = releases use a DCO-signed protected PR and tag its exact validated squash merge (PAI-790). 5.9.0 = explicit CLI issue IDs prevent ambiguous writes; Go security/toolchain advisories are patched (PAI-792, PAI-794). 5.8.18 = reproducible product captures use a complete, placeholder-free seeded PAI-1 walkthrough (PAI-696); 5.8.15 = frontend dev toolchain resolves patched Vite, Vitest, and brace-expansion with zero audit findings (PAI-758); 5.8.14 = knowledge list rejects ignored positional type arguments before any API call (PAI-760); 5.8.13 = admins choose one shared login/sidebar texture, triangle by default (PAI-738); 5.8.12 = unbranded instances use neutral gray defaults while instance overrides remain intact (PAI-737); 5.8.11 = Voice Intake exposes every accessible active project in a candidate-first searchable picker (PAI-757); 5.8.10 = Voice Intake ranks every accessible project by charter and rarity-weighted, size-normalized evidence (PAI-756); 5.8.9 = Voice Intake impact resolution caps candidates at 20, uses one project-scoped bulk lookup, and stores deterministic arrays (PAI-727); 5.8.8 = Voice Intake history slider debounces revision fetches, rejects stale responses, and bounds nested transcript restores (PAI-726); 5.8.7 = Voice Intake prevents TTS self-transcription, cancels late mic starts, revokes audio blobs, and permits blob media in CSP (PAI-731); 5.8.6 = Voice Intake reconnect healing preserves replayed events and rejects stale hydration responses (PAI-729); 5.8.5 = Voice Intake credentials and audio stay on canonical ElevenLabs HTTPS endpoints (PAI-730); 5.8.4 = Voice Intake relations are bound to the analyzed project and transactionally reject stale, moved, deleted, or cross-project targets (PAI-728); 5.8.3 = one-command, provenance-safe marketing captures with hotspot verification (PAI-695); 5.8.2 = public claims, trust links, release hygiene, and doc sync follow the canonical shipped site (PAI-689); 5.8.1 = live knowledge freshness derives the API schema and is Bash 3.2-safe (PAI-687); 5.8.0 = agent runs carry inspectable repository/branch/base→head commit evidence (PAI-702); 5.7.1 = sidebar shows the configured brand name, PPM here (PAI-736); 5.7.0 was identifier-first login, OIDC_SSO_DOMAINS unset here so behaviour is unchanged (PAI-743); 5.6.4 was SSO sessions skip the local-2FA nag (PAI-742); 5.6.3 was super-admin bootstrap fix (PAI-739, M138 no-op here); 5.6.2 was CLI credential hygiene (PAI-685); 5.6.1 was orchestrator lost-wakeup fix (PAI-725); 5.6.0 was per-language spec cache + header consolidation (PAI-734/735); 5.5.0 was voice cost gates + metering (PAI-724); 5.4.0 was ELI speak-back + configurable session budget (PAI-714); 5.3.3 was intake polish (PAI-721); 5.3.2 was voice lifecycle fixes (PAI-719); 5.3.1 was the mic Permissions-Policy fix (PAI-717); 5.3.0 was voice UX polish (PAI-715); 5.2.0 was ElevenLabs speech input (PAI-710); 5.1.0 was the Voice Intake epic (PAI-703). History: 4.8.0 sat here while live ran 5.0.0 (deploy flow sed-edits the yml, git restore reverted it) — a reconcile would have DOWNGRADED ppm over a 5.0.0-migrated DB. Caught in the OPS-116 QA, 2026-08-01.
       container_name = "ppm";
       restart = "unless-stopped";
       environment = [
         "PORT=8888"
+        "PAIMOS_AGENT_BUS_INSTANCE=ppm"
+        "PAIMOS_AGENT_BUS_WEBHOOK_HOSTS=api2.cursor.sh"
+        "PAIMOS_AGENT_BUS_ALLOW_PRIVATE_WEBHOOKS=false"
         "COOKIE_SECURE=true"
         "BRAND_PRODUCT_NAME=PPM"
         "BRAND_WEBSITE_URL=https://pm.barta.cm"
@@ -676,7 +715,7 @@
       # manifests as the smoke harness; no production secret or host SSH key is
       # mounted into the staged Rust engine. Use the smoke harness, not manual
       # project-wide compose lifecycle commands, when testing this profile.
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.29@sha256:8f772975072e66bd02e0ef5c6df9f432c0b73ff1827346ade8da7fa73ab54a6a";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.33@sha256:5b14100e0601810116e210b0b9eabe6b8d1a833792d0bc29fba239641c0a3752";
       container_name = "janus-engine-staged";
       profiles = [
         "janus-engine-staged"
@@ -773,7 +812,7 @@
     # Janus managed-service transaction boundary
     # ============================================
     janus-managed-transactiond = {
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.29@sha256:8f772975072e66bd02e0ef5c6df9f432c0b73ff1827346ade8da7fa73ab54a6a";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.33@sha256:5b14100e0601810116e210b0b9eabe6b8d1a833792d0bc29fba239641c0a3752";
       container_name = "janus-managed-transactiond";
       profiles = [
         "janus-managed-service"
@@ -802,7 +841,7 @@
         "JANUS_PRODUCT_MODE=production"
         "JANUS_RELEASE_CHANNEL_POLICY=/etc/janus/managed/release-channels-v1.json"
         "JANUS_RELEASE_ADMISSION_RECEIPT=/etc/janus/managed/release-admission.json"
-        "JANUS_RELEASE_ARTIFACT_DIGEST=sha256:8f772975072e66bd02e0ef5c6df9f432c0b73ff1827346ade8da7fa73ab54a6a"
+        "JANUS_RELEASE_ARTIFACT_DIGEST=sha256:5b14100e0601810116e210b0b9eabe6b8d1a833792d0bc29fba239641c0a3752"
         "JANUS_RELEASE_AUDIT_FILE=/var/lib/janus-managed-central/audit/release-admission.jsonl"
         "JANUS_RELEASE_EXECUTOR=janusd-web-transactiond"
         "JANUS_RUNTIME_AUDIT_FILE=/var/lib/janus-managed-central/audit/runtime.jsonl"
@@ -1023,9 +1062,10 @@
     # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
     # FleetCom is decommissioned; Pharos is the live fleet dashboard.
     pharosd = {
+      # 0.1.84 = owner-intent/origin replay binding, HTTPS-only transport, exact media semantics, and disabled compression decoding (PHAROS-206).
       # Keep the readable release tag, but bind it to the verified immutable
       # linux/amd64 manifest used by both server and bundled beacon.
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.82@sha256:5579fe07c05d2bd17375564b2bbe93b2ecf1a75d9a2957034921597f2da64188";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.91@sha256:65f8494f313f18d63880e74d5f2eded4b98b8f383797643edf02a7ff47f69af2";
       container_name = "pharosd";
       restart = "unless-stopped";
       init = true;
@@ -1099,7 +1139,13 @@
         # reference is derived only from an OIDC email_verified=true claim.
         "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27"
         "PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json"
-      ];
+      ]
+      # NIX-381 / PHAROS-206 — reporter-only Paimos delivery-stage adapter. It
+      # can observe and report; it cannot create, confirm, claim or execute a
+      # host action. The consequential UpdateRestart stays an attended operator
+      # decision: the adapter refuses to report success unless that job already
+      # carries an operator confirmation.
+      ++ paimosDeliveryEnvironment;
       ports = [
         "127.0.0.1:8088:8080"
         "100.64.0.4:8088:8080"
@@ -1132,7 +1178,12 @@
         "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro"
         "janus_pharos_production_provider_out:/run/pharos/providers:ro"
         "/run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro"
-      ];
+      ]
+      # NIX-381 — the adapter config plus one inode per credential. The derived
+      # exact-replay journal needs no mount: pharosd writes it beside PHAROS_DB
+      # as /data/pharos.json.paimos-delivery-journal.json, already durable in
+      # the csb1_pharos_data volume above.
+      ++ paimosDeliveryVolumes;
       networks = [
         "traefik"
       ];
@@ -1153,7 +1204,7 @@
     # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
     # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.82@sha256:5579fe07c05d2bd17375564b2bbe93b2ecf1a75d9a2957034921597f2da64188";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.91@sha256:65f8494f313f18d63880e74d5f2eded4b98b8f383797643edf02a7ff47f69af2";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
@@ -1199,7 +1250,7 @@
       ];
       volumes = [
         "/home/mba/Code/nixcfg:/nixcfg:ro"
-        "/etc/pharos-deployment/evidence.json:/host/pharos-deployment/evidence.json:ro"
+        "/run/pharos-deployment:/host/pharos-deployment:ro" # OPS-186: directory, not the file — see flake.nix activation script
         "/etc/NIXOS:/etc/NIXOS:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
         "/var/lib/csb1-docker/pharos-backup-status:/pharos-backup-status:ro"
@@ -1292,11 +1343,17 @@
     };
     inspr-auth = {
       # Go OIDC session backend for inspr.at/{enter,login,welcome,logout}.
-      # Published to GHCR 2026-08-04 (OPS-136 closure): the 2026-05-11 local
-      # build, tag = provenance date. Same image ID 88feff29… as the adopted
-      # container. Source control + CI for future builds: INSPR follow-up
-      # (the source in /home/mba/docker/inspr-at/auth is still unversioned).
-      image = "ghcr.io/inspr-at/inspr-auth:legacy-20260511@sha256:090c82cff2dd3c5efddfb73c445f22c34898d8e9653abd9cbb746ca26125d59f";
+      # Source: inspr-at/inspr-site `auth/`, built and published by its
+      # auth-image workflow (INSPR-253): BuildKit provenance + SPDX SBOM,
+      # cosign-signed with the workflow OIDC identity, Trivy-gated since 0.2.0.
+      # 0.2.0 = Go 1.26 + current go-oidc/oauth2/go-jose (INSPR-307). Replaces
+      # the 2026-05-11 rescue build. Rollback target (same manifest digest,
+      # re-homed into this private package, cosign custody-signed):
+      #   ghcr.io/inspr-at/inspr-site/inspr-auth:legacy-20260511@sha256:090c82cff2dd3c5efddfb73c445f22c34898d8e9653abd9cbb746ca26125d59f
+      # The units pull this private package through composeStack.registryLogins
+      # (NIX-384); the old public ghcr.io/inspr-at/inspr-auth package is being
+      # deleted (INSPR-253).
+      image = "ghcr.io/inspr-at/inspr-site/inspr-auth:0.2.0@sha256:d1fc446ff49f03617d574b775fc9435f035f24ad7b280b9024f1b6b53560838f";
       container_name = "inspr-auth";
       restart = "unless-stopped";
       networks = [

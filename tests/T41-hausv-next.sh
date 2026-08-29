@@ -18,7 +18,9 @@ bash -n "${command}"
 grep -Fq './hausv-next.nix # NIX-368 / HAUSV-513' "${host}"
 grep -Fq 'host_ip: 100.64.0.4' "${compose}"
 grep -Fq 'published: "8099"' "${compose}"
-grep -Fq 'internal: true' "${compose}"
+# NOTE (OPS-188): a `grep -Fq 'internal: true'` assertion used to sit here. It
+# matched only the comment explaining why the preview network must NOT be
+# internal -- the opposite of the contract enforced below (NIX-370).
 grep -Fq 'device: /var/lib/hausv-next/data' "${compose}"
 grep -Fq 'hausv-next-data:/data' "${compose}"
 grep -Fq 'network_mode: service:app' "${compose}"

@@ -10,6 +10,11 @@
 
 let
   hostdashCsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb1;
+  # NIX-381 — the one reviewed source of truth for the Paimos v1 external-stage
+  # adapters. hosts/csb1/docker/compose-spec.nix imports the same file, so
+  # pharosd's environment and this host's module wiring cannot disagree about
+  # whether the adapter is live. tests/T48 asserts that agreement.
+  paimosDeliveryStage = import ./paimos-delivery-stage.nix;
   # OPS-127: the runtime compose file is the closure's rendered spec (the yml is
   # retired). /etc/compose/csb1/... is the environment.etc symlink to it.
   # Every -p csb1 compose invocation serializes on the composeStack lock
@@ -185,6 +190,8 @@ in
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./peer-watch.nix # OPS-107: watch csb0's poller so its silence is noticed
+    ./tailnet-watch.nix # OPS-181: page when this host's tailnet view is persistently broken
+    ./fleet-drift.nix # OPS-187: page when a fleet host's deployed nixcfg is persistently behind main (reads pharosd's store)
     ../../modules/shared/fleet-alerts/heartbeat.nix # OPS-107: let csb0 see this poller is alive
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
@@ -196,6 +203,8 @@ in
     ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
     ../../modules/janus-host-secrets
+    ../../modules/pharos-paimos-delivery # NIX-381 / PHAROS-206 — Paimos owner adapter
+    ../../modules/janus-paimos-dependency-reporter # NIX-381 / JANUS-441 — dependency reporter
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
     # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
@@ -252,6 +261,17 @@ in
     # and dropping them would force-recreate every container for zero
     # behavioural change. Remove opportunistically per-service.
     autoUpdate.enable = true;
+    # NIX-384: inspr-auth comes from the PRIVATE inspr-site GHCR package, so the
+    # root-run reconcile and update units log in to ghcr.io first (see the
+    # module option). Guarded on the ciphertext like the secret above; until
+    # the operator has created it the units behave exactly as before.
+    registryLogins = lib.mkIf (builtins.pathExists ../../secrets/csb1-inspr-site-ghcr-pull.age) [
+      {
+        registry = "ghcr.io";
+        username = "markus-barta";
+        passwordFile = "/run/agenix/csb1-inspr-site-ghcr-pull";
+      }
+    ];
     spec = import ./docker/compose-spec.nix;
   };
 
@@ -282,6 +302,49 @@ in
     enable = true;
     sshKeyRef = "pharos-csb1-executor";
     identityFile = config.age.secrets.csb1-pharos-provisioning-executor-ssh-key.path;
+  };
+
+  # ==========================================================================
+  # NIX-381 — Paimos v1 external-stage adapters (PAI-810)
+  # ==========================================================================
+  # Both adapters are declared here and land INERT: `activate = false` until
+  # Paimos has minted the handoffs and the operator preflight in
+  # hosts/csb1/docs/RUNBOOK.md § "Paimos external-stage activation" confirms
+  # every credential file. Nothing below carries a credential value; the files
+  # named are agenix outputs whose ciphertext is created during activation.
+  #
+  # 🔴 pharosd panics at startup on an incomplete adapter config, so the
+  # compose-side env var is gated by the SAME switch — see
+  # hosts/csb1/paimos-delivery-stage.nix.
+  inspr.pharosPaimosDelivery = {
+    enable = true;
+    activate = paimosDeliveryStage.active;
+    inherit (paimosDeliveryStage) paimosOrigin;
+    inherit (paimosDeliveryStage.pharos) configFile apiKeyFile;
+    # pharosd runs as 10001:992 (users.users.pharos-container below); every file
+    # the adapter opens must be owned by that uid with no group/other bits.
+    containerUid = 10001;
+    # The exact-replay journal is derived by pharosd from PHAROS_DB —
+    # /data/pharos.json.paimos-delivery-journal.json — which lives in the
+    # csb1_pharos_data named volume, so it is already durable across restarts.
+    #
+    # 🔴 intents stay empty until Paimos issues the deployment and verification
+    # handoff ids. They are 26-character Crockford base32 ULIDs; inventing one
+    # is not possible and the module rejects any other shape.
+    intents = [ ];
+  };
+
+  inspr.janusPaimosDependencyReporter = {
+    enable = true;
+    activate = paimosDeliveryStage.active;
+    # NIX-381: v0.1.33, a separate pin from `inputs.janus` — see flake.nix.
+    package = inputs.janus-paimos-reporter.packages.${pkgs.stdenv.hostPlatform.system}.janus-engine;
+    inherit (paimosDeliveryStage) paimosOrigin;
+    inherit (paimosDeliveryStage.janus) journalDirectory apiKeyFile handoffSecretFile;
+    # Minted by Paimos at handoff creation; empty (and therefore inert) now.
+    handoffId = "";
+    expected = null;
+    evidence = null;
   };
 
   # Value-free declaration consumed read-only by Pharos. The profile refs are
@@ -1136,7 +1199,8 @@ in
   # Contents: raw GitHub PAT (single line). Janus capability name:
   # github.runner.augmentoring-team/start-agm-com
   # Edit hint: agenix -e secrets/csb1-start-github-runner.age
-  # 0440 root:users so mba can read it for manual operations if needed.
+  # 0440 root:users lets the mba-owned runner read it during registration;
+  # nixpkgs' default InaccessiblePaths then hides this source from job processes.
   age.secrets.csb1-start-github-runner =
     lib.mkIf (builtins.pathExists ../../secrets/csb1-start-github-runner.age)
       {
@@ -1145,6 +1209,22 @@ in
         owner = "root";
         group = "users";
         mode = "0440";
+      };
+
+  # NIX-384: GHCR pull token for the private inspr-site packages
+  # (ghcr.io/inspr-at/inspr-site/inspr-auth, INSPR-253). Classic PAT, scope
+  # read:packages only, no expiration; 1Password ghcr.pull.inspr-at/inspr-site.
+  # Read CLIENT-side by the root-run compose units only, so the NIX-353 default
+  # applies: 0400 root:root. Contents: raw token (single line). Guarded on the
+  # ciphertext so the branch evaluates before the operator has run `agenix -e`.
+  age.secrets.csb1-inspr-site-ghcr-pull =
+    lib.mkIf (builtins.pathExists ../../secrets/csb1-inspr-site-ghcr-pull.age)
+      {
+        file = ../../secrets/csb1-inspr-site-ghcr-pull.age;
+        path = "/run/agenix/csb1-inspr-site-ghcr-pull";
+        owner = "root";
+        group = "root";
+        mode = "0400";
       };
 
   # NIX-367 / HAUSV-495: separate bootstrap and application credentials. The
