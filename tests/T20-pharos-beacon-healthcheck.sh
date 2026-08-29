@@ -7,8 +7,18 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mutation_host=""
+mutation_shape=""
 if [[ "${1:-}" == "--inject-disabled-healthcheck=csb0" ]]; then
   mutation_host="csb0"
+  mutation_shape="nested"
+elif [[ "${1:-}" == "--inject-dotted-disabled-healthcheck=csb0" ]]; then
+  mutation_host="csb0"
+  mutation_shape="dotted"
+elif [[ "${1:-}" == "--inject-quoted-disabled-healthcheck=csb0" ]]; then
+  mutation_host="csb0"
+  mutation_shape="quoted"
+elif [[ "${1:-}" == "--inject-extra-beacon-host" ]]; then
+  mutation_shape="inventory"
 elif [[ $# -ne 0 ]]; then
   printf 'pharos_beacon_healthcheck=failed reason=invalid_argument\n' >&2
   exit 1
@@ -22,18 +32,40 @@ compose_files=(
   "${repo_root}/hosts/hsb9/docker/compose-spec.nix"
 )
 
-python3 - "$mutation_host" "${compose_files[@]}" <<'PY'
+python3 - "$mutation_host" "$mutation_shape" "$repo_root" "${compose_files[@]}" <<'PY'
 import pathlib
 import re
 import sys
 
 mutation_host = sys.argv[1]
-paths = [pathlib.Path(value) for value in sys.argv[2:]]
+mutation_shape = sys.argv[2]
+repo_root = pathlib.Path(sys.argv[3])
+paths = [pathlib.Path(value) for value in sys.argv[4:]]
 expected_hosts = ("csb0", "csb1", "hsb0", "hsb1", "hsb8", "hsb9")
 actual_hosts = tuple(path.parts[-3] for path in paths)
 if actual_hosts != expected_hosts:
     raise SystemExit(
         f"active beacon inventory mismatch: expected={expected_hosts} actual={actual_hosts}"
+    )
+
+discovered_hosts = tuple(
+    path.parts[-3]
+    for path in sorted(
+        repo_root.glob("hosts/*/docker/compose-spec.nix"),
+        key=lambda candidate: candidate.parts[-3],
+    )
+    if re.search(
+        r"^    pharos-beacon = \{\n",
+        path.read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+)
+if mutation_shape == "inventory":
+    discovered_hosts += ("zz-extra",)
+if discovered_hosts != expected_hosts:
+    raise SystemExit(
+        "active beacon discovery mismatch: "
+        f"expected={expected_hosts} actual={discovered_hosts}"
     )
 
 
@@ -49,14 +81,28 @@ def service_block(compose: str, host: str, name: str) -> str:
 
 
 def has_healthcheck_override(beacon: str) -> bool:
-    return re.search(r"^      healthcheck\s*=", beacon, re.MULTILINE) is not None
+    return (
+        re.search(
+            r'^      (?:"healthcheck"|healthcheck)(?:\s*=|\.)',
+            beacon,
+            re.MULTILINE,
+        )
+        is not None
+    )
 
 
 for path, host in zip(paths, expected_hosts):
     compose = path.read_text(encoding="utf-8")
     beacon = service_block(compose, host, "pharos-beacon")
     if mutation_host == host:
-        beacon += "      healthcheck = {\n        disable = true;\n      };\n"
+        if mutation_shape == "nested":
+            beacon += "      healthcheck = {\n        disable = true;\n      };\n"
+        elif mutation_shape == "dotted":
+            beacon += "      healthcheck.disable = true;\n"
+        elif mutation_shape == "quoted":
+            beacon += '      "healthcheck" = {\n        disable = true;\n      };\n'
+        else:
+            raise SystemExit(f"unsupported mutation shape: {mutation_shape}")
 
     if beacon.count('"PHAROS_URL=http://100.64.0.4:8088"') != 1:
         raise SystemExit(f"beacon must retain the reviewed report endpoint: host={host}")
@@ -83,18 +129,36 @@ for binding in [
 print(f"pharos_beacon_healthcheck_contract=passed beacons={len(paths)}")
 PY
 
-if [[ -z "$mutation_host" ]]; then
-  mutation_output=""
-  if mutation_output=$(bash "$0" --inject-disabled-healthcheck=csb0 2>&1); then
-    printf 'pharos_beacon_healthcheck=failed reason=mutation_accepted host=csb0\n' >&2
+if [[ -z "$mutation_shape" ]]; then
+  for mutation in \
+    --inject-disabled-healthcheck=csb0 \
+    --inject-dotted-disabled-healthcheck=csb0 \
+    --inject-quoted-disabled-healthcheck=csb0; do
+    mutation_output=""
+    if mutation_output=$(bash "$0" "$mutation" 2>&1); then
+      printf 'pharos_beacon_healthcheck=failed reason=mutation_accepted mutation=%s\n' \
+        "$mutation" >&2
+      exit 1
+    fi
+
+    expected='pharos_beacon_healthcheck=failed reason=beacon_healthcheck_overridden host=csb0'
+    if [[ "$mutation_output" != *"$expected"* ]]; then
+      printf 'pharos_beacon_healthcheck=failed reason=mutation_wrong_verdict mutation=%s\n' \
+        "$mutation" >&2
+      exit 1
+    fi
+
+    printf 'pharos_beacon_healthcheck_mutation=passed mutation=%s\n' "$mutation"
+  done
+
+  inventory_output=""
+  if inventory_output=$(bash "$0" --inject-extra-beacon-host 2>&1); then
+    printf 'pharos_beacon_healthcheck=failed reason=inventory_mutation_accepted\n' >&2
     exit 1
   fi
-
-  expected='pharos_beacon_healthcheck=failed reason=beacon_healthcheck_overridden host=csb0'
-  if [[ "$mutation_output" != *"$expected"* ]]; then
-    printf 'pharos_beacon_healthcheck=failed reason=mutation_wrong_verdict host=csb0\n' >&2
+  if [[ "$inventory_output" != *"active beacon discovery mismatch"* ]]; then
+    printf 'pharos_beacon_healthcheck=failed reason=inventory_mutation_wrong_verdict\n' >&2
     exit 1
   fi
-
-  printf 'pharos_beacon_healthcheck_mutation=passed host=csb0\n'
+  printf 'pharos_beacon_healthcheck_inventory_mutation=passed\n'
 fi
