@@ -175,6 +175,9 @@ jobs:
       - name: Verify fleet-safe doctrine-private boundary
         run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"
 
+      - name: Verify operator inspr CLI fleet configuration
+        run: tests/T55-inspr-cli-fleet-config.sh
+
       - name: Verify headscale DERP-map fallback contract (OPS-180)
         run: nix-shell -p python3Packages.pyyaml --run tests/T43-headscale-derp-fallback.sh
 
