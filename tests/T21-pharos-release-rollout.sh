@@ -34,6 +34,7 @@ service_image() {
 control_plane="$repo_root/hosts/csb1/docker/compose-spec.nix"
 release_file="$repo_root/pharos-release.json"
 rollout_workflow="$repo_root/.github/workflows/pharos-release-rollout.yml"
+candidate_prepare="$repo_root/scripts/prepare-pharos-release-candidates.sh"
 expected_image=$(service_image "$control_plane" pharosd)
 immutable_pattern='^ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
 
@@ -41,9 +42,11 @@ grep -Fq 'name: Resolve the public immutable image digest' "$rollout_workflow"
 grep -Fq 'image=ghcr.io/inspr-at/pharos/pharosd' "$rollout_workflow"
 grep -Fq 'DSCCFG_REPOSITORY: inspr-at/dsccfg' "$rollout_workflow"
 grep -Fq 'tests/T32-managed-secret-production-preflight.sh' "$rollout_workflow"
+grep -Fq 'scripts/prepare-pharos-release-candidates.sh' "$rollout_workflow"
+grep -Fq 'scripts/publish-pharos-release-candidates.sh' "$rollout_workflow"
 grep -Fq \
   'hosts/csb1/docker/janus/managed-service-production/readiness.sh' \
-  "$rollout_workflow"
+  "$rollout_workflow" "$candidate_prepare"
 for compose_spec in \
   hosts/csb0/docker/compose-spec.nix \
   hosts/csb1/docker/compose-spec.nix \
@@ -51,7 +54,7 @@ for compose_spec in \
   hosts/hsb1/docker/compose-spec.nix \
   hosts/hsb8/docker/compose-spec.nix \
   hosts/hsb9/docker/compose-spec.nix; do
-  grep -Fq "$compose_spec" "$rollout_workflow" || {
+  grep -Fq "$compose_spec" "$rollout_workflow" "$candidate_prepare" || {
     printf 'pharos_rollout=failed reason=workflow_missing_compose_spec path=%s\n' \
       "$compose_spec" >&2
     exit 1

@@ -1080,6 +1080,12 @@ in
   services.hostdash.status = {
     enable = true;
     host = "hsb0";
+    httpProbes = {
+      "adguardhome.service" = "http://127.0.0.1:3000/";
+      ncps = "http://127.0.0.1:8501/";
+      openclaw-gateway = "https://127.0.0.1:18789/";
+      speedtest-tracker = "http://127.0.0.1:8765/";
+    };
     units = [
       # The LAN's DNS. Everything `.lan` resolves through this one service — if it is
       # down, every hostname on the network dies with it, and a dashboard that could
