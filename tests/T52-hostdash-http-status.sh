@@ -66,7 +66,19 @@ observed_url="$({ ESCAPED_URL="$escaped_url" bash -c '
 # the option would not stop a later generator edit from probing the LAN or
 # stalling the 60-second oneshot.
 grep -Fq -- '--insecure' "$probe" || fail missing_self_signed_loopback_support
-grep -Fq -- '--max-time 3' "$probe" || fail probe_budget_not_pinned
+probe_budget_is_pinned() {
+  local source=$1
+  [[ "$(grep -Ec -- '--max-time[[:space:]]+[0-9]+' <<<"$source")" == 1 ]] &&
+    grep -Eq -- '--max-time[[:space:]]+3([^0-9]|$)' <<<"$source"
+}
+probe_source=$(<"$probe")
+probe_budget_is_pinned "$probe_source" || fail probe_budget_not_pinned
+for unbounded_budget in 30 300; do
+  mutated_source="${probe_source/--max-time 3/--max-time $unbounded_budget}"
+  if probe_budget_is_pinned "$mutated_source"; then
+    fail "probe_budget_${unbounded_budget}_accepted"
+  fi
+done
 grep -Fq -- "'%{http_code} %{time_total}'" "$probe" || fail curl_result_contract_missing
 grep -Eq '\^https\?://127\\\.0\\\.0\\\.1' "$probe" || fail helper_not_loopback_closed
 
