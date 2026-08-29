@@ -314,11 +314,18 @@ systemctl status compose-hsb8-update.service --no-pager | tail -20
 journalctl -u compose-hsb8-update.service --since '2 weeks ago' | tail -40
 ```
 
-> 🟡 **These updates are silent.** `autoUpdate` sends no Telegram, mail or ntfy
-> notification — that capability left with Watchtower and was not replaced. A
-> weekly unattended image pull on a family server currently reports success or
-> failure to nobody. Check `journalctl` after a Saturday run, or raise a ticket
-> to wire the timer into the existing alerting path.
+> 🟡 **Decision (NIX-385): keep this updater intentionally silent for now.**
+> `autoUpdate` sends no Telegram, mail or ntfy notification. hsb8 has no
+> host-scoped outbound notification transport: its backup reports through a
+> Pharos status file, while the Telegram bot is owned remotely by csb0. Reusing
+> either path here would widen secret access or couple this family server to a
+> different host. A failed update remains durable and visible as a failed
+> systemd unit; it is not converted into success. Check the unit journal after
+> the Saturday run.
+
+Revisit this decision when a reviewed fleet-wide host-alert transport exists,
+or before increasing the update cadence. At that point, add failure-only
+delivery without exposing container environment files to the host service.
 
 The `@janischhofweg22bot` Telegram bot still exists and is managed from csb0
 Node-RED, but it is no longer fed by container updates. Treat any doc claiming

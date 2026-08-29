@@ -131,6 +131,23 @@ else
   echo "SKIP: dirty tree — NIX-348 evidence guard blocks csb1 eval; commit first"
 fi
 
+# NIX-385: hsb8 intentionally has no host notification transport. Keep the
+# operational decision visible both on its dashboard and in the runbook until a
+# reviewed fleet-wide transport exists; do not silently regress to an implied
+# alert path that operators cannot rely on.
+grep -Fq 'foot = "Sat 05:05 · intentionally silent; check journal";' \
+  "${repo}/hosts/hsb8/configuration.nix" ||
+  {
+    echo "FAIL: hsb8 HostDash no longer states the compose-update notification decision (NIX-385)"
+    exit 1
+  }
+grep -Fq '**Decision (NIX-385): keep this updater intentionally silent for now.**' \
+  "${repo}/hosts/hsb8/docs/RUNBOOK.md" ||
+  {
+    echo "FAIL: hsb8 runbook no longer records the compose-update notification decision (NIX-385)"
+    exit 1
+  }
+
 # --- NIX-351/NIX-353/NIX-356: no world-readable agenix secrets, fleet-wide --
 # Every compose env_file is read client-side by the root-run units; the
 # non-0400 exceptions (csb1-hausv-org-env 0440 root:users for the mba-run
