@@ -28,7 +28,7 @@ in
   imports = [
     ../../modules/uzumaki/home-manager.nix
     ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
-    # markus-defaults bundles all 3 INSPR public modules + Markus's values
+    # markus-defaults bundles the INSPR public modules + Markus's values
     # (identities, contexts, instances, encrypted-secrets root)
     ../../modules/shared/markus-defaults.nix
   ];
@@ -41,6 +41,8 @@ in
   inspr.secrets.agents.enable = true;
   # Non-secret routing only; workstation auth is interactive via OS keyring.
   inspr.paimos-cli.enable = true;
+  # Public fleet endpoints only; renders ~/.config/inspr/fleet.conf.
+  inspr.cli.enable = true;
   # mbp2607-personal-userkey minted 2026-07-03, registered on markus-barta
   # GitHub account; privkey in secrets/agents/host/mbp2607/.
   inspr.git.atelier.personal.enable = true;

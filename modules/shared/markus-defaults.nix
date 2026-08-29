@@ -33,6 +33,11 @@
 #       authenticate interactively with `paimos auth login`; credentials stay
 #       in the OS keyring and are never rendered by Home Manager.
 #
+#   - inspr.cli.fleet
+#       The six public service and routing values used by the inspr CLI. The
+#       generated XDG file contains no credential; authentication remains in
+#       the OS keyring or the service-specific secret stores.
+#
 # Note: this module DOESN'T enable anything by itself — it just declares
 # values. The host's home.nix still needs `inspr.git-identity.enable = true`
 # / `inspr.git.atelier.personal.enable = true` etc. to actually
@@ -96,8 +101,21 @@ in
     inputs.inspr-modules.homeManagerModules.devenv-direnv-fix
     inputs.inspr-modules.homeManagerModules.git-identity
     inputs.inspr-modules.homeManagerModules.git-atelier-credentials
+    inputs.inspr-modules.homeManagerModules.inspr-cli
     inputs.inspr-modules.homeManagerModules.paimos-config
   ];
+
+  # NIX-375: private-studio composition of the public parameterized module.
+  # These are public endpoints and stable local aliases only. Keep credentials
+  # out of this world-readable XDG file.
+  inspr.cli.fleet = {
+    headscaleUrl = "https://hs.barta.cm";
+    tailnetName = "hs.barta.cm";
+    paimosUrl = "https://pm.barta.cm";
+    paimosInstance = "ppm";
+    pharosUrl = "https://pharos.barta.cm";
+    pharosHost = "csb1";
+  };
 
   # Tell inspr.secrets.agents where Markus's nixcfg keeps its encrypted
   # .age files. Path is relative to THIS module file's location:
