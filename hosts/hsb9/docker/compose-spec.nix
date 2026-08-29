@@ -101,9 +101,6 @@
       entrypoint = [
         "/usr/local/bin/pharos-beacon"
       ];
-      healthcheck = {
-        disable = true;
-      };
       env_file = [
         "/run/agenix/pharos-beacon-hsb9-env"
       ];

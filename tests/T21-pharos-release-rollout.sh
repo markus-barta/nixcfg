@@ -2,6 +2,21 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+mutation_host=""
+mutation_shape=""
+if [[ "${1:-}" == "--inject-disabled-healthcheck=csb0" ]]; then
+  mutation_host="csb0"
+  mutation_shape="nested"
+elif [[ "${1:-}" == "--inject-dotted-disabled-healthcheck=csb0" ]]; then
+  mutation_host="csb0"
+  mutation_shape="dotted"
+elif [[ "${1:-}" == "--inject-quoted-disabled-healthcheck=csb0" ]]; then
+  mutation_host="csb0"
+  mutation_shape="quoted"
+elif [[ $# -ne 0 ]]; then
+  printf 'pharos_rollout=failed reason=invalid_argument\n' >&2
+  exit 1
+fi
 
 # OPS-127: reads the pin from the compose SPEC (ymls retired). Single awk over
 # the file -- no producer pipe, so the NIX-337 SIGPIPE race is structurally
@@ -103,6 +118,19 @@ compose_files=(
 
 for compose_file in "${compose_files[@]}"; do
   beacon_block=$(service_block "$compose_file" pharos-beacon)
+  host=$(basename "$(dirname "$(dirname "$compose_file")")")
+  if [[ "$mutation_host" == "$host" ]]; then
+    if [[ "$mutation_shape" == "nested" ]]; then
+      beacon_block+=$'\n      healthcheck = {\n        disable = true;\n      };'
+    elif [[ "$mutation_shape" == "dotted" ]]; then
+      beacon_block+=$'\n      healthcheck.disable = true;'
+    elif [[ "$mutation_shape" == "quoted" ]]; then
+      beacon_block+=$'\n      "healthcheck" = {\n        disable = true;\n      };'
+    else
+      printf 'pharos_rollout=failed reason=unsupported_mutation_shape\n' >&2
+      exit 1
+    fi
+  fi
   beacon_image=$(awk '/^      image = "/ { gsub(/^      image = "|";$/, ""); print; exit }' <<<"$beacon_block")
 
   if [[ "$beacon_image" != "$expected_image" ]]; then
@@ -133,21 +161,46 @@ for compose_file in "${compose_files[@]}"; do
     exit 1
   fi
 
-  if [[ "$compose_file" == "$control_plane" ]]; then
-    grep -Fq '"PHAROS_ADDR=0.0.0.0:8088"' <<<"$beacon_block" || {
-      printf 'pharos_rollout=failed reason=local_healthcheck_target_missing\n' >&2
-      exit 1
-    }
-    if grep -Fq 'disable = true;' <<<"$beacon_block"; then
-      printf 'pharos_rollout=failed reason=control_plane_healthcheck_disabled\n' >&2
-      exit 1
-    fi
-  elif ! grep -Fq $'      healthcheck = {\n        disable = true;' <<<"$beacon_block"; then
-    printf 'pharos_rollout=failed reason=remote_healthcheck_not_disabled path=%s\n' \
+  if grep -Eq '^      ("healthcheck"|healthcheck)([[:space:]]*=|\.)' \
+    <<<"$beacon_block"; then
+    printf 'pharos_rollout=failed reason=beacon_healthcheck_overridden path=%s\n' \
       "${compose_file#"$repo_root/"}" >&2
     exit 1
   fi
+
+  for required in \
+    '        "PHAROS_URL=http://100.64.0.4:8088"' \
+    '        "PHAROS_INTERVAL=60"'; do
+    if ! grep -Fqx -- "$required" <<<"$beacon_block"; then
+      printf 'pharos_rollout=failed reason=beacon_health_contract_missing path=%s\n' \
+        "${compose_file#"$repo_root/"}" >&2
+      exit 1
+    fi
+  done
 done
 
 printf 'pharos_rollout=passed beacons=%s release=%s\n' \
   "${#compose_files[@]}" "${expected_image%%@*}"
+
+if [[ -z "$mutation_host" ]]; then
+  for mutation in \
+    --inject-disabled-healthcheck=csb0 \
+    --inject-dotted-disabled-healthcheck=csb0 \
+    --inject-quoted-disabled-healthcheck=csb0; do
+    mutation_output=""
+    if mutation_output=$(bash "$0" "$mutation" 2>&1); then
+      printf 'pharos_rollout=failed reason=healthcheck_mutation_accepted mutation=%s\n' \
+        "$mutation" >&2
+      exit 1
+    fi
+
+    expected='pharos_rollout=failed reason=beacon_healthcheck_overridden path=hosts/csb0/docker/compose-spec.nix'
+    if [[ "$mutation_output" != *"$expected"* ]]; then
+      printf 'pharos_rollout=failed reason=healthcheck_mutation_wrong_verdict mutation=%s\n' \
+        "$mutation" >&2
+      exit 1
+    fi
+
+    printf 'pharos_rollout_healthcheck_mutation=passed mutation=%s\n' "$mutation"
+  done
+fi
