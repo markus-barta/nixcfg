@@ -58,6 +58,7 @@ fi
 # Both knobs must stay declared and typed, or "typed and documented" regresses.
 grep -Fq 'healthClass = mkOption {' "$manifest_module"
 grep -Fq 'thresholds = mkOption {' "$manifest_module"
+grep -Fq '(cpu, ram, disk, load, swap)' "$manifest_module"
 
 # The class must default from declared host preferences, not a hardcoded guess.
 grep -Fq 'declaredPreferences.kind or "server"' "$manifest_module"
