@@ -37,14 +37,14 @@ jq -e '
   and .server.source == "stasysmo"
   and .server.class == "server"
   and .workstation.class == "workstation"
-  and ((.server.metrics | keys) == ["cpu", "load", "ram", "swap"])
+  and ((.server.metrics | keys) == ["cpu", "disk", "load", "ram", "swap"])
   and ([.server.metrics[] | .elevated < .critical] | all)
   and ([.workstation.metrics[] | .elevated < .critical] | all)
   and ([.server.metrics[] | has("suffix") and has("priority")] | all)
 ' <<<"$unit_result" >/dev/null
 
 # Int-typed metrics must not carry binary-float noise (90 * 1.1 = 99.00000000000001).
-if jq -e '[.workstation.metrics | .cpu, .ram, .swap | .elevated, .critical]
+if jq -e '[.workstation.metrics | .cpu, .disk, .ram, .swap | .elevated, .critical]
           | map(. != floor) | any' <<<"$unit_result" >/dev/null; then
   printf 'host_health_thresholds=failed reason=non_integer_int_metric\n' >&2
   exit 1

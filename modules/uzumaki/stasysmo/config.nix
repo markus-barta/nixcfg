@@ -190,6 +190,20 @@ rec {
       type = "int";
     };
 
+    # Root filesystem usage (`df /`), not pool-wide or largest-mount usage.
+    # The root filesystem is the one cross-filesystem signal that answers the
+    # operational question consistently on ext4 and ZFS: can the OS still
+    # write the files it needs to remain healthy?
+    disk = {
+      thresholds = {
+        elevated = 80;
+        critical = 90;
+      };
+      priority = 80;
+      suffix = "%";
+      type = "int";
+    };
+
     load = {
       thresholds = {
         elevated = 2.0;
