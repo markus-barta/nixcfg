@@ -264,6 +264,48 @@ in
   # managed here.
   home.file."Library/Caches/CodexBar/plugins/grokbot.js".source = ./files/codexbar-grokbot.js;
 
+  # CodexBar does not run the file above. On approval it takes a private COPY
+  # into ~/.config/codexbar/providers/<codexbar-hash>-hm_codexbargrokbot.js and
+  # keeps executing that copy forever — a later `switch` updates the drop-in
+  # while the running plugin stays frozen, and the only documented way to
+  # re-import is clicking "Refresh" in Settings > Provider Plugins. That makes
+  # every plugin edit a manual step, which defeats managing it declaratively.
+  #
+  # So: after each switch, push the current source into whatever approved copy
+  # exists. The filename prefix is assigned by CodexBar, so match it by glob
+  # rather than hardcoding a hash that is not ours to predict. Copy (not
+  # symlink) because CodexBar rewrites the file mode and expects a real file —
+  # same reason fontActivation copies into ~/Library/Fonts.
+  #
+  # Deliberately does nothing when no approved copy exists: approval is a
+  # security gate (network + cookie access) and is the operator's to give.
+  home.activation.codexbarGrokbotPlugin = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    src="${./files/codexbar-grokbot.js}"
+    providers="$HOME/.config/codexbar/providers"
+
+    if [ ! -d "$providers" ]; then
+      echo "codexbar: no providers dir — approve the Grok Bot plugin once in Settings > Provider Plugins"
+    else
+      found=0
+      for approved in "$providers"/*hm_codexbargrokbot.js; do
+        [ -e "$approved" ] || continue
+        found=1
+        if ${pkgs.diffutils}/bin/cmp -s "$src" "$approved"; then
+          echo "codexbar: Grok Bot plugin already current"
+        else
+          chmod u+w "$approved"
+          cat "$src" >"$approved"
+          chmod 444 "$approved"
+          echo "codexbar: refreshed approved Grok Bot plugin ($(basename "$approved"))"
+          echo "codexbar: restart CodexBar to pick it up"
+        fi
+      done
+      if [ "$found" = 0 ]; then
+        echo "codexbar: Grok Bot plugin not approved yet — approve it once in Settings > Provider Plugins"
+      fi
+    fi
+  '';
+
   # ============================================================================
   # Git Configuration
   # ============================================================================
