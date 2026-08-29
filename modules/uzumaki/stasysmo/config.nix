@@ -190,6 +190,22 @@ rec {
       type = "int";
     };
 
+    # Root mount usage (`df /`), not pool-wide or largest-mount usage. On ext4
+    # this describes the filesystem. On ZFS it describes the mounted root
+    # dataset against the space currently available from its pool; sibling
+    # datasets are deliberately outside this value. This table declares the
+    # alert band, not the telemetry producer. The hsb8 live check must prove
+    # that its producer and HostDash consumer use this exact meaning.
+    disk = {
+      thresholds = {
+        elevated = 80;
+        critical = 90;
+      };
+      priority = 80;
+      suffix = "%";
+      type = "int";
+    };
+
     load = {
       thresholds = {
         elevated = 2.0;

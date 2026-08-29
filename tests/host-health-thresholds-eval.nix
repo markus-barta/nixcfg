@@ -42,11 +42,17 @@ let
     && server.metrics.load.elevated == stasysmo.metrics.load.thresholds.elevated
     && server.metrics.load.critical == stasysmo.metrics.load.thresholds.critical
     && server.metrics.swap.elevated == stasysmo.metrics.swap.thresholds.linux.elevated
-    && server.metrics.swap.critical == stasysmo.metrics.swap.thresholds.linux.critical;
+    && server.metrics.swap.critical == stasysmo.metrics.swap.thresholds.linux.critical
+    && server.metrics.disk.elevated == stasysmo.metrics.disk.thresholds.elevated
+    && server.metrics.disk.critical == stasysmo.metrics.disk.thresholds.critical;
 
   workstationUsesDarwinSwap =
     workstation.metrics.swap.elevated == stasysmo.metrics.swap.thresholds.darwin.elevated
     && workstation.metrics.swap.critical == stasysmo.metrics.swap.thresholds.darwin.critical;
+
+  workstationKeepsRootDiskBand =
+    workstation.metrics.disk.elevated == stasysmo.metrics.disk.thresholds.elevated
+    && workstation.metrics.disk.critical == stasysmo.metrics.disk.thresholds.critical;
 
   workstationIsMoreTolerant =
     workstation.metrics.cpu.critical > server.metrics.cpu.critical
@@ -61,7 +67,9 @@ let
     && isWholeNumber workstation.metrics.ram.elevated
     && isWholeNumber workstation.metrics.ram.critical
     && isWholeNumber workstation.metrics.swap.elevated
-    && isWholeNumber workstation.metrics.swap.critical;
+    && isWholeNumber workstation.metrics.swap.critical
+    && isWholeNumber workstation.metrics.disk.elevated
+    && isWholeNumber workstation.metrics.disk.critical;
 
   everyBandOrdered =
     doc:
@@ -85,6 +93,7 @@ in
     inherit
       serverMatchesStasysmo
       workstationUsesDarwinSwap
+      workstationKeepsRootDiskBand
       workstationIsMoreTolerant
       intMetricsStayWhole
       overridesApplyNarrowly
@@ -101,7 +110,7 @@ in
     rejectsUnknownMetric = fails (mk {
       inherit stasysmo;
       class = "server";
-      overrides.disk.elevated = 10;
+      overrides.gpu.elevated = 10;
     });
     rejectsInvertedBand = fails (mk {
       inherit stasysmo;
