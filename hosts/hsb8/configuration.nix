@@ -831,7 +831,7 @@ in
         purpose = "Weekly image pull + stack converge (compose-hsb8-update)";
         icon = "refresh-cw";
         passive = true;
-        foot = "Sat 05:05 · silent, no notification";
+        foot = "Sat 05:05 · intentionally silent; check journal";
         statusPolicy.source = "passive";
       }
     ];
