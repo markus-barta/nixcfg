@@ -40,6 +40,9 @@ jobs:
       - name: Verify deterministic Pharos fleet release updates
         run: tests/T22-pharos-release-update.sh
 
+      - name: Verify clean transactional Pharos release proposals
+        run: tests/T51-pharos-release-proposals.sh
+
       - name: Verify Janus container least privilege and shell-free runtime
         run: tests/T23-janus-container-hardening.sh
 
