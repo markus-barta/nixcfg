@@ -13,6 +13,12 @@
 # Note: Consolidated from modules/shared/fish-config.nix as part of
 # the uzumaki module restructure (Phase 3).
 #
+let
+  rejectAliasArgs = "if [ \"$#\" -ne 0 ]; then printf \"%s: arguments are unsupported; use explicit git commands\\n\" \"$0\" >&2; exit 2; fi";
+  doctrineUpdateBody = "root=$(git rev-parse --show-toplevel) || exit; if git config -f \"$root/.gitmodules\" --get submodule.doctrine.path >/dev/null 2>&1 && git config -f \"$root/.gitmodules\" --get submodule.doctrine-private.path >/dev/null 2>&1; then git -C \"$root\" submodule update --init doctrine || exit; if test -e \"$root/doctrine-private/.git\"; then git -C \"$root\" submodule update --init doctrine-private; fi; else git -C \"$root\" submodule update --init; fi";
+  pullDoctrine = "sh -c '${rejectAliasArgs}; git pull --ff-only || exit; ${doctrineUpdateBody}' nixcfg-gitpl";
+  updateDoctrine = "sh -c '${rejectAliasArgs}; ${doctrineUpdateBody}' nixcfg-gitsub";
+in
 {
   # ════════════════════════════════════════════════════════════════════════════
   # ALIASES - Direct command replacements
@@ -21,9 +27,9 @@
     # Git aliases
     gitc = "git commit";
     gitps = "git push";
-    gitplr = "git pull --rec";
-    gitpl = "git pull && git submodule update --init";
-    gitsub = "git submodule update --init";
+    gitplr = pullDoctrine;
+    gitpl = pullDoctrine;
+    gitsub = updateDoctrine;
     gitpls = "git pull";
     gita = "git add -A";
     gitst = "git status";

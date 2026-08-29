@@ -18,6 +18,17 @@ let
 
   # Import shared fish configuration
   sharedFishConfig = import ./uzumaki/fish/config.nix;
+  fleetSafeGitAliasNames = [
+    "gitpl"
+    "gitplr"
+    "gitsub"
+  ];
+  defaultFishAliases = lib.mapAttrs (_: v: mkDefault v) (
+    builtins.removeAttrs sharedFishConfig.fishAliases fleetSafeGitAliasNames
+  );
+  forcedFleetSafeGitAliases = lib.mapAttrs (_: v: lib.mkForce v) (
+    lib.getAttrs fleetSafeGitAliasNames sharedFishConfig.fishAliases
+  );
 in
 {
   # NIX-348 makes the NixOS flake surface fail closed before this module can be
@@ -74,7 +85,7 @@ in
         # NOTE: Mouse tracking reset removed - was breaking Starship $fill on hsb1
         # Fix tracked historically in PPM
       '';
-      shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
+      shellAliases = defaultFishAliases // forcedFleetSafeGitAliases;
       shellAbbrs = (lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs) // {
         # Force overrides for abbrs we want to take precedence over hokage
         nano = lib.mkForce "nano"; # hokage sets nano→micro, we want nano
@@ -83,25 +94,30 @@ in
       # interactiveShellInit is set by uzumaki/server.nix or uzumaki/desktop.nix
     };
 
-    bash.shellAliases = config.programs.fish.shellAliases // {
-      # ═══════════════════════════════════════════════════════════
-      # SSH Shortcuts (zellij auto-attach) - bash compatibility
-      # Mirrors fish abbreviations
-      # SSH config handles LAN/Tailscale fallback automatically
-      # ═══════════════════════════════════════════════════════════
+    bash.shellAliases =
+      (
+        config.programs.fish.shellAliases
+        // {
+          # ═══════════════════════════════════════════════════════════
+          # SSH Shortcuts (zellij auto-attach) - bash compatibility
+          # Mirrors fish abbreviations
+          # SSH config handles LAN/Tailscale fallback automatically
+          # ═══════════════════════════════════════════════════════════
 
-      # Home network
-      hsb0 = "ssh hsb0 -t 'zellij attach hsb0 -c'";
-      hsb1 = "ssh hsb1 -t 'zellij attach hsb1 -c'";
-      hsb8 = "ssh hsb8 -t 'zellij attach hsb8 -c'";
+          # Home network
+          hsb0 = "ssh hsb0 -t 'zellij attach hsb0 -c'";
+          hsb1 = "ssh hsb1 -t 'zellij attach hsb1 -c'";
+          hsb8 = "ssh hsb8 -t 'zellij attach hsb8 -c'";
 
-      # Work network (nicknames)
-      msbp = "ssh msbp -t 'zellij attach msbp -c'";
+          # Work network (nicknames)
+          msbp = "ssh msbp -t 'zellij attach msbp -c'";
 
-      # Cloud
-      csb0 = "ssh csb0 -t 'zellij attach csb0 -c'";
-      csb1 = "ssh csb1 -t 'zellij attach csb1 -c'";
-    };
+          # Cloud
+          csb0 = "ssh csb0 -t 'zellij attach csb0 -c'";
+          csb1 = "ssh csb1 -t 'zellij attach csb1 -c'";
+        }
+      )
+      // forcedFleetSafeGitAliases;
 
     # yet-another-nix-helper
     # https://github.com/viperML/nh
@@ -396,7 +412,7 @@ in
 
       fish = {
         enable = true;
-        shellAliases = lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAliases;
+        shellAliases = defaultFishAliases // forcedFleetSafeGitAliases;
         shellAbbrs = (lib.mapAttrs (_: v: mkDefault v) sharedFishConfig.fishAbbrs) // {
           # Force overrides for abbrs we want to take precedence over hokage
           nano = lib.mkForce "nano"; # hokage sets nano→micro, we want nano
@@ -409,7 +425,10 @@ in
           end
         '';
       };
-      bash.enable = true;
+      bash = {
+        enable = true;
+        shellAliases = forcedFleetSafeGitAliases;
+      };
 
       # Run nix-shell, etc. in the fish shell instead of bash
       nix-your-shell = {
