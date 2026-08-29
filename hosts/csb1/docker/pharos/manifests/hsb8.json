@@ -9,6 +9,12 @@
         "priority": 100,
         "suffix": "%"
       },
+      "disk": {
+        "critical": 90,
+        "elevated": 80,
+        "priority": 80,
+        "suffix": "%"
+      },
       "load": {
         "critical": 4.0,
         "elevated": 2.0,

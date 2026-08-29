@@ -28,6 +28,7 @@ let
   metricNames = [
     "cpu"
     "ram"
+    "disk"
     "load"
     "swap"
   ];
@@ -115,6 +116,7 @@ let
       {
         cpu = baseBand "cpu";
         ram = baseBand "ram";
+        disk = baseBand "disk";
         load = baseBand "load";
         swap = swapBandFor "linux";
       }
@@ -122,6 +124,9 @@ let
       {
         cpu = relax "cpu" 1.2 (baseBand "cpu");
         ram = relax "ram" 1.1 (baseBand "ram");
+        # A full root filesystem is equally dangerous on a workstation. Keep
+        # the StaSysMo band verbatim rather than relaxing away write safety.
+        disk = baseBand "disk";
         load = baseBand "load";
         swap = swapBandFor "darwin";
       };

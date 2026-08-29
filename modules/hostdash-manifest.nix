@@ -436,7 +436,8 @@ in
         pharos-host-preferences.json, so a host normally needs no override.
         Servers take StaSysMo's bands unchanged; workstations get relaxed CPU
         and RAM bands plus the macOS swap profile, because interactive
-        machines spike by design.
+        machines spike by design. Disk keeps the same root-filesystem band on
+        both classes because exhausted write capacity is not a transient load.
       '';
     };
 
@@ -471,7 +472,7 @@ in
       '';
       description = ''
         Per-host overrides of the declared health thresholds, keyed by metric
-        (cpu, ram, load, swap). Only the bounds you set are overridden; the
+        (cpu, ram, disk, load, swap). Only the bounds you set are overridden; the
         rest keep the class default. An unknown metric, a non-numeric bound or
         an elevated value that is not strictly below its critical value fails
         the evaluation rather than shipping a misleading threshold set.
