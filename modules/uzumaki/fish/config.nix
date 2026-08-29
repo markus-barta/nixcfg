@@ -24,7 +24,7 @@ in
     # Git aliases
     gitc = "git commit";
     gitps = "git push";
-    gitplr = "git pull --rec";
+    gitplr = "git pull --ff-only && ${updateDoctrine}";
     gitpl = "git pull --ff-only && ${updateDoctrine}";
     gitsub = updateDoctrine;
     gitpls = "git pull";
