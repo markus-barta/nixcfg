@@ -12,10 +12,16 @@ select_existing="$repo_root/scripts/select-pharos-release-candidates.sh"
 prepare="$repo_root/scripts/prepare-pharos-release-candidates.sh"
 publish="$repo_root/scripts/publish-pharos-release-candidates.sh"
 workflow="$repo_root/.github/workflows/pharos-release-rollout.yml"
+infrastructure="$repo_root/docs/INFRASTRUCTURE.md"
 
 bash -n "$select_existing"
 bash -n "$prepare"
 bash -n "$publish"
+
+grep -Fq '`automation/pharos-release-<version>-<run_id>` proposals are never reusable.' \
+  "$infrastructure"
+grep -Fq 'Leaving a legacy proposal open makes selection fail closed' "$infrastructure"
+grep -Fq 'historical branches. Leaving a legacy proposal open' "$infrastructure"
 
 fixture_root=$(mktemp -d)
 cleanup() {

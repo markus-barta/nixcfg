@@ -333,9 +333,17 @@ making new candidates, revalidates their identities, allowed-path diffs,
 immutable references, and full compatibility gates, and then reuses them even
 if `main` has advanced independently. It never force-moves an open proposal;
 an incoherent or out-of-scope proposal pair fails closed.
-Reused candidates execute these gates from the historical proposal tree. A
-gate added only to a later `main` revision therefore does not retroactively run
-until the proposal is updated or replaced through an attended review.
+The one-time migration to stable branches must be attended: legacy
+`automation/pharos-release-<version>-<run_id>` proposals are never reusable.
+Merge the newest valid proposal when it also carries required in-scope
+migration changes, close older superseded proposals, and preserve their
+historical branches. Leaving a legacy proposal open makes selection fail closed
+instead of silently adopting a branch with the old identity.
+
+Reused candidates execute gates from the historical proposal tree. A gate
+introduced only on a later `main` revision is unavailable there; if the current
+workflow asks that tree to run a newly named script, validation fails closed
+until an attended review updates or replaces the proposal.
 
 ### Pharos Nix Deployment Evidence
 
