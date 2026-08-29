@@ -31,7 +31,7 @@ jq -e '
   and .service.User == "mba"
   and .service.NoNewPrivileges == true
   and (.service.InaccessiblePaths | index("-/run/agenix/csb1-start-github-runner") != null)
-  and (.service.InaccessiblePaths | index("/var/lib/github-runner/csb1-start/.current-token") != null)
+  and (.service.InaccessiblePaths | index("%S/github-runner/csb1-start/.current-token") != null)
 ' <<<"$enabled_eval" >/dev/null || {
   printf 'start_runner_contract=failed reason=enabled_evaluation\n' >&2
   exit 1
@@ -64,12 +64,12 @@ nixpkgs_service = nixpkgs_service_path.read_text(encoding="utf-8")
 if mutation == "visible-token":
     module += '\nInaccessiblePaths = lib.mkForce [ "/tmp/copied-token" ];\n'
 elif mutation == "missing-label":
-    module = module.replace('        extraLabels = [ "csb1-start" ];\n', "")
+    module = module.replace('extraLabels = [ "csb1-start" ];\n', "")
 elif mutation == "sudo-expansion":
     module += "\nNoNewPrivileges = lib.mkForce false;\n"
 elif mutation == "missing-secret-gate":
     module = module.replace(
-        "lib.mkIf (builtins.pathExists ../../secrets/csb1-start-github-runner.age)",
+        "lib.mkIf startRunnerSecretExists",
         "lib.mkIf true",
     )
 elif mutation:
@@ -90,24 +90,30 @@ require_exact(
 require_exact(module, "services.github-runners.csb1-start =", 1, "runner_definition")
 require_exact(
     module,
-    "lib.mkIf (builtins.pathExists ../../secrets/csb1-start-github-runner.age)",
+    "startRunnerSecretExists ? builtins.pathExists ../../secrets/csb1-start-github-runner.age,",
+    1,
+    "runner_secret_default",
+)
+require_exact(
+    module,
+    "lib.mkIf startRunnerSecretExists",
     1,
     "runner_secret_gate",
 )
 for needle, reason in (
-    ('        url = "https://github.com/augmentoring-team/start-agm-com";', "repository"),
-    ('        name = "csb1-start";', "runner_name"),
-    ('        extraLabels = [ "csb1-start" ];', "runner_label"),
-    ("        replace = true;", "replacement_policy"),
+    ('url = "https://github.com/augmentoring-team/start-agm-com";', "repository"),
+    ('name = "csb1-start";', "runner_name"),
+    ('extraLabels = [ "csb1-start" ];', "runner_label"),
+    ("replace = true;", "replacement_policy"),
     (
-        "        tokenFile = config.age.secrets.csb1-start-github-runner.path;",
+        "tokenFile = config.age.secrets.csb1-start-github-runner.path;",
         "token_projection",
     ),
-    ('        user = "mba";', "runner_user"),
-    ('        group = "users";', "runner_group"),
-    ('            "docker"', "docker_group"),
-    ("          ProtectHome = false;", "deploy_home_access"),
-    ("          nodejs_24", "node_runtime"),
+    ('user = "mba";', "runner_user"),
+    ('group = "users";', "runner_group"),
+    ('"docker"', "docker_group"),
+    ("ProtectHome = false;", "deploy_home_access"),
+    ("nodejs_24", "node_runtime"),
 ):
     require_exact(module, needle, 1, reason)
 

@@ -2,13 +2,7 @@
 
 let
   nixpkgsRoot = /. + nixpkgsPath;
-  runnerSource = builtins.readFile (/. + runnerModulePath);
-  enabledSource =
-    builtins.replaceStrings
-      [ "lib.mkIf (builtins.pathExists ../../secrets/csb1-start-github-runner.age)" ]
-      [ "lib.mkIf true" ]
-      runnerSource;
-  enabledRunnerModule = import (builtins.toFile "start-runner-enabled.nix" enabledSource);
+  enabledRunnerModule = import (/. + runnerModulePath);
   evaluated = import (nixpkgsRoot + "/nixos/lib/eval-config.nix") {
     system = "x86_64-linux";
     modules = [
@@ -28,6 +22,7 @@ let
           };
 
           config = {
+            _module.args.startRunnerSecretExists = true;
             age.secrets.csb1-start-github-runner.path = "/run/agenix/csb1-start-github-runner";
             users.users.mba = {
               isNormalUser = true;
