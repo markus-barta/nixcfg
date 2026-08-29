@@ -22,8 +22,8 @@
     gitc = "git commit";
     gitps = "git push";
     gitplr = "git pull --rec";
-    gitpl = "git pull && git submodule update --init";
-    gitsub = "git submodule update --init";
+    gitpl = "git pull --ff-only && git submodule update --init doctrine && if test -e doctrine-private/.git; git submodule update --init doctrine-private; end";
+    gitsub = "git submodule update --init doctrine && if test -e doctrine-private/.git; git submodule update --init doctrine-private; end";
     gitpls = "git pull";
     gita = "git add -A";
     gitst = "git status";

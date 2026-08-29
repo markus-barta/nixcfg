@@ -290,10 +290,10 @@ switch args='':
     else
         echo "🔖 deploying $(git rev-parse --short HEAD) ($(git rev-parse --abbrev-ref HEAD))"
     fi
-    submodule_drift="$(git submodule status 2>/dev/null | grep -E '^\+' || true)"
+    submodule_drift="$(git submodule status doctrine 2>/dev/null | grep -E '^[+-]' || true)"
     if [ -n "$submodule_drift" ]; then
-        echo "⚠️  submodule checkout differs from the pinned commit — the BUILD is unaffected,"
-        echo "    but agent doctrine on this host is stale. Reconcile with: git submodule update"
+        echo "⚠️  public doctrine checkout is missing or differs from the pinned commit — the BUILD is unaffected,"
+        echo "    but public agent doctrine on this host is stale. Reconcile with: git submodule update --init doctrine"
         echo "$submodule_drift" | sed 's/^/      /'
     fi
     # Detect platform and route to appropriate command
