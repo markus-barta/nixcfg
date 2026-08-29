@@ -14,6 +14,28 @@ fi
 nixpkgs_path=$(nix eval --raw --no-update-lock-file \
   "$repo_root#nixosConfigurations.csb1.pkgs.path")
 runner_service_module="$nixpkgs_path/nixos/modules/services/continuous-integration/github-runner/service.nix"
+enabled_eval=$(nix-instantiate --eval --strict --json \
+  "$repo_root/tests/start-runner-enabled-eval.nix" \
+  --argstr nixpkgsPath "$nixpkgs_path" \
+  --argstr runnerModulePath "$repo_root/hosts/csb1/start-github-runner.nix")
+jq -e '
+  .runner == {
+    "enable": true,
+    "extraLabels": ["csb1-start"],
+    "group": "users",
+    "name": "csb1-start",
+    "tokenFile": "/run/agenix/csb1-start-github-runner",
+    "url": "https://github.com/augmentoring-team/start-agm-com",
+    "user": "mba"
+  }
+  and .service.User == "mba"
+  and .service.NoNewPrivileges == true
+  and (.service.InaccessiblePaths | index("-/run/agenix/csb1-start-github-runner") != null)
+  and (.service.InaccessiblePaths | index("/var/lib/github-runner/csb1-start/.current-token") != null)
+' <<<"$enabled_eval" >/dev/null || {
+  printf 'start_runner_contract=failed reason=enabled_evaluation\n' >&2
+  exit 1
+}
 
 python3 - \
   "$mutation" \
