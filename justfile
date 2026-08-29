@@ -283,18 +283,25 @@ switch args='':
     # present, so lib/pharos-deployment-evidence.nix does NOT throw. `just
     # switch` passes `.` without `?submodules=1`, so the submodule checkout is
     # not part of what Nix hashes. Ignoring submodules here keeps the warning
-    # truthful; drift is still surfaced below, because it means the agent
-    # doctrine on this host is out of sync even though the build is fine.
+    # truthful; drift is still surfaced below for the public doctrine consumed
+    # on every host. An initialized operator checkout also checks private
+    # doctrine, while its intentional absence on fleet hosts is not drift; the
+    # auto-loaded repo rules make that reduced operator surface explicit.
     if [ -n "$(git status --porcelain --ignore-submodules=all 2>/dev/null)" ]; then
         echo "⚠️  deploying a DIRTY tree — this generation will report no revision (OPS-106)"
     else
         echo "🔖 deploying $(git rev-parse --short HEAD) ($(git rev-parse --abbrev-ref HEAD))"
     fi
-    submodule_drift="$(git submodule status 2>/dev/null | grep -E '^\+' || true)"
+    submodule_drift="$(
+        git submodule status doctrine 2>/dev/null | grep -E '^[+-]' || true
+        if [ -e doctrine-private/.git ]; then
+            git submodule status doctrine-private 2>/dev/null | grep -E '^[+-]' || true
+        fi
+    )"
     if [ -n "$submodule_drift" ]; then
-        echo "⚠️  submodule checkout differs from the pinned commit — the BUILD is unaffected,"
-        echo "    but agent doctrine on this host is stale. Reconcile with: git submodule update"
+        echo "⚠️  agent doctrine checkout(s) below are missing or differ from their pinned commits; the BUILD is unaffected:"
         echo "$submodule_drift" | sed 's/^/      /'
+        echo "    Reconcile each listed path with: git submodule update --init <path>"
     fi
     # Detect platform and route to appropriate command
     if [[ "$OSTYPE" == "darwin"* ]]; then
