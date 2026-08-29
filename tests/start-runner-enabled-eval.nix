@@ -1,8 +1,7 @@
 { nixpkgsPath, runnerModulePath }:
 
 let
-  pkgs = import (/. + nixpkgsPath) { };
-  lib = pkgs.lib;
+  nixpkgsRoot = /. + nixpkgsPath;
   runnerSource = builtins.readFile (/. + runnerModulePath);
   enabledSource =
     builtins.replaceStrings
@@ -10,7 +9,7 @@ let
       [ "lib.mkIf true" ]
       runnerSource;
   enabledRunnerModule = import (builtins.toFile "start-runner-enabled.nix" enabledSource);
-  evaluated = lib.nixosSystem {
+  evaluated = import (nixpkgsRoot + "/nixos/lib/eval-config.nix") {
     system = "x86_64-linux";
     modules = [
       enabledRunnerModule
