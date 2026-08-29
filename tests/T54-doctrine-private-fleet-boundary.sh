@@ -4,6 +4,11 @@
 # updating it. The missing private kernel must also be explicit to agents.
 set -euo pipefail
 
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  printf '%s: bash %s is too old; run under bash 5\n' "${0##*/}" "$BASH_VERSION" >&2
+  exit 2
+fi
+
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 config="$repo_root/modules/uzumaki/fish/config.nix"
 rules="$repo_root/AGENTS-NIXCFG.md"
@@ -86,7 +91,7 @@ grep -Fq 'doctrine-private is intentionally absent' "$rules" || fail private_abs
 grep -Fq 'private operator rules are not loaded' "$rules" || fail missing_rules_not_explicit
 grep -Fq 'git submodule status doctrine' "$switch_recipe" || fail switch_checks_all_submodules
 grep -Fq "grep -E '^[+-]'" "$switch_recipe" || fail missing_public_checkout_not_reported
-[[ "$(grep -Fc 'run: nix-shell -p fish --run tests/T54-doctrine-private-fleet-boundary.sh' "$workflow")" == 1 ]] ||
+[[ "$(grep -Fc 'run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"' "$workflow")" == 1 ]] ||
   fail ci_wiring_count
 
 printf 'doctrine_private_fleet_boundary=ok aliases=2 fleet_private=uninitialized operator_private=retained\n'
