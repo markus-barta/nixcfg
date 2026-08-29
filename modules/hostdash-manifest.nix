@@ -144,6 +144,33 @@ let
         example = "logo-ha";
         description = "HostDash icon id without the i- prefix.";
       };
+      container = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "scrypted";
+        description = ''
+          Docker container name this service runs as. Binds the card to host
+          truth in status.json containers and HTTP sections by exactly this name.
+        '';
+      };
+      unit = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "adguardhome.service";
+        description = ''
+          Systemd unit this service runs as. Binds the card to host truth in
+          status.json units and HTTP sections by exactly this name.
+        '';
+      };
+      extra = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        example = "babycam";
+        description = ''
+          Key of a richer self-published health object in status.json extras.
+          This signal outranks container, unit, HTTP, and browser probe state.
+        '';
+      };
       url = mkOption {
         type = types.nullOr types.str;
         default = null;
@@ -323,6 +350,9 @@ let
         ;
       urls = effectiveUrls;
     }
+    // optionalNonNull "container" service.container
+    // optionalNonNull "unit" service.unit
+    // optionalNonNull "extra" service.extra
     // optionalNonNull "url" service.url
     // optionalNonNull "scheme" service.scheme
     // optionalNonNull "port" service.port
