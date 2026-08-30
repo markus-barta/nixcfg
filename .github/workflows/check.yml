@@ -181,6 +181,9 @@ jobs:
       - name: Verify mbp2607 Paimos agentd Home Manager contract
         run: nix-shell -p python3 --run tests/T56-paimos-agentd-home-manager.sh
 
+      - name: Verify csb1 Paimos production identity firewall
+        run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
+
       - name: Verify headscale DERP-map fallback contract (OPS-180)
         run: nix-shell -p python3Packages.pyyaml --run tests/T43-headscale-derp-fallback.sh
 
