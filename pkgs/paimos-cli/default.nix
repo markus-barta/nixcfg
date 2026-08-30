@@ -1,12 +1,12 @@
 # ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  paimos-cli — Agent-facing CLI for PAIMOS                                   ║
+# ║  paimos-cli — PAIMOS CLI plus operator-local process supervisor             ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 #
-# Thin Go CLI wrapper over the PAIMOS HTTP API. Pure stdlib + cobra, no CGO —
-# cross-compiles cleanly for darwin/linux on any host.
+# The API CLI and paimos-agentd are built from the same reviewed source pin so
+# the M161 server/client and owned-process contracts cannot drift independently.
 #
-# Upstream: https://github.com/markus-barta/paimos
-# Binary:   paimos (installed from backend/cmd/paimos)
+# Upstream: https://github.com/inspr-at/paimos
+# Binaries: paimos and paimos-agentd
 #
 # ── How the pin works ────────────────────────────────────────────────────────
 # `src` is injected by flake.nix from `inputs.paimos` (a `flake = false` GitHub
@@ -30,8 +30,7 @@
 
 let
   versionFromFile = lib.removeSuffix "\n" (builtins.readFile "${src}/VERSION");
-  shortRev = src.shortRev or "dirty";
-  # Paimos 5.20.1 requires Go 1.26.6 or newer. The repository's currently
+  # Paimos 5.21.0 requires Go 1.26.6 or newer. The repository's currently
   # pinned nixpkgs still carries 1.26.4, so keep the CLI package on the latest
   # 1.26 patch without moving the workstation's system-wide nixpkgs input.
   go1267 = go_1_26.overrideAttrs (_old: {
@@ -45,16 +44,21 @@ let
 in
 buildGo1267Module {
   pname = "paimos-cli";
-  # VERSION file at pinned rev + short sha so `paimos --version` is unambiguous
-  # for unreleased builds.
-  version = "${versionFromFile}-${shortRev}";
+  # The flake input is an exact reviewed release tag, so the installed CLI and
+  # agentd report the canonical release version rather than a main-branch
+  # pseudo-version.
+  version = versionFromFile;
 
   inherit src;
 
   # The repo is a polyglot monorepo; the Go module lives under backend/,
-  # and we only want the CLI, not the server or paimos-mcp.
+  # and we only want the operator CLI and its local process owner, not the
+  # server or paimos-mcp.
   modRoot = "backend";
-  subPackages = [ "cmd/paimos" ];
+  subPackages = [
+    "cmd/paimos"
+    "cmd/paimos-agentd"
+  ];
 
   # tree-sitter (cgo) deps ship C sources (parser.c, api.h) that `go mod vendor`
   # strips from the vendor tree — proxyVendor preserves the full module zips
@@ -71,7 +75,7 @@ buildGo1267Module {
   ldflags = [
     "-s"
     "-w"
-    "-X main.Version=${versionFromFile}-${shortRev}"
+    "-X main.Version=${versionFromFile}"
   ];
 
   nativeBuildInputs = [ installShellFiles ];
@@ -80,6 +84,7 @@ buildGo1267Module {
   # PersistentPreRun, so `paimos completion <shell>` runs without touching
   # the filesystem or network — safe in the sandbox.
   postInstall = ''
+    test -x $out/bin/paimos-agentd
     installShellCompletion --cmd paimos \
       --bash <($out/bin/paimos completion bash) \
       --fish <($out/bin/paimos completion fish) \
