@@ -65,6 +65,7 @@ in
     ./codex-exit-alias.nix # Codex hook: exact "exit" prompt sends /exit on macOS
     ./agent-skills.nix # Skills for ALL harnesses (~/.claude + ~/.codex): inspr-modules bundled + pinned upstream
     ./claude-statusline.nix # ~/.claude/statusline.sh — catppuccin pill footer (jq nix-pinned)
+    ./paimos-agentd.nix # Operator-local PAIMOS owner for managed Codex/Claude sessions
   ];
 
   # ══════════════════════════════════════════════════════════════════════════════
