@@ -11,6 +11,10 @@ let
   stateRoot = "${home}/Library/Caches/paimos/agentd";
   logDirectory = "${home}/Library/Logs/paimos-agentd";
   sdkPath = "${pkgs.claude-agent-sdk}/${pkgs.claude-agent-sdk.sdkRelativePath}";
+  codexLauncher = pkgs.writeShellScriptBin "paimos-agentd-codex" ''
+    export PATH=${lib.escapeShellArg "${pkgs.nodejs}/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
+    exec ${lib.escapeShellArg cfg.codexPath} "$@"
+  '';
 in
 {
   options.uzumaki.paimosAgentd = {
@@ -76,7 +80,7 @@ in
           "--state-root"
           stateRoot
           "--codex-path"
-          cfg.codexPath
+          "${codexLauncher}/bin/paimos-agentd-codex"
           "--claude-path"
           cfg.claudePath
           "--node-path"
