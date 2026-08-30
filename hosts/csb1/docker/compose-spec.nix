@@ -548,6 +548,8 @@ in
       restart = "unless-stopped";
       environment = [
         "PORT=8888"
+        "PAIMOS_ENV=production"
+        "PAIMOS_DEPLOYMENT_INSTANCE=ppm"
         "PAIMOS_AGENT_BUS_INSTANCE=ppm"
         "PAIMOS_AGENT_BUS_WEBHOOK_HOSTS=api2.cursor.sh"
         "PAIMOS_AGENT_BUS_ALLOW_PRIVATE_WEBHOOKS=false"
