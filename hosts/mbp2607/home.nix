@@ -58,6 +58,9 @@ in
     role = "workstation";
     fish.editor = "nano"; # Options: nano, vim, code, etc.
     stasysmo.enable = true; # System metrics in Starship prompt
+    # NIX-392: agentd owns only children it starts. Auth remains in the
+    # existing PAIMOS keyring and operator-authenticated vendor CLIs.
+    paimosAgentd.enable = true;
   };
 
   # ============================================================================

@@ -75,12 +75,12 @@
       url = "github:inspr-at/janus/rust-engine-v0.1.33";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Paimos — agent-facing CLI. Tracking `main`, so `update-flake-lock`
-    # auto-bumps rev+hash on every scheduled run. `vendorHash` in
-    # pkgs/paimos-cli/default.nix still has to be refreshed manually when Go
-    # deps change (buildGoModule can't read it from flake.lock).
+    # Paimos — operator CLI plus the process-owning Agent Intercom daemon.
+    # NIX-392 deliberately pins a released tag: Home Manager must not move the
+    # executable control plane just because upstream main advances. Bumps use
+    # the reviewed Paimos release flow and refresh vendorHash when Go deps move.
     paimos = {
-      url = "github:markus-barta/paimos";
+      url = "github:inspr-at/paimos/v5.21.0";
       flake = false;
     };
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
@@ -133,6 +133,7 @@
         paimos-cli = final.callPackage ./pkgs/paimos-cli {
           src = inputs.paimos;
         };
+        claude-agent-sdk = final.callPackage ./pkgs/claude-agent-sdk { };
         # Stub: hokage/desktop.nix references sonar but it doesn't exist in nixpkgs
         sonar = final.hello;
         # Compatibility for pbek/nixcfg c0385905: its desktop module still
@@ -384,6 +385,7 @@
         paimos-cli = pkgs.callPackage ./pkgs/paimos-cli {
           src = inputs.paimos;
         };
+        claude-agent-sdk = pkgs.callPackage ./pkgs/claude-agent-sdk { };
 
         # Generate Markdown docs for hokage module options.
         # NOTE: hokage is consumed as a flake input (`inputs.nixcfg`) — pbek's
@@ -450,6 +452,7 @@
           paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli {
             src = inputs.paimos;
           };
+          claude-agent-sdk = pkgsDarwin.callPackage ./pkgs/claude-agent-sdk { };
         };
 
       packages.aarch64-darwin =
@@ -466,6 +469,7 @@
           paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli {
             src = inputs.paimos;
           };
+          claude-agent-sdk = pkgsDarwin.callPackage ./pkgs/claude-agent-sdk { };
         };
     };
 }
