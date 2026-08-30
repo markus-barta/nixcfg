@@ -4,6 +4,9 @@
   fetchurl,
 }:
 
+let
+  sdkRelativePath = "lib/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+in
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "claude-agent-sdk";
   version = "0.3.251";
@@ -29,7 +32,9 @@ stdenvNoCC.mkDerivation (finalAttrs: {
     runHook postInstall
   '';
 
-  passthru.sdkPath = "${placeholder "out"}/lib/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+  passthru = {
+    inherit sdkRelativePath;
+  };
 
   meta = {
     description = "Exact operator-installed Claude Agent SDK for PAIMOS owned sessions";

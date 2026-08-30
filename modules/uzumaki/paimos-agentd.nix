@@ -10,7 +10,7 @@ let
   home = config.home.homeDirectory;
   stateRoot = "${home}/Library/Caches/paimos/agentd";
   logDirectory = "${home}/Library/Logs/paimos-agentd";
-  sdkPath = pkgs.claude-agent-sdk.sdkPath;
+  sdkPath = "${pkgs.claude-agent-sdk}/${pkgs.claude-agent-sdk.sdkRelativePath}";
 in
 {
   options.uzumaki.paimosAgentd = {
