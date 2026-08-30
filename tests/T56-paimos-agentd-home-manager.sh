@@ -47,12 +47,14 @@ assert args[0].endswith("/bin/paimos-agentd"), args
 expected_pairs = {
     "--instance": "ppm",
     "--state-root": "/Users/markus/Library/Caches/paimos/agentd",
-    "--codex-path": "/Users/markus/.npm-global/bin/codex",
     "--claude-path": "/Users/markus/.npm-global/bin/claude",
 }
 for flag, value in expected_pairs.items():
     index = args.index(flag)
     assert args[index + 1] == value, (flag, args)
+codex_index = args.index("--codex-path")
+assert args[codex_index + 1].startswith("/nix/store/"), args
+assert args[codex_index + 1].endswith("-paimos-agentd-codex/bin/paimos-agentd-codex"), args
 node_index = args.index("--node-path")
 assert args[node_index + 1].startswith("/nix/store/"), args
 assert args[node_index + 1].endswith("/bin/node"), args
@@ -72,6 +74,19 @@ if [ "$current_system" = aarch64-darwin ]; then
   cd "$repo_root"
   nix build '.#packages.aarch64-darwin.claude-agent-sdk' --no-link
   [ -f "$sdk_out/$sdk_relative" ] || fail 'realised Claude Agent SDK path does not exist'
+
+  codex_launcher=$(
+    python3 - "$agent_json" <<'PY'
+import json, sys
+args = json.loads(sys.argv[1])["config"]["ProgramArguments"]
+print(args[args.index("--codex-path") + 1])
+PY
+  )
+  nix build '.#homeConfigurations."markus@mbp2607".activationPackage' --no-link
+  [ -x "$codex_launcher" ] || fail 'realised Codex launcher does not exist'
+  grep -Fq '/nix/store/' "$codex_launcher" || fail 'Codex launcher does not pin its runtime in the Nix store'
+  grep -Eq '^export PATH=/nix/store/[^/]+-nodejs-[^/]+/bin:/usr/bin:/bin:/usr/sbin:/sbin$' "$codex_launcher" || fail 'Codex launcher does not supply a deterministic Node PATH'
+  grep -Fq '/Users/markus/.npm-global/bin/codex' "$codex_launcher" || fail 'Codex launcher does not exec the operator-authenticated CLI'
 fi
 
 grep -Fq 'install -d -m 0700' <<<"$activation" || fail 'private state/log directory mode is not declared'
