@@ -44,90 +44,220 @@ generator_drv=$(jq -er 'keys | if length == 1 then .[0] else error("ambiguous ge
   <<<"$generator_context") || fail generator_drv_not_unique
 
 # The legacy `nix show-derivation DRV` interface returns either its longstanding
-# single top-level drv key or, on current Mac Nix, an exact {version,derivations}
-# envelope. Accept only those two observed one-entry shapes and normalize them to
-# one {key,value} entry. Extras, multiple drvs, nulls, arrays, and unknown schemas
-# fail closed.
+# top-level absolute drv key and inputDrvs fields or the current version-4 envelope
+# with basename drv keys and inputs.drvs fields. Treat these as two coupled schemas:
+# unknown versions, mixed internals, non-canonical store names, extras, and multiple
+# derivations fail closed.
 normalize_derivation_json() {
   jq -ce '
+    def canonical_store_name:
+      type == "string"
+      and test("^[0123456789abcdfghijklmnpqrsvwxyz]{32}-[-+._?=A-Za-z0-9]+$");
+    def canonical_drv_basename:
+      canonical_store_name and endswith(".drv");
+    def canonical_absolute_store_path:
+      type == "string"
+      and startswith("/nix/store/")
+      and (.[11:] | canonical_store_name);
+    def canonical_absolute_drv_path:
+      canonical_absolute_store_path and endswith(".drv");
     def exact_entry($object):
       ($object | to_entries) as $entries
-      | if (($entries | length) == 1 and ($entries[0].key | endswith(".drv")))
+      | if (($entries | length) == 1)
         then $entries[0]
-        else error("derivation set must contain exactly one .drv key")
+        else error("derivation set must contain exactly one entry")
         end;
-    if type != "object" then
-      error("derivation result must be an object")
-    elif keys == ["derivations", "version"] then
-      if ((.version | type) == "number" and (.derivations | type) == "object")
-      then exact_entry(.derivations)
-      else error("versioned derivations wrapper is malformed")
-      end
-    elif ((keys | length) == 1 and (keys[0] | endswith(".drv"))) then
-      exact_entry(.)
+    def exact_output($drv; $variant):
+      if (($drv.outputs? | type) != "object"
+          or ($drv.outputs | keys) != ["out"]
+          or ($drv.outputs.out | type) != "object"
+          or ($drv.outputs.out | keys) != ["path"]
+          or ($drv.outputs.out.path | type) != "string") then
+        error("derivation output schema is malformed")
+      elif $variant == "current" and ($drv.outputs.out.path | canonical_store_name) then
+        "/nix/store/" + $drv.outputs.out.path
+      elif $variant == "legacy" and ($drv.outputs.out.path | canonical_absolute_store_path) then
+        $drv.outputs.out.path
+      else
+        error("derivation output path does not match its schema")
+      end;
+    if (type == "object" and keys == ["derivations", "version"]
+        and .version == 4 and (.derivations | type) == "object") then
+      exact_entry(.derivations) as $entry
+      | $entry.value as $drv
+      | if (($entry.key | canonical_drv_basename)
+            and ($drv | type) == "object"
+            and ($drv.inputs? | type) == "object"
+            and ($drv.inputs.drvs? | type) == "object"
+            and (($drv.inputs.drvs | length) > 0)
+            and (all($drv.inputs.drvs | keys[]; canonical_drv_basename))
+            and ($drv | has("inputDrvs") | not)) then
+          {
+            variant: "current",
+            key: $entry.key,
+            drv_path: ("/nix/store/" + $entry.key),
+            value: $drv,
+            input_drv_paths: [$drv.inputs.drvs | keys[] | "/nix/store/" + .],
+            output_path: exact_output($drv; "current")
+          }
+        else
+          error("current derivation schema is malformed")
+        end
+    elif (type == "object" and (keys | length) == 1) then
+      exact_entry(.) as $entry
+      | $entry.value as $drv
+      | if (($entry.key | canonical_absolute_drv_path)
+            and ($drv | type) == "object"
+            and ($drv.inputDrvs? | type) == "object"
+            and (($drv.inputDrvs | length) > 0)
+            and (all($drv.inputDrvs | keys[]; canonical_absolute_drv_path))
+            and ($drv | has("inputs") | not)) then
+          {
+            variant: "legacy",
+            key: $entry.key,
+            drv_path: $entry.key,
+            value: $drv,
+            input_drv_paths: [$drv.inputDrvs | keys[]],
+            output_path: exact_output($drv; "legacy")
+          }
+        else
+          error("legacy derivation schema is malformed")
+        end
+    elif (type == "object" and keys == ["derivations", "version"]) then
+      error("unsupported versioned derivation schema")
     else
       error("unknown or ambiguous derivation schema")
     end
   '
 }
 
-derivation_input_drvs() {
+derivation_input_drv_paths() {
   jq -ce '
-    .value as $drv
-    | if (($drv.inputs? | type) == "object"
-          and ($drv.inputs.drvs? | type) == "object"
-          and ($drv | has("inputDrvs") | not)) then
-        $drv.inputs.drvs
-      elif (($drv.inputDrvs? | type) == "object"
-            and ($drv | has("inputs") | not)) then
-        $drv.inputDrvs
-      else
-        error("unknown or ambiguous derivation input schema")
-      end
+    if (.input_drv_paths | type) == "array" and (.input_drv_paths | length) > 0 then
+      .input_drv_paths
+    else
+      error("normalized derivation inputs are missing")
+    end
   '
 }
 
-normalize_store_path() {
-  local path=$1
-  case "$path" in
-  /nix/store/*) printf '%s\n' "$path" ;;
-  */*) return 1 ;;
-  *) printf '/nix/store/%s\n' "$path" ;;
-  esac
-}
-
-fixture_body_current='{"env":{"text":"fixture"},"outputs":{"out":{"path":"fixture-out"}},"inputs":{"drvs":{"dependency.drv":{"outputs":["out"]}}}}'
-fixture_body_legacy='{"env":{"text":"fixture"},"outputs":{"out":{"path":"/nix/store/fixture-out"}},"inputDrvs":{"/nix/store/dependency.drv":["out"]}}'
+fixture_current_drv=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-fixture.drv
+fixture_current_output=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-fixture-out
+fixture_current_dependency=cccccccccccccccccccccccccccccccc-dependency.drv
+fixture_legacy_drv=/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-fixture.drv
+fixture_legacy_output=/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-fixture-out
+fixture_legacy_dependency=/nix/store/cccccccccccccccccccccccccccccccc-dependency.drv
+fixture_body_current=$(jq -cn \
+  --arg output "$fixture_current_output" \
+  --arg dependency "$fixture_current_dependency" \
+  '{env:{text:"fixture"},outputs:{out:{path:$output}},inputs:{drvs:{($dependency):{outputs:["out"]}}}}')
+fixture_body_legacy=$(jq -cn \
+  --arg output "$fixture_legacy_output" \
+  --arg dependency "$fixture_legacy_dependency" \
+  '{env:{text:"fixture"},outputs:{out:{path:$output}},inputDrvs:{($dependency):["out"]}}')
 wrapped_fixture=$(jq -cn --argjson body "$fixture_body_current" \
-  '{version:4,derivations:{"fixture.drv":$body}}')
-top_level_fixture=$(jq -cn --argjson body "$fixture_body_legacy" '{"/nix/store/fixture.drv":$body}')
+  --arg drv "$fixture_current_drv" '{version:4,derivations:{($drv):$body}}')
+top_level_fixture=$(jq -cn --argjson body "$fixture_body_legacy" \
+  --arg drv "$fixture_legacy_drv" '{($drv):$body}')
 wrapped_fixture_entry=$(normalize_derivation_json <<<"$wrapped_fixture") ||
   fail wrapped_derivation_fixture_rejected
 top_level_fixture_entry=$(normalize_derivation_json <<<"$top_level_fixture") ||
   fail top_level_derivation_fixture_rejected
-jq -e '.key == "fixture.drv" and .value.env.text == "fixture"' \
+jq -e --arg drv "$fixture_current_drv" \
+  --arg output "$fixture_legacy_output" \
+  '.variant == "current" and .key == $drv and .value.env.text == "fixture" and .output_path == $output' \
   <<<"$wrapped_fixture_entry" >/dev/null || fail wrapped_derivation_fixture_changed
-jq -e '.key == "/nix/store/fixture.drv" and .value.env.text == "fixture"' \
+jq -e --arg drv "$fixture_legacy_drv" \
+  --arg output "$fixture_legacy_output" \
+  '.variant == "legacy" and .key == $drv and .value.env.text == "fixture" and .output_path == $output' \
   <<<"$top_level_fixture_entry" >/dev/null || fail top_level_derivation_fixture_changed
-[[ "$(derivation_input_drvs <<<"$wrapped_fixture_entry" | jq -r 'keys[0]')" == dependency.drv ]] ||
+[[ "$(derivation_input_drv_paths <<<"$wrapped_fixture_entry" | jq -r '.[0]')" == "/nix/store/$fixture_current_dependency" ]] ||
   fail wrapped_derivation_inputs_changed
-[[ "$(derivation_input_drvs <<<"$top_level_fixture_entry" | jq -r 'keys[0]')" == /nix/store/dependency.drv ]] ||
+[[ "$(derivation_input_drv_paths <<<"$top_level_fixture_entry" | jq -r '.[0]')" == "$fixture_legacy_dependency" ]] ||
   fail top_level_derivation_inputs_changed
-[[ "$(normalize_store_path "$(jq -r '.value.outputs.out.path' <<<"$wrapped_fixture_entry")")" == /nix/store/fixture-out ]] || fail wrapped_derivation_output_changed
-[[ "$(normalize_store_path "$(jq -r '.value.outputs.out.path' <<<"$top_level_fixture_entry")")" == /nix/store/fixture-out ]] || fail top_level_derivation_output_changed
+
+expect_derivation_rejected() {
+  local reason=$1 fixture=$2
+  if normalize_derivation_json <<<"$fixture" >/dev/null 2>&1; then
+    fail "$reason"
+  fi
+}
+
+unsupported_version=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_current_drv" \
+  '{version:5,derivations:{($drv):$body}}')
+expect_derivation_rejected unsupported_derivation_version_accepted "$unsupported_version"
+wrapped_absolute_legacy=$(jq -cn --argjson body "$fixture_body_legacy" --arg drv "$fixture_legacy_drv" \
+  '{version:4,derivations:{($drv):$body}}')
+expect_derivation_rejected wrapped_legacy_internals_accepted "$wrapped_absolute_legacy"
+top_level_basename_current=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_current_drv" \
+  '{($drv):$body}')
+expect_derivation_rejected top_level_current_internals_accepted "$top_level_basename_current"
+wrapped_absolute_current=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_legacy_drv" \
+  '{version:4,derivations:{($drv):$body}}')
+expect_derivation_rejected wrapped_absolute_drv_key_accepted "$wrapped_absolute_current"
+top_level_absolute_current=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_legacy_drv" \
+  '{($drv):$body}')
+expect_derivation_rejected top_level_current_body_accepted "$top_level_absolute_current"
+
+current_absolute_output=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_current_drv" \
+  --arg output "$fixture_legacy_output" \
+  '{version:4,derivations:{($drv):($body | .outputs.out.path=$output)}}')
+expect_derivation_rejected current_absolute_output_accepted "$current_absolute_output"
+legacy_basename_output=$(jq -cn --argjson body "$fixture_body_legacy" --arg drv "$fixture_legacy_drv" \
+  --arg output "$fixture_current_output" \
+  '{($drv):($body | .outputs.out.path=$output)}')
+expect_derivation_rejected legacy_basename_output_accepted "$legacy_basename_output"
+
+invalid_current_dependency=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_current_drv" \
+  '{version:4,derivations:{($drv):($body | .inputs.drvs={"../dependency.drv":{outputs:["out"]}})}}')
+expect_derivation_rejected invalid_current_dependency_accepted "$invalid_current_dependency"
+invalid_legacy_dependency=$(jq -cn --argjson body "$fixture_body_legacy" --arg drv "$fixture_legacy_drv" \
+  '{($drv):($body | .inputDrvs={"/nix/store/nested/dependency.drv":["out"]})}')
+expect_derivation_rejected invalid_legacy_dependency_accepted "$invalid_legacy_dependency"
+
+for invalid_path in '' '.' '..' $'line\nfeed' '/nix/store/' '/nix/store/../escape' '/nix/store/nested/path'; do
+  invalid_current=$(jq -cn \
+    --argjson body "$fixture_body_current" \
+    --arg drv "$fixture_current_drv" \
+    --arg path "$invalid_path" \
+    '{version:4,derivations:{($drv):($body | .outputs.out.path=$path)}}')
+  expect_derivation_rejected invalid_current_output_path_accepted "$invalid_current"
+  invalid_legacy=$(jq -cn \
+    --argjson body "$fixture_body_legacy" \
+    --arg drv "$fixture_legacy_drv" \
+    --arg path "$invalid_path" \
+    '{($drv):($body | .outputs.out.path=$path)}')
+  expect_derivation_rejected invalid_legacy_output_path_accepted "$invalid_legacy"
+done
+
+current_with_legacy_inputs=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_current_drv" \
+  '{version:4,derivations:{($drv):($body | .inputDrvs={})}}')
+expect_derivation_rejected current_alternate_inputs_accepted "$current_with_legacy_inputs"
+legacy_with_current_inputs=$(jq -cn --argjson body "$fixture_body_legacy" --arg drv "$fixture_legacy_drv" \
+  '{($drv):($body | .inputs={drvs:{}})}')
+expect_derivation_rejected legacy_alternate_inputs_accepted "$legacy_with_current_inputs"
+current_with_extra_output=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_current_drv" \
+  '{version:4,derivations:{($drv):($body | .outputs.out.alternate="ignored")}}')
+expect_derivation_rejected current_alternate_output_accepted "$current_with_extra_output"
 
 ambiguous_wrapped=$(jq -cn --argjson body "$fixture_body_current" \
-  '{version:4,derivations:{"one.drv":$body,"two.drv":$body}}')
+  '{version:4,derivations:{
+    "dddddddddddddddddddddddddddddddd-one.drv":$body,
+    "ffffffffffffffffffffffffffffffff-two.drv":$body
+  }}')
 if normalize_derivation_json <<<"$ambiguous_wrapped" >/dev/null 2>&1; then
   fail ambiguous_wrapped_derivation_accepted
 fi
 ambiguous_top=$(jq -cn --argjson body "$fixture_body_legacy" \
-  '{"/nix/store/one.drv":$body,"/nix/store/two.drv":$body}')
+  '{
+    "/nix/store/dddddddddddddddddddddddddddddddd-one.drv":$body,
+    "/nix/store/ffffffffffffffffffffffffffffffff-two.drv":$body
+  }')
 if normalize_derivation_json <<<"$ambiguous_top" >/dev/null 2>&1; then
   fail ambiguous_top_level_derivation_accepted
 fi
 wrapped_with_extra=$(jq -cn --argjson body "$fixture_body_current" \
-  '{version:4,derivations:{"fixture.drv":$body},extra:{}}')
+  --arg drv "$fixture_current_drv" '{version:4,derivations:{($drv):$body},extra:{}}')
 if normalize_derivation_json <<<"$wrapped_with_extra" >/dev/null 2>&1; then
   fail wrapped_derivation_extra_key_accepted
 fi
@@ -135,28 +265,25 @@ fi
 generator_derivation=$(nix show-derivation "$generator_drv") || fail generator_derivation_unavailable
 generator_entry=$(normalize_derivation_json <<<"$generator_derivation") || fail generator_derivation_shape
 generator_text=$(jq -er '.value.env.text' <<<"$generator_entry") || fail generator_text_unavailable
-generator_out=$(normalize_store_path "$(jq -er '.value.outputs.out.path' <<<"$generator_entry")") ||
-  fail generator_output_unavailable
+generator_out=$(jq -er '.output_path' <<<"$generator_entry") || fail generator_output_unavailable
 [[ "$generator_exec" == "$generator_out/bin/hostdash-status" ]] || fail generator_exec_not_exact_output
 
-generator_input_drvs=$(derivation_input_drvs <<<"$generator_entry") || fail generator_input_schema
-collector_drv_name=$(jq -er '
-  [keys[] | select((split("/")[-1]) | endswith("-hostdash-container-status.drv"))]
+generator_input_drv_paths=$(derivation_input_drv_paths <<<"$generator_entry") || fail generator_input_schema
+collector_drv=$(jq -er '
+  [.[] | select((split("/")[-1]) | endswith("-hostdash-container-status.drv"))]
   | if length == 1 then .[0] else error("ambiguous collector input") end
-' <<<"$generator_input_drvs") || fail collector_drv_not_unique
-collector_drv=$(normalize_store_path "$collector_drv_name") || fail collector_drv_path_invalid
+' <<<"$generator_input_drv_paths") || fail collector_drv_not_unique
 collector_derivation=$(nix show-derivation "$collector_drv") || fail collector_derivation_unavailable
 collector_entry=$(normalize_derivation_json <<<"$collector_derivation") || fail collector_derivation_shape
 collector_text=$(jq -er '.value.env.text' <<<"$collector_entry") || fail collector_text_unavailable
-collector_out=$(normalize_store_path "$(jq -er '.value.outputs.out.path' <<<"$collector_entry")") ||
-  fail collector_output_unavailable
+collector_out=$(jq -er '.output_path' <<<"$collector_entry") || fail collector_output_unavailable
 collector_exec="$collector_out/bin/hostdash-container-status"
 
-collector_input_drvs=$(derivation_input_drvs <<<"$collector_entry") || fail collector_input_schema
+collector_input_drv_paths=$(derivation_input_drv_paths <<<"$collector_entry") || fail collector_input_schema
 jq -e '
-  ([keys[] | contains("-docker-")] | any)
-  and ([keys[] | contains("-jq-")] | any)
-' <<<"$collector_input_drvs" >/dev/null || fail collector_runtime_closure_missing
+  ([.[] | contains("-docker-")] | any)
+  and ([.[] | contains("-jq-")] | any)
+' <<<"$collector_input_drv_paths" >/dev/null || fail collector_runtime_closure_missing
 
 collector_contract() {
   local source=$1
