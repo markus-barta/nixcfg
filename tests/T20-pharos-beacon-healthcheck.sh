@@ -108,6 +108,12 @@ for path, host in zip(paths, expected_hosts):
         raise SystemExit(f"beacon must retain the reviewed report endpoint: host={host}")
     if beacon.count('"PHAROS_INTERVAL=60"') != 1:
         raise SystemExit(f"beacon must retain the reviewed health cadence: host={host}")
+    if beacon.count('"PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json"') != 1:
+        raise SystemExit(f"beacon must load canonical host preferences: host={host}")
+    if beacon.count(
+        '"/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro"'
+    ) != 1:
+        raise SystemExit(f"beacon must mount canonical host preferences read-only: host={host}")
     if 'network_mode = "host";' not in beacon:
         raise SystemExit(f"beacon must retain host networking: host={host}")
     if has_healthcheck_override(beacon):

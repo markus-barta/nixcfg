@@ -31,6 +31,9 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
+      - name: Verify Pharos host preferences and correlated outcomes
+        run: tests/T08-pharos-host-preferences.sh
+
       - name: Verify Pharos beacon healthcheck contract
         run: tests/T20-pharos-beacon-healthcheck.sh
 
