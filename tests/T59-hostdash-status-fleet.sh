@@ -52,7 +52,7 @@ normalize_derivation_json() {
   jq -ce '
     def canonical_store_name:
       type == "string"
-      and test("^[0123456789abcdfghijklmnpqrsvwxyz]{32}-[-+._?=A-Za-z0-9]+$");
+      and test("^[0123456789abcdfghijklmnpqrsvwxyz]{32}-[-+._?=A-Za-z0-9]+\\z");
     def canonical_drv_basename:
       canonical_store_name and endswith(".drv");
     def canonical_absolute_store_path:
@@ -214,6 +214,31 @@ expect_derivation_rejected invalid_current_dependency_accepted "$invalid_current
 invalid_legacy_dependency=$(jq -cn --argjson body "$fixture_body_legacy" --arg drv "$fixture_legacy_drv" \
   '{($drv):($body | .inputDrvs={"/nix/store/nested/dependency.drv":["out"]})}')
 expect_derivation_rejected invalid_legacy_dependency_accepted "$invalid_legacy_dependency"
+
+trailing_lf_current_output=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_current_drv" \
+  --arg path "$fixture_current_output"$'\n' \
+  '{version:4,derivations:{($drv):($body | .outputs.out.path=$path)}}')
+expect_derivation_rejected trailing_lf_current_output_accepted "$trailing_lf_current_output"
+trailing_lf_legacy_output=$(jq -cn --argjson body "$fixture_body_legacy" --arg drv "$fixture_legacy_drv" \
+  --arg path "$fixture_legacy_output"$'\n' \
+  '{($drv):($body | .outputs.out.path=$path)}')
+expect_derivation_rejected trailing_lf_legacy_output_accepted "$trailing_lf_legacy_output"
+trailing_lf_current_key=$(jq -cn --argjson body "$fixture_body_current" \
+  --arg drv "$fixture_current_drv"$'\n' \
+  '{version:4,derivations:{($drv):$body}}')
+expect_derivation_rejected trailing_lf_current_key_accepted "$trailing_lf_current_key"
+trailing_lf_legacy_key=$(jq -cn --argjson body "$fixture_body_legacy" \
+  --arg drv "$fixture_legacy_drv"$'\n' \
+  '{($drv):$body}')
+expect_derivation_rejected trailing_lf_legacy_key_accepted "$trailing_lf_legacy_key"
+trailing_lf_current_dependency=$(jq -cn --argjson body "$fixture_body_current" --arg drv "$fixture_current_drv" \
+  --arg dependency "$fixture_current_dependency"$'\n' \
+  '{version:4,derivations:{($drv):($body | .inputs.drvs={($dependency):{outputs:["out"]}})}}')
+expect_derivation_rejected trailing_lf_current_dependency_accepted "$trailing_lf_current_dependency"
+trailing_lf_legacy_dependency=$(jq -cn --argjson body "$fixture_body_legacy" --arg drv "$fixture_legacy_drv" \
+  --arg dependency "$fixture_legacy_dependency"$'\n' \
+  '{($drv):($body | .inputDrvs={($dependency):["out"]})}')
+expect_derivation_rejected trailing_lf_legacy_dependency_accepted "$trailing_lf_legacy_dependency"
 
 for invalid_path in '' '.' '..' $'line\nfeed' '/nix/store/' '/nix/store/../escape' '/nix/store/nested/path'; do
   invalid_current=$(jq -cn \
