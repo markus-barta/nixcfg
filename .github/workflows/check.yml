@@ -167,6 +167,9 @@ jobs:
       - name: Verify HostDash host-side HTTP status evidence (NIX-343)
         run: tests/T52-hostdash-http-status.sh
 
+      - name: Verify HostDash four-host status parity (NIX-393 / HOSTD-14)
+        run: nix-shell -p bash jq nodejs --run tests/T58-hostdash-status-fleet.sh
+
       # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
       # doctrine-check.sh (INSPR-300); this step then calls that instead.
       - name: Verify both doctrine consumption paths agree

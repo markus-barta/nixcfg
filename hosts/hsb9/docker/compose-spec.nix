@@ -181,6 +181,8 @@
       ];
       volumes = [
         "/etc/hostdash/hsb9/share/hostdash-hsb9:/usr/share/nginx/html:ro"
+        "/var/lib/hostdash-status:/srv/hostdash-status:ro"
+        "/etc/hostdash-nginx.conf:/etc/nginx/conf.d/default.conf:ro"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=true"
