@@ -31,7 +31,33 @@ locked=$(jq -r '.nodes.hostdash.locked.rev' "$repo_root/flake.lock")
 
 hostdash_source=$(nix eval --impure --raw --expr \
   "(builtins.getFlake \"path:${flake_ref}\").inputs.hostdash.outPath")
-bindings=$(node "$repo_root/tests/hostdash-status-bindings.mjs" "$hostdash_source")
+bindings='{}'
+for host in csb0 csb1 hsb8 hsb9; do
+  config="$hostdash_source/hosts/$host/config.js"
+  [[ -f "$config" ]] || fail "${host}_config_missing"
+  host_bindings=$(node "$repo_root/tests/hostdash-status-bindings.mjs" <"$config") ||
+    fail "${host}_config_not_static"
+  bindings=$(jq -cn \
+    --argjson current "$bindings" \
+    --arg host "$host" \
+    --argjson hostBindings "$host_bindings" \
+    '$current + {($host): $hostBindings}')
+done
+
+# The extraction oracle must reject executable or computed bindings rather than
+# executing HostDash JavaScript or silently omitting a dynamic service.
+if node "$repo_root/tests/hostdash-status-bindings.mjs" >/dev/null 2>&1 <<'EOF'; then
+window.HOSTDASH_CONFIG = {
+  services: [
+    { name: "dynamic", container: lookupContainer() },
+  ],
+};
+EOF
+  fail dynamic_hostdash_config_accepted
+fi
+
+[[ "$(jq '[.[] .bindings | length] | add' <<<"$bindings")" == 45 ]] ||
+  fail binding_count_drift
 
 eval_json() {
   nix eval --no-update-lock-file --json \
