@@ -36,6 +36,18 @@ in
   # remains for the guarded deploy executor; the richer evidence document lives
   # at /etc/pharos-deployment/evidence.json in the same active generation.
   environment.etc."pharos/host-preferences.json".source = ./pharos-host-preferences.json;
+  # NIX-399: /etc/pharos/host-preferences.json is a generation symlink. A
+  # container bind-mount of that file pins the old store inode across later
+  # switches. Copy it atomically into a stable tmpfs directory instead; beacons
+  # mount the directory and reread the file on every report cycle.
+  system.activationScripts.pharosHostPreferences = {
+    deps = [ "etc" ];
+    text = ''
+      install -d -m 0755 /run/pharos-preferences
+      install -m 0644 /etc/pharos/host-preferences.json /run/pharos-preferences/.host-preferences.json.tmp
+      mv -f /run/pharos-preferences/.host-preferences.json.tmp /run/pharos-preferences/host-preferences.json
+    '';
+  };
   environment.etc."pharos/deployed-revision".text = config.system.configurationRevision;
 
   # ════════════════════════════════════════════════════════════════════════════
