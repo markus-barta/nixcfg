@@ -77,21 +77,45 @@ jobs:
             "$PHAROS_SUPPRESS_NIX_FRESHNESS" \
             "$PHAROS_REQUEST_ID"
 
-      - name: Regenerate declared hsb8 manifest
+      # NIX-402: NIX-348 deliberately rejects dirty flake evaluations because
+      # they have no canonical self.rev. Keep each proposed state commit-backed
+      # before asking Nix to evaluate it. create-pull-request preserves commits
+      # made by the workflow and pushes them to the automation branch.
+      - name: Commit proposed settings for validation
         run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add modules/pharos-host-preferences.json
+          if ! git diff --cached --quiet --exit-code; then
+            git commit -m "pharos: stage $PHAROS_HOST host settings for validation"
+          fi
+
+      - name: Regenerate and commit declared hsb8 manifest
+        run: |
+          set -euo pipefail
           manifest=$(mktemp)
           nix eval --no-update-lock-file \
             .#nixosConfigurations.hsb8.config.services.hostdash.manifest.generated \
             --json | jq -S . >"$manifest"
+          chmod 0644 "$manifest"
           mv "$manifest" hosts/csb1/docker/pharos/manifests/hsb8.json
+          git add hosts/csb1/docker/pharos/manifests/hsb8.json
+          if ! git diff --cached --quiet --exit-code; then
+            git commit -m 'pharos: regenerate declared hsb8 manifest'
+          fi
 
       - name: Validate schema and target configuration
         run: |
+          set -euo pipefail
           tests/T08-pharos-host-preferences.sh
           bash tests/T05-hostdash-manifest.sh
           nix eval --no-update-lock-file \
             ".#nixosConfigurations.${PHAROS_HOST}.config.system.build.toplevel.drvPath" \
             >/dev/null
+          git diff --exit-code -- \
+            modules/pharos-host-preferences.json \
+            hosts/csb1/docker/pharos/manifests/hsb8.json
 
       - name: Create settings pull request
         id: create-pr
