@@ -35,9 +35,21 @@ grep -Fq 'file = ../../secrets/csb1-pharos-nixcfg-dispatch-token.age;' "$host_co
 for host in csb0 csb1 hsb0 hsb1 hsb8 hsb9; do
   beacon_compose="$repo_root/hosts/$host/docker/compose-spec.nix"
   [[ "$(grep -Fc 'PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json' "$beacon_compose")" == 1 ]]
-  [[ "$(grep -Fc '/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro' "$beacon_compose")" == 1 ]]
+  [[ "$(grep -Fc '/run/pharos-preferences:/etc/pharos:ro' "$beacon_compose")" == 1 ]]
+  if grep -Fq '/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json' \
+    "$beacon_compose"; then
+    echo "generation-pinning preferences file mount found for $host" >&2
+    exit 1
+  fi
 done
 grep -Fq 'environment.etc."pharos/host-preferences.json".source = ./pharos-host-preferences.json;' \
+  "$repo_root/modules/common.nix"
+grep -Fq 'system.activationScripts.pharosHostPreferences' "$repo_root/modules/common.nix"
+grep -Fq \
+  'install -m 0644 /etc/pharos/host-preferences.json /run/pharos-preferences/.host-preferences.json.tmp' \
+  "$repo_root/modules/common.nix"
+grep -Fq \
+  'mv -f /run/pharos-preferences/.host-preferences.json.tmp /run/pharos-preferences/host-preferences.json' \
   "$repo_root/modules/common.nix"
 
 workflow="$repo_root/.github/workflows/pharos-host-settings.yml"

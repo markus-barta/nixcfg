@@ -111,9 +111,11 @@ for path, host in zip(paths, expected_hosts):
     if beacon.count('"PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json"') != 1:
         raise SystemExit(f"beacon must load canonical host preferences: host={host}")
     if beacon.count(
-        '"/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro"'
+        '"/run/pharos-preferences:/etc/pharos:ro"'
     ) != 1:
         raise SystemExit(f"beacon must mount canonical host preferences read-only: host={host}")
+    if "/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json" in beacon:
+        raise SystemExit(f"beacon must not pin the preferences generation inode: host={host}")
     if 'network_mode = "host";' not in beacon:
         raise SystemExit(f"beacon must retain host networking: host={host}")
     if has_healthcheck_override(beacon):
