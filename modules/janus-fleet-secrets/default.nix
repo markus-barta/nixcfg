@@ -17,6 +17,7 @@ let
   credentialName = fleetSecret: "janus-${fleetSecret}";
   gateName = fleetSecret: "janus-fleet-secret-${fleetSecret}-projection";
   unitName = consumer: "${consumer.unit}.service";
+  validatorSource = builtins.readFile ./validate-projection.sh;
 
   consumerEntries = lib.mapAttrsToList (unit: fleetSecret: {
     inherit unit fleetSecret;
@@ -29,21 +30,52 @@ let
   consumersFor =
     fleetSecret: lib.filter (consumer: consumer.fleetSecret == fleetSecret) validConsumers;
 
-  loadCredentialEntries =
+  asList = value: if builtins.isList value then value else [ value ];
+  directiveEntries =
+    consumer: directive:
+    asList (config.systemd.services.${consumer.unit}.serviceConfig.${directive} or [ ]);
+  directCredentialEntries =
     consumer:
-    (config.systemd.services.${consumer.unit}.serviceConfig.LoadCredential or [ ])
-    ++ (config.systemd.services.${consumer.unit}.serviceConfig.LoadCredentialEncrypted or [ ]);
+    lib.concatMap (directive: directiveEntries consumer directive) [
+      "LoadCredential"
+      "LoadCredentialEncrypted"
+      "SetCredential"
+      "SetCredentialEncrypted"
+    ];
   entryCredentialName =
     entry:
     let
       explicit = builtins.match "([^:]+):.*" entry;
     in
-    if explicit == null then builtins.baseNameOf entry else builtins.elemAt explicit 0;
+    if explicit == null then entry else builtins.elemAt explicit 0;
+  importProducesCredential =
+    credential: entry:
+    let
+      renamed = builtins.match "([^:]+):(.*)" entry;
+      source = if renamed == null then entry else builtins.elemAt renamed 0;
+      target = if renamed == null then null else builtins.elemAt renamed 1;
+      wildcard = lib.hasSuffix "*" source;
+      sourcePrefix = lib.removeSuffix "*" source;
+    in
+    if target != null then
+      if wildcard then lib.hasPrefix target credential else target == credential
+    else if wildcard then
+      lib.hasPrefix sourcePrefix credential
+    else
+      source == credential;
   matchingCredentialEntries =
     consumer:
-    lib.filter (entry: entryCredentialName entry == credentialName consumer.fleetSecret) (
-      loadCredentialEntries consumer
-    );
+    let
+      credential = credentialName consumer.fleetSecret;
+    in
+    lib.filter (entry: entryCredentialName entry == credential) (directCredentialEntries consumer)
+    ++ lib.filter (importProducesCredential credential) (directiveEntries consumer "ImportCredential");
+  consumerHasExecStart =
+    consumer:
+    let
+      execStart = config.systemd.services.${consumer.unit}.serviceConfig.ExecStart or null;
+    in
+    execStart != null && execStart != [ ] && execStart != "";
 
   projectionGate =
     fleetSecret:
@@ -51,23 +83,7 @@ let
       path = projectedPath fleetSecret;
       consumers = consumersFor fleetSecret;
       units = map unitName consumers;
-      check = pkgs.writeShellScript "janus-fleet-secret-${fleetSecret}-projection-check" ''
-        set -eu
-
-        projected_file=${lib.escapeShellArg path}
-        if ! test -f "$projected_file"; then
-          echo 'reason_code=projection_missing value_returned=false' >&2
-          exit 1
-        fi
-        if test -L "$projected_file"; then
-          echo 'reason_code=projection_not_regular value_returned=false' >&2
-          exit 1
-        fi
-        if test "$(${pkgs.coreutils}/bin/stat -c '%a' "$projected_file")" != 600; then
-          echo 'reason_code=projection_not_private value_returned=false' >&2
-          exit 1
-        fi
-      '';
+      check = pkgs.writeShellScript "janus-fleet-secret-${fleetSecret}-projection-check" validatorSource;
     in
     {
       description = "Require the reviewed Janus ${fleetSecret} projection";
@@ -77,12 +93,11 @@ let
 
       serviceConfig = {
         Type = "oneshot";
-        RemainAfterExit = true;
         User = "root";
         Group = "root";
         UMask = "0077";
-        ExecStart = check;
-        ReadOnlyPaths = [ path ];
+        ExecStart = "${check} ${pkgs.coreutils}/bin/stat 0 0 / ${lib.escapeShellArg path}";
+        ReadOnlyPaths = [ "-${projectionRoot}" ];
         NoNewPrivileges = true;
         PrivateDevices = true;
         PrivateTmp = true;
@@ -133,6 +148,10 @@ in
         message = "inspr.janusFleetSecrets consumer unit collides with a generated projection gate";
       }
     ]
+    ++ map (consumer: {
+      assertion = consumerHasExecStart consumer;
+      message = "inspr.janusFleetSecrets consumer ${unitName consumer} must already declare ExecStart";
+    }) validConsumers
     ++ map (consumer: {
       assertion = lib.length (matchingCredentialEntries consumer) == 1;
       message = "inspr.janusFleetSecrets credential name collides in ${unitName consumer}";

@@ -23,6 +23,7 @@ export JANUS_FLEET_SECRET_PINNED_FLAKE_REF="${flake_ref}"
 module="${repo}/modules/janus-fleet-secrets/default.nix"
 fixture="${repo}/tests/janus-fleet-secret-module-eval.nix"
 fixture_host="${repo}/tests/fixtures/janus-fleet-secret-host.nix"
+validator="${repo}/modules/janus-fleet-secrets/validate-projection.sh"
 runbook="${repo}/hosts/csb1/docs/RUNBOOK.md"
 
 nix-instantiate --parse "${module}" >/dev/null
@@ -34,14 +35,95 @@ grep -Fq 'projectionRoot = "/run/janus-projections/managed-service-environment"'
 grep -Fq 'serviceConfig.LoadCredential = lib.mkAfter' "${module}"
 grep -Fq 'requiredBy = units' "${module}"
 grep -Fq 'before = units' "${module}"
-# These dollar expressions are intentionally matched as literal Nix source.
-# shellcheck disable=SC2016
-grep -Fq 'test -f "$projected_file"' "${module}"
-# shellcheck disable=SC2016
-grep -Fq 'test -L "$projected_file"' "${module}"
-grep -Fq "bin/stat -c '%a'" "${module}"
-grep -Fq 'reason_code=projection_missing value_returned=false' "${module}"
+if grep -Fq 'RemainAfterExit' "${module}"; then
+  printf 'projection gate must be inactive after each check so consumer starts revalidate it\n' >&2
+  exit 1
+fi
 grep -Fq 'systemd-credential://janus-shared-alert-url' "${runbook}"
+
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/janus-fleet-secret.XXXXXX")"
+cleanup() {
+  chmod -R u+rwX "${test_root}" 2>/dev/null || true
+  rm -rf "${test_root}"
+}
+trap cleanup EXIT
+private_root="${test_root}/managed-service-environment"
+host_root="${private_root}/hsb1"
+projection="${host_root}/shared-alert-url.env"
+mkdir -p "${host_root}"
+chmod 700 "${test_root}" "${private_root}" "${host_root}"
+expected_uid="$(stat -c '%u' "${test_root}")"
+expected_gid="$(stat -c '%g' "${test_root}")"
+printf 'fixture bytes are deliberately not a credential\n' >"${projection}"
+chmod 600 "${projection}"
+
+run_validator() {
+  bash "${validator}" stat "${expected_uid}" "${expected_gid}" "${test_root}" "${projection}"
+}
+expect_rejected() {
+  local reason="$1"
+  shift
+  if "$@" >"${test_root}/stdout" 2>"${test_root}/stderr"; then
+    printf '%s fixture unexpectedly passed\n' "${reason}" >&2
+    exit 1
+  fi
+  grep -Fq "reason_code=${reason} value_returned=false" "${test_root}/stderr"
+}
+
+run_validator
+mv "${projection}" "${projection}.old"
+expect_rejected projection_missing run_validator
+mv "${projection}.old" "${projection}"
+chmod 640 "${projection}"
+expect_rejected projection_not_private run_validator
+chmod 600 "${projection}"
+wrong_owner_stat="${test_root}/stat-wrong-owner"
+cat >"${wrong_owner_stat}" <<EOF
+#!/usr/bin/env bash
+if [ "\$2" = '%u:%g' ] && [ "\$4" = '${projection}' ]; then
+  printf '%s:%s\n' '$((expected_uid + 1))' '${expected_gid}'
+  exit 0
+fi
+exec stat "\$@"
+EOF
+chmod 700 "${wrong_owner_stat}"
+expect_rejected projection_owner_mismatch bash "${validator}" "${wrong_owner_stat}" \
+  "${expected_uid}" "${expected_gid}" "${test_root}" "${projection}"
+wrong_parent_owner_stat="${test_root}/stat-wrong-parent-owner"
+cat >"${wrong_parent_owner_stat}" <<EOF
+#!/usr/bin/env bash
+if [ "\$2" = '%u:%g' ] && [ "\$4" = '${private_root}' ]; then
+  printf '%s:%s\n' '$((expected_uid + 1))' '${expected_gid}'
+  exit 0
+fi
+exec stat "\$@"
+EOF
+chmod 700 "${wrong_parent_owner_stat}"
+expect_rejected projection_parent_owner_mismatch bash "${validator}" \
+  "${wrong_parent_owner_stat}" "${expected_uid}" "${expected_gid}" "${test_root}" "${projection}"
+chmod 750 "${host_root}"
+expect_rejected projection_parent_not_private run_validator
+chmod 700 "${host_root}"
+mv "${private_root}" "${private_root}.missing"
+expect_rejected projection_parent_missing run_validator
+mv "${private_root}.missing" "${private_root}"
+mv "${host_root}" "${host_root}.real"
+ln -s "${host_root}.real" "${host_root}"
+expect_rejected projection_parent_symlink run_validator
+rm "${host_root}"
+mv "${host_root}.real" "${host_root}"
+run_validator
+mv "${projection}" "${projection}.old"
+ln -s "${projection}.old" "${projection}"
+expect_rejected projection_not_regular run_validator
+rm "${projection}"
+mv "${projection}.old" "${projection}"
+run_validator
+replacement="${host_root}/replacement"
+printf 'replacement fixture bytes\n' >"${replacement}"
+chmod 644 "${replacement}"
+mv "${replacement}" "${projection}"
+expect_rejected projection_not_private run_validator
 
 if grep -Eq '(secretValue|credentialValue|inlineValue|environmentFile|sourcePath)[[:space:]]*=' "${module}"; then
   printf 'fleet-secret module exposes forbidden value or caller-path input\n' >&2

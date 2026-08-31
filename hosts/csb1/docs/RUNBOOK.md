@@ -598,9 +598,16 @@ The declaration contains no slot, profile, permit, destination, runtime path,
 or value. The module derives
 `/run/janus-projections/managed-service-environment/<host>/shared-alert-url.env`,
 requires its private projection gate before `example-consumer.service`, and
-passes it as `LoadCredential=janus-shared-alert-url:...`. Missing, symlinked,
-or non-`0600` projection files fail the gate; there is no agenix, environment,
-or inline fallback.
+passes it as `LoadCredential=janus-shared-alert-url:...`. The named consumer
+must already be a real service with an `ExecStart`; a typo cannot create an
+inert unit. The gate becomes inactive after each check, so every consumer start
+or restart reruns it immediately before systemd acquires the credential. It
+rejects a missing, non-regular, symlinked, non-root-owned, or non-`0600` file,
+as well as any symlinked, unexpectedly owned, writable, or non-private final
+parent path. Existing `LoadCredential*`, `SetCredential*`, or
+`ImportCredential` exact/wildcard/rename entries may not produce the derived
+credential name. There is no agenix, environment, inline, or credstore
+fallback.
 
 The application reads `$CREDENTIALS_DIRECTORY/janus-shared-alert-url`
 directly, or uses `systemd-credential://janus-shared-alert-url` through

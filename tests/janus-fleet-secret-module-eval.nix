@@ -73,9 +73,47 @@ let
     hostName = "hsb1";
     extraModule = {
       systemd.services.fixture-consumer.serviceConfig.LoadCredential = [
-        "/run/unreviewed/janus-shared-alert-url"
+        "janus-shared-alert-url"
       ];
     };
+  };
+  setCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.SetCredential = [
+      "janus-shared-alert-url:public-fallback"
+    ];
+  };
+  setEncryptedCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.SetCredentialEncrypted = [
+      "janus-shared-alert-url:encrypted-fallback"
+    ];
+  };
+  importExactCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [
+      "janus-shared-alert-url"
+    ];
+  };
+  importWildcardCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [ "janus-*" ];
+  };
+  importExactRenameCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [
+      "legacy-name:janus-shared-alert-url"
+    ];
+  };
+  importWildcardRenameCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [
+      "legacy.*:janus-"
+    ];
+  };
+  missingConsumer = evaluate {
+    hostName = "hsb1";
+    consumers.mistyped-consumer = "shared-alert-url";
   };
   multipleProfiles = evaluate {
     hostName = "hsb1";
@@ -113,9 +151,10 @@ assert hsb1Gate.requiredBy == [ "fixture-consumer.service" ];
 assert hsb1Gate.before == [ "fixture-consumer.service" ];
 assert
   hsb1Gate.serviceConfig.ReadOnlyPaths == [
-    "/run/janus-projections/managed-service-environment/hsb1/shared-alert-url.env"
+    "-/run/janus-projections/managed-service-environment"
   ];
 assert hsb1Gate.serviceConfig.ExecStart != null;
+assert !(hsb1Gate.serviceConfig.RemainAfterExit or false);
 assert hsb1Gate.serviceConfig.PrivateNetwork;
 assert hsb1Gate.serviceConfig.RestrictAddressFamilies == [ "AF_UNIX" ];
 assert hsb8Gate.requiredBy == [ "fixture-consumer.service" ];
@@ -137,6 +176,21 @@ assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixtur
   (assertionMessages encryptedCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages implicitCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages setCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages setEncryptedCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages importExactCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages importWildcardCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages importExactRenameCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages importWildcardRenameCollision);
+assert builtins.elem
+  "inspr.janusFleetSecrets consumer mistyped-consumer.service must already declare ExecStart"
+  (assertionMessages missingConsumer);
 assert builtins.elem
   "inspr.janusFleetSecrets currently supports one reviewed managed-service-environment profile per host"
   (assertionMessages multipleProfiles);
