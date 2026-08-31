@@ -158,6 +158,7 @@
         home-manager.nixosModules.home-manager
         ./modules/common.nix # Shared config for ALL servers (fish, starship, packages, etc.)
         ./modules/hostdash-manifest.nix # Declarative HostDash/Pharos manifest schema
+        ./modules/janus-fleet-secrets # NIX-391 — fail-closed Janus projection -> systemd credential wiring
         { nixpkgs.hostPlatform = linuxSystem; }
         (_: {
           nixpkgs.overlays = allOverlays;

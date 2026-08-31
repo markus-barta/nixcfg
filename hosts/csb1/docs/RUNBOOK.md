@@ -583,6 +583,41 @@ cache, runtime file, outbox, and transaction journal untouched. Restore the
 failed control plane, then rerun live readiness; the idempotent workers resume
 the exact recorded phase.
 
+#### Fleet-secret systemd credential boundary
+
+JANUS-446 makes the exact `managed-service-environment` capability available;
+Janus still owns authorization, its reviewed host profile, and projection of
+the private file. Nixcfg's `inspr.janusFleetSecrets` module owns only the
+deterministic host/unit handoff. A consumer declaration is one line:
+
+```nix
+inspr.janusFleetSecrets.consumers.example-consumer = "shared-alert-url";
+```
+
+The declaration contains no slot, profile, permit, destination, runtime path,
+or value. The module derives
+`/run/janus-projections/managed-service-environment/<host>/shared-alert-url.env`,
+requires its private projection gate before `example-consumer.service`, and
+passes it as `LoadCredential=janus-shared-alert-url:...`. The named consumer
+must already be a real service with an `ExecStart`; a typo cannot create an
+inert unit. The gate becomes inactive after each check, so every consumer start
+or restart reruns it immediately before systemd acquires the credential. It
+rejects a missing, non-regular, symlinked, non-root-owned, or non-`0600` file,
+as well as any symlinked, unexpectedly owned, writable, or non-private final
+parent path. Existing `LoadCredential*`, `SetCredential*`, or
+`ImportCredential` exact/wildcard/rename entries may not produce the derived
+credential name. Every entry in all five credential directives must be a
+nonempty printable-ASCII line with non-space ends; `%` specifiers and backslash
+escapes are rejected. Empty resets, outer whitespace, control/non-ASCII bytes,
+and unit-file line injection therefore fail before the first literal colon is
+parsed. There is no agenix, environment, inline, or credstore fallback.
+
+The application reads `$CREDENTIALS_DIRECTORY/janus-shared-alert-url`
+directly, or uses `systemd-credential://janus-shared-alert-url` through
+secretspec. The module does not issue a Janus permit, reveal a value, migrate
+agenix data, or activate a host. A reviewed Janus profile targeting the exact
+derived path and a separate host-adoption ticket are required before use.
+
 #### Canary health failure
 
 Do not repeatedly recreate the service by hand. A failed create stops without
