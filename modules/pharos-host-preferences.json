@@ -19,7 +19,7 @@
       "kind": "server"
     },
     "hsb0": {
-      "accent": "#d4c060",
+      "accent": "#25845f",
       "alerts": {
         "suppress_backup": false,
         "suppress_down": false,
