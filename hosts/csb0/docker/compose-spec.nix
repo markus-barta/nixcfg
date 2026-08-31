@@ -417,6 +417,7 @@
         "PHAROS_URL=http://100.64.0.4:8088"
         "PHAROS_INTERVAL=60"
         "PHAROS_HOSTNAME=csb0"
+        "PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json"
         "PHAROS_BACKUP_MODE=status-file"
         "PHAROS_BACKUP_STATUS_FILE=/pharos-backup-status/restic-cron-hetzner.json"
         "PHAROS_CURRENT_KERNEL_MODULES_DIR=/host/run/current-system/kernel-modules/lib/modules"
@@ -433,6 +434,7 @@
         "/home/mba/Code/nixcfg:/nixcfg:ro"
         "/run/pharos-deployment:/host/pharos-deployment:ro" # OPS-186: directory, not the file — see flake.nix activation script
         "/etc/NIXOS:/etc/NIXOS:ro"
+        "/run/pharos-preferences:/etc/pharos:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
         "/var/lib/csb0-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];
