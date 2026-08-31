@@ -42,7 +42,9 @@ generator_context=$(nix eval --json --apply 'value: builtins.getContext value' "
   fail generator_context_eval_failed
 generator_drv=$(jq -er 'keys | if length == 1 then .[0] else error("ambiguous generator context") end' \
   <<<"$generator_context") || fail generator_drv_not_unique
-generator_derivation=$(nix derivation show "$generator_drv") || fail generator_derivation_unavailable
+generator_derivation=$(nix derivation show "${generator_drv}^*") || fail generator_derivation_unavailable
+jq -e '.derivations | type == "object" and length == 1' <<<"$generator_derivation" >/dev/null ||
+  fail generator_derivation_shape
 generator_text=$(jq -er '
   .derivations | to_entries
   | if length == 1 then .[0].value.env.text else error("ambiguous generator derivation") end
@@ -58,7 +60,9 @@ collector_drv_name=$(jq -er '
   | if length == 1 then .[0] else error("ambiguous collector input") end
 ' <<<"$generator_derivation") || fail collector_drv_not_unique
 collector_drv="/nix/store/$collector_drv_name"
-collector_derivation=$(nix derivation show "$collector_drv") || fail collector_derivation_unavailable
+collector_derivation=$(nix derivation show "${collector_drv}^*") || fail collector_derivation_unavailable
+jq -e '.derivations | type == "object" and length == 1' <<<"$collector_derivation" >/dev/null ||
+  fail collector_derivation_shape
 collector_text=$(jq -er '
   .derivations | to_entries
   | if length == 1 then .[0].value.env.text else error("ambiguous collector derivation") end
