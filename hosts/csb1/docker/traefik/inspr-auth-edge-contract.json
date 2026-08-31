@@ -1,0 +1,50 @@
+{
+  "source": {
+    "ipv4": "https://www.cloudflare.com/ips-v4",
+    "ipv6": "https://www.cloudflare.com/ips-v6",
+    "checkedAt": "2026-08-31",
+    "ipv4Sha256": "f02c6d83bc01ab0ae8577160e036d700c7455359bce054df884e5d7d9e4e9e7b",
+    "ipv6Sha256": "9e9d39e3e83bad00c4decafd53c63fa62029f3d95db68de937d2be28234ca0a9"
+  },
+  "updatePolicy": {
+    "when": "Run the online T58 drift gate before every csb1 inspr-auth deployment and whenever Cloudflare announces an address-range change.",
+    "onChange": "Update this pin and its hashes in a reviewed nixcfg change before deployment; never broaden the source range as a workaround."
+  },
+  "cloudflareRanges": [
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22",
+    "2400:cb00::/32",
+    "2606:4700::/32",
+    "2803:f800::/32",
+    "2405:b500::/32",
+    "2405:8100::/32",
+    "2a06:98c0::/29",
+    "2c0f:f248::/32"
+  ],
+  "cloudflarewarp": {
+    "version": "v1.3.3",
+    "revision": "5e2ccb53f08b85dde82d6676cb91076198817f0d",
+    "configuredTrustedSourceRanges": ["172.16.0.0/12", "2400:cb00::/32"]
+  },
+  "insprAuthInterface": {
+    "trustedProxyDns": "traefik",
+    "tokenEnvironment": "ENTER_EDGE_TOKEN",
+    "tokenHeader": "X-Inspr-Edge-Token",
+    "pluginMarkerHeader": "X-Is-Trusted",
+    "pluginMarkerValue": "yes",
+    "failClosedIdentity": "direct Traefik peer"
+  }
+}

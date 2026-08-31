@@ -27,7 +27,6 @@ providers:
   file:
     directory: /etc/traefik/dynamic
     watch: true
-    filename: dynamic.yml
 
 certificatesResolvers:
   default:

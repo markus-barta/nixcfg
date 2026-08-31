@@ -364,8 +364,10 @@ in
   # init-only on the existing volume, recovery material)
   "csb1-zitadel-postgres-env.age".publicKeys = markus ++ csb1;
   # inspr-auth — OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY,
-  # INSPR_AUTH_SA_PAT, ZITADEL_API_PAT (same names as the legacy .env; copy
-  # verbatim including empty values)
+  # INSPR_AUTH_SA_PAT, ZITADEL_API_PAT, ENTER_EDGE_TOKEN. NIX-400 requires the
+  # last value to be exactly 64 lowercase hex characters; inspr-auth and the
+  # private Traefik renderer consume this one age-backed source. Never put the
+  # value in Nix, Docker labels, a command argument, logs, workflows, or PPM.
   "csb1-inspr-auth-env.age".publicKeys = markus ++ csb1;
 
   # Docmost — Postgres credentials

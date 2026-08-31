@@ -33,6 +33,12 @@
 # the loose ~/secrets/ and ./xxx.env files into agenix). Container reads
 # at runtime via agenix-decrypted bind. No plaintext secrets in this file.
 let
+  # NIX-400: reviewed snapshot of Cloudflare's authoritative public ingress
+  # ranges. T58 compares this pin with the two official endpoints online; a
+  # range change is a reviewed deployment dependency, never a reason to widen
+  # the router to Docker-private peers.
+  cloudflare = builtins.fromJSON (builtins.readFile ./traefik/inspr-auth-edge-contract.json);
+  cloudflareSourceRanges = builtins.concatStringsSep "," cloudflare.cloudflareRanges;
   # NIX-381 — the same file hosts/csb1/configuration.nix wires the two adapter
   # modules from, so the compose side and the module side share one switch.
   #
@@ -330,6 +336,10 @@ in
       volumes = [
         "./traefik/static.yml:/etc/traefik/traefik.yml"
         "./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml"
+        # Generated from the same age-backed environment consumed by
+        # inspr-auth. Long-form bind semantics make a missing renderer output
+        # fatal instead of letting Docker create an empty directory.
+        (privateBind "/run/inspr-edge/dynamic.yml" "/etc/traefik/dynamic/inspr-edge.yml")
         "./traefik/acme.json:/etc/traefik/acme/acme.json:rw"
         "./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw"
       ];
@@ -1368,10 +1378,16 @@ in
         OIDC_ISSUER = "https://auth.inspr.at";
         BASE_URL = "https://inspr.at";
         LISTEN = ":8080";
+        # INSPR-310 resolves this exact Docker-owned service name on every
+        # request before accepting the plugin marker and edge token.
+        ENTER_TRUSTED_PROXY_HOST = "traefik";
       };
       env_file = [
         # OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY, INSPR_AUTH_SA_PAT,
-        # ZITADEL_API_PAT — see secrets/csb1-inspr-auth-env.age
+        # ZITADEL_API_PAT, ENTER_EDGE_TOKEN — see
+        # secrets/csb1-inspr-auth-env.age. The last value is also loaded by
+        # inspr-edge-config.service; there is one secret source, not two
+        # independently rotatable copies.
         "/run/agenix/csb1-inspr-auth-env"
       ];
       labels = [
@@ -1382,7 +1398,11 @@ in
         "traefik.http.routers.inspr-auth.priority=100"
         "traefik.http.routers.inspr-auth.tls=true"
         "traefik.http.routers.inspr-auth.tls.certresolver=default"
-        "traefik.http.routers.inspr-auth.middlewares=cloudflarewarp@file,inspr-edge-hsts@docker"
+        # Order is the security boundary: reject every non-Cloudflare source,
+        # then derive the client identity, then overwrite (never trust) the
+        # private app attestation header. HSTS remains last and orthogonal.
+        "traefik.http.routers.inspr-auth.middlewares=inspr-auth-cloudflare-only@docker,cloudflarewarp@file,inspr-auth-edge-token@file,inspr-edge-hsts@docker"
+        "traefik.http.middlewares.inspr-auth-cloudflare-only.ipallowlist.sourcerange=${cloudflareSourceRanges}"
         "traefik.http.services.inspr-auth.loadbalancer.server.port=8080"
         "com.centurylinklabs.watchtower.enable=false"
       ];
