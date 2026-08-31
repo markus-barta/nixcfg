@@ -36,18 +36,34 @@ let
     asList (config.systemd.services.${consumer.unit}.serviceConfig.${directive} or [ ]);
   directCredentialEntries =
     consumer:
-    lib.concatMap (directive: directiveEntries consumer directive) [
-      "LoadCredential"
-      "LoadCredentialEncrypted"
-      "SetCredential"
-      "SetCredentialEncrypted"
-    ];
+    lib.concatMap
+      (
+        directive:
+        map (entry: {
+          inherit directive entry;
+        }) (directiveEntries consumer directive)
+      )
+      [
+        "LoadCredential"
+        "LoadCredentialEncrypted"
+        "SetCredential"
+        "SetCredentialEncrypted"
+      ];
   entryCredentialName =
-    entry:
+    directEntry:
     let
-      explicit = builtins.match "([^:]+):.*" entry;
+      explicit = builtins.match "([^:]+):.*" directEntry.entry;
+      sourceOnlyLoad = lib.elem directEntry.directive [
+        "LoadCredential"
+        "LoadCredentialEncrypted"
+      ];
     in
-    if explicit == null then entry else builtins.elemAt explicit 0;
+    if explicit != null then
+      builtins.elemAt explicit 0
+    else if sourceOnlyLoad then
+      builtins.baseNameOf directEntry.entry
+    else
+      directEntry.entry;
   importProducesCredential =
     credential: entry:
     let

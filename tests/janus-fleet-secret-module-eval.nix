@@ -69,11 +69,17 @@ let
       ];
     };
   };
+  encryptedImplicitCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.LoadCredentialEncrypted = [
+      "/run/unreviewed/janus-shared-alert-url"
+    ];
+  };
   implicitCollision = evaluate {
     hostName = "hsb1";
     extraModule = {
       systemd.services.fixture-consumer.serviceConfig.LoadCredential = [
-        "janus-shared-alert-url"
+        "/run/unreviewed/janus-shared-alert-url"
       ];
     };
   };
@@ -87,6 +93,18 @@ let
     hostName = "hsb1";
     extraModule.systemd.services.fixture-consumer.serviceConfig.SetCredentialEncrypted = [
       "janus-shared-alert-url:encrypted-fallback"
+    ];
+  };
+  setImplicitCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.SetCredential = [
+      "janus-shared-alert-url"
+    ];
+  };
+  setEncryptedImplicitCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.SetCredentialEncrypted = [
+      "janus-shared-alert-url"
     ];
   };
   importExactCollision = evaluate {
@@ -175,11 +193,17 @@ assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixtur
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages encryptedCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages encryptedImplicitCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages implicitCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages setCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages setEncryptedCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages setImplicitCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages setEncryptedImplicitCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages importExactCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
