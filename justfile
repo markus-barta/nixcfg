@@ -1066,18 +1066,18 @@ hokage-options-interactive:
 
 # ============================================================================
 # OpenClaw — Unified host-aware commands
-# Works from macOS (explicit host arg), hsb0, and miniserver-bp (auto-detect)
+# Remote routing from this repo supports hsb0. The former-employer route was
+# retired after the June 2026 exit; this repo no longer owns or reaches it.
 #
 # Host routing:
-#   hsb0         → container: openclaw-gateway,   compose: hosts/hsb0/docker
-#   msbp         → container: openclaw-percaival, compose: hosts/miniserver-bp/docker
+#   hsb0 → container: openclaw-gateway, compose: hosts/hsb0/docker
 #
-# Usage from macOS:   just oc-rebuild hsb0 / just oc-rebuild msbp
-# Usage on host:      just oc-rebuild          (auto-detects local host)
+# Usage from macOS: just oc-rebuild hsb0
+# Usage on hsb0:    just oc-rebuild (auto-detects the local host)
 # ============================================================================
 # Helper: run a command on the target OpenClaw host
 
-# host: hsb0 | msbp | (empty = auto-detect from hostname)
+# host: hsb0 | (empty = auto-detect from hostname)
 [private]
 _oc-run host cmd:
     #!/usr/bin/env bash
@@ -1089,10 +1089,8 @@ _oc-run host cmd:
         _target="{{ host }}"
     elif [ "$_hostname" = "hsb0" ]; then
         _target="hsb0"
-    elif [ "$_hostname" = "miniserver-bp" ]; then
-        _target="msbp"
     else
-        echo "Error: running on macOS (${_hostname}) — specify host: just <recipe> hsb0  OR  just <recipe> msbp" >&2
+        echo "Error: unsupported local host (${_hostname}) — specify host: just <recipe> hsb0" >&2
         exit 1
     fi
 
@@ -1107,24 +1105,12 @@ _oc-run host cmd:
                 if ping -c1 -W3 hsb0.lan &>/dev/null; then
                     ssh mba@hsb0.lan "{{ cmd }}"
                 else
-                    ssh mba@hsb0.ts.barta.cm "{{ cmd }}"
-                fi
-            fi
-            ;;
-        msbp)
-            if [ "$_hostname" = "miniserver-bp" ]; then
-                bash -c "{{ cmd }}"
-            else
-                # From office LAN: use direct IP; from anywhere else: use Tailscale
-                if ping -c1 -W3 10.17.1.40 &>/dev/null; then
-                    ssh -p 2222 mba@10.17.1.40 "{{ cmd }}"
-                else
-                    ssh -p 2222 mba@miniserver-bp.ts.barta.cm "{{ cmd }}"
+                    ssh mba@100.64.0.6 "{{ cmd }}"
                 fi
             fi
             ;;
         *)
-            echo "Error: unknown host '${_target}'. Use: hsb0 | msbp" >&2
+            echo "Error: unknown host '${_target}'. Use: hsb0" >&2
             exit 1
             ;;
     esac
@@ -1143,8 +1129,7 @@ _oc-container host:
     fi
     case "$_target" in
         hsb0) echo "openclaw-gateway" ;;
-        msbp) echo "openclaw-percaival" ;;
-        *) echo "openclaw-gateway" ;;
+        *) echo "Error: unknown host '${_target}'. Use: hsb0" >&2; exit 1 ;;
     esac
 
 # Helper: resolve compose dir for a given host target
@@ -1156,19 +1141,17 @@ _oc-compose-dir host:
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
+            *) echo "Error: unsupported local host (${_hostname}) — specify host: hsb0" >&2; exit 1 ;;
         esac
     fi
     case "$_target" in
         hsb0) echo "~/Code/nixcfg/hosts/hsb0/docker" ;;
-        # msbp routing removed 2026-07-23: host left this repo 2026-05-02
-        # (INSPR-24) and the external context ended with the June 2026 exit.
-        *) echo "~/Code/nixcfg/hosts/hsb0/docker" ;;
+        *) echo "Error: unknown host '${_target}'. Use: hsb0" >&2; exit 1 ;;
     esac
 
 # Rebuild container from scratch — pulls latest openclaw@latest from npm (slow, ~5-15 min)
 
-# Usage: just oc-rebuild [hsb0|msbp]
+# Usage: just oc-rebuild [hsb0]
 [group('openclaw')]
 oc-rebuild host='':
     #!/usr/bin/env bash
@@ -1177,8 +1160,7 @@ oc-rebuild host='':
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
-            *) echo "Error: specify host: just oc-rebuild hsb0  OR  just oc-rebuild msbp" >&2; exit 1 ;;
+            *) echo "Error: specify host: just oc-rebuild hsb0" >&2; exit 1 ;;
         esac
     fi
     _container="$(just _oc-container $_target)"
@@ -1187,7 +1169,7 @@ oc-rebuild host='':
 
 # Fast rebuild — uses Docker cache (for config/entrypoint changes, not npm updates)
 
-# Usage: just oc-rebuild-fast [hsb0|msbp]
+# Usage: just oc-rebuild-fast [hsb0]
 [group('openclaw')]
 oc-rebuild-fast host='':
     #!/usr/bin/env bash
@@ -1196,8 +1178,7 @@ oc-rebuild-fast host='':
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
-            *) echo "Error: specify host: just oc-rebuild-fast hsb0  OR  just oc-rebuild-fast msbp" >&2; exit 1 ;;
+            *) echo "Error: specify host: just oc-rebuild-fast hsb0" >&2; exit 1 ;;
         esac
     fi
     _container="$(just _oc-container $_target)"
@@ -1206,7 +1187,7 @@ oc-rebuild-fast host='':
 
 # Show container status and recent logs
 
-# Usage: just oc-status [hsb0|msbp]
+# Usage: just oc-status [hsb0]
 [group('openclaw')]
 oc-status host='':
     #!/usr/bin/env bash
@@ -1215,8 +1196,7 @@ oc-status host='':
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
-            *) echo "Error: specify host: just oc-status hsb0  OR  just oc-status msbp" >&2; exit 1 ;;
+            *) echo "Error: specify host: just oc-status hsb0" >&2; exit 1 ;;
         esac
     fi
     _container="$(just _oc-container $_target)"
@@ -1224,7 +1204,7 @@ oc-status host='':
 
 # Stop the OpenClaw container
 
-# Usage: just oc-stop [hsb0|msbp]
+# Usage: just oc-stop [hsb0]
 [group('openclaw')]
 oc-stop host='':
     #!/usr/bin/env bash
@@ -1233,8 +1213,7 @@ oc-stop host='':
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
-            *) echo "Error: specify host: just oc-stop hsb0  OR  just oc-stop msbp" >&2; exit 1 ;;
+            *) echo "Error: specify host: just oc-stop hsb0" >&2; exit 1 ;;
         esac
     fi
     _container="$(just _oc-container $_target)"
@@ -1243,7 +1222,7 @@ oc-stop host='':
 
 # Start the OpenClaw container
 
-# Usage: just oc-start [hsb0|msbp]
+# Usage: just oc-start [hsb0]
 [group('openclaw')]
 oc-start host='':
     #!/usr/bin/env bash
@@ -1252,8 +1231,7 @@ oc-start host='':
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
-            *) echo "Error: specify host: just oc-start hsb0  OR  just oc-start msbp" >&2; exit 1 ;;
+            *) echo "Error: specify host: just oc-start hsb0" >&2; exit 1 ;;
         esac
     fi
     _container="$(just _oc-container $_target)"
@@ -1262,7 +1240,7 @@ oc-start host='':
 
 # Stop then start the container (no rebuild — picks up new openclaw.json on boot)
 
-# Usage: just oc-restart [hsb0|msbp]
+# Usage: just oc-restart [hsb0]
 [group('openclaw')]
 oc-restart host='':
     #!/usr/bin/env bash
@@ -1271,8 +1249,7 @@ oc-restart host='':
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
-            *) echo "Error: specify host: just oc-restart hsb0  OR  just oc-restart msbp" >&2; exit 1 ;;
+            *) echo "Error: specify host: just oc-restart hsb0" >&2; exit 1 ;;
         esac
     fi
     _container="$(just _oc-container $_target)"
@@ -1281,7 +1258,7 @@ oc-restart host='':
 
 # Pull all agent workspace repos into running container
 
-# Usage: just oc-pull-workspace [hsb0|msbp]
+# Usage: just oc-pull-workspace [hsb0]
 [group('openclaw')]
 oc-pull-workspace host='':
     #!/usr/bin/env bash
@@ -1290,8 +1267,7 @@ oc-pull-workspace host='':
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
-            *) echo "Error: specify host: just oc-pull-workspace hsb0  OR  just oc-pull-workspace msbp" >&2; exit 1 ;;
+            *) echo "Error: specify host: just oc-pull-workspace hsb0" >&2; exit 1 ;;
         esac
     fi
     case "$_target" in
@@ -1299,14 +1275,12 @@ oc-pull-workspace host='':
             just _oc-run hsb0 "if [ -f /run/agenix/hsb0-openclaw-github-pat ]; then docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-merlin pull --ff-only; else echo 'Merlin workspace pull disabled - no GitHub PAT configured'; fi"
             just _oc-run hsb0 "docker exec openclaw-gateway git -C /home/node/.openclaw/workspace-nimue pull --ff-only"
             ;;
-        msbp)
-            just _oc-run msbp "docker exec openclaw-percaival git -C /home/node/.openclaw/workspace pull --ff-only"
-            ;;
+        *) echo "Error: unknown host '${_target}'. Use: hsb0" >&2; exit 1 ;;
     esac
 
 # Reindex agent memory (triggers GGUF embedding model if needed, ~328MB first run)
 
-# Usage: just oc-memory-index [hsb0|msbp]
+# Usage: just oc-memory-index [hsb0]
 [group('openclaw')]
 oc-memory-index host='':
     #!/usr/bin/env bash
@@ -1315,8 +1289,7 @@ oc-memory-index host='':
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            miniserver-bp) _target="msbp" ;;
-            *) echo "Error: specify host: just oc-memory-index hsb0  OR  just oc-memory-index msbp" >&2; exit 1 ;;
+            *) echo "Error: specify host: just oc-memory-index hsb0" >&2; exit 1 ;;
         esac
     fi
     case "$_target" in
@@ -1325,10 +1298,7 @@ oc-memory-index host='':
             just _oc-run hsb0 "docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory index --force --agent nimue 2>&1 | tail -5'"
             just _oc-run hsb0 "docker exec openclaw-gateway sh -c '. /home/node/.env && openclaw memory status 2>&1 | grep -e Provider -e Indexed -e Vector'"
             ;;
-        msbp)
-            just _oc-run msbp "docker exec openclaw-percaival sh -c 'openclaw memory index --force 2>&1 | tail -5'"
-            just _oc-run msbp "docker exec openclaw-percaival sh -c 'openclaw memory status 2>&1 | grep -e Provider -e Indexed -e Vector'"
-            ;;
+        *) echo "Error: unknown host '${_target}'. Use: hsb0" >&2; exit 1 ;;
     esac
 
 # ── Workspace aliases (thin wrappers, hsb0-only agents) ──────────────────────
@@ -1342,33 +1312,6 @@ merlin-pull-workspace:
 [group('openclaw')]
 nimue-pull-workspace:
     just oc-pull-workspace hsb0
-
-# ── Percy aliases (backward compat — prefer oc-* commands) ───────────────────
-
-# [deprecated: use 'just oc-stop msbp'] Stop Percy container
-[group('openclaw')]
-percy-stop:
-    just oc-stop msbp
-
-# [deprecated: use 'just oc-start msbp'] Start Percy container
-[group('openclaw')]
-percy-start:
-    just oc-start msbp
-
-# [deprecated: use 'just oc-pull-workspace msbp'] Pull Percy workspace
-[group('openclaw')]
-percy-pull-workspace:
-    just oc-pull-workspace msbp
-
-# [deprecated: use 'just oc-rebuild msbp'] Rebuild Percy container
-[group('openclaw')]
-percy-rebuild:
-    just oc-rebuild msbp
-
-# [deprecated: use 'just oc-status msbp'] Percy container status
-[group('openclaw')]
-percy-status:
-    just oc-status msbp
 
 # Get the reverse dependencies of a nix store path
 [group('maintenance')]
