@@ -180,7 +180,7 @@ grep -Fq 'TRUTH = { state: "stale"' "$client" || fail stale_truth_missing
 grep -A4 -F 'if (ageSec * 1000 > STATUS_MAX_AGE_MS)' "$client" | grep -Fq 'return null;' ||
   fail stale_artifact_not_discarded
 
-[[ "$(grep -Fc 'tests/T58-hostdash-status-fleet.sh' "$repo_root/.github/workflows/check.yml")" == 1 ]] ||
+[[ "$(grep -Fc 'tests/T59-hostdash-status-fleet.sh' "$repo_root/.github/workflows/check.yml")" == 1 ]] ||
   fail ci_wiring_count
 
 printf 'hostdash_status_fleet=ok hosts=4 bindings=%s pin=%s\n' \
