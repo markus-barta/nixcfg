@@ -15,6 +15,7 @@ in
 {
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
+    ../../modules/hostdash-status.nix # NIX-393 — same-origin runtime status artifact
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ./ops-alerts.nix # OPS-104: watch all three HA instances, report to Telegram
@@ -329,6 +330,25 @@ in
   # (OPS-116/121): hostdash-auth → hostdash → traefik, same order.
 
   environment.etc."hostdash/csb0".source = hostdashCsb0;
+
+  # NIX-393 — publish only runtime objects bound by HOSTD-14. SMTP relay stays
+  # unbound because this host has no corresponding container or systemd unit.
+  services.hostdash.status = {
+    enable = true;
+    host = "csb0";
+    containers = [
+      "csb0-traefik-1"
+      "headscale"
+      "csb0-tesla-fleet-key-1"
+      "csb0-docker-proxy-traefik-1"
+      "csb0-nodered-1"
+      "csb0-mosquitto-1"
+      "csb0-uptime-kuma-1"
+      "pharos-beacon"
+      "csb0-restic-cron-hetzner-1"
+    ];
+    units = [ "compose-csb0-update.timer" ];
+  };
 
   # ============================================================================
   # THEMING - Managed via theme-hm.nix

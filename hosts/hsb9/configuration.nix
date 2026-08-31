@@ -48,6 +48,7 @@ in
 {
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
+    ../../modules/hostdash-status.nix # NIX-393 — same-origin runtime status artifact
     ./hardware-configuration.nix
     ../../modules/uzumaki
 
@@ -301,6 +302,20 @@ in
   # against the git WORKING TREE and would have raced compose-hsb9 at switch.
 
   environment.etc."hostdash/hsb9".source = hostdashHsb9;
+
+  # NIX-393 — exact HOSTD-14 bindings. Restic and the dashboard container are
+  # intentionally absent because neither has a card on the four-service board.
+  services.hostdash.status = {
+    enable = true;
+    host = "hsb9";
+    containers = [
+      "homeassistant"
+      "mosquitto"
+      "pharos-beacon"
+    ];
+    units = [ "compose-hsb9-update.timer" ];
+    httpProbes.homeassistant = "http://127.0.0.1:8123/";
+  };
 
   # Pharos beacon per-host token. Docker Compose reads it as an env_file.
   age.secrets.pharos-beacon-hsb9-env = {

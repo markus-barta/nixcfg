@@ -63,6 +63,7 @@ in
 {
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
+    ../../modules/hostdash-status.nix # NIX-393 — same-origin runtime status artifact
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
@@ -731,6 +732,26 @@ in
 
   environment.etc."hostdash/hsb8".source = hostdashHsb8;
 
+  # NIX-393 — manifest-mode bindings and status keys share these exact runtime
+  # names. Restic and the dashboard container itself have no HostDash cards.
+  services.hostdash.status = {
+    enable = true;
+    host = "hsb8";
+    containers = [
+      "homeassistant"
+      "mosquitto"
+      "pharos-beacon"
+    ];
+    units = [
+      "adguardhome.service"
+      "compose-hsb8-update.timer"
+    ];
+    httpProbes = {
+      "adguardhome.service" = "http://127.0.0.1:3000/";
+      homeassistant = "http://127.0.0.1:8123/";
+    };
+  };
+
   services.hostdash.manifest = {
     enable = true;
     host = {
@@ -789,6 +810,7 @@ in
       {
         wing = "network";
         name = "AdGuard Home";
+        unit = "adguardhome.service";
         purpose = "Local DNS, DHCP, filtering, and leases";
         icon = "logo-adguard";
         url = "http://hsb8.lan:3000/";
@@ -798,6 +820,7 @@ in
       {
         wing = "home";
         name = "Home Assistant";
+        container = "homeassistant";
         purpose = "Parents' home automation hub";
         icon = "logo-ha";
         url = "http://hsb8.lan:8123/";
@@ -807,6 +830,7 @@ in
       {
         wing = "home";
         name = "Mosquitto";
+        container = "mosquitto";
         purpose = "MQTT broker for local automations";
         icon = "logo-mqtt";
         passive = true;
@@ -816,6 +840,7 @@ in
       {
         wing = "ops";
         name = "pharos-beacon";
+        container = "pharos-beacon";
         purpose = "Host status to pharosd on csb1";
         icon = "radar";
         passive = true;
@@ -828,6 +853,7 @@ in
         # The real updater is compose-hsb8-update.timer (OPS-125).
         wing = "housekeeping";
         name = "Container updates";
+        unit = "compose-hsb8-update.timer";
         purpose = "Weekly image pull + stack converge (compose-hsb8-update)";
         icon = "refresh-cw";
         passive = true;

@@ -129,6 +129,7 @@
         "source": "hostdash-probe",
         "staticState": null
       },
+      "unit": "adguardhome.service",
       "url": "http://hsb8.lan:3000/",
       "urls": {
         "lanHostname": "http://hsb8.lan:3000/",
@@ -139,6 +140,7 @@
     },
     {
       "certIssue": false,
+      "container": "homeassistant",
       "icon": "logo-ha",
       "name": "Home Assistant",
       "passive": false,
@@ -160,6 +162,7 @@
     },
     {
       "certIssue": false,
+      "container": "mosquitto",
       "foot": ":1883 · broker",
       "icon": "logo-mqtt",
       "name": "Mosquitto",
@@ -176,6 +179,7 @@
     },
     {
       "certIssue": false,
+      "container": "pharos-beacon",
       "foot": "beacon · outbound only",
       "icon": "radar",
       "name": "pharos-beacon",
@@ -203,6 +207,7 @@
         "source": "passive",
         "staticState": null
       },
+      "unit": "compose-hsb8-update.timer",
       "urls": {},
       "wing": "housekeeping"
     }

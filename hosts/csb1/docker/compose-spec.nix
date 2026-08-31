@@ -412,6 +412,8 @@ in
       ];
       volumes = [
         "/etc/hostdash/csb1/share/hostdash-csb1:/usr/share/nginx/html:ro"
+        "/var/lib/hostdash-status:/srv/hostdash-status:ro"
+        "/etc/hostdash-nginx.conf:/etc/nginx/conf.d/default.conf:ro"
       ];
       networks = [
         "traefik"

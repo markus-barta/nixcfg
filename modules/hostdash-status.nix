@@ -46,6 +46,18 @@
 let
   cfg = config.services.hostdash.status;
   statusDir = "/var/lib/hostdash-status";
+  containerStatusFilter = ./files/hostdash-container-status.jq;
+  containerNames = if cfg.containers == null then [ ] else cfg.containers;
+  runtimeKeys = containerNames ++ cfg.units ++ builtins.attrNames cfg.mqttExtras;
+  extraNames = builtins.attrNames cfg.mqttExtras;
+  duplicates =
+    names:
+    lib.unique (builtins.filter (name: lib.count (candidate: candidate == name) names > 1) names);
+  crossKindCollisions = lib.unique (
+    builtins.filter (name: builtins.elem name cfg.units || builtins.elem name extraNames) containerNames
+    ++ builtins.filter (name: builtins.elem name extraNames) cfg.units
+  );
+  validRuntimeName = name: builtins.match "^[A-Za-z0-9_.-]+$" name != null;
 
   httpProbe = pkgs.writeShellApplication {
     name = "hostdash-http-probe";
@@ -56,16 +68,30 @@ let
     text = builtins.readFile ./files/hostdash-http-probe.sh;
   };
 
+  containerCollector = pkgs.writeShellApplication {
+    name = "hostdash-container-status";
+    runtimeInputs = with pkgs; [
+      docker
+      jq
+    ];
+    text = ''
+      # Immutable repository helper.
+      # shellcheck source=/dev/null
+      source ${./files/hostdash-container-status.sh}
+      hostdash_collect_containers "$@"
+    '';
+  };
+
   generator = pkgs.writeShellApplication {
     name = "hostdash-status";
     runtimeInputs = with pkgs; [
-      docker
       systemd
       coreutils
       jq
       mosquitto
       gnugrep
       httpProbe
+      containerCollector
     ];
     text = ''
       OUT="${statusDir}/status.json"
@@ -80,21 +106,9 @@ let
       # `running` and `health` stay SEPARATE fields: a container can be Up while its
       # healthcheck is failing, and collapsing those into one boolean is how a
       # dashboard starts lying.
-      containers="$(docker ps --all --format '{{json .}}' 2>/dev/null \
-        | jq -s 'map({
-            key: .Names,
-            value: {
-              running: (.State == "running"),
-              state: .State,
-              status: .Status,
-              health: (
-                if   (.Status | test("\\(healthy\\)"))          then "healthy"
-                elif (.Status | test("\\(unhealthy\\)"))        then "unhealthy"
-                elif (.Status | test("\\(health: starting\\)")) then "starting"
-                else null end
-              )
-            }
-          }) | from_entries' 2>/dev/null || echo '{}')"
+      containers="$(${lib.getExe containerCollector} \
+        ${lib.escapeShellArg (builtins.toJSON cfg.containers)} \
+        ${containerStatusFilter})"
 
       # --- systemd units ------------------------------------------------------
       units_json="{}"
@@ -184,12 +198,27 @@ in
       example = "hsb1";
     };
 
+    containers = lib.mkOption {
+      type = lib.types.nullOr (lib.types.listOf lib.types.str);
+      default = null;
+      description = ''
+        Docker container names to publish. Set an explicit list for new boards so
+        unrelated or deliberately absent services never become permanent status
+        noise. Null preserves the original enumerate-all behavior for existing
+        deployments until their card inventories are migrated deliberately.
+      '';
+      example = [
+        "homeassistant"
+        "mosquitto"
+      ];
+    };
+
     units = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
       description = ''
-        systemd units to report. Containers are enumerated automatically, so this is
-        only for things systemd owns.
+        systemd units to report. Container status comes from Docker (optionally
+        restricted by containers), so this is only for things systemd owns.
 
         Do NOT list units that are *meant* to be absent: a unit reported as permanently
         "Stopped" is noise, not signal. (FleetCom was listed here briefly before we
@@ -230,7 +259,25 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    assertions = lib.concatLists (
+    assertions = [
+      {
+        assertion = cfg.containers == null || duplicates cfg.containers == [ ];
+        message = "services.hostdash.status.containers must not contain duplicates";
+      }
+      {
+        assertion = duplicates cfg.units == [ ];
+        message = "services.hostdash.status.units must not contain duplicates";
+      }
+      {
+        assertion = builtins.all validRuntimeName runtimeKeys;
+        message = "services.hostdash.status runtime keys must match ^[A-Za-z0-9_.-]+$";
+      }
+      {
+        assertion = crossKindCollisions == [ ];
+        message = "services.hostdash.status container, unit, and extra keys must be distinct";
+      }
+    ]
+    ++ lib.concatLists (
       lib.mapAttrsToList (key: url: [
         {
           assertion = builtins.match "^[A-Za-z0-9_.-]+$" key != null;
@@ -239,6 +286,10 @@ in
         {
           assertion = builtins.match "^https?://127\\.0\\.0\\.1(:[0-9]+)?(/.*)?$" url != null;
           message = "services.hostdash.status.httpProbes.${key} must use an http://127.0.0.1 or https://127.0.0.1 URL";
+        }
+        {
+          assertion = cfg.containers == null || builtins.elem key runtimeKeys;
+          message = "services.hostdash.status.httpProbes.${key} must reference a declared container, unit, or extra";
         }
       ]) cfg.httpProbes
     );

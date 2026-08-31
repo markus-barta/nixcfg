@@ -189,6 +189,7 @@ in
 {
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
+    ../../modules/hostdash-status.nix # NIX-393 — same-origin runtime status artifact
     ./peer-watch.nix # OPS-107: watch csb0's poller so its silence is noticed
     ./tailnet-watch.nix # OPS-181: page when this host's tailnet view is persistently broken
     ./fleet-drift.nix # OPS-187: page when a fleet host's deployed nixcfg is persistently behind main (reads pharosd's store)
@@ -739,6 +740,42 @@ in
       mode = "0400";
     };
     "janus/managed/docker-compose.yml".source = config.nixcfg.composeStack.renderedFile; # OPS-127: was ./docker/docker-compose.yml
+  };
+
+  # NIX-393 — the exact HOSTD-14 bindings. The list is deliberately narrower
+  # than `docker ps`: transient Janus workers and the unlaunched HAUSV
+  # PostgreSQL target are not dashboard services and must not become noise.
+  services.hostdash.status = {
+    enable = true;
+    host = "csb1";
+    containers = [
+      "csb1-traefik-1"
+      "zitadel"
+      "inspr-auth"
+      "csb1-docker-proxy-traefik-1"
+      "csb1-docmost-1"
+      "csb1-paperless-1"
+      "csb1-excalidraw-1"
+      "ppm"
+      "janus"
+      "minio"
+      "pharosd"
+      "hausv-org"
+      "inspr-www"
+      "paimos-www"
+      "csb1-jobs-at-1"
+      "csb1-docmost-db-1"
+      "csb1-docmost-redis-1"
+      "csb1-paperless-db-1"
+      "csb1-paperless-redis-1"
+      "csb1-paperless-tika-1"
+      "csb1-paperless-gotenberg-1"
+      "zitadel-postgres"
+      "csb1-restic-cron-hetzner-1"
+      "csb1-smtp-1"
+      "pharos-beacon"
+    ];
+    units = [ "compose-csb1-update.timer" ];
   };
 
   users.groups = {
