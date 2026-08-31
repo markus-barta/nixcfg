@@ -245,7 +245,6 @@ in
       "hostdash"
       "traefik"
     ];
-    extraRestartTriggers = [ hostdashCsb1 ];
     # 🔴 removeOrphans stays FALSE on csb1, permanently-until-audited: project
     # csb1 contains Janus-managed containers driven from a second compose file
     # plus smoke-test leftovers. Profile-gated services are exempt from orphan
@@ -271,7 +270,57 @@ in
         passwordFile = "/run/agenix/csb1-inspr-site-ghcr-pull";
       }
     ];
+    # NIX-400: the renderer and Compose must rerun together on ciphertext or
+    # renderer changes so Traefik and inspr-auth cannot retain different token
+    # generations. The explicit dependency below upgrades this Wants/After to
+    # Requires for csb1: a missing private fragment must block reconciliation.
+    extraAfter = [ "inspr-edge-config.service" ];
+    extraRestartTriggers = [
+      hostdashCsb1
+      config.age.secrets.csb1-inspr-auth-env.file
+      ./scripts/render-inspr-edge-config.sh
+    ];
     spec = import ./docker/compose-spec.nix;
+  };
+
+  # The token never enters the Nix store, Docker labels, argv, or logs.
+  # systemd reads the existing root-only agenix env file, and the renderer
+  # writes only a mode-0400 runtime fragment consumed by Traefik's file
+  # provider. inspr-auth consumes the same env_file in compose-spec.nix.
+  systemd.services.inspr-edge-config = {
+    description = "Render the private inspr-auth Traefik edge attestation";
+    wantedBy = [ "multi-user.target" ];
+    before = [ "compose-csb1.service" ];
+    after = [ "agenix.service" ];
+    restartTriggers = [
+      config.age.secrets.csb1-inspr-auth-env.file
+      ./scripts/render-inspr-edge-config.sh
+    ];
+    path = [ pkgs.coreutils ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      EnvironmentFile = config.age.secrets.csb1-inspr-auth-env.path;
+      RuntimeDirectory = "inspr-edge";
+      RuntimeDirectoryMode = "0700";
+      RuntimeDirectoryPreserve = "restart";
+      UMask = "0077";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectHome = true;
+      ProtectSystem = "strict";
+    };
+    script = ''
+      exec ${pkgs.bash}/bin/bash ${./scripts/render-inspr-edge-config.sh} \
+        /run/inspr-edge/dynamic.yml
+    '';
+  };
+
+  # A failed/missing renderer is a hard dependency, not an advisory Wants.
+  # This merges with composeStack's docker.service requirement.
+  systemd.services.compose-csb1 = {
+    requires = [ "inspr-edge-config.service" ];
+    after = [ "inspr-edge-config.service" ];
   };
 
   # ============================================================================
