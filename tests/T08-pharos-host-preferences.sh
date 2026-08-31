@@ -62,6 +62,30 @@ grep -Fq \
 grep -Fq 'name: pharos-host-settings-outcome-${{ github.run_id }}-${{ github.run_attempt }}' \
   "$workflow"
 
+# NIX-402: changing the registry dirties the flake, and NIX-348 correctly
+# rejects a dirty self.rev. The workflow must commit both proposed states before
+# evaluating them, and pipefail must prevent jq from masking a failed nix eval.
+# shellcheck disable=SC2016 # Literal workflow shell expression.
+settings_commit_line=$(grep -nF 'git commit -m "pharos: stage $PHAROS_HOST host settings for validation"' \
+  "$workflow" | cut -d: -f1)
+manifest_eval_line=$(grep -nF '.#nixosConfigurations.hsb8.config.services.hostdash.manifest.generated' \
+  "$workflow" | cut -d: -f1)
+manifest_commit_line=$(grep -nF "git commit -m 'pharos: regenerate declared hsb8 manifest'" \
+  "$workflow" | cut -d: -f1)
+# shellcheck disable=SC2016 # Literal GitHub Actions expression.
+target_eval_line=$(grep -nF '".#nixosConfigurations.${PHAROS_HOST}.config.system.build.toplevel.drvPath"' \
+  "$workflow" | cut -d: -f1)
+[[ -n "$settings_commit_line" && -n "$manifest_eval_line" &&
+  -n "$manifest_commit_line" && -n "$target_eval_line" ]]
+((settings_commit_line < manifest_eval_line))
+((manifest_eval_line < manifest_commit_line))
+((manifest_commit_line < target_eval_line))
+[[ "$(grep -Fc 'set -euo pipefail' "$workflow")" -ge 3 ]]
+grep -Fq 'git diff --cached --quiet --exit-code' "$workflow"
+# shellcheck disable=SC2016 # Literal workflow shell expression.
+grep -Fq 'chmod 0644 "$manifest"' "$workflow"
+grep -Fq "git diff --exit-code -- \\" "$workflow"
+
 already_declared_outcome="$fixture_dir/already-declared.json"
 GITHUB_REPOSITORY=markus-barta/nixcfg \
   GITHUB_RUN_ID=12345 \
