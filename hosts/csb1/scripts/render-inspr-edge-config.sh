@@ -3,7 +3,7 @@
 set -euo pipefail
 
 output=${1:?output path required}
-token=${INSPR_EDGE_TOKEN:-}
+token=${ENTER_EDGE_TOKEN:-}
 
 if [[ ! ${token} =~ ^[0-9a-f]{64}$ ]]; then
   printf '%s\n' 'inspr edge config blocked: ENTER_EDGE_TOKEN must be exactly 64 lowercase hex characters' >&2

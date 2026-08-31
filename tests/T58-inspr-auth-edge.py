@@ -141,7 +141,15 @@ def verify_topology(
 def verify_renderer() -> None:
     require(RENDERER.is_file(), "edge-token renderer is missing")
     source = RENDERER.read_text(encoding="utf-8")
-    for forbidden in ("set -x", "echo $INSPR_EDGE_TOKEN", "echo ${INSPR_EDGE_TOKEN}"):
+    require(
+        "INSPR_EDGE_TOKEN" not in source,
+        "renderer still accepts the obsolete token environment name",
+    )
+    for forbidden in (
+        "set -x",
+        "echo $ENTER_EDGE_TOKEN",
+        "echo ${ENTER_EDGE_TOKEN}",
+    ):
         require(
             forbidden not in source, f"renderer may disclose the token: {forbidden}"
         )
@@ -149,7 +157,8 @@ def verify_renderer() -> None:
     with tempfile.TemporaryDirectory() as directory:
         output = pathlib.Path(directory) / "dynamic.yml"
         environment = os.environ.copy()
-        environment["INSPR_EDGE_TOKEN"] = FIXTURE_TOKEN
+        environment.pop("INSPR_EDGE_TOKEN", None)
+        environment["ENTER_EDGE_TOKEN"] = FIXTURE_TOKEN
         rendered = subprocess.run(
             [str(RENDERER), str(output)],
             env=environment,
@@ -180,7 +189,7 @@ def verify_renderer() -> None:
 
         output.unlink()
         missing_environment = environment.copy()
-        missing_environment.pop("INSPR_EDGE_TOKEN")
+        missing_environment.pop("ENTER_EDGE_TOKEN")
         missing = subprocess.run(
             [str(RENDERER), str(output)],
             env=missing_environment,
@@ -193,9 +202,23 @@ def verify_renderer() -> None:
             "missing token did not fail closed",
         )
 
+        legacy_environment = missing_environment.copy()
+        legacy_environment["INSPR_EDGE_TOKEN"] = FIXTURE_TOKEN
+        legacy = subprocess.run(
+            [str(RENDERER), str(output)],
+            env=legacy_environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        require(
+            legacy.returncode != 0 and not output.exists(),
+            "obsolete INSPR_EDGE_TOKEN alias must not satisfy the renderer",
+        )
+
         invalid_token = "not-valid-and-must-never-appear-in-diagnostics"
         invalid_environment = environment.copy()
-        invalid_environment["INSPR_EDGE_TOKEN"] = invalid_token
+        invalid_environment["ENTER_EDGE_TOKEN"] = invalid_token
         invalid = subprocess.run(
             [str(RENDERER), str(output)],
             env=invalid_environment,
