@@ -71,8 +71,19 @@ grep -Fq 'restart_and_verify_runtime automatic-rollback' "$apply"
 grep -Fq 'restart_and_verify_runtime automatic-recovery' "$rollback"
 
 grep -Fq 'PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json' "$host_compose"
-grep -Fq '/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro' "$host_compose"
+grep -Fq '/run/pharos-preferences:/etc/pharos:ro' "$host_compose"
+if grep -Fq '/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json' "$host_compose"; then
+  echo 'generation-pinning Pharos preferences file mount found' >&2
+  exit 1
+fi
 grep -Fq 'environment.etc."pharos/host-preferences.json".source = ./pharos-host-preferences.json;' \
+  "$repo_root/modules/common.nix"
+grep -Fq 'system.activationScripts.pharosHostPreferences' "$repo_root/modules/common.nix"
+grep -Fq \
+  'install -m 0644 /etc/pharos/host-preferences.json /run/pharos-preferences/.host-preferences.json.tmp' \
+  "$repo_root/modules/common.nix"
+grep -Fq \
+  'mv -f /run/pharos-preferences/.host-preferences.json.tmp /run/pharos-preferences/host-preferences.json' \
   "$repo_root/modules/common.nix"
 
 if grep -ERq 'git reset|git clean|rm -rf|docker compose (down|restart|rm)' \
