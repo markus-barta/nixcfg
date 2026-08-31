@@ -470,6 +470,7 @@
         "PHAROS_URL=http://100.64.0.4:8088"
         "PHAROS_INTERVAL=60"
         "PHAROS_HOSTNAME=hsb1"
+        "PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json"
         "PHAROS_CURRENT_KERNEL_MODULES_DIR=/host/run/current-system/kernel-modules/lib/modules"
         "PHAROS_NIX_DEPLOYMENT_EVIDENCE_FILE=/host/pharos-deployment/evidence.json"
         "PHAROS_NIXCFG_REMOTE_URL=https://github.com/markus-barta/nixcfg.git"
@@ -487,6 +488,7 @@
         "/home/mba/Code/nixcfg:/nixcfg:ro"
         "/run/pharos-deployment:/host/pharos-deployment:ro" # OPS-186: directory, not the file — see flake.nix activation script
         "/etc/NIXOS:/etc/NIXOS:ro"
+        "/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro"
         "/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro"
         "/var/lib/hsb1-docker/pharos-backup-status:/pharos-backup-status:ro"
       ];

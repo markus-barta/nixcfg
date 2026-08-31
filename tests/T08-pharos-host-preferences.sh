@@ -20,7 +20,6 @@ jq -e '
 
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 host_config="$repo_root/hosts/csb1/configuration.nix"
-hsb8_compose="$repo_root/hosts/hsb8/docker/compose-spec.nix"
 [[ "$(grep -Fc 'PHAROS_CURRENT_KERNEL_MODULES_DIR=/host/run/current-system/kernel-modules/lib/modules' "$compose")" == 1 ]]
 [[ "$(grep -Fc '/run/current-system/kernel-modules/lib/modules:/host/run/current-system/kernel-modules/lib/modules:ro' "$compose")" == 1 ]]
 [[ "$(grep -Fc 'PHAROS_HOST_PREFERENCES_PATH=/config/pharos-host-preferences.json' "$compose")" == 1 ]]
@@ -33,10 +32,64 @@ if grep -Eq 'PHAROS_NIXCFG_DISPATCH_TOKEN=' "$compose"; then
 fi
 grep -Fq 'age.secrets.csb1-pharos-nixcfg-dispatch-token' "$host_config"
 grep -Fq 'file = ../../secrets/csb1-pharos-nixcfg-dispatch-token.age;' "$host_config"
-[[ "$(grep -Fc 'PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json' "$hsb8_compose")" == 1 ]]
-[[ "$(grep -Fc '/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro' "$hsb8_compose")" == 1 ]]
+for host in csb0 csb1 hsb0 hsb1 hsb8 hsb9; do
+  beacon_compose="$repo_root/hosts/$host/docker/compose-spec.nix"
+  [[ "$(grep -Fc 'PHAROS_PREFERENCES_FILE=/etc/pharos/host-preferences.json' "$beacon_compose")" == 1 ]]
+  [[ "$(grep -Fc '/etc/pharos/host-preferences.json:/etc/pharos/host-preferences.json:ro' "$beacon_compose")" == 1 ]]
+done
 grep -Fq 'environment.etc."pharos/host-preferences.json".source = ./pharos-host-preferences.json;' \
   "$repo_root/modules/common.nix"
+
+workflow="$repo_root/.github/workflows/pharos-host-settings.yml"
+outcome_writer="$repo_root/scripts/write-pharos-host-settings-outcome.sh"
+grep -Fq 'scripts/write-pharos-host-settings-outcome.sh' "$workflow"
+grep -Fq \
+  'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2' \
+  "$workflow"
+# shellcheck disable=SC2016 # Literal GitHub Actions expressions.
+grep -Fq 'name: pharos-host-settings-outcome-${{ github.run_id }}-${{ github.run_attempt }}' \
+  "$workflow"
+
+already_declared_outcome="$fixture_dir/already-declared.json"
+GITHUB_REPOSITORY=markus-barta/nixcfg \
+  GITHUB_RUN_ID=12345 \
+  GITHUB_RUN_ATTEMPT=1 \
+  "$outcome_writer" csb0 test-request-1 already_declared '' \
+  "$already_declared_outcome" >/dev/null
+jq -e '
+  . == {
+    schema: "inspr.pharos.host-settings-outcome.v1",
+    request_id: "test-request-1",
+    host: "csb0",
+    outcome: "already_declared",
+    repository: "markus-barta/nixcfg",
+    workflow_run_id: 12345,
+    workflow_run_attempt: 1,
+    pull_request_number: null
+  }
+' "$already_declared_outcome" >/dev/null
+
+merged_outcome="$fixture_dir/merged.json"
+GITHUB_REPOSITORY=markus-barta/nixcfg \
+  GITHUB_RUN_ID=12346 \
+  GITHUB_RUN_ATTEMPT=2 \
+  "$outcome_writer" hsb8 test-request-2 merged 480 "$merged_outcome" >/dev/null
+jq -e '
+  .outcome == "merged"
+  and .request_id == "test-request-2"
+  and .pull_request_number == 480
+  and .workflow_run_id == 12346
+  and .workflow_run_attempt == 2
+' "$merged_outcome" >/dev/null
+
+if GITHUB_REPOSITORY=markus-barta/nixcfg \
+  GITHUB_RUN_ID=12347 \
+  GITHUB_RUN_ATTEMPT=1 \
+  "$outcome_writer" csb0 test-request-3 already_declared 481 \
+  "$fixture_dir/invalid-outcome.json" >/dev/null 2>&1; then
+  echo "already-declared outcome accepted a pull request number" >&2
+  exit 1
+fi
 
 run_update() {
   PHAROS_SETTINGS_FILE="$fixture" \
