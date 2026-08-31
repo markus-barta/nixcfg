@@ -42,42 +42,121 @@ generator_context=$(nix eval --json --apply 'value: builtins.getContext value' "
   fail generator_context_eval_failed
 generator_drv=$(jq -er 'keys | if length == 1 then .[0] else error("ambiguous generator context") end' \
   <<<"$generator_context") || fail generator_drv_not_unique
-generator_derivation=$(nix derivation show "${generator_drv}^*") || fail generator_derivation_unavailable
-jq -e '.derivations | type == "object" and length == 1' <<<"$generator_derivation" >/dev/null ||
-  fail generator_derivation_shape
-generator_text=$(jq -er '
-  .derivations | to_entries
-  | if length == 1 then .[0].value.env.text else error("ambiguous generator derivation") end
-' <<<"$generator_derivation") || fail generator_text_unavailable
-generator_out=$(jq -er '
-  .derivations | to_entries
-  | if length == 1 then "/nix/store/" + .[0].value.outputs.out.path else error("ambiguous generator output") end
-' <<<"$generator_derivation") || fail generator_output_unavailable
+
+# The legacy `nix show-derivation DRV` interface returns either its longstanding
+# single top-level drv key or, on current Mac Nix, an exact {version,derivations}
+# envelope. Accept only those two observed one-entry shapes and normalize them to
+# one {key,value} entry. Extras, multiple drvs, nulls, arrays, and unknown schemas
+# fail closed.
+normalize_derivation_json() {
+  jq -ce '
+    def exact_entry($object):
+      ($object | to_entries) as $entries
+      | if (($entries | length) == 1 and ($entries[0].key | endswith(".drv")))
+        then $entries[0]
+        else error("derivation set must contain exactly one .drv key")
+        end;
+    if type != "object" then
+      error("derivation result must be an object")
+    elif keys == ["derivations", "version"] then
+      if ((.version | type) == "number" and (.derivations | type) == "object")
+      then exact_entry(.derivations)
+      else error("versioned derivations wrapper is malformed")
+      end
+    elif ((keys | length) == 1 and (keys[0] | endswith(".drv"))) then
+      exact_entry(.)
+    else
+      error("unknown or ambiguous derivation schema")
+    end
+  '
+}
+
+derivation_input_drvs() {
+  jq -ce '
+    .value as $drv
+    | if (($drv.inputs? | type) == "object"
+          and ($drv.inputs.drvs? | type) == "object"
+          and ($drv | has("inputDrvs") | not)) then
+        $drv.inputs.drvs
+      elif (($drv.inputDrvs? | type) == "object"
+            and ($drv | has("inputs") | not)) then
+        $drv.inputDrvs
+      else
+        error("unknown or ambiguous derivation input schema")
+      end
+  '
+}
+
+normalize_store_path() {
+  local path=$1
+  case "$path" in
+  /nix/store/*) printf '%s\n' "$path" ;;
+  */*) return 1 ;;
+  *) printf '/nix/store/%s\n' "$path" ;;
+  esac
+}
+
+fixture_body_current='{"env":{"text":"fixture"},"outputs":{"out":{"path":"fixture-out"}},"inputs":{"drvs":{"dependency.drv":{"outputs":["out"]}}}}'
+fixture_body_legacy='{"env":{"text":"fixture"},"outputs":{"out":{"path":"/nix/store/fixture-out"}},"inputDrvs":{"/nix/store/dependency.drv":["out"]}}'
+wrapped_fixture=$(jq -cn --argjson body "$fixture_body_current" \
+  '{version:4,derivations:{"fixture.drv":$body}}')
+top_level_fixture=$(jq -cn --argjson body "$fixture_body_legacy" '{"/nix/store/fixture.drv":$body}')
+wrapped_fixture_entry=$(normalize_derivation_json <<<"$wrapped_fixture") ||
+  fail wrapped_derivation_fixture_rejected
+top_level_fixture_entry=$(normalize_derivation_json <<<"$top_level_fixture") ||
+  fail top_level_derivation_fixture_rejected
+jq -e '.key == "fixture.drv" and .value.env.text == "fixture"' \
+  <<<"$wrapped_fixture_entry" >/dev/null || fail wrapped_derivation_fixture_changed
+jq -e '.key == "/nix/store/fixture.drv" and .value.env.text == "fixture"' \
+  <<<"$top_level_fixture_entry" >/dev/null || fail top_level_derivation_fixture_changed
+[[ "$(derivation_input_drvs <<<"$wrapped_fixture_entry" | jq -r 'keys[0]')" == dependency.drv ]] ||
+  fail wrapped_derivation_inputs_changed
+[[ "$(derivation_input_drvs <<<"$top_level_fixture_entry" | jq -r 'keys[0]')" == /nix/store/dependency.drv ]] ||
+  fail top_level_derivation_inputs_changed
+[[ "$(normalize_store_path "$(jq -r '.value.outputs.out.path' <<<"$wrapped_fixture_entry")")" == /nix/store/fixture-out ]] || fail wrapped_derivation_output_changed
+[[ "$(normalize_store_path "$(jq -r '.value.outputs.out.path' <<<"$top_level_fixture_entry")")" == /nix/store/fixture-out ]] || fail top_level_derivation_output_changed
+
+ambiguous_wrapped=$(jq -cn --argjson body "$fixture_body_current" \
+  '{version:4,derivations:{"one.drv":$body,"two.drv":$body}}')
+if normalize_derivation_json <<<"$ambiguous_wrapped" >/dev/null 2>&1; then
+  fail ambiguous_wrapped_derivation_accepted
+fi
+ambiguous_top=$(jq -cn --argjson body "$fixture_body_legacy" \
+  '{"/nix/store/one.drv":$body,"/nix/store/two.drv":$body}')
+if normalize_derivation_json <<<"$ambiguous_top" >/dev/null 2>&1; then
+  fail ambiguous_top_level_derivation_accepted
+fi
+wrapped_with_extra=$(jq -cn --argjson body "$fixture_body_current" \
+  '{version:4,derivations:{"fixture.drv":$body},extra:{}}')
+if normalize_derivation_json <<<"$wrapped_with_extra" >/dev/null 2>&1; then
+  fail wrapped_derivation_extra_key_accepted
+fi
+
+generator_derivation=$(nix show-derivation "$generator_drv") || fail generator_derivation_unavailable
+generator_entry=$(normalize_derivation_json <<<"$generator_derivation") || fail generator_derivation_shape
+generator_text=$(jq -er '.value.env.text' <<<"$generator_entry") || fail generator_text_unavailable
+generator_out=$(normalize_store_path "$(jq -er '.value.outputs.out.path' <<<"$generator_entry")") ||
+  fail generator_output_unavailable
 [[ "$generator_exec" == "$generator_out/bin/hostdash-status" ]] || fail generator_exec_not_exact_output
 
+generator_input_drvs=$(derivation_input_drvs <<<"$generator_entry") || fail generator_input_schema
 collector_drv_name=$(jq -er '
-  [.derivations[] .inputs.drvs | keys[] | select(endswith("-hostdash-container-status.drv"))]
+  [keys[] | select((split("/")[-1]) | endswith("-hostdash-container-status.drv"))]
   | if length == 1 then .[0] else error("ambiguous collector input") end
-' <<<"$generator_derivation") || fail collector_drv_not_unique
-collector_drv="/nix/store/$collector_drv_name"
-collector_derivation=$(nix derivation show "${collector_drv}^*") || fail collector_derivation_unavailable
-jq -e '.derivations | type == "object" and length == 1' <<<"$collector_derivation" >/dev/null ||
-  fail collector_derivation_shape
-collector_text=$(jq -er '
-  .derivations | to_entries
-  | if length == 1 then .[0].value.env.text else error("ambiguous collector derivation") end
-' <<<"$collector_derivation") || fail collector_text_unavailable
-collector_out=$(jq -er '
-  .derivations | to_entries
-  | if length == 1 then "/nix/store/" + .[0].value.outputs.out.path else error("ambiguous collector output") end
-' <<<"$collector_derivation") || fail collector_output_unavailable
+' <<<"$generator_input_drvs") || fail collector_drv_not_unique
+collector_drv=$(normalize_store_path "$collector_drv_name") || fail collector_drv_path_invalid
+collector_derivation=$(nix show-derivation "$collector_drv") || fail collector_derivation_unavailable
+collector_entry=$(normalize_derivation_json <<<"$collector_derivation") || fail collector_derivation_shape
+collector_text=$(jq -er '.value.env.text' <<<"$collector_entry") || fail collector_text_unavailable
+collector_out=$(normalize_store_path "$(jq -er '.value.outputs.out.path' <<<"$collector_entry")") ||
+  fail collector_output_unavailable
 collector_exec="$collector_out/bin/hostdash-container-status"
 
+collector_input_drvs=$(derivation_input_drvs <<<"$collector_entry") || fail collector_input_schema
 jq -e '
-  .derivations[] as $collector
-  | ([$collector.inputs.drvs | keys[] | contains("-docker-")] | any)
-  and ([$collector.inputs.drvs | keys[] | contains("-jq-")] | any)
-' <<<"$collector_derivation" >/dev/null || fail collector_runtime_closure_missing
+  ([keys[] | contains("-docker-")] | any)
+  and ([keys[] | contains("-jq-")] | any)
+' <<<"$collector_input_drvs" >/dev/null || fail collector_runtime_closure_missing
 
 collector_contract() {
   local source=$1
