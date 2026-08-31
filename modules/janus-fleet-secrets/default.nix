@@ -80,10 +80,13 @@ let
       lib.hasPrefix sourcePrefix credential
     else
       source == credential;
-  credentialEntriesHaveNoSpecifiers =
+  credentialEntryHasNoExpansionSyntax = entry: !lib.hasInfix "%" entry && !lib.hasInfix "\\" entry;
+  credentialEntriesHaveNoExpansionSyntax =
     consumer:
-    lib.all (directEntry: !lib.hasInfix "%" directEntry.entry) (directCredentialEntries consumer)
-    && lib.all (entry: !lib.hasInfix "%" entry) (directiveEntries consumer "ImportCredential");
+    lib.all (directEntry: credentialEntryHasNoExpansionSyntax directEntry.entry) (
+      directCredentialEntries consumer
+    )
+    && lib.all credentialEntryHasNoExpansionSyntax (directiveEntries consumer "ImportCredential");
   matchingCredentialEntries =
     consumer:
     let
@@ -174,8 +177,8 @@ in
       message = "inspr.janusFleetSecrets consumer ${unitName consumer} must already declare ExecStart";
     }) validConsumers
     ++ map (consumer: {
-      assertion = credentialEntriesHaveNoSpecifiers consumer;
-      message = "inspr.janusFleetSecrets systemd credential entries in ${unitName consumer} must not contain specifiers";
+      assertion = credentialEntriesHaveNoExpansionSyntax consumer;
+      message = "inspr.janusFleetSecrets systemd credential entries in ${unitName consumer} must not contain specifiers or escapes";
     }) validConsumers
     ++ map (consumer: {
       assertion = lib.length (matchingCredentialEntries consumer) == 1;
