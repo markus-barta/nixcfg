@@ -185,7 +185,7 @@ jobs:
         run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
 
       - name: Verify Janus fleet-secret systemd credential wiring
-        run: tests/T58-janus-fleet-secret-module.sh
+        run: nix shell nixpkgs#bash nixpkgs#coreutils --command bash tests/T58-janus-fleet-secret-module.sh
 
       - name: Verify headscale DERP-map fallback contract (OPS-180)
         run: nix-shell -p python3Packages.pyyaml --run tests/T43-headscale-derp-fallback.sh

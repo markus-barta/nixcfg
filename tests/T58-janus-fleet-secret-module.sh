@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
-  printf '%s: bash %s is too old -- set -e does not abort on a failing [[ ]], so this test would FALSELY PASS. Run under bash 5: nix run nixpkgs#bash -- %s\n' \
+  printf '%s: bash %s is too old -- set -e does not abort on a failing [[ ]], so this test would FALSELY PASS. Run with: nix shell nixpkgs#bash nixpkgs#coreutils --command bash %s\n' \
     "${0##*/}" "$BASH_VERSION" "$0" >&2
+  exit 2
+fi
+if ! stat --version 2>/dev/null | grep -Fq 'GNU coreutils'; then
+  printf '%s: GNU coreutils stat is required. Run with: nix shell nixpkgs#bash nixpkgs#coreutils --command bash %s\n' \
+    "${0##*/}" "$0" >&2
   exit 2
 fi
 
@@ -25,6 +30,7 @@ fixture="${repo}/tests/janus-fleet-secret-module-eval.nix"
 fixture_host="${repo}/tests/fixtures/janus-fleet-secret-host.nix"
 validator="${repo}/modules/janus-fleet-secrets/validate-projection.sh"
 runbook="${repo}/hosts/csb1/docs/RUNBOOK.md"
+workflow="${repo}/.github/workflows/check.yml"
 
 nix-instantiate --parse "${module}" >/dev/null
 nix eval --impure --raw --file "${fixture}" |
@@ -40,6 +46,9 @@ if grep -Fq 'RemainAfterExit' "${module}"; then
   exit 1
 fi
 grep -Fq 'systemd-credential://janus-shared-alert-url' "${runbook}"
+grep -Fq \
+  'run: nix shell nixpkgs#bash nixpkgs#coreutils --command bash tests/T58-janus-fleet-secret-module.sh' \
+  "${workflow}"
 
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/janus-fleet-secret.XXXXXX")"
 cleanup() {

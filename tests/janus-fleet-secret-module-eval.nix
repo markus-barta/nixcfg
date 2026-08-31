@@ -107,6 +107,34 @@ let
       "janus-shared-alert-url"
     ];
   };
+  loadSpecifier = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.LoadCredential = [
+      "janus-%H:/run/unreviewed/plain"
+    ];
+  };
+  loadEncryptedSpecifier = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.LoadCredentialEncrypted = [
+      "janus-%H:/run/unreviewed/encrypted"
+    ];
+  };
+  setSpecifier = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.SetCredential = [
+      "janus-%H:public-fallback"
+    ];
+  };
+  setEncryptedSpecifier = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.SetCredentialEncrypted = [
+      "janus-%H:encrypted-fallback"
+    ];
+  };
+  importSpecifier = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [ "janus-%H" ];
+  };
   importExactCollision = evaluate {
     hostName = "hsb1";
     extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [
@@ -127,6 +155,12 @@ let
     hostName = "hsb1";
     extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [
       "legacy.*:janus-"
+    ];
+  };
+  importEmptyRenameCollision = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [
+      "janus-shared-alert-url:"
     ];
   };
   missingConsumer = evaluate {
@@ -204,6 +238,21 @@ assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixtur
   (assertionMessages setImplicitCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages setEncryptedImplicitCollision);
+assert builtins.elem
+  "inspr.janusFleetSecrets systemd credential entries in fixture-consumer.service must not contain specifiers"
+  (assertionMessages loadSpecifier);
+assert builtins.elem
+  "inspr.janusFleetSecrets systemd credential entries in fixture-consumer.service must not contain specifiers"
+  (assertionMessages loadEncryptedSpecifier);
+assert builtins.elem
+  "inspr.janusFleetSecrets systemd credential entries in fixture-consumer.service must not contain specifiers"
+  (assertionMessages setSpecifier);
+assert builtins.elem
+  "inspr.janusFleetSecrets systemd credential entries in fixture-consumer.service must not contain specifiers"
+  (assertionMessages setEncryptedSpecifier);
+assert builtins.elem
+  "inspr.janusFleetSecrets systemd credential entries in fixture-consumer.service must not contain specifiers"
+  (assertionMessages importSpecifier);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages importExactCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
@@ -212,6 +261,8 @@ assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixtur
   (assertionMessages importExactRenameCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages importWildcardRenameCollision);
+assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
+  (assertionMessages importEmptyRenameCollision);
 assert builtins.elem
   "inspr.janusFleetSecrets consumer mistyped-consumer.service must already declare ExecStart"
   (assertionMessages missingConsumer);

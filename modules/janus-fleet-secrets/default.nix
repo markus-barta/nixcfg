@@ -69,7 +69,8 @@ let
     let
       renamed = builtins.match "([^:]+):(.*)" entry;
       source = if renamed == null then entry else builtins.elemAt renamed 0;
-      target = if renamed == null then null else builtins.elemAt renamed 1;
+      rawTarget = if renamed == null then null else builtins.elemAt renamed 1;
+      target = if rawTarget == "" then null else rawTarget;
       wildcard = lib.hasSuffix "*" source;
       sourcePrefix = lib.removeSuffix "*" source;
     in
@@ -79,6 +80,10 @@ let
       lib.hasPrefix sourcePrefix credential
     else
       source == credential;
+  credentialEntriesHaveNoSpecifiers =
+    consumer:
+    lib.all (directEntry: !lib.hasInfix "%" directEntry.entry) (directCredentialEntries consumer)
+    && lib.all (entry: !lib.hasInfix "%" entry) (directiveEntries consumer "ImportCredential");
   matchingCredentialEntries =
     consumer:
     let
@@ -167,6 +172,10 @@ in
     ++ map (consumer: {
       assertion = consumerHasExecStart consumer;
       message = "inspr.janusFleetSecrets consumer ${unitName consumer} must already declare ExecStart";
+    }) validConsumers
+    ++ map (consumer: {
+      assertion = credentialEntriesHaveNoSpecifiers consumer;
+      message = "inspr.janusFleetSecrets systemd credential entries in ${unitName consumer} must not contain specifiers";
     }) validConsumers
     ++ map (consumer: {
       assertion = lib.length (matchingCredentialEntries consumer) == 1;
