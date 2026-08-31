@@ -606,9 +606,11 @@ rejects a missing, non-regular, symlinked, non-root-owned, or non-`0600` file,
 as well as any symlinked, unexpectedly owned, writable, or non-private final
 parent path. Existing `LoadCredential*`, `SetCredential*`, or
 `ImportCredential` exact/wildcard/rename entries may not produce the derived
-credential name. Systemd `%` specifiers and backslash escapes are rejected on
-all five credential directives rather than normalized in an under-matched
-assertion. There is no agenix, environment, inline, or credstore fallback.
+credential name. Every entry in all five credential directives must be a
+nonempty printable-ASCII line with non-space ends; `%` specifiers and backslash
+escapes are rejected. Empty resets, outer whitespace, control/non-ASCII bytes,
+and unit-file line injection therefore fail before the first literal colon is
+parsed. There is no agenix, environment, inline, or credstore fallback.
 
 The application reads `$CREDENTIALS_DIRECTORY/janus-shared-alert-url`
 directly, or uses `systemd-credential://janus-shared-alert-url` through

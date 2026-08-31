@@ -36,34 +36,18 @@ let
     asList (config.systemd.services.${consumer.unit}.serviceConfig.${directive} or [ ]);
   directCredentialEntries =
     consumer:
-    lib.concatMap
-      (
-        directive:
-        map (entry: {
-          inherit directive entry;
-        }) (directiveEntries consumer directive)
-      )
-      [
-        "LoadCredential"
-        "LoadCredentialEncrypted"
-        "SetCredential"
-        "SetCredentialEncrypted"
-      ];
+    lib.concatMap (directive: directiveEntries consumer directive) [
+      "LoadCredential"
+      "LoadCredentialEncrypted"
+      "SetCredential"
+      "SetCredentialEncrypted"
+    ];
   entryCredentialName =
-    directEntry:
+    entry:
     let
-      explicit = builtins.match "([^:]+):.*" directEntry.entry;
-      sourceOnlyLoad = lib.elem directEntry.directive [
-        "LoadCredential"
-        "LoadCredentialEncrypted"
-      ];
+      explicit = builtins.match "([^:]+):.*" entry;
     in
-    if explicit != null then
-      builtins.elemAt explicit 0
-    else if sourceOnlyLoad then
-      builtins.baseNameOf directEntry.entry
-    else
-      directEntry.entry;
+    if explicit == null then entry else builtins.elemAt explicit 0;
   importProducesCredential =
     credential: entry:
     let
@@ -80,20 +64,26 @@ let
       lib.hasPrefix sourcePrefix credential
     else
       source == credential;
-  credentialEntryHasNoExpansionSyntax = entry: !lib.hasInfix "%" entry && !lib.hasInfix "\\" entry;
-  credentialEntriesHaveNoExpansionSyntax =
+  credentialEntryIsCanonical =
+    entry:
+    builtins.match "[!-~]([ -~]*[!-~])?" entry != null
+    && !lib.hasInfix "%" entry
+    && !lib.hasInfix "\\" entry;
+  credentialEntriesAreCanonical =
     consumer:
-    lib.all (directEntry: credentialEntryHasNoExpansionSyntax directEntry.entry) (
-      directCredentialEntries consumer
-    )
-    && lib.all credentialEntryHasNoExpansionSyntax (directiveEntries consumer "ImportCredential");
+    lib.all credentialEntryIsCanonical (directCredentialEntries consumer)
+    && lib.all credentialEntryIsCanonical (directiveEntries consumer "ImportCredential");
   matchingCredentialEntries =
     consumer:
     let
       credential = credentialName consumer.fleetSecret;
+      canonicalDirectEntries = lib.filter credentialEntryIsCanonical (directCredentialEntries consumer);
+      canonicalImportEntries = lib.filter credentialEntryIsCanonical (
+        directiveEntries consumer "ImportCredential"
+      );
     in
-    lib.filter (entry: entryCredentialName entry == credential) (directCredentialEntries consumer)
-    ++ lib.filter (importProducesCredential credential) (directiveEntries consumer "ImportCredential");
+    lib.filter (entry: entryCredentialName entry == credential) canonicalDirectEntries
+    ++ lib.filter (importProducesCredential credential) canonicalImportEntries;
   consumerHasExecStart =
     consumer:
     let
@@ -177,8 +167,8 @@ in
       message = "inspr.janusFleetSecrets consumer ${unitName consumer} must already declare ExecStart";
     }) validConsumers
     ++ map (consumer: {
-      assertion = credentialEntriesHaveNoExpansionSyntax consumer;
-      message = "inspr.janusFleetSecrets systemd credential entries in ${unitName consumer} must not contain specifiers or escapes";
+      assertion = credentialEntriesAreCanonical consumer;
+      message = "inspr.janusFleetSecrets systemd credential entries in ${unitName consumer} must be canonical printable ASCII without outer whitespace, specifiers, or escapes";
     }) validConsumers
     ++ map (consumer: {
       assertion = lib.length (matchingCredentialEntries consumer) == 1;

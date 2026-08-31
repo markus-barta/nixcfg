@@ -32,11 +32,14 @@ let
 
   failedAssertions = evaluated: builtins.filter (item: !item.assertion) evaluated.config.assertions;
   assertionMessages = evaluated: map (item: item.message) (failedAssertions evaluated);
-  unsafeCredentialSyntaxMessage = "inspr.janusFleetSecrets systemd credential entries in fixture-consumer.service must not contain specifiers or escapes";
+  unsafeCredentialSyntaxMessage = "inspr.janusFleetSecrets systemd credential entries in fixture-consumer.service must be canonical printable ASCII without outer whitespace, specifiers, or escapes";
 
   hsb1 = evaluate { hostName = "hsb1"; };
   hsb8 = evaluate { hostName = "hsb8"; };
   hsb1Consumer = hsb1.config.systemd.services.fixture-consumer;
+  hsb1ConsumerUnitLines =
+    lib.splitString "\n"
+      hsb1.config.systemd.units."fixture-consumer.service".text;
   hsb1Gate = hsb1.config.systemd.services.janus-fleet-secret-shared-alert-url-projection;
   hsb8Consumer = hsb8.config.systemd.services.fixture-consumer;
   hsb8Gate = hsb8.config.systemd.services.janus-fleet-secret-shared-alert-url-projection;
@@ -73,14 +76,14 @@ let
   encryptedImplicitCollision = evaluate {
     hostName = "hsb1";
     extraModule.systemd.services.fixture-consumer.serviceConfig.LoadCredentialEncrypted = [
-      "/run/unreviewed/janus-shared-alert-url"
+      "janus-shared-alert-url"
     ];
   };
   implicitCollision = evaluate {
     hostName = "hsb1";
     extraModule = {
       systemd.services.fixture-consumer.serviceConfig.LoadCredential = [
-        "/run/unreviewed/janus-shared-alert-url"
+        "janus-shared-alert-url"
       ];
     };
   };
@@ -170,6 +173,46 @@ let
     hostName = "hsb1";
     extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [ "janus\\-*" ];
   };
+  loadLeadingWhitespace = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.LoadCredential = lib.mkAfter [
+      " janus-shared-alert-url:/run/unreviewed/plain"
+    ];
+  };
+  loadEncryptedTrailingWhitespace = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.LoadCredentialEncrypted = lib.mkAfter [
+      "janus-shared-alert-url:/run/unreviewed/encrypted "
+    ];
+  };
+  setLineFeedInjection = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.SetCredential = lib.mkAfter [
+      "public-id:public-value\nLoadCredential=janus-shared-alert-url:/run/unreviewed/injected"
+    ];
+  };
+  setEncryptedLeadingWhitespace = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.SetCredentialEncrypted = lib.mkAfter [
+      " encrypted-id:encrypted-fallback"
+    ];
+  };
+  importLineFeedInjection = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = lib.mkAfter [
+      "public-id\njanus-shared-alert-url"
+    ];
+  };
+  emptyLoadReset = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.LoadCredential = lib.mkAfter [ "" ];
+  };
+  emptyLoadEncryptedReset = evaluate {
+    hostName = "hsb1";
+    extraModule.systemd.services.fixture-consumer.serviceConfig.LoadCredentialEncrypted = lib.mkAfter [
+      ""
+    ];
+  };
   importExactCollision = evaluate {
     hostName = "hsb1";
     extraModule.systemd.services.fixture-consumer.serviceConfig.ImportCredential = [
@@ -228,6 +271,9 @@ assert
   hsb1Consumer.serviceConfig.LoadCredential == [
     "janus-shared-alert-url:/run/janus-projections/managed-service-environment/hsb1/shared-alert-url.env"
   ];
+assert builtins.length hsb1Consumer.serviceConfig.LoadCredential == 1;
+assert lib.count (line: lib.hasPrefix "LoadCredential=" line) hsb1ConsumerUnitLines == 1;
+assert lib.count (line: lib.hasPrefix "SetCredential=" line) hsb1ConsumerUnitLines == 0;
 assert
   hsb8Consumer.serviceConfig.LoadCredential == [
     "janus-shared-alert-url:/run/janus-projections/managed-service-environment/hsb8/shared-alert-url.env"
@@ -284,6 +330,17 @@ assert builtins.elem unsafeCredentialSyntaxMessage (assertionMessages setEscaped
 assert builtins.elem unsafeCredentialSyntaxMessage (assertionMessages setEncryptedEscapedId);
 assert builtins.elem unsafeCredentialSyntaxMessage (assertionMessages importEscapedId);
 assert builtins.elem unsafeCredentialSyntaxMessage (assertionMessages importEscapedWildcard);
+assert builtins.elem unsafeCredentialSyntaxMessage (assertionMessages loadLeadingWhitespace);
+assert builtins.elem unsafeCredentialSyntaxMessage (
+  assertionMessages loadEncryptedTrailingWhitespace
+);
+assert builtins.elem unsafeCredentialSyntaxMessage (assertionMessages setLineFeedInjection);
+assert builtins.elem unsafeCredentialSyntaxMessage (
+  assertionMessages setEncryptedLeadingWhitespace
+);
+assert builtins.elem unsafeCredentialSyntaxMessage (assertionMessages importLineFeedInjection);
+assert builtins.elem unsafeCredentialSyntaxMessage (assertionMessages emptyLoadReset);
+assert builtins.elem unsafeCredentialSyntaxMessage (assertionMessages emptyLoadEncryptedReset);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
   (assertionMessages importExactCollision);
 assert builtins.elem "inspr.janusFleetSecrets credential name collides in fixture-consumer.service"
