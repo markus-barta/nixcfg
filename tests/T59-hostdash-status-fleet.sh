@@ -13,6 +13,8 @@ fi
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 flake_ref=${NIX393_FLAKE_REF:-$repo_root}
 filter="$repo_root/modules/files/hostdash-container-status.jq"
+module="$repo_root/modules/hostdash-status.nix"
+collector="$repo_root/modules/files/hostdash-container-status.sh"
 pin=136988907cdbba4fa56ebfa6a4dd8cf8ff5f845e
 
 fail() {
@@ -23,6 +25,92 @@ fail() {
 for command in nix jq node; do
   command -v "$command" >/dev/null 2>&1 || fail "missing_$command"
 done
+
+# Container discovery is authoritative input. A Docker or jq failure must abort
+# the producer transaction, not be converted into a fresh empty object that makes
+# every bound card look merely absent. Drive the exact production collector with
+# deterministic command stubs and the producer's temp-file/atomic-swap pattern.
+if grep -Fq "|| echo '{}')" "$module"; then
+  fail container_collection_failure_publishes_empty_truth
+fi
+[[ -f "$collector" ]] || fail container_collector_missing
+grep -Fq 'hostdash-container-status' "$module" || fail container_collector_not_consumed
+# Literal generated-shell source pattern.
+# shellcheck disable=SC2016
+collector_invocation=$(sed -n '/containers="$(hostdash-container-status/,/)"/p' "$module")
+[[ -n "$collector_invocation" ]] || fail container_collector_invocation_missing
+if grep -Eq '\|\||(^|[[:space:]])(echo|true)([[:space:]]|$)' <<<"$collector_invocation"; then
+  fail container_collector_invocation_fails_open
+fi
+# Literal generated-shell source pattern.
+# shellcheck disable=SC2016
+grep -Fq 'trap '\''rm -f "$TMP"'\'' EXIT' "$module" || fail producer_temp_cleanup_missing
+# Literal generated-shell source pattern.
+# shellcheck disable=SC2016
+grep -Fq 'mv -f "$TMP" "$OUT"' "$module" || fail producer_atomic_swap_missing
+# Path is the fixed repository helper above.
+# shellcheck source=/dev/null
+source "$collector"
+export -f hostdash_collect_containers
+
+producer_fixture=$(mktemp -d)
+cleanup_producer_fixture() {
+  find "$producer_fixture" -type f -delete
+  find "$producer_fixture" -depth -type d -exec rmdir {} \; 2>/dev/null || true
+}
+trap cleanup_producer_fixture EXIT
+fixture_out="$producer_fixture/status.json"
+printf '{"sentinel":true}\n' >"$fixture_out"
+
+run_producer_fixture() {
+  local docker_status=$1 jq_status=$2
+  DOCKER_TEST_STATUS="$docker_status" \
+    JQ_TEST_STATUS="$jq_status" \
+    REAL_JQ="$(command -v jq)" \
+    bash -c '
+      set -euo pipefail
+      filter=$1
+      out=$2
+      docker() {
+        printf "%s\n" "{\"Names\":\"allowed\",\"State\":\"running\",\"Status\":\"Up 1 minute (healthy)\"}"
+        return "$DOCKER_TEST_STATUS"
+      }
+      jq() {
+        if [[ "$JQ_TEST_STATUS" != 0 ]]; then return "$JQ_TEST_STATUS"; fi
+        "$REAL_JQ" "$@"
+      }
+      export -f docker jq
+      tmp=$(mktemp "${out%/*}/.status.XXXXXX")
+      trap '\''rm -f "$tmp"'\'' EXIT
+      containers=$(hostdash_collect_containers '\''["allowed","missing"]'\'' "$filter")
+      "$REAL_JQ" -n --argjson containers "$containers" '\''{containers:$containers}'\'' >"$tmp"
+      chmod 0644 "$tmp"
+      mv -f "$tmp" "$out"
+      trap - EXIT
+    ' bash "$filter" "$fixture_out"
+}
+
+if run_producer_fixture 74 0 >/dev/null 2>&1; then
+  fail docker_failure_accepted
+fi
+jq -e '.sentinel == true' "$fixture_out" >/dev/null || fail docker_failure_replaced_last_good_artifact
+if find "$producer_fixture" -name '.status.*' -print -quit | grep -q .; then
+  fail docker_failure_left_partial_artifact
+fi
+
+if run_producer_fixture 0 75 >/dev/null 2>&1; then
+  fail jq_failure_accepted
+fi
+jq -e '.sentinel == true' "$fixture_out" >/dev/null || fail jq_failure_replaced_last_good_artifact
+if find "$producer_fixture" -name '.status.*' -print -quit | grep -q .; then
+  fail jq_failure_left_partial_artifact
+fi
+
+run_producer_fixture 0 0
+jq -e '
+  .containers.allowed.running == true
+  and (.containers | has("missing") | not)
+' "$fixture_out" >/dev/null || fail successful_collection_or_missing_allowlist_contract
 
 locked=$(jq -r '.nodes.hostdash.locked.rev' "$repo_root/flake.lock")
 [[ "$locked" == "$pin" ]] || fail hostdash_pin_drift

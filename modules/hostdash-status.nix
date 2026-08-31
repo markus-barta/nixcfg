@@ -68,16 +68,30 @@ let
     text = builtins.readFile ./files/hostdash-http-probe.sh;
   };
 
+  containerCollector = pkgs.writeShellApplication {
+    name = "hostdash-container-status";
+    runtimeInputs = with pkgs; [
+      docker
+      jq
+    ];
+    text = ''
+      # Immutable repository helper.
+      # shellcheck source=/dev/null
+      source ${./files/hostdash-container-status.sh}
+      hostdash_collect_containers "$@"
+    '';
+  };
+
   generator = pkgs.writeShellApplication {
     name = "hostdash-status";
     runtimeInputs = with pkgs; [
-      docker
       systemd
       coreutils
       jq
       mosquitto
       gnugrep
       httpProbe
+      containerCollector
     ];
     text = ''
       OUT="${statusDir}/status.json"
@@ -92,9 +106,9 @@ let
       # `running` and `health` stay SEPARATE fields: a container can be Up while its
       # healthcheck is failing, and collapsing those into one boolean is how a
       # dashboard starts lying.
-      containers="$(docker ps --all --format '{{json .}}' 2>/dev/null \
-        | jq -s --argjson allowed ${lib.escapeShellArg (builtins.toJSON cfg.containers)} \
-          -f ${containerStatusFilter} 2>/dev/null || echo '{}')"
+      containers="$(hostdash-container-status \
+        ${lib.escapeShellArg (builtins.toJSON cfg.containers)} \
+        ${containerStatusFilter})"
 
       # --- systemd units ------------------------------------------------------
       units_json="{}"
