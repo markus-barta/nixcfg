@@ -35,8 +35,11 @@ bindings='{}'
 for host in csb0 csb1 hsb8 hsb9; do
   config="$hostdash_source/hosts/$host/config.js"
   [[ -f "$config" ]] || fail "${host}_config_missing"
-  host_bindings=$(node "$repo_root/tests/hostdash-status-bindings.mjs" <"$config") ||
+  host_facts=$(node "$repo_root/tests/hostdash-status-bindings.mjs" <"$config") ||
     fail "${host}_config_not_static"
+  host_bindings=$(jq -ce \
+    '.bindings |= (map({key: .name, value: del(.name)}) | from_entries)' \
+    <<<"$host_facts") || fail "${host}_binding_normalization_failed"
   bindings=$(jq -cn \
     --argjson current "$bindings" \
     --arg host "$host" \
@@ -44,16 +47,28 @@ for host in csb0 csb1 hsb8 hsb9; do
     '$current + {($host): $hostBindings}')
 done
 
-# The extraction oracle must reject executable or computed bindings rather than
-# executing HostDash JavaScript or silently omitting a dynamic service.
-if node "$repo_root/tests/hostdash-status-bindings.mjs" >/dev/null 2>&1 <<'EOF'; then
-window.HOSTDASH_CONFIG = {
-  services: [
-    { name: "dynamic", container: lookupContainer() },
-  ],
-};
-EOF
+# A prototype-looking service name remains inert data in the entries output.
+prototype_facts=$(printf '%s\n' \
+  'window.HOSTDASH_CONFIG = {' \
+  '  services: [{ name: "__proto__", container: "safe" }],' \
+  '};' | node "$repo_root/tests/hostdash-status-bindings.mjs") ||
+  fail prototype_name_rejected
+jq -e '. == {bindings:[{name:"__proto__",container:"safe"}],unbound:[]}' \
+  <<<"$prototype_facts" >/dev/null || fail prototype_name_not_inert
+
+# Executable/computed values and duplicate keys fail closed; the extractor
+# never evaluates JavaScript or assigns a source-derived property to an object.
+if printf '%s\n' \
+  'window.HOSTDASH_CONFIG = {' \
+  '  services: [{ name: "dynamic", container: lookupContainer() }],' \
+  '};' | node "$repo_root/tests/hostdash-status-bindings.mjs" >/dev/null 2>&1; then
   fail dynamic_hostdash_config_accepted
+fi
+if printf '%s\n' \
+  'window.HOSTDASH_CONFIG = {' \
+  '  services: [{ name: "first", name: "second", container: "safe" }],' \
+  '};' | node "$repo_root/tests/hostdash-status-bindings.mjs" >/dev/null 2>&1; then
+  fail duplicate_hostdash_key_accepted
 fi
 
 [[ "$(jq '[.[] .bindings | length] | add' <<<"$bindings")" == 45 ]] ||

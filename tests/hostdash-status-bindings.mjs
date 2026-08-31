@@ -55,7 +55,7 @@ function parseIdentifier() {
 
 function parseObject(depth) {
   if (depth > MAX_NESTING_DEPTH) fail("excessive nesting");
-  const result = Object.create(null);
+  const result = new Map();
   position += 1;
   skipSpace();
   if (text[position] === "}") {
@@ -65,11 +65,11 @@ function parseObject(depth) {
 
   while (position < text.length) {
     const key = parseIdentifier();
-    if (Object.hasOwn(result, key)) fail("duplicate property key");
+    if (result.has(key)) fail("duplicate property key");
     skipSpace();
     if (text[position] !== ":") fail("property separator is missing");
     position += 1;
-    result[key] = parseValue(depth + 1);
+    result.set(key, parseValue(depth + 1));
     skipSpace();
     if (text[position] === "}") {
       position += 1;
@@ -148,41 +148,58 @@ if (text[position] !== ";") fail("assignment terminator is missing");
 position += 1;
 skipSpace();
 if (position !== text.length) fail("unexpected trailing statement");
-if (config === null || Array.isArray(config) || typeof config !== "object") {
+if (!(config instanceof Map)) {
   fail("configuration must be an object literal");
 }
-if (!Array.isArray(config.services) || config.services.length === 0)
+const services = config.get("services");
+if (!Array.isArray(services) || services.length === 0)
   fail("services are missing");
 
-const bindings = Object.create(null);
+const bindings = [];
 const unbound = [];
-for (const service of config.services) {
-  if (
-    service === null ||
-    Array.isArray(service) ||
-    typeof service !== "object"
-  ) {
-    fail("service must be an object literal");
-  }
-  if (typeof service.name !== "string" || service.name.length === 0)
-    fail("invalid service name");
-  if (Object.hasOwn(bindings, service.name) || unbound.includes(service.name)) {
-    fail("duplicate service name");
-  }
+const serviceNames = new Set();
+for (const service of services) {
+  if (!(service instanceof Map)) fail("service must be an object literal");
 
-  const binding = Object.create(null);
-  for (const key of ["container", "unit", "extra"]) {
-    if (!Object.hasOwn(service, key)) continue;
-    if (typeof service[key] !== "string" || service[key].length === 0) {
+  const serviceName = service.get("name");
+  if (typeof serviceName !== "string" || serviceName.length === 0)
+    fail("invalid service name");
+  if (serviceNames.has(serviceName)) fail("duplicate service name");
+  serviceNames.add(serviceName);
+
+  const runtimeBindings = [];
+  for (const binding of [
+    {
+      kind: "container",
+      present: service.has("container"),
+      target: service.get("container"),
+    },
+    { kind: "unit", present: service.has("unit"), target: service.get("unit") },
+    {
+      kind: "extra",
+      present: service.has("extra"),
+      target: service.get("extra"),
+    },
+  ]) {
+    if (!binding.present) continue;
+    if (typeof binding.target !== "string" || binding.target.length === 0) {
       fail("invalid runtime binding");
     }
-    binding[key] = service[key];
+    runtimeBindings.push(binding);
   }
-  if (Object.keys(binding).length > 1) fail("ambiguous runtime binding");
-  if (Object.keys(binding).length === 1) {
-    bindings[service.name] = binding;
+  if (runtimeBindings.length > 1) fail("ambiguous runtime binding");
+  if (runtimeBindings.length === 0) {
+    unbound.push(serviceName);
+    continue;
+  }
+
+  const runtime = runtimeBindings[0];
+  if (runtime.kind === "container") {
+    bindings.push({ name: serviceName, container: runtime.target });
+  } else if (runtime.kind === "unit") {
+    bindings.push({ name: serviceName, unit: runtime.target });
   } else {
-    unbound.push(service.name);
+    bindings.push({ name: serviceName, extra: runtime.target });
   }
 }
 
