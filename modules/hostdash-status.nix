@@ -106,7 +106,7 @@ let
       # `running` and `health` stay SEPARATE fields: a container can be Up while its
       # healthcheck is failing, and collapsing those into one boolean is how a
       # dashboard starts lying.
-      containers="$(hostdash-container-status \
+      containers="$(${lib.getExe containerCollector} \
         ${lib.escapeShellArg (builtins.toJSON cfg.containers)} \
         ${containerStatusFilter})"
 

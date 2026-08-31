@@ -28,30 +28,94 @@ done
 
 # Container discovery is authoritative input. A Docker or jq failure must abort
 # the producer transaction, not be converted into a fresh empty object that makes
-# every bound card look merely absent. Drive the exact production collector with
-# deterministic command stubs and the producer's temp-file/atomic-swap pattern.
+# every bound card look merely absent. Resolve the exact evaluated generator and
+# collector derivations, then drive the shipped collector wrapper with deterministic
+# command functions. Nothing here touches Docker or /var/lib.
 if grep -Fq "|| echo '{}')" "$module"; then
   fail container_collection_failure_publishes_empty_truth
 fi
 [[ -f "$collector" ]] || fail container_collector_missing
-grep -Fq 'hostdash-container-status' "$module" || fail container_collector_not_consumed
+
+generator_attr="${flake_ref}#nixosConfigurations.csb0.config.systemd.services.hostdash-status.serviceConfig.ExecStart"
+generator_exec=$(nix eval --raw "$generator_attr") || fail generator_exec_eval_failed
+generator_context=$(nix eval --json --apply 'value: builtins.getContext value' "$generator_attr") ||
+  fail generator_context_eval_failed
+generator_drv=$(jq -er 'keys | if length == 1 then .[0] else error("ambiguous generator context") end' \
+  <<<"$generator_context") || fail generator_drv_not_unique
+generator_derivation=$(nix derivation show "$generator_drv") || fail generator_derivation_unavailable
+generator_text=$(jq -er '
+  .derivations | to_entries
+  | if length == 1 then .[0].value.env.text else error("ambiguous generator derivation") end
+' <<<"$generator_derivation") || fail generator_text_unavailable
+generator_out=$(jq -er '
+  .derivations | to_entries
+  | if length == 1 then "/nix/store/" + .[0].value.outputs.out.path else error("ambiguous generator output") end
+' <<<"$generator_derivation") || fail generator_output_unavailable
+[[ "$generator_exec" == "$generator_out/bin/hostdash-status" ]] || fail generator_exec_not_exact_output
+
+collector_drv_name=$(jq -er '
+  [.derivations[] .inputs.drvs | keys[] | select(endswith("-hostdash-container-status.drv"))]
+  | if length == 1 then .[0] else error("ambiguous collector input") end
+' <<<"$generator_derivation") || fail collector_drv_not_unique
+collector_drv="/nix/store/$collector_drv_name"
+collector_derivation=$(nix derivation show "$collector_drv") || fail collector_derivation_unavailable
+collector_text=$(jq -er '
+  .derivations | to_entries
+  | if length == 1 then .[0].value.env.text else error("ambiguous collector derivation") end
+' <<<"$collector_derivation") || fail collector_text_unavailable
+collector_out=$(jq -er '
+  .derivations | to_entries
+  | if length == 1 then "/nix/store/" + .[0].value.outputs.out.path else error("ambiguous collector output") end
+' <<<"$collector_derivation") || fail collector_output_unavailable
+collector_exec="$collector_out/bin/hostdash-container-status"
+
+jq -e '
+  .derivations[] as $collector
+  | ([$collector.inputs.drvs | keys[] | contains("-docker-")] | any)
+  and ([$collector.inputs.drvs | keys[] | contains("-jq-")] | any)
+' <<<"$collector_derivation" >/dev/null || fail collector_runtime_closure_missing
+
+collector_contract() {
+  local source=$1
+  grep -Fxq 'set -o errexit' <<<"$source" &&
+    grep -Fxq 'set -o nounset' <<<"$source" &&
+    grep -Fxq 'set -o pipefail' <<<"$source" &&
+    grep -Eq 'export PATH="[^"]*-docker-[^:/]+/bin:' <<<"$source" &&
+    grep -Eq 'export PATH="[^"]*-jq-[^:/]+/bin:' <<<"$source" &&
+    [[ "$(grep -Fc 'hostdash_collect_containers "$@"' <<<"$source")" == 1 ]]
+}
+collector_contract "$collector_text" || fail collector_wrapper_contract
+
+without_pipefail=${collector_text/set -o pipefail/}
+if collector_contract "$without_pipefail"; then fail collector_pipefail_mutation_accepted; fi
+without_docker=$(sed -E 's#/nix/store/[a-z0-9]+-docker-[^:/]+/bin:##' <<<"$collector_text")
+if collector_contract "$without_docker"; then fail collector_docker_runtime_mutation_accepted; fi
+without_jq=$(sed -E 's#/nix/store/[a-z0-9]+-jq-[^:/]+/bin:##' <<<"$collector_text")
+if collector_contract "$without_jq"; then fail collector_jq_runtime_mutation_accepted; fi
+body_true=${collector_text/hostdash_collect_containers \"\$@\"/true}
+if collector_contract "$body_true"; then fail collector_body_mutation_accepted; fi
+
+# Pin the generator to the exact collector derivation, not merely to a command name
+# that happens to be on PATH. Its own strict wrapper and atomic transaction are part
+# of the assurance boundary too.
+for strict_flag in errexit nounset pipefail; do
+  grep -Fxq "set -o $strict_flag" <<<"$generator_text" || fail "generator_${strict_flag}_missing"
+done
 # Literal generated-shell source pattern.
 # shellcheck disable=SC2016
-collector_invocation=$(sed -n '/containers="$(hostdash-container-status/,/)"/p' "$module")
+collector_invocation=$(sed -n '/containers="$(.*hostdash-container-status/,/)"/p' <<<"$generator_text")
 [[ -n "$collector_invocation" ]] || fail container_collector_invocation_missing
+grep -Fq "$collector_exec" <<<"$collector_invocation" || fail generator_not_using_exact_collector
 if grep -Eq '\|\||(^|[[:space:]])(echo|true)([[:space:]]|$)' <<<"$collector_invocation"; then
   fail container_collector_invocation_fails_open
 fi
-# Literal generated-shell source pattern.
+# Literal generated-shell source patterns.
 # shellcheck disable=SC2016
-grep -Fq 'trap '\''rm -f "$TMP"'\'' EXIT' "$module" || fail producer_temp_cleanup_missing
-# Literal generated-shell source pattern.
+grep -Fq 'trap '\''rm -f "$TMP"'\'' EXIT' <<<"$generator_text" || fail producer_temp_cleanup_missing
 # shellcheck disable=SC2016
-grep -Fq 'mv -f "$TMP" "$OUT"' "$module" || fail producer_atomic_swap_missing
-# Path is the fixed repository helper above.
-# shellcheck source=/dev/null
-source "$collector"
-export -f hostdash_collect_containers
+grep -Fq 'chmod 0644 "$TMP"' <<<"$generator_text" || fail producer_mode_missing
+# shellcheck disable=SC2016
+grep -Fq 'mv -f "$TMP" "$OUT"' <<<"$generator_text" || fail producer_atomic_swap_missing
 
 producer_fixture=$(mktemp -d)
 cleanup_producer_fixture() {
@@ -60,6 +124,8 @@ cleanup_producer_fixture() {
 }
 trap cleanup_producer_fixture EXIT
 fixture_out="$producer_fixture/status.json"
+collector_wrapper="$producer_fixture/hostdash-container-status"
+printf '%s' "$collector_text" >"$collector_wrapper"
 printf '{"sentinel":true}\n' >"$fixture_out"
 
 run_producer_fixture() {
@@ -69,8 +135,9 @@ run_producer_fixture() {
     REAL_JQ="$(command -v jq)" \
     bash -c '
       set -euo pipefail
-      filter=$1
-      out=$2
+      wrapper=$1
+      filter=$2
+      out=$3
       docker() {
         printf "%s\n" "{\"Names\":\"allowed\",\"State\":\"running\",\"Status\":\"Up 1 minute (healthy)\"}"
         return "$DOCKER_TEST_STATUS"
@@ -82,12 +149,14 @@ run_producer_fixture() {
       export -f docker jq
       tmp=$(mktemp "${out%/*}/.status.XXXXXX")
       trap '\''rm -f "$tmp"'\'' EXIT
-      containers=$(hostdash_collect_containers '\''["allowed","missing"]'\'' "$filter")
+      # Invoke the exact evaluated writeShellApplication wrapper under this
+      # machine Bash, ignoring only its cross-system shebang.
+      containers=$(bash "$wrapper" '\''["allowed","missing"]'\'' "$filter")
       "$REAL_JQ" -n --argjson containers "$containers" '\''{containers:$containers}'\'' >"$tmp"
       chmod 0644 "$tmp"
       mv -f "$tmp" "$out"
       trap - EXIT
-    ' bash "$filter" "$fixture_out"
+    ' bash "$collector_wrapper" "$filter" "$fixture_out"
 }
 
 if run_producer_fixture 74 0 >/dev/null 2>&1; then
