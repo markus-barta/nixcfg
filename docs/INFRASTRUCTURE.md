@@ -321,12 +321,32 @@ pull/rebuild remains a separate, currently unsolved deployment concern.
 ### Pharos Release Coordination
 
 `pharos-release-rollout.yml` checks the newest annotated Pharos release every
-hour. It resolves the semantic image to one immutable digest, verifies the
-GitHub OIDC cosign signature, and applies that exact release to both `nixcfg`
-and `dsccfg`. If either repository needs an update, it opens paired pull
-requests after both repositories' compatibility tests pass. The workflow never
-deploys, restarts a host, or merges its own proposals; runtime rollout remains
-an attended operation after both declared states are reviewed and aligned.
+hour. `pharos-release.json` records the stable channel, explicit version
+scheme, monotonic release sequence, source commit, immutable image digest, and
+the v0.2.0 legacy-to-calendar anchor. The workflow accepts the legacy release
+only at that recorded anchor. Calendar releases require a signed
+`release-set.json` plus its `release-set.sigstore.json` Sigstore bundle, a real
+long-form UTC `YY.MM.DD.hh.mm.ss` coordinate, and a strictly increasing
+sequence; missing, ambiguous, short-form, or malformed metadata fails closed.
+The signed set also binds the Cargo projection, source-lock digest, version and
+source-tag OCI references, OCI index, linux/amd64 image, SPDX artifact, cosign
+signature manifest, provenance/SBOM manifests and layers, and the exact v0.2.0
+rollback identity. Supply-chain-only fields are validated but are not
+copied into the smaller fleet-state manifest. The rollback identity is retained
+verbatim across calendar upgrades. It never infers the scheme from punctuation
+or uses a generic version sort.
+
+The workflow corroborates the release-set source with its annotated tag,
+resolves the public image to the exact declared digest, verifies the GitHub
+OIDC cosign signature, and proposes that release for the active personal fleet.
+Normal discovery is forward-only. Returning to v0.2.0 requires both the
+attended rollback control and the exact `v0.2.0` request; Pharos then uses only
+the signed anchor retained in fleet state and re-verifies the original
+annotated tag and image signature. It never fabricates or downloads a legacy
+release-set asset.
+It never deploys, restarts a host, merges its own proposal, or coordinates a
+retired external host. Runtime rollout remains an attended operation after the
+declared state is reviewed.
 Each release uses a stable version-named branch and deterministic candidate
 commit metadata. An hourly rerun discovers the exact open proposal heads before
 making new candidates, revalidates their identities, allowed-path diffs,

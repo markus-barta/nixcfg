@@ -1,8 +1,9 @@
 # Pharos ← Paimos external-stage owner adapter wiring (NIX-381 / PHAROS-206).
 #
-# Generates the value-free `inspr.pharos.paimos-delivery-adapter.v1` intent
-# document that pharosd v0.1.83 reads through PHAROS_PAIMOS_DELIVERY_CONFIG_FILE
-# and publishes it as a private, container-uid-owned file. It creates no
+# Generates the value-free `inspr.pharos.paimos-delivery-adapter.v2` local
+# intent document that pharosd reads through PHAROS_PAIMOS_DELIVERY_CONFIG_FILE
+# and publishes it as a private, container-uid-owned file. Outgoing Paimos
+# external-stage evidence remains byte-stable v1. This module creates no
 # credential material: the API key and every 32-byte raw handoff secret are
 # agenix-managed files that this module only names.
 #
@@ -30,7 +31,10 @@ let
   isHandoffId = value: builtins.match "[0-9A-HJKMNP-TV-Z]{26}" value != null;
   isSymbol = value: builtins.match "[a-z][a-z0-9._-]{0,63}" value != null;
   isHostName = value: builtins.match "[a-z0-9][a-z0-9-]{0,62}" value != null;
-  isVersion = value: builtins.match "[A-Za-z0-9][A-Za-z0-9._+-]{0,63}" value != null;
+  isLegacyVersion =
+    value:
+    builtins.stringLength value <= 64
+    && builtins.match "(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)" value != null;
   isSha256Digest = value: builtins.match "sha256:[0-9a-f]{64}" value != null;
   isCommitDigest = value: builtins.match "[0-9a-f]{40}|[0-9a-f]{64}" value != null;
   isActionId = value: builtins.match "[A-Za-z0-9_-]{8,128}" value != null;
@@ -40,8 +44,17 @@ let
 
   artifactType = lib.types.submodule {
     options = {
+      versionScheme = lib.mkOption {
+        type = lib.types.enum [ "legacy" ];
+        example = "legacy";
+        description = ''
+          Required discriminator in the local Pharos adapter v2 contract.
+          Only `legacy` is valid; pharosd removes this field before serializing
+          the byte-stable Paimos external-stage v1 wire evidence.
+        '';
+      };
       version = lib.mkOption {
-        type = lib.types.str;
+        type = lib.types.addCheck lib.types.str isLegacyVersion;
         example = "0.1.83";
         description = "Bounded artifact version reported as evidence.";
       };
@@ -115,6 +128,7 @@ let
       environment = intent.environment;
       host = intent.host;
       artifact = {
+        version_scheme = intent.artifact.versionScheme;
         version = intent.artifact.version;
         digest = intent.artifact.digest;
         commit_digest = intent.artifact.commitDigest;
@@ -128,8 +142,8 @@ let
     };
 
   document = {
-    schema = "inspr.pharos.paimos-delivery-adapter.v1";
-    schema_version = 1;
+    schema = "inspr.pharos.paimos-delivery-adapter.v2";
+    schema_version = 2;
     paimos_origin = cfg.paimosOrigin;
     api_key_file = cfg.apiKeyFile;
     poll_interval_secs = cfg.pollIntervalSeconds;
@@ -273,11 +287,11 @@ in
           intent:
           isSymbol intent.environment
           && isHostName intent.host
-          && isVersion intent.artifact.version
+          && isLegacyVersion intent.artifact.version
           && isSha256Digest intent.artifact.digest
           && isCommitDigest intent.artifact.commitDigest
         ) cfg.intents;
-        message = "inspr.pharosPaimosDelivery intent environment/host/artifact values must match the pinned v1 contract shapes.";
+        message = "inspr.pharosPaimosDelivery intent environment/host/artifact values must match the legacy-only pinned v1 contract shapes.";
       }
       {
         assertion = lib.all (

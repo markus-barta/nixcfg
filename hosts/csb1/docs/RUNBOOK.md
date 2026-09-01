@@ -719,7 +719,12 @@ the two ever disagree.
    shape at eval time — handoff ids must be Paimos-minted 26-character Crockford
    base32, digests must be `sha256:` plus 64 lowercase hex, and a verification
    intent must pair with a distinct deployment intent for the same host,
-   environment and artifact.
+   environment and artifact. Every v1 intent artifact must also set
+   `versionScheme = "legacy";`. This is a required discriminator in the local
+   `inspr.pharos.paimos-delivery-adapter.v2` configuration; Pharos strips it
+   when serializing the byte-stable outgoing Paimos external-stage v1 payload.
+   Calendar release coordinates require a future external-stage payload schema
+   and must not be placed on this frozen v1 wire path.
 
 4. **Preflight on the host, before flipping the switch.** Sizes and modes only —
    never print a value:

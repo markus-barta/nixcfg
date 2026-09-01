@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 4 ]]; then
-  printf 'usage: %s VERSION REFERENCE NIXCFG_ROOT OUTPUT\n' "${0##*/}" >&2
+if [[ $# -ne 3 ]]; then
+  printf 'usage: %s RELEASE_SET_JSON NIXCFG_ROOT OUTPUT\n' "${0##*/}" >&2
   exit 2
 fi
 
-version=$1
-reference=$2
-nixcfg_root=$3
-output=$4
+metadata=$1
+nixcfg_root=$2
+output=$3
+script_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+python3 "$script_root/scripts/pharos-release-metadata.py" validate --kind auto "$metadata"
+version=$(jq -er .version "$metadata")
 title="PHAROS-90: roll fleet to Pharos ${version}"
 branch="automation/pharos-release-${version}"
 
@@ -17,12 +19,6 @@ if [[ -z "${NIXCFG_REPOSITORY:-}" ]]; then
   printf 'pharos_release_existing=failed reason=missing_input name=NIXCFG_REPOSITORY\n' >&2
   exit 1
 fi
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
-  [[ ! "$reference" =~ ^ghcr\.io/inspr-at/pharos/pharosd:${version}@sha256:[0-9a-f]{64}$ ]]; then
-  printf 'pharos_release_existing=failed reason=invalid_input\n' >&2
-  exit 1
-fi
-
 nixcfg_paths=(
   pharos-release.json
   hosts/csb0/docker/compose-spec.nix
@@ -112,8 +108,13 @@ validate_proposal() {
     exit 1
   fi
   git -C "$root" checkout --detach "$sha"
+  python3 "$script_root/scripts/pharos-release-metadata.py" validate \
+    --kind local \
+    "$root/pharos-release.json"
   if [[ -n "$(git -C "$root" status --porcelain --untracked-files=no)" ]] ||
-    [[ "$(jq -r .reference "$root/pharos-release.json")" != "$reference" ]]; then
+    ! python3 "$script_root/scripts/pharos-release-metadata.py" matches \
+      --active "$root/pharos-release.json" \
+      --candidate "$metadata"; then
     printf 'pharos_release_existing=failed reason=proposal_reference_mismatch repo=%s\n' "$label" >&2
     exit 1
   fi
