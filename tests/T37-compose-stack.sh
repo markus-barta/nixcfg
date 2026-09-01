@@ -74,15 +74,33 @@ for host in csb0 csb1; do
     }
 done
 
-# Relative paths only resolve if projectDirectory is set; hsb1 and hsb8 have
-# none and deliberately omit it.
-for host in hsb0 hsb9 csb0 csb1; do
+# Relative paths only resolve if projectDirectory is set. hsb1 needs it for
+# repository-owned build contexts; hsb8 has no relative paths and omits it.
+for host in hsb0 hsb1 hsb9 csb0 csb1; do
   grep -Fq 'projectDirectory' "${repo}/hosts/${host}/configuration.nix" ||
     {
       echo "FAIL: ${host} has relative paths and needs projectDirectory"
       exit 1
     }
 done
+
+# NIX-134: hsb1 documentation must match the post-OPS-116 operating model.
+# The old home-directory compose file and hsb1-stack unit are gone; retaining
+# those instructions would send an operator to an absent file and unit.
+hsb1_runbook="${repo}/hosts/hsb1/docs/RUNBOOK.md"
+grep -Fq 'hosts/hsb1/docker/compose-spec.nix' "${hsb1_runbook}"
+grep -Fq '/etc/compose/hsb1/docker-compose.yml' "${hsb1_runbook}"
+grep -Fq 'compose-hsb1.service' "${hsb1_runbook}"
+grep -Fq '/home/mba/docker remains the runtime-data root' "${hsb1_runbook}"
+grep -Fq '/home/mba/scripts is retained as unclassified legacy material' "${hsb1_runbook}"
+if grep -Eq '^[~]/docker/docker-compose[.]yml$' "${hsb1_runbook}"; then
+  echo 'FAIL: hsb1 runbook presents the absent home-directory compose file as an operating path (NIX-134)'
+  exit 1
+fi
+if grep -Fq 'systemctl restart hsb1-stack' "${hsb1_runbook}"; then
+  echo 'FAIL: hsb1 runbook revived the retired stack unit (NIX-134)'
+  exit 1
+fi
 
 # --- NIX-352: locally built images can be excluded from weekly pull ----------
 # The module retains the explicit exclusion mechanism for other local images.

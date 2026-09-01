@@ -130,16 +130,22 @@ ssh mba@hsb1.lan "docker logs homeassistant 2>&1 | grep -i tesla_fleet | tail -2
 
 hsb1 is **declarative** — configuration is driven by `nixos-rebuild switch` from `~/Code/nixcfg` (this repo), not a "symlink everything to the repo" layer. The moving parts:
 
-| What                   | How it's managed                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| Docker stack           | compose at `hosts/hsb1/docker/docker-compose.yml`, launched by the `hsb1-stack` systemd unit            |
-| Kiosk babycam launcher | Home-Manager: `hosts/hsb1/files/kiosk-autostart.sh` → `~/.config/openbox/autostart` (nix-store symlink) |
-| Secrets                | agenix → `/run/agenix/hsb1-*` (no plaintext on disk)                                                    |
-| System / services      | NixOS modules in `hosts/hsb1/` + shared `modules/`                                                      |
+| What                   | How it's managed                                                                                                                                                 |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Docker stack           | `hosts/hsb1/docker/compose-spec.nix` → `/etc/compose/hsb1/docker-compose.yml` (nix-store symlink), reconciled by `compose-hsb1.service`                          |
+| Kiosk babycam launcher | Home Manager declares `hosts/hsb1/files/kiosk-autostart.sh` at `/home/kiosk/.config/openbox/autostart`; verify the live link after a switch before relying on it |
+| Secrets                | agenix → `/run/agenix/hsb1-*` (no plaintext in the repository or home-directory configuration)                                                                   |
+| System / services      | NixOS modules in `hosts/hsb1/` plus shared `modules/`                                                                                                            |
 
-**Runtime data (unmanaged, not in git):** container mounts under `~/docker/mounts/` (HA config, Node-RED data, etc.).
+### Legacy home-directory decision (NIX-134)
 
-**Golden rule:** never edit config on the host — edit in `~/Code/nixcfg`, commit, `git pull`, `sudo nixos-rebuild switch`.
+The 2026-09-01 read-only audit found both `/home/mba/docker` and `/home/mba/scripts` as ordinary directories, not managed symlinks. They are retained; deleting either as part of a documentation correction would be unsafe.
+
+- `/home/mba/docker` remains the runtime-data root. The declarative spec still bind-mounts data under `~/docker/mounts/`; selected relative build contexts resolve from `~/Code/nixcfg/hosts/hsb1/docker`. `~/docker/docker-compose.yml` does not exist and must not be recreated or used as an operating compose source.
+- `/home/mba/scripts` is retained as unclassified legacy material. No current NixOS unit references that top-level directory; inventory it file by file under a separate ticket before moving or deleting anything.
+- The old `/home/kiosk/scripts` path is absent. The declared kiosk autostart path was also absent in the audit, so the repository declaration is the intended source, not proof that the live Home Manager link currently exists.
+
+**Golden rule:** author configuration in `~/Code/nixcfg`, merge it, update the checkout, and run the reviewed `just switch` path. Never hand-edit the rendered `/etc/compose` file or operate a compose stack from `~/docker`.
 
 ---
 
@@ -199,10 +205,10 @@ ssh mba@192.168.1.101 "docker logs -f mosquitto --tail 100"
 
 ### Restart All Docker Services
 
-The stack is declarative (systemd unit `hsb1-stack`, compose at `hosts/hsb1/docker/docker-compose.yml`). Restart via the unit — do NOT `docker-compose down/up` from the retired `~/docker` dir:
+The stack is declarative (`hosts/hsb1/docker/compose-spec.nix`, rendered into the system closure). Restart via the reconcile unit — do not run Compose from `~/docker`:
 
 ```bash
-ssh mba@hsb1.lan "sudo systemctl restart hsb1-stack"
+ssh mba@hsb1.lan "sudo systemctl restart compose-hsb1.service"
 ```
 
 ---
@@ -229,7 +235,7 @@ both copies sit on the same drive. Detection + an offline copy beats it.
 This makes the monthly scrub load-bearing: it is what turns "ZFS has
 checksums" into an actual guarantee.
 
-Plex reads it read-only (`docker-compose.yml` plex service,
+Plex reads it read-only (`compose-spec.nix` plex service,
 `/srv/media:/media:ro`) — this replaced the previous Fritz!Box CIFS source
 (`/mnt/fritzbox-media`, still declared in `configuration.nix` but no longer
 mounted into Plex; safe to re-add as a second library path later if wanted).
@@ -493,8 +499,11 @@ ssh mba@192.168.1.101 "apcaccess status"
 ### Docker Compose Location
 
 ```bash
-# Docker compose (Symlink to ~/Code/nixcfg/hosts/hsb1/docker/docker-compose.yml)
-~/docker/docker-compose.yml
+# Declarative source (edit here, through the normal PR path)
+~/Code/nixcfg/hosts/hsb1/docker/compose-spec.nix
+
+# Rendered runtime spec (read-only nix-store symlink; never hand-edit)
+/etc/compose/hsb1/docker-compose.yml
 ```
 
 ### Restore from Generation
@@ -620,8 +629,9 @@ ssh mba@192.168.1.101 "journalctl -f"
 ### Key Paths
 
 ```bash
-# Docker compose
-~/docker/docker-compose.yml
+# Declarative compose source and rendered runtime spec
+~/Code/nixcfg/hosts/hsb1/docker/compose-spec.nix
+/etc/compose/hsb1/docker-compose.yml
 
 # Container data mounts
 ~/docker/mounts/homeassistant/     # HA config
@@ -661,8 +671,8 @@ docker exec zigbee2mqtt cat /app/data/configuration.yaml | grep -A5 serial
 # MQTT test (subscribe to all topics)
 docker exec mosquitto mosquitto_sub -h localhost -t '#' -v
 
-# Restart entire stack (declarative — systemd unit, NOT a ~/docker compose)
-sudo systemctl restart hsb1-stack
+# Restart entire stack (declarative — systemd unit, not a ~/docker compose)
+sudo systemctl restart compose-hsb1.service
 
 # Restart single container
 docker restart homeassistant

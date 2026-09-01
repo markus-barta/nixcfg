@@ -85,6 +85,8 @@ All 13 containers running:
 
 ## Notes
 
-- All containers managed via `~/docker/docker-compose.yml`
-- Watchtower handles automatic updates
+- The stack is declared in `hosts/hsb1/docker/compose-spec.nix`, rendered at
+  `/etc/compose/hsb1/docker-compose.yml`, and reconciled by
+  `compose-hsb1.service`; `~/docker` holds runtime data, not the compose source.
+- `compose-hsb1-update.timer` owns weekly image updates.
 - Backups via restic-cron-hetzner container

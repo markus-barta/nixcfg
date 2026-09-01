@@ -95,9 +95,7 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ```
 ~/docker/
-├── docker-compose.yml          # Main compose file (Symlink to repo)
-├── Makefile                    # Common commands
-├── mounts/                     # Runtime data
+└── mounts/                     # Runtime data (not a compose source)
 │   ├── homeassistant/
 │   │   ├── configuration.yaml  # ← Main HA config
 │   │   ├── automations.yaml
@@ -110,9 +108,11 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 │   │   └── data/flows.json     # Node-RED automations
 │   └── mosquitto/
 │       └── config/mosquitto.conf
-├── restic-cron/
-└── smtp/
 ```
+
+The declarative source is `hosts/hsb1/docker/compose-spec.nix`; Nix renders it
+to `/etc/compose/hsb1/docker-compose.yml`, and `compose-hsb1.service`
+reconciles it. Do not recreate or operate `~/docker/docker-compose.yml`.
 
 ### Secrets
 
