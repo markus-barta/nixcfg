@@ -12,8 +12,9 @@ JUSTFILE="$REPO_ROOT/justfile"
 OCBOTS="$REPO_ROOT/+agents/commands/ocbots.md"
 MODELUPDATE="$REPO_ROOT/+agents/commands/oc-modelupdate.md"
 RUNBOOK="$REPO_ROOT/hosts/hsb0/docs/OPENCLAW-RUNBOOK.md"
+WORKSPACE="$REPO_ROOT/nixcfg+agents.code-workspace"
 
-python3 - "$JUSTFILE" "$OCBOTS" "$MODELUPDATE" "$RUNBOOK" <<'PY'
+python3 - "$JUSTFILE" "$OCBOTS" "$MODELUPDATE" "$RUNBOOK" "$WORKSPACE" <<'PY'
 import pathlib
 import re
 import sys
@@ -22,10 +23,12 @@ justfile_path = pathlib.Path(sys.argv[1])
 ocbots_path = pathlib.Path(sys.argv[2])
 modelupdate_path = pathlib.Path(sys.argv[3])
 runbook_path = pathlib.Path(sys.argv[4])
+workspace_path = pathlib.Path(sys.argv[5])
 justfile = justfile_path.read_text(encoding="utf-8")
 ocbots = ocbots_path.read_text(encoding="utf-8")
 modelupdate = modelupdate_path.read_text(encoding="utf-8")
 runbook = runbook_path.read_text(encoding="utf-8")
+workspace = workspace_path.read_text(encoding="utf-8")
 
 start_marker = "\n_oc-run host cmd:\n"
 end_marker = "\n# Helper: resolve container name for a given host target"
@@ -100,6 +103,9 @@ workflow = runbook.split("\n## Workspace Git Workflow", 1)[1].split(
 )[0]
 if "Percy" in workflow or "oc-workspace-percy" in workflow:
     raise SystemExit("the active hsb0 workspace workflow still advertises retired Percy state")
+
+if "percy-workspace" in workspace or "oc-workspace-percy" in workspace:
+    raise SystemExit("the editor workspace still opens the retired Percy repository")
 
 print("justfile_ssh_fallbacks=passed hsb0_tailnet_ip=100.64.0.6 retired_msbp_route=absent")
 PY
