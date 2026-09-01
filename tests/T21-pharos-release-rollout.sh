@@ -126,6 +126,10 @@ jq -e '
 }
 
 manifest_image=$(jq -r '.reference' "$release_file")
+bootstrap_image=$(
+  nix eval --raw \
+    .#nixosConfigurations.csb1.config.inspr.pharosProvisioningExecutor.beaconImage
+)
 
 if [[ ! "$expected_image" =~ $immutable_pattern ]]; then
   printf 'pharos_rollout=failed reason=control_plane_pin_not_immutable\n' >&2
@@ -134,6 +138,10 @@ fi
 
 if [[ "$expected_image" != "$manifest_image" ]]; then
   printf 'pharos_rollout=failed reason=control_plane_manifest_mismatch\n' >&2
+  exit 1
+fi
+if [[ "$bootstrap_image" != "$manifest_image" ]]; then
+  printf 'pharos_rollout=failed reason=bootstrap_manifest_mismatch\n' >&2
   exit 1
 fi
 
