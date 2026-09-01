@@ -164,6 +164,9 @@ jobs:
       - name: Verify every macOS common export has a host consumer (NIX-89)
         run: tests/T63-macos-common-exports.sh
 
+      - name: Verify fleet Nix maintenance policy (NIX-164)
+        run: tests/T64-fleet-nix-maintenance.sh
+
       - name: Verify Paimos external-stage adapter contract (NIX-381 / PAI-810)
         run: tests/T48-paimos-delivery-stage.sh
 
