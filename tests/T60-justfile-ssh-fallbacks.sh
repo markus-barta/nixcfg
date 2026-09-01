@@ -29,8 +29,6 @@ runbook = runbook_path.read_text(encoding="utf-8")
 
 start_marker = "\n_oc-run host cmd:\n"
 end_marker = "\n# Helper: resolve container name for a given host target"
-surface_start = "\n# OpenClaw — Unified host-aware commands"
-surface_end = "\n# Get the reverse dependencies of a nix store path"
 container_start = "\n_oc-container host:\n"
 container_end = "\n# Helper: resolve compose dir for a given host target"
 compose_start = "\n_oc-compose-dir host:\n"
@@ -39,8 +37,6 @@ compose_end = "\n# Rebuild container from scratch"
 if (
     justfile.count(start_marker) != 1
     or justfile.count(end_marker) != 1
-    or justfile.count(surface_start) != 1
-    or justfile.count(surface_end) != 1
     or justfile.count(container_start) != 1
     or justfile.count(container_end) != 1
     or justfile.count(compose_start) != 1
@@ -49,7 +45,6 @@ if (
     raise SystemExit("cannot uniquely locate the OpenClaw routing helpers")
 
 route = justfile.split(start_marker, 1)[1].split(end_marker, 1)[0]
-surface = justfile.split(surface_start, 1)[1].split(surface_end, 1)[0]
 container = justfile.split(container_start, 1)[1].split(container_end, 1)[0]
 compose = justfile.split(compose_start, 1)[1].split(compose_end, 1)[0]
 
