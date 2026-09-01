@@ -279,8 +279,7 @@ in
   # So: after each switch, push the current source into whatever approved copy
   # exists. The filename prefix is assigned by CodexBar, so match it by glob
   # rather than hardcoding a hash that is not ours to predict. Copy (not
-  # symlink) because CodexBar rewrites the file mode and expects a real file —
-  # same reason fontActivation copies into ~/Library/Fonts.
+  # symlink) because CodexBar rewrites the file mode and expects a real file.
   #
   # Deliberately does nothing when no approved copy exists: approval is a
   # security gate (network + cookie access) and is the operator's to give.

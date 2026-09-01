@@ -407,9 +407,10 @@ for char, name in icons:
 
 Provides macOS-specific configuration:
 
-- ~~WezTerm configuration (Tokyo Night theme, Hack Nerd Font)~~ — purged 2026-05-05; Ghostty is now the daily, managed via Homebrew (config outside Nix)
-- Font installation activation script
-- Common macOS packages
-- Nano configuration
+- Ghostty configuration plus install-state and login-shell checks
+- Declarative Homebrew cask manifest rendering
+- Common macOS packages and browser-QA session variables
+- Declarative macOS defaults
 
-Used by macOS Home Manager configurations.
+Fish is configured by `home-manager.nix`; this helper exports only attributes
+consumed by the macOS Home Manager configurations.

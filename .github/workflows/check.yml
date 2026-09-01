@@ -161,6 +161,9 @@ jobs:
       - name: Verify secrets audit comment parsing (NIX-291)
         run: tests/T62-secrets-audit-comments.sh
 
+      - name: Verify every macOS common export has a host consumer (NIX-89)
+        run: tests/T63-macos-common-exports.sh
+
       - name: Verify Paimos external-stage adapter contract (NIX-381 / PAI-810)
         run: tests/T48-paimos-delivery-stage.sh
 
