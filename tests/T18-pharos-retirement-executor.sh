@@ -20,7 +20,7 @@ pharos_images=$(sed -n \
 [ "$(printf '%s\n' "$pharos_images" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 2 ]
 [ "$(printf '%s\n' "$pharos_images" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')" -eq 1 ]
 printf '%s\n' "$pharos_images" | grep -Eq \
-  '^ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
+  '^ghcr\.io/inspr-at/pharos/pharosd:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$'
 grep -Fq 'PHAROS_JANUS_PUBLIC_URL=https://vault.barta.cm' "$compose"
 grep -Fq 'unset PHAROS_TOKEN' "$executor_source"
 # shellcheck disable=SC2016

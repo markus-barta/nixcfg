@@ -2,7 +2,7 @@
 set -euo pipefail
 
 required=(
-  VERSION
+  RELEASE_METADATA
   NIXCFG_ROOT
   NIXCFG_REPOSITORY
   NIX_CHANGED
@@ -17,8 +17,13 @@ for name in "${required[@]}"; do
   fi
 done
 
-if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
-  [[ ! "$NIX_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+script_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+python3 "$script_root/scripts/pharos-release-metadata.py" validate \
+  --kind auto \
+  "$RELEASE_METADATA"
+VERSION=$(jq -er .version "$RELEASE_METADATA")
+
+if [[ ! "$NIX_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   printf 'pharos_release_publish=failed reason=invalid_input\n' >&2
   exit 1
 fi
@@ -33,6 +38,15 @@ fi
 if [[ "$(git -C "$NIXCFG_ROOT" rev-parse HEAD)" != "$NIX_SHA" ]] ||
   [[ -n "$(git -C "$NIXCFG_ROOT" status --porcelain --untracked-files=no)" ]]; then
   printf 'pharos_release_publish=failed reason=unvalidated_commit repo=nix\n' >&2
+  exit 1
+fi
+python3 "$script_root/scripts/pharos-release-metadata.py" validate \
+  --kind local \
+  "$NIXCFG_ROOT/pharos-release.json"
+if ! python3 "$script_root/scripts/pharos-release-metadata.py" matches \
+  --active "$NIXCFG_ROOT/pharos-release.json" \
+  --candidate "$RELEASE_METADATA"; then
+  printf 'pharos_release_publish=failed reason=release_metadata_mismatch repo=nix\n' >&2
   exit 1
 fi
 

@@ -46,6 +46,9 @@ jobs:
       - name: Verify clean transactional Pharos release proposals
         run: tests/T51-pharos-release-proposals.sh
 
+      - name: Verify dual-era Pharos release ordering
+        run: tests/T66-pharos-calendar-release.sh
+
       - name: Verify Janus container least privilege and shell-free runtime
         run: tests/T23-janus-container-hardening.sh
 

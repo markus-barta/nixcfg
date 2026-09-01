@@ -2,18 +2,17 @@
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
-  printf 'usage: %s VERSION NIXCFG_ROOT\n' "${0##*/}" >&2
+  printf 'usage: %s RELEASE_SET_JSON NIXCFG_ROOT\n' "${0##*/}" >&2
   exit 2
 fi
 
-version=$1
+metadata=$1
 nixcfg_root=$2
 output=${GITHUB_OUTPUT:-}
+script_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
-if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  printf 'pharos_release_candidates=failed reason=invalid_version\n' >&2
-  exit 1
-fi
+python3 "$script_root/scripts/pharos-release-metadata.py" validate --kind auto "$metadata"
+version=$(jq -er .version "$metadata")
 if [[ -z "$output" ]]; then
   printf 'pharos_release_candidates=failed reason=missing_github_output\n' >&2
   exit 1

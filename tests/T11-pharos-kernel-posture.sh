@@ -23,7 +23,7 @@ assert_count() {
 assert_exact_image_count() {
   local expected=$1
   local file=$2
-  local image_pattern='^[[:space:]]*image = "ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+(@sha256:[0-9a-f]{64})?";[[:space:]]*$'
+  local image_pattern='^[[:space:]]*image = "ghcr\.io/inspr-at/pharos/pharosd:[A-Za-z0-9._-]+(@sha256:[0-9a-f]{64})?";[[:space:]]*$'
 
   [[ "$(grep -Ec -- "$image_pattern" "$file")" == "$expected" ]]
 }
@@ -31,7 +31,7 @@ assert_exact_image_count() {
 assert_digest_image_count() {
   local expected=$1
   local file=$2
-  local image_pattern='^[[:space:]]*image = "ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}";[[:space:]]*$'
+  local image_pattern='^[[:space:]]*image = "ghcr\.io/inspr-at/pharos/pharosd:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}";[[:space:]]*$'
 
   [[ "$(grep -Ec -- "$image_pattern" "$file")" == "$expected" ]]
 }

@@ -14,6 +14,11 @@ on:
         required: false
         default: false
         type: boolean
+      allow_rollback:
+        description: Allow the exact requested signed legacy anchor as an attended rollback
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: pharos-release-rollout
@@ -45,24 +50,86 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Resolve one annotated Pharos release
+      - name: Resolve one discriminated Pharos release
         id: release
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
+          ALLOW_ROLLBACK: ${{ inputs.allow_rollback }}
         run: |
-          tag=$REQUESTED_TAG
-          if [[ -z "$tag" ]]; then
-            tag=$(
-              gh api --paginate repos/inspr-at/pharos/git/matching-refs/tags/v \
-                --jq '.[].ref' |
-                sed 's#^refs/tags/##' |
-                grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
-                sort -V |
-                tail -n 1
+          active="$GITHUB_WORKSPACE/pharos-release.json"
+          selected="$RUNNER_TEMP/pharos-release-set.json"
+          candidates="$RUNNER_TEMP/pharos-release-candidates"
+          mkdir -p "$candidates"
+          candidate_paths=()
+          legacy_tag="v$(jq -er .migration_anchor.last_legacy_version "$active")"
+          active_scheme=$(jq -er .version_scheme "$active")
+          if [[ -n "$REQUESTED_TAG" && ! "$REQUESTED_TAG" =~ ^v[A-Za-z0-9._-]{1,64}$ ]]; then
+            echo 'error: requested Pharos tag has an unsafe shape' >&2
+            exit 1
+          fi
+
+          if [[ "$ALLOW_ROLLBACK" == true && "$REQUESTED_TAG" != "$legacy_tag" ]]; then
+            echo 'error: rollback requires the exact requested legacy anchor tag' >&2
+            exit 1
+          fi
+          if [[ "$REQUESTED_TAG" == "$legacy_tag" ]]; then
+            if [[ "$active_scheme" == legacy ]]; then
+              cp "$active" "$selected"
+            elif [[ "$ALLOW_ROLLBACK" == true ]]; then
+              scripts/pharos-release-metadata.py rollback \
+                --active "$active" \
+                --tag "$REQUESTED_TAG" \
+                --output "$selected"
+            else
+              echo 'error: legacy downgrade requires the attended rollback control' >&2
+              exit 1
+            fi
+          elif [[ -n "$REQUESTED_TAG" ]]; then
+            mapfile -t asset_ids < <(
+              gh api "repos/inspr-at/pharos/releases/tags/${REQUESTED_TAG}" \
+                --jq 'if .draft or .prerelease then empty else .assets[] | select(.name == "release-set.json") | .id end'
+            )
+            if [[ ${#asset_ids[@]} -ne 1 ]]; then
+              echo 'error: requested calendar release has no unique release-set.json' >&2
+              exit 1
+            fi
+            candidate="$candidates/requested.json"
+            gh api "repos/inspr-at/pharos/releases/assets/${asset_ids[0]}" \
+              -H 'Accept: application/octet-stream' >"$candidate"
+            candidate_paths+=("$candidate")
+          elif [[ -z "$REQUESTED_TAG" ]]; then
+            index=0
+            while IFS= read -r asset_id; do
+              [[ -n "$asset_id" ]] || continue
+              candidate="$candidates/${index}.json"
+              gh api "repos/inspr-at/pharos/releases/assets/${asset_id}" \
+                -H 'Accept: application/octet-stream' >"$candidate"
+              candidate_paths+=("$candidate")
+              index=$((index + 1))
+            done < <(
+              gh api --paginate 'repos/inspr-at/pharos/releases?per_page=100' \
+                --jq '.[] | select(.draft == false and .prerelease == false) | .assets[]? | select(.name == "release-set.json") | .id'
             )
           fi
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo 'error: no valid semantic Pharos release tag resolved' >&2
+
+          if [[ ! -s "$selected" ]]; then
+            if [[ ${#candidate_paths[@]} -eq 0 && "$active_scheme" == legacy ]]; then
+              cp "$active" "$selected"
+            else
+              scripts/pharos-release-metadata.py select \
+                --active "$active" \
+                --output "$selected" \
+                "${candidate_paths[@]}"
+            fi
+          fi
+
+          tag=$(jq -er .tag "$selected")
+          version=$(jq -er .version "$selected")
+          scheme=$(jq -er .version_scheme "$selected")
+          sequence=$(jq -er .release_sequence "$selected")
+          source_commit=$(jq -er .source_commit "$selected")
+          if [[ -n "$REQUESTED_TAG" && "$tag" != "$REQUESTED_TAG" ]]; then
+            echo 'error: requested Pharos tag is outside the recorded migration sequence' >&2
             exit 1
           fi
           object_type=$(gh api "repos/inspr-at/pharos/git/ref/tags/${tag}" --jq '.object.type')
@@ -72,17 +139,70 @@ jobs:
           fi
           tag_object=$(gh api "repos/inspr-at/pharos/git/ref/tags/${tag}" --jq '.object.sha')
           commit_sha=$(gh api "repos/inspr-at/pharos/git/tags/${tag_object}" --jq '.object.sha')
+          if [[ "$commit_sha" != "$source_commit" ]]; then
+            echo 'error: release metadata source does not match the annotated tag' >&2
+            exit 1
+          fi
           ancestry=$(gh api "repos/inspr-at/pharos/compare/${commit_sha}...main" --jq '.status')
           if [[ "$ancestry" != ahead && "$ancestry" != identical ]]; then
             echo 'error: Pharos release tag is not on the main lineage' >&2
             exit 1
           fi
-          version=${tag#v}
-          printf 'tag=%s\nversion=%s\n' "$tag" "$version" >>"$GITHUB_OUTPUT"
+
+          metadata="$selected"
+          bundle=""
+          metadata_schema=$(jq -er .schema "$selected")
+          if [[ "$metadata_schema" == inspr.pharos.release-set.v1 ]]; then
+            mapfile -t signed_asset_ids < <(
+              gh api "repos/inspr-at/pharos/releases/tags/${tag}" \
+                --jq 'if .draft or .prerelease then empty else .assets[] | select(.name == "release-set.json") | .id end'
+            )
+            mapfile -t bundle_asset_ids < <(
+              gh api "repos/inspr-at/pharos/releases/tags/${tag}" \
+                --jq 'if .draft or .prerelease then empty else .assets[] | select(.name == "release-set.sigstore.json") | .id end'
+            )
+            if [[ ${#signed_asset_ids[@]} -ne 1 || ${#bundle_asset_ids[@]} -ne 1 ]]; then
+              echo 'error: calendar release has no unique signed metadata asset pair' >&2
+              exit 1
+            fi
+            metadata="$RUNNER_TEMP/pharos-release-set-signed.json"
+            bundle="$RUNNER_TEMP/pharos-release-set.sigstore.json"
+            gh api "repos/inspr-at/pharos/releases/assets/${signed_asset_ids[0]}" \
+              -H 'Accept: application/octet-stream' >"$metadata"
+            gh api "repos/inspr-at/pharos/releases/assets/${bundle_asset_ids[0]}" \
+              -H 'Accept: application/octet-stream' >"$bundle"
+            scripts/pharos-release-metadata.py validate --kind release-set "$metadata"
+            if [[ "$(jq -cS . "$metadata")" != "$(jq -cS . "$selected")" ]]; then
+              echo 'error: selected metadata does not match the signed release asset' >&2
+              exit 1
+            fi
+          fi
+          printf 'metadata=%s\nbundle=%s\ntag=%s\nversion=%s\nversion_scheme=%s\nrelease_sequence=%s\n' \
+            "$metadata" "$bundle" "$tag" "$version" "$scheme" "$sequence" >>"$GITHUB_OUTPUT"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
+        with:
+          cosign-release: v2.5.2
+
+      - name: Verify the signed release metadata
+        if: steps.release.outputs.bundle != ''
+        env:
+          BUNDLE: ${{ steps.release.outputs.bundle }}
+          RELEASE_METADATA: ${{ steps.release.outputs.metadata }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          [[ -s "$RELEASE_METADATA" && -s "$BUNDLE" ]]
+          cosign verify-blob \
+            --bundle "$BUNDLE" \
+            --certificate-identity "https://github.com/inspr-at/pharos/.github/workflows/release.yml@refs/tags/${TAG}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$RELEASE_METADATA" >/dev/null
 
       - name: Resolve the public immutable image digest
         id: image
         env:
+          RELEASE_METADATA: ${{ steps.release.outputs.metadata }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           image=ghcr.io/inspr-at/pharos/pharosd
@@ -94,12 +214,13 @@ jobs:
             echo 'error: published Pharos image has no immutable sha256 digest' >&2
             exit 1
           fi
-          printf 'digest=%s\nreference=%s\n' "$digest" "${image}:${VERSION}@${digest}" >>"$GITHUB_OUTPUT"
-
-      - name: Install cosign
-        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
-        with:
-          cosign-release: v2.5.2
+          reference="${image}:${VERSION}@${digest}"
+          if [[ "$(jq -er .digest "$RELEASE_METADATA")" != "$digest" ||
+            "$(jq -er .reference "$RELEASE_METADATA")" != "$reference" ]]; then
+            echo 'error: release-set.json does not match the public immutable image' >&2
+            exit 1
+          fi
+          printf 'digest=%s\nreference=%s\n' "$digest" "$reference" >>"$GITHUB_OUTPUT"
 
       - name: Install Nix for production preflight
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
@@ -117,31 +238,36 @@ jobs:
         id: existing
         env:
           NIXCFG_REPOSITORY: ${{ github.repository }}
-          REFERENCE: ${{ steps.image.outputs.reference }}
-          VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_METADATA: ${{ steps.release.outputs.metadata }}
         run: |
           scripts/select-pharos-release-candidates.sh \
-            "$VERSION" \
-            "$REFERENCE" \
+            "$RELEASE_METADATA" \
             "$GITHUB_WORKSPACE" \
             "$GITHUB_OUTPUT"
 
       - name: Prepare the active personal fleet from the immutable digest
         if: steps.existing.outputs.reused != 'true'
         env:
-          DIGEST: ${{ steps.image.outputs.digest }}
-          VERSION: ${{ steps.release.outputs.version }}
+          ALLOW_ROLLBACK: ${{ inputs.allow_rollback }}
+          RELEASE_METADATA: ${{ steps.release.outputs.metadata }}
+          ROLLBACK_TAG: ${{ inputs.tag }}
         run: |
-          scripts/update-pharos-release.sh "$VERSION" "$DIGEST"
+          rollback_args=()
+          if [[ "$ALLOW_ROLLBACK" == true ]]; then
+            rollback_args+=(--allow-exact-rollback "$ROLLBACK_TAG")
+          fi
+          scripts/update-pharos-release.sh \
+            "${rollback_args[@]}" \
+            "$RELEASE_METADATA"
 
       - name: Prepare clean local release candidates
         if: steps.existing.outputs.reused != 'true'
         id: prepared
         env:
-          VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_METADATA: ${{ steps.release.outputs.metadata }}
         run: |
           scripts/prepare-pharos-release-candidates.sh \
-            "$VERSION" \
+            "$RELEASE_METADATA" \
             "$GITHUB_WORKSPACE"
 
       - name: Validate the exact committed candidate
@@ -153,6 +279,7 @@ jobs:
           tests/T20-pharos-beacon-healthcheck.sh
           tests/T21-pharos-release-rollout.sh
           tests/T22-pharos-release-update.sh
+          tests/T66-pharos-calendar-release.sh
           tests/T32-managed-secret-production-preflight.sh
 
       - name: Record dry-run evidence
@@ -171,6 +298,6 @@ jobs:
           NIX_SHA: ${{ steps.existing.outputs.nix_sha || steps.prepared.outputs.nix_sha }}
           NIXCFG_REPOSITORY: ${{ github.repository }}
           NIXCFG_ROOT: ${{ github.workspace }}
-          VERSION: ${{ steps.release.outputs.version }}
+          RELEASE_METADATA: ${{ steps.release.outputs.metadata }}
         run: |
           scripts/publish-pharos-release-candidates.sh
