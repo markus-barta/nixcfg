@@ -1,6 +1,6 @@
 # T04: Docker Services (hsb1)
 
-Test that all expected Docker containers are running and responding.
+Test that all expected Docker services are running and responding.
 
 ## Host Information
 
@@ -33,7 +33,7 @@ Run: `./T04-docker-services.sh`
 
 **Status:** ⏳ Pending
 
-### Test 2: All Containers Running
+### Test 2: All Services Running
 
 **Steps:**
 
@@ -41,7 +41,7 @@ Run: `./T04-docker-services.sh`
 
 **Expected Results:**
 
-All 17 services currently declared by `compose-spec.nix` running:
+All 17 services currently declared by `compose-spec.nix` are running:
 
 - apprise
 - fritz-tripwire
@@ -84,7 +84,7 @@ All 17 services currently declared by `compose-spec.nix` running:
 | Test | Description      | Status |
 | ---- | ---------------- | ------ |
 | T1   | Docker Daemon    | ⏳     |
-| T2   | Containers Up    | ⏳     |
+| T2   | Services Up      | ⏳     |
 | T3   | Services Respond | ⏳     |
 
 ## Notes

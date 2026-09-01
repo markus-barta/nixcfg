@@ -73,7 +73,7 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ## 🐳 Docker Services
 
-| Container               | Port       | Purpose                      | Critical |
+| Service                 | Port       | Purpose                      | Critical |
 | ----------------------- | ---------- | ---------------------------- | -------- |
 | **apprise**             | 8001       | Notifications                | 🟡 Med   |
 | **fritz-tripwire**      | 9000       | Fritz!Box anomaly witness    | 🟡 Med   |

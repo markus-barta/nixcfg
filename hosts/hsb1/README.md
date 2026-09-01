@@ -181,11 +181,11 @@ Filesystems:
 
 ---
 
-## Docker Containers
+## Docker Services
 
 Services use host or bridge networking as declared in `docker/compose-spec.nix`:
 
-| Container               | Purpose                      | Ports      |
+| Service                 | Purpose                      | Ports      |
 | ----------------------- | ---------------------------- | ---------- |
 | **apprise**             | Notifications                | 8001       |
 | **fritz-tripwire**      | Fritz!Box anomaly witness    | 9000       |

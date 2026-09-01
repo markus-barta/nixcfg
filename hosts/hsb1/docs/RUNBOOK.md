@@ -613,7 +613,7 @@ ssh mba@192.168.1.101 "journalctl -f"
 
 ### Container Overview
 
-| Container           | Purpose                       |
+| Service             | Purpose                       |
 | ------------------- | ----------------------------- |
 | apprise             | Notification service          |
 | fritz-tripwire      | Fritz!Box anomaly witness     |

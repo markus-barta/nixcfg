@@ -201,7 +201,7 @@ def markdown_table_services(path: Path, start: str, end: str) -> list[str]:
 def markdown_list_services(path: Path) -> list[str]:
     test = section(
         path.read_text(),
-        "### Test 2: All Containers Running",
+        "### Test 2: All Services Running",
         "### Test 3: Key Services Responding",
     )
     body = section(test, "**Expected Results:**", "**Status:**")
@@ -210,9 +210,9 @@ def markdown_list_services(path: Path) -> list[str]:
 
 def shell_array_services(path: Path) -> list[str]:
     text = path.read_text()
-    match = re.search(r"EXPECTED_CONTAINERS=\(\n(.*?)\n\)", text, re.S)
+    match = re.search(r"EXPECTED_SERVICES=\(\n(.*?)\n\)", text, re.S)
     if not match:
-        raise ValueError(f"{path}: EXPECTED_CONTAINERS array not found")
+        raise ValueError(f"{path}: EXPECTED_SERVICES array not found")
     return re.findall(r'^\s+"([a-z0-9][a-z0-9-]*)"$', match.group(1), re.M)
 
 
