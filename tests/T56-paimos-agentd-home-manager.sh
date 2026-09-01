@@ -102,7 +102,7 @@ PY
   fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/nix415-report-credential.XXXXXX")
   chmod 0700 "$fixture_root"
   trap '/usr/bin/trash "$fixture_root"' EXIT
-  printf '%s' 'PPMAPIKEY=fixture-key' > "$fixture_root/valid.env"
+  printf '%s' 'PPMAPIKEY=fixture-key' >"$fixture_root/valid.env"
   chmod 0400 "$fixture_root/valid.env"
   "$credential_installer" "$fixture_root/valid.env" "$fixture_root/raw-key" PPMAPIKEY
   [ "$(/usr/bin/stat -f '%Lp' "$fixture_root/raw-key")" = 600 ] || fail 'report credential output is not mode 0600'
@@ -111,9 +111,9 @@ PY
   for invalid in wrong-name newline empty; do
     chmod 0600 "$fixture_root/invalid.env" 2>/dev/null || true
     case "$invalid" in
-      wrong-name) printf '%s' 'OTHER=fixture-key' > "$fixture_root/invalid.env" ;;
-      newline) printf 'PPMAPIKEY=fixture-key\nSECOND=value' > "$fixture_root/invalid.env" ;;
-      empty) printf '%s' 'PPMAPIKEY=' > "$fixture_root/invalid.env" ;;
+    wrong-name) printf '%s' 'OTHER=fixture-key' >"$fixture_root/invalid.env" ;;
+    newline) printf 'PPMAPIKEY=fixture-key\nSECOND=value' >"$fixture_root/invalid.env" ;;
+    empty) printf '%s' 'PPMAPIKEY=' >"$fixture_root/invalid.env" ;;
     esac
     chmod 0400 "$fixture_root/invalid.env"
     if "$credential_installer" "$fixture_root/invalid.env" "$fixture_root/raw-key" PPMAPIKEY >/dev/null 2>&1; then
