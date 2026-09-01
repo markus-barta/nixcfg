@@ -1,8 +1,29 @@
 {
-  "schema": "inspr.pharos.fleet-release.v1",
+  "schema": "inspr.pharos.fleet-release.v2",
+  "version_scheme": "legacy",
   "version": "0.2.0",
+  "release_channel": "stable",
+  "release_sequence": 0,
+  "migration_anchor": {
+    "last_legacy_version": "0.2.0",
+    "last_legacy_release_sequence": 0,
+    "first_calendar_version": null,
+    "first_calendar_release_sequence": 1
+  },
+  "source_commit": "5c8bd1fbd2271a5c157ca239ec2d98b66b201e19",
   "tag": "v0.2.0",
   "image": "ghcr.io/inspr-at/pharos/pharosd",
   "digest": "sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b",
-  "reference": "ghcr.io/inspr-at/pharos/pharosd:0.2.0@sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b"
+  "reference": "ghcr.io/inspr-at/pharos/pharosd:0.2.0@sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b",
+  "legacy_rollback": {
+    "version_scheme": "legacy",
+    "version": "0.2.0",
+    "release_channel": "stable",
+    "release_sequence": 0,
+    "source_commit": "5c8bd1fbd2271a5c157ca239ec2d98b66b201e19",
+    "tag": "v0.2.0",
+    "image": "ghcr.io/inspr-at/pharos/pharosd",
+    "digest": "sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b",
+    "reference": "ghcr.io/inspr-at/pharos/pharosd:0.2.0@sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b"
+  }
 }
