@@ -118,7 +118,7 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ```
 /run/agenix/  (decrypted at boot by agenix; no plaintext on disk)
-├── hsb1-smarthome-env    # Main credentials (HASS_TOKEN, etc.)
+├── hsb1-smarthome-env    # MQTT + service API credentials; no HA access token (verified 2026-08-12)
 ├── hsb1-zigbee2mqtt-env  # Z2M MQTT credentials
 ├── hsb1-mqtt-client-env  # MQTT broker credentials
 └── hsb1-tapo-c210-env    # Camera passwords
@@ -439,7 +439,8 @@ See [Room Abbreviations](#🏠-room-abbreviations) for codes.
 ## 🔐 Security Notes
 
 - **MQTT credentials**: Stored in `/run/agenix/hsb1-mqtt-client-env` (agenix managed)
-- **HASS token**: Stored in `/run/agenix/hsb1-smarthome-env` (agenix managed)
+- **hsb1 service environment**: A value-free key-name inventory on 2026-08-12 confirmed that `hsb1-smarthome-env` holds MQTT and service API credentials, not a Home Assistant access token.
+- **OpenClaw's Home Assistant token**: agenix `hsb0-openclaw-hass-token` on **hsb0**, mounted at `/run/secrets/hass-token` in the `openclaw-gateway` container and shared by both agents (see [`hosts/hsb0/docs/OPENCLAW-RUNBOOK.md`](../../hsb0/docs/OPENCLAW-RUNBOOK.md#home-assistant)). The independent csb0 fleet-alert poller uses `HA_TOKEN_HSB1` from agenix `csb0-ops-alerts-env`.
 - **Camera passwords**: Stored in `/run/agenix/hsb1-tapo-c210-env` (agenix managed)
 - **Never commit secrets to git**
 
