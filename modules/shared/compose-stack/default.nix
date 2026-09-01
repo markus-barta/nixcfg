@@ -169,7 +169,9 @@ in
         With `-f /etc/...`, compose resolves `./traefik/static.yml` against the
         compose file's directory, which is in /etc and does not contain it. Set
         this to the repo checkout to preserve today's resolution without
-        rewriting paths. hsb1 needs no value: it has zero relative paths.
+        rewriting paths is the cleaner end state. Every current host sets this
+        option because each retained specification still has at least one
+        relative build context or bind path.
 
         Absolutising the paths is the cleaner end state; this exists so a host
         can migrate before that work is done.
