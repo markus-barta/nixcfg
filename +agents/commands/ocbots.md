@@ -89,7 +89,7 @@ Before any `just oc-rebuild`, check the changelog:
 ## Online Resources (check before any update/upgrade)
 
 - **GitHub releases + changelog**: https://github.com/openclaw/openclaw/releases
-  → Check this for latest version, breaking changes, and migration notes before any `just oc-rebuild` or `just percy-rebuild`
+  → Check this for latest version, breaking changes, and migration notes before any `just oc-rebuild`
 - **Official docs**: https://openclaw.ai/
 - **Troubleshooting**: https://docs.openclaw.ai/help/troubleshooting
 - **ClawHub skill registry**: https://clawhub.ai
@@ -106,16 +106,7 @@ just merlin-pull-workspace  # git pull Merlin workspace inside container
 just nimue-pull-workspace   # git pull Nimue workspace inside container
 ```
 
-### miniserver-bp (Percy)
-
-```bash
-just percy-rebuild          # update + recreate container (~15 min — pip installs pymupdf4llm)
-just percy-status           # container status + recent logs
-just percy-stop && just percy-start   # restart without rebuild
-just percy-pull-workspace   # git pull Percy workspace inside container
-```
-
-### Secret rotation (both hosts — same pattern)
+### Secret rotation
 
 ```bash
 # 1. Mac: encrypt new value
@@ -126,7 +117,6 @@ git add secrets/<host>-<secret-name>.age && git commit -m "secrets: rotate <secr
 
 # 3. On host (ALL THREE steps required — agenix decrypts on NixOS switch, not docker rebuild!):
 gitpl && just switch && just oc-rebuild   # hsb0
-gitpl && just switch && just percy-rebuild  # miniserver-bp
 ```
 
 ## SYSOP Rules Reminder

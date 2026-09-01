@@ -9,14 +9,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 JUSTFILE="$REPO_ROOT/justfile"
+OCBOTS="$REPO_ROOT/+agents/commands/ocbots.md"
 
-python3 - "$JUSTFILE" <<'PY'
+python3 - "$JUSTFILE" "$OCBOTS" <<'PY'
 import pathlib
 import re
 import sys
 
 justfile_path = pathlib.Path(sys.argv[1])
+ocbots_path = pathlib.Path(sys.argv[2])
 justfile = justfile_path.read_text(encoding="utf-8")
+ocbots = ocbots_path.read_text(encoding="utf-8")
 
 start_marker = "\n_oc-run host cmd:\n"
 end_marker = "\n# Helper: resolve container name for a given host target"
@@ -65,6 +68,9 @@ if retired_markers:
 
 if "Error: unknown host '${_target}'. Use: hsb0" not in route:
     raise SystemExit("unknown _oc-run targets do not fail closed with the supported host")
+
+if "just percy-" in ocbots or "just oc-rebuild` or `just percy-rebuild" in ocbots:
+    raise SystemExit("the live /ocbots operator guide still advertises retired Percy recipes")
 
 print("justfile_ssh_fallbacks=passed hsb0_tailnet_ip=100.64.0.6 retired_msbp_route=absent")
 PY

@@ -1124,7 +1124,7 @@ _oc-container host:
     if [ -z "$_target" ]; then
         case "$_hostname" in
             hsb0) _target="hsb0" ;;
-            *) echo "openclaw-gateway" ;; # fallback
+            *) echo "Error: unsupported local host (${_hostname}) — specify host: hsb0" >&2; exit 1 ;;
         esac
     fi
     case "$_target" in
