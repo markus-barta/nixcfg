@@ -1078,7 +1078,7 @@ in
       # 0.1.84 = owner-intent/origin replay binding, HTTPS-only transport, exact media semantics, and disabled compression decoding (PHAROS-206).
       # Keep the readable release tag, but bind it to the verified immutable
       # linux/amd64 manifest used by both server and bundled beacon.
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.97@sha256:4c22dbfcae8dbe972607798688ad0c57eb8a529383820bac656f799c64d20710";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.98@sha256:2dcee96d860f919e9f3c8e26092ca1cb92cf9f49577efdaa71ba3978857f11e2";
       container_name = "pharosd";
       restart = "unless-stopped";
       init = true;
@@ -1217,7 +1217,7 @@ in
     # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
     # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.97@sha256:4c22dbfcae8dbe972607798688ad0c57eb8a529383820bac656f799c64d20710";
+      image = "ghcr.io/inspr-at/pharos/pharosd:0.1.98@sha256:2dcee96d860f919e9f3c8e26092ca1cb92cf9f49577efdaa71ba3978857f11e2";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
