@@ -9,6 +9,7 @@
 let
   cfg = config.inspr.pharosProvisioningExecutor;
   owner = config.networking.hostName;
+  fleetRelease = builtins.fromJSON (builtins.readFile ../../pharos-release.json);
   stateDir = "/var/lib/pharos-provisioning-executor";
   runtimeDir = "/run/pharos-provisioning-executor";
   contractDir = "${cfg.repoPath}/hosts/csb1/docker/janus/pharos-production";
@@ -145,8 +146,8 @@ in
     };
     beaconImage = lib.mkOption {
       type = lib.types.str;
-      default = "ghcr.io/inspr-at/pharos/pharosd:0.1.62@sha256:6da3b687e112e3c31177a423fbe0581446ad7a8d2b5a32f2a1084b930b8bf2c6";
-      description = "Immutable Pharos image used for the managed host beacon.";
+      default = fleetRelease.reference;
+      description = "Immutable Pharos fleet-release image used for the managed host beacon; an explicit pin remains available for rollback.";
     };
     pollSeconds = lib.mkOption {
       type = lib.types.ints.between 15 300;
