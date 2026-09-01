@@ -446,7 +446,7 @@ docker exec homeassistant python3 -m homeassistant --script check_config -c /con
 docker restart homeassistant
 ```
 
-**Future-proofing:** `watchtower-weekly` + HACS auto-update epex*spot, so a future major version may rename sensors again. If the chart breaks after an update, re-check which `sensor.epex_spot_data*\*`still carries`attributes.data` and repoint.
+**Future-proofing:** HACS can update epex*spot, so a future major version may rename sensors again. If the chart breaks after an update, re-check which `sensor.epex_spot_data*`still carries`attributes.data` and repoint.
 
 **Reading live HA state without an API token** (recorder DB, read-only):
 
@@ -609,22 +609,25 @@ ssh mba@192.168.1.101 "journalctl -f"
 
 ### Container Overview
 
-| Container              | Image                                                     | Purpose                                         | Port         |
-| ---------------------- | --------------------------------------------------------- | ----------------------------------------------- | ------------ | ---------------------------------------------- |
-| homeassistant          | `ghcr.io/home-assistant/home-assistant:stable`            | Main automation hub                             | 8123 (host)  |
-| nodered                | `ghcr.io/markus-barta/node-red-miniserver24:main` ¹       | Automation flows + FLIRC IR                     | 1880 (host)  |
-| zigbee2mqtt            | `koenkk/zigbee2mqtt:latest`                               | Zigbee device bridge                            | 8888         |
-| mosquitto              | `eclipse-mosquitto:latest`                                | MQTT broker                                     | 1883, 9001   |
-| scrypted               | `ghcr.io/koush/scrypted`                                  | Camera/NVR/HomeKit bridge                       | 10443 (host) |
-| matter-server          | `ghcr.io/home-assistant-libs/python-matter-server:stable` | Matter protocol                                 | 5580 (host)  |
-| health-pixoo           | `ghcr.io/markus-barta/health-pixoo:latest`                | Smart home health on Pixoo64                    | host         |
-| ~~pixdcon~~            | `ghcr.io/markus-barta/pixdcon:latest`                     | Pixoo display control                           | 10829 (host) | **disabled** — commented out in docker-compose |
-| apprise                | `caronc/apprise:latest`                                   | Multi-platform notifications                    | 8001         |
-| opus-stream-to-mqtt    | `node:alpine`                                             | OPUS/EnOcean → MQTT bridge                      | host         |
-| smtp                   | `namshi/smtp`                                             | Mail relay (via Resend, per-host key — OPS-175) | bridge       |
-| restic-cron-hetzner    | custom build                                              | Daily backups to Hetzner                        | -            |
-| watchtower-weekly      | `beatkind/watchtower:latest`                              | Weekly updates (Sat 5am)                        | -            |
-| ~~watchtower-pixdcon~~ | `beatkind/watchtower:latest`                              | Fast pixdcon updates (10s)                      | -            | **disabled** — commented out in docker-compose |
+| Container           | Purpose                       |
+| ------------------- | ----------------------------- |
+| apprise             | Notification service          |
+| fritz-tripwire      | Fritz!Box anomaly witness     |
+| funkeykid           | Educational keyboard service  |
+| homeassistant       | Main automation hub           |
+| hsb1-home           | HostDash static dashboard     |
+| matter-server       | Matter protocol               |
+| mosquitto           | MQTT broker                   |
+| nodered             | Automation flows and FLIRC IR |
+| opus-stream-to-mqtt | OPUS/EnOcean to MQTT bridge   |
+| opusweb             | OPUS web application          |
+| pharos-beacon       | Fleet observation reporter    |
+| pixdcon             | Pixoo display control         |
+| plex                | Media server                  |
+| restic-cron-hetzner | Daily backups to Hetzner      |
+| scrypted            | Camera/NVR/HomeKit bridge     |
+| smtp                | Mail relay                    |
+| zigbee2mqtt         | Zigbee device bridge          |
 
 ### Key Paths
 
@@ -646,7 +649,6 @@ ssh mba@192.168.1.101 "journalctl -f"
 # ~/secrets and /etc/secrets are EMPTY (all plaintext shredded, NIX-158).
 /run/agenix/hsb1-smarthome-env      # Shared HA/NR secrets
 /run/agenix/hsb1-zigbee2mqtt-env    # Z2M network key
-/run/agenix/hsb1-watchtower-env     # Notification URLs
 /run/agenix/hsb1-mqtt-client-env    # MQTT broker/client credentials
 /run/agenix/hsb1-tapo-c210-env      # Camera credentials
 /run/agenix/hsb1-fritz-tripwire-env # Fritz!Box TR-064 credentials
@@ -679,23 +681,22 @@ docker restart homeassistant
 docker restart nodered
 docker restart zigbee2mqtt
 
-# Check watchtower logs (update history)
-docker logs watchtower-weekly --tail 50
+# Check the declarative weekly updater
+systemctl status compose-hsb1-update.service
+journalctl -u compose-hsb1-update.service --since today
 ```
 
 ### Update Schedule
 
-- **watchtower-weekly**: Saturdays 5:00am — updates all containers with `scope=weekly`
-- **watchtower-pixdcon**: Every 10 seconds — fast updates for pixdcon only
+- **compose-hsb1-update.timer**: Saturdays at 05:00 with up to 15 minutes of jitter; pulls eligible images and reconciles the same declarative spec
 - **restic-cron-hetzner**: Daily 1:30am — backup to Hetzner StorageBox
 
 ### Network Modes
 
-| Mode        | Containers                                                                         |
-| ----------- | ---------------------------------------------------------------------------------- |
-| **host**    | homeassistant, nodered, scrypted, matter-server, health-pixoo, opus-stream-to-mqtt |
-| **bridge**  | zigbee2mqtt, mosquitto, apprise, smtp, restic-cron, watchtowers                    |
-| **macvlan** | (available for static IP assignment on 192.168.1.0/24)                             |
+| Mode       | Containers                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------- |
+| **host**   | funkeykid, homeassistant, matter-server, nodered, opus-stream-to-mqtt, pharos-beacon, pixdcon, plex, scrypted |
+| **bridge** | apprise, fritz-tripwire, hsb1-home, mosquitto, opusweb, restic-cron-hetzner, smtp, zigbee2mqtt                |
 
 ### MQTT Broker Configuration
 
@@ -717,15 +718,14 @@ All secrets now materialize from agenix at `/run/agenix/hsb1-*` on boot. `/etc/s
 
 | agenix path (`/run/agenix/…`) | Purpose                                                     | Service                        |
 | ----------------------------- | ----------------------------------------------------------- | ------------------------------ |
-| `hsb1-smarthome-env`          | Main smart home credentials                                 | HA, Node-RED, health-pixoo     |
+| `hsb1-smarthome-env`          | Main smart home credentials                                 | HA, Node-RED, funkeykid        |
 | `hsb1-zigbee2mqtt-env`        | Z2M MQTT credentials                                        | zigbee2mqtt                    |
 | `hsb1-mqtt-client-env`        | MQTT broker/client credentials                              | mosquitto                      |
-| `hsb1-watchtower-env`         | Notification URLs                                           | watchtower                     |
 | `hsb1-fritz-tripwire-env`     | Fritz!Box credentials                                       | fritz-tripwire                 |
 | `hsb1-tapo-c210-env`          | Camera/VLC credentials                                      | scrypted, kiosk babycam        |
 | `hsb1-funkeykid-api-env`      | funkeykid API                                               | funkeykid                      |
 | `hsb1-opusweb-env`            | opusweb                                                     | opusweb                        |
-| `hsb1-pixdcon-env`            | Pixoo display control                                       | pixdcon (container disabled)   |
+| `hsb1-pixdcon-env`            | Pixoo display control                                       | pixdcon                        |
 | `hsb1-tm-smb-env`             | TM Samba passwords (2 lines: `markus <pw>`, `mailina <pw>`) | tm-samba.nix activation script |
 
 ---

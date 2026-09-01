@@ -29,19 +29,27 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
-# Expected containers (must be running)
-# Note: Some containers like pixdcon, smtp, watchtower-pixdcon may be stopped/optional
+# Expected containers (must be running). T37 pins this exact set to the
+# evaluated hsb1 compose specification so this executable cannot drift behind
+# the accompanying Markdown again.
 EXPECTED_CONTAINERS=(
-  "homeassistant"
-  "nodered"
-  "mosquitto"
-  "zigbee2mqtt"
-  "scrypted"
-  "matter-server"
   "apprise"
+  "fritz-tripwire"
+  "funkeykid"
+  "homeassistant"
+  "hsb1-home"
+  "matter-server"
+  "mosquitto"
+  "nodered"
   "opus-stream-to-mqtt"
+  "opusweb"
+  "pharos-beacon"
+  "pixdcon"
+  "plex"
   "restic-cron-hetzner"
-  "watchtower-weekly"
+  "scrypted"
+  "smtp"
+  "zigbee2mqtt"
 )
 
 echo "=== T04: Docker Services Test ==="
