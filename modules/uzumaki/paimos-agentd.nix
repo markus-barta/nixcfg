@@ -10,10 +10,72 @@ let
   home = config.home.homeDirectory;
   stateRoot = "${home}/Library/Caches/paimos/agentd";
   logDirectory = "${home}/Library/Logs/paimos-agentd";
+  reportCredentialFile = "${stateRoot}/report-api-key";
   sdkPath = "${pkgs.claude-agent-sdk}/${pkgs.claude-agent-sdk.sdkRelativePath}";
   codexLauncher = pkgs.writeShellScriptBin "paimos-agentd-codex" ''
     export PATH=${lib.escapeShellArg "${pkgs.nodejs}/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
     exec ${lib.escapeShellArg cfg.codexPath} "$@"
+  '';
+  reportCredentialInstaller = pkgs.writeShellScript "paimos-agentd-install-report-credential" ''
+    set -eu
+
+    if [ "$#" -ne 3 ]; then
+      printf '%s\n' 'paimos-agentd report credential installer requires source, destination, and variable' >&2
+      exit 1
+    fi
+    source_file=$1
+    destination=$2
+    variable=$3
+
+    case "$source_file:$destination" in
+      /*:/*) ;;
+      *) printf '%s\n' 'paimos-agentd report credential paths must be absolute' >&2; exit 1 ;;
+    esac
+    case "$variable" in
+      ""|[0-9]*|*[!A-Za-z0-9_]*) printf '%s\n' 'paimos-agentd report credential variable is invalid' >&2; exit 1 ;;
+    esac
+    if [ ! -f "$source_file" ] || [ -L "$source_file" ] || [ ! -r "$source_file" ]; then
+      printf '%s\n' 'paimos-agentd report credential source is not a readable regular file' >&2
+      exit 1
+    fi
+    source_mode=$(${pkgs.coreutils}/bin/stat -c '%a' "$source_file")
+    source_owner=$(${pkgs.coreutils}/bin/stat -c '%U' "$source_file")
+    current_user=$(${pkgs.coreutils}/bin/id -un)
+    case "$source_mode" in
+      400|600) ;;
+      *) printf '%s\n' 'paimos-agentd report credential source must be owner-only' >&2; exit 1 ;;
+    esac
+    if [ "$source_owner" != "$current_user" ]; then
+      printf '%s\n' 'paimos-agentd report credential source has the wrong owner' >&2
+      exit 1
+    fi
+    newline_count=$(${pkgs.coreutils}/bin/wc -l < "$source_file" | ${pkgs.coreutils}/bin/tr -d ' ')
+    if [ "$newline_count" != 0 ]; then
+      printf '%s\n' 'paimos-agentd report credential source must be one assignment without a newline' >&2
+      exit 1
+    fi
+    raw=$(${pkgs.coreutils}/bin/cat "$source_file")
+    prefix="$variable="
+    case "$raw" in
+      "$prefix"*) ;;
+      *) printf '%s\n' 'paimos-agentd report credential source has the wrong assignment' >&2; exit 1 ;;
+    esac
+    secret="''${raw#"$prefix"}"
+    if [ -z "$secret" ] || [ "''${#secret}" -gt 4096 ] || ! printf '%s' "$secret" | LC_ALL=C ${pkgs.gnugrep}/bin/grep -q '^[[:graph:]]*$'; then
+      printf '%s\n' 'paimos-agentd report credential value is invalid' >&2
+      exit 1
+    fi
+    destination_dir=$(${pkgs.coreutils}/bin/dirname "$destination")
+    if [ "$(${pkgs.coreutils}/bin/stat -c '%a' "$destination_dir")" != 700 ]; then
+      printf '%s\n' 'paimos-agentd report credential destination directory must be owner-only' >&2
+      exit 1
+    fi
+    next="$destination.next"
+    ${pkgs.coreutils}/bin/install -m 0600 /dev/null "$next"
+    printf '%s' "$secret" > "$next"
+    ${pkgs.coreutils}/bin/chmod 0600 "$next"
+    ${pkgs.coreutils}/bin/mv -f "$next" "$destination"
+    unset raw secret
   '';
 in
 {
@@ -37,6 +99,34 @@ in
       default = "${home}/.npm-global/bin/claude";
       description = "Absolute operator-authenticated Claude CLI path.";
     };
+
+    reporting = {
+      enable = lib.mkEnableOption "authenticated durable harness status and owned controls";
+
+      host = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        description = "Stable non-secret host attribution sent to the configured PAIMOS instance.";
+      };
+
+      url = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        description = "Exact HTTPS PAIMOS deployment URL used only by the authenticated reporter.";
+      };
+
+      apiKeyEnvFile = lib.mkOption {
+        type = lib.types.str;
+        default = "";
+        description = "Absolute owner-only NAME=value file materialized outside the Nix store.";
+      };
+
+      apiKeyVariable = lib.mkOption {
+        type = lib.types.str;
+        default = "PPMAPIKEY";
+        description = "Exact variable name expected in apiKeyEnvFile.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -48,6 +138,17 @@ in
       {
         assertion = lib.hasPrefix "/" cfg.codexPath && lib.hasPrefix "/" cfg.claudePath;
         message = "uzumaki.paimosAgentd vendor CLI paths must be absolute";
+      }
+      {
+        assertion =
+          !cfg.reporting.enable
+          || (
+            builtins.match "[A-Za-z0-9][A-Za-z0-9._:-]*" cfg.reporting.host != null
+            && lib.hasPrefix "https://" cfg.reporting.url
+            && lib.hasPrefix "/" cfg.reporting.apiKeyEnvFile
+            && builtins.match "[A-Za-z_][A-Za-z0-9_]*" cfg.reporting.apiKeyVariable != null
+          );
+        message = "uzumaki.paimosAgentd reporting requires a safe host, exact HTTPS URL, absolute credential source, and shell variable name";
       }
     ];
 
@@ -66,6 +167,12 @@ in
           ${pkgs.coreutils}/bin/chmod 0600 "$log"
         fi
       done
+      ${lib.optionalString cfg.reporting.enable ''
+        ${reportCredentialInstaller} \
+          ${lib.escapeShellArg cfg.reporting.apiKeyEnvFile} \
+          ${lib.escapeShellArg reportCredentialFile} \
+          ${lib.escapeShellArg cfg.reporting.apiKeyVariable}
+      ''}
     '';
 
     launchd.agents.paimos-agentd = {
@@ -87,6 +194,16 @@ in
           "${pkgs.nodejs}/bin/node"
           "--claude-sdk-path"
           sdkPath
+        ]
+        ++ lib.optionals cfg.reporting.enable [
+          "--report-host"
+          cfg.reporting.host
+          "--report-url"
+          cfg.reporting.url
+          "--report-api-key-file"
+          reportCredentialFile
+          "--paimos-path"
+          "${pkgs.paimos-cli}/bin/paimos"
         ];
         KeepAlive = true;
         RunAtLoad = true;
