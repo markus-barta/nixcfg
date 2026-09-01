@@ -72,14 +72,26 @@ fi
 control_plane="$repo_root/hosts/csb1/docker/compose-spec.nix"
 release_file="$repo_root/pharos-release.json"
 rollout_workflow="$repo_root/.github/workflows/pharos-release-rollout.yml"
+metadata_validator="$repo_root/scripts/pharos-release-metadata.py"
 candidate_prepare="$repo_root/scripts/prepare-pharos-release-candidates.sh"
 candidate_select="$repo_root/scripts/select-pharos-release-candidates.sh"
 candidate_publish="$repo_root/scripts/publish-pharos-release-candidates.sh"
 expected_image=$(service_image "$control_plane" pharosd)
-immutable_pattern='^ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$'
+immutable_pattern='^ghcr\.io/inspr-at/pharos/pharosd:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$'
 
 grep -Fq 'name: Resolve the public immutable image digest' "$rollout_workflow"
 grep -Fq 'image=ghcr.io/inspr-at/pharos/pharosd' "$rollout_workflow"
+grep -Fq 'release-set.json' "$rollout_workflow"
+grep -Fq 'release-set.sigstore.json' "$rollout_workflow"
+grep -Fq 'cosign verify-blob' "$rollout_workflow"
+grep -Fq 'scripts/pharos-release-metadata.py select' "$rollout_workflow"
+grep -Fq 'allow_rollback:' "$rollout_workflow"
+grep -Fq 'scripts/pharos-release-metadata.py rollback' "$rollout_workflow"
+grep -Fq 'rollback requires the exact requested legacy anchor tag' "$rollout_workflow"
+if grep -Fq 'sort -V' "$rollout_workflow"; then
+  printf 'pharos_rollout=failed reason=generic_version_sort_present\n' >&2
+  exit 1
+fi
 grep -Fq 'tests/T32-managed-secret-production-preflight.sh' "$rollout_workflow"
 grep -Fq 'scripts/prepare-pharos-release-candidates.sh' "$rollout_workflow"
 grep -Fq 'scripts/publish-pharos-release-candidates.sh' "$rollout_workflow"
@@ -115,22 +127,62 @@ if grep -Fq 'Authenticate to the private Pharos package' "$rollout_workflow" ||
   exit 1
 fi
 
-jq -e '
-  .schema == "inspr.pharos.fleet-release.v1"
-  and (.version | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
-  and .tag == ("v" + .version)
-  and .image == "ghcr.io/inspr-at/pharos/pharosd"
-  and (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
-  and .reference == (.image + ":" + .version + "@" + .digest)
-' "$release_file" >/dev/null || {
+python3 "$metadata_validator" validate --kind local "$release_file" || {
   printf 'pharos_rollout=failed reason=invalid_release_manifest\n' >&2
   exit 1
 }
+jq -e '
+  .schema == "inspr.pharos.fleet-release.v2"
+  and .release_channel == "stable"
+  and .migration_anchor.last_legacy_version == "0.2.0"
+  and .migration_anchor.last_legacy_release_sequence == 0
+  and .migration_anchor.first_calendar_release_sequence == 1
+  and .legacy_rollback == {
+    "version_scheme": "legacy",
+    "version": "0.2.0",
+    "release_channel": "stable",
+    "release_sequence": 0,
+    "source_commit": "5c8bd1fbd2271a5c157ca239ec2d98b66b201e19",
+    "tag": "v0.2.0",
+    "image": "ghcr.io/inspr-at/pharos/pharosd",
+    "digest": "sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b",
+    "reference": "ghcr.io/inspr-at/pharos/pharosd:0.2.0@sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b"
+  }
+  and (
+    if .version_scheme == "legacy" then
+      .version == "0.2.0"
+      and .release_sequence == 0
+      and (
+        .migration_anchor.first_calendar_version == null
+        or (.migration_anchor.first_calendar_version | type == "string")
+      )
+    else
+      .version_scheme == "inspr-calendar-v1"
+      and .release_sequence >= 1
+      and (.migration_anchor.first_calendar_version | type == "string")
+    end
+  )
+  and (.source_commit | test("^[0-9a-f]{40}$"))
+' "$release_file" >/dev/null
 
 manifest_image=$(jq -r '.reference' "$release_file")
 bootstrap_image=$(
-  nix eval --raw \
-    .#nixosConfigurations.csb1.config.inspr.pharosProvisioningExecutor.beaconImage
+  nix eval --raw --impure --expr '
+    let
+      flake = builtins.getFlake (toString ./.);
+      pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+      module = import ./modules/pharos-provisioning-executor/default.nix {
+        config = {
+          networking.hostName = "fixture";
+          inspr.pharosProvisioningExecutor = { };
+        };
+        inputs = flake.inputs;
+        lib = flake.inputs.nixpkgs.lib;
+        inherit pkgs;
+      };
+    in
+    module.options.inspr.pharosProvisioningExecutor.beaconImage.default
+  '
 )
 
 if [[ ! "$expected_image" =~ $immutable_pattern ]]; then

@@ -35,13 +35,57 @@ stage="$repo_root/hosts/csb1/paimos-delivery-stage.nix"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 pharos_module="$repo_root/modules/pharos-paimos-delivery/default.nix"
+pharos_eval="$repo_root/tests/pharos-paimos-delivery-eval.nix"
 janus_module="$repo_root/modules/janus-paimos-dependency-reporter/default.nix"
 # The one place this repo already declares the canonical Paimos instances.
 paimos_defaults="$repo_root/modules/shared/markus-defaults.nix"
 
-for file in "$stage" "$compose" "$host_config" "$pharos_module" "$janus_module"; do
+for file in "$stage" "$compose" "$host_config" "$pharos_module" "$pharos_eval" "$janus_module"; do
   nix-instantiate --parse "$file" >/dev/null
 done
+
+# --- 0. local adapter v2 keeps frozen Paimos v1 explicitly legacy-only -----
+adapter_document=$(nix eval --impure --json --expr "import $pharos_eval { }")
+jq -e '
+  .schema == "inspr.pharos.paimos-delivery-adapter.v2"
+  and .schema_version == 2
+  and (.intents | length == 2)
+  and all(
+    .intents[].artifact;
+    . == {
+      commit_digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      version: "0.2.0",
+      version_scheme: "legacy"
+    }
+  )
+  and all(
+    .intents[].artifact | del(.version_scheme);
+    . == {
+      commit_digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      version: "0.2.0"
+    }
+  )
+' <<<"$adapter_document" >/dev/null
+if nix eval --impure --json --expr \
+  "import $pharos_eval { versionScheme = \"inspr-calendar-v1\"; }" \
+  >/dev/null 2>&1; then
+  printf 'Pharos local adapter v2 accepted a non-legacy artifact version scheme\n' >&2
+  exit 1
+fi
+if nix eval --impure --json --expr \
+  "import $pharos_eval { artifactVersion = \"26.09.01.13.29.31\"; }" \
+  >/dev/null 2>&1; then
+  printf 'Pharos local adapter v2 accepted a calendar artifact version\n' >&2
+  exit 1
+fi
+if nix eval --impure --json --expr \
+  "import $pharos_eval { artifactVersion = \"11111111111111111111111111111111111111111111111111111111111111111.0.0\"; }" \
+  >/dev/null 2>&1; then
+  printf 'Pharos local adapter v2 accepted an artifact version longer than 64 bytes\n' >&2
+  exit 1
+fi
 
 # --- 1. one switch, wired on both sides -------------------------------------
 grep -Fq 'import ./paimos-delivery-stage.nix' "$host_config"

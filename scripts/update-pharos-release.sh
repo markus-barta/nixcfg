@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+script_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+repo_root=$script_root
 
 usage() {
-  printf 'usage: %s [--root PATH] VERSION SHA256_DIGEST\n' "${0##*/}" >&2
+  printf 'usage: %s [--root PATH] [--allow-exact-rollback TAG] RELEASE_METADATA_JSON\n' \
+    "${0##*/}" >&2
   exit 2
 }
 
-if [[ "${1:-}" == "--root" ]]; then
-  [[ $# -ge 4 ]] || usage
-  repo_root=$(cd "$2" && pwd)
-  shift 2
-fi
+rollback_tag=""
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+  --root)
+    [[ $# -ge 3 ]] || usage
+    repo_root=$(cd "$2" && pwd)
+    shift 2
+    ;;
+  --allow-exact-rollback)
+    [[ $# -ge 3 ]] || usage
+    rollback_tag=$2
+    shift 2
+    ;;
+  *) usage ;;
+  esac
+done
 
-[[ $# -eq 2 ]] || usage
-version=$1
-digest=$2
-
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
-  printf 'pharos_release_update=failed reason=invalid_version\n' >&2
-  exit 1
-}
-[[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
-  printf 'pharos_release_update=failed reason=invalid_digest\n' >&2
-  exit 1
-}
-
-image=ghcr.io/inspr-at/pharos/pharosd
-reference="${image}:${version}@${digest}"
+[[ $# -eq 1 ]] || usage
+candidate=$1
 release_file="$repo_root/pharos-release.json"
 
 [[ -f "$release_file" ]] || {
@@ -36,13 +36,57 @@ release_file="$repo_root/pharos-release.json"
   exit 1
 }
 
-python3 - "$repo_root" "$reference" "$version" <<'PY'
+normalized=$(mktemp "${TMPDIR:-/tmp}/pharos-release-next.XXXXXX")
+trap 'rm -f "$normalized"' EXIT
+candidate_schema=$(jq -er .schema "$candidate")
+if [[ "$candidate_schema" == inspr.pharos.release-set.v1 ]]; then
+  [[ -z "$rollback_tag" ]] || usage
+  python3 "$script_root/scripts/pharos-release-metadata.py" transition \
+    --active "$release_file" \
+    --candidate "$candidate" \
+    --output "$normalized"
+elif [[ "$candidate_schema" == inspr.pharos.fleet-release.v2 ]]; then
+  if python3 "$script_root/scripts/pharos-release-metadata.py" matches \
+    --active "$release_file" \
+    --candidate "$candidate" >/dev/null 2>&1; then
+    cp "$candidate" "$normalized"
+  elif [[ -n "$rollback_tag" ]]; then
+    python3 "$script_root/scripts/pharos-release-metadata.py" rollback \
+      --active "$release_file" \
+      --tag "$rollback_tag" \
+      --output "$normalized"
+    python3 "$script_root/scripts/pharos-release-metadata.py" matches \
+      --active "$normalized" \
+      --candidate "$candidate"
+  else
+    printf 'pharos_release_update=failed reason=local_target_requires_exact_rollback\n' >&2
+    exit 1
+  fi
+else
+  printf 'pharos_release_update=failed reason=unsupported_metadata_schema\n' >&2
+  exit 1
+fi
+
+current_reference=$(jq -er .reference "$release_file")
+current_version=$(jq -er .version "$release_file")
+reference=$(jq -er .reference "$normalized")
+version=$(jq -er .version "$normalized")
+digest=$(jq -er .digest "$normalized")
+
+python3 - \
+  "$repo_root" \
+  "$current_reference" \
+  "$current_version" \
+  "$reference" \
+  "$version" \
+  "$normalized" \
+  "$release_file" <<'PY'
 import os
 import re
 import sys
 import tempfile
 
-root, replacement, version = sys.argv[1:]
+root, current_reference, current_version, replacement, version, normalized, release_file = sys.argv[1:]
 # OPS-127: the compose specs are the source of truth (the ymls are retired);
 # service blocks are nix attrsets closing at indent-4 "};", image lines are
 #   image = "ghcr.io/inspr-at/pharos/pharosd:VERSION@sha256:...";
@@ -53,9 +97,6 @@ targets = (
     ("hosts/hsb1/docker/compose-spec.nix", ("pharos-beacon",)),
     ("hosts/hsb8/docker/compose-spec.nix", ("pharos-beacon",)),
     ("hosts/hsb9/docker/compose-spec.nix", ("pharos-beacon",)),
-)
-immutable = re.compile(
-    r"ghcr\.io/inspr-at/pharos/pharosd:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}"
 )
 pending = []
 
@@ -88,9 +129,9 @@ for relative, services in targets:
             )
         index = image_lines[0]
         old = lines[index].split("=", 1)[1].strip().strip(';').strip('"')
-        if not immutable.fullmatch(old):
+        if old != current_reference:
             raise SystemExit(
-                f"pharos_release_update=failed reason=existing_pin_not_immutable path={relative} service={service}"
+                f"pharos_release_update=failed reason=existing_pin_manifest_mismatch path={relative} service={service}"
             )
         lines[index] = f'      image = "{replacement}";\n'
     pending.append((path, lines))
@@ -103,11 +144,14 @@ if not os.path.isfile(readiness_path):
     )
 with open(readiness_path, encoding="utf-8") as handle:
     readiness = handle.read()
+escaped_current_version = re.escape(current_version)
 readiness_pattern = re.compile(
-    r"\^ghcr\\\.io/inspr-at/pharos/pharosd:[0-9]+\\\.[0-9]+\\\.[0-9]+"
-    r"@sha256:\[0-9a-f\]\{64\}\$"
+    re.escape(
+        rf"^ghcr\.io/inspr-at/pharos/pharosd:{escaped_current_version}"
+        r"@sha256:[0-9a-f]{64}$"
+    )
 )
-escaped_version = version.replace(".", r"\.")
+escaped_version = re.escape(version)
 expected_readiness = (
     rf"^ghcr\.io/inspr-at/pharos/pharosd:{escaped_version}"
     r"@sha256:[0-9a-f]{64}$"
@@ -118,6 +162,9 @@ if count != 1:
         f"pharos_release_update=failed reason=unexpected_readiness_pin_count path={readiness_relative}"
     )
 pending.append((readiness_path, readiness.splitlines(keepends=True)))
+
+with open(normalized, encoding="utf-8") as handle:
+    pending.append((release_file, handle.readlines()))
 
 for path, lines in pending:
     mode = os.stat(path).st_mode
@@ -133,37 +180,6 @@ for path, lines in pending:
         except FileNotFoundError:
             pass
         raise
-PY
-
-python3 - "$release_file" "$version" "$digest" "$image" "$reference" <<'PY'
-import json
-import os
-import sys
-import tempfile
-
-path, version, digest, image, reference = sys.argv[1:]
-document = {
-    "schema": "inspr.pharos.fleet-release.v1",
-    "version": version,
-    "tag": f"v{version}",
-    "image": image,
-    "digest": digest,
-    "reference": reference,
-}
-mode = os.stat(path).st_mode
-fd, temporary = tempfile.mkstemp(prefix=".pharos-release-", dir=os.path.dirname(path), text=True)
-try:
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(document, handle, indent=2)
-        handle.write("\n")
-    os.chmod(temporary, mode)
-    os.replace(temporary, path)
-except BaseException:
-    try:
-        os.unlink(temporary)
-    except FileNotFoundError:
-        pass
-    raise
 PY
 
 printf 'pharos_release_update=passed version=%s digest=%s\n' "$version" "$digest"

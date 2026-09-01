@@ -81,16 +81,115 @@ SH
 chmod +x "$fake_bin/gh"
 
 digest="sha256:$(printf 'a%.0s' {1..64})"
-version=9.8.7
+active_scheme=$(jq -r .version_scheme "$repo_root/pharos-release.json")
+active_sequence=$(jq -r .release_sequence "$repo_root/pharos-release.json")
+if [[ "$active_scheme" == legacy ]]; then
+  stored_first=$(jq -r .migration_anchor.first_calendar_version "$repo_root/pharos-release.json")
+  if [[ "$stored_first" == null ]]; then
+    version=26.09.02.03.04.05
+  else
+    version=$stored_first
+  fi
+  sequence=1
+  first_version=$version
+else
+  version=$(
+    python3 - "$(jq -r .version "$repo_root/pharos-release.json")" <<'PY'
+import datetime as dt
+import sys
+
+fields = [int(part) for part in sys.argv[1].split(".")]
+current = dt.datetime(2000 + fields[0], *fields[1:]) + dt.timedelta(seconds=1)
+print(f"{current.year % 100:02d}.{current:%m.%d.%H.%M.%S}")
+PY
+  )
+  sequence=$((active_sequence + 1))
+  first_version=$(jq -r .migration_anchor.first_calendar_version "$repo_root/pharos-release.json")
+fi
 reference="ghcr.io/inspr-at/pharos/pharosd:${version}@${digest}"
+IFS=. read -r release_year release_month release_day release_hour release_minute release_second <<<"$version"
+cargo_version="$((2000 + 10#$release_year)).$((10#$release_month * 100 + 10#$release_day)).$((10#$release_hour * 10000 + 10#$release_minute * 100 + 10#$release_second))"
 branch="automation/pharos-release-${version}"
+release_set="$fixture/release-set.json"
+jq -n \
+  --arg version "$version" \
+  --arg cargo_version "$cargo_version" \
+  --arg first_version "$first_version" \
+  --argjson sequence "$sequence" \
+  --arg digest "$digest" \
+  --arg reference "$reference" \
+  '{
+    schema: "inspr.pharos.release-set.v1",
+    schema_version: 1,
+    version_scheme: "inspr-calendar-v1",
+    version: $version,
+    release_channel: "stable",
+    release_sequence: $sequence,
+    migration_anchor: {
+      last_legacy_version: "0.2.0",
+      last_legacy_release_sequence: 0,
+      first_calendar_version: $first_version,
+      first_calendar_release_sequence: 1
+    },
+    cargo_version: $cargo_version,
+    source_commit: ("a" * 40),
+    source_lock_digest: ("sha256:" + ("d" * 64)),
+    sha_reference: ("ghcr.io/inspr-at/pharos/pharosd:sha-" + ("a" * 40) + "@" + $digest),
+    tag: ("v" + $version),
+    image: "ghcr.io/inspr-at/pharos/pharosd",
+    digest: $digest,
+    reference: $reference,
+    artifacts: [
+      {
+        coordinate: {
+          class: "oci-index",
+          version_reference: $reference,
+          source_reference: ("ghcr.io/inspr-at/pharos/pharosd:sha-" + ("a" * 40) + "@" + $digest)
+        },
+        digest: $digest
+      },
+      {coordinate: {class: "oci-image", platform: "linux/amd64"}, digest: ("sha256:" + ("e" * 64))},
+      {coordinate: {class: "spdx-sbom", filename: "pharos.spdx.json"}, digest: ("sha256:" + ("f" * 64))}
+    ],
+    attestations: {
+      signature: {
+        coordinate: ("ghcr.io/inspr-at/pharos/pharosd:sha256-" + ($digest | sub("^sha256:"; "")) + ".sig@sha256:" + ("1" * 64)),
+        digest: ("sha256:" + ("1" * 64))
+      },
+      provenance: {
+        coordinate: ("ghcr.io/inspr-at/pharos/pharosd@sha256:" + ("2" * 64)),
+        manifest_digest: ("sha256:" + ("2" * 64)),
+        layer_digest: ("sha256:" + ("3" * 64)),
+          predicate_type: "https://slsa.dev/provenance/v1"
+      },
+      sbom: {
+        coordinate: ("ghcr.io/inspr-at/pharos/pharosd@sha256:" + ("2" * 64)),
+        manifest_digest: ("sha256:" + ("2" * 64)),
+        layer_digest: ("sha256:" + ("4" * 64)),
+        predicate_type: "https://spdx.dev/Document"
+      }
+    },
+    legacy_rollback: {
+      version_scheme: "legacy",
+      version: "0.2.0",
+      release_channel: "stable",
+      release_sequence: 0,
+      source_commit: "5c8bd1fbd2271a5c157ca239ec2d98b66b201e19",
+      tag: "v0.2.0",
+      image: "ghcr.io/inspr-at/pharos/pharosd",
+      digest: "sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b",
+      reference: "ghcr.io/inspr-at/pharos/pharosd:0.2.0@sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b"
+    }
+  }' >"$release_set"
+legacy_release_set="$fixture/legacy-release-set.json"
+cp "$repo_root/pharos-release.json" "$legacy_release_set"
 
 # A changed active fleet becomes one clean, exact nixcfg candidate.
 prepare_root=$(init_repo prepare)
-"$repo_root/scripts/update-pharos-release.sh" --root "$prepare_root" "$version" "$digest" >/dev/null
+"$repo_root/scripts/update-pharos-release.sh" --root "$prepare_root" "$release_set" >/dev/null
 prepare_output="$fixture/prepare-output"
 GITHUB_OUTPUT="$prepare_output" \
-  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$version" "$prepare_root" >/dev/null
+  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$release_set" "$prepare_root" >/dev/null
 prepare_sha=$(git -C "$prepare_root" rev-parse HEAD)
 grep -Fxq 'nix_changed=true' "$prepare_output"
 grep -Fxq "nix_branch=${branch}" "$prepare_output"
@@ -113,7 +212,7 @@ fi
 unexpected_root=$(init_repo unexpected)
 printf 'changed\n' >>"$unexpected_root/unrelated.txt"
 if GITHUB_OUTPUT="$fixture/unexpected-output" \
-  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$version" "$unexpected_root" \
+  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$release_set" "$unexpected_root" \
   >"$fixture/unexpected-stdout" 2>"$fixture/unexpected-stderr"; then
   printf 'pharos_release_proposals_test=failed reason=unexpected_path_accepted\n' >&2
   exit 1
@@ -126,7 +225,7 @@ select_none_output="$fixture/select-none-output"
 FAKE_GH_LOG="$fixture/select-none-gh-log" FAKE_PR_JSON='[]' PATH="$fake_bin:$PATH" \
   NIXCFG_REPOSITORY=example/nixcfg \
   "$repo_root/scripts/select-pharos-release-candidates.sh" \
-  "$version" "$reference" "$select_none_root" "$select_none_output" >/dev/null
+  "$release_set" "$select_none_root" "$select_none_output" >/dev/null
 grep -Fxq 'reused=false' "$select_none_output"
 
 # An exact existing nixcfg proposal is fetched, scope-checked, and reused.
@@ -143,7 +242,7 @@ proposal_json=$(jq -cn \
 FAKE_GH_LOG="$fixture/select-exact-gh-log" FAKE_PR_JSON="$proposal_json" PATH="$fake_bin:$PATH" \
   NIXCFG_REPOSITORY=example/nixcfg \
   "$repo_root/scripts/select-pharos-release-candidates.sh" \
-  "$version" "$reference" "$select_exact_root" "$select_exact_output" >/dev/null
+  "$release_set" "$select_exact_root" "$select_exact_output" >/dev/null
 grep -Fxq 'reused=true' "$select_exact_output"
 grep -Fxq 'nix_changed=true' "$select_exact_output"
 grep -Fxq "nix_sha=${prepare_sha}" "$select_exact_output"
@@ -151,14 +250,14 @@ grep -Fxq 'nix_url=https://example.invalid/example/nixcfg/pull/1' "$select_exact
 
 # Publication pushes and opens only the validated personal-fleet proposal.
 publish_root=$(init_repo publish)
-"$repo_root/scripts/update-pharos-release.sh" --root "$publish_root" "$version" "$digest" >/dev/null
+"$repo_root/scripts/update-pharos-release.sh" --root "$publish_root" "$release_set" >/dev/null
 publish_prepared_output="$fixture/publish-prepared-output"
 GITHUB_OUTPUT="$publish_prepared_output" \
-  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$version" "$publish_root" >/dev/null
+  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$release_set" "$publish_root" >/dev/null
 publish_sha=$(git -C "$publish_root" rev-parse HEAD)
 publish_output="$fixture/publish-output"
 FAKE_GH_LOG="$fixture/publish-gh-log" FAKE_PR_JSON='[]' PATH="$fake_bin:$PATH" \
-  VERSION="$version" \
+  RELEASE_METADATA="$release_set" \
   NIXCFG_ROOT="$publish_root" \
   NIXCFG_REPOSITORY=example/nixcfg \
   NIX_CHANGED=true \
@@ -176,14 +275,14 @@ fi
 
 # A pre-existing automation branch is never overwritten or adopted implicitly.
 collision_root=$(init_repo collision)
-"$repo_root/scripts/update-pharos-release.sh" --root "$collision_root" "$version" "$digest" >/dev/null
+"$repo_root/scripts/update-pharos-release.sh" --root "$collision_root" "$release_set" >/dev/null
 collision_prepared_output="$fixture/collision-prepared-output"
 GITHUB_OUTPUT="$collision_prepared_output" \
-  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$version" "$collision_root" >/dev/null
+  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$release_set" "$collision_root" >/dev/null
 collision_sha=$(git -C "$collision_root" rev-parse HEAD)
 git -C "$collision_root" push -u origin "$branch" >/dev/null
 if FAKE_GH_LOG="$fixture/collision-gh-log" FAKE_PR_JSON='[]' PATH="$fake_bin:$PATH" \
-  VERSION="$version" \
+  RELEASE_METADATA="$release_set" \
   NIXCFG_ROOT="$collision_root" \
   NIXCFG_REPOSITORY=example/nixcfg \
   NIX_CHANGED=true \
@@ -205,13 +304,13 @@ fi
 
 # If PR creation fails after the push, the exact automation branch is removed.
 cleanup_root=$(init_repo cleanup)
-"$repo_root/scripts/update-pharos-release.sh" --root "$cleanup_root" "$version" "$digest" >/dev/null
+"$repo_root/scripts/update-pharos-release.sh" --root "$cleanup_root" "$release_set" >/dev/null
 cleanup_prepared_output="$fixture/cleanup-prepared-output"
 GITHUB_OUTPUT="$cleanup_prepared_output" \
-  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$version" "$cleanup_root" >/dev/null
+  "$repo_root/scripts/prepare-pharos-release-candidates.sh" "$release_set" "$cleanup_root" >/dev/null
 cleanup_sha=$(git -C "$cleanup_root" rev-parse HEAD)
 if FAKE_GH_LOG="$fixture/cleanup-gh-log" FAKE_GH_MODE=create-fails FAKE_PR_JSON='[]' PATH="$fake_bin:$PATH" \
-  VERSION="$version" \
+  RELEASE_METADATA="$release_set" \
   NIXCFG_ROOT="$cleanup_root" \
   NIXCFG_REPOSITORY=example/nixcfg \
   NIX_CHANGED=true \
@@ -234,12 +333,14 @@ fi
 unchanged_root=$(init_repo unchanged)
 unchanged_sha=$(git -C "$unchanged_root" rev-parse HEAD)
 unchanged_output="$fixture/unchanged-output"
+legacy_version=$(jq -r .version "$legacy_release_set")
+legacy_branch="automation/pharos-release-${legacy_version}"
 FAKE_GH_LOG="$fixture/unchanged-gh-log" PATH="$fake_bin:$PATH" \
-  VERSION="$version" \
+  RELEASE_METADATA="$legacy_release_set" \
   NIXCFG_ROOT="$unchanged_root" \
   NIXCFG_REPOSITORY=example/nixcfg \
   NIX_CHANGED=false \
-  NIX_BRANCH="$branch" \
+  NIX_BRANCH="$legacy_branch" \
   NIX_SHA="$unchanged_sha" \
   GITHUB_OUTPUT="$unchanged_output" \
   "$repo_root/scripts/publish-pharos-release-candidates.sh" >/dev/null
@@ -249,6 +350,10 @@ grep -Fxq 'nix_url=' "$unchanged_output"
 # The workflow keeps cryptographic verification and a side-effect-free dry run.
 workflow="$repo_root/.github/workflows/pharos-release-rollout.yml"
 grep -Fq 'cosign verify "ghcr.io/inspr-at/pharos/pharosd@${DIGEST}"' "$workflow"
+grep -Fq 'cosign verify-blob' "$workflow"
+grep -Fq 'release-set.sigstore.json' "$workflow"
+grep -Fq 'allow_rollback:' "$workflow"
+grep -Fq 'scripts/pharos-release-metadata.py rollback' "$workflow"
 grep -Fq -- '--certificate-identity "https://github.com/inspr-at/pharos/.github/workflows/release.yml@refs/tags/${TAG}"' "$workflow"
 grep -Fq "if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true" "$workflow"
 grep -Fq "if: github.event_name != 'workflow_dispatch' || inputs.dry_run != true" "$workflow"
