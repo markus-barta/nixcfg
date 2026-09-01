@@ -158,6 +158,9 @@ jobs:
       - name: Verify agenix declarations match ciphertext recipients (OPS-188)
         run: tests/T47-agenix-recipient-integrity.sh
 
+      - name: Verify secrets audit comment parsing (NIX-291)
+        run: tests/T62-secrets-audit-comments.sh
+
       - name: Verify Paimos external-stage adapter contract (NIX-381 / PAI-810)
         run: tests/T48-paimos-delivery-stage.sh
 
