@@ -21,6 +21,7 @@ compose_files=(
   hosts/hsb9/docker/compose-spec.nix
 )
 readiness=hosts/csb1/docker/janus/managed-service-production/readiness.sh
+provisioning_module=modules/pharos-provisioning-executor/default.nix
 
 cleanup() {
   find "$fixture" -type f -delete
@@ -35,6 +36,8 @@ for relative in "${compose_files[@]}"; do
 done
 mkdir -p "$fixture/$(dirname "$readiness")"
 cp "$repo_root/$readiness" "$fixture/$readiness"
+mkdir -p "$fixture/$(dirname "$provisioning_module")"
+cp "$repo_root/$provisioning_module" "$fixture/$provisioning_module"
 
 new_digest="sha256:$(printf 'b%.0s' {1..64})"
 expected="ghcr.io/inspr-at/pharos/pharosd:9.8.7@${new_digest}"
@@ -46,6 +49,28 @@ expected="ghcr.io/inspr-at/pharos/pharosd:9.8.7@${new_digest}"
 grep -Fq \
   "'^ghcr\\.io/inspr-at/pharos/pharosd:9\\.8\\.7@sha256:[0-9a-f]{64}$'" \
   "$fixture/$readiness"
+
+bootstrap_default=$(
+  FIXTURE_ROOT="$fixture" nix eval --raw --impure --expr '
+    let
+      flake = builtins.getFlake (toString ./.);
+      fixture = builtins.getEnv "FIXTURE_ROOT";
+      pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+      modulePath = builtins.toPath (fixture + "/modules/pharos-provisioning-executor/default.nix");
+      module = import modulePath {
+        config = {
+          networking.hostName = "fixture";
+          inspr.pharosProvisioningExecutor = { };
+        };
+        inputs = flake.inputs;
+        lib = flake.inputs.nixpkgs.lib;
+        inherit pkgs;
+      };
+    in
+    module.options.inspr.pharosProvisioningExecutor.beaconImage.default
+  '
+)
+[[ "$bootstrap_default" == "$expected" ]]
 
 before=$(find "$fixture" -type f -print | LC_ALL=C sort | xargs sha256sum)
 "$repo_root/scripts/update-pharos-release.sh" --root "$fixture" 9.8.7 "$new_digest" >/dev/null
