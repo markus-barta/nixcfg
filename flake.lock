@@ -545,11 +545,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788181010,
-        "narHash": "sha256-FztcJB2oP7qUq/c50mXBQDNvPxgwlNjnxWgYQ5xHrGw=",
+        "lastModified": 1788215833,
+        "narHash": "sha256-qyh1ujEtc5KE/zUnDqIA2JJF5yE2JuwVa8+ePFkKf9s=",
         "owner": "inspr-at",
         "repo": "inspr-modules",
-        "rev": "610e58484a89b84212f533b3e2c179a1e0487ea2",
+        "rev": "c17d26525a812365dba12c4a11bcbb2db015e83e",
         "type": "github"
       },
       "original": {
