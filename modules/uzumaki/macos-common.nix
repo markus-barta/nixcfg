@@ -1,19 +1,18 @@
 # Uzumaki macOS Common - Shared macOS configuration for all Mac hosts
-# Provides common fish + starship + Ghostty (config) + Brewfile (cask manifest).
+# Provides shared packages, Ghostty config, a Brewfile cask manifest, and
+# declarative macOS defaults.
 #
 # Key exports (consumed by per-host home.nix):
-#   - fishConfig                   programs.fish settings (functions, aliases, abbrs)
 #   - ghosttyConfig                ~/Library/.../com.mitchellh.ghostty/config text
 #   - ghosttyCheckActivation       HM activation script: warns if Ghostty.app
 #                                   missing or doubled (single source of truth check)
+#   - loginShellCheckActivation    HM activation script: reports login-shell drift
 #   - mkBrewfile { ... }           Renders ~/.config/homebrew/Brewfile from
 #                                   commonCasks/Taps + per-host extras (NIX-107)
 #   - commonPackages               Default macOS Nix packages (CLI tools)
+#   - playwrightSessionVars        Stable Chrome executable path for browser QA
 #   - darwinDefaults               `targets.darwin.defaults` — macOS `defaults`
 #                                  written declaratively by Home Manager
-#   - nanoConfig                   ~/.nanorc text
-#   - fontActivation               Hack Nerd Font installer (HM activation)
-#   - appLinkActivation            Empty since WezTerm purge 2026-05-05
 #
 # History:
 #   - 2026-05-05: WezTerm purged fleet-wide; Ghostty became the daily
@@ -22,19 +21,12 @@
 #                  + install-state check (ghosttyCheckActivation)
 #                  + declarative cask manifest via mkBrewfile (NIX-107 Path A)
 #
-# Usage in home.nix:
-#   let macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
-#   in { programs.fish = macosCommon.fishConfig; ... }
+# Hosts import this attrset and consume only the named exports above. Fish is
+# configured by modules/uzumaki/home-manager.nix, not through this helper.
 #
 { pkgs, lib, ... }:
 
 let
-  # Import fish configuration (consolidated into uzumaki)
-  fishModule = import ./fish;
-  fishAliases = fishModule.aliases;
-  fishAbbrs = fishModule.abbreviations;
-  uzumakiFunctions = fishModule.functions;
-
   # ── NIX-107: declarative cask manifest baseline ─────────────────────
   # commonCasks/Brews/Taps are scoped here (let-bindings) so mkBrewfile
   # below can reference them. Not exported in the returned attrset because
@@ -58,7 +50,7 @@ let
     # Linux-only (won't eval on aarch64-darwin). The FOSS `chromium` cask was
     # tried first but is unsigned → fails macOS Gatekeeper ("damaged", disabled
     # 2026-09-01); Chrome is signed+notarized and Playwright drives it headless
-    # via executablePath (see chromiumAppPath export below).
+    # via executablePath (see the chromiumAppPath binding below).
     "google-chrome"
     "stats" # Stats (mac-stats.com / exelban) — menu-bar system monitor; auto-updates itself
     "rustdesk" # RustDesk — open-source remote desktop (both ends of a session; screen-recording + accessibility approvals stay manual per host)
@@ -78,128 +70,18 @@ let
   # Binary inside the `google-chrome` cask (added to commonCasks above). Agents
   # point Playwright's `executablePath` here for headless screenshots / smoke
   # tests, sidestepping nixpkgs#chromium (Linux-only on Darwin). Named
-  # `chromiumAppPath` (Chrome is Chromium-family) to keep the QA env var stable.
+  # `chromiumAppPath` (Chrome is Chromium-family) to keep the internal QA path stable.
   chromiumAppPath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 in
 {
   # ============================================================================
-  # NIX-288: headless-browser QA exports (declarative agent screenshots)
+  # NIX-288: headless-browser QA export (declarative agent screenshots)
   # ============================================================================
-  # `chromiumAppPath`        — binary inside the `chromium` cask (commonCasks).
-  # `playwrightSessionVars`  — merge into a host's `home.sessionVariables` to
-  #                            give agents a stable PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.
+  # `playwrightSessionVars` merges the internal Chrome app path into a host's
+  # `home.sessionVariables` as PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH.
   # Reusable devenv snippet for consuming repos: templates/playwright-qa/.
-  inherit chromiumAppPath;
   playwrightSessionVars = {
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = chromiumAppPath;
-  };
-
-  # ============================================================================
-  # Fish Shell Configuration (macOS-specific)
-  # ============================================================================
-  fishConfig = {
-    enable = true;
-
-    # Shell initialization (config.fish equivalent)
-    shellInit = ''
-      # NOTE: Mouse tracking reset removed - was breaking Starship $fill
-      # Fix tracked historically in PPM
-
-      # Environment variables
-      set -gx TERM xterm-256color
-      set -gx EDITOR nano
-
-      # zoxide integration
-      set -gx ZOXIDE_CMD z
-
-      # Add Nix profile completions to fish (enables completions for just, fd, etc.)
-      if test -d ~/.nix-profile/share/fish/vendor_completions.d
-        set -p fish_complete_path ~/.nix-profile/share/fish/vendor_completions.d
-      end
-    '';
-
-    # Login shell initialization - prepend Nix paths to PATH
-    loginShellInit = ''
-      # Ensure Nix paths are prioritized
-      fish_add_path --prepend --move ~/.nix-profile/bin
-      fish_add_path --prepend --move /nix/var/nix/profiles/default/bin
-      # VSCodium CLI (codium) - installed via Homebrew cask
-      fish_add_path --append /Applications/VSCodium.app/Contents/Resources/app/bin
-    '';
-
-    interactiveShellInit = ''
-      # Custom greeting
-      function fish_greeting
-          set_color cyan
-          echo -n "Welcome to fish, the friendly interactive shell "
-          set_color green
-          echo -n (whoami)"@"(hostname -s)
-          set_color yellow
-          echo -n " · "(date "+%Y-%m-%d %H:%M")
-          set_color normal
-      end
-
-      # Initialize zoxide
-      zoxide init fish | source
-    '';
-
-    # Functions - uzumaki functions + macOS-specific
-    functions = {
-      # Uzumaki shared functions
-      inherit (uzumakiFunctions)
-        pingt
-        sourcefish
-        stress
-        helpfish
-        ;
-
-      # Custom cd function using zoxide
-      cd = ''
-        if set -q ZOXIDE_CMD
-            z $argv
-        else
-            builtin cd $argv
-        end
-      '';
-
-      # Sudo with !! support
-      sudo = {
-        description = "Sudo with !! support";
-        body = ''
-          if test "$argv" = "!!"
-              eval command sudo $history[1]
-          else
-              command sudo $argv
-          end
-        '';
-      };
-
-      # Homebrew maintenance
-      brewall = ''
-        brew update
-        brew upgrade
-        brew cleanup
-        brew doctor
-      '';
-    };
-
-    # Aliases - merge uzumaki config with macOS-specific aliases
-    shellAliases = fishAliases // {
-      # macOS specific aliases
-      mc = "env LANG=en_US.UTF-8 mc";
-      # Force macOS native ping (inetutils ping has bugs on Darwin)
-      ping = "/sbin/ping";
-      # Other macOS network tools for reference
-      traceroute = "/usr/sbin/traceroute";
-      netstat = "/usr/sbin/netstat";
-    };
-
-    # Abbreviations - merge uzumaki config with macOS-specific abbreviations
-    # SSH shortcuts (hsb0, hsb1, hsb8, csb0, csb1) are in uzumaki/fish/config.nix
-    shellAbbrs = fishAbbrs // {
-      co = "codium ."; # Open VSCodium editor
-      flushdns = "sudo killall -HUP mDNSResponder && echo macOS DNS Cache Reset";
-    };
   };
 
   # ============================================================================
@@ -563,135 +445,6 @@ in
     # Fonts
     (pkgs.nerd-fonts.hack)
   ];
-
-  # ============================================================================
-  # Nano Configuration
-  # ============================================================================
-  nanoConfig = pkgs: ''
-    # Modern nano configuration with syntax highlighting
-
-    # Enable syntax highlighting from Nix package
-    include ${pkgs.nano}/share/nano/*.nanorc
-
-    # Auto-indent
-    set autoindent
-
-    # Convert tabs to spaces
-    set tabstospaces
-    set tabsize 2
-
-    # Line numbers
-    set linenumbers
-
-    # Use mouse
-    set mouse
-
-    # Better search
-    set casesensitive
-    set regexp
-
-    # Backup files
-    set backup
-    set backupdir "~/.nano/backups"
-
-    # Show cursor position
-    set constantshow
-
-    # Auto-detect file type
-    set matchbrackets "(<[{)>]}"
-  '';
-
-  # ============================================================================
-  # Font Installation Activation Script
-  # ============================================================================
-  fontActivation =
-    pkgs:
-    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-      echo "Installing Hack Nerd Font for macOS..."
-      mkdir -p "$HOME/Library/Fonts"
-
-      # Find all Hack Nerd Font files in the Nix store
-      FONT_PATH="${pkgs.nerd-fonts.hack}/share/fonts/truetype/NerdFonts/Hack"
-
-      if [ -d "$FONT_PATH" ]; then
-        # COPY font files to ~/Library/Fonts/ (not symlink - macOS needs real files)
-        for font in "$FONT_PATH"/*.ttf; do
-          if [ -f "$font" ]; then
-            font_name=$(basename "$font")
-            target="$HOME/Library/Fonts/$font_name"
-
-            # Remove old file/symlink if it exists
-            if [ -e "$target" ] || [ -L "$target" ]; then
-              rm -f "$target"
-            fi
-
-            # Copy the font file (macOS Font Book doesn't always follow symlinks)
-            cp "$font" "$target"
-            echo "  Copied: $font_name"
-          fi
-        done
-        
-        # Clear font cache
-        if command -v atsutil >/dev/null 2>&1; then
-          atsutil databases -remove >/dev/null 2>&1 || true
-        fi
-        
-        echo "✅ Hack Nerd Font installed for macOS"
-        echo "   ⚠️  You may need to restart apps or log out/in for fonts to appear"
-      else
-        echo "⚠️  Font path not found: $FONT_PATH"
-      fi
-    '';
-
-  # ============================================================================
-  # macOS App Linking Activation Script
-  # ============================================================================
-  # Creates macOS aliases (not symlinks!) so Spotlight can index them.
-  # Symlinks to /nix/store don't get indexed by Spotlight.
-  appLinkActivation = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-    echo "Linking macOS GUI applications..."
-
-    # Ensure main Applications directory exists
-    mkdir -p "$HOME/Applications"
-
-    # Apps to link to main Applications folder (from Home Manager Apps).
-    # Empty since WezTerm purge 2026-05-05 — Ghostty is installed outside Nix
-    # (Homebrew). Add new HM-installed GUI apps here as they're enabled.
-    apps=()
-
-    for app in "''${apps[@]}"; do
-      source="$HOME/Applications/Home Manager Apps/$app"
-      target="$HOME/Applications/$app"
-
-      if [ -e "$source" ]; then
-        # Cleanup potential duplicates from buggy Finder script
-        rm -rf "$target" alias* 2>/dev/null || true
-        find "$HOME/Applications" -name "$app alias*" -delete 2>/dev/null || true
-
-        # Remove old symlink, alias, or Homebrew version
-        if [ -L "$target" ] || [ -e "$target" ]; then
-          echo "  Removing old $app..."
-          rm -rf "$target"
-        fi
-
-        # Create macOS alias (not symlink!) - Spotlight indexes aliases properly
-        echo "  Creating alias for $app"
-        /usr/bin/osascript -e "tell application \"Finder\" to make alias file to POSIX file \"$source\" at POSIX file \"$HOME/Applications\" with properties {name:\"$app\"}" >/dev/null 2>&1
-      fi
-    done
-
-    # One-shot cleanup: drop the lingering WezTerm.app alias from the
-    # pre-2026-05-05 era (the activation no longer creates it; this removes
-    # the old one if still present). Safe to run repeatedly — no-op when
-    # the alias is already gone. Drop this block in a few weeks once all
-    # macOS hosts have activated at least once after 2026-05-05.
-    if [ -e "$HOME/Applications/WezTerm.app" ] || [ -L "$HOME/Applications/WezTerm.app" ]; then
-      echo "  Removing lingering WezTerm.app alias (post-2026-05-05 cleanup)..."
-      rm -rf "$HOME/Applications/WezTerm.app"
-    fi
-
-    echo "✅ macOS GUI applications aliased"
-  '';
 
   # macOS `defaults`, written declaratively by Home Manager
   # (consume in a host's home.nix: `targets.darwin.defaults = macosCommon.darwinDefaults;`)
