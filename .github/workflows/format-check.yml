@@ -26,8 +26,6 @@ jobs:
           fetch-depth: 0
       - name: ⚙️ Install Nix
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
 
       # NIX-334: this step used to be `devenv shell --quiet -- prek run …`, taking
       # ~7 minutes per PR -- 403 of 436 seconds spent realising a devenv
@@ -44,21 +42,22 @@ jobs:
       #     devenv-2.2.0.drv, blocking a merge for reasons unrelated to the code
       #     under review.
       #
-      # These tools come straight from nixpkgs, where they are cached upstream, so
-      # the gate finishes in seconds and depends on nobody else's cache. devenv
-      # still provides the local pre-commit hooks; scripts/format-check.sh mirrors
-      # their exact invocations (read out of the generated config, not guessed)
-      # and is runnable locally with this same command.
+      # These tools come from the exact underlying nixpkgs revision selected by
+      # devenv.lock. That keeps their versions identical to the local hooks while
+      # still fetching the small upstream-cached tool closures instead of the
+      # complete devenv environment. scripts/format-check.sh mirrors the hooks'
+      # exact invocations (read out of the generated config, not guessed).
       - name: 🌳 Check changed-file formatting
         env:
           BASE_REVISION: ${{ github.event.pull_request.base.sha }}
         run: |
+          formatter_nixpkgs_ref="$(nix eval --raw --file ./lib/devenv-nixpkgs-ref.nix)"
           nix shell \
-            nixpkgs#nixfmt \
-            nixpkgs#deadnix \
-            nixpkgs#statix \
-            nixpkgs#shfmt \
-            nixpkgs#shellcheck \
-            nixpkgs#prettier \
-            nixpkgs#just \
+            "${formatter_nixpkgs_ref}#nixfmt" \
+            "${formatter_nixpkgs_ref}#deadnix" \
+            "${formatter_nixpkgs_ref}#statix" \
+            "${formatter_nixpkgs_ref}#shfmt" \
+            "${formatter_nixpkgs_ref}#shellcheck" \
+            "${formatter_nixpkgs_ref}#prettier" \
+            "${formatter_nixpkgs_ref}#just" \
             --command bash ./scripts/format-check.sh
