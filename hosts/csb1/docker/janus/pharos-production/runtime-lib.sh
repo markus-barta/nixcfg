@@ -425,6 +425,32 @@ install -o "$uid" -g "$gid" -m 0444 "$tmp/recipient.pub" /run/janus/age/recipien
 # production subject enrollment is gated on a reviewed control plane.
 # NIX-377 implements the wiring only; enrollment is the remaining gate.
 
+janus_pharos_production_authority_root_preflight() {
+  local authority_root=$1
+  local authority_parent=${authority_root%/*}
+
+  if [ ! -e "$authority_parent" ] || [ ! -d "$authority_parent" ]; then
+    printf 'janus pharos production identityd: NixOS authority root is missing\n' >&2
+    return 1
+  fi
+  if [ ! -x "$authority_parent" ]; then
+    printf 'janus pharos production identityd: authority root permission denied; use the documented privileged render recipe\n' >&2
+    return 1
+  fi
+  if [ ! -e "$authority_root" ]; then
+    printf 'janus pharos production identityd: NixOS authority root is missing\n' >&2
+    return 1
+  fi
+  if [ ! -d "$authority_root" ]; then
+    printf 'janus pharos production identityd: authority root is not a directory\n' >&2
+    return 1
+  fi
+  if [ ! -x "$authority_root" ]; then
+    printf 'janus pharos production identityd: authority root permission denied; use the documented privileged render recipe\n' >&2
+    return 1
+  fi
+}
+
 janus_pharos_production_identityd_start() {
   local image=$1
   local contract_dir=$2
@@ -438,10 +464,7 @@ janus_pharos_production_identityd_start() {
   local release_digest="${image##*@}"
   local identityd_container="${compose_project}-pharos-production-identityd"
 
-  [ -d "$authority_host_root" ] || {
-    printf 'janus pharos production identityd: NixOS authority root is missing\n' >&2
-    return 1
-  }
+  janus_pharos_production_authority_root_preflight "$authority_host_root"
 
   docker rm -f "$identityd_container" >/dev/null 2>&1 || true
 

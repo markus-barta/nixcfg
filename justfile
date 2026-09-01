@@ -175,7 +175,7 @@ janus-pharos-production-seed-projection:
 # Publish and validate the production Pharos beacon-token generation.
 [group('ops')]
 janus-pharos-production-render:
-    cd hosts/csb1/docker && ./janus/pharos-production/render-sidecars.sh
+    cd hosts/csb1/docker && sudo -- ./janus/pharos-production/render-sidecars.sh
 
 [group('ops')]
 janus-pharos-provider-smoke:
