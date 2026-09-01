@@ -60,7 +60,15 @@ in
     stasysmo.enable = true; # System metrics in Starship prompt
     # NIX-392: agentd owns only children it starts. Auth remains in the
     # existing PAIMOS keyring and operator-authenticated vendor CLIs.
-    paimosAgentd.enable = true;
+    paimosAgentd = {
+      enable = true;
+      reporting = {
+        enable = true;
+        host = "mbp2607";
+        url = "https://pm.barta.cm";
+        apiKeyEnvFile = "${config.home.homeDirectory}/.inspr/secrets/agents/PPMAPIKEY.env";
+      };
+    };
   };
 
   # ============================================================================
