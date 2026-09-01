@@ -141,8 +141,8 @@ hsb1 is **declarative** — configuration is driven by `nixos-rebuild switch` fr
 
 The 2026-09-01 read-only audit found both `/home/mba/docker` and `/home/mba/scripts` as ordinary directories, not managed symlinks. They are retained; deleting either as part of a documentation correction would be unsafe.
 
-- `/home/mba/docker` remains the runtime-data root. The declarative spec still bind-mounts data under `~/docker/mounts/`; selected relative build contexts resolve from `~/Code/nixcfg/hosts/hsb1/docker`. Its top level also retains a legacy `Makefile`, `restic-cron/`, and `smtp/`. The Makefile invokes Compose from the wrong directory even though `~/docker/docker-compose.yml` no longer exists: do not run it. NIX-160 owns the deliberate inventory and quarantine/removal of these legacy entries; until then they stay in place.
-- `/home/mba/scripts` is retained as unclassified legacy material. No current NixOS unit references that top-level directory; inventory it file by file under a separate ticket before moving or deleting anything.
+- `/home/mba/docker` remains the runtime-data root. The declarative spec still bind-mounts data under `~/docker/mounts/`; selected relative build contexts resolve from `~/Code/nixcfg/hosts/hsb1/docker`. Its top level also retains a legacy `Makefile`, `restic-cron/`, and `smtp/`. The Makefile invokes Compose from the wrong directory even though `~/docker/docker-compose.yml` no longer exists: do not run it. NIX-407 owns the file-by-file inventory and recoverable quarantine/removal decision for both retained home trees; until then they stay in place.
+- `/home/mba/scripts` is retained as unclassified legacy material. No current NixOS unit references that top-level directory; NIX-407 inventories it before anything is moved or deleted.
 - The old `/home/kiosk/scripts` path is absent. The autostart path is present as a Home Manager nix-store symlink; the initial unprivileged probe reported it absent only because `/home/kiosk` is mode `0700`. Verify kiosk-owned paths with read-only `sudo` rather than treating `Permission denied` as absence.
 
 **Golden rule:** author configuration in `~/Code/nixcfg`, merge it, update the checkout, and run the reviewed `just switch` path. Never hand-edit the rendered `/etc/compose` file or operate a compose stack from `~/docker`.
@@ -205,11 +205,15 @@ ssh mba@192.168.1.101 "docker logs -f mosquitto --tail 100"
 
 ### Restart All Docker Services
 
-The stack is declarative (`hosts/hsb1/docker/compose-spec.nix`, rendered into the system closure). Restart via the reconcile unit — do not run Compose from `~/docker`:
+This deliberately interrupts all 17 services. Use the closure-pinned compose file and the repository directory only to resolve retained relative paths; never run Compose from `~/docker`:
 
 ```bash
-ssh mba@hsb1.lan "sudo systemctl restart compose-hsb1.service"
+ssh mba@hsb1.lan \
+  "sudo docker compose -p docker -f /etc/compose/hsb1/docker-compose.yml \
+  --project-directory /home/mba/Code/nixcfg/hosts/hsb1/docker restart"
 ```
+
+To converge the declarative specification without restarting healthy unchanged containers, use `sudo systemctl restart compose-hsb1.service`. That unit runs `up -d --remove-orphans` and force-recreates only `hsb1-home` after the main reconcile.
 
 ---
 
@@ -673,8 +677,12 @@ docker exec zigbee2mqtt cat /app/data/configuration.yaml | grep -A5 serial
 # MQTT test (subscribe to all topics)
 docker exec mosquitto mosquitto_sub -h localhost -t '#' -v
 
-# Restart entire stack (declarative — systemd unit, not a ~/docker compose)
+# Reconcile the declarative stack; unchanged containers stay running
 sudo systemctl restart compose-hsb1.service
+
+# Deliberately restart all 17 services from the closure-pinned specification
+sudo docker compose -p docker -f /etc/compose/hsb1/docker-compose.yml \
+  --project-directory /home/mba/Code/nixcfg/hosts/hsb1/docker restart
 
 # Restart single container
 docker restart homeassistant

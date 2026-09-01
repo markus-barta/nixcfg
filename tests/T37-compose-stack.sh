@@ -95,6 +95,9 @@ grep -Fq 'is a live nix-store symlink used by' "${hsb1_runbook}"
 grep -Fq 'remains the runtime-data root' "${hsb1_runbook}"
 grep -Fq 'is retained as unclassified legacy material' "${hsb1_runbook}"
 grep -Fq 'The Makefile invokes Compose from the wrong directory' "${hsb1_runbook}"
+grep -Fq 'NIX-407 owns the file-by-file inventory' "${hsb1_runbook}"
+grep -Fq 'without restarting healthy unchanged containers' "${hsb1_runbook}"
+grep -Fq 'docker compose -p docker -f /etc/compose/hsb1/docker-compose.yml' "${hsb1_runbook}"
 if grep -Eq '^[~]/docker/docker-compose[.]yml$' "${hsb1_runbook}"; then
   echo 'FAIL: hsb1 runbook presents the absent home-directory compose file as an operating path (NIX-134)'
   exit 1
