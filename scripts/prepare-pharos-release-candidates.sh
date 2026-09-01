@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-  printf 'usage: %s VERSION NIXCFG_ROOT DSCCFG_ROOT\n' "${0##*/}" >&2
+if [[ $# -ne 2 ]]; then
+  printf 'usage: %s VERSION NIXCFG_ROOT\n' "${0##*/}" >&2
   exit 2
 fi
 
 version=$1
 nixcfg_root=$2
-dsccfg_root=$3
 output=${GITHUB_OUTPUT:-}
 
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -29,10 +28,6 @@ nixcfg_paths=(
   hosts/hsb1/docker/compose-spec.nix
   hosts/hsb8/docker/compose-spec.nix
   hosts/hsb9/docker/compose-spec.nix
-)
-dsccfg_paths=(
-  pharos-release.json
-  hosts/dsc0/docker/docker-compose.yml
 )
 
 validate_main_base() {
@@ -103,14 +98,7 @@ prepare_candidate() {
 }
 
 branch="automation/pharos-release-${version}"
-validate_main_base dsc "$dsccfg_root"
 validate_main_base nix "$nixcfg_root"
-prepare_candidate \
-  dsc \
-  "$dsccfg_root" \
-  "$branch" \
-  "PHAROS-90: roll dsc0 beacon to Pharos ${version}" \
-  "${dsccfg_paths[@]}"
 prepare_candidate \
   nix \
   "$nixcfg_root" \
