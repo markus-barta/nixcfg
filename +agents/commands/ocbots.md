@@ -9,7 +9,7 @@ Assume @+agents/rules/SYSOP.md role
 
 ## OpenClaw Infrastructure Overview
 
-You are now operating in OpenClaw bot context. Two instances run across two hosts:
+You are now operating in the hsb0 OpenClaw context. One gateway serves two agents:
 
 | Host | Instance         | Agents         | Port  | Telegram                      |
 | ---- | ---------------- | -------------- | ----- | ----------------------------- |

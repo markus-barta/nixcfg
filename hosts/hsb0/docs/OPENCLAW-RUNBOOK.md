@@ -715,12 +715,11 @@ Each agent has a separate private GitHub repo:
 
 ### Overview
 
-| Component        | Repo                               | GitHub account       | Local clone                  |
-| ---------------- | ---------------------------------- | -------------------- | ---------------------------- |
-| Nix infra config | `markus-barta/nixcfg`              | `@markus-barta`      | `~/Code/nixcfg`              |
-| Merlin workspace | `markus-barta/oc-workspace-merlin` | `@merlin-ai-markus`  | `~/Code/oc-workspace-merlin` |
-| Nimue workspace  | `markus-barta/oc-workspace-nimue`  | `@nimue-ai-mai`      | `~/Code/oc-workspace-nimue`  |
-| Percy workspace  | `bytepoets-mba/oc-workspace-percy` | `@bytepoets-percyai` | `~/Code/oc-workspace-percy`  |
+| Component        | Repo                               | GitHub account      | Local clone                  |
+| ---------------- | ---------------------------------- | ------------------- | ---------------------------- |
+| Nix infra config | `markus-barta/nixcfg`              | `@markus-barta`     | `~/Code/nixcfg`              |
+| Merlin workspace | `markus-barta/oc-workspace-merlin` | `@merlin-ai-markus` | `~/Code/oc-workspace-merlin` |
+| Nimue workspace  | `markus-barta/oc-workspace-nimue`  | `@nimue-ai-mai`     | `~/Code/oc-workspace-nimue`  |
 
 **Combined VSCodium workspace**: `nixcfg+agents.code-workspace` (all repos as roots).
 
@@ -747,7 +746,7 @@ The entrypoint handles both agents in a loop:
 
 ### Local Setup (mbp0)
 
-- All three workspace repos cloned under `~/Code/`
+- Both agent workspace repos cloned under `~/Code/`
 - Open `nixcfg+agents.code-workspace` in VSCodium for all repos
 
 ---
@@ -815,7 +814,6 @@ Canonical schema reference:
 ## Related Documentation
 
 - [hsb0 RUNBOOK](./RUNBOOK.md) - Main host runbook
-- [Percy OPENCLAW-RUNBOOK](../../miniserver-bp/docs/OPENCLAW-RUNBOOK.md) - Sister instance (miniserver-bp)
 - [OpenClaw gogcli Notes](./OPENCLAW-GOGCLI.md) - Merlin gogcli knowledge base
 - Agent-to-agent comms follow-up: tracked in PPM
 - Git-managed `openclaw.json` follow-up: tracked in PPM
