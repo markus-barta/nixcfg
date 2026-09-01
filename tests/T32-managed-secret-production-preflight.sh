@@ -66,15 +66,23 @@ scope_ref = "scp_" + hashlib.sha256(canonical).hexdigest()[:40]
 if scope_ref != "scp_e3b09b6f7b8b2377d8c0e8b904043ef025b68d6b":
     raise SystemExit("managed-service scope reference drift")
 
-secret_name = "MANAGED_SERVICE_CANARY_API_TOKEN"
-secret_ref = "sec_" + hashlib.sha256(
-    b"janus-secret-ref-v2\0"
-    + scope_ref.encode()
-    + b"\0"
-    + secret_name.encode()
-).hexdigest()[:20]
-if secret_ref != "sec_4e32300270e0dda2d11a":
-    raise SystemExit("managed-service secret reference drift")
+def secret_ref(name):
+    return "sec_" + hashlib.sha256(
+        b"janus-secret-ref-v2\0"
+        + scope_ref.encode()
+        + b"\0"
+        + name.encode()
+    ).hexdigest()[:20]
+
+expected_secrets = {
+    "MANAGED_SERVICE_CANARY_API_TOKEN": "sec_4e32300270e0dda2d11a",
+    "PPM_PAIMOS_SECRET_KEY": "sec_6995435765a2475d4cdb",
+    "PPM_SMTP_PASS": "sec_c188cd3d1f54f4aadb31",
+    "PPM_OIDC_CLIENT_SECRET": "sec_43f90333e9c09d204d13",
+}
+for name, expected in expected_secrets.items():
+    if secret_ref(name) != expected:
+        raise SystemExit(f"managed-service secret reference drift: {name}")
 
 catalog = json.loads((contract / "web-transaction-catalog.json").read_text())
 if set(catalog) != {"schema", "schema_version", "entries"}:
@@ -82,42 +90,84 @@ if set(catalog) != {"schema", "schema_version", "entries"}:
 if catalog["schema"] != "inspr.janus.managed-web-transaction-catalog.v2":
     raise SystemExit("managed web catalog schema drift")
 entries = catalog["entries"]
-if len(entries) != 5:
-    raise SystemExit("managed web catalog must contain exactly five lifecycle entries")
-shapes = sorted(
-    (entry["operation_kind"], entry["plan"]["source"]["mode"]) for entry in entries
+if len(entries) != 14:
+    raise SystemExit("managed web catalog must contain exactly fourteen lifecycle entries")
+canary_entries = [entry for entry in entries if entry["service_ref"] == "svc_0bca8d31f7e2"]
+ppm_entries = [entry for entry in entries if entry["service_ref"] == "svc_616c1af8cc7f4556975b"]
+if len(canary_entries) != 5 or len(ppm_entries) != 9:
+    raise SystemExit("managed web catalog service cardinality drift")
+canary_shapes = sorted(
+    (entry["operation_kind"], entry["plan"]["source"]["mode"])
+    for entry in canary_entries
 )
-if shapes != [
+if canary_shapes != [
     ("create", "generated"),
     ("create", "import"),
     ("remove", "generated"),
     ("replace", "generated"),
     ("replace", "import"),
 ]:
-    raise SystemExit("managed web catalog lifecycle coverage drift")
+    raise SystemExit("managed canary lifecycle coverage drift")
+ppm_by_slot = {}
+for entry in ppm_entries:
+    ppm_by_slot.setdefault(entry["slot_ref"], []).append(entry)
+if set(ppm_by_slot) != {
+    "slot_6e7523d1b57919248919",
+    "slot_4f7e86b99497776adf95",
+    "slot_25e403cccaaf015f30cb",
+}:
+    raise SystemExit("managed PPM slot coverage drift")
+for slot_entries in ppm_by_slot.values():
+    if sorted(entry["operation_kind"] for entry in slot_entries) != ["create", "remove", "replace"]:
+        raise SystemExit("managed PPM lifecycle coverage drift")
+    for entry in slot_entries:
+        if entry["plan"]["source"]["mode"] != "import":
+            raise SystemExit("managed PPM source policy drift")
+        if entry["plan"]["rotation_strategy"] != "import":
+            raise SystemExit("managed PPM rotation strategy drift")
 for entry in entries:
-    if (
-        entry["host_ref"] != "host_58f36c72a91e"
-        or entry["service_ref"] != "svc_0bca8d31f7e2"
-        or entry["slot_ref"] != "slot_49c0e8a17d63"
-        or entry["plan"]["secret_ref"] != secret_ref
-        or entry["plan"]["expected_scope_ref"] != scope_ref
-        or entry["delivery"]["generation"] != 1
-        or entry["delivery"]["revocation_epoch"] != 1
-    ):
+    if entry["host_ref"] != "host_58f36c72a91e" or entry["plan"]["expected_scope_ref"] != scope_ref:
         raise SystemExit("managed web catalog authority drift")
+    if entry["delivery"]["generation"] != 1 or entry["delivery"]["revocation_epoch"] != 1:
+        raise SystemExit("managed web catalog generation drift")
+
+ppm_authority = {
+    "slot_6e7523d1b57919248919": ("sec_6995435765a2475d4cdb", "profile.PPM_PAIMOS_SECRET_KEY"),
+    "slot_4f7e86b99497776adf95": ("sec_c188cd3d1f54f4aadb31", "profile.PPM_SMTP_PASS"),
+    "slot_25e403cccaaf015f30cb": ("sec_43f90333e9c09d204d13", "profile.PPM_OIDC_CLIENT_SECRET"),
+}
+for entry in ppm_entries:
+    expected_secret, expected_profile = ppm_authority[entry["slot_ref"]]
+    if (
+        entry["declaration_fingerprint"] != "decl_4cc700d5f9ef6c26c4a7e9c4207e954c44b3fcfd1aac4808bc80759c110887ce"
+        or entry["plan"]["secret_ref"] != expected_secret
+        or entry["plan"]["profile_id"] != expected_profile
+        or entry["plan"]["consumer_ref"] != "consumer.ppm"
+    ):
+        raise SystemExit("managed PPM catalog authority drift")
 
 env_contract = tomllib.loads((contract / "managed-env-files.toml").read_text())
 profiles = env_contract["env_files"]
-if len(profiles) != 1:
-    raise SystemExit("managed-service consumer profile must remain singular")
-profile = profiles[0]
-if (
-    profile["secret_ref"] != secret_ref
-    or profile["consumer"]["consumer_ref"] != "consumer.managed_service_canary"
-    or profile["consumer"]["reload"] != "none"
-):
-    raise SystemExit("managed-service consumer contract drift")
+if len(profiles) != 4:
+    raise SystemExit("managed-service consumer profile cardinality drift")
+profiles_by_id = {profile["id"]: profile for profile in profiles}
+expected_profiles = {
+    "profile.MANAGED_SERVICE_CANARY_API_TOKEN": ("sec_4e32300270e0dda2d11a", "consumer.managed_service_canary", "CANARY_API_TOKEN"),
+    "profile.PPM_PAIMOS_SECRET_KEY": ("sec_6995435765a2475d4cdb", "consumer.ppm", "PAIMOS_SECRET_KEY"),
+    "profile.PPM_SMTP_PASS": ("sec_c188cd3d1f54f4aadb31", "consumer.ppm", "SMTP_PASS"),
+    "profile.PPM_OIDC_CLIENT_SECRET": ("sec_43f90333e9c09d204d13", "consumer.ppm", "OIDC_CLIENT_SECRET"),
+}
+if set(profiles_by_id) != set(expected_profiles):
+    raise SystemExit("managed-service profile set drift")
+for profile_id, (expected_secret, expected_consumer, expected_env) in expected_profiles.items():
+    profile = profiles_by_id[profile_id]
+    if (
+        profile["secret_ref"] != expected_secret
+        or profile["consumer"]["consumer_ref"] != expected_consumer
+        or profile["consumer"]["reload"] != "none"
+        or profile["env"] != expected_env
+    ):
+        raise SystemExit(f"managed-service consumer contract drift: {profile_id}")
 
 pharos_env = tomllib.loads((pharos / "managed-env-files.toml").read_text())
 agent = next(
@@ -242,6 +292,52 @@ for filename, channel, image, tag, expected_commit in (
         raise SystemExit(f"{filename} evidence drift")
 PY
 
+staged_ppm_bindings="$({
+  nix eval --impure --json --expr "
+    let
+      contract = import ${repo}/hosts/csb1/ppm-managed-secrets.nix;
+    in contract.mkComposeBindings false
+  "
+})"
+active_ppm_bindings="$({
+  nix eval --impure --json --expr "
+    let
+      contract = import ${repo}/hosts/csb1/ppm-managed-secrets.nix;
+    in contract.mkComposeBindings true
+  "
+})"
+staged_ppm="$({
+  nix eval --impure --json --expr "(import ${repo}/hosts/csb1/docker/compose-spec.nix).services.ppm"
+})"
+
+jq -e '
+  .envFile == ["/run/agenix/csb1-ppm-env"]
+  and .volumes == []
+  and .environment == []
+' <<<"${staged_ppm_bindings}" >/dev/null
+
+jq -e '
+  .envFile == []
+  and ([.environment[] | select(
+    . == "PAIMOS_SECRET_KEY_FILE=/run/secrets/paimos-secret-key"
+    or . == "SMTP_PASS_FILE=/run/secrets/smtp-pass"
+    or . == "OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc-client-secret"
+  )] | length) == 3
+  and ([.environment[] | select(test("^(ADMIN_PASSWORD|ADMIN_PASSWORD_FILE|PAIMOS_SECRET_KEY|SMTP_PASS|OIDC_CLIENT_SECRET)="))] | length) == 0
+  and (.volumes | length) == 3
+  and all(.volumes[];
+    (.hostPath | test("^/run/janus-managed/svc_616c1af8cc7f4556975b/slot_[a-f0-9]{20}\\.env$"))
+    and (.containerPath | test("^/run/secrets/(paimos-secret-key|smtp-pass|oidc-client-secret)$"))
+  )
+' <<<"${active_ppm_bindings}" >/dev/null
+
+jq -e '
+  .env_file == ["/run/agenix/csb1-ppm-env"]
+  and .volumes == ["ppm_data:/app/data"]
+  and ([.environment[] | select(test("^(ADMIN_PASSWORD|PAIMOS_SECRET_KEY|SMTP_PASS|OIDC_CLIENT_SECRET)(_FILE)?="))] | length) == 0
+  and .healthcheck.test == ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8888/api/health"]
+' <<<"${staged_ppm}" >/dev/null
+
 for name in \
   internal-token \
   pharos-signing-key \
@@ -259,7 +355,8 @@ grep -Fq 'age.secrets.csb1-janus-managed-internal-token-pharos' "${host}"
 grep -Fq 'path = "/run/agenix/csb1-janus-managed-internal-token-pharos";' "${host}"
 test "$(grep -Fc 'file = ../../secrets/csb1-janus-managed-internal-token.age;' "${host}")" -eq 2
 grep -Fq 'ownerUid = 65534;' "${host}"
-grep -Fq 'beforeUnits = [ "janus-managed-canary.service" ];' "${host}"
+grep -Fq '"compose-csb1.service"' "${host}"
+grep -Fq '"janus-managed-canary.service"' "${host}"
 grep -Fq 'composeFile = janusManagedComposeFile;' "${host}"
 grep -Fq 'janus-managed-central.gid = 993;' "${host}"
 grep -Fq 'pharos-container.gid = 992;' "${host}"

@@ -49,6 +49,7 @@ let
   # from the moment this lands until credentials exist. Absent = adapter off,
   # which is exactly the pre-NIX-381 behaviour.
   paimos = import ../paimos-delivery-stage.nix;
+  ppmManagedSecrets = import ../ppm-managed-secrets.nix;
   paimosDeliveryEnvironment =
     if paimos.active then [ "PHAROS_PAIMOS_DELIVERY_CONFIG_FILE=${paimos.pharos.configFile}" ] else [ ];
   # Each credential is its own inode: pharosd compares (device, inode) and
@@ -574,13 +575,25 @@ in
         "BRAND_HEALTH_SERVICE_NAME=ppm"
         "BRAND_TOTP_ISSUER=PPM"
         "OIDC_PROMPT=select_account"
-      ];
-      env_file = [
-        "/run/agenix/csb1-ppm-env"
-      ];
+      ]
+      ++ ppmManagedSecrets.composeBindings.environment;
+      env_file = ppmManagedSecrets.composeBindings.envFile;
       volumes = [
         "ppm_data:/app/data"
-      ];
+      ]
+      ++ map (
+        binding: privateBind binding.hostPath binding.containerPath
+      ) ppmManagedSecrets.composeBindings.volumes;
+      healthcheck = {
+        test = [
+          "CMD-SHELL"
+          "wget -q -O /dev/null http://127.0.0.1:8888/api/health"
+        ];
+        interval = "10s";
+        timeout = "5s";
+        retries = 6;
+        start_period = "20s";
+      };
       networks = [
         "traefik"
       ];

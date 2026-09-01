@@ -87,7 +87,7 @@ check_jq "host and declaration use opaque references" '
   (.host_ref | test("^host_[a-z0-9_]{8,}$"))
   and (.declaration_fingerprint | test("^decl_[a-f0-9]{64}$"))
 '
-check_jq "one reviewed Compose service and slot are declared" '
+check_jq "the canary and three fixed PPM slots are declared" '
   .services == [{
     "runtime_kind":"compose",
     "safe_label":"Managed service canary",
@@ -102,6 +102,41 @@ check_jq "one reviewed Compose service and slot are declared" '
       "reload":{"method":"compose_recreate","profile_ref":"reload_65bc19f3a087"},
       "safe_label":"Canary API token",
       "slot_ref":"slot_49c0e8a17d63"
+    }]
+  },{
+    "runtime_kind":"compose",
+    "safe_label":"PPM",
+    "service_ref":"svc_616c1af8cc7f4556975b",
+    "slots":[{
+      "allowed_sources":["import"],
+      "binding_state":"required",
+      "consumer_kind":"managed_service",
+      "delivery":{"kind":"private_env_file","profile_ref":"delivery_572ad50f794e"},
+      "detach":{"method":"compose_stop_and_verify","profile_ref":"detach_aa95b35a8b11"},
+      "health":{"probe":"compose_healthcheck","profile_ref":"health_c9ac45927f59"},
+      "reload":{"method":"compose_recreate","profile_ref":"reload_869d0c7c8106"},
+      "safe_label":"PPM OIDC client secret",
+      "slot_ref":"slot_25e403cccaaf015f30cb"
+    },{
+      "allowed_sources":["import"],
+      "binding_state":"required",
+      "consumer_kind":"managed_service",
+      "delivery":{"kind":"private_env_file","profile_ref":"delivery_8089afb7e6e7"},
+      "detach":{"method":"compose_stop_and_verify","profile_ref":"detach_d5c3f3d7461a"},
+      "health":{"probe":"compose_healthcheck","profile_ref":"health_b597b0dc3340"},
+      "reload":{"method":"compose_recreate","profile_ref":"reload_9abf75ea254d"},
+      "safe_label":"PPM SMTP password",
+      "slot_ref":"slot_4f7e86b99497776adf95"
+    },{
+      "allowed_sources":["import"],
+      "binding_state":"required",
+      "consumer_kind":"managed_service",
+      "delivery":{"kind":"private_env_file","profile_ref":"delivery_ee3ee55a5691"},
+      "detach":{"method":"compose_stop_and_verify","profile_ref":"detach_e1eed9bed55a"},
+      "health":{"probe":"compose_healthcheck","profile_ref":"health_79a4d461b66d"},
+      "reload":{"method":"compose_recreate","profile_ref":"reload_97c795963d1b"},
+      "safe_label":"PPM encryption key",
+      "slot_ref":"slot_6e7523d1b57919248919"
     }]
   }]
 '
