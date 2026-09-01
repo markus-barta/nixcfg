@@ -4,7 +4,10 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 mutation_host=""
 mutation_shape=""
-if [[ "${1:-}" == "--inject-disabled-healthcheck=csb0" ]]; then
+sigpipe_self_test=false
+if [[ "${1:-}" == "--self-test-sigpipe" ]]; then
+  sigpipe_self_test=true
+elif [[ "${1:-}" == "--inject-disabled-healthcheck=csb0" ]]; then
   mutation_host="csb0"
   mutation_shape="nested"
 elif [[ "${1:-}" == "--inject-dotted-disabled-healthcheck=csb0" ]]; then
@@ -38,6 +41,33 @@ service_image() {
     found && $0 == "    };" { found = 0 }
   ' "$1"
 }
+
+if [[ "$sigpipe_self_test" == true ]]; then
+  large_service_fixture() {
+    awk 'BEGIN {
+      print "    pharosd = {"
+      print "      image = \"ghcr.io/inspr-at/pharos/pharosd:1.2.3@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";"
+      for (line = 0; line < 131072; line++) {
+        print "      # pipe-buffer-padding-" line
+      }
+      print "    };"
+    }'
+  }
+
+  expected_fixture_image='ghcr.io/inspr-at/pharos/pharosd:1.2.3@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  fixture_image=""
+  if ! fixture_image=$(service_image <(large_service_fixture) pharosd); then
+    printf 'pharos_rollout_sigpipe=failed reason=image_reader_did_not_drain_input\n' >&2
+    exit 1
+  fi
+  if [[ "$fixture_image" != "$expected_fixture_image" ]]; then
+    printf 'pharos_rollout_sigpipe=failed reason=fixture_image_mismatch\n' >&2
+    exit 1
+  fi
+
+  printf 'pharos_rollout_sigpipe=passed fixture_lines=131072\n'
+  exit 0
+fi
 
 control_plane="$repo_root/hosts/csb1/docker/compose-spec.nix"
 release_file="$repo_root/pharos-release.json"
@@ -183,6 +213,13 @@ printf 'pharos_rollout=passed beacons=%s release=%s\n' \
   "${#compose_files[@]}" "${expected_image%%@*}"
 
 if [[ -z "$mutation_host" ]]; then
+  sigpipe_output=$(bash "$0" --self-test-sigpipe)
+  if [[ "$sigpipe_output" != 'pharos_rollout_sigpipe=passed fixture_lines=131072' ]]; then
+    printf 'pharos_rollout=failed reason=sigpipe_self_test_wrong_verdict\n' >&2
+    exit 1
+  fi
+  printf '%s\n' "$sigpipe_output"
+
   for mutation in \
     --inject-disabled-healthcheck=csb0 \
     --inject-dotted-disabled-healthcheck=csb0 \
