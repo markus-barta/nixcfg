@@ -130,20 +130,20 @@ ssh mba@hsb1.lan "docker logs homeassistant 2>&1 | grep -i tesla_fleet | tail -2
 
 hsb1 is **declarative** — configuration is driven by `nixos-rebuild switch` from `~/Code/nixcfg` (this repo), not a "symlink everything to the repo" layer. The moving parts:
 
-| What                   | How it's managed                                                                                                                                                 |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Docker stack           | `hosts/hsb1/docker/compose-spec.nix` → `/etc/compose/hsb1/docker-compose.yml` (nix-store symlink), reconciled by `compose-hsb1.service`                          |
-| Kiosk babycam launcher | Home Manager declares `hosts/hsb1/files/kiosk-autostart.sh` at `/home/kiosk/.config/openbox/autostart`; verify the live link after a switch before relying on it |
-| Secrets                | agenix → `/run/agenix/hsb1-*` (no plaintext in the repository or home-directory configuration)                                                                   |
-| System / services      | NixOS modules in `hosts/hsb1/` plus shared `modules/`                                                                                                            |
+| What                   | How it's managed                                                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Docker stack           | `hosts/hsb1/docker/compose-spec.nix` → `/etc/compose/hsb1/docker-compose.yml` (nix-store symlink), reconciled by `compose-hsb1.service`                              |
+| Kiosk babycam launcher | Home Manager declares `hosts/hsb1/files/kiosk-autostart.sh`; `/home/kiosk/.config/openbox/autostart` is a live nix-store symlink used by `babycam-watchdog` recovery |
+| Secrets                | agenix → `/run/agenix/hsb1-*` (no plaintext in the repository or home-directory configuration)                                                                       |
+| System / services      | NixOS modules in `hosts/hsb1/` plus shared `modules/`                                                                                                                |
 
 ### Legacy home-directory decision (NIX-134)
 
 The 2026-09-01 read-only audit found both `/home/mba/docker` and `/home/mba/scripts` as ordinary directories, not managed symlinks. They are retained; deleting either as part of a documentation correction would be unsafe.
 
-- `/home/mba/docker` remains the runtime-data root. The declarative spec still bind-mounts data under `~/docker/mounts/`; selected relative build contexts resolve from `~/Code/nixcfg/hosts/hsb1/docker`. `~/docker/docker-compose.yml` does not exist and must not be recreated or used as an operating compose source.
+- `/home/mba/docker` remains the runtime-data root. The declarative spec still bind-mounts data under `~/docker/mounts/`; selected relative build contexts resolve from `~/Code/nixcfg/hosts/hsb1/docker`. Its top level also retains a legacy `Makefile`, `restic-cron/`, and `smtp/`. The Makefile invokes Compose from the wrong directory even though `~/docker/docker-compose.yml` no longer exists: do not run it. NIX-160 owns the deliberate inventory and quarantine/removal of these legacy entries; until then they stay in place.
 - `/home/mba/scripts` is retained as unclassified legacy material. No current NixOS unit references that top-level directory; inventory it file by file under a separate ticket before moving or deleting anything.
-- The old `/home/kiosk/scripts` path is absent. The declared kiosk autostart path was also absent in the audit, so the repository declaration is the intended source, not proof that the live Home Manager link currently exists.
+- The old `/home/kiosk/scripts` path is absent. The autostart path is present as a Home Manager nix-store symlink; the initial unprivileged probe reported it absent only because `/home/kiosk` is mode `0700`. Verify kiosk-owned paths with read-only `sudo` rather than treating `Permission denied` as absence.
 
 **Golden rule:** author configuration in `~/Code/nixcfg`, merge it, update the checkout, and run the reviewed `just switch` path. Never hand-edit the rendered `/etc/compose` file or operate a compose stack from `~/docker`.
 

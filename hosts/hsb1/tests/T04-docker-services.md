@@ -41,21 +41,25 @@ Run: `./T04-docker-services.sh`
 
 **Expected Results:**
 
-All 13 containers running:
+All 17 services currently declared by `compose-spec.nix` running:
 
-- homeassistant
-- nodered
-- mosquitto
-- zigbee2mqtt
-- scrypted
-- matter-server
-- pixdcon
 - apprise
+- fritz-tripwire
+- funkeykid
+- homeassistant
+- hsb1-home
+- matter-server
+- mosquitto
+- nodered
 - opus-stream-to-mqtt
-- smtp
+- opusweb
+- pharos-beacon
+- pixdcon
+- plex
 - restic-cron-hetzner
-- watchtower-weekly
-- watchtower-pixdcon
+- scrypted
+- smtp
+- zigbee2mqtt
 
 **Status:** ⏳ Pending
 

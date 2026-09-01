@@ -95,7 +95,8 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ```
 ~/docker/
-└── mounts/                     # Runtime data (not a compose source)
+├── Makefile                    # Legacy: DO NOT RUN (no compose file here)
+├── mounts/                     # Runtime data (not a compose source)
 │   ├── homeassistant/
 │   │   ├── configuration.yaml  # ← Main HA config
 │   │   ├── automations.yaml
@@ -108,11 +109,14 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 │   │   └── data/flows.json     # Node-RED automations
 │   └── mosquitto/
 │       └── config/mosquitto.conf
+├── restic-cron/                # Legacy retained pending NIX-160
+└── smtp/                        # Legacy retained pending NIX-160
 ```
 
 The declarative source is `hosts/hsb1/docker/compose-spec.nix`; Nix renders it
 to `/etc/compose/hsb1/docker-compose.yml`, and `compose-hsb1.service`
-reconciles it. Do not recreate or operate `~/docker/docker-compose.yml`.
+reconciles it. Do not recreate `~/docker/docker-compose.yml` or run the legacy
+Makefile; NIX-160 owns the retained-tree cleanup.
 
 ### Secrets
 
