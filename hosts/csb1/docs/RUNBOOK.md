@@ -386,6 +386,13 @@ docker compose ps pharosd pharos-beacon
 curl -fsS http://100.64.0.4:8088/healthz
 ```
 
+The render recipe deliberately crosses the root privilege boundary with
+`sudo`: the NixOS-owned identity custody root and its parent remain
+`0700:65532:65532`, so an `mba` shell must not inspect or relax them directly.
+Run the documented `just` recipe from the operator checkout; do not invoke the
+renderer script directly or change the custody-root permissions. A missing
+root and an intact but non-traversable root are reported as distinct failures.
+
 The seed step is the no-downtime migration from the legacy shared-volume mount:
 it copies the already-reviewed current generation into the isolated projection
 without changing the private producer volume. On a new installation with no
