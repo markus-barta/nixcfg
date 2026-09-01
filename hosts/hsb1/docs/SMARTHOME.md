@@ -73,19 +73,25 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ## 🐳 Docker Services
 
-| Container               | Port       | Purpose                    | Critical |
-| ----------------------- | ---------- | -------------------------- | -------- |
-| **zigbee2mqtt**         | 8888       | Zigbee device management   | 🔴 Yes   |
-| **homeassistant**       | 8123       | Smart home platform        | 🔴 Yes   |
-| **mosquitto**           | 1883, 9001 | MQTT broker                | 🔴 Yes   |
-| **scrypted**            | varies     | Camera/HomeKit bridge      | 🔴 Yes   |
-| **nodered**             | 1880       | Automation flows           | 🟠 High  |
-| **matter-server**       | varies     | Matter protocol            | 🟡 Med   |
-| **apprise**             | 8001       | Notifications              | 🟡 Med   |
-| **restic-cron-hetzner** | N/A        | Backups                    | 🟠 High  |
-| **watchtower-weekly**   | N/A        | Auto-updates               | 🟢 Low   |
-| **smtp**                | 25         | Mail relay                 | 🟢 Low   |
-| **opus-stream-to-mqtt** | N/A        | OPUS/EnOcean → MQTT bridge | 🟢 Low   |
+| Service                 | Port       | Purpose                      | Critical |
+| ----------------------- | ---------- | ---------------------------- | -------- |
+| **apprise**             | 8001       | Notifications                | 🟡 Med   |
+| **fritz-tripwire**      | 9000       | Fritz!Box anomaly witness    | 🟡 Med   |
+| **funkeykid**           | 8081       | Educational keyboard service | 🟡 Med   |
+| **homeassistant**       | 8123       | Smart home platform          | 🔴 Yes   |
+| **hsb1-home**           | 80         | HostDash static dashboard    | 🟢 Low   |
+| **matter-server**       | varies     | Matter protocol              | 🟡 Med   |
+| **mosquitto**           | 1883, 9001 | MQTT broker                  | 🔴 Yes   |
+| **nodered**             | 1880       | Automation flows             | 🟠 High  |
+| **opus-stream-to-mqtt** | N/A        | OPUS/EnOcean to MQTT bridge  | 🟢 Low   |
+| **opusweb**             | 3102       | OPUS web application         | 🟡 Med   |
+| **pharos-beacon**       | N/A        | Fleet observation reporter   | 🟡 Med   |
+| **pixdcon**             | 10829      | Pixoo display control        | 🟡 Med   |
+| **plex**                | 32400      | Media server                 | 🟡 Med   |
+| **restic-cron-hetzner** | N/A        | Backups                      | 🟠 High  |
+| **scrypted**            | 10443      | Camera/HomeKit bridge        | 🔴 Yes   |
+| **smtp**                | 25         | Mail relay                   | 🟢 Low   |
+| **zigbee2mqtt**         | 8888       | Zigbee device management     | 🔴 Yes   |
 
 ---
 
@@ -95,9 +101,8 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ```
 ~/docker/
-├── docker-compose.yml          # Main compose file (Symlink to repo)
-├── Makefile                    # Common commands
-├── mounts/                     # Runtime data
+├── Makefile                    # Legacy: DO NOT RUN (no compose file here)
+├── mounts/                     # Runtime data (not a compose source)
 │   ├── homeassistant/
 │   │   ├── configuration.yaml  # ← Main HA config
 │   │   ├── automations.yaml
@@ -110,9 +115,15 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 │   │   └── data/flows.json     # Node-RED automations
 │   └── mosquitto/
 │       └── config/mosquitto.conf
-├── restic-cron/
-└── smtp/
+├── restic-cron/                # Legacy retained pending NIX-407 inventory
+└── smtp/                        # Legacy retained pending NIX-407 inventory
 ```
+
+The declarative source is `hosts/hsb1/docker/compose-spec.nix`; Nix renders it
+to `/etc/compose/hsb1/docker-compose.yml`, and `compose-hsb1.service`
+reconciles it. Do not recreate `~/docker/docker-compose.yml` or run the legacy
+Makefile; NIX-407 owns the file-by-file inventory and recoverable cleanup
+decision for both retained home trees.
 
 ### Secrets
 

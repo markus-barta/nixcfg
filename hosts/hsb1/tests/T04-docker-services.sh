@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # T04: Docker Services - Automated Test
-# Tests that all expected Docker containers are running on hsb1
+# Tests that all expected Docker services are running on hsb1
 #
 # Can run locally on hsb1 OR remotely via SSH
 #
@@ -29,19 +29,27 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
-# Expected containers (must be running)
-# Note: Some containers like pixdcon, smtp, watchtower-pixdcon may be stopped/optional
-EXPECTED_CONTAINERS=(
-  "homeassistant"
-  "nodered"
-  "mosquitto"
-  "zigbee2mqtt"
-  "scrypted"
-  "matter-server"
+# Expected services (must be running). T37 pins this exact set to the
+# evaluated hsb1 compose specification so this executable cannot drift behind
+# the accompanying Markdown again.
+EXPECTED_SERVICES=(
   "apprise"
+  "fritz-tripwire"
+  "funkeykid"
+  "homeassistant"
+  "hsb1-home"
+  "matter-server"
+  "mosquitto"
+  "nodered"
   "opus-stream-to-mqtt"
+  "opusweb"
+  "pharos-beacon"
+  "pixdcon"
+  "plex"
   "restic-cron-hetzner"
-  "watchtower-weekly"
+  "scrypted"
+  "smtp"
+  "zigbee2mqtt"
 )
 
 echo "=== T04: Docker Services Test ==="
@@ -62,13 +70,19 @@ echo -n "Test 2: Running containers... "
 RUNNING=$(run 'docker ps --format "{{.Names}}" | wc -l' || echo "0")
 echo -e "${GREEN}✅ $RUNNING containers running${NC}"
 
-# Test 3: Check each expected container
+# Test 3: Check each expected service through the canonical Compose project.
+# Raw container names are not equivalent to service keys: smtp intentionally
+# has no container_name and is therefore named docker-smtp-1 by Compose.
 echo
-echo "Test 3: Expected containers:"
+echo "Test 3: Expected services:"
+if ! RUNNING_SERVICES=$(run 'sudo -n docker compose -p docker -f /etc/compose/hsb1/docker-compose.yml --project-directory /home/mba/Code/nixcfg/hosts/hsb1/docker ps --status running --services'); then
+  echo -e "${RED}❌ Cannot query the canonical Compose project${NC}"
+  exit 1
+fi
 MISSING=0
-for container in "${EXPECTED_CONTAINERS[@]}"; do
-  echo -n "  - $container... "
-  if run "docker ps --format '{{.Names}}' | grep -q '^${container}\$'"; then
+for service in "${EXPECTED_SERVICES[@]}"; do
+  echo -n "  - $service... "
+  if grep -Fxq "$service" <<<"$RUNNING_SERVICES"; then
     echo -e "${GREEN}✅ Running${NC}"
   else
     echo -e "${RED}❌ Not running${NC}"
@@ -111,9 +125,9 @@ fi
 # Summary
 echo
 if [ "$MISSING" -eq 0 ]; then
-  echo -e "${GREEN}🎉 All expected containers running!${NC}"
+  echo -e "${GREEN}🎉 All expected services running!${NC}"
   exit 0
 else
-  echo -e "${RED}⚠️ $MISSING container(s) not running${NC}"
+  echo -e "${RED}⚠️ $MISSING service(s) not running${NC}"
   exit 1
 fi

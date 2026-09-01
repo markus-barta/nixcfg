@@ -184,6 +184,88 @@ def check(host: str) -> bool:
     return True
 
 
+def section(text: str, start: str, end: str) -> str:
+    """Return one named documentation section, failing closed on drift."""
+    if text.count(start) != 1 or text.count(end) != 1:
+        raise ValueError(f"expected one {start!r} and one {end!r}")
+    if text.index(start) >= text.index(end):
+        raise ValueError(f"expected {start!r} before {end!r}")
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+
+def markdown_table_services(path: Path, start: str, end: str) -> list[str]:
+    body = section(path.read_text(), start, end)
+    return re.findall(r"^\|\s*(?:\*\*)?([a-z0-9][a-z0-9-]*)(?:\*\*)?\s*\|", body, re.M)
+
+
+def markdown_list_services(path: Path) -> list[str]:
+    test = section(
+        path.read_text(),
+        "### Test 2: All Services Running",
+        "### Test 3: Key Services Responding",
+    )
+    body = section(test, "**Expected Results:**", "**Status:**")
+    return re.findall(r"^- ([a-z0-9][a-z0-9-]*)$", body, re.M)
+
+
+def shell_array_services(path: Path) -> list[str]:
+    text = path.read_text()
+    match = re.search(r"EXPECTED_SERVICES=\(\n(.*?)\n\)", text, re.S)
+    if not match:
+        raise ValueError(f"{path}: EXPECTED_SERVICES array not found")
+    return re.findall(r'^\s+"([a-z0-9][a-z0-9-]*)"$', match.group(1), re.M)
+
+
+def check_hsb1_documentation() -> bool:
+    """Keep every operator-facing hsb1 service inventory on the rendered spec."""
+    expected = set((rendered_spec("hsb1").get("services") or {}).keys())
+    host = REPO / "hosts" / "hsb1"
+    surfaces = {
+        "RUNBOOK container table": markdown_table_services(
+            host / "docs" / "RUNBOOK.md", "### Container Overview", "### Key Paths"
+        ),
+        "SMARTHOME container table": markdown_table_services(
+            host / "docs" / "SMARTHOME.md", "## 🐳 Docker Services", "## 📁 File Locations"
+        ),
+        "README container table": markdown_table_services(
+            host / "README.md", "Services use host or bridge networking", "## Native Services"
+        ),
+        "T04 manual inventory": markdown_list_services(host / "tests" / "T04-docker-services.md"),
+        "T04 executable inventory": shell_array_services(host / "tests" / "T04-docker-services.sh"),
+    }
+    failures: list[str] = []
+    for label, actual in surfaces.items():
+        actual_set = set(actual)
+        duplicates = sorted(name for name in actual_set if actual.count(name) > 1)
+        if actual_set != expected or duplicates:
+            failures.append(
+                f"{label}: missing={sorted(expected - actual_set)} "
+                f"extra={sorted(actual_set - expected)} duplicates={duplicates}"
+            )
+
+    retired = ("health-pixoo", "watchtower-weekly", "watchtower-pixdcon")
+    for path in (
+        host / "README.md",
+        host / "docs" / "RUNBOOK.md",
+        host / "docs" / "SMARTHOME.md",
+        host / "tests" / "T04-docker-services.md",
+        host / "tests" / "T04-docker-services.sh",
+    ):
+        text = path.read_text()
+        for name in retired:
+            if name in text:
+                failures.append(f"{path.relative_to(REPO)} still names retired service {name}")
+
+    if failures:
+        print(f"{RED}FAIL{OFF} hsb1  documentation inventory drift")
+        for item in failures:
+            print(f"       {item}")
+        return False
+
+    print(f"{GREEN}OK{OFF}   hsb1  five documentation inventories match {len(expected)} services")
+    return True
+
+
 def main() -> int:
     args = sys.argv[1:]
     if not args:
@@ -204,6 +286,12 @@ def main() -> int:
             return 2
 
     ok = True
+    if args == ["--all"]:
+        try:
+            ok &= check_hsb1_documentation()
+        except Exception as error:  # noqa: BLE001 — malformed docs must fail this gate
+            print(f"{RED}ERR{OFF}  hsb1  documentation gate: {error}")
+            ok = False
     for host in hosts:
         try:
             ok &= check(host)

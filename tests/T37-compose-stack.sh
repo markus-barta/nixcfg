@@ -74,15 +74,43 @@ for host in csb0 csb1; do
     }
 done
 
-# Relative paths only resolve if projectDirectory is set; hsb1 and hsb8 have
-# none and deliberately omit it.
-for host in hsb0 hsb9 csb0 csb1; do
+# Relative paths only resolve if projectDirectory is set. Every host in this
+# list has a relative build context or bind path in its compose specification.
+for host in hsb0 hsb1 hsb8 hsb9 csb0 csb1; do
   grep -Fq 'projectDirectory' "${repo}/hosts/${host}/configuration.nix" ||
     {
       echo "FAIL: ${host} has relative paths and needs projectDirectory"
       exit 1
     }
 done
+
+# NIX-134: hsb1 documentation must match the post-OPS-116 operating model.
+# The old home-directory compose file and hsb1-stack unit are gone; retaining
+# those instructions would send an operator to an absent file and unit.
+hsb1_runbook="${repo}/hosts/hsb1/docs/RUNBOOK.md"
+grep -Fq 'hosts/hsb1/docker/compose-spec.nix' "${hsb1_runbook}"
+grep -Fq '/etc/compose/hsb1/docker-compose.yml' "${hsb1_runbook}"
+grep -Fq 'compose-hsb1.service' "${hsb1_runbook}"
+grep -Fq 'is a live nix-store symlink used by' "${hsb1_runbook}"
+grep -Fq 'remains the runtime-data root' "${hsb1_runbook}"
+grep -Fq 'is retained as unclassified legacy material' "${hsb1_runbook}"
+grep -Fq 'The Makefile invokes Compose from the wrong directory' "${hsb1_runbook}"
+grep -Fq 'NIX-407 owns the file-by-file inventory' "${hsb1_runbook}"
+grep -Fq 'without restarting healthy unchanged containers' "${hsb1_runbook}"
+grep -Fq 'docker compose -p docker -f /etc/compose/hsb1/docker-compose.yml' "${hsb1_runbook}"
+if grep -Eq '^[~]/docker/docker-compose[.]yml$' "${hsb1_runbook}"; then
+  echo 'FAIL: hsb1 runbook presents the absent home-directory compose file as an operating path (NIX-134)'
+  exit 1
+fi
+if grep -Fq 'systemctl restart hsb1-stack' "${hsb1_runbook}"; then
+  echo 'FAIL: hsb1 runbook revived the retired stack unit (NIX-134)'
+  exit 1
+fi
+if grep -RFn --include='*.md' \
+  'docker compose -f /home/mba/docker/docker-compose.yml' "${repo}/hosts"; then
+  echo 'FAIL: a host doc still invokes the absent hsb1 home-directory compose file (NIX-134)'
+  exit 1
+fi
 
 # --- NIX-352: locally built images can be excluded from weekly pull ----------
 # The module retains the explicit exclusion mechanism for other local images.

@@ -1,6 +1,6 @@
 # T04: Docker Services (hsb1)
 
-Test that all expected Docker containers are running and responding.
+Test that all expected Docker services are running and responding.
 
 ## Host Information
 
@@ -33,7 +33,7 @@ Run: `./T04-docker-services.sh`
 
 **Status:** ⏳ Pending
 
-### Test 2: All Containers Running
+### Test 2: All Services Running
 
 **Steps:**
 
@@ -41,21 +41,25 @@ Run: `./T04-docker-services.sh`
 
 **Expected Results:**
 
-All 13 containers running:
+All 17 services currently declared by `compose-spec.nix` are running:
 
-- homeassistant
-- nodered
-- mosquitto
-- zigbee2mqtt
-- scrypted
-- matter-server
-- pixdcon
 - apprise
+- fritz-tripwire
+- funkeykid
+- homeassistant
+- hsb1-home
+- matter-server
+- mosquitto
+- nodered
 - opus-stream-to-mqtt
-- smtp
+- opusweb
+- pharos-beacon
+- pixdcon
+- plex
 - restic-cron-hetzner
-- watchtower-weekly
-- watchtower-pixdcon
+- scrypted
+- smtp
+- zigbee2mqtt
 
 **Status:** ⏳ Pending
 
@@ -80,11 +84,13 @@ All 13 containers running:
 | Test | Description      | Status |
 | ---- | ---------------- | ------ |
 | T1   | Docker Daemon    | ⏳     |
-| T2   | Containers Up    | ⏳     |
+| T2   | Services Up      | ⏳     |
 | T3   | Services Respond | ⏳     |
 
 ## Notes
 
-- All containers managed via `~/docker/docker-compose.yml`
-- Watchtower handles automatic updates
+- The stack is declared in `hosts/hsb1/docker/compose-spec.nix`, rendered at
+  `/etc/compose/hsb1/docker-compose.yml`, and reconciled by
+  `compose-hsb1.service`; `~/docker` holds runtime data, not the compose source.
+- `compose-hsb1-update.timer` owns weekly image updates.
 - Backups via restic-cron-hetzner container
