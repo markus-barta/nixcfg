@@ -20,6 +20,7 @@ host="${repo}/hosts/csb1/configuration.nix"
 compose="${repo}/hosts/csb1/docker/compose-spec.nix"
 contract="${repo}/hosts/csb1/docker/janus/managed-service-production"
 pharos_contract="${repo}/hosts/csb1/docker/janus/pharos-production"
+pharos_release="${repo}/pharos-release.json"
 secrets_nix="${repo}/secrets/secrets.nix"
 zero_digest="sha256:$(printf '0%.0s' {1..64})"
 activation="$(
@@ -317,7 +318,24 @@ pharos_tag="$(
     }
   ' "${compose}"
 )"
-[[ "${pharos_tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+python3 "${repo}/scripts/pharos-release-metadata.py" validate \
+  --kind local \
+  "${pharos_release}"
+pharos_version="$(jq -er .version "${pharos_release}")"
+pharos_scheme="$(jq -er .version_scheme "${pharos_release}")"
+[[ "${pharos_tag}" == "${pharos_version}" ]]
+case "${pharos_scheme}" in
+legacy)
+  [[ "${pharos_tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  ;;
+inspr-calendar-v1)
+  [[ "${pharos_tag}" =~ ^[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}$ ]]
+  ;;
+*)
+  printf 'unsupported Pharos version scheme: %s\n' "${pharos_scheme}" >&2
+  exit 1
+  ;;
+esac
 pharos_tag_pattern="${pharos_tag//./\\.}"
 grep -Fq "pharos/pharosd:${pharos_tag_pattern}@sha256" "${contract}/readiness.sh"
 
