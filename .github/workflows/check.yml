@@ -184,6 +184,9 @@ jobs:
       - name: Verify justfile SSH fallbacks avoid dead routes (NIX-342)
         run: tests/T60-justfile-ssh-fallbacks.sh
 
+      - name: Verify local and hosted formatters share one pin (NIX-336)
+        run: tests/T61-format-tool-pin.sh
+
       - name: Verify mbp2607 Paimos agentd Home Manager contract
         run: nix-shell -p python3 --run tests/T56-paimos-agentd-home-manager.sh
 
