@@ -673,14 +673,14 @@ push:
     -attic push qownnotes `which nixbit` --no-closure
 
 [group('cache')]
-push-all:
-    ./scripts/push-all-to-attic.sh
+push-all cache='main':
+    ./scripts/push-all-to-attic.sh {{ cache }}
 
 [group('cache')]
 push-local:
-    attic push --ignore-upstream-cache-filter cicinas2:nix-store `which phpstorm` --no-closure
-    attic push --ignore-upstream-cache-filter cicinas2:nix-store `which clion` --no-closure
-    attic push --ignore-upstream-cache-filter cicinas2:nix-store `which goland` --no-closure
+    attic push --ignore-upstream-cache-filter main `which phpstorm` --no-closure
+    attic push --ignore-upstream-cache-filter main `which clion` --no-closure
+    attic push --ignore-upstream-cache-filter main `which goland` --no-closure
 
 # Rekey the agenix secrets using ~/.ssh/agenix
 [group('agenix')]
