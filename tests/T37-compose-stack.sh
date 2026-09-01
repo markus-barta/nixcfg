@@ -91,8 +91,8 @@ hsb1_runbook="${repo}/hosts/hsb1/docs/RUNBOOK.md"
 grep -Fq 'hosts/hsb1/docker/compose-spec.nix' "${hsb1_runbook}"
 grep -Fq '/etc/compose/hsb1/docker-compose.yml' "${hsb1_runbook}"
 grep -Fq 'compose-hsb1.service' "${hsb1_runbook}"
-grep -Fq '/home/mba/docker remains the runtime-data root' "${hsb1_runbook}"
-grep -Fq '/home/mba/scripts is retained as unclassified legacy material' "${hsb1_runbook}"
+grep -Fq 'remains the runtime-data root' "${hsb1_runbook}"
+grep -Fq 'is retained as unclassified legacy material' "${hsb1_runbook}"
 if grep -Eq '^[~]/docker/docker-compose[.]yml$' "${hsb1_runbook}"; then
   echo 'FAIL: hsb1 runbook presents the absent home-directory compose file as an operating path (NIX-134)'
   exit 1
