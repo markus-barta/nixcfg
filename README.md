@@ -144,22 +144,23 @@ flake.nix
 
 **File paths loaded for the macOS workstation (mbp2606):**
 
-| Path                                           | Purpose                                  |
-| ---------------------------------------------- | ---------------------------------------- |
-| `flake.nix`                                    | Entry point with `mkDarwinHome` helper   |
-| `hosts/mbp2606/home.nix`                       | `mba` user config (packages, shell, git) |
-| `hosts/mbp2606/home-mailina.nix`               | `mailina` user config (second user)      |
-| `modules/config/karabiner.json`                | Shared macOS Karabiner keyboard config   |
-| `modules/uzumaki/home-manager.nix`             | Uzumaki HM module                        |
-| `modules/uzumaki/options.nix`                  | Shared uzumaki options                   |
-| `modules/uzumaki/fish/config.nix`              | Fish aliases & abbreviations             |
-| `modules/uzumaki/fish/functions.nix`           | Fish functions                           |
-| `modules/uzumaki/theme/theme-hm.nix`           | Per-host theming                         |
-| `modules/uzumaki/theme/theme-palettes.nix`     | Color palette definitions                |
-| `modules/uzumaki/theme/starship-template.toml` | Starship config template                 |
-| `modules/uzumaki/theme/eza-themes/sysop.yml`   | Eza color theme                          |
-| `modules/uzumaki/stasysmo/home-manager.nix`    | System monitoring (launchd)              |
-| `lib/utils.nix`                                | Utility functions                        |
+| Path                                                            | Purpose                                  |
+| --------------------------------------------------------------- | ---------------------------------------- |
+| `flake.nix`                                                     | Entry point with `mkDarwinHome` helper   |
+| `hosts/mbp2606/home.nix`                                        | `mba` user config (packages, shell, git) |
+| `hosts/mbp2606/home-mailina.nix`                                | `mailina` user config (second user)      |
+| `modules/config/karabiner.json`                                 | Shared macOS Karabiner keyboard config   |
+| `modules/uzumaki/home-manager.nix`                              | Uzumaki HM module                        |
+| `modules/uzumaki/options.nix`                                   | Shared uzumaki options                   |
+| `modules/uzumaki/fish/config.nix`                               | Fish aliases & abbreviations             |
+| `modules/uzumaki/fish/functions.nix`                            | Fish functions                           |
+| `modules/uzumaki/theme/theme-hm.nix`                            | Per-host theming                         |
+| `modules/uzumaki/theme/theme-palettes.nix`                      | Color palette definitions                |
+| `modules/uzumaki/theme/starship-themes/tokyonight-uzumaki.toml` | Starship config template                 |
+| `modules/uzumaki/theme/zellij-themes/tokyonight-uzumaki.kdl`    | Zellij config template                   |
+| `modules/uzumaki/theme/eza-themes/sysop.yml`                    | Eza color theme                          |
+| `modules/uzumaki/stasysmo/home-manager.nix`                     | System monitoring (launchd)              |
+| `lib/utils.nix`                                                 | Utility functions                        |
 
 </details>
 

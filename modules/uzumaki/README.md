@@ -83,7 +83,10 @@ modules/uzumaki/
 ├── theme/
 │   ├── theme-hm.nix           # Home Manager theme module
 │   ├── theme-palettes.nix     # Color palette definitions per host
-│   ├── starship-template.toml # Template with color placeholders
+│   ├── starship-themes/
+│   │   └── tokyonight-uzumaki.toml  # Starship template with color placeholders
+│   ├── zellij-themes/
+│   │   └── tokyonight-uzumaki.kdl   # Zellij template with color placeholders
 │   └── eza-themes/
 │       └── tokyonight-uzumaki.yml  # Tokyo Night Uzumaki eza theme
 └── stasysmo/
@@ -192,9 +195,9 @@ sudo nixos-rebuild switch --flake .#hostname
 │         │ reads                                 │ lookup                    │
 │         ▼                                       ▼                           │
 │    ┌────────────────────────┐          hostPalette.mbp0 = "lightGray"       │
-│    │ starship-template.toml │                   │                           │
-│    │ (Unicode glyphs +      │                   │                           │
-│    │  color placeholders)   │                   │                           │
+│    │ tokyonight-uzumaki     │                   │                           │
+│    │ Starship TOML +        │                   │                           │
+│    │ Zellij KDL templates   │                   │                           │
 │    └────────────────────────┘                   │                           │
 │         │                                       │                           │
 │         │ builtins.replaceStrings               │                           │
@@ -214,7 +217,8 @@ sudo nixos-rebuild switch --flake .#hostname
 
 **Key Points:**
 
-- Unicode characters are preserved because they live in `starship-template.toml`
+- Unicode characters are preserved because they live in `theme/starship-themes/tokyonight-uzumaki.toml`
+- Zellij layout and keybindings live in `theme/zellij-themes/tokyonight-uzumaki.kdl`
 - Only ASCII color placeholders (`__PRIMARY__`, `__LIGHTEST__`, etc.) are substituted
 - One palette definition in `theme-palettes.nix` → three auto-generated configs
 - Add a new host: just add one line to `hostPalette` mapping
@@ -347,7 +351,7 @@ uzumaki.stasysmo.enable = true;
 
 ---
 
-## ⚠️ CRITICAL: Editing starship-template.toml
+## ⚠️ CRITICAL: Editing theme/starship-themes/tokyonight-uzumaki.toml
 
 **DO NOT edit with heredocs, echo, or manual typing of Unicode characters!**
 
@@ -358,16 +362,16 @@ The file contains Nerd Font Unicode glyphs that get corrupted easily.
 1. **Use sed for simple ASCII value changes:**
 
    ```bash
-   sed -i '' 's/truncation_length = 3/truncation_length = 0/' starship-template.toml
+   sed -i '' 's/truncation_length = 3/truncation_length = 0/' theme/starship-themes/tokyonight-uzumaki.toml
    ```
 
 2. **Use Python for Unicode-safe edits:**
 
    ```python
-   with open('starship-template.toml', 'r') as f:
+   with open('theme/starship-themes/tokyonight-uzumaki.toml', 'r') as f:
        content = f.read()
    content = content.replace('old', 'new')
-   with open('starship-template.toml', 'w') as f:
+   with open('theme/starship-themes/tokyonight-uzumaki.toml', 'w') as f:
        f.write(content)
    ```
 
