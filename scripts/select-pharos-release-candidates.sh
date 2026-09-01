@@ -1,25 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 5 ]]; then
-  printf 'usage: %s VERSION REFERENCE NIXCFG_ROOT DSCCFG_ROOT OUTPUT\n' "${0##*/}" >&2
+if [[ $# -ne 4 ]]; then
+  printf 'usage: %s VERSION REFERENCE NIXCFG_ROOT OUTPUT\n' "${0##*/}" >&2
   exit 2
 fi
 
 version=$1
 reference=$2
 nixcfg_root=$3
-dsccfg_root=$4
-output=$5
+output=$4
 title="PHAROS-90: roll fleet to Pharos ${version}"
 branch="automation/pharos-release-${version}"
 
-for name in NIXCFG_REPOSITORY DSCCFG_REPOSITORY; do
-  if [[ -z "${!name:-}" ]]; then
-    printf 'pharos_release_existing=failed reason=missing_input name=%s\n' "$name" >&2
-    exit 1
-  fi
-done
+if [[ -z "${NIXCFG_REPOSITORY:-}" ]]; then
+  printf 'pharos_release_existing=failed reason=missing_input name=NIXCFG_REPOSITORY\n' >&2
+  exit 1
+fi
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
   [[ ! "$reference" =~ ^ghcr\.io/inspr-at/pharos/pharosd:${version}@sha256:[0-9a-f]{64}$ ]]; then
   printf 'pharos_release_existing=failed reason=invalid_input\n' >&2
@@ -35,10 +32,6 @@ nixcfg_paths=(
   hosts/hsb1/docker/compose-spec.nix
   hosts/hsb8/docker/compose-spec.nix
   hosts/hsb9/docker/compose-spec.nix
-)
-dsccfg_paths=(
-  pharos-release.json
-  hosts/dsc0/docker/docker-compose.yml
 )
 
 proposal_row() {
@@ -129,40 +122,15 @@ validate_proposal() {
     "$label" "$label" "$branch" "$label" "$sha" "$label" "$url" >>"$output"
 }
 
-validate_aligned_main() {
-  local label=$1
-  local root=$2
-  local sha
-
-  if [[ "$(jq -r .reference "$root/pharos-release.json")" != "$reference" ]]; then
-    printf 'pharos_release_existing=failed reason=existing_pair_incomplete repo=%s\n' "$label" >&2
-    exit 1
-  fi
-  sha=$(git -C "$root" rev-parse HEAD)
-  printf '%s_changed=false\n%s_branch=%s\n%s_sha=%s\n%s_url=\n' \
-    "$label" "$label" "$branch" "$label" "$sha" "$label" >>"$output"
-}
-
 validate_main nix "$nixcfg_root"
-validate_main dsc "$dsccfg_root"
 nix_row=$(proposal_row nix "$NIXCFG_REPOSITORY")
-dsc_row=$(proposal_row dsc "$DSCCFG_REPOSITORY")
 
-if [[ -z "$nix_row" && -z "$dsc_row" ]]; then
+if [[ -z "$nix_row" ]]; then
   printf 'reused=false\n' >>"$output"
   printf 'pharos_release_existing=none version=%s\n' "$version"
   exit 0
 fi
 
-if [[ -n "$nix_row" ]]; then
-  validate_proposal nix "$nixcfg_root" "$nix_row" "${nixcfg_paths[@]}"
-else
-  validate_aligned_main nix "$nixcfg_root"
-fi
-if [[ -n "$dsc_row" ]]; then
-  validate_proposal dsc "$dsccfg_root" "$dsc_row" "${dsccfg_paths[@]}"
-else
-  validate_aligned_main dsc "$dsccfg_root"
-fi
+validate_proposal nix "$nixcfg_root" "$nix_row" "${nixcfg_paths[@]}"
 printf 'reused=true\n' >>"$output"
 printf 'pharos_release_existing=reused version=%s\n' "$version"

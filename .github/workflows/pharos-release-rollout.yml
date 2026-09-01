@@ -29,10 +29,9 @@ jobs:
     if: github.repository == 'markus-barta/nixcfg' || github.repository == 'inspr-at/nixcfg'
     runs-on: ubuntu-24.04
     env:
-      DSCCFG_REPOSITORY: inspr-at/dsccfg
       GH_TOKEN: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
     steps:
-      - name: Require the reviewed cross-repository credential
+      - name: Require the release automation credential
         run: |
           if [[ -z "$GH_TOKEN" ]]; then
             echo 'error: GH_TOKEN_FOR_UPDATES is not configured' >&2
@@ -44,15 +43,6 @@ jobs:
         with:
           token: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
           ref: main
-          fetch-depth: 0
-
-      - name: Checkout dsccfg
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.DSCCFG_REPOSITORY }}
-          ref: main
-          path: _release-dsccfg
-          token: ${{ secrets.GH_TOKEN_FOR_UPDATES }}
           fetch-depth: 0
 
       - name: Resolve one annotated Pharos release
@@ -123,7 +113,7 @@ jobs:
             --certificate-identity "https://github.com/inspr-at/pharos/.github/workflows/release.yml@refs/tags/${TAG}" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" >/dev/null
 
-      - name: Select an exact existing proposal pair
+      - name: Select an exact existing proposal
         id: existing
         env:
           NIXCFG_REPOSITORY: ${{ github.repository }}
@@ -134,23 +124,15 @@ jobs:
             "$VERSION" \
             "$REFERENCE" \
             "$GITHUB_WORKSPACE" \
-            "$GITHUB_WORKSPACE/_release-dsccfg" \
             "$GITHUB_OUTPUT"
 
-      - name: Prepare both repositories from the same digest
+      - name: Prepare the active personal fleet from the immutable digest
         if: steps.existing.outputs.reused != 'true'
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           scripts/update-pharos-release.sh "$VERSION" "$DIGEST"
-          _release-dsccfg/scripts/update-pharos-release.sh --root _release-dsccfg "$VERSION" "$DIGEST"
-          nix_ref=$(jq -r '.reference' pharos-release.json)
-          dsc_ref=$(jq -r '.reference' _release-dsccfg/pharos-release.json)
-          if [[ "$nix_ref" != "$dsc_ref" ]]; then
-            echo 'error: paired Pharos release manifests diverged' >&2
-            exit 1
-          fi
 
       - name: Prepare clean local release candidates
         if: steps.existing.outputs.reused != 'true'
@@ -160,24 +142,18 @@ jobs:
         run: |
           scripts/prepare-pharos-release-candidates.sh \
             "$VERSION" \
-            "$GITHUB_WORKSPACE" \
-            "$GITHUB_WORKSPACE/_release-dsccfg"
+            "$GITHUB_WORKSPACE"
 
-      - name: Validate the exact committed candidates
+      - name: Validate the exact committed candidate
         env:
-          DSC_SHA: ${{ steps.existing.outputs.dsc_sha || steps.prepared.outputs.dsc_sha }}
           NIX_SHA: ${{ steps.existing.outputs.nix_sha || steps.prepared.outputs.nix_sha }}
         run: |
           [[ "$(git rev-parse HEAD)" == "$NIX_SHA" ]]
-          [[ "$(git -C _release-dsccfg rev-parse HEAD)" == "$DSC_SHA" ]]
           [[ -z "$(git status --porcelain --untracked-files=no)" ]]
-          [[ -z "$(git -C _release-dsccfg status --porcelain --untracked-files=no)" ]]
           tests/T20-pharos-beacon-healthcheck.sh
           tests/T21-pharos-release-rollout.sh
           tests/T22-pharos-release-update.sh
           tests/T32-managed-secret-production-preflight.sh
-          _release-dsccfg/tests/pharos-release-rollout.sh
-          _release-dsccfg/tests/pharos-release-update.sh
 
       - name: Record dry-run evidence
         if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
@@ -186,14 +162,10 @@ jobs:
           DIGEST: ${{ steps.image.outputs.digest }}
         run: echo "pharos_release_rollout=dry_run_passed version=${VERSION} digest=${DIGEST}"
 
-      - name: Publish both validated proposals transactionally
+      - name: Publish the validated personal-fleet proposal
         if: github.event_name != 'workflow_dispatch' || inputs.dry_run != true
         id: proposals
         env:
-          DSC_BRANCH: ${{ steps.existing.outputs.dsc_branch || steps.prepared.outputs.dsc_branch }}
-          DSC_CHANGED: ${{ steps.existing.outputs.dsc_changed || steps.prepared.outputs.dsc_changed }}
-          DSC_SHA: ${{ steps.existing.outputs.dsc_sha || steps.prepared.outputs.dsc_sha }}
-          DSCCFG_ROOT: ${{ github.workspace }}/_release-dsccfg
           NIX_BRANCH: ${{ steps.existing.outputs.nix_branch || steps.prepared.outputs.nix_branch }}
           NIX_CHANGED: ${{ steps.existing.outputs.nix_changed || steps.prepared.outputs.nix_changed }}
           NIX_SHA: ${{ steps.existing.outputs.nix_sha || steps.prepared.outputs.nix_sha }}
