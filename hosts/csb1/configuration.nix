@@ -198,6 +198,7 @@ in
     ./hausv-alerts.nix
     ./hausv-next.nix # NIX-368 / HAUSV-513: isolated tailnet fixture preview
     ./hausv-github-runner.nix # Declarative GitHub Actions runner for hausv-org
+    ./start-github-runner.nix # NIX-378: GitHub Actions runner for augmentoring-team/start-agm-com
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
@@ -1238,6 +1239,22 @@ in
       {
         file = ../../secrets/csb1-hausv-ghcr-pull.age;
         path = "/run/agenix/csb1-hausv-ghcr-pull";
+        owner = "root";
+        group = "users";
+        mode = "0440";
+      };
+
+  # NIX-378: GitHub Actions runner token for augmentoring-team/start-agm-com.
+  # Contents: raw GitHub PAT (single line). Janus capability name:
+  # github.runner.augmentoring-team/start-agm-com
+  # Edit hint: agenix -e secrets/csb1-start-github-runner.age
+  # 0440 root:users lets the mba-owned runner read it during registration;
+  # nixpkgs' default InaccessiblePaths then hides this source from job processes.
+  age.secrets.csb1-start-github-runner =
+    lib.mkIf (builtins.pathExists ../../secrets/csb1-start-github-runner.age)
+      {
+        file = ../../secrets/csb1-start-github-runner.age;
+        path = "/run/agenix/csb1-start-github-runner";
         owner = "root";
         group = "users";
         mode = "0440";

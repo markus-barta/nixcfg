@@ -170,6 +170,9 @@ jobs:
       - name: Verify HostDash host-side HTTP status evidence (NIX-343)
         run: tests/T52-hostdash-http-status.sh
 
+      - name: Verify START runner registration and token boundary (NIX-378)
+        run: tests/T53-start-github-runner.sh
+
       # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
       # doctrine-check.sh (INSPR-300); this step then calls that instead.
       - name: Verify both doctrine consumption paths agree

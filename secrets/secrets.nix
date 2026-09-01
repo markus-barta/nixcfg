@@ -325,6 +325,12 @@ in
   # Edit: agenix -e secrets/csb1-hausv-ghcr-pull.age
   "csb1-hausv-ghcr-pull.age".publicKeys = markus ++ csb1;
 
+  # NIX-378: GitHub Actions runner token for augmentoring-team/start-agm-com.
+  # Contents: raw GitHub PAT (single line, no KEY= prefix).
+  # Janus capability name: github.runner.augmentoring-team/start-agm-com
+  # Edit hint: agenix -e secrets/csb1-start-github-runner.age
+  "csb1-start-github-runner.age".publicKeys = markus ++ csb1;
+
   # NIX-384: GHCR pull token for the private inspr-site packages
   # (ghcr.io/inspr-at/inspr-site/inspr-auth, INSPR-253). Classic PAT of
   # markus-barta, scope read:packages only, no expiration; 1Password item
