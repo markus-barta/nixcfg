@@ -80,7 +80,7 @@
     # executable control plane just because upstream main advances. Bumps use
     # the reviewed Paimos release flow and refresh vendorHash when Go deps move.
     paimos = {
-      url = "github:inspr-at/paimos/v5.21.0";
+      url = "github:inspr-at/paimos/v26.09.01.15.52";
       flake = false;
     };
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
