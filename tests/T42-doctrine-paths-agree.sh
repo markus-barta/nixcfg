@@ -1,100 +1,68 @@
 #!/usr/bin/env bash
-# nixcfg consumes the doctrine repo TWICE — the two pins must agree.
-#
-#   * flake input `inspr-modules` (flake.lock) renders the agent skills onto
-#     hosts; it activates at `nixos-rebuild switch`.
-#   * git submodule `doctrine` provides the kernel and domain packs that every
-#     agent session reads; it activates at `git checkout`.
-#
-# WHY EQUALITY, NOT "CLOSE ENOUGH"
-# ===============================
-# The two have different activation moments, so a split is silent and directional:
-#   submodule ahead → sessions read rules the hosts do not implement yet
-#   input ahead     → hosts execute capabilities nobody has read the rules for
-# Both are the declared-vs-actual class (INSPR-296). It has already happened
-# twice: caught once in review (PR #374, one path moved), then again overnight
-# as a three-way split (2026-08-17: input 7eab3cda, submodule 3cf1a973,
-# canonical 7598d63). Neither time did anything fail.
-#
-# 🟡 THIS TEST IS DELIBERATELY TEMPORARY.
-# Its successor is a multi-path mode in inspr-modules' own `doctrine-check.sh`,
-# owned by the doctrine side: it will enumerate every consumption path a repo
-# declares (submodule pins, flake inputs resolving to inspr-modules, vendored
-# copies) and assert they agree, so single-path repos stay unaffected and the
-# rule lives in one place. When that lands, delete the LOGIC below but KEEP the
-# CI wiring, calling the upstream check from here — so nixcfg is never left with
-# no assertion at all, and there is never a moment with two checks asserting one
-# invariant through slightly different logic (worse than either alone). Same
-# shape as T41 calling hausv-org's verify-preview.sh.
-#
-# 🔴 Successor ticket: INSPR-300 (owned by the doctrine side). INSPR-296 is the
-# broader "no per-repo wiring assertion exists" work that 300 hangs off. Agreed
-# with the doctrine/OPS session 2026-08-17.
-#
-# Two properties the successor must keep, learned from writing this one:
-#   * read every path at the SAME staging level (see the index note below) —
-#     otherwise it compares two points in time and false-fails the one person
-#     it exists to help, the operator mid-bump, while passing in CI;
-#   * equality applies PER UPSTREAM: a repo legitimately vendoring two
-#     different upstreams must not be failed for that.
-#
-# Note: this is a REQUIRED gate, not informational. It runs as a step of the
-# `Pharos fleet release compatibility` job, and that job is one of main's
-# required contexts (with the formatting gate, CodeQL, and `Eval flake — all
-# hosts`), so a red result here blocks the merge. Verify with:
-#   gh api repos/markus-barta/nixcfg/branches/main/protection \
-#     --jq .required_status_checks.contexts
-# This comment previously claimed the opposite — that required checks were "the
-# formatting gate and CodeQL only". That went stale when protection was widened,
-# and on 2026-08-25 it misled a reviewing agent into recommending work to make
-# this test required when it already was. A stale note about a control is worse
-# than no note: it is read as current. Re-check the API output above before
-# editing this paragraph.
+# NIX-403: keep nixcfg's required T42 wiring, but let the pinned doctrine
+# repository own the invariant. The caller verifies the checker's provenance;
+# doctrine-check.sh owns all consumption-path discovery and comparison logic.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "${repo}"
+cd "$repo"
 
-input_rev="$(
-  python3 -c '
-import json, sys
-lock = json.load(open("flake.lock"))
-node = lock["nodes"].get("inspr-modules")
-if not node:
-    sys.exit("flake.lock has no inspr-modules input")
-print(node["locked"]["rev"])'
-)"
+checker_rel="scripts/doctrine-check.sh"
+expected_url="https://github.com/inspr-at/inspr-modules.git"
+expected_checker_blob="ef37a597e3100fb1704be5708a2c32cedd4ac7d5"
 
-# The INDEXED pin, not the working-tree checkout: the pin is what a fresh clone
-# and CI get, and a locally-drifted submodule is a separate (also real) problem.
-# The index rather than HEAD, so a staged bump is validated before it is
-# committed; on a CI checkout the two are identical anyway.
-submodule_rev="$(git ls-files --stage doctrine | awk '{print $2}')"
-
-if [ -z "${submodule_rev}" ]; then
-  echo "FAIL: no doctrine submodule recorded in HEAD" >&2
+fail() {
+  printf 'T42 doctrine checker provenance FAILED: %s\n' "$1" >&2
   exit 1
-fi
+}
 
-if [ "${input_rev}" != "${submodule_rev}" ]; then
-  cat >&2 <<EOF
-FAIL: nixcfg's two doctrine paths disagree.
+gitlink_entry="$(git ls-files --stage -- doctrine)"
+[ -n "$gitlink_entry" ] || fail "doctrine gitlink is missing from the index"
 
-  flake input inspr-modules : ${input_rev}
-  submodule doctrine        : ${submodule_rev}
-
-Both consume github.com/inspr-at/inspr-modules and must sit on the SAME
-revision. Do not "fix" this by bumping whichever path is easier — move both:
-
-  nix flake update inspr-modules
-  git submodule update --remote doctrine
-  git add flake.lock doctrine
-
-Why it matters: the input activates at switch (host skills), the submodule at
-checkout (the kernel agent sessions read). A split means one half of the fleet
-follows rules the other half has not got.
+read -r gitlink_mode doctrine_rev gitlink_stage gitlink_path <<EOF
+$gitlink_entry
 EOF
-  exit 1
+[ "$gitlink_mode" = "160000" ] || fail "doctrine is not a pinned gitlink"
+[ "$gitlink_stage" = "0" ] || fail "doctrine gitlink is unmerged"
+[ "$gitlink_path" = "doctrine" ] || fail "doctrine gitlink path was replaced"
+
+doctrine_url="$(git config -f .gitmodules --get submodule.doctrine.url)"
+[ "$doctrine_url" = "$expected_url" ] || fail "doctrine upstream URL was replaced"
+
+source_root=""
+if ! source_root="$({
+  DOCTRINE_PIN_URL="$doctrine_url" DOCTRINE_PIN_REV="$doctrine_rev" \
+    nix eval --quiet --raw --impure --expr '
+      let
+        source = builtins.fetchGit {
+          url = builtins.getEnv "DOCTRINE_PIN_URL";
+          rev = builtins.getEnv "DOCTRINE_PIN_REV";
+          shallow = true;
+        };
+      in toString source
+    '
+} 2>/dev/null)"; then
+  fail "pinned doctrine source is unavailable"
 fi
 
-echo "T42 doctrine paths agree OK (${input_rev:0:8})"
+checker_path="$source_root/$checker_rel"
+[ ! -L "$checker_path" ] || fail "pinned checker path was replaced by a symlink"
+[ -f "$checker_path" ] || fail "pinned checker is missing"
+[ -x "$checker_path" ] || fail "pinned checker is not executable"
+checker_blob="$(git hash-object -- "$checker_path")"
+[ "$checker_blob" = "$expected_checker_blob" ] || fail "pinned checker content was replaced"
+
+# Execute the immutable source fetched by nixcfg's indexed gitlink. No PATH
+# lookup or mutable submodule checkout participates in this gate.
+if bash "$checker_path" --multipath-only; then
+  exit 0
+else
+  status=$?
+fi
+
+cat >&2 <<'EOF'
+T42 doctrine equality boundary: paths consuming the same upstream must match.
+A submodule-ahead split makes sessions read rules hosts do not implement yet;
+a flake-input-ahead split makes hosts run capabilities sessions have not read.
+EOF
+exit "$status"

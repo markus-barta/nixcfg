@@ -170,8 +170,8 @@ jobs:
       - name: Verify HostDash host-side HTTP status evidence (NIX-343)
         run: tests/T52-hostdash-http-status.sh
 
-      # 🟡 Temporary — successor is a multi-path mode in inspr-modules'
-      # doctrine-check.sh (INSPR-300); this step then calls that instead.
+      # NIX-403: the stable T42 wiring delegates to the focused multi-path mode
+      # in nixcfg's exact pinned inspr-modules doctrine checker.
       - name: Verify both doctrine consumption paths agree
         run: tests/T42-doctrine-paths-agree.sh
 
