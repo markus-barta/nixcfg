@@ -197,13 +197,13 @@ The Nuki Ultra should be configured in the Nuki App to publish to:
 
 ## Files Reference
 
-| File           | Location                                                                                                                    |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Node-RED Flows | `~/docker/mounts/nodered/data/flows.json`                                                                                   |
-| HA Config      | `~/docker/mounts/homeassistant/configuration.yaml`                                                                          |
-| HA Automations | `~/docker/mounts/homeassistant/automations.yaml`                                                                            |
-| MQTT Config    | HA Integration (Settings → Devices → MQTT)                                                                                  |
-| Secrets        | agenix: `/run/agenix/hsb1-smarthome-env` (HA_TOKEN), `/run/agenix/hsb1-mqtt-client-env` (MQTT_USER / MQTT_PASS / MQTT_HOST) |
+| File           | Location                                                                                                                                                                                                                                                                            |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node-RED Flows | `~/docker/mounts/nodered/data/flows.json`                                                                                                                                                                                                                                           |
+| HA Config      | `~/docker/mounts/homeassistant/configuration.yaml`                                                                                                                                                                                                                                  |
+| HA Automations | `~/docker/mounts/homeassistant/automations.yaml`                                                                                                                                                                                                                                    |
+| MQTT Config    | HA Integration (Settings → Devices → MQTT)                                                                                                                                                                                                                                          |
+| Secrets        | agenix: `/run/agenix/hsb1-smarthome-env` (service API credentials; no HA access token, verified 2026-08-12), `/run/agenix/hsb1-mqtt-client-env` (MQTT_USER / MQTT_PASS / MQTT_HOST). For consumer-specific HA tokens, see [SMARTHOME Security Notes](SMARTHOME.md#-security-notes). |
 
 ---
 
