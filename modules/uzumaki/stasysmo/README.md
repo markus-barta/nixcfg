@@ -200,7 +200,7 @@ PYTHON
 
 ## Starship Integration
 
-StaSysMo adds a custom module to `starship-template.toml`:
+StaSysMo adds a custom module to `../theme/starship-themes/tokyonight-uzumaki.toml`:
 
 ```toml
 [custom.stasysmo]
@@ -300,12 +300,12 @@ ansi_reset() { printf '\033[39m'; }  # NOT \033[0m
 
 ### Powerline Character Handling
 
-**Problem**: Nerd Font glyphs (`, `) are corrupted when editing `starship-template.toml` in editors without Nerd Font support.
+**Problem**: Nerd Font glyphs (`, `) are corrupted when editing `../theme/starship-themes/tokyonight-uzumaki.toml` in editors without Nerd Font support.
 
 **Solution**: Use ASCII placeholders in template, substitute in `theme-hm.nix`:
 
 ```nix
-# starship-template.toml
+# ../theme/starship-themes/tokyonight-uzumaki.toml
 format = "[__PL_LEFT_SOFT__](fg:__DARKEST__)"
 
 # theme-hm.nix (builtins.replaceStrings)
