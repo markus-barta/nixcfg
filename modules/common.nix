@@ -358,13 +358,14 @@ in
     in
     requiredPackages ++ utils.removePackagesByName optionalPackages excludePackages;
 
-  # Do garbage collection
-  # Disabled for "programs.nh.clean.enable"
-  #  nix.gc = {
-  #    automatic = true;
-  #    dates = "weekly";
-  #    options = "--delete-older-than 20d";
-  #  };
+  # `programs.nh.clean` is already enabled weekly by the shared hokage module;
+  # do not enable the competing nix.gc timer. Optimisation gets a separate
+  # weekly window, with jitter to avoid a fleet-wide I/O spike.
+  nix.optimise = {
+    automatic = true;
+    dates = "Sun *-*-* 06:15:00";
+    randomizedDelaySec = "45m";
+  };
 
   # Add Restic Security Wrapper
   # https://wiki.nixos.org/wiki/Restic
