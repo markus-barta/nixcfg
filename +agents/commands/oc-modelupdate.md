@@ -8,8 +8,7 @@ Assume @+agents/rules/SYSOP.md role
 
 # Task: `/oc-modelupdate`
 
-You are updating the `agents.defaults.models` list in both OpenClaw configs.
-Both configs must always be identical (in sync).
+You are updating the `agents.defaults.models` list in the OpenClaw config.
 
 ## Config files to update
 
@@ -60,10 +59,9 @@ For EACH model (current AND suggested), validate against the live catalogue abov
 
 Rules:
 
-- Alias style: short, lowercase, no spaces (Percy-style). Examples: `sonnet46`, `kimi25`, `gem3flash`
+- Alias style: short, lowercase, no spaces. Examples: `sonnet46`, `kimi25`, `gem3flash`
 - Free models: append `-free` to alias (e.g. `hunter-alpha-free`, `step35free`)
 - Model IDs: use exact API ID from the catalogue (no guessing)
-- Both configs must end up **identical**
 - Keep fallbacks (`model.primary` + `model.fallbacks`) in mind — primary must be a paid model
 
 ## Step 4 — Present findings to user BEFORE making any changes
@@ -80,20 +78,19 @@ Ask: "OK to apply these changes?"
 
 ## Step 5 — After user approval: apply + commit + push (nixcfg)
 
-1. Edit both JSON configs (identical models section)
+1. Edit the JSON config
 2. `git diff` to verify — no secrets, no unrelated changes
 3. `git add` + `git commit` + `git push`
 
-## Step 6 — Regenerate modelhelp skill in all 3 workspace repos
+## Step 6 — Regenerate modelhelp skill in both workspace repos
 
 The `modelhelp` skill contains a static model table that must mirror the openclaw.json model
-list exactly. After updating the configs, regenerate the SKILL.md in all three workspace repos.
+list exactly. After updating the config, regenerate the SKILL.md in both workspace repos.
 
 **Skill file locations:**
 
 - `~/Code/oc-workspace-merlin/skills/modelhelp/SKILL.md`
 - `~/Code/oc-workspace-nimue/skills/modelhelp/SKILL.md`
-- `~/Code/oc-workspace-percy/skills/modelhelp/SKILL.md`
 
 **Tier assignment rules** (apply to new/changed models):
 
@@ -111,13 +108,12 @@ list exactly. After updating the configs, regenerate the SKILL.md in all three w
 
 **Decision guide** — update the "Task type → model" table to reflect any added/removed models.
 
-**After editing all 3 SKILL.md files:**
+**After editing both SKILL.md files:**
 
 ```bash
 # Pull latest remote changes first, then commit and push each repo
 cd ~/Code/oc-workspace-merlin && git pull --ff-only && git add skills/modelhelp/SKILL.md && git commit -m "skills: update modelhelp model list" && git push
 cd ~/Code/oc-workspace-nimue && git pull --ff-only && git add skills/modelhelp/SKILL.md && git commit -m "skills: update modelhelp model list" && git push
-cd ~/Code/oc-workspace-percy && git pull --ff-only && git add skills/modelhelp/SKILL.md && git commit -m "skills: update modelhelp model list" && git push
 ```
 
 (If `--ff-only` fails, use `git pull --rebase` instead.)
@@ -138,5 +134,4 @@ just oc-pull-workspace hsb0   # pulls merlin + nimue workspaces
 - Do NOT touch fallback/primary model without explicit approval
 - Do NOT commit without user saying "OK to apply"
 - Do NOT invent or guess model IDs — only use IDs confirmed in the catalogue
-- Both openclaw.json configs must stay in sync — always edit both
-- modelhelp SKILL.md in all 3 workspace repos must stay in sync with openclaw.json
+- The modelhelp SKILL.md in both workspace repos must stay in sync with openclaw.json

@@ -181,6 +181,9 @@ jobs:
       - name: Verify operator inspr CLI fleet configuration
         run: tests/T55-inspr-cli-fleet-config.sh
 
+      - name: Verify justfile SSH fallbacks avoid dead routes (NIX-342)
+        run: tests/T60-justfile-ssh-fallbacks.sh
+
       - name: Verify mbp2607 Paimos agentd Home Manager contract
         run: nix-shell -p python3 --run tests/T56-paimos-agentd-home-manager.sh
 
