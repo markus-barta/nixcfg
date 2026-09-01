@@ -167,6 +167,9 @@ jobs:
       - name: Verify fleet Nix maintenance policy (NIX-164)
         run: tests/T64-fleet-nix-maintenance.sh
 
+      - name: Verify current-system Attic push contract (NIX-24)
+        run: tests/T65-attic-current-system.sh
+
       - name: Verify Paimos external-stage adapter contract (NIX-381 / PAI-810)
         run: tests/T48-paimos-delivery-stage.sh
 
