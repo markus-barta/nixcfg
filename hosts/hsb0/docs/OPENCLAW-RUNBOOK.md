@@ -278,8 +278,8 @@ docker exec openclaw-gateway ssh hsb1.lan "hostname && whoami"
 # Edit HA config (sudo required — /home/mba is 0700, some files are root:root)
 docker exec openclaw-gateway ssh hsb1.lan "sudo nano /home/mba/docker/mounts/homeassistant/configuration.yaml"
 
-# Restart HA (full path required for docker compose)
-docker exec openclaw-gateway ssh hsb1.lan "sudo docker compose -f /home/mba/docker/docker-compose.yml restart homeassistant"
+# Restart HA (the hsb1 stack is composeStack-managed; target the container)
+docker exec openclaw-gateway ssh hsb1.lan "sudo docker restart homeassistant"
 
 # docker exec into HA (no sudo needed)
 docker exec openclaw-gateway ssh hsb1.lan "docker exec homeassistant ha core check"

@@ -130,16 +130,22 @@ ssh mba@hsb1.lan "docker logs homeassistant 2>&1 | grep -i tesla_fleet | tail -2
 
 hsb1 is **declarative** — configuration is driven by `nixos-rebuild switch` from `~/Code/nixcfg` (this repo), not a "symlink everything to the repo" layer. The moving parts:
 
-| What                   | How it's managed                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| Docker stack           | compose at `hosts/hsb1/docker/docker-compose.yml`, launched by the `hsb1-stack` systemd unit            |
-| Kiosk babycam launcher | Home-Manager: `hosts/hsb1/files/kiosk-autostart.sh` → `~/.config/openbox/autostart` (nix-store symlink) |
-| Secrets                | agenix → `/run/agenix/hsb1-*` (no plaintext on disk)                                                    |
-| System / services      | NixOS modules in `hosts/hsb1/` + shared `modules/`                                                      |
+| What                   | How it's managed                                                                                                                                                     |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Docker stack           | `hosts/hsb1/docker/compose-spec.nix` → `/etc/compose/hsb1/docker-compose.yml` (nix-store symlink), reconciled by `compose-hsb1.service`                              |
+| Kiosk babycam launcher | Home Manager declares `hosts/hsb1/files/kiosk-autostart.sh`; `/home/kiosk/.config/openbox/autostart` is a live nix-store symlink used by `babycam-watchdog` recovery |
+| Secrets                | agenix → `/run/agenix/hsb1-*` (no plaintext in the repository or home-directory configuration)                                                                       |
+| System / services      | NixOS modules in `hosts/hsb1/` plus shared `modules/`                                                                                                                |
 
-**Runtime data (unmanaged, not in git):** container mounts under `~/docker/mounts/` (HA config, Node-RED data, etc.).
+### Legacy home-directory decision (NIX-134)
 
-**Golden rule:** never edit config on the host — edit in `~/Code/nixcfg`, commit, `git pull`, `sudo nixos-rebuild switch`.
+The 2026-09-01 read-only audit found both `/home/mba/docker` and `/home/mba/scripts` as ordinary directories, not managed symlinks. They are retained; deleting either as part of a documentation correction would be unsafe.
+
+- `/home/mba/docker` remains the runtime-data root. The declarative spec still bind-mounts data under `~/docker/mounts/`; selected relative build contexts resolve from `~/Code/nixcfg/hosts/hsb1/docker`. Its top level also retains a legacy `Makefile`, `restic-cron/`, and `smtp/`. The Makefile invokes Compose from the wrong directory even though `~/docker/docker-compose.yml` no longer exists: do not run it. NIX-407 owns the file-by-file inventory and recoverable quarantine/removal decision for both retained home trees; until then they stay in place.
+- `/home/mba/scripts` is retained as unclassified legacy material. No current NixOS unit references that top-level directory; NIX-407 inventories it before anything is moved or deleted.
+- The old `/home/kiosk/scripts` path is absent. The autostart path is present as a Home Manager nix-store symlink; the initial unprivileged probe reported it absent only because `/home/kiosk` is mode `0700`. Verify kiosk-owned paths with read-only `sudo` rather than treating `Permission denied` as absence.
+
+**Golden rule:** author configuration in `~/Code/nixcfg`, merge it, update the checkout, and run the reviewed `just switch` path. Never hand-edit the rendered `/etc/compose` file or operate a compose stack from `~/docker`.
 
 ---
 
@@ -199,11 +205,15 @@ ssh mba@192.168.1.101 "docker logs -f mosquitto --tail 100"
 
 ### Restart All Docker Services
 
-The stack is declarative (systemd unit `hsb1-stack`, compose at `hosts/hsb1/docker/docker-compose.yml`). Restart via the unit — do NOT `docker-compose down/up` from the retired `~/docker` dir:
+This deliberately interrupts all 17 services. Use the closure-pinned compose file and the repository directory only to resolve retained relative paths; never run Compose from `~/docker`:
 
 ```bash
-ssh mba@hsb1.lan "sudo systemctl restart hsb1-stack"
+ssh mba@hsb1.lan \
+  "sudo docker compose -p docker -f /etc/compose/hsb1/docker-compose.yml \
+  --project-directory /home/mba/Code/nixcfg/hosts/hsb1/docker restart"
 ```
+
+To converge the declarative specification without restarting healthy unchanged containers, use `sudo systemctl restart compose-hsb1.service`. That unit runs `up -d --remove-orphans` and force-recreates only `hsb1-home` after the main reconcile.
 
 ---
 
@@ -229,7 +239,7 @@ both copies sit on the same drive. Detection + an offline copy beats it.
 This makes the monthly scrub load-bearing: it is what turns "ZFS has
 checksums" into an actual guarantee.
 
-Plex reads it read-only (`docker-compose.yml` plex service,
+Plex reads it read-only (`compose-spec.nix` plex service,
 `/srv/media:/media:ro`) — this replaced the previous Fritz!Box CIFS source
 (`/mnt/fritzbox-media`, still declared in `configuration.nix` but no longer
 mounted into Plex; safe to re-add as a second library path later if wanted).
@@ -440,7 +450,7 @@ docker exec homeassistant python3 -m homeassistant --script check_config -c /con
 docker restart homeassistant
 ```
 
-**Future-proofing:** `watchtower-weekly` + HACS auto-update epex*spot, so a future major version may rename sensors again. If the chart breaks after an update, re-check which `sensor.epex_spot_data*\*`still carries`attributes.data` and repoint.
+**Future-proofing:** HACS can update epex*spot, so a future major version may rename sensors again. If the chart breaks after an update, re-check which `sensor.epex_spot_data*`still carries`attributes.data` and repoint.
 
 **Reading live HA state without an API token** (recorder DB, read-only):
 
@@ -493,8 +503,11 @@ ssh mba@192.168.1.101 "apcaccess status"
 ### Docker Compose Location
 
 ```bash
-# Docker compose (Symlink to ~/Code/nixcfg/hosts/hsb1/docker/docker-compose.yml)
-~/docker/docker-compose.yml
+# Declarative source (edit here, through the normal PR path)
+~/Code/nixcfg/hosts/hsb1/docker/compose-spec.nix
+
+# Rendered runtime spec (read-only nix-store symlink; never hand-edit)
+/etc/compose/hsb1/docker-compose.yml
 ```
 
 ### Restore from Generation
@@ -600,28 +613,32 @@ ssh mba@192.168.1.101 "journalctl -f"
 
 ### Container Overview
 
-| Container              | Image                                                     | Purpose                                         | Port         |
-| ---------------------- | --------------------------------------------------------- | ----------------------------------------------- | ------------ | ---------------------------------------------- |
-| homeassistant          | `ghcr.io/home-assistant/home-assistant:stable`            | Main automation hub                             | 8123 (host)  |
-| nodered                | `ghcr.io/markus-barta/node-red-miniserver24:main` ¹       | Automation flows + FLIRC IR                     | 1880 (host)  |
-| zigbee2mqtt            | `koenkk/zigbee2mqtt:latest`                               | Zigbee device bridge                            | 8888         |
-| mosquitto              | `eclipse-mosquitto:latest`                                | MQTT broker                                     | 1883, 9001   |
-| scrypted               | `ghcr.io/koush/scrypted`                                  | Camera/NVR/HomeKit bridge                       | 10443 (host) |
-| matter-server          | `ghcr.io/home-assistant-libs/python-matter-server:stable` | Matter protocol                                 | 5580 (host)  |
-| health-pixoo           | `ghcr.io/markus-barta/health-pixoo:latest`                | Smart home health on Pixoo64                    | host         |
-| ~~pixdcon~~            | `ghcr.io/markus-barta/pixdcon:latest`                     | Pixoo display control                           | 10829 (host) | **disabled** — commented out in docker-compose |
-| apprise                | `caronc/apprise:latest`                                   | Multi-platform notifications                    | 8001         |
-| opus-stream-to-mqtt    | `node:alpine`                                             | OPUS/EnOcean → MQTT bridge                      | host         |
-| smtp                   | `namshi/smtp`                                             | Mail relay (via Resend, per-host key — OPS-175) | bridge       |
-| restic-cron-hetzner    | custom build                                              | Daily backups to Hetzner                        | -            |
-| watchtower-weekly      | `beatkind/watchtower:latest`                              | Weekly updates (Sat 5am)                        | -            |
-| ~~watchtower-pixdcon~~ | `beatkind/watchtower:latest`                              | Fast pixdcon updates (10s)                      | -            | **disabled** — commented out in docker-compose |
+| Service             | Purpose                       |
+| ------------------- | ----------------------------- |
+| apprise             | Notification service          |
+| fritz-tripwire      | Fritz!Box anomaly witness     |
+| funkeykid           | Educational keyboard service  |
+| homeassistant       | Main automation hub           |
+| hsb1-home           | HostDash static dashboard     |
+| matter-server       | Matter protocol               |
+| mosquitto           | MQTT broker                   |
+| nodered             | Automation flows and FLIRC IR |
+| opus-stream-to-mqtt | OPUS/EnOcean to MQTT bridge   |
+| opusweb             | OPUS web application          |
+| pharos-beacon       | Fleet observation reporter    |
+| pixdcon             | Pixoo display control         |
+| plex                | Media server                  |
+| restic-cron-hetzner | Daily backups to Hetzner      |
+| scrypted            | Camera/NVR/HomeKit bridge     |
+| smtp                | Mail relay                    |
+| zigbee2mqtt         | Zigbee device bridge          |
 
 ### Key Paths
 
 ```bash
-# Docker compose
-~/docker/docker-compose.yml
+# Declarative compose source and rendered runtime spec
+~/Code/nixcfg/hosts/hsb1/docker/compose-spec.nix
+/etc/compose/hsb1/docker-compose.yml
 
 # Container data mounts
 ~/docker/mounts/homeassistant/     # HA config
@@ -636,7 +653,6 @@ ssh mba@192.168.1.101 "journalctl -f"
 # ~/secrets and /etc/secrets are EMPTY (all plaintext shredded, NIX-158).
 /run/agenix/hsb1-smarthome-env      # Shared HA/NR secrets
 /run/agenix/hsb1-zigbee2mqtt-env    # Z2M network key
-/run/agenix/hsb1-watchtower-env     # Notification URLs
 /run/agenix/hsb1-mqtt-client-env    # MQTT broker/client credentials
 /run/agenix/hsb1-tapo-c210-env      # Camera credentials
 /run/agenix/hsb1-fritz-tripwire-env # Fritz!Box TR-064 credentials
@@ -661,31 +677,34 @@ docker exec zigbee2mqtt cat /app/data/configuration.yaml | grep -A5 serial
 # MQTT test (subscribe to all topics)
 docker exec mosquitto mosquitto_sub -h localhost -t '#' -v
 
-# Restart entire stack (declarative — systemd unit, NOT a ~/docker compose)
-sudo systemctl restart hsb1-stack
+# Reconcile the declarative stack; unchanged containers stay running
+sudo systemctl restart compose-hsb1.service
+
+# Deliberately restart all 17 services from the closure-pinned specification
+sudo docker compose -p docker -f /etc/compose/hsb1/docker-compose.yml \
+  --project-directory /home/mba/Code/nixcfg/hosts/hsb1/docker restart
 
 # Restart single container
 docker restart homeassistant
 docker restart nodered
 docker restart zigbee2mqtt
 
-# Check watchtower logs (update history)
-docker logs watchtower-weekly --tail 50
+# Check the declarative weekly updater
+systemctl status compose-hsb1-update.service
+journalctl -u compose-hsb1-update.service --since today
 ```
 
 ### Update Schedule
 
-- **watchtower-weekly**: Saturdays 5:00am — updates all containers with `scope=weekly`
-- **watchtower-pixdcon**: Every 10 seconds — fast updates for pixdcon only
+- **compose-hsb1-update.timer**: Saturdays at 05:00 with up to 15 minutes of jitter; pulls eligible images and reconciles the same declarative spec
 - **restic-cron-hetzner**: Daily 1:30am — backup to Hetzner StorageBox
 
 ### Network Modes
 
-| Mode        | Containers                                                                         |
-| ----------- | ---------------------------------------------------------------------------------- |
-| **host**    | homeassistant, nodered, scrypted, matter-server, health-pixoo, opus-stream-to-mqtt |
-| **bridge**  | zigbee2mqtt, mosquitto, apprise, smtp, restic-cron, watchtowers                    |
-| **macvlan** | (available for static IP assignment on 192.168.1.0/24)                             |
+| Mode       | Containers                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------- |
+| **host**   | funkeykid, homeassistant, matter-server, nodered, opus-stream-to-mqtt, pharos-beacon, pixdcon, plex, scrypted |
+| **bridge** | apprise, fritz-tripwire, hsb1-home, mosquitto, opusweb, restic-cron-hetzner, smtp, zigbee2mqtt                |
 
 ### MQTT Broker Configuration
 
@@ -707,15 +726,14 @@ All secrets now materialize from agenix at `/run/agenix/hsb1-*` on boot. `/etc/s
 
 | agenix path (`/run/agenix/…`) | Purpose                                                     | Service                        |
 | ----------------------------- | ----------------------------------------------------------- | ------------------------------ |
-| `hsb1-smarthome-env`          | Main smart home credentials                                 | HA, Node-RED, health-pixoo     |
+| `hsb1-smarthome-env`          | Main smart home credentials                                 | HA, Node-RED, funkeykid        |
 | `hsb1-zigbee2mqtt-env`        | Z2M MQTT credentials                                        | zigbee2mqtt                    |
 | `hsb1-mqtt-client-env`        | MQTT broker/client credentials                              | mosquitto                      |
-| `hsb1-watchtower-env`         | Notification URLs                                           | watchtower                     |
 | `hsb1-fritz-tripwire-env`     | Fritz!Box credentials                                       | fritz-tripwire                 |
 | `hsb1-tapo-c210-env`          | Camera/VLC credentials                                      | scrypted, kiosk babycam        |
 | `hsb1-funkeykid-api-env`      | funkeykid API                                               | funkeykid                      |
 | `hsb1-opusweb-env`            | opusweb                                                     | opusweb                        |
-| `hsb1-pixdcon-env`            | Pixoo display control                                       | pixdcon (container disabled)   |
+| `hsb1-pixdcon-env`            | Pixoo display control                                       | pixdcon                        |
 | `hsb1-tm-smb-env`             | TM Samba passwords (2 lines: `markus <pw>`, `mailina <pw>`) | tm-samba.nix activation script |
 
 ---
