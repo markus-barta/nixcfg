@@ -322,6 +322,7 @@ in
         # Terminal & Multiplexing
         # ══════════════════════════════════════════════════════════════════════
         zellij # Modern terminal multiplexer
+        upterm # Secure terminal-session sharing
         starship # Cross-shell prompt (config via theme-hm.nix)
         nano # Simple text editor
 

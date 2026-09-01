@@ -147,10 +147,10 @@ in
   # ============================================================================
   # Brewfile — her GUI apps (apply with `just bundle`)
   # ============================================================================
-  # Baseline only: ghostty, karabiner-elements, zen, google-chrome, stats,
-  # rustdesk come from macosCommon's commonCasks. NO third-party taps here on
-  # purpose — steipete/tap and darrylmorley/whatcable each need a one-time
-  # `brew trust` per host, and those tools are Markus's, not hers.
+  # Baseline only: ghostty, upterm, karabiner-elements, zen, google-chrome,
+  # stats, and rustdesk come from macosCommon's commonCasks. The sole shared
+  # third-party trust grant is scoped to Upterm's cask under NIX-397;
+  # steipete/tap and darrylmorley/whatcable remain Markus-only and absent here.
   #
   # Apps she already uses that were installed by hand belong in extraCasks so
   # they become reproducible instead of manual (NIX-216). Add them as they are
