@@ -42,6 +42,13 @@ let
   # See the doc comment block on `mkBrewfile` for the full rationale.
   commonCasks = [
     "ghostty" # Terminal — config wired in this same file (ghosttyConfig export)
+    # NIX-397 deliberately follows Upterm's recommended macOS cask. Its
+    # upstream postflight removes quarantine from an unsigned/unnotarized
+    # GoReleaser binary, unlike the signed+notarized Chrome choice below. The
+    # accepted boundary is narrow: Homebrew verifies the cask-pinned archive
+    # digest and trust is granted only to this one cask, never the whole tap.
+    # Revisit this exception if upstream publishes a signed/notarized artifact.
+    "owenthereal/upterm/upterm"
     # Karabiner: JSON config is Nix-managed in home-manager.nix; the cask joined
     # the baseline 2026-07-04 (NIX-215 — was manual-install pre-change). The
     # Input Monitoring approval remains manual per host (macOS requires it).
@@ -56,9 +63,15 @@ let
     "stats" # Stats (mac-stats.com / exelban) — menu-bar system monitor; auto-updates itself
     "rustdesk" # RustDesk — open-source remote desktop (both ends of a session; screen-recording + accessibility approvals stay manual per host)
   ];
-  # peekaboo + steipete/tap removed 2026-07-03 (NIX-215): unused, and brew 6
-  # refuses untrusted taps by default. Baseline is casks-only again.
-  commonTaps = [ ];
+  # Homebrew 6 refuses untrusted third-party tap content. Keep the NIX-397 risk
+  # acceptance above limited to the one cask consumed from this tap; see
+  # mkBrewfile's trust contract below.
+  commonTaps = [
+    {
+      name = "owenthereal/upterm";
+      trusted.casks = [ "upterm" ];
+    }
+  ];
   commonBrews = [ ];
 
   # ── NIX-288: declarative macOS headless-browser QA path ─────────────
