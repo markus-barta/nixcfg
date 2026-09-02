@@ -578,6 +578,21 @@ in
   # Edit: agenix -e secrets/agents/host/mbp2607/GH_TOKEN.age
   "agents/host/mbp2607/GH_TOKEN.age".publicKeys = markus ++ mbp2607;
 
+  # Higgsfield platform API key (OPS-195). Consumer: spelldream
+  # tools/higgsfield_gen.py (SPELD-543), which reads $HF_KEY from the
+  # environment of one run. The Aithema hero loop (INSPR-335) ended up on the
+  # Higgsfield CLI's interactive OAuth session and does not use this key.
+  # Canonical cleartext: 1Password item "Higgsfield - Privat" (personal vault).
+  # This slot supersedes the never-committed ad-hoc
+  # secrets/hsb0-higgsfield-api-key.age from 2026-08-02 and the empty interim
+  # ~/.inspr/secrets/agents/HF_KEY.env placeholder (both gone).
+  # Materialized to ~/.inspr/secrets/agents/HF_KEY.env (0400) on mbp2607 only;
+  # widen recipients + rekey if another host ever needs it.
+  # Format inside the .age file (one line): HF_KEY=<keyid>:<secret>
+  # Consume: ( set -a; source ~/.inspr/secrets/agents/HF_KEY.env; cmd; set +a )
+  # Edit: cd ~/Code/nixcfg/secrets && agenix -e agents/host/mbp2607/HF_KEY.age
+  "agents/host/mbp2607/HF_KEY.age".publicKeys = markus ++ mbp2607;
+
   # Onshape API credentials (key + secret) — paired Onshape developer
   # access tokens; rotate together. Migrated from retired imac0 to current
   # M5 Max workstation (then mbp0, now mbp2606) during imac0 decommission
