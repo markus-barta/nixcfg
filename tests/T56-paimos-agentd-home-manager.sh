@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NIX-392 / NIX-415 — mbp2607 must install the exact released Paimos
+# NIX-392 / NIX-415 / NIX-421 — mbp2607 must install the exact released Paimos
 # CLI/agentd pair, run the owned-session daemon with an exact Claude SDK, and
 # publish durable status/control without putting its credential in the store.
 set -euo pipefail
@@ -19,14 +19,14 @@ locked = lock["locked"]
 assert original == {
     "owner": "inspr-at",
     "repo": "paimos",
-    "ref": "v26.09.01.15.52",
+    "ref": "v26.09.02",
     "type": "github",
 }, original
-assert locked["rev"] == "e485206f3684073240ad6aa30fdbfc12d45ab47f", locked
+assert locked["rev"] == "2abd06b307bc832214341de50b765aae9b833f09", locked
 PY
 
 package_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.paimos-cli.version')
-[ "$package_version" = 26.09.01.15.52 ] || fail "Paimos package is not the canonical v26.09.01.15.52 release: $package_version"
+[ "$package_version" = 26.09.02 ] || fail "Paimos package is not the canonical v26.09.02 release: $package_version"
 
 sdk_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.claude-agent-sdk.version')
 [ "$sdk_version" = 0.3.251 ] || fail "Claude Agent SDK version drifted: $sdk_version"
@@ -133,4 +133,4 @@ grep -Fq '/Users/markus/.inspr/secrets/agents/PPMAPIKEY.env' <<<"$activation" ||
 grep -Fq '/Users/markus/Library/Caches/paimos/agentd/report-api-key' <<<"$activation" || fail 'reporting destination is not private agentd state'
 grep -Fq 'PPMAPIKEY' <<<"$activation" || fail 'reporting assignment name is not pinned'
 
-printf 'T56 passed: mbp2607 pins Paimos 26.09.01.15.52 with authenticated private agentd reporting\n'
+printf 'T56 passed: mbp2607 pins Paimos 26.09.02 with authenticated private agentd reporting\n'
