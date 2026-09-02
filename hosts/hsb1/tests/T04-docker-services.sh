@@ -49,6 +49,7 @@ EXPECTED_SERVICES=(
   "restic-cron-hetzner"
   "scrypted"
   "smtp"
+  "turbogmailify"
   "zigbee2mqtt"
 )
 

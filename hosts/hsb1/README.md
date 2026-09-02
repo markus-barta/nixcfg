@@ -185,25 +185,26 @@ Filesystems:
 
 Services use host or bridge networking as declared in `docker/compose-spec.nix`:
 
-| Service                 | Purpose                      | Ports      |
-| ----------------------- | ---------------------------- | ---------- |
-| **apprise**             | Notifications                | 8001       |
-| **fritz-tripwire**      | Fritz!Box anomaly witness    | 9000       |
-| **funkeykid**           | Educational keyboard service | 8081       |
-| **homeassistant**       | Main automation hub          | 8123       |
-| **hsb1-home**           | HostDash static dashboard    | 80         |
-| **matter-server**       | Matter protocol              | 5580       |
-| **mosquitto**           | MQTT broker                  | 1883, 9001 |
-| **nodered**             | Home automation flows        | 1880       |
-| **opus-stream-to-mqtt** | OPUS gateway to MQTT bridge  | -          |
-| **opusweb**             | OPUS web application         | 3102       |
-| **pharos-beacon**       | Fleet observation reporter   | -          |
-| **pixdcon**             | Pixoo display control        | 10829      |
-| **plex**                | Media server                 | 32400      |
-| **restic-cron-hetzner** | Backups to Hetzner           | -          |
-| **scrypted**            | Camera/NVR/HomeKit bridge    | 10443      |
-| **smtp**                | Mail relay                   | 25         |
-| **zigbee2mqtt**         | Zigbee bridge                | 8888       |
+| Service                 | Purpose                                                | Ports      |
+| ----------------------- | ------------------------------------------------------ | ---------- |
+| **apprise**             | Notifications                                          | 8001       |
+| **fritz-tripwire**      | Fritz!Box anomaly witness                              | 9000       |
+| **funkeykid**           | Educational keyboard service                           | 8081       |
+| **homeassistant**       | Main automation hub                                    | 8123       |
+| **hsb1-home**           | HostDash static dashboard                              | 80         |
+| **matter-server**       | Matter protocol                                        | 5580       |
+| **mosquitto**           | MQTT broker                                            | 1883, 9001 |
+| **nodered**             | Home automation flows                                  | 1880       |
+| **opus-stream-to-mqtt** | OPUS gateway to MQTT bridge                            | -          |
+| **opusweb**             | OPUS web application                                   | 3102       |
+| **pharos-beacon**       | Fleet observation reporter                             | -          |
+| **pixdcon**             | Pixoo display control                                  | 10829      |
+| **plex**                | Media server                                           | 32400      |
+| **restic-cron-hetzner** | Backups to Hetzner                                     | -          |
+| **scrypted**            | Camera/NVR/HomeKit bridge                              | 10443      |
+| **smtp**                | Mail relay                                             | 25         |
+| **turbogmailify**       | Residue mail bridge: Hover INBOX → Gmail API (OPS-196) | -          |
+| **zigbee2mqtt**         | Zigbee bridge                                          | 8888       |
 
 ## Native Services
 

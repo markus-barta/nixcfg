@@ -73,25 +73,26 @@ HA connects to the `mosquitto` container on `localhost:1883`.
 
 ## 🐳 Docker Services
 
-| Service                 | Port       | Purpose                      | Critical |
-| ----------------------- | ---------- | ---------------------------- | -------- |
-| **apprise**             | 8001       | Notifications                | 🟡 Med   |
-| **fritz-tripwire**      | 9000       | Fritz!Box anomaly witness    | 🟡 Med   |
-| **funkeykid**           | 8081       | Educational keyboard service | 🟡 Med   |
-| **homeassistant**       | 8123       | Smart home platform          | 🔴 Yes   |
-| **hsb1-home**           | 80         | HostDash static dashboard    | 🟢 Low   |
-| **matter-server**       | varies     | Matter protocol              | 🟡 Med   |
-| **mosquitto**           | 1883, 9001 | MQTT broker                  | 🔴 Yes   |
-| **nodered**             | 1880       | Automation flows             | 🟠 High  |
-| **opus-stream-to-mqtt** | N/A        | OPUS/EnOcean to MQTT bridge  | 🟢 Low   |
-| **opusweb**             | 3102       | OPUS web application         | 🟡 Med   |
-| **pharos-beacon**       | N/A        | Fleet observation reporter   | 🟡 Med   |
-| **pixdcon**             | 10829      | Pixoo display control        | 🟡 Med   |
-| **plex**                | 32400      | Media server                 | 🟡 Med   |
-| **restic-cron-hetzner** | N/A        | Backups                      | 🟠 High  |
-| **scrypted**            | 10443      | Camera/HomeKit bridge        | 🔴 Yes   |
-| **smtp**                | 25         | Mail relay                   | 🟢 Low   |
-| **zigbee2mqtt**         | 8888       | Zigbee device management     | 🔴 Yes   |
+| Service                 | Port       | Purpose                                                | Critical |
+| ----------------------- | ---------- | ------------------------------------------------------ | -------- |
+| **apprise**             | 8001       | Notifications                                          | 🟡 Med   |
+| **fritz-tripwire**      | 9000       | Fritz!Box anomaly witness                              | 🟡 Med   |
+| **funkeykid**           | 8081       | Educational keyboard service                           | 🟡 Med   |
+| **homeassistant**       | 8123       | Smart home platform                                    | 🔴 Yes   |
+| **hsb1-home**           | 80         | HostDash static dashboard                              | 🟢 Low   |
+| **matter-server**       | varies     | Matter protocol                                        | 🟡 Med   |
+| **mosquitto**           | 1883, 9001 | MQTT broker                                            | 🔴 Yes   |
+| **nodered**             | 1880       | Automation flows                                       | 🟠 High  |
+| **opus-stream-to-mqtt** | N/A        | OPUS/EnOcean to MQTT bridge                            | 🟢 Low   |
+| **opusweb**             | 3102       | OPUS web application                                   | 🟡 Med   |
+| **pharos-beacon**       | N/A        | Fleet observation reporter                             | 🟡 Med   |
+| **pixdcon**             | 10829      | Pixoo display control                                  | 🟡 Med   |
+| **plex**                | 32400      | Media server                                           | 🟡 Med   |
+| **restic-cron-hetzner** | N/A        | Backups                                                | 🟠 High  |
+| **scrypted**            | 10443      | Camera/HomeKit bridge                                  | 🔴 Yes   |
+| **smtp**                | 25         | Mail relay                                             | 🟢 Low   |
+| **turbogmailify**       | N/A        | Residue mail bridge: Hover INBOX → Gmail API (OPS-196) | 🟢 Low   |
+| **zigbee2mqtt**         | 8888       | Zigbee device management                               | 🔴 Yes   |
 
 ---
 

@@ -223,6 +223,15 @@ in
   # The Hover-era `hsb1-smtp-env.age` was retired in OPS-175 Phase 3 (2026-09-02).
   "hsb1-mailrelay-env.age".publicKeys = markus ++ hsb1;
 
+  # OPS-196 — turbogmailify residue bridge for markus@barta.com (runs on hsb1).
+  # Content: the full turbogmailify TOML — IMAP Address/Username/Password for
+  # mail.hover.com:993, the Google OAuth "installed" client JSON in `Secrets`,
+  # and the `Tokens` JSON printed by `turbogmailify -auth`. Assemble it in a
+  # private dir, then: cd ~/Code/nixcfg/secrets && agenix -e hsb1-turbogmailify-config.age < <file>
+  # Rotate: Hover password → re-edit; Google tokens → re-run -auth, re-edit.
+  # Plan, gates and rollback: OPS-196 notes.
+  "hsb1-turbogmailify-config.age".publicKeys = markus ++ hsb1;
+
   # OPS-175 — per-host Resend API key for the namshi/smtp relay container.
   # Content exactly one line: SMARTHOST_PASSWORD=<Resend key "fleet-relay-hsb0",
   # permission "Sending access", domain barta.cm>. User/host/port are non-secret

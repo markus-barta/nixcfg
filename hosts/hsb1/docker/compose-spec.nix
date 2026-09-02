@@ -438,6 +438,34 @@
         "com.centurylinklabs.watchtower.enable=false"
       ];
     };
+    # OPS-196 — residue mail bridge for markus@barta.com (Hover "Personal Emails").
+    # Hover keeps forwarding to Gmail; whatever Hover does NOT forward (its own
+    # spam verdict, or a forward Gmail refused) stays in the Hover INBOX. This
+    # daemon watches that INBOX over IMAP IDLE and imports each message into
+    # Gmail through the Gmail API (scope gmail.insert only), then expunges it at
+    # Hover. No SMTP hop, so nothing can refuse it; if the container is down,
+    # mail simply waits at Hover. Config = one agenix file, mounted read-only.
+    # Digest-pinned, so watchtower stays off. Outbound only, no ports.
+    turbogmailify = {
+      image = "ghcr.io/yoryan/turbogmailify:1@sha256:909eb043890d76534c5b383ffeb41c746b7d9b961da9534415f2b17931ac9e70";
+      container_name = "turbogmailify";
+      restart = "unless-stopped";
+      # The image is `scratch` with USER 10001, which cannot read the 0400
+      # mba-owned agenix file. Run as mba (uid 1000, gid users=100) instead.
+      user = "1000:100";
+      # Go flag parsing: flags MUST precede the config path (the upstream README
+      # shows them after it, which silently falls back to JSON mode).
+      command = [
+        "-toml"
+        "/turbogmailify.conf"
+      ];
+      volumes = [
+        "/run/agenix/hsb1-turbogmailify-config:/turbogmailify.conf:ro"
+      ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+      ];
+    };
     # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
     # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {

@@ -59,6 +59,7 @@ All 17 services currently declared by `compose-spec.nix` are running:
 - restic-cron-hetzner
 - scrypted
 - smtp
+- turbogmailify
 - zigbee2mqtt
 
 **Status:** ⏳ Pending

@@ -837,6 +837,15 @@ in
     mode = "0400";
     owner = "mba";
   };
+  # OPS-196: turbogmailify config (Hover IMAP password + Google OAuth client +
+  # tokens) for the residue mail bridge. Mounted read-only into the container;
+  # turbogmailify never writes it back.
+  age.secrets.hsb1-turbogmailify-config = {
+    file = ../../secrets/hsb1-turbogmailify-config.age;
+    path = "/run/agenix/hsb1-turbogmailify-config";
+    mode = "0400";
+    owner = "mba";
+  };
 
   # NIX-158 phase 3 P3 — shared smarthome env (HA + funkeykid + nodered).
   age.secrets.hsb1-smarthome-env = {
