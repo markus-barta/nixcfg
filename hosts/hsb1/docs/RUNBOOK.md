@@ -613,25 +613,26 @@ ssh mba@192.168.1.101 "journalctl -f"
 
 ### Container Overview
 
-| Service             | Purpose                       |
-| ------------------- | ----------------------------- |
-| apprise             | Notification service          |
-| fritz-tripwire      | Fritz!Box anomaly witness     |
-| funkeykid           | Educational keyboard service  |
-| homeassistant       | Main automation hub           |
-| hsb1-home           | HostDash static dashboard     |
-| matter-server       | Matter protocol               |
-| mosquitto           | MQTT broker                   |
-| nodered             | Automation flows and FLIRC IR |
-| opus-stream-to-mqtt | OPUS/EnOcean to MQTT bridge   |
-| opusweb             | OPUS web application          |
-| pharos-beacon       | Fleet observation reporter    |
-| pixdcon             | Pixoo display control         |
-| plex                | Media server                  |
-| restic-cron-hetzner | Daily backups to Hetzner      |
-| scrypted            | Camera/NVR/HomeKit bridge     |
-| smtp                | Mail relay                    |
-| zigbee2mqtt         | Zigbee device bridge          |
+| Service             | Purpose                                                |
+| ------------------- | ------------------------------------------------------ |
+| apprise             | Notification service                                   |
+| fritz-tripwire      | Fritz!Box anomaly witness                              |
+| funkeykid           | Educational keyboard service                           |
+| homeassistant       | Main automation hub                                    |
+| hsb1-home           | HostDash static dashboard                              |
+| matter-server       | Matter protocol                                        |
+| mosquitto           | MQTT broker                                            |
+| nodered             | Automation flows and FLIRC IR                          |
+| opus-stream-to-mqtt | OPUS/EnOcean to MQTT bridge                            |
+| opusweb             | OPUS web application                                   |
+| pharos-beacon       | Fleet observation reporter                             |
+| pixdcon             | Pixoo display control                                  |
+| plex                | Media server                                           |
+| restic-cron-hetzner | Daily backups to Hetzner                               |
+| scrypted            | Camera/NVR/HomeKit bridge                              |
+| smtp                | Mail relay                                             |
+| turbogmailify       | Residue mail bridge: Hover INBOX → Gmail API (OPS-196) |
+| zigbee2mqtt         | Zigbee device bridge                                   |
 
 ### Key Paths
 
