@@ -1364,14 +1364,6 @@ in
     mode = "0400";
   };
 
-  age.secrets.csb1-smtp-env = {
-    file = ../../secrets/csb1-smtp-env.age;
-    path = "/run/agenix/csb1-smtp-env";
-    owner = "root";
-    group = "root";
-    mode = "0400";
-  };
-
   # OPS-175: Resend API key for the smtp relay (replaces the Hover mailbox password).
   age.secrets.csb1-mailrelay-env = {
     file = ../../secrets/csb1-mailrelay-env.age;

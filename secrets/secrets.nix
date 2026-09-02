@@ -215,35 +215,20 @@ in
   # Edit: cd ~/Code/nixcfg && just edit-secret hsb1-ir-bridge-env.age
   "hsb1-ir-bridge-env.age".publicKeys = markus ++ hsb1;
 
-  # hsb1 SMTP relay (namshi/smtp) credentials — env_file holding the hover.com
-  # SMARTHOST_PASSWORD. Read by the docker daemon at container start (not a volume
-  # mount). Encrypt from the live file so no plaintext touches local disk — a real
-  # file works with EDITOR=cp (a /dev/stdin pipe does not):
-  #   ssh mba@hsb1.lan
-  #   cd ~/Code/nixcfg && EDITOR='cp /home/mba/docker/smtp/variables.env' agenix -e secrets/hsb1-smtp-env.age
-  # OPS-175: retire in Phase 3 once the Resend relay is verified on this host.
-  "hsb1-smtp-env.age".publicKeys = markus ++ hsb1;
-
   # OPS-175 — per-host Resend API key for the namshi/smtp relay container.
   # Content exactly one line: SMARTHOST_PASSWORD=<Resend key "fleet-relay-hsb1",
   # permission "Sending access", domain barta.cm>. User/host/port are non-secret
   # compose env (SMARTHOST_USER=resend, smtp.resend.com:587). Rotate: revoke in the
   # Resend dashboard, `just edit-secret secrets/hsb1-mailrelay-env.age`, switch.
+  # The Hover-era `hsb1-smtp-env.age` was retired in OPS-175 Phase 3 (2026-09-02).
   "hsb1-mailrelay-env.age".publicKeys = markus ++ hsb1;
-
-  # NIX-6 — same relay credentials for hsb0 (compose spec carried the env_file
-  # commented out; relay ran unauthenticated → hover 554-rejected all mail,
-  # found 2026-08-02). Created ON hsb0 with the same EDITOR=cp trick.
-  # csb0's twin was retired hours later (OPS-139): netcup blocks mail ports and
-  # cloud backup reporting moved to the Pharos status-file pattern (OPS-137).
-  # OPS-175: retire in Phase 3 once the Resend relay is verified on this host.
-  "hsb0-smtp-env.age".publicKeys = markus ++ hsb0;
 
   # OPS-175 — per-host Resend API key for the namshi/smtp relay container.
   # Content exactly one line: SMARTHOST_PASSWORD=<Resend key "fleet-relay-hsb0",
   # permission "Sending access", domain barta.cm>. User/host/port are non-secret
   # compose env (SMARTHOST_USER=resend, smtp.resend.com:587). Rotate: revoke in the
   # Resend dashboard, `just edit-secret secrets/hsb0-mailrelay-env.age`, switch.
+  # The Hover-era `hsb0-smtp-env.age` was retired in OPS-175 Phase 3 (2026-09-02).
   "hsb0-mailrelay-env.age".publicKeys = markus ++ hsb0;
 
   # PPM (Personal Project Management) environment variables for csb1
@@ -378,14 +363,12 @@ in
   "csb1-paperless-postgres-env.age".publicKeys = markus ++ csb1;
   # Paperless-ngx — application config (admin user, secret key)
   "csb1-paperless-config-env.age".publicKeys = markus ++ csb1;
-  # SMTP relay (docker-smtp) — Hover smarthost password.
-  # OPS-175: retire in Phase 3 once the Resend relay is verified on this host.
-  "csb1-smtp-env.age".publicKeys = markus ++ csb1;
   # OPS-175 — per-host Resend API key for the namshi/smtp relay container.
   # Content exactly one line: SMARTHOST_PASSWORD=<Resend key "fleet-relay-csb1",
   # permission "Sending access", domain barta.cm>. User/host/port are non-secret
   # compose env (SMARTHOST_USER=resend, smtp.resend.com:587). Rotate: revoke in the
   # Resend dashboard, `just edit-secret secrets/csb1-mailrelay-env.age`, switch.
+  # The Hover-era `csb1-smtp-env.age` was retired in OPS-175 Phase 3 (2026-09-02).
   "csb1-mailrelay-env.age".publicKeys = markus ++ csb1;
   # Restic cron (hetzner storagebox) — restic password + mail
   "csb1-restic-cron-hetzner-env.age".publicKeys = markus ++ csb1;

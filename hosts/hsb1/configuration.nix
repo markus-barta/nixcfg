@@ -795,16 +795,6 @@ in
     group = "1883";
   };
 
-  # hsb1 SMTP relay (namshi/smtp) env_file — hover.com SMARTHOST_PASSWORD.
-  # owner mba so docker compose can read it (mirrors opus-stream / pixdcon env files);
-  # root (the stack launcher) can read it too. Consumed via compose env_file
-  # /run/agenix/hsb1-smtp-env. Live until the nixcfg compose launches it (Phase 2/3).
-  age.secrets.hsb1-smtp-env = {
-    file = ../../secrets/hsb1-smtp-env.age;
-    mode = "400";
-    owner = "mba";
-  };
-
   # OPS-175: Resend API key for the smtp relay (replaces the Hover mailbox password).
   age.secrets.hsb1-mailrelay-env = {
     file = ../../secrets/hsb1-mailrelay-env.age;
