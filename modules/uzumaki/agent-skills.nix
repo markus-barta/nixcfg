@@ -66,6 +66,7 @@ in
       housekeeping = { }; # hygiene sweep → codesweep → challenge → PPM → report
       tidyrepo = { }; # cheap state-only pass below housekeeping (no codesweep, no challenge)
       product-gauntlet = { }; # multi-agent delivery: decompose → route → worktree → QA on parity
+      design-frontier-gauntlet = { }; # five isolated visual concepts → local comparison gallery
 
       # ── Pinned upstream: anthropics/skills ────────────────────────────
       frontend-design = {
