@@ -134,6 +134,7 @@
           src = inputs.paimos;
         };
         claude-agent-sdk = final.callPackage ./pkgs/claude-agent-sdk { };
+        higgsfield-cli = final.callPackage ./pkgs/higgsfield-cli { };
         # Stub: hokage/desktop.nix references sonar but it doesn't exist in nixpkgs
         sonar = final.hello;
         # Compatibility for pbek/nixcfg c0385905: its desktop module still
@@ -386,6 +387,7 @@
           src = inputs.paimos;
         };
         claude-agent-sdk = pkgs.callPackage ./pkgs/claude-agent-sdk { };
+        higgsfield-cli = pkgs.callPackage ./pkgs/higgsfield-cli { };
 
         # Generate Markdown docs for hokage module options.
         # NOTE: hokage is consumed as a flake input (`inputs.nixcfg`) — pbek's
@@ -453,6 +455,7 @@
             src = inputs.paimos;
           };
           claude-agent-sdk = pkgsDarwin.callPackage ./pkgs/claude-agent-sdk { };
+          higgsfield-cli = pkgsDarwin.callPackage ./pkgs/higgsfield-cli { };
         };
 
       packages.aarch64-darwin =
@@ -470,6 +473,7 @@
             src = inputs.paimos;
           };
           claude-agent-sdk = pkgsDarwin.callPackage ./pkgs/claude-agent-sdk { };
+          higgsfield-cli = pkgsDarwin.callPackage ./pkgs/higgsfield-cli { };
         };
     };
 }

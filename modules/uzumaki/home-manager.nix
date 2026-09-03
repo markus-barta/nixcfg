@@ -122,6 +122,7 @@ in
       pkgs.pingt # Timestamped ping with color-coded output
       pkgs.watch # Run command repeatedly, showing output (not in macOS by default)
       pkgs.age # Modern encryption tool (reference implementation)
+      pkgs.higgsfield-cli # Authenticated visual-generation CLI; credentials remain external user state
     ]
     ++ lib.optionals cfg.zellij.enable [ pkgs.zellij ];
 
