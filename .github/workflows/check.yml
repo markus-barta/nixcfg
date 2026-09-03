@@ -205,6 +205,9 @@ jobs:
       - name: Verify mbp2607 Paimos agentd Home Manager contract
         run: nix-shell -p python3 --run tests/T56-paimos-agentd-home-manager.sh
 
+      - name: Verify Higgsfield CLI Home Manager contract
+        run: nix-shell -p python3 --run tests/T67-higgsfield-cli-home-manager.sh
+
       - name: Verify csb1 Paimos production identity firewall
         run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
 
