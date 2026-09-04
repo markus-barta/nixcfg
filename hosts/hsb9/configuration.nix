@@ -49,6 +49,7 @@ in
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ./hardware-configuration.nix
+    ./site-watchdog.nix # OPS-165 — GX + repeater heartbeat to Uptime Kuma
     ../../modules/uzumaki
 
     # INSPR-73: System-side ssh-authorized — mba-only with mkForce to
