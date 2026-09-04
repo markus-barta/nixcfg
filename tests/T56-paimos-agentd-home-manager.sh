@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NIX-392 / NIX-415 / NIX-421 / NIX-426 — mbp2607 must install the exact released Paimos
+# NIX-392 / NIX-415 / NIX-421 / NIX-426 / NIX-428 — mbp2607 must install the exact released Paimos
 # CLI/agentd pair, run the owned-session daemon with an exact Claude SDK, and
 # publish durable status/control without putting its credential in the store.
 set -euo pipefail
@@ -19,14 +19,14 @@ locked = lock["locked"]
 assert original == {
     "owner": "inspr-at",
     "repo": "paimos",
-    "ref": "v26.09.04",
+    "ref": "v26.09.04.20.54",
     "type": "github",
 }, original
-assert locked["rev"] == "94f108eef6dba471a3852860a7615af5d7ec0f8c", locked
+assert locked["rev"] == "ebe85ba42b100eec650ceacff451c0fbd1e11f2c", locked
 PY
 
 package_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.paimos-cli.version')
-[ "$package_version" = 26.09.04 ] || fail "Paimos package is not the canonical v26.09.04 release: $package_version"
+[ "$package_version" = 26.09.04.20.54 ] || fail "Paimos package is not the canonical v26.09.04.20.54 release: $package_version"
 
 deployment_version=$(
   python3 - "$repo_root/flake.nix" "$repo_root/hosts/csb1/docker/compose-spec.nix" <<'PY'
@@ -34,8 +34,8 @@ import re, sys
 
 flake = open(sys.argv[1], encoding="utf-8").read()
 compose = open(sys.argv[2], encoding="utf-8").read()
-client = re.findall(r'github:inspr-at/paimos/v([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)', flake)
-server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)@sha256:[0-9a-f]{64}', compose)
+client = re.findall(r'github:inspr-at/paimos/v([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+\.[0-9]+)?)', flake)
+server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+\.[0-9]+)?)@sha256:[0-9a-f]{64}', compose)
 assert len(client) == 1, f"expected one Paimos client release pin, got {client!r}"
 assert len(server) == 1, f"expected one PPM server release pin, got {server!r}"
 assert client[0] == server[0], f"Paimos client/server release drift: {client[0]} != {server[0]}"
@@ -149,4 +149,4 @@ grep -Fq '/Users/markus/.inspr/secrets/agents/PPMAPIKEY.env' <<<"$activation" ||
 grep -Fq '/Users/markus/Library/Caches/paimos/agentd/report-api-key' <<<"$activation" || fail 'reporting destination is not private agentd state'
 grep -Fq 'PPMAPIKEY' <<<"$activation" || fail 'reporting assignment name is not pinned'
 
-printf 'T56 passed: mbp2607 pins Paimos 26.09.04 with authenticated private agentd reporting\n'
+printf 'T56 passed: mbp2607 pins Paimos 26.09.04.20.54 with authenticated private agentd reporting\n'
