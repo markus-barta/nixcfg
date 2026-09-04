@@ -15,6 +15,7 @@ let
   # pharosd's environment and this host's module wiring cannot disagree about
   # whether the adapter is live. tests/T48 asserts that agreement.
   paimosDeliveryStage = import ./paimos-delivery-stage.nix;
+  ppmManagedSecrets = import ./ppm-managed-secrets.nix;
   # OPS-127: the runtime compose file is the closure's rendered spec (the yml is
   # retired). /etc/compose/csb1/... is the environment.etc symlink to it.
   # Every -p csb1 compose invocation serializes on the composeStack lock
@@ -420,6 +421,22 @@ in
           }
         ];
       }
+      {
+        serviceRef = ppmManagedSecrets.serviceRef;
+        safeLabel = "PPM";
+        runtimeKind = "compose";
+        slots = map (slot: {
+          inherit (slot)
+            slotRef
+            safeLabel
+            deliveryProfileRef
+            reloadProfileRef
+            healthProfileRef
+            detachProfileRef
+            ;
+          allowedSources = [ "import" ];
+        }) ppmManagedSecrets.slots;
+      }
     ];
   };
 
@@ -448,8 +465,18 @@ in
         minimumGeneration = 1;
         rollbackWindowSeconds = 900;
       }
+    ]
+    ++ map (slot: {
+      serviceRef = ppmManagedSecrets.serviceRef;
+      inherit (slot) slotRef secretRef;
+      declarationFingerprint = "decl_4cc700d5f9ef6c26c4a7e9c4207e954c44b3fcfd1aac4808bc80759c110887ce";
+      minimumGeneration = 1;
+      rollbackWindowSeconds = 900;
+    }) ppmManagedSecrets.slots;
+    beforeUnits = [
+      "compose-csb1.service"
+      "janus-managed-canary.service"
     ];
-    beforeUnits = [ "janus-managed-canary.service" ];
     agent = {
       enable = true;
       pharosOrigin = "https://pharos.barta.cm";
@@ -469,7 +496,20 @@ in
           composeService = "janus-managed-canary";
           containerName = "janus-managed-canary";
         }
-      ];
+      ]
+      ++ map (slot: {
+        serviceRef = ppmManagedSecrets.serviceRef;
+        inherit (slot)
+          slotRef
+          deliveryProfileRef
+          reloadProfileRef
+          healthProfileRef
+          detachProfileRef
+          ;
+        composeFile = janusManagedComposeFile;
+        composeService = "ppm";
+        containerName = "ppm";
+      }) ppmManagedSecrets.slots;
     };
   };
 

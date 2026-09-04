@@ -15,3 +15,57 @@ reload = "none"
 validation = ["managed-service-canary-contract"]
 supports_dual_value = true
 blast_radius = "isolated networkless managed-service canary"
+
+[[env_files]]
+id = "profile.PPM_PAIMOS_SECRET_KEY"
+secret_ref = "sec_6995435765a2475d4cdb"
+executor = "janusd-web-transactiond@csb1"
+destination = "ppm"
+env = "PAIMOS_SECRET_KEY"
+output = "/run/janus-managed-central/ppm-paimos-secret-key.env"
+
+[env_files.consumer]
+consumer_ref = "consumer.ppm"
+kind = "service"
+owner = "janus-managed"
+environment = "production"
+reload = "none"
+validation = ["managed-service-canary-contract"]
+supports_dual_value = true
+blast_radius = "PPM only"
+
+[[env_files]]
+id = "profile.PPM_SMTP_PASS"
+secret_ref = "sec_c188cd3d1f54f4aadb31"
+executor = "janusd-web-transactiond@csb1"
+destination = "ppm"
+env = "SMTP_PASS"
+output = "/run/janus-managed-central/ppm-smtp-pass.env"
+
+[env_files.consumer]
+consumer_ref = "consumer.ppm"
+kind = "service"
+owner = "janus-managed"
+environment = "production"
+reload = "none"
+validation = ["managed-service-canary-contract"]
+supports_dual_value = true
+blast_radius = "PPM only"
+
+[[env_files]]
+id = "profile.PPM_OIDC_CLIENT_SECRET"
+secret_ref = "sec_43f90333e9c09d204d13"
+executor = "janusd-web-transactiond@csb1"
+destination = "ppm"
+env = "OIDC_CLIENT_SECRET"
+output = "/run/janus-managed-central/ppm-oidc-client-secret.env"
+
+[env_files.consumer]
+consumer_ref = "consumer.ppm"
+kind = "service"
+owner = "janus-managed"
+environment = "production"
+reload = "none"
+validation = ["managed-service-canary-contract"]
+supports_dual_value = true
+blast_radius = "PPM only"
