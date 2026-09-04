@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NIX-392 / NIX-415 / NIX-421 — mbp2607 must install the exact released Paimos
+# NIX-392 / NIX-415 / NIX-421 / NIX-426 — mbp2607 must install the exact released Paimos
 # CLI/agentd pair, run the owned-session daemon with an exact Claude SDK, and
 # publish durable status/control without putting its credential in the store.
 set -euo pipefail
@@ -19,14 +19,30 @@ locked = lock["locked"]
 assert original == {
     "owner": "inspr-at",
     "repo": "paimos",
-    "ref": "v26.09.02",
+    "ref": "v26.09.04",
     "type": "github",
 }, original
-assert locked["rev"] == "2abd06b307bc832214341de50b765aae9b833f09", locked
+assert locked["rev"] == "94f108eef6dba471a3852860a7615af5d7ec0f8c", locked
 PY
 
 package_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.paimos-cli.version')
-[ "$package_version" = 26.09.02 ] || fail "Paimos package is not the canonical v26.09.02 release: $package_version"
+[ "$package_version" = 26.09.04 ] || fail "Paimos package is not the canonical v26.09.04 release: $package_version"
+
+deployment_version=$(
+  python3 - "$repo_root/flake.nix" "$repo_root/hosts/csb1/docker/compose-spec.nix" <<'PY'
+import re, sys
+
+flake = open(sys.argv[1], encoding="utf-8").read()
+compose = open(sys.argv[2], encoding="utf-8").read()
+client = re.findall(r'github:inspr-at/paimos/v([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)', flake)
+server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?)@sha256:[0-9a-f]{64}', compose)
+assert len(client) == 1, f"expected one Paimos client release pin, got {client!r}"
+assert len(server) == 1, f"expected one PPM server release pin, got {server!r}"
+assert client[0] == server[0], f"Paimos client/server release drift: {client[0]} != {server[0]}"
+print(server[0])
+PY
+)
+[ "$package_version" = "$deployment_version" ] || fail "Paimos package/server release drift: $package_version != $deployment_version"
 
 sdk_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.claude-agent-sdk.version')
 [ "$sdk_version" = 0.3.251 ] || fail "Claude Agent SDK version drifted: $sdk_version"
@@ -133,4 +149,4 @@ grep -Fq '/Users/markus/.inspr/secrets/agents/PPMAPIKEY.env' <<<"$activation" ||
 grep -Fq '/Users/markus/Library/Caches/paimos/agentd/report-api-key' <<<"$activation" || fail 'reporting destination is not private agentd state'
 grep -Fq 'PPMAPIKEY' <<<"$activation" || fail 'reporting assignment name is not pinned'
 
-printf 'T56 passed: mbp2607 pins Paimos 26.09.02 with authenticated private agentd reporting\n'
+printf 'T56 passed: mbp2607 pins Paimos 26.09.04 with authenticated private agentd reporting\n'
