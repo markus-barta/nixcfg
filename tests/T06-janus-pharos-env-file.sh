@@ -84,14 +84,22 @@ require_occurrences 1 \
 require_occurrences 1 \
   'find /run/janus/env/pharos/beacon-token-hashes -maxdepth 1 -type f -exec chmod 0600 {} +' \
   "$PROD_RUNTIME"
+# Retirement passes one explicit principal and scope into the authority broker;
+# duplicating these -e flags at the janusd-admin call makes Docker argument
+# precedence decide which accountable identity performed the retirement.
+require_occurrences 1 'csb1 janus-pharos-retirement@csb1' "$RETIRE_HOST"
 # shellcheck disable=SC2016
-require_occurrences 1 '-e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}"' "$RETIRE_HOST"
+require_occurrences 1 '"$SCOPE_ORGANIZATION" "$SCOPE_PROJECT"' "$RETIRE_HOST"
 # shellcheck disable=SC2016
-require_occurrences 1 '-e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}"' "$RETIRE_HOST"
+require_occurrences 1 '"$SCOPE_REPOSITORY" "$SCOPE_ENVIRONMENT"; then' "$RETIRE_HOST"
 # shellcheck disable=SC2016
-require_occurrences 1 '-e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}"' "$RETIRE_HOST"
+require_occurrences 1 '-e "JANUS_SCOPE_ORGANIZATION=${scope_organization}"' "$PROD_RUNTIME"
 # shellcheck disable=SC2016
-require_occurrences 1 '-e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}"' "$RETIRE_HOST"
+require_occurrences 1 '-e "JANUS_SCOPE_PROJECT=${scope_project}"' "$PROD_RUNTIME"
+# shellcheck disable=SC2016
+require_occurrences 1 '-e "JANUS_SCOPE_REPOSITORY=${scope_repository}"' "$PROD_RUNTIME"
+# shellcheck disable=SC2016
+require_occurrences 1 '-e "JANUS_SCOPE_ENVIRONMENT=${scope_environment}"' "$PROD_RUNTIME"
 require_occurrences 1 '        "JANUS_WARDEN_SCOPE_ORGANIZATION=inspr"' "$COMPOSE_FILE"
 require_occurrences 1 '        "JANUS_WARDEN_SCOPE_ENVIRONMENT=staged"' "$COMPOSE_FILE"
 require_occurrences 1 '        "JANUS_SCOPE_ORGANIZATION=inspr"' "$COMPOSE_FILE"

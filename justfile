@@ -187,11 +187,11 @@ janus-pharos-retirement-smoke:
 
 [group('ops')]
 janus-pharos-retirement-reconcile host:
-    cd hosts/csb1/docker && ./janus/pharos-production/retire-host.sh reconcile {{ host }}
+    cd hosts/csb1/docker && sudo -- ./janus/pharos-production/retire-host.sh reconcile {{ host }}
 
 [group('ops')]
 janus-pharos-retirement-apply host:
-    cd hosts/csb1/docker && ./janus/pharos-production/retire-host.sh apply {{ host }}
+    cd hosts/csb1/docker && sudo -- ./janus/pharos-production/retire-host.sh apply {{ host }}
 
 [group('ops')]
 janus-engine-up:

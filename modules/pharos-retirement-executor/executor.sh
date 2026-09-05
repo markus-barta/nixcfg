@@ -193,7 +193,8 @@ else
     fixture_intent_mismatch | fixture_uses_production_volumes | fixture_uses_production_scope)
     reason=retirement_contract_invalid
     ;;
-  missing_dependency | missing_engine_image | retirement_in_progress | runtime_identity_missing | '')
+  missing_dependency | missing_engine_image | retirement_in_progress | runtime_identity_missing | \
+    runtime_authority_unavailable | '')
     reason=janus_unavailable
     ;;
   *)

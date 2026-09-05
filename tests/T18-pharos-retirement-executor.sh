@@ -164,6 +164,10 @@ checkout)
   printf 'janus_pharos_retirement=failed reason=checkout_not_clean value_returned=false provider_deleted=false\n' >&2
   exit 1
   ;;
+authority)
+  printf 'janus_pharos_retirement=failed reason=runtime_authority_unavailable value_returned=false provider_deleted=false\n' >&2
+  exit 1
+  ;;
 *) exit 1 ;;
 esac
 EOF
@@ -237,6 +241,14 @@ export FAKE_HELPER_MODE=checkout
 failure_agent=$(make_agent failure)
 run_agent "$failure_agent" >"$fixture_root/failure.out" 2>"$fixture_root/failure.err"
 jq -e '.outcome == "failed" and .reason == "checkout_not_ready"' \
+  "$FAKE_POST_BODY" >/dev/null
+
+: >"$FAKE_HELPER_LOG"
+rm -f "$FAKE_RESULT_COUNT_FILE" "$FAKE_POST_BODY"
+export FAKE_HELPER_MODE=authority
+authority_agent=$(make_agent authority)
+run_agent "$authority_agent" >"$fixture_root/authority.out" 2>"$fixture_root/authority.err"
+jq -e '.outcome == "failed" and .reason == "janus_unavailable"' \
   "$FAKE_POST_BODY" >/dev/null
 
 : >"$FAKE_HELPER_LOG"
