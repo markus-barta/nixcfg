@@ -476,7 +476,7 @@ janus_pharos_production_identityd_start() {
   if ! docker run -i --rm --user 0 \
     -v "${authority_host_root}:${authority_container_root}" \
     --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-    -s -- "$container_uid" "$container_gid" "$authority_container_root" <<'EOF'
+    -s -- "$container_uid" "$container_gid" "$authority_container_root" <<'EOF'; then
 set -eu
 uid=$1
 gid=$2
@@ -486,7 +486,6 @@ rm -f "$root/run/identity.sock"
 chown -R "${uid}:${gid}" "$root"
 chmod 0700 "$root" "$root/registry" "$root/run" "$root/state" "$root/audit"
 EOF
-  then
     return 1
   fi
 
