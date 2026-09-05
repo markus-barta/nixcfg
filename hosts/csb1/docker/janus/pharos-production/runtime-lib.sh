@@ -469,11 +469,11 @@ janus_pharos_production_identityd_start() {
   local release_digest="${image##*@}"
   local identityd_container="${compose_project}-pharos-production-identityd"
 
-  janus_pharos_production_authority_root_preflight "$authority_host_root"
+  janus_pharos_production_authority_root_preflight "$authority_host_root" || return 1
 
   docker rm -f "$identityd_container" >/dev/null 2>&1 || true
 
-  docker run -i --rm --user 0 \
+  if ! docker run -i --rm --user 0 \
     -v "${authority_host_root}:${authority_container_root}" \
     --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
     -s -- "$container_uid" "$container_gid" "$authority_container_root" <<'EOF'
@@ -486,6 +486,9 @@ rm -f "$root/run/identity.sock"
 chown -R "${uid}:${gid}" "$root"
 chmod 0700 "$root" "$root/registry" "$root/run" "$root/state" "$root/audit"
 EOF
+  then
+    return 1
+  fi
 
   # NIX-377: the registry starts empty; production subject enrollment is gated.
   # janusd-identityd with an empty registry denies all runtime authority
@@ -524,7 +527,7 @@ EOF
   JANUS_PHAROS_IDENTITYD_CONTAINER="$identityd_container"
   JANUS_PHAROS_IDENTITYD_AUTHORITY_ROOT="$authority_host_root"
 
-  docker run -d --name "$identityd_container" \
+  if ! docker run -d --name "$identityd_container" \
     --user "${container_uid}:${container_gid}" \
     --read-only --network none --cap-drop ALL \
     --security-opt no-new-privileges:true \
@@ -533,7 +536,9 @@ EOF
     -v "${contract_dir}/authority:/etc/janus/authority:ro" \
     "${identityd_env_flags[@]}" \
     --entrypoint /usr/local/bin/janusd-identityd \
-    "$image" >/dev/null
+    "$image" >/dev/null; then
+    return 1
+  fi
 
   local identityd_ready=0
   for _ in $(seq 1 100); do

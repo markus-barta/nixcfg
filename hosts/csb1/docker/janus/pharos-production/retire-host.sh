@@ -31,9 +31,16 @@ source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
 # shellcheck disable=SC1091
 source "${DEFAULT_SCRIPT_DIR}/runtime-role-authorization.sh"
 
-# Production retirements use the same accountability broker as production
-# renders. Fixture mode deliberately leaves these empty and stays isolated.
-JANUS_PHAROS_AUTHORITY_ENV_FLAGS=()
+# The accountable principal and scope are mandatory in both production and the
+# isolated retirement smoke. Production startup replaces this with the same
+# five entries plus the broker transport and verification contract.
+JANUS_PHAROS_AUTHORITY_ENV_FLAGS=(
+  -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}"
+  -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}"
+  -e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}"
+  -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}"
+  -e JANUS_RELEASE_EXECUTOR=janus-pharos-retirement@csb1
+)
 JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT=()
 JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT=()
 
