@@ -23,13 +23,13 @@ SCOPE_REPOSITORY=${JANUS_PHAROS_SCOPE_REPOSITORY:-nixcfg}
 SCOPE_ENVIRONMENT=${JANUS_PHAROS_SCOPE_ENVIRONMENT:-production}
 RETENTION_DAYS=${JANUS_PHAROS_RETENTION_DAYS:-365}
 FIXTURE=${JANUS_PHAROS_RETIREMENT_FIXTURE:-0}
+AUTHORITY_HOST_ROOT=${JANUS_PHAROS_AUTHORITY_HOST_ROOT:-/var/lib/janus-identity-csb1/production}
+IDENTITYD_COMPOSE_PROJECT=${JANUS_PHAROS_IDENTITYD_COMPOSE_PROJECT:-csb1}
 mode=${1:-}
 host=${2:-}
 
 # shellcheck disable=SC1091
 source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
-# shellcheck disable=SC1091
-source "${DEFAULT_SCRIPT_DIR}/runtime-role-authorization.sh"
 
 # The accountable principal and scope are mandatory in both production and the
 # isolated retirement smoke. Production startup replaces this with the same
@@ -60,6 +60,7 @@ valid_identifier() {
 case "$mode" in
 apply) command=retire ;;
 reconcile) command=reconcile ;;
+detach) command=detach-metadata ;;
 *) fail invalid_mode ;;
 esac
 
@@ -119,6 +120,17 @@ else
   [[ "$RETIREMENTS_FILE" = "$SCRIPT_DIR/retired-hosts.json" ]] || fail fixture_intent_mismatch
   [[ "$VOLUME_PREFIX" != janus_pharos_production ]] || fail fixture_uses_production_volumes
   [[ "$RUN_SCOPE" = pharos/csb1/nonprod-retirement-smoke ]] || fail fixture_uses_production_scope
+  [[ "$AUTHORITY_HOST_ROOT" != /var/lib/janus-identity-csb1/production ]] || fail fixture_uses_production_authority
+  [[ "$IDENTITYD_COMPOSE_PROJECT" != csb1 ]] || fail fixture_uses_production_broker
+fi
+
+if [ "$FIXTURE" = 1 ]; then
+  [[ -f "$SCRIPT_DIR/runtime-role-authorization-fixture.sh" ]] || fail missing_fixture_role_contract
+  # shellcheck disable=SC1091
+  source "$SCRIPT_DIR/runtime-role-authorization-fixture.sh"
+else
+  # shellcheck disable=SC1091
+  source "${DEFAULT_SCRIPT_DIR}/runtime-role-authorization.sh"
 fi
 
 # PHAROS-199: JANUS_ENGINE_IMAGE is the supported input — the retirement
@@ -160,22 +172,19 @@ janus_pharos_prepare_runtime "$IMAGE" "$SCRIPT_DIR" "$VOLUME_PREFIX"
 
 error_file=''
 cleanup() {
-  if [ "$FIXTURE" != 1 ]; then
-    janus_pharos_production_identityd_stop
-  fi
+  janus_pharos_production_identityd_stop
   [ -z "$error_file" ] || rm -f "$error_file"
 }
 trap cleanup EXIT
 
-if [ "$FIXTURE" != 1 ]; then
-  if ! janus_pharos_production_identityd_start \
-    "$IMAGE" "$SCRIPT_DIR" \
-    "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID" \
-    csb1 janus-pharos-retirement@csb1 \
-    "$SCOPE_ORGANIZATION" "$SCOPE_PROJECT" \
-    "$SCOPE_REPOSITORY" "$SCOPE_ENVIRONMENT"; then
-    fail runtime_authority_unavailable
-  fi
+if ! janus_pharos_production_identityd_start \
+  "$IMAGE" "$DEFAULT_SCRIPT_DIR" \
+  "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID" \
+  "$IDENTITYD_COMPOSE_PROJECT" janus-pharos-retirement@csb1 \
+  "$SCOPE_ORGANIZATION" "$SCOPE_PROJECT" \
+  "$SCOPE_REPOSITORY" "$SCOPE_ENVIRONMENT" \
+  "$AUTHORITY_HOST_ROOT" "$FIXTURE"; then
+  fail runtime_authority_unavailable
 fi
 
 docker run --rm \
@@ -230,10 +239,14 @@ if ! command_output=$(
   fail engine_rejected_retirement
 fi
 
-if ! grep -Eq \
-  "^janusd-admin pharos-beacon ${command} host=${host} state=(complete|needs_finalize|drift|action_required) reason_code=[a-z0-9_]+ value_returned=false provider_deleted=false$" \
-  <<<"$command_output"; then
-  fail invalid_engine_result
+if [ "$mode" = detach ]; then
+  grep -Eq \
+    "^janusd-admin pharos-beacon detach-metadata host=${host} state=complete reason_code=[a-z0-9_]+ metadata_detached=(true|false) value_returned=false provider_deleted=false$" \
+    <<<"$command_output" || fail invalid_engine_result
+else
+  grep -Eq \
+    "^janusd-admin pharos-beacon ${command} host=${host} state=(complete|needs_finalize|drift|action_required) reason_code=[a-z0-9_]+ value_returned=false provider_deleted=false$" \
+    <<<"$command_output" || fail invalid_engine_result
 fi
 if [ "$mode" = apply ] && ! grep -Fq ' state=complete ' <<<"$command_output"; then
   fail retirement_not_complete

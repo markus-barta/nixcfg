@@ -25,11 +25,43 @@ PREPARE_ONLY=${JANUS_PHAROS_PREPARE_ONLY:-0}
 PROJECTION_ONLY=${JANUS_PHAROS_PROJECTION_ONLY:-0}
 LOCK_FILE=${JANUS_PHAROS_LOCK_FILE:-/run/lock/janus-pharos-production.lock}
 HASH_PROJECTION_GID=${JANUS_PHAROS_HASH_PROJECTION_GID:-991}
+FIXTURE=${JANUS_PHAROS_RETIREMENT_FIXTURE:-0}
+AUTHORITY_HOST_ROOT=${JANUS_PHAROS_AUTHORITY_HOST_ROOT:-/var/lib/janus-identity-csb1/production}
+IDENTITYD_COMPOSE_PROJECT=${JANUS_PHAROS_IDENTITYD_COMPOSE_PROJECT:-csb1}
+DEFAULT_ROLE_AUTHORIZATION_CONTRACT="${DEFAULT_SCRIPT_DIR}/runtime-role-authorization.sh"
+ROLE_AUTHORIZATION_CONTRACT=${JANUS_PHAROS_ROLE_AUTHORIZATION_CONTRACT:-$DEFAULT_ROLE_AUTHORIZATION_CONTRACT}
 
 # shellcheck disable=SC1091
 source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
-# shellcheck disable=SC1091
-source "${DEFAULT_SCRIPT_DIR}/runtime-role-authorization.sh"
+
+case "$FIXTURE" in
+0)
+  if [ "$ROLE_AUTHORIZATION_CONTRACT" != "$DEFAULT_ROLE_AUTHORIZATION_CONTRACT" ]; then
+    printf 'janus pharos production render failed: unreviewed role authorization contract\n' >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  source "$ROLE_AUTHORIZATION_CONTRACT"
+  ;;
+1)
+  if [ "$SCRIPT_DIR" = "$DEFAULT_SCRIPT_DIR" ] ||
+    [ "$VOLUME_PREFIX" = janus_pharos_production ] ||
+    [ "$RUN_SCOPE" = pharos/csb1/production ] ||
+    [ "$SCOPE_ENVIRONMENT" = production ] ||
+    [ "$AUTHORITY_HOST_ROOT" = /var/lib/janus-identity-csb1/production ] ||
+    [ "$IDENTITYD_COMPOSE_PROJECT" = csb1 ] ||
+    [ "$ROLE_AUTHORIZATION_CONTRACT" != "$SCRIPT_DIR/runtime-role-authorization-fixture.sh" ]; then
+    printf 'janus pharos production render failed: retirement fixture overlaps production runtime\n' >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  source "$ROLE_AUTHORIZATION_CONTRACT"
+  ;;
+*)
+  printf 'janus pharos production render failed: invalid retirement fixture mode\n' >&2
+  exit 1
+  ;;
+esac
 
 read -r -a HOSTS <<<"$HOSTS_TEXT"
 
@@ -180,7 +212,10 @@ janus_pharos_prepare_age_identity \
 
 # NIX-377: start production runtime accountability broker
 janus_pharos_production_identityd_start \
-  "$IMAGE" "$SCRIPT_DIR" "$container_uid" "$container_gid"
+  "$IMAGE" "$SCRIPT_DIR" "$container_uid" "$container_gid" \
+  "$IDENTITYD_COMPOSE_PROJECT" janus-run@csb1 \
+  "$SCOPE_ORGANIZATION" "$SCOPE_PROJECT" "$SCOPE_REPOSITORY" \
+  "$SCOPE_ENVIRONMENT" "$AUTHORITY_HOST_ROOT" "$FIXTURE"
 
 if [ "$PREPARE_ONLY" = "1" ]; then
   printf 'ok: janus pharos production runtime prepared volume_returned=false\n'

@@ -464,10 +464,23 @@ janus_pharos_production_identityd_start() {
   local scope_environment=${10:-production}
 
   local authority_host_root=${11:-/var/lib/janus-identity-csb1/production}
+  local fixture_subject=${12:-0}
   local authority_container_root=/var/lib/janus/identity
   local trust_domain="janus-pharos-production"
   local release_digest="${image##*@}"
   local identityd_container="${compose_project}-pharos-production-identityd"
+
+  case "$fixture_subject" in
+  0) ;;
+  1)
+    trust_domain="janus-pharos-retirement-smoke"
+    identityd_container="${compose_project}-pharos-retirement-smoke-identityd"
+    ;;
+  *)
+    printf 'janus pharos production identityd: invalid fixture-subject mode\n' >&2
+    return 1
+    ;;
+  esac
 
   janus_pharos_production_authority_root_preflight "$authority_host_root" || return 1
 
@@ -492,6 +505,49 @@ EOF
   # NIX-377: the registry starts empty; production subject enrollment is gated.
   # janusd-identityd with an empty registry denies all runtime authority
   # requests until a reviewed enrollment control plane populates it.
+  # The isolated retirement smoke enrolls only its container uid in its
+  # disposable authority root. Production never enters this branch.
+  if [ "$fixture_subject" = 1 ]; then
+    if ! docker run --rm --user "${container_uid}:${container_gid}" \
+      -v "${authority_host_root}:${authority_container_root}" \
+      --entrypoint python python:3-alpine \
+      -c '
+import hashlib
+import json
+import pathlib
+import sys
+import time
+
+root = pathlib.Path(sys.argv[1])
+uid = int(sys.argv[2])
+trust_domain = sys.argv[3]
+
+def fingerprint(domain: str, value: bytes) -> str:
+    digest = hashlib.sha256()
+    encoded = domain.encode()
+    digest.update(len(encoded).to_bytes(8, "big"))
+    digest.update(encoded)
+    digest.update(len(value).to_bytes(8, "big"))
+    digest.update(value)
+    return "sha256:" + digest.hexdigest()
+
+record = {
+    "schema_version": 1,
+    "subject_ref": "act_11111111111111111111111111111111",
+    "subject_class": "human",
+    "trust_adapter": "local_peer",
+    "trust_domain_fingerprint": fingerprint("janus-identity-trust-domain-v1", trust_domain.encode()),
+    "local_uid": uid,
+    "enrolled_at_unix_secs": int(time.time()),
+    "review_fingerprint": fingerprint("janus-subject-review-v1", b"nix-433-retirement-smoke-review"),
+}
+target = root / "registry" / "act_11111111111111111111111111111111.json"
+target.write_text(json.dumps(record, separators=(",", ":")) + "\n", encoding="utf-8")
+target.chmod(0o600)
+' "$authority_container_root" "$container_uid" "$trust_domain"; then
+      return 1
+    fi
+  fi
 
   local -a authority_env_flags=(
     -e "JANUS_SCOPE_ORGANIZATION=${scope_organization}"
@@ -525,6 +581,9 @@ EOF
   # caller's EXIT trap can still remove the just-started broker and socket.
   JANUS_PHAROS_IDENTITYD_CONTAINER="$identityd_container"
   JANUS_PHAROS_IDENTITYD_AUTHORITY_ROOT="$authority_host_root"
+  JANUS_PHAROS_IDENTITYD_FIXTURE="$fixture_subject"
+  JANUS_PHAROS_IDENTITYD_CALLER_UID=$(id -u)
+  JANUS_PHAROS_IDENTITYD_CALLER_GID=$(id -g)
 
   if ! docker run -d --name "$identityd_container" \
     --user "${container_uid}:${container_gid}" \
@@ -580,10 +639,24 @@ EOF
 janus_pharos_production_identityd_stop() {
   local identityd_container=${JANUS_PHAROS_IDENTITYD_CONTAINER:-}
   local authority_host_root=${JANUS_PHAROS_IDENTITYD_AUTHORITY_ROOT:-/var/lib/janus-identity-csb1/production}
+  local fixture_subject=${JANUS_PHAROS_IDENTITYD_FIXTURE:-0}
+  local caller_uid=${JANUS_PHAROS_IDENTITYD_CALLER_UID:-0}
+  local caller_gid=${JANUS_PHAROS_IDENTITYD_CALLER_GID:-0}
   [ -n "$identityd_container" ] || return 0
   docker rm -f "$identityd_container" >/dev/null 2>&1 || true
   # Unlink the socket after container removal so the next start is not blocked by
   # a leftover path. bind_private_identity_socket fails closed if the path exists.
-  rm -f "${authority_host_root}/run/identity.sock"
+  if [ "$fixture_subject" = 1 ]; then
+    # The broker owns its isolated root as the container uid. Remove the socket
+    # and return that disposable tree to the unprivileged smoke caller so its
+    # normal EXIT cleanup cannot be blocked by 0700 broker directories.
+    docker run --rm --network none --user 0 \
+      -v "${authority_host_root}:/authority" \
+      --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
+      -c 'rm -f /authority/run/identity.sock; chown -R "$1:$2" /authority' \
+      sh "$caller_uid" "$caller_gid" >/dev/null 2>&1 || true
+  else
+    rm -f "${authority_host_root}/run/identity.sock"
+  fi
 }
 # --- end runtime accountability broker -----------------------------------------
