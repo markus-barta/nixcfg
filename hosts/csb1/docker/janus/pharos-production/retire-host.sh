@@ -123,10 +123,10 @@ fi
 if [ -z "$IMAGE" ]; then
   IMAGE=$(
     awk '
-      /^[[:space:]]+janus-engine-staged:/ { in_service = 1; next }
-      in_service && /^    image:/ { print $2; exit }
-      in_service && /^  [A-Za-z0-9_-]+:/ { exit }
-    ' "${COMPOSE_DIR}/docker-compose.yml" 2>/dev/null
+      /^    janus-engine-staged = {/ { in_service = 1; next }
+      in_service && /^      image = "/ { gsub(/^      image = "|";$/, ""); print; exit }
+      in_service && /^    };/ { exit }
+    ' "${COMPOSE_DIR}/compose-spec.nix" 2>/dev/null
   )
 fi
 [[ -n "$IMAGE" ]] || fail missing_engine_image
@@ -153,15 +153,22 @@ janus_pharos_prepare_runtime "$IMAGE" "$SCRIPT_DIR" "$VOLUME_PREFIX"
 
 error_file=''
 cleanup() {
-  janus_pharos_production_identityd_stop
+  if [ "$FIXTURE" != 1 ]; then
+    janus_pharos_production_identityd_stop
+  fi
   [ -z "$error_file" ] || rm -f "$error_file"
 }
 trap cleanup EXIT
 
 if [ "$FIXTURE" != 1 ]; then
-  janus_pharos_production_identityd_start \
+  if ! janus_pharos_production_identityd_start \
     "$IMAGE" "$SCRIPT_DIR" \
-    "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID"
+    "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID" \
+    csb1 janus-pharos-retirement@csb1 \
+    "$SCOPE_ORGANIZATION" "$SCOPE_PROJECT" \
+    "$SCOPE_REPOSITORY" "$SCOPE_ENVIRONMENT"; then
+    fail runtime_authority_unavailable
+  fi
 fi
 
 docker run --rm \
@@ -191,7 +198,6 @@ if ! command_output=$(
     -e JANUS_PRODUCT_MODE=self_hosted \
     "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
     "${JANUS_PHAROS_AUTHORITY_ENV_FLAGS[@]}" \
-    -e JANUS_RELEASE_EXECUTOR=janus-pharos-retirement@csb1 \
     -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
     -e "JANUS_AGE_PROFILE=${host}" \
     -e JANUS_AGE_STORE_DIR=/var/lib/janus/secrets \
@@ -199,10 +205,6 @@ if ! command_output=$(
     -e JANUS_AGE_RECIPIENTS_FILE=/run/janus/age/recipient.pub \
     -e JANUS_LIFECYCLE_EXECUTOR=janus-pharos-retirement@csb1 \
     -e "JANUS_LIFECYCLE_SCOPE=${RUN_SCOPE}" \
-    -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
-    -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
-    -e "JANUS_SCOPE_REPOSITORY=${SCOPE_REPOSITORY}" \
-    -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
     -e JANUS_LIFECYCLE_TOMBSTONE_DIR=/var/lib/janus/lifecycle/tombstones \
     -v "${SCRIPT_DIR}/secretspec.toml:/etc/janus/secretspec.toml:ro" \
     -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
