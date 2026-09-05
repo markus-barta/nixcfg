@@ -507,9 +507,13 @@ To validate Pharos credential retirement without touching production material:
 just janus-pharos-retirement-smoke
 ```
 
-The smoke uses one synthetic host and isolated volumes. It must report a
-complete retirement, idempotent replay, renderer exclusion, unchanged provider
-material, `value_returned=false`, and `provider_deleted=false`.
+The smoke uses one retiring host and one active peer in isolated volumes and
+authority state. It must prove a destroyed metadata pre-state, complete
+retirement, idempotent retirement replay, `metadata_detached=true` on the first
+detach and `metadata_detached=false` on replay, a readable metadata file without
+the retired binding, and a real one-host render that retains only the active
+peer. Provider material must remain unchanged, and every result must report
+`value_returned=false` and `provider_deleted=false`.
 
 Production retirement is target-local and derives its disposition from the
 reviewed `retired-hosts.json` entry. The checkout must be clean `main` at the
@@ -520,6 +524,23 @@ host-removal proposal is merged and deployed:
 just janus-pharos-retirement-reconcile <host>
 just janus-pharos-retirement-apply <host>
 ```
+
+Only after apply reports `state=complete`, merge the reviewed contract change
+that removes the host from Secretspec and the active render inventory while
+retaining its value-free managed-env binding, retirement record, and tombstone.
+Then detach the terminal metadata overlay:
+
+```bash
+just janus-pharos-retirement-detach-metadata <host>
+```
+
+Accept `state=complete metadata_detached=true value_returned=false
+provider_deleted=false` on the first detach. A deliberate replay must return
+the same complete/value-free posture with `metadata_detached=false`. Do not run
+retirement apply again after metadata detachment: detach is terminal for that
+host. Render production sidecars next and require the active-host count and
+public generation to exclude the retired host before removing its retained
+managed-env binding in a later reviewed cleanup.
 
 In normal operation, `pharos-retirement-executor.timer` performs the apply on
 csb1 after Pharos observes the reviewed declaration removal. It authenticates
