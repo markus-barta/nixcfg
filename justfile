@@ -183,7 +183,7 @@ janus-pharos-provider-smoke:
 
 [group('ops')]
 janus-pharos-retirement-smoke:
-    cd hosts/csb1/docker && sudo -- ./janus/pharos-retirement-smoke/run.sh
+    cd hosts/csb1/docker && ./janus/pharos-retirement-smoke/run.sh
 
 [group('ops')]
 janus-pharos-retirement-reconcile host:
