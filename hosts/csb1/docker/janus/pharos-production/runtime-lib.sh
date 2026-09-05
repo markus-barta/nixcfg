@@ -457,21 +457,26 @@ janus_pharos_production_identityd_start() {
   local container_uid=$3
   local container_gid=$4
   local compose_project=${5:-csb1}
+  local release_executor=${6:-janus-run@csb1}
+  local scope_organization=${7:-inspr}
+  local scope_project=${8:-pharos}
+  local scope_repository=${9:-nixcfg}
+  local scope_environment=${10:-production}
 
-  local authority_host_root=/var/lib/janus-identity-csb1/production
+  local authority_host_root=${11:-/var/lib/janus-identity-csb1/production}
   local authority_container_root=/var/lib/janus/identity
   local trust_domain="janus-pharos-production"
   local release_digest="${image##*@}"
   local identityd_container="${compose_project}-pharos-production-identityd"
 
-  janus_pharos_production_authority_root_preflight "$authority_host_root"
+  janus_pharos_production_authority_root_preflight "$authority_host_root" || return 1
 
   docker rm -f "$identityd_container" >/dev/null 2>&1 || true
 
-  docker run -i --rm --user 0 \
+  if ! docker run -i --rm --user 0 \
     -v "${authority_host_root}:${authority_container_root}" \
     --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
-    -s -- "$container_uid" "$container_gid" "$authority_container_root" <<'EOF'
+    -s -- "$container_uid" "$container_gid" "$authority_container_root" <<'EOF'; then
 set -eu
 uid=$1
 gid=$2
@@ -481,17 +486,19 @@ rm -f "$root/run/identity.sock"
 chown -R "${uid}:${gid}" "$root"
 chmod 0700 "$root" "$root/registry" "$root/run" "$root/state" "$root/audit"
 EOF
+    return 1
+  fi
 
   # NIX-377: the registry starts empty; production subject enrollment is gated.
   # janusd-identityd with an empty registry denies all runtime authority
   # requests until a reviewed enrollment control plane populates it.
 
   local -a authority_env_flags=(
-    -e "JANUS_SCOPE_ORGANIZATION=inspr"
-    -e "JANUS_SCOPE_PROJECT=pharos"
-    -e "JANUS_SCOPE_REPOSITORY=nixcfg"
-    -e "JANUS_SCOPE_ENVIRONMENT=production"
-    -e "JANUS_RELEASE_EXECUTOR=janus-run@csb1"
+    -e "JANUS_SCOPE_ORGANIZATION=${scope_organization}"
+    -e "JANUS_SCOPE_PROJECT=${scope_project}"
+    -e "JANUS_SCOPE_REPOSITORY=${scope_repository}"
+    -e "JANUS_SCOPE_ENVIRONMENT=${scope_environment}"
+    -e "JANUS_RELEASE_EXECUTOR=${release_executor}"
     -e "JANUS_IDENTITY_SOCKET=${authority_container_root}/run/identity.sock"
     -e "JANUS_DUTY_SURFACE_MANIFEST=/etc/janus/authority/duty-surface-manifest-v1.json"
     -e "JANUS_ACCOUNTABILITY_POSTURE=accountability_legacy"
@@ -514,7 +521,12 @@ EOF
     -e "JANUS_RUNTIME_AUTHORITY_AUDIT_FILE=${authority_container_root}/audit/runtime-authority.jsonl"
   )
 
-  docker run -d --name "$identityd_container" \
+  # Publish the name before starting the container. If readiness fails, the
+  # caller's EXIT trap can still remove the just-started broker and socket.
+  JANUS_PHAROS_IDENTITYD_CONTAINER="$identityd_container"
+  JANUS_PHAROS_IDENTITYD_AUTHORITY_ROOT="$authority_host_root"
+
+  if ! docker run -d --name "$identityd_container" \
     --user "${container_uid}:${container_gid}" \
     --read-only --network none --cap-drop ALL \
     --security-opt no-new-privileges:true \
@@ -523,7 +535,9 @@ EOF
     -v "${contract_dir}/authority:/etc/janus/authority:ro" \
     "${identityd_env_flags[@]}" \
     --entrypoint /usr/local/bin/janusd-identityd \
-    "$image" >/dev/null
+    "$image" >/dev/null; then
+    return 1
+  fi
 
   local identityd_ready=0
   for _ in $(seq 1 100); do
@@ -556,16 +570,16 @@ EOF
   # shellcheck disable=SC2034
   JANUS_PHAROS_AUTHORITY_ENV_FLAGS=("${authority_env_flags[@]}")
   # shellcheck disable=SC2034
-  JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT=(-v "${authority_host_root}:${authority_container_root}")
+  # Consumers need the socket and public verification key only. The broker is
+  # the sole writer of registry, signing-key, and audit state.
+  JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT=(-v "${authority_host_root}:${authority_container_root}:ro")
   # shellcheck disable=SC2034
   JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT=(-v "${contract_dir}/authority:/etc/janus/authority:ro")
-  # shellcheck disable=SC2034
-  JANUS_PHAROS_IDENTITYD_CONTAINER="$identityd_container"
 }
 
 janus_pharos_production_identityd_stop() {
   local identityd_container=${JANUS_PHAROS_IDENTITYD_CONTAINER:-}
-  local authority_host_root=/var/lib/janus-identity-csb1/production
+  local authority_host_root=${JANUS_PHAROS_IDENTITYD_AUTHORITY_ROOT:-/var/lib/janus-identity-csb1/production}
   [ -n "$identityd_container" ] || return 0
   docker rm -f "$identityd_container" >/dev/null 2>&1 || true
   # Unlink the socket after container removal so the next start is not blocked by
