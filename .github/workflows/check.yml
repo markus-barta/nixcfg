@@ -208,6 +208,9 @@ jobs:
       - name: Verify Higgsfield CLI Home Manager contract
         run: nix-shell -p python3 --run tests/T67-higgsfield-cli-home-manager.sh
 
+      - name: Verify hsb0 NCPS warmer current fleet target
+        run: tests/T68-ncps-warmer-fleet.sh
+
       - name: Verify csb1 Paimos production identity firewall
         run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
 
