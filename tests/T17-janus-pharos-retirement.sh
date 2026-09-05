@@ -45,9 +45,11 @@ if grep -Fq "$retired_compose_ref" "$production/retire-host.sh"; then
   printf 'retirement helper still resolves Janus from the retired Compose file\n' >&2
   exit 1
 fi
+# shellcheck disable=SC2016
 grep -Fq 'JANUS_PHAROS_IDENTITYD_CONTAINER="$identityd_container"' \
   "$production/runtime-lib.sh"
 grep -Fq 'authority_container_root}:ro"' "$production/runtime-lib.sh"
+# shellcheck disable=SC2016
 grep -Fq 'if [ "$FIXTURE" != 1 ]; then' "$production/retire-host.sh"
 grep -Fq 'fail runtime_authority_unavailable' "$production/retire-host.sh"
 

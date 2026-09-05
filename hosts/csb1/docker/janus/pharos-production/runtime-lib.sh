@@ -571,7 +571,6 @@ EOF
   JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT=(-v "${authority_host_root}:${authority_container_root}:ro")
   # shellcheck disable=SC2034
   JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT=(-v "${contract_dir}/authority:/etc/janus/authority:ro")
-  # shellcheck disable=SC2034
 }
 
 janus_pharos_production_identityd_stop() {
