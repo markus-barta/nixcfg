@@ -24,8 +24,11 @@ grep -Fq 'JANUS_PHAROS_METADATA_VOLUME' "$production/runtime-lib.sh"
 grep -Fq 'JANUS_PHAROS_LIFECYCLE_VOLUME' "$production/runtime-lib.sh"
 grep -Fq 'janus_pharos_production_identityd_start' "$production/retire-host.sh"
 grep -Fq 'janus_pharos_production_identityd_stop' "$production/retire-host.sh"
+# shellcheck disable=SC2016
 grep -Fq '"${JANUS_PHAROS_AUTHORITY_ENV_FLAGS[@]}"' "$production/retire-host.sh"
+# shellcheck disable=SC2016
 grep -Fq '"${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}"' "$production/retire-host.sh"
+# shellcheck disable=SC2016
 grep -Fq '"${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}"' "$production/retire-host.sh"
 grep -Fq '/var/lib/janus/metadata/baseline.toml' "$production/runtime-lib.sh"
 grep -Fq 'RETIREMENTS_FILE' "$production/render-sidecars.sh"
