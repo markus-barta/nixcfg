@@ -31,6 +31,12 @@ source "${DEFAULT_SCRIPT_DIR}/runtime-lib.sh"
 # shellcheck disable=SC1091
 source "${DEFAULT_SCRIPT_DIR}/runtime-role-authorization.sh"
 
+# Production retirements use the same accountability broker as production
+# renders. Fixture mode deliberately leaves these empty and stays isolated.
+JANUS_PHAROS_AUTHORITY_ENV_FLAGS=()
+JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT=()
+JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT=()
+
 fail() {
   printf 'janus_pharos_retirement=failed reason=%s value_returned=false provider_deleted=false\n' "$1" >&2
   exit 1
@@ -145,6 +151,19 @@ flock -n 9 || fail retirement_in_progress
 docker pull "$IMAGE" >/dev/null || fail missing_engine_image
 janus_pharos_prepare_runtime "$IMAGE" "$SCRIPT_DIR" "$VOLUME_PREFIX"
 
+error_file=''
+cleanup() {
+  janus_pharos_production_identityd_stop
+  [ -z "$error_file" ] || rm -f "$error_file"
+}
+trap cleanup EXIT
+
+if [ "$FIXTURE" != 1 ]; then
+  janus_pharos_production_identityd_start \
+    "$IMAGE" "$SCRIPT_DIR" \
+    "$JANUS_PHAROS_CONTAINER_UID" "$JANUS_PHAROS_CONTAINER_GID"
+fi
+
 docker run --rm \
   -v "${JANUS_PHAROS_AGE_VOLUME}:/run/janus/age:ro" \
   --entrypoint sh "$JANUS_VOLUME_HELPER_IMAGE" \
@@ -166,15 +185,12 @@ if [ -n "$successor" ]; then
 fi
 
 error_file=$(mktemp)
-cleanup() {
-  rm -f "$error_file"
-}
-trap cleanup EXIT
 
 if ! command_output=$(
   docker run --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
     "${JANUS_ROLE_AUTHORIZATION_ARGS[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_ENV_FLAGS[@]}" \
     -e JANUS_RELEASE_EXECUTOR=janus-pharos-retirement@csb1 \
     -e JANUS_AGE_MANIFEST_FILE=/etc/janus/secretspec.toml \
     -e "JANUS_AGE_PROFILE=${host}" \
@@ -196,6 +212,8 @@ if ! command_output=$(
     -v "${JANUS_PHAROS_OUT_VOLUME}:/run/janus/env" \
     -v "${JANUS_PHAROS_METADATA_VOLUME}:/var/lib/janus/metadata" \
     -v "${JANUS_PHAROS_LIFECYCLE_VOLUME}:/var/lib/janus/lifecycle" \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janusd-admin "$IMAGE" \
     "${args[@]}" 2>"$error_file"
 ); then

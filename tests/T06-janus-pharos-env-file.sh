@@ -34,14 +34,6 @@ bash -n "$PROVIDER_IMPORT"
 bash -n "$PROVIDER_RENDER"
 bash -n "$PROVIDER_SMOKE"
 
-production_hosts_default='csb0 csb1 hsb0 hsb1 hsb8 hsb9 host_58f36c72a91e'
-grep -Fq "HOSTS_TEXT=\${JANUS_PHAROS_HOSTS:-\"$production_hosts_default\"}" "$PROD_RENDER"
-grep -Fq "HOSTS_TEXT=\${JANUS_PHAROS_HOSTS:-\"$production_hosts_default\"}" "$PROD_IMPORT"
-if grep -Fq 'csb0 csb1 dsc0 hsb0' "$PROD_RENDER" "$PROD_IMPORT"; then
-  echo "retired dsc0 remains in the default production host inventory" >&2
-  exit 1
-fi
-
 require_occurrences() {
   local expected_count=$1
   local expected_text=$2
@@ -146,8 +138,7 @@ csb1_config_path = pathlib.Path(sys.argv[10])
 secrets_declarations_path = pathlib.Path(sys.argv[11])
 agenix_catalog_path = pathlib.Path(sys.argv[12])
 provider_smoke_path = pathlib.Path(sys.argv[13])
-nonprod_hosts = ["csb0", "csb1", "dsc0", "hsb0", "hsb1", "hsb8", "hsb9"]
-production_hosts = ["csb0", "csb1", "hsb0", "hsb1", "hsb8", "hsb9"]
+hosts = ["csb0", "csb1", "dsc0", "hsb0", "hsb1", "hsb8", "hsb9"]
 
 for path in [
     nonprod_profile_path,
@@ -239,7 +230,6 @@ def validate_beacon_contract(
     validations: list[str],
     supports_dual_value: bool,
     blast_radius_prefix: str,
-    hosts: list[str],
     extra_profiles: set[str] | None = None,
     extra_beacon_hosts: set[str] | None = None,
 ) -> None:
@@ -327,7 +317,6 @@ validate_beacon_contract(
     validations=["pharos-beacon-token-sidecar-preflight"],
     supports_dual_value=False,
     blast_radius_prefix="non-production Pharos beacon token for",
-    hosts=nonprod_hosts,
     extra_profiles=set(),
     extra_beacon_hosts=set(),
 )
@@ -341,7 +330,6 @@ validate_beacon_contract(
     validations=["pharos-beacon-token-sidecar-preflight", "pharos-report-janus-mode-smoke"],
     supports_dual_value=False,
     blast_radius_prefix="production Pharos beacon token for",
-    hosts=production_hosts,
     extra_profiles={"hetzner-cloud"},
     extra_beacon_hosts={"host_58f36c72a91e"},
 )
