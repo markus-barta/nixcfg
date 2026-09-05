@@ -20,3 +20,26 @@ reload = "none"
 validation = ["pharos-beacon-retirement-smoke"]
 supports_dual_value = false
 blast_radius = "isolated non-production Pharos retirement smoke"
+
+[[env_files]]
+id = "profile.PHAROS_BEACON_RETIREMENTACTIVE_TOKEN"
+secret_ref = "sec_7756b199ee3d48b427ef"
+executor = "janus-run@csb1"
+destination = "pharos-beacon-retirementactive"
+env = "PHAROS_TOKEN"
+output = "/run/janus/env/pharos/beacons/retirementactive.env"
+
+[env_files.hash_sidecar]
+format = "pharos-beacon-token-generation-v2"
+subject = "retirementactive"
+output = "/run/janus/env/pharos/beacon-token-hashes/retirementactive.json"
+
+[env_files.consumer]
+consumer_ref = "consumer.pharos_beacon_retirementactive"
+kind = "service"
+owner = "pharos"
+environment = "nonprod"
+reload = "none"
+validation = ["pharos-beacon-retirement-smoke"]
+supports_dual_value = false
+blast_radius = "isolated active peer for the non-production retirement smoke"

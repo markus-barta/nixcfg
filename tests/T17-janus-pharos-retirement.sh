@@ -5,6 +5,8 @@ repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 production="$repo_root/hosts/csb1/docker/janus/pharos-production"
 smoke="$repo_root/hosts/csb1/docker/janus/pharos-retirement-smoke"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
+runbook="$repo_root/hosts/csb1/docs/RUNBOOK.md"
+nonprod_renderer="$repo_root/hosts/csb1/docker/janus/pharos-nonprod/run-sidecar-smoke.sh"
 
 bash -n "$production/runtime-lib.sh"
 bash -n "$production/render-sidecars.sh"
@@ -20,6 +22,8 @@ grep -Fq 'JANUS_LIFECYCLE_TOMBSTONE_DIR=/var/lib/janus/lifecycle/tombstones' \
   "$production/retire-host.sh"
 grep -Fq -- '--state-dir /var/lib/janus/lifecycle/pharos-retirements' \
   "$production/retire-host.sh"
+grep -Fq 'detach) command=detach-metadata ;;' "$production/retire-host.sh"
+grep -Fq 'janus-pharos-retirement-detach-metadata host:' "$repo_root/justfile"
 grep -Fq 'JANUS_PHAROS_METADATA_VOLUME' "$production/runtime-lib.sh"
 grep -Fq 'JANUS_PHAROS_LIFECYCLE_VOLUME' "$production/runtime-lib.sh"
 grep -Fq 'janus_pharos_production_identityd_start' "$production/retire-host.sh"
@@ -122,6 +126,19 @@ grep -Fq 'fixture_uses_production_contract' "$production/retire-host.sh"
 grep -Fq 'fixture_uses_production_volumes' "$production/retire-host.sh"
 grep -Fq 'fixture_uses_production_scope' "$production/retire-host.sh"
 grep -Fq 'pharos/csb1/nonprod-retirement-smoke' "$smoke/run.sh"
+grep -Fq 'metadata_detached=true' "$smoke/run.sh"
+grep -Fq 'metadata_detached=false' "$smoke/run.sh"
+grep -Fq 'sidecars rendered hosts=1 value_returned=false' "$smoke/run.sh"
+grep -Fq '[profiles.retirementactive]' "$smoke/run.sh"
+grep -Fq 'janus pharos sidecar smoke refused production authority state' "$nonprod_renderer"
+grep -Fq 'just janus-pharos-retirement-detach-metadata <host>' "$runbook"
+grep -Fq 'metadata_detached=true' "$runbook"
+grep -Fq 'metadata_detached=false' "$runbook"
+grep -Fq 'detach is terminal for that' "$runbook"
+if grep -Fq '[profiles.default]' "$smoke/run.sh"; then
+  printf 'detached retirement fixture must not use the inherited default profile\n' >&2
+  exit 1
+fi
 
 if grep -Eq -- '--(value|token|secret-ref|provider-delete|delete)([=[:space:]]|$)' \
   "$production/retire-host.sh"; then
@@ -145,6 +162,8 @@ smoke = pathlib.Path(sys.argv[1])
 compose = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 host = "retirementsmoke"
 secret_name = "PHAROS_BEACON_RETIREMENTSMOKE_TOKEN"
+active_host = "retirementactive"
+active_secret_name = "PHAROS_BEACON_RETIREMENTACTIVE_TOKEN"
 
 canonical = b""
 for component in ("janus-scope-v1", "inspr", "pharos", "nixcfg", "retirement-smoke"):
@@ -152,9 +171,10 @@ for component in ("janus-scope-v1", "inspr", "pharos", "nixcfg", "retirement-smo
     canonical += len(encoded).to_bytes(8, "big") + encoded
 canonical += b"\0\0"
 scope_ref = "scp_" + hashlib.sha256(canonical).hexdigest()[:40]
-expected_ref = "sec_" + hashlib.sha256(
-    b"janus-secret-ref-v2\0" + scope_ref.encode() + b"\0" + secret_name.encode()
-).hexdigest()[:20]
+def secret_ref(name: str) -> str:
+    return "sec_" + hashlib.sha256(
+        b"janus-secret-ref-v2\0" + scope_ref.encode() + b"\0" + name.encode()
+    ).hexdigest()[:20]
 
 def nix_from_toml(path: pathlib.Path) -> dict:
     expression = f'builtins.fromTOML (builtins.readFile "{path}")'
@@ -167,26 +187,41 @@ def nix_from_toml(path: pathlib.Path) -> dict:
     return json.loads(completed.stdout)
 
 profiles = nix_from_toml(smoke / "managed-env-files.toml")["env_files"]
-if len(profiles) != 1:
-    raise SystemExit("retirement smoke must bind exactly one profile")
-profile = profiles[0]
-expected = {
-    "id": "profile.PHAROS_BEACON_RETIREMENTSMOKE_TOKEN",
-    "secret_ref": expected_ref,
-    "destination": f"pharos-beacon-{host}",
-    "env": "PHAROS_TOKEN",
-    "output": f"/run/janus/env/pharos/beacons/{host}.env",
+if len(profiles) != 2:
+    raise SystemExit("retirement smoke must bind the retired host and one active peer")
+profiles_by_id = {profile["id"]: profile for profile in profiles}
+expected_profiles = {
+    host: {
+        "id": f"profile.{secret_name}",
+        "secret_ref": secret_ref(secret_name),
+        "destination": f"pharos-beacon-{host}",
+        "env": "PHAROS_TOKEN",
+        "output": f"/run/janus/env/pharos/beacons/{host}.env",
+    },
+    active_host: {
+        "id": f"profile.{active_secret_name}",
+        "secret_ref": secret_ref(active_secret_name),
+        "destination": f"pharos-beacon-{active_host}",
+        "env": "PHAROS_TOKEN",
+        "output": f"/run/janus/env/pharos/beacons/{active_host}.env",
+    },
 }
-for key, value in expected.items():
-    if profile.get(key) != value:
-        raise SystemExit(f"retirement smoke profile {key} mismatch")
-sidecar = profile.get("hash_sidecar", {})
-if sidecar.get("subject") != host or sidecar.get("output") != f"/run/janus/env/pharos/beacon-token-hashes/{host}.json":
-    raise SystemExit("retirement smoke sidecar mismatch")
+for expected_host, expected in expected_profiles.items():
+    profile = profiles_by_id.get(expected["id"])
+    if profile is None:
+        raise SystemExit(f"retirement smoke profile for {expected_host} is missing")
+    for key, value in expected.items():
+        if profile.get(key) != value:
+            raise SystemExit(f"retirement smoke profile {expected_host} {key} mismatch")
+    sidecar = profile.get("hash_sidecar", {})
+    if sidecar.get("subject") != expected_host or sidecar.get("output") != f"/run/janus/env/pharos/beacon-token-hashes/{expected_host}.json":
+        raise SystemExit(f"retirement smoke sidecar for {expected_host} mismatch")
 
 secretspec = nix_from_toml(smoke / "secretspec.toml")
 if secret_name not in secretspec.get("profiles", {}).get(host, {}):
     raise SystemExit("retirement smoke secret is not declared")
+if active_secret_name not in secretspec.get("profiles", {}).get(active_host, {}):
+    raise SystemExit("retirement smoke active peer is not declared")
 
 intent = json.loads((smoke / "retired-hosts.json").read_text(encoding="utf-8"))
 if intent != {

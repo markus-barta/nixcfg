@@ -194,6 +194,10 @@ janus-pharos-retirement-apply host:
     cd hosts/csb1/docker && sudo -- ./janus/pharos-production/retire-host.sh apply {{ host }}
 
 [group('ops')]
+janus-pharos-retirement-detach-metadata host:
+    cd hosts/csb1/docker && sudo -- ./janus/pharos-production/retire-host.sh detach {{ host }}
+
+[group('ops')]
 janus-engine-up:
     just janus-engine-smoke
     # NIX-361: the rendered closure file is the only compose source since

@@ -23,6 +23,9 @@ SCOPE_PROJECT=${JANUS_PHAROS_SCOPE_PROJECT:-pharos}
 SCOPE_REPOSITORY=${JANUS_PHAROS_SCOPE_REPOSITORY:-nixcfg}
 SCOPE_ENVIRONMENT=${JANUS_PHAROS_SCOPE_ENVIRONMENT:-${CONTRACT_NAME}}
 HOSTS_TEXT=${JANUS_PHAROS_SMOKE_HOSTS:-"csb0 csb1 dsc0 hsb0 hsb1 hsb8 hsb9"}
+AUTHORITY_CONTRACT_DIR=${JANUS_PHAROS_SMOKE_AUTHORITY_CONTRACT_DIR:-${SCRIPT_DIR}/../pharos-production}
+AUTHORITY_HOST_ROOT=${JANUS_PHAROS_SMOKE_AUTHORITY_HOST_ROOT:-${SMOKE_ROOT}/authority}
+IDENTITYD_COMPOSE_PROJECT=${JANUS_PHAROS_SMOKE_IDENTITYD_COMPOSE_PROJECT:-janus-pharos-sidecar-smoke-${CONTRACT_NAME}}
 
 read -r -a HOSTS <<<"$HOSTS_TEXT"
 
@@ -59,6 +62,16 @@ validate_identifier JANUS_PHAROS_SCOPE_ORGANIZATION "$SCOPE_ORGANIZATION"
 validate_identifier JANUS_PHAROS_SCOPE_PROJECT "$SCOPE_PROJECT"
 validate_identifier JANUS_PHAROS_SCOPE_REPOSITORY "$SCOPE_REPOSITORY"
 validate_identifier JANUS_PHAROS_SCOPE_ENVIRONMENT "$SCOPE_ENVIRONMENT"
+if [ "$AUTHORITY_HOST_ROOT" = /var/lib/janus-identity-csb1/production ] ||
+  [ "$IDENTITYD_COMPOSE_PROJECT" = csb1 ]; then
+  printf 'janus pharos sidecar smoke refused production authority state\n' >&2
+  exit 1
+fi
+if [ ! -f "$AUTHORITY_CONTRACT_DIR/authority/duty-surface-manifest-v1.json" ] ||
+  [ ! -f "$AUTHORITY_CONTRACT_DIR/authority/transport-manifest-v1.json" ]; then
+  printf 'janus pharos sidecar smoke missing runtime authority manifests\n' >&2
+  exit 1
+fi
 if [ "${#HOSTS[@]}" -eq 0 ]; then
   printf 'janus pharos sidecar smoke failed: no hosts requested\n' >&2
   exit 1
@@ -94,6 +107,7 @@ OUT_VOLUME="${VOLUME_PREFIX}_out"
 HASH_OUT_VOLUME="${VOLUME_PREFIX}_hash_out"
 TMP_DIR=$(mktemp -d)
 cleanup() {
+  janus_pharos_production_identityd_stop
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -147,6 +161,14 @@ find /run/janus/env/pharos/beacon-token-hashes -maxdepth 1 -type f -exec chmod 0
 
 janus_pharos_prepare_age_identity \
   "$IMAGE" "$AGE_VOLUME" "$container_uid" "$container_gid"
+
+mkdir -p "$AUTHORITY_HOST_ROOT"
+chmod 0700 "$AUTHORITY_HOST_ROOT"
+janus_pharos_production_identityd_start \
+  "$IMAGE" "$AUTHORITY_CONTRACT_DIR" "$container_uid" "$container_gid" \
+  "$IDENTITYD_COMPOSE_PROJECT" janus-run@csb1 \
+  "$SCOPE_ORGANIZATION" "$SCOPE_PROJECT" "$SCOPE_REPOSITORY" \
+  "$SCOPE_ENVIRONMENT" "$AUTHORITY_HOST_ROOT" 1
 
 recipient=$(
   docker run --rm \
@@ -256,6 +278,7 @@ EOF
   docker run -i --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
     -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+    "${JANUS_PHAROS_AUTHORITY_ENV_FLAGS[@]}" \
     -e JANUS_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_WARDEN_BACKEND=age \
@@ -277,6 +300,8 @@ EOF
     -v "${AGE_VOLUME}:/run/janus/age:ro" \
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janus-warden "$IMAGE" \
     <"$request_file" >"$warden_out" 2>"$warden_err"
 
@@ -306,6 +331,7 @@ render_env_file() {
   if ! docker run --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
     -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+    "${JANUS_PHAROS_AUTHORITY_ENV_FLAGS[@]}" \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e "JANUS_SCOPE_ORGANIZATION=${SCOPE_ORGANIZATION}" \
     -e "JANUS_SCOPE_PROJECT=${SCOPE_PROJECT}" \
@@ -313,6 +339,8 @@ render_env_file() {
     -e "JANUS_SCOPE_ENVIRONMENT=${SCOPE_ENVIRONMENT}" \
     -v "${SCRIPT_DIR}/managed-env-files.toml:/etc/janus/managed-env-files.toml:ro" \
     -v "${OUT_VOLUME}:/run/janus/env" \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janusd-use "$IMAGE" \
     env-file preflight --profile "$profile_id" \
     >"$preflight_out" 2>"$preflight_err"; then
@@ -325,6 +353,7 @@ render_env_file() {
   if ! docker run --rm \
     -e JANUS_PRODUCT_MODE=self_hosted \
     -e JANUS_ROLE_AUTHORIZATION_MODE=unsafe_disabled_dev \
+    "${JANUS_PHAROS_AUTHORITY_ENV_FLAGS[@]}" \
     -e JANUS_RUN_PROFILE_MANIFEST=/etc/janus/managed-env-files.toml \
     -e JANUS_RUN_PERMIT_DIR=/run/janus/permits \
     -e JANUS_RUN_EXECUTOR=janus-run@csb1 \
@@ -346,6 +375,8 @@ render_env_file() {
     -v "${STORE_VOLUME}:/var/lib/janus/secrets" \
     -v "${PERMIT_VOLUME}:/run/janus/permits" \
     -v "${OUT_VOLUME}:/run/janus/env" \
+    "${JANUS_PHAROS_AUTHORITY_VOLUME_MOUNT[@]}" \
+    "${JANUS_PHAROS_AUTHORITY_MANIFEST_MOUNT[@]}" \
     --entrypoint janusd-use "$IMAGE" \
     env-file --profile "$profile_id" --permit "$permit" \
     >"$run_out" 2>"$run_err"; then

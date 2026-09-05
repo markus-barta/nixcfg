@@ -16,6 +16,7 @@ PROD_IMPORT="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/import-existin
 PROD_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/render-sidecars.sh"
 NONPROD_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-nonprod/run-sidecar-smoke.sh"
 RETIRE_HOST="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/retire-host.sh"
+PROD_RETIREMENTS="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/retired-hosts.json"
 PROVIDER_IMPORT="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/import-agenix-hetzner-provider.sh"
 PROVIDER_RENDER="$REPO_ROOT/hosts/csb1/docker/janus/pharos-production/render-hetzner-provider.sh"
 PROVIDER_SMOKE="$REPO_ROOT/hosts/csb1/docker/janus/pharos-provider-smoke/run.sh"
@@ -95,11 +96,14 @@ require_occurrences 1 \
 # Retirement passes one explicit principal and scope into the authority broker;
 # duplicating these -e flags at the janusd-admin call makes Docker argument
 # precedence decide which accountable identity performed the retirement.
-require_occurrences 1 'csb1 janus-pharos-retirement@csb1' "$RETIRE_HOST"
+# shellcheck disable=SC2016
+require_occurrences 1 'IDENTITYD_COMPOSE_PROJECT=${JANUS_PHAROS_IDENTITYD_COMPOSE_PROJECT:-csb1}' "$RETIRE_HOST"
+# shellcheck disable=SC2016
+require_occurrences 1 '"$IDENTITYD_COMPOSE_PROJECT" janus-pharos-retirement@csb1' "$RETIRE_HOST"
 # shellcheck disable=SC2016
 require_occurrences 1 '"$SCOPE_ORGANIZATION" "$SCOPE_PROJECT"' "$RETIRE_HOST"
 # shellcheck disable=SC2016
-require_occurrences 1 '"$SCOPE_REPOSITORY" "$SCOPE_ENVIRONMENT"; then' "$RETIRE_HOST"
+require_occurrences 1 '"$SCOPE_REPOSITORY" "$SCOPE_ENVIRONMENT"' "$RETIRE_HOST"
 # shellcheck disable=SC2016
 require_occurrences 1 '-e "JANUS_SCOPE_ORGANIZATION=${scope_organization}"' "$PROD_RUNTIME"
 # shellcheck disable=SC2016
@@ -131,7 +135,9 @@ python3 - \
   "$CSB1_CONFIG" \
   "$SECRETS_DECLARATIONS" \
   "$AGENIX_CATALOG" \
-  "$PROVIDER_SMOKE" <<'PY'
+  "$PROVIDER_SMOKE" \
+  "$PROD_RETIREMENTS" \
+  "$PROD_RENDER" <<'PY'
 from __future__ import annotations
 
 import hashlib
@@ -154,6 +160,8 @@ csb1_config_path = pathlib.Path(sys.argv[10])
 secrets_declarations_path = pathlib.Path(sys.argv[11])
 agenix_catalog_path = pathlib.Path(sys.argv[12])
 provider_smoke_path = pathlib.Path(sys.argv[13])
+prod_retirements_path = pathlib.Path(sys.argv[14])
+prod_render_path = pathlib.Path(sys.argv[15])
 nonprod_hosts = ["csb0", "csb1", "dsc0", "hsb0", "hsb1", "hsb8", "hsb9"]
 production_hosts = ["csb0", "csb1", "hsb0", "hsb1", "hsb8", "hsb9"]
 
@@ -171,6 +179,8 @@ for path in [
     csb1_config_path,
     secrets_declarations_path,
     agenix_catalog_path,
+    prod_retirements_path,
+    prod_render_path,
 ]:
     text = path.read_text(encoding="utf-8")
     if re.search(r"Bearer |BEGIN |PRIVATE KEY|pharos_[0-9A-Fa-f]{16,}", text):
@@ -248,6 +258,7 @@ def validate_beacon_contract(
     supports_dual_value: bool,
     blast_radius_prefix: str,
     hosts: list[str],
+    retained_beacon_hosts: set[str] | None = None,
     extra_profiles: set[str] | None = None,
     extra_beacon_hosts: set[str] | None = None,
 ) -> None:
@@ -263,7 +274,7 @@ def validate_beacon_contract(
     env_files = profile.get("env_files", [])
     by_id = {entry["id"]: entry for entry in env_files}
     beacon_entries = [entry for entry in env_files if entry["id"].startswith("profile.PHAROS_BEACON_")]
-    beacon_hosts = hosts + sorted(extra_beacon_hosts or set())
+    beacon_hosts = hosts + sorted(extra_beacon_hosts or set()) + sorted(retained_beacon_hosts or set())
     if len(beacon_entries) != len(beacon_hosts):
         raise SystemExit(f"{label} unexpected number of Pharos beacon env-file profiles")
 
@@ -271,7 +282,10 @@ def validate_beacon_contract(
         upper = host.upper()
         secret_name = f"PHAROS_BEACON_{upper}_TOKEN"
         host_secrets = secretspec.get("profiles", {}).get(host, {})
-        if secret_name not in host_secrets:
+        if host in (retained_beacon_hosts or set()):
+            if secret_name in host_secrets:
+                raise SystemExit(f"{label} retained host is still declared active in secretspec: {host}")
+        elif secret_name not in host_secrets:
             raise SystemExit(f"{label} missing secretspec entry for {host}")
         ref = scoped_secret_ref(
             project="pharos",
@@ -318,7 +332,11 @@ def validate_beacon_contract(
             "blast_radius": (
                 "production Pharos managed-service agent token for csb1"
                 if is_managed_host_agent
-                else f"{blast_radius_prefix} {host}"
+                else (
+                    f"retired production Pharos beacon lifecycle evidence for {host}"
+                    if host in (retained_beacon_hosts or set())
+                    else f"{blast_radius_prefix} {host}"
+                )
             ),
         }
         expect_subset(entry.get("consumer", {}), expected_consumer, f"{label} {profile_id} consumer")
@@ -336,6 +354,7 @@ validate_beacon_contract(
     supports_dual_value=False,
     blast_radius_prefix="non-production Pharos beacon token for",
     hosts=nonprod_hosts,
+    retained_beacon_hosts=set(),
     extra_profiles=set(),
     extra_beacon_hosts=set(),
 )
@@ -350,9 +369,39 @@ validate_beacon_contract(
     supports_dual_value=False,
     blast_radius_prefix="production Pharos beacon token for",
     hosts=production_hosts,
+    # Keep the reviewed profile binding long enough for the value-free
+    # detach-metadata operation, without re-declaring or rendering the secret.
+    retained_beacon_hosts={"dsc0"},
     extra_profiles={"hetzner-cloud"},
     extra_beacon_hosts={"host_58f36c72a91e"},
 )
+
+prod_contract = nix_from_toml(prod_profile_path)
+prod_secret_profiles = set(nix_from_toml(prod_secretspec_path).get("profiles", {}))
+retained_beacon_hosts = {
+    entry.get("hash_sidecar", {}).get("subject")
+    for entry in prod_contract.get("env_files", [])
+    if entry.get("id", "").startswith("profile.PHAROS_BEACON_")
+    and entry.get("hash_sidecar", {}).get("subject") not in prod_secret_profiles
+}
+retained_beacon_hosts.discard(None)
+if retained_beacon_hosts != {"dsc0"}:
+    raise SystemExit("production retained beacon binding inventory mismatch")
+retirement_intent = json.loads(prod_retirements_path.read_text(encoding="utf-8"))
+retired_hosts = {entry["host"] for entry in retirement_intent.get("retirements", [])}
+if not retained_beacon_hosts <= retired_hosts:
+    raise SystemExit("production retained beacon binding lacks retirement intent")
+render_text = prod_render_path.read_text(encoding="utf-8")
+default_hosts_match = re.search(
+    r'^HOSTS_TEXT=\$\{JANUS_PHAROS_HOSTS:-"([^"]+)"\}$',
+    render_text,
+    re.MULTILINE,
+)
+if not default_hosts_match:
+    raise SystemExit("production render default host inventory is not parseable")
+default_hosts = set(default_hosts_match.group(1).split())
+if retained_beacon_hosts & default_hosts:
+    raise SystemExit("production retained beacon binding remains render-active")
 
 prod_profile = nix_from_toml(prod_profile_path)
 prod_secretspec = nix_from_toml(prod_secretspec_path)
