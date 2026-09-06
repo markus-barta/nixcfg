@@ -49,6 +49,9 @@ in
     description = "Run Pi here with the ChatGPT subscription and shared Pi sessions";
     body = "${chatgptLauncher}/bin/pi-chatgpt $argv";
   };
-  # Model/port/context are discovered from the app by the provider extension.
-  # Removing the old immutable models.json also removes its fixed sampler.
+  # Only Astra's client context budget is overridden. MTPLX metadata remains
+  # app-discovered; OAuth credentials and Pi's compaction settings stay mutable.
+  home.file.".local/share/pi-local/agent/models.json".text = builtins.toJSON {
+    providers.openai-codex.modelOverrides.gpt-6-astra.contextWindow = 750000;
+  };
 }
