@@ -1,118 +1,96 @@
-"""Run Pi in the caller's terminal, sharing one localhost MTPLX server."""
+"""Run Pi against the MTPLX app's engine, in the caller's terminal."""
 
-import errno
 import fcntl
 import json
 import os
 from pathlib import Path
-import socket
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 
-BASE_URL = "http://127.0.0.1:8000"
-# Home Manager substitutes this literal at build time. No caller-selected config,
-# executable paths or model paths are read from command-line arguments.
+# Home Manager substitutes this literal. Executable paths never come from argv.
 CONFIG_JSON = "@PI_LOCAL_CONFIG@"
 
 
-def health():
-    # Do not send even localhost traffic through an inherited HTTP proxy.
+def app_endpoint():
+    """Read only connection metadata; never copy app credentials into Pi."""
+    settings_file = Path.home() / "Library/Application Support/MTPLX/settings.json"
+    try:
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise RuntimeError("Open MTPLX and finish its setup first.") from error
+    port = settings.get("port", 8000)
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise RuntimeError("MTPLX has an invalid server port.")
+    if settings.get("host", "127.0.0.1") not in ("127.0.0.1", "localhost", "0.0.0.0"):
+        raise RuntimeError("pi-local requires MTPLX on this Mac's IPv4 loopback.")
+    return f"http://127.0.0.1:{port}"
+
+
+def health(endpoint):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with opener.open(BASE_URL + "/health", timeout=2) as response:
+        with opener.open(endpoint + "/health", timeout=2) as response:
             result = json.load(response)
-        if not isinstance(result, dict) or result.get("ok") is not True:
-            raise RuntimeError("Port 8000 is occupied by a service that is not ready MTPLX.")
-        return result
-    except urllib.error.URLError as error:
-        if isinstance(error.reason, OSError) and error.reason.errno == errno.ECONNREFUSED:
-            return None
-        raise RuntimeError("Port 8000 is occupied or unresponsive; no second server was started.") from error
-    except (ValueError, TimeoutError) as error:
-        raise RuntimeError("Port 8000 did not return MTPLX health; no second server was started.") from error
+        return result if isinstance(result, dict) and result.get("ok") is True else None
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
 
 
-def validate_server(info, config):
-    expected = {
-        "model": config["modelId"],
-        "context_window": config["contextWindow"],
-        "generation_mode": "mtp",
-        "mtp_enabled": True,
-        "depth": 2,
-    }
-    mismatches = [key for key, value in expected.items() if info.get(key) != value]
-    if mismatches or info.get("api_key_required"):
+def connection(info, endpoint):
+    startup = info.get("startup") or {}
+    if not startup.get("launch_id") or not startup.get("app_parent_pid"):
         raise RuntimeError(
-            "Existing MTPLX settings differ (" + ", ".join(mismatches or ["API authentication"])
-            + "). In MTPLX select Qwen 3.8 27B Optimized Speed, MTP D2, 262144 context, "
-            "or stop the engine there and retry pi-local. The running server was left alone."
+            "This MTPLX server was started outside the app. Stop that server, "
+            "then start the engine in MTPLX. pi-local never starts a separate engine."
+        )
+    if info.get("api_key_required") or startup.get("api_key_required"):
+        raise RuntimeError("The app engine requires authentication; pi-local is configured for local no-auth access.")
+    model = info.get("model")
+    context = info.get("context_window")
+    if not isinstance(model, str) or not model or type(context) is not int or context < 4096:
+        raise RuntimeError("MTPLX did not report valid model/context metadata.")
+    return {"baseUrl": endpoint + "/v1", "model": model, "contextWindow": context}
+
+
+def ensure_server(state_dir, timeout=120):
+    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (state_dir / "startup.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        endpoint = app_endpoint()
+        info = health(endpoint)
+        if info is not None:
+            return connection(info, endpoint)
+        print(
+            "pi-local: opening MTPLX and waiting for its engine. "
+            "If the app is already open with the engine stopped, press Start there.",
+            file=sys.stderr,
+        )
+        # The app owns startup, saved settings and telemetry. No `mtplx serve`,
+        # fan override, process termination, or independent model download here.
+        subprocess.run(["/usr/bin/open", "-g", "-a", "/Applications/MTPLX.app"], check=True)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            endpoint = app_endpoint()  # The app may choose a different free port.
+            info = health(endpoint)
+            if info is not None:
+                return connection(info, endpoint)
+            time.sleep(1)
+        raise RuntimeError(
+            "The app engine is not ready. Enable 'Start MTPLX when opening the app' "
+            "in MTPLX, or press its Start button, then retry pi-local."
         )
 
 
-def server_command(config):
-    return [
-        config["mtplx"], "serve", "--model", config["modelPath"],
-        "--model-id", config["modelId"], "--host", "127.0.0.1", "--port", "8000",
-        "--context-window", str(config["contextWindow"]), "--mtp", "--depth", "2",
-        "--profile", "turbo", "--reasoning-effort", "medium", "--fan-mode", "smart",
-        "--ssd-session-cache", "off", "--paged-kv-quantization", "off",
-        "--scheduler-mode", "serial", "--batching-preset", "solo", "--no-stats-footer",
-    ]
-
-
-def ensure_server(config, state_dir, timeout=240):
-    state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # Lock only startup; separate Pi sessions can share the already-running server.
-    with (state_dir / "startup.lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        info = health()
-        if info is not None:
-            validate_server(info, config)
-            return
-        if not Path(config["modelPath"]).is_dir():
-            raise RuntimeError("The configured Qwen model is missing. Install it in MTPLX first.")
-        # A listener without a valid /health response must never get a second model.
-        with socket.socket() as probe:
-            try:
-                probe.bind(("127.0.0.1", 8000))
-            except OSError as error:
-                raise RuntimeError("Port 8000 is already in use; wait for MTPLX or stop it in the app.") from error
-        log_path = state_dir / "server.log"
-        print("pi-local: loading Qwen with MTP D2 / 262K …", file=sys.stderr)
-        with log_path.open("w") as log:
-            process = subprocess.Popen(
-                server_command(config), stdin=subprocess.DEVNULL, stdout=log,
-                stderr=subprocess.STDOUT, start_new_session=True, cwd=str(Path.home()),
-            )
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise RuntimeError(f"MTPLX startup failed. Details: {log_path}")
-            try:
-                info = health()
-            except RuntimeError:
-                info = None  # The child may have bound its port during warmup.
-            if info is not None:
-                validate_server(info, config)
-                return
-            time.sleep(1)
-        # Keep ownership narrow: terminate only the child this invocation started.
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-        raise RuntimeError(f"MTPLX did not become ready within {timeout}s. Details: {log_path}")
-
-
-def pi_command(config, args):
-    return [
-        config["pi"], "--offline", "--provider", "mtplx", "--model", config["modelId"],
-        "--thinking", "medium", "--extension", config["extension"], *args,
+def pi_command(config, args, model=None):
+    command = [config["pi"], "--offline", "--provider", "mtplx"]
+    if model is not None:
+        command += ["--model", model]
+    return command + [
+        "--extension", config["extension"],
+        "--extension", config["providerExtension"], *args,
     ]
 
 
@@ -121,19 +99,21 @@ def main():
     args = sys.argv[1:]
     if not os.access(config["pi"], os.X_OK):
         raise RuntimeError("Pi is missing; run just update-ai-clis in nixcfg.")
+    model = None
     if not any(arg in ("--help", "-h", "--version", "-v") for arg in args):
-        if not os.access(config["mtplx"], os.X_OK):
-            raise RuntimeError("MTPLX CLI is missing; install its CLI from the MTPLX app.")
-        ensure_server(config, Path.home() / ".local/state/pi-local")
+        server = ensure_server(Path.home() / ".local/state/pi-local")
+        os.environ["PI_LOCAL_CONNECTION"] = json.dumps(server)
+        model = server["model"]
+        print(f"pi-local: MTPLX app at {server['baseUrl']} · {model} · app settings", file=sys.stderr)
     os.environ["PI_CODING_AGENT_DIR"] = config["agentDir"]
     os.environ["PI_TELEMETRY"] = "0"
-    # exec inherits cwd, terminal, signals and exit status. No new Terminal window.
-    os.execv(config["pi"], pi_command(config, args))
+    # Inherit cwd, terminal, signals and exit status. No new Terminal window.
+    os.execv(config["pi"], pi_command(config, args, model))
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, RuntimeError) as error:
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"pi-local: {error}", file=sys.stderr)
         sys.exit(1)
