@@ -65,8 +65,9 @@ extension; `/reload` refreshes it in sessions already launched with it.
 and downloaded weights. Pi itself comes from `ai-clis-npm`; its local sessions,
 settings and trust decisions live in `~/.local/share/pi-local/agent/`. Ordinary Pi
 configuration is separate. Startup network checks are disabled with `--offline`.
-The old fixed `models.json` is removed by Home Manager: provider registration now
-uses the app's actual endpoint and model instead of hardcoded port 8000.
+Home Manager owns `models.json` for cloud model overrides only. The MTPLX
+provider discovers the app's actual endpoint and model instead of hardcoded
+port 8000.
 
 For cloud coding through a **ChatGPT subscription**, run `pi-chatgpt` or
 `pi-chatgpt --continue` from the same repository. It shares the Pi profile,
@@ -74,6 +75,16 @@ sessions and doctrine loader with `pi-local`, but does not start or query MTPLX.
 Its default is `openai-codex/gpt-5.6-terra` with low reasoning effort; additional
 CLI options pass through, so `--model gpt-5.6-sol --thinking medium` overrides
 those defaults. ChatGPT owns model availability and subscription limits.
+
+GPT-6 Astra has a declarative **750,000-token context budget** in this shared
+profile, overriding Pi's built-in 272,000-token default only for
+`openai-codex/gpt-6-astra`. Automatic compaction remains enabled by Pi's default;
+its standard 16,384-token reserve triggers compaction around 733,616 tokens.
+Other models and the app's local context setting are unchanged. This is Pi's
+client budget, not a change to the provider's server limit. After installing an
+override, restart the conversation with
+`pi-chatgpt --continue --model gpt-6-astra` to pick up the new model metadata.
+To roll back this budget, remove the Astra override and switch Home Manager.
 
 First-time authentication is Pi's `/login openai-codex` browser OAuth flow.
 Credentials are stored and refreshed by Pi in its mutable profile `auth.json`,
