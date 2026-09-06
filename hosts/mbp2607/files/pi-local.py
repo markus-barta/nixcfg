@@ -90,7 +90,8 @@ def pi_command(config, args, model=None):
         command += ["--model", model]
     return command + [
         "--extension", config["extension"],
-        "--extension", config["providerExtension"], *args,
+        "--extension", config["providerExtension"],
+        "--extension", config["telemetryExtension"], *args,
     ]
 
 
