@@ -25,6 +25,49 @@ are **on** since 2026-07-03 (host keys registered as agenix recipients,
 permanently (former-work history). `inspr.paimos-cli` manages non-secret routing
 only; authentication is an interactive OS-keyring login.
 
+## Local coding with Pi
+
+Run `pi-local` from the repository or subdirectory you want to work in. It starts
+MTPLX when needed, waits for readiness, and runs Pi in that directory and terminal.
+Pi arguments pass through, for example `pi-local --continue`. Exiting Pi leaves the
+shared model server available; stop the engine in MTPLX to release its memory.
+
+The declarative configuration is in `pi-local.nix`: Qwen 3.8 27B Optimized Speed,
+native MTP D2, 262,144 context tokens and up to 32,768 output tokens. Cold starts
+use Turbo, medium reasoning and Smart fans. Compatible servers already started
+by the app are reused, retaining their current performance/fan settings. A wrong
+model, context or MTP setting produces an error instead of restarting another
+session. Set the matching values in the app, or stop its engine and retry.
+
+Prerequisites: MTPLX's app/runtime and CLI shim at `~/.mtplx/bin/mtplx`, and the
+downloaded model under `~/.mtplx/models/`. Nix does not download the 21 GB weights
+or manage the app. Pi itself is installed by the shared `ai-clis-npm` module.
+The [MTPLX Pi integration](https://mtplx.com/docs/pi/) uses the same localhost
+endpoint and model ID. This launcher uses foreground Pi instead of MTPLX's
+`start pi`, which opens another Terminal window.
+
+Pi's local profile lives in `~/.local/share/pi-local/agent/`; ordinary Pi settings
+remain independent. Nix owns `models.json`; Pi owns sessions, trust decisions and
+interactive settings. Defaults are supplied by the launcher, and startup network
+checks are disabled with `--offline`. Server startup logs live at
+`~/.local/state/pi-local/server.log`.
+
+Pi normally chooses one `AGENTS.md` or `CLAUDE.md` per ancestor directory. The
+local extension additionally expands standalone Markdown `@imports` from the
+neighboring `CLAUDE.md`, in order, with cycle/duplicate protection. Thus an OPS
+checkout supplies its INSPR kernel, private operator doctrine and SYSOP pack;
+another repository supplies its own context. No OPS files or private doctrine
+are bundled into the Nix store or injected into unrelated repos. Imports must
+stay inside their repository, including symlink targets. `AGENTS.override.md`
+retains precedence. Missing or invalid imports report an error and block tools
+until the referenced files are restored. This loads instructions; it does not
+add the approval UI, sandbox or delegated reviewers of another coding harness.
+
+Validation: `python3 tests/test_pi_local.py` and
+`node --test tests/pi-local-context.test.mjs`, then build/switch the native
+`markus@mbp2607` Home Manager configuration. To roll back, revert `pi-local.nix`
+and its host import and switch again; MTPLX's app setting is separately editable.
+
 ## Keyboard & input tools (2026-07-04, NIX-215)
 
 - **Karabiner-Elements**: app via Brewfile baseline (`just bundle`); JSON

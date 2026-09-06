@@ -26,6 +26,7 @@ in
   # Module Imports
   # ============================================================================
   imports = [
+    ./pi-local.nix
     ../../modules/uzumaki/home-manager.nix
     ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
     # markus-defaults bundles the INSPR public modules + Markus's values
