@@ -13,6 +13,9 @@ import urllib.error
 import urllib.request
 
 BASE_URL = "http://127.0.0.1:8000"
+# Home Manager substitutes this literal at build time. No caller-selected config,
+# executable paths or model paths are read from command-line arguments.
+CONFIG_JSON = "@PI_LOCAL_CONFIG@"
 
 
 def health():
@@ -114,9 +117,8 @@ def pi_command(config, args):
 
 
 def main():
-    with open(sys.argv[1], encoding="utf-8") as source:
-        config = json.load(source)
-    args = sys.argv[2:]
+    config = json.loads(CONFIG_JSON)
+    args = sys.argv[1:]
     if not os.access(config["pi"], os.X_OK):
         raise RuntimeError("Pi is missing; run just update-ai-clis in nixcfg.")
     if not any(arg in ("--help", "-h", "--version", "-v") for arg in args):

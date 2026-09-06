@@ -4,17 +4,24 @@ let
   modelId = "mtplx-qwen38-27b-optimized-speed";
   contextWindow = 262144;
   agentDir = "${config.home.homeDirectory}/.local/share/pi-local/agent";
-  launcherConfig = pkgs.writeText "pi-local.json" (
-    builtins.toJSON {
-      inherit modelId contextWindow agentDir;
-      modelPath = "${config.home.homeDirectory}/.mtplx/models/Youssofal--Qwen3.8-27B-MTPLX-Optimized-Speed";
-      mtplx = "${config.home.homeDirectory}/.mtplx/bin/mtplx";
-      pi = "${config.home.homeDirectory}/.npm-global/bin/pi";
-      extension = "${./files/pi-local-context.js}";
-    }
+  launcherScript = pkgs.writeText "pi-local.py" (
+    builtins.replaceStrings
+      [ ''"@PI_LOCAL_CONFIG@"'' ]
+      [
+        (builtins.toJSON (
+          builtins.toJSON {
+            inherit modelId contextWindow agentDir;
+            modelPath = "${config.home.homeDirectory}/.mtplx/models/Youssofal--Qwen3.8-27B-MTPLX-Optimized-Speed";
+            mtplx = "${config.home.homeDirectory}/.mtplx/bin/mtplx";
+            pi = "${config.home.homeDirectory}/.npm-global/bin/pi";
+            extension = "${./files/pi-local-context.js}";
+          }
+        ))
+      ]
+      (builtins.readFile ./files/pi-local.py)
   );
   launcher = pkgs.writeShellScriptBin "pi-local" ''
-    exec ${pkgs.python3}/bin/python3 ${./files/pi-local.py} ${launcherConfig} "$@"
+    exec ${pkgs.python3}/bin/python3 ${launcherScript} "$@"
   '';
 in
 {

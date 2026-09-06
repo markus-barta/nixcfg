@@ -2,7 +2,6 @@
 
 import importlib.util
 import json
-import os
 from pathlib import Path
 import subprocess
 import sys
@@ -83,9 +82,9 @@ class LauncherTests(unittest.TestCase):
         fake_pi.write_text(f"#!{sys.executable}\nimport os,sys,json\nprint(json.dumps([os.getcwd(), sys.argv[1:], os.environ['PI_CODING_AGENT_DIR']]))\nsys.exit(7)\n")
         fake_pi.chmod(0o755)
         self.config["pi"] = str(fake_pi)
-        config_file = self.root / "config.json"
-        config_file.write_text(json.dumps(self.config))
-        result = subprocess.run([sys.executable, str(SOURCE), str(config_file), "--help", "literal $HOME; `pwd`"], cwd=caller, capture_output=True, text=True)
+        configured_source = self.root / "launcher.py"
+        configured_source.write_text(SOURCE.read_text().replace('"@PI_LOCAL_CONFIG@"', json.dumps(json.dumps(self.config))))
+        result = subprocess.run([sys.executable, str(configured_source), "--help", "literal $HOME; `pwd`"], cwd=caller, capture_output=True, text=True)
         self.assertEqual(result.returncode, 7, result.stderr)
         cwd, argv, agent_dir = json.loads(result.stdout)
         self.assertEqual(Path(cwd).resolve(), caller.resolve())
