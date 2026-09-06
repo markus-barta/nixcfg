@@ -23,6 +23,7 @@ class LauncherTests(unittest.TestCase):
         self.config = {
             "pi": "/installed/pi", "extension": "/config/context.js",
             "providerExtension": "/config/provider.js", "agentDir": "/config/agent",
+            "telemetryExtension": "/config/telemetry.js",
         }
         self.healthy = {
             "ok": True, "model": "app-model", "context_window": 262144,
@@ -95,6 +96,7 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(argv[-1], "literal $HOME; `pwd`")
         self.assertEqual(agent_dir, self.config["agentDir"])
         self.assertEqual(argv[argv.index("--provider") + 1], "mtplx")
+        self.assertIn(self.config["telemetryExtension"], argv)
 
 
 if __name__ == "__main__":

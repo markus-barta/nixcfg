@@ -51,6 +51,16 @@ including reasoning; Pi's thinking selector is not an override in this profile.
 Pi keeps a 16,384-token output budget for context management. Restart Pi after
 changing the model, port or context so it discovers their new metadata.
 
+The terminal footer shows **MTPLX · TPS · RAM** right-aligned above the model.
+It polls the same app engine every two seconds, only in interactive Pi. TPS is
+the current decode rate across the engine; prefill shows progress instead. Idle
+and unreachable states never reuse a completed request's TPS. RAM is active MLX
+allocation in GiB (weights, KV/session caches and working buffers), excluding
+unused allocator cache and other Mac processes. Memory-pressure warnings use
+the app's macOS pressure signal. No prompts or telemetry are logged or added to
+the model context. Restart with `pi-local --continue` after installing this
+extension; `/reload` refreshes it in sessions already launched with it.
+
 `pi-local.nix` owns the launcher/extensions. MTPLX owns its app, runtime, settings
 and downloaded weights. Pi itself comes from `ai-clis-npm`; its local sessions,
 settings and trust decisions live in `~/.local/share/pi-local/agent/`. Ordinary Pi
@@ -67,7 +77,7 @@ tools. Private doctrine is read at runtime and never copied into the Nix store.
 This loads instructions; it does not add another harness's sandbox or approval UI.
 
 Validation: `python3 tests/test_pi_local.py` and
-`node --test tests/pi-local-context.test.mjs tests/pi-local-provider.test.mjs`,
+`node --test tests/pi-local-*.test.mjs`,
 then build/switch the native `markus@mbp2607` Home Manager configuration. Verify
 only one engine PID, app ownership, Apple fan mode and the app's counters/TPS
 while Pi generates. To roll back, revert the launcher module and host import and

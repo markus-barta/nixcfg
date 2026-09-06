@@ -12,6 +12,7 @@ let
             pi = "${config.home.homeDirectory}/.npm-global/bin/pi";
             extension = "${./files/pi-local-context.js}";
             providerExtension = "${./files/pi-local-provider.js}";
+            telemetryExtension = "${./files/pi-local-telemetry.js}";
           }
         ))
       ]
