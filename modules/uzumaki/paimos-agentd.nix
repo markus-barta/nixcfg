@@ -9,7 +9,10 @@ let
   cfg = config.uzumaki.paimosAgentd;
   home = config.home.homeDirectory;
   stateRoot = "${home}/Library/Caches/paimos/agentd";
-  logDirectory = "${home}/Library/Logs/paimos-agentd";
+  instanceKey = builtins.substring 0 32 (builtins.hashString "sha256" cfg.instance);
+  instanceStateDir = "${stateRoot}/${instanceKey}";
+  stdoutLog = "${instanceStateDir}/agentd.stdout.log";
+  stderrLog = "${instanceStateDir}/agentd.stderr.log";
   reportCredentialFile = "${stateRoot}/report-api-key";
   lifecycleConfigFile = if cfg.lifecycleConfigFile == null then "" else cfg.lifecycleConfigFile;
   sdkPath = "${pkgs.claude-agent-sdk}/${pkgs.claude-agent-sdk.sdkRelativePath}";
@@ -78,6 +81,51 @@ let
     ${pkgs.coreutils}/bin/mv -f "$next" "$destination"
     unset raw secret
   '';
+  serviceLabel = "at.inspr.paimos-agentd";
+  serviceArguments = [
+    "${pkgs.paimos-cli}/bin/paimos-agentd"
+    "serve"
+    "--instance"
+    cfg.instance
+    "--state-root"
+    stateRoot
+    "--codex-path"
+    "${codexLauncher}/bin/paimos-agentd-codex"
+    "--claude-path"
+    cfg.claudePath
+    "--node-path"
+    "${pkgs.nodejs}/bin/node"
+    "--claude-sdk-path"
+    sdkPath
+  ]
+  ++ lib.optionals cfg.reporting.enable [
+    "--report-host"
+    cfg.reporting.host
+    "--report-url"
+    cfg.reporting.url
+    "--report-api-key-file"
+    reportCredentialFile
+    "--paimos-path"
+    "${pkgs.paimos-cli}/bin/paimos"
+  ]
+  ++ lib.optionals (cfg.lifecycleConfigFile != null) [
+    "--lifecycle-config"
+    lifecycleConfigFile
+  ];
+  serviceConfig = {
+    Label = serviceLabel;
+    ProgramArguments = serviceArguments;
+    KeepAlive = true;
+    RunAtLoad = true;
+    ProcessType = "Background";
+    ThrottleInterval = 10;
+    Umask = 63;
+    StandardOutPath = stdoutLog;
+    StandardErrorPath = stderrLog;
+  };
+  directServicePlist = pkgs.writeText "${serviceLabel}.plist" (
+    lib.generators.toPlist { escape = true; } serviceConfig
+  );
 in
 {
   options.uzumaki.paimosAgentd = {
@@ -176,6 +224,23 @@ in
       pkgs.nodejs
     ];
 
+    # Home Manager currently wraps every LaunchAgent in /bin/sh + wait4path.
+    # Agentd's ownership verifier deliberately requires direct exec, so replace
+    # only this generated plist while retaining HM's native service lifecycle.
+    home.extraBuilderCommands = lib.mkAfter ''
+      current_agents=$(${pkgs.coreutils}/bin/readlink -f "$out/LaunchAgents")
+      direct_agents="$out/LaunchAgents-direct"
+      ${pkgs.coreutils}/bin/mkdir -p "$direct_agents"
+      for agent in "$current_agents"/*.plist; do
+        [ -e "$agent" ] || continue
+        name=$(${pkgs.coreutils}/bin/basename "$agent")
+        ${pkgs.coreutils}/bin/ln -s "$(${pkgs.coreutils}/bin/readlink -f "$agent")" "$direct_agents/$name"
+      done
+      ${pkgs.coreutils}/bin/ln -sfn ${lib.escapeShellArg directServicePlist} "$direct_agents/${serviceLabel}.plist"
+      ${pkgs.coreutils}/bin/unlink "$out/LaunchAgents"
+      ${pkgs.coreutils}/bin/ln -s LaunchAgents-direct "$out/LaunchAgents"
+    '';
+
     home.activation.paimosAgentdLifecycleConfig = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
       ${lib.optionalString (cfg.lifecycleConfigFile != null) ''
         lifecycle_file=${lib.escapeShellArg lifecycleConfigFile}
@@ -198,64 +263,30 @@ in
       ''}
     '';
 
-    home.activation.paimosAgentdPrivateState = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-      ${pkgs.coreutils}/bin/install -d -m 0700 "${stateRoot}" "${logDirectory}"
-      for log in "${logDirectory}/stdout.log" "${logDirectory}/stderr.log"; do
-        if [ ! -e "$log" ]; then
-          ${pkgs.coreutils}/bin/install -m 0600 /dev/null "$log"
-        else
-          ${pkgs.coreutils}/bin/chmod 0600 "$log"
-        fi
-      done
-      ${lib.optionalString cfg.reporting.enable ''
-        ${reportCredentialInstaller} \
-          ${lib.escapeShellArg cfg.reporting.apiKeyEnvFile} \
-          ${lib.escapeShellArg reportCredentialFile} \
-          ${lib.escapeShellArg cfg.reporting.apiKeyVariable}
-      ''}
-    '';
+    home.activation.paimosAgentdPrivateState =
+      lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ]
+        ''
+          ${pkgs.coreutils}/bin/install -d -m 0700 "${stateRoot}" "${instanceStateDir}"
+          for log in "${stdoutLog}" "${stderrLog}"; do
+            if [ ! -e "$log" ]; then
+              ${pkgs.coreutils}/bin/install -m 0600 /dev/null "$log"
+            else
+              ${pkgs.coreutils}/bin/chmod 0600 "$log"
+            fi
+          done
+          ${lib.optionalString cfg.reporting.enable ''
+            ${reportCredentialInstaller} \
+              ${lib.escapeShellArg cfg.reporting.apiKeyEnvFile} \
+              ${lib.escapeShellArg reportCredentialFile} \
+              ${lib.escapeShellArg cfg.reporting.apiKeyVariable}
+          ''}
+        '';
 
+    # Keep the service in Home Manager's LaunchAgent inventory and domain map.
+    # The final-generation substitution above removes only HM's shell wrapper.
     launchd.agents.paimos-agentd = {
       enable = true;
-      config = {
-        Label = "at.inspr.paimos-agentd";
-        ProgramArguments = [
-          "${pkgs.paimos-cli}/bin/paimos-agentd"
-          "serve"
-          "--instance"
-          cfg.instance
-          "--state-root"
-          stateRoot
-          "--codex-path"
-          "${codexLauncher}/bin/paimos-agentd-codex"
-          "--claude-path"
-          cfg.claudePath
-          "--node-path"
-          "${pkgs.nodejs}/bin/node"
-          "--claude-sdk-path"
-          sdkPath
-        ]
-        ++ lib.optionals cfg.reporting.enable [
-          "--report-host"
-          cfg.reporting.host
-          "--report-url"
-          cfg.reporting.url
-          "--report-api-key-file"
-          reportCredentialFile
-          "--paimos-path"
-          "${pkgs.paimos-cli}/bin/paimos"
-        ]
-        ++ lib.optionals (cfg.lifecycleConfigFile != null) [
-          "--lifecycle-config"
-          lifecycleConfigFile
-        ];
-        KeepAlive = true;
-        RunAtLoad = true;
-        ProcessType = "Background";
-        ThrottleInterval = 10;
-        StandardOutPath = "${logDirectory}/stdout.log";
-        StandardErrorPath = "${logDirectory}/stderr.log";
-      };
+      config = serviceConfig;
     };
   };
 }
