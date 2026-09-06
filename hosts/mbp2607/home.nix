@@ -63,6 +63,7 @@ in
     # existing PAIMOS keyring and operator-authenticated vendor CLIs.
     paimosAgentd = {
       enable = true;
+      lifecycleConfigFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/lifecycle.json";
       reporting = {
         enable = true;
         host = "mbp2607";

@@ -11,6 +11,7 @@ let
   stateRoot = "${home}/Library/Caches/paimos/agentd";
   logDirectory = "${home}/Library/Logs/paimos-agentd";
   reportCredentialFile = "${stateRoot}/report-api-key";
+  lifecycleConfigFile = if cfg.lifecycleConfigFile == null then "" else cfg.lifecycleConfigFile;
   sdkPath = "${pkgs.claude-agent-sdk}/${pkgs.claude-agent-sdk.sdkRelativePath}";
   codexLauncher = pkgs.writeShellScriptBin "paimos-agentd-codex" ''
     export PATH=${lib.escapeShellArg "${pkgs.nodejs}/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
@@ -100,6 +101,12 @@ in
       description = "Absolute operator-authenticated Claude CLI path.";
     };
 
+    lifecycleConfigFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Absolute owner-only lifecycle configuration file materialized outside the Nix store.";
+    };
+
     reporting = {
       enable = lib.mkEnableOption "authenticated durable harness status and owned controls";
 
@@ -150,6 +157,17 @@ in
           );
         message = "uzumaki.paimosAgentd reporting requires a safe host, exact HTTPS URL, absolute credential source, and shell variable name";
       }
+      {
+        assertion =
+          cfg.lifecycleConfigFile == null
+          || (
+            cfg.reporting.enable
+            && lib.hasPrefix "/" lifecycleConfigFile
+            && lifecycleConfigFile != "/nix/store"
+            && !lib.hasPrefix "/nix/store/" lifecycleConfigFile
+          );
+        message = "uzumaki.paimosAgentd lifecycleConfigFile requires reporting and an absolute path outside the Nix store";
+      }
     ];
 
     home.packages = [
@@ -157,6 +175,28 @@ in
       pkgs.claude-agent-sdk
       pkgs.nodejs
     ];
+
+    home.activation.paimosAgentdLifecycleConfig = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+      ${lib.optionalString (cfg.lifecycleConfigFile != null) ''
+        lifecycle_file=${lib.escapeShellArg lifecycleConfigFile}
+        if [ ! -f "$lifecycle_file" ] || [ -L "$lifecycle_file" ]; then
+          printf '%s\n' 'paimos-agentd lifecycle configuration must be an existing regular non-symlink file' >&2
+          exit 1
+        fi
+        lifecycle_mode=$(${pkgs.coreutils}/bin/stat -c '%a' "$lifecycle_file")
+        lifecycle_owner=$(${pkgs.coreutils}/bin/stat -c '%u' "$lifecycle_file")
+        lifecycle_links=$(${pkgs.coreutils}/bin/stat -c '%h' "$lifecycle_file")
+        lifecycle_size=$(${pkgs.coreutils}/bin/stat -c '%s' "$lifecycle_file")
+        if [ "$lifecycle_mode" != 600 ] || [ "$lifecycle_owner" != "$(${pkgs.coreutils}/bin/id -u)" ] || [ "$lifecycle_links" != 1 ]; then
+          printf '%s\n' 'paimos-agentd lifecycle configuration ownership, mode or link count is unsafe' >&2
+          exit 1
+        fi
+        if [ "$lifecycle_size" -gt 65536 ] || ! ${pkgs.jq}/bin/jq -e -s 'length == 1 and (.[0] | type == "object")' "$lifecycle_file" >/dev/null 2>&1; then
+          printf '%s\n' 'paimos-agentd lifecycle configuration must contain one bounded JSON object' >&2
+          exit 1
+        fi
+      ''}
+    '';
 
     home.activation.paimosAgentdPrivateState = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       ${pkgs.coreutils}/bin/install -d -m 0700 "${stateRoot}" "${logDirectory}"
@@ -204,6 +244,10 @@ in
           reportCredentialFile
           "--paimos-path"
           "${pkgs.paimos-cli}/bin/paimos"
+        ]
+        ++ lib.optionals (cfg.lifecycleConfigFile != null) [
+          "--lifecycle-config"
+          lifecycleConfigFile
         ];
         KeepAlive = true;
         RunAtLoad = true;
