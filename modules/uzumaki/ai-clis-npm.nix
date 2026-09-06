@@ -5,7 +5,8 @@
 # Node ships via uzumaki commonPackages; this module npm-installs the CLIs
 # to ~/.npm-global on every home-manager switch.
 #
-# Bump on demand: `just update-ai-clis`
+# Bump on demand: `just update-ai-clis` (also runs scripts/codex-doctor.sh: the Codex
+# app-server daemon must be restarted on the new binary, NIX-435).
 {
   config,
   lib,
