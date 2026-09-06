@@ -19,14 +19,14 @@ locked = lock["locked"]
 assert original == {
     "owner": "inspr-at",
     "repo": "paimos",
-    "ref": "v26.09.05",
+    "ref": "v26.09.06.21.31",
     "type": "github",
 }, original
-assert locked["rev"] == "d6c4c6271999249006826fa7120965728b2ca8a8", locked
+assert locked["rev"] == "64feac0463534f4c7f3c4e801c3bcf8afb2e4d93", locked
 PY
 
 package_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.paimos-cli.version')
-[ "$package_version" = 26.09.05 ] || fail "Paimos package is not the canonical v26.09.05 release: $package_version"
+[ "$package_version" = 26.09.06.21.31 ] || fail "Paimos package is not the canonical v26.09.06.21.31 release: $package_version"
 
 deployment_version=$(
   python3 - "$repo_root/flake.nix" "$repo_root/hosts/csb1/docker/compose-spec.nix" <<'PY'
@@ -53,7 +53,7 @@ agent_json=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mb
 activation=$(cd "$repo_root" && nix eval --raw '.#homeConfigurations."markus@mbp2607".config.home.activation.paimosAgentdPrivateState.data')
 
 python3 - "$agent_json" "$sdk_out" "$sdk_relative" <<'PY'
-import json, sys
+import hashlib, json, sys
 agent = json.loads(sys.argv[1])
 sdk_out = sys.argv[2]
 sdk_relative = sys.argv[3]
@@ -68,6 +68,7 @@ expected_pairs = {
     "--report-host": "mbp2607",
     "--report-url": "https://pm.barta.cm",
     "--report-api-key-file": "/Users/markus/Library/Caches/paimos/agentd/report-api-key",
+    "--lifecycle-config": "/Users/markus/Library/Application Support/paimos/agentd/lifecycle.json",
 }
 for flag, value in expected_pairs.items():
     index = args.index(flag)
@@ -87,8 +88,11 @@ assert args[paimos_index + 1].endswith("/bin/paimos"), args
 assert config["Label"] == "at.inspr.paimos-agentd", config
 assert config["RunAtLoad"] is True and config["KeepAlive"] is True, config
 assert config["ProcessType"] == "Background", config
-assert config["StandardOutPath"] == "/Users/markus/Library/Logs/paimos-agentd/stdout.log", config
-assert config["StandardErrorPath"] == "/Users/markus/Library/Logs/paimos-agentd/stderr.log", config
+instance_key = hashlib.sha256(b"ppm").hexdigest()[:32]
+instance_dir = f"/Users/markus/Library/Caches/paimos/agentd/{instance_key}"
+assert config["StandardOutPath"] == f"{instance_dir}/agentd.stdout.log", config
+assert config["StandardErrorPath"] == f"{instance_dir}/agentd.stderr.log", config
+assert config["Umask"] == 63, config
 assert config.get("EnvironmentVariables") is None, config
 PY
 
@@ -105,11 +109,37 @@ args = json.loads(sys.argv[1])["config"]["ProgramArguments"]
 print(args[args.index("--codex-path") + 1])
 PY
   )
-  nix build '.#homeConfigurations."markus@mbp2607".activationPackage' --no-link
+  activation_package=$(nix build '.#homeConfigurations."markus@mbp2607".activationPackage' --no-link --print-out-paths)
   [ -x "$codex_launcher" ] || fail 'realised Codex launcher does not exist'
   grep -Fq '/nix/store/' "$codex_launcher" || fail 'Codex launcher does not pin its runtime in the Nix store'
   grep -Eq '^export PATH=/nix/store/[^/]+-nodejs-[^/]+/bin:/usr/bin:/bin:/usr/sbin:/sbin$' "$codex_launcher" || fail 'Codex launcher does not supply a deterministic Node PATH'
   grep -Fq '/Users/markus/.npm-global/bin/codex' "$codex_launcher" || fail 'Codex launcher does not exec the operator-authenticated CLI'
+
+  service_plist="$activation_package/LaunchAgents/at.inspr.paimos-agentd.plist"
+  [ -f "$service_plist" ] || fail 'final Home Manager generation has no Paimos LaunchAgent'
+  python3 - "$agent_json" "$service_plist" <<'PY'
+import hashlib, json, os, plistlib, stat, sys
+
+declared = json.loads(sys.argv[1])["config"]
+with open(sys.argv[2], "rb") as handle:
+    generated = plistlib.load(handle)
+
+assert generated["Label"] == "at.inspr.paimos-agentd", generated
+assert generated["ProgramArguments"] == declared["ProgramArguments"], generated
+assert os.path.isabs(generated["ProgramArguments"][0]), generated
+assert os.path.basename(generated["ProgramArguments"][0]) == "paimos-agentd", generated
+assert generated["ProgramArguments"][1] == "serve", generated
+assert generated["Umask"] == 63, generated
+instance_key = hashlib.sha256(b"ppm").hexdigest()[:32]
+instance_dir = f"/Users/markus/Library/Caches/paimos/agentd/{instance_key}"
+assert generated["StandardOutPath"] == f"{instance_dir}/agentd.stdout.log", generated
+assert generated["StandardErrorPath"] == f"{instance_dir}/agentd.stderr.log", generated
+assert generated.get("Program") is None, generated
+assert generated.get("EnvironmentVariables") is None, generated
+assert generated.get("UserName") is None, generated
+info = os.stat(sys.argv[2])
+assert stat.S_ISREG(info.st_mode) and info.st_mode & 0o022 == 0, oct(info.st_mode)
+PY
 
   credential_installer=$(
     grep -Eo '/nix/store/[^[:space:]]+-paimos-agentd-install-report-credential' <<<"$activation" | head -n 1
@@ -145,8 +175,10 @@ fi
 
 grep -Fq 'install -d -m 0700' <<<"$activation" || fail 'private state/log directory mode is not declared'
 grep -Fq 'install -m 0600 /dev/null' <<<"$activation" || fail 'private log-file mode is not declared'
+grep -Fq '/Users/markus/Library/Caches/paimos/agentd/616c1af8cc7f4556975b7cbe50bce072/agentd.stdout.log' <<<"$activation" || fail 'stdout log is outside the canonical instance state directory'
+grep -Fq '/Users/markus/Library/Caches/paimos/agentd/616c1af8cc7f4556975b7cbe50bce072/agentd.stderr.log' <<<"$activation" || fail 'stderr log is outside the canonical instance state directory'
 grep -Fq '/Users/markus/.inspr/secrets/agents/PPMAPIKEY.env' <<<"$activation" || fail 'reporting source is not the existing activation-managed secret'
 grep -Fq '/Users/markus/Library/Caches/paimos/agentd/report-api-key' <<<"$activation" || fail 'reporting destination is not private agentd state'
 grep -Fq 'PPMAPIKEY' <<<"$activation" || fail 'reporting assignment name is not pinned'
 
-printf 'T56 passed: mbp2607 pins Paimos 26.09.05 with authenticated private agentd reporting\n'
+printf 'T56 passed: mbp2607 pins Paimos 26.09.06.21.31 with authenticated private agentd reporting and lifecycle control\n'
