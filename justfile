@@ -1554,7 +1554,7 @@ pixoo-logs:
 
 # ── AI CLIs ───────────────────────────────────────────────────────────────────
 
-# Bump AI CLIs (claude-code, codex, grok, pi) to npm latest — runs anywhere with node
+# update-ai-clis — runs anywhere with node.
 # --prefix is REQUIRED, not cosmetic: without it npm falls back to whichever npm
 # wins PATH. Run this in a shell where NPM_CONFIG_PREFIX is unset and brew's npm
 # resolves first, and the CLIs land in /opt/homebrew/lib/node_modules — an
@@ -1562,6 +1562,15 @@ pixoo-logs:
 # (found 2026-08-25: a stray @xai-official/grok did exactly that). The CLI flag
 # overrides both npm config and the environment, so this always targets the
 # Home-Manager-declared prefix.
+# After the bump, scripts/codex-doctor.sh checks that the Codex app-server daemon,
+# the standalone package it starts from, and ~/.codex/models_cache.json all match
+# the new CLI. Every Codex TUI attaches to that daemon, and a daemon left on an
+# older binary keeps serving an old model catalog — NIX-435 (2026-09-06): CLI
+# 0.153.4, daemon 0.150.1, and "gpt-6-astra requires a newer version of Codex"
+# on the newest CLI. On drift the doctor asks [y/N] before the cleanup (only a
+# typed y proceeds) and refuses outright while any interactive Codex session runs.
+
+# Bump AI CLIs (claude-code, codex, grok, pi) to npm latest, then run the Codex daemon doctor
 [group('ai')]
 update-ai-clis:
     @date
@@ -1571,3 +1580,13 @@ update-ai-clis:
     @codex  --version 2>/dev/null || echo "codex:  not installed"
     @grok   --version 2>/dev/null || echo "grok:   not installed"
     @pi     --version 2>/dev/null || echo "pi:     not installed"
+    @echo "---"
+    ./scripts/codex-doctor.sh
+
+# `just codex-doctor --check` never prompts (exit 1 on drift); `--fix` skips the
+# question but still refuses while a Codex session runs.
+
+# Codex CLI ↔ app-server daemon ↔ models-cache drift report; guarded cleanup on drift
+[group('ai')]
+codex-doctor *args:
+    ./scripts/codex-doctor.sh {{ args }}
