@@ -25,7 +25,7 @@ are **on** since 2026-07-03 (host keys registered as agenix recipients,
 permanently (former-work history). `inspr.paimos-cli` manages non-secret routing
 only; authentication is an interactive OS-keyring login.
 
-## Local coding with Pi
+## Coding with Pi
 
 Run `pi-local` from the repository or subdirectory you want to work in. Pi stays
 in that directory and terminal; arguments such as `--continue` pass through.
@@ -67,6 +67,22 @@ settings and trust decisions live in `~/.local/share/pi-local/agent/`. Ordinary 
 configuration is separate. Startup network checks are disabled with `--offline`.
 The old fixed `models.json` is removed by Home Manager: provider registration now
 uses the app's actual endpoint and model instead of hardcoded port 8000.
+
+For cloud coding through a **ChatGPT subscription**, run `pi-chatgpt` or
+`pi-chatgpt --continue` from the same repository. It shares the Pi profile,
+sessions and doctrine loader with `pi-local`, but does not start or query MTPLX.
+Its default is `openai-codex/gpt-5.6-terra` with low reasoning effort; additional
+CLI options pass through, so `--model gpt-5.6-sol --thinking medium` overrides
+those defaults. ChatGPT owns model availability and subscription limits.
+
+First-time authentication is Pi's `/login openai-codex` browser OAuth flow.
+Credentials are stored and refreshed by Pi in its mutable profile `auth.json`,
+never in Nix, Git, shell arguments or environment variables. No API key is
+configured. To switch an existing local conversation to the cloud, use
+`/model openai-codex/gpt-5.6-terra`; `/model mtplx/<app-model-id>` switches back
+when that session was launched with `pi-local`. From a cloud-only launch,
+resume with `pi-local --continue` to return to the app engine. Both launchers
+preserve the calling directory. The cloud-only launch uses Pi's native footer.
 
 The context extension expands standalone Markdown `@imports` from the selected
 repository's neighboring `CLAUDE.md`. This loads the INSPR kernel and the repo's
