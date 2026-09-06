@@ -27,46 +27,51 @@ only; authentication is an interactive OS-keyring login.
 
 ## Local coding with Pi
 
-Run `pi-local` from the repository or subdirectory you want to work in. It starts
-MTPLX when needed, waits for readiness, and runs Pi in that directory and terminal.
-Pi arguments pass through, for example `pi-local --continue`. Exiting Pi leaves the
-shared model server available; stop the engine in MTPLX to release its memory.
+Run `pi-local` from the repository or subdirectory you want to work in. Pi stays
+in that directory and terminal; arguments such as `--continue` pass through.
+The launcher connects to the **MTPLX app-owned engine**, discovering its current
+port, model and context. It never starts `mtplx serve`, downloads a model, changes
+fan settings or stops another process. App and Pi requests therefore appear in
+one app dashboard. Exiting Pi leaves the app engine running.
 
-The declarative configuration is in `pi-local.nix`: Qwen 3.8 27B Optimized Speed,
-native MTP D2, 262,144 context tokens and up to 32,768 output tokens. Cold starts
-use Turbo, medium reasoning and Smart fans. Compatible servers already started
-by the app are reused, retaining their current performance/fan settings. A wrong
-model, context or MTP setting produces an error instead of restarting another
-session. Set the matching values in the app, or stop its engine and retry.
+When the app is closed, `pi-local` opens it and waits for its engine. Enable
+**Start MTPLX when opening the app** in MTPLX for this one-command cold start.
+If you explicitly stopped the engine while keeping the app open, press Start in
+MTPLX; the launcher waits for readiness and reports a clear timeout after 120 s.
+The installed app currently has no external start-engine command, so this case
+requires its Start button. A separately launched CLI engine is rejected instead
+of creating a second copy. The selected API must be localhost without API auth.
 
-Prerequisites: MTPLX's app/runtime and CLI shim at `~/.mtplx/bin/mtplx`, and the
-downloaded model under `~/.mtplx/models/`. Nix does not download the 21 GB weights
-or manage the app. Pi itself is installed by the shared `ai-clis-npm` module.
-The [MTPLX Pi integration](https://mtplx.com/docs/pi/) uses the same localhost
-endpoint and model ID. This launcher uses foreground Pi instead of MTPLX's
-`start pi`, which opens another Terminal window.
+The app owns MTP/depth, profile, context, sampler, reasoning and thermal controls.
+**Standard** uses Apple's automatic fan curve; no launcher code selects Smart or
+Max. Current workstation setup: Qwen 3.8 27B Optimized Speed, MTP D2, 262,144
+context, Standard fans. Pi's provider extension omits sampler/reasoning overrides,
+so changes in the app apply on the next request. Use the app for those controls,
+including reasoning; Pi's thinking selector is not an override in this profile.
+Pi keeps a 16,384-token output budget for context management. Restart Pi after
+changing the model, port or context so it discovers their new metadata.
 
-Pi's local profile lives in `~/.local/share/pi-local/agent/`; ordinary Pi settings
-remain independent. Nix owns `models.json`; Pi owns sessions, trust decisions and
-interactive settings. Defaults are supplied by the launcher, and startup network
-checks are disabled with `--offline`. Server startup logs live at
-`~/.local/state/pi-local/server.log`.
+`pi-local.nix` owns the launcher/extensions. MTPLX owns its app, runtime, settings
+and downloaded weights. Pi itself comes from `ai-clis-npm`; its local sessions,
+settings and trust decisions live in `~/.local/share/pi-local/agent/`. Ordinary Pi
+configuration is separate. Startup network checks are disabled with `--offline`.
+The old fixed `models.json` is removed by Home Manager: provider registration now
+uses the app's actual endpoint and model instead of hardcoded port 8000.
 
-Pi normally chooses one `AGENTS.md` or `CLAUDE.md` per ancestor directory. The
-local extension additionally expands standalone Markdown `@imports` from the
-neighboring `CLAUDE.md`, in order, with cycle/duplicate protection. Thus an OPS
-checkout supplies its INSPR kernel, private operator doctrine and SYSOP pack;
-another repository supplies its own context. No OPS files or private doctrine
-are bundled into the Nix store or injected into unrelated repos. Imports must
-stay inside their repository, including symlink targets. `AGENTS.override.md`
-retains precedence. Missing or invalid imports report an error and block tools
-until the referenced files are restored. This loads instructions; it does not
-add the approval UI, sandbox or delegated reviewers of another coding harness.
+The context extension expands standalone Markdown `@imports` from the selected
+repository's neighboring `CLAUDE.md`. This loads the INSPR kernel and the repo's
+own operator/domain packs, including SYSOP in OPS, with order, duplicate and
+cycle protection. Imports must stay within their repository, including symlink
+targets; `AGENTS.override.md` retains precedence. Missing/invalid imports block
+tools. Private doctrine is read at runtime and never copied into the Nix store.
+This loads instructions; it does not add another harness's sandbox or approval UI.
 
 Validation: `python3 tests/test_pi_local.py` and
-`node --test tests/pi-local-context.test.mjs`, then build/switch the native
-`markus@mbp2607` Home Manager configuration. To roll back, revert `pi-local.nix`
-and its host import and switch again; MTPLX's app setting is separately editable.
+`node --test tests/pi-local-context.test.mjs tests/pi-local-provider.test.mjs`,
+then build/switch the native `markus@mbp2607` Home Manager configuration. Verify
+only one engine PID, app ownership, Apple fan mode and the app's counters/TPS
+while Pi generates. To roll back, revert the launcher module and host import and
+switch again; app preferences remain managed in MTPLX.
 
 ## Keyboard & input tools (2026-07-04, NIX-215)
 
