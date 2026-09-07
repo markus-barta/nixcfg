@@ -52,6 +52,14 @@ Monitoring approval stay manual per host.
 | `uzumaki.zellij.enable`    | bool   | `true`     | Install zellij terminal multiplexer              |
 | `uzumaki.stasysmo.enable`  | bool   | `false`    | Enable StaSysMo system monitoring                |
 
+`uzumaki.paimosAgentd` is a Darwin Home Manager LaunchAgent. `codexAccountsFile`
+defaults to `null` and preserves the current serve argv. Set it only to an
+absolute owner-only JSON file outside `/nix/store`, and only after a Paimos
+release whose `paimos-agentd serve` accepts `--codex-accounts`. Example path
+shape: `/Users/fixture-user/Library/Application Support/paimos/agentd/codex-accounts.json`.
+Nix checks path/ownership/mode/JSON object bounds; Paimos validates registry
+semantics. Do not put homes, emails, or registry bytes in Nix.
+
 ### Fish Functions
 
 | Function     | Description                                                                   |
@@ -76,6 +84,7 @@ modules/uzumaki/
 ├── desktop.nix          # Direct import for NixOS desktops (legacy)
 ├── macos.nix            # Direct import for macOS (legacy)
 ├── macos-common.nix     # macOS-specific: fonts, packages (terminal: Ghostty via Homebrew, not Nix; WezTerm purged 2026-05-05)
+├── paimos-agentd.nix    # Operator-local PAIMOS owner; optional external Codex registry path
 ├── fish/
 │   ├── default.nix      # Fish module exports
 │   ├── config.nix       # Aliases & abbreviations

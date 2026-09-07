@@ -15,7 +15,10 @@ let
   stderrLog = "${instanceStateDir}/agentd.stderr.log";
   reportCredentialFile = "${stateRoot}/report-api-key";
   lifecycleConfigFile = if cfg.lifecycleConfigFile == null then "" else cfg.lifecycleConfigFile;
+  codexAccountsFile = if cfg.codexAccountsFile == null then "" else cfg.codexAccountsFile;
   sdkPath = "${pkgs.claude-agent-sdk}/${pkgs.claude-agent-sdk.sdkRelativePath}";
+  # PATH-only wrapper: the owned runtime may pass CODEX_HOME for a selected
+  # account. Do not unset, override, or source registry text here.
   codexLauncher = pkgs.writeShellScriptBin "paimos-agentd-codex" ''
     export PATH=${lib.escapeShellArg "${pkgs.nodejs}/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
     exec ${lib.escapeShellArg cfg.codexPath} "$@"
@@ -111,6 +114,10 @@ let
   ++ lib.optionals (cfg.lifecycleConfigFile != null) [
     "--lifecycle-config"
     lifecycleConfigFile
+  ]
+  ++ lib.optionals (cfg.codexAccountsFile != null) [
+    "--codex-accounts"
+    codexAccountsFile
   ];
   serviceConfig = {
     Label = serviceLabel;
@@ -153,6 +160,19 @@ in
       type = lib.types.nullOr lib.types.str;
       default = null;
       description = "Absolute owner-only lifecycle configuration file materialized outside the Nix store.";
+    };
+
+    codexAccountsFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Absolute owner-only Codex account registry JSON file materialized outside
+        the Nix store. Null keeps the existing serve argv. A set path adds exactly
+        one `--codex-accounts` pair. Requires a Paimos release whose paimos-agentd
+        serve accepts `--codex-accounts`; do not enable against older pins.
+        Operator-owned homes, emails, and registry bytes stay outside Nix.
+        Paimos validates registry semantics and account proof.
+      '';
     };
 
     reporting = {
@@ -216,6 +236,16 @@ in
           );
         message = "uzumaki.paimosAgentd lifecycleConfigFile requires reporting and an absolute path outside the Nix store";
       }
+      {
+        assertion =
+          cfg.codexAccountsFile == null
+          || (
+            lib.hasPrefix "/" codexAccountsFile
+            && codexAccountsFile != "/nix/store"
+            && !lib.hasPrefix "/nix/store/" codexAccountsFile
+          );
+        message = "uzumaki.paimosAgentd codexAccountsFile requires an absolute path outside the Nix store";
+      }
     ];
 
     home.packages = [
@@ -258,6 +288,28 @@ in
         fi
         if [ "$lifecycle_size" -gt 65536 ] || ! ${pkgs.jq}/bin/jq -e -s 'length == 1 and (.[0] | type == "object")' "$lifecycle_file" >/dev/null 2>&1; then
           printf '%s\n' 'paimos-agentd lifecycle configuration must contain one bounded JSON object' >&2
+          exit 1
+        fi
+      ''}
+    '';
+
+    home.activation.paimosAgentdCodexAccounts = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+      ${lib.optionalString (cfg.codexAccountsFile != null) ''
+        accounts_file=${lib.escapeShellArg codexAccountsFile}
+        if [ ! -f "$accounts_file" ] || [ -L "$accounts_file" ]; then
+          printf '%s\n' 'paimos-agentd Codex account registry must be an existing regular non-symlink file' >&2
+          exit 1
+        fi
+        accounts_mode=$(${pkgs.coreutils}/bin/stat -c '%a' "$accounts_file")
+        accounts_owner=$(${pkgs.coreutils}/bin/stat -c '%u' "$accounts_file")
+        accounts_links=$(${pkgs.coreutils}/bin/stat -c '%h' "$accounts_file")
+        accounts_size=$(${pkgs.coreutils}/bin/stat -c '%s' "$accounts_file")
+        if [ "$accounts_mode" != 600 ] || [ "$accounts_owner" != "$(${pkgs.coreutils}/bin/id -u)" ] || [ "$accounts_links" != 1 ]; then
+          printf '%s\n' 'paimos-agentd Codex account registry ownership, mode or link count is unsafe' >&2
+          exit 1
+        fi
+        if [ "$accounts_size" -gt 65536 ] || ! ${pkgs.jq}/bin/jq -e -s 'length == 1 and (.[0] | type == "object")' "$accounts_file" >/dev/null 2>&1; then
+          printf '%s\n' 'paimos-agentd Codex account registry must contain one bounded JSON object' >&2
           exit 1
         fi
       ''}
