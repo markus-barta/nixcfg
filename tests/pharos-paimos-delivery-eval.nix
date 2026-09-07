@@ -2,16 +2,36 @@
   root ? ../.,
   versionScheme ? "legacy",
   artifactVersion ? "0.2.0",
+  releaseChannel ? "stable",
+  releaseSequence ? 123,
+  digest ? "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  commitDigest ? "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  releaseManifestCoordinate ? "ghcr:inspr-at/pharos/releases/0.2.0",
+  releaseManifestDigest ? "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+  updateRestartJobId ? "action_job_123",
+  deploymentHandoffId ? "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  omitArtifactField ? null,
 }:
 let
   flake = builtins.getFlake (toString root);
   pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
-  artifact = {
-    inherit versionScheme;
+  rawArtifact = {
+    inherit
+      versionScheme
+      releaseChannel
+      releaseSequence
+      digest
+      commitDigest
+      releaseManifestCoordinate
+      releaseManifestDigest
+      ;
     version = artifactVersion;
-    digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    commitDigest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
   };
+  artifact =
+    if omitArtifactField == null then
+      rawArtifact
+    else
+      builtins.removeAttrs rawArtifact [ omitArtifactField ];
   evaluated = flake.inputs.nixpkgs.lib.evalModules {
     specialArgs = { inherit pkgs; };
     modules = [
@@ -40,21 +60,27 @@ let
               handoffSecretFile = "/run/pharos/paimos/deployment-handoff-secret";
               stage = "deployment";
               host = "csb1";
-              inherit artifact;
-              updateRestartJobId = "action_job_123";
+              inherit artifact updateRestartJobId;
             }
             {
               handoffId = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
               handoffSecretFile = "/run/pharos/paimos/verification-handoff-secret";
               stage = "verification";
               host = "csb1";
-              inherit artifact;
-              deploymentHandoffId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+              inherit artifact deploymentHandoffId;
             }
           ];
         };
       }
     ];
   };
+  failedAssertions = builtins.filter (item: !(item.assertion or true)) evaluated.config.assertions;
 in
-evaluated.config.inspr.pharosPaimosDelivery.generated
+if failedAssertions != [ ] then
+  throw (
+    builtins.concatStringsSep "\n" (
+      map (item: item.message or "inspr.pharosPaimosDelivery assertion failed") failedAssertions
+    )
+  )
+else
+  evaluated.config.inspr.pharosPaimosDelivery.generated
