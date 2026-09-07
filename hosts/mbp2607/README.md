@@ -25,6 +25,11 @@ are **on** since 2026-07-03 (host keys registered as agenix recipients,
 permanently (former-work history). `inspr.paimos-cli` manages non-secret routing
 only; authentication is an interactive OS-keyring login.
 
+The Home Manager `paimos-agentd` service can pass `--codex-accounts` to an
+operator-owned registry file outside the Nix store. That option stays unset on
+this host until a compatible Paimos release is pinned (PAI-955). Do not copy
+registry homes or emails into Nix.
+
 ## Coding with Pi
 
 Run `pi-local` from the repository or subdirectory you want to work in. Pi stays
