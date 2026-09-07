@@ -195,25 +195,44 @@ grep -Fq '../../modules/janus-paimos-dependency-reporter' "$host_config"
 # --- 2. the compose side follows the switch, in BOTH positions ---------------
 # Rendered with the real file (whatever `active` currently is) and with a
 # forced-active copy, so this test keeps biting after the operator flips it.
-workdir="$(mktemp -d)"
-remove_synthetic_workdir() {
+#
+# Cleanup is identity-scoped: only the mktemp directories this test created,
+# and only as direct children of the captured canonical TMPDIR parent.
+# GitHub Actions sets TMPDIR=/home/runner/work/_temp, which is neither /tmp
+# nor /var/folders; a hardcoded prefix list falsely fails after the contract
+# assertions have already passed.
+temp_root=${TMPDIR:-/tmp}
+if [[ ! -d "$temp_root" ]]; then
+  printf 'T48: temporary parent is not a directory: %s\n' "$temp_root" >&2
+  exit 1
+fi
+temp_parent=$(cd -- "$temp_root" && pwd -P)
+workdir="$(mktemp -d "${temp_parent}/t48-paimos.XXXXXX")"
+sibling="$(mktemp -d "${temp_parent}/t48-paimos-sib.XXXXXX")"
+printf 'keep\n' >"$sibling/marker"
+remove_owned_tempdir() {
   local dir=${1:-}
-  [[ -n "$dir" && -d "$dir" ]] || return 0
-  [[ "$dir" == "$workdir" ]] || {
+  local expected=${2:-}
+  [[ -n "$dir" ]] || return 0
+  if [[ ! -e "$dir" && ! -L "$dir" ]]; then
+    return 0
+  fi
+  [[ -d "$dir" ]] || {
+    printf 'refusing to delete non-directory: %s\n' "$dir" >&2
+    return 1
+  }
+  [[ -n "$expected" && "$dir" == "$expected" ]] || {
     printf 'refusing to delete unexpected path: %s\n' "$dir" >&2
     return 1
   }
-  case "$dir" in
-  /tmp/* | /var/folders/*) ;;
-  *)
-    printf 'refusing to delete non-temp path: %s\n' "$dir" >&2
+  [[ "$(dirname -- "$dir")" == "$temp_parent" ]] || {
+    printf 'refusing to delete path outside captured temp parent: %s\n' "$dir" >&2
     return 1
-    ;;
-  esac
+  }
   find "$dir" -mindepth 1 -delete
   rmdir "$dir"
 }
-trap 'remove_synthetic_workdir "$workdir"' EXIT
+trap 'remove_owned_tempdir "$workdir" "$workdir"; remove_owned_tempdir "$sibling" "$sibling"' EXIT
 mkdir -p "$workdir/off/docker" "$workdir/on/docker"
 sed 's/^  active = true;/  active = false;/' "$stage" >"$workdir/off/paimos-delivery-stage.nix"
 sed 's/^  active = false;/  active = true;/' "$stage" >"$workdir/on/paimos-delivery-stage.nix"
@@ -231,10 +250,16 @@ grep -Fq '  active = true;' "$workdir/on/paimos-delivery-stage.nix" ||
     exit 1
   }
 
-off_env="$(nix eval --impure --json --expr "(import $workdir/off/docker/compose-spec.nix).services.pharosd.environment")"
-off_volumes="$(nix eval --impure --json --expr "(import $workdir/off/docker/compose-spec.nix).services.pharosd.volumes")"
-on_env="$(nix eval --impure --json --expr "(import $workdir/on/docker/compose-spec.nix).services.pharosd.environment")"
-on_volumes="$(nix eval --impure --json --expr "(import $workdir/on/docker/compose-spec.nix).services.pharosd.volumes")"
+nix_import_path() {
+  python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
+}
+
+off_compose=$(nix_import_path "$workdir/off/docker/compose-spec.nix")
+on_compose=$(nix_import_path "$workdir/on/docker/compose-spec.nix")
+off_env="$(nix eval --impure --json --expr "(import ${off_compose}).services.pharosd.environment")"
+off_volumes="$(nix eval --impure --json --expr "(import ${off_compose}).services.pharosd.volumes")"
+on_env="$(nix eval --impure --json --expr "(import ${on_compose}).services.pharosd.environment")"
+on_volumes="$(nix eval --impure --json --expr "(import ${on_compose}).services.pharosd.volumes")"
 
 PYTHONDONTWRITEBYTECODE=1 python3 - \
   "$off_env" "$off_volumes" "$on_env" "$on_volumes" "$stage" \
@@ -447,5 +472,15 @@ if failures:
         print(f"  - {failure}", file=sys.stderr)
     raise SystemExit(1)
 PY
+
+remove_owned_tempdir "$workdir" "$workdir"
+if [[ -e "$workdir" || -L "$workdir" ]]; then
+  printf 'owned workdir still present after cleanup: %s\n' "$workdir" >&2
+  exit 1
+fi
+if [[ ! -f "$sibling/marker" ]]; then
+  printf 'sibling tempdir did not survive workdir cleanup: %s\n' "$sibling" >&2
+  exit 1
+fi
 
 printf 'paimos_delivery_stage=passed\n'
