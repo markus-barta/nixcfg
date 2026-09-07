@@ -53,11 +53,11 @@ Monitoring approval stay manual per host.
 | `uzumaki.stasysmo.enable`  | bool   | `false`    | Enable StaSysMo system monitoring                |
 
 `uzumaki.paimosAgentd` is a Darwin Home Manager LaunchAgent. `codexAccountsFile`
-defaults to `null` and preserves the current serve argv. Set it only to an
-absolute owner-only JSON file outside `/nix/store`, and only after a Paimos
-release whose `paimos-agentd serve` accepts `--codex-accounts`. Example path
-shape: `/Users/fixture-user/Library/Application Support/paimos/agentd/codex-accounts.json`.
-Nix checks path/ownership/mode/JSON object bounds; Paimos validates registry
+defaults to `null` and preserves the current serve argv. The current Paimos pin
+accepts `--codex-accounts`; mbp2607 sets the option to
+`${config.home.homeDirectory}/Library/Application Support/paimos/agentd/codex-accounts.json`.
+The path must be an absolute owner-only JSON file outside `/nix/store`. Nix
+checks path/ownership/mode/JSON object bounds; Paimos validates registry
 semantics. Do not put homes, emails, or registry bytes in Nix.
 
 ### Fish Functions
