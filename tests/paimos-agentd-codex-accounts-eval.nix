@@ -1,6 +1,7 @@
 {
   root,
   accountsFile ? null,
+  lifecycleFile ? null,
   reporting ? false,
 }:
 let
@@ -40,6 +41,7 @@ let
         uzumaki.paimosAgentd = {
           enable = true;
           codexAccountsFile = accountsFile;
+          lifecycleConfigFile = lifecycleFile;
           reporting = {
             enable = reporting;
             host = if reporting then "fixture-host" else "";
