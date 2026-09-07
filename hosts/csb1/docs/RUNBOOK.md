@@ -740,12 +740,20 @@ the two ever disagree.
    shape at eval time — handoff ids must be Paimos-minted 26-character Crockford
    base32, digests must be `sha256:` plus 64 lowercase hex, and a verification
    intent must pair with a distinct deployment intent for the same host,
-   environment and artifact. Every v1 intent artifact must also set
-   `versionScheme = "legacy";`. This is a required discriminator in the local
-   `inspr.pharos.paimos-delivery-adapter.v2` configuration; Pharos strips it
-   when serializing the byte-stable outgoing Paimos external-stage v1 payload.
-   Calendar release coordinates require a future external-stage payload schema
-   and must not be placed on this frozen v1 wire path.
+   environment and artifact. Every owner intent artifact must set an explicit
+   `versionScheme` of `"legacy"` or `"inspr-calendar-v1"` plus the full
+   eight-field evidence tuple (`version`, `releaseChannel`, `releaseSequence`,
+   `digest`, `commitDigest`, `releaseManifestCoordinate`,
+   `releaseManifestDigest`). The scheme is never inferred from version
+   punctuation. Calendar coordinates must be real proleptic-Gregorian dates
+   (`26.02.29` and `26.02.30` fail). Channel, sequence and manifest identity
+   are required evidence and must not be invented or defaulted. This is the
+   local `inspr.pharos.paimos-delivery-adapter.v2` document; the external owner
+   wire v2 stays frozen and is not repinned here. A deployment intent may omit
+   `updateRestartJobId` so accepted pharosd can propose a deterministic
+   operator-confirmed guarded job; a supplied valid job id remains compatible.
+   Verification still requires the deployment predecessor. Nothing in this
+   repository confirms or starts that job.
 
 4. **Preflight on the host, before flipping the switch.** Sizes and modes only —
    never print a value:
@@ -784,11 +792,13 @@ first, delete journals only afterwards.
 
 ### What activation deliberately does not grant
 
-The deployment intent names an **existing** Pharos `UpdateRestart` job and the
-adapter only observes it. It refuses to report success unless that job already
-carries an operator confirmation, so the consequential restart stays an attended
-decision in the Pharos UI. Deployment alone reaches `deployed_unverified`;
-`verified` needs a separate, later, fresh beacon for the exact artifact.
+The deployment intent may name an **existing** Pharos `UpdateRestart` job, or
+omit the id so accepted pharosd proposes a deterministic guarded job. The
+adapter only observes that job. It refuses to report success unless the job
+already carries an operator confirmation, so the consequential restart stays an
+attended decision in the Pharos UI. Nothing here confirms, claims or starts the
+job. Deployment alone reaches `deployed_unverified`; `verified` needs a
+separate, later, fresh beacon for the exact artifact.
 
 ### Contract pin — no foreign-repo change needed
 
