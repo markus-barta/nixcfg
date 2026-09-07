@@ -2,19 +2,25 @@
 #
 # Generates the value-free `inspr.pharos.paimos-delivery-adapter.v2` local
 # intent document that pharosd reads through PHAROS_PAIMOS_DELIVERY_CONFIG_FILE
-# and publishes it as a private, container-uid-owned file. Outgoing Paimos
-# external-stage evidence remains byte-stable v1. This module creates no
-# credential material: the API key and every 32-byte raw handoff secret are
-# agenix-managed files that this module only names.
+# and publishes it as a private, container-uid-owned file. Local schema
+# `inspr.pharos.paimos-delivery-adapter.v2` / version 2 stays this module's
+# document; the external owner wire v2 is frozen elsewhere and is not repinned
+# here. Artifact evidence is the eight-field Pharos owner-v2 tuple with an
+# explicit `legacy` / `inspr-calendar-v1` discriminator — never inferred from
+# version punctuation, and never filled in with invented channel, sequence or
+# manifest identity. This module creates no credential material: the API key
+# and every 32-byte raw handoff secret are agenix-managed files that this
+# module only names.
 #
 # 🔴 What this module deliberately does NOT do: it grants pharosd no new
-# authority. The deployment intent carries `update_restart_job_id`, and the
-# adapter only *observes* that already-existing Pharos host action — it reports
-# success solely when the operator has already confirmed it
+# authority. A deployment intent MAY name an existing `update_restart_job_id`;
+# if it omits one, accepted pharosd proposes a deterministic operator-confirmed
+# guarded UpdateRestart. In either case the adapter only *observes* that job
+# and reports success solely when the operator has already confirmed it
 # (`job.confirmed_at.is_none()` is a LocalBinding refusal in
 # crates/pharosd/src/paimos_delivery.rs). The consequential UpdateRestart stays
-# an attended operator decision in the Pharos UI. Nothing here can create,
-# confirm, claim or execute a host action.
+# an attended operator decision in the Pharos UI. Nothing here can confirm,
+# claim, start or execute a host action.
 {
   config,
   lib,
@@ -31,45 +37,177 @@ let
   isHandoffId = value: builtins.match "[0-9A-HJKMNP-TV-Z]{26}" value != null;
   isSymbol = value: builtins.match "[a-z][a-z0-9._-]{0,63}" value != null;
   isHostName = value: builtins.match "[a-z0-9][a-z0-9-]{0,62}" value != null;
+  # Pharos `valid_version`: 1-64 chars, first alphanumeric, rest [A-Za-z0-9._+-].
+  # Calendar-looking punctuation is still a legacy string until the discriminator
+  # says otherwise — this check must not infer the scheme.
   isLegacyVersion =
     value:
-    builtins.stringLength value <= 64
-    && builtins.match "(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)" value != null;
+    let
+      len = builtins.stringLength value;
+    in
+    len >= 1 && len <= 64 && builtins.match "[A-Za-z0-9][A-Za-z0-9._+-]*" value != null;
+  twoDigit =
+    value:
+    let
+      digits = {
+        "0" = 0;
+        "1" = 1;
+        "2" = 2;
+        "3" = 3;
+        "4" = 4;
+        "5" = 5;
+        "6" = 6;
+        "7" = 7;
+        "8" = 8;
+        "9" = 9;
+      };
+      tens = builtins.substring 0 1 value;
+      ones = builtins.substring 1 1 value;
+    in
+    if
+      builtins.stringLength value == 2 && builtins.hasAttr tens digits && builtins.hasAttr ones digits
+    then
+      10 * digits.${tens} + digits.${ones}
+    else
+      null;
+  # True proleptic Gregorian validity — a YY.MM.DD regex that accepts 26.02.30
+  # is not enough (matches accepted pharos-core `valid_inspr_calendar_version`).
+  isCalendarVersion =
+    value:
+    let
+      parts = lib.splitString "." value;
+      nums = map twoDigit parts;
+      len = builtins.length nums;
+    in
+    builtins.all (n: n != null) nums
+    && (len == 3 || len == 6)
+    && (
+      let
+        year = 2000 + builtins.elemAt nums 0;
+        month = builtins.elemAt nums 1;
+        day = builtins.elemAt nums 2;
+        hour = if len == 6 then builtins.elemAt nums 3 else 0;
+        minute = if len == 6 then builtins.elemAt nums 4 else 0;
+        second = if len == 6 then builtins.elemAt nums 5 else 0;
+        leap = (year / 4 * 4 == year) && (year / 100 * 100 != year || year / 400 * 400 == year);
+        days =
+          if
+            lib.elem month [
+              1
+              3
+              5
+              7
+              8
+              10
+              12
+            ]
+          then
+            31
+          else if
+            lib.elem month [
+              4
+              6
+              9
+              11
+            ]
+          then
+            30
+          else if month == 2 then
+            if leap then 29 else 28
+          else
+            0;
+      in
+      days > 0 && day >= 1 && day <= days && hour < 24 && minute < 60 && second < 60
+    );
+  isArtifactVersion =
+    scheme: version:
+    if scheme == "legacy" then
+      isLegacyVersion version
+    else if scheme == "inspr-calendar-v1" then
+      isCalendarVersion version
+    else
+      false;
   isSha256Digest = value: builtins.match "sha256:[0-9a-f]{64}" value != null;
   isCommitDigest = value: builtins.match "[0-9a-f]{40}|[0-9a-f]{64}" value != null;
   isActionId = value: builtins.match "[A-Za-z0-9_-]{8,128}" value != null;
   isAbsolutePath = value: builtins.match "/[^[:space:]]*" value != null;
   # https only, no userinfo/query/fragment, empty or "/" path.
   isSafeOrigin = value: builtins.match "https://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?" value != null;
+  # Pharos `valid_release_manifest_coordinate`: `kind:coordinate`, kind is a
+  # symbol, coordinate is 1-190 chars starting alphanumeric.
+  isReleaseManifestCoordinate =
+    value:
+    let
+      pieces = lib.splitString ":" value;
+      kind = if pieces == [ ] then "" else builtins.head pieces;
+      rest = builtins.tail pieces;
+      coordinate = lib.concatStringsSep ":" rest;
+      coordLen = builtins.stringLength coordinate;
+    in
+    rest != [ ]
+    && isSymbol kind
+    && coordLen >= 1
+    && coordLen <= 190
+    && builtins.match "[A-Za-z0-9][A-Za-z0-9._/@:+-]*" coordinate != null;
 
-  artifactType = lib.types.submodule {
+  artifactUnchecked = lib.types.submodule {
     options = {
       versionScheme = lib.mkOption {
-        type = lib.types.enum [ "legacy" ];
+        type = lib.types.enum [
+          "legacy"
+          "inspr-calendar-v1"
+        ];
         example = "legacy";
         description = ''
           Required discriminator in the local Pharos adapter v2 contract.
-          Only `legacy` is valid; pharosd removes this field before serializing
-          the byte-stable Paimos external-stage v1 wire evidence.
+          `legacy` and `inspr-calendar-v1` are distinct tagged types; the scheme
+          is never inferred from version punctuation or segment count.
         '';
       };
       version = lib.mkOption {
         type = lib.types.addCheck lib.types.str isLegacyVersion;
         example = "0.1.83";
-        description = "Bounded artifact version reported as evidence.";
+        description = ''
+          Bounded artifact version. Legacy values keep the Pharos `valid_version`
+          charset; `inspr-calendar-v1` values must additionally be a real
+          `YY.MM.DD` or `YY.MM.DD.hh.mm.ss` calendar coordinate.
+        '';
+      };
+      releaseChannel = lib.mkOption {
+        type = lib.types.addCheck lib.types.str isSymbol;
+        example = "stable";
+        description = "Bounded release channel symbol. Required evidence; never defaulted.";
+      };
+      releaseSequence = lib.mkOption {
+        type = lib.types.ints.unsigned;
+        example = 123;
+        description = "Non-negative channel ordinal. Required evidence; never invented.";
       };
       digest = lib.mkOption {
-        type = lib.types.str;
+        type = lib.types.addCheck lib.types.str isSha256Digest;
         example = "sha256:2d880515627656322876eda1bb07462866d1ac57829fd3d72dc6418fb222a0fa";
         description = "Exact deployed artifact digest: `sha256:` plus 64 lowercase hex.";
       };
       commitDigest = lib.mkOption {
-        type = lib.types.str;
+        type = lib.types.addCheck lib.types.str isCommitDigest;
         example = "c68719d7dbaea4a2c5c557c59e7fdb8cd786ace2";
         description = "Lowercase 40- or 64-hex commit digest of the deployed source.";
       };
+      releaseManifestCoordinate = lib.mkOption {
+        type = lib.types.addCheck lib.types.str isReleaseManifestCoordinate;
+        example = "ghcr:inspr-at/pharos/releases/0.1.83";
+        description = "Immutable release-set manifest coordinate (`kind:path`). Required evidence; never invented.";
+      };
+      releaseManifestDigest = lib.mkOption {
+        type = lib.types.addCheck lib.types.str isSha256Digest;
+        example = "sha256:9f7c57503d2a883d548e41714ba8c37c5049a6e6a3e3fb0add6f460cfc7199ef";
+        description = "Digest of the release-set manifest: `sha256:` plus 64 lowercase hex. Required evidence; never invented.";
+      };
     };
   };
+  artifactType = lib.types.addCheck artifactUnchecked (
+    art: isArtifactVersion art.versionScheme art.version
+  );
 
   intentType = lib.types.submodule {
     options = {
@@ -102,9 +240,14 @@ let
         description = "Exact artifact this stage deploys or verifies.";
       };
       updateRestartJobId = lib.mkOption {
-        type = lib.types.nullOr lib.types.str;
+        type = lib.types.nullOr (lib.types.addCheck lib.types.str isActionId);
         default = null;
-        description = "Deployment only: the existing operator-confirmed Pharos UpdateRestart job this intent observes.";
+        description = ''
+          Deployment only, optional: an existing Pharos UpdateRestart job this
+          intent observes. Omit it to let accepted pharosd propose a deterministic
+          operator-confirmed guarded job. A supplied id must already be valid;
+          this module never confirms or starts the job.
+        '';
       };
       deploymentHandoffId = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
@@ -130,8 +273,12 @@ let
       artifact = {
         version_scheme = intent.artifact.versionScheme;
         version = intent.artifact.version;
+        release_channel = intent.artifact.releaseChannel;
+        release_sequence = intent.artifact.releaseSequence;
         digest = intent.artifact.digest;
         commit_digest = intent.artifact.commitDigest;
+        release_manifest_coordinate = intent.artifact.releaseManifestCoordinate;
+        release_manifest_digest = intent.artifact.releaseManifestDigest;
       };
     }
     // lib.optionalAttrs (intent.updateRestartJobId != null) {
@@ -287,20 +434,23 @@ in
           intent:
           isSymbol intent.environment
           && isHostName intent.host
-          && isLegacyVersion intent.artifact.version
+          && isArtifactVersion intent.artifact.versionScheme intent.artifact.version
+          && isSymbol intent.artifact.releaseChannel
+          && intent.artifact.releaseSequence >= 0
           && isSha256Digest intent.artifact.digest
           && isCommitDigest intent.artifact.commitDigest
+          && isReleaseManifestCoordinate intent.artifact.releaseManifestCoordinate
+          && isSha256Digest intent.artifact.releaseManifestDigest
         ) cfg.intents;
-        message = "inspr.pharosPaimosDelivery intent environment/host/artifact values must match the legacy-only pinned v1 contract shapes.";
+        message = "inspr.pharosPaimosDelivery intent environment/host/artifact values must match the owner-v2 evidence contract (explicit scheme, bounded channel/sequence/digests/manifest coordinate, real calendar dates).";
       }
       {
         assertion = lib.all (
           intent:
           intent.deploymentHandoffId == null
-          && intent.updateRestartJobId != null
-          && isActionId intent.updateRestartJobId
+          && (intent.updateRestartJobId == null || isActionId intent.updateRestartJobId)
         ) deploymentIntents;
-        message = "A deployment intent must name exactly one existing UpdateRestart job id and must not carry deploymentHandoffId.";
+        message = "A deployment intent must not carry deploymentHandoffId; updateRestartJobId is optional and, if set, must be a valid existing job id.";
       }
       {
         assertion = lib.all (

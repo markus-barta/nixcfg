@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# T48 — csb1 Paimos v1 external-stage adapter contract (NIX-381 / PAI-810).
+# T48 — csb1 Paimos owner-v2 external-stage adapter contract (NIX-381 / PAI-810).
 #
 # What can actually go wrong here, and what each block therefore proves:
 #
@@ -15,6 +15,9 @@
 #   4. The Janus reporter reads exactly one hard-coded path and takes no
 #      arguments; a unit that passes one is dead on arrival.
 #   5. No credential VALUE may appear anywhere in the declarative tree.
+#   6. Rendered adapter JSON must be the accepted Pharos owner-v2 eight-field
+#      artifact evidence, with an explicit legacy/calendar discriminator, real
+#      calendar dates, and no invented channel/sequence/manifest identity.
 set -euo pipefail
 
 if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
@@ -44,48 +47,143 @@ for file in "$stage" "$compose" "$host_config" "$pharos_module" "$pharos_eval" "
   nix-instantiate --parse "$file" >/dev/null
 done
 
-# --- 0. local adapter v2 keeps frozen Paimos v1 explicitly legacy-only -----
-adapter_document=$(nix eval --impure --json --expr "import $pharos_eval { }")
+eval_adapter() {
+  nix eval --impure --json --expr "import $pharos_eval { $* }"
+}
+
+expect_adapter_rejected() {
+  local expr=$1
+  local message=$2
+  if nix eval --impure --json --expr "$expr" >/dev/null 2>&1; then
+    printf '%s\n' "$message" >&2
+    exit 1
+  fi
+}
+
+# --- 0. local adapter v2 emits accepted Pharos owner-v2 artifact evidence ----
+legacy_document=$(eval_adapter)
 jq -e '
   .schema == "inspr.pharos.paimos-delivery-adapter.v2"
   and .schema_version == 2
   and (.intents | length == 2)
   and all(
-    .intents[].artifact;
-    . == {
+    .intents[];
+    .artifact == {
       commit_digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      release_channel: "stable",
+      release_manifest_coordinate: "ghcr:inspr-at/pharos/releases/0.2.0",
+      release_manifest_digest: "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      release_sequence: 123,
       version: "0.2.0",
       version_scheme: "legacy"
     }
+    and (.artifact | keys) == [
+      "commit_digest",
+      "digest",
+      "release_channel",
+      "release_manifest_coordinate",
+      "release_manifest_digest",
+      "release_sequence",
+      "version",
+      "version_scheme"
+    ]
   )
-  and all(
-    .intents[].artifact | del(.version_scheme);
-    . == {
+  and (.intents[0] | has("update_restart_job_id"))
+  and .intents[0].update_restart_job_id == "action_job_123"
+  and (.intents[1] | has("deployment_handoff_id"))
+  and .intents[1].deployment_handoff_id == "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+' <<<"$legacy_document" >/dev/null
+
+calendar_document=$(eval_adapter '
+  versionScheme = "inspr-calendar-v1";
+  artifactVersion = "26.09.05.09.00.00";
+  releaseSequence = 260905090000;
+  digest = "sha256:3333333333333333333333333333333333333333333333333333333333333333";
+  releaseManifestCoordinate = "ghcr:inspr-at/pharos/releases/26.09.05.09.00.00";
+  releaseManifestDigest = "sha256:4444444444444444444444444444444444444444444444444444444444444444";
+')
+jq -e '
+  all(
+    .intents[];
+    .artifact == {
       commit_digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      version: "0.2.0"
+      digest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      release_channel: "stable",
+      release_manifest_coordinate: "ghcr:inspr-at/pharos/releases/26.09.05.09.00.00",
+      release_manifest_digest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      release_sequence: 260905090000,
+      version: "26.09.05.09.00.00",
+      version_scheme: "inspr-calendar-v1"
     }
+    and (.artifact | keys | length) == 8
   )
-' <<<"$adapter_document" >/dev/null
-if nix eval --impure --json --expr \
-  "import $pharos_eval { versionScheme = \"inspr-calendar-v1\"; }" \
-  >/dev/null 2>&1; then
-  printf 'Pharos local adapter v2 accepted a non-legacy artifact version scheme\n' >&2
-  exit 1
-fi
-if nix eval --impure --json --expr \
-  "import $pharos_eval { artifactVersion = \"26.09.01.13.29.31\"; }" \
-  >/dev/null 2>&1; then
-  printf 'Pharos local adapter v2 accepted a calendar artifact version\n' >&2
-  exit 1
-fi
-if nix eval --impure --json --expr \
+' <<<"$calendar_document" >/dev/null
+
+leap_document=$(eval_adapter '
+  versionScheme = "inspr-calendar-v1";
+  artifactVersion = "24.02.29";
+  releaseManifestCoordinate = "ghcr:inspr-at/pharos/releases/24.02.29";
+')
+jq -e 'all(.intents[]; .artifact.version == "24.02.29" and .artifact.version_scheme == "inspr-calendar-v1")' \
+  <<<"$leap_document" >/dev/null
+
+# Punctuation must not select the scheme: a calendar-looking string stays legacy.
+punctuated_legacy=$(eval_adapter 'artifactVersion = "26.09.05.09.00.00";')
+jq -e 'all(.intents[]; .artifact.version_scheme == "legacy" and .artifact.version == "26.09.05.09.00.00")' \
+  <<<"$punctuated_legacy" >/dev/null
+
+omitted_job=$(eval_adapter 'updateRestartJobId = null;')
+jq -e '
+  (.intents[0] | has("update_restart_job_id") | not)
+  and (.intents[1] | has("deployment_handoff_id"))
+' <<<"$omitted_job" >/dev/null
+
+expect_adapter_rejected \
+  "import $pharos_eval { versionScheme = \"semver\"; }" \
+  'Pharos local adapter v2 accepted an unknown artifact version scheme'
+expect_adapter_rejected \
+  "import $pharos_eval { omitArtifactField = \"releaseChannel\"; }" \
+  'Pharos local adapter v2 accepted artifact evidence with releaseChannel missing'
+expect_adapter_rejected \
+  "import $pharos_eval { omitArtifactField = \"releaseSequence\"; }" \
+  'Pharos local adapter v2 accepted artifact evidence with releaseSequence missing'
+expect_adapter_rejected \
+  "import $pharos_eval { omitArtifactField = \"releaseManifestCoordinate\"; }" \
+  'Pharos local adapter v2 accepted artifact evidence with releaseManifestCoordinate missing'
+expect_adapter_rejected \
+  "import $pharos_eval { omitArtifactField = \"releaseManifestDigest\"; }" \
+  'Pharos local adapter v2 accepted artifact evidence with releaseManifestDigest missing'
+expect_adapter_rejected \
+  "import $pharos_eval { versionScheme = \"inspr-calendar-v1\"; artifactVersion = \"26.02.29\"; releaseManifestCoordinate = \"ghcr:inspr-at/pharos/releases/26.02.29\"; }" \
+  'Pharos local adapter v2 accepted non-leap 26.02.29 as inspr-calendar-v1'
+expect_adapter_rejected \
+  "import $pharos_eval { versionScheme = \"inspr-calendar-v1\"; artifactVersion = \"26.02.30\"; releaseManifestCoordinate = \"ghcr:inspr-at/pharos/releases/26.02.30\"; }" \
+  'Pharos local adapter v2 accepted 26.02.30 as inspr-calendar-v1 (regex-only calendar would pass)'
+expect_adapter_rejected \
+  "import $pharos_eval { versionScheme = \"inspr-calendar-v1\"; artifactVersion = \"26.04.31\"; releaseManifestCoordinate = \"ghcr:inspr-at/pharos/releases/26.04.31\"; }" \
+  'Pharos local adapter v2 accepted 26.04.31 as inspr-calendar-v1'
+expect_adapter_rejected \
+  "import $pharos_eval { versionScheme = \"inspr-calendar-v1\"; artifactVersion = \"0.2.0\"; }" \
+  'Pharos local adapter v2 accepted a legacy version string under inspr-calendar-v1'
+expect_adapter_rejected \
+  "import $pharos_eval { releaseChannel = \"Stable\"; }" \
+  'Pharos local adapter v2 accepted an upper-case release channel'
+expect_adapter_rejected \
+  "import $pharos_eval { releaseSequence = -1; }" \
+  'Pharos local adapter v2 accepted a negative release sequence'
+expect_adapter_rejected \
+  "import $pharos_eval { digest = \"sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"; }" \
+  'Pharos local adapter v2 accepted an upper-case artifact digest'
+expect_adapter_rejected \
+  "import $pharos_eval { releaseManifestCoordinate = \"not-a-coordinate\"; }" \
+  'Pharos local adapter v2 accepted a manifest coordinate without a kind prefix'
+expect_adapter_rejected \
+  "import $pharos_eval { deploymentHandoffId = null; }" \
+  'Pharos local adapter v2 accepted verification without a deployment predecessor'
+expect_adapter_rejected \
   "import $pharos_eval { artifactVersion = \"11111111111111111111111111111111111111111111111111111111111111111.0.0\"; }" \
-  >/dev/null 2>&1; then
-  printf 'Pharos local adapter v2 accepted an artifact version longer than 64 bytes\n' >&2
-  exit 1
-fi
+  'Pharos local adapter v2 accepted an artifact version longer than 64 bytes'
 
 # --- 1. one switch, wired on both sides -------------------------------------
 grep -Fq 'import ./paimos-delivery-stage.nix' "$host_config"
@@ -98,7 +196,24 @@ grep -Fq '../../modules/janus-paimos-dependency-reporter' "$host_config"
 # Rendered with the real file (whatever `active` currently is) and with a
 # forced-active copy, so this test keeps biting after the operator flips it.
 workdir="$(mktemp -d)"
-trap 'rm -rf "$workdir"' EXIT
+remove_synthetic_workdir() {
+  local dir=${1:-}
+  [[ -n "$dir" && -d "$dir" ]] || return 0
+  [[ "$dir" == "$workdir" ]] || {
+    printf 'refusing to delete unexpected path: %s\n' "$dir" >&2
+    return 1
+  }
+  case "$dir" in
+  /tmp/* | /var/folders/*) ;;
+  *)
+    printf 'refusing to delete non-temp path: %s\n' "$dir" >&2
+    return 1
+    ;;
+  esac
+  find "$dir" -mindepth 1 -delete
+  rmdir "$dir"
+}
+trap 'remove_synthetic_workdir "$workdir"' EXIT
 mkdir -p "$workdir/off/docker" "$workdir/on/docker"
 sed 's/^  active = true;/  active = false;/' "$stage" >"$workdir/off/paimos-delivery-stage.nix"
 sed 's/^  active = false;/  active = true;/' "$stage" >"$workdir/on/paimos-delivery-stage.nix"
