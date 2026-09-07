@@ -63,9 +63,9 @@ in
     # existing PAIMOS keyring and operator-authenticated vendor CLIs.
     paimosAgentd = {
       enable = true;
-      # codexAccountsFile stays unset until a Paimos pin whose agentd serve
-      # accepts --codex-accounts (PAI-955). Enabling it on the current pin
-      # would pass an unknown flag.
+      # PAI-955 / NIX-437: this pin's agentd serve accepts --codex-accounts.
+      # The path is owner-only JSON outside the store; Nix never reads it.
+      codexAccountsFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/codex-accounts.json";
       lifecycleConfigFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/lifecycle.json";
       reporting = {
         enable = true;
