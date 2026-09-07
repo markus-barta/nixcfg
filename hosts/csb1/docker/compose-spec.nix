@@ -1083,10 +1083,10 @@ in
     # allowlist below; beacons use tailnet /report and PHAROS-8 machine auth.
     # FleetCom is decommissioned; Pharos is the live fleet dashboard.
     pharosd = {
-      # 0.1.84 = owner-intent/origin replay binding, HTTPS-only transport, exact media semantics, and disabled compression decoding (PHAROS-206).
-      # Keep the readable release tag, but bind it to the verified immutable
-      # linux/amd64 manifest used by both server and bundled beacon.
-      image = "ghcr.io/inspr-at/pharos/pharosd:26.09.01.13.29.31@sha256:595ac6261935f2334195e811fec395edd67ec7433ab9cef63eaa472becb6c98f";
+      # PHAROS-206: guarded delivery bridge and fixed Debian security snapshot.
+      # Pin the verified release index containing the linux/amd64 image and
+      # provenance. Upgrade the control plane before starting v6 beacons.
+      image = "ghcr.io/inspr-at/pharos/pharosd:26.09.07.22.08.13@sha256:793c4892b9bc4b14c25eea0295d64cdea2c88bd14db1f7846bda2d807457340c";
       container_name = "pharosd";
       restart = "unless-stopped";
       init = true;
@@ -1225,7 +1225,7 @@ in
     # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
     # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:26.09.01.13.29.31@sha256:595ac6261935f2334195e811fec395edd67ec7433ab9cef63eaa472becb6c98f";
+      image = "ghcr.io/inspr-at/pharos/pharosd:26.09.07.22.08.13@sha256:793c4892b9bc4b14c25eea0295d64cdea2c88bd14db1f7846bda2d807457340c";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
