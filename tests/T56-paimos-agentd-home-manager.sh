@@ -19,14 +19,14 @@ locked = lock["locked"]
 assert original == {
     "owner": "inspr-at",
     "repo": "paimos",
-    "ref": "v26.09.07",
+    "ref": "v26.09.07.11.41",
     "type": "github",
 }, original
-assert locked["rev"] == "1652e1a3fa04207aed37eb4eea0bb236746463fa", locked
+assert locked["rev"] == "1b89d34d538840195ac4f0f1fe5f076e48951e7a", locked
 PY
 
 package_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.paimos-cli.version')
-[ "$package_version" = 26.09.07 ] || fail "Paimos package is not the canonical v26.09.07 release: $package_version"
+[ "$package_version" = 26.09.07.11.41 ] || fail "Paimos package is not the canonical v26.09.07.11.41 release: $package_version"
 
 deployment_version=$(
   python3 - "$repo_root/flake.nix" "$repo_root/hosts/csb1/docker/compose-spec.nix" <<'PY'
@@ -181,4 +181,4 @@ grep -Fq '/Users/markus/.inspr/secrets/agents/PPMAPIKEY.env' <<<"$activation" ||
 grep -Fq '/Users/markus/Library/Caches/paimos/agentd/report-api-key' <<<"$activation" || fail 'reporting destination is not private agentd state'
 grep -Fq 'PPMAPIKEY' <<<"$activation" || fail 'reporting assignment name is not pinned'
 
-printf 'T56 passed: mbp2607 pins Paimos 26.09.07 with authenticated private agentd reporting and lifecycle control\n'
+printf 'T56 passed: mbp2607 pins Paimos 26.09.07.11.41 with authenticated private agentd reporting and lifecycle control\n'
