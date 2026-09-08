@@ -78,6 +78,8 @@ for flag, value in expected_pairs.items():
     index = args.index(flag)
     assert args[index + 1] == value, (flag, args)
     assert args.count(flag) == 1, (flag, args)
+for flag in ("--pi-path", "--pi-accounts", "--cursor-path", "--cursor-accounts"):
+    assert flag not in args, (flag, args)
 codex_index = args.index("--codex-path")
 assert args[codex_index + 1].startswith("/nix/store/"), args
 assert args[codex_index + 1].endswith("-paimos-agentd-codex/bin/paimos-agentd-codex"), args
