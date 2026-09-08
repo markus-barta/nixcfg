@@ -159,12 +159,18 @@ for cli in claude grok pi; do
     fail "mbp2607 must shadow the real $cli entry point"
 done
 # Codex, cursor-agent and its `agent` symlink each apply their own Seatbelt
-# profile; wrapping any of them would break the sandbox they already have.
-for unwrappable in codex cursor-agent agent; do
-  if grep -Eq "^ *$unwrappable = " hosts/mbp2607/home.nix; then
-    fail "$unwrappable must never be sandbox-wrapped — macOS refuses nested Seatbelt profiles"
-  fi
-done
+# profile; wrapping any of them would break the sandbox they already have. They
+# may appear under envOnlyPrograms — only shadowedPrograms is a Seatbelt wrap.
+python3 - <<'PYSHADOW' || exit 1
+import re, sys
+src = open("hosts/mbp2607/home.nix", encoding="utf-8").read()
+block = re.search(r"shadowedPrograms = \{(.*?)\n *\};", src, re.S)
+if not block:
+    print("T72 failed: shadowedPrograms block not found", file=sys.stderr); sys.exit(1)
+for unwrappable in ("codex", "cursor-agent", "agent"):
+    if re.search(rf"^\s*{re.escape(unwrappable)}\s*=", block.group(1), re.M):
+        print(f"T72 failed: {unwrappable} must never be Seatbelt-wrapped", file=sys.stderr); sys.exit(1)
+PYSHADOW
 grep -Fq 'cursor-agent' modules/uzumaki/agent-browser-guard.nix ||
   fail 'the module must state the Cursor limitation explicitly'
 grep -Fq 'fish_add_path --prepend --move ${shadowBin}/bin' modules/uzumaki/agent-browser-guard.nix ||

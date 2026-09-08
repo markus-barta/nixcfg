@@ -28,7 +28,7 @@ _Loaded by `CLAUDE.md` alongside the kernel. nixcfg-specific rules only — univ
 ## Agent browser launches (NIX-445)
 
 - 🔴 **Never start a native browser from an agent session.** No `open -a "Google Chrome"`, no Playwright/Puppeteer `executablePath` into `/Applications/…`, no browser binary you located yourself. Chrome aborts inside macOS `_RegisterApplication` when a sandboxed agent session starts it and takes over the operator's desktop. _(repeated; latest 2026-09-08 21:35 CEST)_
-- 🔴 **A blocked launch is not a passed test.** On `inspr-browser-guard-refuse` output, or `Operation not permitted` / `EPERM` on a browser path: report the refusal and stop. No retry, no second binary, no unsetting `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, no disabling the guard.
+- 🔴 **A blocked launch is not a passed test.** On `inspr-browser-guard-refuse` output, an `INSPR_BROWSER_GUARD_REFUSED` error from Node, or `Operation not permitted` / `EPERM` on a browser path: report the refusal and stop. No retry, no second binary, no unsetting `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, no disabling the guard.
 - 🟡 Browser QA belongs to a **verified controller-owned or remote runner** — ask the controller. `templates/playwright-qa` is _not_ that runner: it is the NIX-288 native-browser path this guard blocks. If no verified runner is available, report browser QA as unavailable.
 - 🟡 The guard is technical where macOS allows it and environment-level where it does not — mechanism, wiring and the exact uncovered invocation paths: `modules/uzumaki/agent-browser-guard.nix` and `lib/agent-browser-guard.nix`.
 

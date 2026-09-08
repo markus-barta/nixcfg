@@ -38,6 +38,17 @@ let
     pkgs.writeShellScriptBin "paimos-agentd-${name}" ''
       exec ${lib.escapeShellArg browserGuard.guardCommand} ${lib.escapeShellArg target} "$@"
     '';
+  # Env-only launcher for a CLI that runs its own sandbox (Cursor): harness hints
+  # plus the Node preload, no Seatbelt profile, pinned path and auth untouched.
+  mkEnvOnlyCli =
+    name: target:
+    pkgs.writeShellScriptBin "paimos-agentd-${name}" ''
+      ${guardEnvExports}
+      exec ${lib.escapeShellArg target} "$@"
+    '';
+  envOnlyCliPath =
+    name: target:
+    if guardEnabled then "${mkEnvOnlyCli name target}/bin/paimos-agentd-${name}" else target;
   guardedCliPath =
     name: target:
     if guardEnabled && lib.elem name cfg.browserGuard.sandboxedClis then
@@ -181,10 +192,13 @@ let
   ]
   ++ lib.optionals (cfg.cursorPath != null && cfg.cursorAccountsFile != null) [
     "--cursor-path"
-    # Unwrapped on purpose: the Cursor CLI applies its own Seatbelt profile via
-    # its `cursorsandbox` helper, and macOS refuses nested profiles. It receives
-    # the plist environment hints only — a hint, not a boundary (NIX-445).
-    cfg.cursorPath
+    # Never Seatbelt-wrapped: the Cursor CLI applies its own profile via its
+    # `cursorsandbox` helper and macOS refuses nested profiles (measured: a real
+    # `--sandbox enabled` tool call under the guard died with `sandbox_apply`
+    # EPERM, exit 71). It gets the env-only launcher instead — harness hints plus
+    # the Node child-process preload. Accidental-launch prevention, not a
+    # boundary (NIX-445).
+    (envOnlyCliPath "cursor" cfg.cursorPath)
     "--cursor-accounts"
     cursorAccountsFile
   ];

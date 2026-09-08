@@ -84,6 +84,15 @@ in
         grok = "${config.home.homeDirectory}/.npm-global/bin/grok";
         pi = "${config.home.homeDirectory}/.npm-global/bin/pi";
       };
+      # Cursor: env-only, deliberately no Seatbelt. `cursor-agent` and `agent`
+      # are the same pinned vendor binary by symlink; both keep their own
+      # sandbox, auth and owned lifecycle and only gain the Node preload plus the
+      # harness hints. Composer and Grok run through this same harness and
+      # inherit it. Accidental-launch prevention, not a boundary.
+      envOnlyPrograms = {
+        cursor-agent = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
+        agent = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
+      };
       # Explicit target for the operator-owned imperative shims that call an
       # absolute path (the named Codex launchers' Claude equivalents, and any
       # migration snippet in the checklist).

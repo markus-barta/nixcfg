@@ -223,6 +223,68 @@ rec {
       ${mkCodexPermissionsToml { inherit profileName extends denyPaths; }}
     '';
 
+  # ── Node preload: accidental-launch prevention where no sandbox can apply ──
+  # Cursor ships its own seatbelt helper, so it can be neither wrapped (macOS
+  # refuses nested profiles — a real `cursor-agent --sandbox enabled` tool call
+  # under the guard failed with `sandbox_apply` EPERM, exit 71) nor expressed
+  # natively: its sandbox.json schema has no arbitrary filesystem deny, and a
+  # `permissions.deny = [Read(<path>)]` rule does not reach the native shell
+  # sandbox — both were measured with fake executables, and both let the fake
+  # run. What is left is the actual launch chain: Node.
+  #
+  # This preload wraps spawn/spawnSync/execFile/execFileSync (including the
+  # promisified execFile custom) and refuses before a denied executable starts.
+  # It is cooperative and process-local: a direct shell/Python/Go/XPC launch or a
+  # scrubbed NODE_OPTIONS escapes it. Never call it a boundary.
+  defaultBrowserBasenames = [
+    "Google Chrome"
+    "Google Chrome Canary"
+    "Google Chrome Beta"
+    "Google Chrome Dev"
+    "Chromium"
+    "chromium"
+    "chrome"
+    "google-chrome"
+    "google-chrome-stable"
+    "Brave Browser"
+    "Microsoft Edge"
+    "msedge"
+    "firefox"
+    "Firefox"
+    "Safari"
+    "Zen"
+    "Helium"
+    "Arc"
+  ];
+
+  mkPreloadText =
+    {
+      denyPaths,
+      denyBasenames ? defaultBrowserBasenames,
+    }:
+    let
+      checked = map (checkPath "preload deny path") denyPaths;
+      source = builtins.readFile ../modules/uzumaki/agent-browser-guard.cjs;
+    in
+    builtins.replaceStrings
+      [ "@INSPR_DENY_PATHS@" "@INSPR_DENY_BASENAMES@" ]
+      [ (builtins.toJSON checked) (builtins.toJSON denyBasenames) ]
+      source;
+
+  # Shell snippet that adds the preload to NODE_OPTIONS without discarding an
+  # existing value and without adding it twice.
+  mkPreloadEnvExports =
+    preloadPath:
+    let
+      preload = checkPath "preload path" preloadPath;
+    in
+    ''
+      case " ''${NODE_OPTIONS-} " in
+        *" --require ${preload} "*) ;;
+        *) NODE_OPTIONS="''${NODE_OPTIONS-} --require ${preload}"; export NODE_OPTIONS ;;
+      esac
+    '';
+
   # Self-test anchor. Included in every rendered Codex deny list so the managed
   # installer can prove enforcement by exec'ing a FAKE executable at this path,
   # instead of touching a real browser. Nothing legitimate ever lives here.
@@ -453,6 +515,7 @@ rec {
     {
       profilePath,
       refusalPath,
+      preloadPath ? null,
       sandboxExec ? "/usr/bin/sandbox-exec",
     }:
     let
@@ -493,6 +556,7 @@ rec {
       fi
 
       ${envExports}
+      ${lib.optionalString (preloadPath != null) (mkPreloadEnvExports preloadPath)}
 
       # Fail closed: if the profile cannot be applied (for example because this
       # process already runs under a restrictive Seatbelt profile — see the
