@@ -69,27 +69,29 @@ in
       enable = true;
       # Chromium PWA shims launch the real Chrome binary from a second location.
       extraDenyPaths = [ "${config.home.homeDirectory}/Applications/Chromium Apps.localized" ];
-      # Same-name launchers ahead of ~/.npm-global/bin and /opt/homebrew/bin in
-      # fish, so the callers that exist today — bare `claude`, the `cla`/`clar`
-      # aliases, `grok` from either resolution — become guarded without being
-      # renamed. Each execs the absolute vendor path, so npm self-updates apply.
+      # Same-name launchers placed ahead of ~/.npm-global/bin and
+      # /opt/homebrew/bin, so today's callers — bare `claude`, the `cla`/`clar`
+      # aliases, `grok` from either resolution, `cursor-agent`/`agent` — pick
+      # them up without being renamed. Each execs the absolute vendor path, so
+      # CLI self-updates still apply. Coverage is fish plus zsh (via .zshenv,
+      # which even `zsh -c` reads); bash and sh scripts are NOT covered by PATH.
       #
-      # Codex, `cursor-agent` and its `agent` symlink are deliberately absent:
-      # each applies its OWN Seatbelt profile and macOS refuses nested profiles,
-      # so wrapping them would break the sandbox they already have. Codex is
-      # covered by its native permission profile instead; Cursor has no proven
-      # equivalent yet and is honestly reported as uncovered.
-      shadowedPrograms = {
+      # NIX-445 / D1: these launchers are ENV+PRELOAD, not Seatbelt.
+      # This Mac's live topology is a Claude controller dispatching Codex and
+      # Cursor workers, and a Seatbelt profile is inherited by every descendant —
+      # a guarded controller would kill exactly those workers when they apply
+      # their own profile. Dispatch keeps working; the trade is that these paths
+      # get accidental-launch prevention, not an OS boundary. The strict route
+      # stays one explicit command away (`claude-guarded`) for leaf workers.
+      shadowedPrograms = { };
+      envOnlyPrograms = {
         claude = "${config.home.homeDirectory}/.npm-global/bin/claude";
         grok = "${config.home.homeDirectory}/.npm-global/bin/grok";
         pi = "${config.home.homeDirectory}/.npm-global/bin/pi";
-      };
-      # Cursor: env-only, deliberately no Seatbelt. `cursor-agent` and `agent`
-      # are the same pinned vendor binary by symlink; both keep their own
-      # sandbox, auth and owned lifecycle and only gain the Node preload plus the
-      # harness hints. Composer and Grok run through this same harness and
-      # inherit it. Accidental-launch prevention, not a boundary.
-      envOnlyPrograms = {
+        # Cursor: `cursor-agent` and `agent` are the same pinned vendor binary
+        # by symlink; both keep their own sandbox, auth and owned lifecycle and
+        # only gain the Node preload plus the harness hints. Composer and Grok
+        # run through this same harness and inherit it.
         cursor-agent = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
         agent = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
       };
@@ -110,7 +112,10 @@ in
       # profiles. Cursor stays env-only until its sandbox behaviour is verified.
       browserGuard = {
         enable = true;
-        sandboxedClis = [ "claude" ];
+        # Empty: agentd-owned Claude sessions dispatch Codex and Cursor workers,
+        # which cannot apply their own Seatbelt profile beneath ours. They get
+        # the env+preload route instead — see the D1 note above.
+        sandboxedClis = [ ];
       };
       # PAI-955 / NIX-437: this pin's agentd serve accepts --codex-accounts.
       # The path is owner-only JSON outside the store; Nix never reads it.

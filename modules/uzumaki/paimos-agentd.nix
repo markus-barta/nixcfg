@@ -49,12 +49,18 @@ let
   envOnlyCliPath =
     name: target:
     if guardEnabled then "${mkEnvOnlyCli name target}/bin/paimos-agentd-${name}" else target;
+  # NIX-445 / D1: the default route is env+preload, NOT a Seatbelt profile. A
+  # guarded session's profile is inherited by every descendant, and Codex and
+  # Cursor cannot apply their own profile beneath it — so wrapping a session that
+  # dispatches them would break the live controller topology. The strict route
+  # stays available per CLI through `sandboxedClis`, for leaf workers that never
+  # dispatch another agent.
   guardedCliPath =
     name: target:
     if guardEnabled && lib.elem name cfg.browserGuard.sandboxedClis then
       "${mkGuardedCli name target}/bin/paimos-agentd-${name}"
     else
-      target;
+      envOnlyCliPath name target;
   safeExternalPath =
     path: lib.hasPrefix "/" path && path != "/nix/store" && !lib.hasPrefix "/nix/store/" path;
   pairComplete = path: accounts: (path == null) == (accounts == null);
@@ -322,10 +328,15 @@ in
             "pi"
           ]
         );
-        default = [ "claude" ];
+        default = [ ];
         description = ''
           Which owned CLI paths are executed under the Seatbelt guard, as
-          opposed to receiving the environment layer only.
+          opposed to the default env+preload route.
+
+          Empty by default on purpose: the profile is inherited by every
+          descendant, and a session that dispatches Codex or Cursor would kill
+          them with `sandbox_apply: Operation not permitted`. Name a CLI here
+          only for leaf workers that never dispatch another agent.
 
           Codex and Cursor are deliberately absent from this enum and cannot be
           added:

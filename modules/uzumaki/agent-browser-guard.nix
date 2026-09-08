@@ -8,8 +8,23 @@
 # FIVE LAYERS, DELIBERATELY DIFFERENT IN STRENGTH
 #   1. Seatbelt boundary — `inspr-agent-guard <program>` runs the program under a
 #      profile that denies `process-exec*` on every browser bundle. Inherited by
-#      all descendants, including Node/Playwright grandchildren. Usable only for
-#      CLIs that do NOT apply their own Seatbelt profile.
+#      all descendants, including Node/Playwright grandchildren.
+#
+#      THE INHERITANCE CUTS BOTH WAYS, and this is the D1 decision made here:
+#      a guarded session's descendants cannot apply their own Seatbelt profile
+#      either, so Codex and Cursor started BENEATH a guarded Claude die with
+#      `sandbox_apply: Operation not permitted`. The live topology on this Mac is
+#      a Claude controller dispatching Codex and Cursor workers. Therefore the
+#      default route for every dispatch-capable entry point — the same-name shell
+#      launchers and the agentd-owned CLIs — is env+preload, NOT this profile.
+#      The strict route stays available and opt-in for leaf workers that never
+#      dispatch another agent: the `*-guarded` launchers and
+#      `paimosAgentd.browserGuard.sandboxedClis` (empty by default). Strict
+#      wrappers are re-entrant: inside an existing guard they exec directly
+#      rather than failing on a second `sandbox_apply`.
+#      Consequence, stated plainly: after activation the only OS-level boundary
+#      in the default path is Codex's own permission profile, and only once the
+#      managed config is installed. Everything else is layer 3 and 4.
 #   2. Codex native policy — Codex applies its own Seatbelt profile per command,
 #      and macOS refuses nested profiles, so Codex is covered by an equivalent
 #      deny inside ITS OWN permission profile (`extends = ":workspace"` plus a
@@ -47,9 +62,19 @@
 #        sudo inspr-codex-managed-install            # refuses to clobber a
 #        sudo inspr-codex-managed-install --replace-existing   # foreign config
 #        sudo inspr-codex-managed-install --rollback  # checksum-guarded restore
-#      Managed enforcement then also covers absolute Codex callers — the named
-#      account launchers and the agent.one docs path — without touching their
-#      authentication homes.
+#      The installer proves enforcement through `codex sandbox`, including a
+#      flagless invocation; `codex exec` and the app-server are covered by the
+#      same managed default but are NOT exercised by that proof, so treat plain
+#      absolute callers as covered only after a fresh-session check.
+#
+#      Two profiles are rendered, because this machine has two legitimate modes:
+#      a workspace-scoped default, and a guarded FULL-access profile (no
+#      `extends`, `":root" = "write"`, network enabled, same browser denies) for
+#      the launches that today pass `--dangerously-bypass-approvals-and-sandbox`.
+#      `inspr-codex-full` maps that flag onto the guarded-full profile and keeps
+#      approvals non-interactive, so authorized full-access work keeps working
+#      without ever running the built-in unguarded bypass. Ordinary defaults stay
+#      workspace-scoped; no account is broadened.
 #   b. Cursor has NO sandbox-grade coverage, and this is settled, not pending:
 #        - wrapped in the Seatbelt guard, a real `cursor-agent --sandbox enabled
 #          --auto-review` tool call died with `sandbox_apply` EPERM, exit 71
@@ -60,25 +85,36 @@
 #      So Cursor gets the env-only launcher: harness hints plus the Node preload.
 #      Composer and Grok run through the same harness and inherit it. Do not
 #      propose a Read-deny or a `--help` proof again.
-#   c. RAW ABSOLUTE CALLERS REQUIRE FRESH GUARDED ENTRY POINTS. Anything that
+#   c. KNOWN ABSOLUTE CALLERS TO MIGRATE (named, not hand-waved):
+#        ~/.local/share/inspr/codex/bin/codex-admin
+#        ~/.local/share/inspr/codex/bin/codex-markus
+#      are operator-owned Python shims that `execve` the absolute
+#      ~/.npm-global/bin/codex, and the agent.one guide uses that absolute path
+#      directly. Managed Codex policy (a) reaches them without any change,
+#      because it is machine-wide — but their full-access launches keep using the
+#      built-in bypass until they are pointed at `inspr-codex-full`, which is the
+#      exported guarded launcher for exactly that. Nothing here edits those shims
+#      or any credential: they are declaratively unowned, so migration is an
+#      operator step after the reviewed install.
+#   d. RAW ABSOLUTE CALLERS REQUIRE FRESH GUARDED ENTRY POINTS. Anything that
 #      invokes a vendor binary by absolute path — the operator-owned imperative
 #      Codex shims, a script holding ~/.npm-global/bin/claude, a dispatcher
 #      holding the pinned cursor-agent path — bypasses every PATH-based launcher
 #      here by construction. Managed Codex (a) closes that for Codex only. The
 #      rest must be migrated to the guarded entry points; until each one is,
 #      it is uncovered, and saying otherwise would be false.
-#   d. Codex app-server picks up policy at start: restart it after (a).
+#   e. Codex app-server picks up policy at start: restart it after (a).
 #
 # WHAT THIS MODULE DOES NOT DO
 #   - It does not touch `home.sessionVariables`. Ordinary human shells keep the
 #     NIX-288 export (modules/uzumaki/macos-common.nix → playwrightSessionVars)
 #     and normal browser use from Finder/Dock/Spotlight is unaffected.
 #   - It never shadows `codex`: wrapping it would break its own sandbox. Other
-#     CLIs ARE shadowed under their real names (`shadowedPrograms`) in a
-#     dedicated directory that fish puts ahead of ~/.npm-global/bin and
-#     /opt/homebrew/bin, so today's callers and aliases become guarded without
-#     being renamed. Callers that hardcode an absolute vendor path still bypass
-#     it — see the migration items above.
+#     CLIs get same-name launchers in a dedicated directory placed ahead of
+#     ~/.npm-global/bin and /opt/homebrew/bin — by fish `shellInit` and by zsh
+#     `envExtra` (.zshenv, which non-interactive `zsh -c` also reads). bash, sh
+#     scripts and launchd jobs are NOT covered by PATH, and callers that hardcode
+#     an absolute vendor path bypass it by construction — see the migration items.
 #   - It writes nothing into a CODEX_HOME, /etc, a vendor npm package or a
 #     browser app bundle.
 {
@@ -124,18 +160,36 @@ let
   # Codex cannot be wrapped (macOS refuses nested Seatbelt profiles); it carries
   # the same deny in its OWN permission policy instead. Rendered here, installed
   # by the operator — see the activation checklist in the option descriptions.
-  # The probe path is a self-test anchor, not a browser: the managed installer
-  # writes a fake executable there and proves the deny without touching Chrome.
-  codexDenyPaths = cfg.browserBundles ++ cfg.extraDenyPaths ++ [ guardLib.codexProbePath ];
+  # Self-test anchors, not browsers. The root one lives inside the root-owned
+  # managed directory (a fixed name in world-writable /private/var/tmp would be a
+  # symlink trap for the one sudo command). The unprivileged one is what the
+  # Node preload proof and the tests use; nothing privileged ever writes there.
+  codexDenyPaths =
+    cfg.browserBundles
+    ++ cfg.extraDenyPaths
+    ++ [
+      guardLib.codexProbePath
+      cfg.preloadProbePath
+    ];
   codexProfile = pkgs.writeText "codex-permissions.toml" (
     guardLib.mkCodexPermissionsToml {
-      inherit (cfg.codexPermissions) profileName extends;
+      inherit (cfg.codexPermissions)
+        profileName
+        fullProfileName
+        readOnlyProfileName
+        extends
+        ;
       denyPaths = codexDenyPaths;
     }
   );
   codexRequirements = pkgs.writeText "codex-requirements.toml" (
     guardLib.mkCodexRequirementsToml {
-      inherit (cfg.codexPermissions) profileName extends;
+      inherit (cfg.codexPermissions)
+        profileName
+        fullProfileName
+        readOnlyProfileName
+        extends
+        ;
       denyPaths = codexDenyPaths;
     }
   );
@@ -146,9 +200,44 @@ let
   managedInstaller = pkgs.writeShellScriptBin "inspr-codex-managed-install" (
     guardLib.mkManagedInstallerText {
       requirementsPath = "${codexRequirements}";
-      inherit (cfg.codexPermissions) profileName codexBinary;
+      inherit (cfg.codexPermissions)
+        profileName
+        fullProfileName
+        readOnlyProfileName
+        codexBinary
+        ;
     }
   );
+
+  # Stable, non-Seatbelt route for an explicit full-access Codex launch. The
+  # coordinator and the operator's own native sessions run with
+  # `--dangerously-bypass-approvals-and-sandbox`; forcing them to workspace scope
+  # would break authorized work, and leaving them on the built-in bypass would
+  # leave the browser reachable. This maps that flag onto the guarded-full
+  # profile, keeps approvals non-interactive as the flag implied, and passes
+  # everything else — including CODEX_HOME and auth — through untouched.
+  codexFullLauncher = pkgs.writeShellScriptBin "inspr-codex-full" ''
+    set -eu
+    args=()
+    saw_bypass=0
+    saw_approval=0
+    for arg in "$@"; do
+      case "$arg" in
+        --dangerously-bypass-approvals-and-sandbox) saw_bypass=1 ;;
+        --ask-for-approval | -a | --ask-for-approval=*) saw_approval=1; args+=("$arg") ;;
+        *) args+=("$arg") ;;
+      esac
+    done
+    if [ "$saw_bypass" = 0 ]; then
+      printf '%s\n' 'inspr-codex-full: expects --dangerously-bypass-approvals-and-sandbox; use codex directly otherwise' >&2
+      exit 64
+    fi
+    set -- -c ${lib.escapeShellArg "default_permissions=\"${cfg.codexPermissions.fullProfileName}\""}
+    if [ "$saw_approval" = 0 ]; then
+      set -- "$@" --ask-for-approval never
+    fi
+    exec ${lib.escapeShellArg cfg.codexPermissions.codexBinary} "$@" "''${args[@]}"
+  '';
 
   # Named guarded launcher: `exec` keeps argv, signals and the caller's
   # environment intact, so a self-updating npm CLI behind an absolute path
@@ -156,6 +245,13 @@ let
   mkWrapper =
     name: target:
     pkgs.writeShellScriptBin name ''
+      # Re-entrancy: the profile is inherited by every descendant, and macOS
+      # refuses to apply a second one. If we are already inside our own guard,
+      # exec the vendor path directly — the outer profile still covers this
+      # process — instead of dying on `sandbox_apply`.
+      if [ "''${INSPR_AGENT_BROWSER_GUARD-}" = sandbox ]; then
+        exec ${lib.escapeShellArg target} "$@"
+      fi
       exec ${lib.escapeShellArg guardPath} ${lib.escapeShellArg target} "$@"
     '';
   # Env-only launcher: same vendor path, same argv, no Seatbelt profile. For
@@ -167,6 +263,7 @@ let
       exec ${lib.escapeShellArg target} "$@"
     '';
   wrappers = lib.mapAttrsToList mkWrapper cfg.guardedPrograms;
+  hasLaunchers = cfg.shadowedPrograms != { } || cfg.envOnlyPrograms != { };
 
   # PATH-shadowing launchers: same command NAME as the vendor CLI, in a directory
   # of their own that fish puts ahead of ~/.npm-global/bin and /opt/homebrew/bin.
@@ -239,6 +336,29 @@ in
         description = "Name of the Codex native permission profile this guard renders.";
       };
 
+      fullProfileName = lib.mkOption {
+        type = lib.types.str;
+        default = "${cfg.codexPermissions.profileName}-full";
+        description = ''
+          Name of the guarded FULL-ACCESS Codex profile: no `extends`,
+          `":root" = "write"`, network enabled, same browser denies. Explicit
+          `--dangerously-bypass-approvals-and-sandbox` launches are routed here
+          by `inspr-codex-full` instead of running the built-in unguarded bypass.
+          Ordinary defaults stay workspace-scoped.
+        '';
+      };
+
+      readOnlyProfileName = lib.mkOption {
+        type = lib.types.str;
+        default = "${cfg.codexPermissions.profileName}-readonly";
+        description = ''
+          Name of the guarded READ-ONLY Codex profile. Without it, a managed
+          allow-list naming only the workspace profile would silently broaden an
+          explicit read-only caller to workspace-write. This keeps read-only
+          read-only, minus the browsers.
+        '';
+      };
+
       codexBinary = lib.mkOption {
         type = lib.types.str;
         default = "${config.home.homeDirectory}/.npm-global/bin/codex";
@@ -298,6 +418,17 @@ in
         `Read(<path>)` permission deny does not reach the native shell sandbox,
         so the Node preload is the honest remaining lever. It prevents accidental
         Playwright-shaped launches; it is not a boundary.
+      '';
+    };
+
+    preloadProbePath = lib.mkOption {
+      type = lib.types.str;
+      default = "${config.home.homeDirectory}/${guardLib.defaultPreloadProbeRelative}";
+      description = ''
+        Unprivileged self-test anchor carried in the deny lists so the Node
+        preload and the Cursor proof can be exercised with a fake executable.
+        Never written by anything privileged, and deliberately not the root
+        installer's anchor.
       '';
     };
 
@@ -409,14 +540,24 @@ in
       guard
       refusal
       managedInstaller
+      codexFullLauncher
     ]
     ++ wrappers;
 
     # fish is the interactive shell here, and ai-clis-npm.nix prepends
     # ~/.npm-global/bin in its own shellInit; `mkAfter` puts the guard directory
     # in front of it. `--move` keeps a single entry if it is already present.
-    programs.fish.shellInit = lib.mkIf (cfg.shadowedPrograms != { }) (
+    programs.fish.shellInit = lib.mkIf (hasLaunchers) (
       lib.mkAfter "fish_add_path --prepend --move ${shadowBin}/bin"
+    );
+
+    # zsh: `envExtra` lands in .zshenv, which every zsh reads — including the
+    # non-interactive `zsh -c` an agent Bash tool uses. `initExtra` would only
+    # cover interactive shells. Other shells (bash, sh scripts, launchd jobs)
+    # are NOT covered by PATH at all; they reach the guard only through an
+    # absolute guarded path or an agentd-owned launch.
+    programs.zsh.envExtra = lib.mkIf (hasLaunchers) (
+      lib.mkAfter ''export PATH="${shadowBin}/bin:$PATH"''
     );
 
     # Operator-reviewable copies of the Codex policy. Home Manager owns these two

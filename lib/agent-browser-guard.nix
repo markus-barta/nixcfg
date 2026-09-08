@@ -162,42 +162,97 @@ rec {
   #   - Only managed `/etc/codex/requirements.toml` forces the profile against
   #     such callers. Writing that file is a privileged operator step; this repo
   #     renders the exact content and never installs it.
+  # Two profiles, because this machine has two legitimate Codex modes.
+  #   guarded-workspace  — extends the built-in ":workspace" baseline. The
+  #     ordinary default; the two named accounts already run workspace-write.
+  #   guarded-full       — NO extends, `":root" = "write"`, network enabled.
+  #     The guarded stand-in for `--dangerously-bypass-approvals-and-sandbox`,
+  #     which the root coordinator and the operator's own native sessions use
+  #     today. Without it, a single workspace-only managed policy would silently
+  #     break those authorized full-access workflows. Verified read-only on Codex
+  #     0.153.4 with a fake executable: an outside-workspace write succeeded and
+  #     the fake exec was denied, no marker written.
+  # Both deny the same paths. Ordinary defaults stay workspace; full mode is
+  # opt-in per invocation and is never the built-in unguarded bypass.
+  mkCodexProfileBlock =
+    {
+      name,
+      denyPaths,
+      extends ? null,
+      rootWrite ? false,
+      rootRead ? false,
+      networkEnabled ? false,
+    }:
+    let
+      profile =
+        if builtins.match "[a-z0-9][a-z0-9-]*" name != null then
+          name
+        else
+          throw "agent-browser-guard: Codex profile name must be lowercase kebab-case (got: ${toString name})";
+      denyLines = map (path: ''"${checkPath "Codex deny path" path}" = "deny"'') denyPaths;
+      rootLine =
+        lib.optional rootWrite ''":root" = "write"'' ++ lib.optional rootRead ''":root" = "read"'';
+    in
+    ''
+      [permissions.${profile}]
+      ${lib.optionalString (extends != null) ''extends = "${extends}"''}
+
+      [permissions.${profile}.filesystem]
+      ${lib.concatStringsSep "\n" (rootLine ++ denyLines)}
+    ''
+    + lib.optionalString networkEnabled ''
+
+      [permissions.${profile}.network]
+      enabled = true
+    '';
+
   mkCodexPermissionsToml =
     {
       profileName,
+      fullProfileName ? "${profileName}-full",
+      readOnlyProfileName ? "${profileName}-readonly",
       extends ? ":workspace",
       denyPaths,
     }:
-    let
-      name =
-        if builtins.match "[a-z0-9][a-z0-9-]*" profileName != null then
-          profileName
-        else
-          throw "agent-browser-guard: Codex profile name must be lowercase kebab-case (got: ${toString profileName})";
-      denyLines = map (path: ''"${checkPath "Codex deny path" path}" = "deny"'') denyPaths;
-    in
     ''
       # INSPR agent browser guard (NIX-445) — generated, do not hand-edit.
       # `extends` inherits Codex's BUILT-IN baseline named here (":workspace"),
       # NOT whatever a given account's config happens to set. Read that as: this
       # profile is workspace-scoped plus a browser deny. It does not replicate
       # per-account settings, and it must never be used to broaden one.
-      [permissions.${name}]
-      extends = "${extends}"
-
-      [permissions.${name}.filesystem]
-      ${lib.concatStringsSep "\n" denyLines}
+      ${mkCodexProfileBlock {
+        name = profileName;
+        inherit extends denyPaths;
+      }}
+      # Guarded stand-in for an explicit full-access launch: everything writable
+      # and network enabled — approvals unchanged — minus the browser bundles.
+      ${mkCodexProfileBlock {
+        name = fullProfileName;
+        inherit denyPaths;
+        rootWrite = true;
+        networkEnabled = true;
+      }}
+      # Guarded stand-in for an explicit READ-ONLY launch. Without it, a managed
+      # allow-list that names only the workspace profile would silently BROADEN
+      # an explicit read-only caller to workspace-write. Verified read-only on
+      # Codex 0.153.4: a workspace write is refused, an ordinary read succeeds,
+      # and the fake probe is denied.
+      ${mkCodexProfileBlock {
+        name = readOnlyProfileName;
+        inherit denyPaths;
+        rootRead = true;
+      }}
     '';
 
-  # Machine-wide managed requirements. Content only — installation is a reviewed
-  # operator step (`sudo install -m 0644 … /etc/codex/requirements.toml`) with a
-  # fake-binary verification afterwards. UNVERIFIED SCHEMA: the key layout below
-  # follows the vendor managed-configuration documentation but has not been
-  # exercised on this machine, because no /etc/codex/requirements.toml exists and
-  # writing one needs a password. Verify, then keep or roll back.
+  # Machine-wide managed requirements. Content only — installation is one
+  # reviewed operator command that verifies and rolls itself back. The key layout
+  # follows the vendor managed-configuration documentation; the allow-list value
+  # is the documented BOOLEAN form.
   mkCodexRequirementsToml =
     {
       profileName,
+      fullProfileName ? "${profileName}-full",
+      readOnlyProfileName ? "${profileName}-readonly",
       extends ? ":workspace",
       denyPaths,
     }:
@@ -205,22 +260,33 @@ rec {
       # INSPR agent browser guard (NIX-445) — managed Codex requirements.
       # Generated by nixcfg lib/agent-browser-guard.nix. Install path:
       #   /etc/codex/requirements.toml   (root-owned, 0644)
-      # Forces the guarded permission profile even when a caller passes an
-      # explicit `-s/--sandbox`, which ordinary `default_permissions` does not.
+      # Forces a guarded permission profile even when a caller passes an explicit
+      # `-s/--sandbox`, which ordinary `default_permissions` does not.
       #
-      # SCOPE: workspace baseline plus the browser deny, for every Codex caller
-      # on this machine. Accounts already configured workspace-write are
-      # unchanged; a caller that today resolves to a broader default is TIGHTENED
-      # to workspace scope. Nothing here loosens any account.
+      # SCOPE: the default stays workspace-scoped, so accounts already configured
+      # workspace-write are unchanged and a caller resolving to a broader default
+      # is TIGHTENED. Explicit full-access launches are not banned — they are
+      # routed to `${fullProfileName}`, which keeps root write and network and
+      # only removes the browsers. An explicit read-only launch keeps read-only
+      # scope through `${readOnlyProfileName}`; the workspace default must never
+      # silently broaden it. Nothing here loosens any account, and the built-in
+      # unguarded `danger-full-access` is never allow-listed.
       default_permissions = "${profileName}"
 
-      # Vendor managed-configuration docs require a BOOLEAN here, not a table:
-      # `<name> = true`. An invalid managed config can stop Codex starting at
-      # all, so the installer parses and proves this file before keeping it.
       [allowed_permission_profiles]
       ${profileName} = true
+      ${fullProfileName} = true
+      ${readOnlyProfileName} = true
 
-      ${mkCodexPermissionsToml { inherit profileName extends denyPaths; }}
+      ${mkCodexPermissionsToml {
+        inherit
+          profileName
+          fullProfileName
+          readOnlyProfileName
+          extends
+          denyPaths
+          ;
+      }}
     '';
 
   # ── Node preload: accidental-launch prevention where no sandbox can apply ──
@@ -285,20 +351,38 @@ rec {
       esac
     '';
 
-  # Self-test anchor. Included in every rendered Codex deny list so the managed
-  # installer can prove enforcement by exec'ing a FAKE executable at this path,
-  # instead of touching a real browser. Nothing legitimate ever lives here.
-  codexProbePath = "/private/var/tmp/inspr-browser-guard-probe";
+  # Self-test anchors.
+  #
+  # `codexProbePath` lives INSIDE the root-owned managed directory. It used to
+  # sit in /private/var/tmp, which is mode 1777: a fixed, published name there
+  # let any local user pre-create a symlink and turn the one command the operator
+  # runs under sudo into an arbitrary root-owned truncate + chmod. The installer
+  # additionally refuses to run if that directory is a symlink, is not owned by
+  # root, or is group/world-writable.
+  codexProbePath = "/etc/codex/inspr-nix445-probe";
 
-  # One reviewable operator command. Renders as a root-run script that
-  # preflights, backs up, installs, PROVES enforcement with a fake executable,
-  # and rolls back its own file on any failure. It never touches a browser, an
-  # account credential, a model or the network, and it refuses to clobber an
-  # unrelated managed config.
+  # Unprivileged anchor for the Node preload, used by the Cursor proof and by
+  # tests. Deliberately separate from the root one: no privileged component ever
+  # writes here, and no unprivileged component ever writes into /etc.
+  defaultPreloadProbeRelative = "Library/Caches/inspr/agent-browser-guard/probe";
+
+  # One reviewable operator command. Renders as a root-run script that validates
+  # the managed directory BEFORE touching it, installs transactionally, PROVES
+  # enforcement with a fake executable, and rolls back on any failure or signal
+  # between mutation and verification. It never touches a browser, an account
+  # credential, a model or the network.
+  #
+  # Proof scope, stated exactly: every check runs `codex sandbox
+  # --include-managed-config`, which is the documented way to resolve managed
+  # policy. A plain `codex exec` or app-server caller is covered by the same
+  # managed default but is NOT exercised here — that is a separate post-install
+  # check with the actual caller, and the banner says so.
   mkManagedInstallerText =
     {
       requirementsPath,
       profileName,
+      fullProfileName,
+      readOnlyProfileName,
       codexBinary,
       probePath ? codexProbePath,
       target ? "/etc/codex/requirements.toml",
@@ -315,20 +399,31 @@ rec {
 
       SOURCE=${lib.escapeShellArg src}
       TARGET=${lib.escapeShellArg tgt}
+      TARGET_DIR=$(dirname ${lib.escapeShellArg tgt})
       STAMP=${lib.escapeShellArg tgt}.inspr-nix445.sha256
       PROBE=${lib.escapeShellArg probe}
       PROFILE=${lib.escapeShellArg profileName}
+      FULL_PROFILE=${lib.escapeShellArg fullProfileName}
+      READONLY_PROFILE=${lib.escapeShellArg readOnlyProfileName}
       CODEX=${lib.escapeShellArg codex}
       SHASUM=/usr/bin/shasum
+
+      mutation_intent=0
+      verified=0
+      adopted_foreign_identical=0
+      new_sha=""
+      pre_target_sha=""
+      pre_stamp=""
+      workdir=""
 
       usage() {
         printf '%s\n' \
           'usage: sudo inspr-codex-managed-install [--replace-existing]' \
           '       sudo inspr-codex-managed-install --rollback' \
           "" \
-          "Installs the NIX-445 managed Codex requirements at $TARGET, then proves" \
-          'enforcement with a fake executable. Rolls its own file back on any' \
-          'failure. Never launches a browser and never uses an account or model.' >&2
+          "Installs the NIX-445 managed Codex requirements at $TARGET, proves" \
+          'enforcement with a fake executable, and rolls back on any failure or' \
+          'interrupt. Never launches a browser, never uses an account or model.' >&2
       }
 
       mode=install
@@ -340,46 +435,71 @@ rec {
         *) usage; exit 64 ;;
       esac
 
-      if [ "$(id -u)" != 0 ]; then
-        printf '%s\n' 'inspr-codex-managed-install: must run as root (sudo); it writes /etc/codex' >&2
-        exit 77
-      fi
-
-      OPERATOR="''${SUDO_USER-}"
-      if [ -z "$OPERATOR" ] || [ "$OPERATOR" = root ]; then
-        printf '%s\n' 'inspr-codex-managed-install: SUDO_USER must be the operator — validation never runs as root' >&2
-        exit 77
-      fi
-
       fail() {
         printf 'inspr-codex-managed-install: %s\n' "$1" >&2
         exit "''${2:-1}"
       }
 
-      # Restore strictly what THIS installer put in place: the file is only
-      # removed when its checksum still matches the recorded stamp.
+      if [ "$(id -u)" != 0 ]; then
+        fail 'must run as root (sudo); it writes /etc/codex' 77
+      fi
+
+      OPERATOR="''${SUDO_USER-}"
+      if [ -z "$OPERATOR" ] || [ "$OPERATOR" = root ]; then
+        fail 'SUDO_USER must be the operator — verification never runs as root' 77
+      fi
+
+      sha_of() {
+        $SHASUM -a 256 "$1" | cut -d' ' -f1
+      }
+
+      # Restore strictly what THIS run put in place. A file that was never ours
+      # is left alone, a file that changed under us is left alone, and a
+      # pre-existing stamp is put back exactly as it was.
       restore() {
-        if [ ! -e "$TARGET" ]; then
-          printf '%s\n' 'nothing installed at the target' >&2
+        if [ "$adopted_foreign_identical" = 1 ]; then
+          printf '%s\n' 'left the pre-existing identical managed config untouched' >&2
           return 0
         fi
-        if [ ! -f "$STAMP" ]; then
-          fail "refusing to touch $TARGET: no NIX-445 stamp — it is not ours" 3
+        if [ ! -e "$TARGET" ]; then
+          [ -n "$pre_stamp" ] || rm -f "$STAMP"
+          return 0
         fi
-        recorded=$(cat "$STAMP")
-        current=$($SHASUM -a 256 "$TARGET" | cut -d' ' -f1)
-        if [ "$recorded" != "$current" ]; then
-          fail "refusing to touch $TARGET: it changed since we installed it" 3
+        if [ -n "$new_sha" ] && [ "$(sha_of "$TARGET")" != "$new_sha" ]; then
+          printf '%s\n' "leaving $TARGET alone: it is not the file this run installed" >&2
+          return 0
+        fi
+        if [ -z "$new_sha" ] && [ ! -f "$STAMP" ]; then
+          printf '%s\n' "refusing to touch $TARGET: no NIX-445 stamp — it is not ours" >&2
+          return 0
+        fi
+        if [ -z "$new_sha" ] && [ "$(cat "$STAMP")" != "$(sha_of "$TARGET")" ]; then
+          printf '%s\n' "refusing to touch $TARGET: it changed since we installed it" >&2
+          return 0
         fi
         backup=$(ls -1t "$TARGET".pre-inspr-nix445.* 2>/dev/null | head -n 1 || true)
-        if [ -n "$backup" ]; then
-          /usr/bin/install -m 0644 -o root -g wheel "$backup" "$TARGET"
+        if [ -n "$backup" ] && [ ! -L "$backup" ]; then
+          cat "$backup" >"$TARGET"
+          chmod 0644 "$TARGET"
+          [ "$(id -u)" = 0 ] && chown root:wheel "$TARGET"
           printf 'restored previous managed config from %s\n' "$backup" >&2
         else
           rm -f "$TARGET"
           printf 'removed %s\n' "$TARGET" >&2
         fi
-        rm -f "$STAMP"
+        if [ -n "$pre_stamp" ]; then
+          printf '%s\n' "$pre_stamp" >"$STAMP"
+        else
+          rm -f "$STAMP"
+        fi
+      }
+
+      cleanup_probe() {
+        [ -n "$workdir" ] && rm -rf "$workdir"
+        if [ -e "$PROBE" ] && [ ! -L "$PROBE" ]; then
+          rm -f "$PROBE"
+        fi
+        return 0
       }
 
       if [ "$mode" = rollback ]; then
@@ -392,97 +512,178 @@ rec {
       [ -x "$CODEX" ] || fail "Codex CLI not found at $CODEX"
       [ -x "$SHASUM" ] || fail "shasum not found at $SHASUM"
 
-      /usr/bin/install -d -m 0755 -o root -g wheel "$(dirname "$TARGET")"
+      # Validate an EXISTING managed directory before touching it: `install -d`
+      # would silently normalise unsafe ownership or mode instead of refusing.
+      if [ -L "$TARGET_DIR" ]; then
+        fail "$TARGET_DIR is a symlink — refusing to write through it" 3
+      fi
+      if [ -e "$TARGET_DIR" ]; then
+        [ -d "$TARGET_DIR" ] || fail "$TARGET_DIR exists and is not a directory" 3
+        dir_owner=$(/usr/bin/stat -f '%u' "$TARGET_DIR")
+        dir_mode=$(/usr/bin/stat -f '%OLp' "$TARGET_DIR")
+        [ "$dir_owner" = 0 ] || fail "$TARGET_DIR is not owned by root — refusing" 3
+        case "$dir_mode" in
+          *[2367]) fail "$TARGET_DIR is group- or world-writable — refusing" 3 ;;
+        esac
+      else
+        /usr/bin/install -d -m 0755 -o root -g wheel "$TARGET_DIR"
+      fi
+
+      # Every predictable path this script writes must be a real file, never a
+      # pre-planted symlink.
+      for guarded_path in "$TARGET" "$STAMP" "$PROBE"; do
+        if [ -L "$guarded_path" ]; then
+          fail "$guarded_path is a symlink — refusing to write through it" 3
+        fi
+      done
+
+      [ -f "$STAMP" ] && pre_stamp=$(cat "$STAMP")
 
       if [ -e "$TARGET" ]; then
+        [ -f "$TARGET" ] || fail "$TARGET exists and is not a regular file" 3
+        pre_target_sha=$(sha_of "$TARGET")
         if cmp -s "$TARGET" "$SOURCE"; then
-          printf '%s\n' 'target already byte-identical; re-validating only' >&2
-        elif [ -f "$STAMP" ] \
-          && [ "$(cat "$STAMP")" = "$($SHASUM -a 256 "$TARGET" | cut -d' ' -f1)" ]; then
+          if [ -n "$pre_stamp" ] && [ "$pre_stamp" = "$pre_target_sha" ]; then
+            printf '%s\n' 'target already byte-identical and ours; re-validating only' >&2
+          else
+            adopted_foreign_identical=1
+            printf '%s\n' 'target already byte-identical but not ours; validating without claiming it' >&2
+          fi
+        elif [ -n "$pre_stamp" ] && [ "$pre_stamp" = "$pre_target_sha" ]; then
           printf '%s\n' 'replacing an older NIX-445 managed config' >&2
         elif [ "$replace" = 1 ]; then
-          stampdir=$TARGET.pre-inspr-nix445.$(date -u +%Y%m%dT%H%M%SZ)
-          /usr/bin/install -m 0600 -o root -g wheel "$TARGET" "$stampdir"
-          printf 'backed up existing managed config to %s\n' "$stampdir" >&2
+          backup_path=$TARGET.pre-inspr-nix445.$(date -u +%Y%m%dT%H%M%SZ)
+          [ -L "$backup_path" ] && fail "$backup_path is a symlink — refusing" 3
+          /usr/bin/install -m 0600 -o root -g wheel "$TARGET" "$backup_path"
+          printf 'backed up existing managed config to %s\n' "$backup_path" >&2
         else
           fail "$TARGET exists and is not ours — re-run with --replace-existing to back it up first" 3
         fi
       fi
 
-      tmp=$(mktemp "$(dirname "$TARGET")/.requirements.XXXXXX")
-      trap 'rm -f "$tmp"' EXIT
-      cat "$SOURCE" >"$tmp"
-      chown root:wheel "$tmp"
-      chmod 0644 "$tmp"
-      mv -f "$tmp" "$TARGET"
-      trap - EXIT
-      $SHASUM -a 256 "$TARGET" | cut -d' ' -f1 >"$STAMP"
-      chmod 0644 "$STAMP"
-      chown root:wheel "$STAMP"
+      on_exit() {
+        status=$?
+        cleanup_probe
+        rm -f "''${tmp-}" 2>/dev/null || true
+        if [ "$mutation_intent" = 1 ] && [ "$verified" != 1 ]; then
+          printf '%s\n' 'inspr-codex-managed-install: unverified install — rolling back' >&2
+          restore
+        fi
+        exit "$status"
+      }
+      trap on_exit EXIT
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+
+      if [ "$adopted_foreign_identical" = 0 ]; then
+        tmp=$(mktemp "$TARGET_DIR/.requirements.XXXXXX")
+        cat "$SOURCE" >"$tmp"
+        chown root:wheel "$tmp"
+        chmod 0644 "$tmp"
+        new_sha=$(sha_of "$tmp")
+
+        # Intent is recorded BEFORE the mutation, so a signal landing between the
+        # rename and any later statement still rolls back. Provenance, not a
+        # flag set after the fact, decides what actually happened: the trap only
+        # touches a target whose checksum is the one this run wrote.
+        mutation_intent=1
+        printf '%s\n' "$new_sha" >"$STAMP"
+        chmod 0644 "$STAMP"
+        chown root:wheel "$STAMP"
+        mv -f "$tmp" "$TARGET"
+      else
+        mutation_intent=1
+      fi
 
       # ── Proof, as the operator, in an isolated CODEX_HOME, fake binary only ──
-      workdir=$(mktemp -d /private/tmp/inspr-nix445-verify.XXXXXX)
-      chown "$OPERATOR" "$workdir"
       printf '#!/bin/sh\necho INSPR_PROBE_RAN\n' >"$PROBE"
       chmod 0755 "$PROBE"
+      chown root:wheel "$PROBE"
 
-      cleanup_proof() {
-        rm -rf "$workdir"
-        rm -f "$PROBE"
-      }
+      workdir=$(mktemp -d "$TARGET_DIR/.verify.XXXXXX")
+      chown "$OPERATOR" "$workdir"
+      /usr/bin/sudo -u "$OPERATOR" /bin/mkdir -p "$workdir/home" "$workdir/ws"
 
       abort() {
-        cleanup_proof
-        printf 'inspr-codex-managed-install: verification failed (%s) — rolling back\n' "$1" >&2
-        restore
+        printf 'inspr-codex-managed-install: verification failed (%s)\n' "$1" >&2
         exit 4
       }
 
       run_as_operator() {
-        /usr/bin/sudo -u "$OPERATOR" /usr/bin/env CODEX_HOME="$workdir/home" "$CODEX" "$@" 2>&1 || true
+        /usr/bin/sudo -u "$OPERATOR" /usr/bin/env CODEX_HOME="$workdir/home" "$CODEX" \
+          sandbox --include-managed-config "$@" 2>&1 || true
       }
-      /usr/bin/sudo -u "$OPERATOR" /bin/mkdir -p "$workdir/home" "$workdir/ws"
 
-      out=$(run_as_operator sandbox --include-managed-config -P "$PROFILE" -C "$workdir/ws" -- /bin/echo PARSE_OK)
+      expect_denied() {
+        case "$2" in
+          *INSPR_PROBE_RAN*) abort "$1 executed the probe binary" ;;
+          *"not permitted"*) ;;
+          *) abort "$1 produced no recognisable denial: $2" ;;
+        esac
+      }
+
+      out=$(run_as_operator -P "$PROFILE" -C "$workdir/ws" -- /bin/echo PARSE_OK)
       case "$out" in
         *PARSE_OK*) ;;
         *) abort "managed config did not parse or profile did not resolve: $out" ;;
       esac
 
-      out=$(run_as_operator sandbox --include-managed-config -P "$PROFILE" -C "$workdir/ws" -- \
+      out=$(run_as_operator -P "$PROFILE" -C "$workdir/ws" -- \
         /bin/sh -c 'touch ./inspr-write-probe && echo WRITE_OK')
       case "$out" in
         *WRITE_OK*) ;;
-        *) abort "guarded profile lost the ordinary workspace write: $out" ;;
+        *) abort "guarded workspace profile lost the ordinary workspace write: $out" ;;
       esac
 
-      # Explicit selection, default selection, and a legacy override attempt must
-      # all refuse to execute the fake probe binary.
-      for attempt in explicit default legacy; do
-        case "$attempt" in
-          explicit) out=$(run_as_operator sandbox --include-managed-config -P "$PROFILE" -C "$workdir/ws" -- /bin/sh -c "$PROBE") ;;
-          default) out=$(run_as_operator sandbox --include-managed-config -C "$workdir/ws" -- /bin/sh -c "$PROBE") ;;
-          legacy) out=$(run_as_operator sandbox --include-managed-config -c sandbox_mode=danger-full-access -C "$workdir/ws" -- /bin/sh -c "$PROBE") ;;
-        esac
-        case "$out" in
-          *INSPR_PROBE_RAN*) abort "$attempt selection still executed the probe binary" ;;
-          *"not permitted"*) ;;
-          *) abort "$attempt selection produced no recognisable denial: $out" ;;
-        esac
-      done
+      expect_denied "explicit selection" \
+        "$(run_as_operator -P "$PROFILE" -C "$workdir/ws" -- /bin/sh -c "$PROBE")"
+      expect_denied "default selection" \
+        "$(run_as_operator -C "$workdir/ws" -- /bin/sh -c "$PROBE")"
+      expect_denied "legacy sandbox override" \
+        "$(run_as_operator -c sandbox_mode=danger-full-access -C "$workdir/ws" -- /bin/sh -c "$PROBE")"
 
-      # A built-in profile must not be selectable once managed config allow-lists
-      # only the guarded one.
-      out=$(run_as_operator sandbox --include-managed-config -P :workspace -C "$workdir/ws" -- /bin/echo BUILTIN_OK)
+      # Guarded full access must keep full access — otherwise a single managed
+      # workspace policy would silently break the authorized full-access
+      # workflows this machine actually runs — while still refusing the probe,
+      # and it must be selectable through the config key `inspr-codex-full` uses.
+      out=$(run_as_operator -P "$FULL_PROFILE" -C "$workdir/ws" -- \
+        /bin/sh -c "touch $workdir/outside-probe && echo FULL_WRITE_OK")
+      case "$out" in
+        *FULL_WRITE_OK*) ;;
+        *) abort "guarded full profile lost outside-workspace write: $out" ;;
+      esac
+      expect_denied "guarded full profile" \
+        "$(run_as_operator -P "$FULL_PROFILE" -C "$workdir/ws" -- /bin/sh -c "$PROBE")"
+      expect_denied "full profile via config key" \
+        "$(run_as_operator -c default_permissions="$FULL_PROFILE" -C "$workdir/ws" -- /bin/sh -c "$PROBE")"
+
+      # An explicit read-only selection must STAY read-only. If the workspace
+      # default silently broadened it to workspace-write, that would be a
+      # regression introduced by this guard, so it fails the install.
+      out=$(run_as_operator -P "$READONLY_PROFILE" -C "$workdir/ws" -- \
+        /bin/sh -c 'touch ./inspr-readonly-probe && echo READONLY_WROTE')
+      case "$out" in
+        *READONLY_WROTE*) abort "guarded read-only profile was broadened to write" ;;
+      esac
+      expect_denied "guarded read-only profile" \
+        "$(run_as_operator -P "$READONLY_PROFILE" -C "$workdir/ws" -- /bin/sh -c "$PROBE")"
+
+      # A built-in profile must not be selectable once the managed allow-list
+      # names only the guarded ones.
+      out=$(run_as_operator -P :workspace -C "$workdir/ws" -- /bin/echo BUILTIN_OK)
       case "$out" in
         *BUILTIN_OK*) abort "managed allow-list did not reject the built-in :workspace profile" ;;
       esac
 
-      cleanup_proof
+      verified=1
       printf '%s\n' \
-        'codex_managed_guard=installed target='"$TARGET" \
-        'proof=fake-probe-denied explicit+default+legacy, workspace-write kept, builtin rejected' \
-        'restart the Codex app-server so it reloads policy' >&2
+        "codex_managed_guard=installed target=$TARGET" \
+        'proof=fake probe denied under explicit, default and legacy-override selection;' \
+        'guarded-full keeps root write, guarded-read-only stays read-only, builtin rejected' \
+        'scope=proved through `codex sandbox --include-managed-config` only.' \
+        'A plain `codex exec` / app-server caller is covered by the same managed' \
+        'default but is NOT proved here — check one real caller after restarting' \
+        'the Codex app-server, and treat plain callers as unproven until then.' >&2
     '';
 
   # Stable agent-facing refusal. Printed by the shim that replaces the browser
