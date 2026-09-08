@@ -71,13 +71,11 @@ assert args[0].endswith("/bin/paimos-agentd"), args
 expected_pairs = {
     "--instance": "ppm",
     "--state-root": "/Users/markus/Library/Caches/paimos/agentd",
-    "--claude-path": "/Users/markus/.npm-global/bin/claude",
     "--report-host": "mbp2607",
     "--report-url": "https://pm.barta.cm",
     "--report-api-key-file": "/Users/markus/Library/Caches/paimos/agentd/report-api-key",
     "--lifecycle-config": "/Users/markus/Library/Application Support/paimos/agentd/lifecycle.json",
     "--codex-accounts": "/Users/markus/Library/Application Support/paimos/agentd/codex-accounts.json",
-    "--cursor-path": "/Users/markus/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent",
     "--cursor-accounts": "/Users/markus/Library/Application Support/paimos/agentd/cursor-accounts.json",
 }
 for flag, value in expected_pairs.items():
@@ -86,6 +84,21 @@ for flag, value in expected_pairs.items():
     assert args.count(flag) == 1, (flag, args)
 for flag in ("--pi-path", "--pi-accounts"):
     assert flag not in args, (flag, args)
+# NIX-445 / D1: Claude is the dispatch controller here, so it runs on the
+# env+preload route — a Seatbelt profile would be inherited by the Codex and
+# Cursor workers it starts and would kill them on their own sandbox_apply.
+# Cursor is launched through the env-only wrapper instead: it runs its own
+# seatbelt helper, so it must never be nested inside another profile.
+cursor_index = args.index("--cursor-path")
+assert args.count("--cursor-path") == 1, args
+cursor_path = args[cursor_index + 1]
+assert cursor_path.startswith("/nix/store/"), args
+assert cursor_path.endswith("-paimos-agentd-cursor/bin/paimos-agentd-cursor"), args
+claude_index = args.index("--claude-path")
+assert args.count("--claude-path") == 1, args
+claude_path = args[claude_index + 1]
+assert claude_path.startswith("/nix/store/"), args
+assert claude_path.endswith("-paimos-agentd-claude/bin/paimos-agentd-claude"), args
 codex_index = args.index("--codex-path")
 assert args[codex_index + 1].startswith("/nix/store/"), args
 assert args[codex_index + 1].endswith("-paimos-agentd-codex/bin/paimos-agentd-codex"), args
@@ -106,7 +119,20 @@ instance_dir = f"/Users/markus/Library/Caches/paimos/agentd/{instance_key}"
 assert config["StandardOutPath"] == f"{instance_dir}/agentd.stdout.log", config
 assert config["StandardErrorPath"] == f"{instance_dir}/agentd.stderr.log", config
 assert config["Umask"] == 63, config
-assert config.get("EnvironmentVariables") is None, config
+# NIX-445: the only plist environment permitted is the non-secret browser-harness
+# redirect that points every agentd-started session at the refusal shim.
+# Credentials must still never appear here.
+env = config.get("EnvironmentVariables")
+assert env is not None and set(env) == {
+    "CHROME_PATH",
+    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
+    "PUPPETEER_EXECUTABLE_PATH",
+    "INSPR_AGENT_BROWSER_GUARD",
+}, config
+assert env["INSPR_AGENT_BROWSER_GUARD"] == "env-only", config
+for key in ("CHROME_PATH", "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "PUPPETEER_EXECUTABLE_PATH"):
+    assert env[key].startswith("/nix/store/"), config
+    assert env[key].endswith("/bin/inspr-browser-guard-refuse"), config
 PY
 
 current_system=$(nix eval --impure --raw --expr builtins.currentSystem)
@@ -127,6 +153,41 @@ PY
   grep -Fq '/nix/store/' "$codex_launcher" || fail 'Codex launcher does not pin its runtime in the Nix store'
   grep -Eq '^export PATH=/nix/store/[^/]+-nodejs-[^/]+/bin:/usr/bin:/bin:/usr/sbin:/sbin$' "$codex_launcher" || fail 'Codex launcher does not supply a deterministic Node PATH'
   grep -Fq '/Users/markus/.npm-global/bin/codex' "$codex_launcher" || fail 'Codex launcher does not exec the operator-authenticated CLI'
+  # NIX-445: Codex keeps its own Seatbelt sandbox (macOS refuses nested profiles),
+  # so it gets the browser-harness variables only — never a guard wrapper.
+  grep -Fq 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=' "$codex_launcher" || fail 'Codex launcher does not carry the NIX-445 browser-harness variables'
+  if grep -Fq 'sandbox-exec' "$codex_launcher"; then
+    fail 'Codex launcher must not be wrapped in a nested Seatbelt profile'
+  fi
+
+  claude_launcher=$(
+    python3 - "$agent_json" <<'PYCLAUDE'
+import json, sys
+args = json.loads(sys.argv[1])["config"]["ProgramArguments"]
+print(args[args.index("--claude-path") + 1])
+PYCLAUDE
+  )
+  [ -x "$claude_launcher" ] || fail 'realised Claude launcher does not exist'
+  grep -Fq '/Users/markus/.npm-global/bin/claude' "$claude_launcher" || fail 'Claude launcher does not exec the operator-authenticated CLI'
+  grep -Fq 'NODE_OPTIONS' "$claude_launcher" || fail 'Claude launcher does not carry the NIX-445 Node preload'
+  if grep -Eq 'sandbox-exec|inspr-agent-guard' "$claude_launcher"; then
+    fail 'the dispatch controller must not be Seatbelt-wrapped — it would kill the workers it dispatches'
+  fi
+
+  cursor_launcher=$(
+    python3 - "$agent_json" <<'PYCURSOR'
+import json, sys
+args = json.loads(sys.argv[1])["config"]["ProgramArguments"]
+print(args[args.index("--cursor-path") + 1])
+PYCURSOR
+  )
+  [ -x "$cursor_launcher" ] || fail 'realised Cursor launcher does not exist'
+  grep -Fq '/Users/markus/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent' "$cursor_launcher" ||
+    fail 'Cursor launcher does not exec the pinned operator CLI'
+  grep -Fq 'NODE_OPTIONS' "$cursor_launcher" || fail 'Cursor launcher does not carry the NIX-445 Node preload'
+  if grep -Eq 'sandbox-exec|inspr-agent-guard' "$cursor_launcher"; then
+    fail 'Cursor must never be nested inside another Seatbelt profile'
+  fi
 
   service_plist="$activation_package/LaunchAgents/at.inspr.paimos-agentd.plist"
   [ -f "$service_plist" ] || fail 'final Home Manager generation has no Paimos LaunchAgent'
@@ -148,7 +209,15 @@ instance_dir = f"/Users/markus/Library/Caches/paimos/agentd/{instance_key}"
 assert generated["StandardOutPath"] == f"{instance_dir}/agentd.stdout.log", generated
 assert generated["StandardErrorPath"] == f"{instance_dir}/agentd.stderr.log", generated
 assert generated.get("Program") is None, generated
-assert generated.get("EnvironmentVariables") is None, generated
+# NIX-445: the generated plist carries exactly the non-secret browser-harness
+# redirect and nothing else.
+assert generated.get("EnvironmentVariables") == declared["EnvironmentVariables"], generated
+assert set(generated["EnvironmentVariables"]) == {
+    "CHROME_PATH",
+    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
+    "PUPPETEER_EXECUTABLE_PATH",
+    "INSPR_AGENT_BROWSER_GUARD",
+}, generated
 assert generated.get("UserName") is None, generated
 info = os.stat(sys.argv[2])
 assert stat.S_ISREG(info.st_mode) and info.st_mode & 0o022 == 0, oct(info.st_mode)

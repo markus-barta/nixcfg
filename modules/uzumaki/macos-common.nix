@@ -71,6 +71,12 @@ let
   # point Playwright's `executablePath` here for headless screenshots / smoke
   # tests, sidestepping nixpkgs#chromium (Linux-only on Darwin). Named
   # `chromiumAppPath` (Chrome is Chromium-family) to keep the internal QA path stable.
+  #
+  # NIX-445: this export stays as-is for HUMAN shells. Agent worker sessions get
+  # a refusal shim in its place and native browser execution is denied by a
+  # Seatbelt profile wherever macOS permits it — see
+  # modules/uzumaki/agent-browser-guard.nix. Do not point an agent harness back
+  # at this path.
   chromiumAppPath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 in
 {

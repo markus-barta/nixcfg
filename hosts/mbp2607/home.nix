@@ -59,10 +59,64 @@ in
     role = "workstation";
     fish.editor = "nano"; # Options: nano, vim, code, etc.
     stasysmo.enable = true; # System metrics in Starship prompt
+    # NIX-445: agent worker sessions must not execute a native browser on this
+    # Mac (repeated Chrome crashes out of sandboxed agent sessions, latest
+    # 2026-09-08 21:35 CEST). Source-only until the reviewed activation — see
+    # modules/uzumaki/agent-browser-guard.nix for the layer model and the
+    # documented Codex limitation. Human browser use is untouched: this sets no
+    # session variable and the NIX-288 Chrome export below stays as it was.
+    agentBrowserGuard = {
+      enable = true;
+      # Chromium PWA shims launch the real Chrome binary from a second location.
+      extraDenyPaths = [ "${config.home.homeDirectory}/Applications/Chromium Apps.localized" ];
+      # Same-name launchers placed ahead of ~/.npm-global/bin and
+      # /opt/homebrew/bin, so today's callers — bare `claude`, the `cla`/`clar`
+      # aliases, `grok` from either resolution, `cursor-agent`/`agent` — pick
+      # them up without being renamed. Each execs the absolute vendor path, so
+      # CLI self-updates still apply. Coverage is fish plus zsh (via .zshenv,
+      # which even `zsh -c` reads); bash and sh scripts are NOT covered by PATH.
+      #
+      # NIX-445 / D1: these launchers are ENV+PRELOAD, not Seatbelt.
+      # This Mac's live topology is a Claude controller dispatching Codex and
+      # Cursor workers, and a Seatbelt profile is inherited by every descendant —
+      # a guarded controller would kill exactly those workers when they apply
+      # their own profile. Dispatch keeps working; the trade is that these paths
+      # get accidental-launch prevention, not an OS boundary. The strict route
+      # stays one explicit command away (`claude-guarded`) for leaf workers.
+      shadowedPrograms = { };
+      envOnlyPrograms = {
+        claude = "${config.home.homeDirectory}/.npm-global/bin/claude";
+        grok = "${config.home.homeDirectory}/.npm-global/bin/grok";
+        pi = "${config.home.homeDirectory}/.npm-global/bin/pi";
+        # Cursor: `cursor-agent` and `agent` are the same pinned vendor binary
+        # by symlink; both keep their own sandbox, auth and owned lifecycle and
+        # only gain the Node preload plus the harness hints. Composer and Grok
+        # run through this same harness and inherit it.
+        cursor-agent = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
+        agent = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
+      };
+      # Explicit target for the operator-owned imperative shims that call an
+      # absolute path (the named Codex launchers' Claude equivalents, and any
+      # migration snippet in the checklist).
+      guardedPrograms = {
+        claude-guarded = "${config.home.homeDirectory}/.npm-global/bin/claude";
+      };
+    };
     # NIX-392: agentd owns only children it starts. Auth remains in the
     # existing PAIMOS keyring and operator-authenticated vendor CLIs.
     paimosAgentd = {
       enable = true;
+      # NIX-445: agentd-owned launches inherit the refusal shim, and Claude runs
+      # under the Seatbelt guard. Codex is intentionally not sandbox-wrapped —
+      # it applies its own Seatbelt profile per command and macOS refuses nested
+      # profiles. Cursor stays env-only until its sandbox behaviour is verified.
+      browserGuard = {
+        enable = true;
+        # Empty: agentd-owned Claude sessions dispatch Codex and Cursor workers,
+        # which cannot apply their own Seatbelt profile beneath ours. They get
+        # the env+preload route instead — see the D1 note above.
+        sandboxedClis = [ ];
+      };
       # PAI-955 / NIX-437: this pin's agentd serve accepts --codex-accounts.
       # The path is owner-only JSON outside the store; Nix never reads it.
       codexAccountsFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/codex-accounts.json";

@@ -19,6 +19,48 @@ let
   piAccountsFile = if cfg.piAccountsFile == null then "" else cfg.piAccountsFile;
   cursorAccountsFile = if cfg.cursorAccountsFile == null then "" else cfg.cursorAccountsFile;
   sdkPath = "${pkgs.claude-agent-sdk}/${pkgs.claude-agent-sdk.sdkRelativePath}";
+
+  # NIX-445 — agent browser-launch guard. `browserGuard` is the shared module
+  # (modules/uzumaki/agent-browser-guard.nix); this file only decides which
+  # owned launch paths get which layer.
+  browserGuard = config.uzumaki.agentBrowserGuard;
+  guardEnabled = cfg.browserGuard.enable;
+  # Env-only layer: harness variables point at the refusal shim. Used for Codex,
+  # which applies its OWN Seatbelt profile per command — macOS refuses nested
+  # profile application (`sandbox_apply: Operation not permitted`), so wrapping
+  # Codex in the guard sandbox would break its existing inner sandbox. Measured
+  # on Darwin 25.6; see lib/agent-browser-guard.nix.
+  guardEnvExports = lib.optionalString guardEnabled browserGuard.envOnlyExports;
+  # Boundary layer: run the operator's absolute CLI path under the Seatbelt
+  # guard. argv, signals and the inherited environment pass through unchanged.
+  mkGuardedCli =
+    name: target:
+    pkgs.writeShellScriptBin "paimos-agentd-${name}" ''
+      exec ${lib.escapeShellArg browserGuard.guardCommand} ${lib.escapeShellArg target} "$@"
+    '';
+  # Env-only launcher for a CLI that runs its own sandbox (Cursor): harness hints
+  # plus the Node preload, no Seatbelt profile, pinned path and auth untouched.
+  mkEnvOnlyCli =
+    name: target:
+    pkgs.writeShellScriptBin "paimos-agentd-${name}" ''
+      ${guardEnvExports}
+      exec ${lib.escapeShellArg target} "$@"
+    '';
+  envOnlyCliPath =
+    name: target:
+    if guardEnabled then "${mkEnvOnlyCli name target}/bin/paimos-agentd-${name}" else target;
+  # NIX-445 / D1: the default route is env+preload, NOT a Seatbelt profile. A
+  # guarded session's profile is inherited by every descendant, and Codex and
+  # Cursor cannot apply their own profile beneath it — so wrapping a session that
+  # dispatches them would break the live controller topology. The strict route
+  # stays available per CLI through `sandboxedClis`, for leaf workers that never
+  # dispatch another agent.
+  guardedCliPath =
+    name: target:
+    if guardEnabled && lib.elem name cfg.browserGuard.sandboxedClis then
+      "${mkGuardedCli name target}/bin/paimos-agentd-${name}"
+    else
+      envOnlyCliPath name target;
   safeExternalPath =
     path: lib.hasPrefix "/" path && path != "/nix/store" && !lib.hasPrefix "/nix/store/" path;
   pairComplete = path: accounts: (path == null) == (accounts == null);
@@ -42,11 +84,14 @@ let
     fi
   '';
   # PATH-only wrapper: the owned runtime may pass CODEX_HOME for a selected
-  # account. Do not unset, override, or source registry text here.
-  # Pi and Cursor CLIs are explicit operator pins passed through as-is; this
-  # module does not wrap them, copy auth directories, or start login.
+  # account. Do not unset, override, or source registry text here. NIX-445 adds
+  # the browser-harness exports only — no CLI or home variable is reassigned.
+  # Pi and Cursor CLIs stay explicit operator pins: this module never copies
+  # their auth directories or starts a login, and it wraps them only when
+  # `browserGuard.sandboxedClis` names them.
   codexLauncher = pkgs.writeShellScriptBin "paimos-agentd-codex" ''
     export PATH=${lib.escapeShellArg "${pkgs.nodejs}/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
+    ${guardEnvExports}
     exec ${lib.escapeShellArg cfg.codexPath} "$@"
   '';
   reportCredentialInstaller = pkgs.writeShellScript "paimos-agentd-install-report-credential" ''
@@ -121,7 +166,7 @@ let
     "--codex-path"
     "${codexLauncher}/bin/paimos-agentd-codex"
     "--claude-path"
-    cfg.claudePath
+    (guardedCliPath "claude" cfg.claudePath)
     "--node-path"
     "${pkgs.nodejs}/bin/node"
     "--claude-sdk-path"
@@ -147,13 +192,19 @@ let
   ]
   ++ lib.optionals (cfg.piPath != null && cfg.piAccountsFile != null) [
     "--pi-path"
-    cfg.piPath
+    (guardedCliPath "pi" cfg.piPath)
     "--pi-accounts"
     piAccountsFile
   ]
   ++ lib.optionals (cfg.cursorPath != null && cfg.cursorAccountsFile != null) [
     "--cursor-path"
-    cfg.cursorPath
+    # Never Seatbelt-wrapped: the Cursor CLI applies its own profile via its
+    # `cursorsandbox` helper and macOS refuses nested profiles (measured: a real
+    # `--sandbox enabled` tool call under the guard died with `sandbox_apply`
+    # EPERM, exit 71). It gets the env-only launcher instead — harness hints plus
+    # the Node child-process preload. Accidental-launch prevention, not a
+    # boundary (NIX-445).
+    (envOnlyCliPath "cursor" cfg.cursorPath)
     "--cursor-accounts"
     cursorAccountsFile
   ];
@@ -167,7 +218,12 @@ let
     Umask = 63;
     StandardOutPath = stdoutLog;
     StandardErrorPath = stderrLog;
-  };
+  }
+  # NIX-445: every session this daemon starts inherits the refusal shim in place
+  # of the NIX-288 native Chrome path, whichever CLI it launches. Harness layer,
+  # not a boundary — a session that hardcodes the browser path still reaches it
+  # unless its CLI is also sandbox-wrapped above.
+  // lib.optionalAttrs guardEnabled { EnvironmentVariables = browserGuard.launchdEnvironment; };
   directServicePlist = pkgs.writeText "${serviceLabel}.plist" (
     lib.generators.toPlist { escape = true; } serviceConfig
   );
@@ -259,6 +315,47 @@ in
       '';
     };
 
+    browserGuard = {
+      enable = lib.mkEnableOption ''
+        the NIX-445 browser-launch guard on this daemon's owned launch paths.
+        Requires uzumaki.agentBrowserGuard.enable
+      '';
+
+      sandboxedClis = lib.mkOption {
+        type = lib.types.listOf (
+          lib.types.enum [
+            "claude"
+            "pi"
+          ]
+        );
+        default = [ ];
+        description = ''
+          Which owned CLI paths are executed under the Seatbelt guard, as
+          opposed to the default env+preload route.
+
+          Empty by default on purpose: the profile is inherited by every
+          descendant, and a session that dispatches Codex or Cursor would kill
+          them with `sandbox_apply: Operation not permitted`. Name a CLI here
+          only for leaf workers that never dispatch another agent.
+
+          Codex and Cursor are deliberately absent from this enum and cannot be
+          added:
+          it applies its own Seatbelt profile per command, and macOS refuses
+          nested profile application (`sandbox_apply: Operation not
+          permitted`, measured on Darwin 25.6), so wrapping it would break
+          its existing inner sandbox. The Cursor CLI ships its own
+          `cursorsandbox` seatbelt helper (inspected read-only 2026-09-08)
+          and has the same problem. Codex is covered by its native
+          permission profile; Cursor currently gets the environment hints
+          only, which is a hint and not a boundary — stated, not hidden.
+
+          A CLI listed here that also applies its own sandbox will fail
+          loudly with the same `sandbox_apply` error; remove it from this
+          list rather than weakening the guard.
+        '';
+      };
+    };
+
     reporting = {
       enable = lib.mkEnableOption "authenticated durable harness status and owned controls";
 
@@ -333,6 +430,15 @@ in
             && !lib.hasPrefix "/nix/store/" codexAccountsFile
           );
         message = "uzumaki.paimosAgentd codexAccountsFile requires an absolute path outside the Nix store";
+      }
+      {
+        assertion = !cfg.browserGuard.enable || browserGuard.enable;
+        message = "uzumaki.paimosAgentd.browserGuard requires uzumaki.agentBrowserGuard.enable";
+      }
+      {
+        assertion =
+          !cfg.browserGuard.enable || !(lib.elem "pi" cfg.browserGuard.sandboxedClis) || cfg.piPath != null;
+        message = "uzumaki.paimosAgentd.browserGuard cannot sandbox Pi without piPath";
       }
       {
         assertion = pairComplete cfg.piPath cfg.piAccountsFile;

@@ -217,6 +217,22 @@ jobs:
       - name: Verify Higgsfield CLI Home Manager contract
         run: nix-shell -p python3 --run tests/T67-higgsfield-cli-home-manager.sh
 
+      # NIX-445 — agent browser-launch guard. On Linux this runs the portable
+      # half: the Seatbelt profile / Codex permission TOML rendering and its
+      # schema types, the managed-installer safety properties exercised in a
+      # temp fixture (never /etc, never sudo), and the host wiring. The macOS
+      # proofs — sandbox-exec denial and the Codex native profile — need a real
+      # Seatbelt and a local Codex CLI, so the test skips them here and says so
+      # in its own output (`scope=eval-only reason=not-darwin`); they run on the
+      # macOS workstation. No browser is ever launched, on either platform.
+      - name: Verify the macOS agent browser-launch guard contract (NIX-445)
+        run: nix-shell -p python3 --run tests/T72-agent-browser-guard.sh
+
+      # This one is fully portable: it drives the Node child-process preload
+      # against a fake executable, so it is a real gate on Linux too.
+      - name: Verify the Node child-process browser preload (NIX-445)
+        run: nix-shell -p python3 nodejs --run tests/T73-agent-browser-guard-preload.sh
+
       - name: Verify local Pi launcher and doctrine loading
         run: |
           nix-shell -p python3 --run 'python3 tests/test_pi_local.py'

@@ -31,9 +31,15 @@ assert_no_private_tokens() {
 }
 
 python3 - "$module" <<'PY' || fail 'source contract drifted'
-import pathlib, sys
+import pathlib, re, sys
 
 module = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+# Prose lives in comments, which get re-wrapped by nixfmt and by ordinary
+# editing. Match it against a comment-marker-free, whitespace-collapsed view so
+# a reflow cannot fail this test while the contract itself is intact — that is
+# what happened when NIX-445 superseded the old no-wrapper wording.
+prose = " ".join(re.sub(r"(?m)^\s*#\s?", "", module).split())
+
 for needle in (
     "piPath",
     "piAccountsFile",
@@ -43,19 +49,58 @@ for needle in (
     "--pi-accounts",
     "--cursor-path",
     "--cursor-accounts",
+):
+    assert needle in module, needle
+
+for phrase in (
     "serve accepts `--pi-path` and `--pi-accounts`",
     "serve accepts `--cursor-path`",
     "`--cursor-accounts`",
     "Paimos validates registry semantics",
     "do not enable against older pins",
-    "does not wrap them, copy auth directories, or start login",
+    # NIX-445 contract: a guarded launch path is allowed, but nothing about the
+    # operator's authentication may be touched.
+    "never copies their auth directories or starts a login",
 ):
-    assert needle in module, needle
+    assert phrase in prose, phrase
+
 assert "lib.types.nullOr lib.types.str" in module
 assert "lib.types.path" not in module
 assert "builtins.readFile" not in module
 assert "readFile cfg.piAccountsFile" not in module
 assert "readFile cfg.cursorAccountsFile" not in module
+
+# Auth homes, registries and identity stay out of this module entirely: no
+# vendor auth path is named, nothing is copied, no login is ever started.
+for forbidden in (
+    "auth.json",
+    ".cursor/",
+    ".codex/",
+    "cp -R",
+    "cp -r",
+    "login --",
+    "cursor-agent login",
+    "codex login",
+):
+    assert forbidden not in module, forbidden
+
+# The guarded launch path Cursor takes is env-only. It must never be wrapped in
+# a Seatbelt profile: the Cursor CLI applies its own, and macOS refuses nested
+# profiles, so wrapping it would disable the sandbox it already has.
+assert 'envOnlyCliPath "cursor"' in module
+assert 'guardedCliPath "cursor"' not in module
+enum = re.search(
+    r"sandboxedClis = lib\.mkOption \{\s*type = lib\.types\.listOf \(\s*lib\.types\.enum \[(.*?)\]",
+    module,
+    re.S,
+)
+assert enum, "sandboxedClis enum not found"
+assert "cursor" not in enum.group(1), "Cursor must not be Seatbelt-wrappable"
+assert "codex" not in enum.group(1), "Codex must not be Seatbelt-wrappable"
+
+# No native sandbox is ever disabled or downgraded from here.
+for forbidden in ("danger-full-access", "--dangerously-bypass", "sandbox_mode"):
+    assert forbidden not in module, forbidden
 PY
 
 pi_cli="/Users/fixture-user/.npm-global/bin/pi"
