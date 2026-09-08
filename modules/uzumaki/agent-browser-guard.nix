@@ -5,7 +5,7 @@
 # CLI, or macOS security settings. Rationale, the measured Seatbelt behaviour
 # and the proven nesting limit live in lib/agent-browser-guard.nix.
 #
-# FOUR LAYERS, DELIBERATELY DIFFERENT IN STRENGTH
+# FIVE LAYERS, DELIBERATELY DIFFERENT IN STRENGTH
 #   1. Seatbelt boundary — `inspr-agent-guard <program>` runs the program under a
 #      profile that denies `process-exec*` on every browser bundle. Inherited by
 #      all descendants, including Node/Playwright grandchildren. Usable only for
@@ -16,12 +16,18 @@
 #      filesystem deny). Measured working with fake executables on Codex 0.153.4;
 #      see lib/agent-browser-guard.nix. Rendering is declarative here; SELECTING
 #      the profile machine-wide is a privileged operator step (below).
-#   3. Harness hints — guarded launchers point PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+#   3. Node preload — a CommonJS module added to NODE_OPTIONS that refuses
+#      spawn/spawnSync/execFile/execFileSync (and the promisified execFile)
+#      before a denied executable starts. This is the Cursor answer and a
+#      defence-in-depth layer elsewhere. Cooperative and process-local: a direct
+#      shell/Python/Go/XPC launch or a scrubbed NODE_OPTIONS escapes it, so it is
+#      accidental-launch prevention, NOT a boundary.
+#   4. Harness hints — guarded launchers point PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
 #      PUPPETEER_EXECUTABLE_PATH and CHROME_PATH at a refusal shim instead of the
 #      NIX-288 native Chrome path. These are HINTS, not a boundary: a harness that
 #      hardcodes a path never reads them. Their value is turning an opaque EPERM
 #      into a stable, explained refusal.
-#   4. Guidance — AGENTS-NIXCFG.md tells agents what the refusal means, that a
+#   5. Guidance — AGENTS-NIXCFG.md tells agents what the refusal means, that a
 #      blocked launch is not a passed test, and that browser QA belongs to a
 #      verified controller-owned or remote runner.
 #
@@ -44,19 +50,23 @@
 #      Managed enforcement then also covers absolute Codex callers — the named
 #      account launchers and the agent.one docs path — without touching their
 #      authentication homes.
-#   b. Cursor is NOT covered. `cursor-agent` (and its `agent` symlink) ships its
-#      own `cursorsandbox` seatbelt helper, so it can be neither wrapped (nested
-#      profiles are refused) nor, so far, expressed natively the way Codex can.
-#      It gets environment hints only. To settle it, run under the guard once —
-#      a root-coordinated, fake-only probe, no browser:
-#        <guardCommand> ~/.local/share/cursor-agent/versions/<v>/cursor-agent --help
-#      If that fails with `sandbox_apply: Operation not permitted`, wrapping is
-#      confirmed impossible and the remaining option is a Cursor-native deny in
-#      ~/.cursor/cli-config.json (it has allow/deny + deniedCommands keys).
-#   c. Operator-owned imperative shims that call an absolute vendor path —
-#      ~/.local/bin/agent, the Claude equivalents of the named launchers. Those
-#      bypass the PATH-shadowing launchers by construction; they are migration
-#      items, not covered ground.
+#   b. Cursor has NO sandbox-grade coverage, and this is settled, not pending:
+#        - wrapped in the Seatbelt guard, a real `cursor-agent --sandbox enabled
+#          --auto-review` tool call died with `sandbox_apply` EPERM, exit 71
+#          (`--help` passes and proves nothing — it starts no tool sandbox);
+#        - its sandbox.json schema has no arbitrary filesystem deny;
+#        - a `permissions.deny = [Read(<abs fake>)]` rule does not reach the
+#          native shell sandbox: the fake executed and wrote its marker.
+#      So Cursor gets the env-only launcher: harness hints plus the Node preload.
+#      Composer and Grok run through the same harness and inherit it. Do not
+#      propose a Read-deny or a `--help` proof again.
+#   c. RAW ABSOLUTE CALLERS REQUIRE FRESH GUARDED ENTRY POINTS. Anything that
+#      invokes a vendor binary by absolute path — the operator-owned imperative
+#      Codex shims, a script holding ~/.npm-global/bin/claude, a dispatcher
+#      holding the pinned cursor-agent path — bypasses every PATH-based launcher
+#      here by construction. Managed Codex (a) closes that for Codex only. The
+#      rest must be migrated to the guarded entry points; until each one is,
+#      it is uncovered, and saying otherwise would be false.
 #   d. Codex app-server picks up policy at start: restart it after (a).
 #
 # WHAT THIS MODULE DOES NOT DO
@@ -91,10 +101,22 @@ let
   refusal = pkgs.writeShellScriptBin "inspr-browser-guard-refuse" (guardLib.mkRefusalText { });
   refusalPath = "${refusal}/bin/inspr-browser-guard-refuse";
 
+  # Node preload: the only lever left for CLIs that sandbox themselves and have
+  # no native filesystem deny (Cursor). Cooperative, process-local, NOT a
+  # boundary — see the header of modules/uzumaki/agent-browser-guard.cjs.
+  preload = pkgs.writeText "inspr-browser-guard-preload.cjs" (
+    guardLib.mkPreloadText { denyPaths = codexDenyPaths; }
+  );
+  preloadPath = "${preload}";
+  # Harness hints + preload, no Seatbelt profile. Used where a profile cannot be
+  # applied without breaking the CLI's own sandbox.
+  envOnlyPrefix =
+    guardLib.mkEnvOnlyExports refusalPath + "\n" + guardLib.mkPreloadEnvExports preloadPath;
+
   guard = pkgs.writeShellScriptBin "inspr-agent-guard" (
     guardLib.mkGuardText {
       profilePath = "${profile}";
-      inherit refusalPath;
+      inherit refusalPath preloadPath;
     }
   );
   guardPath = "${guard}/bin/inspr-agent-guard";
@@ -136,6 +158,14 @@ let
     pkgs.writeShellScriptBin name ''
       exec ${lib.escapeShellArg guardPath} ${lib.escapeShellArg target} "$@"
     '';
+  # Env-only launcher: same vendor path, same argv, no Seatbelt profile. For
+  # Cursor, whose own seatbelt helper cannot live inside another profile.
+  mkEnvOnlyWrapper =
+    name: target:
+    pkgs.writeShellScriptBin name ''
+      ${envOnlyPrefix}
+      exec ${lib.escapeShellArg target} "$@"
+    '';
   wrappers = lib.mapAttrsToList mkWrapper cfg.guardedPrograms;
 
   # PATH-shadowing launchers: same command NAME as the vendor CLI, in a directory
@@ -146,7 +176,9 @@ let
   # listed in the migration checklist rather than claimed as covered.
   shadowBin = pkgs.symlinkJoin {
     name = "inspr-agent-guard-shadow-bin";
-    paths = lib.mapAttrsToList mkWrapper cfg.shadowedPrograms;
+    paths =
+      lib.mapAttrsToList mkWrapper cfg.shadowedPrograms
+      ++ lib.mapAttrsToList mkEnvOnlyWrapper cfg.envOnlyPrograms;
   };
 in
 {
@@ -248,6 +280,27 @@ in
       '';
     };
 
+    envOnlyPrograms = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      example = {
+        cursor-agent = "/Users/markus/.local/share/cursor-agent/versions/<v>/cursor-agent";
+      };
+      description = ''
+        Launchers installed under the vendor CLI's own name in the same
+        PATH-ahead directory as `shadowedPrograms`, but WITHOUT a Seatbelt
+        profile: they only add the harness hints and the Node preload.
+
+        This is the Cursor case. `cursor-agent` (and its `agent` symlink) runs
+        its own seatbelt helper, so an outer profile breaks it — measured: a real
+        `--sandbox enabled` tool call under the guard died with `sandbox_apply`
+        EPERM, exit 71. Its sandbox.json has no arbitrary filesystem deny and a
+        `Read(<path>)` permission deny does not reach the native shell sandbox,
+        so the Node preload is the honest remaining lever. It prevents accidental
+        Playwright-shaped launches; it is not a boundary.
+      '';
+    };
+
     guardCommand = lib.mkOption {
       type = lib.types.str;
       default = "";
@@ -274,6 +327,13 @@ in
       default = "";
       internal = true;
       description = "Rendered Codex permission-profile snippet for the operator's CODEX_HOME configs.";
+    };
+
+    preloadPath = lib.mkOption {
+      type = lib.types.str;
+      default = "";
+      internal = true;
+      description = "Absolute path of the Node child-process preload (consumers and tests only).";
     };
 
     codexRequirementsPath = lib.mkOption {
@@ -315,6 +375,15 @@ in
       {
         assertion = lib.all (target: lib.hasPrefix "/" target) (lib.attrValues cfg.shadowedPrograms);
         message = "uzumaki.agentBrowserGuard.shadowedPrograms targets must be absolute paths";
+      }
+      {
+        assertion = lib.all (target: lib.hasPrefix "/" target) (lib.attrValues cfg.envOnlyPrograms);
+        message = "uzumaki.agentBrowserGuard.envOnlyPrograms targets must be absolute paths";
+      }
+      {
+        assertion =
+          lib.intersectLists (lib.attrNames cfg.shadowedPrograms) (lib.attrNames cfg.envOnlyPrograms) == [ ];
+        message = "uzumaki.agentBrowserGuard: a command must be either sandbox-shadowed or env-only, not both";
       }
       {
         # Codex and Cursor both apply their own Seatbelt profile per command, and
@@ -360,9 +429,10 @@ in
       guardCommand = guardPath;
       refusalCommand = refusalPath;
       profilePath = "${profile}";
+      preloadPath = preloadPath;
       codexProfilePath = "${codexProfile}";
       codexRequirementsPath = "${codexRequirements}";
-      envOnlyExports = guardLib.mkEnvOnlyExports refusalPath;
+      envOnlyExports = envOnlyPrefix;
       launchdEnvironment = guardLib.mkHarnessEnv {
         inherit refusalPath;
         mode = "env-only";

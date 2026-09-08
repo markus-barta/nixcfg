@@ -76,7 +76,6 @@ expected_pairs = {
     "--report-api-key-file": "/Users/markus/Library/Caches/paimos/agentd/report-api-key",
     "--lifecycle-config": "/Users/markus/Library/Application Support/paimos/agentd/lifecycle.json",
     "--codex-accounts": "/Users/markus/Library/Application Support/paimos/agentd/codex-accounts.json",
-    "--cursor-path": "/Users/markus/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent",
     "--cursor-accounts": "/Users/markus/Library/Application Support/paimos/agentd/cursor-accounts.json",
 }
 for flag, value in expected_pairs.items():
@@ -87,6 +86,13 @@ for flag in ("--pi-path", "--pi-accounts"):
     assert flag not in args, (flag, args)
 # NIX-445: Claude is launched through the browser-guard wrapper, which execs the
 # unchanged operator npm path under the Seatbelt profile (checked in T72).
+# Cursor is launched through the env-only wrapper instead: it runs its own
+# seatbelt helper, so it must never be nested inside another profile.
+cursor_index = args.index("--cursor-path")
+assert args.count("--cursor-path") == 1, args
+cursor_path = args[cursor_index + 1]
+assert cursor_path.startswith("/nix/store/"), args
+assert cursor_path.endswith("-paimos-agentd-cursor/bin/paimos-agentd-cursor"), args
 claude_index = args.index("--claude-path")
 assert args.count("--claude-path") == 1, args
 claude_path = args[claude_index + 1]
@@ -163,6 +169,21 @@ PYCLAUDE
   [ -x "$claude_launcher" ] || fail 'realised Claude launcher does not exist'
   grep -Fq '/Users/markus/.npm-global/bin/claude' "$claude_launcher" || fail 'Claude guard wrapper does not exec the operator-authenticated CLI'
   grep -Fq 'inspr-agent-guard' "$claude_launcher" || fail 'Claude launcher is not wrapped in the NIX-445 browser guard'
+
+  cursor_launcher=$(
+    python3 - "$agent_json" <<'PYCURSOR'
+import json, sys
+args = json.loads(sys.argv[1])["config"]["ProgramArguments"]
+print(args[args.index("--cursor-path") + 1])
+PYCURSOR
+  )
+  [ -x "$cursor_launcher" ] || fail 'realised Cursor launcher does not exist'
+  grep -Fq '/Users/markus/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent' "$cursor_launcher" ||
+    fail 'Cursor launcher does not exec the pinned operator CLI'
+  grep -Fq 'NODE_OPTIONS' "$cursor_launcher" || fail 'Cursor launcher does not carry the NIX-445 Node preload'
+  if grep -Eq 'sandbox-exec|inspr-agent-guard' "$cursor_launcher"; then
+    fail 'Cursor must never be nested inside another Seatbelt profile'
+  fi
 
   service_plist="$activation_package/LaunchAgents/at.inspr.paimos-agentd.plist"
   [ -f "$service_plist" ] || fail 'final Home Manager generation has no Paimos LaunchAgent'
