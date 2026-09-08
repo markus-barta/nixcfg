@@ -631,7 +631,7 @@ in
       # organization release is deployed from a cosign-signed image with SPDX
       # SBOM + SLSA build provenance, pinned by digest.
       # To bump: cut a go-envelope-v* release, verify, then update the digest.
-      image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v1.182@sha256:70da4f98f46a1cfa42da2f66fba37d0ee59d46d2af4d6b49843992be7999306e";
+      image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v1.183@sha256:8c0b5ede38188e42fee35ef62865554cd8cd3c9d76fc5a81b67cd5e8fddc3b73";
       container_name = "janus";
       restart = "unless-stopped";
       # The image's named janus account is uid 100/gid 101. Pin the numeric
