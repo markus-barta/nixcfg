@@ -563,6 +563,11 @@ in
   };
 
   # NIX-280 — the host answers for its own services, because a browser cannot.
+  # Joe household board projection directory (Mac syncs data.json here).
+  systemd.tmpfiles.rules = [
+    "d /var/lib/joe-dashboard 0755 root root -"
+  ];
+
   services.hostdash.status = {
     enable = true;
     host = "hsb1";
