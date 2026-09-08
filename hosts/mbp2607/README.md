@@ -30,6 +30,26 @@ The Home Manager `paimos-agentd` service passes `--codex-accounts` to
 on this host (PAI-955 / NIX-437). The file stays owner-only outside the Nix
 store; do not copy registry homes or emails into Nix.
 
+### Cursor agentd (NIX-439 — prepared, not activated)
+
+Home Manager also declares `--cursor-path` and `--cursor-accounts` for the
+pinned native CLI at
+`~/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent` and the
+owner-only registry at
+`~/Library/Application Support/paimos/agentd/cursor-accounts.json`. Nix carries
+paths only — no email, userid, or registry contents.
+
+Composer and Grok are selected through owned account/profile choices in that
+registry, not through Nix. Cursor same-turn text steer remains unsupported;
+inbox `nextturn`, `cancel`, and `stop` are available. Authentication stays in
+the vendor store; agentd does not wrap or copy auth directories.
+
+**Do not activate this host slice until Root couples it with a matching released
+Paimos Cursor-capable pin in the same integration worktree.** The current
+`v26.09.07.20.15` installed CLI does not accept `--cursor-path` /
+`--cursor-accounts`. Root creates the actual owner-only mapping and adds the
+verified flake pin before review, merge, and switch.
+
 ## Coding with Pi
 
 Run `pi-local` from the repository or subdirectory you want to work in. Pi stays
