@@ -92,6 +92,57 @@ contains "$codex_profile" '"/Applications/Google Chrome.app" = "deny"' 'Codex pr
 codex_requirements=$(guard_eval 'guard.mkCodexRequirementsToml { profileName = "inspr-browser-guard"; denyPaths = [ "/Applications/Google Chrome.app" ]; }')
 contains "$codex_requirements" 'default_permissions = "inspr-browser-guard"' 'managed requirements must set the default permission profile'
 contains "$codex_requirements" '[allowed_permission_profiles]' 'managed requirements must allow-list the guarded profile'
+# Vendor managed-configuration docs require a BOOLEAN allow-list value. An
+# invalid managed config can stop Codex starting at all, so parse and type-check
+# it here rather than discovering it on a privileged install.
+printf '%s' "$codex_requirements" >"${TMPDIR:-/tmp}/t72-requirements.toml"
+python3 - "${TMPDIR:-/tmp}/t72-requirements.toml" <<'PYTOML' || exit 1
+import sys, tomllib
+with open(sys.argv[1], "rb") as handle:
+    doc = tomllib.load(handle)
+name = doc.get("default_permissions")
+if name != "inspr-browser-guard":
+    print(f"T72 failed: default_permissions is {name!r}", file=sys.stderr); sys.exit(1)
+allowed = doc.get("allowed_permission_profiles")
+if not isinstance(allowed, dict) or name not in allowed:
+    print(f"T72 failed: allow-list missing the profile: {allowed!r}", file=sys.stderr); sys.exit(1)
+if not isinstance(allowed[name], bool) or allowed[name] is not True:
+    print(f"T72 failed: allowed_permission_profiles.{name} must be the boolean true, got {allowed[name]!r}", file=sys.stderr)
+    sys.exit(1)
+profile = doc.get("permissions", {}).get(name, {})
+if profile.get("extends") != ":workspace":
+    print(f"T72 failed: profile must extend the workspace baseline: {profile!r}", file=sys.stderr); sys.exit(1)
+denies = profile.get("filesystem", {})
+if denies.get("/Applications/Google Chrome.app") != "deny":
+    print(f"T72 failed: Chrome bundle is not denied: {denies!r}", file=sys.stderr); sys.exit(1)
+PYTOML
+rm -f "${TMPDIR:-/tmp}/t72-requirements.toml"
+
+# The deny list must carry the self-test anchor, so the managed installer can
+# prove enforcement with a fake executable instead of with a browser.
+probe_path=$(guard_eval 'guard.codexProbePath')
+case "$probe_path" in
+/private/*) ;;
+*) fail "probe anchor must be an absolute resolved path: $probe_path" ;;
+esac
+grep -Fq 'guardLib.codexProbePath' modules/uzumaki/agent-browser-guard.nix ||
+  fail 'the module must add the probe anchor to the Codex deny list'
+anchored=$(guard_eval "guard.mkCodexRequirementsToml { profileName = ''inspr-browser-guard''; denyPaths = [ ''$probe_path'' ]; }")
+contains "$anchored" "\"$probe_path\" = \"deny\"" 'probe anchor must render as a deny rule'
+
+installer=$(guard_eval 'guard.mkManagedInstallerText { requirementsPath = "/nix/store/x-req.toml"; profileName = "inspr-browser-guard"; codexBinary = "/tmp/codex"; }')
+contains "$installer" 'exit 77' 'installer must refuse to run without root and without SUDO_USER'
+contains "$installer" 'SUDO_USER' 'installer must run its verification as the operator, never as root'
+contains "$installer" '--replace-existing' 'installer must refuse to clobber a foreign managed config by default'
+contains "$installer" 'pre-inspr-nix445' 'installer must back up an adopted config'
+contains "$installer" 'refusing to touch' 'rollback must be checksum-guarded to our own file'
+contains "$installer" 'sandbox_mode=danger-full-access' 'installer must prove the legacy sandbox override cannot escape'
+contains "$installer" '-P :workspace' 'installer must prove a built-in profile is rejected once managed'
+contains "$installer" 'rolling back' 'installer must roll back on verification failure'
+case "$installer" in
+*'Google Chrome.app/Contents/MacOS'*) fail 'installer must never execute or name a real browser binary' ;;
+esac
+
 contains "$codex_requirements" '"/Applications/Google Chrome.app" = "deny"' 'managed requirements must carry the deny definitions'
 
 # ── 2. Wiring ────────────────────────────────────────────────────────────────
@@ -103,13 +154,19 @@ grep -Fq 'browserGuard = {' hosts/mbp2607/home.nix ||
   fail 'mbp2607 must enable the agentd browser guard explicitly'
 grep -Fq 'shadowedPrograms = {' hosts/mbp2607/home.nix ||
   fail 'mbp2607 must wire the real CLI names through the guard, not only *-guarded aliases'
-for cli in claude grok pi cursor-agent; do
+for cli in claude grok pi; do
   grep -Eq "^ *$cli = " hosts/mbp2607/home.nix ||
     fail "mbp2607 must shadow the real $cli entry point"
 done
-if grep -Eq '^ *codex = ' hosts/mbp2607/home.nix; then
-  fail 'codex must never be sandbox-wrapped — macOS refuses nested Seatbelt profiles'
-fi
+# Codex, cursor-agent and its `agent` symlink each apply their own Seatbelt
+# profile; wrapping any of them would break the sandbox they already have.
+for unwrappable in codex cursor-agent agent; do
+  if grep -Eq "^ *$unwrappable = " hosts/mbp2607/home.nix; then
+    fail "$unwrappable must never be sandbox-wrapped — macOS refuses nested Seatbelt profiles"
+  fi
+done
+grep -Fq 'cursor-agent' modules/uzumaki/agent-browser-guard.nix ||
+  fail 'the module must state the Cursor limitation explicitly'
 grep -Fq 'fish_add_path --prepend --move ${shadowBin}/bin' modules/uzumaki/agent-browser-guard.nix ||
   fail 'guarded launchers must be placed ahead of ~/.npm-global/bin in fish'
 grep -Fq 'guardPrefix' hosts/mbp2607/pi-local.nix ||
@@ -127,8 +184,9 @@ src = open("modules/uzumaki/paimos-agentd.nix", encoding="utf-8").read()
 enum = re.search(r"sandboxedClis = lib\.mkOption \{\s*type = lib\.types\.listOf \(\s*lib\.types\.enum \[(.*?)\]", src, re.S)
 if not enum:
     print("T72 failed: sandboxedClis enum not found", file=sys.stderr); sys.exit(1)
-if "codex" in enum.group(1):
-    print("T72 failed: Codex must not be sandbox-wrappable", file=sys.stderr); sys.exit(1)
+for name in ("codex", "cursor"):
+    if name in enum.group(1):
+        print(f"T72 failed: {name} must not be sandbox-wrappable", file=sys.stderr); sys.exit(1)
 PY
 
 # ── 3. The ordinary human browser path is untouched ──────────────────────────

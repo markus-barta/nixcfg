@@ -71,15 +71,18 @@ in
       extraDenyPaths = [ "${config.home.homeDirectory}/Applications/Chromium Apps.localized" ];
       # Same-name launchers ahead of ~/.npm-global/bin and /opt/homebrew/bin in
       # fish, so the callers that exist today — bare `claude`, the `cla`/`clar`
-      # aliases, `grok` from either resolution, `cursor-agent` — become guarded
-      # without being renamed. Each execs the absolute vendor path, so npm
-      # self-updates still apply. Codex is deliberately absent (nested Seatbelt
-      # is impossible); it is covered by its native permission profile.
+      # aliases, `grok` from either resolution — become guarded without being
+      # renamed. Each execs the absolute vendor path, so npm self-updates apply.
+      #
+      # Codex, `cursor-agent` and its `agent` symlink are deliberately absent:
+      # each applies its OWN Seatbelt profile and macOS refuses nested profiles,
+      # so wrapping them would break the sandbox they already have. Codex is
+      # covered by its native permission profile instead; Cursor has no proven
+      # equivalent yet and is honestly reported as uncovered.
       shadowedPrograms = {
         claude = "${config.home.homeDirectory}/.npm-global/bin/claude";
         grok = "${config.home.homeDirectory}/.npm-global/bin/grok";
         pi = "${config.home.homeDirectory}/.npm-global/bin/pi";
-        cursor-agent = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
       };
       # Explicit target for the operator-owned imperative shims that call an
       # absolute path (the named Codex launchers' Claude equivalents, and any
