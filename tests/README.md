@@ -81,6 +81,7 @@ Examples:
 - `T56-paimos-agentd-home-manager.sh` — Live mbp2607 Paimos pin and agentd argv
 - `T69-paimos-agentd-codex-accounts.sh` — Isolated Codex accounts file boundary
 - `T70-paimos-agentd-pi-cursor-accounts.sh` — Isolated Pi/Cursor path+registry boundary
+- `T71-pharos-flow-host.sh` — csb1 Pharos Flow host config contract (NIX-442)
 
 ## Writing Shell Tests
 
