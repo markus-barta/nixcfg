@@ -60,6 +60,17 @@ The path must be an absolute owner-only JSON file outside `/nix/store`. Nix
 checks path/ownership/mode/JSON object bounds; Paimos validates registry
 semantics. Do not put homes, emails, or registry bytes in Nix.
 
+`piPath`/`piAccountsFile` and `cursorPath`/`cursorAccountsFile` also default to
+`null` and emit no extra flags. Selecting a harness requires both an absolute
+operator-installed CLI path and an owner-only JSON registry path outside
+`/nix/store`, which adds exactly one `--pi-path`/`--pi-accounts` or
+`--cursor-path`/`--cursor-accounts` pair. This requires a Paimos release whose
+paimos-agentd serve accepts those flags; do not enable them against older pins,
+including the current 26.09.07.20.15 pin. Native CLI paths stay operator pins
+(use `config.home.homeDirectory` rather than committing a machine path). This
+module does not install models, copy auth directories, start login, or change
+operator registries. Paimos remains the semantic account authority.
+
 ### Fish Functions
 
 | Function     | Description                                                                   |
@@ -84,7 +95,7 @@ modules/uzumaki/
 ├── desktop.nix          # Direct import for NixOS desktops (legacy)
 ├── macos.nix            # Direct import for macOS (legacy)
 ├── macos-common.nix     # macOS-specific: fonts, packages (terminal: Ghostty via Homebrew, not Nix; WezTerm purged 2026-05-05)
-├── paimos-agentd.nix    # Operator-local PAIMOS owner; optional external Codex registry path
+├── paimos-agentd.nix    # Operator-local PAIMOS owner; optional external Codex/Pi/Cursor registry paths
 ├── fish/
 │   ├── default.nix      # Fish module exports
 │   ├── config.nix       # Aliases & abbreviations
