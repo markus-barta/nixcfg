@@ -453,6 +453,14 @@ rec {
         $SHASUM -a 256 "$1" | cut -d' ' -f1
       }
 
+      # Octal arithmetic, not a glob: a trailing-character pattern only sees the
+      # "other" digit, so a root-owned but group-writable directory (a non-wheel
+      # group is perfectly possible on an existing /etc/codex) would slip past.
+      # 0022 masks both the group- and the world-write bit.
+      mode_is_group_or_world_writable() {
+        [ $(( 8#$1 & 8#22 )) -ne 0 ]
+      }
+
       # Restore strictly what THIS run put in place. A file that was never ours
       # is left alone, a file that changed under us is left alone, and a
       # pre-existing stamp is put back exactly as it was.
@@ -522,9 +530,9 @@ rec {
         dir_owner=$(/usr/bin/stat -f '%u' "$TARGET_DIR")
         dir_mode=$(/usr/bin/stat -f '%OLp' "$TARGET_DIR")
         [ "$dir_owner" = 0 ] || fail "$TARGET_DIR is not owned by root — refusing" 3
-        case "$dir_mode" in
-          *[2367]) fail "$TARGET_DIR is group- or world-writable — refusing" 3 ;;
-        esac
+        if mode_is_group_or_world_writable "$dir_mode"; then
+          fail "$TARGET_DIR is group- or world-writable — refusing" 3
+        fi
       else
         /usr/bin/install -d -m 0755 -o root -g wheel "$TARGET_DIR"
       fi
