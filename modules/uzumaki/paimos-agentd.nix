@@ -16,9 +16,35 @@ let
   reportCredentialFile = "${stateRoot}/report-api-key";
   lifecycleConfigFile = if cfg.lifecycleConfigFile == null then "" else cfg.lifecycleConfigFile;
   codexAccountsFile = if cfg.codexAccountsFile == null then "" else cfg.codexAccountsFile;
+  piAccountsFile = if cfg.piAccountsFile == null then "" else cfg.piAccountsFile;
+  cursorAccountsFile = if cfg.cursorAccountsFile == null then "" else cfg.cursorAccountsFile;
   sdkPath = "${pkgs.claude-agent-sdk}/${pkgs.claude-agent-sdk.sdkRelativePath}";
+  safeExternalPath =
+    path: lib.hasPrefix "/" path && path != "/nix/store" && !lib.hasPrefix "/nix/store/" path;
+  pairComplete = path: accounts: (path == null) == (accounts == null);
+  accountRegistryActivationScript = label: path: ''
+    accounts_file=${lib.escapeShellArg path}
+    if [ ! -f "$accounts_file" ] || [ -L "$accounts_file" ]; then
+      printf '%s\n' 'paimos-agentd ${label} must be an existing regular non-symlink file' >&2
+      exit 1
+    fi
+    accounts_mode=$(${pkgs.coreutils}/bin/stat -c '%a' "$accounts_file")
+    accounts_owner=$(${pkgs.coreutils}/bin/stat -c '%u' "$accounts_file")
+    accounts_links=$(${pkgs.coreutils}/bin/stat -c '%h' "$accounts_file")
+    accounts_size=$(${pkgs.coreutils}/bin/stat -c '%s' "$accounts_file")
+    if [ "$accounts_mode" != 600 ] || [ "$accounts_owner" != "$(${pkgs.coreutils}/bin/id -u)" ] || [ "$accounts_links" != 1 ]; then
+      printf '%s\n' 'paimos-agentd ${label} ownership, mode or link count is unsafe' >&2
+      exit 1
+    fi
+    if [ "$accounts_size" -gt 65536 ] || ! ${pkgs.jq}/bin/jq -e -s 'length == 1 and (.[0] | type == "object")' "$accounts_file" >/dev/null 2>&1; then
+      printf '%s\n' 'paimos-agentd ${label} must contain one bounded JSON object' >&2
+      exit 1
+    fi
+  '';
   # PATH-only wrapper: the owned runtime may pass CODEX_HOME for a selected
   # account. Do not unset, override, or source registry text here.
+  # Pi and Cursor CLIs are explicit operator pins passed through as-is; this
+  # module does not wrap them, copy auth directories, or start login.
   codexLauncher = pkgs.writeShellScriptBin "paimos-agentd-codex" ''
     export PATH=${lib.escapeShellArg "${pkgs.nodejs}/bin:/usr/bin:/bin:/usr/sbin:/sbin"}
     exec ${lib.escapeShellArg cfg.codexPath} "$@"
@@ -118,6 +144,18 @@ let
   ++ lib.optionals (cfg.codexAccountsFile != null) [
     "--codex-accounts"
     codexAccountsFile
+  ]
+  ++ lib.optionals (cfg.piPath != null && cfg.piAccountsFile != null) [
+    "--pi-path"
+    cfg.piPath
+    "--pi-accounts"
+    piAccountsFile
+  ]
+  ++ lib.optionals (cfg.cursorPath != null && cfg.cursorAccountsFile != null) [
+    "--cursor-path"
+    cfg.cursorPath
+    "--cursor-accounts"
+    cursorAccountsFile
   ];
   serviceConfig = {
     Label = serviceLabel;
@@ -175,6 +213,52 @@ in
       '';
     };
 
+    piPath = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Absolute operator-authenticated Pi CLI path. Null keeps the existing serve
+        argv. A set path must be paired with piAccountsFile and emits exactly one
+        `--pi-path`/`--pi-accounts` pair. Requires a Paimos release whose
+        paimos-agentd serve accepts `--pi-path` and `--pi-accounts`; do not enable
+        against older pins.
+      '';
+    };
+
+    piAccountsFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Absolute owner-only Pi account registry JSON file materialized outside the
+        Nix store. Null keeps the existing serve argv. A set path must be paired
+        with piPath. Operator-owned homes, emails, and registry bytes stay outside
+        Nix. Paimos validates registry semantics and account proof.
+      '';
+    };
+
+    cursorPath = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Absolute operator-authenticated Cursor CLI path. Null keeps the existing
+        serve argv. A set path must be paired with cursorAccountsFile and emits
+        exactly one `--cursor-path`/`--cursor-accounts` pair. Requires a Paimos
+        release whose paimos-agentd serve accepts `--cursor-path` and
+        `--cursor-accounts`; do not enable against older pins.
+      '';
+    };
+
+    cursorAccountsFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Absolute owner-only Cursor account registry JSON file materialized outside
+        the Nix store. Null keeps the existing serve argv. A set path must be
+        paired with cursorPath. Operator-owned homes, emails, and registry bytes
+        stay outside Nix. Paimos validates registry semantics and account proof.
+      '';
+    };
+
     reporting = {
       enable = lib.mkEnableOption "authenticated durable harness status and owned controls";
 
@@ -211,7 +295,11 @@ in
         message = "uzumaki.paimosAgentd currently requires macOS launchd";
       }
       {
-        assertion = lib.hasPrefix "/" cfg.codexPath && lib.hasPrefix "/" cfg.claudePath;
+        assertion =
+          lib.hasPrefix "/" cfg.codexPath
+          && lib.hasPrefix "/" cfg.claudePath
+          && (cfg.piPath == null || lib.hasPrefix "/" cfg.piPath)
+          && (cfg.cursorPath == null || lib.hasPrefix "/" cfg.cursorPath);
         message = "uzumaki.paimosAgentd vendor CLI paths must be absolute";
       }
       {
@@ -245,6 +333,22 @@ in
             && !lib.hasPrefix "/nix/store/" codexAccountsFile
           );
         message = "uzumaki.paimosAgentd codexAccountsFile requires an absolute path outside the Nix store";
+      }
+      {
+        assertion = pairComplete cfg.piPath cfg.piAccountsFile;
+        message = "uzumaki.paimosAgentd Pi requires piPath and piAccountsFile together";
+      }
+      {
+        assertion = cfg.piAccountsFile == null || safeExternalPath piAccountsFile;
+        message = "uzumaki.paimosAgentd piAccountsFile requires an absolute path outside the Nix store";
+      }
+      {
+        assertion = pairComplete cfg.cursorPath cfg.cursorAccountsFile;
+        message = "uzumaki.paimosAgentd Cursor requires cursorPath and cursorAccountsFile together";
+      }
+      {
+        assertion = cfg.cursorAccountsFile == null || safeExternalPath cursorAccountsFile;
+        message = "uzumaki.paimosAgentd cursorAccountsFile requires an absolute path outside the Nix store";
       }
     ];
 
@@ -294,25 +398,21 @@ in
     '';
 
     home.activation.paimosAgentdCodexAccounts = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
-      ${lib.optionalString (cfg.codexAccountsFile != null) ''
-        accounts_file=${lib.escapeShellArg codexAccountsFile}
-        if [ ! -f "$accounts_file" ] || [ -L "$accounts_file" ]; then
-          printf '%s\n' 'paimos-agentd Codex account registry must be an existing regular non-symlink file' >&2
-          exit 1
-        fi
-        accounts_mode=$(${pkgs.coreutils}/bin/stat -c '%a' "$accounts_file")
-        accounts_owner=$(${pkgs.coreutils}/bin/stat -c '%u' "$accounts_file")
-        accounts_links=$(${pkgs.coreutils}/bin/stat -c '%h' "$accounts_file")
-        accounts_size=$(${pkgs.coreutils}/bin/stat -c '%s' "$accounts_file")
-        if [ "$accounts_mode" != 600 ] || [ "$accounts_owner" != "$(${pkgs.coreutils}/bin/id -u)" ] || [ "$accounts_links" != 1 ]; then
-          printf '%s\n' 'paimos-agentd Codex account registry ownership, mode or link count is unsafe' >&2
-          exit 1
-        fi
-        if [ "$accounts_size" -gt 65536 ] || ! ${pkgs.jq}/bin/jq -e -s 'length == 1 and (.[0] | type == "object")' "$accounts_file" >/dev/null 2>&1; then
-          printf '%s\n' 'paimos-agentd Codex account registry must contain one bounded JSON object' >&2
-          exit 1
-        fi
-      ''}
+      ${lib.optionalString (cfg.codexAccountsFile != null) (
+        accountRegistryActivationScript "Codex account registry" codexAccountsFile
+      )}
+    '';
+
+    home.activation.paimosAgentdPiAccounts = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+      ${lib.optionalString (cfg.piAccountsFile != null) (
+        accountRegistryActivationScript "Pi account registry" piAccountsFile
+      )}
+    '';
+
+    home.activation.paimosAgentdCursorAccounts = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+      ${lib.optionalString (cfg.cursorAccountsFile != null) (
+        accountRegistryActivationScript "Cursor account registry" cursorAccountsFile
+      )}
     '';
 
     home.activation.paimosAgentdPrivateState =

@@ -208,6 +208,9 @@ jobs:
       - name: Verify optional Paimos Codex accounts Home Manager boundary
         run: nix-shell -p python3 --run tests/T69-paimos-agentd-codex-accounts.sh
 
+      - name: Verify optional Paimos Pi/Cursor accounts Home Manager boundary
+        run: nix-shell -p python3 --run tests/T70-paimos-agentd-pi-cursor-accounts.sh
+
       - name: Verify Higgsfield CLI Home Manager contract
         run: nix-shell -p python3 --run tests/T67-higgsfield-cli-home-manager.sh
 

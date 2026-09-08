@@ -3,6 +3,10 @@
   accountsFile ? null,
   lifecycleFile ? null,
   reporting ? false,
+  piPath ? null,
+  piAccountsFile ? null,
+  cursorPath ? null,
+  cursorAccountsFile ? null,
 }:
 let
   flake = builtins.getFlake (toString root);
@@ -40,6 +44,12 @@ let
         news.display = "silent";
         uzumaki.paimosAgentd = {
           enable = true;
+          inherit
+            piPath
+            piAccountsFile
+            cursorPath
+            cursorAccountsFile
+            ;
           codexAccountsFile = accountsFile;
           lifecycleConfigFile = lifecycleFile;
           reporting = {
@@ -72,6 +82,12 @@ in
   environmentVariables = cfg.launchd.agents.paimos-agentd.config.EnvironmentVariables or null;
   codexAccountsValue = flagAfter "--codex-accounts";
   lifecycleConfigValue = flagAfter "--lifecycle-config";
+  piPathValue = flagAfter "--pi-path";
+  piAccountsValue = flagAfter "--pi-accounts";
+  cursorPathValue = flagAfter "--cursor-path";
+  cursorAccountsValue = flagAfter "--cursor-accounts";
   codexLauncher = flagAfter "--codex-path";
   activation = cfg.home.activation.paimosAgentdCodexAccounts.data;
+  piActivation = cfg.home.activation.paimosAgentdPiAccounts.data;
+  cursorActivation = cfg.home.activation.paimosAgentdCursorAccounts.data;
 }
