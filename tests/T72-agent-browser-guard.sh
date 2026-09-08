@@ -189,6 +189,16 @@ intent_line=$(printf '%s\n' "$installer" | grep -n 'mutation_intent=1$' | head -
 # Run the rendered installer in an isolated fixture — never /etc, never sudo.
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/t72-installer.XXXXXX")
 fixture=$(cd "$fixture" && pwd -P)
+# The installer itself always runs on macOS, where /usr/bin/shasum exists. This
+# fixture also runs on Linux CI, which may only ship sha256sum, so shim the
+# `-a 256` arguments away rather than weakening what the installer calls.
+if command -v shasum >/dev/null 2>&1; then
+  sha_tool=$(command -v shasum)
+else
+  printf '#!/bin/sh\nshift 2\nexec sha256sum "$@"\n' >"$fixture/shasum-shim"
+  chmod +x "$fixture/shasum-shim"
+  sha_tool="$fixture/shasum-shim"
+fi
 printf '#!/usr/bin/env bash\n%s\n' "$installer" >"$fixture/installer.sh"
 chmod +x "$fixture/installer.sh"
 bash -n "$fixture/installer.sh" || fail 'rendered installer is not valid shell'
@@ -218,14 +228,14 @@ restore_case() {
   mkdir -p "$fixture/case"
   printf 'managed\n' >"$fixture/case/requirements.toml"
   case "$2" in
-  ours) /usr/bin/shasum -a 256 "$fixture/case/requirements.toml" | cut -d' ' -f1 >"$fixture/case/requirements.toml.inspr-nix445.sha256" ;;
+  ours) "$sha_tool" -a 256 "$fixture/case/requirements.toml" | cut -d' ' -f1 >"$fixture/case/requirements.toml.inspr-nix445.sha256" ;;
   stale) printf 'deadbeef\n' >"$fixture/case/requirements.toml.inspr-nix445.sha256" ;;
   esac
   [ "$3" = yes ] && printf 'previous\n' >"$fixture/case/requirements.toml.pre-inspr-nix445.20260101T000000Z"
   (
     TARGET=$fixture/case/requirements.toml
     STAMP=$TARGET.inspr-nix445.sha256
-    SHASUM=/usr/bin/shasum
+    SHASUM=$sha_tool
     adopted_foreign_identical=0
     new_sha=${5-}
     pre_stamp=${6-}
@@ -246,7 +256,7 @@ restore_case 'ours, no backup' ours no removed
 restore_case 'ours, with backup' ours yes restored
 # Provenance boundaries: a target this run wrote is rolled back even without a
 # usable stamp, and a target replaced by someone else after our write is not.
-managed_sha=$(printf 'managed\n' | /usr/bin/shasum -a 256 | cut -d' ' -f1)
+managed_sha=$(printf 'managed\n' | "$sha_tool" -a 256 | cut -d' ' -f1)
 restore_case 'mid-transaction, ours by checksum' none no removed "$managed_sha"
 restore_case 'mid-transaction, replaced under us' none no kept deadbeefdeadbeef
 
