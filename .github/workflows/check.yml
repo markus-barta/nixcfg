@@ -176,6 +176,9 @@ jobs:
       - name: Verify Paimos external-stage adapter contract (NIX-381 / PAI-810)
         run: tests/T48-paimos-delivery-stage.sh
 
+      - name: Verify Pharos Flow host config contract (NIX-442 / PHAROS-257)
+        run: tests/T71-pharos-flow-host.sh
+
       - name: Verify declared host health thresholds (NIX-281)
         run: tests/T49-host-health-thresholds.sh
 

@@ -238,6 +238,11 @@ sed 's/^  active = true;/  active = false;/' "$stage" >"$workdir/off/paimos-deli
 sed 's/^  active = false;/  active = true;/' "$stage" >"$workdir/on/paimos-delivery-stage.nix"
 cp "$compose" "$workdir/off/docker/compose-spec.nix"
 cp "$compose" "$workdir/on/docker/compose-spec.nix"
+# NIX-442: compose-spec.nix also imports the Flow switch via a sibling path.
+# The fixture copies must keep that relative import resolvable; Flow stays
+# inactive in both T48 positions.
+cp "$repo_root/hosts/csb1/pharos-flow-host.nix" "$workdir/off/pharos-flow-host.nix"
+cp "$repo_root/hosts/csb1/pharos-flow-host.nix" "$workdir/on/pharos-flow-host.nix"
 
 grep -Fq '  active = false;' "$workdir/off/paimos-delivery-stage.nix" ||
   {
