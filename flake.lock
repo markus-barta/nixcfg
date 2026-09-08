@@ -524,11 +524,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788897039,
-        "narHash": "sha256-R+ypkcINdq1oMusoZoGyLjqe0UG6gAx65a5RwwUgCf8=",
+        "lastModified": 1788897213,
+        "narHash": "sha256-pi64G44Bnl4AGekr9MSKFbcfWxDhfjYNtsoDWhzvYM4=",
         "owner": "markus-barta",
         "repo": "hostdash",
-        "rev": "88a8b939ea90a72531cbdb1cfb346d1517e99b4a",
+        "rev": "4e3d3dc6d36064fc0264c8a960ed0e80c9c4d0f6",
         "type": "github"
       },
       "original": {
