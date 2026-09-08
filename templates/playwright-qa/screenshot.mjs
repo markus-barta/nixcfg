@@ -3,6 +3,13 @@
 // pointed to by $PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH (set by devenv.nix).
 // Origin: nixcfg NIX-288.
 //
+// NIX-445: inside a guarded agent session that variable points at
+// `inspr-browser-guard-refuse`, which refuses and exits 78 — agent worker
+// sessions must not start a native browser on the operator's Mac. That refusal
+// is NOT a passed test: report it and ask the controller for a verified runner
+// instead of retrying or looking for another browser binary. This template is
+// itself the native-browser path the guard blocks, so it is not the safe runner.
+//
 // Usage (inside the devenv shell):
 //   node screenshot.mjs [url] [outfile]
 //   node screenshot.mjs https://www.hausv.org/ hausv.png

@@ -66,6 +66,7 @@ in
     ./agent-skills.nix # Skills for ALL harnesses (~/.claude + ~/.codex): inspr-modules bundled + pinned upstream
     ./claude-statusline.nix # ~/.claude/statusline.sh — catppuccin pill footer (jq nix-pinned)
     ./paimos-agentd.nix # Operator-local PAIMOS owner for managed Codex/Claude sessions
+    ./agent-browser-guard.nix # NIX-445: macOS agent browser-launch guard (opt-in per host)
   ];
 
   # ══════════════════════════════════════════════════════════════════════════════

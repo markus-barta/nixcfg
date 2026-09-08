@@ -24,14 +24,19 @@ let
       ]
       (builtins.readFile ./files/pi-local.py)
   );
+  # NIX-445: both launchers run under the agent browser guard when the host
+  # enables it, so a Pi session cannot execute a native browser. The guard is a
+  # prefix only — argv, environment and the Pi auth home are untouched.
+  guard = config.uzumaki.agentBrowserGuard;
+  guardPrefix = lib.optionalString guard.enable "${lib.escapeShellArg guard.guardCommand} ";
   launcher = pkgs.writeShellScriptBin "pi-local" ''
-    exec ${pkgs.python3}/bin/python3 ${launcherScript} "$@"
+    exec ${guardPrefix}${pkgs.python3}/bin/python3 ${launcherScript} "$@"
   '';
   chatgptLauncher = pkgs.writeShellScriptBin "pi-chatgpt" ''
     export PI_CODING_AGENT_DIR=${lib.escapeShellArg agentDir}
     export PI_TELEMETRY=0
     unset PI_LOCAL_CONNECTION
-    exec ${lib.escapeShellArg pi} --offline \
+    exec ${guardPrefix}${lib.escapeShellArg pi} --offline \
       --provider openai-codex --model gpt-5.6-terra --thinking low \
       --extension ${./files/pi-local-context.js} "$@"
   '';
