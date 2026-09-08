@@ -239,7 +239,7 @@
     # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
     # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:26.09.07.22.08.13@sha256:793c4892b9bc4b14c25eea0295d64cdea2c88bd14db1f7846bda2d807457340c";
+      image = "ghcr.io/inspr-at/pharos/pharosd:26.09.08.11.36.59@sha256:83cd3ccee86bee8ae9f9ab871e40046182c6d200b2fb5fc5c95cba548dc64fa7";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
