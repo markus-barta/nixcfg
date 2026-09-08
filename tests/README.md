@@ -80,6 +80,7 @@ Examples:
 - `T03-hostname-consistency.sh` — Check old hostnames aren't referenced
 - `T56-paimos-agentd-home-manager.sh` — Live mbp2607 Paimos pin and agentd argv
 - `T69-paimos-agentd-codex-accounts.sh` — Isolated Codex accounts file boundary
+- `T70-paimos-agentd-pi-cursor-accounts.sh` — Isolated Pi/Cursor path+registry boundary
 
 ## Writing Shell Tests
 
