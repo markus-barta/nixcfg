@@ -1025,16 +1025,16 @@
     "paimos": {
       "flake": false,
       "locked": {
-        "lastModified": 1788837098,
-        "narHash": "sha256-OkRlz6pr1hBrCaoTmuPfwmu7ZoT7Q46zKw4ea3y6W04=",
+        "lastModified": 1788851609,
+        "narHash": "sha256-xmXi+lqhT+MH8MPK5io7+btf/g2jxvUZSapKM31slRA=",
         "owner": "inspr-at",
         "repo": "paimos",
-        "rev": "7ac43afb10f26dcb3fd488da21368888dae7cdd7",
+        "rev": "696f9148b61ae15edd57518d11c9be1bf4688244",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
-        "ref": "v26.09.08",
+        "ref": "v26.09.08.09.02",
         "repo": "paimos",
         "type": "github"
       }
