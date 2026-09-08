@@ -181,7 +181,10 @@ let
   ]
   ++ lib.optionals (cfg.cursorPath != null && cfg.cursorAccountsFile != null) [
     "--cursor-path"
-    (guardedCliPath "cursor" cfg.cursorPath)
+    # Unwrapped on purpose: the Cursor CLI applies its own Seatbelt profile via
+    # its `cursorsandbox` helper, and macOS refuses nested profiles. It receives
+    # the plist environment hints only — a hint, not a boundary (NIX-445).
+    cfg.cursorPath
     "--cursor-accounts"
     cursorAccountsFile
   ];
@@ -303,7 +306,6 @@ in
           lib.types.enum [
             "claude"
             "pi"
-            "cursor"
           ]
         );
         default = [ "claude" ];
@@ -311,12 +313,16 @@ in
           Which owned CLI paths are executed under the Seatbelt guard, as
           opposed to receiving the environment layer only.
 
-          Codex is deliberately absent from this enum and cannot be added:
+          Codex and Cursor are deliberately absent from this enum and cannot be
+          added:
           it applies its own Seatbelt profile per command, and macOS refuses
           nested profile application (`sandbox_apply: Operation not
           permitted`, measured on Darwin 25.6), so wrapping it would break
-          its existing inner sandbox. Codex sessions get the harness
-          variables only, and that limitation is documented, not hidden.
+          its existing inner sandbox. The Cursor CLI ships its own
+          `cursorsandbox` seatbelt helper (inspected read-only 2026-09-08)
+          and has the same problem. Codex is covered by its native
+          permission profile; Cursor currently gets the environment hints
+          only, which is a hint and not a boundary — stated, not hidden.
 
           A CLI listed here that also applies its own sandbox will fail
           loudly with the same `sandbox_apply` error; remove it from this
@@ -408,13 +414,6 @@ in
         assertion =
           !cfg.browserGuard.enable || !(lib.elem "pi" cfg.browserGuard.sandboxedClis) || cfg.piPath != null;
         message = "uzumaki.paimosAgentd.browserGuard cannot sandbox Pi without piPath";
-      }
-      {
-        assertion =
-          !cfg.browserGuard.enable
-          || !(lib.elem "cursor" cfg.browserGuard.sandboxedClis)
-          || cfg.cursorPath != null;
-        message = "uzumaki.paimosAgentd.browserGuard cannot sandbox Cursor without cursorPath";
       }
       {
         assertion = pairComplete cfg.piPath cfg.piAccountsFile;

@@ -37,11 +37,27 @@
 #      Then VERIFY with a fake binary (never a browser) before trusting it, and
 #      `sudo rm /etc/codex/requirements.toml` to roll back. The rendered schema
 #      follows vendor documentation but has not been exercised on this machine.
-#   b. Operator-owned imperative shims that call an absolute vendor path — the
-#      named Codex launchers in ~/.local/share/inspr/codex/bin, the agent.one
-#      docs path, ~/.local/bin/agent. Those bypass the PATH-shadowing launchers
-#      by construction; they are migration items, not covered ground.
-#   c. Codex app-server picks up policy at start: restart it after (a).
+#      One command does all of it, including rollback on failure:
+#        sudo inspr-codex-managed-install            # refuses to clobber a
+#        sudo inspr-codex-managed-install --replace-existing   # foreign config
+#        sudo inspr-codex-managed-install --rollback  # checksum-guarded restore
+#      Managed enforcement then also covers absolute Codex callers — the named
+#      account launchers and the agent.one docs path — without touching their
+#      authentication homes.
+#   b. Cursor is NOT covered. `cursor-agent` (and its `agent` symlink) ships its
+#      own `cursorsandbox` seatbelt helper, so it can be neither wrapped (nested
+#      profiles are refused) nor, so far, expressed natively the way Codex can.
+#      It gets environment hints only. To settle it, run under the guard once —
+#      a root-coordinated, fake-only probe, no browser:
+#        <guardCommand> ~/.local/share/cursor-agent/versions/<v>/cursor-agent --help
+#      If that fails with `sandbox_apply: Operation not permitted`, wrapping is
+#      confirmed impossible and the remaining option is a Cursor-native deny in
+#      ~/.cursor/cli-config.json (it has allow/deny + deniedCommands keys).
+#   c. Operator-owned imperative shims that call an absolute vendor path —
+#      ~/.local/bin/agent, the Claude equivalents of the named launchers. Those
+#      bypass the PATH-shadowing launchers by construction; they are migration
+#      items, not covered ground.
+#   d. Codex app-server picks up policy at start: restart it after (a).
 #
 # WHAT THIS MODULE DOES NOT DO
 #   - It does not touch `home.sessionVariables`. Ordinary human shells keep the
@@ -86,7 +102,9 @@ let
   # Codex cannot be wrapped (macOS refuses nested Seatbelt profiles); it carries
   # the same deny in its OWN permission policy instead. Rendered here, installed
   # by the operator — see the activation checklist in the option descriptions.
-  codexDenyPaths = cfg.browserBundles ++ cfg.extraDenyPaths;
+  # The probe path is a self-test anchor, not a browser: the managed installer
+  # writes a fake executable there and proves the deny without touching Chrome.
+  codexDenyPaths = cfg.browserBundles ++ cfg.extraDenyPaths ++ [ guardLib.codexProbePath ];
   codexProfile = pkgs.writeText "codex-permissions.toml" (
     guardLib.mkCodexPermissionsToml {
       inherit (cfg.codexPermissions) profileName extends;
@@ -97,6 +115,16 @@ let
     guardLib.mkCodexRequirementsToml {
       inherit (cfg.codexPermissions) profileName extends;
       denyPaths = codexDenyPaths;
+    }
+  );
+
+  # ONE reviewable operator command: preflight, owner-only backup, root-owned
+  # install, enforcement proof with a fake executable, automatic rollback on any
+  # failure. Rendered here; running it needs a password and stays the operator's.
+  managedInstaller = pkgs.writeShellScriptBin "inspr-codex-managed-install" (
+    guardLib.mkManagedInstallerText {
+      requirementsPath = "${codexRequirements}";
+      inherit (cfg.codexPermissions) profileName codexBinary;
     }
   );
 
@@ -177,6 +205,17 @@ in
         type = lib.types.str;
         default = "inspr-browser-guard";
         description = "Name of the Codex native permission profile this guard renders.";
+      };
+
+      codexBinary = lib.mkOption {
+        type = lib.types.str;
+        default = "${config.home.homeDirectory}/.npm-global/bin/codex";
+        description = ''
+          Absolute operator-authenticated Codex CLI used by the managed
+          installer's verification step. The installer runs it as the invoking
+          operator (never as root) with an isolated temporary CODEX_HOME, so no
+          account credential is involved.
+        '';
       };
 
       extends = lib.mkOption {
@@ -278,8 +317,18 @@ in
         message = "uzumaki.agentBrowserGuard.shadowedPrograms targets must be absolute paths";
       }
       {
-        assertion = !(cfg.shadowedPrograms ? codex);
-        message = "uzumaki.agentBrowserGuard: Codex must not be sandbox-wrapped — macOS refuses nested Seatbelt profiles; use codexPermissions instead";
+        # Codex and Cursor both apply their own Seatbelt profile per command, and
+        # macOS refuses nested profile application, so wrapping either would
+        # break its existing inner sandbox. Cursor evidence: its `cursorsandbox`
+        # helper carries sandbox-exec/seatbelt/process-exec strings (inspected
+        # read-only, 2026-09-08). `agent` is the same Cursor binary by symlink.
+        assertion =
+          !(lib.any (name: cfg.shadowedPrograms ? ${name}) [
+            "codex"
+            "cursor-agent"
+            "agent"
+          ]);
+        message = "uzumaki.agentBrowserGuard: codex, cursor-agent and agent apply their own Seatbelt profile and must not be wrapped — macOS refuses nested profiles";
       }
       {
         assertion = cfg.browserBundles != [ ];
@@ -290,6 +339,7 @@ in
     home.packages = [
       guard
       refusal
+      managedInstaller
     ]
     ++ wrappers;
 
