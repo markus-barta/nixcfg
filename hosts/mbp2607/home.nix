@@ -66,6 +66,12 @@ in
       # PAI-955 / NIX-437: this pin's agentd serve accepts --codex-accounts.
       # The path is owner-only JSON outside the store; Nix never reads it.
       codexAccountsFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/codex-accounts.json";
+      # NIX-439: Cursor CLI + account registry paths only. Composer and Grok are
+      # selected through owned account/profile choices in the operator registry;
+      # auth stays in the vendor store. Requires a Cursor-capable Paimos pin
+      # before activation — v26.09.07.20.15 does not accept --cursor-* flags.
+      cursorPath = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
+      cursorAccountsFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/cursor-accounts.json";
       lifecycleConfigFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/lifecycle.json";
       reporting = {
         enable = true;
