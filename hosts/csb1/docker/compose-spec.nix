@@ -51,6 +51,15 @@ let
   paimos = import ../paimos-delivery-stage.nix;
   paimosDeliveryEnvironment =
     if paimos.active then [ "PHAROS_PAIMOS_DELIVERY_CONFIG_FILE=${paimos.pharos.configFile}" ] else [ ];
+  # NIX-442 / PHAROS-257 — the same file hosts/csb1/configuration.nix wires
+  # the Flow host module from, so compose and the module share one switch.
+  #
+  # 🔴 Why this is conditional: pharosd panics when PHAROS_FLOW_CONFIG_FILE is
+  # set and the config or API key is missing or has the wrong owner/mode/parent.
+  # Absent = Flow off, which is the pre-NIX-442 behaviour. Do not set
+  # PHAROS_FLOW_ALLOW_LOOPBACK_ORIGIN here; that flag is harness-only.
+  flow = import ../pharos-flow-host.nix;
+  flowHostEnvironment = if flow.active then [ "PHAROS_FLOW_CONFIG_FILE=${flow.configFile}" ] else [ ];
   # Each credential is its own inode: pharosd compares (device, inode) and
   # refuses a shared API-key/handoff file. Read-only, create_host_path false, so
   # a missing source fails the container start instead of silently binding an
@@ -70,6 +79,17 @@ let
         (privateBind paimos.pharos.hostApiKeyFile paimos.pharos.apiKeyFile)
         (privateBind paimos.pharos.hostDeploymentHandoffSecretFile paimos.pharos.deploymentHandoffSecretFile)
         (privateBind paimos.pharos.hostVerificationHandoffSecretFile paimos.pharos.verificationHandoffSecretFile)
+      ]
+    else
+      [ ];
+  # Directory bind first so the in-container parent is the 0700 uid-10001
+  # directory systemd publishes, not a Docker-created root 0755 parent that
+  # Flow's parser refuses. The API key is a distinct inode overlay.
+  flowHostVolumes =
+    if flow.active then
+      [
+        (privateBind "/run/pharos/flow-host" "/run/pharos/flow-host")
+        (privateBind flow.hostApiKeyFile flow.apiKeyFile)
       ]
     else
       [ ];
@@ -1166,7 +1186,10 @@ in
       # host action. The consequential UpdateRestart stays an attended operator
       # decision: the adapter refuses to report success unless that job already
       # carries an operator confirmation.
-      ++ paimosDeliveryEnvironment;
+      ++ paimosDeliveryEnvironment
+      # NIX-442 / PHAROS-257 — opt-in Flow host. Projection and guarded
+      # Review/Start navigation only; no delivery, provider or Janus authority.
+      ++ flowHostEnvironment;
       ports = [
         "127.0.0.1:8088:8080"
         "100.64.0.4:8088:8080"
@@ -1204,7 +1227,8 @@ in
       # exact-replay journal needs no mount: pharosd writes it beside PHAROS_DB
       # as /data/pharos.json.paimos-delivery-journal.json, already durable in
       # the csb1_pharos_data volume above.
-      ++ paimosDeliveryVolumes;
+      ++ paimosDeliveryVolumes
+      ++ flowHostVolumes;
       networks = [
         "traefik"
       ];

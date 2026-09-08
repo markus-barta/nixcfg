@@ -815,6 +815,69 @@ Paimos release does change the fixture bytes, both adapters fail closed
 
 ---
 
+## Pharos Flow host (NIX-442 / PHAROS-257)
+
+The Pharos Flow host is wired declaratively and lands **inert**. `active = false`
+in `hosts/csb1/pharos-flow-host.nix` and `bindings = [ ]` in
+`hosts/csb1/configuration.nix`. Source/module completion is not proof of an
+authenticated four-app stream. Live configuration is a separate operator step with
+real project/host/operator facts and a dedicated least-privilege API key.
+
+### Why this is not just a rebuild
+
+`pharosd` **panics at startup** when `PHAROS_FLOW_CONFIG_FILE` is set but the
+config or the referenced API key is missing, malformed, not owned by uid
+`10001` with mode `0400`, or sitting under a parent that is not uid `10001`
+mode `0700`. Activating before the credential exists crash-loops the fleet
+dashboard. One boolean, `active` in `hosts/csb1/pharos-flow-host.nix`, gates
+both the compose environment and the module wiring. `tests/T71` fails the
+build if the two ever disagree.
+
+Flow navigation and projection grant **no** delivery, provider or Janus
+authority. Keep `hosts/csb1/paimos-delivery-stage.nix` `active = false` and
+`inspr.pharosPaimosDelivery.intents = [ ]` unless NIX-381 is separately
+reviewed. Do not reuse the PHAROS-206 delivery API key. Do not set
+`PHAROS_FLOW_ALLOW_LOOPBACK_ORIGIN` on this host.
+
+### Enable (operator step, not this change)
+
+1. **Mint a dedicated Flow API key in Paimos.** Do not copy the PHAROS-206
+   owner key. The file must be 32–512 printable ASCII bytes (`0x21..0x7e`),
+   **no trailing newline**.
+
+2. **Enrol one agenix secret** `csb1-pharos-flow-api-key.age` (recipients
+   `markus ++ csb1`), owner uid `10001`, mode `0400`. Ciphertext and the
+   `age.secrets` declaration land together (`tests/T47`). Do not create, read
+   or print the value from this repository.
+
+3. **Fill one reviewed binding** in `inspr.pharosFlowHost.bindings`:
+   `projectId`, optional exact `projectRef` (`paimos:proj-…` only), `label`,
+   explicit `hosts`, and `operatorRefs` matching verified human Pharos
+   sessions. No emails, wildcards, invented organisation or mock identity.
+
+4. **Preflight on csb1, before flipping the switch.** Sizes and modes only —
+   never print a value:
+
+   ```bash
+   stat -c '%n %u %U %a %h %s' /run/agenix/csb1-pharos-flow-api-key
+   ```
+
+   Expect uid `10001`, mode `0400`, link count `1`.
+
+5. **Flip one boolean.** Set `active = true;` in
+   `hosts/csb1/pharos-flow-host.nix`, open a PR, let protected CI run, merge,
+   then `just switch` on csb1 followed by the compose reconcile.
+
+### Disable / rollback
+
+Set `active = false;` in `hosts/csb1/pharos-flow-host.nix` (bindings may stay
+for the next enable). PR, merge, `just switch` on csb1. Compose then omits
+`PHAROS_FLOW_CONFIG_FILE` and both Flow mounts; pharosd returns to the
+pre-NIX-442 no-op. To abandon a drafted binding without activating, leave
+`active = false` and set `bindings = [ ]`.
+
+---
+
 ## Troubleshooting
 
 ### Decision Tree

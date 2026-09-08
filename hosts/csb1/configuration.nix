@@ -15,6 +15,11 @@ let
   # pharosd's environment and this host's module wiring cannot disagree about
   # whether the adapter is live. tests/T48 asserts that agreement.
   paimosDeliveryStage = import ./paimos-delivery-stage.nix;
+  # NIX-442 — the one reviewed source of truth for the Pharos Flow host.
+  # hosts/csb1/docker/compose-spec.nix imports the same file, so pharosd's
+  # environment and this host's module wiring cannot disagree about whether
+  # Flow is live. tests/T71 asserts that agreement.
+  pharosFlowHost = import ./pharos-flow-host.nix;
   # OPS-127: the runtime compose file is the closure's rendered spec (the yml is
   # retired). /etc/compose/csb1/... is the environment.etc symlink to it.
   # Every -p csb1 compose invocation serializes on the composeStack lock
@@ -204,6 +209,7 @@ in
     ../../modules/janus-host-secrets
     ../../modules/pharos-paimos-delivery # NIX-381 / PHAROS-206 — Paimos owner adapter
     ../../modules/janus-paimos-dependency-reporter # NIX-381 / JANUS-441 — dependency reporter
+    ../../modules/pharos-flow-host # NIX-442 / PHAROS-257 — opt-in Flow host config
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
     # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
@@ -380,6 +386,35 @@ in
     # handoff ids. They are 26-character Crockford base32 ULIDs; inventing one
     # is not possible and the module rejects any other shape.
     intents = [ ];
+  };
+
+  # ==========================================================================
+  # NIX-442 — Pharos Flow host (PHAROS-257)
+  # ==========================================================================
+  # Lands INERT: `activate = false` and `bindings = [ ]` until a reviewed
+  # project/host/operator tuple and a dedicated Flow API-key file exist.
+  # Nothing below carries a credential value. Live configuration is a
+  # separate operator step; this wiring is not an authenticated four-app stream.
+  #
+  # 🔴 pharosd panics at startup on an incomplete Flow config, so the
+  # compose-side env var is gated by the SAME switch — see
+  # hosts/csb1/pharos-flow-host.nix.
+  inspr.pharosFlowHost = {
+    enable = true;
+    activate = pharosFlowHost.active;
+    inherit (pharosFlowHost)
+      paimosOrigin
+      hostId
+      instanceLabel
+      configFile
+      apiKeyFile
+      ;
+    # pharosd runs as 10001:992; Flow requires the parent directory, config
+    # file and API key to be owned by that uid with no group/other bits.
+    containerUid = 10001;
+    # 🔴 No live binding. A first Paimos project is bound only after the
+    # operator records real project_id / host allowlist / operator_refs.
+    bindings = [ ];
   };
 
   inspr.janusPaimosDependencyReporter = {
