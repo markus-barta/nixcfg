@@ -560,6 +560,9 @@
         #
         # Written atomically every 60s by hostdash-status.service (../hostdash-status.nix).
         "/var/lib/hostdash-status:/srv/hostdash-status:ro"
+        # Joe household data.json — outside the immutable html root; nginx aliases
+        # it to /joe/data.json (see files/hostdash-nginx.conf).
+        "/var/lib/joe-dashboard:/srv/joe-dashboard:ro"
         "/etc/hostdash-nginx.conf:/etc/nginx/conf.d/default.conf:ro"
       ];
       labels = [
