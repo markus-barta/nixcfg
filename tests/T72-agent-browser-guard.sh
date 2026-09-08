@@ -122,26 +122,134 @@ rm -f "${TMPDIR:-/tmp}/t72-requirements.toml"
 # prove enforcement with a fake executable instead of with a browser.
 probe_path=$(guard_eval 'guard.codexProbePath')
 case "$probe_path" in
-/private/*) ;;
-*) fail "probe anchor must be an absolute resolved path: $probe_path" ;;
+/etc/codex/*) ;;
+*) fail "the root-written probe anchor must live in the root-owned managed directory, got: $probe_path" ;;
+esac
+preload_probe=$(guard_eval 'guard.defaultPreloadProbeRelative')
+case "$preload_probe" in
+/*) fail "the unprivileged anchor must be home-relative, got: $preload_probe" ;;
 esac
 grep -Fq 'guardLib.codexProbePath' modules/uzumaki/agent-browser-guard.nix ||
   fail 'the module must add the probe anchor to the Codex deny list'
+grep -Fq 'cfg.preloadProbePath' modules/uzumaki/agent-browser-guard.nix ||
+  fail 'the module must keep a separate unprivileged anchor for the preload proof'
 anchored=$(guard_eval "guard.mkCodexRequirementsToml { profileName = ''inspr-browser-guard''; denyPaths = [ ''$probe_path'' ]; }")
 contains "$anchored" "\"$probe_path\" = \"deny\"" 'probe anchor must render as a deny rule'
 
-installer=$(guard_eval 'guard.mkManagedInstallerText { requirementsPath = "/nix/store/x-req.toml"; profileName = "inspr-browser-guard"; codexBinary = "/tmp/codex"; }')
-contains "$installer" 'exit 77' 'installer must refuse to run without root and without SUDO_USER'
+installer=$(guard_eval 'guard.mkManagedInstallerText { requirementsPath = "/nix/store/x-req.toml"; profileName = "inspr-browser-guard"; fullProfileName = "inspr-browser-guard-full"; readOnlyProfileName = "inspr-browser-guard-readonly"; codexBinary = "/tmp/codex"; }')
 contains "$installer" 'SUDO_USER' 'installer must run its verification as the operator, never as root'
 contains "$installer" '--replace-existing' 'installer must refuse to clobber a foreign managed config by default'
 contains "$installer" 'pre-inspr-nix445' 'installer must back up an adopted config'
 contains "$installer" 'refusing to touch' 'rollback must be checksum-guarded to our own file'
 contains "$installer" 'sandbox_mode=danger-full-access' 'installer must prove the legacy sandbox override cannot escape'
 contains "$installer" '-P :workspace' 'installer must prove a built-in profile is rejected once managed'
-contains "$installer" 'rolling back' 'installer must roll back on verification failure'
+contains "$installer" 'guarded full profile' 'installer must verify the guarded full-access profile still denies the probe'
+contains "$installer" 'FULL_WRITE_OK' 'installer must verify guarded-full keeps outside-workspace write'
+contains "$installer" 'guarded read-only profile' 'installer must verify that read-only stays read-only'
+contains "$installer" 'READONLY_WROTE' 'installer must fail if the workspace default broadened a read-only caller'
+contains "$installer" 'include-managed-config' 'every proof must resolve managed policy explicitly'
+contains "$installer" 'NOT proved here' 'installer must narrow its claim to the sandbox proof path'
+case "$installer" in
+*'sandbox -C '*) fail 'installer must not treat a flagless codex sandbox run as a managed-policy proof' ;;
+esac
+contains "$installer" 'adopted_foreign_identical' 'installer must not claim an identical config it did not install'
 case "$installer" in
 *'Google Chrome.app/Contents/MacOS'*) fail 'installer must never execute or name a real browser binary' ;;
 esac
+
+# B1 — no fixed name in a world-writable directory, and fail closed on symlinks.
+case "$installer" in
+*'/private/var/tmp'* | *' /var/tmp'* | *'"/tmp'*) fail 'installer must not write a fixed name into a world-writable directory' ;;
+esac
+contains "$installer" 'is a symlink' 'installer must fail closed on a symlinked target, directory or probe'
+contains "$installer" 'is not owned by root' 'installer must verify the managed directory is root-owned'
+contains "$installer" 'group- or world-writable' 'installer must refuse a pre-emptable managed directory'
+
+# B2 — the install/verify window must be transactional, signals included.
+contains "$installer" 'trap on_exit EXIT' 'installer must arm the rollback handler before any mutation'
+contains "$installer" "trap 'exit 130' INT" 'installer must trap INT'
+contains "$installer" "trap 'exit 143' TERM" 'installer must trap TERM'
+contains "$installer" 'verified=1' 'installer must clear the rollback only after verification'
+contains "$installer" 'unverified install' 'installer must roll back an unverified install'
+owner_line=$(printf '%s\n' "$installer" | grep -n 'is not owned by root' | head -1 | cut -d: -f1)
+installd_line=$(printf '%s\n' "$installer" | grep -n 'install -d ' | head -1 | cut -d: -f1)
+[ -n "$owner_line" ] && [ -n "$installd_line" ] && [ "$owner_line" -lt "$installd_line" ] ||
+  fail 'an existing managed directory must be validated before install -d could normalise it'
+trap_line=$(printf '%s\n' "$installer" | grep -n 'trap on_exit EXIT' | head -1 | cut -d: -f1)
+stamp_line=$(printf '%s\n' "$installer" | grep -n '>"\$STAMP"' | head -1 | cut -d: -f1)
+mv_line=$(printf '%s\n' "$installer" | grep -n 'mv -f "\$tmp" "\$TARGET"' | head -1 | cut -d: -f1)
+[ -n "$stamp_line" ] && [ -n "$mv_line" ] && [ "$stamp_line" -lt "$mv_line" ] ||
+  fail 'the rollback stamp must exist before the target does'
+[ -n "$trap_line" ] && [ "$trap_line" -lt "$mv_line" ] ||
+  fail 'the rollback handler must be armed before the target is replaced'
+intent_line=$(printf '%s\n' "$installer" | grep -n 'mutation_intent=1$' | head -1 | cut -d: -f1)
+[ -n "$intent_line" ] && [ "$intent_line" -lt "$mv_line" ] ||
+  fail 'mutation intent must be recorded before the rename, not after'
+
+# Run the rendered installer in an isolated fixture — never /etc, never sudo.
+fixture=$(mktemp -d "${TMPDIR:-/tmp}/t72-installer.XXXXXX")
+fixture=$(cd "$fixture" && pwd -P)
+printf '#!/usr/bin/env bash\n%s\n' "$installer" >"$fixture/installer.sh"
+chmod +x "$fixture/installer.sh"
+bash -n "$fixture/installer.sh" || fail 'rendered installer is not valid shell'
+mkdir -p "$fixture/etc"
+set +e
+"$fixture/installer.sh" >"$fixture/out" 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 77 ] || fail "unprivileged installer must exit 77, got $rc"
+grep -q 'must run as root' "$fixture/out" || fail 'unprivileged refusal must say why'
+[ -z "$(ls -A "$fixture/etc")" ] || fail 'unprivileged installer wrote into the fixture'
+set +e
+"$fixture/installer.sh" --bogus >/dev/null 2>&1
+rc=$?
+set -e
+[ "$rc" -eq 64 ] || fail "bad argument must exit 64, got $rc"
+
+# Exercise the rollback guard itself in the fixture.
+{
+  printf '%s\n' "$installer" | sed -n '/^sha_of() {$/,/^}$/p'
+  printf '%s\n' "$installer" | sed -n '/^restore() {$/,/^}$/p'
+} >"$fixture/restore.sh"
+grep -q '^restore() {' "$fixture/restore.sh" || fail 'could not extract the restore function'
+grep -q '^sha_of() {' "$fixture/restore.sh" || fail 'could not extract the checksum helper'
+restore_case() {
+  rm -rf "$fixture/case"
+  mkdir -p "$fixture/case"
+  printf 'managed\n' >"$fixture/case/requirements.toml"
+  case "$2" in
+  ours) /usr/bin/shasum -a 256 "$fixture/case/requirements.toml" | cut -d' ' -f1 >"$fixture/case/requirements.toml.inspr-nix445.sha256" ;;
+  stale) printf 'deadbeef\n' >"$fixture/case/requirements.toml.inspr-nix445.sha256" ;;
+  esac
+  [ "$3" = yes ] && printf 'previous\n' >"$fixture/case/requirements.toml.pre-inspr-nix445.20260101T000000Z"
+  (
+    TARGET=$fixture/case/requirements.toml
+    STAMP=$TARGET.inspr-nix445.sha256
+    SHASUM=/usr/bin/shasum
+    adopted_foreign_identical=0
+    new_sha=${5-}
+    pre_stamp=${6-}
+    export TARGET STAMP SHASUM adopted_foreign_identical new_sha pre_stamp
+    # shellcheck source=/dev/null
+    . "$fixture/restore.sh"
+    restore
+  ) >/dev/null 2>&1 || true
+  case "$4" in
+  removed) [ ! -e "$fixture/case/requirements.toml" ] || fail "restore($1) should have removed our own file" ;;
+  kept) [ -e "$fixture/case/requirements.toml" ] || fail "restore($1) must not remove a file that is not ours" ;;
+  restored) [ "$(cat "$fixture/case/requirements.toml")" = previous ] || fail "restore($1) should have restored the backup" ;;
+  esac
+}
+restore_case 'no stamp' none no kept
+restore_case 'stale stamp' stale no kept
+restore_case 'ours, no backup' ours no removed
+restore_case 'ours, with backup' ours yes restored
+# Provenance boundaries: a target this run wrote is rolled back even without a
+# usable stamp, and a target replaced by someone else after our write is not.
+managed_sha=$(printf 'managed\n' | /usr/bin/shasum -a 256 | cut -d' ' -f1)
+restore_case 'mid-transaction, ours by checksum' none no removed "$managed_sha"
+restore_case 'mid-transaction, replaced under us' none no kept deadbeefdeadbeef
+rm -rf "$fixture"
 
 contains "$codex_requirements" '"/Applications/Google Chrome.app" = "deny"' 'managed requirements must carry the deny definitions'
 
@@ -164,17 +272,33 @@ done
 python3 - <<'PYSHADOW' || exit 1
 import re, sys
 src = open("hosts/mbp2607/home.nix", encoding="utf-8").read()
-block = re.search(r"shadowedPrograms = \{(.*?)\n *\};", src, re.S)
-if not block:
-    print("T72 failed: shadowedPrograms block not found", file=sys.stderr); sys.exit(1)
+empty = re.search(r"shadowedPrograms = \{ *\};", src)
+block = "" if empty else None
+if block is None:
+    found = re.search(r"shadowedPrograms = \{(.*?)\n *\};", src, re.S)
+    if not found:
+        print("T72 failed: shadowedPrograms block not found", file=sys.stderr); sys.exit(1)
+    block = found.group(1)
 for unwrappable in ("codex", "cursor-agent", "agent"):
-    if re.search(rf"^\s*{re.escape(unwrappable)}\s*=", block.group(1), re.M):
+    if re.search(rf"^\s*{re.escape(unwrappable)}\s*=", block, re.M):
         print(f"T72 failed: {unwrappable} must never be Seatbelt-wrapped", file=sys.stderr); sys.exit(1)
+# D1: the dispatch-capable entry points must be on the env+preload route, since a
+# Seatbelt profile would kill the Codex/Cursor workers they dispatch.
+env_only = re.search(r"envOnlyPrograms = \{(.*?)\n *\};", src, re.S)
+if not env_only:
+    print("T72 failed: envOnlyPrograms block not found", file=sys.stderr); sys.exit(1)
+for required in ("claude", "grok", "pi", "cursor-agent", "agent"):
+    if not re.search(rf"^\s*{re.escape(required)}\s*=", env_only.group(1), re.M):
+        print(f"T72 failed: {required} must be wired on the env+preload route", file=sys.stderr); sys.exit(1)
 PYSHADOW
 grep -Fq 'cursor-agent' modules/uzumaki/agent-browser-guard.nix ||
   fail 'the module must state the Cursor limitation explicitly'
 grep -Fq 'fish_add_path --prepend --move ${shadowBin}/bin' modules/uzumaki/agent-browser-guard.nix ||
   fail 'guarded launchers must be placed ahead of ~/.npm-global/bin in fish'
+grep -Fq 'programs.zsh.envExtra' modules/uzumaki/agent-browser-guard.nix ||
+  fail 'zsh coverage must go through .zshenv, which non-interactive `zsh -c` also reads'
+grep -Fq 'INSPR_AGENT_BROWSER_GUARD-' modules/uzumaki/agent-browser-guard.nix ||
+  fail 'the strict wrapper must be re-entrant inside an existing guard'
 grep -Fq 'guardPrefix' hosts/mbp2607/pi-local.nix ||
   fail 'the declarative Pi launchers must run under the guard'
 grep -Fq '${guardEnvExports}' modules/uzumaki/paimos-agentd.nix ||
@@ -349,6 +473,27 @@ if [ -x "$codex_bin" ]; then
     /bin/sh -c 'echo ORDINARY_OK; touch ./guard-write-probe && echo WRITE_OK' 2>&1 || true)
   contains "$codex_ok" 'ORDINARY_OK' 'Codex guarded profile must still run ordinary commands'
   contains "$codex_ok" 'WRITE_OK' 'Codex guarded profile must keep the existing workspace write policy'
+
+  # The guarded FULL profile keeps the authorized full-access workflows working —
+  # the coordinator and the operator's own sessions launch with the bypass flag —
+  # while still refusing the fake browser.
+  codex_full=$(CODEX_HOME="$work/codex-home" "$codex_bin" sandbox -P inspr-browser-guard-full -C "$work/codex-ws" -- \
+    /bin/sh -c "touch $work/outside-probe && echo FULL_WRITE_OK" 2>&1 || true)
+  contains "$codex_full" 'FULL_WRITE_OK' 'guarded-full must keep outside-workspace write'
+  codex_full_denied=$(CODEX_HOME="$work/codex-home" "$codex_bin" sandbox -P inspr-browser-guard-full -C "$work/codex-ws" -- \
+    /bin/sh -c "'$fake'" 2>&1 || true)
+  case "$codex_full_denied" in
+  *FAKE_BROWSER_LAUNCHED*) fail 'guarded-full let the fake browser run' ;;
+  *'not permitted'*) ;;
+  *) fail "guarded-full produced no recognisable denial: $codex_full_denied" ;;
+  esac
+
+  # An explicit read-only selection must not be broadened to workspace-write.
+  codex_ro=$(CODEX_HOME="$work/codex-home" "$codex_bin" sandbox -P inspr-browser-guard-readonly -C "$work/codex-ws" -- \
+    /bin/sh -c 'touch ./readonly-probe && echo READONLY_WROTE' 2>&1 || true)
+  case "$codex_ro" in
+  *READONLY_WROTE*) fail 'guarded read-only was broadened to write' ;;
+  esac
   codex_scope=codex-native
 else
   codex_scope=codex-absent

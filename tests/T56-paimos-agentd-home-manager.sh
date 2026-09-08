@@ -84,8 +84,9 @@ for flag, value in expected_pairs.items():
     assert args.count(flag) == 1, (flag, args)
 for flag in ("--pi-path", "--pi-accounts"):
     assert flag not in args, (flag, args)
-# NIX-445: Claude is launched through the browser-guard wrapper, which execs the
-# unchanged operator npm path under the Seatbelt profile (checked in T72).
+# NIX-445 / D1: Claude is the dispatch controller here, so it runs on the
+# env+preload route — a Seatbelt profile would be inherited by the Codex and
+# Cursor workers it starts and would kill them on their own sandbox_apply.
 # Cursor is launched through the env-only wrapper instead: it runs its own
 # seatbelt helper, so it must never be nested inside another profile.
 cursor_index = args.index("--cursor-path")
@@ -167,8 +168,11 @@ print(args[args.index("--claude-path") + 1])
 PYCLAUDE
   )
   [ -x "$claude_launcher" ] || fail 'realised Claude launcher does not exist'
-  grep -Fq '/Users/markus/.npm-global/bin/claude' "$claude_launcher" || fail 'Claude guard wrapper does not exec the operator-authenticated CLI'
-  grep -Fq 'inspr-agent-guard' "$claude_launcher" || fail 'Claude launcher is not wrapped in the NIX-445 browser guard'
+  grep -Fq '/Users/markus/.npm-global/bin/claude' "$claude_launcher" || fail 'Claude launcher does not exec the operator-authenticated CLI'
+  grep -Fq 'NODE_OPTIONS' "$claude_launcher" || fail 'Claude launcher does not carry the NIX-445 Node preload'
+  if grep -Eq 'sandbox-exec|inspr-agent-guard' "$claude_launcher"; then
+    fail 'the dispatch controller must not be Seatbelt-wrapped — it would kill the workers it dispatches'
+  fi
 
   cursor_launcher=$(
     python3 - "$agent_json" <<'PYCURSOR'
