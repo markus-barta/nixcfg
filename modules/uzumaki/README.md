@@ -65,8 +65,9 @@ semantics. Do not put homes, emails, or registry bytes in Nix.
 operator-installed CLI path and an owner-only JSON registry path outside
 `/nix/store`, which adds exactly one `--pi-path`/`--pi-accounts` or
 `--cursor-path`/`--cursor-accounts` pair. This requires a Paimos release whose
-paimos-agentd serve accepts those flags; do not enable them against older pins,
-including the current 26.09.07.20.15 pin. Native CLI paths stay operator pins
+paimos-agentd serve accepts those flags; do not enable them against older pins
+before `v26.09.08`. mbp2607 sets the Cursor pair to a pinned native CLI path and
+an owner-only registry outside the store; Pi remains unset there. Native CLI paths stay operator pins
 (use `config.home.homeDirectory` rather than committing a machine path). This
 module does not install models, copy auth directories, start login, or change
 operator registries. Paimos remains the semantic account authority.

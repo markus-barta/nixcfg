@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# NIX-392 / NIX-415 / NIX-421 / NIX-426 / NIX-428 / NIX-437 — mbp2607 must install the exact released Paimos
-# CLI/agentd pair, run the owned-session daemon with an exact Claude SDK, and
-# publish durable status/control without putting its credential in the store.
+# NIX-392 / NIX-415 / NIX-421 / NIX-426 / NIX-428 / NIX-437 / NIX-439 — mbp2607 must install
+# the exact released Paimos CLI/agentd pair, run the owned-session daemon with an
+# exact Claude SDK, publish durable status/control without putting its credential
+# in the store, and declare owner-only Cursor argv once Pi remains unset.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -19,15 +20,15 @@ locked = lock["locked"]
 assert original == {
     "owner": "inspr-at",
     "repo": "paimos",
-    "ref": "v26.09.07.20.15",
+    "ref": "v26.09.08",
     "type": "github",
 }, original
-assert locked["rev"] == "d2a404a86da2dedbd087842da83c74b20eb667e7", locked
-assert locked["narHash"] == "sha256-20k71scUapOHAT22fVYdgRZU6zlSKH0NENW3y0gucvU=", locked
+assert locked["rev"] == "7ac43afb10f26dcb3fd488da21368888dae7cdd7", locked
+assert locked["narHash"] == "sha256-OkRlz6pr1hBrCaoTmuPfwmu7ZoT7Q46zKw4ea3y6W04=", locked
 PY
 
 package_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.paimos-cli.version')
-[ "$package_version" = 26.09.07.20.15 ] || fail "Paimos package is not the canonical v26.09.07.20.15 release: $package_version"
+[ "$package_version" = 26.09.08 ] || fail "Paimos package is not the canonical v26.09.08 release: $package_version"
 
 deployment_version=$(
   python3 - "$repo_root/flake.nix" "$repo_root/hosts/csb1/docker/compose-spec.nix" <<'PY'
@@ -40,7 +41,7 @@ server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]
 assert len(client) == 1, f"expected one Paimos client release pin, got {client!r}"
 assert len(server) == 1, f"expected one PPM server release pin, got {server!r}"
 assert client[0] == server[0][0], f"Paimos client/server release drift: {client[0]} != {server[0][0]}"
-assert server[0][1] == "sha256:f546ca2ee4b61be44114a466e5df89a27f7527b2c3d55befda8a76d2426a3cd6", server
+assert server[0][1] == "sha256:d44faef8a94f6d704b239c0d4870f09f445e45f5b7ab7613cfdd4ac6ae22bda3", server
 print(server[0][0])
 PY
 )
@@ -54,6 +55,9 @@ sdk_relative=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.clau
 agent_json=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.launchd.agents.paimos-agentd')
 activation=$(cd "$repo_root" && nix eval --raw '.#homeConfigurations."markus@mbp2607".config.home.activation.paimosAgentdPrivateState.data')
 accounts_activation=$(cd "$repo_root" && nix eval --raw '.#homeConfigurations."markus@mbp2607".config.home.activation.paimosAgentdCodexAccounts.data')
+cursor_accounts_activation=$(
+  cd "$repo_root" && nix eval --raw '.#homeConfigurations."markus@mbp2607".config.home.activation.paimosAgentdCursorAccounts.data'
+)
 
 python3 - "$agent_json" "$sdk_out" "$sdk_relative" <<'PY'
 import hashlib, json, sys
@@ -73,12 +77,14 @@ expected_pairs = {
     "--report-api-key-file": "/Users/markus/Library/Caches/paimos/agentd/report-api-key",
     "--lifecycle-config": "/Users/markus/Library/Application Support/paimos/agentd/lifecycle.json",
     "--codex-accounts": "/Users/markus/Library/Application Support/paimos/agentd/codex-accounts.json",
+    "--cursor-path": "/Users/markus/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent",
+    "--cursor-accounts": "/Users/markus/Library/Application Support/paimos/agentd/cursor-accounts.json",
 }
 for flag, value in expected_pairs.items():
     index = args.index(flag)
     assert args[index + 1] == value, (flag, args)
     assert args.count(flag) == 1, (flag, args)
-for flag in ("--pi-path", "--pi-accounts", "--cursor-path", "--cursor-accounts"):
+for flag in ("--pi-path", "--pi-accounts"):
     assert flag not in args, (flag, args)
 codex_index = args.index("--codex-path")
 assert args[codex_index + 1].startswith("/nix/store/"), args
@@ -186,8 +192,10 @@ grep -Fq '/Users/markus/Library/Caches/paimos/agentd/616c1af8cc7f4556975b7cbe50b
 grep -Fq '/Users/markus/Library/Caches/paimos/agentd/616c1af8cc7f4556975b7cbe50bce072/agentd.stderr.log' <<<"$activation" || fail 'stderr log is outside the canonical instance state directory'
 grep -Fq '/Users/markus/Library/Application Support/paimos/agentd/codex-accounts.json' <<<"$accounts_activation" || fail 'Codex accounts activation is not the Home Manager home-directory registry path'
 grep -Fq 'paimos-agentd Codex account registry must be an existing regular non-symlink file' <<<"$accounts_activation" || fail 'Codex accounts activation lost its owner-only file gate'
+grep -Fq '/Users/markus/Library/Application Support/paimos/agentd/cursor-accounts.json' <<<"$cursor_accounts_activation" || fail 'Cursor accounts activation is not the Home Manager home-directory registry path'
+grep -Fq 'paimos-agentd Cursor account registry must be an existing regular non-symlink file' <<<"$cursor_accounts_activation" || fail 'Cursor accounts activation lost its owner-only file gate'
 grep -Fq '/Users/markus/.inspr/secrets/agents/PPMAPIKEY.env' <<<"$activation" || fail 'reporting source is not the existing activation-managed secret'
 grep -Fq '/Users/markus/Library/Caches/paimos/agentd/report-api-key' <<<"$activation" || fail 'reporting destination is not private agentd state'
 grep -Fq 'PPMAPIKEY' <<<"$activation" || fail 'reporting assignment name is not pinned'
 
-printf 'T56 passed: mbp2607 pins Paimos 26.09.07.20.15 with authenticated private agentd reporting, lifecycle control, and owner-only Codex accounts\n'
+printf 'T56 passed: mbp2607 pins Paimos 26.09.08 with authenticated private agentd reporting, lifecycle control, owner-only Codex accounts, and prepared Cursor argv\n'
