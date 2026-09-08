@@ -249,6 +249,29 @@ restore_case 'ours, with backup' ours yes restored
 managed_sha=$(printf 'managed\n' | /usr/bin/shasum -a 256 | cut -d' ' -f1)
 restore_case 'mid-transaction, ours by checksum' none no removed "$managed_sha"
 restore_case 'mid-transaction, replaced under us' none no kept deadbeefdeadbeef
+
+# The managed-directory mode check must reject GROUP write too: an existing
+# root-owned /etc/codex can carry a non-wheel group, and a trailing-character
+# glob would only ever have seen the "other" digit.
+printf '%s\n' "$installer" | sed -n '/^mode_is_group_or_world_writable() {$/,/^}$/p' >"$fixture/mode.sh"
+grep -q '^mode_is_group_or_world_writable() {' "$fixture/mode.sh" ||
+  fail 'could not extract the directory-mode check'
+mode_case() {
+  local mode=$1 expect=$2 rc
+  set +e
+  bash -c ". '$fixture/mode.sh'; mode_is_group_or_world_writable '$mode'"
+  rc=$?
+  set -e
+  case "$expect" in
+  accept) [ "$rc" -ne 0 ] || fail "mode $mode must be accepted as a safe managed directory" ;;
+  reject) [ "$rc" -eq 0 ] || fail "mode $mode is writable by group or others and must be rejected" ;;
+  esac
+}
+mode_case 755 accept
+mode_case 750 accept
+mode_case 775 reject
+mode_case 770 reject
+mode_case 777 reject
 rm -rf "$fixture"
 
 contains "$codex_requirements" '"/Applications/Google Chrome.app" = "deny"' 'managed requirements must carry the deny definitions'
