@@ -16,7 +16,7 @@ firewall 4002 to the LAN.
 | IBKR login          | username `markusbarta` (one login for paper + live); password via agenix           |
 | Paper account (ref) | `DUR970597` — selected by `TRADING_MODE=paper`                                     |
 | Live account (ref)  | `U28240205` — only if `TRADING_MODE=live`/`both`; **port 4001 not published**      |
-| Settings volume     | `/var/lib/ib-gateway/tws_settings` (`TWS_SETTINGS_PATH`)                           |
+| Settings volume     | `/var/lib/ib-gateway/tws_settings` (`TWS_SETTINGS_PATH`; host dir owned uid 1000)  |
 | Heap / mem          | `JAVA_HEAP_SIZE=768`; compose `mem_limit=1280m`                                    |
 | Docs upstream       | https://github.com/gnzsnz/ib-gateway-docker                                        |
 
