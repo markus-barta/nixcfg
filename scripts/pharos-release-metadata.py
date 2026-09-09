@@ -444,13 +444,17 @@ def validate_transition(active: dict[str, Any], candidate: dict[str, Any]) -> No
                 raise MetadataError("calendar_version_not_increasing")
         else:
             # v1 → v2: the candidate's anchor must name the active v1 release as
-            # the last v1 coordinate and itself as the first v2 coordinate.
+            # the last v1 coordinate and the first v2 reservation as the next
+            # sequence. The candidate may be that first reservation or a later
+            # v2 release when the first reservation never published artifacts;
+            # validate_document already binds sequence == first to the exact
+            # first coordinate.
             new_anchor = candidate["migration_anchor"]
             if (
                 new_anchor.get("last_calendar_v1_version") != active["version"]
                 or new_anchor.get("last_calendar_v1_release_sequence") != active["release_sequence"]
-                or new_anchor.get("first_calendar_v2_version") != candidate["version"]
-                or new_anchor.get("first_calendar_v2_release_sequence") != candidate["release_sequence"]
+                or new_anchor.get("first_calendar_v2_release_sequence") != active["release_sequence"] + 1
+                or candidate["release_sequence"] < active["release_sequence"] + 1
             ):
                 raise MetadataError("calendar_v2_anchor_mismatch")
         if active_scheme == CALENDAR_V2_SCHEME:
@@ -528,11 +532,16 @@ def command_matches(args: argparse.Namespace) -> None:
 def command_rollback(args: argparse.Namespace) -> None:
     active = validate_document(load_document(args.active), LOCAL_SCHEMA)
     rollback = active["legacy_rollback"]
-    if active["version_scheme"] != CALENDAR_SCHEME or args.tag != rollback["tag"]:
+    if active["version_scheme"] not in CALENDAR_SCHEMES or args.tag != rollback["tag"]:
         raise MetadataError("rollback_target_mismatch")
     result = dict(active)
     for key, value in rollback.items():
         result[key] = value
+    # A legacy record carries only the legacy → v1 anchor; the v1 → v2 keys
+    # belong to calendar v2 records and are relearned from the next release set.
+    result["migration_anchor"] = {
+        key: value for key, value in active["migration_anchor"].items() if key in ANCHOR_KEYS
+    }
     write_document(args.output, result)
 
 
@@ -551,17 +560,21 @@ def command_select(args: argparse.Namespace) -> None:
         if candidate["release_sequence"] < active["release_sequence"]:
             if candidate["version_scheme"] == LEGACY_SCHEME:
                 continue
-            if active["version_scheme"] != CALENDAR_SCHEME:
+            if active["version_scheme"] not in CALENDAR_SCHEMES:
                 raise MetadataError("release_sequence_rollback")
             if (
                 candidate["migration_anchor"]["first_calendar_version"]
                 != active["migration_anchor"]["first_calendar_version"]
             ):
                 raise MetadataError("first_calendar_anchor_changed")
-            if calendar_coordinate(candidate["version"]) >= calendar_coordinate(
-                active["version"]
-            ):
-                raise MetadataError("historical_calendar_order_mismatch")
+            if candidate["version_scheme"] == active["version_scheme"]:
+                if scheme_coordinate(
+                    candidate["version_scheme"], candidate["version"]
+                ) >= scheme_coordinate(active["version_scheme"], active["version"]):
+                    raise MetadataError("historical_calendar_order_mismatch")
+            elif active["version_scheme"] != CALENDAR_V2_SCHEME:
+                # Only calendar v1 history may precede a calendar v2 active record.
+                raise MetadataError("release_sequence_rollback")
             continue
         validate_transition(active, candidate)
         sequence = candidate["release_sequence"]
@@ -571,15 +584,20 @@ def command_select(args: argparse.Namespace) -> None:
         by_sequence[sequence] = candidate
     if not by_sequence:
         raise MetadataError("active_release_set_not_found")
-    previous_coordinate: tuple[int, int, int, int, int, int] | None = None
+    previous: dict[str, tuple[int, int, int, int, int, int]] = {}
+    seen_v2 = False
     for sequence in sorted(by_sequence):
         release = by_sequence[sequence]
-        if release["version_scheme"] != CALENDAR_SCHEME:
+        scheme = release["version_scheme"]
+        if scheme not in CALENDAR_SCHEMES:
             continue
-        coordinate = calendar_coordinate(release["version"])
-        if previous_coordinate is not None and coordinate <= previous_coordinate:
+        if scheme == CALENDAR_SCHEME and seen_v2:
+            raise MetadataError("calendar_v1_closed_after_v2")
+        seen_v2 = seen_v2 or scheme == CALENDAR_V2_SCHEME
+        coordinate = scheme_coordinate(scheme, release["version"])
+        if scheme in previous and coordinate <= previous[scheme]:
             raise MetadataError("calendar_sequence_order_mismatch")
-        previous_coordinate = coordinate
+        previous[scheme] = coordinate
     selected = by_sequence[max(by_sequence)]
     write_document(args.output, selected)
 
