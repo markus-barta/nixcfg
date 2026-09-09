@@ -413,7 +413,7 @@ in
     mode = "0400";
   };
 
-  # Joe board inbox Bearer token (shared with hsb0 pusher). Raw token bytes.
+  # Joe board inbox machine token (shared with hsb0 pusher). Raw token bytes.
   age.secrets.joe-board-push-token = {
     file = ../../secrets/joe-board-push-token.age;
     path = "/run/agenix/joe-board-push-token";

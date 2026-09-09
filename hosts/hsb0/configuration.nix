@@ -928,7 +928,7 @@ in
     mode = "444";
   };
 
-  # Shared with csb0 joe-board inbox (Bearer). Raw token only.
+  # Shared with csb0 joe-board inbox (machine-token). Raw token only.
   age.secrets.joe-board-push-token = {
     file = ../../secrets/joe-board-push-token.age;
     path = "/run/agenix/joe-board-push-token";

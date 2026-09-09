@@ -283,7 +283,7 @@
         "traefik.http.routers.joe-csb0.middlewares=hostdash-auth-csb0@docker,joe-csb0-path@docker"
         "traefik.http.middlewares.joe-csb0-path.replacepathregex.regex=^/joe$$"
         "traefik.http.middlewares.joe-csb0-path.replacepathregex.replacement=/joe/"
-        # Inbox — higher priority, NO oauth (Bearer token checked in app)
+        # Inbox — higher priority, NO oauth (machine token checked in app)
         "traefik.http.routers.joe-inbox-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/inbox`)"
         "traefik.http.routers.joe-inbox-csb0.entrypoints=web-secure"
         "traefik.http.routers.joe-inbox-csb0.tls=true"

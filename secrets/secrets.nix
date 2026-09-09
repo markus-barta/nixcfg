@@ -514,9 +514,9 @@ in
   # Edit: just edit-secret secrets/hsb0-ib-gateway-password.age
   "hsb0-ib-gateway-password.age".publicKeys = markus ++ hsb0;
 
-  # Shared Bearer token: hsb0 joe-board-pusher → csb0 joe-board inbox.
+  # Shared inbox push credential: hsb0 joe-board-pusher → csb0 joe-board inbox.
   # Edit: just edit-secret secrets/joe-board-push-token.age
-  # Body: raw hex/base64 token only (no KEY=, no quotes).
+  # Body: raw token only (no KEY=, no quotes).
   "joe-board-push-token.age".publicKeys = markus ++ csb0 ++ hsb0;
 
   # Nimue agent secrets (second agent in openclaw-gateway)
