@@ -83,6 +83,7 @@ Examples:
 - `T70-paimos-agentd-pi-cursor-accounts.sh` — Isolated Pi/Cursor path+registry boundary
 - `T71-pharos-flow-host.sh` — csb1 Pharos Flow host config contract (NIX-442)
 - `T74-public-routing-consumer.sh` — published routing-edge pin + inactive csb1 consumer (NIX-447)
+- `T75-csb1-traefik-3713-isolated.sh` — csb1 Traefik 3.7.13 digest pin + isolated provider/plugin/redirect proof (NIX-448)
 
 ## Writing Shell Tests
 

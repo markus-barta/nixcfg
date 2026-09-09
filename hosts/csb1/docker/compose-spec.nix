@@ -329,13 +329,16 @@ in
         "traefik.enable=false"
       ];
     };
-    # https://docs.traefik.io/v2.5/providers/docker/
+    # NIX-448: official Traefik v3.7.13 index digest. linux/amd64 leaf
+    # sha256:96780238b1bbda5a9bb997f4307ce69e798ad1cf6eb7f2dcc0a440823467d199
+    # was independently verified from the registry. Static config is only
+    # --configFile; do not add CLI provider flags beside traefik.yml.
     # ACME state lives below ./traefik/ (gitignored, mutable LE cert state).
     # The dedicated HTTP-challenge store serves public DNS zones that are not
     # managed through the Cloudflare credentials used by the default resolver.
     traefik = {
-      image = "traefik";
-      command = "--providers.docker";
+      image = "traefik:v3.7.13@sha256:f86a2cab1b5c649070c49f883c743dd32d8485a56e3368c5f93b9e91f1e91259";
+      command = "--configFile=/etc/traefik/traefik.yml";
       restart = "always";
       depends_on = [
         "docker-proxy-traefik"

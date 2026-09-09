@@ -83,6 +83,9 @@ id_rsa.pub
 .claude/*
 !.claude/commands
 
+# Isolated test scratch (NIX-448 T75 synthetic Traefik config).
+tests/.tmp/
+
 # Python bytecode caches. The alert pollers and their tests run in-place on the
 # hosts (csb0/csb1), so these appear in the working tree of a live checkout and
 # make `git status` look dirty on a host that is actually clean.

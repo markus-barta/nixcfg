@@ -946,10 +946,13 @@ Prepared external-file-provider selectors, inert until activation:
 
 Activation is a later, operator-owned gate. It still needs the real public
 origin / tenant / identity / upstream map, the public contract (no fixture
-substitute), Traefik **3.7.12** exact-digest compatibility (the current
-floating `image = "traefik"` is not that proof), and a compose bind into the
-existing `/etc/traefik/dynamic` directory. Never set `allowUnpinnedTraefik`.
-App image pins stay on NIX-446. Pin rollback is the synchronized `73e15491`
+substitute), and a compose bind into the existing `/etc/traefik/dynamic`
+directory. The csb1 Traefik **process** image is now the official v3.7.13
+index digest `sha256:f86a2cab1b5c649070c49f883c743dd32d8485a56e3368c5f93b9e91f1e91259`
+(linux/amd64 leaf independently verified); `existingTraefikVersion` stays
+unset until the published routing-edge consumer pin matches that release.
+Never set `allowUnpinnedTraefik`. App image pins stay on NIX-446. Pin
+rollback of the routing-edge library is the synchronized `73e15491`
 flake-lock + doctrine gitlink pair.
 
 ---

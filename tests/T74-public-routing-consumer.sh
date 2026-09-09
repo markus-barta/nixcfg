@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # T74 — pin the published routing-edge library and keep the csb1 consumer
-# boundary inactive (NIX-447).
+# boundary inactive (NIX-447). NIX-448 pins the host Traefik image; this
+# test still must not claim existingTraefikVersion until the public
+# consumer library is upgraded.
 #
 # What can actually go wrong here, and what each block therefore proves:
 #
@@ -10,7 +12,7 @@
 #   2. A copied stub eval can stay disabled while the real host is not.
 #      Disabled effects are projected from nixosConfigurations.csb1.
 #   3. Prepared selectors accidentally install a routing-owned fragment,
-#      service, or compose mount against the floating Traefik tag.
+#      service, or compose mount, or the host Traefik image floats again.
 #   4. Public fixtures or invented origins are substituted for the still-
 #      pending operator choice.
 #   5. Forcing enable=true on the actual host without a contract must fail
@@ -92,7 +94,7 @@ if grep -Fq 'allowUnpinnedTraefik = true' "$host_config"; then
   exit 1
 fi
 if grep -Eq 'existingTraefikVersion[[:space:]]*=' "$host_config"; then
-  printf 'T74: host config claims a Traefik version the floating tag does not prove\n' >&2
+  printf 'T74: host config claims existingTraefikVersion before the public consumer pin matches\n' >&2
   exit 1
 fi
 if grep -Eq 'upstreams[[:space:]]*=' "$host_config"; then
@@ -107,7 +109,11 @@ fi
 # --- 3. existing Traefik auth fragment stays distinct in source ------------
 grep -Fq 'directory: /etc/traefik/dynamic' "$repo_root/hosts/csb1/docker/traefik/static.yml"
 grep -Fq 'web-secure:' "$repo_root/hosts/csb1/docker/traefik/static.yml"
-grep -Fq 'image = "traefik"' "$compose"
+if grep -Fq 'image = "traefik";' "$compose"; then
+  printf 'T74: csb1 Traefik image is still the unpinned floating tag\n' >&2
+  exit 1
+fi
+grep -Fq 'image = "traefik:v3.7.13@sha256:f86a2cab1b5c649070c49f883c743dd32d8485a56e3368c5f93b9e91f1e91259"' "$compose"
 grep -Fq '(privateBind "/run/inspr-edge/dynamic.yml" "/etc/traefik/dynamic/inspr-edge.yml")' "$compose"
 if grep -Eq 'inspr-auth-edge-token' "$compose"; then
   :

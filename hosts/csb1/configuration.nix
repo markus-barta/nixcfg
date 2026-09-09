@@ -222,8 +222,9 @@ in
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
     # NIX-447: published routing-edge module. enable stays false until the
-    # operator chooses the actual origin/apps and Traefik 3.7.12 exact-digest
-    # compatibility is proved. This is not the existing inspr-auth edge.
+    # operator chooses the actual origin/apps. NIX-448 pins the host Traefik
+    # image to 3.7.13; do not set existingTraefikVersion until the public
+    # consumer library is upgraded. This is not the existing inspr-auth edge.
     inputs.inspr-modules.nixosModules.routing-edge
   ];
 
@@ -343,8 +344,9 @@ in
   # Activation gates, all still open:
   #   - operator-chosen public origin, tenant, identity, and upstream map
   #   - public contract file (no fixture substitute)
-  #   - Traefik 3.7.12 exact-digest proof; floating `image = "traefik"`
-  #     is not that proof. Never allowUnpinnedTraefik.
+  #   - Traefik 3.7.13 host image is digest-pinned (NIX-448); do not set
+  #     existingTraefikVersion until the published routing-edge consumer
+  #     pin matches. Never allowUnpinnedTraefik.
   #   - compose bind of the unique fragment into the existing dynamic dir
   # Rollback of this pin is the synchronized 73e15491 flake-lock +
   # doctrine gitlink pair. App image pins stay on NIX-446.
