@@ -82,6 +82,7 @@ Examples:
 - `T69-paimos-agentd-codex-accounts.sh` — Isolated Codex accounts file boundary
 - `T70-paimos-agentd-pi-cursor-accounts.sh` — Isolated Pi/Cursor path+registry boundary
 - `T71-pharos-flow-host.sh` — csb1 Pharos Flow host config contract (NIX-442)
+- `T74-public-routing-consumer.sh` — published routing-edge pin + inactive csb1 consumer (NIX-447)
 
 ## Writing Shell Tests
 

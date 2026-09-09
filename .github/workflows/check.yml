@@ -193,6 +193,9 @@ jobs:
       - name: Verify both doctrine consumption paths agree
         run: tests/T42-doctrine-paths-agree.sh
 
+      - name: Verify published routing-edge pin and inactive csb1 consumer (NIX-447)
+        run: tests/T74-public-routing-consumer.sh
+
       - name: Verify fleet-safe doctrine-private boundary
         run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"
 

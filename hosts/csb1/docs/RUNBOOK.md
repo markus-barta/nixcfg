@@ -925,6 +925,33 @@ Traefik uses `secrets/traefik-variables.age` (shared with csb0) for ACME DNS-01 
 5. `docker restart csb1-traefik-1` to trigger immediate cert renewal
 6. Verify: `docker logs csb1-traefik-1 --tail 50 2>&1 | grep -i acme`
 
+### Public routing-edge consumer (NIX-447, inactive)
+
+csb1 imports the published `inspr-modules` `v0.5.0` routing-edge NixOS module
+and binds the `x86_64-linux` compiler package. `services.inspr.routingEdge.enable`
+is **false**. Disabled evaluation must emit no systemd unit, no `/etc` fragment,
+no listener, no firewall port, and no compose mount.
+
+This is not the existing `inspr-edge` auth fragment (`/etc/traefik/dynamic/inspr-edge.yml`,
+`inspr-auth-edge-token@file`). Leave that renderer and its Traefik bind untouched.
+
+Prepared external-file-provider selectors, inert until activation:
+
+| Parameter            | Value                                    | Why                                              |
+| -------------------- | ---------------------------------------- | ------------------------------------------------ |
+| entrypoint           | `web-secure`                             | already defined in `docker/traefik/static.yml`   |
+| certificate resolver | `default`                                | already defined there                            |
+| resource namespace   | `inspr-routing-edge`                     | unique vs existing Traefik object names          |
+| provider filename    | `traefik/dynamic/inspr-routing-edge.yml` | distinct from `dynamic.yml` and `inspr-edge.yml` |
+
+Activation is a later, operator-owned gate. It still needs the real public
+origin / tenant / identity / upstream map, the public contract (no fixture
+substitute), Traefik **3.7.12** exact-digest compatibility (the current
+floating `image = "traefik"` is not that proof), and a compose bind into the
+existing `/etc/traefik/dynamic` directory. Never set `allowUnpinnedTraefik`.
+App image pins stay on NIX-446. Pin rollback is the synchronized `73e15491`
+flake-lock + doctrine gitlink pair.
+
 ---
 
 ## Emergency Recovery
