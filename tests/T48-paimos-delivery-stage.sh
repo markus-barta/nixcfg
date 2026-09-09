@@ -40,10 +40,11 @@ host_config="$repo_root/hosts/csb1/configuration.nix"
 pharos_module="$repo_root/modules/pharos-paimos-delivery/default.nix"
 pharos_eval="$repo_root/tests/pharos-paimos-delivery-eval.nix"
 janus_module="$repo_root/modules/janus-paimos-dependency-reporter/default.nix"
+janus_eval="$repo_root/tests/janus-paimos-dependency-reporter-eval.nix"
 # The one place this repo already declares the canonical Paimos instances.
 paimos_defaults="$repo_root/modules/shared/markus-defaults.nix"
 
-for file in "$stage" "$compose" "$host_config" "$pharos_module" "$pharos_eval" "$janus_module"; do
+for file in "$stage" "$compose" "$host_config" "$pharos_module" "$pharos_eval" "$janus_module" "$janus_eval"; do
   nix-instantiate --parse "$file" >/dev/null
 done
 
@@ -414,11 +415,232 @@ if failures:
     raise SystemExit(1)
 PY
 
-# --- 3. the modules publish private files, never store paths -----------------
+# --- 3. Janus static/managed-completion modes are closed and disjoint --------
+eval_janus_reporter() {
+  nix eval --impure --json --expr "import $janus_eval { $* }"
+}
+
+expect_janus_reporter_rejected() {
+  local args=$1
+  local message=$2
+  if eval_janus_reporter "$args" >/dev/null 2>&1; then
+    printf '%s\n' "$message" >&2
+    exit 1
+  fi
+}
+
+static_reporter=$(eval_janus_reporter)
+jq -e '
+  .mode == "static"
+  and .generated.schema == "inspr.janus.paimos-dependency-reporter-config.v1"
+  and .generated.schema_version == 1
+  and .generated.evidence == {
+    kind: "credential_handoff",
+    observed_at: "2026-09-09T12:00:00Z"
+  }
+  and .generated.expected == {
+    authority_epoch: 2,
+    context_digest: ("sha256:" + ("3" * 64)),
+    credential_epoch: 3,
+    dependency_key: "fixture-handoff",
+    execution_number: 4,
+    expires_at: "2099-09-09T20:00:00Z",
+    plan_digest: ("sha256:" + ("1" * 64)),
+    predecessor_digest: ("sha256:" + ("2" * 64)),
+    stage_key: "deployment"
+  }
+  and .managedOutput == null
+  and (.services | keys) == [
+    "janus-paimos-dependency-reporter",
+    "janus-paimos-dependency-reporter-config"
+  ]
+  and (.services["janus-paimos-dependency-reporter"].serviceConfig.ExecStart
+    | endswith("/bin/janus-paimos-dependency-reporter"))
+  and (.timers | keys) == ["janus-paimos-dependency-reporter"]
+  and (.paths | length) == 0
+' <<<"$static_reporter" >/dev/null
+
+managed_reporter=$(eval_janus_reporter 'mode = "managedCompletion";')
+jq -e '
+  .mode == "managedCompletion"
+  and .goldenBindingDigest == "sha256:797bd2d85f95c3c5a09a87986526ca6695e5e1e34f2565293d6ae0bf314de757"
+  and .generated == .managedOutput.config
+  and .managedOutput.config.schema == "inspr.janus.paimos-managed-completion-reporter-config.v1"
+  and .managedOutput.config.schema_version == 1
+  and .managedOutput.config.evidence == {
+    kind: "credential_handoff",
+    source: "managed_completion_record"
+  }
+  and ([.managedOutput | .. | objects | select(has("observed_at"))] | length) == 0
+  and (.managedOutput.config | keys) == [
+    "api_key_file",
+    "evidence",
+    "expected",
+    "handoff_id",
+    "handoff_secret_file",
+    "journal_directory",
+    "paimos_origin",
+    "schema",
+    "schema_version"
+  ]
+  and .managedOutput.config.expected.stage_key == "deployment"
+  and .managedOutput.binding.schema == "inspr.janus.managed-completion-paimos-binding.v2"
+  and .managedOutput.binding.schema_version == 1
+  and .managedOutput.binding.operation_kind == "create"
+  and .managedOutput.binding.source == "generated"
+  and (.managedOutput.binding | keys) == [
+    "declaration_fingerprint",
+    "generation",
+    "host_ref",
+    "operation_kind",
+    "operation_ref",
+    "plan_fingerprint",
+    "producer_key_id",
+    "reporter",
+    "revocation_epoch",
+    "schema",
+    "schema_version",
+    "scope_ref",
+    "secret_ref",
+    "service_ref",
+    "slot_ref",
+    "source",
+    "target_fingerprint"
+  ]
+  and .managedOutput.binding.reporter.schema
+    == "inspr.janus.paimos-managed-completion-reporter-binding.v1"
+  and (.managedOutput.binding.reporter | keys) == [
+    "authority_epoch",
+    "config_digest",
+    "context_digest",
+    "credential_epoch",
+    "dependency_key",
+    "evidence_kind",
+    "evidence_source",
+    "execution_number",
+    "expires_at",
+    "handoff_id",
+    "plan_digest",
+    "predecessor_digest",
+    "schema",
+    "schema_version",
+    "stage_key"
+  ]
+  and .managedOutput.binding.reporter.evidence_kind == "credential_handoff"
+  and .managedOutput.binding.reporter.evidence_source == "managed_completion_record"
+  and .managedOutput.binding.reporter.config_digest == .managedOutput.config_digest
+  and .managedOutput.config_digest == .recomputedConfigDigest
+  and .managedOutput.binding_digest == .recomputedBindingDigest
+  and .managedOutput.capability == {
+    binding_digest: .managedOutput.binding_digest,
+    operation_ref: .managedOutput.binding.operation_ref,
+    schema: "inspr.janus.managed-completion-capability.v1",
+    schema_version: 1
+  }
+  and ([.managedOutput.binding, .managedOutput.capability] | tostring
+    | contains("/run/agenix") | not)
+  and .managedOutput.paths == {
+    binding: "/run/janus-paimos-dependency-reporter/managed-completion-binding.json",
+    config: "/run/janus-paimos-dependency-reporter/config.json",
+    evidence_directory: "/var/lib/janus-managed-central/completion-dispatch",
+    ready_evidence: "/var/lib/janus-managed-central/completion-dispatch/ready.json"
+  }
+  and (.services | keys) == [
+    "janus-paimos-dependency-reporter-config",
+    "janus-paimos-managed-completion-reporter"
+  ]
+  and (.timers | length) == 0
+  and (.paths | keys) == ["janus-paimos-managed-completion-reporter"]
+  and .paths["janus-paimos-managed-completion-reporter"].pathConfig == {
+    PathExists: "/var/lib/janus-managed-central/completion-dispatch/ready.json",
+    Unit: "janus-paimos-managed-completion-reporter.service"
+  }
+  and (.services["janus-paimos-managed-completion-reporter"] as $service
+    | ($service.serviceConfig.ExecStart
+        | endswith("/bin/janus-paimos-managed-completion-reporter"))
+    and ($service.serviceConfig.ExecStart | contains(" ") | not)
+    and $service.serviceConfig.User == "root"
+    and $service.serviceConfig.Group == "root"
+    and $service.serviceConfig.RemainAfterExit == true
+    and $service.serviceConfig.Restart == "on-failure"
+    and $service.unitConfig.StartLimitBurst == 3
+    and $service.unitConfig.StartLimitIntervalSec == 300
+    and $service.serviceConfig.CapabilityBoundingSet == []
+    and $service.serviceConfig.NoNewPrivileges == true
+    and $service.serviceConfig.ProtectSystem == "strict"
+    and $service.serviceConfig.ReadWritePaths
+      == ["/var/lib/janus-paimos-dependency-reporter/journal"]
+    and $service.serviceConfig.ReadOnlyPaths == [
+      "/run/janus-paimos-dependency-reporter/config.json",
+      "/run/janus-paimos-dependency-reporter/managed-completion-binding.json",
+      "/var/lib/janus-managed-central/completion-dispatch/ready.json",
+      "/run/agenix/fixture-paimos-api-key",
+      "/run/agenix/fixture-paimos-handoff-secret"
+    ]
+    and $service.serviceConfig.RestrictAddressFamilies
+      == ["AF_UNIX", "AF_INET", "AF_INET6"])
+  and (.tmpfiles | index(
+    "d /var/lib/janus-managed-central/completion-dispatch 0700 100 993 -"
+  )) != null
+' <<<"$managed_reporter" >/dev/null
+
+disabled_reporter=$(eval_janus_reporter 'enable = false; activate = false;')
+jq -e '
+  .generated == null
+  and .managedOutput == null
+  and (.services | length) == 0
+  and (.timers | length) == 0
+  and (.paths | length) == 0
+  and (.tmpfiles | length) == 0
+' <<<"$disabled_reporter" >/dev/null
+
+inactive_managed=$(eval_janus_reporter 'mode = "managedCompletion"; activate = false;')
+jq -e '
+  .managedOutput != null
+  and (.services | length) == 0
+  and (.timers | length) == 0
+  and (.paths | length) == 0
+  and (.tmpfiles | index(
+    "d /var/lib/janus-managed-central/completion-dispatch 0700 100 993 -"
+  )) == null
+' <<<"$inactive_managed" >/dev/null
+
+expect_janus_reporter_rejected \
+  'mode = "unknown";' \
+  'Janus reporter accepted an unknown execution mode'
+expect_janus_reporter_rejected \
+  'mode = "managedCompletion"; includeStaticEvidence = true;' \
+  'managed-completion mode accepted a static observed_at fact'
+expect_janus_reporter_rejected \
+  'mode = "static"; includeManagedCompletion = true;' \
+  'static mode accepted a managed transaction binding'
+expect_janus_reporter_rejected \
+  'mode = "managedCompletion"; expectedStageKey = "qa";' \
+  'managed completion accepted a non-deployment dependency'
+expect_janus_reporter_rejected \
+  'mode = "managedCompletion"; managedOperationRef = "op_short";' \
+  'managed completion accepted an invalid operation capability'
+expect_janus_reporter_rejected \
+  'mode = "managedCompletion"; includeExpected = false;' \
+  'managed completion activated without an existing Paimos expected tuple'
+expect_janus_reporter_rejected \
+  'mode = "managedCompletion"; apiKeyFile = "/tmp/api-key";' \
+  'managed completion accepted a credential path outside protected agenix custody'
+expect_janus_reporter_rejected \
+  'mode = "managedCompletion"; extraManagedCompletion = { command = "/bin/false"; };' \
+  'managed completion accepted a free-form command selector'
+
+# --- 4. the modules publish private files, never store paths -----------------
 grep -Fq 'install -m 0400 -o' "$pharos_module"
 grep -Fq 'install -m 0600 -o root -g root' "$janus_module"
+# shellcheck disable=SC2016
+grep -Fq 'install -m 0600 -o root -g root ${managedConfigDocumentFile} "$config_temporary"' "$janus_module"
+# shellcheck disable=SC2016
+grep -Fq 'install -m 0600 -o root -g root ${managedBindingDocumentFile} "$binding_temporary"' "$janus_module"
 # Fixed by the binary; must not become an option.
 grep -Fq 'configFile = "/run/janus-paimos-dependency-reporter/config.json";' "$janus_module"
+grep -Fq '"/run/janus-paimos-dependency-reporter/managed-completion-binding.json";' "$janus_module"
+grep -Fq 'completionDirectory = "/var/lib/janus-managed-central/completion-dispatch";' "$janus_module"
 # Durable journal, and the exact mode the reporter demands.
 grep -Fq '0700 root root' "$janus_module"
 grep -Fq '/var/lib/janus-paimos-dependency-reporter/journal' "$stage"
@@ -436,7 +658,7 @@ grep -Fqx '        ExecStart = "${cfg.package}/bin/janus-paimos-dependency-repor
     exit 1
   }
 
-# --- 4. operator authority over UpdateRestart is not delegated ---------------
+# --- 5. operator authority over UpdateRestart is not delegated ---------------
 # The adapter may only OBSERVE an existing, operator-confirmed host action.
 # Nothing in this repository may confirm, create or auto-approve one.
 if grep -Eq 'PHAROS_[A-Z_]*AUTO[A-Z_]*(CONFIRM|APPROVE)' "$compose"; then
@@ -444,8 +666,8 @@ if grep -Eq 'PHAROS_[A-Z_]*AUTO[A-Z_]*(CONFIRM|APPROVE)' "$compose"; then
   exit 1
 fi
 
-# --- 5. no credential values anywhere in the declarative tree ----------------
-PYTHONDONTWRITEBYTECODE=1 python3 - "$stage" "$pharos_module" "$janus_module" <<'PY'
+# --- 6. no credential values anywhere in the declarative tree ----------------
+PYTHONDONTWRITEBYTECODE=1 python3 - "$stage" "$pharos_module" "$janus_module" "$janus_eval" <<'PY'
 import re
 import sys
 
