@@ -1,4 +1,10 @@
-/** Project IB book state → inspr.joe.household.v1 (mirrors joe-household-sync.py). */
+/** Project IB book state → inspr.joe.household.v1 (mirrors joe-household-sync.py).
+ *
+ * Since-start / totalPnl = IB unrealized+realized on the desk sleeve (Joel: SXR8+TSLA).
+ * Stand equity = VIRTUAL_EQUITY (€5k) + that PnL. At first paper fill day PnL≈0 so the
+ * household opens at 3×€5k; later marks move totalPnl (not a separate "fresh baseline").
+ * Chart continuity requires history.json seeded from day-0 + legacy hsb1 series.
+ */
 
 const JOEL_SYMBOLS = new Set(["SXR8", "TSLA"]);
 const VIRTUAL_EQUITY = 5000.0;

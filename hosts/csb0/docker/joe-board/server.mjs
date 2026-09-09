@@ -17,6 +17,8 @@ const PUBLIC = path.join(__dirname, "public");
 // Fixed container paths (not taken from request or free-form env paths).
 const DATA_DIR = "/var/lib/joe-board";
 const DATA_FILE = path.join(DATA_DIR, "data.json");
+const HISTORY_FILE = path.join(DATA_DIR, "history.json");
+const HISTORY_MAX_POINTS = 4000;
 const TOKEN_FILE = "/run/secrets/joe-board-push-token";
 const BIND_HOST = "0.0.0.0";
 const BIND_PORT = 8080;
@@ -72,6 +74,53 @@ function atomicWriteJson(file, obj) {
   const tmp = `${file}.next`;
   fs.writeFileSync(tmp, text, { mode: 0o644 });
   fs.renameSync(tmp, file);
+}
+
+
+function readHistory() {
+  try {
+    const obj = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
+    if (!obj || obj.schema !== "inspr.joe.household.history.v1" || !Array.isArray(obj.points)) {
+      return { schema: "inspr.joe.household.history.v1", points: [] };
+    }
+    return { schema: "inspr.joe.household.history.v1", points: obj.points };
+  } catch (err) {
+    if (err && err.code === "ENOENT") return { schema: "inspr.joe.household.history.v1", points: [] };
+    throw err;
+  }
+}
+
+function appendHistoryPoint(snap) {
+  const point = {
+    t: snap.generatedAt,
+    desks: Object.fromEntries(
+      (snap.desks || []).map((d) => [
+        d.id,
+        {
+          equity: d.money?.equity ?? null,
+          dayPnl: d.money?.dayPnl ?? null,
+          totalPnl: d.money?.totalPnl ?? null,
+        },
+      ])
+    ),
+    totals: {
+      equity: snap.totals?.equity ?? null,
+      dayPnl: snap.totals?.dayPnl ?? null,
+      totalPnl: snap.totals?.totalPnl ?? null,
+    },
+  };
+  const hist = readHistory();
+  const pts = hist.points.slice();
+  const last = pts[pts.length - 1];
+  if (last && last.t === point.t) {
+    pts[pts.length - 1] = point;
+  } else {
+    pts.push(point);
+  }
+  atomicWriteJson(HISTORY_FILE, {
+    schema: "inspr.joe.household.history.v1",
+    points: pts.slice(-HISTORY_MAX_POINTS),
+  });
 }
 
 function send(res, status, body, headers = {}) {
@@ -157,6 +206,7 @@ async function handleInbox(req, res) {
   }
   try {
     atomicWriteJson(DATA_FILE, parsed);
+    appendHistoryPoint(parsed);
   } catch (err) {
     console.error("atomic write failed", err);
     sendJson(res, 500, { ok: false, error: "store failed" });
@@ -171,13 +221,14 @@ async function handleInbox(req, res) {
 }
 
 function handleStatic(req, res, urlPath) {
-  if (urlPath === "/joe/data.json") {
+  if (urlPath === "/joe/data.json" || urlPath === "/joe/history.json") {
+    const file = urlPath === "/joe/history.json" ? HISTORY_FILE : DATA_FILE;
     let body;
     try {
-      body = fs.readFileSync(DATA_FILE);
+      body = fs.readFileSync(file);
     } catch (err) {
       if (err && err.code === "ENOENT") {
-        sendJson(res, 404, { ok: false, error: "NO DATA" });
+        sendJson(res, 404, { ok: false, error: urlPath === "/joe/history.json" ? "NO HISTORY" : "NO DATA" });
         return;
       }
       throw err;
