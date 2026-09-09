@@ -469,6 +469,18 @@ selected_v2="$fixture/selected-v2.json"
 python3 "$validator" select --active "$v2_local" --output "$selected_v2" "$v2_first" "$v2_later"
 [[ "$(jq -r .version "$selected_v2")" == 260903050608.0.0 ]]
 
+# A first v2 reservation that never published may be skipped: sequence 4 lands
+# directly on the v1 record while the anchor still names the sequence-3 coordinate.
+skipped_local="$fixture/v2-skipped-local.json"
+python3 "$validator" transition --active "$later_local" --candidate "$v2_later" --output "$skipped_local"
+[[ "$(jq -r .release_sequence "$skipped_local")" == 4 ]]
+[[ "$(jq -r .migration_anchor.first_calendar_v2_version "$skipped_local")" == "$v2_first_version" ]]
+make_calendar_v2 260903050609.0.0 5 "$first_version" 26.09.02.04.00.00 2 260903050609.0.0 "$fixture/v2-relearned.json"
+if python3 "$validator" transition --active "$later_local" --candidate "$fixture/v2-relearned.json" --output "$fixture/never.json" >/dev/null 2>&1; then
+  printf 'pharos_calendar_release_test=failed reason=v2_first_reservation_relearned\n' >&2
+  exit 1
+fi
+
 # Rejections: v1 after v2 is closed; wrong v1→v2 anchor; v1 spelling under v2;
 # non-zero PATCH; earlier v2 coordinate; identity Cargo mapping broken.
 v1_after_v2="$fixture/v1-after-v2.json"
