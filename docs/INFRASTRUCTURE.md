@@ -72,6 +72,7 @@ On `csb0`, Traefik config was historically managed via local files (`~/docker/tr
 | -------- | ----------------------------------- | ------------- | ------------------------------ | ----------- |
 | **hsb0** | DNS/DHCP + Merlin (OpenClaw Docker) | 192.168.1.99  | `ssh mba@hsb0.lan`             | 🔴 HIGH     |
 | **hsb1** | Home Automation                     | 192.168.1.101 | `ssh mba@hsb1.lan`             | 🟡 MEDIUM   |
+| **hsb3** | Spare Pi 3B (ex-raspi02)            | 192.168.1.97  | `ssh mba@hsb3` / `100.64.0.5`  | 🟢 LOW      |
 | **hsb8** | Parents' Server (offsite)           | 192.168.1.100 | `ssh mba@hsb8.lan`             | 🟡 MEDIUM   |
 | **hsb9** | Parents-in-law Server (offsite)     | 192.168.1.200 | `ssh mba@hsb9.lan`             | 🟡 MEDIUM   |
 | **csb0** | Cloud Smart Home                    | 89.58.63.96   | `ssh mba@cs0.barta.cm -p 2222` | 🔴 HIGH     |
@@ -88,7 +89,7 @@ additive phase. Use explicit `markus` aliases when testing or using the new
 login:
 
 - LAN-style hosts: `<host>-markus`, `<host>-markus-lan`, `<host>-markus-ip`,
-  and `<host>-markus-ts` for `hsb0`, `hsb1`, `hsb8`, and `hsb9`.
+  and `<host>-markus-ts` for `hsb0`, `hsb1`, `hsb3`, `hsb8`, and `hsb9`.
 - Cloud hosts: `csb0-markus`, `csb0-markus-ip`, `csb0-markus-ts`,
   `csb1-markus`, `csb1-markus-ip`, and `csb1-markus-ts` on port 2222.
 
@@ -104,11 +105,12 @@ login:
 
 Shorter aliases for commonly accessed hosts:
 
-| Nickname | Full Hostname | Purpose          | LAN address    |
-| -------- | ------------- | ---------------- | -------------- |
-| `hsb0`   | hsb0          | Home DNS/DHCP    | `hsb0.lan`     |
-| `hsb1`   | hsb1          | Home Automation  | `hsb1.lan`     |
-| `csb0`   | csb0          | Cloud Smart Home | `cs0.barta.cm` |
+| Nickname | Full Hostname | Purpose          | LAN address               |
+| -------- | ------------- | ---------------- | ------------------------- |
+| `hsb0`   | hsb0          | Home DNS/DHCP    | `hsb0.lan`                |
+| `hsb1`   | hsb1          | Home Automation  | `hsb1.lan`                |
+| `hsb3`   | hsb3          | Spare Pi 3B      | `hsb3.lan` / `100.64.0.5` |
+| `csb0`   | csb0          | Cloud Smart Home | `cs0.barta.cm`            |
 
 ### SSH Connection Examples
 
