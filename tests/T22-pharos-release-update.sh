@@ -51,6 +51,20 @@ if [[ "$active_scheme" == legacy ]]; then
   fi
   new_sequence=1
   first_version=$new_version
+elif [[ "$active_scheme" == inspr-calendar-v2 ]]; then
+  new_version=$(
+    python3 - "$(jq -r .version "$fixture/pharos-release.json")" <<'PY2'
+import datetime as dt
+import sys
+
+stamp = sys.argv[1].split(".")[0]
+fields = [int(stamp[i:i + 2]) for i in range(0, 12, 2)]
+current = dt.datetime(2000 + fields[0], *fields[1:]) + dt.timedelta(seconds=1)
+print(f"{current.year % 100:02d}{current:%m%d%H%M%S}.0.0")
+PY2
+  )
+  new_sequence=$((active_sequence + 1))
+  first_version=$(jq -r .migration_anchor.first_calendar_version "$fixture/pharos-release.json")
 else
   new_version=$(
     python3 - "$(jq -r .version "$fixture/pharos-release.json")" <<'PY'

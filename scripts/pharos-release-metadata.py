@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Validate and order Pharos legacy/calendar release metadata."""
+"""Validate and order Pharos legacy/calendar v1/calendar v2 release metadata.
+
+PHAROS-259: calendar v2 coordinates are the UTC reservation second as
+YYMMDDhhmmss.0.0. Cross-era ordering is by release sequence only.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,8 @@ from typing import Any
 LOCAL_SCHEMA = "inspr.pharos.fleet-release.v2"
 RELEASE_SET_SCHEMA = "inspr.pharos.release-set.v1"
 CALENDAR_SCHEME = "inspr-calendar-v1"
+CALENDAR_V2_SCHEME = "inspr-calendar-v2"
+CALENDAR_SCHEMES = {CALENDAR_SCHEME, CALENDAR_V2_SCHEME}
 LEGACY_SCHEME = "legacy"
 STABLE_CHANNEL = "stable"
 PHAROS_IMAGE = "ghcr.io/inspr-at/pharos/pharosd"
@@ -50,11 +56,22 @@ ANCHOR_KEYS = {
     "first_calendar_version",
     "first_calendar_release_sequence",
 }
+# A calendar v2 record additionally pins the v1 → v2 anchor.
+ANCHOR_V2_KEYS = ANCHOR_KEYS | {
+    "last_calendar_v1_version",
+    "last_calendar_v1_release_sequence",
+    "first_calendar_v2_version",
+    "first_calendar_v2_release_sequence",
+}
 CALENDAR_RE = re.compile(
     r"^(?P<year>[0-9]{2})\.(?P<month>0[1-9]|1[0-2])\."
     r"(?P<day>0[1-9]|[12][0-9]|3[01])\."
     r"(?P<hour>[01][0-9]|2[0-3])\.(?P<minute>[0-5][0-9])\."
     r"(?P<second>[0-5][0-9])$"
+)
+CALENDAR_V2_RE = re.compile(
+    r"^(?P<year>[1-9][0-9])(?P<month>0[1-9]|1[0-2])(?P<day>0[1-9]|[12][0-9]|3[01])"
+    r"(?P<hour>[01][0-9]|2[0-3])(?P<minute>[0-5][0-9])(?P<second>[0-5][0-9])\.0\.0$"
 )
 LEGACY_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -122,6 +139,31 @@ def calendar_coordinate(value: str) -> tuple[int, int, int, int, int, int]:
     return fields
 
 
+def calendar_v2_coordinate(value: str) -> tuple[int, int, int, int, int, int]:
+    match = CALENDAR_V2_RE.fullmatch(value)
+    if match is None:
+        raise MetadataError("invalid_calendar_v2_version")
+    fields = tuple(
+        int(match.group(name))
+        for name in ("year", "month", "day", "hour", "minute", "second")
+    )
+    try:
+        dt.datetime(2000 + fields[0], *fields[1:], tzinfo=dt.timezone.utc)
+    except ValueError as error:
+        raise MetadataError("invalid_calendar_v2_date") from error
+    return fields
+
+
+def scheme_coordinate(scheme: str, value: str) -> tuple[int, int, int, int, int, int]:
+    """Validate a calendar spelling against its declared scheme only."""
+
+    if scheme == CALENDAR_SCHEME:
+        return calendar_coordinate(value)
+    if scheme == CALENDAR_V2_SCHEME:
+        return calendar_v2_coordinate(value)
+    raise MetadataError("unsupported_version_scheme")
+
+
 def require_exact_keys(value: dict[str, Any], expected: set[str], reason: str) -> None:
     if set(value) != expected:
         raise MetadataError(reason)
@@ -149,17 +191,21 @@ def validate_document(document: dict[str, Any], schema: str) -> dict[str, Any]:
     sequence = require_positive_int(
         document.get("release_sequence"), "invalid_release_sequence", allow_zero=True
     )
-    if scheme not in {LEGACY_SCHEME, CALENDAR_SCHEME} or not isinstance(version, str):
+    if scheme not in {LEGACY_SCHEME, *CALENDAR_SCHEMES} or not isinstance(version, str):
         raise MetadataError("unsupported_version_scheme")
     if document.get("legacy_rollback") != LEGACY_ROLLBACK:
         raise MetadataError("legacy_rollback_mismatch")
-    if schema == RELEASE_SET_SCHEMA and scheme != CALENDAR_SCHEME:
+    if schema == RELEASE_SET_SCHEMA and scheme not in CALENDAR_SCHEMES:
         raise MetadataError("release_set_must_be_calendar")
 
     anchor = document.get("migration_anchor")
     if not isinstance(anchor, dict):
         raise MetadataError("invalid_migration_anchor")
-    require_exact_keys(anchor, ANCHOR_KEYS, "unexpected_migration_anchor_fields")
+    require_exact_keys(
+        anchor,
+        ANCHOR_V2_KEYS if scheme == CALENDAR_V2_SCHEME else ANCHOR_KEYS,
+        "unexpected_migration_anchor_fields",
+    )
     last_legacy = anchor.get("last_legacy_version")
     last_legacy_sequence = require_positive_int(
         anchor.get("last_legacy_release_sequence"),
@@ -188,7 +234,7 @@ def validate_document(document: dict[str, Any], schema: str) -> dict[str, Any]:
             raise MetadataError("legacy_root_identity_mismatch")
         if first_calendar is not None:
             calendar_coordinate(first_calendar)
-    else:
+    elif scheme == CALENDAR_SCHEME:
         coordinate = calendar_coordinate(version)
         if not isinstance(first_calendar, str):
             raise MetadataError("missing_first_calendar_version")
@@ -197,15 +243,45 @@ def validate_document(document: dict[str, Any], schema: str) -> dict[str, Any]:
             raise MetadataError("calendar_before_anchor")
         if (sequence == first_calendar_sequence) != (coordinate == first_coordinate):
             raise MetadataError("calendar_anchor_mismatch")
+    else:
+        # Calendar v2: the record pins the last v1 coordinate/sequence and the
+        # first v2 coordinate/sequence; the coordinate is validated only against
+        # the v2 grammar and ordered within the era by its UTC stamp.
+        coordinate = calendar_v2_coordinate(version)
+        if not isinstance(first_calendar, str):
+            raise MetadataError("missing_first_calendar_version")
+        calendar_coordinate(first_calendar)
+        last_v1 = anchor.get("last_calendar_v1_version")
+        last_v1_sequence = require_positive_int(
+            anchor.get("last_calendar_v1_release_sequence"), "invalid_last_calendar_v1_sequence"
+        )
+        first_v2 = anchor.get("first_calendar_v2_version")
+        first_v2_sequence = require_positive_int(
+            anchor.get("first_calendar_v2_release_sequence"), "invalid_first_calendar_v2_sequence"
+        )
+        if not isinstance(last_v1, str) or not isinstance(first_v2, str):
+            raise MetadataError("invalid_calendar_v2_anchor")
+        calendar_coordinate(last_v1)
+        first_v2_coordinate = calendar_v2_coordinate(first_v2)
+        if last_v1_sequence < first_calendar_sequence or first_v2_sequence != last_v1_sequence + 1:
+            raise MetadataError("noncontiguous_calendar_v2_sequence")
+        if sequence < first_v2_sequence or coordinate < first_v2_coordinate:
+            raise MetadataError("calendar_v2_before_anchor")
+        if (sequence == first_v2_sequence) != (coordinate == first_v2_coordinate):
+            raise MetadataError("calendar_v2_anchor_mismatch")
 
     if schema == RELEASE_SET_SCHEMA:
         if document.get("schema_version") != 1:
             raise MetadataError("unsupported_schema_version")
         cargo_version = document.get("cargo_version")
-        year, month, day, hour, minute, second = coordinate
-        expected_cargo_version = (
-            f"{2000 + year}.{month * 100 + day}.{hour * 10000 + minute * 100 + second}"
-        )
+        if scheme == CALENDAR_V2_SCHEME:
+            # A v2 coordinate is itself valid SemVer: the Cargo mapping is the identity.
+            expected_cargo_version = version
+        else:
+            year, month, day, hour, minute, second = coordinate
+            expected_cargo_version = (
+                f"{2000 + year}.{month * 100 + day}.{hour * 10000 + minute * 100 + second}"
+            )
         if cargo_version != expected_cargo_version:
             raise MetadataError("cargo_version_mismatch")
         source_lock_digest = document.get("source_lock_digest")
@@ -351,16 +427,41 @@ def validate_transition(active: dict[str, Any], candidate: dict[str, Any]) -> No
         if not same_release(active, candidate):
             raise MetadataError("release_sequence_collision")
         return
-    if candidate["version_scheme"] != CALENDAR_SCHEME:
+    if candidate["version_scheme"] not in CALENDAR_SCHEMES:
         raise MetadataError("post_anchor_legacy_release")
-    if active["version_scheme"] == CALENDAR_SCHEME:
+    if active["version_scheme"] in CALENDAR_SCHEMES:
         old_anchor = active["migration_anchor"]["first_calendar_version"]
         if candidate["migration_anchor"]["first_calendar_version"] != old_anchor:
             raise MetadataError("first_calendar_anchor_changed")
-        if calendar_coordinate(candidate["version"]) <= calendar_coordinate(
-            active["version"]
-        ):
-            raise MetadataError("calendar_version_not_increasing")
+        active_scheme = active["version_scheme"]
+        candidate_scheme = candidate["version_scheme"]
+        if active_scheme == CALENDAR_V2_SCHEME and candidate_scheme == CALENDAR_SCHEME:
+            raise MetadataError("calendar_v1_closed_after_v2")
+        if active_scheme == candidate_scheme:
+            if scheme_coordinate(candidate_scheme, candidate["version"]) <= scheme_coordinate(
+                active_scheme, active["version"]
+            ):
+                raise MetadataError("calendar_version_not_increasing")
+        else:
+            # v1 → v2: the candidate's anchor must name the active v1 release as
+            # the last v1 coordinate and itself as the first v2 coordinate.
+            new_anchor = candidate["migration_anchor"]
+            if (
+                new_anchor.get("last_calendar_v1_version") != active["version"]
+                or new_anchor.get("last_calendar_v1_release_sequence") != active["release_sequence"]
+                or new_anchor.get("first_calendar_v2_version") != candidate["version"]
+                or new_anchor.get("first_calendar_v2_release_sequence") != candidate["release_sequence"]
+            ):
+                raise MetadataError("calendar_v2_anchor_mismatch")
+        if active_scheme == CALENDAR_V2_SCHEME:
+            for key in (
+                "last_calendar_v1_version",
+                "last_calendar_v1_release_sequence",
+                "first_calendar_v2_version",
+                "first_calendar_v2_release_sequence",
+            ):
+                if candidate["migration_anchor"].get(key) != active["migration_anchor"].get(key):
+                    raise MetadataError("calendar_v2_anchor_changed")
     else:
         first = candidate["migration_anchor"]["first_calendar_version"]
         if first is None:

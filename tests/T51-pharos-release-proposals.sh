@@ -92,6 +92,20 @@ if [[ "$active_scheme" == legacy ]]; then
   fi
   sequence=1
   first_version=$version
+elif [[ "$active_scheme" == inspr-calendar-v2 ]]; then
+  version=$(
+    python3 - "$(jq -r .version "$repo_root/pharos-release.json")" <<'PY2'
+import datetime as dt
+import sys
+
+stamp = sys.argv[1].split(".")[0]
+fields = [int(stamp[i:i + 2]) for i in range(0, 12, 2)]
+current = dt.datetime(2000 + fields[0], *fields[1:]) + dt.timedelta(seconds=1)
+print(f"{current.year % 100:02d}{current:%m%d%H%M%S}.0.0")
+PY2
+  )
+  sequence=$((active_sequence + 1))
+  first_version=$(jq -r .migration_anchor.first_calendar_version "$repo_root/pharos-release.json")
 else
   version=$(
     python3 - "$(jq -r .version "$repo_root/pharos-release.json")" <<'PY'
