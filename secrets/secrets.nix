@@ -510,6 +510,10 @@ in
   # Edit: agenix -e secrets/hsb0-ppm-api-key.age
   "hsb0-ppm-api-key.age".publicKeys = markus ++ hsb0;
 
+  # IB Gateway paper password (raw password only for TWS_PASSWORD_FILE).
+  # Edit: just edit-secret secrets/hsb0-ib-gateway-password.age
+  "hsb0-ib-gateway-password.age".publicKeys = markus ++ hsb0;
+
   # Nimue agent secrets (second agent in openclaw-gateway)
   # Edit: agenix -e secrets/hsb0-nimue-*.age
   # Runtime: /run/agenix/hsb0-nimue-*

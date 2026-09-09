@@ -10,11 +10,20 @@ No credentials are wired yet. Container must stay stopped until cutover.
 | Mode                | paper only (`TRADING_MODE=paper`)                                                  |
 | API bind            | `127.0.0.1:4002` → container `4004` (socat → internal `4002`)                      |
 | Live API            | **not published** (no `4001`/`4003`)                                               |
-| Paper account (ref) | `DUR970597` — userid/password via agenix at enable                                 |
-| Live account        | `U28240205` / port 4001 stays **OFF** on hsb0                                      |
+| IBKR login          | username `markusbarta` (one login for paper + live); password via agenix           |
+| Paper account (ref) | `DUR970597` — selected by `TRADING_MODE=paper`                                     |
+| Live account (ref)  | `U28240205` — only if `TRADING_MODE=live`/`both`; **port 4001 not published**      |
 | Settings volume     | `/var/lib/ib-gateway/tws_settings` (`TWS_SETTINGS_PATH`)                           |
 | Heap / mem          | `JAVA_HEAP_SIZE=768`; compose `mem_limit=1280m`                                    |
 | Docs upstream       | https://github.com/gnzsnz/ib-gateway-docker                                        |
+
+## One IBKR login
+
+Interactive Brokers uses **one username/password** (`markusbarta`) for both the
+paper account (`DUR970597`) and the live account (`U28240205`). Which book you
+get is selected at Gateway start via `TRADING_MODE` (`paper` / `live` / `both`),
+not via separate credentials. This host stays **`paper` only** and does **not**
+publish live API port `4001` until Markus explicitly keys a live cut.
 
 ## Why parked
 
@@ -34,14 +43,42 @@ access are unfinished.
   intentionally taking over).
 - No Traefik. Watchtower disabled.
 
+## Credentials (agenix) — Markus paste from 1Password
+
+Password secret is registered: `secrets/hsb0-ib-gateway-password.age` (decryptable by
+Markus + hsb0). Body must be the **raw paper password only** (no `KEY=`, no quotes,
+preferably no trailing newline).
+
+Fish on mbp2607:
+
+```fish
+cd ~/Code/nixcfg
+git fetch origin
+git switch ops/hsb0-ib-gateway-agenix   # or main after this PR merges
+# opens $EDITOR on the decrypted secret — paste password from 1Password, save, quit
+just edit-secret secrets/hsb0-ib-gateway-password.age
+# commit the re-encrypted .age (never the plaintext)
+git add secrets/hsb0-ib-gateway-password.age
+git commit -m "secrets(hsb0): set IB Gateway paper password"
+git push
+```
+
+Username is already set in compose: `TWS_USERID=markusbarta` (one IBKR login for
+paper and live; `TRADING_MODE` selects which session). Only the password is agenix.
+
+Verify decrypt (should print only `***` length, not the secret):
+
+```fish
+agenix -d secrets/hsb0-ib-gateway-password.age | wc -c
+```
+
 ## Reactivate (cutover checklist)
 
 1. Stop Mac IB Gateway (paper session on 4002).
-2. Create agenix secret `secrets/hsb0-ib-gateway-password.age` (password only;
-   do not commit plaintext). Uncomment `age.secrets.hsb0-ib-gateway-password` in
-   `hosts/hsb0/configuration.nix`.
+2. Password age file filled (above). `age.secrets.hsb0-ib-gateway-password` is already
+   declared in `hosts/hsb0/configuration.nix`.
 3. In `hosts/hsb0/docker/compose-spec.nix`:
-   - Set `TWS_USERID` (paper login — not inventable in git).
+   - `TWS_USERID=markusbarta` is already set.
    - Uncomment `TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password`.
    - Uncomment the `/run/agenix/hsb0-ib-gateway-password` volume mount.
    - Remove the `profiles = [ "ib-gateway" ];` line **or** start with
@@ -58,7 +95,7 @@ under `/var/lib/ib-gateway/tws_settings` are kept.
 
 ## Still gated
 
-- Credentials (`TWS_USERID` + agenix `TWS_PASSWORD_FILE`)
+- Credentials (agenix `TWS_PASSWORD_FILE`; userid `markusbarta` already in compose)
 - Interactive / device 2FA on first login
 - IB TrustedIPs / API access approval for hsb0
 - Session cutover vs Mac Gateway
