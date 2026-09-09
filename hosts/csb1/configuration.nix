@@ -221,6 +221,11 @@ in
     #   - FleetCom CI deploy key (command-restricted to docker pull+restart)
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
+    # NIX-447: published routing-edge module. enable stays false until the
+    # operator chooses the actual origin/apps. NIX-448 pins the host Traefik
+    # image to 3.7.13; do not set existingTraefikVersion until the public
+    # consumer library is upgraded. This is not the existing inspr-auth edge.
+    inputs.inspr-modules.nixosModules.routing-edge
   ];
 
   # OPS-116 — the container stack, rendered from Nix into the closure.
@@ -327,6 +332,35 @@ in
   systemd.services.compose-csb1 = {
     requires = [ "inspr-edge-config.service" ];
     after = [ "inspr-edge-config.service" ];
+  };
+
+  # NIX-447 — public routing-edge consumer boundary. Explicitly inactive.
+  # Prepared selectors match the existing Traefik file provider
+  # (entrypoint `web-secure`, resolver `default`, directory
+  # `/etc/traefik/dynamic`). They do not install a fragment, service,
+  # listener, or compose mount while enable = false. Do not treat this
+  # scaffolding as live routing.
+  #
+  # Activation gates, all still open:
+  #   - operator-chosen public origin, tenant, identity, and upstream map
+  #   - public contract file (no fixture substitute)
+  #   - Traefik 3.7.13 host image is digest-pinned (NIX-448); do not set
+  #     existingTraefikVersion until the published routing-edge consumer
+  #     pin matches. Never allowUnpinnedTraefik.
+  #   - compose bind of the unique fragment into the existing dynamic dir
+  # Rollback of this pin is the synchronized 73e15491 flake-lock +
+  # doctrine gitlink pair. App image pins stay on NIX-446.
+  services.inspr.routingEdge = {
+    enable = false;
+    package = inputs.inspr-modules.packages.x86_64-linux.routing-edge;
+    deploymentMode = "external-file-provider";
+    allowUnpinnedTraefik = false;
+    entrypoint.name = "web-secure";
+    external = {
+      certificateResolver = "default";
+      resourceNamespace = "inspr-routing-edge";
+      providerFile = "traefik/dynamic/inspr-routing-edge.yml";
+    };
   };
 
   # ============================================================================

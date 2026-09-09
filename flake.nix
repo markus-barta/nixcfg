@@ -80,7 +80,7 @@
     # executable control plane just because upstream main advances. Bumps use
     # the reviewed Paimos release flow and refresh vendorHash when Go deps move.
     paimos = {
-      url = "github:inspr-at/paimos/v26.09.08.17.06";
+      url = "github:inspr-at/paimos/v26.09.09";
       flake = false;
     };
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
@@ -89,7 +89,11 @@
     # Studios (this nixcfg + former-employer studio + future family/paid-product
     # context flakes) provide identity-specific values; the atelier stays
     # opinionated only about mechanics. (Older docs: "Pattern β".)
-    inspr-modules.url = "github:inspr-at/inspr-modules";
+    #
+    # NIX-447: pin the published routing-edge library. Rollback is the previous
+    # synchronized 73e15491 flake-lock + doctrine gitlink pair. Do not add a
+    # second routing flake input.
+    inspr-modules.url = "github:inspr-at/inspr-modules/v0.6.0";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 
