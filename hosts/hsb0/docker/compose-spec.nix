@@ -87,6 +87,9 @@
       ];
     };
     openclaw-gateway = {
+      # Disabled 2026-09-09 to free RAM; unused for now. Reactivate by removing
+      # the `profiles` line (or activating profile `openclaw`) and switching.
+      profiles = [ "openclaw" ];
       build = "./openclaw-gateway";
       container_name = "openclaw-gateway";
       restart = "unless-stopped";

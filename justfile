@@ -1207,6 +1207,7 @@ oc-status host='':
     just _oc-run "$_target" "docker ps -f name=$_container --format 'table {{{{.Status}}\t{{{{.Ports}}' && echo '---' && docker logs $_container --tail 30"
 
 # Stop the OpenClaw container
+# Note (2026-09-09): hsb0 openclaw-gateway is parked on Compose profile `openclaw` (default up skips it).
 
 # Usage: just oc-stop [hsb0]
 [group('openclaw')]
