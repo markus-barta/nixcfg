@@ -3,6 +3,9 @@
 const JOEL_SYMBOLS = new Set(["SXR8", "TSLA"]);
 const VIRTUAL_EQUITY = 5000.0;
 const STALE_AFTER = 300;
+// CONFIG.md Grandfather (Markus 2026-09-04): existing paper SXR8 lot + leftover
+// TSLA×1 stay outside Stage-0 Joel book money / since-start / stand / totals
+// until Faber exit. Still mentioned in action/learning text.
 
 function fnum(x, fallback = 0) {
   const n = Number(x);
@@ -19,6 +22,19 @@ function sleeveMv(portfolio, symbols) {
 
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+
+/** True for grandfathered paper names excluded from Stage-0 money. */
+function isGrandfathered(p) {
+  const sym = p.symbol;
+  const pos = Math.abs(fnum(p.pos));
+  if (sym === "SXR8") return true; // Faber lot until exit
+  if (sym === "TSLA" && pos === 1) return true; // leftover single share
+  return false;
+}
+
+function stage0JoelRows(portfolio) {
+  return portfolio.filter((p) => JOEL_SYMBOLS.has(p.symbol) && !isGrandfathered(p));
 }
 
 export function projectBook(book, opts = {}) {
@@ -53,7 +69,12 @@ export function projectBook(book, opts = {}) {
   const halt = Boolean(opts.halt);
   const haltRaw = opts.haltReason || "";
   const posTxt = positions.map((p) => `${p.symbol}×${p.pos}`).join(", ") || "flat";
+  const legacyRows = portfolio.filter((p) => isGrandfathered(p) && fnum(p.pos) !== 0);
+  const legacyTxt =
+    legacyRows.map((p) => `${p.symbol}×${p.pos}`).join(", ") || "none";
   const joelMv = sleeveMv(portfolio, JOEL_SYMBOLS);
+  const stage0Rows = stage0JoelRows(portfolio);
+  const stage0Mv = round2(stage0Rows.reduce((s, p) => s + fnum(p.marketValue), 0));
 
   const jPnl = round2(
     (() => {
@@ -62,10 +83,9 @@ export function projectBook(book, opts = {}) {
     })()
   );
   const joePnl = 0.0;
+  // Stage-0 attributed only — grandfathered SXR8/TSLA×1 excluded from money.
   const joelPnl = round2(
-    portfolio
-      .filter((p) => JOEL_SYMBOLS.has(p.symbol))
-      .reduce((s, p) => s + fnum(p.unrealizedPNL) + fnum(p.realizedPNL), 0)
+    stage0Rows.reduce((s, p) => s + fnum(p.unrealizedPNL) + fnum(p.realizedPNL), 0)
   );
   const dayJ = 0.0;
   const dayJoe = 0.0;
@@ -111,12 +131,16 @@ export function projectBook(book, opts = {}) {
       state: positions.length ? "working" : "sit-out",
       stateSince: null,
       action: positions.length
-        ? `Holding broker names (${posTxt}). Desk equity is Stage-0 virtual €${VIRTUAL_EQUITY.toLocaleString("en-US")} (CONFIG), not IB NAV €${nlv.toLocaleString("en-US", { minimumFractionDigits: 2 })}.`
+        ? `Holding ${posTxt}. Legacy paper (${legacyTxt}) is outside Stage-0 money until Faber exit (CONFIG). Stage-0 stand = virt €${VIRTUAL_EQUITY.toLocaleString("en-US")} + Stage-0 PnL (not IB NAV €${nlv.toLocaleString("en-US", { minimumFractionDigits: 2 })}).`
         : `Flat in virt book. Desk equity is Stage-0 virtual €${VIRTUAL_EQUITY.toLocaleString("en-US")}; IB NAV €${nlv.toLocaleString("en-US", { minimumFractionDigits: 2 })}.`,
       learning: {
         status: positions.length ? "steady" : "learning",
-        headline: "Virt €5k book + broker names",
-        detail: `Open broker MV ~€${joelMv.toLocaleString("en-US", { minimumFractionDigits: 2 })}. Since-start PnL €${joelPnl.toLocaleString("en-US", { minimumFractionDigits: 2 })} kept on Joel; stand = virt €5k + PnL.`,
+        headline: legacyRows.length
+          ? "Virt €5k Stage-0 + open legacy names"
+          : "Virt €5k Stage-0 book",
+        detail: legacyRows.length
+          ? `Legacy held (${legacyTxt}), broker MV ~€${joelMv.toLocaleString("en-US", { minimumFractionDigits: 2 })} — excluded from Stage-0 since-start/stand. Stage-0-attributed PnL €${joelPnl.toLocaleString("en-US", { minimumFractionDigits: 2 })} (open Stage-0 MV ~€${stage0Mv.toLocaleString("en-US", { minimumFractionDigits: 2 })}); stand = virt €5k + that PnL.`
+          : `Since-start PnL €${joelPnl.toLocaleString("en-US", { minimumFractionDigits: 2 })}; stand = virt €5k + PnL.`,
         iteration: null,
       },
       money: { equity: joelEquity, dayPnl: dayJoel, totalPnl: joelPnl },
