@@ -8,7 +8,14 @@
 }:
 
 let
-  hostdashHsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb1;
+  # Serve HostDash without the unpublished /joe static board (Mac projection retired).
+  hostdashHsb1 =
+    inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb1.overrideAttrs
+      (old: {
+        postInstall = (old.postInstall or "") + ''
+          rm -rf "$out/share/hostdash-hsb1/joe"
+        '';
+      });
 in
 {
   imports = [
@@ -563,10 +570,6 @@ in
   };
 
   # NIX-280 — the host answers for its own services, because a browser cannot.
-  # Joe household board projection directory (Mac syncs data.json here).
-  systemd.tmpfiles.rules = [
-    "d /var/lib/joe-dashboard 0755 root root -"
-  ];
 
   services.hostdash.status = {
     enable = true;
