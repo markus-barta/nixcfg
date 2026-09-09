@@ -323,8 +323,10 @@
         # "/run/agenix/hsb0-ib-gateway-password:/run/secrets/ib-gateway-password:ro"
       ];
       environment = [
-        # TWS_USERID set at enable (do not commit). Paper account ref: DUR970597.
-        # "TWS_USERID="
+        # One IBKR login for paper + live; TRADING_MODE picks the session.
+        # Paper account DUR970597 / live U28240205 — live port stays unpublished.
+        "TWS_USERID=markusbarta"
+        # Enable with agenix before activating profile:
         # "TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password"
         "TRADING_MODE=paper"
         "TWS_SETTINGS_PATH=/home/ibgateway/tws_settings"
