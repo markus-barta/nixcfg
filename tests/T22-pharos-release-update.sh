@@ -80,29 +80,41 @@ PY
   first_version=$(jq -r .migration_anchor.first_calendar_version "$fixture/pharos-release.json")
 fi
 expected="ghcr.io/inspr-at/pharos/pharosd:${new_version}@${new_digest}"
-IFS=. read -r new_year new_month new_day new_hour new_minute new_second <<<"$new_version"
-cargo_version="$((2000 + 10#$new_year)).$((10#$new_month * 100 + 10#$new_day)).$((10#$new_hour * 10000 + 10#$new_minute * 100 + 10#$new_second))"
+if [[ "$active_scheme" == inspr-calendar-v2 ]]; then
+  # PHAROS-259: a v2 coordinate is itself SemVer; the Cargo mapping is the identity
+  # and the release set carries the two-step anchor from the active record.
+  cargo_version=$new_version
+  candidate_scheme=inspr-calendar-v2
+  anchor_extra=$(jq -c '.migration_anchor | {last_calendar_v1_version, last_calendar_v1_release_sequence, first_calendar_v2_version, first_calendar_v2_release_sequence}' "$fixture/pharos-release.json")
+else
+  IFS=. read -r y_ m_ d_ h_ mi_ s_ <<<"$new_version"
+  cargo_version="$((2000 + 10#$y_)).$((10#$m_ * 100 + 10#$d_)).$((10#$h_ * 10000 + 10#$mi_ * 100 + 10#$s_))"
+  candidate_scheme=inspr-calendar-v1
+  anchor_extra='{}'
+fi
 release_set="$fixture/release-set.json"
 jq -n \
   --arg version "$new_version" \
   --arg cargo_version "$cargo_version" \
   --arg first_version "$first_version" \
+  --arg candidate_scheme "$candidate_scheme" \
+  --argjson anchor_extra "$anchor_extra" \
   --argjson sequence "$new_sequence" \
   --arg digest "$new_digest" \
   --arg reference "$expected" \
   '{
     schema: "inspr.pharos.release-set.v1",
     schema_version: 1,
-    version_scheme: "inspr-calendar-v1",
+    version_scheme: $candidate_scheme,
     version: $version,
     release_channel: "stable",
     release_sequence: $sequence,
-    migration_anchor: {
+    migration_anchor: ({
       last_legacy_version: "0.2.0",
       last_legacy_release_sequence: 0,
       first_calendar_version: $first_version,
       first_calendar_release_sequence: 1
-    },
+    } + $anchor_extra),
     cargo_version: $cargo_version,
     source_commit: ("c" * 40),
     source_lock_digest: ("sha256:" + ("d" * 64)),
@@ -156,7 +168,7 @@ jq -n \
 
 "$repo_root/scripts/update-pharos-release.sh" --root "$fixture" "$release_set" >/dev/null
 [[ "$(jq -r '.reference' "$fixture/pharos-release.json")" == "$expected" ]]
-[[ "$(jq -r '.version_scheme' "$fixture/pharos-release.json")" == inspr-calendar-v1 ]]
+[[ "$(jq -r '.version_scheme' "$fixture/pharos-release.json")" == "$candidate_scheme" ]]
 [[ "$(jq -r '.release_sequence' "$fixture/pharos-release.json")" == "$new_sequence" ]]
 [[ "$(grep -rlF "image = \"$expected\";" "$fixture/hosts" | wc -l | tr -d ' ')" == 6 ]]
 [[ "$(grep -rF "image = \"$expected\";" "$fixture/hosts" | wc -l | tr -d ' ')" == 7 ]]
