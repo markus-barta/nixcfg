@@ -262,10 +262,6 @@
       restart = "unless-stopped";
       environment = [
         "TZ=Europe/Vienna"
-        "JOE_DATA_DIR=/var/lib/joe-board"
-        "JOE_LISTEN=0.0.0.0:8080"
-        "JOE_MAX_BODY_BYTES=262144"
-        "JOE_INBOX_TOKEN_FILE=/run/secrets/joe-board-push-token"
       ];
       volumes = [
         "/var/lib/joe-board:/var/lib/joe-board"

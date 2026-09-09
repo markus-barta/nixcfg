@@ -351,13 +351,7 @@
       network_mode = "host";
       environment = [
         "TZ=Europe/Vienna"
-        "IB_GATEWAY_HOST=100.64.0.6"
-        "IB_GATEWAY_PORT=4002"
-        "IB_CLIENT_ID=50"
-        "IB_ACCOUNT=DUR970597"
         "JOE_PUSH_INTERVAL_SEC=30"
-        "JOE_INBOX_URL=https://cs0.barta.cm/joe/inbox"
-        "JOE_PUSH_TOKEN_FILE=/run/secrets/joe-board-push-token"
       ];
       volumes = [
         "/run/agenix/joe-board-push-token:/run/secrets/joe-board-push-token:ro"
