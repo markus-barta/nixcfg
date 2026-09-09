@@ -30,13 +30,13 @@ sudo systemctl restart hsb0-home-dashboard
 
 ---
 
-## IB Gateway (paper) — parked
+## IB Gateway (paper) — enabled
 
-**Status (2026-09-09)**: Compose service `ib-gateway` parked behind inactive profile `ib-gateway` (default `compose up` does not start it). Credentials not wired yet. Full cutover notes: **[IB-GATEWAY.md](./IB-GATEWAY.md)**.
+**Status (2026-09-09)**: Compose service `ib-gateway` is **enabled** (paper) on default compose. Credentials via agenix. Full notes: **[IB-GATEWAY.md](./IB-GATEWAY.md)**.
 
-**Container**: `ib-gateway` (not running) | **API**: `127.0.0.1:4002` only when enabled | **Data**: `/var/lib/ib-gateway/tws_settings`
+**Container**: `ib-gateway` | **API**: `100.64.0.6:4002` (Tailscale only) | **Data**: `/var/lib/ib-gateway/tws_settings` (uid/gid 1000)
 
-Mac desks currently own paper session `DUR970597` on Mac Gateway `127.0.0.1:4002`. Do not enable hsb0 until Mac Gateway is stopped — one IB session only. Live `U28240205` / 4001 stays OFF.
+Mac must **not** run Gateway or an SSH `-L` tunnel. Desks connect directly over Tailscale to `100.64.0.6:4002`. Live `U28240205` / 4001 stays OFF.
 
 ## OpenClaw Gateway (Merlin + Nimue)
 

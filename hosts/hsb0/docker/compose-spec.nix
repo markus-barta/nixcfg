@@ -298,36 +298,32 @@
       ];
     };
     # IB Gateway (paper) — Interactive Brokers API for desks (Joe/Joel/J).
-    # Parked behind inactive Compose profile `ib-gateway` (same pattern as
-    # openclaw-gateway, PR #561). Default `compose up` does NOT start it.
+    # Enabled paper IB Gateway on hsb0 (2026-09-09). Default compose up starts it.
     # Image channel matches Mac IB Gateway 10.45 (stable = 10.45.1j).
     # Docs: https://github.com/gnzsnz/ib-gateway-docker
     #
-    # Paper only: host 127.0.0.1:4002 -> container socat 4004 -> internal 4002.
-    # Do NOT publish live 4001/4003. Do NOT bind 0.0.0.0 (plaintext IB API).
-    # Credentials (TWS_USERID + TWS_PASSWORD_FILE via agenix) gated — see
-    # hosts/hsb0/docs/IB-GATEWAY.md. Profile off is enough to keep it stopped.
+    # Paper only: host Tailscale 100.64.0.6:4002 -> container socat 4004 -> internal 4002.
+    # Do NOT publish live 4001/4003. Do NOT bind 0.0.0.0 or LAN 192.168.1.99 (plaintext IB API).
+    # Mac must NOT run Gateway or an SSH -L tunnel; desks connect over Tailscale directly.
+    # See hosts/hsb0/docs/IB-GATEWAY.md.
     ib-gateway = {
-      profiles = [ "ib-gateway" ];
       image = "ghcr.io/gnzsnz/ib-gateway:10.45";
       container_name = "ib-gateway";
       restart = "unless-stopped";
       # Cap so Gateway cannot starve AdGuard/DNS on this 8G host.
       mem_limit = "1280m";
       ports = [
-        "127.0.0.1:4002:4004"
+        "100.64.0.6:4002:4004"
       ];
       volumes = [
         "/var/lib/ib-gateway/tws_settings:/home/ibgateway/tws_settings"
-        # Enable with agenix before activating profile `ib-gateway`:
-        # "/run/agenix/hsb0-ib-gateway-password:/run/secrets/ib-gateway-password:ro"
+        "/run/agenix/hsb0-ib-gateway-password:/run/secrets/ib-gateway-password:ro"
       ];
       environment = [
         # One IBKR login for paper + live; TRADING_MODE picks the session.
         # Paper account DUR970597 / live U28240205 — live port stays unpublished.
         "TWS_USERID=markusbarta"
-        # Enable with agenix before activating profile:
-        # "TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password"
+        "TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password"
         "TRADING_MODE=paper"
         "TWS_SETTINGS_PATH=/home/ibgateway/tws_settings"
         "JAVA_HEAP_SIZE=768"
@@ -345,6 +341,27 @@
         "traefik.enable=false"
       ];
     };
+
+    # Joe board pusher — paper Gateway read-only (clientId 50) → csb0 inbox every 30s.
+    # host network so Tailscale-bound 100.64.0.6:4002 is reachable. Never live 4001.
+    joe-board-pusher = {
+      build = "./joe-board-pusher";
+      container_name = "joe-board-pusher";
+      restart = "unless-stopped";
+      network_mode = "host";
+      environment = [
+        "TZ=Europe/Vienna"
+        "JOE_PUSH_INTERVAL_SEC=30"
+      ];
+      volumes = [
+        "/run/agenix/joe-board-push-token:/run/secrets/joe-board-push-token:ro"
+      ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=false"
+      ];
+    };
+
     # hsb0-home — HostDash service landing page for this host. Static HTML/CSS/JS
     # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
     # read-only from /etc.
