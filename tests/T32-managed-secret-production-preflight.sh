@@ -331,6 +331,9 @@ legacy)
 inspr-calendar-v1)
   [[ "${pharos_tag}" =~ ^[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}\.[0-9]{2}$ ]]
   ;;
+inspr-calendar-v2)
+  [[ "${pharos_tag}" =~ ^[1-9][0-9]{11}\.0\.0$ ]]
+  ;;
 *)
   printf 'unsupported Pharos version scheme: %s\n' "${pharos_scheme}" >&2
   exit 1
