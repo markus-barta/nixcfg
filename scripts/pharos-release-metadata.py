@@ -444,13 +444,17 @@ def validate_transition(active: dict[str, Any], candidate: dict[str, Any]) -> No
                 raise MetadataError("calendar_version_not_increasing")
         else:
             # v1 → v2: the candidate's anchor must name the active v1 release as
-            # the last v1 coordinate and itself as the first v2 coordinate.
+            # the last v1 coordinate and the first v2 reservation as the next
+            # sequence. The candidate may be that first reservation or a later
+            # v2 release when the first reservation never published artifacts;
+            # validate_document already binds sequence == first to the exact
+            # first coordinate.
             new_anchor = candidate["migration_anchor"]
             if (
                 new_anchor.get("last_calendar_v1_version") != active["version"]
                 or new_anchor.get("last_calendar_v1_release_sequence") != active["release_sequence"]
-                or new_anchor.get("first_calendar_v2_version") != candidate["version"]
-                or new_anchor.get("first_calendar_v2_release_sequence") != candidate["release_sequence"]
+                or new_anchor.get("first_calendar_v2_release_sequence") != active["release_sequence"] + 1
+                or candidate["release_sequence"] < active["release_sequence"] + 1
             ):
                 raise MetadataError("calendar_v2_anchor_mismatch")
         if active_scheme == CALENDAR_V2_SCHEME:
