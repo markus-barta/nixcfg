@@ -4,7 +4,16 @@
   "title": "Joe household desk snapshot",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "generatedAt", "mode", "currency", "source", "safety", "desks", "totals"],
+  "required": [
+    "schema",
+    "generatedAt",
+    "mode",
+    "currency",
+    "source",
+    "safety",
+    "desks",
+    "totals"
+  ],
   "properties": {
     "schema": { "const": "inspr.joe.household.v1" },
     "generatedAt": { "type": "string", "format": "date-time" },
@@ -61,7 +70,16 @@
     "desk": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label", "state", "stateSince", "action", "learning", "money", "issues"],
+      "required": [
+        "id",
+        "label",
+        "state",
+        "stateSince",
+        "action",
+        "learning",
+        "money",
+        "issues"
+      ],
       "properties": {
         "id": { "enum": ["j", "joe", "joel"] },
         "label": { "type": "string", "minLength": 1 },
@@ -73,7 +91,9 @@
           "additionalProperties": false,
           "required": ["status", "headline", "detail", "iteration"],
           "properties": {
-            "status": { "enum": ["learning", "iterating", "steady", "blocked"] },
+            "status": {
+              "enum": ["learning", "iterating", "steady", "blocked"]
+            },
             "headline": { "type": "string", "minLength": 1 },
             "detail": { "type": "string", "minLength": 1 },
             "iteration": { "type": ["integer", "null"], "minimum": 0 }

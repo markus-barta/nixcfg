@@ -8,14 +8,14 @@
 
 ## Threats
 
-| Threat | Control |
-| --- | --- |
-| Public scrape of household PnL | Browser routes behind Traefik **hostdash-auth** (oauth2-proxy / Zitadel), same pattern as HostDash |
-| Unauthenticated inbox write | App-level Bearer token (agenix); Traefik inbox router has **no** OAuth middleware; missing/wrong token → 401 |
-| Oversized / hostile JSON | Body size cap (256 KiB); schema validation; reject non-`PAPER` / wrong schema; atomic store |
-| IB credentials in cloud | **None** on csb0 — only the push token. IB password stays on hsb0 for Gateway |
-| Accidental live trading | Pusher hard-codes port 4002; refuses 4001; read-only IB API clientId 50; UI has no order controls |
-| Token theft | Token in agenix (`joe-board-push-token.age`); rotate by re-encrypting + `just switch` on csb0 and hsb0 |
+| Threat                          | Control                                                                                                                |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Public scrape of household PnL  | Browser routes behind Traefik **hostdash-auth** (oauth2-proxy / Zitadel), same pattern as HostDash                     |
+| Unauthenticated inbox write     | App-level Bearer token (agenix); Traefik inbox router has **no** OAuth middleware; missing/wrong token → 401           |
+| Oversized / hostile JSON        | Body size cap (256 KiB); schema validation; reject non-`PAPER` / wrong schema; atomic store                            |
+| IB credentials in cloud         | **None** on csb0 — only the push token. IB password stays on hsb0 for Gateway                                          |
+| Accidental live trading         | Pusher hard-codes port 4002; refuses 4001; read-only IB API clientId 50; UI has no order controls                      |
+| Token theft                     | Token in agenix (`joe-board-push-token.age`); rotate by re-encrypting + `just switch` on csb0 and hsb0                 |
 | Path confusion (OAuth vs inbox) | Separate Traefik routers: `/joe/inbox` higher priority, no forwardauth; `/joe/` and `/joe/data.json` use hostdash-auth |
 
 ## Residual risk
