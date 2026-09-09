@@ -34,14 +34,42 @@ access are unfinished.
   intentionally taking over).
 - No Traefik. Watchtower disabled.
 
+## Credentials (agenix) — Markus paste from 1Password
+
+Password secret is registered: `secrets/hsb0-ib-gateway-password.age` (decryptable by
+Markus + hsb0). Body must be the **raw paper password only** (no `KEY=`, no quotes,
+preferably no trailing newline).
+
+Fish on mbp2607:
+
+```fish
+cd ~/Code/nixcfg
+git fetch origin
+git switch ops/hsb0-ib-gateway-agenix   # or main after this PR merges
+# opens $EDITOR on the decrypted secret — paste password from 1Password, save, quit
+just edit-secret secrets/hsb0-ib-gateway-password.age
+# commit the re-encrypted .age (never the plaintext)
+git add secrets/hsb0-ib-gateway-password.age
+git commit -m "secrets(hsb0): set IB Gateway paper password"
+git push
+```
+
+Paper **username** (`TWS_USERID`) is not in agenix yet — paste it into
+`hosts/hsb0/docker/compose-spec.nix` when enabling, or tell Amy and she will wire it.
+
+Verify decrypt (should print only `***` length, not the secret):
+
+```fish
+agenix -d secrets/hsb0-ib-gateway-password.age | wc -c
+```
+
 ## Reactivate (cutover checklist)
 
 1. Stop Mac IB Gateway (paper session on 4002).
-2. Create agenix secret `secrets/hsb0-ib-gateway-password.age` (password only;
-   do not commit plaintext). Uncomment `age.secrets.hsb0-ib-gateway-password` in
-   `hosts/hsb0/configuration.nix`.
+2. Password age file filled (above). `age.secrets.hsb0-ib-gateway-password` is already
+   declared in `hosts/hsb0/configuration.nix`.
 3. In `hosts/hsb0/docker/compose-spec.nix`:
-   - Set `TWS_USERID` (paper login — not inventable in git).
+   - Set `TWS_USERID` (paper login from 1Password).
    - Uncomment `TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password`.
    - Uncomment the `/run/agenix/hsb0-ib-gateway-password` volume mount.
    - Remove the `profiles = [ "ib-gateway" ];` line **or** start with
