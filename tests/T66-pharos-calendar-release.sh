@@ -98,6 +98,96 @@ make_calendar() {
     }' >"$output"
 }
 
+# PHAROS-259: calendar v2 release-set (YYMMDDhhmmss.0.0, identity Cargo mapping,
+# two-step migration anchor). Arguments: version sequence first_v1 last_v1
+# last_v1_sequence first_v2 output.
+make_calendar_v2() {
+  local version=$1
+  local sequence=$2
+  local first_v1=$3
+  local last_v1=$4
+  local last_v1_sequence=$5
+  local first_v2=$6
+  local output=$7
+  local digest
+  digest="sha256:$(printf '%064x' "$sequence")"
+  jq -n \
+    --arg version "$version" \
+    --argjson sequence "$sequence" \
+    --arg first_v1 "$first_v1" \
+    --arg last_v1 "$last_v1" \
+    --argjson last_v1_sequence "$last_v1_sequence" \
+    --arg first_v2 "$first_v2" \
+    --arg digest "$digest" \
+    '{
+      schema: "inspr.pharos.release-set.v1",
+      schema_version: 1,
+      version_scheme: "inspr-calendar-v2",
+      version: $version,
+      release_channel: "stable",
+      release_sequence: $sequence,
+      migration_anchor: {
+        last_legacy_version: "0.2.0",
+        last_legacy_release_sequence: 0,
+        first_calendar_version: $first_v1,
+        first_calendar_release_sequence: 1,
+        last_calendar_v1_version: $last_v1,
+        last_calendar_v1_release_sequence: $last_v1_sequence,
+        first_calendar_v2_version: $first_v2,
+        first_calendar_v2_release_sequence: ($last_v1_sequence + 1)
+      },
+      cargo_version: $version,
+      source_commit: ("c" * 40),
+      source_lock_digest: ("sha256:" + ("d" * 64)),
+      sha_reference: ("ghcr.io/inspr-at/pharos/pharosd:sha-" + ("c" * 40) + "@" + $digest),
+      tag: ("v" + $version),
+      image: "ghcr.io/inspr-at/pharos/pharosd",
+      digest: $digest,
+      reference: ("ghcr.io/inspr-at/pharos/pharosd:" + $version + "@" + $digest),
+      artifacts: [
+        {
+          coordinate: {
+            class: "oci-index",
+            version_reference: ("ghcr.io/inspr-at/pharos/pharosd:" + $version + "@" + $digest),
+            source_reference: ("ghcr.io/inspr-at/pharos/pharosd:sha-" + ("c" * 40) + "@" + $digest)
+          },
+          digest: $digest
+        },
+        {coordinate: {class: "oci-image", platform: "linux/amd64"}, digest: ("sha256:" + ("e" * 64))},
+        {coordinate: {class: "spdx-sbom", filename: "pharos.spdx.json"}, digest: ("sha256:" + ("f" * 64))}
+      ],
+      attestations: {
+        signature: {
+          coordinate: ("ghcr.io/inspr-at/pharos/pharosd:sha256-" + ($digest | sub("^sha256:"; "")) + ".sig@sha256:" + ("1" * 64)),
+          digest: ("sha256:" + ("1" * 64))
+        },
+        provenance: {
+          coordinate: ("ghcr.io/inspr-at/pharos/pharosd@sha256:" + ("2" * 64)),
+          manifest_digest: ("sha256:" + ("2" * 64)),
+          layer_digest: ("sha256:" + ("3" * 64)),
+          predicate_type: "https://slsa.dev/provenance/v1"
+        },
+        sbom: {
+          coordinate: ("ghcr.io/inspr-at/pharos/pharosd@sha256:" + ("2" * 64)),
+          manifest_digest: ("sha256:" + ("2" * 64)),
+          layer_digest: ("sha256:" + ("4" * 64)),
+          predicate_type: "https://spdx.dev/Document"
+        }
+      },
+      legacy_rollback: {
+        version_scheme: "legacy",
+        version: "0.2.0",
+        release_channel: "stable",
+        release_sequence: 0,
+        source_commit: "5c8bd1fbd2271a5c157ca239ec2d98b66b201e19",
+        tag: "v0.2.0",
+        image: "ghcr.io/inspr-at/pharos/pharosd",
+        digest: "sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b",
+        reference: "ghcr.io/inspr-at/pharos/pharosd:0.2.0@sha256:a00b9dc078ce4930e50f47da684409468c6996dba64338926ad790c1e1d1b74b"
+      }
+    }' >"$output"
+}
+
 assert_rejected() {
   local candidate=$1
   if python3 "$validator" validate --kind release-set "$candidate" >/dev/null 2>&1; then
@@ -353,4 +443,55 @@ if rg -n 'sort -V|type=semver' \
   exit 1
 fi
 
+# ── calendar v1 → v2 transition (PHAROS-259) ────────────────────────────────
+later_local="$fixture/later-local.json"
+python3 "$validator" transition --active "$active" --candidate "$later" --output "$later_local"
+[[ "$(jq -r .version_scheme "$later_local")" == inspr-calendar-v1 ]]
+v2_first_version=260903050607.0.0
+v2_first="$fixture/v2-first.json"
+make_calendar_v2 "$v2_first_version" 3 "$first_version" 26.09.02.04.00.00 2 "$v2_first_version" "$v2_first"
+python3 "$validator" validate --kind release-set "$v2_first"
+v2_local="$fixture/v2-local.json"
+python3 "$validator" transition --active "$later_local" --candidate "$v2_first" --output "$v2_local"
+[[ "$(jq -r .version_scheme "$v2_local")" == inspr-calendar-v2 ]]
+[[ "$(jq -r .version "$v2_local")" == "$v2_first_version" ]]
+[[ "$(jq -r .migration_anchor.last_calendar_v1_version "$v2_local")" == 26.09.02.04.00.00 ]]
+[[ "$(jq -r .migration_anchor.first_calendar_v2_release_sequence "$v2_local")" == 3 ]]
+python3 "$validator" validate --kind local "$v2_local"
+
+# A later v2 coordinate follows within the era; string order equals time order.
+v2_later="$fixture/v2-later.json"
+make_calendar_v2 260903050608.0.0 4 "$first_version" 26.09.02.04.00.00 2 "$v2_first_version" "$v2_later"
+v2_later_local="$fixture/v2-later-local.json"
+python3 "$validator" transition --active "$v2_local" --candidate "$v2_later" --output "$v2_later_local"
+[[ "$(jq -r .release_sequence "$v2_later_local")" == 4 ]]
+selected_v2="$fixture/selected-v2.json"
+python3 "$validator" select --active "$v2_local" --output "$selected_v2" "$v2_first" "$v2_later"
+[[ "$(jq -r .version "$selected_v2")" == 260903050608.0.0 ]]
+
+# Rejections: v1 after v2 is closed; wrong v1→v2 anchor; v1 spelling under v2;
+# non-zero PATCH; earlier v2 coordinate; identity Cargo mapping broken.
+v1_after_v2="$fixture/v1-after-v2.json"
+make_calendar 26.09.03.06.00.00 5 "$first_version" "$v1_after_v2"
+if python3 "$validator" transition --active "$v2_local" --candidate "$v1_after_v2" --output "$fixture/never.json" >/dev/null 2>&1; then
+  printf 'pharos_calendar_release_test=failed reason=v1_accepted_after_v2\n' >&2
+  exit 1
+fi
+wrong_anchor="$fixture/v2-wrong-anchor.json"
+make_calendar_v2 "$v2_first_version" 3 "$first_version" "$first_version" 1 "$v2_first_version" "$wrong_anchor"
+if python3 "$validator" transition --active "$later_local" --candidate "$wrong_anchor" --output "$fixture/never.json" >/dev/null 2>&1; then
+  printf 'pharos_calendar_release_test=failed reason=v2_anchor_mismatch_accepted\n' >&2
+  exit 1
+fi
+for bad in 26.09.03.05.06.07 260903050607.0.1 2609030506.0.0 260903050607.0.0-rc1 260230050607.0.0; do
+  make_calendar_v2 "$bad" 3 "$first_version" 26.09.02.04.00.00 2 "$bad" "$fixture/v2-bad.json"
+  assert_rejected "$fixture/v2-bad.json"
+done
+make_calendar_v2 260903050606.0.0 4 "$first_version" 26.09.02.04.00.00 2 "$v2_first_version" "$fixture/v2-earlier.json"
+if python3 "$validator" transition --active "$v2_local" --candidate "$fixture/v2-earlier.json" --output "$fixture/never.json" >/dev/null 2>&1; then
+  printf 'pharos_calendar_release_test=failed reason=earlier_v2_coordinate_accepted\n' >&2
+  exit 1
+fi
+jq '.cargo_version = "2026.903.50607"' "$v2_first" >"$fixture/v2-cargo.json"
+assert_rejected "$fixture/v2-cargo.json"
 printf 'pharos_calendar_release_test=passed\n'
