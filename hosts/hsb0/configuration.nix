@@ -924,10 +924,12 @@ in
   # compose-spec.nix, set TWS_USERID, then remove/activate the Compose profile.
   # See hosts/hsb0/docs/IB-GATEWAY.md.
   #
-  # age.secrets.hsb0-ib-gateway-password = {
-  #   file = ../../secrets/hsb0-ib-gateway-password.age;
-  #   mode = "444";
-  # };
+  # Password material for parked ib-gateway (profile still inactive).
+  # Paste real paper password via: just edit-secret secrets/hsb0-ib-gateway-password.age
+  age.secrets.hsb0-ib-gateway-password = {
+    file = ../../secrets/hsb0-ib-gateway-password.age;
+    mode = "444";
+  };
 
   system.activationScripts.ib-gateway = ''
     mkdir -p /var/lib/ib-gateway/tws_settings
