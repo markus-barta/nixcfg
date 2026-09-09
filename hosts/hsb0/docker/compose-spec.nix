@@ -302,10 +302,9 @@
     # Image channel matches Mac IB Gateway 10.45 (stable = 10.45.1j).
     # Docs: https://github.com/gnzsnz/ib-gateway-docker
     #
-    # Paper only: host 127.0.0.1:4002 -> container socat 4004 -> internal 4002.
-    # Do NOT publish live 4001/4003. Do NOT bind 0.0.0.0 (plaintext IB API).
-    # Mac Gateway must stay down while this owns the paper session.
-    # Desks reach API via SSH local forward until Tailscale bind is designed.
+    # Paper only: host Tailscale 100.64.0.6:4002 -> container socat 4004 -> internal 4002.
+    # Do NOT publish live 4001/4003. Do NOT bind 0.0.0.0 or LAN 192.168.1.99 (plaintext IB API).
+    # Mac must NOT run Gateway or an SSH -L tunnel; desks connect over Tailscale directly.
     # See hosts/hsb0/docs/IB-GATEWAY.md.
     ib-gateway = {
       image = "ghcr.io/gnzsnz/ib-gateway:10.45";
@@ -314,7 +313,7 @@
       # Cap so Gateway cannot starve AdGuard/DNS on this 8G host.
       mem_limit = "1280m";
       ports = [
-        "127.0.0.1:4002:4004"
+        "100.64.0.6:4002:4004"
       ];
       volumes = [
         "/var/lib/ib-gateway/tws_settings:/home/ibgateway/tws_settings"

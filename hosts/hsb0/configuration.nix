@@ -655,6 +655,7 @@ in
         3001 # Uptime Kuma web interface
         8501 # NCPS binary cache proxy
         18789 # OpenClaw Gateway (Merlin + Nimue AI agents)
+        4002 # IB Gateway paper API (bound to Tailscale IP only in compose)
         80 # HTTP (for future use)
         443 # HTTPS (for future use)
       ];
