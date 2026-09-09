@@ -600,8 +600,9 @@ in
     };
 
     # Source preparation only: the current separate v0.1.33 input does not
-    # contain this binary. Root may activate this mode only after the admitted
-    # rust-engine-v0.1.34 artifact is published and pinned independently.
+    # contain this binary. Root may activate this mode only after the
+    # corrective rust-engine-v0.1.35 artifact is admitted and pinned independently.
+    # The immutable v0.1.34 publication is incomplete and must not be consumed.
     systemd.services.janus-paimos-managed-completion-reporter =
       lib.mkIf (managedMode && cfg.activate && managedReady)
         {
