@@ -1,0 +1,13 @@
+{
+  "name": "joe-board-pusher",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only paper IB book → household v1 → HTTPS POST to csb0 joe inbox",
+  "dependencies": {
+    "@stoqey/ib": "^1.6.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
