@@ -156,10 +156,17 @@ jq -e '
         .migration_anchor.first_calendar_version == null
         or (.migration_anchor.first_calendar_version | type == "string")
       )
-    else
-      .version_scheme == "inspr-calendar-v1"
-      and .release_sequence >= 1
+    elif .version_scheme == "inspr-calendar-v1" then
+      .release_sequence >= 1
       and (.migration_anchor.first_calendar_version | type == "string")
+    else
+      .version_scheme == "inspr-calendar-v2"
+      and .release_sequence >= 6
+      and (.migration_anchor.first_calendar_version | type == "string")
+      and (.migration_anchor.last_calendar_v1_version | type == "string")
+      and .migration_anchor.last_calendar_v1_release_sequence >= 1
+      and (.migration_anchor.first_calendar_v2_version | test("^[1-9][0-9]{11}\\.0\\.0$"))
+      and .migration_anchor.first_calendar_v2_release_sequence == (.migration_anchor.last_calendar_v1_release_sequence + 1)
     end
   )
   and (.source_commit | test("^[0-9a-f]{40}$"))
