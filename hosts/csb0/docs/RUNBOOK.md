@@ -545,3 +545,11 @@ ssh mba@cs0.barta.cm -p 2222 "journalctl -f"
 - [csb0 README](../README.md) - Full server documentation
 - [SECRETS.md](../../docs/SECRETS.md) - All credentials (gitignored)
 - [csb1 Runbook](../../csb1/docs/RUNBOOK.md) - Monitoring server
+
+## Joe household board (v2)
+
+- URL: https://cs0.barta.cm/joe/ (oauth2-proxy)
+- Inbox: POST https://cs0.barta.cm/joe/inbox (Bearer; agenix `joe-board-push-token`)
+- Service: `joe-board` compose build `./joe-board`; data `/var/lib/joe-board`
+- Security: `hosts/csb0/docker/joe-board/SECURITY.md`
+- Producer: hsb0 `joe-board-pusher` every 30s (paper 4002 only)

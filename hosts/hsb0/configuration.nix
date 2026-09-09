@@ -655,6 +655,7 @@ in
         3001 # Uptime Kuma web interface
         8501 # NCPS binary cache proxy
         18789 # OpenClaw Gateway (Merlin + Nimue AI agents)
+        4002 # IB Gateway paper API (bound to Tailscale IP only in compose)
         80 # HTTP (for future use)
         443 # HTTPS (for future use)
       ];
@@ -917,22 +918,26 @@ in
   '';
 
   # ============================================================================
-  # IB Gateway (paper) — parked scaffold; profile `ib-gateway` inactive
+  # IB Gateway (paper) — enabled on default compose (see IB-GATEWAY.md)
   # ============================================================================
-  # Credentials via agenix when enabling (do NOT invent passwords here).
-  # Create secrets/hsb0-ib-gateway-password.age, uncomment below, mount in
-  # compose-spec.nix, set TWS_USERID, then remove/activate the Compose profile.
-  # See hosts/hsb0/docs/IB-GATEWAY.md.
-  #
-  # Password material for parked ib-gateway (profile still inactive).
-  # Paste real paper password via: just edit-secret secrets/hsb0-ib-gateway-password.age
+  # Password via agenix (do NOT invent passwords here). Paste via:
+  #   just edit-secret secrets/hsb0-ib-gateway-password.age
+  # Image runs as uid 1000; activationScript must chown settings dir.
   age.secrets.hsb0-ib-gateway-password = {
     file = ../../secrets/hsb0-ib-gateway-password.age;
     mode = "444";
   };
 
+  # Shared with csb0 joe-board inbox (machine-token). Raw token only.
+  age.secrets.joe-board-push-token = {
+    file = ../../secrets/joe-board-push-token.age;
+    path = "/run/agenix/joe-board-push-token";
+    mode = "444";
+  };
+
   system.activationScripts.ib-gateway = ''
     mkdir -p /var/lib/ib-gateway/tws_settings
+    chown -R 1000:1000 /var/lib/ib-gateway
   '';
 
   # ============================================================================
