@@ -928,6 +928,13 @@ in
     mode = "444";
   };
 
+  # Shared with csb0 joe-board inbox (Bearer). Raw token only.
+  age.secrets.joe-board-push-token = {
+    file = ../../secrets/joe-board-push-token.age;
+    path = "/run/agenix/joe-board-push-token";
+    mode = "444";
+  };
+
   system.activationScripts.ib-gateway = ''
     mkdir -p /var/lib/ib-gateway/tws_settings
     chown -R 1000:1000 /var/lib/ib-gateway

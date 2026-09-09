@@ -1,0 +1,14 @@
+{
+  "name": "joe-board",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Joe household board inbox + static UI for csb0 (paper only)",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

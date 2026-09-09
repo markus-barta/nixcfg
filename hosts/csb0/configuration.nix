@@ -413,6 +413,21 @@ in
     mode = "0400";
   };
 
+  # Joe board inbox Bearer token (shared with hsb0 pusher). Raw token bytes.
+  age.secrets.joe-board-push-token = {
+    file = ../../secrets/joe-board-push-token.age;
+    path = "/run/agenix/joe-board-push-token";
+    owner = "root";
+    group = "root";
+    mode = "0444";
+  };
+
+  system.activationScripts.joe-board = ''
+    mkdir -p /var/lib/joe-board
+    # node user in joe-board image is uid 1000
+    chown -R 1000:1000 /var/lib/joe-board
+  '';
+
   # NIX-356: 0400 root:root — the only reader is ops-alerts.service via
   # EnvironmentFile (read by the root manager). Matches the documented
   # mqtt-hsb0 pattern in docs/SECRETS.md; no interactive mba workflow exists
