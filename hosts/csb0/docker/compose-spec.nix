@@ -235,17 +235,7 @@
         "traefik.http.middlewares.hostdash-auth-csb0.forwardauth.trustForwardHeader=true"
         "traefik.http.middlewares.hostdash-auth-csb0.forwardauth.authResponseHeaders=X-Auth-Request-User,X-Auth-Request-Email"
         "traefik.http.services.hostdash-csb0.loadbalancer.server.port=80"
-        # Joe is a static paper-drill card with no account data or controls.
-        # Keep the dashboard authenticated; publish only this exact path.
-        "traefik.http.routers.joe-csb0.rule=Host(`cs0.barta.cm`) && (Path(`/joe`) || PathPrefix(`/joe/`))"
-        "traefik.http.routers.joe-csb0.entrypoints=web-secure"
-        "traefik.http.routers.joe-csb0.tls=true"
-        "traefik.http.routers.joe-csb0.tls.certresolver=default"
-        "traefik.http.routers.joe-csb0.priority=300"
-        "traefik.http.routers.joe-csb0.service=hostdash-csb0"
-        "traefik.http.routers.joe-csb0.middlewares=joe-csb0-path@docker"
-        "traefik.http.middlewares.joe-csb0-path.replacepathregex.regex=^/joe$$"
-        "traefik.http.middlewares.joe-csb0-path.replacepathregex.replacement=/joe/"
+        # Joe board moved to dedicated joe-board service (auth + inbox).
         "traefik.docker.network=csb0_traefik"
         "traefik.http.routers.hostdash-csb0-http.rule=Host(`cs0.barta.cm`)"
         "traefik.http.routers.hostdash-csb0-http.entrypoints=web"
@@ -263,6 +253,48 @@
         "com.centurylinklabs.watchtower.enable=true"
       ];
     };
+
+    # Joe household board v2 — static UI + snapshot + token inbox.
+    # Browser /joe/ behind hostdash-auth; POST /joe/inbox is machine-token only
+    # (higher Traefik priority, no oauth middleware). Paper projection only.
+    joe-board = {
+      build = "./joe-board";
+      restart = "unless-stopped";
+      environment = [
+        "TZ=Europe/Vienna"
+      ];
+      volumes = [
+        "/var/lib/joe-board:/var/lib/joe-board"
+        "/run/agenix/joe-board-push-token:/run/secrets/joe-board-push-token:ro"
+      ];
+      networks = [
+        "traefik"
+      ];
+      labels = [
+        "traefik.enable=true"
+        "traefik.docker.network=csb0_traefik"
+        # UI + data + assets — require HostDash oauth2-proxy forwardauth
+        "traefik.http.routers.joe-csb0.rule=Host(`cs0.barta.cm`) && (Path(`/joe`) || PathPrefix(`/joe/`))"
+        "traefik.http.routers.joe-csb0.entrypoints=web-secure"
+        "traefik.http.routers.joe-csb0.tls=true"
+        "traefik.http.routers.joe-csb0.tls.certresolver=default"
+        "traefik.http.routers.joe-csb0.priority=300"
+        "traefik.http.routers.joe-csb0.service=joe-board-csb0"
+        "traefik.http.routers.joe-csb0.middlewares=hostdash-auth-csb0@docker,joe-csb0-path@docker"
+        "traefik.http.middlewares.joe-csb0-path.replacepathregex.regex=^/joe$$"
+        "traefik.http.middlewares.joe-csb0-path.replacepathregex.replacement=/joe/"
+        # Inbox — higher priority, NO oauth (machine token checked in app)
+        "traefik.http.routers.joe-inbox-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/inbox`)"
+        "traefik.http.routers.joe-inbox-csb0.entrypoints=web-secure"
+        "traefik.http.routers.joe-inbox-csb0.tls=true"
+        "traefik.http.routers.joe-inbox-csb0.tls.certresolver=default"
+        "traefik.http.routers.joe-inbox-csb0.priority=350"
+        "traefik.http.routers.joe-inbox-csb0.service=joe-board-csb0"
+        "traefik.http.services.joe-board-csb0.loadbalancer.server.port=8080"
+        "com.centurylinklabs.watchtower.enable=false"
+      ];
+    };
+
     # smtp relay RETIRED 2026-08-03 (OPS-139): netcup blocks outbound mail
     # ports host-wide, its only consumer was the restic report mail, and backup
     # reporting moved to the Pharos status-file dead-man's-switch (see

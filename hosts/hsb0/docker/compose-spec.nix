@@ -341,6 +341,27 @@
         "traefik.enable=false"
       ];
     };
+
+    # Joe board pusher — paper Gateway read-only (clientId 50) → csb0 inbox every 30s.
+    # host network so Tailscale-bound 100.64.0.6:4002 is reachable. Never live 4001.
+    joe-board-pusher = {
+      build = "./joe-board-pusher";
+      container_name = "joe-board-pusher";
+      restart = "unless-stopped";
+      network_mode = "host";
+      environment = [
+        "TZ=Europe/Vienna"
+        "JOE_PUSH_INTERVAL_SEC=30"
+      ];
+      volumes = [
+        "/run/agenix/joe-board-push-token:/run/secrets/joe-board-push-token:ro"
+      ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=false"
+      ];
+    };
+
     # hsb0-home — HostDash service landing page for this host. Static HTML/CSS/JS
     # served by nginx on :80, built from markus-barta/hostdash via Nix and mounted
     # read-only from /etc.
