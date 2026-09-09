@@ -8,21 +8,23 @@ import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
 import { projectBook } from "./project.mjs";
 
-const HOST = process.env.IB_GATEWAY_HOST || "100.64.0.6";
-const PORT = Number(process.env.IB_GATEWAY_PORT || 4002);
+const HOST = "100.64.0.6";
+const PORT = 4002;
 const LIVE_PORT = 4001;
-const CLIENT_ID = Number(process.env.IB_CLIENT_ID || 50);
-const ACCOUNT = process.env.IB_ACCOUNT || "DUR970597";
-const INTERVAL_SEC = Math.max(5, Number(process.env.JOE_PUSH_INTERVAL_SEC || 30));
-const INBOX_URL = process.env.JOE_INBOX_URL || "https://cs0.barta.cm/joe/inbox";
-const TOKEN_FILE = process.env.JOE_PUSH_TOKEN_FILE || "";
-const TOKEN_ENV = process.env.JOE_PUSH_TOKEN || "";
+const CLIENT_ID = 50;
+const ACCOUNT = "DUR970597";
+const INBOX_URL = "https://cs0.barta.cm/joe/inbox";
+const TOKEN_FILE = "/run/secrets/joe-board-push-token";
 const RETRY_MS = 5000;
 
-if (PORT === LIVE_PORT || PORT === 4001) {
-  console.error("refusing live port", PORT);
-  process.exit(2);
+function parseIntervalSec() {
+  const raw = process.env.JOE_PUSH_INTERVAL_SEC;
+  const n = raw === undefined || raw === "" ? 30 : Number(raw);
+  if (!Number.isFinite(n) || n < 5 || n > 3600) return 30;
+  return Math.floor(n);
 }
+
+const INTERVAL_SEC = parseIntervalSec();
 
 let ib = null;
 let connecting = false;
@@ -38,15 +40,12 @@ const state = {
 };
 
 function readToken() {
-  if (TOKEN_FILE) {
-    try {
-      return fs.readFileSync(TOKEN_FILE, "utf8").trim();
-    } catch (err) {
-      console.error("token file read failed", err.message);
-      return "";
-    }
+  try {
+    return fs.readFileSync(TOKEN_FILE, "utf8").trim();
+  } catch (err) {
+    console.error("token file read failed", err && err.code ? err.code : err);
+    return "";
   }
-  return String(TOKEN_ENV || "").trim();
 }
 
 function portUp(host, port) {
@@ -71,7 +70,7 @@ function bookSnapshot() {
     clientId: CLIENT_ID,
     account: ACCOUNT,
     gateway: connected,
-    live4001: false, // never probe live from this service path for push content
+    live4001: false,
     lastError: state.lastError,
     accounts: state.accounts,
     summary: state.summary,
@@ -82,8 +81,6 @@ function bookSnapshot() {
 }
 
 async function pushOnce() {
-  // Safety: refuse if live port is the configured target (already checked).
-  // Optionally warn if live is up on same host — never connect to it.
   const liveUp = await portUp(HOST, LIVE_PORT);
   if (liveUp) {
     console.warn("live 4001 appears up on host — ignoring; this pusher stays on paper", PORT);
@@ -151,7 +148,6 @@ function attach(api) {
       connected = false;
       connecting = false;
     }
-    // IB informational codes are noisy; keep one line
     if (code && Number(code) >= 2000) return;
     console.warn(JSON.stringify({ event: "ib_error", code, message: message.slice(0, 160) }));
   });
@@ -235,7 +231,6 @@ process.on("SIGINT", shutdown);
 
 connect();
 
-// First push after brief settle; then interval.
 setTimeout(() => {
   pushOnce().catch((e) => console.error("push error", e.message || e));
 }, 8000);

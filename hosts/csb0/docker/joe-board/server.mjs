@@ -14,12 +14,20 @@ import { validateHouseholdSnapshot } from "./validate.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, "public");
-const DATA_DIR = process.env.JOE_DATA_DIR || path.join(__dirname, "data");
+// Fixed container paths (not taken from request or free-form env paths).
+const DATA_DIR = "/var/lib/joe-board";
 const DATA_FILE = path.join(DATA_DIR, "data.json");
-const LISTEN = process.env.JOE_LISTEN || "0.0.0.0:8080";
-const MAX_BODY = Number(process.env.JOE_MAX_BODY_BYTES || 262144);
-const TOKEN_FILE = process.env.JOE_INBOX_TOKEN_FILE || "";
-const TOKEN_ENV = process.env.JOE_INBOX_TOKEN || "";
+const TOKEN_FILE = "/run/secrets/joe-board-push-token";
+const BIND_HOST = "0.0.0.0";
+const BIND_PORT = 8080;
+const MAX_BODY = 262144;
+
+const STATIC_FILES = Object.freeze({
+  "/joe": "index.html",
+  "/joe/": "index.html",
+  "/joe/index.html": "index.html",
+  "/joe/data.schema.json": "data.schema.json",
+});
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -33,15 +41,15 @@ const MIME = {
 };
 
 function readToken() {
-  if (TOKEN_FILE) {
-    try {
-      return fs.readFileSync(TOKEN_FILE, "utf8").trim();
-    } catch (err) {
-      console.error("token file read failed", err.message);
-      return "";
-    }
+  try {
+    return fs.readFileSync(TOKEN_FILE, "utf8").trim();
+  } catch (err) {
+    // Local/dev fallback only when secret file absent.
+    const fallback = process.env.JOE_INBOX_TOKEN;
+    if (typeof fallback === "string" && fallback.length >= 16) return fallback.trim();
+    console.error("token read failed", err && err.code ? err.code : err);
+    return "";
   }
-  return String(TOKEN_ENV || "").trim();
 }
 
 function safeEqualStr(a, b) {
@@ -61,7 +69,7 @@ function ensureDataDir() {
 function atomicWriteJson(file, obj) {
   ensureDataDir();
   const text = JSON.stringify(obj, null, 2) + "\n";
-  const tmp = file + ".next";
+  const tmp = `${file}.next`;
   fs.writeFileSync(tmp, text, { mode: 0o644 });
   fs.renameSync(tmp, file);
 }
@@ -78,7 +86,7 @@ function send(res, status, body, headers = {}) {
 }
 
 function sendJson(res, status, obj) {
-  send(res, status, JSON.stringify(obj) + "\n", { "Content-Type": "application/json; charset=utf-8" });
+  send(res, status, `${JSON.stringify(obj)}\n`, { "Content-Type": "application/json; charset=utf-8" });
 }
 
 function readBody(req, limit) {
@@ -100,17 +108,13 @@ function readBody(req, limit) {
 }
 
 function bearerToken(req) {
-  const h = req.headers.authorization || "";
-  const m = /^Bearer\s+(.+)$/i.exec(h);
-  return m ? m[1].trim() : "";
-}
-
-function safeJoinPublic(urlPath) {
-  const rel = urlPath.replace(/^\/joe\/?/, "");
-  const cleaned = path.normalize(rel).replace(/^(\.\.(\/|\\|$))+/, "");
-  const full = path.join(PUBLIC, cleaned || "index.html");
-  if (!full.startsWith(PUBLIC)) return null;
-  return full;
+  const h = String(req.headers.authorization || "");
+  const prefix = "Bearer ";
+  if (h.length < prefix.length || h.slice(0, prefix.length).toLowerCase() !== "bearer ") {
+    return "";
+  }
+  // Skip "Bearer" + single space without regex (avoids ReDoS findings).
+  return h.slice(prefix.length).trim();
 }
 
 async function handleInbox(req, res) {
@@ -167,26 +171,30 @@ async function handleInbox(req, res) {
 }
 
 function handleStatic(req, res, urlPath) {
-  if (urlPath === "/joe" || urlPath === "/joe/") {
-    const index = path.join(PUBLIC, "index.html");
-    send(res, 200, fs.readFileSync(index), { "Content-Type": "text/html; charset=utf-8" });
-    return;
-  }
   if (urlPath === "/joe/data.json") {
-    if (!fs.existsSync(DATA_FILE)) {
-      sendJson(res, 404, { ok: false, error: "NO DATA" });
-      return;
+    let body;
+    try {
+      body = fs.readFileSync(DATA_FILE);
+    } catch (err) {
+      if (err && err.code === "ENOENT") {
+        sendJson(res, 404, { ok: false, error: "NO DATA" });
+        return;
+      }
+      throw err;
     }
-    send(res, 200, fs.readFileSync(DATA_FILE), { "Content-Type": "application/json; charset=utf-8" });
+    send(res, 200, body, { "Content-Type": "application/json; charset=utf-8" });
     return;
   }
-  const file = safeJoinPublic(urlPath);
-  if (!file || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+
+  const name = STATIC_FILES[urlPath];
+  if (!name) {
     sendJson(res, 404, { ok: false, error: "not found" });
     return;
   }
+  const file = path.join(PUBLIC, name);
+  const body = fs.readFileSync(file);
   const ext = path.extname(file).toLowerCase();
-  send(res, 200, fs.readFileSync(file), { "Content-Type": MIME[ext] || "application/octet-stream" });
+  send(res, 200, body, { "Content-Type": MIME[ext] || "application/octet-stream" });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -196,7 +204,14 @@ const server = http.createServer(async (req, res) => {
     const urlPath = u.pathname;
 
     if (urlPath === "/healthz" || urlPath === "/readyz") {
-      sendJson(res, 200, { ok: true, service: "joe-board", hasData: fs.existsSync(DATA_FILE) });
+      let hasData = false;
+      try {
+        fs.accessSync(DATA_FILE, fs.constants.R_OK);
+        hasData = true;
+      } catch {
+        hasData = false;
+      }
+      sendJson(res, 200, { ok: true, service: "joe-board", hasData });
       return;
     }
 
@@ -222,10 +237,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 ensureDataDir();
-const idx = LISTEN.lastIndexOf(":");
-const bindHost = idx === -1 ? "0.0.0.0" : LISTEN.slice(0, idx);
-const bindPort = Number(idx === -1 ? LISTEN : LISTEN.slice(idx + 1));
-
-server.listen(bindPort, bindHost, () => {
-  console.log(`joe-board listening on ${bindHost}:${bindPort} data=${DATA_DIR}`);
+server.listen(BIND_PORT, BIND_HOST, () => {
+  console.log(`joe-board listening on ${BIND_HOST}:${BIND_PORT} data=${DATA_DIR}`);
 });
