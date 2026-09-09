@@ -1,8 +1,11 @@
-# IB Gateway on hsb0 (paper) — parked scaffold
+# IB Gateway on hsb0 (paper) — enabled
 
-**Status (2026-09-09)**: Compose service `ib-gateway` is **parked** behind inactive
-profile `ib-gateway`. Default `compose up` / stack reconcile does **not** start it.
-No credentials are wired yet. Container must stay stopped until cutover.
+**Status (2026-09-09)**: Compose service `ib-gateway` is **enabled** (paper) on hsb0.
+Default `compose up` / stack reconcile starts it. Password is wired via agenix
+(`TWS_PASSWORD_FILE`). **Mac IB Gateway must stay down** while hsb0 owns the
+paper session. Desks reach the API via SSH local forward to `127.0.0.1:4002`
+until a Tailscale-scoped bind is designed. Do **not** bind `0.0.0.0` or open
+firewall 4002 to the LAN.
 
 | Item                | Value                                                                              |
 | ------------------- | ---------------------------------------------------------------------------------- |
@@ -25,46 +28,22 @@ get is selected at Gateway start via `TRADING_MODE` (`paper` / `live` / `both`),
 not via separate credentials. This host stays **`paper` only** and does **not**
 publish live API port `4001` until Markus explicitly keys a live cut.
 
-## Why parked
-
-Same pattern as OpenClaw (`profiles = [ "openclaw" ]`, PR #561): keep the
-declaration in the stack for a fast reactivate, but do not consume RAM or risk
-an IB session fight with the Mac Gateway while credentials / TrustedIPs / remote
-access are unfinished.
-
 ## Security
 
 - IB API is **plaintext TCP**. Port is bound to **localhost only** until an SSH
   tunnel or Tailscale-scoped bind is designed. Do **not** open firewall 4002 to
   the LAN and do **not** bind `0.0.0.0` yet.
 - Mac IB Gateway (desks Joe/Joel/J on `127.0.0.1:4002`) and hsb0 **cannot both
-  own the same IB session**. Cutover = **stop Mac Gateway first**, then enable
-  hsb0 (or use `EXISTING_SESSION_DETECTED_ACTION=primaryoverride` only when
-  intentionally taking over).
+  own the same IB session**. Keep Mac Gateway stopped while hsb0 is primary
+  (`EXISTING_SESSION_DETECTED_ACTION=primary`).
 - No Traefik. Watchtower disabled.
 
-## Credentials (agenix) — Markus paste from 1Password
+## Credentials (agenix)
 
-Password secret is registered: `secrets/hsb0-ib-gateway-password.age` (decryptable by
-Markus + hsb0). Body must be the **raw paper password only** (no `KEY=`, no quotes,
-preferably no trailing newline).
-
-Fish on mbp2607:
-
-```fish
-cd ~/Code/nixcfg
-git fetch origin
-git switch ops/hsb0-ib-gateway-agenix   # or main after this PR merges
-# opens $EDITOR on the decrypted secret — paste password from 1Password, save, quit
-just edit-secret secrets/hsb0-ib-gateway-password.age
-# commit the re-encrypted .age (never the plaintext)
-git add secrets/hsb0-ib-gateway-password.age
-git commit -m "secrets(hsb0): set IB Gateway paper password"
-git push
-```
-
-Username is already set in compose: `TWS_USERID=markusbarta` (one IBKR login for
-paper and live; `TRADING_MODE` selects which session). Only the password is agenix.
+Password secret: `secrets/hsb0-ib-gateway-password.age` (decryptable by Markus +
+hsb0). Body must be the **raw paper password only** (no `KEY=`, no quotes,
+preferably no trailing newline). Username in compose: `TWS_USERID=markusbarta`.
+Volume mount + `TWS_PASSWORD_FILE` are active.
 
 Verify decrypt (should print only `***` length, not the secret):
 
@@ -72,31 +51,27 @@ Verify decrypt (should print only `***` length, not the secret):
 agenix -d secrets/hsb0-ib-gateway-password.age | wc -c
 ```
 
-## Reactivate (cutover checklist)
+## Desk access (SSH local forward)
 
-1. Stop Mac IB Gateway (paper session on 4002).
-2. Password age file filled (above). `age.secrets.hsb0-ib-gateway-password` is already
-   declared in `hosts/hsb0/configuration.nix`.
-3. In `hosts/hsb0/docker/compose-spec.nix`:
-   - `TWS_USERID=markusbarta` is already set.
-   - Uncomment `TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password`.
-   - Uncomment the `/run/agenix/hsb0-ib-gateway-password` volume mount.
-   - Remove the `profiles = [ "ib-gateway" ];` line **or** start with
-     `docker compose --profile ib-gateway up -d ib-gateway`.
-4. Complete 2FA / IBC TrustedIPs as required by IBKR for the new host.
-5. `just switch` on hsb0 (or equivalent). Confirm `docker ps` shows `ib-gateway`
-   and `ss -ltn | grep 4002` is `127.0.0.1:4002` only.
-6. Point desks at hsb0 via SSH tunnel or Tailscale — not raw LAN yet.
+Until Tailscale bind is designed, desks keep using `127.0.0.1:4002` via a lasting
+SSH local forward from the Mac (Mac Gateway must stay down):
+
+```bash
+ssh -fN -o ExitOnForwardFailure=yes -L 127.0.0.1:4002:127.0.0.1:4002 hsb0
+```
+
+Restart the tunnel the same way if it dies (e.g. after sleep/network change).
+Confirm nothing else is bound on Mac `4002` first (`lsof -nP -iTCP:4002 -sTCP:LISTEN`).
 
 ## Park again
 
-Restore `profiles = [ "ib-gateway" ];`, switch, confirm container gone. Settings
-under `/var/lib/ib-gateway/tws_settings` are kept.
+Restore `profiles = [ "ib-gateway" ];`, comment out the password volume/env,
+switch, confirm container gone. Settings under `/var/lib/ib-gateway/tws_settings`
+are kept.
 
-## Still gated
+## Still gated / follow-ups
 
-- Credentials (agenix `TWS_PASSWORD_FILE`; userid `markusbarta` already in compose)
-- Interactive / device 2FA on first login
-- IB TrustedIPs / API access approval for hsb0
-- Session cutover vs Mac Gateway
-- Remote access design (SSH tunnel vs Tailscale bind); firewall 4002 stays closed
+- Interactive / device 2FA on first login (approve on IBKR mobile if prompted)
+- IB TrustedIPs / API access approval for hsb0 if required
+- Remote access design (Tailscale bind); firewall 4002 stays closed
+- Live trading ports remain unpublished

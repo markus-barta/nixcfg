@@ -298,17 +298,16 @@
       ];
     };
     # IB Gateway (paper) — Interactive Brokers API for desks (Joe/Joel/J).
-    # Parked behind inactive Compose profile `ib-gateway` (same pattern as
-    # openclaw-gateway, PR #561). Default `compose up` does NOT start it.
+    # Enabled paper IB Gateway on hsb0 (2026-09-09). Default compose up starts it.
     # Image channel matches Mac IB Gateway 10.45 (stable = 10.45.1j).
     # Docs: https://github.com/gnzsnz/ib-gateway-docker
     #
     # Paper only: host 127.0.0.1:4002 -> container socat 4004 -> internal 4002.
     # Do NOT publish live 4001/4003. Do NOT bind 0.0.0.0 (plaintext IB API).
-    # Credentials (TWS_USERID + TWS_PASSWORD_FILE via agenix) gated — see
-    # hosts/hsb0/docs/IB-GATEWAY.md. Profile off is enough to keep it stopped.
+    # Mac Gateway must stay down while this owns the paper session.
+    # Desks reach API via SSH local forward until Tailscale bind is designed.
+    # See hosts/hsb0/docs/IB-GATEWAY.md.
     ib-gateway = {
-      profiles = [ "ib-gateway" ];
       image = "ghcr.io/gnzsnz/ib-gateway:10.45";
       container_name = "ib-gateway";
       restart = "unless-stopped";
@@ -319,15 +318,13 @@
       ];
       volumes = [
         "/var/lib/ib-gateway/tws_settings:/home/ibgateway/tws_settings"
-        # Enable with agenix before activating profile `ib-gateway`:
-        # "/run/agenix/hsb0-ib-gateway-password:/run/secrets/ib-gateway-password:ro"
+        "/run/agenix/hsb0-ib-gateway-password:/run/secrets/ib-gateway-password:ro"
       ];
       environment = [
         # One IBKR login for paper + live; TRADING_MODE picks the session.
         # Paper account DUR970597 / live U28240205 — live port stays unpublished.
         "TWS_USERID=markusbarta"
-        # Enable with agenix before activating profile:
-        # "TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password"
+        "TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password"
         "TRADING_MODE=paper"
         "TWS_SETTINGS_PATH=/home/ibgateway/tws_settings"
         "JAVA_HEAP_SIZE=768"
