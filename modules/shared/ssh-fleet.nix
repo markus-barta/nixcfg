@@ -150,6 +150,29 @@
         user = "markus";
       };
 
+      # hsb3 = ex-raspi02, Raspberry Pi 3B Rev 1.2 @ .97 (LAN eth) / .98 (WLAN).
+      # Tailnet 100.64.0.5. Raspbian 11 armv7 — not NixOS. Not the retired hsb2 Zero W.
+      "hsb3" = {
+        hostname = "192.168.1.97";
+        user = "mba";
+      };
+      "hsb3-lan" = {
+        hostname = "192.168.1.97";
+        user = "mba";
+      };
+      "hsb3-markus" = {
+        hostname = "192.168.1.97";
+        user = "markus";
+      };
+      "hsb3-markus-lan" = {
+        hostname = "hsb3.lan";
+        user = "markus";
+      };
+      "hsb3-markus-ip" = {
+        hostname = "192.168.1.97";
+        user = "markus";
+      };
+
       # hsb2 (Pi Zero W, .95) retired 2026-06-14 — aliases removed 2026-08-07
       # with its Headscale node (OPS-59). History: flake.nix + hsb1/ir-bridge.nix.
 
