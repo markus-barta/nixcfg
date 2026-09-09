@@ -32,6 +32,8 @@ sudo systemctl restart hsb0-home-dashboard
 
 ## OpenClaw Gateway (Merlin + Nimue)
 
+**Status (2026-09-09)**: gateway parked behind inactive Compose profile `openclaw` (default `compose up` does not start it). Data remains under `/var/lib/openclaw-gateway`. Reactivate by removing the `profiles` line (or activating profile `openclaw`) in `compose-spec.nix` and switching.
+
 **Container**: `openclaw-gateway` | **Port**: 18789 | **Data**: `/var/lib/openclaw-gateway/data`
 **Telegram**: @merlin_oc_bot (Merlin), Nimue's bot (Nimue)
 
