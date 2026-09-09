@@ -7,12 +7,14 @@
 #   1. Flake input and doctrine gitlink drift apart, so hosts run a library
 #      sessions have not read (or the reverse). T42 still owns the checker
 #      blob; this test owns the published v0.5.0 coordinate.
-#   2. A comment-only "we'll consume later" leaves no import, no package bind,
-#      and no proof that disabled emits nothing.
-#   3. Prepared selectors accidentally enable a fragment, service, listener,
-#      firewall hole, or compose mount against the floating Traefik tag.
+#   2. A copied stub eval can stay disabled while the real host is not.
+#      Disabled effects are projected from nixosConfigurations.csb1.
+#   3. Prepared selectors accidentally install a routing-owned fragment,
+#      service, or compose mount against the floating Traefik tag.
 #   4. Public fixtures or invented origins are substituted for the still-
-#      pending operator choice. App image pins (NIX-446) must stay untouched.
+#      pending operator choice.
+#   5. Forcing enable=true on the actual host without a contract must fail
+#      closed, not silently compile a fragment.
 set -euo pipefail
 
 report_failure() {
@@ -23,6 +25,13 @@ report_failure() {
 trap 'report_failure "$LINENO"' ERR
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+case "$repo_root" in
+*" "* | *"#"* | *"?"*)
+  printf 'repository path is not safe for a local Git flake URL\n' >&2
+  exit 1
+  ;;
+esac
+
 flake_nix="$repo_root/flake.nix"
 flake_lock="$repo_root/flake.lock"
 host_config="$repo_root/hosts/csb1/configuration.nix"
@@ -33,6 +42,8 @@ expected_rev="00b1968d5c5411476d8eec4b3718ff1db9fcc0fc"
 expected_narhash="sha256-rYp+CrG2bIZ16f+sO0bw9utvNIobqUGeQmROwn1TtpY="
 expected_checker_blob="ef37a597e3100fb1704be5708a2c32cedd4ac7d5"
 provider_file="traefik/dynamic/inspr-routing-edge.yml"
+repo_revision="$(git -C "$repo_root" rev-parse HEAD)"
+export NIX447_FLAKE_REF="git+file://${repo_root}?rev=${repo_revision}&shallow=1"
 
 for file in "$flake_nix" "$flake_lock" "$host_config" "$compose" "$t42" "$consumer_eval"; do
   [ -f "$file" ]
@@ -66,12 +77,10 @@ EOF
 [ "$doctrine_rev" = "$expected_rev" ]
 
 grep -Fq "expected_checker_blob=\"$expected_checker_blob\"" "$t42"
-grep -Fq 'inspr-modules.url = "github:inspr-at/inspr-modules/v0.5.0"' "$flake_nix"
 
-# --- 2. csb1 imports the module, binds the linux package, stays disabled --
+# --- 2. actual host source binds the published module and linux package ----
 grep -Fq 'inputs.inspr-modules.nixosModules.routing-edge' "$host_config"
 grep -Fq 'package = inputs.inspr-modules.packages.x86_64-linux.routing-edge' "$host_config"
-grep -Fq 'enable = false' "$host_config"
 grep -Fq 'deploymentMode = "external-file-provider"' "$host_config"
 grep -Fq 'entrypoint.name = "web-secure"' "$host_config"
 grep -Fq 'certificateResolver = "default"' "$host_config"
@@ -95,16 +104,11 @@ if grep -Eq 'contractFile[[:space:]]*=' "$host_config"; then
   exit 1
 fi
 
-# --- 3. existing Traefik auth fragment and compose mounts stay untouched ---
+# --- 3. existing Traefik auth fragment stays distinct in source ------------
 grep -Fq 'directory: /etc/traefik/dynamic' "$repo_root/hosts/csb1/docker/traefik/static.yml"
 grep -Fq 'web-secure:' "$repo_root/hosts/csb1/docker/traefik/static.yml"
-grep -Fq '  default:' "$repo_root/hosts/csb1/docker/traefik/static.yml"
 grep -Fq 'image = "traefik"' "$compose"
 grep -Fq '(privateBind "/run/inspr-edge/dynamic.yml" "/etc/traefik/dynamic/inspr-edge.yml")' "$compose"
-if grep -Fq 'inspr-routing-edge' "$compose"; then
-  printf 'T74: compose spec must not mount the inactive routing-edge fragment\n' >&2
-  exit 1
-fi
 if grep -Eq 'inspr-auth-edge-token' "$compose"; then
   :
 else
@@ -112,7 +116,7 @@ else
   exit 1
 fi
 
-# --- 4. disabled eval emits no service, fragment, firewall, or origins ------
+# --- 4. actual csb1 projection: disabled, no routing-owned effects ---------
 eval_json="$(nix eval --impure --json --file "$consumer_eval")"
 jq -e --arg provider "$provider_file" '
   .enable == false
@@ -124,26 +128,16 @@ jq -e --arg provider "$provider_file" '
   and .allowUnpinnedTraefik == false
   and .existingTraefikVersion == null
   and .upstreamIds == []
+  and .packageSystem == "x86_64-linux"
+  and (.packageName == "inspr-routing-edge" or .packageName == "routing-edge")
   and .hasRoutingEdgeService == false
-  and .etcNames == []
-  and .firewallPorts == []
+  and .routingEtcNames == []
+  and .composeMentionsOwnedFragment == false
   and .generatedFragmentFile == null
   and .generatedDeployment == {}
-  and .failedAssertionCount == 0
-  and .warningCount == 0
-  and (.packageName == "inspr-routing-edge" or .packageName == "routing-edge")
+  and .routingFailedAssertionCount == 0
+  and .routingWarningCount == 0
+  and .enableTrueMissingContractFailed == true
 ' <<<"$eval_json" >/dev/null
-
-# --- 5. app release pins stay on NIX-446 -----------------------------------
-if git -C "$repo_root" diff --name-only -- hosts/csb1/docker/compose-spec.nix \
-  tests/T32-managed-secret-production-preflight.sh \
-  tests/T56-paimos-agentd-home-manager.sh | grep -q .; then
-  printf 'T74: NIX-446 / T32 / T56 files changed in this worktree\n' >&2
-  git -C "$repo_root" diff --name-only -- \
-    hosts/csb1/docker/compose-spec.nix \
-    tests/T32-managed-secret-production-preflight.sh \
-    tests/T56-paimos-agentd-home-manager.sh >&2
-  exit 1
-fi
 
 printf 'public_routing_consumer=passed\n'

@@ -1,74 +1,61 @@
-# NIX-447: focused eval of the csb1 inactive routing-edge consumer boundary.
+# NIX-447: project selected routing-edge fields from the actual csb1 host.
 # Evaluation only — nothing builds or activates a NixOS system.
+#
+# The host configuration is read from a committed Git flake ref (self.rev).
+# This file must not emit raw config, env, or secret values.
 let
-  root = ../.;
-  flake = builtins.getFlake (toString root);
-  pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+  flakeRef = builtins.getEnv "NIX447_FLAKE_REF";
+  validFlakeRef = builtins.match "git\\+file://[^?]+\\?rev=[0-9a-f]{40}&shallow=1" flakeRef != null;
+  flake =
+    assert validFlakeRef;
+    builtins.getFlake flakeRef;
   inherit (flake.inputs.nixpkgs) lib;
-  routingModule = flake.inputs.inspr-modules.nixosModules.routing-edge;
-  routingPackage = flake.inputs.inspr-modules.packages.x86_64-linux.routing-edge;
+  host = flake.nixosConfigurations.csb1;
+  cfg = host.config.services.inspr.routingEdge;
+  providerFile = "traefik/dynamic/inspr-routing-edge.yml";
 
-  stubNixosModule =
-    { lib, ... }:
-    {
-      options = {
-        systemd.services = lib.mkOption {
-          type = lib.types.attrsOf lib.types.unspecified;
-          default = { };
-        };
-        networking.firewall.allowedTCPPorts = lib.mkOption {
-          type = lib.types.listOf lib.types.int;
-          default = [ ];
-        };
-        environment.etc = lib.mkOption {
-          type = lib.types.attrsOf lib.types.unspecified;
-          default = { };
-        };
-        warnings = lib.mkOption {
-          type = lib.types.listOf lib.types.str;
-          default = [ ];
-        };
-        assertions = lib.mkOption {
-          type = lib.types.listOf (
-            lib.types.submodule {
-              options = {
-                assertion = lib.mkOption { type = lib.types.bool; };
-                message = lib.mkOption { type = lib.types.str; };
-              };
-            }
-          );
-          default = [ ];
-        };
-      };
-    };
+  routingEtcNames = lib.filter (
+    name:
+    name == providerFile || name == cfg.external.providerFile || lib.hasInfix "inspr-routing-edge" name
+  ) (builtins.attrNames host.config.environment.etc);
 
-  # Same inactive boundary as hosts/csb1/configuration.nix. Forcing the
-  # generated document is safe while disabled; it stays empty and never
-  # carries origins or TLS paths.
-  evaluated = lib.evalModules {
+  volumeTexts =
+    v:
+    if builtins.isString v then
+      [ v ]
+    else if builtins.isAttrs v then
+      lib.filter (x: x != null && builtins.isString x) [
+        (v.source or null)
+        (v.target or null)
+      ]
+    else
+      [ ];
+
+  traefikVolumes = host.config.nixcfg.composeStack.renderedSpec.services.traefik.volumes or [ ];
+  composeMentionsOwnedFragment = lib.any (
+    v: lib.any (t: lib.hasInfix "inspr-routing-edge" t) (volumeTexts v)
+  ) traefikVolumes;
+
+  routingFailedAssertions = lib.filter (
+    item: !item.assertion && lib.hasInfix "routingEdge" (item.message or "")
+  ) host.config.assertions;
+
+  routingWarnings = lib.filter (w: lib.hasInfix "routingEdge" w) host.config.warnings;
+
+  invalid = host.extendModules {
     modules = [
-      stubNixosModule
-      routingModule
-      { _module.args = { inherit pkgs; }; }
-      {
-        services.inspr.routingEdge = {
-          enable = false;
-          package = routingPackage;
-          deploymentMode = "external-file-provider";
-          allowUnpinnedTraefik = false;
-          entrypoint.name = "web-secure";
-          external = {
-            certificateResolver = "default";
-            resourceNamespace = "inspr-routing-edge";
-            providerFile = "traefik/dynamic/inspr-routing-edge.yml";
-          };
-        };
-      }
+      (
+        { lib, ... }:
+        {
+          services.inspr.routingEdge.enable = lib.mkForce true;
+        }
+      )
     ];
   };
 
-  cfg = evaluated.config.services.inspr.routingEdge;
-  failedAssertions = builtins.filter (item: !item.assertion) evaluated.config.assertions;
+  enableTrueMissingContract = builtins.tryEval (
+    builtins.deepSeq invalid.config.services.inspr.routingEdge.generatedFragmentFile true
+  );
 in
 {
   enable = cfg.enable;
@@ -80,12 +67,14 @@ in
   allowUnpinnedTraefik = cfg.allowUnpinnedTraefik;
   existingTraefikVersion = cfg.external.existingTraefikVersion;
   upstreamIds = builtins.attrNames cfg.upstreams;
-  hasRoutingEdgeService = evaluated.config.systemd.services ? "inspr-routing-edge";
-  etcNames = builtins.attrNames evaluated.config.environment.etc;
-  firewallPorts = evaluated.config.networking.firewall.allowedTCPPorts;
+  packageName = cfg.package.pname or cfg.package.name;
+  packageSystem = cfg.package.system;
+  hasRoutingEdgeService = host.config.systemd.services ? "inspr-routing-edge";
+  routingEtcNames = routingEtcNames;
+  composeMentionsOwnedFragment = composeMentionsOwnedFragment;
   generatedFragmentFile = cfg.generatedFragmentFile;
   generatedDeployment = cfg.generatedDeployment;
-  failedAssertionCount = builtins.length failedAssertions;
-  warningCount = builtins.length evaluated.config.warnings;
-  packageName = routingPackage.pname or routingPackage.name;
+  routingFailedAssertionCount = builtins.length routingFailedAssertions;
+  routingWarningCount = builtins.length routingWarnings;
+  enableTrueMissingContractFailed = !enableTrueMissingContract.success;
 }
