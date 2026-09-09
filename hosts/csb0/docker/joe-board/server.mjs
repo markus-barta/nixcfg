@@ -31,6 +31,13 @@ const STATIC_FILES = Object.freeze({
   "/joe/": "index.html",
   "/joe/index.html": "index.html",
   "/joe/data.schema.json": "data.schema.json",
+  "/joe/joe.css": "joe.css",
+  "/joe/joe.js": "joe.js",
+  "/joe/vendor/chart-4.4.8.umd.js": "vendor/chart-4.4.8.umd.js",
+  "/joe/vendor/chartjs-plugin-zoom-2.2.0.min.js": "vendor/chartjs-plugin-zoom-2.2.0.min.js",
+  "/joe/vendor/gridstack-13.2.0-all.js": "vendor/gridstack-13.2.0-all.js",
+  "/joe/vendor/gridstack-13.2.0.min.css": "vendor/gridstack-13.2.0.min.css",
+  "/joe/vendor/hammer-2.0.8.min.js": "vendor/hammer-2.0.8.min.js",
 });
 
 const MIME = {
