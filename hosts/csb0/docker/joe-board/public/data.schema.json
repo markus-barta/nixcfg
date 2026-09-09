@@ -4,16 +4,7 @@
   "title": "Joe household desk snapshot",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "schema",
-    "generatedAt",
-    "mode",
-    "currency",
-    "source",
-    "safety",
-    "desks",
-    "totals"
-  ],
+  "required": ["schema", "generatedAt", "mode", "currency", "source", "safety", "desks", "totals"],
   "properties": {
     "schema": { "const": "inspr.joe.household.v1" },
     "generatedAt": { "type": "string", "format": "date-time" },
@@ -54,7 +45,11 @@
       "maxItems": 3,
       "items": { "$ref": "#/$defs/desk" }
     },
-    "totals": { "$ref": "#/$defs/money" }
+    "totals": { "$ref": "#/$defs/money" },
+    "positions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/position" }
+    }
   },
   "$defs": {
     "money": {
@@ -64,22 +59,30 @@
       "properties": {
         "equity": { "type": ["number", "null"] },
         "dayPnl": { "type": ["number", "null"] },
-        "totalPnl": { "type": ["number", "null"] }
+        "totalPnl": { "type": ["number", "null"] },
+        "openPnl": { "type": ["number", "null"] }
+      }
+    },
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desk", "symbol"],
+      "properties": {
+        "desk": { "enum": ["j", "joe", "joel"] },
+        "symbol": { "type": "string", "minLength": 1 },
+        "side": { "enum": ["Long", "Short", "long", "short"] },
+        "quantity": { "type": ["number", "null"] },
+        "mark": { "type": ["number", "null"] },
+        "marketValue": { "type": ["number", "null"] },
+        "dayPnl": { "type": ["number", "null"] },
+        "openPnl": { "type": ["number", "null"] },
+        "updatedAt": { "type": ["string", "null"], "format": "date-time" }
       }
     },
     "desk": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "label",
-        "state",
-        "stateSince",
-        "action",
-        "learning",
-        "money",
-        "issues"
-      ],
+      "required": ["id", "label", "state", "stateSince", "action", "learning", "money", "issues"],
       "properties": {
         "id": { "enum": ["j", "joe", "joel"] },
         "label": { "type": "string", "minLength": 1 },
@@ -91,15 +94,24 @@
           "additionalProperties": false,
           "required": ["status", "headline", "detail", "iteration"],
           "properties": {
-            "status": {
-              "enum": ["learning", "iterating", "steady", "blocked"]
-            },
+            "status": { "enum": ["learning", "iterating", "steady", "blocked"] },
             "headline": { "type": "string", "minLength": 1 },
             "detail": { "type": "string", "minLength": 1 },
             "iteration": { "type": ["integer", "null"], "minimum": 0 }
           }
         },
         "money": { "$ref": "#/$defs/money" },
+        "heartbeatAt": { "type": ["string", "null"], "format": "date-time" },
+        "updatedAt": { "type": ["string", "null"], "format": "date-time" },
+        "tradeCount": { "type": ["integer", "null"], "minimum": 0 },
+        "positions": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/$defs/position" }
+            ]
+          }
+        },
         "issues": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
