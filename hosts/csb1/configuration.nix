@@ -454,7 +454,7 @@ in
   inspr.janusPaimosDependencyReporter = {
     enable = true;
     activate = paimosDeliveryStage.active;
-    # NIX-381: v0.1.33, a separate pin from `inputs.janus` — see flake.nix.
+    # NIX-381 / NIX-449: admitted v0.1.35, separate from `inputs.janus` — see flake.nix.
     package = inputs.janus-paimos-reporter.packages.${pkgs.stdenv.hostPlatform.system}.janus-engine;
     inherit (paimosDeliveryStage) paimosOrigin;
     inherit (paimosDeliveryStage.janus) journalDirectory apiKeyFile handoffSecretFile;

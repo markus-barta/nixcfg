@@ -451,6 +451,14 @@ jq -e \
   )
   and ($transaction | closed_bind("/var/lib/janus-managed-central"; false))
   and ($transaction | closed_bind("/run/janus-managed-central"; false))
+  and all($transaction.volumes[];
+    ([.source, .target] | all(.[];
+      (contains("janus-paimos-dependency-reporter")
+        or contains("paimos-janus-dependency"))
+      | not
+    ))
+  )
+  and all($transaction.environment[]; startswith("JANUS_PAIMOS_") | not)
   and ($transaction | closed_bind("/run/agenix/csb1-janus-managed-host-signing-key"; true))
   and ($transaction | closed_bind("/run/agenix/csb1-janus-managed-age-identity"; true))
   and ($transaction | closed_bind("/etc/janus/managed/release-channels-v1.json"; true))
