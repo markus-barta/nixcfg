@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Joe household board service (csb0).
- * Serves static /joe/ UI + schema + latest snapshot.
+ * Serves static /joe/ UI + schema + latest snapshot + history series.
  * Accepts POST /joe/inbox with Bearer token (machine push; no browser OAuth).
  * Paper projection only — never talks to IB, never places orders.
  */
@@ -17,6 +17,10 @@ const PUBLIC = path.join(__dirname, "public");
 // Fixed container paths (not taken from request or free-form env paths).
 const DATA_DIR = "/var/lib/joe-board";
 const DATA_FILE = path.join(DATA_DIR, "data.json");
+const HISTORY_FILE = path.join(DATA_DIR, "history.json");
+const HISTORY_SCHEMA = "inspr.joe.household.history.v1";
+const HISTORY_MAX_POINTS = 10000;
+const HISTORY_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 const TOKEN_FILE = "/run/secrets/joe-board-push-token";
 const BIND_HOST = "0.0.0.0";
 const BIND_PORT = 8080;
@@ -72,6 +76,89 @@ function atomicWriteJson(file, obj) {
   const tmp = `${file}.next`;
   fs.writeFileSync(tmp, text, { mode: 0o644 });
   fs.renameSync(tmp, file);
+}
+
+
+function emptyHistory() {
+  return { schema: HISTORY_SCHEMA, points: [] };
+}
+
+function readHistory() {
+  try {
+    const raw = fs.readFileSync(HISTORY_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.schema !== HISTORY_SCHEMA || !Array.isArray(parsed.points)) {
+      return emptyHistory();
+    }
+    return { schema: HISTORY_SCHEMA, points: parsed.points };
+  } catch (err) {
+    if (err && err.code === "ENOENT") return emptyHistory();
+    console.error("history read failed", err && err.code ? err.code : err);
+    return emptyHistory();
+  }
+}
+
+function moneyBag(bag) {
+  if (!bag || typeof bag !== "object") {
+    return { equity: 0, dayPnl: 0, totalPnl: 0 };
+  }
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return {
+    equity: num(bag.equity),
+    dayPnl: num(bag.dayPnl),
+    totalPnl: num(bag.totalPnl),
+  };
+}
+
+function historyPointFromSnapshot(snapshot) {
+  const desks = {};
+  const list = Array.isArray(snapshot.desks) ? snapshot.desks : [];
+  for (const desk of list) {
+    if (!desk || typeof desk.id !== "string" || !desk.id) continue;
+    desks[desk.id] = moneyBag(desk.money);
+  }
+  // Also accept object-shaped desks (defensive; producers may evolve).
+  if (!list.length && snapshot.desks && typeof snapshot.desks === "object") {
+    for (const [id, desk] of Object.entries(snapshot.desks)) {
+      desks[id] = moneyBag(desk && desk.money ? desk.money : desk);
+    }
+  }
+  return {
+    t: snapshot.generatedAt,
+    desks,
+    totals: moneyBag(snapshot.totals),
+  };
+}
+
+function pruneHistoryPoints(points, nowMs = Date.now()) {
+  const cutoff = nowMs - HISTORY_MAX_AGE_MS;
+  let next = points.filter((p) => {
+    if (!p || typeof p.t !== "string") return false;
+    const ms = Date.parse(p.t);
+    return Number.isFinite(ms) && ms >= cutoff;
+  });
+  if (next.length > HISTORY_MAX_POINTS) {
+    next = next.slice(next.length - HISTORY_MAX_POINTS);
+  }
+  return next;
+}
+
+function appendHistoryPoint(snapshot) {
+  const point = historyPointFromSnapshot(snapshot);
+  if (!point.t || typeof point.t !== "string") {
+    throw new Error("history point missing t");
+  }
+  const hist = readHistory();
+  const last = hist.points.length ? hist.points[hist.points.length - 1] : null;
+  // Dedupe identical timestamp (pusher retries / same generatedAt).
+  if (last && last.t === point.t) {
+    hist.points[hist.points.length - 1] = point;
+  } else {
+    hist.points.push(point);
+  }
+  hist.points = pruneHistoryPoints(hist.points);
+  atomicWriteJson(HISTORY_FILE, hist);
+  return hist.points.length;
 }
 
 function send(res, status, body, headers = {}) {
@@ -162,11 +249,19 @@ async function handleInbox(req, res) {
     sendJson(res, 500, { ok: false, error: "store failed" });
     return;
   }
+  let historyPoints = null;
+  try {
+    historyPoints = appendHistoryPoint(parsed);
+  } catch (err) {
+    // Snapshot already stored — do not fail the push if history append breaks.
+    console.error("history append failed", err);
+  }
   sendJson(res, 200, {
     ok: true,
     storedAt: new Date().toISOString(),
     generatedAt: parsed.generatedAt,
     equity: parsed.totals?.equity ?? null,
+    historyPoints,
   });
 }
 
@@ -178,6 +273,21 @@ function handleStatic(req, res, urlPath) {
     } catch (err) {
       if (err && err.code === "ENOENT") {
         sendJson(res, 404, { ok: false, error: "NO DATA" });
+        return;
+      }
+      throw err;
+    }
+    send(res, 200, body, { "Content-Type": "application/json; charset=utf-8" });
+    return;
+  }
+
+  if (urlPath === "/joe/history.json") {
+    let body;
+    try {
+      body = fs.readFileSync(HISTORY_FILE);
+    } catch (err) {
+      if (err && err.code === "ENOENT") {
+        sendJson(res, 404, emptyHistory());
         return;
       }
       throw err;
