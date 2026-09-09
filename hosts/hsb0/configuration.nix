@@ -917,6 +917,23 @@ in
   '';
 
   # ============================================================================
+  # IB Gateway (paper) — parked scaffold; profile `ib-gateway` inactive
+  # ============================================================================
+  # Credentials via agenix when enabling (do NOT invent passwords here).
+  # Create secrets/hsb0-ib-gateway-password.age, uncomment below, mount in
+  # compose-spec.nix, set TWS_USERID, then remove/activate the Compose profile.
+  # See hosts/hsb0/docs/IB-GATEWAY.md.
+  #
+  # age.secrets.hsb0-ib-gateway-password = {
+  #   file = ../../secrets/hsb0-ib-gateway-password.age;
+  #   mode = "444";
+  # };
+
+  system.activationScripts.ib-gateway = ''
+    mkdir -p /var/lib/ib-gateway/tws_settings
+  '';
+
+  # ============================================================================
   # HostDash — static LAN service dashboard for hsb0
   # ============================================================================
   # hsb0-home-dashboard lived here — SUPERSEDED by composeStack postRecreate

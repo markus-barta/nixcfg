@@ -48,6 +48,7 @@ hsb0 provides comprehensive DNS/DHCP infrastructure for the entire network:
 | F13 | Uptime Kuma Service Monitoring        | Web UI for monitoring service uptime                   | T15  |
 | F14 | Apprise Notification Integration      | Send alerts via 80+ services (Telegram, etc.)          | T15  |
 | F15 | OpenClaw Gateway (Merlin + Nimue)     | Multi-agent AI assistants with real-time comms         | —    |
+| F16 | IB Gateway (paper, parked)            | Interactive Brokers paper API scaffold (profile off)   | —    |
 
 **Test Documentation**: All features have detailed test procedures in `hosts/hsb0/tests/` with both manual instructions and automated scripts.
 
