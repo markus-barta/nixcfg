@@ -61,10 +61,17 @@ in
     # (verified live) — reaps the retired watchtower container.
     removeOrphans = true;
     autoUpdate.enable = true;
-    # Build the existing service from the immutable independent application source.
+    autoUpdate.excludeFromPull = [ "joe-board" ];
+    # Build and tag the existing service from the immutable application revision.
+    # `pull_policy = "build"` prevents registry fallback or stale fixed-tag reuse;
+    # BuildKit may reuse layers while Compose revalidates this one pinned context.
     # OAuth routers, inbox token, persistent data and Compose identity stay in the spec.
     spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) {
-      services.joe-board.build = "${inputs.joedesk}";
+      services.joe-board = {
+        build = "${inputs.joedesk}";
+        image = "csb0-joe-board:source-${inputs.joedesk.rev}";
+        pull_policy = "build";
+      };
     };
   };
 
