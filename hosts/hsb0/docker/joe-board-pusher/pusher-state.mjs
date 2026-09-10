@@ -35,6 +35,27 @@ function validSummaryNumber(value) {
   return Number.isFinite(parsed) && Math.abs(parsed) !== Number.MAX_VALUE;
 }
 
+export function createReconnectScheduler({ retryMs, onRetry, setTimer = setTimeout }) {
+  if (!Number.isFinite(retryMs) || retryMs <= 0) {
+    throw new TypeError("retryMs must be a positive finite number");
+  }
+  let pending = false;
+  return {
+    schedule() {
+      if (pending) return false;
+      pending = true;
+      setTimer(() => {
+        pending = false;
+        onRetry();
+      }, retryMs);
+      return true;
+    },
+    get pending() {
+      return pending;
+    },
+  };
+}
+
 /**
  * Generation-scoped adapter for @stoqey/ib EventEmitter callbacks.
  * This module has no network, process, or timer side effects and is safe to import in tests.
@@ -54,6 +75,7 @@ export function createBrokerSessionAdapter({
   let connecting = false;
   let working = null;
   let published = null;
+  let publishedGeneration = null;
   let lastError = null;
   let gatewayLastSeenAt = null;
 
@@ -81,7 +103,12 @@ export function createBrokerSessionAdapter({
       positions: cloneRows(rows),
       portfolio,
       openOrders: working.openOrders.map((row) => ({ ...row })),
+      positionsCoverage: {
+        status: "complete",
+        rows: cloneRows(rows),
+      },
     };
+    publishedGeneration = generation;
     return true;
   }
 
@@ -344,7 +371,14 @@ export function createBrokerSessionAdapter({
 
     snapshot() {
       if (!published) return null;
-      const coverage = tracker.snapshot();
+      const currentCoverage = tracker.snapshot();
+      const coverageAccepted = publishedGeneration === generation &&
+        currentCoverage.status === "complete";
+      const coverageStatus = coverageAccepted
+        ? "complete"
+        : currentCoverage.status === "unavailable"
+          ? "unavailable"
+          : "partial";
       return {
         ...published,
         accounts: published.accounts,
@@ -353,8 +387,8 @@ export function createBrokerSessionAdapter({
         portfolio: cloneRows(published.portfolio),
         openOrders: published.openOrders.map((row) => ({ ...row })),
         positionsCoverage: {
-          status: coverage.status,
-          rows: coverage.status === "complete" ? cloneRows(coverage.rows) : [],
+          status: coverageStatus,
+          rows: coverageAccepted ? cloneRows(published.positionsCoverage.rows) : [],
         },
         gateway: connected,
         gatewayLastSeenAt,
