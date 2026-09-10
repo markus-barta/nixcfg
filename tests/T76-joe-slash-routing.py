@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""NIX-462: JoeDesk canonical-slash and anonymous-auth routing smoke."""
+"""NIX-463: JoeDesk canonical-slash and anonymous-auth routing smoke."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import pathlib
-import re
 import subprocess
 import sys
 import urllib.error
@@ -17,7 +16,7 @@ from typing import Any
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 COMPOSE_SPEC = REPO / "hosts/csb0/docker/compose-spec.nix"
-REDIRECT_STATUSES = {301, 308}
+REDIRECT_STATUSES = {308}
 AUTH_FAILURE_STATUSES = {302, 303, 307, 401, 403}
 
 
@@ -71,89 +70,51 @@ def load_joe_labels() -> dict[str, str]:
     return mapped
 
 
-def compose_unescape(value: str) -> str:
-    """Model Compose's documented $$ -> $ label interpolation escape."""
-    return value.replace("$$", "$")
-
-
-def expand_redirect(replacement: str, match: re.Match[str]) -> str:
-    return re.sub(
-        r"\$\{([0-9]+)\}",
-        lambda capture: match.group(int(capture.group(1))) or "",
-        replacement,
-    )
-
-
 def verify_rendered_contract(labels: dict[str, str]) -> None:
-    middleware_key = "traefik.http.routers.joe-csb0.middlewares"
-    regex_key = "traefik.http.middlewares.joe-csb0-slash.redirectregex.regex"
-    replacement_key = (
-        "traefik.http.middlewares.joe-csb0-slash.redirectregex.replacement"
-    )
-    permanent_key = "traefik.http.middlewares.joe-csb0-slash.redirectregex.permanent"
-
-    middleware_chain = labels.get(middleware_key, "").split(",")
+    main = "traefik.http.routers.joe-csb0."
+    bare = "traefik.http.routers.joe-csb0-slash."
+    inbox = "traefik.http.routers.joe-inbox-csb0."
+    host = "Host(`cs0.barta.cm`)"
     require(
-        middleware_chain
-        == ["joe-csb0-slash@docker", "hostdash-auth-csb0@docker"],
-        "canonical slash redirect must run before OAuth",
+        labels.get(main + "rule") == host + " && PathPrefix(`/joe/`)",
+        "canonical UI/data/assets must stay in the protected router",
     )
-    require(labels.get(permanent_key) == "true", "slash redirect must be permanent")
     require(
-        not any("joe-csb0-path.replacepathregex" in key for key in labels),
-        "internal replacepathregex middleware is still present",
+        labels.get(main + "middlewares") == "hostdash-auth-csb0@docker",
+        "canonical router must require OAuth without an internal rewrite",
     )
-
-    rendered_regex = labels.get(regex_key)
-    rendered_replacement = labels.get(replacement_key)
-    require(rendered_regex is not None, "redirect regex label is missing")
-    require(rendered_replacement is not None, "redirect replacement label is missing")
-    traefik_regex = re.compile(compose_unescape(rendered_regex))
-    traefik_replacement = compose_unescape(rendered_replacement)
-
-    examples = {
-        "https://edge.example.test/joe": "https://edge.example.test/joe/",
-        "https://edge.example.test/joe?desk=j&view=wide": (
-            "https://edge.example.test/joe/?desk=j&view=wide"
-        ),
-    }
-    for source, expected in examples.items():
-        match = traefik_regex.fullmatch(source)
-        require(match is not None, f"redirect regex did not match {source}")
-        require(
-            expand_redirect(traefik_replacement, match) == expected,
-            f"redirect expansion changed for {source}",
-        )
-    for canonical in (
-        "https://edge.example.test/joe/",
-        "https://edge.example.test/joe/data.json",
-        "https://edge.example.test/joe/assets/app.js",
-        "https://edge.example.test/joe/inbox",
-    ):
-        require(
-            traefik_regex.fullmatch(canonical) is None,
-            f"canonical route would redirect: {canonical}",
-        )
-
-    ui_rule = labels.get("traefik.http.routers.joe-csb0.rule", "")
-    require("Path(`/joe`)" in ui_rule, "UI router no longer accepts slashless /joe")
     require(
-        "PathPrefix(`/joe/`)" in ui_rule,
-        "UI router no longer protects canonical JoeDesk paths",
+        labels.get(bare + "rule") == host + " && Path(`/joe`)",
+        "unauthenticated route must match only the exact canonical host/bare path",
     )
-    inbox_priority = int(labels["traefik.http.routers.joe-inbox-csb0.priority"])
-    ui_priority = int(labels["traefik.http.routers.joe-csb0.priority"])
-    require(inbox_priority > ui_priority, "inbox router must outrank the UI router")
+    require(bare + "middlewares" not in labels, "bare path must reach app 308 directly")
     require(
-        "traefik.http.routers.joe-inbox-csb0.middlewares" not in labels,
-        "inbox router unexpectedly gained OAuth middleware",
+        labels.get(bare + "service") == labels.get(main + "service") == "joe-board-csb0",
+        "both routes must reach the same independently pinned JoeDesk app",
     )
+    for router in (bare, main):
+        require(labels.get(router + "entrypoints") == "web-secure", "HTTPS required")
+        require(labels.get(router + "tls") == "true", "TLS required")
+    require(
+        not any(key.startswith("traefik.http.middlewares.joe-csb0-") for key in labels),
+        "obsolete Joe rewrite/301 middleware must be removed",
+    )
+    require(
+        int(labels[bare + "priority"]) > int(labels[inbox + "priority"])
+        > int(labels[main + "priority"]),
+        "exact redirect and inbox routes must outrank the protected prefix",
+    )
+    require(
+        labels.get(inbox + "rule") == host + " && Path(`/joe/inbox`)",
+        "inbox route must remain exact",
+    )
+    require(inbox + "middlewares" not in labels, "inbox token contract changed")
 
 
 def request_without_redirects(opener: Any, url: str) -> tuple[int, Any]:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "nixcfg-NIX-462-joe-slash-smoke"},
+        headers={"User-Agent": "nixcfg-NIX-463-joe-slash-smoke"},
     )
     try:
         with opener.open(request, timeout=10) as response:
