@@ -1,0 +1,354 @@
+#!/usr/bin/env node
+/** Synthetic provider-neutral reconciliation tests. No broker or report provider access. */
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import test from "node:test";
+
+import {
+  RECONCILIATION_EVIDENCE_SCHEMA,
+  RECONCILIATION_RECEIPT_SCHEMA,
+  reconcileExecutionWindow,
+  validateReconciliationEvidence,
+} from "./execution-reconciliation.mjs";
+
+const ACCOUNT = "SYNTHETIC-PAPER-ACCOUNT";
+const WINDOW = {
+  fromInclusive: "2026-09-10T13:00:00.000Z",
+  toExclusive: "2026-09-10T15:00:00.000Z",
+};
+const ADAPTER = {
+  adapterId: "synthetic-reviewed-final-report",
+  adapterVersion: "1.0.0",
+};
+const ALLOWED_ADAPTERS = [ADAPTER];
+const VERIFIED_AT = "2026-09-10T15:03:00.000Z";
+
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function localTime(index) {
+  const date = new Date(Date.UTC(2026, 8, 10, 9, 30, index));
+  return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(
+    date.getUTCDate()
+  ).padStart(2, "0")} ${String(date.getUTCHours()).padStart(2, "0")}:${String(
+    date.getUTCMinutes()
+  ).padStart(2, "0")}:${String(date.getUTCSeconds()).padStart(2, "0")} US/Eastern`;
+}
+
+function occurredAt(index) {
+  return new Date(Date.UTC(2026, 8, 10, 13, 30, index)).toISOString();
+}
+
+function socketExecution(index, overrides = {}) {
+  const execId = overrides.execId || `synthetic.fill.${String(index).padStart(3, "0")}.01`;
+  return {
+    contract: {
+      conId: 10_000 + index,
+      symbol: `SYN${String(index).padStart(3, "0")}`,
+      secType: "STK",
+      currency: "USD",
+      multiplier: 1,
+    },
+    execution: {
+      execId,
+      time: overrides.time || localTime(index),
+      acctNumber: overrides.account || ACCOUNT,
+      clientId: overrides.clientId ?? (index === 77 ? 27 : 22),
+      side: overrides.side || "BUY",
+      shares: overrides.shares ?? 1,
+      price: overrides.price ?? 100 + index,
+      pendingPriceRevision: false,
+    },
+  };
+}
+
+function socketCommission(row, amount = 0.1, currency = "USD") {
+  return { execId: row.execution.execId, commission: amount, currency };
+}
+
+function evidenceExecution(row, index, economics = true) {
+  return {
+    execId: row.execution.execId,
+    occurredAt: occurredAt(index),
+    account: ACCOUNT,
+    ...(economics ? {
+      economics: {
+        side: row.execution.side,
+        shares: row.execution.shares,
+        price: row.execution.price,
+        currency: row.contract.currency,
+        commission: 0.1,
+        commissionCurrency: "USD",
+      },
+    } : {}),
+  };
+}
+
+function artifact(label = "synthetic all-account final artifact") {
+  return Buffer.from(label, "utf8");
+}
+
+function evidenceInput(raw, executions, overrides = {}) {
+  return {
+    schema: RECONCILIATION_EVIDENCE_SCHEMA,
+    account: ACCOUNT,
+    scope: "ALL_ACCOUNT",
+    fromInclusive: WINDOW.fromInclusive,
+    toExclusive: WINDOW.toExclusive,
+    completeThrough: WINDOW.toExclusive,
+    finality: {
+      status: "FINAL",
+      scope: "ALL_ACCOUNT",
+      fromInclusive: WINDOW.fromInclusive,
+      toExclusive: WINDOW.toExclusive,
+      assertionId: "synthetic-source-finality-1",
+    },
+    generatedAt: "2026-09-10T15:01:00.000Z",
+    retrievedAt: "2026-09-10T15:02:00.000Z",
+    correctionSemantics: "LATEST_EFFECTIVE",
+    rawArtifactSha256: sha256(raw),
+    ...ADAPTER,
+    executions,
+    ...overrides,
+  };
+}
+
+function validate(input, raw) {
+  return validateReconciliationEvidence(input, {
+    rawArtifactBytes: raw,
+    allowedAdapters: ALLOWED_ADAPTERS,
+  });
+}
+
+function reconcile(evidence, socketExecutions, socketCommissions, overrides = {}) {
+  return reconcileExecutionWindow({
+    evidence,
+    socketExecutions,
+    socketCommissions,
+    account: ACCOUNT,
+    window: WINDOW,
+    priorReceipts: [],
+    verifiedAt: VERIFIED_AT,
+    ...overrides,
+  });
+}
+
+function deepFreeze(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const nested of Object.values(value)) deepFreeze(nested);
+  return Object.freeze(value);
+}
+
+function fixture78() {
+  const raw = artifact();
+  const socketExecutions = Array.from({ length: 78 }, (_, index) => socketExecution(index));
+  const socketCommissions = socketExecutions.map((row) => socketCommission(row));
+  const executions = socketExecutions.map((row, index) => evidenceExecution(row, index));
+  return { raw, socketExecutions, socketCommissions, input: evidenceInput(raw, executions) };
+}
+
+test("exact synthetic 78-ID evidence matches without mutating or replacing socket originals", () => {
+  const values = fixture78();
+  const inputSnapshot = JSON.stringify(values.input);
+  const socketSnapshot = JSON.stringify({
+    executions: values.socketExecutions,
+    commissions: values.socketCommissions,
+  });
+  deepFreeze(values.input);
+  deepFreeze(values.socketExecutions);
+  deepFreeze(values.socketCommissions);
+
+  const evidence = validate(values.input, values.raw);
+  const result = reconcile(evidence, values.socketExecutions, values.socketCommissions);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "MATCHED");
+  assert.equal(result.activationAuthorized, false);
+  assert.equal(result.trustBoundary, "CALLER_VERIFIED_ADAPTER");
+  assert.equal(result.receipt.schema, RECONCILIATION_RECEIPT_SCHEMA);
+  assert.equal(result.receipt.identityCount, 78);
+  assert.match(result.receipt.canonicalIdentityDigest, /^[0-9a-f]{64}$/);
+  assert.match(result.receipt.matchedSocketLedgerDigest, /^[0-9a-f]{64}$/);
+  assert.strictEqual(result.socketExecutions, values.socketExecutions);
+  assert.strictEqual(result.socketCommissions, values.socketCommissions);
+  assert.strictEqual(result.socketExecutions[77], values.socketExecutions[77]);
+  assert.equal(result.socketExecutions[77].execution.clientId, 27);
+  assert.equal(JSON.stringify(values.input), inputSnapshot);
+  assert.equal(socketSnapshot, JSON.stringify({
+    executions: values.socketExecutions,
+    commissions: values.socketCommissions,
+  }));
+});
+
+test("missing, extra, or report-manufactured Joe-only identities block all-account matching", () => {
+  const values = fixture78();
+  const missingJoe = structuredClone(values.input);
+  missingJoe.executions = missingJoe.executions.slice(0, -1);
+  assert.throws(
+    () => reconcile(validate(missingJoe, values.raw), values.socketExecutions, values.socketCommissions),
+    /effective execution identity sets differ/
+  );
+
+  const socketMissingJoe = values.socketExecutions.slice(0, -1);
+  const feesMissingJoe = values.socketCommissions.slice(0, -1);
+  assert.throws(
+    () => reconcile(validate(values.input, values.raw), socketMissingJoe, feesMissingJoe),
+    /effective execution identity sets differ/
+  );
+
+  const manufactured = structuredClone(values.input);
+  manufactured.executions.push({
+    execId: "synthetic.fill.999.01",
+    occurredAt: "2026-09-10T14:59:00.000Z",
+    account: ACCOUNT,
+  });
+  assert.throws(
+    () => reconcile(validate(manufactured, values.raw), values.socketExecutions, values.socketCommissions),
+    /effective execution identity sets differ/
+  );
+});
+
+test("coverage gaps and provisional or absent finality fail despite late generation", () => {
+  const values = fixture78();
+  const gap = structuredClone(values.input);
+  gap.fromInclusive = "2026-09-10T13:01:00.000Z";
+  gap.finality.fromInclusive = gap.fromInclusive;
+  assert.throws(
+    () => reconcile(validate(gap, values.raw), values.socketExecutions, values.socketCommissions),
+    /interval differs from the requested window/
+  );
+
+  const provisional = structuredClone(values.input);
+  provisional.finality.status = "PROVISIONAL";
+  provisional.generatedAt = "2026-09-10T23:59:59.000Z";
+  provisional.retrievedAt = "2026-09-11T00:00:00.000Z";
+  assert.throws(() => validate(provisional, values.raw), /authoritative FINAL assertion/);
+
+  const noFinality = structuredClone(values.input);
+  delete noFinality.finality;
+  noFinality.generatedAt = "2026-09-10T23:59:59.000Z";
+  noFinality.retrievedAt = "2026-09-11T00:00:00.000Z";
+  assert.throws(() => validate(noFinality, values.raw), /fields are not canonical/);
+});
+
+test("account, all-account scope, raw SHA, and non-empty adapter allow-list are mandatory", () => {
+  const values = fixture78();
+  const wrongAccount = structuredClone(values.input);
+  wrongAccount.account = "SYNTHETIC-OTHER-ACCOUNT";
+  assert.throws(() => validate(wrongAccount, values.raw), /account differs/);
+
+  const partialScope = structuredClone(values.input);
+  partialScope.scope = "FAMILY_ONLY";
+  assert.throws(() => validate(partialScope, values.raw), /ALL_ACCOUNT/);
+
+  const partialFinality = structuredClone(values.input);
+  partialFinality.finality.scope = "SUBSET";
+  assert.throws(() => validate(partialFinality, values.raw), /not ALL_ACCOUNT/);
+
+  const badSha = structuredClone(values.input);
+  badSha.rawArtifactSha256 = "0".repeat(64);
+  assert.throws(() => validate(badSha, values.raw), /does not match supplied bytes/);
+
+  assert.throws(
+    () => validateReconciliationEvidence(values.input, {
+      rawArtifactBytes: values.raw,
+      allowedAdapters: [],
+    }),
+    /must not be empty/
+  );
+});
+
+test("report evidence cannot supply or overwrite socket clientId attribution", () => {
+  const values = fixture78();
+  const attributed = structuredClone(values.input);
+  attributed.executions[77].clientId = 999;
+  assert.throws(() => validate(attributed, values.raw), /must not contain clientId/);
+
+  const evidence = validate(values.input, values.raw);
+  const result = reconcile(evidence, values.socketExecutions, values.socketCommissions);
+  assert.strictEqual(result.socketExecutions[77], values.socketExecutions[77]);
+  assert.equal(result.socketExecutions[77].execution.clientId, 27);
+});
+
+test("higher corrections require exact socket capture and the corrected socket fee", () => {
+  const raw = artifact("synthetic correction artifact");
+  const first = socketExecution(0, { execId: "synthetic.corrected.01" });
+  const corrected = socketExecution(1, { execId: "synthetic.corrected.02" });
+  const socketExecutions = [first, corrected];
+  const correctedEvidence = evidenceExecution(corrected, 1, false);
+  const latest = validate(evidenceInput(raw, [correctedEvidence]), raw);
+  const matched = reconcile(latest, socketExecutions, [socketCommission(corrected)]);
+  assert.equal(matched.receipt.identityCount, 1);
+
+  assert.throws(
+    () => reconcile(latest, socketExecutions, [socketCommission(first)]),
+    /higher socket correction has no captured socket fee/
+  );
+
+  const reportOnlyHigher = structuredClone(evidenceInput(raw, [correctedEvidence]));
+  reportOnlyHigher.executions[0].execId = "synthetic.corrected.03";
+  assert.throws(
+    () => reconcile(validate(reportOnlyHigher, raw), socketExecutions, [socketCommission(corrected)]),
+    /effective execution identity sets differ/
+  );
+
+  const allRevisions = structuredClone(evidenceInput(raw, [
+    evidenceExecution(first, 0, false),
+    correctedEvidence,
+  ]));
+  allRevisions.correctionSemantics = "ALL_REVISIONS";
+  assert.equal(
+    reconcile(validate(allRevisions, raw), socketExecutions, [socketCommission(corrected)]).ok,
+    true
+  );
+  allRevisions.executions.shift();
+  assert.throws(
+    () => reconcile(validate(allRevisions, raw), socketExecutions, [socketCommission(corrected)]),
+    /ALL_REVISIONS correction chains differ/
+  );
+});
+
+test("common-ID economics and commission currency disagreements block", () => {
+  const values = fixture78();
+  const priceConflict = structuredClone(values.input);
+  priceConflict.executions[0].economics.price += 0.01;
+  assert.throws(
+    () => reconcile(validate(priceConflict, values.raw), values.socketExecutions, values.socketCommissions),
+    /price differs/
+  );
+
+  const currencyConflict = structuredClone(values.input);
+  currencyConflict.executions[0].economics.commissionCurrency = "EUR";
+  assert.throws(
+    () => reconcile(validate(currencyConflict, values.raw), values.socketExecutions, values.socketCommissions),
+    /commission currency differs/
+  );
+});
+
+test("receipts append immutably, identical evidence is idempotent, and digest reuse conflicts", () => {
+  const values = fixture78();
+  const evidence = validate(values.input, values.raw);
+  const first = reconcile(evidence, values.socketExecutions, values.socketCommissions);
+  const priorReceipts = Object.freeze([first.receipt]);
+  const priorSnapshot = JSON.stringify(priorReceipts);
+  const again = reconcile(evidence, values.socketExecutions, values.socketCommissions, {
+    priorReceipts,
+    verifiedAt: "2026-09-10T15:04:00.000Z",
+  });
+  assert.equal(again.idempotent, true);
+  assert.strictEqual(again.receipt, first.receipt);
+  assert.equal(again.receipts.length, 1);
+  assert.equal(JSON.stringify(priorReceipts), priorSnapshot);
+
+  const conflictingInput = structuredClone(values.input);
+  conflictingInput.finality.assertionId = "synthetic-source-finality-reparsed";
+  const conflicting = validate(conflictingInput, values.raw);
+  assert.throws(
+    () => reconcile(conflicting, values.socketExecutions, values.socketCommissions, {
+      priorReceipts,
+      verifiedAt: "2026-09-10T15:04:00.000Z",
+    }),
+    /previously bound to different content/
+  );
+});
