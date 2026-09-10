@@ -59,6 +59,9 @@ const adapter = createBrokerSessionAdapter({
       if (code && Number(code) >= 2000) return;
       console.warn(JSON.stringify({ event: "ib_error", code, message: String(message).slice(0, 160) }));
     },
+    onBrokerNotice({ route, code, state, action }) {
+      console.warn(JSON.stringify({ event: "ib_notice", route, code, state, action }));
+    },
     onReconnectNeeded() {
       scheduleReconnect();
     },
