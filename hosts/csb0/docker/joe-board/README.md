@@ -1,11 +1,15 @@
-# joe-board (csb0)
+# JoeDesk deployment (csb0)
 
-Small Node service: static Joe household UI + latest snapshot + history + token inbox.
+The application now lives in https://github.com/markus-barta/joedesk. The
+`joedesk` flake input pins its complete Docker build context; `configuration.nix`
+overrides only the existing `joe-board` service build path with that store source.
+The Compose spec retains OAuth, inbox routing, the push-token mount and real data
+volume. HostDash is independently pinned for service navigation.
 
-- `GET /joe/`, `/joe/data.json`, `/joe/history.json`, `/joe/data.schema.json` — behind Traefik **hostdash-auth**
-- `POST /joe/inbox` — Bearer token only (no OAuth); schema-validated; atomic store of `data.json` and append to `history.json` (`inspr.joe.household.history.v1`, capped ~10k points / 14 days)
-- Paper projection only — no IB credentials on this host
+Do not edit application files here. Publish a reviewed JoeDesk release, update
+only the `joedesk` input, switch csb0, then rebuild/recreate `joe-board` using the
+rendered Compose spec under `/run/lock/compose-csb0.lock`. Keep the previous
+image and NixOS generation until browser/data checks pass. Rollback selects that
+previous generation and exact image; never overwrite the live history volume.
 
-Static UI is copied byte-exact from hostdash `public/joe/` at `09933e16c871cf9482d69251224650fb58906b4a` (Joe board 0.2.0, hostdash#20; GridStack board + vendored Chart.js / GridStack). Rebuild the compose image after syncing `public/`.
-
-See `SECURITY.md`. Token: agenix `secrets/joe-board-push-token.age`.
+See `SECURITY.md` for deployment trust boundaries and producer responsibilities.

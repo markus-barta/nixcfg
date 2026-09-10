@@ -5,6 +5,3 @@ hosts/csb1/docker/janus/nonprod-smoke/authority/
 
 # Same rationale as nonprod-smoke (NIX-377).
 hosts/csb1/docker/janus/pharos-production/authority/
-
-# Joe board static UI is copied from hostdash public/joe/; keep byte-exact.
-hosts/csb0/docker/joe-board/public/
