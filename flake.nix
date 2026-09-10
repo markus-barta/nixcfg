@@ -48,6 +48,11 @@
       url = "github:markus-barta/opus-stream-to-mqtt";
       flake = false;
     };
+    # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
+    joedesk = {
+      url = "github:markus-barta/joedesk/0318cde78eeac46b84e86dfa2ccafd0a87b99de7";
+      flake = false;
+    };
     hostdash = {
       url = "github:markus-barta/hostdash";
       inputs.nixpkgs.follows = "nixpkgs";

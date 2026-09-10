@@ -601,6 +601,23 @@
         "type": "github"
       }
     },
+    "joedesk": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789024260,
+        "narHash": "sha256-dHf8pPccDfPE5unDYhIDWfDbfSXMQM8mNz6wjO8nrR8=",
+        "owner": "markus-barta",
+        "repo": "joedesk",
+        "rev": "0318cde78eeac46b84e86dfa2ccafd0a87b99de7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "markus-barta",
+        "repo": "joedesk",
+        "rev": "0318cde78eeac46b84e86dfa2ccafd0a87b99de7",
+        "type": "github"
+      }
+    },
     "kanboard-cli": {
       "inputs": {
         "nixpkgs": [
@@ -1112,6 +1129,7 @@
         "inspr-modules": "inspr-modules",
         "janus": "janus",
         "janus-paimos-reporter": "janus-paimos-reporter",
+        "joedesk": "joedesk",
         "ncps": "ncps",
         "nixcfg": "nixcfg",
         "nixhostforge": [

@@ -53,12 +53,19 @@ in
       "hostdash"
       "traefik"
     ];
-    extraRestartTriggers = [ hostdashCsb0 ];
+    extraRestartTriggers = [
+      hostdashCsb0
+      inputs.joedesk
+    ];
     # Safe HERE: all project-csb0 containers are declared in the spec
     # (verified live) — reaps the retired watchtower container.
     removeOrphans = true;
     autoUpdate.enable = true;
-    spec = import ./docker/compose-spec.nix;
+    # Build the existing service from the immutable independent application source.
+    # OAuth routers, inbox token, persistent data and Compose identity stay in the spec.
+    spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) {
+      services.joe-board.build = "${inputs.joedesk}";
+    };
   };
 
   # ============================================================================
