@@ -7,6 +7,10 @@ import fs from "node:fs";
 import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
 import { projectBook } from "./project.mjs";
+import {
+  createBrokerSessionAdapter,
+  createReconnectScheduler,
+} from "./pusher-state.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
@@ -25,58 +29,77 @@ function parseIntervalSec() {
 }
 
 const INTERVAL_SEC = parseIntervalSec();
-
 let ib = null;
-let connecting = false;
-let connected = false;
-const state = {
-  accounts: null,
-  positions: [],
-  openOrders: [],
-  summary: {},
-  portfolio: [],
-  lastError: null,
-  ts: null,
-};
+const reconnectScheduler = createReconnectScheduler({
+  retryMs: RETRY_MS,
+  onRetry: () => connect(),
+});
+
+function scheduleReconnect() {
+  reconnectScheduler.schedule();
+}
+
+function requestResync() {
+  adapter.retire("invalid broker quantity; resynchronizing");
+  console.warn(JSON.stringify({ event: "ib_resync", reason: "invalid broker quantity" }));
+  scheduleReconnect();
+}
+
+const adapter = createBrokerSessionAdapter({
+  targetAccount: ACCOUNT,
+  eventNames: EventName,
+  hooks: {
+    onConnected() {
+      console.log(JSON.stringify({ event: "connected", host: HOST, port: PORT, clientId: CLIENT_ID }));
+    },
+    onDisconnected() {
+      console.warn(JSON.stringify({ event: "disconnected" }));
+    },
+    onError(_detail, code, message) {
+      if (code && Number(code) >= 2000) return;
+      console.warn(JSON.stringify({ event: "ib_error", code, message: String(message).slice(0, 160) }));
+    },
+    onReconnectNeeded() {
+      scheduleReconnect();
+    },
+    onResyncNeeded() {
+      requestResync();
+    },
+  },
+});
 
 function readToken() {
   try {
     return fs.readFileSync(TOKEN_FILE, "utf8").trim();
   } catch (err) {
-    console.error("token file read failed", err && err.code ? err.code : err);
+    console.error("token file read failed", err?.code || err);
     return "";
   }
 }
 
 function portUp(host, port) {
   return new Promise((resolve) => {
-    const s = net.connect({ host, port }, () => {
-      s.destroy();
+    const socket = net.connect({ host, port }, () => {
+      socket.destroy();
       resolve(true);
     });
-    s.on("error", () => resolve(false));
-    s.setTimeout(800, () => {
-      s.destroy();
+    socket.on("error", () => resolve(false));
+    socket.setTimeout(800, () => {
+      socket.destroy();
       resolve(false);
     });
   });
 }
 
 function bookSnapshot() {
-  state.ts = new Date().toISOString();
+  const broker = adapter.snapshot();
+  if (!broker) return null;
   return {
-    ts: state.ts,
+    ...broker,
     source: "joe-board-pusher",
     clientId: CLIENT_ID,
     account: ACCOUNT,
-    gateway: connected,
     live4001: false,
-    lastError: state.lastError,
-    accounts: state.accounts,
-    summary: state.summary,
-    positions: state.positions.filter((p) => p.pos !== 0),
-    openOrders: state.openOrders,
-    portfolio: state.portfolio.filter((p) => p.pos !== 0 || p.realizedPNL),
   };
 }
 
@@ -87,7 +110,15 @@ async function pushOnce() {
   }
 
   const book = bookSnapshot();
-  const snap = projectBook(book, { halt: false });
+  if (!book) {
+    console.warn(JSON.stringify({ event: "push_skipped", reason: "broker snapshot incomplete" }));
+    return { ok: false, error: "broker snapshot incomplete" };
+  }
+  const snap = projectBook(book, { halt: false, publisherAt: new Date() });
+  if (!snap) {
+    console.warn(JSON.stringify({ event: "push_skipped", reason: "broker timestamp unavailable" }));
+    return { ok: false, error: "broker timestamp unavailable" };
+  }
   const token = readToken();
   if (!token) {
     console.error("push skipped: no token");
@@ -115,113 +146,38 @@ async function pushOnce() {
     status: res.status,
     equity: snap.totals.equity,
     generatedAt: snap.generatedAt,
-    gateway: connected,
+    gateway: adapter.connected,
     inbox: body,
   };
   console.log(JSON.stringify(line));
   return line;
 }
 
-function attach(api) {
-  api.on(EventName.connected, () => {
-    connected = true;
-    connecting = false;
-    state.lastError = null;
-    console.log(JSON.stringify({ event: "connected", host: HOST, port: PORT, clientId: CLIENT_ID }));
-    api.reqManagedAccts();
-    api.reqPositions();
-    api.reqAllOpenOrders();
-    api.reqAccountSummary(9501, "All", "NetLiquidation,TotalCashValue,BuyingPower,AccountType");
-    api.reqAccountUpdates(true, ACCOUNT);
-  });
-  api.on(EventName.disconnected, () => {
-    connected = false;
-    connecting = false;
-    state.lastError = "disconnected";
-    console.warn(JSON.stringify({ event: "disconnected" }));
-    setTimeout(connect, RETRY_MS);
-  });
-  api.on(EventName.error, (err, code) => {
-    const message = String(err && err.message ? err.message : err);
-    state.lastError = `${code || ""} ${message}`.trim();
-    if (code === 502 || /ECONNREFUSED|connect/i.test(message)) {
-      connected = false;
-      connecting = false;
-    }
-    if (code && Number(code) >= 2000) return;
-    console.warn(JSON.stringify({ event: "ib_error", code, message: message.slice(0, 160) }));
-  });
-  api.on(EventName.managedAccounts, (a) => {
-    state.accounts = a;
-  });
-  api.on(EventName.accountSummary, (_reqId, account, tag, value, currency) => {
-    state.summary[tag] = { account, value, currency };
-  });
-  api.on(EventName.position, (account, contract, pos, avgCost) => {
-    const row = {
-      account,
-      symbol: contract.symbol,
-      exchange: contract.exchange || contract.primaryExch,
-      currency: contract.currency,
-      secType: contract.secType,
-      pos,
-      avgCost,
-    };
-    state.positions = state.positions.filter((p) => !(p.symbol === row.symbol && p.currency === row.currency));
-    state.positions.push(row);
-  });
-  api.on(EventName.updatePortfolio, (contract, pos, marketPrice, marketValue, avgCost, unrealizedPNL, realizedPNL) => {
-    const row = {
-      symbol: contract.symbol,
-      currency: contract.currency,
-      pos,
-      marketPrice,
-      marketValue,
-      avgCost,
-      unrealizedPNL,
-      realizedPNL,
-    };
-    state.portfolio = state.portfolio.filter((p) => !(p.symbol === row.symbol && p.currency === row.currency));
-    state.portfolio.push(row);
-  });
-  api.on(EventName.openOrder, (orderId, contract, order, orderState) => {
-    const row = {
-      orderId,
-      symbol: contract.symbol,
-      action: order.action,
-      qty: order.totalQuantity,
-      type: order.orderType,
-      status: orderState && orderState.status,
-      account: order.account,
-    };
-    state.openOrders = state.openOrders.filter((o) => o.orderId !== orderId);
-    state.openOrders.push(row);
-  });
-}
-
 function connect() {
-  if (connecting || connected) return;
-  connecting = true;
+  if (adapter.connecting || adapter.connected) return;
+  const previous = ib;
+  let next = null;
   try {
-    if (ib) {
+    next = new IBApi({ host: HOST, port: PORT, clientId: CLIENT_ID });
+    ib = next;
+    adapter.attach(next);
+    if (previous && previous !== next) {
       try {
-        ib.disconnect();
+        previous.disconnect();
       } catch {}
     }
-    ib = new IBApi({ host: HOST, port: PORT, clientId: CLIENT_ID });
-    attach(ib);
-    ib.connect();
-  } catch (e) {
-    connecting = false;
-    connected = false;
-    state.lastError = String(e && e.message ? e.message : e);
-    setTimeout(connect, RETRY_MS);
+    next.connect();
+  } catch (error) {
+    const detail = String(error?.message || error);
+    if (next) adapter.fail(next, detail);
+    else scheduleReconnect();
   }
 }
 
 function shutdown() {
+  adapter.retire("shutdown");
   try {
-    if (ib) ib.disconnect();
+    ib?.disconnect();
   } catch {}
   process.exit(0);
 }
@@ -232,15 +188,15 @@ process.on("SIGINT", shutdown);
 connect();
 
 setTimeout(() => {
-  pushOnce().catch((e) => console.error("push error", e.message || e));
+  pushOnce().catch((error) => console.error("push error", error.message || error));
 }, 8000);
 
 setInterval(() => {
-  pushOnce().catch((e) => console.error("push error", e.message || e));
+  pushOnce().catch((error) => console.error("push error", error.message || error));
 }, INTERVAL_SEC * 1000);
 
 setInterval(() => {
-  if (!connected && !connecting) connect();
+  if (!adapter.connected && !adapter.connecting) connect();
 }, 60000);
 
 console.log(
