@@ -9,6 +9,6 @@ ENV NODE_ENV=production \
     JOE_INBOX_URL=https://cs0.barta.cm/joe/inbox
 COPY package.json ./
 RUN npm install --omit=dev
-COPY project.mjs pusher.mjs ./
+COPY project.mjs positions-state.mjs pusher-state.mjs pusher.mjs ./
 USER node
 CMD ["node", "pusher.mjs"]

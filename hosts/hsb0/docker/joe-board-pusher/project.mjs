@@ -1,8 +1,11 @@
 /** Project IB book state → inspr.joe.household.v1 (mirrors joe-household-sync.py). */
 
+import { currencyCode, deskForSymbol, strictFinite } from "./positions-state.mjs";
+
 const JOEL_SYMBOLS = new Set(["SXR8", "TSLA"]);
 const VIRTUAL_EQUITY = 5000.0;
 const STALE_AFTER = 300;
+const MAPPED_DESK_IDS = ["j", "joel"];
 // CONFIG.md Grandfather (Markus 2026-09-04): existing paper SXR8 lot + leftover
 // TSLA×1 stay outside Stage-0 Joel book money / since-start / stand / totals
 // until Faber exit. Still mentioned in action/learning text.
@@ -25,7 +28,7 @@ function round2(n) {
 }
 
 /** True for grandfathered paper names excluded from Stage-0 money. */
-function isGrandfathered(p) {
+export function isGrandfathered(p) {
   const sym = p.symbol;
   const pos = Math.abs(fnum(p.pos));
   if (sym === "SXR8") return true; // Faber lot until exit
@@ -37,28 +40,57 @@ function stage0JoelRows(portfolio) {
   return portfolio.filter((p) => JOEL_SYMBOLS.has(p.symbol) && !isGrandfathered(p));
 }
 
+function accountingScopeFor(row) {
+  if (isGrandfathered({ symbol: row.symbol, pos: row.pos })) return "legacy";
+  return "stage0";
+}
+
+/** Serialize one broker row for a mapped desk. Omits unverified monetary fields. */
+export function serializePositionRow(row, deskId) {
+  const qty = strictFinite(row.pos);
+  if (qty === undefined || qty === 0 || deskForSymbol(row.symbol) !== deskId) return null;
+  const out = {
+    desk: deskId,
+    symbol: row.symbol,
+    side: qty > 0 ? "Long" : "Short",
+    quantity: qty,
+    accountingScope: accountingScopeFor(row),
+    dayPnl: null,
+  };
+  const currency = currencyCode(row.currency);
+  const mark = strictFinite(row.marketPrice);
+  if (currency) out.currency = currency;
+  if (mark !== undefined && currency) {
+    out.mark = mark;
+    if (row.markObservedAt) out.updatedAt = row.markObservedAt;
+  } else if (row.positionObservedAt || row.observedAt) {
+    out.updatedAt = row.positionObservedAt || row.observedAt;
+  }
+  return out;
+}
+
+/** Build per-desk positions for mapped desks only when subscription coverage is complete. */
+export function buildDeskPositions(coverage) {
+  if (!coverage || coverage.status !== "complete") return null;
+  const byDesk = { j: [], joel: [] };
+  for (const row of coverage.rows || []) {
+    const deskId = deskForSymbol(row.symbol);
+    if (!deskId) continue;
+    const serialized = serializePositionRow(row, deskId);
+    if (serialized) byDesk[deskId].push(serialized);
+  }
+  for (const deskId of MAPPED_DESK_IDS) {
+    byDesk[deskId].sort((a, b) => a.symbol.localeCompare(b.symbol));
+  }
+  return byDesk;
+}
+
 export function projectBook(book, opts = {}) {
-  const now = opts.now || new Date();
-  const vienna = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Europe/Vienna",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  })
-    .formatToParts(now)
-    .reduce((acc, p) => {
-      acc[p.type] = p.value;
-      return acc;
-    }, {});
-  // sv-SE parts → ISO-like local with +02/+01 offset via format
-  const genLocal = new Date(now.toLocaleString("en-US", { timeZone: "Europe/Vienna" }));
-  const offsetMin = -genLocal.getTimezoneOffset(); // wrong for Vienna from container UTC
-  // Prefer explicit Vienna stamp with offset from Temporal-less ISO:
-  const gen = formatViennaIso(now);
+  const brokerSnapshotAt = new Date(book.ts || "");
+  if (Number.isNaN(brokerSnapshotAt.getTime())) return null;
+  const publisherAt = opts.publisherAt || opts.now || new Date();
+  const gen = formatViennaIso(brokerSnapshotAt);
+  const heartbeat = formatViennaIso(publisherAt);
 
   const summary = book.summary || {};
   const nlv = round2(fnum(summary.NetLiquidation?.value));
@@ -87,12 +119,11 @@ export function projectBook(book, opts = {}) {
   const joelPnl = round2(
     stage0Rows.reduce((s, p) => s + fnum(p.unrealizedPNL) + fnum(p.realizedPNL), 0)
   );
-  const dayJ = 0.0;
-  const dayJoe = 0.0;
-  const dayJoel = 0.0;
   const jEquity = round2(VIRTUAL_EQUITY + jPnl);
   const joeEquity = round2(VIRTUAL_EQUITY + joePnl);
   const joelEquity = round2(VIRTUAL_EQUITY + joelPnl);
+
+  const deskPositions = buildDeskPositions(book.positionsCoverage);
 
   const desks = [
     {
@@ -107,7 +138,8 @@ export function projectBook(book, opts = {}) {
         detail: "Virt book €5k; no open J names on the shared broker account.",
         iteration: null,
       },
-      money: { equity: jEquity, dayPnl: dayJ, totalPnl: jPnl },
+      money: { equity: jEquity, dayPnl: null, totalPnl: jPnl },
+      heartbeatAt: heartbeat,
       issues: [],
     },
     {
@@ -122,7 +154,8 @@ export function projectBook(book, opts = {}) {
         detail: "Virt book €5k; no open Joe names today.",
         iteration: null,
       },
-      money: { equity: joeEquity, dayPnl: dayJoe, totalPnl: joePnl },
+      money: { equity: joeEquity, dayPnl: null, totalPnl: joePnl },
+      heartbeatAt: heartbeat,
       issues: [],
     },
     {
@@ -143,10 +176,19 @@ export function projectBook(book, opts = {}) {
           : `Since-start PnL €${joelPnl.toLocaleString("en-US", { minimumFractionDigits: 2 })}; stand = virt €5k + PnL.`,
         iteration: null,
       },
-      money: { equity: joelEquity, dayPnl: dayJoel, totalPnl: joelPnl },
+      money: { equity: joelEquity, dayPnl: null, totalPnl: joelPnl },
+      heartbeatAt: heartbeat,
       issues: [],
     },
   ];
+
+  if (deskPositions) {
+    for (const desk of desks) {
+      if (Object.prototype.hasOwnProperty.call(deskPositions, desk.id)) {
+        desk.positions = deskPositions[desk.id];
+      }
+    }
+  }
 
   const issues = [];
   if (halt) issues.push("HALT is on");
@@ -159,7 +201,7 @@ export function projectBook(book, opts = {}) {
 
   const totals = {
     equity: round2(jEquity + joeEquity + joelEquity),
-    dayPnl: round2(dayJ + dayJoe + dayJoel),
+    dayPnl: null,
     totalPnl: round2(jPnl + joePnl + joelPnl),
   };
 
@@ -179,7 +221,7 @@ export function projectBook(book, opts = {}) {
       gateway: {
         status: gwOk ? "ok" : "down",
         detail: gwOk ? "Paper gateway answering" : book.lastError || "Gateway down",
-        lastSeenAt: bookTs,
+        lastSeenAt: book.gatewayLastSeenAt || null,
       },
     },
     desks,
@@ -188,7 +230,6 @@ export function projectBook(book, opts = {}) {
 }
 
 function formatViennaIso(date) {
-  // Europe/Vienna offset for this instant
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone: "Europe/Vienna",
     timeZoneName: "shortOffset",
@@ -202,7 +243,6 @@ function formatViennaIso(date) {
   });
   const parts = Object.fromEntries(fmt.formatToParts(date).map((p) => [p.type, p.value]));
   let off = parts.timeZoneName || "GMT+2";
-  // GMT+2 / GMT+02:00 → +02:00
   const m = /GMT([+-])(\d{1,2})(?::?(\d{2}))?/.exec(off);
   let offset = "+02:00";
   if (m) {
