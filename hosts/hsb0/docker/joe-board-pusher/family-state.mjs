@@ -1063,7 +1063,9 @@ export function createFamilySessionAdapter({
         });
       } catch (error) {
         const reason = error.message;
-        if (/^retention_loss:|conflicting/.test(reason)) blockedReason = reason;
+        if (reason.startsWith("retention_loss:") || reason.includes("conflicting")) {
+          blockedReason = reason;
+        }
         unavailable(reason);
       }
     }).catch((error) => {
