@@ -9,6 +9,25 @@
 }:
 let
   hostdashHsb0 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.hsb0;
+  joeBoardPusherSource = lib.cleanSourceWith {
+    name = "joe-board-pusher-source";
+    src = ./docker/joe-board-pusher;
+    filter =
+      path: type:
+      let
+        name = builtins.baseNameOf path;
+      in
+      if type == "directory" then
+        name != "node_modules"
+      else
+        builtins.elem name [
+          "Dockerfile"
+          "package.json"
+          "package-lock.json"
+        ]
+        || (lib.hasSuffix ".mjs" name && !lib.hasSuffix ".test.mjs" name);
+  };
+  joeBoardPusherSourceHash = builtins.hashString "sha256" (toString joeBoardPusherSource);
 
   # ============================================================================
   # DNS ALLOWLIST - Domains that bypass ad-blocking
@@ -69,7 +88,10 @@ in
     reconcile = true;
     projectDirectory = "/home/mba/Code/nixcfg/hosts/hsb0/docker";
     postRecreate = [ "hsb0-home" ];
-    extraRestartTriggers = [ hostdashHsb0 ];
+    extraRestartTriggers = [
+      hostdashHsb0
+      joeBoardPusherSource
+    ];
     # ncps must not start on an empty /var/lib/ncps — the old docker-ncps
     # ordering unit was a phantom (QA-2). Wants+After, not Requires: the stack
     # must not fail outright if the cache mount does.
@@ -78,7 +100,16 @@ in
     # (verified live 2026-08-01) — reaps the retired watchtower container.
     removeOrphans = true;
     autoUpdate.enable = true;
-    spec = import ./docker/compose-spec.nix;
+    autoUpdate.excludeFromPull = [ "joe-board-pusher" ];
+    # Build the pusher from the immutable, production-only Nix source. The
+    # source-derived tag and pull policy prevent reuse of a stale local image.
+    spec = lib.recursiveUpdate (import ./docker/compose-spec.nix) {
+      services.joe-board-pusher = {
+        build = "${joeBoardPusherSource}";
+        image = "hsb0-joe-board-pusher:source-${joeBoardPusherSourceHash}";
+        pull_policy = "build";
+      };
+    };
   };
 
   # OPS-128: hsb0 was the one host with the prune SERVICE but no TIMER — docker
@@ -976,6 +1007,8 @@ in
   systemd.tmpfiles.rules = [
     "d /var/lib/ncps    0700 994 992 - -"
     "d /var/lib/ncps-db 0755 994 992 - -"
+    # Official node:22-alpine runs the Dockerfile's USER node as uid/gid 1000.
+    "d /var/lib/joe-board-pusher 0700 1000 1000 - -"
   ];
 
   # Fix: P6400 / P5012 - Remove evaluation warning by forcing null on initialHashedPassword
