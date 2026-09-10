@@ -162,13 +162,10 @@ def request_without_redirects(opener: Any, url: str) -> tuple[int, Any]:
         return error.code, error.headers
 
 
-def verify_live(base_url: str) -> None:
-    parsed_base = urllib.parse.urlsplit(base_url)
-    require(
-        parsed_base.scheme in {"http", "https"} and bool(parsed_base.netloc),
-        "--base-url must include an HTTP(S) scheme and host",
-    )
-    origin = f"{parsed_base.scheme}://{parsed_base.netloc}"
+def verify_live() -> None:
+    # This deployment smoke contacts only its canonical public endpoint.
+    origin = "https://cs0.barta.cm"
+    parsed_base = urllib.parse.urlsplit(origin)
     opener = urllib.request.build_opener(NoRedirect())
 
     for suffix in ("", "?desk=j&view=wide"):
@@ -181,7 +178,7 @@ def verify_live(base_url: str) -> None:
         expected = f"{origin}/joe/{suffix}"
         require(actual == expected, f"{source} redirected to {actual}, not {expected}")
 
-    for path in ("/joe/", "/joe/data.json", "/joe/assets/nix462-smoke"):
+    for path in ("/joe/", "/joe/data.json", "/joe/history.json", "/joe/joe.css"):
         source = f"{origin}{path}"
         status, headers = request_without_redirects(opener, source)
         require(
@@ -201,17 +198,18 @@ def verify_live(base_url: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--base-url",
-        help="opt in to the live no-auth HTTP smoke (for example https://host)",
+        "--live",
+        action="store_true",
+        help="opt in to the no-auth HTTP smoke at https://cs0.barta.cm",
     )
     arguments = parser.parse_args()
 
     verify_rendered_contract(load_joe_labels())
-    if arguments.base_url:
-        verify_live(arguments.base_url)
+    if arguments.live:
+        verify_live()
     print(
         "joe_slash_routing=ok "
-        f"rendered_config=ok live={'ok' if arguments.base_url else 'skipped'}"
+        f"rendered_config=ok live={'ok' if arguments.live else 'skipped'}"
     )
     return 0
 
