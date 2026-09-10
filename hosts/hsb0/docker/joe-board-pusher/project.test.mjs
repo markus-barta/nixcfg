@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import {
+  brokerConnectivityState,
   createPositionTracker,
   currencyCode,
   deskForSymbol,
@@ -32,6 +33,7 @@ const EVENTS = Object.fromEntries([
   "connected",
   "disconnected",
   "error",
+  "info",
   "managedAccounts",
   "accountSummary",
   "accountSummaryEnd",
@@ -629,6 +631,7 @@ test("connection failures invalidate current coverage", () => {
   assert.equal(isConnectionFailure(502, "Couldn't connect"), true);
   assert.equal(isConnectionFailure(200, "ECONNREFUSED"), true);
   assert.equal(isConnectionFailure(101, "data farm"), false);
+  assert.equal(isConnectionFailure(2104, "Market data farm connection is OK"), false);
 
   const { adapter } = createHarness();
   const api = new FakeApi("synthetic-A");
@@ -638,4 +641,155 @@ test("connection failures invalidate current coverage", () => {
   api.emit(EVENTS.error, new Error("connection refused"), 502);
   assert.equal(adapter.connected, false);
   assert.equal(adapter.snapshot().positionsCoverage.status, "unavailable");
+});
+
+test("SDK info 2110 preserves the accepted book and recovers through one positive retry", () => {
+  const timers = [];
+  const delays = [];
+  const notices = [];
+  let retryAttempts = 0;
+  const scheduler = createReconnectScheduler({
+    retryMs: 5000,
+    onRetry: () => { retryAttempts += 1; },
+    setTimer(callback, delay) {
+      timers.push(callback);
+      delays.push(delay);
+    },
+  });
+  const { adapter, setInstant } = createHarness({
+    onBrokerNotice: (notice) => notices.push(notice),
+    onReconnectNeeded: () => scheduler.schedule(),
+  });
+  const first = new FakeApi("synthetic-A");
+  adapter.attach(first);
+  connectRecognized(first);
+  finishInitialSync(first, {
+    positions: [{ contract: stockContract("INTC"), pos: 4, avgCost: 10 }],
+  });
+  const accepted = adapter.snapshot();
+
+  setInstant(OBS_B);
+  first.emit(EVENTS.info, "Connectivity between IBKR and Trader Workstation has been lost", 2110);
+  first.emit(EVENTS.info, "Repeated upstream-loss notice", 2110);
+  first.emit(EVENTS.position, TARGET, stockContract("INTC"), 99, 10);
+  first.emit(EVENTS.positionEnd);
+
+  const unavailable = adapter.snapshot();
+  assert.equal(adapter.connected, false);
+  assert.equal(unavailable.gateway, false);
+  assert.equal(unavailable.positionsCoverage.status, "unavailable");
+  assert.equal(unavailable.positions[0].pos, accepted.positions[0].pos);
+  assert.equal(unavailable.ts, accepted.ts);
+  assert.equal(unavailable.lastError, "broker upstream_lost (code 2110)");
+  assert.deepEqual(delays, [5000]);
+  assert.equal(delays.every((delay) => delay > 0), true);
+  assert.deepEqual(notices[0], {
+    route: "info",
+    code: 2110,
+    state: "upstream_lost",
+    action: "fresh_session_scheduled",
+  });
+  assert.equal("message" in notices[0], false);
+
+  timers.shift()();
+  assert.equal(retryAttempts, 1);
+  const second = new FakeApi("synthetic-B");
+  adapter.attach(second);
+  connectRecognized(second);
+  setInstant(OBS_C);
+  finishInitialSync(second);
+  first.emit(EVENTS.managedAccounts, TARGET);
+  first.emit(EVENTS.accountSummary, SUMMARY_REQ_ID, TARGET, "NetLiquidation", "999999", "EUR");
+  first.emit(EVENTS.accountSummaryEnd, SUMMARY_REQ_ID);
+  first.emit(EVENTS.accountDownloadEnd, TARGET);
+
+  const recovered = adapter.snapshot();
+  assert.equal(adapter.connected, true);
+  assert.equal(recovered.gateway, true);
+  assert.equal(recovered.positionsCoverage.status, "complete");
+  assert.deepEqual(recovered.positions, []);
+  assert.equal(recovered.summary.NetLiquidation.value, "12000");
+  assert.equal(recovered.ts, OBS_C);
+});
+
+test("SDK error 1100 uses the same sanitized upstream-loss path", () => {
+  let reconnects = 0;
+  const notices = [];
+  const { adapter } = createHarness({
+    onBrokerNotice: (notice) => notices.push(notice),
+    onReconnectNeeded: () => { reconnects += 1; },
+  });
+  const api = new FakeApi("synthetic-A");
+  adapter.attach(api);
+  connectRecognized(api);
+  finishInitialSync(api);
+  api.emit(EVENTS.error, new Error("raw upstream detail is not propagated"), 1100);
+
+  assert.equal(brokerConnectivityState(1100), "upstream_lost");
+  assert.equal(adapter.connected, false);
+  assert.equal(adapter.snapshot().lastError, "broker upstream_lost (code 1100)");
+  assert.equal(reconnects, 1);
+  assert.deepEqual(notices, [{
+    route: "error",
+    code: 1100,
+    state: "upstream_lost",
+    action: "fresh_session_scheduled",
+  }]);
+});
+
+test("1101 and 1102 explicitly require a fresh complete session", () => {
+  for (const [code, state] of [
+    [1101, "restored_data_lost"],
+    [1102, "restored_data_maintained"],
+  ]) {
+    let reconnects = 0;
+    const notices = [];
+    const { adapter } = createHarness({
+      onBrokerNotice: (notice) => notices.push(notice),
+      onReconnectNeeded: () => { reconnects += 1; },
+    });
+    const api = new FakeApi(`synthetic-${code}`);
+    adapter.attach(api);
+    connectRecognized(api);
+    finishInitialSync(api);
+    api.emit(EVENTS.info, "restoration detail is intentionally not propagated", code);
+
+    assert.equal(brokerConnectivityState(code), state);
+    assert.equal(adapter.connected, false);
+    assert.equal(adapter.snapshot().positionsCoverage.status, "unavailable");
+    assert.equal(reconnects, 1);
+    assert.deepEqual(notices, [{
+      route: "info",
+      code,
+      state,
+      action: "fresh_session_scheduled",
+    }]);
+  }
+});
+
+test("benign connectivity notices stay visible without reconnecting", () => {
+  let reconnects = 0;
+  const notices = [];
+  const { adapter } = createHarness({
+    onBrokerNotice: (notice) => notices.push(notice),
+    onReconnectNeeded: () => { reconnects += 1; },
+  });
+  const api = new FakeApi("synthetic-A");
+  adapter.attach(api);
+  connectRecognized(api);
+  finishInitialSync(api);
+
+  for (const code of [2104, 2106, 2107, 2158]) {
+    api.emit(EVENTS.info, "benign connection notice", code);
+  }
+
+  assert.equal(reconnects, 0);
+  assert.equal(adapter.connected, true);
+  assert.equal(adapter.snapshot().positionsCoverage.status, "complete");
+  assert.deepEqual(notices.map(({ code, state, action }) => ({ code, state, action })), [
+    { code: 2104, state: "informational", action: "none" },
+    { code: 2106, state: "informational", action: "none" },
+    { code: 2107, state: "informational", action: "none" },
+    { code: 2158, state: "informational", action: "none" },
+  ]);
 });
