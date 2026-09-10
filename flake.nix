@@ -50,7 +50,7 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/af62be18e906e29ed97111e0eca72a8290e3b9cc";
+      url = "github:markus-barta/joedesk/21311db09adbbaaaec52621e8fc0862151fafd87";
       flake = false;
     };
     hostdash = {
@@ -83,7 +83,7 @@
     # executable control plane just because upstream main advances. Bumps use
     # the reviewed Paimos release flow and refresh vendorHash when Go deps move.
     paimos = {
-      url = "github:inspr-at/paimos/v260909151030.0.0";
+      url = "github:inspr-at/paimos/v260910101110.0.0";
       flake = false;
     };
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
