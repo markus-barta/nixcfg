@@ -18,8 +18,25 @@ export function currencyCode(value) {
   return /^[A-Z]{3}$/.test(normalized) ? normalized : undefined;
 }
 
+export function brokerConnectivityState(code) {
+  switch (Number(code)) {
+    case 1100:
+    case 2110:
+      return "upstream_lost";
+    case 1101:
+      return "restored_data_lost";
+    case 1102:
+      return "restored_data_maintained";
+    default:
+      return null;
+  }
+}
+
 export function isConnectionFailure(code, message) {
-  return code === 502 || /ECONNREFUSED|connect/i.test(String(message || ""));
+  return Number(code) === 502 ||
+    /ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|socket hang up/i.test(
+      String(message || "")
+    );
 }
 
 export function contractKey(contract) {
