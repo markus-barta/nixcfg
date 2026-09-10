@@ -199,6 +199,9 @@ jobs:
       - name: Verify csb1 Traefik 3.7.13 pin and isolated provider proof (NIX-448)
         run: tests/T75-csb1-traefik-3713-isolated.sh
 
+      - name: Verify JoeDesk canonical slash and OAuth routing (NIX-462)
+        run: nix-shell -p python3 --run "python3 tests/T76-joe-slash-routing.py"
+
       - name: Verify fleet-safe doctrine-private boundary
         run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"
 
