@@ -23,7 +23,24 @@
 <main class="shell" id="dashboard" hidden>
   <header class="topline">
     <div class="brand"><span class="brand-mark" aria-hidden="true"></span><strong>Joe / Household desk</strong></div>
-    <div class="toolbar"><span class="paper-mark">Paper only</span><button class="quiet-button" id="resetLayout" type="button">Reset layout</button></div>
+    <div class="toolbar">
+      <span class="paper-mark">Paper only</span>
+      <div class="layout-toolbar" id="layoutToolbar" aria-label="Saved layouts">
+        <label class="visually-hidden" for="layoutSelect">Saved layout</label>
+        <select class="layout-select" id="layoutSelect" aria-describedby="layoutStatus"></select>
+        <button class="quiet-button" id="loadLayout" type="button">Load</button>
+        <button class="quiet-button" id="renameLayout" type="button">Rename</button>
+        <button class="quiet-button" id="deleteLayout" type="button">Delete</button>
+        <button class="quiet-button" id="saveLayout" type="button">Save layout</button>
+        <div class="layout-inline-form" id="layoutInlineForm" hidden>
+          <label class="visually-hidden" for="layoutNameInput">Layout name</label>
+          <input class="layout-name-input" id="layoutNameInput" type="text" maxlength="48" autocomplete="off" placeholder="Layout name">
+          <button class="quiet-button" id="layoutFormConfirm" type="button">Confirm</button>
+          <button class="quiet-button" id="layoutFormCancel" type="button">Cancel</button>
+        </div>
+      </div>
+      <button class="quiet-button" id="resetLayout" type="button">Reset layout</button>
+    </div>
   </header>
   <div class="alarm" id="alarm" hidden role="alert"><strong>Something needs attention</strong><span id="alarmText"></span></div>
 
@@ -56,13 +73,32 @@
 
     <article class="grid-stack-item" gs-id="history" gs-x="4" gs-y="6" gs-w="8" gs-h="5">
       <div class="grid-stack-item-content widget history-widget">
-        <div class="widget-drag"><span>History · drag here</span><span class="drag-dots">•••</span></div>
+        <div class="widget-drag"><span>History</span><span class="drag-dots">•••</span></div>
         <div class="history-head">
-          <div class="control-group" id="deskCompare" role="group" aria-label="Compare up to two desks"><button type="button" data-series="j" aria-pressed="true">J</button><button type="button" data-series="joe" aria-pressed="true">Joe</button><button type="button" data-series="joel" aria-pressed="false">Joel</button></div>
-          <div class="control-group" role="group" aria-label="Timeframe"><button type="button" data-range="1d" aria-pressed="false">1D</button><button type="button" data-range="1w" aria-pressed="false">1W</button><button type="button" data-range="1m" aria-pressed="false">1M</button><button type="button" data-range="all" aria-pressed="true">ALL</button></div>
+          <div class="history-controls">
+            <div class="control-section">
+              <span class="control-label" id="deskControlsLabel">Desks</span>
+              <div class="control-group" id="deskCompare" role="group" aria-labelledby="deskControlsLabel">
+                <button type="button" id="seriesAll" data-series-all aria-pressed="true">All bots</button>
+                <button type="button" data-series="j" aria-pressed="true">J</button>
+                <button type="button" data-series="joe" aria-pressed="true">Joe</button>
+                <button type="button" data-series="joel" aria-pressed="true">Joel</button>
+              </div>
+            </div>
+            <span class="control-divider" aria-hidden="true"></span>
+            <div class="control-section">
+              <span class="control-label" id="rangeControlsLabel">Range</span>
+              <div class="control-group" role="group" aria-labelledby="rangeControlsLabel">
+                <button type="button" data-range="1d" aria-pressed="false">1D</button>
+                <button type="button" data-range="1w" aria-pressed="false">1W</button>
+                <button type="button" data-range="1m" aria-pressed="false">1M</button>
+                <button type="button" data-range="all" aria-pressed="true">ALL</button>
+              </div>
+            </div>
+          </div>
           <button class="quiet-button" id="resetZoom" type="button">Reset zoom</button>
         </div>
-        <p class="history-help" id="historyHelp">Wheel/pinch to zoom · Shift-drag to pan · compare up to two desks</p>
+        <p class="history-help" id="historyHelp">Wheel or pinch to zoom · Shift-drag to pan</p>
         <div class="history-canvas-wrap"><canvas id="historyChart" aria-label="Desk equity history chart" aria-describedby="historyHelp"></canvas><div class="empty-state" id="historyEmpty" hidden>History will fill as snapshots arrive.</div></div>
       </div>
     </article>
@@ -75,7 +111,17 @@
       </div>
     </article>
   </section>
-  <footer class="footer"><span>Read-only household view · nothing here can place a trade</span><span id="updatedAt">Waiting for data.json</span></footer>
+  <footer class="footer">
+    <span>Read-only household view · nothing here can place a trade</span>
+    <div class="footer-meta">
+      <span id="updatedAt">Waiting for data.json</span>
+      <p class="layout-status" id="layoutStatus" role="status" aria-live="polite"></p>
+      <details class="version" data-dismissable>
+        <summary><span class="version__label">v<span id="appVersion">0.2.0</span></span></summary>
+        <div class="version__panel" id="versionPanel" aria-label="Board version history"></div>
+      </details>
+    </div>
+  </footer>
 </main>
 
 <noscript><div class="gate"><div class="gate-card"><h1>JavaScript is off.</h1><p>The household board needs JavaScript to read its local data snapshot.</p></div></div></noscript>
@@ -83,6 +129,7 @@
 <script src="./vendor/chart-4.4.8.umd.js"></script>
 <script src="./vendor/hammer-2.0.8.min.js"></script>
 <script src="./vendor/chartjs-plugin-zoom-2.2.0.min.js"></script>
+<script src="./joe-version.js"></script>
 <script src="./joe.js"></script>
 </body>
 </html>
