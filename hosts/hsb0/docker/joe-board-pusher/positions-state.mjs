@@ -3,13 +3,19 @@
 export const J_DESK_SYMBOLS = new Set(["INTC"]);
 export const JOEL_DESK_SYMBOLS = new Set(["SXR8", "TSLA"]);
 
-/** Reject null/empty-string/NaN; only accept genuinely finite supplied numbers. */
+/** @stoqey/ib decodes callback quantities and prices as numbers. */
 export function strictFinite(value) {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === "string" && value.trim() === "") return undefined;
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : undefined;
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    Math.abs(value) !== Number.MAX_VALUE
+    ? value
+    : undefined;
+}
+
+export function currencyCode(value) {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(normalized) ? normalized : undefined;
 }
 
 export function isConnectionFailure(code, message) {
@@ -17,14 +23,18 @@ export function isConnectionFailure(code, message) {
 }
 
 export function contractKey(contract) {
-  if (!contract || typeof contract !== "object") return "invalid";
-  if (contract.conId) return `conId:${contract.conId}`;
+  if (!contract || typeof contract !== "object") return null;
+  const conId = strictFinite(contract.conId);
+  if (conId !== undefined && conId > 0) return `conId:${conId}`;
+  const symbol = typeof contract.symbol === "string" ? contract.symbol.trim() : "";
+  const secType = typeof contract.secType === "string" ? contract.secType.trim() : "";
+  if (!symbol || !secType) return null;
   return [
-    contract.secType || "",
-    contract.symbol || "",
-    contract.exchange || "",
-    contract.primaryExch || "",
-    contract.currency || "",
+    secType,
+    symbol,
+    typeof contract.exchange === "string" ? contract.exchange : "",
+    typeof contract.primaryExch === "string" ? contract.primaryExch : "",
+    currencyCode(contract.currency) || "",
   ].join("|");
 }
 
@@ -34,10 +44,18 @@ export function deskForSymbol(symbol) {
   return null;
 }
 
+function managedAccountSet(accounts) {
+  if (typeof accounts !== "string") return new Set();
+  return new Set(accounts.split(",").map((account) => account.trim()).filter(Boolean));
+}
+
 export function createPositionTracker(targetAccount) {
   const rows = new Map();
   let status = "unavailable";
   let epoch = 0;
+  let targetRecognized = false;
+  let validCycle = false;
+  let endSeen = false;
 
   function resetRows() {
     rows.clear();
@@ -48,12 +66,28 @@ export function createPositionTracker(targetAccount) {
     return epoch;
   }
 
-  function matchesAccount(account) {
-    return account === targetAccount;
-  }
-
   function isLive(sessionEpoch) {
     return sessionEpoch === epoch;
+  }
+
+  function invalidateCycle() {
+    validCycle = false;
+    status = "partial";
+  }
+
+  function completeIfProven() {
+    if (validCycle && targetRecognized && endSeen) {
+      status = "complete";
+      return true;
+    }
+    status = "partial";
+    return false;
+  }
+
+  function validContract(contract) {
+    return contractKey(contract) !== null &&
+      typeof contract.symbol === "string" &&
+      contract.symbol.trim().length > 0;
   }
 
   return {
@@ -70,6 +104,9 @@ export function createPositionTracker(targetAccount) {
     onConnected() {
       bumpEpoch();
       resetRows();
+      targetRecognized = false;
+      validCycle = true;
+      endSeen = false;
       status = "partial";
       return epoch;
     },
@@ -77,38 +114,48 @@ export function createPositionTracker(targetAccount) {
     onDisconnected() {
       bumpEpoch();
       resetRows();
+      targetRecognized = false;
+      validCycle = false;
+      endSeen = false;
       status = "unavailable";
       return epoch;
     },
 
+    onManagedAccounts(sessionEpoch, accounts) {
+      if (!isLive(sessionEpoch)) return false;
+      targetRecognized = managedAccountSet(accounts).has(targetAccount);
+      completeIfProven();
+      return targetRecognized;
+    },
+
     onPosition(sessionEpoch, account, contract, pos, avgCost, observedAt) {
-      if (!isLive(sessionEpoch)) return;
-      if (!matchesAccount(account)) return;
-      if (status === "unavailable") status = "partial";
-      const key = contractKey(contract);
+      if (!isLive(sessionEpoch) || account !== targetAccount) return { accepted: false };
       const qty = strictFinite(pos);
-      if (qty === undefined) return;
+      const key = contractKey(contract);
+      if (qty === undefined || !key || !validContract(contract)) {
+        invalidateCycle();
+        return { accepted: false, invalid: true };
+      }
       if (qty === 0) {
         rows.delete(key);
-        return;
+        return { accepted: true, removed: true };
       }
       const prev = rows.get(key) || {};
       const nextAvg = strictFinite(avgCost);
+      const nextCurrency = currencyCode(contract.currency);
       rows.set(key, {
+        ...prev,
         account,
         contract,
-        symbol: contract.symbol,
+        symbol: contract.symbol.trim(),
         secType: contract.secType,
         exchange: contract.exchange || contract.primaryExch || null,
-        currency: contract.currency || null,
+        currency: nextCurrency !== undefined ? nextCurrency : prev.currency,
         pos: qty,
         avgCost: nextAvg !== undefined ? nextAvg : prev.avgCost,
-        marketPrice: prev.marketPrice,
-        marketValue: prev.marketValue,
-        unrealizedPNL: prev.unrealizedPNL,
-        realizedPNL: prev.realizedPNL,
-        observedAt: observedAt || prev.observedAt || null,
+        positionObservedAt: observedAt || prev.positionObservedAt || null,
       });
+      return { accepted: true };
     },
 
     onPortfolio(
@@ -123,50 +170,50 @@ export function createPositionTracker(targetAccount) {
       realizedPNL,
       observedAt
     ) {
-      if (!isLive(sessionEpoch)) return;
-      if (accountName !== targetAccount) return;
-      const key = contractKey(contract);
+      if (!isLive(sessionEpoch) || accountName !== targetAccount) return { accepted: false };
       const qty = strictFinite(pos);
-      const prev = rows.get(key);
-      if (!prev) {
-        if (qty === undefined || qty === 0) return;
-        rows.set(key, {
-          account: targetAccount,
-          contract,
-          symbol: contract.symbol,
-          secType: contract.secType,
-          exchange: contract.exchange || contract.primaryExch || null,
-          currency: contract.currency || null,
-          pos: qty,
-          avgCost: strictFinite(avgCost) ?? null,
-          marketPrice: strictFinite(marketPrice) ?? null,
-          marketValue: strictFinite(marketValue) ?? null,
-          unrealizedPNL: strictFinite(unrealizedPNL) ?? null,
-          realizedPNL: strictFinite(realizedPNL) ?? null,
-          observedAt: observedAt || null,
-        });
-        return;
+      const key = contractKey(contract);
+      if (qty === undefined || !key || !validContract(contract)) {
+        invalidateCycle();
+        return { accepted: false, invalid: true };
       }
+      if (qty === 0) {
+        rows.delete(key);
+        return { accepted: true, removed: true };
+      }
+      const prev = rows.get(key) || {};
       const nextAvg = strictFinite(avgCost);
       const nextPrice = strictFinite(marketPrice);
       const nextMv = strictFinite(marketValue);
       const nextUnreal = strictFinite(unrealizedPNL);
       const nextReal = strictFinite(realizedPNL);
+      const nextCurrency = currencyCode(contract.currency);
       rows.set(key, {
         ...prev,
-        pos: qty !== undefined ? qty : prev.pos,
+        account: targetAccount,
+        contract,
+        symbol: contract.symbol.trim(),
+        secType: contract.secType,
+        exchange: contract.exchange || contract.primaryExch || null,
+        currency: nextCurrency !== undefined ? nextCurrency : prev.currency,
+        pos: qty,
         avgCost: nextAvg !== undefined ? nextAvg : prev.avgCost,
         marketPrice: nextPrice !== undefined ? nextPrice : prev.marketPrice,
         marketValue: nextMv !== undefined ? nextMv : prev.marketValue,
         unrealizedPNL: nextUnreal !== undefined ? nextUnreal : prev.unrealizedPNL,
         realizedPNL: nextReal !== undefined ? nextReal : prev.realizedPNL,
-        observedAt: observedAt || prev.observedAt,
+        positionObservedAt: observedAt || prev.positionObservedAt || null,
+        markObservedAt: nextPrice !== undefined
+          ? observedAt || prev.markObservedAt || null
+          : prev.markObservedAt,
       });
+      return { accepted: true, markAccepted: nextPrice !== undefined };
     },
 
     onPositionEnd(sessionEpoch) {
-      if (!isLive(sessionEpoch)) return;
-      if (status === "partial") status = "complete";
+      if (!isLive(sessionEpoch)) return false;
+      endSeen = true;
+      return completeIfProven();
     },
 
     listRows() {
