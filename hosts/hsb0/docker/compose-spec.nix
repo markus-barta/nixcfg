@@ -325,6 +325,8 @@
         "TWS_USERID=markusbarta"
         "TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password"
         "TRADING_MODE=paper"
+        # Permit paper API writes; client policy still controls order authority.
+        "READ_ONLY_API=no"
         "TWS_SETTINGS_PATH=/home/ibgateway/tws_settings"
         "JAVA_HEAP_SIZE=768"
         "TIME_ZONE=Europe/Vienna"
