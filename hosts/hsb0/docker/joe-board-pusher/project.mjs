@@ -5,7 +5,7 @@ import { deskForSymbol } from "./positions-state.mjs";
 const JOEL_SYMBOLS = new Set(["SXR8", "TSLA"]);
 const VIRTUAL_EQUITY = 5000.0;
 const STALE_AFTER = 300;
-const DESK_IDS = ["j", "joe", "joel"];
+const MAPPED_DESK_IDS = ["j", "joel"];
 // CONFIG.md Grandfather (Markus 2026-09-04): existing paper SXR8 lot + leftover
 // TSLA×1 stay outside Stage-0 Joel book money / since-start / stand / totals
 // until Faber exit. Still mentioned in action/learning text.
@@ -40,11 +40,12 @@ function stage0JoelRows(portfolio) {
   return portfolio.filter((p) => JOEL_SYMBOLS.has(p.symbol) && !isGrandfathered(p));
 }
 
-function monetaryFieldsProven(row) {
-  return row.currency === "EUR";
+function accountingScopeFor(row) {
+  if (isGrandfathered({ symbol: row.symbol, pos: row.pos })) return "legacy";
+  return "stage0";
 }
 
-/** Serialize one broker row for a mapped desk. Omits unproven monetary fields. */
+/** Serialize one broker row for a mapped desk. Omits unverified monetary fields. */
 export function serializePositionRow(row, deskId) {
   const qty = Number(row.pos);
   if (!Number.isFinite(qty) || qty === 0) return null;
@@ -52,29 +53,29 @@ export function serializePositionRow(row, deskId) {
     desk: deskId,
     symbol: row.symbol,
     side: qty > 0 ? "Long" : "Short",
-    quantity: Math.abs(qty),
+    quantity: qty,
+    accountingScope: accountingScopeFor(row),
     dayPnl: null,
   };
+  if (row.currency) out.currency = String(row.currency).toUpperCase();
   if (row.observedAt) out.updatedAt = row.observedAt;
-  if (monetaryFieldsProven(row)) {
-    if (Number.isFinite(row.marketPrice)) out.mark = round2(row.marketPrice);
-    if (Number.isFinite(row.marketValue)) out.marketValue = round2(row.marketValue);
-    if (Number.isFinite(row.unrealizedPNL)) out.openPnl = round2(row.unrealizedPNL);
+  if (out.currency && Number.isFinite(row.marketPrice)) {
+    out.mark = round2(row.marketPrice);
   }
   return out;
 }
 
-/** Build per-desk positions arrays when subscription coverage is complete. */
+/** Build per-desk positions for mapped desks only when subscription coverage is complete. */
 export function buildDeskPositions(coverage) {
   if (!coverage || coverage.status !== "complete") return null;
-  const byDesk = { j: [], joe: [], joel: [] };
+  const byDesk = { j: [], joel: [] };
   for (const row of coverage.rows || []) {
     const deskId = deskForSymbol(row.symbol);
     if (!deskId) continue;
     const serialized = serializePositionRow(row, deskId);
     if (serialized) byDesk[deskId].push(serialized);
   }
-  for (const deskId of DESK_IDS) {
+  for (const deskId of MAPPED_DESK_IDS) {
     byDesk[deskId].sort((a, b) => a.symbol.localeCompare(b.symbol));
   }
   return byDesk;
@@ -173,7 +174,9 @@ export function projectBook(book, opts = {}) {
 
   if (deskPositions) {
     for (const desk of desks) {
-      desk.positions = deskPositions[desk.id];
+      if (Object.prototype.hasOwnProperty.call(deskPositions, desk.id)) {
+        desk.positions = deskPositions[desk.id];
+      }
     }
   }
 

@@ -16,17 +16,13 @@ Per-desk `positions[]` is emitted only after a completed, account-matched IB
 unavailable; `[]` means complete known-empty coverage. Disconnect/reconnect
 invalidates coverage until the next completed subscription.
 
-Symbol mapping: `INTC` → `j`, `SXR8`/`TSLA` → `joel`. Unknown symbols are never
-mapped to Joe. Broker observation times come from IB events, not the push heartbeat.
-Monetary fields (`mark`, `marketValue`, `openPnl`) are omitted unless contract
-currency is proven `EUR`. `dayPnl` stays `null` until a real day feed exists.
+Symbol mapping: `INTC` → `j`, `SXR8`/`TSLA` → `joel`. Joe has no symbol mapping,
+so its desk never receives a `positions` key. Unknown symbols are never mapped to
+Joe. Broker observation times come from IB events, not the push heartbeat.
+Rows emit `currency` (uppercase contract currency when known) and
+`accountingScope` (`legacy` for grandfathered names, `stage0` otherwise).
+`mark` is emitted with a known quote currency; `marketValue`/`openPnl` stay absent
+until callback currency semantics are verified (EUR alone is not sufficient).
+`dayPnl` stays `null` until a real day feed exists.
 
 Run synthetic replay tests: `npm test` (fixtures are labelled synthetic, not live).
-
-## Consumer schema disagreements (HOSTD-32)
-
-`/joe/data.schema.json` still has `additionalProperties: false` on `position` and
-does not yet declare the frozen Wave-D extensions `position.currency` or
-`position.accountingScope`. This producer therefore omits those fields rather than
-emitting silent extras. Legacy grandfather rows remain visible on the Joel desk;
-Stage-0 money exclusion is unchanged in desk `money` totals.
