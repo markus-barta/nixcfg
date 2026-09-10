@@ -514,3 +514,24 @@ test("file store atomically round-trips a bounded durable ledger", () => {
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.deepEqual(fs.readdirSync(directory), ["family-ledger.json"]);
 });
+
+
+test("file store reads the validated inode if the pathname is replaced", () => {
+  const source = memoryStore();
+  const session = setup({ store: source });
+  complete(connect(session), [execution("race.1.01", 27)]);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-state-test-"));
+  const file = path.join(directory, "family-ledger.json");
+  createFileFamilyStateStore(file).save(source.state);
+  const racingFs = { ...fs, fstatSync(handle) {
+    const stat = fs.fstatSync(handle);
+    fs.renameSync(file, path.join(directory, "original.json"));
+    fs.writeFileSync(file, "replacement-is-not-a-ledger");
+    return stat;
+  } };
+  const loaded = createFileFamilyStateStore(file, racingFs).load({
+    account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER,
+  });
+  assert.equal(loaded.ok, true);
+  assert.deepEqual(loaded.state, source.state);
+});
