@@ -8,9 +8,9 @@
 #
 #   1. Flake input and doctrine gitlink drift apart, so hosts run a library
 #      sessions have not read (or the reverse). T42 still owns the checker
-#      blob; this test owns the published v0.8.0 coordinate (v0.6.0 → v0.8.0
+#      blob; this test owns the published v0.9.0 coordinate (v0.6.0 → v0.9.0
 #      changed doctrine and the Aithema package only; routing-edge and the
-#      checker blob are byte-identical, INSPR-399).
+#      checker blob are byte-identical, INSPR-399/INSPR-400).
 #   2. A copied stub eval can stay disabled while the real host is not.
 #      Disabled effects are projected from nixosConfigurations.csb1.
 #   3. Prepared selectors accidentally install a routing-owned fragment,
@@ -42,8 +42,8 @@ host_config="$repo_root/hosts/csb1/configuration.nix"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 t42="$repo_root/tests/T42-doctrine-paths-agree.sh"
 consumer_eval="$repo_root/tests/routing-edge-consumer-eval.nix"
-expected_rev="f7c1d409e00e5633a654a4747d6a7c68b9c71f88"
-expected_narhash="sha256-0QB5nJzQay8x8aht0jTa0LzNezuk7qvJnQ2EZtbUlUM="
+expected_rev="1ee78a780ce14d78cb3447706283e10378f457c7"
+expected_narhash="sha256-O/hOEp6tYU6eMEWHjkWCyWdr0Pmcwj00qTLukMUyrFI="
 expected_checker_blob="ef37a597e3100fb1704be5708a2c32cedd4ac7d5"
 provider_file="traefik/dynamic/inspr-routing-edge.yml"
 repo_revision="$(git -C "$repo_root" rev-parse HEAD)"
@@ -59,14 +59,14 @@ nix-instantiate --parse "$consumer_eval" >/dev/null
 
 # --- 1. synchronized public pin; T42 checker provenance unchanged ----------
 jq -e --arg rev "$expected_rev" --arg nar "$expected_narhash" '
-  .nodes["inspr-modules"].original.ref == "v0.8.0"
+  .nodes["inspr-modules"].original.ref == "v0.9.0"
   and .nodes["inspr-modules"].locked.rev == $rev
   and .nodes["inspr-modules"].locked.narHash == $nar
   and .nodes["inspr-modules"].locked.owner == "inspr-at"
   and .nodes["inspr-modules"].locked.repo == "inspr-modules"
 ' "$flake_lock" >/dev/null
 
-grep -Fq 'inspr-modules.url = "github:inspr-at/inspr-modules/v0.8.0"' "$flake_nix"
+grep -Fq 'inspr-modules.url = "github:inspr-at/inspr-modules/v0.9.0"' "$flake_nix"
 if grep -E '^[[:space:]]+.*\.url = ".*routing' "$flake_nix" | grep -vq 'inspr-modules'; then
   printf 'T74: found a new routing flake input; consume inspr-modules only\n' >&2
   exit 1
