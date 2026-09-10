@@ -150,8 +150,7 @@ async function pushOnce() {
   }
   const family = familyAdapter.project(book);
   if (!family.ok) {
-    console.warn(JSON.stringify({ event: "push_skipped", reason: family.reason }));
-    return { ok: false, error: family.reason };
+    console.warn(JSON.stringify({ event: "family_projection_unavailable", reason: family.reason }));
   }
   const snap = projectBook(book, {
     halt: false,
@@ -160,8 +159,8 @@ async function pushOnce() {
     family,
   });
   if (!snap) {
-    console.warn(JSON.stringify({ event: "push_skipped", reason: "complete family projection unavailable" }));
-    return { ok: false, error: "complete family projection unavailable" };
+    console.warn(JSON.stringify({ event: "push_skipped", reason: "broker timestamp unavailable" }));
+    return { ok: false, error: "broker timestamp unavailable" };
   }
   const token = readToken();
   if (!token) {

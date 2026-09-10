@@ -600,13 +600,27 @@ test("publisher heartbeat does not refresh broker observation fields", () => {
   }
 });
 
-test("enabled family runtime requires a complete result and never falls back to broker INTC P&L", () => {
+test("enabled family runtime isolates incomplete J accounting without stopping the household", () => {
   const broker = baseBook({
     portfolio: [{ symbol: "INTC", pos: 10, realizedPNL: 400, unrealizedPNL: 599 }],
     positionsCoverage: { status: "complete", rows: [{ symbol: "INTC", pos: 10 }] },
   });
-  assert.equal(projectBook(broker, { familyRuntimeEnabled: true, family: { ok: false } }), null);
-  assert.equal(projectBook(broker, { familyRuntimeEnabled: true, family: { ok: true } }), null);
+  for (const family of [
+    { ok: false, reason: "family ledger state is corrupt JSON" },
+    { ok: false, reason: "unproved execution retrieval gap across America/New_York midnight; backfill required" },
+    { ok: true },
+  ]) {
+    const unavailable = projectBook(broker, { familyRuntimeEnabled: true, family });
+    assert.ok(unavailable);
+    const j = deskById(unavailable, "j");
+    assert.equal(j.state, "stuck");
+    assert.deepEqual(j.money, { equity: null, dayPnl: null, totalPnl: null });
+    assert.equal("positions" in j, false);
+    assert.equal("accounting" in j, false);
+    assert.match(j.learning.headline, /unavailable/);
+    assert.match(j.issues[0], /accounting unavailable/);
+    assert.deepEqual(unavailable.totals, { equity: null, dayPnl: null, totalPnl: null });
+  }
 
   const family = {
     ok: true,
@@ -648,6 +662,71 @@ test("enabled family runtime requires a complete result and never falls back to 
   assert.match(j.action, /J \+ J2–J5; verified since 10 Sep; net fees; EUR at observed FX/);
   assert.deepEqual(deskById(snapshot, "joe"), deskById(legacy, "joe"));
   assert.deepEqual(deskById(snapshot, "joel"), deskById(legacy, "joel"));
+  assert.notEqual(j.state, "stuck");
+  assert.deepEqual(j.issues, []);
+});
+
+test("corrupt or midnight J gaps preserve Joe and Joel, and recovery clears J unavailability", () => {
+  const joelContract = stockContract("TSLA");
+  const broker = baseBook({
+    positions: [{ symbol: "TSLA", pos: 2 }],
+    portfolio: [{
+      contract: joelContract,
+      symbol: "TSLA",
+      pos: 2,
+      marketPrice: 220,
+      marketValue: 440,
+      unrealizedPNL: 20,
+      realizedPNL: 3,
+    }],
+    positionsCoverage: {
+      status: "complete",
+      rows: [{ symbol: "TSLA", pos: 2, currency: "USD", marketPrice: 220 }],
+    },
+  });
+  const baseline = projectBook(broker, { publisherAt: new Date(OBS_C) });
+  for (const reason of [
+    "family ledger state is corrupt JSON",
+    "unproved execution retrieval gap across America/New_York midnight; backfill required",
+  ]) {
+    const unavailable = projectBook(broker, {
+      publisherAt: new Date(OBS_C),
+      familyRuntimeEnabled: true,
+      family: { ok: false, reason },
+    });
+    assert.deepEqual(deskById(unavailable, "joe"), deskById(baseline, "joe"));
+    assert.deepEqual(deskById(unavailable, "joel"), deskById(baseline, "joel"));
+    assert.deepEqual(deskById(unavailable, "j").money, {
+      equity: null,
+      dayPnl: null,
+      totalPnl: null,
+    });
+    assert.equal("positions" in deskById(unavailable, "j"), false);
+  }
+
+  const recovered = projectBook(broker, {
+    publisherAt: new Date(OBS_C),
+    familyRuntimeEnabled: true,
+    family: {
+      ok: true,
+      equity: 5000,
+      totalPnl: 0,
+      realizedPnl: 0,
+      unrealizedPnl: 0,
+      positions: [],
+      accounting: {
+        periodStart: "2026-09-10T04:00:00Z",
+        method: "execution-fifo-net-current-fx",
+        detail: "Synthetic recovered accounting.",
+      },
+      observedAt: OBS_B,
+      executionCount: 0,
+    },
+  });
+  assert.equal(deskById(recovered, "j").state, "sit-out");
+  assert.deepEqual(deskById(recovered, "j").issues, []);
+  assert.deepEqual(deskById(recovered, "j").positions, []);
+  assert.deepEqual(recovered.totals, { equity: 15023, dayPnl: null, totalPnl: 23 });
 });
 
 test("a newer family economic revision advances generatedAt while publisher heartbeats do not", () => {
