@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * Read-only paper IB client (clientId 92) → household v1 → HTTPS POST inbox.
+ * Read-only paper IB clients (Node 92 + official history helper 94) → household v1 → HTTPS POST inbox.
  * Never connects to live 4001. Never places orders.
  */
 import fs from "node:fs";
 import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
+import { createExecutionHistorySupervisor } from "./execution-history.mjs";
 import { calculateFamily } from "./family-ledger.mjs";
 import {
   FAMILY_BASELINE_PERIOD_START,
@@ -22,9 +23,11 @@ const HOST = "100.64.0.6";
 const PORT = 4002;
 const LIVE_PORT = 4001;
 const CLIENT_ID = 92;
+const EXECUTION_HISTORY_CLIENT_ID = 94;
 const ACCOUNT = "DUR970597";
 const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
-const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
+const FAMILY_LEGACY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
+const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger-v2.json";
 const INBOX_URL = "https://cs0.barta.cm/joe/inbox";
 const TOKEN_FILE = "/run/secrets/joe-board-push-token";
 const RETRY_MS = 5000;
@@ -80,6 +83,22 @@ const adapter = createBrokerSessionAdapter({
   },
 });
 
+const executionHistory = createExecutionHistorySupervisor({
+  command: "/opt/ibapi/bin/python",
+  args: [
+    "/app/execution_reader.py",
+    "--host", HOST,
+    "--port", String(PORT),
+    "--client-id", String(EXECUTION_HISTORY_CLIENT_ID),
+    "--account", ACCOUNT,
+  ],
+  hooks: {
+    onDiagnostic(detail) {
+      console.warn(JSON.stringify(detail));
+    },
+  },
+});
+
 const familyAdapter = createFamilySessionAdapter({
   targetAccount: ACCOUNT,
   familyClientIds: FAMILY_CLIENT_IDS,
@@ -87,9 +106,11 @@ const familyAdapter = createFamilySessionAdapter({
   periodStart: FAMILY_BASELINE_PERIOD_START,
   calculateFamily,
   eventNames: EventName,
-  store: createFileFamilyStateStore(FAMILY_STATE_PATH),
+  store: createFileFamilyStateStore(FAMILY_STATE_PATH, {
+    legacyPath: FAMILY_LEGACY_STATE_PATH,
+  }),
+  history: executionHistory,
   pollIntervalMs: 30_000,
-  requestTimeoutMs: 20_000,
   fxFreshMs: 300_000,
   requestManagedAccounts: false,
   hooks: {

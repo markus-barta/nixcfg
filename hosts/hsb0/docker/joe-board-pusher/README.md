@@ -9,35 +9,41 @@ Never connects to live 4001. Never places orders. Uses shared agenix push token.
 Stage-0 money excludes grandfathered paper SXR8 lot + leftover TSLA×1 (CONFIG.md) from
 since-start / stand / totals; action/learning still name open legacy holdings.
 
-The J desk is calculated as one economic family (J + J2–J5) from recurring,
-account-scoped `reqExecutions` and matching actual `commissionReport` callbacks.
+The J desk is calculated as one economic family (J + J2–J5) from exact-date,
+account-scoped execution history returned by the long-lived official Python IB API
+helper (`clientId` 94). Node (`clientId` 92) remains the sole owner of account,
+position, FX, inbox, and durable-state work.
 The verified period starts at 2026-09-10 00:00 America/New_York; earlier results
 remain unavailable. Current explicit broker FX rates convert quote-currency FIFO
-PnL and fees to EUR. The durable raw ledger lives at
-`/var/lib/joe-board-pusher/family-ledger.json` and is replaced atomically.
-Its state binds the account, verified period, family-client classifier, excluded
-symbols, last completed capture, and New York coverage day. Because the current
-execution request cannot prove a missed net-zero roundtrip across a New York
-midnight, the publisher conservatively requires verified backfill at that boundary;
-same-day restarts recover through a complete current-day capture.
-Within a coverage day, every complete execution query must retain every identity
-from the preceding successful query (or provide its higher IB correction revision).
-A disappearing identity is treated as an undocumented Gateway cutoff and requires
-backfill even when current positions reconcile.
+PnL and fees to EUR. The active v2 ledger lives at
+`/var/lib/joe-board-pusher/family-ledger-v2.json` and is replaced atomically. The
+original `/var/lib/joe-board-pusher/family-ledger.json` stays byte-for-byte immutable
+as the v1 migration backup; activation records its SHA-256 and requires an official
+overlap whose calculation matches v1 with the same book and FX. A durable activation
+marker prevents a missing v2 file from silently restarting migration.
 
-FX uses a separately scoped `reqAccountUpdatesMulti` request. Before the five-minute
-freshness window expires, the adapter cancels that request and opens a new request
-ID. Only an explicit callback for the current connection and request refreshes a
-rate; an unchanged cached value or publisher heartbeat cannot refresh it.
+Coverage advances only after every requested New York date is returned in one
+recovery session. A midnight, helper restart, server change, or gap longer than 24
+hours requires replay of a known execution anchor at or before the prior watermark,
+with every later identity (or higher correction) and every family fee preserved.
+An anchored empty current day is valid. An unanchored historical response, vanished
+identity, changed v1 backup, or assumed retention window fails closed.
+Each IPC cycle is capped at seven exact dates to match the helper request bound;
+that cap is not a claim that the Gateway retains seven days of history.
+
+FX comes only from Node's existing account-update stream. Initial rates become
+usable at `accountDownloadEnd`; later explicit `ExchangeRate` callbacks refresh
+them. An unchanged cached value or publisher heartbeat cannot refresh a rate.
 
 J accounting fails closed while an execution cycle is incomplete, a family fill
 lacks its commission, FX is stale, position coverage is incomplete, state is missing
-after the authorized bootstrap date, persisted state is corrupt, or execution-query
-coverage regresses. In those cases household POSTs continue with J money set to
+after the authorized bootstrap date, persisted state is corrupt, the helper protocol
+mismatches, or execution-history coverage regresses. In those cases household
+POSTs continue with J money set to
 `null` and J positions omitted; Joe and Joel continue from the valid broker book,
 and aggregate money is `null` rather than a misleading partial sum. Disconnects
-require fresh executions and FX before J resumes, and any unproved New York day
-boundary requires backfill rather than position-only inference.
+require a fresh anchored helper session and fresh FX before J resumes. Position
+reconciliation alone never proves execution completeness.
 
 ## Position rows
 

@@ -22,6 +22,9 @@ let
       else
         builtins.elem name [
           "Dockerfile"
+          "execution_reader.py"
+          "install-official-sdk.py"
+          "official-sdk.lock.json"
           "package.json"
           "package-lock.json"
         ]
