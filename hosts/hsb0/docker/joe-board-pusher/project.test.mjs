@@ -600,6 +600,87 @@ test("publisher heartbeat does not refresh broker observation fields", () => {
   }
 });
 
+test("enabled family runtime requires a complete result and never falls back to broker INTC P&L", () => {
+  const broker = baseBook({
+    portfolio: [{ symbol: "INTC", pos: 10, realizedPNL: 400, unrealizedPNL: 599 }],
+    positionsCoverage: { status: "complete", rows: [{ symbol: "INTC", pos: 10 }] },
+  });
+  assert.equal(projectBook(broker, { familyRuntimeEnabled: true, family: { ok: false } }), null);
+  assert.equal(projectBook(broker, { familyRuntimeEnabled: true, family: { ok: true } }), null);
+
+  const family = {
+    ok: true,
+    equity: 5012,
+    totalPnl: 12,
+    realizedPnl: 7,
+    unrealizedPnl: 5,
+    positions: [{
+      desk: "j",
+      symbol: "ACME",
+      side: "Long",
+      quantity: 2,
+      accountingScope: "stage0",
+      dayPnl: 123,
+      currency: "USD",
+      mark: 25,
+      updatedAt: OBS_B,
+    }],
+    accounting: {
+      periodStart: "2026-09-10T04:00:00Z",
+      method: "execution-fifo-net-current-fx",
+      detail: "Synthetic family accounting.",
+    },
+    observedAt: OBS_B,
+    executionCount: 2,
+  };
+  const legacy = projectBook(broker, { publisherAt: new Date(OBS_C) });
+  const snapshot = projectBook(broker, {
+    publisherAt: new Date(OBS_C),
+    familyRuntimeEnabled: true,
+    family,
+  });
+  const j = deskById(snapshot, "j");
+  assert.deepEqual(j.money, { equity: 5012, dayPnl: null, totalPnl: 12 });
+  assert.equal(j.positions[0].symbol, "ACME");
+  assert.equal(j.positions[0].dayPnl, null);
+  assert.equal(j.positions.some((row) => row.symbol === "INTC"), false);
+  assert.deepEqual(j.accounting, family.accounting);
+  assert.match(j.action, /J \+ J2–J5; verified since 10 Sep; net fees; EUR at observed FX/);
+  assert.deepEqual(deskById(snapshot, "joe"), deskById(legacy, "joe"));
+  assert.deepEqual(deskById(snapshot, "joel"), deskById(legacy, "joel"));
+});
+
+test("a newer family economic revision advances generatedAt while publisher heartbeats do not", () => {
+  const family = {
+    ok: true,
+    equity: 5000,
+    totalPnl: 0,
+    realizedPnl: 0,
+    unrealizedPnl: 0,
+    positions: [],
+    accounting: {
+      periodStart: "2026-09-10T04:00:00Z",
+      method: "execution-fifo-net-current-fx",
+      detail: "Synthetic family accounting.",
+    },
+    observedAt: OBS_B,
+    executionCount: 0,
+  };
+  const first = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    familyRuntimeEnabled: true,
+    family,
+  });
+  const heartbeat = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_C),
+    familyRuntimeEnabled: true,
+    family,
+  });
+  assert.equal(first.generatedAt, "2026-09-10T10:00:05+02:00");
+  assert.equal(heartbeat.generatedAt, first.generatedAt);
+  assert.equal(heartbeat.source.revision, OBS_B);
+});
+
 test("startup without a valid broker timestamp cannot fabricate a snapshot", () => {
   assert.equal(projectBook(baseBook({ ts: null })), null);
 });

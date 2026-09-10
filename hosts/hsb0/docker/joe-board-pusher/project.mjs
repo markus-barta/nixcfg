@@ -86,7 +86,16 @@ export function buildDeskPositions(coverage) {
 }
 
 export function projectBook(book, opts = {}) {
-  const brokerSnapshotAt = new Date(book.ts || "");
+  const familyRuntimeEnabled = Boolean(opts.familyRuntimeEnabled);
+  const family = opts.family;
+  const familyComplete = family && family.ok === true &&
+    [family.equity, family.totalPnl, family.realizedPnl, family.unrealizedPnl].every(Number.isFinite) &&
+    Array.isArray(family.positions) && family.accounting?.method === "execution-fifo-net-current-fx";
+  if (familyRuntimeEnabled && !familyComplete) return null;
+  const sourceTimes = [book.ts];
+  if (familyRuntimeEnabled) sourceTimes.push(family.observedAt);
+  const latestSourceMs = Math.max(...sourceTimes.map((value) => new Date(value || "").getTime()));
+  const brokerSnapshotAt = new Date(latestSourceMs);
   if (Number.isNaN(brokerSnapshotAt.getTime())) return null;
   const publisherAt = opts.publisherAt || opts.now || new Date();
   const gen = formatViennaIso(brokerSnapshotAt);
@@ -108,18 +117,20 @@ export function projectBook(book, opts = {}) {
   const stage0Rows = stage0JoelRows(portfolio);
   const stage0Mv = round2(stage0Rows.reduce((s, p) => s + fnum(p.marketValue), 0));
 
-  const jPnl = round2(
-    (() => {
-      const p = portfolio.find((x) => x.symbol === "INTC");
-      return p ? fnum(p.realizedPNL) + fnum(p.unrealizedPNL) : 0;
-    })()
-  );
+  const jPnl = familyRuntimeEnabled
+    ? round2(family.totalPnl)
+    : round2(
+      (() => {
+        const p = portfolio.find((x) => x.symbol === "INTC");
+        return p ? fnum(p.realizedPNL) + fnum(p.unrealizedPNL) : 0;
+      })()
+    );
   const joePnl = 0.0;
   // Stage-0 attributed only — grandfathered SXR8/TSLA×1 excluded from money.
   const joelPnl = round2(
     stage0Rows.reduce((s, p) => s + fnum(p.unrealizedPNL) + fnum(p.realizedPNL), 0)
   );
-  const jEquity = round2(VIRTUAL_EQUITY + jPnl);
+  const jEquity = familyRuntimeEnabled ? round2(family.equity) : round2(VIRTUAL_EQUITY + jPnl);
   const joeEquity = round2(VIRTUAL_EQUITY + joePnl);
   const joelEquity = round2(VIRTUAL_EQUITY + joelPnl);
 
@@ -129,16 +140,21 @@ export function projectBook(book, opts = {}) {
     {
       id: "j",
       label: "J",
-      state: "sit-out",
+      state: familyRuntimeEnabled && family.positions.length ? "working" : "sit-out",
       stateSince: null,
-      action: "Virt book €5k; flat — no open J broker position.",
+      action: familyRuntimeEnabled
+        ? "J + J2–J5; verified since 10 Sep; net fees; EUR at observed FX; earlier results unavailable."
+        : "Virt book €5k; flat — no open J broker position.",
       learning: {
-        status: "learning",
-        headline: "Shared DUR970597 book",
-        detail: "Virt book €5k; no open J names on the shared broker account.",
+        status: familyRuntimeEnabled && family.positions.length ? "steady" : "learning",
+        headline: familyRuntimeEnabled ? "J family execution ledger" : "Shared broker book",
+        detail: familyRuntimeEnabled
+          ? "J + J2–J5; verified since 10 Sep; net fees; EUR at observed FX; earlier results unavailable."
+          : "Virt book €5k; no open J names on the shared broker account.",
         iteration: null,
       },
       money: { equity: jEquity, dayPnl: null, totalPnl: jPnl },
+      ...(familyRuntimeEnabled && family.accounting ? { accounting: family.accounting } : {}),
       heartbeatAt: heartbeat,
       issues: [],
     },
@@ -189,6 +205,9 @@ export function projectBook(book, opts = {}) {
       }
     }
   }
+  if (familyRuntimeEnabled) {
+    desks[0].positions = family.positions.map((row) => ({ ...row, dayPnl: null }));
+  }
 
   const issues = [];
   if (halt) issues.push("HALT is on");
@@ -212,7 +231,7 @@ export function projectBook(book, opts = {}) {
     currency: "EUR",
     source: {
       label: "hsb0 joe-board-pusher (paper Gateway projection)",
-      revision: bookTs,
+      revision: familyRuntimeEnabled ? brokerSnapshotAt.toISOString() : bookTs,
     },
     safety: {
       halt,
