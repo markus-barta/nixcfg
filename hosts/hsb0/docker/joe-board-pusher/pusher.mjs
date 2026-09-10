@@ -7,6 +7,7 @@ import fs from "node:fs";
 import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
 import { projectBook } from "./project.mjs";
+import { contractKey, createPositionTracker } from "./positions-state.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
@@ -29,6 +30,7 @@ const INTERVAL_SEC = parseIntervalSec();
 let ib = null;
 let connecting = false;
 let connected = false;
+const positionTracker = createPositionTracker(ACCOUNT);
 const state = {
   accounts: null,
   positions: [],
@@ -75,6 +77,7 @@ function bookSnapshot() {
     accounts: state.accounts,
     summary: state.summary,
     positions: state.positions.filter((p) => p.pos !== 0),
+    positionsCoverage: positionTracker.snapshot(),
     openOrders: state.openOrders,
     portfolio: state.portfolio.filter((p) => p.pos !== 0 || p.realizedPNL),
   };
@@ -127,6 +130,7 @@ function attach(api) {
     connected = true;
     connecting = false;
     state.lastError = null;
+    positionTracker.onConnected();
     console.log(JSON.stringify({ event: "connected", host: HOST, port: PORT, clientId: CLIENT_ID }));
     api.reqManagedAccts();
     api.reqPositions();
@@ -138,6 +142,7 @@ function attach(api) {
     connected = false;
     connecting = false;
     state.lastError = "disconnected";
+    positionTracker.onDisconnected();
     console.warn(JSON.stringify({ event: "disconnected" }));
     setTimeout(connect, RETRY_MS);
   });
@@ -158,31 +163,56 @@ function attach(api) {
     state.summary[tag] = { account, value, currency };
   });
   api.on(EventName.position, (account, contract, pos, avgCost) => {
+    const observedAt = new Date().toISOString();
+    positionTracker.onPosition(account, contract, pos, avgCost, observedAt);
+    if (account !== ACCOUNT) return;
+    const key = contractKey(contract);
     const row = {
       account,
+      contractKey: key,
       symbol: contract.symbol,
       exchange: contract.exchange || contract.primaryExch,
       currency: contract.currency,
       secType: contract.secType,
       pos,
       avgCost,
+      observedAt,
     };
-    state.positions = state.positions.filter((p) => !(p.symbol === row.symbol && p.currency === row.currency));
-    state.positions.push(row);
+    state.positions = state.positions.filter((p) => p.contractKey !== key);
+    if (Number(pos) !== 0) state.positions.push(row);
+  });
+  api.on(EventName.positionEnd, () => {
+    positionTracker.onPositionEnd();
   });
   api.on(EventName.updatePortfolio, (contract, pos, marketPrice, marketValue, avgCost, unrealizedPNL, realizedPNL) => {
-    const row = {
-      symbol: contract.symbol,
-      currency: contract.currency,
+    const observedAt = new Date().toISOString();
+    positionTracker.onPortfolio(
+      contract,
       pos,
       marketPrice,
       marketValue,
       avgCost,
       unrealizedPNL,
       realizedPNL,
+      observedAt
+    );
+    const key = contractKey(contract);
+    const row = {
+      contractKey: key,
+      symbol: contract.symbol,
+      currency: contract.currency,
+      secType: contract.secType,
+      exchange: contract.exchange || contract.primaryExch,
+      pos,
+      marketPrice,
+      marketValue,
+      avgCost,
+      unrealizedPNL,
+      realizedPNL,
+      observedAt,
     };
-    state.portfolio = state.portfolio.filter((p) => !(p.symbol === row.symbol && p.currency === row.currency));
-    state.portfolio.push(row);
+    state.portfolio = state.portfolio.filter((p) => p.contractKey !== key);
+    if (Number(pos) !== 0 || realizedPNL) state.portfolio.push(row);
   });
   api.on(EventName.openOrder, (orderId, contract, order, orderState) => {
     const row = {
