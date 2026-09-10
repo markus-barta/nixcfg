@@ -7,7 +7,12 @@ import fs from "node:fs";
 import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
 import { projectBook } from "./project.mjs";
-import { contractKey, createPositionTracker } from "./positions-state.mjs";
+import {
+  contractKey,
+  createPositionTracker,
+  isConnectionFailure,
+  strictFinite,
+} from "./positions-state.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
@@ -31,6 +36,7 @@ let ib = null;
 let connecting = false;
 let connected = false;
 const positionTracker = createPositionTracker(ACCOUNT);
+let sessionEpoch = 0;
 const state = {
   accounts: null,
   positions: [],
@@ -40,6 +46,20 @@ const state = {
   lastError: null,
   ts: null,
 };
+
+function resetBookState() {
+  state.positions = [];
+  state.portfolio = [];
+  state.summary = {};
+}
+
+function invalidateSession(reason) {
+  connected = false;
+  connecting = false;
+  state.lastError = reason;
+  sessionEpoch = positionTracker.onDisconnected();
+  resetBookState();
+}
 
 function readToken() {
   try {
@@ -130,7 +150,8 @@ function attach(api) {
     connected = true;
     connecting = false;
     state.lastError = null;
-    positionTracker.onConnected();
+    sessionEpoch = positionTracker.onConnected();
+    resetBookState();
     console.log(JSON.stringify({ event: "connected", host: HOST, port: PORT, clientId: CLIENT_ID }));
     api.reqManagedAccts();
     api.reqPositions();
@@ -139,19 +160,17 @@ function attach(api) {
     api.reqAccountUpdates(true, ACCOUNT);
   });
   api.on(EventName.disconnected, () => {
-    connected = false;
-    connecting = false;
-    state.lastError = "disconnected";
-    positionTracker.onDisconnected();
+    invalidateSession("disconnected");
     console.warn(JSON.stringify({ event: "disconnected" }));
     setTimeout(connect, RETRY_MS);
   });
   api.on(EventName.error, (err, code) => {
     const message = String(err && err.message ? err.message : err);
-    state.lastError = `${code || ""} ${message}`.trim();
-    if (code === 502 || /ECONNREFUSED|connect/i.test(message)) {
-      connected = false;
-      connecting = false;
+    const detail = `${code || ""} ${message}`.trim();
+    if (isConnectionFailure(code, message)) {
+      invalidateSession(detail);
+    } else {
+      state.lastError = detail;
     }
     if (code && Number(code) >= 2000) return;
     console.warn(JSON.stringify({ event: "ib_error", code, message: message.slice(0, 160) }));
@@ -163,9 +182,12 @@ function attach(api) {
     state.summary[tag] = { account, value, currency };
   });
   api.on(EventName.position, (account, contract, pos, avgCost) => {
+    if (!positionTracker.isLive(sessionEpoch)) return;
     const observedAt = new Date().toISOString();
-    positionTracker.onPosition(account, contract, pos, avgCost, observedAt);
+    positionTracker.onPosition(sessionEpoch, account, contract, pos, avgCost, observedAt);
     if (account !== ACCOUNT) return;
+    const qty = strictFinite(pos);
+    if (qty === undefined) return;
     const key = contractKey(contract);
     const row = {
       account,
@@ -174,46 +196,55 @@ function attach(api) {
       exchange: contract.exchange || contract.primaryExch,
       currency: contract.currency,
       secType: contract.secType,
-      pos,
+      pos: qty,
       avgCost,
       observedAt,
     };
     state.positions = state.positions.filter((p) => p.contractKey !== key);
-    if (Number(pos) !== 0) state.positions.push(row);
+    if (qty !== 0) state.positions.push(row);
   });
   api.on(EventName.positionEnd, () => {
-    positionTracker.onPositionEnd();
+    positionTracker.onPositionEnd(sessionEpoch);
   });
-  api.on(EventName.updatePortfolio, (contract, pos, marketPrice, marketValue, avgCost, unrealizedPNL, realizedPNL) => {
-    const observedAt = new Date().toISOString();
-    positionTracker.onPortfolio(
-      contract,
-      pos,
-      marketPrice,
-      marketValue,
-      avgCost,
-      unrealizedPNL,
-      realizedPNL,
-      observedAt
-    );
-    const key = contractKey(contract);
-    const row = {
-      contractKey: key,
-      symbol: contract.symbol,
-      currency: contract.currency,
-      secType: contract.secType,
-      exchange: contract.exchange || contract.primaryExch,
-      pos,
-      marketPrice,
-      marketValue,
-      avgCost,
-      unrealizedPNL,
-      realizedPNL,
-      observedAt,
-    };
-    state.portfolio = state.portfolio.filter((p) => p.contractKey !== key);
-    if (Number(pos) !== 0 || realizedPNL) state.portfolio.push(row);
-  });
+  api.on(
+    EventName.updatePortfolio,
+    (contract, pos, marketPrice, marketValue, avgCost, unrealizedPNL, realizedPNL, accountName) => {
+      if (!positionTracker.isLive(sessionEpoch)) return;
+      if (accountName !== ACCOUNT) return;
+      const observedAt = new Date().toISOString();
+      positionTracker.onPortfolio(
+        sessionEpoch,
+        accountName,
+        contract,
+        pos,
+        marketPrice,
+        marketValue,
+        avgCost,
+        unrealizedPNL,
+        realizedPNL,
+        observedAt
+      );
+      const qty = strictFinite(pos);
+      if (qty === undefined) return;
+      const key = contractKey(contract);
+      const row = {
+        contractKey: key,
+        symbol: contract.symbol,
+        currency: contract.currency,
+        secType: contract.secType,
+        exchange: contract.exchange || contract.primaryExch,
+        pos: qty,
+        marketPrice,
+        marketValue,
+        avgCost,
+        unrealizedPNL,
+        realizedPNL,
+        observedAt,
+      };
+      state.portfolio = state.portfolio.filter((p) => p.contractKey !== key);
+      if (qty !== 0 || strictFinite(realizedPNL) !== undefined) state.portfolio.push(row);
+    }
+  );
   api.on(EventName.openOrder, (orderId, contract, order, orderState) => {
     const row = {
       orderId,
@@ -242,9 +273,7 @@ function connect() {
     attach(ib);
     ib.connect();
   } catch (e) {
-    connecting = false;
-    connected = false;
-    state.lastError = String(e && e.message ? e.message : e);
+    invalidateSession(String(e && e.message ? e.message : e));
     setTimeout(connect, RETRY_MS);
   }
 }
