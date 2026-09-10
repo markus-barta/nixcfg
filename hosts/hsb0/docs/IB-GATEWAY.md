@@ -12,6 +12,7 @@ SSH `-L` tunnel on the Mac. Do **not** bind `0.0.0.0` or the LAN IP
 | ------------------- | ---------------------------------------------------------------------------------- |
 | Image               | `ghcr.io/gnzsnz/ib-gateway:10.45` (Mac desks use 10.45; stable channel = 10.45.1j) |
 | Mode                | paper only (`TRADING_MODE=paper`)                                                  |
+| API capability      | paper API writes enabled (`READ_ONLY_API=no`)                                      |
 | API bind            | `100.64.0.6:4002` → container `4004` (socat → internal `4002`)                     |
 | Live API            | **not published** (no `4001`/`4003`)                                               |
 | IBKR login          | username `markusbarta` (one login for paper + live); password via agenix           |
@@ -28,6 +29,20 @@ paper account (`DUR970597`) and the live account (`U28240205`). Which book you
 get is selected at Gateway start via `TRADING_MODE` (`paper` / `live` / `both`),
 not via separate credentials. This host stays **`paper` only** and does **not**
 publish live API port `4001` until Markus explicitly keys a live cut.
+
+## Paper API write capability
+
+Paper desk clients require the Gateway to accept API write operations, so the
+canonical compose configuration sets `READ_ONLY_API=no`. With Gateway read-only
+mode enabled, operations observed uncleared write-access confirmation dialogs
+and clients timing out while waiting for `nextValidId`. After a switch and
+`ib-gateway` recreate, the canonical setting makes the temporary compose
+override unnecessary.
+
+This setting permits paper API writes; it does not grant any client authority
+to place orders. Each client remains responsible for its own order policy. The
+Joe board pusher remains read-only by implementation, independently of the
+Gateway capability used by separately authorized paper clients.
 
 ## Security
 
