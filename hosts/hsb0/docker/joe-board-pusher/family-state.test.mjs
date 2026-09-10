@@ -250,7 +250,8 @@ test("a poll never overlaps and a timed-out commission gate retries with one tim
 test("disconnect and reconnect require fresh data, remove listeners, and ignore an old generation", () => {
   const session = setup();
   const oldApi = connect(session);
-  complete(oldApi, [execution("old.1.01", 27)]);
+  const retained = execution("old.1.01", 27);
+  complete(oldApi, [retained]);
   assert.equal(session.adapter.inspectState().executions.length, 1);
   oldApi.emit(EVENTS.disconnected);
   assert.match(session.adapter.project(book()).reason, /fresh complete execution/);
@@ -259,7 +260,7 @@ test("disconnect and reconnect require fresh data, remove listeners, and ignore 
   assert.equal(oldApi.listenerCount(EVENTS.execDetails), 0);
   const nextId = requestId(nextApi);
   oldApi.emit(EVENTS.execDetails, nextId, contract("STALE", 999), execution("stale.1.01", 27).execution);
-  complete(nextApi, []);
+  complete(nextApi, [retained]);
   assert.equal(session.adapter.inspectState().executions.length, 1);
 });
 
@@ -308,6 +309,29 @@ test("a same-trading-day restart accepts a complete current-day resync", () => {
   assert.equal(restarted.adapter.blockedReason, null);
   assert.equal(shared.state.coverageThrough, "2026-09-10T13:00:00.000Z");
   assert.equal(shared.state.ledgerObservedAt, "2026-09-10T12:00:00.000Z");
+});
+
+test("a same-day full query losing a previously covered execution requires backfill", () => {
+  const session = setup();
+  const api = connect(session);
+  complete(api, [execution("retained.1.01", 27)]);
+  session.timers.runDelay(30_000);
+  complete(api, []);
+  assert.match(session.adapter.blockedReason, /lost previously covered identities; backfill required/);
+  assert.deepEqual(session.store.state.queryExecutionIdentities, ["retained.1.01"]);
+});
+
+test("execution query coverage survives restart and rejects a truncated same-day query", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-state-test-"));
+  const disk = createFileFamilyStateStore(path.join(directory, "family-ledger.json"));
+  const retained = execution("restart-retained.1.01", 27);
+  const first = setup({ store: disk });
+  complete(connect(first), [retained]);
+
+  const restarted = setup({ store: disk, at: "2026-09-10T12:01:00Z" });
+  complete(connect(restarted), []);
+  assert.match(restarted.adapter.blockedReason, /lost previously covered identities; backfill required/);
+  assert.deepEqual(restarted.adapter.inspectState().queryExecutionIdentities, ["restart-retained.1.01"]);
 });
 
 test("a running publisher stops when its proven coverage day crosses New York midnight", () => {
@@ -359,6 +383,17 @@ test("identical replays deduplicate while exact-id conflicts fail closed", () =>
   assert.equal(session.store.state.executions[0].execution.price, 10);
 });
 
+test("non-finite live broker numbers remain rejected", () => {
+  const session = setup();
+  const api = connect(session);
+  const invalid = execution("nonfinite.1.01", 27);
+  invalid.execution.price = Number.NaN;
+  const id = requestId(api);
+  api.emit(EVENTS.execDetails, id, invalid.contract, invalid.execution);
+  assert.match(session.adapter.blockedReason, /non-finite broker number/);
+  assert.equal(session.store.state, null);
+});
+
 test("correction revisions are durably merged without truncating their raw predecessors", () => {
   const session = setup();
   const api = connect(session);
@@ -369,6 +404,7 @@ test("correction revisions are durably merged without truncating their raw prede
     session.store.state.executions.map((row) => row.execution.execId),
     ["correction.1.01", "correction.1.02"]
   );
+  assert.deepEqual(session.store.state.queryExecutionIdentities, ["correction.1.02"]);
   assert.deepEqual(
     session.store.state.commissions.map((row) => row.execId),
     ["correction.1.01", "correction.1.02"]
@@ -441,14 +477,15 @@ test("a restart rejects source observations older than its persisted family proj
 test("FX is unavailable after disconnect until every required rate is freshly observed", () => {
   const session = setup();
   const api = connect(session);
-  complete(api, [execution("fx.1.01", 27)]);
+  const retained = execution("fx.1.01", 27);
+  complete(api, [retained]);
   emitFx(api, "EUR", 1);
   emitFx(api, "USD", 0.86);
   assert.equal(session.adapter.project(book()).ok, true);
   api.emit(EVENTS.disconnected);
 
   const next = connect(session, new FakeApi());
-  complete(next, []);
+  complete(next, [retained]);
   emitFx(next, "EUR", 1);
   assert.match(session.adapter.project(book()).reason, /USD→EUR/);
   emitFx(next, "USD", 0.85);
@@ -513,6 +550,29 @@ test("file store atomically round-trips a bounded durable ledger", () => {
   assert.deepEqual(loaded.state, source.state);
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.deepEqual(fs.readdirSync(directory), ["family-ledger.json"]);
+});
+
+test("JSON roundtrip accepts real-SDK-shaped undefined keys on the next replay", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-state-test-"));
+  const file = path.join(directory, "family-ledger.json");
+  const disk = createFileFamilyStateStore(file);
+  const row = execution("sdk-shape.1.01", 27);
+  row.contract.right = undefined;
+  row.execution.modelCode = undefined;
+  const report = commission(row.execution.execId);
+  report.realizedPNL = undefined;
+  report.yield = undefined;
+
+  const first = setup({ store: disk });
+  complete(connect(first), [row], [report]);
+  const persisted = fs.readFileSync(file, "utf8");
+  assert.equal(persisted.includes('"right"'), false);
+  assert.equal(persisted.includes('"yield"'), false);
+
+  const restarted = setup({ store: disk, at: "2026-09-10T12:01:00Z" });
+  complete(connect(restarted), [row], [report]);
+  assert.equal(restarted.adapter.blockedReason, null);
+  assert.deepEqual(restarted.adapter.inspectState().queryExecutionIdentities, ["sdk-shape.1.01"]);
 });
 
 

@@ -20,17 +20,24 @@ symbols, last completed capture, and New York coverage day. Because the current
 execution request cannot prove a missed net-zero roundtrip across a New York
 midnight, the publisher conservatively requires verified backfill at that boundary;
 same-day restarts recover through a complete current-day capture.
+Within a coverage day, every complete execution query must retain every identity
+from the preceding successful query (or provide its higher IB correction revision).
+A disappearing identity is treated as an undocumented Gateway cutoff and requires
+backfill even when current positions reconcile.
 
 FX uses a separately scoped `reqAccountUpdatesMulti` request. Before the five-minute
 freshness window expires, the adapter cancels that request and opens a new request
 ID. Only an explicit callback for the current connection and request refreshes a
 rate; an unchanged cached value or publisher heartbeat cannot refresh it.
 
-The publisher fails closed: it skips POSTs while an execution cycle is incomplete,
-a family fill lacks its commission, FX is stale, position coverage is incomplete,
-state is missing after the authorized bootstrap date, or persisted state is corrupt.
-Disconnects require fresh executions and FX before publishing resumes, and any
-unproved New York day boundary requires backfill rather than position-only inference.
+J accounting fails closed while an execution cycle is incomplete, a family fill
+lacks its commission, FX is stale, position coverage is incomplete, state is missing
+after the authorized bootstrap date, persisted state is corrupt, or execution-query
+coverage regresses. In those cases household POSTs continue with J money set to
+`null` and J positions omitted; Joe and Joel continue from the valid broker book,
+and aggregate money is `null` rather than a misleading partial sum. Disconnects
+require fresh executions and FX before J resumes, and any unproved New York day
+boundary requires backfill rather than position-only inference.
 
 ## Position rows
 

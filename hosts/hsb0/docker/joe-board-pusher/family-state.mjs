@@ -18,9 +18,17 @@ function finitePositive(value) {
 }
 
 function stable(value) {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
+  if (Array.isArray(value)) {
+    return `[${Array.from(value, (item) => stable(item) ?? "null").join(",")}]`;
+  }
   if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
+    const fields = [];
+    for (const key of Object.keys(value).sort()) {
+      const encoded = stable(value[key]);
+      // JSON persistence omits undefined/function/symbol-valued object keys.
+      if (encoded !== undefined) fields.push(`${JSON.stringify(key)}:${encoded}`);
+    }
+    return `{${fields.join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -39,7 +47,68 @@ function commissionId(row) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function assertFiniteJsonNumbers(value, label, seen = new Set()) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || Math.abs(value) === Number.MAX_VALUE) {
+      throw new Error(`${label} contains a non-finite broker number`);
+    }
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  if (seen.has(value)) throw new Error(`${label} contains a circular value`);
+  seen.add(value);
+  for (const child of Object.values(value)) assertFiniteJsonNumbers(child, label, seen);
+  seen.delete(value);
+}
+
+function validateReplayRecord(row, label) {
+  assertFiniteJsonNumbers(row, label);
+  if (label === "execution") {
+    if (!row?.contract || typeof row.contract !== "object" || !row.execution || typeof row.execution !== "object") {
+      throw new Error("execution is malformed");
+    }
+    if (!Number.isInteger(row.execution.clientId) ||
+        !Number.isFinite(row.execution.shares) || !Number.isFinite(row.execution.price)) {
+      throw new Error("execution has invalid numeric fields");
+    }
+  } else if (label === "commission" && !Number.isFinite(row?.commission)) {
+    throw new Error("commission has invalid numeric fields");
+  }
+}
+
+function correctionIdentity(rowOrId) {
+  const id = typeof rowOrId === "string" ? rowOrId : executionId(rowOrId);
+  const match = id?.match(/^(.*\.)(\d+)$/);
+  if (!match || match[1] === ".") throw new Error(`execution ${id || "ID"} has no correction segment`);
+  return { id, prefix: match[1], revision: BigInt(match[2]) };
+}
+
+function latestExecutionIdentities(rows) {
+  const latest = new Map();
+  for (const row of rows) {
+    const identity = correctionIdentity(row);
+    const prior = latest.get(identity.prefix);
+    if (!prior || identity.revision > prior.revision) latest.set(identity.prefix, identity);
+  }
+  return [...latest.values()]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map(({ id }) => id);
+}
+
+function missingPriorQueryIdentities(priorIds, currentIds) {
+  const current = new Map(currentIds.map((id) => {
+    const identity = correctionIdentity(id);
+    return [identity.prefix, identity];
+  }));
+  return priorIds.filter((id) => {
+    const prior = correctionIdentity(id);
+    const next = current.get(prior.prefix);
+    return !next || next.revision < prior.revision;
+  });
+}
+
 function mergeExact(existing, incoming, identify, label) {
+  for (const row of [...existing, ...incoming]) validateReplayRecord(row, label);
   const merged = [...existing];
   const byId = new Map(existing.map((row, index) => [identify(row), { row, index }]));
   let changed = false;
@@ -95,6 +164,9 @@ function validState(value, account, periodStart, classifier) {
   if (!sameRecord(persistedClassifier, classifier)) return "state classifier does not match configured family";
   if (!Array.isArray(value.executions) || value.executions.length > MAX_RECORDS) return "invalid execution ledger";
   if (!Array.isArray(value.commissions) || value.commissions.length > MAX_RECORDS) return "invalid commission ledger";
+  if (!Array.isArray(value.queryExecutionIdentities) || value.queryExecutionIdentities.length > MAX_RECORDS) {
+    return "invalid execution query coverage";
+  }
   if (!iso(value.ledgerObservedAt)) return "invalid ledger observation time";
   if (!iso(value.coverageThrough) || newYorkDay(value.coverageThrough) !== value.coverageTradingDay) {
     return "invalid execution coverage metadata";
@@ -106,6 +178,7 @@ function validState(value, account, periodStart, classifier) {
       return "execution ledger row is malformed";
     }
     if (row.execution.acctNumber !== value.account) return "execution ledger account mismatch";
+    try { validateReplayRecord(row, "execution"); } catch (error) { return error.message; }
     if (seenExecutions.has(id) && !sameRecord(seenExecutions.get(id), row)) return `conflicting persisted execution ${id}`;
     seenExecutions.set(id, row);
   }
@@ -113,8 +186,21 @@ function validState(value, account, periodStart, classifier) {
   for (const row of value.commissions) {
     const id = commissionId(row);
     if (!id) return "commission ledger row is missing execId";
+    try { validateReplayRecord(row, "commission"); } catch (error) { return error.message; }
     if (seenCommissions.has(id) && !sameRecord(seenCommissions.get(id), row)) return `conflicting persisted commission ${id}`;
     seenCommissions.set(id, row);
+  }
+  try {
+    const canonicalQuery = latestExecutionIdentities(value.queryExecutionIdentities);
+    if (!sameRecord(value.queryExecutionIdentities, canonicalQuery)) {
+      return "execution query coverage is not canonical";
+    }
+    const ledgerIdentities = latestExecutionIdentities(value.executions);
+    if (missingPriorQueryIdentities(canonicalQuery, ledgerIdentities).length) {
+      return "execution query coverage is absent from persisted ledger";
+    }
+  } catch (error) {
+    return error.message;
   }
   if (value.family !== null && value.family !== undefined) {
     const invalid = validateFamilyResult(value.family);
@@ -415,6 +501,18 @@ export function createFamilySessionAdapter({
       return false;
     }
     try {
+      const queryExecutionIdentities = latestExecutionIdentities(cycle.executions);
+      if (state) {
+        const missing = missingPriorQueryIdentities(
+          state.queryExecutionIdentities,
+          queryExecutionIdentities
+        );
+        if (missing.length) {
+          blockedReason = "complete execution replay lost previously covered identities; backfill required";
+          emitAvailability(blockedReason);
+          return false;
+        }
+      }
       const prior = state || {
         schema: STATE_SCHEMA,
         version: 1,
@@ -425,6 +523,7 @@ export function createFamilySessionAdapter({
         ledgerObservedAt: observedAt,
         coverageThrough: observedAt,
         coverageTradingDay,
+        queryExecutionIdentities,
         executions: [],
         commissions: [],
         family: null,
@@ -439,6 +538,7 @@ export function createFamilySessionAdapter({
         ledgerObservedAt: changed ? observedAt : prior.ledgerObservedAt,
         coverageThrough: observedAt,
         coverageTradingDay,
+        queryExecutionIdentities,
         executions: executionMerge.rows,
         commissions: commissionMerge.rows,
       };

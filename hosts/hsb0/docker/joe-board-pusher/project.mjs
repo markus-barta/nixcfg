@@ -88,12 +88,14 @@ export function buildDeskPositions(coverage) {
 export function projectBook(book, opts = {}) {
   const familyRuntimeEnabled = Boolean(opts.familyRuntimeEnabled);
   const family = opts.family;
-  const familyComplete = family && family.ok === true &&
+  const familyComplete = Boolean(family && family.ok === true &&
     [family.equity, family.totalPnl, family.realizedPnl, family.unrealizedPnl].every(Number.isFinite) &&
-    Array.isArray(family.positions) && family.accounting?.method === "execution-fifo-net-current-fx";
-  if (familyRuntimeEnabled && !familyComplete) return null;
+    Array.isArray(family.positions) && family.accounting?.method === "execution-fifo-net-current-fx");
+  const familyAccepted = familyRuntimeEnabled && familyComplete;
+  const familyUnavailable = familyRuntimeEnabled && !familyComplete;
+  const familyUnavailableReason = String(family?.reason || "verified family accounting unavailable").slice(0, 160);
   const sourceTimes = [book.ts];
-  if (familyRuntimeEnabled) sourceTimes.push(family.observedAt);
+  if (familyAccepted) sourceTimes.push(family.observedAt);
   const latestSourceMs = Math.max(...sourceTimes.map((value) => new Date(value || "").getTime()));
   const brokerSnapshotAt = new Date(latestSourceMs);
   if (Number.isNaN(brokerSnapshotAt.getTime())) return null;
@@ -117,7 +119,9 @@ export function projectBook(book, opts = {}) {
   const stage0Rows = stage0JoelRows(portfolio);
   const stage0Mv = round2(stage0Rows.reduce((s, p) => s + fnum(p.marketValue), 0));
 
-  const jPnl = familyRuntimeEnabled
+  const jPnl = familyUnavailable
+    ? null
+    : familyRuntimeEnabled
     ? round2(family.totalPnl)
     : round2(
       (() => {
@@ -130,7 +134,11 @@ export function projectBook(book, opts = {}) {
   const joelPnl = round2(
     stage0Rows.reduce((s, p) => s + fnum(p.unrealizedPNL) + fnum(p.realizedPNL), 0)
   );
-  const jEquity = familyRuntimeEnabled ? round2(family.equity) : round2(VIRTUAL_EQUITY + jPnl);
+  const jEquity = familyUnavailable
+    ? null
+    : familyRuntimeEnabled
+      ? round2(family.equity)
+      : round2(VIRTUAL_EQUITY + jPnl);
   const joeEquity = round2(VIRTUAL_EQUITY + joePnl);
   const joelEquity = round2(VIRTUAL_EQUITY + joelPnl);
 
@@ -140,23 +148,31 @@ export function projectBook(book, opts = {}) {
     {
       id: "j",
       label: "J",
-      state: familyRuntimeEnabled && family.positions.length ? "working" : "sit-out",
+      state: familyUnavailable
+        ? "stuck"
+        : familyRuntimeEnabled && family.positions.length ? "working" : "sit-out",
       stateSince: null,
-      action: familyRuntimeEnabled
+      action: familyUnavailable
+        ? `J accounting unavailable — ${familyUnavailableReason}`
+        : familyRuntimeEnabled
         ? "J + J2–J5; verified since 10 Sep; net fees; EUR at observed FX; earlier results unavailable."
         : "Virt book €5k; flat — no open J broker position.",
       learning: {
-        status: familyRuntimeEnabled && family.positions.length ? "steady" : "learning",
-        headline: familyRuntimeEnabled ? "J family execution ledger" : "Shared broker book",
-        detail: familyRuntimeEnabled
+        status: familyAccepted && family.positions.length ? "steady" : "learning",
+        headline: familyUnavailable
+          ? "J family accounting unavailable"
+          : familyRuntimeEnabled ? "J family execution ledger" : "Shared broker book",
+        detail: familyUnavailable
+          ? `No verified J result is published: ${familyUnavailableReason}`
+          : familyRuntimeEnabled
           ? "J + J2–J5; verified since 10 Sep; net fees; EUR at observed FX; earlier results unavailable."
           : "Virt book €5k; no open J names on the shared broker account.",
         iteration: null,
       },
       money: { equity: jEquity, dayPnl: null, totalPnl: jPnl },
-      ...(familyRuntimeEnabled && family.accounting ? { accounting: family.accounting } : {}),
+      ...(familyAccepted ? { accounting: family.accounting } : {}),
       heartbeatAt: heartbeat,
-      issues: [],
+      issues: familyUnavailable ? [`J accounting unavailable: ${familyUnavailableReason}`] : [],
     },
     {
       id: "joe",
@@ -200,12 +216,13 @@ export function projectBook(book, opts = {}) {
 
   if (deskPositions) {
     for (const desk of desks) {
+      if (familyRuntimeEnabled && desk.id === "j") continue;
       if (Object.prototype.hasOwnProperty.call(deskPositions, desk.id)) {
         desk.positions = deskPositions[desk.id];
       }
     }
   }
-  if (familyRuntimeEnabled) {
+  if (familyAccepted) {
     desks[0].positions = family.positions.map((row) => ({ ...row, dayPnl: null }));
   }
 
@@ -219,9 +236,9 @@ export function projectBook(book, opts = {}) {
   }
 
   const totals = {
-    equity: round2(jEquity + joeEquity + joelEquity),
+    equity: familyUnavailable ? null : round2(jEquity + joeEquity + joelEquity),
     dayPnl: null,
-    totalPnl: round2(jPnl + joePnl + joelPnl),
+    totalPnl: familyUnavailable ? null : round2(jPnl + joePnl + joelPnl),
   };
 
   return {
@@ -231,7 +248,7 @@ export function projectBook(book, opts = {}) {
     currency: "EUR",
     source: {
       label: "hsb0 joe-board-pusher (paper Gateway projection)",
-      revision: familyRuntimeEnabled ? brokerSnapshotAt.toISOString() : bookTs,
+      revision: familyAccepted ? brokerSnapshotAt.toISOString() : bookTs,
     },
     safety: {
       halt,
