@@ -130,15 +130,29 @@ export function createFileFamilyStateStore(filePath, fsImpl = fs) {
   return {
     load({ account, periodStart, classifier }) {
       let source;
+      let handle;
       try {
-        const stat = fsImpl.statSync(filePath);
+        handle = fsImpl.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+        const stat = fsImpl.fstatSync(handle);
         if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_STATE_BYTES) {
           return { ok: false, reason: "family ledger state has an invalid size" };
         }
-        source = fsImpl.readFileSync(filePath, "utf8");
+        // Read the same opened inode we validated; a pathname replacement must
+        // not change the ledger selected by this load. Bound concurrent growth.
+        const bytes = Buffer.alloc(stat.size + 1);
+        let count = 0;
+        while (count < bytes.length) {
+          const read = fsImpl.readSync(handle, bytes, count, bytes.length - count, null);
+          if (read === 0) break;
+          count += read;
+        }
+        if (count !== stat.size) return { ok: false, reason: "family ledger state changed size during read" };
+        source = bytes.subarray(0, count).toString("utf8");
       } catch (error) {
         if (error?.code === "ENOENT") return { ok: true, state: null };
         return { ok: false, reason: `family ledger state read failed: ${error?.code || error}` };
+      } finally {
+        if (handle !== undefined) fsImpl.closeSync(handle);
       }
       try {
         const state = JSON.parse(source);
