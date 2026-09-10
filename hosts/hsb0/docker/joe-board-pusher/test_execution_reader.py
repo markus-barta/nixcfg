@@ -370,6 +370,26 @@ class ExecutionReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "configured account"):
             canonical_execution(contract(), execution(acctNumber="DU999999"), ACCOUNT)
 
+    def test_other_desk_cash_and_option_contract_multipliers_are_preserved(self):
+        cash = canonical_execution(
+            contract(conId=12087792, symbol="eur", secType="cash", currency="usd", multiplier=""),
+            execution("other.cash.01", clientId=22),
+            ACCOUNT,
+        )
+        option = canonical_execution(
+            contract(conId=987654, symbol="spy", secType="opt", currency="usd", multiplier="100"),
+            execution("other.option.01", clientId=22),
+            ACCOUNT,
+        )
+        self.assertEqual(
+            cash["contract"],
+            {"conId": 12087792, "symbol": "EUR", "secType": "CASH", "currency": "USD", "multiplier": ""},
+        )
+        self.assertEqual(
+            option["contract"],
+            {"conId": 987654, "symbol": "SPY", "secType": "OPT", "currency": "USD", "multiplier": "100"},
+        )
+
     def test_shutdown_is_idempotent_and_disconnect_fails_active_cycle(self):
         def disconnect(sink, request_id):
             sink.on_disconnect()

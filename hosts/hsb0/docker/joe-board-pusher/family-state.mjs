@@ -12,6 +12,7 @@ const MAX_RECORDS = 50_000;
 const MAX_QUERY_DATES = 7;
 const BASELINE_PERIOD_START = "2026-09-10T04:00:00Z";
 const BASELINE_NEW_YORK_DAY = "2026-09-10";
+const executionEpochCache = new Map();
 
 function clone(value) {
   return structuredClone(value);
@@ -58,14 +59,26 @@ function currency(value, label) {
   return code;
 }
 
+function contractMultiplier(value, secType) {
+  if (
+    secType === "STK" &&
+    (value === "" || value === 0 || value === 1 || value === "0" || value === "1" || value === null)
+  ) {
+    return 1;
+  }
+  if (value === null) return null;
+  if (typeof value === "string") {
+    if (value.length > 256 || [...value].some((character) => character.codePointAt(0) < 32)) {
+      throw new Error("contract multiplier is invalid or too long");
+    }
+    return value;
+  }
+  return finite(value, "contract multiplier");
+}
+
 function normalizeContract(contract) {
   if (!contract || typeof contract !== "object") throw new Error("execution contract is malformed");
   const secType = requiredText(contract.secType, "contract secType").toUpperCase();
-  if (secType !== "STK") throw new Error("unsupported execution secType");
-  const multiplier = contract.multiplier === ""
-    ? 1
-    : finite(contract.multiplier, "contract multiplier");
-  if (multiplier !== 0 && multiplier !== 1) throw new Error("unsupported STK multiplier");
   if (!Number.isSafeInteger(contract.conId) || contract.conId <= 0) {
     throw new Error("contract conId is invalid");
   }
@@ -74,7 +87,7 @@ function normalizeContract(contract) {
     symbol: requiredText(contract.symbol, "contract symbol").toUpperCase(),
     secType,
     currency: currency(contract.currency, "contract currency"),
-    multiplier: 1,
+    multiplier: contractMultiplier(contract.multiplier, secType),
   };
 }
 
@@ -245,15 +258,12 @@ function persistedDayRange(first, last) {
   return days;
 }
 
-function precedingDay(day) {
-  const expanded = expandedDay(day);
-  if (!expanded) return null;
-  return new Date(Date.parse(`${expanded}T12:00:00Z`) - 86_400_000)
-    .toISOString().slice(0, 10).replaceAll("-", "");
-}
-
 function executionEpoch(row) {
-  const match = row?.execution?.time?.match(
+  const source = row?.execution?.time;
+  if (typeof source === "string" && executionEpochCache.has(source)) {
+    return executionEpochCache.get(source);
+  }
+  const match = source?.match(
     /^(\d{4})(\d{2})(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\s+(?:US\/Eastern|America\/New_York)$/
   );
   if (!match) return null;
@@ -266,7 +276,10 @@ function executionEpoch(row) {
       matches.push(candidate);
     }
   }
-  return matches.length === 1 ? matches[0] : null;
+  const result = matches.length === 1 ? matches[0] : null;
+  if (executionEpochCache.size >= MAX_RECORDS) executionEpochCache.clear();
+  executionEpochCache.set(source, result);
+  return result;
 }
 
 function normalizedClassifier(familyClientIds, excludedSymbols) {
@@ -741,20 +754,33 @@ function stateAnchorRows(source) {
   return source?.executions || [];
 }
 
-function findAnchor(source, firstRequest, gapStart) {
-  const responseByPrefix = new Map(
-    latestIdentities(firstRequest.executions).map((identity) => [identity.prefix, identity])
-  );
-  const candidates = stateAnchorRows(source)
-    .map((row) => ({ row, identity: correctionIdentity(row), epoch: executionEpoch(row) }))
-    .filter(({ row, identity, epoch }) => {
-      if (epoch === null || epoch > gapStart) return false;
-      if (dayForExecution(row) !== expandedDay(firstRequest.date)) return false;
-      const replayed = responseByPrefix.get(identity.prefix);
-      return replayed && replayed.revision >= identity.revision;
-    })
-    .sort((left, right) => left.epoch - right.epoch);
-  return candidates[0] || null;
+function latestKnownAnchorDay(source, gapStart) {
+  let latest = null;
+  for (const row of stateAnchorRows(source)) {
+    const epoch = executionEpoch(row);
+    if (epoch !== null && epoch <= gapStart && (!latest || epoch > latest.epoch)) {
+      latest = { row, epoch };
+    }
+  }
+  return latest ? dayForExecution(latest.row) : null;
+}
+
+function findAnchor(source, requests, gapStart) {
+  const responseByDay = new Map(requests.map((request) => [
+    expandedDay(request.date),
+    new Map(latestIdentities(request.executions).map((identity) => [identity.prefix, identity])),
+  ]));
+  let latest = null;
+  for (const row of stateAnchorRows(source)) {
+    const identity = correctionIdentity(row);
+    const epoch = executionEpoch(row);
+    if (epoch === null || epoch > gapStart) continue;
+    const replayed = responseByDay.get(dayForExecution(row))?.get(identity.prefix);
+    if (replayed && replayed.revision >= identity.revision && (!latest || epoch > latest.epoch)) {
+      latest = { row, identity, epoch };
+    }
+  }
+  return latest;
 }
 
 function persistedDayIdentities(source, day) {
@@ -801,7 +827,7 @@ function buildAcceptedState({
   const crossesDay = Boolean(source) &&
     compactDay(newYorkDay(new Date(gapStart).toISOString())) !== requests.at(-1).date;
   const needsAnchor = Boolean(legacy || sourceChanged || crossesDay);
-  let anchor = source ? findAnchor(source, first, gapStart) : null;
+  let anchor = source ? findAnchor(source, requests, gapStart) : null;
 
   if (!source) {
     if (first.date !== compactDay(BASELINE_NEW_YORK_DAY) || first.executions.length === 0) {
@@ -815,13 +841,29 @@ function buildAcceptedState({
   if ((needsAnchor || !source) && !anchor) {
     throw new Error("retention_loss: recovery response did not replay a known pre-gap anchor");
   }
+  const replayedAnchor = Boolean(anchor);
+  const persistedAnchorEpoch = Date.parse(priorEvidence?.anchorExecutionAt || "");
+  const persistedAnchorRow = source?.executions?.find((row) =>
+    dayForExecution(row) === priorEvidence?.anchorDay &&
+    executionEpoch(row) === persistedAnchorEpoch);
   anchor ||= {
-    row: source.executions[0],
-    identity: correctionIdentity(source.executions[0]),
-    epoch: executionEpoch(source.executions[0]),
+    row: persistedAnchorRow || source.executions[0],
+    identity: correctionIdentity(persistedAnchorRow || source.executions[0]),
+    epoch: executionEpoch(persistedAnchorRow || source.executions[0]),
   };
   if (!anchor.row || anchor.epoch === null) {
     throw new Error("retention_loss: no valid execution anchor is available");
+  }
+  const anchorRequest = requests.find((request) =>
+    expandedDay(request.date) === dayForExecution(anchor.row));
+  if (replayedAnchor && !anchorRequest) {
+    throw new Error("retention_loss: anchor date is absent from recovery response");
+  }
+  const anchorIdentityDigest = anchorRequest
+    ? identityDigest(anchorRequest.executions.map((row) => row.execution.execId))
+    : priorEvidence?.anchorIdentityDigest;
+  if (!anchorIdentityDigest) {
+    throw new Error("retention_loss: anchor identity evidence is unavailable");
   }
 
   const incomingExecutions = requests.flatMap((request) => request.executions)
@@ -852,11 +894,13 @@ function buildAcceptedState({
   for (const request of requests) days[expandedDay(request.date)] = dayCoverage(request);
   const changed = !priorState || executionMerge.changed || commissionMerge.changed;
   const ageMs = Date.parse(observedThrough) - anchor.epoch;
-  const status = ageMs > 86_400_000
-    ? "over_24h"
-    : crossesDay || sourceChanged || legacy
-      ? "cross_midnight"
-      : "provisional";
+  const status = !replayedAnchor && priorEvidence
+    ? priorEvidence.status
+    : ageMs > 86_400_000
+      ? "over_24h"
+      : crossesDay || sourceChanged || legacy
+        ? "cross_midnight"
+        : "provisional";
 
   return {
     schema: STATE_SCHEMA,
@@ -882,7 +926,7 @@ function buildAcceptedState({
         helperSessionId: result.helperSessionId,
         anchorDay: dayForExecution(anchor.row),
         anchorExecutionAt: new Date(anchor.epoch).toISOString(),
-        anchorIdentityDigest: identityDigest(first.executions.map((row) => row.execution.execId)),
+        anchorIdentityDigest,
         provenAt: observedThrough,
       },
     },
@@ -978,8 +1022,9 @@ export function createFamilySessionAdapter({
   }
 
   function earliestPendingDay(source) {
+    const currentIds = new Set(latestIdentities(source?.executions || []).map(({ id }) => id));
     return source?.executions
-      ?.filter((row) => row.execution.pendingPriceRevision)
+      ?.filter((row) => currentIds.has(row.execution.execId) && row.execution.pendingPriceRevision)
       .map(dayForExecution)
       .filter(Boolean)
       .sort()[0] || null;
@@ -990,20 +1035,16 @@ export function createFamilySessionAdapter({
     if (!current) throw new Error("current New York day is unavailable");
     let start;
     if (state) {
-      start = compactDay(state.coverage.throughDay);
-      const priorDay = precedingDay(current);
-      const baseline = compactDay(BASELINE_NEW_YORK_DAY);
-      if (priorDay && priorDay >= baseline && priorDay < start) start = priorDay;
+      const coverageDay = compactDay(state.coverage.throughDay);
       const sameHelperSession = history.sessionId &&
         history.sessionId === state.coverage.historyEvidence.helperSessionId;
-      if (!sameHelperSession) {
-        const latestAnchorDay = Object.entries(state.coverage.days)
-          .filter(([, record]) => record.knownNonEmptyReplay)
-          .map(([day]) => compactDay(day))
-          .filter(Boolean)
-          .sort()
-          .at(-1);
-        if (latestAnchorDay && latestAnchorDay < start) start = latestAnchorDay;
+      if (!sameHelperSession || coverageDay !== current) {
+        const gapStart = Date.parse(state.coverage.observedThrough);
+        const anchorDay = compactDay(latestKnownAnchorDay(state, gapStart));
+        if (!anchorDay) throw new Error("no known execution anchor precedes the recovery gap");
+        start = anchorDay;
+      } else {
+        start = current;
       }
       const pending = compactDay(earliestPendingDay(state));
       if (pending && pending < start) start = pending;
@@ -1170,6 +1211,16 @@ export function createFamilySessionAdapter({
     return currencies;
   }
 
+  function calculatorLedger(source) {
+    const executions = source.executions.filter((row) =>
+      row.contract.secType === "STK" || familyExecution(row, familyIds, excluded));
+    const executionIds = new Set(executions.map((row) => row.execution.execId));
+    return {
+      executions: clone(executions),
+      commissions: clone(source.commissions.filter((row) => executionIds.has(row.execId))),
+    };
+  }
+
   function calculatorArgs(source, book) {
     if (!baseCurrencyProven(book, targetAccount)) {
       throw new Error("target account base currency is not proven EUR");
@@ -1201,9 +1252,9 @@ export function createFamilySessionAdapter({
       .flatMap((row) => [row.markObservedAt, row.observedAt]);
     const observedAt = maxIso([source.ledgerObservedAt, ...rateTimes, ...marketTimes]);
     if (!observedAt) throw new Error("family economic observation timestamp is unavailable");
+    const ledger = calculatorLedger(source);
     return {
-      executions: clone(source.executions),
-      commissions: clone(source.commissions),
+      ...ledger,
       portfolio: clone(book.portfolio || []),
       positions: clone(book.positionsCoverage.rows || []),
       fx: { baseCurrency: "EUR", rates, observedAt: maxIso(rateTimes) },
@@ -1248,10 +1299,10 @@ export function createFamilySessionAdapter({
       if (sameEconomicIds(pendingMigration, legacy)) {
         let legacyResult;
         try {
+          const legacyLedger = calculatorLedger(legacy);
           legacyResult = calculateFamily({
             ...args,
-            executions: clone(legacy.executions),
-            commissions: clone(legacy.commissions),
+            ...legacyLedger,
           });
         } catch (error) {
           return { ok: false, reason: `v1 migration comparison failed: ${error.message}` };

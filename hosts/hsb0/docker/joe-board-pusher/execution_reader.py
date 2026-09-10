@@ -142,16 +142,27 @@ def _number(value: Any, label: str, *, positive: bool = False, nonnegative: bool
     return result
 
 
+def canonical_multiplier(value: Any, sec_type: str) -> int | float | str | None:
+    if sec_type == "STK" and not isinstance(value, bool) and value in (None, "", 0, 1, "0", "1"):
+        return 1
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if len(value) > MAX_TEXT or any(ord(ch) < 32 for ch in value):
+            raise ProtocolError("contract.multiplier is invalid or too long")
+        return value
+    if isinstance(value, bool) or not isinstance(value, (Decimal, int, float)):
+        raise ProtocolError("contract.multiplier must be a bounded string, finite number, or null")
+    return _number(value, "contract.multiplier")
+
+
 def canonical_execution(contract: Any, execution: Any, account: str) -> dict[str, Any]:
     acct_number = _text(getattr(execution, "acctNumber", None), "execution.acctNumber")
     if acct_number != account:
         raise ProtocolError("execution account does not match configured account")
     sec_type = _text(getattr(contract, "secType", None), "contract.secType", upper=True)
     raw_multiplier = getattr(contract, "multiplier", "")
-    if sec_type == "STK" and (raw_multiplier in (None, "", 0, 1, "0", "1")):
-        multiplier: int | float = 1
-    else:
-        multiplier = _number(raw_multiplier, "contract.multiplier", positive=True)
+    multiplier = canonical_multiplier(raw_multiplier, sec_type)
     side = _text(getattr(execution, "side", None), "execution.side", upper=True)
     side = {"BOT": "BUY", "BUY": "BUY", "SLD": "SELL", "SELL": "SELL"}.get(side, "")
     if not side:

@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
+import { calculateFamily } from "./family-ledger.mjs";
+
 import {
   EXECUTION_QUERY_REQUEST_SCHEMA,
   EXECUTION_QUERY_RESULT_SCHEMA,
@@ -82,12 +84,11 @@ class FakeChild extends EventEmitter {
     this.kills = [];
     this.exitCode = null;
     this.signalCode = null;
-    this.stdin = {
-      write: (line, callback) => {
-        this.writes.push(line);
-        callback?.(null);
-        return true;
-      },
+    this.stdin = new EventEmitter();
+    this.stdin.write = (line, callback) => {
+      this.writes.push(line);
+      callback?.(null);
+      return true;
     };
   }
 
@@ -158,6 +159,64 @@ test("request and result validators enforce the original account-scoped seam", (
     validateExecutionQueryResult(sold, expected).requests[0].executions[0],
     validateExecutionQueryResult(sell, expected).requests[0].executions[0]
   );
+});
+
+test("other-desk CASH and option contracts retain identity without weakening family accounting", () => {
+  const cash = execution("other.cash.01", { clientId: 22 });
+  cash.contract = {
+    conId: 12087792,
+    symbol: "eur",
+    secType: "cash",
+    currency: "usd",
+    multiplier: "",
+  };
+  const option = execution("other.option.01", { clientId: 22 });
+  option.contract = {
+    conId: 987654,
+    symbol: "spy",
+    secType: "opt",
+    currency: "usd",
+    multiplier: "100",
+  };
+  const value = result({
+    requests: [{
+      date: DAY,
+      requestedAt: "2026-09-10T12:00:00Z",
+      endedAt: "2026-09-10T12:00:01Z",
+      executions: [cash, option],
+      errors: [],
+    }],
+    commissions: [
+      { execId: "other.cash.01", commission: 0.1, currency: "usd" },
+      { execId: "other.option.01", commission: 0.2, currency: "usd" },
+    ],
+  });
+  const normalized = validateExecutionQueryResult(value, validateExecutionQueryRequest(request()));
+  assert.deepEqual(normalized.requests[0].executions.map((row) => row.contract), [
+    { conId: 12087792, symbol: "EUR", secType: "CASH", currency: "USD", multiplier: "" },
+    { conId: 987654, symbol: "SPY", secType: "OPT", currency: "USD", multiplier: "100" },
+  ]);
+
+  const familyOption = structuredClone(normalized.requests[0].executions[1]);
+  familyOption.execution.clientId = 27;
+  const family = calculateFamily({
+    executions: [familyOption],
+    commissions: [{ execId: familyOption.execution.execId, commission: 0.2, currency: "USD" }],
+    portfolio: [],
+    positions: [],
+    fx: {
+      baseCurrency: "EUR",
+      rates: { EUR: 1, USD: 1 },
+      observedAt: "2026-09-10T15:59:00Z",
+    },
+    account: ACCOUNT,
+    familyClientIds: [27],
+    excludedSymbols: [],
+    periodStart: "2026-09-10T04:00:00Z",
+    observedAt: "2026-09-10T16:00:00Z",
+  });
+  assert.equal(family.ok, false);
+  assert.match(family.reason, /unsupported family secType/);
 });
 
 test("partial, mismatched, noncanonical, and conflicting protocol replies fail closed", () => {
@@ -252,6 +311,42 @@ test("supervisor keeps one helper, one outstanding query, and accepts fragmented
   assert.equal(spawns.length, 1);
   supervisor.stop();
   assert.deepEqual(child.kills, ["SIGTERM"]);
+});
+
+test("stdin EPIPE rejects once, retires the dead helper, and respawns cleanly", async () => {
+  const dead = new FakeChild();
+  const replacement = new FakeChild();
+  const children = [dead, replacement];
+  const supervisor = createExecutionHistorySupervisor({ spawnImpl: () => children.shift() });
+
+  let rejectionCount = 0;
+  const failed = supervisor.query(request()).catch((error) => {
+    rejectionCount += 1;
+    throw error;
+  });
+  const deadSessionId = supervisor.sessionId;
+  dead.exitCode = 1;
+  const brokenPipe = new Error("synthetic broken pipe");
+  brokenPipe.code = "EPIPE";
+  dead.stdin.emit("error", brokenPipe);
+  dead.emit("exit", 1, null);
+
+  await assert.rejects(failed, /request write failed/);
+  assert.equal(rejectionCount, 1);
+  assert.equal(supervisor.running, false);
+  assert.equal(supervisor.requestInFlight, false);
+  assert.equal(supervisor.sessionId, null);
+  assert.deepEqual(dead.kills, []);
+
+  const nextRequest = request({ cycleId: "cycle-after-epipe" });
+  const recovered = supervisor.query(nextRequest);
+  assert.notEqual(supervisor.sessionId, deadSessionId);
+  replacement.stdout.emit("data", `${JSON.stringify(result({ cycleId: nextRequest.cycleId }))}\n`);
+  const reply = await recovered;
+  assert.equal(reply.cycleId, nextRequest.cycleId);
+  assert.equal(reply.helperSessionId, supervisor.sessionId);
+  supervisor.stop();
+  assert.deepEqual(replacement.kills, ["SIGTERM"]);
 });
 
 test("malformed output, timeout, and oversized diagnostics reject and kill only the owned child", async () => {

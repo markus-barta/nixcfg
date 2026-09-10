@@ -109,22 +109,32 @@ function uniqueRows(rows, identify, label) {
   }
 }
 
+function contractMultiplier(value, secType) {
+  if (
+    secType === "STK" &&
+    (value === "" || value === 0 || value === 1 || value === "0" || value === "1" || value === null)
+  ) {
+    return 1;
+  }
+  if (value === null) return null;
+  if (typeof value === "string") {
+    if (value.length > 256 || [...value].some((character) => character.codePointAt(0) < 32)) {
+      failure("contract multiplier is invalid or too long");
+    }
+    return value;
+  }
+  return finite(value, "contract multiplier");
+}
+
 function normalizeContract(value) {
   const contract = plainObject(value, "execution contract");
   const secType = text(contract.secType, "contract secType").toUpperCase();
-  if (secType !== "STK") failure("execution history contains unsupported secType");
-  const multiplier = contract.multiplier === ""
-    ? 1
-    : finite(contract.multiplier, "contract multiplier");
-  if (multiplier !== 0 && multiplier !== 1) {
-    failure("execution history contains unsupported STK multiplier");
-  }
   return {
     conId: integer(contract.conId, "contract conId", true),
     symbol: text(contract.symbol, "contract symbol").toUpperCase(),
     secType,
     currency: currency(contract.currency, "contract currency"),
-    multiplier: 1,
+    multiplier: contractMultiplier(contract.multiplier, secType),
   };
 }
 
@@ -391,6 +401,11 @@ export function createExecutionHistorySupervisor({
       }
     });
 
+    next.stdin.on("error", () => {
+      if (next !== child) return;
+      protocolFailure("execution helper request write failed");
+    });
+
     next.on("error", () => {
       if (next !== child) return;
       settle(new Error("execution helper failed to start"));
@@ -448,11 +463,17 @@ export function createExecutionHistorySupervisor({
         stopChild();
       }, timeoutMs);
       pending = { request, resolve, reject, timer };
-      active.stdin.write(`${JSON.stringify(request)}\n`, (error) => {
-        if (error && pending?.request.cycleId === request.cycleId) {
+      try {
+        active.stdin.write(`${JSON.stringify(request)}\n`, (error) => {
+          if (error && pending?.request.cycleId === request.cycleId) {
+            protocolFailure("execution helper request write failed");
+          }
+        });
+      } catch {
+        if (pending?.request.cycleId === request.cycleId) {
           protocolFailure("execution helper request write failed");
         }
-      });
+      }
     });
   }
 
