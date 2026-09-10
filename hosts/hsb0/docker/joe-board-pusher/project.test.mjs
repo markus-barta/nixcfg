@@ -16,13 +16,17 @@ import {
   projectBook,
   serializePositionRow,
 } from "./project.mjs";
-import { createBrokerSessionAdapter } from "./pusher-state.mjs";
+import {
+  createBrokerSessionAdapter,
+  createReconnectScheduler,
+} from "./pusher-state.mjs";
 
 const TARGET = "PAPER-ACCT-01";
 const OTHER = "PAPER-ACCT-02";
 const OBS_A = "2026-09-10T08:00:00.000Z";
 const OBS_B = "2026-09-10T08:00:05.000Z";
 const OBS_C = "2026-09-10T08:10:00.000Z";
+const OBS_RECONNECT = "2026-09-10T09:30:00.000Z";
 const SUMMARY_REQ_ID = 9501;
 const EVENTS = Object.fromEntries([
   "connected",
@@ -318,6 +322,60 @@ test("a completed reconnect replaces stale removed rows with known-empty coverag
   assert.deepEqual(buildDeskPositions(snapshot.positionsCoverage).j, []);
 });
 
+test("reconnect keeps position coverage atomic until the full new snapshot is accepted", () => {
+  const { adapter, setInstant } = createHarness();
+  const first = new FakeApi("synthetic-A");
+  const contract = stockContract("INTC");
+  adapter.attach(first);
+  connectRecognized(first);
+  finishInitialSync(first, {
+    positions: [{ contract, pos: 2, avgCost: 10 }],
+    portfolios: [{
+      contract,
+      pos: 2,
+      marketPrice: 20,
+      marketValue: 40,
+      avgCost: 10,
+      unrealizedPNL: 7,
+      realizedPNL: 1,
+    }],
+  });
+  const acceptedFirst = adapter.snapshot();
+  const projectedFirst = projectBook(acceptedFirst, { publisherAt: new Date(OBS_A) });
+
+  first.emit(EVENTS.disconnected);
+  setInstant(OBS_RECONNECT);
+  const second = new FakeApi("synthetic-B");
+  adapter.attach(second);
+  connectRecognized(second);
+  second.emit(EVENTS.position, TARGET, contract, 99, 10);
+  second.emit(EVENTS.updatePortfolio, contract, 99, 30, 2970, 10, 80, 20, TARGET);
+  second.emit(EVENTS.positionEnd);
+
+  const partial = adapter.snapshot();
+  const projectedPartial = projectBook(partial, { publisherAt: new Date(OBS_RECONNECT) });
+  assert.equal(partial.ts, acceptedFirst.ts);
+  assert.equal(partial.positions[0].pos, 2);
+  assert.equal(partial.portfolio[0].unrealizedPNL, 7);
+  assert.equal(partial.positionsCoverage.status, "partial");
+  assert.deepEqual(partial.positionsCoverage.rows, []);
+  assert.equal(projectedPartial.generatedAt, projectedFirst.generatedAt);
+  assert.equal(deskById(projectedPartial, "j").money.totalPnl, 8);
+  assert.equal("positions" in deskById(projectedPartial, "j"), false);
+
+  second.emit(EVENTS.accountSummary, SUMMARY_REQ_ID, TARGET, "NetLiquidation", "13000", "EUR");
+  second.emit(EVENTS.accountSummaryEnd, SUMMARY_REQ_ID);
+  second.emit(EVENTS.accountDownloadEnd, TARGET);
+  const acceptedSecond = adapter.snapshot();
+  const projectedSecond = projectBook(acceptedSecond, { publisherAt: new Date(OBS_RECONNECT) });
+  assert.equal(acceptedSecond.ts, OBS_RECONNECT);
+  assert.equal(acceptedSecond.positions[0].pos, 99);
+  assert.equal(acceptedSecond.positionsCoverage.status, "complete");
+  assert.equal(acceptedSecond.positionsCoverage.rows[0].pos, 99);
+  assert.equal(deskById(projectedSecond, "j").positions[0].quantity, 99);
+  assert.equal(deskById(projectedSecond, "j").money.totalPnl, 100);
+});
+
 test("closed-position realized P&L remains in existing Stage-0 accounting", () => {
   const { adapter } = createHarness();
   const api = new FakeApi("synthetic-A");
@@ -361,6 +419,50 @@ test("invalid live quantity requests resync without replacing the last valid sna
   assert.equal(after.positionsCoverage.status, "partial");
   assert.equal(after.positions[0].pos, valid.positions[0].pos);
   assert.equal(after.ts, valid.ts);
+});
+
+test("repeated invalid-data resyncs cannot bypass the positive retry delay", () => {
+  const timers = [];
+  const delays = [];
+  let retryAttempts = 0;
+  const scheduler = createReconnectScheduler({
+    retryMs: 5000,
+    onRetry: () => { retryAttempts += 1; },
+    setTimer(callback, delay) {
+      timers.push(callback);
+      delays.push(delay);
+    },
+  });
+  let adapter;
+  adapter = createBrokerSessionAdapter({
+    targetAccount: TARGET,
+    eventNames: EVENTS,
+    now: () => OBS_A,
+    hooks: {
+      onResyncNeeded() {
+        adapter.retire("synthetic invalid quantity");
+        scheduler.schedule();
+      },
+    },
+  });
+
+  const first = new FakeApi("synthetic-A");
+  adapter.attach(first);
+  first.emit(EVENTS.connected);
+  first.emit(EVENTS.position, TARGET, stockContract("INTC"), null, 10);
+  first.emit(EVENTS.position, TARGET, stockContract("INTC"), null, 10);
+  assert.deepEqual(delays, [5000]);
+  assert.equal(scheduler.pending, true);
+
+  timers.shift()();
+  assert.equal(retryAttempts, 1);
+  assert.equal(scheduler.pending, false);
+  const second = new FakeApi("synthetic-B");
+  adapter.attach(second);
+  second.emit(EVENTS.connected);
+  second.emit(EVENTS.position, TARGET, stockContract("INTC"), Number.MAX_VALUE, 10);
+  assert.deepEqual(delays, [5000, 5000]);
+  assert.equal(delays.every((delay) => delay > 0), true);
 });
 
 test("cross-account portfolio and summary events are ignored", () => {

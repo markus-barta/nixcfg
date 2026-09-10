@@ -7,7 +7,10 @@ import fs from "node:fs";
 import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
 import { projectBook } from "./project.mjs";
-import { createBrokerSessionAdapter } from "./pusher-state.mjs";
+import {
+  createBrokerSessionAdapter,
+  createReconnectScheduler,
+} from "./pusher-state.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
@@ -27,21 +30,19 @@ function parseIntervalSec() {
 
 const INTERVAL_SEC = parseIntervalSec();
 let ib = null;
-let reconnectScheduled = false;
+const reconnectScheduler = createReconnectScheduler({
+  retryMs: RETRY_MS,
+  onRetry: () => connect(),
+});
 
-function scheduleReconnect(delay = RETRY_MS) {
-  if (reconnectScheduled) return;
-  reconnectScheduled = true;
-  setTimeout(() => {
-    reconnectScheduled = false;
-    connect();
-  }, delay);
+function scheduleReconnect() {
+  reconnectScheduler.schedule();
 }
 
 function requestResync() {
   adapter.retire("invalid broker quantity; resynchronizing");
   console.warn(JSON.stringify({ event: "ib_resync", reason: "invalid broker quantity" }));
-  scheduleReconnect(0);
+  scheduleReconnect();
 }
 
 const adapter = createBrokerSessionAdapter({
