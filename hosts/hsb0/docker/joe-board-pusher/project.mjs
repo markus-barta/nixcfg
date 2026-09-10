@@ -1,6 +1,6 @@
 /** Project IB book state → inspr.joe.household.v1 (mirrors joe-household-sync.py). */
 
-import { deskForSymbol } from "./positions-state.mjs";
+import { currencyCode, deskForSymbol, strictFinite } from "./positions-state.mjs";
 
 const JOEL_SYMBOLS = new Set(["SXR8", "TSLA"]);
 const VIRTUAL_EQUITY = 5000.0;
@@ -47,8 +47,8 @@ function accountingScopeFor(row) {
 
 /** Serialize one broker row for a mapped desk. Omits unverified monetary fields. */
 export function serializePositionRow(row, deskId) {
-  const qty = Number(row.pos);
-  if (!Number.isFinite(qty) || qty === 0) return null;
+  const qty = strictFinite(row.pos);
+  if (qty === undefined || qty === 0 || deskForSymbol(row.symbol) !== deskId) return null;
   const out = {
     desk: deskId,
     symbol: row.symbol,
@@ -57,10 +57,14 @@ export function serializePositionRow(row, deskId) {
     accountingScope: accountingScopeFor(row),
     dayPnl: null,
   };
-  if (row.currency) out.currency = String(row.currency).toUpperCase();
-  if (row.observedAt) out.updatedAt = row.observedAt;
-  if (out.currency && Number.isFinite(row.marketPrice)) {
-    out.mark = round2(row.marketPrice);
+  const currency = currencyCode(row.currency);
+  const mark = strictFinite(row.marketPrice);
+  if (currency) out.currency = currency;
+  if (mark !== undefined && currency) {
+    out.mark = mark;
+    if (row.markObservedAt) out.updatedAt = row.markObservedAt;
+  } else if (row.positionObservedAt || row.observedAt) {
+    out.updatedAt = row.positionObservedAt || row.observedAt;
   }
   return out;
 }
@@ -82,8 +86,11 @@ export function buildDeskPositions(coverage) {
 }
 
 export function projectBook(book, opts = {}) {
-  const now = opts.now || new Date();
-  const gen = formatViennaIso(now);
+  const brokerSnapshotAt = new Date(book.ts || "");
+  if (Number.isNaN(brokerSnapshotAt.getTime())) return null;
+  const publisherAt = opts.publisherAt || opts.now || new Date();
+  const gen = formatViennaIso(brokerSnapshotAt);
+  const heartbeat = formatViennaIso(publisherAt);
 
   const summary = book.summary || {};
   const nlv = round2(fnum(summary.NetLiquidation?.value));
@@ -132,6 +139,7 @@ export function projectBook(book, opts = {}) {
         iteration: null,
       },
       money: { equity: jEquity, dayPnl: null, totalPnl: jPnl },
+      heartbeatAt: heartbeat,
       issues: [],
     },
     {
@@ -147,6 +155,7 @@ export function projectBook(book, opts = {}) {
         iteration: null,
       },
       money: { equity: joeEquity, dayPnl: null, totalPnl: joePnl },
+      heartbeatAt: heartbeat,
       issues: [],
     },
     {
@@ -168,6 +177,7 @@ export function projectBook(book, opts = {}) {
         iteration: null,
       },
       money: { equity: joelEquity, dayPnl: null, totalPnl: joelPnl },
+      heartbeatAt: heartbeat,
       issues: [],
     },
   ];
@@ -211,7 +221,7 @@ export function projectBook(book, opts = {}) {
       gateway: {
         status: gwOk ? "ok" : "down",
         detail: gwOk ? "Paper gateway answering" : book.lastError || "Gateway down",
-        lastSeenAt: bookTs,
+        lastSeenAt: book.gatewayLastSeenAt || null,
       },
     },
     desks,

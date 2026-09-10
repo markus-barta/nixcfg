@@ -12,9 +12,11 @@ since-start / stand / totals; action/learning still name open legacy holdings.
 ## Position rows
 
 Per-desk `positions[]` is emitted only after a completed, account-matched IB
-`reqPositions` subscription (`position` … `positionEnd`). Missing key means
-unavailable; `[]` means complete known-empty coverage. Disconnect/reconnect
-invalidates coverage until the next completed subscription.
+`reqPositions` subscription (`position` … `positionEnd`) recognizes the target
+managed account and the account/summary downloads also complete. Missing key
+means unavailable; `[]` means complete known-empty coverage. Disconnect,
+reconnect, or an invalid broker quantity invalidates coverage until a clean
+resynchronization.
 
 Symbol mapping: `INTC` → `j`, `SXR8`/`TSLA` → `joel`. Joe has no symbol mapping,
 so its desk never receives a `positions` key. Unknown symbols are never mapped to
@@ -23,6 +25,8 @@ Rows emit `currency` (uppercase contract currency when known) and
 `accountingScope` (`legacy` for grandfathered names, `stage0` otherwise).
 `mark` is emitted with a known quote currency; `marketValue`/`openPnl` stay absent
 until callback currency semantics are verified (EUR alone is not sufficient).
-`dayPnl` stays `null` until a real day feed exists.
+`dayPnl` stays `null` until a real day feed exists. Push heartbeats never advance
+the broker snapshot timestamp; before the first complete broker snapshot the
+publisher skips the push rather than fabricating an empty book.
 
 Run synthetic replay tests: `npm test` (fixtures are labelled synthetic, not live).
