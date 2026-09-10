@@ -280,9 +280,10 @@
         "traefik.http.routers.joe-csb0.tls.certresolver=default"
         "traefik.http.routers.joe-csb0.priority=300"
         "traefik.http.routers.joe-csb0.service=joe-board-csb0"
-        "traefik.http.routers.joe-csb0.middlewares=hostdash-auth-csb0@docker,joe-csb0-path@docker"
-        "traefik.http.middlewares.joe-csb0-path.replacepathregex.regex=^/joe$$"
-        "traefik.http.middlewares.joe-csb0-path.replacepathregex.replacement=/joe/"
+        "traefik.http.routers.joe-csb0.middlewares=joe-csb0-slash@docker,hostdash-auth-csb0@docker"
+        "traefik.http.middlewares.joe-csb0-slash.redirectregex.regex=^(https?://[^/]+/joe)(\\?.*)?$$"
+        "traefik.http.middlewares.joe-csb0-slash.redirectregex.replacement=$\${1}/$\${2}"
+        "traefik.http.middlewares.joe-csb0-slash.redirectregex.permanent=true"
         # Inbox — higher priority, NO oauth (machine token checked in app)
         "traefik.http.routers.joe-inbox-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/inbox`)"
         "traefik.http.routers.joe-inbox-csb0.entrypoints=web-secure"
