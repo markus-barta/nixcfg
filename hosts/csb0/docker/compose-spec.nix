@@ -281,14 +281,18 @@
         "traefik.http.routers.joe-csb0.priority=300"
         "traefik.http.routers.joe-csb0.service=joe-board-csb0"
         "traefik.http.routers.joe-csb0.middlewares=hostdash-auth-csb0@docker"
-        # Only the exact bare path bypasses OAuth, reaching the app's 308 handler.
-        # Traefik redirectregex would return 301 for GET, not the required 308.
+        # Edge canonicalization is a real redirect before OAuth. The app also
+        # independently returns 308 when reached directly at the bare path.
         "traefik.http.routers.joe-csb0-slash.rule=Host(`cs0.barta.cm`) && Path(`/joe`)"
         "traefik.http.routers.joe-csb0-slash.entrypoints=web-secure"
         "traefik.http.routers.joe-csb0-slash.tls=true"
         "traefik.http.routers.joe-csb0-slash.tls.certresolver=default"
         "traefik.http.routers.joe-csb0-slash.priority=360"
         "traefik.http.routers.joe-csb0-slash.service=joe-board-csb0"
+        "traefik.http.routers.joe-csb0-slash.middlewares=joe-csb0-slash@docker"
+        "traefik.http.middlewares.joe-csb0-slash.redirectregex.regex=^(https?://[^/]+/joe)(\\?.*)?$$"
+        "traefik.http.middlewares.joe-csb0-slash.redirectregex.replacement=$\${1}/$\${2}"
+        "traefik.http.middlewares.joe-csb0-slash.redirectregex.permanent=true"
         # Inbox — higher priority, NO oauth (machine token checked in app)
         "traefik.http.routers.joe-inbox-csb0.rule=Host(`cs0.barta.cm`) && Path(`/joe/inbox`)"
         "traefik.http.routers.joe-inbox-csb0.entrypoints=web-secure"
