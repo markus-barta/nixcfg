@@ -54,7 +54,7 @@
       flake = false;
     };
     hostdash = {
-      url = "github:markus-barta/hostdash/cd6680495e580e31e7f4a74af8ff7234e8986ac6";
+      url = "github:markus-barta/hostdash/b71356f2c9df1776c29ec565cb49389231fc8774";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
