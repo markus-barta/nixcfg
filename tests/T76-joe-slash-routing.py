@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NIX-462: JoeDesk canonical-slash and anonymous-auth routing smoke."""
+"""NIX-463: JoeDesk canonical-slash and anonymous-auth routing smoke."""
 
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ from typing import Any
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 COMPOSE_SPEC = REPO / "hosts/csb0/docker/compose-spec.nix"
-REDIRECT_STATUSES = {301, 308}
+FLAKE_LOCK = REPO / "flake.lock"
+REDIRECT_STATUSES = {301}
 AUTH_FAILURE_STATUSES = {302, 303, 307, 401, 403}
 
 
@@ -43,23 +44,27 @@ def require(condition: bool, message: str) -> None:
         raise ContractError(message)
 
 
-def load_joe_labels() -> dict[str, str]:
+def run_nix_json(arguments: list[str], context: str) -> Any:
     result = subprocess.run(
+        ["nix", "eval", "--json", *arguments],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    require(result.returncode == 0, f"{context} evaluation failed: {result.stderr}")
+    return json.loads(result.stdout)
+
+
+def load_joe_labels() -> dict[str, str]:
+    labels = run_nix_json(
         [
-            "nix",
-            "eval",
-            "--json",
             "--file",
             str(COMPOSE_SPEC),
             "--apply",
             'spec: spec.services."joe-board".labels',
         ],
-        text=True,
-        capture_output=True,
-        check=False,
+        "compose labels",
     )
-    require(result.returncode == 0, f"compose evaluation failed: {result.stderr}")
-    labels = json.loads(result.stdout)
     require(isinstance(labels, list), "joe-board labels must evaluate to a list")
     mapped: dict[str, str] = {}
     for label in labels:
@@ -71,8 +76,22 @@ def load_joe_labels() -> dict[str, str]:
     return mapped
 
 
+def load_rendered_joe_contract() -> dict[str, Any]:
+    attribute = f"{REPO}#nixosConfigurations.csb0.config"
+    projection = (
+        'config: { service = config.nixcfg.composeStack.renderedSpec.services."joe-board"; '
+        "excludeFromPull = config.nixcfg.composeStack.autoUpdate.excludeFromPull; }"
+    )
+    contract = run_nix_json(
+        ["--no-update-lock-file", attribute, "--apply", projection],
+        "committed flake",
+    )
+    require(isinstance(contract, dict), "rendered JoeDesk contract must be an object")
+    return contract
+
+
 def compose_unescape(value: str) -> str:
-    """Model Compose's documented $$ -> $ label interpolation escape."""
+    """Model Compose's documented $$ -> $ interpolation escape."""
     return value.replace("$$", "$")
 
 
@@ -85,36 +104,60 @@ def expand_redirect(replacement: str, match: re.Match[str]) -> str:
 
 
 def verify_rendered_contract(labels: dict[str, str]) -> None:
-    middleware_key = "traefik.http.routers.joe-csb0.middlewares"
-    regex_key = "traefik.http.middlewares.joe-csb0-slash.redirectregex.regex"
-    replacement_key = (
-        "traefik.http.middlewares.joe-csb0-slash.redirectregex.replacement"
-    )
-    permanent_key = "traefik.http.middlewares.joe-csb0-slash.redirectregex.permanent"
-
-    middleware_chain = labels.get(middleware_key, "").split(",")
+    main = "traefik.http.routers.joe-csb0."
+    bare = "traefik.http.routers.joe-csb0-slash."
+    inbox = "traefik.http.routers.joe-inbox-csb0."
+    host = "Host(`cs0.barta.cm`)"
     require(
-        middleware_chain
-        == ["joe-csb0-slash@docker", "hostdash-auth-csb0@docker"],
-        "canonical slash redirect must run before OAuth",
+        labels.get(main + "rule") == host + " && PathPrefix(`/joe/`)",
+        "canonical UI/data/assets must stay in the protected router",
     )
-    require(labels.get(permanent_key) == "true", "slash redirect must be permanent")
     require(
-        not any("joe-csb0-path.replacepathregex" in key for key in labels),
-        "internal replacepathregex middleware is still present",
+        labels.get(main + "middlewares") == "hostdash-auth-csb0@docker",
+        "canonical router must require OAuth without an internal rewrite",
     )
+    require(
+        labels.get(bare + "rule") == host + " && Path(`/joe`)",
+        "unauthenticated route must match only the exact canonical host/bare path",
+    )
+    require(
+        labels.get(bare + "middlewares") == "joe-csb0-slash@docker",
+        "bare path must use only the canonical redirect middleware",
+    )
+    require(
+        labels.get(bare + "service") == labels.get(main + "service") == "joe-board-csb0",
+        "both routes must retain the same JoeDesk service association",
+    )
+    for router in (bare, main):
+        require(labels.get(router + "entrypoints") == "web-secure", "HTTPS required")
+        require(labels.get(router + "tls") == "true", "TLS required")
+    require(
+        not any("replacepathregex" in key for key in labels),
+        "an internal Joe path rewrite is still present",
+    )
+    require(
+        int(labels[bare + "priority"]) > int(labels[inbox + "priority"])
+        > int(labels[main + "priority"]),
+        "exact redirect and inbox routes must outrank the protected prefix",
+    )
+    require(
+        labels.get(inbox + "rule") == host + " && Path(`/joe/inbox`)",
+        "inbox route must remain exact",
+    )
+    require(inbox + "middlewares" not in labels, "inbox token contract changed")
 
-    rendered_regex = labels.get(regex_key)
-    rendered_replacement = labels.get(replacement_key)
-    require(rendered_regex is not None, "redirect regex label is missing")
-    require(rendered_replacement is not None, "redirect replacement label is missing")
+    middleware = "traefik.http.middlewares.joe-csb0-slash.redirectregex."
+    require(labels.get(middleware + "permanent") == "true", "redirect must be permanent")
+    rendered_regex = labels.get(middleware + "regex")
+    rendered_replacement = labels.get(middleware + "replacement")
+    require(rendered_regex is not None, "redirect regex is missing")
+    require(rendered_replacement is not None, "redirect replacement is missing")
     traefik_regex = re.compile(compose_unescape(rendered_regex))
     traefik_replacement = compose_unescape(rendered_replacement)
-
     examples = {
-        "https://edge.example.test/joe": "https://edge.example.test/joe/",
-        "https://edge.example.test/joe?desk=j&view=wide": (
-            "https://edge.example.test/joe/?desk=j&view=wide"
+        "https://cs0.barta.cm/joe": "https://cs0.barta.cm/joe/",
+        "https://cs0.barta.cm/joe?desk=j&view=wide": (
+            "https://cs0.barta.cm/joe/?desk=j&view=wide"
         ),
     }
     for source, expected in examples.items():
@@ -125,35 +168,48 @@ def verify_rendered_contract(labels: dict[str, str]) -> None:
             f"redirect expansion changed for {source}",
         )
     for canonical in (
-        "https://edge.example.test/joe/",
-        "https://edge.example.test/joe/data.json",
-        "https://edge.example.test/joe/assets/app.js",
-        "https://edge.example.test/joe/inbox",
+        "https://cs0.barta.cm/joe/",
+        "https://cs0.barta.cm/joe/data.json",
+        "https://cs0.barta.cm/joe/inbox",
     ):
         require(
             traefik_regex.fullmatch(canonical) is None,
             f"canonical route would redirect: {canonical}",
         )
 
-    ui_rule = labels.get("traefik.http.routers.joe-csb0.rule", "")
-    require("Path(`/joe`)" in ui_rule, "UI router no longer accepts slashless /joe")
+
+def verify_pinned_build(contract: dict[str, Any]) -> None:
+    service = contract.get("service")
+    require(isinstance(service, dict), "rendered joe-board service must be an object")
+    lock = json.loads(FLAKE_LOCK.read_text())
+    revision = lock["nodes"]["joedesk"]["locked"]["rev"]
     require(
-        "PathPrefix(`/joe/`)" in ui_rule,
-        "UI router no longer protects canonical JoeDesk paths",
+        service.get("image") == f"csb0-joe-board:source-{revision}",
+        "rendered image name must contain the full locked JoeDesk revision",
     )
-    inbox_priority = int(labels["traefik.http.routers.joe-inbox-csb0.priority"])
-    ui_priority = int(labels["traefik.http.routers.joe-csb0.priority"])
-    require(inbox_priority > ui_priority, "inbox router must outrank the UI router")
     require(
-        "traefik.http.routers.joe-inbox-csb0.middlewares" not in labels,
-        "inbox router unexpectedly gained OAuth middleware",
+        service.get("pull_policy") == "build",
+        "JoeDesk must build its pinned context without registry fallback",
+    )
+    build = service.get("build")
+    require(
+        isinstance(build, str) and build.startswith("/nix/store/"),
+        "JoeDesk build context must render as an immutable Nix store path",
+    )
+    require(
+        (pathlib.Path(build) / "Dockerfile").is_file(),
+        "rendered JoeDesk build context has no Dockerfile",
+    )
+    require(
+        contract.get("excludeFromPull") == ["joe-board"],
+        "weekly registry pulls must exclude the host-built JoeDesk image",
     )
 
 
 def request_without_redirects(opener: Any, url: str) -> tuple[int, Any]:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "nixcfg-NIX-462-joe-slash-smoke"},
+        headers={"User-Agent": "nixcfg-NIX-463-joe-slash-smoke"},
     )
     try:
         with opener.open(request, timeout=10) as response:
@@ -205,6 +261,7 @@ def main() -> int:
     arguments = parser.parse_args()
 
     verify_rendered_contract(load_joe_labels())
+    verify_pinned_build(load_rendered_joe_contract())
     if arguments.live:
         verify_live()
     print(
