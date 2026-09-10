@@ -66,7 +66,7 @@ jq -e --arg rev "$expected_rev" --arg nar "$expected_narhash" '
   and .nodes["inspr-modules"].locked.repo == "inspr-modules"
 ' "$flake_lock" >/dev/null
 
-grep -Fq 'inspr-modules.url = "github:inspr-at/inspr-modules/v0.8.0"' "$flake_nix"
+grep -Fq 'inspr-modules.url = "github:inspr-at/inspr-modules/v0.9.0"' "$flake_nix"
 if grep -E '^[[:space:]]+.*\.url = ".*routing' "$flake_nix" | grep -vq 'inspr-modules'; then
   printf 'T74: found a new routing flake input; consume inspr-modules only\n' >&2
   exit 1
