@@ -524,16 +524,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1788999186,
-        "narHash": "sha256-nu0UZnFG3dpB5FsPsAdyMPWl7XsP2/obaLDzZK+hlwg=",
+        "lastModified": 1789024467,
+        "narHash": "sha256-UEOpqyY/nM6/EEBeN7T106R3mNb/MzTePzu+VewhYWo=",
         "owner": "markus-barta",
         "repo": "hostdash",
-        "rev": "09933e16c871cf9482d69251224650fb58906b4a",
+        "rev": "cd6680495e580e31e7f4a74af8ff7234e8986ac6",
         "type": "github"
       },
       "original": {
         "owner": "markus-barta",
         "repo": "hostdash",
+        "rev": "cd6680495e580e31e7f4a74af8ff7234e8986ac6",
         "type": "github"
       }
     },
@@ -598,6 +599,23 @@
         "owner": "inspr-at",
         "ref": "rust-engine-v0.1.35",
         "repo": "janus",
+        "type": "github"
+      }
+    },
+    "joedesk": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789024578,
+        "narHash": "sha256-xTCK13OKj45vVLNYfPE8J44UuWKBggArj9HxZ+PtURc=",
+        "owner": "markus-barta",
+        "repo": "joedesk",
+        "rev": "af62be18e906e29ed97111e0eca72a8290e3b9cc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "markus-barta",
+        "repo": "joedesk",
+        "rev": "af62be18e906e29ed97111e0eca72a8290e3b9cc",
         "type": "github"
       }
     },
@@ -1112,6 +1130,7 @@
         "inspr-modules": "inspr-modules",
         "janus": "janus",
         "janus-paimos-reporter": "janus-paimos-reporter",
+        "joedesk": "joedesk",
         "ncps": "ncps",
         "nixcfg": "nixcfg",
         "nixhostforge": [
