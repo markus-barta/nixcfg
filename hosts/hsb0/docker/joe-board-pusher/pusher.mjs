@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 /**
- * Read-only paper IB client (clientId 50) → household v1 → HTTPS POST inbox.
+ * Read-only paper IB client (clientId 92) → household v1 → HTTPS POST inbox.
  * Never connects to live 4001. Never places orders.
  */
 import fs from "node:fs";
 import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
+import { calculateFamily } from "./family-ledger.mjs";
+import {
+  FAMILY_BASELINE_PERIOD_START,
+  createFamilySessionAdapter,
+  createFileFamilyStateStore,
+} from "./family-state.mjs";
 import { projectBook } from "./project.mjs";
 import {
   createBrokerSessionAdapter,
@@ -15,8 +21,10 @@ import {
 const HOST = "100.64.0.6";
 const PORT = 4002;
 const LIVE_PORT = 4001;
-const CLIENT_ID = 50;
+const CLIENT_ID = 92;
 const ACCOUNT = "DUR970597";
+const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
+const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
 const INBOX_URL = "https://cs0.barta.cm/joe/inbox";
 const TOKEN_FILE = "/run/secrets/joe-board-push-token";
 const RETRY_MS = 5000;
@@ -41,6 +49,7 @@ function scheduleReconnect() {
 
 function requestResync() {
   adapter.retire("invalid broker quantity; resynchronizing");
+  familyAdapter.retire("invalid broker quantity; resynchronizing");
   console.warn(JSON.stringify({ event: "ib_resync", reason: "invalid broker quantity" }));
   scheduleReconnect();
 }
@@ -67,6 +76,28 @@ const adapter = createBrokerSessionAdapter({
     },
     onResyncNeeded() {
       requestResync();
+    },
+  },
+});
+
+const familyAdapter = createFamilySessionAdapter({
+  targetAccount: ACCOUNT,
+  familyClientIds: FAMILY_CLIENT_IDS,
+  excludedSymbols: ["SXR8", "TSLA"],
+  periodStart: FAMILY_BASELINE_PERIOD_START,
+  calculateFamily,
+  eventNames: EventName,
+  store: createFileFamilyStateStore(FAMILY_STATE_PATH),
+  pollIntervalMs: 30_000,
+  requestTimeoutMs: 20_000,
+  fxFreshMs: 300_000,
+  requestManagedAccounts: false,
+  hooks: {
+    onUnavailable(reason) {
+      console.warn(JSON.stringify({ event: "family_unavailable", reason }));
+    },
+    onLedgerUpdated({ changed, observedAt }) {
+      if (changed) console.log(JSON.stringify({ event: "family_ledger_updated", observedAt }));
     },
   },
 });
@@ -117,7 +148,16 @@ async function pushOnce() {
     console.warn(JSON.stringify({ event: "push_skipped", reason: "broker snapshot incomplete" }));
     return { ok: false, error: "broker snapshot incomplete" };
   }
-  const snap = projectBook(book, { halt: false, publisherAt: new Date() });
+  const family = familyAdapter.project(book);
+  if (!family.ok) {
+    console.warn(JSON.stringify({ event: "family_projection_unavailable", reason: family.reason }));
+  }
+  const snap = projectBook(book, {
+    halt: false,
+    publisherAt: new Date(),
+    familyRuntimeEnabled: true,
+    family,
+  });
   if (!snap) {
     console.warn(JSON.stringify({ event: "push_skipped", reason: "broker timestamp unavailable" }));
     return { ok: false, error: "broker timestamp unavailable" };
@@ -164,6 +204,7 @@ function connect() {
     next = new IBApi({ host: HOST, port: PORT, clientId: CLIENT_ID });
     ib = next;
     adapter.attach(next);
+    familyAdapter.attach(next);
     if (previous && previous !== next) {
       try {
         previous.disconnect();
@@ -179,6 +220,7 @@ function connect() {
 
 function shutdown() {
   adapter.retire("shutdown");
+  familyAdapter.retire("shutdown");
   try {
     ib?.disconnect();
   } catch {}

@@ -344,7 +344,7 @@
       ];
     };
 
-    # Joe board pusher — paper Gateway read-only (clientId 50) → csb0 inbox every 30s.
+    # Joe board pusher — paper Gateway reporting client → csb0 inbox every 30s.
     # host network so Tailscale-bound 100.64.0.6:4002 is reachable. Never live 4001.
     joe-board-pusher = {
       build = "./joe-board-pusher";
@@ -357,6 +357,8 @@
       ];
       volumes = [
         "/run/agenix/joe-board-push-token:/run/secrets/joe-board-push-token:ro"
+        # Durable execution state: /var/lib/joe-board-pusher/family-ledger.json.
+        "/var/lib/joe-board-pusher:/var/lib/joe-board-pusher:rw"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"
