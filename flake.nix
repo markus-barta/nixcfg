@@ -96,7 +96,7 @@
     # NIX-447: pin the published routing-edge library. Rollback is the previous
     # synchronized 73e15491 flake-lock + doctrine gitlink pair. Do not add a
     # second routing flake input.
-    inspr-modules.url = "github:inspr-at/inspr-modules/v0.8.0";
+    inspr-modules.url = "github:inspr-at/inspr-modules/v0.9.0";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 
