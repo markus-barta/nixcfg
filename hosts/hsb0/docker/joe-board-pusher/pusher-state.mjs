@@ -1,4 +1,5 @@
 import {
+  brokerConnectivityState,
   contractKey,
   createPositionTracker,
   currencyCode,
@@ -122,12 +123,36 @@ export function createBrokerSessionAdapter({
   function invalidate(reason, requestReconnect) {
     generation += 1;
     activeApi = null;
+    markUnavailable(reason, requestReconnect);
+  }
+
+  function markUnavailable(reason, requestReconnect) {
     connected = false;
     connecting = false;
     working = null;
     lastError = reason;
     trackerEpoch = tracker.onDisconnected();
     if (requestReconnect) hooks.onReconnectNeeded?.();
+  }
+
+  function handleBrokerNotice(route, code) {
+    const numericCode = Number(code);
+    const normalizedCode = Number.isInteger(numericCode) ? numericCode : null;
+    const state = brokerConnectivityState(normalizedCode);
+    if (!state && route !== "info") return false;
+    hooks.onBrokerNotice?.({
+      route,
+      code: normalizedCode,
+      state: state || "informational",
+      action: state ? "fresh_session_scheduled" : "none",
+    });
+    if (!state) return false;
+
+    // Keep the API emitter current until the bounded retry replaces it so that
+    // 1101/1102 restoration notices remain observable. Financial callbacks are
+    // ignored because the interrupted working cycle is discarded here.
+    markUnavailable(`broker ${state} (code ${normalizedCode})`, true);
+    return true;
   }
 
   function handleInvalidData() {
@@ -218,9 +243,14 @@ export function createBrokerSessionAdapter({
       invalidate("disconnected", true);
     }));
 
+    api.on(eventNames.info, guard((_message, code) => {
+      handleBrokerNotice("info", code);
+    }));
+
     api.on(eventNames.error, guard((error, code) => {
       const message = String(error?.message || error);
       const detail = `${code || ""} ${message}`.trim();
+      if (handleBrokerNotice("error", code)) return;
       hooks.onError?.(detail, code, message);
       if (isConnectionFailure(code, message)) {
         invalidate(detail, true);
