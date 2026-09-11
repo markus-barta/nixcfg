@@ -25,8 +25,11 @@ import {
 const TARGET = "PAPER-ACCT-01";
 const OTHER = "PAPER-ACCT-02";
 const OBS_A = "2026-09-10T08:00:00.000Z";
+const OBS_A1 = "2026-09-10T08:00:01.000Z";
+const OBS_A4 = "2026-09-10T08:00:04.000Z";
 const OBS_B = "2026-09-10T08:00:05.000Z";
 const OBS_C = "2026-09-10T08:10:00.000Z";
+const OBS_D = "2026-09-10T08:20:00.000Z";
 const OBS_RECONNECT = "2026-09-10T09:30:00.000Z";
 const SUMMARY_REQ_ID = 9501;
 const EVENTS = Object.fromEntries([
@@ -77,10 +80,41 @@ function baseBook(overrides = {}) {
     ts: OBS_A,
     gatewayLastSeenAt: OBS_A,
     gateway: true,
-    summary: { NetLiquidation: { value: "12000" } },
+    summary: { NetLiquidation: { value: "12000", currency: "EUR" } },
     portfolio: [],
     positions: [],
     ...overrides,
+  };
+}
+
+function bestAvailableHistory(overrides = {}) {
+  const base = {
+    ok: true,
+    status: "BEST_AVAILABLE",
+    equity: null,
+    capturedSubtotal: {
+      currency: "USD",
+      realizedPnl: -37.125,
+      method: "captured-fifo-matched-roundtrips",
+      executionCount: 43,
+      commissionCount: 42,
+      fromInclusive: OBS_A,
+      throughInclusive: OBS_B,
+    },
+    coverage: {
+      target: { fromInclusive: OBS_A, toExclusive: OBS_D },
+      completeIntervals: [],
+      knownIntervals: [{ fromInclusive: OBS_A, toExclusive: OBS_B }],
+      gaps: [{ fromInclusive: OBS_B, toExclusive: OBS_D, reason: "synthetic earlier interval unavailable" }],
+    },
+    missingOpeningLots: [{ synthetic: true }],
+    orphanCommissionIds: ["synthetic-hidden-id"],
+  };
+  return {
+    ...base,
+    ...overrides,
+    capturedSubtotal: { ...base.capturedSubtotal, ...(overrides.capturedSubtotal || {}) },
+    coverage: { ...base.coverage, ...(overrides.coverage || {}) },
   };
 }
 
@@ -306,6 +340,17 @@ test("disconnect preserves the last valid book while broker age advances", () =>
   assert.equal(retained.positionsCoverage.status, "unavailable");
   assert.equal(after.generatedAt, before.generatedAt);
   assert.equal(after.safety.gateway.lastSeenAt, OBS_B);
+  assert.deepEqual(before.brokerAccount, {
+    equity: 12000,
+    currency: "EUR",
+    observedAt: OBS_B,
+    scope: "paper-account-including-keep",
+    status: "available",
+  });
+  assert.deepEqual(after.brokerAccount, {
+    ...before.brokerAccount,
+    status: "unavailable",
+  });
   assert.equal(after.totals.equity, before.totals.equity);
   assert.equal(deskById(after, "j").heartbeatAt, "2026-09-10T10:10:00+02:00");
   assert.equal("positions" in deskById(after, "j"), false);
@@ -596,9 +641,313 @@ test("publisher heartbeat does not refresh broker observation fields", () => {
   assert.equal(snapshot.generatedAt, "2026-09-10T10:00:00+02:00");
   assert.equal(snapshot.source.revision, OBS_A);
   assert.equal(snapshot.safety.gateway.lastSeenAt, OBS_A);
+  assert.equal(snapshot.brokerAccount.observedAt, OBS_A);
+  assert.equal(snapshot.brokerAccount.equity, 12000);
+  assert.equal(snapshot.brokerAccount.status, "unavailable");
   for (const desk of snapshot.desks) {
     assert.equal(desk.heartbeatAt, "2026-09-10T10:10:00+02:00");
   }
+});
+
+test("complete EUR NetLiquidation stays useful when J family accounting is unavailable", () => {
+  const snapshot = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    familyRuntimeEnabled: true,
+    family: { ok: false, reason: "synthetic J-family gap" },
+  });
+  assert.deepEqual(snapshot.brokerAccount, {
+    equity: 12000,
+    currency: "EUR",
+    observedAt: OBS_A,
+    scope: "paper-account-including-keep",
+    status: "available",
+  });
+  assert.deepEqual(deskById(snapshot, "j").money, {
+    equity: null,
+    dayPnl: null,
+    totalPnl: null,
+  });
+  assert.deepEqual(snapshot.totals, { equity: null, dayPnl: null, totalPnl: null });
+});
+
+test("missing, invalid, and foreign NetLiquidation never become account equity", () => {
+  for (const summary of [
+    {},
+    { NetLiquidation: { value: "", currency: "EUR" } },
+    { NetLiquidation: { value: "not-a-number", currency: "EUR" } },
+    { NetLiquidation: { value: false, currency: "EUR" } },
+    { NetLiquidation: { value: "12000" } },
+    { NetLiquidation: { value: "12000", currency: "USD" } },
+    { NetLiquidation: { value: String(Number.MAX_VALUE), currency: "EUR" } },
+  ]) {
+    const snapshot = projectBook(baseBook({ summary }), { publisherAt: new Date(OBS_B) });
+    assert.equal(snapshot.brokerAccount.equity, null, JSON.stringify(summary));
+    assert.equal(snapshot.brokerAccount.status, "unavailable", JSON.stringify(summary));
+    assert.equal(snapshot.brokerAccount.currency, "EUR");
+    assert.equal(snapshot.brokerAccount.observedAt, OBS_A);
+  }
+});
+
+test("best-available family history projects a bounded J-only native-currency summary", () => {
+  const familyHistory = bestAvailableHistory();
+  const snapshot = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    familyRuntimeEnabled: true,
+    family: { ok: false, reason: "synthetic live J accounting gap" },
+    familyHistory,
+  });
+  assert.deepEqual(deskById(snapshot, "j").backfill, {
+    status: "BEST_AVAILABLE",
+    fullTotalAvailable: false,
+    capturedSubtotal: {
+      currency: "USD",
+      realizedPnl: -37.125,
+      method: "captured-fifo-matched-roundtrips",
+      executionCount: 43,
+      commissionCount: 42,
+      fromInclusive: OBS_A,
+      throughInclusive: OBS_B,
+    },
+    coverage: {
+      target: { fromInclusive: OBS_A, toExclusive: OBS_D },
+      completeIntervalCount: 0,
+      knownIntervalCount: 1,
+      gapCount: 1,
+      firstGap: { fromInclusive: OBS_B, toExclusive: OBS_D },
+    },
+    missingOpeningLotCount: 1,
+    orphanCommissionCount: 1,
+  });
+  assert.equal("backfill" in deskById(snapshot, "joe"), false);
+  assert.equal("backfill" in deskById(snapshot, "joel"), false);
+  assert.deepEqual(deskById(snapshot, "j").money, { equity: null, dayPnl: null, totalPnl: null });
+  assert.deepEqual(snapshot.totals, { equity: null, dayPnl: null, totalPnl: null });
+  const projectedText = JSON.stringify(deskById(snapshot, "j").backfill);
+  assert.equal(projectedText.includes("synthetic-hidden-id"), false);
+  assert.equal(projectedText.includes("synthetic earlier interval unavailable"), false);
+  assert.equal("points" in deskById(snapshot, "j").backfill.capturedSubtotal, false);
+  assert.equal("pointsTruncated" in deskById(snapshot, "j").backfill.capturedSubtotal, false);
+});
+
+test("captured subtotal calculation basis is explicit and never inferred", () => {
+  const known = projectBook(baseBook(), { familyHistory: bestAvailableHistory() });
+  assert.equal(
+    deskById(known, "j").backfill.capturedSubtotal.method,
+    "captured-fifo-matched-roundtrips",
+  );
+
+  const missingHistory = bestAvailableHistory();
+  delete missingHistory.capturedSubtotal.method;
+  const missing = projectBook(baseBook(), { familyHistory: missingHistory });
+  assert.equal(deskById(missing, "j").backfill.capturedSubtotal.method, null);
+
+  const unrelated = projectBook(baseBook(), {
+    familyHistory: bestAvailableHistory({
+      capturedSubtotal: { method: "account-average-cost-realized" },
+    }),
+  });
+  assert.equal(deskById(unrelated, "j").backfill.capturedSubtotal.method, null);
+
+  const unavailable = projectBook(baseBook(), {
+    familyHistory: bestAvailableHistory({
+      capturedSubtotal: {
+        realizedPnl: null,
+        currency: null,
+        method: "captured-fifo-matched-roundtrips",
+      },
+    }),
+  });
+  assert.equal(deskById(unavailable, "j").backfill.capturedSubtotal.method, null);
+});
+
+test("captured history points preserve actual nonuniform times and native realized values", () => {
+  const points = [
+    { at: OBS_A, realizedPnl: -2.5 },
+    { at: OBS_A1, realizedPnl: 3.25 },
+    { at: OBS_A4, realizedPnl: 3.25 },
+    { at: OBS_B, realizedPnl: -37.125 },
+  ];
+  const snapshot = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    familyHistory: bestAvailableHistory({
+      capturedSubtotal: { points, pointsTruncated: true },
+    }),
+  });
+  assert.deepEqual(deskById(snapshot, "j").backfill.capturedSubtotal.points, points);
+  assert.equal(deskById(snapshot, "j").backfill.capturedSubtotal.pointsTruncated, true);
+  assert.equal(deskById(snapshot, "j").backfill.capturedSubtotal.currency, "USD");
+});
+
+test("singleton and explicitly empty captured histories remain honest", () => {
+  const singleton = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    familyHistory: bestAvailableHistory({
+      capturedSubtotal: {
+        realizedPnl: 8.625,
+        points: [{ at: OBS_A4, realizedPnl: 8.625 }],
+        pointsTruncated: false,
+      },
+    }),
+  });
+  assert.deepEqual(deskById(singleton, "j").backfill.capturedSubtotal.points, [
+    { at: OBS_A4, realizedPnl: 8.625 },
+  ]);
+
+  const empty = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    familyHistory: bestAvailableHistory({
+      capturedSubtotal: {
+        realizedPnl: null,
+        currency: null,
+        executionCount: 0,
+        commissionCount: 0,
+        points: [],
+        pointsTruncated: false,
+      },
+    }),
+  });
+  assert.deepEqual(deskById(empty, "j").backfill.capturedSubtotal.points, []);
+});
+
+test("malformed captured history points omit the producer backfill", () => {
+  const tooMany = Array.from({ length: 2049 }, (_, index) => ({
+    at: new Date(Date.parse(OBS_A) + index).toISOString(),
+    realizedPnl: index === 2048 ? -37.125 : index / 100,
+  }));
+  const invalidCaptured = [
+    { points: [{ at: OBS_B, realizedPnl: -37.125 }] },
+    { pointsTruncated: false },
+    { points: [{ at: OBS_B, realizedPnl: -37.125 }], pointsTruncated: "false" },
+    { points: tooMany, pointsTruncated: true },
+    { points: [{ at: OBS_D, realizedPnl: -37.125 }], pointsTruncated: false },
+    { points: [{ at: OBS_A1, realizedPnl: 1 }, { at: OBS_A1, realizedPnl: -37.125 }], pointsTruncated: false },
+    { points: [{ at: OBS_A4, realizedPnl: -37.125 }, { at: OBS_A1, realizedPnl: -37.125 }], pointsTruncated: false },
+    { points: [{ at: OBS_A4, realizedPnl: Number.NaN }], pointsTruncated: false },
+    { points: [{ at: OBS_A4, realizedPnl: -37.12 }], pointsTruncated: false },
+    { points: [{ at: OBS_A4, realizedPnl: -37.125, execId: "synthetic-forbidden" }], pointsTruncated: false },
+    { points: [{ at: OBS_A4, realizedPnl: -37.125, currency: "USD" }], pointsTruncated: false },
+    { realizedPnl: -37.125, points: [], pointsTruncated: false },
+    { realizedPnl: null, currency: null, points: [], pointsTruncated: true },
+  ];
+  for (const capturedSubtotal of invalidCaptured) {
+    const snapshot = projectBook(baseBook(), {
+      publisherAt: new Date(OBS_B),
+      familyHistory: bestAvailableHistory({ capturedSubtotal }),
+    });
+    assert.equal("backfill" in deskById(snapshot, "j"), false);
+  }
+});
+
+test("family history preserves USD or EUR subtotal currency without inventing FX", () => {
+  const usd = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    familyHistory: bestAvailableHistory(),
+  });
+  assert.equal(deskById(usd, "j").backfill.capturedSubtotal.currency, "USD");
+  assert.equal(deskById(usd, "j").backfill.fullTotalAvailable, false);
+  assert.equal("equity" in deskById(usd, "j").backfill, false);
+
+  const eur = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    familyHistory: bestAvailableHistory({
+      status: "COMPLETE",
+      equity: 6123.45,
+      capturedSubtotal: { currency: "EUR", realizedPnl: 18.625, throughInclusive: OBS_D },
+      coverage: {
+        completeIntervals: [{ fromInclusive: OBS_A, toExclusive: OBS_D }],
+        knownIntervals: [{ fromInclusive: OBS_A, toExclusive: OBS_D }],
+        gaps: [],
+      },
+      missingOpeningLots: [],
+      orphanCommissionIds: [],
+    }),
+  });
+  assert.equal(deskById(eur, "j").backfill.capturedSubtotal.currency, "EUR");
+  assert.equal(deskById(eur, "j").backfill.capturedSubtotal.realizedPnl, 18.625);
+  assert.equal(deskById(eur, "j").backfill.fullTotalAvailable, true);
+});
+
+test("absent or invalid family history metadata is omitted instead of guessed", () => {
+  const absent = projectBook(baseBook(), { publisherAt: new Date(OBS_B) });
+  assert.equal("backfill" in deskById(absent, "j"), false);
+
+  const invalidHistories = [
+    { ok: true },
+    bestAvailableHistory({ status: "PARTIAL" }),
+    bestAvailableHistory({ capturedSubtotal: { realizedPnl: "-1" } }),
+    bestAvailableHistory({ capturedSubtotal: { currency: null } }),
+    bestAvailableHistory({ capturedSubtotal: { executionCount: -1 } }),
+    bestAvailableHistory({ capturedSubtotal: { fromInclusive: "2026-09-10" } }),
+    bestAvailableHistory({ coverage: { knownIntervals: null } }),
+    bestAvailableHistory({ coverage: { gaps: [{ fromInclusive: OBS_B, toExclusive: OBS_D, reason: "" }] } }),
+    bestAvailableHistory({ missingOpeningLots: null }),
+    bestAvailableHistory({ orphanCommissionIds: null }),
+  ];
+  for (const familyHistory of invalidHistories) {
+    const snapshot = projectBook(baseBook(), { publisherAt: new Date(OBS_B), familyHistory });
+    assert.equal("backfill" in deskById(snapshot, "j"), false);
+  }
+});
+
+test("retained broker data and gateway loss do not erase or promote backfill", () => {
+  const familyHistory = bestAvailableHistory({
+    capturedSubtotal: {
+      points: [
+        { at: OBS_A1, realizedPnl: 3.25 },
+        { at: OBS_B, realizedPnl: -37.125 },
+      ],
+      pointsTruncated: false,
+    },
+  });
+  const snapshot = projectBook(baseBook({ gateway: false, lastError: "synthetic upstream loss" }), {
+    publisherAt: new Date(OBS_C),
+    familyRuntimeEnabled: true,
+    family: { ok: false, reason: "synthetic live J accounting gap" },
+    familyHistory,
+  });
+  assert.equal(snapshot.brokerAccount.status, "unavailable");
+  assert.equal(deskById(snapshot, "j").backfill.status, "BEST_AVAILABLE");
+  assert.equal(deskById(snapshot, "j").backfill.fullTotalAvailable, false);
+  assert.deepEqual(deskById(snapshot, "j").backfill.capturedSubtotal.points, familyHistory.capturedSubtotal.points);
+  assert.equal(deskById(snapshot, "j").money.equity, null);
+  assert.equal(snapshot.totals.equity, null);
+});
+
+test("new family history input updates the summary without advancing broker time", () => {
+  const first = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    familyHistory: bestAvailableHistory({
+      capturedSubtotal: {
+        points: [{ at: OBS_B, realizedPnl: -37.125 }],
+        pointsTruncated: false,
+      },
+    }),
+  });
+  const next = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_C),
+    familyHistory: bestAvailableHistory({
+      capturedSubtotal: {
+        realizedPnl: -35.875,
+        executionCount: 45,
+        commissionCount: 44,
+        throughInclusive: OBS_C,
+        points: [
+          { at: OBS_B, realizedPnl: -37.125 },
+          { at: OBS_C, realizedPnl: -35.875 },
+        ],
+        pointsTruncated: false,
+      },
+      coverage: {
+        knownIntervals: [{ fromInclusive: OBS_A, toExclusive: OBS_C }],
+        gaps: [{ fromInclusive: OBS_C, toExclusive: OBS_D, reason: "synthetic remaining interval" }],
+      },
+    }),
+  });
+  assert.equal(first.generatedAt, next.generatedAt);
+  assert.equal(first.brokerAccount.observedAt, next.brokerAccount.observedAt);
+  assert.notDeepEqual(deskById(first, "j").backfill, deskById(next, "j").backfill);
+  assert.equal(deskById(next, "j").backfill.capturedSubtotal.executionCount, 45);
+  assert.equal(deskById(next, "j").backfill.capturedSubtotal.points.at(-1).at, OBS_C);
 });
 
 test("enabled family runtime isolates incomplete J accounting without stopping the household", () => {
@@ -759,6 +1108,9 @@ test("a newer family economic revision advances generatedAt while publisher hear
   assert.equal(first.generatedAt, "2026-09-10T10:00:05+02:00");
   assert.equal(heartbeat.generatedAt, first.generatedAt);
   assert.equal(heartbeat.source.revision, OBS_B);
+  assert.equal(first.brokerAccount.observedAt, OBS_A);
+  assert.equal(heartbeat.brokerAccount.observedAt, OBS_A);
+  assert.equal(heartbeat.brokerAccount.equity, first.brokerAccount.equity);
 });
 
 test("startup without a valid broker timestamp cannot fabricate a snapshot", () => {
