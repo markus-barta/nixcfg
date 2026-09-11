@@ -411,6 +411,12 @@ function canonicalPrior(prior) {
   if (state.status === "ready" && unresolvedConflictWindows.length > 0) {
     fail("ready prior cannot contain unresolved conflict windows");
   }
+  for (const record of invalidatedReceiptIdsByWindow) {
+    const begin = record.window.begin;
+    if (!reconciledBegins.has(begin) && !unreconciledBegins.has(begin) && !unresolvedConflictBegins.has(begin)) {
+      fail("prior invalidated receipt record is orphaned from replacement reconciliation or pending obligation");
+    }
+  }
   return {
     providerId,
     zone,

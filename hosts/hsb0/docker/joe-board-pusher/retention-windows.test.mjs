@@ -729,6 +729,46 @@ test("N3 every persisted list and baselineRequired are mandatory", () => {
   }
 });
 
+test("N3 orphaned invalidation requires baseline while a persisted replacement remains valid", () => {
+  const { closed, corrected } = correctedState();
+  const orphaned = {
+    ...corrected,
+    unresolvedConflictWindows: [],
+    unreconciledWindows: [],
+  };
+  const terminal = transitionRetentionReadiness({
+    prior: orphaned,
+    now: "2026-09-10T22:01:30.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [],
+    freshReplay: replay({ now: "2026-09-10T22:01:30.000Z", observedThrough: "2026-09-10T22:01:25.000Z" }),
+  });
+  assert.equal(terminal.status, "needs-baseline");
+  assert.match(terminal.reason, /orphaned/);
+
+  const recovered = transitionRetentionReadiness({
+    prior: corrected,
+    now: "2026-09-10T22:01:10.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [evidence(closed, { receiptId: "receipt-valid-replacement-n3" })],
+    freshReplay: replay({ now: "2026-09-10T22:01:10.000Z", observedThrough: "2026-09-10T22:01:05.000Z" }),
+  });
+  assert.equal(recovered.status, "ready");
+  assert.deepEqual(recovered.invalidatedReceiptIdsByWindow, corrected.invalidatedReceiptIdsByWindow);
+  assert.equal(recovered.reconciledWindows[0].receiptIds.includes("receipt-valid-replacement-n3"), true);
+
+  const persisted = transitionRetentionReadiness({
+    prior: recovered,
+    now: "2026-09-10T22:01:20.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [],
+    freshReplay: replay({ now: "2026-09-10T22:01:20.000Z", observedThrough: "2026-09-10T22:01:15.000Z" }),
+  });
+  assert.equal(persisted.status, "ready");
+  assert.deepEqual(persisted.reconciledWindows, recovered.reconciledWindows);
+  assert.deepEqual(persisted.invalidatedReceiptIdsByWindow, recovered.invalidatedReceiptIdsByWindow);
+});
+
 test("N4 an unknown earlier conflict creates a durable historical obligation", () => {
   const oldWindow = retentionWindowAt({ instant: "2026-09-10T21:59:30.000Z", timeZone: VIENNA });
   const prior = priorState({
