@@ -7,6 +7,8 @@
 #   ./scripts/codex-doctor.sh --check   # Report only; never prompts; exit 1 on drift.
 #   ./scripts/codex-doctor.sh --fix     # Cleanup without the question. Still refuses while
 #                                       # an interactive Codex session is running.
+#   ./scripts/codex-doctor.sh --after-update # Ask when safe; defer successfully if busy
+#                                            # or non-interactive. Repair failures still fail.
 #
 # Why (NIX-435, 2026-09-06): `just update-ai-clis` bumps the npm CLI, but every
 # Codex TUI attaches to a long-running app-server daemon launched from the
@@ -21,8 +23,9 @@
 #   - the daemon runs a version other than the CLI
 #   - the standalone package (what the next `daemon start` runs) ≠ CLI
 #   - the models cache was written by a client version ≠ CLI
-#   - the model configured in ~/.codex/config.toml is missing from the cache
-#     although the account's refreshed catalog offers it
+# Missing configured models are warnings: availability may depend on the account
+# or provider, so a missing model alone must never trigger daemon cleanup.
+# Reports never refresh the cache; only an explicitly approved repair does.
 #
 # Cleanup (only after a typed `y`, only with no interactive Codex session —
 # background terminals and MCP servers are daemon children, stopping the
@@ -37,19 +40,24 @@
 # Never: kills a TUI, edits config.toml, touches auth.json.
 #
 # Exit codes:
-#   0 — no drift, cleanup succeeded, or cleanup declined at the prompt
+#   0 — no drift, cleanup succeeded/declined, or --after-update repair deferred
 #   1 — drift with --check, cleanup refused (live sessions), or cleanup failed
 #   2 — usage / environment error
 #
 set -euo pipefail
 
 MODE=ask
+[ "$#" -le 1 ] || {
+  echo "codex-doctor: expected at most one option" >&2
+  exit 2
+}
 case "${1:-}" in
 "") ;;
 --check) MODE=check ;;
 --fix) MODE=fix ;;
+--after-update) MODE=after-update ;;
 -h | --help)
-  sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '/^# codex-doctor.sh/,/^set -euo pipefail/{ /^#/s/^# \{0,1\}//p; }' "$0"
   exit 0
   ;;
 *)
@@ -72,7 +80,8 @@ for tool in codex node ps; do
 done
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/codex-doctor.XXXXXX")"
-trap 'rm -rf "$TMP"' EXIT
+# Leave diagnostics in the per-user system temp directory for OS cleanup.
+# Do not retain process command lines here or move diagnostics into the Trash.
 
 DRIFT=0
 ok() { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -137,9 +146,23 @@ daemon_json() { # → JSON from `daemon version`, written to $TMP/daemon.json
 # its code-mode-host are excluded: they are what we manage. Daemon *children*
 # are not a signal — the daemon keeps threads alive after a TUI detaches.
 live_sessions() {
-  # shellcheck disable=SC2009 # pgrep cannot express the exclusions; we need the command lines
-  ps -eo pid=,command= | grep -E '(^|[/ ])codex( |$)' |
-    grep -vE 'app-server|code-mode-host|codex debug|codex-doctor|grep -E' || true
+  # Match the executable and subcommand, not words in a user's exec prompt.
+  # pipefail preserves a ps failure without storing its output on disk.
+  if ! ps -eo pid=,command= | awk '
+    function basename(path) { sub(/^.*\//, "", path); return path }
+    {
+      executable = 2
+      if (basename($executable) == "node") executable++
+      if (basename($executable) != "codex") next
+      subcommand = $(executable + 1)
+      if (subcommand == "app-server" || subcommand == "debug" ||
+          subcommand == "--version" || subcommand == "--help") next
+      print
+    }
+  '; then
+    echo "codex-doctor: cannot inspect live sessions; refusing cleanup" >&2
+    return 2
+  fi
 }
 
 # ── Report ───────────────────────────────────────────────────────────────────
@@ -210,21 +233,16 @@ report() {
     info "no models cache yet (first run writes it)"
   fi
 
-  # Configured model must be in the cache when the account's live catalog offers it.
-  # NOTE: `codex debug models` rewrites the cache as the CLI's version, so this
-  # check must stay AFTER the cache check above or it would mask cache drift.
+  # Check the existing cache only. `codex debug models` rewrites it, which
+  # would mask drift and mutate state even in --check or a deferred update.
   CFG_MODEL="$(sed -n 's/^model[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG" 2>/dev/null | head -1 || true)"
   if [ -n "$CFG_MODEL" ]; then
-    if codex debug models >"$TMP/catalog.json" 2>/dev/null && catalog_has "$TMP/catalog.json" "$CFG_MODEL"; then
-      if [ -f "$CACHE" ] && catalog_has "$CACHE" "$CFG_MODEL"; then
-        ok "configured model '$CFG_MODEL' in live catalog and cache"
-      elif [ -f "$CACHE" ]; then
-        bad "configured model '$CFG_MODEL' offered by the live catalog but MISSING from the cache"
-      else
-        ok "configured model '$CFG_MODEL' in live catalog"
-      fi
+    if [ ! -f "$CACHE" ]; then
+      info "configured model '$CFG_MODEL' (no cache to check yet)"
+    elif catalog_has "$CACHE" "$CFG_MODEL"; then
+      ok "configured model '$CFG_MODEL' in cache"
     else
-      warn "configured model '$CFG_MODEL' not in this account's live catalog (entitlement/rollout, not drift)"
+      warn "configured model '$CFG_MODEL' missing from cache (account/provider availability not verified; no cleanup for this alone)"
     fi
   else
     info "no top-level model in $CONFIG (bundled default applies)"
@@ -313,13 +331,17 @@ cleanup() {
 
 manual_steps() {
   cat <<STEPS
-Manual steps (when no Codex session is running):
-  codex app-server daemon stop
-  pgrep -fl 'codex app-server|codex-code-mode-host'   # must be empty; kill -TERM survivors
-  trash ~/.codex/models_cache.json
-  curl -fsSL $INSTALLER_URL -o /tmp/codex-install.sh && CODEX_NON_INTERACTIVE=1 sh /tmp/codex-install.sh --release $CLI_VER
-  codex app-server daemon start && codex app-server daemon version   # appServerVersion must equal cliVersion
+After closing Codex sessions, run from a regular terminal in nixcfg:
+  just codex-doctor --fix
+  just codex-doctor --check
 STEPS
+}
+
+defer_repair() {
+  warn "AI CLI update completed; Codex repair deferred: $1."
+  echo "The running Codex runtime has not been upgraded."
+  manual_steps
+  exit 0
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -337,14 +359,20 @@ fi
 
 LIVE="$(live_sessions)"
 if [ -n "$LIVE" ]; then
+  if [ "$MODE" = after-update ]; then
+    defer_repair "Codex sessions are active"
+  fi
   printf '\033[31mRefusing the cleanup: interactive Codex sessions are running.\033[0m\n'
   echo "Stopping the daemon would kill their in-flight turns. Finish or quit them, then rerun."
   echo "$LIVE" | sed 's/^/  /' | cut -c1-140
   exit 1
 fi
 
-if [ "$MODE" = ask ]; then
+if [ "$MODE" = ask ] || [ "$MODE" = after-update ]; then
   if [ ! -t 0 ]; then
+    if [ "$MODE" = after-update ]; then
+      defer_repair "stdin is not a terminal"
+    fi
     echo "stdin is not a terminal — not asking. Rerun with --fix to apply."
     manual_steps
     exit 1
@@ -362,7 +390,20 @@ if [ "$MODE" = ask ]; then
   esac
 fi
 
+# A session may have started while the user was reading the prompt.
+LIVE="$(live_sessions)"
+if [ -n "$LIVE" ]; then
+  if [ "$MODE" = after-update ]; then
+    defer_repair "a Codex session started before cleanup"
+  fi
+  echo "Refusing cleanup: a Codex session started before cleanup." >&2
+  exit 1
+fi
+
 if cleanup "$DAEMON_STATUS"; then
+  if ! codex debug models >"$TMP/catalog.json" 2>/dev/null; then
+    warn "could not refresh model catalog; the next Codex session will retry"
+  fi
   echo
   report
   if [ "$DRIFT" -eq 0 ]; then
