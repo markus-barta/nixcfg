@@ -340,9 +340,7 @@ function canonicalPrior(prior) {
     fail("prior requires trusted baseline creation");
   }
   if (state.status !== "ready" && state.status !== "blocked") fail("prior status is invalid");
-  if (state.baselineRequired !== undefined && state.baselineRequired !== false) {
-    fail("prior baselineRequired flag is invalid");
-  }
+  if (state.baselineRequired !== false) fail("prior baselineRequired flag is invalid");
   const providerId = requireNonEmptyString(state.providerId, "prior.providerId");
   const zone = canonicalTimeZone(state.gatewayTimeZone);
   const evaluatedAtEpoch = parseInstant(state.evaluatedAt, "prior.evaluatedAt");
@@ -380,10 +378,10 @@ function canonicalPrior(prior) {
   if (state.status === "ready" && unreconciledWindows.length > 0) {
     fail("ready prior cannot contain unreconciled windows");
   }
-  const invalidatedReceiptRecords = state.invalidatedReceiptIdsByWindow ?? [];
-  if (!Array.isArray(invalidatedReceiptRecords)) {
+  if (!Array.isArray(state.invalidatedReceiptIdsByWindow)) {
     fail("prior.invalidatedReceiptIdsByWindow must be an array");
   }
+  const invalidatedReceiptRecords = state.invalidatedReceiptIdsByWindow;
   const invalidatedBegins = new Set();
   const invalidatedReceiptIdsByWindow = invalidatedReceiptRecords.map((entry) => {
     const record = requireRecord(entry, "prior invalidated receipt record");
@@ -398,8 +396,8 @@ function canonicalPrior(prior) {
     }
     return { window, receiptIds };
   });
-  const unresolvedConflictRecords = state.unresolvedConflictWindows ?? [];
-  if (!Array.isArray(unresolvedConflictRecords)) fail("prior.unresolvedConflictWindows must be an array");
+  if (!Array.isArray(state.unresolvedConflictWindows)) fail("prior.unresolvedConflictWindows must be an array");
+  const unresolvedConflictRecords = state.unresolvedConflictWindows;
   const unresolvedConflictBegins = new Set();
   const unresolvedConflictWindows = unresolvedConflictRecords.map((value) => {
     const window = canonicalWindow(value, "prior unresolved conflict window");
@@ -482,9 +480,13 @@ function canonicalReplay(value, nowEpoch, currentWindow, priorObservedEpoch, max
   return observedEpoch;
 }
 
-function canonicalFinalEvidence(evidenceIntervals, providerId, timeZone) {
+function canonicalFinalEvidence(evidenceIntervals, providerId, timeZone, nowEpoch) {
   if (!Array.isArray(evidenceIntervals)) fail("finalEvidence must be an array of validated receipt intervals");
-  return evidenceIntervals.map((entry) => canonicalEvidenceInterval(entry, providerId, timeZone));
+  return evidenceIntervals.map((entry) => {
+    const interval = canonicalEvidenceInterval(entry, providerId, timeZone);
+    if (interval.endEpoch > nowEpoch) fail("validated FINAL evidence cannot end after now");
+    return interval;
+  });
 }
 
 function overlapsWindow(interval, window) {
@@ -513,14 +515,14 @@ function addInvalidatedReceipts(records, window, receiptIds) {
   for (const receiptId of receiptIds) record.receiptIds.add(receiptId);
 }
 
-function conflictWindows(interval, priorWindowBegin, nowEpoch, timeZone, knownWindows) {
+function conflictWindows(interval, timeZone, knownWindows) {
   const byBegin = new Map();
   for (const window of knownWindows) {
     if (overlapsWindow(interval, window)) byBegin.set(window.begin, window);
   }
 
-  const rangeBegin = Math.max(interval.beginEpoch, priorWindowBegin);
-  const rangeEnd = Math.min(interval.endEpoch, nowEpoch);
+  const rangeBegin = interval.beginEpoch;
+  const rangeEnd = interval.endEpoch;
   if (rangeBegin < rangeEnd) {
     let window = retentionWindowAt({ instant: new Date(rangeBegin).toISOString(), timeZone });
     for (let count = 0; Date.parse(window.begin) < rangeEnd; count += 1) {
@@ -570,7 +572,7 @@ export function transitionRetentionReadiness({
     const currentWindow = retentionWindowAt({ instant: now, timeZone: canonical.zone });
     replayAgeLimit = canonicalMaxReplayAge(maxReplayAgeMs, currentWindow);
 
-    const intervals = canonicalFinalEvidence(finalEvidence, canonical.providerId, canonical.zone);
+    const intervals = canonicalFinalEvidence(finalEvidence, canonical.providerId, canonical.zone, nowEpoch);
     const invalidatedByBegin = invalidatedReceiptMap(invalidatedReceiptIdsByWindow);
     for (const interval of intervals) {
       for (const record of invalidatedByBegin.values()) {
@@ -586,14 +588,11 @@ export function transitionRetentionReadiness({
         ...retainedReconciliations.map((record) => record.window),
         ...unreconciledWindows,
         ...unresolvedConflictWindows,
+        ...invalidatedReceiptIdsByWindow.map((record) => record.window),
       ];
-      const priorWindowBegin = Date.parse(retentionWindowAt({
-        instant: prior.observedThrough,
-        timeZone: canonical.zone,
-      }).begin);
       const affectedByBegin = new Map();
       for (const interval of conflictIntervals) {
-        for (const window of conflictWindows(interval, priorWindowBegin, nowEpoch, canonical.zone, knownWindows)) {
+        for (const window of conflictWindows(interval, canonical.zone, knownWindows)) {
           let affected = affectedByBegin.get(window.begin);
           if (!affected) {
             affected = { window, receiptIds: new Set() };
@@ -630,20 +629,23 @@ export function transitionRetentionReadiness({
       }
     }
 
-    const replacementReconciliations = new Map();
+    const candidateReconciliations = new Map(retainedReconciliations.map((entry) => [entry.window.begin, entry]));
+    let candidateUnreconciled = [...unreconciledWindows];
     if (unresolvedConflictWindows.length > 0) {
       for (const window of unresolvedConflictWindows) {
+        if (Date.parse(window.end) > nowEpoch) {
+          fail("unresolved conflict window is still open");
+        }
         const replacement = reconcileWindowCoverage({
           window,
           evidenceIntervals: finalEvidence,
           providerId: canonical.providerId,
         });
         if (!replacement.ok) fail(`unresolved conflict requires replacement coverage: ${replacement.reason}`);
-        if (Date.parse(window.end) <= nowEpoch) replacementReconciliations.set(window.begin, replacement);
+        candidateReconciliations.set(window.begin, replacement);
       }
       const resolvedBegins = new Set(unresolvedConflictWindows.map((window) => window.begin));
-      unreconciledWindows = unreconciledWindows.filter((window) => !resolvedBegins.has(window.begin));
-      unresolvedConflictWindows = [];
+      candidateUnreconciled = candidateUnreconciled.filter((window) => !resolvedBegins.has(window.begin));
     }
 
     const required = uncoveredRetentionWindows({
@@ -651,20 +653,18 @@ export function transitionRetentionReadiness({
       now,
       timeZone: canonical.zone,
     });
-    const requiredByBegin = new Map(unreconciledWindows.map((window) => [window.begin, window]));
+    const requiredByBegin = new Map(candidateUnreconciled.map((window) => [window.begin, window]));
     for (const window of required) requiredByBegin.set(window.begin, window);
-    unreconciledWindows = [...requiredByBegin.values()].sort((a, b) => a.begin.localeCompare(b.begin));
-    const byBegin = new Map(retainedReconciliations.map((entry) => [entry.window.begin, entry]));
-    for (const [begin, replacement] of replacementReconciliations) byBegin.set(begin, replacement);
-    for (const window of unreconciledWindows) {
-      if (byBegin.has(window.begin)) continue;
+    candidateUnreconciled = [...requiredByBegin.values()].sort((a, b) => a.begin.localeCompare(b.begin));
+    for (const window of candidateUnreconciled) {
+      if (candidateReconciliations.has(window.begin)) continue;
       const reconciliation = reconcileWindowCoverage({
         window,
         evidenceIntervals: finalEvidence,
         providerId: canonical.providerId,
       });
       if (!reconciliation.ok) fail(reconciliation.reason);
-      byBegin.set(window.begin, reconciliation);
+      candidateReconciliations.set(window.begin, reconciliation);
     }
 
     const observedEpoch = canonicalReplay(
@@ -684,7 +684,7 @@ export function transitionRetentionReadiness({
       evaluatedAt: new Date(nowEpoch).toISOString(),
       observedThrough: new Date(observedEpoch).toISOString(),
       maxReplayAgeMs: replayAgeLimit,
-      reconciledWindows: [...byBegin.values()].sort((a, b) => a.window.begin.localeCompare(b.window.begin)),
+      reconciledWindows: [...candidateReconciliations.values()].sort((a, b) => a.window.begin.localeCompare(b.window.begin)),
       unreconciledWindows: [],
       unresolvedConflictWindows: [],
       invalidatedReceiptIdsByWindow,
