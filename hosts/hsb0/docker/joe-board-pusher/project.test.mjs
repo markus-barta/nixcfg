@@ -565,8 +565,19 @@ test("legacy positions stay visible and excluded from Stage-0 accounting", () =>
     portfolio: [{ symbol: "TSLA", pos: 1, marketValue: 210, unrealizedPNL: 10, realizedPNL: 0 }],
   }), { publisherAt: new Date(OBS_B) });
   const joel = deskById(snapshot, "joel");
+  assert.equal("historyBasis" in deskById(snapshot, "j"), false);
+  assert.equal("historyBasis" in deskById(snapshot, "joe"), false);
   assert.equal(joel.positions[0].accountingScope, "legacy");
   assert.equal(joel.money.totalPnl, 0);
+  assert.equal(joel.historyBasis, "joel.stage0-keep-excluded.v1");
+  const nextPoll = projectBook(baseBook({
+    ts: OBS_B,
+    positionsCoverage: tracker.snapshot(),
+    positions: [{ symbol: "TSLA", pos: 1 }],
+    portfolio: [{ symbol: "TSLA", pos: 1, marketValue: 211, unrealizedPNL: 11, realizedPNL: 0 }],
+  }), { publisherAt: new Date(OBS_C) });
+  assert.equal(deskById(nextPoll, "joel").historyBasis, joel.historyBasis);
+  assert.equal(deskById(nextPoll, "joel").money.totalPnl, 0);
   assert.equal(isGrandfathered({ symbol: "TSLA", pos: 1 }), true);
 });
 
