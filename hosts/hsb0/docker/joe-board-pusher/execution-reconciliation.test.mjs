@@ -12,6 +12,7 @@ import {
   normalizeReconciliationReceipt,
   reconcileExecutionWindow,
   reconciliationJournalEntry,
+  reconciliationReceiptsConflict,
   validateReconciliationEvidence,
 } from "./execution-reconciliation.mjs";
 
@@ -396,6 +397,36 @@ test("receipt normalization is frozen and its canonical ID excludes only verifie
   }
 
   assert.throws(() => reconciliationJournalEntry(normalized), /live reconciliation result or overlap error/);
+});
+
+test("receipt conflict predicate structurally validates and reuses reconciliation overlap semantics", () => {
+  const raw = artifact("synthetic conflict predicate artifact");
+  const socket = socketExecution(0, { execId: "synthetic.predicate.01" });
+  const result = reconcile(
+    validate(evidenceInput(raw, [evidenceExecution(socket, 0, false)]), raw),
+    [socket],
+    [socketCommission(socket)]
+  );
+  const sameFacts = structuredClone(result.receipt);
+  sameFacts.rawArtifactSha256 = "1".repeat(64);
+  sameFacts.evidenceContentSha256 = "2".repeat(64);
+  sameFacts.verifiedAt = "2026-09-10T15:04:00.000Z";
+  assert.equal(reconciliationReceiptsConflict(result.receipt, sameFacts), false);
+
+  const changedFacts = structuredClone(sameFacts);
+  changedFacts.canonicalIdentityDigest = "3".repeat(64);
+  assert.equal(reconciliationReceiptsConflict(result.receipt, changedFacts), true);
+
+  const differentAccount = structuredClone(changedFacts);
+  differentAccount.account = "SYNTHETIC-OTHER-PAPER-ACCOUNT";
+  assert.equal(reconciliationReceiptsConflict(result.receipt, differentAccount), false);
+
+  const malformed = structuredClone(result.receipt);
+  delete malformed.coverage;
+  assert.throws(
+    () => reconciliationReceiptsConflict(result.receipt, malformed),
+    /fields are not canonical/
+  );
 });
 
 test("only the live reconciliation result can produce a success journal entry", () => {

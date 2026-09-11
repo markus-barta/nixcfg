@@ -385,6 +385,199 @@ identityTest("saved readiness is diagnostic on same-process and cold load until 
   assert.equal(store.load().readyForUse, false);
 });
 
+identityTest("A1 later success contradicting active journal evidence is durably promoted and blocks", (t) => {
+  const { filePath } = temporaryTest(t);
+  const accepted = syntheticOutcome();
+  const contradictory = syntheticOutcome({
+    execId: "synthetic.fill.002.01",
+    symbol: "ALT",
+    conId: 10_002,
+    artifactLabel: "synthetic A1 contradictory artifact",
+  });
+  const acceptedId = reconciliation.reconciliationJournalEntry(accepted).receiptId;
+  const contradictoryId = reconciliation.reconciliationJournalEntry(contradictory).receiptId;
+  const store = openStore(filePath);
+  t.after(() => store.close());
+  assert.equal(store.transition({
+    outcomes: [accepted],
+    operatorBaseline: operatorBaseline(),
+    now: "2026-09-10T22:00:20.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  }).ready, true);
+
+  const blocked = store.transition({
+    outcomes: [contradictory],
+    now: "2026-09-10T22:00:21.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(blocked.ready, false);
+  assert.match(blocked.reason, /conflicting receipt/);
+  const conflicts = new Set(blocked.journal.records.filter((record) => record.conflict)
+    .map((record) => record.receiptId));
+  assert.deepEqual(conflicts, new Set([acceptedId, contradictoryId]));
+  const invalidated = new Set(blocked.result.invalidatedReceiptIdsByWindow
+    .flatMap((record) => record.receiptIds));
+  assert.deepEqual(invalidated, new Set([acceptedId, contradictoryId]));
+});
+
+identityTest("A2 contradictory successes in one baseline transaction cannot produce ready", (t) => {
+  const { filePath } = temporaryTest(t);
+  const accepted = syntheticOutcome();
+  const contradictory = syntheticOutcome({
+    execId: "synthetic.fill.002.01",
+    symbol: "ALT",
+    conId: 10_002,
+    artifactLabel: "synthetic A2 contradictory artifact",
+  });
+  const ids = new Set([accepted, contradictory]
+    .map((outcome) => reconciliation.reconciliationJournalEntry(outcome).receiptId));
+  const store = openStore(filePath);
+  t.after(() => store.close());
+  const blocked = store.transition({
+    outcomes: [accepted, contradictory],
+    operatorBaseline: operatorBaseline(),
+    now: "2026-09-10T22:00:20.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(blocked.persisted, true);
+  assert.equal(blocked.ready, false);
+  assert.match(blocked.reason, /conflicting receipt/);
+  assert.deepEqual(new Set(blocked.journal.records.filter((record) => record.conflict)
+    .map((record) => record.receiptId)), ids);
+  assert.deepEqual(new Set(blocked.result.invalidatedReceiptIdsByWindow
+    .flatMap((record) => record.receiptIds)), ids);
+});
+
+identityTest("B contradictory replacement batch blocks while a later distinct single-fact proof recovers", (t) => {
+  const { filePath } = temporaryTest(t);
+  const accepted = syntheticOutcome();
+  const conflicting = syntheticConflict({
+    execId: "synthetic.fill.002.01",
+    symbol: "ALT",
+    conId: 10_002,
+    artifactLabel: "synthetic B conflicting artifact",
+  }, accepted.receipt);
+  const conflictingReceipt = reconciliation.reconciliationJournalEntry(conflicting).receipt;
+  const replacementC = syntheticOutcome({
+    artifactLabel: "synthetic replacement C",
+    priorReceipts: [accepted.receipt],
+  });
+  const replacementD = syntheticOutcome({
+    execId: "synthetic.fill.002.01",
+    symbol: "ALT",
+    conId: 10_002,
+    artifactLabel: "synthetic replacement D",
+    priorReceipts: [conflictingReceipt],
+  });
+  const ids = Object.fromEntries(Object.entries({ accepted, conflicting, replacementC, replacementD })
+    .map(([name, outcome]) => [name, reconciliation.reconciliationJournalEntry(outcome).receiptId]));
+
+  const store = openStore(filePath);
+  t.after(() => store.close());
+  assert.equal(store.transition({
+    outcomes: [accepted],
+    operatorBaseline: operatorBaseline(),
+    now: "2026-09-10T22:00:20.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  }).ready, true);
+  assert.equal(store.transition({
+    outcomes: [conflicting],
+    now: "2026-09-10T22:00:21.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  }).ready, false);
+
+  const contradictoryReplacements = store.transition({
+    outcomes: [replacementC, replacementD],
+    now: "2026-09-10T22:00:22.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(contradictoryReplacements.ready, false);
+  assert.match(contradictoryReplacements.reason, /conflicting receipt/);
+  const newlyInvalidated = new Set(contradictoryReplacements.result.invalidatedReceiptIdsByWindow
+    .flatMap((record) => record.receiptIds));
+  assert.ok(newlyInvalidated.has(ids.replacementC));
+  assert.ok(newlyInvalidated.has(ids.replacementD));
+
+  const replacementE = syntheticOutcome({
+    artifactLabel: "synthetic replacement E",
+    priorReceipts: [replacementC.receipt],
+  });
+  const replacementEId = reconciliation.reconciliationJournalEntry(replacementE).receiptId;
+  const recovered = store.transition({
+    outcomes: [replacementE],
+    now: "2026-09-10T22:00:23.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(recovered.ready, true);
+  assert.deepEqual(recovered.result.reconciledWindows.at(-1).receiptIds, [replacementEId]);
+  assert.deepEqual(new Set(recovered.journal.records.map((record) => record.receiptId)),
+    new Set([...Object.values(ids), replacementEId]));
+});
+
+identityTest("same verified facts from independent synthetic artifacts remain compatible", (t) => {
+  const { filePath } = temporaryTest(t);
+  const accepted = syntheticOutcome();
+  const confirmation = syntheticOutcome({
+    artifactLabel: "synthetic same-facts confirmation",
+    priorReceipts: [accepted.receipt],
+  });
+  const ids = [accepted, confirmation]
+    .map((outcome) => reconciliation.reconciliationJournalEntry(outcome).receiptId)
+    .sort();
+  assert.equal(new Set(ids).size, 2);
+  assert.equal(reconciliation.reconciliationReceiptsConflict(
+    accepted.receipt,
+    confirmation.receipt,
+  ), false);
+
+  const store = openStore(filePath);
+  t.after(() => store.close());
+  const ready = store.transition({
+    outcomes: [accepted, confirmation],
+    operatorBaseline: operatorBaseline(),
+    now: "2026-09-10T22:00:20.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(ready.ready, true);
+  assert.equal(ready.journal.records.some((record) => record.conflict), false);
+  assert.deepEqual(ready.result.reconciledWindows[0].receiptIds, ids);
+});
+
+identityTest("load rejects contradictory active successes even with a valid rewritten head digest", (t) => {
+  const { filePath } = temporaryTest(t);
+  const accepted = syntheticOutcome();
+  const contradictory = syntheticOutcome({
+    execId: "synthetic.fill.002.01",
+    symbol: "ALT",
+    conId: 10_002,
+    artifactLabel: "synthetic disk contradiction",
+  });
+  let store = openStore(filePath);
+  store.appendOutcomes([accepted]);
+  store.close();
+
+  const persisted = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  persisted.records.push(reconciliation.reconciliationJournalEntry(contradictory));
+  persisted.receiptSetDigest = sha256(canonicalJson(persisted.records));
+  persisted.readiness = null;
+  writeJson(filePath, persisted);
+
+  store = openStore(filePath);
+  t.after(() => store.close());
+  const loaded = store.load();
+  assert.equal(loaded.ok, false);
+  assert.match(loaded.reason, /contradictory active reconciliation receipts/);
+  assert.equal(loaded.readyForUse, undefined);
+});
+
 identityTest("duplicate content is idempotent and later conflict promotion is monotonic", (t) => {
   const { filePath } = temporaryTest(t);
   const accepted = syntheticOutcome({

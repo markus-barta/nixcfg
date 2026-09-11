@@ -151,6 +151,7 @@ function identityApi() {
     "normalizeReconciliationReceipt",
     "canonicalReconciliationReceiptId",
     "reconciliationJournalEntry",
+    "reconciliationReceiptsConflict",
   ];
   if (required.some((name) => typeof reconciliationIdentity[name] !== "function")) {
     fail("IDENTITY_API_UNAVAILABLE", "reconciliation receipt identity API is not integrated in this worktree");
@@ -255,6 +256,30 @@ function recordSetDigest(records, count = records.length) {
 
 function receiptIds(records, count = records.length) {
   return activeRecords(records, count).map((entry) => entry.receiptId);
+}
+
+function invalidatedReceiptIds(readinessResult) {
+  const invalidated = new Set();
+  for (const item of readinessResult?.invalidatedReceiptIdsByWindow || []) {
+    for (const receiptId of item.receiptIds) invalidated.add(receiptId);
+  }
+  return invalidated;
+}
+
+function activeEvidenceRecords(records, readinessResult) {
+  const invalidated = invalidatedReceiptIds(readinessResult);
+  return activeRecords(records).filter((entry) => !entry.conflict && !invalidated.has(entry.receiptId));
+}
+
+function validateActiveReceiptConsistency(records, readinessResult) {
+  const active = activeEvidenceRecords(records, readinessResult);
+  for (let left = 0; left < active.length; left += 1) {
+    for (let right = left + 1; right < active.length; right += 1) {
+      if (identityApi().reconciliationReceiptsConflict(active[left].receipt, active[right].receipt)) {
+        fail("ACTIVE_RECEIPT_CONFLICT", "journal contains contradictory active reconciliation receipts");
+      }
+    }
+  }
 }
 
 function normalizeReceiptReferences(value, label, knownReceiptIds) {
@@ -435,6 +460,7 @@ function normalizeJournal(value, config) {
   const digest = recordSetDigest(records);
   if (journal.receiptSetDigest !== digest) fail("HEAD_MISMATCH", "receipt journal head digest is invalid");
   const readiness = normalizeReadiness(journal.readiness, records, config);
+  validateActiveReceiptConsistency(records, readiness.binding?.result);
   return {
     journal: deepFreeze({
       schema: RECONCILIATION_RECEIPT_JOURNAL_SCHEMA,
@@ -523,42 +549,63 @@ function writeStateFile(filePath, journal, config, fsImpl) {
 
 function appendCanonicalEntries(journal, entries) {
   const records = [...journal.records];
-  const active = new Map(activeRecords(records).map((entry) => [entry.receiptId, entry]));
-  const rawOwners = new Map(activeRecords(records).map((entry) => [entry.receipt.rawArtifactSha256, entry.receiptId]));
+  const latest = activeRecords(records);
+  const byId = new Map(latest.map((entry) => [entry.receiptId, entry]));
+  const activeEvidence = new Map(
+    activeEvidenceRecords(records, journal.readiness?.result).map((entry) => [entry.receiptId, entry]),
+  );
+  const rawOwners = new Map(latest.map((entry) => [entry.receipt.rawArtifactSha256, entry.receiptId]));
   let changed = false;
+
+  function appendRecord(entry) {
+    if (records.length >= MAX_JOURNAL_RECORDS) fail("JOURNAL_LIMIT", "journal record bound is exhausted");
+    records.push(entry);
+    changed = true;
+  }
+
+  function promoteConflict(entry) {
+    if (entry.conflict) return entry;
+    const promotion = deepFreeze({ receiptId: entry.receiptId, conflict: true, receipt: entry.receipt });
+    appendRecord(promotion);
+    byId.set(entry.receiptId, promotion);
+    activeEvidence.delete(entry.receiptId);
+    return promotion;
+  }
+
   for (const entry of entries) {
     const rawOwner = rawOwners.get(entry.receipt.rawArtifactSha256);
     if (rawOwner && rawOwner !== entry.receiptId) {
       fail("RAW_DIGEST_REBOUND", "raw artifact digest is rebound to different receipt facts");
     }
-    const prior = active.get(entry.receiptId);
+    const prior = byId.get(entry.receiptId);
     if (prior) {
       if (canonicalJson(receiptComparable(prior.receipt)) !== canonicalJson(receiptComparable(entry.receipt))) {
         fail("RECEIPT_ID_CONFLICT", "one receiptId is rebound to different canonical facts");
       }
-      if (!prior.conflict && entry.conflict) {
-        const promotion = deepFreeze({ receiptId: prior.receiptId, conflict: true, receipt: prior.receipt });
-        records.push(promotion);
-        active.set(prior.receiptId, promotion);
-        changed = true;
+      if (entry.conflict) {
+        const contradictory = [...activeEvidence.values()].filter((candidate) =>
+          identityApi().reconciliationReceiptsConflict(candidate.receipt, entry.receipt));
+        for (const candidate of contradictory) promoteConflict(candidate);
+        promoteConflict(prior);
       }
       continue;
     }
-    if (records.length >= MAX_JOURNAL_RECORDS) fail("JOURNAL_LIMIT", "journal record bound is exhausted");
-    records.push(entry);
-    active.set(entry.receiptId, entry);
+    const contradictory = [...activeEvidence.values()].filter((candidate) =>
+      identityApi().reconciliationReceiptsConflict(candidate.receipt, entry.receipt));
+    for (const candidate of contradictory) promoteConflict(candidate);
+    const stored = entry.conflict || contradictory.length > 0
+      ? deepFreeze({ receiptId: entry.receiptId, conflict: true, receipt: entry.receipt })
+      : entry;
+    appendRecord(stored);
+    byId.set(stored.receiptId, stored);
+    if (!stored.conflict) activeEvidence.set(stored.receiptId, stored);
     rawOwners.set(entry.receipt.rawArtifactSha256, entry.receiptId);
-    changed = true;
   }
-  if (records.length > MAX_JOURNAL_RECORDS) fail("JOURNAL_LIMIT", "journal record bound is exhausted");
   return { records: deepFreeze(records), changed };
 }
 
 function cumulativeEvidence(journal, priorReadiness) {
-  const invalidated = new Set();
-  for (const item of priorReadiness?.invalidatedReceiptIdsByWindow || []) {
-    for (const receiptId of item.receiptIds) invalidated.add(receiptId);
-  }
+  const invalidated = invalidatedReceiptIds(priorReadiness);
   return deepFreeze(activeRecords(journal.records)
     .filter((entry) => !invalidated.has(entry.receiptId))
     .map((entry) => ({

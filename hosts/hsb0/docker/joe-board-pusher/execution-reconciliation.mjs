@@ -659,6 +659,15 @@ function receiptsConflict(left, right) {
   );
 }
 
+/**
+ * Structurally validate two canonical receipt candidates and report whether
+ * their overlapping coverage contradicts under the reconciliation rule.
+ * This is a fact comparison only; it does not establish producer authority.
+ */
+export function reconciliationReceiptsConflict(left, right) {
+  return receiptsConflict(normalizeReceipt(left), normalizeReceipt(right));
+}
+
 function rejectConflictsWithinPriorReceipts(priorReceipts) {
   for (let leftIndex = 0; leftIndex < priorReceipts.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < priorReceipts.length; rightIndex += 1) {
