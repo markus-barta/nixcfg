@@ -323,7 +323,7 @@ function receiptFor(capture) {
     commissionCount: commissionIds.length,
     payloadDigest: digest({ executions: capture.executions, commissions: capture.commissions }),
   };
-  return { schema: HISTORY_RECEIPT_SCHEMA, receiptId: digest(facts), ...facts };
+  return { schema: HISTORY_RECEIPT_SCHEMA, receiptId: digest(facts), ...facts, executionIds, commissionIds };
 }
 
 export function reconcileExecutionCapture({ prior = null, capture: rawCapture, target: rawTarget } = {}) {
@@ -408,6 +408,16 @@ export function validateBestAvailableHistoryState(value) {
       .every((value) => SHA256.test(value || ""))) fail("history receipt content digest is invalid");
     if (!Number.isSafeInteger(receipt.executionCount) || receipt.executionCount < 0 ||
         !Number.isSafeInteger(receipt.commissionCount) || receipt.commissionCount < 0) fail("history receipt count is invalid");
+    for (const [ids, count, identityDigest, label] of [
+      [receipt.executionIds, receipt.executionCount, receipt.executionIdentityDigest, "execution"],
+      [receipt.commissionIds, receipt.commissionCount, receipt.commissionIdentityDigest, "commission"],
+    ]) {
+      if (ids !== undefined && (!Array.isArray(ids) || ids.length !== count ||
+          ids.some((id) => typeof id !== "string" || !id) ||
+          stable([...new Set(ids)].sort()) !== stable(ids) || digest(ids) !== identityDigest)) {
+        fail(`history receipt ${label} identities are invalid`);
+      }
+    }
     if (receipt.receiptId !== digest({
       source: receipt.source,
       capturedAt: receipt.capturedAt,

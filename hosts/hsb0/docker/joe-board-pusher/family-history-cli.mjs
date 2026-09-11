@@ -2,6 +2,7 @@
 import {
   captureFromFamilyLedgerFile,
   captureFromOfficialProbeFile,
+  capturesFromOfficialWindowFile,
 } from "./execution-history.mjs";
 import { reconcileExecutionCapture } from "./execution-reconciliation.mjs";
 import {
@@ -24,6 +25,7 @@ function argumentsFrom(argv) {
   let fromInclusive;
   let toExclusive;
   let requestId;
+  let targetAccount;
   for (let index = 0; index < rest.length; index += 2) {
     const key = rest[index];
     const value = rest[index + 1];
@@ -38,6 +40,7 @@ function argumentsFrom(argv) {
       case "--from": fromInclusive = value; break;
       case "--to": toExclusive = value; break;
       case "--request": requestId = value; break;
+      case "--account": targetAccount = value; break;
       default: throw new Error(`unsupported option ${key}`);
     }
   }
@@ -46,13 +49,16 @@ function argumentsFrom(argv) {
   if (!statePath) throw new Error("missing --state");
   if (!fromInclusive) throw new Error("missing --from");
   if (!toExclusive) throw new Error("missing --to");
-  if (!["family-ledger", "official-probe"].includes(sourceType)) {
-    throw new Error("--source-type must be family-ledger or official-probe");
+  if (!["family-ledger", "official-probe", "official-window"].includes(sourceType)) {
+    throw new Error("--source-type must be family-ledger, official-probe or official-window");
   }
   if (sourceType === "official-probe" && !requestId) {
     throw new Error("official-probe import requires --request");
   }
-  return { action, sourceType, sourcePath, statePath, fromInclusive, toExclusive, requestId };
+  if (sourceType === "official-window" && !targetAccount) {
+    throw new Error("official-window import requires --account");
+  }
+  return { action, sourceType, sourcePath, statePath, fromInclusive, toExclusive, requestId, targetAccount };
 }
 
 function summary(state, importedReceiptId) {
@@ -73,23 +79,28 @@ function summary(state, importedReceiptId) {
 }
 
 async function main() {
-  const { action, sourceType, sourcePath, statePath, fromInclusive, toExclusive, requestId } = argumentsFrom(process.argv.slice(2));
+  const { action, sourceType, sourcePath, statePath, fromInclusive, toExclusive, requestId, targetAccount } = argumentsFrom(process.argv.slice(2));
   const target = { fromInclusive, toExclusive };
-  const capture = sourceType === "family-ledger"
-    ? captureFromFamilyLedgerFile({ filePath: sourcePath, window: target })
-    : captureFromOfficialProbeFile({
+  const captures = sourceType === "family-ledger"
+    ? [captureFromFamilyLedgerFile({ filePath: sourcePath, window: target })]
+    : sourceType === "official-probe" ? [captureFromOfficialProbeFile({
       filePath: sourcePath,
       requestId,
       window: target,
+    })] : capturesFromOfficialWindowFile({
+      filePath: sourcePath,
+      requestedWindow: target,
+      targetAccount,
     });
   const store = createFileFamilyHistoryStore(statePath);
   const loaded = store.load();
   if (!loaded.ok) throw new Error(loaded.reason);
-  const state = reconcileExecutionCapture({ prior: loaded.state, capture, target });
-  const sourceId = capture.source.id;
-  const receipt = state.receipts.find((item) => item.source.id === sourceId);
+  let state = loaded.state;
+  for (const capture of captures) state = reconcileExecutionCapture({ prior: state, capture, target });
+  const sourceIds = new Set(captures.map((capture) => capture.source.id));
+  const importedReceiptIds = state.receipts.filter((item) => sourceIds.has(item.source.id)).map((item) => item.receiptId);
   if (action === "import") store.save(state);
-  process.stdout.write(`${JSON.stringify({ action, ...summary(state, receipt.receiptId) }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ action, ...summary(state, importedReceiptIds.length === 1 ? importedReceiptIds[0] : importedReceiptIds) }, null, 2)}\n`);
 }
 
 main().catch((error) => fail(error?.message || String(error)));
