@@ -50,7 +50,7 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/2eabd719bbdc8cf55c6e2cea7aa6d60b0188860b";
+      url = "github:markus-barta/joedesk/478c3a3f0ea511fdd299e9bb928ec2d546944f67";
       flake = false;
     };
     hostdash = {
