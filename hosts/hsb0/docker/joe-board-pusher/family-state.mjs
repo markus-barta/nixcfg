@@ -1,105 +1,164 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-const STATE_SCHEMA = "inspr.joe.family-execution-ledger.v1";
+import { EXECUTION_QUERY_REQUEST_SCHEMA } from "./execution-history.mjs";
+
+const STATE_SCHEMA = "inspr.joe.family-execution-ledger.v2";
+const LEGACY_SCHEMA = "inspr.joe.family-execution-ledger.v1";
+const ACTIVATION_SCHEMA = "inspr.joe.family-execution-ledger.activation.v1";
 const MAX_STATE_BYTES = 16 * 1024 * 1024;
 const MAX_RECORDS = 50_000;
+const MAX_QUERY_DATES = 7;
 const BASELINE_PERIOD_START = "2026-09-10T04:00:00Z";
 const BASELINE_NEW_YORK_DAY = "2026-09-10";
+const executionEpochCache = new Map();
 
-function iso(value) {
-  const date = new Date(value || "");
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function finitePositive(value) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : null;
+function clone(value) {
+  return structuredClone(value);
 }
 
 function stable(value) {
-  if (Array.isArray(value)) {
-    return `[${Array.from(value, (item) => stable(item) ?? "null").join(",")}]`;
-  }
+  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
   if (value && typeof value === "object") {
-    const fields = [];
-    for (const key of Object.keys(value).sort()) {
-      const encoded = stable(value[key]);
-      // JSON persistence omits undefined/function/symbol-valued object keys.
-      if (encoded !== undefined) fields.push(`${JSON.stringify(key)}:${encoded}`);
-    }
-    return `{${fields.join(",")}}`;
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${stable(value[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
 
-function sameRecord(left, right) {
+function same(left, right) {
   return stable(left) === stable(right);
 }
 
-function executionId(row) {
-  const value = row?.execution?.execId;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+function iso(value) {
+  const epoch = Date.parse(value || "");
+  return Number.isFinite(epoch) ? new Date(epoch).toISOString() : null;
 }
 
-function commissionId(row) {
-  const value = row?.execId;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+function sha256(source) {
+  return createHash("sha256").update(source).digest("hex");
 }
 
-function assertFiniteJsonNumbers(value, label, seen = new Set()) {
-  if (typeof value === "number") {
-    if (!Number.isFinite(value) || Math.abs(value) === Number.MAX_VALUE) {
-      throw new Error(`${label} contains a non-finite broker number`);
-    }
-    return;
+function finite(value, label, { positive = false } = {}) {
+  if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) === Number.MAX_VALUE) {
+    throw new Error(`${label} is not finite`);
   }
-  if (!value || typeof value !== "object") return;
-  if (seen.has(value)) throw new Error(`${label} contains a circular value`);
-  seen.add(value);
-  for (const child of Object.values(value)) assertFiniteJsonNumbers(child, label, seen);
-  seen.delete(value);
+  if (positive && value <= 0) throw new Error(`${label} is not positive`);
+  return value;
 }
 
-function validateReplayRecord(row, label) {
-  assertFiniteJsonNumbers(row, label);
-  if (label === "execution") {
-    if (!row?.contract || typeof row.contract !== "object" || !row.execution || typeof row.execution !== "object") {
-      throw new Error("execution is malformed");
-    }
-    if (!Number.isInteger(row.execution.clientId) ||
-        !Number.isFinite(row.execution.shares) || !Number.isFinite(row.execution.price)) {
-      throw new Error("execution has invalid numeric fields");
-    }
-  } else if (label === "commission" && !Number.isFinite(row?.commission)) {
-    throw new Error("commission has invalid numeric fields");
+function requiredText(value, label) {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} is invalid`);
+  return value.trim();
+}
+
+function currency(value, label) {
+  const code = requiredText(value, label).toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) throw new Error(`${label} is invalid`);
+  return code;
+}
+
+function contractMultiplier(value, secType) {
+  if (
+    secType === "STK" &&
+    (value === "" || value === 0 || value === 1 || value === "0" || value === "1" || value === null)
+  ) {
+    return 1;
   }
+  if (value === null) return null;
+  if (typeof value === "string") {
+    if (value.length > 256 || [...value].some((character) => character.codePointAt(0) < 32)) {
+      throw new Error("contract multiplier is invalid or too long");
+    }
+    return value;
+  }
+  return finite(value, "contract multiplier");
+}
+
+function normalizeContract(contract) {
+  if (!contract || typeof contract !== "object") throw new Error("execution contract is malformed");
+  const secType = requiredText(contract.secType, "contract secType").toUpperCase();
+  if (!Number.isSafeInteger(contract.conId) || contract.conId <= 0) {
+    throw new Error("contract conId is invalid");
+  }
+  return {
+    conId: contract.conId,
+    symbol: requiredText(contract.symbol, "contract symbol").toUpperCase(),
+    secType,
+    currency: currency(contract.currency, "contract currency"),
+    multiplier: contractMultiplier(contract.multiplier, secType),
+  };
+}
+
+function normalizeExecutionRecord(row, account) {
+  if (!row || typeof row !== "object" || !row.execution) {
+    throw new Error("execution record is malformed");
+  }
+  const execution = row.execution;
+  if (requiredText(execution.acctNumber, "execution account") !== account) {
+    throw new Error("execution account mismatch");
+  }
+  if (!Number.isSafeInteger(execution.clientId) || execution.clientId < 0) {
+    throw new Error("execution clientId is invalid");
+  }
+  const rawSide = requiredText(execution.side, "execution side").toUpperCase();
+  const side = { BOT: "BUY", BUY: "BUY", SLD: "SELL", SELL: "SELL" }[rawSide];
+  if (!side) {
+    throw new Error("execution side is unsupported");
+  }
+  const pendingPriceRevision = execution.pendingPriceRevision ?? false;
+  if (typeof pendingPriceRevision !== "boolean") {
+    throw new Error("execution pendingPriceRevision is invalid");
+  }
+  const normalized = {
+    contract: normalizeContract(row.contract),
+    execution: {
+      execId: requiredText(execution.execId, "execution execId"),
+      time: requiredText(execution.time, "execution time"),
+      acctNumber: account,
+      clientId: execution.clientId,
+      side,
+      shares: finite(execution.shares, "execution shares", { positive: true }),
+      price: finite(execution.price, "execution price", { positive: true }),
+      pendingPriceRevision,
+    },
+  };
+  if (executionEpoch(normalized) === null) throw new Error("execution time is invalid or ambiguous");
+  return normalized;
+}
+
+function normalizeCommission(report) {
+  if (!report || typeof report !== "object") throw new Error("commission is malformed");
+  return {
+    execId: requiredText(report.execId, "commission execId"),
+    commission: finite(report.commission, "commission amount"),
+    currency: currency(report.currency, "commission currency"),
+  };
 }
 
 function correctionIdentity(rowOrId) {
-  const id = typeof rowOrId === "string" ? rowOrId : executionId(rowOrId);
+  const id = typeof rowOrId === "string" ? rowOrId : rowOrId?.execution?.execId;
   const match = id?.match(/^(.*\.)(\d+)$/);
-  if (!match || match[1] === ".") throw new Error(`execution ${id || "ID"} has no correction segment`);
+  if (!match || match[1] === ".") throw new Error("execution ID has no correction segment");
   return { id, prefix: match[1], revision: BigInt(match[2]) };
 }
 
-function latestExecutionIdentities(rows) {
+function latestIdentities(rows) {
   const latest = new Map();
   for (const row of rows) {
     const identity = correctionIdentity(row);
     const prior = latest.get(identity.prefix);
+    if (prior && identity.revision === prior.revision && identity.id !== prior.id) {
+      throw new Error("conflicting correction revision");
+    }
     if (!prior || identity.revision > prior.revision) latest.set(identity.prefix, identity);
   }
-  return [...latest.values()]
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map(({ id }) => id);
+  return [...latest.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function missingPriorQueryIdentities(priorIds, currentIds) {
-  const current = new Map(currentIds.map((id) => {
-    const identity = correctionIdentity(id);
-    return [identity.prefix, identity];
-  }));
+function missingIdentities(priorIds, currentRows) {
+  const current = new Map(latestIdentities(currentRows).map((identity) => [identity.prefix, identity]));
   return priorIds.filter((id) => {
     const prior = correctionIdentity(id);
     const next = current.get(prior.prefix);
@@ -107,33 +166,126 @@ function missingPriorQueryIdentities(priorIds, currentIds) {
   });
 }
 
-function mergeExact(existing, incoming, identify, label) {
-  for (const row of [...existing, ...incoming]) validateReplayRecord(row, label);
-  const merged = [...existing];
+function mergeRows(existing, incoming, identify, label) {
+  const rows = [...existing];
   const byId = new Map(existing.map((row, index) => [identify(row), { row, index }]));
   let changed = false;
   for (const row of incoming) {
     const id = identify(row);
-    if (!id) throw new Error(`${label} is missing execId`);
     const prior = byId.get(id);
     if (prior) {
-      if (!sameRecord(prior.row, row)) throw new Error(`conflicting replay for ${label} ${id}`);
+      if (!same(prior.row, row)) throw new Error(`conflicting ${label} ${id}`);
       continue;
     }
-    byId.set(id, { row, index: merged.length });
-    merged.push(row);
+    byId.set(id, { row, index: rows.length });
+    rows.push(row);
     changed = true;
   }
-  return { rows: merged, changed };
+  if (rows.length > MAX_RECORDS) throw new Error(`${label} ledger exceeds record limit`);
+  return { rows, changed };
 }
 
-function clone(value) {
-  return structuredClone(value);
+const newYorkFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+function newYorkParts(epoch) {
+  const result = {};
+  for (const part of newYorkFormatter.formatToParts(new Date(epoch))) {
+    if (part.type !== "literal") result[part.type] = Number(part.value);
+  }
+  return [result.year, result.month, result.day, result.hour, result.minute, result.second];
+}
+
+function newYorkDay(value) {
+  const epoch = Date.parse(value || "");
+  if (!Number.isFinite(epoch)) return null;
+  const [year, month, day] = newYorkParts(epoch);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function validCalendarDay(year, month, day) {
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day;
+}
+
+function compactDay(day) {
+  const match = typeof day === "string" ? day.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+  if (!match || !validCalendarDay(Number(match[1]), Number(match[2]), Number(match[3]))) return null;
+  return `${match[1]}${match[2]}${match[3]}`;
+}
+
+function expandedDay(day) {
+  const match = typeof day === "string" ? day.match(/^(\d{4})(\d{2})(\d{2})$/) : null;
+  if (!match || !validCalendarDay(Number(match[1]), Number(match[2]), Number(match[3]))) return null;
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function dayRange(first, last) {
+  const start = expandedDay(first);
+  const end = expandedDay(last);
+  if (!start || !end || start > end) throw new Error("execution coverage day range is invalid");
+  const days = [];
+  let cursor = new Date(`${start}T12:00:00Z`);
+  while (cursor.toISOString().slice(0, 10) <= end) {
+    days.push(cursor.toISOString().slice(0, 10).replaceAll("-", ""));
+    if (days.length > MAX_QUERY_DATES) throw new Error("execution gap exceeds bounded exact-date query capacity");
+    cursor = new Date(cursor.getTime() + 86_400_000);
+  }
+  return days;
+}
+
+function persistedDayRange(first, last) {
+  const start = expandedDay(first);
+  const end = expandedDay(last);
+  if (!start || !end || start > end) throw new Error("persisted coverage day range is invalid");
+  const days = [];
+  let cursor = new Date(`${start}T12:00:00Z`);
+  while (cursor.toISOString().slice(0, 10) <= end) {
+    days.push(cursor.toISOString().slice(0, 10));
+    if (days.length > MAX_RECORDS) throw new Error("persisted coverage day range exceeds state bound");
+    cursor = new Date(cursor.getTime() + 86_400_000);
+  }
+  return days;
+}
+
+function executionEpoch(row) {
+  const source = row?.execution?.time;
+  if (typeof source === "string" && executionEpochCache.has(source)) {
+    return executionEpochCache.get(source);
+  }
+  const match = source?.match(
+    /^(\d{4})(\d{2})(\d{2})\s+(\d{2}):(\d{2}):(\d{2})\s+(?:US\/Eastern|America\/New_York)$/
+  );
+  if (!match) return null;
+  const parts = match.slice(1).map(Number);
+  const naive = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]);
+  const matches = [];
+  for (let offset = -14 * 60; offset <= 14 * 60; offset += 15) {
+    const candidate = naive - offset * 60_000;
+    if (newYorkParts(candidate).every((value, index) => value === parts[index])) {
+      matches.push(candidate);
+    }
+  }
+  const result = matches.length === 1 ? matches[0] : null;
+  if (executionEpochCache.size >= MAX_RECORDS) executionEpochCache.clear();
+  executionEpochCache.set(source, result);
+  return result;
 }
 
 function normalizedClassifier(familyClientIds, excludedSymbols) {
+  if (!familyClientIds || !excludedSymbols) throw new TypeError("family classifier is required");
   const ids = [...familyClientIds].map(Number);
-  if (!ids.length || ids.some((value) => !Number.isInteger(value) || value < 0)) {
+  if (!ids.length || ids.some((value) => !Number.isSafeInteger(value) || value < 0)) {
     throw new TypeError("family classifier has invalid client IDs");
   }
   const symbols = [...excludedSymbols].map((value) => String(value).trim().toUpperCase());
@@ -144,193 +296,653 @@ function normalizedClassifier(familyClientIds, excludedSymbols) {
   };
 }
 
-function validState(value, account, periodStart, classifier) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return "state is not an object";
-  if (value.schema !== STATE_SCHEMA || value.version !== 1) return "unsupported state schema";
-  if (typeof value.account !== "string" || !value.account.trim()) return "state account is invalid";
-  if (!iso(value.periodStart) || !iso(value.initializedAt)) return "state baseline metadata is invalid";
-  if (value.account !== account) return "state account does not match configured account";
-  if (value.periodStart !== periodStart) return "state periodStart does not match configured baseline";
-  let persistedClassifier;
-  try {
-    persistedClassifier = normalizedClassifier(
-      value.classifier?.familyClientIds || [],
-      value.classifier?.excludedSymbols || []
-    );
-  } catch {
-    return "state classifier is invalid";
+function identityDigest(ids) {
+  return sha256(`${[...ids].sort().join("\n")}\n`);
+}
+
+function validFamilyResult(result) {
+  if (result === null || result === undefined) return null;
+  if (!result || result.ok !== true || !iso(result.observedAt) || !Array.isArray(result.positions)) {
+    return "persisted family projection is invalid";
   }
-  if (!sameRecord(value.classifier, persistedClassifier)) return "state classifier is not canonical";
-  if (!sameRecord(persistedClassifier, classifier)) return "state classifier does not match configured family";
-  if (!Array.isArray(value.executions) || value.executions.length > MAX_RECORDS) return "invalid execution ledger";
-  if (!Array.isArray(value.commissions) || value.commissions.length > MAX_RECORDS) return "invalid commission ledger";
-  if (!Array.isArray(value.queryExecutionIdentities) || value.queryExecutionIdentities.length > MAX_RECORDS) {
-    return "invalid execution query coverage";
-  }
-  if (!iso(value.ledgerObservedAt)) return "invalid ledger observation time";
-  if (!iso(value.coverageThrough) || newYorkDay(value.coverageThrough) !== value.coverageTradingDay) {
-    return "invalid execution coverage metadata";
-  }
-  const seenExecutions = new Map();
-  for (const row of value.executions) {
-    const id = executionId(row);
-    if (!row?.contract || typeof row.contract !== "object" || !row.execution || typeof row.execution !== "object" || !id) {
-      return "execution ledger row is malformed";
-    }
-    if (row.execution.acctNumber !== value.account) return "execution ledger account mismatch";
-    try { validateReplayRecord(row, "execution"); } catch (error) { return error.message; }
-    if (seenExecutions.has(id) && !sameRecord(seenExecutions.get(id), row)) return `conflicting persisted execution ${id}`;
-    seenExecutions.set(id, row);
-  }
-  const seenCommissions = new Map();
-  for (const row of value.commissions) {
-    const id = commissionId(row);
-    if (!id) return "commission ledger row is missing execId";
-    try { validateReplayRecord(row, "commission"); } catch (error) { return error.message; }
-    if (seenCommissions.has(id) && !sameRecord(seenCommissions.get(id), row)) return `conflicting persisted commission ${id}`;
-    seenCommissions.set(id, row);
-  }
-  try {
-    const canonicalQuery = latestExecutionIdentities(value.queryExecutionIdentities);
-    if (!sameRecord(value.queryExecutionIdentities, canonicalQuery)) {
-      return "execution query coverage is not canonical";
-    }
-    const ledgerIdentities = latestExecutionIdentities(value.executions);
-    if (missingPriorQueryIdentities(canonicalQuery, ledgerIdentities).length) {
-      return "execution query coverage is absent from persisted ledger";
-    }
-  } catch (error) {
-    return error.message;
-  }
-  if (value.family !== null && value.family !== undefined) {
-    const invalid = validateFamilyResult(value.family);
-    if (invalid || value.family.positions.length > MAX_RECORDS) return "invalid persisted family projection";
+  for (const field of ["equity", "totalPnl", "realizedPnl", "unrealizedPnl"]) {
+    if (!Number.isFinite(result[field])) return "persisted family projection is invalid";
   }
   return null;
 }
 
-export function createFileFamilyStateStore(filePath, fsImpl = fs) {
-  if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
-    throw new TypeError("family state path must be absolute");
+function canonicalLedgerRows(value, account) {
+  if (!Array.isArray(value.executions) || value.executions.length > MAX_RECORDS) {
+    throw new Error("execution ledger is invalid");
   }
-  return {
-    load({ account, periodStart, classifier }) {
-      let source;
-      let handle;
-      try {
-        handle = fsImpl.openSync(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
-        const stat = fsImpl.fstatSync(handle);
-        if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_STATE_BYTES) {
-          return { ok: false, reason: "family ledger state has an invalid size" };
-        }
-        // Read the same opened inode we validated; a pathname replacement must
-        // not change the ledger selected by this load. Bound concurrent growth.
-        const bytes = Buffer.alloc(stat.size + 1);
-        let count = 0;
-        while (count < bytes.length) {
-          const read = fsImpl.readSync(handle, bytes, count, bytes.length - count, null);
-          if (read === 0) break;
-          count += read;
-        }
-        if (count !== stat.size) return { ok: false, reason: "family ledger state changed size during read" };
-        source = bytes.subarray(0, count).toString("utf8");
-      } catch (error) {
-        if (error?.code === "ENOENT") return { ok: true, state: null };
-        return { ok: false, reason: `family ledger state read failed: ${error?.code || error}` };
-      } finally {
-        if (handle !== undefined) fsImpl.closeSync(handle);
-      }
-      try {
-        const state = JSON.parse(source);
-        const reason = validState(state, account, periodStart, classifier);
-        return reason ? { ok: false, reason } : { ok: true, state };
-      } catch {
-        return { ok: false, reason: "family ledger state is corrupt JSON" };
-      }
-    },
+  if (!Array.isArray(value.commissions) || value.commissions.length > MAX_RECORDS) {
+    throw new Error("commission ledger is invalid");
+  }
+  const executions = value.executions.map((row) => normalizeExecutionRecord(row, account));
+  const commissions = value.commissions.map(normalizeCommission);
+  const executionMerge = mergeRows([], executions, (row) => row.execution.execId, "execution");
+  const commissionMerge = mergeRows([], commissions, (row) => row.execId, "commission");
+  if (executionMerge.rows.length !== executions.length) {
+    throw new Error("duplicate execution ledger identity");
+  }
+  if (commissionMerge.rows.length !== commissions.length) {
+    throw new Error("duplicate commission ledger identity");
+  }
+  return { executions, commissions };
+}
 
-    save(state) {
-      const reason = validState(state, state?.account, state?.periodStart, state?.classifier);
-      if (reason) throw new Error(reason);
-      const body = `${JSON.stringify(state, null, 2)}\n`;
-      if (Buffer.byteLength(body) > MAX_STATE_BYTES) throw new Error("family ledger state exceeds size limit");
-      const directory = path.dirname(filePath);
-      const temporary = path.join(directory, `.${path.basename(filePath)}.${process.pid}.tmp`);
-      let handle;
-      try {
-        handle = fsImpl.openSync(temporary, "w", 0o600);
-        fsImpl.writeFileSync(handle, body, "utf8");
-        fsImpl.fsyncSync(handle);
-        fsImpl.closeSync(handle);
-        handle = undefined;
-        fsImpl.renameSync(temporary, filePath);
-        const directoryHandle = fsImpl.openSync(directory, "r");
-        try {
-          fsImpl.fsyncSync(directoryHandle);
-        } finally {
-          fsImpl.closeSync(directoryHandle);
-        }
-      } catch (error) {
-        if (handle !== undefined) {
-          try { fsImpl.closeSync(handle); } catch {}
-        }
-        try { fsImpl.unlinkSync(temporary); } catch {}
-        throw error;
-      }
-    },
+function validateCommissionCoverage(rows, classifier) {
+  const executionIds = new Set(rows.executions.map((row) => row.execution.execId));
+  if (rows.commissions.some((report) => !executionIds.has(report.execId))) {
+    throw new Error("commission has no matching execution");
+  }
+  const familyIds = new Set(classifier.familyClientIds);
+  const excluded = new Set(classifier.excludedSymbols);
+  const feeIds = new Set(rows.commissions.map((report) => report.execId));
+  if (rows.executions.some((row) =>
+    familyExecution(row, familyIds, excluded) && !feeIds.has(row.execution.execId))) {
+    throw new Error("family execution has no matching commission");
+  }
+}
+
+function validateLegacyState(value, account, periodStart, classifier) {
+  if (!value || value.schema !== LEGACY_SCHEMA || value.version !== 1) {
+    throw new Error("unsupported v1 family state schema");
+  }
+  if (value.account !== account || value.periodStart !== periodStart) {
+    throw new Error("v1 family state configuration mismatch");
+  }
+  const persistedClassifier = normalizedClassifier(
+    value.classifier?.familyClientIds || [],
+    value.classifier?.excludedSymbols || []
+  );
+  if (!same(value.classifier, persistedClassifier)) throw new Error("v1 family classifier is not canonical");
+  if (!same(persistedClassifier, classifier)) throw new Error("v1 family classifier mismatch");
+  if (!iso(value.initializedAt) || !iso(value.ledgerObservedAt) || !iso(value.coverageThrough)) {
+    throw new Error("v1 family state timestamps are invalid");
+  }
+  const rows = canonicalLedgerRows(value, account);
+  validateCommissionCoverage(rows, classifier);
+  if (!Array.isArray(value.queryExecutionIdentities) ||
+      value.queryExecutionIdentities.length > MAX_RECORDS) {
+    throw new Error("v1 execution coverage identities are invalid");
+  }
+  const canonicalIdentities = latestIdentities(value.queryExecutionIdentities).map(({ id }) => id);
+  if (!same(canonicalIdentities, value.queryExecutionIdentities)) {
+    throw new Error("v1 execution coverage identities are not canonical");
+  }
+  if (missingIdentities(value.queryExecutionIdentities, rows.executions).length) {
+    throw new Error("v1 execution coverage identities are absent from its ledger");
+  }
+  const coverageDay = compactDay(
+    value.coverageTradingDay || newYorkDay(value.coverageThrough)
+  );
+  if (!coverageDay || expandedDay(coverageDay) !== newYorkDay(value.coverageThrough)) {
+    throw new Error("v1 execution coverage day is invalid");
+  }
+  const familyError = validFamilyResult(value.family);
+  if (familyError || value.family?.positions?.length > MAX_RECORDS) throw new Error(familyError || "persisted family projection exceeds limit");
+  return {
+    account,
+    periodStart,
+    classifier,
+    initializedAt: iso(value.initializedAt),
+    ledgerObservedAt: iso(value.ledgerObservedAt),
+    coverageThrough: iso(value.coverageThrough),
+    coverageDay,
+    latestIdentities: [...value.queryExecutionIdentities],
+    executions: rows.executions,
+    commissions: rows.commissions,
+    family: value.family ? clone(value.family) : null,
   };
 }
 
-function newYorkDay(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${fields.year}-${fields.month}-${fields.day}`;
+function validateV2State(value, account, periodStart, classifier) {
+  if (!value || value.schema !== STATE_SCHEMA || value.version !== 2) {
+    throw new Error("unsupported v2 family state schema");
+  }
+  if (value.account !== account || value.periodStart !== periodStart) {
+    throw new Error("v2 family state configuration mismatch");
+  }
+  const persistedClassifier = normalizedClassifier(
+    value.classifier?.familyClientIds || [],
+    value.classifier?.excludedSymbols || []
+  );
+  if (!same(value.classifier, persistedClassifier)) throw new Error("v2 family classifier is not canonical");
+  if (!same(persistedClassifier, classifier)) throw new Error("v2 family classifier mismatch");
+  if (!iso(value.initializedAt) || !iso(value.ledgerObservedAt)) {
+    throw new Error("v2 family state timestamps are invalid");
+  }
+  const rows = canonicalLedgerRows(value, account);
+  validateCommissionCoverage(rows, classifier);
+  if (!same(rows.executions, value.executions) || !same(rows.commissions, value.commissions)) {
+    throw new Error("v2 family state is not canonical");
+  }
+  const coverage = value.coverage;
+  if (
+    !coverage ||
+    coverage.timeZone !== "America/New_York" ||
+    coverage.periodStart !== periodStart ||
+    coverage.contiguousFromDay !== BASELINE_NEW_YORK_DAY ||
+    !iso(coverage.observedThrough) ||
+    compactDay(coverage.throughDay) === null ||
+    !coverage.days || typeof coverage.days !== "object" || Array.isArray(coverage.days)
+  ) {
+    throw new Error("v2 execution coverage metadata is invalid");
+  }
+  const expectedDays = persistedDayRange(
+    compactDay(BASELINE_NEW_YORK_DAY),
+    compactDay(coverage.throughDay)
+  );
+  if (!same(Object.keys(coverage.days).sort(), expectedDays)) {
+    throw new Error("v2 execution coverage has a missing or unexpected day");
+  }
+  for (const [day, record] of Object.entries(coverage.days)) {
+    if (compactDay(day) === null || !record || typeof record !== "object") {
+      throw new Error("v2 execution coverage day is invalid");
+    }
+    if (!iso(record.lastRequestedAt) || !iso(record.lastEndedAt) ||
+        !Array.isArray(record.latestCorrectionExecIds)) {
+      throw new Error("v2 execution coverage day is invalid");
+    }
+    const sorted = [...record.latestCorrectionExecIds].sort();
+    const dayRows = rows.executions.filter((row) => dayForExecution(row) === day);
+    const canonicalIdentities = latestIdentities(dayRows).map(({ id }) => id);
+    if (!same(sorted, record.latestCorrectionExecIds) ||
+        !same(canonicalIdentities, sorted) ||
+        record.identityDigest !== identityDigest(sorted) ||
+        !Number.isSafeInteger(record.executionCount) || record.executionCount < 0 ||
+        record.knownNonEmptyReplay !== (record.executionCount > 0)) {
+      throw new Error("v2 execution coverage day is not canonical");
+    }
+  }
+  if (maxIso(Object.values(coverage.days).map((record) => record.lastEndedAt)) !==
+      iso(coverage.observedThrough)) {
+    throw new Error("v2 execution coverage watermark is inconsistent");
+  }
+  const evidence = coverage.historyEvidence;
+  if (
+    !evidence ||
+    !["provisional", "cross_midnight", "over_24h"].includes(evidence.status) ||
+    !Number.isSafeInteger(evidence.serverVersion) || evidence.serverVersion < 200 ||
+    typeof evidence.sdkVersion !== "string" || !evidence.sdkVersion ||
+    typeof evidence.helperSessionId !== "string" || !evidence.helperSessionId ||
+    compactDay(evidence.anchorDay) === null ||
+    !iso(evidence.anchorExecutionAt) ||
+    !/^[0-9a-f]{64}$/.test(evidence.anchorIdentityDigest) ||
+    !iso(evidence.provenAt)
+  ) {
+    throw new Error("v2 history evidence is invalid");
+  }
+  const anchorAt = iso(evidence.anchorExecutionAt);
+  if (!rows.executions.some((row) =>
+    dayForExecution(row) === evidence.anchorDay &&
+    new Date(executionEpoch(row)).toISOString() === anchorAt)) {
+    throw new Error("v2 history evidence anchor is absent from ledger");
+  }
+  const familyError = validFamilyResult(value.family);
+  if (familyError || value.family?.positions?.length > MAX_RECORDS) throw new Error(familyError || "persisted family projection exceeds limit");
+  if (value.migration && (
+    value.migration.sourceSchema !== LEGACY_SCHEMA ||
+    !/^[a-f0-9]{64}$/.test(value.migration.sourceDigest || "") ||
+    !iso(value.migration.sourceCoverageThrough)
+  )) {
+    throw new Error("v2 migration evidence is invalid");
+  }
+  return { ...value, executions: rows.executions, commissions: rows.commissions };
 }
 
-function contractIdentity(contract) {
-  const conId = Number(contract?.conId);
-  if (Number.isInteger(conId) && conId > 0) return `conId:${conId}`;
-  const symbol = typeof contract?.symbol === "string" ? contract.symbol.trim().toUpperCase() : "";
-  const secType = typeof contract?.secType === "string" ? contract.secType.trim().toUpperCase() : "";
-  const currency = typeof contract?.currency === "string" ? contract.currency.trim().toUpperCase() : "";
-  return symbol && secType && currency ? `${symbol}:${secType}:${currency}` : null;
+function readStateFile(filePath, fsImpl) {
+  let handle;
+  try {
+    handle = fsImpl.openSync(
+      filePath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK
+    );
+    const stat = fsImpl.fstatSync(handle);
+    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_STATE_BYTES) {
+      return { ok: false, reason: "family ledger state has an invalid size" };
+    }
+    const bytes = Buffer.alloc(stat.size + 1);
+    let count = 0;
+    while (count < bytes.length) {
+      const read = fsImpl.readSync(handle, bytes, count, bytes.length - count, null);
+      if (read === 0) break;
+      count += read;
+    }
+    if (count !== stat.size) {
+      return { ok: false, reason: "family ledger state changed size during read" };
+    }
+    return { ok: true, source: bytes.subarray(0, count).toString("utf8") };
+  } catch (error) {
+    if (error?.code === "ENOENT") return { ok: true, source: null };
+    return { ok: false, reason: `family ledger state read failed: ${error?.code || error}` };
+  } finally {
+    if (handle !== undefined) fsImpl.closeSync(handle);
+  }
+}
+
+function economicallyContains(state, legacy) {
+  const executions = new Map(state.executions.map((row) => [row.execution.execId, row]));
+  for (const row of legacy.executions) {
+    if (!executions.has(row.execution.execId) || !same(executions.get(row.execution.execId), row)) {
+      return false;
+    }
+  }
+  const commissions = new Map(state.commissions.map((row) => [row.execId, row]));
+  for (const row of legacy.commissions) {
+    if (!commissions.has(row.execId) || !same(commissions.get(row.execId), row)) return false;
+  }
+  return true;
+}
+
+function sameEconomicIds(left, right) {
+  const executionIds = (value) => value.executions.map((row) => row.execution.execId).sort();
+  const commissionIds = (value) => value.commissions.map((row) => row.execId).sort();
+  return same(executionIds(left), executionIds(right)) &&
+    same(commissionIds(left), commissionIds(right));
+}
+
+export function createFileFamilyStateStore(
+  filePath,
+  { legacyPath = null, fsImpl = fs } = {}
+) {
+  if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
+    throw new TypeError("family v2 state path must be absolute");
+  }
+  if (legacyPath !== null && (typeof legacyPath !== "string" || !path.isAbsolute(legacyPath))) {
+    throw new TypeError("family v1 backup path must be absolute");
+  }
+  const activationPath = `${filePath}.activated`;
+
+  function activationDigest(source) {
+    if (source === null) return null;
+    const value = JSON.parse(source);
+    if (value?.schema !== ACTIVATION_SCHEMA || !/^[0-9a-f]{64}$/.test(value.sourceDigest || "")) {
+      throw new Error("family v2 activation marker is invalid");
+    }
+    return value.sourceDigest;
+  }
+
+  function save(state) {
+    validateV2State(state, state?.account, state?.periodStart, state?.classifier);
+    if (state.migration) {
+      if (!legacyPath) throw new Error("immutable v1 backup path is unavailable");
+      const backup = readStateFile(legacyPath, fsImpl);
+      if (!backup.ok || backup.source === null) {
+        throw new Error(backup.reason || "immutable v1 backup is missing");
+      }
+      if (sha256(backup.source) !== state.migration.sourceDigest) {
+        throw new Error("immutable v1 backup changed after migration");
+      }
+    }
+    const body = `${JSON.stringify(state, null, 2)}\n`;
+    if (Buffer.byteLength(body) > MAX_STATE_BYTES) {
+      throw new Error("family v2 state exceeds size limit");
+    }
+    const directory = path.dirname(filePath);
+    const temporary = path.join(directory, `.${path.basename(filePath)}.${process.pid}.tmp`);
+    let handle;
+    try {
+      handle = fsImpl.openSync(temporary, "w", 0o600);
+      fsImpl.writeFileSync(handle, body, "utf8");
+      fsImpl.fsyncSync(handle);
+      fsImpl.closeSync(handle);
+      handle = undefined;
+      fsImpl.renameSync(temporary, filePath);
+      const directoryHandle = fsImpl.openSync(directory, "r");
+      try {
+        fsImpl.fsyncSync(directoryHandle);
+      } finally {
+        fsImpl.closeSync(directoryHandle);
+      }
+    } catch (error) {
+      if (handle !== undefined) {
+        try { fsImpl.closeSync(handle); } catch {}
+      }
+      try { fsImpl.unlinkSync(temporary); } catch {}
+      throw error;
+    }
+    if (state.migration) {
+      const marker = readStateFile(activationPath, fsImpl);
+      if (!marker.ok) throw new Error(marker.reason);
+      const expected = state.migration.sourceDigest;
+      if (marker.source !== null) {
+        if (activationDigest(marker.source) !== expected) {
+          throw new Error("family v2 activation marker conflicts with migration");
+        }
+      } else {
+        const body = `${JSON.stringify({ schema: ACTIVATION_SCHEMA, sourceDigest: expected })}\n`;
+        const handle = fsImpl.openSync(activationPath, "wx", 0o600);
+        try {
+          fsImpl.writeFileSync(handle, body, "utf8");
+          fsImpl.fsyncSync(handle);
+        } finally {
+          fsImpl.closeSync(handle);
+        }
+        const directoryHandle = fsImpl.openSync(path.dirname(activationPath), "r");
+        try { fsImpl.fsyncSync(directoryHandle); } finally { fsImpl.closeSync(directoryHandle); }
+      }
+    }
+  }
+
+  function load({ account, periodStart, classifier }) {
+    const canonicalClassifier = normalizedClassifier(
+      classifier?.familyClientIds || [],
+      classifier?.excludedSymbols || []
+    );
+    const active = readStateFile(filePath, fsImpl);
+    if (!active.ok) return active;
+    const activation = readStateFile(activationPath, fsImpl);
+    if (!activation.ok) return activation;
+    let recordedActivation = null;
+    try {
+      recordedActivation = activationDigest(activation.source);
+    } catch (error) {
+      return { ok: false, reason: error.message };
+    }
+
+    let legacy = null;
+    let legacySource = null;
+    if (legacyPath) {
+      const backup = readStateFile(legacyPath, fsImpl);
+      if (!backup.ok) return { ok: false, reason: `v1 backup: ${backup.reason}` };
+      legacySource = backup.source;
+      if (legacySource !== null) {
+        try {
+          legacy = validateLegacyState(
+            JSON.parse(legacySource),
+            account,
+            periodStart,
+            canonicalClassifier
+          );
+        } catch (error) {
+          return { ok: false, reason: `v1 backup is invalid: ${error.message}` };
+        }
+      }
+    }
+
+    if (active.source === null) {
+      if (recordedActivation) {
+        return { ok: false, reason: "family v2 state is missing after migration activation" };
+      }
+      return {
+        ok: true,
+        state: null,
+        legacy: legacy ? { ...legacy, sourceDigest: sha256(legacySource) } : null,
+      };
+    }
+
+    let state;
+    try {
+      state = validateV2State(
+        JSON.parse(active.source),
+        account,
+        periodStart,
+        canonicalClassifier
+      );
+    } catch (error) {
+      return { ok: false, reason: `v2 state is invalid: ${error.message}` };
+    }
+    if (recordedActivation && !state.migration) {
+      return { ok: false, reason: "family v2 activation marker requires migration metadata" };
+    }
+
+    if (state.migration) {
+      if (recordedActivation && recordedActivation !== state.migration.sourceDigest) {
+        return { ok: false, reason: "family v2 activation marker conflicts with migration" };
+      }
+      if (!legacy || !legacySource) {
+        return { ok: false, reason: "immutable v1 backup is missing after migration" };
+      }
+      if (
+        state.migration.sourceSchema !== LEGACY_SCHEMA ||
+        state.migration.sourceDigest !== sha256(legacySource) ||
+        state.migration.sourceCoverageThrough !== legacy.coverageThrough
+      ) {
+        return { ok: false, reason: "immutable v1 backup changed after migration" };
+      }
+      if (!economicallyContains(state, legacy)) {
+        return { ok: false, reason: "v1/v2 economic history conflicts" };
+      }
+    }
+    return { ok: true, state, legacy: null };
+  }
+
+  return { load, save };
+}
+
+function baseCurrencyProven(book, account) {
+  const nlv = book?.summary?.NetLiquidation;
+  return nlv?.account === account && String(nlv.currency || "").toUpperCase() === "EUR";
 }
 
 function maxIso(values) {
+  return values.map(iso).filter(Boolean).sort().at(-1) || null;
+}
+
+function contractIdentity(contract) {
+  return Number.isSafeInteger(contract?.conId) && contract.conId > 0
+    ? `conId:${contract.conId}`
+    : null;
+}
+
+function dayForExecution(row) {
+  const value = row?.execution?.time;
+  const match = typeof value === "string" ? value.match(/^(\d{4})(\d{2})(\d{2})/) : null;
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
+}
+
+function familyExecution(row, familyIds, excluded) {
+  const symbol = String(row?.contract?.symbol || "").trim().toUpperCase();
+  return familyIds.has(row?.execution?.clientId) && !excluded.has(symbol);
+}
+
+function dayCoverage(request) {
+  const identities = latestIdentities(request.executions).map(({ id }) => id);
+  return {
+    lastRequestedAt: request.requestedAt,
+    lastEndedAt: request.endedAt,
+    latestCorrectionExecIds: identities,
+    identityDigest: identityDigest(identities),
+    executionCount: request.executions.length,
+    knownNonEmptyReplay: request.executions.length > 0,
+  };
+}
+
+function stateAnchorRows(source) {
+  return source?.executions || [];
+}
+
+function latestKnownAnchorDay(source, gapStart) {
   let latest = null;
-  for (const value of values) {
-    const normalized = iso(value);
-    if (normalized && (!latest || normalized > latest)) latest = normalized;
+  for (const row of stateAnchorRows(source)) {
+    const epoch = executionEpoch(row);
+    if (epoch !== null && epoch <= gapStart && (!latest || epoch > latest.epoch)) {
+      latest = { row, epoch };
+    }
+  }
+  return latest ? dayForExecution(latest.row) : null;
+}
+
+function findAnchor(source, requests, gapStart) {
+  const responseByDay = new Map(requests.map((request) => [
+    expandedDay(request.date),
+    new Map(latestIdentities(request.executions).map((identity) => [identity.prefix, identity])),
+  ]));
+  let latest = null;
+  for (const row of stateAnchorRows(source)) {
+    const identity = correctionIdentity(row);
+    const epoch = executionEpoch(row);
+    if (epoch === null || epoch > gapStart) continue;
+    const replayed = responseByDay.get(dayForExecution(row))?.get(identity.prefix);
+    if (replayed && replayed.revision >= identity.revision && (!latest || epoch > latest.epoch)) {
+      latest = { row, identity, epoch };
+    }
   }
   return latest;
 }
 
-function baseCurrencyProven(book, targetAccount) {
-  const nlv = book?.summary?.NetLiquidation;
-  return nlv?.account === targetAccount && String(nlv.currency || "").toUpperCase() === "EUR";
-}
-
-function validateFamilyResult(result) {
-  if (!result || result.ok !== true || !iso(result.observedAt)) return "calculator did not return a complete family result";
-  for (const field of ["equity", "totalPnl", "realizedPnl", "unrealizedPnl"]) {
-    if (!Number.isFinite(result[field])) return `calculator returned invalid ${field}`;
+function persistedDayIdentities(source, day) {
+  if (source?.coverage?.days?.[day]) {
+    return source.coverage.days[day].latestCorrectionExecIds;
   }
-  if (!Array.isArray(result.positions)) return "calculator returned invalid positions";
-  return null;
+  if (source?.coverageDay === compactDay(day)) return source.latestIdentities;
+  return [];
 }
 
-/**
- * Generation-scoped, read-only execution/commission/FX collector.
- * It owns no network connection and publishes nothing; the existing pusher remains
- * the sole inbox writer.
- */
+function buildAcceptedState({
+  priorState,
+  legacy,
+  result,
+  account,
+  periodStart,
+  classifier,
+  familyIds,
+  excluded,
+}) {
+  const source = priorState || legacy;
+  const requests = result.requests;
+  const first = requests[0];
+  const observedThrough = maxIso(requests.map((request) => request.endedAt));
+  if (!observedThrough) throw new Error("history result has no observation watermark");
+
+  for (const request of requests) {
+    const day = expandedDay(request.date);
+    const known = persistedDayIdentities(source, day);
+    if (known.length && missingIdentities(known, request.executions).length) {
+      throw new Error(`retention_loss: ${day} lost previously observed identities`);
+    }
+  }
+
+  const gapStart = Date.parse(
+    priorState?.coverage?.observedThrough || legacy?.coverageThrough || periodStart
+  );
+  const priorEvidence = priorState?.coverage?.historyEvidence;
+  const sourceChanged = Boolean(priorState) && (
+    priorEvidence.helperSessionId !== result.helperSessionId ||
+    priorEvidence.serverVersion !== result.serverVersion ||
+    priorEvidence.sdkVersion !== result.sdkVersion
+  );
+  const crossesDay = Boolean(source) &&
+    compactDay(newYorkDay(new Date(gapStart).toISOString())) !== requests.at(-1).date;
+  const needsAnchor = Boolean(legacy || sourceChanged || crossesDay);
+  let anchor = source ? findAnchor(source, requests, gapStart) : null;
+
+  if (!source) {
+    if (first.date !== compactDay(BASELINE_NEW_YORK_DAY) || first.executions.length === 0) {
+      throw new Error("retention_loss: empty or unanchored historical response");
+    }
+    anchor = first.executions
+      .map((row) => ({ row, identity: correctionIdentity(row), epoch: executionEpoch(row) }))
+      .filter(({ epoch }) => epoch !== null && epoch <= Date.parse(observedThrough))
+      .sort((left, right) => left.epoch - right.epoch)[0];
+  }
+  if ((needsAnchor || !source) && !anchor) {
+    throw new Error("retention_loss: recovery response did not replay a known pre-gap anchor");
+  }
+  const replayedAnchor = Boolean(anchor);
+  const persistedAnchorEpoch = Date.parse(priorEvidence?.anchorExecutionAt || "");
+  const persistedAnchorRow = source?.executions?.find((row) =>
+    dayForExecution(row) === priorEvidence?.anchorDay &&
+    executionEpoch(row) === persistedAnchorEpoch);
+  anchor ||= {
+    row: persistedAnchorRow || source.executions[0],
+    identity: correctionIdentity(persistedAnchorRow || source.executions[0]),
+    epoch: executionEpoch(persistedAnchorRow || source.executions[0]),
+  };
+  if (!anchor.row || anchor.epoch === null) {
+    throw new Error("retention_loss: no valid execution anchor is available");
+  }
+  const anchorRequest = requests.find((request) =>
+    expandedDay(request.date) === dayForExecution(anchor.row));
+  if (replayedAnchor && !anchorRequest) {
+    throw new Error("retention_loss: anchor date is absent from recovery response");
+  }
+  const anchorIdentityDigest = anchorRequest
+    ? identityDigest(anchorRequest.executions.map((row) => row.execution.execId))
+    : priorEvidence?.anchorIdentityDigest;
+  if (!anchorIdentityDigest) {
+    throw new Error("retention_loss: anchor identity evidence is unavailable");
+  }
+
+  const incomingExecutions = requests.flatMap((request) => request.executions)
+    .map((row) => normalizeExecutionRecord(row, account));
+  const incomingCommissions = result.commissions.map(normalizeCommission);
+  const executionMerge = mergeRows(
+    source?.executions || [],
+    incomingExecutions,
+    (row) => row.execution.execId,
+    "execution"
+  );
+  const commissionMerge = mergeRows(
+    source?.commissions || [],
+    incomingCommissions,
+    (row) => row.execId,
+    "commission"
+  );
+  const fees = new Set(commissionMerge.rows.map((report) => report.execId));
+  const missingFees = incomingExecutions
+    .filter((row) => familyExecution(row, familyIds, excluded))
+    .map((row) => row.execution.execId)
+    .filter((id) => !fees.has(id));
+  if (missingFees.length) {
+    throw new Error(`history result is missing fees for ${missingFees.length} family executions`);
+  }
+
+  const days = clone(priorState?.coverage?.days || {});
+  for (const request of requests) days[expandedDay(request.date)] = dayCoverage(request);
+  const changed = !priorState || executionMerge.changed || commissionMerge.changed;
+  const ageMs = Date.parse(observedThrough) - anchor.epoch;
+  const status = !replayedAnchor && priorEvidence
+    ? priorEvidence.status
+    : ageMs > 86_400_000
+      ? "over_24h"
+      : crossesDay || sourceChanged || legacy
+        ? "cross_midnight"
+        : "provisional";
+
+  return {
+    schema: STATE_SCHEMA,
+    version: 2,
+    account,
+    periodStart,
+    classifier,
+    initializedAt: source?.initializedAt || observedThrough,
+    ledgerObservedAt: changed
+      ? observedThrough
+      : priorState?.ledgerObservedAt || legacy?.ledgerObservedAt || observedThrough,
+    coverage: {
+      timeZone: "America/New_York",
+      periodStart,
+      contiguousFromDay: BASELINE_NEW_YORK_DAY,
+      observedThrough,
+      throughDay: expandedDay(requests.at(-1).date),
+      days,
+      historyEvidence: {
+        status,
+        serverVersion: result.serverVersion,
+        sdkVersion: result.sdkVersion,
+        helperSessionId: result.helperSessionId,
+        anchorDay: dayForExecution(anchor.row),
+        anchorExecutionAt: new Date(anchor.epoch).toISOString(),
+        anchorIdentityDigest,
+        provenAt: observedThrough,
+      },
+    },
+    executions: executionMerge.rows,
+    commissions: commissionMerge.rows,
+    family: priorState?.family || null,
+    ...(legacy ? {
+      migration: {
+        sourceSchema: LEGACY_SCHEMA,
+        sourceDigest: legacy.sourceDigest,
+        sourceCoverageThrough: legacy.coverageThrough,
+      },
+    } : priorState?.migration ? { migration: priorState.migration } : {}),
+  };
+}
+
 export function createFamilySessionAdapter({
   targetAccount,
   familyClientIds,
@@ -339,109 +951,62 @@ export function createFamilySessionAdapter({
   calculateFamily,
   eventNames,
   store,
-  executionRequestIdStart = 9600,
-  accountUpdateRequestIdStart = 9701,
+  history,
   pollIntervalMs = 30_000,
-  requestTimeoutMs = 20_000,
   fxFreshMs = 300_000,
-  fxRefreshIntervalMs = 240_000,
   now = () => new Date().toISOString(),
   setTimer = setTimeout,
   clearTimer = clearTimeout,
   requestManagedAccounts = true,
   hooks = {},
 }) {
-  if (!targetAccount || typeof calculateFamily !== "function" || !eventNames || !store) {
-    throw new TypeError("targetAccount, calculateFamily, eventNames and store are required");
+  if (!targetAccount || typeof calculateFamily !== "function" || !eventNames || !store || !history) {
+    throw new TypeError("targetAccount, calculator, events, store and history are required");
   }
   const classifier = normalizedClassifier(familyClientIds, excludedSymbols);
   const familyIds = new Set(classifier.familyClientIds);
   const excluded = new Set(classifier.excludedSymbols);
+  const loaded = store.load({ account: targetAccount, periodStart, classifier });
+  let state = loaded.ok && loaded.state ? clone(loaded.state) : null;
+  let legacy = loaded.ok && loaded.legacy ? clone(loaded.legacy) : null;
+  let pendingMigration = null;
+  let blockedReason = loaded.ok ? null : loaded.reason;
+  let lastUnavailable = null;
   let activeApi = null;
-  let generation = 0;
-  let registrations = [];
   let connected = false;
   let managed = false;
-  let executionReady = false;
-  let activeCycle = null;
-  let nextRequestId = executionRequestIdStart;
-  let nextAccountUpdateRequestId = accountUpdateRequestIdStart;
-  let activeAccountUpdateRequestId = null;
+  let historyReady = false;
+  let inFlight = false;
+  let generation = 0;
+  let cycleSequence = 0;
+  let registrations = [];
   let pollTimer = null;
-  let timeoutTimer = null;
-  let fxRefreshTimer = null;
-  let blockedReason = null;
-  let state = null;
+  let fxInitialComplete = false;
+  let fxBuffer = new Map();
   let fxRates = new Map();
-  let commissionBuffer = new Map();
 
-  const loaded = store.load({ account: targetAccount, periodStart, classifier });
-  if (!loaded.ok) blockedReason = loaded.reason;
-  else state = loaded.state ? clone(loaded.state) : null;
-  if (state && state.coverageTradingDay !== newYorkDay(now())) {
-    blockedReason = "unproved execution retrieval gap across America/New_York midnight; backfill required";
-  }
-
-  function emitAvailability(reason) {
+  function unavailable(reason) {
+    lastUnavailable = reason;
     hooks.onUnavailable?.(reason);
   }
 
-  function stopTimer(which) {
-    if (which === "poll" && pollTimer !== null) {
-      clearTimer(pollTimer);
-      pollTimer = null;
-    }
-    if (which === "timeout" && timeoutTimer !== null) {
-      clearTimer(timeoutTimer);
-      timeoutTimer = null;
-    }
-    if (which === "fx" && fxRefreshTimer !== null) {
-      clearTimer(fxRefreshTimer);
-      fxRefreshTimer = null;
-    }
+  function clearPoll() {
+    if (pollTimer !== null) clearTimer(pollTimer);
+    pollTimer = null;
   }
 
-  function cleanupListeners() {
-    for (const { api, name, handler } of registrations) api.off?.(name, handler);
-    registrations = [];
-  }
-
-  function schedulePoll(delay = pollIntervalMs) {
-    stopTimer("poll");
+  function schedulePoll() {
+    clearPoll();
     if (!connected || !managed || blockedReason) return;
     pollTimer = setTimer(() => {
       pollTimer = null;
       pollNow();
-    }, delay);
+    }, pollIntervalMs);
   }
 
-  function scheduleFxRefresh() {
-    stopTimer("fx");
-    if (!connected || !managed || blockedReason) return;
-    fxRefreshTimer = setTimer(() => {
-      fxRefreshTimer = null;
-      refreshFx();
-    }, fxRefreshIntervalMs);
-  }
-
-  function refreshFx() {
-    if (!connected || !managed || blockedReason) return false;
-    if (activeAccountUpdateRequestId !== null) {
-      try { activeApi.cancelAccountUpdatesMulti(activeAccountUpdateRequestId); } catch {}
-    }
-    const requestId = nextAccountUpdateRequestId;
-    nextAccountUpdateRequestId += 2;
-    activeAccountUpdateRequestId = requestId;
-    try {
-      activeApi.reqAccountUpdatesMulti(requestId, targetAccount, "", true);
-    } catch (error) {
-      activeAccountUpdateRequestId = null;
-      emitAvailability(`FX refresh request failed: ${error?.message || error}`);
-      scheduleFxRefresh();
-      return false;
-    }
-    scheduleFxRefresh();
-    return true;
+  function cleanupListeners() {
+    for (const item of registrations) item.api.off?.(item.name, item.handler);
+    registrations = [];
   }
 
   function persist(next) {
@@ -450,176 +1015,141 @@ export function createFamilySessionAdapter({
       state = clone(next);
       return true;
     } catch (error) {
-      blockedReason = `family ledger state write failed: ${error?.message || error}`;
-      emitAvailability(blockedReason);
+      blockedReason = `family v2 state write failed: ${error.message}`;
+      unavailable(blockedReason);
       return false;
     }
   }
 
-  function bootstrapAllowed(at) {
-    return periodStart === BASELINE_PERIOD_START && newYorkDay(at) === BASELINE_NEW_YORK_DAY;
+  function earliestPendingDay(source) {
+    const currentIds = new Set(latestIdentities(source?.executions || []).map(({ id }) => id));
+    return source?.executions
+      ?.filter((row) => currentIds.has(row.execution.execId) && row.execution.pendingPriceRevision)
+      .map(dayForExecution)
+      .filter(Boolean)
+      .sort()[0] || null;
   }
 
-  function isFamilyExecution(row) {
-    const symbol = String(row?.contract?.symbol || "").trim().toUpperCase();
-    return familyIds.has(Number(row?.execution?.clientId)) && !excluded.has(symbol);
-  }
-
-  function missingFamilyCommissions(cycle) {
-    return cycle.executions
-      .filter(isFamilyExecution)
-      .map(executionId)
-      .filter((id) => id && !commissionBuffer.has(id));
-  }
-
-  function finishCycle() {
-    if (!activeCycle?.ended || missingFamilyCommissions(activeCycle).length) return false;
-    stopTimer("timeout");
-    const cycle = activeCycle;
-    activeCycle = null;
-    const observedAt = iso(now());
-    if (!observedAt) {
-      blockedReason = "invalid execution observation time";
-      emitAvailability(blockedReason);
-      return false;
-    }
-    const coverageTradingDay = newYorkDay(observedAt);
-    if (cycle.startedTradingDay !== coverageTradingDay ||
-        (state && state.coverageTradingDay !== coverageTradingDay)) {
-      blockedReason = "unproved execution retrieval gap across America/New_York midnight; backfill required";
-      emitAvailability(blockedReason);
-      return false;
-    }
-    if (state && observedAt < state.coverageThrough) {
-      blockedReason = "execution coverage timestamp regressed; backfill required";
-      emitAvailability(blockedReason);
-      return false;
-    }
-    if (!state && !bootstrapAllowed(observedAt)) {
-      blockedReason = "family ledger state is missing after the authorized baseline day; backfill required";
-      emitAvailability(blockedReason);
-      return false;
-    }
-    try {
-      const queryExecutionIdentities = latestExecutionIdentities(cycle.executions);
-      if (state) {
-        const missing = missingPriorQueryIdentities(
-          state.queryExecutionIdentities,
-          queryExecutionIdentities
-        );
-        if (missing.length) {
-          blockedReason = "complete execution replay lost previously covered identities; backfill required";
-          emitAvailability(blockedReason);
-          return false;
-        }
+  function requiredDates() {
+    const current = compactDay(newYorkDay(now()));
+    if (!current) throw new Error("current New York day is unavailable");
+    let start;
+    if (state) {
+      const coverageDay = compactDay(state.coverage.throughDay);
+      const sameHelperSession = history.sessionId &&
+        history.sessionId === state.coverage.historyEvidence.helperSessionId;
+      if (!sameHelperSession || coverageDay !== current) {
+        const gapStart = Date.parse(state.coverage.observedThrough);
+        const anchorDay = compactDay(latestKnownAnchorDay(state, gapStart));
+        if (!anchorDay) throw new Error("no known execution anchor precedes the recovery gap");
+        start = anchorDay;
+      } else {
+        start = current;
       }
-      const prior = state || {
-        schema: STATE_SCHEMA,
-        version: 1,
-        account: targetAccount,
-        periodStart,
-        classifier,
-        initializedAt: observedAt,
-        ledgerObservedAt: observedAt,
-        coverageThrough: observedAt,
-        coverageTradingDay,
-        queryExecutionIdentities,
-        executions: [],
-        commissions: [],
-        family: null,
-      };
-      const executionMerge = mergeExact(prior.executions, cycle.executions, executionId, "execution");
-      const relevantIds = new Set(cycle.executions.map(executionId));
-      const reports = [...commissionBuffer.values()].filter((report) => relevantIds.has(commissionId(report)));
-      const commissionMerge = mergeExact(prior.commissions, reports, commissionId, "commission");
-      const changed = !state || executionMerge.changed || commissionMerge.changed;
-      const next = {
-        ...prior,
-        ledgerObservedAt: changed ? observedAt : prior.ledgerObservedAt,
-        coverageThrough: observedAt,
-        coverageTradingDay,
-        queryExecutionIdentities,
-        executions: executionMerge.rows,
-        commissions: commissionMerge.rows,
-      };
-      if (!persist(next)) return false;
-      executionReady = true;
-      hooks.onLedgerUpdated?.({ changed, observedAt: next.ledgerObservedAt });
-      schedulePoll();
-      return true;
-    } catch (error) {
-      blockedReason = `family execution replay rejected: ${error?.message || error}`;
-      emitAvailability(blockedReason);
-      return false;
+      const pending = compactDay(earliestPendingDay(state));
+      if (pending && pending < start) start = pending;
+    } else if (legacy) {
+      start = legacy.coverageDay;
+    } else {
+      start = compactDay(BASELINE_NEW_YORK_DAY);
     }
-  }
-
-  function failCycle(reason) {
-    stopTimer("timeout");
-    activeCycle = null;
-    executionReady = false;
-    emitAvailability(reason);
-    schedulePoll();
+    return dayRange(start, current);
   }
 
   function pollNow() {
-    if (!connected || !managed || blockedReason || activeCycle) return false;
-    const requestedAt = iso(now());
-    const startedTradingDay = requestedAt && newYorkDay(requestedAt);
-    if (!requestedAt || !startedTradingDay) {
-      blockedReason = "execution request time is unavailable";
-      emitAvailability(blockedReason);
-      return false;
-    }
-    if (state && state.coverageTradingDay !== startedTradingDay) {
-      blockedReason = "unproved execution retrieval gap across America/New_York midnight; backfill required";
-      emitAvailability(blockedReason);
-      return false;
-    }
-    const requestId = nextRequestId;
-    nextRequestId += 2;
-    executionReady = false;
-    activeCycle = { requestId, executions: [], ended: false, startedTradingDay };
-    timeoutTimer = setTimer(() => {
-      timeoutTimer = null;
-      const suffix = activeCycle?.ended
-        ? `; missing commissions for ${missingFamilyCommissions(activeCycle).length} family fills`
-        : " before execDetailsEnd";
-      failCycle(`execution request timed out${suffix}`);
-    }, requestTimeoutMs);
+    if (!connected || !managed || blockedReason || inFlight) return false;
+    let specificDates;
     try {
-      activeApi.reqExecutions(requestId, { acctCode: targetAccount });
+      specificDates = requiredDates();
     } catch (error) {
-      failCycle(`execution request failed: ${error?.message || error}`);
+      blockedReason = `retention_loss: ${error.message}`;
+      unavailable(blockedReason);
       return false;
     }
+    cycleSequence += 1;
+    const attachedGeneration = generation;
+    const cycleId = `family-history-${attachedGeneration}-${cycleSequence}`;
+    inFlight = true;
+    historyReady = false;
+    lastUnavailable = "official execution history query incomplete";
+    history.query({
+      schema: EXECUTION_QUERY_REQUEST_SCHEMA,
+      cycleId,
+      account: targetAccount,
+      specificDates,
+    }).then((result) => {
+      if (generation !== attachedGeneration || !connected) return;
+      try {
+        const next = buildAcceptedState({
+          priorState: state,
+          legacy,
+          result,
+          account: targetAccount,
+          periodStart,
+          classifier,
+          familyIds,
+          excluded,
+        });
+        const changed = !state || next.ledgerObservedAt !== state.ledgerObservedAt;
+        if (legacy && !state) {
+          pendingMigration = next;
+        } else if (!persist(next)) {
+          return;
+        }
+        historyReady = true;
+        lastUnavailable = null;
+        hooks.onLedgerUpdated?.({
+          changed,
+          observedAt: next.ledgerObservedAt,
+        });
+      } catch (error) {
+        const reason = error.message;
+        if (reason.startsWith("retention_loss:") || reason.includes("conflicting")) {
+          blockedReason = reason;
+        }
+        unavailable(reason);
+      }
+    }).catch((error) => {
+      if (generation !== attachedGeneration) return;
+      unavailable(`official execution history unavailable: ${error.message}`);
+    }).finally(() => {
+      if (generation !== attachedGeneration) return;
+      inFlight = false;
+      schedulePoll();
+    });
     return true;
   }
 
+  function recordFx(codeValue, rateValue) {
+    const code = String(codeValue || "").trim().toUpperCase();
+    const rate = Number(rateValue);
+    const observedAt = iso(now());
+    if (!/^[A-Z]{3}$/.test(code) || !Number.isFinite(rate) || rate <= 0 || !observedAt) {
+      return;
+    }
+    const item = { rate, observedAt };
+    if (fxInitialComplete) fxRates.set(code, item);
+    else fxBuffer.set(code, item);
+  }
+
   function attach(api) {
-    try {
-      if (activeApi && activeAccountUpdateRequestId !== null) {
-        activeApi.cancelAccountUpdatesMulti?.(activeAccountUpdateRequestId);
-      }
-    } catch {}
     cleanupListeners();
-    stopTimer("poll");
-    stopTimer("timeout");
-    stopTimer("fx");
+    clearPoll();
     generation += 1;
     const attachedGeneration = generation;
     activeApi = api;
     connected = false;
     managed = false;
-    executionReady = false;
-    activeCycle = null;
-    activeAccountUpdateRequestId = null;
+    historyReady = false;
+    inFlight = false;
+    fxInitialComplete = false;
+    fxBuffer = new Map();
     fxRates = new Map();
-    commissionBuffer = new Map();
 
-    const on = (name, fn) => {
+    const on = (name, callback) => {
+      if (!name) return;
       const handler = (...args) => {
-        if (activeApi === api && generation === attachedGeneration) fn(...args);
+        if (activeApi === api && generation === attachedGeneration) callback(...args);
       };
       api.on(name, handler);
       registrations.push({ api, name, handler });
@@ -630,168 +1160,203 @@ export function createFamilySessionAdapter({
       if (requestManagedAccounts) api.reqManagedAccts();
     });
     on(eventNames.managedAccounts, (accounts) => {
-      if (!String(accounts || "").split(",").map((value) => value.trim()).includes(targetAccount)) {
-        blockedReason = "configured family account is not managed by this session";
-        emitAvailability(blockedReason);
+      const known = String(accounts || "").split(",").map((value) => value.trim());
+      if (!known.includes(targetAccount)) {
+        blockedReason = "configured family account is not managed by the Node session";
+        unavailable(blockedReason);
         return;
       }
       managed = true;
-      if (!refreshFx()) return;
       pollNow();
     });
-    on(eventNames.accountUpdateMulti, (requestId, account, _model, key, value, currency) => {
-      if (requestId !== activeAccountUpdateRequestId || account !== targetAccount || key !== "ExchangeRate") return;
-      const code = String(currency || "").trim().toUpperCase();
-      const rate = finitePositive(value);
-      const observedAt = iso(now());
-      if (!/^[A-Z]{3}$/.test(code) || rate === null || !observedAt) return;
-      fxRates.set(code, { rate, observedAt });
+    on(eventNames.updateAccountValue, (key, value, code, account) => {
+      if (account === targetAccount && key === "ExchangeRate") recordFx(code, value);
     });
-    on(eventNames.execDetails, (requestId, contract, execution) => {
-      if (!activeCycle || requestId !== activeCycle.requestId || execution?.acctNumber !== targetAccount) return;
-      try {
-        const merged = mergeExact(activeCycle.executions, [{ contract, execution }], executionId, "execution");
-        activeCycle.executions = merged.rows;
-      } catch (error) {
-        blockedReason = `family execution callback rejected: ${error?.message || error}`;
-        failCycle(blockedReason);
-      }
-    });
-    on(eventNames.execDetailsEnd, (requestId) => {
-      if (!activeCycle || requestId !== activeCycle.requestId) return;
-      activeCycle.ended = true;
-      finishCycle();
-    });
-    on(eventNames.commissionReport, (report) => {
-      const id = commissionId(report);
-      if (!id) return;
-      const prior = commissionBuffer.get(id);
-      if (prior && !sameRecord(prior, report)) {
-        blockedReason = `conflicting commission replay ${id}`;
-        failCycle(blockedReason);
-        return;
-      }
-      commissionBuffer.set(id, report);
-      finishCycle();
+    on(eventNames.accountDownloadEnd, (account) => {
+      if (account !== targetAccount) return;
+      for (const [code, item] of fxBuffer) fxRates.set(code, item);
+      fxBuffer = new Map();
+      fxInitialComplete = true;
     });
     on(eventNames.disconnected, () => {
+      if (generation !== attachedGeneration) return;
       generation += 1;
-      activeApi = null;
       connected = false;
       managed = false;
-      executionReady = false;
-      activeCycle = null;
+      historyReady = false;
+      inFlight = false;
       fxRates = new Map();
-      stopTimer("poll");
-      stopTimer("timeout");
-      stopTimer("fx");
-      activeAccountUpdateRequestId = null;
+      fxBuffer = new Map();
+      fxInitialComplete = false;
+      clearPoll();
       cleanupListeners();
-      emitAvailability("broker disconnected; fresh executions and FX required");
+      activeApi = null;
+      history.stop("Node broker disconnected");
+      unavailable("broker disconnected; fresh official history and FX required");
     });
     return attachedGeneration;
   }
 
-  function requiredCurrencies() {
+  function requiredCurrencies(source) {
     const currencies = new Set(["EUR"]);
-    if (!state) return currencies;
-    const familyExecutionIds = new Set();
-    for (const row of state.executions) {
-      if (!isFamilyExecution(row)) continue;
-      familyExecutionIds.add(executionId(row));
-      const code = String(row?.contract?.currency || "").trim().toUpperCase();
-      if (/^[A-Z]{3}$/.test(code)) currencies.add(code);
+    const familyIdsForFees = new Set();
+    for (const row of source.executions) {
+      if (!familyExecution(row, familyIds, excluded)) continue;
+      currencies.add(row.contract.currency);
+      familyIdsForFees.add(row.execution.execId);
     }
-    for (const report of state.commissions) {
-      if (!familyExecutionIds.has(commissionId(report))) continue;
-      const code = String(report?.currency || "").trim().toUpperCase();
-      if (/^[A-Z]{3}$/.test(code)) currencies.add(code);
+    for (const report of source.commissions) {
+      if (familyIdsForFees.has(report.execId)) currencies.add(report.currency);
     }
     return currencies;
   }
 
-  function project(book) {
-    if (blockedReason) return { ok: false, reason: blockedReason };
-    if (!state) return { ok: false, reason: "family ledger has not completed its baseline execution cycle" };
-    if (!connected || !executionReady) return { ok: false, reason: "fresh complete execution cycle unavailable" };
-    if (state.coverageTradingDay !== newYorkDay(now())) {
-      return { ok: false, reason: "unproved execution retrieval gap across America/New_York midnight; backfill required" };
-    }
-    if (!baseCurrencyProven(book, targetAccount)) return { ok: false, reason: "target account base currency is not proven EUR" };
-    if (book?.positionsCoverage?.status !== "complete") return { ok: false, reason: "current broker positions are incomplete" };
+  function calculatorLedger(source) {
+    const executions = source.executions.filter((row) =>
+      row.contract.secType === "STK" || familyExecution(row, familyIds, excluded));
+    const executionIds = new Set(executions.map((row) => row.execution.execId));
+    return {
+      executions: clone(executions),
+      commissions: clone(source.commissions.filter((row) => executionIds.has(row.execId))),
+    };
+  }
 
-    const at = new Date(now()).getTime();
-    if (!Number.isFinite(at)) return { ok: false, reason: "current time is unavailable for FX freshness" };
+  function calculatorArgs(source, book) {
+    if (!baseCurrencyProven(book, targetAccount)) {
+      throw new Error("target account base currency is not proven EUR");
+    }
+    if (book?.positionsCoverage?.status !== "complete") {
+      throw new Error("current broker positions are incomplete");
+    }
+    const currentEpoch = Date.parse(now());
+    if (!Number.isFinite(currentEpoch)) throw new Error("FX freshness time is unavailable");
     const rates = {};
     const rateTimes = [];
-    for (const currency of requiredCurrencies()) {
-      const item = fxRates.get(currency);
-      const age = item ? at - new Date(item.observedAt).getTime() : Number.POSITIVE_INFINITY;
+    for (const code of requiredCurrencies(source)) {
+      const item = fxRates.get(code);
+      const age = item ? currentEpoch - Date.parse(item.observedAt) : Number.POSITIVE_INFINITY;
       if (!item || !Number.isFinite(age) || age < 0 || age > fxFreshMs) {
-        return { ok: false, reason: `fresh explicit ${currency}→EUR FX rate unavailable` };
+        throw new Error(`fresh explicit ${code}→EUR FX rate unavailable`);
       }
-      rates[currency] = item.rate;
+      rates[code] = item.rate;
       rateTimes.push(item.observedAt);
     }
-
-    const affected = new Set(state.executions.filter(isFamilyExecution).map((row) => contractIdentity(row.contract)).filter(Boolean));
+    const affected = new Set(
+      source.executions
+        .filter((row) => familyExecution(row, familyIds, excluded))
+        .map((row) => contractIdentity(row.contract))
+        .filter(Boolean)
+    );
     const marketTimes = (book.portfolio || [])
       .filter((row) => affected.has(contractIdentity(row.contract)))
       .flatMap((row) => [row.markObservedAt, row.observedAt]);
-    const observedAt = maxIso([state.ledgerObservedAt, ...rateTimes, ...marketTimes]);
-    if (!observedAt) return { ok: false, reason: "family economic observation timestamp unavailable" };
-    if (state.family?.observedAt && observedAt < iso(state.family.observedAt)) {
-      return { ok: false, reason: "family source observations regressed behind persisted state" };
+    const observedAt = maxIso([source.ledgerObservedAt, ...rateTimes, ...marketTimes]);
+    if (!observedAt) throw new Error("family economic observation timestamp is unavailable");
+    const ledger = calculatorLedger(source);
+    return {
+      ...ledger,
+      portfolio: clone(book.portfolio || []),
+      positions: clone(book.positionsCoverage.rows || []),
+      fx: { baseCurrency: "EUR", rates, observedAt: maxIso(rateTimes) },
+      account: targetAccount,
+      familyClientIds: [...familyIds],
+      excludedSymbols: [...excluded],
+      periodStart,
+      virtualEquity: 5000,
+      observedAt,
+    };
+  }
+
+  function project(book) {
+    if (blockedReason) return { ok: false, reason: blockedReason };
+    const source = pendingMigration || state;
+    if (!source) return { ok: false, reason: "official family history has no anchored state" };
+    if (!connected || !historyReady) {
+      return { ok: false, reason: lastUnavailable || "fresh complete official history unavailable" };
+    }
+    if (source.coverage.throughDay !== newYorkDay(now())) {
+      return { ok: false, reason: "official execution history has not covered the current New York day" };
+    }
+    if (pendingMigration && (!legacy || !economicallyContains(pendingMigration, legacy))) {
+      blockedReason = "v1/v2 migration does not preserve legacy economics";
+      unavailable(blockedReason);
+      return { ok: false, reason: blockedReason };
     }
 
+    let args;
     let result;
     try {
-      result = calculateFamily({
-        executions: clone(state.executions),
-        commissions: clone(state.commissions),
-        portfolio: clone(book.portfolio || []),
-        positions: clone(book.positionsCoverage.rows || []),
-        fx: { baseCurrency: "EUR", rates, observedAt: maxIso(rateTimes) },
-        account: targetAccount,
-        familyClientIds: [...familyIds],
-        excludedSymbols: [...excluded],
-        periodStart,
-        virtualEquity: 5000,
-        observedAt,
-      });
+      args = calculatorArgs(source, book);
+      result = calculateFamily(args);
     } catch (error) {
-      return { ok: false, reason: `family calculator failed: ${error?.message || error}` };
+      return { ok: false, reason: error.message };
     }
-    const invalid = validateFamilyResult(result);
+    const invalid = validFamilyResult(result);
     if (invalid) return { ok: false, reason: invalid };
     const normalized = { ...clone(result), observedAt: iso(result.observedAt) };
+
+    if (pendingMigration) {
+      if (sameEconomicIds(pendingMigration, legacy)) {
+        let legacyResult;
+        try {
+          const legacyLedger = calculatorLedger(legacy);
+          legacyResult = calculateFamily({
+            ...args,
+            ...legacyLedger,
+          });
+        } catch (error) {
+          return { ok: false, reason: `v1 migration comparison failed: ${error.message}` };
+        }
+        if (validFamilyResult(legacyResult) || !same(legacyResult, result)) {
+          blockedReason = "v1/v2 migration changed calculated family economics";
+          unavailable(blockedReason);
+          return { ok: false, reason: blockedReason };
+        }
+      }
+      const migrated = { ...pendingMigration, family: normalized };
+      try {
+        store.save(migrated);
+        const reloaded = store.load({ account: targetAccount, periodStart, classifier });
+        if (!reloaded.ok || !reloaded.state) {
+          throw new Error(reloaded.reason || "v2 state did not reload");
+        }
+        state = clone(reloaded.state);
+        pendingMigration = null;
+        legacy = null;
+      } catch (error) {
+        blockedReason = `v1/v2 migration activation failed: ${error.message}`;
+        unavailable(blockedReason);
+        return { ok: false, reason: blockedReason };
+      }
+      return clone(normalized);
+    }
+
     if (state.family?.observedAt === normalized.observedAt) {
-      if (!sameRecord(state.family, normalized)) return { ok: false, reason: "family replay changed at an identical source revision" };
+      if (!same(state.family, normalized)) {
+        return { ok: false, reason: "family economics changed at an identical source revision" };
+      }
       return clone(state.family);
     }
-    if (!persist({ ...state, family: normalized })) return { ok: false, reason: blockedReason };
+    if (state.family?.observedAt && normalized.observedAt < iso(state.family.observedAt)) {
+      return { ok: false, reason: "family source observations regressed behind persisted state" };
+    }
+    if (!persist({ ...state, family: normalized })) {
+      return { ok: false, reason: blockedReason };
+    }
     return clone(normalized);
   }
 
-  function retire(reason = "family session retired") {
+  function retire(reason = "family adapter retired") {
     generation += 1;
+    cleanupListeners();
+    clearPoll();
     connected = false;
     managed = false;
-    executionReady = false;
-    activeCycle = null;
-    fxRates = new Map();
-    stopTimer("poll");
-    stopTimer("timeout");
-    stopTimer("fx");
-    try {
-      if (activeAccountUpdateRequestId !== null) {
-        activeApi?.cancelAccountUpdatesMulti?.(activeAccountUpdateRequestId);
-      }
-    } catch {}
-    activeAccountUpdateRequestId = null;
-    cleanupListeners();
+    historyReady = false;
+    inFlight = false;
     activeApi = null;
-    emitAvailability(reason);
+    history.stop?.(reason);
+    unavailable(reason);
   }
 
   return {
@@ -800,11 +1365,21 @@ export function createFamilySessionAdapter({
     pollNow,
     project,
     get connected() { return connected; },
-    get requestInFlight() { return Boolean(activeCycle); },
+    get managed() { return managed; },
+    get requestInFlight() { return inFlight; },
     get blockedReason() { return blockedReason; },
-    inspectState() { return state ? clone(state) : null; },
+    inspectState() {
+      return {
+        state: clone(state),
+        legacy: clone(legacy),
+        pendingMigration: clone(pendingMigration),
+        historyReady,
+        lastUnavailable,
+      };
+    },
   };
 }
 
 export const FAMILY_STATE_SCHEMA = STATE_SCHEMA;
+export const FAMILY_LEGACY_STATE_SCHEMA = LEGACY_SCHEMA;
 export const FAMILY_BASELINE_PERIOD_START = BASELINE_PERIOD_START;

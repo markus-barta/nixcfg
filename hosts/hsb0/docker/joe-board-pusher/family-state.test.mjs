@@ -5,593 +5,693 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { calculateFamily } from "./family-ledger.mjs";
 import {
   FAMILY_BASELINE_PERIOD_START,
+  FAMILY_LEGACY_STATE_SCHEMA,
+  FAMILY_STATE_SCHEMA,
   createFamilySessionAdapter,
   createFileFamilyStateStore,
 } from "./family-state.mjs";
 
-const ACCOUNT = "SYNTHETIC-PAPER";
+const ACCOUNT = "DU123456";
 const FAMILY_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
 const CLASSIFIER = { familyClientIds: FAMILY_IDS, excludedSymbols: ["SXR8", "TSLA"] };
 const EVENTS = {
   connected: "connected",
   disconnected: "disconnected",
   managedAccounts: "managedAccounts",
-  accountUpdateMulti: "accountUpdateMulti",
-  execDetails: "execDetails",
-  execDetailsEnd: "execDetailsEnd",
-  commissionReport: "commissionReport",
+  updateAccountValue: "updateAccountValue",
+  accountDownloadEnd: "accountDownloadEnd",
 };
 
 class FakeApi extends EventEmitter {
-  requests = [];
-  reqManagedAccts() { this.requests.push(["managedAccounts"]); }
-  reqAccountUpdatesMulti(...args) { this.requests.push(["accountUpdatesMulti", ...args]); }
-  cancelAccountUpdatesMulti(...args) { this.requests.push(["cancelAccountUpdatesMulti", ...args]); }
-  reqExecutions(...args) { this.requests.push(["executions", ...args]); }
+  calls = [];
+  reqManagedAccts() { this.calls.push("reqManagedAccts"); }
 }
 
-function memoryStore(initial = null) {
-  let current = initial ? structuredClone(initial) : null;
+class FakeHistory {
+  queries = [];
+  pending = [];
+  stops = [];
+  constructor(sessionId = "helper-a") { this.sessionId = sessionId; }
+  query(request) {
+    this.queries.push(structuredClone(request));
+    return new Promise((resolve, reject) => this.pending.push({ resolve, reject }));
+  }
+  resolve(result) {
+    this.sessionId = result.helperSessionId;
+    this.pending.shift().resolve(result);
+  }
+  reject(error) { this.pending.shift().reject(error); }
+  stop(reason) { this.stops.push(reason); }
+}
+
+function memoryStore(initial = null, legacy = null) {
+  let state = initial ? structuredClone(initial) : null;
   let saves = 0;
   return {
-    load({ account, periodStart, classifier } = {}) {
-      if (current && current.account !== account) return { ok: false, reason: "state account does not match configured account" };
-      if (current && current.periodStart !== periodStart) return { ok: false, reason: "state periodStart does not match configured baseline" };
-      if (current && JSON.stringify(current.classifier) !== JSON.stringify(classifier)) {
-        return { ok: false, reason: "state classifier does not match configured family" };
-      }
-      return { ok: true, state: current ? structuredClone(current) : null };
+    load() {
+      return { ok: true, state: structuredClone(state), legacy: structuredClone(legacy) };
     },
-    save(next) { current = structuredClone(next); saves += 1; },
-    get state() { return current ? structuredClone(current) : null; },
+    save(next) { state = structuredClone(next); saves += 1; },
+    get state() { return structuredClone(state); },
     get saves() { return saves; },
   };
 }
 
-function fakeTimers() {
-  let nextId = 0;
-  const pending = new Map();
-  return {
-    set(fn, delay) {
-      const id = ++nextId;
-      pending.set(id, { fn, delay });
-      return id;
-    },
-    clear(id) { pending.delete(id); },
-    runDelay(delay) {
-      const entry = [...pending.entries()].find(([, value]) => value.delay === delay);
-      assert.ok(entry, `no ${delay}ms timer pending`);
-      pending.delete(entry[0]);
-      entry[1].fn();
-    },
-    count(delay) { return [...pending.values()].filter((item) => item.delay === delay).length; },
-  };
+function contract(symbol = "ACME", conId = 101, code = "USD") {
+  return { conId, symbol, secType: "STK", currency: code, multiplier: 1 };
 }
 
-function contract(symbol = "ACME", conId = 101, currency = "USD") {
-  return { conId, symbol, secType: "STK", currency, exchange: "SMART" };
-}
-
-function execution(execId, clientId, overrides = {}) {
+function execution(execId, overrides = {}) {
   return {
     contract: contract(overrides.symbol, overrides.conId, overrides.currency),
     execution: {
       execId,
-      acctNumber: ACCOUNT,
-      clientId,
-      side: overrides.side || "BOT",
-      shares: overrides.shares || 1,
-      price: overrides.price || 10,
       time: overrides.time || "20260910 09:30:00 US/Eastern",
+      acctNumber: ACCOUNT,
+      clientId: overrides.clientId ?? 27,
+      side: overrides.side || "BOT",
+      shares: overrides.shares ?? 1,
+      price: overrides.price ?? 10,
+      pendingPriceRevision: overrides.pendingPriceRevision ?? false,
     },
   };
 }
 
-function commission(execId, overrides = {}) {
-  return { execId, commission: overrides.commission ?? 0.25, currency: overrides.currency || "USD" };
+function commission(execId, amount = 0.25, code = "USD") {
+  return { execId, commission: amount, currency: code };
+}
+
+function reply(request, perDay, options = {}) {
+  const requests = request.specificDates.map((date, index) => ({
+    date,
+    requestedAt: options.requestedAt || `2026-09-${String(10 + index).padStart(2, "0")}T16:00:00Z`,
+    endedAt: options.endedAt || `2026-09-${String(10 + index).padStart(2, "0")}T16:00:01Z`,
+    executions: structuredClone(perDay[date] || []),
+    errors: [],
+  }));
+  const all = requests.flatMap((item) => item.executions);
+  return {
+    schema: "inspr.ib.execution-query.result.v1",
+    cycleId: request.cycleId,
+    account: ACCOUNT,
+    sdkVersion: options.sdkVersion || "10.40.01",
+    serverVersion: options.serverVersion || 200,
+    framing: "jsonl-v1",
+    requests,
+    commissions: options.commissions || all.map((row) => commission(row.execution.execId)),
+    errors: [],
+    finishedAt: options.finishedAt || options.endedAt || "2026-09-12T18:00:02Z",
+    helperSessionId: options.helperSessionId || "helper-a",
+  };
 }
 
 function calculator(args) {
   return {
     ok: true,
-    equity: 5001,
-    totalPnl: 1,
-    realizedPnl: 0.5,
-    unrealizedPnl: 0.5,
-    positions: [{ desk: "j", symbol: "ACME", side: "Long", quantity: 1, accountingScope: "stage0", dayPnl: null, currency: "USD", mark: 11, updatedAt: args.observedAt }],
-    accounting: { periodStart: args.periodStart, method: "execution-fifo-net-current-fx", detail: "Synthetic test result." },
+    equity: 5000 + args.executions.length,
+    totalPnl: args.executions.length,
+    realizedPnl: args.executions.length,
+    unrealizedPnl: 0,
+    positions: [],
+    accounting: {
+      periodStart: args.periodStart,
+      method: "execution-fifo-net-current-fx",
+      detail: "Net of recorded fees; converted at observed FX. Earlier results unavailable.",
+    },
     observedAt: args.observedAt,
     executionCount: args.executions.length,
   };
 }
 
-function setup({
-  at = "2026-09-10T12:00:00Z",
-  store = memoryStore(),
-  calculate = calculator,
-  familyClientIds = FAMILY_IDS,
-  excludedSymbols = ["SXR8", "TSLA"],
-} = {}) {
-  let current = at;
-  const timers = fakeTimers();
+function setup({ at = "2026-09-10T16:00:00Z", store = memoryStore(), calculate = calculator } = {}) {
+  let clock = at;
+  const history = new FakeHistory();
   const unavailable = [];
   const adapter = createFamilySessionAdapter({
     targetAccount: ACCOUNT,
-    familyClientIds,
-    excludedSymbols,
-    periodStart: FAMILY_BASELINE_PERIOD_START,
+    familyClientIds: FAMILY_IDS,
+    excludedSymbols: ["SXR8", "TSLA"],
     calculateFamily: calculate,
     eventNames: EVENTS,
     store,
-    pollIntervalMs: 30_000,
-    requestTimeoutMs: 20_000,
-    fxFreshMs: 120_000,
-    fxRefreshIntervalMs: 60_000,
-    now: () => current,
-    setTimer: timers.set,
-    clearTimer: timers.clear,
+    history,
+    now: () => clock,
+    setTimer: () => 1,
+    clearTimer: () => {},
     hooks: { onUnavailable: (reason) => unavailable.push(reason) },
   });
-  return {
-    adapter,
-    store,
-    timers,
-    unavailable,
-    setNow(value) { current = value; },
-  };
+  return { adapter, history, store, unavailable, setNow(value) { clock = value; } };
 }
 
-function connect(session, api = new FakeApi()) {
+function connect(session) {
+  const api = new FakeApi();
   session.adapter.attach(api);
   api.emit(EVENTS.connected);
   api.emit(EVENTS.managedAccounts, ACCOUNT);
   return api;
 }
 
-function requestId(api) {
-  return api.requests.findLast((row) => row[0] === "executions")?.[1];
+function setFx(api, atValue = 1, usdValue = 0.85) {
+  api.emit(EVENTS.updateAccountValue, "ExchangeRate", String(atValue), "EUR", ACCOUNT);
+  api.emit(EVENTS.updateAccountValue, "ExchangeRate", String(usdValue), "USD", ACCOUNT);
+  api.emit(EVENTS.accountDownloadEnd, ACCOUNT);
 }
 
-function complete(api, rows, reports = rows.map((row) => commission(row.execution.execId))) {
-  const id = requestId(api);
-  for (const row of rows) api.emit(EVENTS.execDetails, id, row.contract, row.execution);
-  for (const report of reports) api.emit(EVENTS.commissionReport, report);
-  api.emit(EVENTS.execDetailsEnd, id);
-}
-
-function fxRequestId(api) {
-  return api.requests.findLast((row) => row[0] === "accountUpdatesMulti")?.[1];
-}
-
-function emitFx(api, currency, value, requestId = fxRequestId(api)) {
-  api.emit(EVENTS.accountUpdateMulti, requestId, ACCOUNT, "", "ExchangeRate", String(value), currency);
-}
-
-function book(observedAt = "2026-09-10T12:00:01Z") {
+function book(observedAt = "2026-09-10T16:00:02Z") {
   return {
-    summary: { NetLiquidation: { account: ACCOUNT, value: "10000", currency: "EUR" } },
-    portfolio: [{ contract: contract(), pos: 1, marketPrice: 11, observedAt }],
-    positionsCoverage: { status: "complete", rows: [{ contract: contract(), pos: 1, observedAt }] },
+    summary: { NetLiquidation: { account: ACCOUNT, currency: "EUR", value: "10000" } },
+    portfolio: [],
+    positionsCoverage: { status: "complete", rows: [] },
+    observedAt,
   };
 }
 
-test("adapter uses only bounded read requests and waits for all family commissions", () => {
+async function flush() {
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+async function bootstrap(session, rows = [execution("anchor.01")], options = {}) {
+  const api = connect(session);
+  const request = session.history.queries.at(-1);
+  session.history.resolve(reply(request, { 20260910: rows }, options));
+  await flush();
+  return api;
+}
+
+test("Node requests only official account-scoped history and preserves multiplier normalization", async () => {
   const session = setup();
   const api = connect(session);
-  assert.deepEqual(api.requests.slice(0, 3), [
-    ["managedAccounts"],
-    ["accountUpdatesMulti", 9701, ACCOUNT, "", true],
-    ["executions", 9600, { acctCode: ACCOUNT }],
-  ]);
-
-  const family = FAMILY_IDS.map((clientId, index) => execution(`family.${index}.01`, clientId, { conId: 100 + index }));
-  const external = execution("external.1.01", 22);
-  const id = requestId(api);
-  for (const row of [...family, external]) api.emit(EVENTS.execDetails, id, row.contract, row.execution);
-  api.emit(EVENTS.execDetailsEnd, id);
-  assert.equal(session.adapter.requestInFlight, true);
-  for (const row of family.slice(0, -1)) api.emit(EVENTS.commissionReport, commission(row.execution.execId));
-  assert.equal(session.adapter.requestInFlight, true);
-  api.emit(EVENTS.commissionReport, commission(family.at(-1).execution.execId));
-
-  assert.equal(session.adapter.requestInFlight, false);
-  assert.equal(session.store.state.executions.length, FAMILY_IDS.length + 1);
-  assert.equal(session.store.state.commissions.length, FAMILY_IDS.length);
-  assert.equal(session.timers.count(30_000), 1);
-});
-
-test("final runtime registry counts a client-52 family close and excludes Joe client 22", () => {
-  let classified = [];
-  let configured = [];
-  const session = setup({
-    calculate: (args) => {
-      configured = args.familyClientIds;
-      classified = args.executions
-        .filter((row) => args.familyClientIds.includes(row.execution.clientId))
-        .map((row) => row.execution.clientId);
-      return { ...calculator(args), positions: [], executionCount: classified.length };
-    },
+  assert.deepEqual(api.calls, ["reqManagedAccts"]);
+  assert.equal(typeof api.reqExecutions, "undefined");
+  assert.deepEqual(session.history.queries[0], {
+    schema: "inspr.ib.execution-query.request.v1",
+    cycleId: "family-history-1-1",
+    account: ACCOUNT,
+    specificDates: ["20260910"],
   });
+  const row = execution("anchor.01");
+  row.contract.multiplier = 0;
+  session.history.resolve(reply(session.history.queries[0], { 20260910: [row] }));
+  await flush();
+  assert.equal(session.store.state.schema, FAMILY_STATE_SCHEMA);
+  assert.equal(session.store.state.executions[0].contract.multiplier, 1);
+});
+
+test("unrelated CASH and OPT executions persist and reload without blocking family J", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-v2-unrelated-contracts-"));
+  const activePath = path.join(directory, "family-ledger-v2.json");
+  const store = createFileFamilyStateStore(activePath);
+  const session = setup({ store, calculate: calculateFamily });
   const api = connect(session);
-  const familyOpen = execution("registry.open.01", 50, { side: "BOT" });
-  const familyClose = execution("registry.close.01", 52, { side: "SLD" });
-  const joe = execution("registry.joe.01", 22, { symbol: "INTC", conId: 202 });
-  complete(api, [familyOpen, familyClose, joe], [
-    commission(familyOpen.execution.execId),
-    commission(familyClose.execution.execId),
-  ]);
-  emitFx(api, "EUR", 1);
-  emitFx(api, "USD", 0.86);
-  const result = session.adapter.project(book());
-  assert.equal(result.ok, true);
-  assert.deepEqual(configured, FAMILY_IDS);
-  assert.deepEqual(classified, [50, 52]);
-  assert.equal(classified.includes(22), false);
-});
+  const familyOpen = execution("family-open.01", { side: "BUY" });
+  const familyClose = execution("family-close.01", { side: "SELL", price: 11 });
+  const cash = execution("joe-cash.01", { clientId: 22 });
+  cash.contract = { conId: 202, symbol: "EUR.USD", secType: "CASH", currency: "USD", multiplier: "" };
+  const option = execution("joe-option.01", { clientId: 22 });
+  option.contract = { conId: 203, symbol: "ACME", secType: "OPT", currency: "USD", multiplier: "not-numeric" };
+  const request = session.history.queries[0];
+  session.history.resolve(reply(request, {
+    20260910: [familyOpen, familyClose, cash, option],
+  }));
+  await flush();
+  setFx(api);
+  const projected = session.adapter.project(book());
+  assert.equal(projected.ok, true, projected.reason);
 
-test("a poll never overlaps and a timed-out commission gate retries with one timer", () => {
-  const session = setup();
-  const api = connect(session);
-  assert.equal(session.adapter.pollNow(), false);
-  const row = execution("wait.1.01", 27);
-  const id = requestId(api);
-  api.emit(EVENTS.execDetails, id, row.contract, row.execution);
-  api.emit(EVENTS.execDetailsEnd, id);
-  session.timers.runDelay(20_000);
-  assert.equal(session.adapter.requestInFlight, false);
-  assert.match(session.unavailable.at(-1), /missing commissions for 1 family fills/);
-  assert.equal(session.timers.count(30_000), 1);
-  session.timers.runDelay(30_000);
-  assert.equal(api.requests.filter((item) => item[0] === "executions").length, 2);
-});
-
-test("disconnect and reconnect require fresh data, remove listeners, and ignore an old generation", () => {
-  const session = setup();
-  const oldApi = connect(session);
-  const retained = execution("old.1.01", 27);
-  complete(oldApi, [retained]);
-  assert.equal(session.adapter.inspectState().executions.length, 1);
-  oldApi.emit(EVENTS.disconnected);
-  assert.match(session.adapter.project(book()).reason, /fresh complete execution/);
-
-  const nextApi = connect(session);
-  assert.equal(oldApi.listenerCount(EVENTS.execDetails), 0);
-  const nextId = requestId(nextApi);
-  oldApi.emit(EVENTS.execDetails, nextId, contract("STALE", 999), execution("stale.1.01", 27).execution);
-  complete(nextApi, [retained]);
-  assert.equal(session.adapter.inspectState().executions.length, 1);
-});
-
-test("corrupt persistence fails closed and is never overwritten", () => {
-  let saves = 0;
-  const store = {
-    load: () => ({ ok: false, reason: "family ledger state is corrupt JSON" }),
-    save: () => { saves += 1; },
-  };
-  const session = setup({ store });
-  const api = connect(session);
-  assert.match(session.adapter.blockedReason, /corrupt JSON/);
-  assert.equal(api.requests.some((row) => row[0] === "executions"), false);
-  assert.equal(saves, 0);
-});
-
-test("missing state after the baseline day requires backfill", () => {
-  const session = setup({ at: "2026-09-11T12:00:00Z" });
-  const api = connect(session);
-  complete(api, []);
-  assert.match(session.adapter.blockedReason, /backfill required/);
-  assert.equal(session.store.state, null);
-});
-
-test("persisted coverage before New York midnight cannot silently resume the next day", () => {
-  const shared = memoryStore();
-  const beforeMidnight = setup({ store: shared, at: "2026-09-11T03:59:00Z" });
-  complete(connect(beforeMidnight), []);
-  assert.equal(shared.state.coverageTradingDay, "2026-09-10");
-
-  const afterMidnight = setup({ store: shared, at: "2026-09-11T04:01:00Z" });
-  assert.match(afterMidnight.adapter.blockedReason, /midnight; backfill required/);
-  const api = connect(afterMidnight);
-  assert.equal(api.requests.some((row) => row[0] === "executions"), false);
-});
-
-test("a same-trading-day restart accepts a complete current-day resync", () => {
-  const shared = memoryStore();
-  const first = setup({ store: shared, at: "2026-09-10T12:00:00Z" });
-  const row = execution("same-day.1.01", 27);
-  complete(connect(first), [row]);
-
-  const restarted = setup({ store: shared, at: "2026-09-10T13:00:00Z" });
-  const api = connect(restarted);
-  complete(api, [row]);
-  assert.equal(restarted.adapter.blockedReason, null);
-  assert.equal(shared.state.coverageThrough, "2026-09-10T13:00:00.000Z");
-  assert.equal(shared.state.ledgerObservedAt, "2026-09-10T12:00:00.000Z");
-});
-
-test("a same-day full query losing a previously covered execution requires backfill", () => {
-  const session = setup();
-  const api = connect(session);
-  complete(api, [execution("retained.1.01", 27)]);
-  session.timers.runDelay(30_000);
-  complete(api, []);
-  assert.match(session.adapter.blockedReason, /lost previously covered identities; backfill required/);
-  assert.deepEqual(session.store.state.queryExecutionIdentities, ["retained.1.01"]);
-});
-
-test("execution query coverage survives restart and rejects a truncated same-day query", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-state-test-"));
-  const disk = createFileFamilyStateStore(path.join(directory, "family-ledger.json"));
-  const retained = execution("restart-retained.1.01", 27);
-  const first = setup({ store: disk });
-  complete(connect(first), [retained]);
-
-  const restarted = setup({ store: disk, at: "2026-09-10T12:01:00Z" });
-  complete(connect(restarted), []);
-  assert.match(restarted.adapter.blockedReason, /lost previously covered identities; backfill required/);
-  assert.deepEqual(restarted.adapter.inspectState().queryExecutionIdentities, ["restart-retained.1.01"]);
-});
-
-test("a running publisher stops when its proven coverage day crosses New York midnight", () => {
-  const session = setup({ at: "2026-09-11T03:59:00Z" });
-  complete(connect(session), []);
-  session.setNow("2026-09-11T04:01:00Z");
-  assert.match(session.adapter.project(book()).reason, /midnight; backfill required/);
-  session.timers.runDelay(30_000);
-  assert.match(session.adapter.blockedReason, /midnight; backfill required/);
-});
-
-test("persisted classifier identity rejects a changed family or exclusion set", () => {
-  const shared = memoryStore();
-  const first = setup({ store: shared });
-  complete(connect(first), []);
-
-  const changedIds = setup({ store: shared, familyClientIds: FAMILY_IDS.slice(0, -1) });
-  assert.match(changedIds.adapter.blockedReason, /classifier does not match/);
-  const changedExclusions = setup({ store: shared, excludedSymbols: ["SXR8"] });
-  assert.match(changedExclusions.adapter.blockedReason, /classifier does not match/);
-});
-
-test("durable ledger survives restart and merges the next day without truncating closed history", () => {
-  const shared = memoryStore();
-  const first = setup({ store: shared });
-  complete(connect(first), [execution("day1.1.01", 27)]);
-  assert.equal(shared.state.executions.length, 1);
-
-  const second = setup({ store: shared, at: "2026-09-11T00:01:00Z" });
-  const api = connect(second);
-  complete(api, [execution("day1.1.01", 27), execution("day2.1.01", 28)]);
-  assert.deepEqual(shared.state.executions.map((row) => row.execution.execId), ["day1.1.01", "day2.1.01"]);
-  assert.equal(shared.state.commissions.length, 2);
-});
-
-test("identical replays deduplicate while exact-id conflicts fail closed", () => {
-  const session = setup();
-  const api = connect(session);
-  const row = execution("same.1.01", 27);
-  complete(api, [row]);
-  session.timers.runDelay(30_000);
-  complete(api, [row]);
-  assert.equal(session.store.state.executions.length, 1);
-
-  session.timers.runDelay(30_000);
-  const conflict = execution("same.1.01", 27, { price: 99 });
-  complete(api, [conflict]);
-  assert.match(session.adapter.blockedReason, /conflicting replay/);
-  assert.equal(session.store.state.executions[0].execution.price, 10);
-});
-
-test("non-finite live broker numbers remain rejected", () => {
-  const session = setup();
-  const api = connect(session);
-  const invalid = execution("nonfinite.1.01", 27);
-  invalid.execution.price = Number.NaN;
-  const id = requestId(api);
-  api.emit(EVENTS.execDetails, id, invalid.contract, invalid.execution);
-  assert.match(session.adapter.blockedReason, /non-finite broker number/);
-  assert.equal(session.store.state, null);
-});
-
-test("correction revisions are durably merged without truncating their raw predecessors", () => {
-  const session = setup();
-  const api = connect(session);
-  complete(api, [execution("correction.1.01", 27, { price: 10 })]);
-  session.timers.runDelay(30_000);
-  complete(api, [execution("correction.1.02", 27, { price: 11 })]);
-  assert.deepEqual(
-    session.store.state.executions.map((row) => row.execution.execId),
-    ["correction.1.01", "correction.1.02"]
-  );
-  assert.deepEqual(session.store.state.queryExecutionIdentities, ["correction.1.02"]);
-  assert.deepEqual(
-    session.store.state.commissions.map((row) => row.execId),
-    ["correction.1.01", "correction.1.02"]
-  );
-});
-
-test("projection proves same-account EUR, fresh explicit FX, and complete positions", () => {
-  let captured;
-  const session = setup({ calculate: (args) => { captured = args; return calculator(args); } });
-  const api = connect(session);
-  complete(api, [execution("project.1.01", 27)]);
-  assert.match(session.adapter.project(book()).reason, /EUR→EUR FX/);
-  emitFx(api, "EUR", 1);
-  emitFx(api, "USD", 0.86);
-
-  const wrongAccount = book();
-  wrongAccount.summary.NetLiquidation.account = "OTHER";
-  assert.match(session.adapter.project(wrongAccount).reason, /base currency/);
-  const partial = book();
-  partial.positionsCoverage.status = "partial";
-  assert.match(session.adapter.project(partial).reason, /positions are incomplete/);
-
-  const result = session.adapter.project(book());
-  assert.equal(result.ok, true);
-  assert.deepEqual(captured.fx.rates, { EUR: 1, USD: 0.86 });
-  assert.deepEqual(captured.familyClientIds, FAMILY_IDS);
-  assert.equal(captured.account, ACCOUNT);
-});
-
-test("ledger revisions and economic observations advance source time; heartbeats do not", () => {
-  const session = setup();
-  const api = connect(session);
-  complete(api, [execution("revision.1.01", 27)]);
-  emitFx(api, "EUR", 1);
-  emitFx(api, "USD", 0.86);
-  const first = session.adapter.project(book("2026-09-10T12:00:01Z"));
-  const saves = session.store.saves;
-
-  session.setNow("2026-09-10T12:00:10Z");
-  const heartbeat = session.adapter.project(book("2026-09-10T12:00:01Z"));
-  assert.equal(heartbeat.observedAt, first.observedAt);
-  assert.equal(session.store.saves, saves);
-
-  session.timers.runDelay(30_000);
-  session.setNow("2026-09-10T12:00:20Z");
-  complete(api, [execution("revision.1.01", 27), execution("revision.2.01", 28)]);
-  const advanced = session.adapter.project(book("2026-09-10T12:00:01Z"));
-  assert.equal(advanced.observedAt, "2026-09-10T12:00:20.000Z");
-});
-
-test("a restart rejects source observations older than its persisted family projection", () => {
-  const original = setup();
-  const firstApi = connect(original);
-  const row = execution("regression.1.01", 27);
-  complete(firstApi, [row]);
-  emitFx(firstApi, "EUR", 1);
-  emitFx(firstApi, "USD", 0.86);
-  original.adapter.project(book("2026-09-10T12:00:01Z"));
-  const persisted = original.store.state;
-  persisted.family.observedAt = "2026-09-10T12:05:00.000Z";
-
-  const restarted = setup({ store: memoryStore(persisted), at: "2026-09-10T12:03:00Z" });
-  const nextApi = connect(restarted);
-  complete(nextApi, [row]);
-  emitFx(nextApi, "EUR", 1);
-  emitFx(nextApi, "USD", 0.86);
-  assert.match(restarted.adapter.project(book("2026-09-10T12:02:00Z")).reason, /regressed behind persisted state/);
-});
-
-test("FX is unavailable after disconnect until every required rate is freshly observed", () => {
-  const session = setup();
-  const api = connect(session);
-  const retained = execution("fx.1.01", 27);
-  complete(api, [retained]);
-  emitFx(api, "EUR", 1);
-  emitFx(api, "USD", 0.86);
-  assert.equal(session.adapter.project(book()).ok, true);
-  api.emit(EVENTS.disconnected);
-
-  const next = connect(session, new FakeApi());
-  complete(next, [retained]);
-  emitFx(next, "EUR", 1);
-  assert.match(session.adapter.project(book()).reason, /USD→EUR/);
-  emitFx(next, "USD", 0.85);
-  assert.equal(session.adapter.project(book()).ok, true);
-});
-
-test("a new bounded FX request refreshes an unchanged broker rate and ignores old request callbacks", () => {
-  const session = setup();
-  const api = connect(session);
-  complete(api, [execution("refresh-fx.1.01", 27)]);
-  emitFx(api, "EUR", 1);
-  emitFx(api, "USD", 0.86);
-  assert.equal(session.adapter.project(book()).ok, true);
-
-  session.setNow("2026-09-10T12:01:00Z");
-  session.timers.runDelay(60_000);
-  assert.deepEqual(api.requests.slice(-2), [
-    ["cancelAccountUpdatesMulti", 9701],
-    ["accountUpdatesMulti", 9703, ACCOUNT, "", true],
-  ]);
-  emitFx(api, "EUR", 9, 9701);
-  emitFx(api, "USD", 9, 9701);
-  emitFx(api, "EUR", 1, 9703);
-  emitFx(api, "USD", 0.86, 9703);
-  session.setNow("2026-09-10T12:02:01Z");
-  assert.equal(session.adapter.project(book()).ok, true);
-});
-
-test("a requested FX refresh with no broker response ages out instead of fabricating freshness", () => {
-  const session = setup();
-  const api = connect(session);
-  complete(api, [execution("stale-fx.1.01", 27)]);
-  emitFx(api, "EUR", 1);
-  emitFx(api, "USD", 0.86);
-  assert.equal(session.adapter.project(book()).ok, true);
-  session.setNow("2026-09-10T12:01:00Z");
-  session.timers.runDelay(60_000);
-  session.setNow("2026-09-10T12:02:01Z");
-  assert.match(session.adapter.project(book()).reason, /fresh explicit EUR→EUR FX rate unavailable/);
-});
-
-test("file store rejects corrupt JSON without replacing it", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-state-test-"));
-  const file = path.join(directory, "family-ledger.json");
-  fs.writeFileSync(file, "not-json", { mode: 0o600 });
-  const store = createFileFamilyStateStore(file);
-  const loaded = store.load({ account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER });
-  assert.deepEqual(loaded, { ok: false, reason: "family ledger state is corrupt JSON" });
-  assert.equal(fs.readFileSync(file, "utf8"), "not-json");
-});
-
-test("file store atomically round-trips a bounded durable ledger", () => {
-  const source = memoryStore();
-  const session = setup({ store: source });
-  complete(connect(session), [execution("disk.1.01", 27)]);
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-state-test-"));
-  const file = path.join(directory, "family-ledger.json");
-  const disk = createFileFamilyStateStore(file);
-  disk.save(source.state);
-  const loaded = disk.load({ account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER });
-  assert.equal(loaded.ok, true);
-  assert.deepEqual(loaded.state, source.state);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-  assert.deepEqual(fs.readdirSync(directory), ["family-ledger.json"]);
-});
-
-test("JSON roundtrip accepts real-SDK-shaped undefined keys on the next replay", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-state-test-"));
-  const file = path.join(directory, "family-ledger.json");
-  const disk = createFileFamilyStateStore(file);
-  const row = execution("sdk-shape.1.01", 27);
-  row.contract.right = undefined;
-  row.execution.modelCode = undefined;
-  const report = commission(row.execution.execId);
-  report.realizedPNL = undefined;
-  report.yield = undefined;
-
-  const first = setup({ store: disk });
-  complete(connect(first), [row], [report]);
-  const persisted = fs.readFileSync(file, "utf8");
-  assert.equal(persisted.includes('"right"'), false);
-  assert.equal(persisted.includes('"yield"'), false);
-
-  const restarted = setup({ store: disk, at: "2026-09-10T12:01:00Z" });
-  complete(connect(restarted), [row], [report]);
-  assert.equal(restarted.adapter.blockedReason, null);
-  assert.deepEqual(restarted.adapter.inspectState().queryExecutionIdentities, ["sdk-shape.1.01"]);
-});
-
-
-test("file store reads the validated inode if the pathname is replaced", () => {
-  const source = memoryStore();
-  const session = setup({ store: source });
-  complete(connect(session), [execution("race.1.01", 27)]);
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-state-test-"));
-  const file = path.join(directory, "family-ledger.json");
-  createFileFamilyStateStore(file).save(source.state);
-  const racingFs = { ...fs, fstatSync(handle) {
-    const stat = fs.fstatSync(handle);
-    fs.renameSync(file, path.join(directory, "original.json"));
-    fs.writeFileSync(file, "replacement-is-not-a-ledger");
-    return stat;
-  } };
-  const loaded = createFileFamilyStateStore(file, racingFs).load({
+  const loaded = store.load({
     account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER,
   });
   assert.equal(loaded.ok, true);
-  assert.deepEqual(loaded.state, source.state);
+  const unrelated = loaded.state.executions
+    .filter((row) => row.execution.clientId === 22)
+    .map((row) => row.contract);
+  assert.deepEqual(unrelated, [cash.contract, option.contract]);
+});
+
+test("a non-STK family execution persists but family projection fails closed", async () => {
+  let ledgerReason = null;
+  const session = setup({ calculate(args) {
+    const result = calculateFamily(args);
+    ledgerReason = result.reason || null;
+    return result;
+  } });
+  const api = connect(session);
+  const familyOpen = execution("family-open.01", { side: "BUY" });
+  const familyClose = execution("family-close.01", { side: "SELL", price: 11 });
+  const unsupported = execution("family-option.01", { clientId: 27 });
+  unsupported.contract = {
+    conId: 204, symbol: "ACME", secType: "OPT", currency: "USD", multiplier: "100",
+  };
+  const request = session.history.queries[0];
+  session.history.resolve(reply(request, {
+    20260910: [familyOpen, familyClose, unsupported],
+  }));
+  await flush();
+  assert.equal(session.store.state.executions.length, 3);
+  setFx(api);
+  const projected = session.adapter.project(book());
+  assert.equal(projected.ok, false);
+  assert.match(ledgerReason, /unsupported family secType/);
+});
+
+test("New York dates, not the Vienna calendar day, bound exact-date requests", () => {
+  const session = setup({ at: "2026-09-11T03:30:00Z" });
+  connect(session);
+  assert.deepEqual(session.history.queries[0].specificDates, ["20260910"]);
+});
+
+test("cross-midnight replay merges a missed net-zero roundtrip before advancing", async () => {
+  const session = setup();
+  const api = await bootstrap(session);
+  session.setNow("2026-09-11T04:01:00Z");
+  assert.equal(session.adapter.pollNow(), true);
+  const request = session.history.queries.at(-1);
+  assert.deepEqual(request.specificDates, ["20260910", "20260911"]);
+  const buy = execution("roundtrip.buy.01", { time: "20260910 20:00:00 US/Eastern" });
+  const sell = execution("roundtrip.sell.01", { time: "20260910 20:01:00 US/Eastern", side: "SLD" });
+  session.history.resolve(reply(request, {
+    20260910: [execution("anchor.01"), buy, sell],
+    20260911: [],
+  }, { endedAt: "2026-09-11T04:01:02Z" }));
+  await flush();
+  assert.equal(session.store.state.executions.length, 3);
+  assert.equal(session.store.state.coverage.throughDay, "2026-09-11");
+  assert.equal(session.store.state.coverage.historyEvidence.status, "cross_midnight");
+  setFx(api);
+  assert.equal(session.adapter.project(book()).ok, true);
+});
+
+test("one helper session carries a returned Friday anchor across empty weekend days", async () => {
+  const session = setup();
+  await bootstrap(session);
+  const friday = execution("friday.01", { time: "20260911 00:00:10 US/Eastern" });
+
+  session.setNow("2026-09-11T04:01:00Z");
+  session.adapter.pollNow();
+  let request = session.history.queries.at(-1);
+  session.history.resolve(reply(request, { 20260910: [execution("anchor.01")], 20260911: [friday] }, {
+    requestedAt: "2026-09-11T04:01:00Z", endedAt: "2026-09-11T04:01:01Z",
+  }));
+  await flush();
+
+  session.setNow("2026-09-12T04:01:00Z");
+  session.adapter.pollNow();
+  request = session.history.queries.at(-1);
+  assert.deepEqual(request.specificDates, ["20260911", "20260912"]);
+  session.history.resolve(reply(request, { 20260911: [friday], 20260912: [] }, {
+    requestedAt: "2026-09-12T04:01:00Z", endedAt: "2026-09-12T04:01:01Z",
+  }));
+  await flush();
+
+  session.setNow("2026-09-13T04:01:00Z");
+  session.adapter.pollNow();
+  request = session.history.queries.at(-1);
+  assert.deepEqual(request.specificDates, ["20260911", "20260912", "20260913"]);
+  session.history.resolve(reply(request, { 20260911: [friday], 20260912: [], 20260913: [] }, {
+    requestedAt: "2026-09-13T04:01:00Z", endedAt: "2026-09-13T04:01:01Z",
+  }));
+  await flush();
+  assert.equal(session.adapter.blockedReason, null);
+  assert.equal(session.store.state.coverage.throughDay, "2026-09-13");
+});
+
+test("a restarted Monday session anchors on an already accepted Monday fill", async () => {
+  const session = setup();
+  await bootstrap(session);
+  const monday = execution("monday.01", { time: "20260914 09:30:00 US/Eastern" });
+  session.setNow("2026-09-14T14:00:00Z");
+  session.adapter.pollNow();
+  let request = session.history.queries.at(-1);
+  session.history.resolve(reply(request, {
+    20260910: [execution("anchor.01")],
+    20260911: [], 20260912: [], 20260913: [], 20260914: [monday],
+  }, { requestedAt: "2026-09-14T14:00:00Z", endedAt: "2026-09-14T14:00:01Z" }));
+  await flush();
+  assert.equal(session.store.state.coverage.throughDay, "2026-09-14");
+
+  session.history.sessionId = "helper-b";
+  session.adapter.pollNow();
+  request = session.history.queries.at(-1);
+  assert.deepEqual(request.specificDates, ["20260914"]);
+  session.history.resolve(reply(request, { 20260914: [monday] }, {
+    helperSessionId: "helper-b",
+    requestedAt: "2026-09-14T14:01:00Z", endedAt: "2026-09-14T14:01:01Z",
+  }));
+  await flush();
+  assert.equal(session.adapter.blockedReason, null);
+  assert.equal(session.store.state.coverage.historyEvidence.helperSessionId, "helper-b");
+});
+
+test("missing prior identities, unanchored recovery, and missing family fees fail closed", async () => {
+  const seeded = setup();
+  await bootstrap(seeded);
+  seeded.setNow("2026-09-11T04:01:00Z");
+  seeded.adapter.pollNow();
+  let request = seeded.history.queries.at(-1);
+  seeded.history.resolve(reply(request, { 20260910: [], 20260911: [] }));
+  await flush();
+  assert.match(seeded.adapter.blockedReason, /retention_loss/);
+  assert.equal(seeded.store.state.coverage.throughDay, "2026-09-10");
+
+  const feeSession = setup();
+  connect(feeSession);
+  request = feeSession.history.queries[0];
+  feeSession.history.resolve(reply(request, { 20260910: [execution("anchor.01")] }, { commissions: [] }));
+  await flush();
+  assert.match(feeSession.unavailable.at(-1), /missing fees/);
+  assert.equal(feeSession.store.saves, 0);
+});
+
+test("helper or server changes require a replayed pre-gap anchor", async () => {
+  const session = setup();
+  await bootstrap(session);
+  session.adapter.pollNow();
+  let request = session.history.queries.at(-1);
+  session.history.resolve(reply(request, { 20260910: [execution("later.01", { time: "20260910 15:00:00 US/Eastern" })] }, {
+    helperSessionId: "helper-b",
+  }));
+  await flush();
+  assert.match(session.adapter.blockedReason, /retention_loss/);
+
+  const server = setup({ store: memoryStore(session.store.state) });
+  connect(server);
+  request = server.history.queries[0];
+  server.history.resolve(reply(request, { 20260910: [execution("later.01", { time: "20260910 15:00:00 US/Eastern" })] }, {
+    helperSessionId: "helper-a",
+    serverVersion: 201,
+  }));
+  await flush();
+  assert.match(server.adapter.blockedReason, /retention_loss/);
+});
+
+test("a sufficiently old replay anchor closes an over-24-hour exact-date gap", async () => {
+  const session = setup();
+  await bootstrap(session);
+  session.setNow("2026-09-12T18:00:00Z");
+  session.adapter.pollNow();
+  const request = session.history.queries.at(-1);
+  assert.deepEqual(request.specificDates, ["20260910", "20260911", "20260912"]);
+  session.history.resolve(reply(request, {
+    20260910: [execution("anchor.01")],
+    20260911: [],
+    20260912: [],
+  }, { endedAt: "2026-09-12T18:00:01Z", helperSessionId: "helper-b" }));
+  await flush();
+  assert.equal(session.store.state.coverage.historyEvidence.status, "over_24h");
+  assert.equal(session.store.state.coverage.throughDay, "2026-09-12");
+});
+
+test("an outage beyond bounded exact-date capacity leaves durable coverage untouched", async () => {
+  const session = setup();
+  await bootstrap(session);
+  const before = session.store.state;
+  session.setNow("2026-10-20T16:00:00Z");
+  assert.equal(session.adapter.pollNow(), false);
+  assert.match(session.adapter.blockedReason, /retention_loss/);
+  assert.equal(session.history.queries.length, 1);
+  assert.deepEqual(session.store.state, before);
+});
+
+test("higher corrections and their fees merge without dropping prior revisions", async () => {
+  const original = execution("correction.01");
+  const missingFee = setup();
+  await bootstrap(missingFee, [original]);
+  missingFee.adapter.pollNow();
+  let request = missingFee.history.queries.at(-1);
+  const corrected = execution("correction.02", { price: 11 });
+  missingFee.history.resolve(reply(request, { 20260910: [corrected] }, { commissions: [] }));
+  await flush();
+  assert.match(missingFee.unavailable.at(-1), /missing fees/);
+  assert.deepEqual(missingFee.store.state.executions.map((row) => row.execution.execId), ["correction.01"]);
+
+  const session = setup();
+  await bootstrap(session, [original]);
+  session.adapter.pollNow();
+  request = session.history.queries.at(-1);
+  session.history.resolve(reply(request, { 20260910: [corrected] }, {
+    commissions: [commission("correction.02", 0.3)],
+  }));
+  await flush();
+  assert.deepEqual(session.store.state.executions.map((row) => row.execution.execId), [
+    "correction.01", "correction.02",
+  ]);
+  assert.deepEqual(session.store.state.commissions.map((row) => row.execId), [
+    "correction.01", "correction.02",
+  ]);
+});
+
+test("an obsolete pending-price revision does not pin the seven-date recovery window", async () => {
+  const pending = execution("px.01", { pendingPriceRevision: true });
+  const corrected = execution("px.02", { price: 11, pendingPriceRevision: false });
+  const session = setup();
+  await bootstrap(session, [pending]);
+  session.adapter.pollNow();
+  let request = session.history.queries.at(-1);
+  session.history.resolve(reply(request, { 20260910: [corrected] }));
+  await flush();
+
+  const friday = execution("friday.01", { time: "20260911 09:30:00 US/Eastern" });
+  session.setNow("2026-09-11T16:00:00Z");
+  session.adapter.pollNow();
+  request = session.history.queries.at(-1);
+  session.history.resolve(reply(request, { 20260910: [corrected], 20260911: [friday] }));
+  await flush();
+
+  const saturday = execution("saturday.01", { time: "20260912 09:30:00 US/Eastern" });
+  session.setNow("2026-09-12T16:00:00Z");
+  session.adapter.pollNow();
+  request = session.history.queries.at(-1);
+  session.history.resolve(reply(request, { 20260911: [friday], 20260912: [saturday] }, {
+    requestedAt: "2026-09-12T16:00:00Z", endedAt: "2026-09-12T16:00:01Z",
+  }));
+  await flush();
+
+  session.setNow("2026-09-17T16:00:00Z");
+  assert.equal(session.adapter.pollNow(), true);
+  request = session.history.queries.at(-1);
+  assert.deepEqual(request.specificDates, [
+    "20260912", "20260913", "20260914", "20260915", "20260916", "20260917",
+  ]);
+  session.history.resolve(reply(request, {
+    20260912: [saturday],
+    20260913: [], 20260914: [], 20260915: [], 20260916: [], 20260917: [],
+  }, { requestedAt: "2026-09-17T16:00:00Z", endedAt: "2026-09-17T16:00:01Z" }));
+  await flush();
+  assert.equal(session.adapter.blockedReason, null);
+  assert.equal(session.store.state.coverage.throughDay, "2026-09-17");
+});
+
+test("disconnect invalidates helper history while leaving the adapter non-throwing", async () => {
+  const session = setup();
+  const api = await bootstrap(session);
+  api.emit(EVENTS.disconnected);
+  assert.equal(session.history.stops.at(-1), "Node broker disconnected");
+  assert.equal(session.adapter.project(book()).ok, false);
+  assert.match(session.adapter.project(book()).reason, /broker disconnected/);
+});
+
+function legacyState(rows, reports = rows.map((row) => commission(row.execution.execId)), family = null) {
+  const observedAt = "2026-09-10T16:00:01.000Z";
+  const projection = family || calculator({ executions: rows, periodStart: FAMILY_BASELINE_PERIOD_START, observedAt });
+  return {
+    schema: FAMILY_LEGACY_STATE_SCHEMA,
+    version: 1,
+    account: ACCOUNT,
+    periodStart: FAMILY_BASELINE_PERIOD_START,
+    classifier: CLASSIFIER,
+    initializedAt: observedAt,
+    ledgerObservedAt: observedAt,
+    coverageThrough: observedAt,
+    coverageTradingDay: "2026-09-10",
+    queryExecutionIdentities: rows.map((row) => row.execution.execId).sort(),
+    executions: rows,
+    commissions: reports,
+    family: projection,
+  };
+}
+
+test("v1 migration preserves bytes, proves official overlap, and detects later backup change", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-v2-test-"));
+  const legacyPath = path.join(directory, "family-ledger.json");
+  const activePath = path.join(directory, "family-ledger-v2.json");
+  const row = execution("anchor.01");
+  const legacyBytes = `${JSON.stringify(legacyState([row]), null, 2)}\n`;
+  fs.writeFileSync(legacyPath, legacyBytes, { mode: 0o600 });
+  const store = createFileFamilyStateStore(activePath, { legacyPath });
+  const session = setup({ store });
+  const api = connect(session);
+  const request = session.history.queries[0];
+  session.history.resolve(reply(request, { 20260910: [row] }));
+  await flush();
+  setFx(api);
+  assert.equal(session.adapter.project(book()).ok, true);
+  assert.equal(fs.readFileSync(legacyPath, "utf8"), legacyBytes);
+  assert.equal(store.load({ account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER }).ok, true);
+  const parkedPath = `${activePath}.parked`;
+  fs.renameSync(activePath, parkedPath);
+  const missing = store.load({ account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER });
+  assert.equal(missing.ok, false);
+  assert.match(missing.reason, /missing after migration activation/);
+  fs.renameSync(parkedPath, activePath);
+
+  fs.appendFileSync(legacyPath, " ");
+  const changed = store.load({ account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER });
+  assert.equal(changed.ok, false);
+  assert.match(changed.reason, /changed after migration/);
+});
+
+function realFamilyProjection(rows, reports, observedAt) {
+  return calculateFamily({
+    executions: rows,
+    commissions: reports,
+    portfolio: [],
+    positions: [],
+    fx: { baseCurrency: "EUR", rates: { EUR: 1, USD: 0.85 }, observedAt },
+    account: ACCOUNT,
+    familyClientIds: FAMILY_IDS,
+    excludedSymbols: ["SXR8", "TSLA"],
+    periodStart: FAMILY_BASELINE_PERIOD_START,
+    virtualEquity: 5000,
+    observedAt,
+  });
+}
+
+test("real FIFO migration accepts BUY/SELL aliases plus a new completed roundtrip", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-v2-real-"));
+  const legacyPath = path.join(directory, "family-ledger.json");
+  const activePath = path.join(directory, "family-ledger-v2.json");
+  const oldRows = [
+    execution("anchor.01", { side: "BOT", time: "20260910 09:30:00 US/Eastern" }),
+    execution("old-close.01", { side: "SLD", time: "20260910 09:31:00 US/Eastern", price: 10.5 }),
+  ];
+  const oldFees = oldRows.map((row) => commission(row.execution.execId));
+  const oldFamily = realFamilyProjection(oldRows, oldFees, "2026-09-10T16:00:01.000Z");
+  const legacyBytes = `${JSON.stringify(legacyState(oldRows, oldFees, oldFamily), null, 2)}\n`;
+  fs.writeFileSync(legacyPath, legacyBytes, { mode: 0o600 });
+
+  const officialOld = oldRows.map((row) => ({
+    ...structuredClone(row),
+    execution: {
+      ...structuredClone(row.execution),
+      side: row.execution.side === "BOT" ? "BUY" : "SELL",
+    },
+  }));
+  const newRows = [
+    execution("new-open.01", { side: "BUY", time: "20260910 13:00:00 US/Eastern", price: 20 }),
+    execution("new-close.01", { side: "SELL", time: "20260910 13:01:00 US/Eastern", price: 21 }),
+  ];
+  const allRows = [...officialOld, ...newRows];
+  const allFees = allRows.map((row) => commission(row.execution.execId));
+  const store = createFileFamilyStateStore(activePath, { legacyPath });
+  const session = setup({ at: "2026-09-10T20:01:00Z", store, calculate: calculateFamily });
+  const api = connect(session);
+  const request = session.history.queries[0];
+  session.history.resolve(reply(request, { 20260910: allRows }, {
+    requestedAt: "2026-09-10T20:00:00Z",
+    endedAt: "2026-09-10T20:00:01Z",
+    commissions: allFees,
+  }));
+  await flush();
+  setFx(api);
+  const projected = session.adapter.project(book("2026-09-10T20:01:00Z"));
+  assert.equal(projected.ok, true);
+  assert.equal(projected.executionCount, 4);
+  assert.equal(store.load({ account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER }).state.executions.length, 4);
+  assert.equal(fs.readFileSync(legacyPath, "utf8"), legacyBytes);
+});
+
+test("v1 migration preserves unrelated non-stock rows without feeding them to family FIFO", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-v2-nonstock-migration-"));
+  const legacyPath = path.join(directory, "family-ledger.json");
+  const activePath = path.join(directory, "family-ledger-v2.json");
+  const familyRows = [
+    execution("family-open.01", { side: "BUY" }),
+    execution("family-close.01", { side: "SELL", price: 11 }),
+  ];
+  const cash = execution("joe-cash.01", { clientId: 22 });
+  cash.contract = { conId: 202, symbol: "EUR.USD", secType: "CASH", currency: "USD", multiplier: "" };
+  const option = execution("joe-option.01", { clientId: 22 });
+  option.contract = { conId: 203, symbol: "ACME", secType: "OPT", currency: "USD", multiplier: "not-numeric" };
+  const legacyRows = [...familyRows, cash, option];
+  const reports = legacyRows.map((row) => commission(row.execution.execId));
+  const observedAt = "2026-09-10T16:00:01.000Z";
+  const family = realFamilyProjection(
+    familyRows,
+    reports.filter((row) => row.execId.startsWith("family-")),
+    observedAt
+  );
+  const legacyBytes = `${JSON.stringify(legacyState(legacyRows, reports, family), null, 2)}\n`;
+  fs.writeFileSync(legacyPath, legacyBytes, { mode: 0o600 });
+
+  const store = createFileFamilyStateStore(activePath, { legacyPath });
+  const session = setup({ store, calculate: calculateFamily });
+  const api = connect(session);
+  const request = session.history.queries[0];
+  session.history.resolve(reply(request, { 20260910: legacyRows }, { commissions: reports }));
+  await flush();
+  setFx(api);
+  const projected = session.adapter.project(book());
+  assert.equal(projected.ok, true, projected.reason);
+  assert.equal(fs.readFileSync(legacyPath, "utf8"), legacyBytes);
+  const loaded = store.load({
+    account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER,
+  });
+  assert.equal(loaded.ok, true);
+  assert.deepEqual(
+    loaded.state.executions.filter((row) => row.execution.clientId === 22).map((row) => row.contract),
+    [cash.contract, option.contract]
+  );
+});
+
+test("migration rejects a conflicting official replay of an old legacy execution", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-v2-conflict-"));
+  const legacyPath = path.join(directory, "family-ledger.json");
+  const activePath = path.join(directory, "family-ledger-v2.json");
+  const old = execution("anchor.01", { side: "BOT" });
+  fs.writeFileSync(legacyPath, `${JSON.stringify(legacyState([old]), null, 2)}\n`, { mode: 0o600 });
+  const store = createFileFamilyStateStore(activePath, { legacyPath });
+  const session = setup({ store });
+  connect(session);
+  const conflicting = execution("anchor.01", { side: "BUY", price: 99 });
+  const request = session.history.queries[0];
+  session.history.resolve(reply(request, { 20260910: [conflicting] }));
+  await flush();
+  assert.match(session.adapter.blockedReason, /conflicting execution/);
+  assert.equal(fs.existsSync(activePath), false);
+});
+
+test("malformed active state blocks startup", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-v2-bad-"));
+  const activePath = path.join(directory, "family-ledger-v2.json");
+  fs.writeFileSync(activePath, "{bad json\n", { mode: 0o600 });
+  const store = createFileFamilyStateStore(activePath);
+  const adapter = setup({ store }).adapter;
+  assert.match(adapter.blockedReason, /v2 state is invalid/);
+});
+
+test("cached execution-time validation cannot hide changed or corrupt state", async () => {
+  const seeded = setup();
+  await bootstrap(seeded);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-v2-time-cache-"));
+  const activePath = path.join(directory, "family-ledger-v2.json");
+  const store = createFileFamilyStateStore(activePath);
+  store.save(seeded.store.state);
+  const load = () => store.load({
+    account: ACCOUNT, periodStart: FAMILY_BASELINE_PERIOD_START, classifier: CLASSIFIER,
+  });
+  assert.equal(load().ok, true);
+
+  const changed = structuredClone(seeded.store.state);
+  changed.executions[0].execution.time = "20260910 10:30:00 US/Eastern";
+  fs.writeFileSync(activePath, `${JSON.stringify(changed)}\n`, { mode: 0o600 });
+  assert.match(load().reason, /anchor is absent/);
+
+  const corrupt = structuredClone(seeded.store.state);
+  corrupt.executions[0].execution.time = "20261101 01:30:00 US/Eastern";
+  fs.writeFileSync(activePath, `${JSON.stringify(corrupt)}\n`, { mode: 0o600 });
+  assert.match(load().reason, /invalid or ambiguous/);
 });
