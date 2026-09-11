@@ -6,6 +6,41 @@ Read-only paper IB client (`clientId` 92 → `100.64.0.6:4002`) projecting
 
 Never connects to live 4001. Never places orders. Uses shared agenix push token.
 
+## Broker recovery
+
+The SDK `connected` event proves the local TCP/API handshake with IB Gateway; it
+does not prove that Gateway is connected to IBKR upstream. Codes 1100 and 2110
+therefore mark the published broker state unavailable while retaining that local
+socket so Gateway's automatic restoration can be observed. The accepted book,
+its economic timestamp, and its last-good gateway observation are retained
+unchanged. Financial callbacks received during the outage cannot refresh them.
+
+The first 1101 or 1102 after an observed loss retires that adapter generation
+and schedules one fresh local API connection through the common retry policy.
+This generation boundary is required because `position`, `updatePortfolio`, and
+`accountDownloadEnd` callbacks are not request-scoped: no callback from the old
+socket can complete the fresh snapshot. Repeated restoration notices on the old
+generation are ignored, and restoration notices on a new connection without a
+preceding observed loss do not start another reconnect cycle. The new generation
+must pass the existing managed-account, positions, account-summary, and
+account-download completion gates before the book becomes available again.
+J-family polling, execution readiness, and FX are suspended at upstream loss and
+require a fresh complete replay after restoration; the durable ledger and its
+identity/coverage checks remain unchanged.
+
+Restoration and actual local socket failures share the same replacement policy. All replacements use
+one deduplicating exponential retry schedule (5 seconds to 5 minutes, with 20%
+jitter). A TCP connection alone does not reset the backoff; an accepted complete
+broker snapshot does. Connection attempts have a 15-second deadline. A local socket can be responsive
+without providing a usable book, so every new
+generation also has a separate 60-second complete-snapshot deadline. Health,
+informational, and partial callbacks cannot extend it; only an accepted complete
+book clears it. A declared upstream outage pauses that deadline while real inbound
+notices extend a bounded five-minute socket-silence deadline without pretending
+the financial book is fresh. Otherwise, an idle socket must answer a non-financial
+current-time probe. Shutdown cancels every connection, snapshot, health, and retry
+timer.
+
 Stage-0 money excludes grandfathered paper SXR8 lot + leftover TSLA×1 (CONFIG.md) from
 since-start / stand / totals; action/learning still name open legacy holdings.
 
@@ -22,8 +57,13 @@ midnight, the publisher conservatively requires verified backfill at that bounda
 same-day restarts recover through a complete current-day capture.
 Within a coverage day, every complete execution query must retain every identity
 from the preceding successful query (or provide its higher IB correction revision).
-A disappearing identity is treated as an undocumented Gateway cutoff and requires
-backfill even when current positions reconcile.
+A query that temporarily omits an identity is unavailable and retried with capped
+backoff; it cannot change the persisted ledger, identity set, or coverage watermark.
+Only a later complete replay containing every prior identity prefix (or a higher
+revision), actual required fees, an exact merge, and a successful state save restores
+J readiness. Persisted rows are never unioned into incoming evidence. This retry
+policy does not prove or repair a real retention gap: authoritative missing-history
+evidence and every unproved cross-day gap still require the separate backfill work.
 
 FX uses a separately scoped `reqAccountUpdatesMulti` request. Before the five-minute
 freshness window expires, the adapter cancels that request and opens a new request
