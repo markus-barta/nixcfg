@@ -33,8 +33,8 @@ export function brokerConnectivityState(code) {
 }
 
 export function isConnectionFailure(code, message) {
-  return Number(code) === 502 ||
-    /ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|socket hang up/i.test(
+  return [502, 504].includes(Number(code)) ||
+    /ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|EPIPE|\bEOF\b|socket (?:hang up|closed)|connection closed/i.test(
       String(message || "")
     );
 }

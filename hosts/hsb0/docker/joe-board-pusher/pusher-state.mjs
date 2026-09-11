@@ -7,6 +7,8 @@ import {
   strictFinite,
 } from "./positions-state.mjs";
 
+export { createReconnectScheduler } from "./pusher-recovery.mjs";
+
 function cloneRow(row) {
   return {
     ...row,
@@ -36,27 +38,6 @@ function validSummaryNumber(value) {
   return Number.isFinite(parsed) && Math.abs(parsed) !== Number.MAX_VALUE;
 }
 
-export function createReconnectScheduler({ retryMs, onRetry, setTimer = setTimeout }) {
-  if (!Number.isFinite(retryMs) || retryMs <= 0) {
-    throw new TypeError("retryMs must be a positive finite number");
-  }
-  let pending = false;
-  return {
-    schedule() {
-      if (pending) return false;
-      pending = true;
-      setTimer(() => {
-        pending = false;
-        onRetry();
-      }, retryMs);
-      return true;
-    },
-    get pending() {
-      return pending;
-    },
-  };
-}
-
 /**
  * Generation-scoped adapter for @stoqey/ib EventEmitter callbacks.
  * This module has no network, process, or timer side effects and is safe to import in tests.
@@ -72,8 +53,11 @@ export function createBrokerSessionAdapter({
   let trackerEpoch = tracker.epoch;
   let activeApi = null;
   let generation = 0;
-  let connected = false;
+  let socketConnected = false;
+  let upstreamConnected = false;
   let connecting = false;
+  let resyncing = false;
+  let upstreamLossObserved = false;
   let working = null;
   let published = null;
   let publishedGeneration = null;
@@ -82,12 +66,6 @@ export function createBrokerSessionAdapter({
 
   function isCurrent(api, attachedGeneration) {
     return activeApi === api && generation === attachedGeneration;
-  }
-
-  function observeBroker() {
-    const observedAt = now();
-    gatewayLastSeenAt = observedAt;
-    return observedAt;
   }
 
   function publishCurrent(observedAt) {
@@ -110,6 +88,12 @@ export function createBrokerSessionAdapter({
       },
     };
     publishedGeneration = generation;
+    gatewayLastSeenAt = observedAt;
+    const becameStable = !upstreamConnected;
+    upstreamConnected = true;
+    resyncing = false;
+    lastError = null;
+    if (becameStable) hooks.onStableData?.({ api: activeApi, generation, observedAt });
     return true;
   }
 
@@ -120,19 +104,46 @@ export function createBrokerSessionAdapter({
     }
   }
 
-  function invalidate(reason, requestReconnect) {
-    generation += 1;
-    activeApi = null;
-    markUnavailable(reason, requestReconnect);
-  }
-
-  function markUnavailable(reason, requestReconnect) {
-    connected = false;
-    connecting = false;
+  function markFinancialUnavailable(reason) {
+    upstreamConnected = false;
+    resyncing = false;
     working = null;
     lastError = reason;
     trackerEpoch = tracker.onDisconnected();
-    if (requestReconnect) hooks.onReconnectNeeded?.();
+  }
+
+  function invalidate(api, reason, requestReconnect) {
+    generation += 1;
+    activeApi = null;
+    socketConnected = false;
+    connecting = false;
+    markFinancialUnavailable(reason);
+    if (requestReconnect) hooks.onReconnectNeeded?.({ api, reason });
+  }
+
+  function requestCompleteSnapshot(api) {
+    if (api !== activeApi || !socketConnected) return false;
+    working = emptyWorkingState();
+    trackerEpoch = tracker.onConnected();
+    upstreamConnected = false;
+    resyncing = true;
+    try {
+      api.reqManagedAccts();
+      api.reqPositions();
+      api.reqAllOpenOrders();
+      api.reqAccountSummary(
+        accountSummaryRequestId,
+        "All",
+        "NetLiquidation,TotalCashValue,BuyingPower,AccountType"
+      );
+      api.reqAccountUpdates(true, targetAccount);
+    } catch (error) {
+      const detail = String(error?.message || error);
+      hooks.onError?.(detail);
+      invalidate(api, detail, true);
+      return false;
+    }
+    return true;
   }
 
   function handleBrokerNotice(route, code) {
@@ -140,23 +151,44 @@ export function createBrokerSessionAdapter({
     const normalizedCode = Number.isInteger(numericCode) ? numericCode : null;
     const state = brokerConnectivityState(normalizedCode);
     if (!state && route !== "info") return false;
-    hooks.onBrokerNotice?.({
+    let action = "none";
+    if (state === "upstream_lost") {
+      action = "local_socket_retained";
+    } else if (state) {
+      action = upstreamLossObserved
+        ? "fresh_generation_scheduled"
+        : "ignored_without_observed_loss";
+    }
+    const notice = {
       route,
       code: normalizedCode,
       state: state || "informational",
-      action: state ? "fresh_session_scheduled" : "none",
-    });
+      action,
+    };
+    hooks.onBrokerNotice?.(notice);
     if (!state) return false;
 
-    // Keep the API emitter current until the bounded retry replaces it so that
-    // 1101/1102 restoration notices remain observable. Financial callbacks are
-    // ignored because the interrupted working cycle is discarded here.
-    markUnavailable(`broker ${state} (code ${normalizedCode})`, true);
+    const reason = `broker ${state} (code ${normalizedCode})`;
+    if (state === "upstream_lost") {
+      upstreamLossObserved = true;
+      if (upstreamConnected || resyncing || working) {
+        markFinancialUnavailable(reason);
+        hooks.onUpstreamUnavailable?.({ api: activeApi, reason, notice });
+      }
+      return true;
+    }
+
+    if (upstreamLossObserved) {
+      upstreamLossObserved = false;
+      invalidate(activeApi, reason, true);
+    }
     return true;
   }
 
   function handleInvalidData() {
-    hooks.onResyncNeeded?.();
+    const reason = "invalid broker quantity; reconnecting for a fresh generation";
+    hooks.onResyncNeeded?.({ reason, api: activeApi });
+    invalidate(activeApi, reason, true);
   }
 
   function updateAccountingPortfolio(
@@ -203,88 +235,81 @@ export function createBrokerSessionAdapter({
     generation += 1;
     const attachedGeneration = generation;
     activeApi = api;
-    connected = false;
+    socketConnected = false;
+    upstreamConnected = false;
     connecting = true;
+    resyncing = false;
+    upstreamLossObserved = false;
     working = null;
     trackerEpoch = tracker.onDisconnected();
 
-    const guard = (handler) => (...args) => {
+    const guard = (event, handler) => (...args) => {
       if (!isCurrent(api, attachedGeneration)) return;
+      hooks.onSocketActivity?.({ api, generation: attachedGeneration, event });
       handler(...args);
     };
 
-    api.on(eventNames.connected, guard(() => {
-      connected = true;
+    api.on(eventNames.connected, guard("connected", () => {
+      socketConnected = true;
       connecting = false;
-      lastError = null;
-      working = emptyWorkingState();
-      trackerEpoch = tracker.onConnected();
-      observeBroker();
-      hooks.onConnected?.();
-      try {
-        api.reqManagedAccts();
-        api.reqPositions();
-        api.reqAllOpenOrders();
-        api.reqAccountSummary(
-          accountSummaryRequestId,
-          "All",
-          "NetLiquidation,TotalCashValue,BuyingPower,AccountType"
-        );
-        api.reqAccountUpdates(true, targetAccount);
-      } catch (error) {
-        const detail = String(error?.message || error);
-        hooks.onError?.(detail);
-        invalidate(detail, true);
-      }
+      hooks.onConnected?.({ api, generation: attachedGeneration });
+      requestCompleteSnapshot(api);
     }));
 
-    api.on(eventNames.disconnected, guard(() => {
+    api.on(eventNames.disconnected, guard("disconnected", () => {
       hooks.onDisconnected?.("disconnected");
-      invalidate("disconnected", true);
+      invalidate(api, "disconnected", true);
     }));
 
-    api.on(eventNames.info, guard((_message, code) => {
+    if (eventNames.connectionClosed) {
+      api.on(eventNames.connectionClosed, guard("connectionClosed", () => {
+        hooks.onDisconnected?.("connectionClosed");
+        invalidate(api, "connectionClosed", true);
+      }));
+    }
+
+    api.on(eventNames.info, guard("info", (_message, code) => {
       handleBrokerNotice("info", code);
     }));
 
-    api.on(eventNames.error, guard((error, code) => {
+    api.on(eventNames.error, guard("error", (error, code) => {
       const message = String(error?.message || error);
       const detail = `${code || ""} ${message}`.trim();
       if (handleBrokerNotice("error", code)) return;
       hooks.onError?.(detail, code, message);
       if (isConnectionFailure(code, message)) {
-        invalidate(detail, true);
+        invalidate(api, detail, true);
       } else {
         lastError = detail;
       }
     }));
 
-    api.on(eventNames.managedAccounts, guard((accounts) => {
+    api.on(eventNames.managedAccounts, guard("managedAccounts", (accounts) => {
       if (!working) return;
       working.accounts = accounts;
       if (!tracker.onManagedAccounts(trackerEpoch, accounts)) return;
-      const observedAt = observeBroker();
+      const observedAt = now();
       publishIfReady(observedAt);
     }));
 
-    api.on(eventNames.accountSummary, guard((reqId, account, tag, value, currency) => {
+    api.on(eventNames.accountSummary, guard("accountSummary", (reqId, account, tag, value, currency) => {
       if (!working || reqId !== accountSummaryRequestId || account !== targetAccount) return;
       working.summary[tag] = { account, value, currency };
       if (tag === "NetLiquidation" && validSummaryNumber(value)) {
         working.netLiquidationSeen = true;
       }
-      const observedAt = observeBroker();
+      const observedAt = now();
       publishIfReady(observedAt);
     }));
 
-    api.on(eventNames.accountSummaryEnd, guard((reqId) => {
+    api.on(eventNames.accountSummaryEnd, guard("accountSummaryEnd", (reqId) => {
       if (!working || reqId !== accountSummaryRequestId) return;
       working.summaryComplete = true;
-      const observedAt = observeBroker();
+      const observedAt = now();
       publishIfReady(observedAt);
     }));
 
-    api.on(eventNames.position, guard((account, contract, pos, avgCost) => {
+    api.on(eventNames.position, guard("position", (account, contract, pos, avgCost) => {
       if (!working || account !== targetAccount) return;
       const observedAt = now();
       const result = tracker.onPosition(
@@ -300,18 +325,17 @@ export function createBrokerSessionAdapter({
         return;
       }
       if (!result.accepted) return;
-      gatewayLastSeenAt = observedAt;
       publishIfReady(observedAt);
     }));
 
-    api.on(eventNames.positionEnd, guard(() => {
+    api.on(eventNames.positionEnd, guard("positionEnd", () => {
       if (!working) return;
       if (!tracker.onPositionEnd(trackerEpoch)) return;
-      const observedAt = observeBroker();
+      const observedAt = now();
       publishIfReady(observedAt);
     }));
 
-    api.on(eventNames.updatePortfolio, guard((
+    api.on(eventNames.updatePortfolio, guard("updatePortfolio", (
       contract,
       pos,
       marketPrice,
@@ -350,18 +374,17 @@ export function createBrokerSessionAdapter({
         realizedPNL,
         observedAt
       );
-      gatewayLastSeenAt = observedAt;
       publishIfReady(observedAt);
     }));
 
-    api.on(eventNames.accountDownloadEnd, guard((account) => {
+    api.on(eventNames.accountDownloadEnd, guard("accountDownloadEnd", (account) => {
       if (!working || account !== targetAccount) return;
       working.accountComplete = true;
-      const observedAt = observeBroker();
+      const observedAt = now();
       publishIfReady(observedAt);
     }));
 
-    api.on(eventNames.openOrder, guard((orderId, contract, order, orderState) => {
+    api.on(eventNames.openOrder, guard("openOrder", (orderId, contract, order, orderState) => {
       if (!working || order?.account !== targetAccount) return;
       const row = {
         orderId,
@@ -376,6 +399,10 @@ export function createBrokerSessionAdapter({
       working.openOrders.push(row);
     }));
 
+    if (eventNames.currentTime) {
+      api.on(eventNames.currentTime, guard("currentTime", () => {}));
+    }
+
     return attachedGeneration;
   }
 
@@ -383,16 +410,24 @@ export function createBrokerSessionAdapter({
     attach,
 
     retire(reason = "reconnecting") {
-      invalidate(reason, false);
+      invalidate(activeApi, reason, false);
     },
 
     fail(api, reason) {
       if (api !== activeApi) return;
-      invalidate(reason, true);
+      invalidate(api, reason, true);
     },
 
     get connected() {
-      return connected;
+      return upstreamConnected;
+    },
+
+    get socketConnected() {
+      return socketConnected;
+    },
+
+    get upstreamConnected() {
+      return upstreamConnected;
     },
 
     get connecting() {
@@ -404,11 +439,6 @@ export function createBrokerSessionAdapter({
       const currentCoverage = tracker.snapshot();
       const coverageAccepted = publishedGeneration === generation &&
         currentCoverage.status === "complete";
-      const coverageStatus = coverageAccepted
-        ? "complete"
-        : currentCoverage.status === "unavailable"
-          ? "unavailable"
-          : "partial";
       return {
         ...published,
         accounts: published.accounts,
@@ -417,10 +447,11 @@ export function createBrokerSessionAdapter({
         portfolio: cloneRows(published.portfolio),
         openOrders: published.openOrders.map((row) => ({ ...row })),
         positionsCoverage: {
-          status: coverageStatus,
+          status: coverageAccepted ? "complete" : "unavailable",
           rows: coverageAccepted ? cloneRows(published.positionsCoverage.rows) : [],
         },
-        gateway: connected,
+        gateway: upstreamConnected,
+        localSocket: socketConnected,
         gatewayLastSeenAt,
         lastError,
       };

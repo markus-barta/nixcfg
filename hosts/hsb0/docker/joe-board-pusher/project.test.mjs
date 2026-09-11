@@ -32,8 +32,10 @@ const SUMMARY_REQ_ID = 9501;
 const EVENTS = Object.fromEntries([
   "connected",
   "disconnected",
+  "connectionClosed",
   "error",
   "info",
+  "currentTime",
   "managedAccounts",
   "accountSummary",
   "accountSummaryEnd",
@@ -53,8 +55,10 @@ class FakeApi extends EventEmitter {
 
   reqManagedAccts() { this.requests.push(["managedAccounts"]); }
   reqPositions() { this.requests.push(["positions"]); }
+  cancelPositions() { this.requests.push(["cancelPositions"]); }
   reqAllOpenOrders() { this.requests.push(["openOrders"]); }
   reqAccountSummary(...args) { this.requests.push(["accountSummary", ...args]); }
+  cancelAccountSummary(...args) { this.requests.push(["cancelAccountSummary", ...args]); }
   reqAccountUpdates(...args) { this.requests.push(["accountUpdates", ...args]); }
 }
 
@@ -260,6 +264,7 @@ test("generation-scoped emitter wiring suppresses every stale API callback", () 
   setInstant(OBS_C);
   oldApi.emit(EVENTS.connected);
   oldApi.emit(EVENTS.disconnected);
+  oldApi.emit(EVENTS.connectionClosed);
   oldApi.emit(EVENTS.error, new Error("stale connection failure"), 502);
   oldApi.emit(EVENTS.managedAccounts, TARGET);
   oldApi.emit(EVENTS.accountSummary, SUMMARY_REQ_ID, TARGET, "NetLiquidation", "999999", "EUR");
@@ -269,12 +274,14 @@ test("generation-scoped emitter wiring suppresses every stale API callback", () 
   oldApi.emit(EVENTS.updatePortfolio, stockContract("INTC", { conId: 2 }), 99, 99, 999, 1, 9, 9, TARGET);
   oldApi.emit(EVENTS.accountDownloadEnd, TARGET);
   oldApi.emit(EVENTS.openOrder, 1, stockContract("INTC"), { account: TARGET }, {});
-  assert.equal(adapter.connected, true);
+  assert.equal(adapter.socketConnected, true);
+  assert.equal(adapter.connected, false);
   assert.equal(adapter.snapshot().lastError, null);
 
   currentApi.emit(EVENTS.managedAccounts, TARGET);
   finishInitialSync(currentApi, { summaryValue: "13000" });
   const snapshot = adapter.snapshot();
+  assert.equal(adapter.connected, true);
   assert.deepEqual(snapshot.positions, []);
   assert.equal(snapshot.summary.NetLiquidation.value, "13000");
   assert.equal(snapshot.ts, OBS_C);
@@ -359,8 +366,9 @@ test("reconnect keeps position coverage atomic until the full new snapshot is ac
   assert.equal(partial.ts, acceptedFirst.ts);
   assert.equal(partial.positions[0].pos, 2);
   assert.equal(partial.portfolio[0].unrealizedPNL, 7);
-  assert.equal(partial.positionsCoverage.status, "partial");
+  assert.equal(partial.positionsCoverage.status, "unavailable");
   assert.deepEqual(partial.positionsCoverage.rows, []);
+  assert.equal(partial.gatewayLastSeenAt, acceptedFirst.gatewayLastSeenAt);
   assert.equal(projectedPartial.generatedAt, projectedFirst.generatedAt);
   assert.equal(deskById(projectedPartial, "j").money.totalPnl, 8);
   assert.equal("positions" in deskById(projectedPartial, "j"), false);
@@ -404,7 +412,7 @@ test("closed-position realized P&L remains in existing Stage-0 accounting", () =
   assert.equal(snapshot.totals.dayPnl, null);
 });
 
-test("invalid live quantity requests resync without replacing the last valid snapshot", () => {
+test("invalid live quantity retires coverage without replacing the last valid snapshot", () => {
   let resyncs = 0;
   const { adapter, setInstant } = createHarness({ onResyncNeeded: () => { resyncs += 1; } });
   const api = new FakeApi("synthetic-A");
@@ -418,53 +426,35 @@ test("invalid live quantity requests resync without replacing the last valid sna
   api.emit(EVENTS.updatePortfolio, stockContract("INTC"), null, 20, 80, 10, 2, 0, TARGET);
   const after = adapter.snapshot();
   assert.equal(resyncs, 1);
-  assert.equal(after.positionsCoverage.status, "partial");
+  assert.equal(after.positionsCoverage.status, "unavailable");
   assert.equal(after.positions[0].pos, valid.positions[0].pos);
   assert.equal(after.ts, valid.ts);
 });
 
-test("repeated invalid-data resyncs cannot bypass the positive retry delay", () => {
-  const timers = [];
-  const delays = [];
-  let retryAttempts = 0;
-  const scheduler = createReconnectScheduler({
-    retryMs: 5000,
-    onRetry: () => { retryAttempts += 1; },
-    setTimer(callback, delay) {
-      timers.push(callback);
-      delays.push(delay);
-    },
-  });
-  let adapter;
-  adapter = createBrokerSessionAdapter({
+test("invalid data retires one generation and repeated old callbacks cannot bypass retry", () => {
+  let resyncs = 0;
+  let reconnects = 0;
+  const adapter = createBrokerSessionAdapter({
     targetAccount: TARGET,
     eventNames: EVENTS,
     now: () => OBS_A,
     hooks: {
-      onResyncNeeded() {
-        adapter.retire("synthetic invalid quantity");
-        scheduler.schedule();
-      },
+      onResyncNeeded() { resyncs += 1; },
+      onReconnectNeeded() { reconnects += 1; },
     },
   });
 
   const first = new FakeApi("synthetic-A");
   adapter.attach(first);
-  first.emit(EVENTS.connected);
+  connectRecognized(first);
+  finishInitialSync(first);
   first.emit(EVENTS.position, TARGET, stockContract("INTC"), null, 10);
   first.emit(EVENTS.position, TARGET, stockContract("INTC"), null, 10);
-  assert.deepEqual(delays, [5000]);
-  assert.equal(scheduler.pending, true);
-
-  timers.shift()();
-  assert.equal(retryAttempts, 1);
-  assert.equal(scheduler.pending, false);
-  const second = new FakeApi("synthetic-B");
-  adapter.attach(second);
-  second.emit(EVENTS.connected);
-  second.emit(EVENTS.position, TARGET, stockContract("INTC"), Number.MAX_VALUE, 10);
-  assert.deepEqual(delays, [5000, 5000]);
-  assert.equal(delays.every((delay) => delay > 0), true);
+  assert.equal(resyncs, 1);
+  assert.equal(reconnects, 1);
+  assert.equal(adapter.socketConnected, false);
+  assert.equal(adapter.connected, false);
+  assert.equal(adapter.snapshot().positionsCoverage.status, "unavailable");
 });
 
 test("cross-account portfolio and summary events are ignored", () => {
@@ -789,11 +779,14 @@ test("unrelated orders do not refresh broker snapshot time", () => {
 
 test("connection failures invalidate current coverage", () => {
   assert.equal(isConnectionFailure(502, "Couldn't connect"), true);
+  assert.equal(isConnectionFailure(504, "Not connected"), true);
   assert.equal(isConnectionFailure(200, "ECONNREFUSED"), true);
+  assert.equal(isConnectionFailure(200, "unexpected EOF"), true);
   assert.equal(isConnectionFailure(101, "data farm"), false);
   assert.equal(isConnectionFailure(2104, "Market data farm connection is OK"), false);
 
-  const { adapter } = createHarness();
+  let reconnects = 0;
+  const { adapter } = createHarness({ onReconnectNeeded: () => { reconnects += 1; } });
   const api = new FakeApi("synthetic-A");
   adapter.attach(api);
   connectRecognized(api);
@@ -801,9 +794,18 @@ test("connection failures invalidate current coverage", () => {
   api.emit(EVENTS.error, new Error("connection refused"), 502);
   assert.equal(adapter.connected, false);
   assert.equal(adapter.snapshot().positionsCoverage.status, "unavailable");
+  assert.equal(reconnects, 1);
+
+  const eofApi = new FakeApi("synthetic-EOF");
+  adapter.attach(eofApi);
+  connectRecognized(eofApi);
+  finishInitialSync(eofApi);
+  eofApi.emit(EVENTS.connectionClosed);
+  assert.equal(adapter.socketConnected, false);
+  assert.equal(reconnects, 2);
 });
 
-test("SDK info 2110 preserves the accepted book and recovers through one positive retry", () => {
+test("2110 retains one socket until first restoration schedules one fresh generation", () => {
   const timers = [];
   const delays = [];
   const notices = [];
@@ -831,37 +833,62 @@ test("SDK info 2110 preserves the accepted book and recovers through one positiv
   setInstant(OBS_B);
   first.emit(EVENTS.info, "Connectivity between IBKR and Trader Workstation has been lost", 2110);
   first.emit(EVENTS.info, "Repeated upstream-loss notice", 2110);
+  first.emit(EVENTS.currentTime, 1_789_000_000);
   first.emit(EVENTS.position, TARGET, stockContract("INTC"), 99, 10);
   first.emit(EVENTS.positionEnd);
 
   const unavailable = adapter.snapshot();
   assert.equal(adapter.connected, false);
+  assert.equal(adapter.socketConnected, true);
   assert.equal(unavailable.gateway, false);
+  assert.equal(unavailable.localSocket, true);
   assert.equal(unavailable.positionsCoverage.status, "unavailable");
   assert.equal(unavailable.positions[0].pos, accepted.positions[0].pos);
   assert.equal(unavailable.ts, accepted.ts);
+  assert.equal(unavailable.gatewayLastSeenAt, accepted.gatewayLastSeenAt);
   assert.equal(unavailable.lastError, "broker upstream_lost (code 2110)");
-  assert.deepEqual(delays, [5000]);
-  assert.equal(delays.every((delay) => delay > 0), true);
   assert.deepEqual(notices[0], {
     route: "info",
     code: 2110,
     state: "upstream_lost",
-    action: "fresh_session_scheduled",
+    action: "local_socket_retained",
   });
   assert.equal("message" in notices[0], false);
+
+  first.emit(EVENTS.info, "Connectivity restored - data lost", 1101);
+  first.emit(EVENTS.info, "Repeated restoration notice", 1101);
+  assert.deepEqual(delays, [5000]);
+  assert.equal(scheduler.pending, true);
+  assert.equal(adapter.socketConnected, false);
+  assert.equal(notices.at(-1).action, "fresh_generation_scheduled");
+  assert.equal(notices.length, 3);
 
   timers.shift()();
   assert.equal(retryAttempts, 1);
   const second = new FakeApi("synthetic-B");
   adapter.attach(second);
   connectRecognized(second);
+  second.emit(EVENTS.info, "Startup restoration notice without observed loss", 1102);
+  assert.deepEqual(delays, [5000]);
   setInstant(OBS_C);
-  finishInitialSync(second);
+
+  // A full set of unscoped callbacks from the retired socket cannot complete
+  // the new generation's working snapshot.
   first.emit(EVENTS.managedAccounts, TARGET);
+  first.emit(EVENTS.position, TARGET, stockContract("INTC"), 999, 1);
+  first.emit(EVENTS.positionEnd);
   first.emit(EVENTS.accountSummary, SUMMARY_REQ_ID, TARGET, "NetLiquidation", "999999", "EUR");
   first.emit(EVENTS.accountSummaryEnd, SUMMARY_REQ_ID);
   first.emit(EVENTS.accountDownloadEnd, TARGET);
+  const beforeFreshCompletion = adapter.snapshot();
+  assert.equal(beforeFreshCompletion.positionsCoverage.status, "unavailable");
+  assert.equal(beforeFreshCompletion.ts, accepted.ts);
+  assert.equal(beforeFreshCompletion.gatewayLastSeenAt, accepted.gatewayLastSeenAt);
+
+  // Partial callbacks on the fresh generation also cannot advance last-good time.
+  second.emit(EVENTS.accountSummary, SUMMARY_REQ_ID, TARGET, "NetLiquidation", "13000", "EUR");
+  assert.equal(adapter.snapshot().gatewayLastSeenAt, accepted.gatewayLastSeenAt);
+  finishInitialSync(second);
 
   const recovered = adapter.snapshot();
   assert.equal(adapter.connected, true);
@@ -870,9 +897,10 @@ test("SDK info 2110 preserves the accepted book and recovers through one positiv
   assert.deepEqual(recovered.positions, []);
   assert.equal(recovered.summary.NetLiquidation.value, "12000");
   assert.equal(recovered.ts, OBS_C);
+  assert.deepEqual(recovered.positions, []);
 });
 
-test("SDK error 1100 uses the same sanitized upstream-loss path", () => {
+test("SDK error 1100 uses the same sanitized retained-socket path", () => {
   let reconnects = 0;
   const notices = [];
   const { adapter } = createHarness({
@@ -887,17 +915,20 @@ test("SDK error 1100 uses the same sanitized upstream-loss path", () => {
 
   assert.equal(brokerConnectivityState(1100), "upstream_lost");
   assert.equal(adapter.connected, false);
+  assert.equal(adapter.socketConnected, true);
   assert.equal(adapter.snapshot().lastError, "broker upstream_lost (code 1100)");
-  assert.equal(reconnects, 1);
+  assert.equal(reconnects, 0);
   assert.deepEqual(notices, [{
     route: "error",
     code: 1100,
     state: "upstream_lost",
-    action: "fresh_session_scheduled",
+    action: "local_socket_retained",
   }]);
+  api.emit(EVENTS.error, new Error("restored"), 1102);
+  assert.equal(reconnects, 1);
 });
 
-test("1101 and 1102 explicitly require a fresh complete session", () => {
+test("1101 and 1102 without an observed loss never start a reconnect loop", () => {
   for (const [code, state] of [
     [1101, "restored_data_lost"],
     [1102, "restored_data_maintained"],
@@ -913,18 +944,39 @@ test("1101 and 1102 explicitly require a fresh complete session", () => {
     connectRecognized(api);
     finishInitialSync(api);
     api.emit(EVENTS.info, "restoration detail is intentionally not propagated", code);
+    api.emit(EVENTS.info, "repeated restoration detail", code);
 
     assert.equal(brokerConnectivityState(code), state);
-    assert.equal(adapter.connected, false);
-    assert.equal(adapter.snapshot().positionsCoverage.status, "unavailable");
-    assert.equal(reconnects, 1);
+    assert.equal(adapter.connected, true);
+    assert.equal(adapter.socketConnected, true);
+    assert.equal(adapter.snapshot().positionsCoverage.status, "complete");
+    assert.equal(reconnects, 0);
     assert.deepEqual(notices, [{
       route: "info",
       code,
       state,
-      action: "fresh_session_scheduled",
+      action: "ignored_without_observed_loss",
+    }, {
+      route: "info",
+      code,
+      state,
+      action: "ignored_without_observed_loss",
     }]);
   }
+});
+
+test("a startup restoration notice cannot claim upstream freshness before a complete snapshot", () => {
+  let reconnects = 0;
+  const { adapter } = createHarness({ onReconnectNeeded: () => { reconnects += 1; } });
+  const api = new FakeApi("synthetic-startup");
+  adapter.attach(api);
+  api.emit(EVENTS.connected);
+  api.emit(EVENTS.info, "startup restoration notice", 1102);
+
+  assert.equal(adapter.socketConnected, true);
+  assert.equal(adapter.connected, false);
+  assert.equal(adapter.snapshot(), null);
+  assert.equal(reconnects, 0);
 });
 
 test("benign connectivity notices stay visible without reconnecting", () => {

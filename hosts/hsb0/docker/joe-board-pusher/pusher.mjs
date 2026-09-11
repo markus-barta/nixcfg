@@ -13,10 +13,8 @@ import {
   createFileFamilyStateStore,
 } from "./family-state.mjs";
 import { projectBook } from "./project.mjs";
-import {
-  createBrokerSessionAdapter,
-  createReconnectScheduler,
-} from "./pusher-state.mjs";
+import { createConnectionSupervisor } from "./pusher-recovery.mjs";
+import { createBrokerSessionAdapter } from "./pusher-state.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
@@ -27,7 +25,13 @@ const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
 const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
 const INBOX_URL = "https://cs0.barta.cm/joe/inbox";
 const TOKEN_FILE = "/run/secrets/joe-board-push-token";
-const RETRY_MS = 5000;
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 300_000;
+const CONNECT_TIMEOUT_MS = 15_000;
+const COMPLETE_SNAPSHOT_TIMEOUT_MS = 60_000;
+const HEALTH_INTERVAL_MS = 60_000;
+const HEALTH_TIMEOUT_MS = 15_000;
+const UPSTREAM_SILENCE_TIMEOUT_MS = 300_000;
 
 function parseIntervalSec() {
   const raw = process.env.JOE_PUSH_INTERVAL_SEC;
@@ -37,32 +41,18 @@ function parseIntervalSec() {
 }
 
 const INTERVAL_SEC = parseIntervalSec();
-let ib = null;
-const reconnectScheduler = createReconnectScheduler({
-  retryMs: RETRY_MS,
-  onRetry: () => connect(),
-});
-
-function scheduleReconnect() {
-  reconnectScheduler.schedule();
-}
-
-function requestResync() {
-  adapter.retire("invalid broker quantity; resynchronizing");
-  familyAdapter.retire("invalid broker quantity; resynchronizing");
-  console.warn(JSON.stringify({ event: "ib_resync", reason: "invalid broker quantity" }));
-  scheduleReconnect();
-}
+let connectionSupervisor = null;
 
 const adapter = createBrokerSessionAdapter({
   targetAccount: ACCOUNT,
   eventNames: EventName,
   hooks: {
-    onConnected() {
-      console.log(JSON.stringify({ event: "connected", host: HOST, port: PORT, clientId: CLIENT_ID }));
+    onConnected({ api }) {
+      connectionSupervisor?.socketConnected(api);
+      console.log(JSON.stringify({ event: "local_socket_connected", host: HOST, port: PORT, clientId: CLIENT_ID }));
     },
     onDisconnected() {
-      console.warn(JSON.stringify({ event: "disconnected" }));
+      console.warn(JSON.stringify({ event: "local_socket_disconnected" }));
     },
     onError(_detail, code, message) {
       if (code && Number(code) >= 2000) return;
@@ -71,11 +61,23 @@ const adapter = createBrokerSessionAdapter({
     onBrokerNotice({ route, code, state, action }) {
       console.warn(JSON.stringify({ event: "ib_notice", route, code, state, action }));
     },
-    onReconnectNeeded() {
-      scheduleReconnect();
+    onSocketActivity({ api }) {
+      connectionSupervisor?.socketActivity(api);
     },
-    onResyncNeeded() {
-      requestResync();
+    onStableData({ api, observedAt }) {
+      connectionSupervisor?.stable(api);
+      console.log(JSON.stringify({ event: "broker_snapshot_complete", observedAt }));
+    },
+    onReconnectNeeded({ api, reason }) {
+      familyAdapter.retire(`broker socket unavailable: ${reason}`);
+      connectionSupervisor?.reconnect(api, reason);
+    },
+    onUpstreamUnavailable({ api, reason }) {
+      connectionSupervisor?.upstreamUnavailable(api);
+      familyAdapter.upstreamUnavailable(reason);
+    },
+    onResyncNeeded({ reason }) {
+      console.warn(JSON.stringify({ event: "ib_resync", reason }));
     },
   },
 });
@@ -196,41 +198,43 @@ async function pushOnce() {
   return line;
 }
 
-function connect() {
-  if (adapter.connecting || adapter.connected) return;
-  const previous = ib;
-  let next = null;
-  try {
-    next = new IBApi({ host: HOST, port: PORT, clientId: CLIENT_ID });
-    ib = next;
+connectionSupervisor = createConnectionSupervisor({
+  createApi: () => new IBApi({ host: HOST, port: PORT, clientId: CLIENT_ID }),
+  attachApi(next) {
     adapter.attach(next);
     familyAdapter.attach(next);
-    if (previous && previous !== next) {
-      try {
-        previous.disconnect();
-      } catch {}
-    }
-    next.connect();
-  } catch (error) {
-    const detail = String(error?.message || error);
-    if (next) adapter.fail(next, detail);
-    else scheduleReconnect();
-  }
-}
+  },
+  requestHealth(api) {
+    api.reqCurrentTime();
+  },
+  onAttemptFailure(api, reason) {
+    if (api) adapter.fail(api, reason);
+    console.warn(JSON.stringify({ event: "socket_attempt_failed", reason }));
+  },
+  onRetryScheduled({ reason, attempt, delayMs }) {
+    console.warn(JSON.stringify({ event: "socket_retry_scheduled", reason, attempt, delayMs }));
+  },
+  baseDelayMs: RETRY_BASE_MS,
+  maxDelayMs: RETRY_MAX_MS,
+  jitterRatio: 0.2,
+  connectTimeoutMs: CONNECT_TIMEOUT_MS,
+  snapshotTimeoutMs: COMPLETE_SNAPSHOT_TIMEOUT_MS,
+  healthIntervalMs: HEALTH_INTERVAL_MS,
+  healthTimeoutMs: HEALTH_TIMEOUT_MS,
+  upstreamSilenceTimeoutMs: UPSTREAM_SILENCE_TIMEOUT_MS,
+});
 
 function shutdown() {
   adapter.retire("shutdown");
   familyAdapter.retire("shutdown");
-  try {
-    ib?.disconnect();
-  } catch {}
+  connectionSupervisor.shutdown();
   process.exit(0);
 }
 
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-connect();
+connectionSupervisor.start();
 
 setTimeout(() => {
   pushOnce().catch((error) => console.error("push error", error.message || error));
@@ -239,10 +243,6 @@ setTimeout(() => {
 setInterval(() => {
   pushOnce().catch((error) => console.error("push error", error.message || error));
 }, INTERVAL_SEC * 1000);
-
-setInterval(() => {
-  if (!adapter.connected && !adapter.connecting) connect();
-}, 60000);
 
 console.log(
   JSON.stringify({
