@@ -7,7 +7,11 @@ import test from "node:test";
 import {
   RECONCILIATION_EVIDENCE_SCHEMA,
   RECONCILIATION_RECEIPT_SCHEMA,
+  ReconciliationError,
+  canonicalReconciliationReceiptId,
+  normalizeReconciliationReceipt,
   reconcileExecutionWindow,
+  reconciliationJournalEntry,
   validateReconciliationEvidence,
 } from "./execution-reconciliation.mjs";
 
@@ -138,6 +142,15 @@ function deepFreeze(value) {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
   for (const nested of Object.values(value)) deepFreeze(nested);
   return Object.freeze(value);
+}
+
+function captureError(callback) {
+  try {
+    callback();
+  } catch (error) {
+    return error;
+  }
+  assert.fail("expected callback to throw");
 }
 
 function fixture78() {
@@ -349,6 +362,76 @@ test("validated evidence membership cannot be forged by copying reflected Symbol
   );
 });
 
+test("receipt normalization is frozen and its canonical ID excludes only verifiedAt", () => {
+  const raw = artifact("synthetic receipt identity artifact");
+  const socket = socketExecution(0, { execId: "synthetic.receipt.01" });
+  const result = reconcile(
+    validate(evidenceInput(raw, [evidenceExecution(socket, 0, false)]), raw),
+    [socket],
+    [socketCommission(socket)]
+  );
+  const normalized = normalizeReconciliationReceipt(result.receipt);
+  const receiptId = canonicalReconciliationReceiptId(result.receipt);
+
+  assert.deepEqual(normalized, result.receipt);
+  assert.notStrictEqual(normalized, result.receipt);
+  assert.equal(Object.isFrozen(normalized), true);
+  assert.equal(Object.isFrozen(normalized.coverage), true);
+  assert.match(receiptId, /^[0-9a-f]{64}$/);
+
+  const reverified = structuredClone(normalized);
+  reverified.verifiedAt = "2026-09-10T15:59:00.000Z";
+  assert.equal(canonicalReconciliationReceiptId(reverified), receiptId);
+
+  const changedFacts = structuredClone(normalized);
+  changedFacts.canonicalIdentityDigest = "1".repeat(64);
+  const changedCoverage = structuredClone(normalized);
+  changedCoverage.coverage.fromInclusive = "2026-09-10T13:01:00.000Z";
+  const changedAdapter = structuredClone(normalized);
+  changedAdapter.adapterVersion = "1.0.1";
+  const changedEvidence = structuredClone(normalized);
+  changedEvidence.evidenceContentSha256 = "2".repeat(64);
+  for (const changed of [changedFacts, changedCoverage, changedAdapter, changedEvidence]) {
+    assert.notEqual(canonicalReconciliationReceiptId(changed), receiptId);
+  }
+
+  assert.throws(() => reconciliationJournalEntry(normalized), /live reconciliation result or overlap error/);
+});
+
+test("only the live reconciliation result can produce a success journal entry", () => {
+  const raw = artifact("synthetic journal success artifact");
+  const socket = socketExecution(0, { execId: "synthetic.journal.01" });
+  const result = reconcile(
+    validate(evidenceInput(raw, [evidenceExecution(socket, 0, false)]), raw),
+    [socket],
+    [socketCommission(socket)]
+  );
+  const entry = reconciliationJournalEntry(result);
+
+  assert.deepEqual(Object.keys(entry), ["receiptId", "conflict", "receipt"]);
+  assert.equal(entry.conflict, false);
+  assert.equal(entry.receiptId, canonicalReconciliationReceiptId(entry.receipt));
+  assert.equal(Object.isFrozen(entry), true);
+  assert.equal(Object.isFrozen(entry.receipt), true);
+  assert.equal(Object.isFrozen(entry.receipt.coverage), true);
+
+  const serialized = JSON.parse(JSON.stringify(result));
+  const cloned = structuredClone(result);
+  const prototypeSpoof = Object.create(result);
+  const symbolSpoof = structuredClone(result);
+  for (const symbol of Object.getOwnPropertySymbols(result)) {
+    Object.defineProperty(symbolSpoof, symbol, Object.getOwnPropertyDescriptor(result, symbol));
+  }
+  Object.defineProperty(symbolSpoof, Symbol("journalable reconciliation"), { value: true });
+  const errorSpoof = new ReconciliationError(
+    "RECEIPT_OVERLAP_CONFLICT",
+    "overlapping finalized receipts require explicit future correction reconciliation"
+  );
+  for (const spoof of [serialized, cloned, prototypeSpoof, symbolSpoof, errorSpoof, result.receipt]) {
+    assert.throws(() => reconciliationJournalEntry(spoof), /live reconciliation result or overlap error/);
+  }
+});
+
 test("overlapping finalized receipts reject changed facts without mutating prior receipts", () => {
   const raw = artifact("synthetic first finalized artifact");
   const firstSocket = socketExecution(0, { execId: "synthetic.overlap.01" });
@@ -394,17 +477,58 @@ test("overlapping finalized receipts reject changed facts without mutating prior
   );
 
   const correctedSocket = socketExecution(1, { execId: "synthetic.overlap.02" });
+  const reboundInput = evidenceInput(raw, [evidenceExecution(correctedSocket, 1, false)]);
+  const reboundError = captureError(() => reconcile(
+    validate(reboundInput, raw),
+    [firstSocket, correctedSocket],
+    [socketCommission(firstSocket), socketCommission(correctedSocket)],
+    { priorReceipts, verifiedAt: "2026-09-10T15:06:00.000Z" }
+  ));
+  assert.equal(reboundError.code, "RECEIPT_CONFLICT");
+  assert.match(reboundError.message, /raw artifact digest was previously bound to different content/);
+  assert.throws(
+    () => reconciliationJournalEntry(reboundError),
+    /live reconciliation result or overlap error/
+  );
+
   const correctedRaw = artifact("synthetic conflicting corrected artifact");
   const correctedInput = evidenceInput(correctedRaw, [evidenceExecution(correctedSocket, 1, false)]);
-  assert.throws(
-    () => reconcile(
-      validate(correctedInput, correctedRaw),
-      [firstSocket, correctedSocket],
-      [socketCommission(firstSocket), socketCommission(correctedSocket)],
-      { priorReceipts, verifiedAt: "2026-09-10T15:06:00.000Z" }
-    ),
+  const correctionError = captureError(() => reconcile(
+    validate(correctedInput, correctedRaw),
+    [firstSocket, correctedSocket],
+    [socketCommission(firstSocket), socketCommission(correctedSocket)],
+    { priorReceipts, verifiedAt: "2026-09-10T15:06:00.000Z" }
+  ));
+  assert.equal(correctionError.code, "RECEIPT_OVERLAP_CONFLICT");
+  assert.match(
+    correctionError.message,
     /overlapping finalized receipts require explicit future correction reconciliation/
   );
+  const conflictEntry = reconciliationJournalEntry(correctionError);
+  assert.equal(conflictEntry.conflict, true);
+  assert.equal(conflictEntry.receipt.rawArtifactSha256, sha256(correctedRaw));
+  assert.equal(conflictEntry.receiptId, canonicalReconciliationReceiptId(conflictEntry.receipt));
+  assert.equal(Object.isFrozen(conflictEntry), true);
+  assert.equal(Object.isFrozen(conflictEntry.receipt), true);
+  const serializedConflict = JSON.parse(JSON.stringify(correctionError));
+  const clonedConflict = structuredClone(correctionError);
+  const conflictPrototypeSpoof = Object.create(correctionError);
+  const conflictSymbolSpoof = new ReconciliationError(correctionError.code, correctionError.message);
+  for (const symbol of Object.getOwnPropertySymbols(correctionError)) {
+    Object.defineProperty(
+      conflictSymbolSpoof,
+      symbol,
+      Object.getOwnPropertyDescriptor(correctionError, symbol)
+    );
+  }
+  for (const spoof of [
+    serializedConflict,
+    clonedConflict,
+    conflictPrototypeSpoof,
+    conflictSymbolSpoof,
+  ]) {
+    assert.throws(() => reconciliationJournalEntry(spoof), /live reconciliation result or overlap error/);
+  }
 
   const partiallyOverlappingReceipt = structuredClone(first.receipt);
   partiallyOverlappingReceipt.coverage = {
@@ -426,6 +550,45 @@ test("overlapping finalized receipts reject changed facts without mutating prior
   assert.strictEqual(priorReceipts[0], first.receipt);
 });
 
+test("prior-history overlap and malformed-receipt errors cannot become journal entries", () => {
+  const raw = artifact("synthetic prior-history artifact");
+  const socket = socketExecution(0, { execId: "synthetic.prior.01" });
+  const evidence = validate(evidenceInput(raw, [evidenceExecution(socket, 0, false)]), raw);
+  const first = reconcile(evidence, [socket], [socketCommission(socket)]);
+
+  const conflictingPrior = structuredClone(first.receipt);
+  conflictingPrior.rawArtifactSha256 = "3".repeat(64);
+  conflictingPrior.evidenceContentSha256 = "4".repeat(64);
+  conflictingPrior.matchedSocketLedgerDigest = "5".repeat(64);
+  const priorReceipts = [first.receipt, conflictingPrior];
+  const priorSnapshot = JSON.stringify(priorReceipts);
+  const priorConflict = captureError(() => reconcile(
+    evidence,
+    [socket],
+    [socketCommission(socket)],
+    { priorReceipts, verifiedAt: "2026-09-10T15:04:00.000Z" }
+  ));
+  assert.equal(priorConflict.code, "RECEIPT_OVERLAP_CONFLICT");
+  assert.throws(
+    () => reconciliationJournalEntry(priorConflict),
+    /live reconciliation result or overlap error/
+  );
+  assert.equal(JSON.stringify(priorReceipts), priorSnapshot);
+
+  const malformedPrior = structuredClone(first.receipt);
+  delete malformedPrior.adapterId;
+  const malformedError = captureError(() => reconcile(
+    evidence,
+    [socket],
+    [socketCommission(socket)],
+    { priorReceipts: [malformedPrior], verifiedAt: "2026-09-10T15:04:00.000Z" }
+  ));
+  assert.throws(
+    () => reconciliationJournalEntry(malformedError),
+    /live reconciliation result or overlap error/
+  );
+});
+
 test("receipts append immutably, identical evidence is idempotent, and digest reuse conflicts", () => {
   const values = fixture78();
   const evidence = validate(values.input, values.raw);
@@ -439,16 +602,38 @@ test("receipts append immutably, identical evidence is idempotent, and digest re
   assert.equal(again.idempotent, true);
   assert.strictEqual(again.receipt, first.receipt);
   assert.equal(again.receipts.length, 1);
+  assert.equal(
+    reconciliationJournalEntry(again).receiptId,
+    reconciliationJournalEntry(first).receiptId
+  );
   assert.equal(JSON.stringify(priorReceipts), priorSnapshot);
 
   const conflictingInput = structuredClone(values.input);
   conflictingInput.finality.assertionId = "synthetic-source-finality-reparsed";
   const conflicting = validate(conflictingInput, values.raw);
-  assert.throws(
-    () => reconcile(conflicting, values.socketExecutions, values.socketCommissions, {
+  const reboundError = captureError(() =>
+    reconcile(conflicting, values.socketExecutions, values.socketCommissions, {
       priorReceipts,
       verifiedAt: "2026-09-10T15:04:00.000Z",
-    }),
-    /previously bound to different content/
+    }));
+  assert.equal(reboundError.code, "RECEIPT_CONFLICT");
+  assert.match(reboundError.message, /previously bound to different content/);
+  assert.throws(
+    () => reconciliationJournalEntry(reboundError),
+    /live reconciliation result or overlap error/
+  );
+
+  const economicsConflict = structuredClone(values.input);
+  economicsConflict.executions[0].economics.price += 1;
+  const unrelatedError = captureError(() =>
+    reconcile(
+      validate(economicsConflict, values.raw),
+      values.socketExecutions,
+      values.socketCommissions
+    ));
+  assert.equal(unrelatedError.code, "ECONOMICS_MISMATCH");
+  assert.throws(
+    () => reconciliationJournalEntry(unrelatedError),
+    /live reconciliation result or overlap error/
   );
 });

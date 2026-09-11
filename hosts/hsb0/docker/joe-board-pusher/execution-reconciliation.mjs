@@ -14,6 +14,8 @@ const MAX_ALLOWED_ADAPTERS = 128;
 const MAX_TEXT = 256;
 const SHA256 = /^[0-9a-f]{64}$/;
 const VALIDATED_EVIDENCE = new WeakSet();
+const JOURNALABLE_SUCCESSES = new WeakMap();
+const JOURNALABLE_OVERLAP_ERRORS = new WeakMap();
 
 export class ReconciliationError extends Error {
   constructor(code, message) {
@@ -556,11 +558,15 @@ function normalizeReceipt(value) {
   const coverage = plainObject(receipt.coverage, "prior receipt coverage");
   exactKeys(coverage, ["fromInclusive", "toExclusive", "completeThrough", "asOf"], "prior receipt coverage");
   const normalized = {
-    ...receipt,
+    schema: RECONCILIATION_RECEIPT_SCHEMA,
     account: text(receipt.account, "prior receipt account"),
+    scope: ALL_ACCOUNT,
     adapterId: text(receipt.adapterId, "prior receipt adapterId"),
     adapterVersion: text(receipt.adapterVersion, "prior receipt adapterVersion"),
+    rawArtifactSha256: receipt.rawArtifactSha256,
+    evidenceContentSha256: receipt.evidenceContentSha256,
     correctionSemantics: text(receipt.correctionSemantics, "prior receipt correctionSemantics"),
+    canonicalIdentityDigest: receipt.canonicalIdentityDigest,
     identityCount: nonnegativeInteger(receipt.identityCount, "prior receipt identityCount"),
     coverage: {
       fromInclusive: utc(coverage.fromInclusive, "prior receipt fromInclusive"),
@@ -568,6 +574,7 @@ function normalizeReceipt(value) {
       completeThrough: utc(coverage.completeThrough, "prior receipt completeThrough"),
       asOf: utc(coverage.asOf, "prior receipt asOf"),
     },
+    matchedSocketLedgerDigest: receipt.matchedSocketLedgerDigest,
     verifiedAt: utc(receipt.verifiedAt, "prior receipt verifiedAt"),
   };
   if (!CORRECTION_SEMANTICS.has(normalized.correctionSemantics)) {
@@ -580,12 +587,48 @@ function normalizeReceipt(value) {
   ) {
     fail("RECEIPT_CONFLICT", "prior reconciliation receipt coverage is invalid");
   }
-  return normalized;
+  return deepFreeze(normalized);
 }
 
 function receiptComparable(receipt) {
   const { verifiedAt: _verifiedAt, ...comparable } = receipt;
   return comparable;
+}
+
+/**
+ * Canonicalize a persisted receipt structurally. This does not prove its
+ * producer, adapter authority, or reconciliation provenance.
+ */
+export function normalizeReconciliationReceipt(receipt) {
+  return normalizeReceipt(receipt);
+}
+
+/** Return the stable SHA-256 identity of canonical receipt facts, excluding verifiedAt. */
+export function canonicalReconciliationReceiptId(receipt) {
+  return sha256Canonical(receiptComparable(normalizeReceipt(receipt)));
+}
+
+function journalEntryForReceipt(receipt, conflict) {
+  const normalized = normalizeReceipt(receipt);
+  return deepFreeze({
+    receiptId: sha256Canonical(receiptComparable(normalized)),
+    conflict,
+    receipt: normalized,
+  });
+}
+
+/**
+ * Convert only a live, module-produced reconciliation success or valid
+ * candidate-overlap error into a persistence-safe journal entry.
+ */
+export function reconciliationJournalEntry(value) {
+  if (value && typeof value === "object") {
+    const successReceipt = JOURNALABLE_SUCCESSES.get(value);
+    if (successReceipt) return journalEntryForReceipt(successReceipt, false);
+    const conflictReceipt = JOURNALABLE_OVERLAP_ERRORS.get(value);
+    if (conflictReceipt) return journalEntryForReceipt(conflictReceipt, true);
+  }
+  fail("UNTRUSTED_JOURNAL_VALUE", "journal entry requires a live reconciliation result or overlap error");
 }
 
 function intervalsOverlap(left, right) {
@@ -608,14 +651,18 @@ function sameVerifiedFacts(left, right) {
   );
 }
 
-function rejectConflictingReceiptOverlaps(receipt, priorReceipts) {
-  const receipts = [...priorReceipts, receipt];
-  for (let leftIndex = 0; leftIndex < receipts.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < receipts.length; rightIndex += 1) {
-      const left = receipts[leftIndex];
-      const right = receipts[rightIndex];
-      if (left.account !== right.account || !intervalsOverlap(left.coverage, right.coverage)) continue;
-      if (!sameInterval(left.coverage, right.coverage) || !sameVerifiedFacts(left, right)) {
+function receiptsConflict(left, right) {
+  return (
+    left.account === right.account &&
+    intervalsOverlap(left.coverage, right.coverage) &&
+    (!sameInterval(left.coverage, right.coverage) || !sameVerifiedFacts(left, right))
+  );
+}
+
+function rejectConflictsWithinPriorReceipts(priorReceipts) {
+  for (let leftIndex = 0; leftIndex < priorReceipts.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < priorReceipts.length; rightIndex += 1) {
+      if (receiptsConflict(priorReceipts[leftIndex], priorReceipts[rightIndex])) {
         fail(
           "RECEIPT_OVERLAP_CONFLICT",
           "overlapping finalized receipts require explicit future correction reconciliation"
@@ -623,6 +670,16 @@ function rejectConflictingReceiptOverlaps(receipt, priorReceipts) {
       }
     }
   }
+}
+
+function rejectCandidateReceiptOverlap(receipt, priorReceipts) {
+  if (!priorReceipts.some((prior) => receiptsConflict(prior, receipt))) return;
+  const error = new ReconciliationError(
+    "RECEIPT_OVERLAP_CONFLICT",
+    "overlapping finalized receipts require explicit future correction reconciliation"
+  );
+  JOURNALABLE_OVERLAP_ERRORS.set(error, receipt);
+  throw error;
 }
 
 /**
@@ -755,28 +812,35 @@ export function reconcileExecutionWindow({
   });
 
   const normalizedPrior = priorReceipts.map(normalizeReceipt);
-  rejectConflictingReceiptOverlaps(receipt, normalizedPrior);
   const reused = normalizedPrior
     .map((value, index) => ({ value, original: priorReceipts[index] }))
     .filter(({ value }) => value.rawArtifactSha256 === receipt.rawArtifactSha256);
   if (reused.length > 1) {
     fail("RECEIPT_CONFLICT", "raw artifact digest appears in multiple prior receipts");
   }
+  if (
+    reused.length === 1 &&
+    canonicalJson(receiptComparable(reused[0].value)) !== canonicalJson(receiptComparable(receipt))
+  ) {
+    fail("RECEIPT_CONFLICT", "raw artifact digest was previously bound to different content");
+  }
+  rejectConflictsWithinPriorReceipts(normalizedPrior);
+  rejectCandidateReceiptOverlap(receipt, normalizedPrior);
+
   let acceptedReceipt = receipt;
+  let journalReceipt = receipt;
   let receipts;
   let idempotent = false;
   if (reused.length === 1) {
-    if (canonicalJson(receiptComparable(reused[0].value)) !== canonicalJson(receiptComparable(receipt))) {
-      fail("RECEIPT_CONFLICT", "raw artifact digest was previously bound to different content");
-    }
     acceptedReceipt = reused[0].original;
+    journalReceipt = reused[0].value;
     receipts = Object.freeze([...priorReceipts]);
     idempotent = true;
   } else {
     receipts = Object.freeze([...priorReceipts, receipt]);
   }
 
-  return Object.freeze({
+  const result = Object.freeze({
     ok: true,
     status: "MATCHED",
     trustBoundary: "CALLER_VERIFIED_ADAPTER",
@@ -788,4 +852,6 @@ export function reconcileExecutionWindow({
     receipt: acceptedReceipt,
     receipts,
   });
+  JOURNALABLE_SUCCESSES.set(result, journalReceipt);
+  return result;
 }
