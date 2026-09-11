@@ -64,7 +64,7 @@
     # NIX-381 — a SECOND, deliberately separate Janus pin.
     #
     # JANUS-441's static dependency reporter and JANUS-461's managed-completion
-    # reporter are installed by the admitted rust-engine-v0.1.35 flake. The
+    # reporter are built from reviewed rust-engine-v0.1.36 source. The
     # release container image copies eleven engine binaries, not either
     # reporter; these root-only units therefore use the separate Nix package.
     # Host producer-image rollout and explicit activation remain separate gates.
@@ -75,7 +75,7 @@
     # isolated from those consumers. Retire this input once `janus` itself
     # contains both reporters from v0.1.35 or later.
     janus-paimos-reporter = {
-      url = "github:inspr-at/janus/rust-engine-v0.1.35";
+      url = "github:inspr-at/janus/rust-engine-v0.1.36";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # Paimos — operator CLI plus the process-owning Agent Intercom daemon.
@@ -83,7 +83,7 @@
     # executable control plane just because upstream main advances. Bumps use
     # the reviewed Paimos release flow and refresh vendorHash when Go deps move.
     paimos = {
-      url = "github:inspr-at/paimos/v260911005821.0.0";
+      url = "github:inspr-at/paimos/v260911172741.0.0";
       flake = false;
     };
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
