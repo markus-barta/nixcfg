@@ -24,6 +24,9 @@ let
           "Dockerfile"
           "package.json"
           "package-lock.json"
+          "official-sdk.lock.json"
+          "install-official-sdk.py"
+          "official-window-reader.py"
         ]
         || (lib.hasSuffix ".mjs" name && !lib.hasSuffix ".test.mjs" name);
   };
