@@ -12,6 +12,7 @@ import {
   J_FAMILY_CLASSIFIER,
   captureFromFamilyLedgerFile,
   captureFromOfficialProbeFile,
+  capturesFromOfficialWindowEvidence,
   normalizeEconomicCommission,
   normalizeEconomicExecution,
 } from "./execution-history.mjs";
@@ -258,6 +259,146 @@ test("official broker realizedPNL stays supplementary while family FIFO computes
   assert.equal(subtotal.matchedQuantity, 9);
   assert.deepEqual(subtotal.endingOpenQuantities, []);
   assert.deepEqual(subtotal.missingOpeningLots, []);
+});
+
+function officialWindowEvidence({ pendingPriceRevision = false, fee = true, account = ACCOUNT } = {}) {
+  const row = {
+    contract: { conId: 1001, symbol: "MSFT", secType: "STK", currency: "USD" },
+    execution: {
+      execId: "official.complete.01", time: "20260910 12:00:00 US/Eastern",
+      acctNumber: account, clientId: 51, side: "BOT", shares: "1", price: "10",
+      pendingPriceRevision,
+    },
+  };
+  return {
+    schemaVersion: 1,
+    endpoint: { host: "paper.invalid", port: 4002, clientId: 94, account: ACCOUNT },
+    sdk: { package: "ibapi", version: "10.45.1" },
+    negotiated: {
+      serverVersion: 223,
+      executionRequestFraming: "protobuf",
+      parameterizedExecutionFilters: true,
+    },
+    managedAccounts: [ACCOUNT],
+    foreignAccountViolation: false,
+    startedAt: "2026-09-11T08:54:59Z",
+    requestedCoverage: {
+      fromInclusive: "2026-09-10T04:00:00.000Z",
+      toExclusive: "2026-09-11T09:00:00.000Z",
+    },
+    actualWindows: [
+      {
+        requestId: 9341,
+        newYorkDate: 20260910,
+        fromInclusive: "2026-09-10T04:00:00.000Z",
+        toExclusive: "2026-09-11T04:00:00.000Z",
+        filter: { acctCode: ACCOUNT, specificDates: [20260910], time: "20260910-04:00:00" },
+      },
+      {
+        requestId: 9340,
+        newYorkDate: 20260911,
+        fromInclusive: "2026-09-11T04:00:00.000Z",
+        toExclusive: "2026-09-11T09:00:00.000Z",
+        filter: { acctCode: ACCOUNT, specificDates: [20260911], time: "20260911-04:00:00" },
+      },
+    ],
+    requests: {
+      9341: {
+        label: "specific-date",
+        filter: { acctCode: ACCOUNT, specificDates: [20260910], time: "20260910-04:00:00" },
+        actualWindow: { fromInclusive: "2026-09-10T04:00:00.000Z", toExclusive: "2026-09-11T04:00:00.000Z" },
+        requestedAt: "2026-09-11T08:55:00Z", endedAt: "2026-09-11T08:55:01Z",
+        timedOut: false, errors: [], executions: [row],
+      },
+      9340: {
+        label: "specific-date",
+        filter: { acctCode: ACCOUNT, specificDates: [20260911], time: "20260911-04:00:00" },
+        actualWindow: { fromInclusive: "2026-09-11T04:00:00.000Z", toExclusive: "2026-09-11T09:00:00.000Z" },
+        requestedAt: "2026-09-11T08:55:17Z", endedAt: "2026-09-11T08:55:18Z",
+        timedOut: false, errors: [], executions: [],
+      },
+    },
+    commissionsByExecId: fee ? {
+      "official.complete.01": { execId: "official.complete.01", commissionAndFees: "0.1", currency: "USD", realizedPNL: "0" },
+    } : {},
+    finishedAt: "2026-09-11T08:55:20Z",
+    disconnected: true,
+    exitCode: 0,
+  };
+}
+
+test("official date windows create complete receipts and empty today advances only through request start", () => {
+  const requestedWindow = { fromInclusive: "2026-09-10T04:00:00Z", toExclusive: "2026-09-11T09:00:00Z" };
+  const captures = capturesFromOfficialWindowEvidence({
+    evidence: officialWindowEvidence(), requestedWindow, targetAccount: ACCOUNT,
+  });
+  assert.equal(captures.length, 2);
+  assert.deepEqual(captures.map((capture) => capture.window), [
+    { fromInclusive: "2026-09-10T04:00:00.000Z", toExclusive: "2026-09-11T04:00:00.000Z" },
+    { fromInclusive: "2026-09-11T04:00:00.000Z", toExclusive: "2026-09-11T08:55:17.000Z" },
+  ]);
+  assert.deepEqual(captures.map((capture) => capture.executions.length), [1, 0]);
+  assert.ok(captures.every((capture) => capture.coverageStatus === "complete"));
+  let state = null;
+  for (const capture of captures) state = reconcileExecutionCapture({ prior: state, capture, target: requestedWindow });
+  assert.equal(state.coverage.status, "known");
+  assert.deepEqual(state.coverage.gaps, [{
+    fromInclusive: "2026-09-11T08:55:17.000Z",
+    toExclusive: "2026-09-11T09:00:00.000Z",
+    reason: "no authoritative completeness receipt",
+  }]);
+  const replay = captures.reduce((prior, capture) => reconcileExecutionCapture({ prior, capture, target: requestedWindow }), state);
+  assert.deepEqual(replay, state);
+});
+
+test("official complete adapter rejects pending prices, missing fees, wrong accounts, and unsupported capability", () => {
+  const requestedWindow = { fromInclusive: "2026-09-10T04:00:00Z", toExclusive: "2026-09-11T09:00:00Z" };
+  assert.throws(() => capturesFromOfficialWindowEvidence({
+    evidence: officialWindowEvidence({ pendingPriceRevision: true }), requestedWindow, targetAccount: ACCOUNT,
+  }), /pending or unproven/);
+  assert.throws(() => capturesFromOfficialWindowEvidence({
+    evidence: officialWindowEvidence({ fee: false }), requestedWindow, targetAccount: ACCOUNT,
+  }), /lacks a commission/);
+  const wrong = officialWindowEvidence();
+  wrong.requests[9341].filter.acctCode = "OTHER";
+  assert.throws(() => capturesFromOfficialWindowEvidence({ evidence: wrong, requestedWindow, targetAccount: ACCOUNT }), /scope or completion/);
+  const old = officialWindowEvidence();
+  old.negotiated.serverVersion = 222;
+  assert.throws(() => capturesFromOfficialWindowEvidence({ evidence: old, requestedWindow, targetAccount: ACCOUNT }), /capability/);
+  const legacyFraming = officialWindowEvidence();
+  legacyFraming.negotiated.parameterizedExecutionFilters = false;
+  assert.throws(() => capturesFromOfficialWindowEvidence({ evidence: legacyFraming, requestedWindow, targetAccount: ACCOUNT }), /capability/);
+  const wrongEndpoint = officialWindowEvidence();
+  wrongEndpoint.endpoint.clientId = 92;
+  assert.throws(() => capturesFromOfficialWindowEvidence({ evidence: wrongEndpoint, requestedWindow, targetAccount: ACCOUNT }), /endpoint identity/);
+  const planDrift = officialWindowEvidence();
+  planDrift.actualWindows[0].toExclusive = "2026-09-10T20:00:00.000Z";
+  assert.throws(() => capturesFromOfficialWindowEvidence({ evidence: planDrift, requestedWindow, targetAccount: ACCOUNT }), /scope or completion/);
+});
+
+test("CLI previews and idempotently imports only a validated official complete window", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "execution-history-official-cli-test-"));
+  const source = writeJson(directory, "official-window.json", officialWindowEvidence());
+  const state = path.join(directory, "history.json");
+  const args = [
+    "--source-type", "official-window",
+    "--source", source,
+    "--state", state,
+    "--account", ACCOUNT,
+    "--from", "2026-09-10T04:00:00Z",
+    "--to", "2026-09-11T09:00:00Z",
+  ];
+  const preview = spawnSync(process.execPath, [CLI, "preview", ...args], { encoding: "utf8" });
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.equal(JSON.parse(preview.stdout).coverage.status, "known");
+  assert.equal(fs.existsSync(state), false);
+
+  const first = spawnSync(process.execPath, [CLI, "import", ...args], { encoding: "utf8" });
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(JSON.parse(first.stdout).receiptCount, 2);
+  const second = spawnSync(process.execPath, [CLI, "import", ...args], { encoding: "utf8" });
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(JSON.parse(second.stdout).receiptCount, 2);
 });
 
 test("CLI previews without writes, imports atomically, and reruns idempotently", () => {

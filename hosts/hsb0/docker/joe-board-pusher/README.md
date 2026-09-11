@@ -53,10 +53,10 @@ remain unavailable. Current explicit broker FX rates convert quote-currency FIFO
 PnL and fees to EUR. The durable raw ledger lives at
 `/var/lib/joe-board-pusher/family-ledger.json` and is replaced atomically.
 Its state binds the account, verified period, family-client classifier, excluded
-symbols, last completed capture, and New York coverage day. Because the current
-execution request cannot prove a missed net-zero roundtrip across a New York
-midnight, the publisher conservatively requires verified backfill at that boundary;
-same-day restarts recover through a complete current-day capture.
+symbols, last completed capture, and New York coverage day. The legacy client-92
+request remains the continuous current-day/account-scoped capture. At a New York
+midnight the runtime accepts a fresh current-day replay but marks the prior boundary
+as requiring authoritative history instead of permanently latching ingestion shut.
 Within a coverage day, every complete execution query must retain every identity
 from the preceding successful query (or provide its higher IB correction revision).
 A query that temporarily omits an identity is unavailable and retried with capped
@@ -72,14 +72,51 @@ freshness window expires, the adapter cancels that request and opens a new reque
 ID. Only an explicit callback for the current connection and request refreshes a
 rate; an unchanged cached value or publisher heartbeat cannot refresh it.
 
-J accounting fails closed while an execution cycle is incomplete, a family fill
+J full accounting fails closed while an execution cycle is incomplete, a family fill
 lacks its commission, FX is stale, position coverage is incomplete, state is missing
 after the authorized bootstrap date, persisted state is corrupt, or execution-query
-coverage regresses. In those cases household POSTs continue with J money set to
-`null` and J positions omitted; Joe and Joel continue from the valid broker book,
-and aggregate money is `null` rather than a misleading partial sum. Disconnects
-require fresh executions and FX before J resumes, and any unproved New York day
-boundary requires backfill rather than position-only inference.
+coverage regresses. An unproved prior-day boundary returns a distinct optional
+`partialAccounting` estimate when current positions, marks, actual fees, and FX are
+otherwise valid; it never turns that estimate into full J equity. Invalid current
+economics remain unavailable. Household POSTs continue; Joe and Joel continue from
+the valid broker book, and aggregate money remains `null` rather than a misleading
+partial sum until the producer receives validated complete history.
+
+The optional producer contract for that degraded state is:
+
+```js
+{
+  ok: false,
+  reason: "authoritative execution coverage across midnight is incomplete",
+  partialAccounting: {
+    status: "CAPTURED_ESTIMATE",
+    currency: "EUR",
+    equity: null,
+    capturedTotalPnl: Number,
+    capturedRealizedPnl: Number,
+    estimatedOpenPnl: Number,
+    dayPnl: null,
+    positions: [{ accountingScope: "captured-estimate", /* normal J row */ }],
+    accounting: {
+      method: "execution-fifo-net-current-fx",
+      completeness: "partial",
+      fxBasis: "current-observed",
+      detail: String,
+    },
+    coverage: { status: "partial", gaps: [{ fromInclusive, toExclusive, reason }] },
+    observedAt: String,
+    executionCount: Number,
+  },
+}
+```
+
+This is J-family FIFO net of actual fees, marked and converted with freshly observed
+current FX. It is neither complete J equity nor a Day P&L; both stay null. When the
+fixed baseline through the prior New York midnight is covered continuously by
+validated official receipts, the existing full `family` result is accepted by the
+normal money path with its €5,000 virtual capital exactly once. Its accepted
+`unrealizedPnl` is exposed as `J.money.openPnl`; a verified flat book therefore
+publishes `openPnl: 0`. Day P&L remains null without a separate truthful day basis.
 
 ## BEST-AVAILABLE history sidecar
 
@@ -87,8 +124,13 @@ boundary requires backfill rather than position-only inference.
 `execution-reconciliation.mjs` provide the independent, read-only import path
 for authoritative paper-API and preserved-ledger captures.
 They never rewrite `family-ledger.json` or a source artifact. The sidecar store is
-atomic, restart-safe, account/classifier-bound, and append-only by capture receipt;
-exact duplicate captures are idempotent, conflicting identities fail closed, and
+atomic, restart-safe, and account/classifier-bound. Capture receipts remain
+immutable, while redundant official COMPLETE receipts are retained once per
+New York date/covered interval: a newer immutable receipt may replace an older one
+only when it fully covers the old interval and its execution and fee ID
+sets are supersets. Receipts from another authority, partial or non-subsumed proofs,
+older receipts without ID memberships, and all durable economic rows are retained.
+Exact duplicate captures are idempotent, conflicting identities fail closed, and
 all IB correction revisions remain durable while only the highest revision is
 effective. Commission reports without a captured execution remain explicit orphan
 fees rather than being discarded.
@@ -104,8 +146,15 @@ execution price, quantity, side, contract, currency, fee, or already-known reali
 PnL remains a hard conflict.
 
 Every capture declares an exact half-open target interval and either `known` or
-`complete` coverage. A successful API end callback is still `known`: only an
-explicit provider completeness assertion can create a complete interval. Coverage
+`complete` coverage. A successful legacy API end callback is still `known`. The one
+complete provider is the official `ibapi` execution-window adapter: it requires the
+pinned SDK identity, negotiated protobuf filter capability, paper port/client 94,
+the managed target account, an exact account/time/specific-date filter and planned
+New York window for every request, clean end callbacks, no request error/timeout,
+`pendingPriceRevision === false` on every raw execution, and one actual commission
+record for every returned execution. Its end is conservatively bounded by the
+request start. A clean empty current-day response is a complete receipt for that
+exact bounded interval, not evidence beyond it. Coverage
 gaps are calculated as exact intervals not covered by such receipts. They keep full
 J equity unavailable but do not stop the asynchronous capture loop; transient
 capture, validation, and save failures remain retryable. Corrupt persisted sidecar
@@ -139,8 +188,9 @@ points were omitted while their realized result remains included in every retain
 cumulative value. This curve is BEST-AVAILABLE captured evidence, never complete
 EUR desk equity and never a replacement for preserved history.
 
-Previewing is read-only; importing writes only the private atomic sidecar. The CLI
-always records these local sources as `known`, never `complete`:
+Previewing is read-only; importing writes only the private atomic sidecar. Legacy
+ledger and old generic-probe imports are always `known`. Only a fully validated
+official-window artifact can produce `complete` receipts:
 
 ```sh
 node family-history-cli.mjs preview \
@@ -158,6 +208,18 @@ node family-history-cli.mjs import \
   --source-type official-probe --source /absolute/path/probe-evidence.json \
   --request 9310 --state /var/lib/joe-board-pusher/family-history.json \
   --from 2026-09-10T04:00:00Z --to 2026-09-11T04:00:00Z
+
+node family-history-cli.mjs preview \
+  --source-type official-window --source /absolute/path/official-window.json \
+  --account "$JOE_PAPER_ACCOUNT" \
+  --state /var/lib/joe-board-pusher/family-history.json \
+  --from 2026-09-10T04:00:00Z --to 2026-09-11T09:00:00Z
+
+node family-history-cli.mjs import \
+  --source-type official-window --source /absolute/path/official-window.json \
+  --account "$JOE_PAPER_ACCOUNT" \
+  --state /var/lib/joe-board-pusher/family-history.json \
+  --from 2026-09-10T04:00:00Z --to 2026-09-11T09:00:00Z
 ```
 
 The production pusher uses `createFamilyHistorySessionAdapter()` with
@@ -166,6 +228,32 @@ absent sidecar once from the validated legacy ledger. Broker capture timeouts
 retry with bounded backoff; identity, reconciliation, and persistence failures
 fail closed until restart, preserving the saved sidecar. The broker book can
 still be published when family history is unavailable.
+
+In parallel, `createOfficialHistoryRefresher()` calls
+`readOfficialExecutionWindow({ fromInclusive, toExclusive, targetAccount, host,
+port, clientId: 94, signal })` at startup, every 15 minutes, and at the New York
+day rollover. It starts at the earliest durable gap still recoverable inside the
+official seven-New-York-date limit; once caught up it retains a prior/current-day
+overlap. Older unqueryable gaps remain explicit. It runs only one bounded subprocess
+at a time and retries failures with capped backoff. Each
+successful batch is normalized with `capturesFromOfficialWindowEvidence()` and
+passed to `familyHistoryAdapter.importCaptures(captures, { fromInclusive:
+FAMILY_BASELINE_PERIOD_START, toExclusive })`. Reconciliation and the sidecar save
+complete synchronously and atomically; a reader, validation, or save failure leaves
+the prior complete intervals untouched and never stalls the main publisher.
+
+Before full projection, the runtime imports only execution and fee identities named
+by those validated official receipts into the durable family ledger. Representation-
+only SDK differences normalize before comparison, new correction revisions remain
+raw durable evidence, and immutable execution/fee or already-known realized-P&L
+conflicts fail closed without replacing the ledger. This makes recovered closed
+roundtrips part of the same FIFO calculation instead of treating a flat current book
+as proof that none were missed.
+
+Official `specificDates` is limited to the past week. If an installation has no
+validated receipt for an older gap, retained ledger rows do not prove it complete;
+the runtime remains on the labelled partial contract until reviewed authoritative
+evidence covers that exact gap.
 
 `createFamilyHistoryIngestor()` is a separate generic helper, not the production
 session adapter. Its `fetchCapture` hook returns `{ capture, target }` and its
