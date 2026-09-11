@@ -618,6 +618,10 @@ in
   # Cloudflare Zone API token (AIA account)
   "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
+  # Cloudflare API token for OpenTofu (inspr-services/services/cloudflare),
+  # scoped to the inspr.at zone with DNS Edit only, no expiry. INSPR-411
+  "agents/shared/CF_TOFU_TOKEN_INSPR_AT.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
+
   # PMO (former second Paimos instance) secrets REMOVED 2026-07-13.
   # That instance was decommissioned with the June 2026 employer
   # departure (2026-06-15). PMOAPIKEY / PMOURL / PMOSERVER{PASS,URL,USER} /
