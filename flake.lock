@@ -605,17 +605,17 @@
     "joedesk": {
       "flake": false,
       "locked": {
-        "lastModified": 1789119003,
-        "narHash": "sha256-jDi51R/LG9rH9fbeuXs9q0EPwDJz6UD/9g03tIknHFo=",
+        "lastModified": 1789125825,
+        "narHash": "sha256-mgx+kNCSXrjBmzMR1MBdwyRZ6AfUp3ncdPsawZ/QRcU=",
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "ccf54ac5b34ca7814c1a4350328da8d693a1f2fc",
+        "rev": "2eabd719bbdc8cf55c6e2cea7aa6d60b0188860b",
         "type": "github"
       },
       "original": {
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "ccf54ac5b34ca7814c1a4350328da8d693a1f2fc",
+        "rev": "2eabd719bbdc8cf55c6e2cea7aa6d60b0188860b",
         "type": "github"
       }
     },
