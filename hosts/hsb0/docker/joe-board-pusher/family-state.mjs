@@ -130,7 +130,7 @@ function mergeExact(existing, incoming, identify, label) {
   return { rows: merged, changed };
 }
 
-function mergeHistoryExecutions(existing, incoming) {
+function mergeEconomicExecutions(existing, incoming, conflictLabel = "official history execution") {
   const merged = [...existing];
   const byId = new Map(existing.map((row) => [executionId(row), row]));
   let changed = false;
@@ -139,19 +139,18 @@ function mergeHistoryExecutions(existing, incoming) {
     const prior = byId.get(id);
     if (prior) {
       if (!sameRecord(normalizeEconomicExecution(prior), normalizeEconomicExecution(row))) {
-        throw new Error(`conflicting official history execution ${id}`);
+        throw new Error(`conflicting ${conflictLabel} ${id}`);
       }
       continue;
     }
-    const normalized = normalizeEconomicExecution(row);
-    merged.push(normalized);
-    byId.set(id, normalized);
+    merged.push(row);
+    byId.set(id, row);
     changed = true;
   }
   return { rows: merged, changed };
 }
 
-function mergeHistoryCommissions(existing, incoming) {
+function mergeEconomicCommissions(existing, incoming, conflictLabel = "official history commission") {
   const merged = [...existing];
   const byId = new Map(existing.map((row, index) => [commissionId(row), { row, index }]));
   let changed = false;
@@ -160,8 +159,8 @@ function mergeHistoryCommissions(existing, incoming) {
     const id = commissionId(normalized);
     const prior = byId.get(id);
     if (!prior) {
-      byId.set(id, { row: normalized, index: merged.length });
-      merged.push(normalized);
+      byId.set(id, { row, index: merged.length });
+      merged.push(row);
       changed = true;
       continue;
     }
@@ -170,7 +169,7 @@ function mergeHistoryCommissions(existing, incoming) {
         (priorNormalized.realizedPNL !== null && priorNormalized.realizedPNL !== undefined &&
          normalized.realizedPNL !== null && normalized.realizedPNL !== undefined &&
          priorNormalized.realizedPNL !== normalized.realizedPNL)) {
-      throw new Error(`conflicting official history commission ${id}`);
+      throw new Error(`conflicting ${conflictLabel} ${id}`);
     }
     if ((priorNormalized.realizedPNL === null || priorNormalized.realizedPNL === undefined) &&
         normalized.realizedPNL !== null && normalized.realizedPNL !== undefined) {
@@ -353,11 +352,6 @@ function newYorkDay(value) {
   return `${fields.year}-${fields.month}-${fields.day}`;
 }
 
-function nyDateForIso(value) {
-  const day = newYorkDay(value);
-  return day ? day.replaceAll("-", "") : null;
-}
-
 function newYorkDayStart(value) {
   const day = newYorkDay(value);
   if (!day) return null;
@@ -518,15 +512,34 @@ export function createFamilySessionAdapter({
     if (!requiredThrough || cursor < requiredThrough) {
       return { reason: "authoritative execution coverage across midnight is incomplete", history, receipts };
     }
-    const historyExecutionIds = new Set(history.executions.map((row) => executionId(row)));
-    const currentDay = state.coverageTradingDay.replaceAll("-", "");
-    const missingRetainedIdentity = state.executions.some((row) => {
-      const time = String(row?.execution?.time || "");
-      const date = /^\d{8}/.test(time) ? time.slice(0, 8) : nyDateForIso(time);
-      return date && date < currentDay && !historyExecutionIds.has(executionId(row));
+    const currentDay = state.coverageTradingDay;
+    const historyById = new Map(history.executions.map((row) => [executionId(row), row]));
+    const knownByDay = new Map();
+    const trustedByDay = new Map();
+    const add = (map, row) => {
+      const day = newYorkDay(normalizeEconomicExecution(row).execution.time);
+      if (!day || day >= currentDay) return;
+      const rows = map.get(day) || [];
+      rows.push(row);
+      map.set(day, rows);
+    };
+    for (const row of [...state.executions, ...history.executions]) add(knownByDay, row);
+    for (const receipt of receipts.filter((item) => item.window.toExclusive <= requiredThrough)) {
+      for (const id of receipt.executionIds) {
+        const row = historyById.get(id);
+        if (!row) {
+          return { reason: "authoritative history receipt identity is absent from the sidecar", history, receipts };
+        }
+        add(trustedByDay, row);
+      }
+    }
+    const missingRetainedIdentity = [...knownByDay.entries()].some(([day, rows]) => {
+      const knownIds = latestExecutionIdentities(rows);
+      const trustedIds = latestExecutionIdentities(trustedByDay.get(day) || []);
+      return missingPriorQueryIdentities(knownIds, trustedIds).length > 0;
     });
     return {
-      reason: missingRetainedIdentity ? "authoritative history omits a retained execution identity" : null,
+      reason: missingRetainedIdentity ? "authoritative complete receipts omit a retained execution identity" : null,
       history,
       receipts,
     };
@@ -534,17 +547,20 @@ export function createFamilySessionAdapter({
 
   function mergeVerifiedHistory({ history, receipts }) {
     if (!history || !receipts.length) return null;
+    const currentDayStart = newYorkDayStart(state.coverageThrough);
+    const importableReceipts = receipts.filter((receipt) => receipt.window.toExclusive <= currentDayStart);
+    if (!importableReceipts.length) return null;
     const executionById = new Map(history.executions.map((row) => [executionId(row), row]));
     const commissionById = new Map(history.commissions.map((row) => [commissionId(row), row]));
-    const executionIds = new Set(receipts.flatMap((receipt) => receipt.executionIds));
-    const commissionIds = new Set(receipts.flatMap((receipt) => receipt.commissionIds));
+    const executionIds = new Set(importableReceipts.flatMap((receipt) => receipt.executionIds));
+    const commissionIds = new Set(importableReceipts.flatMap((receipt) => receipt.commissionIds));
     const executions = [...executionIds].sort().map((id) => executionById.get(id));
     const commissions = [...commissionIds].sort().map((id) => commissionById.get(id));
     if (executions.some((row) => !row) || commissions.some((row) => !row)) {
       throw new Error("official history receipt identities are absent from the durable sidecar");
     }
-    const executionMerge = mergeHistoryExecutions(state.executions, executions);
-    const commissionMerge = mergeHistoryCommissions(state.commissions, commissions);
+    const executionMerge = mergeEconomicExecutions(state.executions, executions);
+    const commissionMerge = mergeEconomicCommissions(state.commissions, commissions);
     if (!executionMerge.changed && !commissionMerge.changed) return null;
     return {
       ...state,
@@ -713,10 +729,10 @@ export function createFamilySessionAdapter({
         commissions: [],
         family: null,
       };
-      const executionMerge = mergeExact(prior.executions, cycle.executions, executionId, "execution");
+      const executionMerge = mergeEconomicExecutions(prior.executions, cycle.executions, "replay for execution");
       const relevantIds = new Set(cycle.executions.map(executionId));
       const reports = [...commissionBuffer.values()].filter((report) => relevantIds.has(commissionId(report)));
-      const commissionMerge = mergeExact(prior.commissions, reports, commissionId, "commission");
+      const commissionMerge = mergeEconomicCommissions(prior.commissions, reports, "replay for commission");
       const changed = !state || executionMerge.changed || commissionMerge.changed;
       const next = {
         ...prior,

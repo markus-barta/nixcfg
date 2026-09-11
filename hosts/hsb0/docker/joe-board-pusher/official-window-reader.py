@@ -29,9 +29,12 @@ MAX_DATES = 7
 MAX_TEXT = 512
 STARTUP_TIMEOUT_SECONDS = 15.0
 PER_DATE_TIMEOUT_SECONDS = 20.0
-COMMISSION_GRACE_SECONDS = 1.0
+POST_END_QUIET_SECONDS = 5.0
+FINAL_DRAIN_TIMEOUT_SECONDS = 20.0
 FATAL_SESSION_CODES = frozenset({1100, 1101, 1102, 1300, 2110})
-INFORMATIONAL_CODES = frozenset({2104, 2106, 2158})
+# IB system-message codes: 2107/2108 mean dormant data farms that remain
+# available on demand, not a failed execution-query connection.
+INFORMATIONAL_CODES = frozenset({2104, 2106, 2107, 2108, 2158})
 SAFE_INTEGER = 9_007_199_254_740_991
 HOST_RE = re.compile(r"^[^\s\x00-\x20]{1,253}$")
 ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$")
@@ -160,7 +163,8 @@ class ReaderConfig:
     account: str
     startup_timeout: float = STARTUP_TIMEOUT_SECONDS
     request_timeout: float = PER_DATE_TIMEOUT_SECONDS
-    commission_grace: float = COMMISSION_GRACE_SECONDS
+    quiet_period: float = POST_END_QUIET_SECONDS
+    final_drain_timeout: float = FINAL_DRAIN_TIMEOUT_SECONDS
 
 
 @dataclass
@@ -170,6 +174,7 @@ class RequestState:
     requested_at: str
     ended_at: str | None = None
     ended_monotonic: float | None = None
+    last_callback_monotonic: float | None = None
     timed_out: bool = False
     executions: dict[str, dict[str, Any]] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
@@ -278,6 +283,8 @@ class OfficialWindowReader:
         self._executions: dict[str, dict[str, Any]] = {}
         self._commissions: dict[str, dict[str, Any]] = {}
         self._pending_commissions: dict[str, dict[str, Any]] = {}
+        self._run_errors: list[dict[str, Any]] = []
+        self._last_callback_monotonic: float | None = None
 
     def on_ready(self, managed_accounts: list[str]) -> None:
         with self._condition:
@@ -298,6 +305,7 @@ class OfficialWindowReader:
 
     def on_execution(self, request_id: int, contract: Any, execution: Any) -> None:
         with self._condition:
+            self._note_callback_locked()
             active = self._active
             if active is None or active.request_id != request_id:
                 self._fail_locked("unexpected-execution-request-id")
@@ -323,6 +331,7 @@ class OfficialWindowReader:
 
     def on_execution_end(self, request_id: int) -> None:
         with self._condition:
+            self._note_callback_locked()
             if self._active is None or self._active.request_id != request_id:
                 self._fail_locked("unexpected-execution-end-request-id")
             elif self._active.ended_at is not None:
@@ -330,10 +339,12 @@ class OfficialWindowReader:
             else:
                 self._active.ended_at = self.now()
                 self._active.ended_monotonic = self.monotonic()
+                self._active.last_callback_monotonic = self._last_callback_monotonic
             self._condition.notify_all()
 
     def on_commission(self, report: Any) -> None:
         with self._condition:
+            self._note_callback_locked()
             try:
                 row = canonical_commission(report)
                 exec_id = row["execId"]
@@ -354,24 +365,23 @@ class OfficialWindowReader:
         if code in INFORMATIONAL_CODES:
             return
         with self._condition:
+            self._note_callback_locked()
             if code in FATAL_SESSION_CODES:
                 self._closed = True
                 self._disconnected = True
-                if self._active is None:
-                    self._startup_error = {"code": "broker-session-retired", "brokerCode": code}
-                else:
-                    self._fail_locked("broker-session-retired", brokerCode=code)
-            elif self._active is not None and (request_id == self._active.request_id or code in {502, 504}):
+                self._fail_locked("broker-session-retired", brokerCode=code)
+            elif self._ready:
                 self._fail_locked("broker-request-error", brokerCode=code)
             self._condition.notify_all()
 
     def on_disconnect(self) -> None:
         with self._condition:
+            expected = self._closed
             self._closed = True
             self._disconnected = True
-            if self._active is None and not self._ready:
+            if not expected and not self._ready:
                 self._startup_error = {"code": "broker-disconnected-before-ready"}
-            elif self._active is not None:
+            elif not expected:
                 self._fail_locked("broker-disconnected")
             self._condition.notify_all()
 
@@ -384,14 +394,24 @@ class OfficialWindowReader:
             raise ProtocolError("commission record limit exceeded")
         self._commissions[exec_id] = row
 
+    def _note_callback_locked(self) -> None:
+        observed = self.monotonic()
+        self._last_callback_monotonic = observed
+        if self._active is not None:
+            self._active.last_callback_monotonic = observed
+
     def _fail_locked(self, code: str, **detail: Any) -> None:
-        if self._active is None:
-            if self._startup_error is None:
-                self._startup_error = {"code": code, **detail}
-            return
         error = {"code": code, **detail}
+        if self._active is None:
+            if not self._ready and self._startup_error is None:
+                self._startup_error = error
+            elif error not in self._run_errors:
+                self._run_errors.append(error)
+            return
         if error not in self._active.errors:
             self._active.errors.append(error)
+        if error not in self._run_errors:
+            self._run_errors.append(error)
 
     def _stop_once(self) -> None:
         with self._condition:
@@ -435,17 +455,25 @@ class OfficialWindowReader:
                 if self._closed or self._disconnected:
                     self._fail_locked("broker-connection-unavailable")
                     break
-                missing = [exec_id for exec_id in active.executions if exec_id not in self._commissions]
                 current = self.monotonic()
                 if active.ended_at is not None:
-                    if not missing:
-                        break
-                    if active.ended_monotonic is None:
+                    if active.ended_monotonic is None or active.last_callback_monotonic is None:
                         self._fail_locked("execution-end-clock-missing")
                         break
-                    remaining = min(deadline - current, active.ended_monotonic + self.config.commission_grace - current)
-                    if remaining <= 0:
+                    deadline_remaining = deadline - current
+                    quiet_remaining = active.last_callback_monotonic + self.config.quiet_period - current
+                    if deadline_remaining <= 0:
+                        active.timed_out = True
+                        self._fail_locked("execution-query-timeout", phase="post-end-quiet")
                         break
+                    if quiet_remaining <= 0:
+                        missing = [exec_id for exec_id in active.executions if exec_id not in self._commissions]
+                        if missing:
+                            self._fail_locked("missing-commission-callbacks", count=len(missing))
+                        if self._pending_commissions:
+                            self._fail_locked("orphan-commission-callbacks", count=len(self._pending_commissions))
+                        break
+                    remaining = min(deadline_remaining, quiet_remaining)
                 else:
                     remaining = deadline - current
                     if remaining <= 0:
@@ -469,6 +497,31 @@ class OfficialWindowReader:
             self._active = None
             return result
 
+    def _final_drain(self) -> None:
+        with self._condition:
+            self._last_callback_monotonic = self.monotonic()
+            deadline = self._last_callback_monotonic + self.config.final_drain_timeout
+            while True:
+                current = self.monotonic()
+                last_callback = self._last_callback_monotonic
+                if last_callback is None:
+                    self._fail_locked("final-drain-clock-missing")
+                    break
+                quiet_remaining = last_callback + self.config.quiet_period - current
+                deadline_remaining = deadline - current
+                if quiet_remaining <= 0:
+                    break
+                if deadline_remaining <= 0:
+                    self._fail_locked("final-drain-timeout")
+                    break
+                self._condition.wait(min(quiet_remaining, deadline_remaining))
+
+            missing = [exec_id for exec_id in self._executions if exec_id not in self._commissions]
+            if missing:
+                self._fail_locked("missing-commission-callbacks", count=len(missing))
+            if self._pending_commissions:
+                self._fail_locked("orphan-commission-callbacks", count=len(self._pending_commissions))
+
     def run(self, plan: dict[str, Any]) -> dict[str, Any]:
         self._start()
         requests: dict[str, dict[str, Any]] = {}
@@ -478,6 +531,8 @@ class OfficialWindowReader:
                 requests[str(item["requestId"])] = result
                 if result["errors"]:
                     break
+            if not self._run_errors:
+                self._final_drain()
         finally:
             self._closed = True
             self._stop_once()
@@ -508,6 +563,7 @@ class OfficialWindowReader:
             "actualWindows": list(plan["actualWindows"]),
             "disconnected": True,
             "exitCode": 0,
+            "errors": list(self._run_errors),
             "requests": requests,
             "commissionsByExecId": {
                 key: self._commissions[key] for key in sorted(self._commissions) if key in included_ids

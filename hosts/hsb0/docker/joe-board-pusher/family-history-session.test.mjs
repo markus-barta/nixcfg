@@ -12,6 +12,7 @@ import {
   createFamilyHistorySessionAdapter,
   createOfficialHistoryRefresher,
 } from "./family-history-session.mjs";
+import { reconcileExecutionCapture } from "./execution-reconciliation.mjs";
 import {
   FAMILY_BASELINE_PERIOD_START,
   FAMILY_STATE_SCHEMA,
@@ -340,6 +341,72 @@ test("unchanged retained-day replays do not churn receipts or the durable sideca
   assert.equal(session.store.saves, 1);
   assert.deepEqual(session.store.state, persisted);
   assert.equal(session.timers.count(30_000), 1);
+});
+
+test("official import skips an equivalent write and preserves a concurrent live target", () => {
+  const store = memoryStore();
+  const targets = [];
+  const session = setup({
+    at: "2026-09-11T14:00:00Z",
+    store,
+    reconcileCapture(args) {
+      targets.push(structuredClone(args.target));
+      return reconcileExecutionCapture(args);
+    },
+  });
+  const row = normalizeExecutionRow(execution("official-stable.synthetic.01"));
+  const window = { fromInclusive: "2026-09-11T04:00:00Z", toExclusive: "2026-09-11T12:00:00Z" };
+  function officialCapture(id, capturedAt) {
+    return {
+      schema: "inspr.ib.execution-capture.v1",
+      account: ACCOUNT,
+      classifier: structuredClone(CLASSIFIER),
+      source: {
+        kind: "paper-api",
+        id,
+        sha256: id === "official-request-1" ? "b".repeat(64) : "c".repeat(64),
+        metadata: {
+          adapterId: "official-window-json",
+          adapterVersion: "1",
+          endpointIdentitySha256: "d".repeat(64),
+          requestId: id,
+        },
+      },
+      capturedAt,
+      window,
+      coverageStatus: "complete",
+      completenessAssertion: {
+        provider: "ibkr-official-sdk-execution-window-v1",
+        assertionId: `assertion:${id}`,
+      },
+      executions: [row],
+      commissions: [{ execId: row.execution.execId, commission: 0.25, currency: "USD", realizedPNL: 0 }],
+    };
+  }
+
+  const first = officialCapture("official-request-1", "2026-09-11T12:00:01Z");
+  assert.equal(session.adapter.importCaptures([first], {
+    fromInclusive: HISTORY_START,
+    toExclusive: "2026-09-11T14:00:00Z",
+  }).ok, true);
+  const persisted = store.state;
+  assert.equal(store.saves, 1);
+  assert.equal(session.updated.length, 1);
+
+  const replay = officialCapture("official-request-2", "2026-09-11T13:00:01Z");
+  const replayBefore = structuredClone(replay);
+  assert.equal(session.adapter.importCaptures([replay], {
+    fromInclusive: HISTORY_START,
+    toExclusive: "2026-09-11T13:00:00Z",
+  }).ok, true);
+  assert.deepEqual(targets.at(-1), {
+    fromInclusive: "2026-09-10T04:00:00.000Z",
+    toExclusive: "2026-09-11T14:00:00.000Z",
+  });
+  assert.equal(store.saves, 1);
+  assert.equal(session.updated.length, 1);
+  assert.deepEqual(store.state, persisted);
+  assert.deepEqual(replay, replayBefore);
 });
 
 test("an absent sidecar seeds exactly once from immutable legacy capture and restart loads the exact state", () => {

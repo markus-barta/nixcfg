@@ -155,13 +155,14 @@ def wire_request(value=None):
     }
 
 
-def make_reader(*plans, request_timeout=0.1, commission_grace=0.01, **broker_options):
+def make_reader(*plans, request_timeout=0.1, quiet_period=0.01, final_drain_timeout=0.1, **broker_options):
     broker = FakeBroker(plans, **broker_options)
     config = READER.ReaderConfig(
         "gateway", 4002, 94, ACCOUNT,
         startup_timeout=0.1,
         request_timeout=request_timeout,
-        commission_grace=commission_grace,
+        quiet_period=quiet_period,
+        final_drain_timeout=final_drain_timeout,
     )
     reader = READER.OfficialWindowReader(config, broker, now=Clock())
     return reader, broker
@@ -176,13 +177,14 @@ class OfficialWindowReaderTests(unittest.TestCase):
                 contract(),
                 execution("synthetic.trade.02", price=Decimal("10.75"), pendingPriceRevision=True),
             )
+            sink.on_commission(commission("synthetic.trade.01"))
             sink.on_commission(commission("synthetic.trade.02"))
             sink.on_execution_end(request_id)
 
         def second(sink, request_id):
             sink.on_execution_end(request_id)
 
-        reader, broker = make_reader(first, second, commission_grace=0)
+        reader, broker = make_reader(first, second, quiet_period=0)
         result = reader.run(plan())
         self.assertEqual(result["schemaVersion"], 1)
         self.assertEqual(result["endpoint"], {"host": "gateway", "port": 4002, "clientId": 94, "account": ACCOUNT})
@@ -198,30 +200,156 @@ class OfficialWindowReaderTests(unittest.TestCase):
         self.assertEqual([row["execution"]["execId"] for row in rows], ["synthetic.trade.01", "synthetic.trade.02"])
         self.assertTrue(rows[1]["execution"]["pendingPriceRevision"])
         self.assertEqual(result["requests"]["9301"]["executions"], [])
-        self.assertEqual(set(result["commissionsByExecId"]), {"synthetic.trade.02"})
+        self.assertEqual(
+            set(result["commissionsByExecId"]),
+            {"synthetic.trade.01", "synthetic.trade.02"},
+        )
 
-    def test_fee_after_end_is_drained_and_partial_fee_set_is_valid_output(self):
+    def test_execution_and_fee_after_end_reset_quiet_period_and_are_retained(self):
         def late(sink, request_id):
-            sink.on_execution(request_id, contract(), execution())
             sink.on_execution_end(request_id)
+            threading.Timer(0.005, lambda: sink.on_execution(request_id, contract(), execution())).start()
             threading.Timer(0.01, lambda: sink.on_commission(commission())).start()
 
         first_only = {**plan(), "requestedCoverage": {
             "fromInclusive": "2026-09-10T04:00:00.000Z",
             "toExclusive": "2026-09-11T04:00:00.000Z",
         }, "actualWindows": plan()["actualWindows"][:1]}
-        reader, _ = make_reader(late, commission_grace=0.05)
+        reader, _ = make_reader(late, quiet_period=0.02)
         result = reader.run(first_only)
         self.assertIn("synthetic.trade.01", result["commissionsByExecId"])
+        self.assertEqual(len(result["requests"]["9300"]["executions"]), 1)
+        self.assertEqual(result["errors"], [])
 
+    def test_unmatched_execution_and_orphan_commission_fail_the_run(self):
+        first_only = {**plan(), "requestedCoverage": {
+            "fromInclusive": "2026-09-10T04:00:00.000Z",
+            "toExclusive": "2026-09-11T04:00:00.000Z",
+        }, "actualWindows": plan()["actualWindows"][:1]}
         def missing(sink, request_id):
             sink.on_execution(request_id, contract(), execution())
             sink.on_execution_end(request_id)
 
-        reader, _ = make_reader(missing, commission_grace=0)
+        reader, _ = make_reader(missing, quiet_period=0)
+        result = reader.run(first_only)
+        self.assertEqual(result["requests"]["9300"]["errors"][0]["code"], "missing-commission-callbacks")
+        self.assertEqual(result["errors"][0]["code"], "missing-commission-callbacks")
+
+        def orphan(sink, request_id):
+            sink.on_execution_end(request_id)
+            sink.on_commission(commission("never-returned.01"))
+
+        reader, _ = make_reader(orphan, quiet_period=0)
+        result = reader.run(first_only)
+        self.assertEqual(result["requests"]["9300"]["errors"][0]["code"], "orphan-commission-callbacks")
+        self.assertEqual(result["errors"][0]["code"], "orphan-commission-callbacks")
+
+    def test_true_empty_waits_for_quiet_and_late_previous_request_fails_whole_run(self):
+        def empty(sink, request_id):
+            sink.on_execution_end(request_id)
+
+        started = READER.time.monotonic()
+        reader, _ = make_reader(empty, empty, quiet_period=0.01)
+        result = reader.run(plan())
+        self.assertGreaterEqual(READER.time.monotonic() - started, 0.025)
+        self.assertEqual(result["errors"], [])
+        self.assertTrue(all(not request["executions"] for request in result["requests"].values()))
+
+        def first(sink, request_id):
+            sink.on_execution_end(request_id)
+
+        def second(sink, request_id):
+            sink.on_execution_end(request_id)
+            threading.Timer(
+                0.002,
+                lambda: sink.on_execution(9300, contract(), execution("late.previous.01")),
+            ).start()
+
+        reader, _ = make_reader(first, second, quiet_period=0.01)
+        result = reader.run(plan())
+        self.assertEqual(result["requests"]["9301"]["errors"][0]["code"], "unexpected-execution-request-id")
+        self.assertEqual(result["errors"][0]["code"], "unexpected-execution-request-id")
+
+    def test_final_run_drain_catches_a_callback_after_last_request_quiet(self):
+        first_only = {**plan(), "requestedCoverage": {
+            "fromInclusive": "2026-09-10T04:00:00.000Z",
+            "toExclusive": "2026-09-11T04:00:00.000Z",
+        }, "actualWindows": plan()["actualWindows"][:1]}
+
+        def late_orphan(sink, request_id):
+            sink.on_execution_end(request_id)
+            threading.Timer(0.015, lambda: sink.on_commission(commission("final.orphan.01"))).start()
+
+        reader, _ = make_reader(
+            late_orphan,
+            quiet_period=0.01,
+            final_drain_timeout=0.05,
+        )
         result = reader.run(first_only)
         self.assertEqual(result["requests"]["9300"]["errors"], [])
-        self.assertEqual(result["commissionsByExecId"], {})
+        self.assertEqual(result["errors"][0]["code"], "orphan-commission-callbacks")
+
+    def test_dormant_farm_codes_are_informational_without_resetting_quiet(self):
+        observations = []
+
+        class InformationalBroker(FakeBroker):
+            def start(self, sink, host, port, client_id, account):
+                super().start(sink, host, port, client_id, account)
+                before = sink._last_callback_monotonic
+                sink.on_broker_error(-1, 2107)
+                sink.on_broker_error(-1, 2108)
+                observations.append(("ready", before, sink._last_callback_monotonic))
+
+        def informational_query_and_quiet(sink, request_id):
+            before_query = sink._last_callback_monotonic
+            sink.on_broker_error(request_id, 2107)
+            sink.on_broker_error(request_id, 2108)
+            observations.append(("query", before_query, sink._last_callback_monotonic))
+            sink.on_execution_end(request_id)
+            before_quiet = sink._last_callback_monotonic
+            sink.on_broker_error(request_id, 2107)
+            sink.on_broker_error(request_id, 2108)
+            observations.append(("quiet", before_quiet, sink._last_callback_monotonic))
+
+        first_only = {**plan(), "requestedCoverage": {
+            "fromInclusive": "2026-09-10T04:00:00.000Z",
+            "toExclusive": "2026-09-11T04:00:00.000Z",
+        }, "actualWindows": plan()["actualWindows"][:1]}
+        broker = InformationalBroker([informational_query_and_quiet])
+        reader = READER.OfficialWindowReader(
+            READER.ReaderConfig(
+                "gateway", 4002, 94, ACCOUNT,
+                startup_timeout=0.1,
+                request_timeout=0.1,
+                quiet_period=0.005,
+                final_drain_timeout=0.1,
+            ),
+            broker,
+            now=Clock(),
+        )
+        result = reader.run(first_only)
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["requests"]["9300"]["errors"], [])
+        self.assertEqual(observations, [
+            ("ready", None, None),
+            ("query", None, None),
+            ("quiet", observations[2][1], observations[2][1]),
+        ])
+
+    def test_connectivity_and_farm_failure_codes_remain_fail_closed(self):
+        first_only = {**plan(), "requestedCoverage": {
+            "fromInclusive": "2026-09-10T04:00:00.000Z",
+            "toExclusive": "2026-09-11T04:00:00.000Z",
+        }, "actualWindows": plan()["actualWindows"][:1]}
+        for code, expected in [(2110, "broker-session-retired"), (2103, "broker-request-error"), (2105, "broker-request-error")]:
+            with self.subTest(code=code):
+                def failure(sink, request_id, broker_code=code):
+                    sink.on_broker_error(request_id, broker_code)
+
+                reader, _ = make_reader(failure)
+                result = reader.run(first_only)
+                self.assertEqual(result["errors"][0]["code"], expected)
+                self.assertEqual(result["requests"]["9300"]["errors"][0]["code"], expected)
 
     def test_foreign_account_and_pending_flag_fail_closed(self):
         first_only = {**plan(), "requestedCoverage": {
