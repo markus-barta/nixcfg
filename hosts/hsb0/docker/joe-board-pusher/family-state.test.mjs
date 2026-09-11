@@ -113,6 +113,8 @@ function setup({
   calculate = calculator,
   familyClientIds = FAMILY_IDS,
   excludedSymbols = ["SXR8", "TSLA"],
+  retryBaseMs = 5_000,
+  retryMaxMs = 20_000,
 } = {}) {
   let current = at;
   const timers = fakeTimers();
@@ -127,9 +129,13 @@ function setup({
     store,
     pollIntervalMs: 30_000,
     requestTimeoutMs: 20_000,
+    retryBaseMs,
+    retryMaxMs,
+    retryJitterRatio: 0,
     fxFreshMs: 120_000,
     fxRefreshIntervalMs: 60_000,
     now: () => current,
+    random: () => 0.5,
     setTimer: timers.set,
     clearTimer: timers.clear,
     hooks: { onUnavailable: (reason) => unavailable.push(reason) },
@@ -231,7 +237,7 @@ test("final runtime registry counts a client-52 family close and excludes Joe cl
   assert.equal(classified.includes(22), false);
 });
 
-test("a poll never overlaps and a timed-out commission gate retries with one timer", () => {
+test("request and missing-fee transients share one capped retry policy", () => {
   const session = setup();
   const api = connect(session);
   assert.equal(session.adapter.pollNow(), false);
@@ -242,9 +248,19 @@ test("a poll never overlaps and a timed-out commission gate retries with one tim
   session.timers.runDelay(20_000);
   assert.equal(session.adapter.requestInFlight, false);
   assert.match(session.unavailable.at(-1), /missing commissions for 1 family fills/);
-  assert.equal(session.timers.count(30_000), 1);
-  session.timers.runDelay(30_000);
+  assert.equal(session.timers.count(5_000), 1);
+  assert.equal(session.adapter.pollNow(), false);
+  session.timers.runDelay(5_000);
   assert.equal(api.requests.filter((item) => item[0] === "executions").length, 2);
+
+  session.timers.runDelay(20_000);
+  assert.equal(session.timers.count(10_000), 1);
+  session.timers.runDelay(10_000);
+  session.timers.runDelay(20_000);
+  assert.equal(session.timers.count(20_000), 1);
+  session.timers.runDelay(20_000);
+  session.timers.runDelay(20_000);
+  assert.equal(session.timers.count(20_000), 1);
 });
 
 test("disconnect and reconnect require fresh data, remove listeners, and ignore an old generation", () => {
@@ -262,6 +278,36 @@ test("disconnect and reconnect require fresh data, remove listeners, and ignore 
   oldApi.emit(EVENTS.execDetails, nextId, contract("STALE", 999), execution("stale.1.01", 27).execution);
   complete(nextApi, [retained]);
   assert.equal(session.adapter.inspectState().executions.length, 1);
+});
+
+test("upstream loss suspends family readiness until a fresh adapter generation completes", () => {
+  const session = setup();
+  const api = connect(session);
+  complete(api, [execution("retained.1.01", 27)]);
+  emitFx(api, "EUR", 1);
+  emitFx(api, "USD", 0.86);
+  assert.equal(session.adapter.project(book()).ok, true);
+
+  const requestCount = api.requests.length;
+  assert.equal(session.adapter.upstreamUnavailable("synthetic 2110"), true);
+  assert.match(session.adapter.project(book()).reason, /fresh complete execution cycle unavailable/);
+  assert.equal(session.timers.count(30_000), 0);
+
+  api.emit(EVENTS.managedAccounts, ACCOUNT);
+  api.emit(EVENTS.execDetailsEnd, requestId(api));
+  emitFx(api, "EUR", 1);
+  assert.equal(api.requests.length, requestCount + 1);
+  assert.match(session.adapter.project(book()).reason, /fresh complete execution cycle unavailable/);
+
+  session.adapter.retire("synthetic restoration retires old generation");
+  const nextApi = connect(session, new FakeApi());
+  assert.equal(api.listenerCount(EVENTS.execDetails), 0);
+  api.emit(EVENTS.execDetails, requestId(nextApi), contract("STALE", 999), execution("stale.1.01", 27).execution);
+  complete(nextApi, [execution("retained.1.01", 27)]);
+  emitFx(nextApi, "EUR", 1);
+  emitFx(nextApi, "USD", 0.86);
+  assert.equal(session.adapter.project(book()).ok, true);
+  assert.deepEqual(session.adapter.inspectState().queryExecutionIdentities, ["retained.1.01"]);
 });
 
 test("corrupt persistence fails closed and is never overwritten", () => {
@@ -311,17 +357,41 @@ test("a same-trading-day restart accepts a complete current-day resync", () => {
   assert.equal(shared.state.ledgerObservedAt, "2026-09-10T12:00:00.000Z");
 });
 
-test("a same-day full query losing a previously covered execution requires backfill", () => {
+test("a shortened replay retries without changing durable evidence, then a full replay recovers", () => {
   const session = setup();
   const api = connect(session);
-  complete(api, [execution("retained.1.01", 27)]);
+  const retained = execution("retained.1.01", 27);
+  complete(api, [retained]);
+  const before = session.store.state;
+  const beforeBytes = JSON.stringify(before);
+  const saves = session.store.saves;
   session.timers.runDelay(30_000);
   complete(api, []);
-  assert.match(session.adapter.blockedReason, /lost previously covered identities; backfill required/);
+  assert.equal(session.adapter.blockedReason, null);
+  assert.match(session.adapter.retryReason, /temporarily omitted 1/);
+  assert.deepEqual(session.store.state, before);
+  assert.equal(JSON.stringify(session.store.state), beforeBytes);
+  assert.equal(session.store.saves, saves);
+  assert.match(session.adapter.project(book()).reason, /temporarily omitted 1/);
+  assert.equal(session.timers.count(5_000), 1);
+
+  session.timers.runDelay(5_000);
+  complete(api, [retained]);
+  assert.equal(session.adapter.retryReason, null);
+  assert.equal(session.adapter.blockedReason, null);
+  emitFx(api, "EUR", 1);
+  emitFx(api, "USD", 0.86);
+  assert.equal(session.adapter.project(book()).ok, true);
   assert.deepEqual(session.store.state.queryExecutionIdentities, ["retained.1.01"]);
+  assert.deepEqual(session.store.state.executions, before.executions);
+  assert.deepEqual(session.store.state.commissions, before.commissions);
+
+  session.timers.runDelay(30_000);
+  complete(api, []);
+  assert.equal(session.timers.count(5_000), 1);
 });
 
-test("execution query coverage survives restart and rejects a truncated same-day query", () => {
+test("execution query coverage survives restart and truncated replay remains retryable", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-state-test-"));
   const disk = createFileFamilyStateStore(path.join(directory, "family-ledger.json"));
   const retained = execution("restart-retained.1.01", 27);
@@ -330,8 +400,93 @@ test("execution query coverage survives restart and rejects a truncated same-day
 
   const restarted = setup({ store: disk, at: "2026-09-10T12:01:00Z" });
   complete(connect(restarted), []);
-  assert.match(restarted.adapter.blockedReason, /lost previously covered identities; backfill required/);
+  assert.equal(restarted.adapter.blockedReason, null);
+  assert.match(restarted.adapter.retryReason, /temporarily omitted/);
   assert.deepEqual(restarted.adapter.inspectState().queryExecutionIdentities, ["restart-retained.1.01"]);
+});
+
+test("retry survives reconnect without accepting stale-generation execution callbacks", () => {
+  const session = setup();
+  const retained = execution("generation-retained.1.01", 27);
+  const oldApi = connect(session);
+  complete(oldApi, [retained]);
+  session.timers.runDelay(30_000);
+  complete(oldApi, []);
+  assert.equal(session.timers.count(5_000), 1);
+
+  oldApi.emit(EVENTS.disconnected);
+  assert.equal(session.timers.count(5_000), 0);
+  const nextApi = connect(session, new FakeApi());
+  assert.equal(nextApi.requests.some((row) => row[0] === "executions"), false);
+  assert.equal(session.timers.count(10_000), 1);
+  const nextId = 9604;
+  oldApi.emit(EVENTS.execDetails, nextId, retained.contract, retained.execution);
+  oldApi.emit(EVENTS.commissionReport, commission(retained.execution.execId));
+  oldApi.emit(EVENTS.execDetailsEnd, nextId);
+  assert.equal(session.adapter.requestInFlight, false);
+
+  session.timers.runDelay(10_000);
+  complete(nextApi, [retained]);
+  emitFx(nextApi, "EUR", 1);
+  emitFx(nextApi, "USD", 0.86);
+  assert.equal(session.adapter.retryReason, null);
+  assert.equal(session.adapter.project(book()).ok, true);
+});
+
+test("a higher correction without its actual fee retries and preserves the prior watermark", () => {
+  const session = setup();
+  const api = connect(session);
+  const original = execution("correction-fee.1.01", 27, { price: 10 });
+  const corrected = execution("correction-fee.1.02", 27, { price: 11 });
+  complete(api, [original]);
+  const before = session.store.state;
+  session.timers.runDelay(30_000);
+  complete(api, [corrected], []);
+  session.timers.runDelay(20_000);
+
+  assert.match(session.adapter.retryReason, /missing commissions for 1 family fills/);
+  assert.deepEqual(session.store.state, before);
+  assert.equal(session.timers.count(5_000), 1);
+
+  session.timers.runDelay(5_000);
+  complete(api, [corrected]);
+  assert.equal(session.adapter.retryReason, null);
+  assert.deepEqual(session.store.state.queryExecutionIdentities, ["correction-fee.1.02"]);
+  assert.deepEqual(
+    session.store.state.executions.map((row) => row.execution.execId),
+    ["correction-fee.1.01", "correction-fee.1.02"]
+  );
+});
+
+test("a lower correction replay is transient and cannot advance durable coverage", () => {
+  const session = setup();
+  const api = connect(session);
+  const current = execution("lower.1.02", 27, { price: 11 });
+  complete(api, [current]);
+  const before = session.store.state;
+  session.setNow("2026-09-10T12:01:00Z");
+  session.timers.runDelay(30_000);
+  complete(api, [execution("lower.1.01", 27, { price: 10 })]);
+
+  assert.match(session.adapter.retryReason, /temporarily omitted 1/);
+  assert.deepEqual(session.store.state, before);
+  assert.equal(session.store.state.coverageThrough, before.coverageThrough);
+});
+
+test("a regressed execution clock is terminal and cannot advance durable coverage", () => {
+  const session = setup();
+  const api = connect(session);
+  const retained = execution("clock.1.01", 27);
+  complete(api, [retained]);
+  const before = session.store.state;
+  session.setNow("2026-09-10T11:59:00Z");
+  session.timers.runDelay(30_000);
+  complete(api, [retained]);
+
+  assert.match(session.adapter.blockedReason, /timestamp regressed; backfill required/);
+  assert.equal(session.adapter.retryReason, null);
+  assert.deepEqual(session.store.state, before);
+  assert.equal(session.timers.count(5_000), 0);
 });
 
 test("a running publisher stops when its proven coverage day crosses New York midnight", () => {
@@ -341,6 +496,8 @@ test("a running publisher stops when its proven coverage day crosses New York mi
   assert.match(session.adapter.project(book()).reason, /midnight; backfill required/);
   session.timers.runDelay(30_000);
   assert.match(session.adapter.blockedReason, /midnight; backfill required/);
+  assert.equal(session.timers.count(5_000), 0);
+  assert.equal(session.timers.count(30_000), 0);
 });
 
 test("persisted classifier identity rejects a changed family or exclusion set", () => {
@@ -380,6 +537,8 @@ test("identical replays deduplicate while exact-id conflicts fail closed", () =>
   const conflict = execution("same.1.01", 27, { price: 99 });
   complete(api, [conflict]);
   assert.match(session.adapter.blockedReason, /conflicting replay/);
+  assert.equal(session.adapter.retryReason, null);
+  assert.equal(session.timers.count(5_000), 0);
   assert.equal(session.store.state.executions[0].execution.price, 10);
 });
 

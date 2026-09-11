@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createReconnectScheduler } from "./pusher-recovery.mjs";
 
 const STATE_SCHEMA = "inspr.joe.family-execution-ledger.v1";
 const MAX_STATE_BYTES = 16 * 1024 * 1024;
@@ -343,9 +344,13 @@ export function createFamilySessionAdapter({
   accountUpdateRequestIdStart = 9701,
   pollIntervalMs = 30_000,
   requestTimeoutMs = 20_000,
+  retryBaseMs = 5_000,
+  retryMaxMs = 60_000,
+  retryJitterRatio = 0.2,
   fxFreshMs = 300_000,
   fxRefreshIntervalMs = 240_000,
   now = () => new Date().toISOString(),
+  random = Math.random,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
   requestManagedAccounts = true,
@@ -371,6 +376,7 @@ export function createFamilySessionAdapter({
   let timeoutTimer = null;
   let fxRefreshTimer = null;
   let blockedReason = null;
+  let retryReason = null;
   let state = null;
   let fxRates = new Map();
   let commissionBuffer = new Map();
@@ -381,6 +387,16 @@ export function createFamilySessionAdapter({
   if (state && state.coverageTradingDay !== newYorkDay(now())) {
     blockedReason = "unproved execution retrieval gap across America/New_York midnight; backfill required";
   }
+
+  const retryScheduler = createReconnectScheduler({
+    baseDelayMs: retryBaseMs,
+    maxDelayMs: retryMaxMs,
+    jitterRatio: retryJitterRatio,
+    random,
+    setTimer,
+    clearTimer,
+    onRetry: () => pollNow(),
+  });
 
   function emitAvailability(reason) {
     hooks.onUnavailable?.(reason);
@@ -408,11 +424,17 @@ export function createFamilySessionAdapter({
 
   function schedulePoll(delay = pollIntervalMs) {
     stopTimer("poll");
-    if (!connected || !managed || blockedReason) return;
+    if (!connected || !managed || blockedReason || retryReason) return;
     pollTimer = setTimer(() => {
       pollTimer = null;
       pollNow();
     }, delay);
+  }
+
+  function scheduleRetry() {
+    stopTimer("poll");
+    if (!connected || !managed || blockedReason || !retryReason) return false;
+    return retryScheduler.schedule(retryReason);
   }
 
   function scheduleFxRefresh() {
@@ -451,6 +473,8 @@ export function createFamilySessionAdapter({
       return true;
     } catch (error) {
       blockedReason = `family ledger state write failed: ${error?.message || error}`;
+      retryReason = null;
+      retryScheduler.cancel();
       emitAvailability(blockedReason);
       return false;
     }
@@ -479,25 +503,21 @@ export function createFamilySessionAdapter({
     activeCycle = null;
     const observedAt = iso(now());
     if (!observedAt) {
-      blockedReason = "invalid execution observation time";
-      emitAvailability(blockedReason);
+      terminalCycle("invalid execution observation time");
       return false;
     }
     const coverageTradingDay = newYorkDay(observedAt);
     if (cycle.startedTradingDay !== coverageTradingDay ||
         (state && state.coverageTradingDay !== coverageTradingDay)) {
-      blockedReason = "unproved execution retrieval gap across America/New_York midnight; backfill required";
-      emitAvailability(blockedReason);
+      terminalCycle("unproved execution retrieval gap across America/New_York midnight; backfill required");
       return false;
     }
     if (state && observedAt < state.coverageThrough) {
-      blockedReason = "execution coverage timestamp regressed; backfill required";
-      emitAvailability(blockedReason);
+      terminalCycle("execution coverage timestamp regressed; backfill required");
       return false;
     }
     if (!state && !bootstrapAllowed(observedAt)) {
-      blockedReason = "family ledger state is missing after the authorized baseline day; backfill required";
-      emitAvailability(blockedReason);
+      terminalCycle("family ledger state is missing after the authorized baseline day; backfill required");
       return false;
     }
     try {
@@ -508,8 +528,7 @@ export function createFamilySessionAdapter({
           queryExecutionIdentities
         );
         if (missing.length) {
-          blockedReason = "complete execution replay lost previously covered identities; backfill required";
-          emitAvailability(blockedReason);
+          retryCycle(`execution replay temporarily omitted ${missing.length} previously covered identities`);
           return false;
         }
       }
@@ -543,37 +562,47 @@ export function createFamilySessionAdapter({
         commissions: commissionMerge.rows,
       };
       if (!persist(next)) return false;
+      retryReason = null;
+      retryScheduler.reset();
       executionReady = true;
       hooks.onLedgerUpdated?.({ changed, observedAt: next.ledgerObservedAt });
       schedulePoll();
       return true;
     } catch (error) {
-      blockedReason = `family execution replay rejected: ${error?.message || error}`;
-      emitAvailability(blockedReason);
+      terminalCycle(`family execution replay rejected: ${error?.message || error}`);
       return false;
     }
   }
 
-  function failCycle(reason) {
+  function retryCycle(reason) {
     stopTimer("timeout");
     activeCycle = null;
     executionReady = false;
+    retryReason = reason;
     emitAvailability(reason);
-    schedulePoll();
+    scheduleRetry();
+  }
+
+  function terminalCycle(reason) {
+    stopTimer("timeout");
+    activeCycle = null;
+    executionReady = false;
+    retryReason = null;
+    blockedReason = reason;
+    retryScheduler.cancel();
+    emitAvailability(reason);
   }
 
   function pollNow() {
-    if (!connected || !managed || blockedReason || activeCycle) return false;
+    if (!connected || !managed || blockedReason || activeCycle || retryScheduler.pending) return false;
     const requestedAt = iso(now());
     const startedTradingDay = requestedAt && newYorkDay(requestedAt);
     if (!requestedAt || !startedTradingDay) {
-      blockedReason = "execution request time is unavailable";
-      emitAvailability(blockedReason);
+      terminalCycle("execution request time is unavailable");
       return false;
     }
     if (state && state.coverageTradingDay !== startedTradingDay) {
-      blockedReason = "unproved execution retrieval gap across America/New_York midnight; backfill required";
-      emitAvailability(blockedReason);
+      terminalCycle("unproved execution retrieval gap across America/New_York midnight; backfill required");
       return false;
     }
     const requestId = nextRequestId;
@@ -585,12 +614,12 @@ export function createFamilySessionAdapter({
       const suffix = activeCycle?.ended
         ? `; missing commissions for ${missingFamilyCommissions(activeCycle).length} family fills`
         : " before execDetailsEnd";
-      failCycle(`execution request timed out${suffix}`);
+      retryCycle(`execution request timed out${suffix}`);
     }, requestTimeoutMs);
     try {
       activeApi.reqExecutions(requestId, { acctCode: targetAccount });
     } catch (error) {
-      failCycle(`execution request failed: ${error?.message || error}`);
+      retryCycle(`execution request failed: ${error?.message || error}`);
       return false;
     }
     return true;
@@ -606,6 +635,7 @@ export function createFamilySessionAdapter({
     stopTimer("poll");
     stopTimer("timeout");
     stopTimer("fx");
+    retryScheduler.cancel();
     generation += 1;
     const attachedGeneration = generation;
     activeApi = api;
@@ -630,16 +660,18 @@ export function createFamilySessionAdapter({
       if (requestManagedAccounts) api.reqManagedAccts();
     });
     on(eventNames.managedAccounts, (accounts) => {
+      if (!connected) return;
       if (!String(accounts || "").split(",").map((value) => value.trim()).includes(targetAccount)) {
-        blockedReason = "configured family account is not managed by this session";
-        emitAvailability(blockedReason);
+        terminalCycle("configured family account is not managed by this session");
         return;
       }
       managed = true;
-      if (!refreshFx()) return;
-      pollNow();
+      const fxRequested = refreshFx();
+      if (retryReason) scheduleRetry();
+      else if (fxRequested) pollNow();
     });
     on(eventNames.accountUpdateMulti, (requestId, account, _model, key, value, currency) => {
+      if (!connected) return;
       if (requestId !== activeAccountUpdateRequestId || account !== targetAccount || key !== "ExchangeRate") return;
       const code = String(currency || "").trim().toUpperCase();
       const rate = finitePositive(value);
@@ -648,27 +680,30 @@ export function createFamilySessionAdapter({
       fxRates.set(code, { rate, observedAt });
     });
     on(eventNames.execDetails, (requestId, contract, execution) => {
+      if (!connected) return;
       if (!activeCycle || requestId !== activeCycle.requestId || execution?.acctNumber !== targetAccount) return;
       try {
         const merged = mergeExact(activeCycle.executions, [{ contract, execution }], executionId, "execution");
         activeCycle.executions = merged.rows;
       } catch (error) {
         blockedReason = `family execution callback rejected: ${error?.message || error}`;
-        failCycle(blockedReason);
+        terminalCycle(blockedReason);
       }
     });
     on(eventNames.execDetailsEnd, (requestId) => {
+      if (!connected) return;
       if (!activeCycle || requestId !== activeCycle.requestId) return;
       activeCycle.ended = true;
       finishCycle();
     });
     on(eventNames.commissionReport, (report) => {
+      if (!connected) return;
       const id = commissionId(report);
       if (!id) return;
       const prior = commissionBuffer.get(id);
       if (prior && !sameRecord(prior, report)) {
         blockedReason = `conflicting commission replay ${id}`;
-        failCycle(blockedReason);
+        terminalCycle(blockedReason);
         return;
       }
       commissionBuffer.set(id, report);
@@ -685,11 +720,34 @@ export function createFamilySessionAdapter({
       stopTimer("poll");
       stopTimer("timeout");
       stopTimer("fx");
+      retryScheduler.cancel();
       activeAccountUpdateRequestId = null;
       cleanupListeners();
       emitAvailability("broker disconnected; fresh executions and FX required");
     });
     return attachedGeneration;
+  }
+
+  function upstreamUnavailable(reason = "broker upstream unavailable; fresh executions and FX required") {
+    if (!activeApi) return false;
+    connected = false;
+    managed = false;
+    executionReady = false;
+    activeCycle = null;
+    fxRates = new Map();
+    commissionBuffer = new Map();
+    stopTimer("poll");
+    stopTimer("timeout");
+    stopTimer("fx");
+    retryScheduler.cancel();
+    try {
+      if (activeAccountUpdateRequestId !== null) {
+        activeApi.cancelAccountUpdatesMulti?.(activeAccountUpdateRequestId);
+      }
+    } catch {}
+    activeAccountUpdateRequestId = null;
+    emitAvailability(reason);
+    return true;
   }
 
   function requiredCurrencies() {
@@ -712,6 +770,7 @@ export function createFamilySessionAdapter({
 
   function project(book) {
     if (blockedReason) return { ok: false, reason: blockedReason };
+    if (retryReason) return { ok: false, reason: retryReason };
     if (!state) return { ok: false, reason: "family ledger has not completed its baseline execution cycle" };
     if (!connected || !executionReady) return { ok: false, reason: "fresh complete execution cycle unavailable" };
     if (state.coverageTradingDay !== newYorkDay(now())) {
@@ -783,6 +842,7 @@ export function createFamilySessionAdapter({
     stopTimer("poll");
     stopTimer("timeout");
     stopTimer("fx");
+    retryScheduler.cancel();
     try {
       if (activeAccountUpdateRequestId !== null) {
         activeApi?.cancelAccountUpdatesMulti?.(activeAccountUpdateRequestId);
@@ -797,11 +857,13 @@ export function createFamilySessionAdapter({
   return {
     attach,
     retire,
+    upstreamUnavailable,
     pollNow,
     project,
     get connected() { return connected; },
     get requestInFlight() { return Boolean(activeCycle); },
     get blockedReason() { return blockedReason; },
+    get retryReason() { return retryReason; },
     inspectState() { return state ? clone(state) : null; },
   };
 }
