@@ -588,16 +588,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1788962676,
-        "narHash": "sha256-MI+CptaO7Nk5Vmx0fYjSEuwAyb5eMZnK7w8/mw+NMDY=",
+        "lastModified": 1789147686,
+        "narHash": "sha256-HPD/7OlhRfTeXP690fO2LWc00fOpJPmI3Q8bA+aS8To=",
         "owner": "inspr-at",
         "repo": "janus",
-        "rev": "c861018d72af57885a946dff8dc9e7ac3090b854",
+        "rev": "2a28285bd0e3e95c5292eda26c3f9cc0bfb3bcbb",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
-        "ref": "rust-engine-v0.1.35",
+        "ref": "rust-engine-v0.1.36",
         "repo": "janus",
         "type": "github"
       }
@@ -1044,16 +1044,16 @@
     "paimos": {
       "flake": false,
       "locked": {
-        "lastModified": 1789089036,
-        "narHash": "sha256-l/AIaNsvNlxiwZernfDmclsS4cav8ejU4go3C/61xug=",
+        "lastModified": 1789148581,
+        "narHash": "sha256-88wnrwPNH47Rk5b05F2OQb4rMmTYwzZIaluqtK/5x7Q=",
         "owner": "inspr-at",
         "repo": "paimos",
-        "rev": "833e8a196999dc03220ec7402d3c9a3bbdfa833d",
+        "rev": "b3e4634af72fa2d1fec51b3d8ca8b7ced2e95270",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
-        "ref": "v260911005821.0.0",
+        "ref": "v260911172741.0.0",
         "repo": "paimos",
         "type": "github"
       }
