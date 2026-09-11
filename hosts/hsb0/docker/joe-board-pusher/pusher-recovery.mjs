@@ -95,7 +95,7 @@ export function createConnectionSupervisor({
   snapshotTimeoutMs = 60_000,
   healthIntervalMs = 60_000,
   healthTimeoutMs = 15_000,
-  upstreamSilenceTimeoutMs = 300_000,
+  upstreamLossDeadlineMs = 300_000,
   random = Math.random,
   setTimer = setTimeout,
   clearTimer = clearTimeout,
@@ -108,7 +108,7 @@ export function createConnectionSupervisor({
   positiveNumber(snapshotTimeoutMs, "snapshotTimeoutMs");
   positiveNumber(healthIntervalMs, "healthIntervalMs");
   positiveNumber(healthTimeoutMs, "healthTimeoutMs");
-  positiveNumber(upstreamSilenceTimeoutMs, "upstreamSilenceTimeoutMs");
+  positiveNumber(upstreamLossDeadlineMs, "upstreamLossDeadlineMs");
 
   let activeApi = null;
   let connecting = false;
@@ -117,6 +117,7 @@ export function createConnectionSupervisor({
   let snapshotTimer = null;
   let healthTimer = null;
   let healthResponseTimer = null;
+  let upstreamLossTimer = null;
   let upstreamLost = false;
 
   function clearNamedTimer(name) {
@@ -126,13 +127,16 @@ export function createConnectionSupervisor({
         ? snapshotTimer
         : name === "health"
           ? healthTimer
-          : healthResponseTimer;
+          : name === "healthResponse"
+            ? healthResponseTimer
+            : upstreamLossTimer;
     if (value === null) return;
     clearTimer(value);
     if (name === "connect") connectTimer = null;
     else if (name === "snapshot") snapshotTimer = null;
     else if (name === "health") healthTimer = null;
-    else healthResponseTimer = null;
+    else if (name === "healthResponse") healthResponseTimer = null;
+    else upstreamLossTimer = null;
   }
 
   function clearConnectionTimers() {
@@ -140,6 +144,7 @@ export function createConnectionSupervisor({
     clearNamedTimer("snapshot");
     clearNamedTimer("health");
     clearNamedTimer("healthResponse");
+    clearNamedTimer("upstreamLoss");
   }
 
   function disconnectQuietly(api) {
@@ -161,17 +166,10 @@ export function createConnectionSupervisor({
   function scheduleHealthProbe(api) {
     clearNamedTimer("health");
     clearNamedTimer("healthResponse");
-    if (stopped || api !== activeApi || connecting) return;
-    if (upstreamLost) {
-      healthTimer = setTimer(() => {
-        healthTimer = null;
-        fail(api, "broker socket silent during upstream outage");
-      }, upstreamSilenceTimeoutMs);
-      return;
-    }
+    if (stopped || api !== activeApi || connecting || upstreamLost) return;
     healthTimer = setTimer(() => {
       healthTimer = null;
-      if (stopped || api !== activeApi || connecting) return;
+      if (stopped || api !== activeApi || connecting || upstreamLost) return;
       try {
         requestHealth(api);
       } catch (error) {
@@ -180,9 +178,24 @@ export function createConnectionSupervisor({
       }
       healthResponseTimer = setTimer(() => {
         healthResponseTimer = null;
+        if (stopped || api !== activeApi || connecting || upstreamLost) return;
         fail(api, "broker socket health callback timed out");
       }, healthTimeoutMs);
     }, healthIntervalMs);
+  }
+
+  function scheduleUpstreamLossDeadline(api) {
+    if (stopped || api !== activeApi || connecting || !upstreamLost || upstreamLossTimer !== null) {
+      return false;
+    }
+    const timer = setTimer(() => {
+      if (upstreamLossTimer !== timer) return;
+      upstreamLossTimer = null;
+      if (stopped || api !== activeApi || connecting || !upstreamLost) return;
+      fail(api, "broker upstream loss deadline expired");
+    }, upstreamLossDeadlineMs);
+    upstreamLossTimer = timer;
+    return true;
   }
 
   const scheduler = createReconnectScheduler({
@@ -258,20 +271,24 @@ export function createConnectionSupervisor({
 
     socketActivity(api) {
       if (stopped || api !== activeApi || connecting) return false;
+      if (upstreamLost) return true;
       scheduleHealthProbe(api);
       return true;
     },
 
     upstreamUnavailable(api) {
       if (stopped || api !== activeApi || connecting) return false;
+      if (upstreamLost) return true;
       upstreamLost = true;
       clearNamedTimer("snapshot");
-      scheduleHealthProbe(api);
+      clearNamedTimer("health");
+      clearNamedTimer("healthResponse");
+      scheduleUpstreamLossDeadline(api);
       return true;
     },
 
     stable(api) {
-      if (stopped || api !== activeApi || connecting) return false;
+      if (stopped || api !== activeApi || connecting || upstreamLost) return false;
       clearNamedTimer("snapshot");
       scheduler.reset();
       scheduleHealthProbe(api);

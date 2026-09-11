@@ -36,10 +36,12 @@ without providing a usable book, so every new
 generation also has a separate 60-second complete-snapshot deadline. Health,
 informational, and partial callbacks cannot extend it; only an accepted complete
 book clears it. A declared upstream outage pauses that deadline while real inbound
-notices extend a bounded five-minute socket-silence deadline without pretending
-the financial book is fresh. Otherwise, an idle socket must answer a non-financial
-current-time probe. Shutdown cancels every connection, snapshot, health, and retry
-timer.
+callbacks remain unable to extend a separate absolute five-minute deadline measured
+from the first loss notice. If no restoration notice arrives, that deadline retires
+the generation through the same capped retry supervisor even when informational or
+dropped financial callbacks keep arriving. Otherwise, an idle socket must answer a
+non-financial current-time probe. Shutdown cancels every connection, snapshot,
+upstream-loss, health, and retry timer.
 
 Stage-0 money excludes grandfathered paper SXR8 lot + leftover TSLA×1 (CONFIG.md) from
 since-start / stand / totals; action/learning still name open legacy holdings.
