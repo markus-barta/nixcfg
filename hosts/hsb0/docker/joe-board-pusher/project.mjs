@@ -6,6 +6,7 @@ const JOEL_SYMBOLS = new Set(["SXR8", "TSLA"]);
 const VIRTUAL_EQUITY = 5000.0;
 const STALE_AFTER = 300;
 const MAPPED_DESK_IDS = ["j", "joel"];
+const JOEL_HISTORY_BASIS = "joel.stage0-keep-excluded.v1";
 // CONFIG.md Grandfather (Markus 2026-09-04): existing paper SXR8 lot + leftover
 // TSLA×1 stay outside Stage-0 Joel book money / since-start / stand / totals
 // until Faber exit. Still mentioned in action/learning text.
@@ -209,6 +210,7 @@ export function projectBook(book, opts = {}) {
         iteration: null,
       },
       money: { equity: joelEquity, dayPnl: null, totalPnl: joelPnl },
+      historyBasis: JOEL_HISTORY_BASIS,
       heartbeatAt: heartbeat,
       issues: [],
     },
