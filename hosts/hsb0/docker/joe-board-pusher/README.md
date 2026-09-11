@@ -81,6 +81,119 @@ and aggregate money is `null` rather than a misleading partial sum. Disconnects
 require fresh executions and FX before J resumes, and any unproved New York day
 boundary requires backfill rather than position-only inference.
 
+## BEST-AVAILABLE history sidecar
+
+`execution-history.mjs`, `family-history.mjs`, and
+`execution-reconciliation.mjs` provide the independent, read-only import path
+for authoritative paper-API and preserved-ledger captures.
+They never rewrite `family-ledger.json` or a source artifact. The sidecar store is
+atomic, restart-safe, account/classifier-bound, and append-only by capture receipt;
+exact duplicate captures are idempotent, conflicting identities fail closed, and
+all IB correction revisions remain durable while only the highest revision is
+effective. Commission reports without a captured execution remain explicit orphan
+fees rather than being discarded.
+
+The concrete adapters accept the existing `family-ledger.json` shape and an
+official `probe-evidence.json` request. They normalize only representation: named
+IANA-zone timestamps become the same UTC instant, numeric shares become numbers,
+stock multipliers become one, sides become BUY/SELL, and `commission` plus
+`commissionAndFees` become one fee field. SDK/callback-only metadata is retained in
+the private receipt provenance but is excluded from economic conflict checks.
+An official commission may enrich an older fee with broker `realizedPNL`; a changed
+execution price, quantity, side, contract, currency, fee, or already-known realized
+PnL remains a hard conflict.
+
+Every capture declares an exact half-open target interval and either `known` or
+`complete` coverage. A successful API end callback is still `known`: only an
+explicit provider completeness assertion can create a complete interval. Coverage
+gaps are calculated as exact intervals not covered by such receipts. They keep full
+J equity unavailable but do not stop the asynchronous capture loop; transient
+capture, validation, and save failures remain retryable. Corrupt persisted sidecar
+state alone is a fatal load error because overwriting it could erase evidence.
+
+`projectBestAvailableHistory()` returns `status`, nullable full `equity`, a separate
+`capturedSubtotal`, exact `coverage`, conservative `missingOpeningLots`, orphan fee
+IDs, the latest verified complete period, and all capture receipt IDs. The subtotal
+is computed internally, never accepted from a caller: effective J-family executions
+and their actual fees are paired FIFO for captured roundtrips. Broker
+`commissionReport.realizedPNL` is account-book supplementary evidence and is never
+used as J-family money because another desk's same-symbol lots can affect its cost
+basis. It may only provide a conservative clue that a captured close lacks an
+opening lot. Results stay in their native currency—there is no implicit historical
+FX conversion. An opening-lot gap is
+reported only when a broker-realized close exceeds captured opposing quantity, not
+merely because a first captured execution is a buy. Full equity requires gap-free
+coverage plus a complete-accounting result bound to the same history digest.
+Journals may establish the client-family classifier, but never supply an execution
+price, fee, currency, FX rate, fill time, or completeness assertion.
+
+`capturedSubtotal.points` is the partial captured-realized history, with the exact
+contract `[{ at, realizedPnl }]`: `at` is an actual normalized execution timestamp
+and `realizedPnl` is the cumulative result in `capturedSubtotal.currency`. Equal
+timestamps are aggregated, opening-only executions add no point, and there is no
+synthetic zero anchor or FX-derived point. The points are strictly chronological,
+contain no account or execution IDs, and the final value equals the subtotal. A
+mixed-currency or incomplete-fee result exposes no single curve. At most the last
+2,048 actual timestamp points are returned; `pointsTruncated: true` says older
+points were omitted while their realized result remains included in every retained
+cumulative value. This curve is BEST-AVAILABLE captured evidence, never complete
+EUR desk equity and never a replacement for preserved history.
+
+Previewing is read-only; importing writes only the private atomic sidecar. The CLI
+always records these local sources as `known`, never `complete`:
+
+```sh
+node family-history-cli.mjs preview \
+  --source-type official-probe --source /absolute/path/probe-evidence.json \
+  --request 9310 --state /var/lib/joe-board-pusher/family-history.json \
+  --from 2026-09-10T04:00:00Z --to 2026-09-11T04:00:00Z
+
+node family-history-cli.mjs import \
+  --source-type family-ledger \
+  --source /var/lib/joe-board-pusher/family-ledger.json \
+  --state /var/lib/joe-board-pusher/family-history.json \
+  --from 2026-09-10T04:00:00Z --to 2026-09-11T04:00:00Z
+
+node family-history-cli.mjs import \
+  --source-type official-probe --source /absolute/path/probe-evidence.json \
+  --request 9310 --state /var/lib/joe-board-pusher/family-history.json \
+  --from 2026-09-10T04:00:00Z --to 2026-09-11T04:00:00Z
+```
+
+Runtime wiring uses `createFileFamilyHistoryStore()` plus
+`createFamilyHistoryIngestor()`. Its `fetchCapture` hook returns
+`{ capture, target }`, normally using `captureFromFamilyLedgerFile()` or
+`captureFromOfficialProbeFile()`. Failed captures remain retryable; an invalid
+persisted sidecar alone prevents overwrite.
+
+Cold-start wiring may seed an absent sidecar from the existing ledger exactly once,
+without changing that ledger:
+
+```js
+import { captureFromFamilyLedgerFile } from "./execution-history.mjs";
+import { reconcileExecutionCapture } from "./execution-reconciliation.mjs";
+import { createFileFamilyHistoryStore } from "./family-history.mjs";
+
+const store = createFileFamilyHistoryStore(historyPath);
+const loaded = store.load();
+if (!loaded.ok) throw new Error(loaded.reason);
+if (loaded.state === null) {
+  const capture = captureFromFamilyLedgerFile({
+    filePath: ledgerPath,
+    window: target,
+  });
+  store.save(reconcileExecutionCapture({ capture, target }));
+}
+```
+
+Here `historyPath` is the absolute `family-history.json` sidecar path, `ledgerPath`
+is the absolute existing `family-ledger.json` path, and `target` is the explicit
+half-open recovery interval. Subsequent ingestion must pass the loaded sidecar as
+`prior`; an exact replay is idempotent and a coverage gap never latches polling
+closed. The default read classifier is exactly client IDs
+`27,28,29,50,51,52,53,54,55,56`; inclusion of read client 56 preserves the proven
+production classifier and grants no order authority.
+
 ## Position rows
 
 Per-desk `positions[]` is emitted only after a completed, account-matched IB
