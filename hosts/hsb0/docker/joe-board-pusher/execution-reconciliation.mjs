@@ -13,7 +13,7 @@ const MAX_RECEIPTS = 1_024;
 const MAX_ALLOWED_ADAPTERS = 128;
 const MAX_TEXT = 256;
 const SHA256 = /^[0-9a-f]{64}$/;
-const VALIDATED_EVIDENCE = Symbol("validated reconciliation evidence");
+const VALIDATED_EVIDENCE = new WeakSet();
 
 export class ReconciliationError extends Error {
   constructor(code, message) {
@@ -390,8 +390,9 @@ export function validateReconciliationEvidence(
   if (Buffer.byteLength(canonicalJson(normalized), "utf8") > MAX_NORMALIZED_BYTES) {
     fail("INPUT_LIMIT", "normalized evidence exceeds the supported bound");
   }
-  Object.defineProperty(normalized, VALIDATED_EVIDENCE, { value: true });
-  return deepFreeze(normalized);
+  const frozen = deepFreeze(normalized);
+  VALIDATED_EVIDENCE.add(frozen);
+  return frozen;
 }
 
 const newYorkFormatter = new Intl.DateTimeFormat("en-CA", {
@@ -554,7 +555,7 @@ function normalizeReceipt(value) {
   }
   const coverage = plainObject(receipt.coverage, "prior receipt coverage");
   exactKeys(coverage, ["fromInclusive", "toExclusive", "completeThrough", "asOf"], "prior receipt coverage");
-  return {
+  const normalized = {
     ...receipt,
     account: text(receipt.account, "prior receipt account"),
     adapterId: text(receipt.adapterId, "prior receipt adapterId"),
@@ -569,11 +570,59 @@ function normalizeReceipt(value) {
     },
     verifiedAt: utc(receipt.verifiedAt, "prior receipt verifiedAt"),
   };
+  if (!CORRECTION_SEMANTICS.has(normalized.correctionSemantics)) {
+    fail("RECEIPT_CONFLICT", "prior reconciliation receipt correction semantics are invalid");
+  }
+  if (
+    Date.parse(normalized.coverage.fromInclusive) >= Date.parse(normalized.coverage.toExclusive) ||
+    Date.parse(normalized.coverage.completeThrough) < Date.parse(normalized.coverage.toExclusive) ||
+    normalized.coverage.asOf !== normalized.coverage.completeThrough
+  ) {
+    fail("RECEIPT_CONFLICT", "prior reconciliation receipt coverage is invalid");
+  }
+  return normalized;
 }
 
 function receiptComparable(receipt) {
   const { verifiedAt: _verifiedAt, ...comparable } = receipt;
   return comparable;
+}
+
+function intervalsOverlap(left, right) {
+  return (
+    Date.parse(left.fromInclusive) < Date.parse(right.toExclusive) &&
+    Date.parse(right.fromInclusive) < Date.parse(left.toExclusive)
+  );
+}
+
+function sameInterval(left, right) {
+  return left.fromInclusive === right.fromInclusive && left.toExclusive === right.toExclusive;
+}
+
+function sameVerifiedFacts(left, right) {
+  return (
+    left.correctionSemantics === right.correctionSemantics &&
+    left.canonicalIdentityDigest === right.canonicalIdentityDigest &&
+    left.identityCount === right.identityCount &&
+    left.matchedSocketLedgerDigest === right.matchedSocketLedgerDigest
+  );
+}
+
+function rejectConflictingReceiptOverlaps(receipt, priorReceipts) {
+  const receipts = [...priorReceipts, receipt];
+  for (let leftIndex = 0; leftIndex < receipts.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < receipts.length; rightIndex += 1) {
+      const left = receipts[leftIndex];
+      const right = receipts[rightIndex];
+      if (left.account !== right.account || !intervalsOverlap(left.coverage, right.coverage)) continue;
+      if (!sameInterval(left.coverage, right.coverage) || !sameVerifiedFacts(left, right)) {
+        fail(
+          "RECEIPT_OVERLAP_CONFLICT",
+          "overlapping finalized receipts require explicit future correction reconciliation"
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -595,7 +644,7 @@ export function reconcileExecutionWindow({
   priorReceipts = [],
   verifiedAt,
 } = {}) {
-  if (!evidence?.[VALIDATED_EVIDENCE]) {
+  if (!evidence || typeof evidence !== "object" || !VALIDATED_EVIDENCE.has(evidence)) {
     fail("UNTRUSTED_EVIDENCE", "evidence must come from validateReconciliationEvidence");
   }
   const reconciliationAccount = text(account, "reconciliation account");
@@ -706,6 +755,7 @@ export function reconcileExecutionWindow({
   });
 
   const normalizedPrior = priorReceipts.map(normalizeReceipt);
+  rejectConflictingReceiptOverlaps(receipt, normalizedPrior);
   const reused = normalizedPrior
     .map((value, index) => ({ value, original: priorReceipts[index] }))
     .filter(({ value }) => value.rawArtifactSha256 === receipt.rawArtifactSha256);

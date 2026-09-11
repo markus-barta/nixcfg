@@ -308,43 +308,149 @@ export function reconcileWindowCoverage({ window, evidenceIntervals, providerId 
   }
 }
 
-function blockedState({ prior, now, gatewayTimeZone, reason, reconciledWindows, unreconciledWindows, maxReplayAgeMs }) {
+function terminalNeedsBaseline(reason) {
   return deepFreeze({
     schema: STATE_SCHEMA,
-    status: "blocked",
+    status: "needs-baseline",
+    baselineRequired: true,
     reason,
-    providerId: typeof prior?.providerId === "string" ? prior.providerId : null,
-    gatewayTimeZone: typeof gatewayTimeZone === "string" ? gatewayTimeZone : null,
-    evaluatedAt: typeof now === "string" ? now : null,
-    observedThrough: typeof prior?.observedThrough === "string" ? prior.observedThrough : null,
-    maxReplayAgeMs,
-    reconciledWindows: reconciledWindows ?? [],
-    unreconciledWindows: unreconciledWindows ?? [],
+    providerId: null,
+    gatewayTimeZone: null,
+    evaluatedAt: null,
+    observedThrough: null,
+    maxReplayAgeMs: null,
+    reconciledWindows: [],
+    unreconciledWindows: [],
+    unresolvedConflictWindows: [],
+    invalidatedReceiptIdsByWindow: [],
   });
 }
 
-function canonicalPrior(prior, gatewayTimeZone) {
+function uniqueReceiptIds(value, label) {
+  if (!Array.isArray(value) || value.length === 0) fail(`${label} must be a non-empty array`);
+  const ids = value.map((id) => requireNonEmptyString(id, `${label} entry`));
+  if (new Set(ids).size !== ids.length) fail(`${label} must contain unique receipt IDs`);
+  return ids.sort();
+}
+
+function canonicalPrior(prior) {
   const state = requireRecord(prior, "prior");
   if (state.schema !== STATE_SCHEMA) fail("prior schema is invalid");
+  if (state.status === "needs-baseline" || state.baselineRequired === true) {
+    fail("prior requires trusted baseline creation");
+  }
+  if (state.status !== "ready" && state.status !== "blocked") fail("prior status is invalid");
+  if (state.baselineRequired !== undefined && state.baselineRequired !== false) {
+    fail("prior baselineRequired flag is invalid");
+  }
   const providerId = requireNonEmptyString(state.providerId, "prior.providerId");
-  const zone = canonicalTimeZone(gatewayTimeZone);
-  if (state.gatewayTimeZone !== zone) fail("Gateway calendar changed without a new readiness baseline");
+  const zone = canonicalTimeZone(state.gatewayTimeZone);
   const evaluatedAtEpoch = parseInstant(state.evaluatedAt, "prior.evaluatedAt");
   const observedEpoch = parseInstant(state.observedThrough, "prior.observedThrough");
   if (observedEpoch > evaluatedAtEpoch) fail("prior observedThrough cannot follow prior evaluatedAt");
+  const priorReplayAgeMs = state.maxReplayAgeMs ?? null;
+  if (priorReplayAgeMs !== null && (!Number.isSafeInteger(priorReplayAgeMs) || priorReplayAgeMs <= 0)) {
+    fail("prior maxReplayAgeMs is invalid");
+  }
   if (!Array.isArray(state.reconciledWindows)) fail("prior.reconciledWindows must be an array");
+  const reconciledBegins = new Set();
   const reconciledWindows = state.reconciledWindows.map((entry) => {
     const record = requireRecord(entry, "prior reconciled window");
+    if (record.ok !== true || record.complete !== true) fail("prior reconciled window is not complete");
     const window = canonicalWindow(record.window, "prior reconciled window.window");
+    if (window.timeZone !== zone) fail("prior reconciled window uses a different calendar");
+    if (Date.parse(window.end) > evaluatedAtEpoch) fail("prior reconciled window is not closed at prior evaluatedAt");
+    if (reconciledBegins.has(window.begin)) fail("prior reconciled windows must be unique");
+    reconciledBegins.add(window.begin);
     if (record.providerId !== providerId) fail("prior reconciled window provider is invalid");
-    if (!Array.isArray(record.receiptIds) || record.receiptIds.some((id) => typeof id !== "string" || id.length === 0)) {
-      fail("prior reconciled window receipt IDs are invalid");
-    }
-    return { ok: true, complete: true, window, providerId, receiptIds: [...new Set(record.receiptIds)].sort() };
+    const receiptIds = uniqueReceiptIds(record.receiptIds, "prior reconciled window receiptIds");
+    return { ok: true, complete: true, window, providerId, receiptIds };
   });
   if (!Array.isArray(state.unreconciledWindows)) fail("prior.unreconciledWindows must be an array");
-  const unreconciledWindows = state.unreconciledWindows.map((window) => canonicalWindow(window, "prior unreconciled window"));
-  return { providerId, zone, evaluatedAtEpoch, observedEpoch, reconciledWindows, unreconciledWindows };
+  const unreconciledBegins = new Set();
+  const unreconciledWindows = state.unreconciledWindows.map((value) => {
+    const window = canonicalWindow(value, "prior unreconciled window");
+    if (window.timeZone !== zone) fail("prior unreconciled window uses a different calendar");
+    if (Date.parse(window.end) > evaluatedAtEpoch) fail("prior unreconciled window is not closed at prior evaluatedAt");
+    if (unreconciledBegins.has(window.begin)) fail("prior unreconciled windows must be unique");
+    if (reconciledBegins.has(window.begin)) fail("prior reconciled and unreconciled windows must be disjoint");
+    unreconciledBegins.add(window.begin);
+    return window;
+  });
+  if (state.status === "ready" && unreconciledWindows.length > 0) {
+    fail("ready prior cannot contain unreconciled windows");
+  }
+  const invalidatedReceiptRecords = state.invalidatedReceiptIdsByWindow ?? [];
+  if (!Array.isArray(invalidatedReceiptRecords)) {
+    fail("prior.invalidatedReceiptIdsByWindow must be an array");
+  }
+  const invalidatedBegins = new Set();
+  const invalidatedReceiptIdsByWindow = invalidatedReceiptRecords.map((entry) => {
+    const record = requireRecord(entry, "prior invalidated receipt record");
+    const window = canonicalWindow(record.window, "prior invalidated receipt record.window");
+    if (window.timeZone !== zone) fail("prior invalidated receipt record uses a different calendar");
+    if (invalidatedBegins.has(window.begin)) fail("prior invalidated receipt window records must be unique");
+    invalidatedBegins.add(window.begin);
+    const receiptIds = uniqueReceiptIds(record.receiptIds, "prior invalidated receipt record receiptIds");
+    const reconciled = reconciledWindows.find((candidate) => candidate.window.begin === window.begin);
+    if (reconciled?.receiptIds.some((receiptId) => receiptIds.includes(receiptId))) {
+      fail("prior reconciled window reuses an invalidated receipt ID");
+    }
+    return { window, receiptIds };
+  });
+  const unresolvedConflictRecords = state.unresolvedConflictWindows ?? [];
+  if (!Array.isArray(unresolvedConflictRecords)) fail("prior.unresolvedConflictWindows must be an array");
+  const unresolvedConflictBegins = new Set();
+  const unresolvedConflictWindows = unresolvedConflictRecords.map((value) => {
+    const window = canonicalWindow(value, "prior unresolved conflict window");
+    if (window.timeZone !== zone) fail("prior unresolved conflict window uses a different calendar");
+    if (unresolvedConflictBegins.has(window.begin)) fail("prior unresolved conflict windows must be unique");
+    if (reconciledBegins.has(window.begin)) fail("prior reconciled and unresolved conflict windows must be disjoint");
+    if (!invalidatedBegins.has(window.begin)) fail("prior unresolved conflict window lacks invalidated receipt IDs");
+    unresolvedConflictBegins.add(window.begin);
+    return window;
+  });
+  if (state.status === "ready" && unresolvedConflictWindows.length > 0) {
+    fail("ready prior cannot contain unresolved conflict windows");
+  }
+  return {
+    providerId,
+    zone,
+    evaluatedAtEpoch,
+    observedEpoch,
+    maxReplayAgeMs: priorReplayAgeMs,
+    reconciledWindows,
+    unreconciledWindows,
+    unresolvedConflictWindows,
+    invalidatedReceiptIdsByWindow,
+  };
+}
+
+function blockedFromPrior({
+  prior,
+  reason,
+  evaluatedAtEpoch,
+  reconciledWindows,
+  unreconciledWindows,
+  unresolvedConflictWindows,
+  invalidatedReceiptIdsByWindow,
+  maxReplayAgeMs,
+}) {
+  return deepFreeze({
+    schema: STATE_SCHEMA,
+    status: "blocked",
+    baselineRequired: false,
+    reason,
+    providerId: prior.providerId,
+    gatewayTimeZone: prior.zone,
+    evaluatedAt: new Date(evaluatedAtEpoch ?? prior.evaluatedAtEpoch).toISOString(),
+    observedThrough: new Date(prior.observedEpoch).toISOString(),
+    maxReplayAgeMs: maxReplayAgeMs ?? prior.maxReplayAgeMs,
+    reconciledWindows: reconciledWindows ?? prior.reconciledWindows,
+    unreconciledWindows: unreconciledWindows ?? prior.unreconciledWindows,
+    unresolvedConflictWindows: unresolvedConflictWindows ?? prior.unresolvedConflictWindows,
+    invalidatedReceiptIdsByWindow: invalidatedReceiptIdsByWindow ?? prior.invalidatedReceiptIdsByWindow,
+  });
 }
 
 function canonicalMaxReplayAge(value, currentWindow) {
@@ -376,19 +482,55 @@ function canonicalReplay(value, nowEpoch, currentWindow, priorObservedEpoch, max
   return observedEpoch;
 }
 
-function evidenceConflictsWithReconciled(evidenceIntervals, providerId, timeZone, reconciledWindows) {
+function canonicalFinalEvidence(evidenceIntervals, providerId, timeZone) {
   if (!Array.isArray(evidenceIntervals)) fail("finalEvidence must be an array of validated receipt intervals");
-  const intervals = evidenceIntervals.map((entry) => canonicalEvidenceInterval(entry, providerId, timeZone));
-  const conflicted = new Set();
-  for (const interval of intervals) {
-    if (!interval.conflict) continue;
-    for (const record of reconciledWindows) {
-      if (interval.beginEpoch < Date.parse(record.window.end) && interval.endEpoch > Date.parse(record.window.begin)) {
-        conflicted.add(record.window.begin);
-      }
+  return evidenceIntervals.map((entry) => canonicalEvidenceInterval(entry, providerId, timeZone));
+}
+
+function overlapsWindow(interval, window) {
+  return interval.beginEpoch < Date.parse(window.end) && interval.endEpoch > Date.parse(window.begin);
+}
+
+function invalidatedReceiptMap(records) {
+  return new Map(records.map((record) => [
+    record.window.begin,
+    { window: record.window, receiptIds: new Set(record.receiptIds) },
+  ]));
+}
+
+function sortedInvalidatedRecords(records) {
+  return [...records.values()]
+    .map((record) => ({ window: record.window, receiptIds: [...record.receiptIds].sort() }))
+    .sort((a, b) => a.window.begin.localeCompare(b.window.begin));
+}
+
+function addInvalidatedReceipts(records, window, receiptIds) {
+  let record = records.get(window.begin);
+  if (!record) {
+    record = { window, receiptIds: new Set() };
+    records.set(window.begin, record);
+  }
+  for (const receiptId of receiptIds) record.receiptIds.add(receiptId);
+}
+
+function conflictWindows(interval, priorWindowBegin, nowEpoch, timeZone, knownWindows) {
+  const byBegin = new Map();
+  for (const window of knownWindows) {
+    if (overlapsWindow(interval, window)) byBegin.set(window.begin, window);
+  }
+
+  const rangeBegin = Math.max(interval.beginEpoch, priorWindowBegin);
+  const rangeEnd = Math.min(interval.endEpoch, nowEpoch);
+  if (rangeBegin < rangeEnd) {
+    let window = retentionWindowAt({ instant: new Date(rangeBegin).toISOString(), timeZone });
+    for (let count = 0; Date.parse(window.begin) < rangeEnd; count += 1) {
+      if (count >= MAX_WINDOW_SCAN) fail("conflicting evidence window scan exceeds its safety bound");
+      byBegin.set(window.begin, window);
+      if (Date.parse(window.end) >= rangeEnd) break;
+      window = retentionWindowAt({ instant: window.end, timeZone });
     }
   }
-  return conflicted;
+  return [...byBegin.values()];
 }
 
 /**
@@ -405,35 +547,103 @@ export function transitionRetentionReadiness({
   freshReplay,
   maxReplayAgeMs,
 } = {}) {
+  let canonical = null;
   let retainedReconciliations = [];
   let unreconciledWindows = [];
+  let unresolvedConflictWindows = [];
+  let invalidatedReceiptIdsByWindow = [];
   let replayAgeLimit = null;
+  let acceptedNowEpoch = null;
   try {
-    const canonical = canonicalPrior(prior, gatewayTimeZone);
+    canonical = canonicalPrior(prior);
     retainedReconciliations = canonical.reconciledWindows;
     unreconciledWindows = canonical.unreconciledWindows;
+    unresolvedConflictWindows = canonical.unresolvedConflictWindows;
+    invalidatedReceiptIdsByWindow = canonical.invalidatedReceiptIdsByWindow;
     const nowEpoch = parseInstant(now, "now");
     if (nowEpoch < canonical.evaluatedAtEpoch || nowEpoch < canonical.observedEpoch) {
       fail("readiness clock moved backward");
     }
+    const requestedZone = canonicalTimeZone(gatewayTimeZone);
+    if (requestedZone !== canonical.zone) fail("Gateway calendar changed without a new trusted baseline");
+    acceptedNowEpoch = nowEpoch;
     const currentWindow = retentionWindowAt({ instant: now, timeZone: canonical.zone });
     replayAgeLimit = canonicalMaxReplayAge(maxReplayAgeMs, currentWindow);
 
-    const conflicted = evidenceConflictsWithReconciled(
-      finalEvidence,
-      canonical.providerId,
-      canonical.zone,
-      retainedReconciliations,
-    );
-    if (conflicted.size > 0) {
-      const invalidated = retainedReconciliations
-        .filter((entry) => conflicted.has(entry.window.begin))
-        .map((entry) => entry.window);
-      retainedReconciliations = retainedReconciliations.filter((entry) => !conflicted.has(entry.window.begin));
-      const pendingByBegin = new Map(unreconciledWindows.map((window) => [window.begin, window]));
-      for (const window of invalidated) pendingByBegin.set(window.begin, window);
-      unreconciledWindows = [...pendingByBegin.values()].sort((a, b) => a.begin.localeCompare(b.begin));
-      fail("a corrected receipt invalidated reconciled retention coverage");
+    const intervals = canonicalFinalEvidence(finalEvidence, canonical.providerId, canonical.zone);
+    const invalidatedByBegin = invalidatedReceiptMap(invalidatedReceiptIdsByWindow);
+    for (const interval of intervals) {
+      for (const record of invalidatedByBegin.values()) {
+        if (record.receiptIds.has(interval.receiptId) && overlapsWindow(interval, record.window)) {
+          fail(`receipt ${interval.receiptId} was invalidated for this retention window`);
+        }
+      }
+    }
+
+    const conflictIntervals = intervals.filter((interval) => interval.conflict);
+    if (conflictIntervals.length > 0) {
+      const knownWindows = [
+        ...retainedReconciliations.map((record) => record.window),
+        ...unreconciledWindows,
+        ...unresolvedConflictWindows,
+      ];
+      const priorWindowBegin = Date.parse(retentionWindowAt({
+        instant: prior.observedThrough,
+        timeZone: canonical.zone,
+      }).begin);
+      const affectedByBegin = new Map();
+      for (const interval of conflictIntervals) {
+        for (const window of conflictWindows(interval, priorWindowBegin, nowEpoch, canonical.zone, knownWindows)) {
+          let affected = affectedByBegin.get(window.begin);
+          if (!affected) {
+            affected = { window, receiptIds: new Set() };
+            affectedByBegin.set(window.begin, affected);
+          }
+          affected.receiptIds.add(interval.receiptId);
+        }
+      }
+      if (affectedByBegin.size > 0) {
+        const pendingByBegin = new Map(unreconciledWindows.map((window) => [window.begin, window]));
+        const retained = [];
+        for (const record of retainedReconciliations) {
+          const affected = affectedByBegin.get(record.window.begin);
+          if (!affected) {
+            retained.push(record);
+            continue;
+          }
+          for (const receiptId of record.receiptIds) affected.receiptIds.add(receiptId);
+          pendingByBegin.set(record.window.begin, record.window);
+        }
+        retainedReconciliations = retained;
+        for (const affected of affectedByBegin.values()) {
+          addInvalidatedReceipts(invalidatedByBegin, affected.window, affected.receiptIds);
+          if (Date.parse(affected.window.end) <= nowEpoch) {
+            pendingByBegin.set(affected.window.begin, affected.window);
+          }
+        }
+        unreconciledWindows = [...pendingByBegin.values()].sort((a, b) => a.begin.localeCompare(b.begin));
+        const unresolvedByBegin = new Map(unresolvedConflictWindows.map((window) => [window.begin, window]));
+        for (const affected of affectedByBegin.values()) unresolvedByBegin.set(affected.window.begin, affected.window);
+        unresolvedConflictWindows = [...unresolvedByBegin.values()].sort((a, b) => a.begin.localeCompare(b.begin));
+        invalidatedReceiptIdsByWindow = sortedInvalidatedRecords(invalidatedByBegin);
+        fail("conflicting receipt invalidated retention coverage");
+      }
+    }
+
+    const replacementReconciliations = new Map();
+    if (unresolvedConflictWindows.length > 0) {
+      for (const window of unresolvedConflictWindows) {
+        const replacement = reconcileWindowCoverage({
+          window,
+          evidenceIntervals: finalEvidence,
+          providerId: canonical.providerId,
+        });
+        if (!replacement.ok) fail(`unresolved conflict requires replacement coverage: ${replacement.reason}`);
+        if (Date.parse(window.end) <= nowEpoch) replacementReconciliations.set(window.begin, replacement);
+      }
+      const resolvedBegins = new Set(unresolvedConflictWindows.map((window) => window.begin));
+      unreconciledWindows = unreconciledWindows.filter((window) => !resolvedBegins.has(window.begin));
+      unresolvedConflictWindows = [];
     }
 
     const required = uncoveredRetentionWindows({
@@ -445,6 +655,7 @@ export function transitionRetentionReadiness({
     for (const window of required) requiredByBegin.set(window.begin, window);
     unreconciledWindows = [...requiredByBegin.values()].sort((a, b) => a.begin.localeCompare(b.begin));
     const byBegin = new Map(retainedReconciliations.map((entry) => [entry.window.begin, entry]));
+    for (const [begin, replacement] of replacementReconciliations) byBegin.set(begin, replacement);
     for (const window of unreconciledWindows) {
       if (byBegin.has(window.begin)) continue;
       const reconciliation = reconcileWindowCoverage({
@@ -466,6 +677,7 @@ export function transitionRetentionReadiness({
     return deepFreeze({
       schema: STATE_SCHEMA,
       status: "ready",
+      baselineRequired: false,
       reason: null,
       providerId: canonical.providerId,
       gatewayTimeZone: canonical.zone,
@@ -474,16 +686,20 @@ export function transitionRetentionReadiness({
       maxReplayAgeMs: replayAgeLimit,
       reconciledWindows: [...byBegin.values()].sort((a, b) => a.window.begin.localeCompare(b.window.begin)),
       unreconciledWindows: [],
+      unresolvedConflictWindows: [],
+      invalidatedReceiptIdsByWindow,
     });
   } catch (error) {
     if (!(error instanceof RetentionContractError)) throw error;
-    return blockedState({
-      prior,
-      now,
-      gatewayTimeZone,
+    if (!canonical) return terminalNeedsBaseline(error.message);
+    return blockedFromPrior({
+      prior: canonical,
       reason: error.message,
+      evaluatedAtEpoch: acceptedNowEpoch,
       reconciledWindows: retainedReconciliations,
       unreconciledWindows,
+      unresolvedConflictWindows,
+      invalidatedReceiptIdsByWindow,
       maxReplayAgeMs: replayAgeLimit,
     });
   }

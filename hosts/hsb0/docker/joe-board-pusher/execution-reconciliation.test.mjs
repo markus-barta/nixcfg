@@ -326,6 +326,106 @@ test("common-ID economics and commission currency disagreements block", () => {
   );
 });
 
+test("validated evidence membership cannot be forged by copying reflected Symbols", () => {
+  const values = fixture78();
+  const evidence = validate(values.input, values.raw);
+  const reflectedSymbols = Object.getOwnPropertySymbols(evidence);
+  const forged = structuredClone(evidence);
+  for (const symbol of reflectedSymbols) {
+    Object.defineProperty(forged, symbol, Object.getOwnPropertyDescriptor(evidence, symbol));
+  }
+  forged.finality.status = "PROVISIONAL";
+  forged.rawArtifactSha256 = "0".repeat(64);
+  forged.adapterId = "never-allowed";
+
+  assert.deepEqual(reflectedSymbols, []);
+  assert.equal(Object.isFrozen(evidence), true);
+  assert.equal(Object.isFrozen(evidence.finality), true);
+  assert.equal(Object.isFrozen(evidence.executions), true);
+  assert.equal(Object.isFrozen(evidence.executions[0]), true);
+  assert.throws(
+    () => reconcile(forged, values.socketExecutions, values.socketCommissions),
+    /must come from validateReconciliationEvidence/
+  );
+});
+
+test("overlapping finalized receipts reject changed facts without mutating prior receipts", () => {
+  const raw = artifact("synthetic first finalized artifact");
+  const firstSocket = socketExecution(0, { execId: "synthetic.overlap.01" });
+  const firstInput = evidenceInput(raw, [evidenceExecution(firstSocket, 0, false)]);
+  const first = reconcile(
+    validate(firstInput, raw),
+    [firstSocket],
+    [socketCommission(firstSocket)]
+  );
+  const priorReceipts = Object.freeze([first.receipt]);
+  const priorSnapshot = JSON.stringify(priorReceipts);
+
+  const confirmingRaw = artifact("synthetic independent confirming artifact");
+  const confirmingInput = structuredClone(firstInput);
+  confirmingInput.rawArtifactSha256 = sha256(confirmingRaw);
+  confirmingInput.finality.assertionId = "synthetic-independent-finality";
+  const confirmation = reconcile(
+    validate(confirmingInput, confirmingRaw),
+    [firstSocket],
+    [socketCommission(firstSocket)],
+    { priorReceipts, verifiedAt: "2026-09-10T15:04:00.000Z" }
+  );
+  assert.equal(confirmation.idempotent, false);
+  assert.equal(confirmation.receipts.length, 2);
+  assert.notEqual(confirmation.receipt.rawArtifactSha256, first.receipt.rawArtifactSha256);
+  assert.equal(confirmation.receipt.canonicalIdentityDigest, first.receipt.canonicalIdentityDigest);
+  assert.equal(confirmation.receipt.matchedSocketLedgerDigest, first.receipt.matchedSocketLedgerDigest);
+
+  const changedLedgerSocket = structuredClone(firstSocket);
+  changedLedgerSocket.contract.conId += 1;
+  const changedLedgerRaw = artifact("synthetic changed socket-ledger artifact");
+  const changedLedgerInput = structuredClone(firstInput);
+  changedLedgerInput.rawArtifactSha256 = sha256(changedLedgerRaw);
+  changedLedgerInput.finality.assertionId = "synthetic-changed-ledger-finality";
+  assert.throws(
+    () => reconcile(
+      validate(changedLedgerInput, changedLedgerRaw),
+      [changedLedgerSocket],
+      [socketCommission(changedLedgerSocket)],
+      { priorReceipts, verifiedAt: "2026-09-10T15:05:00.000Z" }
+    ),
+    /overlapping finalized receipts require explicit future correction reconciliation/
+  );
+
+  const correctedSocket = socketExecution(1, { execId: "synthetic.overlap.02" });
+  const correctedRaw = artifact("synthetic conflicting corrected artifact");
+  const correctedInput = evidenceInput(correctedRaw, [evidenceExecution(correctedSocket, 1, false)]);
+  assert.throws(
+    () => reconcile(
+      validate(correctedInput, correctedRaw),
+      [firstSocket, correctedSocket],
+      [socketCommission(firstSocket), socketCommission(correctedSocket)],
+      { priorReceipts, verifiedAt: "2026-09-10T15:06:00.000Z" }
+    ),
+    /overlapping finalized receipts require explicit future correction reconciliation/
+  );
+
+  const partiallyOverlappingReceipt = structuredClone(first.receipt);
+  partiallyOverlappingReceipt.coverage = {
+    fromInclusive: "2026-09-10T13:30:00.000Z",
+    toExclusive: "2026-09-10T14:30:00.000Z",
+    completeThrough: "2026-09-10T14:30:00.000Z",
+    asOf: "2026-09-10T14:30:00.000Z",
+  };
+  assert.throws(
+    () => reconcile(
+      validate(confirmingInput, confirmingRaw),
+      [firstSocket],
+      [socketCommission(firstSocket)],
+      { priorReceipts: [partiallyOverlappingReceipt], verifiedAt: "2026-09-10T15:06:00.000Z" }
+    ),
+    /overlapping finalized receipts require explicit future correction reconciliation/
+  );
+  assert.equal(JSON.stringify(priorReceipts), priorSnapshot);
+  assert.strictEqual(priorReceipts[0], first.receipt);
+});
+
 test("receipts append immutably, identical evidence is idempotent, and digest reuse conflicts", () => {
   const values = fixture78();
   const evidence = validate(values.input, values.raw);

@@ -23,13 +23,17 @@ function priorState(overrides = {}) {
   return {
     schema: RETENTION_CONTRACT.stateSchema,
     status: "ready",
+    baselineRequired: false,
     reason: null,
     providerId: PROVIDER,
     gatewayTimeZone: VIENNA,
     evaluatedAt: "2026-09-10T21:59:30.000Z",
     observedThrough: "2026-09-10T21:59:30.000Z",
+    maxReplayAgeMs: null,
     reconciledWindows: [],
     unreconciledWindows: [],
+    unresolvedConflictWindows: [],
+    invalidatedReceiptIdsByWindow: [],
     ...overrides,
   };
 }
@@ -64,6 +68,27 @@ function replay({ now, observedThrough, executionCount = 0, timeZone = VIENNA, .
     completedAt: now,
     ...overrides,
   };
+}
+
+function correctedState() {
+  const closed = retentionWindowAt({ instant: "2026-09-10T21:59:30Z", timeZone: VIENNA });
+  const readyNow = "2026-09-10T22:00:20.000Z";
+  const ready = transitionRetentionReadiness({
+    prior: priorState(),
+    now: readyNow,
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [evidence(closed)],
+    freshReplay: replay({ now: readyNow, observedThrough: "2026-09-10T22:00:10.000Z" }),
+  });
+  const correctedNow = "2026-09-10T22:01:00.000Z";
+  const corrected = transitionRetentionReadiness({
+    prior: ready,
+    now: correctedNow,
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [evidence(closed, { receiptId: "receipt-correction", conflict: true })],
+    freshReplay: replay({ now: correctedNow, observedThrough: "2026-09-10T22:00:50.000Z" }),
+  });
+  return { closed, ready, corrected };
 }
 
 test("retention windows use local midnight and preserve 23-hour and 25-hour Vienna days", () => {
@@ -292,7 +317,8 @@ test("prior watermark ordering fails closed and reducer inputs remain unchanged"
     finalEvidence: [],
     freshReplay: replay({ now, observedThrough: "2026-09-10T22:00:10.000Z" }),
   });
-  assert.equal(invalid.status, "blocked");
+  assert.equal(invalid.status, "needs-baseline");
+  assert.equal(invalid.baselineRequired, true);
   assert.match(invalid.reason, /observedThrough cannot follow/);
 
   const prior = priorState();
@@ -357,7 +383,7 @@ test("repeated successful transitions are idempotent", () => {
   assert.equal(Object.isFrozen(second), true);
 });
 
-test("backward clocks block and corrected conflicting receipts invalidate reconciled coverage", () => {
+test("R1 superseded receipts stay invalidated while backward clocks remain blocked", () => {
   const initialNow = "2026-09-10T22:00:20.000Z";
   const closed = retentionWindowAt({ instant: "2026-09-10T21:59:30Z", timeZone: VIENNA });
   const ready = transitionRetentionReadiness({
@@ -391,9 +417,27 @@ test("backward clocks block and corrected conflicting receipts invalidate reconc
     freshReplay: replay({ now: correctedNow, observedThrough: "2026-09-10T22:00:50.000Z" }),
   });
   assert.equal(corrected.status, "blocked");
-  assert.match(corrected.reason, /corrected receipt invalidated/);
+  assert.match(corrected.reason, /conflicting receipt invalidated/);
   assert.deepEqual(corrected.reconciledWindows, []);
   assert.deepEqual(corrected.unreconciledWindows, [closed]);
+  assert.deepEqual(corrected.invalidatedReceiptIdsByWindow, [{
+    window: closed,
+    receiptIds: ["receipt-1", "receipt-correction"],
+  }]);
+
+  const reused = transitionRetentionReadiness({
+    prior: corrected,
+    now: "2026-09-10T22:01:05.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [evidence(closed)],
+    freshReplay: replay({
+      now: "2026-09-10T22:01:05.000Z",
+      observedThrough: "2026-09-10T22:01:00.000Z",
+    }),
+  });
+  assert.equal(reused.status, "blocked");
+  assert.match(reused.reason, /receipt-1 was invalidated/);
+  assert.deepEqual(reused.unreconciledWindows, [closed]);
 
   const stillBlocked = transitionRetentionReadiness({
     prior: corrected,
@@ -407,6 +451,246 @@ test("backward clocks block and corrected conflicting receipts invalidate reconc
   });
   assert.equal(stillBlocked.status, "blocked");
   assert.deepEqual(stillBlocked.unreconciledWindows, [closed]);
+});
+
+test("R2 calendar changes cannot launder a Vienna obligation through New York and back", () => {
+  const hop1 = transitionRetentionReadiness({
+    prior: priorState(),
+    now: "2026-09-10T22:00:20.000Z",
+    gatewayTimeZone: NEW_YORK,
+    finalEvidence: [],
+    freshReplay: replay({
+      now: "2026-09-10T22:00:20.000Z",
+      observedThrough: "2026-09-10T22:00:10.000Z",
+      timeZone: NEW_YORK,
+    }),
+  });
+  assert.equal(hop1.status, "blocked");
+  assert.equal(hop1.gatewayTimeZone, VIENNA);
+  assert.equal(hop1.evaluatedAt, "2026-09-10T21:59:30.000Z");
+
+  const hop2 = transitionRetentionReadiness({
+    prior: hop1,
+    now: "2026-09-10T22:00:30.000Z",
+    gatewayTimeZone: NEW_YORK,
+    finalEvidence: [],
+    freshReplay: replay({
+      now: "2026-09-10T22:00:30.000Z",
+      observedThrough: "2026-09-10T22:00:25.000Z",
+      timeZone: NEW_YORK,
+    }),
+  });
+  assert.equal(hop2.status, "blocked");
+  assert.equal(hop2.gatewayTimeZone, VIENNA);
+
+  const hop3 = transitionRetentionReadiness({
+    prior: hop2,
+    now: "2026-09-10T22:00:40.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [],
+    freshReplay: {},
+  });
+  assert.equal(hop3.status, "blocked");
+  assert.equal(hop3.unreconciledWindows.length, 1);
+
+  const hop4 = transitionRetentionReadiness({
+    prior: hop3,
+    now: "2026-09-10T22:00:50.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [],
+    freshReplay: replay({ now: "2026-09-10T22:00:50.000Z", observedThrough: "2026-09-10T22:00:45.000Z" }),
+  });
+  assert.equal(hop4.status, "blocked");
+  assert.equal(hop4.unreconciledWindows.length, 1);
+});
+
+test("R3 missing and backward clocks cannot launder a corrected-window obligation", () => {
+  for (const invalidNow of [undefined, "2026-09-10T22:00:05.000Z"]) {
+    const { closed, corrected } = correctedState();
+    const first = transitionRetentionReadiness({
+      prior: corrected,
+      now: invalidNow,
+      gatewayTimeZone: VIENNA,
+      finalEvidence: [],
+      freshReplay: {},
+    });
+    assert.equal(first.status, "blocked");
+    assert.equal(first.evaluatedAt, corrected.evaluatedAt);
+    assert.equal(first.maxReplayAgeMs, corrected.maxReplayAgeMs);
+    assert.deepEqual(first.unreconciledWindows, [closed]);
+    assert.deepEqual(first.invalidatedReceiptIdsByWindow, corrected.invalidatedReceiptIdsByWindow);
+
+    const second = transitionRetentionReadiness({
+      prior: first,
+      now: "2026-09-10T22:01:20.000Z",
+      gatewayTimeZone: VIENNA,
+      finalEvidence: [],
+      freshReplay: {},
+    });
+    assert.equal(second.status, "blocked");
+    assert.deepEqual(second.unreconciledWindows, [closed]);
+
+    const third = transitionRetentionReadiness({
+      prior: second,
+      now: "2026-09-10T22:01:30.000Z",
+      gatewayTimeZone: VIENNA,
+      finalEvidence: [],
+      freshReplay: replay({ now: "2026-09-10T22:01:30.000Z", observedThrough: "2026-09-10T22:01:25.000Z" }),
+    });
+    assert.equal(third.status, "blocked");
+    assert.deepEqual(third.unreconciledWindows, [closed]);
+  }
+});
+
+test("R4 a conflicting receipt in the open Gateway window blocks and its ID stays invalidated", () => {
+  const prior = priorState({
+    evaluatedAt: "2026-09-10T03:59:30.000Z",
+    observedThrough: "2026-09-10T03:59:30.000Z",
+  });
+  const now = "2026-09-10T04:00:30.000Z";
+  const current = retentionWindowAt({ instant: now, timeZone: VIENNA });
+  const conflicting = evidence(current, {
+    receiptId: "receipt-open-conflict",
+    end: "2026-09-10T03:00:00.000Z",
+    conflict: true,
+  });
+  const blocked = transitionRetentionReadiness({
+    prior,
+    now,
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [conflicting],
+    freshReplay: replay({ now, observedThrough: "2026-09-10T04:00:20.000Z" }),
+  });
+  assert.equal(blocked.status, "blocked");
+  assert.deepEqual(blocked.invalidatedReceiptIdsByWindow, [{
+    window: current,
+    receiptIds: ["receipt-open-conflict"],
+  }]);
+  assert.deepEqual(blocked.unresolvedConflictWindows, [current]);
+
+  const reused = transitionRetentionReadiness({
+    prior: blocked,
+    now: "2026-09-10T04:00:40.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [{ ...conflicting, conflict: false }],
+    freshReplay: replay({ now: "2026-09-10T04:00:40.000Z", observedThrough: "2026-09-10T04:00:35.000Z" }),
+  });
+  assert.equal(reused.status, "blocked");
+  assert.match(reused.reason, /receipt-open-conflict was invalidated/);
+
+  const omitted = transitionRetentionReadiness({
+    prior: blocked,
+    now: "2026-09-10T04:00:40.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [],
+    freshReplay: replay({ now: "2026-09-10T04:00:40.000Z", observedThrough: "2026-09-10T04:00:35.000Z" }),
+  });
+  assert.equal(omitted.status, "blocked");
+  assert.match(omitted.reason, /unresolved conflict requires replacement coverage/);
+  assert.deepEqual(omitted.unresolvedConflictWindows, [current]);
+
+  const partialReplacement = transitionRetentionReadiness({
+    prior: omitted,
+    now: "2026-09-10T04:00:50.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [evidence(current, {
+      receiptId: "receipt-partial-replacement",
+      end: "2026-09-10T03:00:00.000Z",
+    })],
+    freshReplay: replay({ now: "2026-09-10T04:00:50.000Z", observedThrough: "2026-09-10T04:00:45.000Z" }),
+  });
+  assert.equal(partialReplacement.status, "blocked");
+  assert.deepEqual(partialReplacement.unresolvedConflictWindows, [current]);
+
+  const afterMidnight = transitionRetentionReadiness({
+    prior: partialReplacement,
+    now: "2026-09-10T22:00:30.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [],
+    freshReplay: replay({ now: "2026-09-10T22:00:30.000Z", observedThrough: "2026-09-10T22:00:20.000Z" }),
+  });
+  assert.equal(afterMidnight.status, "blocked");
+  assert.deepEqual(afterMidnight.unresolvedConflictWindows, [current]);
+
+  const replacement = transitionRetentionReadiness({
+    prior: afterMidnight,
+    now: "2026-09-10T22:00:40.000Z",
+    gatewayTimeZone: VIENNA,
+    finalEvidence: [evidence(current, { receiptId: "receipt-valid-replacement" })],
+    freshReplay: replay({ now: "2026-09-10T22:00:40.000Z", observedThrough: "2026-09-10T22:00:35.000Z" }),
+  });
+  assert.equal(replacement.status, "ready");
+  assert.deepEqual(replacement.unresolvedConflictWindows, []);
+  assert.equal(replacement.reconciledWindows.some((record) => (
+    record.window.begin === current.begin && record.receiptIds.includes("receipt-valid-replacement")
+  )), true);
+  assert.deepEqual(replacement.invalidatedReceiptIdsByWindow, blocked.invalidatedReceiptIdsByWindow);
+});
+
+test("R5 malformed persisted window records require a new trusted baseline permanently", () => {
+  const closed = retentionWindowAt({ instant: "2026-09-10T21:59:30Z", timeZone: VIENNA });
+  const nyWindow = retentionWindowAt({ instant: "2026-09-10T21:59:30Z", timeZone: NEW_YORK });
+  const reconciled = (receiptIds, overrides = {}) => ({
+    ok: true,
+    complete: true,
+    window: closed,
+    providerId: PROVIDER,
+    receiptIds,
+    ...overrides,
+  });
+  const malformedStates = [
+    priorState({ reconciledWindows: [reconciled([])] }),
+    priorState({
+      reconciledWindows: [
+        reconciled(["receipt-a"]),
+        reconciled(["receipt-b"]),
+      ],
+    }),
+    priorState({
+      status: "blocked",
+      reconciledWindows: [reconciled(["receipt-a"])],
+      unreconciledWindows: [closed],
+    }),
+    priorState({ status: "blocked", unreconciledWindows: [nyWindow] }),
+    priorState({ invalidatedReceiptIdsByWindow: [{ window: closed, receiptIds: [] }] }),
+    priorState({ reconciledWindows: [reconciled(["receipt-a"], { complete: false })] }),
+    priorState({ reconciledWindows: [reconciled(["receipt-a", "receipt-a"])] }),
+    priorState({ status: "blocked", unreconciledWindows: [closed, closed] }),
+    priorState({
+      invalidatedReceiptIdsByWindow: [
+        { window: closed, receiptIds: ["receipt-a"] },
+        { window: closed, receiptIds: ["receipt-b"] },
+      ],
+    }),
+    priorState({
+      reconciledWindows: [reconciled(["receipt-a"])],
+      invalidatedReceiptIdsByWindow: [{ window: closed, receiptIds: ["receipt-a"] }],
+    }),
+  ];
+
+  for (const prior of malformedStates) {
+    const terminal = transitionRetentionReadiness({
+      prior,
+      now: "2026-09-10T22:00:20.000Z",
+      gatewayTimeZone: VIENNA,
+      finalEvidence: [],
+      freshReplay: {},
+    });
+    assert.equal(terminal.status, "needs-baseline");
+    assert.equal(terminal.baselineRequired, true);
+    assert.equal(terminal.gatewayTimeZone, null);
+    assert.deepEqual(terminal.reconciledWindows, []);
+
+    const cannotSelfHeal = transitionRetentionReadiness({
+      prior: terminal,
+      now: "2026-09-10T22:00:30.000Z",
+      gatewayTimeZone: VIENNA,
+      finalEvidence: [evidence(closed, { receiptId: "replacement" })],
+      freshReplay: replay({ now: "2026-09-10T22:00:30.000Z", observedThrough: "2026-09-10T22:00:25.000Z" }),
+    });
+    assert.equal(cannotSelfHeal.status, "needs-baseline");
+    assert.equal(cannotSelfHeal.baselineRequired, true);
+  }
 });
 
 test("transition fails closed for an invalid Gateway calendar or incomplete replay contract", () => {
