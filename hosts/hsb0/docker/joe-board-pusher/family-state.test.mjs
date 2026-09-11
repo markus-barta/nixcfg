@@ -15,6 +15,7 @@ import {
   reconcileExecutionCapture,
 } from "./execution-reconciliation.mjs";
 import { calculateFamily } from "./family-ledger.mjs";
+import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
 const FAMILY_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
@@ -554,6 +555,139 @@ test("a conflicting official history identity fails closed without changing the 
   assert.match(result.reason, /conflicting official history execution/);
   assert.deepEqual(shared.state, durableBefore);
   assert.match(after.adapter.blockedReason, /conflicting official history execution/);
+});
+
+test("official current-day evidence stays out of the ledger until legacy replay, then normalizes safely after restart", () => {
+  const shared = memoryStore();
+  const before = setup({ store: shared, at: "2026-09-11T03:59:00Z" });
+  complete(connect(before), []);
+
+  const raw = execution("official.first.legacy.later.01", 27, {
+    time: "20260911 09:30:00 US/Eastern",
+  });
+  raw.contract.multiplier = 0;
+  const rawFee = commission(raw.execution.execId);
+  const normalized = normalizeEconomicExecution(raw);
+  const normalizedFee = normalizeEconomicCommission(rawFee);
+  const prior = verifiedHistory();
+  const todayPartial = reconcileExecutionCapture({
+    prior,
+    capture: {
+      schema: EXECUTION_CAPTURE_SCHEMA,
+      account: ACCOUNT,
+      classifier: CLASSIFIER,
+      source: {
+        kind: "paper-api",
+        id: "synthetic-official-current-partial",
+        sha256: "d".repeat(64),
+        metadata: prior.receipts[0].source.metadata,
+      },
+      capturedAt: "2026-09-11T14:00:01Z",
+      window: { fromInclusive: "2026-09-11T04:00:00Z", toExclusive: "2026-09-11T14:00:00Z" },
+      coverageStatus: "complete",
+      completenessAssertion: { provider: "ibkr-official-sdk-execution-window-v1", assertionId: "synthetic-current-proof" },
+      executions: [normalized],
+      commissions: [normalizedFee],
+    },
+    target: { fromInclusive: FAMILY_BASELINE_PERIOD_START, toExclusive: "2026-09-11T14:00:00Z" },
+  });
+  const current = setup({
+    store: shared,
+    at: "2026-09-11T14:01:00Z",
+    getVerifiedHistoryState: () => todayPartial,
+  });
+  const currentApi = connect(current);
+  complete(currentApi, []);
+  emitFx(currentApi, "EUR", 1);
+  assert.equal(current.adapter.project(book("2026-09-11T14:01:01Z")).ok, true);
+  assert.equal(shared.state.executions.length, 0);
+
+  current.timers.runDelay(30_000);
+  complete(currentApi, [raw], [rawFee]);
+  assert.equal(current.adapter.blockedReason, null);
+  assert.equal(shared.state.executions.length, 1);
+  assert.equal(shared.state.executions[0].execution.side, "BOT");
+
+  const fullToday = reconcileExecutionCapture({
+    prior,
+    capture: {
+      schema: EXECUTION_CAPTURE_SCHEMA,
+      account: ACCOUNT,
+      classifier: CLASSIFIER,
+      source: {
+        kind: "paper-api",
+        id: "synthetic-official-current-full",
+        sha256: "c".repeat(64),
+        metadata: prior.receipts[0].source.metadata,
+      },
+      capturedAt: "2026-09-12T04:00:01Z",
+      window: { fromInclusive: "2026-09-11T04:00:00Z", toExclusive: "2026-09-12T04:00:00Z" },
+      coverageStatus: "complete",
+      completenessAssertion: { provider: "ibkr-official-sdk-execution-window-v1", assertionId: "synthetic-full-day-proof" },
+      executions: [normalized],
+      commissions: [normalizedFee],
+    },
+    target: { fromInclusive: FAMILY_BASELINE_PERIOD_START, toExclusive: "2026-09-12T04:00:00Z" },
+  });
+  const restarted = setup({
+    store: shared,
+    at: "2026-09-12T04:01:00Z",
+    getVerifiedHistoryState: () => fullToday,
+  });
+  const restartedApi = connect(restarted);
+  complete(restartedApi, []);
+  emitFx(restartedApi, "EUR", 1);
+  emitFx(restartedApi, "USD", 0.8);
+  assert.equal(restarted.adapter.project(book("2026-09-12T04:01:01Z")).ok, true);
+  assert.equal(restarted.adapter.blockedReason, null);
+  assert.equal(shared.state.executions.length, 1);
+  assert.equal(shared.state.executions[0].execution.side, "BOT");
+});
+
+test("a partial trusted receipt cannot borrow known sidecar identities to prove completeness", () => {
+  const rows = Array.from({ length: 78 }, (_, index) => {
+    const row = execution(`known.sidecar.${index}.01`, 27, { conId: 1000 + index });
+    row.contract.multiplier = 0;
+    return normalizeEconomicExecution(row);
+  });
+  const fees = rows.map((row) => normalizeEconomicCommission(commission(row.execution.execId)));
+  let history = verifiedHistory(rows.slice(0, 7), fees.slice(0, 7));
+  history = reconcileExecutionCapture({
+    prior: history,
+    capture: {
+      schema: EXECUTION_CAPTURE_SCHEMA,
+      account: ACCOUNT,
+      classifier: CLASSIFIER,
+      source: {
+        kind: "persisted-ledger",
+        id: "synthetic-known-78",
+        sha256: "b".repeat(64),
+        metadata: {},
+      },
+      capturedAt: "2026-09-11T08:01:00Z",
+      window: { fromInclusive: FAMILY_BASELINE_PERIOD_START, toExclusive: "2026-09-11T04:00:00Z" },
+      coverageStatus: "known",
+      completenessAssertion: null,
+      executions: rows,
+      commissions: fees,
+    },
+    target: { fromInclusive: FAMILY_BASELINE_PERIOD_START, toExclusive: "2026-09-11T04:00:00Z" },
+  });
+  const shared = memoryStore();
+  const before = setup({ store: shared, at: "2026-09-11T03:59:00Z" });
+  complete(connect(before), []);
+  const after = setup({
+    store: shared,
+    at: "2026-09-11T04:01:00Z",
+    getVerifiedHistoryState: () => history,
+  });
+  const api = connect(after);
+  complete(api, []);
+  emitFx(api, "EUR", 1);
+  const result = after.adapter.project(book("2026-09-11T04:01:01Z"));
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /complete receipts omit a retained execution identity/);
+  assert.equal(shared.state.executions.length, 0);
 });
 
 test("a same-trading-day restart accepts a complete current-day resync", () => {

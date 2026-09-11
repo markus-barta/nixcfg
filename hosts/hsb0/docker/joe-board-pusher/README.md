@@ -124,8 +124,13 @@ publishes `openPnl: 0`. Day P&L remains null without a separate truthful day bas
 `execution-reconciliation.mjs` provide the independent, read-only import path
 for authoritative paper-API and preserved-ledger captures.
 They never rewrite `family-ledger.json` or a source artifact. The sidecar store is
-atomic, restart-safe, account/classifier-bound, and append-only by capture receipt;
-exact duplicate captures are idempotent, conflicting identities fail closed, and
+atomic, restart-safe, and account/classifier-bound. Capture receipts remain
+immutable, while redundant official COMPLETE receipts are retained once per
+New York date/covered interval: a newer immutable receipt may replace an older one
+only when it fully covers the old interval and its execution and fee ID
+sets are supersets. Receipts from another authority, partial or non-subsumed proofs,
+older receipts without ID memberships, and all durable economic rows are retained.
+Exact duplicate captures are idempotent, conflicting identities fail closed, and
 all IB correction revisions remain durable while only the highest revision is
 effective. Commission reports without a captured execution remain explicit orphan
 fees rather than being discarded.

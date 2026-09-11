@@ -79,6 +79,7 @@ function response(plan, { executionsByRequest = {}, commissionsByExecId = {}, mu
     actualWindows: structuredClone(plan.actualWindows),
     disconnected: true,
     exitCode: 0,
+    errors: [],
     requests,
     commissionsByExecId: structuredClone(commissionsByExecId),
   };
@@ -173,6 +174,7 @@ test("one process plans one exact official query per New York date and clamps co
       },
       commissionsByExecId: {
         "synthetic.before.01": commission("synthetic.before.01"),
+        "synthetic.trade.01": commission("synthetic.trade.01"),
         "synthetic.trade.02": commission("synthetic.trade.02"),
         "synthetic.cutoff.01": commission("synthetic.cutoff.01"),
       },
@@ -196,12 +198,17 @@ test("one process plans one exact official query per New York date and clamps co
     ["synthetic.trade.01", "synthetic.trade.02"],
   );
   assert.equal(result.requests["9300"].executions[1].execution.pendingPriceRevision, true);
-  assert.deepEqual(Object.keys(result.commissionsByExecId), ["synthetic.trade.02"]);
+  assert.deepEqual(Object.keys(result.commissionsByExecId), ["synthetic.trade.01", "synthetic.trade.02"]);
   assert.equal(result.finishedAt, "2026-09-11T12:00:01.000Z");
 });
 
-test("an ended empty request and a partial fee set remain honest usable evidence", async () => {
-  const harness = spawnHarness((plan, child) => {
+test("a true empty window succeeds after the reader quiet drain but an unmatched execution fails", async () => {
+  const emptyHarness = spawnHarness((plan, child) => child.respond(response(plan)));
+  const empty = await readerWith(emptyHarness)(options());
+  assert.equal(empty.requests["9300"].executions.length, 0);
+  assert.equal(empty.requests["9301"].executions.length, 0);
+
+  const partialHarness = spawnHarness((plan, child) => {
     const firstId = plan.actualWindows[0].requestId;
     child.respond(response(plan, {
       executionsByRequest: {
@@ -210,11 +217,7 @@ test("an ended empty request and a partial fee set remain honest usable evidence
       commissionsByExecId: {},
     }));
   });
-  const result = await readerWith(harness)(options());
-  assert.equal(result.requests["9300"].executions.length, 1);
-  assert.equal(result.requests["9301"].executions.length, 0);
-  assert.deepEqual(result.commissionsByExecId, {});
-  assert.equal(result.requests["9301"].timedOut, false);
+  await assert.rejects(readerWith(partialHarness)(options()), /without a commission/);
 });
 
 test("port, client, account, past-week, and seven-date limits fail before spawning", async () => {
@@ -262,6 +265,8 @@ test("foreign account, pending flag, filter drift, and malformed JSON are reject
       value.requests["9300"].executions = [execution("synthetic.time.01", "not-a-broker-time")];
     },
     (value) => { value.requests["9300"].filter.specificDates = [20260909]; },
+    (value) => { value.errors = [{ code: "late-callback" }]; },
+    (value) => { value.commissionsByExecId.orphan = commission("orphan"); },
   ];
   for (const mutate of variants) {
     const harness = spawnHarness((plan, child) => child.respond(response(plan, { mutate })));

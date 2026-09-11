@@ -19,7 +19,7 @@ const MAX_STDOUT_BYTES = 16 * 1024 * 1024;
 const MAX_STDERR_BYTES = 64 * 1024;
 const STARTUP_TIMEOUT_MS = 15_000;
 const PER_DATE_TIMEOUT_MS = 20_000;
-const COMMISSION_GRACE_MS = 1_000;
+const FINAL_DRAIN_TIMEOUT_MS = 20_000;
 const IPC_ALLOWANCE_MS = 2_000;
 const KILL_GRACE_MS = 1_000;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1_000;
@@ -255,6 +255,9 @@ function validateResponse(value, plan, exitCode) {
     throw new Error("official reader response does not include the configured managed account");
   }
   if (value.foreignAccountViolation !== false) throw new Error("official reader reported a foreign account violation");
+  if (!Array.isArray(value.errors) || value.errors.length !== 0) {
+    throw new Error("official reader reported run-level callback errors");
+  }
   if (value.startedAt !== plan.startedAt) throw new Error("official reader response start identity changed");
   if (!same(value.requestedCoverage, plan.requestedCoverage) || !same(value.actualWindows, plan.actualWindows)) {
     throw new Error("official reader response coverage metadata changed");
@@ -274,6 +277,7 @@ function validateResponse(value, plan, exitCode) {
   const coverageFrom = Date.parse(plan.requestedCoverage.fromInclusive);
   const coverageTo = Date.parse(plan.requestedCoverage.toExclusive);
   const executionsById = new Map();
+  const rawExecutionIds = new Set();
   const includedIds = new Set();
   const requests = {};
   for (const window of plan.actualWindows) {
@@ -313,6 +317,7 @@ function validateResponse(value, plan, exitCode) {
       const prior = executionsById.get(execution.execId);
       if (prior && !same(prior, row)) throw new Error("official execution has a conflicting duplicate execId");
       if (!prior) executionsById.set(execution.execId, row);
+      rawExecutionIds.add(execution.execId);
       if (instant < coverageFrom || instant >= coverageTo || prior) continue;
       includedIds.add(execution.execId);
       filtered.push(row);
@@ -324,7 +329,13 @@ function validateResponse(value, plan, exitCode) {
   const commissionsByExecId = {};
   for (const [key, report] of Object.entries(value.commissionsByExecId)) {
     if (!object(report) || report.execId !== key) throw new Error("official commission identity is invalid");
+    if (!rawExecutionIds.has(key)) throw new Error("official reader returned an orphan commission callback");
     if (includedIds.has(key)) commissionsByExecId[key] = report;
+  }
+  for (const execId of rawExecutionIds) {
+    if (!Object.hasOwn(value.commissionsByExecId, execId)) {
+      throw new Error("official reader returned an execution without a commission callback");
+    }
   }
   return { ...value, requests, commissionsByExecId };
 }
@@ -351,7 +362,7 @@ export function createOfficialWindowReader({
   return async function read(input) {
     const { plan, signal } = preparePlan(input, now);
     const hardTimeout = totalTimeoutMs ?? (
-      STARTUP_TIMEOUT_MS + plan.actualWindows.length * (PER_DATE_TIMEOUT_MS + COMMISSION_GRACE_MS) + IPC_ALLOWANCE_MS
+      STARTUP_TIMEOUT_MS + plan.actualWindows.length * PER_DATE_TIMEOUT_MS + FINAL_DRAIN_TIMEOUT_MS + IPC_ALLOWANCE_MS
     );
     if (!Number.isSafeInteger(hardTimeout) || hardTimeout <= 0 || hardTimeout > 180_000) {
       throw new RangeError("total official reader timeout is invalid");

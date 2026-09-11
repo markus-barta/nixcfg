@@ -658,11 +658,13 @@ export function createFamilyHistorySessionAdapter({
     }
     try {
       let next = state;
+      const durableThrough = iso(state?.target?.toExclusive);
+      const importThrough = durableThrough && durableThrough > through ? durableThrough : through;
       for (const capture of captures) {
         next = reconcileCapture({
           prior: next,
           capture,
-          target: { fromInclusive: normalizedHistoryStart, toExclusive: through },
+          target: { fromInclusive: normalizedHistoryStart, toExclusive: importThrough },
         });
       }
       const identityReason = historyIdentityReason(next, {
@@ -672,6 +674,7 @@ export function createFamilyHistorySessionAdapter({
         through: current,
       });
       if (identityReason) throw new Error(identityReason);
+      if (state && stable(next) === stable(state)) return { ok: true, state: clone(state) };
       store.save(next);
       state = clone(next);
       hooks.onUpdated?.({

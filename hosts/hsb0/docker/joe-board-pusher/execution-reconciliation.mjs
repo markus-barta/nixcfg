@@ -326,6 +326,80 @@ function receiptFor(capture) {
   return { schema: HISTORY_RECEIPT_SCHEMA, receiptId: digest(facts), ...facts, executionIds, commissionIds };
 }
 
+function newYorkDate(value) {
+  const parts = {};
+  for (const part of newYorkFormatter.formatToParts(new Date(value))) {
+    if (part.type !== "literal") parts[part.type] = Number(part.value);
+  }
+  return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function receiptNewYorkDate(receipt) {
+  const end = Date.parse(receipt.window.toExclusive);
+  const startDate = newYorkDate(receipt.window.fromInclusive);
+  return startDate === newYorkDate(new Date(end - 1).toISOString()) ? startDate : null;
+}
+
+function completeReceiptLineage(receipt) {
+  const metadata = receipt.source?.metadata;
+  if (receipt.coverageStatus !== "complete" || receipt.source?.kind !== "paper-api" ||
+      typeof receipt.completenessAssertion?.provider !== "string" ||
+      typeof metadata?.adapterId !== "string" || typeof metadata.adapterVersion !== "string" ||
+      !SHA256.test(metadata.endpointIdentitySha256 || "")) return null;
+  return stable({
+    sourceKind: receipt.source.kind,
+    provider: receipt.completenessAssertion.provider,
+    adapterId: metadata.adapterId,
+    adapterVersion: metadata.adapterVersion,
+    endpointIdentitySha256: metadata.endpointIdentitySha256,
+  });
+}
+
+function hasIdentityMembership(receipt) {
+  return Array.isArray(receipt.executionIds) && Array.isArray(receipt.commissionIds);
+}
+
+function containsAll(superset, subset) {
+  const known = new Set(superset);
+  return subset.every((id) => known.has(id));
+}
+
+function sameReceiptFacts(left, right) {
+  return hasIdentityMembership(left) && hasIdentityMembership(right) &&
+    left.executionIdentityDigest === right.executionIdentityDigest &&
+    left.executionCount === right.executionCount &&
+    left.commissionIdentityDigest === right.commissionIdentityDigest &&
+    left.commissionCount === right.commissionCount &&
+    left.payloadDigest === right.payloadDigest &&
+    stable(left.executionIds) === stable(right.executionIds) &&
+    stable(left.commissionIds) === stable(right.commissionIds);
+}
+
+function sameCompleteLineage(left, right) {
+  const leftLineage = completeReceiptLineage(left);
+  return leftLineage !== null && leftLineage === completeReceiptLineage(right);
+}
+
+function newReceiptSubsumes(existing, incoming) {
+  const date = receiptNewYorkDate(existing);
+  return date !== null && date === receiptNewYorkDate(incoming) &&
+    sameCompleteLineage(existing, incoming) &&
+    hasIdentityMembership(existing) && hasIdentityMembership(incoming) &&
+    incoming.window.fromInclusive <= existing.window.fromInclusive &&
+    incoming.window.toExclusive >= existing.window.toExclusive &&
+    containsAll(incoming.executionIds, existing.executionIds) &&
+    containsAll(incoming.commissionIds, existing.commissionIds);
+}
+
+function coalesceReceipts(receipts, incoming) {
+  const sameProof = receipts.find((existing) =>
+    sameCompleteLineage(existing, incoming) &&
+    stable(existing.window) === stable(incoming.window) &&
+    sameReceiptFacts(existing, incoming));
+  if (sameProof) return receipts;
+  return [...receipts.filter((existing) => !newReceiptSubsumes(existing, incoming)), incoming];
+}
+
 export function reconcileExecutionCapture({ prior = null, capture: rawCapture, target: rawTarget } = {}) {
   const capture = validateExecutionCapture(rawCapture);
   const requestedTarget = interval(rawTarget, "history target");
@@ -337,14 +411,17 @@ export function reconcileExecutionCapture({ prior = null, capture: rawCapture, t
   if (prior && (prior.account !== capture.account || stable(prior.classifier) !== stable(capture.classifier))) {
     fail("history capture configuration mismatch");
   }
-  const receipts = prior ? prior.receipts.map((item) => structuredClone(item)) : [];
+  let receipts = prior ? prior.receipts.map((item) => structuredClone(item)) : [];
   const existingReceipt = receipts.find((item) => item.receiptId === receipt.receiptId);
   const reusedSource = receipts.find((item) => item.source.id === receipt.source.id);
   if (reusedSource && reusedSource.receiptId !== receipt.receiptId) fail("capture source was previously bound to different facts");
-  if (!existingReceipt) receipts.push(receipt);
+  if (!existingReceipt) receipts = coalesceReceipts(receipts, receipt);
   receipts.sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
   const executions = mergeExact(prior?.executions || [], capture.executions, executionId, "execution");
   const commissions = mergeCommissions(prior?.commissions || [], capture.commissions);
+  const durableChanged = !prior || stable(receipts) !== stable(prior.receipts) ||
+    stable(executions) !== stable(prior.executions) || stable(commissions) !== stable(prior.commissions);
+  if (prior && !durableChanged) return deepFreeze(structuredClone(prior));
   const target = prior ? {
     fromInclusive: prior.target.fromInclusive < requestedTarget.fromInclusive ? prior.target.fromInclusive : requestedTarget.fromInclusive,
     toExclusive: prior.target.toExclusive > requestedTarget.toExclusive ? prior.target.toExclusive : requestedTarget.toExclusive,
