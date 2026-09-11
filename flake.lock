@@ -525,11 +525,11 @@
       },
       "locked": {
         "lastModified": 1789063450,
+        "narHash": "sha256-ClWZOv9/ErewT02aPSBo25zBZef4H+70vy6xdGdvJe0=",
         "owner": "markus-barta",
         "repo": "hostdash",
         "rev": "b71356f2c9df1776c29ec565cb49389231fc8774",
-        "type": "github",
-        "narHash": "sha256-ClWZOv9/ErewT02aPSBo25zBZef4H+70vy6xdGdvJe0="
+        "type": "github"
       },
       "original": {
         "owner": "markus-barta",
@@ -605,17 +605,17 @@
     "joedesk": {
       "flake": false,
       "locked": {
-        "lastModified": 1789071498,
-        "narHash": "sha256-mA1I22/O+wXcgLzh3h/j98zHZnphgxJtRmitFuneVEU=",
+        "lastModified": 1789107278,
+        "narHash": "sha256-hKfJu5FmWjsQClAI/ALEl+tFJH+xB/e8M+6yepkYaWA=",
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "c8c23c6b16a42e8f0a80c0e22a5b362b8c163eea",
+        "rev": "0054e780a5e2cb6be4604a8c8bd409357cded33a",
         "type": "github"
       },
       "original": {
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "c8c23c6b16a42e8f0a80c0e22a5b362b8c163eea",
+        "rev": "0054e780a5e2cb6be4604a8c8bd409357cded33a",
         "type": "github"
       }
     },
