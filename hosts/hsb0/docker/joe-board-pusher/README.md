@@ -160,11 +160,16 @@ node family-history-cli.mjs import \
   --from 2026-09-10T04:00:00Z --to 2026-09-11T04:00:00Z
 ```
 
-Runtime wiring uses `createFileFamilyHistoryStore()` plus
-`createFamilyHistoryIngestor()`. Its `fetchCapture` hook returns
-`{ capture, target }`, normally using `captureFromFamilyLedgerFile()` or
-`captureFromOfficialProbeFile()`. Failed captures remain retryable; an invalid
-persisted sidecar alone prevents overwrite.
+The production pusher uses `createFamilyHistorySessionAdapter()` with
+`createFileFamilyHistoryStore()` on its existing broker session. It seeds an
+absent sidecar once from the validated legacy ledger. Broker capture timeouts
+retry with bounded backoff; identity, reconciliation, and persistence failures
+fail closed until restart, preserving the saved sidecar. The broker book can
+still be published when family history is unavailable.
+
+`createFamilyHistoryIngestor()` is a separate generic helper, not the production
+session adapter. Its `fetchCapture` hook returns `{ capture, target }` and its
+capture failures remain retryable.
 
 Cold-start wiring may seed an absent sidecar from the existing ledger exactly once,
 without changing that ledger:
