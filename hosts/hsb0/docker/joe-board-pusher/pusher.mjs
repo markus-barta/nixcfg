@@ -6,7 +6,21 @@
 import fs from "node:fs";
 import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
+import {
+  EXECUTION_CAPTURE_SCHEMA,
+  reconcileExecutionCapture,
+} from "./execution-reconciliation.mjs";
+import {
+  captureFromFamilyLedgerFile,
+  normalizeEconomicCommission,
+  normalizeEconomicExecution,
+} from "./execution-history.mjs";
 import { calculateFamily } from "./family-ledger.mjs";
+import {
+  createFileFamilyHistoryStore,
+  projectBestAvailableHistory,
+} from "./family-history.mjs";
+import { createFamilyHistorySessionAdapter } from "./family-history-session.mjs";
 import {
   FAMILY_BASELINE_PERIOD_START,
   createFamilySessionAdapter,
@@ -23,6 +37,7 @@ const CLIENT_ID = 92;
 const ACCOUNT = "DUR970597";
 const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
 const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
+const FAMILY_HISTORY_PATH = "/var/lib/joe-board-pusher/family-history.json";
 const INBOX_URL = "https://cs0.barta.cm/joe/inbox";
 const TOKEN_FILE = "/run/secrets/joe-board-push-token";
 const RETRY_BASE_MS = 5_000;
@@ -70,17 +85,21 @@ const adapter = createBrokerSessionAdapter({
     },
     onReconnectNeeded({ api, reason }) {
       familyAdapter.retire(`broker socket unavailable: ${reason}`);
+      familyHistoryAdapter.retire(`broker socket unavailable: ${reason}`);
       connectionSupervisor?.reconnect(api, reason);
     },
     onUpstreamUnavailable({ api, reason }) {
       connectionSupervisor?.upstreamUnavailable(api);
       familyAdapter.upstreamUnavailable(reason);
+      familyHistoryAdapter.upstreamUnavailable(reason);
     },
     onResyncNeeded({ reason }) {
       console.warn(JSON.stringify({ event: "ib_resync", reason }));
     },
   },
 });
+
+const familyStateStore = createFileFamilyStateStore(FAMILY_STATE_PATH);
 
 const familyAdapter = createFamilySessionAdapter({
   targetAccount: ACCOUNT,
@@ -89,7 +108,7 @@ const familyAdapter = createFamilySessionAdapter({
   periodStart: FAMILY_BASELINE_PERIOD_START,
   calculateFamily,
   eventNames: EventName,
-  store: createFileFamilyStateStore(FAMILY_STATE_PATH),
+  store: familyStateStore,
   pollIntervalMs: 30_000,
   requestTimeoutMs: 20_000,
   fxFreshMs: 300_000,
@@ -100,6 +119,74 @@ const familyAdapter = createFamilySessionAdapter({
     },
     onLedgerUpdated({ changed, observedAt }) {
       if (changed) console.log(JSON.stringify({ event: "family_ledger_updated", observedAt }));
+    },
+  },
+});
+
+const familyHistoryAdapter = createFamilyHistorySessionAdapter({
+  targetAccount: ACCOUNT,
+  brokerClientId: CLIENT_ID,
+  familyClientIds: FAMILY_CLIENT_IDS,
+  excludedSymbols: ["SXR8", "TSLA"],
+  historyStart: FAMILY_BASELINE_PERIOD_START,
+  captureSchema: EXECUTION_CAPTURE_SCHEMA,
+  captureSourceKind: "paper-api",
+  normalizeExecutionRow: normalizeEconomicExecution,
+  normalizeCommissionReport: normalizeEconomicCommission,
+  reconcileCapture: reconcileExecutionCapture,
+  projectHistory: projectBestAvailableHistory,
+  eventNames: EventName,
+  store: createFileFamilyHistoryStore(FAMILY_HISTORY_PATH),
+  loadBootstrapCapture({ targetAccount, classifier, historyStart }) {
+    const legacy = familyStateStore.load({
+      account: targetAccount,
+      periodStart: historyStart,
+      classifier,
+    });
+    if (!legacy.ok) {
+      return { ok: false, freshInstall: false, reason: `legacy family ledger is invalid: ${legacy.reason}` };
+    }
+    if (!legacy.state) {
+      return { ok: false, freshInstall: true, reason: "legacy family ledger is absent; starting with unknown past history" };
+    }
+    return {
+      ok: true,
+      capture: captureFromFamilyLedgerFile({
+        filePath: FAMILY_STATE_PATH,
+        window: {
+          fromInclusive: legacy.state.periodStart,
+          toExclusive: legacy.state.coverageThrough,
+        },
+        classifier,
+      }),
+    };
+  },
+  pollIntervalMs: 30_000,
+  requestTimeoutMs: 20_000,
+  commissionDrainMs: 3_000,
+  retryBaseMs: RETRY_BASE_MS,
+  retryMaxMs: RETRY_MAX_MS,
+  requestManagedAccounts: false,
+  hooks: {
+    onSeeded({ capturedAt, executionCount, commissionCount }) {
+      console.log(JSON.stringify({
+        event: "family_history_seeded",
+        capturedAt,
+        executionCount,
+        commissionCount,
+      }));
+    },
+    onUnavailable(reason) {
+      console.warn(JSON.stringify({ event: "family_history_unavailable", reason }));
+    },
+    onUpdated({ capturedAt, executionCount, commissionCount, missingCommissionCount }) {
+      console.log(JSON.stringify({
+        event: "family_history_updated",
+        capturedAt,
+        executionCount,
+        commissionCount,
+        missingCommissionCount,
+      }));
     },
   },
 });
@@ -154,11 +241,16 @@ async function pushOnce() {
   if (!family.ok) {
     console.warn(JSON.stringify({ event: "family_projection_unavailable", reason: family.reason }));
   }
+  const familyHistory = familyHistoryAdapter.project();
+  if (!familyHistory.ok) {
+    console.warn(JSON.stringify({ event: "family_history_projection_unavailable", reason: familyHistory.reason }));
+  }
   const snap = projectBook(book, {
     halt: false,
     publisherAt: new Date(),
     familyRuntimeEnabled: true,
     family,
+    familyHistory,
   });
   if (!snap) {
     console.warn(JSON.stringify({ event: "push_skipped", reason: "broker timestamp unavailable" }));
@@ -203,6 +295,7 @@ connectionSupervisor = createConnectionSupervisor({
   attachApi(next) {
     adapter.attach(next);
     familyAdapter.attach(next);
+    familyHistoryAdapter.attach(next);
   },
   requestHealth(api) {
     api.reqCurrentTime();
@@ -227,6 +320,7 @@ connectionSupervisor = createConnectionSupervisor({
 function shutdown() {
   adapter.retire("shutdown");
   familyAdapter.retire("shutdown");
+  familyHistoryAdapter.retire("shutdown");
   connectionSupervisor.shutdown();
   process.exit(0);
 }
