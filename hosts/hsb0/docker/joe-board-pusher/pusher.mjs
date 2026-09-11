@@ -31,7 +31,7 @@ const CONNECT_TIMEOUT_MS = 15_000;
 const COMPLETE_SNAPSHOT_TIMEOUT_MS = 60_000;
 const HEALTH_INTERVAL_MS = 60_000;
 const HEALTH_TIMEOUT_MS = 15_000;
-const UPSTREAM_SILENCE_TIMEOUT_MS = 300_000;
+const UPSTREAM_LOSS_DEADLINE_MS = 300_000;
 
 function parseIntervalSec() {
   const raw = process.env.JOE_PUSH_INTERVAL_SEC;
@@ -221,7 +221,7 @@ connectionSupervisor = createConnectionSupervisor({
   snapshotTimeoutMs: COMPLETE_SNAPSHOT_TIMEOUT_MS,
   healthIntervalMs: HEALTH_INTERVAL_MS,
   healthTimeoutMs: HEALTH_TIMEOUT_MS,
-  upstreamSilenceTimeoutMs: UPSTREAM_SILENCE_TIMEOUT_MS,
+  upstreamLossDeadlineMs: UPSTREAM_LOSS_DEADLINE_MS,
 });
 
 function shutdown() {
