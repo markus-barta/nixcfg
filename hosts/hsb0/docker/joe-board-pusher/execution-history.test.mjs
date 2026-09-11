@@ -285,6 +285,19 @@ test("CLI previews without writes, imports atomically, and reruns idempotently",
   assert.equal(JSON.parse(preview.stdout).action, "preview");
   assert.equal(fs.existsSync(state), false);
 
+  for (const flag of ["--__proto__", "--constructor", "--prototype", "--unknown"]) {
+    const rejected = spawnSync(process.execPath, [CLI, "preview", flag, "polluted", ...args], { encoding: "utf8" });
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, new RegExp(`unsupported option ${flag}`));
+  }
+  const missingValue = spawnSync(process.execPath, [CLI, "preview", "--source-type"], { encoding: "utf8" });
+  assert.notEqual(missingValue.status, 0);
+  assert.match(missingValue.stderr, /missing value for --source-type/);
+  const duplicate = spawnSync(process.execPath, [CLI, "preview", ...args, "--to", WINDOW.toExclusive], { encoding: "utf8" });
+  assert.notEqual(duplicate.status, 0);
+  assert.match(duplicate.stderr, /duplicate option --to/);
+  assert.equal(fs.existsSync(state), false);
+
   const first = spawnSync(process.execPath, [CLI, "import", ...args], { encoding: "utf8" });
   assert.equal(first.status, 0, first.stderr);
   const firstResult = JSON.parse(first.stdout);
