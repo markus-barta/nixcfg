@@ -615,9 +615,6 @@ in
   # Recipients = markus (user) + every macOS host using inspr.secrets.agents.
   # Add more hosts here as they join the pipeline (rekey afterwards).
 
-  # Cloudflare DNS API token (AIA account)
-  "agents/shared/CF_DNS_TOKEN_AIA.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
-
   # Cloudflare Zone API token (AIA account)
   "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
