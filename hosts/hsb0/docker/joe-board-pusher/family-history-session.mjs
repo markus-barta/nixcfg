@@ -645,17 +645,198 @@ export function createFamilyHistorySessionAdapter({
     }
   }
 
+  /** Atomically add already-validated official COMPLETE captures. */
+  function importCaptures(captures, target) {
+    if (blockedReason) return { ok: false, reason: blockedReason };
+    if (!Array.isArray(captures) || !captures.length) {
+      return { ok: false, reason: "official history import has no captures" };
+    }
+    const through = iso(target?.toExclusive);
+    const current = iso(now());
+    if (iso(target?.fromInclusive) !== normalizedHistoryStart || !through || !current || through > current) {
+      return { ok: false, reason: "official history import target is invalid" };
+    }
+    try {
+      let next = state;
+      const durableThrough = iso(state?.target?.toExclusive);
+      const importThrough = durableThrough && durableThrough > through ? durableThrough : through;
+      for (const capture of captures) {
+        next = reconcileCapture({
+          prior: next,
+          capture,
+          target: { fromInclusive: normalizedHistoryStart, toExclusive: importThrough },
+        });
+      }
+      const identityReason = historyIdentityReason(next, {
+        targetAccount,
+        classifier,
+        historyStart: normalizedHistoryStart,
+        through: current,
+      });
+      if (identityReason) throw new Error(identityReason);
+      if (state && stable(next) === stable(state)) return { ok: true, state: clone(state) };
+      store.save(next);
+      state = clone(next);
+      hooks.onUpdated?.({
+        capturedAt: next.updatedAt,
+        executionCount: next.executions.length,
+        commissionCount: next.commissions.length,
+        missingCommissionCount: 0,
+      });
+      return { ok: true, state: clone(state) };
+    } catch (error) {
+      const reason = `official family history import failed: ${error?.message || error}`;
+      unavailable(reason);
+      return { ok: false, reason };
+    }
+  }
+
   return {
     attach,
     retire,
     upstreamUnavailable,
     pollNow,
     project,
+    importCaptures,
     get connected() { return connected; },
     get requestInFlight() { return Boolean(activeCycle); },
     get blockedReason() { return blockedReason; },
     get startupReason() { return startupReason; },
     get retryReason() { return retryReason; },
     inspectState() { return state ? clone(state) : null; },
+  };
+}
+
+/** Bounded official-history subprocess scheduler; never blocks the main publisher. */
+export function createOfficialHistoryRefresher({
+  readOfficialExecutionWindow,
+  makeCaptures,
+  importCaptures,
+  targetAccount,
+  host,
+  port,
+  clientId = 94,
+  historyStart,
+  getHistoryState = () => null,
+  refreshIntervalMs = 15 * 60_000,
+  retryBaseMs = 15_000,
+  retryMaxMs = 5 * 60_000,
+  now = () => new Date().toISOString(),
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+  hooks = {},
+} = {}) {
+  if (typeof readOfficialExecutionWindow !== "function" || typeof makeCaptures !== "function" ||
+      typeof importCaptures !== "function" || typeof getHistoryState !== "function" || !targetAccount || !host || !Number.isSafeInteger(port) ||
+      !Number.isSafeInteger(clientId) || !iso(historyStart) || refreshIntervalMs <= 0 || retryBaseMs <= 0 || retryMaxMs < retryBaseMs) {
+    throw new TypeError("official history refresher configuration is invalid");
+  }
+  let timer = null;
+  let controller = null;
+  let stopped = false;
+  let inFlight = false;
+  let failures = 0;
+
+  function refreshWindow(current) {
+    const today = localDayWindow(current);
+    const yesterday = localDayWindow(new Date(Date.parse(today.fromInclusive) - 1).toISOString());
+    let supportedStart = today.fromInclusive;
+    for (let index = 0; index < 6; index += 1) {
+      supportedStart = localDayWindow(new Date(Date.parse(supportedStart) - 1).toISOString()).fromInclusive;
+    }
+    let state = null;
+    try { state = getHistoryState(); } catch {}
+    const gaps = Array.isArray(state?.coverage?.gaps) ? state.coverage.gaps : [];
+    const candidates = gaps
+      .filter((gap) => {
+        const end = iso(gap?.toExclusive);
+        return end && end > supportedStart;
+      })
+      .map((gap) => iso(gap?.fromInclusive))
+      .filter((start) => start && start < current);
+    const priorThrough = iso(state?.target?.toExclusive);
+    if (priorThrough && priorThrough < current) candidates.push(priorThrough);
+    if (!state) candidates.push(iso(historyStart));
+    const earliestRecoverableGap = candidates.sort()[0];
+    const overlapStart = iso(historyStart) > yesterday.fromInclusive ? iso(historyStart) : yesterday.fromInclusive;
+    const recoveryStart = earliestRecoverableGap && earliestRecoverableGap < overlapStart
+      ? earliestRecoverableGap
+      : overlapStart;
+    const boundedStart = recoveryStart < supportedStart ? supportedStart : recoveryStart;
+    return {
+      fromInclusive: new Date(Math.floor(Date.parse(boundedStart) / 1_000) * 1_000).toISOString(),
+      toExclusive: current,
+      nextDayStart: today.nextDayStart,
+    };
+  }
+
+  function schedule(delay) {
+    if (stopped || timer !== null) return;
+    timer = setTimer(() => {
+      timer = null;
+      void pollNow();
+    }, delay);
+  }
+
+  async function pollNow() {
+    if (stopped || inFlight) return false;
+    const current = iso(now());
+    if (!current) {
+      hooks.onUnavailable?.("official history refresh clock is unavailable");
+      schedule(retryBaseMs);
+      return false;
+    }
+    const requestedWindow = refreshWindow(current);
+    inFlight = true;
+    controller = new AbortController();
+    try {
+      const evidence = await readOfficialExecutionWindow({
+        fromInclusive: requestedWindow.fromInclusive,
+        toExclusive: requestedWindow.toExclusive,
+        targetAccount,
+        host,
+        port,
+        clientId,
+        signal: controller.signal,
+      });
+      const captures = makeCaptures({
+        evidence,
+        requestedWindow,
+        targetAccount,
+        expectedEndpoint: { host, port, clientId },
+      });
+      const imported = importCaptures(captures, {
+        fromInclusive: iso(historyStart),
+        toExclusive: requestedWindow.toExclusive,
+      });
+      if (imported?.ok !== true) throw new Error(imported?.reason || "official history import was rejected");
+      failures = 0;
+      hooks.onUpdated?.({ captureCount: captures.length, through: requestedWindow.toExclusive });
+      const rolloverDelay = Date.parse(requestedWindow.nextDayStart) - Date.parse(current);
+      schedule(Math.max(1, Math.min(refreshIntervalMs, rolloverDelay)));
+      return true;
+    } catch (error) {
+      if (stopped && error?.name === "AbortError") return false;
+      failures += 1;
+      const delay = Math.min(retryMaxMs, retryBaseMs * 2 ** (failures - 1));
+      hooks.onUnavailable?.(`official history refresh failed: ${error?.message || error}`);
+      schedule(delay);
+      return false;
+    } finally {
+      controller = null;
+      inFlight = false;
+    }
+  }
+
+  return {
+    start() { if (!stopped) void pollNow(); },
+    pollNow,
+    stop() {
+      stopped = true;
+      if (timer !== null) clearTimer(timer);
+      timer = null;
+      controller?.abort();
+    },
+    get requestInFlight() { return inFlight; },
   };
 }

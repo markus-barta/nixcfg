@@ -666,6 +666,7 @@ test("complete EUR NetLiquidation stays useful when J family accounting is unava
     equity: null,
     dayPnl: null,
     totalPnl: null,
+    openPnl: null,
   });
   assert.deepEqual(snapshot.totals, { equity: null, dayPnl: null, totalPnl: null });
 });
@@ -720,7 +721,7 @@ test("best-available family history projects a bounded J-only native-currency su
   });
   assert.equal("backfill" in deskById(snapshot, "joe"), false);
   assert.equal("backfill" in deskById(snapshot, "joel"), false);
-  assert.deepEqual(deskById(snapshot, "j").money, { equity: null, dayPnl: null, totalPnl: null });
+  assert.deepEqual(deskById(snapshot, "j").money, { equity: null, dayPnl: null, totalPnl: null, openPnl: null });
   assert.deepEqual(snapshot.totals, { equity: null, dayPnl: null, totalPnl: null });
   const projectedText = JSON.stringify(deskById(snapshot, "j").backfill);
   assert.equal(projectedText.includes("synthetic-hidden-id"), false);
@@ -964,7 +965,7 @@ test("enabled family runtime isolates incomplete J accounting without stopping t
     assert.ok(unavailable);
     const j = deskById(unavailable, "j");
     assert.equal(j.state, "stuck");
-    assert.deepEqual(j.money, { equity: null, dayPnl: null, totalPnl: null });
+    assert.deepEqual(j.money, { equity: null, dayPnl: null, totalPnl: null, openPnl: null });
     assert.equal("positions" in j, false);
     assert.equal("accounting" in j, false);
     assert.match(j.learning.headline, /unavailable/);
@@ -1004,7 +1005,7 @@ test("enabled family runtime isolates incomplete J accounting without stopping t
     family,
   });
   const j = deskById(snapshot, "j");
-  assert.deepEqual(j.money, { equity: 5012, dayPnl: null, totalPnl: 12 });
+  assert.deepEqual(j.money, { equity: 5012, dayPnl: null, totalPnl: 12, openPnl: 5 });
   assert.equal(j.positions[0].symbol, "ACME");
   assert.equal(j.positions[0].dayPnl, null);
   assert.equal(j.positions.some((row) => row.symbol === "INTC"), false);
@@ -1050,6 +1051,7 @@ test("corrupt or midnight J gaps preserve Joe and Joel, and recovery clears J un
       equity: null,
       dayPnl: null,
       totalPnl: null,
+      openPnl: null,
     });
     assert.equal("positions" in deskById(unavailable, "j"), false);
   }

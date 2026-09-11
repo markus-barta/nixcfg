@@ -343,7 +343,7 @@ export function projectBook(book, opts = {}) {
           : "Virt book €5k; no open J names on the shared broker account.",
         iteration: null,
       },
-      money: { equity: jEquity, dayPnl: null, totalPnl: jPnl },
+      money: { equity: jEquity, dayPnl: null, totalPnl: jPnl, openPnl: familyAccepted ? family.unrealizedPnl : null },
       ...(familyAccepted ? { accounting: family.accounting } : {}),
       ...(familyBackfill ? { backfill: familyBackfill } : {}),
       heartbeatAt: heartbeat,

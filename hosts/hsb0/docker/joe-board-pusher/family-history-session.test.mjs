@@ -8,7 +8,11 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 
-import { createFamilyHistorySessionAdapter } from "./family-history-session.mjs";
+import {
+  createFamilyHistorySessionAdapter,
+  createOfficialHistoryRefresher,
+} from "./family-history-session.mjs";
+import { reconcileExecutionCapture } from "./execution-reconciliation.mjs";
 import {
   FAMILY_BASELINE_PERIOD_START,
   FAMILY_STATE_SCHEMA,
@@ -337,6 +341,72 @@ test("unchanged retained-day replays do not churn receipts or the durable sideca
   assert.equal(session.store.saves, 1);
   assert.deepEqual(session.store.state, persisted);
   assert.equal(session.timers.count(30_000), 1);
+});
+
+test("official import skips an equivalent write and preserves a concurrent live target", () => {
+  const store = memoryStore();
+  const targets = [];
+  const session = setup({
+    at: "2026-09-11T14:00:00Z",
+    store,
+    reconcileCapture(args) {
+      targets.push(structuredClone(args.target));
+      return reconcileExecutionCapture(args);
+    },
+  });
+  const row = normalizeExecutionRow(execution("official-stable.synthetic.01"));
+  const window = { fromInclusive: "2026-09-11T04:00:00Z", toExclusive: "2026-09-11T12:00:00Z" };
+  function officialCapture(id, capturedAt) {
+    return {
+      schema: "inspr.ib.execution-capture.v1",
+      account: ACCOUNT,
+      classifier: structuredClone(CLASSIFIER),
+      source: {
+        kind: "paper-api",
+        id,
+        sha256: id === "official-request-1" ? "b".repeat(64) : "c".repeat(64),
+        metadata: {
+          adapterId: "official-window-json",
+          adapterVersion: "1",
+          endpointIdentitySha256: "d".repeat(64),
+          requestId: id,
+        },
+      },
+      capturedAt,
+      window,
+      coverageStatus: "complete",
+      completenessAssertion: {
+        provider: "ibkr-official-sdk-execution-window-v1",
+        assertionId: `assertion:${id}`,
+      },
+      executions: [row],
+      commissions: [{ execId: row.execution.execId, commission: 0.25, currency: "USD", realizedPNL: 0 }],
+    };
+  }
+
+  const first = officialCapture("official-request-1", "2026-09-11T12:00:01Z");
+  assert.equal(session.adapter.importCaptures([first], {
+    fromInclusive: HISTORY_START,
+    toExclusive: "2026-09-11T14:00:00Z",
+  }).ok, true);
+  const persisted = store.state;
+  assert.equal(store.saves, 1);
+  assert.equal(session.updated.length, 1);
+
+  const replay = officialCapture("official-request-2", "2026-09-11T13:00:01Z");
+  const replayBefore = structuredClone(replay);
+  assert.equal(session.adapter.importCaptures([replay], {
+    fromInclusive: HISTORY_START,
+    toExclusive: "2026-09-11T13:00:00Z",
+  }).ok, true);
+  assert.deepEqual(targets.at(-1), {
+    fromInclusive: "2026-09-10T04:00:00.000Z",
+    toExclusive: "2026-09-11T14:00:00.000Z",
+  });
+  assert.equal(store.saves, 1);
+  assert.equal(session.updated.length, 1);
+  assert.deepEqual(store.state, persisted);
+  assert.deepEqual(replay, replayBefore);
 });
 
 test("an absent sidecar seeds exactly once from immutable legacy capture and restart loads the exact state", () => {
@@ -700,4 +770,85 @@ test("cold-load and reconciliation conflicts preserve the prior sidecar and stop
   assert.deepEqual(store.state, prior);
   assert.equal(store.saves, 0);
   assert.equal(conflict.timers.count(30_000), 0);
+});
+
+test("official refresher is startup-singleflight, uses client 94, schedules 15m, and backs off without erasing state", async () => {
+  const timers = fakeTimers();
+  const calls = [];
+  const imports = [];
+  let fail = false;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const refresher = createOfficialHistoryRefresher({
+    readOfficialExecutionWindow: async (args) => {
+      calls.push(args);
+      if (calls.length === 1) await gate;
+      if (fail) throw new Error("synthetic subprocess failure");
+      return { synthetic: true };
+    },
+    makeCaptures: ({ requestedWindow }) => [{ window: requestedWindow }],
+    importCaptures: (captures, target) => { imports.push({ captures, target }); return { ok: true }; },
+    targetAccount: ACCOUNT,
+    host: "paper.invalid",
+    port: 4002,
+    clientId: 94,
+    historyStart: HISTORY_START,
+    now: () => "2026-09-11T08:55:00Z",
+    setTimer: timers.set,
+    clearTimer: timers.clear,
+    retryBaseMs: 100,
+    retryMaxMs: 300,
+  });
+  refresher.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(refresher.requestInFlight, true);
+  assert.equal(await refresher.pollNow(), false);
+  assert.equal(calls.length, 1);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls[0].clientId, 94);
+  assert.equal(calls[0].fromInclusive, "2026-09-10T04:00:00.000Z");
+  assert.equal(calls[0].toExclusive, "2026-09-11T08:55:00.000Z");
+  assert.equal(imports.length, 1);
+  assert.equal(timers.count(15 * 60_000), 1);
+
+  fail = true;
+  timers.runDelay(15 * 60_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(imports.length, 1);
+  assert.equal(timers.count(100), 1);
+  refresher.stop();
+});
+
+test("official refresher starts at a recoverable durable gap and returns to two-day overlap when caught up", async () => {
+  const calls = [];
+  let history = {
+    target: { fromInclusive: HISTORY_START, toExclusive: "2026-09-11T04:00:00.000Z" },
+    coverage: {
+      gaps: [{
+        fromInclusive: "2026-09-11T04:00:00.254Z",
+        toExclusive: "2026-09-14T12:00:00.000Z",
+      }],
+    },
+  };
+  const refresher = createOfficialHistoryRefresher({
+    readOfficialExecutionWindow: async (args) => { calls.push(args); return {}; },
+    makeCaptures: () => [{}],
+    importCaptures: () => ({ ok: true }),
+    targetAccount: ACCOUNT,
+    host: "paper.invalid",
+    port: 4002,
+    historyStart: HISTORY_START,
+    getHistoryState: () => history,
+    now: () => "2026-09-14T12:00:00Z",
+  });
+  assert.equal(await refresher.pollNow(), true);
+  assert.equal(calls[0].fromInclusive, "2026-09-11T04:00:00.000Z");
+  history = {
+    target: { fromInclusive: HISTORY_START, toExclusive: "2026-09-14T12:00:00.000Z" },
+    coverage: { gaps: [] },
+  };
+  assert.equal(await refresher.pollNow(), true);
+  assert.equal(calls[1].fromInclusive, "2026-09-13T04:00:00.000Z");
+  refresher.stop();
 });

@@ -12,6 +12,7 @@ import {
 } from "./execution-reconciliation.mjs";
 import {
   captureFromFamilyLedgerFile,
+  capturesFromOfficialWindowEvidence,
   normalizeEconomicCommission,
   normalizeEconomicExecution,
 } from "./execution-history.mjs";
@@ -20,7 +21,11 @@ import {
   createFileFamilyHistoryStore,
   projectBestAvailableHistory,
 } from "./family-history.mjs";
-import { createFamilyHistorySessionAdapter } from "./family-history-session.mjs";
+import {
+  createFamilyHistorySessionAdapter,
+  createOfficialHistoryRefresher,
+} from "./family-history-session.mjs";
+import { readOfficialExecutionWindow } from "./official-window-reader.mjs";
 import {
   FAMILY_BASELINE_PERIOD_START,
   createFamilySessionAdapter,
@@ -34,6 +39,7 @@ const HOST = "100.64.0.6";
 const PORT = 4002;
 const LIVE_PORT = 4001;
 const CLIENT_ID = 92;
+const OFFICIAL_HISTORY_CLIENT_ID = 94;
 const ACCOUNT = "DUR970597";
 const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
 const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
@@ -113,6 +119,7 @@ const familyAdapter = createFamilySessionAdapter({
   requestTimeoutMs: 20_000,
   fxFreshMs: 300_000,
   requestManagedAccounts: false,
+  getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
   hooks: {
     onUnavailable(reason) {
       console.warn(JSON.stringify({ event: "family_unavailable", reason }));
@@ -187,6 +194,28 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
         commissionCount,
         missingCommissionCount,
       }));
+    },
+  },
+});
+
+const officialHistoryRefresher = createOfficialHistoryRefresher({
+  readOfficialExecutionWindow,
+  makeCaptures: capturesFromOfficialWindowEvidence,
+  importCaptures: (captures, target) => familyHistoryAdapter.importCaptures(captures, target),
+  targetAccount: ACCOUNT,
+  host: HOST,
+  port: PORT,
+  clientId: OFFICIAL_HISTORY_CLIENT_ID,
+  historyStart: FAMILY_BASELINE_PERIOD_START,
+  getHistoryState: () => familyHistoryAdapter.inspectState(),
+  retryBaseMs: 15_000,
+  retryMaxMs: RETRY_MAX_MS,
+  hooks: {
+    onUpdated({ captureCount, through }) {
+      console.log(JSON.stringify({ event: "official_family_history_updated", captureCount, through }));
+    },
+    onUnavailable(reason) {
+      console.warn(JSON.stringify({ event: "official_family_history_unavailable", reason }));
     },
   },
 });
@@ -321,6 +350,7 @@ function shutdown() {
   adapter.retire("shutdown");
   familyAdapter.retire("shutdown");
   familyHistoryAdapter.retire("shutdown");
+  officialHistoryRefresher.stop();
   connectionSupervisor.shutdown();
   process.exit(0);
 }
@@ -329,6 +359,7 @@ process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
 connectionSupervisor.start();
+officialHistoryRefresher.start();
 
 setTimeout(() => {
   pushOnce().catch((error) => console.error("push error", error.message || error));

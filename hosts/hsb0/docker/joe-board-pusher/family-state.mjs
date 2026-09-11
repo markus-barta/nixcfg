@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createReconnectScheduler } from "./pusher-recovery.mjs";
+import { validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
+import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 
 const STATE_SCHEMA = "inspr.joe.family-execution-ledger.v1";
 const MAX_STATE_BYTES = 16 * 1024 * 1024;
@@ -128,6 +130,57 @@ function mergeExact(existing, incoming, identify, label) {
   return { rows: merged, changed };
 }
 
+function mergeEconomicExecutions(existing, incoming, conflictLabel = "official history execution") {
+  const merged = [...existing];
+  const byId = new Map(existing.map((row) => [executionId(row), row]));
+  let changed = false;
+  for (const row of incoming) {
+    const id = executionId(row);
+    const prior = byId.get(id);
+    if (prior) {
+      if (!sameRecord(normalizeEconomicExecution(prior), normalizeEconomicExecution(row))) {
+        throw new Error(`conflicting ${conflictLabel} ${id}`);
+      }
+      continue;
+    }
+    merged.push(row);
+    byId.set(id, row);
+    changed = true;
+  }
+  return { rows: merged, changed };
+}
+
+function mergeEconomicCommissions(existing, incoming, conflictLabel = "official history commission") {
+  const merged = [...existing];
+  const byId = new Map(existing.map((row, index) => [commissionId(row), { row, index }]));
+  let changed = false;
+  for (const row of incoming) {
+    const normalized = normalizeEconomicCommission(row);
+    const id = commissionId(normalized);
+    const prior = byId.get(id);
+    if (!prior) {
+      byId.set(id, { row, index: merged.length });
+      merged.push(row);
+      changed = true;
+      continue;
+    }
+    const priorNormalized = normalizeEconomicCommission(prior.row);
+    if (priorNormalized.commission !== normalized.commission || priorNormalized.currency !== normalized.currency ||
+        (priorNormalized.realizedPNL !== null && priorNormalized.realizedPNL !== undefined &&
+         normalized.realizedPNL !== null && normalized.realizedPNL !== undefined &&
+         priorNormalized.realizedPNL !== normalized.realizedPNL)) {
+      throw new Error(`conflicting ${conflictLabel} ${id}`);
+    }
+    if ((priorNormalized.realizedPNL === null || priorNormalized.realizedPNL === undefined) &&
+        normalized.realizedPNL !== null && normalized.realizedPNL !== undefined) {
+      merged[prior.index] = normalized;
+      byId.set(id, { row: normalized, index: prior.index });
+      changed = true;
+    }
+  }
+  return { rows: merged, changed };
+}
+
 function clone(value) {
   return structuredClone(value);
 }
@@ -172,6 +225,10 @@ function validState(value, account, periodStart, classifier) {
   if (!iso(value.coverageThrough) || newYorkDay(value.coverageThrough) !== value.coverageTradingDay) {
     return "invalid execution coverage metadata";
   }
+  if (value.requiresVerifiedHistory !== undefined && value.requiresVerifiedHistory !== true) {
+    return "invalid verified-history requirement";
+  }
+  if (value.unverifiedSince !== undefined && !iso(value.unverifiedSince)) return "invalid unverified coverage boundary";
   const seenExecutions = new Map();
   for (const row of value.executions) {
     const id = executionId(row);
@@ -295,6 +352,29 @@ function newYorkDay(value) {
   return `${fields.year}-${fields.month}-${fields.day}`;
 }
 
+function newYorkDayStart(value) {
+  const day = newYorkDay(value);
+  if (!day) return null;
+  const expected = [...day.split("-").map(Number), 0, 0, 0];
+  const naive = Date.UTC(expected[0], expected[1] - 1, expected[2]);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+  const matches = [];
+  for (let offset = -14 * 60; offset <= 14 * 60; offset += 15) {
+    const candidate = naive - offset * 60_000;
+    const actual = {};
+    for (const part of formatter.formatToParts(new Date(candidate))) {
+      if (part.type !== "literal") actual[part.type] = Number(part.value);
+    }
+    if ([actual.year, actual.month, actual.day, actual.hour, actual.minute, actual.second]
+      .every((part, index) => part === expected[index])) matches.push(candidate);
+  }
+  return matches.length === 1 ? new Date(matches[0]).toISOString() : null;
+}
+
 function contractIdentity(contract) {
   const conId = Number(contract?.conId);
   if (Number.isInteger(conId) && conId > 0) return `conId:${conId}`;
@@ -355,6 +435,7 @@ export function createFamilySessionAdapter({
   clearTimer = clearTimeout,
   requestManagedAccounts = true,
   hooks = {},
+  getVerifiedHistoryState = null,
 }) {
   if (!targetAccount || typeof calculateFamily !== "function" || !eventNames || !store) {
     throw new TypeError("targetAccount, calculateFamily, eventNames and store are required");
@@ -384,8 +465,109 @@ export function createFamilySessionAdapter({
   const loaded = store.load({ account: targetAccount, periodStart, classifier });
   if (!loaded.ok) blockedReason = loaded.reason;
   else state = loaded.state ? clone(loaded.state) : null;
-  if (state && state.coverageTradingDay !== newYorkDay(now())) {
-    blockedReason = "unproved execution retrieval gap across America/New_York midnight; backfill required";
+
+  function trustedOfficialReceipt(receipt) {
+    return receipt.coverageStatus === "complete" &&
+      receipt.completenessAssertion?.provider === "ibkr-official-sdk-execution-window-v1" &&
+      receipt.source?.kind === "paper-api" &&
+      receipt.source?.metadata?.adapterId === "official-window-json" &&
+      receipt.source?.metadata?.adapterVersion === "1" &&
+      receipt.source?.metadata?.sdkPackage === "ibapi" &&
+      receipt.source?.metadata?.sdkVersion === "10.45.1" &&
+      Number.isSafeInteger(receipt.source?.metadata?.serverVersion) &&
+      receipt.source.metadata.serverVersion >= 223 &&
+      receipt.source?.metadata?.executionRequestFraming === "protobuf" &&
+      receipt.source?.metadata?.parameterizedExecutionFilters === true &&
+      receipt.source?.metadata?.responseEndedCleanly === true &&
+      receipt.source?.metadata?.completenessClaimed === true &&
+      receipt.executionCount === receipt.commissionCount &&
+      Array.isArray(receipt.executionIds) && Array.isArray(receipt.commissionIds);
+  }
+
+  function verifiedContinuity() {
+    if (!state?.requiresVerifiedHistory) return { reason: null, history: null, receipts: [] };
+    if (typeof getVerifiedHistoryState !== "function") {
+      return { reason: "authoritative execution coverage across midnight is unavailable", history: null, receipts: [] };
+    }
+    let history;
+    try {
+      history = getVerifiedHistoryState();
+      validateBestAvailableHistoryState(history);
+    } catch (error) {
+      return { reason: `authoritative history is invalid: ${error?.message || error}`, history: null, receipts: [] };
+    }
+    if (history.account !== targetAccount || !sameRecord(history.classifier, classifier)) {
+      return { reason: "authoritative history account or classifier does not match", history, receipts: [] };
+    }
+    const requiredThrough = newYorkDayStart(state.coverageThrough);
+    let cursor = iso(periodStart);
+    const receipts = history.receipts.filter(trustedOfficialReceipt);
+    const intervals = receipts
+      .map((receipt) => receipt.window)
+      .sort((left, right) => left.fromInclusive.localeCompare(right.fromInclusive));
+    for (const interval of intervals) {
+      if (interval.fromInclusive > cursor) break;
+      if (interval.toExclusive > cursor) cursor = interval.toExclusive;
+    }
+    if (!requiredThrough || cursor < requiredThrough) {
+      return { reason: "authoritative execution coverage across midnight is incomplete", history, receipts };
+    }
+    const currentDay = state.coverageTradingDay;
+    const historyById = new Map(history.executions.map((row) => [executionId(row), row]));
+    const knownByDay = new Map();
+    const trustedByDay = new Map();
+    const add = (map, row) => {
+      const day = newYorkDay(normalizeEconomicExecution(row).execution.time);
+      if (!day || day >= currentDay) return;
+      const rows = map.get(day) || [];
+      rows.push(row);
+      map.set(day, rows);
+    };
+    for (const row of [...state.executions, ...history.executions]) add(knownByDay, row);
+    for (const receipt of receipts.filter((item) => item.window.toExclusive <= requiredThrough)) {
+      for (const id of receipt.executionIds) {
+        const row = historyById.get(id);
+        if (!row) {
+          return { reason: "authoritative history receipt identity is absent from the sidecar", history, receipts };
+        }
+        add(trustedByDay, row);
+      }
+    }
+    const missingRetainedIdentity = [...knownByDay.entries()].some(([day, rows]) => {
+      const knownIds = latestExecutionIdentities(rows);
+      const trustedIds = latestExecutionIdentities(trustedByDay.get(day) || []);
+      return missingPriorQueryIdentities(knownIds, trustedIds).length > 0;
+    });
+    return {
+      reason: missingRetainedIdentity ? "authoritative complete receipts omit a retained execution identity" : null,
+      history,
+      receipts,
+    };
+  }
+
+  function mergeVerifiedHistory({ history, receipts }) {
+    if (!history || !receipts.length) return null;
+    const currentDayStart = newYorkDayStart(state.coverageThrough);
+    const importableReceipts = receipts.filter((receipt) => receipt.window.toExclusive <= currentDayStart);
+    if (!importableReceipts.length) return null;
+    const executionById = new Map(history.executions.map((row) => [executionId(row), row]));
+    const commissionById = new Map(history.commissions.map((row) => [commissionId(row), row]));
+    const executionIds = new Set(importableReceipts.flatMap((receipt) => receipt.executionIds));
+    const commissionIds = new Set(importableReceipts.flatMap((receipt) => receipt.commissionIds));
+    const executions = [...executionIds].sort().map((id) => executionById.get(id));
+    const commissions = [...commissionIds].sort().map((id) => commissionById.get(id));
+    if (executions.some((row) => !row) || commissions.some((row) => !row)) {
+      throw new Error("official history receipt identities are absent from the durable sidecar");
+    }
+    const executionMerge = mergeEconomicExecutions(state.executions, executions);
+    const commissionMerge = mergeEconomicCommissions(state.commissions, commissions);
+    if (!executionMerge.changed && !commissionMerge.changed) return null;
+    return {
+      ...state,
+      ledgerObservedAt: maxIso([state.ledgerObservedAt, history.updatedAt]),
+      executions: executionMerge.rows,
+      commissions: commissionMerge.rows,
+    };
   }
 
   const retryScheduler = createReconnectScheduler({
@@ -507,8 +689,7 @@ export function createFamilySessionAdapter({
       return false;
     }
     const coverageTradingDay = newYorkDay(observedAt);
-    if (cycle.startedTradingDay !== coverageTradingDay ||
-        (state && state.coverageTradingDay !== coverageTradingDay)) {
+    if (cycle.startedTradingDay !== coverageTradingDay) {
       terminalCycle("unproved execution retrieval gap across America/New_York midnight; backfill required");
       return false;
     }
@@ -522,7 +703,8 @@ export function createFamilySessionAdapter({
     }
     try {
       const queryExecutionIdentities = latestExecutionIdentities(cycle.executions);
-      if (state) {
+      const crossedTradingDay = Boolean(state && state.coverageTradingDay !== coverageTradingDay);
+      if (state && !crossedTradingDay) {
         const missing = missingPriorQueryIdentities(
           state.queryExecutionIdentities,
           queryExecutionIdentities
@@ -547,10 +729,10 @@ export function createFamilySessionAdapter({
         commissions: [],
         family: null,
       };
-      const executionMerge = mergeExact(prior.executions, cycle.executions, executionId, "execution");
+      const executionMerge = mergeEconomicExecutions(prior.executions, cycle.executions, "replay for execution");
       const relevantIds = new Set(cycle.executions.map(executionId));
       const reports = [...commissionBuffer.values()].filter((report) => relevantIds.has(commissionId(report)));
-      const commissionMerge = mergeExact(prior.commissions, reports, commissionId, "commission");
+      const commissionMerge = mergeEconomicCommissions(prior.commissions, reports, "replay for commission");
       const changed = !state || executionMerge.changed || commissionMerge.changed;
       const next = {
         ...prior,
@@ -560,6 +742,10 @@ export function createFamilySessionAdapter({
         queryExecutionIdentities,
         executions: executionMerge.rows,
         commissions: commissionMerge.rows,
+        ...(prior.requiresVerifiedHistory === true || crossedTradingDay ? {
+          requiresVerifiedHistory: true,
+          unverifiedSince: prior.unverifiedSince || prior.coverageThrough,
+        } : {}),
       };
       if (!persist(next)) return false;
       retryReason = null;
@@ -599,10 +785,6 @@ export function createFamilySessionAdapter({
     const startedTradingDay = requestedAt && newYorkDay(requestedAt);
     if (!requestedAt || !startedTradingDay) {
       terminalCycle("execution request time is unavailable");
-      return false;
-    }
-    if (state && state.coverageTradingDay !== startedTradingDay) {
-      terminalCycle("unproved execution retrieval gap across America/New_York midnight; backfill required");
       return false;
     }
     const requestId = nextRequestId;
@@ -774,7 +956,20 @@ export function createFamilySessionAdapter({
     if (!state) return { ok: false, reason: "family ledger has not completed its baseline execution cycle" };
     if (!connected || !executionReady) return { ok: false, reason: "fresh complete execution cycle unavailable" };
     if (state.coverageTradingDay !== newYorkDay(now())) {
-      return { ok: false, reason: "unproved execution retrieval gap across America/New_York midnight; backfill required" };
+      return { ok: false, reason: "fresh current-day execution cycle unavailable" };
+    }
+    const continuity = verifiedContinuity();
+    if (!continuity.reason) {
+      try {
+        const next = mergeVerifiedHistory(continuity);
+        if (next && !persist(next)) return { ok: false, reason: blockedReason };
+      } catch (error) {
+        blockedReason = `official family history merge failed: ${error?.message || error}`;
+        retryReason = null;
+        retryScheduler.cancel();
+        emitAvailability(blockedReason);
+        return { ok: false, reason: blockedReason };
+      }
     }
     if (!baseCurrencyProven(book, targetAccount)) return { ok: false, reason: "target account base currency is not proven EUR" };
     if (book?.positionsCoverage?.status !== "complete") return { ok: false, reason: "current broker positions are incomplete" };
@@ -824,6 +1019,40 @@ export function createFamilySessionAdapter({
     const invalid = validateFamilyResult(result);
     if (invalid) return { ok: false, reason: invalid };
     const normalized = { ...clone(result), observedAt: iso(result.observedAt) };
+    const continuityReason = continuity.reason;
+    if (continuityReason) {
+      const history = continuity.history;
+      const gaps = Array.isArray(history?.coverage?.gaps) && history.coverage.gaps.length
+        ? clone(history.coverage.gaps)
+        : [{
+          fromInclusive: state.unverifiedSince || state.periodStart,
+          toExclusive: newYorkDayStart(state.coverageThrough),
+          reason: "no authoritative completeness receipt",
+        }];
+      return {
+        ok: false,
+        reason: continuityReason,
+        partialAccounting: {
+          status: "CAPTURED_ESTIMATE",
+          currency: "EUR",
+          equity: null,
+          capturedTotalPnl: normalized.totalPnl,
+          capturedRealizedPnl: normalized.realizedPnl,
+          estimatedOpenPnl: normalized.unrealizedPnl,
+          dayPnl: null,
+          positions: normalized.positions.map((row) => ({ ...row, accountingScope: "captured-estimate" })),
+          accounting: {
+            ...normalized.accounting,
+            completeness: "partial",
+            fxBasis: "current-observed",
+            detail: "Captured J-family FIFO, net of fees, with current marks and observed FX; historical coverage remains incomplete.",
+          },
+          coverage: { status: "partial", gaps },
+          observedAt: normalized.observedAt,
+          executionCount: normalized.executionCount,
+        },
+      };
+    }
     if (state.family?.observedAt === normalized.observedAt) {
       if (!sameRecord(state.family, normalized)) return { ok: false, reason: "family replay changed at an identical source revision" };
       return clone(state.family);
