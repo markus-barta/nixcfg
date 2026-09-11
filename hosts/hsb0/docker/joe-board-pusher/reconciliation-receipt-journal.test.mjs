@@ -16,7 +16,11 @@ import {
   ReconciliationReceiptJournalError,
   createFileReconciliationReceiptJournal,
 } from "./reconciliation-receipt-journal.mjs";
-import { RETENTION_CONTRACT } from "./retention-windows.mjs";
+import {
+  RETENTION_CONTRACT,
+  reconcileWindowCoverage,
+  retentionWindowAt,
+} from "./retention-windows.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER-ACCOUNT";
 const PROVIDER = "synthetic-reviewed-final-provider";
@@ -98,12 +102,17 @@ function emptyState(overrides = {}) {
   };
 }
 
-function socketExecution({ execId, symbol = "SYN", conId = 10_001 } = {}) {
+function socketExecution({
+  execId,
+  symbol = "SYN",
+  conId = 10_001,
+  time = "20260910 09:30:00 US/Eastern",
+} = {}) {
   return {
     contract: { conId, symbol, secType: "STK", currency: "USD", multiplier: 1 },
     execution: {
       execId,
-      time: "20260910 09:30:00 US/Eastern",
+      time,
       acctNumber: ACCOUNT,
       clientId: 22,
       side: "BUY",
@@ -114,10 +123,10 @@ function socketExecution({ execId, symbol = "SYN", conId = 10_001 } = {}) {
   };
 }
 
-function evidenceExecution(row) {
+function evidenceExecution(row, occurredAt = "2026-09-10T13:30:00.000Z") {
   return {
     execId: row.execution.execId,
-    occurredAt: "2026-09-10T13:30:00.000Z",
+    occurredAt,
     account: ACCOUNT,
     economics: {
       side: row.execution.side,
@@ -136,31 +145,36 @@ function syntheticOutcome({
   conId = 10_001,
   artifactLabel = "synthetic final artifact A",
   assertionId = `synthetic-finality-${artifactLabel}`,
+  window = WINDOW,
+  occurredAt = "2026-09-10T13:30:00.000Z",
+  socketTime = "20260910 09:30:00 US/Eastern",
+  generatedAt = "2026-09-10T22:00:01.000Z",
+  retrievedAt = "2026-09-10T22:00:03.000Z",
   verifiedAt = "2026-09-10T22:00:04.000Z",
   priorReceipts = [],
 } = {}) {
   const raw = Buffer.from(artifactLabel, "utf8");
-  const row = socketExecution({ execId, symbol, conId });
+  const row = socketExecution({ execId, symbol, conId, time: socketTime });
   const evidence = reconciliation.validateReconciliationEvidence({
     schema: reconciliation.RECONCILIATION_EVIDENCE_SCHEMA,
     account: ACCOUNT,
     scope: "ALL_ACCOUNT",
-    fromInclusive: WINDOW.fromInclusive,
-    toExclusive: WINDOW.toExclusive,
-    completeThrough: WINDOW.toExclusive,
+    fromInclusive: window.fromInclusive,
+    toExclusive: window.toExclusive,
+    completeThrough: window.toExclusive,
     finality: {
       status: "FINAL",
       scope: "ALL_ACCOUNT",
-      fromInclusive: WINDOW.fromInclusive,
-      toExclusive: WINDOW.toExclusive,
+      fromInclusive: window.fromInclusive,
+      toExclusive: window.toExclusive,
       assertionId,
     },
-    generatedAt: "2026-09-10T22:00:01.000Z",
-    retrievedAt: "2026-09-10T22:00:03.000Z",
+    generatedAt,
+    retrievedAt,
     correctionSemantics: "LATEST_EFFECTIVE",
     rawArtifactSha256: sha256(raw),
     ...ADAPTER,
-    executions: [evidenceExecution(row)],
+    executions: [evidenceExecution(row, occurredAt)],
   }, {
     rawArtifactBytes: raw,
     allowedAdapters: [ADAPTER],
@@ -170,7 +184,7 @@ function syntheticOutcome({
     socketExecutions: [row],
     socketCommissions: [{ execId, commission: 0.1, currency: "USD" }],
     account: ACCOUNT,
-    window: WINDOW,
+    window,
     priorReceipts,
     verifiedAt,
   });
@@ -220,6 +234,72 @@ function freshReplay({
     observedThrough,
     completedAt,
   };
+}
+
+function twoWindowBaseline() {
+  return {
+    ...operatorBaseline(),
+    evaluatedAt: "2026-09-08T22:00:00.000Z",
+    observedThrough: "2026-09-08T22:00:00.000Z",
+  };
+}
+
+function multiWindowOutcome({
+  label,
+  execId,
+  symbol,
+  conId,
+  fromInclusive,
+  toExclusive,
+  occurredAt,
+  socketTime,
+  priorReceipts = [],
+} = {}) {
+  return syntheticOutcome({
+    execId,
+    symbol,
+    conId,
+    artifactLabel: `synthetic multi-window ${label}`,
+    assertionId: `synthetic-multi-window-${label}`,
+    window: { fromInclusive, toExclusive },
+    occurredAt,
+    socketTime,
+    priorReceipts,
+  });
+}
+
+function multiWindowFixture() {
+  const p = multiWindowOutcome({
+    label: "P",
+    execId: "synthetic.multi.p.01",
+    symbol: "MWP",
+    conId: 20_001,
+    fromInclusive: "2026-09-08T22:00:00.000Z",
+    toExclusive: "2026-09-09T12:00:00.000Z",
+    occurredAt: "2026-09-09T08:00:00.000Z",
+    socketTime: "20260909 04:00:00 US/Eastern",
+  });
+  const x = multiWindowOutcome({
+    label: "X",
+    execId: "synthetic.multi.x.01",
+    symbol: "MWX",
+    conId: 20_002,
+    fromInclusive: "2026-09-09T12:00:00.000Z",
+    toExclusive: "2026-09-10T12:00:00.000Z",
+    occurredAt: "2026-09-09T13:00:00.000Z",
+    socketTime: "20260909 09:00:00 US/Eastern",
+  });
+  const q = multiWindowOutcome({
+    label: "Q",
+    execId: "synthetic.multi.q.01",
+    symbol: "MWQ",
+    conId: 20_003,
+    fromInclusive: "2026-09-10T12:00:00.000Z",
+    toExclusive: "2026-09-10T22:00:00.000Z",
+    occurredAt: "2026-09-10T13:00:00.000Z",
+    socketTime: "20260910 09:00:00 US/Eastern",
+  });
+  return { p, x, q };
 }
 
 const identityTest = test;
@@ -308,6 +388,32 @@ test("configuration requires an absolute path and canonical explicit calendar", 
     /explicit IANA time zone/,
   );
   assert.equal(fs.existsSync(`${filePath}.lock`), false);
+});
+
+test("retention reducer accepts repeated receipt IDs on adjacent disjoint evidence segments", () => {
+  const window = retentionWindowAt({
+    instant: "2026-09-10T12:00:00.000Z",
+    timeZone: TIME_ZONE,
+  });
+  const common = {
+    schema: RETENTION_CONTRACT.evidenceSchema,
+    providerId: PROVIDER,
+    calendarTimeZone: TIME_ZONE,
+    receiptId: "synthetic-repeated-receipt-id",
+    finality: "validated-final",
+    executionSetMatch: "exact",
+    conflict: false,
+  };
+  const result = reconcileWindowCoverage({
+    window,
+    providerId: PROVIDER,
+    evidenceIntervals: [
+      { ...common, begin: window.begin, end: "2026-09-10T10:00:00.000Z" },
+      { ...common, begin: "2026-09-10T10:00:00.000Z", end: window.end },
+    ],
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.receiptIds, [common.receiptId]);
 });
 
 identityTest("shared identity is stable across verification clocks and rejects authority clones", (t) => {
@@ -549,6 +655,188 @@ identityTest("same verified facts from independent synthetic artifacts remain co
   assert.equal(ready.ready, true);
   assert.equal(ready.journal.records.some((record) => record.conflict), false);
   assert.deepEqual(ready.result.reconciledWindows[0].receiptIds, ids);
+});
+
+identityTest("t1-t4 preserve a multi-window receipt outside its per-window invalidation", (t) => {
+  const { filePath } = temporaryTest(t);
+  const { p, x, q } = multiWindowFixture();
+  const y = multiWindowOutcome({
+    label: "Y",
+    execId: "synthetic.multi.y.01",
+    symbol: "MWY",
+    conId: 20_004,
+    fromInclusive: "2026-09-10T12:00:00.000Z",
+    toExclusive: "2026-09-10T22:00:00.000Z",
+    occurredAt: "2026-09-10T13:30:00.000Z",
+    socketTime: "20260910 09:30:00 US/Eastern",
+  });
+  const ids = Object.fromEntries(Object.entries({ p, x, q, y })
+    .map(([name, outcome]) => [name, reconciliation.reconciliationJournalEntry(outcome).receiptId]));
+  assert.equal(reconciliation.reconciliationReceiptsConflict(q.receipt, y.receipt), true);
+  assert.equal(reconciliation.reconciliationReceiptsConflict(x.receipt, y.receipt), false);
+
+  let store = openStore(filePath);
+  const t1 = store.transition({
+    outcomes: [p, x, q],
+    operatorBaseline: twoWindowBaseline(),
+    now: "2026-09-10T22:00:20.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(t1.ready, true, t1.reason);
+  assert.equal(t1.result.reconciledWindows.length, 2);
+  assert.deepEqual(t1.result.reconciledWindows.map((record) => record.receiptIds), [
+    [ids.p, ids.x].sort(),
+    [ids.q, ids.x].sort(),
+  ]);
+
+  const t2 = store.transition({
+    outcomes: [y],
+    now: "2026-09-10T22:00:21.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(t2.ready, false);
+  assert.deepEqual(t2.result.reconciledWindows.map((record) => record.window.begin), [
+    "2026-09-08T22:00:00.000Z",
+  ]);
+  const day2Invalidation = t2.result.invalidatedReceiptIdsByWindow.find((record) =>
+    record.window.begin === "2026-09-09T22:00:00.000Z");
+  assert.ok(day2Invalidation.receiptIds.includes(ids.x));
+  assert.equal(t2.journal.records.some((record) => record.receiptId === ids.x && record.conflict), false);
+  store.close();
+
+  store = openStore(filePath);
+  t.after(() => store.close());
+  assert.equal(store.load().ok, true);
+  const z = multiWindowOutcome({
+    label: "Z",
+    execId: "synthetic.multi.z.01",
+    symbol: "MWZ",
+    conId: 20_005,
+    fromInclusive: "2026-09-09T12:00:00.000Z",
+    toExclusive: "2026-09-09T22:00:00.000Z",
+    occurredAt: "2026-09-09T13:30:00.000Z",
+    socketTime: "20260909 09:30:00 US/Eastern",
+  });
+  const zId = reconciliation.reconciliationJournalEntry(z).receiptId;
+  assert.equal(reconciliation.reconciliationReceiptsConflict(x.receipt, z.receipt), true);
+  const t3 = store.transition({
+    outcomes: [z],
+    now: "2026-09-10T22:00:22.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(t3.ready, false);
+  assert.ok(t3.journal.records.some((record) => record.receiptId === ids.x && record.conflict));
+  assert.ok(t3.journal.records.some((record) => record.receiptId === zId && record.conflict));
+  assert.deepEqual(new Set(t3.result.invalidatedReceiptIdsByWindow
+    .filter((record) => record.receiptIds.includes(ids.x))
+    .map((record) => record.window.begin)), new Set([
+    "2026-09-08T22:00:00.000Z",
+    "2026-09-09T22:00:00.000Z",
+  ]));
+
+  const r2 = multiWindowOutcome({
+    label: "R2",
+    execId: "synthetic.multi.r2.01",
+    symbol: "MWR2",
+    conId: 20_006,
+    fromInclusive: "2026-09-09T22:00:00.000Z",
+    toExclusive: "2026-09-10T22:00:00.000Z",
+    occurredAt: "2026-09-10T13:45:00.000Z",
+    socketTime: "20260910 09:45:00 US/Eastern",
+  });
+  const t4 = store.transition({
+    outcomes: [r2],
+    now: "2026-09-10T22:00:23.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(t4.ready, false);
+  assert.match(t4.reason, /coverage gap|does not cover/);
+  assert.ok(t4.result.unresolvedConflictWindows.some((window) =>
+    window.begin === "2026-09-08T22:00:00.000Z"));
+
+  const r1 = multiWindowOutcome({
+    label: "R1",
+    execId: "synthetic.multi.r1.01",
+    symbol: "MWR1",
+    conId: 20_007,
+    fromInclusive: "2026-09-08T22:00:00.000Z",
+    toExclusive: "2026-09-09T22:00:00.000Z",
+    occurredAt: "2026-09-09T10:00:00.000Z",
+    socketTime: "20260909 06:00:00 US/Eastern",
+  });
+  const recovered = store.transition({
+    outcomes: [r1],
+    now: "2026-09-10T22:00:24.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(recovered.ready, true);
+  assert.deepEqual(new Set(recovered.journal.records.map((record) => record.receiptId)), new Set([
+    ...Object.values(ids),
+    zId,
+    reconciliation.reconciliationJournalEntry(r1).receiptId,
+    reconciliation.reconciliationJournalEntry(r2).receiptId,
+  ]));
+});
+
+identityTest("overlap confined to an invalidated window does not create a false active conflict", (t) => {
+  const { filePath } = temporaryTest(t);
+  const { p, x, q } = multiWindowFixture();
+  const y = multiWindowOutcome({
+    label: "Y-compatible-test",
+    execId: "synthetic.multi.y2.01",
+    symbol: "MWY2",
+    conId: 20_008,
+    fromInclusive: "2026-09-10T12:00:00.000Z",
+    toExclusive: "2026-09-10T22:00:00.000Z",
+    occurredAt: "2026-09-10T14:00:00.000Z",
+    socketTime: "20260910 10:00:00 US/Eastern",
+  });
+  const w = multiWindowOutcome({
+    label: "W-invalidated-only-overlap",
+    execId: "synthetic.multi.w.01",
+    symbol: "MWW",
+    conId: 20_009,
+    fromInclusive: "2026-09-09T22:00:00.000Z",
+    toExclusive: "2026-09-10T12:00:00.000Z",
+    occurredAt: "2026-09-10T09:00:00.000Z",
+    socketTime: "20260910 05:00:00 US/Eastern",
+  });
+  const xId = reconciliation.reconciliationJournalEntry(x).receiptId;
+  const wId = reconciliation.reconciliationJournalEntry(w).receiptId;
+  assert.equal(reconciliation.reconciliationReceiptsConflict(x.receipt, w.receipt), true);
+
+  let store = openStore(filePath);
+  const initial = store.transition({
+    outcomes: [p, x, q],
+    operatorBaseline: twoWindowBaseline(),
+    now: "2026-09-10T22:00:20.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  });
+  assert.equal(initial.ready, true, initial.reason);
+  assert.equal(store.transition({
+    outcomes: [y],
+    now: "2026-09-10T22:00:21.000Z",
+    freshReplay: freshReplay(),
+    maxReplayAgeMs: 30_000,
+  }).ready, false);
+  const appended = store.appendOutcomes([w]);
+  assert.equal(appended.changed, true);
+  assert.equal(appended.journal.records.some((record) => record.receiptId === wId && record.conflict), false);
+  assert.equal(appended.journal.records.some((record) => record.receiptId === xId && record.conflict), false);
+  store.close();
+
+  store = openStore(filePath);
+  t.after(() => store.close());
+  const reloaded = store.load();
+  assert.equal(reloaded.ok, true);
+  assert.equal(reloaded.readyForUse, false);
+  assert.equal(reloaded.needsRecomputation, true);
 });
 
 identityTest("load rejects contradictory active successes even with a valid rewritten head digest", (t) => {

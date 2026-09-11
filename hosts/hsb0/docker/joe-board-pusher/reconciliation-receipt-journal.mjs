@@ -14,6 +14,8 @@ export const RECONCILIATION_RECEIPT_JOURNAL_TRUST_BOUNDARY = "OPERATOR_CONFIGURE
 
 const MAX_STATE_BYTES = 32 * 1024 * 1024;
 const MAX_JOURNAL_RECORDS = 4_096;
+const MAX_RECEIPT_SEGMENTS = MAX_JOURNAL_RECORDS + 1;
+const MAX_EMITTED_EVIDENCE_SEGMENTS = MAX_JOURNAL_RECORDS * 4;
 const MAX_TEXT = 256;
 const SHA256 = /^[0-9a-f]{64}$/;
 const JOURNAL_KEYS = [
@@ -258,24 +260,73 @@ function receiptIds(records, count = records.length) {
   return activeRecords(records, count).map((entry) => entry.receiptId);
 }
 
-function invalidatedReceiptIds(readinessResult) {
-  const invalidated = new Set();
-  for (const item of readinessResult?.invalidatedReceiptIdsByWindow || []) {
-    for (const receiptId of item.receiptIds) invalidated.add(receiptId);
+/**
+ * Subtract only retention windows that durably invalidated this receipt ID.
+ * Returned UTC [begin, end) segments never widen the canonical receipt.
+ */
+function remainingReceiptCoverageSegments(entry, readinessResult) {
+  let segments = [{
+    beginEpoch: Date.parse(entry.receipt.coverage.fromInclusive),
+    endEpoch: Date.parse(entry.receipt.coverage.toExclusive),
+  }];
+  const cuts = (readinessResult?.invalidatedReceiptIdsByWindow || [])
+    .filter((record) => record.receiptIds.includes(entry.receiptId))
+    .map((record) => ({
+      beginEpoch: Date.parse(record.window.begin),
+      endEpoch: Date.parse(record.window.end),
+    }))
+    .sort((left, right) => left.beginEpoch - right.beginEpoch || left.endEpoch - right.endEpoch);
+  for (const cut of cuts) {
+    const remaining = [];
+    for (const segment of segments) {
+      if (cut.endEpoch <= segment.beginEpoch || cut.beginEpoch >= segment.endEpoch) {
+        remaining.push(segment);
+        continue;
+      }
+      if (segment.beginEpoch < cut.beginEpoch) {
+        remaining.push({ beginEpoch: segment.beginEpoch, endEpoch: cut.beginEpoch });
+      }
+      if (cut.endEpoch < segment.endEpoch) {
+        remaining.push({ beginEpoch: cut.endEpoch, endEpoch: segment.endEpoch });
+      }
+    }
+    if (remaining.length > MAX_RECEIPT_SEGMENTS) {
+      fail("JOURNAL_LIMIT", "per-receipt retained coverage exceeds the explicit segment bound");
+    }
+    segments = remaining;
   }
-  return invalidated;
+  return deepFreeze(segments.map((segment) => ({
+    begin: new Date(segment.beginEpoch).toISOString(),
+    end: new Date(segment.endEpoch).toISOString(),
+    beginEpoch: segment.beginEpoch,
+    endEpoch: segment.endEpoch,
+  })));
+}
+
+function coverageSegmentsOverlap(left, right) {
+  return left.some((leftSegment) => right.some((rightSegment) =>
+    leftSegment.beginEpoch < rightSegment.endEpoch &&
+    rightSegment.beginEpoch < leftSegment.endEpoch));
 }
 
 function activeEvidenceRecords(records, readinessResult) {
-  const invalidated = invalidatedReceiptIds(readinessResult);
-  return activeRecords(records).filter((entry) => !entry.conflict && !invalidated.has(entry.receiptId));
+  return activeRecords(records)
+    .filter((entry) => !entry.conflict)
+    .map((entry) => ({
+      entry,
+      segments: remainingReceiptCoverageSegments(entry, readinessResult),
+    }))
+    .filter((candidate) => candidate.segments.length > 0);
 }
 
 function validateActiveReceiptConsistency(records, readinessResult) {
   const active = activeEvidenceRecords(records, readinessResult);
   for (let left = 0; left < active.length; left += 1) {
     for (let right = left + 1; right < active.length; right += 1) {
-      if (identityApi().reconciliationReceiptsConflict(active[left].receipt, active[right].receipt)) {
+      if (
+        coverageSegmentsOverlap(active[left].segments, active[right].segments) &&
+        identityApi().reconciliationReceiptsConflict(active[left].entry.receipt, active[right].entry.receipt)
+      ) {
         fail("ACTIVE_RECEIPT_CONFLICT", "journal contains contradictory active reconciliation receipts");
       }
     }
@@ -345,7 +396,9 @@ function normalizeReadinessResult(value, config, knownReceiptIds) {
     fail("INVALID_READINESS", "persisted readiness maxReplayAgeMs is invalid");
   }
   for (const field of ["reconciledWindows", "unreconciledWindows", "unresolvedConflictWindows", "invalidatedReceiptIdsByWindow"]) {
-    if (!Array.isArray(result[field])) fail("INVALID_READINESS", `persisted readiness ${field} is invalid`);
+    if (!Array.isArray(result[field]) || result[field].length > MAX_JOURNAL_RECORDS) {
+      fail("INVALID_READINESS", `persisted readiness ${field} is invalid or exceeds the explicit bound`);
+    }
   }
   const reconciled = result.reconciledWindows.map((value, index) => {
     const item = record(value, `persisted reconciled window ${index}`);
@@ -552,7 +605,8 @@ function appendCanonicalEntries(journal, entries) {
   const latest = activeRecords(records);
   const byId = new Map(latest.map((entry) => [entry.receiptId, entry]));
   const activeEvidence = new Map(
-    activeEvidenceRecords(records, journal.readiness?.result).map((entry) => [entry.receiptId, entry]),
+    activeEvidenceRecords(records, journal.readiness?.result)
+      .map((candidate) => [candidate.entry.receiptId, candidate]),
   );
   const rawOwners = new Map(latest.map((entry) => [entry.receipt.rawArtifactSha256, entry.receiptId]));
   let changed = false;
@@ -583,42 +637,54 @@ function appendCanonicalEntries(journal, entries) {
         fail("RECEIPT_ID_CONFLICT", "one receiptId is rebound to different canonical facts");
       }
       if (entry.conflict) {
+        const entrySegments = remainingReceiptCoverageSegments(entry, journal.readiness?.result);
         const contradictory = [...activeEvidence.values()].filter((candidate) =>
-          identityApi().reconciliationReceiptsConflict(candidate.receipt, entry.receipt));
-        for (const candidate of contradictory) promoteConflict(candidate);
+          coverageSegmentsOverlap(candidate.segments, entrySegments) &&
+          identityApi().reconciliationReceiptsConflict(candidate.entry.receipt, entry.receipt));
+        for (const candidate of contradictory) promoteConflict(candidate.entry);
         promoteConflict(prior);
       }
       continue;
     }
+    const entrySegments = remainingReceiptCoverageSegments(entry, journal.readiness?.result);
     const contradictory = [...activeEvidence.values()].filter((candidate) =>
-      identityApi().reconciliationReceiptsConflict(candidate.receipt, entry.receipt));
-    for (const candidate of contradictory) promoteConflict(candidate);
+      coverageSegmentsOverlap(candidate.segments, entrySegments) &&
+      identityApi().reconciliationReceiptsConflict(candidate.entry.receipt, entry.receipt));
+    for (const candidate of contradictory) promoteConflict(candidate.entry);
     const stored = entry.conflict || contradictory.length > 0
       ? deepFreeze({ receiptId: entry.receiptId, conflict: true, receipt: entry.receipt })
       : entry;
     appendRecord(stored);
     byId.set(stored.receiptId, stored);
-    if (!stored.conflict) activeEvidence.set(stored.receiptId, stored);
+    if (!stored.conflict && entrySegments.length > 0) {
+      activeEvidence.set(stored.receiptId, { entry: stored, segments: entrySegments });
+    }
     rawOwners.set(entry.receipt.rawArtifactSha256, entry.receiptId);
   }
   return { records: deepFreeze(records), changed };
 }
 
 function cumulativeEvidence(journal, priorReadiness) {
-  const invalidated = invalidatedReceiptIds(priorReadiness);
-  return deepFreeze(activeRecords(journal.records)
-    .filter((entry) => !invalidated.has(entry.receiptId))
-    .map((entry) => ({
-      schema: RETENTION_CONTRACT.evidenceSchema,
-      providerId: journal.configuredProviderId,
-      calendarTimeZone: journal.configuredGatewayTimeZone,
-      receiptId: entry.receiptId,
-      finality: "validated-final",
-      executionSetMatch: "exact",
-      conflict: entry.conflict,
-      begin: entry.receipt.coverage.fromInclusive,
-      end: entry.receipt.coverage.toExclusive,
-    })));
+  const evidence = [];
+  for (const entry of activeRecords(journal.records)) {
+    for (const segment of remainingReceiptCoverageSegments(entry, priorReadiness)) {
+      if (evidence.length >= MAX_EMITTED_EVIDENCE_SEGMENTS) {
+        fail("JOURNAL_LIMIT", "cumulative retained coverage exceeds the explicit evidence-segment bound");
+      }
+      evidence.push({
+        schema: RETENTION_CONTRACT.evidenceSchema,
+        providerId: journal.configuredProviderId,
+        calendarTimeZone: journal.configuredGatewayTimeZone,
+        receiptId: entry.receiptId,
+        finality: "validated-final",
+        executionSetMatch: "exact",
+        conflict: entry.conflict,
+        begin: segment.begin,
+        end: segment.end,
+      });
+    }
+  }
+  return deepFreeze(evidence);
 }
 
 function buildReadinessBinding(journal, result, config) {
@@ -840,4 +906,6 @@ export function createFileReconciliationReceiptJournal(
 export const RECONCILIATION_RECEIPT_JOURNAL_LIMITS = Object.freeze({
   maxStateBytes: MAX_STATE_BYTES,
   maxRecords: MAX_JOURNAL_RECORDS,
+  maxReceiptSegments: MAX_RECEIPT_SEGMENTS,
+  maxEmittedEvidenceSegments: MAX_EMITTED_EVIDENCE_SEGMENTS,
 });
