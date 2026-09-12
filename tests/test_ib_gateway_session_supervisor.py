@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -248,6 +251,155 @@ class ParseHelpers(unittest.TestCase):
         self.assertEqual(manual, sup.MANUAL_FULLAUTH)
         self.assertTrue(twofa)
         self.assertEqual(state, sup.LOGIN_AUTHENTICATING)
+
+    def test_flood_beyond_tail_80_preserves_current_generation_login(self) -> None:
+        started = 9200.0
+        auth = "1970-01-01T02:46:40.000000Z Attempt 1 Authenticating\n"
+        flood = [
+            f"1970-01-01T02:46:41.{i:06d}Z socat[1] N opening connection from 127.0.0.1\n"
+            for i in range(90)
+        ]
+        lines = [auth, *flood]
+        naive_tail = "".join(lines[-80:])
+        naive = sup.filter_logs_to_generation(naive_tail, started)
+        self.assertEqual(sup.login_state_from_log(naive), sup.LOGIN_UNKNOWN)
+        collected = sup.collect_meaningful_events_from_lines(lines, started)
+        self.assertEqual(collected.kind, "ok")
+        self.assertNotIn("socat", collected.text.lower())
+        self.assertEqual(sup.login_state_from_log(collected.text), sup.LOGIN_AUTHENTICATING)
+        self.assertGreater(collected.scanned_lines, 80)
+        self.assertEqual(collected.kept_lines, 1)
+
+    def test_collector_drops_previous_generation_stale_events(self) -> None:
+        started = 9200.0
+        lines = [
+            "1970-01-01T00:16:40.000000Z 2FA challenge\n",
+            "1970-01-01T00:16:41.000000Z Login has completed\n",
+            "1970-01-01T02:46:40.000000Z Authenticating\n",
+            "1970-01-01T02:46:41.000000Z socat[1] N opening connection\n",
+        ]
+        collected = sup.collect_meaningful_events_from_lines(lines, started)
+        self.assertEqual(collected.kind, "ok")
+        state, manual, twofa = sup.classify_login(collected.text, [])
+        self.assertEqual(state, sup.LOGIN_AUTHENTICATING)
+        self.assertFalse(twofa)
+        self.assertIsNone(manual)
+        self.assertIsNone(collected.auth_failure_class)
+
+    def test_collector_timeout_or_overflow_is_unknown_not_restart(self) -> None:
+        started = 9200.0
+        auth = "1970-01-01T02:46:40.000000Z Authenticating\n"
+        timed_out = sup.collect_meaningful_events_from_lines(
+            [auth],
+            started,
+            deadline=0.0,
+            now_fn=lambda: 1.0,
+        )
+        self.assertEqual(timed_out.kind, "timeout")
+        self.assertEqual(timed_out.text, "")
+        overflow_scan = sup.collect_meaningful_events_from_lines(
+            ["1970-01-01T02:46:40.000000Z socat flood\n"] * 5,
+            started,
+            max_scan_lines=3,
+        )
+        self.assertEqual(overflow_scan.kind, "overflow")
+        self.assertEqual(overflow_scan.text, "")
+        overflow_keep = sup.collect_meaningful_events_from_lines(
+            [
+                "1970-01-01T02:46:40.000000Z Authenticating\n",
+                "1970-01-01T02:46:41.000000Z Authenticating\n",
+                "1970-01-01T02:46:42.000000Z Authenticating\n",
+            ],
+            started,
+            max_keep_lines=2,
+        )
+        self.assertEqual(overflow_keep.kind, "overflow")
+        self.assertEqual(overflow_keep.text, "")
+        for failed in (timed_out, overflow_scan, overflow_keep):
+            observation = obs(
+                login_state=sup.LOGIN_UNKNOWN,
+                probe_unknown=True,
+                probe_reason=f"docker login-log {failed.kind}; not restarting or resetting budget",
+                container_generation="deadbeef0123:424242",
+            )
+            decision = sup.decide(observation, sup.SupervisorState(), cfg(Path(tempfile.mkdtemp())))
+            self.assertEqual(decision.action, sup.ACTION_NONE)
+            self.assertEqual(decision.phase, sup.PHASE_UNKNOWN)
+            self.assertEqual(decision.persist.restarts_this_outage, 0)
+
+    def test_collector_preserves_real_login_chronology_despite_flood(self) -> None:
+        started = 9200.0
+        flood = ["1970-01-01T02:46:41.000000Z socat[1] N opening connection\n"] * 90
+        lines = [
+            "1970-01-01T02:46:40.000000Z Authenticating\n",
+            *flood,
+            "1970-01-01T02:47:40.000000Z Login has completed\n",
+            *flood,
+        ]
+        naive = sup.filter_logs_to_generation("".join(lines[-80:]), started)
+        self.assertEqual(sup.login_state_from_log(naive), sup.LOGIN_UNKNOWN)
+        collected = sup.collect_meaningful_events_from_lines(lines, started)
+        self.assertEqual(collected.kind, "ok")
+        self.assertEqual(sup.login_state_from_log(collected.text), sup.LOGIN_LOGGED_IN)
+        _, _, twofa = sup.classify_login(collected.text, [])
+        self.assertFalse(twofa)
+
+    def test_auth_failure_classes_are_named_and_not_2fa(self) -> None:
+        started = 9200.0
+        cases = [
+            (
+                "1970-01-01T02:46:40.000000Z Authenticating\n"
+                "1970-01-01T02:47:40.000000Z Connectivity between TWS and server is broken 2110\n",
+                sup.AUTH_CLASS_UPSTREAM_UNAVAILABLE,
+                sup.LOGIN_AUTHENTICATING,
+            ),
+            (
+                "1970-01-01T02:46:40.000000Z session conflict: already logged in from another computer\n",
+                sup.AUTH_CLASS_SESSION_CONFLICT,
+                sup.LOGIN_UNKNOWN,
+            ),
+            (
+                "1970-01-01T02:46:40.000000Z invalid username or password\n",
+                sup.AUTH_CLASS_INVALID_CREDENTIALS,
+                sup.LOGIN_UNKNOWN,
+            ),
+            (
+                "1970-01-01T02:46:40.000000Z SSL handshake failed\n",
+                sup.AUTH_CLASS_TLS,
+                sup.LOGIN_UNKNOWN,
+            ),
+        ]
+        for blob, expected_class, login in cases:
+            collected = sup.collect_meaningful_events_from_lines(blob.splitlines(keepends=True), started)
+            self.assertEqual(collected.kind, "ok", expected_class)
+            self.assertEqual(collected.auth_failure_class, expected_class)
+            state, manual, twofa = sup.classify_login(collected.text, [])
+            self.assertEqual(state, login)
+            self.assertFalse(twofa)
+            self.assertIsNone(manual)
+            decision = sup.decide(
+                obs(
+                    login_state=state,
+                    auth_failure_class=expected_class,
+                    twofa_evidence=False,
+                    container_started_at=NOW - 60,
+                    container_generation="deadbeef0123:424242",
+                ),
+                sup.SupervisorState(),
+                cfg(Path(tempfile.mkdtemp())),
+            )
+            self.assertNotIn("2FA", decision.reason)
+            self.assertIn(f"auth-class:{expected_class}", decision.notes)
+            self.assertEqual(decision.action, sup.ACTION_NONE)
+
+    def test_login_log_argv_is_since_not_unbounded_tail(self) -> None:
+        argv = sup.docker_login_logs_argv(cfg(Path(tempfile.mkdtemp())), 9200.0)
+        self.assertNotIn("--tail", argv)
+        self.assertNotIn("--follow", argv)
+        self.assertIn("--since", argv)
+        self.assertIn("--timestamps", argv)
+        self.assertEqual(argv[-1], "ib-gateway")
+        self.assertNotIn("80", argv)
 
 
 class DecisionMatrix(unittest.TestCase):
@@ -648,6 +800,117 @@ class DockerProbes(unittest.TestCase):
             result = sup.docker_command(self.cfg, ["ps"])
         self.assertEqual(result.kind, "timeout")
 
+    def test_iter_fd_lines_yields_complete_lines(self) -> None:
+        r_fd, w_fd = os.pipe()
+        try:
+            os.write(w_fd, b"one\npartial")
+            os.write(w_fd, b"-two\n")
+            os.close(w_fd)
+            w_fd = -1
+            lines = list(sup._iter_fd_lines(r_fd, time.monotonic() + 1))
+        finally:
+            os.close(r_fd)
+            if w_fd >= 0:
+                os.close(w_fd)
+        self.assertEqual(lines, ["one\n", "partial-two\n"])
+
+    def test_newline_free_raw_read_hits_buffer_cap(self) -> None:
+        r_fd, w_fd = os.pipe()
+        try:
+            os.write(w_fd, b"x" * 4096)
+            os.close(w_fd)
+            w_fd = -1
+            with self.assertRaises(sup.CollectBoundExceeded):
+                list(
+                    sup._iter_fd_lines(
+                        r_fd,
+                        time.monotonic() + 1,
+                        max_buf_bytes=1024,
+                        max_raw_bytes=64 * 1024,
+                    )
+                )
+        finally:
+            os.close(r_fd)
+            if w_fd >= 0:
+                os.close(w_fd)
+
+    def test_stderr_stdout_multiplex_drains_and_orders_by_timestamp(self) -> None:
+        started = 9200.0
+        out_r, out_w = os.pipe()
+        err_r, err_w = os.pipe()
+        kinds: list[str] = []
+
+        def fill_stderr() -> None:
+            os.write(err_w, b"1970-01-01T02:46:40.000000Z Authenticating\n")
+            os.write(err_w, b"permission denied\n")
+            os.write(err_w, b"1970-01-01T02:46:41.000000Z socat relay\n" * 4000)
+            os.close(err_w)
+
+        try:
+            os.write(out_w, b"1970-01-01T02:47:40.000000Z Login has completed\n")
+            os.close(out_w)
+            out_w = -1
+            writer = threading.Thread(target=fill_stderr)
+            writer.start()
+            lines = list(
+                sup._iter_multiplexed_log_lines(
+                    out_r,
+                    err_r,
+                    time.monotonic() + 2,
+                    client_kinds=kinds,
+                )
+            )
+            writer.join(2)
+            self.assertFalse(writer.is_alive())
+        finally:
+            os.close(out_r)
+            os.close(err_r)
+            if out_w >= 0:
+                os.close(out_w)
+        joined = "".join(lines)
+        self.assertNotIn("permission denied", joined.lower())
+        self.assertIn("permission", kinds)
+        collected = sup.collect_meaningful_events_from_lines(lines, started)
+        self.assertEqual(collected.kind, "ok")
+        self.assertEqual(sup.login_state_from_log(collected.text), sup.LOGIN_LOGGED_IN)
+        self.assertNotIn("socat", collected.text.lower())
+
+    def test_lookback_window_retains_auth_and_recognizes_health(self) -> None:
+        started = NOW - 3 * 3600
+        since = sup.login_logs_since_epoch(started, NOW)
+        self.assertGreater(since, started)
+        self.assertAlmostEqual(since, NOW - sup.LOG_LOOKBACK_SEC, delta=0.01)
+        self.assertEqual(sup.login_logs_since_epoch(NOW - 30, NOW), NOW - 30)
+        argv = sup.docker_login_logs_argv(cfg(Path(tempfile.mkdtemp())), since)
+        self.assertIn(sup.docker_since_stamp(since), argv)
+        self.assertNotIn(sup.docker_since_stamp(started), argv)
+        self.assertNotIn("--tail", argv)
+        recent = ["1970-01-01T02:46:41.000000Z socat[1] N opening connection\n"] * 90
+        collected = sup.collect_meaningful_events_from_lines(recent, started)
+        self.assertEqual(collected.kind, "ok")
+        self.assertEqual(sup.login_state_from_log(collected.text), sup.LOGIN_UNKNOWN)
+        generation = "deadbeef0123:424242"
+        decision = sup.decide(
+            obs(
+                api_listening=True,
+                login_state=sup.LOGIN_UNKNOWN,
+                container_started_at=started,
+                container_generation=generation,
+                pusher=pusher(gateway=True),
+            ),
+            sup.SupervisorState(
+                login_state=sup.LOGIN_LOGGED_IN,
+                login_generation=generation,
+            ),
+            cfg(Path(tempfile.mkdtemp())),
+        )
+        self.assertEqual(decision.phase, sup.PHASE_API_READY)
+        self.assertEqual(decision.action, sup.ACTION_NONE)
+        self.assertEqual(decision.persist.login_state, sup.LOGIN_LOGGED_IN)
+        self.assertIn("login-persisted-across-relay-spam", decision.notes)
+        self.assertIn("recovery-reset", decision.notes)
+        self.assertNotEqual(decision.phase, sup.PHASE_UNKNOWN)
+
     def test_docker_permission_is_unknown(self) -> None:
         with mock.patch.object(sup.subprocess, "run", side_effect=PermissionError("denied")):
             result = sup.docker_command(self.cfg, ["ps"])
@@ -694,10 +957,13 @@ class DockerProbes(unittest.TestCase):
 
             return inner
 
-        with mock.patch.object(sup, "docker_command", side_effect=fake_docker("Up 10 minutes")):
-            first = sup.observe_runtime(self.cfg, now=NOW)
-        with mock.patch.object(sup, "docker_command", side_effect=fake_docker("Up 11 minutes")):
-            second = sup.observe_runtime(self.cfg, now=NOW + 60)
+        with mock.patch.object(
+            sup, "observe_login_logs", return_value=sup.LogCollectResult(kind="ok", text="")
+        ):
+            with mock.patch.object(sup, "docker_command", side_effect=fake_docker("Up 10 minutes")):
+                first = sup.observe_runtime(self.cfg, now=NOW)
+            with mock.patch.object(sup, "docker_command", side_effect=fake_docker("Up 11 minutes")):
+                second = sup.observe_runtime(self.cfg, now=NOW + 60)
         self.assertEqual(first.container_generation, "deadbeef0123:424242")
         self.assertEqual(second.container_generation, first.container_generation)
         self.assertEqual(first.container_started_at, second.container_started_at)
@@ -706,6 +972,145 @@ class DockerProbes(unittest.TestCase):
             sup.start_epoch_from_proc(1_700_000_000, 424242),
         )
         self.assertNotEqual(NOW - 10 * 60, first.container_started_at)
+
+    def test_observe_login_log_overflow_unknown_does_not_restart(self) -> None:
+        init = fake_proc1_stat(424242) + "btime 1700000000\n"
+
+        def fake_docker(_cfg: sup.Config, args: list[str], timeout: int = 15) -> sup.DockerResult:
+            del timeout
+            joined = " ".join(args)
+            if args[:1] == ["ps"]:
+                return sup.DockerResult(kind="ok", stdout="deadbeef0123\tUp 3 hours\n")
+            if "/proc/1/stat" in joined:
+                return sup.DockerResult(kind="ok", stdout=init)
+            if "/proc/net/tcp" in joined:
+                return sup.DockerResult(kind="ok", stdout=PROC_RELAY_ONLY)
+            return sup.DockerResult(kind="ok", stdout="")
+
+        for kind in ("overflow", "timeout", "nonzero"):
+            with self.subTest(kind=kind):
+                with mock.patch.object(sup, "docker_command", side_effect=fake_docker):
+                    with mock.patch.object(
+                        sup,
+                        "observe_login_logs",
+                        return_value=sup.LogCollectResult(kind=kind),
+                    ):
+                        observation = sup.observe_runtime(self.cfg, now=NOW)
+                self.assertTrue(observation.probe_unknown)
+                self.assertEqual(observation.login_state, sup.LOGIN_UNKNOWN)
+                self.assertIs(observation.api_listening, False)
+                self.assertIn(kind, observation.probe_reason or "")
+                prior = sup.SupervisorState(restarts_this_outage=0)
+                decision = sup.decide(observation, prior, self.cfg)
+                self.assertEqual(decision.action, sup.ACTION_NONE)
+                self.assertEqual(decision.phase, sup.PHASE_UNKNOWN)
+                self.assertEqual(decision.persist.restarts_this_outage, 0)
+
+    def test_partial_login_then_read_failure_is_unknown_not_restart(self) -> None:
+        r_fd, w_fd = os.pipe()
+        seen: list[str] = []
+        try:
+            os.write(w_fd, b"1970-01-01T02:46:40.000000Z Authenticating\n")
+            calls = {"n": 0}
+            real_select = sup.select.select
+
+            def fake_select(rlist, wlist, xlist, timeout=None):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return real_select(rlist, wlist, xlist, timeout)
+                raise OSError("selector failed")
+
+            with mock.patch.object(sup.select, "select", fake_select):
+                with self.assertRaises(sup.CollectReadFailed):
+                    for line in sup._iter_multiplexed_log_lines(
+                        r_fd, None, time.monotonic() + 1
+                    ):
+                        seen.append(line)
+            self.assertTrue(any("Authenticating" in line for line in seen))
+        finally:
+            os.close(r_fd)
+            os.close(w_fd)
+
+        def failing_iter(*_args, **_kwargs):
+            yield "1970-01-01T02:46:40.000000Z Authenticating\n"
+            raise sup.CollectReadFailed("select failed")
+
+        class DummyStream:
+            def fileno(self) -> int:
+                return 0
+
+            def close(self) -> None:
+                return None
+
+        class DummyProc:
+            stdout = DummyStream()
+            stderr = DummyStream()
+            returncode = 0
+
+            def poll(self) -> int:
+                return 0
+
+            def wait(self, timeout: float | None = None) -> int:
+                del timeout
+                return 0
+
+            def kill(self) -> None:
+                return None
+
+        init = fake_proc1_stat(424242) + "btime 1700000000\n"
+
+        def fake_docker(_cfg: sup.Config, args: list[str], timeout: int = 15) -> sup.DockerResult:
+            del timeout
+            joined = " ".join(args)
+            if args[:1] == ["ps"]:
+                return sup.DockerResult(kind="ok", stdout="deadbeef0123\tUp 3 hours\n")
+            if "/proc/1/stat" in joined:
+                return sup.DockerResult(kind="ok", stdout=init)
+            if "/proc/net/tcp" in joined:
+                return sup.DockerResult(kind="ok", stdout=PROC_RELAY_ONLY)
+            return sup.DockerResult(kind="ok", stdout="")
+
+        with mock.patch.object(sup.subprocess, "Popen", return_value=DummyProc()):
+            with mock.patch.object(sup, "_iter_multiplexed_log_lines", side_effect=failing_iter):
+                with mock.patch.object(sup, "docker_command", side_effect=fake_docker):
+                    observation = sup.observe_runtime(self.cfg, now=NOW)
+        self.assertTrue(observation.probe_unknown)
+        self.assertEqual(observation.login_state, sup.LOGIN_UNKNOWN)
+        self.assertNotEqual(observation.login_state, sup.LOGIN_AUTHENTICATING)
+        prior = sup.SupervisorState(restarts_this_outage=1)
+        decision = sup.decide(observation, prior, self.cfg)
+        self.assertEqual(decision.action, sup.ACTION_NONE)
+        self.assertEqual(decision.phase, sup.PHASE_UNKNOWN)
+        self.assertEqual(decision.persist.restarts_this_outage, 1)
+
+    def test_observe_flood_login_is_authenticating_not_unknown(self) -> None:
+        init = fake_proc1_stat(424242) + "btime 1700000000\n"
+        collected = sup.LogCollectResult(
+            kind="ok",
+            text="1970-01-01T02:46:40.000000Z Authenticating",
+            kept_lines=1,
+        )
+
+        def fake_docker(_cfg: sup.Config, args: list[str], timeout: int = 15) -> sup.DockerResult:
+            del timeout
+            joined = " ".join(args)
+            if args[:1] == ["ps"]:
+                return sup.DockerResult(kind="ok", stdout="deadbeef0123\tUp 10 minutes\n")
+            if "/proc/1/stat" in joined:
+                return sup.DockerResult(kind="ok", stdout=init)
+            if "/proc/net/tcp" in joined:
+                return sup.DockerResult(kind="ok", stdout=PROC_RELAY_ONLY)
+            return sup.DockerResult(kind="ok", stdout="")
+
+        with mock.patch.object(sup, "docker_command", side_effect=fake_docker):
+            with mock.patch.object(sup, "observe_login_logs", return_value=collected):
+                observation = sup.observe_runtime(self.cfg, now=NOW)
+        self.assertFalse(observation.probe_unknown)
+        self.assertEqual(observation.login_state, sup.LOGIN_AUTHENTICATING)
+        decision = sup.decide(observation, sup.SupervisorState(), self.cfg)
+        self.assertEqual(decision.action, sup.ACTION_NONE)
+        self.assertEqual(decision.phase, sup.PHASE_AUTHENTICATING)
+        self.assertNotEqual(decision.action, sup.ACTION_RESTART)
 
 
 class AlertAndCycle(unittest.TestCase):
