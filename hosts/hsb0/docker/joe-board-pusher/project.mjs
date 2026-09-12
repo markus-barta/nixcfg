@@ -199,6 +199,48 @@ function stage0JoelRows(portfolio) {
   return portfolio.filter((p) => JOEL_SYMBOLS.has(p.symbol) && !isGrandfathered(p));
 }
 
+function unavailablePnlSource(kind, detail) {
+  return {
+    status: "unavailable",
+    method: null,
+    currency: "EUR",
+    scope: "virtual-desks",
+    observedAt: null,
+    ...(kind === "day" ? { periodStart: null } : {}),
+    detail: String(detail).slice(0, 160),
+  };
+}
+
+function dayPnlProjection(gatewayOk) {
+  return {
+    values: { j: null, joe: null, joel: null, total: null },
+    source: unavailablePnlSource(
+      "day",
+      gatewayOk
+        ? "Exact America/New_York SOD virtual-equity baseline pending; account DailyPnL includes KEEP."
+        : "Paper Gateway unavailable; exact America/New_York SOD virtual-equity baseline unavailable."
+    ),
+  };
+}
+
+function openPnlUnavailable(detail) {
+  return {
+    values: { j: null, joe: null, joel: null, total: null },
+    source: unavailablePnlSource("open", detail),
+  };
+}
+
+function openPnlProjection(book, { gatewayOk, brokerFresh }) {
+  if (!gatewayOk) return openPnlUnavailable("Paper Gateway unavailable; IB unrealized P&L unavailable.");
+  if (!brokerFresh) return openPnlUnavailable("Broker book is stale; fresh IB unrealized P&L unavailable.");
+  if (book.positionsCoverage?.status !== "complete") {
+    return openPnlUnavailable("Complete broker position coverage unavailable for OPEN allocation.");
+  }
+  return openPnlUnavailable(
+    "IB updatePortfolio unrealized P&L has no currency field; EUR virtual-desk OPEN is unproved."
+  );
+}
+
 function accountingScopeFor(row) {
   if (isGrandfathered({ symbol: row.symbol, pos: row.pos })) return "legacy";
   return "stage0";
@@ -280,6 +322,11 @@ export function projectBook(book, opts = {}) {
     scope: "paper-account-including-keep",
     status: accountEquity !== null && gwOk && brokerObservationFresh ? "available" : "unavailable",
   };
+  const dayPnl = dayPnlProjection(gwOk);
+  const openPnl = openPnlProjection(book, {
+    gatewayOk: gwOk,
+    brokerFresh: brokerObservationFresh,
+  });
   const accountEquityText = accountEquity === null
     ? "Paper account equity unavailable"
     : `paper account equity €${accountEquity.toLocaleString("en-US", { minimumFractionDigits: 2 })}, including KEEP`;
@@ -343,7 +390,7 @@ export function projectBook(book, opts = {}) {
           : "Virt book €5k; no open J names on the shared broker account.",
         iteration: null,
       },
-      money: { equity: jEquity, dayPnl: null, totalPnl: jPnl, openPnl: familyAccepted ? family.unrealizedPnl : null },
+      money: { equity: jEquity, dayPnl: dayPnl.values.j, totalPnl: jPnl, openPnl: openPnl.values.j },
       ...(familyAccepted ? { accounting: family.accounting } : {}),
       ...(familyBackfill ? { backfill: familyBackfill } : {}),
       heartbeatAt: heartbeat,
@@ -361,7 +408,7 @@ export function projectBook(book, opts = {}) {
         detail: "Virt book €5k; no open Joe names today.",
         iteration: null,
       },
-      money: { equity: joeEquity, dayPnl: null, totalPnl: joePnl },
+      money: { equity: joeEquity, dayPnl: dayPnl.values.joe, totalPnl: joePnl, openPnl: openPnl.values.joe },
       heartbeatAt: heartbeat,
       issues: [],
     },
@@ -383,7 +430,7 @@ export function projectBook(book, opts = {}) {
           : `Since-start PnL €${joelPnl.toLocaleString("en-US", { minimumFractionDigits: 2 })}; stand = virt €5k + PnL.`,
         iteration: null,
       },
-      money: { equity: joelEquity, dayPnl: null, totalPnl: joelPnl },
+      money: { equity: joelEquity, dayPnl: dayPnl.values.joel, totalPnl: joelPnl, openPnl: openPnl.values.joel },
       historyBasis: JOEL_HISTORY_BASIS,
       heartbeatAt: heartbeat,
       issues: [],
@@ -401,6 +448,13 @@ export function projectBook(book, opts = {}) {
   if (familyAccepted) {
     desks[0].positions = family.positions.map((row) => ({ ...row, dayPnl: null }));
   }
+  if (openPnl.source.status === "unavailable") {
+    for (const desk of desks) {
+      if (Array.isArray(desk.positions)) {
+        desk.positions = desk.positions.map((row) => ({ ...row, openPnl: null }));
+      }
+    }
+  }
 
   const issues = [];
   if (halt) issues.push("HALT is on");
@@ -413,8 +467,9 @@ export function projectBook(book, opts = {}) {
 
   const totals = {
     equity: familyUnavailable ? null : round2(jEquity + joeEquity + joelEquity),
-    dayPnl: null,
+    dayPnl: dayPnl.values.total,
     totalPnl: familyUnavailable ? null : round2(jPnl + joePnl + joelPnl),
+    openPnl: openPnl.values.total,
   };
 
   return {
@@ -423,6 +478,7 @@ export function projectBook(book, opts = {}) {
     mode: "PAPER",
     currency: "EUR",
     brokerAccount,
+    pnlSources: { day: dayPnl.source, open: openPnl.source },
     source: {
       label: "hsb0 joe-board-pusher (paper Gateway projection)",
       revision: familyAccepted ? brokerSnapshotAt.toISOString() : bookTs,
