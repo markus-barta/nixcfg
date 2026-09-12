@@ -335,8 +335,14 @@ in
   # A failed/missing renderer is a hard dependency, not an advisory Wants.
   # This merges with composeStack's docker.service requirement.
   systemd.services.compose-csb1 = {
-    requires = [ "inspr-edge-config.service" ];
-    after = [ "inspr-edge-config.service" ];
+    requires = [
+      "inspr-edge-config.service"
+    ]
+    ++ lib.optional janusFlowHost.active "janus-flow-host-config.service";
+    after = [
+      "inspr-edge-config.service"
+    ]
+    ++ lib.optional janusFlowHost.active "janus-flow-host-config.service";
   };
 
   # NIX-447 — public routing-edge consumer boundary. Explicitly inactive.
@@ -477,12 +483,6 @@ in
     # The deployed Go image runs as the named janus account, numeric 100:101.
     containerUid = 100;
     containerGid = 101;
-  };
-
-  # A failed config publication must block an enabled Compose reconcile.
-  systemd.services.compose-csb1 = lib.mkIf janusFlowHost.active {
-    requires = [ "janus-flow-host-config.service" ];
-    after = [ "janus-flow-host-config.service" ];
   };
 
   inspr.janusPaimosDependencyReporter = {
