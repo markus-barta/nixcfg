@@ -1353,10 +1353,30 @@ test("verified closed Joe roundtrip populates equity and since-start totals inde
   assert.equal(retained.totals.totalPnl, -2);
   assert.equal(retained.pnlSources.open.status, "unavailable");
   for (const desk of retained.desks) {
-    assert.deepEqual(desk.moneyEvidence, { status: "carried", observedAt: OBS_B });
+    assert.deepEqual(desk.moneyEvidence, { status: "carried", observedAt: OBS_A4 });
   }
-  assert.match(deskById(retained, "joe").issues[0], /2026-09-10T08:00:05.000Z/);
+  assert.match(deskById(retained, "joe").issues[0], /2026-09-10T08:00:04.000Z/);
   assert.equal(deskById(retained, "joe").state, "stuck");
+
+  // Reproduce the live defect: completed execution queries advance while economic inputs do not.
+  for (const observedAt of [OBS_C, OBS_D]) {
+    const recalculated = structuredClone(deskEquities);
+    recalculated.sourceObservedAt = observedAt;
+    recalculated.executionCoverage.throughInclusive = observedAt;
+    const carried = projectBook(baseBook({ ts: observedAt }), {
+      publisherAt: new Date(observedAt),
+      familyRuntimeEnabled: true,
+      family: { ...family, observedAt },
+      deskEquities: recalculated,
+    });
+    assert.equal(new Date(carried.generatedAt).toISOString(), observedAt);
+    assert.equal(carried.totals.equity, 14998);
+    for (const desk of carried.desks) {
+      assert.deepEqual(desk.moneyEvidence, { status: "carried", observedAt: OBS_A4 });
+      assert.equal(desk.money.dayPnl, null);
+      assert.equal(desk.money.openPnl, null);
+    }
+  }
 });
 
 test("OPEN uses owned J lots with explicit FX and proves the other desks flat", () => {
