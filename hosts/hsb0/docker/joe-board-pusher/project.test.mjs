@@ -668,7 +668,7 @@ test("complete EUR NetLiquidation stays useful when J family accounting is unava
     totalPnl: null,
     openPnl: null,
   });
-  assert.deepEqual(snapshot.totals, { equity: null, dayPnl: null, totalPnl: null });
+  assert.deepEqual(snapshot.totals, { equity: null, dayPnl: null, totalPnl: null, openPnl: null });
 });
 
 test("missing, invalid, and foreign NetLiquidation never become account equity", () => {
@@ -722,7 +722,7 @@ test("best-available family history projects a bounded J-only native-currency su
   assert.equal("backfill" in deskById(snapshot, "joe"), false);
   assert.equal("backfill" in deskById(snapshot, "joel"), false);
   assert.deepEqual(deskById(snapshot, "j").money, { equity: null, dayPnl: null, totalPnl: null, openPnl: null });
-  assert.deepEqual(snapshot.totals, { equity: null, dayPnl: null, totalPnl: null });
+  assert.deepEqual(snapshot.totals, { equity: null, dayPnl: null, totalPnl: null, openPnl: null });
   const projectedText = JSON.stringify(deskById(snapshot, "j").backfill);
   assert.equal(projectedText.includes("synthetic-hidden-id"), false);
   assert.equal(projectedText.includes("synthetic earlier interval unavailable"), false);
@@ -970,7 +970,7 @@ test("enabled family runtime isolates incomplete J accounting without stopping t
     assert.equal("accounting" in j, false);
     assert.match(j.learning.headline, /unavailable/);
     assert.match(j.issues[0], /accounting unavailable/);
-    assert.deepEqual(unavailable.totals, { equity: null, dayPnl: null, totalPnl: null });
+    assert.deepEqual(unavailable.totals, { equity: null, dayPnl: null, totalPnl: null, openPnl: null });
   }
 
   const family = {
@@ -1005,7 +1005,8 @@ test("enabled family runtime isolates incomplete J accounting without stopping t
     family,
   });
   const j = deskById(snapshot, "j");
-  assert.deepEqual(j.money, { equity: 5012, dayPnl: null, totalPnl: 12, openPnl: 5 });
+  assert.deepEqual(j.money, { equity: 5012, dayPnl: null, totalPnl: 12, openPnl: null });
+  assert.match(snapshot.pnlSources.open.detail, /Broker book is stale/);
   assert.equal(j.positions[0].symbol, "ACME");
   assert.equal(j.positions[0].dayPnl, null);
   assert.equal(j.positions.some((row) => row.symbol === "INTC"), false);
@@ -1078,7 +1079,7 @@ test("corrupt or midnight J gaps preserve Joe and Joel, and recovery clears J un
   assert.equal(deskById(recovered, "j").state, "sit-out");
   assert.deepEqual(deskById(recovered, "j").issues, []);
   assert.deepEqual(deskById(recovered, "j").positions, []);
-  assert.deepEqual(recovered.totals, { equity: 15023, dayPnl: null, totalPnl: 23 });
+  assert.deepEqual(recovered.totals, { equity: 15023, dayPnl: null, totalPnl: 23, openPnl: null });
 });
 
 test("a newer family economic revision advances generatedAt while publisher heartbeats do not", () => {
@@ -1123,6 +1124,62 @@ test("day P&L stays null even for a flat completed book", () => {
   const snapshot = projectBook(baseBook(), { publisherAt: new Date(OBS_B) });
   for (const desk of snapshot.desks) assert.equal(desk.money.dayPnl, null);
   assert.equal(snapshot.totals.dayPnl, null);
+  assert.deepEqual(snapshot.pnlSources.day, {
+    status: "unavailable",
+    method: null,
+    currency: "EUR",
+    scope: "virtual-desks",
+    observedAt: null,
+    periodStart: null,
+    detail: "Exact America/New_York SOD virtual-equity baseline pending; account DailyPnL includes KEEP.",
+  });
+});
+
+test("OPEN stays null when IB unrealized callback currency is unproved", () => {
+  const contract = stockContract("ACME", { conId: 7001, currency: "USD" });
+  const family = {
+    ok: true,
+    equity: 5001,
+    totalPnl: 1,
+    realizedPnl: 0,
+    unrealizedPnl: 1,
+    positions: [{ desk: "j", symbol: "ACME", side: "Long", quantity: 1, accountingScope: "stage0", dayPnl: null, currency: "USD", mark: 11, updatedAt: OBS_A }],
+    accounting: { periodStart: "2026-09-10T04:00:00Z", method: "execution-fifo-net-current-fx", detail: "Synthetic family accounting." },
+    observedAt: OBS_A,
+    executionCount: 1,
+  };
+  const row = { contract, symbol: "ACME", currency: "USD", pos: 1, unrealizedPNL: 123 };
+  const snapshot = projectBook(baseBook({
+    account: TARGET,
+    summary: { NetLiquidation: { account: TARGET, value: "12000", currency: "EUR" } },
+    positionsCoverage: { status: "complete", rows: [row] },
+    portfolio: [row],
+  }), { publisherAt: new Date(OBS_B), familyRuntimeEnabled: true, family });
+  assert.deepEqual(snapshot.pnlSources.open, {
+    status: "unavailable",
+    method: null,
+    currency: "EUR",
+    scope: "virtual-desks",
+    observedAt: null,
+    detail: "IB updatePortfolio unrealized P&L has no currency field; EUR virtual-desk OPEN is unproved.",
+  });
+  assert.deepEqual(snapshot.desks.map((desk) => desk.money.openPnl), [null, null, null]);
+  assert.equal(snapshot.totals.openPnl, null);
+  for (const desk of snapshot.desks) {
+    for (const position of desk.positions || []) assert.equal(position.openPnl, null);
+  }
+});
+
+test("PnL source reasons distinguish Gateway loss from missing financial evidence", () => {
+  const snapshot = projectBook(baseBook({ gateway: false }), { publisherAt: new Date(OBS_B) });
+  assert.match(snapshot.pnlSources.day.detail, /Gateway unavailable/);
+  assert.match(snapshot.pnlSources.open.detail, /Gateway unavailable/);
+  for (const desk of snapshot.desks) {
+    assert.equal(desk.money.dayPnl, null);
+    assert.equal(desk.money.openPnl, null);
+  }
+  assert.equal(snapshot.totals.dayPnl, null);
+  assert.equal(snapshot.totals.openPnl, null);
 });
 
 test("unrelated orders do not refresh broker snapshot time", () => {

@@ -114,9 +114,20 @@ This is J-family FIFO net of actual fees, marked and converted with freshly obse
 current FX. It is neither complete J equity nor a Day P&L; both stay null. When the
 fixed baseline through the prior New York midnight is covered continuously by
 validated official receipts, the existing full `family` result is accepted by the
-normal money path with its €5,000 virtual capital exactly once. Its accepted
-`unrealizedPnl` is exposed as `J.money.openPnl`; a verified flat book therefore
-publishes `openPnl: 0`. Day P&L remains null without a separate truthful day basis.
+normal money path with its €5,000 virtual capital exactly once.
+
+`pnlSources.day` remains `unavailable` and every DAY value remains `null` until a
+genuine virtual-desk IB DailyPnL source or an exact, durable America/New_York
+start-of-day virtual-equity baseline exists. The whole-account DailyPnL includes
+KEEP and is therefore not used. A first observation after startup is never treated
+as the day baseline.
+
+`pnlSources.open` also remains `unavailable`, with every desk and total OPEN value
+`null`. The current TWS `updatePortfolio` callback supplies `unrealizedPNL` but no
+currency field for that value; a EUR `NetLiquidation` row proves the account base
+currency, not the callback's units. Publishing needs a source that explicitly
+identifies EUR/base-currency unrealized P&L, plus complete desk ownership that can
+exclude KEEP without assigning a shared or netted broker position twice.
 
 ## BEST-AVAILABLE history sidecar
 
@@ -304,9 +315,10 @@ so its desk never receives a `positions` key. Unknown symbols are never mapped t
 Joe. Broker observation times come from IB events, not the push heartbeat.
 Rows emit `currency` (uppercase contract currency when known) and
 `accountingScope` (`legacy` for grandfathered names, `stage0` otherwise).
-`mark` is emitted with a known quote currency; `marketValue`/`openPnl` stay absent
-until callback currency semantics are verified (EUR alone is not sufficient).
-`dayPnl` stays `null` until a real day feed exists. Push heartbeats never advance
+`mark` is emitted with a known quote currency. Position `marketValue` stays absent;
+position `openPnl` is explicitly `null` while OPEN is unavailable because the IB
+callback does not identify its currency. `dayPnl` stays `null` until a real day
+feed or exact SOD baseline exists. Push heartbeats never advance
 the broker snapshot timestamp; before the first complete broker snapshot the
 publisher skips the push rather than fabricating an empty book.
 
