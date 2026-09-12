@@ -20,6 +20,8 @@ let
     mkdir -p "$out"
     cp ${./supervisor.py} "$out/supervisor.py"
     cp ${fleetEngine} "$out/engine.py"
+    cp ${./notification_state.py} "$out/notification_state.py"
+    cp ${./notification_delivery.py} "$out/notification_delivery.py"
   '';
 in
 {
@@ -33,6 +35,7 @@ in
           "none"
           "agent-bus"
           "shoutrrr"
+          "email-agent-bus"
         ];
         default = "none";
         description = ''
@@ -41,6 +44,16 @@ in
           invent a Telegram URL. The shoutrrr path uses the existing
           fleet-alerts engine once notificationEnvFile is set.
         '';
+      };
+      destinationFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "Managed private JSON with email destination and the existing Amy agent-bus route; loaded as a systemd credential.";
+      };
+      paimosApiKeyFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "Dedicated PAI-1018 machine-notifier key bound to the declared chat target; null leaves chat unavailable while email can still deliver. General or personal PPM keys are not supported.";
       };
       notificationEnvFile = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
@@ -56,6 +69,12 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion =
+          !(cfg.alert.enable && cfg.alert.transport == "email-agent-bus")
+          || cfg.alert.destinationFile != null;
+        message = "ibGatewaySession email-agent-bus requires managed destinations";
+      }
       {
         assertion = stack.enable;
         message = "ibGatewaySession requires nixcfg.composeStack so recovery can use the managed compose lock";
@@ -75,6 +94,12 @@ in
       wants = [ "docker.service" ];
       serviceConfig = {
         Type = "oneshot";
+        LoadCredential = lib.optionals (cfg.alert.enable && cfg.alert.transport == "email-agent-bus") (
+          [ "destinations.json:${toString cfg.alert.destinationFile}" ]
+          ++ lib.optional (
+            cfg.alert.paimosApiKeyFile != null
+          ) "ppm-api-key:${toString cfg.alert.paimosApiKeyFile}"
+        );
         ExecStart = "${pkgs.python3}/bin/python3 ${supervisor}/supervisor.py";
         StateDirectory = "ib-gateway-session";
         StateDirectoryMode = "0700";
