@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 Sender = Callable[[str, str], bool]
+USER_AGENT = "inspr-paper-gateway-notifier/1"
 ADDRESS = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 
 
@@ -119,12 +120,12 @@ def grok_sender(config: dict, key_file: str) -> Sender:
                 "https://pm.barta.cm/api/v2/projects/17/messages",
                 data=json.dumps({"to": "grok_bot:amy", "body": message, "delivery_level": "simple"}).encode(),
                 headers={"Authorization": "Bearer " + token, "Content-Type": "application/json",
-                         "Accept": "application/json", "X-Paimos-Agent-Name": "codex",
+                         "Accept": "application/json", "User-Agent": USER_AGENT, "X-Paimos-Agent-Name": "codex",
                          "X-Paimos-Session-Id": str(uuid.uuid5(uuid.NAMESPACE_URL, "inspr://hsb0/hostd59")),
                          "Idempotency-Key": "hostd59-" + identifier},
                 method="POST",
             )
-            with urllib.request.build_opener(NoRedirect()).open(request, timeout=20) as response:
+            with urllib.request.build_opener(NoRedirect()).open(request, timeout=10) as response:
                 body = json.loads(response.read(65537))
                 if not 200 <= response.status < 300 or not isinstance(body, dict) or not body.get("message_id"):
                     return False
@@ -133,9 +134,9 @@ def grok_sender(config: dict, key_file: str) -> Sender:
                     return False
             status_request = urllib.request.Request(
                 "https://pm.barta.cm/api/projects/17/message-deliveries",
-                headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+                headers={"Authorization": "Bearer " + token, "Accept": "application/json", "User-Agent": USER_AGENT},
             )
-            with urllib.request.build_opener(NoRedirect()).open(status_request, timeout=20) as response:
+            with urllib.request.build_opener(NoRedirect()).open(status_request, timeout=10) as response:
                 raw = response.read(1048577)
                 if len(raw) > 1048576:
                     return False
@@ -158,6 +159,9 @@ def grok_sender(config: dict, key_file: str) -> Sender:
             # A webhook handoff still does not prove Amy's SendToUser output.
             print(f"grok notification {'handed_off' if handed_off else 'pending-or-failed'}: message_id={message_id} event_id={identifier}")
             return handed_off
+        except urllib.error.HTTPError as error:
+            print(f"grok notification failed: agent-bus HTTP {error.code}")
+            return False
         except (OSError, ValueError, TypeError, urllib.error.URLError):
             print("grok notification failed: agent-bus request unavailable")
             return False

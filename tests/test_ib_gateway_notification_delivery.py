@@ -77,6 +77,8 @@ class DeliveryTests(unittest.TestCase):
             request = opener.open.call_args_list[0].args[0]
             self.assertEqual(request.full_url, 'https://pm.barta.cm/api/v2/projects/17/messages')
             self.assertEqual(request.get_header('Idempotency-key'), 'hostd59-event123')
+            self.assertEqual(request.get_header('User-agent'), delivery.USER_AGENT)
+            self.assertEqual(opener.open.call_args_list[1].args[0].get_header('User-agent'), delivery.USER_AGENT)
             body = json.loads(request.data)
             self.assertEqual(body['to'], 'grok_bot:amy')
             self.assertEqual(body['delivery_level'], 'simple')
