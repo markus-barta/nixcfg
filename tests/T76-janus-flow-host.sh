@@ -95,8 +95,18 @@ expect_rejected "import $eval_file { principalRefs = []; }" \
   'Janus Flow accepted an empty principal binding'
 expect_rejected "import $eval_file { principalRefs = [ \"opaque-a\" \"opaque-a\" ]; }" \
   'Janus Flow accepted duplicate principal bindings'
+expect_rejected "import $eval_file { principalRefs = [ \"opaque-a\" \" opaque-a \" ]; }" \
+  'Janus Flow accepted duplicate principal bindings after normalization'
+expect_rejected "import $eval_file { principalRefs = [ \"*\" ]; }" \
+  'Janus Flow accepted a wildcard principal binding'
+expect_rejected "import $eval_file { principalRefs = [ \"opaque-*\" ]; }" \
+  'Janus Flow accepted a partial wildcard principal binding'
 expect_rejected "import $eval_file { projectRef = \"other:proj-x\"; }" \
   'Janus Flow accepted a non-Paimos project ref'
+expect_rejected "import $eval_file { bindings = [ { projectId = 17; projectRef = null; label = \"A\"; principalRefs = [ \"opaque-a\" ]; } { projectId = 17; projectRef = null; label = \"B\"; principalRefs = [ \"opaque-b\" ]; } ]; }" \
+  'Janus Flow accepted duplicate project ids'
+expect_rejected "import $eval_file { bindings = [ { projectId = 17; projectRef = \"paimos:proj-shared\"; label = \"A\"; principalRefs = [ \"opaque-a\" ]; } { projectId = 18; projectRef = \"paimos:proj-shared\"; label = \"B\"; principalRefs = [ \"opaque-b\" ]; } ]; }" \
+  'Janus Flow accepted duplicate explicit project refs'
 
 # Module and Compose consume one switch, preserve uid 100:101, and publish the
 # runtime file atomically rather than mounting its world-readable store source.
@@ -110,6 +120,10 @@ grep -Fq '  active = false;' "$stage"
 grep -Fq '  bindings = [ ];' "$stage"
 grep -Fq 'install -d -m 0700 -o' "$module"
 grep -Fq 'install -m 0400 -o' "$module"
+# shellcheck disable=SC2016
+grep -Fq 'runtime_directory=${lib.escapeShellArg runtimeDirectory}' "$module"
+# shellcheck disable=SC2016
+grep -Fq 'temporary="$runtime_directory/.config.$$"' "$module"
 # shellcheck disable=SC2016
 grep -Fq 'mv -f "$temporary" "$destination"' "$module"
 grep -Fq '"compose-csb1.service"' "$module"

@@ -36,8 +36,15 @@ let
       normalized = lib.trim value;
     in
     normalized != ""
+    && value == normalized
     && builtins.stringLength normalized <= 128
-    && builtins.match ".*[@[:space:]].*" normalized == null;
+    && builtins.match ".*[@[:space:]].*" normalized == null
+    && !lib.any (character: lib.hasInfix character normalized) [
+      "*"
+      "?"
+      "["
+      "]"
+    ];
 
   bindingType = lib.types.submodule {
     options = {
@@ -106,7 +113,8 @@ let
   publish = pkgs.writeShellScript "publish-janus-flow-host-config" ''
     set -eu
     destination=${lib.escapeShellArg cfg.configFile}
-    temporary="${runtimeDirectory}/.config.$$"
+    runtime_directory=${lib.escapeShellArg runtimeDirectory}
+    temporary="$runtime_directory/.config.$$"
     trap '${pkgs.coreutils}/bin/rm -f "$temporary"' EXIT HUP INT TERM
     ${pkgs.coreutils}/bin/install -d -m 0700 -o ${lib.escapeShellArg owner} -g ${lib.escapeShellArg group} ${lib.escapeShellArg runtimeDirectory}
     ${pkgs.coreutils}/bin/install -m 0400 -o ${lib.escapeShellArg owner} -g ${lib.escapeShellArg group} \
@@ -116,6 +124,11 @@ let
   '';
 
   unique = values: builtins.length values == builtins.length (lib.unique values);
+  normalizedPrincipalRefs = binding: map lib.trim binding.principalRefs;
+  projectIds = map (binding: binding.projectId) cfg.bindings;
+  explicitProjectRefs = map (binding: binding.projectRef) (
+    lib.filter (binding: binding.projectRef != null) cfg.bindings
+  );
   bindingCount = builtins.length cfg.bindings;
 in
 {
@@ -226,11 +239,15 @@ in
           && isNonEmpty binding.label
           && binding.principalRefs != [ ]
           && builtins.length binding.principalRefs <= 64
-          && unique binding.principalRefs
+          && unique (normalizedPrincipalRefs binding)
           && lib.all isPrincipalRef binding.principalRefs
           && (binding.projectRef == null || isProjectRef binding.projectRef)
         ) cfg.bindings;
         message = "inspr.janusFlowHost bindings require projectId, label, 1-64 unique non-email principalRefs, and an optional paimos:proj- projectRef.";
+      }
+      {
+        assertion = unique projectIds && unique explicitProjectRefs;
+        message = "inspr.janusFlowHost bindings must identify distinct projects by projectId and explicit projectRef.";
       }
     ];
 
