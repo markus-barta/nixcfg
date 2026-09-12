@@ -14,9 +14,11 @@ import errno
 import json
 import os
 import re
+import select
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
@@ -89,6 +91,60 @@ LINE_LOGIN_PATTERNS = (
     (LOGGED_OUT_RE, LOGIN_LOGGED_OUT),
 )
 
+# Named failure classes only. Never 2FA unless TWOFA_RE / fullauthrequired hits.
+AUTH_CLASS_SESSION_CONFLICT = "session_conflict"
+AUTH_CLASS_INVALID_CREDENTIALS = "invalid_credentials"
+AUTH_CLASS_UPSTREAM_UNAVAILABLE = "upstream_unavailable"
+AUTH_CLASS_TLS = "tls"
+
+AUTH_FAILURE_CLASSES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        AUTH_CLASS_SESSION_CONFLICT,
+        re.compile(
+            r"session conflict|competing session|already logged in from another|"
+            r"another (?:computer|user).*(?:logged|connected)|existing session",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        AUTH_CLASS_INVALID_CREDENTIALS,
+        re.compile(
+            r"invalid (?:username|password|credentials)|incorrect password|"
+            r"authentication failed|login failed",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        AUTH_CLASS_TLS,
+        re.compile(
+            r"SSL handshake|TLS handshake|certificate (?:expired|verify failed)|"
+            r"javax\.net\.ssl|SSLException",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        AUTH_CLASS_UPSTREAM_UNAVAILABLE,
+        re.compile(
+            r"farm (is )?lost|disconnected from farm|upstream_lost|"
+            r"connectivity between .{0,80}(has been lost|is broken)|"
+            r"\b2110\b|\b1100\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+# Bound memory of login observation. Transport flood is scanned and dropped,
+# never stored. Overflow/timeout/failure is unknown — not a restart signal.
+LOG_SCAN_MAX_BYTES = 4 * 1024 * 1024
+LOG_SCAN_MAX_LINES = 50_000
+LOG_KEEP_MAX_LINES = 128
+LOG_KEEP_MAX_BYTES = 32 * 1024
+LOG_RAW_BUF_MAX_BYTES = 64 * 1024
+LOG_COLLECT_TIMEOUT_SEC = 15
+# Do not rescan from container start every cycle — old socat volume would
+# overflow a healthy long-lived generation into permanent probe_unknown.
+LOG_LOOKBACK_SEC = 20 * 60
+
 
 @dataclass(frozen=True)
 class Config:
@@ -149,6 +205,7 @@ class Observation:
     probe_unknown: bool = False
     probe_reason: str | None = None
     container_generation: str | None = None
+    auth_failure_class: str | None = None
 
 
 @dataclass
@@ -390,6 +447,346 @@ def filter_logs_to_generation(log_text: str, started_at: float | None) -> str:
     return "\n".join(kept)
 
 
+def log_line_body(raw: str) -> str:
+    match = DOCKER_TS_RE.match((raw or "").strip())
+    return match.group(2) if match else (raw or "").strip()
+
+
+def log_line_in_generation(raw: str, started_at: float | None) -> bool:
+    if not raw or started_at is None:
+        return False
+    match = DOCKER_TS_RE.match(raw.strip())
+    if not match:
+        return False
+    observed = parse_iso_seconds(match.group(1))
+    return observed is not None and observed >= started_at
+
+
+def meaningful_auth_event_line(raw: str) -> bool:
+    """Login/2FA/named-failure only. Transport flood (socat) is not an event."""
+    body = log_line_body(raw)
+    if not body:
+        return False
+    if TWOFA_RE.search(body):
+        return True
+    for regex, _state in LINE_LOGIN_PATTERNS:
+        if regex.search(body):
+            return True
+    for _name, regex in AUTH_FAILURE_CLASSES:
+        if regex.search(body):
+            return True
+    return False
+
+
+def classify_auth_failure(log_text: str) -> str | None:
+    """Last named failure class in chronological kept events. Never raw text."""
+    last = None
+    for line in (log_text or "").splitlines():
+        body = log_line_body(line)
+        for name, regex in AUTH_FAILURE_CLASSES:
+            if regex.search(body):
+                last = name
+                break
+    return last
+
+
+def docker_since_stamp(started_at: float) -> str:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(started_at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def login_logs_since_epoch(
+    started_at: float, now: float, lookback_sec: int = LOG_LOOKBACK_SEC
+) -> float:
+    """Recent window, never before this generation's start."""
+    return max(float(started_at), float(now) - float(lookback_sec))
+
+
+def docker_login_logs_argv(cfg: Config, since_at: float) -> list[str]:
+    """Bounded --since window. Never --tail/--follow (hide or unbounded-follow)."""
+    return [
+        cfg.docker_bin,
+        "logs",
+        "--timestamps",
+        "--since",
+        docker_since_stamp(since_at),
+        cfg.container_name,
+    ]
+
+
+@dataclass(frozen=True)
+class LogCollectResult:
+    kind: str
+    text: str = ""
+    auth_failure_class: str | None = None
+    scanned_lines: int = 0
+    kept_lines: int = 0
+
+
+def collect_meaningful_events_from_lines(
+    lines: Iterable[str],
+    started_at: float | None,
+    *,
+    deadline: float | None = None,
+    now_fn: Callable[[], float] = time.monotonic,
+    max_scan_bytes: int = LOG_SCAN_MAX_BYTES,
+    max_scan_lines: int = LOG_SCAN_MAX_LINES,
+    max_keep_lines: int = LOG_KEEP_MAX_LINES,
+    max_keep_bytes: int = LOG_KEEP_MAX_BYTES,
+) -> LogCollectResult:
+    """Keep current-generation login/2FA/failure events only. Bound scan and memory.
+
+    Truncation is kind=overflow/timeout with empty text so callers cannot restart
+    on a partial chronology. Previous-generation and untimestamped lines drop.
+    """
+    if started_at is None:
+        return LogCollectResult(kind="ok", text="")
+    kept: list[str] = []
+    keep_bytes = 0
+    scan_bytes = 0
+    scan_lines = 0
+    for raw_line in lines:
+        if deadline is not None and now_fn() >= deadline:
+            return LogCollectResult(kind="timeout")
+        line = raw_line if isinstance(raw_line, str) else str(raw_line)
+        scan_lines += 1
+        scan_bytes += len(line.encode("utf-8", "replace"))
+        if scan_lines > max_scan_lines or scan_bytes > max_scan_bytes:
+            return LogCollectResult(kind="overflow")
+        raw = line.strip()
+        if not raw or not log_line_in_generation(raw, started_at):
+            continue
+        if not meaningful_auth_event_line(raw):
+            continue
+        encoded = len(raw.encode("utf-8", "replace"))
+        if len(kept) >= max_keep_lines or keep_bytes + encoded > max_keep_bytes:
+            return LogCollectResult(kind="overflow")
+        kept.append(raw)
+        keep_bytes += encoded
+    kept.sort(key=_log_line_sort_key)
+    text = "\n".join(kept)
+    return LogCollectResult(
+        kind="ok",
+        text=text,
+        auth_failure_class=classify_auth_failure(text),
+        scanned_lines=scan_lines,
+        kept_lines=len(kept),
+    )
+
+
+def _log_line_sort_key(raw: str) -> float:
+    match = DOCKER_TS_RE.match((raw or "").strip())
+    if not match:
+        return 0.0
+    observed = parse_iso_seconds(match.group(1))
+    return observed if observed is not None else 0.0
+
+
+class CollectBoundExceeded(Exception):
+    """Raw read exceeded byte/line caps before a complete chronology existed."""
+
+
+class CollectReadFailed(Exception):
+    """select/os.read failed; chronology is partial and must not be used."""
+
+
+def classify_docker_client_error_line(line: str) -> str | None:
+    lowered = (line or "").lower()
+    if "permission denied" in lowered or "eacces" in lowered or "eperm" in lowered:
+        return "permission"
+    return None
+
+
+class _BoundedLineDecoder:
+    """Incomplete-line buffer is capped during raw read, not after yield."""
+
+    def __init__(self, raw_bytes: list[int], max_buf_bytes: int, max_raw_bytes: int) -> None:
+        self.buf = ""
+        self.raw_bytes = raw_bytes
+        self.max_buf_bytes = max_buf_bytes
+        self.max_raw_bytes = max_raw_bytes
+
+    def feed(self, chunk: bytes) -> list[str]:
+        if not chunk:
+            return self.flush()
+        self.raw_bytes[0] += len(chunk)
+        if self.raw_bytes[0] > self.max_raw_bytes:
+            raise CollectBoundExceeded
+        self.buf += chunk.decode("utf-8", "replace")
+        lines: list[str] = []
+        while "\n" in self.buf:
+            line, self.buf = self.buf.split("\n", 1)
+            lines.append(line + "\n")
+        if len(self.buf.encode("utf-8", "replace")) > self.max_buf_bytes:
+            raise CollectBoundExceeded
+        return lines
+
+    def flush(self) -> list[str]:
+        if not self.buf:
+            return []
+        if len(self.buf.encode("utf-8", "replace")) > self.max_buf_bytes:
+            raise CollectBoundExceeded
+        leftover = self.buf
+        self.buf = ""
+        return [leftover]
+
+
+def _iter_multiplexed_log_lines(
+    stdout_fd: int,
+    stderr_fd: int | None,
+    deadline: float,
+    *,
+    client_kinds: list[str] | None = None,
+    max_chunk: int = 8192,
+    max_buf_bytes: int = LOG_RAW_BUF_MAX_BYTES,
+    max_raw_bytes: int = LOG_SCAN_MAX_BYTES,
+    max_lines: int = LOG_SCAN_MAX_LINES,
+):
+    """Drain stdout and stderr together. Cap incomplete buffers during os.read."""
+    raw_bytes = [0]
+    decoders = {stdout_fd: _BoundedLineDecoder(raw_bytes, max_buf_bytes, max_raw_bytes)}
+    if stderr_fd is not None:
+        decoders[stderr_fd] = _BoundedLineDecoder(raw_bytes, max_buf_bytes, max_raw_bytes)
+    open_fds = set(decoders)
+    yielded = 0
+
+    def emit(fd: int, lines: list[str]):
+        nonlocal yielded
+        for line in lines:
+            if stderr_fd is not None and fd == stderr_fd and not DOCKER_TS_RE.match(line.strip()):
+                kind = classify_docker_client_error_line(line)
+                if kind and client_kinds is not None:
+                    client_kinds.append(kind)
+                continue
+            yielded += 1
+            if yielded > max_lines:
+                raise CollectBoundExceeded
+            yield line
+
+    while open_fds:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        try:
+            ready, _, _ = select.select(list(open_fds), [], [], remaining)
+        except (ValueError, OSError) as error:
+            raise CollectReadFailed("select failed") from error
+        if not ready:
+            raise TimeoutError
+        for fd in ready:
+            try:
+                chunk = os.read(fd, max_chunk)
+            except OSError as error:
+                raise CollectReadFailed("os.read failed") from error
+            decoder = decoders[fd]
+            if not chunk:
+                yield from emit(fd, decoder.flush())
+                open_fds.discard(fd)
+                continue
+            yield from emit(fd, decoder.feed(chunk))
+
+
+def _iter_fd_lines(
+    fd: int,
+    deadline: float,
+    max_chunk: int = 8192,
+    max_buf_bytes: int = LOG_RAW_BUF_MAX_BYTES,
+    max_raw_bytes: int = LOG_SCAN_MAX_BYTES,
+):
+    yield from _iter_multiplexed_log_lines(
+        fd,
+        None,
+        deadline,
+        max_chunk=max_chunk,
+        max_buf_bytes=max_buf_bytes,
+        max_raw_bytes=max_raw_bytes,
+    )
+
+
+def _reap_docker_logs(proc: subprocess.Popen, *, kill: bool = False) -> None:
+    try:
+        if kill and proc.poll() is None:
+            proc.kill()
+        if proc.poll() is None:
+            proc.wait(timeout=1)
+    except Exception:
+        pass
+    for stream in (proc.stdout, proc.stderr):
+        if stream is None:
+            continue
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+
+def _kill_process(proc: subprocess.Popen) -> None:
+    _reap_docker_logs(proc, kill=True)
+
+
+def observe_login_logs(
+    cfg: Config, started_at: float | None, now: float | None = None
+) -> LogCollectResult:
+    """Stream docker logs; retain only bounded meaningful current-generation events."""
+    if started_at is None:
+        return LogCollectResult(kind="ok", text="")
+    stamp = now if now is not None else time.time()
+    since_at = login_logs_since_epoch(started_at, stamp)
+    argv = docker_login_logs_argv(cfg, since_at)
+    deadline = time.monotonic() + LOG_COLLECT_TIMEOUT_SEC
+    try:
+        proc = subprocess.Popen(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except PermissionError:
+        return LogCollectResult(kind="permission")
+    except OSError as error:
+        if getattr(error, "errno", None) in {13, 1}:
+            return LogCollectResult(kind="permission")
+        return LogCollectResult(kind="nonzero")
+    if proc.stdout is None:
+        _reap_docker_logs(proc, kill=True)
+        return LogCollectResult(kind="nonzero")
+    client_kinds: list[str] = []
+    stderr_fd = proc.stderr.fileno() if proc.stderr is not None else None
+    kill = True
+    try:
+        try:
+            result = collect_meaningful_events_from_lines(
+                _iter_multiplexed_log_lines(
+                    proc.stdout.fileno(),
+                    stderr_fd,
+                    deadline,
+                    client_kinds=client_kinds,
+                ),
+                started_at,
+                deadline=deadline,
+            )
+        except TimeoutError:
+            return LogCollectResult(kind="timeout")
+        except CollectBoundExceeded:
+            return LogCollectResult(kind="overflow")
+        except CollectReadFailed:
+            return LogCollectResult(kind="nonzero")
+        if result.kind != "ok":
+            return result
+        try:
+            proc.wait(timeout=max(0.05, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            return LogCollectResult(kind="timeout")
+        if proc.returncode not in (0, None):
+            if "permission" in client_kinds:
+                return LogCollectResult(kind="permission")
+            return LogCollectResult(kind="nonzero")
+        kill = False
+        return result
+    finally:
+        _reap_docker_logs(proc, kill=kill)
+
+
 def resolve_login_state(
     log_state: str, persist: SupervisorState, generation: str | None
 ) -> tuple[str, bool]:
@@ -571,6 +968,8 @@ def decide(obs: Observation, state: SupervisorState, cfg: Config) -> Decision:
         notes.append("ibc-auth-evidence-present")
     else:
         notes.append("no-2fa-evidence")
+    if obs.auth_failure_class:
+        notes.append(f"auth-class:{obs.auth_failure_class}")
 
     if state.corrupt:
         persist = corrupt_halt_state()
@@ -1301,10 +1700,27 @@ def observe_runtime(cfg: Config, now: float | None = None) -> Observation:
             generation = format_container_generation(container_id, ticks)
         if boot is not None and ticks is not None:
             started_at = start_epoch_from_proc(boot, ticks)
-    logs = docker_command(cfg, ["logs", "--timestamps", "--tail", "80", cfg.container_name])
-    login_logs = filter_logs_to_generation(
-        logs.stdout if logs.kind == "ok" else "", started_at
-    )
+    log_obs = observe_login_logs(cfg, started_at, now=stamp)
+    if log_obs.kind != "ok":
+        return Observation(
+            now=stamp,
+            container_running=True,
+            container_started_at=started_at,
+            relay_open=PORT_RELAY in ports,
+            api_listening=PORT_API in ports,
+            login_state=LOGIN_UNKNOWN,
+            authenticating_since=None,
+            manual_action=None,
+            twofa_evidence=False,
+            pusher=None,
+            operator_clear=Path(cfg.operator_clear_path).exists(),
+            probe_unknown=True,
+            probe_reason=(
+                f"docker login-log {log_obs.kind}; not restarting or resetting budget"
+            ),
+            container_generation=generation,
+        )
+    login_logs = log_obs.text
     files = docker_command(
         cfg,
         [
@@ -1319,6 +1735,7 @@ def observe_runtime(cfg: Config, now: float | None = None) -> Observation:
     )
     file_names = [line.strip() for line in (files.stdout or "").splitlines() if line.strip()] if files.kind == "ok" else []
     login_state, manual, twofa = classify_login(login_logs, file_names)
+    auth_failure_class = log_obs.auth_failure_class
     pusher_logs = docker_command(
         cfg, ["logs", "--timestamps", "--since", "20m", "--tail", "80", cfg.pusher_container]
     )
@@ -1349,6 +1766,7 @@ def observe_runtime(cfg: Config, now: float | None = None) -> Observation:
         operator_clear=operator_clear,
         lock_available=lock_available,
         container_generation=generation,
+        auth_failure_class=auth_failure_class,
     )
 
 
@@ -1374,6 +1792,7 @@ def main() -> int:
         "api4002": obs.api_listening,
         "relay4004": obs.relay_open,
         "login": obs.login_state,
+        "auth_class": obs.auth_failure_class,
         "pusher_gateway": None if obs.pusher is None else obs.pusher.gateway,
         "generatedAt": None if obs.pusher is None else obs.pusher.generated_at_raw,
         "publishedAt": None if obs.pusher is None else obs.pusher.observed_at_raw,
