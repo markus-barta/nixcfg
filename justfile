@@ -72,6 +72,46 @@ alias options := hokage-options
 @_notify text:
     if test -f ~/.config/neosay/config.json; then echo "❄️ nixcfg {{ text }}" | neosay; fi
 
+# NIX-476: a stale switch silently removes anything merged since that revision.
+# Manual verification: from a worktree whose HEAD lacks origin/main, `just switch`
+# must refuse without building; from a current checkout it must proceed unchanged;
+# `NIXCFG_ALLOW_STALE=1` must bypass the check.
+[private]
+_require-current:
+    #!/usr/bin/env bash
+    if [ "${NIXCFG_ALLOW_STALE:-}" = "1" ]; then
+        echo "⚠️  current-checkout check skipped (NIXCFG_ALLOW_STALE=1)."
+        exit 0
+    fi
+    fetch_current() {
+        if command -v timeout >/dev/null 2>&1; then
+            timeout 15 git fetch --quiet origin main
+        else
+            git fetch --quiet origin main
+        fi
+    }
+    if ! fetch_current; then
+        echo "⚠️  fetch failed — checking against the last known origin/main."
+    fi
+    if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+        echo "⚠️  origin/main is unavailable — skipping the current-checkout check."
+        exit 0
+    fi
+    if git merge-base --is-ancestor origin/main HEAD; then
+        exit 0
+    fi
+    echo "❌ refusing stale switch — missing $(git rev-list --count HEAD..origin/main) commits from origin/main:"
+    git log --oneline -3 HEAD..origin/main | sed 's/^/    /'
+    head_sha="$(git rev-parse --short HEAD)"
+    if branch="$(git symbolic-ref --quiet --short HEAD)"; then
+        echo "   Current HEAD: $head_sha ($branch)"
+    else
+        echo "   Current HEAD: $head_sha (detached)"
+    fi
+    echo "   A stale switch removes anything merged since that revision."
+    echo "   Override: NIXCFG_ALLOW_STALE=1 just switch"
+    exit 1
+
 [group('build')]
 test:
     sudo nixos-rebuild test --flake .#{{ hostname }} -L
@@ -248,12 +288,14 @@ nix-switch:
 # Build and switch to the new configuration for the current host (no notification)
 [group('build')]
 switch-simple:
+    just _require-current
     nh os switch -H {{ hostname }} .
 
 # Build and switch to the new configuration for the current host (platform-aware)
 [group('build')]
 switch args='':
     #!/usr/bin/env bash
+    just _require-current || exit $?
     # ncps preflight (ROOT-CAUSE FIX 2026-07-01): a local binary cache is an
     # OPTIMIZATION, never a hard dependency — but Nix treats a connection-REFUSED
     # substituter as FATAL (retries every path, then errors), so a down hsb0 ncps
