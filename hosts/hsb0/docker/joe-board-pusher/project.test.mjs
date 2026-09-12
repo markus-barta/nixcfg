@@ -18,6 +18,11 @@ import {
   serializePositionRow,
 } from "./project.mjs";
 import {
+  CURRENT_DESK_OWNERSHIP_POLICY,
+  DESK_HISTORY_REVISION_METHOD,
+  deskOwnershipPolicyContract,
+} from "./desk-ledger.mjs";
+import {
   createBrokerSessionAdapter,
   createReconnectScheduler,
 } from "./pusher-state.mjs";
@@ -120,6 +125,55 @@ function bestAvailableHistory(overrides = {}) {
 
 function deskById(snapshot, id) {
   return snapshot.desks.find((desk) => desk.id === id);
+}
+
+function provenDeskEquities({ j, joe, joel, observedAt = OBS_B } = {}) {
+  const desks = {
+    j: { equity: 5000, totalPnl: 0, realizedPnl: 0, unrealizedPnl: 0, positions: [], ...j },
+    joe: { equity: 5000, totalPnl: 0, realizedPnl: 0, unrealizedPnl: 0, positions: [], ...joe },
+    joel: { equity: 5000, totalPnl: 0, realizedPnl: 0, unrealizedPnl: 0, positions: [], ...joel },
+  };
+  const sourceContract = deskOwnershipPolicyContract(CURRENT_DESK_OWNERSHIP_POLICY);
+  return {
+    ok: true,
+    desks,
+    equity: {
+      j: desks.j.equity,
+      joe: desks.joe.equity,
+      joel: desks.joel.equity,
+      total: desks.j.equity + desks.joe.equity + desks.joel.equity,
+    },
+    sourceObservedAt: observedAt,
+    oldestSourceObservedAt: OBS_A4,
+    historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
+    historyRevision: "a".repeat(64),
+    executionCoverage: { status: "complete", fromInclusive: "2026-09-10T04:00:00.000Z", throughInclusive: OBS_A4 },
+    sourceContract,
+    ownershipEvidence: { status: "complete", policyHash: sourceContract.policyHash, unclaimedExecutionCount: 0 },
+  };
+}
+
+function retainedDeskEquity(value) {
+  return {
+    equity: structuredClone(value.equity),
+    sourceObservedAt: value.sourceObservedAt,
+    oldestSourceObservedAt: value.oldestSourceObservedAt,
+    provenance: {
+      method: value.sourceContract.method,
+      classifier: {
+        method: value.sourceContract.policyMethod,
+        policyHash: value.sourceContract.policyHash,
+      },
+      historyRevisionMethod: value.historyRevisionMethod,
+      historyRevision: value.historyRevision,
+      scope: value.sourceContract.scope,
+      keepExcluded: true,
+      executionCoverage: {
+        status: "complete",
+        throughInclusive: value.executionCoverage.throughInclusive,
+      },
+    },
+  };
 }
 
 function createHarness(hooks = {}) {
@@ -998,7 +1052,6 @@ test("enabled family runtime isolates incomplete J accounting without stopping t
     observedAt: OBS_B,
     executionCount: 2,
   };
-  const legacy = projectBook(broker, { publisherAt: new Date(OBS_C) });
   const snapshot = projectBook(broker, {
     publisherAt: new Date(OBS_C),
     familyRuntimeEnabled: true,
@@ -1012,13 +1065,15 @@ test("enabled family runtime isolates incomplete J accounting without stopping t
   assert.equal(j.positions.some((row) => row.symbol === "INTC"), false);
   assert.deepEqual(j.accounting, family.accounting);
   assert.match(j.action, /J \+ J2–J5; verified since 10 Sep; net fees; EUR at observed FX/);
-  assert.deepEqual(deskById(snapshot, "joe"), deskById(legacy, "joe"));
-  assert.deepEqual(deskById(snapshot, "joel"), deskById(legacy, "joel"));
+  assert.deepEqual(deskById(snapshot, "joe").money, { equity: null, dayPnl: null, totalPnl: null, openPnl: null });
+  assert.deepEqual(deskById(snapshot, "joel").money, { equity: null, dayPnl: null, totalPnl: null, openPnl: null });
+  assert.equal(deskById(snapshot, "joe").state, "stuck");
+  assert.equal(deskById(snapshot, "joel").state, "stuck");
   assert.notEqual(j.state, "stuck");
   assert.deepEqual(j.issues, []);
 });
 
-test("corrupt or midnight J gaps preserve Joe and Joel, and recovery clears J unavailability", () => {
+test("corrupt or midnight gaps leave unproved desk money unavailable while J can recover", () => {
   const joelContract = stockContract("TSLA");
   const broker = baseBook({
     positions: [{ symbol: "TSLA", pos: 2 }],
@@ -1036,7 +1091,6 @@ test("corrupt or midnight J gaps preserve Joe and Joel, and recovery clears J un
       rows: [{ symbol: "TSLA", pos: 2, currency: "USD", marketPrice: 220 }],
     },
   });
-  const baseline = projectBook(broker, { publisherAt: new Date(OBS_C) });
   for (const reason of [
     "family ledger state is corrupt JSON",
     "unproved execution retrieval gap across America/New_York midnight; backfill required",
@@ -1046,14 +1100,14 @@ test("corrupt or midnight J gaps preserve Joe and Joel, and recovery clears J un
       familyRuntimeEnabled: true,
       family: { ok: false, reason },
     });
-    assert.deepEqual(deskById(unavailable, "joe"), deskById(baseline, "joe"));
-    assert.deepEqual(deskById(unavailable, "joel"), deskById(baseline, "joel"));
-    assert.deepEqual(deskById(unavailable, "j").money, {
-      equity: null,
-      dayPnl: null,
-      totalPnl: null,
-      openPnl: null,
-    });
+    for (const id of ["j", "joe", "joel"]) {
+      assert.deepEqual(deskById(unavailable, id).money, {
+        equity: null,
+        dayPnl: null,
+        totalPnl: null,
+        openPnl: null,
+      });
+    }
     assert.equal("positions" in deskById(unavailable, "j"), false);
   }
 
@@ -1079,7 +1133,8 @@ test("corrupt or midnight J gaps preserve Joe and Joel, and recovery clears J un
   assert.equal(deskById(recovered, "j").state, "sit-out");
   assert.deepEqual(deskById(recovered, "j").issues, []);
   assert.deepEqual(deskById(recovered, "j").positions, []);
-  assert.deepEqual(recovered.totals, { equity: 15023, dayPnl: null, totalPnl: 23, openPnl: null });
+  assert.deepEqual(deskById(recovered, "j").money, { equity: 5000, dayPnl: null, totalPnl: 0, openPnl: null });
+  assert.deepEqual(recovered.totals, { equity: null, dayPnl: null, totalPnl: null, openPnl: null });
 });
 
 test("a newer family economic revision advances generatedAt while publisher heartbeats do not", () => {
@@ -1133,6 +1188,175 @@ test("day P&L stays null even for a flat completed book", () => {
     periodStart: null,
     detail: "Exact America/New_York SOD virtual-equity baseline pending; account DailyPnL includes KEEP.",
   });
+});
+
+test("a proven SOD equity delta populates every DAY value and source", () => {
+  const dayPnl = {
+    ok: true,
+    values: { j: 12.34, joe: 0, joel: -2, total: 10.34 },
+    source: {
+      status: "available",
+      method: "sod-virtual-equity",
+      currency: "EUR",
+      scope: "virtual-desks",
+      observedAt: OBS_A,
+      periodStart: "2026-09-10T04:00:00.000Z",
+      detail: "Synthetic proven DAY fixture.",
+    },
+    evidence: {
+      sourceObservedAt: "2026-09-10T03:59:40.000Z",
+      oldestSourceObservedAt: "2026-09-10T03:59:10.000Z",
+      proofObservedAt: "2026-09-10T04:00:20.000Z",
+      historyRevisionMethod: "synthetic-sha256-v1",
+      historyRevision: "a".repeat(64),
+      ageAtBoundaryMs: 50_000,
+      maxAgeMs: 120_000,
+    },
+  };
+  const snapshot = projectBook(baseBook(), { publisherAt: new Date(OBS_B), dayPnl });
+  assert.deepEqual(snapshot.desks.map((desk) => desk.money.dayPnl), [12.34, 0, -2]);
+  assert.equal(snapshot.totals.dayPnl, 10.34);
+  assert.equal(snapshot.pnlSources.day.status, "available");
+  assert.equal(snapshot.pnlSources.day.periodStart, "2026-09-10T04:00:00.000Z");
+  assert.deepEqual(Object.keys(snapshot.pnlSources.day).sort(),
+    ["currency", "detail", "method", "observedAt", "periodStart", "scope", "status"].sort());
+});
+
+test("malformed DAY evidence fails closed and an unavailable producer reason is preserved", () => {
+  const malformed = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    dayPnl: {
+      ok: true,
+      values: { j: 1, joe: 2, joel: 3, total: 99 },
+      source: { status: "available" },
+    },
+  });
+  assert.equal(malformed.totals.dayPnl, null);
+  assert.equal(malformed.pnlSources.day.status, "unavailable");
+
+  const missingOtherDeskProof = projectBook(baseBook(), {
+    publisherAt: new Date(OBS_B),
+    dayPnl: {
+      ok: false,
+      source: {
+        status: "unavailable",
+        detail: "Complete Joe and Joel execution-owned equity evidence unavailable.",
+      },
+    },
+  });
+  assert.match(missingOtherDeskProof.pnlSources.day.detail, /Joe and Joel/);
+  assert.equal(missingOtherDeskProof.totals.dayPnl, null);
+});
+
+test("verified closed Joe roundtrip populates equity and since-start totals independently of DAY", () => {
+  const family = {
+    ok: true,
+    equity: 5002,
+    totalPnl: 2,
+    realizedPnl: 2,
+    unrealizedPnl: 0,
+    positions: [],
+    openPnlEvidence: {
+      method: "owned-lots-current-mark-fx",
+      currency: "EUR",
+      ownershipCoverage: "complete",
+      residualNonKeepPositions: [],
+      excludedPositions: [],
+    },
+    accounting: { periodStart: "2026-09-10T04:00:00Z", method: "execution-fifo-net-current-fx", detail: "Synthetic family accounting." },
+    observedAt: OBS_B,
+    executionCount: 2,
+  };
+  const deskEquities = provenDeskEquities({
+    j: { equity: 5002, totalPnl: 2, realizedPnl: 2 },
+    joe: { equity: 4996, totalPnl: -4, realizedPnl: -4 },
+  });
+  const dayPnl = {
+    ok: true,
+    values: { j: 1, joe: 2, joel: 0, total: 3 },
+    source: {
+      status: "available",
+      method: "sod-virtual-equity",
+      currency: "EUR",
+      scope: "virtual-desks",
+      observedAt: OBS_B,
+      periodStart: "2026-09-10T04:00:00.000Z",
+      detail: "Synthetic proven DAY fixture.",
+    },
+    evidence: {
+      sourceObservedAt: "2026-09-10T03:59:40.000Z",
+      oldestSourceObservedAt: "2026-09-10T03:59:10.000Z",
+      proofObservedAt: "2026-09-10T04:00:20.000Z",
+      historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
+      historyRevision: "b".repeat(64),
+      ageAtBoundaryMs: 50_000,
+      maxAgeMs: 300_000,
+    },
+  };
+  const snapshot = projectBook(baseBook({
+    positionsCoverage: { status: "complete", rows: [] },
+  }), {
+    publisherAt: new Date(OBS_B),
+    familyRuntimeEnabled: true,
+    family,
+    deskEquities,
+    dayPnl,
+  });
+
+  assert.deepEqual(deskById(snapshot, "joe").money, {
+    equity: 4996,
+    dayPnl: 2,
+    totalPnl: -4,
+    openPnl: 0,
+  });
+  assert.deepEqual(snapshot.totals, { equity: 14998, dayPnl: 3, totalPnl: -2, openPnl: 0 });
+  for (const desk of snapshot.desks) {
+    assert.deepEqual(desk.moneyEvidence, { status: "observed", observedAt: OBS_B });
+  }
+  assert.equal(deskById(snapshot, "joe").positions.length, 0);
+  assert.deepEqual(deskById(snapshot, "j").accounting, family.accounting);
+  assert.equal(snapshot.pnlSources.open.method, "owned-lots-current-mark-fx");
+
+  const forged = structuredClone(deskEquities);
+  forged.sourceContract.policyHash = "f".repeat(64);
+  const unavailable = projectBook(baseBook({ positionsCoverage: { status: "complete", rows: [] } }), {
+    publisherAt: new Date(OBS_B),
+    familyRuntimeEnabled: true,
+    family,
+    deskEquities: forged,
+  });
+  assert.equal(deskById(unavailable, "j").money.totalPnl, 2);
+  assert.deepEqual(deskById(unavailable, "joe").money, {
+    equity: null,
+    dayPnl: null,
+    totalPnl: null,
+    openPnl: 0,
+  });
+  assert.equal(unavailable.totals.equity, null);
+  assert.equal(unavailable.totals.totalPnl, null);
+  assert.equal("moneyEvidence" in deskById(unavailable, "j"), false);
+
+  const retained = projectBook(baseBook({ positionsCoverage: { status: "complete", rows: [] } }), {
+    publisherAt: new Date(OBS_C),
+    familyRuntimeEnabled: true,
+    family,
+    deskEquities: { ok: false, reason: "fresh marks unavailable" },
+    retainedDeskEquity: retainedDeskEquity(deskEquities),
+  });
+  assert.deepEqual(deskById(retained, "joe").money, {
+    equity: 4996,
+    dayPnl: null,
+    totalPnl: -4,
+    openPnl: null,
+  });
+  assert.equal(retained.totals.equity, 14998);
+  assert.equal(retained.totals.totalPnl, -2);
+  assert.equal(retained.pnlSources.open.status, "unavailable");
+  for (const desk of retained.desks) {
+    assert.deepEqual(desk.moneyEvidence, { status: "carried", observedAt: OBS_B });
+  }
+  assert.match(deskById(retained, "joe").issues[0], /2026-09-10T08:00:05.000Z/);
+  assert.equal(deskById(retained, "joe").state, "stuck");
 });
 
 test("OPEN uses owned J lots with explicit FX and proves the other desks flat", () => {
