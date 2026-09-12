@@ -116,11 +116,62 @@ fixed baseline through the prior New York midnight is covered continuously by
 validated official receipts, the existing full `family` result is accepted by the
 normal money path with its €5,000 virtual capital exactly once.
 
-`pnlSources.day` remains `unavailable` and every DAY value remains `null` until a
-genuine virtual-desk IB DailyPnL source or an exact, durable America/New_York
-start-of-day virtual-equity baseline exists. The whole-account DailyPnL includes
-KEEP and is therefore not used. A first observation after startup is never treated
-as the day baseline.
+DAY uses an exact, durable America/New_York start-of-day virtual-equity baseline.
+The whole-account IB DailyPnL includes KEEP and is therefore not used. A first
+observation after startup is never treated as the day baseline.
+
+`day-baseline.mjs` supplies the bounded persistence and calculation half of that
+SOD path. It accepts only a complete EUR `{ j, joe, joel, total }` virtual-equity
+vector under an exact source-contract fingerprint whose scope is
+`stage0-virtual-desks-keep-excluded`. Each observation carries `sourceObservedAt`,
+the oldest contributing mark/FX observation, a complete execution-coverage
+watermark, and an effective economic-history digest. The adapter persists the
+latest vector atomically and retains the freshest vector actually observed at or
+before the next New York midnight. It never seeds from the first later sample.
+
+The valuation convention is the last complete pre-boundary vector within the
+declared freshness limit, followed by authoritative execution evidence that the
+effective execution/fee digest did not change before the exact half-open cutoff
+`[... , periodStart)`. Marks and FX need not arrive on the midnight nanosecond;
+their oldest observation is recorded and bounded. The coverage receipt and proof
+may arrive after midnight and may extend beyond it, but its revision must be
+calculated at the midnight cutoff. This keeps post-boundary executions out of SOD.
+DAY is then current proven virtual equity minus that fixed vector, so closed
+roundtrips remain included even after their positions disappear.
+
+`desk-ledger.mjs` supplies the live vector from the complete official all-account
+history, effective dated desk ownership, execution-owned FIFO, current marks, and
+explicit FX observations. `createDeskDayPnlProducer` binds that provider's
+canonical policy hash before accepting evidence. It persists the candidate digest
+calculated through the candidate's `executionCoverage.throughInclusive` watermark;
+that watermark is included in the oldest-source freshness bound even when a mark
+or FX observation is slightly newer. It then calls `buildDeskDayBoundaryEvidence` against
+`familyHistoryAdapter.inspectState()` for the boundary-exclusive digest. This
+prevents a correction first learned after midnight from silently rewriting both
+sides of the comparison. An observation exactly at midnight is accepted only with
+the provider's exact-cutoff proof; any execution at that timestamp changes the
+inclusive candidate digest and rejects promotion.
+
+The digest binds the highest effective correction revision, actual fees, desk
+ownership policy, and KEEP exclusion; it excludes receipt/capture timestamps.
+Complete official intervals must have no gap across
+`[candidate execution watermark, periodStart)`. Source method, policy hash, history
+revision, ownership completeness, persistence, freshness, or coverage disagreement
+leaves every DAY value unavailable while the rest of the board continues. Runtime
+state is stored atomically at `/var/lib/joe-board-pusher/day-baseline.json` beside
+the existing family ledger and history sidecar on the same persistent mount.
+
+The same accepted all-desk vector supplies each desk's displayed equity,
+since-start PnL, and execution-owned OPEN PnL. This includes Joe closed roundtrips
+after their positions disappear. J keeps its existing accounting and history
+metadata and must reconcile exactly with the J member of the all-desk result.
+When current marks or FX age out, the projector may retain the last durable proven
+all-desk equity vector, marks every affected desk with its original observation
+time, and derives since-start PnL only as retained equity minus €5,000. A retained
+vector never becomes fresh DAY or OPEN evidence. If no proven vector exists, Joe
+and Joel equity/since-start money and household totals are null; the projector does
+not fall back to a synthetic €5,000 stand or raw portfolio callback PnL. Legacy
+KEEP positions remain visible but excluded from every Stage-0 money value.
 
 `pnlSources.open` is `available` with method `owned-lots-current-mark-fx` only when
 the complete J-family ledger reconciles every non-KEEP broker position, no foreign

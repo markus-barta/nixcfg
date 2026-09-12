@@ -440,6 +440,25 @@ function withoutOpenPnlEvidence(result) {
   return legacy;
 }
 
+/** Canonical trust predicate for official complete execution-window receipts. */
+export function isTrustedOfficialFamilyReceipt(receipt) {
+  return receipt?.coverageStatus === "complete" &&
+    receipt.completenessAssertion?.provider === "ibkr-official-sdk-execution-window-v1" &&
+    receipt.source?.kind === "paper-api" &&
+    receipt.source?.metadata?.adapterId === "official-window-json" &&
+    receipt.source?.metadata?.adapterVersion === "1" &&
+    receipt.source?.metadata?.sdkPackage === "ibapi" &&
+    receipt.source?.metadata?.sdkVersion === "10.45.1" &&
+    Number.isSafeInteger(receipt.source?.metadata?.serverVersion) &&
+    receipt.source.metadata.serverVersion >= 223 &&
+    receipt.source?.metadata?.executionRequestFraming === "protobuf" &&
+    receipt.source?.metadata?.parameterizedExecutionFilters === true &&
+    receipt.source?.metadata?.responseEndedCleanly === true &&
+    receipt.source?.metadata?.completenessClaimed === true &&
+    receipt.executionCount === receipt.commissionCount &&
+    Array.isArray(receipt.executionIds) && Array.isArray(receipt.commissionIds);
+}
+
 /**
  * Generation-scoped, read-only execution/commission/FX collector.
  * It owns no network connection and publishes nothing; the existing pusher remains
@@ -499,24 +518,6 @@ export function createFamilySessionAdapter({
   if (!loaded.ok) blockedReason = loaded.reason;
   else state = loaded.state ? clone(loaded.state) : null;
 
-  function trustedOfficialReceipt(receipt) {
-    return receipt.coverageStatus === "complete" &&
-      receipt.completenessAssertion?.provider === "ibkr-official-sdk-execution-window-v1" &&
-      receipt.source?.kind === "paper-api" &&
-      receipt.source?.metadata?.adapterId === "official-window-json" &&
-      receipt.source?.metadata?.adapterVersion === "1" &&
-      receipt.source?.metadata?.sdkPackage === "ibapi" &&
-      receipt.source?.metadata?.sdkVersion === "10.45.1" &&
-      Number.isSafeInteger(receipt.source?.metadata?.serverVersion) &&
-      receipt.source.metadata.serverVersion >= 223 &&
-      receipt.source?.metadata?.executionRequestFraming === "protobuf" &&
-      receipt.source?.metadata?.parameterizedExecutionFilters === true &&
-      receipt.source?.metadata?.responseEndedCleanly === true &&
-      receipt.source?.metadata?.completenessClaimed === true &&
-      receipt.executionCount === receipt.commissionCount &&
-      Array.isArray(receipt.executionIds) && Array.isArray(receipt.commissionIds);
-  }
-
   function verifiedContinuity() {
     if (!state?.requiresVerifiedHistory) return { reason: null, history: null, receipts: [] };
     if (typeof getVerifiedHistoryState !== "function") {
@@ -534,7 +535,7 @@ export function createFamilySessionAdapter({
     }
     const requiredThrough = newYorkDayStart(state.coverageThrough);
     let cursor = iso(periodStart);
-    const receipts = history.receipts.filter(trustedOfficialReceipt);
+    const receipts = history.receipts.filter(isTrustedOfficialFamilyReceipt);
     const intervals = receipts
       .map((receipt) => receipt.window)
       .sort((left, right) => left.fromInclusive.localeCompare(right.fromInclusive));
@@ -1099,6 +1100,57 @@ export function createFamilySessionAdapter({
     return clone(normalized);
   }
 
+  /**
+   * Project all virtual desks while the adapter's private ledger and FX observations
+   * are still available. The supplied pure calculator owns desk attribution; this
+   * method only exposes inputs that already passed the J projection's live gates.
+   */
+  function projectDeskEquities(book, { calculateDeskEquities, policy } = {}) {
+    if (typeof calculateDeskEquities !== "function") {
+      return { ok: false, reason: "all-desk equity calculator is unavailable" };
+    }
+    const family = project(book);
+    if (!family.ok) return { ok: false, reason: family.reason };
+    if (typeof getVerifiedHistoryState !== "function") {
+      return { ok: false, reason: "authoritative all-account history is unavailable" };
+    }
+    let verifiedHistoryState;
+    try {
+      verifiedHistoryState = getVerifiedHistoryState();
+    } catch (error) {
+      return { ok: false, reason: `authoritative all-account history is unavailable: ${error?.message || error}` };
+    }
+    const at = new Date(now()).getTime();
+    const rates = {};
+    const rateObservedAt = {};
+    for (const [currency, item] of fxRates) {
+      const age = at - new Date(item?.observedAt || "").getTime();
+      if (!item || !Number.isFinite(age) || age < 0 || age > fxFreshMs) continue;
+      rates[currency] = item.rate;
+      rateObservedAt[currency] = item.observedAt;
+    }
+    try {
+      return calculateDeskEquities({
+        ledgerState: clone(state),
+        verifiedHistoryState: clone(verifiedHistoryState),
+        portfolio: clone(book.portfolio || []),
+        positions: clone(book.positionsCoverage?.rows || []),
+        fx: {
+          baseCurrency: "EUR",
+          rates,
+          rateObservedAt,
+          observedAt: maxIso(Object.values(rateObservedAt)),
+        },
+        account: targetAccount,
+        policy,
+        observedAt: maxIso([family.observedAt, ...Object.values(rateObservedAt)]),
+        jResult: family,
+      });
+    } catch (error) {
+      return { ok: false, reason: `all-desk equity calculator failed: ${error?.message || error}` };
+    }
+  }
+
   function retire(reason = "family session retired") {
     generation += 1;
     connected = false;
@@ -1127,6 +1179,7 @@ export function createFamilySessionAdapter({
     upstreamUnavailable,
     pollNow,
     project,
+    projectDeskEquities,
     get connected() { return connected; },
     get requestInFlight() { return Boolean(activeCycle); },
     get blockedReason() { return blockedReason; },

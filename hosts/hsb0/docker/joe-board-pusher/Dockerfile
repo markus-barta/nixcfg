@@ -21,6 +21,6 @@ ENV NODE_ENV=production \
     JOE_INBOX_URL=https://cs0.barta.cm/joe/inbox
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
-COPY project.mjs positions-state.mjs pusher-state.mjs pusher-recovery.mjs family-ledger.mjs family-state.mjs execution-history.mjs execution-reconciliation.mjs family-history.mjs family-history-cli.mjs family-history-session.mjs official-window-reader.mjs official-window-reader.py pusher.mjs ./
+COPY project.mjs positions-state.mjs pusher-state.mjs pusher-recovery.mjs family-ledger.mjs family-state.mjs execution-history.mjs execution-reconciliation.mjs family-history.mjs family-history-cli.mjs family-history-session.mjs official-window-reader.mjs official-window-reader.py desk-ledger.mjs day-baseline.mjs pusher.mjs ./
 USER node
 CMD ["node", "pusher.mjs"]
