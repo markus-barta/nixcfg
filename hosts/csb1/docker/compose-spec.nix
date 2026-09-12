@@ -585,6 +585,9 @@ in
       # 26.09.05 adds scheme-aware external-stage v2 Pharos evidence with explicit legacy/calendar schemes and immutable release identity while keeping v1 frozen (PAI-876).
       # 26.09.06.21.31 adds the self-healing Habitat bootstrap and control room, authenticated browser lifecycle and message controls, closed-target recovery, and exact Codex/Claude runtime attribution (PAI-917, PAI-921–928).
       # 26.09.07 fixes runtime coverage, inbox isolation and recovery persistence, Habitat refresh, and guided CLI error/identity handling (PAI-934–942, PAI-948).
+      # Bump deliberately through the reviewed release/deploy flow. OPS-116:
+      # an out-of-closure image once nearly downgraded a migrated DB on reconcile.
+      # Retain the previous declared pin and stopped-volume backup for rollback.
       image = "ghcr.io/inspr-at/paimos:260912053553.0.0@sha256:0d237764b2821f4cd8fa9ba7d860859c627519873bdae187b090e0e9a0393689"; # Explicit release pin; OCI index verified for v260912053553.0.0.
       container_name = "ppm";
       restart = "unless-stopped";
