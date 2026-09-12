@@ -398,13 +398,46 @@ function baseCurrencyProven(book, targetAccount) {
   return nlv?.account === targetAccount && String(nlv.currency || "").toUpperCase() === "EUR";
 }
 
-function validateFamilyResult(result) {
+function validateOpenPnlEvidence(result) {
+  const evidence = result?.openPnlEvidence;
+  if (!evidence || evidence.method !== "owned-lots-current-mark-fx" ||
+      evidence.currency !== "EUR" || evidence.ownershipCoverage !== "complete" ||
+      !Array.isArray(evidence.residualNonKeepPositions) || !Array.isArray(evidence.excludedPositions)) {
+    return "calculator returned invalid OPEN evidence";
+  }
+  for (const rows of [evidence.residualNonKeepPositions, evidence.excludedPositions]) {
+    for (const row of rows) {
+      if (typeof row?.contractKey !== "string" || !row.contractKey ||
+          typeof row.symbol !== "string" || !row.symbol || !Number.isFinite(row.quantity) || row.quantity === 0) {
+        return "calculator returned invalid OPEN ownership row";
+      }
+    }
+  }
+  if (result.positions.some((row) => !Number.isFinite(row?.openPnl))) {
+    return "calculator returned invalid position OPEN P&L";
+  }
+  return null;
+}
+
+function validateFamilyResult(result, { requireOpenEvidence = false } = {}) {
   if (!result || result.ok !== true || !iso(result.observedAt)) return "calculator did not return a complete family result";
   for (const field of ["equity", "totalPnl", "realizedPnl", "unrealizedPnl"]) {
     if (!Number.isFinite(result[field])) return `calculator returned invalid ${field}`;
   }
   if (!Array.isArray(result.positions)) return "calculator returned invalid positions";
+  if (requireOpenEvidence) return validateOpenPnlEvidence(result);
   return null;
+}
+
+function withoutOpenPnlEvidence(result) {
+  const legacy = clone(result);
+  delete legacy.openPnlEvidence;
+  legacy.positions = legacy.positions.map((row) => {
+    const position = { ...row };
+    delete position.openPnl;
+    return position;
+  });
+  return legacy;
 }
 
 /**
@@ -1016,7 +1049,7 @@ export function createFamilySessionAdapter({
     } catch (error) {
       return { ok: false, reason: `family calculator failed: ${error?.message || error}` };
     }
-    const invalid = validateFamilyResult(result);
+    const invalid = validateFamilyResult(result, { requireOpenEvidence: true });
     if (invalid) return { ok: false, reason: invalid };
     const normalized = { ...clone(result), observedAt: iso(result.observedAt) };
     const continuityReason = continuity.reason;
@@ -1054,7 +1087,12 @@ export function createFamilySessionAdapter({
       };
     }
     if (state.family?.observedAt === normalized.observedAt) {
-      if (!sameRecord(state.family, normalized)) return { ok: false, reason: "family replay changed at an identical source revision" };
+      if (!sameRecord(state.family, normalized)) {
+        const legacyUpgrade = validateOpenPnlEvidence(state.family) !== null &&
+          sameRecord(state.family, withoutOpenPnlEvidence(normalized));
+        if (!legacyUpgrade) return { ok: false, reason: "family replay changed at an identical source revision" };
+        if (!persist({ ...state, family: normalized })) return { ok: false, reason: blockedReason };
+      }
       return clone(state.family);
     }
     if (!persist({ ...state, family: normalized })) return { ok: false, reason: blockedReason };

@@ -564,7 +564,7 @@ test("position serialization preserves sign and raw mark precision", () => {
   assert.equal(row.mark, 0.0123456789);
   assert.equal(row.updatedAt, OBS_B);
   assert.equal(row.marketValue, undefined);
-  assert.equal(row.openPnl, undefined);
+  assert.equal(row.openPnl, null);
   assert.equal(row.accountingScope, "stage0");
 });
 
@@ -1135,7 +1135,7 @@ test("day P&L stays null even for a flat completed book", () => {
   });
 });
 
-test("OPEN stays null when IB unrealized callback currency is unproved", () => {
+test("OPEN uses owned J lots with explicit FX and proves the other desks flat", () => {
   const contract = stockContract("ACME", { conId: 7001, currency: "USD" });
   const family = {
     ok: true,
@@ -1143,7 +1143,14 @@ test("OPEN stays null when IB unrealized callback currency is unproved", () => {
     totalPnl: 1,
     realizedPnl: 0,
     unrealizedPnl: 1,
-    positions: [{ desk: "j", symbol: "ACME", side: "Long", quantity: 1, accountingScope: "stage0", dayPnl: null, currency: "USD", mark: 11, updatedAt: OBS_A }],
+    positions: [{ desk: "j", symbol: "ACME", side: "Long", quantity: 1, accountingScope: "stage0", dayPnl: null, openPnl: 1, currency: "USD", mark: 11, updatedAt: OBS_A }],
+    openPnlEvidence: {
+      method: "owned-lots-current-mark-fx",
+      currency: "EUR",
+      ownershipCoverage: "complete",
+      residualNonKeepPositions: [],
+      excludedPositions: [],
+    },
     accounting: { periodStart: "2026-09-10T04:00:00Z", method: "execution-fifo-net-current-fx", detail: "Synthetic family accounting." },
     observedAt: OBS_A,
     executionCount: 1,
@@ -1156,18 +1163,76 @@ test("OPEN stays null when IB unrealized callback currency is unproved", () => {
     portfolio: [row],
   }), { publisherAt: new Date(OBS_B), familyRuntimeEnabled: true, family });
   assert.deepEqual(snapshot.pnlSources.open, {
-    status: "unavailable",
-    method: null,
+    status: "available",
+    method: "owned-lots-current-mark-fx",
     currency: "EUR",
     scope: "virtual-desks",
-    observedAt: null,
-    detail: "IB updatePortfolio unrealized P&L has no currency field; EUR virtual-desk OPEN is unproved.",
+    observedAt: OBS_A,
+    detail: "J owned lots use current broker marks and explicit quote-to-EUR FX; Joe and Joel are proven flat outside exact KEEP.",
   });
-  assert.deepEqual(snapshot.desks.map((desk) => desk.money.openPnl), [null, null, null]);
-  assert.equal(snapshot.totals.openPnl, null);
-  for (const desk of snapshot.desks) {
-    for (const position of desk.positions || []) assert.equal(position.openPnl, null);
-  }
+  assert.deepEqual(snapshot.desks.map((desk) => desk.money.openPnl), [1, 0, 0]);
+  assert.equal(snapshot.totals.openPnl, 1);
+  assert.equal(deskById(snapshot, "j").positions[0].openPnl, 1);
+});
+
+test("OPEN refuses foreign residuals, non-KEEP exclusions, and mismatched KEEP proof", () => {
+  const exactKeep = { contract: stockContract("TSLA", { conId: 9001 }), symbol: "TSLA", pos: 1 };
+  const family = {
+    ok: true,
+    equity: 5000,
+    totalPnl: 0,
+    realizedPnl: 0,
+    unrealizedPnl: 0,
+    positions: [],
+    openPnlEvidence: {
+      method: "owned-lots-current-mark-fx",
+      currency: "EUR",
+      ownershipCoverage: "complete",
+      residualNonKeepPositions: [],
+      excludedPositions: [{ contractKey: "conId:9001", symbol: "TSLA", quantity: 1 }],
+    },
+    accounting: { periodStart: "2026-09-10T04:00:00Z", method: "execution-fifo-net-current-fx", detail: "Synthetic family accounting." },
+    observedAt: OBS_A,
+    executionCount: 0,
+  };
+  const options = { publisherAt: new Date(OBS_B), familyRuntimeEnabled: true };
+  const exact = projectBook(baseBook({
+    positionsCoverage: { status: "complete", rows: [exactKeep] },
+    portfolio: [exactKeep],
+  }), { ...options, family });
+  assert.equal(exact.pnlSources.open.status, "available");
+  assert.deepEqual(exact.desks.map((desk) => desk.money.openPnl), [0, 0, 0]);
+
+  const residual = structuredClone(family);
+  residual.openPnlEvidence.residualNonKeepPositions = [
+    { contractKey: "conId:8001", symbol: "INTC", quantity: 2 },
+  ];
+  assert.match(projectBook(baseBook({
+    positionsCoverage: { status: "complete", rows: [exactKeep] },
+  }), { ...options, family: residual }).pnlSources.open.detail, /outside proven desk ownership/);
+
+  const notKeep = structuredClone(family);
+  notKeep.openPnlEvidence.excludedPositions[0].quantity = 2;
+  const tslaTwo = { ...exactKeep, pos: 2 };
+  assert.match(projectBook(baseBook({
+    positionsCoverage: { status: "complete", rows: [tslaTwo] },
+  }), { ...options, family: notKeep }).pnlSources.open.detail, /not exact configured KEEP/);
+
+  assert.match(projectBook(baseBook({
+    positionsCoverage: { status: "complete", rows: [] },
+  }), { ...options, family }).pnlSources.open.detail, /do not match/);
+
+  const futureMark = structuredClone(family);
+  futureMark.positions = [{ desk: "j", symbol: "ACME", side: "Long", quantity: 1, openPnl: 0, updatedAt: OBS_C }];
+  assert.match(projectBook(baseBook({
+    positionsCoverage: { status: "complete", rows: [exactKeep] },
+  }), { ...options, family: futureMark }).pnlSources.open.detail, /marks are stale or unavailable/);
+
+  const futureSource = structuredClone(family);
+  futureSource.observedAt = OBS_C;
+  assert.match(projectBook(baseBook({
+    positionsCoverage: { status: "complete", rows: [exactKeep] },
+  }), { ...options, family: futureSource }).pnlSources.open.detail, /timestamp is missing or in the future/);
 });
 
 test("PnL source reasons distinguish Gateway loss from missing financial evidence", () => {

@@ -3,6 +3,7 @@
 const BASE_CURRENCY = "EUR";
 const FIXED_PERIOD_START = "2026-09-10T04:00:00Z";
 const METHOD = "execution-fifo-net-current-fx";
+const OPEN_METHOD = "owned-lots-current-mark-fx";
 const DETAIL = "Net of recorded fees; converted at observed FX. Earlier results unavailable.";
 const ALWAYS_EXCLUDED = new Set(["SXR8", "TSLA"]);
 const QUANTITY_EPSILON = 1e-9;
@@ -338,6 +339,25 @@ function observedPositionMap(rows, account, excluded, registry) {
   return result;
 }
 
+function excludedPositionRows(rows, account, excluded) {
+  const result = [];
+  const seen = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || !rowBelongsToAccount(row, account)) continue;
+    const symbol = symbolCode(row.contract?.symbol, "position contract symbol");
+    if (!excluded.has(symbol)) continue;
+    const quantity = normalizedQuantity(finiteNumber(row.pos, "observed position quantity"));
+    const conId = row.contract?.conId;
+    const contractKey = Number.isInteger(conId) && conId > 0
+      ? `conId:${conId}`
+      : `excluded:${symbol}`;
+    if (seen.has(contractKey)) fail("duplicate observed excluded position contract");
+    seen.add(contractKey);
+    if (quantity !== 0) result.push({ contractKey, symbol, quantity });
+  }
+  return result.sort((left, right) => left.contractKey.localeCompare(right.contractKey));
+}
+
 function portfolioMap(rows, account, excluded, registry) {
   if (!Array.isArray(rows)) fail("portfolio must be an array");
   const result = new Map();
@@ -479,6 +499,15 @@ export function calculateFamily({
       fail("empty family ledger requires all non-excluded broker positions to be flat");
     }
 
+    const excludedPositions = excludedPositionRows(positions, accountId, excluded);
+    const residualNonKeepPositions = [...ownership.entries()]
+      .filter(([, owners]) => owners.foreign !== 0)
+      .map(([contractKey, owners]) => ({
+        contractKey,
+        symbol: registry.get(contractKey).symbol,
+        quantity: owners.foreign,
+      }))
+      .sort((left, right) => left.contractKey.localeCompare(right.contractKey));
     const portfolioByContract = portfolioMap(portfolio, accountId, excluded, registry);
     let grossRealizedEur = 0;
     let unrealizedEur = 0;
@@ -499,11 +528,13 @@ export function calculateFamily({
       if (markEpoch < latestFillAt.get(state.contract.key)) {
         fail("portfolio mark predates the latest execution");
       }
+      let positionOpenEur = 0;
       for (const lot of state.lots) {
-        unrealizedEur += (lot.quantity > 0
+        positionOpenEur += (lot.quantity > 0
           ? (mark - lot.price) * lot.quantity
           : (lot.price - mark) * Math.abs(lot.quantity)) * rate;
       }
+      unrealizedEur += positionOpenEur;
       outputPositions.push({
         desk: "j",
         symbol: state.contract.symbol,
@@ -511,6 +542,7 @@ export function calculateFamily({
         quantity,
         accountingScope: "stage0",
         dayPnl: null,
+        openPnl: roundEur(positionOpenEur),
         currency: state.contract.currency,
         mark,
         updatedAt,
@@ -526,6 +558,14 @@ export function calculateFamily({
 
     const realizedPnl = roundEur(grossRealizedEur - commissionExpenseEur);
     const unrealizedPnl = roundEur(unrealizedEur);
+    if (outputPositions.length) {
+      const positionTotal = roundEur(outputPositions.reduce((sum, row) => sum + row.openPnl, 0));
+      const roundingDelta = roundEur(unrealizedPnl - positionTotal);
+      if (roundingDelta !== 0) {
+        const last = outputPositions.at(-1);
+        last.openPnl = roundEur(last.openPnl + roundingDelta);
+      }
+    }
     const totalPnl = roundEur(grossRealizedEur - commissionExpenseEur + unrealizedEur);
     const equity = roundEur(virtualCapital + grossRealizedEur - commissionExpenseEur + unrealizedEur);
 
@@ -536,6 +576,13 @@ export function calculateFamily({
       realizedPnl,
       unrealizedPnl,
       positions: outputPositions,
+      openPnlEvidence: {
+        method: OPEN_METHOD,
+        currency: BASE_CURRENCY,
+        ownershipCoverage: "complete",
+        residualNonKeepPositions,
+        excludedPositions,
+      },
       accounting: { periodStart: FIXED_PERIOD_START, method: METHOD, detail: DETAIL },
       observedAt,
       executionCount,

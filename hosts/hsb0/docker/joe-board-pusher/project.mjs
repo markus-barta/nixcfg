@@ -230,15 +230,83 @@ function openPnlUnavailable(detail) {
   };
 }
 
-function openPnlProjection(book, { gatewayOk, brokerFresh }) {
+function openEvidenceRow(row) {
+  if (typeof row?.symbol !== "string" || !row.symbol || !Number.isFinite(row.quantity) || row.quantity === 0) {
+    return null;
+  }
+  if (typeof row.contractKey !== "string" || !row.contractKey) return null;
+  return `${row.contractKey}\u0000${row.symbol}\u0000${row.quantity}`;
+}
+
+function currentExcludedRows(rows) {
+  const result = [];
+  for (const row of rows) {
+    const symbol = String(row?.symbol || row?.contract?.symbol || "").trim().toUpperCase();
+    const quantity = strictFinite(row?.pos);
+    if (!JOEL_SYMBOLS.has(symbol) || quantity === undefined || quantity === 0) continue;
+    const conId = row?.contract?.conId;
+    const contractKey = Number.isInteger(conId) && conId > 0 ? `conId:${conId}` : `excluded:${symbol}`;
+    result.push({ contractKey, symbol, quantity });
+  }
+  return result.sort((left, right) => left.contractKey.localeCompare(right.contractKey));
+}
+
+function openPnlProjection(book, { gatewayOk, brokerFresh, familyAccepted, family, publisherMs }) {
   if (!gatewayOk) return openPnlUnavailable("Paper Gateway unavailable; IB unrealized P&L unavailable.");
   if (!brokerFresh) return openPnlUnavailable("Broker book is stale; fresh IB unrealized P&L unavailable.");
   if (book.positionsCoverage?.status !== "complete") {
     return openPnlUnavailable("Complete broker position coverage unavailable for OPEN allocation.");
   }
-  return openPnlUnavailable(
-    "IB updatePortfolio unrealized P&L has no currency field; EUR virtual-desk OPEN is unproved."
-  );
+  if (!familyAccepted) return openPnlUnavailable("Complete owned-lot J accounting unavailable for OPEN.");
+  const evidence = family.openPnlEvidence;
+  if (!evidence || evidence.method !== "owned-lots-current-mark-fx" ||
+      evidence.currency !== "EUR" || evidence.ownershipCoverage !== "complete" ||
+      !Array.isArray(evidence.residualNonKeepPositions) || !Array.isArray(evidence.excludedPositions) ||
+      family.positions.some((row) => !Number.isFinite(row.openPnl))) {
+    return openPnlUnavailable("Complete owned-lot OPEN evidence unavailable.");
+  }
+  const evidenceRows = [...evidence.residualNonKeepPositions, ...evidence.excludedPositions];
+  if (evidenceRows.some((row) => openEvidenceRow(row) === null)) {
+    return openPnlUnavailable("Complete owned-lot OPEN evidence unavailable.");
+  }
+  const sourceAge = publisherMs - new Date(family.observedAt).getTime();
+  if (!Number.isFinite(sourceAge) || sourceAge < 0) {
+    return openPnlUnavailable("OPEN evidence timestamp is missing or in the future.");
+  }
+  if (family.positions.some((row) => {
+    const age = publisherMs - new Date(row.updatedAt).getTime();
+    return !Number.isFinite(age) || age < 0 || age > STALE_AFTER * 1000;
+  })) {
+    return openPnlUnavailable("Current J position marks are stale or unavailable.");
+  }
+  if (evidence.residualNonKeepPositions.length !== 0) {
+    return openPnlUnavailable("Non-KEEP broker positions remain outside proven desk ownership.");
+  }
+  if (evidence.excludedPositions.some((row) =>
+    !Number.isFinite(row?.quantity) || row.quantity === 0 ||
+    !isGrandfathered({ symbol: row.symbol, pos: row.quantity }))) {
+    return openPnlUnavailable("Excluded broker positions are not exact configured KEEP.");
+  }
+  const provenExcluded = evidence.excludedPositions.map(openEvidenceRow).sort();
+  const observedExcluded = currentExcludedRows(book.positionsCoverage.rows).map(openEvidenceRow).sort();
+  if (JSON.stringify(provenExcluded) !== JSON.stringify(observedExcluded)) {
+    return openPnlUnavailable("Current excluded broker positions do not match the OPEN ownership proof.");
+  }
+  const j = round2(family.unrealizedPnl);
+  if (round2(family.positions.reduce((sum, row) => sum + row.openPnl, 0)) !== j) {
+    return openPnlUnavailable("Per-position J OPEN does not reconcile with its desk total.");
+  }
+  return {
+    values: { j, joe: 0, joel: 0, total: j },
+    source: {
+      status: "available",
+      method: "owned-lots-current-mark-fx",
+      currency: "EUR",
+      scope: "virtual-desks",
+      observedAt: family.observedAt,
+      detail: "J owned lots use current broker marks and explicit quote-to-EUR FX; Joe and Joel are proven flat outside exact KEEP.",
+    },
+  };
 }
 
 function accountingScopeFor(row) {
@@ -257,6 +325,7 @@ export function serializePositionRow(row, deskId) {
     quantity: qty,
     accountingScope: accountingScopeFor(row),
     dayPnl: null,
+    openPnl: null,
   };
   const currency = currencyCode(row.currency);
   const mark = strictFinite(row.marketPrice);
@@ -326,6 +395,9 @@ export function projectBook(book, opts = {}) {
   const openPnl = openPnlProjection(book, {
     gatewayOk: gwOk,
     brokerFresh: brokerObservationFresh,
+    familyAccepted,
+    family,
+    publisherMs,
   });
   const accountEquityText = accountEquity === null
     ? "Paper account equity unavailable"
