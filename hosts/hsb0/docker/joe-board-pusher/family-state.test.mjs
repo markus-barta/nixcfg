@@ -106,7 +106,14 @@ function calculator(args) {
     totalPnl: 1,
     realizedPnl: 0.5,
     unrealizedPnl: 0.5,
-    positions: [{ desk: "j", symbol: "ACME", side: "Long", quantity: 1, accountingScope: "stage0", dayPnl: null, currency: "USD", mark: 11, updatedAt: args.observedAt }],
+    positions: [{ desk: "j", symbol: "ACME", side: "Long", quantity: 1, accountingScope: "stage0", dayPnl: null, openPnl: 0.5, currency: "USD", mark: 11, updatedAt: args.observedAt }],
+    openPnlEvidence: {
+      method: "owned-lots-current-mark-fx",
+      currency: "EUR",
+      ownershipCoverage: "complete",
+      residualNonKeepPositions: [],
+      excludedPositions: [],
+    },
     accounting: { periodStart: args.periodStart, method: "execution-fifo-net-current-fx", detail: "Synthetic test result." },
     observedAt: args.observedAt,
     executionCount: args.executions.length,
@@ -983,6 +990,33 @@ test("a restart rejects source observations older than its persisted family proj
   emitFx(nextApi, "EUR", 1);
   emitFx(nextApi, "USD", 0.86);
   assert.match(restarted.adapter.project(book("2026-09-10T12:02:00Z")).reason, /regressed behind persisted state/);
+});
+
+test("a legacy cached family projection upgrades additive OPEN evidence at the same source revision", () => {
+  const source = memoryStore();
+  const first = setup({ store: source });
+  const firstApi = connect(first);
+  const row = execution("open-upgrade.1.01", 27);
+  complete(firstApi, [row]);
+  emitFx(firstApi, "EUR", 1);
+  emitFx(firstApi, "USD", 0.86);
+  assert.equal(first.adapter.project(book()).ok, true);
+
+  const legacy = source.state;
+  delete legacy.family.openPnlEvidence;
+  for (const position of legacy.family.positions) delete position.openPnl;
+  const upgradedStore = memoryStore(legacy);
+  const restarted = setup({ store: upgradedStore });
+  const restartedApi = connect(restarted);
+  complete(restartedApi, [row]);
+  emitFx(restartedApi, "EUR", 1);
+  emitFx(restartedApi, "USD", 0.86);
+
+  const upgraded = restarted.adapter.project(book());
+  assert.equal(upgraded.ok, true);
+  assert.equal(upgraded.openPnlEvidence.method, "owned-lots-current-mark-fx");
+  assert.equal(upgraded.positions[0].openPnl, 0.5);
+  assert.deepEqual(upgradedStore.state.family, upgraded);
 });
 
 test("FX is unavailable after disconnect until every required rate is freshly observed", () => {
