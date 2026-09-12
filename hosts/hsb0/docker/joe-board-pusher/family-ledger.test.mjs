@@ -149,6 +149,7 @@ test("five family members aggregate into one book with one virtual-capital alloc
     quantity: 5,
     accountingScope: "stage0",
     dayPnl: null,
+    openPnl: 8,
     currency: "USD",
     mark: 12,
     updatedAt: MARK_AT,
@@ -182,6 +183,7 @@ test("FIFO handles partial long closes, partial short covers, and every fill fee
     { symbol: "NVDA", side: "Long", quantity: 6 },
     { symbol: "PATH", side: "Short", quantity: -3 },
   ]);
+  assert.equal(Math.round(result.positions.reduce((sum, row) => sum + row.openPnl, 0) * 100) / 100, result.unrealizedPnl);
 });
 
 test("commission currency converts independently and opening fees remain an expense", () => {
@@ -214,6 +216,9 @@ test("family may close before foreign Joe opens the same contract; broker callba
   assert.equal(result.unrealizedPnl, 0);
   assert.equal(result.totalPnl, 1.44);
   assert.deepEqual(result.positions, []);
+  assert.deepEqual(result.openPnlEvidence.residualNonKeepPositions, [
+    { contractKey: "conId:1005", symbol: "INTC", quantity: 3 },
+  ]);
 });
 
 test("cross-family offset and same-direction overlap both fail despite quantity parity", () => {
@@ -251,6 +256,10 @@ test("SXR8 and TSLA are always excluded from replay and accounting", () => {
   assert.equal(result.totalPnl, 0);
   assert.equal(result.executionCount, 0);
   assert.deepEqual(result.positions, []);
+  assert.deepEqual(result.openPnlEvidence.excludedPositions, [
+    { contractKey: "conId:1007", symbol: "SXR8", quantity: 20 },
+    { contractKey: "conId:1008", symbol: "TSLA", quantity: 1 },
+  ]);
 });
 
 test("replay merge deduplicates repeats and replaces a lower correction revision", () => {
