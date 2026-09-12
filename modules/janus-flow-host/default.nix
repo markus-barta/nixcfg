@@ -255,5 +255,13 @@ in
         ExecStart = publish;
       };
     };
+
+    # Config publication is a hard startup precondition when a binding is
+    # active. This declaration merges with the host's existing edge and Docker
+    # requirements without weakening either one.
+    systemd.services.compose-csb1 = lib.mkIf cfg.activate {
+      requires = [ "janus-flow-host-config.service" ];
+      after = [ "janus-flow-host-config.service" ];
+    };
   };
 }
