@@ -226,6 +226,9 @@ export function createBrokerSessionAdapter({
       unrealizedPNL: nextUnrealized !== undefined ? nextUnrealized : prev.unrealizedPNL,
       realizedPNL: nextRealized !== undefined ? nextRealized : prev.realizedPNL,
       observedAt,
+      markObservedAt: nextPrice !== undefined
+        ? observedAt
+        : prev.markObservedAt || null,
     };
     if (qty !== 0 || row.realizedPNL) working.portfolio.set(key, row);
     else working.portfolio.delete(key);
