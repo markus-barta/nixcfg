@@ -51,7 +51,7 @@ class DeliveryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 delivery.private_config(str(path))
 
-    def test_grok_posts_only_to_existing_paimos_target(self):
+    def test_grok_uses_bound_notifier_and_own_receipt_only(self):
         with tempfile.TemporaryDirectory() as directory:
             key = Path(directory) / 'ppm-key'
             key.write_text('test-fixture-not-a-real-credential')
@@ -64,27 +64,56 @@ class DeliveryTests(unittest.TestCase):
             opener = mock.Mock()
             status_response = mock.MagicMock()
             status_response.__enter__.return_value = status_response
-            status_response.read.return_value = json.dumps({'deliveries': [{
-                'message_id': 'fixture-message', 'address': 'grok_bot:amy',
+            status_response.status = 200
+            receipt = {
+                'message_id': 'fixture-message', 'project_id': 17, 'address': 'grok_bot:amy',
                 'state': 'handed_off', 'effective_level': 'simple',
                 'handed_off_at': '2026-09-12T17:00:00Z',
                 'effective_target_id': '4f73e08c-f98d-4dfd-a86c-6a9393f05db4',
                 'effective_target_version': 1,
-            }]}).encode()
+            }
+            status_response.read.return_value = json.dumps(receipt).encode()
             opener.open.side_effect = [response, status_response]
             with mock.patch.object(delivery.urllib.request, 'build_opener', return_value=opener):
                 self.assertTrue(send('CONTROLLED TEST. Paper Gateway recovered.', 'event123'))
             request = opener.open.call_args_list[0].args[0]
-            self.assertEqual(request.full_url, 'https://pm.barta.cm/api/v2/projects/17/messages')
+            self.assertEqual(request.full_url, 'https://pm.barta.cm/api/machine-notifier/messages')
             self.assertEqual(request.get_header('Idempotency-key'), 'hostd59-event123')
             self.assertEqual(request.get_header('User-agent'), delivery.USER_AGENT)
             self.assertEqual(opener.open.call_args_list[1].args[0].get_header('User-agent'), delivery.USER_AGENT)
+            self.assertEqual(opener.open.call_args_list[1].args[0].full_url,
+                             'https://pm.barta.cm/api/machine-notifier/messages/fixture-message/receipt')
+            self.assertIsNone(request.get_header('X-paimos-agent-name'))
+            self.assertIsNone(request.get_header('X-paimos-session-id'))
             body = json.loads(request.data)
-            self.assertEqual(body['to'], 'grok_bot:amy')
-            self.assertEqual(body['delivery_level'], 'simple')
+            self.assertEqual(set(body), {'body'})
             self.assertIn('SendToUser', body['body'])
             self.assertNotIn('issue_id', body)
             self.assertNotIn(key.read_text(), body['body'])
+            # A successful HTTP request is not delivery evidence for a different
+            # message, project, recipient, target generation, or delivery level.
+            for field, invalid in [
+                ('message_id', 'another-message'), ('project_id', 20),
+                ('address', 'another-receiver'), ('state', 'queued'),
+                ('effective_level', 'control'), ('handed_off_at', ''),
+                ('effective_target_id', 'another-target'), ('effective_target_version', 2),
+                ('effective_target_version', True),
+            ]:
+                with self.subTest(field=field, invalid=invalid):
+                    status_response.read.return_value = json.dumps({**receipt, field: invalid}).encode()
+                    opener.open.side_effect = [response, status_response]
+                    with mock.patch.object(delivery.urllib.request, 'build_opener', return_value=opener):
+                        self.assertFalse(send('Paper Gateway needs attention.', 'event123'))
+
+            opener.open.reset_mock()
+            opener.open.side_effect = delivery.urllib.error.HTTPError(request.full_url, 401, 'Unauthorized', {}, None)
+            with mock.patch.object(delivery.urllib.request, 'build_opener', return_value=opener):
+                self.assertFalse(send('Paper Gateway needs attention.', 'event123'))
+            self.assertEqual(opener.open.call_count, 1)  # no privileged legacy fallback
+
+            with mock.patch.object(delivery.urllib.request, 'build_opener') as unused:
+                self.assertFalse(send('Paper Gateway needs attention.', 'bad\r\nheader'))
+                unused.assert_not_called()
         with self.assertRaises(ValueError):
             delivery.grok_sender({'project_id': 20, 'to': 'invented'}, '/none')
 
@@ -115,6 +144,23 @@ class DeliveryTests(unittest.TestCase):
 
     def test_redirect_is_not_followed_with_credential(self):
         self.assertIsNone(delivery.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://other.invalid'))
+
+    def test_pending_notifier_enrollment_does_not_block_email(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'config.json'
+            config.write_text(json.dumps({
+                'schema_version': 1,
+                'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
+                'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+            }))
+            config.chmod(0o600)
+            senders = delivery.declared_senders(str(config), '/bin/docker', str(Path(directory) / 'not-enrolled'))
+            with mock.patch.object(delivery.subprocess, 'run', return_value=mock.Mock(returncode=0)) as relay:
+                self.assertTrue(senders['email']('Paper Gateway needs attention.', 'event123'))
+            self.assertEqual(relay.call_count, 1)
+            with mock.patch.object(delivery.urllib.request, 'build_opener') as unused:
+                self.assertFalse(senders['grok']('Paper Gateway needs attention.', 'event123'))
+                unused.assert_not_called()
 
 
 if __name__ == '__main__':

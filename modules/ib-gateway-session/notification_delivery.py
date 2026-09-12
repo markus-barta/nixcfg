@@ -13,7 +13,6 @@ import stat
 import subprocess
 import urllib.request
 import urllib.error
-import uuid
 from email.message import EmailMessage
 from email.policy import SMTP
 from pathlib import Path
@@ -97,6 +96,8 @@ def grok_sender(config: dict, key_file: str) -> Sender:
         raise ValueError("existing agent-bus target required")
 
     def send(text: str, identifier: str) -> bool:
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", identifier):
+            return False
         try:
             descriptor = os.open(key_file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             try:
@@ -117,43 +118,44 @@ def grok_sender(config: dict, key_file: str) -> Sender:
                 "restart anything, or change account settings. Event " + identifier + ": " + text
             )
             request = urllib.request.Request(
-                "https://pm.barta.cm/api/v2/projects/17/messages",
-                data=json.dumps({"to": "grok_bot:amy", "body": message, "delivery_level": "simple"}).encode(),
+                "https://pm.barta.cm/api/machine-notifier/messages",
+                data=json.dumps({"body": message}).encode(),
                 headers={"Authorization": "Bearer " + token, "Content-Type": "application/json",
-                         "Accept": "application/json", "User-Agent": USER_AGENT, "X-Paimos-Agent-Name": "codex",
-                         "X-Paimos-Session-Id": str(uuid.uuid5(uuid.NAMESPACE_URL, "inspr://hsb0/hostd59")),
+                         "Accept": "application/json", "User-Agent": USER_AGENT,
                          "Idempotency-Key": "hostd59-" + identifier},
                 method="POST",
             )
             with urllib.request.build_opener(NoRedirect()).open(request, timeout=10) as response:
-                body = json.loads(response.read(65537))
+                raw = response.read(65537)
+                if len(raw) > 65536:
+                    return False
+                body = json.loads(raw)
                 if not 200 <= response.status < 300 or not isinstance(body, dict) or not body.get("message_id"):
                     return False
                 message_id = body["message_id"]
                 if not isinstance(message_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", message_id):
                     return False
             status_request = urllib.request.Request(
-                "https://pm.barta.cm/api/projects/17/message-deliveries",
+                "https://pm.barta.cm/api/machine-notifier/messages/" + message_id + "/receipt",
                 headers={"Authorization": "Bearer " + token, "Accept": "application/json", "User-Agent": USER_AGENT},
             )
             with urllib.request.build_opener(NoRedirect()).open(status_request, timeout=10) as response:
-                raw = response.read(1048577)
-                if len(raw) > 1048576:
+                raw = response.read(65537)
+                if not 200 <= response.status < 300 or len(raw) > 65536:
                     return False
-                deliveries = json.loads(raw)
-            if not isinstance(deliveries, dict) or not isinstance(deliveries.get("deliveries"), list):
+                receipt = json.loads(raw)
+            if not isinstance(receipt, dict):
                 return False
-            matches = [item for item in deliveries["deliveries"]
-                       if isinstance(item, dict) and item.get("message_id") == message_id]
-            if len(matches) != 1:
-                return False
-            receipt = matches[0]
             handed_off = (
-                receipt.get("address") == "grok_bot:amy"
+                receipt.get("message_id") == message_id
+                and type(receipt.get("project_id")) is int
+                and receipt.get("project_id") == 17
+                and receipt.get("address") == "grok_bot:amy"
                 and receipt.get("state") == "handed_off"
                 and receipt.get("effective_level") == "simple"
                 and bool(receipt.get("handed_off_at"))
                 and receipt.get("effective_target_id") == "4f73e08c-f98d-4dfd-a86c-6a9393f05db4"
+                and type(receipt.get("effective_target_version")) is int
                 and receipt.get("effective_target_version") == 1
             )
             # A webhook handoff still does not prove Amy's SendToUser output.
