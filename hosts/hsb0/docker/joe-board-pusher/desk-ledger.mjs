@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { newYorkPeriodStart } from "./day-baseline.mjs";
 import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
 import { calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
@@ -176,7 +177,7 @@ function historyRevision(source, policy, cutoff, inclusive = true) {
   return digest({ method: HISTORY_REVISION_METHOD, policy, economics });
 }
 
-function assertOfficialIdentities(state, source, policy, cutoff, proofObservedAt) {
+function assertOfficialIdentities(state, source, policy, cutoff, proofObservedAt, inclusive = true) {
   const executionIds = new Set();
   const commissionIds = new Set();
   for (const receipt of state.receipts) {
@@ -187,7 +188,8 @@ function assertOfficialIdentities(state, source, policy, cutoff, proofObservedAt
   }
   const excluded = new Set(policy.excludedSymbols);
   for (const row of source.rows) {
-    if (row.execution.time > cutoff || excluded.has(row.contract.symbol)) continue;
+    if ((inclusive ? row.execution.time > cutoff : row.execution.time >= cutoff) ||
+        excluded.has(row.contract.symbol)) continue;
     if (!executionIds.has(row.execution.execId)) {
       throw new Error("effective execution is absent from trusted official receipts");
     }
@@ -231,7 +233,11 @@ function canonicalLedgerSource(ledgerState, account) {
   if (ledgerState.executions.some((row) => row?.execution?.pendingPriceRevision === true)) {
     throw new Error("all-account ledger contains a pending execution correction");
   }
-  return { rows: effectiveRows(ledgerState.executions), commissions: ledgerState.commissions, account };
+  const rows = effectiveRows(ledgerState.executions);
+  if (rows.some((row) => row.execution.acctNumber !== account)) {
+    throw new Error("execution account does not match the all-desk source");
+  }
+  return { rows, commissions: ledgerState.commissions, account };
 }
 
 function canonicalHistorySource(state, account) {
@@ -284,6 +290,34 @@ function roundEur(value) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function currentDayDirectCoverage(ledgerState, ledger, policy, cutoff) {
+  const day = newYorkDay(cutoff);
+  const dayStart = newYorkPeriodStart(cutoff);
+  if (!day || !dayStart || ledgerState?.coverageTradingDay !== day ||
+      !Array.isArray(ledgerState?.queryExecutionIdentities)) {
+    throw new Error("direct all-account execution coverage metadata is invalid");
+  }
+  const currentRows = ledger.rows.filter((row) => row.execution.time >= dayStart && row.execution.time <= cutoff);
+  const currentById = new Map(currentRows.map((row) => [row.execution.execId, row]));
+  const queryIds = ledgerState.queryExecutionIdentities;
+  const queryIdSet = new Set(queryIds);
+  if (queryIdSet.size !== queryIds.length ||
+      queryIds.some((id) => typeof id !== "string" || !currentById.has(id)) ||
+      currentRows.some((row) => !queryIdSet.has(row.execution.execId))) {
+    throw new Error("direct current-day execution identities are incomplete or outside the covered day");
+  }
+  const commissionIds = new Set(ledger.commissions.map((row) => normalizeEconomicCommission(row).execId));
+  const excluded = new Set(policy.excludedSymbols);
+  for (const row of currentRows) {
+    if (excluded.has(row.contract.symbol)) continue;
+    classify(row, policy);
+    if (!commissionIds.has(row.execution.execId)) {
+      throw new Error("direct current-day execution is missing its commission");
+    }
+  }
+  return { dayStart, throughInclusive: cutoff };
+}
+
 /** Calculate independently attributable J/Joe/Joel EUR equity from complete broker evidence. */
 export function calculateDeskEquities({
   ledgerState,
@@ -308,12 +342,16 @@ export function calculateDeskEquities({
       throw new Error("live ledger contains an execution after its coverage boundary");
     }
     const proofAt = instant(verifiedHistoryState.updatedAt, "authoritative history updatedAt");
-    const coverage = completeCoverage(verifiedHistoryState.receipts, canonical.periodStart, cutoff, proofAt);
-    assertOfficialIdentities(verifiedHistoryState, history, canonical, cutoff, proofAt);
+    const directCoverage = currentDayDirectCoverage(ledgerState, ledger, canonical, cutoff);
+    completeCoverage(verifiedHistoryState.receipts, canonical.periodStart, directCoverage.dayStart, proofAt);
+    assertOfficialIdentities(verifiedHistoryState, history, canonical, directCoverage.dayStart, proofAt, false);
+    const priorLedgerRevision = historyRevision(ledger, canonical, directCoverage.dayStart, false);
+    const priorOfficialRevision = historyRevision(history, canonical, directCoverage.dayStart, false);
+    if (priorLedgerRevision !== priorOfficialRevision) {
+      throw new Error("live ledger historical economics do not match authoritative all-account history");
+    }
     const ledgerEconomics = economicHistory({ ...ledger, policy: canonical, cutoff });
     const ledgerRevision = historyRevision(ledger, canonical, cutoff);
-    const officialRevision = historyRevision(history, canonical, cutoff);
-    if (ledgerRevision !== officialRevision) throw new Error("live ledger economics do not match authoritative all-account history");
     observedKeep(positions || [], account, canonical);
 
     const calculate = (desk) => calculateFamily({
@@ -406,6 +444,13 @@ const newYorkFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
   hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
 });
+
+function newYorkDay(value) {
+  const normalized = instant(value, "New York day source");
+  const parts = Object.fromEntries(newYorkFormatter.formatToParts(new Date(normalized))
+    .filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
 
 function exactNewYorkMidnight(value) {
   const normalized = instant(value, "periodStart");
