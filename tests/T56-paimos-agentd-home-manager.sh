@@ -20,15 +20,15 @@ locked = lock["locked"]
 assert original == {
     "owner": "inspr-at",
     "repo": "paimos",
-    "ref": "v260911172741.0.0",
+    "ref": "v260912053553.0.0",
     "type": "github",
 }, original
-assert locked["rev"] == "b3e4634af72fa2d1fec51b3d8ca8b7ced2e95270", locked
-assert locked["narHash"] == "sha256-88wnrwPNH47Rk5b05F2OQb4rMmTYwzZIaluqtK/5x7Q=", locked
+assert locked["rev"] == "de9ab5e61da1ebf512bac75d660ea16b0b839a70", locked
+assert locked["narHash"] == "sha256-seyuP/QFV+gSGnN8b+iOfHC0WobeEZNv38IVXHQosUo=", locked
 PY
 
 package_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.paimos-cli.version')
-[ "$package_version" = 260911172741.0.0 ] || fail "Paimos package is not the canonical v260911172741.0.0 release: $package_version"
+[ "$package_version" = 260912053553.0.0 ] || fail "Paimos package is not the canonical v260912053553.0.0 release: $package_version"
 
 deployment_version=$(
   python3 - "$repo_root/flake.nix" "$repo_root/hosts/csb1/docker/compose-spec.nix" <<'PY'
@@ -41,7 +41,7 @@ server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]
 assert len(client) == 1, f"expected one Paimos client release pin, got {client!r}"
 assert len(server) == 1, f"expected one PPM server release pin, got {server!r}"
 assert client[0] == server[0][0], f"Paimos client/server release drift: {client[0]} != {server[0][0]}"
-assert server[0][1] == "sha256:3143fe79fb72ba1f1ef8fef4380e2ca5285ee011058d6f4f3e9e3da10e9d2155", server
+assert server[0][1] == "sha256:0d237764b2821f4cd8fa9ba7d860859c627519873bdae187b090e0e9a0393689", server
 print(server[0][0])
 PY
 )
