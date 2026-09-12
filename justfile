@@ -278,8 +278,8 @@ janus-engine-assurance:
 
 [group('ops')]
 janus-engine-down:
-    cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged stop janus-engine-staged
-    cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f docker-compose.yml --profile janus-engine-staged rm -f janus-engine-staged
+    cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f /etc/compose/csb1/docker-compose.yml --profile janus-engine-staged stop janus-engine-staged
+    cd hosts/csb1/docker && docker compose --project-name janus_engine_staged --project-directory . -f /etc/compose/csb1/docker-compose.yml --profile janus-engine-staged rm -f janus-engine-staged
 
 [group('build')]
 nix-switch:
