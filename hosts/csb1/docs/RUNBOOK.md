@@ -878,6 +878,67 @@ pre-NIX-442 no-op. To abandon a drafted binding without activating, leave
 
 ---
 
+## Janus Flow host (NIX-481 / JANUS-458)
+
+The Janus Flow adapter is declarative and initially inert. The single switch
+and bindings live in `hosts/csb1/janus-flow-host.nix`; `active = false` and an
+empty binding list mean the rendered Compose service has no
+`JANUS_FLOW_CONFIG_FILE`, Flow mounts, credential, or config revision label.
+Janus therefore keeps its existing routes and startup behavior.
+
+Janus parses and validates a configured Flow document during startup before it
+checks `enabled`. Merely mounting an `enabled=false` document with no binding
+would make the whole envelope fail startup. The inactive contract is absence.
+When active, `janus-flow-host-config.service` publishes the exact
+`inspr.janus.flow-host-config.v1` document atomically as a fresh mode-`0400`
+inode below a mode-`0700` directory owned by the container uid `100`. Compose
+binds that directory read-only, then overlays the dedicated API key as a
+separate read-only inode. A config revision label forces Janus to recreate when
+its startup-cached project authorization changes.
+
+### Activation prerequisites
+
+Activation is a separate reviewed change. Complete every item before changing
+the switch:
+
+1. Record the real Paimos `project_id` and, when supplied by Paimos, its exact
+   `paimos:proj-...` project ref. Do not derive either from a label or
+   organisation.
+2. Record the exact authenticated Janus session subjects authorized for that
+   project. The server compares `principal_refs` directly with the session
+   subject. Use opaque non-email subjects only; never join identities by email.
+3. Mint a dedicated least-privilege Paimos Flow API key. It must be 32-512
+   printable ASCII bytes with no whitespace or trailing newline. Enrol it as a
+   separate agenix secret at `/run/agenix/csb1-janus-flow-api-key`, owned by uid
+   `100`, mode `0400`, link count `1`. Do not reuse a managed-setup, delivery,
+   reporter, or Pharos credential.
+4. If common-origin navigation is being activated, first approve the actual
+   native route, OIDC callbacks, and public base paths. Only then set
+   `paimosBrowserUrl`. This adapter does not set `JANUS_PUBLIC_BASE_PATH`, alter
+   Traefik, or claim common-origin acceptance.
+5. On csb1, inspect metadata only; never print the key:
+
+   ```bash
+   stat -c '%n %u %a %h %s' /run/agenix/csb1-janus-flow-api-key
+   ```
+
+   Expect uid `100`, mode `400`, link count `1`, and size `32` through `512`.
+
+6. Add one reviewed binding and flip `active = true` in
+   `hosts/csb1/janus-flow-host.nix`. Use the normal signed PR, protected checks,
+   native NixOS build, managed switch, and authenticated live proof. Do not run
+   raw Compose commands or hand-edit the host.
+
+### Disable / rollback
+
+Set `active = false`, use the normal review and managed switch path, and verify
+the rendered Janus service again omits the Flow env, mounts, and revision label.
+The unmounted runtime config may remain until reboot but has no process-visible
+effect. Keep JANUS-458 open until the real configured projection, principal
+scope, safe navigation, and chosen common-origin flow are proven live.
+
+---
+
 ## Troubleshooting
 
 ### Decision Tree
