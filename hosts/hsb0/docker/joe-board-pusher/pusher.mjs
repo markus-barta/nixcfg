@@ -18,6 +18,17 @@ import {
 } from "./execution-history.mjs";
 import { calculateFamily } from "./family-ledger.mjs";
 import {
+  CURRENT_DESK_OWNERSHIP_POLICY,
+  DESK_HISTORY_REVISION_METHOD,
+  buildDeskDayBoundaryEvidence,
+  calculateDeskEquities,
+  deskOwnershipPolicyContract,
+} from "./desk-ledger.mjs";
+import {
+  createDeskDayPnlProducer,
+  createFileDayBaselineStore,
+} from "./day-baseline.mjs";
+import {
   createFileFamilyHistoryStore,
   projectBestAvailableHistory,
 } from "./family-history.mjs";
@@ -44,6 +55,7 @@ const ACCOUNT = "DUR970597";
 const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
 const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
 const FAMILY_HISTORY_PATH = "/var/lib/joe-board-pusher/family-history.json";
+const DAY_BASELINE_PATH = "/var/lib/joe-board-pusher/day-baseline.json";
 const INBOX_URL = "https://cs0.barta.cm/joe/inbox";
 const TOKEN_FILE = "/run/secrets/joe-board-push-token";
 const RETRY_BASE_MS = 5_000;
@@ -198,6 +210,20 @@ const familyHistoryAdapter = createFamilyHistorySessionAdapter({
   },
 });
 
+const dayPnlProducer = createDeskDayPnlProducer({
+  account: ACCOUNT,
+  policy: CURRENT_DESK_OWNERSHIP_POLICY,
+  providerContract: deskOwnershipPolicyContract(CURRENT_DESK_OWNERSHIP_POLICY),
+  historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
+  store: createFileDayBaselineStore(DAY_BASELINE_PATH),
+  buildBoundaryEvidence: buildDeskDayBoundaryEvidence,
+  getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
+  // Live FX observations are valid for five minutes in the family adapter, so
+  // the boundary candidate declares and enforces the same maximum source age.
+  boundaryFreshMs: 300_000,
+  currentFreshMs: 300_000,
+});
+
 const officialHistoryRefresher = createOfficialHistoryRefresher({
   readOfficialExecutionWindow,
   makeCaptures: capturesFromOfficialWindowEvidence,
@@ -274,12 +300,27 @@ async function pushOnce() {
   if (!familyHistory.ok) {
     console.warn(JSON.stringify({ event: "family_history_projection_unavailable", reason: familyHistory.reason }));
   }
+  const deskEquities = familyAdapter.projectDeskEquities(book, {
+    calculateDeskEquities,
+    policy: CURRENT_DESK_OWNERSHIP_POLICY,
+  });
+  if (!deskEquities.ok) {
+    console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason }));
+  }
+  const dayPnl = dayPnlProducer.observe(deskEquities);
+  const retainedDeskEquity = dayPnlProducer.inspectState()?.latest || null;
+  if (!dayPnl.ok) {
+    console.warn(JSON.stringify({ event: "day_pnl_unavailable", reason: dayPnl.reason }));
+  }
   const snap = projectBook(book, {
     halt: false,
     publisherAt: new Date(),
     familyRuntimeEnabled: true,
     family,
     familyHistory,
+    deskEquities,
+    retainedDeskEquity,
+    dayPnl,
   });
   if (!snap) {
     console.warn(JSON.stringify({ event: "push_skipped", reason: "broker timestamp unavailable" }));

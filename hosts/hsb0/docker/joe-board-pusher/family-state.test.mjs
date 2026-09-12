@@ -419,6 +419,40 @@ test("official complete prior-day receipt plus current-day cycle restores full a
   assert.equal(current.adapter.blockedReason, null);
 });
 
+test("all-desk projection receives the verified sidecar and private fresh FX observations", () => {
+  const shared = memoryStore();
+  const beforeMidnight = setup({ store: shared, at: "2026-09-11T03:59:00Z" });
+  complete(connect(beforeMidnight), []);
+  const history = verifiedHistory();
+  const current = setup({
+    store: shared,
+    at: "2026-09-11T04:01:00Z",
+    getVerifiedHistoryState: () => history,
+  });
+  const api = connect(current);
+  complete(api, []);
+  emitFx(api, "EUR", 1);
+  emitFx(api, "USD", 0.8);
+  let received = null;
+  const result = current.adapter.projectDeskEquities(book("2026-09-11T04:01:01Z"), {
+    policy: { id: "synthetic-policy" },
+    calculateDeskEquities(args) {
+      received = args;
+      return { ok: true, sourceObservedAt: args.observedAt };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(received.jResult.ok, true);
+  assert.equal(received.ledgerState.requiresVerifiedHistory, true);
+  assert.deepEqual(received.verifiedHistoryState, history);
+  assert.deepEqual(received.fx.rates, { EUR: 1, USD: 0.8 });
+  assert.deepEqual(received.fx.rateObservedAt, {
+    EUR: "2026-09-11T04:01:00.000Z",
+    USD: "2026-09-11T04:01:00.000Z",
+  });
+  assert.deepEqual(received.policy, { id: "synthetic-policy" });
+});
+
 test("retained fills expose current-book partial economics, then trusted continuity restores idempotent full accounting", () => {
   const shared = memoryStore();
   const retained = execution("retained.open.01", 27);
