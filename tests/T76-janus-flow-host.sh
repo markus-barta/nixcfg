@@ -35,6 +35,7 @@ expect_rejected() {
 enabled=$(eval_flow 'activate = true;')
 jq -e '
   .activated == true
+  and .composeRequires == ["janus-flow-host-config.service"]
   and .generated == {
     schema: "inspr.janus.flow-host-config.v1",
     schema_version: 1,
@@ -56,6 +57,7 @@ jq -e '
 disabled=$(eval_flow 'activate = false; bindings = []; paimosBrowserUrl = null;')
 jq -e '
   .activated == false
+  and .composeRequires == []
   and .generated.enabled == false
   and .generated.bindings == []
   and (.generated | has("paimos_browser_url") | not)

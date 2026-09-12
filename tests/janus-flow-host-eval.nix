@@ -76,4 +76,9 @@ else
   {
     generated = evaluated.config.inspr.janusFlowHost.generated;
     activated = evaluated.config.systemd.services ? janus-flow-host-config;
+    composeRequires =
+      if evaluated.config.systemd.services ? compose-csb1 then
+        evaluated.config.systemd.services.compose-csb1.requires or [ ]
+      else
+        [ ];
   }

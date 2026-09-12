@@ -335,14 +335,8 @@ in
   # A failed/missing renderer is a hard dependency, not an advisory Wants.
   # This merges with composeStack's docker.service requirement.
   systemd.services.compose-csb1 = {
-    requires = [
-      "inspr-edge-config.service"
-    ]
-    ++ lib.optional janusFlowHost.active "janus-flow-host-config.service";
-    after = [
-      "inspr-edge-config.service"
-    ]
-    ++ lib.optional janusFlowHost.active "janus-flow-host-config.service";
+    requires = [ "inspr-edge-config.service" ];
+    after = [ "inspr-edge-config.service" ];
   };
 
   # NIX-447 — public routing-edge consumer boundary. Explicitly inactive.
