@@ -61,9 +61,33 @@ function quote(contract, pos, marketPrice, observedAt = MARK_AT, extra = {}) {
     pos,
     marketPrice,
     observedAt,
+    markObservedAt: observedAt,
     ...extra,
   };
 }
+
+test("only an explicit valid-price timestamp can prove an open mark is current", () => {
+  const contract = stock("MSFT", 1000);
+  const record = execution({ contract, execId: "MARKCLOCK.01" });
+  const base = input({
+    executions: [record],
+    commissions: [commission(record)],
+    positions: [position(contract, 1)],
+    portfolio: [quote(contract, 1, 10, MARK_AT, { observedAt: OBSERVED_AT })],
+  });
+
+  const accepted = calculateFamily(base);
+  assert.equal(accepted.ok, true, accepted.reason);
+  assert.equal(accepted.positions[0].updatedAt, MARK_AT);
+  reason(calculateFamily({
+    ...base,
+    portfolio: [{ ...base.portfolio[0], markObservedAt: undefined }],
+  }), /portfolio markObservedAt must be an ISO timestamp/);
+  reason(calculateFamily({
+    ...base,
+    portfolio: [{ ...base.portfolio[0], markObservedAt: "2026-09-10 16:00:00" }],
+  }), /portfolio markObservedAt must be an unambiguous ISO timestamp/);
+});
 
 function input(overrides = {}) {
   return {
