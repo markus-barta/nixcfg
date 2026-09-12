@@ -342,6 +342,19 @@
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
+      # HOSTD-58: prove the paper API (internal 4002), not socat 4004.
+      # Unhealthy here is not farm-ready and does not restart the container;
+      # session recovery is the ib-gateway-session supervisor (one-attempt budget).
+      healthcheck = {
+        test = [
+          "CMD-SHELL"
+          "awk 'BEGIN { ok = 0 } $1 != \"sl\" && toupper($4) == \"0A\" { n = split($2, a, \":\"); if (tolower(a[n]) == \"0fa2\") ok = 1 } END { exit (ok ? 0 : 1) }' /proc/net/tcp /proc/net/tcp6"
+        ];
+        interval = "30s";
+        timeout = "3s";
+        retries = 3;
+        start_period = "180s";
+      };
     };
 
     # Joe board pusher — paper Gateway reporting client → csb0 inbox every 30s.
