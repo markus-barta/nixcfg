@@ -601,6 +601,50 @@ test("an invalid supplied mark preserves its value and original observation time
   assert.equal(row.currency, "USD");
 });
 
+test("portfolio callbacks preserve the last valid-price clock", () => {
+  const { adapter, setInstant } = createHarness();
+  const api = new FakeApi("synthetic-mark-clock");
+  const contract = stockContract("INTC");
+  adapter.attach(api);
+  connectRecognized(api);
+  finishInitialSync(api, {
+    positions: [{ contract, pos: 4, avgCost: 30 }],
+    portfolios: [{
+      contract,
+      pos: 4,
+      marketPrice: 20,
+      marketValue: 80,
+      avgCost: 30,
+      unrealizedPNL: 1,
+      realizedPNL: 0,
+    }],
+  });
+  const first = adapter.snapshot();
+  assert.equal(first.portfolio[0].observedAt, OBS_A);
+  assert.equal(first.portfolio[0].markObservedAt, OBS_A);
+
+  setInstant(OBS_B);
+  api.emit(EVENTS.updatePortfolio, contract, 4, undefined, undefined, undefined, undefined, undefined, TARGET);
+  const afterUndefined = adapter.snapshot();
+  assert.equal(afterUndefined.portfolio[0].observedAt, OBS_B);
+  assert.equal(afterUndefined.portfolio[0].markObservedAt, OBS_A);
+  assert.equal(afterUndefined.portfolio[0].marketPrice, 20);
+
+  setInstant(OBS_C);
+  api.emit(EVENTS.updatePortfolio, contract, 4, Number.MAX_VALUE, 80, 30, 1, 0, TARGET);
+  const afterSentinel = adapter.snapshot();
+  assert.equal(afterSentinel.portfolio[0].observedAt, OBS_C);
+  assert.equal(afterSentinel.portfolio[0].markObservedAt, OBS_A);
+  assert.equal(afterSentinel.portfolio[0].marketPrice, 20);
+
+  setInstant("2026-09-10T12:00:03Z");
+  api.emit(EVENTS.updatePortfolio, contract, 4, 21, 84, 30, 2, 0, TARGET);
+  const afterPrice = adapter.snapshot();
+  assert.equal(afterPrice.portfolio[0].observedAt, "2026-09-10T12:00:03Z");
+  assert.equal(afterPrice.portfolio[0].markObservedAt, "2026-09-10T12:00:03Z");
+  assert.equal(afterPrice.portfolio[0].marketPrice, 21);
+});
+
 test("position serialization preserves sign and raw mark precision", () => {
   const row = serializePositionRow({
     symbol: "INTC",
