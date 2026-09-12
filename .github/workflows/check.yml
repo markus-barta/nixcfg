@@ -202,6 +202,9 @@ jobs:
       - name: Verify JoeDesk canonical slash and OAuth routing (NIX-462)
         run: nix-shell -p python3 --run "python3 tests/T76-joe-slash-routing.py"
 
+      - name: Verify bounded paper Gateway session recovery (HOSTD-58)
+        run: nix-shell -p python3 --run "bash tests/T77-ib-gateway-session-supervisor.sh"
+
       - name: Verify fleet-safe doctrine-private boundary
         run: nix-shell -p bash fish --run "bash tests/T54-doctrine-private-fleet-boundary.sh"
 
