@@ -975,15 +975,21 @@ in
     chown -R 1000:1000 /var/lib/ib-gateway
   '';
 
-  # HOSTD-58: session readiness is not Docker Up. Timer classifies
-  # slowstarting/authenticating/api_ready/upstream_unavailable and may restart
-  # only ib-gateway through the compose-hsb0 lock. Alerts stay disabled until a
-  # declared WATCHTOWER_NOTIFICATION_URL env (fleet-alerts shoutrrr, same shape
-  # as csb1-watchtower-env) is agenix-wired to alert.notificationEnvFile.
+  # HOSTD-58/59: recovery remains paper-only and lock/budget guarded. Alerts
+  # use the managed house mail relay and the existing Amy Paimos webhook route.
+  # Addresses are encrypted; webhook capability/secret remain owned by Paimos.
+  age.secrets.hsb0-gateway-notify-config = {
+    file = ../../secrets/hsb0-gateway-notify-config.age;
+    mode = "0400";
+  };
   nixcfg.ibGatewaySession = {
     enable = true;
-    alert.enable = false;
-    alert.transport = "none";
+    alert = {
+      enable = true;
+      transport = "email-agent-bus";
+      destinationFile = config.age.secrets.hsb0-gateway-notify-config.path;
+      paimosApiKeyFile = config.age.secrets.hsb0-ppm-api-key.path;
+    };
   };
 
   # ============================================================================

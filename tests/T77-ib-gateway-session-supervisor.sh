@@ -10,13 +10,12 @@ compose="${repo}/hosts/hsb0/docker/compose-spec.nix"
 docs="${repo}/hosts/hsb0/docs/IB-GATEWAY.md"
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest \
-  discover -s "${repo}/tests" -p 'test_ib_gateway_session_supervisor.py' -v
+  discover -s "${repo}/tests" -p 'test_ib_gateway*.py' -v
 nix-instantiate --parse "${module}" >/dev/null
 
 grep -Fq '../../modules/ib-gateway-session' "${host}"
 grep -Fq 'nixcfg.ibGatewaySession' "${host}"
-grep -Fq 'alert.enable = false' "${host}"
-grep -Fq 'alert.transport = "none"' "${host}"
+grep -Fq 'transport = "email-agent-bus"' "${host}"
 grep -Fq 'ib-gateway-session' "${module}"
 grep -Fq 'OnUnitActiveSec = "5m"' "${module}"
 # Match literal Nix interpolation, not a shell variable.
@@ -24,6 +23,8 @@ grep -Fq 'OnUnitActiveSec = "5m"' "${module}"
 grep -Fq '/run/lock/compose-${stack.stackName}.lock' "${module}"
 grep -Fq 'notificationEnvFile' "${module}"
 grep -Fq 'IBGSS_NOTIFICATION_ENV' "${module}"
+grep -Fq 'LoadCredential' "${module}"
+grep -Fq 'hsb0-gateway-notify-config.age' "${host}"
 grep -Fq 'ALLOWED_SERVICE = "ib-gateway"' "${helper}"
 grep -Fq '"--no-deps"' "${helper}"
 grep -Fq 'PORT_API = 4002' "${helper}"
