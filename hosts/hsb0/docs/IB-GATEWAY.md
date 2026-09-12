@@ -89,6 +89,75 @@ ss -ltn | grep 4002   # expect 100.64.0.6:4002 (not 127.0.0.1 / 0.0.0.0)
 docker ps --filter name=ib-gateway
 ```
 
+## Session supervisor (HOSTD-58)
+
+Docker Up and a live socat relay on container **4004** do not mean the paper
+API (**internal 4002**) is listening, and a listening API does not mean IBKR
+upstream is connected. `ib-gateway-session.timer` (every 5 min) classifies:
+
+| Phase                  | Meaning                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `slowstarting`         | Container or known restart is inside 12 min grace. No restart.                                                                       |
+| `authenticating`       | IBC login in progress. Wait; do not loop restarts.                                                                                   |
+| `api_ready`            | Internal **4002** LISTEN and a _recent_ joe-board-pusher publish with `gateway: true`. `generatedAt` may stay still on a quiet book. |
+| `upstream_unavailable` | API 4002 is up but a current pusher publish reports `gateway: false` (1100/2110 class).                                              |
+| `halted`               | Budget spent, prolonged auth, corrupt state, or IBC `fullauthrequired`. Operator action.                                             |
+
+Recovery restarts **only** `ib-gateway`, through the existing managed lock
+`/run/lock/compose-hsb0.lock` (reserve+fsync the one attempt **before** Docker
+restart). No stack-wide `compose up`, no override files, no other containers.
+**One restart per outage** until a real healthy session (`api_ready`) or
+operator clear. Docker timeout/permission/nonzero probes are UNKNOWN: no
+restart and no budget reset. A confirmed stopped container is distinct from
+UNKNOWN. A `gateway: true` line published before the current Gateway start does
+not reset the budget.
+
+A recent operator/agent restart starts grace; it does not trigger an immediate
+second restart. TCP to host `100.64.0.6:4002` only proves the relay. Quiet
+books may keep a still `generatedAt`; publication time is the docker log
+timestamp. Family-history/ledger files are ignored. Do not label a stuck
+login as 2FA unless IBC evidence (`fullauthrequired` / 2FA markers) is
+present. IBC `Authenticating` followed by `Login has completed` is logged-in;
+that phase is kept for the current container generation (container ID + PID 1
+`/proc/1/stat` start ticks, not rounded `docker ps` "Up N minutes") if later
+log tails are only relay spam. A new init startticks or container ID is a real
+restart; pusher health requires a publish after that exact start epoch.
+
+### Alert activation (not live — AC paging unmet)
+
+Amy paging within 5–15 min is the ticket goal. `main` constructs a fleet-alerts
+shoutrrr sender (`WATCHTOWER_NOTIFICATION_URL` via
+`engine.shoutrrr_telegram_sender`) **only** when that env file is declared.
+hsb0 currently has **no** such secret (csb1-watchtower-env / hsb1-tailnet-watch-env
+are other hosts). OpenClaw is parked, so agent-bus is not a live receiver.
+
+Exact configuration still needed (do not invent the URL):
+
+1. New agenix secret decryptable by Markus + hsb0 whose body is
+   `WATCHTOWER_NOTIFICATION_URL=` plus the same shoutrrr form already used by
+   fleet-alerts on csb1/hsb1.
+2. `nixcfg.ibGatewaySession.alert.enable = true;`
+3. `alert.transport = "shoutrrr";`
+4. `alert.notificationEnvFile = config.age.secrets.<that-secret>.path;`
+
+Until that exists, each run reports the blocker and does not claim delivery.
+
+To clear a halt after fixing login by hand:
+
+```bash
+sudo touch /var/lib/ib-gateway-session/operator-clear
+sudo systemctl start ib-gateway-session
+```
+
+Read-only status (no env dump, no raw logs):
+
+```bash
+systemctl status ib-gateway-session.timer
+journalctl -u ib-gateway-session -n 20 --no-pager
+# expect api4002 vs relay4004 in the JSON summary; never cat agenix or docker inspect
+ss -ltn | grep 4002   # host bind only; supervisor measures internal 4002
+```
+
 ## Park again
 
 Restore `profiles = [ "ib-gateway" ];`, comment out the password volume/env,
