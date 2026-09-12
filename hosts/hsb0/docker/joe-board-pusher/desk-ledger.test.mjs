@@ -88,6 +88,7 @@ function fixture() {
     pos: 1,
     marketPrice: 11,
     observedAt: "2026-09-11T14:59:59Z",
+    markObservedAt: "2026-09-11T14:59:59Z",
   }];
   const positions = [
     { account: ACCOUNT, contract: contract("ACME", 101), symbol: "ACME", pos: 1 },

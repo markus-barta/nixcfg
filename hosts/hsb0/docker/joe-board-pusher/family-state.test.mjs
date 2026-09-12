@@ -226,7 +226,7 @@ function emitFx(api, currency, value, requestId = fxRequestId(api)) {
 function book(observedAt = "2026-09-10T12:00:01Z") {
   return {
     summary: { NetLiquidation: { account: ACCOUNT, value: "10000", currency: "EUR" } },
-    portfolio: [{ contract: contract(), pos: 1, marketPrice: 11, observedAt }],
+    portfolio: [{ contract: contract(), pos: 1, marketPrice: 11, observedAt, markObservedAt: observedAt }],
     positionsCoverage: { status: "complete", rows: [{ contract: contract(), pos: 1, observedAt }] },
   };
 }

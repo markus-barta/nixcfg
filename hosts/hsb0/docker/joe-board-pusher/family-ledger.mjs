@@ -523,8 +523,10 @@ export function calculateFamily({
       const quote = portfolioByContract.get(state.contract.key);
       if (!quote) fail("missing portfolio mark for open family lot");
       const mark = positiveNumber(quote.marketPrice, "portfolio marketPrice");
-      const updatedAt = quote.observedAt;
-      const markEpoch = parseIsoInstant(updatedAt, "portfolio observedAt");
+      // Generic portfolio callbacks can carry account/P&L changes without a
+      // new price. Only the explicit valid-price clock proves mark freshness.
+      const updatedAt = quote.markObservedAt;
+      const markEpoch = parseIsoInstant(updatedAt, "portfolio markObservedAt");
       if (markEpoch < latestFillAt.get(state.contract.key)) {
         fail("portfolio mark predates the latest execution");
       }
