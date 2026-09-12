@@ -123,24 +123,48 @@ that phase is kept for the current container generation (container ID + PID 1
 log tails are only relay spam. A new init startticks or container ID is a real
 restart; pusher health requires a publish after that exact start epoch.
 
-### Alert activation (not live — AC paging unmet)
+### Unrecovered-session notifications (HOSTD-59)
 
-Amy paging within 5–15 min is the ticket goal. `main` constructs a fleet-alerts
-shoutrrr sender (`WATCHTOWER_NOTIFICATION_URL` via
-`engine.shoutrrr_telegram_sender`) **only** when that env file is declared.
-hsb0 currently has **no** such secret (csb1-watchtower-env / hsb1-tailnet-watch-env
-are other hosts). OpenClaw is parked, so agent-bus is not a live receiver.
+The declared destination is managed email plus Amy's existing Grok chat. The
+`email-agent-bus` adapter uses the existing `docker-smtp-1` relay for mail and
+Paimos project17's `grok_bot:amy` receiver for chat. It does not start the parked
+OpenClaw container or copy Amy's webhook capability or secret out of Paimos.
+The message identifies the automatic paper monitor and asks Amy to SendToUser
+only; it never requests a trade, restart, or account change.
 
-Exact configuration still needed (do not invent the URL):
+`hsb0-gateway-notify-config.age` contains destination metadata. Chat requires a
+dedicated PAI-1018 machine-notifier key bound to project 17, a dedicated sender,
+`grok_bot:amy`, and target `4f73e08c-f98d-4dfd-a86c-6a9393f05db4` version 1.
+The old `hsb0-ppm-api-key` is not an enrollment: its observed HTTP 401 remains an
+authentication failure. Before activation, deploy PAI-1018, enroll the dedicated
+key through its session-only administrator endpoint, store it as a separate
+managed credential, and point `alert.paimosApiKeyFile` at that credential in the
+reviewed host configuration. Until then `paimosApiKeyFile = null` keeps chat
+unavailable without blocking email. Do not replace a shared key or copy a personal key.
+systemd `LoadCredential` supplies private copies; no destination or API key enters
+the Nix store, command logs, or alert-state files. No existing secret is rekeyed.
 
-1. New agenix secret decryptable by Markus + hsb0 whose body is
-   `WATCHTOWER_NOTIFICATION_URL=` plus the same shoutrrr form already used by
-   fleet-alerts on csb1/hsb1.
-2. `nixcfg.ibGatewaySession.alert.enable = true;`
-3. `alert.transport = "shoutrrr";`
-4. `alert.notificationEnvFile = config.age.secrets.<that-secret>.path;`
+The adapter sends text only to `/api/machine-notifier/messages` with a stable
+event idempotency key. Paimos derives sender, recipient and delivery level from
+the credential; the adapter supplies no attribution headers. It reads only
+`/api/machine-notifier/messages/{message_id}/receipt`, then checks the message,
+project, address, simple delivery level and exact target generation. There is no
+fallback to general message APIs or administrator delivery listings.
 
-Until that exists, each run reports the blocker and does not claim delivery.
+The five-minute timer waits for at least ten minutes of sustained failure
+(and ten minutes after an attempted restart), then sends on the next eligible
+observation: normally 10–15 minutes before notification. Email and chat each
+have independent durable delivery state. Successful delivery is announced once
+per outage; failed channels retry at most once every five minutes without
+resending a successful sibling. Unknown probes and restart grace do not clear
+an outage. Only fresh, confirmed paper-Gateway readiness sends a recovery notice.
+
+Mail acceptance proves the managed relay queued it. Paimos message acceptance
+proves a durable bus message; the corresponding delivery must reach
+`handed_off`, and Amy's user-visible message is separate evidence. A controlled
+alert/recovery test must retain both message IDs and the observed delivery
+results; neither HTTP200 nor SMTP queue acceptance alone proves inbox/chat display.
+Do not disturb the actual Gateway to test notification delivery.
 
 To clear a halt after fixing login by hand:
 

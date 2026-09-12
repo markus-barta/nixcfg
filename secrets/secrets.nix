@@ -508,6 +508,7 @@ in
   # PPM (pm.barta.cm) API key — shared by Merlin + Nimue for personal PM access.
   # Format: bare token (starts with `paimos_`).
   # Edit: agenix -e secrets/hsb0-ppm-api-key.age
+  "hsb0-gateway-notify-config.age".publicKeys = markus ++ hsb0;
   "hsb0-ppm-api-key.age".publicKeys = markus ++ hsb0;
 
   # IB Gateway paper password (raw password only for TWS_PASSWORD_FILE).
