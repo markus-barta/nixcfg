@@ -53,7 +53,7 @@ in
       paimosApiKeyFile = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         default = null;
-        description = "Existing hsb0 PPM API key; systemd supplies an owner-only credential copy. Amy webhook secrets stay in Paimos.";
+        description = "Dedicated PAI-1018 machine-notifier key bound to the declared chat target; null leaves chat unavailable while email can still deliver. General or personal PPM keys are not supported.";
       };
       notificationEnvFile = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
@@ -72,8 +72,8 @@ in
       {
         assertion =
           !(cfg.alert.enable && cfg.alert.transport == "email-agent-bus")
-          || (cfg.alert.destinationFile != null && cfg.alert.paimosApiKeyFile != null);
-        message = "ibGatewaySession email-agent-bus requires managed destinations and the existing PPM API credential";
+          || cfg.alert.destinationFile != null;
+        message = "ibGatewaySession email-agent-bus requires managed destinations";
       }
       {
         assertion = stack.enable;
@@ -94,10 +94,12 @@ in
       wants = [ "docker.service" ];
       serviceConfig = {
         Type = "oneshot";
-        LoadCredential = lib.optionals (cfg.alert.enable && cfg.alert.transport == "email-agent-bus") [
-          "destinations.json:${toString cfg.alert.destinationFile}"
-          "ppm-api-key:${toString cfg.alert.paimosApiKeyFile}"
-        ];
+        LoadCredential = lib.optionals (cfg.alert.enable && cfg.alert.transport == "email-agent-bus") (
+          [ "destinations.json:${toString cfg.alert.destinationFile}" ]
+          ++ lib.optional (
+            cfg.alert.paimosApiKeyFile != null
+          ) "ppm-api-key:${toString cfg.alert.paimosApiKeyFile}"
+        );
         ExecStart = "${pkgs.python3}/bin/python3 ${supervisor}/supervisor.py";
         StateDirectory = "ib-gateway-session";
         StateDirectoryMode = "0700";

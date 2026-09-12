@@ -132,10 +132,24 @@ OpenClaw container or copy Amy's webhook capability or secret out of Paimos.
 The message identifies the automatic paper monitor and asks Amy to SendToUser
 only; it never requests a trade, restart, or account change.
 
-`hsb0-gateway-notify-config.age` contains destination metadata. The existing
-`hsb0-ppm-api-key` supplies Paimos authentication. systemd `LoadCredential`
-provides private copies to this service; no destination or API key enters the
-Nix store, command logs, or alert-state files. No existing secret is rekeyed.
+`hsb0-gateway-notify-config.age` contains destination metadata. Chat requires a
+dedicated PAI-1018 machine-notifier key bound to project 17, a dedicated sender,
+`grok_bot:amy`, and target `4f73e08c-f98d-4dfd-a86c-6a9393f05db4` version 1.
+The old `hsb0-ppm-api-key` is not an enrollment: its observed HTTP 401 remains an
+authentication failure. Before activation, deploy PAI-1018, enroll the dedicated
+key through its session-only administrator endpoint, store it as a separate
+managed credential, and point `alert.paimosApiKeyFile` at that credential in the
+reviewed host configuration. Until then `paimosApiKeyFile = null` keeps chat
+unavailable without blocking email. Do not replace a shared key or copy a personal key.
+systemd `LoadCredential` supplies private copies; no destination or API key enters
+the Nix store, command logs, or alert-state files. No existing secret is rekeyed.
+
+The adapter sends text only to `/api/machine-notifier/messages` with a stable
+event idempotency key. Paimos derives sender, recipient and delivery level from
+the credential; the adapter supplies no attribution headers. It reads only
+`/api/machine-notifier/messages/{message_id}/receipt`, then checks the message,
+project, address, simple delivery level and exact target generation. There is no
+fallback to general message APIs or administrator delivery listings.
 
 The five-minute timer waits for at least ten minutes of sustained failure
 (and ten minutes after an attempted restart), then sends on the next eligible

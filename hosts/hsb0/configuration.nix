@@ -988,7 +988,9 @@ in
       enable = true;
       transport = "email-agent-bus";
       destinationFile = config.age.secrets.hsb0-gateway-notify-config.path;
-      paimosApiKeyFile = config.age.secrets.hsb0-ppm-api-key.path;
+      # PAI-1018 enrollment is pending. Never mount the shared PPM key into
+      # this notifier; email remains independent while chat reports unavailable.
+      paimosApiKeyFile = null;
     };
   };
 
