@@ -419,7 +419,7 @@ test("official complete prior-day receipt plus current-day cycle restores full a
   assert.equal(current.adapter.blockedReason, null);
 });
 
-test("all-desk projection receives the verified sidecar and private fresh FX observations", () => {
+test("all-desk projection clocks advancing execution coverage without refreshing mark or FX times", () => {
   const shared = memoryStore();
   const beforeMidnight = setup({ store: shared, at: "2026-09-11T03:59:00Z" });
   complete(connect(beforeMidnight), []);
@@ -433,6 +433,9 @@ test("all-desk projection receives the verified sidecar and private fresh FX obs
   complete(api, []);
   emitFx(api, "EUR", 1);
   emitFx(api, "USD", 0.8);
+  current.setNow("2026-09-11T04:01:02Z");
+  assert.equal(current.adapter.pollNow(), true);
+  complete(api, []);
   let received = null;
   const result = current.adapter.projectDeskEquities(book("2026-09-11T04:01:01Z"), {
     policy: { id: "synthetic-policy" },
@@ -442,6 +445,7 @@ test("all-desk projection receives the verified sidecar and private fresh FX obs
     },
   });
   assert.equal(result.ok, true);
+  assert.equal(result.sourceObservedAt, "2026-09-11T04:01:02.000Z");
   assert.equal(received.jResult.ok, true);
   assert.equal(received.ledgerState.requiresVerifiedHistory, true);
   assert.deepEqual(received.verifiedHistoryState, history);
@@ -450,6 +454,9 @@ test("all-desk projection receives the verified sidecar and private fresh FX obs
     EUR: "2026-09-11T04:01:00.000Z",
     USD: "2026-09-11T04:01:00.000Z",
   });
+  assert.equal(received.ledgerState.coverageThrough, "2026-09-11T04:01:02.000Z");
+  assert.equal(received.observedAt, "2026-09-11T04:01:02.000Z");
+  assert.equal(received.portfolio[0].observedAt, "2026-09-11T04:01:01Z");
   assert.deepEqual(received.policy, { id: "synthetic-policy" });
 });
 

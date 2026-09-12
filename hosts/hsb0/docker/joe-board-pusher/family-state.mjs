@@ -1143,7 +1143,11 @@ export function createFamilySessionAdapter({
         },
         account: targetAccount,
         policy,
-        observedAt: maxIso([family.observedAt, ...Object.values(rateObservedAt)]),
+        // A complete execution cycle is evidence used by the all-desk vector
+        // even when it discovers no new fills. Keep that actual observation
+        // time in the vector clock; mark/FX freshness remains independently
+        // bounded by their original timestamps in calculateDeskEquities.
+        observedAt: maxIso([state.coverageThrough, family.observedAt, ...Object.values(rateObservedAt)]),
         jResult: family,
       });
     } catch (error) {
