@@ -20,6 +20,10 @@ let
   # environment and this host's module wiring cannot disagree about whether
   # Flow is live. tests/T71 asserts that agreement.
   pharosFlowHost = import ./pharos-flow-host.nix;
+  # NIX-481 — the one reviewed source of truth for the Janus Flow host.
+  # Compose imports the same value-free file; tests/T76 asserts the inactive
+  # no-op and the active config/env/mount agreement.
+  janusFlowHost = import ./janus-flow-host.nix;
   # OPS-127: the runtime compose file is the closure's rendered spec (the yml is
   # retired). /etc/compose/csb1/... is the environment.etc symlink to it.
   # Every -p csb1 compose invocation serializes on the composeStack lock
@@ -210,6 +214,7 @@ in
     ../../modules/pharos-paimos-delivery # NIX-381 / PHAROS-206 — Paimos owner adapter
     ../../modules/janus-paimos-dependency-reporter # NIX-381 / JANUS-441 — dependency reporter
     ../../modules/pharos-flow-host # NIX-442 / PHAROS-257 — opt-in Flow host config
+    ../../modules/janus-flow-host # NIX-481 / JANUS-458 — opt-in Flow host config
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
 
     # INSPR-73 (2026-05-04): system-side ssh-authorized — see the
@@ -449,6 +454,29 @@ in
     # 🔴 No live binding. A first Paimos project is bound only after the
     # operator records real project_id / host allowlist / operator_refs.
     bindings = [ ];
+  };
+
+  # ==========================================================================
+  # NIX-481 — Janus Flow host (JANUS-458)
+  # ==========================================================================
+  # Lands inert. Janus validates a configured document during startup even
+  # when its `enabled` field is false, so Compose must omit the env and mounts
+  # entirely until a real binding and dedicated API key pass the runbook gate.
+  inspr.janusFlowHost = {
+    enable = true;
+    activate = janusFlowHost.active;
+    inherit (janusFlowHost)
+      paimosOrigin
+      paimosBrowserUrl
+      hostId
+      instanceLabel
+      configFile
+      apiKeyFile
+      bindings
+      ;
+    # The deployed Go image runs as the named janus account, numeric 100:101.
+    containerUid = 100;
+    containerGid = 101;
   };
 
   inspr.janusPaimosDependencyReporter = {
