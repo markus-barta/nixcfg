@@ -122,12 +122,16 @@ start-of-day virtual-equity baseline exists. The whole-account DailyPnL includes
 KEEP and is therefore not used. A first observation after startup is never treated
 as the day baseline.
 
-`pnlSources.open` also remains `unavailable`, with every desk and total OPEN value
-`null`. The current TWS `updatePortfolio` callback supplies `unrealizedPNL` but no
-currency field for that value; a EUR `NetLiquidation` row proves the account base
-currency, not the callback's units. Publishing needs a source that explicitly
-identifies EUR/base-currency unrealized P&L, plus complete desk ownership that can
-exclude KEEP without assigning a shared or netted broker position twice.
+`pnlSources.open` is `available` with method `owned-lots-current-mark-fx` only when
+the complete J-family ledger reconciles every non-KEEP broker position, no foreign
+non-KEEP quantity remains, every excluded position is exact configured KEEP, and
+all current J marks and explicit quote-to-EUR FX rates are fresh. J OPEN is the
+per-lot unrealized result in EUR; Joe and Joel are exactly zero only under that
+flat-ownership proof. Any missing or residual ownership evidence makes every desk
+and total OPEN value `null`; a residual cannot be assigned between Joe and Joel
+from the account-netted position and is never allocated by assumption. The family
+adapter requires fresh explicit FX and current complete broker positions, while
+the publisher separately rejects stale or future J marks and future source times.
 
 ## BEST-AVAILABLE history sidecar
 
@@ -316,9 +320,9 @@ Joe. Broker observation times come from IB events, not the push heartbeat.
 Rows emit `currency` (uppercase contract currency when known) and
 `accountingScope` (`legacy` for grandfathered names, `stage0` otherwise).
 `mark` is emitted with a known quote currency. Position `marketValue` stays absent;
-position `openPnl` is explicitly `null` while OPEN is unavailable because the IB
-callback does not identify its currency. `dayPnl` stays `null` until a real day
-feed or exact SOD baseline exists. Push heartbeats never advance
+position `openPnl` is the owned-lot current-mark result in EUR for verified J
+positions and is explicitly `null` while OPEN is unavailable. `dayPnl` stays
+`null` until a real day feed or exact SOD baseline exists. Push heartbeats never advance
 the broker snapshot timestamp; before the first complete broker snapshot the
 publisher skips the push rather than fabricating an empty book.
 
