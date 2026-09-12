@@ -93,6 +93,29 @@ let
       ]
     else
       [ ];
+  # NIX-481 / JANUS-458 — Janus parses JANUS_FLOW_CONFIG_FILE during startup,
+  # so absent is the only safe inactive state. The private directory is bound
+  # first to preserve uid-100/mode-0700 custody, then the API key is overlaid as
+  # a distinct inode. The deployment revision makes a reviewed binding change
+  # recreate Janus so it cannot retain startup-cached authorization.
+  janusFlow = import ../janus-flow-host.nix;
+  janusFlowHostEnvironment =
+    if janusFlow.active then [ "JANUS_FLOW_CONFIG_FILE=${janusFlow.configFile}" ] else [ ];
+  janusFlowHostVolumes =
+    if janusFlow.active then
+      [
+        (privateBind (builtins.dirOf janusFlow.configFile) (builtins.dirOf janusFlow.configFile))
+        (privateBind janusFlow.hostApiKeyFile janusFlow.apiKeyFile)
+      ]
+    else
+      [ ];
+  janusFlowHostLabels =
+    if janusFlow.active then
+      [
+        "at.inspr.janus.flow-config-revision=${builtins.hashString "sha256" (builtins.toJSON janusFlow)}"
+      ]
+    else
+      [ ];
 in
 {
   name = "csb1";
@@ -682,7 +705,8 @@ in
         "JANUS_MANAGED_WEB_TRANSACTION_SOCKET=/run/janus-managed-central/transaction.sock"
         "JANUS_MANAGED_HOST_TOKEN_GENERATION_DIR=/run/pharos/beacon-token-hashes"
         "JANUS_MANAGED_HOST_ENVELOPE_OUTBOX_DIR=/var/lib/janus-managed-central/outbox"
-      ];
+      ]
+      ++ janusFlowHostEnvironment;
       env_file = [
         "/run/agenix/csb1-janus-env"
       ];
@@ -735,7 +759,8 @@ in
           };
         }
         "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro"
-      ];
+      ]
+      ++ janusFlowHostVolumes;
       networks = [
         "traefik"
       ];
@@ -748,7 +773,8 @@ in
         "traefik.http.services.janus.loadbalancer.server.port=8080"
         "traefik.docker.network=csb1_traefik"
         "traefik.http.routers.janus.middlewares=cloudflarewarp@file"
-      ];
+      ]
+      ++ janusFlowHostLabels;
     };
     # ============================================
     # Janus Rust engine — staged approved-use runtime
@@ -762,7 +788,7 @@ in
       # manifests as the smoke harness; no production secret or host SSH key is
       # mounted into the staged Rust engine. Use the smoke harness, not manual
       # project-wide compose lifecycle commands, when testing this profile.
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.33@sha256:5b14100e0601810116e210b0b9eabe6b8d1a833792d0bc29fba239641c0a3752";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.36@sha256:1b98dcb05c353a50395a25b3ebe558423023fee8c89a52ff84f9783234a941f6";
       container_name = "janus-engine-staged";
       profiles = [
         "janus-engine-staged"
