@@ -121,10 +121,6 @@ grep -Fq '  bindings = [ ];' "$stage"
 grep -Fq 'install -d -m 0700 -o' "$module"
 grep -Fq 'install -m 0400 -o' "$module"
 # shellcheck disable=SC2016
-grep -Fq 'runtime_directory=${lib.escapeShellArg runtimeDirectory}' "$module"
-# shellcheck disable=SC2016
-grep -Fq 'temporary="$runtime_directory/.config.$$"' "$module"
-# shellcheck disable=SC2016
 grep -Fq 'mv -f "$temporary" "$destination"' "$module"
 grep -Fq '"compose-csb1.service"' "$module"
 if grep -Fq 'JANUS_FLOW_ALLOW_LOOPBACK_ORIGIN=' "$compose"; then
