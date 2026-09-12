@@ -88,13 +88,22 @@ function fixture() {
     pos: 1,
     marketPrice: 11,
     observedAt: "2026-09-11T14:59:59Z",
+    markObservedAt: "2026-09-11T14:59:59Z",
   }];
   const positions = [
     { account: ACCOUNT, contract: contract("ACME", 101), symbol: "ACME", pos: 1 },
     { account: ACCOUNT, contract: contract("SXR8", 201, "EUR"), symbol: "SXR8", pos: 1401 },
     { account: ACCOUNT, contract: contract("TSLA", 202), symbol: "TSLA", pos: 1 },
   ];
-  const ledgerState = { account: ACCOUNT, periodStart: START, coverageThrough: CUTOFF, executions, commissions };
+  const ledgerState = {
+    account: ACCOUNT,
+    periodStart: START,
+    coverageThrough: CUTOFF,
+    coverageTradingDay: "2026-09-11",
+    queryExecutionIdentities: executions.map((row) => row.execution.execId).sort(),
+    executions,
+    commissions,
+  };
   const verifiedHistoryState = officialHistory(executions, commissions);
   const fx = {
     baseCurrency: "EUR",
@@ -117,6 +126,26 @@ function fixture() {
   return { ledgerState, verifiedHistoryState, portfolio, positions, fx, jResult };
 }
 
+function asynchronousHistoricalFixture() {
+  const input = fixture();
+  for (let index = 0; index < 60; index += 1) {
+    input.ledgerState.executions.push(
+      execution(`history.${index}.buy.01`, 27, "ACME", 101, { price: 10 }),
+      execution(`history.${index}.sell.01`, 27, "ACME", 101, { side: "SLD", price: 10 }),
+    );
+  }
+  input.ledgerState.commissions = input.ledgerState.executions.map((row) => commission(row.execution.execId));
+  input.ledgerState.coverageThrough = "2026-09-12T06:02:00Z";
+  input.ledgerState.coverageTradingDay = "2026-09-12";
+  input.ledgerState.queryExecutionIdentities = [];
+  input.verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions, {
+    toExclusive: "2026-09-12T04:00:00Z",
+    capturedAt: "2026-09-12T04:00:01Z",
+  });
+  input.jResult = null;
+  return input;
+}
+
 test("complete official all-account evidence produces real J/Joe/Joel EUR equity", () => {
   const input = fixture();
   const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
@@ -133,6 +162,50 @@ test("complete official all-account evidence produces real J/Joe/Joel EUR equity
   assert.deepEqual(result.sourceContract, deskOwnershipPolicyContract());
   assert.match(result.historyRevision, /^[0-9a-f]{64}$/);
   assert.match(result.sourceContract.policyHash, /^[0-9a-f]{64}$/);
+});
+
+test("official history composes with a later complete empty current-day cycle", () => {
+  const input = asynchronousHistoricalFixture();
+  assert.equal(input.ledgerState.executions.length, 123);
+  const result = calculateDeskEquities({
+    ...input,
+    account: ACCOUNT,
+    observedAt: "2026-09-12T06:02:00Z",
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.executionCoverage.throughInclusive, "2026-09-12T06:02:00.000Z");
+  assert.equal(result.sourceObservedAt, "2026-09-12T06:02:00.000Z");
+  assert.equal(Number.isFinite(result.equity.total), true);
+});
+
+test("a sidecar-lagging current-day Joe roundtrip is accepted only from the complete direct cycle", () => {
+  const input = asynchronousHistoricalFixture();
+  const before = calculateDeskEquities({
+    ...input,
+    account: ACCOUNT,
+    observedAt: "2026-09-12T06:02:00Z",
+  });
+  assert.equal(before.ok, true, before.reason);
+  const buy = execution("today.joe.buy.01", 22, "HPE", 104, {
+    price: 20,
+    time: "20260912 01:00:00 US/Eastern",
+  });
+  const sell = execution("today.joe.sell.01", 22, "HPE", 104, {
+    side: "SLD",
+    price: 19,
+    time: "20260912 01:01:00 US/Eastern",
+  });
+  input.ledgerState.executions.push(buy, sell);
+  input.ledgerState.commissions.push(commission(buy.execution.execId), commission(sell.execution.execId));
+  input.ledgerState.queryExecutionIdentities = [buy.execution.execId, sell.execution.execId];
+  const result = calculateDeskEquities({
+    ...input,
+    account: ACCOUNT,
+    observedAt: "2026-09-12T06:02:00Z",
+  });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.desks.joe.positions.length, 0);
+  assert.ok(result.desks.joe.realizedPnl < before.desks.joe.realizedPnl);
 });
 
 test("an exact-midnight candidate promotes only when no execution exists at the boundary", () => {
@@ -189,8 +262,14 @@ test("unclaimed clients, incomplete official coverage, missing fees, and changed
   const unknown = fixture();
   unknown.ledgerState.executions.push(execution("unknown.01", 99, "OTHER", 103));
   unknown.ledgerState.commissions.push(commission("unknown.01"));
+  unknown.ledgerState.queryExecutionIdentities.push("unknown.01");
+  unknown.ledgerState.queryExecutionIdentities.sort();
   unknown.verifiedHistoryState = officialHistory(unknown.ledgerState.executions, unknown.ledgerState.commissions);
   assert.match(calculateDeskEquities({ ...unknown, account: ACCOUNT, observedAt: OBSERVED }).reason, /unclaimed/);
+
+  const identity = fixture();
+  identity.ledgerState.queryExecutionIdentities.pop();
+  assert.match(calculateDeskEquities({ ...identity, account: ACCOUNT, observedAt: OBSERVED }).reason, /identities are incomplete/);
 
   const gap = fixture();
   gap.verifiedHistoryState = officialHistory(gap.ledgerState.executions, gap.ledgerState.commissions, {
@@ -200,7 +279,11 @@ test("unclaimed clients, incomplete official coverage, missing fees, and changed
 
   const fee = fixture();
   fee.ledgerState.commissions.pop();
-  assert.match(calculateDeskEquities({ ...fee, account: ACCOUNT, observedAt: OBSERVED }).reason, /missing commission/);
+  assert.match(calculateDeskEquities({ ...fee, account: ACCOUNT, observedAt: OBSERVED }).reason, /missing its commission/);
+
+  const staleDay = fixture();
+  staleDay.ledgerState.coverageTradingDay = "2026-09-10";
+  assert.match(calculateDeskEquities({ ...staleDay, account: ACCOUNT, observedAt: OBSERVED }).reason, /coverage metadata is invalid/);
 
   const keep = fixture();
   keep.positions.find((row) => row.symbol === "SXR8").pos = 1400;

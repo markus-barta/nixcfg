@@ -166,8 +166,11 @@ since-start PnL, and execution-owned OPEN PnL. This includes Joe closed roundtri
 after their positions disappear. J keeps its existing accounting and history
 metadata and must reconcile exactly with the J member of the all-desk result.
 When current marks or FX age out, the projector may retain the last durable proven
-all-desk equity vector, marks every affected desk with its original observation
-time, and derives since-start PnL only as retained equity minus €5,000. A retained
+all-desk equity vector, marks every affected desk with the oldest contributing
+economic-input time, and derives since-start PnL only as retained equity minus
+€5,000. New execution checks cannot refresh that carried-money clock. Accounting
+portfolio rows carry a separate `markObservedAt`, updated only by a valid price;
+the family calculator requires it and never substitutes a generic callback time. A retained
 vector never becomes fresh DAY or OPEN evidence. If no proven vector exists, Joe
 and Joel equity/since-start money and household totals are null; the projector does
 not fall back to a synthetic €5,000 stand or raw portfolio callback PnL. Legacy

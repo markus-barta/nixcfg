@@ -584,11 +584,12 @@ export function projectBook(book, opts = {}) {
   const deskEvidenceUnavailable = familyRuntimeEnabled && !deskEquities;
   const deskEvidenceStale = Boolean(familyRuntimeEnabled && deskEquities && !currentDeskEquities);
   const retainedDeskDetail = deskEvidenceStale
-    ? `Last verified all-desk equity retained from ${deskEquities.sourceObservedAt}; oldest input ${deskEquities.oldestSourceObservedAt}; current valuation unavailable.`
+    ? `Carried all-desk equity uses inputs as old as ${deskEquities.oldestSourceObservedAt}; current valuation unavailable.`
     : null;
   const moneyEvidence = deskEquities ? {
     status: currentDeskEquities ? "observed" : "carried",
-    observedAt: deskEquities.sourceObservedAt,
+    // A newer execution check recalculates the vector, but does not refresh its prices/FX.
+    observedAt: currentDeskEquities ? deskEquities.sourceObservedAt : deskEquities.oldestSourceObservedAt,
   } : null;
   const jPnl = deskEquities
     ? deskEquities.desks.j.totalPnl
