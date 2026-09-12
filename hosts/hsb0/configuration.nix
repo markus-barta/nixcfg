@@ -62,6 +62,7 @@ in
 {
   imports = [
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
+    ../../modules/ib-gateway-session # HOSTD-58 — paper Gateway session supervisor
     ./hardware-configuration.nix
     ./disk-config.zfs.nix
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
@@ -973,6 +974,17 @@ in
     mkdir -p /var/lib/ib-gateway/tws_settings
     chown -R 1000:1000 /var/lib/ib-gateway
   '';
+
+  # HOSTD-58: session readiness is not Docker Up. Timer classifies
+  # slowstarting/authenticating/api_ready/upstream_unavailable and may restart
+  # only ib-gateway through the compose-hsb0 lock. Alerts stay disabled until a
+  # declared WATCHTOWER_NOTIFICATION_URL env (fleet-alerts shoutrrr, same shape
+  # as csb1-watchtower-env) is agenix-wired to alert.notificationEnvFile.
+  nixcfg.ibGatewaySession = {
+    enable = true;
+    alert.enable = false;
+    alert.transport = "none";
+  };
 
   # ============================================================================
   # HostDash — static LAN service dashboard for hsb0
