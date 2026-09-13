@@ -354,6 +354,7 @@ fi
 grep -Fq 'reason=reference_missing value_returned=false' "$test_root/missing.err"
 
 cp "$claimed_reference" "$approval_input"
+chmod 0600 "$approval_input"
 if env -i \
   PATH="$test_root/bin:$(dirname "$(command -v jq)"):$(dirname "$(command -v python3)"):/usr/bin:/bin:/usr/sbin:/sbin" \
   TEST_NOW_EPOCH=1789310002 \
