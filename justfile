@@ -1610,21 +1610,22 @@ pixoo-logs:
 # the new CLI. Every Codex TUI attaches to that daemon, and a daemon left on an
 # older binary keeps serving an old model catalog — NIX-435 (2026-09-06): CLI
 # 0.153.4, daemon 0.150.1, and "gpt-6-astra requires a newer version of Codex"
-# on the newest CLI. On drift the doctor asks [y/N] before the cleanup (only a
-# typed y proceeds) and refuses outright while any interactive Codex session runs.
+# on the newest CLI. After an update, repair is deferred successfully while
+# sessions are active or stdin is non-interactive. Otherwise the doctor asks
+# [y/N]. Explicit --check and --fix remain strict about unresolved drift.
 
 # Bump AI CLIs (claude-code, codex, grok, pi) to npm latest, then run the Codex daemon doctor
 [group('ai')]
 update-ai-clis:
     @date
-    npm install --global --prefix "$HOME/.npm-global" @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
+    npm install --global --prefix "$HOME/.npm-global" --allow-scripts=@anthropic-ai/claude-code,@xai-official/grok,@google/genai,esbuild,protobufjs @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
     @echo "---"
     @claude --version 2>/dev/null || echo "claude: not installed"
     @codex  --version 2>/dev/null || echo "codex:  not installed"
     @grok   --version 2>/dev/null || echo "grok:   not installed"
     @pi     --version 2>/dev/null || echo "pi:     not installed"
     @echo "---"
-    ./scripts/codex-doctor.sh
+    ./scripts/codex-doctor.sh --after-update
 
 # `just codex-doctor --check` never prompts (exit 1 on drift); `--fix` skips the
 # question but still refuses while a Codex session runs.

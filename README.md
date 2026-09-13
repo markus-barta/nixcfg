@@ -197,6 +197,17 @@ just hsb1-switch
 
 ## Essential Commands
 
+`just update-ai-clis` updates Claude Code, Codex, Grok, and pi in `~/.npm-global`.
+It explicitly allows the known npm install scripts for these tools and their
+dependencies. Upstream deprecation warnings may still appear.
+
+If Codex needs a runtime repair, the command asks before proceeding. Active
+Codex sessions or a non-interactive terminal defer repair without failing the
+successful npm update. After closing Codex sessions, run `just codex-doctor --fix`
+from a regular terminal, then `just codex-doctor --check` to verify. The check is
+read-only and returns nonzero if drift remains; installation and repair failures
+still fail the update command.
+
 | Command         | Description                     |
 | --------------- | ------------------------------- |
 | `just check`    | Validate all configurations     |
