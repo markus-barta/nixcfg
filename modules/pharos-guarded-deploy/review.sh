@@ -45,6 +45,10 @@ esac
   printf 'ticket must be a PPM issue key\n' >&2
   exit 2
 }
+[ "${#ticket}" -le 32 ] || {
+  printf 'ticket must be a PPM issue key\n' >&2
+  exit 2
+}
 [ "$(id -u)" -eq 0 ] || {
   printf 'pharos guarded deploy requires root\n' >&2
   exit 1

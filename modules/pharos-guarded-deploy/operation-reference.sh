@@ -33,6 +33,7 @@ bootstrap:bootstrap-security-admin | bootstrap:reviewed-security-admin | bootstr
   [ "$#" -eq 3 ] || fail invocation_invalid
   source_reference=$3
   [[ "$source_reference" =~ ^[A-Z][A-Z0-9]+-[0-9]+$ ]] || fail source_reference_invalid
+  [ "${#source_reference}" -le 32 ] || fail source_reference_invalid
   workflow_dir="$REFERENCE_ROOT/incoming/role-bootstrap"
   validate_directory "$workflow_dir"
   bundle_dir="$workflow_dir/$source_reference"
@@ -49,6 +50,7 @@ action:approval | action:execute)
   host=$7
   [[ "$action" =~ ^(apply|rollback|update)$ ]] || fail action_invalid
   [[ "$ticket" =~ ^[A-Z][A-Z0-9]+-[0-9]+$ ]] || fail ticket_invalid
+  [ "${#ticket}" -le 32 ] || fail ticket_invalid
   [[ "$lease_id" =~ ^[a-z0-9][a-z0-9._-]{0,159}$ ]] || fail lease_id_invalid
   [[ "$phase" =~ ^(review|apply|resume)$ ]] || fail phase_invalid
   [[ "$host" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || fail host_invalid

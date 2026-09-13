@@ -438,9 +438,12 @@ in
         references for recorded role grants and guarded actions. The controller
         installs raw references at incoming/role-bootstrap/SOURCE/STEP.json or
         incoming/actions/LEASE/PHASE/ACTION/{approval,execute}.json beneath
-        root. Every component is bound into the authoritative lineage and each
-        nonce moves to consumed before use. When unset, recorded Janus commands
-        continue to fail closed.
+        root. Bootstrap lineage is
+        inspr397-guarded-role-bootstrap-v1|source=SOURCE|step=STEP. Action
+        lineage is inspr397-guarded-action-v1|id=LEASE|host=HOST|ticket=TICKET|
+        phase=PHASE|action=ACTION. Every component is thus bound to the signed
+        opaque operation reference, and each nonce moves to consumed before
+        use. When unset, recorded Janus commands continue to fail closed.
       '';
     };
     actionPollSeconds = lib.mkOption {
@@ -536,7 +539,10 @@ in
       {
         assertion =
           !configuredRoles
-          || builtins.match "[A-Z][A-Z0-9]+-[0-9]+" cfg.roleAuthorization.sourceReference != null;
+          || (
+            builtins.match "[A-Z][A-Z0-9]+-[0-9]+" cfg.roleAuthorization.sourceReference != null
+            && builtins.stringLength cfg.roleAuthorization.sourceReference <= 32
+          );
         message = "inspr.pharosGuardedDeploy role sourceReference must be a PPM issue key";
       }
       {
@@ -547,7 +553,8 @@ in
         assertion =
           !configuredOperationReferences
           || (
-            builtins.match "/var/lib/pharos-guarded-deploy/[A-Za-z0-9._/-]+" cfg.operationReferences.root != null
+            builtins.match "/var/lib/pharos-guarded-deploy/[A-Za-z0-9._/-]+" cfg.operationReferences.root
+            != null
             && !(lib.hasInfix ".." cfg.operationReferences.root)
             && !(lib.hasInfix "//" cfg.operationReferences.root)
             && !(lib.hasSuffix "/" cfg.operationReferences.root)

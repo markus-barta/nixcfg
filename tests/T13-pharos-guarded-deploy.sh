@@ -72,6 +72,14 @@ else
   /usr/bin/id "$@"
 fi
 EOF
+cat >"$test_root/bin/date" <<'EOF'
+#!/usr/bin/env bash
+if [ "${TEST_NOW_EPOCH:-}" ] && [ "$#" -eq 2 ] && [ "$1" = '-u' ] && [ "$2" = '+%s' ]; then
+  printf '%s\n' "$TEST_NOW_EPOCH"
+else
+  /bin/date "$@"
+fi
+EOF
 cat >"$test_root/bin/stat" <<'EOF'
 #!/usr/bin/env bash
 set -eu
@@ -155,7 +163,7 @@ case "${1:-} ${2:-}" in
 *) exit 65 ;;
 esac
 EOF
-chmod +x "$test_root/bin/id" "$test_root/bin/stat" "$test_root/bin/operation-reference" \
+chmod +x "$test_root/bin/id" "$test_root/bin/date" "$test_root/bin/stat" "$test_root/bin/operation-reference" \
   "$test_root/bin/janusd-use" "$test_root/bin/janusd-admin"
 chmod 0700 "$test_root/state"
 
@@ -324,11 +332,15 @@ PY
 
 action_lineage='inspr397-guarded-action-v1|id=lease-491|host=inspr397-target|ticket=NIX-490|phase=review|action=update'
 approval_input="$reference_root/incoming/actions/lease-491/review/update/approval.json"
-make_operation_reference "$approval_input" "$action_lineage" approve_use nce_111111111111111111111111
+# Real outputs from janusd-operation-ref-issuer 2bccc043; its retained public
+# verifier proves these signatures, and the disposable signing seed was removed.
+printf '%s' '{"schema_version":1,"domain_service":"inspr397-guarded-deployment","operation_ref":"opr_7b28e39c19b4204fa0486ee2823738a1","scope_ref":"scp_595bd0a954b7cd1564068bceae2d3be518d5a5b0","conflict_domain":"use_request","duty":"approve_use","state_revision":7,"policy_revision":"guarded-policy-v1","issued_at_unix_secs":1789310001,"expires_at_unix_secs":1789310241,"nonce_ref":"nce_ae2bf0ee7b8f54d6fdabe9e3","audience_fingerprint":"sha256:2aa4098811b85d84c04fa0cefad49f902a9b5af37b1e50bcd097e5c4af4d335e","release_digest":"sha256:0c4fe7bd5c025fd5c78e11052b4202f9c9fbcd9f263332436868c4780d3af560","signature":"770ce01fb44e14fd6f62fcbaf4ab5c1256284a85a8224aa0a2ae04adf079cb97ccdeb590846a771558127e81ae30650618ff56dc332fbab5d0f05170e4db4605"}' >"$approval_input"
+chmod 0600 "$approval_input"
 claimed_reference=$(env -i \
   PATH="$test_root/bin:$(dirname "$(command -v jq)"):$(dirname "$(command -v python3)"):/usr/bin:/bin:/usr/sbin:/sbin" \
+  TEST_NOW_EPOCH=1789310002 \
   "$rendered_reference_helper" action approval update NIX-490 lease-491 review inspr397-target)
-[ "$claimed_reference" = "$reference_root/consumed/nce_111111111111111111111111/reference.json" ]
+[ "$claimed_reference" = "$reference_root/consumed/nce_ae2bf0ee7b8f54d6fdabe9e3/reference.json" ]
 [ -f "$claimed_reference" ]
 [ ! -e "$approval_input" ]
 
@@ -341,9 +353,10 @@ if env -i \
 fi
 grep -Fq 'reason=reference_missing value_returned=false' "$test_root/missing.err"
 
-make_operation_reference "$approval_input" "$action_lineage" approve_use nce_111111111111111111111111
+cp "$claimed_reference" "$approval_input"
 if env -i \
   PATH="$test_root/bin:$(dirname "$(command -v jq)"):$(dirname "$(command -v python3)"):/usr/bin:/bin:/usr/sbin:/sbin" \
+  TEST_NOW_EPOCH=1789310002 \
   "$rendered_reference_helper" action approval update NIX-490 lease-491 review inspr397-target \
   >"$test_root/reused.out" 2>"$test_root/reused.err"; then
   echo 'consumed operation reference nonce was accepted again' >&2
@@ -396,6 +409,15 @@ grep -Fq 'reason=reference_link_invalid value_returned=false' "$test_root/link.e
 unlink "$test_root/reference-hardlink.json"
 
 execute_input="$reference_root/incoming/actions/lease-491/review/update/execute.json"
+printf '%s' '{"schema_version":1,"domain_service":"inspr397-guarded-deployment","operation_ref":"opr_7b28e39c19b4204fa0486ee2823738a1","scope_ref":"scp_595bd0a954b7cd1564068bceae2d3be518d5a5b0","conflict_domain":"use_request","duty":"execute_use","state_revision":7,"policy_revision":"guarded-policy-v1","issued_at_unix_secs":1789310001,"expires_at_unix_secs":1789310241,"nonce_ref":"nce_2ab8143e04b1eafca8f399cd","audience_fingerprint":"sha256:2aa4098811b85d84c04fa0cefad49f902a9b5af37b1e50bcd097e5c4af4d335e","release_digest":"sha256:0c4fe7bd5c025fd5c78e11052b4202f9c9fbcd9f263332436868c4780d3af560","signature":"72edbb84b54a0234a83bbe3d8c3816f019ec9e4f1d88475e06a490f0a32448789ab067ad410a78d1f8e94b44249e2d60556fed6784bf5cda2e4fae4bf89d6606"}' >"$execute_input"
+chmod 0600 "$execute_input"
+claimed_execute=$(env -i \
+  PATH="$test_root/bin:$(dirname "$(command -v jq)"):$(dirname "$(command -v python3)"):/usr/bin:/bin:/usr/sbin:/sbin" \
+  TEST_NOW_EPOCH=1789310002 \
+  "$rendered_reference_helper" action execute update NIX-490 lease-491 review inspr397-target)
+[ "$claimed_execute" = "$reference_root/consumed/nce_2ab8143e04b1eafca8f399cd/reference.json" ]
+[ -f "$claimed_execute" ]
+
 make_operation_reference "$execute_input" "$action_lineage" execute_use nce_333333333333333333333333 -1
 if env -i \
   PATH="$test_root/bin:$(dirname "$(command -v jq)"):$(dirname "$(command -v python3)"):/usr/bin:/bin:/usr/sbin:/sbin" \
