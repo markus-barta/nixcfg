@@ -248,6 +248,9 @@ jobs:
       - name: Verify the Node child-process browser preload (NIX-445)
         run: nix-shell -p python3 nodejs --run tests/T73-agent-browser-guard-preload.sh
 
+      - name: Verify safe Codex repair deferral after AI CLI updates (NIX-467)
+        run: nix-shell -p python3 nodejs just --run "python3 tests/test_codex_doctor.py -v"
+
       - name: Verify local Pi launcher and doctrine loading
         run: |
           nix-shell -p python3 --run 'python3 tests/test_pi_local.py'
