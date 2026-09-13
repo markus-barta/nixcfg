@@ -179,6 +179,9 @@ jobs:
       - name: Verify Pharos Flow host config contract (NIX-442 / PHAROS-257)
         run: tests/T71-pharos-flow-host.sh
 
+      - name: Verify Janus Flow host config contract (NIX-481 / JANUS-458)
+        run: tests/T76-janus-flow-host.sh
+
       - name: Verify declared host health thresholds (NIX-281)
         run: tests/T49-host-health-thresholds.sh
 

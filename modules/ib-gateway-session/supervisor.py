@@ -167,6 +167,8 @@ class Config:
     alert_enable: bool = False
     alert_transport: str = "none"
     notification_env: str = ""
+    notification_config: str = ""
+    notification_key_file: str = ""
     alert_blocker: str = (
         "alert adapter disabled: nixcfg.ibGatewaySession.alert.enable is false. "
         "hsb0 has no declared WATCHTOWER_NOTIFICATION_URL secret. To activate Amy "
@@ -1421,6 +1423,8 @@ def config_from_env(env: dict[str, str] | None = None) -> Config:
         alert_enable=env.get("IBGSS_ALERT_ENABLE", "0") == "1",
         alert_transport=env.get("IBGSS_ALERT_TRANSPORT", "none"),
         notification_env=env.get("IBGSS_NOTIFICATION_ENV", ""),
+        notification_config=env.get("IBGSS_NOTIFICATION_CONFIG", str(Path(env.get("CREDENTIALS_DIRECTORY", "/nonexistent")) / "destinations.json")),
+        notification_key_file=env.get("IBGSS_NOTIFICATION_KEY_FILE", str(Path(env.get("CREDENTIALS_DIRECTORY", "/nonexistent")) / "ppm-api-key")),
         alert_blocker=env.get("IBGSS_ALERT_BLOCKER", Config.alert_blocker),
     )
 
@@ -1486,6 +1490,7 @@ def run_cycle(
     restarter: Callable[[Config], int] | None = None,
     locker: Callable[[], object] | None = None,
     unlocker: Callable[[object], None] | None = None,
+    notification_senders: dict[str, engine.Sender] | None = None,
 ) -> tuple[Decision, int]:
     previous = state or SupervisorState()
     decision = decide(obs, previous, cfg)
@@ -1518,6 +1523,44 @@ def run_cycle(
             decision.persist = persist
             if outcome == "failed_after_reserve":
                 decision.notes.append("restart-failed-budget-consumed")
+
+    if cfg.alert_enable and cfg.alert_transport == "email-agent-bus":
+        from notification_delivery import declared_senders
+        from notification_state import run_notifications
+
+        # Readiness, not the absence of an alert, proves recovery. Unknown
+        # probes and post-restart grace must preserve an existing outage.
+        health = True if decision.phase == PHASE_API_READY else (
+            None if decision.phase == PHASE_UNKNOWN else False
+        )
+        outage_start = persist.unhealthy_since if persist.unhealthy_since is not None else obs.now
+        recovery_start = persist.last_restart_at if persist.last_restart_at is not None else outage_start
+        outage_age = obs.now - outage_start
+        recovery_age = obs.now - recovery_start
+        eligible = health is False and outage_age >= 600 and recovery_age >= 600
+        if persist.operator_clear_required:
+            manual = "Manual Gateway login or operator intervention is required; inspect the login session."
+        else:
+            manual = "If readiness does not return, inspect the Gateway login session; a login requirement is not yet confirmed."
+        attempt = (
+            f"Automatic recovery attempted {persist.restarts_this_outage} allowed restart(s)."
+            if persist.restarts_this_outage else
+            "Automatic recovery has not restarted the Gateway because its safety checks do not yet permit it."
+        )
+        notice = f"Paper Gateway remains unavailable. {decision.reason}. {attempt} {manual} Paper trading only."
+        delivery = run_notifications(
+            str(Path(cfg.alert_state_path).with_suffix(".channels")), obs.now,
+            health, eligible, notice,
+            notification_senders if notification_senders is not None else declared_senders(
+                cfg.notification_config, cfg.docker_bin, cfg.notification_key_file
+            ),
+        )
+        persist.last_alert_status = "undelivered" if delivery == engine.EXIT_UNDELIVERED else (
+            "cleared" if health is True else "pending-or-announced"
+        )
+        decision.persist = persist
+        save_supervisor_state(cfg.state_path, persist)
+        return decision, delivery
 
     blocker = resolve_alert_blocker(cfg)
     if blocker is None and sender is None:
