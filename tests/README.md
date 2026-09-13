@@ -84,6 +84,7 @@ Examples:
 - `T71-pharos-flow-host.sh` — csb1 Pharos Flow host config contract (NIX-442)
 - `T74-public-routing-consumer.sh` — published routing-edge pin + inactive csb1 consumer (NIX-447)
 - `T75-csb1-traefik-3713-isolated.sh` — csb1 Traefik 3.7.13 digest pin + isolated provider/plugin/redirect proof (NIX-448)
+- `T76-janus-flow-host.sh` — csb1 Janus Flow host config contract (NIX-481)
 
 ## Writing Shell Tests
 

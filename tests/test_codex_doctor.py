@@ -57,7 +57,9 @@ else
   echo '43 /standalone/codex app-server daemon run'
 fi
 ''')
-        self.stub("trash", ":")
+        self.stub("which", 'printf "%s\\n" "$TEST_BIN/codex"')
+        self.env["TEST_BIN"] = str(self.bin)
+        self.stub("trash", 'exit "${TEST_TRASH_EXIT:-0}"')
         self.stub("pgrep", "exit 1")
         self.stub("npm", '''
 printf 'npm %s\\n' "$*" >> "$TEST_CALLS"
@@ -149,6 +151,21 @@ exit "${TEST_NPM_EXIT:-0}"
         self.assertEqual(result.returncode, 1)
         self.assertIn("daemon start failed", result.stdout)
         self.assertIn("Cleanup failed", result.stdout)
+
+    def test_cache_removal_failure_stops_repair(self):
+        self.env["TEST_LIVE"] = "0"
+        self.env["TEST_TRASH_EXIT"] = "1"
+        result = self.run_command("bash", str(DOCTOR), "--fix")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("could not trash models cache", result.stdout)
+        self.assertNotIn("daemon start", self.log.read_text())
+
+    def test_refusal_does_not_print_session_prompt(self):
+        self.env["TEST_LIVE"] = "exec"
+        result = self.run_command("bash", str(DOCTOR), "--fix")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("42 codex session", result.stdout)
+        self.assertNotIn("repair app-server and codex-doctor", result.stdout)
 
     def test_session_started_before_cleanup_blocks_repair(self):
         self.env["TEST_LIVE"] = "late"

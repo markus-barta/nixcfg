@@ -157,7 +157,7 @@ live_sessions() {
       subcommand = $(executable + 1)
       if (subcommand == "app-server" || subcommand == "debug" ||
           subcommand == "--version" || subcommand == "--help") next
-      print
+      print $1, "codex session"
     }
   '; then
     echo "codex-doctor: cannot inspect live sessions; refusing cleanup" >&2
@@ -281,10 +281,18 @@ cleanup() {
 
   if [ -f "$CACHE" ]; then
     if command -v trash >/dev/null 2>&1; then
-      trash "$CACHE" && ok "models cache trashed"
+      if ! trash "$CACHE"; then
+        bad "could not trash models cache"
+        return 1
+      fi
+      ok "models cache trashed"
     else
       ts="$(date +%Y%m%dT%H%M%S)"
-      mv "$CACHE" "${TMPDIR:-/tmp}/codex-models_cache.$ts.json" && ok "models cache moved to ${TMPDIR:-/tmp}/codex-models_cache.$ts.json"
+      if ! mv "$CACHE" "${TMPDIR:-/tmp}/codex-models_cache.$ts.json"; then
+        bad "could not move models cache"
+        return 1
+      fi
+      ok "models cache moved to ${TMPDIR:-/tmp}/codex-models_cache.$ts.json"
     fi
   fi
 

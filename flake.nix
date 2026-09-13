@@ -50,11 +50,11 @@
     };
     # NIX-457: JoeDesk owns the application; HostDash owns service navigation.
     joedesk = {
-      url = "github:markus-barta/joedesk/af62be18e906e29ed97111e0eca72a8290e3b9cc";
+      url = "github:markus-barta/joedesk/46e91b7a7913da6a766d3793a453a53b14362a8c";
       flake = false;
     };
     hostdash = {
-      url = "github:markus-barta/hostdash/cd6680495e580e31e7f4a74af8ff7234e8986ac6";
+      url = "github:markus-barta/hostdash/b71356f2c9df1776c29ec565cb49389231fc8774";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     janus = {
@@ -64,7 +64,7 @@
     # NIX-381 — a SECOND, deliberately separate Janus pin.
     #
     # JANUS-441's static dependency reporter and JANUS-461's managed-completion
-    # reporter are installed by the admitted rust-engine-v0.1.35 flake. The
+    # reporter are built from reviewed rust-engine-v0.1.36 source. The
     # release container image copies eleven engine binaries, not either
     # reporter; these root-only units therefore use the separate Nix package.
     # Host producer-image rollout and explicit activation remain separate gates.
@@ -75,7 +75,7 @@
     # isolated from those consumers. Retire this input once `janus` itself
     # contains both reporters from v0.1.35 or later.
     janus-paimos-reporter = {
-      url = "github:inspr-at/janus/rust-engine-v0.1.35";
+      url = "github:inspr-at/janus/rust-engine-v0.1.36";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # Paimos — operator CLI plus the process-owning Agent Intercom daemon.
@@ -83,7 +83,7 @@
     # executable control plane just because upstream main advances. Bumps use
     # the reviewed Paimos release flow and refresh vendorHash when Go deps move.
     paimos = {
-      url = "github:inspr-at/paimos/v260910101110.0.0";
+      url = "github:inspr-at/paimos/v260913075842.0.0";
       flake = false;
     };
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
@@ -93,10 +93,10 @@
     # context flakes) provide identity-specific values; the atelier stays
     # opinionated only about mechanics. (Older docs: "Pattern β".)
     #
-    # NIX-447: pin the published routing-edge library. Rollback is the previous
-    # synchronized 73e15491 flake-lock + doctrine gitlink pair. Do not add a
-    # second routing flake input.
-    inspr-modules.url = "github:inspr-at/inspr-modules/v0.9.0";
+    # NIX-492 / INSPR-424: Calendar Versioning adoption in every managed harness.
+    # Keep this input synchronized with the doctrine gitlink. Rollback is the
+    # previous v0.9.0 / 1ee78a780ce14d78cb3447706283e10378f457c7 pair.
+    inspr-modules.url = "github:inspr-at/inspr-modules/2da0dd79d49856bacf24f03efeb5e56495b534bf";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 

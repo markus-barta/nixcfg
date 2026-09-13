@@ -2,11 +2,23 @@
 set -Eeuo pipefail
 
 readonly HOST='@HOST@'
-readonly JANUSD='@JANUSD@'
-readonly STATE_DIR='/var/lib/pharos-guarded-deploy'
-readonly PROFILE_MANIFEST='/etc/janus/pharos-deploy/managed-commands.toml'
-readonly SECRET_MANIFEST='/etc/janus/pharos-deploy/secretspec.toml'
-readonly METADATA='/etc/janus/pharos-deploy/metadata.toml'
+readonly JANUSD_USE='@JANUSD_USE@'
+readonly JANUSD_ADMIN='@JANUSD_ADMIN@'
+readonly SCOPE_ORGANIZATION='@SCOPE_ORGANIZATION@'
+readonly SCOPE_PROJECT='@SCOPE_PROJECT@'
+readonly SCOPE_REPOSITORY='@SCOPE_REPOSITORY@'
+readonly SCOPE_ENVIRONMENT='@SCOPE_ENVIRONMENT@'
+readonly ROLE_BINDINGS_ROOT='@ROLE_BINDINGS_ROOT@'
+readonly ROLE_AUDIT_FILE='@ROLE_AUDIT_FILE@'
+readonly ROLE_POLICY_FILE='@ROLE_POLICY_FILE@'
+readonly USE_PRINCIPAL='@USE_PRINCIPAL@'
+readonly ADMIN_PRINCIPAL='@ADMIN_PRINCIPAL@'
+readonly OPERATION_REFERENCE_HELPER='@OPERATION_REFERENCE_HELPER@'
+readonly ACTION_REQUEST_FILE='@ACTION_REQUEST_FILE@'
+readonly STATE_DIR='@STATE_DIR@'
+readonly PROFILE_MANIFEST='@PROFILE_MANIFEST@'
+readonly SECRET_MANIFEST='@SECRET_MANIFEST@'
+readonly METADATA='@METADATA@'
 
 action=${1:-}
 ticket=${2:-}
@@ -33,10 +45,15 @@ esac
   printf 'ticket must be a PPM issue key\n' >&2
   exit 2
 }
+[ "${#ticket}" -le 32 ] || {
+  printf 'ticket must be a PPM issue key\n' >&2
+  exit 2
+}
 [ "$(id -u)" -eq 0 ] || {
   printf 'pharos guarded deploy requires root\n' >&2
   exit 1
 }
+unset JANUS_RUNTIME_OPERATION_REFERENCE_FILE
 
 export JANUS_RUN_PROFILE_MANIFEST="$PROFILE_MANIFEST"
 export JANUS_MANAGED_PROFILE_MANIFEST="$PROFILE_MANIFEST"
@@ -51,6 +68,43 @@ export JANUS_AGE_PROFILE="$HOST"
 export JANUS_AGE_STORE_DIR='/var/lib/janus/secrets'
 export JANUS_AGE_IDENTITY_FILE='/etc/ssh/ssh_host_ed25519_key'
 export JANUS_AGE_RECIPIENTS_FILE='/etc/ssh/ssh_host_ed25519_key.pub'
+
+configure_janus_plane() {
+  local plane=$1
+  if [ -n "$SCOPE_ORGANIZATION" ]; then
+    export JANUS_SCOPE_ORGANIZATION="$SCOPE_ORGANIZATION"
+    export JANUS_SCOPE_PROJECT="$SCOPE_PROJECT"
+    export JANUS_SCOPE_REPOSITORY="$SCOPE_REPOSITORY"
+    export JANUS_SCOPE_ENVIRONMENT="$SCOPE_ENVIRONMENT"
+  else
+    unset JANUS_SCOPE_ORGANIZATION JANUS_SCOPE_PROJECT JANUS_SCOPE_REPOSITORY JANUS_SCOPE_ENVIRONMENT
+  fi
+
+  if [ -n "$ROLE_BINDINGS_ROOT" ]; then
+    export JANUS_ROLE_AUTHORIZATION_MODE='enforced'
+    export JANUS_ROLE_BINDINGS_ROOT="$ROLE_BINDINGS_ROOT"
+    export JANUS_ROLE_AUDIT_FILE="$ROLE_AUDIT_FILE"
+    if [ -n "$ROLE_POLICY_FILE" ]; then
+      export JANUS_ROLE_POLICY_FILE="$ROLE_POLICY_FILE"
+    else
+      unset JANUS_ROLE_POLICY_FILE
+    fi
+    case "$plane" in
+    use)
+      export JANUS_RELEASE_EXECUTOR="$USE_PRINCIPAL"
+      unset JANUS_ADMIN_EXECUTOR
+      ;;
+    admin)
+      export JANUS_RELEASE_EXECUTOR="$ADMIN_PRINCIPAL"
+      unset JANUS_ADMIN_EXECUTOR
+      ;;
+    *) return 2 ;;
+    esac
+  else
+    unset JANUS_ROLE_AUTHORIZATION_MODE JANUS_ROLE_BINDINGS_ROOT JANUS_ROLE_AUDIT_FILE
+    unset JANUS_ROLE_POLICY_FILE JANUS_RELEASE_EXECUTOR JANUS_ADMIN_EXECUTOR
+  fi
+}
 
 tmp=$(mktemp -d "$STATE_DIR/.review.XXXXXX")
 chmod 0700 "$tmp"
@@ -98,22 +152,46 @@ on_error() {
 }
 trap on_error ERR
 
-request_file="$STATE_DIR/requests/$(date -u +%Y%m%dT%H%M%SZ)-$action.json"
+[ -d "$STATE_DIR" ] && [ ! -L "$STATE_DIR" ]
+[ "$(stat -c '%u:%g' "$STATE_DIR")" = '0:0' ]
+[ "$(stat -c '%a' "$STATE_DIR")" = '700' ]
+[ -f "$ACTION_REQUEST_FILE" ] && [ ! -L "$ACTION_REQUEST_FILE" ]
+[ "$(stat -c '%u:%g' "$ACTION_REQUEST_FILE")" = '0:0' ]
+[ "$(stat -c '%a' "$ACTION_REQUEST_FILE")" = '600' ]
+[ "$(stat -c '%h' "$ACTION_REQUEST_FILE")" = '1' ]
+jq -e --arg host "$HOST" --arg ticket "$ticket" '
+  .schema == "inspr.pharos.host-action-lease.v1"
+  and .version == 1
+  and .host == $host
+  and .ticket == $ticket
+  and (.phase == "review" or .phase == "apply" or .phase == "resume")
+  and (.id | type == "string" and test("^[a-z0-9][a-z0-9._-]{0,159}$"))
+  and (keys | sort == ["host", "id", "phase", "schema", "ticket", "version"])
+' "$ACTION_REQUEST_FILE" >/dev/null
+lease_id=$(jq -er '.id' "$ACTION_REQUEST_FILE")
+phase=$(jq -er '.phase' "$ACTION_REQUEST_FILE")
+
+audit_request_file="$STATE_DIR/requests/$(date -u +%Y%m%dT%H%M%SZ)-$action.json"
 jq -n \
   --arg host "$HOST" \
   --arg action "$action" \
   --arg ticket "$ticket" \
   --arg requested_at "$(date -u +%FT%TZ)" \
   '{schema:"inspr.pharos.guarded-deploy-request.v1",host:$host,action:$action,ticket:$ticket,requested_at:$requested_at,status:"requested",value_returned:false}' \
-  >"$request_file"
-chmod 0600 "$request_file"
+  >"$audit_request_file"
+chmod 0600 "$audit_request_file"
 
 stage='preflight'
-"$JANUSD" run preflight --profile "$profile" -- >"$tmp/preflight.out" 2>"$tmp/preflight.err"
+configure_janus_plane use
+"$JANUSD_USE" run preflight --profile "$profile" -- >"$tmp/preflight.out" 2>"$tmp/preflight.err"
 grep -q 'reason_code=ok value_returned=false' "$tmp/preflight.out"
 
 stage='approval'
-"$JANUSD" approve issue \
+configure_janus_plane admin
+approval_reference=$(
+  "$OPERATION_REFERENCE_HELPER" action approval "$action" "$ticket" "$lease_id" "$phase" "$HOST"
+)
+JANUS_RUNTIME_OPERATION_REFERENCE_FILE="$approval_reference" "$JANUSD_ADMIN" approve issue \
   --secret-ref "$secret_ref" \
   --profile "$profile" \
   --purpose "Guarded Pharos $action for $HOST" \
@@ -125,7 +203,8 @@ approval_id=$(sed -n 's/.*approval_id=\([^ ]*\).*/\1/p' "$tmp/approval.out" | he
 [[ "$approval_id" = appr_* ]]
 
 stage='permit'
-"$JANUSD" approve permit \
+configure_janus_plane admin
+"$JANUSD_ADMIN" approve permit \
   --approval "$approval_id" \
   --permit-ttl-seconds 240 \
   --revoke-approval \
@@ -134,8 +213,13 @@ permit_id=$(sed -n 's/.*permit_id=\([^ ]*\).*/\1/p' "$tmp/permit.out" | head -n1
 [[ "$permit_id" = use_* ]]
 
 stage='managed_run'
+configure_janus_plane use
+execute_reference=$(
+  "$OPERATION_REFERENCE_HELPER" action execute "$action" "$ticket" "$lease_id" "$phase" "$HOST"
+)
 run_status=0
-if "$JANUSD" run --profile "$profile" --permit "$permit_id" -- \
+if JANUS_RUNTIME_OPERATION_REFERENCE_FILE="$execute_reference" \
+  "$JANUSD_USE" run --profile "$profile" --permit "$permit_id" -- \
   >"$tmp/run.out" 2>"$tmp/run.err"; then
   run_status=0
 else
@@ -144,7 +228,7 @@ fi
 
 if [ "$run_status" -ne 0 ] ||
   ! grep -Eq \
-    '^janusd run completed exit_success=true exit_code=Some\(0\) reason_code=ok value_returned=false$' \
+    '^janusd-use run completed exit_success=true exit_code=Some\(0\) reason_code=ok value_returned=false$' \
     "$tmp/run.err"; then
   runner_failure_gate='managed_run'
   runner_line=$(grep -E \
