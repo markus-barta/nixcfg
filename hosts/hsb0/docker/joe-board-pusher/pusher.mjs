@@ -1,21 +1,70 @@
 #!/usr/bin/env node
 /**
- * Read-only paper IB client (clientId 50) → household v1 → HTTPS POST inbox.
+ * Read-only paper IB client (clientId 92) → household v1 → HTTPS POST inbox.
  * Never connects to live 4001. Never places orders.
  */
 import fs from "node:fs";
 import net from "node:net";
 import { IBApi, EventName } from "@stoqey/ib";
+import {
+  EXECUTION_CAPTURE_SCHEMA,
+  reconcileExecutionCapture,
+} from "./execution-reconciliation.mjs";
+import {
+  captureFromFamilyLedgerFile,
+  capturesFromOfficialWindowEvidence,
+  normalizeEconomicCommission,
+  normalizeEconomicExecution,
+} from "./execution-history.mjs";
+import { calculateFamily } from "./family-ledger.mjs";
+import {
+  CURRENT_DESK_OWNERSHIP_POLICY,
+  DESK_HISTORY_REVISION_METHOD,
+  buildDeskDayBoundaryEvidence,
+  calculateDeskEquities,
+  deskOwnershipPolicyContract,
+} from "./desk-ledger.mjs";
+import {
+  createDeskDayPnlProducer,
+  createFileDayBaselineStore,
+} from "./day-baseline.mjs";
+import {
+  createFileFamilyHistoryStore,
+  projectBestAvailableHistory,
+} from "./family-history.mjs";
+import {
+  createFamilyHistorySessionAdapter,
+  createOfficialHistoryRefresher,
+} from "./family-history-session.mjs";
+import { readOfficialExecutionWindow } from "./official-window-reader.mjs";
+import {
+  FAMILY_BASELINE_PERIOD_START,
+  createFamilySessionAdapter,
+  createFileFamilyStateStore,
+} from "./family-state.mjs";
 import { projectBook } from "./project.mjs";
+import { createConnectionSupervisor } from "./pusher-recovery.mjs";
+import { createBrokerSessionAdapter } from "./pusher-state.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
 const LIVE_PORT = 4001;
-const CLIENT_ID = 50;
+const CLIENT_ID = 92;
+const OFFICIAL_HISTORY_CLIENT_ID = 94;
 const ACCOUNT = "DUR970597";
+const FAMILY_CLIENT_IDS = [27, 28, 29, 50, 51, 52, 53, 54, 55, 56];
+const FAMILY_STATE_PATH = "/var/lib/joe-board-pusher/family-ledger.json";
+const FAMILY_HISTORY_PATH = "/var/lib/joe-board-pusher/family-history.json";
+const DAY_BASELINE_PATH = "/var/lib/joe-board-pusher/day-baseline.json";
 const INBOX_URL = "https://cs0.barta.cm/joe/inbox";
 const TOKEN_FILE = "/run/secrets/joe-board-push-token";
-const RETRY_MS = 5000;
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 300_000;
+const CONNECT_TIMEOUT_MS = 15_000;
+const COMPLETE_SNAPSHOT_TIMEOUT_MS = 60_000;
+const HEALTH_INTERVAL_MS = 60_000;
+const HEALTH_TIMEOUT_MS = 15_000;
+const UPSTREAM_LOSS_DEADLINE_MS = 300_000;
 
 function parseIntervalSec() {
   const raw = process.env.JOE_PUSH_INTERVAL_SEC;
@@ -25,58 +74,210 @@ function parseIntervalSec() {
 }
 
 const INTERVAL_SEC = parseIntervalSec();
+let connectionSupervisor = null;
 
-let ib = null;
-let connecting = false;
-let connected = false;
-const state = {
-  accounts: null,
-  positions: [],
-  openOrders: [],
-  summary: {},
-  portfolio: [],
-  lastError: null,
-  ts: null,
-};
+const adapter = createBrokerSessionAdapter({
+  targetAccount: ACCOUNT,
+  eventNames: EventName,
+  hooks: {
+    onConnected({ api }) {
+      connectionSupervisor?.socketConnected(api);
+      console.log(JSON.stringify({ event: "local_socket_connected", host: HOST, port: PORT, clientId: CLIENT_ID }));
+    },
+    onDisconnected() {
+      console.warn(JSON.stringify({ event: "local_socket_disconnected" }));
+    },
+    onError(_detail, code, message) {
+      if (code && Number(code) >= 2000) return;
+      console.warn(JSON.stringify({ event: "ib_error", code, message: String(message).slice(0, 160) }));
+    },
+    onBrokerNotice({ route, code, state, action }) {
+      console.warn(JSON.stringify({ event: "ib_notice", route, code, state, action }));
+    },
+    onSocketActivity({ api }) {
+      connectionSupervisor?.socketActivity(api);
+    },
+    onStableData({ api, observedAt }) {
+      connectionSupervisor?.stable(api);
+      console.log(JSON.stringify({ event: "broker_snapshot_complete", observedAt }));
+    },
+    onReconnectNeeded({ api, reason }) {
+      familyAdapter.retire(`broker socket unavailable: ${reason}`);
+      familyHistoryAdapter.retire(`broker socket unavailable: ${reason}`);
+      connectionSupervisor?.reconnect(api, reason);
+    },
+    onUpstreamUnavailable({ api, reason }) {
+      connectionSupervisor?.upstreamUnavailable(api);
+      familyAdapter.upstreamUnavailable(reason);
+      familyHistoryAdapter.upstreamUnavailable(reason);
+    },
+    onResyncNeeded({ reason }) {
+      console.warn(JSON.stringify({ event: "ib_resync", reason }));
+    },
+  },
+});
+
+const familyStateStore = createFileFamilyStateStore(FAMILY_STATE_PATH);
+
+const familyAdapter = createFamilySessionAdapter({
+  targetAccount: ACCOUNT,
+  familyClientIds: FAMILY_CLIENT_IDS,
+  excludedSymbols: ["SXR8", "TSLA"],
+  periodStart: FAMILY_BASELINE_PERIOD_START,
+  calculateFamily,
+  eventNames: EventName,
+  store: familyStateStore,
+  pollIntervalMs: 30_000,
+  requestTimeoutMs: 20_000,
+  fxFreshMs: 300_000,
+  requestManagedAccounts: false,
+  getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
+  hooks: {
+    onUnavailable(reason) {
+      console.warn(JSON.stringify({ event: "family_unavailable", reason }));
+    },
+    onLedgerUpdated({ changed, observedAt }) {
+      if (changed) console.log(JSON.stringify({ event: "family_ledger_updated", observedAt }));
+    },
+  },
+});
+
+const familyHistoryAdapter = createFamilyHistorySessionAdapter({
+  targetAccount: ACCOUNT,
+  brokerClientId: CLIENT_ID,
+  familyClientIds: FAMILY_CLIENT_IDS,
+  excludedSymbols: ["SXR8", "TSLA"],
+  historyStart: FAMILY_BASELINE_PERIOD_START,
+  captureSchema: EXECUTION_CAPTURE_SCHEMA,
+  captureSourceKind: "paper-api",
+  normalizeExecutionRow: normalizeEconomicExecution,
+  normalizeCommissionReport: normalizeEconomicCommission,
+  reconcileCapture: reconcileExecutionCapture,
+  projectHistory: projectBestAvailableHistory,
+  eventNames: EventName,
+  store: createFileFamilyHistoryStore(FAMILY_HISTORY_PATH),
+  loadBootstrapCapture({ targetAccount, classifier, historyStart }) {
+    const legacy = familyStateStore.load({
+      account: targetAccount,
+      periodStart: historyStart,
+      classifier,
+    });
+    if (!legacy.ok) {
+      return { ok: false, freshInstall: false, reason: `legacy family ledger is invalid: ${legacy.reason}` };
+    }
+    if (!legacy.state) {
+      return { ok: false, freshInstall: true, reason: "legacy family ledger is absent; starting with unknown past history" };
+    }
+    return {
+      ok: true,
+      capture: captureFromFamilyLedgerFile({
+        filePath: FAMILY_STATE_PATH,
+        window: {
+          fromInclusive: legacy.state.periodStart,
+          toExclusive: legacy.state.coverageThrough,
+        },
+        classifier,
+      }),
+    };
+  },
+  pollIntervalMs: 30_000,
+  requestTimeoutMs: 20_000,
+  commissionDrainMs: 3_000,
+  retryBaseMs: RETRY_BASE_MS,
+  retryMaxMs: RETRY_MAX_MS,
+  requestManagedAccounts: false,
+  hooks: {
+    onSeeded({ capturedAt, executionCount, commissionCount }) {
+      console.log(JSON.stringify({
+        event: "family_history_seeded",
+        capturedAt,
+        executionCount,
+        commissionCount,
+      }));
+    },
+    onUnavailable(reason) {
+      console.warn(JSON.stringify({ event: "family_history_unavailable", reason }));
+    },
+    onUpdated({ capturedAt, executionCount, commissionCount, missingCommissionCount }) {
+      console.log(JSON.stringify({
+        event: "family_history_updated",
+        capturedAt,
+        executionCount,
+        commissionCount,
+        missingCommissionCount,
+      }));
+    },
+  },
+});
+
+const dayPnlProducer = createDeskDayPnlProducer({
+  account: ACCOUNT,
+  policy: CURRENT_DESK_OWNERSHIP_POLICY,
+  providerContract: deskOwnershipPolicyContract(CURRENT_DESK_OWNERSHIP_POLICY),
+  historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
+  store: createFileDayBaselineStore(DAY_BASELINE_PATH),
+  buildBoundaryEvidence: buildDeskDayBoundaryEvidence,
+  getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
+  // Live FX observations are valid for five minutes in the family adapter, so
+  // the boundary candidate declares and enforces the same maximum source age.
+  boundaryFreshMs: 300_000,
+  currentFreshMs: 300_000,
+});
+
+const officialHistoryRefresher = createOfficialHistoryRefresher({
+  readOfficialExecutionWindow,
+  makeCaptures: capturesFromOfficialWindowEvidence,
+  importCaptures: (captures, target) => familyHistoryAdapter.importCaptures(captures, target),
+  targetAccount: ACCOUNT,
+  host: HOST,
+  port: PORT,
+  clientId: OFFICIAL_HISTORY_CLIENT_ID,
+  historyStart: FAMILY_BASELINE_PERIOD_START,
+  getHistoryState: () => familyHistoryAdapter.inspectState(),
+  retryBaseMs: 15_000,
+  retryMaxMs: RETRY_MAX_MS,
+  hooks: {
+    onUpdated({ captureCount, through }) {
+      console.log(JSON.stringify({ event: "official_family_history_updated", captureCount, through }));
+    },
+    onUnavailable(reason) {
+      console.warn(JSON.stringify({ event: "official_family_history_unavailable", reason }));
+    },
+  },
+});
 
 function readToken() {
   try {
     return fs.readFileSync(TOKEN_FILE, "utf8").trim();
   } catch (err) {
-    console.error("token file read failed", err && err.code ? err.code : err);
+    console.error("token file read failed", err?.code || err);
     return "";
   }
 }
 
 function portUp(host, port) {
   return new Promise((resolve) => {
-    const s = net.connect({ host, port }, () => {
-      s.destroy();
+    const socket = net.connect({ host, port }, () => {
+      socket.destroy();
       resolve(true);
     });
-    s.on("error", () => resolve(false));
-    s.setTimeout(800, () => {
-      s.destroy();
+    socket.on("error", () => resolve(false));
+    socket.setTimeout(800, () => {
+      socket.destroy();
       resolve(false);
     });
   });
 }
 
 function bookSnapshot() {
-  state.ts = new Date().toISOString();
+  const broker = adapter.snapshot();
+  if (!broker) return null;
   return {
-    ts: state.ts,
+    ...broker,
     source: "joe-board-pusher",
     clientId: CLIENT_ID,
     account: ACCOUNT,
-    gateway: connected,
     live4001: false,
-    lastError: state.lastError,
-    accounts: state.accounts,
-    summary: state.summary,
-    positions: state.positions.filter((p) => p.pos !== 0),
-    openOrders: state.openOrders,
-    portfolio: state.portfolio.filter((p) => p.pos !== 0 || p.realizedPNL),
   };
 }
 
@@ -87,7 +288,44 @@ async function pushOnce() {
   }
 
   const book = bookSnapshot();
-  const snap = projectBook(book, { halt: false });
+  if (!book) {
+    console.warn(JSON.stringify({ event: "push_skipped", reason: "broker snapshot incomplete" }));
+    return { ok: false, error: "broker snapshot incomplete" };
+  }
+  const family = familyAdapter.project(book);
+  if (!family.ok) {
+    console.warn(JSON.stringify({ event: "family_projection_unavailable", reason: family.reason }));
+  }
+  const familyHistory = familyHistoryAdapter.project();
+  if (!familyHistory.ok) {
+    console.warn(JSON.stringify({ event: "family_history_projection_unavailable", reason: familyHistory.reason }));
+  }
+  const deskEquities = familyAdapter.projectDeskEquities(book, {
+    calculateDeskEquities,
+    policy: CURRENT_DESK_OWNERSHIP_POLICY,
+  });
+  if (!deskEquities.ok) {
+    console.warn(JSON.stringify({ event: "all_desk_equity_unavailable", reason: deskEquities.reason }));
+  }
+  const dayPnl = dayPnlProducer.observe(deskEquities);
+  const retainedDeskEquity = dayPnlProducer.inspectState()?.latest || null;
+  if (!dayPnl.ok) {
+    console.warn(JSON.stringify({ event: "day_pnl_unavailable", reason: dayPnl.reason }));
+  }
+  const snap = projectBook(book, {
+    halt: false,
+    publisherAt: new Date(),
+    familyRuntimeEnabled: true,
+    family,
+    familyHistory,
+    deskEquities,
+    retainedDeskEquity,
+    dayPnl,
+  });
+  if (!snap) {
+    console.warn(JSON.stringify({ event: "push_skipped", reason: "broker timestamp unavailable" }));
+    return { ok: false, error: "broker timestamp unavailable" };
+  }
   const token = readToken();
   if (!token) {
     console.error("push skipped: no token");
@@ -115,133 +353,62 @@ async function pushOnce() {
     status: res.status,
     equity: snap.totals.equity,
     generatedAt: snap.generatedAt,
-    gateway: connected,
+    gateway: adapter.connected,
     inbox: body,
   };
   console.log(JSON.stringify(line));
   return line;
 }
 
-function attach(api) {
-  api.on(EventName.connected, () => {
-    connected = true;
-    connecting = false;
-    state.lastError = null;
-    console.log(JSON.stringify({ event: "connected", host: HOST, port: PORT, clientId: CLIENT_ID }));
-    api.reqManagedAccts();
-    api.reqPositions();
-    api.reqAllOpenOrders();
-    api.reqAccountSummary(9501, "All", "NetLiquidation,TotalCashValue,BuyingPower,AccountType");
-    api.reqAccountUpdates(true, ACCOUNT);
-  });
-  api.on(EventName.disconnected, () => {
-    connected = false;
-    connecting = false;
-    state.lastError = "disconnected";
-    console.warn(JSON.stringify({ event: "disconnected" }));
-    setTimeout(connect, RETRY_MS);
-  });
-  api.on(EventName.error, (err, code) => {
-    const message = String(err && err.message ? err.message : err);
-    state.lastError = `${code || ""} ${message}`.trim();
-    if (code === 502 || /ECONNREFUSED|connect/i.test(message)) {
-      connected = false;
-      connecting = false;
-    }
-    if (code && Number(code) >= 2000) return;
-    console.warn(JSON.stringify({ event: "ib_error", code, message: message.slice(0, 160) }));
-  });
-  api.on(EventName.managedAccounts, (a) => {
-    state.accounts = a;
-  });
-  api.on(EventName.accountSummary, (_reqId, account, tag, value, currency) => {
-    state.summary[tag] = { account, value, currency };
-  });
-  api.on(EventName.position, (account, contract, pos, avgCost) => {
-    const row = {
-      account,
-      symbol: contract.symbol,
-      exchange: contract.exchange || contract.primaryExch,
-      currency: contract.currency,
-      secType: contract.secType,
-      pos,
-      avgCost,
-    };
-    state.positions = state.positions.filter((p) => !(p.symbol === row.symbol && p.currency === row.currency));
-    state.positions.push(row);
-  });
-  api.on(EventName.updatePortfolio, (contract, pos, marketPrice, marketValue, avgCost, unrealizedPNL, realizedPNL) => {
-    const row = {
-      symbol: contract.symbol,
-      currency: contract.currency,
-      pos,
-      marketPrice,
-      marketValue,
-      avgCost,
-      unrealizedPNL,
-      realizedPNL,
-    };
-    state.portfolio = state.portfolio.filter((p) => !(p.symbol === row.symbol && p.currency === row.currency));
-    state.portfolio.push(row);
-  });
-  api.on(EventName.openOrder, (orderId, contract, order, orderState) => {
-    const row = {
-      orderId,
-      symbol: contract.symbol,
-      action: order.action,
-      qty: order.totalQuantity,
-      type: order.orderType,
-      status: orderState && orderState.status,
-      account: order.account,
-    };
-    state.openOrders = state.openOrders.filter((o) => o.orderId !== orderId);
-    state.openOrders.push(row);
-  });
-}
-
-function connect() {
-  if (connecting || connected) return;
-  connecting = true;
-  try {
-    if (ib) {
-      try {
-        ib.disconnect();
-      } catch {}
-    }
-    ib = new IBApi({ host: HOST, port: PORT, clientId: CLIENT_ID });
-    attach(ib);
-    ib.connect();
-  } catch (e) {
-    connecting = false;
-    connected = false;
-    state.lastError = String(e && e.message ? e.message : e);
-    setTimeout(connect, RETRY_MS);
-  }
-}
+connectionSupervisor = createConnectionSupervisor({
+  createApi: () => new IBApi({ host: HOST, port: PORT, clientId: CLIENT_ID }),
+  attachApi(next) {
+    adapter.attach(next);
+    familyAdapter.attach(next);
+    familyHistoryAdapter.attach(next);
+  },
+  requestHealth(api) {
+    api.reqCurrentTime();
+  },
+  onAttemptFailure(api, reason) {
+    if (api) adapter.fail(api, reason);
+    console.warn(JSON.stringify({ event: "socket_attempt_failed", reason }));
+  },
+  onRetryScheduled({ reason, attempt, delayMs }) {
+    console.warn(JSON.stringify({ event: "socket_retry_scheduled", reason, attempt, delayMs }));
+  },
+  baseDelayMs: RETRY_BASE_MS,
+  maxDelayMs: RETRY_MAX_MS,
+  jitterRatio: 0.2,
+  connectTimeoutMs: CONNECT_TIMEOUT_MS,
+  snapshotTimeoutMs: COMPLETE_SNAPSHOT_TIMEOUT_MS,
+  healthIntervalMs: HEALTH_INTERVAL_MS,
+  healthTimeoutMs: HEALTH_TIMEOUT_MS,
+  upstreamLossDeadlineMs: UPSTREAM_LOSS_DEADLINE_MS,
+});
 
 function shutdown() {
-  try {
-    if (ib) ib.disconnect();
-  } catch {}
+  adapter.retire("shutdown");
+  familyAdapter.retire("shutdown");
+  familyHistoryAdapter.retire("shutdown");
+  officialHistoryRefresher.stop();
+  connectionSupervisor.shutdown();
   process.exit(0);
 }
 
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
-connect();
+connectionSupervisor.start();
+officialHistoryRefresher.start();
 
 setTimeout(() => {
-  pushOnce().catch((e) => console.error("push error", e.message || e));
+  pushOnce().catch((error) => console.error("push error", error.message || error));
 }, 8000);
 
 setInterval(() => {
-  pushOnce().catch((e) => console.error("push error", e.message || e));
+  pushOnce().catch((error) => console.error("push error", error.message || error));
 }, INTERVAL_SEC * 1000);
-
-setInterval(() => {
-  if (!connected && !connecting) connect();
-}, 60000);
 
 console.log(
   JSON.stringify({

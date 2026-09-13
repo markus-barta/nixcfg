@@ -508,6 +508,7 @@ in
   # PPM (pm.barta.cm) API key — shared by Merlin + Nimue for personal PM access.
   # Format: bare token (starts with `paimos_`).
   # Edit: agenix -e secrets/hsb0-ppm-api-key.age
+  "hsb0-gateway-notify-config.age".publicKeys = markus ++ hsb0;
   "hsb0-ppm-api-key.age".publicKeys = markus ++ hsb0;
 
   # IB Gateway paper password (raw password only for TWS_PASSWORD_FILE).
@@ -615,11 +616,12 @@ in
   # Recipients = markus (user) + every macOS host using inspr.secrets.agents.
   # Add more hosts here as they join the pipeline (rekey afterwards).
 
-  # Cloudflare DNS API token (AIA account)
-  "agents/shared/CF_DNS_TOKEN_AIA.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
-
   # Cloudflare Zone API token (AIA account)
   "agents/shared/CF_ZONE_TOKEN_AIA.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
+
+  # Cloudflare API token for OpenTofu (inspr-services/services/cloudflare),
+  # scoped to the inspr.at zone with DNS Edit only, no expiry. INSPR-411
+  "agents/shared/CF_TOFU_TOKEN_INSPR_AT.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
   # PMO (former second Paimos instance) secrets REMOVED 2026-07-13.
   # That instance was decommissioned with the June 2026 employer

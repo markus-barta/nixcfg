@@ -524,17 +524,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1789024467,
-        "narHash": "sha256-UEOpqyY/nM6/EEBeN7T106R3mNb/MzTePzu+VewhYWo=",
+        "lastModified": 1789063450,
+        "narHash": "sha256-ClWZOv9/ErewT02aPSBo25zBZef4H+70vy6xdGdvJe0=",
         "owner": "markus-barta",
         "repo": "hostdash",
-        "rev": "cd6680495e580e31e7f4a74af8ff7234e8986ac6",
+        "rev": "b71356f2c9df1776c29ec565cb49389231fc8774",
         "type": "github"
       },
       "original": {
         "owner": "markus-barta",
         "repo": "hostdash",
-        "rev": "cd6680495e580e31e7f4a74af8ff7234e8986ac6",
+        "rev": "b71356f2c9df1776c29ec565cb49389231fc8774",
         "type": "github"
       }
     },
@@ -546,17 +546,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1789022962,
-        "narHash": "sha256-O/hOEp6tYU6eMEWHjkWCyWdr0Pmcwj00qTLukMUyrFI=",
+        "lastModified": 1789322570,
+        "narHash": "sha256-BU3LD+qRdcuc8aHXsNTAPl1G/Ig52VRXrnLjCUNjTKM=",
         "owner": "inspr-at",
         "repo": "inspr-modules",
-        "rev": "1ee78a780ce14d78cb3447706283e10378f457c7",
+        "rev": "2da0dd79d49856bacf24f03efeb5e56495b534bf",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
-        "ref": "v0.9.0",
         "repo": "inspr-modules",
+        "rev": "2da0dd79d49856bacf24f03efeb5e56495b534bf",
         "type": "github"
       }
     },
@@ -588,16 +588,16 @@
         ]
       },
       "locked": {
-        "lastModified": 1788962676,
-        "narHash": "sha256-MI+CptaO7Nk5Vmx0fYjSEuwAyb5eMZnK7w8/mw+NMDY=",
+        "lastModified": 1789147686,
+        "narHash": "sha256-HPD/7OlhRfTeXP690fO2LWc00fOpJPmI3Q8bA+aS8To=",
         "owner": "inspr-at",
         "repo": "janus",
-        "rev": "c861018d72af57885a946dff8dc9e7ac3090b854",
+        "rev": "2a28285bd0e3e95c5292eda26c3f9cc0bfb3bcbb",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
-        "ref": "rust-engine-v0.1.35",
+        "ref": "rust-engine-v0.1.36",
         "repo": "janus",
         "type": "github"
       }
@@ -605,17 +605,17 @@
     "joedesk": {
       "flake": false,
       "locked": {
-        "lastModified": 1789024578,
-        "narHash": "sha256-xTCK13OKj45vVLNYfPE8J44UuWKBggArj9HxZ+PtURc=",
+        "lastModified": 1789245855,
+        "narHash": "sha256-jKb27xlka3aHYMI02dTPzrlHtrhbwGrNEpwbMJ/OudY=",
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "af62be18e906e29ed97111e0eca72a8290e3b9cc",
+        "rev": "46e91b7a7913da6a766d3793a453a53b14362a8c",
         "type": "github"
       },
       "original": {
         "owner": "markus-barta",
         "repo": "joedesk",
-        "rev": "af62be18e906e29ed97111e0eca72a8290e3b9cc",
+        "rev": "46e91b7a7913da6a766d3793a453a53b14362a8c",
         "type": "github"
       }
     },
@@ -1044,16 +1044,16 @@
     "paimos": {
       "flake": false,
       "locked": {
-        "lastModified": 1789035586,
-        "narHash": "sha256-+nLL42d4O/OHhxHguy3kyQU7MV/OfEVAUG/lEKPtgBk=",
+        "lastModified": 1789287241,
+        "narHash": "sha256-K2rCzZ3Y966RgG0ql3mh3P9JbRTKpp94AbTy7/POdug=",
         "owner": "inspr-at",
         "repo": "paimos",
-        "rev": "c7cb2bb73fcb2b5406333975951abcddf98dd614",
+        "rev": "85c9469bd7cedb623cd2de1eebb38607ad5ffcb8",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
-        "ref": "v260910101110.0.0",
+        "ref": "v260913075842.0.0",
         "repo": "paimos",
         "type": "github"
       }

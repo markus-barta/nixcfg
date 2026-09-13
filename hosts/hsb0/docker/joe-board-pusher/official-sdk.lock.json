@@ -1,0 +1,35 @@
+{
+  "schema": "inspr.ib.official-sdk-lock.v1",
+  "officialSdk": {
+    "name": "ibapi",
+    "version": "10.45.1",
+    "url": "https://interactivebrokers.github.io/downloads/twsapi_macunix.1045.01.zip",
+    "sha256": "56ea048911052e86d6621ab712957c790fce6d547bc2a55900136ae4f6835941",
+    "sourcePath": "IBJts/source/pythonclient"
+  },
+  "dependencyMetadataPatch": {
+    "path": "setup.py",
+    "expected": "install_requires=[\"protobuf==5.29.5\"]",
+    "replacement": "install_requires=[\"protobuf==5.29.6\"]",
+    "scope": "dependency-metadata-only",
+    "reason": "CVE-2026-0994",
+    "upstreamRelease": "https://github.com/protocolbuffers/protobuf/releases/tag/v29.6",
+    "compatibilityReference": "https://protobuf.dev/support/cross-version-runtime-guarantee/"
+  },
+  "dependencies": [
+    {
+      "kind": "runtime",
+      "name": "protobuf",
+      "version": "5.29.6",
+      "url": "https://files.pythonhosted.org/packages/5a/cb/e3065b447186cb70aa65acc70c86baf482d82bf75625bf5a2c4f6919c6a3/protobuf-5.29.6-py3-none-any.whl",
+      "sha256": "6b9edb641441b2da9fa8f428760fc136a49cf97a52076010cf22a2ff73438a86"
+    },
+    {
+      "kind": "build",
+      "name": "setuptools",
+      "version": "83.0.0",
+      "url": "https://files.pythonhosted.org/packages/5d/40/e1e72872c6354b306daef1703549e8e83b4d43cfea356311bf722a043752/setuptools-83.0.0-py3-none-any.whl",
+      "sha256": "29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3"
+    }
+  ]
+}

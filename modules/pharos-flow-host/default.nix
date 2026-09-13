@@ -27,6 +27,10 @@ let
   # https only, no userinfo/query/fragment, empty or "/" path. HTTP loopback
   # is a harness-only Pharos flag and is never accepted here.
   isSafeOrigin = value: builtins.match "https://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?" value != null;
+  isSafeBrowserUrl =
+    value:
+    isSafeOrigin value
+    || builtins.match "https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9_-]+)+" value != null;
   isHostId =
     value:
     let
@@ -99,6 +103,9 @@ let
     paimos_origin = cfg.paimosOrigin;
     api_key_file = cfg.apiKeyFile;
     bindings = map renderBinding cfg.bindings;
+  }
+  // lib.optionalAttrs (cfg.paimosPublicUrl != null) {
+    paimos_public_url = cfg.paimosPublicUrl;
   }
   // lib.optionalAttrs (cfg.instanceLabel != null && isNonEmpty cfg.instanceLabel) {
     instance_label = lib.trim cfg.instanceLabel;
@@ -175,6 +182,17 @@ in
       description = "Credential-free https Paimos origin with no path, query or fragment.";
     };
 
+    paimosPublicUrl = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "https://flow.example/paimos";
+      description = ''
+        Optional HTTPS browser base URL, including a canonical native public
+        base path. When omitted, Pharos retains the Paimos API origin for
+        browser navigation.
+      '';
+    };
+
     apiKeyFile = lib.mkOption {
       type = lib.types.str;
       description = "In-container path of the Flow API key. Its own inode, never shared with the PHAROS-206 delivery key or copied into the Nix store.";
@@ -208,6 +226,10 @@ in
       {
         assertion = isSafeOrigin cfg.paimosOrigin;
         message = "inspr.pharosFlowHost.paimosOrigin must be a credential-free https origin with no path, query or fragment.";
+      }
+      {
+        assertion = cfg.paimosPublicUrl == null || isSafeBrowserUrl cfg.paimosPublicUrl;
+        message = "inspr.pharosFlowHost.paimosPublicUrl must be a credential-free HTTPS URL with a canonical native base path.";
       }
       {
         assertion = isAbsolutePath cfg.apiKeyFile && isAbsolutePath cfg.configFile;

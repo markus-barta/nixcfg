@@ -4,6 +4,7 @@
   hostId ? "pharos-test",
   instanceLabel ? "Pharos test",
   paimosOrigin ? "https://pm.barta.cm",
+  paimosPublicUrl ? null,
   apiKeyFile ? "/run/pharos/flow-host/api-key",
   configFile ? "/run/pharos/flow-host/config.json",
   projectId ? 17,
@@ -51,6 +52,7 @@ let
             hostId
             instanceLabel
             paimosOrigin
+            paimosPublicUrl
             apiKeyFile
             configFile
             ;

@@ -242,7 +242,7 @@
     # Pharos beacon (PHAROS-6) — reports this host's status + nix freshness to
     # pharosd (csb1) every 60s; succeeds the FleetCom bosun agent above.
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:260910065821.0.0@sha256:5611fdaf25ec1e8f1a2fc85401b03a00f99e01afc83b8624327d7da146575884";
+      image = "ghcr.io/inspr-at/pharos/pharosd:260911173640.0.0@sha256:55f06d1abb4845ecc4b256ab87643037b95f6dffa56d638ad21449a032d59514";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
@@ -325,6 +325,8 @@
         "TWS_USERID=markusbarta"
         "TWS_PASSWORD_FILE=/run/secrets/ib-gateway-password"
         "TRADING_MODE=paper"
+        # Permit paper API writes; client policy still controls order authority.
+        "READ_ONLY_API=no"
         "TWS_SETTINGS_PATH=/home/ibgateway/tws_settings"
         "JAVA_HEAP_SIZE=768"
         "TIME_ZONE=Europe/Vienna"
@@ -340,9 +342,22 @@
         "com.centurylinklabs.watchtower.enable=false"
         "traefik.enable=false"
       ];
+      # HOSTD-58: prove the paper API (internal 4002), not socat 4004.
+      # Unhealthy here is not farm-ready and does not restart the container;
+      # session recovery is the ib-gateway-session supervisor (one-attempt budget).
+      healthcheck = {
+        test = [
+          "CMD-SHELL"
+          "awk 'BEGIN { ok = 0 } $1 != \"sl\" && toupper($4) == \"0A\" { n = split($2, a, \":\"); if (tolower(a[n]) == \"0fa2\") ok = 1 } END { exit (ok ? 0 : 1) }' /proc/net/tcp /proc/net/tcp6"
+        ];
+        interval = "30s";
+        timeout = "3s";
+        retries = 3;
+        start_period = "180s";
+      };
     };
 
-    # Joe board pusher — paper Gateway read-only (clientId 50) → csb0 inbox every 30s.
+    # Joe board pusher — paper Gateway reporting client → csb0 inbox every 30s.
     # host network so Tailscale-bound 100.64.0.6:4002 is reachable. Never live 4001.
     joe-board-pusher = {
       build = "./joe-board-pusher";
@@ -355,6 +370,8 @@
       ];
       volumes = [
         "/run/agenix/joe-board-push-token:/run/secrets/joe-board-push-token:ro"
+        # Durable execution state: /var/lib/joe-board-pusher/family-ledger.json.
+        "/var/lib/joe-board-pusher:/var/lib/joe-board-pusher:rw"
       ];
       labels = [
         "com.centurylinklabs.watchtower.enable=false"

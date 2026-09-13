@@ -443,13 +443,55 @@ in
 
     # Container stack — ported from mbp0 (2026-07-20; local containers now
     # needed for Janus Docker smoke). Colima owns the long-lived VM at host
-    # level; devenv/direnv do not manage the daemon. `colima start` once after
-    # switch to bring up the engine.
+    # level; devenv/direnv do not manage the daemon. The launchd agent below
+    # starts the default profile at login with 4 CPUs and 8 GiB (NIX-469).
     pkgs.docker-client # Docker CLI only; engine provided by Colima on macOS
     pkgs.docker-compose # Compose v2 standalone binary; linked as Docker CLI plugin
     pkgs.colima # Lightweight Docker engine VM for macOS, no Docker Desktop
     pkgs.lima # Colima's VM substrate; useful for limactl diagnostics
   ];
+
+  # Colima daemonizes; run once at login, without a KeepAlive restart loop.
+  # Colima 0.10.3 merges these flags into the existing profile and saves it.
+  # An already-running VM returns success without restarting; resource changes
+  # take effect on its next stopped-to-started transition. Keep vz/virtiofs.
+  launchd.agents.colima = {
+    enable = true;
+    config = {
+      ProgramArguments = [
+        "${pkgs.colima}/bin/colima"
+        "start"
+        "default"
+        "--cpu"
+        "4"
+        "--memory"
+        "8"
+        "--vm-type"
+        "vz"
+        "--mount-type"
+        "virtiofs"
+      ];
+      EnvironmentVariables = {
+        HOME = config.home.homeDirectory;
+        # Login agents do not inherit the interactive shell's environment.
+        XDG_CONFIG_HOME = config.xdg.configHome;
+        COLIMA_HOME = "${config.xdg.configHome}/colima";
+        PATH = "${config.home.profileDirectory}/bin:/nix/var/nix/profiles/default/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+      };
+      RunAtLoad = true;
+      KeepAlive = false;
+      AbandonProcessGroup = true; # Keep the VM's detached processes alive after start exits.
+      StandardOutPath = "${config.home.homeDirectory}/Library/Logs/colima.log";
+      StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/colima.log";
+    };
+  };
+
+  # launchd opens the log before invoking Colima, so create its parent first.
+  home.activation.colimaLogDirectory =
+    lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ]
+      ''
+        run mkdir -p ${lib.escapeShellArg "${config.home.homeDirectory}/Library/Logs"}
+      '';
 
   # Enable fontconfig
   fonts.fontconfig.enable = true;

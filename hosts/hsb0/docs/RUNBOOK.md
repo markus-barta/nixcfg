@@ -197,6 +197,18 @@ just switch
 
 ### Rollback to Previous Generation
 
+**Paper gateway rollback floor (NIX-461 / HOSTD-38):** generation **204**,
+activated from commit `1842c3ba901bc6202c502b01033fad8a66958814` on
+2026-09-10, preserves the running gateway's `READ_ONLY_API=no` setting and the
+previous Joe board producer. Its retained system is
+`/nix/store/n4c8ym7m2vhdpqjqp8cg5gv92acqpmbm-nixos-system-hsb0-26.11.20260718.61b7c44`.
+For the J-family producer rollout, select this verified checkpoint rather than
+blindly assuming the previous generation is suitable. Do not roll back below
+204 without a separate gateway plan: older declarations can recreate the paper
+gateway in read-only mode and leave API clients waiting for write-access dialogs.
+Keep the checkpoint and previous producer image until live acceptance is complete;
+never overwrite the current trading journals or JoeDesk history during rollback.
+
 ```bash
 ssh mba@192.168.1.99
 sudo nixos-rebuild switch --rollback
