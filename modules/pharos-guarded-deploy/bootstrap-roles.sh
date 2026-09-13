@@ -16,6 +16,7 @@ readonly USE_PRINCIPAL='@USE_PRINCIPAL@'
 readonly ADMIN_PRINCIPAL='@ADMIN_PRINCIPAL@'
 readonly SOURCE_REFERENCE='@SOURCE_REFERENCE@'
 readonly BINDING_TTL_SECONDS='@BINDING_TTL_SECONDS@'
+readonly OPERATION_REFERENCE_HELPER='@OPERATION_REFERENCE_HELPER@'
 
 fail() {
   printf 'pharos_guarded_roles=failed reason=%s value_returned=false\n' "$1" >&2
@@ -30,6 +31,7 @@ fail() {
 [ "$(stat -c '%u:%g' "$ROLE_AUDIT_FILE")" = '0:0' ] || fail audit_file_owner_invalid
 [ "$(stat -c '%a' "$ROLE_AUDIT_FILE")" = '600' ] || fail audit_file_mode_invalid
 [ -z "$(find "$ROLE_BINDINGS_ROOT" -mindepth 1 -maxdepth 1 -print -quit)" ] || fail registry_not_empty
+unset JANUS_RUNTIME_OPERATION_REFERENCE_FILE
 
 export JANUS_ROLE_AUTHORIZATION_MODE='enforced'
 export JANUS_ROLE_BINDINGS_ROOT="$ROLE_BINDINGS_ROOT"
@@ -58,8 +60,20 @@ run_admin() {
   JANUS_RELEASE_EXECUTOR="$principal" "$JANUSD_ADMIN" "$@"
 }
 
+run_recorded_admin() {
+  local step=$1
+  local principal=$2
+  local reference_file
+  shift 2
+  reference_file=$(
+    "$OPERATION_REFERENCE_HELPER" bootstrap "$step" "$SOURCE_REFERENCE"
+  ) || fail operation_reference_unavailable
+  JANUS_RUNTIME_OPERATION_REFERENCE_FILE="$reference_file" \
+    run_admin "$principal" "$@"
+}
+
 JANUS_ROLE_BOOTSTRAP_ACK='bootstrap-role-authorization' \
-  run_admin "$BOOTSTRAP_PRINCIPAL" role-binding issue --bootstrap \
+  run_recorded_admin bootstrap-security-admin "$BOOTSTRAP_PRINCIPAL" role-binding issue --bootstrap \
   --role security_admin \
   --expires-in-seconds 900 \
   --source-reference "$SOURCE_REFERENCE" \
@@ -76,12 +90,13 @@ jq -e '
 ' "$tmp/bootstrap.json" >/dev/null || fail bootstrap_output_invalid
 
 issue_binding() {
-  local grantor=$1
-  local principal=$2
-  local role=$3
-  local reason=$4
-  local output=$5
-  run_admin "$grantor" role-binding issue \
+  local step=$1
+  local grantor=$2
+  local principal=$3
+  local role=$4
+  local reason=$5
+  local output=$6
+  run_recorded_admin "$step" "$grantor" role-binding issue \
     --principal-binding "executor:${principal}|scope:${scope_ref}" \
     --role "$role" \
     --expires-in-seconds "$BINDING_TTL_SECONDS" \
@@ -94,11 +109,11 @@ issue_binding() {
   ' "$output" >/dev/null || fail binding_output_invalid
 }
 
-issue_binding "$BOOTSTRAP_PRINCIPAL" "$SECURITY_ADMIN_PRINCIPAL" security_admin \
+issue_binding reviewed-security-admin "$BOOTSTRAP_PRINCIPAL" "$SECURITY_ADMIN_PRINCIPAL" security_admin \
   reviewed-security-administration "$tmp/security-admin.json"
-issue_binding "$SECURITY_ADMIN_PRINCIPAL" "$USE_PRINCIPAL" operator \
+issue_binding reviewed-operator "$SECURITY_ADMIN_PRINCIPAL" "$USE_PRINCIPAL" operator \
   reviewed-guarded-use "$tmp/operator.json"
-issue_binding "$SECURITY_ADMIN_PRINCIPAL" "$ADMIN_PRINCIPAL" approver \
+issue_binding reviewed-approver "$SECURITY_ADMIN_PRINCIPAL" "$ADMIN_PRINCIPAL" approver \
   reviewed-guarded-approval "$tmp/approver.json"
 run_admin "$SECURITY_ADMIN_PRINCIPAL" role-binding revoke \
   --binding "$bootstrap_id" \
