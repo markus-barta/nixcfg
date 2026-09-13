@@ -103,6 +103,23 @@ jq -e '
   and .generated.bindings[0].project_id == 17
 ' <<<"$omitted_ref" >/dev/null
 
+prefixed_browser=$(eval_flow 'activate = true; paimosPublicUrl = "https://flow.example/paimos";')
+jq -e '
+  .generated.paimos_origin == "https://pm.barta.cm"
+  and .generated.paimos_public_url == "https://flow.example/paimos"
+  and (.generated | keys) == [
+    "api_key_file",
+    "bindings",
+    "enabled",
+    "host_id",
+    "instance_label",
+    "paimos_origin",
+    "paimos_public_url",
+    "schema",
+    "schema_version"
+  ]
+' <<<"$prefixed_browser" >/dev/null
+
 disabled_live=$(eval_flow 'activate = false; bindings = [];')
 jq -e '
   .activated == false
@@ -125,6 +142,12 @@ expect_flow_rejected \
 expect_flow_rejected \
   "import $pharos_eval { paimosOrigin = \"https://pm.barta.cm?q=1\"; }" \
   'Flow host accepted an origin with a query'
+expect_flow_rejected \
+  "import $pharos_eval { paimosPublicUrl = \"https://flow.example/paimos?q=1\"; }" \
+  'Flow host accepted a browser URL with a query'
+expect_flow_rejected \
+  "import $pharos_eval { paimosPublicUrl = \"http://flow.example/paimos\"; }" \
+  'Flow host accepted a cleartext browser URL'
 expect_flow_rejected \
   "import $pharos_eval { apiKeyFile = \"api.key\"; }" \
   'Flow host accepted a relative credential path'
