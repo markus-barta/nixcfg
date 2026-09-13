@@ -12,7 +12,12 @@ let
   applySecretName = "PHAROS_APPLY_${hostUpper}";
   rollbackSecretName = "PHAROS_ROLLBACK_${hostUpper}";
   updateSecretName = "PHAROS_UPDATE_${hostUpper}";
-  janusPackage = inputs.janus.packages.${pkgs.stdenv.hostPlatform.system}.janus-engine;
+  defaultJanusPackage = inputs.janus.packages.${pkgs.stdenv.hostPlatform.system}.janus-engine;
+  janusPackage = cfg.janusPackage;
+  configuredScope = cfg.exactScope != null;
+  configuredRoles = cfg.roleAuthorization != null;
+  scopeValue = field: if configuredScope then cfg.exactScope.${field} else "";
+  roleValue = field: if configuredRoles then cfg.roleAuthorization.${field} else "";
   replace =
     file: from: to:
     builtins.replaceStrings from to (builtins.readFile file);
@@ -154,7 +159,21 @@ let
       replace ./review.sh
         [
           "@HOST@"
-          "@JANUSD@"
+          "@JANUSD_USE@"
+          "@JANUSD_ADMIN@"
+          "@SCOPE_ORGANIZATION@"
+          "@SCOPE_PROJECT@"
+          "@SCOPE_REPOSITORY@"
+          "@SCOPE_ENVIRONMENT@"
+          "@ROLE_BINDINGS_ROOT@"
+          "@ROLE_AUDIT_FILE@"
+          "@ROLE_POLICY_FILE@"
+          "@USE_PRINCIPAL@"
+          "@ADMIN_PRINCIPAL@"
+          "@STATE_DIR@"
+          "@PROFILE_MANIFEST@"
+          "@SECRET_MANIFEST@"
+          "@METADATA@"
           "@APPLY_SECRET_REF@"
           "@ROLLBACK_SECRET_REF@"
           "@UPDATE_SECRET_REF@"
@@ -164,13 +183,80 @@ let
         ]
         [
           host
-          "${janusPackage}/bin/janusd"
+          "${janusPackage}/bin/janusd-use"
+          "${janusPackage}/bin/janusd-admin"
+          (scopeValue "organization")
+          (scopeValue "project")
+          (scopeValue "repository")
+          (scopeValue "environment")
+          (roleValue "bindingsRoot")
+          (roleValue "auditFile")
+          (
+            if configuredRoles && cfg.roleAuthorization.policyFile != null then
+              cfg.roleAuthorization.policyFile
+            else
+              ""
+          )
+          (roleValue "usePrincipal")
+          (roleValue "adminPrincipal")
+          "/var/lib/pharos-guarded-deploy"
+          "/etc/janus/pharos-deploy/managed-commands.toml"
+          "/etc/janus/pharos-deploy/secretspec.toml"
+          "/etc/janus/pharos-deploy/metadata.toml"
           cfg.applySecretRef
           cfg.rollbackSecretRef
           cfg.updateSecretRef
           applySecretName
           rollbackSecretName
           updateSecretName
+        ];
+  };
+
+  roleBootstrap = pkgs.writeShellApplication {
+    name = "pharos-guarded-role-bootstrap";
+    runtimeInputs = with pkgs; [
+      coreutils
+      findutils
+      jq
+    ];
+    text =
+      replace ./bootstrap-roles.sh
+        [
+          "@JANUSD_ADMIN@"
+          "@SCOPE_ORGANIZATION@"
+          "@SCOPE_PROJECT@"
+          "@SCOPE_REPOSITORY@"
+          "@SCOPE_ENVIRONMENT@"
+          "@ROLE_BINDINGS_ROOT@"
+          "@ROLE_AUDIT_FILE@"
+          "@ROLE_POLICY_FILE@"
+          "@BOOTSTRAP_PRINCIPAL@"
+          "@SECURITY_ADMIN_PRINCIPAL@"
+          "@USE_PRINCIPAL@"
+          "@ADMIN_PRINCIPAL@"
+          "@SOURCE_REFERENCE@"
+          "@BINDING_TTL_SECONDS@"
+        ]
+        [
+          "${janusPackage}/bin/janusd-admin"
+          (scopeValue "organization")
+          (scopeValue "project")
+          (scopeValue "repository")
+          (scopeValue "environment")
+          (roleValue "bindingsRoot")
+          (roleValue "auditFile")
+          (
+            if configuredRoles && cfg.roleAuthorization.policyFile != null then
+              cfg.roleAuthorization.policyFile
+            else
+              ""
+          )
+          (roleValue "bootstrapPrincipal")
+          (roleValue "securityAdminPrincipal")
+          (roleValue "usePrincipal")
+          (roleValue "adminPrincipal")
+          (roleValue "sourceReference")
+          (if configuredRoles then toString cfg.roleAuthorization.bindingTtlSeconds else "")
         ];
   };
 
@@ -206,6 +292,16 @@ in
 {
   options.inspr.pharosGuardedDeploy = {
     enable = lib.mkEnableOption "target-local Janus-guarded Pharos deployments";
+    janusPackage = lib.mkOption {
+      type = lib.types.package;
+      default = defaultJanusPackage;
+      defaultText = lib.literalExpression "inputs.janus.packages.${pkgs.stdenv.hostPlatform.system}.janus-engine";
+      description = ''
+        Janus engine package used by the guarded wrapper. Enforced role
+        bootstrapping requires Janus 0.1.37 or newer; the fleet default stays
+        on the repository pin until each host declares and provisions roles.
+      '';
+    };
     applySecretRef = lib.mkOption {
       type = lib.types.str;
       description = "Deterministic Janus secret reference for the host apply capability.";
@@ -243,6 +339,54 @@ in
       type = lib.types.str;
       default = "/run/agenix/pharos-beacon-${host}-env";
       description = "Root-readable environment file containing the existing per-host PHAROS_TOKEN.";
+    };
+    exactScope = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            organization = lib.mkOption { type = lib.types.str; };
+            project = lib.mkOption { type = lib.types.str; };
+            repository = lib.mkOption { type = lib.types.str; };
+            environment = lib.mkOption { type = lib.types.str; };
+          };
+        }
+      );
+      default = null;
+      description = ''
+        Exact Janus scope for the guarded use and administration planes. An
+        unset scope is retained for fleet compatibility but Janus refuses the
+        guarded action at runtime.
+      '';
+    };
+    roleAuthorization = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            bindingsRoot = lib.mkOption { type = lib.types.str; };
+            auditFile = lib.mkOption { type = lib.types.str; };
+            policyFile = lib.mkOption {
+              type = lib.types.nullOr lib.types.str;
+              default = null;
+            };
+            bootstrapPrincipal = lib.mkOption { type = lib.types.str; };
+            securityAdminPrincipal = lib.mkOption { type = lib.types.str; };
+            usePrincipal = lib.mkOption { type = lib.types.str; };
+            adminPrincipal = lib.mkOption { type = lib.types.str; };
+            sourceReference = lib.mkOption { type = lib.types.str; };
+            bindingTtlSeconds = lib.mkOption {
+              type = lib.types.ints.between 3600 31622400;
+            };
+          };
+        }
+      );
+      default = null;
+      description = ''
+        Enforced Janus role state and distinct principals for managed use and
+        approval administration. Configuring this installs the manual
+        pharos-guarded-role-bootstrap procedure; it never provisions a binding
+        automatically. An unset contract is retained for fleet compatibility
+        but Janus refuses the guarded action at runtime.
+      '';
     };
     actionPollSeconds = lib.mkOption {
       type = lib.types.ints.between 10 300;
@@ -286,13 +430,68 @@ in
         assertion = builtins.match "http://[0-9.]+:[0-9]+" cfg.pharosUrl != null;
         message = "inspr.pharosGuardedDeploy.pharosUrl must be a fixed HTTP address";
       }
+      {
+        assertion = configuredScope == configuredRoles;
+        message = "inspr.pharosGuardedDeploy exactScope and roleAuthorization must be configured together";
+      }
+      {
+        assertion =
+          !configuredScope
+          || lib.all (value: builtins.match "[A-Za-z0-9][A-Za-z0-9_.-]{0,127}" value != null) [
+            cfg.exactScope.organization
+            cfg.exactScope.project
+            cfg.exactScope.repository
+            cfg.exactScope.environment
+          ];
+        message = "inspr.pharosGuardedDeploy exactScope components must be bounded identifiers";
+      }
+      {
+        assertion =
+          !configuredRoles
+          || lib.all (value: builtins.match "/[A-Za-z0-9._/-]+" value != null) (
+            [
+              cfg.roleAuthorization.bindingsRoot
+              cfg.roleAuthorization.auditFile
+            ]
+            ++ lib.optional (cfg.roleAuthorization.policyFile != null) cfg.roleAuthorization.policyFile
+          );
+        message = "inspr.pharosGuardedDeploy role authorization paths must be absolute and shell-safe";
+      }
+      {
+        assertion =
+          !configuredRoles
+          || (
+            builtins.length (
+              lib.unique [
+                cfg.roleAuthorization.bootstrapPrincipal
+                cfg.roleAuthorization.securityAdminPrincipal
+                cfg.roleAuthorization.usePrincipal
+                cfg.roleAuthorization.adminPrincipal
+              ]
+            ) == 4
+            && lib.all (value: builtins.match "[A-Za-z0-9][A-Za-z0-9@._:-]{0,127}" value != null) [
+              cfg.roleAuthorization.bootstrapPrincipal
+              cfg.roleAuthorization.securityAdminPrincipal
+              cfg.roleAuthorization.usePrincipal
+              cfg.roleAuthorization.adminPrincipal
+            ]
+          );
+        message = "inspr.pharosGuardedDeploy role principals must be distinct bounded identifiers";
+      }
+      {
+        assertion =
+          !configuredRoles
+          || builtins.match "[A-Z][A-Z0-9]+-[0-9]+" cfg.roleAuthorization.sourceReference != null;
+        message = "inspr.pharosGuardedDeploy role sourceReference must be a PPM issue key";
+      }
     ];
 
     environment.systemPackages = [
       janusPackage
       review
       actionAgent
-    ];
+    ]
+    ++ lib.optional configuredRoles roleBootstrap;
 
     environment.etc."janus/pharos-deploy/secretspec.toml".text = ''
       [project]
@@ -388,6 +587,10 @@ in
       "d /var/lib/pharos-guarded-deploy 0700 root root -"
       "d /var/lib/pharos-guarded-deploy/actions 0700 root root -"
       "d /var/lib/pharos-guarded-deploy/agent-runs 0700 root root -"
+    ]
+    ++ lib.optionals configuredRoles [
+      "d ${cfg.roleAuthorization.bindingsRoot} 0700 root root -"
+      "f ${cfg.roleAuthorization.auditFile} 0600 root root -"
     ];
 
     systemd.services.pharos-guarded-deploy-bootstrap = {
@@ -421,6 +624,21 @@ in
       ];
       requires = [ "pharos-guarded-deploy-bootstrap.service" ];
       unitConfig.ConditionPathExists = cfg.tokenEnvironmentFile;
+      environment =
+        lib.optionalAttrs configuredScope {
+          JANUS_SCOPE_ORGANIZATION = cfg.exactScope.organization;
+          JANUS_SCOPE_PROJECT = cfg.exactScope.project;
+          JANUS_SCOPE_REPOSITORY = cfg.exactScope.repository;
+          JANUS_SCOPE_ENVIRONMENT = cfg.exactScope.environment;
+        }
+        // lib.optionalAttrs configuredRoles {
+          JANUS_ROLE_AUTHORIZATION_MODE = "enforced";
+          JANUS_ROLE_BINDINGS_ROOT = cfg.roleAuthorization.bindingsRoot;
+          JANUS_ROLE_AUDIT_FILE = cfg.roleAuthorization.auditFile;
+        }
+        // lib.optionalAttrs (configuredRoles && cfg.roleAuthorization.policyFile != null) {
+          JANUS_ROLE_POLICY_FILE = cfg.roleAuthorization.policyFile;
+        };
       restartIfChanged = false;
       stopIfChanged = false;
       serviceConfig = {

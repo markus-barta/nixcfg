@@ -2,11 +2,21 @@
 set -Eeuo pipefail
 
 readonly HOST='@HOST@'
-readonly JANUSD='@JANUSD@'
-readonly STATE_DIR='/var/lib/pharos-guarded-deploy'
-readonly PROFILE_MANIFEST='/etc/janus/pharos-deploy/managed-commands.toml'
-readonly SECRET_MANIFEST='/etc/janus/pharos-deploy/secretspec.toml'
-readonly METADATA='/etc/janus/pharos-deploy/metadata.toml'
+readonly JANUSD_USE='@JANUSD_USE@'
+readonly JANUSD_ADMIN='@JANUSD_ADMIN@'
+readonly SCOPE_ORGANIZATION='@SCOPE_ORGANIZATION@'
+readonly SCOPE_PROJECT='@SCOPE_PROJECT@'
+readonly SCOPE_REPOSITORY='@SCOPE_REPOSITORY@'
+readonly SCOPE_ENVIRONMENT='@SCOPE_ENVIRONMENT@'
+readonly ROLE_BINDINGS_ROOT='@ROLE_BINDINGS_ROOT@'
+readonly ROLE_AUDIT_FILE='@ROLE_AUDIT_FILE@'
+readonly ROLE_POLICY_FILE='@ROLE_POLICY_FILE@'
+readonly USE_PRINCIPAL='@USE_PRINCIPAL@'
+readonly ADMIN_PRINCIPAL='@ADMIN_PRINCIPAL@'
+readonly STATE_DIR='@STATE_DIR@'
+readonly PROFILE_MANIFEST='@PROFILE_MANIFEST@'
+readonly SECRET_MANIFEST='@SECRET_MANIFEST@'
+readonly METADATA='@METADATA@'
 
 action=${1:-}
 ticket=${2:-}
@@ -51,6 +61,43 @@ export JANUS_AGE_PROFILE="$HOST"
 export JANUS_AGE_STORE_DIR='/var/lib/janus/secrets'
 export JANUS_AGE_IDENTITY_FILE='/etc/ssh/ssh_host_ed25519_key'
 export JANUS_AGE_RECIPIENTS_FILE='/etc/ssh/ssh_host_ed25519_key.pub'
+
+configure_janus_plane() {
+  local plane=$1
+  if [ -n "$SCOPE_ORGANIZATION" ]; then
+    export JANUS_SCOPE_ORGANIZATION="$SCOPE_ORGANIZATION"
+    export JANUS_SCOPE_PROJECT="$SCOPE_PROJECT"
+    export JANUS_SCOPE_REPOSITORY="$SCOPE_REPOSITORY"
+    export JANUS_SCOPE_ENVIRONMENT="$SCOPE_ENVIRONMENT"
+  else
+    unset JANUS_SCOPE_ORGANIZATION JANUS_SCOPE_PROJECT JANUS_SCOPE_REPOSITORY JANUS_SCOPE_ENVIRONMENT
+  fi
+
+  if [ -n "$ROLE_BINDINGS_ROOT" ]; then
+    export JANUS_ROLE_AUTHORIZATION_MODE='enforced'
+    export JANUS_ROLE_BINDINGS_ROOT="$ROLE_BINDINGS_ROOT"
+    export JANUS_ROLE_AUDIT_FILE="$ROLE_AUDIT_FILE"
+    if [ -n "$ROLE_POLICY_FILE" ]; then
+      export JANUS_ROLE_POLICY_FILE="$ROLE_POLICY_FILE"
+    else
+      unset JANUS_ROLE_POLICY_FILE
+    fi
+    case "$plane" in
+    use)
+      export JANUS_RELEASE_EXECUTOR="$USE_PRINCIPAL"
+      unset JANUS_ADMIN_EXECUTOR
+      ;;
+    admin)
+      export JANUS_RELEASE_EXECUTOR="$ADMIN_PRINCIPAL"
+      unset JANUS_ADMIN_EXECUTOR
+      ;;
+    *) return 2 ;;
+    esac
+  else
+    unset JANUS_ROLE_AUTHORIZATION_MODE JANUS_ROLE_BINDINGS_ROOT JANUS_ROLE_AUDIT_FILE
+    unset JANUS_ROLE_POLICY_FILE JANUS_RELEASE_EXECUTOR JANUS_ADMIN_EXECUTOR
+  fi
+}
 
 tmp=$(mktemp -d "$STATE_DIR/.review.XXXXXX")
 chmod 0700 "$tmp"
@@ -109,11 +156,13 @@ jq -n \
 chmod 0600 "$request_file"
 
 stage='preflight'
-"$JANUSD" run preflight --profile "$profile" -- >"$tmp/preflight.out" 2>"$tmp/preflight.err"
+configure_janus_plane use
+"$JANUSD_USE" run preflight --profile "$profile" -- >"$tmp/preflight.out" 2>"$tmp/preflight.err"
 grep -q 'reason_code=ok value_returned=false' "$tmp/preflight.out"
 
 stage='approval'
-"$JANUSD" approve issue \
+configure_janus_plane admin
+"$JANUSD_ADMIN" approve issue \
   --secret-ref "$secret_ref" \
   --profile "$profile" \
   --purpose "Guarded Pharos $action for $HOST" \
@@ -125,7 +174,8 @@ approval_id=$(sed -n 's/.*approval_id=\([^ ]*\).*/\1/p' "$tmp/approval.out" | he
 [[ "$approval_id" = appr_* ]]
 
 stage='permit'
-"$JANUSD" approve permit \
+configure_janus_plane admin
+"$JANUSD_ADMIN" approve permit \
   --approval "$approval_id" \
   --permit-ttl-seconds 240 \
   --revoke-approval \
@@ -134,8 +184,9 @@ permit_id=$(sed -n 's/.*permit_id=\([^ ]*\).*/\1/p' "$tmp/permit.out" | head -n1
 [[ "$permit_id" = use_* ]]
 
 stage='managed_run'
+configure_janus_plane use
 run_status=0
-if "$JANUSD" run --profile "$profile" --permit "$permit_id" -- \
+if "$JANUSD_USE" run --profile "$profile" --permit "$permit_id" -- \
   >"$tmp/run.out" 2>"$tmp/run.err"; then
   run_status=0
 else
@@ -144,7 +195,7 @@ fi
 
 if [ "$run_status" -ne 0 ] ||
   ! grep -Eq \
-    '^janusd run completed exit_success=true exit_code=Some\(0\) reason_code=ok value_returned=false$' \
+    '^janusd-use run completed exit_success=true exit_code=Some\(0\) reason_code=ok value_returned=false$' \
     "$tmp/run.err"; then
   runner_failure_gate='managed_run'
   runner_line=$(grep -E \
