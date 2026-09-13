@@ -16,6 +16,7 @@ let
   janusPackage = cfg.janusPackage;
   configuredScope = cfg.exactScope != null;
   configuredRoles = cfg.roleAuthorization != null;
+  configuredOperationReferences = cfg.operationReferences != null;
   scopeValue = field: if configuredScope then cfg.exactScope.${field} else "";
   roleValue = field: if configuredRoles then cfg.roleAuthorization.${field} else "";
   replace =
@@ -170,6 +171,8 @@ let
           "@ROLE_POLICY_FILE@"
           "@USE_PRINCIPAL@"
           "@ADMIN_PRINCIPAL@"
+          "@OPERATION_REFERENCE_HELPER@"
+          "@ACTION_REQUEST_FILE@"
           "@STATE_DIR@"
           "@PROFILE_MANIFEST@"
           "@SECRET_MANIFEST@"
@@ -199,6 +202,8 @@ let
           )
           (roleValue "usePrincipal")
           (roleValue "adminPrincipal")
+          "${operationReference}/bin/pharos-guarded-operation-reference"
+          "/var/lib/pharos-guarded-deploy/active-agent-request.json"
           "/var/lib/pharos-guarded-deploy"
           "/etc/janus/pharos-deploy/managed-commands.toml"
           "/etc/janus/pharos-deploy/secretspec.toml"
@@ -209,6 +214,31 @@ let
           applySecretName
           rollbackSecretName
           updateSecretName
+        ];
+  };
+
+  operationReference = pkgs.writeShellApplication {
+    name = "pharos-guarded-operation-reference";
+    runtimeInputs = with pkgs; [
+      coreutils
+      jq
+      python3
+    ];
+    text =
+      replace ./operation-reference.sh
+        [
+          "@OPERATION_REFERENCE_ROOT@"
+          "@OPERATION_SCOPE_REF@"
+          "@OPERATION_DOMAIN_SERVICE@"
+          "@OPERATION_AUDIENCE_FINGERPRINT@"
+          "@OPERATION_RELEASE_DIGEST@"
+        ]
+        [
+          (if configuredOperationReferences then cfg.operationReferences.root else "")
+          (if configuredOperationReferences then cfg.operationReferences.scopeRef else "")
+          (if configuredOperationReferences then cfg.operationReferences.domainService else "")
+          (if configuredOperationReferences then cfg.operationReferences.audienceFingerprint else "")
+          (if configuredOperationReferences then cfg.operationReferences.releaseDigest else "")
         ];
   };
 
@@ -236,6 +266,7 @@ let
           "@ADMIN_PRINCIPAL@"
           "@SOURCE_REFERENCE@"
           "@BINDING_TTL_SECONDS@"
+          "@OPERATION_REFERENCE_HELPER@"
         ]
         [
           "${janusPackage}/bin/janusd-admin"
@@ -257,6 +288,7 @@ let
           (roleValue "adminPrincipal")
           (roleValue "sourceReference")
           (if configuredRoles then toString cfg.roleAuthorization.bindingTtlSeconds else "")
+          "${operationReference}/bin/pharos-guarded-operation-reference"
         ];
   };
 
@@ -388,6 +420,32 @@ in
         but Janus refuses the guarded action at runtime.
       '';
     };
+    operationReferences = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            root = lib.mkOption { type = lib.types.str; };
+            scopeRef = lib.mkOption { type = lib.types.str; };
+            domainService = lib.mkOption { type = lib.types.str; };
+            audienceFingerprint = lib.mkOption { type = lib.types.str; };
+            releaseDigest = lib.mkOption { type = lib.types.str; };
+          };
+        }
+      );
+      default = null;
+      description = ''
+        Protected controller-prepared, single-use authoritative operation
+        references for recorded role grants and guarded actions. The controller
+        installs raw references at incoming/role-bootstrap/SOURCE/STEP.json or
+        incoming/actions/LEASE/PHASE/ACTION/{approval,execute}.json beneath
+        root. Bootstrap lineage is
+        inspr397-guarded-role-bootstrap-v1|source=SOURCE|step=STEP. Action
+        lineage is inspr397-guarded-action-v1|id=LEASE|host=HOST|ticket=TICKET|
+        phase=PHASE|action=ACTION. Every component is thus bound to the signed
+        opaque operation reference, and each nonce moves to consumed before
+        use. When unset, recorded Janus commands continue to fail closed.
+      '';
+    };
     actionPollSeconds = lib.mkOption {
       type = lib.types.ints.between 10 300;
       default = 15;
@@ -481,8 +539,31 @@ in
       {
         assertion =
           !configuredRoles
-          || builtins.match "[A-Z][A-Z0-9]+-[0-9]+" cfg.roleAuthorization.sourceReference != null;
+          || (
+            builtins.match "[A-Z][A-Z0-9]+-[0-9]+" cfg.roleAuthorization.sourceReference != null
+            && builtins.stringLength cfg.roleAuthorization.sourceReference <= 32
+          );
         message = "inspr.pharosGuardedDeploy role sourceReference must be a PPM issue key";
+      }
+      {
+        assertion = !configuredOperationReferences || configuredRoles;
+        message = "inspr.pharosGuardedDeploy operationReferences requires configured role authorization";
+      }
+      {
+        assertion =
+          !configuredOperationReferences
+          || (
+            builtins.match "/var/lib/pharos-guarded-deploy/[A-Za-z0-9._/-]+" cfg.operationReferences.root
+            != null
+            && !(lib.hasInfix ".." cfg.operationReferences.root)
+            && !(lib.hasInfix "//" cfg.operationReferences.root)
+            && !(lib.hasSuffix "/" cfg.operationReferences.root)
+            && builtins.match "scp_[0-9a-f]{40}" cfg.operationReferences.scopeRef != null
+            && builtins.match "[A-Za-z0-9][A-Za-z0-9._-]{0,127}" cfg.operationReferences.domainService != null
+            && builtins.match "sha256:[0-9a-f]{64}" cfg.operationReferences.audienceFingerprint != null
+            && builtins.match "sha256:[0-9a-f]{64}" cfg.operationReferences.releaseDigest != null
+          );
+        message = "inspr.pharosGuardedDeploy operation reference context must be exact and bounded";
       }
     ];
 
@@ -591,6 +672,11 @@ in
     ++ lib.optionals configuredRoles [
       "d ${cfg.roleAuthorization.bindingsRoot} 0700 root root -"
       "f ${cfg.roleAuthorization.auditFile} 0600 root root -"
+    ]
+    ++ lib.optionals configuredOperationReferences [
+      "d ${cfg.operationReferences.root} 0700 root root -"
+      "d ${cfg.operationReferences.root}/incoming 0700 root root -"
+      "d ${cfg.operationReferences.root}/consumed 0700 root root -"
     ];
 
     systemd.services.pharos-guarded-deploy-bootstrap = {
