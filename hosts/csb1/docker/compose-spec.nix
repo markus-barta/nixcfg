@@ -762,7 +762,7 @@ in
       # manifests as the smoke harness; no production secret or host SSH key is
       # mounted into the staged Rust engine. Use the smoke harness, not manual
       # project-wide compose lifecycle commands, when testing this profile.
-      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.36@sha256:1b98dcb05c353a50395a25b3ebe558423023fee8c89a52ff84f9783234a941f6";
+      image = "ghcr.io/inspr-at/janus/janus-engine:rust-engine-v0.1.37@sha256:26f616418b1e86dcf10f1fff9309a08a5980c274441afe48fb1a9e63106c4c64";
       container_name = "janus-engine-staged";
       profiles = [
         "janus-engine-staged"
