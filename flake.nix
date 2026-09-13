@@ -93,10 +93,10 @@
     # context flakes) provide identity-specific values; the atelier stays
     # opinionated only about mechanics. (Older docs: "Pattern β".)
     #
-    # NIX-447: pin the published routing-edge library. Rollback is the previous
-    # synchronized 73e15491 flake-lock + doctrine gitlink pair. Do not add a
-    # second routing flake input.
-    inspr-modules.url = "github:inspr-at/inspr-modules/v0.9.0";
+    # NIX-492 / INSPR-424: Calendar Versioning adoption in every managed harness.
+    # Keep this input synchronized with the doctrine gitlink. Rollback is the
+    # previous v0.9.0 / 1ee78a780ce14d78cb3447706283e10378f457c7 pair.
+    inspr-modules.url = "github:inspr-at/inspr-modules/2da0dd79d49856bacf24f03efeb5e56495b534bf";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 

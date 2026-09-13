@@ -6,6 +6,10 @@
 
 <!-- KERNEL-MIRROR-BEGIN — 🔴 subset of doctrine/docs/AGENTS-KERNEL.md for tools that don't follow the CLAUDE.md @-ref (Cursor, Aider, OpenCode, Codex CLI). Claude Code already has the full kernel. Re-mirror after `git submodule update --remote doctrine`. -->
 
+## Worker routing (kernel mirror)
+
+**Version-bearing work:** load `AGENTS-VERSIONING.md` (or the installed `inspr-worker-doctrine` reference) at project bootstrap and before release/deployment. INSPR Calendar Versioning is the default: pick up existing adoption tickets for the next deployment; without one, propose and track adoption; adopted projects review their saved presentation pin. Preserve migration/review gates and historical artifacts.
+
 ## Hard safety (kernel mirror — 🔴 only)
 
 - **Identity**: Markus Barta, `markus@barta.com`, `markus-barta`. Never invent placeholders.
