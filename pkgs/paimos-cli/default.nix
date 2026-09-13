@@ -64,7 +64,7 @@ buildGo1267Module {
   # strips from the vendor tree — proxyVendor preserves the full module zips
   # from the Go proxy, so cgo can find the headers.
   proxyVendor = true;
-  vendorHash = "sha256-P01mOQ72YLo/PYyHfAsOUicOIGb+y48ZiI+a1RIJvgg=";
+  vendorHash = "sha256-aKLPs59kPpogYWI3uUuPs3hw2VqeVBswrODcr0+fpD0=";
 
   # Upstream CI runs `go test ./...` on every push; re-running inside the
   # Nix sandbox adds latency without catching anything new, and some tests
