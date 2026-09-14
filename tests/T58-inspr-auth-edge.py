@@ -9,6 +9,7 @@ import ipaddress
 import json
 import os
 import pathlib
+import re
 import stat
 import subprocess
 import sys
@@ -79,6 +80,42 @@ def label_map(labels: Any) -> dict[str, str]:
 def in_ranges(address: str, ranges: list[str]) -> bool:
     candidate = ipaddress.ip_address(address)
     return any(candidate in ipaddress.ip_network(cidr) for cidr in ranges)
+
+
+def compose_service_dependencies(
+    configuration: str, attribute: str
+) -> tuple[list[str], list[str]]:
+    compose_service = re.search(
+        r"^\s*systemd\.services\.compose-csb1\s*=\s*\{(?P<body>.*?)^\s*\};",
+        configuration,
+        re.MULTILINE | re.DOTALL,
+    )
+    require(compose_service is not None, "compose-csb1 service declaration is missing")
+    dependency = re.search(
+        rf"^\s*{re.escape(attribute)}\s*=\s*\[(?P<always>.*?)\]"
+        r"\s*\+\+\s*lib\.optionals\s+sharedFlow\.active\s*"
+        r"\[(?P<shared_flow>.*?)\]\s*;",
+        compose_service.group("body"),
+        re.MULTILINE | re.DOTALL,
+    )
+    require(
+        dependency is not None,
+        f"compose-csb1 {attribute} must preserve the shared Flow dependency split",
+    )
+
+    def literal_units(group: str) -> list[str]:
+        fragment = dependency.group(group)
+        string_pattern = r'"(?:\\.|[^"\\])*"'
+        tokens = re.findall(string_pattern, fragment)
+        remainder = re.sub(string_pattern, "", fragment)
+        remainder = re.sub(r"(?m)#.*$", "", remainder)
+        require(
+            not remainder.strip(),
+            f"compose-csb1 {attribute} {group} contains a non-literal unit",
+        )
+        return [json.loads(token) for token in tokens]
+
+    return literal_units("always"), literal_units("shared_flow")
 
 
 def verify_topology(
@@ -371,10 +408,25 @@ def main() -> int:
         in configuration,
         "renderer must load the same age-backed environment as inspr-auth",
     )
-    require(
-        'requires = [ "inspr-edge-config.service" ];' in configuration,
-        "compose-csb1 must require successful edge configuration",
-    )
+    expected_always = ["inspr-edge-config.service"]
+    expected_shared_flow = {
+        "aithema-workspace.service",
+        "inspr-shared-flow-config.service",
+        "inspr-shared-flow-network.service",
+    }
+    for dependency_attribute in ("requires", "after"):
+        always, shared_flow = compose_service_dependencies(
+            configuration, dependency_attribute
+        )
+        require(
+            always == expected_always,
+            f"compose-csb1 must always {dependency_attribute} successful edge configuration",
+        )
+        require(
+            len(shared_flow) == len(expected_shared_flow)
+            and set(shared_flow) == expected_shared_flow,
+            f"compose-csb1 must {dependency_attribute} every active shared Flow service",
+        )
     require(
         "config.age.secrets.csb1-inspr-auth-env.file" in configuration,
         "edge renderer must restart when its encrypted source changes",
