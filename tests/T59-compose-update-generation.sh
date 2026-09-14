@@ -73,4 +73,4 @@ if bash "$helper" "${work}/missing.yml" "$expected_a" "$lock" 5 \
   exit 1
 fi
 
-echo "T57 compose update generation guard OK"
+echo "T59 compose update generation guard OK"
