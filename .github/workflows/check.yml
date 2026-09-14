@@ -152,6 +152,9 @@ jobs:
       - name: Verify compose-stack contract and YAML equivalence (OPS-116/117)
         run: nix-shell -p yq-go --run tests/T37-compose-stack.sh
 
+      - name: Verify stale compose updater generation guard (NIX-496)
+        run: tests/T59-compose-update-generation.sh
+
       - name: Verify Pharos deployment evidence wiring (NIX-348 / OPS-186)
         run: tests/T38-pharos-deployment-evidence.sh
 
