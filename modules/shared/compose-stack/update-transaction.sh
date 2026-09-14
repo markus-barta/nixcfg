@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if (( $# < 8 )); then
+if (($# < 8)); then
   echo "usage: $0 ACTIVE_COMPOSE EXPECTED_COMPOSE LOCK TIMEOUT COMPOSE PROJECT PROJECT_DIR PULL_MODE [PULL_TARGET ...]" >&2
   exit 64
 fi
@@ -44,30 +44,30 @@ if [[ -n "$project_directory" ]]; then
 fi
 
 case "$pull_mode" in
-  all)
-    if (( $# != 0 )); then
-      echo "compose update refused: pull targets supplied in all mode" >&2
-      exit 64
-    fi
-    "$compose_bin" "${compose_args[@]}" pull --quiet
-    ;;
-  none)
-    if (( $# != 0 )); then
-      echo "compose update refused: pull targets supplied in none mode" >&2
-      exit 64
-    fi
-    ;;
-  targets)
-    if (( $# == 0 )); then
-      echo "compose update refused: targets mode requires at least one service" >&2
-      exit 64
-    fi
-    "$compose_bin" "${compose_args[@]}" pull --quiet "$@"
-    ;;
-  *)
-    echo "compose update refused: invalid pull mode" >&2
+all)
+  if (($# != 0)); then
+    echo "compose update refused: pull targets supplied in all mode" >&2
     exit 64
-    ;;
+  fi
+  "$compose_bin" "${compose_args[@]}" pull --quiet
+  ;;
+none)
+  if (($# != 0)); then
+    echo "compose update refused: pull targets supplied in none mode" >&2
+    exit 64
+  fi
+  ;;
+targets)
+  if (($# == 0)); then
+    echo "compose update refused: targets mode requires at least one service" >&2
+    exit 64
+  fi
+  "$compose_bin" "${compose_args[@]}" pull --quiet "$@"
+  ;;
+*)
+  echo "compose update refused: invalid pull mode" >&2
+  exit 64
+  ;;
 esac
 
 # Activation can replace /etc while a registry pull is in flight. Check again
