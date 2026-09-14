@@ -36,6 +36,7 @@ trap 'report_failure "$LINENO"' ERR
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 stage="$repo_root/hosts/csb1/paimos-delivery-stage.nix"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
+shared_flow="$repo_root/hosts/csb1/shared-flow.nix"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 pharos_module="$repo_root/modules/pharos-paimos-delivery/default.nix"
 pharos_eval="$repo_root/tests/pharos-paimos-delivery-eval.nix"
@@ -44,7 +45,7 @@ janus_eval="$repo_root/tests/janus-paimos-dependency-reporter-eval.nix"
 # The one place this repo already declares the canonical Paimos instances.
 paimos_defaults="$repo_root/modules/shared/markus-defaults.nix"
 
-for file in "$stage" "$compose" "$host_config" "$pharos_module" "$pharos_eval" "$janus_module" "$janus_eval"; do
+for file in "$stage" "$compose" "$shared_flow" "$host_config" "$pharos_module" "$pharos_eval" "$janus_module" "$janus_eval"; do
   nix-instantiate --parse "$file" >/dev/null
 done
 
@@ -239,11 +240,20 @@ sed 's/^  active = true;/  active = false;/' "$stage" >"$workdir/off/paimos-deli
 sed 's/^  active = false;/  active = true;/' "$stage" >"$workdir/on/paimos-delivery-stage.nix"
 cp "$compose" "$workdir/off/docker/compose-spec.nix"
 cp "$compose" "$workdir/on/docker/compose-spec.nix"
-# NIX-442: compose-spec.nix also imports the Flow switch via a sibling path.
-# The fixture copies must keep that relative import resolvable; Flow stays
-# inactive in both T48 positions.
+# NIX-442/NIX-501: compose-spec.nix also imports both Flow switches through
+# sibling paths. The fixture copies keep those imports resolvable and inactive
+# while only the Paimos delivery selector changes.
 cp "$repo_root/hosts/csb1/pharos-flow-host.nix" "$workdir/off/pharos-flow-host.nix"
 cp "$repo_root/hosts/csb1/pharos-flow-host.nix" "$workdir/on/pharos-flow-host.nix"
+cp "$shared_flow" "$workdir/off/shared-flow.nix"
+cp "$shared_flow" "$workdir/on/shared-flow.nix"
+
+for fixture in off on; do
+  grep -Fq '  active = false;' "$workdir/$fixture/shared-flow.nix" || {
+    printf 'Paimos fixture must leave shared Flow inactive: %s\n' "$fixture" >&2
+    exit 1
+  }
+done
 
 grep -Fq '  active = false;' "$workdir/off/paimos-delivery-stage.nix" ||
   {

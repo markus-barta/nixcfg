@@ -10,11 +10,12 @@ fi
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 stage="$repo_root/hosts/csb1/janus-flow-host.nix"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
+shared_flow="$repo_root/hosts/csb1/shared-flow.nix"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 module="$repo_root/modules/janus-flow-host/default.nix"
 eval_file="$repo_root/tests/janus-flow-host-eval.nix"
 
-for file in "$stage" "$compose" "$host_config" "$module" "$eval_file"; do
+for file in "$stage" "$compose" "$shared_flow" "$host_config" "$module" "$eval_file"; do
   nix-instantiate --parse "$file" >/dev/null
 done
 
@@ -142,6 +143,15 @@ sed 's/^  active = false;/  active = true;/' "$stage" >"$workdir/on/janus-flow-h
 cp "$stage" "$workdir/off/janus-flow-host.nix"
 cp "$compose" "$workdir/off/docker/compose-spec.nix"
 cp "$compose" "$workdir/on/docker/compose-spec.nix"
+cp "$shared_flow" "$workdir/off/shared-flow.nix"
+cp "$shared_flow" "$workdir/on/shared-flow.nix"
+
+for fixture in off on; do
+  grep -Fq '  active = false;' "$workdir/$fixture/shared-flow.nix" || {
+    printf 'Janus fixture must leave shared Flow inactive: %s\n' "$fixture" >&2
+    exit 1
+  }
+done
 
 as_nix_string() {
   python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
