@@ -1181,3 +1181,50 @@ test("file store reads the validated inode if the pathname is replaced", () => {
   assert.equal(loaded.ok, true);
   assert.deepEqual(loaded.state, source.state);
 });
+
+
+test("family callback blip preserves its input reason and durable accepted state, then recovers", () => {
+  let pending = false;
+  const session = setup({
+    at: "2026-09-10T14:00:00Z",
+    calculate: (args) => pending
+      ? { ok: false, reason: "portfolio mark predates the latest execution", failureKind: "pending-input" }
+      : calculator(args),
+  });
+  const api = connect(session);
+  complete(api, [execution("blip.01", 51)]);
+  emitFx(api, "EUR", 1);
+  emitFx(api, "USD", 0.9);
+  const currentBook = book("2026-09-10T14:00:00Z");
+  assert.equal(session.adapter.project(currentBook).ok, true);
+  const lastGood = session.store.state.family;
+  const saves = session.store.saves;
+  pending = true;
+  const unavailable = session.adapter.project(currentBook);
+  assert.equal(unavailable.ok, false);
+  assert.equal(unavailable.hardFailure, false);
+  assert.match(unavailable.reason, /portfolio mark predates the latest execution/);
+  assert.deepEqual(session.store.state.family, lastGood);
+  assert.equal(session.store.saves, saves);
+  const allDesks = session.adapter.projectDeskEquities(currentBook, { calculateDeskEquities: () => assert.fail("pending family cannot become fresh all-desk money") });
+  assert.equal(allDesks.hardFailure, false);
+  assert.equal(allDesks.reason, unavailable.reason);
+  pending = false;
+  assert.deepEqual(session.adapter.project(currentBook), lastGood);
+});
+
+test("structural calculator failure is hard and diagnostic text is bounded", () => {
+  const session = setup({
+    at: "2026-09-10T14:00:00Z",
+    calculate: () => ({ ok: false, reason: "conflicting duplicate execution ID\n" + "x".repeat(300), failureKind: "hard" }),
+  });
+  const api = connect(session);
+  complete(api, [execution("hard.01", 51)]);
+  emitFx(api, "EUR", 1);
+  emitFx(api, "USD", 0.9);
+  const result = session.adapter.project(book("2026-09-10T14:00:00Z"));
+  assert.equal(result.hardFailure, true);
+  assert.match(result.reason, /^family calculator: conflicting duplicate execution ID/);
+  assert.equal(result.reason.includes("\n"), false);
+  assert.ok(result.reason.length <= 219);
+});

@@ -420,6 +420,11 @@ function validateOpenPnlEvidence(result) {
 }
 
 function validateFamilyResult(result, { requireOpenEvidence = false } = {}) {
+  if (result?.ok === false && typeof result.reason === "string" && result.reason.trim()) {
+    // The pure calculator emits value-free diagnostic reasons; do not discard
+    // the input failure that operators need to distinguish a callback blip.
+    return `family calculator: ${result.reason.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 200)}`;
+  }
   if (!result || result.ok !== true || !iso(result.observedAt)) return "calculator did not return a complete family result";
   for (const field of ["equity", "totalPnl", "realizedPnl", "unrealizedPnl"]) {
     if (!Number.isFinite(result[field])) return `calculator returned invalid ${field}`;
@@ -985,7 +990,7 @@ export function createFamilySessionAdapter({
   }
 
   function project(book) {
-    if (blockedReason) return { ok: false, reason: blockedReason };
+    if (blockedReason) return { ok: false, reason: blockedReason, hardFailure: true };
     if (retryReason) return { ok: false, reason: retryReason };
     if (!state) return { ok: false, reason: "family ledger has not completed its baseline execution cycle" };
     if (!connected || !executionReady) return { ok: false, reason: "fresh complete execution cycle unavailable" };
@@ -1048,10 +1053,10 @@ export function createFamilySessionAdapter({
         observedAt,
       });
     } catch (error) {
-      return { ok: false, reason: `family calculator failed: ${error?.message || error}` };
+      return { ok: false, reason: `family calculator failed: ${error?.message || error}`, hardFailure: true };
     }
     const invalid = validateFamilyResult(result, { requireOpenEvidence: true });
-    if (invalid) return { ok: false, reason: invalid };
+    if (invalid) return { ok: false, reason: invalid, hardFailure: result?.failureKind !== "pending-input" };
     const normalized = { ...clone(result), observedAt: iso(result.observedAt) };
     const continuityReason = continuity.reason;
     if (continuityReason) {
@@ -1110,7 +1115,7 @@ export function createFamilySessionAdapter({
       return { ok: false, reason: "all-desk equity calculator is unavailable" };
     }
     const family = project(book);
-    if (!family.ok) return { ok: false, reason: family.reason };
+    if (!family.ok) return { ok: false, reason: family.reason, hardFailure: family.hardFailure === true };
     if (typeof getVerifiedHistoryState !== "function") {
       return { ok: false, reason: "authoritative all-account history is unavailable" };
     }
