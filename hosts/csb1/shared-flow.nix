@@ -1,9 +1,8 @@
 # NIX-501: one value-free activation boundary for csb1's shared Flow origin.
 #
-# The controller flips only `active`, in the same reviewed release that
-# provisions the protected Aithema runtime config. Every network, route,
-# application public-path setting, and private name-resolution effect is
-# derived from that selector by configuration.nix and compose-spec.nix.
+# `active` remains the sole deployment boundary for network, route, application
+# public-path, credential-load, and private name-resolution effects. The nested
+# value-free Paimos selector may be prepared only with its protected inputs.
 let
   active = false;
   publicHost = "flow.inspr.at";
@@ -110,6 +109,15 @@ in
   aithema = {
     configFile = "/run/agenix/csb1-aithema-workspace-config";
     dataDirectory = "/var/lib/aithema-workspace";
+    paimosHarness = {
+      # False preserves existing direct-API-only operation without requiring a
+      # second credential. Enable only with the protected key and matching
+      # paimos-harness provider entries ready for the same activation.
+      enable = false;
+      credentialSource = "/run/agenix/csb1-aithema-paimos-conversation-key";
+      credentialName = "paimos-conversation-api-key";
+      credentialFile = "/run/credentials/aithema-workspace.service/paimos-conversation-api-key";
+    };
   };
 
   # Server-to-server callers retain origin-only HTTPS URLs. Resolution is
