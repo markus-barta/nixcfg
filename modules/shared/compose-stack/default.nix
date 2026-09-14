@@ -82,6 +82,15 @@ let
   # through a YAML writer that could reorder or requote anything.
   composeFile = pkgs.writeText "docker-compose-${cfg.project}.yml" (builtins.toJSON renderedSpec);
 
+  composeUpdateTransaction = pkgs.writeShellApplication {
+    name = "compose-update-transaction";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.util-linux
+    ];
+    text = builtins.readFile ./update-transaction.sh;
+  };
+
   projectDirFlag = lib.optionalString (
     cfg.projectDirectory != null
   ) "--project-directory ${lib.escapeShellArg cfg.projectDirectory}";
@@ -448,8 +457,6 @@ in
               };
               script =
                 let
-                  compose = "${pkgs.docker-compose}/bin/docker-compose -p ${lib.escapeShellArg cfg.project} -f ${composeFile} ${projectDirFlag}";
-                  locked = "${pkgs.util-linux}/bin/flock -w 1770 /run/lock/compose-${cfg.stackName}.lock";
                   # NIX-352: with exclusions, pull an explicit service list instead of
                   # the whole stack — a stack-wide pull aborts on the first denied
                   # image and starves everything else of its update. Only image-
@@ -459,17 +466,27 @@ in
                   pullTargets = lib.filter (svc: !(lib.elem svc cfg.autoUpdate.excludeFromPull)) (
                     lib.attrNames (lib.filterAttrs (_: service: service ? image) (cfg.spec.services or { }))
                   );
-                  pullCommand =
+                  pullMode =
                     if cfg.autoUpdate.excludeFromPull == [ ] then
-                      "${locked} ${compose} pull --quiet"
+                      "all"
                     else if pullTargets == [ ] then
-                      ": # every image-bearing service is excluded from pull"
+                      "none"
                     else
-                      "${locked} ${compose} pull --quiet ${lib.escapeShellArgs pullTargets}";
+                      "targets";
+                  pullArguments = lib.optionals (pullMode == "targets") pullTargets;
+                  projectDirectory = if cfg.projectDirectory == null then "" else toString cfg.projectDirectory;
                 in
                 ''
-                  ${pullCommand}
-                  ${locked} ${compose} up -d
+                  ${composeUpdateTransaction}/bin/compose-update-transaction \
+                    ${lib.escapeShellArg "/etc/compose/${cfg.stackName}/docker-compose.yml"} \
+                    ${lib.escapeShellArg composeFile} \
+                    ${lib.escapeShellArg "/run/lock/compose-${cfg.stackName}.lock"} \
+                    1770 \
+                    ${lib.escapeShellArg "${pkgs.docker-compose}/bin/docker-compose"} \
+                    ${lib.escapeShellArg cfg.project} \
+                    ${lib.escapeShellArg projectDirectory} \
+                    ${pullMode} \
+                    ${lib.escapeShellArgs pullArguments}
                 '';
             }
             (registryAuth "-update")
