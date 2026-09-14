@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# T78 — consume the published Aithema 0.7 NixOS module on csb1 while keeping
+# T78 — consume the published Aithema 0.8 NixOS module on csb1 while keeping
 # production runtime custody, IAM, routing and activation explicitly absent.
 set -euo pipefail
 
@@ -22,10 +22,10 @@ flake_nix="$repo_root/flake.nix"
 flake_lock="$repo_root/flake.lock"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 consumer_eval="$repo_root/tests/aithema-workspace-consumer-eval.nix"
-expected_rev="477ae3f2169ca1aefbaf16e03eea1a2ed6c1cc8b"
-expected_narhash="sha256-XEEj4nfTdlcYPrPGv3m8dyisjwFiDASrGaFeSNatdAY="
-expected_version="0.7.0"
-expected_source_rev="981e4d49b9360c430ae944afa4df29a37d536c76"
+expected_rev="c784570daa3bc87ae115f1628c18c110609a14a0"
+expected_narhash="sha256-oiQHaMcP8cjYvEzMu4hTUryVogvxumkOzJ+7SBdmwPs="
+expected_version="0.8.0"
+expected_source_rev="fb5ac0239821a4efa9ae4930c1a0ec6545095498"
 repo_revision=$(git -C "$repo_root" rev-parse HEAD)
 export NIX498_FLAKE_REF="git+file://${repo_root}?rev=${repo_revision}&shallow=1"
 
