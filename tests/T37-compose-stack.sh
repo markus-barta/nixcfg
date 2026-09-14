@@ -133,14 +133,14 @@ if [ -z "$(git -C "${repo}" status --porcelain 2>/dev/null)" ]; then
     echo "FAIL: csb1 weekly updater still pulls hausv-org (NIX-352)"
     exit 1
   fi
-  grep -q 'pull --quiet' <<<"${update_script}" ||
+  grep -q 'compose-update-transaction' <<<"${update_script}" ||
     {
-      echo "FAIL: csb1 weekly updater lost its pull step (NIX-352)"
+      echo "FAIL: csb1 weekly updater lost its guarded transaction (NIX-496)"
       exit 1
     }
-  grep -q 'up -d' <<<"${update_script}" ||
+  grep -q '/etc/compose/csb1/docker-compose.yml' <<<"${update_script}" ||
     {
-      echo "FAIL: csb1 weekly updater lost its up -d (NIX-352)"
+      echo "FAIL: csb1 weekly updater is not bound to its active compose generation (NIX-496)"
       exit 1
     }
   # NIX-384: once the pull token exists, both root-run units must log in to
