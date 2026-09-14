@@ -3,6 +3,12 @@
 # Pure/static only: never evaluates or builds a NixOS configuration.
 set -euo pipefail
 
+if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  printf '%s: bash %s is too old -- set -e does not abort on a failing [[ ]], so this test would FALSELY PASS. Run under bash 5: nix run nixpkgs#bash -- %s\n' \
+    "${0##*/}" "$BASH_VERSION" "$0" >&2
+  exit 2
+fi
+
 report_failure() {
   local exit_code=$?
   local line=$1
