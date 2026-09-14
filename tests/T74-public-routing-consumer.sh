@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # T74 — pin the published routing-edge library and keep the csb1 consumer
-# boundary inactive (NIX-447). NIX-448 pins the host Traefik image; this
-# test still must not claim existingTraefikVersion until the public
-# consumer library is upgraded.
+# boundary inactive (NIX-447). NIX-501 prepares the activation contract behind
+# the shared Flow selector; the actual projection below must remain effect-free.
 #
 # What can actually go wrong here, and what each block therefore proves:
 #
@@ -15,10 +14,10 @@
 #      Disabled effects are projected from nixosConfigurations.csb1.
 #   3. Prepared selectors accidentally install a routing-owned fragment,
 #      service, or compose mount, or the host Traefik image floats again.
-#   4. Public fixtures or invented origins are substituted for the still-
-#      pending operator choice.
-#   5. Forcing enable=true on the actual host without a contract must fail
-#      closed, not silently compile a fragment.
+#   4. The prepared activation contract leaks into the inactive evaluated
+#      module state.
+#   5. Forcing enable=true without flipping the shared selector must fail
+#      closed, not silently compile a fragment from an inactive contract.
 set -euo pipefail
 
 report_failure() {
@@ -85,28 +84,6 @@ grep -Fq "expected_checker_blob=\"$expected_checker_blob\"" "$t42"
 # --- 2. actual host source binds the published module and linux package ----
 grep -Fq 'inputs.inspr-modules.nixosModules.routing-edge' "$host_config"
 grep -Fq 'package = inputs.inspr-modules.packages.x86_64-linux.routing-edge' "$host_config"
-grep -Fq 'deploymentMode = "external-file-provider"' "$host_config"
-grep -Fq 'entrypoint.name = "web-secure"' "$host_config"
-grep -Fq 'certificateResolver = "default"' "$host_config"
-grep -Fq 'resourceNamespace = "inspr-routing-edge"' "$host_config"
-grep -Fq "providerFile = \"$provider_file\"" "$host_config"
-grep -Fq 'allowUnpinnedTraefik = false' "$host_config"
-if grep -Fq 'allowUnpinnedTraefik = true' "$host_config"; then
-  printf 'T74: host config owns unverified Traefik compatibility\n' >&2
-  exit 1
-fi
-if grep -Eq 'existingTraefikVersion[[:space:]]*=' "$host_config"; then
-  printf 'T74: host config claims existingTraefikVersion before the public consumer pin matches\n' >&2
-  exit 1
-fi
-if grep -Eq 'upstreams[[:space:]]*=' "$host_config"; then
-  printf 'T74: host config must not invent upstream origins before the operator chooses them\n' >&2
-  exit 1
-fi
-if grep -Eq 'contractFile[[:space:]]*=' "$host_config"; then
-  printf 'T74: host config must not substitute a fixture contract for the pending origin choice\n' >&2
-  exit 1
-fi
 
 # --- 3. existing Traefik auth fragment stays distinct in source ------------
 grep -Fq 'directory: /etc/traefik/dynamic' "$repo_root/hosts/csb1/docker/traefik/static.yml"
@@ -130,7 +107,7 @@ jq -e --arg provider "$provider_file" '
   .enable == false
   and .deploymentMode == "external-file-provider"
   and .entrypointName == "web-secure"
-  and .certificateResolver == "default"
+  and .certificateResolver == "public-http"
   and .resourceNamespace == "inspr-routing-edge"
   and .providerFile == $provider
   and .allowUnpinnedTraefik == false
