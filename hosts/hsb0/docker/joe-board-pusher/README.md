@@ -116,9 +116,12 @@ fixed baseline through the prior New York midnight is covered continuously by
 validated official receipts, the existing full `family` result is accepted by the
 normal money path with its €5,000 virtual capital exactly once.
 
-DAY uses an exact, durable America/New_York start-of-day virtual-equity baseline.
-The whole-account IB DailyPnL includes KEEP and is therefore not used. A first
-observation after startup is never treated as the day baseline.
+DAY prefers an exact, durable America/New_York start-of-day virtual-equity
+baseline. The whole-account IB DailyPnL includes KEEP and is therefore not used.
+When an exact boundary vector is unavailable, the first complete fresh
+KEEP-excluded virtual-equity observation in that New York day is fixed durably
+as a `session_open_proxy`. Its first delta is explicitly zero because the sample
+is the proxy reference, not because a broker reported zero for the full day.
 
 `day-baseline.mjs` supplies the bounded persistence and calculation half of that
 SOD path. It accepts only a complete EUR `{ j, joe, joel, total }` virtual-equity
@@ -127,7 +130,9 @@ vector under an exact source-contract fingerprint whose scope is
 the oldest contributing mark/FX observation, a complete execution-coverage
 watermark, and an effective economic-history digest. The adapter persists the
 latest vector atomically and retains the freshest vector actually observed at or
-before the next New York midnight. It never seeds from the first later sample.
+before the next New York midnight. A fresh first later sample may seed only the
+explicit session proxy, whose actual reference time remains distinct from the
+true midnight period start.
 
 The valuation convention is the last complete pre-boundary vector within the
 declared freshness limit, followed by authoritative execution evidence that the
@@ -136,8 +141,12 @@ effective execution/fee digest did not change before the exact half-open cutoff
 their oldest observation is recorded and bounded. The coverage receipt and proof
 may arrive after midnight and may extend beyond it, but its revision must be
 calculated at the midnight cutoff. This keeps post-boundary executions out of SOD.
-DAY is then current proven virtual equity minus that fixed vector, so closed
-roundtrips remain included even after their positions disappear.
+DAY is then current proven virtual equity minus the fixed exact or proxy vector,
+so closed roundtrips remain included even after their positions disappear. A
+pending exact proof does not suppress an available proxy; a later valid exact
+proof supersedes it. Both choices survive restart and reset on the next New York
+date. Proxy metadata marks the result approximate and describes it as change
+since the recorded sample, never as full-day P&L.
 
 `desk-ledger.mjs` supplies the live vector from the complete official all-account
 history, effective dated desk ownership, execution-owned FIFO, current marks, and
@@ -157,7 +166,8 @@ ownership policy, and KEEP exclusion; it excludes receipt/capture timestamps.
 Complete official intervals must have no gap across
 `[candidate execution watermark, periodStart)`. Source method, policy hash, history
 revision, ownership completeness, persistence, freshness, or coverage disagreement
-leaves every DAY value unavailable while the rest of the board continues. Runtime
+rejects the affected evidence; an independently valid fixed proxy may remain
+available while exact-boundary proof is pending. Runtime
 state is stored atomically at `/var/lib/joe-board-pusher/day-baseline.json` beside
 the existing family ledger and history sidecar on the same persistent mount.
 
@@ -376,7 +386,7 @@ Rows emit `currency` (uppercase contract currency when known) and
 `mark` is emitted with a known quote currency. Position `marketValue` stays absent;
 position `openPnl` is the owned-lot current-mark result in EUR for verified J
 positions and is explicitly `null` while OPEN is unavailable. `dayPnl` stays
-`null` until a real day feed or exact SOD baseline exists. Push heartbeats never advance
+`null` until a valid exact SOD baseline or explicit session proxy exists. Push heartbeats never advance
 the broker snapshot timestamp; before the first complete broker snapshot the
 publisher skips the push rather than fabricating an empty book.
 

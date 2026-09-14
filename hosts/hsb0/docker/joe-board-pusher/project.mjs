@@ -1,7 +1,7 @@
 /** Project IB book state → inspr.joe.household.v1 (mirrors joe-household-sync.py). */
 
 import { currencyCode, deskForSymbol, strictFinite } from "./positions-state.mjs";
-import { DAY_PNL_METHOD } from "./day-baseline.mjs";
+import { DAY_PNL_METHOD, newYorkPeriodStart } from "./day-baseline.mjs";
 import {
   CURRENT_DESK_OWNERSHIP_POLICY,
   DESK_HISTORY_REVISION_METHOD,
@@ -317,16 +317,29 @@ function normalizedDayPnl(value) {
   const proofObservedAt = normalizedIso(value.evidence?.proofObservedAt);
   if (source.status !== "available" || source.method !== DAY_PNL_METHOD ||
       source.currency !== "EUR" || source.scope !== "virtual-desks" ||
-      !observedAt || !periodStart || !baselineSourceAt || !oldestSourceAt || !proofObservedAt ||
-      baselineSourceAt > periodStart || oldestSourceAt > baselineSourceAt ||
-      proofObservedAt < periodStart || observedAt < periodStart ||
-      !Number.isSafeInteger(value.evidence.ageAtBoundaryMs) || value.evidence.ageAtBoundaryMs < 0 ||
+      !observedAt || !periodStart || !baselineSourceAt || !oldestSourceAt ||
+      oldestSourceAt > baselineSourceAt || observedAt < baselineSourceAt ||
+      newYorkPeriodStart(observedAt) !== periodStart ||
       !Number.isSafeInteger(value.evidence.maxAgeMs) || value.evidence.maxAgeMs <= 0 ||
-      value.evidence.ageAtBoundaryMs > value.evidence.maxAgeMs ||
-      value.evidence.ageAtBoundaryMs !== Date.parse(periodStart) - Date.parse(oldestSourceAt) ||
       typeof value.evidence.historyRevisionMethod !== "string" || !value.evidence.historyRevisionMethod ||
       !/^[0-9a-f]{64}$/.test(value.evidence.historyRevision)) {
     return null;
+  }
+  const proxy = source.sodSource === "session_open_proxy";
+  if (proxy) {
+    if (source.approximate !== true || normalizedIso(source.referenceAt) !== baselineSourceAt ||
+        baselineSourceAt < periodStart || newYorkPeriodStart(baselineSourceAt) !== periodStart ||
+        value.evidence.proofObservedAt !== null ||
+        !Number.isSafeInteger(value.evidence.ageAtReferenceMs) || value.evidence.ageAtReferenceMs < 0 ||
+        value.evidence.ageAtReferenceMs > value.evidence.maxAgeMs ||
+        value.evidence.ageAtReferenceMs !== Date.parse(baselineSourceAt) - Date.parse(oldestSourceAt)) return null;
+  } else {
+    if ((source.sodSource !== undefined && source.sodSource !== "new_york_midnight_exact") ||
+        source.approximate === true || !proofObservedAt ||
+        baselineSourceAt > periodStart || proofObservedAt < periodStart ||
+        !Number.isSafeInteger(value.evidence.ageAtBoundaryMs) || value.evidence.ageAtBoundaryMs < 0 ||
+        value.evidence.ageAtBoundaryMs > value.evidence.maxAgeMs ||
+        value.evidence.ageAtBoundaryMs !== Date.parse(periodStart) - Date.parse(oldestSourceAt)) return null;
   }
   return {
     values,
@@ -337,7 +350,11 @@ function normalizedDayPnl(value) {
       scope: "virtual-desks",
       observedAt,
       periodStart,
-      detail: String(source.detail || "Verified New York SOD virtual-equity delta.").slice(0, 160),
+      // Keep the deployed consumer's exact-key wire contract. Proxy provenance
+      // remains explicit in its existing tooltip/detail until the UI upgrade.
+      detail: proxy
+        ? `session_open_proxy: estimated change since ${baselineSourceAt}; earlier day change excluded.`
+        : String(source.detail || "Verified New York SOD virtual-equity delta.").slice(0, 160),
     },
   };
 }

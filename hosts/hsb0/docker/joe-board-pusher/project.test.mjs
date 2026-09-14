@@ -1266,6 +1266,42 @@ test("a proven SOD equity delta populates every DAY value and source", () => {
     ["currency", "detail", "method", "observedAt", "periodStart", "scope", "status"].sort());
 });
 
+test("session proxy DAY stays numeric with explicit approximation in the compatible wire contract", () => {
+  const dayPnl = {
+    ok: true,
+    values: { j: 1.25, joe: -2, joel: 0, total: -0.75 },
+    source: {
+      status: "available", method: "sod-virtual-equity", currency: "EUR", scope: "virtual-desks",
+      observedAt: OBS_A, periodStart: "2026-09-10T04:00:00.000Z",
+      sodSource: "session_open_proxy", referenceAt: "2026-09-10T07:50:00.000Z", approximate: true,
+    },
+    evidence: {
+      sourceObservedAt: "2026-09-10T07:50:00.000Z", oldestSourceObservedAt: "2026-09-10T07:49:00.000Z",
+      proofObservedAt: null, ageAtReferenceMs: 60_000, maxAgeMs: 300_000,
+      historyRevisionMethod: "synthetic-sha256-v1", historyRevision: "c".repeat(64),
+    },
+  };
+  const snapshot = projectBook(baseBook(), { publisherAt: new Date(OBS_B), dayPnl });
+  assert.deepEqual(snapshot.desks.map((desk) => desk.money.dayPnl), [1.25, -2, 0]);
+  assert.equal(snapshot.totals.dayPnl, -0.75);
+  assert.match(snapshot.pnlSources.day.detail, /^session_open_proxy: estimated change since 2026-09-10T07:50:00.000Z; earlier day change excluded/);
+  assert.deepEqual(Object.keys(snapshot.pnlSources.day).sort(),
+    ["currency", "detail", "method", "observedAt", "periodStart", "scope", "status"].sort());
+  for (const mutate of [
+    (x) => { x.source.approximate = false; },
+    (x) => { x.source.referenceAt = "2026-09-10T07:55:00.000Z"; },
+    (x) => { x.source.sodSource = "unrecognized"; },
+    (x) => { x.source.periodStart = "2026-09-09T04:00:00.000Z"; },
+    (x) => { x.evidence.proofObservedAt = "2026-09-10T04:00:00.000Z"; },
+    (x) => { x.evidence.ageAtReferenceMs = 400_000; },
+    (x) => { x.evidence.sourceObservedAt = "2026-09-11T07:50:00.000Z"; },
+  ]) {
+    const invalid = structuredClone(dayPnl); mutate(invalid);
+    const rejected = projectBook(baseBook(), { publisherAt: new Date(OBS_B), dayPnl: invalid });
+    assert.equal(rejected.totals.dayPnl, null);
+  }
+});
+
 test("malformed DAY evidence fails closed and an unavailable producer reason is preserved", () => {
   const malformed = projectBook(baseBook(), {
     publisherAt: new Date(OBS_B),

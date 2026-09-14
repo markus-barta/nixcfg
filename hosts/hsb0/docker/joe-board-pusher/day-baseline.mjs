@@ -293,7 +293,7 @@ function validObservation(value, sourceContract) {
   }
 }
 
-function validState(value, { account, sourceContract, boundaryFreshMs }) {
+function validState(value, { account, sourceContract, boundaryFreshMs, currentFreshMs }) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "day baseline state is not an object";
   if (value.schema !== STATE_SCHEMA || value.version !== 1) return "unsupported day baseline state schema";
   if (value.account !== account) return "day baseline state account mismatch";
@@ -350,6 +350,33 @@ function validState(value, { account, sourceContract, boundaryFreshMs }) {
       if (newYorkPeriodStart(value.missed.periodStart) !== value.missed.periodStart) fail("missed periodStart is invalid");
       text(value.missed.reason, "missed reason");
     }
+    if (value.proxy !== undefined && value.proxy !== null) {
+      if (newYorkPeriodStart(value.proxy.periodStart) !== value.proxy.periodStart) fail("proxy periodStart is invalid");
+      if (validObservation(value.proxy.candidate, sourceContract)) fail("proxy candidate is invalid");
+      if (newYorkPeriodStart(value.proxy.candidate.sourceObservedAt) !== value.proxy.periodStart ||
+          value.proxy.candidate.sourceObservedAt < value.proxy.periodStart) {
+        fail("proxy candidate is outside its New York day");
+      }
+      if (value.proxy.candidate.sourceObservedAt > value.updatedAt ||
+          value.proxy.candidate.provenance.executionCoverage.throughInclusive > value.updatedAt) {
+        fail("proxy candidate is newer than persisted state");
+      }
+      const establishedAt = instant(value.proxy.establishedAt, "proxy establishedAt");
+      if (establishedAt !== value.proxy.establishedAt || establishedAt < value.proxy.candidate.sourceObservedAt ||
+          establishedAt > value.updatedAt) fail("proxy establishedAt is invalid");
+      const ageAtReferenceMs = Date.parse(value.proxy.candidate.sourceObservedAt) -
+        Date.parse(value.proxy.candidate.oldestSourceObservedAt);
+      if (value.proxy.ageAtReferenceMs !== ageAtReferenceMs || ageAtReferenceMs < 0) {
+        fail("proxy freshness proof is invalid");
+      }
+      const ageWhenEstablishedMs = Date.parse(establishedAt) - Date.parse(value.proxy.candidate.oldestSourceObservedAt);
+      if (!Number.isSafeInteger(value.proxy.maxAgeMs) || value.proxy.maxAgeMs <= 0 ||
+          value.proxy.maxAgeMs !== currentFreshMs ||
+          ageWhenEstablishedMs < 0 || ageWhenEstablishedMs > currentFreshMs) {
+        fail("proxy candidate was stale when established");
+      }
+      if (value.baseline !== null) fail("exact baseline must supersede the session proxy");
+    }
     if (value.latest !== null) {
       if (value.latest.sourceObservedAt > value.updatedAt) fail("latest observation is newer than persisted state");
       if (value.latest.provenance.executionCoverage.throughInclusive > value.updatedAt) {
@@ -358,6 +385,7 @@ function validState(value, { account, sourceContract, boundaryFreshMs }) {
       const currentPeriod = newYorkPeriodStart(value.latest.sourceObservedAt);
       const outcome = value.baseline || value.pending || value.missed;
       if (!outcome || outcome.periodStart !== currentPeriod) fail("state has no outcome for the latest New York day");
+      if (value.proxy && value.proxy.periodStart !== currentPeriod) fail("proxy period differs from the latest New York day");
     }
   } catch (error) {
     return error.message;
@@ -408,11 +436,12 @@ export function createFileDayBaselineStore(filePath, fsImpl = fs) {
       }
     },
 
-    save(state) {
+    save(state, config = {}) {
       const reason = validState(state, {
-        account: state?.account,
-        sourceContract: state?.sourceContract,
-        boundaryFreshMs: state?.boundaryFreshMs,
+        account: config.account ?? state?.account,
+        sourceContract: config.sourceContract ?? state?.sourceContract,
+        boundaryFreshMs: config.boundaryFreshMs ?? state?.boundaryFreshMs,
+        currentFreshMs: config.currentFreshMs,
       });
       if (reason) throw new Error(reason);
       const body = `${JSON.stringify(state, null, 2)}\n`;
@@ -447,7 +476,8 @@ export function createFileDayBaselineStore(filePath, fsImpl = fs) {
 /**
  * Persist full virtual-equity observations and establish one SOD baseline per
  * America/New_York day. A later boundary proof may confirm a retained
- * pre-midnight candidate, but no post-midnight observation can become SOD.
+ * pre-midnight candidate. Until then, the first fresh observation within the
+ * new day is fixed as an explicitly approximate session-open proxy.
  */
 export function createDayBaselineAdapter({
   account,
@@ -466,7 +496,7 @@ export function createDayBaselineAdapter({
       !Number.isSafeInteger(currentFreshMs) || currentFreshMs <= 0) {
     throw new TypeError("day baseline freshness limits must be positive integer milliseconds");
   }
-  const config = { account: targetAccount, sourceContract, boundaryFreshMs };
+  const config = { account: targetAccount, sourceContract, boundaryFreshMs, currentFreshMs };
   const loaded = store.load(config);
   let state = loaded.ok ? (loaded.state ? clone(loaded.state) : null) : null;
   let blockedReason = loaded.ok ? null : loaded.reason;
@@ -474,15 +504,21 @@ export function createDayBaselineAdapter({
   function projection(at = now()) {
     if (blockedReason) return unavailable(blockedReason);
     if (!state?.latest) return unavailable("no complete virtual-equity observation has been persisted");
-    const currentPeriod = newYorkPeriodStart(state.latest.sourceObservedAt);
-    if (!state.baseline || state.baseline.periodStart !== currentPeriod) {
-      return unavailable(state.missed?.reason || "exact New York SOD virtual-equity proof is pending");
-    }
     let projectedAt;
     try {
       projectedAt = instant(at, "projection time");
     } catch (error) {
       return unavailable(error.message);
+    }
+    const currentPeriod = newYorkPeriodStart(projectedAt);
+    if (newYorkPeriodStart(state.latest.sourceObservedAt) !== currentPeriod) {
+      return unavailable("no complete virtual-equity observation exists for the current New York day");
+    }
+    const exact = state.baseline?.periodStart === currentPeriod ? state.baseline : null;
+    const proxy = state.proxy?.periodStart === currentPeriod ? state.proxy : null;
+    const baseline = exact || proxy;
+    if (!baseline) {
+      return unavailable(state.missed?.reason || "exact New York SOD virtual-equity proof is pending");
     }
     const currentAge = Date.parse(projectedAt) - Date.parse(state.latest.oldestSourceObservedAt);
     if (!Number.isFinite(currentAge) || currentAge < 0 || currentAge > currentFreshMs) {
@@ -490,9 +526,10 @@ export function createDayBaselineAdapter({
     }
     const values = {};
     for (const key of EQUITY_KEYS) {
-      values[key] = money(state.latest.equity[key] - state.baseline.candidate.equity[key], `day P&L ${key}`);
+      values[key] = money(state.latest.equity[key] - baseline.candidate.equity[key], `day P&L ${key}`);
     }
-    const baseline = state.baseline;
+    const sodSource = exact ? "new_york_midnight_exact" : "session_open_proxy";
+    const referenceAt = baseline.candidate.sourceObservedAt;
     return {
       ok: true,
       values,
@@ -503,23 +540,29 @@ export function createDayBaselineAdapter({
         scope: OUTPUT_SCOPE,
         observedAt: state.latest.sourceObservedAt,
         periodStart: baseline.periodStart,
-        detail: "Current proven virtual equity minus durable New York SOD virtual equity; KEEP excluded.",
+        sodSource,
+        referenceAt,
+        approximate: !exact,
+        detail: exact
+          ? "Current proven virtual equity minus durable New York SOD virtual equity; KEEP excluded."
+          : "Current proven virtual equity minus the first durable fresh New York-day session sample; partial-day proxy, KEEP excluded.",
       },
       evidence: {
         sourceObservedAt: baseline.candidate.sourceObservedAt,
         oldestSourceObservedAt: baseline.candidate.oldestSourceObservedAt,
-        proofObservedAt: baseline.proof.proofObservedAt,
+        proofObservedAt: exact ? baseline.proof.proofObservedAt : null,
         historyRevisionMethod: sourceContract.historyRevisionMethod,
         historyRevision: baseline.candidate.provenance.historyRevision,
-        ageAtBoundaryMs: baseline.ageAtBoundaryMs,
-        maxAgeMs: boundaryFreshMs,
+        ...(exact
+          ? { ageAtBoundaryMs: baseline.ageAtBoundaryMs, maxAgeMs: boundaryFreshMs }
+          : { ageAtReferenceMs: baseline.ageAtReferenceMs, maxAgeMs: baseline.maxAgeMs }),
       },
     };
   }
 
   function persist(next) {
     try {
-      store.save(next);
+      store.save(next, config);
       state = clone(next);
       return true;
     } catch (error) {
@@ -576,7 +619,24 @@ export function createDayBaselineAdapter({
     };
     next.pending = null;
     next.missed = null;
+    next.proxy = null;
     return { next, reason: null };
+  }
+
+  function establishProxy(next, observation, periodStart, ingestAt) {
+    if (next.baseline || next.proxy || observation.sourceObservedAt < periodStart ||
+        newYorkPeriodStart(observation.sourceObservedAt) !== periodStart) return;
+    const ageAtReferenceMs = Date.parse(observation.sourceObservedAt) -
+      Date.parse(observation.oldestSourceObservedAt);
+    const currentAgeMs = Date.parse(ingestAt) - Date.parse(observation.oldestSourceObservedAt);
+    if (ageAtReferenceMs < 0 || currentAgeMs < 0 || currentAgeMs > currentFreshMs) return;
+    next.proxy = {
+      periodStart,
+      candidate: clone(observation),
+      ageAtReferenceMs,
+      establishedAt: ingestAt,
+      maxAgeMs: currentFreshMs,
+    };
   }
 
   function observe(observationInput, { boundaryProof = null } = {}) {
@@ -619,6 +679,7 @@ export function createDayBaselineAdapter({
         baseline: null,
         pending: null,
         missed: null,
+        proxy: null,
       };
       if (observation.sourceObservedAt === periodStart) {
         next.pending = { periodStart, candidate: clone(observation) };
@@ -633,6 +694,7 @@ export function createDayBaselineAdapter({
         next.baseline = null;
         next.pending = null;
         next.missed = null;
+        next.proxy = null;
         const candidate = boundaryCandidate(observation, periodStart);
         const ageAtBoundaryMs = candidate
           ? Date.parse(periodStart) - Date.parse(candidate.oldestSourceObservedAt)
@@ -647,10 +709,13 @@ export function createDayBaselineAdapter({
       }
     }
 
+    establishProxy(next, observation, periodStart, ingestAt);
+
     const applied = applyBoundaryProof(next, boundaryProof, ingestAt);
     next = applied.next;
     if (!persist(next)) return projection(ingestAt);
-    return applied.reason ? unavailable(applied.reason) : projection(ingestAt);
+    if (applied.reason && !next.missed) return unavailable(applied.reason);
+    return projection(ingestAt);
   }
 
   return {
@@ -729,9 +794,11 @@ export function createDeskDayPnlProducer({
         proofObservedAt,
       });
     } catch (error) {
-      return unavailable(`SOD boundary proof failed: ${error?.message || error}`);
+      return result.ok ? result : unavailable(`SOD boundary proof failed: ${error?.message || error}`);
     }
-    if (!boundary?.ok) return unavailable(`SOD boundary proof unavailable: ${boundary?.reason || "unknown reason"}`);
+    if (!boundary?.ok) {
+      return result.ok ? result : unavailable(`SOD boundary proof unavailable: ${boundary?.reason || "unknown reason"}`);
+    }
     if (boundary.historyRevisionMethod !== revisionMethod || boundary.policyHash !== providerContract.policyHash) {
       return unavailable("SOD boundary proof contract does not match the configured ownership policy");
     }
