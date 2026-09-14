@@ -33,6 +33,49 @@
 # the loose ~/secrets/ and ./xxx.env files into agenix). Container reads
 # at runtime via agenix-decrypted bind. No plaintext secrets in this file.
 let
+  # NIX-501 — the same opt-in topology imported by configuration.nix. With
+  # active=false every list/map helper below returns the pre-Flow spec.
+  sharedFlow = import ../shared-flow.nix;
+  flowNetwork =
+    address:
+    if sharedFlow.active then
+      {
+        traefik = null;
+        ${sharedFlow.network.composeKey}.ipv4_address = address;
+      }
+    else
+      [ "traefik" ];
+  paimosPublicEnvironment =
+    if sharedFlow.active then
+      [
+        "PAIMOS_PUBLIC_BASE_PATH=${sharedFlow.basePaths.paimos}"
+        "OIDC_REDIRECT_URL=${sharedFlow.browserUrls.paimos}/api/auth/oidc/callback"
+      ]
+    else
+      [ ];
+  pharosPublicEnvironment =
+    if sharedFlow.active then
+      [
+        "PHAROS_PUBLIC_ORIGIN=${sharedFlow.publicOrigin}"
+        "PHAROS_PUBLIC_BASE_PATH=${sharedFlow.basePaths.pharos}"
+      ]
+    else
+      [ ];
+  janusPublicEnvironment =
+    if sharedFlow.active then
+      [
+        "JANUS_PUBLIC_URL=${sharedFlow.publicOrigin}"
+        "JANUS_PUBLIC_BASE_PATH=${sharedFlow.basePaths.janus}"
+      ]
+    else
+      [ "JANUS_PUBLIC_URL=https://vault.barta.cm" ];
+  sharedFlowRouteVolumes =
+    if sharedFlow.active then
+      [
+        (privateBind "/run/inspr-shared-flow/dynamic.yml" "/etc/traefik/dynamic/inspr-shared-flow.yml")
+      ]
+    else
+      [ ];
   # NIX-400: reviewed snapshot of Cloudflare's authoritative public ingress
   # ranges. T58 compares this pin with the two official endpoints online; a
   # range change is a reviewed deployment dependency, never a reason to widen
@@ -378,7 +421,15 @@ in
         hausv-proxy = {
           ipv4_address = "10.253.254.2";
         };
-      };
+      }
+      // (
+        if sharedFlow.active then
+          {
+            ${sharedFlow.network.composeKey}.ipv4_address = sharedFlow.network.addresses.traefik;
+          }
+        else
+          { }
+      );
       volumes = [
         "./traefik/static.yml:/etc/traefik/traefik.yml"
         "./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml"
@@ -388,7 +439,8 @@ in
         (privateBind "/run/inspr-edge/dynamic.yml" "/etc/traefik/dynamic/inspr-edge.yml")
         "./traefik/acme.json:/etc/traefik/acme/acme.json:rw"
         "./traefik/acme-http.json:/etc/traefik/acme/acme-http.json:rw"
-      ];
+      ]
+      ++ sharedFlowRouteVolumes;
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.http.routers.traefik.rule=Host(`cs1.barta.cm`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
@@ -623,24 +675,27 @@ in
         "PAIMOS_AGENT_BUS_ALLOW_PRIVATE_WEBHOOKS=false"
         "COOKIE_SECURE=true"
         "BRAND_PRODUCT_NAME=PPM"
-        "BRAND_WEBSITE_URL=https://pm.barta.cm"
-        "BRAND_PUBLIC_URL=https://pm.barta.cm"
+        "BRAND_WEBSITE_URL=${
+          if sharedFlow.active then sharedFlow.browserUrls.paimos else "https://pm.barta.cm"
+        }"
+        "BRAND_PUBLIC_URL=${
+          if sharedFlow.active then sharedFlow.browserUrls.paimos else "https://pm.barta.cm"
+        }"
         "BRAND_EMAIL_FROM=noreply@barta.cm"
         "BRAND_DB_FILENAME=ppm.db"
         "BRAND_MINIO_BUCKET=ppm-attachments"
         "BRAND_HEALTH_SERVICE_NAME=ppm"
         "BRAND_TOTP_ISSUER=PPM"
         "OIDC_PROMPT=select_account"
-      ];
+      ]
+      ++ paimosPublicEnvironment;
       env_file = [
         "/run/agenix/csb1-ppm-env"
       ];
       volumes = [
         "ppm_data:/app/data"
       ];
-      networks = [
-        "traefik"
-      ];
+      networks = flowNetwork sharedFlow.network.addresses.paimos;
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
@@ -680,7 +735,6 @@ in
         "/tmp:rw,noexec,nosuid,nodev,size=16m"
       ];
       environment = [
-        "JANUS_PUBLIC_URL=https://vault.barta.cm"
         "JANUS_PRODUCT_MODE=self_hosted"
         "JANUS_DATA_DIR=/data"
         "JANUS_CATALOG_FILE=/catalog/agenix-catalog.json"
@@ -706,7 +760,8 @@ in
         "JANUS_MANAGED_HOST_TOKEN_GENERATION_DIR=/run/pharos/beacon-token-hashes"
         "JANUS_MANAGED_HOST_ENVELOPE_OUTBOX_DIR=/var/lib/janus-managed-central/outbox"
       ]
-      ++ janusFlowHostEnvironment;
+      ++ janusFlowHostEnvironment
+      ++ janusPublicEnvironment;
       env_file = [
         "/run/agenix/csb1-janus-env"
       ];
@@ -761,9 +816,7 @@ in
         "janus_pharos_production_hash_out:/run/pharos/beacon-token-hashes:ro"
       ]
       ++ janusFlowHostVolumes;
-      networks = [
-        "traefik"
-      ];
+      networks = flowNetwork sharedFlow.network.addresses.janus;
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "traefik.enable=true"
@@ -775,7 +828,19 @@ in
         "traefik.http.routers.janus.middlewares=cloudflarewarp@file"
       ]
       ++ janusFlowHostLabels;
-    };
+    }
+    // (
+      if sharedFlow.active then
+        {
+          # Preserve the HTTPS origin/Host/SNI while resolving Janus's private
+          # Pharos fetches directly into Traefik on the private bridge.
+          extra_hosts = [
+            "pharos.barta.cm:${sharedFlow.network.addresses.traefik}"
+          ];
+        }
+      else
+        { }
+    );
     # ============================================
     # Janus Rust engine — staged approved-use runtime
     # ============================================
@@ -1207,7 +1272,12 @@ in
         # /report (auth-exempt) over the tailnet; humans use https://pharos.barta.cm.
         "PHAROS_OIDC_ISSUER=https://auth.inspr.at"
         "PHAROS_OIDC_CLIENT_ID=379451733002223624@pharos"
-        "PHAROS_OIDC_REDIRECT_URI=https://pharos.barta.cm/auth/callback"
+        "PHAROS_OIDC_REDIRECT_URI=${
+          if sharedFlow.active then
+            "${sharedFlow.browserUrls.pharos}/auth/callback"
+          else
+            "https://pharos.barta.cm/auth/callback"
+        }"
         # Authorization identifiers are explicit and value-free. This migration
         # reference is derived only from an OIDC email_verified=true claim.
         "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27"
@@ -1221,7 +1291,8 @@ in
       ++ paimosDeliveryEnvironment
       # NIX-442 / PHAROS-257 — opt-in Flow host. Projection and guarded
       # Review/Start navigation only; no delivery, provider or Janus authority.
-      ++ flowHostEnvironment;
+      ++ flowHostEnvironment
+      ++ pharosPublicEnvironment;
       ports = [
         "127.0.0.1:8088:8080"
         "100.64.0.4:8088:8080"
@@ -1261,9 +1332,7 @@ in
       # the csb1_pharos_data volume above.
       ++ paimosDeliveryVolumes
       ++ flowHostVolumes;
-      networks = [
-        "traefik"
-      ];
+      networks = flowNetwork sharedFlow.network.addresses.pharos;
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
         "com.centurylinklabs.watchtower.enable=true"
@@ -1708,7 +1777,20 @@ in
     docker-sock-traefik = {
       internal = true;
     };
-  };
+  }
+  // (
+    if sharedFlow.active then
+      {
+        # Created and exact-checked by inspr-shared-flow-network.service before
+        # Aithema or Compose starts. External ownership removes the creation race.
+        ${sharedFlow.network.composeKey} = {
+          external = true;
+          name = sharedFlow.network.dockerName;
+        };
+      }
+    else
+      { }
+  );
 }
 
 # ── comments from the retired yml that could not be auto-anchored ──
