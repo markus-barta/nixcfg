@@ -320,6 +320,10 @@ in
       ./shared-flow.nix
       ./legacy-flow-routing.nix
       ./scripts/render-shared-flow-config.sh
+    ]
+    ++ lib.optionals sharedFlow.active [
+      config.services.inspr.routingEdge.generatedFragmentFile
+      legacyFlowFragmentFile
     ];
     spec = import ./docker/compose-spec.nix;
   };
@@ -382,19 +386,18 @@ in
   # effect stays absent until the one shared selector is flipped. The module
   # compiler output is merged with legacy-flow-routing.nix by the runtime
   # renderer below; no route library is reimplemented here.
-  services.inspr.routingEdge = {
+  services.inspr.routingEdge = lib.recursiveUpdate {
     enable = sharedFlow.active;
     package = inputs.inspr-modules.packages.x86_64-linux.routing-edge;
     deploymentMode = "external-file-provider";
     allowUnpinnedTraefik = false;
     entrypoint.name = "web-secure";
     external = {
-      certificateResolver = "default";
+      certificateResolver = "public-http";
       resourceNamespace = "inspr-routing-edge";
       providerFile = "traefik/dynamic/inspr-routing-edge.yml";
     };
-  }
-  // lib.optionalAttrs sharedFlow.active sharedFlow.routingEdgeActivation;
+  } (lib.optionalAttrs sharedFlow.active sharedFlow.routingEdgeActivation);
 
   # NIX-501 — Aithema is native so its protected config remains a systemd
   # credential outside the store. The explicit inactive branch preserves the

@@ -16,8 +16,9 @@ host_config="$repo_root/hosts/csb1/configuration.nix"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 renderer="$repo_root/hosts/csb1/scripts/render-shared-flow-config.sh"
 legacy="$repo_root/hosts/csb1/legacy-flow-routing.nix"
+traefik_static="$repo_root/hosts/csb1/docker/traefik/static.yml"
 
-for file in "$helper" "$host_config" "$compose" "$renderer" "$legacy"; do
+for file in "$helper" "$host_config" "$compose" "$renderer" "$legacy" "$traefik_static"; do
   [[ -f $file ]]
 done
 command -v jq >/dev/null
@@ -44,13 +45,24 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 nix-instantiate --eval --strict --json --expr "
-  let f = import ${helper}; in {
+  let
+    lib = import <nixpkgs/lib>;
+    f = import ${helper};
+    activeRoutingEdge = lib.recursiveUpdate {
+      enable = true;
+      deploymentMode = \"external-file-provider\";
+      allowUnpinnedTraefik = false;
+      entrypoint.name = \"web-secure\";
+      external = {
+        certificateResolver = \"public-http\";
+        resourceNamespace = \"inspr-routing-edge\";
+        providerFile = \"traefik/dynamic/inspr-routing-edge.yml\";
+      };
+    } (builtins.removeAttrs f.routingEdgeActivation [ \"contractFile\" ]);
+  in {
     inherit (f) active basePaths browserUrls contract machineOrigins network ports privateSourceRanges publicHost publicOrigin;
     aithema = f.aithema;
-    routingEdgeActivation = {
-      inherit (f.routingEdgeActivation) upstreams;
-      existingTraefikVersion = f.routingEdgeActivation.external.existingTraefikVersion;
-    };
+    inherit activeRoutingEdge;
   }
 " >"$work/projection.json"
 
@@ -76,16 +88,32 @@ jq -e '
   }
   and .machineOrigins == {janus:"https://vault.barta.cm",pharos:"https://pharos.barta.cm"}
   and .privateSourceRanges.janus == ["10.253.253.1/32"]
-  and (.privateSourceRanges.pharos | sort) == (["10.253.253.1/32","10.253.253.3/32"] | sort)
+  and .privateSourceRanges.pharos == ["10.253.253.3/32"]
   and .aithema.configFile == "/run/agenix/csb1-aithema-workspace-config"
-  and .routingEdgeActivation.existingTraefikVersion == "3.7.13"
-  and .routingEdgeActivation.upstreams == {
-    aithema:{url:"http://10.253.253.1:8787"},
-    janus:{url:"http://10.253.253.3:8080"},
-    paimos:{url:"http://10.253.253.4:8888"},
-    pharos:{url:"http://10.253.253.5:8080"}
+  and .activeRoutingEdge == {
+    allowUnpinnedTraefik:false,
+    deploymentMode:"external-file-provider",
+    enable:true,
+    entrypoint:{name:"web-secure"},
+    external:{
+      certificateResolver:"public-http",
+      existingTraefikVersion:"3.7.13",
+      providerFile:"traefik/dynamic/inspr-routing-edge.yml",
+      resourceNamespace:"inspr-routing-edge"
+    },
+    upstreams:{
+      aithema:{url:"http://10.253.253.1:8787"},
+      janus:{url:"http://10.253.253.3:8080"},
+      paimos:{url:"http://10.253.253.4:8888"},
+      pharos:{url:"http://10.253.253.5:8080"}
+    }
   }
 ' "$work/projection.json" >/dev/null
+
+yq eval -e '
+  .certificatesResolvers.public-http.acme.storage == "/etc/traefik/acme/acme-http.json"
+  and .certificatesResolvers.public-http.acme.httpChallenge.entryPoint == "web"
+' "$traefik_static" >/dev/null
 
 jq '.contract' "$work/projection.json" >"$work/contract.json"
 python3 "$repo_root/doctrine/contracts/routing/validate.py" "$work/contract.json" >/dev/null
@@ -93,9 +121,9 @@ python3 "$repo_root/doctrine/contracts/routing/validate.py" "$work/contract.json
 jq '{
   mode:"external-file-provider",
   entrypoint:{name:"web-secure"},
-  certificate_resolver:"default",
+  certificate_resolver:.activeRoutingEdge.external.certificateResolver,
   resource_namespace:"inspr-routing-edge",
-  upstreams:.routingEdgeActivation.upstreams
+  upstreams:.activeRoutingEdge.upstreams
 }' "$work/projection.json" >"$work/deployment.json"
 python3 "$repo_root/doctrine/packages/routing-edge/generate.py" \
   --contract "$work/contract.json" \
@@ -143,10 +171,38 @@ yq eval -e '
 grep -Fq 'sharedFlow = import ./shared-flow.nix;' "$host_config"
 grep -Fq 'sharedFlow = import ../shared-flow.nix;' "$compose"
 grep -Fq 'enable = sharedFlow.active;' "$host_config"
-grep -Fq 'lib.optionalAttrs sharedFlow.active sharedFlow.routingEdgeActivation' "$host_config"
 grep -Fq 'system.activationScripts.sharedFlowRuntimeConfig = lib.mkIf sharedFlow.active' "$host_config"
 grep -Fq 'systemd.services.inspr-shared-flow-network = lib.mkIf sharedFlow.active' "$host_config"
 grep -Fq 'systemd.services.inspr-shared-flow-config = lib.mkIf sharedFlow.active' "$host_config"
+
+python3 - "$host_config" <<'PY'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text()
+routing_start = source.index("  services.inspr.routingEdge =")
+routing_end = source.index("\n\n  # NIX-501 — Aithema", routing_start)
+routing = source[routing_start:routing_end]
+for required in (
+    "services.inspr.routingEdge = lib.recursiveUpdate",
+    'certificateResolver = "public-http";',
+    "(lib.optionalAttrs sharedFlow.active sharedFlow.routingEdgeActivation)",
+):
+    if required not in routing:
+        raise SystemExit(f"routing-edge active merge is missing: {required}")
+
+triggers_start = source.index("    extraRestartTriggers = [")
+triggers_end = source.index("\n    spec = import ./docker/compose-spec.nix;", triggers_start)
+triggers = source[triggers_start:triggers_end]
+for required in (
+    "++ lib.optionals sharedFlow.active [",
+    "config.services.inspr.routingEdge.generatedFragmentFile",
+    "legacyFlowFragmentFile",
+):
+    if required not in triggers:
+        raise SystemExit(f"active compose restart triggers are missing: {required}")
+PY
+
 grep -Fq 'networks = flowNetwork sharedFlow.network.addresses.janus;' "$compose"
 grep -Fq 'networks = flowNetwork sharedFlow.network.addresses.paimos;' "$compose"
 grep -Fq 'networks = flowNetwork sharedFlow.network.addresses.pharos;' "$compose"

@@ -121,13 +121,10 @@ in
   };
 
   privateSourceRanges = {
-    # Janus fetches Pharos intents from .3. The native host agent also polls
-    # Pharos from the bridge gateway .1.
-    pharos = [
-      "${network.addresses.janus}/32"
-      "${network.addresses.host}/32"
-    ];
-    # The native host agent calls Janus from the bridge gateway.
+    # Only the Janus container calls Pharos private paths. The native host
+    # agent uses Pharos's /agent/managed-services/* API instead.
+    pharos = [ "${network.addresses.janus}/32" ];
+    # The native host agent calls Janus /internal/* from the bridge gateway.
     janus = [ "${network.addresses.host}/32" ];
   };
 
