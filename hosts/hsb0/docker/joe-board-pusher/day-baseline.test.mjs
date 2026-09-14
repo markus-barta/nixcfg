@@ -217,24 +217,37 @@ test("KEEP-only account movement cannot affect the KEEP-excluded virtual vector"
   assert.equal("accountEquityIncludingKeep" in h.adapter.inspectState().latest, false);
 });
 
-test("the first observation after midnight is durable evidence of a missed boundary, never a baseline", () => {
+test("the first fresh observation after a missed boundary becomes an explicit fixed session proxy", () => {
   const h = harness({ now: "2026-09-12T16:00:10.000Z" });
   const late = observation({ at: "2026-09-12T16:00:00.000Z", oldest: "2026-09-12T15:59:55.000Z" });
   const first = h.adapter.observe(late, { boundaryProof: boundaryProof({ proofObservedAt: "2026-09-12T16:00:05.000Z" }) });
-  assert.equal(first.ok, false);
-  assert.match(first.reason, /first observation arrived after/);
+  assert.equal(first.ok, true, first.reason);
+  assert.deepEqual(first.values, { j: 0, joe: 0, joel: 0, total: 0 });
+  assert.equal(first.source.sodSource, "session_open_proxy");
+  assert.equal(first.source.referenceAt, "2026-09-12T16:00:00.000Z");
+  assert.equal(first.source.periodStart, "2026-09-12T04:00:00.000Z");
+  assert.equal(first.source.approximate, true);
+  assert.equal(first.evidence.proofObservedAt, null);
+  assert.equal(first.evidence.ageAtReferenceMs, 5_000);
+  assert.equal("ageAtBoundaryMs" in first.evidence, false);
   assert.equal(h.adapter.inspectState().baseline, null);
   assert.equal(h.adapter.inspectState().missed.periodStart, "2026-09-12T04:00:00.000Z");
 
   h.setNow("2026-09-12T16:01:10.000Z");
-  const later = h.adapter.observe(observation({ at: "2026-09-12T16:01:00.000Z" }), {
+  const later = h.adapter.observe(observation({
+    at: "2026-09-12T16:01:00.000Z",
+    equity: vector({ j: 5007.25, joe: 4999 }),
+  }), {
     boundaryProof: boundaryProof({ proofObservedAt: "2026-09-12T16:01:05.000Z" }),
   });
-  assert.equal(later.ok, false);
+  assert.equal(later.ok, true, later.reason);
+  assert.deepEqual(later.values, { j: 7.25, joe: -1, joel: 0, total: 6.25 });
+  assert.equal(later.source.referenceAt, first.source.referenceAt);
   assert.equal(h.adapter.inspectState().baseline, null);
+  assert.deepEqual(h.adapter.inspectState().proxy.candidate.equity, vector());
 });
 
-test("a stale pre-boundary observation records a missed boundary", () => {
+test("a stale pre-boundary observation falls back to the first fresh in-day sample", () => {
   const h = harness({ boundaryFreshMs: 60_000 });
   h.setNow("2026-09-12T03:59:01.000Z");
   h.adapter.observe(observation({
@@ -245,8 +258,10 @@ test("a stale pre-boundary observation records a missed boundary", () => {
   const result = h.adapter.observe(observation({ at: "2026-09-12T04:00:25.000Z" }), {
     boundaryProof: boundaryProof(),
   });
-  assert.equal(result.ok, false);
-  assert.match(result.reason, /too stale/);
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.source.sodSource, "session_open_proxy");
+  assert.equal(result.source.referenceAt, "2026-09-12T04:00:25.000Z");
+  assert.match(h.adapter.inspectState().missed.reason, /too stale/);
   assert.equal(h.adapter.inspectState().pending, null);
 });
 
@@ -275,11 +290,11 @@ test("a boundary history revision mismatch permanently rejects that candidate", 
   const result = h.adapter.observe(observation({ at: "2026-09-12T04:00:25.000Z", revision: REV_B }), {
     boundaryProof: boundaryProof({ revision: REV_B }),
   });
-  assert.equal(result.ok, false);
-  assert.match(result.reason, /history revision differs/);
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.source.sodSource, "session_open_proxy");
   assert.equal(h.adapter.inspectState().pending, null);
   assert.equal(h.adapter.inspectState().baseline, null);
-  assert.ok(h.adapter.inspectState().missed);
+  assert.match(h.adapter.inspectState().missed.reason, /history revision differs/);
 });
 
 test("source method and classifier mismatches fail closed without replacing the latest evidence", () => {
@@ -320,6 +335,10 @@ test("an atomic file store survives restart with its SOD proof and rejects chang
   assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).schema, DAY_BASELINE_STATE_SCHEMA);
   assert.deepEqual(fs.readdirSync(directory).sort(), ["day-baseline.json"]);
 
+  const legacyV1 = JSON.parse(fs.readFileSync(file, "utf8"));
+  delete legacyV1.proxy;
+  fs.writeFileSync(file, `${JSON.stringify(legacyV1, null, 2)}\n`, { mode: 0o600 });
+
   const restarted = harness({ store: createFileDayBaselineStore(file), now: "2026-09-12T04:01:00.000Z" });
   assert.equal(restarted.adapter.project().values.joel, 2);
 
@@ -341,15 +360,110 @@ test("restart preserves a pre-boundary candidate until asynchronous coverage pro
   }));
   first.setNow("2026-09-12T04:00:30.000Z");
   const pending = first.adapter.observe(observation({ at: "2026-09-12T04:00:25.000Z" }));
-  assert.equal(pending.ok, false);
+  assert.equal(pending.ok, true, pending.reason);
+  assert.equal(pending.source.sodSource, "session_open_proxy");
   assert.ok(first.adapter.inspectState().pending);
 
   const restarted = harness({ store: createFileDayBaselineStore(file), now: "2026-09-12T04:01:00.000Z" });
+  assert.equal(restarted.adapter.project().source.sodSource, "session_open_proxy");
+  assert.equal(restarted.adapter.project().source.referenceAt, "2026-09-12T04:00:25.000Z");
   const proven = restarted.adapter.observe(observation({ at: "2026-09-12T04:00:50.000Z" }), {
     boundaryProof: boundaryProof({ proofObservedAt: "2026-09-12T04:00:55.000Z" }),
   });
   assert.equal(proven.ok, true);
+  assert.equal(proven.source.sodSource, "new_york_midnight_exact");
+  assert.equal(proven.source.approximate, false);
   assert.equal(proven.evidence.sourceObservedAt, "2026-09-12T03:59:40.000Z");
+  assert.equal(restarted.adapter.inspectState().proxy, null);
+});
+
+test("a Friday observation cannot seed Monday and the Monday proxy resets on the NY date", () => {
+  const h = harness({ now: "2026-09-11T20:00:10.000Z" });
+  h.adapter.observe(observation({
+    at: "2026-09-11T20:00:00.000Z",
+    oldest: "2026-09-11T19:59:55.000Z",
+    equity: vector({ j: 4990 }),
+  }));
+
+  h.setNow("2026-09-14T13:30:10.000Z");
+  const monday = h.adapter.observe(observation({
+    at: "2026-09-14T13:30:00.000Z",
+    oldest: "2026-09-14T13:29:55.000Z",
+    equity: vector({ j: 5010 }),
+  }));
+  assert.equal(monday.ok, true, monday.reason);
+  assert.equal(monday.source.periodStart, "2026-09-14T04:00:00.000Z");
+  assert.equal(monday.source.referenceAt, "2026-09-14T13:30:00.000Z");
+  assert.deepEqual(monday.values, { j: 0, joe: 0, joel: 0, total: 0 });
+
+  h.setNow("2026-09-14T13:31:10.000Z");
+  const moved = h.adapter.observe(observation({
+    at: "2026-09-14T13:31:00.000Z",
+    oldest: "2026-09-14T13:30:55.000Z",
+    equity: vector({ j: 5012.5 }),
+  }));
+  assert.equal(moved.values.j, 2.5);
+  assert.equal(moved.source.referenceAt, monday.source.referenceAt);
+});
+
+test("invalid and stale first samples cannot establish a session proxy", () => {
+  const h = harness({ now: "2026-09-12T16:00:10.000Z" });
+  const invalid = h.adapter.observe(observation({
+    at: "2026-09-12T16:00:00.000Z",
+    equity: { j: 5000, joe: 5000, joel: 5000, total: 1 },
+  }));
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.reason, /desk sum/);
+  assert.equal(h.adapter.inspectState(), null);
+
+  const stale = h.adapter.observe(observation({
+    at: "2026-09-12T16:00:00.000Z",
+    oldest: "2026-09-12T15:50:00.000Z",
+  }));
+  assert.equal(stale.ok, false);
+  assert.match(stale.reason, /first observation arrived after/);
+  assert.equal(h.adapter.inspectState().proxy, null);
+
+  h.setNow("2026-09-12T16:01:10.000Z");
+  const fresh = h.adapter.observe(observation({
+    at: "2026-09-12T16:01:00.000Z",
+    oldest: "2026-09-12T16:00:55.000Z",
+  }));
+  assert.equal(fresh.ok, true, fresh.reason);
+  assert.equal(fresh.source.sodSource, "session_open_proxy");
+});
+
+test("persisted proxy evidence is fully validated on restart", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "joe-day-baseline-proxy-invalid-test-"));
+  const file = path.join(directory, "day-baseline.json");
+  const first = harness({ store: createFileDayBaselineStore(file), now: "2026-09-12T16:00:10.000Z" });
+  assert.equal(first.adapter.observe(observation({
+    at: "2026-09-12T16:00:00.000Z",
+    oldest: "2026-09-12T15:59:55.000Z",
+  })).ok, true);
+  const forged = JSON.parse(fs.readFileSync(file, "utf8"));
+  forged.proxy.ageAtReferenceMs = 1;
+  fs.writeFileSync(file, `${JSON.stringify(forged, null, 2)}\n`, { mode: 0o600 });
+
+  const restarted = harness({ store: createFileDayBaselineStore(file), now: "2026-09-12T16:00:20.000Z" });
+  assert.match(restarted.adapter.blockedReason, /proxy freshness proof is invalid/);
+  assert.equal(restarted.adapter.project().ok, false);
+});
+
+test("a session proxy is unavailable when its durable save fails", () => {
+  const store = {
+    load: () => ({ ok: true, state: null }),
+    save: () => { throw new Error("synthetic disk failure"); },
+  };
+  const h = harness({ store, now: "2026-09-12T16:00:10.000Z" });
+  const result = h.adapter.observe(observation({
+    at: "2026-09-12T16:00:00.000Z",
+    oldest: "2026-09-12T15:59:55.000Z",
+  }));
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /state save failed/);
+  assert.match(h.adapter.blockedReason, /synthetic disk failure/);
+  assert.equal(h.adapter.inspectState(), null);
 });
 
 test("corrupt persisted state stays unavailable and is never overwritten", () => {
@@ -412,6 +526,36 @@ test("all-desk producer preserves evidence and proves the retained boundary cand
   assert.equal(proofInput.candidateHistoryRevision, REV_A);
   assert.equal(proofInput.periodStart, "2026-09-12T04:00:00.000Z");
   assert.equal(result.evidence.historyRevisionMethod, DESK_REVISION_METHOD);
+});
+
+test("unavailable asynchronous exact proof does not suppress the producer's session proxy", () => {
+  let currentNow = "2026-09-12T03:59:50.000Z";
+  const producer = createDeskDayPnlProducer({
+    account: "SYNTHETIC-PAPER",
+    policy: { id: "effective-policy" },
+    providerContract: PROVIDER_CONTRACT,
+    historyRevisionMethod: DESK_REVISION_METHOD,
+    store: memoryStore(),
+    buildBoundaryEvidence: () => ({ ok: false, reason: "exact cutoff coverage is pending" }),
+    getVerifiedHistoryState: () => ({ schema: "verified-history" }),
+    now: () => currentNow,
+  });
+  producer.observe(deskEvidence({
+    at: "2026-09-12T03:59:40.000Z",
+    oldest: "2026-09-12T03:59:10.000Z",
+    coverageThrough: "2026-09-12T03:59:10.000Z",
+  }));
+
+  currentNow = "2026-09-12T04:00:30.000Z";
+  const result = producer.observe(deskEvidence({
+    at: "2026-09-12T04:00:25.000Z",
+    oldest: "2026-09-12T04:00:20.000Z",
+    coverageThrough: "2026-09-12T04:00:20.000Z",
+  }));
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.source.sodSource, "session_open_proxy");
+  assert.ok(producer.inspectState().pending);
+  assert.ok(producer.inspectState().proxy);
 });
 
 test("all-desk producer rejects self-asserted policy provenance before persistence", () => {
