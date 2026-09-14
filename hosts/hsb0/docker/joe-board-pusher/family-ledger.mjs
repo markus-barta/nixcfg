@@ -8,6 +8,19 @@ const DETAIL = "Net of recorded fees; converted at observed FX. Earlier results 
 const ALWAYS_EXCLUDED = new Set(["SXR8", "TSLA"]);
 const QUANTITY_EPSILON = 1e-9;
 
+// These failures arise while independently delivered execution, commission,
+// position and mark callbacks catch up with each other. They never authorize
+// publishing a partial calculation, but are distinct from invalid ledger data.
+const PENDING_INPUT_REASONS = new Set([
+  "execution replay does not reconcile with observed broker positions",
+  "empty family ledger requires all non-excluded broker positions to be flat",
+  "missing portfolio mark for open family lot",
+  "portfolio mark predates the latest execution",
+  "missing commission report for included execution",
+  "included execution has a pending price revision",
+  "execution occurs after observedAt",
+]);
+
 class LedgerError extends Error {}
 
 function fail(reason) {
@@ -590,7 +603,11 @@ export function calculateFamily({
       executionCount,
     };
   } catch (error) {
-    if (error instanceof LedgerError) return { ok: false, reason: error.message };
-    return { ok: false, reason: "unexpected family ledger input failure" };
+    if (error instanceof LedgerError) return {
+      ok: false,
+      reason: error.message,
+      failureKind: PENDING_INPUT_REASONS.has(error.message) ? "pending-input" : "hard",
+    };
+    return { ok: false, reason: "unexpected family ledger input failure", failureKind: "hard" };
   }
 }

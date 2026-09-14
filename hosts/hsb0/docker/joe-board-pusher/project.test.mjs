@@ -1439,6 +1439,37 @@ test("verified closed Joe roundtrip populates equity and since-start totals inde
   assert.match(deskById(retained, "joe").issues[0], /2026-09-10T08:00:04.000Z/);
   assert.equal(deskById(retained, "joe").state, "stuck");
 
+  // A transient J calculator gap must not null totals or unrelated Joe/Joel
+  // sleeves when the persisted, provenance-checked vector remains available.
+  for (const observedAt of [OBS_C, OBS_D]) {
+    const blip = projectBook(baseBook({ ts: observedAt }), {
+      publisherAt: new Date(observedAt),
+      familyRuntimeEnabled: true,
+      family: { ok: false, reason: "family calculator: portfolio mark predates the latest execution" },
+      deskEquities: { ok: false, reason: "family inputs pending" },
+      retainedDeskEquity: retainedDeskEquity(deskEquities),
+    });
+    assert.equal(blip.totals.equity, 14998);
+    assert.equal(blip.totals.totalPnl, -2);
+    assert.equal(blip.totals.dayPnl, null);
+    assert.equal(blip.totals.openPnl, null);
+    assert.equal(blip.boardHealth, "yellow");
+    assert.equal(blip.shortReason, "retained_values");
+    assert.deepEqual(blip.desks.map((desk) => desk.money.equity), [5002, 4996, 5000]);
+    for (const desk of blip.desks) {
+      assert.deepEqual(desk.moneyEvidence, { status: "carried", observedAt: OBS_A4 });
+    }
+    assert.match(blip.desks[0].action, /portfolio mark predates the latest execution/);
+    const hardFailure = projectBook(baseBook({ ts: observedAt }), {
+      publisherAt: new Date(observedAt), familyRuntimeEnabled: true,
+      family: { ok: false, reason: "conflicting commission replay", hardFailure: true },
+      retainedDeskEquity: retainedDeskEquity(deskEquities),
+    });
+    assert.equal(hardFailure.totals.equity, 14998);
+    assert.equal(hardFailure.boardHealth, "red");
+    assert.equal(hardFailure.shortReason, "producer_stuck");
+  }
+
   // Reproduce the live defect: completed execution queries advance while economic inputs do not.
   for (const observedAt of [OBS_C, OBS_D]) {
     const recalculated = structuredClone(deskEquities);
@@ -1864,7 +1895,7 @@ test("red failures take precedence over a degraded gateway", () => {
       open: { status: "available", observedAt: "2026-09-14T14:00:00.000Z" },
     },
     totals: { dayPnl: null, openPnl: 0 },
-  }), { now: "2026-09-14T14:00:00.000Z" }).shortReason, "day_unavailable_rth");
+  }), { now: "2026-09-14T14:00:00.000Z" }).shortReason, "gateway_degraded");
 });
 
 test("a stuck producer with finite equity is yellow even without carried metadata", () => {
@@ -1890,7 +1921,7 @@ test("projected snapshots always carry the optional health pair", () => {
   });
 });
 
-test("board health marks missing DAY red during New York RTH", () => {
+test("board health marks missing DAY yellow when equity is usable during New York RTH", () => {
   const snapshot = healthFixture({
     pnlSources: {
       day: { status: "unavailable", observedAt: null },
@@ -1899,8 +1930,8 @@ test("board health marks missing DAY red during New York RTH", () => {
     totals: { dayPnl: null, openPnl: 0 },
   });
   assert.deepEqual(assessBoardHealth(snapshot, { now: "2026-09-14T14:00:00.000Z" }), {
-    boardHealth: "red",
-    shortReason: "day_unavailable_rth",
+    boardHealth: "yellow",
+    shortReason: "day_pending",
   });
 });
 
@@ -1936,7 +1967,7 @@ test("board health handles DST when determining New York RTH", () => {
     totals: { dayPnl: null, openPnl: 0 },
   });
   assert.equal(assessBoardHealth(snapshot, { now: "2026-03-09T14:00:00.000Z" }).shortReason,
-    "day_unavailable_rth");
+    "day_pending");
 });
 
 test("board health uses retained values and source age instead of heartbeat age", () => {

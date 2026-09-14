@@ -500,3 +500,30 @@ test("unsupported securities, sentinels, wrong accounts, and empty non-flat ledg
     positions: [position(stockContract, 1)],
   })), /empty family ledger requires/);
 });
+
+
+test("asynchronous mark/position gaps are pending while invalid ledger ownership is hard", () => {
+  const contract = stock("ACME", 999);
+  const fill = execution({ contract, execId: "PENDING.01" });
+  const valid = input({
+    executions: [fill], commissions: [commission(fill)],
+    positions: [position(contract, 1)], portfolio: [quote(contract, 1, 11)],
+  });
+  for (const changed of [
+    { portfolio: [] },
+    { positions: [] },
+    { commissions: [] },
+    { portfolio: [quote(contract, 1, 11, "2026-09-10T13:59:59Z")] },
+  ]) {
+    const result = calculateFamily({ ...valid, ...changed });
+    assert.equal(result.ok, false);
+    assert.equal(result.failureKind, "pending-input", result.reason);
+  }
+  assert.equal(calculateFamily(valid).ok, true);
+  const foreign = execution({ contract, execId: "FOREIGN.01", clientId: 22, time: "20260910 10:01:00 US/Eastern" });
+  const conflict = calculateFamily({
+    ...valid, executions: [fill, foreign], positions: [position(contract, 2)],
+  });
+  assert.equal(conflict.failureKind, "hard");
+  assert.match(conflict.reason, /ambiguous cross-family ownership/);
+});
