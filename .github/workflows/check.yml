@@ -211,6 +211,12 @@ jobs:
       - name: Verify legacy hosts remain compatible with shared Flow routing (NIX-501)
         run: nix-shell -p python3 --run "python3 tests/T79-legacy-flow-routing.py"
 
+      - name: Checkout pinned public routing validation source (NIX-501)
+        run: git submodule update --init --depth 1 -- doctrine
+
+      - name: Verify coherent opt-in shared Flow activation (NIX-501)
+        run: nix-shell -p bash jq yq-go python3 --run "bash tests/T80-shared-flow-activation.sh"
+
       - name: Verify JoeDesk canonical slash and OAuth routing (NIX-462)
         run: nix-shell -p python3 --run "python3 tests/T76-joe-slash-routing.py"
 
