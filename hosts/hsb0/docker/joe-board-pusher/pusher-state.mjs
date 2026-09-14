@@ -150,8 +150,8 @@ export function createBrokerSessionAdapter({
     const numericCode = Number(code);
     const normalizedCode = Number.isInteger(numericCode) ? numericCode : null;
     if (normalizedCode === 2100 || normalizedCode === 2101) {
-      hooks.onBrokerNotice?.({ route, code: normalizedCode, state: "account_subscription_lost", action: "bounded_refresh_deferred" });
-      hooks.onAccountSubscriptionConflict?.();
+      hooks.onBrokerNotice?.({ route, code: normalizedCode, state: "account_subscription_lost", action: "portfolio_refresh_notice" });
+      hooks.onAccountSubscriptionConflict?.(normalizedCode);
       return true;
     }
     const state = brokerConnectivityState(normalizedCode);
