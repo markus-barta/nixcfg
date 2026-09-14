@@ -946,6 +946,7 @@ in
       ExecStop = "${janusManagedCompose} stop -t 10 janus-managed-transactiond";
       Restart = "always";
       RestartSec = "5s";
+      SuccessExitStatus = [ 130 ];
       TimeoutStartSec = "180";
       TimeoutStopSec = "30";
     };
