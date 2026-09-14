@@ -9,8 +9,8 @@
 #   1. Flake input and doctrine gitlink drift apart, so hosts run a library
 #      sessions have not read (or the reverse). T42 still owns the checker
 #      blob; this test owns the synchronized immutable source coordinate.
-#      NIX-492 upgrades Calendar Versioning doctrine; routing implementation
-#      and checker blob stay byte-identical to v0.9.0.
+#      NIX-497 consumes release0.11.0 / Aithema0.7.0; routing implementation
+#      and checker blob stay byte-identical to the previous pin.
 #   2. A copied stub eval can stay disabled while the real host is not.
 #      Disabled effects are projected from nixosConfigurations.csb1.
 #   3. Prepared selectors accidentally install a routing-owned fragment,
@@ -42,8 +42,8 @@ host_config="$repo_root/hosts/csb1/configuration.nix"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 t42="$repo_root/tests/T42-doctrine-paths-agree.sh"
 consumer_eval="$repo_root/tests/routing-edge-consumer-eval.nix"
-expected_rev="2da0dd79d49856bacf24f03efeb5e56495b534bf"
-expected_narhash="sha256-BU3LD+qRdcuc8aHXsNTAPl1G/Ig52VRXrnLjCUNjTKM="
+expected_rev="477ae3f2169ca1aefbaf16e03eea1a2ed6c1cc8b"
+expected_narhash="sha256-XEEj4nfTdlcYPrPGv3m8dyisjwFiDASrGaFeSNatdAY="
 expected_checker_blob="ef37a597e3100fb1704be5708a2c32cedd4ac7d5"
 provider_file="traefik/dynamic/inspr-routing-edge.yml"
 repo_revision="$(git -C "$repo_root" rev-parse HEAD)"
