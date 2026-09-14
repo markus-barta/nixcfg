@@ -47,8 +47,10 @@ honest stale/carry behavior.
 
 One refresh may be outstanding. Missing mark callbacks time out after 30 seconds;
 retries back off from one minute to 15 minutes. Account subscription notices
-2100/2101 are logged and defer another attempt for 15 minutes instead of starting
-a subscription fight. Closed positions and KEEP SXR8/TSLA do not trigger refresh.
+are logged. IB code 2100 during our own cancel/resubscribe keeps the original
+30-second deadline and requires new finite-price callbacks after the notice.
+Without those callbacks, or on a subscription rejection (2101), another attempt
+is deferred for 15 minutes instead of starting a subscription fight. Closed positions and KEEP SXR8/TSLA do not trigger refresh.
 Outside trading hours an unchanged broker mark remains an observation of the
 broker valuation, not a claim of a new trade. Logs distinguish requested,
 recovered and deferred refreshes without dumping account or position data.

@@ -156,6 +156,96 @@ test("subscription conflict cools down instead of continuously taking over the a
   assert.equal(h.requests.length, 2);
 });
 
+test("own 2100 cancellation acknowledgement waits for all finite marks after acknowledgement", () => {
+  const h = harness();
+  const source = snapshot([
+    { contract: contract("INTC", 1), pos: 4 },
+    { contract: contract("AAPL", 2), pos: 3 },
+  ]);
+  h.set(240_000);
+  h.controller.tick(source);
+  source.portfolio[0].markObservedAt = iso(START + 241_000);
+  source.portfolio[1].markObservedAt = iso(START + 241_000);
+  h.set(242_000);
+  h.controller.subscriptionConflict(2100);
+  h.controller.tick(source);
+  assert.equal(h.events.some((event) => event.event === "portfolio_refresh_recovered"), false);
+  assert.equal(h.events.some((event) => event.event === "portfolio_refresh_deferred"), false);
+  h.set(243_000);
+  source.portfolio[0].markObservedAt = iso(START + 243_000);
+  h.controller.tick(source);
+  assert.equal(h.events.some((event) => event.event === "portfolio_refresh_recovered"), false);
+  source.portfolio[1].markObservedAt = iso(START + 243_000);
+  source.portfolio[1].marketPrice = Number.MAX_VALUE;
+  h.controller.tick(source);
+  assert.equal(h.events.some((event) => event.event === "portfolio_refresh_recovered"), false);
+  source.portfolio[1].marketPrice = 21;
+  h.controller.tick(source);
+  assert.equal(h.events.at(-1).event, "portfolio_refresh_recovered");
+  assert.equal(h.events.at(-1).elapsedMs, 3_000);
+  assert.equal(h.requests.length, 1);
+});
+
+test("missing callbacks after repeated 2100 acknowledgements keep the original deadline then cool down", () => {
+  const h = harness();
+  const source = snapshot();
+  h.set(240_000);
+  h.controller.tick(source);
+  for (const elapsed of [241_000, 255_000, 269_999]) {
+    h.set(elapsed);
+    h.controller.subscriptionConflict(2100);
+    h.controller.tick(source);
+    assert.equal(h.events.some((event) => event.event === "portfolio_refresh_deferred"), false);
+  }
+  h.set(270_000);
+  h.controller.tick(source);
+  assert.equal(h.events.at(-1).reason, "mark_callbacks_missing_after_cancel");
+  assert.equal(h.events.at(-1).delayMs, 900_000);
+  h.set(1_169_999);
+  h.controller.tick(source);
+  assert.equal(h.requests.length, 1);
+  h.set(1_170_000);
+  h.controller.tick(source);
+  assert.equal(h.requests.length, 2);
+  assert.equal(source.portfolio[0].markObservedAt, iso(START));
+});
+
+test("2101 always imposes full conflict cooldown, including during a pending refresh", () => {
+  for (const pending of [false, true]) {
+    const h = harness();
+    const source = snapshot();
+    h.set(240_000);
+    if (pending) h.controller.tick(source);
+    h.set(241_000);
+    h.controller.subscriptionConflict(2101);
+    const before = h.requests.length;
+    assert.equal(h.events.at(-1).reason, "account_subscription_conflict");
+    for (const elapsed of [242_000, 270_000, 1_140_999]) {
+      h.set(elapsed);
+      h.controller.tick(source);
+      assert.equal(h.requests.length, before);
+    }
+    h.set(1_141_000);
+    h.controller.tick(source);
+    assert.equal(h.requests.length, before + 1);
+  }
+});
+
+test("unsolicited 2100 with no pending request receives the full conflict cooldown", () => {
+  const h = harness();
+  const source = snapshot();
+  h.set(240_000);
+  h.controller.subscriptionConflict(2100);
+  h.controller.tick(source);
+  assert.equal(h.events.at(-1).reason, "account_subscription_conflict");
+  h.set(1_139_999);
+  h.controller.tick(source);
+  assert.equal(h.requests.length, 0);
+  h.set(1_140_000);
+  h.controller.tick(source);
+  assert.equal(h.requests.length, 1);
+});
+
 test("closed or removed targets do not keep a refresh pending", () => {
   for (const removed of [false, true]) {
     const h = harness();
@@ -210,6 +300,37 @@ class FakeApi extends EventEmitter {
   reqAccountSummary() {}
   reqAccountUpdates(...args) { this.requests.push(args); }
 }
+
+test("adapter forwards the actual 2100 and 2101 code on info and error notices", () => {
+  const codes = [];
+  const notices = [];
+  const eventNames = Object.fromEntries([
+    "connected", "disconnected", "connectionClosed", "error", "info", "currentTime",
+    "managedAccounts", "accountSummary", "accountSummaryEnd", "position", "positionEnd",
+    "updatePortfolio", "accountDownloadEnd", "openOrder",
+  ].map((name) => [name, name]));
+  const adapter = createBrokerSessionAdapter({
+    targetAccount: "PAPER-ACCT-01",
+    eventNames,
+    now: () => iso(START),
+    hooks: {
+      onAccountSubscriptionConflict: (code) => codes.push(code),
+      onBrokerNotice: (notice) => notices.push(notice),
+    },
+  });
+  const api = new FakeApi();
+  adapter.attach(api);
+  api.emit("connected");
+  for (const route of ["info", "error"]) {
+    for (const code of [2100, 2101]) api.emit(route, "synthetic broker notice", code);
+  }
+  assert.deepEqual(codes, [2100, 2101, 2100, 2101]);
+  assert.deepEqual(notices.map(({ route, code }) => ({ route, code })), [
+    { route: "info", code: 2100 }, { route: "info", code: 2101 },
+    { route: "error", code: 2100 }, { route: "error", code: 2101 },
+  ]);
+  assert.equal(adapter.socketConnected, true, "account notices must not reconnect the broker socket");
+});
 
 test("adapter refresh uses the same session and preserves prices, coverage and mark clock", () => {
   const targetAccount = "PAPER-ACCT-01";

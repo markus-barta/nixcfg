@@ -35,7 +35,16 @@ export function createPortfolioRefreshController({
     // Called only when the connection supervisor installs a new generation.
     reset() { pending = null; failures = 0; nextAttemptAt = 0; },
 
-    subscriptionConflict() {
+    subscriptionConflict(code) {
+      // IB also emits 2100 for our own false/true refresh. It is not proof of
+      // failure or success: keep the original deadline and require genuine
+      // finite-price callbacks after this acknowledgement before recovering.
+      if (code === 2100 && pending) {
+        pending.cancelAcknowledged = true;
+        pending.marksAfter = nowMs();
+        onEvent({ event: "portfolio_refresh_cancel_acknowledged", reason: "awaiting_mark_callbacks" });
+        return;
+      }
       pending = null;
       nextAttemptAt = nowMs() + maxRetryMs;
       onEvent({ event: "portfolio_refresh_deferred", reason: "account_subscription_conflict", delayMs: maxRetryMs });
@@ -62,21 +71,27 @@ export function createPortfolioRefreshController({
         return strictFinite(row?.marketPrice) !== undefined && timestamp <= at ? timestamp : NaN;
       };
       if (pending) {
-        const recovered = pending.keys.every((key) => !active.has(key) || observed(key) >= pending.at);
+        const recovered = pending.keys.every((key) => !active.has(key) || observed(key) >= pending.marksAfter);
         if (recovered) {
           onEvent({ event: "portfolio_refresh_recovered", count: pending.keys.length, elapsedMs: at - pending.at });
           pending = null;
           failures = 0;
           nextAttemptAt = 0;
         } else if (at - pending.at >= responseTimeoutMs) {
-          defer("mark_callbacks_timeout", at);
+          if (pending.cancelAcknowledged) {
+            pending = null;
+            nextAttemptAt = at + maxRetryMs;
+            onEvent({ event: "portfolio_refresh_deferred", reason: "mark_callbacks_missing_after_cancel", delayMs: maxRetryMs });
+          } else {
+            defer("mark_callbacks_timeout", at);
+          }
         }
         return false;
       }
       if (at < nextAttemptAt) return false;
       const stale = [...active.keys()].filter((key) => !Number.isFinite(observed(key)) || at - observed(key) >= refreshAfterMs);
       if (!stale.length) return false;
-      pending = { at, keys: stale };
+      pending = { at, marksAfter: at, keys: stale };
       onEvent({ event: "portfolio_refresh_requested", count: stale.length, attempt: failures + 1 });
       try {
         if (refresh() === false) {
