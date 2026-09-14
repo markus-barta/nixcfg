@@ -6,6 +6,21 @@ Read-only paper IB client (`clientId` 92 → `100.64.0.6:4002`) projecting
 
 Never connects to live 4001. Never places orders. Uses shared agenix push token.
 
+## Board health
+
+Every complete household snapshot includes the optional consumer-compatible
+pair `boardHealth` (`green`, `yellow`, or `red`) and `shortReason`. The current
+reason codes are `board_ok`, `snapshot_stale`, `retained_values`,
+`gateway_degraded`, `gateway_down`, `equity_unavailable`, `producer_stuck`,
+`day_unavailable_rth`, `open_unavailable_rth`, and `halt_on`.
+
+Health is derived from the projected snapshot's source observations, never the
+publisher heartbeat. Gateway loss, unavailable all-desk equity, a stuck
+producer without usable equity, an active halt, or missing DAY during weekday
+09:30–16:00 America/New_York is red. Retained or stale usable values, and
+missing OPEN during that window, are yellow. Outside that window, unavailable
+DAY and OPEN remain honest N/A and do not make a fresh board red.
+
 ## Broker recovery
 
 The SDK `connected` event proves the local TCP/API handshake with IB Gateway; it

@@ -20,6 +20,9 @@ const CAPTURED_FIFO_METHOD = "captured-fifo-matched-roundtrips";
 const FAMILY_HISTORY_STATUS = new Set(["BEST_AVAILABLE", "COMPLETE"]);
 const DESK_IDS = ["j", "joe", "joel"];
 const DESK_PROVIDER_CONTRACT = deskOwnershipPolicyContract(CURRENT_DESK_OWNERSHIP_POLICY);
+const BOARD_HEALTH_STALE_AFTER_MS = STALE_AFTER * 1000;
+const BOARD_HEALTH_RTH_START_MINUTE = 9 * 60 + 30;
+const BOARD_HEALTH_RTH_END_MINUTE = 16 * 60;
 // CONFIG.md Grandfather (Markus 2026-09-04): existing paper SXR8 lot + leftover
 // TSLA×1 stay outside Stage-0 Joel book money / since-start / stand / totals
 // until Faber exit. Still mentioned in action/learning text.
@@ -39,6 +42,85 @@ function sleeveMv(portfolio, symbols) {
 
 function round2(n) {
   return Math.round(n * 100) / 100;
+}
+
+function boardHealthResult(boardHealth, shortReason) {
+  return { boardHealth, shortReason };
+}
+
+function sourceAgeMs(value, nowMs) {
+  const sourceMs = Date.parse(value || "");
+  if (!Number.isFinite(sourceMs) || !Number.isFinite(nowMs)) return null;
+  return nowMs - sourceMs;
+}
+
+function isNewYorkRth(value) {
+  const atMs = new Date(value || "").getTime();
+  if (!Number.isFinite(atMs)) return false;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(atMs)).map((part) => [part.type, part.value]));
+  const weekday = ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(parts.weekday);
+  const minute = Number(parts.hour) * 60 + Number(parts.minute);
+  return weekday && minute >= BOARD_HEALTH_RTH_START_MINUTE && minute < BOARD_HEALTH_RTH_END_MINUTE;
+}
+
+/**
+ * Derive the compact board status from the projected snapshot itself.
+ * Source observation timestamps are used for freshness; publisher heartbeat
+ * timestamps are deliberately excluded from this calculation.
+ */
+export function assessBoardHealth(snapshot, { now = new Date() } = {}) {
+  const nowMs = new Date(now || "").getTime();
+  if (!snapshot || typeof snapshot !== "object") return boardHealthResult("red", "equity_unavailable");
+
+  const gatewayStatus = snapshot.safety?.gateway?.status;
+  if (gatewayStatus === "down" || snapshot.gateway === false) {
+    return boardHealthResult("red", "gateway_down");
+  }
+  if (snapshot.safety?.halt === true) return boardHealthResult("red", "halt_on");
+
+  const desks = Array.isArray(snapshot.desks) ? snapshot.desks : [];
+  const equityUsable = desks.length === DESK_IDS.length && desks.every((desk) =>
+    Number.isFinite(desk?.money?.equity));
+  const stuckWithoutEquity = desks.some((desk) =>
+    desk?.state === "stuck" && !Number.isFinite(desk?.money?.equity));
+  if (stuckWithoutEquity) return boardHealthResult("red", "producer_stuck");
+  if (!equityUsable) return boardHealthResult("red", "equity_unavailable");
+
+  const daySource = snapshot.pnlSources?.day;
+  const openSource = snapshot.pnlSources?.open;
+  const dayUsable = daySource?.status === "available" && Number.isFinite(snapshot.totals?.dayPnl);
+  const openUsable = openSource?.status === "available" && Number.isFinite(snapshot.totals?.openPnl);
+  const rth = isNewYorkRth(now);
+  if (rth && !dayUsable) return boardHealthResult("red", "day_unavailable_rth");
+
+  const retainedValues = desks.some((desk) =>
+    desk?.moneyEvidence?.status === "carried" ||
+    (desk?.state === "stuck" && Number.isFinite(desk?.money?.equity)));
+  const sourceValues = [
+    snapshot.generatedAt,
+    snapshot.brokerAccount?.observedAt,
+    ...desks.map((desk) => desk?.moneyEvidence?.observedAt),
+    ...(dayUsable ? [daySource.observedAt] : []),
+    ...(openUsable ? [openSource.observedAt] : []),
+  ].filter((value) => value !== null && value !== undefined);
+  const hasStaleSource = sourceValues.some((value) => {
+    const age = sourceAgeMs(value, nowMs);
+    return age === null || age < 0 || age > BOARD_HEALTH_STALE_AFTER_MS;
+  });
+
+  // A retained equity vector remains actionable, but tells the consumer that
+  // the producer is carrying the last verified marks.
+  if (gatewayStatus === "degraded") return boardHealthResult("yellow", "gateway_degraded");
+  if (retainedValues) return boardHealthResult("yellow", "retained_values");
+  if (rth && !openUsable) return boardHealthResult("yellow", "open_unavailable_rth");
+  if (hasStaleSource) return boardHealthResult("yellow", "snapshot_stale");
+  return boardHealthResult("green", "board_ok");
 }
 
 function brokerNetLiquidation(summary) {
@@ -792,7 +874,7 @@ export function projectBook(book, opts = {}) {
     openPnl: openPnl.values.total,
   };
 
-  return {
+  const snapshot = {
     schema: "inspr.joe.household.v1",
     generatedAt: gen,
     mode: "PAPER",
@@ -816,6 +898,7 @@ export function projectBook(book, opts = {}) {
     desks,
     totals,
   };
+  return { ...snapshot, ...assessBoardHealth(snapshot, { now: publisherAt }) };
 }
 
 function formatViennaIso(date) {

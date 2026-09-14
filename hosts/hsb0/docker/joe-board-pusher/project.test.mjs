@@ -12,6 +12,7 @@ import {
   strictFinite,
 } from "./positions-state.mjs";
 import {
+  assessBoardHealth,
   buildDeskPositions,
   isGrandfathered,
   projectBook,
@@ -1815,4 +1816,159 @@ test("benign connectivity notices stay visible without reconnecting", () => {
     { code: 2107, state: "informational", action: "none" },
     { code: 2158, state: "informational", action: "none" },
   ]);
+});
+
+function healthFixture(overrides = {}) {
+  const sourceAt = "2026-09-14T14:00:00.000Z";
+  const desk = (id) => ({
+    id,
+    state: "sit-out",
+    money: { equity: 5000 },
+    moneyEvidence: { status: "observed", observedAt: sourceAt },
+  });
+  return {
+    generatedAt: sourceAt,
+    brokerAccount: { observedAt: sourceAt },
+    safety: { halt: false, gateway: { status: "ok" } },
+    desks: [desk("j"), desk("joe"), desk("joel")],
+    totals: { dayPnl: 0, openPnl: 0 },
+    pnlSources: {
+      day: { status: "available", observedAt: sourceAt },
+      open: { status: "available", observedAt: sourceAt },
+    },
+    ...overrides,
+  };
+}
+
+test("board health is green when fresh RTH DAY and OPEN are usable", () => {
+  assert.deepEqual(assessBoardHealth(healthFixture(), { now: "2026-09-14T14:00:00.000Z" }), {
+    boardHealth: "green",
+    shortReason: "board_ok",
+  });
+});
+
+test("red failures take precedence over a degraded gateway", () => {
+  const degraded = (overrides = {}) => healthFixture({
+    safety: { halt: false, gateway: { status: "degraded" } },
+    ...overrides,
+  });
+  assert.equal(assessBoardHealth(degraded({
+    desks: [],
+  }), { now: "2026-09-14T14:00:00.000Z" }).shortReason, "equity_unavailable");
+  assert.equal(assessBoardHealth(degraded({
+    safety: { halt: true, gateway: { status: "degraded" } },
+  }), { now: "2026-09-14T14:00:00.000Z" }).shortReason, "halt_on");
+  assert.equal(assessBoardHealth(degraded({
+    pnlSources: {
+      day: { status: "unavailable", observedAt: null },
+      open: { status: "available", observedAt: "2026-09-14T14:00:00.000Z" },
+    },
+    totals: { dayPnl: null, openPnl: 0 },
+  }), { now: "2026-09-14T14:00:00.000Z" }).shortReason, "day_unavailable_rth");
+});
+
+test("a stuck producer with finite equity is yellow even without carried metadata", () => {
+  const snapshot = healthFixture({
+    desks: ["j", "joe", "joel"].map((id) => ({
+      id,
+      state: id === "joe" ? "stuck" : "sit-out",
+      money: { equity: 5000 },
+      moneyEvidence: { status: "observed", observedAt: "2026-09-14T14:00:00.000Z" },
+    })),
+  });
+  assert.deepEqual(assessBoardHealth(snapshot, { now: "2026-09-14T14:00:00.000Z" }), {
+    boardHealth: "yellow",
+    shortReason: "retained_values",
+  });
+});
+
+test("projected snapshots always carry the optional health pair", () => {
+  const snapshot = projectBook(baseBook(), { publisherAt: new Date(OBS_B) });
+  assert.deepEqual({ boardHealth: snapshot.boardHealth, shortReason: snapshot.shortReason }, {
+    boardHealth: "green",
+    shortReason: "board_ok",
+  });
+});
+
+test("board health marks missing DAY red during New York RTH", () => {
+  const snapshot = healthFixture({
+    pnlSources: {
+      day: { status: "unavailable", observedAt: null },
+      open: { status: "available", observedAt: "2026-09-14T14:00:00.000Z" },
+    },
+    totals: { dayPnl: null, openPnl: 0 },
+  });
+  assert.deepEqual(assessBoardHealth(snapshot, { now: "2026-09-14T14:00:00.000Z" }), {
+    boardHealth: "red",
+    shortReason: "day_unavailable_rth",
+  });
+});
+
+test("missing DAY and OPEN are honest green N/A outside RTH, including weekends", () => {
+  const sourceAt = "2026-09-12T14:00:00.000Z";
+  const snapshot = healthFixture({
+    generatedAt: sourceAt,
+    brokerAccount: { observedAt: sourceAt },
+    desks: ["j", "joe", "joel"].map((id) => ({
+      id,
+      state: "sit-out",
+      money: { equity: 5000 },
+      moneyEvidence: { status: "observed", observedAt: sourceAt },
+    })),
+    pnlSources: {
+      day: { status: "unavailable", observedAt: null },
+      open: { status: "unavailable", observedAt: null },
+    },
+    totals: { dayPnl: null, openPnl: null },
+  });
+  assert.deepEqual(assessBoardHealth(snapshot, { now: "2026-09-12T14:00:00.000Z" }), {
+    boardHealth: "green",
+    shortReason: "board_ok",
+  });
+});
+
+test("board health handles DST when determining New York RTH", () => {
+  const snapshot = healthFixture({
+    pnlSources: {
+      day: { status: "unavailable", observedAt: null },
+      open: { status: "available", observedAt: "2026-03-09T14:00:00.000Z" },
+    },
+    totals: { dayPnl: null, openPnl: 0 },
+  });
+  assert.equal(assessBoardHealth(snapshot, { now: "2026-03-09T14:00:00.000Z" }).shortReason,
+    "day_unavailable_rth");
+});
+
+test("board health uses retained values and source age instead of heartbeat age", () => {
+  const retained = healthFixture({
+    generatedAt: "2026-09-14T13:50:00.000Z",
+    desks: ["j", "joe", "joel"].map((id) => ({
+      id,
+      state: "stuck",
+      money: { equity: 5000 },
+      moneyEvidence: { status: "carried", observedAt: "2026-09-14T13:50:00.000Z" },
+    })),
+  });
+  assert.deepEqual(assessBoardHealth(retained, { now: "2026-09-14T14:00:00.000Z" }), {
+    boardHealth: "yellow",
+    shortReason: "retained_values",
+  });
+  const stale = healthFixture({ generatedAt: "2026-09-14T13:54:59.000Z" });
+  assert.equal(assessBoardHealth(stale, { now: "2026-09-14T14:00:00.000Z" }).shortReason, "snapshot_stale");
+  const freshAtBoundary = healthFixture({ generatedAt: "2026-09-14T13:55:00.000Z" });
+  assert.equal(assessBoardHealth(freshAtBoundary, { now: "2026-09-14T14:00:00.000Z" }).shortReason, "board_ok");
+});
+
+test("board health reports OPEN unavailable as yellow during RTH", () => {
+  const snapshot = healthFixture({
+    pnlSources: {
+      day: { status: "available", observedAt: "2026-09-14T14:00:00.000Z" },
+      open: { status: "unavailable", observedAt: null },
+    },
+    totals: { dayPnl: 0, openPnl: null },
+  });
+  assert.deepEqual(assessBoardHealth(snapshot, { now: "2026-09-14T14:00:00.000Z" }), {
+    boardHealth: "yellow",
+    shortReason: "open_unavailable_rth",
+  });
 });
