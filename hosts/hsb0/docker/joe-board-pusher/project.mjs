@@ -74,7 +74,7 @@ function isNewYorkRth(value) {
  * Source observation timestamps are used for freshness; publisher heartbeat
  * timestamps are deliberately excluded from this calculation.
  */
-export function assessBoardHealth(snapshot, { now = new Date() } = {}) {
+export function assessBoardHealth(snapshot, { now = new Date(), hardFailure = false } = {}) {
   const nowMs = new Date(now || "").getTime();
   if (!snapshot || typeof snapshot !== "object") return boardHealthResult("red", "equity_unavailable");
 
@@ -83,6 +83,7 @@ export function assessBoardHealth(snapshot, { now = new Date() } = {}) {
     return boardHealthResult("red", "gateway_down");
   }
   if (snapshot.safety?.halt === true) return boardHealthResult("red", "halt_on");
+  if (hardFailure) return boardHealthResult("red", "producer_stuck");
 
   const desks = Array.isArray(snapshot.desks) ? snapshot.desks : [];
   const equityUsable = desks.length === DESK_IDS.length && desks.every((desk) =>
@@ -97,7 +98,6 @@ export function assessBoardHealth(snapshot, { now = new Date() } = {}) {
   const dayUsable = daySource?.status === "available" && Number.isFinite(snapshot.totals?.dayPnl);
   const openUsable = openSource?.status === "available" && Number.isFinite(snapshot.totals?.openPnl);
   const rth = isNewYorkRth(now);
-  if (rth && !dayUsable) return boardHealthResult("red", "day_unavailable_rth");
 
   const retainedValues = desks.some((desk) =>
     desk?.moneyEvidence?.status === "carried" ||
@@ -118,6 +118,7 @@ export function assessBoardHealth(snapshot, { now = new Date() } = {}) {
   // the producer is carrying the last verified marks.
   if (gatewayStatus === "degraded") return boardHealthResult("yellow", "gateway_degraded");
   if (retainedValues) return boardHealthResult("yellow", "retained_values");
+  if (rth && !dayUsable) return boardHealthResult("yellow", "day_pending");
   if (rth && !openUsable) return boardHealthResult("yellow", "open_unavailable_rth");
   if (hasStaleSource) return boardHealthResult("yellow", "snapshot_stale");
   return boardHealthResult("green", "board_ok");
@@ -683,7 +684,7 @@ export function projectBook(book, opts = {}) {
   const deskEvidenceUnavailable = familyRuntimeEnabled && !deskEquities;
   const deskEvidenceStale = Boolean(familyRuntimeEnabled && deskEquities && !currentDeskEquities);
   const retainedDeskDetail = deskEvidenceStale
-    ? `Carried all-desk equity uses inputs as old as ${deskEquities.oldestSourceObservedAt}; current valuation unavailable.`
+    ? `Carried all-desk equity uses inputs as old as ${deskEquities.oldestSourceObservedAt}; ${familyUnavailable ? familyUnavailableReason : "current valuation unavailable"}.`
     : null;
   const moneyEvidence = deskEquities ? {
     status: currentDeskEquities ? "observed" : "carried",
@@ -868,9 +869,10 @@ export function projectBook(book, opts = {}) {
   }
 
   const totals = {
-    equity: familyUnavailable || deskEvidenceUnavailable ? null : round2(jEquity + joeEquity + joelEquity),
+    // A failed current family calculation does not invalidate the verified retained vector.
+    equity: deskEvidenceUnavailable ? null : round2(jEquity + joeEquity + joelEquity),
     dayPnl: dayPnl.values.total,
-    totalPnl: familyUnavailable || deskEvidenceUnavailable ? null : round2(jPnl + joePnl + joelPnl),
+    totalPnl: deskEvidenceUnavailable ? null : round2(jPnl + joePnl + joelPnl),
     openPnl: openPnl.values.total,
   };
 
@@ -898,7 +900,10 @@ export function projectBook(book, opts = {}) {
     desks,
     totals,
   };
-  return { ...snapshot, ...assessBoardHealth(snapshot, { now: publisherAt }) };
+  return { ...snapshot, ...assessBoardHealth(snapshot, {
+    now: publisherAt,
+    hardFailure: family?.hardFailure === true || opts.deskEquities?.hardFailure === true,
+  }) };
 }
 
 function formatViennaIso(date) {

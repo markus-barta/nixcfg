@@ -12,14 +12,25 @@ Every complete household snapshot includes the optional consumer-compatible
 pair `boardHealth` (`green`, `yellow`, or `red`) and `shortReason`. The current
 reason codes are `board_ok`, `snapshot_stale`, `retained_values`,
 `gateway_degraded`, `gateway_down`, `equity_unavailable`, `producer_stuck`,
-`day_unavailable_rth`, `open_unavailable_rth`, and `halt_on`.
+`day_pending`, `open_unavailable_rth`, and `halt_on`. The old
+`day_unavailable_rth` remains readable by compatible consumers but is no longer emitted.
 
 Health is derived from the projected snapshot's source observations, never the
 publisher heartbeat. Gateway loss, unavailable all-desk equity, a stuck
-producer without usable equity, an active halt, or missing DAY during weekday
-09:30–16:00 America/New_York is red. Retained or stale usable values, and
-missing OPEN during that window, are yellow. Outside that window, unavailable
+producer without usable equity, a structural ledger failure, or an active halt
+is red. Retained or stale usable values, and missing DAY or OPEN during weekday
+09:30–16:00 America/New_York, are yellow. Outside that window, unavailable
 DAY and OPEN remain honest N/A and do not make a fresh board red.
+
+A temporarily incomplete J-family calculation retains the last verified full
+virtual-desk equity vector, including its household total and original oldest
+input timestamp. Joe and Joel values are not erased by a J callback gap. This
+is a carried valuation, never a fresh calculation; current DAY/OPEN gates and
+the saved SOD reference are unchanged. The existing durable DAY store supplies
+the retained vector across restarts. With no verified vector at all, the board
+stays red rather than inventing a grace-period timestamp. Structural ledger
+errors remain red even if retained money is displayed. Calculator diagnostics
+name the actual missing input instead of the generic incomplete-family error.
 
 ## Broker recovery
 
