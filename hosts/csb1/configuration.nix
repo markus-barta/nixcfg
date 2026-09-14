@@ -231,6 +231,10 @@ in
     # image to 3.7.13; do not set existingTraefikVersion until the public
     # consumer library is upgraded. This is not the existing inspr-auth edge.
     inputs.inspr-modules.nixosModules.routing-edge
+    # NIX-498: consume the published Aithema 0.7 workspace module, but keep
+    # production activation with INSPR-386 until real runtime custody, IAM and
+    # routing proof exist.
+    inputs.inspr-modules.nixosModules.aithema-workspace
   ];
 
   # OPS-116 — the container stack, rendered from Nix into the closure.
@@ -366,6 +370,17 @@ in
       resourceNamespace = "inspr-routing-edge";
       providerFile = "traefik/dynamic/inspr-routing-edge.yml";
     };
+  };
+
+  # NIX-498 — actual-host consumer for the published Aithema 0.7 package.
+  # INSPR-386 owns the later production config, IAM, routing and activation.
+  # Null is intentional: no fixture or store-backed runtime config may stand
+  # in for the future protected operator-owned file.
+  services.inspr.aithemaWorkspace = {
+    enable = false;
+    package = inputs.inspr-modules.packages.x86_64-linux.aithema-workspace;
+    stateDirectory = "aithema-workspace";
+    configFile = null;
   };
 
   # ============================================================================

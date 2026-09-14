@@ -202,6 +202,9 @@ jobs:
       - name: Verify published routing-edge pin and inactive csb1 consumer (NIX-447)
         run: tests/T74-public-routing-consumer.sh
 
+      - name: Verify published Aithema workspace pin and inactive csb1 consumer (NIX-498)
+        run: tests/T78-aithema-workspace-consumer.sh
+
       - name: Verify csb1 Traefik 3.7.13 pin and isolated provider proof (NIX-448)
         run: tests/T75-csb1-traefik-3713-isolated.sh
 
