@@ -96,8 +96,8 @@ const adapter = createBrokerSessionAdapter({
     onBrokerNotice({ route, code, state, action }) {
       console.warn(JSON.stringify({ event: "ib_notice", route, code, state, action }));
     },
-    onAccountSubscriptionConflict() {
-      portfolioRefresh?.subscriptionConflict();
+    onAccountSubscriptionConflict(code) {
+      portfolioRefresh?.subscriptionConflict(code);
     },
     onSocketActivity({ api }) {
       connectionSupervisor?.socketActivity(api);
