@@ -32,6 +32,27 @@ stays red rather than inventing a grace-period timestamp. Structural ledger
 errors remain red even if retained money is displayed. Calculator diagnostics
 name the actual missing input instead of the generic incomplete-family error.
 
+## Portfolio freshness (HOSTD-64)
+
+The account portfolio subscription is change-driven. A connected Gateway and
+fresh execution/summary callbacks therefore do not prove fresh per-position
+marks. An independent five-second check requests a same-session account download
+when an active non-KEEP position has a missing mark or its actual finite-price
+callback is four minutes old. It cancels and resubscribes this client's existing
+account subscription; it does not reconnect, replace the execution generation,
+place orders, or change any DAY/OPEN freshness limit or saved SOD reference.
+Only broker `updatePortfolio` callbacks advance mark ages. Requests, completion
+notices and publisher ticks never do so. A failed refresh retains the current
+honest stale/carry behavior.
+
+One refresh may be outstanding. Missing mark callbacks time out after 30 seconds;
+retries back off from one minute to 15 minutes. Account subscription notices
+2100/2101 are logged and defer another attempt for 15 minutes instead of starting
+a subscription fight. Closed positions and KEEP SXR8/TSLA do not trigger refresh.
+Outside trading hours an unchanged broker mark remains an observation of the
+broker valuation, not a claim of a new trade. Logs distinguish requested,
+recovered and deferred refreshes without dumping account or position data.
+
 ## Broker recovery
 
 The SDK `connected` event proves the local TCP/API handshake with IB Gateway; it

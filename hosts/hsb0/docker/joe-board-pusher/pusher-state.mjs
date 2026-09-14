@@ -149,6 +149,11 @@ export function createBrokerSessionAdapter({
   function handleBrokerNotice(route, code) {
     const numericCode = Number(code);
     const normalizedCode = Number.isInteger(numericCode) ? numericCode : null;
+    if (normalizedCode === 2100 || normalizedCode === 2101) {
+      hooks.onBrokerNotice?.({ route, code: normalizedCode, state: "account_subscription_lost", action: "bounded_refresh_deferred" });
+      hooks.onAccountSubscriptionConflict?.();
+      return true;
+    }
     const state = brokerConnectivityState(normalizedCode);
     if (!state && route !== "info") return false;
     let action = "none";
@@ -411,6 +416,16 @@ export function createBrokerSessionAdapter({
 
   return {
     attach,
+
+    refreshPortfolio() {
+      if (!activeApi || !socketConnected || !upstreamConnected || !working?.accountComplete) return false;
+      // Refresh this client's existing paper account subscription, not the
+      // socket or execution generation. Retain every mark and its original age
+      // until updatePortfolio supplies a real replacement. No baseline reset.
+      activeApi.reqAccountUpdates(false, targetAccount);
+      activeApi.reqAccountUpdates(true, targetAccount);
+      return true;
+    },
 
     retire(reason = "reconnecting") {
       invalidate(activeApi, reason, false);
