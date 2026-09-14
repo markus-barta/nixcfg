@@ -14,6 +14,8 @@ import {
   newYorkPeriodStart,
 } from "./day-baseline.mjs";
 
+import { createPortfolioRefreshController } from "./portfolio-refresh.mjs";
+
 const REV_A = "a".repeat(64);
 const REV_B = "b".repeat(64);
 const SOURCE_CONTRACT = {
@@ -575,4 +577,51 @@ test("all-desk producer rejects self-asserted policy provenance before persisten
   assert.equal(result.ok, false);
   assert.match(result.reason, /source contract/);
   assert.equal(producer.inspectState(), null);
+});
+
+
+test("HOSTD-64 portfolio refresh restores DAY without moving the saved session reference", () => {
+  const referenceAt = "2026-09-14T16:22:27.771Z";
+  let instant = Date.parse(referenceAt);
+  const h = harness({ now: referenceAt });
+  const first = h.adapter.observe(observation({ at: referenceAt }));
+  assert.equal(first.ok, true, first.reason);
+  assert.equal(first.source.sodSource, "session_open_proxy");
+  const savedProxy = structuredClone(h.adapter.inspectState().proxy);
+  const contract = { conId: 101, symbol: "SYNTH", secType: "STK", currency: "EUR" };
+  const book = {
+    gateway: true,
+    positionsCoverage: { status: "complete", rows: [{ contract, pos: 1 }] },
+    portfolio: [{ contract, pos: 1, marketPrice: 100, markObservedAt: referenceAt }],
+  };
+  let requests = 0;
+  const refresh = createPortfolioRefreshController({ nowMs: () => instant, refresh: () => { requests += 1; } });
+  const value = () => h.adapter.observe(observation({
+    at: new Date(instant).toISOString(),
+    oldest: book.portfolio[0].markObservedAt,
+    equity: vector({ j: 5000 + book.portfolio[0].marketPrice - 100 }),
+  }));
+
+  // Gateway and publisher still advance; the actual held mark does not.
+  instant += 360_000;
+  h.setNow(new Date(instant).toISOString());
+  assert.equal(refresh.tick(book), true);
+  assert.equal(requests, 1);
+  const waiting = value();
+  assert.equal(waiting.ok, false);
+  assert.match(waiting.reason, /current virtual-equity observation is stale/);
+  assert.deepEqual(h.adapter.inspectState().proxy, savedProxy);
+  assert.equal(book.portfolio[0].markObservedAt, referenceAt);
+
+  // Only the broker mark response supplies a new valuation/time.
+  instant += 5_000;
+  h.setNow(new Date(instant).toISOString());
+  book.portfolio[0].marketPrice = 102;
+  book.portfolio[0].markObservedAt = new Date(instant).toISOString();
+  refresh.tick(book);
+  const restored = value();
+  assert.equal(restored.ok, true, restored.reason);
+  assert.equal(restored.values.j, 2);
+  assert.equal(restored.source.referenceAt, referenceAt);
+  assert.deepEqual(h.adapter.inspectState().proxy, savedProxy);
 });
