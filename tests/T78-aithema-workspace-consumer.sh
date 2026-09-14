@@ -46,10 +46,6 @@ jq -e --arg rev "$expected_rev" --arg nar "$expected_narhash" '
 grep -Fq "inspr-modules.url = \"github:inspr-at/inspr-modules/$expected_rev\"" "$flake_nix"
 grep -Fq 'inputs.inspr-modules.nixosModules.aithema-workspace' "$host_config"
 grep -Fq 'package = inputs.inspr-modules.packages.x86_64-linux.aithema-workspace;' "$host_config"
-grep -Fq 'services.inspr.aithemaWorkspace = {' "$host_config"
-grep -Fq '    enable = false;' "$host_config"
-grep -Fq '    stateDirectory = "aithema-workspace";' "$host_config"
-grep -Fq '    configFile = null;' "$host_config"
 
 projection=$(nix eval --impure --json --file "$consumer_eval")
 jq -e \

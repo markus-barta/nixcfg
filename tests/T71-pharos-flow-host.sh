@@ -34,13 +34,14 @@ repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 stage="$repo_root/hosts/csb1/pharos-flow-host.nix"
 delivery_stage="$repo_root/hosts/csb1/paimos-delivery-stage.nix"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
+shared_flow="$repo_root/hosts/csb1/shared-flow.nix"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 pharos_module="$repo_root/modules/pharos-flow-host/default.nix"
 pharos_eval="$repo_root/tests/pharos-flow-host-eval.nix"
 delivery_module="$repo_root/modules/pharos-paimos-delivery/default.nix"
 paimos_defaults="$repo_root/modules/shared/markus-defaults.nix"
 
-for file in "$stage" "$delivery_stage" "$compose" "$host_config" "$pharos_module" "$pharos_eval"; do
+for file in "$stage" "$delivery_stage" "$compose" "$shared_flow" "$host_config" "$pharos_module" "$pharos_eval"; do
   nix-instantiate --parse "$file" >/dev/null
 done
 
@@ -228,6 +229,15 @@ cp "$delivery_stage" "$workdir/off/paimos-delivery-stage.nix"
 cp "$delivery_stage" "$workdir/on/paimos-delivery-stage.nix"
 cp "$compose" "$workdir/off/docker/compose-spec.nix"
 cp "$compose" "$workdir/on/docker/compose-spec.nix"
+cp "$shared_flow" "$workdir/off/shared-flow.nix"
+cp "$shared_flow" "$workdir/on/shared-flow.nix"
+
+for fixture in off on; do
+  grep -Fq '  active = false;' "$workdir/$fixture/shared-flow.nix" || {
+    printf 'Pharos fixture must leave shared Flow inactive: %s\n' "$fixture" >&2
+    exit 1
+  }
+done
 
 grep -Fq '  active = false;' "$workdir/off/pharos-flow-host.nix" ||
   {

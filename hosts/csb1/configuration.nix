@@ -24,6 +24,24 @@ let
   # Compose imports the same value-free file; tests/T76 asserts the inactive
   # no-op and the active config/env/mount agreement.
   janusFlowHost = import ./janus-flow-host.nix;
+  # NIX-501 — one selector and one value-free topology shared with Compose.
+  # The controller flips only sharedFlow.active after the protected Aithema
+  # config passes the activation preflight below.
+  sharedFlow = import ./shared-flow.nix;
+  legacyFlowFragment = import ./legacy-flow-routing.nix {
+    inherit (sharedFlow) privateSourceRanges;
+  };
+  legacyFlowFragmentFile = pkgs.writeText "csb1-legacy-flow-routing.json" (
+    builtins.toJSON legacyFlowFragment
+  );
+  sharedFlowRenderer = pkgs.writeShellApplication {
+    name = "render-csb1-shared-flow-config";
+    runtimeInputs = [
+      pkgs.coreutils
+      pkgs.yq-go
+    ];
+    text = builtins.readFile ./scripts/render-shared-flow-config.sh;
+  };
   # OPS-127: the runtime compose file is the closure's rendered spec (the yml is
   # retired). /etc/compose/csb1/... is the environment.etc symlink to it.
   # Every -p csb1 compose invocation serializes on the composeStack lock
@@ -299,6 +317,13 @@ in
       hostdashCsb1
       config.age.secrets.csb1-inspr-auth-env.file
       ./scripts/render-inspr-edge-config.sh
+      ./shared-flow.nix
+      ./legacy-flow-routing.nix
+      ./scripts/render-shared-flow-config.sh
+    ]
+    ++ lib.optionals sharedFlow.active [
+      config.services.inspr.routingEdge.generatedFragmentFile
+      legacyFlowFragmentFile
     ];
     spec = import ./docker/compose-spec.nix;
   };
@@ -339,48 +364,170 @@ in
   # A failed/missing renderer is a hard dependency, not an advisory Wants.
   # This merges with composeStack's docker.service requirement.
   systemd.services.compose-csb1 = {
-    requires = [ "inspr-edge-config.service" ];
-    after = [ "inspr-edge-config.service" ];
+    requires = [
+      "inspr-edge-config.service"
+    ]
+    ++ lib.optionals sharedFlow.active [
+      "aithema-workspace.service"
+      "inspr-shared-flow-config.service"
+      "inspr-shared-flow-network.service"
+    ];
+    after = [
+      "inspr-edge-config.service"
+    ]
+    ++ lib.optionals sharedFlow.active [
+      "aithema-workspace.service"
+      "inspr-shared-flow-config.service"
+      "inspr-shared-flow-network.service"
+    ];
   };
 
-  # NIX-447 — public routing-edge consumer boundary. Explicitly inactive.
-  # Prepared selectors match the existing Traefik file provider
-  # (entrypoint `web-secure`, resolver `default`, directory
-  # `/etc/traefik/dynamic`). They do not install a fragment, service,
-  # listener, or compose mount while enable = false. Do not treat this
-  # scaffolding as live routing.
-  #
-  # Activation gates, all still open:
-  #   - operator-chosen public origin, tenant, identity, and upstream map
-  #   - public contract file (no fixture substitute)
-  #   - Traefik 3.7.13 host image is digest-pinned (NIX-448); do not set
-  #     existingTraefikVersion until the published routing-edge consumer
-  #     pin matches. Never allowUnpinnedTraefik.
-  #   - compose bind of the unique fragment into the existing dynamic dir
-  # Rollback of this pin is the synchronized 73e15491 flake-lock +
-  # doctrine gitlink pair. App image pins stay on NIX-446.
-  services.inspr.routingEdge = {
-    enable = false;
+  # NIX-501 — the production contract and upstreams exist now, but every
+  # effect stays absent until the one shared selector is flipped. The module
+  # compiler output is merged with legacy-flow-routing.nix by the runtime
+  # renderer below; no route library is reimplemented here.
+  services.inspr.routingEdge = lib.recursiveUpdate {
+    enable = sharedFlow.active;
     package = inputs.inspr-modules.packages.x86_64-linux.routing-edge;
     deploymentMode = "external-file-provider";
     allowUnpinnedTraefik = false;
     entrypoint.name = "web-secure";
     external = {
-      certificateResolver = "default";
+      certificateResolver = "public-http";
       resourceNamespace = "inspr-routing-edge";
       providerFile = "traefik/dynamic/inspr-routing-edge.yml";
     };
+  } (lib.optionalAttrs sharedFlow.active sharedFlow.routingEdgeActivation);
+
+  # NIX-501 — Aithema is native so its protected config remains a systemd
+  # credential outside the store. The explicit inactive branch preserves the
+  # old zero-effect evaluation; the controller still flips only sharedFlow.
+  services.inspr.aithemaWorkspace = lib.mkMerge [
+    {
+      package = inputs.inspr-modules.packages.x86_64-linux.aithema-workspace;
+      stateDirectory = "aithema-workspace";
+    }
+    (lib.mkIf sharedFlow.active {
+      enable = true;
+      configFile = sharedFlow.aithema.configFile;
+    })
+    (lib.mkIf (!sharedFlow.active) {
+      enable = false;
+      configFile = null;
+    })
+  ];
+
+  # Validate only the topology and protection contract, never render or log
+  # the operator-owned JSON. A missing or mismatched file blocks the switch
+  # before any route, network, or app environment can be reconciled.
+  system.activationScripts.sharedFlowRuntimeConfig = lib.mkIf sharedFlow.active {
+    deps = [ "agenix" ];
+    text = ''
+      runtime_config=${lib.escapeShellArg sharedFlow.aithema.configFile}
+      if [ ! -f "$runtime_config" ] || [ -L "$runtime_config" ]; then
+        echo "shared Flow activation blocked: protected Aithema runtime config is missing or not a regular file" >&2
+        exit 1
+      fi
+      if [ "$(${pkgs.coreutils}/bin/stat -c '%u:%g:%a' "$runtime_config")" != "0:0:400" ]; then
+        echo "shared Flow activation blocked: protected Aithema runtime config must be root:root mode 0400" >&2
+        exit 1
+      fi
+      if ! ${pkgs.jq}/bin/jq -e \
+        --arg listen_host ${lib.escapeShellArg sharedFlow.network.addresses.host} \
+        --argjson listen_port ${toString sharedFlow.ports.aithema} \
+        --arg data_dir ${lib.escapeShellArg sharedFlow.aithema.dataDirectory} \
+        --arg public_origin ${lib.escapeShellArg sharedFlow.publicOrigin} \
+        --arg public_base_path ${lib.escapeShellArg sharedFlow.basePaths.aithema} \
+        'type == "object"
+         and .mode == "production"
+         and .listenHost == $listen_host
+         and .listenPort == $listen_port
+         and .dataDir == $data_dir
+         and .publicOrigin == $public_origin
+         and .publicBasePath == $public_base_path
+         and (.identity | type == "object" and .kind == "jwt-jwks")
+         and (.identity.browser_login | type == "object" and (.client_id | type == "string" and length > 0))
+         and (.identity.memberships | type == "array" and length > 0)' \
+        "$runtime_config" >/dev/null; then
+        echo "shared Flow activation blocked: protected Aithema runtime config does not match the reviewed production topology and identity prerequisites" >&2
+        exit 1
+      fi
+    '';
   };
 
-  # NIX-498 — actual-host consumer for the published Aithema 0.7 package.
-  # INSPR-386 owns the later production config, IAM, routing and activation.
-  # Null is intentional: no fixture or store-backed runtime config may stand
-  # in for the future protected operator-owned file.
-  services.inspr.aithemaWorkspace = {
-    enable = false;
-    package = inputs.inspr-modules.packages.x86_64-linux.aithema-workspace;
-    stateDirectory = "aithema-workspace";
-    configFile = null;
+  # The private bridge exists before Aithema binds its gateway address and is
+  # declared external to Compose so the stack cannot race network creation.
+  # Existing topology is checked exactly; this unit never replaces a network.
+  systemd.services.inspr-shared-flow-network = lib.mkIf sharedFlow.active {
+    description = "Ensure the private csb1 shared Flow bridge";
+    requires = [ "docker.service" ];
+    after = [ "docker.service" ];
+    before = [
+      "aithema-workspace.service"
+      "compose-csb1.service"
+    ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+    };
+    script = ''
+      docker=${config.virtualisation.docker.package}/bin/docker
+      network=${lib.escapeShellArg sharedFlow.network.dockerName}
+      expected=${lib.escapeShellArg "bridge|true|${sharedFlow.network.subnet}|${sharedFlow.network.gateway}|${sharedFlow.network.bridgeInterface}"}
+      if "$docker" network ls --filter "name=^$network$" --format '{{.Name}}' | ${pkgs.gnugrep}/bin/grep -Fxq "$network"; then
+        actual="$($docker network inspect --format '{{.Driver}}|{{.Internal}}|{{(index .IPAM.Config 0).Subnet}}|{{(index .IPAM.Config 0).Gateway}}|{{index .Options "com.docker.network.bridge.name"}}' "$network")"
+        if [ "$actual" != "$expected" ]; then
+          echo "shared Flow network blocked: existing network does not match the reviewed private topology" >&2
+          exit 1
+        fi
+      else
+        "$docker" network create \
+          --driver bridge \
+          --internal \
+          --subnet ${lib.escapeShellArg sharedFlow.network.subnet} \
+          --gateway ${lib.escapeShellArg sharedFlow.network.gateway} \
+          --opt com.docker.network.bridge.name=${lib.escapeShellArg sharedFlow.network.bridgeInterface} \
+          "$network" >/dev/null
+      fi
+    '';
+  };
+
+  systemd.services.aithema-workspace = lib.mkIf sharedFlow.active {
+    requires = [ "inspr-shared-flow-network.service" ];
+    after = [ "inspr-shared-flow-network.service" ];
+  };
+
+  # Traefik consumes one collision-checked fragment containing both the shared
+  # compiler output and the existing legacy compatibility routes.
+  systemd.services.inspr-shared-flow-config = lib.mkIf sharedFlow.active {
+    description = "Render the csb1 shared and legacy Flow routing fragment";
+    before = [ "compose-csb1.service" ];
+    wantedBy = [ "multi-user.target" ];
+    restartTriggers = [
+      config.services.inspr.routingEdge.generatedFragmentFile
+      legacyFlowFragmentFile
+      ./scripts/render-shared-flow-config.sh
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      RuntimeDirectory = "inspr-shared-flow";
+      RuntimeDirectoryMode = "0755";
+      RuntimeDirectoryPreserve = "restart";
+      UMask = "0022";
+      NoNewPrivileges = true;
+      PrivateTmp = true;
+      ProtectHome = true;
+      ProtectSystem = "strict";
+    };
+    script = ''
+      exec ${lib.getExe sharedFlowRenderer} \
+        /run/inspr-shared-flow/dynamic.yml \
+        ${config.services.inspr.routingEdge.generatedFragmentFile} \
+        ${legacyFlowFragmentFile} \
+        inspr-routing-edge
+    '';
   };
 
   # ============================================================================
@@ -463,6 +610,7 @@ in
       configFile
       apiKeyFile
       ;
+    paimosPublicUrl = if sharedFlow.active then sharedFlow.browserUrls.paimos else null;
     # pharosd runs as 10001:992; Flow requires the parent directory, config
     # file and API key to be owned by that uid with no group/other bits.
     containerUid = 10001;
@@ -482,13 +630,13 @@ in
     activate = janusFlowHost.active;
     inherit (janusFlowHost)
       paimosOrigin
-      paimosBrowserUrl
       hostId
       instanceLabel
       configFile
       apiKeyFile
       bindings
       ;
+    paimosBrowserUrl = if sharedFlow.active then sharedFlow.browserUrls.paimos else null;
     # The deployed Go image runs as the named janus account, numeric 100:101.
     containerUid = 100;
     containerGid = 101;
@@ -564,8 +712,8 @@ in
     beforeUnits = [ "janus-managed-canary.service" ];
     agent = {
       enable = true;
-      pharosOrigin = "https://pharos.barta.cm";
-      janusOrigin = "https://vault.barta.cm";
+      pharosOrigin = sharedFlow.machineOrigins.pharos;
+      janusOrigin = sharedFlow.machineOrigins.janus;
       tokenFile = config.age.secrets.csb1-janus-managed-host-agent-token.path;
       composeProject = "csb1";
       pollIntervalSeconds = 5;
@@ -654,6 +802,15 @@ in
       "8.8.4.4"
     ];
 
+    # Machine clients retain their origin-only HTTPS URLs and certificate SNI,
+    # but reach the local Traefik address once the shared Flow stack is active.
+    hosts = lib.mkIf sharedFlow.active {
+      ${sharedFlow.network.addresses.traefik} = [
+        "pharos.barta.cm"
+        "vault.barta.cm"
+      ];
+    };
+
     # Tell NetworkManager NOT to manage ens3 (we configure it statically)
     networkmanager.unmanaged = [ "ens3" ];
 
@@ -678,6 +835,31 @@ in
       allowedUDPPorts = [
         41641 # Tailscale WireGuard
       ];
+      # Aithema binds only the private bridge gateway. The host firewall admits
+      # its native listener solely from Traefik's fixed address; all other
+      # bridge peers and every public interface retain the default denial.
+      extraCommands = lib.mkIf sharedFlow.active ''
+        iptables -w -D nixos-fw \
+          -i ${sharedFlow.network.bridgeInterface} \
+          -s ${sharedFlow.network.addresses.traefik}/32 \
+          -d ${sharedFlow.network.addresses.host}/32 \
+          -p tcp --dport ${toString sharedFlow.ports.aithema} \
+          -j ACCEPT 2>/dev/null || true
+        iptables -w -I nixos-fw 1 \
+          -i ${sharedFlow.network.bridgeInterface} \
+          -s ${sharedFlow.network.addresses.traefik}/32 \
+          -d ${sharedFlow.network.addresses.host}/32 \
+          -p tcp --dport ${toString sharedFlow.ports.aithema} \
+          -j ACCEPT
+      '';
+      extraStopCommands = lib.mkIf sharedFlow.active ''
+        iptables -w -D nixos-fw \
+          -i ${sharedFlow.network.bridgeInterface} \
+          -s ${sharedFlow.network.addresses.traefik}/32 \
+          -d ${sharedFlow.network.addresses.host}/32 \
+          -p tcp --dport ${toString sharedFlow.ports.aithema} \
+          -j ACCEPT 2>/dev/null || true
+      '';
     };
   };
 
