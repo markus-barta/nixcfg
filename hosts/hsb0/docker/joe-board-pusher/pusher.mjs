@@ -45,6 +45,7 @@ import {
 import { projectBook } from "./project.mjs";
 import { createConnectionSupervisor } from "./pusher-recovery.mjs";
 import { createBrokerSessionAdapter } from "./pusher-state.mjs";
+import { createPortfolioRefreshController } from "./portfolio-refresh.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
@@ -75,6 +76,7 @@ function parseIntervalSec() {
 
 const INTERVAL_SEC = parseIntervalSec();
 let connectionSupervisor = null;
+let portfolioRefresh = null;
 
 const adapter = createBrokerSessionAdapter({
   targetAccount: ACCOUNT,
@@ -93,6 +95,9 @@ const adapter = createBrokerSessionAdapter({
     },
     onBrokerNotice({ route, code, state, action }) {
       console.warn(JSON.stringify({ event: "ib_notice", route, code, state, action }));
+    },
+    onAccountSubscriptionConflict() {
+      portfolioRefresh?.subscriptionConflict();
     },
     onSocketActivity({ api }) {
       connectionSupervisor?.socketActivity(api);
@@ -363,6 +368,7 @@ async function pushOnce() {
 connectionSupervisor = createConnectionSupervisor({
   createApi: () => new IBApi({ host: HOST, port: PORT, clientId: CLIENT_ID }),
   attachApi(next) {
+    portfolioRefresh?.reset();
     adapter.attach(next);
     familyAdapter.attach(next);
     familyHistoryAdapter.attach(next);
@@ -387,7 +393,15 @@ connectionSupervisor = createConnectionSupervisor({
   upstreamLossDeadlineMs: UPSTREAM_LOSS_DEADLINE_MS,
 });
 
+portfolioRefresh = createPortfolioRefreshController({
+  refresh: () => adapter.refreshPortfolio(),
+  onEvent: (event) => console.log(JSON.stringify(event)),
+});
+// Independent of both publisher cadence and unrelated healthy socket traffic.
+const portfolioRefreshTimer = setInterval(() => portfolioRefresh.tick(adapter.snapshot()), 5_000);
+
 function shutdown() {
+  clearInterval(portfolioRefreshTimer);
   adapter.retire("shutdown");
   familyAdapter.retire("shutdown");
   familyHistoryAdapter.retire("shutdown");
