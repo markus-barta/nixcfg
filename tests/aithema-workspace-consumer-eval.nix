@@ -9,7 +9,22 @@ let
     builtins.getFlake flakeRef;
   inherit (flake.inputs.nixpkgs) lib;
   host = flake.nixosConfigurations.csb1;
-  cfg = host.config.services.inspr.aithemaWorkspace;
+  # Exercise the published module's disabled contract independently of the
+  # now-active production host and its host-owned restart triggers.
+  disabledHost = lib.nixosSystem {
+    system = "x86_64-linux";
+    modules = [
+      flake.inputs.inspr-modules.nixosModules.aithema-workspace
+      {
+        system.stateVersion = "25.11";
+        services.inspr.aithemaWorkspace = {
+          enable = false;
+          package = flake.inputs.inspr-modules.packages.x86_64-linux.aithema-workspace;
+        };
+      }
+    ];
+  };
+  cfg = disabledHost.config.services.inspr.aithemaWorkspace;
   serviceName = "aithema-workspace";
   syntheticConfig = "/run/nix498-fixture/aithema-workspace.json";
 
@@ -44,6 +59,11 @@ let
     );
 in
 {
+  production = {
+    enable = host.config.services.inspr.aithemaWorkspace.enable;
+    configFile = host.config.services.inspr.aithemaWorkspace.configFile;
+    hasService = builtins.hasAttr serviceName host.config.systemd.services;
+  };
   disabled = {
     enable = cfg.enable;
     configFile = cfg.configFile;
@@ -51,15 +71,19 @@ in
     packageName = cfg.package.pname or cfg.package.name;
     packageVersion = cfg.package.version;
     packageSourceRevision = cfg.package.passthru.release.sourceRev;
-    hasService = builtins.hasAttr serviceName host.config.systemd.services;
-    hasUser = builtins.hasAttr cfg.user host.config.users.users;
-    hasGroup = builtins.hasAttr cfg.group host.config.users.groups;
+    hasService = builtins.hasAttr serviceName disabledHost.config.systemd.services;
+    hasUser = builtins.hasAttr cfg.user disabledHost.config.users.users;
+    hasGroup = builtins.hasAttr cfg.group disabledHost.config.users.groups;
     hasStateDirectoryEffect =
-      builtins.hasAttr serviceName host.config.systemd.services
-      && builtins.hasAttr "StateDirectory" host.config.systemd.services.${serviceName}.serviceConfig;
+      builtins.hasAttr serviceName disabledHost.config.systemd.services
+      &&
+        builtins.hasAttr "StateDirectory"
+          disabledHost.config.systemd.services.${serviceName}.serviceConfig;
     hasCredentialEffect =
-      builtins.hasAttr serviceName host.config.systemd.services
-      && builtins.hasAttr "LoadCredential" host.config.systemd.services.${serviceName}.serviceConfig;
+      builtins.hasAttr serviceName disabledHost.config.systemd.services
+      &&
+        builtins.hasAttr "LoadCredential"
+          disabledHost.config.systemd.services.${serviceName}.serviceConfig;
   };
 
   enabled = {

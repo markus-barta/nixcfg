@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# T78 — consume the published Aithema 0.8 NixOS module on csb1 while keeping
-# production runtime custody, IAM, routing and activation explicitly absent.
+# T78 — verify the active csb1 consumer and preserve the published module's
+# isolated disabled contract plus synthetic credential validation.
 set -euo pipefail
 
 report_failure() {
@@ -51,7 +51,12 @@ projection=$(nix eval --impure --json --file "$consumer_eval")
 jq -e \
   --arg version "$expected_version" \
   --arg source_rev "$expected_source_rev" '
-  .disabled == {
+  .production == {
+    enable: true,
+    configFile: "/run/aithema-workspace-config.json",
+    hasService: true
+  }
+  and .disabled == {
     enable: false,
     configFile: null,
     stateDirectory: "aithema-workspace",
