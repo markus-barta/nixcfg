@@ -73,7 +73,7 @@ nix-instantiate --eval --strict --json --expr "
 " >"$work/projection.json"
 
 jq -e '
-  .active == false
+  .active == true
   and .publicHost == "flow.inspr.at"
   and .publicOrigin == "https://flow.inspr.at"
   and .basePaths == {aithema:"/aithema",janus:"/janus",paimos:"/paimos",pharos:"/pharos"}
@@ -95,7 +95,7 @@ jq -e '
   and .machineOrigins == {janus:"https://vault.barta.cm",pharos:"https://pharos.barta.cm"}
   and .privateSourceRanges.janus == ["10.253.253.1/32"]
   and .privateSourceRanges.pharos == ["10.253.253.3/32"]
-  and .aithema.configFile == "/run/agenix/csb1-aithema-workspace-config"
+  and .aithema.configFile == "/run/aithema-workspace-config.json"
   and .activeRoutingEdge == {
     allowUnpinnedTraefik:false,
     deploymentMode:"external-file-provider",
@@ -186,6 +186,20 @@ import pathlib
 import sys
 
 source = pathlib.Path(sys.argv[1]).read_text()
+secret_start = source.index("  age.secrets.csb1-aithema-workspace-config =")
+secret_end = source.index("\n  };", secret_start)
+secret = source[secret_start:secret_end]
+for required in (
+    "lib.mkIf sharedFlow.active",
+    "file = ../../secrets/csb1-aithema-workspace-config.age;",
+    "path = sharedFlow.aithema.configFile;",
+    'owner = "root";', 'group = "root";', 'mode = "0400";',
+    "symlink = false;",
+):
+    if required not in secret:
+        raise SystemExit(f"durable Aithema credential declaration is missing: {required}")
+if "restartTriggers = [ config.age.secrets.csb1-aithema-workspace-config.file ];" not in source:
+    raise SystemExit("Aithema must refresh its systemd credential after a ciphertext change")
 routing_start = source.index("  services.inspr.routingEdge =")
 routing_end = source.index("\n\n  # NIX-501 — Aithema", routing_start)
 routing = source[routing_start:routing_end]
@@ -220,4 +234,4 @@ grep -Fq 'image = "ghcr.io/inspr-at/paimos:260915004615.0.0@sha256:aae79382d3a98
 grep -Fq 'image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v1.185@sha256:5d6fec5a17af150f5acef1daa101faf596e9aa5bd3278e3665b11ba389a6f30f"' "$compose"
 grep -Fq 'image = "ghcr.io/inspr-at/pharos/pharosd:260913221718.0.0@sha256:7e2f559ec166cde25f1b2d016c278045e164e55b7b0ddce4ee5c41f2fed9b5ee"' "$compose"
 
-printf 'shared_flow_activation=passed active=false source_proof_pending=true\n'
+printf 'shared_flow_activation=passed active=true runtime_proof_required=true\n'

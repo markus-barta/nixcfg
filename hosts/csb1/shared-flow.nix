@@ -4,7 +4,7 @@
 # public-path, credential-load, and private name-resolution effects. The nested
 # value-free Paimos selector may be prepared only with its protected inputs.
 let
-  active = false;
+  active = true;
   publicHost = "flow.inspr.at";
   publicOrigin = "https://${publicHost}";
   basePaths = {
@@ -107,7 +107,7 @@ in
     ;
 
   aithema = {
-    configFile = "/run/agenix/csb1-aithema-workspace-config";
+    configFile = "/run/aithema-workspace-config.json";
     dataDirectory = "/var/lib/aithema-workspace";
     paimosHarness = {
       # False preserves existing direct-API-only operation without requiring a
