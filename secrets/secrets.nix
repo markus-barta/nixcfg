@@ -244,6 +244,8 @@ in
   # Format: KEY=VALUE lines (PPM_ADMIN_PASSWORD, COOKIE_SECURE, etc.)
   # Edit: agenix -e secrets/csb1-ppm-env.age
   "csb1-ppm-env.age".publicKeys = markus ++ csb1;
+  # NIX-501: Aithema runtime identity and direct provider config, csb1 only.
+  "csb1-aithema-workspace-config.age".publicKeys = markus ++ csb1;
 
   # Janus environment variables for csb1
   # Format: KEY=VALUE lines (OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY)

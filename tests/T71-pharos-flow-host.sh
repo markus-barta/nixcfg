@@ -229,8 +229,10 @@ cp "$delivery_stage" "$workdir/off/paimos-delivery-stage.nix"
 cp "$delivery_stage" "$workdir/on/paimos-delivery-stage.nix"
 cp "$compose" "$workdir/off/docker/compose-spec.nix"
 cp "$compose" "$workdir/on/docker/compose-spec.nix"
-cp "$shared_flow" "$workdir/off/shared-flow.nix"
-cp "$shared_flow" "$workdir/on/shared-flow.nix"
+# Isolate this adapter's selector from the production shared-origin state.
+for fixture in off on; do
+  sed 's/^  active = true;/  active = false;/' "$shared_flow" >"$workdir/$fixture/shared-flow.nix"
+done
 
 for fixture in off on; do
   grep -Fq '  active = false;' "$workdir/$fixture/shared-flow.nix" || {
@@ -305,8 +307,17 @@ if config_vars(off_env) or config_vars(live_env):
     failures.append(f"{VAR} is set while the stage switch is off - pharosd would panic before credentials exist")
 if config_vars(off_env, DELIVERY_VAR) or config_vars(on_env, DELIVERY_VAR) or config_vars(live_env, DELIVERY_VAR):
     failures.append(f"{DELIVERY_VAR} must stay unset (NIX-381 active=false)")
-if off_env != live_env:
-    failures.append("forced-off pharosd environment drifted from the live compose spec")
+# The shared origin is active independently of this still-disabled adapter.
+public_keys = {"PHAROS_PUBLIC_ORIGIN", "PHAROS_PUBLIC_BASE_PATH", "PHAROS_OIDC_REDIRECT_URI"}
+public_env = [entry for entry in live_env if entry.split("=", 1)[0] in public_keys]
+if set(public_env) != {
+    "PHAROS_PUBLIC_ORIGIN=https://flow.inspr.at",
+    "PHAROS_PUBLIC_BASE_PATH=/pharos",
+    "PHAROS_OIDC_REDIRECT_URI=https://flow.inspr.at/pharos/auth/callback",
+}:
+    failures.append("live Pharos shared-origin settings are wrong")
+if [entry for entry in off_env if entry.split("=", 1)[0] not in public_keys] != [entry for entry in live_env if entry.split("=", 1)[0] not in public_keys]:
+    failures.append("forced-off pharosd non-routing environment drifted from live")
 if off_volumes != live_volumes:
     failures.append("forced-off pharosd volumes drifted from the live compose spec")
 if len(off_volumes) != len(on_volumes) - 2:

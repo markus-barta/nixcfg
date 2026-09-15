@@ -1,23 +1,7 @@
 #!/usr/bin/env bash
-# T74 — pin the published routing-edge library and keep the csb1 consumer
-# boundary inactive (NIX-447). NIX-501 prepares the activation contract behind
-# the shared Flow selector; the actual projection below must remain effect-free.
-#
-# What can actually go wrong here, and what each block therefore proves:
-#
-#   1. Flake input and doctrine gitlink drift apart, so hosts run a library
-#      sessions have not read (or the reverse). T42 still owns the checker
-#      blob; this test owns the synchronized immutable source coordinate.
-#      NIX-501 consumes release0.12.0 / Aithema0.8.0; routing implementation
-#      and checker blob stay byte-identical to the previous pin.
-#   2. A copied stub eval can stay disabled while the real host is not.
-#      Disabled effects are projected from nixosConfigurations.csb1.
-#   3. Prepared selectors accidentally install a routing-owned fragment,
-#      service, or compose mount, or the host Traefik image floats again.
-#   4. The prepared activation contract leaks into the inactive evaluated
-#      module state.
-#   5. Forcing enable=true without flipping the shared selector must fail
-#      closed, not silently compile a fragment from an inactive contract.
+# T74 — published routing-edge pin and active csb1 consumer (NIX-501).
+# Assert the actual host, plus a forced-disabled library and missing-contract
+# rejection. Whole-selector inactive Compose cases remain in T48/T71/T76.
 set -euo pipefail
 
 report_failure() {
@@ -101,28 +85,33 @@ else
   exit 1
 fi
 
-# --- 4. actual csb1 projection: disabled, no routing-owned effects ---------
+# --- 4. actual active host plus forced-disabled/missing-contract cases ----
 eval_json="$(nix eval --impure --json --file "$consumer_eval")"
 jq -e --arg provider "$provider_file" '
-  .enable == false
+  .enable == true
   and .deploymentMode == "external-file-provider"
   and .entrypointName == "web-secure"
   and .certificateResolver == "public-http"
   and .resourceNamespace == "inspr-routing-edge"
   and .providerFile == $provider
   and .allowUnpinnedTraefik == false
-  and .existingTraefikVersion == null
-  and .upstreamIds == []
+  and .existingTraefikVersion == "3.7.13"
+  and .upstreamIds == ["aithema", "janus", "paimos", "pharos"]
   and .packageSystem == "x86_64-linux"
   and (.packageName == "inspr-routing-edge" or .packageName == "routing-edge")
   and .hasRoutingEdgeService == false
-  and .routingEtcNames == []
+  and .routingEtcNames == [$provider]
   and .composeMentionsOwnedFragment == false
-  and .generatedFragmentFile == null
-  and .generatedDeployment == {}
+  and (.generatedFragmentFile | type == "string" and startswith("/nix/store/"))
+  and .generatedDeployment.mode == "external-file-provider"
+  and .generatedDeployment.certificate_resolver == "public-http"
   and .routingFailedAssertionCount == 0
   and .routingWarningCount == 0
   and .enableTrueMissingContractFailed == true
+  and .disabledLibrary == {
+    enable:false, generatedFragmentFile:null, generatedDeployment:{},
+    hasRoutingEdgeService:false, hasRoutingEtc:false
+  }
 ' <<<"$eval_json" >/dev/null
 
 printf 'public_routing_consumer=passed\n'

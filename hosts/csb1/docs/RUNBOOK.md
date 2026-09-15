@@ -986,35 +986,56 @@ Traefik uses `secrets/traefik-variables.age` (shared with csb0) for ACME DNS-01 
 5. `docker restart csb1-traefik-1` to trigger immediate cert renewal
 6. Verify: `docker logs csb1-traefik-1 --tail 50 2>&1 | grep -i acme`
 
-### Public routing-edge consumer (NIX-447, inactive)
+### Shared Flow origin (NIX-501)
 
-csb1 imports the published `inspr-modules` `v0.5.0` routing-edge NixOS module
-and binds the `x86_64-linux` compiler package. `services.inspr.routingEdge.enable`
-is **false**. Disabled evaluation must emit no systemd unit, no `/etc` fragment,
-no listener, no firewall port, and no compose mount.
+`hosts/csb1/shared-flow.nix` is the single active deployment selector for
+`https://flow.inspr.at`. It serves Aithema at `/aithema`, Paimos at `/paimos`,
+Pharos at `/pharos`, and Janus at `/janus`. `/` opens Aithema. Each app verifies
+its own Zitadel client/session; shared routing grants no execution authority.
 
-This is not the existing `inspr-edge` auth fragment (`/etc/traefik/dynamic/inspr-edge.yml`,
-`inspr-auth-edge-token@file`). Leave that renderer and its Traefik bind untouched.
+Aithema initially uses the approved direct OpenRouter provider. Its separate
+`paimosHarness.enable` selector stays **false** until real CLI enrollment and
+its protected conversation credential are verified. Existing email delivery
+and application image pins are unchanged by this activation.
 
-Prepared external-file-provider selectors, inert until activation:
+The native workspace loads `/run/aithema-workspace-config.json` through a
+systemd credential. Agenix recreates it from `csb1-aithema-workspace-config.age`
+as a root:root regular file, mode `0400`, on every boot/switch. Its path is
+outside the rotating `/run/agenix` directory; `symlink = false` keeps it
+compatible with the protected-file preflight. Never print the file or copy
+its identity/provider values into source. Ciphertext changes restart Aithema
+so systemd refreshes the copied credential.
 
-| Parameter            | Value                                    | Why                                              |
-| -------------------- | ---------------------------------------- | ------------------------------------------------ |
-| entrypoint           | `web-secure`                             | already defined in `docker/traefik/static.yml`   |
-| certificate resolver | `default`                                | already defined there                            |
-| resource namespace   | `inspr-routing-edge`                     | unique vs existing Traefik object names          |
-| provider filename    | `traefik/dynamic/inspr-routing-edge.yml` | distinct from `dynamic.yml` and `inspr-edge.yml` |
+Traefik remains pinned at v3.7.13. The shared compiler uses `web-secure`,
+`public-http` ACME (HTTP challenge on `web`, port 80), and the existing file
+provider. The renderer combines the compiler output and legacy compatibility
+routes in `/run/inspr-shared-flow/dynamic.yml`. Keep the separate existing
+`inspr-edge` auth fragment and token untouched. Legacy browser navigation
+moves to the shared origin; existing machine API origins retain prefix-aware
+compatibility and their original TLS names. Private internal paths remain
+restricted to reviewed bridge callers.
 
-Activation is a later, operator-owned gate. It still needs the real public
-origin / tenant / identity / upstream map, the public contract (no fixture
-substitute), and a compose bind into the existing `/etc/traefik/dynamic`
-directory. The csb1 Traefik **process** image is now the official v3.7.13
-index digest `sha256:f86a2cab1b5c649070c49f883c743dd32d8485a56e3368c5f93b9e91f1e91259`
-(linux/amd64 leaf independently verified); `existingTraefikVersion` stays
-unset until the published routing-edge consumer pin matches that release.
-Never set `allowUnpinnedTraefik`. App image pins stay on NIX-446. Pin
-rollback of the routing-edge library is the synchronized `73e15491`
-flake-lock + doctrine gitlink pair.
+Deploy through a reviewed nixcfg PR, then `git pull --ff-only origin main`,
+`git submodule update --init doctrine`, and `just switch` on csb1. The managed
+Compose reconciler owns `/run/lock/compose-csb1.lock`; do not hold that lock
+around `just switch`, because its service takes the same lock. Before the
+switch record the previous system generation/source and confirm the four
+OIDC callbacks, tenant membership, DNS target, and protected config. No browser
+or provider success may be inferred from source validation alone.
+
+Verify all four public prefixes, actual login/callback behavior, a real
+Aithema provider response, and existing Paimos/Pharos/Janus machine endpoints.
+Check Aithema/network/config services and the three existing app containers.
+T74 checks the actual activated consumer and disabled-library behavior;
+T48/T71/T76 retain inactive shared-origin adapter fixtures; T80/T81 cover
+routing and the protected direct-provider/CLI boundary.
+
+Rollback is a reviewed `active = false` change with matching production-state
+test expectations, followed by the same normal switch. It restores legacy
+public paths and disables the native workspace while preserving app state
+and immutable image pins. Keep the previous Nix generation until live proof;
+never downgrade an application or restore its database merely to undo this
+routing change.
 
 ---
 
