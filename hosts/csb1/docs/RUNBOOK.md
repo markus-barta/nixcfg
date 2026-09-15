@@ -1015,6 +1015,16 @@ moves to the shared origin; existing machine API origins retain prefix-aware
 compatibility and their original TLS names. Private internal paths remain
 restricted to reviewed bridge callers.
 
+Pharos must preserve root `/report`, `/agent/*`, health and readiness endpoints
+when its browser runs at `/pharos`: existing tailnet clients bypass Traefik.
+Before activation, require the corrected native-prefix release and confirm all
+six host timestamps advance over successive report intervals. An HTTP 404 puts
+a beacon into terminal quarantine; after restoring the receiver route, restart
+only the affected existing beacon under its host's Compose lock and verify a new
+successful report. A healthy receiver alone does not prove reporter recovery.
+The exact `/pharos/` browser root redirects to `/pharos`, retaining the query;
+callback paths must not be normalized by a broad trailing-slash rule.
+
 Deploy through a reviewed nixcfg PR, then `git pull --ff-only origin main`,
 `git submodule update --init doctrine`, and `just switch` on csb1. The managed
 Compose reconciler owns `/run/lock/compose-csb1.lock`; do not hold that lock
@@ -1026,6 +1036,8 @@ or provider success may be inferred from source validation alone.
 Verify all four public prefixes, actual login/callback behavior, a real
 Aithema provider response, and existing Paimos/Pharos/Janus machine endpoints.
 Check Aithema/network/config services and the three existing app containers.
+The active Janus container readiness probe uses `/janus/readyz` and requires
+`ready:true`; the disabled selector retains the image's root-path probe.
 T74 checks the actual activated consumer and disabled-library behavior;
 T48/T71/T76 retain inactive shared-origin adapter fixtures; T80/T81 cover
 routing and the protected direct-provider/CLI boundary.
