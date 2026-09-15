@@ -190,10 +190,19 @@ if live.get("networks") != {"traefik": None, "shared-flow": {"ipv4_address": "10
     failures.append("live Janus shared network is wrong")
 if live.get("extra_hosts") != ["pharos.barta.cm:10.253.253.2"]:
     failures.append("live Janus private Pharos resolution is wrong")
+expected_health = {
+    "test": ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/janus/readyz | grep -q '\"ready\":true' || exit 1"],
+    "interval": "30s", "timeout": "3s", "start_period": "10s", "retries": 3,
+}
+if live.get("healthcheck") != expected_health:
+    failures.append("live Janus healthcheck does not preserve ready:true at its native prefix")
+if "healthcheck" in off:
+    failures.append("inactive shared origin must retain the image healthcheck")
 normalized_live = dict(live)
 normalized_live["environment"] = [entry for entry in live["environment"] if entry.split("=", 1)[0] not in public_keys] + ["JANUS_PUBLIC_URL=https://vault.barta.cm"]
 normalized_live["networks"] = ["traefik"]
 normalized_live.pop("extra_hosts", None)
+normalized_live.pop("healthcheck", None)
 if normalized_live != off:
     failures.append("forced-off Janus differs beyond the reviewed shared-origin changes")
 if flow_vars(on) != ["JANUS_FLOW_CONFIG_FILE=/run/janus/flow-host/config.json"]:

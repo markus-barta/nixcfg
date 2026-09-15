@@ -832,6 +832,18 @@ in
     // (
       if sharedFlow.active then
         {
+          # The native public-prefix adapter also scopes readiness. Preserve
+          # the image's ready:true probe and timing at the actual live path.
+          healthcheck = {
+            test = [
+              "CMD-SHELL"
+              "wget -qO- http://127.0.0.1:8080${sharedFlow.basePaths.janus}/readyz | grep -q '\"ready\":true' || exit 1"
+            ];
+            interval = "30s";
+            timeout = "3s";
+            start_period = "10s";
+            retries = 3;
+          };
           # Preserve the HTTPS origin/Host/SNI while resolving Janus's private
           # Pharos fetches directly into Traefik on the private bridge.
           extra_hosts = [
