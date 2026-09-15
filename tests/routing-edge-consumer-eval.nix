@@ -48,10 +48,24 @@ let
         { lib, ... }:
         {
           services.inspr.routingEdge.enable = lib.mkForce true;
+          # Deliberately absent even though the real production host has one.
+          services.inspr.routingEdge.contractFile = lib.mkForce null;
         }
       )
     ];
   };
+
+  disabled = host.extendModules {
+    modules = [
+      (
+        { lib, ... }:
+        {
+          services.inspr.routingEdge.enable = lib.mkForce false;
+        }
+      )
+    ];
+  };
+  disabledCfg = disabled.config.services.inspr.routingEdge;
 
   enableTrueMissingContract = builtins.tryEval (
     builtins.deepSeq invalid.config.services.inspr.routingEdge.generatedFragmentFile true
@@ -77,4 +91,13 @@ in
   routingFailedAssertionCount = builtins.length routingFailedAssertions;
   routingWarningCount = builtins.length routingWarnings;
   enableTrueMissingContractFailed = !enableTrueMissingContract.success;
+  # This disables the library, not the separately owned host activation.
+  # T48/T71/T76 retain whole-selector inactive Compose fixtures.
+  disabledLibrary = {
+    enable = disabledCfg.enable;
+    generatedFragmentFile = disabledCfg.generatedFragmentFile;
+    generatedDeployment = disabledCfg.generatedDeployment;
+    hasRoutingEdgeService = disabled.config.systemd.services ? "inspr-routing-edge";
+    hasRoutingEtc = builtins.hasAttr providerFile disabled.config.environment.etc;
+  };
 }

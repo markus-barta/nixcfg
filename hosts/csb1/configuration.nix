@@ -540,6 +540,7 @@ in
       {
         requires = [ "inspr-shared-flow-network.service" ];
         after = [ "inspr-shared-flow-network.service" ];
+        restartTriggers = [ config.age.secrets.csb1-aithema-workspace-config.file ];
       }
       (lib.mkIf sharedFlow.aithema.paimosHarness.enable {
         # inspr-modules 0.12.0 currently contributes this setting as one string.
@@ -1448,6 +1449,19 @@ in
     owner = "root";
     group = "root";
     mode = "0400";
+  };
+
+  # NIX-501: the protected direct-API workspace config is installed on every
+  # boot/switch. Keep the regular file outside /run/agenix: that directory is
+  # a rotating generation symlink, so symlink=false beneath it would be lost
+  # when agenix advances its generation. No contents enter Nix evaluation.
+  age.secrets.csb1-aithema-workspace-config = lib.mkIf sharedFlow.active {
+    file = ../../secrets/csb1-aithema-workspace-config.age;
+    path = sharedFlow.aithema.configFile;
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    symlink = false;
   };
 
   # Janus Docker env (Zitadel OIDC client + cookie signing key)
