@@ -24,9 +24,9 @@ let
   # Compose imports the same value-free file; tests/T76 asserts the inactive
   # no-op and the active config/env/mount agreement.
   janusFlowHost = import ./janus-flow-host.nix;
-  # NIX-501 — one selector and one value-free topology shared with Compose.
-  # The controller flips only sharedFlow.active after the protected Aithema
-  # config passes the activation preflight below.
+  # NIX-501 — one deployment boundary and one value-free topology shared with
+  # Compose. The controller flips sharedFlow.active only after the protected
+  # Aithema inputs pass the activation preflight below.
   sharedFlow = import ./shared-flow.nix;
   legacyFlowFragment = import ./legacy-flow-routing.nix {
     inherit (sharedFlow) privateSourceRanges;
@@ -401,7 +401,7 @@ in
 
   # NIX-501 — Aithema is native so its protected config remains a systemd
   # credential outside the store. The explicit inactive branch preserves the
-  # old zero-effect evaluation; the controller still flips only sharedFlow.
+  # old zero-effect evaluation; sharedFlow.active remains the deployment gate.
   services.inspr.aithemaWorkspace = lib.mkMerge [
     {
       package = inputs.inspr-modules.packages.x86_64-linux.aithema-workspace;
@@ -418,26 +418,48 @@ in
   ];
 
   # Validate only the topology and protection contract, never render or log
-  # the operator-owned JSON. A missing or mismatched file blocks the switch
-  # before any route, network, or app environment can be reconciled.
+  # the operator-owned JSON or conversation key. A missing or mismatched file
+  # blocks the switch before any route, network, or app environment can be
+  # reconciled.
   system.activationScripts.sharedFlowRuntimeConfig = lib.mkIf sharedFlow.active {
     deps = [ "agenix" ];
     text = ''
       runtime_config=${lib.escapeShellArg sharedFlow.aithema.configFile}
-      if [ ! -f "$runtime_config" ] || [ -L "$runtime_config" ]; then
-        echo "shared Flow activation blocked: protected Aithema runtime config is missing or not a regular file" >&2
-        exit 1
-      fi
-      if [ "$(${pkgs.coreutils}/bin/stat -c '%u:%g:%a' "$runtime_config")" != "0:0:400" ]; then
-        echo "shared Flow activation blocked: protected Aithema runtime config must be root:root mode 0400" >&2
-        exit 1
-      fi
-      if ! ${pkgs.jq}/bin/jq -e \
-        --arg listen_host ${lib.escapeShellArg sharedFlow.network.addresses.host} \
-        --argjson listen_port ${toString sharedFlow.ports.aithema} \
-        --arg data_dir ${lib.escapeShellArg sharedFlow.aithema.dataDirectory} \
-        --arg public_origin ${lib.escapeShellArg sharedFlow.publicOrigin} \
-        --arg public_base_path ${lib.escapeShellArg sharedFlow.basePaths.aithema} \
+      paimos_harness_enabled=${lib.boolToString sharedFlow.aithema.paimosHarness.enable}
+      paimos_credential_source=${lib.escapeShellArg sharedFlow.aithema.paimosHarness.credentialSource}
+      paimos_credential_file=${lib.escapeShellArg sharedFlow.aithema.paimosHarness.credentialFile}
+      expected_listen_host=${lib.escapeShellArg sharedFlow.network.addresses.host}
+      expected_listen_port=${toString sharedFlow.ports.aithema}
+      expected_data_dir=${lib.escapeShellArg sharedFlow.aithema.dataDirectory}
+      expected_public_origin=${lib.escapeShellArg sharedFlow.publicOrigin}
+      expected_public_base_path=${lib.escapeShellArg sharedFlow.basePaths.aithema}
+      stat_bin=${pkgs.coreutils}/bin/stat
+      jq_bin=${pkgs.jq}/bin/jq
+
+      # NIX-501-PROTECTED-CONVERSATION-PREFLIGHT-BEGIN
+      shared_flow_check_protected_file() (
+        protected_path="$1"
+        protected_label="$2"
+        expected_metadata="$3"
+        if [ ! -f "$protected_path" ] || [ -L "$protected_path" ]; then
+          echo "shared Flow activation blocked: $protected_label is missing or not a regular file" >&2
+          return 1
+        fi
+        if [ "$("$stat_bin" -c '%u:%g:%a' "$protected_path")" != "$expected_metadata" ]; then
+          echo "shared Flow activation blocked: $protected_label must be root:root mode 0400" >&2
+          return 1
+        fi
+      )
+
+      shared_flow_check_runtime_config() (
+        "$jq_bin" -e \
+        --arg listen_host "$expected_listen_host" \
+        --argjson listen_port "$expected_listen_port" \
+        --arg data_dir "$expected_data_dir" \
+        --arg public_origin "$expected_public_origin" \
+        --arg public_base_path "$expected_public_base_path" \
+        --argjson paimos_harness_enabled "$paimos_harness_enabled" \
+        --arg paimos_credential_file "$paimos_credential_file" \
         'type == "object"
          and .mode == "production"
          and .listenHost == $listen_host
@@ -447,9 +469,29 @@ in
          and .publicBasePath == $public_base_path
          and (.identity | type == "object" and .kind == "jwt-jwks")
          and (.identity.browser_login | type == "object" and (.client_id | type == "string" and length > 0))
-         and (.identity.memberships | type == "array" and length > 0)' \
-        "$runtime_config" >/dev/null; then
-        echo "shared Flow activation blocked: protected Aithema runtime config does not match the reviewed production topology and identity prerequisites" >&2
+         and (.identity.memberships | type == "array" and length > 0)
+         and (.providers | type == "object")
+         and (if $paimos_harness_enabled then
+                ([.providers[] | select(type == "object" and .kind == "paimos-harness")] | length) > 0
+                and ([.providers[]
+                      | select(type == "object" and .kind == "paimos-harness")
+                      | .credentialFile]
+                     | all(. == $paimos_credential_file))
+              else
+                ([.providers[] | select(type == "object" and .kind == "paimos-harness")] | length) == 0
+              end)' \
+        "$runtime_config" >/dev/null
+      )
+      # NIX-501-PROTECTED-CONVERSATION-PREFLIGHT-END
+
+      shared_flow_check_protected_file \
+        "$runtime_config" "protected Aithema runtime config" "0:0:400" || exit 1
+      if [ "$paimos_harness_enabled" = true ]; then
+        shared_flow_check_protected_file \
+          "$paimos_credential_source" "protected Paimos conversation credential" "0:0:400" || exit 1
+      fi
+      if ! shared_flow_check_runtime_config; then
+        echo "shared Flow activation blocked: protected Aithema runtime config does not match the reviewed topology, identity, and provider prerequisites" >&2
         exit 1
       fi
     '';
@@ -493,10 +535,24 @@ in
     '';
   };
 
-  systemd.services.aithema-workspace = lib.mkIf sharedFlow.active {
-    requires = [ "inspr-shared-flow-network.service" ];
-    after = [ "inspr-shared-flow-network.service" ];
-  };
+  systemd.services.aithema-workspace = lib.mkIf sharedFlow.active (
+    lib.mkMerge [
+      {
+        requires = [ "inspr-shared-flow-network.service" ];
+        after = [ "inspr-shared-flow-network.service" ];
+      }
+      (lib.mkIf sharedFlow.aithema.paimosHarness.enable {
+        # inspr-modules 0.12.0 currently contributes this setting as one string.
+        # Override it with systemd's supported repeated LoadCredential form so
+        # runtime-config.json is preserved alongside the separate conversation
+        # credential; neither source enters the store or service argv.
+        serviceConfig.LoadCredential = lib.mkForce [
+          "runtime-config.json:${sharedFlow.aithema.configFile}"
+          "${sharedFlow.aithema.paimosHarness.credentialName}:${sharedFlow.aithema.paimosHarness.credentialSource}"
+        ];
+      })
+    ]
+  );
 
   # Traefik consumes one collision-checked fragment containing both the shared
   # compiler output and the existing legacy compatibility routes.
