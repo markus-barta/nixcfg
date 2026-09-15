@@ -152,11 +152,7 @@ class DeliveryTests(unittest.TestCase):
             'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
         }
         with tempfile.TemporaryDirectory() as directory:
-            regular = Path(directory) / 'empty-fixture'
-            regular.touch()
-            link = Path(directory) / 'link'
-            link.symlink_to(regular)
-            for key in (Path(directory) / 'not-enrolled', Path(directory), link):
+            for key in (Path(directory) / 'not-enrolled', Path(directory) / 'missing-parent' / 'key'):
                 with self.subTest(key=key.name), \
                         mock.patch.object(delivery, 'private_config', return_value=config), \
                         mock.patch('builtins.print') as notice:
@@ -164,6 +160,29 @@ class DeliveryTests(unittest.TestCase):
                     self.assertEqual(set(senders), {'email'})
                     notice.assert_called_once_with(
                         'grok notification not enrolled: PAI-1018 key absent, chat channel skipped')
+
+    def test_declared_senders_keeps_channel_for_directory_and_symlink(self):
+        config = {
+            'schema_version': 1,
+            'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
+            'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            regular = Path(directory) / 'empty-fixture'
+            regular.touch()
+            link = Path(directory) / 'link'
+            link.symlink_to(regular)
+            for key in (Path(directory), link):
+                with self.subTest(key=key.name), \
+                        mock.patch.object(delivery, 'private_config', return_value=config), \
+                        mock.patch('builtins.print') as notice:
+                    senders = delivery.declared_senders('config.json', '/bin/docker', str(key))
+                    self.assertEqual(set(senders), {'email', 'grok'})
+                    notice.assert_not_called()
+                    if key == Path(directory):
+                        with mock.patch.object(delivery.urllib.request, 'build_opener') as opener:
+                            self.assertFalse(senders['grok']('Paper Gateway needs attention.', 'event123'))
+                            opener.assert_not_called()
 
     def test_declared_senders_keeps_channel_when_key_metadata_is_unreadable(self):
         config = {
