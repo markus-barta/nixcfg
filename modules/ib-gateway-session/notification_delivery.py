@@ -186,7 +186,8 @@ def declared_senders(path: str, docker_bin: str, key_file: str) -> dict[str, Sen
         chat = unavailable("grok")
     else:
         try:
-            enrolled = stat.S_ISREG(os.lstat(key_file).st_mode)
+            os.lstat(key_file)
+            enrolled = True
         except (FileNotFoundError, NotADirectoryError):
             enrolled = False
         except OSError:
