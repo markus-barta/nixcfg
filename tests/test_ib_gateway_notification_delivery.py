@@ -145,6 +145,99 @@ class DeliveryTests(unittest.TestCase):
     def test_redirect_is_not_followed_with_credential(self):
         self.assertIsNone(delivery.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://other.invalid'))
 
+    def test_declared_senders_skips_unenrolled_key_with_one_notice(self):
+        config = {
+            'schema_version': 1,
+            'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
+            'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            regular = Path(directory) / 'empty-fixture'
+            regular.touch()
+            link = Path(directory) / 'link'
+            link.symlink_to(regular)
+            for key in (Path(directory) / 'not-enrolled', Path(directory), link):
+                with self.subTest(key=key.name), \
+                        mock.patch.object(delivery, 'private_config', return_value=config), \
+                        mock.patch('builtins.print') as notice:
+                    senders = delivery.declared_senders('config.json', '/bin/docker', str(key))
+                    self.assertEqual(set(senders), {'email'})
+                    notice.assert_called_once_with(
+                        'grok notification not enrolled: PAI-1018 key absent, chat channel skipped')
+
+    def test_declared_senders_keeps_channel_when_key_metadata_is_unreadable(self):
+        config = {
+            'schema_version': 1,
+            'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
+            'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+        }
+        with mock.patch.object(delivery, 'private_config', return_value=config), \
+                mock.patch.object(delivery.os, 'lstat', side_effect=PermissionError), \
+                mock.patch('builtins.print') as notice:
+            senders = delivery.declared_senders('config.json', '/bin/docker', '/unreadable-key')
+            self.assertEqual(set(senders), {'email', 'grok'})
+            notice.assert_not_called()
+
+    def test_declared_senders_enrolls_regular_key_without_reading_it(self):
+        config = {
+            'schema_version': 1,
+            'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
+            'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / 'empty-fixture'
+            key.touch()
+            with mock.patch.object(delivery, 'private_config', return_value=config), \
+                    mock.patch.object(delivery.os, 'open', side_effect=AssertionError('key opened')) as opened, \
+                    mock.patch('builtins.open', side_effect=AssertionError('key opened')) as builtin_opened, \
+                    mock.patch('builtins.print') as notice:
+                senders = delivery.declared_senders('config.json', '/bin/docker', str(key))
+            self.assertEqual(set(senders), {'email', 'grok'})
+            opened.assert_not_called()
+            builtin_opened.assert_not_called()
+            notice.assert_not_called()
+
+    def test_declared_senders_keeps_invalid_grok_target_unavailable(self):
+        config = {
+            'schema_version': 1,
+            'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
+            'grok': {'project_id': 20, 'to': 'invented'},
+        }
+        with mock.patch.object(delivery, 'private_config', return_value=config), \
+                mock.patch.object(delivery.os, 'lstat') as metadata, \
+                mock.patch('builtins.print') as notice:
+            senders = delivery.declared_senders('config.json', '/bin/docker', '/not-enrolled')
+            self.assertEqual(set(senders), {'email', 'grok'})
+            notice.assert_not_called()
+            self.assertFalse(senders['grok']('Paper Gateway needs attention.', 'event123'))
+            notice.assert_called_once_with(
+                'grok notification unavailable: configuration or receiver missing')
+            metadata.assert_not_called()
+
+    def test_email_only_notifications_ignore_pending_unenrolled_chat(self):
+        import test_ib_gateway_notification_state as fixture
+        notifications, engine = fixture.notification_state, fixture.engine
+        with tempfile.TemporaryDirectory() as directory:
+            state_directory = str(Path(directory) / 'alerts.channels')
+            delivering_sender = mock.Mock(return_value=True)
+            unavailable_sender = mock.Mock(return_value=False)
+            problem = 'Paper Gateway needs attention.'
+            now = 1_800_000_000.0
+            self.assertEqual(notifications.run_notifications(
+                state_directory, now, False, True, problem,
+                {'email': delivering_sender, 'grok': unavailable_sender}), engine.EXIT_UNDELIVERED)
+            chat_state = Path(state_directory) / 'grok' / 'state.json'
+            pending_chat = chat_state.read_bytes()
+
+            senders = {'email': delivering_sender}
+            self.assertEqual(notifications.run_notifications(
+                state_directory, now + 300, False, True, problem, senders), engine.EXIT_PROBLEMS)
+            self.assertEqual(notifications.run_notifications(
+                state_directory, now + 600, True, False, problem, senders), engine.EXIT_CLEAN)
+            self.assertEqual(delivering_sender.call_count, 2)  # problem and recovery
+            self.assertEqual(unavailable_sender.call_count, 1)
+            self.assertEqual(chat_state.read_bytes(), pending_chat)
+
     def test_pending_notifier_enrollment_does_not_block_email(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / 'config.json'
@@ -158,9 +251,7 @@ class DeliveryTests(unittest.TestCase):
             with mock.patch.object(delivery.subprocess, 'run', return_value=mock.Mock(returncode=0)) as relay:
                 self.assertTrue(senders['email']('Paper Gateway needs attention.', 'event123'))
             self.assertEqual(relay.call_count, 1)
-            with mock.patch.object(delivery.urllib.request, 'build_opener') as unused:
-                self.assertFalse(senders['grok']('Paper Gateway needs attention.', 'event123'))
-                unused.assert_not_called()
+            self.assertNotIn('grok', senders)
 
 
 if __name__ == '__main__':

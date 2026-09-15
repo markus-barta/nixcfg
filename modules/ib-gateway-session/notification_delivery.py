@@ -184,4 +184,15 @@ def declared_senders(path: str, docker_bin: str, key_file: str) -> dict[str, Sen
         chat = grok_sender(config.get("grok", {}), key_file)
     except (ValueError, TypeError, AttributeError):
         chat = unavailable("grok")
+    else:
+        try:
+            enrolled = stat.S_ISREG(os.lstat(key_file).st_mode)
+        except (FileNotFoundError, NotADirectoryError):
+            enrolled = False
+        except OSError:
+            # Keep the channel so send() reports custody or access failures loudly.
+            enrolled = True
+        if not enrolled:
+            print("grok notification not enrolled: PAI-1018 key absent, chat channel skipped")
+            return {"email": mail}
     return {"email": mail, "grok": chat}
