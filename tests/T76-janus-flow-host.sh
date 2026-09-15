@@ -143,8 +143,10 @@ sed 's/^  active = false;/  active = true;/' "$stage" >"$workdir/on/janus-flow-h
 cp "$stage" "$workdir/off/janus-flow-host.nix"
 cp "$compose" "$workdir/off/docker/compose-spec.nix"
 cp "$compose" "$workdir/on/docker/compose-spec.nix"
-cp "$shared_flow" "$workdir/off/shared-flow.nix"
-cp "$shared_flow" "$workdir/on/shared-flow.nix"
+# Isolate this adapter's selector from the production shared-origin state.
+for fixture in off on; do
+  sed 's/^  active = true;/  active = false;/' "$shared_flow" >"$workdir/$fixture/shared-flow.nix"
+done
 
 for fixture in off on; do
   grep -Fq '  active = false;' "$workdir/$fixture/shared-flow.nix" || {
@@ -177,8 +179,23 @@ def flow_vars(service):
 
 if flow_vars(off) or flow_vars(live):
     failures.append("inactive Janus carries JANUS_FLOW_CONFIG_FILE")
-if off != live:
-    failures.append("forced-off Janus differs from the checked-in inactive service")
+# Normalize only the separately tested active shared-origin changes, then
+# preserve the full-service equality check for the disabled delivery adapter.
+public_keys = {"JANUS_PUBLIC_URL", "JANUS_PUBLIC_BASE_PATH"}
+if {entry for entry in live["environment"] if entry.split("=", 1)[0] in public_keys} != {
+    "JANUS_PUBLIC_URL=https://flow.inspr.at", "JANUS_PUBLIC_BASE_PATH=/janus",
+}:
+    failures.append("live Janus shared-origin settings are wrong")
+if live.get("networks") != {"traefik": None, "shared-flow": {"ipv4_address": "10.253.253.3"}}:
+    failures.append("live Janus shared network is wrong")
+if live.get("extra_hosts") != ["pharos.barta.cm:10.253.253.2"]:
+    failures.append("live Janus private Pharos resolution is wrong")
+normalized_live = dict(live)
+normalized_live["environment"] = [entry for entry in live["environment"] if entry.split("=", 1)[0] not in public_keys] + ["JANUS_PUBLIC_URL=https://vault.barta.cm"]
+normalized_live["networks"] = ["traefik"]
+normalized_live.pop("extra_hosts", None)
+if normalized_live != off:
+    failures.append("forced-off Janus differs beyond the reviewed shared-origin changes")
 if flow_vars(on) != ["JANUS_FLOW_CONFIG_FILE=/run/janus/flow-host/config.json"]:
     failures.append(f"active config variable is wrong: {flow_vars(on)!r}")
 if on.get("user") != "100:101":

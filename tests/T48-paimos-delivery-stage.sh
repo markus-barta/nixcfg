@@ -245,8 +245,10 @@ cp "$compose" "$workdir/on/docker/compose-spec.nix"
 # while only the Paimos delivery selector changes.
 cp "$repo_root/hosts/csb1/pharos-flow-host.nix" "$workdir/off/pharos-flow-host.nix"
 cp "$repo_root/hosts/csb1/pharos-flow-host.nix" "$workdir/on/pharos-flow-host.nix"
-cp "$shared_flow" "$workdir/off/shared-flow.nix"
-cp "$shared_flow" "$workdir/on/shared-flow.nix"
+# Isolate this adapter's selector from the production shared-origin state.
+for fixture in off on; do
+  sed 's/^  active = true;/  active = false;/' "$shared_flow" >"$workdir/$fixture/shared-flow.nix"
+done
 
 for fixture in off on; do
   grep -Fq '  active = false;' "$workdir/$fixture/shared-flow.nix" || {
