@@ -1026,6 +1026,8 @@ or provider success may be inferred from source validation alone.
 Verify all four public prefixes, actual login/callback behavior, a real
 Aithema provider response, and existing Paimos/Pharos/Janus machine endpoints.
 Check Aithema/network/config services and the three existing app containers.
+The active Janus container readiness probe uses `/janus/readyz` and requires
+`ready:true`; the disabled selector retains the image's root-path probe.
 T74 checks the actual activated consumer and disabled-library behavior;
 T48/T71/T76 retain inactive shared-origin adapter fixtures; T80/T81 cover
 routing and the protected direct-provider/CLI boundary.
