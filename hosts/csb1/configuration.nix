@@ -410,6 +410,8 @@ in
     (lib.mkIf sharedFlow.active {
       enable = true;
       configFile = sharedFlow.aithema.configFile;
+      # NIX-504: consumed by the coordinated inspr-modules v0.15.1 pin.
+      speech = sharedFlow.aithema.speech;
     })
     (lib.mkIf (!sharedFlow.active) {
       enable = false;

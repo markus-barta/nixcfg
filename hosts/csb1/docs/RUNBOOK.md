@@ -998,6 +998,15 @@ Aithema initially uses the approved direct OpenRouter provider. Its separate
 its protected conversation credential are verified. Existing email delivery
 and application image pins are unchanged by this activation.
 
+Speech settings are declared in `shared-flow.nix` and passed through the
+module's public speech sidecar; provider credentials remain in the existing
+protected registry. The pinned Aithema package must advertise speech-config
+support (0.9.0). The configured OpenRouter transcription model is
+`openai/whisper-large-v3`, with a 10-second recording limit and 512 KiB audio
+limit. Recording/transcription remain explicit browser actions; a transcript
+fills an editable draft and never sends itself. Package/configuration checks
+do not replace the signed-in browser and microphone acceptance check.
+
 The native workspace loads `/run/aithema-workspace-config.json` through a
 systemd credential. Agenix recreates it from `csb1-aithema-workspace-config.age`
 as a root:root regular file, mode `0400`, on every boot/switch. Its path is
