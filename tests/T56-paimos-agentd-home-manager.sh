@@ -20,15 +20,15 @@ locked = lock["locked"]
 assert original == {
     "owner": "inspr-at",
     "repo": "paimos",
-    "ref": "v260915004615.0.0",
+    "ref": "v260916122330.0.0",
     "type": "github",
 }, original
-assert locked["rev"] == "ae35dbfd90a65bd3f1f034353d454c4ba8f41585", locked
-assert locked["narHash"] == "sha256-fYMi56MhmWa62HLcRNl23X2ukn3pkRxgqo2Bp04/dXs=", locked
+assert locked["rev"] == "42eac8a6f105be1a71e6aa9c667e87fd49b90904", locked
+assert locked["narHash"] == "sha256-vnNPXwjiHLnuV/jP37mM1prcYE6J2B1j5j2ICVMtkAw=", locked
 PY
 
 package_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.paimos-cli.version')
-[ "$package_version" = 260915004615.0.0 ] || fail "Paimos package is not the canonical v260915004615.0.0 release: $package_version"
+[ "$package_version" = 260916122330.0.0 ] || fail "Paimos package is not the canonical v260916122330.0.0 release: $package_version"
 
 deployment_version=$(
   python3 - "$repo_root/flake.nix" "$repo_root/hosts/csb1/docker/compose-spec.nix" <<'PY'
@@ -41,7 +41,7 @@ server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]
 assert len(client) == 1, f"expected one Paimos client release pin, got {client!r}"
 assert len(server) == 1, f"expected one PPM server release pin, got {server!r}"
 assert client[0] == server[0][0], f"Paimos client/server release drift: {client[0]} != {server[0][0]}"
-assert server[0][1] == "sha256:aae79382d3a985a826a83a43700b97c24b42072375ebba56b0adc9a317b22d15", server
+assert server[0][1] == "sha256:749b83280a957cd03f28d2bfc534631b1bd640664ae9c1dd2f222cd67a9d31da", server
 print(server[0][0])
 PY
 )
@@ -267,4 +267,4 @@ grep -Fq '/Users/markus/.inspr/secrets/agents/PPMAPIKEY.env' <<<"$activation" ||
 grep -Fq '/Users/markus/Library/Caches/paimos/agentd/report-api-key' <<<"$activation" || fail 'reporting destination is not private agentd state'
 grep -Fq 'PPMAPIKEY' <<<"$activation" || fail 'reporting assignment name is not pinned'
 
-printf 'T56 passed: mbp2607 pins Paimos 260915004615.0.0 with authenticated private agentd reporting, lifecycle control, owner-only Codex accounts, and prepared Cursor argv\n'
+printf 'T56 passed: mbp2607 pins Paimos 260916122330.0.0 with authenticated private agentd reporting, lifecycle control, owner-only Codex accounts, and prepared Cursor argv\n'
