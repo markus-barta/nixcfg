@@ -132,7 +132,8 @@ recipients=$(nix eval --impure --json --expr \
 jq -e 'length == 3 and all(.[]; startswith("ssh-ed25519 "))' \
   <<<"$recipients" >/dev/null
 
-grep -Fq 'age.secrets.csb1-aithema-paimos-conversation-key = lib.mkIf' "$host_config"
+grep -Fq 'age.secrets.csb1-aithema-paimos-conversation-key =' "$host_config"
+grep -Fq 'lib.mkIf (sharedFlow.active && sharedFlow.aithema.paimosHarness.enable)' "$host_config"
 grep -Fq 'file = ../../secrets/csb1-aithema-paimos-conversation-key.age;' "$host_config"
 grep -Fq 'path = sharedFlow.aithema.paimosHarness.credentialSource;' "$host_config"
 grep -Fq 'owner = "root";' "$host_config"
