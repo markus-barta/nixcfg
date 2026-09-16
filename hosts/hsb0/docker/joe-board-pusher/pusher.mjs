@@ -138,6 +138,7 @@ const familyAdapter = createFamilySessionAdapter({
   requestManagedAccounts: false,
   getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
   hooks: {
+    onReplayIncomplete() { officialHistoryRefresher.requestRefresh(); },
     onUnavailable(reason) {
       console.warn(JSON.stringify({ event: "family_unavailable", reason }));
     },
@@ -244,6 +245,7 @@ const officialHistoryRefresher = createOfficialHistoryRefresher({
   hooks: {
     onUpdated({ captureCount, through }) {
       console.log(JSON.stringify({ event: "official_family_history_updated", captureCount, through }));
+      familyAdapter.verifiedHistoryUpdated();
     },
     onUnavailable(reason) {
       console.warn(JSON.stringify({ event: "official_family_history_unavailable", reason }));

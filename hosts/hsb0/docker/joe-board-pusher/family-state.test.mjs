@@ -15,6 +15,9 @@ import {
   reconcileExecutionCapture,
 } from "./execution-reconciliation.mjs";
 import { calculateFamily } from "./family-ledger.mjs";
+import { CURRENT_DESK_OWNERSHIP_POLICY, DESK_HISTORY_REVISION_METHOD, calculateDeskEquities,
+  deskOwnershipPolicyContract, buildDeskDayBoundaryEvidence } from "./desk-ledger.mjs";
+import { createDeskDayPnlProducer } from "./day-baseline.mjs";
 import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
@@ -164,15 +167,16 @@ function setup({
   };
 }
 
-function verifiedHistory(executions = [], commissions = []) {
+function verifiedHistory(executions = [], commissions = [], { through = "2026-09-11T04:00:00Z", capturedAt = "2026-09-11T08:00:00Z", from = FAMILY_BASELINE_PERIOD_START, prior = null } = {}) {
   return reconcileExecutionCapture({
+    prior,
     capture: {
       schema: EXECUTION_CAPTURE_SCHEMA,
       account: ACCOUNT,
       classifier: CLASSIFIER,
       source: {
         kind: "paper-api",
-        id: "synthetic-official-window",
+        id: `synthetic-official-window-${from}-${through}`,
         sha256: "f".repeat(64),
         metadata: {
           adapterId: "official-window-json",
@@ -186,14 +190,14 @@ function verifiedHistory(executions = [], commissions = []) {
           completenessClaimed: true,
         },
       },
-      capturedAt: "2026-09-11T08:00:00Z",
-      window: { fromInclusive: FAMILY_BASELINE_PERIOD_START, toExclusive: "2026-09-11T04:00:00Z" },
+      capturedAt,
+      window: { fromInclusive: from, toExclusive: through },
       coverageStatus: "complete",
       completenessAssertion: { provider: "ibkr-official-sdk-execution-window-v1", assertionId: "synthetic-proof" },
       executions,
       commissions,
     },
-    target: { fromInclusive: FAMILY_BASELINE_PERIOD_START, toExclusive: "2026-09-11T04:00:00Z" },
+    target: { fromInclusive: FAMILY_BASELINE_PERIOD_START, toExclusive: through },
   });
 }
 
@@ -1227,4 +1231,134 @@ test("structural calculator failure is hard and diagnostic text is bounded", () 
   assert.match(result.reason, /^family calculator: conflicting duplicate execution ID/);
   assert.equal(result.reason.includes("\n"), false);
   assert.ok(result.reason.length <= 219);
+});
+
+
+test("official dated replay recovers 70 omitted identities and fees across restart, with a bounded watermark", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "family-replay-recovery-"));
+  const disk = createFileFamilyStateStore(path.join(directory, "family-ledger.json"));
+  const rows = Array.from({ length: 70 }, (_, i) => execution(`retention.${i}.01`, i % 2 ? 27 : 22));
+  const fees = rows.map((row) => commission(row.execution.execId));
+  const first = setup({ store: disk, at: "2026-09-10T14:00:00Z" });
+  complete(connect(first), rows, fees);
+  let history = null;
+  const restarted = setup({ store: disk, at: "2026-09-10T14:01:10Z", getVerifiedHistoryState: () => history });
+  const api = connect(restarted);
+  const before = restarted.adapter.inspectState();
+  complete(api, []);
+  assert.match(restarted.adapter.retryReason, /omitted 70/);
+  assert.deepEqual(restarted.adapter.inspectState(), before);
+  // This official query also recovers a fill absent from the legacy replay.
+  const recovered = execution("recovered.0.01", 27);
+  history = verifiedHistory([...rows, recovered].map(normalizeEconomicExecution),
+    [...fees, commission(recovered.execution.execId)].map(normalizeEconomicCommission),
+    { through: "2026-09-10T14:01:00Z", capturedAt: "2026-09-10T14:01:05Z" });
+  assert.equal(restarted.adapter.verifiedHistoryUpdated(), true);
+  complete(api, []);
+  emitFx(api, "EUR", 1);
+  emitFx(api, "USD", 0.86);
+  assert.equal(restarted.adapter.project(book("2026-09-10T14:01:10Z")).ok, true);
+  const after = restarted.adapter.inspectState();
+  assert.equal(after.executions.length, 71);
+  assert.equal(after.commissions.length, 71);
+  assert.equal(after.queryExecutionIdentities.length, 71);
+  assert.equal(after.coverageThrough, "2026-09-10T14:01:00.000Z");
+  assert.deepEqual(after.executions.slice(0, 70), before.executions);
+  assert.deepEqual(after.commissions.slice(0, 70), before.commissions);
+  // The shortened legacy reply must not keep an old official receipt fresh.
+  restarted.setNow("2026-09-10T14:04:00Z");
+  restarted.timers.runDelay(30_000);
+  complete(api, []);
+  assert.match(restarted.adapter.retryReason, /omitted 71/);
+  assert.equal(restarted.adapter.inspectState().coverageThrough, after.coverageThrough);
+});
+
+test("replay recovery rejects old, future, incomplete, foreign and lower-correction official evidence", () => {
+  for (const mode of ["old", "future", "omitted", "lower", "foreign", "fee-membership"]) {
+    const current = execution("retained.0.02", 27);
+    let history = null;
+    const session = setup({ at: "2026-09-10T14:00:00Z", getVerifiedHistoryState: () => history });
+    const api = connect(session);
+    complete(api, [current]);
+    const before = session.adapter.inspectState();
+    const rows = mode === "omitted" ? [] : [mode === "lower" ? execution("retained.0.01", 27) : current];
+    const through = mode === "old" ? "2026-09-10T13:59:00Z" : mode === "future" ? "2026-09-10T15:00:00Z" : "2026-09-10T14:01:00Z";
+    history = verifiedHistory(rows.map(normalizeEconomicExecution), rows.map((r) => normalizeEconomicCommission(commission(r.execution.execId))),
+      { through, capturedAt: through });
+    history = structuredClone(history);
+    if (mode === "foreign") history.account = "OTHER-PAPER";
+    if (mode === "fee-membership") history.receipts[0].commissionIds = [];
+    session.setNow("2026-09-10T14:01:10Z");
+    session.timers.runDelay(30_000);
+    complete(api, []);
+    assert.match(session.adapter.retryReason, /omitted 1/, mode);
+    assert.deepEqual(session.adapter.inspectState(), before, mode);
+  }
+});
+
+test("a new fill or correction beyond the official receipt cannot borrow its completeness", () => {
+  const retained = execution("past.1.01", 27);
+  let history;
+  const session = setup({ at: "2026-09-10T14:00:00Z", getVerifiedHistoryState: () => history });
+  const api = connect(session);
+  complete(api, [retained]);
+  const before = session.adapter.inspectState();
+  history = verifiedHistory([normalizeEconomicExecution(retained)], [normalizeEconomicCommission(commission(retained.execution.execId))],
+    { through: "2026-09-10T14:01:00Z", capturedAt: "2026-09-10T14:01:05Z" });
+  session.setNow("2026-09-10T14:01:10Z");
+  session.timers.runDelay(30_000);
+  complete(api, [execution("new.1.01", 27, { time: "20260910 10:01:05 US/Eastern" })]);
+  assert.match(session.adapter.retryReason, /omitted 1/);
+  assert.deepEqual(session.adapter.inspectState(), before);
+});
+
+
+test("healthy Gateway plus truncated replay recovers real desk equity and DAY without resetting the reference", () => {
+  const rows = [execution("roundtrip.buy.01", 27), execution("roundtrip.sell.01", 27, { side: "SLD", price: 11 })];
+  for (const row of rows) row.contract.multiplier = 1;
+  for (const row of rows) row.execution.time = "20260911 09:30:00 US/Eastern";
+  const fees = rows.map((r) => commission(r.execution.execId));
+  const previousDay = verifiedHistory([], [], { through: "2026-09-11T04:00:00Z", capturedAt: "2026-09-11T04:00:01Z" });
+  const ledgerStore = memoryStore();
+  complete(connect(setup({ store: ledgerStore, at: "2026-09-10T14:00:00Z" })), []);
+  let history = verifiedHistory(rows.map(normalizeEconomicExecution), fees.map(normalizeEconomicCommission),
+    { prior: previousDay, from: "2026-09-11T04:00:00Z", through: "2026-09-11T14:00:00Z", capturedAt: "2026-09-11T14:00:00Z" });
+  let clock = "2026-09-11T14:00:00Z";
+  const session = setup({ store: ledgerStore, at: clock, calculate: calculateFamily, getVerifiedHistoryState: () => history });
+  const api = connect(session);
+  complete(api, rows);
+  emitFx(api, "EUR", 1); emitFx(api, "USD", 0.86);
+  const brokerBook = { ...book(clock), portfolio: [], positionsCoverage: { status: "complete", rows: [
+    { account: ACCOUNT, contract: contract("SXR8", 201, "EUR"), pos: 1401 },
+    { account: ACCOUNT, contract: contract("TSLA", 202), pos: 1 },
+  ] } };
+  let saved = null;
+  const day = createDeskDayPnlProducer({ account: ACCOUNT, policy: CURRENT_DESK_OWNERSHIP_POLICY,
+    providerContract: deskOwnershipPolicyContract(CURRENT_DESK_OWNERSHIP_POLICY),
+    historyRevisionMethod: DESK_HISTORY_REVISION_METHOD,
+    store: { load: () => ({ ok: true, state: saved }), save: (value) => { saved = structuredClone(value); } },
+    buildBoundaryEvidence: buildDeskDayBoundaryEvidence, getVerifiedHistoryState: () => history, now: () => clock });
+  const vector = () => session.adapter.projectDeskEquities(brokerBook, { calculateDeskEquities, policy: CURRENT_DESK_OWNERSHIP_POLICY });
+  const initial = vector();
+  assert.equal(initial.ok, true, initial.reason);
+  assert.equal(initial.equity.j, 5000.43);
+  assert.equal(initial.equity.joe, 5000);
+  assert.equal(initial.equity.joel, 5000);
+  assert.equal(day.observe(initial).ok, true);
+  const reference = structuredClone(day.inspectState().proxy);
+  clock = "2026-09-11T14:03:10Z"; session.setNow(clock);
+  session.timers.runDelay(30_000); complete(api, []);
+  assert.equal(session.adapter.connected, true);
+  assert.equal(vector().ok, false);
+  assert.equal(day.observe(vector()).ok, false);
+  history = verifiedHistory(rows.map(normalizeEconomicExecution), fees.map(normalizeEconomicCommission),
+    { prior: previousDay, from: "2026-09-11T04:00:00Z", through: "2026-09-11T14:03:00Z", capturedAt: "2026-09-11T14:03:05Z" });
+  session.adapter.verifiedHistoryUpdated(); complete(api, []);
+  emitFx(api, "EUR", 1); emitFx(api, "USD", 0.86);
+  const recovered = vector();
+  assert.equal(recovered.ok, true, recovered.reason);
+  assert.deepEqual(recovered.equity, initial.equity);
+  const result = day.observe(recovered);
+  assert.equal(result.ok, true, result.reason);
+  assert.deepEqual(day.inspectState().proxy, reference);
 });

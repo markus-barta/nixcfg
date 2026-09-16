@@ -717,6 +717,48 @@ export function createFamilySessionAdapter({
       .filter((id) => id && !commissionBuffer.has(id));
   }
 
+  // A legacy replay can shrink before New York midnight (e.g. broker session
+  // retention). Only an independently validated, recent complete dated receipt
+  // may replace that replay. Durable rows alone are never completeness evidence.
+  function officialReplay(cycle, observedAt) {
+    if (typeof getVerifiedHistoryState !== "function") return null;
+    let history;
+    try {
+      history = getVerifiedHistoryState();
+      validateBestAvailableHistoryState(history);
+    } catch { return null; }
+    if (history.account !== targetAccount || !sameRecord(history.classifier, classifier)) return null;
+    const dayStart = newYorkDayStart(observedAt);
+    const receipts = history.receipts.filter((receipt) =>
+      isTrustedOfficialFamilyReceipt(receipt) &&
+      receipt.window.fromInclusive === dayStart &&
+      receipt.window.toExclusive >= state.coverageThrough &&
+      receipt.window.toExclusive <= observedAt &&
+      receipt.capturedAt <= observedAt &&
+      Date.parse(observedAt) - Date.parse(receipt.window.toExclusive) <= fxFreshMs
+    ).sort((a, b) => b.window.toExclusive.localeCompare(a.window.toExclusive));
+    const executions = new Map(history.executions.map((row) => [executionId(row), row]));
+    const commissions = new Map(history.commissions.map((row) => [commissionId(row), row]));
+    for (const receipt of receipts) {
+      const rows = receipt.executionIds.map((id) => executions.get(id));
+      const fees = receipt.executionIds.map((id) => commissions.get(id));
+      if (rows.some((row) => !row) || fees.some((row) => !row) ||
+          receipt.executionIds.some((id) => !receipt.commissionIds.includes(id))) continue;
+      // Receipt membership is necessary, as is the exact bounded interval.
+      if (rows.some((row) => {
+        const time = normalizeEconomicExecution(row).execution.time;
+        return time < dayStart || time >= receipt.window.toExclusive;
+      })) continue;
+      const ids = latestExecutionIdentities(rows);
+      const required = latestExecutionIdentities([...state.queryExecutionIdentities, ...cycle.executions]);
+      if (missingPriorQueryIdentities(required, ids).length) continue;
+      // Reject conflicting economics; retain every historical revision and fee.
+      mergeEconomicExecutions(rows, cycle.executions, "replay for execution");
+      return { executions: rows, commissions: fees, through: receipt.window.toExclusive };
+    }
+    return null;
+  }
+
   function finishCycle() {
     if (!activeCycle?.ended || missingFamilyCommissions(activeCycle).length) return false;
     stopTimer("timeout");
@@ -741,7 +783,8 @@ export function createFamilySessionAdapter({
       return false;
     }
     try {
-      const queryExecutionIdentities = latestExecutionIdentities(cycle.executions);
+      let queryExecutionIdentities = latestExecutionIdentities(cycle.executions);
+      let recovery = null;
       const crossedTradingDay = Boolean(state && state.coverageTradingDay !== coverageTradingDay);
       if (state && !crossedTradingDay) {
         const missing = missingPriorQueryIdentities(
@@ -749,8 +792,13 @@ export function createFamilySessionAdapter({
           queryExecutionIdentities
         );
         if (missing.length) {
-          retryCycle(`execution replay temporarily omitted ${missing.length} previously covered identities`);
-          return false;
+          hooks.onReplayIncomplete?.();
+          recovery = officialReplay(cycle, observedAt);
+          if (!recovery) {
+            retryCycle(`execution replay temporarily omitted ${missing.length} previously covered identities`);
+            return false;
+          }
+          queryExecutionIdentities = latestExecutionIdentities(recovery.executions);
         }
       }
       const prior = state || {
@@ -768,15 +816,15 @@ export function createFamilySessionAdapter({
         commissions: [],
         family: null,
       };
-      const executionMerge = mergeEconomicExecutions(prior.executions, cycle.executions, "replay for execution");
+      const executionMerge = mergeEconomicExecutions(prior.executions, [...(recovery?.executions || []), ...cycle.executions], "replay for execution");
       const relevantIds = new Set(cycle.executions.map(executionId));
       const reports = [...commissionBuffer.values()].filter((report) => relevantIds.has(commissionId(report)));
-      const commissionMerge = mergeEconomicCommissions(prior.commissions, reports, "replay for commission");
+      const commissionMerge = mergeEconomicCommissions(prior.commissions, [...(recovery?.commissions || []), ...reports], "replay for commission");
       const changed = !state || executionMerge.changed || commissionMerge.changed;
       const next = {
         ...prior,
         ledgerObservedAt: changed ? observedAt : prior.ledgerObservedAt,
-        coverageThrough: observedAt,
+        coverageThrough: recovery?.through || observedAt,
         coverageTradingDay,
         queryExecutionIdentities,
         executions: executionMerge.rows,
@@ -1189,6 +1237,11 @@ export function createFamilySessionAdapter({
     pollNow,
     project,
     projectDeskEquities,
+    verifiedHistoryUpdated() {
+      if (!retryReason?.startsWith("execution replay temporarily omitted") || activeCycle || !connected) return false;
+      retryScheduler.cancel();
+      return pollNow();
+    },
     get connected() { return connected; },
     get requestInFlight() { return Boolean(activeCycle); },
     get blockedReason() { return blockedReason; },
