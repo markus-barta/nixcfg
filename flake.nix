@@ -95,8 +95,9 @@
     #
     # NIX-492 / INSPR-424: Calendar Versioning adoption in every managed harness.
     # Keep this input synchronized with the doctrine gitlink. Rollback is the
-    # previous v0.11.0 / 477ae3f2169ca1aefbaf16e03eea1a2ed6c1cc8b pair.
-    inspr-modules.url = "github:inspr-at/inspr-modules/acbb6194b60b496be2a5928cd616443e9d8d7baa";
+    # previous v0.13.0 / acbb6194b60b496be2a5928cd616443e9d8d7baa pair;
+    # rolling back also removes the NIX-504 speech wiring.
+    inspr-modules.url = "github:inspr-at/inspr-modules/d12d225ff8c8789ec2c7f84fb75e21f68bf5f8cb";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 

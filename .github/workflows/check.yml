@@ -217,6 +217,9 @@ jobs:
       - name: Verify coherent opt-in shared Flow activation (NIX-501)
         run: nix-shell -p bash jq yq-go python3 --run "bash tests/T80-shared-flow-activation.sh"
 
+      - name: Verify declarative csb1 Aithema speech settings (NIX-504)
+        run: nix-shell -p bash jq --run "bash tests/T82-aithema-speech-settings.sh"
+
       - name: Verify protected Aithema conversation credential (NIX-501)
         run: nix-shell -p bash jq python3 coreutils --run "bash tests/T81-aithema-paimos-credential.sh"
 

@@ -109,6 +109,28 @@ in
   aithema = {
     configFile = "/run/aithema-workspace-config.json";
     dataDirectory = "/var/lib/aithema-workspace";
+    # NIX-504 / INSPR-439: non-secret speech settings for the coordinated
+    # AIT-21 CLI. Host activation remains pending until the reviewed deployment
+    # and separate browser/microphone acceptance are complete.
+    speech = {
+      kind = "openai-compatible-transcription";
+      providerId = "openrouter";
+      model = "openai/whisper-large-v3";
+      allowedModels = [ "openai/whisper-large-v3" ];
+      endpoint = "https://openrouter.ai/api/v1/audio/transcriptions";
+      acceptedMediaTypes = [
+        "audio/webm"
+        "audio/mp4"
+      ];
+      limits = {
+        maxAudioBytes = 524288;
+        maxRequestBytes = 589824;
+        maxRecordingMs = 10000;
+        maxDurationMs = 30000;
+        maxResponseBytes = 65536;
+        maxTranscriptChars = 8000;
+      };
+    };
     paimosHarness = {
       # False preserves existing direct-API-only operation without requiring a
       # second credential. Enable only with the protected key and matching
