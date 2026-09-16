@@ -852,3 +852,34 @@ test("official refresher starts at a recoverable durable gap and returns to two-
   assert.equal(calls[1].fromInclusive, "2026-09-13T04:00:00.000Z");
   refresher.stop();
 });
+
+
+test("accounting recovery requests coalesce and respect success cooldown, failure backoff and stop", async () => {
+  const timers = fakeTimers();
+  let clock = Date.parse("2026-09-11T08:55:00Z");
+  let calls = 0;
+  let fail = false;
+  const refresher = createOfficialHistoryRefresher({
+    readOfficialExecutionWindow: async () => { calls++; if (fail) throw new Error("unavailable"); return {}; },
+    makeCaptures: () => [{}], importCaptures: () => ({ ok: true }),
+    targetAccount: ACCOUNT, host: "paper.invalid", port: 4002, historyStart: HISTORY_START,
+    now: () => new Date(clock).toISOString(), setTimer: timers.set, clearTimer: timers.clear,
+    retryBaseMs: 90_000, retryMaxMs: 300_000,
+  });
+  await refresher.pollNow();
+  for (let i = 0; i < 10; i++) refresher.requestRefresh();
+  assert.equal(calls, 1);
+  assert.equal(timers.count(60_000), 1);
+  assert.equal(timers.count(15 * 60_000), 0);
+  clock += 60_000;
+  fail = true;
+  timers.runDelay(60_000);
+  assert.equal(refresher.requestRefresh(), false); // in flight
+  await new Promise((resolve) => setImmediate(resolve));
+  for (let i = 0; i < 10; i++) refresher.requestRefresh();
+  assert.equal(calls, 2);
+  assert.equal(timers.count(90_000), 1);
+  refresher.stop();
+  assert.equal(refresher.requestRefresh(), false);
+  assert.equal(timers.count(90_000), 0);
+});
