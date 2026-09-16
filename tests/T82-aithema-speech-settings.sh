@@ -68,10 +68,10 @@ package_json=$(nix eval --impure --json --expr "
     runtimeSha256 = package.passthru.release.runtimeSha256;
   }")
 jq -e '
-  .version == "0.9.0"
+  .version == "0.10.0"
   and .supportsSpeechConfig == true
-  and .sourceRev == "5a004b302141196daff3fd578429390cbb3ea0e0"
-  and .runtimeSha256 == "14b8a33f92dd8898958cec521052fb4464a9bdcf2c2b764e24db960dbae2315a"
+  and .sourceRev == "d9591b440fdcfa68a2217dd2aefbd92310d151b7"
+  and .runtimeSha256 == "2a4deb70f34c525dbd74b23283b67ca69073f9a764d2ed719c8f29d790bca203"
 ' <<<"$package_json" >/dev/null
 
-printf 'aithema_speech_settings=passed provider=openrouter model=openai/whisper-large-v3 package=0.9.0 speech_capability=true\n'
+printf 'aithema_speech_settings=passed provider=openrouter model=openai/whisper-large-v3 package=0.10.0 speech_capability=true\n'
