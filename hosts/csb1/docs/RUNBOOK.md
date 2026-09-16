@@ -1015,6 +1015,26 @@ compatible with the protected-file preflight. Never print the file or copy
 its identity/provider values into source. Ciphertext changes restart Aithema
 so systemd refreshes the copied credential.
 
+For the approved NIX-501 activation-test binding, the operator applies the
+prepared structural update through agenix (never by pasting a secret into chat):
+
+```sh
+EDITOR="$PWD/scripts/nix501-paimos-provider-editor.sh" just edit-secret secrets/csb1-aithema-workspace-config.age
+```
+
+Run from the reviewed candidate worktree. This attended editor preserves the
+OpenRouter entry/default, existing policy fields, and inherited project
+providers. It adds only `paimos-codex-worker-1` and refuses a conflicting binding
+or changed cost-policy prerequisite without printing the configuration.
+Install the already-downloaded encrypted enrollment file separately as
+`secrets/csb1-aithema-paimos-conversation-key.age`; its approved SHA256 is
+`354e96d07426448da3fa00d9a5fbfa8a2c12e9f866063c576c38be421f0ecec3`.
+Its recipients are csb1 and the two current personal ed25519 keys, as declared
+in `secrets/secrets.nix`. Do not rekey other files or add the legacy RSA key.
+The enabled candidate must not merge or switch until both encrypted inputs
+are present and required checks pass. Keep the Mac agentd generation unchanged
+for this first conversation proof; the binding is generation-bound.
+
 Traefik remains pinned at v3.7.13. The shared compiler uses `web-secure`,
 `public-http` ACME (HTTP challenge on `web`, port 80), and the existing file
 provider. The renderer combines the compiler output and legacy compatibility

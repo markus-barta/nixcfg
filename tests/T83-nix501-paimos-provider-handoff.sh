@@ -41,33 +41,7 @@ trap cleanup EXIT HUP INT TERM
 # This is intentionally a public, value-free patch. It keeps all existing
 # providers and policy fields, preserves OpenRouter as the default, and only
 # widens a project override when that override already exists.
-cat >"$work/provider-patch.jq" <<'JQ'
-def provider_id: "paimos-codex-worker-1";
-def project_ref: "project:52e00c70-2165-409d-80af-f9b8ed40ae40";
-def append_provider_id:
-  ((. // []) + [provider_id] | unique);
-
-.providers = (.providers // {})
-| .providers[provider_id] = {
-    kind: "paimos-harness",
-    origin: "https://pm.barta.cm",
-    credentialFile: "/run/credentials/aithema-workspace.service/paimos-conversation-api-key",
-    projectID: "6",
-    bindingID: "f465d053-2004-42d0-a45e-d467578c8428",
-    bindingRevision: 1,
-    trustedIssuer: "https://auth.inspr.at",
-    modelId: "gpt-5.6-sol",
-    allowedModels: ["gpt-5.6-sol"],
-    executionLocation: "cloud",
-    allowedDataClasses: ["unclassified"]
-  }
-| .policy.allowedProviders = (.policy.allowedProviders | append_provider_id)
-| if ((.policy.projects // {}) | has(project_ref)) then
-    .policy.projects[project_ref].allowedProviders =
-      (.policy.projects[project_ref].allowedProviders | append_provider_id)
-  else . end
-JQ
-
+cp "$repo_root/scripts/nix501-paimos-provider-patch.jq" "$work/provider-patch.jq"
 jq -n '{
   mode: "production",
   defaultProvider: "openrouter",
@@ -120,6 +94,31 @@ jq -e '
     == ["openrouter", "paimos-codex-worker-1"]
 ' "$work/project-output.json" >/dev/null
 
+# An override without its own provider list inherits the organization list.
+# Adding Codex must not accidentally narrow that inherited list to Codex only.
+jq 'del(.policy.projects["project:52e00c70-2165-409d-80af-f9b8ed40ae40"].allowedProviders)' \
+  "$work/project-input.json" >"$work/input.json"
+jq -f "$work/provider-patch.jq" "$work/input.json" >"$work/output.json"
+jq -e '.policy.projects["project:52e00c70-2165-409d-80af-f9b8ed40ae40"].allowedProviders
+  == ["openrouter", "paimos-codex-worker-1"]' "$work/output.json" >/dev/null
+
+# Exercise the real attended-editor helper on synthetic data, including
+# idempotence and refusal without changing the file on a conflicting binding.
+editor="$repo_root/scripts/nix501-paimos-provider-editor.sh"
+cp "$work/input.json" "$work/project-output.json"
+test -z "$(bash "$editor" "$work/project-output.json")"
+cmp "$work/output.json" "$work/project-output.json"
+test -z "$(bash "$editor" "$work/project-output.json")"
+cmp "$work/output.json" "$work/project-output.json"
+jq '.providers["paimos-codex-worker-1"].bindingID = "different-binding"' \
+  "$work/output.json" >"$work/input.json"
+cp "$work/input.json" "$work/project-output.json"
+if bash "$editor" "$work/project-output.json" >/dev/null 2>&1; then
+  printf '%s\n' 'editor accepted conflicting binding' >&2
+  exit 1
+fi
+cmp "$work/input.json" "$work/project-output.json"
+
 selector_json=$(nix eval --impure --json --expr "(import $shared_flow).aithema.paimosHarness")
 jq -e '
   .enable == true
@@ -127,6 +126,11 @@ jq -e '
   and .credentialName == "paimos-conversation-api-key"
   and .credentialFile == "/run/credentials/aithema-workspace.service/paimos-conversation-api-key"
 ' <<<"$selector_json" >/dev/null
+
+recipients=$(nix eval --impure --json --expr \
+  "(import $repo_root/secrets/secrets.nix).\"csb1-aithema-paimos-conversation-key.age\".publicKeys")
+jq -e 'length == 3 and all(.[]; startswith("ssh-ed25519 "))' \
+  <<<"$recipients" >/dev/null
 
 grep -Fq 'age.secrets.csb1-aithema-paimos-conversation-key = lib.mkIf' "$host_config"
 grep -Fq 'file = ../../secrets/csb1-aithema-paimos-conversation-key.age;' "$host_config"
@@ -136,7 +140,10 @@ grep -Fq 'group = "root";' "$host_config"
 grep -Fq 'mode = "0400";' "$host_config"
 grep -Fq 'symlink = false;' "$host_config"
 grep -Fq 'serviceConfig.LoadCredential = lib.mkForce [' "$host_config"
+# Match literal Nix interpolation, not shell parameter expansion.
+# shellcheck disable=SC2016
 grep -Fq '"runtime-config.json:${sharedFlow.aithema.configFile}"' "$host_config"
+# shellcheck disable=SC2016
 grep -Fq '"${sharedFlow.aithema.paimosHarness.credentialName}:${sharedFlow.aithema.paimosHarness.credentialSource}"' "$host_config"
 
 printf '%s\n' 'nix501_paimos_provider_handoff=passed protected_patch=fixture_only credential_plaintext_read=false'
