@@ -143,7 +143,7 @@ grep -Fq 'symlink = false;' "$host_config"
 grep -Fq 'serviceConfig.LoadCredential = lib.mkForce [' "$host_config"
 # Match literal Nix interpolation, not shell parameter expansion.
 # shellcheck disable=SC2016
-grep -Fq '"runtime-config.json:${sharedFlow.aithema.configFile}"' "$host_config"
+grep -Fq '"runtime-config.json:${config.services.inspr.aithemaWorkspace.configFile}"' "$host_config"
 # shellcheck disable=SC2016
 grep -Fq '"${sharedFlow.aithema.paimosHarness.credentialName}:${sharedFlow.aithema.paimosHarness.credentialSource}"' "$host_config"
 
