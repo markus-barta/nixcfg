@@ -122,7 +122,7 @@ cmp "$work/input.json" "$work/project-output.json"
 selector_json=$(nix eval --impure --json --expr "(import $shared_flow).aithema.paimosHarness")
 jq -e '
   .enable == true
-  and .credentialSource == "/run/agenix/csb1-aithema-paimos-conversation-key"
+  and .credentialSource == "/run/aithema-paimos-conversation-key"
   and .credentialName == "paimos-conversation-api-key"
   and .credentialFile == "/run/credentials/aithema-workspace.service/paimos-conversation-api-key"
 ' <<<"$selector_json" >/dev/null

@@ -993,8 +993,8 @@ Traefik uses `secrets/traefik-variables.age` (shared with csb0) for ACME DNS-01 
 Pharos at `/pharos`, and Janus at `/janus`. `/` opens Aithema. Each app verifies
 its own Zitadel client/session; shared routing grants no execution authority.
 
-Aithema initially uses the approved direct OpenRouter provider. Its separate
-`paimosHarness.enable` selector stays **false** until real CLI enrollment and
+Aithema initially uses the approved direct OpenRouter provider. Deploy its
+separate `paimosHarness.enable` selector only after real CLI enrollment and
 its protected conversation credential are verified. Existing email delivery
 and application image pins are unchanged by this activation.
 
@@ -1016,13 +1016,18 @@ its identity/provider values into source. Ciphertext changes restart Aithema
 so systemd refreshes the copied credential.
 
 For the approved NIX-501 activation-test binding, the operator applies the
-prepared structural update through agenix (never by pasting a secret into chat):
+prepared structural update through agenix in an interactive terminal only
+(never through a pipe, redirected stdin, or an agent shell). Agenix replaces
+EDITOR with stdin copying outside a terminal, so the TTY guard is required:
 
 ```sh
-EDITOR="$PWD/scripts/nix501-paimos-provider-editor.sh" just edit-secret secrets/csb1-aithema-workspace-config.age
+test -t 0 && EDITOR="$PWD/scripts/nix501-paimos-provider-editor.sh" just edit-secret secrets/csb1-aithema-workspace-config.age
+git diff --stat -- secrets/csb1-aithema-workspace-config.age
 ```
 
-Run from the reviewed candidate worktree. This attended editor preserves the
+Run from the reviewed candidate worktree. Before committing, verify the
+ciphertext remains nonempty and its size change is plausible; an unexpectedly
+small/header-only result must not be committed. This attended editor preserves the
 OpenRouter entry/default, existing policy fields, and inherited project
 providers. It adds only `paimos-codex-worker-1` and refuses a conflicting binding
 or changed cost-policy prerequisite without printing the configuration.
@@ -1031,6 +1036,12 @@ Install the already-downloaded encrypted enrollment file separately as
 `354e96d07426448da3fa00d9a5fbfa8a2c12e9f866063c576c38be421f0ecec3`.
 Its recipients are csb1 and the two current personal ed25519 keys, as declared
 in `secrets/secrets.nix`. Do not rekey other files or add the legacy RSA key.
+The projected credential is a regular file at
+`/run/aithema-paimos-conversation-key`, outside agenix's rotating directory;
+changing its encrypted source restarts Aithema to refresh LoadCredential.
+Aithema's policy exposes this provider in its organization-wide selector;
+Paimos enforces the grant's single-project boundary and rejects other project
+references. Selectability is not authorization.
 The enabled candidate must not merge or switch until both encrypted inputs
 are present and required checks pass. Keep the Mac agentd generation unchanged
 for this first conversation proof; the binding is generation-bound.
