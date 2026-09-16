@@ -8,7 +8,7 @@ def new_provider: {
     origin: "https://pm.barta.cm",
     credentialFile: "/run/credentials/aithema-workspace.service/paimos-conversation-api-key",
     projectID: "6",
-    bindingID: "f465d053-2004-42d0-a45e-d467578c8428",
+    bindingID: "6cd8cafe-0166-4b06-b1b6-487426042d39",
     bindingRevision: 1,
     trustedIssuer: "https://auth.inspr.at",
     modelId: "gpt-5.6-sol",

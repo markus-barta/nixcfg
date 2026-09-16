@@ -1033,7 +1033,7 @@ providers. It adds only `paimos-codex-worker-1` and refuses a conflicting bindin
 or changed cost-policy prerequisite without printing the configuration.
 Install the already-downloaded encrypted enrollment file separately as
 `secrets/csb1-aithema-paimos-conversation-key.age`; its approved SHA256 is
-`354e96d07426448da3fa00d9a5fbfa8a2c12e9f866063c576c38be421f0ecec3`.
+`cdeb17fd2d006fba14387d9e24666ba5d1a0db403dcb461b950c38742eaee0b1`.
 Its recipients are csb1 and the two current personal ed25519 keys, as declared
 in `secrets/secrets.nix`. Do not rekey other files or add the legacy RSA key.
 The projected credential is a regular file at
