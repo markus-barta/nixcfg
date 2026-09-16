@@ -246,6 +246,12 @@ in
   "csb1-ppm-env.age".publicKeys = markus ++ csb1;
   # NIX-501: Aithema runtime identity and direct provider config, csb1 only.
   "csb1-aithema-workspace-config.age".publicKeys = markus ++ csb1;
+  # NIX-501: the approved enrollment uses the host and the two current
+  # personal ed25519 recipients; do not add the legacy RSA recipient.
+  "csb1-aithema-paimos-conversation-key.age".publicKeys = csb1 ++ [
+    markus_m5_ed25519
+    markus_mbp2607_ed25519
+  ];
 
   # Janus environment variables for csb1
   # Format: KEY=VALUE lines (OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY)
