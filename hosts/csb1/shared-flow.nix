@@ -118,7 +118,10 @@ in
       model = "openai/whisper-large-v3";
       allowedModels = [ "openai/whisper-large-v3" ];
       endpoint = "https://openrouter.ai/api/v1/audio/transcriptions";
-      acceptedMediaTypes = [ "audio/webm" "audio/mp4" ];
+      acceptedMediaTypes = [
+        "audio/webm"
+        "audio/mp4"
+      ];
       limits = {
         maxAudioBytes = 524288;
         maxRequestBytes = 589824;
