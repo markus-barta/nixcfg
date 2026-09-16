@@ -736,6 +736,7 @@ export function createOfficialHistoryRefresher({
   let stopped = false;
   let inFlight = false;
   let failures = 0;
+  let nextRecoveryAt = 0;
 
   function refreshWindow(current) {
     const today = localDayWindow(current);
@@ -811,6 +812,7 @@ export function createOfficialHistoryRefresher({
       });
       if (imported?.ok !== true) throw new Error(imported?.reason || "official history import was rejected");
       failures = 0;
+      nextRecoveryAt = Date.parse(now()) + 60_000;
       hooks.onUpdated?.({ captureCount: captures.length, through: requestedWindow.toExclusive });
       const rolloverDelay = Date.parse(requestedWindow.nextDayStart) - Date.parse(current);
       schedule(Math.max(1, Math.min(refreshIntervalMs, rolloverDelay)));
@@ -819,6 +821,7 @@ export function createOfficialHistoryRefresher({
       if (stopped && error?.name === "AbortError") return false;
       failures += 1;
       const delay = Math.min(retryMaxMs, retryBaseMs * 2 ** (failures - 1));
+      nextRecoveryAt = Date.parse(now()) + delay;
       hooks.onUnavailable?.(`official history refresh failed: ${error?.message || error}`);
       schedule(delay);
       return false;
@@ -830,6 +833,17 @@ export function createOfficialHistoryRefresher({
 
   return {
     start() { if (!stopped) void pollNow(); },
+    // Accounting recovery may bring the normal 15-minute refresh forward, but
+    // never bypass singleflight, the one-minute success limit or error backoff.
+    requestRefresh() {
+      if (stopped || inFlight) return false;
+      const current = Date.parse(now());
+      if (!Number.isFinite(current)) return false;
+      if (timer !== null) clearTimer(timer);
+      timer = null;
+      schedule(Math.max(1, nextRecoveryAt - current));
+      return true;
+    },
     pollNow,
     stop() {
       stopped = true;

@@ -110,11 +110,21 @@ Within a coverage day, every complete execution query must retain every identity
 from the preceding successful query (or provide its higher IB correction revision).
 A query that temporarily omits an identity is unavailable and retried with capped
 backoff; it cannot change the persisted ledger, identity set, or coverage watermark.
-Only a later complete replay containing every prior identity prefix (or a higher
-revision), actual required fees, an exact merge, and a successful state save restores
-J readiness. Persisted rows are never unioned into incoming evidence. This retry
-policy does not prove or repair a real retention gap: authoritative missing-history
-evidence and every unproved cross-day gap still require the separate backfill work.
+A later full legacy replay restores readiness. Alternatively, the existing official
+client-94 dated reader can supply a recent COMPLETE current-day receipt containing
+every retained query identity (or higher correction), every current replay identity,
+and the corresponding actual fees. Its account, classifier, interval, provenance,
+and economic conflicts are validated before an atomic merge. All prior executions,
+correction revisions and commissions remain durable. The coverage watermark is the
+receipt's actual upper bound, never the publication time. A stale, partial, foreign,
+omitted-identity or missing-fee receipt cannot reopen accounting.
+
+A shortened replay requests a coalesced official refresh: singleflight, at most one
+successful recovery query per minute, with existing failure backoff retained. A new
+saved official receipt wakes the pending accounting retry without reconnecting the
+Gateway. Normal history refresh remains fifteen minutes when recovery is unnecessary.
+Persisted rows alone are never unioned into completeness evidence; unproved cross-day
+gaps still require authoritative backfill.
 
 FX uses a separately scoped `reqAccountUpdatesMulti` request. Before the five-minute
 freshness window expires, the adapter cancels that request and opens a new request
