@@ -545,10 +545,10 @@ in
         restartTriggers = [ config.age.secrets.csb1-aithema-workspace-config.file ];
       }
       (lib.mkIf sharedFlow.aithema.paimosHarness.enable {
-        # inspr-modules 0.12.0 currently contributes this setting as one string.
-        # Override it with systemd's supported repeated LoadCredential form so
-        # runtime-config.json is preserved alongside the separate conversation
-        # credential; neither source enters the store or service argv.
+        # Override the module's single credential declaration with systemd's
+        # supported repeated LoadCredential form so runtime-config.json is
+        # preserved alongside the separate conversation credential; neither
+        # source enters the store or service argv.
         serviceConfig.LoadCredential = lib.mkForce [
           "runtime-config.json:${sharedFlow.aithema.configFile}"
           "${sharedFlow.aithema.paimosHarness.credentialName}:${sharedFlow.aithema.paimosHarness.credentialSource}"
@@ -1460,6 +1460,23 @@ in
   age.secrets.csb1-aithema-workspace-config = lib.mkIf sharedFlow.active {
     file = ../../secrets/csb1-aithema-workspace-config.age;
     path = sharedFlow.aithema.configFile;
+    owner = "root";
+    group = "root";
+    mode = "0400";
+    symlink = false;
+  };
+
+  # NIX-501: the operator supplies the separately enrolled Paimos
+  # conversation credential through the existing encrypted-secret workflow.
+  # Keep it as a regular root-only file so systemd can project it with
+  # LoadCredential without putting its value in the Nix store or argv. The
+  # ciphertext's reviewed three-recipient set is preserved by the operator;
+  # this declaration does not rekey or create that artifact.
+  age.secrets.csb1-aithema-paimos-conversation-key = lib.mkIf (
+    sharedFlow.active && sharedFlow.aithema.paimosHarness.enable
+  ) {
+    file = ../../secrets/csb1-aithema-paimos-conversation-key.age;
+    path = sharedFlow.aithema.paimosHarness.credentialSource;
     owner = "root";
     group = "root";
     mode = "0400";

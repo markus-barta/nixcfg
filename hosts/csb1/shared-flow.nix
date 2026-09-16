@@ -132,10 +132,10 @@ in
       };
     };
     paimosHarness = {
-      # False preserves existing direct-API-only operation without requiring a
-      # second credential. Enable only with the protected key and matching
-      # paimos-harness provider entries ready for the same activation.
-      enable = false;
+      # NIX-501: the public selector is prepared for the reviewed Paimos
+      # binding. Activation remains fail-closed until the operator-owned
+      # runtime registry and this credential are both present and matching.
+      enable = true;
       credentialSource = "/run/agenix/csb1-aithema-paimos-conversation-key";
       credentialName = "paimos-conversation-api-key";
       credentialFile = "/run/credentials/aithema-workspace.service/paimos-conversation-api-key";
