@@ -83,7 +83,10 @@ jq -e \
   and .enabled.service.stateDirectoryMode == "0750"
   and .enabled.service.workingDirectory == "/var/lib/aithema-workspace"
   and .enabled.service.readWritePaths == ["/var/lib/aithema-workspace"]
-  and .enabled.service.loadCredential == "runtime-config.json:/run/nix498-fixture/aithema-workspace.json"
+  and .enabled.service.loadCredential == [
+    "runtime-config.json:/run/nix498-fixture/aithema-workspace.json",
+    "paimos-conversation-api-key:/run/aithema-paimos-conversation-key"
+  ]
   and (.enabled.service.execStart | contains("/run/credentials/aithema-workspace.service/runtime-config.json"))
   and (.enabled.service.execStart | contains("/run/nix498-fixture/aithema-workspace.json") | not)
   and (.enabled.service.execStartPre | contains("/run/credentials/aithema-workspace.service/runtime-config.json"))
