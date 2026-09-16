@@ -69,7 +69,7 @@ jq -e '. == {
   credentialFile:"/run/credentials/aithema-workspace.service/paimos-conversation-api-key",
   credentialName:"paimos-conversation-api-key",
   credentialSource:"/run/agenix/csb1-aithema-paimos-conversation-key",
-  enable:false
+  enable:true
 }' "$work/selector.json" >/dev/null
 
 stat_bin=$(command -v stat)
@@ -156,4 +156,4 @@ grep -Fq 'serviceConfig.LoadCredential = lib.mkForce [' "$host_config"
 grep -Fq '"runtime-config.json:${sharedFlow.aithema.configFile}"' "$host_config"
 grep -Fq '"${sharedFlow.aithema.paimosHarness.credentialName}:${sharedFlow.aithema.paimosHarness.credentialSource}"' "$host_config"
 
-printf '%s\n' 'aithema_paimos_credential=passed selector=false live_config_read=false'
+printf '%s\n' 'aithema_paimos_credential=passed selector=true live_config_read=false'
