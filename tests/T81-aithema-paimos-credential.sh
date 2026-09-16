@@ -68,7 +68,7 @@ nix-instantiate --eval --strict --json --expr "
 jq -e '. == {
   credentialFile:"/run/credentials/aithema-workspace.service/paimos-conversation-api-key",
   credentialName:"paimos-conversation-api-key",
-  credentialSource:"/run/agenix/csb1-aithema-paimos-conversation-key",
+  credentialSource:"/run/aithema-paimos-conversation-key",
   enable:true
 }' "$work/selector.json" >/dev/null
 

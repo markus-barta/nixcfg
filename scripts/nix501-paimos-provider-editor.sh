@@ -10,7 +10,10 @@ if [ "$#" -ne 1 ] || [ ! -f "$1" ] || [ -L "$1" ]; then
   printf '%s\n' 'Expected one regular agenix editor file.' >&2
   exit 2
 fi
-command -v jq >/dev/null
+if ! command -v jq >/dev/null; then
+  printf '%s\n' 'Provider update refused: jq is required; configuration unchanged.' >&2
+  exit 2
+fi
 candidate=$(mktemp "$(dirname -- "$1")/.aithema-provider.XXXXXX")
 cleanup() {
   if [ -f "$candidate" ]; then unlink "$candidate"; fi

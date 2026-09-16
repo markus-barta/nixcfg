@@ -545,6 +545,7 @@ in
         restartTriggers = [ config.age.secrets.csb1-aithema-workspace-config.file ];
       }
       (lib.mkIf sharedFlow.aithema.paimosHarness.enable {
+        restartTriggers = [ config.age.secrets.csb1-aithema-paimos-conversation-key.file ];
         # Override the module's single credential declaration with systemd's
         # supported repeated LoadCredential form so runtime-config.json is
         # preserved alongside the separate conversation credential; neither
@@ -1468,20 +1469,21 @@ in
 
   # NIX-501: the operator supplies the separately enrolled Paimos
   # conversation credential through the existing encrypted-secret workflow.
-  # Keep it as a regular root-only file so systemd can project it with
+  # Keep it outside agenix's rotating directory as a regular root-only file
+  # so systemd can project it with
   # LoadCredential without putting its value in the Nix store or argv. The
   # ciphertext's reviewed three-recipient set is preserved by the operator;
   # this declaration does not rekey or create that artifact.
-  age.secrets.csb1-aithema-paimos-conversation-key = lib.mkIf (
-    sharedFlow.active && sharedFlow.aithema.paimosHarness.enable
-  ) {
-    file = ../../secrets/csb1-aithema-paimos-conversation-key.age;
-    path = sharedFlow.aithema.paimosHarness.credentialSource;
-    owner = "root";
-    group = "root";
-    mode = "0400";
-    symlink = false;
-  };
+  age.secrets.csb1-aithema-paimos-conversation-key =
+    lib.mkIf (sharedFlow.active && sharedFlow.aithema.paimosHarness.enable)
+      {
+        file = ../../secrets/csb1-aithema-paimos-conversation-key.age;
+        path = sharedFlow.aithema.paimosHarness.credentialSource;
+        owner = "root";
+        group = "root";
+        mode = "0400";
+        symlink = false;
+      };
 
   # Janus Docker env (Zitadel OIDC client + cookie signing key)
   # Format: KEY=VALUE lines (OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY)
