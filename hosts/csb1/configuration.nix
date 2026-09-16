@@ -551,7 +551,7 @@ in
         # preserved alongside the separate conversation credential; neither
         # source enters the store or service argv.
         serviceConfig.LoadCredential = lib.mkForce [
-          "runtime-config.json:${sharedFlow.aithema.configFile}"
+          "runtime-config.json:${config.services.inspr.aithemaWorkspace.configFile}"
           "${sharedFlow.aithema.paimosHarness.credentialName}:${sharedFlow.aithema.paimosHarness.credentialSource}"
         ];
       })
