@@ -68,8 +68,8 @@ nix-instantiate --eval --strict --json --expr "
 jq -e '. == {
   credentialFile:"/run/credentials/aithema-workspace.service/paimos-conversation-api-key",
   credentialName:"paimos-conversation-api-key",
-  credentialSource:"/run/agenix/csb1-aithema-paimos-conversation-key",
-  enable:false
+  credentialSource:"/run/aithema-paimos-conversation-key",
+  enable:true
 }' "$work/selector.json" >/dev/null
 
 stat_bin=$(command -v stat)
@@ -153,7 +153,7 @@ shared_flow_check_runtime_config
 # The disabled module keeps its upstream single runtime-config credential. The
 # enabled selector uses a forced list solely to preserve it and add the second.
 grep -Fq 'serviceConfig.LoadCredential = lib.mkForce [' "$host_config"
-grep -Fq '"runtime-config.json:${sharedFlow.aithema.configFile}"' "$host_config"
+grep -Fq '"runtime-config.json:${config.services.inspr.aithemaWorkspace.configFile}"' "$host_config"
 grep -Fq '"${sharedFlow.aithema.paimosHarness.credentialName}:${sharedFlow.aithema.paimosHarness.credentialSource}"' "$host_config"
 
-printf '%s\n' 'aithema_paimos_credential=passed selector=false live_config_read=false'
+printf '%s\n' 'aithema_paimos_credential=passed selector=true live_config_read=false'
