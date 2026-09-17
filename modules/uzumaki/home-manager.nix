@@ -64,6 +64,7 @@ in
     ./ai-clis-npm.nix # Always-latest AI CLIs (claude-code, codex, grok, pi) via npm
     ./codex-exit-alias.nix # Codex hook: exact "exit" prompt sends /exit on macOS
     ./agent-skills.nix # Skills for ALL harnesses (~/.claude + ~/.codex): inspr-modules bundled + pinned upstream
+    ./agent-kernel.nix # NIX-506: Pi global AGENTS.md ← pinned inspr-modules kernel
     ./claude-statusline.nix # ~/.claude/statusline.sh — catppuccin pill footer (jq nix-pinned)
     ./paimos-agentd.nix # Operator-local PAIMOS owner for managed Codex/Claude sessions
     ./agent-browser-guard.nix # NIX-445: macOS agent browser-launch guard (opt-in per host)
