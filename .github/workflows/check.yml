@@ -226,6 +226,9 @@ jobs:
       - name: Verify NIX-501 Paimos provider handoff (NIX-501)
         run: nix-shell -p bash jq --run "bash tests/T83-nix501-paimos-provider-handoff.sh"
 
+      - name: Verify Pi INSPR kernel wiring (NIX-506)
+        run: nix-shell -p bash python3 --run "bash tests/T84-pi-inspr-kernel.sh"
+
       - name: Verify JoeDesk canonical slash and OAuth routing (NIX-462)
         run: nix-shell -p python3 --run "python3 tests/T76-joe-slash-routing.py"
 
