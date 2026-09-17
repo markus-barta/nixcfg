@@ -379,7 +379,10 @@ In parallel, `createOfficialHistoryRefresher()` calls
 port, clientId: 94, signal })` at startup, every 15 minutes, and at the New York
 day rollover. It starts at the earliest durable gap still recoverable inside the
 official seven-New-York-date limit; once caught up it retains a prior/current-day
-overlap. Older unqueryable gaps remain explicit. It runs only one bounded subprocess
+overlap. Accounting-triggered retries can use a verified prefix plus its uncovered
+tail; an empty suffix keeps a stable anchor so repeated receipts coalesce. These
+retries cannot postpone the periodic overlap scan that retrieves prior-day
+corrections. Older unqueryable gaps remain explicit. It runs only one bounded subprocess
 at a time and retries failures with capped backoff. Each
 successful batch is normalized with `capturesFromOfficialWindowEvidence()` and
 passed to `familyHistoryAdapter.importCaptures(captures, { fromInclusive:
