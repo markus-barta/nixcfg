@@ -44,7 +44,7 @@ import {
 } from "./family-state.mjs";
 import { projectBook } from "./project.mjs";
 import { createConnectionSupervisor } from "./pusher-recovery.mjs";
-import { createBrokerSessionAdapter } from "./pusher-state.mjs";
+import { createBrokerSessionAdapter, waitForExecutionCycle } from "./pusher-state.mjs";
 import { createPortfolioRefreshController } from "./portfolio-refresh.mjs";
 
 const HOST = "100.64.0.6";
@@ -294,6 +294,9 @@ async function pushOnce() {
     console.warn("live 4001 appears up on host — ignoring; this pusher stays on paper", PORT);
   }
 
+  // Avoid sampling halfway through the normal 30-second execution refresh.
+  // A slow/failed cycle still reaches the unchanged fail-closed projection.
+  await waitForExecutionCycle({ isPending: () => familyAdapter.requestInFlight });
   const book = bookSnapshot();
   if (!book) {
     console.warn(JSON.stringify({ event: "push_skipped", reason: "broker snapshot incomplete" }));
