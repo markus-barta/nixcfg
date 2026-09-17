@@ -20,6 +20,7 @@ import { CURRENT_DESK_OWNERSHIP_POLICY, DESK_HISTORY_REVISION_METHOD, calculateD
   deskOwnershipPolicyContract, buildDeskDayBoundaryEvidence } from "./desk-ledger.mjs";
 import { createDeskDayPnlProducer } from "./day-baseline.mjs";
 import { createOfficialHistoryRefresher } from "./family-history-session.mjs";
+import { waitForExecutionCycle } from "./pusher-state.mjs";
 import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
@@ -1551,4 +1552,50 @@ test("current-day recovery does not become unreachable behind an old unqueryable
   assert.equal(requested.fromInclusive, "2026-09-20T04:00:00.000Z");
   // The old gap remains explicit; a current-day query cannot silently fill it.
   assert.equal(officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, "2026-09-20T12:01:00Z").through, "2026-09-10T05:00:00.000Z");
+});
+
+test("publication waits for a routine execution cycle without weakening incomplete-cycle gates", async () => {
+  const session = setup();
+  const api = connect(session);
+  const row = execution("publication.1.01", 27);
+  complete(api, [row]); emitFx(api, "EUR", 1); emitFx(api, "USD", 0.9);
+  assert.equal(session.adapter.project(book()).ok, true);
+  session.timers.runDelay(30_000);
+  assert.match(session.adapter.project(book()).reason, /fresh complete execution cycle unavailable/);
+  const before = session.adapter.inspectState();
+  let clock = 0;
+  assert.equal(await waitForExecutionCycle({
+    isPending: () => session.adapter.requestInFlight,
+    now: () => clock,
+    sleep: async (ms) => { clock += ms; if (clock === 75) complete(api, [row]); },
+  }), true);
+  assert.equal(clock, 75);
+  assert.equal(session.adapter.project(book()).ok, true);
+  assert.deepEqual(session.adapter.inspectState().executions, before.executions);
+  assert.equal(session.adapter.inspectState().coverageThrough, before.coverageThrough);
+
+  session.timers.runDelay(30_000);
+  clock = 0;
+  assert.equal(await waitForExecutionCycle({
+    isPending: () => session.adapter.requestInFlight,
+    now: () => clock, sleep: async (ms) => { clock += ms; },
+  }), false);
+  assert.equal(clock, 2_000);
+  assert.match(session.adapter.project(book()).reason, /fresh complete execution cycle unavailable/);
+  assert.deepEqual(session.adapter.inspectState().executions, before.executions);
+});
+
+test("idle accounting publication does not wait, and disconnect cannot become accounting readiness", async () => {
+  let slept = false;
+  assert.equal(await waitForExecutionCycle({ isPending: () => false, sleep: async () => { slept = true; } }), true);
+  assert.equal(slept, false);
+  const session = setup();
+  const api = connect(session);
+  complete(api, [execution("publication.disconnect.01", 27)]);
+  session.timers.runDelay(30_000);
+  assert.equal(await waitForExecutionCycle({
+    isPending: () => session.adapter.requestInFlight,
+    sleep: async () => { api.emit(EVENTS.disconnected); },
+  }), true);
+  assert.match(session.adapter.project(book()).reason, /fresh complete execution cycle unavailable/);
 });
