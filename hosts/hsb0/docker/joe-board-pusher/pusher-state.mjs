@@ -9,6 +9,24 @@ import {
 
 export { createReconnectScheduler } from "./pusher-recovery.mjs";
 
+/** Let a routine execution refresh finish before taking a publication snapshot.
+ * This waits only; it never promotes old data or changes any readiness gate.
+ */
+export async function waitForExecutionCycle({
+  isPending,
+  timeoutMs = 2_000,
+  now = () => performance.now(),
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+}) {
+  const deadline = now() + timeoutMs;
+  while (isPending()) {
+    const remaining = deadline - now();
+    if (remaining <= 0) return false;
+    await sleep(Math.min(25, remaining));
+  }
+  return true;
+}
+
 function cloneRow(row) {
   return {
     ...row,
