@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   FAMILY_BASELINE_PERIOD_START,
+  officialReceiptChain,
   createFamilySessionAdapter,
   createFileFamilyStateStore,
 } from "./family-state.mjs";
@@ -18,6 +19,7 @@ import { calculateFamily } from "./family-ledger.mjs";
 import { CURRENT_DESK_OWNERSHIP_POLICY, DESK_HISTORY_REVISION_METHOD, calculateDeskEquities,
   deskOwnershipPolicyContract, buildDeskDayBoundaryEvidence } from "./desk-ledger.mjs";
 import { createDeskDayPnlProducer } from "./day-baseline.mjs";
+import { createOfficialHistoryRefresher } from "./family-history-session.mjs";
 import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
@@ -132,6 +134,7 @@ function setup({
   retryBaseMs = 5_000,
   retryMaxMs = 20_000,
   getVerifiedHistoryState = null,
+  onReplayIncomplete,
 } = {}) {
   let current = at;
   const timers = fakeTimers();
@@ -155,7 +158,7 @@ function setup({
     random: () => 0.5,
     setTimer: timers.set,
     clearTimer: timers.clear,
-    hooks: { onUnavailable: (reason) => unavailable.push(reason) },
+    hooks: { onUnavailable: (reason) => unavailable.push(reason), onReplayIncomplete },
     getVerifiedHistoryState,
   });
   return {
@@ -180,6 +183,7 @@ function verifiedHistory(executions = [], commissions = [], { through = "2026-09
         sha256: "f".repeat(64),
         metadata: {
           adapterId: "official-window-json",
+          endpointIdentitySha256: "e".repeat(64),
           adapterVersion: "1",
           sdkPackage: "ibapi",
           sdkVersion: "10.45.1",
@@ -1351,8 +1355,8 @@ test("healthy Gateway plus truncated replay recovers real desk equity and DAY wi
   assert.equal(session.adapter.connected, true);
   assert.equal(vector().ok, false);
   assert.equal(day.observe(vector()).ok, false);
-  history = verifiedHistory(rows.map(normalizeEconomicExecution), fees.map(normalizeEconomicCommission),
-    { prior: previousDay, from: "2026-09-11T04:00:00Z", through: "2026-09-11T14:03:00Z", capturedAt: "2026-09-11T14:03:05Z" });
+  history = verifiedHistory([], [],
+    { prior: history, from: "2026-09-11T14:00:00Z", through: "2026-09-11T14:03:00Z", capturedAt: "2026-09-11T14:03:05Z" });
   session.adapter.verifiedHistoryUpdated(); complete(api, []);
   emitFx(api, "EUR", 1); emitFx(api, "USD", 0.86);
   const recovered = vector();
@@ -1361,4 +1365,190 @@ test("healthy Gateway plus truncated replay recovers real desk equity and DAY wi
   const result = day.observe(recovered);
   assert.equal(result.ok, true, result.reason);
   assert.deepEqual(day.inspectState().proxy, reference);
+});
+
+
+test("overnight 27-identity omission uses complete prefix plus thin tail, never a contradictory wide empty receipt", async () => {
+  const rows = Array.from({ length: 27 }, (_, i) => execution(`overnight.${i}.01`, i % 2 ? 27 : 22));
+  const fees = rows.map((row) => commission(row.execution.execId));
+  const first = setup({ at: "2026-09-10T21:58:00Z" });
+  complete(connect(first), rows, fees);
+  let history = verifiedHistory(rows.map(normalizeEconomicExecution), fees.map(normalizeEconomicCommission),
+    { through: "2026-09-10T21:57:59Z", capturedAt: "2026-09-10T21:58:00Z" });
+  const retained = structuredClone(history);
+  // Gateway retention resets at local midnight, before the New York boundary.
+  // Both yesterday/today queries can end cleanly with zero rows. A broad empty
+  // receipt must not be used over the 27 known fills, even when marked complete.
+  history = verifiedHistory([], [], { prior: history, through: "2026-09-11T02:10:00Z", capturedAt: "2026-09-11T02:10:05Z" });
+  const clock = "2026-09-11T02:11:00Z";
+  assert.equal(officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, clock).through, "2026-09-10T21:57:59.000Z");
+  let refreshRequests = 0;
+  const session = setup({ store: first.store, at: clock, getVerifiedHistoryState: () => history,
+    onReplayIncomplete: () => { refreshRequests++; } });
+  const api = connect(session);
+  complete(api, []);
+  assert.match(session.adapter.retryReason, /omitted 27/);
+  const before = session.adapter.inspectState();
+  let requested;
+  const refresher = createOfficialHistoryRefresher({
+    targetAccount: ACCOUNT, host: "paper.invalid", port: 4002, historyStart: FAMILY_BASELINE_PERIOD_START,
+    getHistoryState: () => history, now: () => clock,
+    readOfficialExecutionWindow: async (args) => { requested = args; return {}; },
+    makeCaptures: () => [], importCaptures: () => ({ ok: true }),
+  });
+  await refresher.pollNow({ recovery: true }); refresher.stop();
+  assert.equal(requested.fromInclusive, "2026-09-10T21:57:59.000Z");
+  // Independently queried empty suffix is valid: no retained executions lie in
+  // that exact interval. The chain, not persisted rows alone, spans midnight.
+  history = verifiedHistory([], [], { prior: history, from: requested.fromInclusive,
+    through: "2026-09-11T02:10:50Z", capturedAt: "2026-09-11T02:10:55Z" });
+  assert.equal(session.adapter.verifiedHistoryUpdated(), true);
+  complete(api, []);
+  emitFx(api, "EUR", 1); emitFx(api, "USD", 0.86);
+  assert.equal(session.adapter.project(book(clock)).ok, true);
+  assert.equal(refreshRequests, 2, "even a successful receipt recovery requests background refresh before expiry");
+  const after = session.adapter.inspectState();
+  assert.equal(after.coverageThrough, "2026-09-11T02:10:50.000Z");
+  assert.deepEqual(after.executions, before.executions);
+  assert.deepEqual(after.commissions, before.commissions);
+  assert.equal(after.queryExecutionIdentities.length, 27);
+  assert.ok(history.receipts.some(r => r.receiptId === retained.receipts[0].receiptId));
+  const restarted = setup({ store: first.store, at: clock, getVerifiedHistoryState: () => history });
+  complete(connect(restarted), []);
+  assert.equal(restarted.adapter.retryReason, null);
+});
+
+test("official receipt chains reject time gaps, missing fees, known-only prefixes and contradicted suffixes", () => {
+  const row = normalizeEconomicExecution(execution("chain.1.01", 27));
+  const fee = normalizeEconomicCommission(commission(row.execution.execId));
+  for (const mode of ["gap", "fee", "known", "contradicted"]) {
+    let prefix = verifiedHistory([row], [fee], { through: "2026-09-10T14:00:00Z", capturedAt: "2026-09-10T14:00:05Z" });
+    if (mode === "known") {
+      prefix = reconcileExecutionCapture({capture: {
+        schema: EXECUTION_CAPTURE_SCHEMA, account: ACCOUNT, classifier: CLASSIFIER,
+        source: {kind: "persisted-ledger", id: "known-only", sha256: "a".repeat(64), metadata: {}},
+        window: {fromInclusive: FAMILY_BASELINE_PERIOD_START, toExclusive: "2026-09-10T14:00:00Z"},
+        capturedAt: "2026-09-10T14:00:05Z", coverageStatus: "known", completenessAssertion: null,
+        executions: [row], commissions: [fee],
+      }, target: {fromInclusive: FAMILY_BASELINE_PERIOD_START, toExclusive: "2026-09-10T14:00:00Z"}});
+    }
+    let history = verifiedHistory([], [], { prior: prefix,
+      from: mode === "gap" ? "2026-09-10T14:00:01Z" : "2026-09-10T14:00:00Z",
+      through: "2026-09-10T14:02:00Z", capturedAt: "2026-09-10T14:02:05Z" });
+    if (mode === "fee") { history = structuredClone(history); history.commissions = []; }
+    if (mode === "contradicted") {
+      const late = normalizeEconomicExecution(execution("late.1.01", 27, { time: "20260910 10:01:00 US/Eastern" }));
+      history = verifiedHistory([late], [normalizeEconomicCommission(commission(late.execution.execId))],
+        { prior: history, from: "2026-09-10T14:01:00Z", through: "2026-09-10T14:01:01Z", capturedAt: "2026-09-10T14:02:06Z" });
+    }
+    const chain = officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, "2026-09-10T14:02:10Z");
+    assert.ok(chain.through < "2026-09-10T14:02:00Z", mode);
+  }
+});
+
+
+test("repeated overnight recovery coalesces empty tails without postponing correction overlap", async () => {
+  const row = normalizeEconomicExecution(execution("tail-growth.1.01", 27));
+  const fee = normalizeEconomicCommission(commission(row.execution.execId));
+  let clock = Date.parse("2026-09-11T02:11:00Z");
+  let history = verifiedHistory([row], [fee], { through: "2026-09-10T21:57:59Z", capturedAt: "2026-09-10T21:58:00Z" });
+  const calls = [];
+  const timers = fakeTimers();
+  const refresher = createOfficialHistoryRefresher({
+    targetAccount: ACCOUNT, host: "paper.invalid", port: 4002, historyStart: FAMILY_BASELINE_PERIOD_START,
+    getHistoryState: () => history, now: () => new Date(clock).toISOString(), setTimer: timers.set, clearTimer: timers.clear,
+    readOfficialExecutionWindow: async (args) => { calls.push(args); return {}; },
+    makeCaptures: () => [], importCaptures: () => {
+      const requested = calls.at(-1);
+      history = verifiedHistory([], [], { prior: history, from: requested.fromInclusive,
+        through: requested.toExclusive, capturedAt: requested.toExclusive });
+      return { ok: true };
+    },
+  });
+  for (let index = 0; index < 13; index++) {
+    assert.equal(await refresher.pollNow({ recovery: true }), true);
+    assert.ok(history.receipts.length <= 3, `unbounded receipts at iteration ${index}: ${history.receipts.length}`);
+    const chain = officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, new Date(clock).toISOString());
+    const expectedThrough = index && index % 3 === 0 ? clock - 5 * 60_000 : clock;
+    assert.equal(chain.through, new Date(expectedThrough).toISOString(), "overlap cannot erase the valid tail proof");
+    if (index && index % 3 === 0) assert.equal(calls.at(-1).fromInclusive, new Date(FAMILY_BASELINE_PERIOD_START).toISOString());
+    else assert.equal(calls.at(-1).fromInclusive, "2026-09-10T21:57:59.000Z");
+    assert.deepEqual(history.executions, [row]);
+    assert.deepEqual(history.commissions, [fee]);
+    clock += 5 * 60_000;
+  }
+  refresher.stop();
+});
+
+test("valid complete history still receives periodic prior-day correction replay", async () => {
+  const original = normalizeEconomicExecution(execution("overlap-correction.1.01", 27));
+  const corrected = normalizeEconomicExecution(execution("overlap-correction.1.02", 27, { price: 11 }));
+  const originalFee = normalizeEconomicCommission(commission(original.execution.execId));
+  const correctedFee = normalizeEconomicCommission(commission(corrected.execution.execId));
+  let history = verifiedHistory([original], [originalFee], { through: "2026-09-11T08:00:00Z", capturedAt: "2026-09-11T08:00:01Z" });
+  let requested;
+  const refresher = createOfficialHistoryRefresher({
+    targetAccount: ACCOUNT, host: "paper.invalid", port: 4002, historyStart: FAMILY_BASELINE_PERIOD_START,
+    getHistoryState: () => history, now: () => "2026-09-11T08:10:00Z",
+    readOfficialExecutionWindow: async (args) => { requested = args; return {}; },
+    makeCaptures: () => [], importCaptures: () => {
+      history = verifiedHistory([corrected], [correctedFee], { prior: history,
+        from: requested.fromInclusive, through: requested.toExclusive, capturedAt: requested.toExclusive });
+      return { ok: true };
+    },
+  });
+  assert.equal(await refresher.pollNow(), true); refresher.stop();
+  assert.equal(requested.fromInclusive, new Date(FAMILY_BASELINE_PERIOD_START).toISOString());
+  const chain = officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, "2026-09-11T08:10:00Z");
+  assert.equal(chain.through, "2026-09-11T08:10:00.000Z");
+  assert.ok(chain.executions.some((row) => row.execution.execId === corrected.execution.execId));
+  assert.ok(history.executions.some((row) => row.execution.execId === original.execution.execId));
+  assert.ok(history.commissions.some((row) => row.execId === originalFee.execId));
+});
+
+
+test("thin populated overlap cannot erase a valid tail or regress recovered adapter readiness", () => {
+  const row = normalizeEconomicExecution(execution("retain-proof.original.01", 27));
+  const late = normalizeEconomicExecution(execution("retain-proof.late.01", 22, { time: "20260910 19:00:00 US/Eastern" }));
+  const fees = [row, late].map((r) => normalizeEconomicCommission(commission(r.execution.execId)));
+  let history = verifiedHistory([row], [fees[0]], { through: "2026-09-10T22:00:00Z", capturedAt: "2026-09-10T22:00:01Z" });
+  history = verifiedHistory([late], [fees[1]], { prior: history, from: "2026-09-10T22:00:00Z",
+    through: "2026-09-11T02:10:00Z", capturedAt: "2026-09-11T02:10:01Z" });
+  const first = setup({ at: "2026-09-11T02:10:05Z" });
+  complete(connect(first), [row, late], fees);
+  const recovered = setup({ store: first.store, at: "2026-09-11T02:10:10Z", getVerifiedHistoryState: () => history });
+  // Use a watermark inside the receipt, as with an already recovered adapter.
+  const api = connect(recovered);
+  // First bring the proof through the existing ledger watermark.
+  history = verifiedHistory([late], [fees[1]], { prior: history, from: "2026-09-10T22:00:00Z",
+    through: "2026-09-11T02:10:06Z", capturedAt: "2026-09-11T02:10:07Z" });
+  complete(api, [late], [fees[1]]);
+  assert.equal(recovered.adapter.retryReason, null);
+  const watermark = recovered.adapter.inspectState().coverageThrough;
+  // Same-day wide response has the late fill but omits the old retained fill.
+  history = verifiedHistory([late], [fees[1]], { prior: history,
+    through: "2026-09-11T02:10:09Z", capturedAt: "2026-09-11T02:10:10Z" });
+  assert.equal(officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, "2026-09-11T02:10:10Z").through, watermark);
+  recovered.timers.runDelay(30_000); complete(api, [late], [fees[1]]);
+  assert.equal(recovered.adapter.retryReason, null);
+  assert.equal(recovered.adapter.blockedReason, null);
+  assert.equal(recovered.adapter.inspectState().coverageThrough, watermark);
+  assert.equal(recovered.adapter.inspectState().executions.length, 2);
+});
+
+test("current-day recovery does not become unreachable behind an old unqueryable history gap", async () => {
+  let history = verifiedHistory([], [], { through: "2026-09-10T05:00:00Z", capturedAt: "2026-09-10T05:00:01Z" });
+  history = verifiedHistory([], [], { prior: history, from: "2026-09-20T04:00:00Z",
+    through: "2026-09-20T12:00:00Z", capturedAt: "2026-09-20T12:00:01Z" });
+  let requested;
+  const refresher = createOfficialHistoryRefresher({
+    targetAccount: ACCOUNT, host: "paper.invalid", port: 4002, historyStart: FAMILY_BASELINE_PERIOD_START,
+    getHistoryState: () => history, now: () => "2026-09-20T12:01:00Z",
+    readOfficialExecutionWindow: async (args) => { requested = args; return {}; },
+    makeCaptures: () => [], importCaptures: () => ({ ok: true }),
+  });
+  assert.equal(await refresher.pollNow({ recovery: true }), true); refresher.stop();
+  assert.equal(requested.fromInclusive, "2026-09-20T04:00:00.000Z");
+  // The old gap remains explicit; a current-day query cannot silently fill it.
+  assert.equal(officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, "2026-09-20T12:01:00Z").through, "2026-09-10T05:00:00.000Z");
 });

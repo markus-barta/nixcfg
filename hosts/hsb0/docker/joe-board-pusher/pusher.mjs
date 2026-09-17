@@ -243,8 +243,8 @@ const officialHistoryRefresher = createOfficialHistoryRefresher({
   retryBaseMs: 15_000,
   retryMaxMs: RETRY_MAX_MS,
   hooks: {
-    onUpdated({ captureCount, through }) {
-      console.log(JSON.stringify({ event: "official_family_history_updated", captureCount, through }));
+    onUpdated({ captureCount, executionCount, from, through }) {
+      console.log(JSON.stringify({ event: "official_family_history_updated", captureCount, executionCount, from, through }));
       familyAdapter.verifiedHistoryUpdated();
     },
     onUnavailable(reason) {
