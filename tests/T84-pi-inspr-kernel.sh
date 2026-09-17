@@ -25,7 +25,8 @@ grep -q './agent-kernel.nix' "$entry" || fail "home-manager.nix does not import 
 
 grep -q 'homeManagerModules.agent-kernel' "$module" || fail "module does not import the atelier agent-kernel"
 
-grep -q 'inspr.agent-kernel.enable = true' "$module" || fail "module does not enable inspr.agent-kernel"
+grep -q 'inspr.agent-kernel' "$module" || fail "module does not configure inspr.agent-kernel"
+grep -q 'enable = true' "$module" || fail "module does not enable inspr.agent-kernel"
 
 grep -q 'extraSources' "$module" || fail "module does not attach extraSources"
 
