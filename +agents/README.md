@@ -8,9 +8,6 @@ IDE/LLM-agnostic agent configuration for nixcfg. Holds the slash-command definit
 +agents/
 ├── commands/                  # Slash commands (IDE-agnostic; load via `@filename` from harnesses)
 │   ├── ops.md                 # /ops — load AGENTS rules + SYSOP role
-│   ├── ocbots.md              # /ocbots — OpenClaw bots ops context
-│   ├── modelhelp.md           # /modelhelp — OpenClaw model cheat-sheet
-│   ├── oc-modelupdate.md      # /oc-modelupdate — research + update model lists
 │   ├── push.md                # /push — single-repo commit+push helper
 │   └── …                      # add more here
 └── rules/                     # Per-role operational reference docs (NOT the canonical rule source)
