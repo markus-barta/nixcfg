@@ -256,7 +256,10 @@ function validateResponse(value, plan, exitCode) {
   }
   if (value.foreignAccountViolation !== false) throw new Error("official reader reported a foreign account violation");
   if (!Array.isArray(value.errors) || value.errors.length !== 0) {
-    throw new Error("official reader reported run-level callback errors");
+    const codes = Array.isArray(value.errors) ? [...new Set(value.errors
+      .map((error) => error?.brokerCode)
+      .filter((code) => Number.isSafeInteger(code) && code >= 0 && code <= 99999))].slice(0, 8) : [];
+    throw new Error(`official reader reported run-level callback errors (broker codes: ${codes.join(",") || "none"})`);
   }
   if (value.startedAt !== plan.startedAt) throw new Error("official reader response start identity changed");
   if (!same(value.requestedCoverage, plan.requestedCoverage) || !same(value.actualWindows, plan.actualWindows)) {

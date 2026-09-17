@@ -111,13 +111,20 @@ from the preceding successful query (or provide its higher IB correction revisio
 A query that temporarily omits an identity is unavailable and retried with capped
 backoff; it cannot change the persisted ledger, identity set, or coverage watermark.
 A later full legacy replay restores readiness. Alternatively, the existing official
-client-94 dated reader can supply a recent COMPLETE current-day receipt containing
+client-94 reader supplies a continuous chain of COMPLETE dated receipts containing
 every retained query identity (or higher correction), every current replay identity,
-and the corresponding actual fees. Its account, classifier, interval, provenance,
-and economic conflicts are validated before an atomic merge. All prior executions,
-correction revisions and commissions remain durable. The coverage watermark is the
-receipt's actual upper bound, never the publication time. A stale, partial, foreign,
-omitted-identity or missing-fee receipt cannot reopen accounting.
+and actual matching fees. HOSTD-69 preserves the proven prefix when Gateway's
+retention resets before New York midnight and queries the uncovered tail, rounded
+down to whole seconds for overlap. It does not require the broker to resend old
+fills that already have complete durable receipts. A wide empty receipt that omits
+known fills in its interval cannot advance this chain; old receipts and all economic
+rows remain untouched. No union of unproved ledger rows can establish coverage.
+Missing intervals, missing fees, conflicting economics, higher known corrections
+not present in receipts, future timestamps and stale tail evidence fail closed.
+Only the newest proven tail watermark advances execution coverage; publication
+and replay timestamps never refresh it. Query logs distinguish receipt count from
+execution count and include the requested interval. Reader failures expose bounded
+numeric broker codes, never raw broker messages.
 
 A shortened replay requests a coalesced official refresh: singleflight, at most one
 successful recovery query per minute, with existing failure backoff retained. A new

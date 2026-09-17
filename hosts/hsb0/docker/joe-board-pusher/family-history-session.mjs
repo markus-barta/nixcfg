@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { officialReceiptChain } from "./family-state.mjs";
+
 import { createReconnectScheduler } from "./pusher-recovery.mjs";
 
 const MAX_CAPTURE_RECORDS = 50_000;
@@ -747,6 +749,20 @@ export function createOfficialHistoryRefresher({
     }
     let state = null;
     try { state = getHistoryState(); } catch {}
+    // Resume only from independently validated complete receipts. The aggregate
+    // coverage field can include a clean but contradictory empty replay.
+    try {
+      if (state?.account === targetAccount) {
+        const chain = officialReceiptChain(state, iso(historyStart), current);
+        if (chain.through > iso(historyStart) && chain.through < current && chain.through >= supportedStart) {
+          return {
+            fromInclusive: new Date(Math.floor(Date.parse(chain.through) / 1_000) * 1_000).toISOString(),
+            toExclusive: current,
+            nextDayStart: today.nextDayStart,
+          };
+        }
+      }
+    } catch { /* Invalid/missing state still uses the bounded backfill path. */ }
     const gaps = Array.isArray(state?.coverage?.gaps) ? state.coverage.gaps : [];
     const candidates = gaps
       .filter((gap) => {
@@ -813,7 +829,9 @@ export function createOfficialHistoryRefresher({
       if (imported?.ok !== true) throw new Error(imported?.reason || "official history import was rejected");
       failures = 0;
       nextRecoveryAt = Date.parse(now()) + 60_000;
-      hooks.onUpdated?.({ captureCount: captures.length, through: requestedWindow.toExclusive });
+      hooks.onUpdated?.({ captureCount: captures.length,
+        executionCount: captures.reduce((sum, capture) => sum + (capture.executions?.length || 0), 0),
+        from: requestedWindow.fromInclusive, through: requestedWindow.toExclusive });
       const rolloverDelay = Date.parse(requestedWindow.nextDayStart) - Date.parse(current);
       schedule(Math.max(1, Math.min(refreshIntervalMs, rolloverDelay)));
       return true;
