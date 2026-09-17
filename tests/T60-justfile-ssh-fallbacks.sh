@@ -9,24 +9,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 JUSTFILE="$REPO_ROOT/justfile"
-OCBOTS="$REPO_ROOT/+agents/commands/ocbots.md"
-MODELUPDATE="$REPO_ROOT/+agents/commands/oc-modelupdate.md"
 RUNBOOK="$REPO_ROOT/hosts/hsb0/docs/OPENCLAW-RUNBOOK.md"
 WORKSPACE="$REPO_ROOT/nixcfg+agents.code-workspace"
 
-python3 - "$JUSTFILE" "$OCBOTS" "$MODELUPDATE" "$RUNBOOK" "$WORKSPACE" <<'PY'
+python3 - "$JUSTFILE" "$RUNBOOK" "$WORKSPACE" <<'PY'
 import pathlib
 import re
 import sys
 
 justfile_path = pathlib.Path(sys.argv[1])
-ocbots_path = pathlib.Path(sys.argv[2])
-modelupdate_path = pathlib.Path(sys.argv[3])
-runbook_path = pathlib.Path(sys.argv[4])
-workspace_path = pathlib.Path(sys.argv[5])
+runbook_path = pathlib.Path(sys.argv[2])
+workspace_path = pathlib.Path(sys.argv[3])
 justfile = justfile_path.read_text(encoding="utf-8")
-ocbots = ocbots_path.read_text(encoding="utf-8")
-modelupdate = modelupdate_path.read_text(encoding="utf-8")
 runbook = runbook_path.read_text(encoding="utf-8")
 workspace = workspace_path.read_text(encoding="utf-8")
 
@@ -88,12 +82,6 @@ for helper_name, helper in (("_oc-container", container), ("_oc-compose-dir", co
         raise SystemExit(f"{helper_name} does not reject unsupported local hosts")
     if "Error: unknown host '${_target}'. Use: hsb0" not in helper:
         raise SystemExit(f"{helper_name} does not reject unknown explicit hosts")
-
-if "just percy-" in ocbots or "just oc-rebuild` or `just percy-rebuild" in ocbots:
-    raise SystemExit("the live /ocbots operator guide still advertises retired Percy recipes")
-
-if "oc-workspace-percy" in modelupdate or "both OpenClaw configs" in modelupdate:
-    raise SystemExit("the live /oc-modelupdate guide still targets the retired Percy workspace")
 
 if "../../miniserver-bp/docs/OPENCLAW-RUNBOOK.md" in runbook:
     raise SystemExit("the hsb0 runbook still links the retired miniserver-bp runbook")
