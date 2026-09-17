@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# T84 — NIX-508: uzumaki HM loads the pinned INSPR kernel into Pi via
-# homeManagerModules.agent-kernel. Pure/static only.
+# T84 — NIX-511: uzumaki HM loads public+private kernel on four CLIs.
 set -euo pipefail
 
 if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
@@ -27,6 +26,10 @@ grep -q './agent-kernel.nix' "$entry" || fail "home-manager.nix does not import 
 grep -q 'homeManagerModules.agent-kernel' "$module" || fail "module does not import the atelier agent-kernel"
 
 grep -q 'inspr.agent-kernel.enable = true' "$module" || fail "module does not enable inspr.agent-kernel"
+
+grep -q 'extraSources' "$module" || fail "module does not attach extraSources"
+
+grep -q 'markerHarnesses' "$module" || fail "module does not declare marker harnesses"
 
 if grep -Eq 'force[[:space:]]*=' "$module"; then
   fail "module must not set home.file force"

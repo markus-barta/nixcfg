@@ -60,6 +60,13 @@ in
   inspr.agent-skills = {
     enable = true;
 
+    harnesses = {
+      claude = ".claude/skills";
+      codex = ".codex/skills";
+      pi = ".pi/agent/skills";
+      grok = ".grok/skills";
+    };
+
     skills = {
       # ── INSPR-bundled (source defaults to the inspr-modules copy) ─────
       ship-next = { }; # propose + deliver the single right next change
