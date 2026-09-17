@@ -1468,6 +1468,9 @@ test("repeated overnight recovery coalesces empty tails without postponing corre
   for (let index = 0; index < 13; index++) {
     assert.equal(await refresher.pollNow({ recovery: true }), true);
     assert.ok(history.receipts.length <= 3, `unbounded receipts at iteration ${index}: ${history.receipts.length}`);
+    const chain = officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, new Date(clock).toISOString());
+    const expectedThrough = index && index % 3 === 0 ? clock - 5 * 60_000 : clock;
+    assert.equal(chain.through, new Date(expectedThrough).toISOString(), "overlap cannot erase the valid tail proof");
     if (index && index % 3 === 0) assert.equal(calls.at(-1).fromInclusive, new Date(FAMILY_BASELINE_PERIOD_START).toISOString());
     else assert.equal(calls.at(-1).fromInclusive, "2026-09-10T21:57:59.000Z");
     assert.deepEqual(history.executions, [row]);
@@ -1501,4 +1504,51 @@ test("valid complete history still receives periodic prior-day correction replay
   assert.ok(chain.executions.some((row) => row.execution.execId === corrected.execution.execId));
   assert.ok(history.executions.some((row) => row.execution.execId === original.execution.execId));
   assert.ok(history.commissions.some((row) => row.execId === originalFee.execId));
+});
+
+
+test("thin populated overlap cannot erase a valid tail or regress recovered adapter readiness", () => {
+  const row = normalizeEconomicExecution(execution("retain-proof.original.01", 27));
+  const late = normalizeEconomicExecution(execution("retain-proof.late.01", 22, { time: "20260910 19:00:00 US/Eastern" }));
+  const fees = [row, late].map((r) => normalizeEconomicCommission(commission(r.execution.execId)));
+  let history = verifiedHistory([row], [fees[0]], { through: "2026-09-10T22:00:00Z", capturedAt: "2026-09-10T22:00:01Z" });
+  history = verifiedHistory([late], [fees[1]], { prior: history, from: "2026-09-10T22:00:00Z",
+    through: "2026-09-11T02:10:00Z", capturedAt: "2026-09-11T02:10:01Z" });
+  const first = setup({ at: "2026-09-11T02:10:05Z" });
+  complete(connect(first), [row, late], fees);
+  const recovered = setup({ store: first.store, at: "2026-09-11T02:10:10Z", getVerifiedHistoryState: () => history });
+  // Use a watermark inside the receipt, as with an already recovered adapter.
+  const api = connect(recovered);
+  // First bring the proof through the existing ledger watermark.
+  history = verifiedHistory([late], [fees[1]], { prior: history, from: "2026-09-10T22:00:00Z",
+    through: "2026-09-11T02:10:06Z", capturedAt: "2026-09-11T02:10:07Z" });
+  complete(api, [late], [fees[1]]);
+  assert.equal(recovered.adapter.retryReason, null);
+  const watermark = recovered.adapter.inspectState().coverageThrough;
+  // Same-day wide response has the late fill but omits the old retained fill.
+  history = verifiedHistory([late], [fees[1]], { prior: history,
+    through: "2026-09-11T02:10:09Z", capturedAt: "2026-09-11T02:10:10Z" });
+  assert.equal(officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, "2026-09-11T02:10:10Z").through, watermark);
+  recovered.timers.runDelay(30_000); complete(api, [late], [fees[1]]);
+  assert.equal(recovered.adapter.retryReason, null);
+  assert.equal(recovered.adapter.blockedReason, null);
+  assert.equal(recovered.adapter.inspectState().coverageThrough, watermark);
+  assert.equal(recovered.adapter.inspectState().executions.length, 2);
+});
+
+test("current-day recovery does not become unreachable behind an old unqueryable history gap", async () => {
+  let history = verifiedHistory([], [], { through: "2026-09-10T05:00:00Z", capturedAt: "2026-09-10T05:00:01Z" });
+  history = verifiedHistory([], [], { prior: history, from: "2026-09-20T04:00:00Z",
+    through: "2026-09-20T12:00:00Z", capturedAt: "2026-09-20T12:00:01Z" });
+  let requested;
+  const refresher = createOfficialHistoryRefresher({
+    targetAccount: ACCOUNT, host: "paper.invalid", port: 4002, historyStart: FAMILY_BASELINE_PERIOD_START,
+    getHistoryState: () => history, now: () => "2026-09-20T12:01:00Z",
+    readOfficialExecutionWindow: async (args) => { requested = args; return {}; },
+    makeCaptures: () => [], importCaptures: () => ({ ok: true }),
+  });
+  assert.equal(await refresher.pollNow({ recovery: true }), true); refresher.stop();
+  assert.equal(requested.fromInclusive, "2026-09-20T04:00:00.000Z");
+  // The old gap remains explicit; a current-day query cannot silently fill it.
+  assert.equal(officialReceiptChain(history, FAMILY_BASELINE_PERIOD_START, "2026-09-20T12:01:00Z").through, "2026-09-10T05:00:00.000Z");
 });

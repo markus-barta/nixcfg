@@ -754,8 +754,9 @@ export function createOfficialHistoryRefresher({
     // coverage field can include a clean but contradictory empty replay.
     try {
       if (recovery && state?.account === targetAccount) {
-        const chain = officialReceiptChain(state, iso(historyStart), current);
-        if (chain.through > iso(historyStart) && chain.through < current && chain.through >= supportedStart) {
+        const chainStart = iso(historyStart) > today.fromInclusive ? iso(historyStart) : today.fromInclusive;
+        const chain = officialReceiptChain(state, chainStart, current);
+        if (chain.through > chainStart && chain.through < current && chain.through >= supportedStart) {
           // Re-query an empty suffix from a stable anchor so imports coalesce.
           // Advance at most to today's boundary already covered by the chain;
           // never skip an unproved midnight gap or retain one receipt per poll.
