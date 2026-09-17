@@ -391,13 +391,28 @@ function newReceiptSubsumes(existing, incoming) {
     containsAll(incoming.commissionIds, existing.commissionIds);
 }
 
-function coalesceReceipts(receipts, incoming) {
+function contradictsKnownExecutions(receipt, effective) {
+  if (!hasIdentityMembership(receipt)) return true;
+  const members = new Set(receipt.executionIds);
+  return effective.some((row) => {
+    const time = executionInstant(row.execution.time);
+    return time >= receipt.window.fromInclusive && time < receipt.window.toExclusive &&
+      !members.has(executionId(row));
+  });
+}
+
+function coalesceReceipts(receipts, incoming, executions) {
   const sameProof = receipts.find((existing) =>
     sameCompleteLineage(existing, incoming) &&
     stable(existing.window) === stable(incoming.window) &&
     sameReceiptFacts(existing, incoming));
   if (sameProof) return receipts;
-  return [...receipts.filter((existing) => !newReceiptSubsumes(existing, incoming)), incoming];
+  const effective = latestExecutions(executions);
+  const contradicted = contradictsKnownExecutions(incoming, effective);
+  // A truncated broad replay may replace older truncated replies, but cannot
+  // erase a valid suffix proof just because its (partial) members are a superset.
+  return [...receipts.filter((existing) => !newReceiptSubsumes(existing, incoming) ||
+    (contradicted && !contradictsKnownExecutions(existing, effective))), incoming];
 }
 
 export function reconcileExecutionCapture({ prior = null, capture: rawCapture, target: rawTarget } = {}) {
@@ -415,9 +430,9 @@ export function reconcileExecutionCapture({ prior = null, capture: rawCapture, t
   const existingReceipt = receipts.find((item) => item.receiptId === receipt.receiptId);
   const reusedSource = receipts.find((item) => item.source.id === receipt.source.id);
   if (reusedSource && reusedSource.receiptId !== receipt.receiptId) fail("capture source was previously bound to different facts");
-  if (!existingReceipt) receipts = coalesceReceipts(receipts, receipt);
-  receipts.sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
   const executions = mergeExact(prior?.executions || [], capture.executions, executionId, "execution");
+  if (!existingReceipt) receipts = coalesceReceipts(receipts, receipt, executions);
+  receipts.sort((a, b) => a.capturedAt.localeCompare(b.capturedAt) || a.receiptId.localeCompare(b.receiptId));
   const commissions = mergeCommissions(prior?.commissions || [], capture.commissions);
   const durableChanged = !prior || stable(receipts) !== stable(prior.receipts) ||
     stable(executions) !== stable(prior.executions) || stable(commissions) !== stable(prior.commissions);
