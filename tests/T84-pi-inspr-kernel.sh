@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# T84 — NIX-506: uzumaki HM must materialize the pinned INSPR kernel into
-# Pi's global AGENTS.md without force and without bumping the atelier pin.
-# Pure/static only: never evaluates or builds a Home Manager configuration.
+# T84 — NIX-508: uzumaki HM loads the pinned INSPR kernel into Pi via
+# homeManagerModules.agent-kernel. Pure/static only.
 set -euo pipefail
 
 if [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
@@ -25,9 +24,9 @@ fail() {
 
 grep -q './agent-kernel.nix' "$entry" || fail "home-manager.nix does not import agent-kernel.nix"
 
-grep -q 'home.file.".pi/agent/AGENTS.md"' "$module" || fail "module does not declare ~/.pi/agent/AGENTS.md"
+grep -q 'homeManagerModules.agent-kernel' "$module" || fail "module does not import the atelier agent-kernel"
 
-grep -q 'inputs.inspr-modules}/docs/AGENTS-KERNEL.md' "$module" || fail "module does not source the pinned inspr-modules kernel"
+grep -q 'inspr.agent-kernel.enable = true' "$module" || fail "module does not enable inspr.agent-kernel"
 
 if grep -Eq 'force[[:space:]]*=' "$module"; then
   fail "module must not set home.file force"
@@ -35,15 +34,9 @@ fi
 
 nix-instantiate --parse "$module" >/dev/null || fail "agent-kernel.nix does not parse"
 
-if grep -q 'inspr-modules.url' "$flake"; then
-  :
-else
-  fail "flake.nix lost the inspr-modules pin"
-fi
-
-# This ticket must not retarget the atelier pin.
 python3 - "$flake" "$repo_root/flake.lock" <<'PY'
-import pathlib, re, sys, json
+import json, pathlib, re, sys
+
 flake = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 lock = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 urls = re.findall(r'inspr-modules\.url\s*=\s*"([^"]+)"', flake)
