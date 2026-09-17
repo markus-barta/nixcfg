@@ -464,6 +464,52 @@ export function isTrustedOfficialFamilyReceipt(receipt) {
     Array.isArray(receipt.executionIds) && Array.isArray(receipt.commissionIds);
 }
 
+/** Continuous official evidence, rejecting receipts contradicted by retained facts.
+ * Rows alone never extend coverage. An older complete prefix plus a newly queried
+ * tail can prove continuity even when the broker no longer replays that prefix.
+ */
+export function officialReceiptChain(history, fromInclusive, observedAt) {
+  validateBestAvailableHistoryState(history);
+  const start = iso(fromInclusive);
+  const end = iso(observedAt);
+  if (!start || !end || start > end) throw new Error("official chain interval is invalid");
+  const executions = new Map(history.executions.map((row) => [executionId(row), row]));
+  const commissions = new Map(history.commissions.map((row) => [commissionId(row), row]));
+  const effective = latestExecutionIdentities(history.executions).map((id) => {
+    const row = executions.get(id);
+    return { id, time: normalizeEconomicExecution(row).execution.time };
+  });
+  const candidates = history.receipts.filter((receipt) => {
+    if (!isTrustedOfficialFamilyReceipt(receipt) || receipt.capturedAt > end ||
+        receipt.capturedAt < receipt.window.toExclusive || receipt.window.toExclusive > end ||
+        receipt.window.toExclusive <= start) return false;
+    const members = new Set(receipt.executionIds);
+    const feeMembers = new Set(receipt.commissionIds);
+    if (receipt.executionIds.some((id) => !executions.has(id) || !commissions.has(id) || !feeMembers.has(id))) return false;
+    if (receipt.executionIds.some((id) => {
+      const time = normalizeEconomicExecution(executions.get(id)).execution.time;
+      return time < receipt.window.fromInclusive || time >= receipt.window.toExclusive;
+    })) return false;
+    // Empty/wide replies after retention rollover cannot erase prior evidence or
+    // bridge a window in which the durable ledger proves that executions exist.
+    return effective.every(({ id, time }) => time < receipt.window.fromInclusive ||
+      time >= receipt.window.toExclusive || members.has(id));
+  }).sort((a, b) => a.window.fromInclusive.localeCompare(b.window.fromInclusive) ||
+    b.window.toExclusive.localeCompare(a.window.toExclusive));
+  let through = start;
+  const selected = [];
+  for (const receipt of candidates) {
+    if (receipt.window.fromInclusive > through) break;
+    if (receipt.window.toExclusive <= through) continue;
+    selected.push(receipt);
+    through = receipt.window.toExclusive;
+  }
+  const ids = [...new Set(selected.flatMap((receipt) => receipt.executionIds))];
+  return { through, receipts: selected,
+    executions: ids.map((id) => executions.get(id)),
+    commissions: ids.map((id) => commissions.get(id)) };
+}
+
 /**
  * Generation-scoped, read-only execution/commission/FX collector.
  * It owns no network connection and publishes nothing; the existing pusher remains
@@ -729,34 +775,14 @@ export function createFamilySessionAdapter({
     } catch { return null; }
     if (history.account !== targetAccount || !sameRecord(history.classifier, classifier)) return null;
     const dayStart = newYorkDayStart(observedAt);
-    const receipts = history.receipts.filter((receipt) =>
-      isTrustedOfficialFamilyReceipt(receipt) &&
-      receipt.window.fromInclusive === dayStart &&
-      receipt.window.toExclusive >= state.coverageThrough &&
-      receipt.window.toExclusive <= observedAt &&
-      receipt.capturedAt <= observedAt &&
-      Date.parse(observedAt) - Date.parse(receipt.window.toExclusive) <= fxFreshMs
-    ).sort((a, b) => b.window.toExclusive.localeCompare(a.window.toExclusive));
-    const executions = new Map(history.executions.map((row) => [executionId(row), row]));
-    const commissions = new Map(history.commissions.map((row) => [commissionId(row), row]));
-    for (const receipt of receipts) {
-      const rows = receipt.executionIds.map((id) => executions.get(id));
-      const fees = receipt.executionIds.map((id) => commissions.get(id));
-      if (rows.some((row) => !row) || fees.some((row) => !row) ||
-          receipt.executionIds.some((id) => !receipt.commissionIds.includes(id))) continue;
-      // Receipt membership is necessary, as is the exact bounded interval.
-      if (rows.some((row) => {
-        const time = normalizeEconomicExecution(row).execution.time;
-        return time < dayStart || time >= receipt.window.toExclusive;
-      })) continue;
-      const ids = latestExecutionIdentities(rows);
-      const required = latestExecutionIdentities([...state.queryExecutionIdentities, ...cycle.executions]);
-      if (missingPriorQueryIdentities(required, ids).length) continue;
-      // Reject conflicting economics; retain every historical revision and fee.
-      mergeEconomicExecutions(rows, cycle.executions, "replay for execution");
-      return { executions: rows, commissions: fees, through: receipt.window.toExclusive };
-    }
-    return null;
+    const chain = officialReceiptChain(history, dayStart, observedAt);
+    if (chain.through < state.coverageThrough || chain.through === dayStart ||
+        Date.parse(observedAt) - Date.parse(chain.through) > fxFreshMs) return null;
+    const ids = latestExecutionIdentities(chain.executions);
+    const required = latestExecutionIdentities([...state.queryExecutionIdentities, ...cycle.executions]);
+    if (missingPriorQueryIdentities(required, ids).length) return null;
+    mergeEconomicExecutions(chain.executions, cycle.executions, "replay for execution");
+    return { executions: chain.executions, commissions: chain.commissions, through: chain.through };
   }
 
   function finishCycle() {

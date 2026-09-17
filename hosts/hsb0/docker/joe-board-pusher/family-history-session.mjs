@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { officialReceiptChain } from "./family-state.mjs";
+
 import { createReconnectScheduler } from "./pusher-recovery.mjs";
 
 const MAX_CAPTURE_RECORDS = 50_000;
@@ -737,8 +739,9 @@ export function createOfficialHistoryRefresher({
   let inFlight = false;
   let failures = 0;
   let nextRecoveryAt = 0;
+  let nextOverlapAt = Date.parse(now()) + refreshIntervalMs;
 
-  function refreshWindow(current) {
+  function refreshWindow(current, recovery) {
     const today = localDayWindow(current);
     const yesterday = localDayWindow(new Date(Date.parse(today.fromInclusive) - 1).toISOString());
     let supportedStart = today.fromInclusive;
@@ -747,6 +750,27 @@ export function createOfficialHistoryRefresher({
     }
     let state = null;
     try { state = getHistoryState(); } catch {}
+    // Resume only from independently validated complete receipts. The aggregate
+    // coverage field can include a clean but contradictory empty replay.
+    try {
+      if (recovery && state?.account === targetAccount) {
+        const chainStart = iso(historyStart) > today.fromInclusive ? iso(historyStart) : today.fromInclusive;
+        const chain = officialReceiptChain(state, chainStart, current);
+        if (chain.through > chainStart && chain.through < current && chain.through >= supportedStart) {
+          // Re-query an empty suffix from a stable anchor so imports coalesce.
+          // Advance at most to today's boundary already covered by the chain;
+          // never skip an unproved midnight gap or retain one receipt per poll.
+          const populated = chain.receipts.filter((receipt) => receipt.executionIds.length).at(-1);
+          const dayAnchor = today.fromInclusive < chain.through ? today.fromInclusive : chain.through;
+          const anchor = [populated?.window.toExclusive || iso(historyStart), dayAnchor, supportedStart].sort().at(-1);
+          return {
+            fromInclusive: new Date(Math.floor(Date.parse(anchor) / 1_000) * 1_000).toISOString(),
+            toExclusive: current,
+            nextDayStart: today.nextDayStart,
+          };
+        }
+      }
+    } catch { /* Invalid/missing state still uses the bounded backfill path. */ }
     const gaps = Array.isArray(state?.coverage?.gaps) ? state.coverage.gaps : [];
     const candidates = gaps
       .filter((gap) => {
@@ -771,15 +795,15 @@ export function createOfficialHistoryRefresher({
     };
   }
 
-  function schedule(delay) {
+  function schedule(delay, recovery = false) {
     if (stopped || timer !== null) return;
     timer = setTimer(() => {
       timer = null;
-      void pollNow();
+      void pollNow({ recovery });
     }, delay);
   }
 
-  async function pollNow() {
+  async function pollNow({ recovery = false } = {}) {
     if (stopped || inFlight) return false;
     const current = iso(now());
     if (!current) {
@@ -787,7 +811,9 @@ export function createOfficialHistoryRefresher({
       schedule(retryBaseMs);
       return false;
     }
-    const requestedWindow = refreshWindow(current);
+    // Frequent accounting retries must not postpone the normal correction scan.
+    const useTail = recovery && Date.parse(current) < nextOverlapAt;
+    const requestedWindow = refreshWindow(current, useTail);
     inFlight = true;
     controller = new AbortController();
     try {
@@ -813,9 +839,12 @@ export function createOfficialHistoryRefresher({
       if (imported?.ok !== true) throw new Error(imported?.reason || "official history import was rejected");
       failures = 0;
       nextRecoveryAt = Date.parse(now()) + 60_000;
-      hooks.onUpdated?.({ captureCount: captures.length, through: requestedWindow.toExclusive });
+      if (!useTail) nextOverlapAt = Date.parse(now()) + refreshIntervalMs;
+      hooks.onUpdated?.({ captureCount: captures.length,
+        executionCount: captures.reduce((sum, capture) => sum + (capture.executions?.length || 0), 0),
+        from: requestedWindow.fromInclusive, through: requestedWindow.toExclusive });
       const rolloverDelay = Date.parse(requestedWindow.nextDayStart) - Date.parse(current);
-      schedule(Math.max(1, Math.min(refreshIntervalMs, rolloverDelay)));
+      schedule(Math.max(1, Math.min(refreshIntervalMs, rolloverDelay, nextOverlapAt - Date.parse(now()))));
       return true;
     } catch (error) {
       if (stopped && error?.name === "AbortError") return false;
@@ -823,7 +852,7 @@ export function createOfficialHistoryRefresher({
       const delay = Math.min(retryMaxMs, retryBaseMs * 2 ** (failures - 1));
       nextRecoveryAt = Date.parse(now()) + delay;
       hooks.onUnavailable?.(`official history refresh failed: ${error?.message || error}`);
-      schedule(delay);
+      schedule(delay, recovery);
       return false;
     } finally {
       controller = null;
@@ -841,7 +870,7 @@ export function createOfficialHistoryRefresher({
       if (!Number.isFinite(current)) return false;
       if (timer !== null) clearTimer(timer);
       timer = null;
-      schedule(Math.max(1, nextRecoveryAt - current));
+      schedule(Math.max(1, nextRecoveryAt - current), true);
       return true;
     },
     pollNow,
