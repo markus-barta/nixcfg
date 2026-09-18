@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# NIX-514 — the Cursor CLI is one hash-pinned Nix package. Every Home Manager
-# harness installs it, and on mbp2607 the guard shims, paimos-agentd and Pi's
-# CURSOR_AGENT_PATH all run that same store path — no imperative
+# NIX-514 — the Cursor CLI is one hash-pinned Nix package. Unguarded Home
+# Manager harnesses install it; on guarded mbp2607 it reaches PATH only through
+# the guard shims, and those, paimos-agentd and Pi's CURSOR_AGENT_PATH all run
+# that same store path — no imperative
 # ~/.local/share/cursor-agent copy is referenced. `just update-ai-clis` bumps
 # the pin through scripts/update-cursor-agent.sh.
 set -euo pipefail
@@ -41,10 +42,20 @@ package_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.c
 package_out=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.cursor-agent.outPath')
 cursor_exe="$package_out/bin/cursor-agent"
 
+# Unguarded hosts get the package on PATH. On a guarded host the shadow-bin
+# launchers own `cursor-agent`/`agent`, and the package must stay OUT of the
+# profile: a fish login shell resolves ~/.nix-profile/bin ahead of the guard
+# directory (the first NIX-514 switch exposed Cursor unguarded exactly so).
 for home in 'markus@mbp2607' 'mba@mbp2606' 'mailina@mbp2606'; do
   packages=$(cd "$repo_root" && nix eval --json ".#homeConfigurations.\"$home\".config.home.packages")
-  printf '%s' "$packages" | jq -e --arg p "$package_out" 'index($p) != null' >/dev/null ||
-    fail "$home does not install the pinned Cursor package"
+  in_profile=$(printf '%s' "$packages" | jq --arg p "$package_out" 'index($p) != null')
+  guarded=$(cd "$repo_root" && nix eval --json ".#homeConfigurations.\"$home\".config.uzumaki.agentBrowserGuard.envOnlyPrograms" |
+    jq 'has("cursor-agent") or has("agent")')
+  if [ "$guarded" = true ]; then
+    [ "$in_profile" = false ] || fail "$home installs Cursor into the profile, ahead of its guard launcher"
+  else
+    [ "$in_profile" = true ] || fail "$home does not install the pinned Cursor package"
+  fi
   cursor_env=$(cd "$repo_root" && nix eval --raw ".#homeConfigurations.\"$home\".config.home.sessionVariables.CURSOR_AGENT_PATH")
   [ "$cursor_env" = "$cursor_exe" ] || fail "$home CURSOR_AGENT_PATH is not the pinned package: $cursor_env"
 done
@@ -56,6 +67,8 @@ for name in cursor-agent agent; do
 done
 agentd_cursor=$(cd "$repo_root" && nix eval --raw '.#homeConfigurations."markus@mbp2607".config.uzumaki.paimosAgentd.cursorPath')
 [ "$agentd_cursor" = "$cursor_exe" ] || fail "paimos-agentd cursorPath is not the pinned package: $agentd_cursor"
+grep -Fq 'fish login shells resolve ahead of the guard launcher' "$repo_root/modules/uzumaki/agent-browser-guard.nix" ||
+  fail 'the guard no longer asserts that launcher names stay out of home.packages'
 
 # The update step: offline --check against installer fixtures, never a write.
 [ -x "$update_script" ] || fail 'update script is not executable'

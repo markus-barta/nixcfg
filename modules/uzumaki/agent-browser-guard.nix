@@ -536,6 +536,25 @@ in
         assertion = cfg.browserBundles != [ ];
         message = "uzumaki.agentBrowserGuard.browserBundles must not be empty — an empty guard denies nothing";
       }
+      (
+        # NIX-514: in a fish LOGIN shell ~/.nix-profile/bin lands ahead of the
+        # shadow directory, so a profile package whose main program carries a
+        # launcher's name silently bypasses that launcher. Measured 2026-09-19:
+        # pkgs.cursor-agent in home.packages won `cursor-agent` and `agent`
+        # unguarded. Point the launcher at the package instead of installing it.
+        let
+          launcherNames = lib.attrNames cfg.shadowedPrograms ++ lib.attrNames cfg.envOnlyPrograms;
+          collisions = lib.unique (
+            lib.filter (name: lib.elem name launcherNames) (
+              map (p: (p.meta or { }).mainProgram or null) config.home.packages
+            )
+          );
+        in
+        {
+          assertion = collisions == [ ];
+          message = "uzumaki.agentBrowserGuard: home.packages also installs ${lib.concatStringsSep ", " collisions}, which fish login shells resolve ahead of the guard launcher — keep it out of the profile and point the launcher at the package";
+        }
+      )
     ];
 
     home.packages = [
