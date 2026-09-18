@@ -11,6 +11,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 DOCTOR = REPO / "scripts/codex-doctor.sh"
+CURSOR_SOURCES = REPO / "pkgs/cursor-agent/sources.json"
 
 
 class CodexDoctorTests(unittest.TestCase):
@@ -65,8 +66,21 @@ fi
 printf 'npm %s\\n' "$*" >> "$TEST_CALLS"
 exit "${TEST_NPM_EXIT:-0}"
 ''')
-        for name in ("claude", "grok", "pi"):
+        for name in ("claude", "grok", "pi", "cursor-agent"):
             self.stub(name, "echo test-version")
+        # NIX-514: the recipe's Cursor pin step reads the vendor installer. The
+        # stub names the release already pinned, so the step is a no-op and never
+        # reaches the network or `nix build`.
+        pinned = json.loads(CURSOR_SOURCES.read_text())["version"]
+        self.stub("curl", f'''
+printf 'curl %s\\n' "$*" >> "$TEST_CALLS"
+if [ "${{TEST_CURL_EXIT:-0}}" != 0 ]; then exit "$TEST_CURL_EXIT"; fi
+echo 'DOWNLOAD_URL="https://downloads.cursor.com/lab/{pinned}/${{OS}}/${{ARCH}}/agent-cli-package.tar.gz"'
+''')
+        self.stub("nix", '''
+printf 'nix %s\\n' "$*" >> "$TEST_CALLS"
+exit 99
+''')
 
     def stub(self, name, body):
         path = self.bin / name
@@ -182,6 +196,19 @@ exit "${TEST_NPM_EXIT:-0}"
         calls = self.log.read_text()
         self.assertIn("--allow-scripts=@anthropic-ai/claude-code,@xai-official/grok,@google/genai,esbuild,protobufjs", calls)
         self.assertNotIn("dangerously-allow-all-scripts", calls)
+        self.assertIn("curl -fsSL --max-time 30 https://cursor.com/install", calls)
+        self.assertRegex(result.stdout, r"cursor-agent: pin \S+ is current")
+        self.assertNotIn("nix ", calls)
+
+    def test_recipe_cursor_failure_does_not_skip_doctor(self):
+        before = CURSOR_SOURCES.read_bytes()
+        self.env["TEST_CURL_EXIT"] = "7"
+        result = self.run_command("just", "update-ai-clis")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cursor-agent: cannot fetch the installer", result.stderr)
+        self.assertIn("repair deferred", result.stdout)
+        self.assertEqual(before, CURSOR_SOURCES.read_bytes())
+        self.assertNotIn("nix ", self.log.read_text())
 
     def test_recipe_preserves_install_failure(self):
         self.env["TEST_NPM_EXIT"] = "42"
@@ -189,6 +216,7 @@ exit "${TEST_NPM_EXIT:-0}"
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("Codex doctor", result.stdout)
         self.assertNotIn("codex ", self.log.read_text())
+        self.assertNotIn("curl ", self.log.read_text())
 
     def test_recipe_preserves_doctor_environment_failure(self):
         self.env["TEST_PS_FAIL"] = "1"
