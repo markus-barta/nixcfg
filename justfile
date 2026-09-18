@@ -1631,7 +1631,7 @@ update-ai-clis:
     @codex  --version 2>/dev/null || echo "codex:  not installed"
     @grok   --version 2>/dev/null || echo "grok:   not installed"
     @pi     --version 2>/dev/null || echo "pi:     not installed"
-    @v=$(cursor-agent --version 2>/dev/null) && echo "cursor: $v (active)" || echo "cursor: not installed"
+    @v=$(cursor-agent --version 2>/dev/null) && echo "cursor: $v (on PATH; a new pin needs commit + just switch)" || echo "cursor: not installed"
     @echo "---"
     ./scripts/codex-doctor.sh --after-update
 
