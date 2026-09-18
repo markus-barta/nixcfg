@@ -44,9 +44,20 @@ let
   # The store path keeps Pi on the same release as the guard shims and agentd.
   piCursorProvider = "@netandreus/pi-cursor-provider@0.1.4";
   cursorAgentPath = lib.getExe pkgs.cursor-agent;
+  # Where the NIX-445 guard owns `cursor-agent`/`agent` (its shadow-bin
+  # launchers exec this same package), the package must stay out of the
+  # profile: in a fish login shell ~/.nix-profile/bin lands ahead of the guard
+  # directory and would win PATH unguarded (measured on mbp2607, 2026-09-19).
+  guard = config.uzumaki.agentBrowserGuard;
+  cursorGuarded =
+    guard.enable
+    && lib.any (name: guard.envOnlyPrograms ? ${name}) [
+      "cursor-agent"
+      "agent"
+    ];
 in
 {
-  home.packages = [ pkgs.cursor-agent ];
+  home.packages = lib.optional (!cursorGuarded) pkgs.cursor-agent;
 
   home.sessionVariables.NPM_CONFIG_PREFIX = npmPrefix;
   home.sessionVariables.CURSOR_AGENT_PATH = cursorAgentPath;
