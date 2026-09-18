@@ -113,6 +113,7 @@ expect_cloud_alias csb0-markus cs0.barta.cm markus
 expect_cloud_alias csb0-markus-ip 89.58.63.96 markus
 expect_cloud_alias csb1-markus cs1.barta.cm markus
 expect_cloud_alias csb1-markus-ip 152.53.64.166 markus
+expect_cloud_alias agm1 178.104.176.34 mba
 
 # ── Regression guard (OPS-146) ────────────────────────────────────────────────
 # MagicDNS is OFF by permanent decision, so *.ts.barta.cm resolves to nothing.
