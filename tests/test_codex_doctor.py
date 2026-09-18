@@ -74,6 +74,10 @@ exit "${TEST_NPM_EXIT:-0}"
         pinned = json.loads(CURSOR_SOURCES.read_text())["version"]
         self.stub("curl", f'''
 printf 'curl %s\\n' "$*" >> "$TEST_CALLS"
+case "$*" in
+  *https://cursor.com/install) ;;
+  *) echo "unexpected curl in test: $*" >&2; exit 97 ;;
+esac
 if [ "${{TEST_CURL_EXIT:-0}}" != 0 ]; then exit "$TEST_CURL_EXIT"; fi
 echo 'DOWNLOAD_URL="https://downloads.cursor.com/lab/{pinned}/${{OS}}/${{ARCH}}/agent-cli-package.tar.gz"'
 ''')

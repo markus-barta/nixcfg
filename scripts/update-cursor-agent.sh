@@ -91,27 +91,36 @@ for system in $(jq -r '.assets | keys[]' "$sources"); do
   printf '  %s %s\n' "$system" "$hash"
 done
 
+system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
+
+# From here on the new pin is on disk. Anything short of a verified build —
+# a failed step, set -e, or Ctrl+C during `nix build` — restores the old one.
 backup=$(mktemp "${TMPDIR:-/tmp}/cursor-agent-sources.XXXXXX")
-trap 'rm -f "$backup"' EXIT
 cp "$sources" "$backup"
+pin_verified=0
+finish() {
+  if [ "$pin_verified" != 1 ]; then
+    cp "$backup" "$sources"
+    printf 'cursor-agent: bump not verified — pin restored to %s\n' "$current" >&2
+  fi
+  rm -f "$backup" "$sources.tmp"
+}
+trap finish EXIT
+trap 'exit 130' INT TERM
 printf '%s\n' "$updated" >"$sources.tmp"
 mv "$sources.tmp" "$sources"
 
-restore_and_die() {
-  cp "$backup" "$sources"
-  die "$* — pin restored to $current"
-}
-
-system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
 if jq -e --arg s "$system" '.assets | has($s)' "$sources" >/dev/null; then
   out=$(nix build --no-link --print-out-paths "$repo_root#packages.$system.cursor-agent") ||
-    restore_and_die "build of $latest failed"
-  built=$("$out/bin/cursor-agent" --version) || restore_and_die "$out/bin/cursor-agent --version failed"
-  [ "$built" = "$latest" ] || restore_and_die "built CLI reports $built, expected $latest"
+    die "build of $latest failed"
+  [ -n "$out" ] || die "build of $latest returned no store path"
+  built=$("$out/bin/cursor-agent" --version) || die "$out/bin/cursor-agent --version failed"
+  [ "$built" = "$latest" ] || die "built CLI reports $built, expected $latest"
   printf 'cursor-agent: built and verified %s\n' "$out"
 else
   printf 'cursor-agent: no %s asset pinned; hashes updated, build not verified here\n' "$system"
 fi
+pin_verified=1
 
 printf 'cursor-agent: pin is now %s. Commit pkgs/cursor-agent/sources.json on a NIX branch,\n' "$latest"
-printf '  merge it, then run: just switch. Until then the active CLI stays at %s.\n' "$current"
+printf '  merge it, then run: just switch. Until then the switched-in CLI stays on the old pin.\n'
