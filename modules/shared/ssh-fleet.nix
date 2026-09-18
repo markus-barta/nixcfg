@@ -212,6 +212,16 @@
         port = 2222;
       };
 
+      # agm1 (ex-dsc0). Public IP on :2222; AGM deploy key only.
+      # Not a personal-fleet host and not MagicDNS. Tailnet: IP from `tailscale status`.
+      "agm1" = {
+        hostname = "178.104.176.34";
+        user = "mba";
+        port = 2222;
+        identityFile = "~/.ssh/agm_deploy";
+        identitiesOnly = "yes";
+      };
+
       # ═══════════════════════════════════════════════════════════
       # BONELIO HETZNER HOSTS (public IPs, per-customer ed25519 key)
       # Matched the former work repo's staging helper (context retired June 2026)

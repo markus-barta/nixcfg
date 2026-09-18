@@ -138,5 +138,12 @@
       HostName 152.53.64.166
       User markus
       Port 2222
+
+    Host agm1
+      HostName 178.104.176.34
+      User mba
+      Port 2222
+      IdentityFile ~/.ssh/agm_deploy
+      IdentitiesOnly yes
   '';
 }
