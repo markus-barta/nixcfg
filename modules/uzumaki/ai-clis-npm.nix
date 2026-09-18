@@ -30,15 +30,22 @@ let
   ];
   npmPkgsLatest = lib.concatMapStringsSep " " (p: "${p}@latest") npmPkgs;
   npmPkgsPinnedStr = lib.concatStringsSep " " npmPkgsPinned;
+  # Pi package (not a global npm CLI). Full-system extension → pin exact.
+  # CURSOR_AGENT_PATH must be the real binary: PATH `agent` is the INSPR
+  # shadow wrapper (inspr-agent-guard-shadow-bin), not Cursor.
+  piCursorProvider = "@netandreus/pi-cursor-provider@0.1.4";
+  cursorAgentPath = "${config.home.homeDirectory}/.local/bin/cursor-agent";
 in
 {
   home.sessionVariables.NPM_CONFIG_PREFIX = npmPrefix;
+  home.sessionVariables.CURSOR_AGENT_PATH = cursorAgentPath;
   home.sessionPath = [ "${npmPrefix}/bin" ]; # bash/zsh
 
   # Fish needs explicit PATH wiring (HM sessionPath doesn't reach fish).
   # Prepend so npm-global wins over any older imperative installs in ~/.local/bin.
   programs.fish.shellInit = ''
     fish_add_path --prepend --move ${npmPrefix}/bin
+    set -gx CURSOR_AGENT_PATH ${cursorAgentPath}
   '';
 
   home.activation.updateAiClis = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
@@ -62,5 +69,16 @@ in
     echo "📦 ai-clis-npm: bumping to latest…"
     $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm i -g ${npmPkgsLatest} ${npmPkgsPinnedStr} \
       || echo "⚠️  ai-clis-npm: npm update failed (offline?). Existing versions kept."
+  '';
+
+  home.activation.installPiCursorProvider = lib.hm.dag.entryAfter [ "updateAiClis" ] ''
+    umask 022
+    export PATH="${npmPrefix}/bin:${pkgs.nodejs}/bin:$PATH"
+    export NPM_CONFIG_PREFIX="${npmPrefix}"
+    if [ -x "${npmPrefix}/bin/pi" ]; then
+      echo "📦 ai-clis-npm: ensuring ${piCursorProvider}…"
+      $DRY_RUN_CMD ${npmPrefix}/bin/pi install npm:${piCursorProvider} \
+        || echo "⚠️  ai-clis-npm: pi-cursor-provider install failed (offline?). Existing install kept."
+    fi
   '';
 }
