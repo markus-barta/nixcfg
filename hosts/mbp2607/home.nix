@@ -20,6 +20,10 @@
 
 let
   macosCommon = import ../../modules/uzumaki/macos-common.nix { inherit pkgs lib; };
+  # NIX-514: the one pinned Cursor CLI (pkgs/cursor-agent, bumped by
+  # `just update-ai-clis`). Guard shims, agentd and Pi's CURSOR_AGENT_PATH
+  # (modules/uzumaki/ai-clis-npm.nix) all run this store path.
+  cursorAgent = lib.getExe pkgs.cursor-agent;
 in
 {
   # ============================================================================
@@ -89,11 +93,12 @@ in
         grok = "${config.home.homeDirectory}/.npm-global/bin/grok";
         pi = "${config.home.homeDirectory}/.npm-global/bin/pi";
         # Cursor: `cursor-agent` and `agent` are the same pinned vendor binary
-        # by symlink; both keep their own sandbox, auth and owned lifecycle and
-        # only gain the Node preload plus the harness hints. Composer and Grok
-        # run through this same harness and inherit it.
-        cursor-agent = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
-        agent = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
+        # (NIX-514 store package, so no self-update applies here); both keep
+        # their own sandbox, auth and owned lifecycle and only gain the Node
+        # preload plus the harness hints. Composer and Grok run through this
+        # same harness and inherit it.
+        cursor-agent = cursorAgent;
+        agent = cursorAgent;
       };
       # Explicit target for the operator-owned imperative shims that call an
       # absolute path (the named Codex launchers' Claude equivalents, and any
@@ -124,7 +129,7 @@ in
       # selected through owned account/profile choices in the operator registry;
       # auth stays in the vendor store. Requires a Cursor-capable Paimos pin
       # before activation — v26.09.07.20.15 does not accept --cursor-* flags.
-      cursorPath = "${config.home.homeDirectory}/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent";
+      cursorPath = cursorAgent;
       cursorAccountsFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/cursor-accounts.json";
       lifecycleConfigFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/lifecycle.json";
       reporting = {

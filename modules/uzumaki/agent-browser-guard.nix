@@ -403,9 +403,11 @@ in
     envOnlyPrograms = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
-      example = {
-        cursor-agent = "/Users/markus/.local/share/cursor-agent/versions/<v>/cursor-agent";
-      };
+      example = lib.literalExpression ''
+        {
+          cursor-agent = lib.getExe pkgs.cursor-agent;
+        }
+      '';
       description = ''
         Launchers installed under the vendor CLI's own name in the same
         PATH-ahead directory as `shadowedPrograms`, but WITHOUT a Seatbelt

@@ -259,6 +259,11 @@ jobs:
       - name: Verify Higgsfield CLI Home Manager contract
         run: nix-shell -p python3 --run tests/T67-higgsfield-cli-home-manager.sh
 
+      # Eval-only on Linux (store paths, consumer wiring, offline --check of the
+      # update step); the realised build and signature checks run on macOS.
+      - name: Verify the pinned Cursor CLI package and its consumers (NIX-514)
+        run: nix-shell -p jq curl --run tests/T85-cursor-agent-package.sh
+
       # NIX-445 — agent browser-launch guard. On Linux this runs the portable
       # half: the Seatbelt profile / Codex permission TOML rendering and its
       # schema types, the managed-installer safety properties exercised in a
@@ -276,7 +281,7 @@ jobs:
         run: nix-shell -p python3 nodejs --run tests/T73-agent-browser-guard-preload.sh
 
       - name: Verify safe Codex repair deferral after AI CLI updates (NIX-467)
-        run: nix-shell -p python3 nodejs just --run "python3 tests/test_codex_doctor.py -v"
+        run: nix-shell -p python3 nodejs just jq --run "python3 tests/test_codex_doctor.py -v"
 
       - name: Verify local Pi launcher and doctrine loading
         run: |
