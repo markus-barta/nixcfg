@@ -144,6 +144,7 @@
         };
         claude-agent-sdk = final.callPackage ./pkgs/claude-agent-sdk { };
         higgsfield-cli = final.callPackage ./pkgs/higgsfield-cli { };
+        cursor-agent = final.callPackage ./pkgs/cursor-agent { };
         # Stub: hokage/desktop.nix references sonar but it doesn't exist in nixpkgs
         sonar = final.hello;
         # Compatibility for pbek/nixcfg c0385905: its desktop module still
@@ -483,6 +484,8 @@
           };
           claude-agent-sdk = pkgsDarwin.callPackage ./pkgs/claude-agent-sdk { };
           higgsfield-cli = pkgsDarwin.callPackage ./pkgs/higgsfield-cli { };
+          # NIX-514: pinned Cursor CLI; `just update-ai-clis` bumps and builds this attr.
+          cursor-agent = pkgsDarwin.callPackage ./pkgs/cursor-agent { };
         };
     };
 }
