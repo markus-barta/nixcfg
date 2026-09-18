@@ -1,12 +1,19 @@
 # Always-latest AI CLIs via npm (claude-code, codex, grok, pi)
-# + exact-pinned npm tools (bird) — see npmPkgsPinned below.
+# + exact-pinned npm tools (bird) — see npmPkgsPinned below
+# + the Cursor CLI (cursor-agent / agent) as a pinned Nix package (NIX-514).
 #
 # nixpkgs lags upstream npm by days/weeks for fast-moving AI CLIs.
 # Node ships via uzumaki commonPackages; this module npm-installs the CLIs
 # to ~/.npm-global on every home-manager switch.
 #
+# Cursor is a native vendor tarball, not an npm package: pkgs/cursor-agent pins
+# it by hash (the nixpkgs cursor-cli lags by months). It replaces the imperative
+# `curl https://cursor.com/install | bash` copy in ~/.local/share/cursor-agent.
+#
 # Bump on demand: `just update-ai-clis` (also runs scripts/codex-doctor.sh: the Codex
-# app-server daemon must be restarted on the new binary, NIX-435).
+# app-server daemon must be restarted on the new binary, NIX-435). For Cursor it
+# rewrites pkgs/cursor-agent/sources.json (scripts/update-cursor-agent.sh); that
+# is a repo change, active after commit + `just switch`.
 {
   config,
   lib,
@@ -32,11 +39,15 @@ let
   npmPkgsPinnedStr = lib.concatStringsSep " " npmPkgsPinned;
   # Pi package (not a global npm CLI). Full-system extension → pin exact.
   # CURSOR_AGENT_PATH must be the real binary: PATH `agent` is the INSPR
-  # shadow wrapper (inspr-agent-guard-shadow-bin), not Cursor.
+  # shadow wrapper (inspr-agent-guard-shadow-bin), not Cursor. Pi itself runs
+  # under its own guard shim, so the Cursor child inherits the guard env anyway.
+  # The store path keeps Pi on the same release as the guard shims and agentd.
   piCursorProvider = "@netandreus/pi-cursor-provider@0.1.4";
-  cursorAgentPath = "${config.home.homeDirectory}/.local/bin/cursor-agent";
+  cursorAgentPath = lib.getExe pkgs.cursor-agent;
 in
 {
+  home.packages = [ pkgs.cursor-agent ];
+
   home.sessionVariables.NPM_CONFIG_PREFIX = npmPrefix;
   home.sessionVariables.CURSOR_AGENT_PATH = cursorAgentPath;
   home.sessionPath = [ "${npmPrefix}/bin" ]; # bash/zsh

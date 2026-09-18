@@ -182,8 +182,10 @@ print(args[args.index("--cursor-path") + 1])
 PYCURSOR
   )
   [ -x "$cursor_launcher" ] || fail 'realised Cursor launcher does not exist'
-  grep -Fq '/Users/markus/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent' "$cursor_launcher" ||
-    fail 'Cursor launcher does not exec the pinned operator CLI'
+  # NIX-514: the pinned Nix package, not an imperative ~/.local/share copy.
+  cursor_out=$(nix eval --raw '.#packages.aarch64-darwin.cursor-agent.outPath')
+  grep -Fq "$cursor_out/bin/cursor-agent" "$cursor_launcher" ||
+    fail 'Cursor launcher does not exec the pinned Nix package'
   grep -Fq 'NODE_OPTIONS' "$cursor_launcher" || fail 'Cursor launcher does not carry the NIX-445 Node preload'
   if grep -Eq 'sandbox-exec|inspr-agent-guard' "$cursor_launcher"; then
     fail 'Cursor must never be nested inside another Seatbelt profile'

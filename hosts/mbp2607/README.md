@@ -33,9 +33,9 @@ store; do not copy registry homes or emails into Nix.
 ### Cursor agentd (NIX-439 — config candidate, review pending)
 
 Home Manager also declares `--cursor-path` and `--cursor-accounts` for the
-pinned native CLI at
-`~/.local/share/cursor-agent/versions/2026.09.02-c22c1a3/cursor-agent` and the
-owner-only registry at
+pinned native CLI — since NIX-514 the Nix package `pkgs/cursor-agent` (bumped by
+`just update-ai-clis`), the same store path the `cursor-agent`/`agent` guard
+shims and Pi's `CURSOR_AGENT_PATH` run — and the owner-only registry at
 `~/Library/Application Support/paimos/agentd/cursor-accounts.json`. Nix carries
 paths only — no email, userid, or registry contents.
 

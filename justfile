@@ -1613,17 +1613,25 @@ pixoo-logs:
 # on the newest CLI. After an update, repair is deferred successfully while
 # sessions are active or stdin is non-interactive. Otherwise the doctor asks
 # [y/N]. Explicit --check and --fix remain strict about unresolved drift.
+# The Cursor CLI is not an npm package but a hash-pinned Nix package (NIX-514):
+# scripts/update-cursor-agent.sh bumps pkgs/cursor-agent/sources.json to the
+# vendor release and verifies the build. That is a repo change — commit it, then
+# `just switch`. Its line is `-`-prefixed: an offline or failed Cursor bump is
+# reported but never skips the Codex doctor.
 
-# Bump AI CLIs (claude-code, codex, grok, pi) to npm latest, then run the Codex daemon doctor
+# Bump AI CLIs (claude-code, codex, grok, pi) to npm latest and the Cursor CLI pin, then run the Codex daemon doctor
 [group('ai')]
 update-ai-clis:
     @date
     npm install --global --prefix "$HOME/.npm-global" --allow-scripts=@anthropic-ai/claude-code,@xai-official/grok,@google/genai,esbuild,protobufjs @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
     @echo "---"
+    -./scripts/update-cursor-agent.sh
+    @echo "---"
     @claude --version 2>/dev/null || echo "claude: not installed"
     @codex  --version 2>/dev/null || echo "codex:  not installed"
     @grok   --version 2>/dev/null || echo "grok:   not installed"
     @pi     --version 2>/dev/null || echo "pi:     not installed"
+    @v=$(cursor-agent --version 2>/dev/null) && echo "cursor: $v (on PATH; a new pin needs commit + just switch)" || echo "cursor: not installed"
     @echo "---"
     ./scripts/codex-doctor.sh --after-update
 
