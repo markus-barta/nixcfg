@@ -223,7 +223,13 @@ let
   # of the NIX-288 native Chrome path, whichever CLI it launches. Harness layer,
   # not a boundary — a session that hardcodes the browser path still reaches it
   # unless its CLI is also sandbox-wrapped above.
-  // lib.optionalAttrs guardEnabled { EnvironmentVariables = browserGuard.launchdEnvironment; };
+  // {
+    # Keep the guard environment lazy so isolated evaluations without its module still work.
+    EnvironmentVariables = {
+      DISABLE_AUTOUPDATER = "1";
+    }
+    // lib.optionalAttrs guardEnabled browserGuard.launchdEnvironment;
+  };
   directServicePlist = pkgs.writeText "${serviceLabel}.plist" (
     lib.generators.toPlist { escape = true; } serviceConfig
   );
