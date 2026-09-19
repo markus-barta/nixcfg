@@ -55,10 +55,10 @@ finish() {
       backup=''
     else
       printf 'cursor-agent: bump not verified — could not restore pin %s; backup retained at %s\n' "$current" "$backup" >&2
-      printf 'cursor-agent: recover with: git checkout -- pkgs/cursor-agent/sources.json\n' >&2
+      printf 'cursor-agent: recover with: cp "%s" "%s"\n' "$backup" "$sources" >&2
     fi
   fi
-  if [ "$pin_verified" = 1 ]; then
+  if [ "$pin_verified" = 1 ] || [ "$pin_written" != 1 ]; then
     [ -z "$backup" ] || rm -f "$backup" 2>/dev/null || true
   fi
   [ -z "$backup_pending" ] || rm -f "$backup_pending" 2>/dev/null || true
@@ -88,10 +88,14 @@ acquire_lock() {
     die "update lock path $lock_dir is a directory; remove the stray directory once no update runs"
   fi
 
-  lock_pid=$(readlink "$lock_dir" 2>/dev/null || true)
-  case "$lock_pid" in
-  '' | *[!0-9]*) die "cannot acquire update lock $lock_dir: target is not a numeric PID; remove the stray lock once no update runs" ;;
-  esac
+  if [ -L "$lock_dir" ] || [ -e "$lock_dir" ]; then
+    lock_pid=$(readlink "$lock_dir" 2>/dev/null || true)
+    case "$lock_pid" in
+    '' | *[!0-9]*) die "cannot acquire update lock $lock_dir: target is not a numeric PID; remove the stray lock once no update runs" ;;
+    esac
+  else
+    die "cannot create update lock $lock_dir"
+  fi
   if [ -e "$reclaim_dir" ] || [ -L "$reclaim_dir" ]; then
     die "cannot reclaim stale update lock $lock_dir: reclaim guard $reclaim_dir exists; remove it once no update runs"
   fi
@@ -102,7 +106,7 @@ acquire_lock() {
   reclaim_held=1
   [ "$(readlink "$lock_dir" 2>/dev/null || true)" = "$lock_pid" ] ||
     die "cannot reclaim stale update lock $lock_dir"
-  if ps -p "$lock_pid" >/dev/null 2>&1 || kill -0 "$lock_pid" 2>/dev/null; then
+  if ps -o pid= -p "$lock_pid" >/dev/null 2>&1 || kill -0 "$lock_pid" 2>/dev/null; then
     die "update lock held by PID $lock_pid ($lock_dir); after a crash, remove it with: rm \"$lock_dir\" (only after no update is running)"
   fi
   rm -f "$lock_dir" || die "cannot reclaim stale update lock $lock_dir"

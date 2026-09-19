@@ -78,7 +78,11 @@ build)
 *) exit 99 ;;
 esac
 EOF
-chmod +x "$tmp/bin/curl" "$tmp/bin/nix"
+cat >"$tmp/bin/bash" <<'EOF'
+#!/bin/sh
+exec /bin/bash "$@"
+EOF
+chmod +x "$tmp/bin/curl" "$tmp/bin/nix" "$tmp/bin/bash"
 
 export PATH="$tmp/bin:$PATH"
 export T86_NIX_LOG="$tmp/nix.log"
@@ -158,6 +162,18 @@ rm -f "$lock_dir"
 assert_clean
 
 : >"$T86_NIX_LOG"
+ln -s 1 "$lock_dir"
+if "$update_script" >"$output" 2>&1; then
+  fail 'PID 1 lock was ignored'
+fi
+grep -Fq 'update lock held by PID 1' "$output" || fail 'PID 1 lock message is missing the PID'
+cmp -s "$sources" "$fixture" || fail 'PID 1 lock changed sources.json'
+[ ! -s "$T86_NIX_LOG" ] || fail 'PID 1 lock allowed a nix operation'
+[ "$(readlink "$lock_dir")" = 1 ] || fail 'PID 1 lock was replaced'
+rm -f "$lock_dir"
+assert_clean
+
+: >"$T86_NIX_LOG"
 mkdir "$lock_dir"
 if "$update_script" >"$output" 2>&1; then
   fail 'directory lock was accepted'
@@ -167,6 +183,23 @@ cmp -s "$sources" "$fixture" || fail 'directory lock changed sources.json'
 [ -z "$(find "$lock_dir" -mindepth 1 -maxdepth 1 -type l -print -quit)" ] || fail 'directory lock left a stray symlink'
 [ ! -s "$T86_NIX_LOG" ] || fail 'directory lock allowed a nix operation'
 rmdir "$lock_dir"
+assert_clean
+
+: >"$T86_NIX_LOG"
+elsewhere=$tmp/elsewhere
+mkdir "$elsewhere"
+ln -s "$elsewhere" "$lock_dir"
+if "$update_script" >"$output" 2>&1; then
+  fail 'directory symlink lock was accepted'
+fi
+grep -Fq "update lock path $lock_dir is a directory" "$output" || fail 'directory symlink lock message is unclear'
+cmp -s "$sources" "$fixture" || fail 'directory symlink lock changed sources.json'
+[ -z "$(find "$elsewhere" -mindepth 1 -maxdepth 1 -print -quit)" ] || fail 'directory symlink lock left a stray symlink'
+[ -L "$lock_dir" ] || fail 'directory symlink lock was removed'
+[ "$(readlink "$lock_dir")" = "$elsewhere" ] || fail 'directory symlink lock was replaced'
+[ ! -s "$T86_NIX_LOG" ] || fail 'directory symlink lock allowed a nix operation'
+rm -f "$lock_dir"
+rmdir "$elsewhere"
 assert_clean
 
 : >"$T86_NIX_LOG"
