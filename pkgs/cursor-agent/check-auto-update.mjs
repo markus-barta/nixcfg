@@ -26,13 +26,17 @@ const definitions = index.split('"--disable-auto-update","Disable auto-updates"'
 if (definitions !== 1) fail(`index.js defines --disable-auto-update ${definitions} times, expected 1`);
 
 const id = "[A-Za-z_$][\\w$]*";
+// The guard must start a sequence or statement: any prefix (`!`, `~`, `void`,
+// ...) would change what it evaluates to.
 const guard = new RegExp(
-  `null!==\\((${id})=${id}\\.disableAutoUpdate\\)&&void 0!==\\1&&\\1\\|\\|` +
+  `(?<=[,;{}])null!==\\((${id})=${id}\\.disableAutoUpdate\\)&&void 0!==\\1&&\\1\\|\\|` +
     `"static"===${id}(?:\\.${id})*\\.channel\\|\\|setTimeout\\(\\(\\(\\)=>\\{` +
-    `\\(0,${id}\\.updateCursorAgent\\)\\(\\{`,
+    `\\(0,${id}\\.updateCursorAgent\\)\\(`,
   "g",
 );
-const call = /\.updateCursorAgent\)\(\{/g;
+// Every call form: `(0,x.updateCursorAgent)(...)`, `x.updateCursorAgent(...)`
+// and a bare `updateCursorAgent(...)`, but not its own definition.
+const call = /(?<!function\s*\*?\s*)(?<![\w$])updateCursorAgent\)?\(/g;
 
 let explicit = 0;
 let automatic = 0;
@@ -40,13 +44,17 @@ for (const file of readdirSync(dir).filter((name) => name.endsWith(".js")).sort(
   const source = readFileSync(join(dir, file), "utf8");
   const guarded = new Set([...source.matchAll(guard)].map((m) => m.index + m[0].length));
   for (const m of source.matchAll(call)) {
-    const argsStart = m.index + m[0].length;
-    const args = source.slice(argsStart, source.indexOf("}", argsStart));
+    const callStart = m.index + m[0].length;
+    if (source[callStart] !== "{") fail(`${file}: an updateCursorAgent call does not pass an object literal`);
+    const argsStart = callStart + 1;
+    const argsEnd = source.indexOf("}", argsStart);
+    const args = source.slice(argsStart, argsEnd);
+    if (argsEnd < 0 || args.includes("{")) fail(`${file}: an updateCursorAgent call has arguments this check cannot read`);
     const value = /(?:^|,)isAutoUpdate:([^,}]*)/.exec(args)?.[1];
     if (value === "!1" || value === "false") {
       explicit += 1;
     } else if (value === "!0" || value === "true") {
-      if (!guarded.has(argsStart)) fail(`${file}: an automatic update is not behind the disableAutoUpdate guard`);
+      if (!guarded.has(callStart)) fail(`${file}: an automatic update is not behind the disableAutoUpdate guard`);
       automatic += 1;
     } else {
       fail(`${file}: an updateCursorAgent call has isAutoUpdate ${value === undefined ? "missing" : `= ${value}`}`);

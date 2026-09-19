@@ -97,7 +97,9 @@ if [ -z "$node_bin" ]; then
 fi
 # shellcheck disable=SC2016 # literal Nix and bundle text, not expansions
 option_line='addOption(new f.c$("--disable-auto-update","Disable auto-updates").default(!1).hideHelp())'
-guarded_call='null!==(tt=o.disableAutoUpdate)&&void 0!==tt&&tt||"static"===yo.channel||setTimeout((()=>{(0,D.updateCursorAgent)({dashboardClient:Rn,showProgress:!1,channel:yo.channel,isAutoUpdate:!0,product:"agent-cli"})}),2e3)'
+guard_expr='null!==(tt=o.disableAutoUpdate)&&void 0!==tt&&tt||"static"===yo.channel||setTimeout((()=>{(0,D.updateCursorAgent)({dashboardClient:Rn,showProgress:!1,channel:yo.channel,isAutoUpdate:!0,product:"agent-cli"})}),2e3)'
+# As in the bundle, the guard follows a sequence comma.
+guarded_call="yo=o.configProvider.get(),$guard_expr"
 explicit_call='yield(0,o.updateCursorAgent)({dashboardClient:e,showProgress:!0,channel:i.channel,isAutoUpdate:!1,product:t})'
 bundle_case() { # <name> <index.js> <chat.js>: writes a fixture bundle, prints its directory
   mkdir -p "$fixture_dir/bundle-$1"
@@ -119,6 +121,9 @@ expect_rejected unknown-value "$option_line" "$guarded_call;(0,q.updateCursorAge
 # shellcheck disable=SC2016 # literal Nix and bundle text, not expansions
 expect_rejected no-option 'addOption(new f.c$("--endless-retries"))' "$guarded_call" 'a bundle without the option'
 expect_rejected two-options "$option_line;$option_line" "$guarded_call" 'a duplicated option definition'
+expect_rejected direct-call "$option_line" "$guarded_call;q.updateCursorAgent({isAutoUpdate:!0})" 'an ungated direct call'
+expect_rejected variable-argument "$option_line" "$guarded_call;(0,q.updateCursorAgent)(options)" 'a call without an object literal'
+expect_rejected negated-guard "$option_line" "yo=o.configProvider.get(),!$guard_expr;$explicit_call" 'a negated guard'
 
 # NIX-516 — the wrapper keeps argv[2] and each name. Fake launchers print
 # their name and arguments.
@@ -137,14 +142,20 @@ expect_argv() { # <expected> <name> [args...]
   got=$("$fixture_dir/bin/$name" "$@")
   [ "$got" = "$expected" ] || fail "wrapper: $name $* -> $got, expected $expected"
 }
+# The flag goes first where argv[2] is absent or an option.
 expect_argv 'cursor-agent|--disable-auto-update' cursor-agent
-expect_argv 'cursor-agent|--disable-auto-update|-p|--output-format|stream-json|hi there' cursor-agent -p --output-format stream-json 'hi there'
-expect_argv 'cursor-agent|acp|--disable-auto-update' cursor-agent acp
-expect_argv 'cursor-agent|resume|--disable-auto-update|chat-1' cursor-agent resume chat-1
-expect_argv 'cursor-agent|help|bedrock' cursor-agent help bedrock
-expect_argv 'cursor-agent|bedrock|--help' cursor-agent bedrock --help
+expect_argv 'cursor-agent|--disable-auto-update|--print|--output-format|stream-json|hi there' cursor-agent --print --output-format stream-json 'hi there'
+expect_argv 'cursor-agent|--disable-auto-update|--model|gpt|acp' cursor-agent --model gpt acp
 expect_argv 'agent|--disable-auto-update|-p|hi' agent -p hi
-expect_argv 'agent|models|--disable-auto-update' agent models
+# Chat commands no raw parser reads take it after their name.
+expect_argv 'cursor-agent|resume|--disable-auto-update|chat-1' cursor-agent resume chat-1
+expect_argv 'agent|ls|--disable-auto-update' agent ls
+expect_argv 'cursor-agent|sandbox|--disable-auto-update|run' cursor-agent sandbox run
+# Words the raw parsers read, prompts and unknown words pass unchanged.
+for words in 'persist|list' 'persist|--help' 'persist|attach|s1' 'acp' 'agent|acp' 'help|bedrock' 'bedrock|--help' 'fix the bug' 'restore-marker|id|name' 'update' 'models'; do
+  IFS='|' read -r -a argv <<<"$words"
+  expect_argv "cursor-agent|$words" cursor-agent "${argv[@]}"
+done
 before=$(shasum -a 256 "$sources_file")
 # Mimics the vendor installer line; ${OS}/${ARCH} stay literal like upstream.
 installer_fixture() {
