@@ -9,7 +9,9 @@
 #   - workflows/yue2_full.json      synced into ComfyUI's workflows on start
 #   - custom_nodes/yue2_autoload    opens that workflow when the UI starts
 #   - the `yue2` fish command       (was an orphaned stash, 2026-09-17)
-# Setup, disk layout and uninstall notes: PPM OPS runbook `yue2-comfyui-mbp2607`.
+# Setup, usage, license and uninstall notes: PPM NIX runbook `yue2-comfyui-mac`.
+# Uninstalling means dropping this import BEFORE deleting the stack directory,
+# or the next switch re-creates the links.
 #
 # `yue2 on` / `start` opens the UI in the default browser. Agent sessions must
 # never run it (NIX-445); `yue2 status` is the safe check.
