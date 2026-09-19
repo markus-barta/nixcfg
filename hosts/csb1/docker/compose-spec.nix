@@ -663,7 +663,7 @@ in
       # Bump deliberately through the reviewed release/deploy flow. OPS-116:
       # an out-of-closure image once nearly downgraded a migrated DB on reconcile.
       # Retain the previous declared pin and stopped-volume backup for rollback.
-      image = "ghcr.io/inspr-at/paimos:260916122330.0.0@sha256:749b83280a957cd03f28d2bfc534631b1bd640664ae9c1dd2f222cd67a9d31da"; # PAI-1035/1036 accepted readiness reconciliation and daemon receipt; verified release OCI index.
+      image = "ghcr.io/inspr-at/paimos:260919114708.0.0@sha256:d10a8c999fc18c9041dcd827e710f30444f0b883edcc9caec7d8eb244266f051"; # PAI-1041 bounded native Codex/Claude replies; verified release OCI index and source attestation.
       container_name = "ppm";
       restart = "unless-stopped";
       environment = [
