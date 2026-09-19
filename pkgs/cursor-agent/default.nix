@@ -78,13 +78,17 @@ stdenvNoCC.mkDerivation {
     # NIX-516. The CLI accepts unknown options, so a run that works proves
     # nothing about the flag: the vendor node checks the bundle instead.
     "$out/share/cursor-agent/node" ${./check-auto-update.mjs} "$out/share/cursor-agent"
-    # The wrapper places the flag after the subcommand; each must still parse.
-    for command in update models status login acp resume; do
+    # The chat commands take the flag after their name; each must still parse.
+    for command in resume ls sandbox; do
       HOME="$TMPDIR" "$out/bin/agent" "$command" --help | grep -q "^Usage: agent $command" || {
         echo "cursor-agent: '$command' no longer parses with the wrapper flag" >&2
         exit 1
       }
     done
+    HOME="$TMPDIR" "$out/bin/agent" --help | grep -q '^Usage: agent \[options\]' || {
+      echo "cursor-agent: the root command no longer parses with the wrapper flag" >&2
+      exit 1
+    }
     runHook postInstallCheck
   '';
 
