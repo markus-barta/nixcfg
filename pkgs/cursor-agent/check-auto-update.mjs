@@ -13,15 +13,17 @@
 //   guard `null!==(x=o.disableAutoUpdate)&&void 0!==x&&x||"static"===
 //   <config>.channel||setTimeout(...)`, which must start a sequence or
 //   statement (a `!` or any other prefix fails).
-// Inside the updater's own module the local binding `b` may not be called
-// except where it is defined. At least one guarded automatic call must exist,
-// and index.js must define the option exactly once.
+// Inside the updater's own module the local binding `b` may not be invoked
+// (plain, optional, `(0,b)(...)`, `.call`/`.apply`/`.bind`, tagged template
+// or `new`) except where it is defined. At least one guarded automatic call
+// must exist, and index.js must define the option exactly once.
 //
 // Limit: this is a text check on minified code without scope analysis. It
-// cannot follow `b` through an alias inside its module (the minifier reuses
-// the name for shadowed locals there), nor a second copy of the updater under
-// another name. The live check on the host (the imperative directory stays
-// absent) is the behavioural backstop.
+// cannot follow `b` when it is passed on as a value (an alias, an argument,
+// an array) inside its module, because the minifier reuses the name for
+// shadowed locals there, nor a second copy of the updater under another
+// name. The live check on the host (the imperative directory stays absent)
+// is the behavioural backstop.
 //
 // Usage: node check-auto-update.mjs <bundle directory>
 import { readdirSync, readFileSync } from "node:fs";
@@ -72,8 +74,9 @@ for (const file of readdirSync(dir).filter((name) => name.endsWith(".js")).sort(
     const argsStart = end + 3;
     const argsEnd = source.indexOf("}", argsStart);
     const args = source.slice(argsStart, argsEnd);
-    if (argsEnd < 0 || args.includes("{") || args.includes("...") || args.includes("[")) {
-      fail(`${where}: the ${NAME} argument is not a plain object literal`);
+    // The literal must be the whole argument: `})` closes the call.
+    if (argsEnd < 0 || args.includes("{") || args.includes("...") || args.includes("[") || source[argsEnd + 1] !== ")") {
+      fail(`${where}: the ${NAME} argument is not exactly one plain object literal`);
     }
     const values = [...args.matchAll(/(?:^|,)isAutoUpdate:([^,}]*)/g)].map((m) => m[1]);
     if (values.length !== 1 || args.split("isAutoUpdate").length !== 2) {
@@ -96,7 +99,7 @@ console.log(
 );
 
 // Within the module that exports the updater, its local binding may only be
-// called where it is defined; any other call would bypass the guard.
+// invoked where it is defined; any other invocation would bypass the guard.
 function checkLocalBinding(source, at, binding, where) {
   const starts = [...source.slice(0, at).matchAll(moduleKey())];
   if (starts.length === 0) fail(`${where}: cannot find the module that exports ${NAME}`);
@@ -106,7 +109,10 @@ function checkLocalBinding(source, at, binding, where) {
   const next = following.exec(source);
   const body = source.slice(start, next ? next.index : source.length);
   const escaped = binding.replace(/\$/g, "\\$");
-  const calls = [...body.matchAll(new RegExp(`(?<![\\w$.])${escaped}\\(`, "g"))].length;
+  const invocation = new RegExp(`(?<![\\w$.])${escaped}(?:\\)|\\?\\.|\\.(?:call|apply|bind))?\\s*[(\\x60]`, "g");
+  const invocations = [...body.matchAll(invocation)].length;
   const definitions = [...body.matchAll(new RegExp(`function\\s*\\*?\\s*${escaped}\\(`, "g"))].length;
-  if (calls !== definitions) fail(`${where}: the updater's local binding ${binding} is called inside its module`);
+  if (invocations !== definitions) {
+    fail(`${where}: the updater's local binding ${binding} is invoked inside its module`);
+  }
 }

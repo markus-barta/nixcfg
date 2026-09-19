@@ -136,6 +136,11 @@ expect_rejected duplicate-key "$option_line" "$guarded_call;(0,o.updateCursorAge
 expect_rejected local-call "$option_line" "$guarded_call" 'a call of the local binding inside its module' \
   '"./src/commands/update-core.ts"(e,t,n){n.d(t,{shouldDoUpdate:()=>p,updateCursorAgent:()=>m});function m(e){return 1}function p(){return m({isAutoUpdate:!0})}}'
 expect_rejected no-export "$option_line" "$guarded_call" 'a bundle without the updater export' 'var nothing=1'
+expect_rejected literal-and "$option_line" "$guarded_call;(0,q.updateCursorAgent)({isAutoUpdate:!1}&&{isAutoUpdate:!0})" 'an argument that continues after the literal'
+for invocation in '(0,m)({isAutoUpdate:!0})' 'm?.({isAutoUpdate:!0})' 'm.call(null,{isAutoUpdate:!0})' 'm.apply(null,[{isAutoUpdate:!0}])' 'new m({isAutoUpdate:!0})'; do
+  expect_rejected "local-$invocation" "$option_line" "$guarded_call" "the local binding invoked as $invocation" \
+    "\"./src/commands/update-core.ts\"(e,t,n){n.d(t,{shouldDoUpdate:()=>p,updateCursorAgent:()=>m});function m(e){return 1}function p(){return $invocation}}"
+done
 
 # NIX-516 — the wrapper keeps argv[2] and each name. Fake launchers print
 # their name and arguments.
