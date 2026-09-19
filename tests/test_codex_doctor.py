@@ -12,6 +12,13 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 DOCTOR = REPO / "scripts/codex-doctor.sh"
 CURSOR_SOURCES = REPO / "pkgs/cursor-agent/sources.json"
+ALLOW_SCRIPTS = REPO / "modules/uzumaki/ai-clis-npm-allow-scripts.json"
+AI_CLIS_MODULE = REPO / "modules/uzumaki/ai-clis-npm.nix"
+JUSTFILE = REPO / "justfile"
+
+
+def allow_scripts():
+    return json.loads(ALLOW_SCRIPTS.read_text())["allowScripts"]
 
 
 class CodexDoctorTests(unittest.TestCase):
@@ -198,11 +205,27 @@ exit 99
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("repair deferred", result.stdout)
         calls = self.log.read_text()
-        self.assertIn("--allow-scripts=@anthropic-ai/claude-code,@xai-official/grok,@google/genai,esbuild,protobufjs", calls)
+        self.assertIn(f"--allow-scripts={','.join(allow_scripts())}", calls)
         self.assertNotIn("dangerously-allow-all-scripts", calls)
         self.assertIn("curl -fsSL --max-time 30 https://cursor.com/install", calls)
         self.assertRegex(result.stdout, r"cursor-agent: pin \S+ is current")
         self.assertNotIn("nix ", calls)
+
+    def test_activation_and_recipe_share_one_allow_list(self):
+        # NIX-517: a switch installs the same CLIs as `just update-ai-clis`;
+        # both must take the allow-list from the one file, never inline.
+        names = allow_scripts()
+        self.assertEqual(len(names), len(set(names)))
+        for needed in ("@anthropic-ai/claude-code", "@xai-official/grok"):
+            self.assertIn(needed, names)
+        module = AI_CLIS_MODULE.read_text()
+        self.assertIn("lib.importJSON ./ai-clis-npm-allow-scripts.json", module)
+        self.assertIn('lib.escapeShellArg "--allow-scripts=${npmAllowScripts}"', module)
+        recipe = JUSTFILE.read_text().split("\nupdate-ai-clis:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("require('./modules/uzumaki/ai-clis-npm-allow-scripts.json').allowScripts", recipe)
+        for text in (module, recipe):
+            self.assertNotRegex(text, r"--allow-scripts=@")
+            self.assertNotIn("dangerously-allow-all-scripts", text)
 
     def test_recipe_cursor_failure_does_not_skip_doctor(self):
         before = CURSOR_SOURCES.read_bytes()

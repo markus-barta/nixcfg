@@ -1623,7 +1623,7 @@ pixoo-logs:
 [group('ai')]
 update-ai-clis:
     @date
-    npm install --global --prefix "$HOME/.npm-global" --allow-scripts=@anthropic-ai/claude-code,@xai-official/grok,@google/genai,esbuild,protobufjs @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
+    npm install --global --prefix "$HOME/.npm-global" --allow-scripts="$(node -p "require('./modules/uzumaki/ai-clis-npm-allow-scripts.json').allowScripts.join(',')")" @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
     @echo "---"
     -./scripts/update-cursor-agent.sh
     @echo "---"
