@@ -105,7 +105,7 @@ assert default["codexAccountsValue"] is None, default
 assert flag_count(default["programArguments"], "--codex-accounts") == 0, default
 assert default["programArguments"][1] == "serve", default
 assert "--instance" in default["programArguments"], default
-assert default["environmentVariables"] is None, default
+assert default["environmentVariables"] == {"DISABLE_AUTOUPDATER": "1"}, default
 assert default["lifecycleConfigValue"] is None, default
 assert "FIXTURE_CODEX_HOME_TOKEN" not in json.dumps(default)
 assert "FIXTURE_CODEX_EMAIL_TOKEN" not in json.dumps(default)
@@ -114,7 +114,7 @@ assert enabled["failedAssertionMessages"] == [], enabled
 assert enabled["codexAccountsValue"] == enabled_path, enabled
 assert flag_count(enabled["programArguments"], "--codex-accounts") == 1, enabled
 assert enabled["programArguments"] == default["programArguments"] + ["--codex-accounts", enabled_path], enabled
-assert enabled["environmentVariables"] is None, enabled
+assert enabled["environmentVariables"] == {"DISABLE_AUTOUPDATER": "1"}, enabled
 assert enabled_path in enabled["activation"], enabled
 assert "FIXTURE_CODEX_HOME_TOKEN" not in json.dumps(enabled)
 assert "FIXTURE_CODEX_EMAIL_TOKEN" not in json.dumps(enabled)
@@ -135,7 +135,7 @@ assert flag_value(reporting["programArguments"], "--report-api-key-file") == "/U
 assert managed["failedAssertionMessages"] == [], managed
 assert managed["codexAccountsValue"] == enabled_path, managed
 assert managed["lifecycleConfigValue"] == lifecycle_path, managed
-assert managed["environmentVariables"] is None, managed
+assert managed["environmentVariables"] == {"DISABLE_AUTOUPDATER": "1"}, managed
 assert managed["programArguments"] == reporting["programArguments"] + ["--codex-accounts", enabled_path], managed
 for flag in ("--codex-accounts", "--lifecycle-config", "--report-host", "--report-url", "--report-api-key-file", "--paimos-path"):
     assert flag_count(managed["programArguments"], flag) == 1, (flag, managed)
