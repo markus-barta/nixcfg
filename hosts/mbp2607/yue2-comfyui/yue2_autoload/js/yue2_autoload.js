@@ -1,17 +1,16 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 const FLAG = "yue2_autoload_v1";
-const CANDIDATES = [
-  "/api/userdata/workflows/yue2_full.json",
-  "/userdata/workflows/yue2_full.json",
-  "/api/userdata/workflows/YuE2%20Full.json",
-  "/userdata/workflows/YuE2%20Full.json",
-];
+// ComfyUI's /userdata/{file} route takes ONE path segment, so the slash in
+// "workflows/…" must be URL-encoded. api.getUserData does exactly that (the
+// raw "/userdata/workflows/…" URLs used before never matched — NIX-518 gate).
+const CANDIDATES = ["workflows/yue2_full.json", "workflows/YuE2 Full.json"];
 
 async function fetchWorkflow() {
-  for (const url of CANDIDATES) {
+  for (const file of CANDIDATES) {
     try {
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await api.getUserData(file, { cache: "no-store" });
       if (!res.ok) continue;
       const data = await res.json();
       if (data && (data.nodes || data.workflow)) return data;

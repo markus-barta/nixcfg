@@ -12,7 +12,8 @@
 #   - the `yue2` fish command       (was an orphaned stash, 2026-09-17)
 # Setup, usage, license and uninstall notes: PPM NIX runbook `yue2-comfyui-mac`.
 # Uninstalling means dropping this import BEFORE deleting the stack directory,
-# or the next switch re-creates the links.
+# or the next switch re-creates the links. The autoload node files are copies,
+# not links: they stay until the runtime tree is deleted.
 #
 # `yue2 on` / `start` opens the UI in the default browser, except inside a
 # guarded agent session (INSPR_AGENT_BROWSER_GUARD set), where it only prints
@@ -58,13 +59,19 @@ in
   # serves extension JS through aiohttp static with follow_symlinks=False, so a
   # link into /nix/store answers 404 and the autoload silently stops working.
   # Copy them on every switch, and only into an existing runtime tree.
-  home.activation.yue2AutoloadNode = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+  # After linkGeneration, so HM's own link cleanup can never remove the copies;
+  # `rm -f` first so a leftover store symlink is replaced, not written through.
+  # A re-cloned runtime gets the node on the next switch.
+  home.activation.yue2AutoloadNode = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
     comfy="$HOME/${root}/ComfyUI"
     if [ -d "$comfy/custom_nodes" ]; then
       node="$comfy/custom_nodes/yue2_autoload"
       $DRY_RUN_CMD mkdir -p "$node/js"
+      $DRY_RUN_CMD rm -f "$node/__init__.py" "$node/js/yue2_autoload.js"
       $DRY_RUN_CMD install -m 0644 ${./yue2_autoload/__init__.py} "$node/__init__.py"
       $DRY_RUN_CMD install -m 0644 ${./yue2_autoload/js/yue2_autoload.js} "$node/js/yue2_autoload.js"
+    else
+      echo "yue2: no ComfyUI runtime at $comfy; autoload node not installed" >&2
     fi
   '';
 }
