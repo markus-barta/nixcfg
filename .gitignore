@@ -5,6 +5,9 @@
 /hardware-configuration.nix
 /*.qcow2
 result
+pkgs/cursor-agent/sources.json.lock
+pkgs/cursor-agent/sources.json.lock.reclaim
+pkgs/cursor-agent/sources.json.tmp.*
 .shared/*
 !.shared/common.just
 
