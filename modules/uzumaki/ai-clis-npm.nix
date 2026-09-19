@@ -37,9 +37,9 @@ let
   ];
   npmPkgsLatest = lib.concatMapStringsSep " " (p: "${p}@latest") npmPkgs;
   # NIX-517: the same allow-list `just update-ai-clis` passes. Without it npm
-  # skips these install scripts, so a switch that crosses a release leaves the
-  # claude placeholder stub and a stale ~/.grok/bin. The pinned bird tool gets
-  # no install scripts.
+  # 11.16 warns on every switch but still runs the scripts; once npm enforces
+  # the list it would skip them and leave the claude placeholder stub and a
+  # stale ~/.grok/bin. The pinned bird tool gets no install scripts.
   npmAllowScriptsList = (lib.importJSON ./ai-clis-npm-allow-scripts.json).allowScripts;
   npmAllowScripts = lib.concatStringsSep "," npmAllowScriptsList;
   npmPkgsPinnedStr = lib.concatStringsSep " " npmPkgsPinned;
