@@ -4,9 +4,10 @@
 # the guard shims, and those, paimos-agentd and Pi's CURSOR_AGENT_PATH all run
 # that same store path — no imperative
 # ~/.local/share/cursor-agent copy is referenced. `just update-ai-clis` bumps
-# the pin through scripts/update-cursor-agent.sh. NIX-516: $out/bin always
-# passes --disable-auto-update, so running the package never re-creates that
-# imperative copy, and a vendor release that drops the flag fails the bump.
+# the pin through scripts/update-cursor-agent.sh. NIX-516: $out/bin is
+# wrapper.sh, which passes --disable-auto-update without moving argv[2], and
+# check-auto-update.mjs fails a bump whose bundle no longer guards every
+# automatic update behind that option; both are exercised here on fixtures.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -30,10 +31,15 @@ grep -Fq 'https://downloads.cursor.com/lab/${version}/${asset.os}/${asset.arch}/
   fail 'package does not fetch the official versioned vendor tarball'
 grep -Fq 'sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];' "$package_file" || fail 'binary provenance is not declared'
 grep -Fq 'dontFixup = true;' "$package_file" || fail 'vendor-signed binaries must stay byte-identical'
-grep -Fq -- '--add-flags --disable-auto-update' "$package_file" ||
-  fail 'the package no longer disables the vendor background updater'
-grep -Fq 'isAutoUpdate:!0' "$package_file" ||
-  fail 'installCheck no longer verifies that every automatic update is gated'
+wrapper_template="$repo_root/pkgs/cursor-agent/wrapper.sh"
+auto_update_check="$repo_root/pkgs/cursor-agent/check-auto-update.mjs"
+# shellcheck disable=SC2016 # literal Nix and bundle text, not expansions
+grep -Fq 'substitute ${./wrapper.sh} "$out/bin/cursor-agent"' "$package_file" ||
+  fail 'the package no longer installs wrapper.sh as bin/cursor-agent'
+# shellcheck disable=SC2016 # literal Nix and bundle text, not expansions
+grep -Fq '${./check-auto-update.mjs} "$out/share/cursor-agent"' "$package_file" ||
+  fail 'installCheck no longer runs check-auto-update.mjs on the bundle'
+grep -Fq -- '--disable-auto-update' "$wrapper_template" || fail 'wrapper.sh no longer passes --disable-auto-update'
 
 # No Nix value may point at the imperative vendor install any more (comments
 # that explain the migration are fine).
@@ -82,6 +88,63 @@ grep -Fq -- '-./scripts/update-cursor-agent.sh' "$repo_root/justfile" ||
   fail 'just update-ai-clis does not run the Cursor pin step (error-tolerant)'
 fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/t85.XXXXXX")
 trap 'rm -rf "$fixture_dir"' EXIT
+
+# NIX-516 — the auto-update check must fail closed. Fixture bundles are the
+# vendor's shapes, reduced to the lines the check reads.
+node_bin=$(command -v node || true)
+if [ -z "$node_bin" ]; then
+  node_bin="$(cd "$repo_root" && nix build --no-link --print-out-paths --inputs-from . nixpkgs#nodejs)/bin/node"
+fi
+# shellcheck disable=SC2016 # literal Nix and bundle text, not expansions
+option_line='addOption(new f.c$("--disable-auto-update","Disable auto-updates").default(!1).hideHelp())'
+guarded_call='null!==(tt=o.disableAutoUpdate)&&void 0!==tt&&tt||"static"===yo.channel||setTimeout((()=>{(0,D.updateCursorAgent)({dashboardClient:Rn,showProgress:!1,channel:yo.channel,isAutoUpdate:!0,product:"agent-cli"})}),2e3)'
+explicit_call='yield(0,o.updateCursorAgent)({dashboardClient:e,showProgress:!0,channel:i.channel,isAutoUpdate:!1,product:t})'
+bundle_case() { # <name> <index.js> <chat.js>: writes a fixture bundle, prints its directory
+  mkdir -p "$fixture_dir/bundle-$1"
+  printf '%s\n' "$2" >"$fixture_dir/bundle-$1/index.js"
+  printf '%s\n' "$3" >"$fixture_dir/bundle-$1/7470.index.js"
+  printf '%s\n' "$fixture_dir/bundle-$1"
+}
+"$node_bin" "$auto_update_check" "$(bundle_case good "$option_line" "$guarded_call;$explicit_call")" >/dev/null ||
+  fail 'auto-update check rejects a guarded bundle'
+expect_rejected() { # <name> <index.js> <chat.js> <reason>
+  if "$node_bin" "$auto_update_check" "$(bundle_case "$1" "$2" "$3")" >/dev/null 2>&1; then
+    fail "auto-update check accepts $4"
+  fi
+}
+expect_rejected inverted "$option_line" "${guarded_call/&&tt||/&&!tt||};$explicit_call" 'an inverted guard'
+expect_rejected no-automatic "$option_line" "$explicit_call" 'a bundle without its automatic update'
+expect_rejected ungated-true "$option_line" "$guarded_call;(0,q.updateCursorAgent)({isAutoUpdate:true})" 'an ungated isAutoUpdate:true'
+expect_rejected unknown-value "$option_line" "$guarded_call;(0,q.updateCursorAgent)({isAutoUpdate:x})" 'an unclassified isAutoUpdate value'
+# shellcheck disable=SC2016 # literal Nix and bundle text, not expansions
+expect_rejected no-option 'addOption(new f.c$("--endless-retries"))' "$guarded_call" 'a bundle without the option'
+expect_rejected two-options "$option_line;$option_line" "$guarded_call" 'a duplicated option definition'
+
+# NIX-516 — the wrapper keeps argv[2] and each name. Fake launchers print
+# their name and arguments.
+mkdir -p "$fixture_dir/libexec" "$fixture_dir/bin"
+for name in cursor-agent agent; do
+  # shellcheck disable=SC2016 # literal Nix and bundle text, not expansions
+  printf '#!/usr/bin/env bash\nIFS="|"; printf "%%s|%%s\\n" "${0##*/}" "$*"\n' >"$fixture_dir/libexec/$name"
+  chmod +x "$fixture_dir/libexec/$name"
+done
+sed -e "s#@shell@#$(command -v bash)#" -e "s#@libexec@#$fixture_dir/libexec#" "$wrapper_template" >"$fixture_dir/bin/cursor-agent"
+chmod +x "$fixture_dir/bin/cursor-agent"
+ln -s cursor-agent "$fixture_dir/bin/agent"
+expect_argv() { # <expected> <name> [args...]
+  local expected=$1 name=$2 got
+  shift 2
+  got=$("$fixture_dir/bin/$name" "$@")
+  [ "$got" = "$expected" ] || fail "wrapper: $name $* -> $got, expected $expected"
+}
+expect_argv 'cursor-agent|--disable-auto-update' cursor-agent
+expect_argv 'cursor-agent|--disable-auto-update|-p|--output-format|stream-json|hi there' cursor-agent -p --output-format stream-json 'hi there'
+expect_argv 'cursor-agent|acp|--disable-auto-update' cursor-agent acp
+expect_argv 'cursor-agent|resume|--disable-auto-update|chat-1' cursor-agent resume chat-1
+expect_argv 'cursor-agent|help|bedrock' cursor-agent help bedrock
+expect_argv 'cursor-agent|bedrock|--help' cursor-agent bedrock --help
+expect_argv 'agent|--disable-auto-update|-p|hi' agent -p hi
+expect_argv 'agent|models|--disable-auto-update' agent models
 before=$(shasum -a 256 "$sources_file")
 # Mimics the vendor installer line; ${OS}/${ARCH} stay literal like upstream.
 installer_fixture() {
@@ -113,6 +176,12 @@ if [ "$current_system" = aarch64-darwin ]; then
   [ "$("$package_out/bin/agent" --version)" = "$pinned" ] || fail 'realised agent alias version mismatch'
   grep -Fq -- '--disable-auto-update' "$cursor_exe" || fail 'realised wrapper does not pass --disable-auto-update'
   [ "$(readlink "$package_out/bin/agent")" = cursor-agent ] || fail 'agent alias bypasses the wrapper'
+  for name in cursor-agent agent; do
+    [ "$(readlink "$package_out/libexec/cursor-agent/$name")" = ../../share/cursor-agent/cursor-agent ] ||
+      fail "libexec link $name does not reach the vendor launcher"
+  done
+  "$package_out/share/cursor-agent/node" "$auto_update_check" "$package_out/share/cursor-agent" >/dev/null ||
+    fail 'realised bundle fails the auto-update check'
   codesign --verify --strict "$package_out/share/cursor-agent/node" || fail 'vendor node signature broken in the store'
   codesign --verify --strict "$package_out/share/cursor-agent/cursorsandbox" || fail 'vendor sandbox helper signature broken in the store'
 fi
