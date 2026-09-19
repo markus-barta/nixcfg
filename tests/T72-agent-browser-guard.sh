@@ -352,6 +352,31 @@ for name in ("codex", "cursor"):
         print(f"T72 failed: {name} must not be sandbox-wrappable", file=sys.stderr); sys.exit(1)
 PY
 
+# NIX-515: host login init (fish loginShellInit, zsh /etc/zprofile + session
+# setup) re-prepends Homebrew and the Nix/npm profiles AFTER the guard's early
+# prepend, which let same-name binaries there win PATH unguarded. The guard
+# directory must therefore be the last PATH change of the fish login and
+# interactive phases and of zsh .zlogin/.zshrc. Read from the merged mbp2607
+# options, so this half also runs on Linux CI; section 4 runs the built files.
+shell_init=$(nix eval --json '.#homeConfigurations."markus@mbp2607".config.programs' --apply \
+  'p: { fishShell = p.fish.shellInit; fishLogin = p.fish.loginShellInit; fishInteractive = p.fish.interactiveShellInit; zshLogin = p.zsh.loginExtra; zshInit = p.zsh.initContent; }')
+python3 - "$shell_init" <<'PYORDER' || exit 1
+import json, re, sys
+init = json.loads(sys.argv[1])
+shadow = re.compile(r"-inspr-agent-guard-shadow-bin/bin")
+def last(text, pattern):
+    lines = [line for line in text.splitlines() if re.search(pattern, line)]
+    return lines[-1] if lines else ""
+for key in ("fishLogin", "fishInteractive"):
+    if not shadow.search(last(init[key], r"fish_add_path")):
+        sys.exit(f"T72 failed: the guard directory is not the last fish_add_path of {key}")
+for key in ("zshLogin", "zshInit"):
+    if not shadow.search(last(init[key], r"^\s*(export\s+)?(PATH|path)=")):
+        sys.exit(f"T72 failed: the guard directory is not the last PATH assignment of {key}")
+if "set -e fish_user_paths" not in init["fishShell"]:
+    sys.exit("T72 failed: stale shadow-bin generations must be purged from the universal fish_user_paths")
+PYORDER
+
 # ── 3. The ordinary human browser path is untouched ──────────────────────────
 grep -Fq 'chromiumAppPath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";' \
   modules/uzumaki/macos-common.nix ||
@@ -531,6 +556,55 @@ if [ -x "$codex_bin" ]; then
 else
   codex_scope=codex-absent
 fi
+
+# NIX-515 runtime: run the BUILT mbp2607 shell init in isolation — temp config
+# dirs, and a fixture universal fish_user_paths with Homebrew first plus a stale
+# shadow-bin generation — and require every login/interactive mode to resolve
+# the guarded names to the guard directory. Nothing live is read or written.
+hm_gen=$(nix build --no-link --print-out-paths '.#homeConfigurations."markus@mbp2607".activationPackage')
+home_files="$hm_gen/home-files"
+mkdir -p "$work/shellcfg/fish" "$work/zdot"
+cp "$home_files/.config/fish/config.fish" "$work/shellcfg/fish/"
+for f in .zshenv .zprofile .zshrc .zlogin; do cp "$home_files/.config/zsh/$f" "$work/zdot/"; done
+chmod -R u+w "$work/shellcfg" "$work/zdot"
+# Home Manager's .zshenv re-points ZDOTDIR at the live ~/.config/zsh; keep the
+# probe on the built files.
+sed -i.orig "s#^export ZDOTDIR=.*#export ZDOTDIR=\"$work/zdot\"#" "$work/zdot/.zshenv"
+# A missed substitution would silently probe the LIVE ~/.config/zsh instead.
+grep -Fxq "export ZDOTDIR=\"$work/zdot\"" "$work/zdot/.zshenv" ||
+  fail 'could not re-point ZDOTDIR in the built .zshenv; the zsh probe would test live files'
+if grep -Eq 'ZDOTDIR=' "$work/zdot/.zshenv" && grep -E 'ZDOTDIR=' "$work/zdot/.zshenv" | grep -vFq "$work/zdot"; then
+  fail 'the built .zshenv sets ZDOTDIR somewhere the probe does not control'
+fi
+stale=/nix/store/00000000000000000000000000000000-inspr-agent-guard-shadow-bin/bin
+# Every fish run rewrites the universal file (the purge is persistent), so each
+# mode below gets a FRESH fixture — otherwise later modes would test the state
+# the first one already cleaned (Codex gate, NIX-515).
+seed_fish_fixture() {
+  printf '# VERSION: 3.0\nSETUVAR fish_user_paths:/opt/homebrew/bin\\x1e%s\n' "$stale" >"$1/fish/fish_variables"
+}
+seed_fish_fixture "$work/shellcfg"
+# The fixture must really be read, or "stale entry absent" would prove nothing.
+# (fish --no-config also skips universal variables, so read it through a
+# config dir that holds only the fixture.)
+mkdir -p "$work/uvar-only/fish"
+seed_fish_fixture "$work/uvar-only"
+probe_fixture=$(env -i HOME="$HOME" XDG_CONFIG_HOME="$work/uvar-only" "$hm_gen/home-path/bin/fish" \
+  -c "contains -- '$stale' \$fish_user_paths; and echo parsed" 2>/dev/null || true)
+[ "$probe_fixture" = parsed ] || fail 'fish does not read the fixture fish_user_paths; the purge check would be vacuous'
+probe_env() { env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" TERM=xterm-256color "$@"; }
+fish_probe='set -l bad; for c in claude grok pi cursor-agent agent; string match -q -- "*-inspr-agent-guard-shadow-bin/bin/*" (command -v $c); or set -a bad $c; end; string match -q -- "*-inspr-agent-guard-shadow-bin/bin" $PATH[1]; or set -a bad PATH1; contains -- '"$stale"' $fish_user_paths; and set -a bad stale; echo "bad=$bad"'
+for mode in -il -l -i ''; do
+  seed_fish_fixture "$work/shellcfg"
+  # shellcheck disable=SC2086 # an empty mode must vanish, not become ""
+  out=$(probe_env XDG_CONFIG_HOME="$work/shellcfg" "$hm_gen/home-path/bin/fish" $mode -c "$fish_probe" 2>/dev/null)
+  [ "$out" = 'bad=' ] || fail "fish ${mode:-(plain)} resolves a guarded name ahead of the guard: $out"
+done
+zsh_probe='bad=""; for c in claude grok pi cursor-agent agent; do case $(command -v $c) in *-inspr-agent-guard-shadow-bin/bin/*) ;; *) bad="$bad $c" ;; esac; done; case $path[1] in *-inspr-agent-guard-shadow-bin/bin) ;; *) bad="$bad PATH1" ;; esac; [ "$(print -l $path | grep -c inspr-agent-guard-shadow-bin)" = 1 ] || bad="$bad duplicate"; echo "bad=$bad"'
+for mode in -c -lc -ilc -ic; do
+  out=$(probe_env ZDOTDIR="$work/zdot" "$hm_gen/home-path/bin/zsh" "$mode" "$zsh_probe" 2>/dev/null)
+  [ "$out" = 'bad=' ] || fail "zsh $mode resolves a guarded name ahead of the guard: $out"
+done
 
 [ -e "$fake.marker" ] && fail 'a fake browser actually executed during this test'
 
