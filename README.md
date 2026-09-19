@@ -197,9 +197,36 @@ just hsb1-switch
 
 ## Essential Commands
 
-`just update-ai-clis` updates Claude Code, Codex, Grok, and pi in `~/.npm-global`.
-It explicitly allows the known npm install scripts for these tools and their
-dependencies. Upstream deprecation warnings may still appear.
+`just update-ai-clis` and Home Manager switches check the latest Claude Code,
+Codex, Grok, and pi versions, while bird stays exactly pinned. Working CLIs at
+those versions are not reinstalled. Changed or broken packages are installed
+in private directories under `~/.npm-global/.ai-cli-updates`, with the shared
+install-script allowlist, and must pass a package identity and `--version`
+check before publication. Grok's install-time home is also staged, so its
+postinstall cannot change the live Grok installation early.
+
+Each `~/.npm-global/bin` link is replaced atomically. Running processes keep
+access to the old package files; the legacy `lib/node_modules` tree and prior
+staging directories are retained. Installed versions therefore follow the
+launch links, not `npm list -g` against the legacy prefix. Use
+`python3 scripts/update-ai-clis.py --check` to inspect version drift without
+installing. Both update entry points share a process lock; an interrupted
+update leaves each CLI on a complete old or new version.
+
+Before publication, the updater prints a rollback receipt path. From this
+checkout, `python3 scripts/update-ai-clis.py --rollback RECEIPT` atomically
+restores the previous launch links, refusing if another update changed them.
+Rollback requires a previous installation for every affected CLI. It makes no
+registry calls. To hold a rollback across switches, pin the affected version
+in `modules/uzumaki/ai-clis-npm-packages.json` through the normal reviewed
+configuration change. Restore CLI receipts before activating a pre-NIX-524
+Home Manager generation, whose updater still writes into the legacy prefix.
+Do not delete old package directories while any
+process may use them, or run a plain `npm install -g` over these managed CLIs.
+Failed staging directories are also retained for inspection. Unrelated global
+commands are preserved. Unsupported packages are skipped on that platform;
+other failures keep the prior files and are reported (Home Manager continues,
+whereas `just update-ai-clis` fails).
 
 If Codex needs a runtime repair, the command asks before proceeding. Active
 Codex sessions or a non-interactive terminal defer repair without failing the
