@@ -46,6 +46,19 @@ pid_alive() {
   kill -0 "$pid" 2>/dev/null
 }
 
+# A pid file can outlive its process (crash, reboot) and the pid be reused by
+# something unrelated. Never signal on "alive" alone: check it is still ours.
+pid_cmd_has() {
+  local pid="$1" needle="$2" cmd
+  pid_alive "$pid" || return 1
+  cmd="$(ps -o command= -p "$pid" 2>/dev/null)" || return 1
+  case "$cmd" in *"$needle"*) return 0 ;; esac
+  return 1
+}
+server_alive() { pid_cmd_has "$1" "main.py --listen ${HOST} --port ${PORT}"; }
+# The watchdog is a subshell of this script, so its argv is ours.
+watchdog_alive() { pid_cmd_has "$1" "bin/yue2-comfyui"; }
+
 read_pidfile() {
   local f="$1"
   if [ -f "$f" ]; then
@@ -113,10 +126,10 @@ sys.exit(0 if (run or pend) else 1)'
 kill_watchdog() {
   local w
   w="$(read_pidfile "$WATCHPID")"
-  if [ -n "$w" ] && pid_alive "$w"; then
+  if [ -n "$w" ] && watchdog_alive "$w"; then
     kill -TERM "$w" 2>/dev/null || true
     sleep 0.5
-    pid_alive "$w" && kill -KILL "$w" 2>/dev/null || true
+    watchdog_alive "$w" && kill -KILL "$w" 2>/dev/null || true
   fi
   rm -f "$WATCHPID"
 }
@@ -166,7 +179,7 @@ cmd_status() {
     [ -n "$w" ] && echo "stale watchdog pid=$w (clearing)" && kill_watchdog
     return 1
   fi
-  if ! pid_alive "$pid"; then
+  if ! server_alive "$pid"; then
     echo "stopped (stale pid $pid)"
     kill_watchdog
     rm -f "$PIDFILE"
@@ -177,7 +190,7 @@ cmd_status() {
   else
     echo "starting pid=$pid (no HTTP on $URL yet; see $LOGFILE)"
   fi
-  if [ -n "$w" ] && pid_alive "$w"; then
+  if [ -n "$w" ] && watchdog_alive "$w"; then
     echo "watchdog pid=$w"
   fi
   return 0
@@ -218,7 +231,7 @@ cmd_start() {
 
   local pid
   pid="$(read_pidfile "$PIDFILE")"
-  if [ -n "$pid" ] && pid_alive "$pid"; then
+  if [ -n "$pid" ] && server_alive "$pid"; then
     if http_ok; then
       echo "already running pid=$pid"
       echo "$URL"
@@ -275,7 +288,7 @@ cmd_stop() {
     echo "already stopped"
     return 0
   fi
-  if ! pid_alive "$pid"; then
+  if ! server_alive "$pid"; then
     rm -f "$PIDFILE"
     echo "already stopped (cleared stale pid $pid)"
     return 0
@@ -284,15 +297,15 @@ cmd_stop() {
   kill -TERM "$pid" 2>/dev/null || true
   local i
   for i in $(seq 1 20); do
-    pid_alive "$pid" || break
+    server_alive "$pid" || break
     sleep 1
   done
-  if pid_alive "$pid"; then
+  if server_alive "$pid"; then
     echo "SIGTERM wait exceeded; sending SIGKILL to $pid"
     kill -KILL "$pid" 2>/dev/null || true
     sleep 1
   fi
-  if pid_alive "$pid"; then
+  if server_alive "$pid"; then
     die "failed to stop pid $pid"
   fi
   rm -f "$PIDFILE"
