@@ -1,0 +1,11 @@
+[
+  { "name": "@anthropic-ai/claude-code", "version": "latest", "bin": "claude" },
+  { "name": "@openai/codex", "version": "latest", "bin": "codex" },
+  { "name": "@xai-official/grok", "version": "latest", "bin": "grok" },
+  {
+    "name": "@earendil-works/pi-coding-agent",
+    "version": "latest",
+    "bin": "pi"
+  },
+  { "name": "@steipete/bird", "version": "0.8.0", "bin": "bird" }
+]

@@ -285,7 +285,7 @@ jobs:
         run: nix-shell -p python3 nodejs --run tests/T73-agent-browser-guard-preload.sh
 
       - name: Verify safe Codex repair deferral after AI CLI updates (NIX-467)
-        run: nix-shell -p python3 nodejs just jq --run "python3 tests/test_codex_doctor.py -v"
+        run: nix-shell -p python3 nodejs just jq --run "python3 tests/test_codex_doctor.py -v && python3 tests/test_update_ai_clis.py -v"
 
       - name: Verify local Pi launcher and doctrine loading
         run: |
