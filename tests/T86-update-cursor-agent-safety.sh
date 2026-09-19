@@ -1,25 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-
 fail() {
   printf 'T86 failed: %s\n' "$*" >&2
   exit 1
 }
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/t86.XXXXXX")
+tmp=$(cd -- "$tmp" && pwd)
+holder_pid=''
+stop_holder() {
+  if [ -n "$holder_pid" ]; then
+    kill "$holder_pid" 2>/dev/null || true
+    wait "$holder_pid" 2>/dev/null || true
+    holder_pid=''
+  fi
+}
 cleanup() {
+  stop_holder
   find "$tmp" -depth -type f -delete
+  find "$tmp" -depth -type l -delete
   find "$tmp" -depth -type d -empty -delete
 }
 trap cleanup EXIT
 
 mkdir -p "$tmp/bin" "$tmp/scripts" "$tmp/pkgs/cursor-agent"
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cp "$repo_root/scripts/update-cursor-agent.sh" "$tmp/scripts/update-cursor-agent.sh"
-cp "$repo_root/pkgs/cursor-agent/sources.json" "$tmp/pkgs/cursor-agent/sources.json"
-cp "$tmp/pkgs/cursor-agent/sources.json" "$tmp/expected-sources.json"
+cat >"$tmp/fixture-sources.json" <<'EOF'
+{
+  "version": "2098.01.01-deadbee",
+  "assets": {
+    "aarch64-darwin": {
+      "os": "darwin",
+      "arch": "arm64",
+      "hash": "sha256-OLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLDOLD"
+    }
+  }
+}
+EOF
+cp "$tmp/fixture-sources.json" "$tmp/pkgs/cursor-agent/sources.json"
+chmod 0644 "$tmp/pkgs/cursor-agent/sources.json"
 chmod +x "$tmp/scripts/update-cursor-agent.sh"
+mkdir "$tmp/tmp"
+export TMPDIR="$tmp/tmp"
 
 cat >"$tmp/bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -28,30 +52,52 @@ EOF
 cat >"$tmp/bin/nix" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$T86_NIX_LOG"
-if [ "${1-}" = eval ]; then
+case "${1-}" in
+eval)
   printf '%s\n' "$T86_SYSTEM"
-  exit 0
-fi
-exit 99
+  ;;
+store)
+  printf '%s\n' '{"hash":"sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}'
+  ;;
+build)
+  [ "${T86_NIX_BUILD_FAIL-}" != 1 ] || exit 1
+  printf '%s\n' "$T86_OUT"
+  ;;
+*) exit 99 ;;
+esac
 EOF
 chmod +x "$tmp/bin/curl" "$tmp/bin/nix"
 
 export PATH="$tmp/bin:$PATH"
 export T86_NIX_LOG="$tmp/nix.log"
 export T86_SYSTEM=x86_64-linux
+export T86_NIX_BUILD_FAIL=0
+export T86_OUT="$tmp/store/cursor-agent"
 unset CURSOR_AGENT_SOURCES CURSOR_INSTALL_URL
 
 update_script=$tmp/scripts/update-cursor-agent.sh
 sources=$tmp/pkgs/cursor-agent/sources.json
+fixture=$tmp/fixture-sources.json
 lock_dir=$sources.lock
 output=$tmp/output
+release=2099.01.01-abcdef1
+
+reset_sources() {
+  cp "$fixture" "$sources"
+  chmod 0644 "$sources"
+}
+
+assert_no_temp_files() {
+  for temp_file in "$sources".tmp.* "$TMPDIR"/cursor-agent-sources.*; do
+    [ -e "$temp_file" ] || continue
+    fail "temporary file remains: $temp_file"
+  done
+}
 
 assert_clean() {
-  [ ! -e "$lock_dir" ] || fail "lock directory remains: $lock_dir"
-  for temp_file in "$sources".tmp.*; do
-    [ -e "$temp_file" ] || continue
-    fail "temporary sources file remains: $temp_file"
-  done
+  [ ! -e "$lock_dir" ] && [ ! -L "$lock_dir" ] || fail "lock remains: $lock_dir"
+  [ ! -e "$lock_dir.reclaim" ] || fail "reclaim guard remains: $lock_dir.reclaim"
+  assert_no_temp_files
 }
 
 : >"$T86_NIX_LOG"
@@ -60,44 +106,98 @@ if "$update_script" >"$output" 2>&1; then
 fi
 grep -Fq 'unsupported current system x86_64-linux' "$output" || fail 'unsupported message omits the system'
 grep -Fq 'pinned systems: aarch64-darwin' "$output" || fail 'unsupported message omits pinned systems'
-cmp -s "$sources" "$tmp/expected-sources.json" || fail 'unsupported host changed sources.json'
+cmp -s "$sources" "$fixture" || fail 'unsupported host changed sources.json'
 if grep -Fq 'store prefetch-file' "$T86_NIX_LOG" || grep -Fq 'build' "$T86_NIX_LOG"; then
   fail 'unsupported host prefetched or built'
 fi
 assert_clean
 
+reset_sources
+jq 'del(.assets)' "$sources" >"$tmp/no-assets.json"
+cp "$tmp/no-assets.json" "$sources"
+cp "$sources" "$tmp/expected-no-assets.json"
 : >"$T86_NIX_LOG"
-mkdir "$lock_dir"
+if "$update_script" >"$output" 2>&1; then
+  fail 'missing assets object was accepted'
+fi
+grep -Fq 'sources.json has no assets object' "$output" || fail 'missing assets message is unclear'
+cmp -s "$sources" "$tmp/expected-no-assets.json" || fail 'missing assets changed sources.json'
+if grep -Fq 'store prefetch-file' "$T86_NIX_LOG" || grep -Fq 'build' "$T86_NIX_LOG"; then
+  fail 'missing assets prefetched or built'
+fi
+assert_clean
+reset_sources
+
+: >"$T86_NIX_LOG"
 sleep 60 &
 holder_pid=$!
-printf '%s\n' "$holder_pid" >"$lock_dir/pid"
+ln -s "$holder_pid" "$lock_dir"
 if "$update_script" >"$output" 2>&1; then
-  kill "$holder_pid" 2>/dev/null || true
-  wait "$holder_pid" 2>/dev/null || true
   fail 'live lock was ignored'
 fi
-grep -Fq 'update lock held by PID' "$output" || fail 'live lock message is missing'
-cmp -s "$sources" "$tmp/expected-sources.json" || fail 'live lock changed sources.json'
+grep -Fq "update lock held by PID $holder_pid" "$output" || fail 'live lock message is missing the PID'
+grep -Fq "rm \"$lock_dir\"" "$output" || fail 'live lock message has no crash recovery command'
+cmp -s "$sources" "$fixture" || fail 'live lock changed sources.json'
 [ ! -s "$T86_NIX_LOG" ] || fail 'live lock allowed a nix operation'
-kill "$holder_pid"
-wait "$holder_pid" 2>/dev/null || true
-rm -f "$lock_dir/pid"
-rmdir "$lock_dir"
+[ "$(readlink "$lock_dir")" = "$holder_pid" ] || fail 'live holder lock was replaced'
+stop_holder
+rm -f "$lock_dir"
 assert_clean
 
 : >"$T86_NIX_LOG"
-printf '%s\n' "$holder_pid" >"$tmp/stale-pid"
-mkdir "$lock_dir"
-cp "$tmp/stale-pid" "$lock_dir/pid"
+ln -s 99999999 "$lock_dir"
 if "$update_script" >"$output" 2>&1; then
   fail 'stale-lock case accepted unsupported host'
 fi
 grep -Fq 'unsupported current system x86_64-linux' "$output" || fail 'stale lock did not proceed to host refusal'
-cmp -s "$sources" "$tmp/expected-sources.json" || fail 'stale lock changed sources.json'
+cmp -s "$sources" "$fixture" || fail 'stale lock changed sources.json'
 grep -Fq 'eval --impure --raw --expr builtins.currentSystem' "$T86_NIX_LOG" || fail 'stale-lock case did not evaluate the system'
 if grep -Fq 'store prefetch-file' "$T86_NIX_LOG" || grep -Fq 'build' "$T86_NIX_LOG"; then
   fail 'stale-lock case prefetched or built'
 fi
 assert_clean
 
-printf 'T86 passed: Cursor CLI update locking and host safety are enforced offline\n'
+reset_sources
+export T86_SYSTEM=aarch64-darwin
+export T86_NIX_BUILD_FAIL=1
+: >"$T86_NIX_LOG"
+if "$update_script" >"$output" 2>&1; then
+  fail 'failed build was accepted'
+fi
+grep -Fq 'build of 2099.01.01-abcdef1 failed' "$output" || fail 'failed build message is missing'
+grep -Fq 'bump not verified — pin restored to 2098.01.01-deadbee' "$output" || fail 'failed build did not restore the pin'
+cmp -s "$sources" "$fixture" || fail 'failed build did not restore sources.json byte-for-byte'
+grep -Fq 'store prefetch-file' "$T86_NIX_LOG" || fail 'restore case did not prefetch'
+grep -Fq 'build --no-link --print-out-paths' "$T86_NIX_LOG" || fail 'restore case did not build'
+assert_clean
+
+reset_sources
+mkdir -p "$T86_OUT/bin"
+cat >"$T86_OUT/bin/cursor-agent" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' '2099.01.01-abcdef1'
+EOF
+chmod +x "$T86_OUT/bin/cursor-agent"
+export T86_NIX_BUILD_FAIL=0
+: >"$T86_NIX_LOG"
+"$update_script" >"$output" 2>&1 || fail 'successful build was rejected'
+grep -Fq 'built and verified' "$output" || fail 'success message is missing'
+[ "$(jq -er '.version' "$sources")" = "$release" ] || fail 'success did not write the new version'
+[ "$(jq -er '.assets["aarch64-darwin"].hash' "$sources")" = 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' ] ||
+  fail 'success did not write the prefetched hash'
+if mode=$(stat -f '%Lp' "$sources" 2>/dev/null); then
+  :
+else
+  mode=$(stat -c '%a' "$sources")
+fi
+[ "$mode" = 644 ] || fail "success changed sources.json mode to $mode"
+assert_clean
+
+export T86_NIX_BUILD_FAIL=1
+: >"$T86_NIX_LOG"
+"$update_script" >"$output" 2>&1 || fail 'current pin was rejected'
+grep -Fq "pin $release is current" "$output" || fail 'current pin message is missing'
+[ ! -s "$T86_NIX_LOG" ] || fail 'current pin ran nix'
+assert_clean
+
+printf 'T86 passed: Cursor CLI update locking, rollback, and verification are enforced offline\n'
