@@ -32,12 +32,11 @@ grep -Fq 'https://downloads.cursor.com/lab/${version}/${asset.os}/${asset.arch}/
 grep -Fq 'sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];' "$package_file" || fail 'binary provenance is not declared'
 grep -Fq 'dontFixup = true;' "$package_file" || fail 'vendor-signed binaries must stay byte-identical'
 wrapper_template="$repo_root/pkgs/cursor-agent/wrapper.sh"
-auto_update_check="$repo_root/pkgs/cursor-agent/check-auto-update.mjs"
 # shellcheck disable=SC2016 # literal Nix and bundle text, not expansions
 grep -Fq 'substitute ${./wrapper.sh} "$out/bin/cursor-agent"' "$package_file" ||
   fail 'the package no longer installs wrapper.sh as bin/cursor-agent'
 # shellcheck disable=SC2016 # literal Nix and bundle text, not expansions
-grep -Fq '${./check-auto-update.mjs} "$out/share/cursor-agent" ${./auto-update-review.json}' "$package_file" ||
+grep -Fq '(cd "$out/share/cursor-agent" && ./node ${autoUpdateCheck}/check-auto-update.mjs)' "$package_file" ||
   fail 'installCheck no longer checks the bundle against auto-update-review.json'
 grep -Fq -- '--disable-auto-update' "$wrapper_template" || fail 'wrapper.sh no longer passes --disable-auto-update'
 
@@ -89,21 +88,26 @@ grep -Fq -- '-./scripts/update-cursor-agent.sh' "$repo_root/justfile" ||
 fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/t85.XXXXXX")
 trap 'rm -rf "$fixture_dir"' EXIT
 
-# NIX-516 — the auto-update check is change detection against a review of
-# the exact bytes. A fixture bundle in the vendor's shape is reviewed with
-# --print; an identical rebuild passes, while a rebuild that only renames
-# minified names and every counterexample from the PR 682 reviews, applied
-# to the same bundle, must fail until reviewed again.
+# NIX-516 — the auto-update check compares the exact bytes of the updater and
+# option code with a review. A fixture bundle in the vendor's shape is
+# reviewed with review-auto-update.mjs; an identical rebuild passes, while a
+# rebuild that only renames minified names and every counterexample from the
+# PR 682 reviews, applied to the same bundle, fail until reviewed again.
 node_bin=$(command -v node || true)
 if [ -z "$node_bin" ]; then
   node_bin="$(cd "$repo_root" && nix build --no-link --print-out-paths --inputs-from . nixpkgs#nodejs)/bin/node"
 fi
+tool_dir="$fixture_dir/tool"
+mkdir -p "$tool_dir"
+cp "$repo_root/pkgs/cursor-agent/auto-update-scan.mjs" "$repo_root/pkgs/cursor-agent/check-auto-update.mjs" \
+  "$repo_root/pkgs/cursor-agent/review-auto-update.mjs" "$tool_dir/"
 # shellcheck disable=SC2016 # literal bundle text, not expansions
 option_line='addOption(new f.c$("--disable-auto-update","Disable auto-updates").default(!1).hideHelp())'
 update_module='"./src/commands/update-core.ts"(e,t,n){n.d(t,{shouldDoUpdate:()=>p,updateCursorAgent:()=>m});function m(e){let m=!1;return m=!0,{success:m}}function p(){return 1}}'
+forward='const run={localAgentMaxRetries:de,disableAutoUpdate:o.disableAutoUpdate,excludeWorkspaceContext:o.excludeWorkspaceContext,conversationHistory:Ge,singleTurn:o.singleTurn,backgroundShellTimeoutMs:void 0,padding:"so the guard below has its own window, as in the bundle, where they are 760 kB apart........................................................................................................................................................................................................................................"}'
 guarded='yo=o.configProvider.get(),null!==(tt=o.disableAutoUpdate)&&void 0!==tt&&tt||"static"===yo.channel||setTimeout((()=>{(0,D.updateCursorAgent)({dashboardClient:Rn,showProgress:!1,channel:yo.channel,isAutoUpdate:!0,product:"agent-cli"})}),2e3)'
 explicit='yield(0,o.updateCursorAgent)({dashboardClient:e,showProgress:!0,channel:i.channel,isAutoUpdate:!1,product:t})'
-chat="$guarded;$explicit"
+chat="$forward;$guarded;$explicit"
 bundle_case() { # <name> <index.js> <chat.js> <update module>: writes a fixture bundle, prints its directory
   mkdir -p "$fixture_dir/bundle-$1"
   printf '%s\n' "$2" >"$fixture_dir/bundle-$1/index.js"
@@ -111,33 +115,36 @@ bundle_case() { # <name> <index.js> <chat.js> <update module>: writes a fixture 
   printf '%s\n' "$4" >"$fixture_dir/bundle-$1/5211.index.js"
   printf '%s\n' "$fixture_dir/bundle-$1"
 }
+check_bundle() { (cd "$1" && "$node_bin" "$tool_dir/check-auto-update.mjs"); }
 reviewed=$(bundle_case reviewed "$option_line" "$chat" "$update_module")
-"$node_bin" "$auto_update_check" "$reviewed" --print >"$fixture_dir/review.json"
-"$node_bin" "$auto_update_check" "$reviewed" "$fixture_dir/review.json" >/dev/null ||
-  fail 'auto-update check rejects the bundle it reviewed'
-"$node_bin" "$auto_update_check" "$(bundle_case identical "$option_line" "$chat" "$update_module")" \
-  "$fixture_dir/review.json" >/dev/null || fail 'auto-update check rejects an identical rebuild'
+(cd "$reviewed" && "$node_bin" "$tool_dir/review-auto-update.mjs" >"$tool_dir/auto-update-review.json" 2>/dev/null)
+check_bundle "$reviewed" >/dev/null || fail 'auto-update check rejects the bundle it reviewed'
+check_bundle "$(bundle_case identical "$option_line" "$chat" "$update_module")" >/dev/null ||
+  fail 'auto-update check rejects an identical rebuild'
 expect_rejected() { # <name> <reason> <chat.js> [<update module>] [<index.js>]
-  if "$node_bin" "$auto_update_check" "$(bundle_case "$1" "${5-$option_line}" "$3" "${4-$update_module}")" \
-    "$fixture_dir/review.json" >/dev/null 2>&1; then
+  if check_bundle "$(bundle_case "$1" "${5-$option_line}" "$3" "${4-$update_module}")" >/dev/null 2>&1; then
     fail "auto-update check accepts $2"
   fi
 }
 expect_rejected renamed 'a rebuild that only renames minified names, before review' "${chat//tt/uu}" \
   '"./src/commands/update-core.ts"(a,b,c){c.d(b,{shouldDoUpdate:()=>w,updateCursorAgent:()=>k});function k(a){let k=!1;return k=!0,{success:k}}function w(){return 1}}'
-expect_rejected other-module 'the guard reading another module' "${guarded//o./w.};$explicit"
+expect_rejected forwarding 'a chat run that no longer forwards the option' "${chat/disableAutoUpdate:o.disableAutoUpdate/disableAutoUpdate:!1}"
+# shellcheck disable=SC2016 # literal bundle text, not expansions
+expect_rejected option-default 'an option definition that changed' "$chat" "$update_module" \
+  'addOption(new f.c$("--disable-auto-update","Disable auto-updates").default(!0).hideHelp())'
+expect_rejected other-module 'the guard reading another module' "$forward;${guarded//o./w.};$explicit"
 expect_rejected string-literal 'a changed string literal' "${chat//agent-cli/agent-cla}"
 expect_rejected property 'a changed property in the updater module' "$chat" "${update_module/n.d(t,/n.x(t,}"
 expect_rejected inverted 'an inverted guard' "${chat/&&tt||/&&!tt||}"
 expect_rejected negated 'a negated guard' "${chat/,null!==/,!null!==}"
 expect_rejected other-variable 'a guard that tests another variable' "${chat/&&tt||/&&uu||}"
-expect_rejected no-automatic 'a bundle without its automatic update' "$explicit"
+expect_rejected no-automatic 'a bundle without its automatic update' "$forward;$explicit"
 expect_rejected direct-call 'an added ungated direct call' "$chat;q.updateCursorAgent({isAutoUpdate:!0})"
-expect_rejected variable-argument 'a call without an object literal' "$guarded;(0,o.updateCursorAgent)(options)"
+expect_rejected variable-argument 'a call without an object literal' "$forward;$guarded;(0,o.updateCursorAgent)(options)"
 string_trick='yield(0,o.updateCursorAgent)({dashboardClient:e,showProgress:!0,channel:i.channel,isAutoUpdate:!1,x:"})"}&&{isAutoUpdate:!0})'
-expect_rejected string-trick 'a string that closes the literal early' "$guarded;$string_trick"
-expect_rejected spread 'a spread argument' "$guarded;${explicit/product:t/...options}"
-expect_rejected duplicate-key 'a duplicated isAutoUpdate' "$guarded;${explicit/product:t/isAutoUpdate:!0}"
+expect_rejected string-trick 'a string that closes the literal early' "$forward;$guarded;$string_trick"
+expect_rejected spread 'a spread argument' "$forward;$guarded;${explicit/product:t/...options}"
+expect_rejected duplicate-key 'a duplicated isAutoUpdate' "$forward;$guarded;${explicit/product:t/isAutoUpdate:!0}"
 expect_rejected optional-call 'an optional call' "$chat;q.updateCursorAgent?.({isAutoUpdate:!1})"
 expect_rejected computed-call 'a computed call' "$chat;q[\"updateCursorAgent\"]({isAutoUpdate:!1})"
 expect_rejected alias 'an alias' "$chat;const f=q.updateCursorAgent;f({isAutoUpdate:!0})"
@@ -215,8 +222,7 @@ if [ "$current_system" = aarch64-darwin ]; then
     [ "$(readlink "$package_out/libexec/cursor-agent/$name")" = ../../share/cursor-agent/cursor-agent ] ||
       fail "libexec link $name does not reach the vendor launcher"
   done
-  "$package_out/share/cursor-agent/node" "$auto_update_check" "$package_out/share/cursor-agent" \
-    "$repo_root/pkgs/cursor-agent/auto-update-review.json" >/dev/null ||
+  (cd "$package_out/share/cursor-agent" && ./node "$repo_root/pkgs/cursor-agent/check-auto-update.mjs") >/dev/null ||
     fail 'realised bundle does not match the auto-update review'
   codesign --verify --strict "$package_out/share/cursor-agent/node" || fail 'vendor node signature broken in the store'
   codesign --verify --strict "$package_out/share/cursor-agent/cursorsandbox" || fail 'vendor sandbox helper signature broken in the store'

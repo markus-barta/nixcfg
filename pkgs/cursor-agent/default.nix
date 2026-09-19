@@ -12,7 +12,8 @@
 # package replaces. $out/bin/{cursor-agent,agent} is wrapper.sh, which passes
 # the hidden root option --disable-auto-update where the bundle's raw argv
 # parsers cannot see it, and check-auto-update.mjs fails the bump unless the
-# updater code still matches the reviewed baseline (auto-update-review.json).
+# updater and option code still match the reviewed baseline
+# (auto-update-review.json; re-pin with review-auto-update.mjs).
 {
   lib,
   stdenvNoCC,
@@ -67,30 +68,43 @@ stdenvNoCC.mkDerivation {
   '';
 
   doInstallCheck = true;
-  installCheckPhase = ''
-    runHook preInstallCheck
-    version_output="$(HOME="$TMPDIR" "$out/bin/cursor-agent" --version)"
-    if [ "$version_output" != "${version}" ]; then
-      echo "cursor-agent: expected version ${version}, got: $version_output" >&2
-      exit 1
-    fi
+  installCheckPhase =
+    let
+      # NIX-516: the check, its scanner and the reviewed baseline, side by side.
+      autoUpdateCheck = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./auto-update-scan.mjs
+          ./check-auto-update.mjs
+          ./auto-update-review.json
+        ];
+      };
+    in
+    ''
+      runHook preInstallCheck
+      version_output="$(HOME="$TMPDIR" "$out/bin/cursor-agent" --version)"
+      if [ "$version_output" != "${version}" ]; then
+        echo "cursor-agent: expected version ${version}, got: $version_output" >&2
+        exit 1
+      fi
 
-    # NIX-516. The CLI accepts unknown options, so a run that works proves
-    # nothing about the flag: the vendor node checks the bundle instead.
-    "$out/share/cursor-agent/node" ${./check-auto-update.mjs} "$out/share/cursor-agent" ${./auto-update-review.json}
-    # The chat commands take the flag after their name; each must still parse.
-    for command in resume ls sandbox; do
-      HOME="$TMPDIR" "$out/bin/agent" "$command" --help | grep -q "^Usage: agent $command" || {
-        echo "cursor-agent: '$command' no longer parses with the wrapper flag" >&2
+      # NIX-516. The CLI accepts unknown options, so a run that works proves
+      # nothing about the flag: the vendor node compares the bundle's updater and
+      # option code with the reviewed baseline.
+      (cd "$out/share/cursor-agent" && ./node ${autoUpdateCheck}/check-auto-update.mjs)
+      # The chat commands take the flag after their name; each must still parse.
+      for command in resume ls sandbox; do
+        HOME="$TMPDIR" "$out/bin/agent" "$command" --help | grep -q "^Usage: agent $command" || {
+          echo "cursor-agent: '$command' no longer parses with the wrapper flag" >&2
+          exit 1
+        }
+      done
+      HOME="$TMPDIR" "$out/bin/agent" --help | grep -q '^Usage: agent \[options\]' || {
+        echo "cursor-agent: the root command no longer parses with the wrapper flag" >&2
         exit 1
       }
-    done
-    HOME="$TMPDIR" "$out/bin/agent" --help | grep -q '^Usage: agent \[options\]' || {
-      echo "cursor-agent: the root command no longer parses with the wrapper flag" >&2
-      exit 1
-    }
-    runHook postInstallCheck
-  '';
+      runHook postInstallCheck
+    '';
 
   meta = {
     description = "Cursor CLI coding agent (cursor-agent)";
