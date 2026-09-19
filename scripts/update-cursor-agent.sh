@@ -38,21 +38,32 @@ reclaim_held=0
 backup=''
 backup_pending=''
 temp=''
+restore_temp=''
 pin_written=0
 pin_verified=0
 current=''
 
 finish() {
+  trap '' INT TERM
   if [ "$pin_written" = 1 ] && [ "$pin_verified" != 1 ]; then
-    if cp "$backup" "$sources"; then
+    if restore_temp=$(mktemp "${sources}.tmp.XXXXXX") &&
+      cp "$backup" "$restore_temp" &&
+      chmod 0644 "$restore_temp" &&
+      mv "$restore_temp" "$sources"; then
       printf 'cursor-agent: bump not verified — pin restored to %s\n' "$current" >&2
+      rm -f "$backup" 2>/dev/null || true
+      backup=''
     else
-      printf 'cursor-agent: bump not verified — could not restore pin %s\n' "$current" >&2
+      printf 'cursor-agent: bump not verified — could not restore pin %s; backup retained at %s\n' "$current" "$backup" >&2
+      printf 'cursor-agent: recover with: git checkout -- pkgs/cursor-agent/sources.json\n' >&2
     fi
   fi
-  [ -z "$backup" ] || rm -f "$backup" 2>/dev/null || true
+  if [ "$pin_verified" = 1 ]; then
+    [ -z "$backup" ] || rm -f "$backup" 2>/dev/null || true
+  fi
   [ -z "$backup_pending" ] || rm -f "$backup_pending" 2>/dev/null || true
   [ -z "$temp" ] || rm -f "$temp" 2>/dev/null || true
+  [ -z "$restore_temp" ] || rm -f "$restore_temp" 2>/dev/null || true
   if [ "$(readlink "$lock_dir" 2>/dev/null || true)" = "$$" ]; then
     rm -f "$lock_dir" 2>/dev/null || true
   fi
@@ -66,26 +77,43 @@ acquire_lock() {
   trap finish EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  if [ -d "$lock_dir" ] && [ ! -L "$lock_dir" ]; then
+    die "update lock path $lock_dir is a directory; remove the stray directory once no update runs"
+  fi
   if ln -s "$$" "$lock_dir" 2>/dev/null; then
-    return
+    if [ "$(readlink "$lock_dir" 2>/dev/null || true)" = "$$" ]; then
+      return
+    fi
+    [ ! -L "$lock_dir/$$" ] || rm -f "$lock_dir/$$"
+    die "update lock path $lock_dir is a directory; remove the stray directory once no update runs"
   fi
 
   lock_pid=$(readlink "$lock_dir" 2>/dev/null || true)
   case "$lock_pid" in
-  '' | *[!0-9]*) die "cannot acquire update lock $lock_dir" ;;
+  '' | *[!0-9]*) die "cannot acquire update lock $lock_dir: target is not a numeric PID; remove the stray lock once no update runs" ;;
   esac
-  if kill -0 "$lock_pid" 2>/dev/null; then
-    die "update lock held by PID $lock_pid ($lock_dir); after a crash, remove it with: rm \"$lock_dir\" (only after no update is running)"
+  if [ -e "$reclaim_dir" ] || [ -L "$reclaim_dir" ]; then
+    die "cannot reclaim stale update lock $lock_dir: reclaim guard $reclaim_dir exists; remove it once no update runs"
   fi
 
   # Serialize stale-lock removal. If a normal writer wins after rm, this one
   # retry loses cleanly rather than claiming a lock that it does not own.
-  mkdir "$reclaim_dir" 2>/dev/null || die "cannot reclaim stale update lock $lock_dir"
+  mkdir "$reclaim_dir" 2>/dev/null || die "cannot create stale update lock reclaim guard $reclaim_dir"
   reclaim_held=1
   [ "$(readlink "$lock_dir" 2>/dev/null || true)" = "$lock_pid" ] ||
     die "cannot reclaim stale update lock $lock_dir"
+  if ps -p "$lock_pid" >/dev/null 2>&1 || kill -0 "$lock_pid" 2>/dev/null; then
+    die "update lock held by PID $lock_pid ($lock_dir); after a crash, remove it with: rm \"$lock_dir\" (only after no update is running)"
+  fi
   rm -f "$lock_dir" || die "cannot reclaim stale update lock $lock_dir"
-  ln -s "$$" "$lock_dir" 2>/dev/null || die "cannot acquire update lock $lock_dir"
+  if ln -s "$$" "$lock_dir" 2>/dev/null; then
+    if [ "$(readlink "$lock_dir" 2>/dev/null || true)" != "$$" ]; then
+      [ ! -L "$lock_dir/$$" ] || rm -f "$lock_dir/$$"
+      die "update lock path $lock_dir is a directory; remove the stray directory once no update runs"
+    fi
+  else
+    die "cannot acquire update lock $lock_dir"
+  fi
   rmdir "$reclaim_dir" 2>/dev/null || die "cannot reclaim stale update lock $lock_dir"
   reclaim_held=0
 }
