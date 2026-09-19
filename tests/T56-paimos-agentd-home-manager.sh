@@ -41,7 +41,7 @@ server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]
 assert len(client) == 1, f"expected one Paimos client release pin, got {client!r}"
 assert len(server) == 1, f"expected one PPM server release pin, got {server!r}"
 assert client[0] == server[0][0], f"Paimos client/server release drift: {client[0]} != {server[0][0]}"
-assert server[0][1] == "sha256:d10a8c999fc18c9041dcd827e710f30444f0b883edcc9caec7d8eb244266f051", server
+assert server[0][1] == "sha256:0d4b220f46985f33d2bdce84f21d77a2aa2b0fb7f134d86f9c3516f4dbf89073", server
 print(server[0][0])
 PY
 )
