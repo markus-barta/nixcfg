@@ -111,8 +111,10 @@
 #     and normal browser use from Finder/Dock/Spotlight is unaffected.
 #   - It never shadows `codex`: wrapping it would break its own sandbox. Other
 #     CLIs get same-name launchers in a dedicated directory placed ahead of
-#     ~/.npm-global/bin and /opt/homebrew/bin — by fish `shellInit` and by zsh
-#     `envExtra` (.zshenv, which non-interactive `zsh -c` also reads). bash, sh
+#     every other PATH entry — by fish `shellInit` and zsh `envExtra` (.zshenv,
+#     which non-interactive `zsh -c` also reads), and again as the LAST step of
+#     fish login/interactive init and zsh .zlogin/.zshrc, because host login
+#     init re-prepends Homebrew and the Nix profiles (NIX-515). bash, sh
 #     scripts and launchd jobs are NOT covered by PATH, and callers that hardcode
 #     an absolute vendor path bypass it by construction — see the migration items.
 #   - It writes nothing into a CODEX_HOME, /etc, a vendor npm package or a
@@ -568,8 +570,32 @@ in
     # fish is the interactive shell here, and ai-clis-npm.nix prepends
     # ~/.npm-global/bin in its own shellInit; `mkAfter` puts the guard directory
     # in front of it. `--move` keeps a single entry if it is already present.
+    #
+    # NIX-515: that is not the last word. Host `loginShellInit` then moves
+    # ~/.nix-profile/bin, the default profile and /opt/homebrew/bin to the front,
+    # so in a login shell (every terminal) any same-name binary there won PATH
+    # unguarded — measured 2026-09-19 with a stray Homebrew grok. Re-prepend as
+    # the last step of the login and interactive phases (mkOrder 2000 sorts
+    # after mkAfter). fish_add_path persists into the universal
+    # fish_user_paths, so also drop shadow-bin entries of older generations:
+    # they pile up with every switch and dangle once garbage-collected.
     programs.fish.shellInit = lib.mkIf (hasLaunchers) (
-      lib.mkAfter "fish_add_path --prepend --move ${shadowBin}/bin"
+      lib.mkAfter ''
+        for p in $fish_user_paths
+          if string match -q -- '/nix/store/*-inspr-agent-guard-shadow-bin/bin' $p
+            and test "$p" != "${shadowBin}/bin"
+            set -l i (contains -i -- $p $fish_user_paths)
+            and set -e fish_user_paths[$i]
+          end
+        end
+        fish_add_path --prepend --move ${shadowBin}/bin
+      ''
+    );
+    programs.fish.loginShellInit = lib.mkIf (hasLaunchers) (
+      lib.mkOrder 2000 "fish_add_path --prepend --move ${shadowBin}/bin"
+    );
+    programs.fish.interactiveShellInit = lib.mkIf (hasLaunchers) (
+      lib.mkOrder 2000 "fish_add_path --prepend --move ${shadowBin}/bin"
     );
 
     # zsh: `envExtra` lands in .zshenv, which every zsh reads — including the
@@ -579,6 +605,17 @@ in
     # absolute guarded path or an agentd-owned launch.
     programs.zsh.envExtra = lib.mkIf (hasLaunchers) (
       lib.mkAfter ''export PATH="${shadowBin}/bin:$PATH"''
+    );
+    # NIX-515: a login zsh then runs /etc/zprofile (path_helper) and Home
+    # Manager's session setup, which put ~/.npm-global/bin back in front —
+    # measured 2026-09-19: `zsh -l` resolved claude, grok and pi unguarded.
+    # Re-prepend last in .zlogin (every login shell, after .zshrc) and .zshrc
+    # (interactive non-login), without duplicating the entry.
+    programs.zsh.loginExtra = lib.mkIf (hasLaunchers) (
+      lib.mkOrder 2000 "path=(${shadowBin}/bin \${path:#${shadowBin}/bin})"
+    );
+    programs.zsh.initContent = lib.mkIf (hasLaunchers) (
+      lib.mkOrder 2000 "path=(${shadowBin}/bin \${path:#${shadowBin}/bin})"
     );
 
     # Operator-reviewable copies of the Codex policy. Home Manager owns these two
