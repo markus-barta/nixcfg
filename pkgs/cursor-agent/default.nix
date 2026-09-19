@@ -6,14 +6,17 @@
 # sources.json so `just update-ai-clis` can bump it
 # (scripts/update-cursor-agent.sh) without editing Nix.
 #
-# Self-update: the CLI still runs its background updater, but that only writes
-# into ~/.local/share/cursor-agent and ~/.local/bin, which nothing in this repo
-# points at. Its in-use marker is skipped outside a `versions/` directory, so the
-# read-only store path is never written.
+# Self-update (NIX-516): the vendor starts a background updater about two
+# seconds into every agent run. It installs into ~/.local/share/cursor-agent and
+# relinks ~/.local/bin/{agent,cursor-agent}, re-creating the imperative copy this
+# package replaces. $out/bin is a wrapper that always passes the hidden root
+# option --disable-auto-update, and installCheck fails the bump if the vendor
+# drops that option or adds an automatic update it does not gate.
 {
   lib,
   stdenvNoCC,
   fetchurl,
+  makeWrapper,
 }:
 
 let
@@ -31,6 +34,8 @@ stdenvNoCC.mkDerivation {
     inherit (asset) hash;
   };
 
+  nativeBuildInputs = [ makeWrapper ];
+
   dontConfigure = true;
   dontBuild = true;
   # Vendor-signed Mach-O files (node, cursorsandbox, *.node) carry hardened-runtime
@@ -47,10 +52,14 @@ stdenvNoCC.mkDerivation {
     find . -name '._*' -type f -delete
     mkdir -p "$out/bin" "$out/share/cursor-agent"
     cp -R . "$out/share/cursor-agent/"
-    # The launcher resolves its own directory with realpath, so both names work
-    # through symlinks, exactly like the vendor's ~/.local/bin links.
-    ln -s "$out/share/cursor-agent/cursor-agent" "$out/bin/cursor-agent"
-    ln -s "$out/share/cursor-agent/cursor-agent" "$out/bin/agent"
+    # Every consumer (guard shims, paimos-agentd, Pi's CURSOR_AGENT_PATH) runs
+    # $out/bin, so the flag goes on there. The wrapper execs the launcher by its
+    # absolute path, which the launcher resolves to find its bundle. A shell
+    # wrapper, not makeBinaryWrapper: dontFixup skips the ad-hoc signing an
+    # arm64 Mach-O wrapper would need.
+    makeWrapper "$out/share/cursor-agent/cursor-agent" "$out/bin/cursor-agent" \
+      --add-flags --disable-auto-update
+    ln -s cursor-agent "$out/bin/agent"
     runHook postInstall
   '';
 
@@ -62,6 +71,31 @@ stdenvNoCC.mkDerivation {
       echo "cursor-agent: expected version ${version}, got: $version_output" >&2
       exit 1
     fi
+
+    # NIX-516. The CLI accepts unknown options, so a run that works proves
+    # nothing about the flag: check the bundle instead. The option must still be
+    # defined, and every automatic update must still be gated on it.
+    bundle="$out/share/cursor-agent"
+    grep -Fq -- '"--disable-auto-update"' "$bundle/index.js" || {
+      echo "cursor-agent: the vendor bundle no longer defines --disable-auto-update" >&2
+      exit 1
+    }
+    cat "$bundle"/*.js | grep -oE '.{0,300}isAutoUpdate:!0' >"$TMPDIR/auto-update-sites" || true
+    if grep -v 'disableAutoUpdate' "$TMPDIR/auto-update-sites" | grep -q .; then
+      echo "cursor-agent: an automatic update is no longer gated on disableAutoUpdate" >&2
+      exit 1
+    fi
+    grep -Fq -- '--disable-auto-update' "$out/bin/cursor-agent" || {
+      echo "cursor-agent: the wrapper does not pass --disable-auto-update" >&2
+      exit 1
+    }
+    # Subcommands still parse with the flag in front of them.
+    for command in update models status login; do
+      HOME="$TMPDIR" "$out/bin/agent" "$command" --help | grep -q "^Usage: agent $command" || {
+        echo "cursor-agent: '$command' no longer parses behind the wrapper flag" >&2
+        exit 1
+      }
+    done
     runHook postInstallCheck
   '';
 

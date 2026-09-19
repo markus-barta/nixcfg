@@ -4,7 +4,9 @@
 # the guard shims, and those, paimos-agentd and Pi's CURSOR_AGENT_PATH all run
 # that same store path — no imperative
 # ~/.local/share/cursor-agent copy is referenced. `just update-ai-clis` bumps
-# the pin through scripts/update-cursor-agent.sh.
+# the pin through scripts/update-cursor-agent.sh. NIX-516: $out/bin always
+# passes --disable-auto-update, so running the package never re-creates that
+# imperative copy, and a vendor release that drops the flag fails the bump.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -28,6 +30,10 @@ grep -Fq 'https://downloads.cursor.com/lab/${version}/${asset.os}/${asset.arch}/
   fail 'package does not fetch the official versioned vendor tarball'
 grep -Fq 'sourceProvenance = [ lib.sourceTypes.binaryNativeCode ];' "$package_file" || fail 'binary provenance is not declared'
 grep -Fq 'dontFixup = true;' "$package_file" || fail 'vendor-signed binaries must stay byte-identical'
+grep -Fq -- '--add-flags --disable-auto-update' "$package_file" ||
+  fail 'the package no longer disables the vendor background updater'
+grep -Fq 'isAutoUpdate:!0' "$package_file" ||
+  fail 'installCheck no longer verifies that every automatic update is gated'
 
 # No Nix value may point at the imperative vendor install any more (comments
 # that explain the migration are fine).
@@ -105,6 +111,8 @@ if [ "$current_system" = aarch64-darwin ]; then
   nix build '.#packages.aarch64-darwin.cursor-agent' --no-link
   [ "$("$cursor_exe" --version)" = "$pinned" ] || fail 'realised cursor-agent version mismatch'
   [ "$("$package_out/bin/agent" --version)" = "$pinned" ] || fail 'realised agent alias version mismatch'
+  grep -Fq -- '--disable-auto-update' "$cursor_exe" || fail 'realised wrapper does not pass --disable-auto-update'
+  [ "$(readlink "$package_out/bin/agent")" = cursor-agent ] || fail 'agent alias bypasses the wrapper'
   codesign --verify --strict "$package_out/share/cursor-agent/node" || fail 'vendor node signature broken in the store'
   codesign --verify --strict "$package_out/share/cursor-agent/cursorsandbox" || fail 'vendor sandbox helper signature broken in the store'
 fi
