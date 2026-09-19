@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+# YuE2 + ComfyUI helper: start | stop | status
+# Optional: start --autostop 45m | start --idle-stop 20m
+set -u
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+COMFY="$ROOT/ComfyUI"
+PYTHON="$ROOT/.venv/bin/python"
+HOST="127.0.0.1"
+PORT="8188"
+URL="http://${HOST}:${PORT}"
+SUPPORT="${HOME}/Library/Application Support/yue2-comfyui"
+LOGDIR="${HOME}/Library/Logs/yue2-comfyui"
+PIDFILE="$SUPPORT/comfyui.pid"
+WATCHPID="$SUPPORT/watchdog.pid"
+LOGFILE="$LOGDIR/comfyui.log"
+WATCHLOG="$LOGDIR/watchdog.log"
+BIN="$ROOT/bin/yue2-comfyui"
+
+usage() {
+  cat <<USAGE
+Usage: $(basename "$0") start [--autostop DUR] [--idle-stop DUR]
+       $(basename "$0") stop|status
+
+  start              Launch ComfyUI on ${URL}
+  start --autostop   Hard stop after duration (e.g. 45m, 2h, 90)
+  start --idle-stop  Stop when queue empty for duration (e.g. 20m)
+  stop               SIGTERM, then SIGKILL if needed (+ kill watchdog)
+  status             Report pid + HTTP health + watchdog
+
+Duration: Ns / Nm / Nh or bare minutes (45 = 45m).
+USAGE
+}
+
+die() { echo "error: $*" >&2; exit 1; }
+
+ensure_layout() {
+  [ -x "$PYTHON" ] || die "missing venv python: $PYTHON"
+  [ -f "$COMFY/main.py" ] || die "missing ComfyUI: $COMFY/main.py"
+  mkdir -p "$SUPPORT" "$LOGDIR"
+}
+
+pid_alive() {
+  local pid="$1"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+# A pid file can outlive its process (crash, reboot) and the pid be reused by
+# something unrelated. Never signal on "alive" alone: check it is still ours.
+pid_cmd_has() {
+  local pid="$1" needle="$2" cmd
+  pid_alive "$pid" || return 1
+  cmd="$(ps -o command= -p "$pid" 2>/dev/null)" || return 1
+  case "$cmd" in *"$needle"*) return 0 ;; esac
+  return 1
+}
+server_alive() { pid_cmd_has "$1" "main.py --listen ${HOST} --port ${PORT}"; }
+# The watchdog is a subshell of this script, so its argv is ours.
+watchdog_alive() { pid_cmd_has "$1" "bin/yue2-comfyui"; }
+
+read_pidfile() {
+  local f="$1"
+  if [ -f "$f" ]; then
+    tr -d "[:space:]" <"$f"
+  fi
+}
+
+http_ok() {
+  curl -fsS -o /dev/null --max-time 2 "$URL/" 2>/dev/null \
+    || curl -fsS -o /dev/null --max-time 2 "$URL" 2>/dev/null
+}
+
+dur_to_sec() {
+  local d="$1"
+  if [[ "$d" =~ ^[0-9]+$ ]]; then
+    echo $((d * 60))
+    return 0
+  fi
+  if [[ "$d" =~ ^([0-9]+)([smhd])$ ]]; then
+    local n="${BASH_REMATCH[1]}" u="${BASH_REMATCH[2]}"
+    case "$u" in
+      s) echo "$n" ;;
+      m) echo $((n * 60)) ;;
+      h) echo $((n * 3600)) ;;
+      d) echo $((n * 86400)) ;;
+    esac
+    return 0
+  fi
+  return 1
+}
+
+
+sync_workflow() {
+  local src="$ROOT/workflows/yue2_full.json"
+  local dest_dir="$ROOT/ComfyUI/user/default/workflows"
+  mkdir -p "$dest_dir"
+  if [ -f "$src" ]; then
+    cp "$src" "$dest_dir/yue2_full.json"
+    cp "$src" "$dest_dir/YuE2 Full.json"
+  fi
+}
+
+open_ui() {
+  # Prefer opening the UI; extension autoloads yue2_full music graph.
+  # NIX-445: never launch a browser from a guarded agent session.
+  if [ -n "${INSPR_AGENT_BROWSER_GUARD:-}" ]; then
+    echo "agent session: not opening a browser; UI at $URL"
+    return 0
+  fi
+  if command -v open >/dev/null 2>&1; then
+    open "$URL" >/dev/null 2>&1 || true
+  fi
+}
+
+queue_busy() {
+  local q
+  q="$(curl -fsS --max-time 2 "$URL/queue" 2>/dev/null)" || return 1
+  printf '%s' "$q" | "$PYTHON" -c 'import json,sys
+q=json.load(sys.stdin)
+run=q.get("queue_running") or []
+pend=q.get("queue_pending") or []
+sys.exit(0 if (run or pend) else 1)'
+}
+
+kill_watchdog() {
+  local w
+  w="$(read_pidfile "$WATCHPID")"
+  if [ -n "$w" ] && watchdog_alive "$w"; then
+    kill -TERM "$w" 2>/dev/null || true
+    sleep 0.5
+    watchdog_alive "$w" && kill -KILL "$w" 2>/dev/null || true
+  fi
+  rm -f "$WATCHPID"
+}
+
+start_watchdog() {
+  local mode="$1" secs="$2"
+  kill_watchdog
+  (
+    echo "----- watchdog $mode ${secs}s $(date -u +%Y-%m-%dT%H:%M:%SZ) -----" >>"$WATCHLOG"
+    if [ "$mode" = "autostop" ]; then
+      sleep "$secs"
+      echo "autostop fired after ${secs}s" >>"$WATCHLOG"
+      "$BIN" stop >>"$WATCHLOG" 2>&1
+      exit 0
+    fi
+    local idle=0
+    while true; do
+      sleep 30
+      if ! http_ok; then
+        echo "idle-stop: UI gone, exiting watchdog" >>"$WATCHLOG"
+        rm -f "$WATCHPID"
+        exit 0
+      fi
+      if queue_busy; then
+        idle=0
+      else
+        idle=$((idle + 30))
+        if [ "$idle" -ge "$secs" ]; then
+          echo "idle-stop: queue idle ${idle}s >= ${secs}s" >>"$WATCHLOG"
+          "$BIN" stop >>"$WATCHLOG" 2>&1
+          exit 0
+        fi
+      fi
+    done
+  ) &
+  echo $! >"$WATCHPID"
+  echo "watchdog $mode pid=$(cat "$WATCHPID") after ${secs}s"
+}
+
+cmd_status() {
+  ensure_layout
+  local pid w
+  pid="$(read_pidfile "$PIDFILE")"
+  w="$(read_pidfile "$WATCHPID")"
+  if [ -z "$pid" ]; then
+    echo "stopped (no pid file)"
+    [ -n "$w" ] && echo "stale watchdog pid=$w (clearing)" && kill_watchdog
+    return 1
+  fi
+  if ! server_alive "$pid"; then
+    echo "stopped (stale pid $pid)"
+    kill_watchdog
+    rm -f "$PIDFILE"
+    return 1
+  fi
+  if http_ok; then
+    echo "running pid=$pid url=$URL"
+  else
+    echo "starting pid=$pid (no HTTP on $URL yet; see $LOGFILE)"
+  fi
+  if [ -n "$w" ] && watchdog_alive "$w"; then
+    echo "watchdog pid=$w"
+  fi
+  return 0
+}
+
+cmd_start() {
+  ensure_layout
+  sync_workflow
+  local autostop="" idlestop=""
+  shift || true
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --autostop)
+        [ $# -ge 2 ] || die "--autostop needs a duration"
+        autostop="$2"
+        shift 2
+        ;;
+      --idle-stop)
+        [ $# -ge 2 ] || die "--idle-stop needs a duration"
+        idlestop="$2"
+        shift 2
+        ;;
+      -h|--help) usage; return 0 ;;
+      *) die "unknown start flag: $1" ;;
+    esac
+  done
+
+  local auto_secs="" idle_secs=""
+  if [ -n "$autostop" ]; then
+    auto_secs="$(dur_to_sec "$autostop")" || die "bad --autostop duration: $autostop"
+  fi
+  if [ -n "$idlestop" ]; then
+    idle_secs="$(dur_to_sec "$idlestop")" || die "bad --idle-stop duration: $idlestop"
+  fi
+  if [ -n "$autostop" ] && [ -n "$idlestop" ]; then
+    die "use either --autostop or --idle-stop, not both"
+  fi
+
+  local pid
+  pid="$(read_pidfile "$PIDFILE")"
+  if [ -n "$pid" ] && server_alive "$pid"; then
+    if http_ok; then
+      echo "already running pid=$pid"
+      echo "$URL"
+    else
+      echo "already starting pid=$pid; waiting for $URL"
+    fi
+  else
+    [ -n "$pid" ] && rm -f "$PIDFILE"
+    if curl -fsS -o /dev/null --max-time 1 "$URL/" 2>/dev/null; then
+      die "port ${PORT} already serving but not our pid file"
+    fi
+    : >>"$LOGFILE"
+    echo "----- start $(date -u +%Y-%m-%dT%H:%M:%SZ) -----" >>"$LOGFILE"
+    # nohup + disown so the server survives the wrapper exiting (fish/agent shells)
+    (
+      cd "$COMFY"
+      exec nohup "$PYTHON" -u main.py --listen "$HOST" --port "$PORT"
+    ) >>"$LOGFILE" 2>&1 &
+    pid=$!
+    disown "$pid" 2>/dev/null || true
+    echo "$pid" >"$PIDFILE"
+    echo "started pid=$pid"
+  fi
+
+  local i
+  for i in $(seq 1 90); do
+    if ! pid_alive "$pid"; then
+      die "ComfyUI exited during startup; last log lines:\n$(tail -n 40 "$LOGFILE")"
+    fi
+    if http_ok; then
+      echo "$URL"
+      open_ui
+      break
+    fi
+    sleep 1
+    if [ "$i" -eq 90 ]; then
+      die "timed out waiting for $URL; pid=$pid still alive. See $LOGFILE"
+    fi
+  done
+
+  if [ -n "$auto_secs" ]; then
+    start_watchdog autostop "$auto_secs"
+  elif [ -n "$idle_secs" ]; then
+    start_watchdog idle-stop "$idle_secs"
+  fi
+}
+
+cmd_stop() {
+  ensure_layout
+  kill_watchdog
+  local pid
+  pid="$(read_pidfile "$PIDFILE")"
+  if [ -z "$pid" ]; then
+    echo "already stopped"
+    return 0
+  fi
+  if ! server_alive "$pid"; then
+    rm -f "$PIDFILE"
+    echo "already stopped (cleared stale pid $pid)"
+    return 0
+  fi
+
+  kill -TERM "$pid" 2>/dev/null || true
+  local i
+  for i in $(seq 1 20); do
+    server_alive "$pid" || break
+    sleep 1
+  done
+  if server_alive "$pid"; then
+    echo "SIGTERM wait exceeded; sending SIGKILL to $pid"
+    kill -KILL "$pid" 2>/dev/null || true
+    sleep 1
+  fi
+  if server_alive "$pid"; then
+    die "failed to stop pid $pid"
+  fi
+  rm -f "$PIDFILE"
+  echo "stopped pid=$pid"
+}
+
+main() {
+  case "${1:-}" in
+    start) cmd_start "$@" ;;
+    stop) cmd_stop ;;
+    status) cmd_status ;;
+    -h|--help|help) usage ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+main "$@"
