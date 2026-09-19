@@ -570,8 +570,22 @@ chmod -R u+w "$work/shellcfg" "$work/zdot"
 # Home Manager's .zshenv re-points ZDOTDIR at the live ~/.config/zsh; keep the
 # probe on the built files.
 sed -i.orig "s#^export ZDOTDIR=.*#export ZDOTDIR=\"$work/zdot\"#" "$work/zdot/.zshenv"
+# A missed substitution would silently probe the LIVE ~/.config/zsh instead.
+grep -Fxq "export ZDOTDIR=\"$work/zdot\"" "$work/zdot/.zshenv" ||
+  fail 'could not re-point ZDOTDIR in the built .zshenv; the zsh probe would test live files'
+if grep -Eq 'ZDOTDIR=' "$work/zdot/.zshenv" && grep -E 'ZDOTDIR=' "$work/zdot/.zshenv" | grep -vFq "$work/zdot"; then
+  fail 'the built .zshenv sets ZDOTDIR somewhere the probe does not control'
+fi
 stale=/nix/store/00000000000000000000000000000000-inspr-agent-guard-shadow-bin/bin
 printf '# VERSION: 3.0\nSETUVAR fish_user_paths:/opt/homebrew/bin\\x1e%s\n' "$stale" >"$work/shellcfg/fish/fish_variables"
+# The fixture must really be read, or "stale entry absent" would prove nothing.
+# (fish --no-config also skips universal variables, so read it through a
+# config dir that holds only the fixture.)
+mkdir -p "$work/uvar-only/fish"
+cp "$work/shellcfg/fish/fish_variables" "$work/uvar-only/fish/"
+probe_fixture=$(env -i HOME="$HOME" XDG_CONFIG_HOME="$work/uvar-only" "$hm_gen/home-path/bin/fish" \
+  -c "contains -- '$stale' \$fish_user_paths; and echo parsed" 2>/dev/null || true)
+[ "$probe_fixture" = parsed ] || fail 'fish does not read the fixture fish_user_paths; the purge check would be vacuous'
 probe_env() { env -i HOME="$HOME" USER="$USER" LOGNAME="$USER" TERM=xterm-256color "$@"; }
 fish_probe='set -l bad; for c in claude grok pi cursor-agent agent; string match -q -- "*-inspr-agent-guard-shadow-bin/bin/*" (command -v $c); or set -a bad $c; end; string match -q -- "*-inspr-agent-guard-shadow-bin/bin" $PATH[1]; or set -a bad PATH1; contains -- '"$stale"' $fish_user_paths; and set -a bad stale; echo "bad=$bad"'
 for mode in -il -l -i ''; do
