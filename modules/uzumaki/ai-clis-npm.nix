@@ -35,8 +35,7 @@ let
     text = ''
       exec python3 ${../../scripts/update-ai-clis.py} \
         --packages ${./ai-clis-npm-packages.json} \
-        --allow-scripts ${./ai-clis-npm-allow-scripts.json} \
-        --npm ${pkgs.nodejs}/bin/npm "$@"
+        --allow-scripts ${./ai-clis-npm-allow-scripts.json} "$@"
     '';
   };
   # Pi package (not a global npm CLI). Full-system extension → pin exact.

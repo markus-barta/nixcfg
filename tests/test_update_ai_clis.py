@@ -66,7 +66,7 @@ class UpdateTests(unittest.TestCase):
         self.prefix = self.root / "npm global"
         (self.prefix / "bin").mkdir(parents=True)
         self.fixture = {"versions": {"@test/one": "2.0.0", "@test/two": "2.0.0"},
-                        "bins": {"@test/one": "one", "@test/two": "two"}}
+                        "bins": {"@test/one": "claude", "@test/two": "codex"}}
         self.packages = self.root / "packages.json"
         self.packages.write_text(json.dumps([
             {"name": name, "version": "latest", "bin": binary}
@@ -81,10 +81,11 @@ class UpdateTests(unittest.TestCase):
         self.ready = self.root / "ready"
         self.data = self.root / "fixture.json"
         self.env = dict(os.environ, FIXTURE=str(self.data), CALLS=str(self.log),
+                        PATH=f"{self.root}:{os.environ['PATH']}",
                         READY=str(self.ready), GROK_HOME=str(self.root / "live-grok"))
         self.command = [sys.executable, str(SCRIPT), "--prefix", str(self.prefix),
                         "--packages", str(self.packages), "--allow-scripts",
-                        str(self.approvals), "--npm", str(self.npm)]
+                        str(self.approvals)]
         self.old_targets = {}
         for name, binary in self.fixture["bins"].items():
             package = self.prefix / "lib/node_modules" / name
@@ -152,7 +153,7 @@ class UpdateTests(unittest.TestCase):
         result = self.run_update()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.installs()), 1)
-        self.assertEqual(self.links()["one"], self.old_targets["one"])
+        self.assertEqual(self.links()["claude"], self.old_targets["claude"])
 
     def test_failed_second_install_publishes_neither_package(self):
         self.fixture["fail"] = ["@test/two"]
@@ -174,11 +175,11 @@ class UpdateTests(unittest.TestCase):
 
     def test_broken_current_version_is_repaired_in_staging(self):
         self.fixture["versions"] = dict.fromkeys(self.fixture["bins"], "1.0.0")
-        Path(self.old_targets["one"]).write_text("#!/bin/sh\nexit 1\n")
+        Path(self.old_targets["claude"]).write_text("#!/bin/sh\nexit 1\n")
         result = self.run_update()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.installs()), 1)
-        self.assertNotEqual(self.links()["one"], self.old_targets["one"])
+        self.assertNotEqual(self.links()["claude"], self.old_targets["claude"])
 
     def test_offline_failure_keeps_old_installation(self):
         self.fixture["offline"] = True
@@ -193,14 +194,14 @@ class UpdateTests(unittest.TestCase):
         self.packages.write_text(json.dumps(packages))
         result = self.run_update()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.links()["one"], self.old_targets["one"])
+        self.assertEqual(self.links()["claude"], self.old_targets["claude"])
         self.assertIn("@test/one@1.0.0", self.calls()[0]["args"])
 
     def test_unsupported_package_does_not_block_other_packages(self):
         self.fixture["unsupported"] = ["@test/one"]
         result = self.run_update()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.links()["one"], self.old_targets["one"])
+        self.assertEqual(self.links()["claude"], self.old_targets["claude"])
         self.assertEqual(len(self.installs()), 1)
 
     def test_check_does_not_create_state_or_install(self):
@@ -262,7 +263,7 @@ class UpdateTests(unittest.TestCase):
 
     def test_link_changed_by_other_writer_is_preserved(self):
         process = self.start_slow_update()
-        link = self.prefix / "bin" / "one"
+        link = self.prefix / "bin" / "claude"
         replacement = self.prefix / "bin" / "replacement"
         replacement.symlink_to("/different-owner")
         os.replace(replacement, link)
@@ -270,7 +271,7 @@ class UpdateTests(unittest.TestCase):
         self.assertNotEqual(process.returncode, 0)
         self.assertIn("changed during staging", error)
         self.assertEqual(os.readlink(link), "/different-owner")
-        self.assertEqual(self.links()["two"], self.old_targets["two"])
+        self.assertEqual(self.links()["codex"], self.old_targets["codex"])
 
     def test_rollback_restores_old_links_without_registry_calls(self):
         self.assertEqual(self.run_update().returncode, 0)
@@ -296,15 +297,15 @@ class UpdateTests(unittest.TestCase):
         self.command[self.command.index("--prefix") + 1] = str(self.prefix)
         result = self.run_update()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("2.0.0", (self.prefix / "bin/one").read_text())
+        self.assertIn("2.0.0", (self.prefix / "bin/claude").read_text())
 
     def test_non_symlink_command_is_never_replaced(self):
         replacement = self.prefix / "bin" / "replacement"
         replacement.write_text("unmanaged")
-        os.replace(replacement, self.prefix / "bin/one")
+        os.replace(replacement, self.prefix / "bin/claude")
         result = self.run_update()
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual((self.prefix / "bin/one").read_text(), "unmanaged")
+        self.assertEqual((self.prefix / "bin/claude").read_text(), "unmanaged")
         self.assertFalse(self.log.exists())
 
 
