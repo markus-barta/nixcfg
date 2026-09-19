@@ -227,6 +227,11 @@ exit 99
             self.assertNotRegex(text, r"--allow-scripts=@")
             self.assertNotIn("dangerously-allow-all-scripts", text)
 
+    def test_claude_auto_updater_is_disabled_in_home_environment(self):
+        module = AI_CLIS_MODULE.read_text()
+        self.assertRegex(module, r'home\.sessionVariables\.DISABLE_AUTOUPDATER\s*=\s*"1";')
+        self.assertRegex(module, r"set -gx DISABLE_AUTOUPDATER 1")
+
     def test_recipe_cursor_failure_does_not_skip_doctor(self):
         before = CURSOR_SOURCES.read_bytes()
         self.env["TEST_CURL_EXIT"] = "7"
