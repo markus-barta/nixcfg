@@ -72,9 +72,10 @@ for home in 'markus@mbp2607' 'mba@mbp2606' 'mailina@mbp2606'; do
 done
 
 guard=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.uzumaki.agentBrowserGuard.envOnlyPrograms')
+# NIX-522: each name execs its own entry point, so `agent` keeps its name.
 for name in cursor-agent agent; do
   target=$(printf '%s' "$guard" | jq -er --arg n "$name" '.[$n]') || fail "guard shim $name is missing"
-  [ "$target" = "$cursor_exe" ] || fail "guard shim $name does not exec the pinned package: $target"
+  [ "$target" = "$package_out/bin/$name" ] || fail "guard shim $name does not exec the pinned package's bin/$name: $target"
 done
 agentd_cursor=$(cd "$repo_root" && nix eval --raw '.#homeConfigurations."markus@mbp2607".config.uzumaki.paimosAgentd.cursorPath')
 [ "$agentd_cursor" = "$cursor_exe" ] || fail "paimos-agentd cursorPath is not the pinned package: $agentd_cursor"
