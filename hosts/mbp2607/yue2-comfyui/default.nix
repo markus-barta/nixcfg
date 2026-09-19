@@ -8,14 +8,16 @@
 #                                   stack as its own parent directory)
 #   - workflows/yue2_full.json      synced into ComfyUI's workflows on start
 #   - custom_nodes/yue2_autoload    opens that workflow when the UI starts
+#                                   (copied as regular files, see below)
 #   - the `yue2` fish command       (was an orphaned stash, 2026-09-17)
 # Setup, usage, license and uninstall notes: PPM NIX runbook `yue2-comfyui-mac`.
 # Uninstalling means dropping this import BEFORE deleting the stack directory,
 # or the next switch re-creates the links.
 #
-# `yue2 on` / `start` opens the UI in the default browser. Agent sessions must
-# never run it (NIX-445); `yue2 status` is the safe check.
-{ ... }:
+# `yue2 on` / `start` opens the UI in the default browser, except inside a
+# guarded agent session (INSPR_AGENT_BROWSER_GUARD set), where it only prints
+# the URL (NIX-445). Agents should still prefer `yue2 status`.
+{ lib, ... }:
 
 let
   root = "Code/yue2-comfyui";
@@ -50,8 +52,19 @@ in
       executable = true;
     };
     "${root}/workflows/yue2_full.json".source = ./yue2_full.json;
-    "${root}/ComfyUI/custom_nodes/yue2_autoload/__init__.py".source = ./yue2_autoload/__init__.py;
-    "${root}/ComfyUI/custom_nodes/yue2_autoload/js/yue2_autoload.js".source =
-      ./yue2_autoload/js/yue2_autoload.js;
   };
+
+  # The autoload node must be REGULAR files, not home.file symlinks: ComfyUI
+  # serves extension JS through aiohttp static with follow_symlinks=False, so a
+  # link into /nix/store answers 404 and the autoload silently stops working.
+  # Copy them on every switch, and only into an existing runtime tree.
+  home.activation.yue2AutoloadNode = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    comfy="$HOME/${root}/ComfyUI"
+    if [ -d "$comfy/custom_nodes" ]; then
+      node="$comfy/custom_nodes/yue2_autoload"
+      $DRY_RUN_CMD mkdir -p "$node/js"
+      $DRY_RUN_CMD install -m 0644 ${./yue2_autoload/__init__.py} "$node/__init__.py"
+      $DRY_RUN_CMD install -m 0644 ${./yue2_autoload/js/yue2_autoload.js} "$node/js/yue2_autoload.js"
+    fi
+  '';
 }

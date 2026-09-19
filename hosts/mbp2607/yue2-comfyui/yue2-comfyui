@@ -90,6 +90,11 @@ sync_workflow() {
 
 open_ui() {
   # Prefer opening the UI; extension autoloads yue2_full music graph.
+  # NIX-445: never launch a browser from a guarded agent session.
+  if [ -n "${INSPR_AGENT_BROWSER_GUARD:-}" ]; then
+    echo "agent session: not opening a browser; UI at $URL"
+    return 0
+  fi
   if command -v open >/dev/null 2>&1; then
     open "$URL" >/dev/null 2>&1 || true
   fi
