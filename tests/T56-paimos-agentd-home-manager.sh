@@ -128,8 +128,10 @@ assert env is not None and set(env) == {
     "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
     "PUPPETEER_EXECUTABLE_PATH",
     "INSPR_AGENT_BROWSER_GUARD",
+    "DISABLE_AUTOUPDATER",
 }, config
 assert env["INSPR_AGENT_BROWSER_GUARD"] == "env-only", config
+assert env["DISABLE_AUTOUPDATER"] == "1", config
 for key in ("CHROME_PATH", "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "PUPPETEER_EXECUTABLE_PATH"):
     assert env[key].startswith("/nix/store/"), config
     assert env[key].endswith("/bin/inspr-browser-guard-refuse"), config
@@ -219,6 +221,7 @@ assert set(generated["EnvironmentVariables"]) == {
     "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
     "PUPPETEER_EXECUTABLE_PATH",
     "INSPR_AGENT_BROWSER_GUARD",
+    "DISABLE_AUTOUPDATER",
 }, generated
 assert generated.get("UserName") is None, generated
 info = os.stat(sys.argv[2])

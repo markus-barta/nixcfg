@@ -65,6 +65,9 @@ in
 {
   home.packages = lib.optional (!cursorGuarded) pkgs.cursor-agent;
 
+  # NIX-521: avoid the Claude updater race; updates belong to Home Manager
+  # activation and the `just update-ai-clis` recipe.
+  home.sessionVariables.DISABLE_AUTOUPDATER = "1";
   home.sessionVariables.NPM_CONFIG_PREFIX = npmPrefix;
   home.sessionVariables.CURSOR_AGENT_PATH = cursorAgentPath;
   home.sessionPath = [ "${npmPrefix}/bin" ]; # bash/zsh
@@ -73,6 +76,7 @@ in
   # Prepend so npm-global wins over any older imperative installs in ~/.local/bin.
   programs.fish.shellInit = ''
     fish_add_path --prepend --move ${npmPrefix}/bin
+    set -gx DISABLE_AUTOUPDATER 1
     set -gx CURSOR_AGENT_PATH ${cursorAgentPath}
   '';
 

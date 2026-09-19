@@ -235,7 +235,7 @@ for payload, label in (
     (cursor_codex, "cursor-codex"),
 ):
     assert payload["failedAssertionMessages"] == [], (label, payload)
-    assert payload["environmentVariables"] is None, (label, payload)
+    assert payload["environmentVariables"] == {"DISABLE_AUTOUPDATER": "1"}, (label, payload)
     refute_private(payload, label)
 
 for flag in native_flags:
