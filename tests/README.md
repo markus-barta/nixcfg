@@ -86,6 +86,7 @@ Examples:
 - `T75-csb1-traefik-3713-isolated.sh` — csb1 Traefik 3.7.13 digest pin + isolated provider/plugin/redirect proof (NIX-448)
 - `T76-janus-flow-host.sh` — csb1 Janus Flow host config contract (NIX-481)
 - `T85-cursor-agent-package.sh` — pinned Cursor CLI package, its consumers and the `update-ai-clis` bump step (NIX-514)
+- `T86-update-cursor-agent-safety.sh` — offline Cursor CLI update lock and unsupported-host safety (NIX-519)
 - `T84-pi-inspr-kernel.sh` — Pi global AGENTS.md via inspr.agent-kernel (NIX-508)
 
 ## Writing Shell Tests
