@@ -24,6 +24,9 @@ let
   # `just update-ai-clis`). Guard shims, agentd and Pi's CURSOR_AGENT_PATH
   # (modules/uzumaki/ai-clis-npm.nix) all run this store path.
   cursorAgent = lib.getExe pkgs.cursor-agent;
+  # NIX-522: the `agent` name execs the package's own bin/agent, so the vendor
+  # launcher reports CURSOR_INVOKED_AS=agent instead of cursor-agent.
+  cursorAgentAlias = "${pkgs.cursor-agent}/bin/agent";
 in
 {
   # ============================================================================
@@ -99,7 +102,7 @@ in
         # preload plus the harness hints. Composer and Grok run through this
         # same harness and inherit it.
         cursor-agent = cursorAgent;
-        agent = cursorAgent;
+        agent = cursorAgentAlias;
       };
       # Explicit target for the operator-owned imperative shims that call an
       # absolute path (the named Codex launchers' Claude equivalents, and any
