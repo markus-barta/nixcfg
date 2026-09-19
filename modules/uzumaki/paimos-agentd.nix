@@ -25,6 +25,13 @@ let
   # owned launch paths get which layer.
   browserGuard = config.uzumaki.agentBrowserGuard;
   guardEnabled = cfg.browserGuard.enable;
+  # NIX-521: Claude Code update policy for agentd-owned sessions; see
+  # modules/uzumaki/ai-clis-npm.nix for the reasons.
+  claudeUpdateEnv = {
+    DISABLE_AUTOUPDATER = "1";
+    DISABLE_UPDATES = "1";
+    FORCE_AUTOUPDATE_PLUGINS = "1";
+  };
   # Env-only layer: harness variables point at the refusal shim. Used for Codex,
   # which applies its OWN Seatbelt profile per command — macOS refuses nested
   # profile application (`sandbox_apply: Operation not permitted`), so wrapping
@@ -224,11 +231,11 @@ let
   # not a boundary — a session that hardcodes the browser path still reaches it
   # unless its CLI is also sandbox-wrapped above.
   // {
-    # Keep the guard environment lazy so isolated evaluations without its module still work.
-    EnvironmentVariables = {
-      DISABLE_AUTOUPDATER = "1";
-    }
-    // lib.optionalAttrs guardEnabled browserGuard.launchdEnvironment;
+    # NIX-521: agentd-owned Claude sessions never update themselves (same policy
+    # as ai-clis-npm.nix). Keep the guard environment lazy so isolated
+    # evaluations without its module still work.
+    EnvironmentVariables =
+      claudeUpdateEnv // lib.optionalAttrs guardEnabled browserGuard.launchdEnvironment;
   };
   directServicePlist = pkgs.writeText "${serviceLabel}.plist" (
     lib.generators.toPlist { escape = true; } serviceConfig

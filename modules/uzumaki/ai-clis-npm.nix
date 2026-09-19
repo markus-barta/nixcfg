@@ -65,9 +65,16 @@ in
 {
   home.packages = lib.optional (!cursorGuarded) pkgs.cursor-agent;
 
-  # NIX-521: avoid the Claude updater race; updates belong to Home Manager
-  # activation and the `just update-ai-clis` recipe.
+  # NIX-521: Claude Code must not update itself. Its background updater and the
+  # manual `claude update` both run a plain `npm install -g` WITHOUT the
+  # allow-scripts list, which leaves ~/.npm-global/bin/claude a 500-byte stub.
+  # Updates belong to the HM activation and `just update-ai-clis` only.
+  #   DISABLE_AUTOUPDATER       background updater off
+  #   DISABLE_UPDATES           `claude update` refuses ("disabled by your administrator")
+  #   FORCE_AUTOUPDATE_PLUGINS  plugins (git/marketplace, not npm) keep updating
   home.sessionVariables.DISABLE_AUTOUPDATER = "1";
+  home.sessionVariables.DISABLE_UPDATES = "1";
+  home.sessionVariables.FORCE_AUTOUPDATE_PLUGINS = "1";
   home.sessionVariables.NPM_CONFIG_PREFIX = npmPrefix;
   home.sessionVariables.CURSOR_AGENT_PATH = cursorAgentPath;
   home.sessionPath = [ "${npmPrefix}/bin" ]; # bash/zsh
@@ -77,6 +84,8 @@ in
   programs.fish.shellInit = ''
     fish_add_path --prepend --move ${npmPrefix}/bin
     set -gx DISABLE_AUTOUPDATER 1
+    set -gx DISABLE_UPDATES 1
+    set -gx FORCE_AUTOUPDATE_PLUGINS 1
     set -gx CURSOR_AGENT_PATH ${cursorAgentPath}
   '';
 
