@@ -36,6 +36,12 @@ let
     "@steipete/bird@0.8.0" # X cookie-transport CLI (birdclaw live sync, 2026-08-06). Upstream frozen, repo withdrawn; holds full X session cookies → pin exact version
   ];
   npmPkgsLatest = lib.concatMapStringsSep " " (p: "${p}@latest") npmPkgs;
+  # NIX-517: the same allow-list `just update-ai-clis` passes. Without it npm
+  # 11.16 warns on every switch but still runs the scripts; once npm enforces
+  # the list it would skip them and leave the claude placeholder stub and a
+  # stale ~/.grok/bin. The pinned bird tool gets no install scripts.
+  npmAllowScriptsList = (lib.importJSON ./ai-clis-npm-allow-scripts.json).allowScripts;
+  npmAllowScripts = lib.concatStringsSep "," npmAllowScriptsList;
   npmPkgsPinnedStr = lib.concatStringsSep " " npmPkgsPinned;
   # Pi package (not a global npm CLI). Full-system extension → pin exact.
   # CURSOR_AGENT_PATH must be the real binary: PATH `agent` is the INSPR
@@ -89,7 +95,8 @@ in
     # the bad umask). Cheap + idempotent.
     chmod -R u+w "$HOME/.npm" 2>/dev/null || true
     echo "📦 ai-clis-npm: bumping to latest…"
-    $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm i -g ${npmPkgsLatest} ${npmPkgsPinnedStr} \
+    $DRY_RUN_CMD ${pkgs.nodejs}/bin/npm i -g ${lib.escapeShellArg "--allow-scripts=${npmAllowScripts}"} \
+      ${npmPkgsLatest} ${npmPkgsPinnedStr} \
       || echo "⚠️  ai-clis-npm: npm update failed (offline?). Existing versions kept."
   '';
 
