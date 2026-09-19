@@ -337,7 +337,7 @@ grep -Fq 'guardPrefix' hosts/mbp2607/pi-local.nix ||
 grep -Fq '${guardEnvExports}' modules/uzumaki/paimos-agentd.nix ||
   fail 'the agentd Codex launcher must carry the env-only guard layer'
 tr -s '[:space:]' ' ' <modules/uzumaki/paimos-agentd.nix |
-  grep -Eq 'EnvironmentVariables = \{ DISABLE_AUTOUPDATER = "1"; \} // lib\.optionalAttrs guardEnabled browserGuard\.launchdEnvironment;' ||
+  grep -Eq 'EnvironmentVariables = claudeUpdateEnv // lib\.optionalAttrs guardEnabled browserGuard\.launchdEnvironment;' ||
   fail 'agentd-owned sessions must inherit the harness variables from the plist'
 
 # Codex must stay out of the sandbox-wrapped set: macOS cannot nest profiles,
