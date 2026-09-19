@@ -50,12 +50,12 @@ def checked_link(path, target, previous):
     os.replace(temporary, path)
 
 
-def run(args, *, extra_env=None, timeout=60):
+def run(args, *, extra_env=None, timeout=60, cwd=None):
     process_env = dict(os.environ)
     process_env.update(extra_env or {})
     try:
         result = subprocess.run(args, env=process_env, capture_output=True,
-                                text=True, timeout=timeout, check=False)
+                                text=True, timeout=timeout, check=False, cwd=cwd)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise UpdateError(f"{Path(args[0]).name} could not complete ({type(exc).__name__})") from exc
     if result.returncode:
@@ -83,7 +83,11 @@ def package_at_link(link, name, prefix):
 
 
 def verify(binary, version):
-    output = run([str(binary), "--version"], extra_env={
+    # Command names are fixed; a custom prefix selects the working directory,
+    # never an arbitrary executable from a command-line argument.
+    commands = {"claude": "./claude", "codex": "./codex", "grok": "./grok",
+                "pi": "./pi", "bird": "./bird"}
+    output = run([commands[binary.name], "--version"], cwd=binary.parent, extra_env={
         "DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1",
     }, timeout=30)
     if not re.search(r"(?<![\w.])" + re.escape(version) + r"(?![\w.])", output):
@@ -97,9 +101,9 @@ def supports(values, actual):
     return f"!{actual}" not in values and (not positive or actual in positive or "any" in positive)
 
 
-def resolve_package(npm, package):
+def resolve_package(package):
     spec = f"{package['name']}@{package['version']}"
-    data = json.loads(run([npm, "view", spec, "version", "os", "cpu", "--json"]))
+    data = json.loads(run(["npm", "view", spec, "version", "os", "cpu", "--json"]))
     if isinstance(data, str):
         data = {"version": data}
     version = data.get("version", "")
@@ -153,7 +157,7 @@ def update(args, prefix, state):
         installed = package_at_link(link, name, prefix)
         if previous is not None and installed is None:
             raise UpdateError(f"{binary} does not point to the declared package; preserved")
-        version = resolve_package(args.npm, package)
+        version = resolve_package(package)
         if version is None:
             continue
         if installed and installed.get("version") == version:
@@ -176,7 +180,7 @@ def update(args, prefix, state):
         # Grok's approved postinstall also writes to GROK_HOME. Keep that work
         # private until the package-local native executable passes validation.
         install_env = {"NPM_CONFIG_PREFIX": str(stage), "GROK_HOME": str(stage / "grok-home")}
-        run([args.npm, "install", "--global", "--prefix", str(stage),
+        run(["npm", "install", "--global", "--prefix", str(stage),
              f"--allow-scripts={','.join(approvals)}", "--no-audit", "--no-fund",
              f"{item['name']}@{item['version']}"], extra_env=install_env, timeout=600)
         target = stage / "bin" / item["bin"]
@@ -204,7 +208,6 @@ def main():
     parser.add_argument("--prefix", type=Path, default=Path.home() / ".npm-global")
     parser.add_argument("--packages", type=Path, default=root / "modules/uzumaki/ai-clis-npm-packages.json")
     parser.add_argument("--allow-scripts", type=Path, default=root / "modules/uzumaki/ai-clis-npm-allow-scripts.json")
-    parser.add_argument("--npm", default="npm")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--check", action="store_true", help="resolve versions and report without installing")
     modes.add_argument("--rollback", type=Path, help="restore links recorded by this updater, without npm")
