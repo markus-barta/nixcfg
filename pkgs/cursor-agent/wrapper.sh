@@ -10,7 +10,8 @@
 #   agentd's `--model <m> acp`): the flag goes first;
 # - `resume`, `ls`, `sandbox` (chat commands no raw parser reads): after it;
 # - anything else passes unchanged, including a prompt given first, which then
-#   still auto-updates.
+#   still auto-updates, and the internal `--cursor-persist-restore <id> <name>`
+#   re-exec, which the persist parser recognises only as exactly three words.
 #
 # Each name execs the launcher through its own link: the launcher exports
 # CURSOR_INVOKED_AS from its $0, so `agent` stays `agent`.
@@ -20,6 +21,9 @@ name=${0##*/}
 launcher=$libexec/$name
 
 case "${1-}" in
+--cursor-persist-restore)
+  exec "$launcher" "$@"
+  ;;
 "" | -*)
   exec "$launcher" --disable-auto-update "$@"
   ;;
