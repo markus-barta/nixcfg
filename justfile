@@ -1635,6 +1635,11 @@ update-ai-clis:
     @echo "---"
     ./scripts/codex-doctor.sh --after-update
 
+# Prepare the manual Cursor CLI re-review evidence for an optional release.
+[group('ai')]
+cursor-review release='':
+    ./scripts/review-cursor-agent-bump.sh {{ if release == "" { "" } else { quote(release) } }}
+
 # `just codex-doctor --check` never prompts (exit 1 on drift); `--fix` skips the
 # question but still refuses while a Codex session runs.
 
