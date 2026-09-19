@@ -1,10 +1,10 @@
 {
-  "version": "2026.09.15-d2fe57e",
+  "version": "2026.09.18-9a7762b",
   "assets": {
     "aarch64-darwin": {
       "os": "darwin",
       "arch": "arm64",
-      "hash": "sha256-9RV5oeoXJcK+vRoUBk1SvepeBar/R8+n1bXQ0HqNP7w="
+      "hash": "sha256-Tme5rIDMSlbgqRs7Q3iU4LpInvfsN/Eg2AhNK/0CCV0="
     }
   }
 }
