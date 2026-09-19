@@ -31,6 +31,7 @@ in
   # ============================================================================
   imports = [
     ./pi-local.nix
+    ./yue2-comfyui # NIX-518: `yue2` command + stack tooling (runtime stays in ~/Code/yue2-comfyui)
     ../../modules/uzumaki/home-manager.nix
     ../../modules/shared/ssh-fleet.nix # Declarative SSH config for fleet hosts (LAN → Tailscale fallback, nicknames)
     # markus-defaults bundles the INSPR public modules + Markus's values
