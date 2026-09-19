@@ -6,14 +6,19 @@
 # sources.json so `just update-ai-clis` can bump it
 # (scripts/update-cursor-agent.sh) without editing Nix.
 #
-# Self-update: the CLI still runs its background updater, but that only writes
-# into ~/.local/share/cursor-agent and ~/.local/bin, which nothing in this repo
-# points at. Its in-use marker is skipped outside a `versions/` directory, so the
-# read-only store path is never written.
+# Self-update (NIX-516): the vendor starts a background updater about two
+# seconds into every chat run. It installs into ~/.local/share/cursor-agent and
+# relinks ~/.local/bin/{agent,cursor-agent}, re-creating the imperative copy this
+# package replaces. $out/bin/{cursor-agent,agent} is wrapper.sh, which passes
+# the hidden root option --disable-auto-update where the bundle's raw argv
+# parsers cannot see it, and check-auto-update.mjs fails the bump unless the
+# updater and option code still match the reviewed baseline
+# (auto-update-review.json; re-pin with review-auto-update.mjs).
 {
   lib,
   stdenvNoCC,
   fetchurl,
+  runtimeShell,
 }:
 
 let
@@ -45,25 +50,61 @@ stdenvNoCC.mkDerivation {
     # Linux/Windows prebuilds); macOS tar folds them into xattrs, GNU tar
     # writes them out. Drop them so the tree matches the vendor install.
     find . -name '._*' -type f -delete
-    mkdir -p "$out/bin" "$out/share/cursor-agent"
+    mkdir -p "$out/bin" "$out/libexec/cursor-agent" "$out/share/cursor-agent"
     cp -R . "$out/share/cursor-agent/"
-    # The launcher resolves its own directory with realpath, so both names work
-    # through symlinks, exactly like the vendor's ~/.local/bin links.
-    ln -s "$out/share/cursor-agent/cursor-agent" "$out/bin/cursor-agent"
-    ln -s "$out/share/cursor-agent/cursor-agent" "$out/bin/agent"
+    # The launcher finds its bundle with realpath and exports CURSOR_INVOKED_AS
+    # from its $0, so one link per name keeps both working.
+    ln -s ../../share/cursor-agent/cursor-agent "$out/libexec/cursor-agent/cursor-agent"
+    ln -s ../../share/cursor-agent/cursor-agent "$out/libexec/cursor-agent/agent"
+    # Every consumer (guard shims, paimos-agentd, Pi's CURSOR_AGENT_PATH) runs
+    # $out/bin. A shell script, not makeBinaryWrapper: dontFixup skips the
+    # ad-hoc signing an arm64 Mach-O wrapper would need.
+    substitute ${./wrapper.sh} "$out/bin/cursor-agent" \
+      --subst-var-by shell ${runtimeShell} \
+      --subst-var-by libexec "$out/libexec/cursor-agent"
+    chmod +x "$out/bin/cursor-agent"
+    ln -s cursor-agent "$out/bin/agent"
     runHook postInstall
   '';
 
   doInstallCheck = true;
-  installCheckPhase = ''
-    runHook preInstallCheck
-    version_output="$(HOME="$TMPDIR" "$out/bin/cursor-agent" --version)"
-    if [ "$version_output" != "${version}" ]; then
-      echo "cursor-agent: expected version ${version}, got: $version_output" >&2
-      exit 1
-    fi
-    runHook postInstallCheck
-  '';
+  installCheckPhase =
+    let
+      # NIX-516: the check, its scanner and the reviewed baseline, side by side.
+      autoUpdateCheck = lib.fileset.toSource {
+        root = ./.;
+        fileset = lib.fileset.unions [
+          ./auto-update-scan.mjs
+          ./check-auto-update.mjs
+          ./auto-update-review.json
+        ];
+      };
+    in
+    ''
+      runHook preInstallCheck
+      version_output="$(HOME="$TMPDIR" "$out/bin/cursor-agent" --version)"
+      if [ "$version_output" != "${version}" ]; then
+        echo "cursor-agent: expected version ${version}, got: $version_output" >&2
+        exit 1
+      fi
+
+      # NIX-516. The CLI accepts unknown options, so a run that works proves
+      # nothing about the flag: the vendor node compares the bundle's updater and
+      # option code with the reviewed baseline.
+      (cd "$out/share/cursor-agent" && ./node ${autoUpdateCheck}/check-auto-update.mjs)
+      # The chat commands take the flag after their name; each must still parse.
+      for command in resume ls sandbox; do
+        HOME="$TMPDIR" "$out/bin/agent" "$command" --help | grep -q "^Usage: agent $command" || {
+          echo "cursor-agent: '$command' no longer parses with the wrapper flag" >&2
+          exit 1
+        }
+      done
+      HOME="$TMPDIR" "$out/bin/agent" --help | grep -q '^Usage: agent \[options\]' || {
+        echo "cursor-agent: the root command no longer parses with the wrapper flag" >&2
+        exit 1
+      }
+      runHook postInstallCheck
+    '';
 
   meta = {
     description = "Cursor CLI coding agent (cursor-agent)";
