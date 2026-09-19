@@ -101,16 +101,20 @@ guard_expr='null!==(tt=o.disableAutoUpdate)&&void 0!==tt&&tt||"static"===yo.chan
 # As in the bundle, the guard follows a sequence comma.
 guarded_call="yo=o.configProvider.get(),$guard_expr"
 explicit_call='yield(0,o.updateCursorAgent)({dashboardClient:e,showProgress:!0,channel:i.channel,isAutoUpdate:!1,product:t})'
-bundle_case() { # <name> <index.js> <chat.js>: writes a fixture bundle, prints its directory
+# The updater's module: its export entry and definition; the minifier reuses
+# the local name for a shadowed variable, which is not a call.
+update_module='"./src/commands/update-core.ts"(e,t,n){n.d(t,{shouldDoUpdate:()=>p,updateCursorAgent:()=>m});function m(e){let m=!1;return m=!0,{success:m}}}'
+bundle_case() { # <name> <index.js> <chat.js> [<update module>]: writes a fixture bundle, prints its directory
   mkdir -p "$fixture_dir/bundle-$1"
   printf '%s\n' "$2" >"$fixture_dir/bundle-$1/index.js"
   printf '%s\n' "$3" >"$fixture_dir/bundle-$1/7470.index.js"
+  printf '%s\n' "${4-$update_module}" >"$fixture_dir/bundle-$1/5211.index.js"
   printf '%s\n' "$fixture_dir/bundle-$1"
 }
 "$node_bin" "$auto_update_check" "$(bundle_case good "$option_line" "$guarded_call;$explicit_call")" >/dev/null ||
   fail 'auto-update check rejects a guarded bundle'
-expect_rejected() { # <name> <index.js> <chat.js> <reason>
-  if "$node_bin" "$auto_update_check" "$(bundle_case "$1" "$2" "$3")" >/dev/null 2>&1; then
+expect_rejected() { # <name> <index.js> <chat.js> <reason> [<update module>]
+  if "$node_bin" "$auto_update_check" "$(bundle_case "$1" "$2" "$3" "${5-$update_module}")" >/dev/null 2>&1; then
     fail "auto-update check accepts $4"
   fi
 }
@@ -124,6 +128,14 @@ expect_rejected two-options "$option_line;$option_line" "$guarded_call" 'a dupli
 expect_rejected direct-call "$option_line" "$guarded_call;q.updateCursorAgent({isAutoUpdate:!0})" 'an ungated direct call'
 expect_rejected variable-argument "$option_line" "$guarded_call;(0,q.updateCursorAgent)(options)" 'a call without an object literal'
 expect_rejected negated-guard "$option_line" "yo=o.configProvider.get(),!$guard_expr;$explicit_call" 'a negated guard'
+expect_rejected optional-call "$option_line" "$guarded_call;q.updateCursorAgent?.({isAutoUpdate:!1})" 'an optional call'
+expect_rejected computed-call "$option_line" "$guarded_call;q[\"updateCursorAgent\"]({isAutoUpdate:!1})" 'a computed call'
+expect_rejected alias "$option_line" "$guarded_call;const f=q.updateCursorAgent;f({isAutoUpdate:!0})" 'an alias'
+expect_rejected spread "$option_line" "$guarded_call;(0,o.updateCursorAgent)({isAutoUpdate:!1,...options})" 'a spread argument'
+expect_rejected duplicate-key "$option_line" "$guarded_call;(0,o.updateCursorAgent)({isAutoUpdate:!1,isAutoUpdate:!0})" 'a duplicated isAutoUpdate'
+expect_rejected local-call "$option_line" "$guarded_call" 'a call of the local binding inside its module' \
+  '"./src/commands/update-core.ts"(e,t,n){n.d(t,{shouldDoUpdate:()=>p,updateCursorAgent:()=>m});function m(e){return 1}function p(){return m({isAutoUpdate:!0})}}'
+expect_rejected no-export "$option_line" "$guarded_call" 'a bundle without the updater export' 'var nothing=1'
 
 # NIX-516 — the wrapper keeps argv[2] and each name. Fake launchers print
 # their name and arguments.
@@ -152,7 +164,7 @@ expect_argv 'cursor-agent|resume|--disable-auto-update|chat-1' cursor-agent resu
 expect_argv 'agent|ls|--disable-auto-update' agent ls
 expect_argv 'cursor-agent|sandbox|--disable-auto-update|run' cursor-agent sandbox run
 # Words the raw parsers read, prompts and unknown words pass unchanged.
-for words in 'persist|list' 'persist|--help' 'persist|attach|s1' 'acp' 'agent|acp' 'help|bedrock' 'bedrock|--help' 'fix the bug' 'restore-marker|id|name' 'update' 'models'; do
+for words in 'persist|list' 'persist|--help' 'persist|attach|s1' 'acp' 'agent|acp' 'help|bedrock' 'bedrock|--help' 'fix the bug' '--cursor-persist-restore|0123456789abcdef0123456789abcdef|s1' 'update' 'models'; do
   IFS='|' read -r -a argv <<<"$words"
   expect_argv "cursor-agent|$words" cursor-agent "${argv[@]}"
 done
