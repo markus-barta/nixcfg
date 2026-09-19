@@ -89,10 +89,11 @@ grep -Fq -- '-./scripts/update-cursor-agent.sh' "$repo_root/justfile" ||
 fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/t85.XXXXXX")
 trap 'rm -rf "$fixture_dir"' EXIT
 
-# NIX-516 — the auto-update check is change detection against a review. A
-# fixture bundle in the vendor's shape is reviewed with --print; a rebuild
-# that only renames minified names must pass, and every counterexample from
-# the PR 682 reviews, applied to the same bundle, must fail.
+# NIX-516 — the auto-update check is change detection against a review of
+# the exact bytes. A fixture bundle in the vendor's shape is reviewed with
+# --print; an identical rebuild passes, while a rebuild that only renames
+# minified names and every counterexample from the PR 682 reviews, applied
+# to the same bundle, must fail until reviewed again.
 node_bin=$(command -v node || true)
 if [ -z "$node_bin" ]; then
   node_bin="$(cd "$repo_root" && nix build --no-link --print-out-paths --inputs-from . nixpkgs#nodejs)/bin/node"
@@ -114,15 +115,19 @@ reviewed=$(bundle_case reviewed "$option_line" "$chat" "$update_module")
 "$node_bin" "$auto_update_check" "$reviewed" --print >"$fixture_dir/review.json"
 "$node_bin" "$auto_update_check" "$reviewed" "$fixture_dir/review.json" >/dev/null ||
   fail 'auto-update check rejects the bundle it reviewed'
-renamed_module='"./src/commands/update-core.ts"(a,b,c){c.d(b,{shouldDoUpdate:()=>w,updateCursorAgent:()=>k});function k(a){let k=!1;return k=!0,{success:k}}function w(){return 1}}'
-"$node_bin" "$auto_update_check" "$(bundle_case renamed "$option_line" "${chat//tt/uu}" "$renamed_module")" \
-  "$fixture_dir/review.json" >/dev/null || fail 'auto-update check rejects a rebuild that only renames minified names'
+"$node_bin" "$auto_update_check" "$(bundle_case identical "$option_line" "$chat" "$update_module")" \
+  "$fixture_dir/review.json" >/dev/null || fail 'auto-update check rejects an identical rebuild'
 expect_rejected() { # <name> <reason> <chat.js> [<update module>] [<index.js>]
   if "$node_bin" "$auto_update_check" "$(bundle_case "$1" "${5-$option_line}" "$3" "${4-$update_module}")" \
     "$fixture_dir/review.json" >/dev/null 2>&1; then
     fail "auto-update check accepts $2"
   fi
 }
+expect_rejected renamed 'a rebuild that only renames minified names, before review' "${chat//tt/uu}" \
+  '"./src/commands/update-core.ts"(a,b,c){c.d(b,{shouldDoUpdate:()=>w,updateCursorAgent:()=>k});function k(a){let k=!1;return k=!0,{success:k}}function w(){return 1}}'
+expect_rejected other-module 'the guard reading another module' "${guarded//o./w.};$explicit"
+expect_rejected string-literal 'a changed string literal' "${chat//agent-cli/agent-cla}"
+expect_rejected property 'a changed property in the updater module' "$chat" "${update_module/n.d(t,/n.x(t,}"
 expect_rejected inverted 'an inverted guard' "${chat/&&tt||/&&!tt||}"
 expect_rejected negated 'a negated guard' "${chat/,null!==/,!null!==}"
 expect_rejected other-variable 'a guard that tests another variable' "${chat/&&tt||/&&uu||}"
