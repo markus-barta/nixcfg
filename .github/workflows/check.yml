@@ -264,6 +264,10 @@ jobs:
       - name: Verify the pinned Cursor CLI package and its consumers (NIX-514)
         run: nix-shell -p jq curl --run tests/T85-cursor-agent-package.sh
 
+      # NIX-519 — offline lock and unsupported-host safety test.
+      - name: Verify Cursor CLI update script safety (NIX-519)
+        run: nix-shell -p jq --run tests/T86-update-cursor-agent-safety.sh
+
       # NIX-445 — agent browser-launch guard. On Linux this runs the portable
       # half: the Seatbelt profile / Codex permission TOML rendering and its
       # schema types, the managed-installer safety properties exercised in a
