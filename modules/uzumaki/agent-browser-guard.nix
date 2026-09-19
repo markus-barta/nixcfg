@@ -539,11 +539,14 @@ in
         message = "uzumaki.agentBrowserGuard.browserBundles must not be empty — an empty guard denies nothing";
       }
       (
-        # NIX-514: in a fish LOGIN shell ~/.nix-profile/bin lands ahead of the
-        # shadow directory, so a profile package whose main program carries a
-        # launcher's name silently bypasses that launcher. Measured 2026-09-19:
-        # pkgs.cursor-agent in home.packages won `cursor-agent` and `agent`
-        # unguarded. Point the launcher at the package instead of installing it.
+        # NIX-514: a profile package whose main program carries a launcher's
+        # name competes with that launcher on PATH. Measured 2026-09-19, before
+        # NIX-515: in a fish LOGIN shell ~/.nix-profile/bin landed ahead of the
+        # shadow directory, and pkgs.cursor-agent in home.packages won
+        # `cursor-agent` and `agent` unguarded. NIX-515 now re-prepends the
+        # guard last, so this is defense in depth: shells or tools that build
+        # PATH without our init would still find the unguarded binary. Point the
+        # launcher at the package instead of installing it.
         let
           launcherNames = lib.attrNames cfg.shadowedPrograms ++ lib.attrNames cfg.envOnlyPrograms;
           collisions = lib.unique (
@@ -584,8 +587,10 @@ in
         for p in $fish_user_paths
           if string match -q -- '/nix/store/*-inspr-agent-guard-shadow-bin/bin' $p
             and test "$p" != "${shadowBin}/bin"
-            set -l i (contains -i -- $p $fish_user_paths)
-            and set -e fish_user_paths[$i]
+            # `if set var (cmd)` carries cmd's status (documented fish idiom)
+            if set -l i (contains -i -- $p $fish_user_paths)
+              set -e fish_user_paths[$i]
+            end
           end
         end
         fish_add_path --prepend --move ${shadowBin}/bin
