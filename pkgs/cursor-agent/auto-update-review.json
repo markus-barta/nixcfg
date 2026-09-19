@@ -1,0 +1,24 @@
+{
+  "reviewed": "2026.09.15-d2fe57e",
+  "review": "NIX-516, reviewed by Claude Opus 5 and Codex gpt-6-astra xhigh (PR 682 rounds 1 to 8). The option is defined once with default false (index.js) and forwarded unchanged into the chat run (disableAutoUpdate:o.disableAutoUpdate, 7470.index.js). The only automatic update (7470.index.js) runs behind null!==(x=o.disableAutoUpdate)&&void 0!==x&&x||\"static\"===<config>.channel||setTimeout(...). Three explicit calls pass isAutoUpdate false (update, upgrade, set-channel). The four copies of src/commands/update-core.ts do not invoke their updater. Exact bytes: any change needs review-auto-update.mjs and a re-pin.",
+  "occurrences": {
+    "27999a0b26f94404b86ec33f11a38b82e5d97b25ba6e095c4ecee17caca40cbd": 1,
+    "68266719cf72de20115407f7ff1e97f65799b942a5ab4807590b09b10ff6cef4": 1,
+    "512eda94f09888547cdca4cd3e19dfbb846b0d30f65d24b88fdab8d5eb375131": 1,
+    "0e7b2b39fd5e5e0f096f6a30910a0e3a644964058d01591bddbbd154a0b96b4d": 1,
+    "f45d15bd497641aa13f71439d9d20febad5f93141a1cf62f3ec40d7d126f2fef": 1,
+    "79f01a3f7a2872acf4e3a5b22c7f9b59c68fde51f87c7deb9c6817a0866008a7": 1,
+    "f7a69849165955630f597ecaeb77e1b1179cbc1f6d390befc96ff8e12f87b8c4": 1,
+    "c6c9f73f5e7b8a5efd4328b6de6bb7f68b7f0491d67f9731692f59b927038d0c": 1,
+    "cee15e7f3fc6d1956b1bffe38521c1f224daf61472ccfb3af4cfa229eec2d7e2": 1,
+    "55085c16717b86d4817189647785725289817795ee60653a883e32292f6591e6": 1,
+    "0fab72c045ea07a5da89e903fc52612a2ccf58f9dbdbf0cfdda7f38b821432e8": 1,
+    "2be5223c480bbbf983ad8ee43f8de183fef18b2ec4f03ee9ed2084a26622ace1": 1
+  },
+  "modules": {
+    "a60bb9ab99e0579e94b73b0817ce67adfbe8a44a613855344572986b33c76046": 1,
+    "a891b52e6db17bf98f216bd880ddb7b64115bc97d6050c88a5ceee5f38db5eec": 1,
+    "3ac846c944e833ad258ad056bfc283430f795852a27d5d8ea27f79dd5f334043": 1,
+    "136af914dc04c10ecf924f3817e7da43ef3a41d999929cd18973a71f9b8f6caf": 1
+  }
+}
