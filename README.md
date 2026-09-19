@@ -217,8 +217,11 @@ Before publication, the updater prints a rollback receipt path. From this
 checkout, `python3 scripts/update-ai-clis.py --rollback RECEIPT` atomically
 restores the previous launch links, refusing if another update changed them.
 Rollback requires a previous installation for every affected CLI. It makes no
-registry calls; disable further updates while investigating, since the next
-switch still checks latest. Do not delete old package directories while any
+registry calls. To hold a rollback across switches, pin the affected version
+in `modules/uzumaki/ai-clis-npm-packages.json` through the normal reviewed
+configuration change. Restore CLI receipts before activating a pre-NIX-524
+Home Manager generation, whose updater still writes into the legacy prefix.
+Do not delete old package directories while any
 process may use them, or run a plain `npm install -g` over these managed CLIs.
 Failed staging directories are also retained for inspection. Unrelated global
 commands are preserved. Unsupported packages are skipped on that platform;
