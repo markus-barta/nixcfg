@@ -20,6 +20,7 @@ fail() {
 package_file="$repo_root/pkgs/cursor-agent/default.nix"
 sources_file="$repo_root/pkgs/cursor-agent/sources.json"
 update_script="$repo_root/scripts/update-cursor-agent.sh"
+review_script="$repo_root/scripts/review-cursor-agent-bump.sh"
 
 pinned=$(jq -er '.version' "$sources_file") || fail 'sources.json has no version'
 printf '%s\n' "$pinned" | grep -Eq '^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9a-f]{7,40}$' ||
@@ -104,7 +105,7 @@ cp "$repo_root/pkgs/cursor-agent/auto-update-scan.mjs" "$repo_root/pkgs/cursor-a
   "$repo_root/pkgs/cursor-agent/review-auto-update.mjs" "$tool_dir/"
 # shellcheck disable=SC2016 # literal bundle text, not expansions
 option_line='addOption(new f.c$("--disable-auto-update","Disable auto-updates").default(!1).hideHelp())'
-update_module='"./src/commands/update-core.ts"(e,t,n){n.d(t,{shouldDoUpdate:()=>p,updateCursorAgent:()=>m});function m(e){let m=!1;return m=!0,{success:m}}function p(){return 1}}'
+update_module='"./src/commands/update-core.ts"(e,t,n){n.d(t,{shouldDoUpdate:()=>p,updateCursorAgent:()=>m});function m(e){let m=!1;return m=!0,{success:m}}function p(){const expectedRelease="2026.09.15-d2fe57e";return 1}}'
 forward='const run={localAgentMaxRetries:de,disableAutoUpdate:o.disableAutoUpdate,excludeWorkspaceContext:o.excludeWorkspaceContext,conversationHistory:Ge,singleTurn:o.singleTurn,backgroundShellTimeoutMs:void 0,padding:"so the guard below has its own window, as in the bundle, where they are 760 kB apart........................................................................................................................................................................................................................................"}'
 guarded='yo=o.configProvider.get(),null!==(tt=o.disableAutoUpdate)&&void 0!==tt&&tt||"static"===yo.channel||setTimeout((()=>{(0,D.updateCursorAgent)({dashboardClient:Rn,showProgress:!1,channel:yo.channel,isAutoUpdate:!0,product:"agent-cli"})}),2e3)'
 explicit='yield(0,o.updateCursorAgent)({dashboardClient:e,showProgress:!0,channel:i.channel,isAutoUpdate:!1,product:t})'
@@ -120,15 +121,14 @@ check_bundle() { (cd "$1" && "$node_bin" "$tool_dir/check-auto-update.mjs"); }
 reviewed=$(bundle_case reviewed "$option_line" "$chat" "$update_module")
 (cd "$reviewed" && "$node_bin" "$tool_dir/review-auto-update.mjs" >"$tool_dir/auto-update-review.json" 2>/dev/null)
 check_bundle "$reviewed" >/dev/null || fail 'auto-update check rejects the bundle it reviewed'
-check_bundle "$(bundle_case identical "$option_line" "$chat" "$update_module")" >/dev/null ||
+identical=$(bundle_case identical "$option_line" "$chat" "$update_module")
+check_bundle "$identical" >/dev/null ||
   fail 'auto-update check rejects an identical rebuild'
 expect_rejected() { # <name> <reason> <chat.js> [<update module>] [<index.js>]
   if check_bundle "$(bundle_case "$1" "${5-$option_line}" "$3" "${4-$update_module}")" >/dev/null 2>&1; then
     fail "auto-update check accepts $2"
   fi
 }
-expect_rejected renamed 'a rebuild that only renames minified names, before review' "${chat//tt/uu}" \
-  '"./src/commands/update-core.ts"(a,b,c){c.d(b,{shouldDoUpdate:()=>w,updateCursorAgent:()=>k});function k(a){let k=!1;return k=!0,{success:k}}function w(){return 1}}'
 expect_rejected forwarding 'a chat run that no longer forwards the option' "${chat/disableAutoUpdate:o.disableAutoUpdate/disableAutoUpdate:!1}"
 # shellcheck disable=SC2016 # literal bundle text, not expansions
 expect_rejected option-default 'an option definition that changed' "$chat" "$update_module" \
@@ -156,6 +156,69 @@ expect_rejected no-export 'a bundle without the updater module' "$chat" 'var not
 # shellcheck disable=SC2016 # literal bundle text, not expansions
 expect_rejected no-option 'a bundle without the option' "$chat" "$update_module" 'addOption(new f.c$("--endless-retries"))'
 expect_rejected two-options 'a duplicated option definition' "$chat" "$update_module" "$option_line;$option_line"
+
+# NIX-525 - cursor-review compares two complete scan outputs outside the repo.
+# Its report pairs renamed regions by kind and nearest word diff, while a
+# version-only update-core change stays distinguishable from a logic change.
+[ -x "$review_script" ] || fail 'cursor review script is not executable'
+review_status_before=$(cd "$repo_root" && git status --porcelain)
+renamed_module='"./src/commands/update-core.ts"(a,b,c){c.d(b,{shouldDoUpdate:()=>w,updateCursorAgent:()=>k});function k(a){let k=!1;return k=!0,{success:k}}function w(){const expectedRelease="2026.09.15-d2fe57e";return 1}}'
+renamed=$(bundle_case renamed "$option_line" "${chat//tt/uu}" "$renamed_module")
+if check_bundle "$renamed" >/dev/null 2>&1; then
+  fail 'auto-update check accepts a rebuild that only renames minified names before review'
+fi
+version_only_module=${update_module/2026.09.15-d2fe57e/2026.09.18-9a7762b}
+version_only=$(bundle_case version-only "$option_line" "$chat" "$version_only_module")
+logic_change=$(bundle_case logic-change "$option_line" "${chat/disableAutoUpdate:o.disableAutoUpdate/disableAutoUpdate:!1}" "$update_module")
+
+review_fixture() { # <name> <old bundle> <new bundle>: prints the report directory
+  local name=$1 old_bundle=$2 new_bundle=$3 output=$fixture_dir/cursor-review-$1
+  "$review_script" --from-bundles "$old_bundle" "$new_bundle" \
+    --old-version 2026.09.15-d2fe57e --new-version 2026.09.18-9a7762b --out "$output" \
+    >"$fixture_dir/cursor-review-$name.out"
+  [ -f "$output/report.md" ] || fail "cursor review $name did not write report.md"
+  [ -f "$output/regions-old.txt" ] || fail "cursor review $name did not write regions-old.txt"
+  [ -f "$output/regions-new.txt" ] || fail "cursor review $name did not write regions-new.txt"
+  [ -f "$output/hashes-new.json" ] || fail "cursor review $name did not write hashes-new.json"
+  [ -f "$output/candidate-review.json" ] || fail "cursor review $name did not write candidate-review.json"
+  printf '%s\n' "$output"
+}
+
+identical_review=$(review_fixture identical "$reviewed" "$identical")
+identical_regions=$(jq '[.occurrences[], .modules[]] | add' "$identical_review/hashes-new.json")
+identical_matches=$(grep -c 'status: identical' "$identical_review/report.md" || true)
+[ "$identical_matches" = "$identical_regions" ] || fail 'identical cursor review did not mark every region identical'
+jq -en --slurpfile candidate "$identical_review/candidate-review.json" \
+  --slurpfile reviewed "$tool_dir/auto-update-review.json" \
+  '$candidate[0].occurrences == $reviewed[0].occurrences and $candidate[0].modules == $reviewed[0].modules' \
+  >/dev/null || fail 'identical cursor review candidate hashes differ from the reviewed hashes'
+
+renamed_review=$(review_fixture renamed "$reviewed" "$renamed")
+grep -Fq 'status: changed' "$renamed_review/report.md" || fail 'renamed cursor review did not report a changed region'
+grep -Fq '```diff' "$renamed_review/report.md" || fail 'renamed cursor review did not include a word diff'
+grep -Fq 'version literals only: false' "$renamed_review/report.md" ||
+  fail 'renamed cursor review did not distinguish a changed update-core module'
+if grep -Fq 'version literals only: true' "$renamed_review/report.md"; then
+  fail 'renamed cursor review calls a changed update-core module version-only'
+fi
+
+version_only_review=$(review_fixture version-only "$reviewed" "$version_only")
+grep -Fq 'version literals only: true (1 old-version literals)' "$version_only_review/report.md" ||
+  fail 'version-only cursor review did not identify the update-core module'
+
+logic_change_review=$(review_fixture logic-change "$reviewed" "$logic_change")
+if ! awk '
+  /^### / { in_region = /\(disableAutoUpdate\)/ }
+  in_region && /status: changed/ { changed = 1 }
+  END { exit !changed }
+' "$logic_change_review/report.md"; then
+  fail 'logic-change cursor review did not report the forwarding mutation'
+fi
+if "$review_script" --from-bundles "$reviewed" >"$fixture_dir/cursor-review-bad-usage.out" 2>&1; then
+  fail 'cursor review accepts incomplete offline usage'
+fi
+review_status_after=$(cd "$repo_root" && git status --porcelain)
+[ "$review_status_after" = "$review_status_before" ] || fail 'cursor review wrote inside the repository'
 
 # NIX-516 — the wrapper keeps argv[2] and each name. Fake launchers print
 # their name and arguments.
