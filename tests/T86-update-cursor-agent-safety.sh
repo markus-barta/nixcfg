@@ -9,6 +9,7 @@ fail() {
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/t86.XXXXXX")
 tmp=$(cd -- "$tmp" && pwd)
 holder_pid=''
+slow_build_pid=''
 stop_holder() {
   if [ -n "$holder_pid" ]; then
     kill "$holder_pid" 2>/dev/null || true
@@ -16,8 +17,15 @@ stop_holder() {
     holder_pid=''
   fi
 }
+stop_slow_build() {
+  if [ -n "$slow_build_pid" ]; then
+    kill "$slow_build_pid" 2>/dev/null || true
+    slow_build_pid=''
+  fi
+}
 cleanup() {
   stop_holder
+  stop_slow_build
   find "$tmp" -depth -type f -delete
   find "$tmp" -depth -type l -delete
   find "$tmp" -depth -type d -empty -delete
@@ -61,6 +69,10 @@ store)
   ;;
 build)
   [ "${T86_NIX_BUILD_FAIL-}" != 1 ] || exit 1
+  if [ -n "${T86_NIX_BUILD_SLEEP-}" ]; then
+    printf '%s\n' "$$" >"$T86_SLOW_BUILD_PID"
+    exec sleep "$T86_NIX_BUILD_SLEEP"
+  fi
   printf '%s\n' "$T86_OUT"
   ;;
 *) exit 99 ;;
@@ -73,6 +85,7 @@ export T86_NIX_LOG="$tmp/nix.log"
 export T86_SYSTEM=x86_64-linux
 export T86_NIX_BUILD_FAIL=0
 export T86_OUT="$tmp/store/cursor-agent"
+export T86_SLOW_BUILD_PID="$tmp/slow-build.pid"
 unset CURSOR_AGENT_SOURCES CURSOR_INSTALL_URL
 
 update_script=$tmp/scripts/update-cursor-agent.sh
@@ -145,6 +158,33 @@ rm -f "$lock_dir"
 assert_clean
 
 : >"$T86_NIX_LOG"
+mkdir "$lock_dir"
+if "$update_script" >"$output" 2>&1; then
+  fail 'directory lock was accepted'
+fi
+grep -Fq "update lock path $lock_dir is a directory" "$output" || fail 'directory lock message is unclear'
+cmp -s "$sources" "$fixture" || fail 'directory lock changed sources.json'
+[ -z "$(find "$lock_dir" -mindepth 1 -maxdepth 1 -type l -print -quit)" ] || fail 'directory lock left a stray symlink'
+[ ! -s "$T86_NIX_LOG" ] || fail 'directory lock allowed a nix operation'
+rmdir "$lock_dir"
+assert_clean
+
+: >"$T86_NIX_LOG"
+ln -s 99999999 "$lock_dir"
+mkdir "$lock_dir.reclaim"
+if "$update_script" >"$output" 2>&1; then
+  fail 'existing reclaim guard was ignored'
+fi
+grep -Fq "$lock_dir.reclaim exists; remove it once no update runs" "$output" || fail 'reclaim guard message is unclear'
+cmp -s "$sources" "$fixture" || fail 'reclaim guard changed sources.json'
+[ -d "$lock_dir.reclaim" ] || fail 'other reclaim guard was removed'
+[ "$(readlink "$lock_dir")" = 99999999 ] || fail 'reclaim guard changed stale lock'
+[ ! -s "$T86_NIX_LOG" ] || fail 'reclaim guard allowed a nix operation'
+rmdir "$lock_dir.reclaim"
+rm -f "$lock_dir"
+assert_clean
+
+: >"$T86_NIX_LOG"
 ln -s 99999999 "$lock_dir"
 if "$update_script" >"$output" 2>&1; then
   fail 'stale-lock case accepted unsupported host'
@@ -175,6 +215,23 @@ reset_sources
 mkdir -p "$T86_OUT/bin"
 cat >"$T86_OUT/bin/cursor-agent" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' '2099.01.01-notmatch'
+EOF
+chmod +x "$T86_OUT/bin/cursor-agent"
+export T86_NIX_BUILD_FAIL=0
+: >"$T86_NIX_LOG"
+if "$update_script" >"$output" 2>&1; then
+  fail 'version mismatch was accepted'
+fi
+grep -Fq 'built CLI reports 2099.01.01-notmatch, expected 2099.01.01-abcdef1' "$output" || fail 'version mismatch message is missing'
+grep -Fq 'bump not verified — pin restored to 2098.01.01-deadbee' "$output" || fail 'version mismatch did not restore the pin'
+cmp -s "$sources" "$fixture" || fail 'version mismatch did not restore sources.json byte-for-byte'
+grep -Fq 'build --no-link --print-out-paths' "$T86_NIX_LOG" || fail 'version mismatch did not build'
+assert_clean
+
+reset_sources
+cat >"$T86_OUT/bin/cursor-agent" <<'EOF'
+#!/usr/bin/env bash
 printf '%s\n' '2099.01.01-abcdef1'
 EOF
 chmod +x "$T86_OUT/bin/cursor-agent"
@@ -200,4 +257,31 @@ grep -Fq "pin $release is current" "$output" || fail 'current pin message is mis
 [ ! -s "$T86_NIX_LOG" ] || fail 'current pin ran nix'
 assert_clean
 
-printf 'T86 passed: Cursor CLI update locking, rollback, and verification are enforced offline\n'
+reset_sources
+export T86_NIX_BUILD_FAIL=0
+export T86_NIX_BUILD_SLEEP=2
+: >"$T86_NIX_LOG"
+rm -f "$T86_SLOW_BUILD_PID"
+"$update_script" >"$output" 2>&1 &
+update_pid=$!
+attempts=0
+while [ ! -s "$T86_SLOW_BUILD_PID" ]; do
+  attempts=$((attempts + 1))
+  [ "$attempts" -lt 50 ] || fail 'slow build did not start'
+  sleep 0.1
+done
+slow_build_pid=$(<"$T86_SLOW_BUILD_PID")
+kill -TERM "$update_pid"
+if wait "$update_pid"; then
+  fail 'TERM during build was accepted'
+else
+  update_status=$?
+fi
+[ "$update_status" = 143 ] || fail "TERM during build exited $update_status, expected 143"
+stop_slow_build
+unset T86_NIX_BUILD_SLEEP
+cmp -s "$sources" "$fixture" || fail 'TERM during build did not restore sources.json byte-for-byte'
+grep -Fq 'bump not verified — pin restored to 2098.01.01-deadbee' "$output" || fail 'TERM during build did not report restoration'
+assert_clean
+
+printf 'T86 passed: offline lock ownership, reclaim refusal, rollback, version verification, and TERM recovery are enforced\n'
