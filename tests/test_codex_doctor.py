@@ -229,8 +229,9 @@ exit 99
 
     def test_claude_auto_updater_is_disabled_in_home_environment(self):
         module = AI_CLIS_MODULE.read_text()
-        self.assertRegex(module, r'home\.sessionVariables\.DISABLE_AUTOUPDATER\s*=\s*"1";')
-        self.assertRegex(module, r"set -gx DISABLE_AUTOUPDATER 1")
+        for var in ("DISABLE_AUTOUPDATER", "DISABLE_UPDATES", "FORCE_AUTOUPDATE_PLUGINS"):
+            self.assertRegex(module, rf'home\.sessionVariables\.{var}\s*=\s*"1";')
+            self.assertRegex(module, rf"set -gx {var} 1")
 
     def test_recipe_cursor_failure_does_not_skip_doctor(self):
         before = CURSOR_SOURCES.read_bytes()
