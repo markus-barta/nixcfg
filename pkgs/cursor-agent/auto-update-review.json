@@ -1,0 +1,16 @@
+{
+  "reviewed": "2026.09.15-d2fe57e",
+  "review": "NIX-516: 8 references. One automatic update in 7470.index.js runs only behind null!==(x=o.disableAutoUpdate)&&void 0!==x&&x||\"static\"===<config>.channel||setTimeout(...); three explicit calls (isAutoUpdate false) for update, upgrade and set-channel; four export entries of src/commands/update-core.ts, which does not invoke its updater itself. Reviewed by Claude Opus 5 and Codex gpt-6-astra xhigh across PR 682 rounds 1 to 5.",
+  "occurrences": {
+    "e0d36a2d87d6617d36773f0d2cebbca3ad98a466c27a761e4084142318c284a2": 4,
+    "c43cf2e94020cc125568d12ddd5fd01865e7fe854c9db9483a56a20a46761d17": 1,
+    "a8571301891694bbf60286579fb4dd91fdc5445bcbb41c2b97f178dfbb24fa73": 1,
+    "7e9ae6306f61e3e25eb1efa866e41227481c2f46fdf0e0a540d8d7633478d2dc": 1,
+    "05e515e5adb88c8ed878ac8f27df50ad4bd5a939cab40e5c1764f24fd7ef3514": 1
+  },
+  "modules": {
+    "8d46df0f178a5d568255ad94328a323b70b8e10f4acfb9a1382ef291fff4e616": 2,
+    "dd51ae2dca35367acd1c3066f7560a351aa7d05b3a7dfe040404d34beda3bfef": 1,
+    "b70e7112aa89b2dea05ff7329fbe2004f2803525cab600402e609c691b99afda": 1
+  }
+}

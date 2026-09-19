@@ -10,9 +10,9 @@
 # seconds into every chat run. It installs into ~/.local/share/cursor-agent and
 # relinks ~/.local/bin/{agent,cursor-agent}, re-creating the imperative copy this
 # package replaces. $out/bin/{cursor-agent,agent} is wrapper.sh, which passes
-# the hidden root option --disable-auto-update without moving argv[2], and
-# check-auto-update.mjs fails the bump unless every automatic update is still
-# behind that option.
+# the hidden root option --disable-auto-update where the bundle's raw argv
+# parsers cannot see it, and check-auto-update.mjs fails the bump unless the
+# updater code still matches the reviewed baseline (auto-update-review.json).
 {
   lib,
   stdenvNoCC,
@@ -77,7 +77,7 @@ stdenvNoCC.mkDerivation {
 
     # NIX-516. The CLI accepts unknown options, so a run that works proves
     # nothing about the flag: the vendor node checks the bundle instead.
-    "$out/share/cursor-agent/node" ${./check-auto-update.mjs} "$out/share/cursor-agent"
+    "$out/share/cursor-agent/node" ${./check-auto-update.mjs} "$out/share/cursor-agent" ${./auto-update-review.json}
     # The chat commands take the flag after their name; each must still parse.
     for command in resume ls sandbox; do
       HOME="$TMPDIR" "$out/bin/agent" "$command" --help | grep -q "^Usage: agent $command" || {
