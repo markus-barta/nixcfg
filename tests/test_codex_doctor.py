@@ -31,7 +31,7 @@ class CodexDoctorTests(unittest.TestCase):
         self.home = self.root / "codex-home"
         self.home.mkdir()
         self.log = self.root / "calls"
-        self.env = dict(os.environ, CODEX_HOME=str(self.home),
+        self.env = dict(os.environ, HOME=str(self.root / "user-home"), CODEX_HOME=str(self.home),
                         PATH=f"{self.bin}:{os.environ['PATH']}",
                         TEST_CALLS=str(self.log), TEST_DAEMON_VERSION="0.153.4",
                         TEST_LIVE="1", TMPDIR=str(self.root))
@@ -69,10 +69,35 @@ fi
         self.env["TEST_BIN"] = str(self.bin)
         self.stub("trash", 'exit "${TEST_TRASH_EXIT:-0}"')
         self.stub("pgrep", "exit 1")
-        self.stub("npm", '''
-printf 'npm %s\\n' "$*" >> "$TEST_CALLS"
-exit "${TEST_NPM_EXIT:-0}"
+        npm = self.bin / "npm"
+        npm.write_text("#!/usr/bin/env python3\n" + r'''
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+with open(os.environ["TEST_CALLS"], "a") as log:
+    log.write("npm " + " ".join(args) + "\n")
+if os.environ.get("TEST_NPM_EXIT", "0") != "0":
+    sys.exit(int(os.environ["TEST_NPM_EXIT"]))
+if args[0] == "view":
+    print(json.dumps("0.8.0" if args[1].endswith("@0.8.0") else "1.2.3"))
+elif args[0] == "install":
+    prefix = Path(args[args.index("--prefix") + 1])
+    name, version = args[-1].rsplit("@", 1)
+    command = {"@anthropic-ai/claude-code": "claude", "@openai/codex": "codex",
+               "@xai-official/grok": "grok", "@earendil-works/pi-coding-agent": "pi",
+               "@steipete/bird": "bird"}[name]
+    package = prefix / "lib/node_modules" / name
+    package.mkdir(parents=True)
+    (package / "package.json").write_text(json.dumps({"name": name, "version": version}))
+    target = package / command
+    target.write_text("#!/bin/sh\necho " + version + "\n")
+    target.chmod(0o755)
+    (prefix / "bin").mkdir()
+    (prefix / "bin" / command).symlink_to(target)
+else:
+    sys.exit(99)
 ''')
+        npm.chmod(0o755)
         for name in ("claude", "grok", "pi", "cursor-agent"):
             self.stub(name, "echo test-version")
         # NIX-514: the recipe's Cursor pin step reads the vendor installer. The
@@ -219,10 +244,12 @@ exit 99
         for needed in ("@anthropic-ai/claude-code", "@xai-official/grok"):
             self.assertIn(needed, names)
         module = AI_CLIS_MODULE.read_text()
-        self.assertIn("lib.importJSON ./ai-clis-npm-allow-scripts.json", module)
-        self.assertIn('lib.escapeShellArg "--allow-scripts=${npmAllowScripts}"', module)
+        self.assertIn("--allow-scripts ${./ai-clis-npm-allow-scripts.json}", module)
+        self.assertIn("${../../scripts/update-ai-clis.py}", module)
         recipe = JUSTFILE.read_text().split("\nupdate-ai-clis:\n", 1)[1].split("\n\n", 1)[0]
-        self.assertIn("require('./modules/uzumaki/ai-clis-npm-allow-scripts.json').allowScripts", recipe)
+        self.assertIn("python3 ./scripts/update-ai-clis.py", recipe)
+        updater = (REPO / "scripts/update-ai-clis.py").read_text()
+        self.assertIn("modules/uzumaki/ai-clis-npm-allow-scripts.json", updater)
         for text in (module, recipe):
             self.assertNotRegex(text, r"--allow-scripts=@")
             self.assertNotIn("dangerously-allow-all-scripts", text)

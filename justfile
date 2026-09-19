@@ -1597,14 +1597,10 @@ pixoo-logs:
 
 # ── AI CLIs ───────────────────────────────────────────────────────────────────
 
-# update-ai-clis — runs anywhere with node.
-# --prefix is REQUIRED, not cosmetic: without it npm falls back to whichever npm
-# wins PATH. Run this in a shell where NPM_CONFIG_PREFIX is unset and brew's npm
-# resolves first, and the CLIs land in /opt/homebrew/lib/node_modules — an
-# undeclared install that then SHADOWS the ai-clis-npm.nix copy in ~/.npm-global
-# (found 2026-08-25: a stray @xai-official/grok did exactly that). The CLI flag
-# overrides both npm config and the environment, so this always targets the
-# Home-Manager-declared prefix.
+# update-ai-clis uses the same staging updater, exact bird pin, and script
+# allow-list as Home Manager. npm never writes into the live prefix. Each
+# verified CLI is published through an atomic symlink replacement; old package
+# files remain available to running processes and for receipt-based rollback.
 # After the bump, scripts/codex-doctor.sh checks that the Codex app-server daemon,
 # the standalone package it starts from, and ~/.codex/models_cache.json all match
 # the new CLI. Every Codex TUI attaches to that daemon, and a daemon left on an
@@ -1623,7 +1619,7 @@ pixoo-logs:
 [group('ai')]
 update-ai-clis:
     @date
-    npm install --global --prefix "$HOME/.npm-global" --allow-scripts="$(node -p "require('./modules/uzumaki/ai-clis-npm-allow-scripts.json').allowScripts.join(',')")" @anthropic-ai/claude-code@latest @openai/codex@latest @xai-official/grok@latest @earendil-works/pi-coding-agent@latest
+    python3 ./scripts/update-ai-clis.py --prefix "$HOME/.npm-global"
     @echo "---"
     -./scripts/update-cursor-agent.sh
     @echo "---"
