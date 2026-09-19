@@ -33,14 +33,17 @@ die() {
 }
 
 lock_dir=$sources.lock
-lock_held=0
+reclaim_dir=$lock_dir.reclaim
+reclaim_held=0
 backup=''
+backup_pending=''
 temp=''
+pin_written=0
 pin_verified=0
 current=''
 
 finish() {
-  if [ -n "$backup" ] && [ "$pin_verified" != 1 ]; then
+  if [ "$pin_written" = 1 ] && [ "$pin_verified" != 1 ]; then
     if cp "$backup" "$sources"; then
       printf 'cursor-agent: bump not verified — pin restored to %s\n' "$current" >&2
     else
@@ -48,36 +51,43 @@ finish() {
     fi
   fi
   [ -z "$backup" ] || rm -f "$backup" 2>/dev/null || true
+  [ -z "$backup_pending" ] || rm -f "$backup_pending" 2>/dev/null || true
   [ -z "$temp" ] || rm -f "$temp" 2>/dev/null || true
-  if [ "$lock_held" = 1 ]; then
-    rm -f "$lock_dir/pid" 2>/dev/null || true
-    rmdir "$lock_dir" 2>/dev/null || true
-    lock_held=0
+  if [ "$(readlink "$lock_dir" 2>/dev/null || true)" = "$$" ]; then
+    rm -f "$lock_dir" 2>/dev/null || true
+  fi
+  if [ "$reclaim_held" = 1 ]; then
+    rmdir "$reclaim_dir" 2>/dev/null || true
+    reclaim_held=0
   fi
 }
 
 acquire_lock() {
-  if mkdir "$lock_dir" 2>/dev/null; then
-    lock_held=1
-  else
-    lock_pid=''
-    if [ -f "$lock_dir/pid" ]; then
-      IFS= read -r lock_pid <"$lock_dir/pid" || true
-    fi
-    lock_live=0
-    case "$lock_pid" in
-    '' | *[!0-9]*) ;;
-    *) kill -0 "$lock_pid" 2>/dev/null && lock_live=1 ;;
-    esac
-    [ "$lock_live" = 0 ] || die "update lock held by PID $lock_pid ($lock_dir)"
-    rm -f "$lock_dir/pid"
-    rmdir "$lock_dir" 2>/dev/null || die "cannot reclaim stale update lock $lock_dir"
-    mkdir "$lock_dir" 2>/dev/null || die "cannot acquire update lock $lock_dir"
-    lock_held=1
-  fi
   trap finish EXIT
-  trap 'exit 130' INT TERM
-  printf '%s\n' "$$" >"$lock_dir/pid"
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  if ln -s "$$" "$lock_dir" 2>/dev/null; then
+    return
+  fi
+
+  lock_pid=$(readlink "$lock_dir" 2>/dev/null || true)
+  case "$lock_pid" in
+  '' | *[!0-9]*) die "cannot acquire update lock $lock_dir" ;;
+  esac
+  if kill -0 "$lock_pid" 2>/dev/null; then
+    die "update lock held by PID $lock_pid ($lock_dir); after a crash, remove it with: rm \"$lock_dir\" (only after no update is running)"
+  fi
+
+  # Serialize stale-lock removal. If a normal writer wins after rm, this one
+  # retry loses cleanly rather than claiming a lock that it does not own.
+  mkdir "$reclaim_dir" 2>/dev/null || die "cannot reclaim stale update lock $lock_dir"
+  reclaim_held=1
+  [ "$(readlink "$lock_dir" 2>/dev/null || true)" = "$lock_pid" ] ||
+    die "cannot reclaim stale update lock $lock_dir"
+  rm -f "$lock_dir" || die "cannot reclaim stale update lock $lock_dir"
+  ln -s "$$" "$lock_dir" 2>/dev/null || die "cannot acquire update lock $lock_dir"
+  rmdir "$reclaim_dir" 2>/dev/null || die "cannot reclaim stale update lock $lock_dir"
+  reclaim_held=0
 }
 
 mode=update
@@ -134,6 +144,9 @@ fi
 printf 'cursor-agent: %s %s -> %s\n' "$direction" "$current" "$latest"
 
 system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
+if ! jq -e '.assets | type == "object"' "$sources" >/dev/null; then
+  die "$sources has no assets object"
+fi
 if ! jq -e --arg s "$system" '.assets | has($s)' "$sources" >/dev/null; then
   pinned_systems=$(jq -r '.assets | keys | join(", ")' "$sources")
   die "unsupported current system $system; pinned systems: $pinned_systems"
@@ -152,10 +165,14 @@ done
 
 # From here on the new pin is on disk. Anything short of a verified build —
 # a failed step, set -e, or Ctrl+C during `nix build` — restores the old one.
-backup=$(mktemp "${TMPDIR:-/tmp}/cursor-agent-sources.XXXXXX")
-cp "$sources" "$backup"
+backup_pending=$(mktemp "${TMPDIR:-/tmp}/cursor-agent-sources.XXXXXX")
+cp "$sources" "$backup_pending"
+backup=$backup_pending
+backup_pending=''
 temp=$(mktemp "${sources}.tmp.XXXXXX")
 printf '%s\n' "$updated" >"$temp"
+chmod 0644 "$temp"
+pin_written=1
 mv "$temp" "$sources"
 
 out=$(nix build --no-link --print-out-paths "$repo_root#packages.$system.cursor-agent") ||
