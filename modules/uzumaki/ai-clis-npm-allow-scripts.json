@@ -1,0 +1,10 @@
+{
+  "description": "NIX-517: packages whose npm install scripts may run when the AI CLIs are installed. One list for the Home Manager activation (ai-clis-npm.nix) and `just update-ai-clis`; tests/test_codex_doctor.py fails if either stops reading it. claude-code's postinstall replaces the bin/claude.exe placeholder with the native binary; grok's installs the binary into ~/.grok/bin.",
+  "allowScripts": [
+    "@anthropic-ai/claude-code",
+    "@xai-official/grok",
+    "@google/genai",
+    "esbuild",
+    "protobufjs"
+  ]
+}
