@@ -27,6 +27,7 @@ let
       # The same binary tailscaled runs from, so CLI and daemon never disagree.
       TAILSCALE_BIN = "${config.services.tailscale.package}/bin/tailscale";
       NOTIFICATION_ENV = config.age.secrets.csb1-watchtower-env.path;
+      MONITOR_STATUS = "";
     };
   };
 in

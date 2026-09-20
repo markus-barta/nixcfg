@@ -33,6 +33,50 @@ sudo systemctl start tailnet-watch.service
 journalctl -u tailnet-watch.service --since "1 hour ago" --no-pager
 ```
 
+## Residue mail monitor (OPS-196)
+
+`mailbridge-watch.timer` runs every five minutes. It refreshes Gmail access in
+memory, checks the bridge container and recent import-error counts, and uses
+IMAP STATUS for every configured source and Failed folder. It never fetches
+message bodies or moves/deletes mail. Counts, fixed error categories and
+timestamps are stored root-only in `/var/lib/mailbridge-watch/status.json`.
+An absent/unreadable configured folder is unknown, not an empty queue.
+
+The shared fleet-alerts engine confirms faults twice, retries failed delivery,
+deduplicates alerts and reports recovery through the existing Telegram target.
+A queue that has not observably decreased for two hours is actionable; this
+allows for upstream's batch-end deletion. `tailnet-watch` independently checks
+the snapshot age (15-minute limit), completeness and notification failures
+under distinct incident keys, so an existing fault cannot mask a later outage.
+Both witnesses still depend on this host and their existing alert channel;
+a total host/channel outage needs the fleet's external monitoring.
+
+`GRANT_ISSUED_AT` in `mailbridge-watch.nix` must be the actual issuance time of
+the replacement grant after verified Google Production publication. Until
+recorded, the monitor reports unverified publication. After eight days, a
+healthy check with empty source/Failed queues records the first
+`day8_verified_at`; later failures keep that evidence and clear `day8_check_ok`.
+That proves continuing authorization and empty observed queues, not that a
+particular message exists in Gmail; initial recovery requires live delivery
+and backlog-drain evidence in OPS-196. No recurring Console check is needed.
+
+```bash
+systemctl status mailbridge-watch.timer --no-pager
+journalctl -u mailbridge-watch.service --since '1 hour ago' --no-pager
+sudo cat /var/lib/mailbridge-watch/status.json  # aggregate health only
+```
+
+The pinned bridge image's provenance points to upstream
+`a34610a9e881c2b4388a04d8d987f6bc7fe330f8`. It queues successful UIDs only after
+a Gmail import returns HTTP 200, then deletes at the end of the folder pass.
+An interrupted pass can duplicate accepted mail; restart only when idle after
+the queue drains. Its EXPUNGE is mailbox-wide for already-deleted messages:
+concurrent clients marking mail deleted are outside a no-loss guarantee.
+Import-attempt logs alone are not success evidence. Keep Hover forwarding.
+Production removes Google's fixed Testing expiry, not revocation after account
+security changes. Follow the canonical OPS onboarding runbook for attended
+consent/encryption after a real revocation; do not schedule re-consent/restarts.
+
 ## Common Tasks
 
 ### Update & Switch Configuration

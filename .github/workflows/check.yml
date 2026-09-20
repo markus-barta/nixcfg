@@ -97,6 +97,9 @@ jobs:
       - name: Verify csb1 tailnet witness contract (OPS-181)
         run: tests/T44-tailnet-watch.sh
 
+      - name: Verify mailbridge authorization, queue and alert failure handling (OPS-196)
+        run: python3 -m unittest discover -s tests -p 'test_mailbridge_watch.py' -v
+
       - name: Verify Pharos deployment evidence reaches beacons through a directory (OPS-186)
         run: tests/T45-pharos-evidence-mount.sh
 

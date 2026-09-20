@@ -116,6 +116,21 @@ NIX-118) is tracked in **OPS-61** — the compose spec
 
 ## Docker Services
 
+### Public OAuth pages (NIX-422 / OPS-196)
+
+`barta-public` serves `https://barta.cm/` and `/privacy/`, with `www.barta.cm`
+as an alias. Source: `hosts/csb1/web/barta-public/`; the compose bind is an
+immutable Nix store directory, so a content change changes the rendered spec
+and recreates the service. Nginx is digest-pinned and read-only; Traefik owns
+HTTPS. No account, analytics, mail access or application credentials exist in
+this container. DNS is an additive personal-zone operation; preserve all mail
+records and never change the separate `barta.com` forwarding setup.
+
+Validate both public URLs before saving Google OAuth branding or publishing.
+For rollback, select the previous NixOS generation and reconcile only the
+`barta-public` service; never stop the entire compose stack. Production OAuth
+state and consent evidence live in OPS-196 and its onboarding runbook.
+
 ### GitHub Actions Runner
 
 csb1 runs a declarative GitHub Actions runner for `hausv-org` deployments via NixOS `services.github-runners`. The runner is configured in `hosts/csb1/hausv-github-runner.nix` and uses the existing GHCR token (`csb1-hausv-ghcr-pull`) for repo-scoped registration.
@@ -134,6 +149,7 @@ journalctl -u github-runner-csb1-hausv.service --since today
 
 | Container                   | Purpose                                                      |
 | --------------------------- | ------------------------------------------------------------ |
+| csb1-barta-public-1         | Public mailbridge homepage and privacy                       |
 | csb1-docmost-1              | Documentation wiki                                           |
 | csb1-docmost-db-1           | PostgreSQL for Docmost                                       |
 | csb1-docmost-redis-1        | Redis cache                                                  |
