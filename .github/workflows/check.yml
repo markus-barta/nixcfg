@@ -100,6 +100,9 @@ jobs:
       - name: Verify mailbridge authorization, queue and alert failure handling (OPS-196)
         run: python3 -m unittest discover -s tests -p 'test_mailbridge_watch.py' -v
 
+      - name: Verify attended mail consent boundaries (OPS-196)
+        run: python3 -m unittest discover -s tests -p 'test_mailbridge_consent.py' -v
+
       - name: Verify Pharos deployment evidence reaches beacons through a directory (OPS-186)
         run: tests/T45-pharos-evidence-mount.sh
 
