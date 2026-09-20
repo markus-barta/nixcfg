@@ -725,6 +725,12 @@ in
         # OIDC_CLIENT_ID still inside csb1-ppm-env.age — clear that one out at
         # the next rotation of that file (follow-up on OPS-212).
         "OIDC_CLIENT_ID=391618992831266821@paimos_ppm"
+        # Deliberately empty. Paimos sends client_secret on the token exchange
+        # whenever this is non-empty, and a public PKCE client answers
+        # invalid_client — so a stale secret left in csb1-ppm-env.age would
+        # break SSO the moment the client id above takes effect. Blanking it
+        # here neutralises that without decrypting the file to look.
+        "OIDC_CLIENT_SECRET="
       ]
       ++ paimosPublicEnvironment;
       env_file = [
