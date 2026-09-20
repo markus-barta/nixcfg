@@ -192,6 +192,10 @@ class ConsentTests(unittest.TestCase):
             )
             request = opener.return_value.open.call_args.args[0]
             self.assertEqual(request.full_url, consent.TOKEN_URL)
+            context = opener.call_args.args[1]._context
+            self.assertTrue(context.check_hostname)
+            self.assertEqual(context.verify_mode, consent.ssl.CERT_REQUIRED)
+            self.assertIsNone(context.keylog_filename)
             self.assertEqual(
                 urllib.parse.parse_qs(request.data.decode())["code_verifier"],
                 ["verifier"],

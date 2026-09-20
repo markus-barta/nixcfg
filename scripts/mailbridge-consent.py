@@ -18,6 +18,7 @@ import json
 import os
 import re
 import secrets
+import ssl
 import stat
 import sys
 import tempfile
@@ -87,7 +88,13 @@ def exchange(client: dict, code: str, verifier: str, redirect: str) -> dict:
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     # Fixed Google destination, normal TLS verification, no redirects or proxy.
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.load_default_certs()  # No SSLKEYLOGFILE or unverified-context override.
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        urllib.request.HTTPSHandler(context=context),
+        NoRedirect(),
+    )
     with opener.open(request, timeout=30) as response:
         require(response.status == 200)
         raw = response.read(LIMIT + 1)
