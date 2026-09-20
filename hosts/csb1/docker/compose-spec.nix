@@ -163,6 +163,33 @@ in
 {
   name = "csb1";
   services = {
+    # NIX-422 / OPS-196: public pages required for production OAuth.
+    barta-public = {
+      image = "nginx:stable-alpine@sha256:ef8676b33d681f272ba429b27658bdd7e640963279714c96bddf1dc76307f7b6";
+      restart = "unless-stopped";
+      read_only = true;
+      tmpfs = [
+        "/var/cache/nginx"
+        "/run"
+        "/tmp"
+      ];
+      volumes = [ "${../web/barta-public}:/usr/share/nginx/html:ro" ];
+      networks = [ "traefik" ];
+      labels = [
+        "com.centurylinklabs.watchtower.enable=false"
+        "traefik.enable=true"
+        "traefik.docker.network=traefik"
+        "traefik.http.routers.barta-public.rule=Host(`barta.cm`) || Host(`www.barta.cm`)"
+        "traefik.http.routers.barta-public.entrypoints=web-secure"
+        "traefik.http.routers.barta-public.tls=true"
+        "traefik.http.routers.barta-public.tls.certresolver=default"
+        "traefik.http.services.barta-public.loadbalancer.server.port=80"
+        "traefik.http.routers.barta-public-http.rule=Host(`barta.cm`) || Host(`www.barta.cm`)"
+        "traefik.http.routers.barta-public-http.entrypoints=web"
+        "traefik.http.routers.barta-public-http.middlewares=barta-public-https@docker"
+        "traefik.http.middlewares.barta-public-https.redirectscheme.scheme=https"
+      ];
+    };
     docmost-db = {
       image = "postgres:16-alpine";
       env_file = [

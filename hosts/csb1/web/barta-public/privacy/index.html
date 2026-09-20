@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  />
+  <title>Privacy — turbogmailify-barta</title>
+  <style>
+    body {
+      max-width: 44rem;
+      margin: 4rem auto;
+      padding: 0 1.5rem;
+      font: 18px/1.65 system-ui;
+      color: #17212b;
+    }
+    a {
+      color: #075f91;
+    }
+  </style>
+  <main>
+    <p><a href="/">turbogmailify-barta</a></p>
+    <h1>Privacy and data use</h1>
+    <p>Last updated: 20 September 2026.</p>
+    <h2>Purpose and access</h2>
+    <p>
+      This personal tool transfers messages retained in its operator's Hover
+      mailbox to the operator's authorised Gmail account. It processes messages,
+      headers and attachments for this transfer. Google access is limited to the
+      Gmail API permission to insert messages (gmail.insert); the tool does not
+      request permission to read or delete existing Gmail messages.
+    </p>
+    <h2>Processing and storage</h2>
+    <p>
+      Transfers run on the operator's private infrastructure. Messages are
+      processed there and stored by Hover and Google under their respective
+      account settings and policies. After Gmail accepts an import, the
+      corresponding source message is scheduled for deletion from Hover.
+      Operational logs may contain message metadata, including subjects; this
+      service does not promise exactly-once delivery.
+    </p>
+    <p>
+      Credentials are kept in encrypted configuration at rest and supplied to
+      the running bridge through a restricted local file. Operational monitoring
+      should expose only status, counts and timestamps.
+    </p>
+    <h2>Use and sharing</h2>
+    <p>
+      Data is used only for mailbox transfer and operation of this tool. It is
+      not sold, used for advertising, or used to train AI models. Messages
+      necessarily pass between Hover, the operator's infrastructure and Google.
+    </p>
+    <h2>Control</h2>
+    <p>
+      The operator can stop the bridge and revoke its Google access. Imported
+      messages remain in Gmail until removed under the account owner's normal
+      controls. Contact the operator using the support email shown on the Google
+      consent screen.
+    </p>
+    <p>
+      Use of information received from Google APIs adheres to the
+      <a
+        href="https://developers.google.com/terms/api-services-user-data-policy"
+        >Google API Services User Data Policy</a
+      >, including its Limited Use requirements.
+    </p>
+  </main>
+</html>

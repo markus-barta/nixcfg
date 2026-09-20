@@ -43,6 +43,7 @@ def load_checks():
     source = source.replace("@NOTIFICATION_ENV@", "/nonexistent/notify.env")
     source = source.replace("@TAILSCALE_BIN@", "/nonexistent/tailscale")
     source = source.replace("@HOSTNAME@", "csb1")
+    source = source.replace("@MONITOR_STATUS@", "")
     assert "@NOTIFICATION_ENV@" not in source and "@TAILSCALE_BIN@" not in source
     assert "@HOSTNAME@" not in source
     module = types.ModuleType("tailnet_watch_checks")

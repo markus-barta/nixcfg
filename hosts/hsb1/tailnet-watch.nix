@@ -22,6 +22,7 @@ let
       # The same binary tailscaled runs from, so CLI and daemon never disagree.
       TAILSCALE_BIN = "${config.services.tailscale.package}/bin/tailscale";
       NOTIFICATION_ENV = config.age.secrets.hsb1-tailnet-watch-env.path;
+      MONITOR_STATUS = "/var/lib/mailbridge-watch/status.json";
     };
   };
 in
