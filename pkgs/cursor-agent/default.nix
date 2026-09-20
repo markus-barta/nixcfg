@@ -92,7 +92,7 @@ stdenvNoCC.mkDerivation {
       # nothing about the flag: the vendor node compares the bundle's updater and
       # option code with the reviewed baseline.
       (cd "$out/share/cursor-agent" && ./node ${autoUpdateCheck}/check-auto-update.mjs)
-      # The chat commands take the flag after their name; each must still parse.
+      # These commands take the flag after their name; each must still parse.
       for command in resume ls sandbox; do
         HOME="$TMPDIR" "$out/bin/agent" "$command" --help | grep -q "^Usage: agent $command" || {
           echo "cursor-agent: '$command' no longer parses with the wrapper flag" >&2
