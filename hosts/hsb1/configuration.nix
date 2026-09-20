@@ -29,6 +29,7 @@ in
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
     ./tailnet-watch.nix # OPS-185: second tailnet witness (home failure domain) — pages when this host's tailnet view is broken
+    ./mailbridge-watch.nix # OPS-196: OAuth/queue health, independently watched by tailnet-watch
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
     ../../modules/uzumaki # Consolidated module: fish, zellij, stasysmo
     ../../modules/funkeykid.nix
@@ -588,6 +589,9 @@ in
     };
     units = [
       "babycam-watchdog.timer" # NIX-151 — the babycam's guardian
+      "mailbridge-watch.timer"
+      "mailbridge-watch.service"
+      "tailnet-watch.timer"
       "mqtt-volume-control.service"
       "apc-to-mqtt.timer"
       "docker.service"

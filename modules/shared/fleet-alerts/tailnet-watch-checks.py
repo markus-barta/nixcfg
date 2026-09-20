@@ -35,12 +35,14 @@ import hashlib
 import json
 import subprocess
 import time
+from pathlib import Path
 
 import engine
 from engine import Problem
 
 STATE_PATH = "/var/lib/tailnet-watch/state.json"
 NOTIFICATION_ENV = "@NOTIFICATION_ENV@"
+MONITOR_STATUS = "@MONITOR_STATUS@"
 TAILSCALE = "@TAILSCALE_BIN@"
 HOSTNAME = "@HOSTNAME@"
 TIMEOUT = 15
@@ -119,8 +121,24 @@ def check_derp_map() -> list[Problem]:
     return []
 
 
+def check_monitor() -> list[Problem]:
+    """An independent timer must notice a silent mail monitor (OPS-196)."""
+    if not MONITOR_STATUS:
+        return []
+    try:
+        status = json.loads(Path(MONITOR_STATUS).read_text())
+        age = time.time() - status["checked_at"]
+        if not 0 <= age <= 15 * 60:
+            raise ValueError("stale")
+        if status.get("delivery") != "ok" or status.get("complete") is not True:
+            raise ValueError("incomplete")
+    except Exception:
+        return [Problem("mailbridge:monitor", "hsb1: mail monitor is missing, stale, incomplete or unable to deliver alerts.")]
+    return []
+
+
 def collect() -> list[Problem]:
-    return check_status() + check_derp_map()
+    return check_status() + check_derp_map() + check_monitor()
 
 
 def render(announced: list[str], cleared: list[str]) -> str:
