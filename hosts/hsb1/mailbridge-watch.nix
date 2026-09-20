@@ -15,9 +15,9 @@ let
       NOTIFICATION_ENV = config.age.secrets.hsb1-tailnet-watch-env.path;
       DOCKER = "${config.virtualisation.docker.package}/bin/docker";
       CA_BUNDLE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
-      # Set once the replacement grant is obtained AFTER confirmed Production.
+      # Fresh grant obtained after confirmed Production (OPS-196).
       # This is value-free evidence, never inferred from an access-token expiry.
-      GRANT_ISSUED_AT = "";
+      GRANT_ISSUED_AT = "2026-09-20T16:00:41Z";
     };
   };
 in
