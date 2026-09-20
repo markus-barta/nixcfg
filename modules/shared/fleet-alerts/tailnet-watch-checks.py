@@ -128,13 +128,16 @@ def check_monitor() -> list[Problem]:
     try:
         status = json.loads(Path(MONITOR_STATUS).read_text())
         age = time.time() - status["checked_at"]
-        if not 0 <= age <= 15 * 60:
-            raise ValueError("stale")
-        if status.get("delivery") != "ok" or status.get("complete") is not True:
-            raise ValueError("incomplete")
     except Exception:
-        return [Problem("mailbridge:monitor", "hsb1: mail monitor is missing, stale, incomplete or unable to deliver alerts.")]
-    return []
+        return [Problem("mailbridge:monitor:unreadable", "hsb1: mail monitor snapshot is missing or unreadable.")]
+    problems = []
+    if not 0 <= age <= 15 * 60:
+        problems.append(Problem("mailbridge:monitor:stale", "hsb1: mail monitor snapshot is stale; check its timer and service."))
+    if status.get("delivery") != "ok":
+        problems.append(Problem("mailbridge:monitor:delivery", "hsb1: mail monitor has not completed alert delivery."))
+    if status.get("complete") is not True:
+        problems.append(Problem("mailbridge:monitor:incomplete", "hsb1: mail monitor cannot observe all configured folders."))
+    return problems
 
 
 def collect() -> list[Problem]:

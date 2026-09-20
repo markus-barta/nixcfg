@@ -151,6 +151,10 @@ def mailbox_counts(cfg: dict) -> tuple[str, dict]:
     counts = {}
     mapping = []
     for index, account in enumerate(cfg["accounts"]):
+        folders = sorted(mapped_folders(account).items())
+        mapping.append([account["Username"], folders])
+        for folder_index, (_, failed) in enumerate(folders):
+            counts[f"a{index}f{folder_index}"] = {"count": None, "failed_folder": failed}
         client = None
         try:
             client = imaplib.IMAP4_SSL(
@@ -158,21 +162,21 @@ def mailbox_counts(cfg: dict) -> tuple[str, dict]:
                 ssl_context=ssl.create_default_context(cafile=CA_BUNDLE), timeout=8,
             )
             client.login(account["Username"], account["Password"])
-            folders = mapped_folders(account)
-            mapping.append([account["Username"], sorted(folders.items())])
-            for folder_index, (folder, failed) in enumerate(sorted(folders.items())):
+            for folder_index, (folder, _) in enumerate(folders):
                 quoted = '"' + folder.replace("\\", "\\\\").replace('"', '\\"') + '"'
-                result, data = client.status(quoted, "(MESSAGES)")
-                # An absent configured Failed folder is not silently assumed
-                # empty: unknown is actionable until its state is established.
-                if result != "OK" or not data or not isinstance(data[0], bytes):
-                    raise ValueError("unreadable folder")
-                match = re.search(rb"\bMESSAGES\s+(\d+)\b", data[0])
-                if not match:
-                    raise ValueError("invalid count")
-                counts[f"a{index}f{folder_index}"] = {
-                    "count": int(match[1]), "failed_folder": failed,
-                }
+                try:
+                    result, data = client.status(quoted, "(MESSAGES)")
+                    if result != "OK" or not data or not isinstance(data[0], bytes):
+                        continue
+                    match = re.search(rb"\bMESSAGES\s+(\d+)\b", data[0])
+                    if match:
+                        counts[f"a{index}f{folder_index}"]["count"] = int(match[1])
+                except Exception:
+                    # One unknown folder must not blind all other queues.
+                    pass
+        except Exception:
+            # Unobserved folders remain explicitly unknown, never zero.
+            pass
         finally:
             if client is not None:
                 try:
@@ -208,12 +212,17 @@ def queue_problems(current: dict, prior: dict, stamp: float) -> tuple[dict, list
     for key, item in current.items():
         count = item["count"]
         old = prior.get(key, {})
+        old_count = old.get("count")
         since = old.get("since", stamp)
-        if not isinstance(since, (float, int)) or since > stamp or old.get("count", 0) == 0:
+        observed = count is not None
+        if not observed:
+            problems.append(Problem(f"mailbridge:imap:{key}", f"hsb1: configured mail folder {key} cannot be observed."))
+            count = old_count  # retain known residue and its clock during outage
+        if not isinstance(since, (float, int)) or since > stamp or not old_count:
             since = stamp
-        if count == 0 or count < old.get("count", 0):
+        if observed and (count == 0 or not old_count or count < old_count):
             since = stamp
-        saved[key] = {**item, "since": since}
+        saved[key] = {**item, "count": count, "since": since, "observed": observed}
         if count and item["failed_folder"]:
             problems.append(Problem(f"mailbridge:failed:{key}", "hsb1: residue remains in a configured Failed folder."))
         elif count and stamp - since >= STALL_SECONDS:
@@ -230,7 +239,7 @@ def observe(stamp: float, previous: dict) -> tuple[dict, list[Problem]]:
         return snapshot, [Problem("mailbridge:config", "hsb1: mailbridge configuration is unreadable or invalid.")]
     snapshot["auth"] = oauth_probe(cfg)
     if snapshot["auth"] != "ok":
-        problems.append(Problem("mailbridge:oauth", f"hsb1: Gmail authorization check failed ({snapshot['auth']}); no automated restart or re-consent."))
+        problems.append(Problem(f"mailbridge:oauth:{snapshot['auth']}", f"hsb1: Gmail authorization check failed ({snapshot['auth']}); no automated restart or re-consent."))
     snapshot["bridge"] = bridge_probe()
     if snapshot["bridge"]["state"] != "running":
         problems.append(Problem("mailbridge:bridge", "hsb1: residue bridge is stopped or its state is unknown."))
@@ -242,7 +251,7 @@ def observe(stamp: float, previous: dict) -> tuple[dict, list[Problem]]:
         snapshot["queue"], queue_issues = queue_problems(counts, prior, stamp)
         snapshot["mapping"] = fingerprint
         problems.extend(queue_issues)
-        snapshot["complete"] = True
+        snapshot["complete"] = all(item["count"] is not None for item in counts.values())
     except Exception:
         # Preserve the last observation through an outage; an unreadable folder
         # must not reset the stall clock or clear a known retained-mail issue.
@@ -258,9 +267,18 @@ def observe(stamp: float, previous: dict) -> tuple[dict, list[Problem]]:
         snapshot["grant_issued_at"] = issued.timestamp()
     except ValueError:
         problems.append(Problem("mailbridge:publication", "hsb1: production OAuth grant issuance is not recorded; durable recovery is unverified."))
+    issued_at = snapshot.get("grant_issued_at")
+    recorded = previous.get("day8_verified_at")
     snapshot["day8_verified_at"] = None
-    if (not problems and all(item["count"] == 0 for item in snapshot["queue"].values())
-            and stamp - snapshot["grant_issued_at"] >= 8 * 86400):
+    if (issued_at and previous.get("grant_issued_at") == issued_at
+            and isinstance(recorded, (int, float))
+            and issued_at + 8 * 86400 <= recorded <= stamp):
+        snapshot["day8_verified_at"] = recorded
+    snapshot["day8_check_ok"] = bool(
+        not problems and issued_at and stamp - issued_at >= 8 * 86400
+        and all(item["count"] == 0 for item in snapshot["queue"].values())
+    )
+    if snapshot["day8_check_ok"] and snapshot["day8_verified_at"] is None:
         snapshot["day8_verified_at"] = stamp
     return snapshot, problems
 
@@ -298,6 +316,8 @@ def main() -> int:
         # Never echo exceptions: transport/config errors can include secrets.
         result = engine.EXIT_UNDELIVERED
     snapshot["delivery"] = "failed" if result == engine.EXIT_UNDELIVERED else "ok"
+    if result == engine.EXIT_UNDELIVERED and snapshot.get("day8_verified_at") == stamp:
+        snapshot["day8_verified_at"] = None
     engine.atomic_write_state(str(path), snapshot)
     print(f"mailbridge: problems={len(problems)}, delivery={snapshot['delivery']}")
     return result

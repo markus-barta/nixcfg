@@ -96,8 +96,8 @@ class QueueTest(unittest.TestCase):
         client.status.return_value = ("NO", [b"fixture-provider-error"])
         account = {"Username": "fixture-user", "Password": "fixture-password", "Folders": {"INBOX": []}}
         with patch.object(checks.ssl, "create_default_context"), patch.object(checks.imaplib, "IMAP4_SSL", return_value=client):
-            with self.assertRaises(ValueError):
-                checks.mailbox_counts({"accounts": [account]})
+            _, counts = checks.mailbox_counts({"accounts": [account]})
+            self.assertIsNone(counts["a0f0"]["count"])
         client.logout.assert_called_once()
 
     def test_all_mapped_source_and_failed_folders_are_observed(self):
@@ -110,6 +110,19 @@ class QueueTest(unittest.TestCase):
         self.assertEqual(sum(v["failed_folder"] for v in counts.values()), 1)
         self.assertEqual([c.args[0] for c in client.status.call_args_list], ['"ArchiveSource"', '"Failed"', '"INBOX"'])
         self.assertEqual({c[0] for c in client.method_calls}, {"login", "status", "logout"})
+
+    def test_one_failed_folder_does_not_blind_source_queue(self):
+        account = {"Username": "fixture-user", "Password": "fixture-password", "Folders": {"INBOX": []}, "FailedFolders": {"*": "Failed"}}
+        client = Mock()
+        client.status.side_effect = [("NO", [b"unknown"]), ("OK", [b'"INBOX" (MESSAGES 20)'])]
+        with patch.object(checks.ssl, "create_default_context"), patch.object(checks.imaplib, "IMAP4_SSL", return_value=client):
+            _, counts = checks.mailbox_counts({"accounts": [account]})
+        self.assertIsNone(counts["a0f0"]["count"])
+        self.assertEqual(counts["a0f1"]["count"], 20)
+        saved, problems = checks.queue_problems(counts, {}, 1000)
+        self.assertEqual([p.key for p in problems], ["mailbridge:imap:a0f0"])
+        _, problems = checks.queue_problems(counts, saved, 9000)
+        self.assertIn("mailbridge:queue:a0f1", [p.key for p in problems])
 
     def test_batch_queue_is_not_stalled_for_first_two_hours(self):
         current = {"a0f0": {"count": 1000, "failed_folder": False}}
@@ -165,10 +178,20 @@ class ObserveTest(unittest.TestCase):
         with patch.object(checks, "load_config", return_value=CFG), patch.object(checks, "oauth_probe", return_value="ok"), patch.object(checks, "bridge_probe", return_value={"state": "running", "import_errors": 0}), patch.object(checks, "mailbox_counts", side_effect=RuntimeError("fixture-secret")):
             snapshot, problems = checks.observe(STAMP, prior)
         self.assertFalse(snapshot["complete"])
-        self.assertEqual(snapshot["queue"], prior["queue"])
+        self.assertEqual(snapshot["queue"]["f"]["count"], prior["queue"]["f"]["count"])
+        self.assertEqual(snapshot["queue"]["f"]["since"], prior["queue"]["f"]["since"])
         self.assertIn("mailbridge:failed:f", [p.key for p in problems])
         self.assertIn("mailbridge:imap", [p.key for p in problems])
         self.assertNotIn("fixture-secret", repr(snapshot) + repr(problems))
+
+    def test_day8_evidence_survives_later_failure_for_same_grant(self):
+        issued = checks.dt.datetime.fromtimestamp(STAMP - 9 * 86400, checks.dt.timezone.utc).isoformat()
+        prior = {"grant_issued_at": STAMP - 9 * 86400, "day8_verified_at": STAMP - 500}
+        with patch.object(checks, "GRANT_ISSUED_AT", issued), patch.object(checks, "load_config", return_value=CFG), patch.object(checks, "oauth_probe", return_value="invalid_grant"), patch.object(checks, "bridge_probe", return_value={"state": "running", "import_errors": 0}), patch.object(checks, "mailbox_counts", return_value=("mapping", {})):
+            snapshot, problems = checks.observe(STAMP, prior)
+        self.assertEqual(snapshot["day8_verified_at"], STAMP - 500)
+        self.assertFalse(snapshot["day8_check_ok"])
+        self.assertIn("mailbridge:oauth:invalid_grant", [p.key for p in problems])
 
     def test_day8_waits_for_empty_queues(self):
         issued = checks.dt.datetime.fromtimestamp(STAMP - 8 * 86400, checks.dt.timezone.utc).isoformat()
@@ -200,6 +223,22 @@ class DeliveryTest(unittest.TestCase):
             self.assertEqual(len(delivered), 2)
             self.assertIn("Cleared:", delivered[1])
             self.assertIsNone(engine.load_state(state)["pending"])
+
+    def test_stale_monitor_pages_even_when_incomplete_is_already_announced(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(witness, "MONITOR_STATUS", str(Path(tmp) / "status.json")), patch.object(witness.time, "time", return_value=10000):
+            path = Path(tmp) / "status.json"
+            path.write_text(json.dumps({"checked_at": 10000, "delivery": "ok", "complete": False}))
+            state_path = str(Path(tmp) / "alerts.json")
+            sent = []
+            sender = lambda text, _: sent.append(text) or True
+            engine.run_cycle(state_path, 10000, witness.check_monitor, checks.render, sender)
+            engine.run_cycle(state_path, 10001, witness.check_monitor, checks.render, sender)
+            self.assertEqual(len(sent), 1)
+            path.write_text(json.dumps({"checked_at": 1, "delivery": "ok", "complete": False}))
+            engine.run_cycle(state_path, 10002, witness.check_monitor, checks.render, sender)
+            engine.run_cycle(state_path, 10003, witness.check_monitor, checks.render, sender)
+            self.assertEqual(len(sent), 2)
+            self.assertIn("stale", sent[-1])
 
     def test_independent_witness_rejects_missing_stale_or_undelivered_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(witness, "MONITOR_STATUS", str(Path(tmp) / "status.json")), patch.object(witness.time, "time", return_value=10000):

@@ -46,14 +46,16 @@ The shared fleet-alerts engine confirms faults twice, retries failed delivery,
 deduplicates alerts and reports recovery through the existing Telegram target.
 A queue that has not observably decreased for two hours is actionable; this
 allows for upstream's batch-end deletion. `tailnet-watch` independently checks
-the snapshot age (15-minute limit), completeness and notification failures.
+the snapshot age (15-minute limit), completeness and notification failures
+under distinct incident keys, so an existing fault cannot mask a later outage.
 Both witnesses still depend on this host and their existing alert channel;
 a total host/channel outage needs the fleet's external monitoring.
 
 `GRANT_ISSUED_AT` in `mailbridge-watch.nix` must be the actual issuance time of
 the replacement grant after verified Google Production publication. Until
 recorded, the monitor reports unverified publication. After eight days, a
-healthy check with empty source/Failed queues records `day8_verified_at`.
+healthy check with empty source/Failed queues records the first
+`day8_verified_at`; later failures keep that evidence and clear `day8_check_ok`.
 That proves continuing authorization and empty observed queues, not that a
 particular message exists in Gmail; initial recovery requires live delivery
 and backlog-drain evidence in OPS-196. No recurring Console check is needed.

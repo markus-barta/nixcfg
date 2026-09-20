@@ -590,7 +590,6 @@ in
     units = [
       "babycam-watchdog.timer" # NIX-151 — the babycam's guardian
       "mailbridge-watch.timer"
-      "mailbridge-watch.service"
       "tailnet-watch.timer"
       "mqtt-volume-control.service"
       "apc-to-mqtt.timer"

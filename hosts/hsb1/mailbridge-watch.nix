@@ -13,7 +13,7 @@ let
     substitutions = {
       CONFIG = config.age.secrets.hsb1-turbogmailify-config.path;
       NOTIFICATION_ENV = config.age.secrets.hsb1-tailnet-watch-env.path;
-      DOCKER = "${pkgs.docker}/bin/docker";
+      DOCKER = "${config.virtualisation.docker.package}/bin/docker";
       CA_BUNDLE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
       # Set once the replacement grant is obtained AFTER confirmed Production.
       # This is value-free evidence, never inferred from an access-token expiry.
