@@ -8,7 +8,9 @@
 # where that word cannot change:
 # - no arguments, or an option first (interactive, `-p`, Pi's `--print`,
 #   agentd's `--model <m> acp`): the flag goes first;
-# - `resume`, `ls`, `sandbox` (chat commands no raw parser reads): after it;
+# - `resume`, `ls` (chat commands no raw parser reads): after their name;
+#   `sandbox` gets the flag there too, harmlessly: it does not load the chat
+#   chunk containing the background updater guard;
 # - anything else passes unchanged, including a prompt given first, which then
 #   still auto-updates, and the internal `--cursor-persist-restore <id> <name>`
 #   re-exec, which the persist parser recognises only as exactly three words.
