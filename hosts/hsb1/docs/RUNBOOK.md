@@ -60,6 +60,23 @@ That proves continuing authorization and empty observed queues, not that a
 particular message exists in Gmail; initial recovery requires live delivery
 and backlog-drain evidence in OPS-196. No recurring Console check is needed.
 
+For genuine provider revocation, the operator runs
+`python3 scripts/mailbridge-consent.py /path/to/private/turbogmailify.toml`
+with Python 3.11+ on their workstation. The existing config and its containing
+directory must be owner-only. The helper prints a local URL to open in the
+existing Helium window on the MacBook display; it does not launch a browser.
+Choose the existing target Gmail account and complete the attended consent.
+The loopback callback uses state and PKCE, requests only `gmail.insert`, and
+saves the fresh offline grant atomically with a private rollback copy. It
+prints only the issuance timestamp; never paste credentials or callback URLs
+into an agent session. It refuses other Google projects or a changed config.
+
+Encryption remains human-only: use the canonical OPS onboarding runbook's
+agenix step, then review/merge the encrypted change and issuance timestamp.
+Switch hsb1 before recreating the bridge so its file bind sees the new agenix
+inode. Validate real Gmail delivery and the source/Failed counts before an
+idle restart test. The helper itself neither encrypts nor deploys or moves mail.
+
 ```bash
 systemctl status mailbridge-watch.timer --no-pager
 journalctl -u mailbridge-watch.service --since '1 hour ago' --no-pager
