@@ -714,6 +714,23 @@ in
         "BRAND_HEALTH_SERVICE_NAME=ppm"
         "BRAND_TOTP_ISSUER=PPM"
         "OIDC_PROMPT=select_account"
+        # OPS-212 — PPM moved out of the shared `inspr.at` Zitadel project into
+        # its own `Paimos PPM` project, so access can be granted per person
+        # without also handing out aithema-workspace and inspr-versioning.
+        #
+        # This is a PUBLIC PKCE client (OIDC_AUTH_METHOD_TYPE_NONE): there is no
+        # client secret, and the client id travels in the browser URL on every
+        # auth request. It is therefore deliberately plain config, not agenix.
+        # `environment` wins over `env_file`, so this overrides the stale
+        # OIDC_CLIENT_ID still inside csb1-ppm-env.age — clear that one out at
+        # the next rotation of that file (follow-up on OPS-212).
+        "OIDC_CLIENT_ID=391618992831266821@paimos_ppm"
+        # Deliberately empty. Paimos sends client_secret on the token exchange
+        # whenever this is non-empty, and a public PKCE client answers
+        # invalid_client — so a stale secret left in csb1-ppm-env.age would
+        # break SSO the moment the client id above takes effect. Blanking it
+        # here neutralises that without decrypting the file to look.
+        "OIDC_CLIENT_SECRET="
       ]
       ++ paimosPublicEnvironment;
       env_file = [
