@@ -1259,7 +1259,7 @@ in
       # PHAROS-206: guarded delivery bridge and fixed Debian security snapshot.
       # Pin the verified release index containing the linux/amd64 image and
       # provenance. Upgrade the control plane before starting v6 beacons.
-      image = "ghcr.io/inspr-at/pharos/pharosd:260915083121.0.0@sha256:38a0e130b31a147275962c2a0752276367d88db4196a420556d30e367032cbfe";
+      image = "ghcr.io/inspr-at/pharos/pharosd:260920201529.0.0@sha256:1a0ad8e8fa7f214ac6baac4f7ba0dde214824397ac8fff969eaaa4ae293623d2";
       container_name = "pharosd";
       restart = "unless-stopped";
       init = true;
@@ -1406,7 +1406,7 @@ in
     # (uid 1000) to read the nixcfg checkout natively; git computes commits-behind.
     # (Interim container deploy; native musl Nix-module onboarding is PHAROS-6/7.)
     pharos-beacon = {
-      image = "ghcr.io/inspr-at/pharos/pharosd:260915083121.0.0@sha256:38a0e130b31a147275962c2a0752276367d88db4196a420556d30e367032cbfe";
+      image = "ghcr.io/inspr-at/pharos/pharosd:260920201529.0.0@sha256:1a0ad8e8fa7f214ac6baac4f7ba0dde214824397ac8fff969eaaa4ae293623d2";
       container_name = "pharos-beacon";
       restart = "unless-stopped";
       init = true;
