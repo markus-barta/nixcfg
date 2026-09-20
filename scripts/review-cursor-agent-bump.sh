@@ -467,8 +467,9 @@ for ((new_index = 0; new_index < new_total; new_index++)); do
   else
     printf '%s\n' '- status: changed; closest remaining old region of the same kind' >>"$report"
     printf '\n```diff\n' >>"$report"
-    if git diff --no-index --word-diff=plain --word-diff-regex="$word_regex" \
-      "${old_files[match]}" "$new_file" >>"$report"; then
+    # Keep report headers relative to the output directory, not its temp root.
+    if git -C "$output_dir" diff --no-index --word-diff=plain --word-diff-regex="$word_regex" \
+      -- "${old_files[match]#"$output_dir/"}" "${new_file#"$output_dir/"}" >>"$report"; then
       diff_status=0
     else
       diff_status=$?
