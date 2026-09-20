@@ -196,6 +196,9 @@ jq -en --slurpfile candidate "$identical_review/candidate-review.json" \
 renamed_review=$(review_fixture renamed "$reviewed" "$renamed")
 grep -Fq 'status: changed' "$renamed_review/report.md" || fail 'renamed cursor review did not report a changed region'
 grep -Fq '```diff' "$renamed_review/report.md" || fail 'renamed cursor review did not include a word diff'
+if grep -E '^(diff --git |--- |\+\+\+ )' "$renamed_review/report.md" | grep -F "$fixture_dir"; then
+  fail 'cursor review word-diff headers contain the temporary output root'
+fi
 grep -Fq 'version literals only: false' "$renamed_review/report.md" ||
   fail 'renamed cursor review did not distinguish a changed update-core module'
 if grep -Fq 'version literals only: true' "$renamed_review/report.md"; then
@@ -242,7 +245,7 @@ expect_argv 'cursor-agent|--disable-auto-update' cursor-agent
 expect_argv 'cursor-agent|--disable-auto-update|--print|--output-format|stream-json|hi there' cursor-agent --print --output-format stream-json 'hi there'
 expect_argv 'cursor-agent|--disable-auto-update|--model|gpt|acp' cursor-agent --model gpt acp
 expect_argv 'agent|--disable-auto-update|-p|hi' agent -p hi
-# Chat commands no raw parser reads take it after their name.
+# These commands have no raw parser reads and take it after their name.
 expect_argv 'cursor-agent|resume|--disable-auto-update|chat-1' cursor-agent resume chat-1
 expect_argv 'agent|ls|--disable-auto-update' agent ls
 expect_argv 'cursor-agent|sandbox|--disable-auto-update|run' cursor-agent sandbox run
