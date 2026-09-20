@@ -5,15 +5,19 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import ipaddress
 import json
 import os
 import pathlib
 import re
+import ssl
 import stat
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -39,6 +43,7 @@ EDGE_BIND = {
     "bind": {"create_host_path": False},
 }
 FIXTURE_TOKEN = "a" * 64
+FETCH_ATTEMPTS = 3
 
 
 class ContractError(AssertionError):
@@ -277,11 +282,39 @@ def fetch(source: str) -> bytes:
     request = urllib.request.Request(
         source, headers={"User-Agent": "nixcfg-NIX-400-drift-gate"}
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        require(
-            response.status == 200, f"Cloudflare source returned HTTP {response.status}"
-        )
-        return response.read()
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                require(
+                    response.status == 200,
+                    f"Cloudflare source returned HTTP {response.status}",
+                )
+                return response.read()
+        except (
+            urllib.error.URLError,
+            ConnectionError,
+            TimeoutError,
+            http.client.IncompleteRead,
+        ) as error:
+            if isinstance(error, urllib.error.HTTPError):
+                retryable = error.code == 429 or 500 <= error.code < 600
+                reason = f"HTTP {error.code}"
+                error.close()
+            else:
+                # TLS validation/configuration errors need operator attention,
+                # even when urllib wraps them as transport failures.
+                retryable = not isinstance(getattr(error, "reason", None), ssl.SSLError)
+                reason = type(error).__name__
+            if not retryable or attempt == FETCH_ATTEMPTS:
+                raise
+            # NIX-526: retry the fetch only, never a failed pin comparison.
+            delay = attempt
+            print(
+                f"T58 Cloudflare fetch: {reason}; retrying attempt "
+                f"{attempt + 1}/{FETCH_ATTEMPTS} in {delay}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
 
 
 def verify_online_pin(contract: dict[str, Any]) -> None:
@@ -455,6 +488,7 @@ if __name__ == "__main__":
         TypeError,
         ValueError,
         OSError,
+        http.client.IncompleteRead,
         json.JSONDecodeError,
     ) as error:
         print(f"T58 FAIL: {error}", file=sys.stderr)

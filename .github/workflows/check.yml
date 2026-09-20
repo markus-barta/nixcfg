@@ -299,7 +299,9 @@ jobs:
         run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
 
       - name: Verify csb1 inspr-auth Cloudflare edge boundary
-        run: nix-shell -p python3Packages.pyyaml --run "tests/T58-inspr-auth-edge.py --online"
+        run: >-
+          nix-shell -p 'python3.withPackages (ps: [ ps.pyyaml ])'
+          --run "python3 tests/test_inspr_auth_edge_fetch.py -v && tests/T58-inspr-auth-edge.py --online"
 
       - name: Verify headscale DERP-map fallback contract (OPS-180)
         run: nix-shell -p python3Packages.pyyaml --run tests/T43-headscale-derp-fallback.sh

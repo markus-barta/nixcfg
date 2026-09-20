@@ -47,6 +47,24 @@ for t in tests/T*.sh; do bash "$t"; done
 bash tests/T04-markus-ssh-routes.sh
 ```
 
+## Cloudflare edge pin probe (T58 / NIX-526)
+
+Run the offline retry tests and the live pin comparison with the same Python
+environment used by CI:
+
+```bash
+nix-shell -p 'python3.withPackages (ps: [ ps.pyyaml ])' \
+  --run 'python3 tests/test_inspr_auth_edge_fetch.py -v && tests/T58-inspr-auth-edge.py --online'
+```
+
+Each Cloudflare IP-list fetch allows three attempts, with 1- and 2-second
+backoffs and the existing 10-second request timeout. Connection failures,
+timeouts, truncated reads, HTTP 429 and HTTP 5xx are retried with a diagnostic.
+Other HTTP errors (including 401/403), TLS errors and pin mismatches fail
+immediately. Exhausted retries still fail the gate. The offline tests inject
+failures and replace sleep, so they need neither network access nor delays.
+This gate never changes the reviewed ranges or their hashes.
+
 ## Test Philosophy
 
 ### When Tests Live Where
