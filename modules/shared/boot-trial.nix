@@ -28,7 +28,8 @@
 #                     trade a quiet box for spurious reboots.
 #   initrd failure    with systemd stage 1 and emergencyAccess off, a failed
 #                     initrd (root device never appears, ...) waits forever at
-#                     a locked emergency shell. It reboots after 30s instead.
+#                     a locked emergency shell. `boot.panic_on_fail` turns it
+#                     into a panic, and so into a reboot.
 #   no network        boot-trial-guard: on an armed boot, if the gateway does
 #                     not answer and (with tailscale) the tailnet is not up
 #                     within the window, reboot. Disarms first, so it can never
@@ -254,27 +255,8 @@ in
       "softlockup_panic=1"
       "nmi_watchdog=panic"
       "sysctl.kernel.panic_on_rcu_stall=1"
-    ];
-
-    # emergencyAccess off locks the initrd emergency shell, so nobody can use
-    # it anyway; a reboot at least reaches the known-good default mid-trial.
-    boot.initrd.systemd.services.boot-trial-emergency-reboot =
-      lib.mkIf config.boot.initrd.systemd.enable
-        {
-          description = "Reboot instead of a locked initrd emergency shell (OPS-213)";
-          wantedBy = [ "emergency.target" ];
-          unitConfig = {
-            DefaultDependencies = false;
-            SuccessAction = "reboot-force";
-            FailureAction = "reboot-force";
-          };
-          serviceConfig = {
-            Type = "oneshot";
-            ExecStart = "${pkgs.coreutils}/bin/sleep 30";
-          };
-        };
-    boot.initrd.systemd.storePaths = lib.mkIf config.boot.initrd.systemd.enable [
-      "${pkgs.coreutils}/bin/sleep"
+      # NixOS's own initrd panic-on-fail.service: emergency.target -> panic.
+      "boot.panic_on_fail"
     ];
 
     environment.systemPackages = [ cli ];
