@@ -168,4 +168,34 @@ if PHAROS_SETTINGS_FILE="$fixture_dir/invalid.json" \
   exit 1
 fi
 
+# PHAROS-289: optional per-host nixpkgs warning threshold (days).
+run_update hsb8 '#12AB34' workstation true false true test-request-5 14
+jq -e '.hosts.hsb8.alerts.nixpkgs_warn_after_days == 14' "$fixture" >/dev/null
+run_update hsb8 '#12AB34' workstation true false true test-request-6 ''
+jq -e '.hosts.hsb8.alerts | has("nixpkgs_warn_after_days") | not' "$fixture" >/dev/null
+run_update hsb8 '#12AB34' workstation true false true test-request-7 3650
+run_update hsb8 '#12AB34' workstation true false true test-request-8
+jq -e '.hosts.hsb8.alerts | has("nixpkgs_warn_after_days") | not' "$fixture" >/dev/null
+before=$(jq -S . "$fixture")
+for bad in 0 3651 abc 1.5 -3 ' 7'; do
+  if run_update hsb8 '#12AB34' workstation true false true test-request-9 "$bad" 2>/dev/null; then
+    echo "invalid nixpkgs warning threshold '$bad' was accepted" >&2
+    exit 1
+  fi
+done
+[[ "$before" == "$(jq -S . "$fixture")" ]] || {
+  echo "rejected threshold updates changed the registry" >&2
+  exit 1
+}
+jq '.hosts.hsb8.alerts.nixpkgs_warn_after_days = "14"' "$fixture" >"$fixture_dir/invalid-threshold.json"
+if PHAROS_SETTINGS_FILE="$fixture_dir/invalid-threshold.json" \
+  "$repo_root/scripts/update-pharos-host-settings.sh" \
+  hsb8 '#123456' server false false false test-request-10 >/dev/null 2>&1; then
+  echo "a string-typed nixpkgs threshold in the registry was accepted" >&2
+  exit 1
+fi
+grep -Fq 'nixpkgs_warn_after_days:' "$workflow"
+# shellcheck disable=SC2016 # literal: the workflow must pass the env var through
+grep -Fq '"$PHAROS_NIXPKGS_WARN_AFTER_DAYS"' "$workflow"
+
 echo "pharos_host_preferences=passed"
