@@ -19,7 +19,11 @@
 #   kernel panic      `panic=30` reboots instead of hanging forever.
 #   RCU stall         `sysctl.kernel.panic_on_rcu_stall=1` (the NIX-138 shape);
 #   soft lockup       `softlockup_panic=1`;
-#   hard lockup       `nmi_watchdog=panic`. All are on the command line so they
+#   hard lockup       `nmi_watchdog=panic`;
+#   oops              `oops=panic` (6.18.52's ACPI idle backport can NULL-deref
+#                     at boot when no idle driver registers; hsb9 runs
+#                     intel_idle, but a trial must not limp on after an
+#                     oops). All are on the command line so they
 #                     hold from early boot, not only once systemd-sysctl runs.
 #                     They stay on permanently, which is what a headless
 #                     offsite box wants: a reboot beats a hang nobody can see.
@@ -32,8 +36,11 @@
 #                     into a panic, and so into a reboot.
 #   no network        boot-trial-guard: on an armed boot, if the gateway does
 #                     not answer and (with tailscale) the tailnet is not up
-#                     within the window, reboot. Disarms first, so it can never
-#                     loop.
+#                     within the window (measured on /proc/uptime, immune to
+#                     NTP steps), reboot. Disarms first, so it can never loop,
+#                     and acts only when the running system is the one armed
+#                     for, so a stale arming left behind by a fallback is
+#                     simply dropped.
 #
 # WHAT IT CANNOT CATCH
 # ====================
@@ -91,7 +98,8 @@ let
       ]
       ++ lib.optional cfg.requireTailnet config.services.tailscale.package;
     text = ''
-      read -r window armed_boot < ${armedFile} || true
+      # armed: "<window-seconds> <arming boot id> <trial system path>"
+      read -r window armed_boot armed_system < ${armedFile} || true
       # The arming boot's id, not a timestamp: before NTP syncs, the clock is
       # whatever the RTC says, and a skewed RTC must not disarm the guard.
       if [ "''${armed_boot:-}" = "$(cat /proc/sys/kernel/random/boot_id)" ]; then
@@ -100,13 +108,21 @@ let
         echo "boot trial armed during this boot; it applies to the next one"
         exit 0
       fi
-      if ! [[ "''${window:-}" =~ ^[0-9]+$ ]]; then
-        window=${toString cfg.defaultWindowSeconds}
-      fi
       # One attempt only: disarm before anything else, so a boot this guard
       # sends back to the GRUB default can never become a reboot loop.
       rm -f ${armedFile}
-      echo "boot trial: kernel $(uname -r), $(readlink -f /run/current-system)"
+      sync
+      current="$(readlink -f /run/current-system)"
+      if [ "''${armed_system:-}" != "$current" ]; then
+        # A stale arming: the trial already fell back (the known-good default
+        # has no guard, so the file outlived it) and a later generation booted.
+        echo "boot trial: armed for ''${armed_system:-?}, but this is $current; not a trial boot, disarmed"
+        exit 0
+      fi
+      if ! [[ "''${window:-}" =~ ^[0-9]+$ ]]; then
+        window=${toString cfg.defaultWindowSeconds}
+      fi
+      echo "boot trial: kernel $(uname -r), $current"
       echo "boot trial: proving the network within ''${window}s"
 
       network_ok() {
@@ -118,11 +134,16 @@ let
         return 0
       }
 
-      deadline=$(( SECONDS + window ))
-      while [ "$SECONDS" -lt "$deadline" ]; do
+      # Monotonic, not bash SECONDS: timesyncd steps the wall clock at boot,
+      # which would stretch or cut the window.
+      uptime_s() { cut -d. -f1 /proc/uptime; }
+      start="$(uptime_s)"
+      deadline=$(( start + window ))
+      while [ "$(uptime_s)" -lt "$deadline" ]; do
         if network_ok; then
-          echo "boot trial PASSED after ''${SECONDS}s: gateway ${cfg.gateway} answers${lib.optionalString cfg.requireTailnet ", tailnet up"}"
-          printf '%s %s %s\n' "$(date -Is)" "$(uname -r)" "$(readlink -f /run/current-system)" > ${passedFile}
+          echo "boot trial PASSED after $(( $(uptime_s) - start ))s: gateway ${cfg.gateway} answers${lib.optionalString cfg.requireTailnet ", tailnet up"}"
+          printf '%s %s %s\n' "$(date -Is)" "$(uname -r)" "$current" > ${passedFile}
+          sync
           echo "boot trial: make it the default with: boot-trial promote"
           exit 0
         fi
@@ -130,7 +151,11 @@ let
       done
 
       echo "boot trial FAILED: no network within ''${window}s; rebooting into the GRUB default (last known-good)"
-      systemctl --no-block --check-inhibitors=no reboot
+      sync
+      if ! systemctl --no-block --check-inhibitors=no reboot; then
+        echo "boot trial: systemctl reboot refused; forcing an immediate reboot"
+        systemctl --force --force reboot
+      fi
     '';
   };
 
@@ -146,11 +171,18 @@ let
       die() { echo "boot-trial: $*" >&2; exit 1; }
       [ "$(id -u)" -eq 0 ] || die "run as root"
 
+      grubcfg=/boot/grub/grub.cfg
+      default_linux() { grep -m1 -E '^\s*linux ' "$grubcfg" || true; }
+      entry_title() {
+        { grep -o "menuentry \"NixOS - Configuration $1 ([^\"]*)\"" "$grubcfg" || true; } |
+          sed -E 's/^menuentry "//; s/"$//'
+      }
+
       status() {
         echo "booted:   $(uname -r)  $(readlink -f /run/current-system)"
-        echo "default:  $(grep -m1 -E '^\s*linux ' /boot/grub/grub.cfg | sed -E 's/^\s*linux //; s/ .*//')"
+        echo "default:  $(default_linux | sed -E 's/^\s*linux //; s/ .*//')"
         echo "grubenv:  $(grub-editenv ${grubenv} list | tr '\n' ' ')"
-        if [ -e ${armedFile} ]; then echo "armed:    $(cat ${armedFile}) (window seconds, arming boot id)"; else echo "armed:    no"; fi
+        if [ -e ${armedFile} ]; then echo "armed:    $(cat ${armedFile}) (window, arming boot id, trial system)"; else echo "armed:    no"; fi
         if [ -e ${passedFile} ]; then echo "passed:   $(cat ${passedFile})"; fi
       }
 
@@ -176,20 +208,38 @@ let
             fi
           done
           [ -n "$trial" ] || die "the running system is not a profile generation"
+          # Nothing is touched until the trial entry is known to exist.
+          [ -n "$(entry_title "$trial")" ] || die "no grub.cfg entry for generation $trial"
+
+          restore() {
+            echo "boot-trial: $*; restoring this generation's bootloader and default" >&2
+            /run/current-system/bin/switch-to-configuration boot
+            grub-editenv ${grubenv} unset next_entry
+            sync
+            exit 1
+          }
 
           # The known-good generation's own bootloader, GRUB included: the
           # fallback must be exactly what last booted, not today's GRUB.
           echo "default -> generation $2 ($(readlink -f "$known_good"))"
-          "$known_good/bin/switch-to-configuration" boot
+          "$known_good/bin/switch-to-configuration" boot || restore "installing generation $2's bootloader failed"
+          # Captured, not piped into grep -q: under pipefail an early-exiting
+          # reader turns SIGPIPE into a false failure.
+          default_now="$(default_linux)"
+          [[ "$default_now" == *"$(readlink -f "$known_good")/init"* ]] ||
+            restore "the grub.cfg default is not generation $2"
 
-          title="$(grep -o "menuentry \"NixOS - Configuration $trial ([^\"]*)\"" /boot/grub/grub.cfg |
-            sed -E 's/^menuentry "//; s/"$//')"
-          [ -n "$title" ] || die "no grub.cfg entry for generation $trial"
-          grub-editenv ${grubenv} set "next_entry=NixOS - All configurations>$title"
+          title="$(entry_title "$trial")"
+          [ -n "$title" ] || restore "generation $2's grub.cfg has no entry for generation $trial"
+          next="NixOS - All configurations>$title"
+          grub-editenv ${grubenv} set "next_entry=$next"
+          env_now="$(grub-editenv ${grubenv} list)"
+          [[ $'\n'"$env_now"$'\n' == *$'\n'"next_entry=$next"$'\n'* ]] || restore "next_entry did not stick"
 
           mkdir -p ${stateDir}
           rm -f ${passedFile}
-          echo "$window $(cat /proc/sys/kernel/random/boot_id)" > ${armedFile}
+          echo "$window $(cat /proc/sys/kernel/random/boot_id) $current" > ${armedFile}
+          sync
           echo "once   -> $title"
           status
           echo "armed. Reboot to try generation $trial once; any failed boot falls back to generation $2."
@@ -255,6 +305,9 @@ in
       "softlockup_panic=1"
       "nmi_watchdog=panic"
       "sysctl.kernel.panic_on_rcu_stall=1"
+      # An oops leaves a half-dead kernel (6.18.52's ACPI idle backport can
+      # NULL-deref at boot); on a trial it must fall back, not limp on.
+      "oops=panic"
       # NixOS's own initrd panic-on-fail.service: emergency.target -> panic.
       "boot.panic_on_fail"
     ];
@@ -268,15 +321,18 @@ in
       wantedBy = [ "multi-user.target" ];
       after = [ "network.target" ] ++ lib.optional cfg.requireTailnet "tailscaled.service";
       unitConfig.ConditionPathExists = armedFile;
-      # A switch must never start a second attempt or cut the running one short.
+      # A switch must never start a second attempt or cut the running one
+      # short; both flags, as on the Pharos units.
       restartIfChanged = false;
+      stopIfChanged = false;
       serviceConfig = {
         # exec, not oneshot: the window must not hold up multi-user.target.
         Type = "exec";
         ExecStart = lib.getExe guard;
-        # Also on the console, for whoever stands in front of the box.
-        StandardOutput = "journal+console";
-        StandardError = "journal+console";
+        # Journal only: a wedged console (nouveau/fbcon) must not block the
+        # one process that is supposed to rescue this boot.
+        StandardOutput = "journal";
+        StandardError = "journal";
       };
     };
   };
