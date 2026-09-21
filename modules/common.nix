@@ -397,8 +397,11 @@ in
 
   # https://rycee.gitlab.io/home-manager/options.html
   # https://nix-community.github.io/home-manager/options.html#opt-home.file
-  # Backup existing files instead of failing when they would be clobbered
-  home-manager.backupFileExtension = "hm-backup";
+  # Backup existing files instead of failing when they would be clobbered.
+  # mkForce: pbek's hokage common.nix now sets "backup" at the same priority
+  # (NIX-557). Ours stays: `just switch` passes `-b hm-backup` on macOS too,
+  # and hosts already carry *.hm-backup files.
+  home-manager.backupFileExtension = lib.mkForce "hm-backup";
 
   home-manager.users = lib.genAttrs hokage.usersWithRoot (_userName: {
     imports = [

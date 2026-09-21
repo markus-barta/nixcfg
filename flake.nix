@@ -24,7 +24,6 @@
     };
     nixos-hardware.url = "github:NixOS/nixos-hardware/master";
     nixcfg.url = "github:pbek/nixcfg";
-    nixpkgs-zfs.follows = "nixcfg/nixpkgs-zfs";
     # nixcfg.inputs.nixpkgs.follows = "nixpkgs"; # Do not follow pbek's nixpkgs, use our own
     # pbek's hokage module unconditionally imports inputs.nixhostforge via
     # modules/hokage/nixhostforge.nix. Follow pbek's own locked input so CI does
@@ -203,12 +202,6 @@
       # Shared args for all configurations
       commonArgs = {
         lib-utils = import ./lib/utils.nix { inherit (nixpkgs) lib; };
-        nixpkgs-zfs = import inputs.nixpkgs-zfs {
-          localSystem = {
-            system = linuxSystem;
-          };
-          config.allowUnfree = true;
-        };
       };
 
       # ════════════════════════════════════════════════════════════════════════
