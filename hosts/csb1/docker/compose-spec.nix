@@ -737,7 +737,9 @@ in
         # which Paimos validates independently of OIDC. Paimos refuses to boot
         # unless an active user has an OIDC-matchable email or a usable recovery
         # API key exists, and it requires an HTTPS issuer — both hold here.
-        # Rollback: drop this line; password login returns with the image.
+        # Rollback: set AUTH_PASSWORD_LOGIN=enabled explicitly (deterministic,
+        # unlike deleting the line) and switch; mba has a local password.
+        # Existing sessions are not revoked by switching this either way.
         "AUTH_PASSWORD_LOGIN=disabled"
       ]
       ++ paimosPublicEnvironment;
