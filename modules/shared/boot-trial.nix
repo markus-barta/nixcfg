@@ -18,13 +18,17 @@
 # =======================================
 #   kernel panic      `panic=30` reboots instead of hanging forever.
 #   RCU stall         `sysctl.kernel.panic_on_rcu_stall=1` (the NIX-138 shape);
-#   soft lockup       `softlockup_panic=1`. Both are set on the command line so
-#                     they hold from early boot, not only once systemd-sysctl
-#                     runs. They stay on permanently, which is what a headless
+#   soft lockup       `softlockup_panic=1`;
+#   hard lockup       `nmi_watchdog=panic`. All are on the command line so they
+#                     hold from early boot, not only once systemd-sysctl runs.
+#                     They stay on permanently, which is what a headless
 #                     offsite box wants: a reboot beats a hang nobody can see.
 #                     hsb9's journal (16 boots since 2026-05-26) holds zero
-#                     stalls, lockups or oopses, so this does not trade a quiet
-#                     box for spurious reboots.
+#                     stalls, lockups, hung tasks or oopses, so this does not
+#                     trade a quiet box for spurious reboots.
+#   initrd failure    with systemd stage 1 and emergencyAccess off, a failed
+#                     initrd (root device never appears, ...) waits forever at
+#                     a locked emergency shell. It reboots after 30s instead.
 #   no network        boot-trial-guard: on an armed boot, if the gateway does
 #                     not answer and (with tailscale) the tailnet is not up
 #                     within the window, reboot. Disarms first, so it can never
@@ -32,11 +36,15 @@
 #
 # WHAT IT CANNOT CATCH
 # ====================
-#   GRUB itself       the MBR code is shared by every entry. A GRUB that does
-#                     not start cannot fall back to anything.
-#   silent hangs      a hang that raises no panic, no stall and no lockup
-#                     (firmware, a dead disk) still needs a power cycle, which
-#                     the one-shot turns into a fallback.
+#   GRUB itself       the MBR code is shared by every entry, so GRUB cannot
+#                     fall back to another GRUB. That is why `arm` reinstalls
+#                     the known-good generation's OWN bootloader: during the
+#                     trial the MBR holds the GRUB that last booted this box,
+#                     and only `promote` moves it forward. Run `promote` when a
+#                     GRUB upgrade can be attended; the next reboot tests it.
+#   silent hangs      a hang that raises no panic, stall or lockup (firmware,
+#                     a stage 2 emergency shell) still needs a power cycle,
+#                     which the one-shot turns into a fallback.
 #   shutdown hangs    no watchdog device is used. hsb9's MCP79 `nv_tco` is a
 #                     legacy misc device (untested here), and its presence
 #                     pushes softdog to /dev/watchdog1, where systemd's
@@ -46,13 +54,17 @@
 # =========================================
 #   1. Switch to the generation you want to try. The guard stays inert.
 #   2. boot-trial arm <known-good-generation> [window-seconds]
-#        rewrites grub.cfg with the known-good generation as the default (GRUB
-#        is only reinstalled when /boot/grub/state differs, so it is not),
-#        points next_entry at the running generation, and arms the guard.
+#        installs the known-good generation's own bootloader with itself as
+#        the default (its GRUB, its grub.cfg generator), points next_entry at
+#        the running generation, and arms the guard. From here on EVERY boot,
+#        planned or a power cut, is the one trial with fallback.
 #   3. systemctl reboot, then watch.
-#   4. On success: boot-trial promote, which makes the tried generation the default.
+#   4. On success: boot-trial promote. This makes the tried generation the
+#      default and installs its bootloader, GRUB included.
 #      On failure the host comes back on the known-good generation; investigate
 #      from there.
+#   A `switch` before `promote` also installs the new bootloader and default,
+#   which ends the known-good fallback. Don't switch a host mid-trial.
 {
   config,
   lib,
@@ -164,8 +176,10 @@ let
           done
           [ -n "$trial" ] || die "the running system is not a profile generation"
 
+          # The known-good generation's own bootloader, GRUB included: the
+          # fallback must be exactly what last booted, not today's GRUB.
           echo "default -> generation $2 ($(readlink -f "$known_good"))"
-          ${config.system.build.installBootLoader} "$known_good"
+          "$known_good/bin/switch-to-configuration" boot
 
           title="$(grep -o "menuentry \"NixOS - Configuration $trial ([^\"]*)\"" /boot/grub/grub.cfg |
             sed -E 's/^menuentry "//; s/"$//')"
@@ -238,7 +252,29 @@ in
     boot.kernelParams = [
       "panic=30"
       "softlockup_panic=1"
+      "nmi_watchdog=panic"
       "sysctl.kernel.panic_on_rcu_stall=1"
+    ];
+
+    # emergencyAccess off locks the initrd emergency shell, so nobody can use
+    # it anyway; a reboot at least reaches the known-good default mid-trial.
+    boot.initrd.systemd.services.boot-trial-emergency-reboot =
+      lib.mkIf config.boot.initrd.systemd.enable
+        {
+          description = "Reboot instead of a locked initrd emergency shell (OPS-213)";
+          wantedBy = [ "emergency.target" ];
+          unitConfig = {
+            DefaultDependencies = false;
+            SuccessAction = "reboot-force";
+            FailureAction = "reboot-force";
+          };
+          serviceConfig = {
+            Type = "oneshot";
+            ExecStart = "${pkgs.coreutils}/bin/sleep 30";
+          };
+        };
+    boot.initrd.systemd.storePaths = lib.mkIf config.boot.initrd.systemd.enable [
+      "${pkgs.coreutils}/bin/sleep"
     ];
 
     environment.systemPackages = [ cli ];
