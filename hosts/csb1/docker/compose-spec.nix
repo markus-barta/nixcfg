@@ -690,7 +690,7 @@ in
       # Bump deliberately through the reviewed release/deploy flow. OPS-116:
       # an out-of-closure image once nearly downgraded a migrated DB on reconcile.
       # Retain the previous declared pin and stopped-volume backup for rollback.
-      image = "ghcr.io/inspr-at/paimos:260919160247.0.0@sha256:e003db45ca54ccffb0a692eefb5cc628d626ff2ff543c43005a7b53b49bbe6d6"; # PAI-1041 native replies independent of heartbeat reporting; verified release OCI index and source attestation.
+      image = "ghcr.io/inspr-at/paimos:260921101051.0.0@sha256:ad84ead3fae90fdb738e3579eb9049e6a8038b6ab2cfa720a65e351c2ca45c6c"; # PAI-1044 configurable password login (set disabled below), PAI-1045 schemes.json presentation bundle, PAI-1046 doctrine pin; verified release OCI index and source attestation. Previous: 260919160247.0.0@sha256:e003db45ca54ccffb0a692eefb5cc628d626ff2ff543c43005a7b53b49bbe6d6
       container_name = "ppm";
       restart = "unless-stopped";
       environment = [
@@ -731,6 +731,14 @@ in
         # break SSO the moment the client id above takes effect. Blanking it
         # here neutralises that without decrypting the file to look.
         "OIDC_CLIENT_SECRET="
+        # PAI-1044 / OPS-212 — Zitadel-only sign-in. Password login, pending
+        # password-TOTP challenges, password reset, ChangePassword and
+        # TOTPDisable are all refused. Break-glass is the paimos CLI API key,
+        # which Paimos validates independently of OIDC. Paimos refuses to boot
+        # unless an active user has an OIDC-matchable email or a usable recovery
+        # API key exists, and it requires an HTTPS issuer — both hold here.
+        # Rollback: drop this line; password login returns with the image.
+        "AUTH_PASSWORD_LOGIN=disabled"
       ]
       ++ paimosPublicEnvironment;
       env_file = [
