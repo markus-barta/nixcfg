@@ -29,6 +29,9 @@ commit one, and stop if one appears. These are the local particulars.
 
 - 🔴 Agent secrets live at `~/.inspr/secrets/agents/<NAME>.env` (INSPR-164). Source via `( set -a; source <file>; cmd; set +a )`. **NEVER `cat / Read / head / tail / less / bat / xxd / od / sed / grep / strings`** these, or anything under `~/Secrets/`, `~/.ssh/<not-pub>`, `/run/agenix/`, `/run/secrets/`, or any `*.env`, `*.age`, `*.gpg`, `id_*`, `*_rsa`, `*_ed25519`. To confirm one exists: `[ -n "$VAR" ] && echo set` or `ls -la <file>` — never echo / cat / printf the value.
 - 🔴 1Password is the canonical credential store. Don't propose alternatives (sops, pass, env-vars-in-shell) unless explicitly asked to compare.
+## Fleet — operator specifics
+
+- 🔴 **Production hosts are never lab hosts.** Fleet hosts (`hsb*`, `csb*`) run production only: no test VMs (QEMU, libvirt, microvm), disposable deployments, lab containers or lab state on them, not even briefly or through `sudo`. Labs run on the operator workstation (Colima / QEMU) or on CI or cloud runners; no fleet host is a lab host unless Markus designates one. Why: on 2026-09-16 lab VMs from two tickets exhausted hsb1's RAM and swap, causing a global OOM (INSPR-461). Detail: `/ops` § lab placement.
 ## Router — private packs
 
 `/ppm` tickets + planning · `/ops` fleet + SSH + deploys (SYSOP) · `/iac` Terraform / Zitadel / Cloudflare · `/style` full operator profile · `/incident` leak protocol
