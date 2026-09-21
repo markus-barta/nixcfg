@@ -48,6 +48,7 @@
     "hsb9": {
       "accent": "#769ff0",
       "alerts": {
+        "nixpkgs_warn_after_days": 1,
         "suppress_backup": false,
         "suppress_down": false,
         "suppress_nix_freshness": false
