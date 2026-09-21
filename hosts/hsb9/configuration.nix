@@ -56,7 +56,13 @@ in
     # Mirrors hsb8's pattern but single-user (no `gb`).
     inputs.inspr-modules.nixosModules.ssh-authorized
     ../../modules/shared/ssh-authorized-nixos.nix
+
+    # OPS-213: offsite reboots run as one-shot trials that fall back to the
+    # last known-good generation. See the module header for the procedure.
+    ../../modules/shared/boot-trial.nix
   ];
+
+  nixcfg.bootTrial.enable = true;
 
   # OPS-116 — the container stack, rendered from Nix into the closure.
   #
