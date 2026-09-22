@@ -137,7 +137,10 @@ def prune(dataset: str, props: dict[str, int]) -> tuple[dict[str, int], list[str
     """
     destroyed: list[str] = []
     for keep in (1, 0):
+        # List, then re-read accounting: sanoid may have pruned between the
+        # caller's `zfs get` and now, and that alone may have freed enough.
         candidates = autosnaps(dataset)
+        props = zfs_props(dataset)
         while len(candidates) > keep and headroom(props) < HEADROOM_TARGET:
             victim = candidates.pop(0)
             try:

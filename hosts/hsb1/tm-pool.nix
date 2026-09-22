@@ -17,7 +17,7 @@
 # TM deleting old backups does NOT free blocks a snapshot still holds, so the
 # snapshot budget (quota − refquota) is defended by tm-watch.nix, which
 # prunes the oldest autosnap_* snapshots when headroom under quota drops
-# below 100G, and pages on cap drift, snapshot pressure, pool pressure,
+# below 150G, and pages on cap drift, snapshot pressure, pool pressure,
 # smbd down and stale backups. All numbers live in ./tm-caps.nix; both ZFS
 # caps are imperative, not disko-declared — changing a number there means
 # running the matching `zfs set` by hand (same caveat as hsb0's ncps dataset
