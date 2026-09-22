@@ -6,6 +6,13 @@
       ],
       "hosts": ["*"],
       "agora": true
+    },
+    {
+      "identifiers": [
+        "operator-ref:f168f630edf0814cc053c2988d5dee045ee9856e824e5573b439d8d53e88bc25"
+      ],
+      "hosts": ["*"],
+      "agora": true
     }
   ]
 }
