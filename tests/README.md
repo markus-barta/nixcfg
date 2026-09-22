@@ -105,6 +105,7 @@ Examples:
 - `T76-janus-flow-host.sh` — csb1 Janus Flow host config contract (NIX-481)
 - `T85-cursor-agent-package.sh` — pinned Cursor CLI package, its consumers, the `update-ai-clis` bump step and manual review reports with short region-path diff headers (NIX-514, NIX-525, NIX-527)
 - `T86-update-cursor-agent-safety.sh` — offline Cursor CLI update lock and unsupported-host safety (NIX-519)
+- `T88-model-role-lint.sh` — agent-instruction surfaces name roles, never models; runs the pinned doctrine's `model-role-doctrine.sh --lint` (NIX-568)
 - `T84-pi-inspr-kernel.sh` — Pi global AGENTS.md via inspr.agent-kernel (NIX-508)
 
 ## Writing Shell Tests
