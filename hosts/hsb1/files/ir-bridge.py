@@ -400,8 +400,9 @@ class IRBridge:
         # REST API is down, 500 = bad code); resending changes nothing. Presses are
         # handled synchronously, so the old 3×(5 s + 1 s) loop also blocked the
         # input loop for every queued press (2026-09-21: 33 presses replayed at
-        # ~2 s each). The tight timeouts bound the worst case to ~3 s; the stale
-        # filter in _read_loop then drops whatever queued up meanwhile.
+        # ~2 s each). The timeouts are requests' connect / read *inactivity*
+        # limits (a trickling answer can take longer), not a deadline; the stale
+        # filter in _read_loop drops whatever queued up meanwhile.
         try:
             r = self.http.post(
                 self.sony_ircc_url,
