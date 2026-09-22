@@ -312,8 +312,10 @@ def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
     completed_age, activity_age = fresh["completed_age"], fresh["activity_age"]
     # A set is "first copy in progress" only if ONE bundle is young, has no
     # history plist at all and is being written (freshness() judges that per
-    # bundle), and no bundle has ever completed.
-    first_copy_in_progress = completed_age is None and fresh["first_copy"]
+    # bundle), no bundle has a readable completion, AND no bundle carries a
+    # history plist at all — a damaged history elsewhere is damage, and a new
+    # bundle next to it must not hide that.
+    first_copy_in_progress = completed_age is None and not fresh["history"] and fresh["first_copy"]
     if not fresh["found"]:
         problems.append(Problem(f"tm:{dataset}:bundle",
                                 f"hsb1: no sparsebundle under {path} — dataset not mounted, or "
