@@ -137,11 +137,15 @@ def prune(dataset: str, props: dict[str, int]) -> tuple[dict[str, int], list[str
     """
     destroyed: list[str] = []
     for keep in (1, 0):
-        # List, then re-read accounting: sanoid may have pruned between the
-        # caller's `zfs get` and now, and that alone may have freed enough.
+        # Pass 1 prunes up to the comfortable target; pass 2 (the newest
+        # snapshot, our rollback point) only if headroom is still critical.
+        limit = HEADROOM_TARGET if keep else HEADROOM_MIN
+        # List, then re-read accounting: sanoid may have pruned (or TM may
+        # have thinned) between the caller's `zfs get` and now, and that
+        # alone may have freed enough.
         candidates = autosnaps(dataset)
         props = zfs_props(dataset)
-        while len(candidates) > keep and headroom(props) < HEADROOM_TARGET:
+        while len(candidates) > keep and headroom(props) < limit:
             victim = candidates.pop(0)
             try:
                 run([ZFS, "destroy", victim])
