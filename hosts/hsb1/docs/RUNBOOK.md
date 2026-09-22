@@ -352,10 +352,23 @@ pool passes 85 %, smbd has no process, or a Mac's last **completed** backup
 than 5 days.
 
 **Changing caps / deploying a cap change** — order matters, or TM sees more
-space than ZFS grants: (1) record `zfs get referenced,refquota,quota,usedbysnapshots`
-for both datasets; (2) switch hsb1 (Samba restarts; TM re-reads the volume
-size on its next connection); (3) run the `zfs set` above; (4) `journalctl -u
-tm-watch -n 3` → `ok — 0 active problem(s)`; (5) both Macs complete a backup.
+space than ZFS grants:
+
+1. Record: `zfs get -p referenced,refquota,quota,usedbysnapshots tm/markus tm/mailina`.
+2. Preconditions for LOWERING a cap: `referenced` must be at least 100G under
+   the new refquota and `referenced + usedbysnapshots` at least 150G under the
+   new quota (prune sanoid snapshots first if not: `zfs destroy tm/<user>@autosnap_<oldest>`);
+   a cap you only raise needs no precondition.
+3. Quiesce: no backup running on either Mac (`tmutil status` → `Running = 0`,
+   or wait), so Samba's restart does not interrupt a write.
+4. Switch hsb1 (Samba restarts with the new `max size`).
+5. `zfs set …` as above.
+6. Fresh witness run, not a stale one: `systemctl start tm-watch.service && journalctl -u tm-watch -n 5`
+   → `tm-watch: 0 problem(s) after maintenance` and `ok — 0 active problem(s)`.
+7. Verify what the Macs see, over a fresh SMB session: on a Mac
+   `tmutil startbackup` and wait for it to complete (`tmutil status`,
+   `tmutil latestbackup`), then on hsb1 `sudo python3 -c 'import plistlib;print(plistlib.load(open("/srv/tm/markus/mbp2607.sparsebundle/com.apple.TimeMachine.SnapshotHistory.plist","rb"))["Snapshots"][-1])'`
+   shows a completion date after the switch. Both Macs.
 
 **"Backup-Volume ist voll" anyway?** `zfs get -p referenced,refquota,quota,usedbysnapshots tm/<user>` and `journalctl -u tm-watch -n 20` (it says what it pruned and why it could not). If `referenced + usedbysnapshots ≈ quota`, raise `quota` (`sudo zfs set quota=<bigger> tm/<user>`, pool free permitting, then tm-caps.nix). If `referenced ≈ refquota` and TM still complains, TM failed to thin (usually one backup left that is bigger than the cap) — raise refquota **and** `maxSizeG` in tm-caps.nix together, switch, `zfs set`.
 

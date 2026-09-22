@@ -78,9 +78,11 @@ in
     description = "Recurring Time Machine target witness (OPS-226)";
     wantedBy = [ "timers.target" ];
     timerConfig = {
-      OnBootSec = "10m";
-      OnUnitActiveSec = "30m";
-      RandomizedDelaySec = "1m";
+      # 10 min: a Mac writing flat out (~100 MB/s) adds ~60G per interval,
+      # well inside the 150G prune trigger. Pages still need two runs.
+      OnBootSec = "5m";
+      OnUnitActiveSec = "10m";
+      RandomizedDelaySec = "30s";
       Unit = "tm-watch.service";
     };
   };

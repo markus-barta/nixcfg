@@ -168,13 +168,15 @@ if systemctl is-active --quiet tm-watch.timer; then
 else
   fail "tm-watch.timer is NOT active"
 fi
-# Oneshot: Result=success also covers exit 1 (problems found); the exit code
-# tells whether the last run was clean.
+# Oneshot: Result=success also covers exit 1 (problems found), and a unit that
+# never ran reports ExecMainStatus=0 too — require a run within the last hour.
 TMW_EXIT=$(systemctl show tm-watch.service -p ExecMainStatus --value)
-if [[ "$TMW_EXIT" == "0" ]]; then
-  pass "tm-watch last run: clean (0 active problems)"
+TMW_LAST=$(systemctl show tm-watch.service -p ExecMainExitTimestamp --value)
+TMW_AGE=$((($(date +%s) - $(date -d "${TMW_LAST:-1970-01-01}" +%s 2>/dev/null || echo 0)) / 60))
+if [[ -n "$TMW_LAST" && "$TMW_AGE" -le 60 && "$TMW_EXIT" == "0" ]]; then
+  pass "tm-watch ran ${TMW_AGE} min ago: clean (0 active problems)"
 else
-  fail "tm-watch last run exit $TMW_EXIT — journalctl -u tm-watch"
+  fail "tm-watch last run: exit ${TMW_EXIT}, ${TMW_AGE} min ago (last='${TMW_LAST}') — journalctl -u tm-watch"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════════

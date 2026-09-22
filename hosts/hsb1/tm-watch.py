@@ -11,35 +11,51 @@ The design now pairs two caps per dataset (tm-caps.nix): refquota = TM's own
 cap, Samba advertises a little less; quota = hard cap incl. snapshots. What
 that cannot do by itself: TM deleting old backups does NOT free blocks a
 sanoid snapshot still holds, so a churning bundle can eat the snapshot budget
-faster than retention expires. This poller closes that gap — it is the one
-component that may change state — and pages on everything else, through the
-shared OPS-107 engine (confirm-before-alert, write-ahead delivery; same
-Telegram target as tailnet-watch):
+faster than retention expires. This poller is the layer that closes that gap
+— the one component here that may change state — and pages on everything
+else through the shared OPS-107 engine (confirm-before-alert, write-ahead
+delivery; same Telegram target as tailnet-watch).
 
-  * PRUNE            headroom under quota (quota − referenced − snapshots)
-                     < 100G → destroy the oldest `autosnap_*` snapshots of
-                     that dataset, oldest first, until ≥ 250G, always keeping
-                     the newest. Snapshots are a rollback convenience; a
-                     failed backup is the thing we exist to prevent.
-  * tm:<ds>:caps     live refquota/quota differ from tm-caps.nix (unset, or
-                     someone changed one side) — TM's cap and ZFS's disagree.
-  * tm:<ds>:snapshots snapshot-held space > half the refquota→quota budget.
-  * tm:<ds>:pruned   pruning happened (sustained on two runs = pages).
-  * tm:<ds>:headroom still < 100G after pruning — nothing left to free;
-                     raise quota now.
-  * tm:<ds>:bundle   no sparsebundle (dataset not mounted / never backed up).
-  * tm:<ds>:stale    newest completed backup (SnapshotHistory.plist inside
-                     the bundle — real completion evidence, not a mtime)
-                     older than STALE.
-  * tm:pool          pool capacity > 85%.
-  * tm:smbd          smbd has no process (found via its cgroup, whatever
-                     slice NixOS puts it in).
-  * tm:<ds>:unreadable / tm:pool  zfs / zpool failed — drive gone.
+Order of business on every run, and why:
+  1. MAINTAIN — every dataset, independently, BEFORE any notification work:
+     headroom under quota (quota − referenced − usedbysnapshots) < HEADROOM_MIN
+     → destroy this dataset's `autosnap_*` snapshots oldest first until
+     ≥ HEADROOM_TARGET. The newest is kept as a rollback point unless even
+     that is not enough — a failed backup is the thing we exist to prevent,
+     a rollback point is a convenience. A victim sanoid removed meanwhile is
+     skipped, not fatal. Pruning never depends on Telegram: an undeliverable
+     alert (engine retries pending delivery first) or a missing notification
+     target must not stop capacity maintenance.
+  2. REPORT through the engine:
+     * tm:<ds>:caps        live refquota/quota differ from tm-caps.nix.
+     * tm:<ds>:snapshots   snapshot-held space > half the refquota→quota budget.
+     * tm:<ds>:pruned      pruning happened (sustained on two runs = pages).
+     * tm:<ds>:headroom    still < HEADROOM_MIN with nothing left to prune —
+                           raise quota now.
+     * tm:<ds>:prune       a prune step failed.
+     * tm:<ds>:bundle      no sparsebundle (not mounted / never backed up).
+     * tm:<ds>:stale       no COMPLETED backup within STALE — read from
+                           com.apple.TimeMachine.SnapshotHistory.plist inside
+                           the bundle (TM rewrites it on completion). Band
+                           activity without a completion is reported as such:
+                           a Mac that keeps writing and never finishes is
+                           exactly the failure we must not hide.
+     * tm:<ds>:check       this dataset's check itself crashed (bad plist,
+                           unexpected output) — isolated so the others still run.
+     * tm:pool             pool capacity > 85%.
+     * tm:smbd             smbd has no process (found via its cgroup, in
+                           whatever slice NixOS puts it).
+     * tm:<ds>:unreadable  zfs failed — drive gone / pool not imported.
+
+Limits, stated honestly: pruning frees only blocks no remaining snapshot
+references, so a bundle rewritten wholesale since the retained snapshot can
+leave the headroom short (then `headroom` pages and quota must be raised);
+and a write burst bigger than HEADROOM_MIN within one poll interval still
+reaches ENOSPC. The 10-minute timer + 150G/400G bounds are sized so a Mac
+writing flat out (~100 MB/s ≈ 60G per interval) stays inside them.
 
 No "near refquota" check: Time Machine fills the volume it is given BY DESIGN
 and thins when Samba reports it full, so referenced ≈ refquota is steady state.
-Timer: 30 min; two-run confirmation ⇒ pages 30–60 min after onset; pruning
-acts on the first run it is needed.
 """
 
 from __future__ import annotations
@@ -68,8 +84,8 @@ GIB = 1024**3
 MIB = 1024**2
 
 SNAP_WARN = 0.5  # usedbysnapshots / (quota - refquota)
-HEADROOM_MIN = 100 * GIB  # prune below this …
-HEADROOM_TARGET = 250 * GIB  # … until at least this
+HEADROOM_MIN = 150 * GIB  # prune below this …
+HEADROOM_TARGET = 400 * GIB  # … until at least this
 POOL_WARN = 85  # zpool capacity %
 # A long weekend away must not page; a week of silence must.
 STALE_S = 5 * 86400
@@ -112,15 +128,29 @@ def autosnaps(dataset: str) -> list[str]:
 
 
 def prune(dataset: str, props: dict[str, int]) -> tuple[dict[str, int], list[str]]:
-    """Destroy the oldest autosnap_* until headroom ≥ HEADROOM_TARGET; keep the newest."""
+    """Destroy autosnap_* oldest first until headroom ≥ HEADROOM_TARGET.
+
+    Pass 1 keeps the newest snapshot; pass 2 gives that up too if headroom is
+    still below HEADROOM_MIN (blocks are only freed once no snapshot holds
+    them, so the newest one can pin everything the older ones held). A victim
+    that vanished (sanoid pruned it first) is skipped; any other failure raises.
+    """
     destroyed: list[str] = []
-    candidates = autosnaps(dataset)
-    while headroom(props) < HEADROOM_TARGET and len(candidates) > 1:
-        victim = candidates.pop(0)
-        run([ZFS, "destroy", victim])
-        destroyed.append(victim)
-        print(f"pruned {victim}")
-        props = zfs_props(dataset)
+    for keep in (1, 0):
+        candidates = autosnaps(dataset)
+        while len(candidates) > keep and headroom(props) < HEADROOM_TARGET:
+            victim = candidates.pop(0)
+            try:
+                run([ZFS, "destroy", victim])
+            except subprocess.CalledProcessError:
+                if victim in autosnaps(dataset):
+                    raise
+                continue  # sanoid got there first
+            destroyed.append(victim)
+            print(f"pruned {victim}")
+            props = zfs_props(dataset)
+        if headroom(props) >= HEADROOM_MIN:
+            break
     return props, destroyed
 
 
@@ -137,43 +167,81 @@ def check_caps(dataset: str, props: dict[str, int], cap: dict) -> list[Problem]:
                     f"space. Run: zfs set refquota={cap['refquotaG']}G quota={cap['quotaG']}G {dataset}")]
 
 
-def newest_completion(path: str, now: float) -> tuple[float | None, str]:
-    """Age in seconds of the newest completed backup under `path`, and how we know.
-
-    Time Machine rewrites com.apple.TimeMachine.SnapshotHistory.plist inside the
-    sparsebundle when a backup completes (naive datetimes, UTC). Without it we
-    fall back to band activity, which proves writing but not completion.
-    """
-    newest: float | None = None
-    source = "no sparsebundle"
+def completion_stamps(bundle: str) -> list[float]:
+    """Completion times recorded by Time Machine; [] if none or unreadable."""
     try:
-        bundles = [entry.path for entry in os.scandir(path)
-                   if entry.name.endswith(".sparsebundle") and entry.is_dir(follow_symlinks=False)]
+        with open(os.path.join(bundle, HISTORY_PLIST), "rb") as handle:
+            history = plistlib.load(handle)
+    except Exception:  # noqa: BLE001 - truncated/mid-rewrite/damaged plist: no evidence
+        return []
+    if not isinstance(history, dict):
+        return []
+    stamps: list[float] = []
+    for entry in history.get("Snapshots") or []:
+        if isinstance(entry, dict):
+            when = entry.get("com.apple.backupd.SnapshotCompletionDate")
+            if isinstance(when, dt.datetime):
+                stamps.append(when.replace(tzinfo=dt.timezone.utc).timestamp())
+    return stamps
+
+
+def band_activity(bundle: str) -> float | None:
+    try:
+        with os.scandir(os.path.join(bundle, "bands")) as bands:
+            return max((b.stat(follow_symlinks=False).st_mtime for b in bands), default=None)
     except OSError:
-        return None, source
-    for bundle in bundles:
-        try:
-            with open(os.path.join(bundle, HISTORY_PLIST), "rb") as handle:
-                history = plistlib.load(handle)
-            stamps = [
-                entry["com.apple.backupd.SnapshotCompletionDate"].replace(tzinfo=dt.timezone.utc).timestamp()
-                for entry in history.get("Snapshots", [])
-                if isinstance(entry.get("com.apple.backupd.SnapshotCompletionDate"), dt.datetime)
-            ]
-            if stamps:
-                newest = max(stamps) if newest is None else max(newest, max(stamps))
-                source = "last completed backup"
-                continue
-        except (OSError, ValueError, KeyError, plistlib.InvalidFileException):
-            pass
-        try:
-            with os.scandir(os.path.join(bundle, "bands")) as bands:
-                activity = max((b.stat(follow_symlinks=False).st_mtime for b in bands), default=None)
-        except OSError:
-            activity = None
-        if activity is not None and (newest is None or activity > newest):
-            newest, source = activity, "band activity only (no completion record)"
-    return (None if newest is None else now - newest), source
+        return None
+
+
+def freshness(path: str, now: float) -> tuple[float | None, float | None, bool]:
+    """(age of newest completed backup, age of newest band write, any bundle?)."""
+    completed: float | None = None
+    activity: float | None = None
+    found = False
+    try:
+        entries = [e.path for e in os.scandir(path)
+                   if e.name.endswith(".sparsebundle") and e.is_dir(follow_symlinks=False)]
+    except OSError:
+        return None, None, False
+    for bundle in entries:
+        found = True
+        stamps = completion_stamps(bundle)
+        if stamps:
+            completed = max(stamps) if completed is None else max(completed, max(stamps))
+        act = band_activity(bundle)
+        if act is not None:
+            activity = act if activity is None else max(activity, act)
+    return (None if completed is None else now - completed,
+            None if activity is None else now - activity, found)
+
+
+def maintain(dataset: str, props: dict[str, int]) -> tuple[dict[str, int], list[Problem]]:
+    """Free headroom under quota if needed; never blocks on anything else."""
+    problems: list[Problem] = []
+    if not props["quota"] or headroom(props) >= HEADROOM_MIN:
+        return props, problems
+    try:
+        props, destroyed = prune(dataset, props)
+    except Exception as error:  # noqa: BLE001
+        destroyed = []
+        problems.append(Problem(f"tm:{dataset}:prune",
+                                f"hsb1: pruning {dataset} snapshots failed ({type(error).__name__}); "
+                                "the next Time Machine write may fail. `zfs list -t snapshot -r "
+                                f"{dataset}` and destroy the oldest autosnap_* by hand."))
+    if destroyed:
+        problems.append(Problem(f"tm:{dataset}:pruned",
+                                f"hsb1: pruned {len(destroyed)} sanoid snapshot(s) of {dataset} to keep "
+                                f"{gib(headroom(props))} under quota — Time Machine kept working. "
+                                "Sustained pruning means the bundle churns faster than the budget; "
+                                "raise quota (tm-caps.nix + zfs set)."))
+    if headroom(props) < HEADROOM_MIN:
+        problems.append(Problem(f"tm:{dataset}:headroom",
+                                f"hsb1: {dataset} has only {gib(max(headroom(props), 0))} below its "
+                                f"{gib(props['quota'])} quota (data {gib(props['referenced'])} + snapshots "
+                                f"{gib(props['usedbysnapshots'])}) and nothing left to prune — the next "
+                                "Time Machine write fails with 'Backup-Volume ist voll'. "
+                                "`zfs set quota=…` now (tm-caps.nix)."))
+    return props, problems
 
 
 def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
@@ -184,46 +252,29 @@ def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
         return [Problem(f"tm:{dataset}:unreadable",
                         f"hsb1: `zfs get {dataset}` failed ({type(error).__name__}) — tm pool not "
                         "imported or the USB drive is gone; Time Machine has no target.")]
-    problems = check_caps(dataset, props, cap)
+    props, problems = maintain(dataset, props)
+    problems += check_caps(dataset, props, cap)
     budget = props["quota"] - props["refquota"]
     if budget > 0 and props["usedbysnapshots"] > SNAP_WARN * budget:
         problems.append(Problem(f"tm:{dataset}:snapshots",
                                 f"hsb1: sanoid snapshots hold {gib(props['usedbysnapshots'])} of {dataset}'s "
-                                f"{gib(budget)} snapshot budget (quota − refquota); tm-watch will prune "
+                                f"{gib(budget)} snapshot budget (quota − refquota); tm-watch prunes "
                                 "before ZFS refuses, but the bundle is churning hard — check "
                                 f"`zfs list -t snapshot -r {dataset}` and the Mac."))
-    if props["quota"] and headroom(props) < HEADROOM_MIN:
-        try:
-            props, destroyed = prune(dataset, props)
-        except Exception as error:  # noqa: BLE001
-            destroyed = []
-            problems.append(Problem(f"tm:{dataset}:prune",
-                                    f"hsb1: pruning {dataset} snapshots failed ({type(error).__name__}); "
-                                    "the next Time Machine write may fail. `zfs list -t snapshot -r "
-                                    f"{dataset}` and destroy the oldest autosnap_* by hand."))
-        if destroyed:
-            problems.append(Problem(f"tm:{dataset}:pruned",
-                                    f"hsb1: pruned {len(destroyed)} sanoid snapshot(s) of {dataset} to keep "
-                                    f"{gib(headroom(props))} under quota — Time Machine kept working. "
-                                    "Sustained pruning means the bundle churns faster than the budget; "
-                                    "raise quota (tm-caps.nix + zfs set)."))
-        if headroom(props) < HEADROOM_MIN:
-            problems.append(Problem(f"tm:{dataset}:headroom",
-                                    f"hsb1: {dataset} has only {gib(max(headroom(props), 0))} below its "
-                                    f"{gib(props['quota'])} quota (data {gib(props['referenced'])} + snapshots "
-                                    f"{gib(props['usedbysnapshots'])}) and nothing left to prune — the next "
-                                    "Time Machine write fails with 'Backup-Volume ist voll'. "
-                                    f"`zfs set quota=…` now (tm-caps.nix)."))
-    age, source = newest_completion(path, now)
-    if age is None:
+    completed_age, activity_age, found = freshness(path, now)
+    if not found:
         problems.append(Problem(f"tm:{dataset}:bundle",
                                 f"hsb1: no sparsebundle under {path} — dataset not mounted, or "
                                 f"{user}'s Mac has never backed up here."))
-    elif age > STALE_S:
+    elif completed_age is None or completed_age > STALE_S:
+        since = ("no completed backup on record"
+                 if completed_age is None else f"last completed backup {completed_age / 86400:.1f} days ago")
+        writing = ("no band writes either" if activity_age is None
+                   else f"bands last written {activity_age / 3600:.0f} h ago")
         problems.append(Problem(f"tm:{dataset}:stale",
-                                f"hsb1: {user}'s {source} is {age / 86400:.1f} days old — that Mac is "
-                                "not backing up (away, share unreachable, or TM disabled). Check "
-                                "System Settings → Time Machine on it."))
+                                f"hsb1: {user}'s Time Machine: {since}, {writing} — the Mac is away, "
+                                "the share is unreachable, TM is off, or backups start and never "
+                                "finish. Check System Settings → Time Machine on it."))
     return problems
 
 
@@ -263,10 +314,16 @@ def check_smbd() -> list[Problem]:
 
 
 def collect() -> list[Problem]:
+    """Maintain + check every dataset; one dataset's crash never hides another's."""
     now = time.time()
     found: list[Problem] = []
     for user, cap in sorted(CAPS.items()):
-        found += check_dataset(user, cap, now)
+        try:
+            found += check_dataset(user, cap, now)
+        except Exception as error:  # noqa: BLE001
+            found.append(Problem(f"tm:{cap['dataset']}:check",
+                                 f"hsb1: tm-watch's own check of {cap['dataset']} crashed "
+                                 f"({type(error).__name__}) — fix the watcher; the dataset is unwatched."))
     return found + check_pool() + check_smbd()
 
 
@@ -280,6 +337,11 @@ def render(announced: list[str], cleared: list[str]) -> str:
 
 
 def main() -> int:
+    # Capacity maintenance first and unconditionally: the engine retries an
+    # undelivered alert before it calls the check, and a missing/unusable
+    # notification target must never stop pruning.
+    problems = collect()
+    print(f"tm-watch: {len(problems)} problem(s) after maintenance")
     target = engine.env_file_value(NOTIFICATION_ENV, "WATCHTOWER_NOTIFICATION_URL")
     if not target:
         print("notification target missing")
@@ -289,7 +351,7 @@ def main() -> int:
     except ValueError as error:
         print(f"notification target unusable: {error}")
         return engine.EXIT_UNDELIVERED
-    return engine.run_cycle(STATE_PATH, time.time(), collect, render, sender)
+    return engine.run_cycle(STATE_PATH, time.time(), lambda: problems, render, sender)
 
 
 if __name__ == "__main__":
