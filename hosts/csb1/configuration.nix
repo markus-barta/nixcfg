@@ -419,6 +419,16 @@ in
     })
   ];
 
+  # NIX-574: the package must enforce restricted project membership before the
+  # separately managed operator map can admit a scoped human reviewer.
+  assertions = lib.mkIf (sharedFlow.active && config.services.inspr.aithemaWorkspace.enable) [
+    {
+      assertion =
+        config.services.inspr.aithemaWorkspace.package.passthru.supportsRestrictedProjects or false;
+      message = "services.inspr.aithemaWorkspace requires a package with restricted-project enforcement.";
+    }
+  ];
+
   # Validate only the topology and protection contract, never render or log
   # the operator-owned JSON or conversation key. A missing or mismatched file
   # blocks the switch before any route, network, or app environment can be
