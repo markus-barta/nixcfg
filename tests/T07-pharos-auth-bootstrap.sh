@@ -49,7 +49,7 @@ fi
 access_grants_ok() {
   jq -e --arg operator_ref "$operator_ref" '
     def extra_operator_ref:
-      type == "string" and test("^operator-ref:[0-9a-f]{64}$");
+      type == "string" and test("^operator-ref:[0-9a-f]{64}\\z");
     def identifiers_ok:
       . == [$operator_ref]
       or (type == "array" and length == 1 and (.[0] | extra_operator_ref));
@@ -102,6 +102,7 @@ operator-ref:abc
 operator-ref:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 operator-ref:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz
 EOF
+expect_access_grants fail "$(jq -nc --arg id "$operator_ref" --arg extra "$extra_ref" '{grants:[{identifiers:[$id]},{identifiers:[$extra + "\n"]}]}')"
 if grep -Eq '"identifiers"[[:space:]]*:[[:space:]]*\[[^]]*"(email:|[^" ]*@)' "$ACCESS_POLICY"; then
   echo "Pharos access policy contains a mutable or unprefixed identifier" >&2
   exit 1
