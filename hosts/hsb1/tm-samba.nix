@@ -3,6 +3,11 @@
 # Greenfield: no services.samba precedent exists anywhere in nixcfg yet.
 # This is the reference implementation for any future TM/Samba host.
 { config, pkgs, ... }:
+let
+  # Time Machine sees this as the volume size; it must stay under the ZFS
+  # refquota — numbers and the assertion live in ./tm-caps.nix (OPS-226).
+  caps = import ./tm-caps.nix;
+in
 {
   # Mailina has no existing Unix account anywhere in the fleet (markus/mba
   # do). Samba maps SMB users to Unix accounts via smbpasswd, so she needs
@@ -52,9 +57,7 @@
         "vfs objects" = "catia fruit streams_xattr";
         "fruit:time machine" = "yes";
         "fruit:metadata" = "stream";
-        # = the dataset's refquota (2.2T, a hair under in GiB) so TM thins its
-        # own backups before ZFS refuses a write — see tm-pool.nix (OPS-226).
-        "fruit:time machine max size" = "2200G";
+        "fruit:time machine max size" = "${toString caps.markus.maxSizeG}G";
       };
 
       tm-mailina = {
@@ -65,7 +68,7 @@
         "vfs objects" = "catia fruit streams_xattr";
         "fruit:time machine" = "yes";
         "fruit:metadata" = "stream";
-        "fruit:time machine max size" = "1400G"; # = refquota 1.4T, see tm-pool.nix
+        "fruit:time machine max size" = "${toString caps.mailina.maxSizeG}G";
       };
     };
   };

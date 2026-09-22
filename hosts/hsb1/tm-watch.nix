@@ -24,6 +24,8 @@ let
       # The same zfs the system runs, so the CLI and the kernel module agree.
       ZFS_BIN = "${zfsPkg}/bin/zfs";
       ZPOOL_BIN = "${zfsPkg}/bin/zpool";
+      # The witness validates the LIVE caps against the declared ones.
+      CAPS_JSON = builtins.toJSON (import ./tm-caps.nix);
     };
   };
 in
@@ -49,8 +51,8 @@ in
       ];
       TimeoutStartSec = "90";
       PrivateTmp = true;
-      # `zfs get` / `zpool list` talk to the kernel through /dev/zfs — that one
-      # node is allowed, nothing else in /dev is.
+      # `zfs get` / `zpool list` / `zfs destroy <autosnap>` talk to the kernel
+      # through /dev/zfs — that one node is allowed, nothing else in /dev is.
       PrivateDevices = false;
       DevicePolicy = "closed";
       DeviceAllow = [ "/dev/zfs rw" ];
