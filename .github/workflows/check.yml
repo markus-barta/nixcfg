@@ -223,6 +223,9 @@ jobs:
       - name: Checkout pinned public routing validation source (NIX-501)
         run: git submodule update --init --depth 1 -- doctrine
 
+      - name: Lint agent-instruction surfaces for model names — roles only (NIX-568)
+        run: tests/T88-model-role-lint.sh
+
       - name: Verify coherent opt-in shared Flow activation (NIX-501)
         run: nix-shell -p bash jq yq-go python3 --run "bash tests/T80-shared-flow-activation.sh"
 
