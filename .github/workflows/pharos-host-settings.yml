@@ -42,6 +42,11 @@ on:
         required: false
         default: ""
         type: string
+      heartbeat_grace_secs:
+        description: Extra seconds after this host's reported heartbeat before a gap is late (empty inherits the fleet default; 0 is an override; PHAROS-292)
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: pharos-host-settings-${{ inputs.host }}
@@ -63,6 +68,7 @@ jobs:
       PHAROS_SUPPRESS_NIX_FRESHNESS: ${{ inputs.suppress_nix_freshness }}
       PHAROS_REQUEST_ID: ${{ inputs.request_id }}
       PHAROS_NIXPKGS_WARN_AFTER_DAYS: ${{ inputs.nixpkgs_warn_after_days }}
+      PHAROS_HEARTBEAT_GRACE_SECS: ${{ inputs.heartbeat_grace_secs }}
     steps:
       - name: Checkout nixcfg
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -82,7 +88,8 @@ jobs:
             "$PHAROS_SUPPRESS_BACKUP" \
             "$PHAROS_SUPPRESS_NIX_FRESHNESS" \
             "$PHAROS_REQUEST_ID" \
-            "$PHAROS_NIXPKGS_WARN_AFTER_DAYS"
+            "$PHAROS_NIXPKGS_WARN_AFTER_DAYS" \
+            "$PHAROS_HEARTBEAT_GRACE_SECS"
 
       # NIX-402: NIX-348 deliberately rejects dirty flake evaluations because
       # they have no canonical self.rev. Keep each proposed state commit-backed

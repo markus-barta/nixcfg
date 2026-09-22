@@ -198,4 +198,145 @@ grep -Fq 'nixpkgs_warn_after_days:' "$workflow"
 # shellcheck disable=SC2016 # literal: the workflow must pass the env var through
 grep -Fq '"$PHAROS_NIXPKGS_WARN_AFTER_DAYS"' "$workflow"
 
+# NIX-561 / PHAROS-292: optional per-host heartbeat grace (seconds).
+# Zero is an override. Empty or omitted removes the key.
+# Seven- and eight-argument calls remain valid and clear an omitted grace.
+other_before=$(jq -S '.hosts.csb0' "$fixture")
+run_update hsb8 '#12AB34' workstation true false true test-request-11 '' 0
+jq -e '
+  .hosts.hsb8.alerts.heartbeat_grace_secs == 0
+  and (.hosts.hsb8.alerts | has("nixpkgs_warn_after_days") | not)
+  and .hosts.hsb8.alerts.suppress_down == true
+  and .hosts.hsb8.alerts.suppress_backup == false
+  and .hosts.hsb8.alerts.suppress_nix_freshness == true
+' "$fixture" >/dev/null
+run_update hsb8 '#12AB34' workstation true false true test-request-12 '' 3600
+jq -e '.hosts.hsb8.alerts.heartbeat_grace_secs == 3600' "$fixture" >/dev/null
+run_update hsb8 '#12AB34' workstation true false true test-request-13 '' 15
+jq -e '.hosts.hsb8.alerts == {
+  heartbeat_grace_secs: 15,
+  suppress_backup: false,
+  suppress_down: true,
+  suppress_nix_freshness: true
+}' "$fixture" >/dev/null
+
+# Inherit/reset: an empty ninth argument removes the key.
+run_update hsb8 '#12AB34' workstation true false true test-request-14 '' ''
+jq -e '.hosts.hsb8.alerts | has("heartbeat_grace_secs") | not' "$fixture" >/dev/null
+
+# Both overrides, including the lower bounds, then the upper bounds.
+run_update hsb8 '#12AB34' workstation true false true test-request-15 1 0
+jq -e '
+  .hosts.hsb8.alerts.nixpkgs_warn_after_days == 1
+  and .hosts.hsb8.alerts.heartbeat_grace_secs == 0
+' "$fixture" >/dev/null
+run_update hsb8 '#12AB34' workstation true false true test-request-16 3650 3600
+jq -e '
+  .hosts.hsb8.alerts.nixpkgs_warn_after_days == 3650
+  and .hosts.hsb8.alerts.heartbeat_grace_secs == 3600
+  and .hosts.hsb8.kind == "workstation"
+  and .hosts.hsb8.accent == "#12ab34"
+' "$fixture" >/dev/null
+
+# Clear only grace; keep the nixpkgs override.
+run_update hsb8 '#12AB34' workstation true false true test-request-17 14 ''
+jq -e '
+  .hosts.hsb8.alerts.nixpkgs_warn_after_days == 14
+  and (.hosts.hsb8.alerts | has("heartbeat_grace_secs") | not)
+' "$fixture" >/dev/null
+
+# Clear only nixpkgs; keep grace.
+run_update hsb8 '#12AB34' workstation true false true test-request-18 '' 15
+jq -e '
+  (.hosts.hsb8.alerts | has("nixpkgs_warn_after_days") | not)
+  and .hosts.hsb8.alerts.heartbeat_grace_secs == 15
+' "$fixture" >/dev/null
+
+# Eight arguments stay valid and omit grace, which removes the key.
+run_update hsb8 '#12AB34' workstation true false true test-request-19 21
+jq -e '
+  .hosts.hsb8.alerts.nixpkgs_warn_after_days == 21
+  and (.hosts.hsb8.alerts | has("heartbeat_grace_secs") | not)
+' "$fixture" >/dev/null
+
+# Round-trip of both overrides, including a zero grace.
+run_update hsb8 '#12AB34' workstation true false true test-request-20 7 0
+round=$(jq -S . "$fixture")
+run_update hsb8 '#12AB34' workstation true false true test-request-21 7 0
+[[ "$round" == "$(jq -S . "$fixture")" ]] || {
+  echo "grace round-trip changed the registry" >&2
+  exit 1
+}
+jq -e '
+  .hosts.hsb8.alerts.nixpkgs_warn_after_days == 7
+  and .hosts.hsb8.alerts.heartbeat_grace_secs == 0
+' "$fixture" >/dev/null
+
+# Seven arguments stay valid and remove both optional overrides.
+run_update hsb8 '#12AB34' workstation true false true test-request-22
+jq -e '.hosts.hsb8.alerts | (has("nixpkgs_warn_after_days") or has("heartbeat_grace_secs")) | not' \
+  "$fixture" >/dev/null
+[[ "$other_before" == "$(jq -S '.hosts.csb0' "$fixture")" ]] || {
+  echo "grace updates changed an unrelated host" >&2
+  exit 1
+}
+
+run_update hsb8 '#12AB34' workstation true false true test-request-23 '' 15
+before=$(jq -S . "$fixture")
+for bad in 3601 abc 1.5 -3 ' 15' 99999; do
+  if run_update hsb8 '#12AB34' workstation true false true test-request-24 '' "$bad" 2>/dev/null; then
+    echo "invalid heartbeat grace '$bad' was accepted" >&2
+    exit 1
+  fi
+done
+if run_update hsb8 '#12AB34' workstation true false true 2>/dev/null; then
+  echo "a 6-argument settings update was accepted" >&2
+  exit 1
+fi
+if run_update hsb8 '#12AB34' workstation true false true test-request-25 '' 15 extra 2>/dev/null; then
+  echo "a 10-argument settings update was accepted" >&2
+  exit 1
+fi
+[[ "$before" == "$(jq -S . "$fixture")" ]] || {
+  echo "rejected grace updates changed the registry" >&2
+  exit 1
+}
+jq -e '.hosts.hsb8.alerts.heartbeat_grace_secs == 15' "$fixture" >/dev/null
+
+jq '.hosts.hsb8.alerts.heartbeat_grace_secs = "15"' "$fixture" >"$fixture_dir/invalid-grace.json"
+grace_before=$(jq -S . "$fixture_dir/invalid-grace.json")
+if PHAROS_SETTINGS_FILE="$fixture_dir/invalid-grace.json" \
+  "$repo_root/scripts/update-pharos-host-settings.sh" \
+  hsb8 '#123456' server false false false test-request-26 >/dev/null 2>&1; then
+  echo "a string-typed heartbeat grace in the registry was accepted" >&2
+  exit 1
+fi
+[[ "$grace_before" == "$(jq -S . "$fixture_dir/invalid-grace.json")" ]] || {
+  echo "rejected string grace changed the registry" >&2
+  exit 1
+}
+jq '.hosts.hsb8.alerts.heartbeat_grace_secs = 3601' "$fixture" >"$fixture_dir/invalid-grace-range.json"
+if PHAROS_SETTINGS_FILE="$fixture_dir/invalid-grace-range.json" \
+  "$repo_root/scripts/update-pharos-host-settings.sh" \
+  hsb8 '#123456' server false false false test-request-27 >/dev/null 2>&1; then
+  echo "an out-of-range heartbeat grace in the registry was accepted" >&2
+  exit 1
+fi
+jq '.hosts.hsb8.alerts.command = "rebuild"' "$fixture" >"$fixture_dir/unknown-alert.json"
+if PHAROS_SETTINGS_FILE="$fixture_dir/unknown-alert.json" \
+  "$repo_root/scripts/update-pharos-host-settings.sh" \
+  hsb8 '#123456' server false false false test-request-28 >/dev/null 2>&1; then
+  echo "an unknown alert key was accepted" >&2
+  exit 1
+fi
+grep -Fq 'heartbeat_grace_secs:' "$workflow"
+# shellcheck disable=SC2016 # literal: the workflow must pass the env var through
+grep -Fq '"$PHAROS_HEARTBEAT_GRACE_SECS"' "$workflow"
+# shellcheck disable=SC2016 # literal: argument 8 must stay the unexpanded nixpkgs env var
+nixpkgs_arg_line=$(grep -nF '"$PHAROS_NIXPKGS_WARN_AFTER_DAYS"' "$workflow" | cut -d: -f1)
+# shellcheck disable=SC2016 # literal: argument 9 must stay the unexpanded grace env var
+grace_arg_line=$(grep -nF '"$PHAROS_HEARTBEAT_GRACE_SECS"' "$workflow" | cut -d: -f1)
+[[ -n "$nixpkgs_arg_line" && -n "$grace_arg_line" ]]
+((nixpkgs_arg_line < grace_arg_line))
+
 echo "pharos_host_preferences=passed"
