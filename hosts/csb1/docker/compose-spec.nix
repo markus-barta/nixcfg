@@ -769,7 +769,7 @@ in
       # organization release is deployed from a cosign-signed image with SPDX
       # SBOM + SLSA build provenance, pinned by digest.
       # To bump: cut a go-envelope-v* release, verify, then update the digest.
-      image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v1.185@sha256:5d6fec5a17af150f5acef1daa101faf596e9aa5bd3278e3665b11ba389a6f30f";
+      image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v260922094507.0.0@sha256:519888c17e736fdea27e5881d7a1ed10c5f3932fa0d28e0e9368511a2866c639";
       container_name = "janus";
       restart = "unless-stopped";
       # The image's named janus account is uid 100/gid 101. Pin the numeric
@@ -795,6 +795,8 @@ in
         "JANUS_REQUIRE_AUTH=true"
         "JANUS_UNSAFE_BOOTSTRAP_OWNER=false"
         "JANUS_VIEWER_GROUPS=janus:viewer"
+        # NIX-574 / JANUS-476: browser-only; a separate exact Flow binding is required.
+        "JANUS_FLOW_VIEWER_GROUPS=janus:flow_viewer"
         "JANUS_OWNER_GROUPS=janus:admin"
         "JANUS_APPROVER_GROUPS=janus:approver"
         "JANUS_AUDITOR_GROUPS=janus:auditor"

@@ -28,8 +28,11 @@ if [ "${invalid_output}" != "usage: ${readiness} declarative|live|self-test" ]; 
 fi
 
 python3 - "${readiness}" <<'PY'
+import copy
+import json
 import pathlib
 import re
+import subprocess
 import sys
 
 source = pathlib.Path(sys.argv[1]).read_text()
@@ -51,6 +54,59 @@ if live_case is None:
 tail = source[source.rfind('case "$mode" in') :]
 if tail.count('emit_terminal_verdict "$mode" "$failures"') != 1:
     raise SystemExit("requested mode does not emit exactly one terminal verdict")
+
+# NIX-574 / JANUS-471: exercise the actual deployed predicates with both
+# release eras. A calendar envelope must not upgrade the engine admission.
+contract = pathlib.Path(sys.argv[1]).parent
+def admission_predicate(channel):
+    match = re.search(
+        rf"    {channel}_admission_receipt \\\n.*?\n    '(.*?)' \\\n",
+        source,
+        re.DOTALL,
+    )
+    if match is None:
+        raise SystemExit(f"missing {channel} admission predicate")
+    return match.group(1)
+
+def accepted(predicate, receipt, digest):
+    return subprocess.run(
+        ["jq", "-e", "--arg", "digest", digest, predicate],
+        input=json.dumps(receipt), text=True, capture_output=True,
+    ).returncode == 0
+
+go_receipt = json.loads((contract / "go-envelope-admission.json").read_text())
+go_predicate = admission_predicate("go")
+go_digest = go_receipt["artifact"]["digest"]
+if not accepted(go_predicate, go_receipt, go_digest):
+    raise SystemExit("calendar envelope admission rejected")
+for path, value in (
+    (("policy_version",), 3),
+    (("artifact", "release"), None),
+    (("artifact", "release", "version_scheme"), "legacy"),
+    (("artifact", "release", "version"), "260229120000.0.0"),
+    (("artifact", "release", "release_channel"), "stable"),
+    (("artifact", "release", "release_sequence"), 2),
+    (("artifact", "tag"), "go-envelope-v1.185"),
+    (("source", "commit"), "0" * 40),
+):
+    invalid = copy.deepcopy(go_receipt)
+    target = invalid
+    for field in path[:-1]:
+        target = target[field]
+    target[path[-1]] = value
+    if accepted(go_predicate, invalid, go_digest):
+        raise SystemExit(f"envelope admission accepted invalid {'.'.join(path)}")
+if accepted(go_predicate, go_receipt, "sha256:" + "0" * 64):
+    raise SystemExit("envelope admission accepted a different runtime image")
+
+rust_receipt = json.loads((contract / "release-admission.json").read_text())
+rust_predicate = admission_predicate("rust")
+rust_digest = rust_receipt["artifact"]["digest"]
+if not accepted(rust_predicate, rust_receipt, rust_digest):
+    raise SystemExit("retained legacy engine admission rejected")
+rust_receipt["policy_version"] = 4
+if accepted(rust_predicate, rust_receipt, rust_digest):
+    raise SystemExit("engine admission silently upgraded to policy 4")
 PY
 
 printf 'managed_secret_readiness_verdict=ok value_returned=false\n'

@@ -195,7 +195,7 @@ declarative() {
   check_image_pin \
     go_release_pin \
     janus \
-    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v1\.185@sha256:[0-9a-f]{64}$'
+    '^ghcr\.io/inspr-at/janus/janus-envelope:go-envelope-v260922094507\.0\.0@sha256:[0-9a-f]{64}$'
   check_image_pin \
     rust_release_pin \
     janus-managed-transactiond \
@@ -255,26 +255,27 @@ declarative() {
     jq -e --arg digest "$(service_image janus | sed 's/.*@//')" \
     '.schema_version == 1
      and .policy_id == "janus-engine-release-v1"
-     and .policy_version == 3
+     and .policy_version == 4
      and .channel == "envelope-stable"
      and .mode == "production"
      and .previous_mode == "production"
      and .artifact.image == "ghcr.io/inspr-at/janus/janus-envelope"
-     and .artifact.tag == "go-envelope-v1.185"
+     and .artifact.tag == "go-envelope-v260922094507.0.0"
      and .artifact.digest == $digest
      and .artifact.development == false
+     and .artifact.release == {version_scheme: "inspr-calendar-v2", version: "260922094507.0.0", release_channel: "envelope-stable", release_sequence: 1}
      and .signature.verified == true
-     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.185"
+     and .signature.identity == "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v260922094507.0.0"
      and .signature.oidc_issuer == "https://token.actions.githubusercontent.com"
      and .provenance.verified == true
      and .provenance.repository == "inspr-at/janus"
      and .provenance.signer_workflow == "inspr-at/janus/.github/workflows/go-envelope.yml"
-     and .provenance.source_ref == "refs/tags/go-envelope-v1.185"
+     and .provenance.source_ref == "refs/tags/go-envelope-v260922094507.0.0"
      and .provenance.predicate_type == "https://slsa.dev/provenance/v1"
      and .sbom.verified == true
      and .sbom.predicate_type == "https://spdx.dev/Document/v2.3"
      and .source.verified == true
-     and .source.commit == "cff766fd94b1e2e677d1ee836b9eee582d5091f7"
+     and .source.commit == "bd33e8b2716687983f8936abcef1c272a9125fe3"
      and (.source.manifest_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and (.source.bundle_sha256 | test("^sha256:[0-9a-f]{64}$"))
      and .scanner.verified == true

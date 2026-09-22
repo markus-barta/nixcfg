@@ -1,26 +1,32 @@
 {
   "schema_version": 1,
   "policy_id": "janus-engine-release-v1",
-  "policy_version": 3,
+  "policy_version": 4,
   "channel": "envelope-stable",
   "mode": "production",
   "previous_mode": "production",
   "artifact": {
     "image": "ghcr.io/inspr-at/janus/janus-envelope",
-    "tag": "go-envelope-v1.185",
-    "digest": "sha256:5d6fec5a17af150f5acef1daa101faf596e9aa5bd3278e3665b11ba389a6f30f",
-    "development": false
+    "tag": "go-envelope-v260922094507.0.0",
+    "digest": "sha256:519888c17e736fdea27e5881d7a1ed10c5f3932fa0d28e0e9368511a2866c639",
+    "development": false,
+    "release": {
+      "version_scheme": "inspr-calendar-v2",
+      "version": "260922094507.0.0",
+      "release_channel": "envelope-stable",
+      "release_sequence": 1
+    }
   },
   "signature": {
     "verified": true,
-    "identity": "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v1.185",
+    "identity": "https://github.com/inspr-at/janus/.github/workflows/go-envelope.yml@refs/tags/go-envelope-v260922094507.0.0",
     "oidc_issuer": "https://token.actions.githubusercontent.com"
   },
   "provenance": {
     "verified": true,
     "repository": "inspr-at/janus",
     "signer_workflow": "inspr-at/janus/.github/workflows/go-envelope.yml",
-    "source_ref": "refs/tags/go-envelope-v1.185",
+    "source_ref": "refs/tags/go-envelope-v260922094507.0.0",
     "predicate_type": "https://slsa.dev/provenance/v1"
   },
   "sbom": {
@@ -29,16 +35,16 @@
   },
   "source": {
     "verified": true,
-    "commit": "cff766fd94b1e2e677d1ee836b9eee582d5091f7",
-    "manifest_sha256": "sha256:11fa783d2f36e10a901e4b00d3fd6d32ef496fefcb1263a4c2a40f8ce197343e",
-    "bundle_sha256": "sha256:648ae440234989565a0a3e75267260a7d7fae9bddbf2b864d45a6bc577921dee"
+    "commit": "bd33e8b2716687983f8936abcef1c272a9125fe3",
+    "manifest_sha256": "sha256:d586c71df2d5b4ffb63933db31eac4ebd6ef78d4fedac134be06c884b122079b",
+    "bundle_sha256": "sha256:87250f6722f340141d676b3827b66c0c7653c98c3697026764ddc08f38c4d1ef"
   },
   "scanner": {
     "verified": true,
     "name": "trivy",
     "policy": "candidate_container_critical_high",
-    "subject": "ghcr.io/inspr-at/janus/janus-envelope@sha256:5d6fec5a17af150f5acef1daa101faf596e9aa5bd3278e3665b11ba389a6f30f",
-    "summary_sha256": "sha256:edc454c52aead0189abc450b1a09bf3a183a56083cb3438d88982bc9cc5f86d6",
+    "subject": "ghcr.io/inspr-at/janus/janus-envelope@sha256:519888c17e736fdea27e5881d7a1ed10c5f3932fa0d28e0e9368511a2866c639",
+    "summary_sha256": "sha256:bd1e9045e5462b31a2ebb02c508ae384313443a07ac43789822db53379ceb762",
     "critical": 0,
     "high": 0
   }
