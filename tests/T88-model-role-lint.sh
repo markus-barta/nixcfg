@@ -9,13 +9,15 @@
 # tool default is not a routing decision. A hit is fixed by rewriting to a role
 # (AGENTS-DOMAIN-DEV.md § model choice by role), never by an exemption.
 #
-# Surfaces: the lint recurses with `grep -r`, which does NOT descend symlinks.
-# `.claude/commands` is a symlink to `+agents/commands`, whose entries are
-# themselves symlinks into doctrine/ and doctrine-private/ — so directories
-# alone would scan nothing there. Real files: +agents/README.md, +agents/rules/.
-# Command files are enumerated one by one (a symlink named on the command line
-# IS followed); a dangling one (doctrine-private is not checked out in CI, only
-# the public doctrine submodule is) is reported and skipped, never a pass.
+# Surfaces: the lint recurses with `grep -r`, which does NOT descend symlinks —
+# and BSD grep (macOS) skips even a symlink named on the command line, GNU grep
+# follows it. `.claude/commands` is a symlink to `+agents/commands`, whose
+# entries are themselves symlinks into doctrine/ and doctrine-private/, so
+# directories or symlink names alone would scan nothing there on a Mac while
+# passing on Linux. Real files: +agents/README.md, +agents/rules/. Command files
+# are resolved to their root-relative REGULAR-file targets. A target under
+# doctrine-private/ may be absent (CI checks out only the public doctrine
+# submodule) and is reported and skipped; any other dangling link fails.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,17 +28,38 @@ if [ ! -f "${lint}" ]; then
   exit 1
 fi
 
+# Root-relative path of a symlink's target, resolved lexically (no realpath /
+# GNU coreutils dependency; bash 3.2 + python3 are what CI and macOS have).
+resolve_target() {
+  python3 - "$1" <<'PY'
+import os
+import sys
+
+link = sys.argv[1]
+target = os.readlink(link)
+print(os.path.normpath(os.path.join(os.path.dirname(link), target)))
+PY
+}
+
 surfaces=(modules/uzumaki AGENTS.md AGENTS-NIXCFG.md +agents)
 covered=0
 skipped=0
-for entry in "${repo}"/+agents/commands/*; do
-  rel="${entry#"${repo}"/}"
-  if [ -e "${entry}" ]; then
-    surfaces+=("${rel}")
+cd "${repo}"
+for entry in +agents/commands/*; do
+  if [ ! -L "${entry}" ]; then
+    echo "T88: ${entry} is not a symlink into doctrine; lint it via +agents" >&2
+    continue
+  fi
+  target="$(resolve_target "${entry}")"
+  if [ -f "${target}" ]; then
+    surfaces+=("${target}")
     covered=$((covered + 1))
-  else
-    echo "T88: ${rel} -> $(readlink "${entry}") not checked out here; skipped" >&2
+  elif [ "${target#doctrine-private/}" != "${target}" ] && [ ! -f doctrine-private/README.md ]; then
+    echo "T88: ${entry} -> ${target}: private doctrine not checked out here; skipped" >&2
     skipped=$((skipped + 1))
+  else
+    echo "T88: ${entry} -> ${target} is dangling" >&2
+    exit 1
   fi
 done
 if [ "${covered}" -eq 0 ]; then
@@ -46,4 +69,4 @@ fi
 
 bash "${lint}" --self-test
 bash "${lint}" --lint "${repo}" "${surfaces[@]}"
-echo "T88 ok (${covered} command file(s) linted, ${skipped} not checked out)"
+echo "T88 ok (${covered} command file(s) linted as regular files, ${skipped} private not checked out)"
