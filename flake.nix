@@ -92,12 +92,11 @@
     # context flakes) provide identity-specific values; the atelier stays
     # opinionated only about mechanics. (Older docs: "Pattern β".)
     #
-    # NIX-492 / INSPR-424: Calendar Versioning adoption in every managed harness.
-    # Keep this input synchronized with the doctrine gitlink. Rollback is the
-    # previous v0.16.0 / 6636263adeaea186483f3222a4ee68b32750acb7 pair;
-    # rollback retains NIX-504 speech wiring and INSPR-440 receipt consumption,
-    # but not INSPR-443 protected credential support or Flow Shell 0.2.1.
-    inspr-modules.url = "github:inspr-at/inspr-modules/e75e4f95a94974fbc6bcce2fde78f2994c8ef776";
+    # NIX-574 / INSPR-466: published v260922101217.0.0, Aithema 0.10.1.
+    # Keep this input synchronized with the doctrine gitlink. Deploy the package
+    # before restricted memberships; remove those memberships before rollback
+    # to the previous e75e4f95a94974fbc6bcce2fde78f2994c8ef776 pair.
+    inspr-modules.url = "github:inspr-at/inspr-modules/21b814057825c06b7f1e93f9deacdb4c549e11c6";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 
