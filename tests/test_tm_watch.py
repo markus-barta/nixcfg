@@ -277,7 +277,9 @@ class DatasetTest(unittest.TestCase):
             new = Path(tmp, "new.sparsebundle")
             (new / "bands").mkdir(parents=True)
             (new / "bands" / "0").write_bytes(b"x")
+            os.utime(new / "bands" / "0", (NOW - 600, NOW - 600))
             (new / "token").write_bytes(b"t")
+            os.utime(new / "token", (NOW - 3600, NOW - 3600))  # genuinely young relative to NOW
             cap = dict(CAPS["markus"], path=tmp)
             with patch.object(checks.subprocess, "run", clean_zfs().run), contextlib.redirect_stdout(io.StringIO()):
                 found = {p.key: p.text for p in checks.check_dataset("markus", cap, NOW)}
@@ -292,7 +294,9 @@ class DatasetTest(unittest.TestCase):
             new = Path(tmp, "new.sparsebundle")
             (new / "bands").mkdir(parents=True)
             (new / "bands" / "0").write_bytes(b"x")
+            os.utime(new / "bands" / "0", (NOW - 600, NOW - 600))
             (new / "token").write_bytes(b"t")
+            os.utime(new / "token", (NOW - 3600, NOW - 3600))
             cap = dict(CAPS["markus"], path=tmp)
             with patch.object(checks.subprocess, "run", clean_zfs().run), contextlib.redirect_stdout(io.StringIO()):
                 found = {p.key: p.text for p in checks.check_dataset("markus", cap, NOW)}
