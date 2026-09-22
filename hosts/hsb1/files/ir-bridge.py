@@ -40,8 +40,9 @@ Environment variables (see hosts/hsb1/ir-bridge.nix):
     DEBOUNCE_MS           default 300
     REPEAT_DELAY_MS       default 350
     REPEAT_RATE_MS        default 120
-    RETRY_COUNT           HTTP retries (default 3)
-    RETRY_DELAY           seconds between HTTP retries (default 1.0)
+    IRCC_CONNECT_TIMEOUT  seconds to connect to the TV (default 1.0)
+    IRCC_READ_TIMEOUT     seconds to wait for its answer (default 2.0)
+    STALE_EVENT_MS        drop queued key events older than this (default 1000)
 """
 
 import json
@@ -67,7 +68,7 @@ try:
 except ImportError:  # pragma: no cover
     MQTT_AVAILABLE = False
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 # The bridge is an appliance, not a general HTTP proxy. A TV move requires a
 # reviewed source change here and in the matching NixOS unit value.
 SONY_TV_HOST = "192.168.1.137"
@@ -88,8 +89,13 @@ CONFIG = {
     "debounce_ms": int(os.getenv("DEBOUNCE_MS", "300")),
     "repeat_delay_ms": int(os.getenv("REPEAT_DELAY_MS", "350")),
     "repeat_rate_ms": int(os.getenv("REPEAT_RATE_MS", "120")),
-    "retry_count": int(os.getenv("RETRY_COUNT", "3")),
-    "retry_delay": float(os.getenv("RETRY_DELAY", "1.0")),
+    # One HTTP attempt per press, bounded tightly: the TV is on the LAN (sub-ms
+    # RTT) and a press is a real-time action — see _send_ircc (OPS-225).
+    "ircc_connect_timeout": float(os.getenv("IRCC_CONNECT_TIMEOUT", "1.0")),
+    "ircc_read_timeout": float(os.getenv("IRCC_READ_TIMEOUT", "2.0")),
+    # A key event that waited in the evdev queue longer than this (because an
+    # earlier send was stuck) is no longer wanted — see _read_loop (OPS-225).
+    "stale_event_ms": int(os.getenv("STALE_EVENT_MS", "1000")),
     # Input-device reconnect backoff. The FLIRC can vanish at any time (USB
     # replug, hub power-cycle, boot race where the hub enumerates after us);
     # the bridge waits it out rather than dying or spinning on a dead handle.
@@ -101,9 +107,17 @@ CONFIG = {
 # evdev code -> (friendly_name, sony_ircc_or_None)
 #   ircc=None  → MQTT-only: the bridge publishes the press but sends NO TV
 #                command (smart keys handled by HA; unmapped extras).
-# IRCC base64 codes are reused verbatim from the verified hsb1 mapping (NIX-186).
-# NOTE: this FLIRC maps the physical Vol+/Vol- to the *opposite* evdev keycodes,
-# so the IRCC is intentionally swapped (114→Vol-UP, 115→Vol-DOWN).
+# IRCC base64 codes are reused verbatim from the verified hsb1 mapping (NIX-186),
+# except `back`: the NIX-186 value was malformed (19 chars → HTTP 500 on every
+# press) and was replaced by this TV's own `Return` code from
+# `system.getRemoteControllerInfo` on 192.168.1.137 (fetched 2026-09-22,
+# OPS-225). A code must come from that table, never a generic Sony list — codes
+# differ per model. The table also lists different values for the transport /
+# app / channel keys; those stay as-is until each button has been pressed and
+# verified physically (the table proves what the TV advertises, not what a
+# button does). NOTE: this FLIRC maps the physical Vol+/Vol- to the *opposite*
+# evdev keycodes, so the IRCC is intentionally swapped (114→Vol-UP, 115→Vol-DOWN);
+# the pair is daily-verified — do not "correct" it from the table.
 BUTTONS: Dict[int, tuple] = {
     # Numbers
     2:  ("num1", "AAAAAQAAAAEAAAAAAw=="),
@@ -123,7 +137,7 @@ BUTTONS: Dict[int, tuple] = {
     106: ("right", "AAAAAQAAAAEAAAAzAw=="),
     96:  ("enter", "AAAAAQAAAAEAAABlAw=="),
     28:  ("enter", "AAAAAQAAAAEAAABlAw=="),  # KEY_ENTER alternate
-    1:   ("back", "AAAAAQAAAAEAAAAAw=="),
+    1:   ("back", "AAAAAgAAAJcAAAAjAw=="),  # TV table: Return
     102: ("home", "AAAAAQAAAAEAAABgAw=="),
     # Volume (swapped — see note above)
     113: ("mute", "AAAAAQAAAAEAAAAUAw=="),
@@ -379,22 +393,30 @@ class IRBridge:
             '<u:X_SendIRCC xmlns:u="urn:schemas-sony-com:service:IRCC:1">'
             f"<IRCCCode>{ircc}</IRCCCode></u:X_SendIRCC></s:Body></s:Envelope>"
         )
-        for attempt in range(CONFIG["retry_count"]):
-            try:
-                r = self.http.post(
-                    self.sony_ircc_url,
-                    headers=headers,
-                    data=body,
-                    timeout=5,
-                    allow_redirects=False,
-                )
-                if r.status_code == 200:
-                    return True
-                self.log.warning("IRCC %s failed: HTTP %s", name, r.status_code)
-            except requests.exceptions.RequestException as exc:
-                self.log.error("IRCC %s request error (try %d): %s", name, attempt + 1, exc)
-            if attempt < CONFIG["retry_count"] - 1:
-                time.sleep(CONFIG["retry_delay"])
+        # Exactly ONE attempt per press (OPS-225). A press is a real-time action:
+        # a retry seconds later is never what the viewer wanted, and a retry after
+        # a read timeout can DUPLICATE a command the TV already executed (volume
+        # step, power toggle). An HTTP answer is a verdict, not a hiccup (404 = its
+        # REST API is down, 500 = bad code); resending changes nothing. Presses are
+        # handled synchronously, so the old 3×(5 s + 1 s) loop also blocked the
+        # input loop for every queued press (2026-09-21: 33 presses replayed at
+        # ~2 s each). The timeouts are requests' connect / read *inactivity*
+        # limits (a trickling answer can take longer), not a deadline; the stale
+        # filter in _read_loop drops whatever queued up meanwhile.
+        try:
+            r = self.http.post(
+                self.sony_ircc_url,
+                headers=headers,
+                data=body,
+                timeout=(CONFIG["ircc_connect_timeout"], CONFIG["ircc_read_timeout"]),
+                allow_redirects=False,
+            )
+        except requests.exceptions.RequestException as exc:
+            self.log.error("IRCC %s request error: %s", name, exc)
+            return False
+        if r.status_code == 200:
+            return True
+        self.log.warning("IRCC %s failed: HTTP %s", name, r.status_code)
         return False
 
     # ── key handling ─────────────────────────────────────────────────────
@@ -477,6 +499,7 @@ class IRBridge:
             self._set_availability("offline")
 
     def _read_loop(self) -> None:
+        stale_s = CONFIG["stale_event_ms"] / 1000.0
         for event in self.input_device.read_loop():
             if not self.running:
                 break
@@ -484,6 +507,15 @@ class IRBridge:
                 # HID usage/scancode for the press that follows (e.g. 0x7001a).
                 self.last_scancode = f"0x{event.value:x}"
             elif event.type == ecodes.EV_KEY:
+                # A press that sat in the evdev queue while an earlier send was
+                # stuck (TV unreachable, held key still queueing) is not something
+                # the viewer still wants: replaying the backlog once the TV answers
+                # again fires a burst of stale volume steps (OPS-225). Drop it; the
+                # next physical press is fresh.
+                age = time.time() - event.timestamp()
+                if age > stale_s:
+                    self.log.debug("Dropping stale key event (%.1fs old)", age)
+                    continue
                 ke = categorize(event)
                 if ke.keystate == ke.key_down:
                     self._handle_key(ke.scancode, held=False)
@@ -532,6 +564,12 @@ class IRBridge:
     def _signal(self, signum, frame) -> None:
         self.log.info("Signal %s — shutting down", signum)
         self.stop()
+        # Unwind the main thread from wherever it sits — evdev's read_loop() or
+        # the reopen back-off sleep. Python restarts those syscalls after a
+        # handler returns (PEP 475), so the `running` flag alone is only noticed
+        # at the next keypress and systemd SIGKILLs us after TimeoutStopSec —
+        # 90 s on every reboot and switch before OPS-224.
+        raise SystemExit(0)
 
     def stop(self) -> None:
         self.running = False
