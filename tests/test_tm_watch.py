@@ -42,6 +42,8 @@ SPEC.loader.exec_module(engine)
 
 G = 1024**3
 NOW = 1_800_000_000.0
+# Fixture caps (NOT production numbers — T89 checks hosts/hsb1/tm-caps.nix);
+# every FakeZfs below is sized against these.
 CAPS = {
     "markus": {"dataset": "tm/markus", "path": "/srv/tm/markus", "refquotaG": 2253, "quotaG": 3277, "maxSizeG": 2200},
     "mailina": {"dataset": "tm/mailina", "path": "/srv/tm/mailina", "refquotaG": 1434, "quotaG": 2048, "maxSizeG": 1400},
@@ -135,7 +137,8 @@ def clean_zfs():
 
 
 class DatasetTest(unittest.TestCase):
-    def run_dataset(self, zfs, completed_age=3600.0, band_age=None, with_bundle=True, history="ok"):
+    def run_dataset(self, zfs, completed_age=3600.0, band_age=None, with_bundle=True, history="ok",
+                    bundle_age=30 * 86400):
         band_age = completed_age if band_age is None else band_age
         with tempfile.TemporaryDirectory() as tmp:
             cap = dict(CAPS["markus"], path=tmp)
@@ -145,6 +148,9 @@ class DatasetTest(unittest.TestCase):
                 band = bundle / "bands" / "0"
                 band.write_bytes(b"x")
                 os.utime(band, (NOW - band_age, NOW - band_age))
+                token = bundle / "token"  # written once by TM when the bundle is created
+                token.write_bytes(b"t")
+                os.utime(token, (NOW - bundle_age, NOW - bundle_age))
                 if history == "ok":
                     write_history(bundle, NOW - completed_age)
                 elif history == "truncated":
@@ -227,20 +233,28 @@ class DatasetTest(unittest.TestCase):
     def test_writing_without_completing_is_reported_not_hidden(self):
         found = self.run_dataset(clean_zfs(), completed_age=6 * 86400, band_age=600.0)
         self.assertIn("bands last written 0 h ago", found["tm:tm/markus:stale"])
-        # A fresh set still being written (first full copy) is healthy …
-        self.assertEqual(self.run_dataset(clean_zfs(), band_age=600.0, history="none"), {})
-        # … until it stops writing for a day without ever completing.
-        no_record = self.run_dataset(clean_zfs(), band_age=25 * 3600, history="none")
+        # A fresh set (young bundle, no history plist yet) still being written
+        # (first full copy) is healthy …
+        self.assertEqual(self.run_dataset(clean_zfs(), band_age=600.0, history="none", bundle_age=3600), {})
+        # … until it stops writing for a day without ever completing …
+        no_record = self.run_dataset(clean_zfs(), band_age=25 * 3600, history="none", bundle_age=3600)
         self.assertIn("no completed backup on record", no_record["tm:tm/markus:stale"])
+        # … or has been "in progress" for longer than any first copy takes.
+        too_long = self.run_dataset(clean_zfs(), band_age=600.0, history="none", bundle_age=4 * 86400)
+        self.assertEqual(list(too_long), ["tm:tm/markus:stale"])
+        at_limit = self.run_dataset(clean_zfs(), band_age=600.0, history="none", bundle_age=3 * 86400)
+        self.assertEqual(at_limit, {})
+        # An OLD set that lost its history plist is not "new" either.
+        old_set = self.run_dataset(clean_zfs(), band_age=600.0, history="none")
+        self.assertEqual(list(old_set), ["tm:tm/markus:stale"])
 
     def test_damaged_plist_is_no_evidence_not_a_crash(self):
-        # No evidence + bands untouched for a day → stale (a damaged plist on a
-        # set that is still being written is tolerated for FIRST_COPY_S).
+        # A history plist that exists but cannot be read is damage: stale even
+        # on a young, actively written bundle — never mistaken for a new set.
         for shape in ("truncated", "wrong-shape", "snapshots-not-a-list"):
             with self.subTest(shape=shape):
-                found = self.run_dataset(clean_zfs(), band_age=25 * 3600, history=shape)
+                found = self.run_dataset(clean_zfs(), band_age=600.0, history=shape, bundle_age=3600)
                 self.assertEqual(list(found), ["tm:tm/markus:stale"])
-                self.assertEqual(self.run_dataset(clean_zfs(), band_age=600.0, history=shape), {})
 
     def test_damaged_plist_never_clears_a_capacity_finding(self):
         # Headroom problem must survive a plist that makes the freshness path fail.
