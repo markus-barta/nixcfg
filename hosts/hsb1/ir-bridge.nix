@@ -63,6 +63,9 @@ in
       ExecStart = "${pythonEnv}/bin/python3 ${./files/ir-bridge.py}";
       Restart = "always";
       RestartSec = 5;
+      # The bridge exits on SIGTERM within milliseconds (OPS-224); anything
+      # longer is a regression and must not hold a reboot for the 90 s default.
+      TimeoutStopSec = 10;
       # Reactivity: pin above normal priority so a keypress is handled instantly
       # regardless of hsb1's other load (HA / Zigbee2MQTT / docker). The service is
       # event-driven (~0% CPU idle); this just guarantees it preempts background work.
