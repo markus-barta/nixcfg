@@ -97,7 +97,7 @@
     # previous v0.16.0 / 6636263adeaea186483f3222a4ee68b32750acb7 pair;
     # rollback retains NIX-504 speech wiring and INSPR-440 receipt consumption,
     # but not INSPR-443 protected credential support or Flow Shell 0.2.1.
-    inspr-modules.url = "github:inspr-at/inspr-modules/79affa4486858ad81b2ee32d3d8a94485f3c5793";
+    inspr-modules.url = "github:inspr-at/inspr-modules/e75e4f95a94974fbc6bcce2fde78f2994c8ef776";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 

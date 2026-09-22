@@ -28,6 +28,7 @@ in
     ./babycam-watchdog.nix # NIX-151 — probe + self-heal + MQTT telemetry for the kiosk babycam
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
+    ./ir-bridge-watch.nix # OPS-223: pages when the FLIRC is gone, the bridge is down or the TV's Sony API answers 404
     ./tailnet-watch.nix # OPS-185: second tailnet witness (home failure domain) — pages when this host's tailnet view is broken
     ./mailbridge-watch.nix # OPS-196: OAuth/queue health, independently watched by tailnet-watch
     ../../modules/shared/compose-stack # OPS-116 — containers reconciled at switch
