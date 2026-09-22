@@ -40,12 +40,20 @@ client = re.findall(r'github:inspr-at/paimos/v([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+
 server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+\.[0-9]+)?)@(sha256:[0-9a-f]{64})', compose)
 assert len(client) == 1, f"expected one Paimos client release pin, got {client!r}"
 assert len(server) == 1, f"expected one PPM server release pin, got {server!r}"
-assert client[0] == server[0][0], f"Paimos client/server release drift: {client[0]} != {server[0][0]}"
-assert server[0][1] == "sha256:b560e879ecb53f82b8d268316f14c766a45b9872a283e1b4be22c81b059a1b76", server
+# NIX-574 / PAI-1054: preserve the bound Mac agent generation while deploying
+# the scoped reviewer server. This exact pair requires reviewed compatibility
+# evidence; any later client/server change must deliberately update this gate.
+expected_pair = (
+    "260922071824.0.0",
+    "260922104613.0.0",
+    "sha256:56f0e529f7fb165d377f8484b5f96adbe4e87c5a1df2e03b4df5ec378e830095",
+)
+actual_pair = (client[0], server[0][0], server[0][1])
+assert actual_pair == expected_pair, f"unreviewed Paimos client/server pairing: {actual_pair!r}"
 print(server[0][0])
 PY
 )
-[ "$package_version" = "$deployment_version" ] || fail "Paimos package/server release drift: $package_version != $deployment_version"
+[ "$deployment_version" = 260922104613.0.0 ] || fail "Paimos server is outside the reviewed NIX-574 pairing: $deployment_version"
 
 sdk_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.claude-agent-sdk.version')
 [ "$sdk_version" = 0.3.251 ] || fail "Claude Agent SDK version drifted: $sdk_version"
