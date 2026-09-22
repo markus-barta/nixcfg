@@ -37,8 +37,11 @@ set -euo pipefail
 {
   systemctl list-unit-files --type=service --plain --no-legend | awk '{print $1}'
   systemctl list-units --type=service --all --plain --no-legend | awk '{print $1}'
-} | grep -v '@$' | sort -u | while read -r u; do
-  systemctl show "$u" -p EnvironmentFiles --value | grep -o '/run/agenix/[^ ]*' | sed "s#^#$u\t#" || true
+} | grep -v '@\.service$' | sort -u | while read -r u; do
+  # A failed property query aborts discovery (strict mode); only grep's
+  # "no match" is tolerated.
+  props=$(systemctl show "$u" -p EnvironmentFiles --value)
+  printf '%s\n' "$props" | { grep -o '/run/agenix/[^ ]*' || true; } | sed "s#^#$u\t#"
 done | sort -u
 echo "__DISCOVERY_OK__"
 EOS
