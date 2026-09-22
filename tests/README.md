@@ -107,6 +107,7 @@ Examples:
 - `T86-update-cursor-agent-safety.sh` — offline Cursor CLI update lock and unsupported-host safety (NIX-519)
 - `T87-ir-bridge-watch.sh` — hsb1 IR bridge witness wiring + unit/engine tests, and the bridge's send/stale-event/SIGTERM contracts (OPS-223, OPS-224, OPS-225)
 - `T88-model-role-lint.sh` — agent-instruction surfaces name roles, never models; runs the pinned doctrine's `model-role-doctrine.sh --lint` (NIX-568)
+- `T89-tm-watch.sh` — hsb1 Time Machine: Samba `max size` ≤ refquota pairing, 7-day sanoid, tm-watch witness wiring + unit/engine tests (OPS-226)
 - `T84-pi-inspr-kernel.sh` — Pi global AGENTS.md via inspr.agent-kernel (NIX-508)
 
 ## Writing Shell Tests

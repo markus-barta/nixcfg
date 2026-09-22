@@ -129,6 +129,44 @@ else
   fi
 fi
 
+# ────────────────────────────────────────────────────────────────────────────────
+# T06.5 - Time Machine pool: two caps in place, headroom left, witness alive
+# ────────────────────────────────────────────────────────────────────────────────
+
+print_test "T06.5 - Time Machine datasets (OPS-226)"
+for ds in tm/markus tm/mailina; do
+  # refquota/quota are imperative (tm-pool.nix documents the `zfs set`); with
+  # -p an unset cap prints 0.
+  read -r refquota quota referenced snaps < <(zfs get -Hp -o value refquota,quota,referenced,usedbysnapshots "$ds" 2>/dev/null | tr '\n' ' ') || true
+  if [[ -z "${refquota:-}" ]]; then
+    fail "$ds: zfs get failed (pool not imported?)"
+    continue
+  fi
+  if [[ "$refquota" -gt 0 && "$quota" -gt "$refquota" ]]; then
+    pass "$ds: refquota $((refquota / 1024 ** 3))G < quota $((quota / 1024 ** 3))G"
+  else
+    fail "$ds: refquota/quota pair missing — run the zfs set from tm-pool.nix"
+  fi
+  headroom=$((quota - referenced - snaps))
+  if [[ "$quota" -eq 0 || "$headroom" -gt $((100 * 1024 ** 3)) ]]; then
+    pass "$ds: $((headroom / 1024 ** 3))G below quota"
+  else
+    fail "$ds: only $((headroom / 1024 ** 3))G below quota — Time Machine will report a full volume"
+  fi
+done
+check_timer_active() { systemctl is-active --quiet "$1"; }
+if check_timer_active tm-watch.timer; then
+  pass "tm-watch.timer is active"
+else
+  fail "tm-watch.timer is NOT active"
+fi
+TMW_RESULT=$(systemctl show tm-watch.service -p Result --value)
+if [[ "$TMW_RESULT" == "success" ]]; then
+  pass "tm-watch oneshot last run: success"
+else
+  fail "tm-watch oneshot last run result: $TMW_RESULT"
+fi
+
 # ════════════════════════════════════════════════════════════════════════════════
 # Summary
 # ════════════════════════════════════════════════════════════════════════════════

@@ -52,7 +52,9 @@
         "vfs objects" = "catia fruit streams_xattr";
         "fruit:time machine" = "yes";
         "fruit:metadata" = "stream";
-        "fruit:time machine max size" = "2500G"; # belt-and-suspenders alongside the ZFS quota
+        # = the dataset's refquota (2.2T, a hair under in GiB) so TM thins its
+        # own backups before ZFS refuses a write — see tm-pool.nix (OPS-226).
+        "fruit:time machine max size" = "2200G";
       };
 
       tm-mailina = {
@@ -63,7 +65,7 @@
         "vfs objects" = "catia fruit streams_xattr";
         "fruit:time machine" = "yes";
         "fruit:metadata" = "stream";
-        "fruit:time machine max size" = "2500G";
+        "fruit:time machine max size" = "1400G"; # = refquota 1.4T, see tm-pool.nix
       };
     };
   };

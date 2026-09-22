@@ -320,11 +320,31 @@ ssh mba@192.168.1.101 "docker exec plex curl -s 'http://localhost:32400/library/
 
 ### `tm` pool (6TB drive) — Time Machine target
 
-Two quota'd datasets, `tm/markus` and `tm/mailina`, `quota=2.5T` each (50:50
-split of ~5.45TiB usable — the remaining ~450GB is deliberate headroom for
-sanoid's daily snapshots, not unallocated waste). Quotas are **imperative**,
-not disko-declared — changing the numbers requires a live `zfs set
-quota=<new size> tm/<user>` to match whatever the nix comments say.
+Two datasets, `tm/markus` and `tm/mailina`, each with **two caps** (OPS-226,
+after "Das Backup-Volume ist voll" on 2026-09-22):
+
+| dataset      | refquota (= TM's cap, mirrored by Samba `max size`) | quota (hard, incl. snapshots) |
+| ------------ | --------------------------------------------------- | ----------------------------- |
+| `tm/markus`  | 2.2T (`2200G`)                                      | 3.2T                          |
+| `tm/mailina` | 1.4T (`1400G`)                                      | 2T                            |
+
+Time Machine only ever sees the refquota, so it thins its own old backups
+before ZFS can refuse a write (it fills that space by design — `referenced ≈
+refquota` is normal); the refquota→quota gap is the budget for sanoid's 7
+daily snapshots of the churning sparsebundle. Both caps are
+**imperative**, not disko-declared — changing a number in `tm-pool.nix` /
+`tm-samba.nix` requires the matching live command, and Samba's `max size` must
+never exceed the refquota:
+
+```bash
+ssh mba@192.168.1.101 "sudo zfs set refquota=2.2T quota=3.2T tm/markus && sudo zfs set refquota=1.4T quota=2T tm/mailina"
+```
+
+`tm-watch.timer` (30 min, Telegram) pages when a refquota is missing,
+snapshots eat half the gap, headroom under quota drops below 100G, the pool
+passes 85 %, smbd is down, or a Mac's bundle is older than 72 h.
+
+**"Backup-Volume ist voll" anyway?** `zfs get -p referenced,refquota,quota,usedbysnapshots tm/<user>` — if `referenced + usedbysnapshots ≈ quota`, raise `quota` immediately (`sudo zfs set quota=<bigger> tm/<user>`, pool free permitting) and let sanoid's snapshots age out; if `referenced ≈ refquota`, TM failed to thin — raise refquota **and** Samba `max size` together, then switch.
 
 Samba (`tm-samba.nix`) exposes each dataset as its own share
 (`tm-markus`, `tm-mailina`) via `vfs_fruit`, discoverable natively in each
@@ -332,11 +352,12 @@ Mac's System Settings → Time Machine (Avahi mDNS, no manual `smb://` entry
 needed). Credentials: `hsb1-tm-smb-env` (see Secrets Inventory below).
 
 ```bash
-# Pool + quota health
+# Pool + cap health
 ssh mba@192.168.1.101 "zpool status tm"
-ssh mba@192.168.1.101 "zfs list -o name,used,avail,quota,mountpoint tm/markus tm/mailina"
+ssh mba@192.168.1.101 "zfs get -o name,property,value referenced,refquota,quota,usedbysnapshots,available tm/markus tm/mailina"
+ssh mba@192.168.1.101 "systemctl list-timers tm-watch.timer; journalctl -u tm-watch -n 3"
 
-# Snapshot retention (sanoid — daily, 14-day)
+# Snapshot retention (sanoid — daily, 7-day)
 ssh mba@192.168.1.101 "systemctl status sanoid.timer"
 ssh mba@192.168.1.101 "zfs list -t snapshot -r tm"
 
