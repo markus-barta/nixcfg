@@ -690,7 +690,7 @@ in
       # Bump deliberately through the reviewed release/deploy flow. OPS-116:
       # an out-of-closure image once nearly downgraded a migrated DB on reconcile.
       # Retain the previous declared pin and stopped-volume backup for rollback.
-      image = "ghcr.io/inspr-at/paimos:260922071824.0.0@sha256:b560e879ecb53f82b8d268316f14c766a45b9872a283e1b4be22c81b059a1b76"; # PAI-1050 native harness adapters, PAI-1049 model registry/resolver, PAI-1047 reply-slot deadlock fix; exact release OCI index. Previous: 260921101051.0.0@sha256:ad84ead3fae90fdb738e3579eb9049e6a8038b6ab2cfa720a65e351c2ca45c6c
+      image = "ghcr.io/inspr-at/paimos:260922104613.0.0@sha256:56f0e529f7fb165d377f8484b5f96adbe4e87c5a1df2e03b4df5ec378e830095"; # NIX-574 / PAI-1054: scoped human reviewer and sandbox Flow projection; verified release OCI index. Previous: 260922071824.0.0@sha256:b560e879ecb53f82b8d268316f14c766a45b9872a283e1b4be22c81b059a1b76
       container_name = "ppm";
       restart = "unless-stopped";
       environment = [
@@ -769,7 +769,7 @@ in
       # organization release is deployed from a cosign-signed image with SPDX
       # SBOM + SLSA build provenance, pinned by digest.
       # To bump: cut a go-envelope-v* release, verify, then update the digest.
-      image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v1.185@sha256:5d6fec5a17af150f5acef1daa101faf596e9aa5bd3278e3665b11ba389a6f30f";
+      image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v260922094507.0.0@sha256:519888c17e736fdea27e5881d7a1ed10c5f3932fa0d28e0e9368511a2866c639";
       container_name = "janus";
       restart = "unless-stopped";
       # The image's named janus account is uid 100/gid 101. Pin the numeric
@@ -795,6 +795,8 @@ in
         "JANUS_REQUIRE_AUTH=true"
         "JANUS_UNSAFE_BOOTSTRAP_OWNER=false"
         "JANUS_VIEWER_GROUPS=janus:viewer"
+        # NIX-574 / JANUS-476: browser-only; a separate exact Flow binding is required.
+        "JANUS_FLOW_VIEWER_GROUPS=janus:flow_viewer"
         "JANUS_OWNER_GROUPS=janus:admin"
         "JANUS_APPROVER_GROUPS=janus:approver"
         "JANUS_AUDITOR_GROUPS=janus:auditor"
