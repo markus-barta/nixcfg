@@ -276,9 +276,11 @@ class DatasetTest(unittest.TestCase):
                 gets = []
 
                 def run(argv, **kwargs):
+                    # Reads: 1 caller, 2 pass-1 post-listing, 3 after the one
+                    # destroy, 4 pass-2 post-listing — the decision point.
                     if argv[1] == "get":
                         gets.append(1)
-                        if len(gets) == 3:  # pass-2 refresh: referenced dropped meanwhile
+                        if len(gets) == 4:
                             zfs.referenced -= recovered
                     return original(argv, **kwargs)
 
