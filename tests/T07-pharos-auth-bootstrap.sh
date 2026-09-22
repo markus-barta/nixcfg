@@ -46,12 +46,63 @@ if [[ ! "$operator_ref" =~ ^verified-email-ref:[0-9a-f]{64}$ ]]; then
   echo "Pharos operator allowlist must use one value-free verified-email reference" >&2
   exit 1
 fi
-if ! jq -e --arg operator_ref "$operator_ref" \
-  '.grants | length > 0 and all(.[]; .identifiers == [$operator_ref])' \
-  "$ACCESS_POLICY" >/dev/null; then
-  echo "Pharos access policy must use the same value-free verified-email reference" >&2
+access_grants_ok() {
+  jq -e --arg operator_ref "$operator_ref" '
+    def extra_operator_ref:
+      type == "string" and test("^operator-ref:[0-9a-f]{64}\\z");
+    def identifiers_ok:
+      . == [$operator_ref]
+      or (type == "array" and length == 1 and (.[0] | extra_operator_ref));
+    (.grants | type == "array" and length > 0)
+      and any(.grants[]; .identifiers == [$operator_ref])
+      and all(.grants[]; (.identifiers | identifiers_ok))
+  ' >/dev/null
+}
+
+expect_access_grants() {
+  local want="$1"
+  local doc="$2"
+  local rc=0
+  access_grants_ok <<<"$doc" || rc=$?
+  if [[ "$rc" -gt 1 ]]; then
+    echo "access grant predicate failed to evaluate" >&2
+    exit 1
+  fi
+  if [[ "$want" == pass && "$rc" -ne 0 ]]; then
+    echo "access grant predicate rejected a valid identifier set" >&2
+    exit 1
+  fi
+  if [[ "$want" == fail && "$rc" -eq 0 ]]; then
+    echo "access grant predicate accepted a malformed identifier set" >&2
+    exit 1
+  fi
+}
+
+if ! access_grants_ok <"$ACCESS_POLICY"; then
+  echo "Pharos access policy must keep the bootstrap verified-email reference and only add operator-ref:<64 lowercase hex> grants" >&2
   exit 1
 fi
+extra_ref='operator-ref:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+other_ref='verified-email-ref:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+expect_access_grants pass "$(jq -nc --arg id "$operator_ref" '{grants:[{identifiers:[$id]}]}')"
+expect_access_grants pass "$(jq -nc --arg id "$operator_ref" --arg extra "$extra_ref" '{grants:[{identifiers:[$id]},{identifiers:[$extra]}]}')"
+expect_access_grants fail "$(jq -nc --arg extra "$extra_ref" '{grants:[{identifiers:[$extra]}]}')"
+expect_access_grants fail "$(jq -nc --arg id "$other_ref" '{grants:[{identifiers:[$id]}]}')"
+expect_access_grants fail '{"grants":[]}'
+expect_access_grants fail '{"grants":[{"identifiers":[]}]}'
+expect_access_grants fail "$(jq -nc --arg id "$operator_ref" '{grants:[{identifiers:[$id]},{identifiers:[""]}]}')"
+expect_access_grants fail "$(jq -nc --arg id "$operator_ref" --arg extra "$extra_ref" '{grants:[{identifiers:[$id,$extra]}]}')"
+while IFS= read -r bad; do
+  expect_access_grants fail "$(jq -nc --arg id "$operator_ref" --arg bad "$bad" '{grants:[{identifiers:[$id]},{identifiers:[$bad]}]}')"
+done <<'EOF'
+person@example.com
+email:person@example.com
+not-a-ref
+operator-ref:abc
+operator-ref:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+operator-ref:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz
+EOF
+expect_access_grants fail "$(jq -nc --arg id "$operator_ref" --arg extra "$extra_ref" '{grants:[{identifiers:[$id]},{identifiers:[$extra + "\n"]}]}')"
 if grep -Eq '"identifiers"[[:space:]]*:[[:space:]]*\[[^]]*"(email:|[^" ]*@)' "$ACCESS_POLICY"; then
   echo "Pharos access policy contains a mutable or unprefixed identifier" >&2
   exit 1
