@@ -263,6 +263,31 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(zfs.destroyed, [])
         self.assertEqual([s[0] for s in zfs.snapshots], ["tm/markus@autosnap_2026-09-11_22:00:00_daily"])
 
+    def test_newest_survives_when_fresh_accounting_is_no_longer_critical(self):
+        # Pass 1 leaves 110G; before pass 2 re-reads, TM thinned 100G (or
+        # exactly enough to reach 150G). The newest must stay: it is only
+        # surrendered below HEADROOM_MIN, never merely below the target.
+        for recovered, expect_kept in ((100 * G, True), (40 * G, True), (39 * G, False)):
+            with self.subTest(recovered=recovered):
+                zfs = FakeZfs(2200 * G, 2253 * G, 3277 * G,
+                              [("tm/markus@autosnap_2026-09-10_22:00:00_daily", 10 * G),
+                               ("tm/markus@autosnap_2026-09-11_22:00:00_daily", 967 * G)])
+                original = zfs.run
+                gets = []
+
+                def run(argv, **kwargs):
+                    if argv[1] == "get":
+                        gets.append(1)
+                        if len(gets) == 3:  # pass-2 refresh: referenced dropped meanwhile
+                            zfs.referenced -= recovered
+                    return original(argv, **kwargs)
+
+                zfs.run = run
+                found = self.run_dataset(zfs)
+                newest_kept = any(name.endswith("09-11_22:00:00_daily") for name, _ in zfs.snapshots)
+                self.assertEqual(newest_kept, expect_kept)
+                self.assertNotIn("tm:tm/markus:headroom", found)
+
     def test_sanoid_race_before_our_first_listing(self):
         # The caller's `zfs get` saw 100G headroom; sanoid then removed the
         # 850G oldest snapshot before prune() listed. Nothing must be destroyed.
