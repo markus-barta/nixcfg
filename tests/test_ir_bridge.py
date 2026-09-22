@@ -64,7 +64,7 @@ sys.modules["evdev"] = evdev
 spec = importlib.util.spec_from_file_location("ir_bridge", BRIDGE)
 bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
-bridge.CONFIG.update({"sony_tv_psk": "non-secret-fixture", "mqtt_broker": "", "retry_delay": 0.0})
+bridge.CONFIG.update({"sony_tv_psk": "non-secret-fixture", "mqtt_broker": ""})
 
 
 class KeyEvent:
@@ -107,9 +107,15 @@ class ButtonMapTest(unittest.TestCase):
         self.assertEqual(bridge.BUTTONS[114], ("volumeup", "AAAAAQAAAAEAAAATAw=="))
         self.assertEqual(bridge.BUTTONS[115], ("volumedown", "AAAAAQAAAAEAAAASAw=="))
 
+    def test_only_back_changed_from_the_nix186_map(self):
+        # The TV table advertises other values for transport/app/channel keys;
+        # they are adopted only after each button is verified physically.
+        self.assertEqual(bridge.BUTTONS[164], ("play", "AAAAAQAAAAEAAAANAw=="))
+        self.assertEqual(bridge.BUTTONS[20], ("channelup", "AAAAAQAAAAEAAAA+Aw=="))
+
 
 class SendTest(unittest.TestCase):
-    def test_http_answer_is_final_no_retry_no_sleep(self):
+    def test_http_answer_is_final_one_post_no_sleep(self):
         instance = make_bridge()
         for status in (404, 500, 307):
             with self.subTest(status=status):
@@ -120,20 +126,23 @@ class SendTest(unittest.TestCase):
                 self.assertEqual(len(instance.http.calls), 1)
                 sleep.assert_not_called()
 
-    def test_transport_error_retries_then_succeeds(self):
+    def test_transport_error_is_one_post_too(self):
+        # A retry after a read timeout can duplicate a command the TV already
+        # executed; the press is simply lost and the viewer presses again.
         instance = make_bridge()
-        instance.http.outcomes = [RequestFailure("refused"), RequestFailure("timeout"), 200]
+        instance.http.outcomes = [RequestFailure("timeout"), 200]
         with patch.object(bridge.time, "sleep") as sleep:
-            self.assertTrue(instance._send_ircc("fixture-code", "fixture"))
-        self.assertEqual(len(instance.http.calls), 3)
-        self.assertEqual(sleep.call_count, 2)
-
-    def test_transport_error_gives_up_after_retry_count(self):
-        instance = make_bridge()
-        instance.http.outcomes = [RequestFailure("x")] * bridge.CONFIG["retry_count"]
-        with patch.object(bridge.time, "sleep"):
             self.assertFalse(instance._send_ircc("fixture-code", "fixture"))
-        self.assertEqual(len(instance.http.calls), bridge.CONFIG["retry_count"])
+        self.assertEqual(len(instance.http.calls), 1)
+        sleep.assert_not_called()
+
+    def test_post_uses_tight_lan_timeouts_and_no_redirects(self):
+        instance = make_bridge()
+        instance.http.outcomes = [200]
+        self.assertTrue(instance._send_ircc("fixture-code", "fixture"))
+        _, kwargs = instance.http.calls[0]
+        self.assertEqual(kwargs["timeout"], (1.0, 2.0))
+        self.assertIs(kwargs["allow_redirects"], False)
 
 
 class StaleEventTest(unittest.TestCase):

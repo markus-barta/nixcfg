@@ -39,7 +39,12 @@ grep -Fq '@FLIRC_DEVICE@' "${checks}"
 grep -Fq '@SONY_SYSTEM_URL@' "${checks}"
 grep -Fq '"/var/lib/ir-bridge-watch/state.json"' "${checks}"
 grep -Fq 'WATCHTOWER_NOTIFICATION_URL' "${checks}"
-grep -Fq '/run/systemd/units/invocation:ir-bridge.service' "${checks}"
+grep -Fq '/sys/fs/cgroup/system.slice/ir-bridge.service/cgroup.procs' "${checks}"
+# OPS-225: one HTTP attempt per press — a retry can duplicate an executed command.
+if grep -Eq 'retry_count|RETRY_COUNT' "${repo}/hosts/hsb1/files/ir-bridge.py"; then
+  echo "T87: ir-bridge.py must not retry an IRCC press (OPS-225)" >&2
+  exit 1
+fi
 
 # OPS-224: a stop must never wait out systemd's 90 s default.
 grep -Fq 'TimeoutStopSec = 10;' "${bridge_mod}"
