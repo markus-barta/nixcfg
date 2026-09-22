@@ -185,22 +185,33 @@ def check_caps(dataset: str, props: dict[str, int], cap: dict) -> list[Problem]:
                     f"space. Run: zfs set refquota={cap['refquotaG']}G quota={cap['quotaG']}G {dataset}")]
 
 
-def completion_stamps(bundle: str) -> list[float]:
-    """Completion times recorded by Time Machine; [] if none or unreadable."""
+def read_history(bundle: str) -> tuple[str, list[float]]:
+    """(state, completion stamps). state: absent | empty | ok | damaged.
+
+    Time Machine writes SnapshotHistory.plist with an EMPTY list when it
+    (re)initialises a set and appends an entry per completed backup. An empty
+    list is therefore "new set", not history and not damage; a plist that
+    exists but cannot be read, or has the wrong shape, is damage.
+    """
+    path = os.path.join(bundle, HISTORY_PLIST)
+    if not os.path.exists(path):
+        return "absent", []
     stamps: list[float] = []
     try:
-        with open(os.path.join(bundle, HISTORY_PLIST), "rb") as handle:
+        with open(path, "rb") as handle:
             history = plistlib.load(handle)
         if not isinstance(history, dict) or not isinstance(history.get("Snapshots"), list):
-            return []
+            return "damaged", []
         for entry in history["Snapshots"]:
             if isinstance(entry, dict):
                 when = entry.get("com.apple.backupd.SnapshotCompletionDate")
                 if isinstance(when, dt.datetime):
                     stamps.append(when.replace(tzinfo=dt.timezone.utc).timestamp())
-    except Exception:  # noqa: BLE001 - truncated/mid-rewrite/damaged/odd plist: no evidence
-        return []
-    return stamps
+    except Exception:  # noqa: BLE001 - truncated/mid-rewrite/odd plist
+        return "damaged", []
+    if not history["Snapshots"]:
+        return "empty", []
+    return "ok", stamps
 
 
 def band_activity(bundle: str) -> float | None:
@@ -229,9 +240,11 @@ def freshness(path: str, now: float) -> dict:
         return result
     for bundle in entries:
         result["found"] = True
-        has_history = os.path.exists(os.path.join(bundle, HISTORY_PLIST))
+        state, stamps = read_history(bundle)
+        # "history" = something to be stale AGAINST: completed backups, or a
+        # plist we cannot read (damage). An empty list is a freshly (re)made set.
+        has_history = state in ("ok", "damaged")
         result["history"] = result["history"] or has_history
-        stamps = completion_stamps(bundle)
         if stamps:
             age = now - max(stamps)
             result["completed_age"] = age if result["completed_age"] is None else min(result["completed_age"], age)
