@@ -117,11 +117,11 @@ grep -Fq '../../modules/janus-flow-host' "$host_config"
 grep -Fq 'activate = janusFlowHost.active;' "$host_config"
 grep -Fq 'containerUid = 100;' "$host_config"
 grep -Fq 'containerGid = 101;' "$host_config"
-grep -Fq '  active = false;' "$stage"
+grep -Fq '  active = true;' "$stage"
 nix eval --impure --json --expr "import $stage" | jq -e '
-  .active == false
+  .active == true
   and .hostApiKeyFile == "/run/janus-flow-credential/api-key"
-  and (.credentialRevision == null or (.credentialRevision | test("^[0-9a-f]{64}$")))
+  and (.credentialRevision | test("^[0-9a-f]{64}$"))
   and .bindings == [{projectId:33,projectRef:null,label:"UXQA sandbox",principalRefs:["391779593318563851"]}]
 ' >/dev/null
 # shellcheck disable=SC2016

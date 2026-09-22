@@ -7,9 +7,9 @@ let
   credentialFile = ../../secrets + "/csb1-janus-flow-api-key.age";
 in
 {
-  # Keep false until the runbook preflight proves every prerequisite. While
-  # false, Compose receives no JANUS_FLOW_CONFIG_FILE and no related mounts.
-  active = false;
+  # NIX-574: reviewed human reviewer, sandbox33 scope and encrypted key.
+  # This binding grants only the dedicated UX test subject read-only Flow access.
+  active = true;
 
   paimosOrigin = "https://pm.barta.cm";
   # Chosen only with the common-origin deployment. Null makes Janus use the
