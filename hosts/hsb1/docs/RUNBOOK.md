@@ -429,10 +429,15 @@ docker logs nodered --tail 50
 docker restart nodered
 ```
 
-### FLIRC Receiver (Retired)
+### FLIRC / IR bridge (remote dead)
 
-- FLIRC receiver was permanently moved off hsb1.
-- Node-RED no longer expects `/dev/input/by-id/usb-flirc.tv_flirc-if01-event-kbd`.
+The FLIRC is back on hsb1 (since 2026-06-05); `ir-bridge.service` drives the Sony TV + HA (`hosts/hsb1/ir-bridge.nix`). `ir-bridge-watch.timer` (OPS-223) pages Telegram when the FLIRC node is missing, the unit is down, or the TV's Sony API answers 404/5xx.
+
+1. **Bridge active but deaf** — `ls /dev/input/by-id/ | grep flirc` empty and the journal repeats `FLIRC … unavailable — retrying in 30s`: the stick failed USB enumeration (`journalctl -k | grep 'usb 1-2.1.4'` shows `error -62` / `-110`, OPS-222). Replug it; the bridge reopens it within 30 s, no restart needed.
+2. **Keys logged but `IRCC … failed: HTTP 404`** — the TV's REST API is down while the TV is otherwise reachable (2026-09-21, ~69 days TV uptime). Restart the TV (hold power on the remote → Restart, or mains). Verify: `curl -s -H 'Content-Type: application/json' -d '{"method":"getPowerStatus","id":50,"params":[],"version":"1.0"}' http://192.168.1.137/sony/system` → `{"result":[{"status":"active"}],…}`; `{"error":[404,…]}` means still down.
+3. **`IRCC <key> failed: HTTP 500`** — that key's code is wrong for this TV. Codes come from the TV's own `system.getRemoteControllerInfo` table (OPS-225); never from a generic list.
+
+Full design + button map: PPM Knowledge `ir-sony-tv-bridge-hsb1` (NIX).
 
 ### Zigbee Devices Not Responding
 

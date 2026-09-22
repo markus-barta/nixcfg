@@ -104,6 +104,27 @@ fi
 # (fleetcom-agent container). A FleetCom health check could live here if desired.
 
 # ────────────────────────────────────────────────────────────────────────────────
+# T08.3b - IR bridge + its witness (OPS-223)
+# ────────────────────────────────────────────────────────────────────────────────
+
+print_test "T08.3b - IR bridge and ir-bridge-watch"
+check_service_active "ir-bridge.service"
+check_timer_active "ir-bridge-watch.timer"
+# Oneshot: assert the last run, not is-active. exit 0/1 both map to "success"
+# (SuccessExitStatus); only an undeliverable alert (exit 2) fails the unit.
+WATCH_RESULT=$(systemctl show ir-bridge-watch.service -p Result --value)
+if [[ "$WATCH_RESULT" == "success" ]]; then
+  pass "ir-bridge-watch oneshot last run: success"
+else
+  fail "ir-bridge-watch oneshot last run result: $WATCH_RESULT"
+fi
+if [[ -e /dev/input/by-id/usb-flirc.tv_flirc-if01-event-kbd ]]; then
+  pass "FLIRC input node present"
+else
+  fail "FLIRC input node missing — the bridge is deaf (replug, OPS-222)"
+fi
+
+# ────────────────────────────────────────────────────────────────────────────────
 # T08.4 - Networking (Fleet Hosts)
 # ────────────────────────────────────────────────────────────────────────────────
 

@@ -40,8 +40,10 @@ Environment variables (see hosts/hsb1/ir-bridge.nix):
     DEBOUNCE_MS           default 300
     REPEAT_DELAY_MS       default 350
     REPEAT_RATE_MS        default 120
-    RETRY_COUNT           HTTP retries (default 3)
-    RETRY_DELAY           seconds between HTTP retries (default 1.0)
+    RETRY_COUNT           transport retries per press (default 3); an HTTP
+                          answer (404/500/…) is a verdict and is never retried
+    RETRY_DELAY           seconds between transport retries (default 1.0)
+    STALE_EVENT_MS        drop queued key events older than this (default 1000)
 """
 
 import json
@@ -67,7 +69,7 @@ try:
 except ImportError:  # pragma: no cover
     MQTT_AVAILABLE = False
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 # The bridge is an appliance, not a general HTTP proxy. A TV move requires a
 # reviewed source change here and in the matching NixOS unit value.
 SONY_TV_HOST = "192.168.1.137"
@@ -90,6 +92,9 @@ CONFIG = {
     "repeat_rate_ms": int(os.getenv("REPEAT_RATE_MS", "120")),
     "retry_count": int(os.getenv("RETRY_COUNT", "3")),
     "retry_delay": float(os.getenv("RETRY_DELAY", "1.0")),
+    # A key event that waited in the evdev queue longer than this (because an
+    # earlier send was stuck) is no longer wanted — see _read_loop (OPS-225).
+    "stale_event_ms": int(os.getenv("STALE_EVENT_MS", "1000")),
     # Input-device reconnect backoff. The FLIRC can vanish at any time (USB
     # replug, hub power-cycle, boot race where the hub enumerates after us);
     # the bridge waits it out rather than dying or spinning on a dead handle.
@@ -101,9 +106,15 @@ CONFIG = {
 # evdev code -> (friendly_name, sony_ircc_or_None)
 #   ircc=None  → MQTT-only: the bridge publishes the press but sends NO TV
 #                command (smart keys handled by HA; unmapped extras).
-# IRCC base64 codes are reused verbatim from the verified hsb1 mapping (NIX-186).
+# IRCC codes are the TV's OWN table — `system.getRemoteControllerInfo` on
+# 192.168.1.137, fetched 2026-09-22 (OPS-225) — never a generic Sony list: codes
+# differ per model. The NIX-186 set carried a malformed `back` (19 chars → HTTP
+# 500 on every press) and transport/app codes this TV does not list at all.
 # NOTE: this FLIRC maps the physical Vol+/Vol- to the *opposite* evdev keycodes,
-# so the IRCC is intentionally swapped (114→Vol-UP, 115→Vol-DOWN).
+# so the IRCC is intentionally swapped (114→Vol-UP, 115→Vol-DOWN). The pair is
+# kept byte-identical to the daily-verified NIX-186 values even though the TV
+# table labels them the other way round — do not "correct" it without pressing
+# the physical buttons.
 BUTTONS: Dict[int, tuple] = {
     # Numbers
     2:  ("num1", "AAAAAQAAAAEAAAAAAw=="),
@@ -123,29 +134,29 @@ BUTTONS: Dict[int, tuple] = {
     106: ("right", "AAAAAQAAAAEAAAAzAw=="),
     96:  ("enter", "AAAAAQAAAAEAAABlAw=="),
     28:  ("enter", "AAAAAQAAAAEAAABlAw=="),  # KEY_ENTER alternate
-    1:   ("back", "AAAAAQAAAAEAAAAAw=="),
+    1:   ("back", "AAAAAgAAAJcAAAAjAw=="),  # TV table: Return
     102: ("home", "AAAAAQAAAAEAAABgAw=="),
     # Volume (swapped — see note above)
     113: ("mute", "AAAAAQAAAAEAAAAUAw=="),
     114: ("volumeup", "AAAAAQAAAAEAAAATAw=="),
     115: ("volumedown", "AAAAAQAAAAEAAAASAw=="),
-    # Transport
-    164: ("play", "AAAAAQAAAAEAAAANAw=="),
-    166: ("stop", "AAAAAQAAAAEAAAAOAw=="),
-    168: ("rewind", "AAAAAQAAAAEAAAA4Aw=="),
-    208: ("fastforward", "AAAAAQAAAAEAAAA5Aw=="),
-    163: ("next", "AAAAAQAAAAEAAAAXAw=="),
-    165: ("previous", "AAAAAQAAAAEAAAAYAw=="),
-    # System / apps
+    # Transport (TV table: Play/Stop/Rewind/Forward/Next/Prev)
+    164: ("play", "AAAAAgAAAJcAAAAaAw=="),
+    166: ("stop", "AAAAAgAAAJcAAAAYAw=="),
+    168: ("rewind", "AAAAAgAAAJcAAAAbAw=="),
+    208: ("fastforward", "AAAAAgAAAJcAAAAcAw=="),
+    163: ("next", "AAAAAgAAAJcAAAA9Aw=="),
+    165: ("previous", "AAAAAgAAAJcAAAA8Aw=="),
+    # System / apps (TV table: TvPower/Input/ActionMenu/Netflix/YouTube)
     44: ("power", "AAAAAQAAAAEAAAAVAw=="),
     23: ("input", "AAAAAQAAAAEAAAAlAw=="),
-    30: ("actionmenu", "AAAAAQAAAAEAAAA6Aw=="),
-    49: ("netflix", "AAAAAQAAAAEAAAAMAw=="),
-    25: ("youtube", "AAAAAQAAAAEAAABDAw=="),
-    # Channel / input
-    20: ("channelup", "AAAAAQAAAAEAAAA+Aw=="),
-    47: ("channeldown", "AAAAAQAAAAEAAAA9Aw=="),
-    22: ("hdmi2", "AAAAAQAAAAEAAABBAw=="),
+    30: ("actionmenu", "AAAAAgAAAMQAAABLAw=="),
+    49: ("netflix", "AAAAAgAAABoAAAB8Aw=="),
+    25: ("youtube", "AAAAAgAAAMQAAABHAw=="),
+    # Channel / input (TV table: ChannelUp/ChannelDown/Hdmi2)
+    20: ("channelup", "AAAAAQAAAAEAAAAQAw=="),
+    47: ("channeldown", "AAAAAQAAAAEAAAARAw=="),
+    22: ("hdmi2", "AAAAAgAAABoAAABbAw=="),
     # ── MQTT-only smart keys (NO IRCC) ──────────────────────────────────────
     48: ("blue", None),       # → HA: Hue Sync Box PS5 input
     21: ("yellow", None),     # → HA: Hue Sync Box PC input
@@ -388,13 +399,21 @@ class IRBridge:
                     timeout=5,
                     allow_redirects=False,
                 )
-                if r.status_code == 200:
-                    return True
-                self.log.warning("IRCC %s failed: HTTP %s", name, r.status_code)
             except requests.exceptions.RequestException as exc:
+                # Transport failure (refused, timeout, reset): worth one more try.
                 self.log.error("IRCC %s request error (try %d): %s", name, attempt + 1, exc)
-            if attempt < CONFIG["retry_count"] - 1:
-                time.sleep(CONFIG["retry_delay"])
+                if attempt < CONFIG["retry_count"] - 1:
+                    time.sleep(CONFIG["retry_delay"])
+                continue
+            if r.status_code == 200:
+                return True
+            # An HTTP answer is a verdict, not a hiccup: the TV received the request
+            # and rejected it (404 = its REST API is down, 500 = bad code). Resending
+            # the same code a second later changes nothing and, because presses are
+            # handled synchronously, blocks the input loop for every queued press
+            # (2026-09-21: 33 presses replayed at ~2 s each, OPS-225).
+            self.log.warning("IRCC %s failed: HTTP %s", name, r.status_code)
+            return False
         return False
 
     # ── key handling ─────────────────────────────────────────────────────
@@ -477,6 +496,7 @@ class IRBridge:
             self._set_availability("offline")
 
     def _read_loop(self) -> None:
+        stale_s = CONFIG["stale_event_ms"] / 1000.0
         for event in self.input_device.read_loop():
             if not self.running:
                 break
@@ -484,6 +504,15 @@ class IRBridge:
                 # HID usage/scancode for the press that follows (e.g. 0x7001a).
                 self.last_scancode = f"0x{event.value:x}"
             elif event.type == ecodes.EV_KEY:
+                # A press that sat in the evdev queue while an earlier send was
+                # stuck (TV unreachable, held key still queueing) is not something
+                # the viewer still wants: replaying the backlog once the TV answers
+                # again fires a burst of stale volume steps (OPS-225). Drop it; the
+                # next physical press is fresh.
+                age = time.time() - event.timestamp()
+                if age > stale_s:
+                    self.log.debug("Dropping stale key event (%.1fs old)", age)
+                    continue
                 ke = categorize(event)
                 if ke.keystate == ke.key_down:
                     self._handle_key(ke.scancode, held=False)
@@ -532,6 +561,12 @@ class IRBridge:
     def _signal(self, signum, frame) -> None:
         self.log.info("Signal %s — shutting down", signum)
         self.stop()
+        # Unwind the main thread from wherever it sits — evdev's read_loop() or
+        # the reopen back-off sleep. Python restarts those syscalls after a
+        # handler returns (PEP 475), so the `running` flag alone is only noticed
+        # at the next keypress and systemd SIGKILLs us after TimeoutStopSec —
+        # 90 s on every reboot and switch before OPS-224.
+        raise SystemExit(0)
 
     def stop(self) -> None:
         self.running = False
