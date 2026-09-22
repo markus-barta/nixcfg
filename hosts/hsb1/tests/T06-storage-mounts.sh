@@ -135,8 +135,8 @@ fi
 
 print_test "T06.5 - Time Machine datasets (OPS-226)"
 # Declared caps (GiB) per user — must match hosts/hsb1/tm-caps.nix.
-declare -A WANT_REFQUOTA=([markus]=2253 [mailina]=1434)
-declare -A WANT_QUOTA=([markus]=3277 [mailina]=2048)
+declare -A WANT_REFQUOTA=([markus]=3600 [mailina]=1064)
+declare -A WANT_QUOTA=([markus]=3900 [mailina]=1300)
 for user in markus mailina; do
   ds="tm/${user}"
   # Both caps are imperative (tm-caps.nix documents the `zfs set`); with -p an

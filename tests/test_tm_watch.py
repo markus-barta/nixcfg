@@ -42,6 +42,8 @@ SPEC.loader.exec_module(engine)
 
 G = 1024**3
 NOW = 1_800_000_000.0
+# Fixture caps (NOT production numbers — T89 checks hosts/hsb1/tm-caps.nix);
+# every FakeZfs below is sized against these.
 CAPS = {
     "markus": {"dataset": "tm/markus", "path": "/srv/tm/markus", "refquotaG": 2253, "quotaG": 3277, "maxSizeG": 2200},
     "mailina": {"dataset": "tm/mailina", "path": "/srv/tm/mailina", "refquotaG": 1434, "quotaG": 2048, "maxSizeG": 1400},
@@ -135,7 +137,8 @@ def clean_zfs():
 
 
 class DatasetTest(unittest.TestCase):
-    def run_dataset(self, zfs, completed_age=3600.0, band_age=None, with_bundle=True, history="ok"):
+    def run_dataset(self, zfs, completed_age=3600.0, band_age=None, with_bundle=True, history="ok",
+                    bundle_age=30 * 86400):
         band_age = completed_age if band_age is None else band_age
         with tempfile.TemporaryDirectory() as tmp:
             cap = dict(CAPS["markus"], path=tmp)
@@ -145,6 +148,9 @@ class DatasetTest(unittest.TestCase):
                 band = bundle / "bands" / "0"
                 band.write_bytes(b"x")
                 os.utime(band, (NOW - band_age, NOW - band_age))
+                token = bundle / "token"  # written once by TM when the bundle is created
+                token.write_bytes(b"t")
+                os.utime(token, (NOW - bundle_age, NOW - bundle_age))
                 if history == "ok":
                     write_history(bundle, NOW - completed_age)
                 elif history == "truncated":
@@ -227,13 +233,81 @@ class DatasetTest(unittest.TestCase):
     def test_writing_without_completing_is_reported_not_hidden(self):
         found = self.run_dataset(clean_zfs(), completed_age=6 * 86400, band_age=600.0)
         self.assertIn("bands last written 0 h ago", found["tm:tm/markus:stale"])
-        no_record = self.run_dataset(clean_zfs(), band_age=600.0, history="none")
+        # A fresh set (young bundle, no history plist yet) still being written
+        # (first full copy) is healthy …
+        self.assertEqual(self.run_dataset(clean_zfs(), band_age=600.0, history="none", bundle_age=3600), {})
+        # … until it stops writing for a day without ever completing …
+        no_record = self.run_dataset(clean_zfs(), band_age=25 * 3600, history="none", bundle_age=3600)
         self.assertIn("no completed backup on record", no_record["tm:tm/markus:stale"])
+        # … or has been "in progress" for longer than any first copy takes.
+        too_long = self.run_dataset(clean_zfs(), band_age=600.0, history="none", bundle_age=4 * 86400)
+        self.assertEqual(list(too_long), ["tm:tm/markus:stale"])
+        at_limit = self.run_dataset(clean_zfs(), band_age=600.0, history="none", bundle_age=3 * 86400)
+        self.assertEqual(at_limit, {})
+        # An OLD set that lost its history plist is not "new" either.
+        old_set = self.run_dataset(clean_zfs(), band_age=600.0, history="none")
+        self.assertEqual(list(old_set), ["tm:tm/markus:stale"])
+
+    def test_two_bundles_do_not_lend_each_other_grace(self):
+        # A: 30 days old, written 10 min ago, no history (an old set that keeps
+        # failing). B: 2 days old, last written 25 h ago, no history (abandoned
+        # new set). Neither qualifies alone; together they must not either.
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, bundle_age, band_age in (("a.sparsebundle", 30 * 86400, 600.0),
+                                               ("b.sparsebundle", 2 * 86400, 25 * 3600)):
+                bundle = Path(tmp, name)
+                (bundle / "bands").mkdir(parents=True)
+                band = bundle / "bands" / "0"
+                band.write_bytes(b"x")
+                os.utime(band, (NOW - band_age, NOW - band_age))
+                token = bundle / "token"
+                token.write_bytes(b"t")
+                os.utime(token, (NOW - bundle_age, NOW - bundle_age))
+            cap = dict(CAPS["markus"], path=tmp)
+            with patch.object(checks.subprocess, "run", clean_zfs().run), contextlib.redirect_stdout(io.StringIO()):
+                found = {p.key: p.text for p in checks.check_dataset("markus", cap, NOW)}
+        self.assertEqual(list(found), ["tm:tm/markus:stale"])
+        # …a new bundle next to an old one whose history is DAMAGED must not hide the damage…
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path(tmp, "old.sparsebundle")
+            (old / "bands").mkdir(parents=True)
+            (old / "token").write_bytes(b"t")
+            os.utime(old / "token", (NOW - 30 * 86400, NOW - 30 * 86400))
+            (old / checks.HISTORY_PLIST).write_bytes(b'<?xml version="1.0"?><plist><dict><key>Snap')
+            new = Path(tmp, "new.sparsebundle")
+            (new / "bands").mkdir(parents=True)
+            (new / "bands" / "0").write_bytes(b"x")
+            os.utime(new / "bands" / "0", (NOW - 600, NOW - 600))
+            (new / "token").write_bytes(b"t")
+            os.utime(new / "token", (NOW - 3600, NOW - 3600))  # genuinely young relative to NOW
+            cap = dict(CAPS["markus"], path=tmp)
+            with patch.object(checks.subprocess, "run", clean_zfs().run), contextlib.redirect_stdout(io.StringIO()):
+                found = {p.key: p.text for p in checks.check_dataset("markus", cap, NOW)}
+        self.assertEqual(list(found), ["tm:tm/markus:stale"])
+        # …and a genuinely new bundle next to an old one that completed recently is clean.
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path(tmp, "old.sparsebundle")
+            (old / "bands").mkdir(parents=True)
+            (old / "token").write_bytes(b"t")
+            os.utime(old / "token", (NOW - 30 * 86400, NOW - 30 * 86400))
+            write_history(old, NOW - 3600)
+            new = Path(tmp, "new.sparsebundle")
+            (new / "bands").mkdir(parents=True)
+            (new / "bands" / "0").write_bytes(b"x")
+            os.utime(new / "bands" / "0", (NOW - 600, NOW - 600))
+            (new / "token").write_bytes(b"t")
+            os.utime(new / "token", (NOW - 3600, NOW - 3600))
+            cap = dict(CAPS["markus"], path=tmp)
+            with patch.object(checks.subprocess, "run", clean_zfs().run), contextlib.redirect_stdout(io.StringIO()):
+                found = {p.key: p.text for p in checks.check_dataset("markus", cap, NOW)}
+        self.assertEqual(found, {})
 
     def test_damaged_plist_is_no_evidence_not_a_crash(self):
+        # A history plist that exists but cannot be read is damage: stale even
+        # on a young, actively written bundle — never mistaken for a new set.
         for shape in ("truncated", "wrong-shape", "snapshots-not-a-list"):
             with self.subTest(shape=shape):
-                found = self.run_dataset(clean_zfs(), band_age=600.0, history=shape)
+                found = self.run_dataset(clean_zfs(), band_age=600.0, history=shape, bundle_age=3600)
                 self.assertEqual(list(found), ["tm:tm/markus:stale"])
 
     def test_damaged_plist_never_clears_a_capacity_finding(self):

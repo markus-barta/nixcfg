@@ -50,9 +50,20 @@ for user, cap in caps.items():
 print("T89: caps pair with margin and the documented zfs set commands match")
 PY
 
-# sanoid: a week of daily snapshots, no leaked hourly ones.
+# sanoid: a week of daily snapshots (3 for the churning tm/markus), no leaked hourly ones.
 grep -Fq 'daily = 7;' "${pool}"
+grep -Fq 'daily = 3;' "${pool}"
+grep -Fq 'useTemplate = [ "tm-daily-short" ];' "${pool}"
 grep -Fq 'hourly = 0;' "${pool}"
+# OPS-228 sizing rule: TM's cap ≥ 2× the Mac's data (mbp2607 ≈ 1.6T, mbp2606 ≈ 0.4T).
+python3 - "${caps_json}" <<'PY'
+import json, sys
+caps = json.loads(sys.argv[1])
+assert caps["markus"]["maxSizeG"] >= 2 * 1600, "markus: Samba cap must be >= 2x the Mac's ~1.6T"
+assert caps["mailina"]["maxSizeG"] >= 2 * 400, "mailina: Samba cap must be >= 2x the Mac's ~0.4T"
+assert sum(c["quotaG"] for c in caps.values()) <= 5300, "quotas exceed the 5.45TiB pool minus slop"
+print("T89: caps satisfy the 2x sizing rule and fit the pool")
+PY
 
 # Witness wiring
 grep -Fq './tm-watch.nix' "${conf}"

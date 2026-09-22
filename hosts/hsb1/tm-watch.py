@@ -89,6 +89,14 @@ HEADROOM_TARGET = 400 * GIB  # … until at least this
 POOL_WARN = 85  # zpool capacity %
 # A long weekend away must not page; a week of silence must.
 STALE_S = 5 * 86400
+# A brand-new set (no history plist at all, bundle younger than FIRST_COPY_MAX_S
+# — its `token` file is written once at creation) counts as healthy while
+# bands are being written (last write within FIRST_COPY_S). A first full copy
+# of ~1.6T takes ~10 h; one that is still "in progress" after three days, or
+# that stops writing for a day, is a failure. A set WITH a history plist that
+# cannot be read is damaged, never "new", and gets no exemption.
+FIRST_COPY_S = 24 * 3600
+FIRST_COPY_MAX_S = 3 * 86400
 
 
 def gib(value: int) -> str:
@@ -203,26 +211,48 @@ def band_activity(bundle: str) -> float | None:
         return None
 
 
-def freshness(path: str, now: float) -> tuple[float | None, float | None, bool]:
-    """(age of newest completed backup, age of newest band write, any bundle?)."""
-    completed: float | None = None
-    activity: float | None = None
-    found = False
+def freshness(path: str, now: float) -> dict:
+    """What the bundles under `path` say about backup health, all as ages in s.
+
+    completed_age  newest completion recorded by Time Machine (None: none)
+    activity_age   newest band write (None: none)
+    bundle_age     youngest bundle's creation (`token`, written once) (None: unknown)
+    history        True if any bundle carries a history plist file at all
+    found          any *.sparsebundle at all
+    """
+    result: dict = {"completed_age": None, "activity_age": None, "bundle_age": None,
+                    "history": False, "found": False, "first_copy": False}
     try:
         entries = [e.path for e in os.scandir(path)
                    if e.name.endswith(".sparsebundle") and e.is_dir(follow_symlinks=False)]
     except OSError:
-        return None, None, False
+        return result
     for bundle in entries:
-        found = True
+        result["found"] = True
+        has_history = os.path.exists(os.path.join(bundle, HISTORY_PLIST))
+        result["history"] = result["history"] or has_history
         stamps = completion_stamps(bundle)
         if stamps:
-            completed = max(stamps) if completed is None else max(completed, max(stamps))
+            age = now - max(stamps)
+            result["completed_age"] = age if result["completed_age"] is None else min(result["completed_age"], age)
         act = band_activity(bundle)
-        if act is not None:
-            activity = act if activity is None else max(activity, act)
-    return (None if completed is None else now - completed,
-            None if activity is None else now - activity, found)
+        activity_age = None if act is None else now - act
+        if activity_age is not None:
+            result["activity_age"] = activity_age if result["activity_age"] is None else min(result["activity_age"], activity_age)
+        try:
+            bundle_age: float | None = now - os.stat(os.path.join(bundle, "token")).st_mtime
+        except OSError:
+            bundle_age = None
+        if bundle_age is not None:
+            result["bundle_age"] = bundle_age if result["bundle_age"] is None else min(result["bundle_age"], bundle_age)
+        # Eligibility is judged per bundle — youth from one bundle must never
+        # lend grace to writes on another (an abandoned new set next to an old
+        # one that keeps failing).
+        if (not has_history and not stamps
+                and bundle_age is not None and bundle_age <= FIRST_COPY_MAX_S
+                and activity_age is not None and activity_age <= FIRST_COPY_S):
+            result["first_copy"] = True
+    return result
 
 
 def maintain(dataset: str, props: dict[str, int]) -> tuple[dict[str, int], list[Problem]]:
@@ -273,16 +303,25 @@ def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
                                 f"`zfs list -t snapshot -r {dataset}` and the Mac."))
     # Freshness must never take the capacity findings above down with it.
     try:
-        completed_age, activity_age, found = freshness(path, now)
+        fresh = freshness(path, now)
     except Exception as error:  # noqa: BLE001
         problems.append(Problem(f"tm:{dataset}:check",
                                 f"hsb1: tm-watch's freshness check of {dataset} crashed "
                                 f"({type(error).__name__}) — fix the watcher; backup age is unknown."))
         return problems
-    if not found:
+    completed_age, activity_age = fresh["completed_age"], fresh["activity_age"]
+    # A set is "first copy in progress" only if ONE bundle is young, has no
+    # history plist at all and is being written (freshness() judges that per
+    # bundle), no bundle has a readable completion, AND no bundle carries a
+    # history plist at all — a damaged history elsewhere is damage, and a new
+    # bundle next to it must not hide that.
+    first_copy_in_progress = completed_age is None and not fresh["history"] and fresh["first_copy"]
+    if not fresh["found"]:
         problems.append(Problem(f"tm:{dataset}:bundle",
                                 f"hsb1: no sparsebundle under {path} — dataset not mounted, or "
                                 f"{user}'s Mac has never backed up here."))
+    elif first_copy_in_progress:
+        pass  # OPS-228: a new set's first full copy (~10 h for 1.6T) is being written
     elif completed_age is None or completed_age > STALE_S:
         since = ("no completed backup on record"
                  if completed_age is None else f"last completed backup {completed_age / 86400:.1f} days ago")
