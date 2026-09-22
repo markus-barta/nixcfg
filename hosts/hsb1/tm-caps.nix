@@ -31,7 +31,7 @@
 # Live commands after changing a number (both caps are imperative, never
 # disko-declared — see tm-pool.nix):
 #   zfs set refquota=3600G quota=3900G tm/markus
-#   zfs set refquota=1024G quota=1300G tm/mailina
+#   zfs set refquota=1064G quota=1300G tm/mailina
 #
 # 3900G + 1300G = 5200G ≈ 5.1T of the pool's ~5.45TiB usable; the rest is slop.
 {
@@ -45,8 +45,8 @@
   mailina = {
     dataset = "tm/mailina";
     path = "/srv/tm/mailina";
-    refquotaG = 1024; # 1T — ≥ 2× the Mac's ~0.4T of data
-    quotaG = 1300; # 276G snapshot budget → 7 dailies
+    refquotaG = 1064; # ≈ 1T — ≥ 2× the Mac's ~0.4T of data; 1000G Samba cap + 32G margin
+    quotaG = 1300; # 236G snapshot budget → 7 dailies
     maxSizeG = 1000;
   };
 }

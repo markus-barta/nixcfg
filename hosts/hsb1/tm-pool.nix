@@ -7,7 +7,7 @@
 #   zfs create tm/markus
 #   zfs create tm/mailina
 #   zfs set refquota=3600G quota=3900G tm/markus     # numbers: ./tm-caps.nix
-#   zfs set refquota=1024G quota=1300G tm/mailina
+#   zfs set refquota=1064G quota=1300G tm/mailina
 #
 # TWO caps per dataset (OPS-226, after "Das Backup-Volume ist voll" on
 # 2026-09-22) — refquota is Time Machine's own cap (Samba advertises a bit
