@@ -158,7 +158,7 @@ for user in markus mailina; do
   fi
   headroom=$((quota - referenced - snaps))
   # 150G = tm-watch's prune trigger; below it the witness should already have acted.
-  if [[ "$headroom" -gt $((150 * 1024 ** 3)) ]]; then
+  if [[ "$headroom" -ge $((150 * 1024 ** 3)) ]]; then
     pass "$ds: $((headroom / 1024 ** 3))G below quota"
   else
     fail "$ds: only $((headroom / 1024 ** 3))G below quota — tm-watch should have pruned; journalctl -u tm-watch"

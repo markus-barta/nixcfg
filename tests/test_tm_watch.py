@@ -98,6 +98,11 @@ class FakeZfs:
         elif argv[1] == "list":
             self.snapshots = [s for s in self.snapshots if s[0] not in self.vanish]
             out = "".join(f"{name}\n" for name, _ in self.snapshots)
+        elif argv[1] == "get" and self.vanish:
+            # sanoid's destroy is visible to `zfs get` as soon as it happened.
+            self.snapshots = [s for s in self.snapshots if s[0] not in self.vanish]
+            out = (f"referenced\t{self.referenced}\nrefquota\t{self.refquota}\n"
+                   f"quota\t{self.quota}\nusedbysnapshots\t{self.usedbysnapshots}\n")
         elif argv[1] == "destroy":
             name = argv[2]
             if name in self.vanish or name not in [s[0] for s in self.snapshots]:
@@ -255,6 +260,31 @@ class DatasetTest(unittest.TestCase):
         zfs.run = run
         found = self.run_dataset(zfs)
         self.assertNotIn("tm:tm/markus:headroom", found)
+        self.assertEqual(zfs.destroyed, [])
+        self.assertEqual([s[0] for s in zfs.snapshots], ["tm/markus@autosnap_2026-09-11_22:00:00_daily"])
+
+    def test_sanoid_race_before_our_first_listing(self):
+        # The caller's `zfs get` saw 100G headroom; sanoid then removed the
+        # 850G oldest snapshot before prune() listed. Nothing must be destroyed.
+        zfs = FakeZfs(2200 * G, 2253 * G, 3277 * G,
+                      [("tm/markus@autosnap_2026-09-10_22:00:00_daily", 850 * G),
+                       ("tm/markus@autosnap_2026-09-11_22:00:00_daily", 127 * G)])
+        original = zfs.run
+        seen_get = []
+
+        def run(argv, **kwargs):
+            if argv[1] == "get":
+                seen_get.append(1)
+                if len(seen_get) == 1:
+                    result = original(argv, **kwargs)  # stale view: both snapshots
+                    zfs.vanish.add("tm/markus@autosnap_2026-09-10_22:00:00_daily")
+                    return result
+            return original(argv, **kwargs)
+
+        zfs.run = run
+        found = self.run_dataset(zfs)
+        self.assertNotIn("tm:tm/markus:headroom", found)
+        self.assertNotIn("tm:tm/markus:pruned", found)
         self.assertEqual(zfs.destroyed, [])
         self.assertEqual([s[0] for s in zfs.snapshots], ["tm/markus@autosnap_2026-09-11_22:00:00_daily"])
 
