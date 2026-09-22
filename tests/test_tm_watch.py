@@ -227,14 +227,20 @@ class DatasetTest(unittest.TestCase):
     def test_writing_without_completing_is_reported_not_hidden(self):
         found = self.run_dataset(clean_zfs(), completed_age=6 * 86400, band_age=600.0)
         self.assertIn("bands last written 0 h ago", found["tm:tm/markus:stale"])
-        no_record = self.run_dataset(clean_zfs(), band_age=600.0, history="none")
+        # A fresh set still being written (first full copy) is healthy …
+        self.assertEqual(self.run_dataset(clean_zfs(), band_age=600.0, history="none"), {})
+        # … until it stops writing for a day without ever completing.
+        no_record = self.run_dataset(clean_zfs(), band_age=25 * 3600, history="none")
         self.assertIn("no completed backup on record", no_record["tm:tm/markus:stale"])
 
     def test_damaged_plist_is_no_evidence_not_a_crash(self):
+        # No evidence + bands untouched for a day → stale (a damaged plist on a
+        # set that is still being written is tolerated for FIRST_COPY_S).
         for shape in ("truncated", "wrong-shape", "snapshots-not-a-list"):
             with self.subTest(shape=shape):
-                found = self.run_dataset(clean_zfs(), band_age=600.0, history=shape)
+                found = self.run_dataset(clean_zfs(), band_age=25 * 3600, history=shape)
                 self.assertEqual(list(found), ["tm:tm/markus:stale"])
+                self.assertEqual(self.run_dataset(clean_zfs(), band_age=600.0, history=shape), {})
 
     def test_damaged_plist_never_clears_a_capacity_finding(self):
         # Headroom problem must survive a plist that makes the freshness path fail.

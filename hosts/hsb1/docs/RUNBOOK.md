@@ -325,15 +325,23 @@ after "Das Backup-Volume ist voll" on 2026-09-22):
 
 | dataset      | refquota (= TM's cap, mirrored by Samba `max size`) | quota (hard, incl. snapshots) |
 | ------------ | --------------------------------------------------- | ----------------------------- |
-| `tm/markus`  | 2253G (Samba `2200G`)                               | 3277G                         |
-| `tm/mailina` | 1434G (Samba `1400G`)                               | 2048G                         |
+| `tm/markus`  | 3600G (Samba `3550G`)                               | 3900G                         |
+| `tm/mailina` | 1024G (Samba `1000G`)                               | 1300G                         |
+
+**Sizing rule (OPS-228): TM's cap ≥ 2× the Mac's data.** TM never deletes the
+latest backup and now and then insists on a full re-copy (interrupted session,
+periodic verification); a 1.6T Mac on a 2.2T cap then needs 1.6T free next to
+a 1.5T latest backup → "Backup-Volume ist voll" (2026-09-22 15:42, after the
+OPS-226 fix). mbp2607 ≈ 1.6T → 3.55T cap; mbp2606 ≈ 0.4T → 1T cap. If a Mac's
+data grows past half its cap, resize (tm-caps.nix) or the message returns.
 
 All numbers live in `hosts/hsb1/tm-caps.nix`; `tm-pool.nix` asserts at eval
 time that Samba's cap sits ≥ 32G under the refquota. Time Machine only ever
 sees the Samba cap, so it thins its own old backups before ZFS can refuse a
 write (it fills that space by design — `referenced ≈ refquota` is normal).
-The refquota→quota gap is the budget for sanoid's 7 daily snapshots of the
-churning sparsebundle — and because TM deleting a backup does **not** free
+The refquota→quota gap is the budget for sanoid's daily snapshots (3 for
+`tm/markus`, 7 for `tm/mailina`) of the churning sparsebundle — and because
+TM deleting a backup does **not** free
 blocks a snapshot still holds, `tm-watch` (every 10 min) prunes this dataset's
 `autosnap_*` snapshots itself when the headroom under quota drops below 150G —
 oldest first, the newest last and only if still needed, until 400G is free.
@@ -344,7 +352,7 @@ Both ZFS caps are **imperative**, not disko-declared — changing
 a number in `tm-caps.nix` requires the matching live command:
 
 ```bash
-ssh mba@192.168.1.101 "sudo zfs set refquota=2253G quota=3277G tm/markus && sudo zfs set refquota=1434G quota=2048G tm/mailina"
+ssh mba@192.168.1.101 "sudo zfs set refquota=3600G quota=3900G tm/markus && sudo zfs set refquota=1024G quota=1300G tm/mailina"
 ```
 
 `tm-watch.timer` (10 min, Telegram, two-run confirmation) pages when the live
