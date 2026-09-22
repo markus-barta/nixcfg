@@ -134,10 +134,11 @@ fi
 # ────────────────────────────────────────────────────────────────────────────────
 
 print_test "T06.5 - Time Machine datasets (OPS-226)"
-# Declared caps (GiB) — must match hosts/hsb1/tm-caps.nix.
-declare -A WANT_REFQUOTA=([tm / markus]=2253 [tm / mailina]=1434)
-declare -A WANT_QUOTA=([tm / markus]=3277 [tm / mailina]=2048)
-for ds in tm/markus tm/mailina; do
+# Declared caps (GiB) per user — must match hosts/hsb1/tm-caps.nix.
+declare -A WANT_REFQUOTA=([markus]=2253 [mailina]=1434)
+declare -A WANT_QUOTA=([markus]=3277 [mailina]=2048)
+for user in markus mailina; do
+  ds="tm/${user}"
   # Both caps are imperative (tm-caps.nix documents the `zfs set`); with -p an
   # unset cap prints 0. Capture the command's status — a partial answer must
   # not pass as a healthy pair.
@@ -150,8 +151,8 @@ for ds in tm/markus tm/mailina; do
     fail "$ds: unexpected zfs get output"
     continue
   fi
-  if [[ "$refquota" -eq $((WANT_REFQUOTA[$ds] * 1024 ** 3)) && "$quota" -eq $((WANT_QUOTA[$ds] * 1024 ** 3)) ]]; then
-    pass "$ds: refquota ${WANT_REFQUOTA[$ds]}G / quota ${WANT_QUOTA[$ds]}G as declared"
+  if [[ "$refquota" -eq $((WANT_REFQUOTA[$user] * 1024 ** 3)) && "$quota" -eq $((WANT_QUOTA[$user] * 1024 ** 3)) ]]; then
+    pass "$ds: refquota ${WANT_REFQUOTA[$user]}G / quota ${WANT_QUOTA[$user]}G as declared"
   else
     fail "$ds: refquota $((refquota / 1024 ** 3))G / quota $((quota / 1024 ** 3))G differ from tm-caps.nix — run its zfs set"
   fi
