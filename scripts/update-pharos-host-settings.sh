@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 7 && $# -ne 8 ]]; then
-  echo "usage: $0 HOST ACCENT KIND SUPPRESS_DOWN SUPPRESS_BACKUP SUPPRESS_NIX_FRESHNESS REQUEST_ID [NIXPKGS_WARN_AFTER_DAYS]" >&2
+if [[ $# -ne 7 && $# -ne 8 && $# -ne 9 ]]; then
+  echo "usage: $0 HOST ACCENT KIND SUPPRESS_DOWN SUPPRESS_BACKUP SUPPRESS_NIX_FRESHNESS REQUEST_ID [NIXPKGS_WARN_AFTER_DAYS [HEARTBEAT_GRACE_SECS]]" >&2
   exit 2
 fi
 
@@ -16,6 +16,10 @@ request_id=$7
 # PHAROS-289: optional per-host nixpkgs staleness threshold in days. Empty
 # (or omitted) removes the override so the host inherits the fleet default.
 nixpkgs_warn_after_days=${8:-}
+# NIX-561 / PHAROS-292: optional per-host late-heartbeat grace in seconds.
+# Empty (or omitted, including a 7- or 8-argument call) removes the override
+# so the host inherits the fleet default. Zero is a real override and is written.
+heartbeat_grace_secs=${9:-}
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 settings_file=${PHAROS_SETTINGS_FILE:-"$repo_root/modules/pharos-host-preferences.json"}
@@ -32,10 +36,14 @@ validate_registry() {
       (.kind == "server" or .kind == "workstation") and
       ((.alerts | keys | sort) as $alert_keys |
         $alert_keys == ["suppress_backup", "suppress_down", "suppress_nix_freshness"] or
-        $alert_keys == ["nixpkgs_warn_after_days", "suppress_backup", "suppress_down", "suppress_nix_freshness"]) and
+        $alert_keys == ["nixpkgs_warn_after_days", "suppress_backup", "suppress_down", "suppress_nix_freshness"] or
+        $alert_keys == ["heartbeat_grace_secs", "suppress_backup", "suppress_down", "suppress_nix_freshness"] or
+        $alert_keys == ["heartbeat_grace_secs", "nixpkgs_warn_after_days", "suppress_backup", "suppress_down", "suppress_nix_freshness"]) and
       ([.alerts.suppress_backup, .alerts.suppress_down, .alerts.suppress_nix_freshness] | all(type == "boolean")) and
       ((.alerts | has("nixpkgs_warn_after_days") | not) or
-        (.alerts.nixpkgs_warn_after_days | type == "number" and . == floor and . >= 1 and . <= 3650))
+        (.alerts.nixpkgs_warn_after_days | type == "number" and . == floor and . >= 1 and . <= 3650)) and
+      ((.alerts | has("heartbeat_grace_secs") | not) or
+        (.alerts.heartbeat_grace_secs | type == "number" and . == floor and . >= 0 and . <= 3600))
     )
   ' "$1" >/dev/null
 }
@@ -65,6 +73,13 @@ if [[ -n "$nixpkgs_warn_after_days" ]]; then
     exit 2
   fi
 fi
+if [[ -n "$heartbeat_grace_secs" ]]; then
+  if ! [[ "$heartbeat_grace_secs" =~ ^[0-9]{1,4}$ ]] ||
+    ((10#$heartbeat_grace_secs > 3600)); then
+    echo "heartbeat grace must be a whole number of seconds from 0 through 3600" >&2
+    exit 2
+  fi
+fi
 [[ "$request_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$ ]] || {
   echo "request id contains unsupported characters" >&2
   exit 2
@@ -85,6 +100,7 @@ jq -S \
   --argjson suppress_backup "$suppress_backup" \
   --argjson suppress_nix_freshness "$suppress_nix_freshness" \
   --arg nixpkgs_warn_after_days "$nixpkgs_warn_after_days" \
+  --arg heartbeat_grace_secs "$heartbeat_grace_secs" \
   '.hosts[$host] = {
     accent: ($accent | ascii_downcase),
     alerts: ({
@@ -92,7 +108,9 @@ jq -S \
       suppress_down: $suppress_down,
       suppress_nix_freshness: $suppress_nix_freshness
     } + (if $nixpkgs_warn_after_days == "" then {}
-         else {nixpkgs_warn_after_days: ($nixpkgs_warn_after_days | tonumber)} end)),
+         else {nixpkgs_warn_after_days: ($nixpkgs_warn_after_days | tonumber)} end)
+      + (if $heartbeat_grace_secs == "" then {}
+         else {heartbeat_grace_secs: ($heartbeat_grace_secs | tonumber)} end)),
     kind: $kind
   }' \
   "$settings_file" >"$next"
