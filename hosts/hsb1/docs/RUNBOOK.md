@@ -326,7 +326,7 @@ after "Das Backup-Volume ist voll" on 2026-09-22):
 | dataset      | refquota (= TM's cap, mirrored by Samba `max size`) | quota (hard, incl. snapshots) |
 | ------------ | --------------------------------------------------- | ----------------------------- |
 | `tm/markus`  | 3600G (Samba `3550G`)                               | 3900G                         |
-| `tm/mailina` | 1024G (Samba `1000G`)                               | 1300G                         |
+| `tm/mailina` | 1064G (Samba `1000G`)                               | 1300G                         |
 
 **Sizing rule (OPS-228): TM's cap ≥ 2× the Mac's data.** TM never deletes the
 latest backup and now and then insists on a full re-copy (interrupted session,
@@ -352,7 +352,7 @@ Both ZFS caps are **imperative**, not disko-declared — changing
 a number in `tm-caps.nix` requires the matching live command:
 
 ```bash
-ssh mba@192.168.1.101 "sudo zfs set refquota=3600G quota=3900G tm/markus && sudo zfs set refquota=1024G quota=1300G tm/mailina"
+ssh mba@192.168.1.101 "sudo zfs set refquota=3600G quota=3900G tm/markus && sudo zfs set refquota=1064G quota=1300G tm/mailina"
 ```
 
 `tm-watch.timer` (10 min, Telegram, two-run confirmation) pages when the live
