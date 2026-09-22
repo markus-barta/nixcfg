@@ -432,8 +432,8 @@ is the absolute existing `family-ledger.json` path, and `target` is the explicit
 half-open recovery interval. Subsequent ingestion must pass the loaded sidecar as
 `prior`; an exact replay is idempotent and a coverage gap never latches polling
 closed. The default read classifier is exactly client IDs
-`27,28,29,50,51,52,53,54,55,56`; inclusion of read client 56 preserves the proven
-production classifier and grants no order authority.
+`27,28,29,50,51,52,53,54,55,56,76,78,79,80,83`; inclusion of read client 56
+preserves the proven production classifier and grants no order authority.
 
 ## Position rows
 
