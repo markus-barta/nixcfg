@@ -517,16 +517,17 @@ Node-RED Tab "🎛️ Syncbox [wz]"  (independent path, also active)
 
 ### Key Details
 
-| What                  | Value                                                        |
-| --------------------- | ------------------------------------------------------------ |
-| Syncbox IP            | `192.168.1.111`                                              |
-| Syncbox API           | `https://192.168.1.111/api/v1/execution/` (self-signed TLS)  |
-| Auth                  | Bearer token in Node-RED env `SYNCBOX_BEARER_TOKEN`          |
-| FLIRC bridge          | hsb1 native systemd `ir-bridge` (`hosts/hsb1/ir-bridge.nix`) |
-| HA MQTT device        | `flirc_hsb1` · action topic `home/hsb1/ir-bridge/action`     |
-| HA automations        | `automation.flirc_ps5_sync`, `automation.flirc_pc_sync`      |
-| Node-RED tab          | `🎛️ Syncbox [wz]`                                            |
-| Sony TV Node-RED node | `bravia-tv` → `wz-sony-tv`                                   |
+| What                  | Value                                                                          |
+| --------------------- | ------------------------------------------------------------------------------ |
+| Syncbox IP            | `192.168.1.111`                                                                |
+| Syncbox API           | `https://192.168.1.111/api/v1/execution/` (self-signed TLS)                    |
+| Auth                  | Bearer token in Node-RED env `SYNCBOX_BEARER_TOKEN`                            |
+| FLIRC bridge          | hsb1 native systemd `ir-bridge` (`hosts/hsb1/ir-bridge.nix`)                   |
+| IR bridge witness     | `ir-bridge-watch.timer` → Telegram (`hosts/hsb1/ir-bridge-watch.nix`, OPS-223) |
+| HA MQTT device        | `flirc_hsb1` · action topic `home/hsb1/ir-bridge/action`                       |
+| HA automations        | `automation.flirc_ps5_sync`, `automation.flirc_pc_sync`                        |
+| Node-RED tab          | `🎛️ Syncbox [wz]`                                                              |
+| Sony TV Node-RED node | `bravia-tv` → `wz-sony-tv`                                                     |
 
 ### FLIRC bridge (NIX-194)
 
