@@ -6,30 +6,33 @@
 #   zfs set compression=zstd tm
 #   zfs create tm/markus
 #   zfs create tm/mailina
-#   zfs set refquota=2.2T quota=3.2T tm/markus
-#   zfs set refquota=1.4T quota=2T tm/mailina
+#   zfs set refquota=2253G quota=3277G tm/markus     # numbers: ./tm-caps.nix
+#   zfs set refquota=1434G quota=2048G tm/mailina
 #
 # TWO caps per dataset (OPS-226, after "Das Backup-Volume ist voll" on
-# 2026-09-22):
-#   refquota — what Time Machine may *reference*. Mirrored EXACTLY by the
-#              share's `fruit:time machine max size` in ./tm-samba.nix (in
-#              GiB: 2200G / 1400G, a hair under), so TM thins its own old
-#              backups before ZFS ever refuses a write. TM fills whatever it
-#              is given by design, so referenced ≈ refquota is steady state.
-#   quota    — hard cap INCLUDING snapshots. The gap (1T / 0.6T) is the
-#              budget for sanoid's snapshots of a churning sparsebundle
-#              (Sep 21 2026 rewrote ~560G in one day).
-# The old single `quota=2.5T` counted snapshots while Samba advertised the
-# same 2.5T to TM — TM believed 550G were free, ZFS had 0B, backup failed.
-# 3.2T + 2T = 5.2T against ~5.45TiB usable; the rest is pool slop.
-# tm-watch.nix pages when a refquota is missing, when snapshots eat half the
-# gap, when headroom under quota drops below 100G, when the pool passes 85%,
-# when smbd is down, and when a Mac's bundle goes stale.
-# NOTE: both caps are imperative, not disko-declared — if you change the
-# numbers here or in tm-samba.nix you must run the matching `zfs set` by
-# hand (same caveat as hsb0's ncps dataset in disk-config.zfs.nix), and the
-# `max size` must never exceed the refquota.
+# 2026-09-22) — refquota is Time Machine's own cap (Samba advertises a bit
+# less, so TM thins itself first), quota is the hard cap incl. sanoid
+# snapshots. The old single `quota=2.5T` counted snapshots while Samba
+# advertised the same 2.5T to TM: TM believed 550G were free, ZFS had 0B.
+# TM deleting old backups does NOT free blocks a snapshot still holds, so the
+# snapshot budget (quota − refquota) is defended by tm-watch.nix, which
+# prunes the oldest autosnap_* snapshots when headroom under quota drops
+# below 100G, and pages on cap drift, snapshot pressure, pool pressure,
+# smbd down and stale backups. All numbers live in ./tm-caps.nix; both ZFS
+# caps are imperative, not disko-declared — changing a number there means
+# running the matching `zfs set` by hand (same caveat as hsb0's ncps dataset
+# in disk-config.zfs.nix). The eval-time assertion below keeps Samba's cap
+# under the refquota so the two can never drift the wrong way.
+{ lib, ... }:
+let
+  caps = import ./tm-caps.nix;
+in
 {
+  assertions = lib.mapAttrsToList (user: cap: {
+    assertion = cap.maxSizeG + 32 <= cap.refquotaG && cap.refquotaG < cap.quotaG;
+    message = "tm-caps.nix ${user}: need maxSizeG + 32G <= refquotaG < quotaG (got ${toString cap.maxSizeG}/${toString cap.refquotaG}/${toString cap.quotaG})";
+  }) caps;
+
   # Best-effort import at boot — an absent/unplugged USB drive must never hang
   # boot or `just switch`. (media's entry lives in ./media-pool.nix; the option
   # is a list, so the module system merges them.)

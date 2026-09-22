@@ -325,26 +325,39 @@ after "Das Backup-Volume ist voll" on 2026-09-22):
 
 | dataset      | refquota (= TM's cap, mirrored by Samba `max size`) | quota (hard, incl. snapshots) |
 | ------------ | --------------------------------------------------- | ----------------------------- |
-| `tm/markus`  | 2.2T (`2200G`)                                      | 3.2T                          |
-| `tm/mailina` | 1.4T (`1400G`)                                      | 2T                            |
+| `tm/markus`  | 2253G (Samba `2200G`)                               | 3277G                         |
+| `tm/mailina` | 1434G (Samba `1400G`)                               | 2048G                         |
 
-Time Machine only ever sees the refquota, so it thins its own old backups
-before ZFS can refuse a write (it fills that space by design — `referenced ≈
-refquota` is normal); the refquota→quota gap is the budget for sanoid's 7
-daily snapshots of the churning sparsebundle. Both caps are
-**imperative**, not disko-declared — changing a number in `tm-pool.nix` /
-`tm-samba.nix` requires the matching live command, and Samba's `max size` must
-never exceed the refquota:
+All numbers live in `hosts/hsb1/tm-caps.nix`; `tm-pool.nix` asserts at eval
+time that Samba's cap sits ≥ 32G under the refquota. Time Machine only ever
+sees the Samba cap, so it thins its own old backups before ZFS can refuse a
+write (it fills that space by design — `referenced ≈ refquota` is normal).
+The refquota→quota gap is the budget for sanoid's 7 daily snapshots of the
+churning sparsebundle — and because TM deleting a backup does **not** free
+blocks a snapshot still holds, `tm-watch` prunes the oldest `autosnap_*`
+snapshots itself when the headroom under quota drops below 100G (keeping the
+newest). That is the layer that keeps "Backup-Volume ist voll" away; the caps
+alone cannot. Both ZFS caps are **imperative**, not disko-declared — changing
+a number in `tm-caps.nix` requires the matching live command:
 
 ```bash
-ssh mba@192.168.1.101 "sudo zfs set refquota=2.2T quota=3.2T tm/markus && sudo zfs set refquota=1.4T quota=2T tm/mailina"
+ssh mba@192.168.1.101 "sudo zfs set refquota=2253G quota=3277G tm/markus && sudo zfs set refquota=1434G quota=2048G tm/mailina"
 ```
 
-`tm-watch.timer` (30 min, Telegram) pages when a refquota is missing,
-snapshots eat half the gap, headroom under quota drops below 100G, the pool
-passes 85 %, smbd is down, or a Mac's bundle is older than 72 h.
+`tm-watch.timer` (30 min, Telegram) pages when the live caps differ from
+`tm-caps.nix`, snapshots eat half the budget, it had to prune on two
+consecutive runs, headroom stays under 100G with nothing left to prune, the
+pool passes 85 %, smbd has no process, or a Mac's last **completed** backup
+(from `com.apple.TimeMachine.SnapshotHistory.plist` inside its bundle) is older
+than 5 days.
 
-**"Backup-Volume ist voll" anyway?** `zfs get -p referenced,refquota,quota,usedbysnapshots tm/<user>` — if `referenced + usedbysnapshots ≈ quota`, raise `quota` immediately (`sudo zfs set quota=<bigger> tm/<user>`, pool free permitting) and let sanoid's snapshots age out; if `referenced ≈ refquota`, TM failed to thin — raise refquota **and** Samba `max size` together, then switch.
+**Changing caps / deploying a cap change** — order matters, or TM sees more
+space than ZFS grants: (1) record `zfs get referenced,refquota,quota,usedbysnapshots`
+for both datasets; (2) switch hsb1 (Samba restarts; TM re-reads the volume
+size on its next connection); (3) run the `zfs set` above; (4) `journalctl -u
+tm-watch -n 3` → `ok — 0 active problem(s)`; (5) both Macs complete a backup.
+
+**"Backup-Volume ist voll" anyway?** `zfs get -p referenced,refquota,quota,usedbysnapshots tm/<user>` and `journalctl -u tm-watch -n 20` (it says what it pruned and why it could not). If `referenced + usedbysnapshots ≈ quota`, raise `quota` (`sudo zfs set quota=<bigger> tm/<user>`, pool free permitting, then tm-caps.nix). If `referenced ≈ refquota` and TM still complains, TM failed to thin (usually one backup left that is bigger than the cap) — raise refquota **and** `maxSizeG` in tm-caps.nix together, switch, `zfs set`.
 
 Samba (`tm-samba.nix`) exposes each dataset as its own share
 (`tm-markus`, `tm-mailina`) via `vfs_fruit`, discoverable natively in each

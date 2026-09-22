@@ -134,37 +134,46 @@ fi
 # ────────────────────────────────────────────────────────────────────────────────
 
 print_test "T06.5 - Time Machine datasets (OPS-226)"
+# Declared caps (GiB) — must match hosts/hsb1/tm-caps.nix.
+declare -A WANT_REFQUOTA=([tm / markus]=2253 [tm / mailina]=1434)
+declare -A WANT_QUOTA=([tm / markus]=3277 [tm / mailina]=2048)
 for ds in tm/markus tm/mailina; do
-  # refquota/quota are imperative (tm-pool.nix documents the `zfs set`); with
-  # -p an unset cap prints 0.
-  read -r refquota quota referenced snaps < <(zfs get -Hp -o value refquota,quota,referenced,usedbysnapshots "$ds" 2>/dev/null | tr '\n' ' ') || true
-  if [[ -z "${refquota:-}" ]]; then
+  # Both caps are imperative (tm-caps.nix documents the `zfs set`); with -p an
+  # unset cap prints 0. Capture the command's status — a partial answer must
+  # not pass as a healthy pair.
+  if ! props=$(zfs get -Hp -o value refquota,quota,referenced,usedbysnapshots "$ds" 2>/dev/null); then
     fail "$ds: zfs get failed (pool not imported?)"
     continue
   fi
-  if [[ "$refquota" -gt 0 && "$quota" -gt "$refquota" ]]; then
-    pass "$ds: refquota $((refquota / 1024 ** 3))G < quota $((quota / 1024 ** 3))G"
+  read -r refquota quota referenced snaps <<<"$(echo "$props" | tr '\n' ' ')"
+  if ! [[ "$refquota" =~ ^[0-9]+$ && "$quota" =~ ^[0-9]+$ && "$referenced" =~ ^[0-9]+$ && "$snaps" =~ ^[0-9]+$ ]]; then
+    fail "$ds: unexpected zfs get output"
+    continue
+  fi
+  if [[ "$refquota" -eq $((WANT_REFQUOTA[$ds] * 1024 ** 3)) && "$quota" -eq $((WANT_QUOTA[$ds] * 1024 ** 3)) ]]; then
+    pass "$ds: refquota ${WANT_REFQUOTA[$ds]}G / quota ${WANT_QUOTA[$ds]}G as declared"
   else
-    fail "$ds: refquota/quota pair missing — run the zfs set from tm-pool.nix"
+    fail "$ds: refquota $((refquota / 1024 ** 3))G / quota $((quota / 1024 ** 3))G differ from tm-caps.nix — run its zfs set"
   fi
   headroom=$((quota - referenced - snaps))
-  if [[ "$quota" -eq 0 || "$headroom" -gt $((100 * 1024 ** 3)) ]]; then
+  if [[ "$headroom" -gt $((100 * 1024 ** 3)) ]]; then
     pass "$ds: $((headroom / 1024 ** 3))G below quota"
   else
     fail "$ds: only $((headroom / 1024 ** 3))G below quota — Time Machine will report a full volume"
   fi
 done
-check_timer_active() { systemctl is-active --quiet "$1"; }
-if check_timer_active tm-watch.timer; then
+if systemctl is-active --quiet tm-watch.timer; then
   pass "tm-watch.timer is active"
 else
   fail "tm-watch.timer is NOT active"
 fi
-TMW_RESULT=$(systemctl show tm-watch.service -p Result --value)
-if [[ "$TMW_RESULT" == "success" ]]; then
-  pass "tm-watch oneshot last run: success"
+# Oneshot: Result=success also covers exit 1 (problems found); the exit code
+# tells whether the last run was clean.
+TMW_EXIT=$(systemctl show tm-watch.service -p ExecMainStatus --value)
+if [[ "$TMW_EXIT" == "0" ]]; then
+  pass "tm-watch last run: clean (0 active problems)"
 else
-  fail "tm-watch oneshot last run result: $TMW_RESULT"
+  fail "tm-watch last run exit $TMW_EXIT — journalctl -u tm-watch"
 fi
 
 # ════════════════════════════════════════════════════════════════════════════════
