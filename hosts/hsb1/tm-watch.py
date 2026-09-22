@@ -221,7 +221,7 @@ def freshness(path: str, now: float) -> dict:
     found          any *.sparsebundle at all
     """
     result: dict = {"completed_age": None, "activity_age": None, "bundle_age": None,
-                    "history": False, "found": False}
+                    "history": False, "found": False, "first_copy": False}
     try:
         entries = [e.path for e in os.scandir(path)
                    if e.name.endswith(".sparsebundle") and e.is_dir(follow_symlinks=False)]
@@ -229,21 +229,29 @@ def freshness(path: str, now: float) -> dict:
         return result
     for bundle in entries:
         result["found"] = True
-        if os.path.exists(os.path.join(bundle, HISTORY_PLIST)):
-            result["history"] = True
+        has_history = os.path.exists(os.path.join(bundle, HISTORY_PLIST))
+        result["history"] = result["history"] or has_history
         stamps = completion_stamps(bundle)
         if stamps:
             age = now - max(stamps)
             result["completed_age"] = age if result["completed_age"] is None else min(result["completed_age"], age)
         act = band_activity(bundle)
-        if act is not None:
-            age = now - act
-            result["activity_age"] = age if result["activity_age"] is None else min(result["activity_age"], age)
+        activity_age = None if act is None else now - act
+        if activity_age is not None:
+            result["activity_age"] = activity_age if result["activity_age"] is None else min(result["activity_age"], activity_age)
         try:
-            born = now - os.stat(os.path.join(bundle, "token")).st_mtime
-            result["bundle_age"] = born if result["bundle_age"] is None else min(result["bundle_age"], born)
+            bundle_age: float | None = now - os.stat(os.path.join(bundle, "token")).st_mtime
         except OSError:
-            pass
+            bundle_age = None
+        if bundle_age is not None:
+            result["bundle_age"] = bundle_age if result["bundle_age"] is None else min(result["bundle_age"], bundle_age)
+        # Eligibility is judged per bundle — youth from one bundle must never
+        # lend grace to writes on another (an abandoned new set next to an old
+        # one that keeps failing).
+        if (not has_history and not stamps
+                and bundle_age is not None and bundle_age <= FIRST_COPY_MAX_S
+                and activity_age is not None and activity_age <= FIRST_COPY_S):
+            result["first_copy"] = True
     return result
 
 
@@ -302,12 +310,10 @@ def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
                                 f"({type(error).__name__}) — fix the watcher; backup age is unknown."))
         return problems
     completed_age, activity_age = fresh["completed_age"], fresh["activity_age"]
-    first_copy_in_progress = (
-        completed_age is None
-        and not fresh["history"]  # a history plist that exists but is unreadable is damage
-        and fresh["bundle_age"] is not None and fresh["bundle_age"] <= FIRST_COPY_MAX_S
-        and activity_age is not None and activity_age <= FIRST_COPY_S
-    )
+    # A set is "first copy in progress" only if ONE bundle is young, has no
+    # history plist at all and is being written (freshness() judges that per
+    # bundle), and no bundle has ever completed.
+    first_copy_in_progress = completed_age is None and fresh["first_copy"]
     if not fresh["found"]:
         problems.append(Problem(f"tm:{dataset}:bundle",
                                 f"hsb1: no sparsebundle under {path} — dataset not mounted, or "
