@@ -124,8 +124,16 @@ the Compose revision and recreates Janus for a new key inode. The publisher
 creates an empty protected child target before the read-only mounts; Janus
 rejects the empty file if its credential overlay is absent.
 
+The publisher admits only the csb1 agenix source, stable credential destination,
+and Janus mount placeholder declared by this deployment. Its CLI refuses other
+paths before file access. Imported tests must explicitly use a helper-created
+`FixtureScope`; traversal, other temporary roots and symlink ancestors are
+refused. The test scope is unavailable through the production CLI.
+
 The CI mount job uses only `A`/`B` fixtures in a new scratch image, with no network,
-real credentials, service access, or production containers. Local portable tests
+real credentials, service access, or production containers. It builds and reads
+only `tests/fixtures/janus-mount-probe` in its checkout, with no probe-path option.
+Local portable tests
 use `PYTHONDONTWRITEBYTECODE=1 python3 tests/test_janus_flow_private_files.py`.
 After approved live activation, verify metadata and a fresh uncached Flow
 projection: Janus can retain a projection until the next ten-minute boundary.

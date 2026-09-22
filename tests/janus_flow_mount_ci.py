@@ -7,11 +7,11 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PROBE = ROOT / "tests/fixtures/janus-mount-probe"
 SPEC = importlib.util.spec_from_file_location("private_files", ROOT / "modules/janus-flow-host/private_files.py")
 FILES = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(FILES)
@@ -26,31 +26,30 @@ def command(*argv, ok=True):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--probe", type=Path, required=True)
-    args = parser.parse_args()
+    parser.parse_args()
     # Explicitly refuse operator workstations and production hosts.
     if sys.platform != "linux" or os.geteuid() != 0 or os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted":
         parser.error("requires the root-owned ephemeral GitHub-hosted Linux job")
-    if not args.probe.is_file() or args.probe.is_symlink():
+    if not PROBE.is_file() or PROBE.is_symlink():
         parser.error("missing locally built synthetic probe")
     name = "nix574-synthetic-" + uuid.uuid4().hex
     image = name + ":fixture"
     container_started = False
     image_built = False
-    with tempfile.TemporaryDirectory(prefix="nix574-synthetic-") as temporary:
-        base = Path(temporary)
+    with FILES.FixtureScope() as fixture:
+        base = fixture.root
         config = base / "config"
         source = base / "agenix-synthetic"
         target = base / "stable" / "api-key"
         context = base / "image"
         context.mkdir()
-        shutil.copyfile(args.probe, context / "probe")
+        shutil.copyfile(PROBE, context / "probe")
         (context / "probe").chmod(0o755)
         (context / "Dockerfile").write_text("FROM scratch\nCOPY probe /probe\nUSER 100:101\nENTRYPOINT [\"/probe\"]\n")
         source.write_bytes(b"A" * 64)
         source.chmod(0o400)
-        FILES.credential(source, target, 100, 101)
-        FILES.private_directory(config, 100, 101)
+        FILES.credential(source, target, 100, 101, fixture=fixture)
+        FILES.private_directory(config, 100, 101, fixture=fixture)
 
         def start(*probe_args, detached=False):
             return command(
@@ -70,7 +69,7 @@ def main():
                 raise RuntimeError("missing mount-target reproduction differed from expected runc refusal")
             # A failed docker run may retain its named, stopped container.
             command("docker", "container", "rm", name, ok=False)
-            FILES.placeholder(config / "api-key", 100, 101)
+            FILES.placeholder(config / "api-key", 100, 101, fixture=fixture)
             started = start("wait", detached=True)
             if started.returncode:
                 raise RuntimeError("nested read-only mounts failed with the published placeholder")
@@ -81,13 +80,13 @@ def main():
             next_source.write_bytes(b"A" * 64)
             next_source.chmod(0o400)
             os.replace(next_source, source)
-            assert FILES.credential(source, target, 100, 101) is False
+            assert FILES.credential(source, target, 100, 101, fixture=fixture) is False
             assert target.stat().st_ino == inode
             command("docker", "exec", name, "/probe", "A")
             next_source.write_bytes(b"B" * 64)
             next_source.chmod(0o400)
             os.replace(next_source, source)
-            assert FILES.credential(source, target, 100, 101) is True
+            assert FILES.credential(source, target, 100, 101, fixture=fixture) is True
             # Exact old-bind nlink refusal, not a generic process failure.
             assert command("docker", "exec", name, "/probe", "A", ok=False).returncode == 6
             command("docker", "stop", "-t", "1", name)
