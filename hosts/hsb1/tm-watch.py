@@ -89,6 +89,9 @@ HEADROOM_TARGET = 400 * GIB  # … until at least this
 POOL_WARN = 85  # zpool capacity %
 # A long weekend away must not page; a week of silence must.
 STALE_S = 5 * 86400
+# A fresh set with no completion yet counts as healthy while bands are being
+# written; a first full copy that stops writing for a day is a failure.
+FIRST_COPY_S = 24 * 3600
 
 
 def gib(value: int) -> str:
@@ -283,6 +286,10 @@ def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
         problems.append(Problem(f"tm:{dataset}:bundle",
                                 f"hsb1: no sparsebundle under {path} — dataset not mounted, or "
                                 f"{user}'s Mac has never backed up here."))
+    elif completed_age is None and activity_age is not None and activity_age <= FIRST_COPY_S:
+        # A brand-new set (OPS-228: TM re-copies ~1.6T over hours) has no
+        # completion record yet but is visibly being written — not stale.
+        pass
     elif completed_age is None or completed_age > STALE_S:
         since = ("no completed backup on record"
                  if completed_age is None else f"last completed backup {completed_age / 86400:.1f} days ago")

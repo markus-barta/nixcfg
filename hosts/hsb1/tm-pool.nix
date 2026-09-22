@@ -6,8 +6,8 @@
 #   zfs set compression=zstd tm
 #   zfs create tm/markus
 #   zfs create tm/mailina
-#   zfs set refquota=2253G quota=3277G tm/markus     # numbers: ./tm-caps.nix
-#   zfs set refquota=1434G quota=2048G tm/mailina
+#   zfs set refquota=3600G quota=3900G tm/markus     # numbers: ./tm-caps.nix
+#   zfs set refquota=1024G quota=1300G tm/mailina
 #
 # TWO caps per dataset (OPS-226, after "Das Backup-Volume ist voll" on
 # 2026-09-22) — refquota is Time Machine's own cap (Samba advertises a bit
@@ -84,10 +84,21 @@ in
       autosnap = true;
       autoprune = true;
     };
+    # tm/markus: the Mac holds ~1.6T and its bundle churns ~100G+/day, so its
+    # snapshot budget is only 300G (tm-caps.nix) — 3 dailies fit, 7 would be
+    # pruned by tm-watch anyway (OPS-228).
+    templates.tm-daily-short = {
+      hourly = 0;
+      daily = 3;
+      monthly = 0;
+      yearly = 0;
+      autosnap = true;
+      autoprune = true;
+    };
 
     datasets = {
       "tm/markus" = {
-        useTemplate = [ "tm-daily" ];
+        useTemplate = [ "tm-daily-short" ];
         recursive = false;
       };
       "tm/mailina" = {

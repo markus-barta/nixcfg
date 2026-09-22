@@ -21,25 +21,32 @@
 #               (asserted): Samba's free-space arithmetic is approximate
 #               (max size − bands × band size) and a band is 625 MiB here.
 #
+# SIZING RULE (OPS-228): Time Machine's own cap must be ≥ 2× the Mac's data.
+# TM never deletes the latest backup, and now and then it decides on a full
+# re-copy (interrupted session, periodic verification); with 1.6T of data on
+# a 2.2T cap that re-copy needs 1.6T free next to a 1.5T latest backup —
+# impossible → "Backup-Volume ist voll" on 2026-09-22 15:42 despite OPS-226.
+# mbp2607 holds ~1.6T → 3.55T cap; mbp2606 holds ~0.4T → 1T cap.
+#
 # Live commands after changing a number (both caps are imperative, never
 # disko-declared — see tm-pool.nix):
-#   zfs set refquota=2253G quota=3277G tm/markus
-#   zfs set refquota=1434G quota=2048G tm/mailina
+#   zfs set refquota=3600G quota=3900G tm/markus
+#   zfs set refquota=1024G quota=1300G tm/mailina
 #
-# 3277G + 2048G = 5325G ≈ 5.2T of the pool's ~5.45TiB usable; the rest is slop.
+# 3900G + 1300G = 5200G ≈ 5.1T of the pool's ~5.45TiB usable; the rest is slop.
 {
   markus = {
     dataset = "tm/markus";
     path = "/srv/tm/markus";
-    refquotaG = 2253; # ≈ 2.2T
-    quotaG = 3277; # ≈ 3.2T → 1T snapshot budget (Sep 21 2026 churned ~560G in a day)
-    maxSizeG = 2200;
+    refquotaG = 3600; # ≈ 3.5T — ≥ 2× the Mac's ~1.6T of data
+    quotaG = 3900; # 300G snapshot budget → sanoid keeps 3 dailies (tm-pool.nix)
+    maxSizeG = 3550;
   };
   mailina = {
     dataset = "tm/mailina";
     path = "/srv/tm/mailina";
-    refquotaG = 1434; # ≈ 1.4T
-    quotaG = 2048; # 2T → 0.6T snapshot budget
-    maxSizeG = 1400;
+    refquotaG = 1024; # 1T — ≥ 2× the Mac's ~0.4T of data
+    quotaG = 1300; # 276G snapshot budget → 7 dailies
+    maxSizeG = 1000;
   };
 }
