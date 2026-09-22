@@ -67,6 +67,7 @@ for key in legacy:
 
 expected = {
     "JANUS_VIEWER_GROUPS": "janus:viewer",
+    "JANUS_FLOW_VIEWER_GROUPS": "janus:flow_viewer",
     "JANUS_OWNER_GROUPS": "janus:admin",
     "JANUS_APPROVER_GROUPS": "janus:approver",
     "JANUS_AUDITOR_GROUPS": "janus:auditor",

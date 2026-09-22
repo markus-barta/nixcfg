@@ -184,27 +184,37 @@ expected_policy = {
 if policy != expected_policy:
     raise SystemExit("managed release policy drift")
 
-for filename, channel, image, tag, expected_commit in (
+for filename, channel, image, tag, expected_commit, policy_version, release in (
     (
         "release-admission.json",
         "stable",
         "ghcr.io/inspr-at/janus/janus-engine",
         "rust-engine-v0.1.33",
         "f83a5b651e0eaebd5a9779bf5331891803d984a9",
+        3,
+        None,
     ),
     (
         "go-envelope-admission.json",
         "envelope-stable",
         "ghcr.io/inspr-at/janus/janus-envelope",
-        "go-envelope-v1.185",
-        "cff766fd94b1e2e677d1ee836b9eee582d5091f7",
+        "go-envelope-v260922094507.0.0",
+        "bd33e8b2716687983f8936abcef1c272a9125fe3",
+        4,
+        {
+            "version_scheme": "inspr-calendar-v2",
+            "version": "260922094507.0.0",
+            "release_channel": "envelope-stable",
+            "release_sequence": 1,
+        },
     ),
 ):
     receipt = json.loads((contract / filename).read_text())
     if (
         receipt["schema_version"] != 1
         or receipt["policy_id"] != "janus-engine-release-v1"
-        or receipt["policy_version"] != 3
+        or receipt["policy_version"] != policy_version
+        or receipt["artifact"].get("release") != release
         or receipt["channel"] != channel
         or receipt["mode"] != "production"
         or receipt["previous_mode"] != "production"
@@ -399,7 +409,7 @@ compose_json=$(
     --format json
 )
 go_artifact_tag=$(
-  jq -er '.artifact.tag | select(test("^go-envelope-v[1-9][0-9]*\\.[0-9]+$"))' \
+  jq -er '.artifact.tag | select(test("^go-envelope-v[0-9]{12}\\.0\\.0$"))' \
     "${contract}/go-envelope-admission.json"
 )
 go_artifact_digest=$(
