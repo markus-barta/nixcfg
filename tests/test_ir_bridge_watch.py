@@ -51,20 +51,37 @@ checks = load({
 
 
 class LocalChecksTest(unittest.TestCase):
-    def test_missing_marker_and_node_are_two_problems(self):
-        with patch.object(checks, "UNIT_MARKER", "/nonexistent/invocation"):
+    def test_missing_cgroup_and_node_are_two_problems(self):
+        with patch.object(checks, "UNIT_CGROUP_PROCS", "/nonexistent/cgroup.procs"):
             self.assertEqual([p.key for p in checks.check_unit()], ["ir-bridge:unit"])
         self.assertEqual([p.key for p in checks.check_flirc()], ["ir-bridge:flirc"])
 
-    def test_present_marker_and_node_are_clean(self):
+    def test_empty_cgroup_is_a_stopped_unit(self):
+        # Between Restart=always attempts the cgroup can exist with no member.
         with tempfile.TemporaryDirectory() as tmp:
-            marker = Path(tmp, "invocation")
+            procs = Path(tmp, "cgroup.procs")
+            procs.write_text("\n")
+            with patch.object(checks, "UNIT_CGROUP_PROCS", str(procs)):
+                self.assertEqual([p.key for p in checks.check_unit()], ["ir-bridge:unit"])
+
+    def test_running_unit_and_present_node_are_clean(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            procs = Path(tmp, "cgroup.procs")
             node = Path(tmp, "flirc")
-            marker.write_text("")
+            procs.write_text("2261\n")
             node.write_text("")
-            with patch.object(checks, "UNIT_MARKER", str(marker)), patch.object(checks, "FLIRC_DEVICE", str(node)):
+            with patch.object(checks, "UNIT_CGROUP_PROCS", str(procs)), patch.object(checks, "FLIRC_DEVICE", str(node)):
                 self.assertEqual(checks.check_unit(), [])
                 self.assertEqual(checks.check_flirc(), [])
+
+    def test_dangling_symlink_node_counts_as_missing(self):
+        # The FLIRC by-id link must resolve to a live event node; a dangling
+        # link (udev raced a replug) is "missing" — the bridge cannot open it.
+        with tempfile.TemporaryDirectory() as tmp:
+            node = Path(tmp, "flirc")
+            node.symlink_to(Path(tmp, "event99"))
+            with patch.object(checks, "FLIRC_DEVICE", str(node)):
+                self.assertEqual([p.key for p in checks.check_flirc()], ["ir-bridge:flirc"])
 
     def test_flirc_text_points_at_the_replug_runbook(self):
         (problem,) = checks.check_flirc()

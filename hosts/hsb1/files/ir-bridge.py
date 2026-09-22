@@ -40,9 +40,8 @@ Environment variables (see hosts/hsb1/ir-bridge.nix):
     DEBOUNCE_MS           default 300
     REPEAT_DELAY_MS       default 350
     REPEAT_RATE_MS        default 120
-    RETRY_COUNT           transport retries per press (default 3); an HTTP
-                          answer (404/500/…) is a verdict and is never retried
-    RETRY_DELAY           seconds between transport retries (default 1.0)
+    IRCC_CONNECT_TIMEOUT  seconds to connect to the TV (default 1.0)
+    IRCC_READ_TIMEOUT     seconds to wait for its answer (default 2.0)
     STALE_EVENT_MS        drop queued key events older than this (default 1000)
 """
 
@@ -90,8 +89,10 @@ CONFIG = {
     "debounce_ms": int(os.getenv("DEBOUNCE_MS", "300")),
     "repeat_delay_ms": int(os.getenv("REPEAT_DELAY_MS", "350")),
     "repeat_rate_ms": int(os.getenv("REPEAT_RATE_MS", "120")),
-    "retry_count": int(os.getenv("RETRY_COUNT", "3")),
-    "retry_delay": float(os.getenv("RETRY_DELAY", "1.0")),
+    # One HTTP attempt per press, bounded tightly: the TV is on the LAN (sub-ms
+    # RTT) and a press is a real-time action — see _send_ircc (OPS-225).
+    "ircc_connect_timeout": float(os.getenv("IRCC_CONNECT_TIMEOUT", "1.0")),
+    "ircc_read_timeout": float(os.getenv("IRCC_READ_TIMEOUT", "2.0")),
     # A key event that waited in the evdev queue longer than this (because an
     # earlier send was stuck) is no longer wanted — see _read_loop (OPS-225).
     "stale_event_ms": int(os.getenv("STALE_EVENT_MS", "1000")),
@@ -106,15 +107,17 @@ CONFIG = {
 # evdev code -> (friendly_name, sony_ircc_or_None)
 #   ircc=None  → MQTT-only: the bridge publishes the press but sends NO TV
 #                command (smart keys handled by HA; unmapped extras).
-# IRCC codes are the TV's OWN table — `system.getRemoteControllerInfo` on
-# 192.168.1.137, fetched 2026-09-22 (OPS-225) — never a generic Sony list: codes
-# differ per model. The NIX-186 set carried a malformed `back` (19 chars → HTTP
-# 500 on every press) and transport/app codes this TV does not list at all.
-# NOTE: this FLIRC maps the physical Vol+/Vol- to the *opposite* evdev keycodes,
-# so the IRCC is intentionally swapped (114→Vol-UP, 115→Vol-DOWN). The pair is
-# kept byte-identical to the daily-verified NIX-186 values even though the TV
-# table labels them the other way round — do not "correct" it without pressing
-# the physical buttons.
+# IRCC base64 codes are reused verbatim from the verified hsb1 mapping (NIX-186),
+# except `back`: the NIX-186 value was malformed (19 chars → HTTP 500 on every
+# press) and was replaced by this TV's own `Return` code from
+# `system.getRemoteControllerInfo` on 192.168.1.137 (fetched 2026-09-22,
+# OPS-225). A code must come from that table, never a generic Sony list — codes
+# differ per model. The table also lists different values for the transport /
+# app / channel keys; those stay as-is until each button has been pressed and
+# verified physically (the table proves what the TV advertises, not what a
+# button does). NOTE: this FLIRC maps the physical Vol+/Vol- to the *opposite*
+# evdev keycodes, so the IRCC is intentionally swapped (114→Vol-UP, 115→Vol-DOWN);
+# the pair is daily-verified — do not "correct" it from the table.
 BUTTONS: Dict[int, tuple] = {
     # Numbers
     2:  ("num1", "AAAAAQAAAAEAAAAAAw=="),
@@ -140,23 +143,23 @@ BUTTONS: Dict[int, tuple] = {
     113: ("mute", "AAAAAQAAAAEAAAAUAw=="),
     114: ("volumeup", "AAAAAQAAAAEAAAATAw=="),
     115: ("volumedown", "AAAAAQAAAAEAAAASAw=="),
-    # Transport (TV table: Play/Stop/Rewind/Forward/Next/Prev)
-    164: ("play", "AAAAAgAAAJcAAAAaAw=="),
-    166: ("stop", "AAAAAgAAAJcAAAAYAw=="),
-    168: ("rewind", "AAAAAgAAAJcAAAAbAw=="),
-    208: ("fastforward", "AAAAAgAAAJcAAAAcAw=="),
-    163: ("next", "AAAAAgAAAJcAAAA9Aw=="),
-    165: ("previous", "AAAAAgAAAJcAAAA8Aw=="),
-    # System / apps (TV table: TvPower/Input/ActionMenu/Netflix/YouTube)
+    # Transport
+    164: ("play", "AAAAAQAAAAEAAAANAw=="),
+    166: ("stop", "AAAAAQAAAAEAAAAOAw=="),
+    168: ("rewind", "AAAAAQAAAAEAAAA4Aw=="),
+    208: ("fastforward", "AAAAAQAAAAEAAAA5Aw=="),
+    163: ("next", "AAAAAQAAAAEAAAAXAw=="),
+    165: ("previous", "AAAAAQAAAAEAAAAYAw=="),
+    # System / apps
     44: ("power", "AAAAAQAAAAEAAAAVAw=="),
     23: ("input", "AAAAAQAAAAEAAAAlAw=="),
-    30: ("actionmenu", "AAAAAgAAAMQAAABLAw=="),
-    49: ("netflix", "AAAAAgAAABoAAAB8Aw=="),
-    25: ("youtube", "AAAAAgAAAMQAAABHAw=="),
-    # Channel / input (TV table: ChannelUp/ChannelDown/Hdmi2)
-    20: ("channelup", "AAAAAQAAAAEAAAAQAw=="),
-    47: ("channeldown", "AAAAAQAAAAEAAAARAw=="),
-    22: ("hdmi2", "AAAAAgAAABoAAABbAw=="),
+    30: ("actionmenu", "AAAAAQAAAAEAAAA6Aw=="),
+    49: ("netflix", "AAAAAQAAAAEAAAAMAw=="),
+    25: ("youtube", "AAAAAQAAAAEAAABDAw=="),
+    # Channel / input
+    20: ("channelup", "AAAAAQAAAAEAAAA+Aw=="),
+    47: ("channeldown", "AAAAAQAAAAEAAAA9Aw=="),
+    22: ("hdmi2", "AAAAAQAAAAEAAABBAw=="),
     # ── MQTT-only smart keys (NO IRCC) ──────────────────────────────────────
     48: ("blue", None),       # → HA: Hue Sync Box PS5 input
     21: ("yellow", None),     # → HA: Hue Sync Box PC input
@@ -390,30 +393,29 @@ class IRBridge:
             '<u:X_SendIRCC xmlns:u="urn:schemas-sony-com:service:IRCC:1">'
             f"<IRCCCode>{ircc}</IRCCCode></u:X_SendIRCC></s:Body></s:Envelope>"
         )
-        for attempt in range(CONFIG["retry_count"]):
-            try:
-                r = self.http.post(
-                    self.sony_ircc_url,
-                    headers=headers,
-                    data=body,
-                    timeout=5,
-                    allow_redirects=False,
-                )
-            except requests.exceptions.RequestException as exc:
-                # Transport failure (refused, timeout, reset): worth one more try.
-                self.log.error("IRCC %s request error (try %d): %s", name, attempt + 1, exc)
-                if attempt < CONFIG["retry_count"] - 1:
-                    time.sleep(CONFIG["retry_delay"])
-                continue
-            if r.status_code == 200:
-                return True
-            # An HTTP answer is a verdict, not a hiccup: the TV received the request
-            # and rejected it (404 = its REST API is down, 500 = bad code). Resending
-            # the same code a second later changes nothing and, because presses are
-            # handled synchronously, blocks the input loop for every queued press
-            # (2026-09-21: 33 presses replayed at ~2 s each, OPS-225).
-            self.log.warning("IRCC %s failed: HTTP %s", name, r.status_code)
+        # Exactly ONE attempt per press (OPS-225). A press is a real-time action:
+        # a retry seconds later is never what the viewer wanted, and a retry after
+        # a read timeout can DUPLICATE a command the TV already executed (volume
+        # step, power toggle). An HTTP answer is a verdict, not a hiccup (404 = its
+        # REST API is down, 500 = bad code); resending changes nothing. Presses are
+        # handled synchronously, so the old 3×(5 s + 1 s) loop also blocked the
+        # input loop for every queued press (2026-09-21: 33 presses replayed at
+        # ~2 s each). The tight timeouts bound the worst case to ~3 s; the stale
+        # filter in _read_loop then drops whatever queued up meanwhile.
+        try:
+            r = self.http.post(
+                self.sony_ircc_url,
+                headers=headers,
+                data=body,
+                timeout=(CONFIG["ircc_connect_timeout"], CONFIG["ircc_read_timeout"]),
+                allow_redirects=False,
+            )
+        except requests.exceptions.RequestException as exc:
+            self.log.error("IRCC %s request error: %s", name, exc)
             return False
+        if r.status_code == 200:
+            return True
+        self.log.warning("IRCC %s failed: HTTP %s", name, r.status_code)
         return False
 
     # ── key handling ─────────────────────────────────────────────────────

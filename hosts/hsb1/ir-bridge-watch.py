@@ -12,10 +12,13 @@ A small OPS-107 poller (shared engine: confirm-before-alert, write-ahead
 delivery) with three checks. Each has its own problem key, so they page and
 clear independently:
 
-  * ir-bridge:unit   ir-bridge.service is not running. Read from systemd's
-                     /run/systemd/units/invocation:<unit> marker, which exists
-                     exactly while a unit runs — no D-Bus socket needed under
-                     ProtectSystem=strict.
+  * ir-bridge:unit   ir-bridge.service has no process. Read from the unit's
+                     cgroup (/sys/fs/cgroup/system.slice/<unit>/cgroup.procs,
+                     the documented systemd cgroup layout): non-empty exactly
+                     while the service runs, readable under ProtectSystem=strict
+                     and needing no D-Bus socket. (Not the
+                     /run/systemd/units/invocation:* marker: that is journald
+                     plumbing and a dangling symlink, so exists() lies.)
   * ir-bridge:flirc  the FLIRC's stable by-id input node is missing. It is the
                      exact path the bridge opens, so this means "the bridge is
                      deaf", whatever the USB reason (OPS-222).
@@ -46,7 +49,7 @@ STATE_PATH = "/var/lib/ir-bridge-watch/state.json"
 NOTIFICATION_ENV = "@NOTIFICATION_ENV@"
 FLIRC_DEVICE = "@FLIRC_DEVICE@"
 SONY_SYSTEM_URL = "@SONY_SYSTEM_URL@"
-UNIT_MARKER = "/run/systemd/units/invocation:ir-bridge.service"
+UNIT_CGROUP_PROCS = "/sys/fs/cgroup/system.slice/ir-bridge.service/cgroup.procs"
 TIMEOUT = 5
 MAX_BODY = 65536
 
@@ -58,8 +61,18 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def unit_has_process() -> bool:
+    """True while ir-bridge.service owns at least one process (cgroup v2)."""
+    try:
+        with open(UNIT_CGROUP_PROCS, encoding="utf-8") as handle:
+            return any(line.strip() for line in handle)
+    except OSError:
+        # No cgroup = the unit is not running (systemd removes it on stop).
+        return False
+
+
 def check_unit() -> list[Problem]:
-    if os.path.exists(UNIT_MARKER):
+    if unit_has_process():
         return []
     return [
         Problem(
