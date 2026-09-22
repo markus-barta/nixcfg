@@ -257,6 +257,7 @@ in
   # Format: KEY=VALUE lines (OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY)
   # Edit: agenix -e secrets/csb1-janus-env.age
   "csb1-janus-env.age".publicKeys = markus ++ csb1;
+  "csb1-janus-flow-api-key.age".publicKeys = markus ++ csb1;
 
   # JANUS-365 managed-service secret runtime. Each encrypted artifact has one
   # exact consumer at runtime; the internal token is the only shared value.
