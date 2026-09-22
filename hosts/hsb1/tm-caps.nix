@@ -11,8 +11,12 @@
 #               backups while ZFS still accepts writes. TM fills whatever it
 #               is given by design; referenced ≈ refquota is steady state.
 #   quotaG    — hard cap INCLUDING sanoid snapshots. quota − refquota is the
-#               snapshot budget; tm-watch prunes the oldest autosnap_* when the
-#               headroom under quota drops below 100G, so TM never meets ENOSPC.
+#               snapshot budget; tm-watch prunes autosnap_* (oldest first, the
+#               newest last) when the headroom under quota drops below 150G.
+#               Limits: pruning frees only blocks no remaining snapshot holds,
+#               and a write burst > 150G within one 10-minute poll still hits
+#               ENOSPC — then tm-watch pages `headroom` and quota must be
+#               raised by hand (there is pool slop for that).
 #   maxSizeG  — Samba `fruit:time machine max size`. ≥ 32G under refquotaG
 #               (asserted): Samba's free-space arithmetic is approximate
 #               (max size − bands × band size) and a band is 625 MiB here.
