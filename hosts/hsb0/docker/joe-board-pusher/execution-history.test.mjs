@@ -24,7 +24,7 @@ const WINDOW = { fromInclusive: "2026-09-10T04:00:00Z", toExclusive: "2026-09-11
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "family-history-cli.mjs");
 
 test("default J classifier preserves the proven production client family", () => {
-  assert.deepEqual(J_FAMILY_CLASSIFIER.familyClientIds, [27, 28, 29, 50, 51, 52, 53, 54, 55, 56]);
+  assert.deepEqual(J_FAMILY_CLASSIFIER.familyClientIds, [27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 76, 78, 79, 80, 83]);
 });
 
 test("economic numeric fields reject JavaScript coercions while SDK numeric strings remain valid", () => {
