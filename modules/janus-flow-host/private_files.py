@@ -9,12 +9,66 @@ import tempfile
 from pathlib import Path
 
 
-def private_directory(path, uid, gid):
-    path = Path(path)
+SOURCE = Path("/run/agenix/csb1-janus-flow-api-key")
+CREDENTIAL = Path("/run/janus-flow-credential/api-key")
+PLACEHOLDER = Path("/run/janus/flow-host/api-key")
+DIRECTORIES = (CREDENTIAL.parent, PLACEHOLDER.parent, PLACEHOLDER.parent.parent)
+
+
+class FixtureScope:
+    """An explicitly created, private synthetic root; never a caller-picked path."""
+
+    def __init__(self):
+        self._temporary = tempfile.TemporaryDirectory(prefix="janus-flow-fixture-")
+        self.root = Path(self._temporary.name).resolve()
+        info = self.root.lstat()
+        self._identity = (info.st_dev, info.st_ino, info.st_uid, info.st_gid)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self._temporary.cleanup()
+
+    def admit(self, path):
+        info = self.root.lstat()
+        if (info.st_dev, info.st_ino, info.st_uid, info.st_gid) != self._identity or not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o700:
+            raise ValueError("synthetic root changed")
+        path = Path(path)
+        if not path.is_absolute() or ".." in path.parts or not path.is_relative_to(self.root):
+            raise ValueError("path outside synthetic root")
+        # Reject every ancestor, not only the immediate parent. The private root
+        # excludes other users; the leaf checks below also retain O_NOFOLLOW.
+        current = self.root
+        for part in path.relative_to(self.root).parts:
+            current = current / part
+            try:
+                if stat.S_ISLNK(current.lstat().st_mode):
+                    raise ValueError("synthetic path is a symlink")
+            except FileNotFoundError:
+                break
+        return path
+
+
+def admitted(path, choices, fixture):
+    if fixture is not None:
+        if not isinstance(fixture, FixtureScope):
+            raise ValueError("invalid synthetic scope")
+        return fixture.admit(path)
+    # Return the trusted constant, never the supplied pathname. Production
+    # activation has exactly these paths; arbitrary root CLI paths are refused.
+    for known in choices:
+        if str(path) == str(known):
+            return known
+    raise ValueError("path outside Janus Flow publication contract")
+
+
+def private_directory(path, uid, gid, *, fixture=None):
+    path = admitted(path, DIRECTORIES, fixture)
     if path.parent.is_symlink():
         raise ValueError("private directory parent is a symlink")
     if not path.parent.exists():
-        private_directory(path.parent, os.geteuid(), os.getegid())
+        private_directory(path.parent, os.geteuid(), os.getegid(), fixture=fixture)
     try:
         path.mkdir(mode=0o700)
         os.chown(path, uid, gid)
@@ -25,8 +79,9 @@ def private_directory(path, uid, gid):
         raise ValueError("private directory metadata")
 
 
-def checked_file(path, uid, gid, *, empty=False):
-    before = Path(path).lstat()
+def checked_file(path, uid, gid, *, empty=False, fixture=None):
+    path = admitted(path, (SOURCE, CREDENTIAL, PLACEHOLDER), fixture)
+    before = path.lstat()
     if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
         raise ValueError("private file type")
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -52,13 +107,13 @@ def checked_file(path, uid, gid, *, empty=False):
         os.close(fd)
 
 
-def placeholder(path, uid, gid):
-    path = Path(path)
-    private_directory(path.parent, uid, gid)
+def placeholder(path, uid, gid, *, fixture=None):
+    path = admitted(path, (PLACEHOLDER,), fixture)
+    private_directory(path.parent, uid, gid, fixture=fixture)
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     except FileExistsError:
-        checked_file(path, uid, gid, empty=True)
+        checked_file(path, uid, gid, empty=True, fixture=fixture)
         return
     try:
         os.fchown(fd, uid, gid)
@@ -66,18 +121,19 @@ def placeholder(path, uid, gid):
         os.fsync(fd)
     finally:
         os.close(fd)
-    checked_file(path, uid, gid, empty=True)
+    checked_file(path, uid, gid, empty=True, fixture=fixture)
 
 
-def credential(source, destination, uid, gid):
+def credential(source, destination, uid, gid, *, fixture=None):
     """Leave the mounted inode alone when agenix republishes identical bytes."""
-    destination = Path(destination)
+    source = admitted(source, (SOURCE,), fixture)
+    destination = admitted(destination, (CREDENTIAL,), fixture)
     # The CLI runs as root; tests use a private fixture owned by their caller.
     owner, group = os.geteuid(), os.getegid()
-    data = checked_file(source, owner, group)
-    private_directory(destination.parent, owner, group)
+    data = checked_file(source, owner, group, fixture=fixture)
+    private_directory(destination.parent, owner, group, fixture=fixture)
     try:
-        previous = checked_file(destination, uid, gid)
+        previous = checked_file(destination, uid, gid, fixture=fixture)
     except FileNotFoundError:
         previous = None
     if previous == data:
@@ -117,9 +173,13 @@ def main():
     os.umask(0o077)
     try:
         if args.operation == "placeholder":
-            placeholder(args.destination, args.uid, args.gid)
+            if args.destination != str(PLACEHOLDER) or args.source is not None:
+                raise ValueError("placeholder path contract")
+            placeholder(PLACEHOLDER, args.uid, args.gid)
         else:
-            credential(args.source, args.destination, args.uid, args.gid)
+            if args.source != str(SOURCE) or args.destination != str(CREDENTIAL):
+                raise ValueError("credential path contract")
+            credential(SOURCE, CREDENTIAL, args.uid, args.gid)
     except (OSError, ValueError):
         # No exception text, paths, or bytes enter the journal.
         print("Janus Flow private-file publication refused", file=sys.stderr)

@@ -4,7 +4,6 @@ import importlib.util
 import os
 import subprocess
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,15 +15,15 @@ SPEC.loader.exec_module(FILES)
 
 class PrivateFilesTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="janus-synthetic-")
-        self.root = Path(self.temp.name)
+        self.fixture = FILES.FixtureScope()
+        self.root = self.fixture.root
         self.uid, self.gid = os.geteuid(), os.getegid()
         self.source = self.root / "synthetic-source"
         self.destination = self.root / "runtime" / "api-key"
         self.write_source(b"A" * 64)
 
     def tearDown(self):
-        self.temp.cleanup()
+        self.fixture.__exit__(None, None, None)
 
     def write_source(self, data):
         temporary = self.root / "synthetic-next"
@@ -34,7 +33,7 @@ class PrivateFilesTests(unittest.TestCase):
         os.replace(temporary, self.source)
 
     def publish(self):
-        return FILES.credential(self.source, self.destination, self.uid, self.gid)
+        return FILES.credential(self.source, self.destination, self.uid, self.gid, fixture=self.fixture)
 
     def test_same_bytes_keep_mounted_inode_across_source_replacement(self):
         self.assertTrue(self.publish())
@@ -58,25 +57,25 @@ class PrivateFilesTests(unittest.TestCase):
         self.assertEqual(self.destination.parent.stat().st_mode & 0o777, 0o700)
 
     def test_placeholder_is_empty_private_and_stable(self):
-        FILES.placeholder(self.destination, self.uid, self.gid)
+        FILES.placeholder(self.destination, self.uid, self.gid, fixture=self.fixture)
         before = self.destination.stat()
-        FILES.placeholder(self.destination, self.uid, self.gid)
+        FILES.placeholder(self.destination, self.uid, self.gid, fixture=self.fixture)
         after = self.destination.stat()
         self.assertEqual(before.st_ino, after.st_ino)
         self.assertEqual((after.st_size, after.st_nlink, after.st_mode & 0o777), (0, 1, 0o400))
         with self.assertRaises(ValueError):
-            FILES.checked_file(self.destination, self.uid, self.gid)
+            FILES.checked_file(self.destination, self.uid, self.gid, fixture=self.fixture)
 
     def test_first_boot_creates_missing_private_ancestors(self):
         target = self.root / "new-run-janus" / "flow-host" / "api-key"
-        FILES.placeholder(target, self.uid, self.gid)
+        FILES.placeholder(target, self.uid, self.gid, fixture=self.fixture)
         self.assertEqual(target.parent.parent.stat().st_mode & 0o777, 0o700)
         self.assertEqual(target.stat().st_size, 0)
 
     def test_placeholder_does_not_truncate_unexpected_file(self):
         self.publish()
         with self.assertRaises(ValueError):
-            FILES.placeholder(self.destination, self.uid, self.gid)
+            FILES.placeholder(self.destination, self.uid, self.gid, fixture=self.fixture)
         self.assertEqual(self.destination.read_bytes(), b"A" * 64)
 
     def test_symlink_target_is_rejected(self):
@@ -85,7 +84,7 @@ class PrivateFilesTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.publish()
         with self.assertRaises(ValueError):
-            FILES.placeholder(self.destination, self.uid, self.gid)
+            FILES.placeholder(self.destination, self.uid, self.gid, fixture=self.fixture)
         self.assertTrue(self.destination.is_symlink())
 
     def test_symlink_directory_is_rejected_without_changing_referent(self):
@@ -132,7 +131,66 @@ class PrivateFilesTests(unittest.TestCase):
         link = self.root / "linked-source"
         link.symlink_to(self.source)
         with self.assertRaises(ValueError):
-            FILES.credential(link, self.destination, self.uid, self.gid)
+            FILES.credential(link, self.destination, self.uid, self.gid, fixture=self.fixture)
+
+    def test_fixture_paths_require_explicit_scope(self):
+        for action in (
+            lambda: FILES.credential(self.source, self.destination, self.uid, self.gid),
+            lambda: FILES.placeholder(self.destination, self.uid, self.gid),
+            lambda: FILES.checked_file(self.source, self.uid, self.gid),
+            lambda: FILES.private_directory(self.destination.parent, self.uid, self.gid),
+        ):
+            with self.assertRaises(ValueError):
+                action()
+        self.assertFalse(self.destination.parent.exists())
+
+    def test_traversal_and_outside_scope_fail_before_io(self):
+        with FILES.FixtureScope() as other:
+            for destination in (
+                self.root / ".." / "outside",
+                self.root / "unused" / ".." / "api-key",
+                other.root / "api-key",
+                Path("relative/api-key"),
+            ):
+                with self.subTest(path=destination), self.assertRaises(ValueError):
+                    FILES.credential(self.source, destination, self.uid, self.gid, fixture=self.fixture)
+            self.assertFalse((other.root / "api-key").exists())
+        self.assertFalse((self.root / "unused").exists())
+
+    def test_source_from_another_scope_is_refused(self):
+        with FILES.FixtureScope() as other:
+            source = other.root / "synthetic-source"
+            source.write_bytes(b"B" * 64)
+            source.chmod(0o400)
+            with self.assertRaises(ValueError):
+                FILES.credential(source, self.destination, self.uid, self.gid, fixture=self.fixture)
+        self.assertFalse(self.destination.parent.exists())
+
+    def test_deep_symlink_ancestor_is_refused(self):
+        outside = self.root / "outside"
+        outside.mkdir(mode=0o700)
+        (outside / "nested").mkdir(mode=0o700)
+        link = self.root / "link"
+        link.symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            FILES.placeholder(link / "nested" / "api-key", self.uid, self.gid, fixture=self.fixture)
+        self.assertFalse((outside / "nested" / "api-key").exists())
+
+    def test_changed_fixture_root_permissions_fail_closed(self):
+        self.root.chmod(0o755)
+        try:
+            with self.assertRaises(ValueError):
+                self.publish()
+            self.assertFalse(self.destination.parent.exists())
+        finally:
+            self.root.chmod(0o700)
+
+    def test_production_admission_returns_only_exact_constants(self):
+        for known in (FILES.SOURCE, FILES.CREDENTIAL, FILES.PLACEHOLDER):
+            self.assertIs(FILES.admitted(str(known), (known,), None), known)
+            for path in (str(known) + "/../api-key", str(known) + "-other", "/etc/passwd"):
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    FILES.admitted(path, (known,), None)
 
     def test_cli_never_prints_fixture_bytes_on_refusal(self):
         result = subprocess.run(
