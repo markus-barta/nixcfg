@@ -22,10 +22,10 @@ flake_nix="$repo_root/flake.nix"
 flake_lock="$repo_root/flake.lock"
 host_config="$repo_root/hosts/csb1/configuration.nix"
 consumer_eval="$repo_root/tests/aithema-workspace-consumer-eval.nix"
-expected_rev="e75e4f95a94974fbc6bcce2fde78f2994c8ef776"
-expected_narhash="sha256-s0wMz5Z3XzQZ+z45no8YkrNcgL3W+PrK+fv40Ag8NT4="
-expected_version="0.10.0"
-expected_source_rev="d9591b440fdcfa68a2217dd2aefbd92310d151b7"
+expected_rev="21b814057825c06b7f1e93f9deacdb4c549e11c6"
+expected_narhash="sha256-qHlzY3yA7p04XkRT15jDfA1UvODRZNEfZgkFTn+s3kc="
+expected_version="0.10.1"
+expected_source_rev="e89c1cdad0c3f608f2ae06fb0cfc87d9048b1ca0"
 repo_revision=$(git -C "$repo_root" rev-parse HEAD)
 export NIX498_FLAKE_REF="git+file://${repo_root}?rev=${repo_revision}&shallow=1"
 
@@ -97,6 +97,7 @@ jq -e \
   and .enabled.service.protectSystem == "strict"
   and any(.rejected.missingConfig[]; contains("configFile is required"))
   and any(.rejected.storeConfig[]; contains("outside the Nix store"))
+  and any(.rejected.missingRestriction[]; contains("restricted-project enforcement"))
 ' <<<"$projection" >/dev/null
 
 printf 'aithema_workspace_consumer=passed\n'

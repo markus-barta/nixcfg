@@ -49,6 +49,19 @@ let
   enabledServiceConfig = enabledService.serviceConfig;
   missingConfig = extendHost null;
   storeConfig = extendHost "${builtins.storeDir}/nix498-fixture/aithema-workspace.json";
+  missingRestriction = enabled.extendModules {
+    modules = [
+      {
+        services.inspr.aithemaWorkspace.package = lib.mkForce (
+          enabled.config.services.inspr.aithemaWorkspace.package.overrideAttrs (old: {
+            passthru = (old.passthru or { }) // {
+              supportsRestrictedProjects = false;
+            };
+          })
+        );
+      }
+    ];
+  };
 
   aithemaAssertionFailures =
     evaluated:
@@ -114,5 +127,6 @@ in
   rejected = {
     missingConfig = aithemaAssertionFailures missingConfig;
     storeConfig = aithemaAssertionFailures storeConfig;
+    missingRestriction = aithemaAssertionFailures missingRestriction;
   };
 }
