@@ -157,10 +157,11 @@ for user in markus mailina; do
     fail "$ds: refquota $((refquota / 1024 ** 3))G / quota $((quota / 1024 ** 3))G differ from tm-caps.nix — run its zfs set"
   fi
   headroom=$((quota - referenced - snaps))
-  if [[ "$headroom" -gt $((100 * 1024 ** 3)) ]]; then
+  # 150G = tm-watch's prune trigger; below it the witness should already have acted.
+  if [[ "$headroom" -gt $((150 * 1024 ** 3)) ]]; then
     pass "$ds: $((headroom / 1024 ** 3))G below quota"
   else
-    fail "$ds: only $((headroom / 1024 ** 3))G below quota — Time Machine will report a full volume"
+    fail "$ds: only $((headroom / 1024 ** 3))G below quota — tm-watch should have pruned; journalctl -u tm-watch"
   fi
 done
 if systemctl is-active --quiet tm-watch.timer; then

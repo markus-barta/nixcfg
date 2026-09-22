@@ -145,7 +145,10 @@ def prune(dataset: str, props: dict[str, int]) -> tuple[dict[str, int], list[str
             except subprocess.CalledProcessError:
                 if victim in autosnaps(dataset):
                     raise
-                continue  # sanoid got there first
+                # sanoid got there first — its destroy freed space too, so
+                # re-read before deciding whether anything else must go.
+                props = zfs_props(dataset)
+                continue
             destroyed.append(victim)
             print(f"pruned {victim}")
             props = zfs_props(dataset)
@@ -169,19 +172,19 @@ def check_caps(dataset: str, props: dict[str, int], cap: dict) -> list[Problem]:
 
 def completion_stamps(bundle: str) -> list[float]:
     """Completion times recorded by Time Machine; [] if none or unreadable."""
+    stamps: list[float] = []
     try:
         with open(os.path.join(bundle, HISTORY_PLIST), "rb") as handle:
             history = plistlib.load(handle)
-    except Exception:  # noqa: BLE001 - truncated/mid-rewrite/damaged plist: no evidence
+        if not isinstance(history, dict) or not isinstance(history.get("Snapshots"), list):
+            return []
+        for entry in history["Snapshots"]:
+            if isinstance(entry, dict):
+                when = entry.get("com.apple.backupd.SnapshotCompletionDate")
+                if isinstance(when, dt.datetime):
+                    stamps.append(when.replace(tzinfo=dt.timezone.utc).timestamp())
+    except Exception:  # noqa: BLE001 - truncated/mid-rewrite/damaged/odd plist: no evidence
         return []
-    if not isinstance(history, dict):
-        return []
-    stamps: list[float] = []
-    for entry in history.get("Snapshots") or []:
-        if isinstance(entry, dict):
-            when = entry.get("com.apple.backupd.SnapshotCompletionDate")
-            if isinstance(when, dt.datetime):
-                stamps.append(when.replace(tzinfo=dt.timezone.utc).timestamp())
     return stamps
 
 
@@ -261,7 +264,14 @@ def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
                                 f"{gib(budget)} snapshot budget (quota − refquota); tm-watch prunes "
                                 "before ZFS refuses, but the bundle is churning hard — check "
                                 f"`zfs list -t snapshot -r {dataset}` and the Mac."))
-    completed_age, activity_age, found = freshness(path, now)
+    # Freshness must never take the capacity findings above down with it.
+    try:
+        completed_age, activity_age, found = freshness(path, now)
+    except Exception as error:  # noqa: BLE001
+        problems.append(Problem(f"tm:{dataset}:check",
+                                f"hsb1: tm-watch's freshness check of {dataset} crashed "
+                                f"({type(error).__name__}) — fix the watcher; backup age is unknown."))
+        return problems
     if not found:
         problems.append(Problem(f"tm:{dataset}:bundle",
                                 f"hsb1: no sparsebundle under {path} — dataset not mounted, or "
@@ -321,6 +331,8 @@ def collect() -> list[Problem]:
         try:
             found += check_dataset(user, cap, now)
         except Exception as error:  # noqa: BLE001
+            # Last resort: maintenance already ran inside check_dataset before
+            # anything that can crash; only the report for this dataset is lost.
             found.append(Problem(f"tm:{cap['dataset']}:check",
                                  f"hsb1: tm-watch's own check of {cap['dataset']} crashed "
                                  f"({type(error).__name__}) — fix the watcher; the dataset is unwatched."))
