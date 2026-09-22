@@ -267,6 +267,21 @@ class DatasetTest(unittest.TestCase):
             with patch.object(checks.subprocess, "run", clean_zfs().run), contextlib.redirect_stdout(io.StringIO()):
                 found = {p.key: p.text for p in checks.check_dataset("markus", cap, NOW)}
         self.assertEqual(list(found), ["tm:tm/markus:stale"])
+        # …a new bundle next to an old one whose history is DAMAGED must not hide the damage…
+        with tempfile.TemporaryDirectory() as tmp:
+            old = Path(tmp, "old.sparsebundle")
+            (old / "bands").mkdir(parents=True)
+            (old / "token").write_bytes(b"t")
+            os.utime(old / "token", (NOW - 30 * 86400, NOW - 30 * 86400))
+            (old / checks.HISTORY_PLIST).write_bytes(b'<?xml version="1.0"?><plist><dict><key>Snap')
+            new = Path(tmp, "new.sparsebundle")
+            (new / "bands").mkdir(parents=True)
+            (new / "bands" / "0").write_bytes(b"x")
+            (new / "token").write_bytes(b"t")
+            cap = dict(CAPS["markus"], path=tmp)
+            with patch.object(checks.subprocess, "run", clean_zfs().run), contextlib.redirect_stdout(io.StringIO()):
+                found = {p.key: p.text for p in checks.check_dataset("markus", cap, NOW)}
+        self.assertEqual(list(found), ["tm:tm/markus:stale"])
         # …and a genuinely new bundle next to an old one that completed recently is clean.
         with tempfile.TemporaryDirectory() as tmp:
             old = Path(tmp, "old.sparsebundle")
