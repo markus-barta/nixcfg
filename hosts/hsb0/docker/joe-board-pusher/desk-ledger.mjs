@@ -26,7 +26,7 @@ export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
     Object.freeze({ symbol: "TSLA", quantity: 1 }),
   ]),
   assignments: Object.freeze([
-    ...[27, 28, 29, 50, 51, 52, 53, 54, 55, 56].map((clientId) => Object.freeze({
+    ...[27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 78].map((clientId) => Object.freeze({
       desk: "j", clientId, fromInclusive: PERIOD_START, toExclusive: null, basis: "existing-j-family-policy",
     })),
     Object.freeze({

@@ -9,7 +9,7 @@ const MAX_RECORDS = 50_000;
 const OFFICIAL_COMPLETENESS_PROVIDER = "ibkr-official-sdk-execution-window-v1";
 
 export const J_FAMILY_CLASSIFIER = Object.freeze({
-  familyClientIds: Object.freeze([27, 28, 29, 50, 51, 52, 53, 54, 55, 56]),
+  familyClientIds: Object.freeze([27, 28, 29, 50, 51, 52, 53, 54, 55, 56, 78]),
   excludedSymbols: Object.freeze(["SXR8", "TSLA"]),
 });
 
