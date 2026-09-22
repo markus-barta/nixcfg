@@ -334,19 +334,22 @@ sees the Samba cap, so it thins its own old backups before ZFS can refuse a
 write (it fills that space by design — `referenced ≈ refquota` is normal).
 The refquota→quota gap is the budget for sanoid's 7 daily snapshots of the
 churning sparsebundle — and because TM deleting a backup does **not** free
-blocks a snapshot still holds, `tm-watch` prunes the oldest `autosnap_*`
-snapshots itself when the headroom under quota drops below 100G (keeping the
-newest). That is the layer that keeps "Backup-Volume ist voll" away; the caps
-alone cannot. Both ZFS caps are **imperative**, not disko-declared — changing
+blocks a snapshot still holds, `tm-watch` (every 10 min) prunes this dataset's
+`autosnap_*` snapshots itself when the headroom under quota drops below 150G —
+oldest first, the newest last and only if still needed, until 400G is free.
+That is the layer that keeps "Backup-Volume ist voll" away; the caps alone
+cannot, and it has limits (blocks a remaining snapshot still holds stay
+allocated; a burst over 150G inside one 10-minute poll still hits ENOSPC).
+Both ZFS caps are **imperative**, not disko-declared — changing
 a number in `tm-caps.nix` requires the matching live command:
 
 ```bash
 ssh mba@192.168.1.101 "sudo zfs set refquota=2253G quota=3277G tm/markus && sudo zfs set refquota=1434G quota=2048G tm/mailina"
 ```
 
-`tm-watch.timer` (30 min, Telegram) pages when the live caps differ from
-`tm-caps.nix`, snapshots eat half the budget, it had to prune on two
-consecutive runs, headroom stays under 100G with nothing left to prune, the
+`tm-watch.timer` (10 min, Telegram, two-run confirmation) pages when the live
+caps differ from `tm-caps.nix`, snapshots eat half the budget, it had to prune
+on two consecutive runs, headroom stays under 150G with nothing left to prune, the
 pool passes 85 %, smbd has no process, or a Mac's last **completed** backup
 (from `com.apple.TimeMachine.SnapshotHistory.plist` inside its bundle) is older
 than 5 days.

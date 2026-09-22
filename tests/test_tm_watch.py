@@ -147,6 +147,9 @@ class DatasetTest(unittest.TestCase):
                 elif history == "wrong-shape":
                     with open(bundle / checks.HISTORY_PLIST, "wb") as handle:
                         plistlib.dump(["not", "a", "dict"], handle)
+                elif history == "snapshots-not-a-list":
+                    with open(bundle / checks.HISTORY_PLIST, "wb") as handle:
+                        plistlib.dump({"Snapshots": 1}, handle)
             with patch.object(checks.subprocess, "run", zfs.run), contextlib.redirect_stdout(io.StringIO()):
                 problems = checks.check_dataset("markus", cap, NOW)
         return {p.key: p.text for p in problems}
@@ -223,10 +226,37 @@ class DatasetTest(unittest.TestCase):
         self.assertIn("no completed backup on record", no_record["tm:tm/markus:stale"])
 
     def test_damaged_plist_is_no_evidence_not_a_crash(self):
-        for shape in ("truncated", "wrong-shape"):
+        for shape in ("truncated", "wrong-shape", "snapshots-not-a-list"):
             with self.subTest(shape=shape):
                 found = self.run_dataset(clean_zfs(), band_age=600.0, history=shape)
                 self.assertEqual(list(found), ["tm:tm/markus:stale"])
+
+    def test_damaged_plist_never_clears_a_capacity_finding(self):
+        # Headroom problem must survive a plist that makes the freshness path fail.
+        zfs = FakeZfs(3200 * G, 2253 * G, 3277 * G, snaps("tm/markus", 2, 30 * G))
+        with patch.object(checks, "freshness", side_effect=RuntimeError("boom")):
+            found = self.run_dataset(zfs, history="snapshots-not-a-list")
+        self.assertIn("tm:tm/markus:headroom", found)
+        self.assertIn("tm:tm/markus:check", found)
+
+    def test_sanoid_race_refreshes_accounting_before_surrendering_the_newest(self):
+        # Headroom 100G; sanoid removes the oldest (100G) between our list and
+        # destroy → headroom is fine again; the newest must NOT be destroyed.
+        zfs = FakeZfs(2900 * G, 2253 * G, 3277 * G,
+                      [("tm/markus@autosnap_2026-09-10_22:00:00_daily", 250 * G),
+                       ("tm/markus@autosnap_2026-09-11_22:00:00_daily", 27 * G)])
+        original = zfs.run
+
+        def run(argv, **kwargs):
+            if argv[1] == "destroy" and argv[2].endswith("09-10_22:00:00_daily"):
+                zfs.vanish.add(argv[2])  # sanoid wins the race on the first victim
+            return original(argv, **kwargs)
+
+        zfs.run = run
+        found = self.run_dataset(zfs)
+        self.assertNotIn("tm:tm/markus:headroom", found)
+        self.assertEqual(zfs.destroyed, [])
+        self.assertEqual([s[0] for s in zfs.snapshots], ["tm/markus@autosnap_2026-09-11_22:00:00_daily"])
 
     def test_missing_bundle_pages(self):
         self.assertEqual(list(self.run_dataset(clean_zfs(), with_bundle=False)), ["tm:tm/markus:bundle"])
