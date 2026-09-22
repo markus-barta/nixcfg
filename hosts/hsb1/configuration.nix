@@ -25,6 +25,7 @@ in
     ./media-samba.nix # SMB share for /srv/media (Finder access) — independent of tm-*.nix
     ./tm-pool.nix # external 6TB USB — Time Machine ZFS pool (markus/mailina quotas + sanoid)
     ./tm-samba.nix # Samba + vfs_fruit + Avahi for the tm pool's two shares
+    ./tm-watch.nix # OPS-226: pages before a Time Machine dataset fills, and when a Mac stops backing up
     ./babycam-watchdog.nix # NIX-151 — probe + self-heal + MQTT telemetry for the kiosk babycam
     ../../modules/hostdash-status.nix # NIX-280 — same-origin runtime status artifact for HostDash
     ./ir-bridge.nix # FLIRC IR receiver -> Sony Bravia IRCC (returned from hsb2)
