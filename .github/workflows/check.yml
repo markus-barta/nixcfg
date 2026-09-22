@@ -61,6 +61,9 @@ jobs:
       - name: Enforce IR bridge destination and log boundaries
         run: tests/T25-ir-bridge-boundaries.sh
 
+      - name: Verify hsb1 IR bridge witness and bridge contracts (OPS-223/224/225)
+        run: tests/T87-ir-bridge-watch.sh
+
       - name: Enforce funkeykid config and sound path boundaries
         run: tests/T26-funkeykid-path-boundaries.sh
 
