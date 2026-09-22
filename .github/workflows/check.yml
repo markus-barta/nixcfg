@@ -64,6 +64,9 @@ jobs:
       - name: Verify hsb1 IR bridge witness and bridge contracts (OPS-223/224/225)
         run: tests/T87-ir-bridge-watch.sh
 
+      - name: Verify hsb1 Time Machine two-cap design and witness (OPS-226)
+        run: tests/T89-tm-watch.sh
+
       - name: Enforce funkeykid config and sound path boundaries
         run: tests/T26-funkeykid-path-boundaries.sh
 
