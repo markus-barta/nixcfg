@@ -185,22 +185,33 @@ def check_caps(dataset: str, props: dict[str, int], cap: dict) -> list[Problem]:
                     f"space. Run: zfs set refquota={cap['refquotaG']}G quota={cap['quotaG']}G {dataset}")]
 
 
-def completion_stamps(bundle: str) -> list[float]:
-    """Completion times recorded by Time Machine; [] if none or unreadable."""
+def read_history(bundle: str) -> tuple[str, list[float]]:
+    """(state, completion stamps). state: absent | empty | ok | damaged.
+
+    Time Machine writes SnapshotHistory.plist with an EMPTY list when it
+    (re)initialises a set and appends an entry per completed backup. An empty
+    list is therefore "new set", not history and not damage; a plist that
+    exists but cannot be read, or has the wrong shape, is damage.
+    """
+    path = os.path.join(bundle, HISTORY_PLIST)
+    if not os.path.exists(path):
+        return "absent", []
     stamps: list[float] = []
     try:
-        with open(os.path.join(bundle, HISTORY_PLIST), "rb") as handle:
+        with open(path, "rb") as handle:
             history = plistlib.load(handle)
         if not isinstance(history, dict) or not isinstance(history.get("Snapshots"), list):
-            return []
+            return "damaged", []
         for entry in history["Snapshots"]:
             if isinstance(entry, dict):
                 when = entry.get("com.apple.backupd.SnapshotCompletionDate")
                 if isinstance(when, dt.datetime):
                     stamps.append(when.replace(tzinfo=dt.timezone.utc).timestamp())
-    except Exception:  # noqa: BLE001 - truncated/mid-rewrite/damaged/odd plist: no evidence
-        return []
-    return stamps
+    except Exception:  # noqa: BLE001 - truncated/mid-rewrite/odd plist
+        return "damaged", []
+    if not history["Snapshots"]:
+        return "empty", []
+    return "ok", stamps
 
 
 def band_activity(bundle: str) -> float | None:
@@ -217,7 +228,8 @@ def freshness(path: str, now: float) -> dict:
     completed_age  newest completion recorded by Time Machine (None: none)
     activity_age   newest band write (None: none)
     bundle_age     youngest bundle's creation (`token`, written once) (None: unknown)
-    history        True if any bundle carries a history plist file at all
+    history        True if any bundle has completed backups on record or a
+                   damaged history plist (an empty list is neither)
     found          any *.sparsebundle at all
     """
     result: dict = {"completed_age": None, "activity_age": None, "bundle_age": None,
@@ -229,9 +241,11 @@ def freshness(path: str, now: float) -> dict:
         return result
     for bundle in entries:
         result["found"] = True
-        has_history = os.path.exists(os.path.join(bundle, HISTORY_PLIST))
+        state, stamps = read_history(bundle)
+        # "history" = something to be stale AGAINST: completed backups, or a
+        # plist we cannot read (damage). An empty list is a freshly (re)made set.
+        has_history = state in ("ok", "damaged")
         result["history"] = result["history"] or has_history
-        stamps = completion_stamps(bundle)
         if stamps:
             age = now - max(stamps)
             result["completed_age"] = age if result["completed_age"] is None else min(result["completed_age"], age)
@@ -311,10 +325,10 @@ def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
         return problems
     completed_age, activity_age = fresh["completed_age"], fresh["activity_age"]
     # A set is "first copy in progress" only if ONE bundle is young, has no
-    # history plist at all and is being written (freshness() judges that per
-    # bundle), no bundle has a readable completion, AND no bundle carries a
-    # history plist at all — a damaged history elsewhere is damage, and a new
-    # bundle next to it must not hide that.
+    # completed backup and is being written (freshness() judges that per
+    # bundle), no bundle has a readable completion, AND no bundle carries
+    # history (completions, or a damaged plist) — damage elsewhere is damage,
+    # and a new bundle next to it must not hide that.
     first_copy_in_progress = completed_age is None and not fresh["history"] and fresh["first_copy"]
     if not fresh["found"]:
         problems.append(Problem(f"tm:{dataset}:bundle",
