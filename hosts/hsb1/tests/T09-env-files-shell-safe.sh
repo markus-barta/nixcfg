@@ -11,7 +11,8 @@
 # subshell.
 #
 # Can run locally on hsb1 OR remotely via SSH. Remote commands are sent to
-# `bash -s` on stdin because hsb1's login shell is fish.
+# `bash -s` on stdin because hsb1's login shell is fish. Coverage: every
+# configured service unit file plus every loaded unit (templates excluded).
 #
 
 set -euo pipefail
@@ -26,16 +27,30 @@ else
   run_script() { ssh "$SSH_USER@$HOST" bash -s 2>/dev/null; }
 fi
 
-# "unit<TAB>/run/agenix/<file>" for every service whose EnvironmentFile= is an agenix path
+# "unit<TAB>/run/agenix/<file>" for every configured service (unit files, not
+# only loaded units) whose EnvironmentFile= is an agenix path. Discovery runs
+# under strict mode and ends with a sentinel line, so a failed query is an
+# error, never an empty (and therefore passing) inventory.
 pairs=$(
   run_script <<'EOS'
-for u in $(systemctl list-units --type=service --all --plain --no-legend | awk '{print $1}'); do
-  systemctl show "$u" -p EnvironmentFiles --value 2>/dev/null | grep -o '/run/agenix/[^ ]*' | sed "s#^#$u\t#"
+set -euo pipefail
+{
+  systemctl list-unit-files --type=service --plain --no-legend | awk '{print $1}'
+  systemctl list-units --type=service --all --plain --no-legend | awk '{print $1}'
+} | grep -v '@$' | sort -u | while read -r u; do
+  systemctl show "$u" -p EnvironmentFiles --value | grep -o '/run/agenix/[^ ]*' | sed "s#^#$u\t#" || true
 done | sort -u
+echo "__DISCOVERY_OK__"
 EOS
-)
+) || true
+if [[ "$pairs" != *__DISCOVERY_OK__ ]]; then
+  echo "  ❌ FAIL: could not enumerate systemd EnvironmentFiles on $TARGET_HOST (query failed)"
+  exit 1
+fi
+pairs=${pairs%__DISCOVERY_OK__}
+pairs=${pairs%$'\n'}
 if [[ -z "$pairs" ]]; then
-  echo "  ⚠️  no systemd unit on $TARGET_HOST consumes an agenix EnvironmentFile — nothing to check"
+  echo "  ⚠️  no configured service on $TARGET_HOST consumes an agenix EnvironmentFile — nothing to check (queried successfully)"
   exit 0
 fi
 
