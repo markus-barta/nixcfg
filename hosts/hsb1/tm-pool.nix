@@ -6,16 +6,33 @@
 #   zfs set compression=zstd tm
 #   zfs create tm/markus
 #   zfs create tm/mailina
-#   zfs set quota=2.5T tm/markus
-#   zfs set quota=2.5T tm/mailina
+#   zfs set refquota=2253G quota=3277G tm/markus     # numbers: ./tm-caps.nix
+#   zfs set refquota=1434G quota=2048G tm/mailina
 #
-# 2.5T + 2.5T = 5T against ~5.45TiB usable — the remaining ~450GB is
-# deliberate pool-level headroom for sanoid's daily snapshots (below) plus
-# ZFS slop space, not unallocated waste. NOTE: quota here is imperative,
-# not disko-declared — if you ever change the numbers below, you must also
-# run the matching `zfs set quota=...` by hand (same caveat as hsb0's ncps
-# dataset in disk-config.zfs.nix).
+# TWO caps per dataset (OPS-226, after "Das Backup-Volume ist voll" on
+# 2026-09-22) — refquota is Time Machine's own cap (Samba advertises a bit
+# less, so TM thins itself first), quota is the hard cap incl. sanoid
+# snapshots. The old single `quota=2.5T` counted snapshots while Samba
+# advertised the same 2.5T to TM: TM believed 550G were free, ZFS had 0B.
+# TM deleting old backups does NOT free blocks a snapshot still holds, so the
+# snapshot budget (quota − refquota) is defended by tm-watch.nix, which
+# prunes the oldest autosnap_* snapshots when headroom under quota drops
+# below 150G, and pages on cap drift, snapshot pressure, pool pressure,
+# smbd down and stale backups. All numbers live in ./tm-caps.nix; both ZFS
+# caps are imperative, not disko-declared — changing a number there means
+# running the matching `zfs set` by hand (same caveat as hsb0's ncps dataset
+# in disk-config.zfs.nix). The eval-time assertion below keeps Samba's cap
+# under the refquota so the two can never drift the wrong way.
+{ lib, ... }:
+let
+  caps = import ./tm-caps.nix;
+in
 {
+  assertions = lib.mapAttrsToList (user: cap: {
+    assertion = cap.maxSizeG + 32 <= cap.refquotaG && cap.refquotaG < cap.quotaG;
+    message = "tm-caps.nix ${user}: need maxSizeG + 32G <= refquotaG < quotaG (got ${toString cap.maxSizeG}/${toString cap.refquotaG}/${toString cap.quotaG})";
+  }) caps;
+
   # Best-effort import at boot — an absent/unplugged USB drive must never hang
   # boot or `just switch`. (media's entry lives in ./media-pool.nix; the option
   # is a list, so the module system merges them.)
@@ -50,13 +67,18 @@
   ];
 
   # Corruption-rollback safety net for network TM sparsebundles/backups —
-  # daily snapshots, 14-day retention, per the original TM hardening plan.
+  # daily snapshots, 7-day retention (was 14: a fortnight of a churning
+  # sparsebundle held 574G on tm/markus and filled the quota, OPS-226; a week
+  # is plenty to roll back a corrupted bundle). `hourly = 0` is explicit:
+  # sanoid's default template otherwise adds an `_hourly` snapshot next to
+  # every daily one, doubling the count for nothing.
   services.sanoid = {
     enable = true;
     interval = "daily";
 
     templates.tm-daily = {
-      daily = 14;
+      hourly = 0;
+      daily = 7;
       monthly = 0;
       yearly = 0;
       autosnap = true;
