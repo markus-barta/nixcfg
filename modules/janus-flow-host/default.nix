@@ -116,7 +116,10 @@ let
     runtime_directory=${lib.escapeShellArg runtimeDirectory}
     temporary="$runtime_directory/.config.$$"
     trap '${pkgs.coreutils}/bin/rm -f "$temporary"' EXIT HUP INT TERM
-    ${pkgs.coreutils}/bin/install -d -m 0700 -o ${lib.escapeShellArg owner} -g ${lib.escapeShellArg group} ${lib.escapeShellArg runtimeDirectory}
+    # The directory mount is already read-only when runc mounts the child.
+    # An empty target must exist; Janus rejects it if the key overlay is absent.
+    ${pkgs.python3}/bin/python3 ${./private_files.py} placeholder \
+      ${lib.escapeShellArg cfg.apiKeyFile} --uid ${owner} --gid ${group}
     ${pkgs.coreutils}/bin/install -m 0400 -o ${lib.escapeShellArg owner} -g ${lib.escapeShellArg group} \
       ${documentFile} "$temporary"
     ${pkgs.coreutils}/bin/mv -f "$temporary" "$destination"

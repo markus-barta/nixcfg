@@ -324,6 +324,9 @@ in
     ++ lib.optionals sharedFlow.active [
       config.services.inspr.routingEdge.generatedFragmentFile
       legacyFlowFragmentFile
+    ]
+    ++ lib.optionals janusFlowHost.active [
+      config.age.secrets.csb1-janus-flow-api-key.file
     ];
     spec = import ./docker/compose-spec.nix;
   };
@@ -421,13 +424,35 @@ in
 
   # NIX-574: the package must enforce restricted project membership before the
   # separately managed operator map can admit a scoped human reviewer.
-  assertions = lib.mkIf (sharedFlow.active && config.services.inspr.aithemaWorkspace.enable) [
-    {
-      assertion =
-        config.services.inspr.aithemaWorkspace.package.passthru.supportsRestrictedProjects or false;
-      message = "services.inspr.aithemaWorkspace requires a package with restricted-project enforcement.";
-    }
-  ];
+  assertions =
+    lib.optionals (sharedFlow.active && config.services.inspr.aithemaWorkspace.enable) [
+      {
+        assertion =
+          config.services.inspr.aithemaWorkspace.package.passthru.supportsRestrictedProjects or false;
+        message = "services.inspr.aithemaWorkspace requires a package with restricted-project enforcement.";
+      }
+    ]
+    ++ lib.optionals janusFlowHost.active [
+      {
+        assertion =
+          builtins.isString janusFlowHost.credentialRevision
+          && builtins.match "[0-9a-f]{64}" janusFlowHost.credentialRevision != null;
+        message = "Janus Flow activation requires its reviewed encrypted projection credential.";
+      }
+    ];
+
+  # agenix replaces its output inode on every switch. A live single-file bind
+  # must retain its inode on identical bytes; actual rotations recreate Janus
+  # via the ciphertext revision already included in its Compose label.
+  system.activationScripts.janusFlowCredential = lib.mkIf janusFlowHost.active {
+    deps = [ "agenix" ];
+    text = ''
+      ${pkgs.python3}/bin/python3 ${../../modules/janus-flow-host/private_files.py} credential \
+        ${lib.escapeShellArg janusFlowHost.hostApiKeyFile} \
+        --source ${lib.escapeShellArg config.age.secrets.csb1-janus-flow-api-key.path} \
+        --uid 100 --gid 101
+    '';
+  };
 
   # Validate only the topology and protection contract, never render or log
   # the operator-owned JSON or conversation key. A missing or mismatched file
@@ -1494,6 +1519,15 @@ in
         mode = "0400";
         symlink = false;
       };
+
+  # NIX-574: agenix owns only its normal root-only generation file. The
+  # activation script projects it to the stable, private single-file mount.
+  age.secrets.csb1-janus-flow-api-key = lib.mkIf janusFlowHost.active {
+    file = ../../secrets + "/csb1-janus-flow-api-key.age";
+    owner = "root";
+    group = "root";
+    mode = "0400";
+  };
 
   # Janus Docker env (Zitadel OIDC client + cookie signing key)
   # Format: KEY=VALUE lines (OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, COOKIE_KEY)

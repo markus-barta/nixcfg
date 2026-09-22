@@ -141,7 +141,17 @@ let
   # first to preserve uid-100/mode-0700 custody, then the API key is overlaid as
   # a distinct inode. The deployment revision makes a reviewed binding change
   # recreate Janus so it cannot retain startup-cached authorization.
-  janusFlow = import ../janus-flow-host.nix;
+  janusFlow =
+    let
+      staged = import ../janus-flow-host.nix;
+    in
+    assert
+      !staged.active
+      || (
+        builtins.isString staged.credentialRevision
+        && builtins.match "[0-9a-f]{64}" staged.credentialRevision != null
+      );
+    staged;
   janusFlowHostEnvironment =
     if janusFlow.active then [ "JANUS_FLOW_CONFIG_FILE=${janusFlow.configFile}" ] else [ ];
   janusFlowHostVolumes =

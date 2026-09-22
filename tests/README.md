@@ -103,12 +103,34 @@ Examples:
 - `T74-public-routing-consumer.sh` — published routing-edge pin + inactive csb1 consumer (NIX-447)
 - `T75-csb1-traefik-3713-isolated.sh` — csb1 Traefik 3.7.13 digest pin + isolated provider/plugin/redirect proof (NIX-448)
 - `T76-janus-flow-host.sh` — csb1 Janus Flow host config contract (NIX-481)
+- `test_janus_flow_private_files.py` — synthetic private-file validation, unchanged-byte inode retention and atomic credential rotation (NIX-574)
+- `janus_flow_mount_ci.py` — hosted-Linux-only nested read-only Docker mounts using a locally built scratch probe; never run this on a production host (NIX-574)
 - `T85-cursor-agent-package.sh` — pinned Cursor CLI package, its consumers, the `update-ai-clis` bump step and manual review reports with short region-path diff headers (NIX-514, NIX-525, NIX-527)
 - `T86-update-cursor-agent-safety.sh` — offline Cursor CLI update lock and unsupported-host safety (NIX-519)
 - `T87-ir-bridge-watch.sh` — hsb1 IR bridge witness wiring + unit/engine tests, and the bridge's send/stale-event/SIGTERM contracts (OPS-223, OPS-224, OPS-225)
 - `T88-model-role-lint.sh` — agent-instruction surfaces name roles, never models; runs the pinned doctrine's `model-role-doctrine.sh --lint` (NIX-568)
 - `T89-tm-watch.sh` — hsb1 Time Machine: Samba `max size` ≤ refquota pairing, 7-day sanoid, tm-watch witness wiring + unit/engine tests (OPS-226)
 - `T84-pi-inspr-kernel.sh` — Pi global AGENTS.md via inspr.agent-kernel (NIX-508)
+
+## Janus Flow private-file lifecycle (NIX-574)
+
+Janus Flow activation remains off until the separately provisioned encrypted
+projection credential and `markus ++ csb1` recipient declaration are added and
+reviewed together with the activation change. A missing ciphertext revision
+rejects activation. The root-only agenix generation is copied after the `agenix`
+activation anchor into a root-owned 0700 parent, with the mounted file owned by
+100:101 and mode 0400. Equal bytes preserve the inode; changed ciphertext changes
+the Compose revision and recreates Janus for a new key inode. The publisher
+creates an empty protected child target before the read-only mounts; Janus
+rejects the empty file if its credential overlay is absent.
+
+The CI mount job uses only `A`/`B` fixtures in a new scratch image, with no network,
+real credentials, service access, or production containers. Local portable tests
+use `PYTHONDONTWRITEBYTECODE=1 python3 tests/test_janus_flow_private_files.py`.
+After approved live activation, verify metadata and a fresh uncached Flow
+projection: Janus can retain a projection until the next ten-minute boundary.
+Rollback disables `hosts/csb1/janus-flow-host.nix`'s `active` selector and uses the
+normal checked switch; it does not remove any existing operator role or secret.
 
 ## Writing Shell Tests
 
