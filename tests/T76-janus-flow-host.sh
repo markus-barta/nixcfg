@@ -118,8 +118,14 @@ grep -Fq 'activate = janusFlowHost.active;' "$host_config"
 grep -Fq 'containerUid = 100;' "$host_config"
 grep -Fq 'containerGid = 101;' "$host_config"
 grep -Fq '  active = false;' "$stage"
-grep -Fq '  bindings = [ ];' "$stage"
-grep -Fq 'install -d -m 0700 -o' "$module"
+nix eval --impure --json --expr "import $stage" | jq -e '
+  .active == false
+  and .hostApiKeyFile == "/run/janus-flow-credential/api-key"
+  and (.credentialRevision == null or (.credentialRevision | test("^[0-9a-f]{64}$")))
+  and .bindings == [{projectId:33,projectRef:null,label:"UXQA sandbox",principalRefs:["391779593318563851"]}]
+' >/dev/null
+# shellcheck disable=SC2016
+grep -Fq '${./private_files.py} placeholder' "$module"
 grep -Fq 'install -m 0400 -o' "$module"
 # shellcheck disable=SC2016
 grep -Fq 'mv -f "$temporary" "$destination"' "$module"
@@ -138,16 +144,21 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-mkdir -p "$workdir/off/docker" "$workdir/on/docker"
-sed 's/^  active = false;/  active = true;/' "$stage" >"$workdir/on/janus-flow-host.nix"
-cp "$stage" "$workdir/off/janus-flow-host.nix"
-cp "$compose" "$workdir/off/docker/compose-spec.nix"
-cp "$compose" "$workdir/on/docker/compose-spec.nix"
-# Isolate this adapter's selector from the production shared-origin state.
-for fixture in off on; do
+mkdir -p "$workdir/off/docker" "$workdir/on/docker" "$workdir/missing/docker" "$workdir/rotated/docker"
+# Synthetic revision metadata is not a credential or an encrypted artifact.
+for fixture in off on missing rotated; do
+  active=true
+  revision='"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'
+  [[ "$fixture" != off ]] || active=false
+  [[ "$fixture" != missing ]] || revision=null
+  [[ "$fixture" != rotated ]] || revision='"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'
+  printf '(import %s) // { active = %s; credentialRevision = %s; }\n' "$stage" "$active" "$revision" >"$workdir/$fixture/janus-flow-host.nix"
+  cp "$compose" "$workdir/$fixture/docker/compose-spec.nix"
   sed 's/^  active = true;/  active = false;/' "$shared_flow" >"$workdir/$fixture/shared-flow.nix"
 done
-
+expect_rejected "(import $workdir/missing/docker/compose-spec.nix).services.janus" \
+  'Janus Flow accepted activation without ciphertext revision'
+rotated_service=$(nix eval --impure --json --expr "(import $workdir/rotated/docker/compose-spec.nix).services.janus")
 for fixture in off on; do
   grep -Fq '  active = false;' "$workdir/$fixture/shared-flow.nix" || {
     printf 'Janus fixture must leave shared Flow inactive: %s\n' "$fixture" >&2
@@ -166,11 +177,11 @@ off_service=$(nix eval --impure --json --expr "(import ${off_path}).services.jan
 on_service=$(nix eval --impure --json --expr "(import ${on_path}).services.janus")
 live_service=$(nix eval --impure --json --expr "(import ${live_path}).services.janus")
 
-PYTHONDONTWRITEBYTECODE=1 python3 - "$off_service" "$on_service" "$live_service" <<'PY'
+PYTHONDONTWRITEBYTECODE=1 python3 - "$off_service" "$on_service" "$live_service" "$rotated_service" <<'PY'
 import json
 import sys
 
-off, on, live = map(json.loads, sys.argv[1:4])
+off, on, live, rotated = map(json.loads, sys.argv[1:5])
 failures = []
 var = "JANUS_FLOW_CONFIG_FILE"
 
@@ -215,7 +226,7 @@ if len(added_volumes) != 2:
     failures.append(f"active Janus added {len(added_volumes)} mounts, expected 2")
 expected = {
     ("/run/janus/flow-host", "/run/janus/flow-host"),
-    ("/run/agenix/csb1-janus-flow-api-key", "/run/janus/flow-host/api-key"),
+    ("/run/janus-flow-credential/api-key", "/run/janus/flow-host/api-key"),
 }
 actual = set()
 for volume in added_volumes:
@@ -239,12 +250,46 @@ if len(added_labels) != 1 or not added_labels[0].startswith(prefix):
 if any(value.startswith(prefix) for value in off["labels"]):
     failures.append("inactive Janus carries a Flow deployment revision")
 
+# Recover the entire original service after removing exactly Flow's additions.
+stripped = dict(on)
+stripped["environment"] = [value for value in on["environment"] if not value.startswith(var + "=")]
+stripped["volumes"] = [value for value in on["volumes"] if value not in added_volumes]
+stripped["labels"] = [value for value in on["labels"] if value not in added_labels]
+if stripped != off:
+    failures.append("Flow activation changes unrelated Janus service settings")
+if rotated["labels"] == on["labels"]:
+    failures.append("ciphertext rotation does not change the Compose revision")
+if dict(rotated, labels=on["labels"]) != on:
+    failures.append("ciphertext rotation changes more than the revision label")
+
 if failures:
     print(f"T76: {len(failures)} failure(s):", file=sys.stderr)
     for failure in failures:
         print(f"  - {failure}", file=sys.stderr)
     raise SystemExit(1)
 PY
+
+# The projection depends on agenix's activation anchor, not a phantom unit.
+PYTHONDONTWRITEBYTECODE=1 python3 - "$host_config" <<'PY'
+import pathlib, re, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+activation = re.search(r'system\.activationScripts\.janusFlowCredential = lib\.mkIf janusFlowHost\.active \{(.*?)\n  \};', source, re.S)
+assert activation, "missing gated credential projection"
+assert 'deps = [ "agenix" ];' in activation[1]
+assert 'private_files.py} credential' in activation[1]
+assert '--source ${lib.escapeShellArg config.age.secrets.csb1-janus-flow-api-key.path}' in activation[1]
+assert '--uid 100 --gid 101' in activation[1]
+secret = re.search(r'age\.secrets\.csb1-janus-flow-api-key = lib\.mkIf janusFlowHost\.active \{(.*?)\n  \};', source, re.S)
+assert secret, "missing gated agenix declaration"
+for required in ('owner = "root";', 'group = "root";', 'mode = "0400";'):
+    assert required in secret[1], "unsafe agenix metadata"
+assert 'path =' not in secret[1] and 'symlink =' not in secret[1], "must keep default agenix publication"
+extra_after = re.search(r'extraAfter = (.*?);', source, re.S)
+assert extra_after and 'agenix.service' not in extra_after[1], "phantom Compose agenix service"
+assert 'config.age.secrets.csb1-janus-flow-api-key.file' in source, "missing ciphertext reconcile trigger"
+PY
+
+PYTHONDONTWRITEBYTECODE=1 python3 "$repo_root/tests/test_janus_flow_private_files.py"
 
 # Paths and opaque sample refs are allowed; credential-shaped literal values are not.
 PYTHONDONTWRITEBYTECODE=1 python3 - "$stage" "$module" <<'PY'
