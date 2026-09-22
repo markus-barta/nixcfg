@@ -10,6 +10,8 @@
 
 **Version-bearing work:** load `AGENTS-VERSIONING.md` (or the installed `inspr-worker-doctrine` reference) at project bootstrap and before release/deployment. INSPR Calendar Versioning is the default: pick up existing adoption tickets for the next deployment; without one, propose and track adoption; adopted projects review their saved presentation pin. Preserve migration/review gates and historical artifacts.
 
+**Model choice:** evaluate the task, pick a role — `scout` · `mechanical` · `build` · `build-hard` · `review-gate` — and resolve it with `paimos model resolve <role> [--author-family <yours>]`; run the command it prints. Model names live in the Paimos registry (catalog, cross-family review ladder, expiring overrides — PAI-1048), never in doctrine, skills or prompts; the only exceptions are lenses defined by one exact model, enumerated in `/dev` § model choice by role.
+
 ## Hard safety (kernel mirror — 🔴 only)
 
 - **Identity**: Markus Barta, `markus@barta.com`, `markus-barta`. Never invent placeholders.
