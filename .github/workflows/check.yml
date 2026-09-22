@@ -19,6 +19,20 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  janus-flow-mounts:
+    name: Janus Flow private mount lifecycle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build a local static probe without an external container image
+        run: CGO_ENABLED=0 go build -o tests/fixtures/janus-mount-probe tests/fixtures/janus-mount-probe.go
+      - name: Verify actual read-only nested mounts and repeated activation
+        run: >-
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT
+          python3 tests/janus_flow_mount_ci.py
+
   pharos-rollout:
     name: Pharos fleet release compatibility
     runs-on: ubuntu-latest
