@@ -144,17 +144,26 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-mkdir -p "$workdir/off/docker" "$workdir/on/docker" "$workdir/missing/docker" "$workdir/rotated/docker"
+mkdir -p "$workdir/off/docker" "$workdir/on/docker" "$workdir/missing/docker" "$workdir/rotated/docker" "$workdir/shared_off/docker" "$workdir/real_on/docker"
 # Synthetic revision metadata is not a credential or an encrypted artifact.
-for fixture in off on missing rotated; do
+for fixture in off on missing rotated shared_off real_on; do
   active=true
   revision='"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'
-  [[ "$fixture" != off ]] || active=false
+  [[ "$fixture" != off && "$fixture" != shared_off ]] || active=false
   [[ "$fixture" != missing ]] || revision=null
   [[ "$fixture" != rotated ]] || revision='"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'
-  printf '(import %s) // { active = %s; credentialRevision = %s; }\n' "$stage" "$active" "$revision" >"$workdir/$fixture/janus-flow-host.nix"
+  if [[ "$fixture" == real_on ]]; then
+    # Preserve the real reviewed ciphertext fingerprint, never credential bytes.
+    printf '(import %s) // { active = true; }\n' "$stage" >"$workdir/$fixture/janus-flow-host.nix"
+  else
+    printf '(import %s) // { active = %s; credentialRevision = %s; }\n' "$stage" "$active" "$revision" >"$workdir/$fixture/janus-flow-host.nix"
+  fi
   cp "$compose" "$workdir/$fixture/docker/compose-spec.nix"
-  sed 's/^  active = true;/  active = false;/' "$shared_flow" >"$workdir/$fixture/shared-flow.nix"
+  if [[ "$fixture" == shared_off ]]; then
+    cp "$shared_flow" "$workdir/$fixture/shared-flow.nix"
+  else
+    sed 's/^  active = true;/  active = false;/' "$shared_flow" >"$workdir/$fixture/shared-flow.nix"
+  fi
 done
 expect_rejected "(import $workdir/missing/docker/compose-spec.nix).services.janus" \
   'Janus Flow accepted activation without ciphertext revision'
@@ -172,50 +181,64 @@ as_nix_string() {
 off_path=$(as_nix_string "$workdir/off/docker/compose-spec.nix")
 on_path=$(as_nix_string "$workdir/on/docker/compose-spec.nix")
 live_path=$(as_nix_string "$compose")
+shared_off_path=$(as_nix_string "$workdir/shared_off/docker/compose-spec.nix")
+real_on_path=$(as_nix_string "$workdir/real_on/docker/compose-spec.nix")
 
 off_service=$(nix eval --impure --json --expr "(import ${off_path}).services.janus")
 on_service=$(nix eval --impure --json --expr "(import ${on_path}).services.janus")
 live_service=$(nix eval --impure --json --expr "(import ${live_path}).services.janus")
+shared_off_service=$(nix eval --impure --json --expr "(import ${shared_off_path}).services.janus")
+real_on_service=$(nix eval --impure --json --expr "(import ${real_on_path}).services.janus")
 
-PYTHONDONTWRITEBYTECODE=1 python3 - "$off_service" "$on_service" "$live_service" "$rotated_service" <<'PY'
+PYTHONDONTWRITEBYTECODE=1 python3 - "$off_service" "$on_service" "$live_service" "$rotated_service" "$shared_off_service" "$real_on_service" <<'PY'
 import json
 import sys
 
-off, on, live, rotated = map(json.loads, sys.argv[1:5])
+off, on, live, rotated, shared_off, real_on = map(json.loads, sys.argv[1:7])
 failures = []
 var = "JANUS_FLOW_CONFIG_FILE"
 
 def flow_vars(service):
     return [value for value in service["environment"] if value.startswith(var + "=")]
 
-if flow_vars(off) or flow_vars(live):
+if flow_vars(off) or flow_vars(shared_off):
     failures.append("inactive Janus carries JANUS_FLOW_CONFIG_FILE")
-# Normalize only the separately tested active shared-origin changes, then
-# preserve the full-service equality check for the disabled delivery adapter.
+# Exercise the off delivery adapter independently of the live activation state.
+# Normalize only the exact shared-origin changes; retain whole-service equality.
 public_keys = {"JANUS_PUBLIC_URL", "JANUS_PUBLIC_BASE_PATH"}
-if {entry for entry in live["environment"] if entry.split("=", 1)[0] in public_keys} != {
-    "JANUS_PUBLIC_URL=https://flow.inspr.at", "JANUS_PUBLIC_BASE_PATH=/janus",
-}:
-    failures.append("live Janus shared-origin settings are wrong")
-if live.get("networks") != {"traefik": None, "shared-flow": {"ipv4_address": "10.253.253.3"}}:
-    failures.append("live Janus shared network is wrong")
-if live.get("extra_hosts") != ["pharos.barta.cm:10.253.253.2"]:
-    failures.append("live Janus private Pharos resolution is wrong")
 expected_health = {
     "test": ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/janus/readyz | grep -q '\"ready\":true' || exit 1"],
     "interval": "30s", "timeout": "3s", "start_period": "10s", "retries": 3,
 }
-if live.get("healthcheck") != expected_health:
-    failures.append("live Janus healthcheck does not preserve ready:true at its native prefix")
+
+def without_shared_origin(service, label):
+    if {entry for entry in service["environment"] if entry.split("=", 1)[0] in public_keys} != {
+        "JANUS_PUBLIC_URL=https://flow.inspr.at", "JANUS_PUBLIC_BASE_PATH=/janus",
+    }:
+        failures.append(f"{label} Janus shared-origin settings are wrong")
+    if service.get("networks") != {"traefik": None, "shared-flow": {"ipv4_address": "10.253.253.3"}}:
+        failures.append(f"{label} Janus shared network is wrong")
+    if service.get("extra_hosts") != ["pharos.barta.cm:10.253.253.2"]:
+        failures.append(f"{label} Janus private Pharos resolution is wrong")
+    if service.get("healthcheck") != expected_health:
+        failures.append(f"{label} Janus healthcheck does not preserve ready:true at its native prefix")
+    normalized = dict(service)
+    normalized["environment"] = [entry for entry in service["environment"] if entry.split("=", 1)[0] not in public_keys] + ["JANUS_PUBLIC_URL=https://vault.barta.cm"]
+    normalized["networks"] = ["traefik"]
+    normalized.pop("extra_hosts", None)
+    normalized.pop("healthcheck", None)
+    return normalized
+
 if "healthcheck" in off:
     failures.append("inactive shared origin must retain the image healthcheck")
-normalized_live = dict(live)
-normalized_live["environment"] = [entry for entry in live["environment"] if entry.split("=", 1)[0] not in public_keys] + ["JANUS_PUBLIC_URL=https://vault.barta.cm"]
-normalized_live["networks"] = ["traefik"]
-normalized_live.pop("extra_hosts", None)
-normalized_live.pop("healthcheck", None)
-if normalized_live != off:
+if without_shared_origin(shared_off, "forced-off") != off:
     failures.append("forced-off Janus differs beyond the reviewed shared-origin changes")
+# The active fixture preserves the actual ciphertext revision independently of
+# shared-origin wiring. Do not drop Flow mounts or labels to make equality pass.
+if without_shared_origin(live, "live") != real_on:
+    failures.append("live active Janus differs beyond the reviewed shared-origin changes")
+if dict(real_on, labels=on["labels"]) != on:
+    failures.append("real ciphertext revision changes more than the active revision label")
 if flow_vars(on) != ["JANUS_FLOW_CONFIG_FILE=/run/janus/flow-host/config.json"]:
     failures.append(f"active config variable is wrong: {flow_vars(on)!r}")
 if on.get("user") != "100:101":
