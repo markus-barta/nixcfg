@@ -161,6 +161,9 @@ class DatasetTest(unittest.TestCase):
                 elif history == "snapshots-not-a-list":
                     with open(bundle / checks.HISTORY_PLIST, "wb") as handle:
                         plistlib.dump({"Snapshots": 1}, handle)
+                elif history == "empty":
+                    with open(bundle / checks.HISTORY_PLIST, "wb") as handle:
+                        plistlib.dump({"Snapshots": []}, handle)
             with patch.object(checks.subprocess, "run", zfs.run), contextlib.redirect_stdout(io.StringIO()):
                 problems = checks.check_dataset("markus", cap, NOW)
         return {p.key: p.text for p in problems}
@@ -247,6 +250,16 @@ class DatasetTest(unittest.TestCase):
         # An OLD set that lost its history plist is not "new" either.
         old_set = self.run_dataset(clean_zfs(), band_age=600.0, history="none")
         self.assertEqual(list(old_set), ["tm:tm/markus:stale"])
+
+    def test_empty_history_list_is_a_new_set_not_history(self):
+        # TM (re)initialises a set with an EMPTY SnapshotHistory list (seen live
+        # 2026-09-22 23:54 after it restarted a first copy): a young, active
+        # bundle with that plist is a first copy in progress …
+        self.assertEqual(self.run_dataset(clean_zfs(), band_age=600.0, history="empty", bundle_age=3600), {})
+        # … an old bundle with an empty list has simply never completed → stale.
+        old = self.run_dataset(clean_zfs(), band_age=600.0, history="empty")
+        self.assertEqual(list(old), ["tm:tm/markus:stale"])
+        self.assertIn("no completed backup on record", old["tm:tm/markus:stale"])
 
     def test_two_bundles_do_not_lend_each_other_grace(self):
         # A: 30 days old, written 10 min ago, no history (an old set that keeps
