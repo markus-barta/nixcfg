@@ -35,13 +35,16 @@ in
         # extensions (needed for TM discovery). Harmless for non-fruit shares:
         # the fruit VFS module is only loaded where `vfs objects` says so.
         "fruit:aapl" = "yes";
-        # OPS-228 (2026-09-23): Time Machine's first full copy aborted every
-        # ~40 min with macOS errno 80 (EAUTH) while smbd (debug 3) saw nothing.
-        # The Mac reaches hsb1 on two paths (LAN + Tailscale); with Samba's
-        # default multichannel the client may bind a second channel over the
-        # other path, and macOS's non-interactive credential lookup rejects the
-        # "different server" — a documented cause of exactly this abort. One
-        # channel, the LAN one.
+        # OPS-228 (2026-09-23), EXPERIMENT: Time Machine's first full copy of
+        # mbp2607 aborted seven times ~40 min after each attempt started
+        # (macOS errno 80 = EAUTH, nothing in smbd at debug 3). The Mac reaches
+        # hsb1 on two paths (LAN + Tailscale) and Samba's default allows a
+        # second channel on the other path. Whether that is the trigger is
+        # unconfirmed (extra channels bind with the existing session key, so
+        # this is a hypothesis, not the documented NetAuth case). Multichannel
+        # buys nothing on a 1 GbE Mac anyway; if attempts still die at ~40 min
+        # with this off, the cause is on the Mac and this line can go back to
+        # the default.
         "server multi channel support" = "no";
       };
 
@@ -66,10 +69,6 @@ in
         "fruit:time machine" = "yes";
         "fruit:metadata" = "stream";
         "fruit:time machine max size" = "${toString caps.markus.maxSizeG}G";
-        # Durable handles only work with posix locking off (Samba docs); the
-        # sparsebundle is never locked by local processes, and without durable
-        # handles any SMB hiccup disconnects the disk image → TM abort (OPS-228).
-        "posix locking" = "no";
       };
 
       tm-mailina = {
@@ -81,7 +80,6 @@ in
         "fruit:time machine" = "yes";
         "fruit:metadata" = "stream";
         "fruit:time machine max size" = "${toString caps.mailina.maxSizeG}G";
-        "posix locking" = "no"; # see tm-markus
       };
     };
   };
