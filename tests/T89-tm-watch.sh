@@ -74,6 +74,10 @@ if grep -Fq 'ipv6 = false;' "${samba}"; then
   exit 1
 fi
 
+# OPS-228: one SMB channel (the LAN) and effective durable handles on the TM shares.
+grep -Fq '"server multi channel support" = "no";' "${samba}"
+[ "$(grep -c '"posix locking" = "no";' "${samba}")" -eq 2 ]
+
 # Witness wiring
 grep -Fq './tm-watch.nix' "${conf}"
 grep -Fq 'name = "tm-watch"' "${mod}"
