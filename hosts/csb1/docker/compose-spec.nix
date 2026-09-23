@@ -700,7 +700,7 @@ in
       # Bump deliberately through the reviewed release/deploy flow. OPS-116:
       # an out-of-closure image once nearly downgraded a migrated DB on reconcile.
       # Retain the previous declared pin and stopped-volume backup for rollback.
-      image = "ghcr.io/inspr-at/paimos:260922104613.0.0@sha256:56f0e529f7fb165d377f8484b5f96adbe4e87c5a1df2e03b4df5ec378e830095"; # NIX-574 / PAI-1054: scoped human reviewer and sandbox Flow projection; verified release OCI index. Previous: 260922071824.0.0@sha256:b560e879ecb53f82b8d268316f14c766a45b9872a283e1b4be22c81b059a1b76
+      image = "ghcr.io/inspr-at/paimos:260923073158.0.0@sha256:0bc325943675d57c0e323dab9e1f7d3e285c795f8f19128360ce2851b0d5fe1c"; # NIX-577 / PAI-1056: scoped reviewer Home renders instead of a refresh error
       container_name = "ppm";
       restart = "unless-stopped";
       environment = [
