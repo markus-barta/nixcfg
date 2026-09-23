@@ -40,20 +40,24 @@ client = re.findall(r'github:inspr-at/paimos/v([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+
 server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+\.[0-9]+)?)@(sha256:[0-9a-f]{64})', compose)
 assert len(client) == 1, f"expected one Paimos client release pin, got {client!r}"
 assert len(server) == 1, f"expected one PPM server release pin, got {server!r}"
-# NIX-574 / PAI-1054: preserve the bound Mac agent generation while deploying
-# the scoped reviewer server. This exact pair requires reviewed compatibility
-# evidence; any later client/server change must deliberately update this gate.
+# NIX-574 / PAI-1054 introduced this gate: preserve the bound Mac agent
+# generation while deploying a newer server. NIX-577 / PAI-1056 moves the
+# server to 260923073158.0.0; between 260922104613.0.0 and that release the
+# only backend changes are the orchestration contract JSON and the OpenAPI
+# document (an additive reviewer_scope root variant), no Go handler or agent
+# code, so the 260922071824.0.0 client keeps identical server behaviour. Any
+# later client/server change must deliberately update this gate again.
 expected_pair = (
     "260922071824.0.0",
-    "260922104613.0.0",
-    "sha256:56f0e529f7fb165d377f8484b5f96adbe4e87c5a1df2e03b4df5ec378e830095",
+    "260923073158.0.0",
+    "sha256:0bc325943675d57c0e323dab9e1f7d3e285c795f8f19128360ce2851b0d5fe1c",
 )
 actual_pair = (client[0], server[0][0], server[0][1])
 assert actual_pair == expected_pair, f"unreviewed Paimos client/server pairing: {actual_pair!r}"
 print(server[0][0])
 PY
 )
-[ "$deployment_version" = 260922104613.0.0 ] || fail "Paimos server is outside the reviewed NIX-574 pairing: $deployment_version"
+[ "$deployment_version" = 260923073158.0.0 ] || fail "Paimos server is outside the reviewed NIX-577 pairing: $deployment_version"
 
 sdk_version=$(cd "$repo_root" && nix eval --raw '.#packages.aarch64-darwin.claude-agent-sdk.version')
 [ "$sdk_version" = 0.3.251 ] || fail "Claude Agent SDK version drifted: $sdk_version"
