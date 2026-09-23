@@ -65,6 +65,11 @@ assert sum(c["quotaG"] for c in caps.values()) <= 5300, "quotas exceed the 5.45T
 print("T89: caps satisfy the 2x sizing rule and fit the pool")
 PY
 
+# OPS-228: one stable server identity for Time Machine — no rotating IPv6
+# privacy addresses, Bonjour on IPv4 only (macOS NetAuthSysAgent EAUTH 80).
+grep -Fq 'ipv6 = false;' "${samba}"
+grep -Fq 'tempAddresses = "disabled";' "${conf}"
+
 # Witness wiring
 grep -Fq './tm-watch.nix' "${conf}"
 grep -Fq 'name = "tm-watch"' "${mod}"

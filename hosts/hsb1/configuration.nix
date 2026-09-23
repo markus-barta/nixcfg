@@ -153,6 +153,11 @@ in
     ];
     search = [ "lan" ];
     defaultGateway = "192.168.1.1";
+    # A server must not rotate its address: IPv6 privacy (temporary) addresses
+    # made hsb1 a "different server" to macOS's NetAuthSysAgent every ~30 min
+    # and aborted Time Machine backups with EAUTH (OPS-228, 2026-09-23). The
+    # stable EUI-64 SLAAC address stays.
+    tempAddresses = "disabled";
     resolvconf.useLocalResolver = false;
     hosts = {
       # This DNS/DHCP server itself - local resolution for core services
