@@ -66,9 +66,13 @@ print("T89: caps satisfy the 2x sizing rule and fit the pool")
 PY
 
 # OPS-228: one stable server identity for Time Machine — no rotating IPv6
-# privacy addresses, Bonjour on IPv4 only (macOS NetAuthSysAgent EAUTH 80).
-grep -Fq 'ipv6 = false;' "${samba}"
+# privacy addresses (macOS NetAuthSysAgent EAUTH 80). Avahi must keep IPv6:
+# Home Assistant's own IPv4 mDNS stack makes avahi's IPv4 path unreliable.
 grep -Fq 'tempAddresses = "disabled";' "${conf}"
+if grep -Fq 'ipv6 = false;' "${samba}"; then
+  echo "T89: avahi ipv6 = false hides hsb1's Bonjour services from the Macs (2026-09-23) — do not" >&2
+  exit 1
+fi
 
 # Witness wiring
 grep -Fq './tm-watch.nix' "${conf}"
