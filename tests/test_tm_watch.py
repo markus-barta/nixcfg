@@ -185,9 +185,19 @@ class DatasetTest(unittest.TestCase):
         self.assertEqual(self.run_dataset(zfs), {})
         self.assertEqual(zfs.destroyed, [])
 
-    def test_snapshots_over_half_the_budget_page(self):
-        zfs = FakeZfs(1500 * G, 2253 * G, 3277 * G, snaps("tm/markus", 7, 80 * G))  # 560G of 1024G
+    def test_snapshots_over_half_the_budget_page_when_headroom_is_tight(self):
+        # TM at its cap, 700G of the 1024G budget held: 324G left under quota —
+        # below the 400G target but above the 150G prune line, so warn, do not prune.
+        zfs = FakeZfs(2253 * G, 2253 * G, 3277 * G, snaps("tm/markus", 7, 100 * G))
         self.assertEqual(list(self.run_dataset(zfs)), ["tm:tm/markus:snapshots"])
+        self.assertEqual(zfs.destroyed, [])
+
+    def test_snapshots_over_half_the_budget_are_fine_while_headroom_is_plenty(self):
+        # 2026-09-23 09:15 after the first full copy: TM thinned 1.1T of dead partial
+        # data, the midnight snapshot pins 560G of it, 1.8T is still free — no page.
+        zfs = FakeZfs(900 * G, 2253 * G, 3277 * G, snaps("tm/markus", 7, 80 * G))
+        self.assertEqual(self.run_dataset(zfs), {})
+        self.assertEqual(zfs.destroyed, [])
 
     def test_newest_snapshot_is_given_up_when_it_pins_the_blocks(self):
         # 950G pinned by every snapshot: pass 1 (keep newest) leaves 117G < 150G,
