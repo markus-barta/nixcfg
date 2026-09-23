@@ -43,8 +43,8 @@ in
         # unconfirmed (extra channels bind with the existing session key, so
         # this is a hypothesis, not the documented NetAuth case). Multichannel
         # buys nothing on a 1 GbE Mac anyway; if attempts still die at ~40 min
-        # with this off, the cause is on the Mac and this line can go back to
-        # the default.
+        # with this off, this hypothesis is falsified (the cause stays open)
+        # and this line can go back to the default.
         "server multi channel support" = "no";
       };
 
