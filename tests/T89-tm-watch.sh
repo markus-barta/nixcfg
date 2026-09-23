@@ -74,6 +74,9 @@ if grep -Fq 'ipv6 = false;' "${samba}"; then
   exit 1
 fi
 
+# OPS-228 experiment: one SMB channel (see the comment in tm-samba.nix).
+grep -Fq '"server multi channel support" = "no";' "${samba}"
+
 # Witness wiring
 grep -Fq './tm-watch.nix' "${conf}"
 grep -Fq 'name = "tm-watch"' "${mod}"

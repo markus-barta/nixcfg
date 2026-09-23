@@ -35,6 +35,17 @@ in
         # extensions (needed for TM discovery). Harmless for non-fruit shares:
         # the fruit VFS module is only loaded where `vfs objects` says so.
         "fruit:aapl" = "yes";
+        # OPS-228 (2026-09-23), EXPERIMENT: Time Machine's first full copy of
+        # mbp2607 aborted seven times ~40 min after each attempt started
+        # (macOS errno 80 = EAUTH, nothing in smbd at debug 3). The Mac reaches
+        # hsb1 on two paths (LAN + Tailscale) and Samba's default allows a
+        # second channel on the other path. Whether that is the trigger is
+        # unconfirmed (extra channels bind with the existing session key, so
+        # this is a hypothesis, not the documented NetAuth case). Multichannel
+        # buys nothing on a 1 GbE Mac anyway; if attempts still die at ~40 min
+        # with this off, this hypothesis is falsified (the cause stays open)
+        # and this line can go back to the default.
+        "server multi channel support" = "no";
       };
 
       # vfs_fruit is scoped to the TM shares ONLY — deliberately NOT global.
