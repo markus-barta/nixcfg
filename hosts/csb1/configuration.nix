@@ -373,6 +373,8 @@ in
   systemd.services.aeon-secrets = {
     description = "Generate PAIMOS AEON host secrets once";
     wantedBy = [ "multi-user.target" ];
+    # Declared from this side so compose-csb1's own requires list (pinned by T58) stays unchanged.
+    requiredBy = [ "compose-csb1.service" ];
     before = [ "compose-csb1.service" ];
     serviceConfig = {
       Type = "oneshot";
@@ -396,7 +398,6 @@ in
   systemd.services.compose-csb1 = {
     requires = [
       "inspr-edge-config.service"
-      "aeon-secrets.service"
     ]
     ++ lib.optionals sharedFlow.active [
       "aithema-workspace.service"
@@ -405,7 +406,6 @@ in
     ];
     after = [
       "inspr-edge-config.service"
-      "aeon-secrets.service"
     ]
     ++ lib.optionals sharedFlow.active [
       "aithema-workspace.service"
