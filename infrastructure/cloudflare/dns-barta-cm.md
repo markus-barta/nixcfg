@@ -11,13 +11,14 @@
 
 ### A Records (Direct IP)
 
-| Subdomain   | IP Address    | Proxy Status | Target Server | Notes                   |
-| ----------- | ------------- | ------------ | ------------- | ----------------------- |
-| `cs0`       | 89.58.63.96   | DNS only     | csb0          | Direct server access    |
-| `cs1`       | 152.53.64.166 | DNS only     | csb1          | Direct server access    |
-| `docmost`   | 152.53.64.166 | ⚠️ Proxied   | csb1          | Via Cloudflare proxy    |
-| `paperless` | 152.53.64.166 | ⚠️ Proxied   | csb1          | Via Cloudflare proxy    |
-| `traefik`   | 89.58.63.96   | DNS only     | csb0          | Reverse proxy dashboard |
+| Subdomain   | IP Address    | Proxy Status | Target Server | Notes                                                                      |
+| ----------- | ------------- | ------------ | ------------- | -------------------------------------------------------------------------- |
+| `cs0`       | 89.58.63.96   | DNS only     | csb0          | Direct server access                                                       |
+| `cs1`       | 152.53.64.166 | DNS only     | csb1          | Direct server access                                                       |
+| `aeon`      | 152.53.64.166 | ⚠️ Proxied   | csb1          | PAIMOS AEON (AEON-12, 2026-09-23; record 6f2958e6676e8fc6d6560570a15c6709) |
+| `docmost`   | 152.53.64.166 | ⚠️ Proxied   | csb1          | Via Cloudflare proxy                                                       |
+| `paperless` | 152.53.64.166 | ⚠️ Proxied   | csb1          | Via Cloudflare proxy                                                       |
+| `traefik`   | 89.58.63.96   | DNS only     | csb0          | Reverse proxy dashboard                                                    |
 
 ### CNAME Records (Aliases)
 
