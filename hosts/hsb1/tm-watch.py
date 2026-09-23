@@ -28,7 +28,9 @@ Order of business on every run, and why:
      target must not stop capacity maintenance.
   2. REPORT through the engine:
      * tm:<ds>:caps        live refquota/quota differ from tm-caps.nix.
-     * tm:<ds>:snapshots   snapshot-held space > half the refquota→quota budget.
+     * tm:<ds>:snapshots   snapshot-held space > half the refquota→quota budget
+                           while real headroom under quota is < HEADROOM_TARGET
+                           (with TM far below its cap the budget is not in play).
      * tm:<ds>:pruned      pruning happened (sustained on two runs = pages).
      * tm:<ds>:headroom    still < HEADROOM_MIN with nothing left to prune —
                            raise quota now.
@@ -308,11 +310,16 @@ def check_dataset(user: str, cap: dict, now: float) -> list[Problem]:
                         "imported or the USB drive is gone; Time Machine has no target.")]
     props, problems = maintain(dataset, props)
     problems += check_caps(dataset, props, cap)
+    # The refquota→quota gap only matters once Time Machine sits near its cap:
+    # right after a first full copy the thinned junk pinned by one daily snapshot
+    # can exceed half the budget while terabytes are still free (2026-09-23).
     budget = props["quota"] - props["refquota"]
-    if budget > 0 and props["usedbysnapshots"] > SNAP_WARN * budget:
+    if (budget > 0 and props["usedbysnapshots"] > SNAP_WARN * budget
+            and headroom(props) < HEADROOM_TARGET):
         problems.append(Problem(f"tm:{dataset}:snapshots",
                                 f"hsb1: sanoid snapshots hold {gib(props['usedbysnapshots'])} of {dataset}'s "
-                                f"{gib(budget)} snapshot budget (quota − refquota); tm-watch prunes "
+                                f"{gib(budget)} snapshot budget (quota − refquota) and only "
+                                f"{gib(headroom(props))} is left under quota; tm-watch prunes "
                                 "before ZFS refuses, but the bundle is churning hard — check "
                                 f"`zfs list -t snapshot -r {dataset}` and the Mac."))
     # Freshness must never take the capacity findings above down with it.

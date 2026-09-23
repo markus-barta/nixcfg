@@ -356,7 +356,7 @@ ssh mba@192.168.1.101 "sudo zfs set refquota=3600G quota=3900G tm/markus && sudo
 ```
 
 `tm-watch.timer` (10 min, Telegram, two-run confirmation) pages when the live
-caps differ from `tm-caps.nix`, snapshots eat half the budget, it had to prune
+caps differ from `tm-caps.nix`, snapshots eat half the budget while less than 400G is left under quota, it had to prune
 on two consecutive runs, headroom stays under 150G with nothing left to prune, the
 pool passes 85 %, smbd has no process, or a Mac's last **completed** backup
 (from `com.apple.TimeMachine.SnapshotHistory.plist` inside its bundle) is older
