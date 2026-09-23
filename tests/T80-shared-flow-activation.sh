@@ -230,7 +230,7 @@ grep -Fq 'networks = flowNetwork sharedFlow.network.addresses.pharos;' "$compose
 # shellcheck disable=SC2016
 grep -Fq 'pharos.barta.cm:${sharedFlow.network.addresses.traefik}' "$compose"
 grep -Fq 'privateBind "/run/inspr-shared-flow/dynamic.yml" "/etc/traefik/dynamic/inspr-shared-flow.yml"' "$compose"
-grep -Fq 'image = "ghcr.io/inspr-at/paimos:260922104613.0.0@sha256:56f0e529f7fb165d377f8484b5f96adbe4e87c5a1df2e03b4df5ec378e830095"' "$compose"
+grep -Fq 'image = "ghcr.io/inspr-at/paimos:260923073158.0.0@sha256:0bc325943675d57c0e323dab9e1f7d3e285c795f8f19128360ce2851b0d5fe1c"' "$compose"
 grep -Fq 'image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v260922094507.0.0@sha256:519888c17e736fdea27e5881d7a1ed10c5f3932fa0d28e0e9368511a2866c639"' "$compose"
 grep -Fq 'image = "ghcr.io/inspr-at/pharos/pharosd:260922214617.0.0@sha256:6297395cfc127ea1bc276f4044e60bb884b43eaf0c765f9525c19bce46b6492c"' "$compose"
 
