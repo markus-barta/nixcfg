@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { newYorkPeriodStart } from "./day-baseline.mjs";
 import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { effectiveExecutionRecords, validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
-import { calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
+import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
 import { isTrustedOfficialFamilyReceipt } from "./family-state.mjs";
 
 const PERIOD_START = "2026-09-10T04:00:00Z";
@@ -13,9 +13,15 @@ const HISTORY_REVISION_METHOD = "sha256-effective-all-desk-economic-history-v1";
 const POLICY_METHOD = "effective-dated-client-id-ownership-v1";
 const DESKS = ["j", "joe", "joel"];
 
-// Client 22 is bound only from the fixed baseline. The dated broker rows are the
+// Client 22 is bound from the fixed baseline. The dated broker rows are the
 // two 2026-09-10 INTC fills and the four 2026-09-11 INTC/HPE fills, corroborated
-// by the Joe desk journals. Shared/read-only registry ranges are deliberately absent.
+// by the Joe desk journals. The 2026-09-23 shared-paper ledger also showed Joe
+// order clients 89, 90, 91, 119, 130, 131, 148, 151, and 152. No separate
+// first-seen instant is durable, so each assignment starts at the stage-0
+// baseline and covers every retained fill. Read-only clients 92 and 94 place
+// no orders and stay unassigned; any other client ID still fails loud.
+// Adding these assignments changes the ownership policy hash. Retire the
+// persisted day-baseline file on deploy; the J-family classifier is unchanged.
 export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
   method: POLICY_METHOD,
   periodStart: PERIOD_START,
@@ -33,6 +39,10 @@ export const CURRENT_DESK_OWNERSHIP_POLICY = Object.freeze({
       desk: "joe", clientId: 22, fromInclusive: PERIOD_START, toExclusive: null,
       basis: "broker-executions-and-desk-journals-2026-09-10-11",
     }),
+    ...[89, 90, 91, 119, 130, 131, 148, 151, 152].map((clientId) => Object.freeze({
+      desk: "joe", clientId, fromInclusive: PERIOD_START, toExclusive: null,
+      basis: "shared-paper-ledger-2026-09-23",
+    })),
   ]),
   emptyDesks: Object.freeze(["joel"]),
 });
@@ -366,6 +376,7 @@ export function calculateDeskEquities({
       periodStart: canonical.periodStart,
       virtualEquity: 5000,
       observedAt: sourceAt,
+      ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
     });
     const j = calculate("j");
     const joe = calculate("joe");

@@ -2,7 +2,7 @@
 /** Synthetic family-ledger tests. No account, journal, or live broker records. */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
+import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily, mergeExecutionRecords } from "./family-ledger.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER-ACCOUNT";
 const OTHER_ACCOUNT = "SYNTHETIC-OTHER-ACCOUNT";
@@ -243,6 +243,92 @@ test("family may close before foreign Joe opens the same contract; broker callba
   assert.deepEqual(result.openPnlEvidence.residualNonKeepPositions, [
     { contractKey: "conId:1005", symbol: "INTC", quantity: 3 },
   ]);
+});
+
+test("virtual-shared accounting values the target desk when another desk holds the same contract", () => {
+  const contract = stock("NVDA", 5001);
+  const familyLong = execution({
+    contract,
+    execId: "SHARED.FAMILYLONG.01",
+    shares: 4,
+    price: 10,
+    time: "20260910 09:30:00 US/Eastern",
+  });
+  const joeShort = execution({
+    contract,
+    execId: "SHARED.JOESHORT.01",
+    clientId: 119,
+    side: "SLD",
+    shares: 4,
+    price: 50,
+    time: "20260910 09:31:00 US/Eastern",
+  });
+  const shared = {
+    executions: [familyLong, joeShort],
+    commissions: [commission(familyLong), commission(joeShort, 0.1)],
+    positions: [],
+    portfolio: [quote(contract, 0, 12)],
+    ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
+  };
+  const result = ok(calculateFamily(input(shared)));
+  assert.equal(result.executionCount, 1);
+  assert.equal(result.realizedPnl, -0.08);
+  assert.equal(result.unrealizedPnl, 6.4);
+  assert.equal(result.totalPnl, 6.32);
+  assert.equal(result.equity, 5006.32);
+  assert.deepEqual(result.positions.map(({ symbol, side, quantity }) => ({ symbol, side, quantity })), [
+    { symbol: "NVDA", side: "Long", quantity: 4 },
+  ]);
+  assert.deepEqual(result.openPnlEvidence.residualNonKeepPositions, [
+    { contractKey: "conId:5001", symbol: "NVDA", quantity: -4 },
+  ]);
+
+  const partialJoe = execution({
+    contract,
+    execId: "SHARED.JOEPARTIAL.01",
+    clientId: 130,
+    side: "SLD",
+    shares: 1,
+    price: 50,
+    time: "20260910 09:31:00 US/Eastern",
+  });
+  const partial = ok(calculateFamily(input({
+    ...shared,
+    executions: [familyLong, partialJoe],
+    commissions: [commission(familyLong), commission(partialJoe)],
+    positions: [position(contract, 3)],
+  })));
+  assert.equal(partial.positions[0].quantity, 4);
+  assert.equal(partial.openPnlEvidence.residualNonKeepPositions[0].quantity, -1);
+
+  const joeOnly = execution({
+    contract,
+    execId: "SHARED.JOEONLY.01",
+    clientId: 131,
+    shares: 2,
+    price: 40,
+  });
+  const flatFamily = ok(calculateFamily(input({
+    executions: [joeOnly],
+    positions: [position(contract, 2)],
+    portfolio: [quote(contract, 2, 40)],
+    ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
+  })));
+  assert.equal(flatFamily.executionCount, 0);
+  assert.equal(flatFamily.equity, 5000);
+  assert.deepEqual(flatFamily.positions, []);
+  assert.deepEqual(flatFamily.openPnlEvidence.residualNonKeepPositions, [
+    { contractKey: "conId:5001", symbol: "NVDA", quantity: 2 },
+  ]);
+
+  reason(calculateFamily(input({
+    executions: [familyLong],
+    commissions: [commission(familyLong)],
+    positions: [],
+    portfolio: [quote(contract, 0, 12)],
+    ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
+  })), /does not reconcile/);
+  reason(calculateFamily(input({ ownershipMode: "shared" })), /ownershipMode is invalid/);
 });
 
 test("cross-family offset and same-direction overlap both fail despite quantity parity", () => {

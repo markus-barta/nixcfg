@@ -6,6 +6,10 @@ const METHOD = "execution-fifo-net-current-fx";
 const OPEN_METHOD = "owned-lots-current-mark-fx";
 const DETAIL = "Net of recorded fees; converted at observed FX. Earlier results unavailable.";
 const ALWAYS_EXCLUDED = new Set(["SXR8", "TSLA"]);
+
+// Stage-0 virtual desks share one IB account and may both hold one contract.
+// FIFO lots stay on the target desk. The broker net is the sum of every desk.
+export const VIRTUAL_SHARED_ACCOUNT_OWNERSHIP = "virtual-shared-account";
 const QUANTITY_EPSILON = 1e-9;
 
 // These failures arise while independently delivered execution, commission,
@@ -391,6 +395,9 @@ function portfolioMap(rows, account, excluded, registry) {
 }
 
 function assertReconciled(replayed, observed) {
+  // Replay is every non-excluded fill on the account. One desk's open lots may
+  // differ from that broker net when desks share the contract. KEEP is excluded
+  // here and reconciled separately against the exact configured quantities.
   const keys = new Set([...replayed.keys(), ...observed.keys()]);
   for (const key of keys) {
     if (!quantitiesEqual(replayed.get(key) || 0, observed.get(key) || 0)) {
@@ -399,7 +406,10 @@ function assertReconciled(replayed, observed) {
   }
 }
 
-/** Calculate the verified-period J-family ledger from complete broker evidence. */
+/** Calculate the verified-period J-family ledger from complete broker evidence.
+ * The default exclusive mode rejects a contract held by both the target desk
+ * and another desk. `virtual-shared-account` values only the target desk's lots.
+ */
 export function calculateFamily({
   executions,
   commissions,
@@ -412,8 +422,13 @@ export function calculateFamily({
   periodStart,
   virtualEquity = 5000,
   observedAt,
+  ownershipMode,
 } = {}) {
   try {
+    const sharedAccount = ownershipMode === VIRTUAL_SHARED_ACCOUNT_OWNERSHIP;
+    if (ownershipMode !== undefined && ownershipMode !== "exclusive" && !sharedAccount) {
+      fail("ownershipMode is invalid");
+    }
     const accountId = targetAccount(account);
     const observedEpoch = parseIsoInstant(observedAt, "observedAt");
     const periodEpoch = parseIsoInstant(periodStart, "periodStart");
@@ -478,10 +493,10 @@ export function calculateFamily({
         owners = { family: 0, foreign: 0 };
         ownership.set(fill.contract.key, owners);
       }
-      if (fill.included && owners.foreign !== 0) {
+      if (!sharedAccount && fill.included && owners.foreign !== 0) {
         fail("ambiguous cross-family ownership on contract");
       }
-      if (!fill.included && owners.family !== 0) {
+      if (!sharedAccount && !fill.included && owners.family !== 0) {
         fail("ambiguous cross-family ownership on contract");
       }
       const owner = fill.included ? "family" : "foreign";
@@ -508,7 +523,10 @@ export function calculateFamily({
 
     const observed = observedPositionMap(positions, accountId, excluded, registry);
     assertReconciled(replayed, observed);
-    if (executionCount === 0 && [...observed.values()].some((quantity) => quantity !== 0)) {
+    // A flat target desk is valid on a shared account once other desks' fills
+    // reconcile to the broker net. Exclusive mode still treats that book as an
+    // incomplete family ledger.
+    if (!sharedAccount && executionCount === 0 && [...observed.values()].some((quantity) => quantity !== 0)) {
       fail("empty family ledger requires all non-excluded broker positions to be flat");
     }
 
