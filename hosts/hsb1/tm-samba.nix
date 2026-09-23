@@ -35,6 +35,14 @@ in
         # extensions (needed for TM discovery). Harmless for non-fruit shares:
         # the fruit VFS module is only loaded where `vfs objects` says so.
         "fruit:aapl" = "yes";
+        # OPS-228 (2026-09-23): Time Machine's first full copy aborted every
+        # ~40 min with macOS errno 80 (EAUTH) while smbd (debug 3) saw nothing.
+        # The Mac reaches hsb1 on two paths (LAN + Tailscale); with Samba's
+        # default multichannel the client may bind a second channel over the
+        # other path, and macOS's non-interactive credential lookup rejects the
+        # "different server" — a documented cause of exactly this abort. One
+        # channel, the LAN one.
+        "server multi channel support" = "no";
       };
 
       # vfs_fruit is scoped to the TM shares ONLY — deliberately NOT global.
@@ -58,6 +66,10 @@ in
         "fruit:time machine" = "yes";
         "fruit:metadata" = "stream";
         "fruit:time machine max size" = "${toString caps.markus.maxSizeG}G";
+        # Durable handles only work with posix locking off (Samba docs); the
+        # sparsebundle is never locked by local processes, and without durable
+        # handles any SMB hiccup disconnects the disk image → TM abort (OPS-228).
+        "posix locking" = "no";
       };
 
       tm-mailina = {
@@ -69,6 +81,7 @@ in
         "fruit:time machine" = "yes";
         "fruit:metadata" = "stream";
         "fruit:time machine max size" = "${toString caps.mailina.maxSizeG}G";
+        "posix locking" = "no"; # see tm-markus
       };
     };
   };
