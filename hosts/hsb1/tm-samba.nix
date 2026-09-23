@@ -78,13 +78,15 @@ in
   services.avahi = {
     enable = true;
     nssmdns4 = true;
-    # IPv4 only (OPS-228). Time Machine connects by the Bonjour name and
-    # macOS's NetAuthSysAgent authenticates backupd non-interactively against
-    # the address it resolved; hsb1 used to answer with rotating IPv6 privacy
-    # addresses (~30 min lifetime), so a mid-backup reconnect landed on an
-    # "unknown server" → EAUTH (errno 80) → "Backup nicht abgeschlossen" every
-    # ~45 min on 2026-09-23. One stable identity: the static IPv4.
-    ipv6 = false;
+    # Keep IPv6 mDNS ON (OPS-228, 2026-09-23 03:22–06:00 lesson): Home
+    # Assistant runs its own IPv4 mDNS stack on this host ("Detected another
+    # IPv4 mDNS stack" in avahi's journal), so avahi's IPv4 announcements are
+    # unreliable and IPv6 is the path on which the Macs actually see
+    # hsb1's _smb/_adisk services. With `ipv6 = false` Time Machine could not
+    # find its volume at all (RESULT 18, no SMB connection). The stable server
+    # identity that Time Machine needs comes from
+    # `networking.tempAddresses = "disabled"` (configuration.nix): one static
+    # IPv4 + one stable EUI-64 IPv6, no rotating privacy addresses.
     publish = {
       enable = true;
       userServices = true;
