@@ -185,7 +185,7 @@
         "--whitelist-domain=.barta.cm"
         "--cookie-secure=true"
         "--cookie-samesite=lax"
-        "--cookie-expire=8h"
+        "--cookie-expire=2160h" # 90 days; session lasts until explicit Logout
         "--cookie-refresh=1h"
         "--reverse-proxy=true"
         "--trusted-proxy-ip=172.16.0.0/12"
