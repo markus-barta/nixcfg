@@ -210,6 +210,7 @@ in
       environment = [
         "AEON_ENV=prod"
         "AEON_ADDR=:8080"
+        "AEON_FILES_DIR=/data/files"
         "AEON_PUBLIC_URL=https://aeon.barta.cm"
         "AEON_DATABASE_URL=postgres://aeon@aeon-db:5432/aeon?sslmode=disable"
         "AEON_DATABASE_PASSWORD_FILE=/run/secrets/aeon-db-password"
@@ -220,6 +221,7 @@ in
         "AEON_BOOTSTRAP_ADMIN_EMAIL=markus@barta.com"
       ];
       volumes = [
+        "/var/lib/csb1-docker/aeon-files:/data/files"
         "/var/lib/aeon-secrets/db-password:/run/secrets/aeon-db-password:ro"
         "/var/lib/aeon-secrets/session-key:/run/secrets/aeon-session-key:ro"
         "/var/lib/aeon-secrets/messaging-key:/run/secrets/aeon-messaging-key:ro"
@@ -269,6 +271,21 @@ in
       networks = [
         "aeon"
       ];
+      # The nightly logical dump publishes only from a healthy database.
+      healthcheck = {
+        test = [
+          "CMD"
+          "pg_isready"
+          "-U"
+          "postgres"
+          "-d"
+          "aeon"
+        ];
+        interval = "30s";
+        timeout = "5s";
+        retries = 5;
+        start_period = "20s";
+      };
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # composeStack owns this service's image
         "traefik.enable=false"
