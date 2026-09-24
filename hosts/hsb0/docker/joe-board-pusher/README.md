@@ -237,6 +237,35 @@ available while exact-boundary proof is pending. Runtime
 state is stored atomically at `/var/lib/joe-board-pusher/day-baseline.json` beside
 the existing family ledger and history sidecar on the same persistent mount.
 
+Stage-0 desks share one paper account and may both hold one contract.
+`calculateFamily` defaults to exclusive ownership and fails with
+`ambiguous cross-family ownership on contract` when the target desk and
+another desk are both open on that contract. The J projection and each desk
+valuation pass `ownershipMode: "virtual-shared-account"`. In that mode FIFO
+lots come only from the target desk, another desk's fills on the same contract
+are not an ownership failure, and the broker net is reconciled to the sum of
+every desk's non-KEEP fills. One desk's open lots may differ from that net. An
+open virtual lot still needs a current portfolio mark, including a zero-quantity
+row when the account itself is flat. Exact KEEP stays SXR8×1401 and TSLA×1. A
+client ID outside the dated ownership policy still fails loud.
+
+Joe order clients claimed from the 2026-09-10 America/New_York baseline are
+22, 89, 90, 91, 119, 130, 131, 148, 151, and 152. The 2026-09-23 ledger listed
+the IDs other than 22 and did not keep a separate first-seen instant, so each
+assignment starts at the stage-0 baseline and covers every retained fill.
+Read-only clients 92 and 94 place no orders and stay unassigned. The J-family
+classifier is unchanged, so `family-ledger.json` and `family-history.json`
+remain valid.
+
+Those Joe assignments change the desk ownership policy hash. A persisted
+`/var/lib/joe-board-pusher/day-baseline.json` bound to the previous hash fails
+closed on load (`day baseline source method or classifier mismatch`) and is
+not rewritten. Retire that file when deploying this policy. The next complete
+virtual-equity observation seeds a new session proxy, and the next New York
+midnight can prove an exact SOD baseline. This is the same ownership-hash
+class as the 2026-09-22 J client claim for 76, 78, 79, 80, and 83. That claim
+changed the family classifier; this one does not.
+
 The same accepted all-desk vector supplies each desk's displayed equity,
 since-start PnL, and execution-owned OPEN PnL. This includes Joe closed roundtrips
 after their positions disappear. J keeps its existing accounting and history
@@ -251,6 +280,10 @@ vector never becomes fresh DAY or OPEN evidence. If no proven vector exists, Joe
 and Joel equity/since-start money and household totals are null; the projector does
 not fall back to a synthetic €5,000 stand or raw portfolio callback PnL. Legacy
 KEEP positions remain visible but excluded from every Stage-0 money value.
+
+When an accepted all-desk vector is present, OPEN is each desk's owned-lot
+unrealized result even if desks share a contract. The flat-residual proof
+below applies only when that vector is absent.
 
 `pnlSources.open` is `available` with method `owned-lots-current-mark-fx` only when
 the complete J-family ledger reconciles every non-KEEP broker position, no foreign

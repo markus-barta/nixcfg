@@ -3,6 +3,7 @@ import path from "node:path";
 import { createReconnectScheduler } from "./pusher-recovery.mjs";
 import { validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
 import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
+import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP } from "./family-ledger.mjs";
 
 const STATE_SCHEMA = "inspr.joe.family-execution-ledger.v1";
 const MAX_STATE_BYTES = 16 * 1024 * 1024;
@@ -1125,6 +1126,7 @@ export function createFamilySessionAdapter({
         periodStart,
         virtualEquity: 5000,
         observedAt,
+        ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
       });
     } catch (error) {
       return { ok: false, reason: `family calculator failed: ${error?.message || error}`, hardFailure: true };
