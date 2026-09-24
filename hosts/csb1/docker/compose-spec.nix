@@ -200,11 +200,11 @@ in
         "traefik.http.middlewares.barta-public-https.redirectscheme.scheme=https"
       ];
     };
-    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260923180522.0.0.
-    # Database password and session key are host-generated files (aeon-secrets.service);
+    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260924020145.0.0.
+    # Database password, session key and messaging key are host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:260923180522.0.0@sha256:51467539e7028e533768368bdce718d3f279cae568f96c1aa17696c17ed4028e"; # R3.1 relation backfill (AEON-40)
+      image = "ghcr.io/inspr-at/aeon:260924020145.0.0@sha256:611d47a50f255ffbf3076d3acb71b961b113321abc54fcb160206ddd1ba6193b"; # UI agents workspace, harness + messaging (AEON-67)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
@@ -214,6 +214,7 @@ in
         "AEON_DATABASE_URL=postgres://aeon@aeon-db:5432/aeon?sslmode=disable"
         "AEON_DATABASE_PASSWORD_FILE=/run/secrets/aeon-db-password"
         "AEON_SESSION_KEY_FILE=/run/secrets/aeon-session-key"
+        "AEON_MESSAGING_KEY_FILE=/run/secrets/aeon-messaging-key"
         "AEON_OIDC_ISSUER=https://auth.inspr.at"
         "AEON_OIDC_CLIENT_ID=392036080846700555@inspr.at"
         "AEON_BOOTSTRAP_ADMIN_EMAIL=markus@barta.com"
@@ -221,6 +222,7 @@ in
       volumes = [
         "/var/lib/aeon-secrets/db-password:/run/secrets/aeon-db-password:ro"
         "/var/lib/aeon-secrets/session-key:/run/secrets/aeon-session-key:ro"
+        "/var/lib/aeon-secrets/messaging-key:/run/secrets/aeon-messaging-key:ro"
       ];
       depends_on = [ "aeon-db" ];
       mem_limit = "256m";
