@@ -94,6 +94,13 @@ in
         cursor-agent = cursorAgent;
         agent = cursorAgentAlias;
       };
+      # Codex cannot inherit a guard from native controllers anymore. Apply
+      # hints/preload at its own entry points, without nesting Seatbelt.
+      envOnlyPrograms = {
+        codex = "${config.home.homeDirectory}/.npm-global/bin/codex";
+        codex-admin = "${config.home.homeDirectory}/.local/share/inspr/codex/bin/codex-admin";
+        codex-markus = "${config.home.homeDirectory}/.local/share/inspr/codex/bin/codex-markus";
+      };
       # Explicit target for the operator-owned imperative shims that call an
       # absolute path (the named Codex launchers' Claude equivalents, and any
       # migration snippet in the checklist).

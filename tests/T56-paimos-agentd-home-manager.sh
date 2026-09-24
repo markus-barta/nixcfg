@@ -201,6 +201,19 @@ PYCURSOR
     fail 'Cursor must never be nested inside another Seatbelt profile'
   fi
 
+  # NIX-578: shell-dispatched Codex needs its own guard too, since native
+  # controllers no longer export one. Inspect the realised same-name launchers.
+  shadow_init=$(nix eval --raw '.#homeConfigurations."markus@mbp2607".config.programs.zsh.envExtra')
+  shadow_bin=$(printf '%s' "$shadow_init" | grep -Eo '/nix/store/[^/:]+-inspr-agent-guard-shadow-bin/bin' | head -n 1)
+  for name in codex codex-admin codex-markus; do
+    [ -x "$shadow_bin/$name" ] || fail "missing shell Codex wrapper: $name"
+    grep -Fq 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=' "$shadow_bin/$name" || fail "$name lost refusal hints"
+    grep -Fq 'NODE_OPTIONS' "$shadow_bin/$name" || fail "$name lost the preload"
+    if grep -Fq 'sandbox-exec' "$shadow_bin/$name"; then
+      fail "$name must not nest Seatbelt"
+    fi
+  done
+
   service_plist="$activation_package/LaunchAgents/at.inspr.paimos-agentd.plist"
   [ -f "$service_plist" ] || fail 'final Home Manager generation has no Paimos LaunchAgent'
   python3 - "$agent_json" "$service_plist" <<'PY'
