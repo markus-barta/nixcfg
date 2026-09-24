@@ -200,11 +200,11 @@ in
         "traefik.http.middlewares.barta-public-https.redirectscheme.scheme=https"
       ];
     };
-    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260924110804.0.0.
+    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260924120053.0.0.
     # Database password, session key and messaging key are host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:260924110804.0.0@sha256:b9ff860533f33cb83df402134b940e82c20f60f92edca1fd2496ef81ceb777d9"; # Attachment route fix, journey stage source + plan tickets (AEON-72, AEON-79)
+      image = "ghcr.io/inspr-at/aeon:260924120053.0.0@sha256:b8b7b5c4ba517d508caf4a98bb6c60fba68b089fe9c7cc61f7f69c236b0dbdb1"; # Attachment types; import skips unsupported (AEON-72)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
