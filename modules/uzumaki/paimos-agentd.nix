@@ -45,29 +45,21 @@ let
     pkgs.writeShellScriptBin "paimos-agentd-${name}" ''
       exec ${lib.escapeShellArg browserGuard.guardCommand} ${lib.escapeShellArg target} "$@"
     '';
-  # Env-only launcher for a CLI that runs its own sandbox (Cursor): harness hints
-  # plus the Node preload, no Seatbelt profile, pinned path and auth untouched.
-  mkEnvOnlyCli =
+  # NIX-578: non-Codex owned sessions preserve the native browser environment.
+  guardLib = import ../../lib/agent-browser-guard.nix { inherit lib; };
+  mkNativeCli =
     name: target:
-    pkgs.writeShellScriptBin "paimos-agentd-${name}" ''
-      ${guardEnvExports}
-      exec ${lib.escapeShellArg target} "$@"
-    '';
-  envOnlyCliPath =
+    pkgs.writeShellScriptBin "paimos-agentd-${name}" (guardLib.mkNativeLauncherText target);
+  nativeCliPath =
     name: target:
-    if guardEnabled then "${mkEnvOnlyCli name target}/bin/paimos-agentd-${name}" else target;
-  # NIX-445 / D1: the default route is env+preload, NOT a Seatbelt profile. A
-  # guarded session's profile is inherited by every descendant, and Codex and
-  # Cursor cannot apply their own profile beneath it — so wrapping a session that
-  # dispatches them would break the live controller topology. The strict route
-  # stays available per CLI through `sandboxedClis`, for leaf workers that never
-  # dispatch another agent.
+    if guardEnabled then "${mkNativeCli name target}/bin/paimos-agentd-${name}" else target;
+  # Strict Seatbelt remains opt-in for leaf sessions only.
   guardedCliPath =
     name: target:
     if guardEnabled && lib.elem name cfg.browserGuard.sandboxedClis then
       "${mkGuardedCli name target}/bin/paimos-agentd-${name}"
     else
-      envOnlyCliPath name target;
+      nativeCliPath name target;
   safeExternalPath =
     path: lib.hasPrefix "/" path && path != "/nix/store" && !lib.hasPrefix "/nix/store/" path;
   pairComplete = path: accounts: (path == null) == (accounts == null);
@@ -208,10 +200,8 @@ let
     # Never Seatbelt-wrapped: the Cursor CLI applies its own profile via its
     # `cursorsandbox` helper and macOS refuses nested profiles (measured: a real
     # `--sandbox enabled` tool call under the guard died with `sandbox_apply`
-    # EPERM, exit 71). It gets the env-only launcher instead — harness hints plus
-    # the Node child-process preload. Accidental-launch prevention, not a
-    # boundary (NIX-445).
-    (envOnlyCliPath "cursor" cfg.cursorPath)
+    # EPERM, exit 71). NIX-578 uses a native launcher without hints or preload.
+    (nativeCliPath "cursor" cfg.cursorPath)
     "--cursor-accounts"
     cursorAccountsFile
   ];
@@ -226,16 +216,10 @@ let
     StandardOutPath = stdoutLog;
     StandardErrorPath = stderrLog;
   }
-  # NIX-445: every session this daemon starts inherits the refusal shim in place
-  # of the NIX-288 native Chrome path, whichever CLI it launches. Harness layer,
-  # not a boundary — a session that hardcodes the browser path still reaches it
-  # unless its CLI is also sandbox-wrapped above.
+  # NIX-578: shared launchd env must not inject a refusal into non-Codex
+  # children. Codex receives its guard only in codexLauncher above.
   // {
-    # NIX-521: agentd-owned Claude sessions never update themselves (same policy
-    # as ai-clis-npm.nix). Keep the guard environment lazy so isolated
-    # evaluations without its module still work.
-    EnvironmentVariables =
-      claudeUpdateEnv // lib.optionalAttrs guardEnabled browserGuard.launchdEnvironment;
+    EnvironmentVariables = claudeUpdateEnv;
   };
   directServicePlist = pkgs.writeText "${serviceLabel}.plist" (
     lib.generators.toPlist { escape = true; } serviceConfig
@@ -344,7 +328,7 @@ in
         default = [ ];
         description = ''
           Which owned CLI paths are executed under the Seatbelt guard, as
-          opposed to the default env+preload route.
+          opposed to the default native headless route.
 
           Empty by default on purpose: the profile is inherited by every
           descendant, and a session that dispatches Codex or Cursor would kill
@@ -359,8 +343,8 @@ in
           its existing inner sandbox. The Cursor CLI ships its own
           `cursorsandbox` seatbelt helper (inspected read-only 2026-09-08)
           and has the same problem. Codex is covered by its native
-          permission profile; Cursor currently gets the environment hints
-          only, which is a hint and not a boundary — stated, not hidden.
+          permission profile and env+preload; Cursor supports native headless
+          browser QA without a guard.
 
           A CLI listed here that also applies its own sandbox will fail
           loudly with the same `sandbox_apply` error; remove it from this

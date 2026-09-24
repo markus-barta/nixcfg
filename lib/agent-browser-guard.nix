@@ -1,12 +1,10 @@
 # NIX-445 — shared macOS agent browser-launch guard (pure text builders)
 #
 # WHY THIS EXISTS
-#   Agent worker sessions repeatedly launched the native Chrome binary that
-#   NIX-288 deliberately exports as PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH. On a
-#   sandboxed agent session Chrome aborts inside macOS `_RegisterApplication`,
-#   which is disruptive on the operator's desktop (2026-09-08 21:35 CEST,
-#   Chrome 74417 from node 74416). Prompt-level prohibitions did not hold, so
-#   the boundary has to be mechanical.
+#   Chrome aborts inside macOS `_RegisterApplication` when launched inside
+#   Codex's Seatbelt sandbox (2026-09-08). Codex retains the refusal. NIX-578
+#   restores native HEADLESS Chrome for other agents via the NIX-288 path;
+#   strict Seatbelt launchers remain explicit opt-ins, never default dispatch.
 #
 # WHAT THIS FILE IS
 #   Pure string builders only — no derivations, no `pkgs`. Consumed by
@@ -290,13 +288,8 @@ rec {
     '';
 
   # ── Node preload: accidental-launch prevention where no sandbox can apply ──
-  # Cursor ships its own seatbelt helper, so it can be neither wrapped (macOS
-  # refuses nested profiles — a real `cursor-agent --sandbox enabled` tool call
-  # under the guard failed with `sandbox_apply` EPERM, exit 71) nor expressed
-  # natively: its sandbox.json schema has no arbitrary filesystem deny, and a
-  # `permissions.deny = [Read(<path>)]` rule does not reach the native shell
-  # sandbox — both were measured with fake executables, and both let the fake
-  # run. What is left is the actual launch chain: Node.
+  # Codex and strict opt-in sessions retain this defence-in-depth layer.
+  # Non-Codex default launchers do not inject it (NIX-578).
   #
   # This preload wraps spawn/spawnSync/execFile/execFileSync (including the
   # promisified execFile custom) and refuses before a denied executable starts.
@@ -361,7 +354,7 @@ rec {
   # root, or is group/world-writable.
   codexProbePath = "/etc/codex/inspr-nix445-probe";
 
-  # Unprivileged anchor for the Node preload, used by the Cursor proof and by
+  # Unprivileged anchor for the Node preload, used by the Codex preload proof and by
   # tests. Deliberately separate from the root one: no privileged component ever
   # writes here, and no unprivileged component ever writes into /etc.
   defaultPreloadProbeRelative = "Library/Caches/inspr/agent-browser-guard/probe";
@@ -704,12 +697,12 @@ rec {
       printf '%s\n' \
         'INSPR agent browser guard (NIX-445): native browser launch refused.' \
         "" \
-        '  Agent worker sessions must not start a native browser on this Mac.' \
-        '  Chrome aborts in macOS _RegisterApplication from a sandboxed agent' \
-        '  session and disrupts the operator desktop.' \
+        '  This is a Codex or explicitly guarded session.' \
+        '  Chrome aborts in macOS _RegisterApplication inside the Codex' \
+        '  Seatbelt sandbox (2026-09-08).' \
         "" \
-        '  Browser QA belongs to a verified controller-owned or remote runner.' \
-        '  Ask the controller for it; if none is available, report browser QA as' \
+        '  Native headless Playwright is supported outside Codex, using the' \
+        '  NIX-288 Chrome path. Ask the controller to run it there; otherwise report QA as' \
         '  unavailable. Do not retry, do not look for another browser binary,' \
         '  and do not disable the guard.' \
         "" \
@@ -773,6 +766,11 @@ rec {
       # silently running the CLI without the guard.
       exec ${lib.escapeShellArg sandbox} -f ${lib.escapeShellArg profile} "$program" "$@"
     '';
+
+  # Default non-Codex route: preserve the native NIX-288/project environment.
+  mkNativeLauncherText = target: ''
+    exec ${lib.escapeShellArg (checkPath "native CLI path" target)} "$@"
+  '';
 
   # Env-only variant for entry points that apply their own Seatbelt profile
   # (Codex). No sandbox is applied — nesting is impossible on macOS — so this is

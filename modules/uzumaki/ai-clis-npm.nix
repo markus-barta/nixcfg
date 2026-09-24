@@ -40,8 +40,8 @@ let
   };
   # Pi package (not a global npm CLI). Full-system extension → pin exact.
   # CURSOR_AGENT_PATH must be the real binary: PATH `agent` is the INSPR
-  # shadow wrapper (inspr-agent-guard-shadow-bin), not Cursor. Pi itself runs
-  # under its own guard shim, so the Cursor child inherits the guard env anyway.
+  # shadow wrapper (inspr-agent-guard-shadow-bin), not Cursor. NIX-578 keeps
+  # both Pi and Cursor native headless capable without guard env injection.
   # The store path keeps Pi on the same release as the guard shims and agentd.
   piCursorProvider = "@netandreus/pi-cursor-provider@0.1.4";
   cursorAgentPath = lib.getExe pkgs.cursor-agent;
@@ -52,7 +52,7 @@ let
   guard = config.uzumaki.agentBrowserGuard;
   cursorGuarded =
     guard.enable
-    && lib.any (name: guard.envOnlyPrograms ? ${name}) [
+    && lib.any (name: guard.nativePrograms ? ${name}) [
       "cursor-agent"
       "agent"
     ];
