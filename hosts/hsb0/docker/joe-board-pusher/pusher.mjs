@@ -46,6 +46,7 @@ import { projectBook } from "./project.mjs";
 import { createConnectionSupervisor } from "./pusher-recovery.mjs";
 import { createBrokerSessionAdapter, waitForExecutionCycle } from "./pusher-state.mjs";
 import { createPortfolioRefreshController } from "./portfolio-refresh.mjs";
+import { contractsNeedingFlatNetMarks, createFlatNetMarkController } from "./flat-net-marks.mjs";
 
 const HOST = "100.64.0.6";
 const PORT = 4002;
@@ -77,6 +78,7 @@ function parseIntervalSec() {
 const INTERVAL_SEC = parseIntervalSec();
 let connectionSupervisor = null;
 let portfolioRefresh = null;
+let flatNetMarks = null;
 
 const adapter = createBrokerSessionAdapter({
   targetAccount: ACCOUNT,
@@ -137,6 +139,7 @@ const familyAdapter = createFamilySessionAdapter({
   fxFreshMs: 300_000,
   requestManagedAccounts: false,
   getVerifiedHistoryState: () => familyHistoryAdapter.inspectState(),
+  getFlatNetMarks: () => flatNetMarks?.marks() || [],
   hooks: {
     onReplayIncomplete() { officialHistoryRefresher.requestRefresh(); },
     onUnavailable(reason) {
@@ -374,9 +377,13 @@ connectionSupervisor = createConnectionSupervisor({
   createApi: () => new IBApi({ host: HOST, port: PORT, clientId: CLIENT_ID }),
   attachApi(next) {
     portfolioRefresh?.reset();
+    flatNetMarks?.reset();
     adapter.attach(next);
     familyAdapter.attach(next);
     familyHistoryAdapter.attach(next);
+    next.on?.(EventName.tickPrice, (tickerId, tickType, price) => {
+      flatNetMarks?.onTick(tickerId, tickType, price);
+    });
   },
   requestHealth(api) {
     api.reqCurrentTime();
@@ -402,11 +409,34 @@ portfolioRefresh = createPortfolioRefreshController({
   refresh: () => adapter.refreshPortfolio(),
   onEvent: (event) => console.log(JSON.stringify(event)),
 });
+flatNetMarks = createFlatNetMarkController({
+  request: (tickerId, contract) => connectionSupervisor?.activeApi?.reqMktData(tickerId, contract, "", false, false),
+  cancel: (tickerId) => connectionSupervisor?.activeApi?.cancelMktData(tickerId),
+  setMarketDataType: (type) => connectionSupervisor?.activeApi?.reqMarketDataType(type),
+  onEvent: (event) => console.log(JSON.stringify(event)),
+});
+function syncFlatNetMarks() {
+  const book = adapter.snapshot();
+  const state = familyAdapter.inspectState();
+  if (!book || !state) return;
+  flatNetMarks.sync(contractsNeedingFlatNetMarks({
+    executions: state.executions,
+    positions: book.positionsCoverage?.rows || [],
+    portfolio: book.portfolio || [],
+    account: ACCOUNT,
+    familyClientIds: FAMILY_CLIENT_IDS,
+    excludedSymbols: ["SXR8", "TSLA"],
+  }));
+}
 // Independent of both publisher cadence and unrelated healthy socket traffic.
-const portfolioRefreshTimer = setInterval(() => portfolioRefresh.tick(adapter.snapshot()), 5_000);
+const portfolioRefreshTimer = setInterval(() => {
+  portfolioRefresh.tick(adapter.snapshot());
+  syncFlatNetMarks();
+}, 5_000);
 
 function shutdown() {
   clearInterval(portfolioRefreshTimer);
+  flatNetMarks?.reset();
   adapter.retire("shutdown");
   familyAdapter.retire("shutdown");
   familyHistoryAdapter.retire("shutdown");

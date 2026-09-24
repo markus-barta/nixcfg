@@ -4,6 +4,7 @@ import { createReconnectScheduler } from "./pusher-recovery.mjs";
 import { validateBestAvailableHistoryState } from "./execution-reconciliation.mjs";
 import { normalizeEconomicCommission, normalizeEconomicExecution } from "./execution-history.mjs";
 import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP } from "./family-ledger.mjs";
+import { mergeFlatNetMarks } from "./flat-net-marks.mjs";
 
 const STATE_SCHEMA = "inspr.joe.family-execution-ledger.v1";
 const MAX_STATE_BYTES = 16 * 1024 * 1024;
@@ -540,6 +541,7 @@ export function createFamilySessionAdapter({
   requestManagedAccounts = true,
   hooks = {},
   getVerifiedHistoryState = null,
+  getFlatNetMarks = null,
 }) {
   if (!targetAccount || typeof calculateFamily !== "function" || !eventNames || !store) {
     throw new TypeError("targetAccount, calculateFamily, eventNames and store are required");
@@ -1064,6 +1066,11 @@ export function createFamilySessionAdapter({
     return currencies;
   }
 
+  function portfolioRows(book) {
+    const marks = typeof getFlatNetMarks === "function" ? getFlatNetMarks() : [];
+    return mergeFlatNetMarks(clone(book?.portfolio || []), Array.isArray(marks) ? marks : []);
+  }
+
   function project(book) {
     if (blockedReason) return { ok: false, reason: blockedReason, hardFailure: true };
     if (retryReason) return { ok: false, reason: retryReason };
@@ -1102,8 +1109,9 @@ export function createFamilySessionAdapter({
       rateTimes.push(item.observedAt);
     }
 
+    const portfolio = portfolioRows(book);
     const affected = new Set(state.executions.filter(isFamilyExecution).map((row) => contractIdentity(row.contract)).filter(Boolean));
-    const marketTimes = (book.portfolio || [])
+    const marketTimes = portfolio
       .filter((row) => affected.has(contractIdentity(row.contract)))
       .flatMap((row) => [row.markObservedAt, row.observedAt]);
     const observedAt = maxIso([state.ledgerObservedAt, ...rateTimes, ...marketTimes]);
@@ -1117,7 +1125,7 @@ export function createFamilySessionAdapter({
       result = calculateFamily({
         executions: clone(state.executions),
         commissions: clone(state.commissions),
-        portfolio: clone(book.portfolio || []),
+        portfolio,
         positions: clone(book.positionsCoverage.rows || []),
         fx: { baseCurrency: "EUR", rates, observedAt: maxIso(rateTimes) },
         account: targetAccount,
@@ -1214,7 +1222,7 @@ export function createFamilySessionAdapter({
       return calculateDeskEquities({
         ledgerState: clone(state),
         verifiedHistoryState: clone(verifiedHistoryState),
-        portfolio: clone(book.portfolio || []),
+        portfolio: portfolioRows(book),
         positions: clone(book.positionsCoverage?.rows || []),
         fx: {
           baseCurrency: "EUR",
