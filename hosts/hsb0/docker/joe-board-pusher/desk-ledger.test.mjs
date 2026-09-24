@@ -10,7 +10,7 @@ import {
 } from "./desk-ledger.mjs";
 import { J_FAMILY_CLASSIFIER } from "./execution-history.mjs";
 import { EXECUTION_CAPTURE_SCHEMA, reconcileExecutionCapture } from "./execution-reconciliation.mjs";
-import { calculateFamily } from "./family-ledger.mjs";
+import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily } from "./family-ledger.mjs";
 
 const ACCOUNT = "SYNTHETIC-PAPER";
 const START = "2026-09-10T04:00:00Z";
@@ -122,6 +122,7 @@ function fixture() {
     excludedSymbols: J_FAMILY_CLASSIFIER.excludedSymbols,
     periodStart: START,
     observedAt: OBSERVED,
+    ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
   });
   return { ledgerState, verifiedHistoryState, portfolio, positions, fx, jResult };
 }
@@ -332,6 +333,92 @@ test("candidate ledger revision promotes only when official economics remain unc
     periodStart,
     proofObservedAt: "2026-09-12T04:02:00Z",
   }).reason, /economic history changed/);
+});
+
+test("Joe ownership claims the 2026-09-23 shared-account order clients and exact KEEP", () => {
+  const joe = CURRENT_DESK_OWNERSHIP_POLICY.assignments.filter((row) => row.desk === "joe");
+  assert.deepEqual(joe.map((row) => row.clientId), [22, 89, 90, 91, 119, 130, 131, 148, 151, 152]);
+  assert.equal(joe.every((row) => row.fromInclusive === START && row.toExclusive === null), true);
+  assert.deepEqual(CURRENT_DESK_OWNERSHIP_POLICY.excludedSymbols, ["SXR8", "TSLA"]);
+  assert.deepEqual(CURRENT_DESK_OWNERSHIP_POLICY.keepPositions.map((row) => ({ ...row })), [
+    { symbol: "SXR8", quantity: 1401 },
+    { symbol: "TSLA", quantity: 1 },
+  ]);
+  const reader = fixture();
+  reader.ledgerState.executions.push(execution("reader.01", 92, "OTHER", 103));
+  reader.ledgerState.commissions.push(commission("reader.01"));
+  reader.ledgerState.queryExecutionIdentities.push("reader.01");
+  reader.ledgerState.queryExecutionIdentities.sort();
+  reader.verifiedHistoryState = officialHistory(reader.ledgerState.executions, reader.ledgerState.commissions);
+  assert.match(calculateDeskEquities({ ...reader, account: ACCOUNT, observedAt: OBSERVED }).reason, /unclaimed/);
+});
+
+test("J long and Joe short on one contract still produce desk equity and the J family projection", () => {
+  const input = fixture();
+  const jLong = execution("j.nvda.long.01", 83, "NVDA", 5001, {
+    shares: 4,
+    price: 10,
+    time: "20260911 10:30:00 US/Eastern",
+  });
+  const joeShort = execution("joe.nvda.short.01", 119, "NVDA", 5001, {
+    side: "SLD",
+    shares: 4,
+    price: 12,
+    time: "20260911 10:31:00 US/Eastern",
+  });
+  input.ledgerState.executions.push(jLong, joeShort);
+  input.ledgerState.commissions.push(commission(jLong.execution.execId), commission(joeShort.execution.execId));
+  input.ledgerState.queryExecutionIdentities.push(jLong.execution.execId, joeShort.execution.execId);
+  input.ledgerState.queryExecutionIdentities.sort();
+  input.verifiedHistoryState = officialHistory(input.ledgerState.executions, input.ledgerState.commissions);
+  input.portfolio.push({
+    account: ACCOUNT,
+    contract: contract("NVDA", 5001),
+    symbol: "NVDA",
+    pos: 0,
+    marketPrice: 11,
+    observedAt: "2026-09-11T14:59:59Z",
+    markObservedAt: "2026-09-11T14:59:59Z",
+  });
+  input.jResult = calculateFamily({
+    executions: input.ledgerState.executions,
+    commissions: input.ledgerState.commissions,
+    portfolio: input.portfolio,
+    positions: input.positions,
+    fx: input.fx,
+    account: ACCOUNT,
+    familyClientIds: J_FAMILY_CLASSIFIER.familyClientIds,
+    excludedSymbols: J_FAMILY_CLASSIFIER.excludedSymbols,
+    periodStart: START,
+    observedAt: OBSERVED,
+    ownershipMode: VIRTUAL_SHARED_ACCOUNT_OWNERSHIP,
+  });
+  assert.equal(input.jResult.ok, true, input.jResult.reason);
+  const nvda = input.jResult.positions.find((row) => row.symbol === "NVDA");
+  assert.equal(nvda.side, "Long");
+  assert.equal(nvda.quantity, 4);
+  assert.deepEqual(input.jResult.openPnlEvidence.residualNonKeepPositions, [
+    { contractKey: "conId:5001", symbol: "NVDA", quantity: -4 },
+  ]);
+
+  const result = calculateDeskEquities({ ...input, account: ACCOUNT, observedAt: OBSERVED });
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.equity.j, 5004.32);
+  assert.equal(result.equity.joe, 5002.43);
+  assert.equal(result.equity.joel, 5000);
+  assert.equal(result.equity.total, 15006.75);
+  assert.deepEqual(
+    result.desks.j.positions.filter((row) => row.symbol === "NVDA").map(({ side, quantity }) => ({ side, quantity })),
+    [{ side: "Long", quantity: 4 }],
+  );
+  assert.deepEqual(
+    result.desks.joe.positions.map(({ symbol, side, quantity }) => ({ symbol, side, quantity })),
+    [{ symbol: "NVDA", side: "Short", quantity: -4 }],
+  );
+  assert.deepEqual(result.ownershipEvidence.exactKeepPositions, [
+    { symbol: "SXR8", quantity: 1401 },
+    { symbol: "TSLA", quantity: 1 },
+  ]);
 });
 
 test("overlapping client ownership policy is rejected before any valuation", () => {

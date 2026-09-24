@@ -15,7 +15,7 @@ import {
   EXECUTION_CAPTURE_SCHEMA,
   reconcileExecutionCapture,
 } from "./execution-reconciliation.mjs";
-import { calculateFamily } from "./family-ledger.mjs";
+import { VIRTUAL_SHARED_ACCOUNT_OWNERSHIP, calculateFamily } from "./family-ledger.mjs";
 import { CURRENT_DESK_OWNERSHIP_POLICY, DESK_HISTORY_REVISION_METHOD, calculateDeskEquities,
   deskOwnershipPolicyContract, buildDeskDayBoundaryEvidence } from "./desk-ledger.mjs";
 import { createDeskDayPnlProducer } from "./day-baseline.mjs";
@@ -1000,6 +1000,7 @@ test("projection proves same-account EUR, fresh explicit FX, and complete positi
   assert.deepEqual(captured.fx.rates, { EUR: 1, USD: 0.86 });
   assert.deepEqual(captured.familyClientIds, FAMILY_IDS);
   assert.equal(captured.account, ACCOUNT);
+  assert.equal(captured.ownershipMode, VIRTUAL_SHARED_ACCOUNT_OWNERSHIP);
 });
 
 test("ledger revisions and economic observations advance source time; heartbeats do not", () => {
