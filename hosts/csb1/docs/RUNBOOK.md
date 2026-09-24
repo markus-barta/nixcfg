@@ -1223,7 +1223,6 @@ docker-compose up -d docmost
 
 | Task                      | Time                   | Container                              |
 | ------------------------- | ---------------------- | -------------------------------------- |
-| Aeon PostgreSQL dump      | 01:05 AM daily         | `aeon-postgres-backup-snapshot.timer`  |
 | HAUSV PostgreSQL dump     | 01:10 AM daily         | `hausv-postgres-backup-snapshot.timer` |
 | HAUSV consistent snapshot | 01:20 AM daily         | `hausv-backup-snapshot.timer`          |
 | Backup                    | 01:30 AM daily         | csb1-restic-cron-hetzner-1             |
@@ -1238,10 +1237,6 @@ docker-compose up -d docmost
 ✅ /home - All user home directories
 ✅ /root - Root user data
 ✅ /etc - System configuration
-✅ /var/lib/csb1-docker/aeon-files
-   └─ Aeon /data/files; mode 0750, Distroless nonroot UID/GID 65532
-✅ /var/lib/csb1-docker/aeon-postgres-backup-snapshot
-   └─ Validated PostgreSQL 18 custom-format aeon.dump + SNAPSHOT-CREATED-UTC
 ✅ /var/lib/csb1-docker/hausv-org-backup-snapshot
    └─ Quiesced SQLite + blob recovery point; use this for HAUSV restores
 ✅ /var/lib/csb1-docker/hausv-postgres-backup-snapshot
@@ -1250,28 +1245,6 @@ docker-compose up -d docmost
    └─ Deliberately excluded to avoid a mixed SQLite/blob recovery point
 ❌ Exclusions: */cache/*, *.log*
 ```
-
-### Aeon recovery points (AEON-73)
-
-At 01:05, `aeon-postgres-backup-snapshot.service` dumps the `aeon` database
-from healthy `aeon-db` with `pg_dump -U postgres -d aeon -Fc`. It runs as the
-container's `postgres` OS user over the local socket, without reading password
-files; the database superuser includes rows protected by FORCE ROW LEVEL
-SECURITY. PostgreSQL 18 `pg_restore --list` validates the archive before the
-staging/previous directory rotation publishes it. A failed health check, dump,
-or validation leaves the previous published recovery point intact. The unit
-has the same 180-second timeout, root-only snapshot directory (0700), and
-private file creation mask (077) as the HAUSV PostgreSQL snapshot.
-
-The 01:30 Restic job already mounts `/var/lib/csb1-docker` at
-`/backup/var/lib/csb1-docker` and selects that whole tree. Neither Aeon path
-matches its HAUSV live-directory exclusion. The global `*/cache/*` and
-`*.log*` exclusions still apply. Uploaded files are backed up live at 01:30;
-they and the 01:05 database dump are separate recovery points, not a quiesced
-cross-resource snapshot. The application role remains non-superuser.
-
-Local failure/rotation checks (fake Docker and PostgreSQL; no host access):
-`python3 hosts/csb1/scripts/test-aeon-backup.py -v`.
 
 ### Check Backup Status
 
