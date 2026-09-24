@@ -204,7 +204,7 @@ in
     # Database password, session key and messaging key are host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:260924153851.0.0@sha256:9bfc44333032fdf0970b9c149bcf8dffb7d08f720f456f8580e3579888e6b39b";
+      image = "ghcr.io/inspr-at/aeon:260924153851.0.0@sha256:9bfc44333032fdf0970b9c149bcf8dffb7d08f720f456f8580e3579888e6b39b"; # Release history, sticky footer, brand; profile, greeting, quote backends (AEON-83)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
