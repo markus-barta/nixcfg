@@ -246,7 +246,11 @@ lots come only from the target desk, another desk's fills on the same contract
 are not an ownership failure, and the broker net is reconciled to the sum of
 every desk's non-KEEP fills. One desk's open lots may differ from that net. An
 open virtual lot still needs a current portfolio mark, including a zero-quantity
-row when the account itself is flat. Exact KEEP stays SXR8×1401 and TSLA×1. A
+row when the account itself is flat. Account-portfolio callbacks omit that
+contract once the broker net is zero, so the paper session requests delayed-frozen
+market data for the open virtual names and records only an explicit last or close
+tick. The tick's own clock is the mark time. No tick leaves the lot fail-closed.
+KEEP names are never requested. Exact KEEP stays SXR8×1401 and TSLA×1. A
 client ID outside the dated ownership policy still fails loud.
 
 Joe order clients claimed from the 2026-09-10 America/New_York baseline are
