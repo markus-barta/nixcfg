@@ -227,7 +227,9 @@ in
         "/var/lib/aeon-secrets/messaging-key:/run/secrets/aeon-messaging-key:ro"
       ];
       depends_on = [ "aeon-db" ];
-      mem_limit = "256m";
+      # Chromium renders quote PDFs in-process (AEON-91): measured cgroup peak 278 MiB
+      # for three A4 renders at concurrency 1; 768m leaves headroom (AEON_PDF_CONCURRENCY=1).
+      mem_limit = "768m";
       networks = [
         "aeon"
         "traefik"
