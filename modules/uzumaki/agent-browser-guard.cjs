@@ -2,8 +2,7 @@
 //
 // WHAT THIS IS
 //   A CommonJS module loaded via `NODE_OPTIONS=--require <this file>` into agent
-//   CLI processes whose own sandbox cannot be wrapped (Cursor, and as
-//   defence-in-depth elsewhere). It intercepts the four child-process APIs
+//   Codex CLI processes and explicitly guarded sessions (NIX-578). It intercepts the four child-process APIs
 //   Playwright and friends use to start a browser, and refuses before the
 //   browser process is created.
 //
@@ -35,7 +34,8 @@ const DENY_BASENAMES = new Set(JSON.parse('@INSPR_DENY_BASENAMES@'));
 const REFUSAL_CODE = 'INSPR_BROWSER_GUARD_REFUSED';
 const REFUSAL_MESSAGE =
   'INSPR agent browser guard (NIX-445): native browser launch refused. ' +
-  'Ask the controller for a verified browser-QA runner; a blocked launch is not a passed test. ' +
+  'Chrome crashes inside Codex Seatbelt; native headless Playwright is supported outside Codex. ' +
+  'Ask the controller to run it there; a blocked launch is not a passed test. ' +
   'This is accidental-launch prevention inside Node, not an OS security boundary.';
 
 // Bound the work done on every single spawn in the process.

@@ -25,12 +25,12 @@ _Loaded by `CLAUDE.md` alongside the kernel. nixcfg-specific rules only — univ
 - 🔴 Never hand-edit files on a server. Edit compose locally → commit → push → `git pull` on the host → `docker compose up -d`.
 - 🔴 On `hsb1`, every managed file must be a **symlink back to nixcfg**. Not a symlink = not managed.
 
-## Agent browser launches (NIX-445)
+## Agent browser launches (NIX-445 / NIX-578)
 
-- 🔴 **Never start a native browser from an agent session.** No `open -a "Google Chrome"`, no Playwright/Puppeteer `executablePath` into `/Applications/…`, no browser binary you located yourself. Chrome aborts inside macOS `_RegisterApplication` when a sandboxed agent session starts it and takes over the operator's desktop. _(repeated; latest 2026-09-08 21:35 CEST)_
-- 🔴 **A blocked launch is not a passed test.** On `inspr-browser-guard-refuse` output, an `INSPR_BROWSER_GUARD_REFUSED` error from Node, or `Operation not permitted` / `EPERM` on a browser path: report the refusal and stop. No retry, no second binary, no unsetting `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`, no disabling the guard.
-- 🟡 Browser QA belongs to a **verified controller-owned or remote runner** — ask the controller. `templates/playwright-qa` is _not_ that runner: it is the NIX-288 native-browser path this guard blocks. If no verified runner is available, report browser QA as unavailable.
-- 🟡 The guard is technical where macOS allows it and environment-level where it does not — mechanism, wiring and the exact uncovered invocation paths: `modules/uzumaki/agent-browser-guard.nix` and `lib/agent-browser-guard.nix`.
+- Native **headless** Playwright/Puppeteer with Google Chrome is the supported browser-QA path outside Codex (Claude, Grok, Cursor, Pi and non-Codex agentd sessions). Use the NIX-288 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` from `macos-common.nix` or the project's devenv; `templates/playwright-qa` provides the native headless path. Do not open a visible browser on the operator's desktop.
+- 🔴 **Inside Codex, never launch a native browser.** Chrome aborts in macOS `_RegisterApplication` inside Codex's Seatbelt sandbox (2026-09-08). Keep its refusal hints/preload and native permission deny; ask the controller to run headless QA outside Codex.
+- 🔴 **A blocked launch is not a passed test.** On `inspr-browser-guard-refuse`, `INSPR_BROWSER_GUARD_REFUSED`, or browser-path `EPERM`: report the refusal and stop. Do not retry another binary or disable the guard. Strict `*-guarded` sessions intentionally refuse too.
+- Strict launchers and the Seatbelt profile are **opt-in**, never the default for non-Codex agents. Start a fresh session after activation: existing sessions retain their inherited guard environment. Implementation and limits: `modules/uzumaki/agent-browser-guard.nix` and `lib/agent-browser-guard.nix`.
 
 ## Repo conventions
 
