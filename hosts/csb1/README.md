@@ -163,6 +163,15 @@ See `docs/MIGRATION-PLAN-HOKAGE.md` for incident report (2025-12-05).
 
 See `secrets/runbook-secrets.md` for credentials and restore procedures.
 
+### PAIMOS AEON (AEON-73)
+
+| Path                                                 | Content                                                                            | Schedule                                           |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `/var/lib/csb1-docker/aeon-files`                    | Attachments (`AEON_FILES_DIR=/data/files`), 0750, distroless nonroot UID/GID 65532 | covered by the daily restic run (01:30)            |
+| `/var/lib/csb1-docker/aeon-postgres-backup-snapshot` | Validated `pg_dump -Fc` of the aeon database plus `SNAPSHOT-CREATED-UTC`           | `aeon-postgres-backup-snapshot.timer`, 01:05 daily |
+
+Files and database are separate recovery points: restore the dump, then the files directory; `aeon files verify` reports referenced files that are missing or corrupt.
+
 ---
 
 ## Network
