@@ -384,7 +384,7 @@ in
     script = ''
       d=/var/lib/aeon-secrets
       install -d -m 0700 -o root -g root "$d"
-      for f in db-superuser-password db-password session-key; do
+      for f in db-superuser-password db-password session-key messaging-key; do
         if [ ! -s "$d/$f" ]; then
           umask 0277
           head -c 48 /dev/urandom | base64 | tr -d '/+=\n' | head -c 40 > "$d/$f.tmp"
