@@ -325,6 +325,11 @@ if not env_only:
 for required in ("claude", "grok", "pi", "cursor-agent", "agent"):
     if not re.search(rf"^\s*{re.escape(required)}\s*=", env_only.group(1), re.M):
         print(f"T72 failed: {required} must be wired on the native headless route", file=sys.stderr); sys.exit(1)
+# Codex must carry its own guard, without relying on the parent controller.
+codex_env = re.search(r"envOnlyPrograms = \{(.*?)\n *\};", src, re.S)
+assert codex_env, "Codex env-only launchers missing"
+for required in ("codex", "codex-admin", "codex-markus"):
+    assert re.search(rf"^\s*{re.escape(required)}\s*=", codex_env.group(1), re.M), required
 PYSHADOW
 grep -Fq 'cursor-agent' modules/uzumaki/agent-browser-guard.nix ||
   fail 'the module must state the Cursor limitation explicitly'

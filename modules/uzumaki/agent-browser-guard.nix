@@ -7,7 +7,7 @@
 #
 # NIX-578: native HEADLESS Playwright/Puppeteer is supported outside Codex.
 # Default non-Codex launchers preserve the NIX-288 browser environment and add
-# no preload. Codex retains its native permission deny and agentd env+preload:
+# no preload. Codex gets its own shell and agentd env+preload launchers:
 # Chrome aborts in _RegisterApplication inside its Seatbelt sandbox (2026-09-08).
 # Strict `*-guarded` launchers and the Seatbelt profile remain opt-in tools.
 # They must never wrap a dispatch controller: nested Seatbelt profiles fail.
@@ -63,8 +63,8 @@
 #   - It does not touch `home.sessionVariables`. Ordinary human shells keep the
 #     NIX-288 export (modules/uzumaki/macos-common.nix → playwrightSessionVars)
 #     and normal browser use from Finder/Dock/Spotlight is unaffected.
-#   - It never shadows `codex`: wrapping it would break its own sandbox. Other
-#     CLIs get same-name launchers in a dedicated directory placed ahead of
+#   - Codex is shadowed with env+preload ONLY, never an outer Seatbelt profile.
+#     Same-name launchers live in a dedicated directory placed ahead of
 #     every other PATH entry — by fish `shellInit` and zsh `envExtra` (.zshenv,
 #     which non-interactive `zsh -c` also reads), and again as the LAST step of
 #     fish login/interactive init and zsh .zlogin/.zshrc, because host login
@@ -191,6 +191,7 @@ let
     if [ "$saw_approval" = 0 ]; then
       set -- "$@" --ask-for-approval never
     fi
+    ${envOnlyPrefix}
     exec ${lib.escapeShellArg cfg.codexPermissions.codexBinary} "$@" "''${args[@]}"
   '';
 
@@ -212,8 +213,17 @@ let
   # Native launchers preserve the caller's browser variables and NODE_OPTIONS.
   mkNativeWrapper =
     name: target: pkgs.writeShellScriptBin name (guardLib.mkNativeLauncherText target);
+  # Codex needs its own hints/preload now that dispatch controllers are native.
+  # No outer Seatbelt: that would break Codex's existing command sandbox.
+  mkEnvOnlyWrapper =
+    name: target:
+    pkgs.writeShellScriptBin name ''
+      ${envOnlyPrefix}
+      exec ${lib.escapeShellArg target} "$@"
+    '';
   wrappers = lib.mapAttrsToList mkWrapper cfg.guardedPrograms;
-  hasLaunchers = cfg.shadowedPrograms != { } || cfg.nativePrograms != { };
+  hasLaunchers =
+    cfg.shadowedPrograms != { } || cfg.nativePrograms != { } || cfg.envOnlyPrograms != { };
 
   # PATH-shadowing launchers: same command NAME as the vendor CLI, in a directory
   # of their own that fish puts ahead of ~/.npm-global/bin and /opt/homebrew/bin.
@@ -223,7 +233,8 @@ let
     name = "inspr-agent-guard-shadow-bin";
     paths =
       lib.mapAttrsToList mkWrapper cfg.shadowedPrograms
-      ++ lib.mapAttrsToList mkNativeWrapper cfg.nativePrograms;
+      ++ lib.mapAttrsToList mkNativeWrapper cfg.nativePrograms
+      ++ lib.mapAttrsToList mkEnvOnlyWrapper cfg.envOnlyPrograms;
   };
 in
 {
@@ -348,6 +359,17 @@ in
       '';
     };
 
+    envOnlyPrograms = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      description = ''
+        Same-name Codex launchers with refusal hints and Node preload only.
+        No outer Seatbelt is applied. This covers shell dispatch independently
+        of the optional privileged managed Codex policy installation.
+        Absolute callers that bypass these launchers still need managed policy.
+      '';
+    };
+
     nativePrograms = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
@@ -455,9 +477,19 @@ in
         message = "uzumaki.agentBrowserGuard.nativePrograms targets must be absolute paths";
       }
       {
+        assertion = lib.all (target: lib.hasPrefix "/" target) (lib.attrValues cfg.envOnlyPrograms);
+        message = "uzumaki.agentBrowserGuard.envOnlyPrograms targets must be absolute paths";
+      }
+      {
         assertion =
-          lib.intersectLists (lib.attrNames cfg.shadowedPrograms) (lib.attrNames cfg.nativePrograms) == [ ];
-        message = "uzumaki.agentBrowserGuard: a command must be either sandbox-shadowed or native, not both";
+          let
+            names =
+              lib.attrNames cfg.shadowedPrograms
+              ++ lib.attrNames cfg.nativePrograms
+              ++ lib.attrNames cfg.envOnlyPrograms;
+          in
+          builtins.length (lib.unique names) == builtins.length names;
+        message = "uzumaki.agentBrowserGuard: launcher names must be unique across strict, native and env-only programs";
       }
       {
         # Codex and Cursor both apply their own Seatbelt profile per command, and
@@ -487,7 +519,10 @@ in
         # PATH without our init would still find the unguarded binary. Point the
         # launcher at the package instead of installing it.
         let
-          launcherNames = lib.attrNames cfg.shadowedPrograms ++ lib.attrNames cfg.nativePrograms;
+          launcherNames =
+            lib.attrNames cfg.shadowedPrograms
+            ++ lib.attrNames cfg.nativePrograms
+            ++ lib.attrNames cfg.envOnlyPrograms;
           collisions = lib.unique (
             lib.filter (name: lib.elem name launcherNames) (
               map (p: (p.meta or { }).mainProgram or null) config.home.packages
