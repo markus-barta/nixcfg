@@ -212,6 +212,46 @@ let
     ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
     echo "hausv-postgres recovery point published"
   '';
+  # AEON-73: use the container-local postgres role so FORCE ROW LEVEL SECURITY
+  # cannot omit tenant rows. No password file is read; the local socket uses
+  # the image's existing local authentication. Match the container's PG 18
+  # archive format when validating. Restic includes this directory at 01:30.
+  aeonPostgresBackupSnapshot = pkgs.writeShellScript "aeon-postgres-backup-snapshot" ''
+    set -eu
+    umask 077
+
+    container=aeon-db
+    snapshot_dir=/var/lib/csb1-docker/aeon-postgres-backup-snapshot
+    staging_dir=/var/lib/csb1-docker/.aeon-postgres-backup-snapshot.staging
+    previous_dir=/var/lib/csb1-docker/.aeon-postgres-backup-snapshot.previous
+
+    running="$(${pkgs.docker}/bin/docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null || true)"
+    health="$(${pkgs.docker}/bin/docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || true)"
+    if [ "$running" != true ] || [ "$health" != healthy ]; then
+      echo "aeon-db is not healthy; keeping the previous recovery point" >&2
+      exit 1
+    fi
+
+    ${pkgs.coreutils}/bin/rm -rf "$staging_dir"
+    ${pkgs.coreutils}/bin/install -d -m 0700 "$staging_dir"
+    if ! ${pkgs.docker}/bin/docker exec --user postgres "$container" \
+      pg_dump -U postgres -d aeon -Fc >"$staging_dir/aeon.dump"; then
+      echo "aeon-db pg_dump failed; keeping the previous recovery point" >&2
+      exit 1
+    fi
+    [ -s "$staging_dir/aeon.dump" ]
+    ${pkgs.postgresql_18}/bin/pg_restore --list "$staging_dir/aeon.dump" >/dev/null
+    ${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ >"$staging_dir/SNAPSHOT-CREATED-UTC"
+    ${pkgs.coreutils}/bin/sync "$staging_dir"
+
+    ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
+    if [ -e "$snapshot_dir" ]; then
+      ${pkgs.coreutils}/bin/mv "$snapshot_dir" "$previous_dir"
+    fi
+    ${pkgs.coreutils}/bin/mv "$staging_dir" "$snapshot_dir"
+    ${pkgs.coreutils}/bin/rm -rf "$previous_dir"
+    echo "aeon-postgres recovery point published"
+  '';
 in
 {
   imports = [
@@ -1020,6 +1060,9 @@ in
       # Create runtime directory structure
       "d ${dockerRoot} 0755 mba users -"
       "d ${dockerRoot}/traefik 0755 mba users -"
+      # Aeon uses gcr.io/distroless/static:nonroot (UID/GID 65532).
+      "d ${dockerRoot}/aeon-files 0750 65532 65532 -"
+      "d ${dockerRoot}/aeon-postgres-backup-snapshot 0700 root root -"
       "d ${dockerRoot}/hausv-org 0750 65532 65532 -"
       "d ${dockerRoot}/hausv-org-backup-snapshot 0700 root root -"
       "d ${dockerRoot}/hausv-postgres-backup-snapshot 0700 root root -"
@@ -1117,6 +1160,31 @@ in
       OnCalendar = "*-*-* 01:10:00";
       Persistent = true;
       Unit = "hausv-postgres-backup-snapshot.service";
+    };
+  };
+
+  # AEON-73: finish before HAUSV's 01:10 dump and Restic's 01:30 backup.
+  systemd.services.aeon-postgres-backup-snapshot = {
+    description = "Publish a consistent Aeon PostgreSQL recovery point";
+    requires = [ "docker.service" ];
+    after = [
+      "docker.service"
+      "compose-csb1.service"
+    ];
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = aeonPostgresBackupSnapshot;
+      TimeoutStartSec = "180";
+    };
+  };
+
+  systemd.timers.aeon-postgres-backup-snapshot = {
+    description = "Dump Aeon PostgreSQL before the daily restic backup";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      OnCalendar = "*-*-* 01:05:00";
+      Persistent = true;
+      Unit = "aeon-postgres-backup-snapshot.service";
     };
   };
 
