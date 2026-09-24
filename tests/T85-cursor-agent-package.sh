@@ -61,7 +61,7 @@ cursor_exe="$package_out/bin/cursor-agent"
 for home in 'markus@mbp2607' 'mba@mbp2606' 'mailina@mbp2606'; do
   packages=$(cd "$repo_root" && nix eval --json ".#homeConfigurations.\"$home\".config.home.packages")
   in_profile=$(printf '%s' "$packages" | jq --arg p "$package_out" 'index($p) != null')
-  guarded=$(cd "$repo_root" && nix eval --json ".#homeConfigurations.\"$home\".config.uzumaki.agentBrowserGuard.envOnlyPrograms" |
+  guarded=$(cd "$repo_root" && nix eval --json ".#homeConfigurations.\"$home\".config.uzumaki.agentBrowserGuard.nativePrograms" |
     jq 'has("cursor-agent") or has("agent")')
   if [ "$guarded" = true ]; then
     [ "$in_profile" = false ] || fail "$home installs Cursor into the profile, ahead of its guard launcher"
@@ -72,7 +72,7 @@ for home in 'markus@mbp2607' 'mba@mbp2606' 'mailina@mbp2606'; do
   [ "$cursor_env" = "$cursor_exe" ] || fail "$home CURSOR_AGENT_PATH is not the pinned package: $cursor_env"
 done
 
-guard=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.uzumaki.agentBrowserGuard.envOnlyPrograms')
+guard=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.uzumaki.agentBrowserGuard.nativePrograms')
 # NIX-522: each name execs its own entry point, so `agent` keeps its name.
 for name in cursor-agent agent; do
   target=$(printf '%s' "$guard" | jq -er --arg n "$name" '.[$n]') || fail "guard shim $name is missing"

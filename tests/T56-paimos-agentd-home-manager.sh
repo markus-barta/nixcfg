@@ -96,11 +96,7 @@ for flag, value in expected_pairs.items():
     assert args.count(flag) == 1, (flag, args)
 for flag in ("--pi-path", "--pi-accounts"):
     assert flag not in args, (flag, args)
-# NIX-445 / D1: Claude is the dispatch controller here, so it runs on the
-# env+preload route — a Seatbelt profile would be inherited by the Codex and
-# Cursor workers it starts and would kill them on their own sandbox_apply.
-# Cursor is launched through the env-only wrapper instead: it runs its own
-# seatbelt helper, so it must never be nested inside another profile.
+# NIX-578: Claude and Cursor use native wrappers; Codex alone keeps env+preload.
 cursor_index = args.index("--cursor-path")
 assert args.count("--cursor-path") == 1, args
 cursor_path = args[cursor_index + 1]
@@ -131,25 +127,17 @@ instance_dir = f"/Users/markus/Library/Caches/paimos/agentd/{instance_key}"
 assert config["StandardOutPath"] == f"{instance_dir}/agentd.stdout.log", config
 assert config["StandardErrorPath"] == f"{instance_dir}/agentd.stderr.log", config
 assert config["Umask"] == 63, config
-# NIX-445: the only plist environment permitted is the non-secret browser-harness
-# redirect that points every agentd-started session at the refusal shim.
+# NIX-578: no shared browser refusal; only the Claude update policy remains.
 # Credentials must still never appear here.
 env = config.get("EnvironmentVariables")
 assert env is not None and set(env) == {
-    "CHROME_PATH",
-    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
-    "PUPPETEER_EXECUTABLE_PATH",
-    "INSPR_AGENT_BROWSER_GUARD",
     "DISABLE_AUTOUPDATER",
     "DISABLE_UPDATES",
     "FORCE_AUTOUPDATE_PLUGINS",
 }, config
-assert env["INSPR_AGENT_BROWSER_GUARD"] == "env-only", config
 for key in ("DISABLE_AUTOUPDATER", "DISABLE_UPDATES", "FORCE_AUTOUPDATE_PLUGINS"):
     assert env[key] == "1", (key, config)
-for key in ("CHROME_PATH", "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "PUPPETEER_EXECUTABLE_PATH"):
-    assert env[key].startswith("/nix/store/"), config
-    assert env[key].endswith("/bin/inspr-browser-guard-refuse"), config
+
 PY
 
 current_system=$(nix eval --impure --raw --expr builtins.currentSystem)
@@ -172,6 +160,7 @@ PY
   grep -Fq '/Users/markus/.npm-global/bin/codex' "$codex_launcher" || fail 'Codex launcher does not exec the operator-authenticated CLI'
   # NIX-445: Codex keeps its own Seatbelt sandbox (macOS refuses nested profiles),
   # so it gets the browser-harness variables only — never a guard wrapper.
+  grep -Fq 'NODE_OPTIONS' "$codex_launcher" || fail 'Codex launcher lost its preload'
   grep -Fq 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=' "$codex_launcher" || fail 'Codex launcher does not carry the NIX-445 browser-harness variables'
   if grep -Fq 'sandbox-exec' "$codex_launcher"; then
     fail 'Codex launcher must not be wrapped in a nested Seatbelt profile'
@@ -186,7 +175,9 @@ PYCLAUDE
   )
   [ -x "$claude_launcher" ] || fail 'realised Claude launcher does not exist'
   grep -Fq '/Users/markus/.npm-global/bin/claude' "$claude_launcher" || fail 'Claude launcher does not exec the operator-authenticated CLI'
-  grep -Fq 'NODE_OPTIONS' "$claude_launcher" || fail 'Claude launcher does not carry the NIX-445 Node preload'
+  if grep -Eq 'NODE_OPTIONS|inspr-browser-guard-refuse|PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH|PUPPETEER_EXECUTABLE_PATH|CHROME_PATH' "$claude_launcher"; then
+    fail 'Claude launcher must preserve the native browser environment'
+  fi
   if grep -Eq 'sandbox-exec|inspr-agent-guard' "$claude_launcher"; then
     fail 'the dispatch controller must not be Seatbelt-wrapped — it would kill the workers it dispatches'
   fi
@@ -203,10 +194,25 @@ PYCURSOR
   cursor_out=$(nix eval --raw '.#packages.aarch64-darwin.cursor-agent.outPath')
   grep -Fq "$cursor_out/bin/cursor-agent" "$cursor_launcher" ||
     fail 'Cursor launcher does not exec the pinned Nix package'
-  grep -Fq 'NODE_OPTIONS' "$cursor_launcher" || fail 'Cursor launcher does not carry the NIX-445 Node preload'
+  if grep -Eq 'NODE_OPTIONS|inspr-browser-guard-refuse|PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH|PUPPETEER_EXECUTABLE_PATH|CHROME_PATH' "$cursor_launcher"; then
+    fail 'Cursor launcher must preserve the native browser environment'
+  fi
   if grep -Eq 'sandbox-exec|inspr-agent-guard' "$cursor_launcher"; then
     fail 'Cursor must never be nested inside another Seatbelt profile'
   fi
+
+  # NIX-578: shell-dispatched Codex needs its own guard too, since native
+  # controllers no longer export one. Inspect the realised same-name launchers.
+  shadow_init=$(nix eval --raw '.#homeConfigurations."markus@mbp2607".config.programs.zsh.envExtra')
+  shadow_bin=$(printf '%s' "$shadow_init" | grep -Eo '/nix/store/[^/:]+-inspr-agent-guard-shadow-bin/bin' | head -n 1)
+  for name in codex codex-admin codex-markus; do
+    [ -x "$shadow_bin/$name" ] || fail "missing shell Codex wrapper: $name"
+    grep -Fq 'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=' "$shadow_bin/$name" || fail "$name lost refusal hints"
+    grep -Fq 'NODE_OPTIONS' "$shadow_bin/$name" || fail "$name lost the preload"
+    if grep -Fq 'sandbox-exec' "$shadow_bin/$name"; then
+      fail "$name must not nest Seatbelt"
+    fi
+  done
 
   service_plist="$activation_package/LaunchAgents/at.inspr.paimos-agentd.plist"
   [ -f "$service_plist" ] || fail 'final Home Manager generation has no Paimos LaunchAgent'
@@ -228,14 +234,9 @@ instance_dir = f"/Users/markus/Library/Caches/paimos/agentd/{instance_key}"
 assert generated["StandardOutPath"] == f"{instance_dir}/agentd.stdout.log", generated
 assert generated["StandardErrorPath"] == f"{instance_dir}/agentd.stderr.log", generated
 assert generated.get("Program") is None, generated
-# NIX-445: the generated plist carries exactly the non-secret browser-harness
-# redirect and nothing else.
+# NIX-578: the generated plist carries only the Claude update policy.
 assert generated.get("EnvironmentVariables") == declared["EnvironmentVariables"], generated
 assert set(generated["EnvironmentVariables"]) == {
-    "CHROME_PATH",
-    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
-    "PUPPETEER_EXECUTABLE_PATH",
-    "INSPR_AGENT_BROWSER_GUARD",
     "DISABLE_AUTOUPDATER",
     "DISABLE_UPDATES",
     "FORCE_AUTOUPDATE_PLUGINS",

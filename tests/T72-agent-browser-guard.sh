@@ -85,6 +85,8 @@ case "$refusal_text" in
 esac
 
 codex_profile=$(guard_eval 'guard.mkCodexPermissionsToml { profileName = "inspr-browser-guard"; denyPaths = [ "/Applications/Google Chrome.app" ]; }')
+contains "$refusal_text" 'inside the Codex' 'refusal must explain the Codex-specific crash'
+contains "$refusal_text" 'supported outside Codex' 'refusal must describe the supported headless QA path'
 contains "$codex_profile" '[permissions.inspr-browser-guard]' 'Codex profile must declare the named permission profile'
 contains "$codex_profile" 'extends = ":workspace"' 'Codex profile must extend, never replace, the account workspace policy'
 contains "$codex_profile" '"/Applications/Google Chrome.app" = "deny"' 'Codex profile must deny the browser bundle'
@@ -301,7 +303,7 @@ for cli in claude grok pi; do
 done
 # Codex, cursor-agent and its `agent` symlink each apply their own Seatbelt
 # profile; wrapping any of them would break the sandbox they already have. They
-# may appear under envOnlyPrograms — only shadowedPrograms is a Seatbelt wrap.
+# may appear under nativePrograms — only shadowedPrograms is a Seatbelt wrap.
 python3 - <<'PYSHADOW' || exit 1
 import re, sys
 src = open("hosts/mbp2607/home.nix", encoding="utf-8").read()
@@ -315,14 +317,19 @@ if block is None:
 for unwrappable in ("codex", "cursor-agent", "agent"):
     if re.search(rf"^\s*{re.escape(unwrappable)}\s*=", block, re.M):
         print(f"T72 failed: {unwrappable} must never be Seatbelt-wrapped", file=sys.stderr); sys.exit(1)
-# D1: the dispatch-capable entry points must be on the env+preload route, since a
+# D1: the dispatch-capable entry points must be on the native headless route, since a
 # Seatbelt profile would kill the Codex/Cursor workers they dispatch.
-env_only = re.search(r"envOnlyPrograms = \{(.*?)\n *\};", src, re.S)
+env_only = re.search(r"nativePrograms = \{(.*?)\n *\};", src, re.S)
 if not env_only:
-    print("T72 failed: envOnlyPrograms block not found", file=sys.stderr); sys.exit(1)
+    print("T72 failed: nativePrograms block not found", file=sys.stderr); sys.exit(1)
 for required in ("claude", "grok", "pi", "cursor-agent", "agent"):
     if not re.search(rf"^\s*{re.escape(required)}\s*=", env_only.group(1), re.M):
-        print(f"T72 failed: {required} must be wired on the env+preload route", file=sys.stderr); sys.exit(1)
+        print(f"T72 failed: {required} must be wired on the native headless route", file=sys.stderr); sys.exit(1)
+# Codex must carry its own guard, without relying on the parent controller.
+codex_env = re.search(r"envOnlyPrograms = \{(.*?)\n *\};", src, re.S)
+assert codex_env, "Codex env-only launchers missing"
+for required in ("codex", "codex-admin", "codex-markus"):
+    assert re.search(rf"^\s*{re.escape(required)}\s*=", codex_env.group(1), re.M), required
 PYSHADOW
 grep -Fq 'cursor-agent' modules/uzumaki/agent-browser-guard.nix ||
   fail 'the module must state the Cursor limitation explicitly'
@@ -332,13 +339,14 @@ grep -Fq 'programs.zsh.envExtra' modules/uzumaki/agent-browser-guard.nix ||
   fail 'zsh coverage must go through .zshenv, which non-interactive `zsh -c` also reads'
 grep -Fq 'INSPR_AGENT_BROWSER_GUARD-' modules/uzumaki/agent-browser-guard.nix ||
   fail 'the strict wrapper must be re-entrant inside an existing guard'
-grep -Fq 'guardPrefix' hosts/mbp2607/pi-local.nix ||
-  fail 'the declarative Pi launchers must run under the guard'
+if grep -Fq 'guardPrefix' hosts/mbp2607/pi-local.nix; then
+  fail 'the declarative Pi launchers must not default to the strict guard'
+fi
 grep -Fq '${guardEnvExports}' modules/uzumaki/paimos-agentd.nix ||
   fail 'the agentd Codex launcher must carry the env-only guard layer'
 tr -s '[:space:]' ' ' <modules/uzumaki/paimos-agentd.nix |
-  grep -Eq 'EnvironmentVariables = claudeUpdateEnv // lib\.optionalAttrs guardEnabled browserGuard\.launchdEnvironment;' ||
-  fail 'agentd-owned sessions must inherit the harness variables from the plist'
+  grep -Fq 'EnvironmentVariables = claudeUpdateEnv;' ||
+  fail 'the shared agentd environment must not inject a browser refusal'
 
 # Codex must stay out of the sandbox-wrapped set: macOS cannot nest profiles,
 # so wrapping it would break its own inner sandbox (proved in section 4).
@@ -491,7 +499,7 @@ refusal_rc=$?
 set -e
 [ "$refusal_rc" -eq 78 ] || fail "refusal shim must exit non-zero (rc=$refusal_rc)"
 contains "$refusal_out" 'native browser launch refused' 'refusal must be stable and explicit'
-contains "$refusal_out" 'controller-owned or remote' 'refusal must name the supported browser-QA path'
+contains "$refusal_out" 'supported outside Codex' 'refusal must name the supported browser-QA path'
 contains "$refusal_out" 'NOT a passed browser test' 'refusal must forbid reporting a pass'
 
 # Documented macOS limit, asserted so it cannot rot silently: a process under a

@@ -150,14 +150,68 @@ esac
 twice=$(NODE_OPTIONS="--require $preload" /bin/sh -c "$snippet"'; printf "%s" "$NODE_OPTIONS"')
 [ "$twice" = "--require $preload" ] || fail "preload added twice: $twice"
 
-# Wiring: Cursor is env-only everywhere, never Seatbelt-wrapped.
-grep -Fq 'envOnlyPrograms = {' hosts/mbp2607/home.nix ||
-  fail 'mbp2607 must wire the Cursor names as env-only launchers'
-for name in cursor-agent agent; do
-  grep -Eq "^ *$name = " hosts/mbp2607/home.nix ||
-    fail "mbp2607 must wire the real $name entry point"
-done
-grep -Fq 'envOnlyCliPath "cursor"' modules/uzumaki/paimos-agentd.nix ||
-  fail 'the agentd Cursor path must use the env-only launcher'
+# NIX-578: the same native wrapper builder used by shadow and agentd launchers
+# must preserve browser variables, NODE_OPTIONS and argv. Run only the fake.
+nix eval --impure --raw --expr "
+  let
+    flake = builtins.getFlake (toString ./.);
+    lib = flake.inputs.nixpkgs.lib;
+    guard = import ./lib/agent-browser-guard.nix { inherit lib; };
+  in guard.mkNativeLauncherText ''$node''
+" >"$work/native-wrapper"
+printf '%s\n' 'global.nativeControl = true;' >"$work/control.cjs"
+native=$(PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="$fake" PUPPETEER_EXECUTABLE_PATH="$fake" CHROME_PATH="$fake" \
+  NODE_OPTIONS="--require $work/control.cjs" /bin/sh "$work/native-wrapper" -e '
+  const assert = require("node:assert/strict");
+  const cp = require("node:child_process");
+  assert.equal(global.nativeControl, true);
+  assert.equal(process.argv[1], "argument with spaces");
+  for (const key of ["PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "PUPPETEER_EXECUTABLE_PATH", "CHROME_PATH"]) {
+    assert.equal(cp.spawnSync(process.env[key], [], {encoding: "utf8"}).stdout.trim(), "FAKE_BROWSER_LAUNCHED");
+  }
+  console.log("NATIVE_OK");
+' 'argument with spaces')
+[ "$native" = NATIVE_OK ] || fail 'native wrapper did not preserve the browser environment and argv'
+[ -e "$fake.marker" ] || fail 'native wrapper did not execute the fake browser'
 
-printf 'agent_browser_guard_preload=passed apis=6 controls=3 fake_browser_launches=0\n'
+mv "$fake.marker" "$work/native.marker"
+
+# Codex still gets the same harness hints and preload used by its agentd route.
+nix eval --impure --raw --expr "
+  let
+    flake = builtins.getFlake (toString ./.);
+    lib = flake.inputs.nixpkgs.lib;
+    guard = import ./lib/agent-browser-guard.nix { inherit lib; };
+  in guard.mkRefusalText { }
+" >"$work/refuse"
+chmod +x "$work/refuse"
+codex_exports=$(nix eval --impure --raw --expr "
+  let
+    flake = builtins.getFlake (toString ./.);
+    lib = flake.inputs.nixpkgs.lib;
+    guard = import ./lib/agent-browser-guard.nix { inherit lib; };
+  in guard.mkEnvOnlyExports ''$work/refuse'' + \"\\n\" + guard.mkPreloadEnvExports ''$preload''
+")
+printf '%s\n' "$codex_exports" 'exec "$@"' >"$work/codex-wrapper"
+/bin/sh "$work/codex-wrapper" "$node" -e '
+  const assert = require("node:assert/strict");
+  const cp = require("node:child_process");
+  assert.throws(() => cp.spawnSync(process.argv[1]), {code: "INSPR_BROWSER_GUARD_REFUSED"});
+  const hint = cp.spawnSync("/bin/sh", [process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH], {encoding: "utf8"});
+  assert.equal(hint.status, 78);
+  assert.match(hint.stderr, /inside the Codex/);
+' "$fake" || fail 'Codex wrapper must still refuse both direct Node and hint launches'
+
+[ ! -e "$fake.marker" ] || fail 'Codex wrapper executed the fake browser'
+
+# Wiring: default shell and agentd paths share the tested native builder.
+grep -Fq 'nativePrograms = {' hosts/mbp2607/home.nix ||
+  fail 'mbp2607 must wire native launchers'
+for source in modules/uzumaki/agent-browser-guard.nix modules/uzumaki/paimos-agentd.nix; do
+  grep -Fq 'guardLib.mkNativeLauncherText target' "$source" ||
+    fail "$source must use the tested native wrapper"
+done
+grep -Fq 'nativeCliPath "cursor"' modules/uzumaki/paimos-agentd.nix ||
+  fail 'the agentd Cursor path must use the native launcher'
+
+printf 'agent_browser_guard_preload=passed apis=6 controls=3 native_wrapper=allowed codex_wrapper=refused real_browser_launches=0\n'

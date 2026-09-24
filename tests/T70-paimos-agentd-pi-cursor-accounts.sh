@@ -84,10 +84,10 @@ for forbidden in (
 ):
     assert forbidden not in module, forbidden
 
-# The guarded launch path Cursor takes is env-only. It must never be wrapped in
+# NIX-578: Cursor takes the native headless launch path. It must never be wrapped in
 # a Seatbelt profile: the Cursor CLI applies its own, and macOS refuses nested
 # profiles, so wrapping it would disable the sandbox it already has.
-assert 'envOnlyCliPath "cursor"' in module
+assert 'nativeCliPath "cursor"' in module
 assert 'guardedCliPath "cursor"' not in module
 enum = re.search(
     r"sandboxedClis = lib\.mkOption \{\s*type = lib\.types\.listOf \(\s*lib\.types\.enum \[(.*?)\]",

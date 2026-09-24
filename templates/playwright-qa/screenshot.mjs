@@ -3,12 +3,11 @@
 // pointed to by $PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH (set by devenv.nix).
 // Origin: nixcfg NIX-288.
 //
-// NIX-445: inside a guarded agent session that variable points at
-// `inspr-browser-guard-refuse`, which refuses and exits 78 — agent worker
-// sessions must not start a native browser on the operator's Mac. That refusal
-// is NOT a passed test: report it and ask the controller for a verified runner
-// instead of retrying or looking for another browser binary. This template is
-// itself the native-browser path the guard blocks, so it is not the safe runner.
+// NIX-578: this native headless path is supported outside Codex. Codex and
+// explicitly guarded sessions refuse via `inspr-browser-guard-refuse` (exit 78)
+// or the Node preload: Chrome crashes inside Codex Seatbelt (NIX-445). Report
+// that refusal and ask the controller to run QA outside Codex; do not retry or
+// disable the guard. A refused launch is not a passed test.
 //
 // Usage (inside the devenv shell):
 //   node screenshot.mjs [url] [outfile]

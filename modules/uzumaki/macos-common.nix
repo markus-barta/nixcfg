@@ -72,11 +72,9 @@ let
   # tests, sidestepping nixpkgs#chromium (Linux-only on Darwin). Named
   # `chromiumAppPath` (Chrome is Chromium-family) to keep the internal QA path stable.
   #
-  # NIX-445: this export stays as-is for HUMAN shells. Agent worker sessions get
-  # a refusal shim in its place and native browser execution is denied by a
-  # Seatbelt profile wherever macOS permits it — see
-  # modules/uzumaki/agent-browser-guard.nix. Do not point an agent harness back
-  # at this path.
+  # NIX-578: supported for humans and non-Codex agents using headless mode.
+  # Codex keeps its NIX-445 refusal: Chrome crashes inside its Seatbelt sandbox.
+  # Strict opt-in launchers also replace this export with a refusal shim.
   chromiumAppPath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 in
 {
