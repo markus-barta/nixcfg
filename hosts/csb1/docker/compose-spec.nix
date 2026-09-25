@@ -200,11 +200,11 @@ in
         "traefik.http.middlewares.barta-public-https.redirectscheme.scheme=https"
       ];
     };
-    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260925054834.0.0.
+    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260925065536.0.0.
     # Database password, session key and messaging key are host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:260925054834.0.0@sha256:530ada607563940ce83be4d4c25faeef4e961c3a19b70c47bfd23c250f29e484"; # Docked quote layout fixed (AEON-99)
+      image = "ghcr.io/inspr-at/aeon:260925065536.0.0@sha256:7c737a8cec262ed1a50b12205a132efd47ba619d51732f12d3ecdfcaca67b188"; # Reconcile reports skips; quotepdf error causes (AEON-119)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
