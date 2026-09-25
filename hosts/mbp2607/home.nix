@@ -337,11 +337,15 @@ in
   # bird provides X access. After `just bundle` installs the formula, OAuth
   # tokens are stored in the macOS keychain (never committed to nix).
   #
+  # Account: markus.barta@gmail.com (YouTube playlists / gog OAuth)
+  #
   # One-time setup (operator-owned):
   #   1. Obtain Google OAuth desktop-client JSON from Google Cloud Console
   #      (store securely, e.g. 1Password; never commit to this repo).
-  #   2. gog auth credentials set <path-to-desktop-client.json>
-  #   3. gog auth add <your-email> --services youtube
+  #   2. Publish OAuth app to Production (NOT Testing) in GCP Console to avoid
+  #      7-day refresh token expiry. Testing mode expires grants every 7 days.
+  #   3. gog auth credentials set <path-to-desktop-client.json>
+  #   4. gog auth add markus.barta@gmail.com --services youtube
   #      (opens browser for OAuth consent; token saved to keychain)
   #
   # Agent usage (read-only default):
