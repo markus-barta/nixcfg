@@ -614,7 +614,9 @@ in
   #   INSPR_UXQA_PASSWORD=<password>
   #   INSPR_UXQA_TOTP_SECRET=<base32 seed>
   # INSPR-UXQA-JANUS-FLOW.age holds the Janus flow variant of the same identity.
+  # Materialized at 0400; the pharos harness accepts that mode since PHAROS-314.
   # Edit: cd ~/Code/nixcfg/secrets && agenix -e agents/host/mbp2607/INSPR-UXQA.age
+  #       cd ~/Code/nixcfg/secrets && agenix -e agents/host/mbp2607/INSPR-UXQA-JANUS-FLOW.age
   "agents/host/mbp2607/INSPR-UXQA.age".publicKeys = markus ++ mbp2607;
   "agents/host/mbp2607/INSPR-UXQA-JANUS-FLOW.age".publicKeys = markus ++ mbp2607;
 
