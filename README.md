@@ -198,7 +198,7 @@ just hsb1-switch
 ## Essential Commands
 
 `just update-ai-clis` and Home Manager switches check the latest Claude Code,
-Codex, Grok, and pi versions, while bird stays exactly pinned. Working CLIs at
+Codex, Grok, and pi versions, while bird and gog stay exactly pinned. Working CLIs at
 those versions are not reinstalled. Changed or broken packages are installed
 in private directories under `~/.npm-global/.ai-cli-updates`, with the shared
 install-script allowlist, and must pass a package identity and `--version`

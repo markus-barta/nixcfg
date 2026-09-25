@@ -291,9 +291,14 @@ in
         trusted.casks = [ "codexbar" ];
         trusted.formulae = [ "birdclaw" ];
       }
+      {
+        name = "openclaw/tap"; # gogcli's tap (agent-facing YouTube/Google CLI)
+        trusted.formulae = [ "gogcli" ];
+      }
     ];
     extraBrews = [
       "steipete/tap/birdclaw" # local-first X workspace (CLI/web/read-only MCP) — agent-facing X access for Codex+Claude (2026-08-06); formula ships its own Node 26.x dep, hence brew not ai-clis-npm
+      "openclaw/tap/gogcli" # agent-facing Google/YouTube CLI (OAuth) — parallel to birdclaw for X (2026-09-25); formula ships its own deps
     ];
     extraCasks = [
       "bettertouchtool" # trackpad/gestures — settings + license migrated from mbp0 (NIX-215); config stays BTT-managed, not Nix
@@ -323,6 +328,26 @@ in
       chromeProfile: "Profile 2",
     }
   '';
+
+  # ============================================================================
+  # gogcli (YouTube/Google CLI) — one-time OAuth setup for agent access (2026-09-25)
+  # ============================================================================
+  # The `gog` CLI from openclaw/tap/gogcli provides YouTube playlist access
+  # for all local agents (Codex, Claude, Pi, Einstein, Grok), parallel to how
+  # bird provides X access. After `just bundle` installs the formula, OAuth
+  # tokens are stored in the macOS keychain (never committed to nix).
+  #
+  # One-time setup (operator-owned):
+  #   1. Obtain Google OAuth desktop-client JSON from Google Cloud Console
+  #      (store securely, e.g. 1Password; never commit to this repo).
+  #   2. gog auth credentials set <path-to-desktop-client.json>
+  #   3. gog auth add <your-email> --services youtube
+  #      (opens browser for OAuth consent; token saved to keychain)
+  #
+  # Agent usage (read-only default):
+  #   gog --readonly --json youtube playlists list
+  #
+  # No declarative config drop-in: auth lives in the keychain, not ~/.config.
 
   # ============================================================================
   # CodexBar — Grok Bot weekly usage provider plugin (2026-08-28, OPS)
