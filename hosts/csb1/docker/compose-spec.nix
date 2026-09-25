@@ -200,11 +200,11 @@ in
         "traefik.http.middlewares.barta-public-https.redirectscheme.scheme=https"
       ];
     };
-    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260925110255.0.0.
+    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260925141137.0.0.
     # Database password, session key and messaging key are host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:260925110255.0.0@sha256:084f005c44d2ad593153742e68e8dc46e8f01dfe43f7889505240095d1411148"; # Security hardening, performance, audit fixes, CLI roots (AEON-129)
+      image = "ghcr.io/inspr-at/aeon:260925141137.0.0@sha256:98f2561f7d8759cc1cde0990c8d4ec57832121a12adf974430824463db284ac6"; # Knowledge, views and filters, project groups, QA3, encrypted links (AEON-126)
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
