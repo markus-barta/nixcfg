@@ -603,6 +603,20 @@ in
   # Consume: ( set -a; source ~/.inspr/secrets/agents/HF_KEY.env; cmd; set +a )
   # Edit: cd ~/Code/nixcfg/secrets && agenix -e agents/host/mbp2607/HF_KEY.age
   "agents/host/mbp2607/HF_KEY.age".publicKeys = markus ++ mbp2607;
+  # inspr-uxqa test identity for the family live-UI harnesses (NIX-579,
+  # INSPR-479). Consumer: pharos scripts/family-live-ui.mjs (signed-in live
+  # captures of pharos, janus, paimos, aithema) via the protected-env mode.
+  # These two files were hand-placed on 2026-09-22 and lost at the next HM
+  # switch (agent-secrets removes every undeclared .env as an orphan); now
+  # declared so activation materializes them. Canonical cleartext: 1Password.
+  # Format inside INSPR-UXQA.age (three lines):
+  #   INSPR_UXQA_USERNAME=<login name>
+  #   INSPR_UXQA_PASSWORD=<password>
+  #   INSPR_UXQA_TOTP_SECRET=<base32 seed>
+  # INSPR-UXQA-JANUS-FLOW.age holds the Janus flow variant of the same identity.
+  # Edit: cd ~/Code/nixcfg/secrets && agenix -e agents/host/mbp2607/INSPR-UXQA.age
+  "agents/host/mbp2607/INSPR-UXQA.age".publicKeys = markus ++ mbp2607;
+  "agents/host/mbp2607/INSPR-UXQA-JANUS-FLOW.age".publicKeys = markus ++ mbp2607;
 
   # Onshape API credentials (key + secret) — paired Onshape developer
   # access tokens; rotate together. Migrated from retired imac0 to current
