@@ -661,6 +661,8 @@ in
   # Zitadel machine-user JWT profile for inspr-services OpenTofu (INSPR-198).
   # Content: JSON key of inspr-services-tf (ORG_OWNER @ auth.inspr.at),
   # minted on csb1 by inspr-services/scripts/bootstrap-tf-sa.sh.
+  # Rotated 2026-09-26 (HAUSV-872): old key deleted server-side; new key from the
+  # Zitadel console, re-sealed file-to-file with age -R (same recipients).
   # Edit: agenix -e secrets/agents/shared/ZITADEL_TF_KEY.age
   "agents/shared/ZITADEL_TF_KEY.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
