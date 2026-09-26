@@ -258,6 +258,11 @@ in
   # Edit: agenix -e secrets/csb1-janus-env.age
   "csb1-janus-env.age".publicKeys = markus ++ csb1;
   "csb1-janus-flow-api-key.age".publicKeys = markus ++ csb1;
+  # JANUS-481 (AEON-43): Aeon agent key for principal janus (journey.read,
+  # stage.prepare, stage.apply), raw token without trailing newline. Minted by
+  # the AEON operator on csb1 and re-sealed there file-to-file; consumers are
+  # wired by the JANUS-481 Part B change. Classic keys stay until rollback ends.
+  "csb1-janus-aeon-agent-key.age".publicKeys = markus ++ csb1;
 
   # JANUS-365 managed-service secret runtime. Each encrypted artifact has one
   # exact consumer at runtime; the internal token is the only shared value.
