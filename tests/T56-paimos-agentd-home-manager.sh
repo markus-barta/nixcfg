@@ -19,7 +19,8 @@ original = lock["original"]
 locked = lock["locked"]
 assert original == {
     "owner": "inspr-at",
-    "repo": "paimos",
+    # AEON-43: the classic repo was renamed to paimos-legacy; rev/narHash unchanged.
+    "repo": "paimos-legacy",
     "ref": "v260922071824.0.0",
     "type": "github",
 }, original
@@ -36,7 +37,7 @@ import re, sys
 
 flake = open(sys.argv[1], encoding="utf-8").read()
 compose = open(sys.argv[2], encoding="utf-8").read()
-client = re.findall(r'github:inspr-at/paimos/v([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+\.[0-9]+)?)', flake)
+client = re.findall(r'github:inspr-at/paimos-legacy/v([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+\.[0-9]+)?)', flake)
 server = re.findall(r'ghcr\.io/inspr-at/paimos:([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+\.[0-9]+)?)@(sha256:[0-9a-f]{64})', compose)
 assert len(client) == 1, f"expected one Paimos client release pin, got {client!r}"
 assert len(server) == 1, f"expected one PPM server release pin, got {server!r}"
