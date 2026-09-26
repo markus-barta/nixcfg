@@ -45,8 +45,16 @@ let
       }
     else
       [ "traefik" ];
+  # OPS-233: classic PPM cutover switches (freeze, read-only pml fallback).
+  ppmCutover = import ../ppm-cutover.nix;
+  classicLegacyUrl = "https://${ppmCutover.legacyHost}${sharedFlow.basePaths.paimos}";
   paimosPublicEnvironment =
-    if sharedFlow.active then
+    if ppmCutover.classicOnLegacy or false then
+      [
+        "PAIMOS_PUBLIC_BASE_PATH=${sharedFlow.basePaths.paimos}"
+        "OIDC_REDIRECT_URL=${classicLegacyUrl}/api/auth/oidc/callback"
+      ]
+    else if sharedFlow.active then
       [
         "PAIMOS_PUBLIC_BASE_PATH=${sharedFlow.basePaths.paimos}"
         "OIDC_REDIRECT_URL=${sharedFlow.browserUrls.paimos}/api/auth/oidc/callback"
@@ -806,10 +814,20 @@ in
         "COOKIE_SECURE=true"
         "BRAND_PRODUCT_NAME=PPM"
         "BRAND_WEBSITE_URL=${
-          if sharedFlow.active then sharedFlow.browserUrls.paimos else "https://pm.barta.cm"
+          if ppmCutover.classicOnLegacy or false then
+            classicLegacyUrl
+          else if sharedFlow.active then
+            sharedFlow.browserUrls.paimos
+          else
+            "https://pm.barta.cm"
         }"
         "BRAND_PUBLIC_URL=${
-          if sharedFlow.active then sharedFlow.browserUrls.paimos else "https://pm.barta.cm"
+          if ppmCutover.classicOnLegacy or false then
+            classicLegacyUrl
+          else if sharedFlow.active then
+            sharedFlow.browserUrls.paimos
+          else
+            "https://pm.barta.cm"
         }"
         "BRAND_EMAIL_FROM=noreply@barta.cm"
         "BRAND_DB_FILENAME=ppm.db"
