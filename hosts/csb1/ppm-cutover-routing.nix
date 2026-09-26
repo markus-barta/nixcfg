@@ -60,10 +60,50 @@ let
       services.ops233-ppm-legacy.loadBalancer.servers = [ { url = "http://ppm:8888"; } ];
     };
   };
+  # Step 5 (AEON-43). Above every live paimos router (edge max 10001).
+  classicApi = "PathRegexp(`^/(paimos(/|%2[fF]))?api(/|%2[fF]|$)`)";
+  aeonFragment = {
+    http = {
+      routers = {
+        ops231-aeon-classic-api = tlsRouter // {
+          priority = 15100;
+          rule = "(Host(`pm.barta.cm`) && ${classicApi}) || (Host(`flow.inspr.at`) && PathRegexp(`^/paimos(/|%2[fF])api(/|%2[fF]|$)`))";
+          middlewares = [
+            "cloudflarewarp@file"
+            "ops231-aeon-classic-api-rewrite"
+          ];
+          service = "ops231-aeon";
+        };
+        ops231-aeon-classic-browser = tlsRouter // {
+          priority = 15000;
+          rule = "Host(`pm.barta.cm`) || (Host(`flow.inspr.at`) && ${classicPrefix})";
+          middlewares = [
+            "cloudflarewarp@file"
+            "ops231-aeon-from-classic"
+          ];
+          # The redirect middleware answers; the service is never reached.
+          service = "inspr-legacy-flow-deny";
+        };
+      };
+      middlewares = {
+        ops231-aeon-classic-api-rewrite.replacePathRegex = {
+          regex = "^/(?:paimos/)?api(.*)$";
+          replacement = "/from-classic/api$1";
+        };
+        ops231-aeon-from-classic.redirectRegex = {
+          regex = "^https?://(?:pm\\.barta\\.cm(?:/paimos)?|flow\\.inspr\\.at/paimos)(/.*)?$";
+          replacement = "https://aeon.barta.cm/from-classic\${1}";
+          permanent = false;
+        };
+      };
+      services.ops231-aeon.loadBalancer.servers = [ { url = "http://aeon:8080"; } ];
+    };
+  };
 in
 assert builtins.isBool cutover.freeze && builtins.isBool cutover.legacy;
 assert builtins.match "[a-z0-9-]+(\\.[a-z0-9-]+)+" cutover.legacyHost != null;
 builtins.foldl' lib.recursiveUpdate { } (
   (if cutover.freeze then [ freezeFragment ] else [ ])
+  ++ (if cutover.aeonRoutes or false then [ aeonFragment ] else [ ])
   ++ (if cutover.legacy then [ legacyFragment ] else [ ])
 )
