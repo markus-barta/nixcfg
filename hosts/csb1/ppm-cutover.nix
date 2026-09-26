@@ -9,7 +9,7 @@
   # flow.inspr.at/paimos. Flip only inside the announced freeze window.
   # Limit: direct in-network calls to ppm:8888 bypass Traefik and are not
   # covered; the delivery stage is already fail-closed (paimos-delivery-stage.nix).
-  freeze = true;
+  freeze = false; # step 5: classic is reachable only via legacyHost (GET/HEAD)
 
   # Read-only classic fallback at legacyHost (GET/HEAD only, straight to the
   # classic container so it survives flow.inspr.at/paimos moving to Aeon).
@@ -25,4 +25,11 @@
   # via pml, and SSO there needs this redirect URI registered on the
   # paimos-ppm Zitadel client (391618992831266821@paimos_ppm).
   classicOnLegacy = true;
+
+  # Runbook step 5: pm.barta.cm and flow.inspr.at/paimos move to Aeon.
+  # Browser navigation 302s to Aeon's /from-classic resolver (AEON-175);
+  # classic API paths (any method) are proxied to Aeon's /from-classic/api,
+  # which answers 410 {"error":"moved"}. Classic's own Host(pm.barta.cm)
+  # Traefik label is dropped in the same change.
+  aeonRoutes = true;
 }
