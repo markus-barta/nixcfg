@@ -16,6 +16,6 @@
   # Browser SSO there also needs classic's OIDC_REDIRECT_URL and public URL
   # moved to legacyHost, plus the redirect URI on the Zitadel client; both
   # belong to the switch change, not to this flag.
-  legacy = false;
+  legacy = true;
   legacyHost = "pml.barta.cm";
 }
