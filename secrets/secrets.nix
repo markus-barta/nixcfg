@@ -672,6 +672,12 @@ in
   # Edit: agenix -e secrets/agents/shared/ZITADEL_TF_KEY.age
   "agents/shared/ZITADEL_TF_KEY.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
+  # OPS-231 step 3 (AEON-43): shared Aeon agent key for the workstation agents,
+  # minted by the AEON operator on csb1 and re-sealed file-to-file with age -R
+  # (never displayed). Materialised by uzumaki.aeon.consumerKeys to
+  # ~/.inspr/secrets/aeon/workstation-agents.key; ~/.paimos/keys/ppm links to it.
+  "aeon/workstation-agents.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
+
   # Home WiFi credentials — used by awtrix-rescue and any future
   # device-provisioning helpers that drive a device through its AP-mode
   # captive portal. Paired creds in one .env file:

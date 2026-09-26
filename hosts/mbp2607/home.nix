@@ -50,6 +50,26 @@ in
   inspr.secrets.agents.enable = true;
   # Non-secret routing only; workstation auth is interactive via OS keyring.
   inspr.paimos-cli.enable = true;
+  # OPS-231 step 3: `paimos` = Aeon client (paimos mode); `paimos-classic` = classic.
+  # OPS-231 step 3 (AEON-43): this workstation's ppm routing moves to Aeon.
+  # Host-local on purpose: markus-defaults stays the canonical classic origin
+  # that T48 checks the csb1 classic-protocol consumers against, until those
+  # consumers move to their Aeon adapters (runbook step 4). pma stays classic.
+  inspr.paimos-cli.instances.ppm.url = lib.mkForce "https://aeon.barta.cm";
+  inspr.cli.fleet.paimosUrl = lib.mkForce "https://aeon.barta.cm";
+
+  uzumaki.aeon = {
+    cli = {
+      enable = true;
+      paimosAlias = true;
+      # One shared Aeon agent key for the workstation agents (Markus, 2026-09-26).
+      instanceKeys.ppm = "workstation-agents";
+    };
+    consumerKeys = {
+      enable = true;
+      names = [ "workstation-agents" ];
+    };
+  };
   # Public fleet endpoints only; renders ~/.config/inspr/fleet.conf.
   inspr.cli.enable = true;
   # mbp2607-personal-userkey minted 2026-07-03, registered on markus-barta

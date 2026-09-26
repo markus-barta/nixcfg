@@ -23,9 +23,10 @@ fleet_conf=$(
   nix eval --raw '.#homeConfigurations."markus@mbp2607".config.xdg.configFile."inspr/fleet.conf".text'
 )
 
+# OPS-231 step 3 (AEON-43): the mbp2607 ppm routing moved to Aeon.
 expected_assignments='INSPR_HEADSCALE_URL=https://hs.barta.cm
 INSPR_PAIMOS_INSTANCE=ppm
-INSPR_PAIMOS_URL=https://pm.barta.cm
+INSPR_PAIMOS_URL=https://aeon.barta.cm
 INSPR_PHAROS_HOST=csb1
 INSPR_PHAROS_URL=https://pharos.barta.cm
 INSPR_TAILNET_NAME=hs.barta.cm'
