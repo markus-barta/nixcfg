@@ -51,9 +51,17 @@ in
   # Non-secret routing only; workstation auth is interactive via OS keyring.
   inspr.paimos-cli.enable = true;
   # OPS-231 step 3: `paimos` = Aeon client (paimos mode); `paimos-classic` = classic.
-  uzumaki.aeon.cli = {
-    enable = true;
-    paimosAlias = true;
+  uzumaki.aeon = {
+    cli = {
+      enable = true;
+      paimosAlias = true;
+      # One shared Aeon agent key for the workstation agents (Markus, 2026-09-26).
+      instanceKeys.ppm = "workstation-agents";
+    };
+    consumerKeys = {
+      enable = true;
+      names = [ "workstation-agents" ];
+    };
   };
   # Public fleet endpoints only; renders ~/.config/inspr/fleet.conf.
   inspr.cli.enable = true;
