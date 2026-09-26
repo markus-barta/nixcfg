@@ -67,6 +67,7 @@ in
     ./agent-kernel.nix # NIX-508: Pi global AGENTS.md via inspr.agent-kernel
     ./claude-statusline.nix # ~/.claude/statusline.sh — catppuccin pill footer (jq nix-pinned)
     ./paimos-agentd.nix # Operator-local PAIMOS owner for managed Codex/Claude sessions
+    ./aeon.nix # OPS-231: Aeon client + consumer keys (staged, off by default)
     ./agent-browser-guard.nix # NIX-445: macOS agent browser-launch guard (opt-in per host)
   ];
 
