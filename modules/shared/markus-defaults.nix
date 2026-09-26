@@ -111,7 +111,7 @@ in
   inspr.cli.fleet = {
     headscaleUrl = "https://hs.barta.cm";
     tailnetName = "hs.barta.cm";
-    paimosUrl = "https://pm.barta.cm";
+    paimosUrl = "https://aeon.barta.cm"; # OPS-231 step 3 (AEON-43)
     paimosInstance = "ppm";
     pharosUrl = "https://pharos.barta.cm";
     pharosHost = "csb1";
@@ -162,8 +162,10 @@ in
   inspr.paimos-cli = {
     defaultInstance = lib.mkDefault "ppm";
 
+    # OPS-231 step 3 (AEON-43): ppm is served by Aeon. The business pma
+    # instance below stays on classic Paimos; use `paimos-classic` for it.
     instances.ppm = {
-      url = "https://pm.barta.cm";
+      url = "https://aeon.barta.cm";
     };
 
     # Business-side instance (INSPR-287). Routing only — the credential is

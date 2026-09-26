@@ -30,6 +30,12 @@ in
   options.uzumaki.aeon = {
     cli.enable = lib.mkEnableOption "the Aeon client as `aeon` (no `paimos` alias)";
 
+    cli.paimosAlias = lib.mkEnableOption ''
+      `paimos` = the Aeon client in paimos mode (runbook step 3). It takes
+      precedence over classic paimos-cli on PATH; classic stays installed as
+      `paimos-classic` for classic-only instances (pma on paimos.agm.ng) and
+      rollback. The classic agentd service keeps its own store path'';
+
     consumerKeys = {
       enable = lib.mkEnableOption "Aeon consumer key materialisation";
 
@@ -67,8 +73,18 @@ in
   };
 
   config = lib.mkMerge [
-    (lib.mkIf cfg.cli.enable {
+    (lib.mkIf (cfg.cli.enable && !cfg.cli.paimosAlias) {
       home.packages = [ pkgs.aeon-cli ];
+    })
+
+    (lib.mkIf cfg.cli.paimosAlias {
+      home.packages = [
+        # hiPrio: wins the bin/paimos collision with classic paimos-cli.
+        (lib.hiPrio pkgs.aeon-paimos)
+        (pkgs.writeShellScriptBin "paimos-classic" ''
+          exec ${pkgs.paimos-cli}/bin/paimos "$@"
+        '')
+      ];
     })
 
     (lib.mkIf (keys.enable && keys.names != [ ]) {

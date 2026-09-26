@@ -5,16 +5,16 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1790405218,
-        "narHash": "sha256-HnnNQMf/aamOdV5OloCIqK9z1SuyRKItQAXxOrfENA4=",
+        "lastModified": 1790415365,
+        "narHash": "sha256-ziwNIGXQgPF2qC6J2K83tpuOVLv6Wo7y/OzcF2SwUYk=",
         "owner": "inspr-at",
         "repo": "aeon",
-        "rev": "4a4873eb637075b9c68f36107f2c0c8eb2678f7a",
+        "rev": "bcd1dee838980c2a1c0c23006fbe49a3bc633e52",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
-        "ref": "v260926064658.0.0",
+        "ref": "v260926093605.0.0",
         "repo": "aeon",
         "type": "github"
       }
