@@ -273,5 +273,177 @@ class DeliveryTests(unittest.TestCase):
             self.assertNotIn('grok', senders)
 
 
+AEON_BINDING = {
+    'backend': 'aeon', 'tenant': 'ppm',
+    'recipient_principal_id': '11111111-1111-4111-8111-111111111111',
+    'target_id': '22222222-2222-4222-8222-222222222222', 'target_version': 3,
+    'adapter': 'grok_bot_routine', 'address': 'grok_bot:amy', 'effective_level': 'simple',
+}
+MESSAGE_ID = '33333333-3333-4333-8333-333333333333'
+SENDER_ID = '44444444-4444-4444-8444-444444444444'
+
+
+def _response(status, document):
+    response = mock.MagicMock()
+    response.__enter__.return_value = response
+    response.status = status
+    response.read.return_value = json.dumps(document).encode()
+    return response
+
+
+def _message(**override):
+    return {'id': MESSAGE_ID, 'sender_principal_id': SENDER_ID,
+            'recipient_principal_id': AEON_BINDING['recipient_principal_id'],
+            'idempotency_key': 'hostd59-event123', 'body': 'x', **override}
+
+
+def _receipt(**override):
+    return {'message_id': MESSAGE_ID, 'idempotency_key': 'hostd59-event123', 'tenant': 'ppm',
+            'sender_principal_id': SENDER_ID,
+            'recipient_principal_id': AEON_BINDING['recipient_principal_id'],
+            'target_id': AEON_BINDING['target_id'], 'target_version': 3,
+            'adapter': 'grok_bot_routine', 'address': 'grok_bot:amy', 'effective_level': 'simple',
+            'state': 'handed_off', 'handed_off_at': '2026-09-26T09:00:00Z', 'failure_reason': '',
+            **override}
+
+
+class AeonDeliveryTests(unittest.TestCase):
+    """OPS-232: Aeon inbox + sender receipt; no real network calls."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.key = Path(self.directory.name) / 'aeon-key'
+        self.key.write_text('test-fixture-not-a-real-credential')
+        self.key.chmod(0o600)
+        self.sleeps = []
+        self.now = [0.0]
+
+        def sleep(seconds):
+            self.sleeps.append(seconds)
+            self.now[0] += seconds
+        self.send = delivery.aeon_sender(dict(AEON_BINDING), str(self.key), sleep=sleep,
+                                         clock=lambda: self.now[0])
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def run_send(self, *responses):
+        opener = mock.Mock()
+        opener.open.side_effect = list(responses)
+        with mock.patch.object(delivery.urllib.request, 'build_opener', return_value=opener), \
+                mock.patch('builtins.print'):
+            result = self.send('Paper Gateway needs attention.', 'event123')
+        return result, opener
+
+    def test_handed_off_after_queued_uses_fixed_origin_and_own_receipt(self):
+        result, opener = self.run_send(_response(201, _message()),
+                                       _response(200, _receipt(state='queued', handed_off_at=None)),
+                                       _response(200, _receipt()))
+        self.assertTrue(result)
+        post = opener.open.call_args_list[0].args[0]
+        self.assertEqual(post.full_url, 'https://aeon.barta.cm/api/inbox/messages')
+        body = json.loads(post.data)
+        self.assertEqual(set(body), {'recipient_principal_id', 'body', 'idempotency_key'})
+        self.assertEqual(body['idempotency_key'], 'hostd59-event123')
+        self.assertIn('SendToUser', body['body'])
+        self.assertNotIn(self.key.read_text(), body['body'])
+        for call in opener.open.call_args_list[1:]:
+            self.assertEqual(call.args[0].full_url,
+                             f'https://aeon.barta.cm/api/inbox/messages/{MESSAGE_ID}/receipt')
+        self.assertNotIn('pm.barta.cm', ' '.join(c.args[0].full_url for c in opener.open.call_args_list))
+        self.assertEqual(self.sleeps, [delivery.AEON_RECEIPT_POLL_SECONDS])
+
+    def test_replay_of_same_key_returns_original_message(self):
+        result, _ = self.run_send(_response(200, _message()), _response(200, _receipt()))
+        self.assertTrue(result)
+
+    def test_accepted_but_never_handed_off_is_not_delivery(self):
+        queued = [_response(200, _receipt(state='queued', handed_off_at=None)) for _ in range(20)]
+        result, opener = self.run_send(_response(201, _message()), *queued)
+        self.assertFalse(result)
+        self.assertLessEqual(sum(self.sleeps), delivery.AEON_RECEIPT_WAIT_SECONDS)
+        self.assertLess(opener.open.call_count, 21)
+
+    def test_failed_receipt_stops_without_echoing_reason(self):
+        with mock.patch('builtins.print') as printed:
+            opener = mock.Mock()
+            opener.open.side_effect = [_response(201, _message()),
+                                       _response(200, _receipt(state='failed', handed_off_at=None,
+                                                               failure_reason='receiver-secret-detail'))]
+            with mock.patch.object(delivery.urllib.request, 'build_opener', return_value=opener):
+                self.assertFalse(self.send('Paper Gateway needs attention.', 'event123'))
+        self.assertNotIn('receiver-secret-detail', str(printed.call_args_list))
+        self.assertEqual(self.sleeps, [])
+
+    def test_receipt_must_match_every_binding(self):
+        for field, invalid in [
+            ('message_id', '55555555-5555-4555-8555-555555555555'), ('idempotency_key', 'hostd59-other'),
+            ('tenant', 'other'), ('sender_principal_id', '66666666-6666-4666-8666-666666666666'),
+            ('recipient_principal_id', '77777777-7777-4777-8777-777777777777'),
+            ('target_id', '88888888-8888-4888-8888-888888888888'),
+            ('target_version', 2), ('target_version', True), ('target_version', '3'),
+            ('adapter', 'other'), ('address', 'grok_bot:other'), ('effective_level', 'control'),
+            ('handed_off_at', ''), ('handed_off_at', None),
+        ]:
+            with self.subTest(field=field, invalid=invalid):
+                result, _ = self.run_send(_response(201, _message()), _response(200, _receipt(**{field: invalid})))
+                self.assertFalse(result)
+
+    def test_inbox_response_must_match_recipient_and_key(self):
+        for override in [{'recipient_principal_id': '77777777-7777-4777-8777-777777777777'},
+                         {'idempotency_key': 'hostd59-other'}, {'id': 'not-a-uuid'},
+                         {'sender_principal_id': None}]:
+            with self.subTest(override=override):
+                result, opener = self.run_send(_response(201, _message(**override)))
+                self.assertFalse(result)
+                self.assertEqual(opener.open.call_count, 1)
+
+    def test_old_key_refused_and_foreign_receipt_404_and_conflict(self):
+        for code, calls in [(401, 1), (403, 1), (409, 1)]:
+            with self.subTest(code=code):
+                error = delivery.urllib.error.HTTPError('https://aeon.barta.cm', code, 'x', {}, None)
+                result, opener = self.run_send(error)
+                self.assertFalse(result)
+                self.assertEqual(opener.open.call_count, calls)
+        not_found = delivery.urllib.error.HTTPError('https://aeon.barta.cm', 404, 'x', {}, None)
+        result, _ = self.run_send(_response(201, _message()), not_found)
+        self.assertFalse(result)
+
+    def test_binding_refusals(self):
+        for override in [{'backend': 'classic'}, {'tenant': 'Bad Tenant'},
+                         {'recipient_principal_id': 'grok_bot:amy'}, {'target_id': 'x'},
+                         {'target_version': 0}, {'target_version': True}, {'adapter': ''},
+                         {'origin': 'https://evil.invalid'}]:
+            with self.subTest(override=override), self.assertRaises(ValueError):
+                delivery.aeon_sender({**AEON_BINDING, **override}, str(self.key))
+        missing = dict(AEON_BINDING)
+        missing.pop('address')
+        with self.assertRaises(ValueError):
+            delivery.aeon_sender(missing, str(self.key))
+
+    def test_declared_senders_selects_backend_from_private_binding(self):
+        base = {'schema_version': 1, 'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'}}
+        with mock.patch.object(delivery, 'private_config', return_value={**base, 'grok': dict(AEON_BINDING)}), \
+                mock.patch.object(delivery, 'aeon_sender', wraps=delivery.aeon_sender) as aeon, \
+                mock.patch.object(delivery, 'grok_sender') as classic:
+            senders = delivery.declared_senders('c.json', '/bin/docker', '/classic-key', str(self.key))
+        self.assertEqual(set(senders), {'email', 'grok'})
+        aeon.assert_called_once_with(AEON_BINDING, str(self.key))
+        classic.assert_not_called()
+        # Aeon selected but no Aeon key: chat is skipped, never sent with the classic key.
+        with mock.patch.object(delivery, 'private_config', return_value={**base, 'grok': dict(AEON_BINDING)}), \
+                mock.patch('builtins.print') as notice:
+            senders = delivery.declared_senders('c.json', '/bin/docker', str(self.key), '')
+        self.assertEqual(set(senders), {'email'})
+        notice.assert_called_once_with('grok notification not enrolled: Aeon notifier key absent, chat channel skipped')
+        # Classic binding stays on the classic path.
+        with mock.patch.object(delivery, 'private_config',
+                               return_value={**base, 'grok': {'project_id': 17, 'to': 'grok_bot:amy'}}), \
+                mock.patch.object(delivery, 'aeon_sender') as aeon:
+            senders = delivery.declared_senders('c.json', '/bin/docker', str(self.key), str(self.key))
+        aeon.assert_not_called()
+        self.assertEqual(set(senders), {'email', 'grok'})
+
+
 if __name__ == '__main__':
     unittest.main()

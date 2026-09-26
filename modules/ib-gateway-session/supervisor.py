@@ -169,6 +169,7 @@ class Config:
     notification_env: str = ""
     notification_config: str = ""
     notification_key_file: str = ""
+    aeon_notification_key_file: str = ""
     alert_blocker: str = (
         "alert adapter disabled: nixcfg.ibGatewaySession.alert.enable is false. "
         "hsb0 has no declared WATCHTOWER_NOTIFICATION_URL secret. To activate Amy "
@@ -1425,6 +1426,7 @@ def config_from_env(env: dict[str, str] | None = None) -> Config:
         notification_env=env.get("IBGSS_NOTIFICATION_ENV", ""),
         notification_config=env.get("IBGSS_NOTIFICATION_CONFIG", str(Path(env.get("CREDENTIALS_DIRECTORY", "/nonexistent")) / "destinations.json")),
         notification_key_file=env.get("IBGSS_NOTIFICATION_KEY_FILE", str(Path(env.get("CREDENTIALS_DIRECTORY", "/nonexistent")) / "ppm-api-key")),
+        aeon_notification_key_file=env.get("IBGSS_AEON_NOTIFICATION_KEY_FILE", str(Path(env.get("CREDENTIALS_DIRECTORY", "/nonexistent")) / "aeon-notifier-key")),
         alert_blocker=env.get("IBGSS_ALERT_BLOCKER", Config.alert_blocker),
     )
 
@@ -1552,7 +1554,8 @@ def run_cycle(
             str(Path(cfg.alert_state_path).with_suffix(".channels")), obs.now,
             health, eligible, notice,
             notification_senders if notification_senders is not None else declared_senders(
-                cfg.notification_config, cfg.docker_bin, cfg.notification_key_file
+                cfg.notification_config, cfg.docker_bin, cfg.notification_key_file,
+                cfg.aeon_notification_key_file,
             ),
         )
         persist.last_alert_status = "undelivered" if delivery == engine.EXIT_UNDELIVERED else (
