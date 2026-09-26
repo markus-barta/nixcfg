@@ -9,13 +9,20 @@
   # flow.inspr.at/paimos. Flip only inside the announced freeze window.
   # Limit: direct in-network calls to ppm:8888 bypass Traefik and are not
   # covered; the delivery stage is already fail-closed (paimos-delivery-stage.nix).
-  freeze = false;
+  freeze = true;
 
   # Read-only classic fallback at legacyHost (GET/HEAD only, straight to the
   # classic container so it survives flow.inspr.at/paimos moving to Aeon).
   # Browser SSO there also needs classic's OIDC_REDIRECT_URL and public URL
   # moved to legacyHost, plus the redirect URI on the Zitadel client; both
   # belong to the switch change, not to this flag.
-  legacy = false;
+  legacy = true;
   legacyHost = "pml.barta.cm";
+
+  # Classic's canonical public URL and OIDC callback move to legacyHost (base
+  # path /paimos kept, matching the legacy routers). Set together with the
+  # freeze: from then on classic is read-only and reached for reading only
+  # via pml, and SSO there needs this redirect URI registered on the
+  # paimos-ppm Zitadel client (391618992831266821@paimos_ppm).
+  classicOnLegacy = true;
 }

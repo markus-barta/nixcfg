@@ -45,8 +45,16 @@ let
       }
     else
       [ "traefik" ];
+  # OPS-233: classic PPM cutover switches (freeze, read-only pml fallback).
+  ppmCutover = import ../ppm-cutover.nix;
+  classicLegacyUrl = "https://${ppmCutover.legacyHost}${sharedFlow.basePaths.paimos}";
   paimosPublicEnvironment =
-    if sharedFlow.active then
+    if ppmCutover.classicOnLegacy or false then
+      [
+        "PAIMOS_PUBLIC_BASE_PATH=${sharedFlow.basePaths.paimos}"
+        "OIDC_REDIRECT_URL=${classicLegacyUrl}/api/auth/oidc/callback"
+      ]
+    else if sharedFlow.active then
       [
         "PAIMOS_PUBLIC_BASE_PATH=${sharedFlow.basePaths.paimos}"
         "OIDC_REDIRECT_URL=${sharedFlow.browserUrls.paimos}/api/auth/oidc/callback"
@@ -200,11 +208,11 @@ in
         "traefik.http.middlewares.barta-public-https.redirectscheme.scheme=https"
       ];
     };
-    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260926095249.0.0.
+    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260926103235.0.0.
     # Database password, session key and messaging key are host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:260926095249.0.0@sha256:4be64e7ba0a858ccb50a21dda2aae5ed30a929d225ea215a1b758ffc8f059dcf"; # Approval agent names (AEON-171)
+      image = "ghcr.io/inspr-at/aeon:260926103235.0.0@sha256:17c85d2ec00e18263de719dcb0d3afe2f33b45fe540b0a16d4400afcd17eacc4"; # From-classic links (AEON-175), settings layout
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
@@ -806,10 +814,20 @@ in
         "COOKIE_SECURE=true"
         "BRAND_PRODUCT_NAME=PPM"
         "BRAND_WEBSITE_URL=${
-          if sharedFlow.active then sharedFlow.browserUrls.paimos else "https://pm.barta.cm"
+          if ppmCutover.classicOnLegacy or false then
+            classicLegacyUrl
+          else if sharedFlow.active then
+            sharedFlow.browserUrls.paimos
+          else
+            "https://pm.barta.cm"
         }"
         "BRAND_PUBLIC_URL=${
-          if sharedFlow.active then sharedFlow.browserUrls.paimos else "https://pm.barta.cm"
+          if ppmCutover.classicOnLegacy or false then
+            classicLegacyUrl
+          else if sharedFlow.active then
+            sharedFlow.browserUrls.paimos
+          else
+            "https://pm.barta.cm"
         }"
         "BRAND_EMAIL_FROM=noreply@barta.cm"
         "BRAND_DB_FILENAME=ppm.db"
