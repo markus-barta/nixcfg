@@ -91,7 +91,7 @@ let
           replacement = "/from-classic/api$1";
         };
         ops231-aeon-from-classic.redirectRegex = {
-          regex = "^https?://(?:pm\\.barta\\.cm(?:/paimos)?|flow\\.inspr\\.at/paimos)(/.*)?$";
+          regex = "^https?://(?:pm\\.barta\\.cm(?:/paimos)?|flow\\.inspr\\.at/paimos)(/.*|\\?.*)?$";
           replacement = "https://aeon.barta.cm/from-classic\${1}";
           permanent = false;
         };
