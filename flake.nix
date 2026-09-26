@@ -85,6 +85,11 @@
       url = "github:inspr-at/paimos/v260922071824.0.0";
       flake = false;
     };
+    # Aeon — the PAIMOS successor (AEON-43 cutover, OPS-231). Pinned release
+    # tag; upstream flake with a pinned vendorHash. Its own nixpkgs is kept
+    # (not followed) so that hash is built with the Go it was pinned against.
+    # Classic `paimos` stays in parallel for rollback and PMA.
+    aeon.url = "github:inspr-at/aeon/v260926064658.0.0";
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.
@@ -133,6 +138,17 @@
           config.allowUnfree = true;
         };
       };
+      # OPS-231: Aeon client as `aeon` only; the upstream bin/paimos alias is
+      # withheld until the compatibility transcript gate.
+      aeonCli =
+        p:
+        let
+          aeon = inputs.aeon.packages.${p.stdenv.hostPlatform.system}.aeon;
+        in
+        p.runCommand "aeon-cli-${aeon.version}" { meta.mainProgram = "aeon"; } ''
+          mkdir -p $out/bin
+          ln -s ${aeon}/bin/aeon $out/bin/aeon
+        '';
       # Local packages overlay
       overlays-local = final: prev: {
         pingt = final.callPackage ./pkgs/pingt { };
@@ -140,6 +156,9 @@
         paimos-cli = final.callPackage ./pkgs/paimos-cli {
           src = inputs.paimos;
         };
+        # OPS-231: see modules/uzumaki/aeon.nix for why only `aeon` is exposed.
+        aeon-cli = aeonCli final;
+        aeon-agentd = inputs.aeon.packages.${final.stdenv.hostPlatform.system}.aeon-agentd;
         claude-agent-sdk = final.callPackage ./pkgs/claude-agent-sdk { };
         higgsfield-cli = final.callPackage ./pkgs/higgsfield-cli { };
         cursor-agent = final.callPackage ./pkgs/cursor-agent { };
@@ -388,6 +407,8 @@
         paimos-cli = pkgs.callPackage ./pkgs/paimos-cli {
           src = inputs.paimos;
         };
+        aeon-cli = aeonCli pkgs;
+        inherit (inputs.aeon.packages.x86_64-linux) aeon-agentd;
         claude-agent-sdk = pkgs.callPackage ./pkgs/claude-agent-sdk { };
         higgsfield-cli = pkgs.callPackage ./pkgs/higgsfield-cli { };
 
@@ -474,6 +495,8 @@
           paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli {
             src = inputs.paimos;
           };
+          aeon-cli = aeonCli pkgsDarwin;
+          inherit (inputs.aeon.packages.aarch64-darwin) aeon-agentd;
           claude-agent-sdk = pkgsDarwin.callPackage ./pkgs/claude-agent-sdk { };
           higgsfield-cli = pkgsDarwin.callPackage ./pkgs/higgsfield-cli { };
           # NIX-514: pinned Cursor CLI; `just update-ai-clis` bumps and builds this attr.
