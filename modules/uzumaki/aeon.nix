@@ -95,7 +95,13 @@ in
         ${lib.concatMapStringsSep "\n" (name: ''
           echo "aeon-consumer-keys: decrypting ${name}"
           next="$DIR/.${name}.key.next"
-          ( umask 0277; ${pkgs.age}/bin/age --decrypt --identity "$IDENTITY" ${lib.escapeShellArg (src name)} > "$next" )
+          # A failed decrypt must not strand a 0400 temp that blocks the next run.
+          rm -f "$next"
+          if ! ( umask 0277; ${pkgs.age}/bin/age --decrypt --identity "$IDENTITY" ${lib.escapeShellArg (src name)} > "$next" ); then
+            rm -f "$next"
+            echo "aeon-consumer-keys: ERROR — cannot decrypt ${name}" >&2
+            exit 1
+          fi
           chmod 0400 "$next"
           mv -f "$next" "$DIR/${name}.key"
         '') keys.names}
