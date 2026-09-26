@@ -8,14 +8,14 @@
         "lastModified": 1790415365,
         "narHash": "sha256-ziwNIGXQgPF2qC6J2K83tpuOVLv6Wo7y/OzcF2SwUYk=",
         "owner": "inspr-at",
-        "repo": "aeon",
+        "repo": "paimos",
         "rev": "bcd1dee838980c2a1c0c23006fbe49a3bc633e52",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
         "ref": "v260926093605.0.0",
-        "repo": "aeon",
+        "repo": "paimos",
         "type": "github"
       }
     },
