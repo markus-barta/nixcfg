@@ -51,6 +51,13 @@ in
   # Non-secret routing only; workstation auth is interactive via OS keyring.
   inspr.paimos-cli.enable = true;
   # OPS-231 step 3: `paimos` = Aeon client (paimos mode); `paimos-classic` = classic.
+  # OPS-231 step 3 (AEON-43): this workstation's ppm routing moves to Aeon.
+  # Host-local on purpose: markus-defaults stays the canonical classic origin
+  # that T48 checks the csb1 classic-protocol consumers against, until those
+  # consumers move to their Aeon adapters (runbook step 4). pma stays classic.
+  inspr.paimos-cli.instances.ppm.url = lib.mkForce "https://aeon.barta.cm";
+  inspr.cli.fleet.paimosUrl = lib.mkForce "https://aeon.barta.cm";
+
   uzumaki.aeon = {
     cli = {
       enable = true;
