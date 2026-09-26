@@ -871,16 +871,25 @@ in
         "ppm_data:/app/data"
       ];
       networks = flowNetwork sharedFlow.network.addresses.paimos;
+      # OPS-231 step 5: once pm.barta.cm belongs to Aeon, classic claims no
+      # public host of its own; pml.barta.cm reaches it via the file provider.
       labels = [
         "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
-        "traefik.enable=true"
-        "traefik.http.routers.ppm.rule=Host(`pm.barta.cm`)"
-        "traefik.http.routers.ppm.tls.certresolver=default"
-        "traefik.http.routers.ppm.tls=true"
-        "traefik.http.services.ppm.loadbalancer.server.port=8888"
-        "traefik.docker.network=csb1_traefik"
-        "traefik.http.routers.ppm.middlewares=cloudflarewarp@file"
-      ];
+      ]
+      ++ (
+        if ppmCutover.aeonRoutes or false then
+          [ "traefik.enable=false" ]
+        else
+          [
+            "traefik.enable=true"
+            "traefik.http.routers.ppm.rule=Host(`pm.barta.cm`)"
+            "traefik.http.routers.ppm.tls.certresolver=default"
+            "traefik.http.routers.ppm.tls=true"
+            "traefik.http.services.ppm.loadbalancer.server.port=8888"
+            "traefik.docker.network=csb1_traefik"
+            "traefik.http.routers.ppm.middlewares=cloudflarewarp@file"
+          ]
+      );
     };
     # ============================================
     # Janus - secret metadata control plane
