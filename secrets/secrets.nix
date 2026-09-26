@@ -258,6 +258,11 @@ in
   # Edit: agenix -e secrets/csb1-janus-env.age
   "csb1-janus-env.age".publicKeys = markus ++ csb1;
   "csb1-janus-flow-api-key.age".publicKeys = markus ++ csb1;
+  # JANUS-481 (AEON-43): Aeon agent key for principal janus (journey.read,
+  # stage.prepare, stage.apply), raw token without trailing newline. Minted by
+  # the AEON operator on csb1 and re-sealed there file-to-file; consumers are
+  # wired by the JANUS-481 Part B change. Classic keys stay until rollback ends.
+  "csb1-janus-aeon-agent-key.age".publicKeys = markus ++ csb1;
 
   # JANUS-365 managed-service secret runtime. Each encrypted artifact has one
   # exact consumer at runtime; the internal token is the only shared value.
@@ -666,6 +671,12 @@ in
   # 1Password, file-to-file with age -R (same recipients). No rotation.
   # Edit: agenix -e secrets/agents/shared/ZITADEL_TF_KEY.age
   "agents/shared/ZITADEL_TF_KEY.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
+
+  # OPS-231 step 3 (AEON-43): shared Aeon agent key for the workstation agents,
+  # minted by the AEON operator on csb1 and re-sealed file-to-file with age -R
+  # (never displayed). Materialised by uzumaki.aeon.consumerKeys to
+  # ~/.inspr/secrets/aeon/workstation-agents.key; ~/.paimos/keys/ppm links to it.
+  "aeon/workstation-agents.age".publicKeys = markus ++ mbp2606 ++ mbp2607;
 
   # Home WiFi credentials — used by awtrix-rescue and any future
   # device-provisioning helpers that drive a device through its AP-mode
