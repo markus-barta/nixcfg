@@ -5,7 +5,7 @@
 # The API CLI and paimos-agentd are built from the same reviewed source pin so
 # the M161 server/client and owned-process contracts cannot drift independently.
 #
-# Upstream: https://github.com/inspr-at/paimos
+# Upstream: https://github.com/inspr-at/paimos-legacy (classic; renamed 2026-09-26, AEON-43)
 # Binaries: paimos and paimos-agentd
 #
 # ── How the pin works ────────────────────────────────────────────────────────

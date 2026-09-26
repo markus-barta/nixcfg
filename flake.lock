@@ -1102,14 +1102,14 @@
         "lastModified": 1790061889,
         "narHash": "sha256-c+qQMHoUyq2gZh2VCSEdEVxljWk7+TlDlWs/kaf808Q=",
         "owner": "inspr-at",
-        "repo": "paimos",
+        "repo": "paimos-legacy",
         "rev": "466668054b31f678eec191edbea3882ae58988da",
         "type": "github"
       },
       "original": {
         "owner": "inspr-at",
         "ref": "v260922071824.0.0",
-        "repo": "paimos",
+        "repo": "paimos-legacy",
         "type": "github"
       }
     },
