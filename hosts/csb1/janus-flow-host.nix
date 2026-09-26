@@ -4,6 +4,9 @@
 # not create or contain the API key. Activation requires a separately reviewed
 # real Paimos project and exact authenticated Janus session subjects.
 let
+  # OPS-231 step 5: once pm.barta.cm answers from Aeon, this classic-v1 reader
+  # rolls back to the read-only classic origin (GET/HEAD only, OPS-233).
+  ppmCutover = import ./ppm-cutover.nix;
   credentialFile = ../../secrets + "/csb1-janus-flow-api-key.age";
 in
 {
@@ -11,7 +14,11 @@ in
   # This binding grants only the dedicated UX test subject read-only Flow access.
   active = true;
 
-  paimosOrigin = "https://pm.barta.cm";
+  paimosOrigin =
+    if ppmCutover.aeonRoutes or false then
+      "https://${ppmCutover.legacyHost}"
+    else
+      "https://pm.barta.cm";
   # Chosen only with the common-origin deployment. Null makes Janus use the
   # server origin for browser navigation without inventing a route here.
   paimosBrowserUrl = null;
