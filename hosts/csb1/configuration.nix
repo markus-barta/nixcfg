@@ -28,9 +28,19 @@ let
   # Compose. The controller flips sharedFlow.active only after the protected
   # Aithema inputs pass the activation preflight below.
   sharedFlow = import ./shared-flow.nix;
-  legacyFlowFragment = import ./legacy-flow-routing.nix {
-    inherit (sharedFlow) privateSourceRanges;
-  };
+  # OPS-233: classic PPM freeze + read-only fallback routers; empty while
+  # both switches in ppm-cutover.nix are false.
+  legacyFlowFragment =
+    lib.recursiveUpdate
+      (import ./legacy-flow-routing.nix {
+        inherit (sharedFlow) privateSourceRanges;
+      })
+      (
+        import ./ppm-cutover-routing.nix {
+          inherit lib;
+          cutover = import ./ppm-cutover.nix;
+        }
+      );
   legacyFlowFragmentFile = pkgs.writeText "csb1-legacy-flow-routing.json" (
     builtins.toJSON legacyFlowFragment
   );
