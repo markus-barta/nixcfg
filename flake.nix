@@ -89,8 +89,8 @@
     # tag; upstream flake with a pinned vendorHash. Its own nixpkgs is kept
     # (not followed) so that hash is built with the Go it was pinned against.
     # Classic `paimos` stays in parallel for rollback and PMA.
-    # NIX-583: reviewed RCV1 recovery + MT1 lifetime release (AEON-230).
-    aeon.url = "github:inspr-at/paimos/v260927120613.0.0"; # 28fe3d3c5d4cc1f3e0da2e311a7a15fc505a7eff
+    # NIX-583: reviewed recovery, lifetime fences and managed Codex usage (AEON-233).
+    aeon.url = "github:inspr-at/paimos/v260927160212.0.0"; # 3f8d613473ff3ff37db50ecff9e5522de73cc974
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.
