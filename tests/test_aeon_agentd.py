@@ -126,6 +126,8 @@ class HomeManagerTests(unittest.TestCase):
 
     def test_opt_in_and_classic_unchanged(self):
         e = self.evidence
+        self.assertFalse(e["moduleDefaultEnabled"])
+        self.assertTrue(e["hostEnabled"])
         self.assertFalse(e["defaultEnabled"])
         self.assertFalse(e["defaultHasService"])
         self.assertEqual(e["assertions"], [])
@@ -151,8 +153,8 @@ class HomeManagerTests(unittest.TestCase):
 
     def test_argv_matches_exact_reviewed_release(self):
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]
-        self.assertEqual(lock["locked"]["rev"], "28fe3d3c5d4cc1f3e0da2e311a7a15fc505a7eff")
-        self.assertEqual(lock["locked"]["narHash"], "sha256-XEXWb40ex/+8neGSLHCknuRED1oadyvCxR/QDSX9gRw=")
+        self.assertEqual(lock["locked"]["rev"], "3f8d613473ff3ff37db50ecff9e5522de73cc974")
+        self.assertEqual(lock["locked"]["narHash"], "sha256-1n6+D1fWNjWE340XamloraspYs6SpbDEBeUWEFHxOa0=")
         source = subprocess.check_output(["nix", "eval", "--impure", "--raw", "--expr",
             f'(builtins.getFlake "{ROOT}").inputs.aeon.outPath'], cwd=ROOT, text=True).strip()
         main = (Path(source) / "cmd/aeon-agentd/main.go").read_text()
@@ -171,7 +173,9 @@ class HomeManagerTests(unittest.TestCase):
         self.assertEqual(service["Label"], "at.inspr.aeon-agentd")
         self.assertEqual(service["Umask"], 63)
         self.assertNotIn("INSPR_AGENT_BROWSER_GUARD", service["EnvironmentVariables"])
-        self.assertEqual(service["EnvironmentVariables"]["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin")
+        self.assertRegex(service["EnvironmentVariables"]["PATH"], r"^/nix/store/[^/]+-nodejs-[^/]+/bin:/usr/bin:/bin:/usr/sbin:/sbin$")
+        self.assertIn("--codex-path", pairs)
+        self.assertIn("--cursor-path", pairs)
         self.assertIn("writeBoundary", self.evidence["preflight"]["before"])
         self.assertIn("setupLaunchAgents", self.evidence["state"]["before"])
 
@@ -182,7 +186,8 @@ class HomeManagerTests(unittest.TestCase):
         candidate = Path(subprocess.check_output(
             ["nix", "build", "--impure", "--no-link", "--print-out-paths", "--expr", expr], cwd=ROOT, text=True).strip())
         default = Path(subprocess.check_output(
-            ["nix", "build", '--no-link', '--print-out-paths', '.#homeConfigurations."markus@mbp2607".activationPackage'],
+            ["nix", "build", "--impure", "--no-link", "--print-out-paths", "--expr",
+             f'(import {ROOT}/tests/aeon-agentd-eval.nix {{ root = {ROOT}; }}).disabledCandidate'],
             cwd=ROOT, text=True).strip())
         classic = 'LaunchAgents/at.inspr.paimos-agentd.plist'
         self.assertEqual((candidate / classic).read_bytes(), (default / classic).read_bytes())
