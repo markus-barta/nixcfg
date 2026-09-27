@@ -19,12 +19,39 @@ let
   enabled = candidate { };
   failures =
     evaluated: map (a: a.message) (builtins.filter (a: !a.assertion) evaluated.config.assertions);
-  invalid =
-    changes:
-    !(builtins.tryEval (builtins.deepSeq (candidate changes).activationPackage.drvPath true)).success;
+  invalid = {
+    noEstimate = {
+      estimates.requests = lib.mkForce 0;
+    };
+    emptyId = {
+      daemonId = lib.mkForce "";
+    };
+    sharedFiles = {
+      accountsFile = lib.mkForce base.config.uzumaki.aeon.agentd.agentKeyFile;
+    };
+    storeKey = {
+      agentKeyFile = lib.mkForce "/nix/store/example/key";
+    };
+    classicStateKey = {
+      agentKeyFile = lib.mkForce "${base.config.home.homeDirectory}/Library/Caches/paimos/agentd/key";
+    };
+    relativeWorkspace = {
+      workspace = lib.mkForce "Code";
+    };
+    workspaceContainsEnrollment = {
+      workspace = lib.mkForce "${base.config.home.homeDirectory}/Library";
+    };
+    mutableVendor = {
+      cursorPath = lib.mkForce "/usr/local/bin/cursor-agent";
+    };
+    noAdapter = {
+      cursorPath = lib.mkForce null;
+    };
+  };
 in
 {
   candidate = enabled.activationPackage;
+  invalidCandidates = lib.mapAttrs (_name: changes: (candidate changes).activationPackage) invalid;
   evidence = {
     defaultEnabled = base.config.uzumaki.aeon.agentd.enable;
     defaultHasService = base.config.launchd.agents ? aeon-agentd;
@@ -37,17 +64,6 @@ in
       == enabled.config.home.activation.paimosAgentdPrivateState;
     preflight = enabled.config.home.activation.aeonAgentdPreflight;
     state = enabled.config.home.activation.aeonAgentdState;
-    invalid = {
-      noEstimate = invalid { estimates.requests = lib.mkForce 0; };
-      emptyId = invalid { daemonId = lib.mkForce ""; };
-      sharedFiles = invalid { accountsFile = lib.mkForce base.config.uzumaki.aeon.agentd.agentKeyFile; };
-      storeKey = invalid { agentKeyFile = lib.mkForce "/nix/store/example/key"; };
-      classicStateKey = invalid {
-        agentKeyFile = lib.mkForce "${base.config.home.homeDirectory}/Library/Caches/paimos/agentd/key";
-      };
-      relativeWorkspace = invalid { workspace = lib.mkForce "Code"; };
-      mutableVendor = invalid { cursorPath = lib.mkForce "/usr/local/bin/cursor-agent"; };
-      noAdapter = invalid { cursorPath = lib.mkForce null; };
-    };
+    invalid = builtins.attrNames invalid;
   };
 }

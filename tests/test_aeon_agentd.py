@@ -1,5 +1,6 @@
 """NIX-583: metadata boundaries, real HM evaluation, exact upstream flags."""
 
+import ast
 import importlib.util
 import json
 import os
@@ -9,6 +10,8 @@ import stat
 import subprocess
 import tempfile
 import unittest
+import plistlib
+import platform
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +34,7 @@ class MetadataTests(unittest.TestCase):
         for path in (self.key, self.accounts):
             path.write_text("synthetic fixture, not a credential")
             path.chmod(0o600)
-        self.state = self.home / "Library/Caches/aeon/agentd"
+        self.state = self.enrollment / "state"
         self.config = dict(home=str(self.home), agentKeyFile=str(self.key),
                            accountsFile=str(self.accounts), workspace=str(self.workspace), stateRoot=str(self.state))
 
@@ -86,6 +89,10 @@ class MetadataTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             preflight.preflight(self.config | {"accountsFile": str(self.key)})
 
+    def test_workspace_cannot_contain_enrollment_or_state(self):
+        with self.assertRaises(ValueError):
+            preflight.preflight(self.config | {"workspace": str(self.home / "Library")})
+
     def test_wrong_owner_oversize_empty_and_missing_rejected(self):
         with patch.object(os, "getuid", return_value=os.getuid() + 1):
             with self.assertRaises(ValueError):
@@ -126,9 +133,21 @@ class HomeManagerTests(unittest.TestCase):
         self.assertTrue(e["classicActivationUnchanged"])
 
     def test_incomplete_enrollment_fails_closed(self):
-        for case, failures in self.evidence["invalid"].items():
+        paths = "requires distinct private paths outside its workspace"
+        vendor = "requires at least one pinned Nix store vendor executable"
+        expected = dict(noEstimate="requires at least one approved positive allowance estimate",
+                        emptyId="requires a stable opaque daemonId", sharedFiles=paths,
+                        storeKey=paths, classicStateKey=paths, relativeWorkspace=paths,
+                        workspaceContainsEnrollment=paths, mutableVendor=vendor, noAdapter=vendor)
+        self.assertEqual(set(expected), set(self.evidence["invalid"]))
+        for case, message in expected.items():
             with self.subTest(case=case):
-                self.assertTrue(failures)
+                expr = f'(import {ROOT}/tests/aeon-agentd-eval.nix {{ root = {ROOT}; }}).invalidCandidates.{case}.drvPath'
+                result = subprocess.run(["nix", "eval", "--impure", "--raw", "--expr", expr],
+                                        cwd=ROOT, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Failed assertions", result.stderr)
+                self.assertIn(message, result.stderr)
 
     def test_argv_matches_exact_reviewed_release(self):
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]
@@ -152,8 +171,32 @@ class HomeManagerTests(unittest.TestCase):
         self.assertEqual(service["Label"], "at.inspr.aeon-agentd")
         self.assertEqual(service["Umask"], 63)
         self.assertNotIn("INSPR_AGENT_BROWSER_GUARD", service["EnvironmentVariables"])
+        self.assertEqual(service["EnvironmentVariables"]["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin")
         self.assertIn("writeBoundary", self.evidence["preflight"]["before"])
         self.assertIn("setupLaunchAgents", self.evidence["state"]["before"])
+
+    @unittest.skipUnless(platform.system() == "Darwin" and platform.machine() == "arm64",
+                         "Darwin generation build requires Apple Silicon; CI covers evaluation")
+    def test_built_generation_preserves_both_direct_plists(self):
+        expr = f'(import {ROOT}/tests/aeon-agentd-eval.nix {{ root = {ROOT}; }}).candidate'
+        candidate = Path(subprocess.check_output(
+            ["nix", "build", "--impure", "--no-link", "--print-out-paths", "--expr", expr], cwd=ROOT, text=True).strip())
+        default = Path(subprocess.check_output(
+            ["nix", "build", '--no-link', '--print-out-paths', '.#homeConfigurations."markus@mbp2607".activationPackage'],
+            cwd=ROOT, text=True).strip())
+        classic = 'LaunchAgents/at.inspr.paimos-agentd.plist'
+        self.assertEqual((candidate / classic).read_bytes(), (default / classic).read_bytes())
+        for label in ('aeon', 'paimos'):
+            plist = plistlib.loads((candidate / f'LaunchAgents/at.inspr.{label}-agentd.plist').read_bytes())
+            self.assertTrue(plist['ProgramArguments'][0].endswith(f'/bin/{label}-agentd'))
+            self.assertEqual(plist['ProgramArguments'][1], 'serve')
+        self.assertFalse((default / 'LaunchAgents/at.inspr.aeon-agentd.plist').exists())
+        # Parse the generated helper, including its embedded JSON, without
+        # running its real enrollment checks or writing into the Nix store.
+        scripts = set(re.findall(r'/nix/store/[a-z0-9]+-aeon-agentd-preflight\.py', (candidate / 'activate').read_text()))
+        self.assertEqual(len(scripts), 1)
+        for path in scripts:
+            ast.parse(Path(path).read_text(), filename=path)
 
 
 if __name__ == "__main__":
