@@ -49,22 +49,25 @@ The flake now pins `v26.09.08`, whose agentd accepts `--cursor-path` /
 host yet.** Root still creates the actual owner-only registry mapping separately
 before review, merge, switch, and enrollment.
 
-### Aeon agentd (NIX-583 — enrollment and activation pending)
+### Aeon agentd (NIX-583)
 
-`uzumaki.aeon.agentd` is a separate, **disabled** LaunchAgent candidate:
+`uzumaki.aeon.agentd` is a separate LaunchAgent enabled on mbp2607:
 `at.inspr.aeon-agentd`, using `aeon-agentd` from the reviewed
-`v260927120613.0.0` source `28fe3d3c5d4cc1f3e0da2e311a7a15fc505a7eff`.
+`v260927160212.0.0` source `3f8d613473ff3ff37db50ecff9e5522de73cc974`.
 The classic package, label, registry, journal and children remain independent.
 This input also versions the Aeon CLI; its compatibility checks run during the
 package build. There is no daemon `version` command: use the derivation/store
 identity and locked source as provenance.
 
-The proposed opaque daemon ID is declared in `home.nix`; it must be bound
-explicitly to the dedicated Aeon agent principal and approved account UUID/key.
-The proposed workspace is the physical `~/Code` directory. Only the pinned
-Cursor adapter is selected initially; other vendor adapters require explicit
-Nix store paths and enrollment. Codex additionally requires the existing browser
-refusal guard. Native non-Codex launchers use the shared NIX-578 policy.
+The stable opaque daemon ID is declared in `home.nix` and enrolled with the
+dedicated Aeon agent principal and exact account UUID/key pairs.
+The workspace is the physical `~/Code` directory. Pinned Cursor and Codex
+adapters are selected initially. The daemon uses
+Nixpkgs Codex 0.154.0 independently of the interactive npm CLI; both authenticate
+through the existing approved vendor context, without copying authentication.
+Grok and Claude enrollment is deferred to the next operator-directed rollout.
+Codex requires the existing browser refusal guard. Native non-Codex launchers
+use the shared NIX-578 policy.
 
 Enrollment files live in `~/Library/Application Support/aeon/agentd/`:
 `agent.key` (raw dedicated Aeon agent key) and `accounts.json` (Aeon's registry,
@@ -84,7 +87,14 @@ classic paths, and never repairs an unsafe existing file. The daemon validates
 registry/key contents itself. At least one explicitly reviewed
 `estimates.requests`, `estimates.tokens` or `estimates.cost-micros` must be
 positive before enabling. These are per-run reservation estimates, not account
-allowance windows; the candidate intentionally leaves all three at zero.
+allowance windows. Markus approved one short acceptance run per account on
+2026-09-27: `estimates.requests = 1` reserves one request for each run. The
+required one-run windows must expire after that verification; they are an
+operator cap, not a claim about vendor subscription limits. Account registration
+and the private registry are complete, but no allowance window has been created.
+The window endpoint requires a person (`agentaccounts.Module.requirePermission`);
+an agent setup key cannot create one. The daemon can publish sign-in probes
+without a window, but dispatch and the acceptance runs wait for that prerequisite.
 
 The enrollment permission matrix below was derived from that exact release's
 `internal/auth/module.go`, `internal/authz/{require,route_map}.go` and

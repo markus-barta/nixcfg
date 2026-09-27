@@ -1,11 +1,14 @@
 { root }:
 let
   flake = builtins.getFlake (toString root);
-  base = flake.homeConfigurations."markus@mbp2607";
-  lib = base.pkgs.lib;
+  host = flake.homeConfigurations."markus@mbp2607";
+  base = host.extendModules {
+    modules = [ { uzumaki.aeon.agentd.enable = lib.mkForce false; } ];
+  };
+  lib = host.pkgs.lib;
   candidate =
     changes:
-    base.extendModules {
+    host.extendModules {
       modules = [
         {
           uzumaki.aeon.agentd = {
@@ -46,13 +49,17 @@ let
     };
     noAdapter = {
       cursorPath = lib.mkForce null;
+      codexPath = lib.mkForce null;
     };
   };
 in
 {
   candidate = enabled.activationPackage;
+  disabledCandidate = base.activationPackage;
   invalidCandidates = lib.mapAttrs (_name: changes: (candidate changes).activationPackage) invalid;
   evidence = {
+    moduleDefaultEnabled = host.options.uzumaki.aeon.agentd.enable.default;
+    hostEnabled = host.config.uzumaki.aeon.agentd.enable;
     defaultEnabled = base.config.uzumaki.aeon.agentd.enable;
     defaultHasService = base.config.launchd.agents ? aeon-agentd;
     assertions = failures enabled;
