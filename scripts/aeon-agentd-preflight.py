@@ -75,12 +75,11 @@ def preflight(config, prepare=False):
             os.umask(old_umask)
 
 
-if __name__ == "__main__":
+def main(config):
     try:
-        require(len(sys.argv) == 3 and sys.argv[2] in ("check", "prepare"), "invalid preflight invocation")
-        # This is Nix-generated path metadata, not an enrollment document.
-        config = json.loads(Path(sys.argv[1]).read_text())
-        preflight(config, prepare=sys.argv[2] == "prepare")
+        require(len(sys.argv) == 2 and sys.argv[1] in ("check", "prepare"), "invalid preflight invocation")
+        # Nix embeds path metadata in this script; no configuration-file reads.
+        preflight(config, prepare=sys.argv[1] == "prepare")
     except (ValueError, OSError):
         # Do not echo paths, JSON, registry contents, or exception payloads.
         print("aeon-agentd: enrollment/state metadata preflight failed; review NIX-583 requirements", file=sys.stderr)
