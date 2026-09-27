@@ -19,6 +19,7 @@ let
     && !(lib.hasPrefix "${home}/Library/Caches/paimos/" path)
     && !(lib.hasPrefix "${home}/Library/Application Support/paimos/" path);
   pinnedPath = path: path == null || lib.hasPrefix "/nix/store/" path;
+  withinWorkspace = path: path == cfg.workspace || lib.hasPrefix "${cfg.workspace}/" path;
   vendorOption =
     name:
     lib.mkOption {
@@ -91,7 +92,9 @@ let
     StandardOutPath = "${cfg.stateRoot}/stdout.log";
     StandardErrorPath = "${cfg.stateRoot}/stderr.log";
     EnvironmentVariables = {
-      PATH = "${pkgs.nodejs}/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+      PATH =
+        lib.optionalString (cfg.codexPath != null || cfg.claudePath != null) "${pkgs.nodejs}/bin:"
+        + "/usr/bin:/bin:/usr/sbin:/sbin";
       DISABLE_AUTOUPDATER = "1";
       DISABLE_UPDATES = "1";
       FORCE_AUTOUPDATE_PLUGINS = "1";
@@ -137,7 +140,7 @@ in
     stateRoot = lib.mkOption {
       type = lib.types.str;
       readOnly = true;
-      default = "${home}/Library/Caches/aeon/agentd";
+      default = "${home}/Library/Application Support/aeon/agentd/state";
       description = "Dedicated mode-0700 journal/socket root; never shared with classic.";
     };
     daemonId = lib.mkOption {
@@ -172,8 +175,13 @@ in
             cfg.accountsFile
             cfg.workspace
           ]
-          && cfg.agentKeyFile != cfg.accountsFile;
-        message = "Aeon agentd requires distinct private paths and a workspace under home, outside classic and the Nix store";
+          && cfg.agentKeyFile != cfg.accountsFile
+          && !lib.any withinWorkspace [
+            cfg.agentKeyFile
+            cfg.accountsFile
+            cfg.stateRoot
+          ];
+        message = "Aeon agentd requires distinct private paths outside its workspace, classic and the Nix store";
       }
       {
         assertion = builtins.match "[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}" cfg.daemonId != null;
@@ -213,7 +221,7 @@ in
     home.activation.aeonAgentdState =
       lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ]
         ''
-          ${preflight} prepare
+          run ${preflight} prepare
         '';
     launchd.agents.aeon-agentd = {
       enable = true;
@@ -222,7 +230,7 @@ in
 
     # Preserve direct executable ownership, avoiding HM's sh/wait4path wrapper.
     # A separate output directory composes with classic's existing replacement.
-    home.extraBuilderCommands = lib.mkAfter ''
+    home.extraBuilderCommands = lib.mkOrder 1600 ''
       aeon_agents=$(${pkgs.coreutils}/bin/readlink -f "$out/LaunchAgents")
       aeon_direct="$out/LaunchAgents-aeon-direct"
       ${pkgs.coreutils}/bin/mkdir -p "$aeon_direct"

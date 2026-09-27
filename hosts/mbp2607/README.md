@@ -75,7 +75,9 @@ mode 0600. Keep all contents outside Nix, the store and tickets. Do not reuse
 classic registries or the shared CLI consumer key; do not copy vendor auth.
 The generic consumer-key materializer writes 0400 and is intentionally unused.
 
-State and logs use only `~/Library/Caches/aeon/agentd` (0700, logs 0600).
+State and logs use only `~/Library/Application Support/aeon/agentd/state`
+(0700, logs 0600), outside the OS cache-cleanup area. The workspace cannot
+contain enrollment files or daemon state.
 Activation checks metadata before the Home Manager write boundary, without
 reading either enrollment file. It rejects symlinks, unsafe owners/modes and
 classic paths, and never repairs an unsafe existing file. The daemon validates
@@ -105,6 +107,10 @@ outer-key ceiling names. They do not justify management/control RBAC. Do not
 grant administrator/wildcard roles, account registration/window management,
 `run.create`, approval grants, or human force-stop/recovery authority. Optional
 tools (comments, criterion changes, approval requests) need separate approval.
+The key ceiling `work_orders.write` covers evidence, status updates and criterion
+checks together; only scoped role RBAC can further restrict those operations.
+Comments additionally need the outer `nodes.write` ceiling and `comments.write`
+RBAC; approval requests need `approvals.request`, never approval-grant authority.
 Before activation, exercise allowed and denied routes with the actual enrolled
 principal. If the narrow combination fails, record an AEON prerequisite; never
 broaden roles to make polling work.

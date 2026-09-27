@@ -8,9 +8,13 @@ import stat
 import sys
 
 
+class PreflightError(ValueError):
+    """Only static, value-free messages may cross this diagnostic boundary."""
+
+
 def require(condition, message):
     if not condition:
-        raise ValueError(message)
+        raise PreflightError(message)
 
 
 def physical(path, label):
@@ -40,13 +44,15 @@ def preflight(config, prepare=False):
     accounts = Path(config["accountsFile"])
     workspace = Path(config["workspace"])
     state = Path(config["stateRoot"])
-    require(state == home / "Library/Caches/aeon/agentd", "unexpected Aeon state root")
+    require(state == home / "Library/Application Support/aeon/agentd/state", "unexpected Aeon state root")
     classic = [home / "Library/Caches/paimos", home / "Library/Application Support/paimos"]
     for path in (key, accounts, workspace, state):
         physical(path, "configured path")
         require(home in path.parents and not any(p == path or p in path.parents for p in classic),
                 "configured path overlaps classic or escapes home")
     require(key != accounts, "key and registry must be distinct")
+    require(not any(workspace == p or workspace in p.parents for p in (key, accounts, state)),
+            "workspace must not contain enrollment files or daemon state")
     private_file(key, "agent key", 4096)
     private_file(accounts, "account registry", 65536)
     directory(key.parent, "key directory")
@@ -80,7 +86,10 @@ def main(config):
         require(len(sys.argv) == 2 and sys.argv[1] in ("check", "prepare"), "invalid preflight invocation")
         # Nix embeds path metadata in this script; no configuration-file reads.
         preflight(config, prepare=sys.argv[1] == "prepare")
-    except (ValueError, OSError):
+    except PreflightError as error:
+        print(f"aeon-agentd: {error}", file=sys.stderr)
+        sys.exit(1)
+    except (ValueError, OSError, RuntimeError):
         # Do not echo paths, JSON, registry contents, or exception payloads.
         print("aeon-agentd: enrollment/state metadata preflight failed; review NIX-583 requirements", file=sys.stderr)
         sys.exit(1)
