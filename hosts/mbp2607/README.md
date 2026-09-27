@@ -87,30 +87,34 @@ positive before enabling. These are per-run reservation estimates, not account
 allowance windows; the candidate intentionally leaves all three at zero.
 
 The enrollment permission matrix below was derived from that exact release's
-`internal/auth/module.go`, `internal/authz/route_map.go` and `internal/agentd/api.go`.
+`internal/auth/module.go`, `internal/authz/{require,route_map}.go` and
+`internal/agentd/api.go`.
 It is a review input, **not evidence of a live enrollment test**.
 
-| Runtime routes                                    | Outer key ceiling                        | Narrow role permission / additional gate                                     |
+| Runtime routes                                    | Required key scope and role permission   | Additional gate                                                              |
 | ------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
 | GET `/api/me`                                     | self identity, any valid key             | self-agent route                                                             |
-| GET `/api/models`, nodes and node lookup          | `models.read`, `nodes.read`              | corresponding read permissions and project visibility                        |
-| GET work order; POST evidence                     | `work_orders.read`, `work_orders.write`  | scoped work-order permissions / run binding                                  |
+| GET `/api/models`, nodes and node lookup          | `models.read`, `nodes.read`              | project visibility                                                           |
+| GET work order; POST evidence                     | `work_orders.read`, `work_orders.write`  | project scope / run binding                                                  |
 | GET queued/run; POST claim/telemetry              | `run.read`, `run.claim`, `run.telemetry` | assigned run or live person-approved claim; reservation and exact generation |
 | GET inbox; POST ack/send                          | `inbox.read`, `inbox.send`               | recipient/sender identity                                                    |
 | POST harness registration                         | `harness.write`                          | project, run and worker identity binding                                     |
 | POST heartbeat/yield/drain/complete-delivery/stop | `harness.worker`                         | exact worker lease and generation                                            |
-| POST harness control completion                   | `harness.control`                        | **only `harness.worker` RBAC**, exact worker lease                           |
-| POST account route/probe                          | `account.manage`                         | **only `account.route` / `account.probe` RBAC**, exact owner/daemon/account  |
+| POST harness control completion                   | `harness.worker`                         | exact worker lease                                                           |
+| POST account route/probe                          | `account.route`, `account.probe`         | exact owner/daemon/account                                                   |
 
-`account.manage` and `harness.control` in the last two rows are release-specific
-outer-key ceiling names. They do not justify management/control RBAC. Do not
-grant administrator/wildcard roles, account registration/window management,
-`run.create`, approval grants, or human force-stop/recovery authority. Optional
-tools (comments, criterion changes, approval requests) need separate approval.
-The key ceiling `work_orders.write` covers evidence, status updates and criterion
-checks together; only scoped role RBAC can further restrict those operations.
-Comments additionally need the outer `nodes.write` ceiling and `comments.write`
-RBAC; approval requests need `approvals.request`, never approval-grant authority.
+`coreAgentScope` labels account routes `account.manage` and control completion
+`harness.control`, but the middleware uses these labels only to allowlist routes
+(except `/api/me`). `authz.RequirePattern` and `permitEffective` enforce the
+exact route permission in **both** key scopes and role grants. Those legacy
+labels are not extra key scopes to grant. Do not grant administrator/wildcard
+roles, account registration/window management, `run.create`, approval grants,
+or human force-stop/recovery authority.
+`work_orders.write` covers evidence, status updates and criterion checks in both
+authorization layers; project/run restrictions still apply, but an evidence-only
+grant cannot be expressed with that permission. Optional comments require
+`comments.write`; approval requests require `approvals.request`. Neither is
+needed for the minimal polling worker, and neither grants approval authority.
 Before activation, exercise allowed and denied routes with the actual enrolled
 principal. If the narrow combination fails, record an AEON prerequisite; never
 broaden roles to make polling work.
