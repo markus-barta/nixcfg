@@ -1,8 +1,8 @@
 # OPS-231 — Aeon (PAIMOS successor, AEON-43 cutover) workstation surface.
 #
 # Staged and inert by default: nothing here routes a consumer to Aeon. The
-# default PPM URL flip is the late-switch change in OPS-231; the aeon-agentd
-# launchd service is a separate phase once enrollment values exist.
+# default PPM URL flip is the late-switch change in OPS-231. The isolated
+# opt-in daemon lives in aeon-agentd.nix (NIX-583), with separate enrollment.
 #
 #   cli.enable           installs `aeon` only. The upstream package also ships
 #                        bin/paimos (argv0 compat mode); that alias stays off

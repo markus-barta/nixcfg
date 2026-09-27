@@ -49,6 +49,98 @@ The flake now pins `v26.09.08`, whose agentd accepts `--cursor-path` /
 host yet.** Root still creates the actual owner-only registry mapping separately
 before review, merge, switch, and enrollment.
 
+### Aeon agentd (NIX-583 — enrollment and activation pending)
+
+`uzumaki.aeon.agentd` is a separate, **disabled** LaunchAgent candidate:
+`at.inspr.aeon-agentd`, using `aeon-agentd` from the reviewed
+`v260927120613.0.0` source `28fe3d3c5d4cc1f3e0da2e311a7a15fc505a7eff`.
+The classic package, label, registry, journal and children remain independent.
+This input also versions the Aeon CLI; its compatibility checks run during the
+package build. There is no daemon `version` command: use the derivation/store
+identity and locked source as provenance.
+
+The proposed opaque daemon ID is declared in `home.nix`; it must be bound
+explicitly to the dedicated Aeon agent principal and approved account UUID/key.
+The proposed workspace is the physical `~/Code` directory. Only the pinned
+Cursor adapter is selected initially; other vendor adapters require explicit
+Nix store paths and enrollment. Codex additionally requires the existing browser
+refusal guard. Native non-Codex launchers use the shared NIX-578 policy.
+
+Enrollment files live in `~/Library/Application Support/aeon/agentd/`:
+`agent.key` (raw dedicated Aeon agent key) and `accounts.json` (Aeon's registry,
+with `accounts` entries containing `harness`, `key`, `account_id` and the
+approved vendor `home` or `identity` as applicable). The directory must be
+owner-owned mode 0700; both files must be regular, owner-owned, single-link
+mode 0600. Keep all contents outside Nix, the store and tickets. Do not reuse
+classic registries or the shared CLI consumer key; do not copy vendor auth.
+The generic consumer-key materializer writes 0400 and is intentionally unused.
+
+State and logs use only `~/Library/Application Support/aeon/agentd/state`
+(0700, logs 0600), outside the OS cache-cleanup area. The workspace cannot
+contain enrollment files or daemon state.
+Activation checks metadata before the Home Manager write boundary, without
+reading either enrollment file. It rejects symlinks, unsafe owners/modes and
+classic paths, and never repairs an unsafe existing file. The daemon validates
+registry/key contents itself. At least one explicitly reviewed
+`estimates.requests`, `estimates.tokens` or `estimates.cost-micros` must be
+positive before enabling. These are per-run reservation estimates, not account
+allowance windows; the candidate intentionally leaves all three at zero.
+
+The enrollment permission matrix below was derived from that exact release's
+`internal/auth/module.go`, `internal/authz/{require,route_map}.go` and
+`internal/agentd/api.go`.
+It is a review input, **not evidence of a live enrollment test**.
+
+| Runtime routes                                    | Required key scope and role permission   | Additional gate                                                              |
+| ------------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
+| GET `/api/me`                                     | self identity, any valid key             | self-agent route                                                             |
+| GET `/api/models`, nodes and node lookup          | `models.read`, `nodes.read`              | project visibility                                                           |
+| GET work order; POST evidence                     | `work_orders.read`, `work_orders.write`  | project scope / run binding                                                  |
+| GET queued/run; POST claim/telemetry              | `run.read`, `run.claim`, `run.telemetry` | assigned run or live person-approved claim; reservation and exact generation |
+| GET inbox; POST ack/send                          | `inbox.read`, `inbox.send`               | recipient/sender identity                                                    |
+| POST harness registration                         | `harness.write`                          | project, run and worker identity binding                                     |
+| POST heartbeat/yield/drain/complete-delivery/stop | `harness.worker`                         | exact worker lease and generation                                            |
+| POST harness control completion                   | `harness.worker`                         | exact worker lease                                                           |
+| POST account route/probe                          | `account.route`, `account.probe`         | exact owner/daemon/account                                                   |
+
+`coreAgentScope` labels account routes `account.manage` and control completion
+`harness.control`, but the middleware uses these labels only to allowlist routes
+(except `/api/me`). `authz.RequirePattern` and `permitEffective` enforce the
+exact route permission in **both** key scopes and role grants. Those legacy
+labels are not extra key scopes to grant. Do not grant administrator/wildcard
+roles, account registration/window management, `run.create`, approval grants,
+or human force-stop/recovery authority.
+`work_orders.write` covers creating work orders, general work-order updates,
+evidence and criterion checks in both authorization layers. Resource and handler
+restrictions still apply, but an evidence-only grant cannot be expressed with
+that permission. Optional comments require
+`comments.write`; approval requests require `approvals.request`. Neither is
+needed for the minimal polling worker, and neither grants approval authority.
+The person creating the key must also hold every requested permission: effective
+agent grants are intersected with the key creator's grants. Re-derive this matrix
+whenever the Aeon pin changes; legacy scope-label comments are not the contract.
+Before activation, exercise allowed and denied routes with the actual enrolled
+principal. If the narrow combination fails, record an AEON prerequisite; never
+broaden roles to make polling work.
+
+Activation remains a separate supervised gate: retain the current HM generation
+and classic executable/PID/label baseline, review the generated activation diff,
+and enable only this new label after enrollment review. Use a newly approved
+disposable managed session to verify its run binding, ownership age below 45 s,
+daemon generation and root process/group identity. An authorized person must
+see `force_stop_available` in recovery preview; the agent must receive 403 for
+force/recovery. Let the session exit naturally. Do not force-stop an existing
+worker or claim ownership of classic/unmanaged registrations.
+
+Rollback after owned work drains disables only the Aeon service (or restores
+its reviewed package/config); preserve its audit/state and the previous HM
+generation. Never blanket-kill process names, stop classic, revoke its key, or
+wipe state. Active runs require a supervised handoff before rollback.
+AEON-228/231 retain final runtime recovery acceptance; OPS-231 retains classic
+retirement. NIX-528 remains the pending configuration-version adoption proposal;
+this candidate retains Git/HM generation identity and the dependency's calendar
+version.
+
 ## Coding with Pi
 
 Run `pi-local` from the repository or subdirectory you want to work in. Pi stays
