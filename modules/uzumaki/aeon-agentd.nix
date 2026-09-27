@@ -98,18 +98,23 @@ let
     };
   };
   plist = pkgs.writeText "${label}.plist" (lib.generators.toPlist { escape = true; } service);
-  preflightConfig = pkgs.writeText "aeon-agentd-paths.json" (
-    builtins.toJSON {
-      inherit home;
-      inherit (cfg)
-        agentKeyFile
-        accountsFile
-        workspace
-        stateRoot
-        ;
-    }
-  );
-  preflight = "${pkgs.python3}/bin/python3 ${../../scripts/aeon-agentd-preflight.py} ${preflightConfig}";
+  preflightConfig = builtins.toJSON {
+    inherit home;
+    inherit (cfg)
+      agentKeyFile
+      accountsFile
+      workspace
+      stateRoot
+      ;
+  };
+  # Embed only the declared non-secret paths. The helper has no caller-selected
+  # configuration-file read interface; enrollment bytes never enter the store.
+  preflightScript = pkgs.writeText "aeon-agentd-preflight.py" ''
+    ${builtins.readFile ../../scripts/aeon-agentd-preflight.py}
+    if __name__ == "__main__":
+        main(json.loads(${builtins.toJSON preflightConfig}))
+  '';
+  preflight = "${pkgs.python3}/bin/python3 ${preflightScript}";
 in
 {
   options.uzumaki.aeon.agentd = {
