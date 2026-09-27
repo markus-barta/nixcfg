@@ -59,6 +59,17 @@ in
   inspr.cli.fleet.paimosUrl = lib.mkForce "https://aeon.barta.cm";
 
   uzumaki.aeon = {
+    # NIX-583: candidate only. Enable after dedicated enrollment, approved
+    # estimates and a reviewed HM activation diff. Classic stays running.
+    agentd = {
+      enable = false;
+      daemonId = "aeon-6f4608dd-775c-4184-83a7-e2cc448bfd62";
+      workspace = "${config.home.homeDirectory}/Code";
+      agentKeyFile = "${config.home.homeDirectory}/Library/Application Support/aeon/agentd/agent.key";
+      accountsFile = "${config.home.homeDirectory}/Library/Application Support/aeon/agentd/accounts.json";
+      cursorPath = cursorAgent;
+      # Estimates intentionally remain zero until enrollment review.
+    };
     cli = {
       enable = true;
       paimosAlias = true;
