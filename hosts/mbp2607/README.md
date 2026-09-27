@@ -110,11 +110,15 @@ exact route permission in **both** key scopes and role grants. Those legacy
 labels are not extra key scopes to grant. Do not grant administrator/wildcard
 roles, account registration/window management, `run.create`, approval grants,
 or human force-stop/recovery authority.
-`work_orders.write` covers evidence, status updates and criterion checks in both
-authorization layers; project/run restrictions still apply, but an evidence-only
-grant cannot be expressed with that permission. Optional comments require
+`work_orders.write` covers creating work orders, general work-order updates,
+evidence and criterion checks in both authorization layers. Resource and handler
+restrictions still apply, but an evidence-only grant cannot be expressed with
+that permission. Optional comments require
 `comments.write`; approval requests require `approvals.request`. Neither is
 needed for the minimal polling worker, and neither grants approval authority.
+The person creating the key must also hold every requested permission: effective
+agent grants are intersected with the key creator's grants. Re-derive this matrix
+whenever the Aeon pin changes; legacy scope-label comments are not the contract.
 Before activation, exercise allowed and denied routes with the actual enrolled
 principal. If the narrow combination fails, record an AEON prerequisite; never
 broaden roles to make polling work.
