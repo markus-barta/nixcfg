@@ -9,7 +9,7 @@
 #   - nixos.nix (NixOS systems)
 #   - darwin.nix (macOS via Home Manager)
 #
-{ lib, pkgs, ... }:
+{ lib, ... }:
 
 {
   options.uzumaki = {
@@ -127,7 +127,7 @@
       exitAlias = {
         enable = lib.mkOption {
           type = lib.types.bool;
-          default = pkgs.stdenv.isDarwin;
+          default = false;
           description = ''
             Enable a Codex UserPromptSubmit hook that turns an exact `exit`
             prompt into `/exit` via guarded macOS keystroke automation.
