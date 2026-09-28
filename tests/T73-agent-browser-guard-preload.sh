@@ -207,11 +207,11 @@ printf '%s\n' "$codex_exports" 'exec "$@"' >"$work/codex-wrapper"
 # Wiring: default shell and agentd paths share the tested native builder.
 grep -Fq 'nativePrograms = {' hosts/mbp2607/home.nix ||
   fail 'mbp2607 must wire native launchers'
-for source in modules/uzumaki/agent-browser-guard.nix modules/uzumaki/paimos-agentd.nix; do
-  grep -Fq 'guardLib.mkNativeLauncherText target' "$source" ||
+for source in modules/uzumaki/agent-browser-guard.nix modules/uzumaki/aeon-agentd.nix; do
+  grep -Fq 'guardLib.mkNativeLauncherText' "$source" ||
     fail "$source must use the tested native wrapper"
 done
-grep -Fq 'nativeCliPath "cursor"' modules/uzumaki/paimos-agentd.nix ||
-  fail 'the agentd Cursor path must use the native launcher'
+grep -Eq 'native "cursor"' modules/uzumaki/aeon-agentd.nix ||
+  fail 'the Aeon agentd Cursor path must use the native launcher'
 
 printf 'agent_browser_guard_preload=passed apis=6 controls=3 native_wrapper=allowed codex_wrapper=refused real_browser_launches=0\n'

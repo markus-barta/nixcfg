@@ -9,7 +9,7 @@
 #
 # What it asserts:
 #   1. pure eval — profile/launcher/refusal text and their input validation
-#   2. wiring   — hosts and paimos-agentd consume the guard as designed
+#   2. wiring   — hosts and aeon-agentd consume the guard as designed
 #   3. no drift — the human (NIX-288) browser path stays exactly as it was
 #   4. runtime  — a fake "browser" is denied directly, through a symlink and as
 #                 a Node grandchild, while ordinary commands still run; and the
@@ -342,24 +342,16 @@ grep -Fq 'INSPR_AGENT_BROWSER_GUARD-' modules/uzumaki/agent-browser-guard.nix ||
 if grep -Fq 'guardPrefix' hosts/mbp2607/pi-local.nix; then
   fail 'the declarative Pi launchers must not default to the strict guard'
 fi
-grep -Fq '${guardEnvExports}' modules/uzumaki/paimos-agentd.nix ||
-  fail 'the agentd Codex launcher must carry the env-only guard layer'
-tr -s '[:space:]' ' ' <modules/uzumaki/paimos-agentd.nix |
-  grep -Fq 'EnvironmentVariables = claudeUpdateEnv;' ||
-  fail 'the shared agentd environment must not inject a browser refusal'
+grep -Fq '${guard.envOnlyExports}' modules/uzumaki/aeon-agentd.nix ||
+  fail 'the Aeon agentd Codex launcher must carry the env-only guard layer'
+if grep -Eq 'INSPR_AGENT_BROWSER_GUARD' modules/uzumaki/aeon-agentd.nix; then
+  fail 'the shared Aeon agentd environment must not inject a browser refusal'
+fi
 
-# Codex must stay out of the sandbox-wrapped set: macOS cannot nest profiles,
-# so wrapping it would break its own inner sandbox (proved in section 4).
-python3 - <<'PY' || exit 1
-import re, sys
-src = open("modules/uzumaki/paimos-agentd.nix", encoding="utf-8").read()
-enum = re.search(r"sandboxedClis = lib\.mkOption \{\s*type = lib\.types\.listOf \(\s*lib\.types\.enum \[(.*?)\]", src, re.S)
-if not enum:
-    print("T72 failed: sandboxedClis enum not found", file=sys.stderr); sys.exit(1)
-for name in ("codex", "cursor"):
-    if name in enum.group(1):
-        print(f"T72 failed: {name} must not be sandbox-wrappable", file=sys.stderr); sys.exit(1)
-PY
+# Codex must stay out of a nested Seatbelt profile (proved in section 4).
+if grep -Eq 'sandboxedClis' modules/uzumaki/aeon-agentd.nix; then
+  fail 'aeon-agentd must not grow a sandboxedClis option; Codex uses env-only refusal'
+fi
 
 # NIX-515: host login init (fish loginShellInit, zsh /etc/zprofile + session
 # setup) re-prepends Homebrew and the Nix/npm profiles AFTER the guard's early
@@ -399,7 +391,7 @@ fi
 if grep -Eq '^[^#;]*(google-chrome|commonCasks)' modules/uzumaki/agent-browser-guard.nix; then
   fail 'the guard must not manage the Chrome cask or the Brewfile baseline'
 fi
-if grep -Eq '^[^#;]*home\.sessionVariables[[:space:]]*=' modules/uzumaki/paimos-agentd.nix; then
+if grep -Eq '^[^#;]*home\.sessionVariables[[:space:]]*=' modules/uzumaki/aeon-agentd.nix; then
   fail 'agentd wiring must not set home.sessionVariables'
 fi
 

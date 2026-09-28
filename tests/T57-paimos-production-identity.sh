@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# NIX-396 — csb1 must stage the Paimos production identity firewall before
-# a release can make the PAI-856 startup guard mandatory.
+# NIX-584 — csb1 must not run the classic PPM container.
 set -euo pipefail
 
-repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+repo_root=$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 
 fail() {
@@ -12,32 +11,11 @@ fail() {
 }
 
 nix-instantiate --parse "$compose" >/dev/null
-ppm_environment=$(nix eval --impure --json --expr "(import $compose).services.ppm.environment")
+has_ppm=$(nix eval --impure --json --expr "(import $compose).services ? ppm")
+[[ "$has_ppm" == "false" ]] || fail "classic ppm service must be absent, got $has_ppm"
 
-PYTHONDONTWRITEBYTECODE=1 python3 - "$ppm_environment" <<'PY'
-import json
-import sys
+if grep -Eq 'container_name = "ppm"' "$compose"; then
+  fail 'compose still declares the classic ppm container'
+fi
 
-environment = json.loads(sys.argv[1])
-expected = {
-    "PAIMOS_ENV": "production",
-    "PAIMOS_DEPLOYMENT_INSTANCE": "ppm",
-    "PAIMOS_AGENT_BUS_INSTANCE": "ppm",
-}
-
-values = {}
-for item in environment:
-    key, separator, value = item.partition("=")
-    if separator and key in expected:
-        values.setdefault(key, []).append(value)
-
-for key, value in expected.items():
-    actual = values.get(key, [])
-    assert actual == [value], f"{key} must occur exactly once as {value!r}, got {actual!r}"
-
-assert not any(item.startswith("PAIMOS_INSTANCE=") for item in environment), (
-    "the server deployment identity must not reuse the CLI's PAIMOS_INSTANCE selector"
-)
-PY
-
-printf 'T57 passed: csb1 PPM renders one matching production, deployment, and Agent Intercom identity\n'
+printf 'T57 passed: csb1 compose no longer runs classic PPM\n'

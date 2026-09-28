@@ -19,42 +19,19 @@ Items get pulled from mbp0 individually when actually missed, never wholesale.
 
 ## State of workstation modules
 
-`inspr.secrets.agents`, `inspr.paimos-cli`, and `inspr.git.atelier.personal`
-are **on** since 2026-07-03 (host keys registered as agenix recipients,
+`inspr.secrets.agents` and `inspr.git.atelier.personal` are **on** since
+2026-07-03 (host keys registered as agenix recipients,
 `mbp2607-personal-userkey` minted — NIX-215). `atelier.bytepoets` stays off
-permanently (former-work history). `inspr.paimos-cli` manages non-secret routing
-only; authentication is an interactive OS-keyring login.
-
-The Home Manager `paimos-agentd` service passes `--codex-accounts` to
-`${config.home.homeDirectory}/Library/Application Support/paimos/agentd/codex-accounts.json`
-on this host (PAI-955 / NIX-437). The file stays owner-only outside the Nix
-store; do not copy registry homes or emails into Nix.
-
-### Cursor agentd (NIX-439 — config candidate, review pending)
-
-Home Manager also declares `--cursor-path` and `--cursor-accounts` for the
-pinned native CLI — since NIX-514 the Nix package `pkgs/cursor-agent` (bumped by
-`just update-ai-clis`), the same store path the `cursor-agent`/`agent` guard
-shims and Pi's `CURSOR_AGENT_PATH` run — and the owner-only registry at
-`~/Library/Application Support/paimos/agentd/cursor-accounts.json`. Nix carries
-paths only — no email, userid, or registry contents.
-
-Composer and Grok are selected through owned account/profile choices in that
-registry, not through Nix. Cursor same-turn text steer remains unsupported;
-inbox `nextturn`, `cancel`, and `stop` are available. Authentication stays in
-the vendor store; agentd does not wrap or copy auth directories.
-
-The flake now pins `v26.09.08`, whose agentd accepts `--cursor-path` /
-`--cursor-accounts`. **This slice is a config candidate only — not live on the
-host yet.** Root still creates the actual owner-only registry mapping separately
-before review, merge, switch, and enrollment.
+permanently (former-work history). Classic `inspr.paimos-cli` was retired
+(NIX-584); `paimos` is the Aeon client (`uzumaki.aeon.cli`, paimosAlias
+default on). `at.inspr.aeon-agentd` is the owned-session daemon.
 
 ### Aeon agentd (NIX-583)
 
 `uzumaki.aeon.agentd` is a separate LaunchAgent enabled on mbp2607:
 `at.inspr.aeon-agentd`, using `aeon-agentd` from the reviewed
 `v260927160212.0.0` source `3f8d613473ff3ff37db50ecff9e5522de73cc974`.
-The classic package, label, registry, journal and children remain independent.
+The classic package, label, registry, journal and children were retired in NIX-584.
 This input also versions the Aeon CLI; its compatibility checks run during the
 package build. There is no daemon `version` command: use the derivation/store
 identity and locked source as provenance.

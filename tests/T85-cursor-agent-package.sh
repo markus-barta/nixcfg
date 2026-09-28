@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # NIX-514 — the Cursor CLI is one hash-pinned Nix package. Unguarded Home
 # Manager harnesses install it; on guarded mbp2607 it reaches PATH only through
-# the guard shims, and those, paimos-agentd and Pi's CURSOR_AGENT_PATH all run
+# the guard shims, and those, aeon-agentd and Pi's CURSOR_AGENT_PATH all run
 # that same store path — no imperative
 # ~/.local/share/cursor-agent copy is referenced. `just update-ai-clis` bumps
 # the pin through scripts/update-cursor-agent.sh. NIX-516: $out/bin is
@@ -78,8 +78,8 @@ for name in cursor-agent agent; do
   target=$(printf '%s' "$guard" | jq -er --arg n "$name" '.[$n]') || fail "guard shim $name is missing"
   [ "$target" = "$package_out/bin/$name" ] || fail "guard shim $name does not exec the pinned package's bin/$name: $target"
 done
-agentd_cursor=$(cd "$repo_root" && nix eval --raw '.#homeConfigurations."markus@mbp2607".config.uzumaki.paimosAgentd.cursorPath')
-[ "$agentd_cursor" = "$cursor_exe" ] || fail "paimos-agentd cursorPath is not the pinned package: $agentd_cursor"
+agentd_cursor=$(cd "$repo_root" && nix eval --raw '.#homeConfigurations."markus@mbp2607".config.uzumaki.aeon.agentd.cursorPath')
+[ "$agentd_cursor" = "$cursor_exe" ] || fail "aeon-agentd cursorPath is not the pinned package: $agentd_cursor"
 grep -Fq 'fish login shells resolve ahead of the guard launcher' "$repo_root/modules/uzumaki/agent-browser-guard.nix" ||
   fail 'the guard no longer asserts that launcher names stay out of home.packages'
 

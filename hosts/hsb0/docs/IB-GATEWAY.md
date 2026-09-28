@@ -127,29 +127,23 @@ restart; pusher health requires a publish after that exact start epoch.
 
 The declared destination is managed email plus Amy's existing Grok chat. The
 `email-agent-bus` adapter uses the existing `docker-smtp-1` relay for mail and
-Paimos project17's `grok_bot:amy` receiver for chat. It does not start the parked
-OpenClaw container or copy Amy's webhook capability or secret out of Paimos.
-The message identifies the automatic paper monitor and asks Amy to SendToUser
-only; it never requests a trade, restart, or account change.
+Aeon's inbox (OPS-232 / NIX-584) for chat. Classic Paimos machine-notifier is
+retired. It does not start the parked OpenClaw container. The message identifies
+the automatic paper monitor and asks Amy to SendToUser only; it never requests a
+trade, restart, or account change.
 
-`hsb0-gateway-notify-config.age` contains destination metadata. Chat requires a
-dedicated PAI-1018 machine-notifier key bound to project 17, a dedicated sender,
-`grok_bot:amy`, and target `4f73e08c-f98d-4dfd-a86c-6a9393f05db4` version 1.
-The old `hsb0-ppm-api-key` is not an enrollment: its observed HTTP 401 remains an
-authentication failure. Before activation, deploy PAI-1018, enroll the dedicated
-key through its session-only administrator endpoint, store it as a separate
-managed credential, and point `alert.paimosApiKeyFile` at that credential in the
-reviewed host configuration. Until then `paimosApiKeyFile = null` keeps chat
-unavailable without blocking email. Do not replace a shared key or copy a personal key.
+`hsb0-gateway-notify-config.age` contains destination metadata, including the
+Aeon binding (`grok.backend = "aeon"`). Chat requires a dedicated Aeon inbox
+sender key (`inbox.send` + `inbox.receipt` only) pointed at
+`alert.aeonNotifierKeyFile`. Until then `aeonNotifierKeyFile = null` keeps chat
+unavailable without blocking email. Do not reuse a classic PPM notifier key.
 systemd `LoadCredential` supplies private copies; no destination or API key enters
 the Nix store, command logs, or alert-state files. No existing secret is rekeyed.
 
-The adapter sends text only to `/api/machine-notifier/messages` with a stable
-event idempotency key. Paimos derives sender, recipient and delivery level from
-the credential; the adapter supplies no attribution headers. It reads only
-`/api/machine-notifier/messages/{message_id}/receipt`, then checks the message,
-project, address, simple delivery level and exact target generation. There is no
-fallback to general message APIs or administrator delivery listings.
+The adapter posts to `https://aeon.barta.cm/api/inbox/messages` with a stable
+event idempotency key and reads only that message's sender receipt. Delivery is
+a `handed_off` receipt matching every private binding. There is no fallback to
+classic `/api/machine-notifier`.
 
 The five-minute timer waits for at least ten minutes of sustained failure
 (and ten minutes after an attempted restart), then sends on the next eligible
