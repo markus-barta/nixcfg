@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# T56 — NIX-584: classic workstation Paimos (paimos-legacy CLI + paimos-agentd) is retired.
+# T56 — NIX-584: classic paimos-agentd is retired; paimos is Aeon.
+# paimos-classic (paimos-legacy CLI) stays only for pma until this evening.
 set -euo pipefail
 
 repo_root=$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -9,19 +10,22 @@ fail() {
   exit 1
 }
 
-[[ ! -e "$repo_root/pkgs/paimos-cli/default.nix" ]] || fail 'pkgs/paimos-cli must not return'
+[[ -e "$repo_root/pkgs/paimos-cli/default.nix" ]] || fail 'pkgs/paimos-cli must remain for pma until tonight'
 [[ ! -e "$repo_root/modules/uzumaki/paimos-agentd.nix" ]] || fail 'paimos-agentd.nix must not return'
 
-if grep -Fq 'paimos-legacy' "$repo_root/flake.nix"; then
-  fail 'flake.nix still references paimos-legacy'
-fi
-if grep -Fq 'paimos-cli =' "$repo_root/flake.nix"; then
-  fail 'flake.nix still packages paimos-cli'
-fi
+grep -Fq 'paimos-legacy' "$repo_root/flake.nix" || fail 'flake.nix must keep the paimos-legacy input for pma'
+grep -Fq 'paimos-cli =' "$repo_root/flake.nix" || fail 'flake.nix must still package paimos-cli for pma'
+grep -Fq 'paimos-classic' "$repo_root/modules/uzumaki/aeon.nix" ||
+  fail 'aeon.nix must keep the paimos-classic wrapper for pma'
+for f in \
+  "$repo_root/flake.nix" \
+  "$repo_root/pkgs/paimos-cli/default.nix" \
+  "$repo_root/modules/uzumaki/aeon.nix" \
+  "$repo_root/modules/uzumaki/macos-common.nix"; do
+  grep -Fq 'NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up' "$f" ||
+    fail "$f must carry the NIX-584 evening-removal comment"
+done
 
-if grep -Fq 'paimos-classic' "$repo_root/modules/uzumaki/aeon.nix"; then
-  fail 'classic paimos wrapper must not remain in aeon.nix'
-fi
 if grep -Fq './paimos-agentd.nix' "$repo_root/modules/uzumaki/home-manager.nix"; then
   fail 'home-manager.nix must not import paimos-agentd'
 fi
@@ -52,4 +56,7 @@ has_classic=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@m
 alias_default=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.uzumaki.aeon.cli.paimosAlias')
 [[ "$alias_default" == "true" ]] || fail "paimosAlias must default on, got $alias_default"
 
-printf 'T56 passed: classic paimos-cli/agentd retired; aeon-agentd and paimos alias remain\n'
+has_wrapper=$(cd "$repo_root" && nix eval --json '.#homeConfigurations."markus@mbp2607".config.home.packages' --apply 'ps: builtins.any (p: (p.name or "") == "paimos-classic") ps')
+[[ "$has_wrapper" == "true" ]] || fail "paimos-classic must be installed on mbp2607, got $has_wrapper"
+
+printf 'T56 passed: classic agentd retired; paimos is Aeon; paimos-classic remains for pma\n'

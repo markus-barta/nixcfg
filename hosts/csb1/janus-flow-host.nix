@@ -9,11 +9,11 @@ in
 {
   # NIX-574: reviewed human reviewer, sandbox33 scope and encrypted key.
   # This binding grants only the dedicated UX test subject read-only Flow access.
-  active = true;
+  # NIX-584: Janus Flow is a classic-v1 reader (csb1-janus-flow-api-key.age).
+  # Stay off until it reads Aeon (a JANUS ticket follows).
+  active = false;
 
-  # NIX-584: classic Paimos is retired. Flow talks to Aeon, the production PPM
-  # origin. Classic-v1 readers that still require the retired API will fail
-  # until they speak Aeon.
+  # NIX-584: production PPM origin is Aeon. Kept for when Flow is re-enabled.
   paimosOrigin = "https://aeon.barta.cm";
   # Chosen only with the common-origin deployment. Null makes Janus use the
   # server origin for browser navigation without inventing a route here.

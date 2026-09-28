@@ -77,6 +77,11 @@
       url = "github:inspr-at/janus/rust-engine-v0.1.36";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
+    paimos = {
+      url = "github:inspr-at/paimos-legacy/v260922071824.0.0";
+      flake = false;
+    };
     # Aeon — PAIMOS successor (AEON-43 cutover, NIX-584). Pinned release
     # tag; upstream flake with a pinned vendorHash. Its own nixpkgs is kept
     # (not followed) so that hash is built with the Go it was pinned against.
@@ -145,6 +150,10 @@
       overlays-local = final: prev: {
         pingt = final.callPackage ./pkgs/pingt { };
         tokstat = final.callPackage ./pkgs/tokstat { };
+        # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
+        paimos-cli = final.callPackage ./pkgs/paimos-cli {
+          src = inputs.paimos;
+        };
         # OPS-231 / NIX-584: see modules/uzumaki/aeon.nix for PATH ownership.
         aeon-cli = aeonCli final;
         # NIX-584: `paimos` is the Aeon client in paimos mode.
@@ -394,6 +403,10 @@
         # pingt - Timestamped ping with color-coded output
         pingt = pkgs.callPackage ./pkgs/pingt { };
 
+        # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
+        paimos-cli = pkgs.callPackage ./pkgs/paimos-cli {
+          src = inputs.paimos;
+        };
         aeon-cli = aeonCli pkgs;
         inherit (inputs.aeon.packages.x86_64-linux) aeon-agentd;
         claude-agent-sdk = pkgs.callPackage ./pkgs/claude-agent-sdk { };
@@ -461,6 +474,10 @@
         in
         {
           pingt = pkgsDarwin.callPackage ./pkgs/pingt { };
+          # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
+          paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli {
+            src = inputs.paimos;
+          };
           claude-agent-sdk = pkgsDarwin.callPackage ./pkgs/claude-agent-sdk { };
           higgsfield-cli = pkgsDarwin.callPackage ./pkgs/higgsfield-cli { };
         };
@@ -476,6 +493,10 @@
         in
         {
           pingt = pkgsDarwin.callPackage ./pkgs/pingt { };
+          # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
+          paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli {
+            src = inputs.paimos;
+          };
           aeon-cli = aeonCli pkgsDarwin;
           inherit (inputs.aeon.packages.aarch64-darwin) aeon-agentd;
           claude-agent-sdk = pkgsDarwin.callPackage ./pkgs/claude-agent-sdk { };

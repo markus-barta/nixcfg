@@ -32,8 +32,9 @@ in
       default = true;
       description = ''
         Install `paimos` as the Aeon client in paimos mode (NIX-584). Default
-        on so existing `paimos` muscle memory keeps working after classic
-        paimos-cli is retired. Set false to expose only `aeon`.
+        on so existing `paimos` muscle memory keeps working. Classic CLI stays
+        on PATH only as `paimos-classic` for pma (paimos.agm.ng) until that
+        instance moves to Aeon. Set false to expose only `aeon`.
       '';
     };
 
@@ -118,7 +119,13 @@ in
     })
 
     (lib.mkIf (cfg.cli.enable && cfg.cli.paimosAlias) {
-      home.packages = [ pkgs.aeon-paimos ];
+      home.packages = [
+        pkgs.aeon-paimos
+        # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
+        (pkgs.writeShellScriptBin "paimos-classic" ''
+          exec ${pkgs.paimos-cli}/bin/paimos "$@"
+        '')
+      ];
     })
 
     (lib.mkIf (keys.enable && keys.names != [ ]) {
