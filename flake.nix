@@ -95,10 +95,9 @@
     # opinionated only about mechanics. (Older docs: "Pattern β".)
     #
     # NIX-574 / INSPR-466: published v260922101217.0.0, Aithema 0.10.1.
-    # Keep this input synchronized with the doctrine gitlink. Deploy the package
-    # before restricted memberships; remove those memberships before rollback
-    # to the previous e75e4f95a94974fbc6bcce2fde78f2994c8ef776 pair.
-    inspr-modules.url = "github:inspr-at/inspr-modules/21b814057825c06b7f1e93f9deacdb4c549e11c6";
+    # INSPR-483: keep this input synchronized with the doctrine gitlink.
+    # Rollback: previous pair 21b814057825c06b7f1e93f9deacdb4c549e11c6.
+    inspr-modules.url = "github:inspr-at/inspr-modules/84e3b040afa2ae6010b3b3a1f43daeebb5a149bb";
     inspr-modules.inputs.nixpkgs.follows = "nixpkgs";
   };
 
