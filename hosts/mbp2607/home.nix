@@ -68,6 +68,7 @@ in
     cli = {
       enable = true;
       # NIX-584: Aeon owns `paimos` (paimosAlias defaults true).
+      # paimos-classic remains for pma until that instance moves to Aeon tonight.
       instanceKeys.ppm = "workstation-agents";
     };
     consumerKeys = {
