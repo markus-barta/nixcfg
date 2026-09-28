@@ -677,40 +677,24 @@ Break glass does not enable reveal. Its only supported outcome is restoring the
 last healthy declared generation or leaving the canary stopped. Record the
 reason and exact reviewed revision in PPM before resuming normal operations.
 
-### Upgrade PAIMOS (pm.barta.cm)
+### Upgrade PAIMOS (pm.barta.cm) — retired
 
-Image source: `ghcr.io/inspr-at/paimos:<version>` — an explicit pin in
-`hosts/csb1/docker/compose-spec.nix`. Deploys are a pin bump + PR +
-`nixos-rebuild switch` on csb1 (PAI-732; `/etc/paimos-deploy.sh` was removed
-in NIX-359). Full flow + rollback: `docs/PPM-RUNBOOK.md` §2/§3.
-
-```bash
-# Optional safety backup before a risky bump (data volume snapshot):
-ssh mba@cs1.barta.cm -p 2222
-TS=$(date +%Y-%m-%d-%H%M)
-mkdir -p ~/backups/paimos-$TS
-docker run --rm -v ppm_data:/data -v ~/backups/paimos-$TS:/backup alpine \
-  tar czf /backup/ppm_data.tar.gz -C /data .
-
-# Verify after the switch:
-docker ps --filter name=ppm --format '{{.Image}} {{.Status}}'
-curl -fsSI https://pm.barta.cm/ | head -1
-docker logs ppm --tail 50
-```
-
-Rollback on failure: set the pin in `compose-spec.nix` back to the previous
-version and switch again (PPM-RUNBOOK §3 — mind DB migrations).
-
-Data rollback (only on migration corruption — additive-only schema, very rare):
-`docker compose stop ppm && docker run --rm -v ppm_data:/data -v ~/backups/paimos-<TS>:/backup alpine sh -c "rm -rf /data/* && tar xzf /backup/ppm_data.tar.gz -C /data" && docker compose up -d ppm`.
+**NIX-584 / AEON-261:** classic Paimos is no longer in the csb1 compose spec.
+`pm.barta.cm` and `flow.inspr.at/paimos` redirect to Aeon `/from-classic`
+(browser 302, API 410). Do not recreate the `ppm` container. The named volume
+`csb1_ppm_data` stays declared so compose does not delete it. Historical pin /
+rollback steps: `docs/PPM-RUNBOOK.md`.
 
 ---
 
-## Paimos external-stage activation (NIX-381 / PAI-810)
+## Paimos external-stage activation (NIX-381 / PAI-810) — retired
+
+**NIX-584:** this classic Paimos v1 adapter was never activated (`active = false`)
+and is unwired. The host switch file was removed. Do not recreate it. The
+procedure below is historical.
 
 The Pharos owner adapter (PHAROS-206) and the Janus dependency reporter
-(JANUS-441) are wired declaratively and land **inert**. Everything below is the
-activation procedure. Do one step at a time.
+(JANUS-441) were wired declaratively and landed **inert**.
 
 ### Why this is not just a rebuild
 
@@ -718,9 +702,9 @@ activation procedure. Do one step at a time.
 but the config, the API key or any 32-byte handoff secret is missing, malformed,
 or not owned by uid 10001 with mode `0400`. Activating before the credentials
 exist does not degrade the dashboard — it crash-loops it. That is why one
-boolean, `active` in `hosts/csb1/paimos-delivery-stage.nix`, gates both the
-compose environment and the module wiring, and why `tests/T48` fails the build if
-the two ever disagree.
+boolean `active` (removed with `hosts/csb1/paimos-delivery-stage.nix` in NIX-584)
+gated both the compose environment and the module wiring, and why `tests/T48`
+now fails the build if that wiring returns.
 
 ### Prerequisites, in order
 
@@ -785,9 +769,8 @@ the two ever disagree.
    (`root`) on the two janus files, `0400` and link count `1` everywhere, and
    size `32` on every `*-handoff-secret`.
 
-5. **Flip one boolean.** Set `active = true;` in
-   `hosts/csb1/paimos-delivery-stage.nix`, open a PR, let protected CI run, merge,
-   then `just switch` on csb1 followed by the compose reconcile.
+5. **Do not activate.** NIX-584 removed the host switch file. Classic Paimos is
+   retired; do not reintroduce the adapter.
 
 ### After activation
 
@@ -850,9 +833,8 @@ both the compose environment and the module wiring. `tests/T71` fails the
 build if the two ever disagree.
 
 Flow navigation and projection grant **no** delivery, provider or Janus
-authority. Keep `hosts/csb1/paimos-delivery-stage.nix` `active = false` and
-`inspr.pharosPaimosDelivery.intents = [ ]` unless NIX-381 is separately
-reviewed. Do not reuse the PHAROS-206 delivery API key. Do not set
+authority. Classic Paimos delivery was removed in NIX-584; do not rewire it.
+Do not reuse a PHAROS-206 delivery API key. Do not set
 `PHAROS_FLOW_ALLOW_LOOPBACK_ORIGIN` on this host.
 
 ### Enable (operator step, not this change)

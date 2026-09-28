@@ -134,72 +134,6 @@ def bounded_json(response) -> dict:
     return document
 
 
-def grok_sender(config: dict, key_file: str) -> Sender:
-    # Receiver-owned webhook and its secret remain in Paimos. This uses the
-    # existing PHAROS agent-bus target, not a fabricated HOSTD agent identity.
-    if config != {"project_id": 17, "to": "grok_bot:amy"}:
-        raise ValueError("existing agent-bus target required")
-
-    def send(text: str, identifier: str) -> bool:
-        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", identifier):
-            return False
-        try:
-            token = read_token(key_file)
-            message = chat_message(text, identifier)
-            request = urllib.request.Request(
-                "https://pm.barta.cm/api/machine-notifier/messages",
-                data=json.dumps({"body": message}).encode(),
-                headers={"Authorization": "Bearer " + token, "Content-Type": "application/json",
-                         "Accept": "application/json", "User-Agent": USER_AGENT,
-                         "Idempotency-Key": "hostd59-" + identifier},
-                method="POST",
-            )
-            with urllib.request.build_opener(NoRedirect()).open(request, timeout=10) as response:
-                raw = response.read(65537)
-                if len(raw) > 65536:
-                    return False
-                body = json.loads(raw)
-                if not 200 <= response.status < 300 or not isinstance(body, dict) or not body.get("message_id"):
-                    return False
-                message_id = body["message_id"]
-                if not isinstance(message_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", message_id):
-                    return False
-            status_request = urllib.request.Request(
-                "https://pm.barta.cm/api/machine-notifier/messages/" + message_id + "/receipt",
-                headers={"Authorization": "Bearer " + token, "Accept": "application/json", "User-Agent": USER_AGENT},
-            )
-            with urllib.request.build_opener(NoRedirect()).open(status_request, timeout=10) as response:
-                raw = response.read(65537)
-                if not 200 <= response.status < 300 or len(raw) > 65536:
-                    return False
-                receipt = json.loads(raw)
-            if not isinstance(receipt, dict):
-                return False
-            handed_off = (
-                receipt.get("message_id") == message_id
-                and type(receipt.get("project_id")) is int
-                and receipt.get("project_id") == 17
-                and receipt.get("address") == "grok_bot:amy"
-                and receipt.get("state") == "handed_off"
-                and receipt.get("effective_level") == "simple"
-                and bool(receipt.get("handed_off_at"))
-                and receipt.get("effective_target_id") == "4f73e08c-f98d-4dfd-a86c-6a9393f05db4"
-                and type(receipt.get("effective_target_version")) is int
-                and receipt.get("effective_target_version") == 1
-            )
-            # A webhook handoff still does not prove Amy's SendToUser output.
-            print(f"grok notification {'handed_off' if handed_off else 'pending-or-failed'}: message_id={message_id} event_id={identifier}")
-            return handed_off
-        except urllib.error.HTTPError as error:
-            print(f"grok notification failed: agent-bus HTTP {error.code}")
-            return False
-        except (OSError, ValueError, TypeError, urllib.error.URLError):
-            print("grok notification failed: agent-bus request unavailable")
-            return False
-
-    return send
-
-
 def aeon_sender(config: dict, key_file: str, sleep: Callable[[float], None] = time.sleep,
                 clock: Callable[[], float] = time.monotonic) -> Sender:
     """OPS-232: the same Amy chat notice through Aeon's inbox and sender receipt.
@@ -224,9 +158,9 @@ def aeon_sender(config: dict, key_file: str, sleep: Callable[[float], None] = ti
         if not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", identifier):
             return False
         key = "hostd59-" + identifier
-        opener = urllib.request.build_opener(NoRedirect())
         try:
             token = read_token(key_file)
+            opener = urllib.request.build_opener(NoRedirect())
             headers = {"Authorization": "Bearer " + token, "Accept": "application/json",
                        "User-Agent": USER_AGENT}
             request = urllib.request.Request(
@@ -290,7 +224,7 @@ def aeon_sender(config: dict, key_file: str, sleep: Callable[[float], None] = ti
     return send
 
 
-def declared_senders(path: str, docker_bin: str, key_file: str, aeon_key_file: str = "") -> dict[str, Sender]:
+def declared_senders(path: str, docker_bin: str, aeon_key_file: str = "") -> dict[str, Sender]:
     try:
         config = private_config(path)
     except (OSError, ValueError, TypeError):
@@ -300,19 +234,15 @@ def declared_senders(path: str, docker_bin: str, key_file: str, aeon_key_file: s
     except (ValueError, TypeError, AttributeError):
         mail = unavailable("email")
     chat_config = config.get("grok", {})
-    # OPS-232: the private binding selects the backend; classic stays the default.
-    aeon = isinstance(chat_config, dict) and chat_config.get("backend") == "aeon"
-    if aeon:
-        key_file = aeon_key_file
     try:
-        chat = aeon_sender(chat_config, key_file) if aeon else grok_sender(chat_config, key_file)
+        chat = aeon_sender(chat_config, aeon_key_file)
     except (ValueError, TypeError, AttributeError):
         chat = unavailable("grok")
     else:
         try:
-            if not key_file:
+            if not aeon_key_file:
                 raise FileNotFoundError
-            os.lstat(key_file)
+            os.lstat(aeon_key_file)
             enrolled = True
         except (FileNotFoundError, NotADirectoryError):
             enrolled = False
@@ -320,7 +250,6 @@ def declared_senders(path: str, docker_bin: str, key_file: str, aeon_key_file: s
             # Keep the channel so send() reports custody or access failures loudly.
             enrolled = True
         if not enrolled:
-            print("grok notification not enrolled: " + ("Aeon notifier" if aeon else "PAI-1018")
-                  + " key absent, chat channel skipped")
+            print("grok notification not enrolled: Aeon notifier key absent, chat channel skipped")
             return {"email": mail}
     return {"email": mail, "grok": chat}

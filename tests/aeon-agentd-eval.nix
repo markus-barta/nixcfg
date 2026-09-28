@@ -64,11 +64,7 @@ in
     defaultHasService = base.config.launchd.agents ? aeon-agentd;
     assertions = failures enabled;
     service = enabled.config.launchd.agents.aeon-agentd.config;
-    classicUnchanged =
-      base.config.launchd.agents.paimos-agentd == enabled.config.launchd.agents.paimos-agentd;
-    classicActivationUnchanged =
-      base.config.home.activation.paimosAgentdPrivateState
-      == enabled.config.home.activation.paimosAgentdPrivateState;
+    hasClassicAgent = host.config.launchd.agents ? paimos-agentd;
     preflight = enabled.config.home.activation.aeonAgentdPreflight;
     state = enabled.config.home.activation.aeonAgentdState;
     invalid = builtins.attrNames invalid;

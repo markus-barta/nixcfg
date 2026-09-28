@@ -45,22 +45,6 @@ let
       }
     else
       [ "traefik" ];
-  # OPS-233: classic PPM cutover switches (freeze, read-only pml fallback).
-  ppmCutover = import ../ppm-cutover.nix;
-  classicLegacyUrl = "https://${ppmCutover.legacyHost}${sharedFlow.basePaths.paimos}";
-  paimosPublicEnvironment =
-    if ppmCutover.classicOnLegacy or false then
-      [
-        "PAIMOS_PUBLIC_BASE_PATH=${sharedFlow.basePaths.paimos}"
-        "OIDC_REDIRECT_URL=${classicLegacyUrl}/api/auth/oidc/callback"
-      ]
-    else if sharedFlow.active then
-      [
-        "PAIMOS_PUBLIC_BASE_PATH=${sharedFlow.basePaths.paimos}"
-        "OIDC_REDIRECT_URL=${sharedFlow.browserUrls.paimos}/api/auth/oidc/callback"
-      ]
-    else
-      [ ];
   pharosPublicEnvironment =
     if sharedFlow.active then
       [
@@ -90,18 +74,6 @@ let
   # the router to Docker-private peers.
   cloudflare = builtins.fromJSON (builtins.readFile ./traefik/inspr-auth-edge-contract.json);
   cloudflareSourceRanges = builtins.concatStringsSep "," cloudflare.cloudflareRanges;
-  # NIX-381 — the same file hosts/csb1/configuration.nix wires the two adapter
-  # modules from, so the compose side and the module side share one switch.
-  #
-  # 🔴 Why this is conditional and not simply present: pharosd v0.1.83 PANICS
-  # when PHAROS_PAIMOS_DELIVERY_CONFIG_FILE is set and the config, the API key
-  # or any 32-byte handoff secret is missing or has the wrong owner/mode. An
-  # unconditional env var would therefore crash-loop the live fleet dashboard
-  # from the moment this lands until credentials exist. Absent = adapter off,
-  # which is exactly the pre-NIX-381 behaviour.
-  paimos = import ../paimos-delivery-stage.nix;
-  paimosDeliveryEnvironment =
-    if paimos.active then [ "PHAROS_PAIMOS_DELIVERY_CONFIG_FILE=${paimos.pharos.configFile}" ] else [ ];
   # NIX-442 / PHAROS-257 — the same file hosts/csb1/configuration.nix wires
   # the Flow host module from, so compose and the module share one switch.
   #
@@ -123,16 +95,6 @@ let
       create_host_path = false;
     };
   };
-  paimosDeliveryVolumes =
-    if paimos.active then
-      [
-        (privateBind paimos.pharos.configFile paimos.pharos.configFile)
-        (privateBind paimos.pharos.hostApiKeyFile paimos.pharos.apiKeyFile)
-        (privateBind paimos.pharos.hostDeploymentHandoffSecretFile paimos.pharos.deploymentHandoffSecretFile)
-        (privateBind paimos.pharos.hostVerificationHandoffSecretFile paimos.pharos.verificationHandoffSecretFile)
-      ]
-    else
-      [ ];
   # Directory bind first so the in-container parent is the 0700 uid-10001
   # directory systemd publishes, not a Docker-created root 0755 parent that
   # Flow's parser refuses. The API key is a distinct inode overlay.
@@ -785,112 +747,9 @@ in
       ];
     };
     # ============================================
-    # PPM - Personal Project Management
-    # ============================================
-    ppm = {
-      # 5.15.0 = project-scoped agent-message security controls plus the durable A2A-shaped ledger, canonical tell/read APIs and CLI, and issue-visible non-comment messages (PAI-817, PAI-815). 5.14.0 = production Paimos release with verified release artifacts and exact-state deployment evidence (PAI-818). 5.13.1 = protected unsupported-platform fail-closed runner proof plus exact-build browser proof of deployed-unverified to verified Agent Mode transitions (PAI-809, PAI-811). 5.13.0 = authority-safe Agent Mode, standalone external-stage schema, and durable provider-neutral runner control with lease-expiry/race proofs (PAI-809–811). 5.12.0 = production-safe delivery reachability, exact tested-state evidence, and authenticated Pharos owner activation (PAI-810). 5.10.1 = synthetic human demo avatar plus natural two-letter fallbacks (PAI-697). 5.10.0 = optional OIDC account chooser with runtime-safe prompt forwarding (PAI-740). 5.9.2 = CLI issue create/update safely assigns existing tags without replacement (PAI-791).
-      # 26.08.31 = the calendar-versioned Paimos 6 root cut with the exact 5.x shell at /legacy (PAI-867).
-      # 26.09.01.15.52 = hardened Agent Intercom control reads, durable per-generation worker ownership, operator documentation, and deterministic release-tag assurance (PAI-870, PAI-871, PAI-875).
-      # 26.09.01.17.31 = truthful empty Agent Intercom product-session and orchestrator-binding states (PAI-878).
-      # 26.09.02 = safe one-command orchestrator binding plus refreshed product context (PAI-884, PAI-877).
-      # 26.09.04 = truthful worker activity, durable hierarchy and attention, bounded fleet projections, owned dispatch provenance, reply obligations, explicit ship/scout task shapes, and measured exhaustive release headroom (PAI-900–909, PAI-911).
-      # 26.09.04.20.54 makes every Agent Intercom orchestrator empty state actionable without adding a browser-side command or secret path (PAI-893).
-      # 26.09.05 adds scheme-aware external-stage v2 Pharos evidence with explicit legacy/calendar schemes and immutable release identity while keeping v1 frozen (PAI-876).
-      # 26.09.06.21.31 adds the self-healing Habitat bootstrap and control room, authenticated browser lifecycle and message controls, closed-target recovery, and exact Codex/Claude runtime attribution (PAI-917, PAI-921–928).
-      # 26.09.07 fixes runtime coverage, inbox isolation and recovery persistence, Habitat refresh, and guided CLI error/identity handling (PAI-934–942, PAI-948).
-      # Bump deliberately through the reviewed release/deploy flow. OPS-116:
-      # an out-of-closure image once nearly downgraded a migrated DB on reconcile.
-      # Retain the previous declared pin and stopped-volume backup for rollback.
-      image = "ghcr.io/inspr-at/paimos:260923073158.0.0@sha256:0bc325943675d57c0e323dab9e1f7d3e285c795f8f19128360ce2851b0d5fe1c"; # NIX-577 / PAI-1056: scoped reviewer Home renders instead of a refresh error
-      container_name = "ppm";
-      restart = "unless-stopped";
-      environment = [
-        "PORT=8888"
-        "PAIMOS_ENV=production"
-        "PAIMOS_DEPLOYMENT_INSTANCE=ppm"
-        "PAIMOS_AGENT_BUS_INSTANCE=ppm"
-        "PAIMOS_AGENT_BUS_WEBHOOK_HOSTS=api2.cursor.sh"
-        "PAIMOS_AGENT_BUS_ALLOW_PRIVATE_WEBHOOKS=false"
-        "COOKIE_SECURE=true"
-        "BRAND_PRODUCT_NAME=PPM"
-        "BRAND_WEBSITE_URL=${
-          if ppmCutover.classicOnLegacy or false then
-            classicLegacyUrl
-          else if sharedFlow.active then
-            sharedFlow.browserUrls.paimos
-          else
-            "https://pm.barta.cm"
-        }"
-        "BRAND_PUBLIC_URL=${
-          if ppmCutover.classicOnLegacy or false then
-            classicLegacyUrl
-          else if sharedFlow.active then
-            sharedFlow.browserUrls.paimos
-          else
-            "https://pm.barta.cm"
-        }"
-        "BRAND_EMAIL_FROM=noreply@barta.cm"
-        "BRAND_DB_FILENAME=ppm.db"
-        "BRAND_MINIO_BUCKET=ppm-attachments"
-        "BRAND_HEALTH_SERVICE_NAME=ppm"
-        "BRAND_TOTP_ISSUER=PPM"
-        "OIDC_PROMPT=select_account"
-        # OPS-212 — PPM moved out of the shared `inspr.at` Zitadel project into
-        # its own `Paimos PPM` project, so access can be granted per person
-        # without also handing out aithema-workspace and inspr-versioning.
-        #
-        # This is a PUBLIC PKCE client (OIDC_AUTH_METHOD_TYPE_NONE): there is no
-        # client secret, and the client id travels in the browser URL on every
-        # auth request. It is therefore deliberately plain config, not agenix.
-        # `environment` wins over `env_file`, so this overrides the stale
-        # OIDC_CLIENT_ID still inside csb1-ppm-env.age — clear that one out at
-        # the next rotation of that file (follow-up on OPS-212).
-        "OIDC_CLIENT_ID=391618992831266821@paimos_ppm"
-        # Deliberately empty. Paimos sends client_secret on the token exchange
-        # whenever this is non-empty, and a public PKCE client answers
-        # invalid_client — so a stale secret left in csb1-ppm-env.age would
-        # break SSO the moment the client id above takes effect. Blanking it
-        # here neutralises that without decrypting the file to look.
-        "OIDC_CLIENT_SECRET="
-        # PAI-1044 / OPS-212 — Zitadel-only sign-in. Password login, pending
-        # password-TOTP challenges, password reset, ChangePassword and
-        # TOTPDisable are all refused. Break-glass is the paimos CLI API key,
-        # which Paimos validates independently of OIDC. Paimos refuses to boot
-        # unless an active user has an OIDC-matchable email or a usable recovery
-        # API key exists, and it requires an HTTPS issuer — both hold here.
-        # Rollback: set AUTH_PASSWORD_LOGIN=enabled explicitly (deterministic,
-        # unlike deleting the line) and switch; mba has a local password.
-        # Existing sessions are not revoked by switching this either way.
-        "AUTH_PASSWORD_LOGIN=disabled"
-      ]
-      ++ paimosPublicEnvironment;
-      env_file = [
-        "/run/agenix/csb1-ppm-env"
-      ];
-      volumes = [
-        "ppm_data:/app/data"
-      ];
-      networks = flowNetwork sharedFlow.network.addresses.paimos;
-      # OPS-231 step 5: once pm.barta.cm belongs to Aeon, classic claims no
-      # public host of its own; pml.barta.cm reaches it via the file provider.
-      labels = [
-        "com.centurylinklabs.watchtower.enable=false" # OPS-125: composeStack owns this service's image
-      ]
-      ++ (
-        if ppmCutover.aeonRoutes or false then
-          [ "traefik.enable=false" ]
-        else
-          [
-            "traefik.enable=true"
-            "traefik.http.routers.ppm.rule=Host(`pm.barta.cm`)"
-            "traefik.http.routers.ppm.tls.certresolver=default"
-            "traefik.http.routers.ppm.tls=true"
-            "traefik.http.services.ppm.loadbalancer.server.port=8888"
-            "traefik.docker.network=csb1_traefik"
-            "traefik.http.routers.ppm.middlewares=cloudflarewarp@file"
-          ]
-      );
-    };
+    # Classic PPM retired (NIX-584 / AEON-261). pm.barta.cm and
+    # flow.inspr.at/paimos redirect to Aeon via ppm-aeon-redirect-routing.nix.
+    # The named volume `ppm_data` is kept below so compose does not delete it.
     # ============================================
     # Janus - secret metadata control plane
     # ============================================
@@ -1481,12 +1340,6 @@ in
         "PHAROS_ALLOWED_OPERATORS=verified-email-ref:e65b48cbfa4cd57b4ab89eb88eb758b77f8e66bcdd11bc3b86655f358fe12f27"
         "PHAROS_ACCESS_POLICY_FILE=/etc/pharos/access-policy.json"
       ]
-      # NIX-381 / PHAROS-206 — reporter-only Paimos delivery-stage adapter. It
-      # can observe and report; it cannot create, confirm, claim or execute a
-      # host action. The consequential UpdateRestart stays an attended operator
-      # decision: the adapter refuses to report success unless that job already
-      # carries an operator confirmation.
-      ++ paimosDeliveryEnvironment
       # NIX-442 / PHAROS-257 — opt-in Flow host. Projection and guarded
       # Review/Start navigation only; no delivery, provider or Janus authority.
       ++ flowHostEnvironment
@@ -1524,11 +1377,6 @@ in
         "janus_pharos_production_provider_out:/run/pharos/providers:ro"
         "/run/agenix/csb1-watchtower-env:/run/pharos/alert-webhook.env:ro"
       ]
-      # NIX-381 — the adapter config plus one inode per credential. The derived
-      # exact-replay journal needs no mount: pharosd writes it beside PHAROS_DB
-      # as /data/pharos.json.paimos-delivery-journal.json, already durable in
-      # the csb1_pharos_data volume above.
-      ++ paimosDeliveryVolumes
       ++ flowHostVolumes;
       networks = flowNetwork sharedFlow.network.addresses.pharos;
       labels = [
@@ -1918,6 +1766,8 @@ in
     paperless_media = { };
     paperless_consume = { };
     hausv_postgres_data = { };
+    # NIX-584: classic PPM data. Declared so compose never deletes it. No
+    # running service mounts it.
     ppm_data = { };
     janus_data = { };
     janus_engine_smoke_age = {

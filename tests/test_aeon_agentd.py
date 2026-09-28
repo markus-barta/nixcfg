@@ -124,15 +124,14 @@ class HomeManagerTests(unittest.TestCase):
         cls.evidence = json.loads(subprocess.check_output(
             ["nix", "eval", "--impure", "--json", "--expr", expr], cwd=ROOT))
 
-    def test_opt_in_and_classic_unchanged(self):
+    def test_opt_in_without_classic_agentd(self):
         e = self.evidence
         self.assertFalse(e["moduleDefaultEnabled"])
         self.assertTrue(e["hostEnabled"])
         self.assertFalse(e["defaultEnabled"])
         self.assertFalse(e["defaultHasService"])
         self.assertEqual(e["assertions"], [])
-        self.assertTrue(e["classicUnchanged"])
-        self.assertTrue(e["classicActivationUnchanged"])
+        self.assertFalse(e["hasClassicAgent"])
 
     def test_incomplete_enrollment_fails_closed(self):
         paths = "requires distinct private paths outside its workspace"
@@ -181,7 +180,7 @@ class HomeManagerTests(unittest.TestCase):
 
     @unittest.skipUnless(platform.system() == "Darwin" and platform.machine() == "arm64",
                          "Darwin generation build requires Apple Silicon; CI covers evaluation")
-    def test_built_generation_preserves_both_direct_plists(self):
+    def test_built_generation_preserves_aeon_plist_without_classic(self):
         expr = f'(import {ROOT}/tests/aeon-agentd-eval.nix {{ root = {ROOT}; }}).candidate'
         candidate = Path(subprocess.check_output(
             ["nix", "build", "--impure", "--no-link", "--print-out-paths", "--expr", expr], cwd=ROOT, text=True).strip())
@@ -189,12 +188,11 @@ class HomeManagerTests(unittest.TestCase):
             ["nix", "build", "--impure", "--no-link", "--print-out-paths", "--expr",
              f'(import {ROOT}/tests/aeon-agentd-eval.nix {{ root = {ROOT}; }}).disabledCandidate'],
             cwd=ROOT, text=True).strip())
-        classic = 'LaunchAgents/at.inspr.paimos-agentd.plist'
-        self.assertEqual((candidate / classic).read_bytes(), (default / classic).read_bytes())
-        for label in ('aeon', 'paimos'):
-            plist = plistlib.loads((candidate / f'LaunchAgents/at.inspr.{label}-agentd.plist').read_bytes())
-            self.assertTrue(plist['ProgramArguments'][0].endswith(f'/bin/{label}-agentd'))
-            self.assertEqual(plist['ProgramArguments'][1], 'serve')
+        self.assertFalse((candidate / 'LaunchAgents/at.inspr.paimos-agentd.plist').exists())
+        self.assertFalse((default / 'LaunchAgents/at.inspr.paimos-agentd.plist').exists())
+        plist = plistlib.loads((candidate / 'LaunchAgents/at.inspr.aeon-agentd.plist').read_bytes())
+        self.assertTrue(plist['ProgramArguments'][0].endswith('/bin/aeon-agentd'))
+        self.assertEqual(plist['ProgramArguments'][1], 'serve')
         self.assertFalse((default / 'LaunchAgents/at.inspr.aeon-agentd.plist').exists())
         # Parse the generated helper, including its embedded JSON, without
         # running its real enrollment checks or writing into the Nix store.

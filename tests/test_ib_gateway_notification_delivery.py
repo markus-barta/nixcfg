@@ -51,72 +51,6 @@ class DeliveryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 delivery.private_config(str(path))
 
-    def test_grok_uses_bound_notifier_and_own_receipt_only(self):
-        with tempfile.TemporaryDirectory() as directory:
-            key = Path(directory) / 'ppm-key'
-            key.write_text('test-fixture-not-a-real-credential')
-            key.chmod(0o600)
-            send = delivery.grok_sender({'project_id': 17, 'to': 'grok_bot:amy'}, str(key))
-            response = mock.MagicMock()
-            response.__enter__.return_value = response
-            response.status = 201
-            response.read.return_value = b'{"message_id":"fixture-message"}'
-            opener = mock.Mock()
-            status_response = mock.MagicMock()
-            status_response.__enter__.return_value = status_response
-            status_response.status = 200
-            receipt = {
-                'message_id': 'fixture-message', 'project_id': 17, 'address': 'grok_bot:amy',
-                'state': 'handed_off', 'effective_level': 'simple',
-                'handed_off_at': '2026-09-12T17:00:00Z',
-                'effective_target_id': '4f73e08c-f98d-4dfd-a86c-6a9393f05db4',
-                'effective_target_version': 1,
-            }
-            status_response.read.return_value = json.dumps(receipt).encode()
-            opener.open.side_effect = [response, status_response]
-            with mock.patch.object(delivery.urllib.request, 'build_opener', return_value=opener):
-                self.assertTrue(send('CONTROLLED TEST. Paper Gateway recovered.', 'event123'))
-            request = opener.open.call_args_list[0].args[0]
-            self.assertEqual(request.full_url, 'https://pm.barta.cm/api/machine-notifier/messages')
-            self.assertEqual(request.get_header('Idempotency-key'), 'hostd59-event123')
-            self.assertEqual(request.get_header('User-agent'), delivery.USER_AGENT)
-            self.assertEqual(opener.open.call_args_list[1].args[0].get_header('User-agent'), delivery.USER_AGENT)
-            self.assertEqual(opener.open.call_args_list[1].args[0].full_url,
-                             'https://pm.barta.cm/api/machine-notifier/messages/fixture-message/receipt')
-            self.assertIsNone(request.get_header('X-paimos-agent-name'))
-            self.assertIsNone(request.get_header('X-paimos-session-id'))
-            body = json.loads(request.data)
-            self.assertEqual(set(body), {'body'})
-            self.assertIn('SendToUser', body['body'])
-            self.assertNotIn('issue_id', body)
-            self.assertNotIn(key.read_text(), body['body'])
-            # A successful HTTP request is not delivery evidence for a different
-            # message, project, recipient, target generation, or delivery level.
-            for field, invalid in [
-                ('message_id', 'another-message'), ('project_id', 20),
-                ('address', 'another-receiver'), ('state', 'queued'),
-                ('effective_level', 'control'), ('handed_off_at', ''),
-                ('effective_target_id', 'another-target'), ('effective_target_version', 2),
-                ('effective_target_version', True),
-            ]:
-                with self.subTest(field=field, invalid=invalid):
-                    status_response.read.return_value = json.dumps({**receipt, field: invalid}).encode()
-                    opener.open.side_effect = [response, status_response]
-                    with mock.patch.object(delivery.urllib.request, 'build_opener', return_value=opener):
-                        self.assertFalse(send('Paper Gateway needs attention.', 'event123'))
-
-            opener.open.reset_mock()
-            opener.open.side_effect = delivery.urllib.error.HTTPError(request.full_url, 401, 'Unauthorized', {}, None)
-            with mock.patch.object(delivery.urllib.request, 'build_opener', return_value=opener):
-                self.assertFalse(send('Paper Gateway needs attention.', 'event123'))
-            self.assertEqual(opener.open.call_count, 1)  # no privileged legacy fallback
-
-            with mock.patch.object(delivery.urllib.request, 'build_opener') as unused:
-                self.assertFalse(send('Paper Gateway needs attention.', 'bad\r\nheader'))
-                unused.assert_not_called()
-        with self.assertRaises(ValueError):
-            delivery.grok_sender({'project_id': 20, 'to': 'invented'}, '/none')
-
     def test_supervisor_waits_then_notifies_and_only_real_readiness_clears(self):
         import test_ib_gateway_session_supervisor as fixture
         sup = fixture.sup
@@ -149,7 +83,7 @@ class DeliveryTests(unittest.TestCase):
         config = {
             'schema_version': 1,
             'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
-            'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+            'grok': dict(AEON_BINDING),
         }
         with tempfile.TemporaryDirectory() as directory:
             for key in (Path(directory) / 'not-enrolled', Path(directory) / 'missing-parent' / 'key'):
@@ -159,13 +93,13 @@ class DeliveryTests(unittest.TestCase):
                     senders = delivery.declared_senders('config.json', '/bin/docker', str(key))
                     self.assertEqual(set(senders), {'email'})
                     notice.assert_called_once_with(
-                        'grok notification not enrolled: PAI-1018 key absent, chat channel skipped')
+                        'grok notification not enrolled: Aeon notifier key absent, chat channel skipped')
 
     def test_declared_senders_keeps_channel_for_directory_and_symlink(self):
         config = {
             'schema_version': 1,
             'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
-            'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+            'grok': dict(AEON_BINDING),
         }
         with tempfile.TemporaryDirectory() as directory:
             regular = Path(directory) / 'empty-fixture'
@@ -188,7 +122,7 @@ class DeliveryTests(unittest.TestCase):
         config = {
             'schema_version': 1,
             'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
-            'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+            'grok': dict(AEON_BINDING),
         }
         with mock.patch.object(delivery, 'private_config', return_value=config), \
                 mock.patch.object(delivery.os, 'lstat', side_effect=PermissionError), \
@@ -201,7 +135,7 @@ class DeliveryTests(unittest.TestCase):
         config = {
             'schema_version': 1,
             'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
-            'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+            'grok': dict(AEON_BINDING),
         }
         with tempfile.TemporaryDirectory() as directory:
             key = Path(directory) / 'empty-fixture'
@@ -263,7 +197,7 @@ class DeliveryTests(unittest.TestCase):
             config.write_text(json.dumps({
                 'schema_version': 1,
                 'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'},
-                'grok': {'project_id': 17, 'to': 'grok_bot:amy'},
+                'grok': AEON_BINDING,
             }))
             config.chmod(0o600)
             senders = delivery.declared_senders(str(config), '/bin/docker', str(Path(directory) / 'not-enrolled'))
@@ -421,28 +355,31 @@ class AeonDeliveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             delivery.aeon_sender(missing, str(self.key))
 
-    def test_declared_senders_selects_backend_from_private_binding(self):
+    def test_declared_senders_uses_aeon_only(self):
         base = {'schema_version': 1, 'email': {'from': 'monitor@example.invalid', 'to': 'operator@example.invalid'}}
         with mock.patch.object(delivery, 'private_config', return_value={**base, 'grok': dict(AEON_BINDING)}), \
-                mock.patch.object(delivery, 'aeon_sender', wraps=delivery.aeon_sender) as aeon, \
-                mock.patch.object(delivery, 'grok_sender') as classic:
-            senders = delivery.declared_senders('c.json', '/bin/docker', '/classic-key', str(self.key))
+                mock.patch.object(delivery, 'aeon_sender', wraps=delivery.aeon_sender) as aeon:
+            senders = delivery.declared_senders('c.json', '/bin/docker', str(self.key))
         self.assertEqual(set(senders), {'email', 'grok'})
         aeon.assert_called_once_with(AEON_BINDING, str(self.key))
-        classic.assert_not_called()
-        # Aeon selected but no Aeon key: chat is skipped, never sent with the classic key.
+        self.assertFalse(hasattr(delivery, 'grok_sender'))
+        # Aeon binding but no key: chat is skipped.
         with mock.patch.object(delivery, 'private_config', return_value={**base, 'grok': dict(AEON_BINDING)}), \
                 mock.patch('builtins.print') as notice:
-            senders = delivery.declared_senders('c.json', '/bin/docker', str(self.key), '')
+            senders = delivery.declared_senders('c.json', '/bin/docker', '')
         self.assertEqual(set(senders), {'email'})
         notice.assert_called_once_with('grok notification not enrolled: Aeon notifier key absent, chat channel skipped')
-        # Classic binding stays on the classic path.
+        # Classic binding is refused; chat is unavailable, never a classic sender.
         with mock.patch.object(delivery, 'private_config',
                                return_value={**base, 'grok': {'project_id': 17, 'to': 'grok_bot:amy'}}), \
-                mock.patch.object(delivery, 'aeon_sender') as aeon:
-            senders = delivery.declared_senders('c.json', '/bin/docker', str(self.key), str(self.key))
-        aeon.assert_not_called()
+                mock.patch.object(delivery, 'aeon_sender', wraps=delivery.aeon_sender) as aeon:
+            senders = delivery.declared_senders('c.json', '/bin/docker', str(self.key))
         self.assertEqual(set(senders), {'email', 'grok'})
+        aeon.assert_called_once()
+        with mock.patch('builtins.print') as notice:
+            self.assertFalse(senders['grok']('Paper Gateway needs attention.', 'event123'))
+            notice.assert_called_once_with(
+                'grok notification unavailable: configuration or receiver missing')
 
 
 if __name__ == '__main__':

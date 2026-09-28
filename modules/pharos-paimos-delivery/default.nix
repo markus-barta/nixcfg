@@ -342,10 +342,10 @@ in
       type = lib.types.bool;
       default = false;
       description = ''
-        Publish the adapter config. 🔴 Flip this only together with the matching
-        `active` switch in hosts/csb1/paimos-delivery-stage.nix, and only after the
-        RUNBOOK preflight confirms every credential file exists — pharosd panics at
-        startup on an incomplete adapter configuration.
+        Publish the adapter config. 🔴 NIX-584 retired classic Paimos: csb1 no
+        longer imports this module. Do not re-enable against classic. A future
+        Aeon adapter needs its own reviewed switch. pharosd panics at startup on
+        an incomplete adapter configuration.
       '';
     };
 

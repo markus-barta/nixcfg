@@ -399,7 +399,7 @@ in
     jq # JSON processor
     just # Command runner
     lazygit # Git TUI
-    paimos-cli # Agent-facing CLI for PAIMOS (promoted from per-host 2026-05-12)
+    aeon-paimos # NIX-584: Aeon client as `aeon` and `paimos`
 
     # File Management & Utilities
     tree # Directory tree viewer

@@ -32,7 +32,6 @@ trap 'report_failure "$LINENO"' ERR
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 stage="$repo_root/hosts/csb1/pharos-flow-host.nix"
-delivery_stage="$repo_root/hosts/csb1/paimos-delivery-stage.nix"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 shared_flow="$repo_root/hosts/csb1/shared-flow.nix"
 host_config="$repo_root/hosts/csb1/configuration.nix"
@@ -41,7 +40,7 @@ pharos_eval="$repo_root/tests/pharos-flow-host-eval.nix"
 delivery_module="$repo_root/modules/pharos-paimos-delivery/default.nix"
 paimos_defaults="$repo_root/modules/shared/markus-defaults.nix"
 
-for file in "$stage" "$delivery_stage" "$compose" "$shared_flow" "$host_config" "$pharos_module" "$pharos_eval"; do
+for file in "$stage" "$compose" "$shared_flow" "$host_config" "$pharos_module" "$pharos_eval"; do
   nix-instantiate --parse "$file" >/dev/null
 done
 
@@ -175,8 +174,10 @@ grep -Fq 'activate = pharosFlowHost.active;' "$host_config"
 grep -Fq '../../modules/pharos-flow-host' "$host_config"
 grep -Fq 'bindings = [ ];' "$host_config"
 grep -Fq '  active = false;' "$stage"
-grep -Fq '  active = false;' "$delivery_stage"
-grep -Fq 'intents = [ ];' "$host_config"
+if grep -Fq 'paimos-delivery-stage.nix' "$compose" "$host_config"; then
+  printf 'NIX-584: classic Paimos delivery stage must stay unwired\n' >&2
+  exit 1
+fi
 grep -Fq 'PHAROS_FLOW_CONFIG_FILE' "$compose"
 if grep -Fq 'PHAROS_FLOW_ALLOW_LOOPBACK_ORIGIN=' "$compose"; then
   printf 'PHAROS_FLOW_ALLOW_LOOPBACK_ORIGIN must not appear in production compose\n' >&2
@@ -225,8 +226,6 @@ trap 'remove_owned_tempdir "$workdir" "$workdir"; remove_owned_tempdir "$sibling
 mkdir -p "$workdir/off/docker" "$workdir/on/docker"
 sed 's/^  active = true;/  active = false;/' "$stage" >"$workdir/off/pharos-flow-host.nix"
 sed 's/^  active = false;/  active = true;/' "$stage" >"$workdir/on/pharos-flow-host.nix"
-cp "$delivery_stage" "$workdir/off/paimos-delivery-stage.nix"
-cp "$delivery_stage" "$workdir/on/paimos-delivery-stage.nix"
 cp "$compose" "$workdir/off/docker/compose-spec.nix"
 cp "$compose" "$workdir/on/docker/compose-spec.nix"
 # Isolate this adapter's selector from the production shared-origin state.
@@ -249,11 +248,6 @@ grep -Fq '  active = false;' "$workdir/off/pharos-flow-host.nix" ||
 grep -Fq '  active = true;' "$workdir/on/pharos-flow-host.nix" ||
   {
     printf 'forced-on fixture did not render active = true\n' >&2
-    exit 1
-  }
-grep -Fq '  active = false;' "$workdir/on/paimos-delivery-stage.nix" ||
-  {
-    printf 'flow-on fixture must leave PHAROS-206 active = false\n' >&2
     exit 1
   }
 
@@ -368,33 +362,13 @@ for source in credential_sources:
         failures.append(f"Flow credential mount reuses a delivery path: {source!r}")
 
 defaults = open(defaults_path, encoding="utf-8").read()
-instance = re.search(
-    r"defaultInstance\s*=\s*(?:lib\.mkDefault\s*)?\"([A-Za-z0-9_-]+)\"", defaults
-)
-canonical = None
-if not instance:
-    failures.append("markus-defaults.nix declares no inspr.paimos-cli.defaultInstance")
-else:
-    url = re.search(
-        r"instances\.%s\s*=\s*\{.*?url\s*=\s*\"([^\"]+)\"" % re.escape(instance.group(1)),
-        defaults,
-        re.S,
-    )
-    if not url:
-        failures.append(
-            f"markus-defaults.nix declares no url for the default Paimos instance "
-            f"{instance.group(1)!r}"
-        )
-    else:
-        canonical = url.group(1).rstrip("/")
+url = re.search(r'paimosUrl\s*=\s*"([^"]+)"', defaults)
+canonical = url.group(1).rstrip("/") if url else None
+if canonical is None:
+    failures.append("markus-defaults.nix declares no inspr.cli.fleet.paimosUrl")
 
 declared = {
     stage_path: re.search(r'paimosOrigin\s*=\s*"([^"]+)"', open(stage_path, encoding="utf-8").read()),
-    pharos_module_path: re.search(
-        r'paimosOrigin\s*=\s*lib\.mkOption\s*\{.*?example\s*=\s*"([^"]+)"',
-        open(pharos_module_path, encoding="utf-8").read(),
-        re.S,
-    ),
 }
 for path, match in declared.items():
     if not match:

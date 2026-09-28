@@ -1,13 +1,10 @@
-# OPS-231 — Aeon (PAIMOS successor, AEON-43 cutover) workstation surface.
+# OPS-231 / NIX-584 — Aeon (PAIMOS successor) workstation surface.
 #
-# Staged and inert by default: nothing here routes a consumer to Aeon. The
-# default PPM URL flip is the late-switch change in OPS-231. The isolated
-# opt-in daemon lives in aeon-agentd.nix (NIX-583), with separate enrollment.
+# The isolated opt-in daemon lives in aeon-agentd.nix (NIX-583).
 #
-#   cli.enable           installs `aeon` only. The upstream package also ships
-#                        bin/paimos (argv0 compat mode); that alias stays off
-#                        PATH until the compatibility transcript gate, so
-#                        classic paimos-cli keeps owning `paimos`.
+#   cli.enable           installs the Aeon client. By default that includes
+#                        bin/paimos (argv0 compat), so `paimos` keeps working.
+#   cli.paimosAlias      default true. Set false to install `aeon` only.
 #   consumerKeys.enable  materialises declared Aeon consumer keys from
 #                        secrets/aeon/<name>.age to ~/.inspr/secrets/aeon/<name>.key
 #                        (0400, raw token). Unlike inspr.secrets.agents this does
@@ -28,13 +25,17 @@ let
 in
 {
   options.uzumaki.aeon = {
-    cli.enable = lib.mkEnableOption "the Aeon client as `aeon` (no `paimos` alias)";
+    cli.enable = lib.mkEnableOption "the Aeon client (`aeon`, and `paimos` when paimosAlias)";
 
-    cli.paimosAlias = lib.mkEnableOption ''
-      `paimos` = the Aeon client in paimos mode (runbook step 3). It takes
-      precedence over classic paimos-cli on PATH; classic stays installed as
-      `paimos-classic` for classic-only instances (pma on paimos.agm.ng) and
-      rollback. The classic agentd service keeps its own store path'';
+    cli.paimosAlias = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Install `paimos` as the Aeon client in paimos mode (NIX-584). Default
+        on so existing `paimos` muscle memory keeps working after classic
+        paimos-cli is retired. Set false to expose only `aeon`.
+      '';
+    };
 
     cli.instanceKeys = lib.mkOption {
       type = lib.types.attrsOf (lib.types.strMatching "[a-z0-9][a-z0-9-]*");
@@ -116,14 +117,8 @@ in
       home.packages = [ pkgs.aeon-cli ];
     })
 
-    (lib.mkIf cfg.cli.paimosAlias {
-      home.packages = [
-        # hiPrio: wins the bin/paimos collision with classic paimos-cli.
-        (lib.hiPrio pkgs.aeon-paimos)
-        (pkgs.writeShellScriptBin "paimos-classic" ''
-          exec ${pkgs.paimos-cli}/bin/paimos "$@"
-        '')
-      ];
+    (lib.mkIf (cfg.cli.enable && cfg.cli.paimosAlias) {
+      home.packages = [ pkgs.aeon-paimos ];
     })
 
     (lib.mkIf (keys.enable && keys.names != [ ]) {

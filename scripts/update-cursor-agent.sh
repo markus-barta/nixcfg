@@ -16,7 +16,7 @@
 # Unlike the npm CLIs this is a repo change, not an in-place install: commit
 # sources.json on a branch, merge, then `just switch` activates it. Update mode
 # serializes writers with a sources.json lock and requires a pinned asset for
-# the current host before it prefetches or writes. The guard shims, paimos-agentd
+# the current host before it prefetches or writes. The guard shims, aeon-agentd
 # and Pi (CURSOR_AGENT_PATH) all follow the same store path.
 #
 # Test hooks (--check only): CURSOR_AGENT_SOURCES (alternate sources.json) and

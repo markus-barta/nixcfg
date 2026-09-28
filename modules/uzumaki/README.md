@@ -52,25 +52,10 @@ Monitoring approval stay manual per host.
 | `uzumaki.zellij.enable`    | bool   | `true`     | Install zellij terminal multiplexer              |
 | `uzumaki.stasysmo.enable`  | bool   | `false`    | Enable StaSysMo system monitoring                |
 
-`uzumaki.paimosAgentd` is a Darwin Home Manager LaunchAgent. `codexAccountsFile`
-defaults to `null` and preserves the current serve argv. The current Paimos pin
-accepts `--codex-accounts`; mbp2607 sets the option to
-`${config.home.homeDirectory}/Library/Application Support/paimos/agentd/codex-accounts.json`.
-The path must be an absolute owner-only JSON file outside `/nix/store`. Nix
-checks path/ownership/mode/JSON object bounds; Paimos validates registry
-semantics. Do not put homes, emails, or registry bytes in Nix.
-
-`piPath`/`piAccountsFile` and `cursorPath`/`cursorAccountsFile` also default to
-`null` and emit no extra flags. Selecting a harness requires both an absolute
-operator-installed CLI path and an owner-only JSON registry path outside
-`/nix/store`, which adds exactly one `--pi-path`/`--pi-accounts` or
-`--cursor-path`/`--cursor-accounts` pair. This requires a Paimos release whose
-paimos-agentd serve accepts those flags; do not enable them against older pins
-before `v26.09.08`. mbp2607 sets the Cursor pair to a pinned native CLI path and
-an owner-only registry outside the store; Pi remains unset there. Native CLI paths stay operator pins
-(use `config.home.homeDirectory` rather than committing a machine path). This
-module does not install models, copy auth directories, start login, or change
-operator registries. Paimos remains the semantic account authority.
+`uzumaki.aeon.agentd` is the Darwin Home Manager LaunchAgent
+(`at.inspr.aeon-agentd`). Classic `uzumaki.paimosAgentd` was retired in NIX-584.
+Enrollment files stay owner-only outside the Nix store. Do not put homes,
+emails, keys or registry bytes in Nix.
 
 ### Fish Functions
 
@@ -96,7 +81,7 @@ modules/uzumaki/
 ├── desktop.nix          # Direct import for NixOS desktops (legacy)
 ├── macos.nix            # Direct import for macOS (legacy)
 ├── macos-common.nix     # macOS-specific: fonts, packages (terminal: Ghostty via Homebrew, not Nix; WezTerm purged 2026-05-05)
-├── paimos-agentd.nix    # Operator-local PAIMOS owner; optional external Codex/Pi/Cursor registry paths
+├── aeon-agentd.nix      # Operator-local Aeon owner (NIX-583); classic paimos-agentd retired (NIX-584)
 ├── fish/
 │   ├── default.nix      # Fish module exports
 │   ├── config.nix       # Aliases & abbreviations

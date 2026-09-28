@@ -48,17 +48,12 @@ in
       destinationFile = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         default = null;
-        description = "Managed private JSON with email destination and the existing Amy agent-bus route; loaded as a systemd credential.";
-      };
-      paimosApiKeyFile = lib.mkOption {
-        type = lib.types.nullOr lib.types.path;
-        default = null;
-        description = "Dedicated PAI-1018 machine-notifier key bound to the declared chat target; null leaves chat unavailable while email can still deliver. General or personal PPM keys are not supported.";
+        description = "Managed private JSON with email destination and the Amy Aeon inbox binding; loaded as a systemd credential.";
       };
       aeonNotifierKeyFile = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
         default = null;
-        description = "OPS-232: dedicated Aeon inbox sender key (inbox.send + inbox.receipt only). Used only when the destinations JSON selects `grok.backend = \"aeon\"`; classic stays the path otherwise. Never the classic notifier key.";
+        description = "OPS-232 / NIX-584: dedicated Aeon inbox sender key (inbox.send + inbox.receipt only). Required for chat once destinations select grok.backend = \"aeon\".";
       };
       notificationEnvFile = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
@@ -81,13 +76,6 @@ in
         message = "ibGatewaySession email-agent-bus requires managed destinations";
       }
       {
-        assertion =
-          cfg.alert.aeonNotifierKeyFile == null
-          || cfg.alert.paimosApiKeyFile == null
-          || toString cfg.alert.aeonNotifierKeyFile != toString cfg.alert.paimosApiKeyFile;
-        message = "ibGatewaySession: the Aeon notifier needs its own scoped key, never the classic notifier key";
-      }
-      {
         assertion = stack.enable;
         message = "ibGatewaySession requires nixcfg.composeStack so recovery can use the managed compose lock";
       }
@@ -108,9 +96,6 @@ in
         Type = "oneshot";
         LoadCredential = lib.optionals (cfg.alert.enable && cfg.alert.transport == "email-agent-bus") (
           [ "destinations.json:${toString cfg.alert.destinationFile}" ]
-          ++ lib.optional (
-            cfg.alert.paimosApiKeyFile != null
-          ) "ppm-api-key:${toString cfg.alert.paimosApiKeyFile}"
           ++ lib.optional (
             cfg.alert.aeonNotifierKeyFile != null
           ) "aeon-notifier-key:${toString cfg.alert.aeonNotifierKeyFile}"
