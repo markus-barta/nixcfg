@@ -293,8 +293,10 @@ grep -Fq './agent-browser-guard.nix' modules/uzumaki/home-manager.nix ||
   fail 'uzumaki home-manager.nix must import the guard module'
 grep -Fq 'agentBrowserGuard = {' hosts/mbp2607/home.nix ||
   fail 'mbp2607 must enable the guard explicitly'
-grep -Fq 'browserGuard = {' hosts/mbp2607/home.nix ||
-  fail 'mbp2607 must enable the agentd browser guard explicitly'
+grep -Fq 'codexPath = lib.getExe pkgs.codex;' hosts/mbp2607/home.nix ||
+  fail 'mbp2607 must run Codex under aeon-agentd'
+grep -Fq 'assertion = cfg.codexPath == null || guard.enable;' modules/uzumaki/aeon-agentd.nix ||
+  fail 'aeon-agentd must refuse Codex without the browser refusal guard'
 grep -Fq 'shadowedPrograms = {' hosts/mbp2607/home.nix ||
   fail 'mbp2607 must wire the real CLI names through the guard, not only *-guarded aliases'
 for cli in claude grok pi; do
