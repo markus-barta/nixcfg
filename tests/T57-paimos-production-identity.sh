@@ -23,5 +23,11 @@ has_ppm=$(nix eval --impure --json --expr "(import $compose).services ? ppm")
 if grep -Eq 'container_name = "ppm"' "$compose"; then
   fail 'compose still declares the classic ppm container'
 fi
+if grep -Eq 'ghcr.io/inspr-at/paimos:' "$compose"; then
+  fail 'compose still pins the classic paimos image'
+fi
+if grep -Fq '10.253.253.4' "$compose"; then
+  fail 'compose still mentions classic paimos address 10.253.253.4'
+fi
 
 printf 'T57 passed: csb1 compose no longer runs classic PPM\n'

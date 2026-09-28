@@ -205,12 +205,15 @@ def main() -> int:
     # The original 25 audited examples remain regressions. Two prior restrictive
     # assumptions are corrected: /api is a family, and an already-prefixed path
     # passes exactly once instead of entering a host-wide deny/redirect.
+    # NIX-584: this helper is isolated (no Aeon fragment). Classic paimos
+    # publicProxy routers are gone, so non-browser pm.barta.cm APIs are
+    # no-route here; T80 asserts the merged Aeon redirect wins on /paimos.
     audit_cases = [
-        ("PAIMOS-LEGACY-HEALTH", Request("GET", "pm.barta.cm", "/api/health"), "proxy", "/paimos/api/health"),
-        ("PAIMOS-LEGACY-HANDOFF-READ", Request("GET", "pm.barta.cm", "/api/external-stage/handoffs/h-1"), "proxy", "/paimos/api/external-stage/handoffs/h-1"),
-        ("PAIMOS-LEGACY-HANDOFF-ACCEPT", Request("POST", "pm.barta.cm", "/api/external-stage/handoffs/h-1/accept", body="{}"), "proxy", "/paimos/api/external-stage/handoffs/h-1/accept"),
-        ("PAIMOS-LEGACY-HANDOFF-REPORT", Request("POST", "pm.barta.cm", "/api/external-stage/handoffs/h-1/reports", body="{}"), "proxy", "/paimos/api/external-stage/handoffs/h-1/reports"),
-        ("PAIMOS-LEGACY-LOGOUT", Request("POST", "pm.barta.cm", "/api/auth/logout", origin="https://pm.barta.cm", cookie="session=opaque"), "proxy", "/paimos/api/auth/logout"),
+        ("PAIMOS-LEGACY-HEALTH", Request("GET", "pm.barta.cm", "/api/health"), "no-route", None),
+        ("PAIMOS-LEGACY-HANDOFF-READ", Request("GET", "pm.barta.cm", "/api/external-stage/handoffs/h-1"), "no-route", None),
+        ("PAIMOS-LEGACY-HANDOFF-ACCEPT", Request("POST", "pm.barta.cm", "/api/external-stage/handoffs/h-1/accept", body="{}"), "no-route", None),
+        ("PAIMOS-LEGACY-HANDOFF-REPORT", Request("POST", "pm.barta.cm", "/api/external-stage/handoffs/h-1/reports", body="{}"), "no-route", None),
+        ("PAIMOS-LEGACY-LOGOUT", Request("POST", "pm.barta.cm", "/api/auth/logout", origin="https://pm.barta.cm", cookie="session=opaque"), "no-route", None),
         ("PAIMOS-LEGACY-PASSWORD-RESET", Request("GET", "pm.barta.cm", "/reset/token-1?next=%2Fsettings", accept="text/html"), "redirect", "https://flow.inspr.at/paimos/reset/token-1?next=%2Fsettings"),
         ("PAIMOS-LEGACY-OIDC-LOGIN-START", Request("GET", "pm.barta.cm", "/api/auth/oidc/login?return=%2Fprojects", accept="text/html"), "redirect", "https://flow.inspr.at/paimos/api/auth/oidc/login?return=%2Fprojects"),
         ("PAIMOS-LEGACY-OIDC-STALE-CALLBACK", Request("GET", "pm.barta.cm", "/api/auth/oidc/callback?code=discard&state=discard", accept="text/html"), "redirect", "https://flow.inspr.at/paimos/api/auth/oidc/login"),
@@ -230,19 +233,19 @@ def main() -> int:
         ("SHARED-PHAROS-AUTH-CALLBACK", Request("GET", "flow.inspr.at", "/pharos/auth/callback?code=c&state=s", accept="text/html"), "no-route", None),
         ("SHARED-JANUS-AUTH-CALLBACK", Request("GET", "flow.inspr.at", "/janus/oidc/callback?code=c&state=s", accept="text/html"), "no-route", None),
         ("SHARED-PUBLIC-INTERNAL-DENIAL", Request("GET", "flow.inspr.at", "/pharos/internal/managed-service-operations"), "no-route", None),
-        ("LEGACY-UNLISTED-API-NO-CATCHALL", Request("GET", "pm.barta.cm", "/api/issues?state=open"), "proxy", "/paimos/api/issues?state=open"),
+        ("LEGACY-UNLISTED-API-NO-CATCHALL", Request("GET", "pm.barta.cm", "/api/issues?state=open"), "no-route", None),
     ]
     require(len(audit_cases) == 25, "the 25 audited regression identifiers changed")
     for case in audit_cases:
         expect(case[0], routers, middlewares, *case[1:])
 
     behavior_cases = [
-        ("CLI-GET", Request("GET", "pm.barta.cm", "/api/projects"), "proxy", "/paimos/api/projects"),
-        ("CLI-POST", Request("POST", "pm.barta.cm", "/api/issues", body='{"title":"opaque"}'), "proxy", "/paimos/api/issues"),
-        ("CLI-PATCH", Request("PATCH", "pm.barta.cm", "/api/issues/PAI-1", body='{"state":"done"}'), "proxy", "/paimos/api/issues/PAI-1"),
-        ("CLI-DELETE", Request("DELETE", "pm.barta.cm", "/api/knowledge/k-1"), "proxy", "/paimos/api/knowledge/k-1"),
-        ("API-ACCEPT-HTML", Request("GET", "pm.barta.cm", "/api/schema?format=openapi", accept="text/html"), "proxy", "/paimos/api/schema?format=openapi"),
-        ("API-SSE", Request("GET", "pm.barta.cm", "/api/runs/r-1/events", accept="text/event-stream"), "proxy", "/paimos/api/runs/r-1/events"),
+        ("CLI-GET", Request("GET", "pm.barta.cm", "/api/projects"), "no-route", None),
+        ("CLI-POST", Request("POST", "pm.barta.cm", "/api/issues", body='{"title":"opaque"}'), "no-route", None),
+        ("CLI-PATCH", Request("PATCH", "pm.barta.cm", "/api/issues/PAI-1", body='{"state":"done"}'), "no-route", None),
+        ("CLI-DELETE", Request("DELETE", "pm.barta.cm", "/api/knowledge/k-1"), "no-route", None),
+        ("API-ACCEPT-HTML", Request("GET", "pm.barta.cm", "/api/schema?format=openapi", accept="text/html"), "redirect", "https://flow.inspr.at/paimos/api/schema?format=openapi"),
+        ("API-SSE", Request("GET", "pm.barta.cm", "/api/runs/r-1/events", accept="text/event-stream"), "no-route", None),
         ("PHAROS-JSON", Request("GET", "pharos.barta.cm", "/map/data.json?scope=all", accept="application/json"), "proxy", "/pharos/map/data.json?scope=all"),
         ("PHAROS-ASSET", Request("GET", "pharos.barta.cm", "/assets/vendor/flow-shell/app.js", accept="text/html"), "proxy", "/pharos/assets/vendor/flow-shell/app.js"),
         ("PHAROS-HEALTH-ACCEPT-HTML", Request("GET", "pharos.barta.cm", "/healthz", accept="text/html"), "proxy", "/pharos/healthz"),
@@ -253,7 +256,7 @@ def main() -> int:
         ("JANUS-DEEP-LINK", Request("GET", "vault.barta.cm", "/knowledge/flows/onboarding", accept="text/html"), "redirect", "https://flow.inspr.at/janus/knowledge/flows/onboarding"),
         ("NONBROWSER-CATCHALL", Request("GET", "pharos.barta.cm", "/unknown-machine-family", accept="application/octet-stream"), "proxy", "/pharos/unknown-machine-family"),
         ("MUTATION-CATCHALL", Request("PUT", "vault.barta.cm", "/ui/custom", accept="text/html", origin="https://vault.barta.cm", body="opaque"), "proxy", "/janus/ui/custom"),
-        ("PREFIX-ONCE-PAIMOS", Request("GET", "pm.barta.cm", "/paimos/api/issues"), "proxy", "/paimos/api/issues"),
+        ("PREFIX-ONCE-PAIMOS", Request("GET", "pm.barta.cm", "/paimos/api/issues"), "no-route", None),
         ("PREFIX-ONCE-PHAROS", Request("GET", "pharos.barta.cm", "/pharos/report"), "proxy", "/pharos/report"),
         ("PREFIX-ONCE-JANUS", Request("GET", "vault.barta.cm", "/janus/api/posture"), "proxy", "/janus/api/posture"),
         ("PAIMOS-CALLBACK-PREFIXED", Request("GET", "pm.barta.cm", "/paimos/api/auth/oidc/callback?code=c&state=s", accept="text/html"), "redirect", "https://flow.inspr.at/paimos/api/auth/oidc/login"),
@@ -274,7 +277,7 @@ def main() -> int:
         ("PREFIXED-INTERNAL-BOUNDARY", Request("GET", "vault.barta.cm", "/janus/internal-other"), "proxy", "/janus/internal-other"),
         ("ENCODED-INTERNAL-DENIED", Request("GET", "pharos.barta.cm", "/internal%2Fmanaged-service-operations"), "deny", None),
         ("ENCODED-PREFIXED-INTERNAL-DENIED", Request("GET", "vault.barta.cm", "/janus%2Finternal%2Fmanaged-service-operations"), "deny", None),
-        ("ENCODED-API-PROXY", Request("GET", "pm.barta.cm", "/api%2Fissues?state=open", accept="text/html"), "proxy", "/paimos/api%2Fissues?state=open"),
+        ("ENCODED-API-PROXY", Request("GET", "pm.barta.cm", "/api%2Fissues?state=open", accept="text/html"), "redirect", "https://flow.inspr.at/paimos/api%2Fissues?state=open"),
         ("ENCODED-CALLBACK-RESTART", Request("GET", "pharos.barta.cm", "/pharos%2Fauth%2Fcallback?code=c&state=s", accept="text/html"), "redirect", "https://flow.inspr.at/pharos/auth/login"),
     ]
     for case in behavior_cases:
