@@ -202,7 +202,7 @@ jobs:
       - name: Verify current-system Attic push contract (NIX-24)
         run: tests/T65-attic-current-system.sh
 
-      - name: Verify Paimos external-stage adapter contract (NIX-381 / PAI-810)
+      - name: Verify classic Paimos is retired and Aeon redirects remain (NIX-584)
         run: tests/T48-paimos-delivery-stage.sh
 
       - name: Verify Pharos Flow host config contract (NIX-442 / PHAROS-257)
@@ -276,14 +276,8 @@ jobs:
       - name: Verify local and hosted formatters share one pin (NIX-336)
         run: tests/T61-format-tool-pin.sh
 
-      - name: Verify mbp2607 Paimos agentd Home Manager contract
+      - name: Verify classic Paimos workstation surface is retired (NIX-584)
         run: nix-shell -p python3 --run tests/T56-paimos-agentd-home-manager.sh
-
-      - name: Verify optional Paimos Codex accounts Home Manager boundary
-        run: nix-shell -p python3 --run tests/T69-paimos-agentd-codex-accounts.sh
-
-      - name: Verify optional Paimos Pi/Cursor accounts Home Manager boundary
-        run: nix-shell -p python3 --run tests/T70-paimos-agentd-pi-cursor-accounts.sh
 
       - name: Verify Higgsfield CLI Home Manager contract
         run: nix-shell -p python3 --run tests/T67-higgsfield-cli-home-manager.sh
@@ -327,7 +321,7 @@ jobs:
       - name: Verify hsb0 NCPS warmer current fleet target
         run: tests/T68-ncps-warmer-fleet.sh
 
-      - name: Verify csb1 Paimos production identity firewall
+      - name: Verify classic PPM container is absent (NIX-584)
         run: nix-shell -p python3 --run tests/T57-paimos-production-identity.sh
 
       - name: Verify csb1 inspr-auth Cloudflare edge boundary

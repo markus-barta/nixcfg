@@ -9,7 +9,7 @@
 # WHAT THIS FILE IS
 #   Pure string builders only — no derivations, no `pkgs`. Consumed by
 #   modules/uzumaki/agent-browser-guard.nix (Home Manager module) and by
-#   modules/uzumaki/paimos-agentd.nix (owned-session launchers), and evaluated
+#   modules/uzumaki/aeon-agentd.nix (owned-session launchers), and evaluated
 #   directly by tests/T72-agent-browser-guard.sh.
 #
 # MECHANISM AND ITS PROVEN LIMIT (measured on Darwin 25.6, 2026-09-08)

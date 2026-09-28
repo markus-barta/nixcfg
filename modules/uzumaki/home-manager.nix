@@ -66,8 +66,7 @@ in
     ./agent-skills.nix # Skills for ALL harnesses (~/.claude + ~/.codex): inspr-modules bundled + pinned upstream
     ./agent-kernel.nix # NIX-508: Pi global AGENTS.md via inspr.agent-kernel
     ./claude-statusline.nix # ~/.claude/statusline.sh — catppuccin pill footer (jq nix-pinned)
-    ./paimos-agentd.nix # Operator-local PAIMOS owner for managed Codex/Claude sessions
-    ./aeon.nix # OPS-231: Aeon client + consumer keys (staged, off by default)
+    ./aeon.nix # OPS-231 / NIX-584: Aeon client + consumer keys (`paimos` alias default)
     ./aeon-agentd.nix # NIX-583: isolated, opt-in Aeon owned-session daemon
     ./agent-browser-guard.nix # NIX-445: macOS agent browser-launch guard (opt-in per host)
   ];

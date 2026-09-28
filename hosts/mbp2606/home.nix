@@ -82,14 +82,6 @@ in
   inspr.git.atelier.personal.enable = false;
 
   # ============================================================================
-  # INSPR — paimos-cli non-secret instance routing
-  # ============================================================================
-  # Home Manager writes only the PPM URL/default. Authenticate once at the
-  # keyboard with the hidden `paimos auth login` prompt; the credential stays
-  # in the OS keyring.
-  inspr.paimos-cli.enable = true;
-
-  # ============================================================================
   # UZUMAKI MODULE - Fish functions, theming, monitoring
   # ============================================================================
   uzumaki = {
@@ -340,8 +332,7 @@ in
     pkgs.docker-compose # Compose v2 standalone binary; linked above as Docker CLI plugin
     pkgs.colima # Lightweight Docker engine VM for macOS, no Docker Desktop
     pkgs.lima # Colima's VM substrate; useful for limactl diagnostics
-    # (paimos-cli + speedtest-go promoted to commonPackages 2026-05-12 —
-    # they're now reached via macosCommon.commonPackages above.)
+    # (speedtest-go promoted to commonPackages 2026-05-12)
   ];
 
   # Enable fontconfig

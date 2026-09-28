@@ -47,9 +47,8 @@
   # Enable agent secrets only after this host has been added as an agenix
   # recipient in secrets/secrets.nix (see playbook step 3 + docs/SECRETS.md).
   # inspr.secrets.agents.enable = true;
-  # Paimos routing is independent of agent secrets. After activation,
-  # authenticate interactively via `paimos auth login`.
-  # inspr.paimos-cli.enable = true;
+  # NIX-584: `paimos` is the Aeon client (macos-common aeon-paimos). Enable
+  # uzumaki.aeon.cli if this host needs consumer-key materialisation.
 
   # ============================================================================
   # UZUMAKI MODULE - Fish functions, theming, monitoring
@@ -251,7 +250,6 @@
     jq
     just
     lazygit
-    paimos-cli # Agent-facing CLI for PAIMOS (github.com/markus-barta/paimos)
 
     # File Management
     tree

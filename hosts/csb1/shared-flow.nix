@@ -3,6 +3,13 @@
 # `active` remains the sole deployment boundary for network, route, application
 # public-path, credential-load, and private name-resolution effects. The nested
 # value-free Paimos selector may be prepared only with its protected inputs.
+#
+# NIX-584: classic Paimos is not a shared-Flow backend. Keep /paimos as a
+# public path (browserUrls) so Janus/Pharos Flow hosts still name the origin
+# that Traefik redirects to Aeon; do not assign it a network address or
+# routing-edge upstream. The contract still lists the app (validate.py
+# requires all four ids) but `enabled = false` so the compiler never
+# proxies 10.253.253.4:8888.
 let
   active = true;
   publicHost = "flow.inspr.at";
@@ -24,13 +31,13 @@ let
       host = "10.253.253.1";
       traefik = "10.253.253.2";
       janus = "10.253.253.3";
-      paimos = "10.253.253.4";
+      # Classic Paimos occupied the next host address in this /28; left unused
+      # so Janus and Pharos stay on their reviewed pins.
       pharos = "10.253.253.5";
     };
   };
   ports = {
     aithema = 8787;
-    paimos = 8888;
     pharos = 8080;
     janus = 8080;
   };
@@ -57,8 +64,17 @@ let
         };
       };
       paimos = {
-        enabled = true;
-        public_base_path = basePaths.paimos;
+        # Disabled: /paimos is served by ppm-aeon-redirect-routing.nix, not
+        # a classic container. Empty public_base_path is required for a
+        # disabled app; disconnected_origin names where browsers end up.
+        enabled = false;
+        public_base_path = "";
+        disconnected = {
+          external_origin = {
+            scheme = "https";
+            host = "aeon.barta.cm";
+          };
+        };
         oidc = {
           client_ref = "paimos:zitadel:flow";
           redirect_path = "/api/auth/oidc/callback";
@@ -162,7 +178,6 @@ in
     contractFile = builtins.toFile "csb1-shared-flow-routing.json" (builtins.toJSON contract);
     upstreams = {
       aithema.url = "http://${network.addresses.host}:${toString ports.aithema}";
-      paimos.url = "http://${network.addresses.paimos}:${toString ports.paimos}";
       pharos.url = "http://${network.addresses.pharos}:${toString ports.pharos}";
       janus.url = "http://${network.addresses.janus}:${toString ports.janus}";
     };

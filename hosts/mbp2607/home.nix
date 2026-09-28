@@ -48,14 +48,7 @@ in
   # Enabled 2026-07-03 (NIX-215): markus@mbp2607 user key in the markus
   # aggregate + host key on agents/shared/* — rekeyed in 31e3d1a8.
   inspr.secrets.agents.enable = true;
-  # Non-secret routing only; workstation auth is interactive via OS keyring.
-  inspr.paimos-cli.enable = true;
-  # OPS-231 step 3: `paimos` = Aeon client (paimos mode); `paimos-classic` = classic.
-  # OPS-231 step 3 (AEON-43): this workstation's ppm routing moves to Aeon.
-  # Host-local on purpose: markus-defaults stays the canonical classic origin
-  # that T48 checks the csb1 classic-protocol consumers against, until those
-  # consumers move to their Aeon adapters (runbook step 4). pma stays classic.
-  inspr.paimos-cli.instances.ppm.url = lib.mkForce "https://aeon.barta.cm";
+  # OPS-231 / NIX-584: ppm routing is Aeon. `paimos` is the Aeon client.
   inspr.cli.fleet.paimosUrl = lib.mkForce "https://aeon.barta.cm";
 
   uzumaki.aeon = {
@@ -74,8 +67,8 @@ in
     };
     cli = {
       enable = true;
-      paimosAlias = true;
-      # One shared Aeon agent key for the workstation agents (Markus, 2026-09-26).
+      # NIX-584: Aeon owns `paimos` (paimosAlias defaults true).
+      # paimos-classic remains for pma until that instance moves to Aeon tonight.
       instanceKeys.ppm = "workstation-agents";
     };
     consumerKeys = {
@@ -139,32 +132,6 @@ in
       # migration snippet in the checklist).
       guardedPrograms = {
         claude-guarded = "${config.home.homeDirectory}/.npm-global/bin/claude";
-      };
-    };
-    # NIX-392: agentd owns only children it starts. Auth remains in the
-    # existing PAIMOS keyring and operator-authenticated vendor CLIs.
-    paimosAgentd = {
-      enable = true;
-      # Only Codex gets refusal hints/preload. No shared launchd browser guard.
-      browserGuard = {
-        enable = true;
-        sandboxedClis = [ ];
-      };
-      # PAI-955 / NIX-437: this pin's agentd serve accepts --codex-accounts.
-      # The path is owner-only JSON outside the store; Nix never reads it.
-      codexAccountsFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/codex-accounts.json";
-      # NIX-439: Cursor CLI + account registry paths only. Composer and Grok are
-      # selected through owned account/profile choices in the operator registry;
-      # auth stays in the vendor store. Requires a Cursor-capable Paimos pin
-      # before activation — v26.09.07.20.15 does not accept --cursor-* flags.
-      cursorPath = cursorAgent;
-      cursorAccountsFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/cursor-accounts.json";
-      lifecycleConfigFile = "${config.home.homeDirectory}/Library/Application Support/paimos/agentd/lifecycle.json";
-      reporting = {
-        enable = true;
-        host = "mbp2607";
-        url = "https://pm.barta.cm";
-        apiKeyEnvFile = "${config.home.homeDirectory}/.inspr/secrets/agents/PPMAPIKEY.env";
       };
     };
   };

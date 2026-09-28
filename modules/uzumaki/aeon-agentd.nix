@@ -1,4 +1,4 @@
-# NIX-583: additive Aeon owner; classic paimos-agentd remains independent.
+# NIX-583: isolated Aeon owner. Classic paimos-agentd was retired in NIX-584.
 {
   config,
   lib,
@@ -229,7 +229,6 @@ in
     };
 
     # Preserve direct executable ownership, avoiding HM's sh/wait4path wrapper.
-    # A separate output directory composes with classic's existing replacement.
     home.extraBuilderCommands = lib.mkOrder 1600 ''
       aeon_agents=$(${pkgs.coreutils}/bin/readlink -f "$out/LaunchAgents")
       aeon_direct="$out/LaunchAgents-aeon-direct"

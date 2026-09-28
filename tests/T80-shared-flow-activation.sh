@@ -22,15 +22,16 @@ host_config="$repo_root/hosts/csb1/configuration.nix"
 compose="$repo_root/hosts/csb1/docker/compose-spec.nix"
 renderer="$repo_root/hosts/csb1/scripts/render-shared-flow-config.sh"
 legacy="$repo_root/hosts/csb1/legacy-flow-routing.nix"
+aeon="$repo_root/hosts/csb1/ppm-aeon-redirect-routing.nix"
 traefik_static="$repo_root/hosts/csb1/docker/traefik/static.yml"
 
-for file in "$helper" "$host_config" "$compose" "$renderer" "$legacy" "$traefik_static"; do
+for file in "$helper" "$host_config" "$compose" "$renderer" "$legacy" "$aeon" "$traefik_static"; do
   [[ -f $file ]]
 done
 command -v jq >/dev/null
 command -v yq >/dev/null
 
-for file in "$helper" "$host_config" "$compose"; do
+for file in "$helper" "$host_config" "$compose" "$aeon"; do
   nix-instantiate --parse "$file" >/dev/null
 done
 bash -n "$renderer"
@@ -88,10 +89,14 @@ jq -e '
   and .network.addresses == {
     host:"10.253.253.1",
     janus:"10.253.253.3",
-    paimos:"10.253.253.4",
     pharos:"10.253.253.5",
     traefik:"10.253.253.2"
   }
+  and .contract.apps.paimos.enabled == false
+  and .contract.apps.paimos.public_base_path == ""
+  and .contract.apps.aithema.enabled == true
+  and .contract.apps.pharos.enabled == true
+  and .contract.apps.janus.enabled == true
   and .machineOrigins == {janus:"https://vault.barta.cm",pharos:"https://pharos.barta.cm"}
   and .privateSourceRanges.janus == ["10.253.253.1/32"]
   and .privateSourceRanges.pharos == ["10.253.253.3/32"]
@@ -110,7 +115,6 @@ jq -e '
     upstreams:{
       aithema:{url:"http://10.253.253.1:8787"},
       janus:{url:"http://10.253.253.3:8080"},
-      paimos:{url:"http://10.253.253.4:8888"},
       pharos:{url:"http://10.253.253.5:8080"}
     }
   }
@@ -137,7 +141,11 @@ python3 "$repo_root/doctrine/packages/routing-edge/generate.py" \
   --output-dir "$work/rendered"
 
 nix-instantiate --eval --strict --json --expr "
-  let f = import ${helper}; in import ${legacy} { privateSourceRanges = f.privateSourceRanges; }
+  let
+    lib = import <nixpkgs/lib>;
+    f = import ${helper};
+    aeon = import ${aeon} { };
+  in lib.recursiveUpdate (import ${legacy} { privateSourceRanges = f.privateSourceRanges; }) aeon
 " >"$work/legacy.json"
 
 PATH="$(dirname -- "$(command -v yq)"):$PATH" \
@@ -157,24 +165,57 @@ if PATH="$(dirname -- "$(command -v yq)"):$PATH" \
   exit 1
 fi
 
-for app in aithema paimos pharos janus; do
+for app in aithema pharos janus; do
   jq -e --arg app "$app" '.apps[$app].oidc_redirect_url | startswith("https://flow.inspr.at/" + $app + "/")' \
     "$work/rendered/wiring-report.json" >/dev/null
   yq eval -e ".http.routers.\"inspr-routing-edge-app-${app}\".middlewares[0] == \"cloudflarewarp@file\"" \
     "$work/merged.yml" >/dev/null
 done
+jq -e '
+  .apps.paimos.enabled == false
+  and .apps.paimos.proxied == false
+  and .apps.paimos.disconnected_external_origin == "https://aeon.barta.cm"
+' "$work/rendered/wiring-report.json" >/dev/null
 
 yq eval -e '
-  .http.routers."inspr-legacy-paimos-proxy"
+  .http.routers."inspr-legacy-pharos-proxy"
+  and .http.routers."inspr-legacy-janus-proxy"
   and .http.routers."inspr-legacy-pharos-private-internal-root"
   and .http.routers."inspr-legacy-janus-private-internal-root"
   and .http.routers."inspr-routing-edge-deny-pharos"
   and .http.routers."inspr-routing-edge-deny-janus"
+  and .http.routers."ops231-aeon-classic-api".priority == 15100
+  and .http.routers."ops231-aeon-classic-api".service == "ops231-aeon"
+  and .http.routers."ops231-aeon-classic-browser".priority == 15000
+  and .http.routers."ops231-aeon-classic-browser".service == "inspr-legacy-flow-deny"
+  and .http.services."ops231-aeon".loadBalancer.servers[0].url == "http://aeon:8080"
+  and .http.routers."ops231-aeon-classic-browser".priority
+      > .http.routers."inspr-routing-edge-deny-disabled-vocabulary".priority
+  and .http.routers."ops231-aeon-classic-api".priority
+      > .http.routers."inspr-routing-edge-deny-disabled-vocabulary".priority
 ' "$work/merged.yml" >/dev/null
+
+if yq eval -e '.http.routers."inspr-routing-edge-app-paimos"' "$work/merged.yml" >/dev/null 2>&1; then
+  printf '%s\n' 'compiler still publishes a classic paimos app router' >&2
+  exit 1
+fi
+if yq eval -e '.http.routers."inspr-legacy-paimos-proxy"' "$work/merged.yml" >/dev/null 2>&1; then
+  printf '%s\n' 'legacy fragment still proxies pm.barta.cm to classic paimos' >&2
+  exit 1
+fi
+if yq eval -e '.http.services."inspr-routing-edge-upstream-paimos"' "$work/merged.yml" >/dev/null 2>&1; then
+  printf '%s\n' 'merged routing still defines a classic paimos upstream' >&2
+  exit 1
+fi
+if grep -Fq '10.253.253.4' "$work/merged.yml"; then
+  printf '%s\n' 'classic paimos address 10.253.253.4 is still wired' >&2
+  exit 1
+fi
 
 # One selector gates every new effect. Existing image pins, legacy helper
 # semantics, SMTP/env-file wiring, and old host routers remain untouched.
 grep -Fq 'sharedFlow = import ./shared-flow.nix;' "$host_config"
+grep -Fq 'import ./ppm-aeon-redirect-routing.nix' "$host_config"
 grep -Fq 'sharedFlow = import ../shared-flow.nix;' "$compose"
 grep -Fq 'enable = sharedFlow.active;' "$host_config"
 grep -Fq 'system.activationScripts.sharedFlowRuntimeConfig = lib.mkIf sharedFlow.active' "$host_config"
@@ -224,13 +265,23 @@ for required in (
 PY
 
 grep -Fq 'networks = flowNetwork sharedFlow.network.addresses.janus;' "$compose"
-grep -Fq 'networks = flowNetwork sharedFlow.network.addresses.paimos;' "$compose"
 grep -Fq 'networks = flowNetwork sharedFlow.network.addresses.pharos;' "$compose"
+if grep -Fq 'networks = flowNetwork sharedFlow.network.addresses.paimos;' "$compose"; then
+  printf '%s\n' 'compose still attaches the retired classic paimos container to the shared Flow network' >&2
+  exit 1
+fi
+if grep -Eq 'ghcr.io/inspr-at/paimos:' "$compose"; then
+  printf '%s\n' 'compose still pins the classic paimos image' >&2
+  exit 1
+fi
+if grep -Fq '10.253.253.4' "$compose"; then
+  printf '%s\n' 'compose still mentions classic paimos address 10.253.253.4' >&2
+  exit 1
+fi
 # This checks literal Nix interpolation syntax, not a Bash expansion.
 # shellcheck disable=SC2016
 grep -Fq 'pharos.barta.cm:${sharedFlow.network.addresses.traefik}' "$compose"
 grep -Fq 'privateBind "/run/inspr-shared-flow/dynamic.yml" "/etc/traefik/dynamic/inspr-shared-flow.yml"' "$compose"
-grep -Fq 'image = "ghcr.io/inspr-at/paimos:260923073158.0.0@sha256:0bc325943675d57c0e323dab9e1f7d3e285c795f8f19128360ce2851b0d5fe1c"' "$compose"
 grep -Fq 'image = "ghcr.io/inspr-at/janus/janus-envelope:go-envelope-v260922094507.0.0@sha256:519888c17e736fdea27e5881d7a1ed10c5f3932fa0d28e0e9368511a2866c639"' "$compose"
 grep -Fq 'image = "ghcr.io/inspr-at/pharos/pharosd:260925163010.0.0@sha256:811abc02316aa914fc4e6b3649dff0b4d9b9953819f7e4edab4aab14bf1045c1"' "$compose"
 

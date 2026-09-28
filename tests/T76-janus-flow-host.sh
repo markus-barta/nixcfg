@@ -117,9 +117,10 @@ grep -Fq '../../modules/janus-flow-host' "$host_config"
 grep -Fq 'activate = janusFlowHost.active;' "$host_config"
 grep -Fq 'containerUid = 100;' "$host_config"
 grep -Fq 'containerGid = 101;' "$host_config"
-grep -Fq '  active = true;' "$stage"
+grep -Fq '  active = false;' "$stage"
 nix eval --impure --json --expr "import $stage" | jq -e '
-  .active == true
+  .active == false
+  and .paimosOrigin == "https://aeon.barta.cm"
   and .hostApiKeyFile == "/run/janus-flow-credential/api-key"
   and (.credentialRevision | test("^[0-9a-f]{64}$"))
   and .bindings == [{projectId:33,projectRef:null,label:"UXQA sandbox",principalRefs:["391779593318563851"]}]
@@ -233,10 +234,9 @@ if "healthcheck" in off:
     failures.append("inactive shared origin must retain the image healthcheck")
 if without_shared_origin(shared_off, "forced-off") != off:
     failures.append("forced-off Janus differs beyond the reviewed shared-origin changes")
-# The active fixture preserves the actual ciphertext revision independently of
-# shared-origin wiring. Do not drop Flow mounts or labels to make equality pass.
-if without_shared_origin(live, "live") != real_on:
-    failures.append("live active Janus differs beyond the reviewed shared-origin changes")
+# NIX-584: live Janus Flow stays inactive until it reads Aeon.
+if without_shared_origin(live, "live") != off:
+    failures.append("live Janus Flow must stay inactive until it reads Aeon")
 if dict(real_on, labels=on["labels"]) != on:
     failures.append("real ciphertext revision changes more than the active revision label")
 if flow_vars(on) != ["JANUS_FLOW_CONFIG_FILE=/run/janus/flow-host/config.json"]:

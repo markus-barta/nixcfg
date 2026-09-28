@@ -77,18 +77,14 @@
       url = "github:inspr-at/janus/rust-engine-v0.1.36";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Paimos — operator CLI plus the process-owning Agent Intercom daemon.
-    # NIX-392 deliberately pins a released tag: Home Manager must not move the
-    # executable control plane just because upstream main advances. Bumps use
-    # the reviewed Paimos release flow and refresh vendorHash when Go deps move.
+    # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
     paimos = {
       url = "github:inspr-at/paimos-legacy/v260922071824.0.0";
       flake = false;
     };
-    # Aeon — the PAIMOS successor (AEON-43 cutover, OPS-231). Pinned release
+    # Aeon — PAIMOS successor (AEON-43 cutover, NIX-584). Pinned release
     # tag; upstream flake with a pinned vendorHash. Its own nixpkgs is kept
     # (not followed) so that hash is built with the Go it was pinned against.
-    # Classic `paimos` stays in parallel for rollback and PMA.
     # NIX-583: reviewed recovery, lifetime fences and managed Codex usage (AEON-233).
     aeon.url = "github:inspr-at/paimos/v260927160212.0.0"; # 3f8d613473ff3ff37db50ecff9e5522de73cc974
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
@@ -139,8 +135,8 @@
           config.allowUnfree = true;
         };
       };
-      # OPS-231: Aeon client as `aeon` only; the upstream bin/paimos alias is
-      # withheld until the compatibility transcript gate.
+      # OPS-231 / NIX-584: Aeon client. `aeon-cli` is `aeon` only; `aeon-paimos`
+      # is the upstream package including bin/paimos (argv0 compat).
       aeonCli =
         p:
         let
@@ -154,12 +150,13 @@
       overlays-local = final: prev: {
         pingt = final.callPackage ./pkgs/pingt { };
         tokstat = final.callPackage ./pkgs/tokstat { };
+        # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
         paimos-cli = final.callPackage ./pkgs/paimos-cli {
           src = inputs.paimos;
         };
-        # OPS-231: see modules/uzumaki/aeon.nix for why only `aeon` is exposed.
+        # OPS-231 / NIX-584: see modules/uzumaki/aeon.nix for PATH ownership.
         aeon-cli = aeonCli final;
-        # OPS-231 step 3: the upstream client including its bin/paimos alias.
+        # NIX-584: `paimos` is the Aeon client in paimos mode.
         aeon-paimos = inputs.aeon.packages.${final.stdenv.hostPlatform.system}.aeon;
         aeon-agentd = inputs.aeon.packages.${final.stdenv.hostPlatform.system}.aeon-agentd;
         claude-agent-sdk = final.callPackage ./pkgs/claude-agent-sdk { };
@@ -406,7 +403,7 @@
         # pingt - Timestamped ping with color-coded output
         pingt = pkgs.callPackage ./pkgs/pingt { };
 
-        # paimos-cli - Agent-facing CLI for PAIMOS
+        # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
         paimos-cli = pkgs.callPackage ./pkgs/paimos-cli {
           src = inputs.paimos;
         };
@@ -477,6 +474,7 @@
         in
         {
           pingt = pkgsDarwin.callPackage ./pkgs/pingt { };
+          # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
           paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli {
             src = inputs.paimos;
           };
@@ -495,6 +493,7 @@
         in
         {
           pingt = pkgsDarwin.callPackage ./pkgs/pingt { };
+          # NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
           paimos-cli = pkgsDarwin.callPackage ./pkgs/paimos-cli {
             src = inputs.paimos;
           };

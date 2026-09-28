@@ -10,11 +10,6 @@
 
 let
   hostdashCsb1 = inputs.hostdash.packages.${pkgs.stdenv.hostPlatform.system}.csb1;
-  # NIX-381 — the one reviewed source of truth for the Paimos v1 external-stage
-  # adapters. hosts/csb1/docker/compose-spec.nix imports the same file, so
-  # pharosd's environment and this host's module wiring cannot disagree about
-  # whether the adapter is live. tests/T48 asserts that agreement.
-  paimosDeliveryStage = import ./paimos-delivery-stage.nix;
   # NIX-442 — the one reviewed source of truth for the Pharos Flow host.
   # hosts/csb1/docker/compose-spec.nix imports the same file, so pharosd's
   # environment and this host's module wiring cannot disagree about whether
@@ -28,19 +23,11 @@ let
   # Compose. The controller flips sharedFlow.active only after the protected
   # Aithema inputs pass the activation preflight below.
   sharedFlow = import ./shared-flow.nix;
-  # OPS-233: classic PPM freeze + read-only fallback routers; empty while
-  # both switches in ppm-cutover.nix are false.
-  legacyFlowFragment =
-    lib.recursiveUpdate
-      (import ./legacy-flow-routing.nix {
-        inherit (sharedFlow) privateSourceRanges;
-      })
-      (
-        import ./ppm-cutover-routing.nix {
-          inherit lib;
-          cutover = import ./ppm-cutover.nix;
-        }
-      );
+  # NIX-584: classic Paimos is retired. Keep pm.barta.cm and
+  # flow.inspr.at/paimos redirecting to Aeon /from-classic (browser 302, API 410).
+  legacyFlowFragment = lib.recursiveUpdate (import ./legacy-flow-routing.nix {
+    inherit (sharedFlow) privateSourceRanges;
+  }) (import ./ppm-aeon-redirect-routing.nix { });
   legacyFlowFragmentFile = pkgs.writeText "csb1-legacy-flow-routing.json" (
     builtins.toJSON legacyFlowFragment
   );
@@ -279,8 +266,6 @@ in
     ../../modules/pharos-provisioning-executor
     ../../modules/pharos-retirement-executor
     ../../modules/janus-host-secrets
-    ../../modules/pharos-paimos-delivery # NIX-381 / PHAROS-206 — Paimos owner adapter
-    ../../modules/janus-paimos-dependency-reporter # NIX-381 / JANUS-441 — dependency reporter
     ../../modules/pharos-flow-host # NIX-442 / PHAROS-257 — opt-in Flow host config
     ../../modules/janus-flow-host # NIX-481 / JANUS-458 — opt-in Flow host config
     # nixfleet-agent is now loaded via flake input (inputs.nixfleet.nixosModules.nixfleet-agent)
@@ -733,35 +718,9 @@ in
     identityFile = config.age.secrets.csb1-pharos-provisioning-executor-ssh-key.path;
   };
 
-  # ==========================================================================
-  # NIX-381 — Paimos v1 external-stage adapters (PAI-810)
-  # ==========================================================================
-  # Both adapters are declared here and land INERT: `activate = false` until
-  # Paimos has minted the handoffs and the operator preflight in
-  # hosts/csb1/docs/RUNBOOK.md § "Paimos external-stage activation" confirms
-  # every credential file. Nothing below carries a credential value; the files
-  # named are agenix outputs whose ciphertext is created during activation.
-  #
-  # 🔴 pharosd panics at startup on an incomplete adapter config, so the
-  # compose-side env var is gated by the SAME switch — see
-  # hosts/csb1/paimos-delivery-stage.nix.
-  inspr.pharosPaimosDelivery = {
-    enable = true;
-    activate = paimosDeliveryStage.active;
-    inherit (paimosDeliveryStage) paimosOrigin;
-    inherit (paimosDeliveryStage.pharos) configFile apiKeyFile;
-    # pharosd runs as 10001:992 (users.users.pharos-container below); every file
-    # the adapter opens must be owned by that uid with no group/other bits.
-    containerUid = 10001;
-    # The exact-replay journal is derived by pharosd from PHAROS_DB —
-    # /data/pharos.json.paimos-delivery-journal.json — which lives in the
-    # csb1_pharos_data named volume, so it is already durable across restarts.
-    #
-    # 🔴 intents stay empty until Paimos issues the deployment and verification
-    # handoff ids. They are 26-character Crockford base32 ULIDs; inventing one
-    # is not possible and the module rejects any other shape.
-    intents = [ ];
-  };
+  # NIX-584: the classic Paimos v1 external-stage adapters (PHAROS-206 /
+  # JANUS-441) are unwired. They only spoke classic Paimos and were never
+  # activated. Generic modules remain in-tree for a future Aeon adapter.
 
   # ==========================================================================
   # NIX-442 — Pharos Flow host (PHAROS-257)
@@ -814,19 +773,6 @@ in
     # The deployed Go image runs as the named janus account, numeric 100:101.
     containerUid = 100;
     containerGid = 101;
-  };
-
-  inspr.janusPaimosDependencyReporter = {
-    enable = true;
-    activate = paimosDeliveryStage.active;
-    # NIX-381 / NIX-449: reviewed v0.1.36 source, separate from `inputs.janus` — see flake.nix.
-    package = inputs.janus-paimos-reporter.packages.${pkgs.stdenv.hostPlatform.system}.janus-engine;
-    inherit (paimosDeliveryStage) paimosOrigin;
-    inherit (paimosDeliveryStage.janus) journalDirectory apiKeyFile handoffSecretFile;
-    # Minted by Paimos at handoff creation; empty (and therefore inert) now.
-    handoffId = "";
-    expected = null;
-    evidence = null;
   };
 
   # Value-free declaration consumed read-only by Pharos. The profile refs are

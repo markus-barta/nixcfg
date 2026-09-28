@@ -93,7 +93,6 @@ imports = [
 
 # Enable each module the host wants active
 inspr.secrets.agents.enable        = true;
-inspr.paimos-cli.enable            = true;
 inspr.git-identity.enable          = true;
 inspr.git.atelier.personal.enable  = true;
 inspr.ssh.authorized = {
@@ -107,7 +106,7 @@ Module surface (defined in [inspr-modules](https://github.com/inspr-at/inspr-mod
 | Module                        | What it does                                                                                              |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `inspr.secrets.agents`        | Decrypts agenix `.age` files at HM activation → `~/.inspr/secrets/agents/*.env` (mode 0400)               |
-| `inspr.paimos-cli`            | Writes non-secret PPM instance routing; workstation authentication is interactive via the OS keyring      |
+| `uzumaki.aeon.cli`            | Aeon client as `aeon` and, by default, `paimos` (NIX-584; classic paimos-cli retired)                     |
 | `inspr.ssh.authorized`        | Declarative `~/.ssh/authorized_keys` from trust presets (personalHosts, etc.)                             |
 | `inspr.git.atelier.<context>` | Federated git auth via per-host SSH userkeys (INSPR-170 Strategy B)                                       |
 | `inspr.git-identity`          | Context-aware `[user]` and `includeIf` git config (personal default, per-context override on org remotes) |
@@ -190,14 +189,14 @@ Brief description of this machine.
 
 ## Features
 
-| ID  | Feature          | Description                                                          |
-| --- | ---------------- | -------------------------------------------------------------------- |
-| F00 | Nix Base System  | Reproducible package management                                      |
-| F01 | Fish Shell       | Modern shell with functions                                          |
-| F02 | Starship Prompt  | Themed prompt                                                        |
-| F03 | Ghostty Terminal | (managed via Homebrew, not Nix — was WezTerm pre-2026-05-05)         |
-| F04 | INSPR Modules    | agent-secrets, paimos-cli, ssh-authorized, git-atelier, git-identity |
-| F05 | Atelier Git Auth | Per-host SSH userkeys; federated push/pull (INSPR-170)               |
+| ID  | Feature          | Description                                                        |
+| --- | ---------------- | ------------------------------------------------------------------ |
+| F00 | Nix Base System  | Reproducible package management                                    |
+| F01 | Fish Shell       | Modern shell with functions                                        |
+| F02 | Starship Prompt  | Themed prompt                                                      |
+| F03 | Ghostty Terminal | (managed via Homebrew, not Nix — was WezTerm pre-2026-05-05)       |
+| F04 | INSPR Modules    | agent-secrets, aeon.cli, ssh-authorized, git-atelier, git-identity |
+| F05 | Atelier Git Auth | Per-host SSH userkeys; federated push/pull (INSPR-170)             |
 
 ## Setup History
 

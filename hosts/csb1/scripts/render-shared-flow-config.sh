@@ -49,9 +49,10 @@ yq eval-all '. as $item ireduce ({}; . * $item)' "${compiled}" "${legacy}" >"${t
 # browser-visible compiler route. The compiler-owned identity-dropping chain
 # remains immediately after it; legacy-flow-routing.nix already applies the
 # same middleware to its public compatibility routes.
+# NIX-584: classic Paimos is not a compiler app. /paimos is the Aeon
+# redirect (ops231-aeon-classic-*), required in the legacy/merged input.
 for router in \
   "${namespace}-app-aithema" \
-  "${namespace}-app-paimos" \
   "${namespace}-app-pharos" \
   "${namespace}-app-janus" \
   "${namespace}-landing"; do
@@ -62,7 +63,11 @@ for router in \
   yq eval -i ".http.routers.\"${router}\".middlewares = ([\"cloudflarewarp@file\"] + .http.routers.\"${router}\".middlewares)" "${temporary}"
 done
 
-for router in inspr-legacy-paimos-proxy inspr-legacy-pharos-proxy inspr-legacy-janus-proxy; do
+for router in \
+  inspr-legacy-pharos-proxy \
+  inspr-legacy-janus-proxy \
+  ops231-aeon-classic-api \
+  ops231-aeon-classic-browser; do
   if ! yq eval -e ".http.routers.\"${router}\"" "${temporary}" >/dev/null; then
     printf '%s\n' 'shared Flow routing blocked: legacy compatibility routes are incomplete' >&2
     exit 1

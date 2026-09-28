@@ -96,7 +96,7 @@ jq -e --arg provider "$provider_file" '
   and .providerFile == $provider
   and .allowUnpinnedTraefik == false
   and .existingTraefikVersion == "3.7.13"
-  and .upstreamIds == ["aithema", "janus", "paimos", "pharos"]
+  and .upstreamIds == ["aithema", "janus", "pharos"]
   and .packageSystem == "x86_64-linux"
   and (.packageName == "inspr-routing-edge" or .packageName == "routing-edge")
   and .hasRoutingEdgeService == false
