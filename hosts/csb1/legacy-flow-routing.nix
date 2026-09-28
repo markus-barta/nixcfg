@@ -124,6 +124,11 @@ assert builtins.all (
         "${host "vault.barta.cm"} && ${prefixedInternal "janus"}"
         + " && (${privateRule privateSourceRanges.janus})"
       ) [ ] 1400;
+      # NIX-584: no publicProxy to routing-edge-upstream-paimos. Classic
+      # Paimos is gone; pm.barta.cm / flow.inspr.at/paimos are answered by
+      # ppm-aeon-redirect-routing.nix (priorities 15100/15000). Keep
+      # callback/login/browser redirects and /internal deny so a missing
+      # Aeon fragment still cannot reach a dead container.
       inspr-legacy-paimos-public-internal = denyInternal "pm.barta.cm" (
         "${rootInternal} || ${prefixedInternal "paimos"}"
       );
@@ -136,9 +141,6 @@ assert builtins.all (
 
       # Native-prefix non-browser requests pass unchanged. HTML navigation
       # moves to the shared host; API, machine, internal and callback rules win.
-      inspr-legacy-paimos-prefixed = publicProxy "paimos" (
-        "${host "pm.barta.cm"} && ${prefixedPath "paimos"}"
-      ) [ ] 850;
       inspr-legacy-pharos-prefixed = publicProxy "pharos" (
         "${host "pharos.barta.cm"} && ${prefixedPath "pharos"}"
       ) [ ] 850;
@@ -148,9 +150,6 @@ assert builtins.all (
 
       # API paths remain APIs for every method and Accept header. Application
       # authentication, authorization, CSRF, and method handling stay decisive.
-      inspr-legacy-paimos-api = publicProxy "paimos" ("${host "pm.barta.cm"} && ${rootApi}") [
-        "inspr-legacy-paimos-prefix"
-      ] 1100;
       inspr-legacy-pharos-api = publicProxy "pharos" ("${host "pharos.barta.cm"} && ${rootApi}") [
         "inspr-legacy-pharos-prefix"
       ] 1100;
@@ -158,9 +157,6 @@ assert builtins.all (
         "inspr-legacy-janus-prefix"
       ] 1100;
 
-      inspr-legacy-paimos-prefixed-api = publicProxy "paimos" (
-        "${host "pm.barta.cm"} && ${pathRegexp "^/paimos(/|%2[fF])api(/|%2[fF]|$)"}"
-      ) [ ] 1100;
       inspr-legacy-pharos-prefixed-api = publicProxy "pharos" (
         "${host "pharos.barta.cm"} && ${pathRegexp "^/pharos(/|%2[fF])api(/|%2[fF]|$)"}"
       ) [ ] 1100;
@@ -170,14 +166,6 @@ assert builtins.all (
 
       # Stable machine and asset roots must not become browser redirects even
       # when a caller sends a broad or HTML-capable Accept header.
-      inspr-legacy-paimos-machine = publicProxy "paimos" (
-        "${host "pm.barta.cm"} && (${
-          pathFamilies [
-            "/brand"
-            "/assets"
-          ]
-        })"
-      ) [ "inspr-legacy-paimos-prefix" ] 1050;
       inspr-legacy-pharos-machine = publicProxy "pharos" (
         "${host "pharos.barta.cm"}"
         + " && (${
@@ -207,14 +195,6 @@ assert builtins.all (
          })"
       ) [ "inspr-legacy-janus-prefix" ] 1050;
 
-      inspr-legacy-paimos-prefixed-machine = publicProxy "paimos" (
-        "${host "pm.barta.cm"} && (${
-          pathFamilies [
-            "/paimos/brand"
-            "/paimos/assets"
-          ]
-        })"
-      ) [ ] 1050;
       inspr-legacy-pharos-prefixed-machine = publicProxy "pharos" (
         "${host "pharos.barta.cm"} && (${
           pathFamilies [
@@ -255,9 +235,6 @@ assert builtins.all (
         "${host "vault.barta.cm"} && ${getOrHead} && ${htmlNavigation}"
       ) "inspr-legacy-janus-browser" 900;
 
-      inspr-legacy-paimos-proxy = publicProxy "paimos" (host "pm.barta.cm") [
-        "inspr-legacy-paimos-prefix"
-      ] 100;
       inspr-legacy-pharos-proxy = publicProxy "pharos" (host "pharos.barta.cm") [
         "inspr-legacy-pharos-prefix"
       ] 100;
@@ -267,7 +244,6 @@ assert builtins.all (
     };
 
     middlewares = {
-      inspr-legacy-paimos-prefix.addPrefix.prefix = "/paimos";
       inspr-legacy-pharos-prefix.addPrefix.prefix = "/pharos";
       inspr-legacy-janus-prefix.addPrefix.prefix = "/janus";
 

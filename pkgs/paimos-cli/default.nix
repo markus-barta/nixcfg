@@ -1,3 +1,4 @@
+# NIX-584: kept only for pma until it moves to Aeon (evening 2026-09-28); remove in the follow-up
 # ╔══════════════════════════════════════════════════════════════════════════════╗
 # ║  paimos-cli — PAIMOS CLI plus operator-local process supervisor             ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝

@@ -56,7 +56,7 @@ stdenvNoCC.mkDerivation {
     # from its $0, so one link per name keeps both working.
     ln -s ../../share/cursor-agent/cursor-agent "$out/libexec/cursor-agent/cursor-agent"
     ln -s ../../share/cursor-agent/cursor-agent "$out/libexec/cursor-agent/agent"
-    # Every consumer (guard shims, paimos-agentd, Pi's CURSOR_AGENT_PATH) runs
+    # Every consumer (guard shims, aeon-agentd, Pi's CURSOR_AGENT_PATH) runs
     # $out/bin. A shell script, not makeBinaryWrapper: dontFixup skips the
     # ad-hoc signing an arm64 Mach-O wrapper would need.
     substitute ${./wrapper.sh} "$out/bin/cursor-agent" \

@@ -32,9 +32,9 @@
   # fails the build, not the host.
   active = false;
 
-  # Same canonical production Paimos origin as NIX-381. https, no userinfo,
-  # query, fragment or path — pharosd `parse_origin` requires path empty or "/".
-  paimosOrigin = "https://pm.barta.cm";
+  # NIX-584: production PPM origin is Aeon. https, no userinfo, query, fragment
+  # or path — pharosd `parse_origin` requires path empty or "/".
+  paimosOrigin = "https://aeon.barta.cm";
 
   # Pharos Flow host_id (valid_host_id): first alphabetic, then [A-Za-z0-9._-].
   hostId = "pharos-csb1";

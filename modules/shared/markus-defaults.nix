@@ -28,11 +28,6 @@
 #       below maps `hostname` (extraSpecialArg) to the host-specific
 #       key filenames + pubkeys.
 #
-#   - inspr.paimos-cli.{instances, defaultInstance}
-#       PPM (https://pm.barta.cm) as default non-secret routing. Workstations
-#       authenticate interactively with `paimos auth login`; credentials stay
-#       in the OS keyring and are never rendered by Home Manager.
-#
 #   - inspr.cli.fleet
 #       The six public service and routing values used by the inspr CLI. The
 #       generated XDG file contains no credential; authentication remains in
@@ -102,7 +97,6 @@ in
     inputs.inspr-modules.homeManagerModules.git-identity
     inputs.inspr-modules.homeManagerModules.git-atelier-credentials
     inputs.inspr-modules.homeManagerModules.inspr-cli
-    inputs.inspr-modules.homeManagerModules.paimos-config
   ];
 
   # NIX-375: private-studio composition of the public parameterized module.
@@ -111,7 +105,7 @@ in
   inspr.cli.fleet = {
     headscaleUrl = "https://hs.barta.cm";
     tailnetName = "hs.barta.cm";
-    paimosUrl = "https://pm.barta.cm";
+    paimosUrl = "https://aeon.barta.cm";
     paimosInstance = "ppm";
     pharosUrl = "https://pharos.barta.cm";
     pharosHost = "csb1";
@@ -157,30 +151,6 @@ in
         email = "markus@barta.com";
       };
     };
-  };
-
-  inspr.paimos-cli = {
-    defaultInstance = lib.mkDefault "ppm";
-
-    instances.ppm = {
-      url = "https://pm.barta.cm";
-    };
-
-    # Business-side instance (INSPR-287). Routing only — the credential is
-    # seeded interactively with `paimos auth login --name pma` and lives in
-    # the OS keyring, never here.
-    #
-    # This MUST be declared: ~/.paimos/config.yaml is rendered by Home
-    # Manager, so an instance added only by `paimos auth login` is erased by
-    # the next `just switch` — the keyring credential survives, but the CLI
-    # can no longer route to it ("instance not found"). Learned the hard way
-    # on 2026-08-07, minutes after seeding it.
-    instances.pma = {
-      url = "https://paimos.agm.ng";
-    };
-
-    # PMO (INSPR-174) removed 2026-07-13: the former second Paimos instance was
-    # decommissioned with the departure (2026-06-15).
   };
 
   # ── INSPR-170: fleet-wide federated git auth via atelier Strategy B ───

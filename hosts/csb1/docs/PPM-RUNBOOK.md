@@ -1,7 +1,15 @@
-# PPM on csb1 — Runbook
+# PPM on csb1 — Runbook (retired)
 
-PPM (the `paimos` codebase, branded as PPM for `pm.barta.cm`) runs as a
-single container on csb1, behind Traefik. This runbook covers the day-to-day
+**NIX-584 / AEON-261 (2026-09-28):** classic Paimos is retired from nixcfg.
+The `ppm` container is no longer in the csb1 compose spec. `pm.barta.cm` and
+`flow.inspr.at/paimos` redirect to Aeon (`/from-classic`; browser 302, API 410).
+The named volume `csb1_ppm_data` remains declared so compose does not delete it.
+Keep this file as operational history; do not start classic from it.
+
+---
+
+PPM (the classic `paimos` codebase, branded as PPM for `pm.barta.cm`) ran as a
+single container on csb1, behind Traefik. This runbook covered the day-to-day
 operations: deploy, verify, roll back, inspect logs, back up.
 
 **Nothing is built here.** CI (GitHub Actions on `inspr-at/paimos`)

@@ -976,8 +976,8 @@ in
   '';
 
   # HOSTD-58/59: recovery remains paper-only and lock/budget guarded. Alerts
-  # use the managed house mail relay and the existing Amy Paimos webhook route.
-  # Addresses are encrypted; webhook capability/secret remain owned by Paimos.
+  # use the managed house mail relay and Aeon inbox (NIX-584). Addresses are
+  # encrypted; the inbox sender key is enrolled separately.
   age.secrets.hsb0-gateway-notify-config = {
     file = ../../secrets/hsb0-gateway-notify-config.age;
     mode = "0400";
@@ -988,9 +988,8 @@ in
       enable = true;
       transport = "email-agent-bus";
       destinationFile = config.age.secrets.hsb0-gateway-notify-config.path;
-      # PAI-1018 enrollment is pending. Never mount the shared PPM key into
-      # this notifier; email remains independent while chat reports unavailable.
-      paimosApiKeyFile = null;
+      # Chat stays skipped until the Aeon notifier key is enrolled.
+      aeonNotifierKeyFile = null;
     };
   };
 
