@@ -127,6 +127,48 @@ let
   paired = cfg.enable && cfg.paired.enable;
   managed = cfg.enable && !cfg.paired.enable;
   pairedLogRoot = "${home}/Library/Logs/aeon-agentd";
+  # Deliberately pinned Claude runtime (fixed-output: nixpkgs/HM updates never
+  # move it). setup/pair stores the physical store paths behind the stable
+  # links below, and the daemon refuses Claude once a pin stops resolving to
+  # itself, so bumping this is a deliberate step that needs re-pairing the
+  # Claude harness until Aeon re-resolves stable links at start (AEON
+  # follow-up on NIX-589). `aeon-agentd add-harness` is NOT a recovery path:
+  # it validates the existing saved pins first.
+  claudeRuntime = pkgs.callPackage ../../pkgs/aeon-agentd-claude-runtime { };
+  runtimeShare = ".local/share/aeon-agentd";
+  stableNode = "${home}/${runtimeShare}/bin/node";
+  stableSdk = "${home}/${runtimeShare}/lib/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+  # The pinned Aeon release (R10, 6b5e5e7c) has `setup`; `pair` (AEON-333)
+  # arrives with a later release. Set this to that release's version when the
+  # aeon input reaches it, and the hint switches to `pair`.
+  pairSinceVersion = null;
+  usePair = pairSinceVersion != null && lib.versionAtLeast pkgs.aeon-agentd.version pairSinceVersion;
+  pairCommand = lib.escapeShellArgs (
+    [ "aeon-agentd" ]
+    ++ (
+      if usePair then
+        [ "pair" ]
+      else
+        [
+          "setup"
+          "--workspace"
+          cfg.workspace
+          "--state-root"
+          cfg.paired.stateRoot
+        ]
+    )
+    ++ [
+      "--url"
+      "https://aeon.barta.cm"
+      "--harness"
+      "claude"
+      "--node-path"
+      stableNode
+      "--claude-sdk-path"
+      stableSdk
+    ]
+  );
+  pairHint = "run `${pairCommand}`, approve the computer in Aeon, then switch again";
   enrollmentDir = "${home}/Library/Application Support/aeon/agentd";
   pairedService = {
     Label = label;
@@ -148,15 +190,17 @@ let
     Umask = 63;
     StandardOutPath = "${pairedLogRoot}/stdout.log";
     StandardErrorPath = "${pairedLogRoot}/stderr.log";
-    # No wrapper can sit in front of paired harness executables, so the
-    # browser refusal reaches them through the daemon's environment.
+    # No browser-refusal variables here: they would reach every paired harness
+    # and block the native headless route Cursor/Claude keep (NIX-578). Setup
+    # pins the physical target of `codex` on the pairing shell's PATH, which is
+    # the guard's env-only Codex launcher, so the refusal travels with Codex
+    # alone; Cursor and Claude are pinned as their plain executables.
     EnvironmentVariables = {
-      PATH = "${pkgs.nodejs}/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+      PATH = "${claudeRuntime.node}/bin:/usr/bin:/bin:/usr/sbin:/sbin";
       DISABLE_AUTOUPDATER = "1";
       DISABLE_UPDATES = "1";
       FORCE_AUTOUPDATE_PLUGINS = "1";
-    }
-    // guard.launchdEnvironment;
+    };
   };
   pairedPlist = pkgs.writeText "${label}.plist" (
     lib.generators.toPlist { escape = true; } pairedService
@@ -167,6 +211,7 @@ let
     inherit (cfg) workspace;
     pairedRoot = cfg.paired.stateRoot;
     logRoot = pairedLogRoot;
+    inherit pairHint;
     managedPaths = [
       enrollmentDir
       cfg.stateRoot
@@ -182,15 +227,6 @@ let
         main(json.loads(${builtins.toJSON pairedPreflightConfig}))
   '';
   pairedPreflight = "${pkgs.python3}/bin/python3 ${pairedPreflightScript}";
-  # Stable, GC-rooted discovery paths for `aeon-agentd pair` / `setup`:
-  #   --node-path ~/.local/share/aeon-agentd/bin/node
-  # finds the SDK at ../lib/node_modules/@anthropic-ai/claude-agent-sdk.
-  # Setup stores their resolved /nix/store paths (EvalSymlinks) and the daemon
-  # requires the stored pin to still resolve to itself, so a later nodejs/SDK
-  # bump keeps working only while an older generation roots the old paths;
-  # re-pin with `aeon-agentd add-harness` after garbage collection (AEON
-  # follow-up on NIX-589: accept stable symlink pins).
-  runtimeShare = ".local/share/aeon-agentd";
 in
 {
   options.uzumaki.aeon.agentd = {
@@ -254,13 +290,16 @@ in
   };
 
   config = lib.mkMerge [
-    # Both modes: `aeon-agentd pair`/`setup` on PATH (the signed release
-    # binary on macOS, NIX-588) and stable GC-rooted Claude runtime paths.
+    # Both modes: `aeon-agentd setup`/`pair` on PATH (the signed release
+    # binary on macOS, NIX-588) and stable links to the pinned Claude runtime,
+    # kept GC-rooted by the Home Manager closure. Pass them explicitly:
+    #   --node-path ~/.local/share/aeon-agentd/bin/node
+    #   --claude-sdk-path ~/.local/share/aeon-agentd/lib/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs
     (lib.mkIf cfg.enable {
       home.packages = [ pkgs.aeon-agentd ];
-      home.file."${runtimeShare}/bin/node".source = "${pkgs.nodejs}/bin/node";
+      home.file."${runtimeShare}/bin/node".source = "${claudeRuntime.node}/bin/node";
       home.file."${runtimeShare}/lib/node_modules/@anthropic-ai/claude-agent-sdk".source =
-        "${pkgs.claude-agent-sdk}/lib/node_modules/@anthropic-ai/claude-agent-sdk";
+        "${claudeRuntime.sdk}/lib/node_modules/@anthropic-ai/claude-agent-sdk";
     })
     (lib.mkIf managed {
       assertions = [
@@ -355,10 +394,12 @@ in
             && !lib.hasPrefix "${enrollmentDir}/" cfg.paired.stateRoot
             && cfg.paired.stateRoot != enrollmentDir
             && !lib.hasPrefix "${cfg.paired.stateRoot}/" enrollmentDir
-            && (cfg.workspace == "" || !withinWorkspace cfg.paired.stateRoot);
+            && externalPath cfg.workspace
+            && !withinWorkspace cfg.paired.stateRoot;
           message = "Aeon paired agentd requires a private pairing root outside its workspace, the explicit-key daemon state, classic and the Nix store";
         }
         {
+          # The guard's env-only Codex launcher is what setup pins for Codex.
           assertion = guard.enable;
           message = "Aeon paired agentd requires the browser refusal guard";
         }

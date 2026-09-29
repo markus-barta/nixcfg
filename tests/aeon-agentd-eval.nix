@@ -119,6 +119,14 @@ in
     pairedPreflight = paired.config.home.activation.aeonAgentdPreflight;
     pairedState = paired.config.home.activation.aeonAgentdState;
     guardEnvironment = host.config.uzumaki.agentBrowserGuard.launchdEnvironment;
+    guardPrograms = {
+      envOnly = builtins.attrNames host.config.uzumaki.agentBrowserGuard.envOnlyPrograms;
+      native = builtins.attrNames host.config.uzumaki.agentBrowserGuard.nativePrograms;
+      shadowed = builtins.attrNames host.config.uzumaki.agentBrowserGuard.shadowedPrograms;
+    };
+    pairedPreflightScript = builtins.head (
+      builtins.match ".*(/nix/store/[a-z0-9]+-aeon-agentd-paired-preflight\\.py).*" paired.config.home.activation.aeonAgentdPreflight.data
+    );
     homePackages = map (p: p.name or "") host.config.home.packages;
     agentdName = host.pkgs.aeon-agentd.name;
     runtimeFiles = {
@@ -126,8 +134,18 @@ in
       sdk =
         host.config.home.file.".local/share/aeon-agentd/lib/node_modules/@anthropic-ai/claude-agent-sdk".source;
     };
-    nodePath = "${host.pkgs.nodejs}/bin/node";
-    sdkPath = "${host.pkgs.claude-agent-sdk}/lib/node_modules/@anthropic-ai/claude-agent-sdk";
+    claudeRuntime =
+      let
+        rt = host.pkgs.callPackage (root + "/pkgs/aeon-agentd-claude-runtime") { };
+      in
+      {
+        node = "${rt.node}/bin/node";
+        sdk = "${rt.sdk}/lib/node_modules/@anthropic-ai/claude-agent-sdk";
+        nodeFixedOutput = rt.node.outputHash or null;
+        sdkFixedOutput = rt.sdk.outputHash or null;
+      };
+    workspace = host.config.uzumaki.aeon.agentd.workspace;
+    agentdVersion = host.pkgs.aeon-agentd.version;
     invalidPaired = builtins.attrNames invalidPaired;
   };
 }
