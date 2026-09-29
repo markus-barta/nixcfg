@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NIX-583: value-free metadata checks; never open enrollment files."""
+"""NIX-583 / NIX-589: value-free metadata checks; never open enrollment or pairing files."""
 
 import json
 import os
@@ -81,11 +81,148 @@ def preflight(config, prepare=False):
             os.umask(old_umask)
 
 
+# NIX-589: exactly the files `aeon-agentd serve --setup-root` reads through
+# agentsetup.Store.Read before it runs (Aeon 6b5e5e7c, unchanged in 6003e954),
+# with that function's byte bounds: the approval snapshot, the runtime
+# configuration and the runtime credential. Metadata only; never opened.
+PAIRED_FILES = {
+    "pairing.json": 1 << 20,   # Engine.load: snapshotName
+    "runtime.json": 128 << 10,  # ReadRuntimeConfig: RuntimeName
+    "runtime.key": 4096,        # ReadRuntime
+}
+
+
+def walk(path, label, create=False, allow_missing=False):
+    """Open `path` component by component from / without following symlinks.
+
+    Mirrors agentsetup.openDirectory: every component is owned by the user or
+    root and is not group/other writable (a root-owned sticky directory is
+    allowed), and the final directory is owned by the user with mode 0700.
+    Missing components are created with mode 0700 relative to their parent's
+    file descriptor when `create` is set. Returns the final directory's fd, or
+    None when it is missing and `allow_missing` is set.
+    """
+    text = str(path)
+    require(path.is_absolute() and os.path.normpath(text) == text and text != "/",
+            f"{label} must be a physical absolute path")
+    parts = text.strip("/").split("/")
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for index, part in enumerate(parts):
+            flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            try:
+                nxt = os.open(part, flags, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    if allow_missing:
+                        os.close(fd)
+                        fd = -1
+                        return None
+                    raise
+                os.mkdir(part, 0o700, dir_fd=fd)
+                nxt = os.open(part, flags, dir_fd=fd)
+            except OSError:
+                raise PreflightError(f"{label} and its ancestors must be real directories, not symlinks")
+            os.close(fd)
+            fd = nxt
+            info = os.fstat(fd)
+            owned = info.st_uid == os.getuid()
+            trusted = (owned or info.st_uid == 0) and (
+                stat.S_IMODE(info.st_mode) & 0o022 == 0
+                or info.st_uid == 0 and info.st_mode & stat.S_ISVTX)
+            require(trusted, f"{label}: every ancestor must be owned by you or root and not writable by others")
+            if index == len(parts) - 1:
+                require(owned and stat.S_IMODE(info.st_mode) == 0o700,
+                        f"{label} must be owned by you with mode 0700")
+        result, fd = fd, -1
+        return result
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
+def private_entry(dir_fd, name, label, maximum=None):
+    info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    require(stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600
+            and info.st_uid == os.getuid() and info.st_nlink == 1
+            and (maximum is None or 0 < info.st_size <= maximum),
+            f"{label} must be an owner-owned regular mode-0600 file with one link"
+            + ("" if maximum is None else f" and 1..{maximum} bytes"))
+
+
+def paired_preflight(config, prepare=False):
+    """NIX-589: the paired runtime starts only from an approved pairing root.
+
+    Setup writes runtime.json and runtime.key only after the person approves
+    the computer in Aeon. Whether that approval is still valid (revocation,
+    fences) lives in the file contents, which this metadata gate never reads;
+    the daemon itself refuses a revoked pairing and exits cleanly.
+    """
+    home = Path(config["home"])
+    root = Path(config["pairedRoot"])
+    logs = Path(config["logRoot"])
+    hint = config["pairHint"]
+    workspace = Path(config["workspace"]) if config.get("workspace") else None
+    managed = [Path(p) for p in config["managedPaths"]]
+    classic = [home / "Library/Caches/paimos", home / "Library/Application Support/paimos"]
+    for path in (root, logs):
+        physical(path, "paired path")
+        require(home in path.parents and not str(path).startswith("/nix/store/"),
+                "paired path must be inside home and outside the Nix store")
+        require(not any(p == path or p in path.parents or path in p.parents for p in managed + classic),
+                "paired path overlaps the explicit-key daemon or classic state")
+        require(workspace is None or not (workspace == path or workspace in path.parents
+                                          or path in workspace.parents),
+                "paired path must be outside the approved workspace")
+    try:
+        root_fd = walk(root, "pairing root")
+    except FileNotFoundError:
+        raise PreflightError(f"no approved pairing yet: {hint}")
+    try:
+        for name, maximum in PAIRED_FILES.items():
+            try:
+                private_entry(root_fd, name, f"pairing file {name}", maximum)
+            except FileNotFoundError:
+                raise PreflightError(f"pairing is not approved yet ({name} missing): {hint}")
+        try:
+            info = os.stat("daemon", dir_fd=root_fd, follow_symlinks=False)
+            require(stat.S_ISDIR(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o700
+                    and info.st_uid == os.getuid(), "paired daemon state must be owner-owned mode 0700")
+        except FileNotFoundError:
+            pass
+    finally:
+        os.close(root_fd)
+    # Same as managed mode: every write below runs under umask 077 whatever
+    # the caller inherited, and the result is rechecked, never trusted.
+    old_umask = os.umask(0o077) if prepare else None
+    try:
+        log_fd = walk(logs, "paired log root", create=prepare, allow_missing=not prepare)
+        if log_fd is None:
+            return
+        try:
+            for name in ("stdout.log", "stderr.log"):
+                try:
+                    private_entry(log_fd, name, f"log {name}")
+                except FileNotFoundError:
+                    if not prepare:
+                        continue
+                    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
+                                 dir_fd=log_fd)
+                    os.close(fd)
+                    private_entry(log_fd, name, f"log {name}")
+        finally:
+            os.close(log_fd)
+    finally:
+        if old_umask is not None:
+            os.umask(old_umask)
+
+
 def main(config):
     try:
         require(len(sys.argv) == 2 and sys.argv[1] in ("check", "prepare"), "invalid preflight invocation")
         # Nix embeds path metadata in this script; no configuration-file reads.
-        preflight(config, prepare=sys.argv[1] == "prepare")
+        run = paired_preflight if config.get("mode") == "paired" else preflight
+        run(config, prepare=sys.argv[1] == "prepare")
     except PreflightError as error:
         print(f"aeon-agentd: {error}", file=sys.stderr)
         sys.exit(1)
