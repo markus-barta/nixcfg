@@ -118,6 +118,109 @@ class MetadataTests(unittest.TestCase):
         self.assertTrue(log.is_symlink())
 
 
+class PairedPreflightTests(unittest.TestCase):
+    """NIX-589: metadata-only gate before switching to the paired runtime."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.home = Path(self.temp.name).resolve()
+        self.home.chmod(0o755)
+        support = self.home / "Library/Application Support"
+        support.mkdir(parents=True, mode=0o700)
+        (self.home / "Library").chmod(0o700)
+        self.root = support / "aeon/paired"
+        self.enrollment = support / "aeon/agentd"
+        self.workspace = self.home / "Code"
+        self.workspace.mkdir()
+        self.logs = self.home / "Library/Logs/aeon-agentd"
+        self.config = dict(mode="paired", home=str(self.home), workspace=str(self.workspace),
+                           pairedRoot=str(self.root), logRoot=str(self.logs),
+                           managedPaths=[str(self.enrollment), str(self.enrollment / "state")])
+
+    def approve(self):
+        (self.root.parent).mkdir(mode=0o700, exist_ok=True)
+        self.root.mkdir(mode=0o700)
+        for name in ("runtime.json", "runtime.key"):
+            path = self.root / name
+            path.write_text("synthetic fixture, not a credential")
+            path.chmod(0o600)
+
+    def run_gate(self, config=None, prepare=False):
+        preflight.paired_preflight(config or self.config, prepare=prepare)
+
+    def test_missing_or_unapproved_root_refused_with_pairing_hint(self):
+        with self.assertRaises(preflight.PreflightError) as missing:
+            self.run_gate()
+        self.assertIn("aeon-agentd pair", str(missing.exception))
+        self.root.parent.mkdir(mode=0o700)
+        self.root.mkdir(mode=0o700)
+        with self.assertRaises(preflight.PreflightError) as unapproved:
+            self.run_gate()
+        self.assertIn("not approved yet", str(unapproved.exception))
+        (self.root / "runtime.json").write_text("x")
+        (self.root / "runtime.json").chmod(0o600)
+        with self.assertRaises(preflight.PreflightError):
+            self.run_gate()  # the runtime credential is still missing
+
+    def test_approved_root_passes_read_only_and_prepare_creates_private_logs(self):
+        self.approve()
+        with patch.object(Path, "read_text", side_effect=AssertionError("private read")), \
+             patch.object(Path, "read_bytes", side_effect=AssertionError("private read")):
+            self.run_gate()
+        self.assertFalse(self.logs.exists())
+        self.run_gate(prepare=True)
+        self.assertEqual(stat.S_IMODE(self.logs.stat().st_mode), 0o700)
+        for name in ("stdout.log", "stderr.log"):
+            self.assertEqual(stat.S_IMODE((self.logs / name).stat().st_mode), 0o600)
+        self.run_gate(prepare=True)  # idempotent
+
+    def test_too_open_root_or_files_refused(self):
+        self.approve()
+        self.root.chmod(0o750)
+        with self.assertRaises(preflight.PreflightError):
+            self.run_gate()
+        self.root.chmod(0o700)
+        (self.root / "runtime.key").chmod(0o644)
+        with self.assertRaises(preflight.PreflightError):
+            self.run_gate()
+
+    def test_writable_ancestor_refused(self):
+        self.approve()
+        self.root.parent.chmod(0o777)
+        with self.assertRaises(preflight.PreflightError):
+            self.run_gate()
+
+    def test_symlinked_root_or_credential_refused(self):
+        self.approve()
+        key = self.root / "runtime.key"
+        key.unlink()
+        key.symlink_to(self.root / "runtime.json")
+        with self.assertRaises(preflight.PreflightError):
+            self.run_gate()
+
+    def test_overlap_with_workspace_explicit_key_state_classic_or_store_refused(self):
+        self.approve()
+        for name, root in {"workspace": self.workspace / "paired",
+                           "explicit-key state": self.enrollment / "paired",
+                           "explicit-key root": self.enrollment,
+                           "classic": self.home / "Library/Application Support/paimos/paired",
+                           "store": Path("/nix/store/example/paired"),
+                           "outside home": Path("/tmp/paired")}.items():
+            with self.subTest(case=name):
+                with self.assertRaises(preflight.PreflightError):
+                    self.run_gate(self.config | {"pairedRoot": str(root)})
+
+    def test_main_dispatches_by_mode(self):
+        with patch.object(sys, "argv", ["preflight", "check"]), \
+             patch.object(preflight, "paired_preflight") as paired, \
+             patch.object(preflight, "preflight") as managed:
+            preflight.main({"mode": "paired"})
+            preflight.main({})
+        paired.assert_called_once()
+        managed.assert_called_once()
+
+
 class HomeManagerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -150,6 +253,61 @@ class HomeManagerTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Failed assertions", result.stderr)
                 self.assertIn(message, result.stderr)
+
+    def test_paired_mode_is_opt_in_and_default_root_matches_aeon_pair(self):
+        e = self.evidence
+        self.assertFalse(e["pairedDefaultEnabled"])
+        self.assertFalse(e["hostPairedEnabled"])
+        self.assertTrue(e["pairedStateRootDefault"].endswith("/Library/Application Support/aeon/paired"))
+        self.assertEqual(e["pairedAssertions"], [])
+
+    def test_paired_service_is_the_same_label_with_setup_root_only(self):
+        e = self.evidence
+        service = e["pairedService"]
+        self.assertEqual(service["Label"], "at.inspr.aeon-agentd")
+        self.assertEqual(service["Label"], e["managedService"]["Label"])
+        args = service["ProgramArguments"]
+        self.assertTrue(args[0].endswith("/bin/aeon-agentd"))
+        self.assertEqual(args[1:], ["serve", "--setup-root", e["pairedStateRootDefault"]])
+        self.assertEqual(service["Umask"], 63)
+        self.assertEqual({k: v for k, v in service["KeepAlive"].items() if v is not None},
+                         {"SuccessfulExit": False})
+        env = service["EnvironmentVariables"]
+        for name, value in e["guardEnvironment"].items():
+            self.assertEqual(env[name], value)
+        self.assertRegex(env["PATH"], r"^/nix/store/[^/]+-nodejs-[^/]+/bin:/usr/bin:/bin:/usr/sbin:/sbin$")
+        self.assertTrue(service["StandardOutPath"].endswith("/Library/Logs/aeon-agentd/stdout.log"))
+        self.assertIn("writeBoundary", e["pairedPreflight"]["before"])
+        self.assertIn("aeon-agentd-paired-preflight.py", e["pairedPreflight"]["data"])
+        self.assertIn("setupLaunchAgents", e["pairedState"]["before"])
+
+    def test_managed_mode_unchanged_when_paired_is_off(self):
+        # The host keeps paired mode off: its service is exactly the managed one.
+        # Byte-level evidence for the PR: the built plist is identical to the
+        # installed pre-NIX-589 generation; here the evaluated service must be
+        # exactly the explicit-key one.
+        self.assertEqual(self.evidence["managedService"], self.evidence["service"])
+        self.assertIn("--agent-key-file", self.evidence["managedService"]["ProgramArguments"])
+        self.assertNotIn("--setup-root", self.evidence["managedService"]["ProgramArguments"])
+
+    def test_invalid_paired_roots_fail_evaluation(self):
+        message = "requires a private pairing root outside its workspace"
+        expected = {"pairedInWorkspace", "pairedInStore", "pairedInExplicitKeyState",
+                    "pairedIsExplicitKeyState", "pairedInClassic", "pairedRelative"}
+        self.assertEqual(expected, set(self.evidence["invalidPaired"]))
+        for case in sorted(expected):
+            with self.subTest(case=case):
+                expr = f'(import {ROOT}/tests/aeon-agentd-eval.nix {{ root = {ROOT}; }}).invalidPairedCandidates.{case}.drvPath'
+                result = subprocess.run(["nix", "eval", "--impure", "--raw", "--expr", expr],
+                                        cwd=ROOT, capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+
+    def test_agentd_on_path_and_claude_runtime_gc_rooted(self):
+        e = self.evidence
+        self.assertIn(e["agentdName"], e["homePackages"])
+        self.assertEqual(e["runtimeFiles"]["node"], e["nodePath"])
+        self.assertEqual(e["runtimeFiles"]["sdk"], e["sdkPath"])
 
     def test_darwin_agentd_is_the_signed_release_binary(self):
         # NIX-588 / AEON-285: macOS runs the Developer ID signed release asset

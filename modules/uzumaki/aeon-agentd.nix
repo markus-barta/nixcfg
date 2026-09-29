@@ -1,4 +1,7 @@
 # NIX-583: isolated Aeon owner. Classic paimos-agentd was retired in NIX-584.
+# NIX-589: optional paired mode. The same LaunchAgent label then runs
+# `aeon-agentd serve --setup-root <paired.stateRoot>` from a person-approved
+# pairing (`aeon-agentd pair`, AEON-333) instead of the explicit-key daemon.
 {
   config,
   lib,
@@ -118,6 +121,76 @@ let
         main(json.loads(${builtins.toJSON preflightConfig}))
   '';
   preflight = "${pkgs.python3}/bin/python3 ${preflightScript}";
+
+  # NIX-589: paired mode. Paired serve accepts no runtime overrides; harness
+  # executables and the Claude Node/SDK pins come from the approved pairing.
+  paired = cfg.enable && cfg.paired.enable;
+  managed = cfg.enable && !cfg.paired.enable;
+  pairedLogRoot = "${home}/Library/Logs/aeon-agentd";
+  enrollmentDir = "${home}/Library/Application Support/aeon/agentd";
+  pairedService = {
+    Label = label;
+    ProgramArguments = [
+      "${pkgs.aeon-agentd}/bin/aeon-agentd"
+      "serve"
+      "--setup-root"
+      cfg.paired.stateRoot
+    ];
+    WorkingDirectory = home;
+    RunAtLoad = true;
+    # A revoked or disconnected pairing makes paired serve exit 0 on purpose;
+    # launchd must not restart it then (and HM must not revive it: preflight).
+    KeepAlive = {
+      SuccessfulExit = false;
+    };
+    ProcessType = "Background";
+    ThrottleInterval = 30;
+    Umask = 63;
+    StandardOutPath = "${pairedLogRoot}/stdout.log";
+    StandardErrorPath = "${pairedLogRoot}/stderr.log";
+    # No wrapper can sit in front of paired harness executables, so the
+    # browser refusal reaches them through the daemon's environment.
+    EnvironmentVariables = {
+      PATH = "${pkgs.nodejs}/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+      DISABLE_AUTOUPDATER = "1";
+      DISABLE_UPDATES = "1";
+      FORCE_AUTOUPDATE_PLUGINS = "1";
+    }
+    // guard.launchdEnvironment;
+  };
+  pairedPlist = pkgs.writeText "${label}.plist" (
+    lib.generators.toPlist { escape = true; } pairedService
+  );
+  pairedPreflightConfig = builtins.toJSON {
+    mode = "paired";
+    inherit home;
+    inherit (cfg) workspace;
+    pairedRoot = cfg.paired.stateRoot;
+    logRoot = pairedLogRoot;
+    managedPaths = [
+      enrollmentDir
+      cfg.stateRoot
+    ]
+    ++ lib.filter (p: p != "") [
+      cfg.agentKeyFile
+      cfg.accountsFile
+    ];
+  };
+  pairedPreflightScript = pkgs.writeText "aeon-agentd-paired-preflight.py" ''
+    ${builtins.readFile ../../scripts/aeon-agentd-preflight.py}
+    if __name__ == "__main__":
+        main(json.loads(${builtins.toJSON pairedPreflightConfig}))
+  '';
+  pairedPreflight = "${pkgs.python3}/bin/python3 ${pairedPreflightScript}";
+  # Stable, GC-rooted discovery paths for `aeon-agentd pair` / `setup`:
+  #   --node-path ~/.local/share/aeon-agentd/bin/node
+  # finds the SDK at ../lib/node_modules/@anthropic-ai/claude-agent-sdk.
+  # Setup stores their resolved /nix/store paths (EvalSymlinks) and the daemon
+  # requires the stored pin to still resolve to itself, so a later nodejs/SDK
+  # bump keeps working only while an older generation roots the old paths;
+  # re-pin with `aeon-agentd add-harness` after garbage collection (AEON
+  # follow-up on NIX-589: accept stable symlink pins).
+  runtimeShare = ".local/share/aeon-agentd";
 in
 {
   options.uzumaki.aeon.agentd = {
@@ -152,6 +225,24 @@ in
     claudePath = vendorOption "Claude";
     piPath = vendorOption "Pi";
     cursorPath = vendorOption "Cursor";
+    paired = {
+      enable = lib.mkEnableOption ''
+        the person-approved paired runtime on the same LaunchAgent label
+        (`serve --setup-root`). Pair first with `aeon-agentd pair --url
+        https://aeon.barta.cm` and approve the computer in Aeon; activation
+        refuses to switch until that pairing root is approved'';
+      stateRoot = lib.mkOption {
+        type = lib.types.str;
+        default = "${home}/Library/Application Support/aeon/paired";
+        description = ''
+          Private pairing root written by `aeon-agentd pair`/`setup` (AEON-333
+          default on macOS). Owner-owned mode 0700, outside the workspace, the
+          Nix store and the explicit-key daemon state.
+        '';
+      };
+      # TODO(AEON-334): pi as a paired harness arrives with guided setup; no
+      # module change is expected beyond keeping its executable GC-rooted.
+    };
     estimates = lib.genAttrs [ "requests" "tokens" "cost-micros" ] (
       unit:
       lib.mkOption {
@@ -162,85 +253,146 @@ in
     );
   };
 
-  config = lib.mkIf cfg.enable {
-    assertions = [
-      {
-        assertion = pkgs.stdenv.hostPlatform.isDarwin;
-        message = "Aeon agentd requires macOS launchd";
-      }
-      {
-        assertion =
-          lib.all externalPath [
-            cfg.agentKeyFile
-            cfg.accountsFile
-            cfg.workspace
-          ]
-          && cfg.agentKeyFile != cfg.accountsFile
-          && !lib.any withinWorkspace [
-            cfg.agentKeyFile
-            cfg.accountsFile
-            cfg.stateRoot
-          ];
-        message = "Aeon agentd requires distinct private paths outside its workspace, classic and the Nix store";
-      }
-      {
-        assertion = builtins.match "[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}" cfg.daemonId != null;
-        message = "Aeon agentd requires a stable opaque daemonId";
-      }
-      {
-        assertion = lib.any (n: n > 0) (lib.attrValues cfg.estimates);
-        message = "Aeon agentd requires at least one approved positive allowance estimate";
-      }
-      {
-        assertion =
-          lib.all pinnedPath [
-            cfg.codexPath
-            cfg.claudePath
-            cfg.piPath
-            cfg.cursorPath
-          ]
-          && lib.any (p: p != null) [
-            cfg.codexPath
-            cfg.claudePath
-            cfg.piPath
-            cfg.cursorPath
-          ];
-        message = "Aeon agentd requires at least one pinned Nix store vendor executable";
-      }
-      {
-        assertion = cfg.codexPath == null || guard.enable;
-        message = "Aeon agentd Codex requires the browser refusal guard";
-      }
-    ];
+  config = lib.mkMerge [
+    # Both modes: `aeon-agentd pair`/`setup` on PATH (the signed release
+    # binary on macOS, NIX-588) and stable GC-rooted Claude runtime paths.
+    (lib.mkIf cfg.enable {
+      home.packages = [ pkgs.aeon-agentd ];
+      home.file."${runtimeShare}/bin/node".source = "${pkgs.nodejs}/bin/node";
+      home.file."${runtimeShare}/lib/node_modules/@anthropic-ai/claude-agent-sdk".source =
+        "${pkgs.claude-agent-sdk}/lib/node_modules/@anthropic-ai/claude-agent-sdk";
+    })
+    (lib.mkIf managed {
+      assertions = [
+        {
+          assertion = pkgs.stdenv.hostPlatform.isDarwin;
+          message = "Aeon agentd requires macOS launchd";
+        }
+        {
+          assertion =
+            lib.all externalPath [
+              cfg.agentKeyFile
+              cfg.accountsFile
+              cfg.workspace
+            ]
+            && cfg.agentKeyFile != cfg.accountsFile
+            && !lib.any withinWorkspace [
+              cfg.agentKeyFile
+              cfg.accountsFile
+              cfg.stateRoot
+            ];
+          message = "Aeon agentd requires distinct private paths outside its workspace, classic and the Nix store";
+        }
+        {
+          assertion = builtins.match "[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}" cfg.daemonId != null;
+          message = "Aeon agentd requires a stable opaque daemonId";
+        }
+        {
+          assertion = lib.any (n: n > 0) (lib.attrValues cfg.estimates);
+          message = "Aeon agentd requires at least one approved positive allowance estimate";
+        }
+        {
+          assertion =
+            lib.all pinnedPath [
+              cfg.codexPath
+              cfg.claudePath
+              cfg.piPath
+              cfg.cursorPath
+            ]
+            && lib.any (p: p != null) [
+              cfg.codexPath
+              cfg.claudePath
+              cfg.piPath
+              cfg.cursorPath
+            ];
+          message = "Aeon agentd requires at least one pinned Nix store vendor executable";
+        }
+        {
+          assertion = cfg.codexPath == null || guard.enable;
+          message = "Aeon agentd Codex requires the browser refusal guard";
+        }
+      ];
 
-    # Check before HM changes anything. This helper reads metadata only, never
-    # credential/registry bytes; the pinned daemon validates their semantics.
-    home.activation.aeonAgentdPreflight = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
-      ${preflight} check
-    '';
-    home.activation.aeonAgentdState =
-      lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ]
-        ''
-          run ${preflight} prepare
-        '';
-    launchd.agents.aeon-agentd = {
-      enable = true;
-      config = service;
-    };
+      # Check before HM changes anything. This helper reads metadata only, never
+      # credential/registry bytes; the pinned daemon validates their semantics.
+      home.activation.aeonAgentdPreflight = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+        ${preflight} check
+      '';
+      home.activation.aeonAgentdState =
+        lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ]
+          ''
+            run ${preflight} prepare
+          '';
+      launchd.agents.aeon-agentd = {
+        enable = true;
+        config = service;
+      };
 
-    # Preserve direct executable ownership, avoiding HM's sh/wait4path wrapper.
-    home.extraBuilderCommands = lib.mkOrder 1600 ''
-      aeon_agents=$(${pkgs.coreutils}/bin/readlink -f "$out/LaunchAgents")
-      aeon_direct="$out/LaunchAgents-aeon-direct"
-      ${pkgs.coreutils}/bin/mkdir -p "$aeon_direct"
-      for agent in "$aeon_agents"/*.plist; do
-        [ -e "$agent" ] || continue
-        name=$(${pkgs.coreutils}/bin/basename "$agent")
-        ${pkgs.coreutils}/bin/ln -s "$(${pkgs.coreutils}/bin/readlink -f "$agent")" "$aeon_direct/$name"
-      done
-      ${pkgs.coreutils}/bin/ln -sfn ${lib.escapeShellArg plist} "$aeon_direct/${label}.plist"
-      ${pkgs.coreutils}/bin/unlink "$out/LaunchAgents"
-      ${pkgs.coreutils}/bin/ln -s LaunchAgents-aeon-direct "$out/LaunchAgents"
-    '';
-  };
+      # Preserve direct executable ownership, avoiding HM's sh/wait4path wrapper.
+      home.extraBuilderCommands = lib.mkOrder 1600 ''
+        aeon_agents=$(${pkgs.coreutils}/bin/readlink -f "$out/LaunchAgents")
+        aeon_direct="$out/LaunchAgents-aeon-direct"
+        ${pkgs.coreutils}/bin/mkdir -p "$aeon_direct"
+        for agent in "$aeon_agents"/*.plist; do
+          [ -e "$agent" ] || continue
+          name=$(${pkgs.coreutils}/bin/basename "$agent")
+          ${pkgs.coreutils}/bin/ln -s "$(${pkgs.coreutils}/bin/readlink -f "$agent")" "$aeon_direct/$name"
+        done
+        ${pkgs.coreutils}/bin/ln -sfn ${lib.escapeShellArg plist} "$aeon_direct/${label}.plist"
+        ${pkgs.coreutils}/bin/unlink "$out/LaunchAgents"
+        ${pkgs.coreutils}/bin/ln -s LaunchAgents-aeon-direct "$out/LaunchAgents"
+      '';
+    })
+    (lib.mkIf paired {
+      assertions = [
+        {
+          assertion = pkgs.stdenv.hostPlatform.isDarwin;
+          message = "Aeon agentd requires macOS launchd";
+        }
+        {
+          assertion =
+            externalPath cfg.paired.stateRoot
+            && !lib.hasPrefix "${enrollmentDir}/" cfg.paired.stateRoot
+            && cfg.paired.stateRoot != enrollmentDir
+            && !lib.hasPrefix "${cfg.paired.stateRoot}/" enrollmentDir
+            && (cfg.workspace == "" || !withinWorkspace cfg.paired.stateRoot);
+          message = "Aeon paired agentd requires a private pairing root outside its workspace, the explicit-key daemon state, classic and the Nix store";
+        }
+        {
+          assertion = guard.enable;
+          message = "Aeon paired agentd requires the browser refusal guard";
+        }
+      ];
+
+      # Refuse before HM changes anything: an unapproved or unsafe pairing root
+      # aborts this activation, so the previous generation (and its running
+      # explicit-key daemon) stays exactly as it was.
+      home.activation.aeonAgentdPreflight = lib.hm.dag.entryBefore [ "writeBoundary" ] ''
+        ${pairedPreflight} check
+      '';
+      home.activation.aeonAgentdState =
+        lib.hm.dag.entryBetween [ "setupLaunchAgents" ] [ "writeBoundary" ]
+          ''
+            run ${pairedPreflight} prepare
+          '';
+      launchd.agents.aeon-agentd = {
+        enable = true;
+        config = pairedService;
+      };
+
+      home.extraBuilderCommands = lib.mkOrder 1600 ''
+        aeon_agents=$(${pkgs.coreutils}/bin/readlink -f "$out/LaunchAgents")
+        aeon_direct="$out/LaunchAgents-aeon-direct"
+        ${pkgs.coreutils}/bin/mkdir -p "$aeon_direct"
+        for agent in "$aeon_agents"/*.plist; do
+          [ -e "$agent" ] || continue
+          name=$(${pkgs.coreutils}/bin/basename "$agent")
+          ${pkgs.coreutils}/bin/ln -s "$(${pkgs.coreutils}/bin/readlink -f "$agent")" "$aeon_direct/$name"
+        done
+        ${pkgs.coreutils}/bin/ln -sfn ${lib.escapeShellArg pairedPlist} "$aeon_direct/${label}.plist"
+        ${pkgs.coreutils}/bin/unlink "$out/LaunchAgents"
+        ${pkgs.coreutils}/bin/ln -s LaunchAgents-aeon-direct "$out/LaunchAgents"
+      '';
+    })
+  ];
 }
