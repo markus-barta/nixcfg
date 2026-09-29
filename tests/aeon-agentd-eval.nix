@@ -20,6 +20,44 @@ let
       ];
     };
   enabled = candidate { };
+  # NIX-589: paired mode on the same label; build/eval only, never activated.
+  pairedCandidate =
+    changes:
+    host.extendModules {
+      # Separate modules so `changes` merges into `paired` instead of
+      # replacing the attribute set.
+      modules = [
+        {
+          uzumaki.aeon.agentd = {
+            enable = lib.mkForce true;
+            paired.enable = true;
+          };
+        }
+        { uzumaki.aeon.agentd = changes; }
+      ];
+    };
+  paired = pairedCandidate { };
+  home = base.config.home.homeDirectory;
+  invalidPaired = {
+    pairedInWorkspace = {
+      paired.stateRoot = "${home}/Code/paired";
+    };
+    pairedInStore = {
+      paired.stateRoot = "/nix/store/example/paired";
+    };
+    pairedInExplicitKeyState = {
+      paired.stateRoot = "${home}/Library/Application Support/aeon/agentd/paired";
+    };
+    pairedIsExplicitKeyState = {
+      paired.stateRoot = "${home}/Library/Application Support/aeon/agentd";
+    };
+    pairedInClassic = {
+      paired.stateRoot = "${home}/Library/Application Support/paimos/paired";
+    };
+    pairedRelative = {
+      paired.stateRoot = "Library/paired";
+    };
+  };
   failures =
     evaluated: map (a: a.message) (builtins.filter (a: !a.assertion) evaluated.config.assertions);
   invalid = {
@@ -57,6 +95,10 @@ in
   candidate = enabled.activationPackage;
   disabledCandidate = base.activationPackage;
   invalidCandidates = lib.mapAttrs (_name: changes: (candidate changes).activationPackage) invalid;
+  pairedActivation = paired.activationPackage;
+  invalidPairedCandidates = lib.mapAttrs (
+    _name: changes: (pairedCandidate changes).activationPackage
+  ) invalidPaired;
   evidence = {
     moduleDefaultEnabled = host.options.uzumaki.aeon.agentd.enable.default;
     hostEnabled = host.config.uzumaki.aeon.agentd.enable;
@@ -68,5 +110,24 @@ in
     preflight = enabled.config.home.activation.aeonAgentdPreflight;
     state = enabled.config.home.activation.aeonAgentdState;
     invalid = builtins.attrNames invalid;
+    pairedDefaultEnabled = host.options.uzumaki.aeon.agentd.paired.enable.default;
+    hostPairedEnabled = host.config.uzumaki.aeon.agentd.paired.enable;
+    pairedStateRootDefault = host.options.uzumaki.aeon.agentd.paired.stateRoot.default;
+    pairedAssertions = failures paired;
+    pairedService = paired.config.launchd.agents.aeon-agentd.config;
+    managedService = host.config.launchd.agents.aeon-agentd.config;
+    pairedPreflight = paired.config.home.activation.aeonAgentdPreflight;
+    pairedState = paired.config.home.activation.aeonAgentdState;
+    guardEnvironment = host.config.uzumaki.agentBrowserGuard.launchdEnvironment;
+    homePackages = map (p: p.name or "") host.config.home.packages;
+    agentdName = host.pkgs.aeon-agentd.name;
+    runtimeFiles = {
+      node = host.config.home.file.".local/share/aeon-agentd/bin/node".source;
+      sdk =
+        host.config.home.file.".local/share/aeon-agentd/lib/node_modules/@anthropic-ai/claude-agent-sdk".source;
+    };
+    nodePath = "${host.pkgs.nodejs}/bin/node";
+    sdkPath = "${host.pkgs.claude-agent-sdk}/lib/node_modules/@anthropic-ai/claude-agent-sdk";
+    invalidPaired = builtins.attrNames invalidPaired;
   };
 }
