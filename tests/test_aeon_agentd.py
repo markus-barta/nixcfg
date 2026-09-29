@@ -150,10 +150,23 @@ class HomeManagerTests(unittest.TestCase):
                 self.assertIn("Failed assertions", result.stderr)
                 self.assertIn(message, result.stderr)
 
+    def test_darwin_agentd_is_the_signed_release_binary(self):
+        # NIX-588 / AEON-285: macOS runs the Developer ID signed release asset
+        # from the same tag as the aeon input, never the ad-hoc source build.
+        expr = (f'let f = builtins.getFlake "{ROOT}"; p = f.packages.aarch64-darwin.aeon-agentd; '
+                'in builtins.toJSON { inherit (p) version; team = p.passthru.teamID or ""; '
+                'url = p.src.url or (builtins.head p.src.urls); fixup = p.dontFixup or false; }')
+        info = json.loads(subprocess.check_output(["nix", "eval", "--impure", "--raw", "--expr", expr], cwd=ROOT, text=True))
+        tag = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]["original"]["ref"]
+        self.assertEqual("v" + info["version"], tag)
+        self.assertEqual(info["team"], "P66J39QV6V")
+        self.assertTrue(info["fixup"])
+        self.assertEqual(info["url"], f"https://github.com/inspr-at/paimos/releases/download/{tag}/paimos-agentd-darwin-arm64")
+
     def test_argv_matches_exact_reviewed_release(self):
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]
-        self.assertEqual(lock["locked"]["rev"], "3f8d613473ff3ff37db50ecff9e5522de73cc974")
-        self.assertEqual(lock["locked"]["narHash"], "sha256-1n6+D1fWNjWE340XamloraspYs6SpbDEBeUWEFHxOa0=")
+        self.assertEqual(lock["locked"]["rev"], "6b5e5e7c44d765074c160d4b3c1f112a00891c54")
+        self.assertEqual(lock["locked"]["narHash"], "sha256-+un+JuRPlVBzV+FAWQl5RebEU8HybjUDhuf52zgacrY=")
         source = subprocess.check_output(["nix", "eval", "--impure", "--raw", "--expr",
             f'(builtins.getFlake "{ROOT}").inputs.aeon.outPath'], cwd=ROOT, text=True).strip()
         main = (Path(source) / "cmd/aeon-agentd/main.go").read_text()
