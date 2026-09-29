@@ -32,7 +32,7 @@ let
         {
           uzumaki.aeon.agentd = {
             enable = lib.mkForce true;
-            paired.enable = true;
+            paired.enable = lib.mkForce true;
           };
         }
         { uzumaki.aeon.agentd = changes; }
