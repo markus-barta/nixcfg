@@ -3,6 +3,7 @@
 import ast
 import importlib.util
 import json
+import sys
 import os
 from pathlib import Path
 import re
@@ -150,10 +151,68 @@ class HomeManagerTests(unittest.TestCase):
                 self.assertIn("Failed assertions", result.stderr)
                 self.assertIn(message, result.stderr)
 
+    def test_darwin_agentd_is_the_signed_release_binary(self):
+        # NIX-588 / AEON-285: macOS runs the Developer ID signed release asset
+        # from the same tag as the aeon input, never the ad-hoc source build.
+        expr = (f'let f = builtins.getFlake "{ROOT}"; p = f.packages.aarch64-darwin.aeon-agentd; '
+                'in builtins.toJSON { inherit (p) version; team = p.passthru.teamID or ""; '
+                'url = p.src.url or (builtins.head p.src.urls); fixup = p.dontFixup or false; }')
+        info = json.loads(subprocess.check_output(["nix", "eval", "--impure", "--raw", "--expr", expr], cwd=ROOT, text=True))
+        tag = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]["original"]["ref"]
+        self.assertEqual("v" + info["version"], tag)
+        self.assertEqual(info["team"], "P66J39QV6V")
+        self.assertTrue(info["fixup"])
+        self.assertEqual(info["url"], f"https://github.com/inspr-at/paimos/releases/download/{tag}/paimos-agentd-darwin-arm64")
+
+    def test_signed_agentd_check_mirrors_the_daemon_gate(self):
+        # The build must refuse exactly what the daemon's Touch ID gate refuses.
+        expr = (f'(builtins.getFlake "{ROOT}").packages.aarch64-darwin.aeon-agentd.installCheckPhase')
+        check = subprocess.check_output(["nix", "eval", "--impure", "--raw", "--expr", expr], cwd=ROOT, text=True)
+        for needle in ("anchor apple generic",
+                       "certificate leaf[field.1.2.840.113635.100.6.1.13] exists",
+                       'certificate leaf[subject.OU] = "P66J39QV6V"',
+                       "TeamIdentifier=P66J39QV6V", "flags=.*runtime",
+                       "check-entitlements.py"):
+            self.assertIn(needle, check)
+
+    def test_entitlement_check_accepts_only_absent_or_false(self):
+        script = ROOT / "pkgs/aeon-agentd-signed/check-entitlements.py"
+        def plist(body):
+            return ('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>'
+                    f'{body}</dict></plist>')
+        keys = ("com.apple.security.get-task-allow",
+                "com.apple.security.cs.disable-library-validation",
+                "com.apple.security.cs.allow-dyld-environment-variables")
+        accepted = {"empty": "", "no entitlements at all": None,
+                    "unrelated key": "<key>com.apple.security.network.client</key><true/>"}
+        for key in keys:
+            accepted[f"{key} false"] = f"<key>{key}</key>\n\t<false/>"
+        rejected = {}
+        for key in keys:
+            for name, value in {"true": "<true/>", "integer 1": "<integer>1</integer>",
+                                "string YES": "<string>YES</string>", "array": "<array/>",
+                                "missing value": ""}.items():
+                rejected[f"{key} {name}"] = f"<key>{key}</key>{value}"
+            rejected[f"{key} duplicate"] = f"<key>{key}</key><false/><key>{key}</key><true/>"
+            encoded = key[:-1] + "&#%d;" % ord(key[-1])
+            rejected[f"{key} entity-encoded"] = f"<key>{encoded}</key><true/>"
+        for name, body in accepted.items():
+            with self.subTest(accepted=name):
+                data = "" if body is None else plist(body)
+                self.assertEqual(subprocess.run([sys.executable, script], input=data, text=True, capture_output=True).returncode, 0)
+        raw_rejected = {"malformed": "<plist><dict><key>x</key>", "array root": '<plist version="1.0"><array/></plist>',
+                        "not a plist": "hello"}
+        for name, data in raw_rejected.items():
+            with self.subTest(rejected=name):
+                self.assertNotEqual(subprocess.run([sys.executable, script], input=data, text=True, capture_output=True).returncode, 0)
+        for name, body in rejected.items():
+            with self.subTest(rejected=name):
+                self.assertNotEqual(subprocess.run([sys.executable, script], input=plist(body), text=True, capture_output=True).returncode, 0)
+
     def test_argv_matches_exact_reviewed_release(self):
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]
-        self.assertEqual(lock["locked"]["rev"], "3f8d613473ff3ff37db50ecff9e5522de73cc974")
-        self.assertEqual(lock["locked"]["narHash"], "sha256-1n6+D1fWNjWE340XamloraspYs6SpbDEBeUWEFHxOa0=")
+        self.assertEqual(lock["locked"]["rev"], "6b5e5e7c44d765074c160d4b3c1f112a00891c54")
+        self.assertEqual(lock["locked"]["narHash"], "sha256-+un+JuRPlVBzV+FAWQl5RebEU8HybjUDhuf52zgacrY=")
         source = subprocess.check_output(["nix", "eval", "--impure", "--raw", "--expr",
             f'(builtins.getFlake "{ROOT}").inputs.aeon.outPath'], cwd=ROOT, text=True).strip()
         main = (Path(source) / "cmd/aeon-agentd/main.go").read_text()

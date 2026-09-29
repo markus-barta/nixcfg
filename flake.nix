@@ -86,7 +86,9 @@
     # tag; upstream flake with a pinned vendorHash. Its own nixpkgs is kept
     # (not followed) so that hash is built with the Go it was pinned against.
     # NIX-583: reviewed recovery, lifetime fences and managed Codex usage (AEON-233).
-    aeon.url = "github:inspr-at/paimos/v260927160212.0.0"; # 3f8d613473ff3ff37db50ecff9e5522de73cc974
+    # NIX-588: release 10 (stable105) brings `aeon rules compare`; its signed
+    # darwin agentd asset is pinned in pkgs/aeon-agentd-signed (same tag).
+    aeon.url = "github:inspr-at/paimos/v260929113854.0.0"; # 6b5e5e7c44d765074c160d4b3c1f112a00891c54
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.
@@ -157,7 +159,14 @@
         aeon-cli = aeonCli final;
         # NIX-584: `paimos` is the Aeon client in paimos mode.
         aeon-paimos = inputs.aeon.packages.${final.stdenv.hostPlatform.system}.aeon;
-        aeon-agentd = inputs.aeon.packages.${final.stdenv.hostPlatform.system}.aeon-agentd;
+        # NIX-588 / AEON-285: macOS runs the Developer ID signed release binary
+        # (Touch ID watch approval needs the team signature); Linux keeps the
+        # source build.
+        aeon-agentd =
+          if final.stdenv.hostPlatform.isDarwin then
+            final.callPackage ./pkgs/aeon-agentd-signed { }
+          else
+            inputs.aeon.packages.${final.stdenv.hostPlatform.system}.aeon-agentd;
         claude-agent-sdk = final.callPackage ./pkgs/claude-agent-sdk { };
         higgsfield-cli = final.callPackage ./pkgs/higgsfield-cli { };
         cursor-agent = final.callPackage ./pkgs/cursor-agent { };
@@ -497,7 +506,7 @@
             src = inputs.paimos;
           };
           aeon-cli = aeonCli pkgsDarwin;
-          inherit (inputs.aeon.packages.aarch64-darwin) aeon-agentd;
+          aeon-agentd = pkgsDarwin.callPackage ./pkgs/aeon-agentd-signed { }; # NIX-588
           claude-agent-sdk = pkgsDarwin.callPackage ./pkgs/claude-agent-sdk { };
           higgsfield-cli = pkgsDarwin.callPackage ./pkgs/higgsfield-cli { };
           # NIX-514: pinned Cursor CLI; `just update-ai-clis` bumps and builds this attr.
