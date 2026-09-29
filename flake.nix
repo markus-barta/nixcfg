@@ -86,9 +86,9 @@
     # tag; upstream flake with a pinned vendorHash. Its own nixpkgs is kept
     # (not followed) so that hash is built with the Go it was pinned against.
     # NIX-583: reviewed recovery, lifetime fences and managed Codex usage (AEON-233).
-    # NIX-588: release 10 (stable105) brings `aeon rules compare`; its signed
+    # NIX-588/589: release 12 (stable107) brings `aeon-agentd pair`; its signed
     # darwin agentd asset is pinned in pkgs/aeon-agentd-signed (same tag).
-    aeon.url = "github:inspr-at/paimos/v260929113854.0.0"; # 6b5e5e7c44d765074c160d4b3c1f112a00891c54
+    aeon.url = "github:inspr-at/paimos/v260929193046.0.0"; # d6375207f66578bfd0842c3653ea629b98059981
     # INSPR atelier — public Home Manager + NixOS modules (atelier-pattern
     # graduation; INSPR-27/28). The shared atelier (this library) holds the
     # workstation-side primitives that used to live in modules/shared/ here.
