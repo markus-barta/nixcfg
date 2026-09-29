@@ -138,10 +138,9 @@ let
   runtimeShare = ".local/share/aeon-agentd";
   stableNode = "${home}/${runtimeShare}/bin/node";
   stableSdk = "${home}/${runtimeShare}/lib/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
-  # The pinned Aeon release (R10, 6b5e5e7c) has `setup`; `pair` (AEON-333)
-  # arrives with a later release. Set this to that release's version when the
-  # aeon input reaches it, and the hint switches to `pair`.
-  pairSinceVersion = null;
+  # `pair` (AEON-333) exists since release 12 (stable107); older pins get the
+  # equivalent `setup` command.
+  pairSinceVersion = "260929193046.0.0";
   usePair = pairSinceVersion != null && lib.versionAtLeast pkgs.aeon-agentd.version pairSinceVersion;
   # One version-aware command for both the activation refusal and the option
   # documentation (the docs use placeholders instead of configured paths).
@@ -155,17 +154,15 @@ let
     lib.escapeShellArgs (
       [ "aeon-agentd" ]
       ++ (
-        if usePair then
-          [ "pair" ]
-        else
-          [
-            "setup"
-            "--workspace"
-            workspace
-            "--state-root"
-            stateRoot
-          ]
-      )
+        # `pair` would take the current directory as the working folder, so
+        # both commands name workspace and pairing root explicitly.
+        [
+          (if usePair then "pair" else "setup")
+          "--workspace"
+          workspace
+          "--state-root"
+          stateRoot
+        ])
       ++ [
         "--url"
         "https://aeon.barta.cm"
