@@ -111,6 +111,7 @@ in
     state = enabled.config.home.activation.aeonAgentdState;
     invalid = builtins.attrNames invalid;
     pairedDefaultEnabled = host.options.uzumaki.aeon.agentd.paired.enable.default;
+    pairedEnableDescription = host.options.uzumaki.aeon.agentd.paired.enable.description;
     hostPairedEnabled = host.config.uzumaki.aeon.agentd.paired.enable;
     pairedStateRootDefault = host.options.uzumaki.aeon.agentd.paired.stateRoot.default;
     pairedAssertions = failures paired;

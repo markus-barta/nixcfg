@@ -203,6 +203,19 @@ class PairedPreflightTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE((self.logs / name).stat().st_mode), 0o600)
         self.run_gate(prepare=True)  # idempotent
 
+    def test_prepare_ignores_an_inherited_restrictive_umask_and_restores_it(self):
+        self.approve()
+        prior = os.umask(0o277)
+        try:
+            self.run_gate(prepare=True)
+            self.assertEqual(os.umask(0o277), 0o277)  # restored after preparation
+        finally:
+            os.umask(prior)
+        for directory in (self.home / "Library/Logs", self.logs):
+            self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+        for name in ("stdout.log", "stderr.log"):
+            self.assertEqual(stat.S_IMODE((self.logs / name).stat().st_mode), 0o600)
+
     def test_too_open_root_or_files_refused(self):
         self.approve()
         self.root.chmod(0o750)
@@ -295,6 +308,12 @@ class HomeManagerTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Failed assertions", result.stderr)
                 self.assertIn(message, result.stderr)
+
+    def test_option_docs_use_the_version_aware_pairing_command(self):
+        text = self.evidence["pairedEnableDescription"]
+        # Release 10 (the pinned aeon input) has `setup`, not `pair` (AEON-333).
+        self.assertIn("`aeon-agentd setup --workspace '<workspace>' --state-root '<paired.stateRoot>'", text)
+        self.assertNotIn("aeon-agentd pair", text)
 
     def test_paired_mode_is_opt_in_and_default_root_matches_aeon_pair(self):
         e = self.evidence
