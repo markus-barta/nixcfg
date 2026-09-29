@@ -13,6 +13,8 @@ let
         {
           uzumaki.aeon.agentd = {
             enable = lib.mkForce true;
+            # Managed-mode fixtures stay managed even when a host is paired.
+            paired.enable = lib.mkForce false;
             estimates.requests = 1; # Synthetic build-only reservation, never activated.
           }
           // changes;
@@ -116,7 +118,7 @@ in
     pairedStateRootDefault = host.options.uzumaki.aeon.agentd.paired.stateRoot.default;
     pairedAssertions = failures paired;
     pairedService = paired.config.launchd.agents.aeon-agentd.config;
-    managedService = host.config.launchd.agents.aeon-agentd.config;
+    managedService = enabled.config.launchd.agents.aeon-agentd.config;
     pairedPreflight = paired.config.home.activation.aeonAgentdPreflight;
     pairedState = paired.config.home.activation.aeonAgentdState;
     guardEnvironment = host.config.uzumaki.agentBrowserGuard.launchdEnvironment;
