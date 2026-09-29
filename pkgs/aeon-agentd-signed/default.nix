@@ -23,6 +23,7 @@
   lib,
   stdenvNoCC,
   fetchurl,
+  python3,
 }:
 
 let
@@ -63,6 +64,7 @@ stdenvNoCC.mkDerivation {
   '';
 
   doInstallCheck = true;
+  nativeInstallCheckInputs = [ python3 ];
   installCheckPhase = ''
     runHook preInstallCheck
     bin="$out/bin/aeon-agentd"
@@ -80,15 +82,9 @@ stdenvNoCC.mkDerivation {
       echo "aeon-agentd-signed: expected team ${teamID}, got:" >&2; printf '%s\n' "$info" >&2; exit 1; }
     printf '%s\n' "$info" | grep -q 'flags=.*runtime' || {
       echo "aeon-agentd-signed: hardened runtime flag missing" >&2; exit 1; }
-    # The daemon refuses Touch ID when any of these entitlements is true.
-    ents="$(/usr/bin/codesign -d --entitlements - --xml "$bin" 2>/dev/null | tr -d ' \t\n\r')"
-    for e in com.apple.security.get-task-allow \
-             com.apple.security.cs.disable-library-validation \
-             com.apple.security.cs.allow-dyld-environment-variables; do
-      case "$ents" in *"<key>$e</key><true/>"*)
-        echo "aeon-agentd-signed: entitlement $e would make the daemon refuse Touch ID" >&2; exit 1 ;;
-      esac
-    done
+    # The daemon refuses Touch ID unless these entitlements are absent or false.
+    /usr/bin/codesign -d --entitlements - --xml "$bin" 2>/dev/null > entitlements.xml
+    python3 ${./check-entitlements.py} < entitlements.xml
     runHook postInstallCheck
   '';
 
