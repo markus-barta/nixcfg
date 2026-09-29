@@ -64,10 +64,12 @@ in
       codexPath = lib.getExe pkgs.codex;
       # Markus approved one short test per account; windows are enrolled externally.
       estimates.requests = 1;
-      # NIX-589 / AEON-285: paired with Claude via `aeon-agentd pair` (approved
-      # 2026-09-29), so the same LaunchAgent runs `serve --setup-root`. The
-      # managed-mode settings above stay for a return to managed mode.
-      paired.enable = true;
+      # NIX-589 / AEON-285: mbp2607 is paired with Claude (`aeon-agentd pair`,
+      # approved 2026-09-29), but paired mode stays OFF until Aeon fixes the
+      # daemon socket path: under the default pairing root it exceeds macOS's
+      # 104-byte sun_path limit and `serve --setup-root` exits with
+      # "bind: invalid argument". Re-enable once that Aeon release is pinned.
+      paired.enable = false;
     };
     cli = {
       enable = true;
