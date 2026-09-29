@@ -319,7 +319,8 @@ class HomeManagerTests(unittest.TestCase):
     def test_paired_mode_is_opt_in_and_default_root_matches_aeon_pair(self):
         e = self.evidence
         self.assertFalse(e["pairedDefaultEnabled"])
-        self.assertFalse(e["hostPairedEnabled"])
+        # mbp2607 was paired with `aeon-agentd pair` on 2026-09-29 (AEON-285).
+        self.assertTrue(e["hostPairedEnabled"])
         self.assertTrue(e["pairedStateRootDefault"].endswith("/Library/Application Support/aeon/paired"))
         self.assertEqual(e["pairedAssertions"], [])
 

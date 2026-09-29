@@ -64,6 +64,10 @@ in
       codexPath = lib.getExe pkgs.codex;
       # Markus approved one short test per account; windows are enrolled externally.
       estimates.requests = 1;
+      # NIX-589 / AEON-285: paired with Claude via `aeon-agentd pair` (approved
+      # 2026-09-29), so the same LaunchAgent runs `serve --setup-root`. The
+      # managed-mode settings above stay for a return to managed mode.
+      paired.enable = true;
     };
     cli = {
       enable = true;
