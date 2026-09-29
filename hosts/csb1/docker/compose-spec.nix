@@ -170,11 +170,11 @@ in
         "traefik.http.middlewares.barta-public-https.redirectscheme.scheme=https"
       ];
     };
-    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260929203122.0.0.
+    # AEON-13: PAIMOS AEON app (https://aeon.barta.cm), release v260929215406.0.0.
     # Database password, session key and messaging key are host-generated files (aeon-secrets.service);
     # the OIDC client is public (PKCE), so its ID is plain config like PPM's.
     aeon = {
-      image = "ghcr.io/inspr-at/aeon:260929203122.0.0@sha256:7bbbd6c3b8fb3fe53a9b08ca5add50bf70c8098d7b7b4ece20331948db01eddd"; # stable108 hotfix: no 32-scope cap on agent keys (AEON-367)
+      image = "ghcr.io/inspr-at/aeon:260929215406.0.0@sha256:354f9ac35a4452f4ea3910117f94aefc3d9aca6f5ce2b236e7977dfce919fea3"; # stable109, release 12c: paired mode on every Mac, accounts card fit, deleted working directory
       container_name = "aeon";
       restart = "unless-stopped";
       environment = [
