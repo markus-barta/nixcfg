@@ -10,9 +10,11 @@
 #   - dontFixup: no strip and no ad-hoc re-signing, which would drop the
 #     team signature.
 # installCheck verifies the signature offline with /usr/bin/codesign (the
-# darwin build here runs without the Nix sandbox): strict validity, team
-# P66J39QV6V and the hardened runtime. A pin bump that brings an unsigned
-# asset fails the build instead of silently disabling Touch ID.
+# darwin build here runs without the Nix sandbox), mirroring the daemon's own
+# gate: Apple anchor + Developer ID Application certificate, team P66J39QV6V,
+# hardened runtime, and none of the entitlements the daemon refuses. A pin
+# bump that brings an unsigned asset fails the build instead of silently
+# disabling Touch ID.
 #
 # Bumping: set `version` to the aeon input's tag (without the leading `v`)
 # and take both hashes from that release's SHA256SUMS
@@ -68,12 +70,25 @@ stdenvNoCC.mkDerivation {
       echo "aeon-agentd-signed: /usr/bin/codesign unavailable; cannot verify the Developer ID signature" >&2
       exit 1
     fi
-    /usr/bin/codesign --verify --strict "$bin"
+    # Same requirement as the daemon's own gate (internal/agentd/local_auth_darwin.m):
+    # Apple anchor + Developer ID Application certificate field, plus our team.
+    /usr/bin/codesign --verify --strict \
+      -R='anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${teamID}"' \
+      "$bin"
     info="$(/usr/bin/codesign -dv "$bin" 2>&1)"
     printf '%s\n' "$info" | grep -qx "TeamIdentifier=${teamID}" || {
       echo "aeon-agentd-signed: expected team ${teamID}, got:" >&2; printf '%s\n' "$info" >&2; exit 1; }
     printf '%s\n' "$info" | grep -q 'flags=.*runtime' || {
       echo "aeon-agentd-signed: hardened runtime flag missing" >&2; exit 1; }
+    # The daemon refuses Touch ID when any of these entitlements is true.
+    ents="$(/usr/bin/codesign -d --entitlements - --xml "$bin" 2>/dev/null | tr -d ' \t\n\r')"
+    for e in com.apple.security.get-task-allow \
+             com.apple.security.cs.disable-library-validation \
+             com.apple.security.cs.allow-dyld-environment-variables; do
+      case "$ents" in *"<key>$e</key><true/>"*)
+        echo "aeon-agentd-signed: entitlement $e would make the daemon refuse Touch ID" >&2; exit 1 ;;
+      esac
+    done
     runHook postInstallCheck
   '';
 

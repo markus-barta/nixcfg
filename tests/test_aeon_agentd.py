@@ -163,6 +163,19 @@ class HomeManagerTests(unittest.TestCase):
         self.assertTrue(info["fixup"])
         self.assertEqual(info["url"], f"https://github.com/inspr-at/paimos/releases/download/{tag}/paimos-agentd-darwin-arm64")
 
+    def test_signed_agentd_check_mirrors_the_daemon_gate(self):
+        # The build must refuse exactly what the daemon's Touch ID gate refuses.
+        expr = (f'(builtins.getFlake "{ROOT}").packages.aarch64-darwin.aeon-agentd.installCheckPhase')
+        check = subprocess.check_output(["nix", "eval", "--impure", "--raw", "--expr", expr], cwd=ROOT, text=True)
+        for needle in ("anchor apple generic",
+                       "certificate leaf[field.1.2.840.113635.100.6.1.13] exists",
+                       'certificate leaf[subject.OU] = "P66J39QV6V"',
+                       "TeamIdentifier=P66J39QV6V", "flags=.*runtime",
+                       "com.apple.security.get-task-allow",
+                       "com.apple.security.cs.disable-library-validation",
+                       "com.apple.security.cs.allow-dyld-environment-variables"):
+            self.assertIn(needle, check)
+
     def test_argv_matches_exact_reviewed_release(self):
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]
         self.assertEqual(lock["locked"]["rev"], "6b5e5e7c44d765074c160d4b3c1f112a00891c54")
