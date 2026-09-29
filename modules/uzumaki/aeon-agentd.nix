@@ -143,31 +143,52 @@ let
   # aeon input reaches it, and the hint switches to `pair`.
   pairSinceVersion = null;
   usePair = pairSinceVersion != null && lib.versionAtLeast pkgs.aeon-agentd.version pairSinceVersion;
-  pairCommand = lib.escapeShellArgs (
-    [ "aeon-agentd" ]
-    ++ (
-      if usePair then
-        [ "pair" ]
-      else
-        [
-          "setup"
-          "--workspace"
-          cfg.workspace
-          "--state-root"
-          cfg.paired.stateRoot
-        ]
-    )
-    ++ [
-      "--url"
-      "https://aeon.barta.cm"
-      "--harness"
-      "claude"
-      "--node-path"
-      stableNode
-      "--claude-sdk-path"
-      stableSdk
-    ]
-  );
+  # One version-aware command for both the activation refusal and the option
+  # documentation (the docs use placeholders instead of configured paths).
+  mkPairCommand =
+    {
+      workspace,
+      stateRoot,
+      node,
+      sdk,
+    }:
+    lib.escapeShellArgs (
+      [ "aeon-agentd" ]
+      ++ (
+        if usePair then
+          [ "pair" ]
+        else
+          [
+            "setup"
+            "--workspace"
+            workspace
+            "--state-root"
+            stateRoot
+          ]
+      )
+      ++ [
+        "--url"
+        "https://aeon.barta.cm"
+        "--harness"
+        "claude"
+        "--node-path"
+        node
+        "--claude-sdk-path"
+        sdk
+      ]
+    );
+  pairCommand = mkPairCommand {
+    inherit (cfg) workspace;
+    inherit (cfg.paired) stateRoot;
+    node = stableNode;
+    sdk = stableSdk;
+  };
+  pairCommandDoc = mkPairCommand {
+    workspace = "<workspace>";
+    stateRoot = "<paired.stateRoot>";
+    node = "<home>/${runtimeShare}/bin/node";
+    sdk = "<home>/${runtimeShare}/lib/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs";
+  };
   pairHint = "run `${pairCommand}`, approve the computer in Aeon, then switch again";
   enrollmentDir = "${home}/Library/Application Support/aeon/agentd";
   pairedService = {
@@ -262,11 +283,7 @@ in
     piPath = vendorOption "Pi";
     cursorPath = vendorOption "Cursor";
     paired = {
-      enable = lib.mkEnableOption ''
-        the person-approved paired runtime on the same LaunchAgent label
-        (`serve --setup-root`). Pair first with `aeon-agentd pair --url
-        https://aeon.barta.cm` and approve the computer in Aeon; activation
-        refuses to switch until that pairing root is approved'';
+      enable = lib.mkEnableOption "the person-approved paired runtime on the same LaunchAgent label (`serve --setup-root`). Pair first with `${pairCommandDoc}` and approve the computer in Aeon; activation refuses to switch until that pairing root is approved";
       stateRoot = lib.mkOption {
         type = lib.types.str;
         default = "${home}/Library/Application Support/aeon/paired";

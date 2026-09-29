@@ -192,20 +192,29 @@ def paired_preflight(config, prepare=False):
             pass
     finally:
         os.close(root_fd)
-    log_fd = walk(logs, "paired log root", create=prepare, allow_missing=not prepare)
-    if log_fd is None:
-        return
+    # Same as managed mode: every write below runs under umask 077 whatever
+    # the caller inherited, and the result is rechecked, never trusted.
+    old_umask = os.umask(0o077) if prepare else None
     try:
-        for name in ("stdout.log", "stderr.log"):
-            try:
-                private_entry(log_fd, name, f"log {name}")
-            except FileNotFoundError:
-                if prepare:
+        log_fd = walk(logs, "paired log root", create=prepare, allow_missing=not prepare)
+        if log_fd is None:
+            return
+        try:
+            for name in ("stdout.log", "stderr.log"):
+                try:
+                    private_entry(log_fd, name, f"log {name}")
+                except FileNotFoundError:
+                    if not prepare:
+                        continue
                     fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
                                  dir_fd=log_fd)
                     os.close(fd)
+                    private_entry(log_fd, name, f"log {name}")
+        finally:
+            os.close(log_fd)
     finally:
-        os.close(log_fd)
+        if old_umask is not None:
+            os.umask(old_umask)
 
 
 def main(config):
