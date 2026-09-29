@@ -3,6 +3,7 @@
 import ast
 import importlib.util
 import json
+import sys
 import os
 from pathlib import Path
 import re
@@ -171,10 +172,42 @@ class HomeManagerTests(unittest.TestCase):
                        "certificate leaf[field.1.2.840.113635.100.6.1.13] exists",
                        'certificate leaf[subject.OU] = "P66J39QV6V"',
                        "TeamIdentifier=P66J39QV6V", "flags=.*runtime",
-                       "com.apple.security.get-task-allow",
-                       "com.apple.security.cs.disable-library-validation",
-                       "com.apple.security.cs.allow-dyld-environment-variables"):
+                       "check-entitlements.py"):
             self.assertIn(needle, check)
+
+    def test_entitlement_check_accepts_only_absent_or_false(self):
+        script = ROOT / "pkgs/aeon-agentd-signed/check-entitlements.py"
+        def plist(body):
+            return ('<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>'
+                    f'{body}</dict></plist>')
+        keys = ("com.apple.security.get-task-allow",
+                "com.apple.security.cs.disable-library-validation",
+                "com.apple.security.cs.allow-dyld-environment-variables")
+        accepted = {"empty": "", "no entitlements at all": None,
+                    "unrelated key": "<key>com.apple.security.network.client</key><true/>"}
+        for key in keys:
+            accepted[f"{key} false"] = f"<key>{key}</key>\n\t<false/>"
+        rejected = {}
+        for key in keys:
+            for name, value in {"true": "<true/>", "integer 1": "<integer>1</integer>",
+                                "string YES": "<string>YES</string>", "array": "<array/>",
+                                "missing value": ""}.items():
+                rejected[f"{key} {name}"] = f"<key>{key}</key>{value}"
+            rejected[f"{key} duplicate"] = f"<key>{key}</key><false/><key>{key}</key><true/>"
+            encoded = key[:-1] + "&#%d;" % ord(key[-1])
+            rejected[f"{key} entity-encoded"] = f"<key>{encoded}</key><true/>"
+        for name, body in accepted.items():
+            with self.subTest(accepted=name):
+                data = "" if body is None else plist(body)
+                self.assertEqual(subprocess.run([sys.executable, script], input=data, text=True, capture_output=True).returncode, 0)
+        raw_rejected = {"malformed": "<plist><dict><key>x</key>", "array root": '<plist version="1.0"><array/></plist>',
+                        "not a plist": "hello"}
+        for name, data in raw_rejected.items():
+            with self.subTest(rejected=name):
+                self.assertNotEqual(subprocess.run([sys.executable, script], input=data, text=True, capture_output=True).returncode, 0)
+        for name, body in rejected.items():
+            with self.subTest(rejected=name):
+                self.assertNotEqual(subprocess.run([sys.executable, script], input=plist(body), text=True, capture_output=True).returncode, 0)
 
     def test_argv_matches_exact_reviewed_release(self):
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["aeon"]
