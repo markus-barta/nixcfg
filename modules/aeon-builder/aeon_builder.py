@@ -898,6 +898,8 @@ def prepare_base(cfg, lima, force=False):
     marker = HOME / ".lima" / BASE_VM / "aeon-base-id"
     if not force and marker.exists() and marker.read_text().strip() == cfg["baseId"]:
         return False
+    if controller_pid():
+        raise BuilderError("the pool is running; `aeon-builder off` before the base VM can be rebuilt")
     log(f"building base VM {cfg['baseId'][:12]}")
     lima.delete(BASE_VM)
     lima.run("create", "--tty=false", "--name", BASE_VM, "--set", base_expression(cfg), cfg["baseTemplate"])
