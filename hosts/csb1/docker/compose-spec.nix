@@ -197,7 +197,8 @@ in
         "/var/lib/aeon-secrets/db-password:/run/secrets/aeon-db-password:ro"
         "/var/lib/aeon-secrets/session-key:/run/secrets/aeon-session-key:ro"
         "/var/lib/aeon-secrets/messaging-key:/run/secrets/aeon-messaging-key:ro"
-        "/var/lib/aeon-secrets/doctrine-guard-key:/run/secrets/aeon-doctrine-guard-key:ro"
+        # Long form with create_host_path false: a missing key fails the start instead of binding a directory.
+        (privateBind "/var/lib/aeon-secrets/doctrine-guard-key" "/run/secrets/aeon-doctrine-guard-key")
       ];
       depends_on = [ "aeon-db" ];
       # Chromium renders quote PDFs in-process (AEON-91): measured cgroup peak 278 MiB
