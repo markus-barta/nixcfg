@@ -177,8 +177,13 @@ in
     };
     sshPortBase = lib.mkOption {
       type = lib.types.port;
-      default = 60020;
-      description = "Job VM ssh ports: base-1 for the base VM, then one per slot. The pf anchor allows only these on loopback.";
+      default = 41020;
+      description = ''
+        Job VM ssh ports: base-1 for the base and proof VMs, then one per slot.
+        The pf anchor allows only these on loopback, so they sit below the
+        macOS ephemeral range (49152+) where no other listener (e.g. mba's
+        Colima) can land by chance.
+      '';
     };
 
     labGuardUsers = lib.mkOption {
