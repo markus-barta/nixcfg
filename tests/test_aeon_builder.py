@@ -137,6 +137,40 @@ class RulesetTests(unittest.TestCase):
         self.assertEqual(ab.ruleset_problems(None, self.expected()), ["ruleset missing"])
 
 
+class LockTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def test_concurrent_updates_are_not_lost(self):
+        state = ab.State(self.tmp)
+        state.update(lambda d: d.__setitem__("n", 0))
+
+        def bump():
+            for _ in range(50):
+                state.update(lambda d: d.__setitem__("n", d["n"] + 1))
+        threads = [threading.Thread(target=bump) for _ in range(4)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        self.assertEqual(state.load()["n"], 200)
+
+    def test_nested_update_does_not_deadlock(self):
+        state = ab.State(self.tmp)
+        state.update(lambda d: state.update(lambda e: e.__setitem__("inner", 1)))
+        self.assertIn("mode", state.load())
+
+    def test_one_controller_lock(self):
+        old = ab.STATE_DIR
+        ab.STATE_DIR = self.tmp
+        self.addCleanup(setattr, ab, "STATE_DIR", old)
+        first = ab.acquire_controller_lock()
+        self.assertIsNotNone(first)
+        self.assertIsNone(ab.acquire_controller_lock(), "a second controller must not start")
+        self.assertTrue(ab.controller_pid())
+        first.close()
+        self.assertIsNone(ab.controller_pid())
+
+
 class PagingTests(unittest.TestCase):
     def test_paged_follows_full_pages_and_refuses_partial_lists(self):
         gh = ab.GitHub.__new__(ab.GitHub)
@@ -299,6 +333,12 @@ class FakeGitHub:
     def recent_runs(self):
         return self._runs
 
+    def run(self, run_id):
+        return next(r for r in self._runs if r["id"] == run_id)
+
+    def runners(self):
+        return []
+
     def sha_on_branch(self, sha):
         return True
 
@@ -353,6 +393,7 @@ class ControllerTests(unittest.TestCase):
         ctl = self.controller(gh)
         ctl.tick()
         self.assertEqual(sorted(s for s, _, _ in self.served), [0, 1, 2, 3])
+        self.assertTrue(ctl.publish_once())
         self.assertEqual(gh.published[-1]["idle_runners"], 0)
         self.assertTrue(gh.published[-1]["busy"])
 
@@ -361,6 +402,7 @@ class ControllerTests(unittest.TestCase):
         ctl = self.controller(gh)
         ctl.tick()
         self.assertEqual(self.served, [])
+        self.assertTrue(ctl.publish_once())
         self.assertEqual(gh.published[-1]["idle_runners"], 4)
 
     def test_off_publishes_nothing_and_drain_ends_off(self):
@@ -413,10 +455,12 @@ class ControllerTests(unittest.TestCase):
         jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "", "labels": ["mbp2606"], "status": "completed"}]}
         self.assertEqual(self.post_job(jobs, [run(id=9, status="completed")])[0], "paused")
 
+    disk = "aeon-cache-0"
+
     def admit(self, jobs, runs):
         gh = FakeGitHub(runs, jobs)
         ctl = self.controller(gh)
-        self.state.update(lambda d: (d["verifiedRuns"].append(9), d["slots"].__setitem__("0", {"jobId": 90})))
+        self.state.update(lambda d: (d["verifiedRuns"].append(9), d["slots"].__setitem__("0", {"jobId": 90, "disk": self.disk})))
         calls = []
 
         class Lima:
@@ -438,6 +482,20 @@ class ControllerTests(unittest.TestCase):
         self.assertIn("unlock", calls[0][0])
         self.assertNotIn("--init", calls[0][0], "an existing disk is never re-initialised")
         self.assertEqual(calls[0][1], "k" * 128)
+
+    def test_trusted_disk_is_never_unlocked_for_a_dispatch_that_took_a_push_runner(self):
+        jobs = {9: [{"id": 90, "run_id": 9, "run_attempt": 1, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"]}]}
+        verdict, calls, _ = self.admit(jobs, [run(id=9, event="workflow_dispatch")])
+        self.assertEqual(verdict, "class-mismatch")
+        self.assertEqual(calls, [], "no unlock")
+        self.assertEqual(self.state.load()["mode"], "on", "a verified swap is no attack: no pause")
+
+    def test_dispatch_on_scratch_disk_unlocks(self):
+        self.disk = "aeon-scratch-0"
+        jobs = {9: [{"id": 90, "run_id": 9, "run_attempt": 1, "runner_name": "mbp2606-s0-90-abc", "labels": ["mbp2606"]}]}
+        verdict, calls, _ = self.admit(jobs, [run(id=9, event="workflow_dispatch")])
+        self.assertEqual(verdict, "ok")
+        self.assertIn("unlock", calls[0][0])
 
     def test_racing_unverified_job_never_gets_the_key(self):
         jobs = {9: [{"id": 90, "run_id": 9, "runner_name": "", "labels": ["mbp2606"], "status": "queued"}],
